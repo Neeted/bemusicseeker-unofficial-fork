@@ -59,7 +59,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private const long DownloadAndInstallSizeLimitBytes = 536870912L;
 
-    private static readonly MethodInfo playlistTreeBringIndexIntoViewMethod = typeof(System.Windows.Controls.VirtualizingStackPanel).GetMethod("BringIndexIntoView", BindingFlags.Instance | BindingFlags.NonPublic) ?? typeof(System.Windows.Controls.VirtualizingPanel).GetMethod("BringIndexIntoView", BindingFlags.Instance | BindingFlags.NonPublic);
+    private static readonly MethodInfo treeViewItemBringIndexIntoViewMethod = typeof(System.Windows.Controls.VirtualizingStackPanel).GetMethod("BringIndexIntoView", BindingFlags.Instance | BindingFlags.NonPublic) ?? typeof(System.Windows.Controls.VirtualizingPanel).GetMethod("BringIndexIntoView", BindingFlags.Instance | BindingFlags.NonPublic);
 
     private bool _isClosingOrClosed;
 
@@ -2500,7 +2500,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     /// <returns>可視化要求を実行できた場合は <see langword="true"/>。</returns>
     private bool TryRealizeVirtualizedPlaylistItem(int playlistIndex, out bool realizeByIndexAvailable)
     {
-        realizeByIndexAvailable = playlistTreeBringIndexIntoViewMethod != null;
+        realizeByIndexAvailable = treeViewItemBringIndexIntoViewMethod != null;
         if (playlistIndex < 0)
         {
             return false;
@@ -2511,7 +2511,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             NLogWrapper.FileLogger?.Info("playlist_tree_item_realize success=false reason=panel_not_found index=" + playlistIndex);
             return false;
         }
-        if (playlistTreeBringIndexIntoViewMethod == null)
+        if (treeViewItemBringIndexIntoViewMethod == null)
         {
             NLogWrapper.FileLogger?.Info("playlist_tree_item_realize success=false reason=bring_index_method_not_found index=" + playlistIndex);
             return false;
@@ -2521,7 +2521,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             // NOTE:
             // TreeView の仮想化が有効だと、画面外のトップレベル項目は ContainerFromIndex で null のままになります。
             // 公開 API にはインデックス単位で実体化を促す手段がないため、WPF 内部の BringIndexIntoView を局所的に利用します。
-            playlistTreeBringIndexIntoViewMethod.Invoke(playlistItemsHostPanel, [playlistIndex]);
+            treeViewItemBringIndexIntoViewMethod.Invoke(playlistItemsHostPanel, [playlistIndex]);
             treeViewPlaylist.UpdateLayout();
             treeViewItemPlaylist.UpdateLayout();
             return true;
@@ -4297,29 +4297,23 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 }
 
                 string lastReason = string.Empty;
-                await Dispatcher.Yield(DispatcherPriority.Loaded);
-                if (completed || requestVersion != _duplicateGroupAutoSelectRequestVersion)
+                DispatcherPriority[] retryPriorities = [DispatcherPriority.Loaded, DispatcherPriority.Render, DispatcherPriority.ContextIdle];
+                for (int retryIndex = 0; retryIndex < retryPriorities.Length; retryIndex++)
                 {
-                    return;
-                }
-                if (TrySelectDuplicateGroupByHeader(header, viewModel, out lastReason))
-                {
-                    NLogWrapper.FileLogger?.Info("duplicate_group_autoselect success trigger=" + trigger + " retry=0 header=" + header + " request=" + requestVersion);
-                    completeSelection();
-                    return;
-                }
-                if (lastReason == "container_not_realized")
-                {
-                    await Dispatcher.Yield(DispatcherPriority.ContextIdle);
+                    await Dispatcher.Yield(retryPriorities[retryIndex]);
                     if (completed || requestVersion != _duplicateGroupAutoSelectRequestVersion)
                     {
                         return;
                     }
                     if (TrySelectDuplicateGroupByHeader(header, viewModel, out lastReason))
                     {
-                        NLogWrapper.FileLogger?.Info("duplicate_group_autoselect success trigger=" + trigger + " retry=1 header=" + header + " request=" + requestVersion);
+                        NLogWrapper.FileLogger?.Info("duplicate_group_autoselect success trigger=" + trigger + " retry=" + retryIndex + " header=" + header + " request=" + requestVersion);
                         completeSelection();
                         return;
+                    }
+                    if (!ShouldRetryDuplicateGroupAutoSelect(lastReason))
+                    {
+                        break;
                     }
                 }
                 NLogWrapper.FileLogger?.Warn("duplicate_group_autoselect pending trigger=" + trigger + " header=" + header + " request=" + requestVersion + " reason=" + lastReason);
@@ -4356,6 +4350,18 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         _duplicateGroupAutoSelectHandler = handler;
         _duplicateGroupAutoSelectHandlerOwner = viewModel;
         NLogWrapper.FileLogger?.Info("duplicate_group_autoselect queued header=" + header + " request=" + requestVersion + " mode=property_changed");
+        if (viewModel.DuplicateChartGroups != null)
+        {
+            Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(delegate
+            {
+                if (_isClosingOrClosed)
+                {
+                    return;
+                }
+                NLogWrapper.FileLogger?.Info("duplicate_group_autoselect trigger=already_ready header=" + header + " request=" + requestVersion);
+                _ = AttemptAutoSelectAsync("already_ready");
+            }));
+        }
         Task.Run(async delegate
         {
             await Task.Delay(1500).ConfigureAwait(continueOnCapturedContext: false);
@@ -4377,6 +4383,13 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 await AttemptAutoSelectAsync("timeout_fallback");
             }, DispatcherPriority.Background);
         });
+    }
+
+    private static bool ShouldRetryDuplicateGroupAutoSelect(string failReason)
+    {
+        return failReason == "container_not_realized" ||
+            failReason == "duplicate_items_host_not_found" ||
+            failReason == "bring_index_out_of_range";
     }
 
     private bool TrySelectDuplicateGroupByHeader(string header, MainWindowViewModel viewModel, out string failReason)
@@ -4420,24 +4433,20 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         duplicateRootItem.BringIntoView();
         duplicateRootItem.UpdateLayout();
 
-        // 仮想化パネルのBringIndexIntoViewPublicでコンテナ生成を強制
-        VirtualizingStackPanel panel = WPFUtil.FindVisualChild<VirtualizingStackPanel>(duplicateRootItem);
-        if (panel != null)
+        if (targetIndex >= duplicateRootItem.Items.Count)
         {
-            try
-            {
-                panel.BringIndexIntoViewPublic(targetIndex);
-                duplicateRootItem.UpdateLayout();
-            }
-            catch (ArgumentOutOfRangeException)
-            {
-                failReason = "bring_index_out_of_range";
-                return false;
-            }
+            failReason = "target_index_out_of_range";
+            return false;
+        }
+
+        TreeViewItem targetItem = duplicateRootItem.ItemContainerGenerator.ContainerFromIndex(targetIndex) as TreeViewItem;
+        if (targetItem == null && TryRealizeVirtualizedDuplicateGroupItem(duplicateRootItem, targetIndex, out failReason))
+        {
+            targetItem = duplicateRootItem.ItemContainerGenerator.ContainerFromIndex(targetIndex) as TreeViewItem;
         }
 
         // コンテナを取得して選択
-        if (duplicateRootItem.ItemContainerGenerator.ContainerFromIndex(targetIndex) is TreeViewItem targetItem)
+        if (targetItem != null)
         {
             targetItem.IsSelected = true;
             targetItem.IsExpanded = true;
@@ -4446,6 +4455,88 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         failReason = "container_not_realized";
         return false;
+    }
+
+    private bool TryRealizeVirtualizedDuplicateGroupItem(TreeViewItem duplicateRootItem, int targetIndex, out string failReason)
+    {
+        failReason = string.Empty;
+        if (treeViewItemBringIndexIntoViewMethod == null)
+        {
+            failReason = "bring_index_method_not_found";
+            return false;
+        }
+        VirtualizingStackPanel duplicateItemsHostPanel = TryGetTreeViewItemItemsHostPanel(duplicateRootItem);
+        if (duplicateItemsHostPanel == null)
+        {
+            failReason = "duplicate_items_host_not_found";
+            return false;
+        }
+        try
+        {
+            treeViewItemBringIndexIntoViewMethod.Invoke(duplicateItemsHostPanel, [targetIndex]);
+            duplicateRootItem.UpdateLayout();
+            return true;
+        }
+        catch (TargetInvocationException ex) when (ex.InnerException is ArgumentOutOfRangeException)
+        {
+            failReason = "bring_index_out_of_range";
+            return false;
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            failReason = "bring_index_out_of_range";
+            return false;
+        }
+        catch (Exception ex)
+        {
+            failReason = "bring_index_failed_" + ex.GetType().Name;
+            return false;
+        }
+    }
+
+    private static VirtualizingStackPanel TryGetTreeViewItemItemsHostPanel(TreeViewItem treeViewItem)
+    {
+        treeViewItem.ApplyTemplate();
+        treeViewItem.UpdateLayout();
+        ItemsPresenter itemsPresenter = FindDescendant<ItemsPresenter>(treeViewItem);
+        if (itemsPresenter == null)
+        {
+            return null;
+        }
+        itemsPresenter.ApplyTemplate();
+        itemsPresenter.UpdateLayout();
+        return FindItemsHostPanelForOwner(itemsPresenter, treeViewItem);
+    }
+
+    private static VirtualizingStackPanel FindItemsHostPanelForOwner(DependencyObject parent, ItemsControl owner)
+    {
+        if (parent == null)
+        {
+            return null;
+        }
+        int childCount;
+        try
+        {
+            childCount = VisualTreeHelper.GetChildrenCount(parent);
+        }
+        catch
+        {
+            return null;
+        }
+        for (int childIndex = 0; childIndex < childCount; childIndex++)
+        {
+            DependencyObject child = VisualTreeHelper.GetChild(parent, childIndex);
+            if (child is VirtualizingStackPanel panel && ReferenceEquals(ItemsControl.GetItemsOwner(panel), owner))
+            {
+                return panel;
+            }
+            VirtualizingStackPanel descendant = FindItemsHostPanelForOwner(child, owner);
+            if (descendant != null)
+            {
+                return descendant;
+            }
+        }
+        return null;
     }
 
     /// <summary>
