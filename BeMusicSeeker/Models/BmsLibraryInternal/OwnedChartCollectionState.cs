@@ -366,9 +366,29 @@ internal sealed class OwnedChartCollectionState
 
     internal OwnedDuplicateChartRowSnapshot CreateDuplicateChartRowSnapshot()
     {
-        return new OwnedDuplicateChartRowSnapshot(
-            [.. charts.Where(HasCurrentOwnedIdentity).Select(CreateDuplicateChartRow).Where(row => row != null)],
-            [.. charts.Where(HasCurrentOwnedIdentity).Select(chart => chart?.GetBmsStorageOwner()).Where(file => file != null)]);
+        var rows = new List<DuplicateChartRow>();
+        var bmsStorageRows = new List<BMSFile>();
+        foreach (ChartFile chart in charts)
+        {
+            if (!HasCurrentOwnedIdentity(chart))
+            {
+                continue;
+            }
+
+            DuplicateChartRow row = CreateDuplicateChartRow(chart);
+            if (row != null)
+            {
+                rows.Add(row);
+            }
+
+            BMSFile bmsOwner = chart?.GetBmsStorageOwner();
+            if (bmsOwner != null)
+            {
+                bmsStorageRows.Add(bmsOwner);
+            }
+        }
+
+        return new OwnedDuplicateChartRowSnapshot(rows, bmsStorageRows);
     }
 
     internal OwnedChartStorageOwnerView CreateStorageOwnerView()

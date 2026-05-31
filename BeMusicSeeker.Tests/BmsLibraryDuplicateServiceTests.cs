@@ -176,6 +176,25 @@ public sealed class BmsLibraryDuplicateServiceTests
     }
 
     [TestMethod]
+    public void Analyze_DuplicateConnectedDirectoryMatchingIgnoresPathCasing()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var service = new BmsLibraryDuplicateService();
+        BMSFile duplicateLower = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\BMS", "DirA", "a.bms"));
+        BMSFile duplicateUpper = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\BMS", "DIRA", "b.bms"));
+        BMSFile uniqueSibling = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine("C:\\BMS", "dira", "unique.bms"));
+
+        DuplicateAnalysisResult result = service.Analyze(
+            CreateDuplicateAnalysisRows([duplicateLower, duplicateUpper, uniqueSibling], []),
+            Resources.Warning_DuplicateBmsFile);
+
+        Assert.AreEqual(1, result.DuplicateGroups.Count);
+        Assert.AreEqual(3, result.MaterializedChartCount);
+        Assert.AreEqual(2, result.DuplicateCharts.Count);
+        Assert.IsTrue(result.DuplicateGroups[0].ChartFiles.Any(chart => string.Equals(chart.Path, uniqueSibling.path, System.StringComparison.OrdinalIgnoreCase)));
+    }
+
+    [TestMethod]
     public void BuildSnapshot_SkipsBmsonRowsWithoutPath()
     {
         var service = new BmsLibraryDuplicateService();

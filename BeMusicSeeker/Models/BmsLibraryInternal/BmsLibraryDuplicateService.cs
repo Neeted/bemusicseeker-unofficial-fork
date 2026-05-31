@@ -117,11 +117,17 @@ internal sealed class BmsLibraryDuplicateService
             set.Add(idToDir[i]);
         }
 
+        var duplicateConnectedDirs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (HashSet<string> dirs in rootViewToDirs.Values)
+        {
+            duplicateConnectedDirs.UnionWith(dirs);
+        }
+
         var rowsByDir = new Dictionary<string, List<DuplicateChartRow>>(StringComparer.OrdinalIgnoreCase);
         foreach (DuplicateChartRow row in snapshotRows)
         {
             string dir = row.DirectoryPath;
-            if (string.IsNullOrWhiteSpace(dir))
+            if (string.IsNullOrWhiteSpace(dir) || !duplicateConnectedDirs.Contains(dir))
             {
                 continue;
             }
