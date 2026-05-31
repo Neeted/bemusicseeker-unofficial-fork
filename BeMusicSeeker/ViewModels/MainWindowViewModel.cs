@@ -21622,8 +21622,16 @@ public class MainWindowViewModel : ViewModel
             PlayEndBMSFile(closeProcess: true);
             LogDuplicateMergePerformance("duplicate_merge_vm play_end_done op=" + operationId + " elapsedMs=" + playEndStopwatch.ElapsedMilliseconds);
             var modelStopwatch = Stopwatch.StartNew();
-            files.MergeChartDirectory(src, dst, operationId);
-            LogDuplicateMergePerformance("duplicate_merge_vm model_done op=" + operationId + " elapsedMs=" + modelStopwatch.ElapsedMilliseconds + " totalMs=" + totalStopwatch.ElapsedMilliseconds);
+            BeginUiUpdateSuppression(UiRefreshChannel.LibraryMainView | UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.InstallTree | UiRefreshChannel.DuplicateTree);
+            try
+            {
+                files.MergeChartDirectory(src, dst, operationId);
+                LogDuplicateMergePerformance("duplicate_merge_vm model_done op=" + operationId + " elapsedMs=" + modelStopwatch.ElapsedMilliseconds + " totalMs=" + totalStopwatch.ElapsedMilliseconds);
+            }
+            finally
+            {
+                EndUiUpdateSuppression();
+            }
         }
     }
 
