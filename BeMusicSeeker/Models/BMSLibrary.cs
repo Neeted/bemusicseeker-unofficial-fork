@@ -10871,9 +10871,9 @@ completeFileEnumerationOnce,
         var totalStopwatch = Stopwatch.StartNew();
         using (rwlockBMSFilesInitializedMin.GetReaderGuard())
         {
-            using (rwlockDuplicateChartGroups.GetWriterGuard())
+            using (rwlockBMSFiles.GetReaderGuard())
             {
-                using (rwlockBMSFiles.GetReaderGuard())
+                using (rwlockDuplicateChartGroups.GetWriterGuard())
                 {
                     if (DuplicateChartGroups != null)
                     {
