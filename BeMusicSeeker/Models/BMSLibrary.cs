@@ -6928,23 +6928,20 @@ completeFileEnumerationOnce,
 
     private OwnedChartHashIndexSnapshot CreateOwnedHashIndexSnapshotUnsafe(out StorageRowsVersionSnapshot storageRowsVersion)
     {
-        while (true)
+        EnsureOwnedChartCollectionBuiltUnsafe();
+        lock (lockStorageRowsVersion)
         {
-            EnsureOwnedChartCollectionBuiltUnsafe();
-            lock (lockStorageRowsVersion)
+            StorageRowsVersionSnapshot currentVersion = CreateCurrentStorageRowsVersionSnapshotUnsafe();
+            lock (lockOwnedChartCollection)
             {
-                StorageRowsVersionSnapshot currentVersion = CreateCurrentStorageRowsVersionSnapshotUnsafe();
-                lock (lockOwnedChartCollection)
+                if (!ownedChartCollectionInitialized
+                    || ownedChartCollectionBmsStorageRowsVersion != currentVersion.BmsRowsVersion
+                    || ownedChartCollectionBmsonStorageRowsVersion != currentVersion.BmsonRowsVersion)
                 {
-                    if (!ownedChartCollectionInitialized
-                        || ownedChartCollectionBmsStorageRowsVersion != currentVersion.BmsRowsVersion
-                        || ownedChartCollectionBmsonStorageRowsVersion != currentVersion.BmsonRowsVersion)
-                    {
-                        continue;
-                    }
-                    storageRowsVersion = currentVersion;
-                    return ownedChartCollection.CreateOwnedHashIndexSnapshot();
+                    throw new InvalidOperationException("Owned chart collection storage row version is not current.");
                 }
+                storageRowsVersion = currentVersion;
+                return ownedChartCollection.CreateOwnedHashIndexSnapshot();
             }
         }
     }
