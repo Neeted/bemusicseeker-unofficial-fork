@@ -5601,6 +5601,10 @@ public class MainWindowViewModel : ViewModel
 
     private readonly object lockCopyFile = new();
 
+    private readonly object duplicateChartGroupsRefreshLock = new();
+
+    private bool duplicateChartGroupsRefreshRunning;
+
     private static readonly Logger installPerformanceLogger = LogManager.GetLogger("InstallPerformance.MainWindowViewModel");
 
     private static readonly bool installPerformanceLoggingEnabled = CommandLineSwitches.IsInfoLoggingEnabled;
@@ -17637,13 +17641,84 @@ public class MainWindowViewModel : ViewModel
         {
             if (type == MaintenanceFilterType.DuplicateFilter)
             {
-                files.SearchDuplicateChartGroups();
+                EnsureDuplicateChartGroupsReady("exec_maintenance_filter");
             }
             if (Enum.IsDefined(typeof(viewUpdateMode), (int)type))
             {
                 RefreshChartRowsView((viewUpdateMode)type, parameter);
             }
         }
+    }
+
+    private bool EnsureDuplicateChartGroupsReady(string reason)
+    {
+        if (files == null)
+        {
+            return false;
+        }
+        if (files.DuplicateChartGroups != null)
+        {
+            return true;
+        }
+
+        int version = files.DuplicateChartGroupsInvalidationVersion;
+        var waitStopwatch = Stopwatch.StartNew();
+        bool waited = false;
+        lock (duplicateChartGroupsRefreshLock)
+        {
+            while (duplicateChartGroupsRefreshRunning)
+            {
+                waited = true;
+                Monitor.Wait(duplicateChartGroupsRefreshLock);
+                if (files.DuplicateChartGroups != null)
+                {
+                    LogDuplicateRefreshCoalesce(reason, version, "joined", waitStopwatch.ElapsedMilliseconds);
+                    return true;
+                }
+                version = files.DuplicateChartGroupsInvalidationVersion;
+            }
+
+            if (files.DuplicateChartGroups != null)
+            {
+                if (waited)
+                {
+                    LogDuplicateRefreshCoalesce(reason, version, "joined", waitStopwatch.ElapsedMilliseconds);
+                }
+                return true;
+            }
+
+            duplicateChartGroupsRefreshRunning = true;
+        }
+
+        int searchVersion = version;
+        var searchStopwatch = Stopwatch.StartNew();
+        try
+        {
+            files.SearchDuplicateChartGroups();
+            return files.DuplicateChartGroups != null;
+        }
+        finally
+        {
+            searchStopwatch.Stop();
+            lock (duplicateChartGroupsRefreshLock)
+            {
+                duplicateChartGroupsRefreshRunning = false;
+                Monitor.PulseAll(duplicateChartGroupsRefreshLock);
+            }
+            LogDuplicateRefreshCoalesce(reason, searchVersion, "searched", searchStopwatch.ElapsedMilliseconds);
+        }
+    }
+
+    private static void LogDuplicateRefreshCoalesce(string reason, int version, string action, long elapsedMs)
+    {
+        if (!installPerformanceLoggingEnabled)
+        {
+            return;
+        }
+        installPerformanceLogger.Info("duplicate_refresh_coalesce action=" + action
+            + " reason=" + reason
+            + " version=" + version
+            + " elapsedMs=" + elapsedMs);
     }
 
     public void RemoveChartInfoParseFailuresByMd5(IEnumerable<string> md5s)
@@ -17864,7 +17939,7 @@ public class MainWindowViewModel : ViewModel
             }
             if (files.DuplicateChartGroups == null)
             {
-                files.SearchDuplicateChartGroups();
+                EnsureDuplicateChartGroupsReady(refreshReason);
                 return;
             }
             RefreshChartRowsView(viewUpdateMode.TreeViewFilterNotChanged);

@@ -4363,6 +4363,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                     return;
                 }
                 NLogWrapper.FileLogger?.Info("duplicate_group_autoselect trigger=timeout_fallback header=" + header + " request=" + requestVersion);
+                if (viewModel.DuplicateChartGroups == null)
+                {
+                    NLogWrapper.FileLogger?.Info("duplicate_group_autoselect wait_for_groups trigger=timeout_fallback header=" + header + " request=" + requestVersion);
+                    return;
+                }
                 await AttemptAutoSelectAsync("timeout_fallback");
             }, DispatcherPriority.Background);
         });
