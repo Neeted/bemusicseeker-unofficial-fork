@@ -50,6 +50,7 @@ internal sealed class ChartStorageTargetSet
             BMSFile bmsFile = chart.GetBmsStorageOwner();
             if (ChartFileKindResolver.IsBmsChartFile(bmsFile))
             {
+                ThrowIfPathless(bmsFile.path);
                 bmsFiles.Add(bmsFile);
                 bmsCharts.Add(ChartFileProjection.FromBmsFile(
                     bmsFile,
@@ -60,8 +61,9 @@ internal sealed class ChartStorageTargetSet
             }
 
             LR2SongDBExtended.bmson_song bmsonSong = chart.GetBmsonStorageOwner();
-            if (bmsonSong != null && !string.IsNullOrWhiteSpace(bmsonSong.path))
+            if (bmsonSong != null)
             {
+                ThrowIfPathless(bmsonSong.path);
                 bmsonSongsByPath[bmsonSong.path] = bmsonSong;
                 bmsonChartsByPath[bmsonSong.path] = ChartFileProjection.FromBmsonSong(
                     bmsonSong,
@@ -76,11 +78,20 @@ internal sealed class ChartStorageTargetSet
             [.. bmsCharts.Concat(bmsonChartsByPath.Values)]);
     }
 
+    private static void ThrowIfPathless(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            throw new InvalidOperationException("Owned chart storage rows must have a non-empty path.");
+        }
+    }
+
     internal static ChartStorageTargetSet FromRows(
         IEnumerable<BMSFile> bmsFiles,
         IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs)
     {
-        List<BMSFile> bmsFileList = [.. (bmsFiles ?? []).Where(file => ChartFileKindResolver.IsBmsChartFile(file))];
+        List<BMSFile> bmsFileList = [.. (bmsFiles ?? [])
+            .Where(file => ChartFileKindResolver.IsBmsChartFile(file) && !string.IsNullOrWhiteSpace(file.path))];
         var bmsonSongsByPath = new Dictionary<string, LR2SongDBExtended.bmson_song>(StringComparer.OrdinalIgnoreCase);
         foreach (LR2SongDBExtended.bmson_song bmsonSong in bmsonSongs ?? [])
         {
@@ -97,7 +108,7 @@ internal sealed class ChartStorageTargetSet
                 bmsFileList,
                 bmsonSongList,
                 includeWarningSnapshot: false,
-                requireBmsonPath: true,
+                requirePath: true,
                 includeResourceReferences: true,
                 includeScoreSnapshot: false));
     }

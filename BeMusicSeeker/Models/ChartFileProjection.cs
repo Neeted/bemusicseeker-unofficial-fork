@@ -607,24 +607,25 @@ internal static class ChartFileProjection
         IEnumerable<BMSFile> bmsFiles,
         IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs,
         bool includeWarningSnapshot = false,
-        bool requireBmsonPath = false,
+        bool requirePath = false,
         bool orderBmsonByPath = false,
         bool includeResourceReferences = true,
         bool includeScoreSnapshot = false)
     {
-        List<ChartFile> charts = FromBmsFiles(bmsFiles, includeWarningSnapshot, includeResourceReferences, includeScoreSnapshot);
-        charts.AddRange(FromBmsonSongs(bmsonSongs, includeWarningSnapshot, requireBmsonPath, orderBmsonByPath, includeResourceReferences));
+        List<ChartFile> charts = FromBmsFiles(bmsFiles, includeWarningSnapshot, requirePath, includeResourceReferences, includeScoreSnapshot);
+        charts.AddRange(FromBmsonSongs(bmsonSongs, includeWarningSnapshot, requirePath, orderBmsonByPath, includeResourceReferences));
         return charts;
     }
 
     internal static List<ChartFile> FromBmsFiles(
         IEnumerable<BMSFile> files,
         bool includeWarningSnapshot = false,
+        bool requirePath = false,
         bool includeResourceReferences = true,
         bool includeScoreSnapshot = false)
     {
         return [.. (files ?? [])
-            .Where(file => file != null)
+            .Where(file => file != null && (!requirePath || !string.IsNullOrWhiteSpace(file.path)))
             .Select(file => FromBmsFile(file, includeWarningSnapshot: includeWarningSnapshot, includeResourceReferences: includeResourceReferences, includeScoreSnapshot: includeScoreSnapshot))
             .Where(chart => chart != null)];
     }

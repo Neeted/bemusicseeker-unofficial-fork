@@ -120,8 +120,7 @@ internal sealed class PlaylistLibraryResolveIndexSnapshot
         Dictionary<string, LibraryChartRef> chartsBySha256,
         LibraryChartRef chart)
     {
-        if (chart == null
-            || (chart.Kind == LibraryChartKind.Bmson && string.IsNullOrWhiteSpace(chart.Path)))
+        if (chart == null || string.IsNullOrWhiteSpace(chart.Path))
         {
             return;
         }

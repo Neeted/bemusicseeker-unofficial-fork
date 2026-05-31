@@ -8118,7 +8118,7 @@ completeFileEnumerationOnce,
             return mutation;
         }
 
-        List<ChartFile> addedChartList = [.. storageMutation.AddedCharts.Where(chart => chart != null)];
+        List<ChartFile> addedChartList = [.. storageMutation.AddedCharts.Where(chart => chart != null && !string.IsNullOrWhiteSpace(chart.Path))];
         var addedBmsPaths = new HashSet<string>(
             addedChartList.Where(chart => chart.Kind == ChartFileKind.Bms).Select(chart => chart.Path).Where(path => !string.IsNullOrWhiteSpace(path)),
             StringComparer.OrdinalIgnoreCase);

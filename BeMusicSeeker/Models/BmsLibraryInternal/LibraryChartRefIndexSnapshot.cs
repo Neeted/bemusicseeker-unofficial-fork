@@ -24,7 +24,6 @@ internal sealed class LibraryChartRefIndexSnapshot : ILibraryChartCanonicalLooku
     private readonly Dictionary<string, List<LibraryChartRef>> directRefsByDirectory;
     private readonly List<string> sortedDirectDirectories;
     private readonly Dictionary<string, int> subtreeCountsByDirectory;
-    private readonly Dictionary<string, int> pathCounts;
 
     private LibraryChartRefIndexSnapshot(
         Dictionary<BMSFile, LibraryChartRef> bmsByReference,
@@ -34,8 +33,7 @@ internal sealed class LibraryChartRefIndexSnapshot : ILibraryChartCanonicalLooku
         Dictionary<string, List<LibraryChartRef>> refsByPath,
         Dictionary<string, List<LibraryChartRef>> directRefsByDirectory,
         List<string> sortedDirectDirectories,
-        Dictionary<string, int> subtreeCountsByDirectory,
-        Dictionary<string, int> pathCounts)
+        Dictionary<string, int> subtreeCountsByDirectory)
     {
         this.bmsByReference = bmsByReference;
         this.bmsonByReference = bmsonByReference;
@@ -45,7 +43,6 @@ internal sealed class LibraryChartRefIndexSnapshot : ILibraryChartCanonicalLooku
         this.directRefsByDirectory = directRefsByDirectory;
         this.sortedDirectDirectories = sortedDirectDirectories;
         this.subtreeCountsByDirectory = subtreeCountsByDirectory;
-        this.pathCounts = pathCounts;
     }
 
     internal static LibraryChartRefIndexSnapshot Empty => FromLibraryChartRefs([]);
@@ -71,12 +68,10 @@ internal sealed class LibraryChartRefIndexSnapshot : ILibraryChartCanonicalLooku
         var refsByPath = new Dictionary<string, List<LibraryChartRef>>(StringComparer.OrdinalIgnoreCase);
         var directRefsByDirectory = new Dictionary<string, List<LibraryChartRef>>(StringComparer.OrdinalIgnoreCase);
         var subtreeCountsByDirectory = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        var pathCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
         foreach (LibraryChartRef chart in (charts ?? []).Where(chart => chart != null))
         {
             cancellationCheck?.Invoke();
-            AddOwnerReference(chart, bmsByReference, bmsonByReference, overwrite: false);
 
             string pathKey = CreatePathKey(chart.Path);
             if (string.IsNullOrWhiteSpace(pathKey))
@@ -84,9 +79,9 @@ internal sealed class LibraryChartRefIndexSnapshot : ILibraryChartCanonicalLooku
                 continue;
             }
 
+            AddOwnerReference(chart, bmsByReference, bmsonByReference, overwrite: false);
             AddPathLookup(chart, pathKey, byKindAndPath, ambiguousKindAndPathKeys);
             AddPathRefLookup(chart, pathKey, refsByPath);
-            Increment(pathCounts, pathKey);
 
             string directoryKey = CreateDirectoryKeyForFilePath(chart.Path);
             if (string.IsNullOrWhiteSpace(directoryKey))
@@ -116,8 +111,7 @@ internal sealed class LibraryChartRefIndexSnapshot : ILibraryChartCanonicalLooku
             refsByPath,
             directRefsByDirectory,
             sortedDirectDirectories,
-            subtreeCountsByDirectory,
-            pathCounts);
+            subtreeCountsByDirectory);
     }
 
     internal void RemoveCharts(IEnumerable<ChartFile> charts)
@@ -234,10 +228,17 @@ internal sealed class LibraryChartRefIndexSnapshot : ILibraryChartCanonicalLooku
             return [];
         }
 
-        List<LibraryChartRef> refs = [];
+        return [.. EnumerateChartRefsUnderDirectoryKey(folderKey).Where(HasCurrentPath)];
+    }
+
+    private IEnumerable<LibraryChartRef> EnumerateChartRefsUnderDirectoryKey(string folderKey)
+    {
         if (directRefsByDirectory.TryGetValue(folderKey, out List<LibraryChartRef> directRefs))
         {
-            refs.AddRange(directRefs);
+            foreach (LibraryChartRef chart in directRefs)
+            {
+                yield return chart;
+            }
         }
 
         string descendantPrefix = AppendDirectorySeparator(folderKey);
@@ -255,9 +256,11 @@ internal sealed class LibraryChartRefIndexSnapshot : ILibraryChartCanonicalLooku
                 continue;
             }
 
-            refs.AddRange(directRefsByDirectory[directoryKey]);
+            foreach (LibraryChartRef chart in directRefsByDirectory[directoryKey])
+            {
+                yield return chart;
+            }
         }
-        return refs;
     }
 
     internal List<LibraryChartRef> GetDirectChartRefsInRealPaths(IEnumerable<string> folderPaths)
@@ -275,7 +278,7 @@ internal sealed class LibraryChartRefIndexSnapshot : ILibraryChartCanonicalLooku
 
             foreach (LibraryChartRef chart in directRefs)
             {
-                if (chart != null && addedRefs.Add(chart))
+                if (HasCurrentPath(chart) && addedRefs.Add(chart))
                 {
                     refs.Add(chart);
                 }
@@ -299,7 +302,7 @@ internal sealed class LibraryChartRefIndexSnapshot : ILibraryChartCanonicalLooku
 
             foreach (LibraryChartRef chart in pathRefs)
             {
-                if (chart != null && addedRefs.Add(chart))
+                if (HasCurrentPath(chart) && addedRefs.Add(chart))
                 {
                     refs.Add(chart);
                 }
@@ -312,29 +315,39 @@ internal sealed class LibraryChartRefIndexSnapshot : ILibraryChartCanonicalLooku
     {
         string folderKey = CreateDirectoryKey(folderPath);
         if (string.IsNullOrWhiteSpace(folderKey)
-            || !subtreeCountsByDirectory.TryGetValue(folderKey, out int count))
+            || !subtreeCountsByDirectory.ContainsKey(folderKey))
         {
             return 0;
         }
 
+        HashSet<string> excludedPathKeys = null;
         if (excludedPaths?.Count > 0 == true)
         {
-            var excludedPathKeys = new HashSet<string>(
+            excludedPathKeys = new HashSet<string>(
                 excludedPaths
                     .Select(CreatePathKey)
                     .Where(path => !string.IsNullOrWhiteSpace(path)),
                 StringComparer.OrdinalIgnoreCase);
-            foreach (string pathKey in excludedPathKeys)
-            {
-                if (IsPathUnderDirectory(pathKey, folderKey)
-                    && pathCounts.TryGetValue(pathKey, out int pathCount))
-                {
-                    count -= pathCount;
-                }
-            }
         }
 
-        return Math.Max(0, count);
+        int count = 0;
+        foreach (LibraryChartRef chart in EnumerateChartRefsUnderDirectoryKey(folderKey))
+        {
+            if (!HasCurrentPath(chart))
+            {
+                continue;
+            }
+
+            string pathKey = CreatePathKey(chart.Path);
+            if (excludedPathKeys?.Contains(pathKey) == true)
+            {
+                continue;
+            }
+
+            count++;
+        }
+
+        return count;
     }
 
     int ILibraryChartCanonicalLookup.CountChartRefsUnderRealPath(string folderPath, ISet<string> excludedPaths)
@@ -355,17 +368,16 @@ internal sealed class LibraryChartRefIndexSnapshot : ILibraryChartCanonicalLooku
             return;
         }
 
-        AddOwnerReference(chart, bmsByReference, bmsonByReference, overwrite: true);
         if (string.IsNullOrWhiteSpace(chart.Path))
         {
             return;
         }
 
+        AddOwnerReference(chart, bmsByReference, bmsonByReference, overwrite: true);
         string pathKey = CreatePathKey(chart.Path);
         if (!string.IsNullOrWhiteSpace(pathKey))
         {
             AddPathRefLookup(chart, pathKey, refsByPath);
-            Increment(pathCounts, pathKey);
             RebuildPathLookup(pathKey);
         }
 
@@ -407,7 +419,6 @@ internal sealed class LibraryChartRefIndexSnapshot : ILibraryChartCanonicalLooku
         {
             RemoveOwnerReference(chart);
 
-            Decrement(pathCounts, pathKey, removedFromPath);
             RebuildPathLookup(pathKey);
         }
 
@@ -536,6 +547,12 @@ internal sealed class LibraryChartRefIndexSnapshot : ILibraryChartCanonicalLooku
         int order = 0;
         foreach (ChartFile chart in charts ?? [])
         {
+            if (string.IsNullOrWhiteSpace(chart?.Path))
+            {
+                order++;
+                continue;
+            }
+
             string key = CreateStorageIdentityKey(chart);
             if (!string.IsNullOrWhiteSpace(key) && !orderByIdentity.ContainsKey(key))
             {
@@ -639,13 +656,13 @@ internal sealed class LibraryChartRefIndexSnapshot : ILibraryChartCanonicalLooku
         BMSFile bmsFile = inputChart.GetBmsStorageOwner();
         if (bmsFile != null && bmsByReference.TryGetValue(bmsFile, out LibraryChartRef bmsChart))
         {
-            return bmsChart;
+            return HasCurrentPath(bmsChart) ? bmsChart : null;
         }
 
         LR2SongDBExtended.bmson_song bmsonSong = inputChart.GetBmsonStorageOwner();
         if (bmsonSong != null && bmsonByReference.TryGetValue(bmsonSong, out LibraryChartRef bmsonChart))
         {
-            return bmsonChart;
+            return HasCurrentPath(bmsonChart) ? bmsonChart : null;
         }
 
         string pathKey = CreateKindAndPathKey(inputChart.Kind, inputChart.Path);
@@ -654,9 +671,28 @@ internal sealed class LibraryChartRefIndexSnapshot : ILibraryChartCanonicalLooku
             return null;
         }
 
-        return byKindAndPath.TryGetValue(pathKey, out LibraryChartRef pathChart)
+        return byKindAndPath.TryGetValue(pathKey, out LibraryChartRef pathChart) && HasCurrentPath(pathChart)
             ? pathChart
             : null;
+    }
+
+    private static bool HasCurrentPath(LibraryChartRef chart)
+    {
+        if (chart == null)
+        {
+            return false;
+        }
+
+        BMSFile bmsFile = chart.GetBmsStorageOwner();
+        if (bmsFile != null)
+        {
+            return !string.IsNullOrWhiteSpace(bmsFile.path);
+        }
+
+        LR2SongDBExtended.bmson_song bmsonSong = chart.GetBmsonStorageOwner();
+        return bmsonSong != null
+            ? !string.IsNullOrWhiteSpace(bmsonSong.path)
+            : !string.IsNullOrWhiteSpace(chart.Path);
     }
 
     private static void AddOwnerReference(
@@ -760,13 +796,15 @@ internal sealed class LibraryChartRefIndexSnapshot : ILibraryChartCanonicalLooku
         BMSFile bmsOwner = chart.GetBmsStorageOwner();
         if (bmsOwner != null)
         {
-            return LibraryChartRef.FromBmsFile(bmsOwner);
+            return string.IsNullOrWhiteSpace(bmsOwner.path) ? null : LibraryChartRef.FromBmsFile(bmsOwner);
         }
 
         LR2SongDBExtended.bmson_song bmsonOwner = chart.GetBmsonStorageOwner();
-        return bmsonOwner != null
-            ? LibraryChartRef.FromBmsonSong(bmsonOwner)
-            : LibraryChartRef.FromChartFile(chart);
+        if (bmsonOwner != null)
+        {
+            return string.IsNullOrWhiteSpace(bmsonOwner.path) ? null : LibraryChartRef.FromBmsonSong(bmsonOwner);
+        }
+        return string.IsNullOrWhiteSpace(chart.Path) ? null : LibraryChartRef.FromChartFile(chart);
     }
 
     private static IEnumerable<string> EnumerateDirectoryAndAncestors(string directoryKey)
@@ -796,13 +834,6 @@ internal sealed class LibraryChartRefIndexSnapshot : ILibraryChartCanonicalLooku
         {
             return null;
         }
-    }
-
-    private static bool IsPathUnderDirectory(string pathKey, string folderKey)
-    {
-        return !string.IsNullOrWhiteSpace(pathKey)
-            && !string.IsNullOrWhiteSpace(folderKey)
-            && pathKey.StartsWith(AppendDirectorySeparator(folderKey), StringComparison.OrdinalIgnoreCase);
     }
 
     private static string AppendDirectorySeparator(string path)

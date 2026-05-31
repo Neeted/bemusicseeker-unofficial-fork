@@ -2656,6 +2656,36 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
+    public void ResolveChartForPlaylistEntry_ExcludesPathlessBmsAndBmsonRepresentatives()
+    {
+        var md5Entry = new TestablePlaylistEntry();
+        md5Entry.SetMd5("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        var shaEntry = new TestablePlaylistEntry();
+        shaEntry.SetMd5("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+        shaEntry.SetSha256(new string('c', 64));
+        var pathlessBms = new TestableBmsFile();
+        pathlessBms.Apply("C:\\Songs\\Temp\\chart.bms", "BMS", "Artist", md5Entry.md5);
+        pathlessBms.path = null;
+        var pathlessBmson = new LR2SongDBExtended.bmson_song
+        {
+            path = null,
+            md5 = "dddddddddddddddddddddddddddddddd",
+            sha256 = shaEntry.sha256
+        };
+
+        PlaylistLibraryResolveIndexSnapshot index = PlaylistLibraryResolveIndexSnapshot.FromLibraryChartRefs(
+        [
+            LibraryChartRef.FromBmsFile(pathlessBms),
+            LibraryChartRef.FromBmsonSong(pathlessBmson)
+        ]);
+
+        Assert.IsFalse(index.ChartsByMd5.ContainsKey(md5Entry.md5));
+        Assert.IsFalse(index.ChartsBySha256.ContainsKey(shaEntry.sha256));
+        Assert.IsNull(index.ResolveChartForPlaylistEntry(md5Entry));
+        Assert.IsNull(index.ResolveChartForPlaylistEntry(shaEntry));
+    }
+
+    [TestMethod]
     public void ResolvePlaylistEntryScoreSnapshot_BeatorajaUsesResolvedRepresentativeSha256AfterPathTieBreak()
     {
         var entry = new TestablePlaylistEntry();

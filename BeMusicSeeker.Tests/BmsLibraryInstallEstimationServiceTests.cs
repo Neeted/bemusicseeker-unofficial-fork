@@ -2033,6 +2033,8 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         string bmsonDir = Path.Combine("C:\\Installed", "Bmson");
         TestableBmsFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(bmsDir, "chart.bms"));
         bmsFile.SetSha256(new string('b', 64));
+        TestableBmsFile pathlessBms = CreateFile("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", string.Empty);
+        pathlessBms.SetSha256(new string('f', 64));
         var bmsonSong = new LR2SongDBExtended.bmson_song
         {
             path = Path.Combine(bmsonDir, "chart.bmson"),
@@ -2040,9 +2042,15 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             md5 = "cccccccccccccccccccccccccccccccc",
             sha256 = new string('d', 64)
         };
+        var pathlessBmson = new LR2SongDBExtended.bmson_song
+        {
+            path = string.Empty,
+            md5 = "11111111111111111111111111111111",
+            sha256 = new string('2', 64)
+        };
 
         InstalledChartLookupIndexSnapshot snapshot = OwnedChartCollectionState
-            .FromStorageRows([bmsFile], [bmsonSong])
+            .FromStorageRows([bmsFile, pathlessBms], [bmsonSong, pathlessBmson])
             .CreateInstalledChartLookupIndexState(out int bmsCount, out int bmsonCount)
             .CreateSnapshot();
 
@@ -2055,6 +2063,8 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         Assert.IsTrue(snapshot.KnownChartDirectories.Contains(bmsDir));
         Assert.IsTrue(snapshot.KnownChartDirectories.Contains(bmsonDir));
         Assert.AreEqual(2, snapshot.DistinctPrimaryHashCount);
+        Assert.IsFalse(snapshot.ContainsPrimaryHash(pathlessBms.hash));
+        Assert.IsFalse(snapshot.ContainsPrimaryHash(pathlessBmson.md5));
     }
 
     [TestMethod]
