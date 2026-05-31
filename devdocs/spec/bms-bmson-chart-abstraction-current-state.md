@@ -525,7 +525,7 @@ folder operation 向けの full `LibraryChartRef` snapshot helper は削除済�
 
 playlist summary owned hash snapshot は owned chart collection の lightweight hash index から作る。startup readiness 外の best-effort warmup 対象であり、snapshot 専用 invalidation version、owned collection version、storage rows version によって stale build result を publish しない。playlist reference apply は参照 map の selected key に一致する owned refs だけを current owner hash で抽出し、全 owned refs snapshot を毎回複製しない。playlist detail open 用の playlist library resolve index は、BMSLibrary が `PlaylistLibraryResolveIndexSnapshot` として md5 / sha256 -> representative `LibraryChartRef` を持つ snapshot を返し、ViewModel は `ResolveChartForPlaylistEntry(...)` 相当の model snapshot API を使う。代表選択は deterministic に path 昇順最小を採用し、entry selected key が md5 なら md5 map だけ、sha256 なら sha256 map だけを読む。pathless / md5less owned chart は playlist detail の owned 判定対象から除外する。ViewModel 側には version / prewarm cache / readiness 表示だけを残し、md5 / sha256 辞書構築と representative selection は置かない。
 
-installed chart lookup は owned chart collection から path / md5 / sha256 / kind だけを読む隣接 index として build し、差分更新 state を持つ。primary hash count / primary path lookup は md5 identity で管理し、sha256 は補助 directory bucket として保持する。初回 build log は `source=owned_collection_lightweight` であり、storage row direct build と full `ChartFile` materialize のどちらにも戻さない。hash / directory / primary count だけを見る index として管理し、package entry や resource target が必要な caller だけ最後に `ChartFile` 化する。
+installed chart lookup は owned chart collection から path / md5 / sha256 / kind だけを読む隣接 index として build し、差分更新 state を持つ。primary hash count / primary path lookup は md5 identity で管理し、sha256 は補助 directory bucket として保持する。installed primary hash lookup は startup 後 best-effort warmup で温め、full installed directory lookup は install estimation / installed destination resolve / installed-only resource overwrite など directory bucket が必要な機能の on-demand index として残す。初回 build log は `source=owned_collection_lightweight` であり、storage row direct build と full `ChartFile` materialize のどちらにも戻さない。hash / directory / primary count だけを見る index として管理し、package entry や resource target が必要な caller だけ最後に `ChartFile` 化する。
 
 新規 helper を追加する場合は、`BMSFiles` + `BmsonSongs` を直接結合する API を増やさず、owned chart collection の view / index へ置くか、任意 subset / BMS-only / bmson-only / DB 境界であることを API 名で分かるようにする。全件 `ChartFile` list を返す helper は、明示的な full operation 以外では追加しない。
 
@@ -671,7 +671,7 @@ production に残る `Compatibility` 名は playlist summary column settings の
 - BMS / bmson の storage table を統合しない。
 - settings 名、UI 文言、playlist DB / JSON、LR2 互換 schema は抽象化だけを理由に変更しない。
 - BMS-only 処理を chart-common 処理へ無理に広げない。encoding / zero-note / LR2IR / score viewer / ranking update / invalid extension rename / audio convert は capability で BMS-only として残す。
-- owned collection 隣接 index は startup readiness をブロックしない。manual 記載機能で初回操作 cost が出やすい primary installed hash、real path directory view、playlist summary owned hash は post-startup best-effort warmup と mutation 同期で温める。通常一覧の virtual sort order は UI 体感用の別枠であり、readiness / `startup_background_summary` をブロックしない best-effort staged prewarm として priority 1-3 を温める。
+- owned collection 隣接 index は startup readiness をブロックしない。manual 記載機能で初回操作 cost が出やすい installed primary hash、real path directory view、playlist summary owned hash は post-startup best-effort warmup と mutation 同期で温める。full installed directory lookup は duplicate merge には使わず、install estimation 系の explicit on-demand index として扱う。通常一覧の virtual sort order は UI 体感用の別枠であり、readiness / `startup_background_summary` をブロックしない best-effort staged prewarm として priority 1-3 を温める。
 - `ChartFile` を全件 collection の唯一の runtime object として常時 rich projection しない。resource refs / warning / score / maintenance を含む projection は用途別に遅延または subset に限定する。
 
 ### 変更時の選択基準
@@ -859,6 +859,7 @@ dispatcher の log は、全 index に個別詳細 log を増やすのではな�
 - `main_view_build` / `custom_table_render`
 - `installed_primary_hash_lookup build/update/excluding_snapshot`
 - `installed_chart_lookup_index build/update`
+- `owned_adjacent_index_warmup index=installed_primary_hash`
 - `owned_adjacent_index_warmup index=real_path`
 - `owned_adjacent_index_warmup index=playlist_summary_owned_hash`
 - `post_startup_warmup stage=owned_adjacent_index`

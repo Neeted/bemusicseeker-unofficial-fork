@@ -11710,12 +11710,18 @@ public class MainWindowViewModel : ViewModel
                 return;
             }
 
+            BMSLibrary.InstalledPrimaryHashWarmupResult primaryHashResult = library.WarmInstalledPrimaryHashLookup("post_startup_" + (reason ?? string.Empty));
             BMSLibrary.OwnedAdjacentIndexWarmupResult realPathResult = library.WarmOwnedRealPathDirectoryView("post_startup_" + (reason ?? string.Empty));
             BMSLibrary.OwnedHashIndexWarmupResult playlistSummaryResult = library.WarmPlaylistSummaryOwnedHashSnapshot("post_startup_" + (reason ?? string.Empty));
             stopwatch.Stop();
             LogMainViewBuild("post_startup_warmup done reason=" + (reason ?? string.Empty)
                 + " runId=" + runId
                 + " stage=owned_adjacent_index"
+                + " installedPrimaryStatus=" + (primaryHashResult?.Status ?? "(null)")
+                + " installedPrimaryHashes=" + (primaryHashResult?.PrimaryHashCount ?? 0)
+                + " installedPrimaryFiles=" + (primaryHashResult?.BmsCount ?? 0)
+                + " installedPrimaryBmson=" + (primaryHashResult?.BmsonCount ?? 0)
+                + " installedPrimaryFullDirectoryLookupInitialized=" + (primaryHashResult?.FullDirectoryLookupInitialized ?? false)
                 + " realPathStatus=" + (realPathResult?.Status ?? "(null)")
                 + " realPathChartRefs=" + (realPathResult?.ChartRefCount ?? 0)
                 + " realPathDirectDirs=" + (realPathResult?.DirectDirectoryCount ?? 0)
@@ -11732,6 +11738,7 @@ public class MainWindowViewModel : ViewModel
                 + " playlistSummaryStaleRetries=" + (playlistSummaryResult?.StaleRetryCount ?? 0)
                 + " virtualWaitStatus=" + virtualWaitStatus
                 + " waitMs=" + waitStopwatch.ElapsedMilliseconds
+                + " installedPrimaryWarmupMs=" + (primaryHashResult?.ElapsedMs ?? 0L)
                 + " realPathWarmupMs=" + (realPathResult?.ElapsedMs ?? 0L)
                 + " playlistSummaryWarmupMs=" + (playlistSummaryResult?.ElapsedMs ?? 0L)
                 + " elapsedMs=" + stopwatch.ElapsedMilliseconds);

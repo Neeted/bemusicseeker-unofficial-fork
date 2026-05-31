@@ -281,6 +281,28 @@ public class BMSLibrary : NotificationObject
     }
 
     /// <summary>
+    /// installed primary md5 lookup の warmup 結果です。
+    /// </summary>
+    internal sealed class InstalledPrimaryHashWarmupResult
+    {
+        internal string IndexName { get; set; }
+
+        internal string Status { get; set; }
+
+        internal long ElapsedMs { get; set; }
+
+        internal long BuildMs { get; set; }
+
+        internal int PrimaryHashCount { get; set; }
+
+        internal int BmsCount { get; set; }
+
+        internal int BmsonCount { get; set; }
+
+        internal bool FullDirectoryLookupInitialized { get; set; }
+    }
+
+    /// <summary>
     /// owned collection 隣接 index の warmup 結果です。
     /// startup readiness 外の best-effort warmup をログで追跡するために使います。
     /// </summary>
@@ -7016,6 +7038,47 @@ completeFileEnumerationOnce,
             + " directDirs=" + result.DirectDirectoryCount
             + " subtreeDirs=" + result.SubtreeDirectoryCount
             + " ownedCollectionVersion=" + result.OwnedCollectionVersion);
+        return result;
+    }
+
+    /// <summary>
+    /// duplicate merge / install state 判定用の primary md5 lookup を readiness 外で温めます。
+    /// full directory lookup は構築しません。
+    /// </summary>
+    /// <param name="reason">warmup を要求した理由。</param>
+    /// <returns>warmup 結果。</returns>
+    internal InstalledPrimaryHashWarmupResult WarmInstalledPrimaryHashLookup(string reason)
+    {
+        var stopwatch = Stopwatch.StartNew();
+        bool built = EnsureInstalledPrimaryHashLookupBuiltUnsafe(out long buildMs, out int bmsCount, out int bmsonCount);
+        int primaryHashCount;
+        lock (lockInstalledPrimaryHashLookup)
+        {
+            primaryHashCount = installedPrimaryHashLookup?.DistinctPrimaryHashCount ?? 0;
+        }
+        bool fullDirectoryLookupInitialized = IsInstalledChartLookupIndexInitializedUnsafe();
+        stopwatch.Stop();
+        var result = new InstalledPrimaryHashWarmupResult
+        {
+            IndexName = "installed_primary_hash",
+            Status = built ? "built" : "cached",
+            ElapsedMs = stopwatch.ElapsedMilliseconds,
+            BuildMs = buildMs,
+            PrimaryHashCount = primaryHashCount,
+            BmsCount = bmsCount,
+            BmsonCount = bmsonCount,
+            FullDirectoryLookupInitialized = fullDirectoryLookupInitialized
+        };
+        LogInstallPerformance("owned_adjacent_index_warmup index=" + result.IndexName
+            + " reason=" + (reason ?? string.Empty)
+            + " status=" + result.Status
+            + " elapsedMs=" + result.ElapsedMs
+            + " buildMs=" + result.BuildMs
+            + " primaryHashes=" + result.PrimaryHashCount
+            + " files=" + result.BmsCount
+            + " bmson=" + result.BmsonCount
+            + " rows=" + (result.BmsCount + result.BmsonCount)
+            + " fullDirectoryLookupInitialized=" + result.FullDirectoryLookupInitialized);
         return result;
     }
 

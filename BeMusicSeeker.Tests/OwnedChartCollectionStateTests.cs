@@ -2711,6 +2711,41 @@ public sealed class OwnedChartCollectionStateTests
     }
 
     [TestMethod]
+    public void WarmInstalledPrimaryHashLookup_BuildsWithoutFullDirectoryLookup()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "PrimaryWarmup", "Bms", "chart.bms"));
+            var bmsonSong = CreateBmsonSong(Path.Combine("C:\\Installed", "PrimaryWarmup", "Bmson", "chart.bmson"), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+            var library = new BMSLibrary(songDbPath)
+            {
+                BMSFiles = [bmsFile],
+                BmsonSongs = [bmsonSong]
+            };
+            Assert.IsFalse(IsInstalledPrimaryHashLookupInitialized(library));
+            Assert.IsFalse(IsInstalledChartLookupIndexInitialized(library));
+
+            BMSLibrary.InstalledPrimaryHashWarmupResult first = library.WarmInstalledPrimaryHashLookup("test");
+            BMSLibrary.InstalledPrimaryHashWarmupResult second = library.WarmInstalledPrimaryHashLookup("test");
+
+            Assert.AreEqual("installed_primary_hash", first.IndexName);
+            Assert.AreEqual("built", first.Status);
+            Assert.AreEqual(2, first.PrimaryHashCount);
+            Assert.AreEqual(1, first.BmsCount);
+            Assert.AreEqual(1, first.BmsonCount);
+            Assert.IsFalse(first.FullDirectoryLookupInitialized);
+            Assert.IsTrue(IsInstalledPrimaryHashLookupInitialized(library));
+            Assert.IsFalse(IsInstalledChartLookupIndexInitialized(library));
+            Assert.AreEqual("cached", second.Status);
+            Assert.AreEqual(first.PrimaryHashCount, second.PrimaryHashCount);
+            Assert.AreEqual(0, second.BmsCount);
+            Assert.AreEqual(0, second.BmsonCount);
+            Assert.IsFalse(second.FullDirectoryLookupInitialized);
+        });
+    }
+
+    [TestMethod]
     public void DispatchOwnedPotentialDigestChanges_InvalidatesPrimaryLookup()
     {
         TestResourceInitializer.EnsureJapaneseResources();
