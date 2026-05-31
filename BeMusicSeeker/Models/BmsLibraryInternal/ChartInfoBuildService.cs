@@ -547,7 +547,7 @@ internal sealed class ChartInfoBuildService
         }
         foreach (PendingDigestApplication application in commitChunk.DigestApplications)
         {
-            result.DigestBackfilledCount += application.Target.ApplyDigest(application.Sha256, null, result.HashChanges);
+            result.DigestBackfilledCount += application.Target.ApplyDigest(application.Sha256, null, result.DigestChanges);
         }
         foreach (PendingChartInfoApplication application in commitChunk.ChartInfoApplications)
         {

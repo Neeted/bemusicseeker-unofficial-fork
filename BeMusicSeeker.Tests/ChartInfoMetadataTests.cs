@@ -2736,28 +2736,28 @@ createTempDirectory);
         ChartInfoBuildTarget target = ChartInfoBuildTargetMapper.Create(ChartFileProjection.FromBmsFile(bmsFile, includeWarningSnapshot: false));
         target.AddChart(ChartFileProjection.FromBmsonSong(bmsonSong, includeWarningSnapshot: false));
         var completedDigestFiles = new List<BMSFile>();
-        var hashChanges = new List<LibraryChartHashChange>();
+        var digestChanges = new List<LibraryChartDigestChange>();
 
-        int applied = target.ApplyDigest(sharedDigest, completedDigestFiles, hashChanges);
+        int applied = target.ApplyDigest(sharedDigest, completedDigestFiles, digestChanges);
 
         Assert.AreEqual(1, applied);
         Assert.AreEqual(sharedDigest, bmsFile.sha256);
         Assert.AreEqual(new string('c', 64), bmsonSong.sha256);
         CollectionAssert.Contains(completedDigestFiles, bmsFile);
-        Assert.AreEqual(1, hashChanges.Count);
-        Assert.AreEqual(LibraryChartKind.Bms, hashChanges[0].Kind);
-        Assert.AreEqual(bmsFile.path, hashChanges[0].Path);
-        Assert.AreEqual(new string('a', 32), hashChanges[0].OldMd5);
-        Assert.IsTrue(string.IsNullOrWhiteSpace(hashChanges[0].OldSha256));
-        Assert.AreEqual(new string('a', 32), hashChanges[0].NewMd5);
-        Assert.AreEqual(sharedDigest, hashChanges[0].NewSha256);
-        Assert.IsFalse(hashChanges[0].Md5Changed);
-        Assert.IsTrue(hashChanges[0].Sha256Changed);
-        Assert.IsFalse(hashChanges[0].PrimaryHashChanged);
+        Assert.AreEqual(1, digestChanges.Count);
+        Assert.AreEqual(LibraryChartKind.Bms, digestChanges[0].Kind);
+        Assert.AreEqual(bmsFile.path, digestChanges[0].Path);
+        Assert.AreEqual(new string('a', 32), digestChanges[0].OldMd5);
+        Assert.IsTrue(string.IsNullOrWhiteSpace(digestChanges[0].OldSha256));
+        Assert.AreEqual(new string('a', 32), digestChanges[0].NewMd5);
+        Assert.AreEqual(sharedDigest, digestChanges[0].NewSha256);
+        Assert.IsFalse(digestChanges[0].Md5Changed);
+        Assert.IsTrue(digestChanges[0].Sha256Changed);
+        Assert.IsFalse(digestChanges[0].PrimaryHashChanged);
     }
 
     [TestMethod]
-    public void ChartStorageOwnerMutator_ApplySnapshotDigestTracksBmsonHashChange()
+    public void ChartStorageOwnerMutator_ApplySnapshotDigestTracksBmsonDigestChange()
     {
         string oldMd5 = new string('b', 32);
         string oldSha256 = new string('c', 64);
@@ -2771,20 +2771,20 @@ createTempDirectory);
         };
         ChartFile chart = ChartFileProjection.FromBmsonSong(bmsonSong, includeWarningSnapshot: false);
         var snapshot = new ChartFileSnapshot(bmsonSong.path, [1, 2, 3], DateTime.UtcNow, newMd5, newSha256);
-        var hashChanges = new List<LibraryChartHashChange>();
+        var digestChanges = new List<LibraryChartDigestChange>();
 
-        bool applied = ChartStorageOwnerMutator.ApplySnapshotDigest(chart, snapshot, hashChanges);
+        bool applied = ChartStorageOwnerMutator.ApplySnapshotDigest(chart, snapshot, digestChanges);
 
         Assert.IsTrue(applied);
         Assert.AreEqual(newMd5, bmsonSong.md5);
         Assert.AreEqual(newSha256, bmsonSong.sha256);
-        Assert.AreEqual(1, hashChanges.Count);
-        Assert.AreEqual(LibraryChartKind.Bmson, hashChanges[0].Kind);
-        Assert.AreEqual(bmsonSong.path, hashChanges[0].Path);
-        Assert.AreEqual(oldMd5, hashChanges[0].OldMd5);
-        Assert.AreEqual(oldSha256, hashChanges[0].OldSha256);
-        Assert.AreEqual(newMd5, hashChanges[0].NewMd5);
-        Assert.AreEqual(newSha256, hashChanges[0].NewSha256);
+        Assert.AreEqual(1, digestChanges.Count);
+        Assert.AreEqual(LibraryChartKind.Bmson, digestChanges[0].Kind);
+        Assert.AreEqual(bmsonSong.path, digestChanges[0].Path);
+        Assert.AreEqual(oldMd5, digestChanges[0].OldMd5);
+        Assert.AreEqual(oldSha256, digestChanges[0].OldSha256);
+        Assert.AreEqual(newMd5, digestChanges[0].NewMd5);
+        Assert.AreEqual(newSha256, digestChanges[0].NewSha256);
     }
 
     [TestMethod]

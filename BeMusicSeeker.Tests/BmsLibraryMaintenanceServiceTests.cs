@@ -820,14 +820,65 @@ public sealed class BmsLibraryMaintenanceServiceTests
 
             library.SetChartResourceWarningsIgnored([chart], unset: false);
             file.SetHash("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-            InvokeDispatchOwnedChartHashChanges(
+            InvokeDispatchOwnedChartDigestChanges(
                 library,
-                [new LibraryChartHashChange(LibraryChartKind.Bms, file.path, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", null, file.hash, null)],
-                "test_warning_property_covered_hash");
+                [new LibraryChartDigestChange(LibraryChartKind.Bms, file.path, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", null, file.hash, null)],
+                "test_warning_property_covered_digest");
 
             NormalLibraryRefreshNotificationBatch batch = library.GetNormalLibraryRefreshNotificationsAfter(handledNotificationVersion);
             Assert.IsTrue(batch.HasEffect(LibraryChartRefreshEffects.WarningPresentationChanged));
         });
+    }
+
+    [TestMethod]
+    public void UpdateMaintenanceInfo_BmsEncodingMaintenanceDoesNotMutateDigest()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var service = new BmsLibraryMaintenanceService(1);
+        string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectoryPath);
+        string bmsFilePath = Path.Combine(tempDirectoryPath, "chart.bms");
+        string songDbPath = Path.Combine(tempDirectoryPath, "song.db");
+        File.WriteAllText(
+            bmsFilePath,
+            "#PLAYER 1\r\n#TITLE Bms\r\n#WAV01 sub\\missing.wav\r\n#00111:01\r\n",
+            Encoding.GetEncoding("shift_jis", new EncoderExceptionFallback(), new DecoderExceptionFallback()));
+        try
+        {
+            var bmsFile = BMSFile.CreateBMSFileFromFile(bmsFilePath);
+            string originalMd5 = bmsFile.hash;
+            string originalSha256 = bmsFile.sha256;
+            bmsFile.maintenanceInfo.wav_files_defined = 0;
+            bmsFile.maintenanceInfo.bga_files_defined = 0;
+            bmsFile.maintenanceInfo.movie_files_defined = 0;
+            bmsFile.maintenanceInfo.is_stagefile_defined = false;
+            bmsFile.maintenanceInfo.is_backbmp_defined = false;
+            bmsFile.maintenanceInfo.is_banner_defined = false;
+            bmsFile.maintenanceInfo.encoding = null;
+            using (var songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDBExtended.maintenance>();
+                songDb.CreateTable<LR2SongDB.song>();
+            }
+
+            MaintenanceWorkflowResult result = service.UpdateMaintenanceInfo(
+                [ChartFileProjection.FromBmsFile(bmsFile)],
+                forceUpdate: false,
+                new BmsLibraryDbGateway(songDbPath),
+                null,
+                new ResourceHealthLookupContext(null));
+
+            Assert.AreEqual(1, result.MissingEncodingTargetCount);
+            Assert.AreEqual(originalMd5, bmsFile.hash);
+            Assert.AreEqual(originalSha256, bmsFile.sha256);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectoryPath))
+            {
+                Directory.Delete(tempDirectoryPath, recursive: true);
+            }
+        }
     }
 
     [TestMethod]
@@ -2473,14 +2524,14 @@ public sealed class BmsLibraryMaintenanceServiceTests
         methodInfo.Invoke(library, [snapshot]);
     }
 
-    private static void InvokeDispatchOwnedChartHashChanges(
+    private static void InvokeDispatchOwnedChartDigestChanges(
         BMSLibrary library,
-        IEnumerable<LibraryChartHashChange> hashChanges,
+        IEnumerable<LibraryChartDigestChange> digestChanges,
         string reason)
     {
-        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("DispatchOwnedChartHashChanges", BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("DispatchOwnedChartDigestChanges", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.IsNotNull(methodInfo);
-        methodInfo.Invoke(library, [hashChanges, reason, true]);
+        methodInfo.Invoke(library, [digestChanges, reason, true]);
     }
 
     private static void InvokeApplyMaintenanceHydrationResult(

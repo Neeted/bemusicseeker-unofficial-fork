@@ -779,7 +779,6 @@ internal sealed class BmsLibraryMaintenanceService
             sectionIndex++;
             var sectionStopwatch = Stopwatch.StartNew();
             object reloadedLock = new();
-            object hashChangeLock = new();
             List<BMSFile> reloadedFiles = [];
             object bmsonReparseLock = new();
             int bmsonReparsedInSection = 0;
@@ -800,8 +799,6 @@ internal sealed class BmsLibraryMaintenanceService
             {
                 Parallel.ForEach(filesInSection, new ParallelOptions { MaxDegreeOfParallelism = maintenanceHealthDegree }, delegate (BMSFile file)
                 {
-                    string originalHash = file.hash;
-                    string originalSha256 = file.sha256;
                     var beforeSnapshot = MaintenanceSnapshot.FromFile(file);
                     bool healthNeeded = forceUpdate || file.maintenanceInfo.IsInformationChecked() != true;
                     int retryCount = 0;
@@ -845,21 +842,6 @@ internal sealed class BmsLibraryMaintenanceService
                         lock (reloadedLock)
                         {
                             reloadedFiles.Add(file);
-                        }
-                    }
-                    else if (originalHash != file.hash)
-                    {
-                        lock (reloadedLock)
-                        {
-                            reloadedFiles.Add(file);
-                        }
-                    }
-                    LibraryChartHashChange hashChange = LibraryChartHashChange.FromBms(file, originalHash, originalSha256);
-                    if (hashChange?.HasHashChange == true)
-                    {
-                        lock (hashChangeLock)
-                        {
-                            result.HashChanges.Add(hashChange);
                         }
                     }
                     var afterSnapshot = MaintenanceSnapshot.FromFile(file);
@@ -1241,7 +1223,6 @@ internal sealed class BmsLibraryMaintenanceService
         first.BmsonReparsedCount += second.BmsonReparsedCount;
         first.BmsonReparseFailedCount += second.BmsonReparseFailedCount;
         first.BmsonResourceReferenceReusedCount += second.BmsonResourceReferenceReusedCount;
-        first.HashChanges.AddRange(second.HashChanges);
         first.MaintenanceInfoUpsertCount += second.MaintenanceInfoUpsertCount;
         first.SongUpsertCount += second.SongUpsertCount;
         first.ReloadedSongCount += second.ReloadedSongCount;

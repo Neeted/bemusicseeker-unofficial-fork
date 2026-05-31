@@ -30,6 +30,7 @@
 | owned chart collection | `OwnedChartCollectionState` | `BMSLibrary` 内の所持譜面 `ChartFile` identity collection。BMS / bmson とも current installed source としては path を必須とし、storage owner を保持し、snapshot 作成時に owner の現在値を再投影する。chart-common な snapshot / lookup / mutation の primary source として使い、永続化 owner や BMS-only / bmson-only producer は storage row collection に残す。 |
 | pathless owned chart | なし | path を持たない chart は current installed source ではない。DB load / external replacement 由来の pathless storage row は owned collection 入口で除外し、internal mutation が pathless chart を owned collection に追加しようとする場合は invariant violation として扱う。 |
 | pathless projection chart | `ChartFile` projection | playlist metadata / projection-only / repair fallback など、所持判定や file operation を行わない一時 projection。low-level projection helper では pathless projection を許容するが、installed lookup / resource maintenance / playlist owned resolve / folder operation には入れない。 |
+| owned chart digest update event | `LibraryChartDigestChange` | chart_info inline / backfill が storage owner の MD5 / SHA-256 を実ファイル digest に同期した時の差分 event。BMS missing SHA-256 補完も含む。pathless owner からは作らず、maintenance は producer ではない。 |
 | pending chart | `PackageChartEntry` / `ChartPackage.ChartEntries` | package / pending install 上の譜面。production の正本は `ChartFile` を持つ package entry であり、`BMSFile` 継承 adapter ではない。 |
 | chart row | `LibraryChartRow`, `ChartListSourceRow` | 通常一覧や仮想 filter / sort 用の read model。storage の正本ではない。 |
 | operation target | `ChartOperationTarget` | UI command / context menu が扱う操作対象。capability を持つ。 |
@@ -427,7 +428,7 @@ resource health は BMS / bmson 共通の表示概念である。
 - bmson は `bmson_song.MaintenanceInfo` を持つ。
 - `LibraryChartRow` / `ChartListSourceRow` は BMSFile と bmson の両方から health 値を表示できる。
 - 旧 `PendingChartEntry` は bmson pending adapter として maintenance 情報を持てたが、production では bmson maintenance は `bmson_song.MaintenanceInfo` / `ChartResourceSnapshot` を正本にする。
-- `BmsLibraryMaintenanceService.UpdateMaintenanceInfo(...)` は `ChartFile` を入力として受ける。service 内部で BMS storage owner と `bmson_song` に分けるが、resource health の defined / existing count は BMS / bmson とも `ChartResourceSnapshot` / `ChartFileProjection` から作る chart-common 計算を使う。BMS は同じ `maintenance` row に encoding / reload 結果も保持するため、resource health 計算結果を既存 `BMSFile.maintenanceInfo` へ merge し、encoding / `is_encoding_fixed` は BMS 専用 pipeline が更新する。
+- `BmsLibraryMaintenanceService.UpdateMaintenanceInfo(...)` は `ChartFile` を入力として受ける。service 内部で BMS storage owner と `bmson_song` に分けるが、resource health の defined / existing count は BMS / bmson とも `ChartResourceSnapshot` / `ChartFileProjection` から作る chart-common 計算を使う。BMS は同じ `maintenance` row に encoding / reload 結果も保持するため、resource health 計算結果を既存 `BMSFile.maintenanceInfo` へ merge し、encoding / `is_encoding_fixed` は BMS 専用 pipeline が更新する。maintenance は file bytes digest を再計算しないため、owned chart digest update event の producer ではない。
 - 起動中 file diff の inline bmson maintenance も `PendingChartEntry` shim を作らず、parser 済み `bmson_song` へ `MaintenanceInfo` を直接 attach する。
 
 ただし encoding check / fix / zero-note check は capability 上 BMS 専用であり、bmson に適用しない。
@@ -687,7 +688,7 @@ production に残る `Compatibility` 名は playlist summary column settings の
 - collection は stable identity として、kind + storage owner identity、path、primary lookup hash を扱える。
 - collection は read-only full snapshot だけでなく、filtered view / iterator / index view を提供し、呼び出し側に mutable internal collection を渡さない。
 - collection view は `ChartFile` materialize を必須にしない。path / hash / owner / kind だけで足りる処理には lightweight entry / `LibraryChartRef` / count / lookup result を返す。
-- collection は add / remove / move / upsert / hash change / storage owner replace を差分 mutation として受ける。
+- collection は add / remove / move / upsert / digest update / storage owner replace を差分 mutation として受ける。
 - collection から BMS storage row view と bmson storage row view を取得できるが、それは永続化・互換境界用の view であり、chart-common 処理の primary input ではない。
 
 ### Mutation boundary
@@ -702,23 +703,23 @@ chart-common mutation の入口は次の 3 種に分類する。
 
 現在の `ApplyLibraryMutationDelta(...)` は、storage row mutation と owned collection mutation を行った後、`OwnedChartCollectionMutationResult` を `DispatchOwnedChartCollectionMutation(...)` に渡す。install upsert も `ChartStorageTargetSet` から追加 chart mutation result を作り、同じ dispatcher に流す。file scan diff は `SongTableFileCheckResult` の added / removed / next rows から file-scan 専用 mutation result を作り、隣接 index には差分 delta を dispatch する。ただし removed payload は owned collection が既に構築済みの場合だけ current owner identity view から作る。未構築時は removed payload 作成のために owned collection を build せず、必要な派生 index を full invalidate / dirty 扱いに落とす。file scan は `NextFiles` / `NextBmsonSongs` を storage rows の丸ごと置換として持つため、owned collection が既に構築済みの場合は next rows snapshot から owned collection 本体を置き換え、差分 mutation だけでは表現できない row order / no-op replacement を current 扱いにしない。duplicate merge は source unregister を `ApplyLibraryMutationDelta(...)`、final storage upsert を `ApplyInstalledChartStorageTargets(...)` に通し、merge 中も owned collection / installed lookup を差分同期する。外部 full replacement は引き続き setter 境界で full invalidate する。
 
-installed lookup、primary hash -> path lookup、install destination overlay、parent folder cache、playlist summary owned hash、playlist detail resolve index、duplicate cache、resource health index は同じ mutation boundary から同期または無効化される。real path directory view と owner/path canonical lookup は owned collection の `LibraryChartRefIndexSnapshot` として mutation に追従する。`NormalLibraryRefreshNotification` は normal library refresh hint queue として、dispatcher result から `SourceChanged` / `InstallDestinationOverlayChanged` / `WarningPresentationChanged` / `MaintenancePresentationChanged` の effect、owned collection version、kind 別 storage row coverage を運ぶ。ViewModel はこの notification version range を消費し、source generation、source view refresh、overlay transient state、warning / maintenance sort-key invalidation、BMS row cache prune、bmson row cache sync の判定を setter 副作用から切り離している。`NormalLibraryRefreshNotificationVersion` handler が source refresh と storage row cache sync の normal view 入口であり、`BMSFiles` / `BmsonSongs` property handler は normal view cleanup 用には登録しない。resource warning ignore / unignore、chart_info / zero-note producer 由来の warning 表示更新、manual resource maintenance producer 由来の warning / maintenance 表示更新、internal storage / hash mutation 由来の warning subset 表示更新は dispatcher 経由の effect に寄せる。duplicate / garbled hydration などの互換表示 refresh も dispatcher effect へ寄せ、外部 storage replacement だけ setter reset barrier で扱う。
+installed lookup、primary hash -> path lookup、install destination overlay、parent folder cache、playlist summary owned hash、playlist detail resolve index、duplicate cache、resource health index は同じ mutation boundary から同期または無効化される。real path directory view と owner/path canonical lookup は owned collection の `LibraryChartRefIndexSnapshot` として mutation に追従する。`NormalLibraryRefreshNotification` は normal library refresh hint queue として、dispatcher result から `SourceChanged` / `InstallDestinationOverlayChanged` / `WarningPresentationChanged` / `MaintenancePresentationChanged` の effect、owned collection version、kind 別 storage row coverage を運ぶ。ViewModel はこの notification version range を消費し、source generation、source view refresh、overlay transient state、warning / maintenance sort-key invalidation、BMS row cache prune、bmson row cache sync の判定を setter 副作用から切り離している。`NormalLibraryRefreshNotificationVersion` handler が source refresh と storage row cache sync の normal view 入口であり、`BMSFiles` / `BmsonSongs` property handler は normal view cleanup 用には登録しない。resource warning ignore / unignore、chart_info / zero-note producer 由来の warning 表示更新、manual resource maintenance producer 由来の warning / maintenance 表示更新、internal storage / digest mutation 由来の warning subset 表示更新は dispatcher 経由の effect に寄せる。duplicate / garbled hydration などの互換表示 refresh も dispatcher effect へ寄せ、外部 storage replacement だけ setter reset barrier で扱う。
 
 mutation result は少なくとも次を表現する。
 
 - added charts: install / upsert により新しく owned collection に入った chart。
 - removed charts: unregister / delete / merge source removal で collection から消えた chart。
 - moved charts: old path と new path の対応が取れる chart。kind、old directory、new directory、old primary hash、new primary hash を保持する。
-- hash changed charts: md5 / sha256 / primary lookup hash が変わった chart。path が同じでも hash index は更新する。
+- digest updated charts: chart_info inline / backfill により storage owner の md5 / sha256 / primary lookup hash が変わった chart。path が同じでも hash index は更新する。pathless digest update event は invariant violation であり、full invalidate fallback で隠さない。
 - install destination changed charts: storage owner ではなく runtime overlay / pending state が変わった chart。
 - maintenance affected charts: resource refs / maintenanceInfo / ignore state の更新により resource health index の delta 対象になった chart。
 - invalidation flags: delta が表現不能、external full replacement、cache 未構築、または rollback 後に full invalidate が必要な派生 index。
 
-mutation result は rich `ChartFile` list を必須にしない。path / hash / owner / kind だけで足りる派生 index には lightweight entry を渡し、resource health や maintenance のように resource references が必要な index だけ subset `ChartFile` target を作る。
+mutation result は rich `ChartFile` list を必須にしない。path / digest / owner / kind だけで足りる派生 index には lightweight entry を渡し、resource health や maintenance のように resource references が必要な index だけ subset `ChartFile` target を作る。
 
 処理順は固定する。
 
-1. mutation payload から必要な old-side lightweight entry / one-shot chart snapshot を作る。old path / old hash が必要な index のため、storage row を変更する前に取得する。
+1. mutation payload から必要な old-side lightweight entry / one-shot chart snapshot を作る。old path / old digest が必要な index のため、storage row を変更する前に取得する。
 2. storage row owner を更新する。internal mutation は public setter ではなく BMSLibrary の core mutation helper を通すため、setter 由来の full invalidation / property notification は発生しない。`BmsLibraryStateApplier` は DB / installed package / pending package の applier 境界に限定し、`BMSFiles` / `BmsonSongs` collection writeback は BMSLibrary の mutation apply 内で行う。
 3. owned chart collection に mutation を適用し、normalized mutation result を得る。owned collection が未構築なら index を構築せず、result は lazy full invalidate または no-op とする。
 4. dispatcher が mutation result を派生 index へ配布する。差分更新できる index は差分更新し、表現できない index は full invalidate する。
@@ -726,12 +727,12 @@ mutation result は rich `ChartFile` list を必須にしない。path / hash / 
 
 cache 未構築時に mutation が来ても、その index を build してはいけない。未構築 index は「次回利用時 full build」または「既に dirty のまま」を維持する。これにより startup / install / merge の repeated mutation で不要な prewarm が増えない。install upsert で installed lookup が構築済みの場合、置換される old entry は `BMSFiles` / `BmsonSongs` を都度 scan せず、owned collection の path exact view から取得する。lookup 未構築時はこのために installed lookup / owned path index を新規 build せず、metadata cache invalidate だけを mutation result に残す。
 
-owned collection の currentness は storage row collection version で判定する。外部 setter / DB reload は version を進めて full invalidate し、internal mutation は storage row owner 更新と owned collection mutation を同じ boundary で行った後、owned collection に処理済み version を記録する。したがって owned view / index 取得のたびに `BMSFiles` / `BmsonSongs` と owned collection を全件照合しない。storage row collection の参照と version は同一 lock 境界で capture / update し、incremental mutation は適用前 version と owned collection の記録 version が一致する場合だけ適用する。処理済み version を記録できるのは、owned mutation が storage rows の同じ projection を表現している場合だけである。file scan のように next rows 丸ごと置換を受け取る経路は、owned collection 本体も next rows snapshot から置き換える。storage owner object の warning / maintenance など owner property の projection は owner reference から current value を読むが、path / hash は `LibraryChartRefIndexSnapshot` や installed lookup などの隣接 index にも入るため、path / hash mutation は dispatcher payload として同期する。`BMSFiles` / `BmsonSongs` の public getter は read-only view を返し、collection の add / remove / reorder は setter または internal mutation helper を通す。
+owned collection の currentness は storage row collection version で判定する。外部 setter / DB reload は version を進めて full invalidate し、internal mutation は storage row owner 更新と owned collection mutation を同じ boundary で行った後、owned collection に処理済み version を記録する。したがって owned view / index 取得のたびに `BMSFiles` / `BmsonSongs` と owned collection を全件照合しない。storage row collection の参照と version は同一 lock 境界で capture / update し、incremental mutation は適用前 version と owned collection の記録 version が一致する場合だけ適用する。処理済み version を記録できるのは、owned mutation が storage rows の同じ projection を表現している場合だけである。file scan のように next rows 丸ごと置換を受け取る経路は、owned collection 本体も next rows snapshot から置き換える。storage owner object の warning / maintenance など owner property の projection は owner reference から current value を読むが、path / digest は `LibraryChartRefIndexSnapshot` や installed lookup などの隣接 index にも入るため、path mutation / digest update は dispatcher payload として同期する。`BMSFiles` / `BmsonSongs` の public getter は read-only view を返し、collection の add / remove / reorder は setter または internal mutation helper を通す。
 
 full invalidate に落とす条件も固定する。
 
 - `BMSFiles` / `BmsonSongs` の丸ごと置換。
-- delta が old path / new path / hash / owner identity の対応を持たない。
+- delta が old path / new path / digest / owner identity の対応を持たない。
 - mutation 中に storage owner identity が外部から差し替わり、owned collection の current entry と対応しない。
 - 派生 index が未対応の mutation kind を受けた。
 - exception / rollback が発生した。
@@ -769,7 +770,7 @@ folder operation service へ渡す入力も、full library ref snapshot では�
 
 index は collection mutation に同期して差分更新する。丸ごと DB reload、外部 setter による collection replacement、表現できない mutation だけ full invalidate / rebuild に落とす。
 
-installed lookup は owned collection の current installed source に隣接する hash/directory/path index として扱う。初回 build は `BMSFiles` / `BmsonSongs` を直接列挙せず、owned collection の lightweight entry view から行う。mutation では unregister / install upsert / merge path change / folder move を add / remove / move / hash change として表現し、表現できない外部 replacement だけ full invalidate する。API は `IPrimaryHashLookup` と `IInstalledChartLookupIndex` の用途を分け、重複 skip や安全削除は primary hash lookup、install destination 推定は directory lookup snapshot を読む。primary hash から修復候補 path や resource-only merge display の候補 path だけを引く用途は state の隣接 path lookup を使い、directory snapshot に全 path list を載せて重くしない。
+installed lookup は owned collection の current installed source に隣接する hash/directory/path index として扱う。初回 build は `BMSFiles` / `BmsonSongs` を直接列挙せず、owned collection の lightweight entry view から行う。mutation では unregister / install upsert / merge path change / folder move を add / remove / move / digest update として表現し、表現できない外部 replacement だけ full invalidate する。API は `IPrimaryHashLookup` と `IInstalledChartLookupIndex` の用途を分け、重複 skip や安全削除は primary hash lookup、install destination 推定は directory lookup snapshot を読む。primary hash から修復候補 path や resource-only merge display の候補 path だけを引く用途は state の隣接 path lookup を使い、directory snapshot に全 path list を載せて重くしない。
 
 playlist detail resolve index は owned collection の current hash / path / representative rule に隣接する index として扱う。ViewModel は md5 / sha256 辞書を構築する責務を持たず、playlist entry の md5 / sha256 と filter 種別だけを渡して解決結果を受け取る。index は md5 と sha256 の両方を持つが、解決は md5 優先、sha256 fallback とし、同一 hash の代表は path 昇順最小で固定する。代表選択を ViewModel に残すと model 側の owned collection と UI cache が別々の正本になりやすいため、代表選択は model/index 側へ移す。
 
@@ -783,22 +784,22 @@ dispatcher は mutation result を受け取り、各 index に同じ変更内容
 
 | 派生 index / cache | mutation result から見る内容 | 差分不可時 |
 | :--- | :--- | :--- |
-| installed lookup | added / removed / moved / hash changed の lightweight path/hash entry | 構築済みなら delta apply。未構築なら build しない。表現不能なら invalidate。 |
-| primary hash -> path lookup | added / removed / moved / hash changed | installed lookup と同じ state に同居させ、candidate path lookup だけを返す。 |
+| installed lookup | added / removed / moved / digest updated の lightweight path/hash entry | 構築済みなら delta apply。未構築なら build しない。表現不能なら invalidate。pathless digest update event は異常系として検出する。 |
+| primary hash -> path lookup | added / removed / moved / digest updated | installed lookup と同じ state に同居させ、candidate path lookup だけを返す。 |
 | real path directory view / subtree counts | added / removed / moved の real path directory | affected directory bucket を更新。表現不能なら directory view invalidate。 |
 | owner/path canonical lookup | added / removed / moved / storage owner replace | affected owner/path key を更新。ambiguous path は canonical lookup 側の規則で扱う。 |
 | install destination overlay directory view | install destination changed / removed / moved / storage owner removed | overlay key を更新し、current owned key に存在しない runtime state を prune。 |
 | parent folder cache | added / removed / moved の real path root / parent directory | 当面は cache invalidate。将来 affected parent だけ更新してよい。 |
-| playlist summary owned hash snapshot | added / removed / hash changed | affected md5 / sha256 bucket 更新。表現不能なら snapshot invalidate。 |
-| playlist detail resolve index | added / removed / moved / hash changed / pathless state changed | affected hash bucket と representative path を更新。表現不能なら snapshot invalidate。 |
-| playlist reference apply hash subset | hash changed / added / removed | affected hash subset を更新または invalidate。 |
-| chart_info parse failure md5 subset | hash changed / warning state changed / owner removed | subset invalidate。chart_info producer の結果は chart_info index 側を正本にする。 |
+| playlist summary owned hash snapshot | added / removed / digest updated | affected md5 / sha256 bucket 更新。表現不能なら snapshot invalidate。 |
+| playlist detail resolve index | added / removed / moved / digest updated / pathless state changed | affected hash bucket と representative path を更新。表現不能なら snapshot invalidate。 |
+| playlist reference apply hash subset | digest updated / added / removed | affected hash subset を更新または invalidate。 |
+| chart_info parse failure md5 subset | digest updated / warning state changed / owner removed | subset invalidate。chart_info producer の結果は chart_info index 側を正本にする。 |
 | resource health warning index | added / removed / moved / maintenance affected / ignore changed | current snapshot に delta apply。resource refs が必要で subset target がない場合は invalidate / defer。 |
 | resource maintenance target view | explicit full maintenance / subset maintenance input | full target は明示 full operation のみ。通常 mutation は subset target を渡す。 |
-| duplicate groups cache | added / removed / moved / hash changed / duplicate warning changed | 当面は duplicate cache invalidate。dirty signal は `DuplicateChartGroupsInvalidationVersion`、result replacement は `DuplicateChartGroups` property change に分ける。incremental duplicate group update は後続最適化でよい。 |
+| duplicate groups cache | added / removed / moved / digest updated / duplicate warning changed | 当面は duplicate cache invalidate。dirty signal は `DuplicateChartGroupsInvalidationVersion`、result replacement は `DuplicateChartGroups` property change に分ける。incremental duplicate group update は後続最適化でよい。 |
 | normal library source / sort-key generation | added / removed / moved / source identity changed / displayed warning changed | source generation は owned collection version ごとに一度だけ消費する。install destination overlay だけの変更は source generation を進めず、sort-key invalidation と表示 refresh に閉じる。full regular row fallback は使わない。 |
 
-dispatcher の log は、全 index に個別詳細 log を増やすのではなく、mutation result と更新結果の summary を 1 つ出す。例: `owned_collection_mutation_dispatch reason=merge_folder added=0 removed=6 moved=0 hashChanged=0 installedLookup=delta parentFolder=invalidate duplicate=invalidate resourceHealth=defer elapsedMs=...`。各 index の既存 performance log は、full build / incremental update / unexpected full invalidate のように意味がある場合だけ残す。
+dispatcher の log は、全 index に個別詳細 log を増やすのではなく、mutation result と更新結果の summary を 1 つ出す。例: `owned_collection_mutation_dispatch reason=merge_folder added=0 removed=6 moved=0 digestChanged=0 installedLookup=delta parentFolder=invalidate duplicate=invalidate resourceHealth=defer elapsedMs=...`。各 index の既存 performance log は、full build / incremental update / unexpected full invalidate のように意味がある場合だけ残す。
 
 ### 進捗状況
 
@@ -820,7 +821,7 @@ dispatcher の log は、全 index に個別詳細 log を増やすのではな�
 - **通常 library fallback の扱い**: `CreateStandardLibraryChartSnapshot(...)` は削除済みで、通常経路として維持しない。sortable column は `ChartListOrder` 登録を必須にし、未登録列は UI で sort 不可にする。未登録 sort request が届いた場合の production 挙動は default title sort へ戻して warning/error log を出す。全件 `ChartFile` materialize fallback で隠さない。
 - **sortable column coverage の検証方法**: `CustomTableColumn.SortMemberPath` のうち通常 library で表示される列と、`ChartListOrder.GetVirtualSortColumnMetadata()` の対応をテストで検証する。playlist detail / playlist summary 専用列は別 sort engine の責務として除外する。列設定互換や非表示列でも、sort 可能として残るなら登録が必要である。
 - **playlist detail resolve index の所有場所**: md5 / sha256 辞書と representative selection は ViewModel ではなく BMSLibrary / owned collection 隣接 index に置く。代表選択は path 昇順最小、解決順は md5 優先 / sha256 fallback、pathless owned chart は kind に関係なく owned 判定から除外する。ViewModel は model 側の `PlaylistLibraryResolveIndexSnapshot` を取得し、version / prewarm cache / readiness 表示だけを扱う。
-- **playlist index invalidation boundary**: library charts / bmson changes だけでなく、hash 変更、path 変更、owned collection rebuild、chart digest backfill 後の hash currentness で index を invalidate する。delta で hash / path change が表現できる場合は affected hash bucket だけを更新し、表現できない場合は full invalidate する。`LibraryChartRef` は current owner hash を読むため stale hash を避けられるが、representative path / pathless owned chart 除外は index snapshot の責務になる。
+- **playlist index invalidation boundary**: library charts / bmson changes だけでなく、digest update、path 変更、owned collection rebuild、chart digest backfill 後の hash currentness で index を invalidate する。delta で digest / path change が表現できる場合は affected hash bucket だけを更新し、表現できない場合は full invalidate する。`LibraryChartRef` は current owner hash を読むため stale hash を避けられるが、representative path / pathless owned chart 除外は index snapshot の責務になる。
 - **resource health currentness**: `ChartFilesNeedResourceFix` / ignored view は current `ResourceHealthIndexSnapshot` を正本にする。full resource target を作ってよい条件は、force rescan / explicit full rebuild / index invalidated に限定する。
 - **direct storage row enumeration の許容範囲**: 通常一覧 virtual source row は ViewModel read model boundary として storage owner から direct source row を作ってよい。ただし BMS / bmson 混在 lookup / snapshot / refs を作るために `BMSFiles` + `BmsonSongs` を caller 側で結合するのは不可とする。
 - **dispatcher を迂回する個別更新の扱い**: setter invalidation は external full replacement 境界に限定する。既存の stateApplier callback は DB / installed package / pending package 適用の applier 境界として残してよいが、新規 index 同期は dispatcher に置く。internal mutation の二重 invalidate は suppression scope で隠さず、public setter を通らない core mutation helper と `OwnedChartCollectionMutationResult` の reason / effect で表現する。
@@ -836,7 +837,7 @@ dispatcher の log は、全 index に個別詳細 log を増やすのではな�
 - bmson は warning collection を storage row に持たない。duplicate / resource / install destination warning は projection state として扱う。
 - install destination は storage row 永続列ではなく chart-common runtime / pending state である。owned chart collection と ViewModel transient state の key がずれないようにする。
 - path move / folder merge / repair fix では、old path と new path の両方を mutation payload に残す。BMS と bmson で DB update safety check の前提が違うため、storage owner へ降りる直前まで kind を保持する。
-- collection mutation result を作る前に old-side 情報を失わない。storage row owner を先に書き換えると old directory / old hash が取れなくなるため、move / hash change / install destination change は pre-mutation capture を必須にする。
+- collection mutation result を作る前に old-side 情報を失わない。storage row owner を先に書き換えると old directory / old digest が取れなくなるため、move / digest update / install destination change は pre-mutation capture を必須にする。
 - playlist reference、chart_info、score はそれぞれ専用 index / provider を正本にする。owned chart collection に短命 hydration result を attach して producer boundary を曖昧にしない。
 - 21万譜面規模では per-chart object / dictionary の増加が効く。owned chart collection 導入時は memory、startup、main view first render、merge / install の repeated mutation log を必ず見る。特に「full `ChartFile` materialize 回数」と「full materialize 後に caller 側で filter していないか」を確認する。
 - `ChartFile` を通すこと自体を目的にしない。BMS-only / bmson-only の処理は storage owner 境界を保ち、BMS + bmson 混在処理だけ owned chart view / chart projection へ寄せる。

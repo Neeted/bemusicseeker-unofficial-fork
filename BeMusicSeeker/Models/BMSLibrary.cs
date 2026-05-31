@@ -5350,11 +5350,11 @@ completeFileEnumerationOnce,
         {
             if (completed)
             {
-                DispatchOwnedChartHashChanges(result.HashChanges, reason ?? "install_package_inline");
+                DispatchOwnedChartDigestChanges(result.DigestChanges, reason ?? "install_package_inline");
             }
             else
             {
-                DispatchOwnedPotentialHashChanges(targetCharts, (reason ?? "install_package_inline") + "_failed");
+                DispatchOwnedPotentialDigestChanges(targetCharts, (reason ?? "install_package_inline") + "_failed");
             }
         }
     }
@@ -5413,14 +5413,14 @@ completeFileEnumerationOnce,
             }
             catch (Exception ex)
             {
-                DispatchOwnedPotentialHashChanges(chartSnapshot, "chart_info_backfill_hash_failed");
+                DispatchOwnedPotentialDigestChanges(chartSnapshot, "chart_info_backfill_digest_failed");
                 LogInstallPerformance("chart_info_backfill failed version=" + requestVersion + " message=" + ex.Message);
             }
             finally
             {
                 if (result != null)
                 {
-                    DispatchOwnedChartHashChanges(result.HashChanges, "chart_info_backfill_hash");
+                    DispatchOwnedChartDigestChanges(result.DigestChanges, "chart_info_backfill_digest");
                 }
                 ChartInfoBackfillCurrentPath = string.Empty;
                 ChartInfoBackfillDigestBackfilledCount = result?.DigestBackfilledCount ?? 0;
@@ -6558,7 +6558,7 @@ completeFileEnumerationOnce,
     {
         public OwnedChartCollectionStorageMutation StorageMutation { get; } = new();
 
-        public List<LibraryChartHashChange> HashChanges { get; } = [];
+        public List<LibraryChartDigestChange> DigestChanges { get; } = [];
 
         public InstalledChartLookupMutation InstalledLookupMutation { get; set; } = new();
 
@@ -6574,7 +6574,7 @@ completeFileEnumerationOnce,
 
         public int MovedCount { get; set; }
 
-        public int HashChangedCount => HashChanges.Count;
+        public int DigestChangedCount => DigestChanges.Count;
 
         public int InstallDestinationChangedCount { get; set; }
 
@@ -6619,7 +6619,7 @@ completeFileEnumerationOnce,
         public bool HasLoggableChanges => AddedCount > 0
             || RemovedCount > 0
             || MovedCount > 0
-            || HashChangedCount > 0
+            || DigestChangedCount > 0
             || InstallDestinationChangedCount > 0
             || InstalledPackagePathChangedCount > 0
             || ParentFolderInvalidated
@@ -7784,17 +7784,17 @@ completeFileEnumerationOnce,
         result.ResourceHealthMutation.InvalidateIfDeltaFails = true;
     }
 
-    private OwnedChartCollectionMutationResult BuildOwnedChartCollectionHashMutationResult(
-        IEnumerable<LibraryChartHashChange> hashChanges,
+    private OwnedChartCollectionMutationResult BuildOwnedChartCollectionDigestMutationResult(
+        IEnumerable<LibraryChartDigestChange> digestChanges,
         bool resourceHealthIndexInvalidated = true)
     {
-        List<LibraryChartHashChange> changes = [.. (hashChanges ?? []).Where(change => change?.HasHashChange == true)];
+        List<LibraryChartDigestChange> changes = [.. (digestChanges ?? []).Where(change => change?.HasDigestChange == true)];
         bool anyChanges = changes.Count > 0;
         bool primaryHashChanged = changes.Any(change => change.PrimaryHashChanged);
         bool md5Changed = changes.Any(change => change.Md5Changed);
         var result = new OwnedChartCollectionMutationResult
         {
-            InstalledLookupMutation = BuildInstalledChartLookupHashMutation(changes),
+            InstalledLookupMutation = BuildInstalledChartLookupDigestMutation(changes),
             InstallEstimationMetadataProfileCacheInvalidated = anyChanges,
             DuplicateCacheInvalidated = primaryHashChanged,
             PlaylistSummaryOwnedHashInvalidated = anyChanges,
@@ -7804,11 +7804,11 @@ completeFileEnumerationOnce,
             BmsFilesStorageRowsChanged = changes.Any(change => change.Kind == LibraryChartKind.Bms),
             BmsonSongsStorageRowsChanged = changes.Any(change => change.Kind == LibraryChartKind.Bmson)
         };
-        result.HashChanges.AddRange(changes);
+        result.DigestChanges.AddRange(changes);
         return result;
     }
 
-    private OwnedChartCollectionMutationResult BuildOwnedChartCollectionPotentialHashMutationResult(
+    private OwnedChartCollectionMutationResult BuildOwnedChartCollectionPotentialDigestMutationResult(
         IEnumerable<ChartFile> charts,
         bool resourceHealthIndexInvalidated = true)
     {
@@ -7832,14 +7832,10 @@ completeFileEnumerationOnce,
     }
 
     private OwnedChartCollectionMutationResult BuildOwnedChartCollectionMaintenanceMutationResult(
-        IEnumerable<LibraryChartHashChange> hashChanges,
         ResourceHealthIndexMutation resourceHealthMutation,
         bool workflowHasUpdates)
     {
-        bool hasExplicitResourceHealthMutation = resourceHealthMutation?.HasChanges == true;
-        OwnedChartCollectionMutationResult result = BuildOwnedChartCollectionHashMutationResult(
-            hashChanges,
-            resourceHealthIndexInvalidated: !hasExplicitResourceHealthMutation);
+        var result = new OwnedChartCollectionMutationResult();
         CopyResourceHealthIndexMutation(resourceHealthMutation, result.ResourceHealthMutation);
         bool resourceHealthChanged = result.ResourceHealthMutation.HasChanges;
         result.WarningPresentationChanged |= resourceHealthChanged;
@@ -7935,7 +7931,7 @@ completeFileEnumerationOnce,
                 + " added=" + result.AddedCount
                 + " removed=" + result.RemovedCount
                 + " moved=" + result.MovedCount
-                + " hashChanged=" + result.HashChangedCount
+                + " digestChanged=" + result.DigestChangedCount
                 + " installDestinations=" + result.InstallDestinationChangedCount
                 + " installedPackagePaths=" + result.InstalledPackagePathChangedCount
                 + " installedLookup=" + ToMutationDispatchLogValue(result.InstalledLookupMutation)
@@ -7967,23 +7963,23 @@ completeFileEnumerationOnce,
         mutation.FullOwnedTargetSet = mutation.FullOwnedTargetSet.WithOwnedCollectionVersion(result.OwnedCollectionVersion);
     }
 
-    private void DispatchOwnedChartHashChanges(
-        IEnumerable<LibraryChartHashChange> hashChanges,
+    private void DispatchOwnedChartDigestChanges(
+        IEnumerable<LibraryChartDigestChange> digestChanges,
         string reason,
         bool resourceHealthIndexInvalidated = true)
     {
-        OwnedChartCollectionMutationResult mutationResult = BuildOwnedChartCollectionHashMutationResult(
-            hashChanges,
+        OwnedChartCollectionMutationResult mutationResult = BuildOwnedChartCollectionDigestMutationResult(
+            digestChanges,
             resourceHealthIndexInvalidated);
         DispatchOwnedChartCollectionMutation(mutationResult, reason);
     }
 
-    private void DispatchOwnedPotentialHashChanges(
+    private void DispatchOwnedPotentialDigestChanges(
         IEnumerable<ChartFile> charts,
         string reason,
         bool resourceHealthIndexInvalidated = true)
     {
-        OwnedChartCollectionMutationResult mutationResult = BuildOwnedChartCollectionPotentialHashMutationResult(
+        OwnedChartCollectionMutationResult mutationResult = BuildOwnedChartCollectionPotentialDigestMutationResult(
             charts,
             resourceHealthIndexInvalidated);
         DispatchOwnedChartCollectionMutation(mutationResult, reason);
@@ -8167,22 +8163,21 @@ completeFileEnumerationOnce,
         return new InstalledChartLookupMutationEntry(chart?.Path, chart?.Md5, chart?.Sha256);
     }
 
-    private static InstalledChartLookupMutation BuildInstalledChartLookupHashMutation(IEnumerable<LibraryChartHashChange> hashChanges)
+    private static InstalledChartLookupMutation BuildInstalledChartLookupDigestMutation(IEnumerable<LibraryChartDigestChange> digestChanges)
     {
         var mutation = new InstalledChartLookupMutation();
-        foreach (LibraryChartHashChange hashChange in hashChanges ?? [])
+        foreach (LibraryChartDigestChange digestChange in digestChanges ?? [])
         {
-            if (hashChange?.HasHashChange != true)
+            if (digestChange?.HasDigestChange != true)
             {
                 continue;
             }
-            if (string.IsNullOrWhiteSpace(hashChange.Path))
+            if (string.IsNullOrWhiteSpace(digestChange.Path))
             {
-                mutation.RequiresFullInvalidate = true;
-                continue;
+                throw new InvalidOperationException("Owned chart digest changes require a current owner path.");
             }
-            mutation.Removed.Add(new InstalledChartLookupMutationEntry(hashChange.Path, hashChange.OldMd5, hashChange.OldSha256));
-            mutation.Added.Add(new InstalledChartLookupMutationEntry(hashChange.Path, hashChange.NewMd5, hashChange.NewSha256));
+            mutation.Removed.Add(new InstalledChartLookupMutationEntry(digestChange.Path, digestChange.OldMd5, digestChange.OldSha256));
+            mutation.Added.Add(new InstalledChartLookupMutationEntry(digestChange.Path, digestChange.NewMd5, digestChange.NewSha256));
         }
         return mutation;
     }
@@ -9717,7 +9712,6 @@ completeFileEnumerationOnce,
         }
         catch
         {
-            DispatchOwnedPotentialHashChanges(maintenanceTargetCharts, "maintenance_hash_changed_failed");
             throw;
         }
         currentMaintenanceTargetCharts = maintenanceTargetCharts;
@@ -9732,7 +9726,6 @@ completeFileEnumerationOnce,
             ? "setMaintenanceInfo"
             : resourceHealthMutationReason;
         OwnedChartCollectionMutationResult mutationResult = BuildOwnedChartCollectionMaintenanceMutationResult(
-            workflowResult.HashChanges,
             resourceHealthMutation,
             workflowResult.HasUpdates);
         try

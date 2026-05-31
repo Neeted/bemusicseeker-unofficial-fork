@@ -61,7 +61,7 @@ internal sealed class ChartInfoBuildTarget
     internal int ApplyDigest(
         string sha256,
         ICollection<BMSFile> completedDigestFiles,
-        ICollection<LibraryChartHashChange> hashChanges = null)
+        ICollection<LibraryChartDigestChange> digestChanges = null)
     {
         if (string.IsNullOrWhiteSpace(sha256))
         {
@@ -71,7 +71,7 @@ internal sealed class ChartInfoBuildTarget
         int applied = 0;
         foreach (ChartFile chart in charts)
         {
-            applied += ChartStorageOwnerMutator.ApplyMissingBmsSha256(chart, sha256, completedDigestFiles, hashChanges);
+            applied += ChartStorageOwnerMutator.ApplyMissingBmsSha256(chart, sha256, completedDigestFiles, digestChanges);
         }
 
         return applied;

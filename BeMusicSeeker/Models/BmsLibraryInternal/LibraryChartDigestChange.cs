@@ -2,7 +2,7 @@ using BeMusicSeeker.Models.LR2;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
-internal sealed class LibraryChartHashChange(
+internal sealed class LibraryChartDigestChange(
     LibraryChartKind kind,
     string path,
     string oldMd5,
@@ -12,7 +12,7 @@ internal sealed class LibraryChartHashChange(
 {
     public LibraryChartKind Kind { get; } = kind;
 
-    public string Path { get; } = path;
+    public string Path { get; } = RequireOwnedPath(path);
 
     public string OldMd5 { get; } = oldMd5;
 
@@ -22,7 +22,7 @@ internal sealed class LibraryChartHashChange(
 
     public string NewSha256 { get; } = newSha256;
 
-    public bool HasHashChange => !string.Equals(OldMd5, NewMd5, System.StringComparison.OrdinalIgnoreCase)
+    public bool HasDigestChange => !string.Equals(OldMd5, NewMd5, System.StringComparison.OrdinalIgnoreCase)
         || !string.Equals(OldSha256, NewSha256, System.StringComparison.OrdinalIgnoreCase);
 
     public bool Md5Changed => !string.Equals(OldMd5, NewMd5, System.StringComparison.OrdinalIgnoreCase);
@@ -34,11 +34,11 @@ internal sealed class LibraryChartHashChange(
         SelectPrimaryHash(NewMd5, NewSha256),
         System.StringComparison.OrdinalIgnoreCase);
 
-    public static LibraryChartHashChange FromBms(BMSFile file, string oldMd5, string oldSha256)
+    public static LibraryChartDigestChange FromBms(BMSFile file, string oldMd5, string oldSha256)
     {
         return file == null
             ? null
-            : new LibraryChartHashChange(
+            : new LibraryChartDigestChange(
                 LibraryChartKind.Bms,
                 file.path,
                 oldMd5,
@@ -47,11 +47,11 @@ internal sealed class LibraryChartHashChange(
                 file.sha256);
     }
 
-    public static LibraryChartHashChange FromBmson(LR2SongDBExtended.bmson_song song, string oldMd5, string oldSha256)
+    public static LibraryChartDigestChange FromBmson(LR2SongDBExtended.bmson_song song, string oldMd5, string oldSha256)
     {
         return song == null
             ? null
-            : new LibraryChartHashChange(
+            : new LibraryChartDigestChange(
                 LibraryChartKind.Bmson,
                 song.path,
                 oldMd5,
@@ -65,5 +65,12 @@ internal sealed class LibraryChartHashChange(
         return !string.IsNullOrWhiteSpace(md5)
             ? md5.Trim()
             : string.IsNullOrWhiteSpace(sha256) ? null : sha256.Trim();
+    }
+
+    private static string RequireOwnedPath(string path)
+    {
+        return !string.IsNullOrWhiteSpace(path)
+            ? path
+            : throw new System.InvalidOperationException("Owned chart digest changes require a current owner path.");
     }
 }
