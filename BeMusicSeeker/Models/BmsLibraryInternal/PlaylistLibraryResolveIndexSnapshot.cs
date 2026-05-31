@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Linq;
 using BeMusicSeeker.Models.LR2;
 
@@ -18,14 +19,46 @@ internal sealed class PlaylistLibraryResolveIndexSnapshot
         Dictionary<string, LibraryChartRef> chartsByMd5,
         Dictionary<string, LibraryChartRef> chartsBySha256)
     {
-        ChartsByMd5 = chartsByMd5 ?? new Dictionary<string, LibraryChartRef>(StringComparer.OrdinalIgnoreCase);
-        ChartsBySha256 = chartsBySha256 ?? new Dictionary<string, LibraryChartRef>(StringComparer.OrdinalIgnoreCase);
+        ChartsByMd5 = new ReadOnlyDictionary<string, LibraryChartRef>(
+            chartsByMd5 ?? new Dictionary<string, LibraryChartRef>(StringComparer.OrdinalIgnoreCase));
+        ChartsBySha256 = new ReadOnlyDictionary<string, LibraryChartRef>(
+            chartsBySha256 ?? new Dictionary<string, LibraryChartRef>(StringComparer.OrdinalIgnoreCase));
     }
 
     /// <summary>
     /// 空の resolve index です。
     /// </summary>
     internal static PlaylistLibraryResolveIndexSnapshot Empty => empty;
+
+    /// <summary>
+    /// BMSLibrary cache 内の snapshot 版数です。
+    /// </summary>
+    internal int Version { get; set; }
+
+    /// <summary>
+    /// snapshot build に要した時間です。
+    /// </summary>
+    internal long BuildElapsedMs { get; set; }
+
+    /// <summary>
+    /// build 開始時点の invalidation 版数です。
+    /// </summary>
+    internal int InvalidationVersion { get; set; }
+
+    /// <summary>
+    /// build 元の owned collection 版数です。
+    /// </summary>
+    internal int OwnedCollectionVersion { get; set; }
+
+    /// <summary>
+    /// build 元の BMS storage rows 版数です。
+    /// </summary>
+    internal int BmsRowsVersion { get; set; }
+
+    /// <summary>
+    /// build 元の bmson storage rows 版数です。
+    /// </summary>
+    internal int BmsonRowsVersion { get; set; }
 
     /// <summary>
     /// MD5 から代表 chart を解決する index です。
@@ -121,18 +154,19 @@ internal sealed class PlaylistLibraryResolveIndexSnapshot
         Dictionary<string, LibraryChartRef> chartsBySha256,
         LibraryChartRef chart)
     {
-        if (chart == null || string.IsNullOrWhiteSpace(chart.Path) || string.IsNullOrWhiteSpace(chart.Md5))
+        LibraryChartRef immutableChart = LibraryChartRef.FromImmutableSnapshot(chart);
+        if (immutableChart == null || string.IsNullOrWhiteSpace(immutableChart.Path) || string.IsNullOrWhiteSpace(immutableChart.Md5))
         {
             return;
         }
-        chartsByMd5[chart.Md5] = ChoosePreferredRepresentative(
-            chartsByMd5.TryGetValue(chart.Md5, out LibraryChartRef existingByMd5) ? existingByMd5 : null,
-            chart);
-        if (!string.IsNullOrWhiteSpace(chart.Sha256))
+        chartsByMd5[immutableChart.Md5] = ChoosePreferredRepresentative(
+            chartsByMd5.TryGetValue(immutableChart.Md5, out LibraryChartRef existingByMd5) ? existingByMd5 : null,
+            immutableChart);
+        if (!string.IsNullOrWhiteSpace(immutableChart.Sha256))
         {
-            chartsBySha256[chart.Sha256] = ChoosePreferredRepresentative(
-                chartsBySha256.TryGetValue(chart.Sha256, out LibraryChartRef existingBySha256) ? existingBySha256 : null,
-                chart);
+            chartsBySha256[immutableChart.Sha256] = ChoosePreferredRepresentative(
+                chartsBySha256.TryGetValue(immutableChart.Sha256, out LibraryChartRef existingBySha256) ? existingBySha256 : null,
+                immutableChart);
         }
     }
 

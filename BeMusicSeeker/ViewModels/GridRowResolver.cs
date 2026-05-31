@@ -45,7 +45,11 @@ internal static class GridRowResolver
     {
         if (row is PlaylistDetailRow playlistDetailRow)
         {
-            file = playlistDetailRow.Chart?.GetBmsStorageOwner();
+            file = playlistDetailRow.BmsStorageOwner ?? playlistDetailRow.Chart?.GetBmsStorageOwner();
+        }
+        else if (row is PlaylistDetailSourceRow playlistSourceRow)
+        {
+            file = playlistSourceRow.BmsPlayerFile ?? playlistSourceRow.Chart?.GetBmsStorageOwner();
         }
         else if (row is LibraryChartRow libraryChartRow)
         {
@@ -118,8 +122,9 @@ internal static class GridRowResolver
             sourceScope = isPlaylistMissing ? ChartOperationSourceScope.PlaylistMissing : ChartOperationSourceScope.PlaylistOwned;
         }
         bool isPending = sourceScope == ChartOperationSourceScope.PendingPackage;
-        ChartOperationCapabilities capabilities = BuildCapabilities(chart, playlistEntry, sourceScope, isPlaylistRow, isOwned, isPlaylistMissing);
-        target = new ChartOperationTarget(chart, playlistEntry, sourceScope, isOwned, isPending, isPlaylistMissing, capabilities, ResolvePackageEntry(row));
+        ChartFile operationChart = ResolveOperationChart(row, chart);
+        ChartOperationCapabilities capabilities = BuildCapabilities(operationChart, playlistEntry, sourceScope, isPlaylistRow, isOwned, isPlaylistMissing);
+        target = new ChartOperationTarget(operationChart, playlistEntry, sourceScope, isOwned, isPending, isPlaylistMissing, capabilities, ResolvePackageEntry(row));
         return true;
     }
 
@@ -228,6 +233,25 @@ internal static class GridRowResolver
     private static PackageChartEntry ResolvePackageEntry(object row)
     {
         return row is LibraryChartRow libraryChartRow ? libraryChartRow.PackageEntry : null;
+    }
+
+    private static ChartFile ResolveOperationChart(object row, ChartFile chart)
+    {
+        if (chart?.Kind == ChartFileKind.Bms
+            && chart.GetBmsStorageOwner() == null
+            && row is PlaylistDetailRow playlistDetailRow
+            && playlistDetailRow.BmsStorageOwner != null)
+        {
+            return ChartFileProjection.FromBmsStorageOwnerIdentity(playlistDetailRow.BmsStorageOwner) ?? chart;
+        }
+        if (chart?.Kind == ChartFileKind.Bms
+            && chart.GetBmsStorageOwner() == null
+            && row is PlaylistDetailSourceRow playlistSourceRow
+            && playlistSourceRow.BmsPlayerFile != null)
+        {
+            return ChartFileProjection.FromBmsStorageOwnerIdentity(playlistSourceRow.BmsPlayerFile) ?? chart;
+        }
+        return chart;
     }
 
     private static ChartOperationCapabilities BuildCapabilities(

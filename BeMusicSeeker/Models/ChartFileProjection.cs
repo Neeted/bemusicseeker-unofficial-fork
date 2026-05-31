@@ -25,6 +25,82 @@ internal static class ChartFileProjection
             warnings);
     }
 
+    internal static ChartFile ToImmutableSnapshot(ChartFile source)
+    {
+        if (source == null)
+        {
+            return null;
+        }
+
+        return new ChartFile(
+            source.Kind,
+            source.Path,
+            source.Md5,
+            source.Sha256,
+            source.Title,
+            source.RawTitle,
+            source.Artist,
+            source.Genre,
+            source.Folder,
+            source.Tag,
+            source.LevelText,
+            source.Level,
+            source.Mode,
+            source.ChartInfo,
+            null,
+            null,
+            source.Subtitle,
+            source.AudioResourcePaths,
+            source.VisualResourcePaths,
+            source.Stagefile,
+            source.Backbmp,
+            source.Banner,
+            source.InstallDestination,
+            source.InstallDestinationTitle,
+            source.InstallDestinationArtist,
+            source.InstallDestinationSuggestions,
+            source.Warnings,
+            source.WAVHealth,
+            source.BGAHealth,
+            source.MovieHealth,
+            source.StagefileHealth,
+            source.BannerHealth,
+            source.BackbmpHealth,
+            source.EncodingName,
+            source.Score,
+            source.Status);
+    }
+
+    internal static ChartFile FromIdentitySnapshot(
+        ChartFileKind kind,
+        string path,
+        string md5,
+        string sha256)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return null;
+        }
+
+        return new ChartFile(
+            kind,
+            path,
+            md5,
+            sha256,
+            string.Empty,
+            string.Empty,
+            string.Empty,
+            string.Empty,
+            null,
+            string.Empty,
+            string.Empty,
+            null,
+            null,
+            null,
+            null,
+            null);
+    }
+
     internal static ChartFile WithTransientState(
         ChartFile source,
         ChartFileTransientState state,

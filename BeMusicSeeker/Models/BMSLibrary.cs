@@ -235,6 +235,21 @@ public class BMSLibrary : NotificationObject
     /// </summary>
     internal sealed class PlaylistSummaryOwnedHashSnapshot
     {
+        private HashSet<string> md5Hashes;
+        private HashSet<string> sha256Hashes;
+        private IReadOnlyCollection<string> md5HashSnapshot;
+        private IReadOnlyCollection<string> sha256HashSnapshot;
+
+        internal PlaylistSummaryOwnedHashSnapshot(
+            HashSet<string> md5Hashes = null,
+            HashSet<string> sha256Hashes = null)
+        {
+            this.md5Hashes = new HashSet<string>(md5Hashes ?? [], StringComparer.OrdinalIgnoreCase);
+            this.sha256Hashes = new HashSet<string>(sha256Hashes ?? [], StringComparer.OrdinalIgnoreCase);
+            md5HashSnapshot = new ReadOnlyCollection<string>([.. this.md5Hashes]);
+            sha256HashSnapshot = new ReadOnlyCollection<string>([.. this.sha256Hashes]);
+        }
+
         internal int Version { get; set; }
 
         internal long BuildElapsedMs { get; set; }
@@ -247,9 +262,23 @@ public class BMSLibrary : NotificationObject
 
         internal int BmsonRowsVersion { get; set; }
 
-        internal HashSet<string> Md5Hashes { get; set; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        internal IReadOnlyCollection<string> Md5Hashes => md5HashSnapshot;
 
-        internal HashSet<string> Sha256Hashes { get; set; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        internal IReadOnlyCollection<string> Sha256Hashes => sha256HashSnapshot;
+
+        internal int Md5Count => md5Hashes.Count;
+
+        internal int Sha256Count => sha256Hashes.Count;
+
+        internal bool ContainsMd5(string md5)
+        {
+            return !string.IsNullOrWhiteSpace(md5) && md5Hashes.Contains(md5);
+        }
+
+        internal bool ContainsSha256(string sha256)
+        {
+            return !string.IsNullOrWhiteSpace(sha256) && sha256Hashes.Contains(sha256);
+        }
     }
 
     /// <summary>
@@ -278,6 +307,22 @@ public class BMSLibrary : NotificationObject
         internal int BmsonRowsVersion { get; set; }
 
         internal int StaleRetryCount { get; set; }
+    }
+
+    /// <summary>
+    /// playlist detail resolve index の runtime cache 状態です。
+    /// </summary>
+    internal sealed class PlaylistLibraryResolveIndexRuntimeState
+    {
+        internal bool IsCached { get; set; }
+
+        internal int SnapshotVersion { get; set; }
+
+        internal long BuildElapsedMs { get; set; }
+
+        internal int InvalidationVersion { get; set; }
+
+        internal int OwnedCollectionVersion { get; set; }
     }
 
     /// <summary>
@@ -1029,6 +1074,18 @@ public class BMSLibrary : NotificationObject
 
     private int playlistSummaryOwnedHashInvalidationOwnedCollectionVersion;
 
+    private readonly object lockPlaylistLibraryResolveIndexSnapshot = new();
+
+    private PlaylistLibraryResolveIndexSnapshot playlistLibraryResolveIndexSnapshot;
+
+    private int playlistLibraryResolveIndexSnapshotVersion;
+
+    private int playlistLibraryResolveIndexInvalidationVersion;
+
+    private int playlistLibraryResolveIndexInvalidationOwnedCollectionVersion;
+
+    private int ownedDigestMutationWindowDepth;
+
     private int chartInfoBackfillRequestedVersion;
 
     private int chartInfoBackfillCompletedVersion;
@@ -1269,10 +1326,12 @@ public class BMSLibrary : NotificationObject
                 using (BeginResourceHealthInputMutation())
                 {
                     InvalidatePlaylistSummaryOwnedHashSnapshot();
+                    InvalidatePlaylistLibraryResolveIndexSnapshot();
                     SetBmsStorageRowsCoreUnsafe(normalized);
                     InvalidateOwnedChartCollection();
                     int ownedCollectionVersion = NotifyOwnedChartCollectionChanged();
                     InvalidatePlaylistSummaryOwnedHashSnapshot(ownedCollectionVersion);
+                    InvalidatePlaylistLibraryResolveIndexSnapshot(ownedCollectionVersion);
                     PublishExternalReplacementNormalLibraryRefreshNotification(
                         notifiesBmsFiles: true,
                         notifiesBmsonSongs: false);
@@ -1360,10 +1419,12 @@ public class BMSLibrary : NotificationObject
                 using (BeginResourceHealthInputMutation())
                 {
                     InvalidatePlaylistSummaryOwnedHashSnapshot();
+                    InvalidatePlaylistLibraryResolveIndexSnapshot();
                     SetBmsonStorageRowsCoreUnsafe(normalized);
                     InvalidateOwnedChartCollection();
                     int ownedCollectionVersion = NotifyOwnedChartCollectionChanged();
                     InvalidatePlaylistSummaryOwnedHashSnapshot(ownedCollectionVersion);
+                    InvalidatePlaylistLibraryResolveIndexSnapshot(ownedCollectionVersion);
                     PublishExternalReplacementNormalLibraryRefreshNotification(
                         notifiesBmsFiles: false,
                         notifiesBmsonSongs: true);
@@ -5393,59 +5454,62 @@ completeFileEnumerationOnce,
             return result;
         }
 
-        try
+        using (BeginOwnedDigestMutationWindow())
         {
-            var inlineBuildService = new ChartInfoInlineBuildService(
-                chartInfoBuildService,
-                BmsLibraryInitializationService.ResolveDefaultFileDiffParserDegree());
-            result = inlineBuildService.BuildForExistingCharts(
-                dbGateway,
-                targetCharts,
-                LogInstallPerformance,
-                LogInstallPerformanceWarn);
-            if (storageTargets.BmsFiles.Count > 0)
+            try
             {
-                dbGateway.UpsertSongs(storageTargets.BmsFiles);
+                var inlineBuildService = new ChartInfoInlineBuildService(
+                    chartInfoBuildService,
+                    BmsLibraryInitializationService.ResolveDefaultFileDiffParserDegree());
+                result = inlineBuildService.BuildForExistingCharts(
+                    dbGateway,
+                    targetCharts,
+                    LogInstallPerformance,
+                    LogInstallPerformanceWarn);
+                if (storageTargets.BmsFiles.Count > 0)
+                {
+                    dbGateway.UpsertSongs(storageTargets.BmsFiles);
+                }
+                if (storageTargets.BmsonSongs.Count > 0)
+                {
+                    dbGateway.UpsertBmsonSongs(storageTargets.BmsonSongs);
+                }
+                dbGateway.UpsertChartInfoBackfillChunk(
+                    [],
+                    result.ChartInfoRows,
+                    result.ParseFailureRows,
+                    result.ParseFailureDeleteMd5s);
+                if (result.AppliedRows.Count > 0)
+                {
+                    UpsertChartInfoIndexRows(result.AppliedRows, reason ?? "install_package_inline");
+                }
+                if (result.ParseFailureRows.Count > 0 || result.ParseFailureDeleteMd5s.Count > 0)
+                {
+                    DispatchWarningPresentationChanged("install_package_inline_chart_info_parse_failure");
+                }
+                completed = true;
+                LogInstallPerformance("chart_info_inline_install reason=" + (reason ?? "unknown")
+                    + " target=" + result.TargetCount
+                    + " success=" + result.SuccessCount
+                    + " currentSkipped=" + result.CurrentSkippedCount
+                    + " failureSkipped=" + result.FailureSkippedCount
+                    + " parseFailed=" + result.ParseFailedCount
+                    + " failurePersisted=" + result.FailurePersistedCount
+                    + " failureCleared=" + result.FailureClearedCount
+                    + " readFailed=" + result.ReadFailedCount
+                    + " parseMs=" + result.ParseMs);
+                return result;
             }
-            if (storageTargets.BmsonSongs.Count > 0)
+            finally
             {
-                dbGateway.UpsertBmsonSongs(storageTargets.BmsonSongs);
-            }
-            dbGateway.UpsertChartInfoBackfillChunk(
-                [],
-                result.ChartInfoRows,
-                result.ParseFailureRows,
-                result.ParseFailureDeleteMd5s);
-            if (result.AppliedRows.Count > 0)
-            {
-                UpsertChartInfoIndexRows(result.AppliedRows, reason ?? "install_package_inline");
-            }
-            if (result.ParseFailureRows.Count > 0 || result.ParseFailureDeleteMd5s.Count > 0)
-            {
-                DispatchWarningPresentationChanged("install_package_inline_chart_info_parse_failure");
-            }
-            completed = true;
-            LogInstallPerformance("chart_info_inline_install reason=" + (reason ?? "unknown")
-                + " target=" + result.TargetCount
-                + " success=" + result.SuccessCount
-                + " currentSkipped=" + result.CurrentSkippedCount
-                + " failureSkipped=" + result.FailureSkippedCount
-                + " parseFailed=" + result.ParseFailedCount
-                + " failurePersisted=" + result.FailurePersistedCount
-                + " failureCleared=" + result.FailureClearedCount
-                + " readFailed=" + result.ReadFailedCount
-                + " parseMs=" + result.ParseMs);
-            return result;
-        }
-        finally
-        {
-            if (completed)
-            {
-                DispatchOwnedChartDigestChanges(result.DigestChanges, reason ?? "install_package_inline");
-            }
-            else
-            {
-                DispatchOwnedPotentialDigestChanges(targetCharts, (reason ?? "install_package_inline") + "_failed");
+                if (completed)
+                {
+                    DispatchOwnedChartDigestChanges(result.DigestChanges, reason ?? "install_package_inline");
+                }
+                else
+                {
+                    DispatchOwnedPotentialDigestChanges(targetCharts, (reason ?? "install_package_inline") + "_failed");
+                }
             }
         }
     }
@@ -5479,56 +5543,59 @@ completeFileEnumerationOnce,
             bool completedLatestRequest = false;
             Dictionary<string, LR2SongDBExtended.chart_info> existingRowsSnapshot = null;
             ChartInfoBackfillResult result = null;
-            try
+            using (BeginOwnedDigestMutationWindow())
             {
-                ChartInfoBackfillRunning = true;
-                ChartInfoBackfillTotalCount = 0;
-                ChartInfoBackfillProcessedCount = 0;
-                ChartInfoBackfillCurrentPath = string.Empty;
-                void reportProgress(int total, int processed, string currentPath)
+                try
                 {
-                    ChartInfoBackfillTotalCount = total;
-                    ChartInfoBackfillProcessedCount = processed;
-                    ChartInfoBackfillCurrentPath = currentPath ?? string.Empty;
-                }
-                existingRowsSnapshot = CreateHydratedChartInfoIndexSha256Snapshot();
-                result = chartInfoBuildService.BackfillChartInfos(
-                    dbGateway,
-                    chartSnapshot,
-                    reportProgress,
-                    LogInstallPerformance,
-                    LogInstallPerformanceWarn,
-                    rows => UpsertChartInfoIndexRows(rows, "backfill"),
-                    existingRowsSnapshot);
-                LogInstallPerformance("chart_info_backfill done version=" + requestVersion + " mode=full total=" + result.TargetCount + " success=" + result.BackfilledCount + " failed=" + result.FailedCount + " timeoutFailed=" + result.TimeoutFailedCount + " digestBackfilled=" + result.DigestBackfilledCount + " digestFailed=" + result.DigestFailedCount + " fileReadCount=" + result.FileReadCount + " fileReadBytes=" + result.FileReadBytes + " currentRowSkipped=" + result.CurrentRowSkippedCount + " parseFailureSkipped=" + result.FailureSkippedCount);
-            }
-            catch (Exception ex)
-            {
-                DispatchOwnedPotentialDigestChanges(chartSnapshot, "chart_info_backfill_digest_failed");
-                LogInstallPerformance("chart_info_backfill failed version=" + requestVersion + " message=" + ex.Message);
-            }
-            finally
-            {
-                if (result != null)
-                {
-                    DispatchOwnedChartDigestChanges(result.DigestChanges, "chart_info_backfill_digest");
-                }
-                ChartInfoBackfillCurrentPath = string.Empty;
-                ChartInfoBackfillDigestBackfilledCount = result?.DigestBackfilledCount ?? 0;
-                ChartInfoBackfillCompletedVersion = requestVersion;
-                DispatchWarningPresentationChanged("chart_info_backfill_parse_failure");
-                lock (lockChartInfoBackfill)
-                {
-                    chartInfoBackfillCompletedVersion = requestVersion;
-                    if (requestVersion == chartInfoBackfillRequestedVersion)
+                    ChartInfoBackfillRunning = true;
+                    ChartInfoBackfillTotalCount = 0;
+                    ChartInfoBackfillProcessedCount = 0;
+                    ChartInfoBackfillCurrentPath = string.Empty;
+                    void reportProgress(int total, int processed, string currentPath)
                     {
-                        ChartInfoBackfillRunning = false;
-                        completedLatestRequest = true;
+                        ChartInfoBackfillTotalCount = total;
+                        ChartInfoBackfillProcessedCount = processed;
+                        ChartInfoBackfillCurrentPath = currentPath ?? string.Empty;
                     }
+                    existingRowsSnapshot = CreateHydratedChartInfoIndexSha256Snapshot();
+                    result = chartInfoBuildService.BackfillChartInfos(
+                        dbGateway,
+                        chartSnapshot,
+                        reportProgress,
+                        LogInstallPerformance,
+                        LogInstallPerformanceWarn,
+                        rows => UpsertChartInfoIndexRows(rows, "backfill"),
+                        existingRowsSnapshot);
+                    LogInstallPerformance("chart_info_backfill done version=" + requestVersion + " mode=full total=" + result.TargetCount + " success=" + result.BackfilledCount + " failed=" + result.FailedCount + " timeoutFailed=" + result.TimeoutFailedCount + " digestBackfilled=" + result.DigestBackfilledCount + " digestFailed=" + result.DigestFailedCount + " fileReadCount=" + result.FileReadCount + " fileReadBytes=" + result.FileReadBytes + " currentRowSkipped=" + result.CurrentRowSkippedCount + " parseFailureSkipped=" + result.FailureSkippedCount);
                 }
-                chartSnapshot?.Clear();
-                existingRowsSnapshot?.Clear();
-                LogStartupMemoryCheckpoint("chart_info_backfill", "after_release");
+                catch (Exception ex)
+                {
+                    DispatchOwnedPotentialDigestChanges(chartSnapshot, "chart_info_backfill_digest_failed");
+                    LogInstallPerformance("chart_info_backfill failed version=" + requestVersion + " message=" + ex.Message);
+                }
+                finally
+                {
+                    if (result != null)
+                    {
+                        DispatchOwnedChartDigestChanges(result.DigestChanges, "chart_info_backfill_digest");
+                    }
+                    ChartInfoBackfillCurrentPath = string.Empty;
+                    ChartInfoBackfillDigestBackfilledCount = result?.DigestBackfilledCount ?? 0;
+                    ChartInfoBackfillCompletedVersion = requestVersion;
+                    DispatchWarningPresentationChanged("chart_info_backfill_parse_failure");
+                    lock (lockChartInfoBackfill)
+                    {
+                        chartInfoBackfillCompletedVersion = requestVersion;
+                        if (requestVersion == chartInfoBackfillRequestedVersion)
+                        {
+                            ChartInfoBackfillRunning = false;
+                            completedLatestRequest = true;
+                        }
+                    }
+                    chartSnapshot?.Clear();
+                    existingRowsSnapshot?.Clear();
+                    LogStartupMemoryCheckpoint("chart_info_backfill", "after_release");
+                }
             }
             if (completedLatestRequest)
             {
@@ -6596,6 +6663,55 @@ completeFileEnumerationOnce,
         }
     }
 
+    private void InvalidatePlaylistLibraryResolveIndexSnapshot(int ownedCollectionVersion = 0)
+    {
+        int resolvedOwnedCollectionVersion = ownedCollectionVersion > 0 ? ownedCollectionVersion : OwnedChartCollectionVersion;
+        lock (lockPlaylistLibraryResolveIndexSnapshot)
+        {
+            playlistLibraryResolveIndexSnapshot = null;
+            playlistLibraryResolveIndexInvalidationVersion++;
+            playlistLibraryResolveIndexInvalidationOwnedCollectionVersion = resolvedOwnedCollectionVersion;
+        }
+    }
+
+    private IDisposable BeginOwnedDigestMutationWindow()
+    {
+        Interlocked.Increment(ref ownedDigestMutationWindowDepth);
+        return new OwnedDigestMutationWindowScope(this);
+    }
+
+    private void EndOwnedDigestMutationWindow()
+    {
+        Interlocked.Decrement(ref ownedDigestMutationWindowDepth);
+        InvalidatePlaylistSummaryOwnedHashSnapshot();
+        InvalidatePlaylistLibraryResolveIndexSnapshot();
+    }
+
+    private bool IsOwnedDigestMutationWindowActive()
+    {
+        return Volatile.Read(ref ownedDigestMutationWindowDepth) > 0;
+    }
+
+    private void WaitForOwnedDigestMutationWindowIdle(CancellationToken cancellationToken = default)
+    {
+        while (IsOwnedDigestMutationWindowActive())
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Thread.Sleep(20);
+        }
+    }
+
+    private sealed class OwnedDigestMutationWindowScope(BMSLibrary owner) : IDisposable
+    {
+        private BMSLibrary owner = owner;
+
+        public void Dispose()
+        {
+            BMSLibrary currentOwner = Interlocked.Exchange(ref owner, null);
+            currentOwner?.EndOwnedDigestMutationWindow();
+        }
+    }
+
     private void InvalidateOwnedChartCollection()
     {
         lock (lockOwnedChartCollection)
@@ -6856,6 +6972,7 @@ completeFileEnumerationOnce,
         staleRetryCount = 0;
         while (true)
         {
+            bool waitForDigestWindow = false;
             int invalidationVersion;
             int invalidationOwnedCollectionVersion;
             lock (lockPlaylistSummaryOwnedHashSnapshot)
@@ -6873,8 +6990,18 @@ completeFileEnumerationOnce,
                     playlistSummaryOwnedHashInvalidationVersion++;
                     playlistSummaryOwnedHashInvalidationOwnedCollectionVersion = currentOwnedCollectionVersion;
                 }
+                if (IsOwnedDigestMutationWindowActive())
+                {
+                    waitForDigestWindow = true;
+                }
                 invalidationVersion = playlistSummaryOwnedHashInvalidationVersion;
                 invalidationOwnedCollectionVersion = playlistSummaryOwnedHashInvalidationOwnedCollectionVersion;
+            }
+            if (waitForDigestWindow)
+            {
+                WaitForOwnedDigestMutationWindowIdle();
+                staleRetryCount++;
+                continue;
             }
 
             var stopwatch = Stopwatch.StartNew();
@@ -6886,15 +7013,15 @@ completeFileEnumerationOnce,
                 ownedHashSnapshot = CreateOwnedHashIndexSnapshotUnsafe(out storageRowsVersion);
                 ownedCollectionVersion = OwnedChartCollectionVersion;
             }
-            var rebuiltSnapshot = new PlaylistSummaryOwnedHashSnapshot
+            var rebuiltSnapshot = new PlaylistSummaryOwnedHashSnapshot(
+                ownedHashSnapshot.Md5Hashes,
+                ownedHashSnapshot.Sha256Hashes)
             {
                 BuildElapsedMs = stopwatch.ElapsedMilliseconds,
                 InvalidationVersion = invalidationVersion,
                 OwnedCollectionVersion = invalidationOwnedCollectionVersion == ownedCollectionVersion ? invalidationOwnedCollectionVersion : ownedCollectionVersion,
                 BmsRowsVersion = storageRowsVersion.BmsRowsVersion,
-                BmsonRowsVersion = storageRowsVersion.BmsonRowsVersion,
-                Md5Hashes = ownedHashSnapshot.Md5Hashes,
-                Sha256Hashes = ownedHashSnapshot.Sha256Hashes
+                BmsonRowsVersion = storageRowsVersion.BmsonRowsVersion
             };
             lock (lockPlaylistSummaryOwnedHashSnapshot)
             {
@@ -6919,6 +7046,11 @@ completeFileEnumerationOnce,
                     staleRetryCount++;
                     continue;
                 }
+                if (IsOwnedDigestMutationWindowActive())
+                {
+                    staleRetryCount++;
+                    continue;
+                }
                 rebuiltSnapshot.Version = Interlocked.Increment(ref playlistSummaryOwnedHashSnapshotVersion);
                 playlistSummaryOwnedHashSnapshot = rebuiltSnapshot;
                 cacheHit = false;
@@ -6929,6 +7061,143 @@ completeFileEnumerationOnce,
 
     private bool IsPlaylistSummaryOwnedHashSnapshotCurrent(
         PlaylistSummaryOwnedHashSnapshot snapshot,
+        int currentOwnedCollectionVersion)
+    {
+        return snapshot != null
+            && snapshot.OwnedCollectionVersion == currentOwnedCollectionVersion
+            && Volatile.Read(ref bmsStorageRowsVersion) == snapshot.BmsRowsVersion
+            && Volatile.Read(ref bmsonStorageRowsVersion) == snapshot.BmsonRowsVersion;
+    }
+
+    /// <summary>
+    /// playlist detail の entry hash 解決に使う owned collection 隣接 index を返します。
+    /// 所持譜面や digest / path 変更時に無効化し、次回要求時にだけ再構築します。
+    /// </summary>
+    /// <param name="cancellationToken">構築中の cancellation token。</param>
+    /// <param name="cacheHit">既存 snapshot を再利用した場合は true。</param>
+    /// <param name="staleRetryCount">build 中の mutation により作り直した回数。</param>
+    /// <returns>playlist detail 用 resolve index。</returns>
+    internal PlaylistLibraryResolveIndexSnapshot GetPlaylistLibraryResolveIndexSnapshot(
+        CancellationToken cancellationToken,
+        out bool cacheHit,
+        out int staleRetryCount)
+    {
+        PlaylistLibraryResolveIndexSnapshot snapshot;
+        staleRetryCount = 0;
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            bool waitForDigestWindow = false;
+            int invalidationVersion;
+            int invalidationOwnedCollectionVersion;
+            lock (lockPlaylistLibraryResolveIndexSnapshot)
+            {
+                snapshot = playlistLibraryResolveIndexSnapshot;
+                int currentOwnedCollectionVersion = OwnedChartCollectionVersion;
+                if (snapshot != null)
+                {
+                    if (IsPlaylistLibraryResolveIndexSnapshotCurrent(snapshot, currentOwnedCollectionVersion))
+                    {
+                        cacheHit = true;
+                        return snapshot;
+                    }
+                    playlistLibraryResolveIndexSnapshot = null;
+                    playlistLibraryResolveIndexInvalidationVersion++;
+                    playlistLibraryResolveIndexInvalidationOwnedCollectionVersion = currentOwnedCollectionVersion;
+                }
+                if (IsOwnedDigestMutationWindowActive())
+                {
+                    waitForDigestWindow = true;
+                }
+                invalidationVersion = playlistLibraryResolveIndexInvalidationVersion;
+                invalidationOwnedCollectionVersion = playlistLibraryResolveIndexInvalidationOwnedCollectionVersion;
+            }
+            if (waitForDigestWindow)
+            {
+                WaitForOwnedDigestMutationWindowIdle(cancellationToken);
+                staleRetryCount++;
+                continue;
+            }
+
+            var stopwatch = Stopwatch.StartNew();
+            PlaylistLibraryResolveIndexSnapshot rebuiltSnapshot;
+            StorageRowsVersionSnapshot storageRowsVersion;
+            int ownedCollectionVersion;
+            using (rwlockBMSFiles.GetReaderGuard())
+            {
+                rebuiltSnapshot = CreatePlaylistLibraryResolveIndexSnapshotUnsafe(cancellationToken, out storageRowsVersion);
+                ownedCollectionVersion = OwnedChartCollectionVersion;
+            }
+            rebuiltSnapshot.BuildElapsedMs = stopwatch.ElapsedMilliseconds;
+            rebuiltSnapshot.InvalidationVersion = invalidationVersion;
+            rebuiltSnapshot.OwnedCollectionVersion = invalidationOwnedCollectionVersion == ownedCollectionVersion ? invalidationOwnedCollectionVersion : ownedCollectionVersion;
+            rebuiltSnapshot.BmsRowsVersion = storageRowsVersion.BmsRowsVersion;
+            rebuiltSnapshot.BmsonRowsVersion = storageRowsVersion.BmsonRowsVersion;
+
+            lock (lockPlaylistLibraryResolveIndexSnapshot)
+            {
+                snapshot = playlistLibraryResolveIndexSnapshot;
+                if (snapshot != null)
+                {
+                    if (IsPlaylistLibraryResolveIndexSnapshotCurrent(snapshot, OwnedChartCollectionVersion))
+                    {
+                        cacheHit = true;
+                        return snapshot;
+                    }
+                    playlistLibraryResolveIndexSnapshot = null;
+                    playlistLibraryResolveIndexInvalidationVersion++;
+                    playlistLibraryResolveIndexInvalidationOwnedCollectionVersion = OwnedChartCollectionVersion;
+                    staleRetryCount++;
+                    continue;
+                }
+                if (playlistLibraryResolveIndexInvalidationVersion != invalidationVersion
+                    || OwnedChartCollectionVersion != ownedCollectionVersion
+                    || !IsStorageRowsVersionCurrent(storageRowsVersion))
+                {
+                    staleRetryCount++;
+                    continue;
+                }
+                if (IsOwnedDigestMutationWindowActive())
+                {
+                    staleRetryCount++;
+                    continue;
+                }
+                rebuiltSnapshot.Version = Interlocked.Increment(ref playlistLibraryResolveIndexSnapshotVersion);
+                playlistLibraryResolveIndexSnapshot = rebuiltSnapshot;
+                cacheHit = false;
+                return rebuiltSnapshot;
+            }
+        }
+    }
+
+    internal PlaylistLibraryResolveIndexRuntimeState GetPlaylistLibraryResolveIndexRuntimeState()
+    {
+        lock (lockPlaylistLibraryResolveIndexSnapshot)
+        {
+            PlaylistLibraryResolveIndexSnapshot snapshot = playlistLibraryResolveIndexSnapshot;
+            int currentOwnedCollectionVersion = OwnedChartCollectionVersion;
+            if (IsPlaylistLibraryResolveIndexSnapshotCurrent(snapshot, currentOwnedCollectionVersion))
+            {
+                return new PlaylistLibraryResolveIndexRuntimeState
+                {
+                    IsCached = true,
+                    SnapshotVersion = snapshot.Version,
+                    BuildElapsedMs = snapshot.BuildElapsedMs,
+                    InvalidationVersion = snapshot.InvalidationVersion,
+                    OwnedCollectionVersion = snapshot.OwnedCollectionVersion
+                };
+            }
+            return new PlaylistLibraryResolveIndexRuntimeState
+            {
+                IsCached = false,
+                InvalidationVersion = playlistLibraryResolveIndexInvalidationVersion,
+                OwnedCollectionVersion = currentOwnedCollectionVersion
+            };
+        }
+    }
+
+    private bool IsPlaylistLibraryResolveIndexSnapshotCurrent(
+        PlaylistLibraryResolveIndexSnapshot snapshot,
         int currentOwnedCollectionVersion)
     {
         return snapshot != null
@@ -7097,8 +7366,8 @@ completeFileEnumerationOnce,
             IndexName = "playlist_summary_owned_hash",
             Status = cacheHit ? "cached" : "built",
             ElapsedMs = stopwatch.ElapsedMilliseconds,
-            Md5Count = snapshot?.Md5Hashes?.Count ?? 0,
-            Sha256Count = snapshot?.Sha256Hashes?.Count ?? 0,
+            Md5Count = snapshot?.Md5Count ?? 0,
+            Sha256Count = snapshot?.Sha256Count ?? 0,
             SnapshotVersion = snapshot?.Version ?? 0,
             InvalidationVersion = snapshot?.InvalidationVersion ?? 0,
             OwnedCollectionVersion = snapshot?.OwnedCollectionVersion ?? 0,
@@ -7184,19 +7453,24 @@ completeFileEnumerationOnce,
         }
     }
 
-    /// <summary>
-    /// playlist detail の entry hash 解決に使う owned collection 隣接 index を作成します。
-    /// </summary>
-    /// <param name="cancellationToken">構築中の cancellation token。</param>
-    /// <returns>playlist detail 用 resolve index。</returns>
-    internal PlaylistLibraryResolveIndexSnapshot CreatePlaylistLibraryResolveIndexSnapshot(CancellationToken cancellationToken)
+    private PlaylistLibraryResolveIndexSnapshot CreatePlaylistLibraryResolveIndexSnapshotUnsafe(
+        CancellationToken cancellationToken,
+        out StorageRowsVersionSnapshot storageRowsVersion)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        using (rwlockBMSFiles.GetReaderGuard())
+        EnsureOwnedChartCollectionBuiltUnsafe();
+        lock (lockStorageRowsVersion)
         {
-            EnsureOwnedChartCollectionBuiltUnsafe();
+            StorageRowsVersionSnapshot currentVersion = CreateCurrentStorageRowsVersionSnapshotUnsafe();
             lock (lockOwnedChartCollection)
             {
+                if (!ownedChartCollectionInitialized
+                    || ownedChartCollectionBmsStorageRowsVersion != currentVersion.BmsRowsVersion
+                    || ownedChartCollectionBmsonStorageRowsVersion != currentVersion.BmsonRowsVersion)
+                {
+                    throw new InvalidOperationException("Owned chart collection storage row version is not current.");
+                }
+                storageRowsVersion = currentVersion;
                 return ownedChartCollection.CreatePlaylistLibraryResolveIndexSnapshot(cancellationToken.ThrowIfCancellationRequested);
             }
         }
@@ -7519,6 +7793,7 @@ completeFileEnumerationOnce,
                     }
                     if (mutationResult.OwnedCollectionChanged)
                     {
+                        InvalidatePlaylistLibraryResolveIndexSnapshot();
                         PublishOwnedCollectionChangeNotification(mutationResult);
                     }
                     if (mutationResult.ResourceHealthMutation.HasChanges)
@@ -7600,6 +7875,10 @@ completeFileEnumerationOnce,
             if (mutationResult?.PlaylistSummaryOwnedHashInvalidated == true)
             {
                 InvalidatePlaylistSummaryOwnedHashSnapshot();
+            }
+            if (mutationResult?.OwnedCollectionChanged == true)
+            {
+                InvalidatePlaylistLibraryResolveIndexSnapshot();
             }
             if (mutationResult?.ParentFolderInvalidated == true)
             {
@@ -8257,12 +8536,17 @@ completeFileEnumerationOnce,
         }
         if (result.OwnedCollectionChanged)
         {
+            InvalidatePlaylistLibraryResolveIndexSnapshot();
             PublishOwnedCollectionChangeNotification(result);
             AlignResourceHealthFullOwnedTargetVersionAfterOwnedCollectionNotification(result);
         }
         if (result.PlaylistSummaryOwnedHashInvalidated)
         {
             InvalidatePlaylistSummaryOwnedHashSnapshot(result.OwnedCollectionVersion);
+        }
+        if (result.OwnedCollectionChanged)
+        {
+            InvalidatePlaylistLibraryResolveIndexSnapshot(result.OwnedCollectionVersion);
         }
         result.ResourceHealthDispatchResult = DispatchResourceHealthIndexMutation(result.ResourceHealthMutation, reason);
         bool installMetadataProfileCacheInvalidated = result.InstallEstimationMetadataProfileCacheInvalidated || result.ShouldDispatchInstalledLookup;
@@ -8291,6 +8575,7 @@ completeFileEnumerationOnce,
                 + " parentFolder=" + ToInvalidateLogValue(result.ParentFolderInvalidated)
                 + " duplicate=" + ToInvalidateLogValue(result.DuplicateCacheInvalidated)
                 + " playlistSummaryHash=" + ToInvalidateLogValue(result.PlaylistSummaryOwnedHashInvalidated)
+                + " playlistResolve=" + ToInvalidateLogValue(result.OwnedCollectionChanged)
                 + " ownedCollection=" + ToInvalidateLogValue(result.OwnedCollectionChanged)
                 + " resourceHealth=" + ToResourceHealthMutationDispatchLogValue(result.ResourceHealthMutation)
                 + " installMetadata=" + ToInvalidateLogValue(installMetadataProfileCacheInvalidated)
@@ -14179,6 +14464,7 @@ completeFileEnumerationOnce,
             }
             if (mutationResult?.OwnedCollectionChanged == true)
             {
+                InvalidatePlaylistLibraryResolveIndexSnapshot();
                 PublishOwnedCollectionChangeNotification(mutationResult);
             }
             if (mutationResult?.ResourceHealthMutation.HasChanges == true)

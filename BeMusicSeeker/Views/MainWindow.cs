@@ -1189,11 +1189,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             .Where(ChartFileKindResolver.IsBmsChartFile)];
     }
 
-    private static List<BMSFile> ToBmsFiles(IEnumerable<ChartFile> charts)
+    private List<BMSFile> GetSelectedBmsFiles(ChartOperationCapabilities capability, bool isPendingSection = false)
     {
-        return [.. (charts ?? [])
-            .Where(ChartFileKindResolver.IsBmsChartFile)
-            .Select(chart => chart.GetBmsStorageOwner())
+        return [.. GetSelectedChartTargets(capability, isPendingSection)
+            .Where(target => ChartFileKindResolver.IsBmsChartFile(target.Chart))
+            .Select(target => target.Chart.GetBmsStorageOwner())
             .Where(ChartFileKindResolver.IsBmsChartFile)];
     }
 
@@ -1201,8 +1201,13 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     {
         ChartOperationSourceScope sourceScope = GetCurrentChartOperationSourceScope();
         return [.. GetSelectedGridRowsSnapshot()
-            .Where(row => GridRowResolver.TryGetChartOperationTarget(row, sourceScope, out ChartOperationTarget target) && target.HasCapability(ChartOperationCapabilities.UseLr2Ir))
-            .Select(GridRowResolver.GetHash)
+            .Select(row =>
+            {
+                GridRowResolver.TryGetChartOperationTarget(row, sourceScope, out ChartOperationTarget target);
+                return target;
+            })
+            .Where(target => target?.HasCapability(ChartOperationCapabilities.UseLr2Ir) == true)
+            .Select(target => target.Chart?.Md5)
             .Where(hash => !string.IsNullOrWhiteSpace(hash))
             .Distinct(StringComparer.OrdinalIgnoreCase)];
     }
@@ -6616,7 +6621,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     {
         if (e.Source is MenuItem menuItem && TryGetContextMenuRow(e.Source, out _))
         {
-            List<BMSFile> list = ToBmsFiles(GetSelectedBmsFormatCharts(ChartOperationCapabilities.RunBmsEncodingFix));
+            List<BMSFile> list = GetSelectedBmsFiles(ChartOperationCapabilities.RunBmsEncodingFix);
             if (list != null && list.Count() != 0)
             {
                 (base.DataContext as MainWindowViewModel).FixEncodingBMSFiles(list, menuItem.Tag.ToString());
@@ -6842,7 +6847,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void tableContextMenuItemConvertToAudioFileClick(object sender, RoutedEventArgs e)
     {
-        BMSFile[] bmsFiles = [.. ToBmsFiles(GetSelectedBmsFormatCharts(ChartOperationCapabilities.ConvertToAudio)).Where(f => File.Exists(f.path))];
+        BMSFile[] bmsFiles = [.. GetSelectedBmsFiles(ChartOperationCapabilities.ConvertToAudio).Where(f => File.Exists(f.path))];
         if (bmsFiles.Length == 0)
         {
             return;

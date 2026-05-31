@@ -30,6 +30,11 @@ internal sealed class LibraryChartRef
     {
         get
         {
+            if (chartSnapshot != null)
+            {
+                return NormalizeHash(chartSnapshot.Md5);
+            }
+
             BMSFile currentBmsFile = GetBmsStorageOwner();
             if (currentBmsFile != null)
             {
@@ -47,6 +52,11 @@ internal sealed class LibraryChartRef
     {
         get
         {
+            if (chartSnapshot != null)
+            {
+                return NormalizeHash(chartSnapshot.Sha256);
+            }
+
             BMSFile currentBmsFile = GetBmsStorageOwner();
             if (currentBmsFile != null)
             {
@@ -171,6 +181,35 @@ internal sealed class LibraryChartRef
             null);
     }
 
+    internal static LibraryChartRef FromImmutableSnapshot(LibraryChartRef source)
+    {
+        if (source == null)
+        {
+            return null;
+        }
+
+        ChartFile sourceChart = source.ToChartFileIdentity() ?? source.ToChartFile();
+        ChartFile immutableSnapshot = ChartFileProjection.ToImmutableSnapshot(sourceChart)
+            ?? ChartFileProjection.FromIdentitySnapshot(
+                source.Kind == LibraryChartKind.Bmson ? ChartFileKind.Bmson : ChartFileKind.Bms,
+                source.Path,
+                source.Md5,
+                source.Sha256);
+        if (immutableSnapshot == null)
+        {
+            return null;
+        }
+
+        return new LibraryChartRef(
+            source.Kind,
+            immutableSnapshot.Path,
+            immutableSnapshot.Md5,
+            immutableSnapshot.Sha256,
+            source.GetBmsStorageOwner(),
+            source.GetBmsonStorageOwner(),
+            immutableSnapshot);
+    }
+
     internal BMSFile GetBmsStorageOwner()
     {
         return Kind == LibraryChartKind.Bms ? bmsFile : null;
@@ -233,7 +272,11 @@ internal sealed class LibraryChartRef
             return ChartFileProjection.FromBmsonStorageOwnerIdentity(bmsonSong);
         }
 
-        return null;
+        return ChartFileProjection.FromIdentitySnapshot(
+            Kind == LibraryChartKind.Bmson ? ChartFileKind.Bmson : ChartFileKind.Bms,
+            Path,
+            Md5,
+            Sha256);
     }
 
     private static string NormalizeHash(string value)

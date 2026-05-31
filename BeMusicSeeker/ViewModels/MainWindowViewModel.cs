@@ -5629,8 +5629,6 @@ public class MainWindowViewModel : ViewModel
 
     private readonly object playlistLibraryIndexSync = new();
 
-    private PlaylistLibraryIndexSnapshot playlistLibraryIndexSnapshot;
-
     private long playlistLibraryIndexVersion;
 
     private Task<PlaylistLibraryIndexSnapshot> playlistLibraryIndexPrewarmTask;
@@ -6667,7 +6665,6 @@ public class MainWindowViewModel : ViewModel
         long nextVersion;
         lock (playlistLibraryIndexSync)
         {
-            playlistLibraryIndexSnapshot = null;
             nextVersion = ++playlistLibraryIndexVersion;
         }
         LogPlaylistWorker("playlist_library_index invalidated version=" + nextVersion + " reason=" + reason);
@@ -6787,8 +6784,8 @@ public class MainWindowViewModel : ViewModel
                         await Task.Delay(delayMs, prewarmToken).ConfigureAwait(false);
                     }
                     prewarmToken.ThrowIfCancellationRequested();
-                    PlaylistLibraryIndexSnapshot snapshot = CreatePlaylistLibraryIndexSnapshot(prewarmToken, targetVersion);
-                    LogPlaylistWorker("playlist_library_index_prewarm completed version=" + targetVersion + " chartsByMd5Count=" + (snapshot.ResolveIndex?.ChartsByMd5.Count ?? 0) + " elapsedMs=" + stopwatch.ElapsedMilliseconds + " source=" + source);
+                    PlaylistLibraryIndexSnapshot snapshot = CreatePlaylistLibraryIndexSnapshot(prewarmToken, targetVersion, out bool cacheHit, out int staleRetryCount);
+                    LogPlaylistWorker("playlist_library_index_prewarm completed version=" + targetVersion + " status=" + (cacheHit ? "cached" : "built") + " chartsByMd5Count=" + (snapshot.ResolveIndex?.ChartsByMd5.Count ?? 0) + " buildMs=" + snapshot.BuildElapsedMs + " staleRetries=" + staleRetryCount + " elapsedMs=" + stopwatch.ElapsedMilliseconds + " source=" + source);
                     return snapshot;
                 }
                 catch (OperationCanceledException)
@@ -6910,26 +6907,27 @@ public class MainWindowViewModel : ViewModel
         return string.Empty;
     }
 
-    private PlaylistLibraryIndexSnapshot CreatePlaylistLibraryIndexSnapshot(CancellationToken cancellationToken, long targetVersion)
+    private PlaylistLibraryIndexSnapshot CreatePlaylistLibraryIndexSnapshot(CancellationToken cancellationToken, long targetVersion, out bool cacheHit, out int staleRetryCount)
     {
-        var stopwatch = Stopwatch.StartNew();
         cancellationToken.ThrowIfCancellationRequested();
-        PlaylistLibraryResolveIndexSnapshot resolveIndex = files?.CreatePlaylistLibraryResolveIndexSnapshot(cancellationToken) ?? PlaylistLibraryResolveIndexSnapshot.Empty;
+        PlaylistLibraryResolveIndexSnapshot resolveIndex;
+        if (files != null)
+        {
+            resolveIndex = files.GetPlaylistLibraryResolveIndexSnapshot(cancellationToken, out cacheHit, out staleRetryCount);
+        }
+        else
+        {
+            cacheHit = false;
+            staleRetryCount = 0;
+            resolveIndex = PlaylistLibraryResolveIndexSnapshot.Empty;
+        }
         cancellationToken.ThrowIfCancellationRequested();
-        var newSnapshot = new PlaylistLibraryIndexSnapshot
+        return new PlaylistLibraryIndexSnapshot
         {
             Version = targetVersion,
-            BuildElapsedMs = stopwatch.ElapsedMilliseconds,
+            BuildElapsedMs = resolveIndex.BuildElapsedMs,
             ResolveIndex = resolveIndex
         };
-        lock (playlistLibraryIndexSync)
-        {
-            if (playlistLibraryIndexSnapshot == null && playlistLibraryIndexVersion == targetVersion)
-            {
-                playlistLibraryIndexSnapshot = newSnapshot;
-            }
-            return playlistLibraryIndexSnapshot ?? newSnapshot;
-        }
     }
 
     /// <summary>
@@ -6940,19 +6938,11 @@ public class MainWindowViewModel : ViewModel
     private PlaylistLibraryIndexSnapshot GetOrCreatePlaylistLibraryIndexSnapshot(CancellationToken cancellationToken, out string accessKind, out long buildElapsedMs)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        PlaylistLibraryIndexSnapshot cachedSnapshot;
         long currentVersion;
         Task<PlaylistLibraryIndexSnapshot> prewarmTask;
         lock (playlistLibraryIndexSync)
         {
-            cachedSnapshot = playlistLibraryIndexSnapshot;
             currentVersion = playlistLibraryIndexVersion;
-            if (cachedSnapshot != null && cachedSnapshot.Version == currentVersion)
-            {
-                accessKind = "cached";
-                buildElapsedMs = cachedSnapshot.BuildElapsedMs;
-                return cachedSnapshot;
-            }
             prewarmTask = playlistLibraryIndexPrewarmTask != null && playlistLibraryIndexPrewarmVersion == currentVersion ? playlistLibraryIndexPrewarmTask : null;
         }
         cancellationToken.ThrowIfCancellationRequested();
@@ -6961,11 +6951,14 @@ public class MainWindowViewModel : ViewModel
             try
             {
                 PlaylistLibraryIndexSnapshot prewarmedSnapshot = prewarmTask.GetAwaiter().GetResult();
-                if (prewarmedSnapshot != null && prewarmedSnapshot.Version == currentVersion)
+                if (prewarmedSnapshot != null
+                    && prewarmedSnapshot.Version == currentVersion
+                    && (files == null || prewarmedSnapshot.ResolveIndex?.OwnedCollectionVersion == files.OwnedChartCollectionVersion))
                 {
-                    accessKind = "prewarmed";
-                    buildElapsedMs = prewarmedSnapshot.BuildElapsedMs;
-                    return prewarmedSnapshot;
+                    PlaylistLibraryIndexSnapshot currentSnapshot = CreatePlaylistLibraryIndexSnapshot(cancellationToken, currentVersion, out bool currentCacheHit, out int _);
+                    accessKind = currentCacheHit ? "prewarmed" : "inline";
+                    buildElapsedMs = currentSnapshot.BuildElapsedMs;
+                    return currentSnapshot;
                 }
             }
             catch (OperationCanceledException)
@@ -6976,8 +6969,8 @@ public class MainWindowViewModel : ViewModel
             {
             }
         }
-        PlaylistLibraryIndexSnapshot inlineSnapshot = CreatePlaylistLibraryIndexSnapshot(cancellationToken, currentVersion);
-        accessKind = "inline";
+        PlaylistLibraryIndexSnapshot inlineSnapshot = CreatePlaylistLibraryIndexSnapshot(cancellationToken, currentVersion, out bool cacheHit, out int _);
+        accessKind = cacheHit ? "cached" : "inline";
         buildElapsedMs = inlineSnapshot.BuildElapsedMs;
         return inlineSnapshot;
     }
@@ -7011,44 +7004,33 @@ public class MainWindowViewModel : ViewModel
     /// </summary>
     private PlaylistLibraryIndexReadinessSnapshot CapturePlaylistLibraryIndexReadinessSnapshot()
     {
-        PlaylistLibraryIndexSnapshot cachedSnapshot = null;
+        BeMusicSeeker.Models.BMSLibrary.PlaylistLibraryResolveIndexRuntimeState modelState = files?.GetPlaylistLibraryResolveIndexRuntimeState();
         Task<PlaylistLibraryIndexSnapshot> prewarmTask = null;
         long currentVersion = 0L;
         long prewarmVersion = 0L;
         lock (playlistLibraryIndexSync)
         {
-            cachedSnapshot = playlistLibraryIndexSnapshot;
             prewarmTask = playlistLibraryIndexPrewarmTask;
             currentVersion = playlistLibraryIndexVersion;
             prewarmVersion = playlistLibraryIndexPrewarmVersion;
         }
-        if (cachedSnapshot != null && cachedSnapshot.Version == currentVersion)
+        if (modelState?.IsCached == true && modelState.OwnedCollectionVersion == files?.OwnedChartCollectionVersion)
         {
             return new PlaylistLibraryIndexReadinessSnapshot
             {
                 State = "cached",
-                BuildElapsedMs = cachedSnapshot.BuildElapsedMs
+                BuildElapsedMs = modelState.BuildElapsedMs
             };
         }
         if (prewarmTask != null && prewarmVersion == currentVersion)
         {
-            if (prewarmTask.Status == TaskStatus.RanToCompletion)
+            if (prewarmTask.IsCompleted)
             {
-                try
+                return new PlaylistLibraryIndexReadinessSnapshot
                 {
-                    PlaylistLibraryIndexSnapshot prewarmedSnapshot = prewarmTask.GetAwaiter().GetResult();
-                    if (prewarmedSnapshot != null && prewarmedSnapshot.Version == currentVersion)
-                    {
-                        return new PlaylistLibraryIndexReadinessSnapshot
-                        {
-                            State = "prewarmed",
-                            BuildElapsedMs = prewarmedSnapshot.BuildElapsedMs
-                        };
-                    }
-                }
-                catch
-                {
-                }
+                    State = "inline",
+                    BuildElapsedMs = 0L
+                };
             }
             return new PlaylistLibraryIndexReadinessSnapshot
             {
@@ -16173,7 +16155,7 @@ public class MainWindowViewModel : ViewModel
             resolvedEntries.Add((entry, resolvedChart));
         }
         cancellationToken.ThrowIfCancellationRequested();
-        List<(BMSTableEntry entry, ChartFile resolvedChart, LR2SongDBExtended.chart_info entryChartInfo)> preparedEntries = new List<(BMSTableEntry, ChartFile, LR2SongDBExtended.chart_info)>(resolvedEntries.Count);
+        List<(BMSTableEntry entry, LibraryChartRef resolvedChartRef, ChartFile resolvedChart, LR2SongDBExtended.chart_info entryChartInfo)> preparedEntries = new(resolvedEntries.Count);
         var resolvedChartSnapshotCache = new Dictionary<LibraryChartRef, ChartFile>();
         var chartInfoLookupStopwatch = Stopwatch.StartNew();
         int missingChartInfoResolveTargets = 0;
@@ -16193,7 +16175,7 @@ public class MainWindowViewModel : ViewModel
                     chartInfoResolvedCount++;
                 }
             }
-            preparedEntries.Add((entry, resolvedChart, entryChartInfo));
+            preparedEntries.Add((entry, resolvedChartRef, resolvedChart, entryChartInfo));
         }
         chartInfoLookupStopwatch.Stop();
         LogPlaylistWorker("playlist_chart_info_index_resolve entries=" + resolvedEntries.Count + " targets=" + missingChartInfoResolveTargets + " found=" + chartInfoResolvedCount + " version=" + chartInfoIndexVersion + " elapsedMs=" + chartInfoLookupStopwatch.ElapsedMilliseconds);
@@ -16202,8 +16184,8 @@ public class MainWindowViewModel : ViewModel
         cancellationToken.ThrowIfCancellationRequested();
         cancellationStage = "score_probe";
         var scoreProbeStopwatch = Stopwatch.StartNew();
-        List<(BMSTableEntry entry, ChartFile resolvedChart, LR2SongDBExtended.chart_info entryChartInfo, BeMusicSeeker.Models.BMSScore scoreSnapshot)> scoredEntries = new(preparedEntries.Count);
-        foreach ((BMSTableEntry entry, ChartFile resolvedChart, LR2SongDBExtended.chart_info entryChartInfo) in preparedEntries)
+        List<(BMSTableEntry entry, LibraryChartRef resolvedChartRef, ChartFile resolvedChart, LR2SongDBExtended.chart_info entryChartInfo, BeMusicSeeker.Models.BMSScore scoreSnapshot)> scoredEntries = new(preparedEntries.Count);
+        foreach ((BMSTableEntry entry, LibraryChartRef resolvedChartRef, ChartFile resolvedChart, LR2SongDBExtended.chart_info entryChartInfo) in preparedEntries)
         {
             cancellationToken.ThrowIfCancellationRequested();
             BeMusicSeeker.Models.BMSScore scoreSnapshotForRow = ResolvePlaylistEntryScoreSnapshot(entry, resolvedChart, entryChartInfo, scoreSnapshot, scoresByHash, scoresBySha256);
@@ -16212,7 +16194,7 @@ public class MainWindowViewModel : ViewModel
             {
                 scoreProbeMetrics.MatchedScoreCount++;
             }
-            scoredEntries.Add((entry, resolvedChart, entryChartInfo, scoreSnapshotForRow));
+            scoredEntries.Add((entry, resolvedChartRef, resolvedChart, entryChartInfo, scoreSnapshotForRow));
         }
         scoreProbeStopwatch.Stop();
         scoreProbeMetrics.TargetCount = scoreUpdateTargetCount;
@@ -16220,7 +16202,7 @@ public class MainWindowViewModel : ViewModel
         scoreProbeMs = scoreProbeStopwatch.ElapsedMilliseconds;
         var playlistRows = new List<PlaylistDetailSourceRow>(scoredEntries.Count);
         cancellationStage = "source_row_materialize";
-        foreach ((BMSTableEntry entry, ChartFile resolvedChart, LR2SongDBExtended.chart_info entryChartInfo, BeMusicSeeker.Models.BMSScore scoreSnapshotForRow) in scoredEntries)
+        foreach ((BMSTableEntry entry, LibraryChartRef resolvedChartRef, ChartFile resolvedChart, LR2SongDBExtended.chart_info entryChartInfo, BeMusicSeeker.Models.BMSScore scoreSnapshotForRow) in scoredEntries)
         {
             cancellationToken.ThrowIfCancellationRequested();
             playlistRows.Add(new PlaylistDetailSourceRow(
@@ -16230,7 +16212,8 @@ public class MainWindowViewModel : ViewModel
                 entryChartInfo,
                 GetPlaylistReferenceDisplayForChart,
                 TryGetSharedChartTransientState,
-                ResolveChartInfoForProjection));
+                ResolveChartInfoForProjection,
+                resolvedChartRef));
         }
         sourceMaterializeMs = stopwatch.ElapsedMilliseconds - entryResolveMs - scoreProbeMs;
         return playlistRows;
@@ -17998,10 +17981,9 @@ public class MainWindowViewModel : ViewModel
             throw new ArgumentNullException(nameof(playlistRow));
         }
         ChartFile chart = playlistRow.Chart;
-        LR2SongDBExtended.bmson_song bmsonSong = chart?.GetBmsonStorageOwner();
-        if (bmsonSong != null)
+        if (chart?.Kind == ChartFileKind.Bmson)
         {
-            playlistRow.Entry.MarkAsBmsonPlaylistIdentity(playlistRow.sha256 ?? bmsonSong.sha256);
+            playlistRow.Entry.MarkAsBmsonPlaylistIdentity(playlistRow.sha256 ?? chart.Sha256);
         }
         tables.CommitBMSTableEntry(playlistRow.Entry);
     }
@@ -20200,7 +20182,7 @@ public class MainWindowViewModel : ViewModel
             }
             string sortColumn = PlaylistSummarySortParameters?.ColumnsName ?? nameof(PlaylistSummaryRow.Name);
             string sortDirection = PlaylistSummarySortParameters?.Direction.ToString() ?? ListSortDirection.Ascending.ToString();
-            LogMainViewBuild("playlist_summary_build tableCount=" + tableCount + " unloadedTableCount=" + unloadedTableCount + " entryScanCount=" + entryScanCount + " rawCount=" + rows.Count + " buildMs=" + buildMs + " ownedMd5Count=" + (playlistSummaryOwnedHashSnapshot?.Md5Hashes?.Count ?? 0) + " ownedSha256Count=" + (playlistSummaryOwnedHashSnapshot?.Sha256Hashes?.Count ?? 0) + " ownedSnapshotVersion=" + (playlistSummaryOwnedHashSnapshot?.Version ?? 0) + " ownedHashBuildMs=" + (playlistSummaryOwnedHashSnapshot?.BuildElapsedMs ?? 0L) + " summaryCacheHit=false tableCacheHit=" + summaryCacheHitCount + " tableCacheMiss=" + summaryCacheMissCount + " sortColumn=" + sortColumn + " sortDirection=" + sortDirection);
+            LogMainViewBuild("playlist_summary_build tableCount=" + tableCount + " unloadedTableCount=" + unloadedTableCount + " entryScanCount=" + entryScanCount + " rawCount=" + rows.Count + " buildMs=" + buildMs + " ownedMd5Count=" + (playlistSummaryOwnedHashSnapshot?.Md5Count ?? 0) + " ownedSha256Count=" + (playlistSummaryOwnedHashSnapshot?.Sha256Count ?? 0) + " ownedSnapshotVersion=" + (playlistSummaryOwnedHashSnapshot?.Version ?? 0) + " ownedHashBuildMs=" + (playlistSummaryOwnedHashSnapshot?.BuildElapsedMs ?? 0L) + " summaryCacheHit=false tableCacheHit=" + summaryCacheHitCount + " tableCacheMiss=" + summaryCacheMissCount + " sortColumn=" + sortColumn + " sortDirection=" + sortDirection);
             LogMainViewBuild("playlist_summary_cache tableCount=" + tableCount + " entryScanCount=" + entryScanCount + " cacheHit=" + summaryCacheHitCount + " cacheMiss=" + summaryCacheMissCount + " elapsedMs=" + buildMs);
             ApplyPlaylistSummaryPresentation(rows, stopwatch, buildMs);
         }
@@ -20222,8 +20204,6 @@ public class MainWindowViewModel : ViewModel
         summaryCacheMissCount = 0;
         Dictionary<string, PlaylistSyncRuntimeStatus> playlistSyncStatusSnapshot = GetPlaylistSyncStatusSnapshot();
         playlistSummaryOwnedHashSnapshot = files?.GetPlaylistSummaryOwnedHashSnapshot();
-        HashSet<string> ownedMd5Hashes = playlistSummaryOwnedHashSnapshot?.Md5Hashes ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        HashSet<string> ownedSha256Hashes = playlistSummaryOwnedHashSnapshot?.Sha256Hashes ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         int ownedSnapshotVersion = playlistSummaryOwnedHashSnapshot?.Version ?? 0;
         List<BMSTable> tablesSnapshot = [];
         unloadedTableCount = 0;
@@ -20251,7 +20231,7 @@ public class MainWindowViewModel : ViewModel
             }
             else if (entriesLoaded)
             {
-                countResult = CalculatePlaylistSummaryCounts(table.GetEntriesExceptDummy(), ownedMd5Hashes, ownedSha256Hashes);
+                countResult = CalculatePlaylistSummaryCounts(table.GetEntriesExceptDummy(), playlistSummaryOwnedHashSnapshot);
                 SetPlaylistSummaryTableCountCache(countCacheKey, countResult);
                 summaryCacheMissCount++;
             }
@@ -20408,9 +20388,32 @@ public class MainWindowViewModel : ViewModel
 
     internal static PlaylistSummaryCountResult CalculatePlaylistSummaryCounts(IEnumerable<BMSTableEntry> entries, HashSet<string> ownedMd5Hashes, HashSet<string> ownedSha256Hashes)
     {
-        PlaylistSummaryCountResult result = default;
         HashSet<string> safeOwnedMd5Hashes = ownedMd5Hashes ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         HashSet<string> safeOwnedSha256Hashes = ownedSha256Hashes ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        return CalculatePlaylistSummaryCounts(
+            entries,
+            md5 => !string.IsNullOrWhiteSpace(md5) && safeOwnedMd5Hashes.Contains(md5),
+            sha256 => !string.IsNullOrWhiteSpace(sha256) && safeOwnedSha256Hashes.Contains(sha256));
+    }
+
+    internal static PlaylistSummaryCountResult CalculatePlaylistSummaryCounts(IEnumerable<BMSTableEntry> entries, BMSLibrary.PlaylistSummaryOwnedHashSnapshot ownedHashSnapshot)
+    {
+        Func<string, bool> containsMd5 = ownedHashSnapshot == null ? null : ownedHashSnapshot.ContainsMd5;
+        Func<string, bool> containsSha256 = ownedHashSnapshot == null ? null : ownedHashSnapshot.ContainsSha256;
+        return CalculatePlaylistSummaryCounts(
+            entries,
+            containsMd5,
+            containsSha256);
+    }
+
+    private static PlaylistSummaryCountResult CalculatePlaylistSummaryCounts(
+        IEnumerable<BMSTableEntry> entries,
+        Func<string, bool> containsMd5,
+        Func<string, bool> containsSha256)
+    {
+        PlaylistSummaryCountResult result = default;
+        containsMd5 ??= _ => false;
+        containsSha256 ??= _ => false;
         foreach (BMSTableEntry entry in entries ?? [])
         {
             result.ScannedEntries++;
@@ -20427,12 +20430,12 @@ public class MainWindowViewModel : ViewModel
             result.TotalCharts++;
             if (hasMd5)
             {
-                if (safeOwnedMd5Hashes.Contains(entry.md5))
+                if (containsMd5(entry.md5))
                 {
                     result.OwnedCharts++;
                 }
             }
-            else if (safeOwnedSha256Hashes.Contains(entry.sha256))
+            else if (containsSha256(entry.sha256))
             {
                 result.OwnedCharts++;
             }

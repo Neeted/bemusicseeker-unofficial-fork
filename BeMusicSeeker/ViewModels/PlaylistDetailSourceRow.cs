@@ -24,6 +24,8 @@ internal sealed class PlaylistDetailSourceRow
 
     private readonly ChartFile resolvedChartSnapshot;
 
+    private readonly BMSFile resolvedBms;
+
     private readonly LR2SongDBExtended.bmson_song resolvedBmson;
 
     private readonly Func<ChartFile, bool, ChartFileTransientState> chartTransientStateProvider;
@@ -36,6 +38,8 @@ internal sealed class PlaylistDetailSourceRow
     /// 実体譜面を所持しているかどうかです。
     /// </summary>
     internal bool IsOwned => HasOwnedChart(Chart);
+
+    internal BMSFile BmsPlayerFile => resolvedBms;
 
     internal string Title { get; }
 
@@ -135,7 +139,9 @@ internal sealed class PlaylistDetailSourceRow
 
     internal LR2SongDBExtended.chart_info ChartInfo => ResolveChartInfoProjection();
 
-    internal bool HasEntryChartInfoDependency => resolvedChartSnapshot?.GetBmsStorageOwner() == null && resolvedBmson == null;
+    internal bool HasEntryChartInfoDependency => resolvedBms == null
+        && resolvedChartSnapshot?.GetBmsStorageOwner() == null
+        && resolvedBmson == null;
 
     private ChartInfoDisplaySnapshot ChartInfoDisplay => ChartInfoDisplaySnapshot.FromChartInfo(ChartInfo);
 
@@ -220,11 +226,13 @@ internal sealed class PlaylistDetailSourceRow
         LR2SongDBExtended.chart_info entryChartInfo = null,
         Func<ChartFile, PlaylistReferenceDisplay> playlistReferenceDisplayProvider = null,
         Func<ChartFile, bool, ChartFileTransientState> chartTransientStateProvider = null,
-        Func<ChartFile, LR2SongDBExtended.chart_info> chartInfoProjectionProvider = null)
+        Func<ChartFile, LR2SongDBExtended.chart_info> chartInfoProjectionProvider = null,
+        LibraryChartRef resolvedChartRef = null)
     {
         Entry = entry ?? throw new ArgumentNullException(nameof(entry));
         resolvedChartSnapshot = resolvedChart;
-        resolvedBmson = resolvedChart?.GetBmsonStorageOwner();
+        resolvedBms = resolvedChartRef?.GetBmsStorageOwner() ?? resolvedChart?.GetBmsStorageOwner();
+        resolvedBmson = resolvedChartRef?.GetBmsonStorageOwner() ?? resolvedChart?.GetBmsonStorageOwner();
         EntryChartInfo = entryChartInfo;
         this.chartTransientStateProvider = chartTransientStateProvider;
         this.chartInfoProjectionProvider = chartInfoProjectionProvider;
@@ -337,18 +345,16 @@ internal sealed class PlaylistDetailSourceRow
 
     private ChartFile CreateChartFile()
     {
-        BMSFile bmsOwner = resolvedChartSnapshot?.GetBmsStorageOwner();
+        BMSFile bmsOwner = resolvedBms ?? resolvedChartSnapshot?.GetBmsStorageOwner();
         if (bmsOwner != null)
         {
-            ChartFile currentChart = ChartFileProjection.FromStorageOwner(
-                resolvedChartSnapshot,
-                includeResourceReferences: false,
-                includeScoreSnapshot: false);
-            currentChart = ChartFileProjection.WithScore(currentChart, effectiveScoreSnapshot ?? resolvedChartSnapshot.Score);
-            currentChart = ApplyChartInfoProjection(currentChart, resolvedChartSnapshot);
+            ChartFile ownerSource = ChartFileProjection.FromBmsStorageOwnerIdentity(bmsOwner);
+            ChartFile currentChart = resolvedChartSnapshot ?? ownerSource;
+            currentChart = ChartFileProjection.WithScore(currentChart, effectiveScoreSnapshot ?? currentChart.Score);
+            currentChart = ApplyChartInfoProjection(currentChart, ownerSource ?? currentChart);
             return ChartFileProjection.WithTransientState(
                 currentChart,
-                GetChartTransientState(currentChart, includeWarningSnapshot: true));
+                GetChartTransientState(ownerSource ?? currentChart, includeWarningSnapshot: true));
         }
         if (resolvedBmson != null)
         {
@@ -366,9 +372,12 @@ internal sealed class PlaylistDetailSourceRow
                 identityChart,
                 GetChartTransientState(identityChart, includeWarningSnapshot: true));
         }
-        if (resolvedChartSnapshot != null && EntryChartInfo == null)
+        if (resolvedChartSnapshot != null)
         {
-            return resolvedChartSnapshot;
+            ChartFile projectedChart = ApplyChartInfoProjection(resolvedChartSnapshot, resolvedChartSnapshot);
+            return ChartFileProjection.WithTransientState(
+                projectedChart,
+                GetChartTransientState(projectedChart, includeWarningSnapshot: true));
         }
         return ChartFileProjection.FromBmsMetadata(
             path,
@@ -386,11 +395,13 @@ internal sealed class PlaylistDetailSourceRow
 
     private LR2SongDBExtended.chart_info ResolveChartInfoProjection()
     {
-        BMSFile bmsOwner = resolvedChartSnapshot?.GetBmsStorageOwner();
+        BMSFile bmsOwner = resolvedBms ?? resolvedChartSnapshot?.GetBmsStorageOwner();
         if (bmsOwner != null)
         {
-            return ResolveChartInfoFromProvider(resolvedChartSnapshot)
-                ?? resolvedChartSnapshot.ChartInfo;
+            ChartFile ownerSource = ChartFileProjection.FromBmsStorageOwnerIdentity(bmsOwner) ?? resolvedChartSnapshot;
+            return ResolveChartInfoFromProvider(ownerSource)
+                ?? resolvedChartSnapshot?.ChartInfo
+                ?? EntryChartInfo;
         }
         if (resolvedBmson != null)
         {
@@ -398,9 +409,11 @@ internal sealed class PlaylistDetailSourceRow
             return ResolveChartInfoFromProvider(ownerSource)
                 ?? ownerSource?.ChartInfo;
         }
-        if (resolvedChartSnapshot != null && EntryChartInfo == null)
+        if (resolvedChartSnapshot != null)
         {
-            return resolvedChartSnapshot.ChartInfo;
+            return ResolveChartInfoFromProvider(resolvedChartSnapshot)
+                ?? resolvedChartSnapshot.ChartInfo
+                ?? EntryChartInfo;
         }
         return EntryChartInfo;
     }
@@ -444,8 +457,8 @@ internal sealed class PlaylistDetailSourceRow
 
     private static bool HasOwnedChart(ChartFile chart)
     {
-        return !string.IsNullOrWhiteSpace(chart?.GetBmsStorageOwner()?.path)
-            || !string.IsNullOrWhiteSpace(chart?.GetBmsonStorageOwner()?.path);
+        return !string.IsNullOrWhiteSpace(chart?.Path)
+            && !string.IsNullOrWhiteSpace(chart?.Md5);
     }
 
     private static string BuildLevelText(BMSTableEntry entry, ChartFile chart)

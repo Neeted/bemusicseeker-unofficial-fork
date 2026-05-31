@@ -36,6 +36,8 @@ internal sealed class PlaylistDetailRow : NotificationObject
     /// </summary>
     internal bool IsOwned { get; }
 
+    internal BMSFile BmsStorageOwner { get; }
+
     internal ChartFile Chart { get; private set; }
 
     internal double? EntryLevelSortKey { get; private set; }
@@ -226,6 +228,7 @@ internal sealed class PlaylistDetailRow : NotificationObject
         }
         Entry = source.Entry;
         IsOwned = source.IsOwned;
+        BmsStorageOwner = source.BmsPlayerFile;
         Chart = source.Chart;
         EntryLevelSortKey = source.EntryLevelSortKey;
         level = source.Level;
@@ -346,7 +349,8 @@ internal sealed class PlaylistDetailRow : NotificationObject
 
     private void RefreshEditableChartSnapshot()
     {
-        if (Chart?.GetBmsStorageOwner() != null || Chart?.GetBmsonStorageOwner() != null)
+        if (!string.IsNullOrWhiteSpace(Chart?.Path)
+            && !string.IsNullOrWhiteSpace(Chart?.Md5))
         {
             return;
         }

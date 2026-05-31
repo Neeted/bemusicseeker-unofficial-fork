@@ -845,10 +845,10 @@ public sealed class MainWindowContextMenuResourceTests
             "private PlaylistLibraryIndexSnapshot GetOrCreatePlaylistLibraryIndexSnapshot");
         string resolveIndexHelper = ExtractBetween(
             bmsLibraryCode,
-            "internal PlaylistLibraryResolveIndexSnapshot CreatePlaylistLibraryResolveIndexSnapshot",
+            "private PlaylistLibraryResolveIndexSnapshot CreatePlaylistLibraryResolveIndexSnapshotUnsafe",
             "private ChartInfoHydrationOwnerSummary CreateChartInfoHydrationOwnerSummaryUnsafe");
 
-        StringAssert.Contains(createPlaylistLibraryIndex, "CreatePlaylistLibraryResolveIndexSnapshot(cancellationToken)");
+        StringAssert.Contains(createPlaylistLibraryIndex, "GetPlaylistLibraryResolveIndexSnapshot(cancellationToken");
         Assert.IsFalse(createPlaylistLibraryIndex.Contains("foreach (BeMusicSeeker.Models.BMSFile file in BMSFiles"));
         Assert.IsFalse(createPlaylistLibraryIndex.Contains("files?.BmsonSongs"));
         StringAssert.Contains(resolveIndexHelper, "ownedChartCollection.CreatePlaylistLibraryResolveIndexSnapshot(cancellationToken.ThrowIfCancellationRequested)");
@@ -1039,9 +1039,9 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(renameInvalidExtensionClick, "GetSelectedBmsFormatCharts(ChartOperationCapabilities.RenameInvalidExtension)");
         StringAssert.Contains(renameInvalidExtensionClick, "viewModel.RenameBMSFilesExtensions(list, \".bmx\")");
         Assert.IsFalse(renameInvalidExtensionClick.Contains("GetSelectedChartCompatibilityAdapters(ChartOperationCapabilities.RenameInvalidExtension)"));
-        StringAssert.Contains(encodingFixClick, "ToBmsFiles(GetSelectedBmsFormatCharts(ChartOperationCapabilities.RunBmsEncodingFix))");
+        StringAssert.Contains(encodingFixClick, "GetSelectedBmsFiles(ChartOperationCapabilities.RunBmsEncodingFix)");
         Assert.IsFalse(encodingFixClick.Contains("GetSelectedChartCompatibilityAdapters(ChartOperationCapabilities.RunBmsEncodingFix)"));
-        StringAssert.Contains(audioConvertClick, "ToBmsFiles(GetSelectedBmsFormatCharts(ChartOperationCapabilities.ConvertToAudio))");
+        StringAssert.Contains(audioConvertClick, "GetSelectedBmsFiles(ChartOperationCapabilities.ConvertToAudio)");
         Assert.IsFalse(audioConvertClick.Contains("GetSelectedChartCompatibilityAdapters(ChartOperationCapabilities.ConvertToAudio)"));
         StringAssert.Contains(resourceHealthClick, "GetSelectedChartTargets(ChartOperationCapabilities.RunResourceHealthCheck)");
         StringAssert.Contains(resourceHealthClick, "CreateChartOperationTargetSnapshot(targets, ChartOperationCapabilities.RunResourceHealthCheck)");
