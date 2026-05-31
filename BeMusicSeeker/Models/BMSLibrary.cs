@@ -860,6 +860,12 @@ public class BMSLibrary : NotificationObject
 
     private bool installedChartLookupIndexInitialized;
 
+    private readonly object lockInstalledPrimaryHashLookup = new();
+
+    private PrimaryHashLookupState installedPrimaryHashLookup = new();
+
+    private bool installedPrimaryHashLookupInitialized;
+
     private readonly object lockInstallEstimationMetadataProfileCache = new();
 
     private readonly Dictionary<string, InstallEstimationMetadataProfile> installEstimationMetadataProfileCache = new(StringComparer.OrdinalIgnoreCase);
@@ -6521,11 +6527,16 @@ completeFileEnumerationOnce,
     }
 
     /// <summary>
-    /// インストール済みディレクトリインデックスをクリアし、次回使用時に再構築されるようにマークします。
+    /// インストール済み lookup index をクリアし、次回使用時に再構築されるようにマークします。
     /// </summary>
     private void InvalidateInstalledDirectoryIndex()
     {
         InvalidateInstallEstimationMetadataProfileCache();
+        lock (lockInstalledPrimaryHashLookup)
+        {
+            installedPrimaryHashLookup = new PrimaryHashLookupState();
+            installedPrimaryHashLookupInitialized = false;
+        }
         lock (lockInstalledChartLookupIndex)
         {
             installedChartLookupIndex = new InstalledChartLookupIndexState();
@@ -6856,6 +6867,20 @@ completeFileEnumerationOnce,
         }
     }
 
+    private bool TryScanOwnedChartRefsForPathsUnsafe(IEnumerable<string> paths, out List<LibraryChartRef> chartRefs)
+    {
+        lock (lockOwnedChartCollection)
+        {
+            if (!ownedChartCollectionInitialized)
+            {
+                chartRefs = null;
+                return false;
+            }
+            chartRefs = ownedChartCollection.CreateLibraryChartRefsForPathsByScan(paths);
+            return true;
+        }
+    }
+
     private ChartStorageTargetSet CreateOwnedStorageTargetsForSubtreeDirectoryUnsafe(string directoryPath)
     {
         EnsureOwnedChartCollectionBuiltUnsafe();
@@ -6992,6 +7017,15 @@ completeFileEnumerationOnce,
         lock (lockOwnedChartCollection)
         {
             return ownedChartCollection.CreateInstalledChartLookupIndexState(out bmsCount, out bmsonCount);
+        }
+    }
+
+    private PrimaryHashLookupState CreateOwnedInstalledPrimaryHashLookupStateUnsafe(out int bmsCount, out int bmsonCount)
+    {
+        EnsureOwnedChartCollectionBuiltUnsafe();
+        lock (lockOwnedChartCollection)
+        {
+            return ownedChartCollection.CreatePrimaryHashLookupState(out bmsCount, out bmsonCount);
         }
     }
 
@@ -8130,7 +8164,9 @@ completeFileEnumerationOnce,
     private InstalledChartLookupMutation BuildInstalledChartLookupUpsertMutation(OwnedChartCollectionStorageMutation storageMutation)
     {
         var mutation = new InstalledChartLookupMutation();
-        if (storageMutation?.AddedCount > 0 != true || !IsInstalledChartLookupIndexInitializedUnsafe())
+        bool fullLookupInitialized = IsInstalledChartLookupIndexInitializedUnsafe();
+        bool primaryLookupInitialized = IsInstalledPrimaryHashLookupInitializedUnsafe();
+        if (storageMutation?.AddedCount > 0 != true || (!fullLookupInitialized && !primaryLookupInitialized))
         {
             return mutation;
         }
@@ -8146,7 +8182,10 @@ completeFileEnumerationOnce,
         addedPaths.UnionWith(addedBmsonPaths);
         if (addedPaths.Count > 0)
         {
-            if (!TryCreateOwnedChartRefsForPathsUnsafe(addedPaths, out List<LibraryChartRef> existingRefs))
+            bool existingRefsAvailable = fullLookupInitialized
+                ? TryCreateOwnedChartRefsForPathsUnsafe(addedPaths, out List<LibraryChartRef> existingRefs)
+                : TryScanOwnedChartRefsForPathsUnsafe(addedPaths, out existingRefs);
+            if (!existingRefsAvailable)
             {
                 mutation.RequiresFullInvalidate = true;
                 return mutation;
@@ -8176,6 +8215,14 @@ completeFileEnumerationOnce,
         lock (lockInstalledChartLookupIndex)
         {
             return installedChartLookupIndexInitialized;
+        }
+    }
+
+    private bool IsInstalledPrimaryHashLookupInitializedUnsafe()
+    {
+        lock (lockInstalledPrimaryHashLookup)
+        {
+            return installedPrimaryHashLookupInitialized;
         }
     }
 
@@ -8209,6 +8256,7 @@ completeFileEnumerationOnce,
         {
             return;
         }
+        ApplyInstalledPrimaryHashLookupMutation(mutation, reason);
         lock (lockInstalledChartLookupIndex)
         {
             if (!installedChartLookupIndexInitialized)
@@ -8237,6 +8285,39 @@ completeFileEnumerationOnce,
             }
             stopwatch.Stop();
             LogInstallPerformance("installed_chart_lookup_index update mode=incremental reason=" + reason + " removed=" + mutation.Removed.Count + " moved=" + mutation.Moved.Count + " added=" + mutation.Added.Count + " elapsedMs=" + stopwatch.ElapsedMilliseconds + " hashes=" + installedChartLookupIndex.HashCount + " primaryHashes=" + installedChartLookupIndex.DistinctPrimaryHashCount + " dirRefs=" + installedChartLookupIndex.DirectoryReferenceCount);
+        }
+    }
+
+    private void ApplyInstalledPrimaryHashLookupMutation(InstalledChartLookupMutation mutation, string reason)
+    {
+        if (mutation == null || !mutation.HasChanges)
+        {
+            return;
+        }
+        lock (lockInstalledPrimaryHashLookup)
+        {
+            if (!installedPrimaryHashLookupInitialized)
+            {
+                return;
+            }
+            if (mutation.RequiresFullInvalidate)
+            {
+                installedPrimaryHashLookup = new PrimaryHashLookupState();
+                installedPrimaryHashLookupInitialized = false;
+                LogInstallPerformance("installed_primary_hash_lookup update mode=full_invalidate reason=" + reason);
+                return;
+            }
+            var stopwatch = Stopwatch.StartNew();
+            foreach (InstalledChartLookupMutationEntry entry in mutation.Removed)
+            {
+                installedPrimaryHashLookup.RemovePrimaryHash(entry.Md5);
+            }
+            foreach (InstalledChartLookupMutationEntry entry in mutation.Added)
+            {
+                installedPrimaryHashLookup.AddPrimaryHash(entry.Md5);
+            }
+            stopwatch.Stop();
+            LogInstallPerformance("installed_primary_hash_lookup update mode=incremental reason=" + reason + " removed=" + mutation.Removed.Count + " moved=" + mutation.Moved.Count + " added=" + mutation.Added.Count + " elapsedMs=" + stopwatch.ElapsedMilliseconds + " primaryHashes=" + installedPrimaryHashLookup.DistinctPrimaryHashCount);
         }
     }
 
@@ -8622,6 +8703,28 @@ completeFileEnumerationOnce,
         }
     }
 
+    private bool EnsureInstalledPrimaryHashLookupBuiltUnsafe(out long buildMs, out int bmsCount, out int bmsonCount)
+    {
+        lock (lockInstalledPrimaryHashLookup)
+        {
+            if (installedPrimaryHashLookupInitialized)
+            {
+                buildMs = 0L;
+                bmsCount = 0;
+                bmsonCount = 0;
+                return false;
+            }
+            var stopwatch = Stopwatch.StartNew();
+            PrimaryHashLookupState state = CreateOwnedInstalledPrimaryHashLookupStateUnsafe(out bmsCount, out bmsonCount);
+            installedPrimaryHashLookup = state ?? new PrimaryHashLookupState();
+            installedPrimaryHashLookupInitialized = true;
+            stopwatch.Stop();
+            buildMs = stopwatch.ElapsedMilliseconds;
+            LogInstallPerformance("installed_primary_hash_lookup build mode=full buildMs=" + buildMs + " primaryHashes=" + installedPrimaryHashLookup.DistinctPrimaryHashCount + " files=" + bmsCount + " bmson=" + bmsonCount + " rows=" + (bmsCount + bmsonCount) + " source=owned_collection_primary singleFlight=true");
+            return true;
+        }
+    }
+
     /// <summary>
     /// 現在のインストール済み chart lookup index のスナップショットを取得します。
     /// </summary>
@@ -8641,10 +8744,10 @@ completeFileEnumerationOnce,
         {
             return false;
         }
-        EnsureInstalledChartLookupIndexBuiltUnsafe();
-        lock (lockInstalledChartLookupIndex)
+        EnsureInstalledPrimaryHashLookupBuiltUnsafe(out _, out _, out _);
+        lock (lockInstalledPrimaryHashLookup)
         {
-            return installedChartLookupIndex.ContainsPrimaryHash(lookupKey);
+            return installedPrimaryHashLookup.ContainsPrimaryHash(lookupKey);
         }
     }
 
@@ -8767,11 +8870,19 @@ completeFileEnumerationOnce,
 
     private IPrimaryHashLookup CreateInstalledChartKeySnapshotExcludingChartsUnsafe(IEnumerable<ChartFile> excluded)
     {
+        return CreateInstalledChartKeySnapshotExcludingChartsUnsafe(excluded, null, 0L);
+    }
+
+    private IPrimaryHashLookup CreateInstalledChartKeySnapshotExcludingChartsUnsafe(IEnumerable<ChartFile> excluded, string reason, long operationId)
+    {
+        var stopwatch = Stopwatch.StartNew();
         var excludedKeyCount = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        int excludedChartCount = 0;
         if (excluded != null)
         {
             foreach (ChartFile item in excluded.Where(chart => chart != null))
             {
+                excludedChartCount++;
                 string key = ChartLookupKey.GetPrimaryHash(item);
                 if (!string.IsNullOrWhiteSpace(key))
                 {
@@ -8779,11 +8890,27 @@ completeFileEnumerationOnce,
                 }
             }
         }
-        EnsureInstalledChartLookupIndexBuiltUnsafe();
-        lock (lockInstalledChartLookupIndex)
+        bool coldBuild = EnsureInstalledPrimaryHashLookupBuiltUnsafe(out long buildMs, out int bmsCount, out int bmsonCount);
+        IPrimaryHashLookup result;
+        lock (lockInstalledPrimaryHashLookup)
         {
-            return installedChartLookupIndex.CreateExcludingLookup(excludedKeyCount);
+            result = installedPrimaryHashLookup.CreateExcludingLookup(excludedKeyCount);
         }
+        stopwatch.Stop();
+        if (!string.IsNullOrWhiteSpace(reason))
+        {
+            LogInstallPerformance("installed_primary_hash_lookup excluding_snapshot reason=" + reason
+                + " op=" + operationId
+                + " elapsedMs=" + stopwatch.ElapsedMilliseconds
+                + " coldBuild=" + coldBuild
+                + " buildMs=" + buildMs
+                + " excludedCharts=" + excludedChartCount
+                + " excludedHashes=" + excludedKeyCount.Count
+                + " primaryHashes=" + result.DistinctPrimaryHashCount
+                + " files=" + bmsCount
+                + " bmson=" + bmsonCount);
+        }
+        return result;
     }
 
     /// <summary>
@@ -11632,7 +11759,7 @@ completeFileEnumerationOnce,
                         PendingInstallBatchPlan installPlan = packageInstallService.BuildEstimatedInstallBatchPlan(
                             packages,
                             ChartPackagesPending,
-                            CreateInstalledChartLookupSnapshotUnsafe(),
+                            CreateInstalledChartKeySnapshotExcludingChartsUnsafe([], "install_pending_estimated_filter", 0L),
                             deletePendingPackageSourceAfterInstall,
                             CountComponentMoveTargetsForPackage);
                         if (installPlan.SelectedPendingPackages.Count == 0)
@@ -11866,7 +11993,7 @@ completeFileEnumerationOnce,
             LogInstallPerformance("pending_regroup skip reason=" + skipReason + " source=" + sourceDirectoryPath + " packages=" + sourcePackages.Count);
             return;
         }
-        ReinitializePendingWarningsForPackageUnsafe(regroupedPackage, CreateInstalledChartKeySnapshotExcludingChartsUnsafe(null));
+        ReinitializePendingWarningsForPackageUnsafe(regroupedPackage, CreateInstalledChartKeySnapshotExcludingChartsUnsafe([]));
         ReplacePendingPackagesWithRegroupedPackageUnsafe(sourcePackages, regroupedPackage);
         dbGateway.DeleteInstallRows(sourcePackages.Select(pendingPackage => pendingPackage.path));
         dbGateway.UpsertInstallRows([regroupedPackage]);
@@ -13029,14 +13156,27 @@ completeFileEnumerationOnce,
                     {
                         LogInstallPerformance("duplicate_merge_model bms_lock_acquired op=" + operationId + " waitMs=" + bmsLockWaitStopwatch.ElapsedMilliseconds);
                         var prepareStopwatch = Stopwatch.StartNew();
+                        var sourceRefsStopwatch = Stopwatch.StartNew();
+                        List<LibraryChartRef> sourceChartRefs = CreateOwnedRealPathChartRefsUnsafe(src);
+                        LogInstallPerformance("duplicate_merge_model prepare_source_refs_done op=" + operationId
+                            + " elapsedMs=" + sourceRefsStopwatch.ElapsedMilliseconds
+                            + " count=" + sourceChartRefs.Count);
+                        var overlayStopwatch = Stopwatch.StartNew();
+                        InstallDestinationOverlayChartRefSnapshot overlayChartRefs = CreateInstallDestinationOverlayChartRefSnapshotUnsafe();
+                        LogInstallPerformance("duplicate_merge_model prepare_overlay_refs_done op=" + operationId
+                            + " elapsedMs=" + overlayStopwatch.ElapsedMilliseconds
+                            + " count=" + (overlayChartRefs?.ChartCount ?? 0));
+                        var prepareCoreStopwatch = Stopwatch.StartNew();
                         LibraryMergeResult mergeResult = libraryFileOperationsService.PrepareMergeDirectory(
                             src,
                             dst,
-                            CreateOwnedRealPathChartRefsUnsafe(src),
-                            CreateInstallDestinationOverlayChartRefSnapshotUnsafe(),
+                            sourceChartRefs,
+                            overlayChartRefs,
                             ChartPackagesPending,
                             ChartPackagesInstalled,
-                            CreateInstalledChartKeySnapshotExcludingChartsUnsafe);
+                            excluded => CreateInstalledChartKeySnapshotExcludingChartsUnsafe(excluded, "duplicate_merge_prepare", operationId));
+                        LogInstallPerformance("duplicate_merge_model prepare_core_done op=" + operationId
+                            + " elapsedMs=" + prepareCoreStopwatch.ElapsedMilliseconds);
                         int repackageEntryCount = mergeResult.Repackage?.ChartEntries?.Count ?? 0;
                         LogInstallPerformance("duplicate_merge_model prepare_done op=" + operationId
                             + " success=" + mergeResult.Success

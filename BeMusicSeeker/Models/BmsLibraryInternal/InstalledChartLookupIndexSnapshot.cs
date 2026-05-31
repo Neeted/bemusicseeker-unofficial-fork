@@ -26,6 +26,177 @@ internal interface IMutablePrimaryHashLookup : IPrimaryHashLookup
     void AddPrimaryHash(string lookupHash);
 }
 
+/// <summary>
+/// primary md5 count だけを保持する immutable snapshot です。
+/// full installed directory lookup を必要としない duplicate merge / installed 判定で
+/// directory map のコピーを避けるために使います。
+/// </summary>
+internal sealed class PrimaryHashLookupSnapshot : IPrimaryHashLookup
+{
+    private readonly Dictionary<string, int> primaryHashCounts;
+
+    public PrimaryHashLookupSnapshot()
+        : this(new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase))
+    {
+    }
+
+    private PrimaryHashLookupSnapshot(Dictionary<string, int> primaryHashCounts)
+    {
+        this.primaryHashCounts = primaryHashCounts ?? new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// mutable state から primary md5 count だけをコピーします。
+    /// </summary>
+    /// <param name="source">コピー元の count map。</param>
+    /// <returns>primary md5 count snapshot。</returns>
+    internal static PrimaryHashLookupSnapshot Create(IReadOnlyDictionary<string, int> source)
+    {
+        return new PrimaryHashLookupSnapshot(CopyPrimaryHashCounts(source));
+    }
+
+    public int DistinctPrimaryHashCount => primaryHashCounts.Count;
+
+    public bool ContainsPrimaryHash(string lookupHash)
+    {
+        return GetPrimaryHashCount(lookupHash) > 0;
+    }
+
+    public int GetPrimaryHashCount(string lookupHash)
+    {
+        return !string.IsNullOrWhiteSpace(lookupHash) && primaryHashCounts.TryGetValue(lookupHash, out int count)
+            ? count
+            : 0;
+    }
+
+    internal IPrimaryHashLookup CreateExcludingLookup(IReadOnlyDictionary<string, int> excludedCounts)
+    {
+        return excludedCounts == null || excludedCounts.Count == 0
+            ? this
+            : new ExcludingPrimaryHashLookup(this, excludedCounts);
+    }
+
+    private static Dictionary<string, int> CopyPrimaryHashCounts(IReadOnlyDictionary<string, int> source)
+    {
+        var result = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        if (source == null)
+        {
+            return result;
+        }
+        foreach (KeyValuePair<string, int> item in source)
+        {
+            if (!string.IsNullOrWhiteSpace(item.Key) && item.Value > 0)
+            {
+                result[item.Key] = item.Value;
+            }
+        }
+        return result;
+    }
+}
+
+/// <summary>
+/// current owned chart の primary md5 count を mutation 同期する軽量 state です。
+/// directory / sha256 lookup を含む full installed lookup より先に温められるよう、
+/// md5 identity 判定だけを独立して保持します。
+/// </summary>
+internal sealed class PrimaryHashLookupState : IPrimaryHashLookup
+{
+    private readonly Dictionary<string, int> primaryHashCounts = new(StringComparer.OrdinalIgnoreCase);
+
+    private PrimaryHashLookupSnapshot snapshot;
+
+    private bool snapshotDirty = true;
+
+    public int DistinctPrimaryHashCount => primaryHashCounts.Count;
+
+    public bool ContainsPrimaryHash(string lookupHash)
+    {
+        return GetPrimaryHashCount(lookupHash) > 0;
+    }
+
+    public int GetPrimaryHashCount(string lookupHash)
+    {
+        return !string.IsNullOrWhiteSpace(lookupHash) && primaryHashCounts.TryGetValue(lookupHash, out int count)
+            ? count
+            : 0;
+    }
+
+    /// <summary>
+    /// chart の primary md5 を追加します。
+    /// </summary>
+    /// <param name="lookupHash">owned chart の md5。</param>
+    internal void AddPrimaryHash(string lookupHash)
+    {
+        if (!string.IsNullOrWhiteSpace(lookupHash))
+        {
+            Increment(primaryHashCounts, lookupHash);
+            MarkDirty();
+        }
+    }
+
+    /// <summary>
+    /// chart の primary md5 を削除します。
+    /// </summary>
+    /// <param name="lookupHash">owned chart の md5。</param>
+    internal void RemovePrimaryHash(string lookupHash)
+    {
+        if (!string.IsNullOrWhiteSpace(lookupHash) && Decrement(primaryHashCounts, lookupHash))
+        {
+            MarkDirty();
+        }
+    }
+
+    /// <summary>
+    /// snapshot を返します。count map だけをコピーし、directory map は作りません。
+    /// </summary>
+    /// <returns>primary md5 lookup snapshot。</returns>
+    internal PrimaryHashLookupSnapshot CreateSnapshot()
+    {
+        if (!snapshotDirty && snapshot != null)
+        {
+            return snapshot;
+        }
+        snapshot = PrimaryHashLookupSnapshot.Create(primaryHashCounts);
+        snapshotDirty = false;
+        return snapshot;
+    }
+
+    internal IPrimaryHashLookup CreateExcludingLookup(IReadOnlyDictionary<string, int> excludedCounts)
+    {
+        PrimaryHashLookupSnapshot baseline = CreateSnapshot();
+        return excludedCounts == null || excludedCounts.Count == 0
+            ? baseline
+            : new ExcludingPrimaryHashLookup(baseline, excludedCounts);
+    }
+
+    private static void Increment(Dictionary<string, int> counts, string key)
+    {
+        counts[key] = counts.TryGetValue(key, out int count) ? count + 1 : 1;
+    }
+
+    private static bool Decrement(Dictionary<string, int> counts, string key)
+    {
+        if (!counts.TryGetValue(key, out int count))
+        {
+            return false;
+        }
+        if (count <= 1)
+        {
+            counts.Remove(key);
+        }
+        else
+        {
+            counts[key] = count - 1;
+        }
+        return true;
+    }
+
+    private void MarkDirty()
+    {
+        snapshotDirty = true;
+    }
+}
+
 internal sealed class InstalledChartLookupIndexSnapshot : IInstalledChartLookupIndex
 {
     private readonly Dictionary<string, IReadOnlyList<string>> md5Directories;

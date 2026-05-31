@@ -182,6 +182,8 @@ hydration 完了時の通常一覧反映は、full normal library かつ keyword
 
 仮想 order prewarm の descriptor build は background task 1 件の中で priority 1 -> 2 -> 3 の stage に分け、各 stage を bounded parallel に実行する。並列度は `min(stageDescriptorCount, min(4, max(1, Environment.ProcessorCount - 1)))` とし、初期化中の他処理と競合しすぎない範囲で完了を早める。`virtual_order_prewarm` ログは全体と stage ごとに `descriptorCount`、`degree`、`priority`、`sourceGeneration`、`sortKeyGeneration`、`cacheHit`、`built`、`staleSkipped` を出す。priority 0 (`WarningDigestText`、resource health、encoding、`level`) は startup prewarm しないが、通常操作時の on-demand order cache 対象には残す。
 
+manual 記載機能で使う derived index は、readiness tier を分けて扱う。`critical init` は `startup_ready_operable` までに必要な catalog / install tree の最小情報、`startup background` は `startup_background_summary` に含める hydration / playlist / maintenance task、`post-startup best-effort warmup` は readiness をブロックしない sort order / primary installed hash / real path directory view など、`explicit on-demand` は duplicate group analysis のようにユーザー操作そのものが重い明示処理である。best-effort warmup は correctness の必須条件ではないため、ユーザー操作が先に来た場合は synchronous fallback を許容する。ただし cold path は `installed_primary_hash_lookup`、`installed_chart_lookup_index`、`owned_adjacent_index_warmup` などの log で見えるようにし、初回操作に隠れた full build が再発した場合に追跡できるようにする。
+
 直近ログでは、background tail の支配項は `chart_info_hydration` である。`playlist_entries_hydration` と `maintenance_hydration` は lane により並走するが、`chart_info_hydration` は full `chart_info` row load / materialize が重く、`startup_initialization_complete` までの最後の長い task になりやすい。次に短縮する場合は、task を expected phase から外すのではなく、`chart_info_hydration` の no-op skip / persistent hydrated index / projection 設計を見直す。
 
 ## DB Access Policy

@@ -24,6 +24,12 @@ internal sealed class InstallDestinationOverlayChartRefSnapshot
 
     internal static InstallDestinationOverlayChartRefSnapshot Empty => empty;
 
+    /// <summary>
+    /// overlay snapshot に含まれる chart ref 件数を返します。
+    /// duplicate merge prepare の cold path 計測で、snapshot の規模をログへ残すために公開しています。
+    /// </summary>
+    internal int ChartCount => refsByInstallDestinationDirectory.Values.Sum(refs => refs?.Count ?? 0);
+
     internal static InstallDestinationOverlayChartRefSnapshot FromCharts(IEnumerable<ChartFile> charts)
     {
         return FromLibraryChartRefs((charts ?? [])

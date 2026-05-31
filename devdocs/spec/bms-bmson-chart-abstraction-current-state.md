@@ -360,9 +360,9 @@ loose chart 推定の model 入口は `PackageChartEntry` を受け取り、snap
 
 installed directory index は BMS と bmson の両方を扱う。
 
-installed directory index は `InstalledChartLookupIndexState` が md5 primary count / md5 directory / sha256 directory / known directory refs を持つ。初回 build は storage rows または owned collection の lightweight hash/directory view から作り、install estimation service には `IEnumerable<ChartFile>` を受ける lookup build API を置かない。`ChartFile` list を作るのは package resolve や diagnostics で個別 chart projection が必要な境界だけにする。
+installed lookup は用途別に二層へ分ける。`PrimaryHashLookupState` は md5 primary count だけを持ち、既所持判定、duplicate merge の existing hash 判定、安全削除の count 判定で使う。`InstalledChartLookupIndexState` は md5 directory / sha256 directory / known directory refs を持つ full directory lookup であり、install destination 推定や directory scoring のように directory 情報が必要な場合だけ使う。どちらも初回 build は owned collection の lightweight view から作り、install estimation service には `IEnumerable<ChartFile>` を受ける lookup build API を置かない。`ChartFile` list を作るのは package resolve や diagnostics で個別 chart projection が必要な境界だけにする。
 
-map は md5 / sha256 の両方を登録する一方、個別 chart の owned installed 判定や package resolve の primary identity は md5 であり、「常に両 hash で union lookup する」仕様ではない。sha256 bucket は playlist sha-only entry、diagnostics、digest-aware auxiliary lookup のために保持する。installed-only package destination / package-level installed directory scoring / pending destination validation は package 内 chart を `PackageChartEntry` として列挙し、BMS-only mutation が必要な境界だけ BMS storage owner を返す。installed-only resource overwrite の skip 診断で原因 chart を探す helper は `ChartFile` を返すため、adapterless entry でも path / md5 identity をログへ出せる。
+full directory lookup は md5 / sha256 の両方を登録する一方、個別 chart の owned installed 判定や package resolve の primary identity は md5 であり、「常に両 hash で union lookup する」仕様ではない。sha256 bucket は playlist sha-only entry、diagnostics、digest-aware auxiliary lookup のために保持する。installed-only package destination / package-level installed directory scoring / pending destination validation は package 内 chart を `PackageChartEntry` として列挙し、BMS-only mutation が必要な境界だけ BMS storage owner を返す。installed-only resource overwrite の skip 診断で原因 chart を探す helper は `ChartFile` を返すため、adapterless entry でも path / md5 identity をログへ出せる。
 
 ## Playlist
 
@@ -786,8 +786,9 @@ dispatcher は mutation result を受け取り、各 index に同じ変更内容
 
 | 派生 index / cache | mutation result から見る内容 | 差分不可時 |
 | :--- | :--- | :--- |
-| installed lookup | added / removed / moved / digest updated の lightweight path/md5 entry | 構築済みなら delta apply。未構築なら build しない。表現不能なら invalidate。projection-only の pathless / md5less digest update は owned event にしない。explicit owned digest event が path / md5 を欠く場合は異常系として検出する。 |
-| md5 primary hash -> path lookup | added / removed / moved / digest updated | installed lookup と同じ state に同居させ、candidate path lookup だけを返す。 |
+| installed primary hash lookup | added / removed / digest updated の md5 entry | 構築済みなら delta apply。未構築なら build しない。duplicate merge / safe cleanup / primary installed 判定はこの軽量 lookup を読む。projection-only の pathless / md5less digest update は owned event にしない。explicit owned digest event が path / md5 を欠く場合は異常系として検出する。 |
+| installed directory lookup | added / removed / moved / digest updated の lightweight path/md5/sha256 entry | 構築済みなら delta apply。未構築なら build しない。表現不能なら invalidate。install destination 推定、known directory snapshot、directory scoring のように directory 情報が必要な場合だけ読む。 |
+| md5 primary hash -> path lookup | added / removed / moved / digest updated | full directory lookup state に同居させ、candidate path lookup だけを返す。 |
 | real path directory view / subtree counts | added / removed / moved の real path directory | affected directory bucket を更新。表現不能なら directory view invalidate。 |
 | owner/path canonical lookup | added / removed / moved / storage owner replace | affected owner/path key を更新。ambiguous path は canonical lookup 側の規則で扱う。 |
 | install destination overlay directory view | install destination changed / removed / moved / storage owner removed | overlay key を更新し、current owned key に存在しない runtime state を prune。 |
@@ -808,12 +809,12 @@ dispatcher の log は、全 index に個別詳細 log を増やすのではな�
 | 領域 | 状態 | 現行仕様 |
 | :--- | :--- | :--- |
 | mutation dispatcher | 完了、監査継続 | `OwnedChartCollectionMutationResult` と `DispatchOwnedChartCollectionMutation(...)` が、`ApplyLibraryMutationDelta(...)`、install upsert、file scan diff、duplicate merge、library delete の派生 index 同期を受け持つ。startup DB load / external replacement だけ setter full invalidate 境界に残す。 |
-| dispatcher 接続済み index | 完了、delta 精度は監査継続 | installed lookup、duplicate groups cache、parent folder cache、playlist summary owned hash、playlist detail resolve index、resource health index は dispatcher から差分同期または dirty 化する。未構築 index は mutation 時に build しない。 |
+| dispatcher 接続済み index | 完了、delta 精度は監査継続 | installed primary hash lookup、installed directory lookup、duplicate groups cache、parent folder cache、playlist summary owned hash、playlist detail resolve index、resource health index は dispatcher から差分同期または dirty 化する。未構築 index は mutation 時に build しない。 |
 | path / hash / overlay adjacent index | 完了、delta 精度は監査継続 | md5 primary hash -> path lookup、owner/path canonical lookup、path-only exact lookup、real path directory view、subtree counts、install destination overlay view は用途を分ける。path / hash / overlay change は old-side capture を持つ mutation result として dispatcher に流す。 |
 | resource / maintenance target | 完了、currentness / 性能監査継続 | `ResourceMaintenanceTargetSet`、`ResourceHealthIndexMutation`、`ResourceHealthIndexUpdateMode`、dispatcher が resource-health contract である。subset は delta / invalidate / defer、明示 full operation は version metadata 付き full targetとして扱う。 |
 | warning / source generation / sort-key | 完了、property fallback 再導入監査継続 | `NormalLibraryRefreshNotification` が refresh effect、owned collection version、storage row coverage を運ぶ。ViewModel は notification batch を消費し、`BMSFiles` / `BmsonSongs` property handler を normal source refresh の入口にしない。 |
 | full snapshot helper | 完了、監査継続 | installed chart snapshot 系 helper と folder operation 向け full ref snapshot は、owned collection の用途別 view / index / bounded projection に分解されている。全件 `ChartFile` materialize は chart_info full backfill と resource maintenance full operation に限定する。 |
-| hot path view / index | 完了、性能監査継続 | duplicate merge / folder move / delete / folder auto rename / resource-only merge display / install result resource lookup / playlist detail resolve / normal library sort は用途別 view または model-owned index を読む。 |
+| hot path view / index | 進行中、性能監査継続 | duplicate merge / folder move / delete / folder auto rename / resource-only merge display / install result resource lookup / playlist detail resolve / normal library sort は用途別 view または model-owned index を読む。duplicate merge の existing hash 判定は primary md5 lookup へ分離済みで、real path directory view の post-startup warmup は次の実装単位で進める。 |
 | storage row collection の役割 | 完了、direct enumeration 監査継続 | `BMSFiles` / `BmsonSongs` は DB commit、BMS-only / bmson-only producer、binding 互換、external full refresh に残す。ViewModel が両方を直接束ねる chart-common 経路は持たず、normal source owner view や bounded input projection を経由する。 |
 
 ### 現行仕様として固定する判断
@@ -856,6 +857,7 @@ dispatcher の log は、全 index に個別詳細 log を増やすのではな�
 - `song_tbl_load_projection` / owned chart collection full build log
 - `song_tbl_file_check_breakdown`
 - `main_view_build` / `custom_table_render`
+- `installed_primary_hash_lookup build/update/excluding_snapshot`
 - `installed_chart_lookup_index build/update`
 - `owned_collection_mutation_dispatch`
 - `duplicate_merge_model prepare_done`

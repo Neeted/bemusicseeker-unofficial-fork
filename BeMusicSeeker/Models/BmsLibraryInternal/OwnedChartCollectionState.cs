@@ -290,6 +290,29 @@ internal sealed class OwnedChartCollectionState
         return CreateLibraryChartRefIndexSnapshot().GetChartRefsByPaths(paths);
     }
 
+    /// <summary>
+    /// library chart ref index を構築せず、現在の owned chart list を直接 scan して path 一致 chart を返します。
+    /// primary hash lookup だけが温まっている upsert mutation では、既存 path の置換検出に full path index を作らないために使います。
+    /// </summary>
+    /// <param name="paths">検索対象 path。</param>
+    /// <returns>現在の owned chart に含まれる path 一致 chart refs。</returns>
+    internal List<LibraryChartRef> CreateLibraryChartRefsForPathsByScan(IEnumerable<string> paths)
+    {
+        var pathSet = new HashSet<string>(
+            (paths ?? []).Where(path => !string.IsNullOrWhiteSpace(path)),
+            StringComparer.OrdinalIgnoreCase);
+        if (pathSet.Count == 0)
+        {
+            return [];
+        }
+
+        return [.. charts
+            .Where(chart => chart != null)
+            .Where(chart => pathSet.Contains(GetCurrentPath(chart)))
+            .Select(CreateCurrentLibraryChartRef)
+            .Where(chart => chart != null)];
+    }
+
     internal bool ContainsKnownChart(ChartFile chart)
     {
         LibraryChartRef inputRef = LibraryChartRef.FromChartFile(chart);
@@ -461,6 +484,54 @@ internal sealed class OwnedChartCollectionState
             AddHashes(snapshot, chart.Md5, chart.Sha256);
         }
         return snapshot;
+    }
+
+    /// <summary>
+    /// owned chart の primary md5 count だけを持つ軽量 lookup state を作成します。
+    /// duplicate merge など、directory lookup が不要な既所持判定で full installed lookup の構築を避けるために使います。
+    /// </summary>
+    /// <param name="bmsCount">BMS owner の件数。</param>
+    /// <param name="bmsonCount">bmson owner の件数。</param>
+    /// <returns>primary md5 lookup state。</returns>
+    internal PrimaryHashLookupState CreatePrimaryHashLookupState(out int bmsCount, out int bmsonCount)
+    {
+        var state = new PrimaryHashLookupState();
+        bmsCount = 0;
+        bmsonCount = 0;
+        foreach (ChartFile chart in charts.Where(chart => chart != null))
+        {
+            if (!HasCurrentOwnedIdentity(chart))
+            {
+                continue;
+            }
+
+            BMSFile bmsOwner = chart.GetBmsStorageOwner();
+            if (bmsOwner != null)
+            {
+                state.AddPrimaryHash(bmsOwner.hash);
+                bmsCount++;
+                continue;
+            }
+
+            LR2SongDBExtended.bmson_song bmsonOwner = chart.GetBmsonStorageOwner();
+            if (bmsonOwner != null)
+            {
+                state.AddPrimaryHash(bmsonOwner.md5);
+                bmsonCount++;
+                continue;
+            }
+
+            state.AddPrimaryHash(chart.Md5);
+            if (chart.Kind == ChartFileKind.Bmson)
+            {
+                bmsonCount++;
+            }
+            else
+            {
+                bmsCount++;
+            }
+        }
+        return state;
     }
 
     internal InstalledChartLookupIndexState CreateInstalledChartLookupIndexState(out int bmsCount, out int bmsonCount)

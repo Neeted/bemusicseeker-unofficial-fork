@@ -2566,6 +2566,148 @@ public sealed class OwnedChartCollectionStateTests
     }
 
     [TestMethod]
+    public void CreateInstalledChartKeySnapshotExcludingCharts_BuildsPrimaryLookupWithoutFullDirectoryLookup()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "chart.bms"));
+            var bmsonSong = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "chart.bmson"), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+            var library = new BMSLibrary(songDbPath)
+            {
+                BMSFiles = [bmsFile],
+                BmsonSongs = [bmsonSong]
+            };
+
+            IPrimaryHashLookup lookup = InvokeCreateInstalledChartKeySnapshotExcludingCharts(library, []);
+
+            Assert.IsTrue(lookup.ContainsPrimaryHash(bmsFile.hash));
+            Assert.IsTrue(lookup.ContainsPrimaryHash(bmsonSong.md5));
+            Assert.IsTrue(IsInstalledPrimaryHashLookupInitialized(library));
+            Assert.IsFalse(IsInstalledChartLookupIndexInitialized(library));
+        });
+    }
+
+    [TestMethod]
+    public void CreateInstalledChartKeySnapshotExcludingCharts_ExcludesOnlyPrimaryHashCounts()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            var firstBmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "First", "chart.bms"));
+            var secondBmsFile = CreateFile(firstBmsFile.hash, Path.Combine("C:\\Installed", "Second", "chart.bms"));
+            var otherBmsFile = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine("C:\\Installed", "Other", "chart.bms"));
+            var library = new BMSLibrary(songDbPath)
+            {
+                BMSFiles = [firstBmsFile, secondBmsFile, otherBmsFile],
+                BmsonSongs = []
+            };
+
+            IPrimaryHashLookup excludingOne = InvokeCreateInstalledChartKeySnapshotExcludingCharts(
+                library,
+                [ChartFileProjection.FromBmsFile(firstBmsFile, includeWarningSnapshot: false, includeResourceReferences: false)]);
+            IPrimaryHashLookup excludingBoth = InvokeCreateInstalledChartKeySnapshotExcludingCharts(
+                library,
+                [
+                    ChartFileProjection.FromBmsFile(firstBmsFile, includeWarningSnapshot: false, includeResourceReferences: false),
+                    ChartFileProjection.FromBmsFile(secondBmsFile, includeWarningSnapshot: false, includeResourceReferences: false)
+                ]);
+
+            Assert.AreEqual(1, excludingOne.GetPrimaryHashCount(firstBmsFile.hash));
+            Assert.IsTrue(excludingOne.ContainsPrimaryHash(firstBmsFile.hash));
+            Assert.AreEqual(0, excludingBoth.GetPrimaryHashCount(firstBmsFile.hash));
+            Assert.IsFalse(excludingBoth.ContainsPrimaryHash(firstBmsFile.hash));
+            Assert.IsTrue(excludingBoth.ContainsPrimaryHash(otherBmsFile.hash));
+            Assert.IsFalse(IsInstalledChartLookupIndexInitialized(library));
+        });
+    }
+
+    [TestMethod]
+    public void ApplyLibraryMutationDelta_UpdatesPrimaryLookupWithoutFullDirectoryLookup()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            var removedBmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Removed", "chart.bms"));
+            var keptBmsFile = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine("C:\\Installed", "Kept", "chart.bms"));
+            var library = new BMSLibrary(songDbPath)
+            {
+                BMSFiles = [removedBmsFile, keptBmsFile],
+                BmsonSongs = []
+            };
+            IPrimaryHashLookup initialLookup = InvokeCreateInstalledChartKeySnapshotExcludingCharts(library, []);
+            Assert.IsTrue(initialLookup.ContainsPrimaryHash(removedBmsFile.hash));
+            Assert.IsFalse(IsInstalledChartLookupIndexInitialized(library));
+            var delta = new LibraryMutationDelta();
+            delta.ChartsToUnregister.Add(ChartFileProjection.FromBmsStorageOwnerIdentity(removedBmsFile));
+
+            InvokeApplyLibraryMutationDelta(library, delta);
+            IPrimaryHashLookup updatedLookup = InvokeCreateInstalledChartKeySnapshotExcludingCharts(library, []);
+
+            Assert.IsFalse(updatedLookup.ContainsPrimaryHash(removedBmsFile.hash));
+            Assert.IsTrue(updatedLookup.ContainsPrimaryHash(keptBmsFile.hash));
+            Assert.IsTrue(IsInstalledPrimaryHashLookupInitialized(library));
+            Assert.IsFalse(IsInstalledChartLookupIndexInitialized(library));
+        });
+    }
+
+    [TestMethod]
+    public void ApplyInstalledChartStorageTargets_UpdatesPrimaryLookupWithoutBuildingOwnedRefIndex()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            var initialBmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Initial", "chart.bms"));
+            var addedBmsFile = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine("C:\\Installed", "Added", "chart.bms"));
+            var library = new BMSLibrary(songDbPath)
+            {
+                BMSFiles = [initialBmsFile],
+                BmsonSongs = []
+            };
+            IPrimaryHashLookup initialLookup = InvokeCreateInstalledChartKeySnapshotExcludingCharts(library, []);
+            Assert.IsTrue(initialLookup.ContainsPrimaryHash(initialBmsFile.hash));
+            Assert.IsFalse(IsOwnedLibraryChartRefIndexInitialized(library));
+            Assert.IsFalse(IsInstalledChartLookupIndexInitialized(library));
+
+            InvokeApplyInstalledChartStorageTargets(library, ChartStorageTargetSet.FromRows([addedBmsFile], []));
+            IPrimaryHashLookup updatedLookup = InvokeCreateInstalledChartKeySnapshotExcludingCharts(library, []);
+
+            Assert.IsTrue(updatedLookup.ContainsPrimaryHash(initialBmsFile.hash));
+            Assert.IsTrue(updatedLookup.ContainsPrimaryHash(addedBmsFile.hash));
+            Assert.IsTrue(IsInstalledPrimaryHashLookupInitialized(library));
+            Assert.IsFalse(IsInstalledChartLookupIndexInitialized(library));
+            Assert.IsFalse(IsOwnedLibraryChartRefIndexInitialized(library));
+        });
+    }
+
+    [TestMethod]
+    public void DispatchOwnedPotentialDigestChanges_InvalidatesPrimaryLookup()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "PotentialDigest", "chart.bms"));
+            var library = new BMSLibrary(songDbPath)
+            {
+                BMSFiles = [bmsFile],
+                BmsonSongs = []
+            };
+            IPrimaryHashLookup initialLookup = InvokeCreateInstalledChartKeySnapshotExcludingCharts(library, []);
+            Assert.IsTrue(initialLookup.ContainsPrimaryHash(bmsFile.hash));
+            Assert.IsTrue(IsInstalledPrimaryHashLookupInitialized(library));
+            Assert.IsFalse(IsInstalledChartLookupIndexInitialized(library));
+
+            InvokeDispatchOwnedPotentialDigestChanges(
+                library,
+                [ChartFileProjection.FromBmsFile(bmsFile, includeWarningSnapshot: false, includeResourceReferences: false)],
+                "test_potential_digest");
+
+            Assert.IsFalse(IsInstalledPrimaryHashLookupInitialized(library));
+            Assert.IsFalse(IsInstalledChartLookupIndexInitialized(library));
+        });
+    }
+
+    [TestMethod]
     public void NormalLibraryRefreshNotificationBatch_DoesNotHideOverlayOnlyRefreshBehindOtherStorageRowNotifications()
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -2939,6 +3081,13 @@ public sealed class OwnedChartCollectionStateTests
         return (InstalledChartLookupIndexSnapshot)methodInfo.Invoke(library, []);
     }
 
+    private static IPrimaryHashLookup InvokeCreateInstalledChartKeySnapshotExcludingCharts(BMSLibrary library, IEnumerable<ChartFile> excluded)
+    {
+        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("CreateInstalledChartKeySnapshotExcludingChartsUnsafe", BindingFlags.Instance | BindingFlags.NonPublic, null, [typeof(IEnumerable<ChartFile>)], null);
+        Assert.IsNotNull(methodInfo);
+        return (IPrimaryHashLookup)methodInfo.Invoke(library, [excluded]);
+    }
+
     private static void InvokeResolveInstallDestinationMetadataProfile(BMSLibrary library, string destinationDirectory)
     {
         MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("ResolveInstallDestinationMetadataProfileUnsafe", BindingFlags.Instance | BindingFlags.NonPublic);
@@ -2967,6 +3116,24 @@ public sealed class OwnedChartCollectionStateTests
         FieldInfo fieldInfo = typeof(BMSLibrary).GetField("installedChartLookupIndexInitialized", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.IsNotNull(fieldInfo);
         return (bool)fieldInfo.GetValue(library);
+    }
+
+    private static bool IsInstalledPrimaryHashLookupInitialized(BMSLibrary library)
+    {
+        FieldInfo fieldInfo = typeof(BMSLibrary).GetField("installedPrimaryHashLookupInitialized", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(fieldInfo);
+        return (bool)fieldInfo.GetValue(library);
+    }
+
+    private static bool IsOwnedLibraryChartRefIndexInitialized(BMSLibrary library)
+    {
+        FieldInfo ownedCollectionField = typeof(BMSLibrary).GetField("ownedChartCollection", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(ownedCollectionField);
+        object ownedCollection = ownedCollectionField.GetValue(library);
+        Assert.IsNotNull(ownedCollection);
+        FieldInfo indexField = typeof(OwnedChartCollectionState).GetField("libraryChartRefIndexSnapshot", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(indexField);
+        return indexField.GetValue(ownedCollection) != null;
     }
 
     private static ChartPackage InvokeCreateInstalledDisplayPackageForResourceOnlyMerge(
@@ -3032,6 +3199,16 @@ public sealed class OwnedChartCollectionStateTests
         MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("DispatchOwnedChartDigestChanges", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.IsNotNull(methodInfo);
         methodInfo.Invoke(library, [digestChanges, reason, true]);
+    }
+
+    private static void InvokeDispatchOwnedPotentialDigestChanges(
+        BMSLibrary library,
+        IEnumerable<ChartFile> charts,
+        string reason)
+    {
+        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("DispatchOwnedPotentialDigestChanges", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(methodInfo);
+        methodInfo.Invoke(library, [charts, reason, true]);
     }
 
     private static IDisposable InvokeSuppressResourceHealthIndexInvalidation(BMSLibrary library)
