@@ -245,6 +245,27 @@ public class BMSLibrary : NotificationObject
     }
 
     /// <summary>
+    /// owned collection 隣接 index の warmup 結果です。
+    /// startup readiness 外の best-effort warmup をログで追跡するために使います。
+    /// </summary>
+    internal sealed class OwnedAdjacentIndexWarmupResult
+    {
+        internal string IndexName { get; set; }
+
+        internal string Status { get; set; }
+
+        internal long ElapsedMs { get; set; }
+
+        internal int ChartRefCount { get; set; }
+
+        internal int DirectDirectoryCount { get; set; }
+
+        internal int SubtreeDirectoryCount { get; set; }
+
+        internal int OwnedCollectionVersion { get; set; }
+    }
+
+    /// <summary>
     /// score snapshot / hydration / ranking refresh の診断状態です。
     /// playlist open readiness の記録に利用します。
     /// </summary>
@@ -6825,6 +6846,49 @@ completeFileEnumerationOnce,
         {
             return ownedChartCollection.CreateLibraryChartRefsUnderRealPath(directoryPath);
         }
+    }
+
+    /// <summary>
+    /// folder / merge 操作で使う real path directory view を readiness 外で温めます。
+    /// </summary>
+    /// <param name="reason">warmup を要求した理由。</param>
+    /// <returns>warmup 結果。</returns>
+    internal OwnedAdjacentIndexWarmupResult WarmOwnedRealPathDirectoryView(string reason)
+    {
+        var stopwatch = Stopwatch.StartNew();
+        string status;
+        LibraryChartRefIndexSnapshot snapshot;
+        int ownedVersion;
+        using (rwlockBMSFiles.GetReaderGuard())
+        {
+            EnsureOwnedChartCollectionBuiltUnsafe();
+            lock (lockOwnedChartCollection)
+            {
+                status = ownedChartCollection.IsLibraryChartRefIndexSnapshotInitialized ? "cached" : "built";
+                snapshot = ownedChartCollection.CreateLibraryChartRefIndexSnapshot();
+                ownedVersion = OwnedChartCollectionVersion;
+            }
+        }
+        stopwatch.Stop();
+        var result = new OwnedAdjacentIndexWarmupResult
+        {
+            IndexName = "real_path",
+            Status = status,
+            ElapsedMs = stopwatch.ElapsedMilliseconds,
+            ChartRefCount = snapshot?.ChartRefCount ?? 0,
+            DirectDirectoryCount = snapshot?.DirectDirectoryCount ?? 0,
+            SubtreeDirectoryCount = snapshot?.SubtreeDirectoryCount ?? 0,
+            OwnedCollectionVersion = ownedVersion
+        };
+        LogInstallPerformance("owned_adjacent_index_warmup index=" + result.IndexName
+            + " reason=" + (reason ?? string.Empty)
+            + " status=" + result.Status
+            + " elapsedMs=" + result.ElapsedMs
+            + " chartRefs=" + result.ChartRefCount
+            + " directDirs=" + result.DirectDirectoryCount
+            + " subtreeDirs=" + result.SubtreeDirectoryCount
+            + " ownedCollectionVersion=" + result.OwnedCollectionVersion);
+        return result;
     }
 
     internal bool HasOwnedChartUnderRealPath(string directoryPath)

@@ -2681,6 +2681,36 @@ public sealed class OwnedChartCollectionStateTests
     }
 
     [TestMethod]
+    public void WarmOwnedRealPathDirectoryView_BuildsAndReusesOwnedRefIndex()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            string root = Path.Combine("C:\\Installed", "Warmup");
+            var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(root, "Bms", "chart.bms"));
+            var bmsonSong = CreateBmsonSong(Path.Combine(root, "Bmson", "chart.bmson"), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+            var library = new BMSLibrary(songDbPath)
+            {
+                BMSFiles = [bmsFile],
+                BmsonSongs = [bmsonSong]
+            };
+            Assert.IsFalse(IsOwnedLibraryChartRefIndexInitialized(library));
+
+            BMSLibrary.OwnedAdjacentIndexWarmupResult first = library.WarmOwnedRealPathDirectoryView("test");
+            BMSLibrary.OwnedAdjacentIndexWarmupResult second = library.WarmOwnedRealPathDirectoryView("test");
+
+            Assert.AreEqual("real_path", first.IndexName);
+            Assert.AreEqual("built", first.Status);
+            Assert.AreEqual(2, first.ChartRefCount);
+            Assert.IsTrue(first.DirectDirectoryCount >= 2);
+            Assert.IsTrue(first.SubtreeDirectoryCount >= 1);
+            Assert.IsTrue(IsOwnedLibraryChartRefIndexInitialized(library));
+            Assert.AreEqual("cached", second.Status);
+            Assert.AreEqual(first.ChartRefCount, second.ChartRefCount);
+        });
+    }
+
+    [TestMethod]
     public void DispatchOwnedPotentialDigestChanges_InvalidatesPrimaryLookup()
     {
         TestResourceInitializer.EnsureJapaneseResources();

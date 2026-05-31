@@ -5755,6 +5755,12 @@ public class MainWindowViewModel : ViewModel
 
     private int virtualNormalLibraryOrderPrewarmRunId;
 
+    private readonly object postStartupOwnedAdjacentIndexWarmupLock = new();
+
+    private Task postStartupOwnedAdjacentIndexWarmupTask;
+
+    private int postStartupOwnedAdjacentIndexWarmupRunId;
+
     private const int StartupVirtualNormalLibraryOrderPrewarmMaxPriority = 3;
 
     private int chartInfoProjectionVersionCache;
@@ -11631,6 +11637,108 @@ public class MainWindowViewModel : ViewModel
     private static bool IsVirtualNormalLibraryGenerationStale(long expectedSourceGeneration, long expectedSortKeyGeneration, long currentSourceGeneration, long currentSortKeyGeneration)
     {
         return expectedSourceGeneration != currentSourceGeneration || expectedSortKeyGeneration != currentSortKeyGeneration;
+    }
+
+    private void SchedulePostStartupBestEffortWarmups(string reason)
+    {
+        ScheduleVirtualNormalLibraryOrderPrewarm(reason);
+        Task virtualPrewarmTask;
+        lock (virtualNormalLibraryOrderPrewarmLock)
+        {
+            virtualPrewarmTask = virtualNormalLibraryOrderPrewarmTask;
+        }
+        SchedulePostStartupOwnedAdjacentIndexWarmup(reason, virtualPrewarmTask);
+    }
+
+    private void SchedulePostStartupOwnedAdjacentIndexWarmup(string reason, Task precedingVirtualOrderPrewarmTask)
+    {
+        Task runningTask;
+        int runId;
+        lock (postStartupOwnedAdjacentIndexWarmupLock)
+        {
+            runningTask = postStartupOwnedAdjacentIndexWarmupTask;
+            if (runningTask != null && !runningTask.IsCompleted)
+            {
+                LogMainViewBuild("post_startup_warmup queued reason=" + (reason ?? string.Empty)
+                    + " stage=owned_adjacent_index"
+                    + " skipped=already_running");
+                return;
+            }
+            runId = ++postStartupOwnedAdjacentIndexWarmupRunId;
+            LogMainViewBuild("post_startup_warmup queued reason=" + (reason ?? string.Empty)
+                + " runId=" + runId
+                + " stage=owned_adjacent_index"
+                + " waitFor=virtual_order_prewarm");
+            postStartupOwnedAdjacentIndexWarmupTask = Task.Run(() => RunPostStartupOwnedAdjacentIndexWarmup(runId, reason, precedingVirtualOrderPrewarmTask)).Logging("PostStartupOwnedAdjacentIndexWarmup");
+        }
+    }
+
+    private void RunPostStartupOwnedAdjacentIndexWarmup(int runId, string reason, Task precedingVirtualOrderPrewarmTask)
+    {
+        var stopwatch = Stopwatch.StartNew();
+        var waitStopwatch = Stopwatch.StartNew();
+        string virtualWaitStatus = "none";
+        try
+        {
+            LogMainViewBuild("post_startup_warmup start reason=" + (reason ?? string.Empty)
+                + " runId=" + runId
+                + " stage=owned_adjacent_index");
+            if (precedingVirtualOrderPrewarmTask != null)
+            {
+                virtualWaitStatus = precedingVirtualOrderPrewarmTask.IsCompleted ? "already_completed" : "waited";
+                try
+                {
+                    precedingVirtualOrderPrewarmTask.Wait();
+                }
+                catch (Exception ex)
+                {
+                    virtualWaitStatus = "faulted:" + ex.GetType().Name;
+                }
+            }
+            waitStopwatch.Stop();
+            BMSLibrary library = files;
+            if (library == null)
+            {
+                stopwatch.Stop();
+                LogMainViewBuild("post_startup_warmup skipped reason=" + (reason ?? string.Empty)
+                    + " runId=" + runId
+                    + " stage=owned_adjacent_index"
+                    + " virtualWaitStatus=" + virtualWaitStatus
+                    + " waitMs=" + waitStopwatch.ElapsedMilliseconds
+                    + " skipReason=no_library"
+                    + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
+                return;
+            }
+
+            BMSLibrary.OwnedAdjacentIndexWarmupResult result = library.WarmOwnedRealPathDirectoryView("post_startup_" + (reason ?? string.Empty));
+            stopwatch.Stop();
+            LogMainViewBuild("post_startup_warmup done reason=" + (reason ?? string.Empty)
+                + " runId=" + runId
+                + " stage=owned_adjacent_index"
+                + " index=" + (result?.IndexName ?? "(null)")
+                + " status=" + (result?.Status ?? "(null)")
+                + " chartRefs=" + (result?.ChartRefCount ?? 0)
+                + " directDirs=" + (result?.DirectDirectoryCount ?? 0)
+                + " subtreeDirs=" + (result?.SubtreeDirectoryCount ?? 0)
+                + " ownedCollectionVersion=" + (result?.OwnedCollectionVersion ?? 0)
+                + " virtualWaitStatus=" + virtualWaitStatus
+                + " waitMs=" + waitStopwatch.ElapsedMilliseconds
+                + " warmupMs=" + (result?.ElapsedMs ?? 0L)
+                + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
+        }
+        catch (Exception ex)
+        {
+            waitStopwatch.Stop();
+            stopwatch.Stop();
+            LogMainViewBuild("post_startup_warmup failed reason=" + (reason ?? string.Empty)
+                + " runId=" + runId
+                + " stage=owned_adjacent_index"
+                + " virtualWaitStatus=" + virtualWaitStatus
+                + " waitMs=" + waitStopwatch.ElapsedMilliseconds
+                + " elapsedMs=" + stopwatch.ElapsedMilliseconds
+                + " exception=" + ex.GetType().Name
+                + " message=" + SanitizeStartupBackgroundSummaryValue(ex.Message));
+        }
     }
 
     private void ScheduleVirtualNormalLibraryOrderPrewarm(string reason)
@@ -19163,7 +19271,7 @@ public class MainWindowViewModel : ViewModel
         LogUiSuppression(BuildStartupBackgroundSummaryLog(elapsedMs));
         if (!QueueDeferredStartupPresentationFlushAfterInitialization())
         {
-            ScheduleVirtualNormalLibraryOrderPrewarm("startup_initialization_complete");
+            SchedulePostStartupBestEffortWarmups("startup_initialization_complete");
             ShowInitialSetupCompletionMessageIfPending();
         }
     }
@@ -19187,7 +19295,7 @@ public class MainWindowViewModel : ViewModel
             FlushPendingUiRefresh(mask, GetActiveStartupProgressOperationToken(), allowStartupPresentationDefer: false, logReadiness: false);
             stopwatch.Stop();
             LogUiSuppression("startup_presentation_flush done elapsedMs=" + stopwatch.ElapsedMilliseconds + " mask=" + mask);
-            ScheduleVirtualNormalLibraryOrderPrewarm("startup_presentation_flush_done");
+            SchedulePostStartupBestEffortWarmups("startup_presentation_flush_done");
             ShowInitialSetupCompletionMessageIfPending();
         };
         if (DispatcherHelper.UIDispatcher == null || DispatcherHelper.UIDispatcher.CheckAccess())

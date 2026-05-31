@@ -257,6 +257,11 @@ internal sealed class OwnedChartCollectionState
         return libraryChartRefIndexSnapshot ??= LibraryChartRefIndexSnapshot.FromStorageOwnerCharts(charts, cancellationCheck);
     }
 
+    /// <summary>
+    /// real path / canonical lookup 用 index がすでに構築済みかを返します。
+    /// </summary>
+    internal bool IsLibraryChartRefIndexSnapshotInitialized => libraryChartRefIndexSnapshot != null;
+
     internal ILibraryChartCanonicalLookup CreateCanonicalChartLookupSnapshot()
     {
         return CreateLibraryChartRefIndexSnapshot();

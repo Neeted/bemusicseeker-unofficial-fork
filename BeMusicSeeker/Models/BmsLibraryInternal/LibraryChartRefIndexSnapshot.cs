@@ -47,6 +47,21 @@ internal sealed class LibraryChartRefIndexSnapshot : ILibraryChartCanonicalLooku
 
     internal static LibraryChartRefIndexSnapshot Empty => FromLibraryChartRefs([]);
 
+    /// <summary>
+    /// index に登録された path-aware chart ref 件数を返します。
+    /// </summary>
+    internal int ChartRefCount => refsByPath.Values.Sum(refs => refs?.Count ?? 0);
+
+    /// <summary>
+    /// 直接 chart refs を持つ real path directory bucket 数を返します。
+    /// </summary>
+    internal int DirectDirectoryCount => directRefsByDirectory.Count;
+
+    /// <summary>
+    /// subtree count を持つ real path directory bucket 数を返します。
+    /// </summary>
+    internal int SubtreeDirectoryCount => subtreeCountsByDirectory.Count;
+
     internal static LibraryChartRefIndexSnapshot FromStorageOwnerCharts(
         IEnumerable<ChartFile> charts,
         Action cancellationCheck = null)
