@@ -2155,22 +2155,23 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     }
 
     [TestMethod]
-    public void InstalledChartLookupIndexState_KeepsPathUntilDuplicatePathCountIsRemoved()
+    public void InstalledChartLookupIndexState_KeepsPrimaryHashUntilAllDistinctPathsAreRemoved()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         string hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-        string path = Path.Combine("C:\\Installed", "Same", "chart.bms");
+        string firstPath = Path.Combine("C:\\Installed", "First", "chart.bms");
+        string secondPath = Path.Combine("C:\\Installed", "Second", "chart.bms");
         var state = new InstalledChartLookupIndexState();
 
-        state.AddChart(path, hash, null);
-        state.AddChart(path, hash, null);
+        state.AddChart(firstPath, hash, null);
+        state.AddChart(secondPath, hash, null);
 
-        state.RemoveChart(path, hash, null);
+        state.RemoveChart(firstPath, hash, null);
 
-        CollectionAssert.AreEqual(new[] { path }, state.GetPathsByPrimaryHash(hash).ToArray());
+        CollectionAssert.AreEqual(new[] { secondPath }, state.GetPathsByPrimaryHash(hash).ToArray());
         Assert.AreEqual(1, state.GetPrimaryHashCount(hash));
 
-        state.RemoveChart(path, hash, null);
+        state.RemoveChart(secondPath, hash, null);
 
         Assert.AreEqual(0, state.GetPathsByPrimaryHash(hash).Count);
         Assert.AreEqual(0, state.GetPrimaryHashCount(hash));

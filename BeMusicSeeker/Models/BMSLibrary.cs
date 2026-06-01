@@ -7882,7 +7882,9 @@ completeFileEnumerationOnce,
             + " pathlessBms=" + filterSummary.PathlessBmsCount
             + " pathlessBmson=" + filterSummary.PathlessBmsonCount
             + " md5lessBms=" + filterSummary.Md5lessBmsCount
-            + " md5lessBmson=" + filterSummary.Md5lessBmsonCount);
+            + " md5lessBmson=" + filterSummary.Md5lessBmsonCount
+            + " duplicatePathBms=" + filterSummary.DuplicatePathBmsCount
+            + " duplicatePathBmson=" + filterSummary.DuplicatePathBmsonCount);
     }
 
     private void ApplyInstalledChartStorageTargets(ChartStorageTargetSet addedTargets, string lookupReason)
@@ -8070,18 +8072,21 @@ completeFileEnumerationOnce,
             int previousBmsonRowsVersion = bmsonStorageRowsVersion;
             if (addedTargets.BmsFiles.Count > 0)
             {
-                var addedBmsPathSet = new HashSet<string>(addedTargets.BmsFiles.Select(file => file.path), StringComparer.OrdinalIgnoreCase);
-                _BMSFiles = [.. (_BMSFiles ?? []).Where(file => file != null && !addedBmsPathSet.Contains(file.path)), .. addedTargets.BmsFiles];
+                var addedBmsPathSet = new HashSet<string>(
+                    addedTargets.BmsFiles.Select(file => CreateOwnedPathKey(file?.path)).Where(path => !string.IsNullOrWhiteSpace(path)),
+                    StringComparer.OrdinalIgnoreCase);
+                _BMSFiles = [.. (_BMSFiles ?? []).Where(file => file != null && !addedBmsPathSet.Contains(CreateOwnedPathKey(file.path))), .. addedTargets.BmsFiles];
                 IncrementBmsStorageRowsVersion();
             }
             if (addedTargets.BmsonSongs.Count > 0)
             {
                 var nextBmsonByPath = (_BmsonSongs ?? [])
                     .Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))
-                    .ToDictionary(song => song.path, StringComparer.OrdinalIgnoreCase);
+                    .GroupBy(song => CreateOwnedPathKey(song.path), StringComparer.OrdinalIgnoreCase)
+                    .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
                 foreach (LR2SongDBExtended.bmson_song addedBmsonSong in addedTargets.BmsonSongs)
                 {
-                    nextBmsonByPath[addedBmsonSong.path] = addedBmsonSong;
+                    nextBmsonByPath[CreateOwnedPathKey(addedBmsonSong.path)] = addedBmsonSong;
                 }
                 _BmsonSongs = [.. nextBmsonByPath.Values.OrderBy(song => song.path, StringComparer.OrdinalIgnoreCase)];
                 IncrementBmsonStorageRowsVersion();
@@ -8103,6 +8108,9 @@ completeFileEnumerationOnce,
             return CreateStorageRowsSnapshotUnsafe();
         }
     }
+
+    private static string CreateOwnedPathKey(string path)
+        => OwnedChartCollectionState.CreateOwnedPathKey(path);
 
     private void CaptureStorageRowsForOwnedCollectionUnsafe(
         out List<BMSFile> bmsFiles,
@@ -8813,10 +8821,10 @@ completeFileEnumerationOnce,
 
         List<ChartFile> addedChartList = [.. storageMutation.AddedCharts.Where(chart => chart != null && !string.IsNullOrWhiteSpace(chart.Path))];
         var addedBmsPaths = new HashSet<string>(
-            addedChartList.Where(chart => chart.Kind == ChartFileKind.Bms).Select(chart => chart.Path).Where(path => !string.IsNullOrWhiteSpace(path)),
+            addedChartList.Where(chart => chart.Kind == ChartFileKind.Bms).Select(chart => CreateOwnedPathKey(chart.Path)).Where(path => !string.IsNullOrWhiteSpace(path)),
             StringComparer.OrdinalIgnoreCase);
         var addedBmsonPaths = new HashSet<string>(
-            addedChartList.Where(chart => chart.Kind == ChartFileKind.Bmson).Select(chart => chart.Path).Where(path => !string.IsNullOrWhiteSpace(path)),
+            addedChartList.Where(chart => chart.Kind == ChartFileKind.Bmson).Select(chart => CreateOwnedPathKey(chart.Path)).Where(path => !string.IsNullOrWhiteSpace(path)),
             StringComparer.OrdinalIgnoreCase);
         var addedPaths = new HashSet<string>(addedBmsPaths, StringComparer.OrdinalIgnoreCase);
         addedPaths.UnionWith(addedBmsonPaths);
@@ -8836,8 +8844,9 @@ completeFileEnumerationOnce,
                 {
                     continue;
                 }
-                if (existingRef.Kind == LibraryChartKind.Bms && addedBmsPaths.Contains(existingRef.Path)
-                    || existingRef.Kind == LibraryChartKind.Bmson && addedBmsonPaths.Contains(existingRef.Path))
+                string existingPathKey = CreateOwnedPathKey(existingRef.Path);
+                if (existingRef.Kind == LibraryChartKind.Bms && addedBmsPaths.Contains(existingPathKey)
+                    || existingRef.Kind == LibraryChartKind.Bmson && addedBmsonPaths.Contains(existingPathKey))
                 {
                     mutation.Removed.Add(new InstalledChartLookupMutationEntry(existingRef.Path, existingRef.Md5, existingRef.Sha256));
                 }

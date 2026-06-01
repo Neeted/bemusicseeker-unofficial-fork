@@ -573,7 +573,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     }
 
     [TestMethod]
-    public void ApplyLibraryMutationDelta_PathFallbackOverlayDoesNotLeakToDifferentOwnerAtSamePath()
+    public void ApplyLibraryMutationDelta_StalePathOverlayDoesNotLeakToReplacementOwner()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)

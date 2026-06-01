@@ -52,14 +52,16 @@ internal sealed class OwnedChartStorageOwnerView
     internal int Count => BmsFiles.Count + BmsonSongs.Count;
 
     internal bool ContainsOwnerPath(string path)
-        => !string.IsNullOrWhiteSpace(path) && ownerPaths.Contains(path);
+        => !string.IsNullOrWhiteSpace(path) && ownerPaths.Contains(OwnedChartCollectionState.CreateOwnedPathKey(path));
 }
 
 internal readonly struct OwnedChartStorageRowFilterSummary(
     int pathlessBmsCount,
     int pathlessBmsonCount,
     int md5lessBmsCount,
-    int md5lessBmsonCount)
+    int md5lessBmsonCount,
+    int duplicatePathBmsCount,
+    int duplicatePathBmsonCount)
 {
     internal int PathlessBmsCount { get; } = pathlessBmsCount;
 
@@ -69,10 +71,16 @@ internal readonly struct OwnedChartStorageRowFilterSummary(
 
     internal int Md5lessBmsonCount { get; } = md5lessBmsonCount;
 
+    internal int DuplicatePathBmsCount { get; } = duplicatePathBmsCount;
+
+    internal int DuplicatePathBmsonCount { get; } = duplicatePathBmsonCount;
+
     internal bool HasSkippedRows => PathlessBmsCount > 0
         || PathlessBmsonCount > 0
         || Md5lessBmsCount > 0
-        || Md5lessBmsonCount > 0;
+        || Md5lessBmsonCount > 0
+        || DuplicatePathBmsCount > 0
+        || DuplicatePathBmsonCount > 0;
 }
 
 internal sealed class OwnedChartCollectionState
@@ -105,13 +113,62 @@ internal sealed class OwnedChartCollectionState
     {
         List<BMSFile> bmsFileList = [.. (bmsFiles ?? []).Where(file => file != null)];
         List<LR2SongDBExtended.bmson_song> bmsonSongList = [.. (bmsonSongs ?? []).Where(song => song != null)];
+        List<BMSFile> ownedBmsFiles = [];
+        List<LR2SongDBExtended.bmson_song> ownedBmsonSongs = [];
+        var ownedPathKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        int pathlessBmsCount = 0;
+        int pathlessBmsonCount = 0;
+        int md5lessBmsCount = 0;
+        int md5lessBmsonCount = 0;
+        int duplicatePathBmsCount = 0;
+        int duplicatePathBmsonCount = 0;
+        foreach (BMSFile file in bmsFileList)
+        {
+            if (!HasPath(file))
+            {
+                pathlessBmsCount++;
+                continue;
+            }
+            if (!HasMd5(file))
+            {
+                md5lessBmsCount++;
+                continue;
+            }
+            if (!ownedPathKeys.Add(CreateOwnedPathKey(file.path)))
+            {
+                duplicatePathBmsCount++;
+                continue;
+            }
+            ownedBmsFiles.Add(file);
+        }
+        foreach (LR2SongDBExtended.bmson_song song in bmsonSongList)
+        {
+            if (!HasPath(song))
+            {
+                pathlessBmsonCount++;
+                continue;
+            }
+            if (!HasMd5(song))
+            {
+                md5lessBmsonCount++;
+                continue;
+            }
+            if (!ownedPathKeys.Add(CreateOwnedPathKey(song.path)))
+            {
+                duplicatePathBmsonCount++;
+                continue;
+            }
+            ownedBmsonSongs.Add(song);
+        }
         filterSummary = new OwnedChartStorageRowFilterSummary(
-            bmsFileList.Count(file => !HasPath(file)),
-            bmsonSongList.Count(song => !HasPath(song)),
-            bmsFileList.Count(file => HasPath(file) && !HasMd5(file)),
-            bmsonSongList.Count(song => HasPath(song) && !HasMd5(song)));
-        List<ChartFile> charts = ChartFileProjection.FromBmsStorageOwnerIdentities(bmsFileList.Where(HasOwnedStorageIdentity));
-        charts.AddRange(ChartFileProjection.FromBmsonStorageOwnerIdentities(bmsonSongList.Where(HasOwnedStorageIdentity)));
+            pathlessBmsCount,
+            pathlessBmsonCount,
+            md5lessBmsCount,
+            md5lessBmsonCount,
+            duplicatePathBmsCount,
+            duplicatePathBmsonCount);
+        List<ChartFile> charts = ChartFileProjection.FromBmsStorageOwnerIdentities(ownedBmsFiles);
+        charts.AddRange(ChartFileProjection.FromBmsonStorageOwnerIdentities(ownedBmsonSongs));
         return new OwnedChartCollectionState(charts);
     }
 
@@ -312,7 +369,7 @@ internal sealed class OwnedChartCollectionState
     internal List<LibraryChartRef> CreateLibraryChartRefsForPathsByScan(IEnumerable<string> paths)
     {
         var pathSet = new HashSet<string>(
-            (paths ?? []).Where(path => !string.IsNullOrWhiteSpace(path)),
+            (paths ?? []).Select(CreateOwnedPathKey).Where(path => !string.IsNullOrWhiteSpace(path)),
             StringComparer.OrdinalIgnoreCase);
         if (pathSet.Count == 0)
         {
@@ -321,7 +378,7 @@ internal sealed class OwnedChartCollectionState
 
         return [.. charts
             .Where(chart => chart != null)
-            .Where(chart => pathSet.Contains(GetCurrentPath(chart)))
+            .Where(chart => pathSet.Contains(CreateOwnedPathKey(GetCurrentPath(chart))))
             .Select(CreateCurrentLibraryChartRef)
             .Where(chart => chart != null)];
     }
@@ -743,15 +800,16 @@ internal sealed class OwnedChartCollectionState
     private static HashSet<string> CreatePathSet(IEnumerable<string> paths)
     {
         return new HashSet<string>(
-            (paths ?? []).Where(path => !string.IsNullOrWhiteSpace(path)),
+            (paths ?? []).Select(CreateOwnedPathKey).Where(path => !string.IsNullOrWhiteSpace(path)),
             StringComparer.OrdinalIgnoreCase);
     }
 
     private static void AddOwnerPath(ISet<string> ownerPaths, string path)
     {
-        if (!string.IsNullOrWhiteSpace(path))
+        string pathKey = CreateOwnedPathKey(path);
+        if (!string.IsNullOrWhiteSpace(pathKey))
         {
-            ownerPaths.Add(path);
+            ownerPaths.Add(pathKey);
         }
     }
 
@@ -815,6 +873,7 @@ internal sealed class OwnedChartCollectionState
         {
             throw new InvalidOperationException("Owned chart path changes must keep a non-empty path.");
         }
+        ThrowIfCurrentPathCollision();
         if (duplicateChartRowSnapshot != null)
         {
             ApplyDuplicateRowPathChanges(currentPathChanges);
@@ -864,8 +923,7 @@ internal sealed class OwnedChartCollectionState
             }
             else if (matchingIndexes.Count > 1)
             {
-                duplicateChartRowSnapshot = null;
-                return;
+                throw new InvalidOperationException("Owned duplicate row digest update matched multiple charts for the same path.");
             }
         }
     }
@@ -887,13 +945,15 @@ internal sealed class OwnedChartCollectionState
         var bmsPaths = new HashSet<string>(
             removedChartList
                 .Where(chart => chart.Kind == ChartFileKind.Bms)
-                .Select(chart => chart.Path)
+                .Select(chart => GetCurrentPath(chart))
+                .Select(CreateOwnedPathKey)
                 .Where(path => !string.IsNullOrWhiteSpace(path)),
             System.StringComparer.OrdinalIgnoreCase);
         var bmsonPaths = new HashSet<string>(
             removedChartList
                 .Where(chart => chart.Kind == ChartFileKind.Bmson)
-                .Select(chart => chart.Path)
+                .Select(chart => GetCurrentPath(chart))
+                .Select(CreateOwnedPathKey)
                 .Where(path => !string.IsNullOrWhiteSpace(path)),
             System.StringComparer.OrdinalIgnoreCase);
         List<ChartFile> actualRemovedCharts = [.. charts.Where(chart => IsRemovedChart(chart, bmsOwners, bmsonOwners, bmsPaths, bmsonPaths))];
@@ -913,6 +973,8 @@ internal sealed class OwnedChartCollectionState
         List<BMSFile> bmsFileList = [.. (bmsFiles ?? []).Where(file => file != null)];
         List<LR2SongDBExtended.bmson_song> bmsonSongList = [.. (bmsonSongs ?? []).Where(song => song != null)];
         ThrowIfInvalidStorageRows(bmsFileList, bmsonSongList);
+        ThrowIfDuplicateStorageRowPaths(bmsFileList, bmsonSongList);
+        ThrowIfCrossKindUpsertPathCollision(bmsFileList, bmsonSongList);
         if (bmsFileList.Count == 0 && bmsonSongList.Count == 0)
         {
             return;
@@ -948,11 +1010,11 @@ internal sealed class OwnedChartCollectionState
     {
         var bmsOwners = new HashSet<BMSFile>(bmsFiles.Where(file => file != null));
         var bmsPaths = new HashSet<string>(
-            bmsFiles.Select(file => file?.path).Where(path => !string.IsNullOrWhiteSpace(path)),
+            bmsFiles.Select(file => CreateOwnedPathKey(file?.path)).Where(path => !string.IsNullOrWhiteSpace(path)),
             System.StringComparer.OrdinalIgnoreCase);
         var bmsonOwners = new HashSet<LR2SongDBExtended.bmson_song>(bmsonSongs.Where(song => song != null));
         var bmsonPaths = new HashSet<string>(
-            bmsonSongs.Select(song => song?.path).Where(path => !string.IsNullOrWhiteSpace(path)),
+            bmsonSongs.Select(song => CreateOwnedPathKey(song?.path)).Where(path => !string.IsNullOrWhiteSpace(path)),
             System.StringComparer.OrdinalIgnoreCase);
 
         List<ChartFile> removedCharts = [.. charts.Where(chart => IsRemovedChart(chart, bmsOwners, bmsonOwners, bmsPaths, bmsonPaths))];
@@ -1050,6 +1112,90 @@ internal sealed class OwnedChartCollectionState
             || (bmsonSongs ?? []).Any(song => song != null && !HasOwnedStorageIdentity(song)))
         {
             throw new InvalidOperationException("Owned chart storage rows must have non-empty path and md5.");
+        }
+    }
+
+    internal static string CreateOwnedPathKey(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return null;
+        }
+        try
+        {
+            return System.IO.Path.GetFullPath(path.Trim());
+        }
+        catch
+        {
+            return path.Trim();
+        }
+    }
+
+    private static void ThrowIfDuplicateStorageRowPaths(
+        IEnumerable<BMSFile> bmsFiles,
+        IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs)
+    {
+        var pathKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (BMSFile file in bmsFiles ?? [])
+        {
+            string pathKey = CreateOwnedPathKey(file?.path);
+            if (!string.IsNullOrWhiteSpace(pathKey) && !pathKeys.Add(pathKey))
+            {
+                throw new InvalidOperationException("Owned chart storage row upserts must not contain duplicate paths.");
+            }
+        }
+        foreach (LR2SongDBExtended.bmson_song song in bmsonSongs ?? [])
+        {
+            string pathKey = CreateOwnedPathKey(song?.path);
+            if (!string.IsNullOrWhiteSpace(pathKey) && !pathKeys.Add(pathKey))
+            {
+                throw new InvalidOperationException("Owned chart storage row upserts must not contain duplicate paths.");
+            }
+        }
+    }
+
+    private void ThrowIfCrossKindUpsertPathCollision(
+        IEnumerable<BMSFile> bmsFiles,
+        IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs)
+    {
+        var bmsPathKeys = new HashSet<string>(
+            (bmsFiles ?? [])
+                .Select(file => CreateOwnedPathKey(file?.path))
+                .Where(path => !string.IsNullOrWhiteSpace(path)),
+            StringComparer.OrdinalIgnoreCase);
+        var bmsonPathKeys = new HashSet<string>(
+            (bmsonSongs ?? [])
+                .Select(song => CreateOwnedPathKey(song?.path))
+                .Where(path => !string.IsNullOrWhiteSpace(path)),
+            StringComparer.OrdinalIgnoreCase);
+        foreach (ChartFile chart in charts.Where(chart => chart != null))
+        {
+            string pathKey = CreateOwnedPathKey(GetCurrentPath(chart));
+            if (string.IsNullOrWhiteSpace(pathKey))
+            {
+                continue;
+            }
+            if (chart.Kind == ChartFileKind.Bms && bmsonPathKeys.Contains(pathKey))
+            {
+                throw new InvalidOperationException("Owned chart storage row upsert would replace a BMS row with a bmson row at the same path.");
+            }
+            if (chart.Kind == ChartFileKind.Bmson && bmsPathKeys.Contains(pathKey))
+            {
+                throw new InvalidOperationException("Owned chart storage row upsert would replace a bmson row with a BMS row at the same path.");
+            }
+        }
+    }
+
+    private void ThrowIfCurrentPathCollision()
+    {
+        var ownerPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (ChartFile chart in charts.Where(chart => chart != null))
+        {
+            string pathKey = CreateOwnedPathKey(GetCurrentPath(chart));
+            if (!string.IsNullOrWhiteSpace(pathKey) && !ownerPaths.Add(pathKey))
+            {
+                throw new InvalidOperationException("Owned chart current paths must be unique.");
+            }
         }
     }
 
@@ -1259,14 +1405,15 @@ internal sealed class OwnedChartCollectionState
         {
             return true;
         }
-        if (string.IsNullOrWhiteSpace(chart.Path))
+        string pathKey = CreateOwnedPathKey(GetCurrentPath(chart));
+        if (string.IsNullOrWhiteSpace(pathKey))
         {
             return false;
         }
         return chart.Kind switch
         {
-            ChartFileKind.Bms => bmsPaths.Contains(chart.Path),
-            ChartFileKind.Bmson => bmsonPaths.Contains(chart.Path),
+            ChartFileKind.Bms => bmsPaths.Contains(pathKey),
+            ChartFileKind.Bmson => bmsonPaths.Contains(pathKey),
             _ => false
         };
     }
