@@ -1505,6 +1505,26 @@ public sealed class OwnedChartCollectionStateTests
     }
 
     [TestMethod]
+    public void DuplicateChartRowSnapshot_BmsonOnlyRemoveReusesBmsStorageRows()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "chart.bms"));
+        var removedBmson = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "removed.bmson"), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+        var keptBmson = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "kept.bmson"), "cccccccccccccccccccccccccccccccc");
+        OwnedChartCollectionState state = OwnedChartCollectionState.FromStorageRows([bmsFile], [removedBmson, keptBmson]);
+        OwnedDuplicateChartRowSnapshot originalSnapshot = state.CreateDuplicateChartRowSnapshot();
+
+        state.RemoveCharts([ChartFileProjection.FromBmsonStorageOwnerIdentity(removedBmson)]);
+
+        OwnedDuplicateChartRowSnapshot snapshot = state.CreateDuplicateChartRowSnapshot();
+        Assert.AreNotSame(originalSnapshot, snapshot);
+        Assert.AreSame(originalSnapshot.BmsStorageRows, snapshot.BmsStorageRows);
+        Assert.IsFalse(snapshot.Rows.Any(row => ReferenceEquals(row.BmsonSong, removedBmson)));
+        Assert.IsTrue(snapshot.Rows.Any(row => ReferenceEquals(row.BmsonSong, keptBmson)));
+        CollectionAssert.AreEqual(new[] { bmsFile }, snapshot.BmsStorageRows.ToArray());
+    }
+
+    [TestMethod]
     public void DuplicateChartRowSnapshot_TracksMd5DigestChangesOnly()
     {
         TestResourceInitializer.EnsureJapaneseResources();

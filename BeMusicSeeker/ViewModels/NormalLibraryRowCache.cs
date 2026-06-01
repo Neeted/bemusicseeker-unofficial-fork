@@ -185,6 +185,94 @@ internal sealed class NormalLibraryRowCache
         return removed.Count;
     }
 
+    internal int RemoveBmsFiles(IEnumerable<BMSFile> removedFiles)
+    {
+        if (rowsByFile.Count == 0)
+        {
+            return 0;
+        }
+        var removed = new HashSet<BMSFile>(
+            (removedFiles ?? []).Where(file => file != null),
+            BmsFileReferenceComparer.Instance);
+        if (removed.Count == 0)
+        {
+            return 0;
+        }
+
+        var removedPaths = new HashSet<string>(
+            removed.Select(file => file?.path).Where(path => !string.IsNullOrWhiteSpace(path)),
+            StringComparer.OrdinalIgnoreCase);
+        List<BMSFile> removedKeys = [.. rowsByFile.Keys.Where(file =>
+            removed.Contains(file)
+            || (!string.IsNullOrWhiteSpace(file?.path) && removedPaths.Contains(file.path)))];
+        int count = 0;
+        foreach (BMSFile file in removedKeys)
+        {
+            if (rowsByFile.Remove(file))
+            {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    internal BmsonLibraryRowCacheSyncResult RemoveBmsonSongs(IEnumerable<LR2SongDBExtended.bmson_song> removedSongs)
+    {
+        if (rowsByBmsonPath.Count == 0 && rowsByBmsonSong.Count == 0 && bmsonSortKeysByPath.Count == 0)
+        {
+            return default;
+        }
+
+        var removedSongRefs = new HashSet<LR2SongDBExtended.bmson_song>(
+            (removedSongs ?? []).Where(song => song != null),
+            BmsonSongReferenceComparer.Instance);
+        if (removedSongRefs.Count == 0)
+        {
+            return default;
+        }
+
+        var removedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (LR2SongDBExtended.bmson_song song in removedSongRefs)
+        {
+            if (!string.IsNullOrWhiteSpace(song.path))
+            {
+                removedPaths.Add(song.path);
+            }
+            if (rowsByBmsonSong.TryGetValue(song, out LibraryChartRow row))
+            {
+                string rowPath = row?.GetBmsonStorageOwner()?.path;
+                if (!string.IsNullOrWhiteSpace(rowPath))
+                {
+                    removedPaths.Add(rowPath);
+                }
+            }
+        }
+
+        int removedCount = 0;
+        foreach (string path in removedPaths)
+        {
+            if (rowsByBmsonPath.Remove(path))
+            {
+                removedCount++;
+            }
+            bmsonSortKeysByPath.Remove(path);
+        }
+
+        List<LR2SongDBExtended.bmson_song> removedKeys = [.. rowsByBmsonSong.Keys.Where(song =>
+            removedSongRefs.Contains(song)
+            || (!string.IsNullOrWhiteSpace(song?.path) && removedPaths.Contains(song.path)))];
+        foreach (LR2SongDBExtended.bmson_song song in removedKeys)
+        {
+            rowsByBmsonSong.Remove(song);
+        }
+
+        bool changed = removedCount > 0 || removedKeys.Count > 0;
+        return new BmsonLibraryRowCacheSyncResult(
+            membershipChanged: changed,
+            sortKeyChanged: changed,
+            sourceIdentityChanged: changed);
+    }
+
     internal void Clear()
     {
         rowsByFile.Clear();

@@ -10216,6 +10216,35 @@ public class MainWindowViewModel : ViewModel
             return default;
         }
 
+        if (notificationBatch.StorageRowsRemoveDeltaComplete)
+        {
+            if (notificationBatch.NotifiesBmsFiles)
+            {
+                RemoveRegularBmsLibraryRowCacheByBmsFiles(notificationBatch.RemovedBmsFiles);
+            }
+
+            if (!notificationBatch.NotifiesBmsonSongs)
+            {
+                return default;
+            }
+
+            BmsonLibraryRowCacheSyncResult removeResult = RemoveBmsonLibraryRowCache(notificationBatch.RemovedBmsonSongs);
+            if (removeResult.SortKeyChanged)
+            {
+                InvalidateNormalLibrarySortKeysForBmsonSync(removeResult);
+            }
+            if (removeResult.SourceChanged && !notificationBatch.HasEffect(LibraryChartRefreshEffects.SourceChanged))
+            {
+                ClearVirtualNormalLibrarySourceRows();
+                LogMainViewBuildWarning("normal_library_bmson_remove_delta_uncovered_source_change"
+                    + " notificationVersion=" + notificationBatch.LatestVersion
+                    + " membershipChanged=" + removeResult.MembershipChanged
+                    + " sourceIdentityChanged=" + removeResult.SourceIdentityChanged
+                    + " sourceReferenceChanged=" + removeResult.SourceReferenceChanged);
+            }
+            return removeResult;
+        }
+
         OwnedChartStorageOwnerView sourceOwnerView = notificationBatch.NotifiesBmsFiles || notificationBatch.NotifiesBmsonSongs
             ? files?.CreateNormalLibrarySourceStorageOwnerView()
             : null;
@@ -10628,6 +10657,15 @@ public class MainWindowViewModel : ViewModel
             return 0;
         }
         return regularBmsLibraryRowCache.PruneBmsFiles(currentFiles);
+    }
+
+    private int RemoveRegularBmsLibraryRowCacheByBmsFiles(IEnumerable<BeMusicSeeker.Models.BMSFile> removedFiles)
+    {
+        if (regularBmsLibraryRowCache == null || regularBmsLibraryRowCache.Count == 0)
+        {
+            return 0;
+        }
+        return regularBmsLibraryRowCache.RemoveBmsFiles(removedFiles);
     }
 
     private LibraryChartRow CreateLibraryChartRowWithResourceHealthProjection(ChartFile chart)
@@ -17435,6 +17473,15 @@ public class MainWindowViewModel : ViewModel
         IReadOnlyList<LR2SongDBExtended.bmson_song> snapshot = ownerView?.BmsonSongs ?? [];
         PruneSharedChartTransientStateCacheToCurrentOwnedCharts();
         return regularBmsLibraryRowCache.SyncBmsonRows(snapshot, ApplyLibraryChartRowProviders);
+    }
+
+    private BmsonLibraryRowCacheSyncResult RemoveBmsonLibraryRowCache(IEnumerable<LR2SongDBExtended.bmson_song> removedSongs)
+    {
+        if (regularBmsLibraryRowCache == null)
+        {
+            return default;
+        }
+        return regularBmsLibraryRowCache.RemoveBmsonSongs(removedSongs);
     }
 
     internal static bool HasBmsonLibrarySortKeyChangedForTest(LibraryChartRow row, LR2SongDBExtended.bmson_song nextSong)

@@ -59,7 +59,10 @@ internal sealed class NormalLibraryRefreshNotification
         bool notifiesStorageRows,
         bool resetsPriorNotifications,
         bool notifiesBmsFiles = false,
-        bool notifiesBmsonSongs = false)
+        bool notifiesBmsonSongs = false,
+        IReadOnlyList<BMSFile> removedBmsFiles = null,
+        IReadOnlyList<LR2SongDBExtended.bmson_song> removedBmsonSongs = null,
+        bool storageRowsRemoveDeltaComplete = false)
     {
         Version = version;
         OwnedCollectionVersion = ownedCollectionVersion;
@@ -70,6 +73,9 @@ internal sealed class NormalLibraryRefreshNotification
         NotifiesBmsonSongs = notifiesBmsonSongs || (notifiesStorageRows && !hasSpecificStorageRowNotification);
         NotifiesStorageRows = notifiesStorageRows || NotifiesBmsFiles || NotifiesBmsonSongs;
         ResetsPriorNotifications = resetsPriorNotifications;
+        RemovedBmsFiles = removedBmsFiles ?? [];
+        RemovedBmsonSongs = removedBmsonSongs ?? [];
+        StorageRowsRemoveDeltaComplete = storageRowsRemoveDeltaComplete && NotifiesStorageRows;
     }
 
     internal int Version { get; }
@@ -87,6 +93,12 @@ internal sealed class NormalLibraryRefreshNotification
     internal bool NotifiesBmsonSongs { get; }
 
     internal bool ResetsPriorNotifications { get; }
+
+    internal IReadOnlyList<BMSFile> RemovedBmsFiles { get; }
+
+    internal IReadOnlyList<LR2SongDBExtended.bmson_song> RemovedBmsonSongs { get; }
+
+    internal bool StorageRowsRemoveDeltaComplete { get; }
 }
 
 internal sealed class NormalLibraryRefreshNotificationBatch
@@ -107,7 +119,10 @@ internal sealed class NormalLibraryRefreshNotificationBatch
         bool notifiesStorageRows,
         bool resetsPriorNotifications,
         bool notifiesBmsFiles = false,
-        bool notifiesBmsonSongs = false)
+        bool notifiesBmsonSongs = false,
+        IReadOnlyList<BMSFile> removedBmsFiles = null,
+        IReadOnlyList<LR2SongDBExtended.bmson_song> removedBmsonSongs = null,
+        bool storageRowsRemoveDeltaComplete = false)
     {
         LatestVersion = latestVersion;
         OwnedCollectionVersion = ownedCollectionVersion;
@@ -118,6 +133,9 @@ internal sealed class NormalLibraryRefreshNotificationBatch
         NotifiesBmsonSongs = notifiesBmsonSongs || (notifiesStorageRows && !hasSpecificStorageRowNotification);
         NotifiesStorageRows = notifiesStorageRows || NotifiesBmsFiles || NotifiesBmsonSongs;
         ResetsPriorNotifications = resetsPriorNotifications;
+        RemovedBmsFiles = removedBmsFiles ?? [];
+        RemovedBmsonSongs = removedBmsonSongs ?? [];
+        StorageRowsRemoveDeltaComplete = storageRowsRemoveDeltaComplete && NotifiesStorageRows;
     }
 
     internal int LatestVersion { get; }
@@ -135,6 +153,12 @@ internal sealed class NormalLibraryRefreshNotificationBatch
     internal bool NotifiesBmsonSongs { get; }
 
     internal bool ResetsPriorNotifications { get; }
+
+    internal IReadOnlyList<BMSFile> RemovedBmsFiles { get; }
+
+    internal IReadOnlyList<LR2SongDBExtended.bmson_song> RemovedBmsonSongs { get; }
+
+    internal bool StorageRowsRemoveDeltaComplete { get; }
 
     internal bool HasRefreshNotification => ResetsPriorNotifications
         || Effects != LibraryChartRefreshEffects.None
@@ -1388,6 +1412,16 @@ public class BMSLibrary : NotificationObject
             bool notifiesStorageRows = notifications.Any(notification => notification.NotifiesStorageRows);
             bool notifiesBmsFiles = notifications.Any(notification => notification.NotifiesBmsFiles);
             bool notifiesBmsonSongs = notifications.Any(notification => notification.NotifiesBmsonSongs);
+            bool storageRowsRemoveDeltaComplete = notifiesStorageRows
+                && notifications
+                    .Where(notification => notification.NotifiesStorageRows)
+                    .All(notification => notification.StorageRowsRemoveDeltaComplete);
+            List<BMSFile> removedBmsFiles = storageRowsRemoveDeltaComplete
+                ? [.. notifications.SelectMany(notification => notification.RemovedBmsFiles ?? []).Where(file => file != null).Distinct()]
+                : [];
+            List<LR2SongDBExtended.bmson_song> removedBmsonSongs = storageRowsRemoveDeltaComplete
+                ? [.. notifications.SelectMany(notification => notification.RemovedBmsonSongs ?? []).Where(song => song != null).Distinct()]
+                : [];
             List<ChartFile> installDestinationChangedCharts = [.. notifications
                 .SelectMany(notification => notification.InstallDestinationChangedCharts ?? [])
                 .Where(chart => chart != null)];
@@ -1399,7 +1433,10 @@ public class BMSLibrary : NotificationObject
                 notifiesStorageRows,
                 resetsPriorNotifications,
                 notifiesBmsFiles,
-                notifiesBmsonSongs);
+                notifiesBmsonSongs,
+                removedBmsFiles,
+                removedBmsonSongs,
+                storageRowsRemoveDeltaComplete);
         }
     }
 
@@ -6831,6 +6868,8 @@ completeFileEnumerationOnce,
 
         public bool StorageRowsChanged => BmsFilesStorageRowsChanged || BmsonSongsStorageRowsChanged;
 
+        public bool StorageRowsRemoveDeltaComplete { get; set; }
+
         public bool ShouldDispatchInstalledLookup => InstalledLookupMutation?.HasChanges == true;
 
         public bool HasLoggableChanges => AddedCount > 0
@@ -8367,7 +8406,10 @@ completeFileEnumerationOnce,
             BmsFilesStorageRowsChanged = HasBmsStorageRowCollectionChange(storageMutation)
                 || (delta?.NotifyStorageRowPathChanges == true && HasBmsStorageRowPathChange(storageMutation)),
             BmsonSongsStorageRowsChanged = HasBmsonStorageRowCollectionChange(storageMutation)
-                || (delta?.NotifyStorageRowPathChanges == true && HasBmsonStorageRowPathChange(storageMutation))
+                || (delta?.NotifyStorageRowPathChanges == true && HasBmsonStorageRowPathChange(storageMutation)),
+            StorageRowsRemoveDeltaComplete = storageMutation.RemovedCount > 0
+                && storageMutation.AddedCount == 0
+                && storageMutation.MovedCount == 0
         };
         result.StorageMutation.AddedBmsFiles.AddRange(storageMutation.AddedBmsFiles);
         result.StorageMutation.AddedBmsonSongs.AddRange(storageMutation.AddedBmsonSongs);
@@ -14758,6 +14800,13 @@ completeFileEnumerationOnce,
         }
         int version = Interlocked.Increment(ref latestNormalLibraryRefreshNotificationVersion);
         int ownedCollectionVersion = result.OwnedCollectionVersion > 0 ? result.OwnedCollectionVersion : OwnedChartCollectionVersion;
+        bool storageRowsRemoveDeltaComplete = IsCompleteRemoveOnlyStorageRowsMutation(result);
+        IReadOnlyList<BMSFile> removedBmsFiles = storageRowsRemoveDeltaComplete
+            ? CreateRemovedBmsStorageRowDelta(result.StorageMutation)
+            : [];
+        IReadOnlyList<LR2SongDBExtended.bmson_song> removedBmsonSongs = storageRowsRemoveDeltaComplete
+            ? CreateRemovedBmsonStorageRowDelta(result.StorageMutation)
+            : [];
         var notification = new NormalLibraryRefreshNotification(
             version,
             ownedCollectionVersion,
@@ -14766,13 +14815,51 @@ completeFileEnumerationOnce,
             result.StorageRowsChanged,
             resetsPriorNotifications: false,
             notifiesBmsFiles: result.BmsFilesStorageRowsChanged,
-            notifiesBmsonSongs: result.BmsonSongsStorageRowsChanged);
+            notifiesBmsonSongs: result.BmsonSongsStorageRowsChanged,
+            removedBmsFiles: removedBmsFiles,
+            removedBmsonSongs: removedBmsonSongs,
+            storageRowsRemoveDeltaComplete: storageRowsRemoveDeltaComplete);
         lock (latestNormalLibraryRefreshNotificationLock)
         {
             latestNormalLibraryRefreshNotification = notification;
             normalLibraryRefreshNotifications.Add(notification);
             result.NormalLibraryRefreshNotificationVersion = version;
         }
+    }
+
+    private static bool IsCompleteRemoveOnlyStorageRowsMutation(OwnedChartCollectionMutationResult result)
+    {
+        OwnedChartCollectionStorageMutation mutation = result?.StorageMutation;
+        return result?.StorageRowsChanged == true
+            && result.StorageRowsRemoveDeltaComplete
+            && result.DigestChangedCount == 0
+            && mutation?.RemovedCount > 0
+            && mutation.AddedCount == 0
+            && mutation.MovedCount == 0;
+    }
+
+    private static IReadOnlyList<BMSFile> CreateRemovedBmsStorageRowDelta(OwnedChartCollectionStorageMutation mutation)
+    {
+        if (mutation?.RemovedCount > 0 != true)
+        {
+            return [];
+        }
+        return [.. mutation.UnregisteredCharts
+            .Select(chart => chart?.GetBmsStorageOwner())
+            .Where(file => file != null)
+            .Distinct()];
+    }
+
+    private static IReadOnlyList<LR2SongDBExtended.bmson_song> CreateRemovedBmsonStorageRowDelta(OwnedChartCollectionStorageMutation mutation)
+    {
+        if (mutation?.RemovedCount > 0 != true)
+        {
+            return [];
+        }
+        return [.. mutation.UnregisteredCharts
+            .Select(chart => chart?.GetBmsonStorageOwner())
+            .Where(song => song != null)
+            .Distinct()];
     }
 
     private static LibraryChartRefreshEffects CreateLibraryChartRefreshEffects(

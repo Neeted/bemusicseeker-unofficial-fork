@@ -3093,6 +3093,46 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
+    public void NormalLibraryRowCache_RemoveBmsFilesPrunesOnlyRemovedReferences()
+    {
+        var fileA = new TestableBmsFile();
+        fileA.ApplySnapshot("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "A", 7);
+        var fileB = new TestableBmsFile();
+        fileB.ApplySnapshot("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "B", 7);
+        var cache = new NormalLibraryRowCache();
+        LibraryChartRow rowA = cache.GetOrCreate(ChartFileProjection.FromBmsFile(fileA), new LibraryRowCacheBuildStats());
+        LibraryChartRow rowB = cache.GetOrCreate(ChartFileProjection.FromBmsFile(fileB), new LibraryRowCacheBuildStats());
+
+        Assert.AreEqual(1, cache.RemoveBmsFiles([fileA]));
+        Assert.AreEqual(1, cache.Count);
+        Assert.AreSame(rowB, cache.GetOrCreate(ChartFileProjection.FromBmsFile(fileB), new LibraryRowCacheBuildStats()));
+        Assert.AreNotSame(rowA, cache.GetOrCreate(ChartFileProjection.FromBmsFile(fileA), new LibraryRowCacheBuildStats()));
+    }
+
+    [TestMethod]
+    public void NormalLibraryRowCache_RemoveBmsFilesPrunesByStaleInputPath()
+    {
+        var current = new TestableBmsFile();
+        current.path = @"folder\chart.bms";
+        current.ApplySnapshot("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "A", 7);
+        var staleSamePath = new TestableBmsFile();
+        staleSamePath.path = @"folder\chart.bms";
+        staleSamePath.ApplySnapshot("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "A", 7);
+        var kept = new TestableBmsFile();
+        kept.path = @"folder\kept.bms";
+        kept.ApplySnapshot("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "B", 7);
+        var cache = new NormalLibraryRowCache();
+        LibraryChartRow removedRow = cache.GetOrCreate(ChartFileProjection.FromBmsFile(current), new LibraryRowCacheBuildStats());
+        LibraryChartRow keptRow = cache.GetOrCreate(ChartFileProjection.FromBmsFile(kept), new LibraryRowCacheBuildStats());
+
+        Assert.AreEqual(1, cache.RemoveBmsFiles([staleSamePath]));
+
+        Assert.AreEqual(1, cache.Count);
+        Assert.AreSame(keptRow, cache.GetOrCreate(ChartFileProjection.FromBmsFile(kept), new LibraryRowCacheBuildStats()));
+        Assert.AreNotSame(removedRow, cache.GetOrCreate(ChartFileProjection.FromBmsFile(current), new LibraryRowCacheBuildStats()));
+    }
+
+    [TestMethod]
     public void NormalLibraryRowCache_ReusesSyncedBmsonRowsByReferenceAndPath()
     {
         var cache = new NormalLibraryRowCache();
@@ -3162,6 +3202,27 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsFalse(result.SourceIdentityChanged);
         Assert.IsFalse(result.SourceReferenceChanged);
         Assert.IsFalse(result.SourceChanged);
+    }
+
+    [TestMethod]
+    public void NormalLibraryRowCache_RemoveBmsonSongsPrunesByReferenceAndPath()
+    {
+        var cache = new NormalLibraryRowCache();
+        LR2SongDBExtended.bmson_song original = CreateBmsonCacheSong(@"folder\chart.bmson", "Original");
+        LR2SongDBExtended.bmson_song other = CreateBmsonCacheSong(@"folder\other.bmson", "Other");
+        cache.SyncBmsonRows([original, other], null);
+        LibraryChartRow originalRow = cache.GetOrCreate(ChartFileProjection.FromBmsonSong(original), new LibraryRowCacheBuildStats());
+        LibraryChartRow otherRow = cache.GetOrCreate(ChartFileProjection.FromBmsonSong(other), new LibraryRowCacheBuildStats());
+
+        LR2SongDBExtended.bmson_song staleSamePath = CreateBmsonCacheSong(@"folder\chart.bmson", "Stale");
+        BmsonLibraryRowCacheSyncResult result = cache.RemoveBmsonSongs([staleSamePath]);
+
+        Assert.IsTrue(result.MembershipChanged);
+        Assert.IsTrue(result.SortKeyChanged);
+        Assert.IsTrue(result.SourceIdentityChanged);
+        Assert.AreEqual(1, cache.Count);
+        Assert.AreSame(otherRow, cache.GetOrCreate(ChartFileProjection.FromBmsonSong(other), new LibraryRowCacheBuildStats()));
+        Assert.AreNotSame(originalRow, cache.GetOrCreate(ChartFileProjection.FromBmsonSong(original), new LibraryRowCacheBuildStats()));
     }
 
     [TestMethod]
