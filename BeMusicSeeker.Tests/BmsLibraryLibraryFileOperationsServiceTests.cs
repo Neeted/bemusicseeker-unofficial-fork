@@ -785,7 +785,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
 
         Assert.AreEqual(2, delta.FolderPathChanges.Count);
         Assert.AreEqual(2, delta.ChartPathChanges.Count);
-        Assert.AreEqual(0, delta.ChartsToUnregister.Count);
+        Assert.AreEqual(0, delta.ChartRemoveRequests.Count);
         CollectionAssert.AreEquivalent(
             new[] { "C:\\Lib\\Dst\\A\\a.bms", "C:\\Lib\\Dst\\B\\b.bms" },
             delta.ChartPathChanges.Select(change => change.NewPath).ToArray());
@@ -1229,9 +1229,9 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             [],
             unregister: true);
 
-        Assert.AreEqual(2, delta.ChartsToUnregister.Count);
-        Assert.AreSame(bmsFile, delta.ChartsToUnregister.Single(chart => chart.GetBmsStorageOwner() == bmsFile).GetBmsStorageOwner());
-        Assert.AreSame(bmsonSong, delta.ChartsToUnregister.Single(chart => chart.GetBmsonStorageOwner() == bmsonSong).GetBmsonStorageOwner());
+        Assert.AreEqual(2, delta.ChartRemoveRequests.Count);
+        Assert.AreSame(bmsFile, delta.ChartRemoveRequests.Single(request => request.BmsOwner == bmsFile).BmsOwner);
+        Assert.AreSame(bmsonSong, delta.ChartRemoveRequests.Single(request => request.BmsonOwner == bmsonSong).BmsonOwner);
         Assert.AreEqual(0, delta.ChartPathChanges.Count);
         Assert.IsTrue(delta.InvalidateInstalledDirectoryIndex);
         Assert.IsTrue(delta.InvalidateParentFolderCache);
@@ -1411,10 +1411,10 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             Assert.AreEqual(1, delta.DuplicateDeletedCount);
             Assert.AreEqual(0, delta.SkippedCount);
             Assert.AreEqual(1, delta.ChartPathChanges.Count);
-            Assert.AreEqual(1, delta.ChartsToUnregister.Count);
+            Assert.AreEqual(1, delta.ChartRemoveRequests.Count);
             Assert.AreEqual(Path.Combine(tempDirectoryPath, "rename_me.bme"), delta.ChartPathChanges[0].NewPath);
             Assert.AreSame(renameFile, delta.ChartPathChanges[0].GetBmsStorageOwner());
-            Assert.AreSame(duplicateFile, delta.ChartsToUnregister[0].GetBmsStorageOwner());
+            Assert.AreSame(duplicateFile, delta.ChartRemoveRequests[0].BmsOwner);
             Assert.IsTrue(File.Exists(Path.Combine(tempDirectoryPath, "rename_me.bme")));
             Assert.IsFalse(File.Exists(renameSourcePath));
             Assert.IsFalse(File.Exists(duplicateSourcePath));

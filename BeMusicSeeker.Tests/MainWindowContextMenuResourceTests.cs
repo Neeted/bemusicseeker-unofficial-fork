@@ -1998,7 +1998,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(applyMethod, "resourceHealthMutation.BaseIndexCurrent");
         Assert.IsFalse(applyMethod.Contains("BuildOwnedChartCollectionFileScanMutationResult(fileCheckResult, BMSFiles, BmsonSongs)"));
         StringAssert.Contains(buildMethod, "if (removedPayloadAvailable)");
-        StringAssert.Contains(buildMethod, "storageMutation.UnregisteredCharts.AddRange(removedCharts ?? [])");
+        StringAssert.Contains(buildMethod, "storageMutation.RemoveRequests.AddRange((removedCharts ?? [])");
         Assert.IsFalse(buildMethod.Contains("IReadOnlyList<BMSFile> currentBmsFiles"));
         Assert.IsFalse(buildMethod.Contains("IReadOnlyList<LR2SongDBExtended.bmson_song> currentBmsonSongs"));
         StringAssert.Contains(libraryCode, "ownedChartCollection.CreateFileScanRemovedStorageOwnerIdentityCharts(");

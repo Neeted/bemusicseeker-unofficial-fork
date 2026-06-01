@@ -320,7 +320,11 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         ChartFile removedChart = ToChartFile(chart);
         if (removedChart != null)
         {
-            result.MutationDelta.ChartsToUnregister.Add(removedChart);
+            OwnedChartRemoveRequest removeRequest = OwnedChartRemoveRequest.FromOwnerReferenceChart(removedChart);
+            if (removeRequest != null)
+            {
+                result.MutationDelta.ChartRemoveRequests.Add(removeRequest);
+            }
             result.MutationDelta.InvalidateInstalledDirectoryIndex = true;
             result.MutationDelta.InvalidateParentFolderCache = true;
             result.MutationDelta.ClearDuplicatedCache = true;
@@ -342,7 +346,10 @@ internal sealed class BmsLibraryLibraryFileOperationsService
             .Where(chart => IsChartUnderFolder(chart, srcDir))];
         if (unregister)
         {
-            delta.ChartsToUnregister.AddRange(targetCharts.Select(ToChartFile).Where(chart => chart != null));
+            delta.ChartRemoveRequests.AddRange(targetCharts
+                .Select(ToChartFile)
+                .Select(OwnedChartRemoveRequest.FromOwnerReferenceChart)
+                .Where(request => request != null));
             delta.InvalidateInstalledDirectoryIndex = targetCharts.Count > 0;
             delta.InvalidateParentFolderCache = targetCharts.Count > 0;
             delta.ClearDuplicatedCache = targetCharts.Count > 0;
@@ -883,10 +890,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
                     delta.RenamedCount++;
                     if (unregister)
                     {
-                        delta.ChartsToUnregister.Add(ChartFileProjection.FromBmsFile(
-                            file,
-                            includeWarningSnapshot: true,
-                            includeResourceReferences: false));
+                        delta.ChartRemoveRequests.Add(OwnedChartRemoveRequest.FromOwnerReference(file));
                     }
                     else
                     {
@@ -903,10 +907,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
                     break;
                 case RenameInvalidExtensionAction.DeletedAsDuplicate:
                     delta.DuplicateDeletedCount++;
-                    delta.ChartsToUnregister.Add(ChartFileProjection.FromBmsFile(
-                        file,
-                        includeWarningSnapshot: true,
-                        includeResourceReferences: false));
+                    delta.ChartRemoveRequests.Add(OwnedChartRemoveRequest.FromOwnerReference(file));
                     break;
                 default:
                     delta.SkippedCount++;
@@ -922,8 +923,8 @@ internal sealed class BmsLibraryLibraryFileOperationsService
                     break;
             }
         }
-        delta.InvalidateInstalledDirectoryIndex = delta.ChartPathChanges.Count > 0 || delta.ChartsToUnregister.Count > 0;
-        delta.InvalidateParentFolderCache = delta.ChartPathChanges.Count > 0 || delta.ChartsToUnregister.Count > 0;
+        delta.InvalidateInstalledDirectoryIndex = delta.ChartPathChanges.Count > 0 || delta.ChartRemoveRequests.Count > 0;
+        delta.InvalidateParentFolderCache = delta.ChartPathChanges.Count > 0 || delta.ChartRemoveRequests.Count > 0;
         stopwatch.Stop();
         delta.TotalMs = stopwatch.ElapsedMilliseconds;
         return delta;

@@ -612,7 +612,7 @@ public sealed class BmsLibraryStateApplierTests
             var callbacks = new TrackingCallbacks();
             BmsLibraryStateApplier applier = CreateStateApplier(songDbPath, callbacks, () => pendingPackages, packages => pendingPackages = packages, () => installedPackages, packages => installedPackages = packages);
             var delta = new LibraryMutationDelta();
-            delta.ChartsToUnregister.Add(ChartFileProjection.FromBmsonSong(removedSong));
+            delta.ChartRemoveRequests.Add(OwnedChartRemoveRequest.FromOwnerReference(removedSong));
 
             applier.ApplyLibraryMutationDelta(delta);
 
@@ -656,7 +656,9 @@ public sealed class BmsLibraryStateApplierTests
     private static LibraryMutationDelta CreateUnregisterDelta(IEnumerable<ChartFile> charts)
     {
         var delta = new LibraryMutationDelta();
-        delta.ChartsToUnregister.AddRange((charts ?? []).Where(chart => chart != null));
+        delta.ChartRemoveRequests.AddRange((charts ?? [])
+            .Select(OwnedChartRemoveRequest.FromOwnerReferenceChart)
+            .Where(request => request != null));
         return delta;
     }
 

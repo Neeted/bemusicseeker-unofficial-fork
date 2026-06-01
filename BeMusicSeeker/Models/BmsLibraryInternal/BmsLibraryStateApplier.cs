@@ -112,11 +112,9 @@ internal sealed class BmsLibraryStateApplier(
             }
         }
 
-        if (delta.ChartsToUnregister.Count > 0 || delta.ChartRemoveRequests.Count > 0 || resolvedRemoveRequests != null)
+        if (delta.ChartRemoveRequests.Count > 0 || resolvedRemoveRequests != null)
         {
-            UnregisterCharts(
-                resolvedRemoveRequests == null ? delta.ChartsToUnregister : [],
-                resolvedRemoveRequests ?? delta.ChartRemoveRequests);
+            UnregisterCharts(resolvedRemoveRequests ?? delta.ChartRemoveRequests);
         }
 
         if (delta.RaiseInstalledPackagesChanged)
@@ -125,18 +123,14 @@ internal sealed class BmsLibraryStateApplier(
         }
     }
 
-    private void UnregisterCharts(IEnumerable<ChartFile> charts, IEnumerable<OwnedChartRemoveRequest> removeRequests)
+    private void UnregisterCharts(IEnumerable<OwnedChartRemoveRequest> removeRequests)
     {
-        if (charts == null && removeRequests == null)
+        if (removeRequests == null)
         {
-            throw new ArgumentNullException(nameof(charts));
+            throw new ArgumentNullException(nameof(removeRequests));
         }
 
-        List<ChartFile> chartList = [.. (charts ?? []).Where(chart => chart != null)];
         List<OwnedChartRemoveRequest> requestList = [.. (removeRequests ?? []).Where(request => request != null)];
-        requestList.AddRange(chartList
-            .Select(OwnedChartRemoveRequest.FromLegacyChart)
-            .Where(request => request != null));
         if (requestList.Count == 0)
         {
             return;

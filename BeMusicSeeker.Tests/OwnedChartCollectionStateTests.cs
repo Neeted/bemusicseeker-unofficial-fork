@@ -1627,7 +1627,7 @@ public sealed class OwnedChartCollectionStateTests
                 InvalidateParentFolderCache = true,
                 ClearDuplicatedCache = true
             };
-            delta.ChartsToUnregister.Add(initialSnapshot[0]);
+            delta.ChartRemoveRequests.Add(OwnedChartRemoveRequest.FromOwnerReferenceChart(initialSnapshot[0]));
 
             InvokeApplyLibraryMutationDelta(library, delta);
             NormalLibraryRefreshNotificationBatch batch = library.GetNormalLibraryRefreshNotificationsAfter(handledNotificationVersion);
@@ -1779,7 +1779,7 @@ public sealed class OwnedChartCollectionStateTests
                 }
             };
             var delta = new LibraryMutationDelta();
-            delta.ChartsToUnregister.Add(ChartFileProjection.FromBmsonStorageOwnerIdentity(first));
+            delta.ChartRemoveRequests.Add(OwnedChartRemoveRequest.FromOwnerReference(first));
 
             InvokeApplyLibraryMutationDelta(library, delta);
             NormalLibraryRefreshNotificationBatch batch = library.GetNormalLibraryRefreshNotificationsAfter(handledNotificationVersion);
@@ -1811,7 +1811,7 @@ public sealed class OwnedChartCollectionStateTests
             };
             Assert.AreEqual(1, InvokeCreateOwnedChartInfoFullBackfillTargetSnapshot(library).Count);
             var delta = new LibraryMutationDelta();
-            delta.ChartsToUnregister.Add(ChartFileProjection.FromBmsonStorageOwnerIdentity(pathless));
+            delta.ChartRemoveRequests.Add(OwnedChartRemoveRequest.FromOwnerReference(pathless));
 
             InvokeApplyLibraryMutationDelta(library, delta);
             List<ChartFile> afterSnapshot = InvokeCreateOwnedChartInfoFullBackfillTargetSnapshot(library);
@@ -1882,7 +1882,7 @@ public sealed class OwnedChartCollectionStateTests
             SetCurrentResourceHealthIndex(library, [ChartFileProjection.FromBmsFile(bmsFile)]);
             Assert.AreEqual(1, library.TryGetCurrentResourceHealthIndexSnapshotForView().TargetCount);
             var delta = new LibraryMutationDelta();
-            delta.ChartsToUnregister.Add(ChartFileProjection.FromBmsFile(bmsFile));
+            delta.ChartRemoveRequests.Add(OwnedChartRemoveRequest.FromOwnerReference(bmsFile));
 
             InvokeApplyLibraryMutationDelta(library, delta);
 
@@ -2699,7 +2699,7 @@ public sealed class OwnedChartCollectionStateTests
             Assert.AreEqual(1, initialSnapshot.GetChartRefsUnderInstallDestination(installDestination).Count);
 
             var delta = new LibraryMutationDelta();
-            delta.ChartsToUnregister.Add(ChartFileProjection.FromBmsStorageOwnerIdentity(bmsFile));
+            delta.ChartRemoveRequests.Add(OwnedChartRemoveRequest.FromOwnerReference(bmsFile));
             InvokeApplyLibraryMutationDelta(library, delta);
             InstallDestinationOverlayChartRefSnapshot afterSnapshot = InvokeCreateInstallDestinationOverlayChartRefSnapshot(library);
 
@@ -2852,7 +2852,7 @@ public sealed class OwnedChartCollectionStateTests
             Assert.IsTrue(initialLookup.ContainsPrimaryHash(removedBmsFile.hash));
             Assert.IsFalse(IsInstalledChartLookupIndexInitialized(library));
             var delta = new LibraryMutationDelta();
-            delta.ChartsToUnregister.Add(ChartFileProjection.FromBmsStorageOwnerIdentity(removedBmsFile));
+            delta.ChartRemoveRequests.Add(OwnedChartRemoveRequest.FromOwnerReference(removedBmsFile));
 
             InvokeApplyLibraryMutationDelta(library, delta);
             IPrimaryHashLookup updatedLookup = InvokeCreateInstalledChartKeySnapshotExcludingCharts(library, []);
@@ -3010,7 +3010,7 @@ public sealed class OwnedChartCollectionStateTests
                 NewInstallDestination = Path.Combine(chartDirectory, "Overlay")
             });
             var unregisterDelta = new LibraryMutationDelta();
-            unregisterDelta.ChartsToUnregister.Add(ChartFileProjection.FromBmsFile(unregisterBms, includeWarningSnapshot: false, includeResourceReferences: false));
+            unregisterDelta.ChartRemoveRequests.Add(OwnedChartRemoveRequest.FromOwnerReference(unregisterBms));
 
             InvokeApplyLibraryMutationDelta(library, overlayDelta);
             InvokeApplyLibraryMutationDelta(library, unregisterDelta);

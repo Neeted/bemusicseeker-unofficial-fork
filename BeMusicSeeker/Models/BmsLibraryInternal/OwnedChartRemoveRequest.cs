@@ -73,16 +73,6 @@ internal sealed class OwnedChartRemoveRequest
             : new OwnedChartRemoveRequest(OwnedChartRemoveMode.PathCleanup, kind, null, null, path);
     }
 
-    internal static OwnedChartRemoveRequest FromPathCleanupChart(ChartFile chart)
-    {
-        return chart == null ? null : FromPathCleanup(chart.Kind, chart.Path);
-    }
-
-    internal static OwnedChartRemoveRequest FromLegacyChart(ChartFile chart)
-    {
-        return FromOwnerReferenceChart(chart) ?? FromPathCleanupChart(chart);
-    }
-
     internal ChartFile CreateChartSnapshot()
     {
         if (BmsOwner != null)

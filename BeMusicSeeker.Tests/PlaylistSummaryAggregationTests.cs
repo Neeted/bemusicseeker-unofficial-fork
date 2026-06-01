@@ -143,7 +143,7 @@ public sealed class PlaylistSummaryAggregationTests
             };
             BMSLibrary.PlaylistSummaryOwnedHashSnapshot first = library.GetPlaylistSummaryOwnedHashSnapshot();
             var delta = new LibraryMutationDelta();
-            delta.ChartsToUnregister.Add(ChartFileProjection.FromBmsFile(removedFile));
+            delta.ChartRemoveRequests.Add(OwnedChartRemoveRequest.FromOwnerReference(removedFile));
 
             InvokeApplyLibraryMutationDelta(library, delta);
             BMSLibrary.PlaylistSummaryOwnedHashSnapshot second = library.GetPlaylistSummaryOwnedHashSnapshot();

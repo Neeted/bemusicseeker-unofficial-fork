@@ -7,8 +7,6 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 internal sealed class LibraryMutationDelta
 {
-    public List<ChartFile> ChartsToUnregister { get; } = [];
-
     internal List<OwnedChartRemoveRequest> ChartRemoveRequests { get; } = [];
 
     public List<LibraryChartPathChange> ChartPathChanges { get; } = [];
@@ -48,7 +46,6 @@ internal sealed class LibraryMutationDelta
 
     public void Clear()
     {
-        ChartsToUnregister.Clear();
         ChartRemoveRequests.Clear();
         ChartPathChanges.Clear();
         FolderPathChanges.Clear();
