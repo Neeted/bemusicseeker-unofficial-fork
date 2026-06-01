@@ -79,6 +79,10 @@ internal readonly struct OwnedChartStorageRowFilterSummary(
 internal sealed class OwnedChartCollectionState
 {
     private readonly List<ChartFile> charts;
+    private readonly Dictionary<BMSFile, ChartFile> bmsChartsByOwner = [];
+    private readonly Dictionary<LR2SongDBExtended.bmson_song, ChartFile> bmsonChartsByOwner = [];
+    private readonly Dictionary<string, ChartFile> chartsByPath = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<ChartFile, string> pathKeyByChart = [];
     private LibraryChartRefIndexSnapshot libraryChartRefIndexSnapshot;
     private OwnedDuplicateChartRowSnapshot duplicateChartRowSnapshot;
 
@@ -90,6 +94,7 @@ internal sealed class OwnedChartCollectionState
     private OwnedChartCollectionState(List<ChartFile> charts)
     {
         this.charts = charts ?? [];
+        RebuildCurrentIndexes();
     }
 
     internal static OwnedChartCollectionState FromStorageRows(
@@ -471,6 +476,121 @@ internal sealed class OwnedChartCollectionState
         }
 
         return new OwnedDuplicateChartRowSnapshot(rows, bmsStorageRows);
+    }
+
+    private void RebuildCurrentIndexes()
+    {
+        bmsChartsByOwner.Clear();
+        bmsonChartsByOwner.Clear();
+        chartsByPath.Clear();
+        pathKeyByChart.Clear();
+        foreach (ChartFile chart in charts.Where(chart => chart != null))
+        {
+            RegisterCurrentChartIndex(chart);
+        }
+    }
+
+    private void RegisterCurrentChartIndex(ChartFile chart)
+    {
+        if (chart == null)
+        {
+            return;
+        }
+
+        BMSFile bmsOwner = chart.GetBmsStorageOwner();
+        if (bmsOwner != null)
+        {
+            bmsChartsByOwner[bmsOwner] = chart;
+        }
+        else
+        {
+            LR2SongDBExtended.bmson_song bmsonOwner = chart.GetBmsonStorageOwner();
+            if (bmsonOwner != null)
+            {
+                bmsonChartsByOwner[bmsonOwner] = chart;
+            }
+        }
+
+        string pathKey = CreateOwnedPathKey(GetCurrentPath(chart));
+        if (string.IsNullOrWhiteSpace(pathKey))
+        {
+            return;
+        }
+        if (chartsByPath.TryGetValue(pathKey, out ChartFile existingChart) && !ReferenceEquals(existingChart, chart))
+        {
+            throw new InvalidOperationException("Owned chart current paths must be unique.");
+        }
+        chartsByPath[pathKey] = chart;
+        pathKeyByChart[chart] = pathKey;
+    }
+
+    private void UnregisterCurrentChartIndex(ChartFile chart)
+    {
+        if (chart == null)
+        {
+            return;
+        }
+
+        BMSFile bmsOwner = chart.GetBmsStorageOwner();
+        if (bmsOwner != null && bmsChartsByOwner.TryGetValue(bmsOwner, out ChartFile indexedBmsChart) && ReferenceEquals(indexedBmsChart, chart))
+        {
+            bmsChartsByOwner.Remove(bmsOwner);
+        }
+        LR2SongDBExtended.bmson_song bmsonOwner = chart.GetBmsonStorageOwner();
+        if (bmsonOwner != null && bmsonChartsByOwner.TryGetValue(bmsonOwner, out ChartFile indexedBmsonChart) && ReferenceEquals(indexedBmsonChart, chart))
+        {
+            bmsonChartsByOwner.Remove(bmsonOwner);
+        }
+        if (pathKeyByChart.TryGetValue(chart, out string pathKey))
+        {
+            pathKeyByChart.Remove(chart);
+            if (chartsByPath.TryGetValue(pathKey, out ChartFile indexedPathChart) && ReferenceEquals(indexedPathChart, chart))
+            {
+                chartsByPath.Remove(pathKey);
+            }
+        }
+    }
+
+    private bool TryResolveCurrentChartByOwner(ChartFile inputChart, out ChartFile currentChart)
+    {
+        currentChart = null;
+        BMSFile bmsOwner = inputChart?.GetBmsStorageOwner();
+        if (bmsOwner != null)
+        {
+            return bmsChartsByOwner.TryGetValue(bmsOwner, out currentChart);
+        }
+        LR2SongDBExtended.bmson_song bmsonOwner = inputChart?.GetBmsonStorageOwner();
+        return bmsonOwner != null && bmsonChartsByOwner.TryGetValue(bmsonOwner, out currentChart);
+    }
+
+    private bool TryResolveRemoveRequest(OwnedChartRemoveRequest request, out ChartFile currentChart)
+    {
+        currentChart = null;
+        if (request == null)
+        {
+            return false;
+        }
+        if (request.Mode == OwnedChartRemoveMode.OwnerReference)
+        {
+            if (request.BmsOwner != null)
+            {
+                return bmsChartsByOwner.TryGetValue(request.BmsOwner, out currentChart);
+            }
+            return request.BmsonOwner != null && bmsonChartsByOwner.TryGetValue(request.BmsonOwner, out currentChart);
+        }
+
+        string pathKey = CreateOwnedPathKey(request.Path);
+        if (string.IsNullOrWhiteSpace(pathKey) || !chartsByPath.TryGetValue(pathKey, out currentChart))
+        {
+            currentChart = null;
+            return false;
+        }
+        if (currentChart.Kind != request.Kind)
+        {
+            currentChart = null;
+            return false;
+        }
+        return true;
     }
 
     internal OwnedChartStorageOwnerView CreateStorageOwnerView()
@@ -913,17 +1033,48 @@ internal sealed class OwnedChartCollectionState
     internal void ApplyPathChanges(IEnumerable<LibraryChartPathChange> pathChanges)
     {
         List<LibraryChartPathChange> currentPathChanges = [.. GetPathChangesForCurrentCharts(pathChanges)];
+        currentPathChanges = [.. currentPathChanges
+            .GroupBy(
+                change => (CreateStorageIdentityKey(change.Chart) ?? string.Empty) + "|" + (CreateOwnedPathKey(change.NewPath) ?? string.Empty),
+                StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.First())];
         if (currentPathChanges.Any(change => string.IsNullOrWhiteSpace(change.NewPath)))
         {
             throw new InvalidOperationException("Owned chart path changes must keep a non-empty path.");
         }
-        ThrowIfCurrentPathCollision();
+        var changingCharts = new HashSet<ChartFile>();
+        var newPathKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (LibraryChartPathChange pathChange in currentPathChanges)
+        {
+            if (!TryResolveCurrentChartByOwner(pathChange.Chart, out ChartFile currentChart))
+            {
+                continue;
+            }
+            changingCharts.Add(currentChart);
+            string newPathKey = CreateOwnedPathKey(pathChange.NewPath);
+            if (string.IsNullOrWhiteSpace(newPathKey))
+            {
+                throw new InvalidOperationException("Owned chart path changes must keep a non-empty path.");
+            }
+            if (!newPathKeys.Add(newPathKey))
+            {
+                throw new InvalidOperationException("Owned chart path changes must keep unique target paths.");
+            }
+            if (chartsByPath.TryGetValue(newPathKey, out ChartFile existingChart)
+                && !ReferenceEquals(existingChart, currentChart)
+                && !changingCharts.Contains(existingChart)
+                && !currentPathChanges.Any(change => TryResolveCurrentChartByOwner(change.Chart, out ChartFile changingChart) && ReferenceEquals(changingChart, existingChart)))
+            {
+                throw new InvalidOperationException("Owned chart path change would collide with another owned chart.");
+            }
+        }
         if (duplicateChartRowSnapshot != null)
         {
             ApplyDuplicateRowPathChanges(currentPathChanges);
         }
         if (libraryChartRefIndexSnapshot == null)
         {
+            ApplyCurrentPathIndexChanges(currentPathChanges);
             return;
         }
 
@@ -931,6 +1082,7 @@ internal sealed class OwnedChartCollectionState
         libraryChartRefIndexSnapshot.ReorderAffectedPathsByStorageOrder(
             charts,
             currentPathChanges.Select(change => change.OldPath).Concat(currentPathChanges.Select(change => change.NewPath)));
+        ApplyCurrentPathIndexChanges(currentPathChanges);
     }
 
     internal void ApplyDigestChanges(IEnumerable<LibraryChartDigestChange> digestChanges)
@@ -979,31 +1131,95 @@ internal sealed class OwnedChartCollectionState
         }
     }
 
+    private void ApplyCurrentPathIndexChanges(IEnumerable<LibraryChartPathChange> pathChanges)
+    {
+        foreach (LibraryChartPathChange pathChange in pathChanges ?? [])
+        {
+            if (!TryResolveCurrentChartByOwner(pathChange?.Chart, out ChartFile currentChart))
+            {
+                continue;
+            }
+
+            if (pathKeyByChart.TryGetValue(currentChart, out string oldPathKey)
+                && chartsByPath.TryGetValue(oldPathKey, out ChartFile indexedChart)
+                && ReferenceEquals(indexedChart, currentChart))
+            {
+                chartsByPath.Remove(oldPathKey);
+            }
+
+            string newPathKey = CreateOwnedPathKey(pathChange.NewPath);
+            if (string.IsNullOrWhiteSpace(newPathKey))
+            {
+                pathKeyByChart.Remove(currentChart);
+                continue;
+            }
+            chartsByPath[newPathKey] = currentChart;
+            pathKeyByChart[currentChart] = newPathKey;
+        }
+    }
+
     internal int RemoveCharts(IEnumerable<ChartFile> removedCharts)
     {
-        RemovedChartKeySet requestedKeys = RemovedChartKeySet.FromCharts((removedCharts ?? []).Where(HasCurrentOwnedIdentity));
-        if (requestedKeys.IsEmpty)
+        return RemoveChartRequests((removedCharts ?? [])
+            .Select(OwnedChartRemoveRequest.FromOwnerReferenceChart)
+            .Where(request => request != null));
+    }
+
+    internal int RemoveChartRequests(IEnumerable<OwnedChartRemoveRequest> removeRequests)
+    {
+        List<ChartFile> actualRemovedCharts = [];
+        var actualRemovedSet = new HashSet<ChartFile>();
+        foreach (OwnedChartRemoveRequest request in removeRequests ?? [])
+        {
+            if (TryResolveRemoveRequest(request, out ChartFile currentChart) && actualRemovedSet.Add(currentChart))
+            {
+                actualRemovedCharts.Add(currentChart);
+            }
+        }
+        if (actualRemovedCharts.Count == 0)
         {
             return 0;
         }
 
-        List<ChartFile> actualRemovedCharts = [];
-        int removed = charts.RemoveAll(chart =>
-        {
-            if (!requestedKeys.ContainsChart(chart))
-            {
-                return false;
-            }
-            actualRemovedCharts.Add(chart);
-            return true;
-        });
+        int removed = charts.RemoveAll(actualRemovedSet.Contains);
         if (removed > 0)
         {
-            RemovedChartKeySet actualRemovedKeys = RemovedChartKeySet.FromCharts(actualRemovedCharts);
+            foreach (ChartFile chart in actualRemovedCharts)
+            {
+                UnregisterCurrentChartIndex(chart);
+            }
+            RemovedChartKeySet actualRemovedKeys = RemovedChartKeySet.FromCharts(actualRemovedCharts, includePaths: false);
             RemoveDuplicateRows(actualRemovedKeys);
             libraryChartRefIndexSnapshot?.RemoveCharts(actualRemovedCharts);
         }
         return removed;
+    }
+
+    internal List<OwnedChartRemoveRequest> ResolveCurrentRemoveRequests(IEnumerable<OwnedChartRemoveRequest> removeRequests)
+    {
+        var resolvedRequests = new List<OwnedChartRemoveRequest>();
+        var resolvedCharts = new HashSet<ChartFile>();
+        foreach (OwnedChartRemoveRequest request in removeRequests ?? [])
+        {
+            if (!TryResolveRemoveRequest(request, out ChartFile currentChart) || !resolvedCharts.Add(currentChart))
+            {
+                continue;
+            }
+
+            BMSFile bmsOwner = currentChart.GetBmsStorageOwner();
+            if (bmsOwner != null)
+            {
+                resolvedRequests.Add(OwnedChartRemoveRequest.FromOwnerReference(bmsOwner));
+                continue;
+            }
+
+            LR2SongDBExtended.bmson_song bmsonOwner = currentChart.GetBmsonStorageOwner();
+            if (bmsonOwner != null)
+            {
+                resolvedRequests.Add(OwnedChartRemoveRequest.FromOwnerReference(bmsonOwner));
+            }
+        }
+        return resolvedRequests;
     }
 
     internal void UpsertStorageRows(
@@ -1026,9 +1242,13 @@ internal sealed class OwnedChartCollectionState
         InsertBmsChartsBeforeBmson(addedBmsCharts);
         charts.AddRange(addedBmsonCharts);
         SortBmsonChartsByPath();
+        foreach (ChartFile chart in addedBmsCharts.Concat(addedBmsonCharts))
+        {
+            RegisterCurrentChartIndex(chart);
+        }
         if (duplicateChartRowSnapshot != null)
         {
-            RemoveDuplicateRows(RemovedChartKeySet.FromCharts(removedCharts));
+            RemoveDuplicateRows(RemovedChartKeySet.FromCharts(removedCharts, includePaths: false));
             AddDuplicateRows(addedBmsCharts, addedBmsonCharts);
         }
         if (libraryChartRefIndexSnapshot != null)
@@ -1048,21 +1268,44 @@ internal sealed class OwnedChartCollectionState
         IReadOnlyCollection<BMSFile> bmsFiles,
         IReadOnlyCollection<LR2SongDBExtended.bmson_song> bmsonSongs)
     {
-        RemovedChartKeySet requestedKeys = RemovedChartKeySet.FromStorageRows(bmsFiles, bmsonSongs);
-        if (requestedKeys.IsEmpty)
-        {
-            return [];
-        }
         List<ChartFile> removedCharts = [];
-        charts.RemoveAll(chart =>
+        var removedSet = new HashSet<ChartFile>();
+        foreach (BMSFile file in bmsFiles ?? [])
         {
-            if (!requestedKeys.ContainsChart(chart))
+            string pathKey = CreateOwnedPathKey(file?.path);
+            if (string.IsNullOrWhiteSpace(pathKey)
+                || !chartsByPath.TryGetValue(pathKey, out ChartFile chart)
+                || chart.Kind != ChartFileKind.Bms)
             {
-                return false;
+                continue;
             }
-            removedCharts.Add(chart);
-            return true;
-        });
+            if (removedSet.Add(chart))
+            {
+                removedCharts.Add(chart);
+            }
+        }
+        foreach (LR2SongDBExtended.bmson_song song in bmsonSongs ?? [])
+        {
+            string pathKey = CreateOwnedPathKey(song?.path);
+            if (string.IsNullOrWhiteSpace(pathKey)
+                || !chartsByPath.TryGetValue(pathKey, out ChartFile chart)
+                || chart.Kind != ChartFileKind.Bmson)
+            {
+                continue;
+            }
+            if (removedSet.Add(chart))
+            {
+                removedCharts.Add(chart);
+            }
+        }
+        if (removedSet.Count > 0)
+        {
+            charts.RemoveAll(removedSet.Contains);
+            foreach (ChartFile chart in removedCharts)
+            {
+                UnregisterCurrentChartIndex(chart);
+            }
+        }
         return removedCharts;
     }
 
@@ -1202,43 +1445,24 @@ internal sealed class OwnedChartCollectionState
         IEnumerable<BMSFile> bmsFiles,
         IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs)
     {
-        var bmsPathKeys = new HashSet<string>(
-            (bmsFiles ?? [])
-                .Select(file => CreateOwnedPathKey(file?.path))
-                .Where(path => !string.IsNullOrWhiteSpace(path)),
-            StringComparer.OrdinalIgnoreCase);
-        var bmsonPathKeys = new HashSet<string>(
-            (bmsonSongs ?? [])
-                .Select(song => CreateOwnedPathKey(song?.path))
-                .Where(path => !string.IsNullOrWhiteSpace(path)),
-            StringComparer.OrdinalIgnoreCase);
-        foreach (ChartFile chart in charts.Where(chart => chart != null))
+        foreach (BMSFile file in bmsFiles ?? [])
         {
-            string pathKey = CreateOwnedPathKey(GetCurrentPath(chart));
-            if (string.IsNullOrWhiteSpace(pathKey))
-            {
-                continue;
-            }
-            if (chart.Kind == ChartFileKind.Bms && bmsonPathKeys.Contains(pathKey))
-            {
-                throw new InvalidOperationException("Owned chart storage row upsert would replace a BMS row with a bmson row at the same path.");
-            }
-            if (chart.Kind == ChartFileKind.Bmson && bmsPathKeys.Contains(pathKey))
+            string pathKey = CreateOwnedPathKey(file?.path);
+            if (!string.IsNullOrWhiteSpace(pathKey)
+                && chartsByPath.TryGetValue(pathKey, out ChartFile existingChart)
+                && existingChart.Kind != ChartFileKind.Bms)
             {
                 throw new InvalidOperationException("Owned chart storage row upsert would replace a bmson row with a BMS row at the same path.");
             }
         }
-    }
-
-    private void ThrowIfCurrentPathCollision()
-    {
-        var ownerPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (ChartFile chart in charts.Where(chart => chart != null))
+        foreach (LR2SongDBExtended.bmson_song song in bmsonSongs ?? [])
         {
-            string pathKey = CreateOwnedPathKey(GetCurrentPath(chart));
-            if (!string.IsNullOrWhiteSpace(pathKey) && !ownerPaths.Add(pathKey))
+            string pathKey = CreateOwnedPathKey(song?.path);
+            if (!string.IsNullOrWhiteSpace(pathKey)
+                && chartsByPath.TryGetValue(pathKey, out ChartFile existingChart)
+                && existingChart.Kind != ChartFileKind.Bmson)
             {
-                throw new InvalidOperationException("Owned chart current paths must be unique.");
+                throw new InvalidOperationException("Owned chart storage row upsert would replace a BMS row with a bmson row at the same path.");
             }
         }
     }
@@ -1262,13 +1486,9 @@ internal sealed class OwnedChartCollectionState
 
     private IEnumerable<LibraryChartPathChange> GetPathChangesForCurrentCharts(IEnumerable<LibraryChartPathChange> pathChanges)
     {
-        var currentKeys = new HashSet<string>(
-            charts.Select(CreateStorageIdentityKey).Where(key => !string.IsNullOrWhiteSpace(key)),
-            System.StringComparer.OrdinalIgnoreCase);
         foreach (LibraryChartPathChange pathChange in pathChanges ?? [])
         {
-            string key = CreateStorageIdentityKey(pathChange?.Chart);
-            if (!string.IsNullOrWhiteSpace(key) && currentKeys.Contains(key))
+            if (TryResolveCurrentChartByOwner(pathChange?.Chart, out _))
             {
                 yield return pathChange;
             }
@@ -1446,35 +1666,14 @@ internal sealed class OwnedChartCollectionState
 
         public bool HasBmsKeys => bmsOwners.Count > 0 || bmsPaths.Count > 0;
 
-        public static RemovedChartKeySet FromCharts(IEnumerable<ChartFile> charts)
+        public static RemovedChartKeySet FromCharts(IEnumerable<ChartFile> charts, bool includePaths = true)
         {
             var keys = new RemovedChartKeySet();
             foreach (ChartFile chart in charts ?? [])
             {
-                keys.AddChart(chart);
+                keys.AddChart(chart, includePaths);
             }
             return keys;
-        }
-
-        public static RemovedChartKeySet FromStorageRows(
-            IEnumerable<BMSFile> bmsFiles,
-            IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs)
-        {
-            var keys = new RemovedChartKeySet();
-            foreach (BMSFile file in bmsFiles ?? [])
-            {
-                keys.AddBmsFile(file);
-            }
-            foreach (LR2SongDBExtended.bmson_song song in bmsonSongs ?? [])
-            {
-                keys.AddBmsonSong(song);
-            }
-            return keys;
-        }
-
-        public bool ContainsChart(ChartFile chart)
-        {
-            return IsRemovedChart(chart, bmsOwners, bmsonOwners, bmsPaths, bmsonPaths);
         }
 
         public bool ContainsDuplicateRow(DuplicateChartRow row)
@@ -1490,6 +1689,10 @@ internal sealed class OwnedChartCollectionState
             if (row.BmsonSong != null && bmsonOwners.Contains(row.BmsonSong))
             {
                 return true;
+            }
+            if (bmsPaths.Count == 0 && bmsonPaths.Count == 0)
+            {
+                return false;
             }
             string pathKey = CreateOwnedPathKey(row.Path);
             if (string.IsNullOrWhiteSpace(pathKey))
@@ -1514,11 +1717,15 @@ internal sealed class OwnedChartCollectionState
             {
                 return true;
             }
+            if (bmsPaths.Count == 0)
+            {
+                return false;
+            }
             string pathKey = CreateOwnedPathKey(file.path);
             return !string.IsNullOrWhiteSpace(pathKey) && bmsPaths.Contains(pathKey);
         }
 
-        private void AddChart(ChartFile chart)
+        private void AddChart(ChartFile chart, bool includePath)
         {
             if (chart == null)
             {
@@ -1527,37 +1734,46 @@ internal sealed class OwnedChartCollectionState
             BMSFile bmsOwner = chart.GetBmsStorageOwner();
             if (bmsOwner != null)
             {
-                AddBmsFile(bmsOwner);
+                AddBmsFile(bmsOwner, includePath);
                 return;
             }
             LR2SongDBExtended.bmson_song bmsonOwner = chart.GetBmsonStorageOwner();
             if (bmsonOwner != null)
             {
-                AddBmsonSong(bmsonOwner);
+                AddBmsonSong(bmsonOwner, includePath);
                 return;
             }
 
-            AddPath(chart.Kind, GetCurrentPath(chart));
+            if (includePath)
+            {
+                AddPath(chart.Kind, GetCurrentPath(chart));
+            }
         }
 
-        private void AddBmsFile(BMSFile file)
+        private void AddBmsFile(BMSFile file, bool includePath = true)
         {
             if (file == null)
             {
                 return;
             }
             bmsOwners.Add(file);
-            AddPath(ChartFileKind.Bms, file.path);
+            if (includePath)
+            {
+                AddPath(ChartFileKind.Bms, file.path);
+            }
         }
 
-        private void AddBmsonSong(LR2SongDBExtended.bmson_song song)
+        private void AddBmsonSong(LR2SongDBExtended.bmson_song song, bool includePath = true)
         {
             if (song == null)
             {
                 return;
             }
             bmsonOwners.Add(song);
-            AddPath(ChartFileKind.Bmson, song.path);
+            if (includePath)
+            {
+                AddPath(ChartFileKind.Bmson, song.path);
+            }
         }
 
         private void AddPath(ChartFileKind kind, string path)
@@ -1576,40 +1792,6 @@ internal sealed class OwnedChartCollectionState
                 bmsonPaths.Add(pathKey);
             }
         }
-    }
-
-    private static bool IsRemovedChart(
-        ChartFile chart,
-        ISet<BMSFile> bmsOwners,
-        ISet<LR2SongDBExtended.bmson_song> bmsonOwners,
-        ISet<string> bmsPaths,
-        ISet<string> bmsonPaths)
-    {
-        if (chart == null)
-        {
-            return false;
-        }
-        BMSFile bmsOwner = chart.GetBmsStorageOwner();
-        if (bmsOwner != null && bmsOwners.Contains(bmsOwner))
-        {
-            return true;
-        }
-        LR2SongDBExtended.bmson_song bmsonOwner = chart.GetBmsonStorageOwner();
-        if (bmsonOwner != null && bmsonOwners.Contains(bmsonOwner))
-        {
-            return true;
-        }
-        string pathKey = CreateOwnedPathKey(GetCurrentPath(chart));
-        if (string.IsNullOrWhiteSpace(pathKey))
-        {
-            return false;
-        }
-        return chart.Kind switch
-        {
-            ChartFileKind.Bms => bmsPaths.Contains(pathKey),
-            ChartFileKind.Bmson => bmsonPaths.Contains(pathKey),
-            _ => false
-        };
     }
 
     private static string CreateStorageIdentityKey(ChartFile chart)

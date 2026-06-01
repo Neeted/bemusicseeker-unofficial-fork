@@ -247,6 +247,34 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
         });
     }
 
+    public void DeleteSongsAndMaintenanceByPath(IEnumerable<string> paths)
+    {
+        var pathKeys = new HashSet<string>(
+            (paths ?? [])
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Select(OwnedChartCollectionState.CreateOwnedPathKey)
+            .Where(path => !string.IsNullOrWhiteSpace(path)),
+            StringComparer.OrdinalIgnoreCase);
+        if (pathKeys.Count == 0)
+        {
+            return;
+        }
+        ExecuteSongDbTransaction(delegate (LR2SongDBExtended songDb)
+        {
+            EnsureBmsonSchema(songDb);
+            List<BMSFile> matchedFiles = [.. songDb.Table<BMSFile>()
+                .AsEnumerable()
+                .Where(file => file != null && !string.IsNullOrWhiteSpace(file.path))
+                .Where(file => pathKeys.Contains(OwnedChartCollectionState.CreateOwnedPathKey(file.path)))];
+            foreach (BMSFile file in matchedFiles)
+            {
+                songDb.Delete<LR2SongDB.song>(file.path);
+                songDb.Delete<LR2SongDBExtended.maintenance>(file.path);
+            }
+            DeleteChartDigestsIfOrphaned(songDb, matchedFiles.Select(file => file.hash));
+        });
+    }
+
     public void DeleteBmsonSongs(IEnumerable<LR2SongDBExtended.bmson_song> songs)
     {
         List<LR2SongDBExtended.bmson_song> entries = [.. (songs ?? []).Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))];
@@ -263,6 +291,36 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
                 if (hasMaintenanceTable)
                 {
                     songDb.Delete<LR2SongDBExtended.maintenance>(entry.path);
+                }
+            }
+        });
+    }
+
+    public void DeleteBmsonSongsByPath(IEnumerable<string> paths)
+    {
+        var pathKeys = new HashSet<string>(
+            (paths ?? [])
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Select(OwnedChartCollectionState.CreateOwnedPathKey)
+            .Where(path => !string.IsNullOrWhiteSpace(path)),
+            StringComparer.OrdinalIgnoreCase);
+        if (pathKeys.Count == 0)
+        {
+            return;
+        }
+        ExecuteSongDbTransaction(delegate (LR2SongDBExtended songDb)
+        {
+            bool hasMaintenanceTable = TableExists(songDb, SQLiteTable<LR2SongDBExtended.maintenance>.GetTableName());
+            List<LR2SongDBExtended.bmson_song> matchedSongs = [.. songDb.Table<LR2SongDBExtended.bmson_song>()
+                .AsEnumerable()
+                .Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))
+                .Where(song => pathKeys.Contains(OwnedChartCollectionState.CreateOwnedPathKey(song.path)))];
+            foreach (LR2SongDBExtended.bmson_song song in matchedSongs)
+            {
+                songDb.Delete<LR2SongDBExtended.bmson_song>(song.path);
+                if (hasMaintenanceTable)
+                {
+                    songDb.Delete<LR2SongDBExtended.maintenance>(song.path);
                 }
             }
         });

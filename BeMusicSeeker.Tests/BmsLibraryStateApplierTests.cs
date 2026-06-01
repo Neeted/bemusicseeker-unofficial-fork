@@ -366,7 +366,7 @@ public sealed class BmsLibraryStateApplierTests
     }
 
     [TestMethod]
-    public void ApplyLibraryMutationDelta_UnregisterRemovesBmsLibraryRowsByPathWhenReferenceDiffers()
+    public void ApplyLibraryMutationDelta_PathCleanupRemovesBmsLibraryRowsByPath()
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
@@ -375,11 +375,6 @@ public sealed class BmsLibraryStateApplierTests
                 path = "C:\\Library\\remove.bms"
             };
             canonicalFile.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-            var removedFileReference = new TestableBmsFile
-            {
-                path = canonicalFile.path
-            };
-            removedFileReference.SetHash(canonicalFile.hash);
             var keptFile = new TestableBmsFile
             {
                 path = "C:\\Library\\keep.bms"
@@ -404,7 +399,9 @@ public sealed class BmsLibraryStateApplierTests
             var callbacks = new TrackingCallbacks();
             BmsLibraryStateApplier applier = CreateStateApplier(songDbPath, callbacks, () => pendingPackages, packages => pendingPackages = packages, () => installedPackages, packages => installedPackages = packages);
 
-            applier.ApplyLibraryMutationDelta(CreateUnregisterDelta([ChartFileProjection.FromBmsStorageOwnerIdentity(removedFileReference)]));
+            var delta = new LibraryMutationDelta();
+            delta.ChartRemoveRequests.Add(OwnedChartRemoveRequest.FromPathCleanup(ChartFileKind.Bms, canonicalFile.path));
+            applier.ApplyLibraryMutationDelta(delta);
 
             Assert.AreEqual(2, libraryFiles.Count);
             Assert.AreEqual(0, installedPackages.Count);

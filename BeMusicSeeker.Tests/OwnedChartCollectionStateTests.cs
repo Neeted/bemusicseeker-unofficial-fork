@@ -1253,7 +1253,7 @@ public sealed class OwnedChartCollectionStateTests
     }
 
     [TestMethod]
-    public void RemoveCharts_PathFallbackDoesNotCrossChartKind()
+    public void RemoveCharts_OwnerReferenceDoesNotRemovePathOnlyInput()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         string bmsPath = Path.Combine("C:\\Installed", "Bms", "chart.bms");
@@ -1292,7 +1292,25 @@ public sealed class OwnedChartCollectionStateTests
     }
 
     [TestMethod]
-    public void RemoveCharts_PathFallbackRemovesOnlySingleUniqueOwnedPath()
+    public void RemoveChartRequests_PathCleanupRemovesUniqueOwnedPath()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string bmsPath = Path.Combine("C:\\Installed", "Bms", "chart.bms");
+        var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", bmsPath);
+        var other = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine("C:\\Installed", "Other", "chart.bms"));
+        OwnedChartCollectionState state = OwnedChartCollectionState.FromStorageRows([bmsFile, other], []);
+
+        Assert.AreEqual(1, state.RemoveChartRequests([
+            OwnedChartRemoveRequest.FromPathCleanup(ChartFileKind.Bms, bmsPath)
+        ]));
+        List<ChartFile> snapshot = state.CreateSnapshot(includeResourceReferences: false);
+
+        Assert.AreEqual(1, snapshot.Count);
+        Assert.AreSame(other, snapshot[0].GetBmsStorageOwner());
+    }
+
+    [TestMethod]
+    public void RemoveCharts_OwnerReferenceRemovesOnlyRequestedOwnerWhenDuplicatePathWasSkipped()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         string sharedPath = Path.Combine("C:\\Installed", "Shared", "chart.bms");
@@ -1310,7 +1328,7 @@ public sealed class OwnedChartCollectionStateTests
     }
 
     [TestMethod]
-    public void ContainsKnownChart_UsesOwnedReferenceAndKindPathFallback()
+    public void ContainsKnownChart_UsesOwnedReferenceAndKindPathExactLookup()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         string bmsPath = Path.Combine("C:\\Installed", "Bms", "chart.bms");
@@ -1362,7 +1380,7 @@ public sealed class OwnedChartCollectionStateTests
     }
 
     [TestMethod]
-    public void ContainsKnownChart_PathFallbackUsesSingleUniqueOwnedPath()
+    public void ContainsKnownChart_PathExactLookupUsesOwnedUniquePath()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         string sharedPath = Path.Combine("C:\\Installed", "Shared", "chart.bms");
@@ -1779,7 +1797,7 @@ public sealed class OwnedChartCollectionStateTests
     }
 
     [TestMethod]
-    public void ApplyLibraryMutationDelta_UnregistersPathlessStorageRowsInLibraryBoundary()
+    public void ApplyLibraryMutationDelta_UnregisterPathlessStorageRowIsNoOpForOwnedBoundary()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
@@ -1798,8 +1816,9 @@ public sealed class OwnedChartCollectionStateTests
             InvokeApplyLibraryMutationDelta(library, delta);
             List<ChartFile> afterSnapshot = InvokeCreateOwnedChartInfoFullBackfillTargetSnapshot(library);
 
-            Assert.AreEqual(1, library.BmsonSongs.Count);
-            Assert.AreSame(kept, library.BmsonSongs.Single());
+            Assert.AreEqual(2, library.BmsonSongs.Count);
+            Assert.IsTrue(library.BmsonSongs.Contains(pathless));
+            Assert.IsTrue(library.BmsonSongs.Contains(kept));
             Assert.AreEqual(1, afterSnapshot.Count);
             Assert.AreSame(kept, afterSnapshot[0].GetBmsonStorageOwner());
         });
@@ -2661,7 +2680,7 @@ public sealed class OwnedChartCollectionStateTests
     }
 
     [TestMethod]
-    public void ApplyLibraryMutationDelta_UnregisterPrunesInstallDestinationOverlayByAffectedChart()
+    public void ApplyLibraryMutationDelta_UnregisterDoesNotPruneSamePathDifferentOwner()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
@@ -2684,8 +2703,9 @@ public sealed class OwnedChartCollectionStateTests
             InvokeApplyLibraryMutationDelta(library, delta);
             InstallDestinationOverlayChartRefSnapshot afterSnapshot = InvokeCreateInstallDestinationOverlayChartRefSnapshot(library);
 
-            Assert.AreEqual(0, afterSnapshot.GetChartRefsUnderInstallDestination(installDestination).Count);
-            Assert.AreEqual(0, library.BMSFiles.Count);
+            Assert.AreEqual(1, afterSnapshot.GetChartRefsUnderInstallDestination(installDestination).Count);
+            Assert.AreEqual(1, library.BMSFiles.Count);
+            Assert.AreSame(duplicateOwner, library.BMSFiles[0]);
         });
     }
 

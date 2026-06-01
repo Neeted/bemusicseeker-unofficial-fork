@@ -6953,11 +6953,13 @@ completeFileEnumerationOnce,
 
         public List<ChartFile> UnregisteredCharts { get; } = [];
 
+        public List<OwnedChartRemoveRequest> RemoveRequests { get; } = [];
+
         public List<LibraryChartPathChange> PathChanges { get; } = [];
 
         public int AddedCount => AddedCharts.Count;
 
-        public int RemovedCount => UnregisteredCharts.Count;
+        public int RemovedCount => RemoveRequests.Count;
 
         public int MovedCount => PathChanges.Count;
 
@@ -7764,9 +7766,9 @@ completeFileEnumerationOnce,
                 SetOwnedChartCollectionStorageRowsVersionUnsafe(-1, -1);
                 return;
             }
-            if (mutation.UnregisteredCharts.Count > 0)
+            if (mutation.RemoveRequests.Count > 0)
             {
-                ownedChartCollection.RemoveCharts(mutation.UnregisteredCharts);
+                ownedChartCollection.RemoveChartRequests(mutation.RemoveRequests);
             }
             if (mutation.PathChanges.Count > 0)
             {
@@ -8017,6 +8019,9 @@ completeFileEnumerationOnce,
         if (removedPayloadAvailable)
         {
             storageMutation.UnregisteredCharts.AddRange(removedCharts ?? []);
+            storageMutation.RemoveRequests.AddRange((removedCharts ?? [])
+                .Select(OwnedChartRemoveRequest.FromOwnerReferenceChart)
+                .Where(request => request != null));
         }
         storageMutation.AddAddedTargets(ChartStorageTargetSet.FromRows(fileCheckResult.AddedFiles, fileCheckResult.AddedBmsonSongs));
         bool bmsRowsChanged = fileCheckResult.DeletedPaths.Count > 0 || fileCheckResult.AddedFiles.Count > 0;
@@ -8046,6 +8051,7 @@ completeFileEnumerationOnce,
         result.StorageMutation.AddedBmsonSongs.AddRange(storageMutation.AddedBmsonSongs);
         result.StorageMutation.AddedCharts.AddRange(storageMutation.AddedCharts);
         result.StorageMutation.UnregisteredCharts.AddRange(storageMutation.UnregisteredCharts);
+        result.StorageMutation.RemoveRequests.AddRange(storageMutation.RemoveRequests);
         result.InstallDestinationRuntimeStateMutation.PruneToCurrentOwnedCharts = storageRowsChanged;
         return result;
     }
@@ -8415,6 +8421,7 @@ completeFileEnumerationOnce,
         result.StorageMutation.AddedBmsonSongs.AddRange(storageMutation.AddedBmsonSongs);
         result.StorageMutation.AddedCharts.AddRange(storageMutation.AddedCharts);
         result.StorageMutation.UnregisteredCharts.AddRange(storageMutation.UnregisteredCharts);
+        result.StorageMutation.RemoveRequests.AddRange(storageMutation.RemoveRequests);
         result.StorageMutation.PathChanges.AddRange(storageMutation.PathChanges);
         result.InstallDestinationRuntimeStateMutation.PruneToCurrentOwnedCharts = storageMutation.RemovedCount > 0;
         result.InstallDestinationRuntimeStateMutation.PathChanges.AddRange(storageMutation.PathChanges);
@@ -8428,7 +8435,7 @@ completeFileEnumerationOnce,
         return result;
     }
 
-    private static OwnedChartCollectionStorageMutation BuildOwnedChartCollectionStorageMutation(LibraryMutationDelta delta)
+    private OwnedChartCollectionStorageMutation BuildOwnedChartCollectionStorageMutation(LibraryMutationDelta delta)
     {
         var mutation = new OwnedChartCollectionStorageMutation();
         if (delta == null)
@@ -8437,22 +8444,119 @@ completeFileEnumerationOnce,
         }
 
         mutation.UnregisteredCharts.AddRange(delta.ChartsToUnregister.Where(chart => chart != null));
+        mutation.RemoveRequests.AddRange(delta.ChartRemoveRequests.Where(request => request != null));
+        AddLegacyRemoveRequests(mutation.RemoveRequests, delta.ChartsToUnregister);
+        ResolveCurrentOwnedRemoveRequests(mutation.RemoveRequests);
         mutation.PathChanges.AddRange(delta.ChartPathChanges.Where(change => change?.Chart != null));
         return mutation;
+    }
+
+    private void ResolveCurrentOwnedRemoveRequests(List<OwnedChartRemoveRequest> removeRequests)
+    {
+        if (removeRequests == null || removeRequests.Count == 0)
+        {
+            return;
+        }
+
+        List<OwnedChartRemoveRequest> resolvedRequests;
+        lock (lockStorageRowsVersion)
+        {
+            int bmsRowsVersion = bmsStorageRowsVersion;
+            int bmsonRowsVersion = bmsonStorageRowsVersion;
+            lock (lockOwnedChartCollection)
+            {
+                if (!ownedChartCollectionInitialized
+                    || ownedChartCollectionBmsStorageRowsVersion != bmsRowsVersion
+                    || ownedChartCollectionBmsonStorageRowsVersion != bmsonRowsVersion)
+                {
+                    resolvedRequests = [.. removeRequests
+                        .Where(request => request?.Mode == OwnedChartRemoveMode.OwnerReference
+                            && (request.BmsOwner != null || request.BmsonOwner != null))];
+                }
+                else
+                {
+                    resolvedRequests = ownedChartCollection.ResolveCurrentRemoveRequests(removeRequests);
+                }
+            }
+        }
+
+        removeRequests.Clear();
+        removeRequests.AddRange(resolvedRequests);
+    }
+
+    private static void AddLegacyRemoveRequests(
+        List<OwnedChartRemoveRequest> removeRequests,
+        IEnumerable<ChartFile> charts)
+    {
+        if (removeRequests == null)
+        {
+            return;
+        }
+        var bmsOwners = new HashSet<BMSFile>(removeRequests.Select(request => request?.BmsOwner).Where(owner => owner != null));
+        var bmsonOwners = new HashSet<LR2SongDBExtended.bmson_song>(removeRequests.Select(request => request?.BmsonOwner).Where(owner => owner != null));
+        var pathCleanupKeys = new HashSet<string>(
+            removeRequests
+                .Where(request => request?.Mode == OwnedChartRemoveMode.PathCleanup)
+                .Select(request => CreateKindPathRemoveKey(request.Kind, request.Path))
+                .Where(key => !string.IsNullOrWhiteSpace(key)),
+            StringComparer.OrdinalIgnoreCase);
+        foreach (ChartFile chart in charts ?? [])
+        {
+            OwnedChartRemoveRequest request = OwnedChartRemoveRequest.FromLegacyChart(chart);
+            if (request == null)
+            {
+                continue;
+            }
+            if (request.BmsOwner != null)
+            {
+                if (bmsOwners.Add(request.BmsOwner))
+                {
+                    removeRequests.Add(request);
+                }
+                continue;
+            }
+            if (request.BmsonOwner != null)
+            {
+                if (bmsonOwners.Add(request.BmsonOwner))
+                {
+                    removeRequests.Add(request);
+                }
+                continue;
+            }
+            string pathCleanupKey = CreateKindPathRemoveKey(request.Kind, request.Path);
+            if (!string.IsNullOrWhiteSpace(pathCleanupKey) && pathCleanupKeys.Add(pathCleanupKey))
+            {
+                removeRequests.Add(request);
+            }
+        }
+    }
+
+    private static string CreateKindPathRemoveKey(ChartFileKind kind, string path)
+    {
+        string pathKey = CreateOwnedPathKey(path);
+        if (string.IsNullOrWhiteSpace(pathKey))
+        {
+            return null;
+        }
+        return kind + ":" + pathKey;
     }
 
     private static bool HasBmsStorageRowCollectionChange(OwnedChartCollectionStorageMutation mutation)
     {
         return mutation != null
             && (mutation.AddedBmsFiles.Count > 0
-                || mutation.UnregisteredCharts.Any(chart => chart?.GetBmsStorageOwner() != null));
+                || mutation.UnregisteredCharts.Any(chart => chart?.GetBmsStorageOwner() != null)
+                || mutation.RemoveRequests.Any(request => request?.BmsOwner != null
+                    || (request?.Mode == OwnedChartRemoveMode.PathCleanup && request.Kind == ChartFileKind.Bms)));
     }
 
     private static bool HasBmsonStorageRowCollectionChange(OwnedChartCollectionStorageMutation mutation)
     {
         return mutation != null
             && (mutation.AddedBmsonSongs.Count > 0
-                || mutation.UnregisteredCharts.Any(chart => chart?.GetBmsonStorageOwner() != null));
+                || mutation.UnregisteredCharts.Any(chart => chart?.GetBmsonStorageOwner() != null)
+                || mutation.RemoveRequests.Any(request => request?.BmsonOwner != null
+                    || (request?.Mode == OwnedChartRemoveMode.PathCleanup && request.Kind == ChartFileKind.Bmson)));
     }
 
     private static bool HasBmsStorageRowPathChange(OwnedChartCollectionStorageMutation mutation)
@@ -8511,11 +8615,63 @@ completeFileEnumerationOnce,
             return;
         }
 
-        result.ResourceHealthMutation.RemovedTargets.AddRange(storageMutation.UnregisteredCharts.Where(chart => chart != null));
+        if (storageMutation.RemoveRequests.Any(request => request?.Mode == OwnedChartRemoveMode.PathCleanup))
+        {
+            result.ResourceHealthIndexInvalidated = true;
+            return;
+        }
+
+        result.ResourceHealthMutation.RemovedTargets.AddRange(CreateRemovedChartSnapshots(storageMutation));
         result.ResourceHealthMutation.UpdatedTargets.AddRange(storageMutation.AddedCharts.Where(chart => chart != null));
         result.ResourceHealthMutation.DeltaBaseResourceHealthInputVersion = deltaBaseResourceHealthInputVersion ?? Volatile.Read(ref resourceHealthInputVersion);
         result.ResourceHealthMutation.DeltaTargetResourceHealthInputVersion = deltaTargetResourceHealthInputVersion;
         result.ResourceHealthMutation.InvalidateIfDeltaFails = true;
+    }
+
+    private static List<ChartFile> CreateRemovedChartSnapshots(OwnedChartCollectionStorageMutation storageMutation)
+    {
+        var charts = new List<ChartFile>();
+        if (storageMutation == null)
+        {
+            return charts;
+        }
+        var bmsOwners = new HashSet<BMSFile>();
+        var bmsonOwners = new HashSet<LR2SongDBExtended.bmson_song>();
+        var pathKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (ChartFile chart in storageMutation.RemoveRequests
+            .Select(request => request?.CreateChartSnapshot())
+            .Where(chart => chart != null))
+        {
+            if (TryAddRemovedChartIdentity(chart, bmsOwners, bmsonOwners, pathKeys))
+            {
+                charts.Add(chart);
+            }
+        }
+        return charts;
+    }
+
+    private static bool TryAddRemovedChartIdentity(
+        ChartFile chart,
+        ISet<BMSFile> bmsOwners,
+        ISet<LR2SongDBExtended.bmson_song> bmsonOwners,
+        ISet<string> pathKeys)
+    {
+        if (chart == null)
+        {
+            return false;
+        }
+        BMSFile bmsOwner = chart.GetBmsStorageOwner();
+        if (bmsOwner != null)
+        {
+            return bmsOwners.Add(bmsOwner);
+        }
+        LR2SongDBExtended.bmson_song bmsonOwner = chart.GetBmsonStorageOwner();
+        if (bmsonOwner != null)
+        {
+            return bmsonOwners.Add(bmsonOwner);
+        }
+        string pathKey = CreateKindPathRemoveKey(chart.Kind, chart.Path);
+        return !string.IsNullOrWhiteSpace(pathKey) && pathKeys.Add(pathKey);
     }
 
     private OwnedChartCollectionMutationResult BuildOwnedChartCollectionDigestMutationResult(
@@ -8897,8 +9053,13 @@ completeFileEnumerationOnce,
         {
             return mutation;
         }
-        foreach (ChartFile chart in storageMutation.UnregisteredCharts)
+        foreach (ChartFile chart in CreateRemovedChartSnapshots(storageMutation))
         {
+            if (string.IsNullOrWhiteSpace(chart.Md5))
+            {
+                mutation.RequiresFullInvalidate = true;
+                continue;
+            }
             mutation.Removed.Add(CreateInstalledChartLookupMutationEntry(chart));
         }
         foreach (LibraryChartPathChange pathChange in storageMutation.PathChanges)
@@ -14070,6 +14231,12 @@ completeFileEnumerationOnce,
         var delta = new LibraryMutationDelta();
         delta.ChartsToUnregister.AddRange(ChartFileProjection.FromBmsStorageOwnerIdentities(sourceBmsFiles));
         delta.ChartsToUnregister.AddRange(ChartFileProjection.FromBmsonStorageOwnerIdentities(sourceBmsonSongs));
+        delta.ChartRemoveRequests.AddRange((sourceBmsFiles ?? [])
+            .Select(OwnedChartRemoveRequest.FromOwnerReference)
+            .Where(request => request != null));
+        delta.ChartRemoveRequests.AddRange((sourceBmsonSongs ?? [])
+            .Select(OwnedChartRemoveRequest.FromOwnerReference)
+            .Where(request => request != null));
         bool hasCharts = delta.ChartsToUnregister.Count > 0;
         delta.InvalidateInstalledDirectoryIndex = hasCharts;
         delta.InvalidateParentFolderCache = hasCharts;
@@ -14629,11 +14796,11 @@ completeFileEnumerationOnce,
                 using (mutationResult.ResourceHealthIndexInvalidated ? SuppressResourceHealthIndexInvalidation() : null)
                 {
                     Stopwatch unregisterStorageRowsStopwatch = StartPerformanceStepStopwatch(collectPerformanceLog);
-                    StorageRowsVersionSnapshot storageRowsVersion = ApplyLibraryUnregisterStorageRowsUnsafe(delta?.ChartsToUnregister);
+                    StorageRowsVersionSnapshot storageRowsVersion = ApplyLibraryUnregisterStorageRowsUnsafe(mutationResult.StorageMutation);
                     unregisterStorageRowsMs = StopPerformanceStepStopwatch(unregisterStorageRowsStopwatch);
 
                     Stopwatch stateApplyStopwatch = StartPerformanceStepStopwatch(collectPerformanceLog);
-                    stateApplier.ApplyLibraryMutationDelta(delta);
+                    stateApplier.ApplyLibraryMutationDelta(delta, mutationResult.StorageMutation.RemoveRequests);
                     stateApplyMs = StopPerformanceStepStopwatch(stateApplyStopwatch);
 
                     Stopwatch ownedCollectionApplyStopwatch = StartPerformanceStepStopwatch(collectPerformanceLog);
@@ -14718,72 +14885,89 @@ completeFileEnumerationOnce,
         }
     }
 
-    private StorageRowsVersionSnapshot ApplyLibraryUnregisterStorageRowsUnsafe(IEnumerable<ChartFile> charts)
+    private StorageRowsVersionSnapshot ApplyLibraryUnregisterStorageRowsUnsafe(OwnedChartCollectionStorageMutation mutation)
     {
-        List<ChartFile> chartList = [.. (charts ?? []).Where(chart => chart != null)];
-        if (chartList.Count == 0)
+        List<OwnedChartRemoveRequest> removeRequests = [.. (mutation?.RemoveRequests ?? []).Where(request => request != null)];
+        if (removeRequests.Count == 0)
         {
             return CaptureStorageRowsVersionUnsafe();
         }
 
-        List<BMSFile> bmsFilesToUnregister = [.. chartList
-            .Select(chart => chart.GetBmsStorageOwner())
+        List<BMSFile> bmsFilesToUnregister = [.. removeRequests
+            .Select(request => request.BmsOwner)
             .Where(file => file != null)
             .Distinct()];
-        HashSet<string> removedBmsPaths = null;
         HashSet<BMSFile> removedFileRefs = null;
         if (bmsFilesToUnregister.Count > 0)
         {
-            removedBmsPaths = new HashSet<string>(
-                bmsFilesToUnregister.Where(file => !string.IsNullOrWhiteSpace(file.path)).Select(file => file.path),
-                StringComparer.OrdinalIgnoreCase);
             removedFileRefs = new HashSet<BMSFile>(bmsFilesToUnregister);
         }
 
-        List<LR2SongDBExtended.bmson_song> bmsonSongsToUnregister = [.. chartList
-            .Select(chart => chart.GetBmsonStorageOwner())
+        var bmsPathCleanupKeys = new HashSet<string>(
+            removeRequests
+                .Where(request => request.Mode == OwnedChartRemoveMode.PathCleanup && request.Kind == ChartFileKind.Bms)
+                .Select(request => CreateOwnedPathKey(request.Path))
+                .Where(path => !string.IsNullOrWhiteSpace(path)),
+            StringComparer.OrdinalIgnoreCase);
+        List<LR2SongDBExtended.bmson_song> bmsonSongsToUnregister = [.. removeRequests
+            .Select(request => request.BmsonOwner)
             .Where(song => song != null)
             .Distinct()];
-        HashSet<string> removedBmsonPaths = null;
         HashSet<LR2SongDBExtended.bmson_song> removedSongRefs = null;
         if (bmsonSongsToUnregister.Count > 0)
         {
-            removedBmsonPaths = new HashSet<string>(
-                bmsonSongsToUnregister.Select(song => song.path).Where(path => !string.IsNullOrWhiteSpace(path)),
-                StringComparer.OrdinalIgnoreCase);
             removedSongRefs = new HashSet<LR2SongDBExtended.bmson_song>(bmsonSongsToUnregister);
         }
+        var bmsonPathCleanupKeys = new HashSet<string>(
+            removeRequests
+                .Where(request => request.Mode == OwnedChartRemoveMode.PathCleanup && request.Kind == ChartFileKind.Bmson)
+                .Select(request => CreateOwnedPathKey(request.Path))
+                .Where(path => !string.IsNullOrWhiteSpace(path)),
+            StringComparer.OrdinalIgnoreCase);
         lock (lockStorageRowsVersion)
         {
             int previousBmsRowsVersion = bmsStorageRowsVersion;
             int previousBmsonRowsVersion = bmsonStorageRowsVersion;
-            if (bmsFilesToUnregister.Count > 0)
+            if (bmsFilesToUnregister.Count > 0 || bmsPathCleanupKeys.Count > 0)
             {
-                _BMSFiles = [.. (_BMSFiles ?? []).Where(file => !IsMatchedUnregisteredBmsFile(file, removedBmsPaths, removedFileRefs))];
+                _BMSFiles = [.. (_BMSFiles ?? []).Where(file => !IsMatchedUnregisteredBmsFile(file, removedFileRefs, bmsPathCleanupKeys))];
                 IncrementBmsStorageRowsVersion();
             }
-            if (bmsonSongsToUnregister.Count > 0)
+            if (bmsonSongsToUnregister.Count > 0 || bmsonPathCleanupKeys.Count > 0)
             {
-                _BmsonSongs = [.. (_BmsonSongs ?? []).Where(song => song != null && !removedSongRefs.Contains(song) && !removedBmsonPaths.Contains(song.path))];
+                _BmsonSongs = [.. (_BmsonSongs ?? []).Where(song => !IsMatchedUnregisteredBmsonSong(song, removedSongRefs, bmsonPathCleanupKeys))];
                 IncrementBmsonStorageRowsVersion();
             }
             return CreateStorageRowsVersionSnapshotUnsafe(previousBmsRowsVersion, previousBmsonRowsVersion);
         }
     }
 
-    private static bool IsMatchedUnregisteredBmsFile(BMSFile file, ISet<string> removedPaths, ISet<BMSFile> removedFiles)
+    private static bool IsMatchedUnregisteredBmsFile(BMSFile file, ISet<BMSFile> removedFiles, ISet<string> pathCleanupKeys)
     {
         if (file == null)
         {
             return false;
         }
-
         if (removedFiles?.Contains(file) == true)
         {
             return true;
         }
+        string pathKey = CreateOwnedPathKey(file.path);
+        return !string.IsNullOrWhiteSpace(pathKey) && pathCleanupKeys?.Contains(pathKey) == true;
+    }
 
-        return !string.IsNullOrWhiteSpace(file.path) && removedPaths?.Contains(file.path) == true;
+    private static bool IsMatchedUnregisteredBmsonSong(LR2SongDBExtended.bmson_song song, ISet<LR2SongDBExtended.bmson_song> removedSongs, ISet<string> pathCleanupKeys)
+    {
+        if (song == null)
+        {
+            return false;
+        }
+        if (removedSongs?.Contains(song) == true)
+        {
+            return true;
+        }
+        string pathKey = CreateOwnedPathKey(song.path);
+        return !string.IsNullOrWhiteSpace(pathKey) && pathCleanupKeys?.Contains(pathKey) == true;
     }
 
     private void PublishNormalLibraryRefreshNotification(OwnedChartCollectionMutationResult result)
@@ -14834,6 +15018,7 @@ completeFileEnumerationOnce,
             && result.StorageRowsRemoveDeltaComplete
             && result.DigestChangedCount == 0
             && mutation?.RemovedCount > 0
+            && !mutation.RemoveRequests.Any(request => request?.Mode == OwnedChartRemoveMode.PathCleanup)
             && mutation.AddedCount == 0
             && mutation.MovedCount == 0;
     }
@@ -14846,6 +15031,7 @@ completeFileEnumerationOnce,
         }
         return [.. mutation.UnregisteredCharts
             .Select(chart => chart?.GetBmsStorageOwner())
+            .Concat(mutation.RemoveRequests.Select(request => request?.BmsOwner))
             .Where(file => file != null)
             .Distinct()];
     }
@@ -14858,6 +15044,7 @@ completeFileEnumerationOnce,
         }
         return [.. mutation.UnregisteredCharts
             .Select(chart => chart?.GetBmsonStorageOwner())
+            .Concat(mutation.RemoveRequests.Select(request => request?.BmsonOwner))
             .Where(song => song != null)
             .Distinct()];
     }
