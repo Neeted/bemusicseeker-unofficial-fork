@@ -10,23 +10,16 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 internal sealed class OwnedDuplicateChartRowSnapshot
 {
     internal OwnedDuplicateChartRowSnapshot(
-        List<DuplicateChartRow> rows,
-        List<BMSFile> bmsStorageRows)
+        IReadOnlyList<DuplicateChartRow> rows,
+        IReadOnlyList<BMSFile> bmsStorageRows)
     {
-        MutableRows = rows ?? [];
-        MutableBmsStorageRows = bmsStorageRows ?? [];
+        Rows = rows as DuplicateChartRow[] ?? [.. rows ?? []];
+        BmsStorageRows = bmsStorageRows as BMSFile[] ?? [.. bmsStorageRows ?? []];
     }
 
-    internal IReadOnlyList<DuplicateChartRow> Rows => MutableRows;
+    internal IReadOnlyList<DuplicateChartRow> Rows { get; }
 
-    internal IReadOnlyList<BMSFile> BmsStorageRows => MutableBmsStorageRows;
-
-    internal List<DuplicateChartRow> MutableRows { get; }
-
-    internal List<BMSFile> MutableBmsStorageRows { get; }
-
-    internal OwnedDuplicateChartRowSnapshot CreateSnapshotCopy()
-        => new([.. MutableRows], [.. MutableBmsStorageRows]);
+    internal IReadOnlyList<BMSFile> BmsStorageRows { get; }
 }
 
 internal sealed class OwnedChartStorageOwnerView
@@ -403,13 +396,29 @@ internal sealed class OwnedChartCollectionState
 
 
     /// <summary>
-    /// playlist detail の entry hash 解決に使う owned 隣接 index を作成します。
+    /// playlist detail の entry hash 解決に使う軽量 chart ref snapshot を作成します。
+    /// hash map 構築は owned collection lock の外で行います。
     /// </summary>
     /// <param name="cancellationCheck">構築中に呼び出す cancellation callback。</param>
-    /// <returns>playlist detail 用 resolve index。</returns>
-    internal PlaylistLibraryResolveIndexSnapshot CreatePlaylistLibraryResolveIndexSnapshot(Action cancellationCheck = null)
+    /// <returns>playlist detail 用 resolve ref snapshot。</returns>
+    internal List<LibraryChartRef> CreatePlaylistLibraryResolveRefSnapshot(Action cancellationCheck = null)
     {
-        return PlaylistLibraryResolveIndexSnapshot.FromStorageOwnerCharts(charts, cancellationCheck);
+        var refs = new List<LibraryChartRef>(charts.Count);
+        foreach (ChartFile chart in charts)
+        {
+            cancellationCheck?.Invoke();
+            if (!HasCurrentOwnedIdentity(chart))
+            {
+                continue;
+            }
+
+            LibraryChartRef chartRef = CreateCurrentLibraryChartRef(chart);
+            if (chartRef != null)
+            {
+                refs.Add(chartRef);
+            }
+        }
+        return refs;
     }
 
     internal List<LibraryChartRef> CreateLibraryChartRefsForHashes(
@@ -432,7 +441,7 @@ internal sealed class OwnedChartCollectionState
     internal OwnedDuplicateChartRowSnapshot CreateDuplicateChartRowSnapshot()
     {
         duplicateChartRowSnapshot ??= BuildDuplicateChartRowSnapshot();
-        return duplicateChartRowSnapshot.CreateSnapshotCopy();
+        return duplicateChartRowSnapshot;
     }
 
     internal bool IsDuplicateChartRowSnapshotInitialized => duplicateChartRowSnapshot != null;
@@ -689,18 +698,30 @@ internal sealed class OwnedChartCollectionState
 
     private void ApplyDuplicateRowPathChanges(IEnumerable<LibraryChartPathChange> pathChanges)
     {
+        if (duplicateChartRowSnapshot == null)
+        {
+            return;
+        }
+
+        DuplicateChartRow[] rows = [.. duplicateChartRowSnapshot.Rows];
+        bool changed = false;
         foreach (LibraryChartPathChange pathChange in pathChanges ?? [])
         {
-            for (int i = 0; i < duplicateChartRowSnapshot.MutableRows.Count; i++)
+            for (int i = 0; i < rows.Length; i++)
             {
-                DuplicateChartRow row = duplicateChartRowSnapshot.MutableRows[i];
+                DuplicateChartRow row = rows[i];
                 if (!IsDuplicateRowForChart(row, pathChange?.Chart))
                 {
                     continue;
                 }
 
-                duplicateChartRowSnapshot.MutableRows[i] = row.WithPath(pathChange.NewPath);
+                rows[i] = row.WithPath(pathChange.NewPath);
+                changed = true;
             }
+        }
+        if (changed)
+        {
+            duplicateChartRowSnapshot = new OwnedDuplicateChartRowSnapshot(rows, duplicateChartRowSnapshot.BmsStorageRows);
         }
     }
 
@@ -712,55 +733,64 @@ internal sealed class OwnedChartCollectionState
             return;
         }
 
-        duplicateChartRowSnapshot.MutableRows.RemoveAll(row => removedChartList.Any(chart => IsDuplicateRowForChart(row, chart)));
+        DuplicateChartRow[] rows = [.. duplicateChartRowSnapshot.Rows.Where(row => !removedChartList.Any(chart => IsDuplicateRowForChart(row, chart)))];
         var removedBmsOwners = new HashSet<BMSFile>(
             removedChartList.Select(chart => chart.GetBmsStorageOwner()).Where(file => file != null));
-        if (removedBmsOwners.Count > 0)
-        {
-            duplicateChartRowSnapshot.MutableBmsStorageRows.RemoveAll(removedBmsOwners.Contains);
-        }
+        BMSFile[] bmsStorageRows = removedBmsOwners.Count > 0
+            ? [.. duplicateChartRowSnapshot.BmsStorageRows.Where(file => !removedBmsOwners.Contains(file))]
+            : [.. duplicateChartRowSnapshot.BmsStorageRows];
+        duplicateChartRowSnapshot = new OwnedDuplicateChartRowSnapshot(rows, bmsStorageRows);
     }
 
     private void AddDuplicateRows(IEnumerable<ChartFile> addedBmsCharts, IEnumerable<ChartFile> addedBmsonCharts)
     {
         List<DuplicateChartRow> bmsRows = [.. (addedBmsCharts ?? []).Select(CreateDuplicateChartRow).Where(row => row != null)];
         List<DuplicateChartRow> bmsonRows = [.. (addedBmsonCharts ?? []).Select(CreateDuplicateChartRow).Where(row => row != null)];
+        if (bmsRows.Count == 0 && bmsonRows.Count == 0)
+        {
+            return;
+        }
+
+        List<DuplicateChartRow> rows = [.. duplicateChartRowSnapshot.Rows];
+        List<BMSFile> bmsStorageRows = [.. duplicateChartRowSnapshot.BmsStorageRows];
         if (bmsRows.Count > 0)
         {
-            int firstBmsonIndex = duplicateChartRowSnapshot.MutableRows.FindIndex(row => row?.ChartKind == ChartFileKind.Bmson);
+            int firstBmsonIndex = rows.FindIndex(row => row?.ChartKind == ChartFileKind.Bmson);
             if (firstBmsonIndex < 0)
             {
-                duplicateChartRowSnapshot.MutableRows.AddRange(bmsRows);
+                rows.AddRange(bmsRows);
             }
             else
             {
-                duplicateChartRowSnapshot.MutableRows.InsertRange(firstBmsonIndex, bmsRows);
+                rows.InsertRange(firstBmsonIndex, bmsRows);
             }
-            duplicateChartRowSnapshot.MutableBmsStorageRows.AddRange(bmsRows.Select(row => row.BmsFile).Where(file => file != null));
+            bmsStorageRows.AddRange(bmsRows.Select(row => row.BmsFile).Where(file => file != null));
         }
         if (bmsonRows.Count > 0)
         {
-            duplicateChartRowSnapshot.MutableRows.AddRange(bmsonRows);
-            SortDuplicateBmsonRowsByPath();
+            rows.AddRange(bmsonRows);
+            SortDuplicateBmsonRowsByPath(rows);
         }
+
+        duplicateChartRowSnapshot = new OwnedDuplicateChartRowSnapshot(rows, bmsStorageRows);
     }
 
-    private void SortDuplicateBmsonRowsByPath()
+    private static void SortDuplicateBmsonRowsByPath(List<DuplicateChartRow> rows)
     {
-        int firstBmsonIndex = duplicateChartRowSnapshot.MutableRows.FindIndex(row => row?.ChartKind == ChartFileKind.Bmson);
+        int firstBmsonIndex = rows.FindIndex(row => row?.ChartKind == ChartFileKind.Bmson);
         if (firstBmsonIndex < 0)
         {
             return;
         }
 
-        List<DuplicateChartRow> sortedBmsonRows = [.. duplicateChartRowSnapshot.MutableRows
+        List<DuplicateChartRow> sortedBmsonRows = [.. rows
             .Skip(firstBmsonIndex)
             .Where(row => row != null)
             .OrderBy(row => row.Path, System.StringComparer.OrdinalIgnoreCase)];
-        duplicateChartRowSnapshot.MutableRows.RemoveRange(
+        rows.RemoveRange(
             firstBmsonIndex,
-            duplicateChartRowSnapshot.MutableRows.Count - firstBmsonIndex);
-        duplicateChartRowSnapshot.MutableRows.AddRange(sortedBmsonRows);
+            rows.Count - firstBmsonIndex);
+        rows.AddRange(sortedBmsonRows);
     }
 
     private static bool IsDuplicateRowForChart(DuplicateChartRow row, ChartFile chart)
@@ -896,13 +926,15 @@ internal sealed class OwnedChartCollectionState
             return;
         }
 
+        DuplicateChartRow[] rows = [.. duplicateChartRowSnapshot.Rows];
+        bool changed = false;
         foreach (LibraryChartDigestChange change in (digestChanges ?? []).Where(change => change?.Md5Changed == true))
         {
             string oldMd5 = NormalizeMd5(change.OldMd5);
             List<int> matchingIndexes = [];
-            for (int i = 0; i < duplicateChartRowSnapshot.MutableRows.Count; i++)
+            for (int i = 0; i < rows.Length; i++)
             {
-                DuplicateChartRow row = duplicateChartRowSnapshot.MutableRows[i];
+                DuplicateChartRow row = rows[i];
                 if (row == null
                     || !IsSameDuplicateRowKind(row, change.Kind)
                     || !string.Equals(row.Path, change.Path, System.StringComparison.OrdinalIgnoreCase))
@@ -919,12 +951,17 @@ internal sealed class OwnedChartCollectionState
             if (matchingIndexes.Count == 1)
             {
                 int index = matchingIndexes[0];
-                duplicateChartRowSnapshot.MutableRows[index] = duplicateChartRowSnapshot.MutableRows[index].WithMd5(change.NewMd5);
+                rows[index] = rows[index].WithMd5(change.NewMd5);
+                changed = true;
             }
             else if (matchingIndexes.Count > 1)
             {
                 throw new InvalidOperationException("Owned duplicate row digest update matched multiple charts for the same path.");
             }
+        }
+        if (changed)
+        {
+            duplicateChartRowSnapshot = new OwnedDuplicateChartRowSnapshot(rows, duplicateChartRowSnapshot.BmsStorageRows);
         }
     }
 

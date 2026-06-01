@@ -5643,6 +5643,14 @@ public class MainWindowViewModel : ViewModel
 
     private const int PlaylistLibraryIndexPrewarmDebounceMs = 500;
 
+    private int duplicateRefreshPriorityDepth;
+
+    private bool deferredPlaylistLibraryIndexPrewarmForDuplicateRefresh;
+
+    private long deferredPlaylistLibraryIndexPrewarmVersion;
+
+    private string deferredPlaylistLibraryIndexPrewarmReason;
+
     private int deferredExternalSyncRequestedVersion;
 
     private bool deferredExternalSyncRunning;
@@ -6677,6 +6685,10 @@ public class MainWindowViewModel : ViewModel
             LogPlaylistWorker("playlist_library_index_prewarm deferred_until_operable version=" + nextVersion + " reason=" + reason);
             return;
         }
+        if (TryDeferPlaylistLibraryIndexPrewarmForDuplicateRefresh(nextVersion, reason))
+        {
+            return;
+        }
         SchedulePlaylistLibraryIndexPrewarm(nextVersion, reason);
     }
 
@@ -6812,6 +6824,142 @@ public class MainWindowViewModel : ViewModel
         return string.Equals(reason, "library_charts_changed", StringComparison.OrdinalIgnoreCase)
             || string.Equals(reason, "library_bmsons_changed", StringComparison.OrdinalIgnoreCase)
             || string.Equals(reason, "owned_collection_changed", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool ShouldDeferPlaylistLibraryIndexPrewarmForDuplicateRefresh(
+        string reason,
+        bool startupReadyOperable,
+        bool duplicateRefreshPriorityActive,
+        viewUpdateMode currentTreeViewMode)
+    {
+        return startupReadyOperable
+            && duplicateRefreshPriorityActive
+            && currentTreeViewMode == viewUpdateMode.DuplicateFilterSelected
+            && string.Equals(reason, "owned_collection_changed", StringComparison.OrdinalIgnoreCase);
+    }
+
+    internal static bool ShouldDeferPlaylistLibraryIndexPrewarmForDuplicateRefreshForTest(
+        string reason,
+        bool startupReadyOperable,
+        bool duplicateRefreshPriorityActive,
+        int currentTreeViewMode)
+    {
+        return ShouldDeferPlaylistLibraryIndexPrewarmForDuplicateRefresh(
+            reason,
+            startupReadyOperable,
+            duplicateRefreshPriorityActive,
+            (viewUpdateMode)currentTreeViewMode);
+    }
+
+    private bool TryDeferPlaylistLibraryIndexPrewarmForDuplicateRefresh(long targetVersion, string reason)
+    {
+        if (!ShouldDeferPlaylistLibraryIndexPrewarmForDuplicateRefresh(
+            reason,
+            startupReadyOperableReached,
+            duplicateRefreshPriorityDepth > 0,
+            treeViewFilterTypeSelected))
+        {
+            return false;
+        }
+
+        lock (playlistLibraryIndexSync)
+        {
+            if (!ShouldDeferPlaylistLibraryIndexPrewarmForDuplicateRefresh(
+                reason,
+                startupReadyOperableReached,
+                duplicateRefreshPriorityDepth > 0,
+                treeViewFilterTypeSelected))
+            {
+                return false;
+            }
+
+            deferredPlaylistLibraryIndexPrewarmForDuplicateRefresh = true;
+            deferredPlaylistLibraryIndexPrewarmVersion = targetVersion;
+            deferredPlaylistLibraryIndexPrewarmReason = reason;
+            if (playlistLibraryIndexPrewarmTask != null && !playlistLibraryIndexPrewarmTask.IsCompleted)
+            {
+                playlistLibraryIndexPrewarmCancellation?.Cancel();
+                LogPlaylistWorker("playlist_library_index_prewarm cancelled_for_duplicate_refresh oldVersion="
+                    + playlistLibraryIndexPrewarmVersion
+                    + " newVersion=" + targetVersion
+                    + " reason=" + reason);
+            }
+        }
+
+        LogPlaylistWorker("playlist_library_index_prewarm deferred_for_duplicate_refresh version="
+            + targetVersion
+            + " reason=" + reason);
+        return true;
+    }
+
+    private void BeginDuplicateRefreshPriorityWindow(string reason)
+    {
+        int depth;
+        lock (playlistLibraryIndexSync)
+        {
+            duplicateRefreshPriorityDepth++;
+            depth = duplicateRefreshPriorityDepth;
+        }
+        LogPlaylistWorker("duplicate_refresh_priority begin depth=" + depth + " reason=" + (reason ?? string.Empty));
+    }
+
+    private void ReleaseDuplicateRefreshPriorityWindow(string reason)
+    {
+        long targetVersion = 0;
+        string prewarmReason = null;
+        int depth;
+        bool releasePrewarm = false;
+        bool hadActiveWindow = false;
+        lock (playlistLibraryIndexSync)
+        {
+            if (duplicateRefreshPriorityDepth > 0)
+            {
+                hadActiveWindow = true;
+                duplicateRefreshPriorityDepth--;
+            }
+            depth = duplicateRefreshPriorityDepth;
+            if (duplicateRefreshPriorityDepth == 0 && deferredPlaylistLibraryIndexPrewarmForDuplicateRefresh)
+            {
+                releasePrewarm = true;
+                targetVersion = deferredPlaylistLibraryIndexPrewarmVersion;
+                prewarmReason = deferredPlaylistLibraryIndexPrewarmReason;
+                deferredPlaylistLibraryIndexPrewarmForDuplicateRefresh = false;
+                deferredPlaylistLibraryIndexPrewarmVersion = 0;
+                deferredPlaylistLibraryIndexPrewarmReason = null;
+            }
+        }
+
+        if (!hadActiveWindow && !releasePrewarm)
+        {
+            return;
+        }
+
+        LogPlaylistWorker("duplicate_refresh_priority end depth=" + depth + " reason=" + (reason ?? string.Empty));
+        if (!releasePrewarm)
+        {
+            return;
+        }
+
+        LogPlaylistWorker("playlist_library_index_prewarm released_after_duplicate_refresh version="
+            + targetVersion
+            + " reason=" + prewarmReason
+            + " releaseReason=" + (reason ?? string.Empty));
+        SchedulePlaylistLibraryIndexPrewarm(targetVersion, prewarmReason);
+    }
+
+    private void ReleaseDuplicateRefreshPriorityWindowAfterUiRefresh(string reason)
+    {
+        try
+        {
+            DispatcherHelper.UIDispatcher.BeginInvoke((Action)delegate
+            {
+                ReleaseDuplicateRefreshPriorityWindow(reason);
+            }, DispatcherPriority.ApplicationIdle);
+        }
+        catch
+        {
+            ReleaseDuplicateRefreshPriorityWindow(reason);
+        }
     }
 
     internal static LR2SongDBExtended.chart_info ResolveChartInfoForPlaylistEntry(BMSTableEntry entry, IReadOnlyDictionary<string, LR2SongDBExtended.chart_info> chartInfoByMd5, IReadOnlyDictionary<string, LR2SongDBExtended.chart_info> chartInfoBySha256)
@@ -21623,6 +21771,7 @@ public class MainWindowViewModel : ViewModel
             LogDuplicateMergePerformance("duplicate_merge_vm play_end_done op=" + operationId + " elapsedMs=" + playEndStopwatch.ElapsedMilliseconds);
             var modelStopwatch = Stopwatch.StartNew();
             BeginUiUpdateSuppression(UiRefreshChannel.LibraryMainView | UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.InstallTree | UiRefreshChannel.DuplicateTree);
+            BeginDuplicateRefreshPriorityWindow("merge_folder");
             try
             {
                 files.MergeChartDirectory(src, dst, operationId);
@@ -21630,7 +21779,14 @@ public class MainWindowViewModel : ViewModel
             }
             finally
             {
-                EndUiUpdateSuppression();
+                try
+                {
+                    EndUiUpdateSuppression();
+                }
+                finally
+                {
+                    ReleaseDuplicateRefreshPriorityWindowAfterUiRefresh("merge_folder_ui_refresh_done");
+                }
             }
         }
     }

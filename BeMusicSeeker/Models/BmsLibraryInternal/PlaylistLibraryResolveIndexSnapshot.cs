@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.Linq;
 using BeMusicSeeker.Models.LR2;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
@@ -69,23 +68,6 @@ internal sealed class PlaylistLibraryResolveIndexSnapshot
     /// SHA256 から代表 chart を解決する index です。
     /// </summary>
     internal IReadOnlyDictionary<string, LibraryChartRef> ChartsBySha256 { get; }
-
-    /// <summary>
-    /// storage owner identity から playlist detail 用 resolve index を構築します。
-    /// </summary>
-    /// <param name="charts">owned collection の storage owner identity chart。</param>
-    /// <param name="cancellationCheck">構築中に呼び出す cancellation callback。</param>
-    /// <returns>playlist detail 用 resolve index。</returns>
-    internal static PlaylistLibraryResolveIndexSnapshot FromStorageOwnerCharts(
-        IEnumerable<ChartFile> charts,
-        Action cancellationCheck = null)
-    {
-        return FromLibraryChartRefs(
-            (charts ?? [])
-                .Select(CreateStorageOwnerRef)
-                .Where(chart => chart != null),
-            cancellationCheck);
-    }
 
     /// <summary>
     /// chart ref 列挙から playlist detail 用 resolve index を構築します。
@@ -170,18 +152,4 @@ internal sealed class PlaylistLibraryResolveIndexSnapshot
         }
     }
 
-    private static LibraryChartRef CreateStorageOwnerRef(ChartFile chart)
-    {
-        if (chart == null)
-        {
-            return null;
-        }
-        BMSFile bmsOwner = chart.GetBmsStorageOwner();
-        if (bmsOwner != null)
-        {
-            return LibraryChartRef.FromBmsFile(bmsOwner);
-        }
-        LR2SongDBExtended.bmson_song bmsonOwner = chart.GetBmsonStorageOwner();
-        return bmsonOwner != null ? LibraryChartRef.FromBmsonSong(bmsonOwner) : LibraryChartRef.FromChartFile(chart);
-    }
 }

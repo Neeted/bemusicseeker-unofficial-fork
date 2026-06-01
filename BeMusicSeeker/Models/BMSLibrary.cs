@@ -7495,6 +7495,7 @@ completeFileEnumerationOnce,
     {
         cancellationToken.ThrowIfCancellationRequested();
         EnsureOwnedChartCollectionBuiltUnsafe();
+        List<LibraryChartRef> refs;
         lock (lockStorageRowsVersion)
         {
             StorageRowsVersionSnapshot currentVersion = CreateCurrentStorageRowsVersionSnapshotUnsafe();
@@ -7507,9 +7508,11 @@ completeFileEnumerationOnce,
                     throw new InvalidOperationException("Owned chart collection storage row version is not current.");
                 }
                 storageRowsVersion = currentVersion;
-                return ownedChartCollection.CreatePlaylistLibraryResolveIndexSnapshot(cancellationToken.ThrowIfCancellationRequested);
+                refs = ownedChartCollection.CreatePlaylistLibraryResolveRefSnapshot(cancellationToken.ThrowIfCancellationRequested);
             }
         }
+        cancellationToken.ThrowIfCancellationRequested();
+        return PlaylistLibraryResolveIndexSnapshot.FromLibraryChartRefs(refs, cancellationToken.ThrowIfCancellationRequested);
     }
 
     private ChartInfoHydrationOwnerSummary CreateChartInfoHydrationOwnerSummaryUnsafe(

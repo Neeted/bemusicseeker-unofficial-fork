@@ -851,7 +851,8 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(createPlaylistLibraryIndex, "GetPlaylistLibraryResolveIndexSnapshot(cancellationToken");
         Assert.IsFalse(createPlaylistLibraryIndex.Contains("foreach (BeMusicSeeker.Models.BMSFile file in BMSFiles"));
         Assert.IsFalse(createPlaylistLibraryIndex.Contains("files?.BmsonSongs"));
-        StringAssert.Contains(resolveIndexHelper, "ownedChartCollection.CreatePlaylistLibraryResolveIndexSnapshot(cancellationToken.ThrowIfCancellationRequested)");
+        StringAssert.Contains(resolveIndexHelper, "ownedChartCollection.CreatePlaylistLibraryResolveRefSnapshot(cancellationToken.ThrowIfCancellationRequested)");
+        StringAssert.Contains(resolveIndexHelper, "PlaylistLibraryResolveIndexSnapshot.FromLibraryChartRefs(refs, cancellationToken.ThrowIfCancellationRequested)");
     }
 
     [TestMethod]

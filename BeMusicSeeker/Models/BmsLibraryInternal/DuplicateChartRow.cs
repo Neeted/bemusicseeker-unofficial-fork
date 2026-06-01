@@ -9,21 +9,21 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 /// </summary>
 internal sealed class DuplicateChartRow
 {
-    public string Path { get; set; }
+    public string Path { get; private set; }
 
-    public string DirectoryPath { get; set; }
+    public string DirectoryPath { get; private set; }
 
-    public string LookupHash { get; set; }
+    public string LookupHash { get; private set; }
 
-    public ChartLookupHashKind HashKind { get; set; }
+    public ChartLookupHashKind HashKind { get; private set; }
 
-    public ChartFileKind ChartKind { get; set; }
+    public ChartFileKind ChartKind { get; private set; }
 
-    public ChartFile Chart { get; set; }
+    public ChartFile Chart { get; private set; }
 
-    internal BMSFile BmsFile { get; set; }
+    internal BMSFile BmsFile { get; private set; }
 
-    internal LR2SongDBExtended.bmson_song BmsonSong { get; set; }
+    internal LR2SongDBExtended.bmson_song BmsonSong { get; private set; }
 
     internal bool HasChartSource => Chart != null || BmsFile != null || BmsonSong != null;
 

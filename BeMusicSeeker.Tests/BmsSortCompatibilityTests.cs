@@ -462,6 +462,38 @@ public sealed class BmsSortCompatibilityTests
 
     [TestMethod]
     [TestCategory("SortEngine")]
+    public void PlaylistLibraryIndexPrewarm_DeferForDuplicateRefreshOnlyForOwnedCollectionInDuplicateView()
+    {
+        Assert.IsTrue(MainWindowViewModel.ShouldDeferPlaylistLibraryIndexPrewarmForDuplicateRefreshForTest(
+            "owned_collection_changed",
+            startupReadyOperable: true,
+            duplicateRefreshPriorityActive: true,
+            (int)MainWindowViewModel.viewUpdateMode.DuplicateFilterSelected));
+
+        Assert.IsFalse(MainWindowViewModel.ShouldDeferPlaylistLibraryIndexPrewarmForDuplicateRefreshForTest(
+            "initialize_completed",
+            startupReadyOperable: true,
+            duplicateRefreshPriorityActive: true,
+            (int)MainWindowViewModel.viewUpdateMode.DuplicateFilterSelected));
+        Assert.IsFalse(MainWindowViewModel.ShouldDeferPlaylistLibraryIndexPrewarmForDuplicateRefreshForTest(
+            "owned_collection_changed",
+            startupReadyOperable: false,
+            duplicateRefreshPriorityActive: true,
+            (int)MainWindowViewModel.viewUpdateMode.DuplicateFilterSelected));
+        Assert.IsFalse(MainWindowViewModel.ShouldDeferPlaylistLibraryIndexPrewarmForDuplicateRefreshForTest(
+            "owned_collection_changed",
+            startupReadyOperable: true,
+            duplicateRefreshPriorityActive: false,
+            (int)MainWindowViewModel.viewUpdateMode.DuplicateFilterSelected));
+        Assert.IsFalse(MainWindowViewModel.ShouldDeferPlaylistLibraryIndexPrewarmForDuplicateRefreshForTest(
+            "owned_collection_changed",
+            startupReadyOperable: true,
+            duplicateRefreshPriorityActive: true,
+            (int)MainWindowViewModel.viewUpdateMode.FolderFilterSelected));
+    }
+
+    [TestMethod]
+    [TestCategory("SortEngine")]
     public void MainViewRefreshDecision_UsesDisplayRefreshWhenFullNormalLibrarySortIsUnaffected()
     {
         foreach (MainViewDataDependency dependency in new[]

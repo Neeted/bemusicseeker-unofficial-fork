@@ -1448,7 +1448,7 @@ public sealed class OwnedChartCollectionStateTests
     }
 
     [TestMethod]
-    public void DuplicateChartRowSnapshot_UsesCachedIndexAndReturnsStableCopies()
+    public void DuplicateChartRowSnapshot_UsesCachedIndexWithoutCopyingRows()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "chart.bms"));
@@ -1461,7 +1461,7 @@ public sealed class OwnedChartCollectionStateTests
         ChartFile materialized = bmsRow.CreateChart();
 
         Assert.IsTrue(state.IsDuplicateChartRowSnapshotInitialized);
-        Assert.AreNotSame(first, second);
+        Assert.AreSame(first, second);
         Assert.AreEqual(2, first.Rows.Count);
         CollectionAssert.AreEquivalent(new[] { bmsFile }, first.BmsStorageRows.ToArray());
         Assert.IsNotNull(materialized);
@@ -1496,6 +1496,7 @@ public sealed class OwnedChartCollectionStateTests
 
         OwnedDuplicateChartRowSnapshot snapshot = state.CreateDuplicateChartRowSnapshot();
         Assert.AreEqual(2, originalSnapshot.Rows.Count);
+        Assert.AreNotSame(originalSnapshot, snapshot);
         CollectionAssert.AreEqual(new[] { movedBms, addedBms }, snapshot.BmsStorageRows.ToArray());
         Assert.IsFalse(snapshot.Rows.Any(row => ReferenceEquals(row.BmsFile, removedBms)));
         Assert.AreEqual(newPath, snapshot.Rows.Single(row => ReferenceEquals(row.BmsFile, movedBms)).Path);
