@@ -164,7 +164,7 @@ public sealed class BmsLibraryDuplicateServiceTests
 
         DuplicateAnalysisResult result = service.Analyze(snapshot, Resources.Warning_DuplicateBmsFile);
 
-        Assert.AreEqual(3, snapshot.Count(row => row.Chart != null));
+        Assert.AreEqual(0, snapshot.Count(row => row.Chart != null));
         Assert.AreEqual(4, snapshot.Count);
         Assert.AreEqual(3, result.MaterializedChartCount);
         Assert.AreEqual(1, result.DuplicateGroups.Count);

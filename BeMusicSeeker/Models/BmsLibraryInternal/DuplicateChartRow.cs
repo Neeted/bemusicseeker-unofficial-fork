@@ -5,8 +5,7 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 /// <summary>
 /// 重複判定で使う chart の正規化済み行です。
-/// BMS は storage row を保持しますが、bmson は <see cref="ChartFile"/> と bmson storage row を正本にして
-/// compatibility adapter を作らないようにします。
+/// BMS / bmson は storage row を正本にし、必要な時だけ <see cref="ChartFile"/> projection を作ります。
 /// </summary>
 internal sealed class DuplicateChartRow
 {
@@ -91,13 +90,43 @@ internal sealed class DuplicateChartRow
         }
         if (BmsFile != null)
         {
-            Chart = ChartFileProjection.FromBmsStorageOwnerIdentity(BmsFile);
+            return ChartFileProjection.FromBmsStorageOwnerIdentity(BmsFile);
         }
-        else if (BmsonSong != null)
+        if (BmsonSong != null)
         {
-            Chart = ChartFileProjection.FromBmsonStorageOwnerIdentity(BmsonSong);
+            return ChartFileProjection.FromBmsonStorageOwnerIdentity(BmsonSong);
         }
-        return Chart;
+        return null;
+    }
+
+    internal DuplicateChartRow WithPath(string path)
+    {
+        return new DuplicateChartRow
+        {
+            Path = path,
+            DirectoryPath = DirectoryExt.GetDirectoryNameSimple(path),
+            LookupHash = LookupHash,
+            HashKind = HashKind,
+            ChartKind = ChartKind,
+            Chart = Chart,
+            BmsFile = BmsFile,
+            BmsonSong = BmsonSong,
+        };
+    }
+
+    internal DuplicateChartRow WithMd5(string md5)
+    {
+        return new DuplicateChartRow
+        {
+            Path = Path,
+            DirectoryPath = DirectoryPath,
+            LookupHash = SelectPrimaryHash(md5),
+            HashKind = SelectPrimaryHashKind(md5),
+            ChartKind = ChartKind,
+            Chart = Chart,
+            BmsFile = BmsFile,
+            BmsonSong = BmsonSong,
+        };
     }
 
     private static string SelectPrimaryHash(string md5)

@@ -1398,6 +1398,151 @@ public sealed class OwnedChartCollectionStateTests
     }
 
     [TestMethod]
+    public void DuplicateChartRowSnapshot_UsesCachedIndexAndReturnsStableCopies()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "chart.bms"));
+        var bmsonSong = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "chart.bmson"), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+        OwnedChartCollectionState state = OwnedChartCollectionState.FromStorageRows([bmsFile], [bmsonSong]);
+
+        OwnedDuplicateChartRowSnapshot first = state.CreateDuplicateChartRowSnapshot();
+        OwnedDuplicateChartRowSnapshot second = state.CreateDuplicateChartRowSnapshot();
+        DuplicateChartRow bmsRow = first.Rows.Single(row => row.BmsFile != null);
+        ChartFile materialized = bmsRow.CreateChart();
+
+        Assert.IsTrue(state.IsDuplicateChartRowSnapshotInitialized);
+        Assert.AreNotSame(first, second);
+        Assert.AreEqual(2, first.Rows.Count);
+        CollectionAssert.AreEquivalent(new[] { bmsFile }, first.BmsStorageRows.ToArray());
+        Assert.IsNotNull(materialized);
+        Assert.IsNull(bmsRow.Chart);
+    }
+
+    [TestMethod]
+    public void DuplicateChartRowSnapshot_TracksRemovePathChangeAndUpsert()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string oldPath = Path.Combine("C:\\Installed", "Bms", "move.bms");
+        string newPath = Path.Combine("C:\\Installed", "Moved", "move.bms");
+        var movedBms = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", oldPath);
+        var removedBms = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine("C:\\Installed", "Bms", "removed.bms"));
+        var addedBms = CreateFile("cccccccccccccccccccccccccccccccc", Path.Combine("C:\\Installed", "Bms", "added.bms"));
+        var addedBmson = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "added.bmson"), "dddddddddddddddddddddddddddddddd");
+        OwnedChartCollectionState state = OwnedChartCollectionState.FromStorageRows([movedBms, removedBms], []);
+        OwnedDuplicateChartRowSnapshot originalSnapshot = state.CreateDuplicateChartRowSnapshot();
+
+        state.RemoveCharts([ChartFileProjection.FromBmsStorageOwnerIdentity(removedBms)]);
+        movedBms.path = newPath;
+        state.ApplyPathChanges(
+        [
+            new LibraryChartPathChange
+            {
+                Chart = ChartFileProjection.FromBmsStorageOwnerIdentity(movedBms),
+                OldPath = oldPath,
+                NewPath = newPath
+            }
+        ]);
+        state.UpsertStorageRows([addedBms], [addedBmson]);
+
+        OwnedDuplicateChartRowSnapshot snapshot = state.CreateDuplicateChartRowSnapshot();
+        Assert.AreEqual(2, originalSnapshot.Rows.Count);
+        CollectionAssert.AreEqual(new[] { movedBms, addedBms }, snapshot.BmsStorageRows.ToArray());
+        Assert.IsFalse(snapshot.Rows.Any(row => ReferenceEquals(row.BmsFile, removedBms)));
+        Assert.AreEqual(newPath, snapshot.Rows.Single(row => ReferenceEquals(row.BmsFile, movedBms)).Path);
+        Assert.IsTrue(snapshot.Rows.Any(row => ReferenceEquals(row.BmsFile, addedBms)));
+        Assert.IsTrue(snapshot.Rows.Any(row => ReferenceEquals(row.BmsonSong, addedBmson)));
+    }
+
+    [TestMethod]
+    public void DuplicateChartRowSnapshot_TracksMd5DigestChangesOnly()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string path = Path.Combine("C:\\Installed", "Bms", "chart.bms");
+        var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", path, new string('1', 64));
+        OwnedChartCollectionState state = OwnedChartCollectionState.FromStorageRows([bmsFile], []);
+        OwnedDuplicateChartRowSnapshot snapshot = state.CreateDuplicateChartRowSnapshot();
+        DuplicateChartRow originalRow = snapshot.Rows.Single();
+
+        state.ApplyDigestChanges(
+        [
+            new LibraryChartDigestChange(
+                LibraryChartKind.Bms,
+                path,
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                new string('1', 64),
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                new string('2', 64))
+        ]);
+        Assert.AreEqual("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", originalRow.LookupHash);
+        Assert.AreEqual("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", state.CreateDuplicateChartRowSnapshot().Rows.Single().LookupHash);
+
+        state.ApplyDigestChanges(
+        [
+            new LibraryChartDigestChange(
+                LibraryChartKind.Bms,
+                path,
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                new string('2', 64),
+                "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                new string('2', 64))
+        ]);
+        Assert.AreEqual("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", state.CreateDuplicateChartRowSnapshot().Rows.Single().LookupHash);
+        Assert.AreEqual("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", originalRow.LookupHash);
+    }
+
+    [TestMethod]
+    public void DuplicateChartRowSnapshot_Md5DigestChangeMatchesOldMd5WhenPathIsShared()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string path = Path.Combine("C:\\Installed", "Bms", "shared.bms");
+        var first = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", path, new string('1', 64));
+        var second = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", path, new string('2', 64));
+        OwnedChartCollectionState state = OwnedChartCollectionState.FromStorageRows([first, second], []);
+        OwnedDuplicateChartRowSnapshot snapshot = state.CreateDuplicateChartRowSnapshot();
+
+        state.ApplyDigestChanges(
+        [
+            new LibraryChartDigestChange(
+                LibraryChartKind.Bms,
+                path,
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                new string('1', 64),
+                "cccccccccccccccccccccccccccccccc",
+                new string('1', 64))
+        ]);
+
+        OwnedDuplicateChartRowSnapshot updatedSnapshot = state.CreateDuplicateChartRowSnapshot();
+        Assert.AreEqual("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", snapshot.Rows.Single(row => ReferenceEquals(row.BmsFile, first)).LookupHash);
+        Assert.AreEqual("cccccccccccccccccccccccccccccccc", updatedSnapshot.Rows.Single(row => ReferenceEquals(row.BmsFile, first)).LookupHash);
+        Assert.AreEqual("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", updatedSnapshot.Rows.Single(row => ReferenceEquals(row.BmsFile, second)).LookupHash);
+    }
+
+    [TestMethod]
+    public void DuplicateChartRowSnapshot_InvalidatesWhenMd5DigestChangeKeyIsAmbiguous()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string path = Path.Combine("C:\\Installed", "Bms", "shared.bms");
+        var first = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", path, new string('1', 64));
+        var second = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", path, new string('2', 64));
+        OwnedChartCollectionState state = OwnedChartCollectionState.FromStorageRows([first, second], []);
+        state.CreateDuplicateChartRowSnapshot();
+
+        state.ApplyDigestChanges(
+        [
+            new LibraryChartDigestChange(
+                LibraryChartKind.Bms,
+                path,
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                new string('1', 64),
+                "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                new string('1', 64))
+        ]);
+
+        Assert.IsFalse(state.IsDuplicateChartRowSnapshotInitialized);
+        Assert.IsTrue(state.CreateDuplicateChartRowSnapshot().Rows.All(row => row.LookupHash == "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
+    }
+
+    [TestMethod]
     public void ApplyLibraryMutationDelta_UnregisterKeepsOwnedCollectionInitializedAndSynced()
     {
         TestResourceInitializer.EnsureJapaneseResources();

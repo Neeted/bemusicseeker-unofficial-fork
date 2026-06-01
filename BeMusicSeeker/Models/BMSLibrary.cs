@@ -7738,6 +7738,23 @@ completeFileEnumerationOnce,
         }
     }
 
+    private void ApplyOwnedChartCollectionDigestChanges(IEnumerable<LibraryChartDigestChange> digestChanges)
+    {
+        List<LibraryChartDigestChange> changes = [.. (digestChanges ?? []).Where(change => change?.Md5Changed == true)];
+        if (changes.Count == 0)
+        {
+            return;
+        }
+        lock (lockOwnedChartCollection)
+        {
+            if (!ownedChartCollectionInitialized)
+            {
+                return;
+            }
+            ownedChartCollection.ApplyDigestChanges(changes);
+        }
+    }
+
     private void ApplyOwnedChartCollectionStorageReplacement(StorageRowsSnapshot storageRows)
     {
         lock (lockOwnedChartCollection)
@@ -8557,6 +8574,10 @@ completeFileEnumerationOnce,
         if (result.InstallDestinationRuntimeStateMutation.PruneToCurrentOwnedCharts)
         {
             PruneInstallDestinationRuntimeStatesToCurrentOwnedCharts();
+        }
+        if (result.DigestChangedCount > 0)
+        {
+            ApplyOwnedChartCollectionDigestChanges(result.DigestChanges);
         }
         if (result.ParentFolderInvalidated)
         {
