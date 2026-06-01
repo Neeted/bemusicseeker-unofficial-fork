@@ -8578,56 +8578,97 @@ completeFileEnumerationOnce,
         }
 
         var stopwatch = Stopwatch.StartNew();
+        bool collectDispatchDetails = result.HasLoggableChanges;
+        long installDestinationMs = 0;
+        long digestMs = 0;
+        long parentFolderMs = 0;
+        long duplicateMs = 0;
+        long playlistSummaryMs = 0;
+        long ownedCollectionNotifyMs = 0;
+        long resourceHealthMs = 0;
+        long installMetadataMs = 0;
+        long installedLookupMs = 0;
+        long normalRefreshMs = 0;
         if (result.InstallDestinationRuntimeStateMutation.HasStateChanges)
         {
+            Stopwatch stepStopwatch = StartPerformanceStepStopwatch(collectDispatchDetails);
             UpdateInstallDestinationRuntimeStates(result.InstallDestinationRuntimeStateMutation);
+            installDestinationMs += StopPerformanceStepStopwatch(stepStopwatch);
         }
         if (result.InstallDestinationRuntimeStateMutation.PruneToCurrentOwnedCharts)
         {
+            Stopwatch stepStopwatch = StartPerformanceStepStopwatch(collectDispatchDetails);
             PruneInstallDestinationRuntimeStatesToCurrentOwnedCharts();
+            installDestinationMs += StopPerformanceStepStopwatch(stepStopwatch);
         }
         if (result.DigestChangedCount > 0)
         {
+            Stopwatch stepStopwatch = StartPerformanceStepStopwatch(collectDispatchDetails);
             ApplyOwnedChartCollectionDigestChanges(result.DigestChanges);
+            digestMs += StopPerformanceStepStopwatch(stepStopwatch);
         }
         if (result.ParentFolderInvalidated)
         {
+            Stopwatch stepStopwatch = StartPerformanceStepStopwatch(collectDispatchDetails);
             InvalidateBMSParentFolderListCacheAndNotify();
+            parentFolderMs += StopPerformanceStepStopwatch(stepStopwatch);
         }
         if (result.DuplicateCacheInvalidated)
         {
+            Stopwatch stepStopwatch = StartPerformanceStepStopwatch(collectDispatchDetails);
             InvalidateDuplicateChartGroupsCache();
+            duplicateMs += StopPerformanceStepStopwatch(stepStopwatch);
         }
         if (result.PlaylistSummaryOwnedHashInvalidated)
         {
+            Stopwatch stepStopwatch = StartPerformanceStepStopwatch(collectDispatchDetails);
             InvalidatePlaylistSummaryOwnedHashSnapshot();
+            playlistSummaryMs += StopPerformanceStepStopwatch(stepStopwatch);
         }
         if (result.OwnedCollectionChanged)
         {
+            Stopwatch stepStopwatch = StartPerformanceStepStopwatch(collectDispatchDetails);
             InvalidatePlaylistLibraryResolveIndexSnapshot();
             PublishOwnedCollectionChangeNotification(result);
             AlignResourceHealthFullOwnedTargetVersionAfterOwnedCollectionNotification(result);
+            ownedCollectionNotifyMs += StopPerformanceStepStopwatch(stepStopwatch);
         }
         if (result.PlaylistSummaryOwnedHashInvalidated)
         {
+            Stopwatch stepStopwatch = StartPerformanceStepStopwatch(collectDispatchDetails);
             InvalidatePlaylistSummaryOwnedHashSnapshot(result.OwnedCollectionVersion);
+            playlistSummaryMs += StopPerformanceStepStopwatch(stepStopwatch);
         }
         if (result.OwnedCollectionChanged)
         {
+            Stopwatch stepStopwatch = StartPerformanceStepStopwatch(collectDispatchDetails);
             InvalidatePlaylistLibraryResolveIndexSnapshot(result.OwnedCollectionVersion);
+            ownedCollectionNotifyMs += StopPerformanceStepStopwatch(stepStopwatch);
         }
-        result.ResourceHealthDispatchResult = DispatchResourceHealthIndexMutation(result.ResourceHealthMutation, reason);
+        {
+            Stopwatch stepStopwatch = StartPerformanceStepStopwatch(collectDispatchDetails);
+            result.ResourceHealthDispatchResult = DispatchResourceHealthIndexMutation(result.ResourceHealthMutation, reason);
+            resourceHealthMs += StopPerformanceStepStopwatch(stepStopwatch);
+        }
         bool installMetadataProfileCacheInvalidated = result.InstallEstimationMetadataProfileCacheInvalidated || result.ShouldDispatchInstalledLookup;
         if (installMetadataProfileCacheInvalidated)
         {
+            Stopwatch stepStopwatch = StartPerformanceStepStopwatch(collectDispatchDetails);
             InvalidateInstallEstimationMetadataProfileCache();
+            installMetadataMs += StopPerformanceStepStopwatch(stepStopwatch);
         }
         if (result.ShouldDispatchInstalledLookup)
         {
+            Stopwatch stepStopwatch = StartPerformanceStepStopwatch(collectDispatchDetails);
             ApplyInstalledChartLookupMutation(result.InstalledLookupMutation, reason);
+            installedLookupMs += StopPerformanceStepStopwatch(stepStopwatch);
         }
-        PublishNormalLibraryRefreshNotification(result);
-        RaiseNormalLibraryRefreshNotificationVersionChanged(result);
+        {
+            Stopwatch stepStopwatch = StartPerformanceStepStopwatch(collectDispatchDetails);
+            PublishNormalLibraryRefreshNotification(result);
+            RaiseNormalLibraryRefreshNotificationVersionChanged(result);
+            normalRefreshMs += StopPerformanceStepStopwatch(stepStopwatch);
+        }
         stopwatch.Stop();
 
         if (result.HasLoggableChanges)
@@ -8651,6 +8692,16 @@ completeFileEnumerationOnce,
                 + " maintenancePresentation=" + ToInvalidateLogValue(result.MaintenancePresentationChanged)
                 + " bmsStorageRows=" + ToInvalidateLogValue(result.BmsFilesStorageRowsChanged)
                 + " bmsonStorageRows=" + ToInvalidateLogValue(result.BmsonSongsStorageRowsChanged)
+                + " installDestinationMs=" + installDestinationMs
+                + " digestMs=" + digestMs
+                + " parentFolderMs=" + parentFolderMs
+                + " duplicateMs=" + duplicateMs
+                + " playlistSummaryMs=" + playlistSummaryMs
+                + " ownedCollectionNotifyMs=" + ownedCollectionNotifyMs
+                + " resourceHealthMs=" + resourceHealthMs
+                + " installMetadataMs=" + installMetadataMs
+                + " installedLookupMs=" + installedLookupMs
+                + " normalRefreshMs=" + normalRefreshMs
                 + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
         }
     }
@@ -8667,6 +8718,21 @@ completeFileEnumerationOnce,
         }
 
         mutation.FullOwnedTargetSet = mutation.FullOwnedTargetSet.WithOwnedCollectionVersion(result.OwnedCollectionVersion);
+    }
+
+    private static Stopwatch StartPerformanceStepStopwatch(bool enabled)
+    {
+        return enabled ? Stopwatch.StartNew() : null;
+    }
+
+    private static long StopPerformanceStepStopwatch(Stopwatch stopwatch)
+    {
+        if (stopwatch == null)
+        {
+            return 0;
+        }
+        stopwatch.Stop();
+        return stopwatch.ElapsedMilliseconds;
     }
 
     private void DispatchOwnedChartDigestChanges(
@@ -13856,7 +13922,9 @@ completeFileEnumerationOnce,
                             + " bms=" + sourceBmsFiles.Count
                             + " bmson=" + sourceBmsonSongs.Count);
                         var unregisterStopwatch = Stopwatch.StartNew();
-                        ApplyLibraryMutationDelta(BuildLibrarySourceUnregisterMutationDelta(sourceBmsFiles, sourceBmsonSongs));
+                        ApplyLibraryMutationDeltaWithPerformanceContext(
+                            BuildLibrarySourceUnregisterMutationDelta(sourceBmsFiles, sourceBmsonSongs),
+                            "duplicate_merge_unregister op=" + operationId);
                         LogInstallPerformance("duplicate_merge_model unregister_source_done op=" + operationId
                             + " elapsedMs=" + unregisterStopwatch.ElapsedMilliseconds
                             + " bms=" + sourceBmsFiles.Count
@@ -13890,7 +13958,9 @@ completeFileEnumerationOnce,
                         LogInstallPerformance("duplicate_merge_model reverse_lookup_add_done op=" + operationId + " elapsedMs=" + reverseLookupAddStopwatch.ElapsedMilliseconds + " dirs=" + mergedDirectoryScan.ChartDirectories.Count);
                         LogReverseLookupMutationAndQueueWarmupIfNeeded("merge_folder", reverseLookupMutation);
                         var applyDeltaStopwatch = Stopwatch.StartNew();
-                        ApplyLibraryMutationDelta(mergeResult.ReferenceMutationDelta);
+                        ApplyLibraryMutationDeltaWithPerformanceContext(
+                            mergeResult.ReferenceMutationDelta,
+                            "duplicate_merge_reference_delta op=" + operationId);
                         LogInstallPerformance("duplicate_merge_model apply_delta_done op=" + operationId
                             + " elapsedMs=" + applyDeltaStopwatch.ElapsedMilliseconds
                             + " installDestinations=" + mergeResult.ReferenceMutationDelta.UpdatedInstallDestinations.Count
@@ -14481,27 +14551,59 @@ completeFileEnumerationOnce,
 
     private void ApplyLibraryMutationDelta(LibraryMutationDelta delta)
     {
+        ApplyLibraryMutationDeltaWithPerformanceContext(delta, performanceLogContext: null);
+    }
+
+    private void ApplyLibraryMutationDeltaWithPerformanceContext(LibraryMutationDelta delta, string performanceLogContext)
+    {
         OwnedChartCollectionMutationResult mutationResult = null;
+        bool collectPerformanceLog = !string.IsNullOrWhiteSpace(performanceLogContext);
+        Stopwatch totalStopwatch = StartPerformanceStepStopwatch(collectPerformanceLog);
+        long resourceHealthBeginMs = 0;
+        long buildMutationMs = 0;
+        long publishNotificationMs = 0;
+        long unregisterStorageRowsMs = 0;
+        long stateApplyMs = 0;
+        long ownedCollectionApplyMs = 0;
+        long resourceHealthDisposeMs = 0;
+        long dispatchMs = 0;
         try
         {
+            Stopwatch resourceHealthBeginStopwatch = StartPerformanceStepStopwatch(collectPerformanceLog);
             ResourceHealthInputMutationScope resourceHealthMutation = BeginResourceHealthInputMutation();
+            resourceHealthBeginMs = StopPerformanceStepStopwatch(resourceHealthBeginStopwatch);
             try
             {
+                Stopwatch buildMutationStopwatch = StartPerformanceStepStopwatch(collectPerformanceLog);
                 mutationResult = BuildOwnedChartCollectionMutationResult(
                     delta,
                     resourceHealthMutation.BaseInputVersion,
                     resourceHealthIndexCurrentAtBase: resourceHealthMutation.BaseIndexCurrent);
+                buildMutationMs = StopPerformanceStepStopwatch(buildMutationStopwatch);
+
+                Stopwatch publishNotificationStopwatch = StartPerformanceStepStopwatch(collectPerformanceLog);
                 PublishOwnedCollectionChangeNotification(mutationResult);
+                publishNotificationMs = StopPerformanceStepStopwatch(publishNotificationStopwatch);
                 using (mutationResult.ResourceHealthIndexInvalidated ? SuppressResourceHealthIndexInvalidation() : null)
                 {
+                    Stopwatch unregisterStorageRowsStopwatch = StartPerformanceStepStopwatch(collectPerformanceLog);
                     StorageRowsVersionSnapshot storageRowsVersion = ApplyLibraryUnregisterStorageRowsUnsafe(delta?.ChartsToUnregister);
+                    unregisterStorageRowsMs = StopPerformanceStepStopwatch(unregisterStorageRowsStopwatch);
+
+                    Stopwatch stateApplyStopwatch = StartPerformanceStepStopwatch(collectPerformanceLog);
                     stateApplier.ApplyLibraryMutationDelta(delta);
+                    stateApplyMs = StopPerformanceStepStopwatch(stateApplyStopwatch);
+
+                    Stopwatch ownedCollectionApplyStopwatch = StartPerformanceStepStopwatch(collectPerformanceLog);
                     ApplyOwnedChartCollectionMutation(mutationResult.StorageMutation, storageRowsVersion);
+                    ownedCollectionApplyMs = StopPerformanceStepStopwatch(ownedCollectionApplyStopwatch);
                 }
             }
             finally
             {
+                Stopwatch resourceHealthDisposeStopwatch = StartPerformanceStepStopwatch(collectPerformanceLog);
                 resourceHealthMutation.Dispose();
+                resourceHealthDisposeMs = StopPerformanceStepStopwatch(resourceHealthDisposeStopwatch);
             }
             mutationResult.ResourceHealthMutation.DeltaTargetResourceHealthInputVersion ??= resourceHealthMutation.TargetInputVersion;
             if (mutationResult.ResourceHealthMutation.DeltaTargetResourceHealthInputVersion.Value < 0)
@@ -14551,7 +14653,27 @@ completeFileEnumerationOnce,
             }
             throw;
         }
+        Stopwatch dispatchStopwatch = StartPerformanceStepStopwatch(collectPerformanceLog);
         DispatchOwnedChartCollectionMutation(mutationResult, "library_delta");
+        dispatchMs = StopPerformanceStepStopwatch(dispatchStopwatch);
+        if (collectPerformanceLog)
+        {
+            LogInstallPerformance("library_mutation_delta_apply context=" + performanceLogContext
+                + " unregisterCharts=" + (delta?.ChartsToUnregister?.Count ?? 0)
+                + " pathChanges=" + (delta?.ChartPathChanges?.Count ?? 0)
+                + " folderPathChanges=" + (delta?.FolderPathChanges?.Count ?? 0)
+                + " installDestinations=" + (delta?.UpdatedInstallDestinations?.Count ?? 0)
+                + " installedPackagePaths=" + (delta?.UpdatedInstalledPackagePaths?.Count ?? 0)
+                + " resourceHealthBeginMs=" + resourceHealthBeginMs
+                + " buildMutationMs=" + buildMutationMs
+                + " publishNotificationMs=" + publishNotificationMs
+                + " unregisterStorageRowsMs=" + unregisterStorageRowsMs
+                + " stateApplyMs=" + stateApplyMs
+                + " ownedCollectionApplyMs=" + ownedCollectionApplyMs
+                + " resourceHealthDisposeMs=" + resourceHealthDisposeMs
+                + " dispatchMs=" + dispatchMs
+                + " elapsedMs=" + StopPerformanceStepStopwatch(totalStopwatch));
+        }
     }
 
     private StorageRowsVersionSnapshot ApplyLibraryUnregisterStorageRowsUnsafe(IEnumerable<ChartFile> charts)
