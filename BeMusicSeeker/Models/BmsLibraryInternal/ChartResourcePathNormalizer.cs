@@ -88,7 +88,7 @@ internal static class ChartResourcePathNormalizer
 
     public static string GetLookupFileName(string path)
     {
-        string normalized = NormalizeResourceKeyForLookup(path);
+        string normalized = NormalizeReferencePathForLookup(path);
         if (string.IsNullOrWhiteSpace(normalized))
         {
             return string.Empty;

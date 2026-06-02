@@ -210,19 +210,19 @@ internal sealed class ChartResourceSnapshot
         }
         foreach (ResourceReference reference in other.AudioReferences)
         {
-            AddNormalized(AudioRelativePaths, AudioRelativePathHashes, AudioPathAwareRelativePaths, AudioPathAwareRelativePathHashes, audioReferences, reference.NormalizedPath);
+            AddResourceKey(AudioRelativePaths, AudioRelativePathHashes, AudioPathAwareRelativePaths, AudioPathAwareRelativePathHashes, audioReferences, reference);
         }
         foreach (ResourceReference reference in other.VisualReferences)
         {
-            AddNormalized(VisualRelativePaths, VisualRelativePathHashes, VisualPathAwareRelativePaths, VisualPathAwareRelativePathHashes, visualReferences, reference.NormalizedPath);
+            AddResourceKey(VisualRelativePaths, VisualRelativePathHashes, VisualPathAwareRelativePaths, VisualPathAwareRelativePathHashes, visualReferences, reference);
         }
         foreach (ResourceReference reference in other.MovieReferences)
         {
-            AddNormalized(MovieRelativePaths, MovieRelativePathHashes, MoviePathAwareRelativePaths, MoviePathAwareRelativePathHashes, movieReferences, reference.NormalizedPath);
+            AddResourceKey(MovieRelativePaths, MovieRelativePathHashes, MoviePathAwareRelativePaths, MoviePathAwareRelativePathHashes, movieReferences, reference);
         }
         foreach (ResourceReference reference in other.OptionalImageReferences)
         {
-            AddNormalized(OptionalImageRelativePaths, OptionalImageRelativePathHashes, OptionalImagePathAwareRelativePaths, OptionalImagePathAwareRelativePathHashes, optionalImageReferences, reference.NormalizedPath);
+            AddResourceKey(OptionalImageRelativePaths, OptionalImageRelativePathHashes, OptionalImagePathAwareRelativePaths, OptionalImagePathAwareRelativePathHashes, optionalImageReferences, reference);
         }
     }
 
@@ -263,18 +263,45 @@ internal sealed class ChartResourceSnapshot
         {
             return;
         }
+        AddResourceKey(
+            relativePaths,
+            relativePathHashes,
+            pathAwareRelativePaths,
+            pathAwareRelativePathHashes,
+            references,
+            new ResourceReference(
+                normalizedPath,
+                ChartResourceKeyHash.GetLookupHash(normalizedPath),
+                IsNormalizedPathAware(normalizedPath)));
+    }
+
+    private static void AddResourceKey(ISet<string> relativePaths, ISet<uint> relativePathHashes, ISet<string> pathAwareRelativePaths, ISet<uint> pathAwareRelativePathHashes, ICollection<ResourceReference> references, ResourceReference reference)
+    {
+        string normalizedPath = reference.NormalizedPath;
+        if (string.IsNullOrWhiteSpace(normalizedPath))
+        {
+            return;
+        }
         if (!relativePaths.Add(normalizedPath))
         {
             return;
         }
-        uint relativePathHash = ChartResourceKeyHash.GetLookupHash(normalizedPath);
+        uint relativePathHash = reference.RelativePathHash == 0
+            ? ChartResourceKeyHash.GetLookupHash(normalizedPath)
+            : reference.RelativePathHash;
         relativePathHashes.Add(relativePathHash);
-        bool isPathAware = ChartResourcePathNormalizer.HasDirectorySegments(normalizedPath);
+        bool isPathAware = reference.IsPathAware || IsNormalizedPathAware(normalizedPath);
         if (isPathAware)
         {
             pathAwareRelativePaths.Add(normalizedPath);
             pathAwareRelativePathHashes.Add(relativePathHash);
         }
         references?.Add(new ResourceReference(normalizedPath, relativePathHash, isPathAware));
+    }
+
+    private static bool IsNormalizedPathAware(string normalizedPath)
+    {
+        return !string.IsNullOrWhiteSpace(normalizedPath)
+            && (normalizedPath.IndexOf(Path.DirectorySeparatorChar) >= 0 || normalizedPath.IndexOf(Path.AltDirectorySeparatorChar) >= 0);
     }
 }
