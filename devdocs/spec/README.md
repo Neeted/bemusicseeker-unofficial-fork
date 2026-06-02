@@ -26,6 +26,7 @@
 - [playlist-data-and-export-flow.md](playlist-data-and-export-flow.md)
 - [bms-bmson-chart-abstraction-current-state.md](bms-bmson-chart-abstraction-current-state.md)
 - [warning-model.md](warning-model.md)
+- [duplicate-file-check.md](duplicate-file-check.md)
 - [appearance-theme.md](appearance-theme.md)
 - [custom-table-view.md](custom-table-view.md)
 - [file-selection-dialogs.md](file-selection-dialogs.md)
