@@ -51,62 +51,49 @@ internal sealed class BmsLibraryDuplicateService
     public DuplicateAnalysisResult Analyze(IEnumerable<DuplicateChartRow> snapshot, string duplicateWarningMessage)
     {
         var result = new DuplicateAnalysisResult();
-        List<DuplicateChartRow> snapshotRows = [.. (snapshot ?? []).Where(row => row != null && row.HasChartSource && !string.IsNullOrWhiteSpace(row.LookupHash))];
-        List<IGrouping<string, DuplicateChartRow>> duplicateHashGroups = [.. snapshotRows
-            .GroupBy(row => row.LookupHash, StringComparer.OrdinalIgnoreCase)
-            .Where(group => group.Count() > 1)];
-        HashSet<DuplicateChartRow> duplicateRows = [];
-        foreach (IGrouping<string, DuplicateChartRow> duplicateHashGroup in duplicateHashGroups)
+        List<DuplicateChartRow> snapshotRows = [];
+        var firstRowsByHash = new Dictionary<string, DuplicateChartRow>(StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, List<DuplicateChartRow>> duplicateRowsByHash = null;
+        List<string> hashOrder = [];
+        foreach (DuplicateChartRow row in snapshot ?? [])
         {
-            foreach (DuplicateChartRow item in duplicateHashGroup)
-            {
-                duplicateRows.Add(item);
-            }
-        }
-
-        var dirToId = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        List<string> idToDir = [];
-        List<List<int>> groupIndices = [];
-        foreach (IGrouping<string, DuplicateChartRow> duplicateHashGroup2 in duplicateHashGroups)
-        {
-            List<int> currentGroup = [];
-            foreach (DuplicateChartRow duplicateRow in duplicateHashGroup2)
-            {
-                string dir = duplicateRow.DirectoryPath;
-                if (string.IsNullOrWhiteSpace(dir))
-                {
-                    continue;
-                }
-                if (!dirToId.TryGetValue(dir, out int id))
-                {
-                    id = idToDir.Count;
-                    dirToId[dir] = id;
-                    idToDir.Add(dir);
-                }
-                currentGroup.Add(id);
-            }
-            if (currentGroup.Count > 0)
-            {
-                groupIndices.Add(currentGroup);
-            }
-        }
-
-        int[] parent = [.. Enumerable.Range(0, idToDir.Count)];
-        foreach (List<int> group in groupIndices)
-        {
-            if (group.Count <= 1)
+            if (row == null || !row.HasChartSource || string.IsNullOrWhiteSpace(row.LookupHash))
             {
                 continue;
             }
-            int first = group[0];
-            for (int i = 1; i < group.Count; i++)
+            snapshotRows.Add(row);
+            if (firstRowsByHash.TryGetValue(row.LookupHash, out DuplicateChartRow firstRow))
             {
-                int root1 = FindRoot(parent, first);
-                int root2 = FindRoot(parent, group[i]);
-                if (root1 != root2)
+                duplicateRowsByHash ??= new Dictionary<string, List<DuplicateChartRow>>(StringComparer.OrdinalIgnoreCase);
+                if (!duplicateRowsByHash.TryGetValue(row.LookupHash, out List<DuplicateChartRow> duplicateHashRows))
                 {
-                    parent[root1] = root2;
+                    duplicateHashRows = [firstRow];
+                    duplicateRowsByHash[row.LookupHash] = duplicateHashRows;
                 }
+                duplicateHashRows.Add(row);
+            }
+            else
+            {
+                firstRowsByHash[row.LookupHash] = row;
+                hashOrder.Add(row.LookupHash);
+            }
+        }
+
+        HashSet<DuplicateChartRow> duplicateRows = [];
+
+        var dirToId = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        List<string> idToDir = [];
+        List<int> parent = [];
+        foreach (string hash in hashOrder)
+        {
+            if (duplicateRowsByHash?.TryGetValue(hash, out List<DuplicateChartRow> duplicateHashRows) != true)
+            {
+                continue;
+            }
+            int firstDirectoryId = -1;
+            foreach (DuplicateChartRow row in duplicateHashRows)
+            {
+                AddDuplicateHashRow(row, ref firstDirectoryId);
             }
         }
 
@@ -146,18 +133,14 @@ internal sealed class BmsLibraryDuplicateService
 
         foreach (HashSet<string> dirs in rootViewToDirs.Values)
         {
-            List<DuplicateChartRow> groupRows = [];
+            List<ChartFile> groupCharts = [];
             foreach (string directoryPath in dirs)
             {
-                if (rowsByDir.TryGetValue(directoryPath, out List<DuplicateChartRow> list))
+                if (!rowsByDir.TryGetValue(directoryPath, out List<DuplicateChartRow> list))
                 {
-                    groupRows.AddRange(list);
+                    continue;
                 }
-            }
-            if (groupRows.Count > 0)
-            {
-                List<ChartFile> groupCharts = [];
-                foreach (DuplicateChartRow row in groupRows)
+                foreach (DuplicateChartRow row in list)
                 {
                     ChartFile chart = row.CreateChart();
                     if (chart == null)
@@ -172,11 +155,42 @@ internal sealed class BmsLibraryDuplicateService
                     }
                     groupCharts.Add(chart);
                 }
+            }
+            if (groupCharts.Count > 0)
+            {
                 result.DuplicateGroups.Add(new DuplicateGroup(groupCharts, [.. dirs]));
             }
         }
         result.DuplicateGroups.Sort((x, y) => string.Compare(x.Header, y.Header, StringComparison.Ordinal));
         return result;
+
+        void AddDuplicateHashRow(DuplicateChartRow row, ref int firstDirectoryId)
+        {
+            duplicateRows.Add(row);
+            string dir = row.DirectoryPath;
+            if (string.IsNullOrWhiteSpace(dir))
+            {
+                return;
+            }
+            if (!dirToId.TryGetValue(dir, out int id))
+            {
+                id = idToDir.Count;
+                dirToId[dir] = id;
+                idToDir.Add(dir);
+                parent.Add(id);
+            }
+            if (firstDirectoryId < 0)
+            {
+                firstDirectoryId = id;
+                return;
+            }
+            int root1 = FindRoot(parent, firstDirectoryId);
+            int root2 = FindRoot(parent, id);
+            if (root1 != root2)
+            {
+                parent[root1] = root2;
+            }
+        }
     }
 
     private static ChartFile ApplyDuplicateWarning(ChartFile chart, string duplicateWarningMessage)
@@ -194,7 +208,7 @@ internal sealed class BmsLibraryDuplicateService
         return ChartFileProjection.WithWarnings(chart, warnings);
     }
 
-    private static int FindRoot(int[] parent, int node)
+    private static int FindRoot(List<int> parent, int node)
     {
         int root = node;
         while (parent[root] != root)
