@@ -25,6 +25,8 @@ internal sealed class ChartResourceSnapshot
 
     private readonly List<ResourceReference> optionalImageReferences = [];
 
+    private readonly List<UnsupportedChartResourceReference> unsupportedResourceReferences = [];
+
     public HashSet<string> AudioRelativePaths { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
     public HashSet<uint> AudioRelativePathHashes { get; } = [];
@@ -67,6 +69,10 @@ internal sealed class ChartResourceSnapshot
 
     public int TotalReferenceCount => AudioReferenceCount + VisualReferenceCount + MovieReferenceCount + OptionalImageReferenceCount;
 
+    public int UnsupportedResourceReferenceCount => unsupportedResourceReferences.Count;
+
+    public bool HasUnsupportedParentTraversalReference => unsupportedResourceReferences.Any(reference => reference.Reason == ChartResourcePathNormalizationStatus.ParentTraversalUnsupported);
+
     public int PathSegmentReferenceCount { get; private set; }
 
     public int AudioPathAwareReferenceCount => AudioPathAwareRelativePaths.Count;
@@ -84,6 +90,8 @@ internal sealed class ChartResourceSnapshot
     public IReadOnlyList<ResourceReference> MovieReferences => movieReferences;
 
     public IReadOnlyList<ResourceReference> OptionalImageReferences => optionalImageReferences;
+
+    public IReadOnlyList<UnsupportedChartResourceReference> UnsupportedResourceReferences => unsupportedResourceReferences;
 
     public HashSet<uint> EnumerateAllRelativePathHashes()
     {
@@ -121,6 +129,7 @@ internal sealed class ChartResourceSnapshot
         snapshot.AddOptionalImage(file.banner);
         snapshot.AddOptionalImage(file.backbmp);
         snapshot.AddOptionalImage(file.stagefile);
+        snapshot.AddUnsupportedReferences(file.UnsupportedResourceReferences);
         snapshot.PathSegmentReferenceCount = snapshot.EnumerateAllRelativePaths().Count(ChartResourcePathNormalizer.HasDirectorySegments);
         return snapshot;
     }
@@ -137,10 +146,18 @@ internal sealed class ChartResourceSnapshot
         {
             return Create(bmsFile);
         }
+        if (bmsFile != null)
+        {
+            snapshot.AddUnsupportedReferences(bmsFile.UnsupportedResourceReferences);
+        }
         LR2SongDBExtended.bmson_song bmsonSong = chart.GetBmsonStorageOwner();
         if (bmsonSong != null && !HasProjectedResourceLists(chart))
         {
             return Create(bmsonSong);
+        }
+        if (bmsonSong != null)
+        {
+            snapshot.AddUnsupportedReferences(bmsonSong.UnsupportedResourceReferences);
         }
         return snapshot;
     }
@@ -187,6 +204,7 @@ internal sealed class ChartResourceSnapshot
         snapshot.AddOptionalImage(song.banner);
         snapshot.AddOptionalImage(song.backbmp);
         snapshot.AddOptionalImage(song.stagefile);
+        snapshot.AddUnsupportedReferences(song.UnsupportedResourceReferences);
         snapshot.PathSegmentReferenceCount = snapshot.EnumerateAllRelativePaths().Count(ChartResourcePathNormalizer.HasDirectorySegments);
         return snapshot;
     }
@@ -224,6 +242,7 @@ internal sealed class ChartResourceSnapshot
         {
             AddResourceKey(OptionalImageRelativePaths, OptionalImageRelativePathHashes, OptionalImagePathAwareRelativePaths, OptionalImagePathAwareRelativePathHashes, optionalImageReferences, reference);
         }
+        AddUnsupportedReferences(other.UnsupportedResourceReferences);
     }
 
     private static void EnsureComponentCollectionsLoaded(BMSFile file)
@@ -237,7 +256,7 @@ internal sealed class ChartResourceSnapshot
 
     private void AddOptionalImage(string path)
     {
-        AddNormalized(OptionalImageRelativePaths, OptionalImageRelativePathHashes, OptionalImagePathAwareRelativePaths, OptionalImagePathAwareRelativePathHashes, optionalImageReferences, path);
+        AddNormalized(ChartResourceKind.Image, OptionalImageRelativePaths, OptionalImageRelativePathHashes, OptionalImagePathAwareRelativePaths, OptionalImagePathAwareRelativePathHashes, optionalImageReferences, path);
     }
 
     private void AddReference(ChartResourceKind kind, string path)
@@ -245,20 +264,29 @@ internal sealed class ChartResourceSnapshot
         switch (kind)
         {
             case ChartResourceKind.Audio:
-                AddNormalized(AudioRelativePaths, AudioRelativePathHashes, AudioPathAwareRelativePaths, AudioPathAwareRelativePathHashes, audioReferences, path);
+                AddNormalized(kind, AudioRelativePaths, AudioRelativePathHashes, AudioPathAwareRelativePaths, AudioPathAwareRelativePathHashes, audioReferences, path);
                 break;
             case ChartResourceKind.Image:
-                AddNormalized(VisualRelativePaths, VisualRelativePathHashes, VisualPathAwareRelativePaths, VisualPathAwareRelativePathHashes, visualReferences, path);
+                AddNormalized(kind, VisualRelativePaths, VisualRelativePathHashes, VisualPathAwareRelativePaths, VisualPathAwareRelativePathHashes, visualReferences, path);
                 break;
             case ChartResourceKind.Movie:
-                AddNormalized(MovieRelativePaths, MovieRelativePathHashes, MoviePathAwareRelativePaths, MoviePathAwareRelativePathHashes, movieReferences, path);
+                AddNormalized(kind, MovieRelativePaths, MovieRelativePathHashes, MoviePathAwareRelativePaths, MoviePathAwareRelativePathHashes, movieReferences, path);
+                break;
+            default:
+                AddUnsupportedReferenceIfNeeded(kind, path);
                 break;
         }
     }
 
-    private static void AddNormalized(ISet<string> relativePaths, ISet<uint> relativePathHashes, ISet<string> pathAwareRelativePaths, ISet<uint> pathAwareRelativePathHashes, ICollection<ResourceReference> references, string path)
+    private void AddNormalized(ChartResourceKind kind, ISet<string> relativePaths, ISet<uint> relativePathHashes, ISet<string> pathAwareRelativePaths, ISet<uint> pathAwareRelativePathHashes, ICollection<ResourceReference> references, string path)
     {
-        string normalizedPath = ChartResourcePathNormalizer.NormalizeResourceKeyForLookup(path);
+        ChartResourcePathNormalizationResult result = ChartResourcePathNormalizer.AnalyzeReferencePathForLookup(path);
+        if (!result.IsValid)
+        {
+            AddUnsupportedReferenceIfNeeded(kind, path, result.Status);
+            return;
+        }
+        string normalizedPath = StripLookupExtension(result.NormalizedPath);
         if (string.IsNullOrWhiteSpace(normalizedPath))
         {
             return;
@@ -273,6 +301,32 @@ internal sealed class ChartResourceSnapshot
                 normalizedPath,
                 ChartResourceKeyHash.GetLookupHash(normalizedPath),
                 IsNormalizedPathAware(normalizedPath)));
+    }
+
+    private void AddUnsupportedReferenceIfNeeded(
+        ChartResourceKind kind,
+        string path,
+        ChartResourcePathNormalizationStatus status = ChartResourcePathNormalizationStatus.ParentTraversalUnsupported)
+    {
+        if (status != ChartResourcePathNormalizationStatus.ParentTraversalUnsupported)
+        {
+            return;
+        }
+        unsupportedResourceReferences.Add(new UnsupportedChartResourceReference(
+            kind == ChartResourceKind.Unknown ? ChartResourcePathNormalizer.ClassifyReferencePathExtension(path) : kind,
+            path,
+            status));
+    }
+
+    private void AddUnsupportedReferences(IEnumerable<UnsupportedChartResourceReference> references)
+    {
+        foreach (UnsupportedChartResourceReference reference in references ?? [])
+        {
+            if (reference.Reason == ChartResourcePathNormalizationStatus.ParentTraversalUnsupported)
+            {
+                unsupportedResourceReferences.Add(reference);
+            }
+        }
     }
 
     private static void AddResourceKey(ISet<string> relativePaths, ISet<uint> relativePathHashes, ISet<string> pathAwareRelativePaths, ISet<uint> pathAwareRelativePathHashes, ICollection<ResourceReference> references, ResourceReference reference)
@@ -303,5 +357,15 @@ internal sealed class ChartResourceSnapshot
     {
         return !string.IsNullOrWhiteSpace(normalizedPath)
             && (normalizedPath.IndexOf(Path.DirectorySeparatorChar) >= 0 || normalizedPath.IndexOf(Path.AltDirectorySeparatorChar) >= 0);
+    }
+
+    private static string StripLookupExtension(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return string.Empty;
+        }
+        string extension = Path.GetExtension(value);
+        return string.IsNullOrWhiteSpace(extension) ? value : Path.ChangeExtension(value, null);
     }
 }

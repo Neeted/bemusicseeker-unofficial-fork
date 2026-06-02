@@ -147,7 +147,10 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
 
     internal bool HasLowConfidenceInstallEstimationWarning()
     {
-        return (Chart.Warnings ?? []).Any(warning => warning != null && warning.Category == ChartWarningCategory.InstallEstimation && warning.Kind != ChartWarningKind.InstalledDestinationResolveFailed);
+        return (Chart.Warnings ?? []).Any(warning => warning != null
+            && warning.Category == ChartWarningCategory.InstallEstimation
+            && warning.Kind != ChartWarningKind.InstalledDestinationResolveFailed
+            && warning.Kind != ChartWarningKind.UnsupportedResourcePath);
     }
 
     internal void SetSearchingStatus(bool isSearching)
@@ -242,6 +245,13 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
         ReplacePendingInstallDestination(null, string.Empty, string.Empty, [], forceProjection: true);
         ClearWarningsByCategory(ChartWarningCategory.InstallEstimation);
         SetWarning(ChartWarningKind.InstalledDestinationResolveFailed, Properties.Resources.Warning_InstalledDestinationResolveFailed);
+    }
+
+    internal void ApplyUnsupportedResourcePathWarning()
+    {
+        ReplacePendingInstallDestination(null, string.Empty, string.Empty, [], forceProjection: true);
+        ClearWarningsByCategory(ChartWarningCategory.InstallEstimation);
+        SetWarning(ChartWarningKind.UnsupportedResourcePath, Properties.Resources.Warning_UnsupportedResourcePath);
     }
 
     internal void ClearInstallDestination()

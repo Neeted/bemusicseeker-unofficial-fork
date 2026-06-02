@@ -1589,6 +1589,9 @@ BMSファイルが重複しないようにマージします。
   <data name="WarningDigest_InstalledDestinationAmbiguous" xml:space="preserve">
     <value>導入先複数</value>
   </data>
+  <data name="WarningDigest_UnsupportedResourcePath" xml:space="preserve">
+    <value>リソースパス非対応</value>
+  </data>
   <data name="WarningDigest_InstalledDestinationResolveFailed" xml:space="preserve">
     <value>導入先不明</value>
   </data>
@@ -1642,6 +1645,9 @@ BMSファイルが重複しないようにマージします。
   </data>
   <data name="Warning_InstalledDestinationResolveFailed" xml:space="preserve">
     <value>既所持譜面から導入先を特定できません。ライブラリの状態を確認してください。</value>
+  </data>
+  <data name="Warning_UnsupportedResourcePath" xml:space="preserve">
+    <value>親ディレクトリを参照するリソースパスは導入先推定に対応していません。該当するリソース記述を確認してください。</value>
   </data>
   <data name="AppSchemaRepairWarningMessage" xml:space="preserve">
     <value>BeMusicSeeker 関連データを現行形式へ修復します。

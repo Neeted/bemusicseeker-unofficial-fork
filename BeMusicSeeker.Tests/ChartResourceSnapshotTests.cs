@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -47,6 +48,67 @@ public sealed class ChartResourceSnapshotTests
     {
         Assert.AreEqual("4.org1_1", ChartResourcePathNormalizer.GetLookupFileName(Path.Combine("sound", "4.org1_1.wav")));
         Assert.AreEqual("bg.final", ChartResourcePathNormalizer.GetLookupFileName(Path.Combine("visual", "bg.final.png")));
+    }
+
+    [TestMethod]
+    public void NormalizeReferencePathForLookup_SkipsCurrentDirectorySegments()
+    {
+        Assert.AreEqual("foo", ChartResourcePathNormalizer.NormalizeResourceKeyForLookup(@".\foo.wav"));
+        Assert.AreEqual(Path.Combine("sound", "foo"), ChartResourcePathNormalizer.NormalizeResourceKeyForLookup(@".\sound\foo.wav"));
+        Assert.AreEqual(Path.Combine("sound", "foo"), ChartResourcePathNormalizer.NormalizeResourceKeyForLookup(@"sound\.\foo.wav"));
+    }
+
+    [TestMethod]
+    public void AnalyzeReferencePathForLookup_RejectsParentTraversalAsUnsupported()
+    {
+        ChartResourcePathNormalizationResult result = ChartResourcePathNormalizer.AnalyzeReferencePathForLookup(@"..\pkg\foo.wav");
+
+        Assert.AreEqual(ChartResourcePathNormalizationStatus.ParentTraversalUnsupported, result.Status);
+        Assert.IsFalse(result.IsValid);
+        Assert.AreEqual(string.Empty, result.NormalizedPath);
+    }
+
+    [TestMethod]
+    public void CreateAggregate_PreservesUnsupportedParentTraversalReferencesWithoutLookupKeys()
+    {
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "ChartResourceSnapshotTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        string chartPath = Path.Combine(tempDirectory, "parent-resource.bms");
+        try
+        {
+            File.WriteAllText(
+                chartPath,
+                "#PLAYER 1\r\n"
+                + "#TITLE Parent Resource\r\n"
+                + "#WAVAA ..\\Base\\sound.wav\r\n"
+                + "#BMPAA ..\\Base\\movie.mpg\r\n"
+                + "#00111:AA\r\n"
+                + "#00104:AA\r\n");
+            BMSFile file = BMSFile.CreateBMSFileFromFile(chartPath);
+            ChartFile chart = ChartFileProjection.FromBmsFile(
+                file,
+                includeWarningSnapshot: false,
+                includeResourceReferences: true,
+                includeScoreSnapshot: false);
+
+            ChartResourceSnapshot snapshot = ChartResourceSnapshot.CreateAggregate([chart]);
+
+            Assert.AreEqual(0, snapshot.AudioReferenceCount);
+            Assert.AreEqual(0, snapshot.MovieReferenceCount);
+            Assert.AreEqual(2, snapshot.UnsupportedResourceReferenceCount);
+            Assert.IsTrue(snapshot.HasUnsupportedParentTraversalReference);
+            Assert.AreEqual(1, snapshot.UnsupportedResourceReferences.Count(reference => reference.Kind == ChartResourceKind.Audio));
+            Assert.AreEqual(1, snapshot.UnsupportedResourceReferences.Count(reference => reference.Kind == ChartResourceKind.Movie));
+            CollectionAssert.DoesNotContain(snapshot.AudioRelativePaths.ToArray(), Path.Combine("Base", "sound"));
+            CollectionAssert.DoesNotContain(snapshot.MovieRelativePaths.ToArray(), Path.Combine("Base", "movie"));
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
     }
 
     [TestMethod]

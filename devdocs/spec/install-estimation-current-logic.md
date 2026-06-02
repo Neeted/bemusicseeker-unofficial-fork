@@ -35,11 +35,15 @@ resource key は chart-relative な extensionless key です。
 
 - `foo.wav` は `foo`
 - `sound/foo.wav` は `sound/foo`
+- `./foo.wav` は `foo`
+- `sound/./foo.wav` は `sound/foo`
 - `sound/foo.v2.wav` は `sound/foo.v2`
 
 `foo` と `sound/foo` は別 key です。`sound/foo.wav` が `foo` に fallback することはありません。
 
-`ChartResourceSnapshot` の `ResourceReference` は、この extensionless resource key と hash を保持します。複数 chart の package で aggregate snapshot を作る時は、各 chart の正規化済み key をそのまま union し、raw path として再正規化しません。
+`..` を含む resource path は親ディレクトリ参照として扱います。BeMusicSeeker は親ディレクトリ参照を導入先推定の lookup key へ入れず、`ChartResourceSnapshot` の unsupported reference として保持します。target chart set に unsupported reference がある場合、その package / entry は導入先推定不能になり、`UnsupportedResourcePath` warning を表示します。
+
+`ChartResourceSnapshot` の `ResourceReference` は、この extensionless resource key と hash を保持します。複数 chart の package で aggregate snapshot を作る時は、各 chart の正規化済み key と unsupported reference をそのまま union し、raw path として再正規化しません。
 
 ### Source package surface
 

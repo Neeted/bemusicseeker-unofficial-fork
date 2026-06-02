@@ -611,7 +611,7 @@ pending invalid extension rename は `GetPendingBmsFormatChartFilesSnapshot` / `
 - maintenance / resource health
 - storage owner: BMS は `BMSFile`, bmson は `LR2SongDBExtended.bmson_song`
 
-resource references は `ChartFile` に read model として載る。BMS では `BMSFile` の parser 由来 resource refs、bmson では `bmson_song.wav_files` / `bga_files` と parser 直後の runtime-only 状態を `ChartFileProjection` が `AudioResourcePaths` / `VisualResourcePaths` / `Stagefile` / `Backbmp` / `Banner` に写す。resource health / install estimation の集計は `ChartResourceSnapshot.Create(ChartFile)` を入口にし、BMS owner 由来 refs が必要な場合だけ `ChartFile.GetBmsStorageOwner()` へ降りる。
+resource references は `ChartFile` に read model として載る。BMS では `BMSFile` の parser 由来 resource refs、bmson では `bmson_song.wav_files` / `bga_files` と parser 直後の runtime-only 状態を `ChartFileProjection` が `AudioResourcePaths` / `VisualResourcePaths` / `Stagefile` / `Backbmp` / `Banner` に写す。resource path の `.` segment は chart-relative key として正規化し、`..` segment は親ディレクトリ参照として unsupported reference に保持する。resource health / install estimation の集計は `ChartResourceSnapshot.Create(ChartFile)` を入口にし、BMS owner 由来 refs や unsupported reference が必要な場合だけ `ChartFile.GetBmsStorageOwner()` へ降りる。
 
 source scope と operation capability は `ChartOperationTarget` が持つ。owned bmson 用の legacy `BMSFile` adapter provider は UI row / operation target surface から削除済みであり、chart 共通 operation は `ChartOperationTarget.CompatibilityBmsFile` を必要としない。
 

@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
@@ -13,33 +12,76 @@ internal enum ChartResourceKind
     Movie
 }
 
+internal enum ChartResourcePathNormalizationStatus
+{
+    Valid,
+    Empty,
+    InvalidPath,
+    RootedOrAbsolute,
+    ParentTraversalUnsupported
+}
+
+internal readonly struct ChartResourcePathNormalizationResult(
+    string normalizedPath,
+    ChartResourcePathNormalizationStatus status)
+{
+    public string NormalizedPath { get; } = normalizedPath ?? string.Empty;
+
+    public ChartResourcePathNormalizationStatus Status { get; } = status;
+
+    public bool IsValid => Status == ChartResourcePathNormalizationStatus.Valid;
+}
+
 internal static class ChartResourcePathNormalizer
 {
     private static readonly char[] invalidPathChars = Path.GetInvalidPathChars();
 
-    public static string NormalizeReferencePathForLookup(string path)
+    public static ChartResourcePathNormalizationResult AnalyzeReferencePathForLookup(string path)
     {
         if (string.IsNullOrWhiteSpace(path))
         {
-            return string.Empty;
+            return new ChartResourcePathNormalizationResult(string.Empty, ChartResourcePathNormalizationStatus.Empty);
         }
         string normalized = path.Trim().Replace('/', Path.DirectorySeparatorChar).Replace('\\', Path.DirectorySeparatorChar);
         normalized = normalized.TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         if (string.IsNullOrWhiteSpace(normalized))
         {
-            return string.Empty;
+            return new ChartResourcePathNormalizationResult(string.Empty, ChartResourcePathNormalizationStatus.Empty);
         }
-        if (normalized.IndexOfAny(invalidPathChars) >= 0 || Path.IsPathRooted(normalized))
+        if (normalized.IndexOfAny(invalidPathChars) >= 0)
         {
-            return string.Empty;
+            return new ChartResourcePathNormalizationResult(string.Empty, ChartResourcePathNormalizationStatus.InvalidPath);
         }
-        string[] segments = normalized.Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar], StringSplitOptions.RemoveEmptyEntries);
-        if (segments.Length == 0 || segments.Any(segment => segment == "." || segment == ".."))
+        if (Path.IsPathRooted(normalized))
         {
-            return string.Empty;
+            return new ChartResourcePathNormalizationResult(string.Empty, ChartResourcePathNormalizationStatus.RootedOrAbsolute);
+        }
+
+        var segments = new List<string>();
+        foreach (string segment in normalized.Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar], StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (segment == ".")
+            {
+                continue;
+            }
+            if (segment == "..")
+            {
+                return new ChartResourcePathNormalizationResult(string.Empty, ChartResourcePathNormalizationStatus.ParentTraversalUnsupported);
+            }
+            segments.Add(segment);
+        }
+        if (segments.Count == 0)
+        {
+            return new ChartResourcePathNormalizationResult(string.Empty, ChartResourcePathNormalizationStatus.Empty);
         }
         string joined = string.Join(Path.DirectorySeparatorChar.ToString(), segments);
-        return NormalizeExtensionAlias(joined);
+        return new ChartResourcePathNormalizationResult(NormalizeExtensionAlias(joined), ChartResourcePathNormalizationStatus.Valid);
+    }
+
+    public static string NormalizeReferencePathForLookup(string path)
+    {
+        ChartResourcePathNormalizationResult result = AnalyzeReferencePathForLookup(path);
+        return result.IsValid ? result.NormalizedPath : string.Empty;
     }
 
     public static string NormalizeRelativePathForLookup(string rootDirectory, string filePath)
@@ -108,6 +150,42 @@ internal static class ChartResourcePathNormalizer
         {
             return ChartResourceKind.Unknown;
         }
+        if (ChartResourceExtensions.IsAudioExtension(extension))
+        {
+            return ChartResourceKind.Audio;
+        }
+        if (ChartResourceExtensions.IsImageExtension(extension))
+        {
+            return ChartResourceKind.Image;
+        }
+        if (ChartResourceExtensions.IsMovieExtension(extension))
+        {
+            return ChartResourceKind.Movie;
+        }
+        return ChartResourceKind.Unknown;
+    }
+
+    public static ChartResourceKind ClassifyReferencePathExtension(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return ChartResourceKind.Unknown;
+        }
+        string normalized = path.Trim().Replace('/', Path.DirectorySeparatorChar).Replace('\\', Path.DirectorySeparatorChar);
+        string extension;
+        try
+        {
+            extension = Path.GetExtension(normalized);
+        }
+        catch
+        {
+            return ChartResourceKind.Unknown;
+        }
+        if (string.IsNullOrWhiteSpace(extension))
+        {
+            return ChartResourceKind.Unknown;
+        }
+        extension = ChartResourceExtensions.ResolveLookupAliasExtension(extension);
         if (ChartResourceExtensions.IsAudioExtension(extension))
         {
             return ChartResourceKind.Audio;

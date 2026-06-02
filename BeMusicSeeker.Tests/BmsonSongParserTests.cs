@@ -107,6 +107,49 @@ public sealed class BmsonSongParserTests
     }
 
     [TestMethod]
+    public void Parse_PreservesUnsupportedParentTraversalResourceReferences()
+    {
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsonSongParserTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        string filePath = Path.Combine(tempDirectory, "chart.bmson");
+        try
+        {
+            File.WriteAllText(filePath,
+                "{"
+                + "\"version\":\"1.0.0\","
+                + "\"info\":{"
+                + "\"title\":\"Parent Resource\","
+                + "\"artist\":\"Artist\","
+                + "\"preview_music\":\"..\\\\Base\\\\preview.ogg\","
+                + "\"eyecatch_image\":\"..\\\\Base\\\\stage.png\""
+                + "},"
+                + "\"sound_channels\":[{\"name\":\"..\\\\Base\\\\keysound.wav\",\"notes\":[]}],"
+                + "\"bga\":{\"bga_header\":[{\"id\":1,\"name\":\"..\\\\Base\\\\movie.mp4\"}]},"
+                + "\"lines\":[{\"y\":0}]"
+                + "}");
+
+            Models.LR2.LR2SongDBExtended.bmson_song parsed = BmsonSongParser.Parse(filePath);
+            ChartResourceSnapshot snapshot = ChartResourceSnapshot.Create(parsed);
+
+            Assert.AreEqual(0, parsed.wav_files.Count);
+            Assert.AreEqual(0, parsed.bga_files.Count);
+            Assert.AreEqual(4, parsed.UnsupportedResourceReferences.Count);
+            Assert.AreEqual(4, snapshot.UnsupportedResourceReferenceCount);
+            Assert.IsTrue(snapshot.HasUnsupportedParentTraversalReference);
+            Assert.AreEqual(2, snapshot.UnsupportedResourceReferences.Count(reference => reference.Kind == ChartResourceKind.Audio));
+            Assert.AreEqual(1, snapshot.UnsupportedResourceReferences.Count(reference => reference.Kind == ChartResourceKind.Image));
+            Assert.AreEqual(1, snapshot.UnsupportedResourceReferences.Count(reference => reference.Kind == ChartResourceKind.Movie));
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
     public void Parse_UsesStructuredResourceLocationsOnly()
     {
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsonSongParserTests", Guid.NewGuid().ToString("N"));

@@ -148,6 +148,21 @@ public sealed class ChartWarningCollectionTests
     }
 
     [TestMethod]
+    public void UnsupportedResourcePath_IsNotLowConfidenceAlias()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var file = new BMSFile();
+
+        file.SetWarning(ChartWarningKind.UnsupportedResourcePath, Resources.Warning_UnsupportedResourcePath);
+
+        Assert.IsFalse(ChartWarningTestHelpers.ContainsLowConfidenceInstallEstimationWarning(file));
+        Assert.IsFalse(file.Warnings.HasHighlightedWarning);
+        Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.UnsupportedResourcePath));
+        Assert.AreEqual("[1] リソースパス非対応", file.Warnings.BuildDigestText());
+        StringAssert.Contains(file.Warnings.BuildTooltipText(), Resources.Warning_UnsupportedResourcePath);
+    }
+
+    [TestMethod]
     public void InstalledDestinationAmbiguous_IsLowConfidenceAlias()
     {
         TestResourceInitializer.EnsureJapaneseResources();

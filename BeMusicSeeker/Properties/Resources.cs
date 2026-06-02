@@ -1018,6 +1018,9 @@ public class Resources
     public static string WarningDigest_InstalledDestinationAmbiguous => ResourceManager.GetString("WarningDigest_InstalledDestinationAmbiguous", resourceCulture);
 
 
+    public static string WarningDigest_UnsupportedResourcePath => ResourceManager.GetString("WarningDigest_UnsupportedResourcePath", resourceCulture);
+
+
     public static string WarningDigest_InstalledDestinationResolveFailed => ResourceManager.GetString("WarningDigest_InstalledDestinationResolveFailed", resourceCulture);
 
 
@@ -1064,6 +1067,9 @@ public class Resources
 
 
     public static string Warning_InstalledDestinationResolveFailed => ResourceManager.GetString("Warning_InstalledDestinationResolveFailed", resourceCulture);
+
+
+    public static string Warning_UnsupportedResourcePath => ResourceManager.GetString("Warning_UnsupportedResourcePath", resourceCulture);
 
 
     public static string AppSchemaRepairWarningMessage => ResourceManager.GetString("AppSchemaRepairWarningMessage", resourceCulture);

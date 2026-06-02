@@ -554,6 +554,78 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     }
 
     [TestMethod]
+    public void SearchEstimatedInstallationDirectory_UnsupportedParentResourcePath_WarnsAndSkipsEstimation()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
+        {
+            string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "PackageUnsupportedResourcePath");
+            string candidateDirectoryPath = Path.Combine(tempRootPath, "Installed", "Candidate");
+            string pendingFilePath = CreateBmsFileWithContents(
+                sourceDirectoryPath,
+                "unsupported.bms",
+                "#PLAYER 1\r\n"
+                + "#TITLE Unsupported Resource Path\r\n"
+                + "#ARTIST Test\r\n"
+                + "#WAVAA ..\\Base\\sound.wav\r\n"
+                + "#00111:AA\r\n");
+            string candidateFilePath = CreateBmsFileWithContents(candidateDirectoryPath, "candidate.bms", "#PLAYER 1\r\n#TITLE Current Directory Resource Path\r\n#ARTIST Test\r\n");
+            File.WriteAllText(Path.Combine(candidateDirectoryPath, "sound.wav"), "audio");
+            var pendingPackage = ChartPackageTestExtensions.CreatePackage([BMSFile.CreateBMSFileFromFile(pendingFilePath)]);
+            pendingPackage.path = sourceDirectoryPath;
+            pendingPackage.delete_parent = false;
+
+            library.BMSFiles = [BMSFile.CreateBMSFileFromFile(candidateFilePath)];
+            SeedPendingPackages(library, songDbPath, pendingPackage);
+            SetPrivateField(library, "directoryResourceLookupCache", BuildDirectoryLookupCache(sourceDirectoryPath, candidateDirectoryPath));
+
+            library.SearchEstimatedInstallationDirectory(pendingPackage);
+
+            Assert.AreEqual(PendingEstimateDeferredReason.UnsupportedResourcePath, pendingPackage.DeferredEstimateReason);
+            PackageChartEntry pendingEntry = GetEntryByFileName(pendingPackage, "unsupported.bms");
+            Assert.IsTrue(string.IsNullOrWhiteSpace(pendingEntry.Chart.InstallDestination));
+            Assert.IsFalse(ChartWarningTestHelpers.ContainsLowConfidenceInstallEstimationWarning(pendingEntry));
+            Assert.IsTrue(pendingEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.UnsupportedResourcePath));
+            StringAssert.Contains(ChartWarningTestHelpers.BuildTooltipText(pendingEntry), BeMusicSeeker.Properties.Resources.Warning_UnsupportedResourcePath);
+        });
+    }
+
+    [TestMethod]
+    public void SearchEstimatedInstallationDirectory_CurrentDirectoryResourcePath_NormalizesAndEstimates()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
+        {
+            string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "PackageCurrentDirectoryResourcePath");
+            string candidateDirectoryPath = Path.Combine(tempRootPath, "Installed", "Candidate");
+            string pendingFilePath = CreateBmsFileWithContents(
+                sourceDirectoryPath,
+                "current-dir.bms",
+                "#PLAYER 1\r\n"
+                + "#TITLE Current Directory Resource Path\r\n"
+                + "#ARTIST Test\r\n"
+                + "#WAVAA .\\sound.wav\r\n"
+                + "#00111:AA\r\n");
+            string candidateFilePath = CreateBmsFileWithContents(candidateDirectoryPath, "candidate.bms", "#PLAYER 1\r\n#TITLE Current Directory Resource Path\r\n#ARTIST Test\r\n");
+            File.WriteAllText(Path.Combine(candidateDirectoryPath, "sound.wav"), "audio");
+            var pendingPackage = ChartPackageTestExtensions.CreatePackage([BMSFile.CreateBMSFileFromFile(pendingFilePath)]);
+            pendingPackage.path = sourceDirectoryPath;
+            pendingPackage.delete_parent = false;
+
+            library.BMSFiles = [BMSFile.CreateBMSFileFromFile(candidateFilePath)];
+            SeedPendingPackages(library, songDbPath, pendingPackage);
+            SetPrivateField(library, "directoryResourceLookupCache", BuildDirectoryLookupCache(sourceDirectoryPath, candidateDirectoryPath));
+
+            library.SearchEstimatedInstallationDirectory(pendingPackage);
+
+            Assert.AreEqual(PendingEstimateDeferredReason.None, pendingPackage.DeferredEstimateReason);
+            PackageChartEntry pendingEntry = GetEntryByFileName(pendingPackage, "current-dir.bms");
+            Assert.AreEqual(candidateDirectoryPath, pendingEntry.Chart.InstallDestination);
+            Assert.IsFalse(pendingEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.UnsupportedResourcePath));
+        });
+    }
+
+    [TestMethod]
     public void SearchEstimatedInstallationDirectory_MixedPackageMultipleCandidates_UsesFinalEvaluationWinner()
     {
         TestResourceInitializer.EnsureJapaneseResources();

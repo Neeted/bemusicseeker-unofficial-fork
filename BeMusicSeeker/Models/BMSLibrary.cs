@@ -2708,6 +2708,7 @@ public class BMSLibrary : NotificationObject
     private enum PendingInstallEstimateEvaluationOutcomeKind
     {
         NoOp,
+        UnsupportedResourcePath,
         ResolvedInstalledDirectory,
         EstimatedResult,
         SkippedAsStale
@@ -3372,6 +3373,11 @@ public class BMSLibrary : NotificationObject
         {
             return result;
         }
+        if (HasUnsupportedResourcePath(request.MissingEntries))
+        {
+            result.OutcomeKind = PendingInstallEstimateEvaluationOutcomeKind.UnsupportedResourcePath;
+            return result;
+        }
 
         if (request.AttemptInstalledResolve)
         {
@@ -3507,6 +3513,9 @@ public class BMSLibrary : NotificationObject
 
         switch (evaluationResult.OutcomeKind)
         {
+            case PendingInstallEstimateEvaluationOutcomeKind.UnsupportedResourcePath:
+                ApplyUnsupportedResourcePathToPackageUnsafe(package, currentMissingEntries);
+                return false;
             case PendingInstallEstimateEvaluationOutcomeKind.ResolvedInstalledDirectory:
                 if (!string.IsNullOrWhiteSpace(evaluationResult.ResolvedDirectory))
                 {
@@ -3629,6 +3638,7 @@ public class BMSLibrary : NotificationObject
         string reasonLog = reason switch
         {
             PendingEstimateDeferredReason.HealthySourceBaseline => "healthy_source_baseline",
+            PendingEstimateDeferredReason.UnsupportedResourcePath => "unsupported_resource_path",
             PendingEstimateDeferredReason.InstalledDestinationResolveFailed => "installed_destination_resolve_failed",
             _ => "unknown"
         };
@@ -3683,6 +3693,14 @@ public class BMSLibrary : NotificationObject
         var prefilterStopwatch = Stopwatch.StartNew();
         foreach (PendingEstimateSourceBatchPackageState state in candidateSnapshot.PackageStates)
         {
+            if (HasUnsupportedResourcePath(state.MissingEntries))
+            {
+                ApplyPackageMixedInstallWarningsToEntries(state.AlreadyInstalledEntries.Where(entry => entry?.Chart != null && ContainsInstalledChartUnsafe(entry.Chart)));
+                ApplyUnsupportedResourcePathToPackageUnsafe(state.Package, state.MissingEntries);
+                result.DeferredPackages.Add(state.Package);
+                continue;
+            }
+
             if (HasInstalledDestinationResolveFailed(state))
             {
                 state.Package.DeferredEstimateReason = PendingEstimateDeferredReason.InstalledDestinationResolveFailed;
@@ -11976,6 +11994,11 @@ completeFileEnumerationOnce,
                     {
                         return;
                     }
+                    if (HasUnsupportedResourcePath(targetEntryList))
+                    {
+                        ApplyUnsupportedResourcePathToPackageUnsafe(package, targetEntryList);
+                        return;
+                    }
                     foreach (PackageChartEntry entry in targetEntryList)
                     {
                         entry.SetSearchingStatus(isSearching: true);
@@ -12017,6 +12040,30 @@ completeFileEnumerationOnce,
         foreach (PackageChartEntry entry in (missingEntries ?? []).Where(entry => entry?.Chart != null))
         {
             entry.ApplyInstalledDestinationResolveFailed();
+        }
+    }
+
+    private static bool HasUnsupportedResourcePath(IEnumerable<PackageChartEntry> entries)
+    {
+        return (entries ?? []).Any(entry => entry?.Chart != null && entry.ResourceSnapshot.HasUnsupportedParentTraversalReference);
+    }
+
+    private static void ApplyUnsupportedResourcePathToPackageUnsafe(ChartPackage package, IEnumerable<PackageChartEntry> missingEntries)
+    {
+        if (package != null)
+        {
+            package.DeferredEstimateReason = PendingEstimateDeferredReason.UnsupportedResourcePath;
+        }
+        foreach (PackageChartEntry entry in (missingEntries ?? []).Where(entry => entry?.Chart != null))
+        {
+            if (entry.ResourceSnapshot.HasUnsupportedParentTraversalReference)
+            {
+                entry.ApplyUnsupportedResourcePathWarning();
+            }
+            else
+            {
+                entry.ClearInstallDestination();
+            }
         }
     }
 
@@ -12088,6 +12135,11 @@ completeFileEnumerationOnce,
                         ApplyPackageMixedInstallWarningsToEntries(alreadyInstalledEntries);
                         if (missingEntries.Count == 0)
                         {
+                            return;
+                        }
+                        if (HasUnsupportedResourcePath(missingEntries))
+                        {
+                            ApplyUnsupportedResourcePathToPackageUnsafe(package, missingEntries);
                             return;
                         }
                         // 部分既所持パッケージでは、既存譜面の実配置先を優先利用して未所持譜面の導入先を補完する。
