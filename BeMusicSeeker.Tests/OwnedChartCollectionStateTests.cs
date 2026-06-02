@@ -740,9 +740,8 @@ public sealed class OwnedChartCollectionStateTests
         var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", oldPath);
         OwnedChartCollectionState state = OwnedChartCollectionState.FromStorageRows([bmsFile], []);
         LibraryChartRefIndexSnapshot index = state.CreateLibraryChartRefIndexSnapshot();
-        ChartFile removedChart = ChartFileProjection.FromBmsFile(bmsFile);
 
-        state.RemoveCharts([removedChart]);
+        state.RemoveChartRequests([OwnedChartRemoveRequest.FromOwnerReference(bmsFile)]);
         bmsFile.path = newPath;
         state.ApplyPathChanges([
             new LibraryChartPathChange
@@ -760,7 +759,7 @@ public sealed class OwnedChartCollectionStateTests
     }
 
     [TestMethod]
-    public void RemoveCharts_RemovesMovedOwnerFromCachedIndex()
+    public void RemoveChartRequests_RemovesMovedOwnerFromCachedIndex()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         string oldPath = Path.Combine("C:\\Installed", "Old", "chart.bms");
@@ -779,7 +778,7 @@ public sealed class OwnedChartCollectionStateTests
             }
         ]);
 
-        state.RemoveCharts([movedChartSnapshot]);
+        state.RemoveChartRequests([OwnedChartRemoveRequest.FromOwnerReference(bmsFile)]);
 
         Assert.AreSame(index, state.CreateLibraryChartRefIndexSnapshot());
         Assert.AreEqual(0, index.GetChartRefsByPaths([oldPath, newPath]).Count);
@@ -955,7 +954,7 @@ public sealed class OwnedChartCollectionStateTests
     }
 
     [TestMethod]
-    public void RemoveCharts_UpdatesCachedLibraryChartRefIndexAmbiguity()
+    public void LibraryChartRefIndexSnapshot_RemoveCharts_UpdatesCachedAmbiguity()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         string sharedPath = Path.Combine("C:\\Installed", "Shared", "chart.bms");
@@ -1230,7 +1229,7 @@ public sealed class OwnedChartCollectionStateTests
     }
 
     [TestMethod]
-    public void RemoveCharts_UpdateOwnedCollectionMembership()
+    public void RemoveChartRequests_UpdateOwnedCollectionMembership()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         var first = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "First", "chart.bms"));
@@ -1242,9 +1241,9 @@ public sealed class OwnedChartCollectionStateTests
         };
         OwnedChartCollectionState state = OwnedChartCollectionState.FromStorageRows([first, second], [bmsonSong]);
 
-        Assert.AreEqual(2, state.RemoveCharts([
-            ChartFileProjection.FromBmsStorageOwnerIdentity(first),
-            ChartFileProjection.FromBmsonStorageOwnerIdentity(bmsonSong)
+        Assert.AreEqual(2, state.RemoveChartRequests([
+            OwnedChartRemoveRequest.FromOwnerReference(first),
+            OwnedChartRemoveRequest.FromOwnerReference(bmsonSong)
         ]));
         List<ChartFile> afterRemove = state.CreateSnapshot(includeResourceReferences: false);
 
@@ -1253,7 +1252,7 @@ public sealed class OwnedChartCollectionStateTests
     }
 
     [TestMethod]
-    public void RemoveCharts_OwnerReferenceDoesNotRemovePathOnlyInput()
+    public void RemoveChartRequests_StaleOwnerReferenceDoesNotRemoveSamePathChart()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         string bmsPath = Path.Combine("C:\\Installed", "Bms", "chart.bms");
@@ -1265,25 +1264,11 @@ public sealed class OwnedChartCollectionStateTests
             md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
         };
         OwnedChartCollectionState state = OwnedChartCollectionState.FromStorageRows([bmsFile], [bmsonSong]);
-        var bmsPathOnlyChart = new ChartFile(
-            ChartFileKind.Bms,
-            bmsonPath,
-            bmsFile.hash,
-            null,
-            "title",
-            "raw",
-            "artist",
-            string.Empty,
-            Path.GetDirectoryName(bmsonPath),
-            string.Empty,
-            string.Empty,
-            null,
-            0,
-            null,
-            null,
-            null);
+        var staleSamePathBmsOwner = CreateFile("cccccccccccccccccccccccccccccccc", bmsonPath);
 
-        Assert.AreEqual(0, state.RemoveCharts([bmsPathOnlyChart]));
+        Assert.AreEqual(0, state.RemoveChartRequests([
+            OwnedChartRemoveRequest.FromOwnerReference(staleSamePathBmsOwner)
+        ]));
         List<ChartFile> snapshot = state.CreateSnapshot(includeResourceReferences: false);
 
         Assert.AreEqual(2, snapshot.Count);
@@ -1310,7 +1295,7 @@ public sealed class OwnedChartCollectionStateTests
     }
 
     [TestMethod]
-    public void RemoveCharts_OwnerReferenceRemovesOnlyRequestedOwnerWhenDuplicatePathWasSkipped()
+    public void RemoveChartRequests_OwnerReferenceRemovesOnlyRequestedOwnerWhenDuplicatePathWasSkipped()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         string sharedPath = Path.Combine("C:\\Installed", "Shared", "chart.bms");
@@ -1320,7 +1305,7 @@ public sealed class OwnedChartCollectionStateTests
         OwnedChartCollectionState state = OwnedChartCollectionState.FromStorageRows([first, samePath, other], [], out OwnedChartStorageRowFilterSummary filterSummary);
 
         Assert.AreEqual(1, filterSummary.DuplicatePathBmsCount);
-        Assert.AreEqual(1, state.RemoveCharts([ChartFileProjection.FromBmsStorageOwnerIdentity(first)]));
+        Assert.AreEqual(1, state.RemoveChartRequests([OwnedChartRemoveRequest.FromOwnerReference(first)]));
         List<ChartFile> snapshot = state.CreateSnapshot(includeResourceReferences: false);
 
         Assert.AreEqual(1, snapshot.Count);
@@ -1499,7 +1484,7 @@ public sealed class OwnedChartCollectionStateTests
         OwnedChartCollectionState state = OwnedChartCollectionState.FromStorageRows([movedBms, removedBms], []);
         OwnedDuplicateChartRowSnapshot originalSnapshot = state.CreateDuplicateChartRowSnapshot();
 
-        state.RemoveCharts([ChartFileProjection.FromBmsStorageOwnerIdentity(removedBms)]);
+        state.RemoveChartRequests([OwnedChartRemoveRequest.FromOwnerReference(removedBms)]);
         movedBms.path = newPath;
         state.ApplyPathChanges(
         [
@@ -1532,7 +1517,7 @@ public sealed class OwnedChartCollectionStateTests
         OwnedChartCollectionState state = OwnedChartCollectionState.FromStorageRows([bmsFile], [removedBmson, keptBmson]);
         OwnedDuplicateChartRowSnapshot originalSnapshot = state.CreateDuplicateChartRowSnapshot();
 
-        state.RemoveCharts([ChartFileProjection.FromBmsonStorageOwnerIdentity(removedBmson)]);
+        state.RemoveChartRequests([OwnedChartRemoveRequest.FromOwnerReference(removedBmson)]);
 
         OwnedDuplicateChartRowSnapshot snapshot = state.CreateDuplicateChartRowSnapshot();
         Assert.AreNotSame(originalSnapshot, snapshot);

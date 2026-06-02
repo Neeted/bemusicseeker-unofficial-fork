@@ -1158,13 +1158,6 @@ internal sealed class OwnedChartCollectionState
         }
     }
 
-    internal int RemoveCharts(IEnumerable<ChartFile> removedCharts)
-    {
-        return RemoveChartRequests((removedCharts ?? [])
-            .Select(OwnedChartRemoveRequest.FromOwnerReferenceChart)
-            .Where(request => request != null));
-    }
-
     internal int RemoveChartRequests(IEnumerable<OwnedChartRemoveRequest> removeRequests)
     {
         List<ChartFile> actualRemovedCharts = [];
