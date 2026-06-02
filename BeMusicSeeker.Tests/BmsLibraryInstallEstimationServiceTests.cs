@@ -2098,20 +2098,49 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         state.AddChart(Path.Combine(firstDir, "a.bms"), hash, null);
         state.AddChart(Path.Combine(secondDir, "b.bms"), hash, null);
 
+        Assert.AreEqual(2, state.DirectoryReferenceCount);
+
         state.RemoveChart(Path.Combine(firstDir, "a.bms"), hash, null);
         InstalledChartLookupIndexSnapshot partial = state.CreateSnapshot();
 
         Assert.IsTrue(partial.ContainsPrimaryHash(hash));
         Assert.AreEqual(1, partial.GetPrimaryHashCount(hash));
+        Assert.AreEqual(1, state.DirectoryReferenceCount);
         CollectionAssert.AreEqual(new[] { secondDir }, partial.Md5Directories[hash].ToArray());
 
         state.RemoveChart(Path.Combine(secondDir, "b.bms"), hash, null);
         InstalledChartLookupIndexSnapshot empty = state.CreateSnapshot();
 
         Assert.IsFalse(empty.ContainsPrimaryHash(hash));
+        Assert.AreEqual(0, state.DirectoryReferenceCount);
         Assert.IsFalse(empty.Md5Directories.ContainsKey(hash));
         Assert.IsFalse(empty.KnownChartDirectories.Contains(firstDir));
         Assert.IsFalse(empty.KnownChartDirectories.Contains(secondDir));
+    }
+
+    [TestMethod]
+    public void InstalledChartLookupIndexState_CountsDistinctDirectoryReferences()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        string sha256 = new string('b', 64);
+        string dir = Path.Combine("C:\\Installed", "SameDir");
+        string firstPath = Path.Combine(dir, "a.bms");
+        string secondPath = Path.Combine(dir, "b.bms");
+        var state = new InstalledChartLookupIndexState();
+
+        state.AddChart(firstPath, md5, sha256);
+        state.AddChart(secondPath, md5, sha256);
+
+        Assert.AreEqual(2, state.DirectoryReferenceCount);
+
+        state.RemoveChart(firstPath, md5, sha256);
+
+        Assert.AreEqual(2, state.DirectoryReferenceCount);
+
+        state.RemoveChart(secondPath, md5, sha256);
+
+        Assert.AreEqual(0, state.DirectoryReferenceCount);
     }
 
     [TestMethod]

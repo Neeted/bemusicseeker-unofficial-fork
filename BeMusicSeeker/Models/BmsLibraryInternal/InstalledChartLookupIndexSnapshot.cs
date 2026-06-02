@@ -377,12 +377,13 @@ internal sealed class InstalledChartLookupIndexState : IPrimaryHashLookup
 
     private bool snapshotDirty = true;
 
+    private int directoryReferenceCount;
+
     public int DistinctPrimaryHashCount => primaryHashCounts.Count;
 
     internal int HashCount => md5DirectoryCounts.Count + sha256DirectoryCounts.Count;
 
-    internal int DirectoryReferenceCount => md5DirectoryCounts.Sum(item => item.Value.Count)
-        + sha256DirectoryCounts.Sum(item => item.Value.Count);
+    internal int DirectoryReferenceCount => directoryReferenceCount;
 
     public bool ContainsPrimaryHash(string lookupHash)
     {
@@ -538,6 +539,10 @@ internal sealed class InstalledChartLookupIndexState : IPrimaryHashLookup
             directoryCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
             directoryCountsByHash[hash] = directoryCounts;
         }
+        if (!directoryCounts.ContainsKey(directory))
+        {
+            directoryReferenceCount++;
+        }
         Increment(directoryCounts, directory);
         MarkDirty();
     }
@@ -555,6 +560,10 @@ internal sealed class InstalledChartLookupIndexState : IPrimaryHashLookup
         if (directoryCountsByHash.TryGetValue(hash, out Dictionary<string, int> directoryCounts)
             && Decrement(directoryCounts, directory))
         {
+            if (!directoryCounts.ContainsKey(directory))
+            {
+                directoryReferenceCount--;
+            }
             if (directoryCounts.Count == 0)
             {
                 directoryCountsByHash.Remove(hash);
