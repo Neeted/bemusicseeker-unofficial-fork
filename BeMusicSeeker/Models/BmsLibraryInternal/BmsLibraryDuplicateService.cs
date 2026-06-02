@@ -25,16 +25,21 @@ internal sealed class BmsLibraryDuplicateService
     /// </summary>
     /// <param name="charts">重複 warning を付与する chart。</param>
     /// <param name="duplicateWarningMessage">重複 warning の表示本文。</param>
-    public void ApplyDuplicateWarnings(IEnumerable<ChartFile> charts, string duplicateWarningMessage)
+    public HashSet<BMSFile> ApplyDuplicateWarnings(IEnumerable<ChartFile> charts, string duplicateWarningMessage)
     {
+        var warningOwners = new HashSet<BMSFile>();
         foreach (BMSFile file in (charts ?? [])
             .Select(chart => chart?.GetBmsStorageOwner())
-            .Where(file => file != null)
-            .Distinct())
+            .Where(file => file != null))
         {
+            if (!warningOwners.Add(file))
+            {
+                continue;
+            }
             file.ClearWarning(ChartWarningKind.DuplicateChart);
             file.SetWarning(ChartWarningKind.DuplicateChart, duplicateWarningMessage);
         }
+        return warningOwners;
     }
 
     /// <summary>

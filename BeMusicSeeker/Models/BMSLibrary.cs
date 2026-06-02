@@ -1004,6 +1004,10 @@ public class BMSLibrary : NotificationObject
 
     private int duplicateChartGroupsInvalidationVersion;
 
+    private HashSet<BMSFile> duplicateWarningBmsOwners = [];
+
+    private bool duplicateWarningFullClearPending = true;
+
     private readonly object lockInstalledChartLookupIndex = new();
 
     private InstalledChartLookupIndexState installedChartLookupIndex = new();
@@ -1521,6 +1525,12 @@ public class BMSLibrary : NotificationObject
         {
             RaisePropertyChanged(() => DuplicateChartGroupsInvalidationVersion);
         }).Logging("DuplicateChartGroupsInvalidationVersion");
+    }
+
+    private void MarkDuplicateWarningFullClearPending()
+    {
+        duplicateWarningBmsOwners = [];
+        duplicateWarningFullClearPending = true;
     }
 
     internal IEnumerable<ChartFile> ChartFilesGarbled => CreateBmsChartSubsetSnapshot(
@@ -8147,6 +8157,7 @@ completeFileEnumerationOnce,
         {
             _BMSFiles = files ?? [];
             _BmsonSongs = songs ?? [];
+            MarkDuplicateWarningFullClearPending();
             IncrementBmsStorageRowsVersion();
             IncrementBmsonStorageRowsVersion();
             return CreateStorageRowsSnapshotUnsafe();
@@ -8184,6 +8195,7 @@ completeFileEnumerationOnce,
         lock (lockStorageRowsVersion)
         {
             _BMSFiles = files ?? [];
+            MarkDuplicateWarningFullClearPending();
             IncrementBmsStorageRowsVersion();
             return CreateCurrentStorageRowsVersionSnapshotUnsafe();
         }
@@ -11132,13 +11144,18 @@ completeFileEnumerationOnce,
                     IReadOnlyList<DuplicateChartRow> snapshot = duplicateSnapshot.Rows;
                     long ownedSnapshotMs = totalStopwatch.ElapsedMilliseconds - stageStartMs;
                     stageStartMs = totalStopwatch.ElapsedMilliseconds;
-                    duplicateService.ClearDuplicateState(duplicateSnapshot.BmsStorageRows);
+                    IEnumerable<BMSFile> duplicateWarningClearTargets = duplicateWarningFullClearPending
+                        ? duplicateSnapshot.BmsStorageRows
+                        : duplicateWarningBmsOwners;
+                    duplicateWarningFullClearPending = false;
+                    duplicateWarningBmsOwners = [];
+                    duplicateService.ClearDuplicateState(duplicateWarningClearTargets);
                     long clearDuplicateStateMs = totalStopwatch.ElapsedMilliseconds - stageStartMs;
                     stageStartMs = totalStopwatch.ElapsedMilliseconds;
                     DuplicateAnalysisResult analysis = duplicateService.Analyze(snapshot, DuplicateWarningMessage);
                     long analyzeMs = totalStopwatch.ElapsedMilliseconds - stageStartMs;
                     stageStartMs = totalStopwatch.ElapsedMilliseconds;
-                    duplicateService.ApplyDuplicateWarnings(analysis.DuplicateCharts, DuplicateWarningMessage);
+                    duplicateWarningBmsOwners = duplicateService.ApplyDuplicateWarnings(analysis.DuplicateCharts, DuplicateWarningMessage);
                     long applyWarningsMs = totalStopwatch.ElapsedMilliseconds - stageStartMs;
                     stageStartMs = totalStopwatch.ElapsedMilliseconds;
                     DuplicateChartGroups = analysis.DuplicateGroups;

@@ -255,11 +255,12 @@ public sealed class BmsLibraryDuplicateServiceTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
+            TestableBmsFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\BMS", "DirA", "a.bms"));
             var library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
             {
                 BMSFiles =
                 [
-                    CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\BMS", "DirA", "a.bms"))
+                    bmsFile
                 ],
                 BmsonSongs =
                 [
@@ -275,12 +276,38 @@ public sealed class BmsLibraryDuplicateServiceTests
 
             library.SearchDuplicateChartGroups();
             Assert.AreEqual(1, library.DuplicateChartGroups.Count);
+            Assert.IsTrue(bmsFile.Warnings.Contains(ChartWarningKind.DuplicateChart));
 
             library.BmsonSongs = [];
             Assert.IsNull(library.DuplicateChartGroups);
 
             library.SearchDuplicateChartGroups();
             Assert.AreEqual(0, library.DuplicateChartGroups.Count);
+            Assert.IsFalse(bmsFile.Warnings.Contains(ChartWarningKind.DuplicateChart));
+        });
+    }
+
+    [TestMethod]
+    public void SearchDuplicateChartGroups_FullClearsUntrackedDuplicateWarningsAfterBmsFilesReplacement()
+    {
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            TestResourceInitializer.EnsureJapaneseResources();
+            TestableBmsFile staleWarningFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\BMS", "DirA", "a.bms"));
+            staleWarningFile.SetWarning(ChartWarningKind.DuplicateChart, Resources.Warning_DuplicateBmsFile);
+            var library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
+            {
+                BMSFiles =
+                [
+                    staleWarningFile
+                ],
+                BmsonSongs = []
+            };
+
+            library.SearchDuplicateChartGroups();
+
+            Assert.AreEqual(0, library.DuplicateChartGroups.Count);
+            Assert.IsFalse(staleWarningFile.Warnings.Contains(ChartWarningKind.DuplicateChart));
         });
     }
 

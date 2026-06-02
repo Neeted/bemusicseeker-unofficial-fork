@@ -1910,7 +1910,8 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(duplicateSearchMethod, "CreateOwnedDuplicateChartRowSnapshotUnsafe()");
         StringAssert.Contains(duplicateSearchMethod, "ownedSnapshotMs=");
         StringAssert.Contains(duplicateSearchMethod, "clearDuplicateStateMs=");
-        StringAssert.Contains(duplicateSearchMethod, "duplicateService.ClearDuplicateState(duplicateSnapshot.BmsStorageRows)");
+        StringAssert.Contains(duplicateSearchMethod, "duplicateWarningFullClearPending");
+        StringAssert.Contains(duplicateSearchMethod, "duplicateService.ClearDuplicateState(duplicateWarningClearTargets)");
         Assert.IsFalse(duplicateSearchMethod.Contains("duplicateService.BuildSnapshot(bmsSnapshot, bmsonSnapshot)"));
         StringAssert.Contains(duplicateSearchMethod, "analyzeMs=");
         StringAssert.Contains(duplicateSearchMethod, "applyWarningsMs=");
