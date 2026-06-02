@@ -2695,6 +2695,30 @@ public sealed class OwnedChartCollectionStateTests
     }
 
     [TestMethod]
+    public void ApplyLibraryMutationDelta_UnregisterBmsonDoesNotPruneSamePathDifferentOwner()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            string sharedPath = Path.Combine("C:\\Library", "Bmson", "chart.bmson");
+            var bmsonSong = CreateBmsonSong(sharedPath, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+            var duplicateOwner = CreateBmsonSong(sharedPath, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+            var library = new BMSLibrary(songDbPath)
+            {
+                BMSFiles = [],
+                BmsonSongs = [bmsonSong, duplicateOwner]
+            };
+
+            var delta = new LibraryMutationDelta();
+            delta.ChartRemoveRequests.Add(OwnedChartRemoveRequest.FromOwnerReference(bmsonSong));
+            InvokeApplyLibraryMutationDelta(library, delta);
+
+            Assert.AreEqual(1, library.BmsonSongs.Count);
+            Assert.AreSame(duplicateOwner, library.BmsonSongs[0]);
+        });
+    }
+
+    [TestMethod]
     public void ApplyLibraryMutationDelta_OverlayOnlyClearsMetadataCacheAndPublishesOverlayRefreshWithoutLookupRebuild()
     {
         TestResourceInitializer.EnsureJapaneseResources();

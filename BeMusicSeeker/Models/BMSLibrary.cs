@@ -14894,6 +14894,10 @@ completeFileEnumerationOnce,
         {
             return true;
         }
+        if (pathCleanupKeys?.Count > 0 != true)
+        {
+            return false;
+        }
         string pathKey = CreateOwnedPathKey(file.path);
         return !string.IsNullOrWhiteSpace(pathKey) && pathCleanupKeys?.Contains(pathKey) == true;
     }
@@ -14907,6 +14911,10 @@ completeFileEnumerationOnce,
         if (removedSongs?.Contains(song) == true)
         {
             return true;
+        }
+        if (pathCleanupKeys?.Count > 0 != true)
+        {
+            return false;
         }
         string pathKey = CreateOwnedPathKey(song.path);
         return !string.IsNullOrWhiteSpace(pathKey) && pathCleanupKeys?.Contains(pathKey) == true;
