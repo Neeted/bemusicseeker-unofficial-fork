@@ -132,20 +132,21 @@ public class ChartPackage : LR2SongDBExtended.install
         return new ChartPackage(entries, hasExplicitChartEntries: true);
     }
 
-    internal PackageInstallEstimationSnapshot GetOrBuildInstallEstimationSnapshotFromEntries(IEnumerable<PackageChartEntry> targetEntries)
+    internal PackageInstallEstimationSnapshot GetOrBuildInstallEstimationSnapshotFromEntries(IEnumerable<PackageChartEntry> targetEntries, ChartResourceSnapshot definedResources = null)
     {
         PackageInstallSurfaceSnapshot installSurfaceSnapshot = GetOrBuildInstallEstimationSurfaceSnapshot(out bool sourceSurfaceCacheHit);
-        return PackageInstallEstimationSnapshotBuilder.Build(this, targetEntries, installSurfaceSnapshot, sourceSurfaceCacheHit);
+        return PackageInstallEstimationSnapshotBuilder.Build(this, targetEntries, installSurfaceSnapshot, sourceSurfaceCacheHit, definedResources: definedResources);
     }
 
-    internal PackageInstallEstimationSnapshot BuildInstallEstimationSnapshotFromEntries(IEnumerable<PackageChartEntry> targetEntries, PackageInstallSurfaceSnapshot installSurfaceSnapshot, bool sourceSurfaceCacheHit, bool sourceSurfaceBatchHit = false)
+    internal PackageInstallEstimationSnapshot BuildInstallEstimationSnapshotFromEntries(IEnumerable<PackageChartEntry> targetEntries, PackageInstallSurfaceSnapshot installSurfaceSnapshot, bool sourceSurfaceCacheHit, bool sourceSurfaceBatchHit = false, ChartResourceSnapshot definedResources = null)
     {
         return PackageInstallEstimationSnapshotBuilder.Build(
             this,
             targetEntries,
             installSurfaceSnapshot,
             sourceSurfaceCacheHit,
-            sourceSurfaceBatchHit);
+            sourceSurfaceBatchHit,
+            definedResources);
     }
 
     internal void InvalidateInstallEstimationSnapshot()

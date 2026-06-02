@@ -120,14 +120,14 @@ internal sealed class PackageInstallEstimationSnapshot
 
 internal static class PackageInstallEstimationSnapshotBuilder
 {
-    internal static PackageInstallEstimationSnapshot Build(ChartPackage package, IEnumerable<PackageChartEntry> targetEntries, PackageInstallSurfaceSnapshot installSurfaceSnapshot, bool sourceSurfaceCacheHit, bool sourceSurfaceBatchHit = false)
+    internal static PackageInstallEstimationSnapshot Build(ChartPackage package, IEnumerable<PackageChartEntry> targetEntries, PackageInstallSurfaceSnapshot installSurfaceSnapshot, bool sourceSurfaceCacheHit, bool sourceSurfaceBatchHit = false, ChartResourceSnapshot definedResources = null)
     {
         List<PackageChartEntry> normalizedTargetEntries = NormalizeEntries(targetEntries);
         PackageChartEntry representativeEntry = SelectRepresentativeEntry(normalizedTargetEntries);
         return new PackageInstallEstimationSnapshot
         {
             RepresentativeChart = representativeEntry?.Chart,
-            DefinedResources = ChartResourceSnapshot.CreateAggregate(normalizedTargetEntries.Select(entry => entry.Chart)),
+            DefinedResources = definedResources ?? ChartResourceSnapshot.CreateAggregate(normalizedTargetEntries.Select(entry => entry.Chart)),
             TargetMetadataProfile = BuildTargetMetadataProfile(normalizedTargetEntries),
             BundledResources = installSurfaceSnapshot?.BundledResources?.Clone() ?? new DirectoryResourceLookupCache.Entry(),
             SourceCandidateResources = installSurfaceSnapshot?.SourceCandidateResources?.Clone() ?? new DirectoryResourceLookupCache.Entry(),

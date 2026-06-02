@@ -49,6 +49,34 @@ public sealed class ChartResourceSnapshotTests
         Assert.AreEqual("bg.final", ChartResourcePathNormalizer.GetLookupFileName(Path.Combine("visual", "bg.final.png")));
     }
 
+    [TestMethod]
+    public void PackageInstallEstimationSnapshotBuilder_UsesPrecomputedDefinedResources()
+    {
+        PackageChartEntry targetEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(
+            CreateBmsFile("C:\\Pending\\target.bms", ["target.wav"], []),
+            includeWarningSnapshot: false,
+            includeResourceReferences: true,
+            includeScoreSnapshot: false));
+        ChartResourceSnapshot precomputedResources = ChartResourceSnapshot.CreateAggregate([
+            ChartFileProjection.FromBmsFile(
+                CreateBmsFile("C:\\Pending\\precomputed.bms", ["precomputed.wav"], []),
+                includeWarningSnapshot: false,
+                includeResourceReferences: true,
+                includeScoreSnapshot: false)
+        ]);
+
+        PackageInstallEstimationSnapshot snapshot = PackageInstallEstimationSnapshotBuilder.Build(
+            ChartPackage.FromChartEntries([targetEntry]),
+            [targetEntry],
+            PackageInstallSurfaceSnapshot.Empty,
+            sourceSurfaceCacheHit: false,
+            definedResources: precomputedResources);
+
+        Assert.AreSame(precomputedResources, snapshot.DefinedResources);
+        CollectionAssert.Contains(snapshot.DefinedResources.AudioRelativePaths.ToArray(), "precomputed");
+        CollectionAssert.DoesNotContain(snapshot.DefinedResources.AudioRelativePaths.ToArray(), "target");
+    }
+
     private static BMSFile CreateBmsFile(string path, IEnumerable<string> wavFiles, IEnumerable<string> bgaFiles)
     {
         return new BMSFile

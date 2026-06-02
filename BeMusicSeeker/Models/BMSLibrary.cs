@@ -11386,6 +11386,7 @@ completeFileEnumerationOnce,
         long lazyHashLookupCountBefore = useSharedLazyHashMetrics ? 0L : (effectiveDirectoryLookupCache?.LazyHashLookupCount ?? 0L);
         int lazyHashCacheEntriesBefore = useSharedLazyHashMetrics ? 0 : (effectiveDirectoryLookupCache?.LazyHashCacheEntryCount ?? 0);
         bool sourceSurfaceBatchHit = batchState?.UsesBatchSourceSurface == true && batchState.SourceSurface != null;
+        ChartResourceSnapshot precomputedDefinedResources = ResolvePrecomputedDefinedResources(batchState, targetEntryList);
         PackageInstallEstimationSnapshot estimationSnapshot;
         if (package != null && sourceSurfaceBatchHit)
         {
@@ -11399,12 +11400,13 @@ completeFileEnumerationOnce,
                 targetEntryList,
                 sharedInstallSurface,
                 sourceSurfaceCacheHit: false,
-                sourceSurfaceBatchHit: true);
+                sourceSurfaceBatchHit: true,
+                precomputedDefinedResources);
         }
         else
         {
             estimationSnapshot = package != null
-                ? package.GetOrBuildInstallEstimationSnapshotFromEntries(targetEntryList)
+                ? package.GetOrBuildInstallEstimationSnapshotFromEntries(targetEntryList, precomputedDefinedResources)
                 : PackageInstallEstimationSnapshotBuilder.BuildForLooseEntries(targetEntryList);
         }
         InstallEstimationResult result = candidateDirectoryOverride == null
@@ -11451,6 +11453,27 @@ completeFileEnumerationOnce,
             SourceSurfaceBatchHit = estimationSnapshot?.SourceSurfaceBatchHit ?? false,
             SourceSurfaceScanBackend = estimationSnapshot?.SourceSurfaceScanBackend ?? string.Empty
         };
+    }
+
+    private static ChartResourceSnapshot ResolvePrecomputedDefinedResources(PendingEstimateSourceBatchPackageState batchState, IReadOnlyList<PackageChartEntry> targetEntries)
+    {
+        if (batchState?.ChartResources == null
+            || batchState.MissingEntries == null
+            || targetEntries == null
+            || batchState.MissingEntries.Count != targetEntries.Count)
+        {
+            return null;
+        }
+
+        for (int i = 0; i < targetEntries.Count; i++)
+        {
+            if (!ReferenceEquals(batchState.MissingEntries[i], targetEntries[i]))
+            {
+                return null;
+            }
+        }
+
+        return batchState.ChartResources;
     }
 
     private void LogInstallEstimationEvaluation(InstallEstimationEvaluationData estimationData)
