@@ -1455,7 +1455,7 @@ public sealed class OwnedChartCollectionStateTests
     {
         TestResourceInitializer.EnsureJapaneseResources();
         var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "chart.bms"));
-        var bmsonSong = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "chart.bmson"), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+        var bmsonSong = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "chart.bmson"), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         OwnedChartCollectionState state = OwnedChartCollectionState.FromStorageRows([bmsFile], [bmsonSong]);
 
         OwnedDuplicateChartRowSnapshot first = state.CreateDuplicateChartRowSnapshot();
@@ -1466,6 +1466,10 @@ public sealed class OwnedChartCollectionStateTests
         Assert.IsTrue(state.IsDuplicateChartRowSnapshotInitialized);
         Assert.AreSame(first, second);
         Assert.AreEqual(2, first.Rows.Count);
+        Assert.AreEqual(1, first.DuplicateHashCount);
+        Assert.AreEqual(2, first.DuplicateHashRowCount);
+        Assert.AreEqual("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", first.DuplicateHashBuckets.Single().LookupHash);
+        Assert.AreEqual(2, first.DuplicateHashBuckets.Single().Rows.Count);
         CollectionAssert.AreEquivalent(new[] { bmsFile }, first.BmsStorageRows.ToArray());
         Assert.IsNotNull(materialized);
         Assert.IsNull(bmsRow.Chart);
@@ -1505,6 +1509,8 @@ public sealed class OwnedChartCollectionStateTests
         Assert.AreEqual(newPath, snapshot.Rows.Single(row => ReferenceEquals(row.BmsFile, movedBms)).Path);
         Assert.IsTrue(snapshot.Rows.Any(row => ReferenceEquals(row.BmsFile, addedBms)));
         Assert.IsTrue(snapshot.Rows.Any(row => ReferenceEquals(row.BmsonSong, addedBmson)));
+        Assert.AreEqual(0, snapshot.DuplicateHashCount);
+        Assert.AreEqual(0, snapshot.DuplicateHashRowCount);
     }
 
     [TestMethod]
@@ -1524,6 +1530,7 @@ public sealed class OwnedChartCollectionStateTests
         Assert.AreSame(originalSnapshot.BmsStorageRows, snapshot.BmsStorageRows);
         Assert.IsFalse(snapshot.Rows.Any(row => ReferenceEquals(row.BmsonSong, removedBmson)));
         Assert.IsTrue(snapshot.Rows.Any(row => ReferenceEquals(row.BmsonSong, keptBmson)));
+        Assert.AreEqual(0, snapshot.DuplicateHashCount);
         CollectionAssert.AreEqual(new[] { bmsFile }, snapshot.BmsStorageRows.ToArray());
     }
 
@@ -1549,6 +1556,7 @@ public sealed class OwnedChartCollectionStateTests
         ]);
         Assert.AreEqual("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", originalRow.LookupHash);
         Assert.AreEqual("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", state.CreateDuplicateChartRowSnapshot().Rows.Single().LookupHash);
+        Assert.AreEqual(0, state.CreateDuplicateChartRowSnapshot().DuplicateHashCount);
 
         state.ApplyDigestChanges(
         [
@@ -1561,6 +1569,7 @@ public sealed class OwnedChartCollectionStateTests
                 new string('2', 64))
         ]);
         Assert.AreEqual("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", state.CreateDuplicateChartRowSnapshot().Rows.Single().LookupHash);
+        Assert.AreEqual(0, state.CreateDuplicateChartRowSnapshot().DuplicateHashCount);
         Assert.AreEqual("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", originalRow.LookupHash);
     }
 

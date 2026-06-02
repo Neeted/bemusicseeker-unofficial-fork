@@ -11152,7 +11152,7 @@ completeFileEnumerationOnce,
                     duplicateService.ClearDuplicateState(duplicateWarningClearTargets);
                     long clearDuplicateStateMs = totalStopwatch.ElapsedMilliseconds - stageStartMs;
                     stageStartMs = totalStopwatch.ElapsedMilliseconds;
-                    DuplicateAnalysisResult analysis = duplicateService.Analyze(snapshot, DuplicateWarningMessage);
+                    DuplicateAnalysisResult analysis = duplicateService.Analyze(duplicateSnapshot, DuplicateWarningMessage);
                     long analyzeMs = totalStopwatch.ElapsedMilliseconds - stageStartMs;
                     stageStartMs = totalStopwatch.ElapsedMilliseconds;
                     duplicateWarningBmsOwners = duplicateService.ApplyDuplicateWarnings(analysis.DuplicateCharts, DuplicateWarningMessage);
@@ -11170,6 +11170,9 @@ completeFileEnumerationOnce,
                         + " propertySetMs=" + propertySetMs
                         + " chartCount=" + snapshot.Count
                         + " rowCount=" + snapshot.Count
+                        + " duplicateHashCount=" + duplicateSnapshot.DuplicateHashCount
+                        + " duplicateHashRowCount=" + duplicateSnapshot.DuplicateHashRowCount
+                        + " connectedDirCount=" + analysis.ConnectedDirectoryCount
                         + " materializedChartCount=" + analysis.MaterializedChartCount
                         + " duplicateChartCount=" + analysis.DuplicateCharts.Count
                         + " Groups=" + analysis.DuplicateGroups.Count);

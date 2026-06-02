@@ -48,50 +48,18 @@ internal sealed class BmsLibraryDuplicateService
     /// <param name="snapshot">重複判定用 snapshot。</param>
     /// <param name="duplicateWarningMessage">duplicate group の chart projection に重ねる warning 本文。</param>
     /// <returns>重複解析結果。</returns>
-    public DuplicateAnalysisResult Analyze(IEnumerable<DuplicateChartRow> snapshot, string duplicateWarningMessage)
+    public DuplicateAnalysisResult Analyze(OwnedDuplicateChartRowSnapshot snapshot, string duplicateWarningMessage)
     {
         var result = new DuplicateAnalysisResult();
-        List<DuplicateChartRow> snapshotRows = [];
-        var firstRowsByHash = new Dictionary<string, DuplicateChartRow>(StringComparer.OrdinalIgnoreCase);
-        Dictionary<string, List<DuplicateChartRow>> duplicateRowsByHash = null;
-        List<string> hashOrder = [];
-        foreach (DuplicateChartRow row in snapshot ?? [])
-        {
-            if (row == null || !row.HasChartSource || string.IsNullOrWhiteSpace(row.LookupHash))
-            {
-                continue;
-            }
-            snapshotRows.Add(row);
-            if (firstRowsByHash.TryGetValue(row.LookupHash, out DuplicateChartRow firstRow))
-            {
-                duplicateRowsByHash ??= new Dictionary<string, List<DuplicateChartRow>>(StringComparer.OrdinalIgnoreCase);
-                if (!duplicateRowsByHash.TryGetValue(row.LookupHash, out List<DuplicateChartRow> duplicateHashRows))
-                {
-                    duplicateHashRows = [firstRow];
-                    duplicateRowsByHash[row.LookupHash] = duplicateHashRows;
-                }
-                duplicateHashRows.Add(row);
-            }
-            else
-            {
-                firstRowsByHash[row.LookupHash] = row;
-                hashOrder.Add(row.LookupHash);
-            }
-        }
-
         HashSet<DuplicateChartRow> duplicateRows = [];
 
         var dirToId = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         List<string> idToDir = [];
         List<int> parent = [];
-        foreach (string hash in hashOrder)
+        foreach (DuplicateHashBucket bucket in snapshot?.DuplicateHashBuckets ?? [])
         {
-            if (duplicateRowsByHash?.TryGetValue(hash, out List<DuplicateChartRow> duplicateHashRows) != true)
-            {
-                continue;
-            }
             int firstDirectoryId = -1;
-            foreach (DuplicateChartRow row in duplicateHashRows)
+            foreach (DuplicateChartRow row in bucket.Rows)
             {
                 AddDuplicateHashRow(row, ref firstDirectoryId);
             }
@@ -114,9 +82,10 @@ internal sealed class BmsLibraryDuplicateService
         {
             duplicateConnectedDirs.UnionWith(dirs);
         }
+        result.ConnectedDirectoryCount = duplicateConnectedDirs.Count;
 
         var rowsByDir = new Dictionary<string, List<DuplicateChartRow>>(StringComparer.OrdinalIgnoreCase);
-        foreach (DuplicateChartRow row in snapshotRows)
+        foreach (DuplicateChartRow row in snapshot?.Rows ?? [])
         {
             string dir = row.DirectoryPath;
             if (string.IsNullOrWhiteSpace(dir) || !duplicateConnectedDirs.Contains(dir))

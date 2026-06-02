@@ -13,4 +13,6 @@ internal sealed class DuplicateAnalysisResult
     public List<DuplicateGroup> DuplicateGroups { get; } = [];
 
     public int MaterializedChartCount { get; set; }
+
+    public int ConnectedDirectoryCount { get; set; }
 }

@@ -1915,6 +1915,9 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(duplicateSearchMethod.Contains("duplicateService.BuildSnapshot(bmsSnapshot, bmsonSnapshot)"));
         StringAssert.Contains(duplicateSearchMethod, "analyzeMs=");
         StringAssert.Contains(duplicateSearchMethod, "applyWarningsMs=");
+        StringAssert.Contains(duplicateSearchMethod, "duplicateHashCount=");
+        StringAssert.Contains(duplicateSearchMethod, "duplicateHashRowCount=");
+        StringAssert.Contains(duplicateSearchMethod, "connectedDirCount=");
         StringAssert.Contains(duplicateSearchMethod, "materializedChartCount=");
     }
 

@@ -29,11 +29,12 @@ public sealed class BmsLibraryDuplicateServiceTests
             CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine("C:\\BMS", "DirC", "b.bms"))
         ];
 
-        DuplicateAnalysisResult result = service.Analyze(CreateDuplicateAnalysisRows(files, []), Resources.Warning_DuplicateBmsFile);
+        DuplicateAnalysisResult result = service.Analyze(CreateDuplicateAnalysisSnapshot(files, []), Resources.Warning_DuplicateBmsFile);
 
         Assert.AreEqual(1, result.DuplicateGroups.Count);
         CollectionAssert.AreEquivalent(new[] { "C:\\BMS\\DirA", "C:\\BMS\\DirB", "C:\\BMS\\DirC" }, result.DuplicateGroups[0].Folders);
         Assert.AreEqual(4, result.DuplicateCharts.Count);
+        Assert.AreEqual(3, result.ConnectedDirectoryCount);
         Assert.IsTrue(result.DuplicateGroups[0].ChartFiles.All(chart => chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.DuplicateChart)));
     }
 
@@ -103,9 +104,14 @@ public sealed class BmsLibraryDuplicateServiceTests
             }
         ];
 
-        DuplicateAnalysisResult result = service.Analyze(CreateDuplicateAnalysisRows(bmsFiles, bmsonSongs), Resources.Warning_DuplicateBmsFile);
+        OwnedDuplicateChartRowSnapshot snapshot = CreateDuplicateAnalysisSnapshot(bmsFiles, bmsonSongs);
+
+        DuplicateAnalysisResult result = service.Analyze(snapshot, Resources.Warning_DuplicateBmsFile);
 
         Assert.AreEqual(1, result.DuplicateGroups.Count);
+        Assert.AreEqual(1, snapshot.DuplicateHashCount);
+        Assert.AreEqual(2, snapshot.DuplicateHashRowCount);
+        Assert.AreEqual(2, result.ConnectedDirectoryCount);
         Assert.IsTrue(result.DuplicateGroups.Any(group => group.Folders.Count == 2 && group.Folders.Contains("C:\\BMS\\DirA") && group.Folders.Contains("C:\\BMS\\DirC")));
         Assert.IsTrue(result.DuplicateGroups.SelectMany(group => group.ChartFiles).Any(chart => chart.Kind == ChartFileKind.Bmson && chart.GetBmsonStorageOwner() != null));
         Assert.IsTrue(result.DuplicateGroups.SelectMany(group => group.ChartFiles).Where(chart => chart.Kind == ChartFileKind.Bmson).All(chart => chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.DuplicateChart)));
@@ -128,7 +134,7 @@ public sealed class BmsLibraryDuplicateServiceTests
         };
 
         DuplicateAnalysisResult result = service.Analyze(
-            CreateDuplicateAnalysisRows([duplicateBms, uniqueSibling], [duplicateBmson]),
+            CreateDuplicateAnalysisSnapshot([duplicateBms, uniqueSibling], [duplicateBmson]),
             Resources.Warning_DuplicateBmsFile);
 
         Assert.AreEqual(1, result.DuplicateGroups.Count);
@@ -158,15 +164,18 @@ public sealed class BmsLibraryDuplicateServiceTests
         OwnedChartCollectionState ownedCharts = OwnedChartCollectionState.FromStorageRows([duplicateBms, uniqueSibling, unrelated], [duplicateBmson]);
 
         OwnedDuplicateChartRowSnapshot duplicateSnapshot = ownedCharts.CreateDuplicateChartRowSnapshot();
-        IReadOnlyList<DuplicateChartRow> snapshot = duplicateSnapshot.Rows;
-        Assert.AreEqual(0, snapshot.Count(row => row.Chart != null));
+        IReadOnlyList<DuplicateChartRow> snapshotRows = duplicateSnapshot.Rows;
+        Assert.AreEqual(0, snapshotRows.Count(row => row.Chart != null));
         CollectionAssert.AreEquivalent(new[] { duplicateBms, uniqueSibling, unrelated }, duplicateSnapshot.BmsStorageRows.ToArray());
+        Assert.AreEqual(1, duplicateSnapshot.DuplicateHashCount);
+        Assert.AreEqual(2, duplicateSnapshot.DuplicateHashRowCount);
 
-        DuplicateAnalysisResult result = service.Analyze(snapshot, Resources.Warning_DuplicateBmsFile);
+        DuplicateAnalysisResult result = service.Analyze(duplicateSnapshot, Resources.Warning_DuplicateBmsFile);
 
-        Assert.AreEqual(0, snapshot.Count(row => row.Chart != null));
-        Assert.AreEqual(4, snapshot.Count);
+        Assert.AreEqual(0, snapshotRows.Count(row => row.Chart != null));
+        Assert.AreEqual(4, snapshotRows.Count);
         Assert.AreEqual(3, result.MaterializedChartCount);
+        Assert.AreEqual(2, result.ConnectedDirectoryCount);
         Assert.AreEqual(1, result.DuplicateGroups.Count);
         Assert.AreEqual(2, result.DuplicateCharts.Count);
         Assert.IsTrue(result.DuplicateCharts.Any(chart => ReferenceEquals(chart.GetBmsStorageOwner(), duplicateBms)));
@@ -185,7 +194,7 @@ public sealed class BmsLibraryDuplicateServiceTests
         BMSFile uniqueSibling = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine("C:\\BMS", "dira", "unique.bms"));
 
         DuplicateAnalysisResult result = service.Analyze(
-            CreateDuplicateAnalysisRows([duplicateLower, duplicateUpper, uniqueSibling], []),
+            CreateDuplicateAnalysisSnapshot([duplicateLower, duplicateUpper, uniqueSibling], []),
             Resources.Warning_DuplicateBmsFile);
 
         Assert.AreEqual(1, result.DuplicateGroups.Count);
@@ -214,9 +223,10 @@ public sealed class BmsLibraryDuplicateServiceTests
             }
         ];
 
-        List<DuplicateChartRow> snapshot = CreateDuplicateAnalysisRows([], bmsonSongs);
+        OwnedDuplicateChartRowSnapshot snapshot = CreateDuplicateAnalysisSnapshot([], bmsonSongs);
 
-        Assert.AreEqual(0, snapshot.Count);
+        Assert.AreEqual(0, snapshot.Rows.Count);
+        Assert.AreEqual(0, snapshot.DuplicateHashCount);
     }
 
     [TestMethod]
@@ -523,14 +533,14 @@ public sealed class BmsLibraryDuplicateServiceTests
         return file;
     }
 
-    private static List<DuplicateChartRow> CreateDuplicateAnalysisRows(
+    private static OwnedDuplicateChartRowSnapshot CreateDuplicateAnalysisSnapshot(
         IEnumerable<BMSFile> bmsFiles,
         IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs)
     {
-        return [.. new[]
+        List<BMSFile> bmsFileList = [.. (bmsFiles ?? []).Where(file => file != null)];
+        List<DuplicateChartRow> rows = [.. new[]
             {
-                (bmsFiles ?? [])
-                    .Where(file => file != null)
+                bmsFileList
                     .Select(file => ChartFileProjection.FromBmsFile(file)),
                 (bmsonSongs ?? [])
                     .Where(song => song != null)
@@ -539,6 +549,7 @@ public sealed class BmsLibraryDuplicateServiceTests
             .SelectMany(charts => charts)
             .Select(DuplicateChartRow.CreateFromChart)
             .Where(row => row != null)];
+        return new OwnedDuplicateChartRowSnapshot(rows, bmsFileList);
     }
 
     private static void WithTemporarySongDb(System.Action<string> testAction)

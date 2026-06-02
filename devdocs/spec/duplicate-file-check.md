@@ -23,7 +23,7 @@ owned duplicate 判定の identity は BMS / bmson 共通で MD5 primary hash �
 
 `DuplicateChartGroups` は現在の検索結果 cache である。cache miss 時に `BMSLibrary.SearchDuplicateChartGroups()` が full search を行い、`DuplicateGroup` の list として置き換える。cache hit 時は再検索しない。
 
-`OwnedDuplicateChartRowSnapshot` は owned collection の duplicate row adjacent snapshot である。BMS / bmson storage owner identity、path、directory path、MD5 lookup hash を保持する。`DuplicateChartRow.CreateChart()` は storage owner から必要時だけ fresh `ChartFile` projection を作る。snapshot row 自体に materialized chart を保存しない。
+`OwnedDuplicateChartRowSnapshot` は owned collection の duplicate row adjacent snapshot である。BMS / bmson storage owner identity、path、directory path、MD5 lookup hash、duplicate MD5 bucket index を保持する。`DuplicateChartRow.CreateChart()` は storage owner から必要時だけ fresh `ChartFile` projection を作る。snapshot row 自体に materialized chart を保存しない。
 
 `BmsLibraryDuplicateService` は snapshot builder ではなく、duplicate analyze と BMS duplicate warning apply / clear を担当する。
 
@@ -132,11 +132,7 @@ Startup 中の `DuplicateTree` と duplicate main view は、startup presentatio
 
 ## Performance
 
-現在の merge 後 refresh では、`ownedSnapshotMs=0`、`clearDuplicateStateMs` は通常数 ms、`SearchDuplicateChartGroups analyzeMs` が支配項である。
-
-現行 analyze は full result replacement を維持しながら、snapshot row を走査して duplicate MD5 buckets を作り、directory connected components を組み立てる。21 万 row 規模では全件 hash scan が主な残コストになる。
-
-次の改善方針は、`OwnedDuplicateChartRowSnapshot` に duplicate MD5 bucket index を持たせることである。
+merge 後 refresh では、`OwnedDuplicateChartRowSnapshot` が duplicate MD5 bucket index を持つため、`BmsLibraryDuplicateService.Analyze()` は全 row の hash dictionary build を行わない。
 
 - `DuplicateChartGroups` は引き続き full replacement とし、group result の incremental update には踏み込まない。
 - owned adjacent snapshot は first occurrence order の duplicate MD5 bucket を持つ。
@@ -144,13 +140,7 @@ Startup 中の `DuplicateTree` と duplicate main view は、startup presentatio
 - directory sibling inclusion のため、directory -> row lookup は必要だが、duplicate-connected directory だけを対象にする。
 - snapshot が remove / path change / upsert / MD5 digest update で差し替わる場合、duplicate bucket index も同じ snapshot replacement に同期する。
 
-期待ログ:
-
-- `SearchDuplicateChartGroups analyzeMs` が下がる。
-- `duplicateHashCount` / `duplicateHashRowCount` / `connectedDirCount` を search log に追加すると、全件 row 数に対する duplicate candidate の規模を確認できる。
-- cold build を入れる場合は `duplicateHashIndexMs` を別ログに出し、単なるコスト移動かどうかを確認する。
-
-Post-startup warmup は optional である。duplicate hash index を warmup する場合も、duplicate warning clear や `DuplicateChartGroups` search は実行しない。
+`SearchDuplicateChartGroups` log は `duplicateHashCount` / `duplicateHashRowCount` / `connectedDirCount` を出し、全 row 数に対する duplicate candidate の規模を確認できるようにする。
 
 ## Logs
 

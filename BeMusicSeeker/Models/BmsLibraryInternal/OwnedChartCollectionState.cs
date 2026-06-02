@@ -15,11 +15,88 @@ internal sealed class OwnedDuplicateChartRowSnapshot
     {
         Rows = rows as DuplicateChartRow[] ?? [.. rows ?? []];
         BmsStorageRows = bmsStorageRows as BMSFile[] ?? [.. bmsStorageRows ?? []];
+        DuplicateHashBuckets = BuildDuplicateHashBuckets(Rows, out int duplicateHashRowCount);
+        DuplicateHashRowCount = duplicateHashRowCount;
     }
 
     internal IReadOnlyList<DuplicateChartRow> Rows { get; }
 
     internal IReadOnlyList<BMSFile> BmsStorageRows { get; }
+
+    internal IReadOnlyList<DuplicateHashBucket> DuplicateHashBuckets { get; }
+
+    internal int DuplicateHashCount => DuplicateHashBuckets.Count;
+
+    internal int DuplicateHashRowCount { get; }
+
+    private static IReadOnlyList<DuplicateHashBucket> BuildDuplicateHashBuckets(
+        IReadOnlyList<DuplicateChartRow> rows,
+        out int duplicateHashRowCount)
+    {
+        duplicateHashRowCount = 0;
+        if (rows == null || rows.Count == 0)
+        {
+            return [];
+        }
+
+        var firstRowsByHash = new Dictionary<string, DuplicateChartRow>(StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, List<DuplicateChartRow>> duplicateRowsByHash = null;
+        List<string> hashOrder = [];
+        foreach (DuplicateChartRow row in rows)
+        {
+            if (row == null || !row.HasChartSource || string.IsNullOrWhiteSpace(row.LookupHash))
+            {
+                continue;
+            }
+
+            if (firstRowsByHash.TryGetValue(row.LookupHash, out DuplicateChartRow firstRow))
+            {
+                duplicateRowsByHash ??= new Dictionary<string, List<DuplicateChartRow>>(StringComparer.OrdinalIgnoreCase);
+                if (!duplicateRowsByHash.TryGetValue(row.LookupHash, out List<DuplicateChartRow> duplicateHashRows))
+                {
+                    duplicateHashRows = [firstRow];
+                    duplicateRowsByHash[row.LookupHash] = duplicateHashRows;
+                }
+                duplicateHashRows.Add(row);
+            }
+            else
+            {
+                firstRowsByHash[row.LookupHash] = row;
+                hashOrder.Add(row.LookupHash);
+            }
+        }
+
+        if (duplicateRowsByHash == null)
+        {
+            return [];
+        }
+
+        List<DuplicateHashBucket> buckets = [];
+        foreach (string hash in hashOrder)
+        {
+            if (!duplicateRowsByHash.TryGetValue(hash, out List<DuplicateChartRow> duplicateHashRows))
+            {
+                continue;
+            }
+
+            duplicateHashRowCount += duplicateHashRows.Count;
+            buckets.Add(new DuplicateHashBucket(hash, duplicateHashRows));
+        }
+        return buckets;
+    }
+}
+
+internal sealed class DuplicateHashBucket
+{
+    internal DuplicateHashBucket(string lookupHash, IReadOnlyList<DuplicateChartRow> rows)
+    {
+        LookupHash = lookupHash;
+        Rows = rows as DuplicateChartRow[] ?? [.. rows ?? []];
+    }
+
+    internal string LookupHash { get; }
+
+    internal IReadOnlyList<DuplicateChartRow> Rows { get; }
 }
 
 internal sealed class OwnedChartStorageOwnerView
