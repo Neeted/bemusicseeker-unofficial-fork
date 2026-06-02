@@ -677,6 +677,77 @@ public sealed class BmsLibraryPackageInstallServiceTests
     }
 
     [TestMethod]
+    public void PrepareAutoInstallWorkflow_ProjectsResourceHealthForAllPackageEntries()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string packageDirectoryPath = Path.Combine(tempDirectoryPath, "BmsMixedResource");
+            Directory.CreateDirectory(packageDirectoryPath);
+            File.WriteAllText(
+                Path.Combine(packageDirectoryPath, "missing.bms"),
+                "#PLAYER 1\r\n"
+                + "#TITLE Missing\r\n"
+                + "#WAVAA missing.wav\r\n"
+                + "#00111:AA\r\n");
+            File.WriteAllText(
+                Path.Combine(packageDirectoryPath, "healthy.bms"),
+                "#PLAYER 1\r\n"
+                + "#TITLE Healthy\r\n"
+                + "#WAVAA sound.wav\r\n"
+                + "#00111:AA\r\n");
+            File.WriteAllBytes(Path.Combine(packageDirectoryPath, "sound.wav"), new byte[] { 1 });
+            var service = new BmsLibraryPackageInstallService();
+
+            AutoInstallWorkflowResult result = service.PrepareAutoInstallWorkflow(
+                [packageDirectoryPath],
+                [],
+                [],
+                _ => false,
+                0.6);
+
+            ChartPackage pendingPackage = result.PendingPackagesToAdd.Single();
+            PackageChartEntry missingEntry = pendingPackage.ChartEntries.Single(entry => Path.GetFileName(entry.Chart.Path).Equals("missing.bms", StringComparison.OrdinalIgnoreCase));
+            PackageChartEntry healthyEntry = pendingPackage.ChartEntries.Single(entry => Path.GetFileName(entry.Chart.Path).Equals("healthy.bms", StringComparison.OrdinalIgnoreCase));
+            Assert.IsTrue(missingEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
+            Assert.IsTrue(missingEntry.Chart.WAVHealth.HasValue);
+            Assert.AreEqual(100, healthyEntry.Chart.WAVHealth);
+            Assert.IsFalse(healthyEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
+        });
+    }
+
+    [TestMethod]
+    public void PrepareAutoInstallWorkflow_ProjectsResourceHealthForAlreadyInstalledEntries()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string packageDirectoryPath = Path.Combine(tempDirectoryPath, "BmsInstalledResource");
+            Directory.CreateDirectory(packageDirectoryPath);
+            string installedPath = Path.Combine(packageDirectoryPath, "installed.bms");
+            File.WriteAllText(
+                installedPath,
+                "#PLAYER 1\r\n"
+                + "#TITLE Installed\r\n"
+                + "#WAVAA missing.wav\r\n"
+                + "#00111:AA\r\n");
+            var service = new BmsLibraryPackageInstallService();
+
+            AutoInstallWorkflowResult result = service.PrepareAutoInstallWorkflow(
+                [packageDirectoryPath],
+                [],
+                [],
+                chart => string.Equals(chart?.Path, installedPath, StringComparison.OrdinalIgnoreCase),
+                0.6);
+
+            PackageChartEntry installedEntry = result.PendingPackagesToAdd.Single().ChartEntries.Single();
+            Assert.IsTrue(installedEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.AlreadyInstalled));
+            Assert.IsTrue(installedEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
+            Assert.IsTrue(installedEntry.Chart.WAVHealth.HasValue);
+        });
+    }
+
+    [TestMethod]
     public void DeletePendingPackageSources_RemovesPackagesWhoseSourceWasDeleted()
     {
         TestResourceInitializer.EnsureJapaneseResources();

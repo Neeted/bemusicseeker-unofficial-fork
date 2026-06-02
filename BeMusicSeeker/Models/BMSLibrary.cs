@@ -13025,11 +13025,8 @@ completeFileEnumerationOnce,
                 entry.ClearWarningsByCategory(ChartWarningCategory.PackageLayout);
                 entry.SetWarning(isBmson ? ChartWarningKind.SingleBmsonFile : ChartWarningKind.SingleBmsFile, isBmson ? Resources.Warning_SingleBmsonFile : Resources.Warning_SingleBmsFile);
             }
-            else if (entry.ResourceSnapshot.TotalReferenceCount > 0)
-            {
-                BmsLibraryPackageInstallService.ApplyPendingResourceHealthProjection(entry);
-            }
         }
+        BmsLibraryPackageInstallService.ApplyPendingResourceHealthProjectionToEntries(package.ChartEntries);
         BmsLibraryPackageInstallService.ApplyNestedChartFileWarnings(package);
     }
 

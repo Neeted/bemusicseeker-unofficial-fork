@@ -237,6 +237,41 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     }
 
     [TestMethod]
+    public void ReinitializePendingWarningsForPackage_ProjectsResourceHealthForAllEntries()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
+        {
+            string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "AllResourceProjection");
+            Directory.CreateDirectory(sourceDirectoryPath);
+            string installedPath = CreateBmsFileWithContents(
+                sourceDirectoryPath,
+                "installed.bms",
+                "#PLAYER 1\r\n#TITLE Installed\r\n#WAVAA missing.wav\r\n#00111:AA\r\n");
+            string healthyPath = CreateBmsFileWithContents(
+                sourceDirectoryPath,
+                "healthy.bms",
+                "#PLAYER 1\r\n#TITLE Healthy\r\n#WAVAA sound.wav\r\n#00111:AA\r\n");
+            File.WriteAllBytes(Path.Combine(sourceDirectoryPath, "sound.wav"), new byte[] { 1 });
+            BMSFile installedFile = BMSFile.CreateBMSFileFromFile(installedPath);
+            BMSFile healthyFile = BMSFile.CreateBMSFileFromFile(healthyPath);
+            PackageChartEntry installedEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(installedFile));
+            PackageChartEntry healthyEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(healthyFile));
+            ChartPackage package = ChartPackage.FromChartEntries([installedEntry, healthyEntry]);
+            package.path = sourceDirectoryPath;
+            package.delete_parent = false;
+
+            InvokeReinitializePendingWarningsForPackage(library, package, new PrimaryHashSetLookup([installedFile.hash]));
+
+            Assert.IsTrue(installedEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.AlreadyInstalled));
+            Assert.IsTrue(installedEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
+            Assert.IsTrue(installedEntry.Chart.WAVHealth.HasValue);
+            Assert.AreEqual(100, healthyEntry.Chart.WAVHealth);
+            Assert.IsFalse(healthyEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
+        });
+    }
+
+    [TestMethod]
     public void TryRegroupPendingPackagesForSourceDirectories_ReinitializesWarningsWhenEligibleDirectoryIsSupplied()
     {
         TestResourceInitializer.EnsureJapaneseResources();

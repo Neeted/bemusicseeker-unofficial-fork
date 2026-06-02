@@ -49,6 +49,12 @@ package 内に同梱されている non-chart resource は `BundledResources` �
 
 merge / reinstall correction では source/bundled resource を足さず、`candidate only` で評価します。
 
+### Pending resource health projection
+
+保留 package の `WAV/BGA/MOVIE` health 表示は、package 代表ではなく `PackageChartEntry` 単位の pending projection です。package を pending に分類する判定では resource warning の有無を package 単位で使いますが、health projection 自体は resource reference を持つ全 entry に書き戻します。
+
+`AlreadyInstalled`、`SingleBmsFile` / `SingleBmsonFile`、nested chart warning などの package warning と resource health は排他ではありません。warning の優先表示は既存の warning digest 合成に任せ、health 列は同じ entry の一時 maintenance snapshot から表示します。
+
 ### Library resource index
 
 通常起動の file enumeration 結果から `LibraryResourceIndex` を作ります。導入先推定で使う正本は `DirectoryResourceLookupCache` のカテゴリ別 index です。

@@ -553,6 +553,25 @@ internal sealed class BmsLibraryPackageInstallService
         return warnings;
     }
 
+    internal static int ApplyPendingResourceHealthProjectionToEntries(IEnumerable<PackageChartEntry> entries)
+    {
+        int warningEntryCount = 0;
+        foreach (PackageChartEntry entry in entries ?? [])
+        {
+            if (entry?.Chart == null)
+            {
+                continue;
+            }
+
+            IReadOnlyList<ChartWarning> warnings = ApplyPendingResourceHealthProjection(entry);
+            if (warnings.Count > 0)
+            {
+                warningEntryCount++;
+            }
+        }
+        return warningEntryCount;
+    }
+
     private static ChartPackage CreatePackageWithKnownCharts(string packagePath, bool deleteParent, IEnumerable<PackageChartEntry> knownChartEntries)
     {
         List<PackageChartEntry> knownEntries = [.. (knownChartEntries ?? [])
@@ -1309,32 +1328,20 @@ internal sealed class BmsLibraryPackageInstallService
         var warningClassificationStopwatch = Stopwatch.StartNew();
         foreach (ChartPackage pkg in discoveredPackages)
         {
-            if (pendingByPackage[pkg])
-            {
-                continue;
-            }
             bool isSingleFilePackage = !Directory.Exists(pkg.path);
             foreach (PackageChartEntry entry in pkg.ChartEntries)
             {
-                if (isSingleFilePackage)
+                if (isSingleFilePackage && !HasAlreadyInstalledWarning(entry))
                 {
                     bool isBmson = entry.Chart?.Kind == ChartFileKind.Bmson;
                     entry.ClearWarningsByCategory(ChartWarningCategory.PackageLayout);
                     entry.SetWarning(isBmson ? ChartWarningKind.SingleBmsonFile : ChartWarningKind.SingleBmsFile, isBmson ? Resources.Warning_SingleBmsonFile : Resources.Warning_SingleBmsFile);
                     pendingByPackage[pkg] = true;
-                    break;
                 }
-                bool hasDefinedResources = entry?.ResourceSnapshot.TotalReferenceCount > 0;
-                if (!hasDefinedResources)
-                {
-                    continue;
-                }
-                IReadOnlyList<ChartWarning> resourceWarnings = ApplyPendingResourceHealthProjection(entry);
-                if (resourceWarnings.Count > 0)
-                {
-                    pendingByPackage[pkg] = true;
-                    break;
-                }
+            }
+            if (ApplyPendingResourceHealthProjectionToEntries(pkg.ChartEntries) > 0)
+            {
+                pendingByPackage[pkg] = true;
             }
         }
         warningClassificationStopwatch.Stop();
@@ -1361,6 +1368,11 @@ internal sealed class BmsLibraryPackageInstallService
         totalStopwatch.Stop();
         result.TotalMs = totalStopwatch.ElapsedMilliseconds;
         return result;
+    }
+
+    private static bool HasAlreadyInstalledWarning(PackageChartEntry entry)
+    {
+        return (entry?.Chart?.Warnings ?? []).Any(warning => warning?.Kind == ChartWarningKind.AlreadyInstalled);
     }
 
     public AutoInstallApplyResult ApplyAutoInstallWorkflow(

@@ -2793,6 +2793,46 @@ public sealed class BmsLibraryInitializationServiceTests
     }
 
     [TestMethod]
+    public void LoadInstallTable_ProjectsResourceHealthForAllPackageEntries()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
+        {
+            string directoryPackagePath = Path.Combine(lr2RootPath, "PendingBmsonResources");
+            Directory.CreateDirectory(directoryPackagePath);
+            string missingBmsonPath = Path.Combine(directoryPackagePath, "missing.bmson");
+            string healthyBmsonPath = Path.Combine(directoryPackagePath, "healthy.bmson");
+            File.WriteAllText(missingBmsonPath, CreateBmsonJsonWithSound("missing.wav"));
+            File.WriteAllText(healthyBmsonPath, CreateBmsonJsonWithSound("sound.wav"));
+            File.WriteAllBytes(Path.Combine(directoryPackagePath, "sound.wav"), new byte[] { 1 });
+
+            using (var songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDBExtended.install>();
+                songDb.InsertOrReplace(new ChartPackage
+                {
+                    path = directoryPackagePath,
+                    delete_parent = false
+                }, typeof(LR2SongDBExtended.install));
+            }
+
+            var service = new BmsLibraryInitializationService();
+            InstallTableLoadResult result = service.LoadInstallTable(
+                new BmsLibraryDbGateway(songDbPath),
+                _ => false);
+
+            ChartPackage pendingPackage = result.PendingPackages.Single();
+            PackageChartEntry missingEntry = pendingPackage.ChartEntries.Single(entry => string.Equals(entry.Chart.Path, missingBmsonPath, StringComparison.OrdinalIgnoreCase));
+            PackageChartEntry healthyEntry = pendingPackage.ChartEntries.Single(entry => string.Equals(entry.Chart.Path, healthyBmsonPath, StringComparison.OrdinalIgnoreCase));
+            Assert.AreEqual(1, result.StrictWarningCount);
+            Assert.IsTrue(missingEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
+            Assert.IsTrue(missingEntry.Chart.WAVHealth.HasValue);
+            Assert.AreEqual(100, healthyEntry.Chart.WAVHealth);
+            Assert.IsFalse(healthyEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
+        });
+    }
+
+    [TestMethod]
     public void LoadInstallTable_RestoresNestedChartsAndPrioritizesNestedWarning()
     {
         TestResourceInitializer.EnsureJapaneseResources();

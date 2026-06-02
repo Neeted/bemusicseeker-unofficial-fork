@@ -2381,15 +2381,8 @@ internal sealed class BmsLibraryInitializationService
                     entry.SetWarning(isBmson ? ChartWarningKind.SingleBmsonFile : ChartWarningKind.SingleBmsFile, isBmson ? Resources.Warning_SingleBmsonFile : Resources.Warning_SingleBmsFile);
                     result.SingleFileWarningCount++;
                 }
-                else if (entry.ResourceSnapshot.TotalReferenceCount > 0)
-                {
-                    IReadOnlyList<ChartWarning> resourceWarnings = BmsLibraryPackageInstallService.ApplyPendingResourceHealthProjection(entry);
-                    if (resourceWarnings.Count > 0)
-                    {
-                        result.StrictWarningCount++;
-                    }
-                }
             }
+            result.StrictWarningCount += BmsLibraryPackageInstallService.ApplyPendingResourceHealthProjectionToEntries(pendingPackage.ChartEntries);
             BmsLibraryPackageInstallService.ApplyNestedChartFileWarnings(pendingPackage);
         }
         warningStopwatch.Stop();
