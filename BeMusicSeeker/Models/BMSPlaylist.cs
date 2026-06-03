@@ -995,6 +995,7 @@ public partial class BMSPlaylist : NotificationObject
         async Task work()
         {
             await Task.Yield();
+            var totalStopwatch = Stopwatch.StartNew();
             if (!string.IsNullOrWhiteSpace(cleanupTablePath) && (!enabled || !string.Equals(cleanupTablePath, outputPath, StringComparison.OrdinalIgnoreCase)))
             {
                 SyncBeatorajaManagedTableUrls(cleanupTablePath, BmtTableExportService.ReadManagedTableUrls(cleanupTablePath), []);
@@ -1003,24 +1004,47 @@ public partial class BMSPlaylist : NotificationObject
             if (!enabled)
             {
                 SyncBeatorajaManagedTableUrls(outputPath, BmtTableExportService.ReadManagedTableUrls(outputPath), []);
+                totalStopwatch.Stop();
+                LogPlaylistPerformance("beatoraja_bmt_export_all skipped reason=" + FormatTextForLog(reason) + " enabled=false elapsedMs=" + totalStopwatch.ElapsedMilliseconds);
                 return;
             }
             List<BMSTable> tablesSnapshot;
+            var snapshotStopwatch = Stopwatch.StartNew();
             using (rwlockBMSTables.GetReaderGuard())
             {
                 tablesSnapshot = BMSTables?.Where(table => table != null).ToList() ?? [];
             }
+            snapshotStopwatch.Stop();
+            var resolverStopwatch = Stopwatch.StartNew();
+            Func<BMSTableEntry, Tuple<string, string>> hashResolverFunc = beatorajaBmtSongHashResolverFactory?.Invoke();
+            resolverStopwatch.Stop();
             List<Tuple<string, JObject>> tableDataSet = [];
+            var projectionStopwatch = Stopwatch.StartNew();
             foreach (BMSTable table in tablesSnapshot)
             {
-                JObject tableData = BuildBeatorajaBmtTableDataSnapshot(table, reason);
+                JObject tableData = BuildBeatorajaBmtTableDataSnapshot(table, reason, hashResolverFunc);
                 if (tableData != null)
                 {
                     tableDataSet.Add(Tuple.Create(GetBeatorajaBmtPlaylistIdentity(table), tableData));
                 }
             }
+            projectionStopwatch.Stop();
+            var exportStopwatch = Stopwatch.StartNew();
             BmtTableExportService.ExportResult exportResult = BmtTableExportService.ExportTableDataSet(outputPath, tableDataSet, cleanupStaleManagedFiles: true);
+            exportStopwatch.Stop();
+            var urlSyncStopwatch = Stopwatch.StartNew();
             SyncBeatorajaManagedTableUrls(outputPath, exportResult.PreviousManagedTables, exportResult.CurrentManagedTables);
+            urlSyncStopwatch.Stop();
+            totalStopwatch.Stop();
+            LogPlaylistPerformance("beatoraja_bmt_export_all completed reason=" + FormatTextForLog(reason)
+                + " tableCount=" + tablesSnapshot.Count
+                + " outputCount=" + tableDataSet.Count
+                + " snapshotMs=" + snapshotStopwatch.ElapsedMilliseconds
+                + " resolverMs=" + resolverStopwatch.ElapsedMilliseconds
+                + " projectionMs=" + projectionStopwatch.ElapsedMilliseconds
+                + " exportMs=" + exportStopwatch.ElapsedMilliseconds
+                + " urlSyncMs=" + urlSyncStopwatch.ElapsedMilliseconds
+                + " elapsedMs=" + totalStopwatch.ElapsedMilliseconds);
         }
         if (StartupBackgroundTaskScheduler != null && StartupBackgroundTaskScheduler("beatoraja_bmt_export_all", reason ?? "queue", null, work))
         {
@@ -1164,12 +1188,16 @@ public partial class BMSPlaylist : NotificationObject
 
     private JObject BuildBeatorajaBmtTableDataSnapshot(BMSTable table, string reason)
     {
+        return BuildBeatorajaBmtTableDataSnapshot(table, reason, beatorajaBmtSongHashResolverFactory?.Invoke());
+    }
+
+    private JObject BuildBeatorajaBmtTableDataSnapshot(BMSTable table, string reason, Func<BMSTableEntry, Tuple<string, string>> hashResolverFunc)
+    {
         if (table == null)
         {
             return null;
         }
         EnsurePlaylistEntriesLoaded(table, reason ?? "BeatorajaBmtExport");
-        Func<BMSTableEntry, Tuple<string, string>> hashResolverFunc = beatorajaBmtSongHashResolverFactory?.Invoke();
         BmtTableExportService.ISongHashResolver hashResolver = hashResolverFunc == null
             ? null
             : new BeatorajaBmtSongHashResolver(hashResolverFunc);
