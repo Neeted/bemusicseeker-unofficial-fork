@@ -4468,6 +4468,17 @@ public class MainWindowViewModel : ViewModel
         {
             if (CheckValidation())
             {
+                if (!string.Equals(bmsTable.compat_prefix, compat_prefix, StringComparison.Ordinal))
+                {
+                    ownerViewModel.tables.EnsurePlaylistEntriesLoaded(bmsTable, "PlaylistPropertyDialogViewModel.ValidateCompatibleFolderPrefixRewrite");
+                    using (bmsTable.ReaderWriterLock.GetReaderGuard())
+                    {
+                        if (!bmsTable.CanRewriteCompatibleFolderPrefix(bmsTable.compat_prefix, compat_prefix))
+                        {
+                            return false;
+                        }
+                    }
+                }
                 if (is_auto_folder_sort)
                 {
                     bmsTable.Folder_order = [];
@@ -4551,6 +4562,18 @@ public class MainWindowViewModel : ViewModel
         internal async Task ApplyPostSaveUpdatesAsync()
         {
             bool flag = !string.Equals(temp_name, bmsTable.name, StringComparison.Ordinal) || !string.Equals(temp_symbol, bmsTable.symbol, StringComparison.Ordinal);
+            bool prefixChanged = !string.Equals(temp_compat_prefix, bmsTable.compat_prefix, StringComparison.Ordinal);
+            bool externalResyncApplied = false;
+            bool entryFolderProjectionChanged = false;
+            IReadOnlyDictionary<string, string> prefixFolderSelectionMap = null;
+            if (prefixChanged)
+            {
+                ownerViewModel.tables.EnsurePlaylistEntriesLoaded(bmsTable, "PlaylistPropertyDialogViewModel.CreateCompatibleFolderPrefixRewriteMap");
+                using (bmsTable.ReaderWriterLock.GetReaderGuard())
+                {
+                    prefixFolderSelectionMap = bmsTable.CreateValidatedCompatibleFolderPrefixRewriteMap(temp_compat_prefix, bmsTable.compat_prefix);
+                }
+            }
             if ((!temp_is_external_sync && bmsTable.is_external_sync) || (bmsTable.is_external_sync && temp_compat_prefix != bmsTable.compat_prefix) || (bmsTable.is_external_sync && bmsTable.Page_url != null && temp_Page_url != null && bmsTable.Page_url.ToString() != temp_Page_url.ToString()))
             {
                 Uri uri = bmsTable.Page_url ?? bmsTable.Header_url;
@@ -4577,8 +4600,11 @@ public class MainWindowViewModel : ViewModel
                         }
                         bmsTable = await ownerViewModel.tables.ResetBMSTableAsync(bmsTable, uri);
                         ownerViewModel.files.ReplaceReferenceBMSTable(sourceTable, bmsTable, oldEntriesSnapshot);
+                        ownerViewModel.ReplaceCurrentPlaylistSelectionTable(sourceTable, bmsTable);
+                        ownerViewModel.RemapCurrentPlaylistFolderSelection(bmsTable, prefixFolderSelectionMap);
                         ownerViewModel.InvalidateNormalLibrarySortKeys(NormalLibraryReferenceTablesChangedReason);
                         ownerViewModel.UpdatePlaylistSyncRuntimeStatus(PlaylistSyncAttemptResult.CreateSuccess(sourceTable, bmsTable, uri, bmsTable.last_update != last_update));
+                        externalResyncApplied = true;
                         flag = false;
                     }
                     catch (Exception ex)
@@ -4602,13 +4628,45 @@ public class MainWindowViewModel : ViewModel
                     ownerViewModel.RefreshPlaylistSummaryIfVisible("playlist_property_resync", invalidateTableCountCache: true);
                 }
             }
+            if (prefixChanged)
+            {
+                ownerViewModel.tables.EnsurePlaylistEntriesLoaded(bmsTable, "PlaylistPropertyDialogViewModel.RewriteCompatibleFolderPrefix");
+                IReadOnlyDictionary<string, string> rewrittenFolders;
+                using (bmsTable.ReaderWriterLock.GetWriterGuard())
+                {
+                    entryFolderProjectionChanged = bmsTable.RewriteCompatibleFolderPrefix(temp_compat_prefix, bmsTable.compat_prefix, out rewrittenFolders);
+                }
+                if (entryFolderProjectionChanged)
+                {
+                    ownerViewModel.RemapCurrentPlaylistFolderSelection(bmsTable, rewrittenFolders);
+                    flag = true;
+                }
+            }
             if (flag)
             {
                 ownerViewModel.files.RefreshReferenceDisplayForTable(bmsTable);
                 ownerViewModel.InvalidateNormalLibrarySortKeys(NormalLibraryReferenceTablesChangedReason);
-                ownerViewModel.RefreshPlaylistSummaryIfVisible("playlist_property_changed", invalidateTableCountCache: true);
+                if (entryFolderProjectionChanged)
+                {
+                    ownerViewModel.RefreshChartRowsViewForPlaylist(bmsTable);
+                }
+                else
+                {
+                    ownerViewModel.RefreshPlaylistSummaryIfVisible("playlist_property_changed", invalidateTableCountCache: true);
+                }
             }
-            ownerViewModel.tables.CommitBMSTableHeaderToDB(bmsTable);
+            else if (externalResyncApplied)
+            {
+                ownerViewModel.RefreshChartRowsViewForPlaylist(bmsTable);
+            }
+            if (entryFolderProjectionChanged)
+            {
+                ownerViewModel.tables.CommitBMSTableWithEntriesToDB(bmsTable);
+            }
+            else
+            {
+                ownerViewModel.tables.CommitBMSTableHeaderToDB(bmsTable);
+            }
             if (Settings.Default.OperationModeLR2DB)
             {
                 string customFolderOutputDirectory = BMSPlaylist.GetCustomFolderOutputDirectory(bmsTable);
@@ -21683,6 +21741,39 @@ public class MainWindowViewModel : ViewModel
             IncrementPlaylistContentRevision("playlist_updated");
             RefreshChartRowsView(viewUpdateMode.TreeViewFilterNotChanged);
         }
+    }
+
+    private void ReplaceCurrentPlaylistSelectionTable(BMSTable oldTable, BMSTable newTable)
+    {
+        if (oldTable == null || newTable == null || oldTable == newTable)
+        {
+            return;
+        }
+        if (treeViewFilterTypeSelected == viewUpdateMode.PlaylistFilterSelected && treeViewFilterParameterSelected is Tuple<BMSTable, string> tuple && tuple.Item1 == oldTable)
+        {
+            treeViewFilterParameterSelected = new Tuple<BMSTable, string>(newTable, tuple.Item2);
+        }
+        else if (treeViewFilterTypeSelected == viewUpdateMode.PlaylistNotOwnedFilterSelected && treeViewFilterParameterSelected == oldTable)
+        {
+            treeViewFilterParameterSelected = newTable;
+        }
+    }
+
+    private void RemapCurrentPlaylistFolderSelection(BMSTable table, IReadOnlyDictionary<string, string> rewrittenFolders)
+    {
+        if (table == null || rewrittenFolders == null || rewrittenFolders.Count == 0)
+        {
+            return;
+        }
+        if (treeViewFilterTypeSelected != viewUpdateMode.PlaylistFilterSelected || treeViewFilterParameterSelected is not Tuple<BMSTable, string> tuple || tuple.Item1 != table)
+        {
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(tuple.Item2) || !rewrittenFolders.TryGetValue(tuple.Item2, out string rewrittenFolder))
+        {
+            return;
+        }
+        treeViewFilterParameterSelected = new Tuple<BMSTable, string>(table, rewrittenFolder);
     }
 
     internal void RemoveBMSTable(BMSTable bmsTable)

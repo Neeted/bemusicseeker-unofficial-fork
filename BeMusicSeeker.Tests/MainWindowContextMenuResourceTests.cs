@@ -392,9 +392,19 @@ public sealed class MainWindowContextMenuResourceTests
             "internal async Task ApplyPostSaveUpdatesAsync()",
             "protected override void Dispose(bool disposing)");
         int headerCommitIndex = saveFollowup.IndexOf("ownerViewModel.tables.CommitBMSTableHeaderToDB(bmsTable);", StringComparison.Ordinal);
+        int fullCommitIndex = saveFollowup.IndexOf("ownerViewModel.tables.CommitBMSTableWithEntriesToDB(bmsTable);", StringComparison.Ordinal);
+        int detailRefreshIndex = saveFollowup.IndexOf("ownerViewModel.RefreshChartRowsViewForPlaylist(bmsTable);", StringComparison.Ordinal);
+        int selectionReplaceIndex = saveFollowup.IndexOf("ownerViewModel.ReplaceCurrentPlaylistSelectionTable(sourceTable, bmsTable);", StringComparison.Ordinal);
+        int folderSelectionRemapIndex = saveFollowup.IndexOf("ownerViewModel.RemapCurrentPlaylistFolderSelection(bmsTable, rewrittenFolders);", StringComparison.Ordinal);
         int lr2CustomFolderIndex = saveFollowup.IndexOf("if (Settings.Default.OperationModeLR2DB)", StringComparison.Ordinal);
         Assert.IsTrue(headerCommitIndex >= 0);
+        Assert.IsTrue(fullCommitIndex >= 0);
+        Assert.IsTrue(detailRefreshIndex >= 0);
+        Assert.IsTrue(selectionReplaceIndex >= 0);
+        Assert.IsTrue(folderSelectionRemapIndex >= 0);
+        Assert.IsFalse(saveFollowup.Contains("prefixChanged && !externalResync"));
         Assert.IsTrue(lr2CustomFolderIndex > headerCommitIndex);
+        Assert.IsTrue(lr2CustomFolderIndex > fullCommitIndex);
         StringAssert.Contains(File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BMSLibrary.cs")), "public List<string> SearchTargets { get; set; } = [];");
         Assert.IsFalse(viewModelCode.Contains("throw new NotImplementedException();"));
     }

@@ -721,6 +721,121 @@ public class BMSTable : LR2SongDBExtended.playlist
                                    select e.folder, StringComparer.Ordinal);
     }
 
+    internal bool RewriteCompatibleFolderPrefix(string oldPrefix, string newPrefix)
+    {
+        return RewriteCompatibleFolderPrefix(oldPrefix, newPrefix, out _);
+    }
+
+    internal bool CanRewriteCompatibleFolderPrefix(string oldPrefix, string newPrefix)
+    {
+        try
+        {
+            CreateValidatedCompatibleFolderPrefixRewriteMap(oldPrefix, newPrefix);
+            return true;
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
+    }
+
+    internal IReadOnlyDictionary<string, string> CreateValidatedCompatibleFolderPrefixRewriteMap(string oldPrefix, string newPrefix)
+    {
+        oldPrefix ??= string.Empty;
+        newPrefix ??= string.Empty;
+        if (string.Equals(oldPrefix, newPrefix, StringComparison.Ordinal) || entries == null || entries.Count == 0)
+        {
+            return new Dictionary<string, string>(StringComparer.Ordinal);
+        }
+        Dictionary<string, string> folderMap = CreateCompatibleFolderPrefixRewriteMapCore(oldPrefix, newPrefix);
+        if (folderMap.Count > 0)
+        {
+            ValidateCompatibleFolderRewriteMap(folderMap);
+        }
+        return folderMap;
+    }
+
+    internal bool RewriteCompatibleFolderPrefix(string oldPrefix, string newPrefix, out IReadOnlyDictionary<string, string> rewrittenFolders)
+    {
+        IReadOnlyDictionary<string, string> folderMap = CreateValidatedCompatibleFolderPrefixRewriteMap(oldPrefix, newPrefix);
+        if (folderMap.Count == 0)
+        {
+            rewrittenFolders = folderMap;
+            return false;
+        }
+        rewrittenFolders = folderMap;
+
+        foreach (BMSTableEntry entry in entries)
+        {
+            if (entry != null && folderMap.TryGetValue(entry.folder ?? string.Empty, out string rewrittenFolder))
+            {
+                entry.folder = rewrittenFolder;
+            }
+        }
+        Folder_order = [.. (Folder_order ?? []).Select(folder => folderMap.TryGetValue(folder ?? string.Empty, out string rewrittenFolder) ? rewrittenFolder : folder).Distinct(StringComparer.Ordinal)];
+        RebuildFolderState();
+        TouchPlaylistEntriesRevision();
+        return true;
+    }
+
+    private Dictionary<string, string> CreateCompatibleFolderPrefixRewriteMapCore(string oldPrefix, string newPrefix)
+    {
+        var map = new Dictionary<string, string>(StringComparer.Ordinal);
+        IEnumerable<string> sourceFolders = (entries ?? [])
+            .Select(entry => entry?.folder ?? string.Empty)
+            .Concat(Folder_order ?? [])
+            .Where(folder => !string.IsNullOrWhiteSpace(folder))
+            .Distinct(StringComparer.Ordinal);
+
+        foreach (string folder in sourceFolders)
+        {
+            string compatibleLevelName = null;
+            if (oldPrefix.Length > 0)
+            {
+                if (!folder.StartsWith(oldPrefix, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+                compatibleLevelName = folder.Substring(oldPrefix.Length);
+            }
+            else if (base.is_external_sync && (newPrefix.Length == 0 || !folder.StartsWith(newPrefix, StringComparison.Ordinal)))
+            {
+                compatibleLevelName = folder;
+            }
+            if (string.IsNullOrWhiteSpace(compatibleLevelName))
+            {
+                continue;
+            }
+            string rewrittenFolder = newPrefix + compatibleLevelName;
+            if (!string.Equals(folder, rewrittenFolder, StringComparison.Ordinal))
+            {
+                map[folder] = rewrittenFolder;
+            }
+        }
+        return map;
+    }
+
+    private void ValidateCompatibleFolderRewriteMap(IReadOnlyDictionary<string, string> folderMap)
+    {
+        HashSet<string> existingFolders = [.. (entries ?? [])
+            .Select(entry => entry?.folder ?? string.Empty)
+            .Concat(Folder_order ?? [])
+            .Where(folder => !string.IsNullOrWhiteSpace(folder))
+            .Distinct(StringComparer.Ordinal)];
+        var rewrittenTargets = new HashSet<string>(StringComparer.Ordinal);
+        foreach (KeyValuePair<string, string> pair in folderMap)
+        {
+            if (!rewrittenTargets.Add(pair.Value))
+            {
+                throw new InvalidOperationException("Compatible playlist folder prefix rewrite creates duplicate folder: " + pair.Value);
+            }
+            if (existingFolders.Contains(pair.Value) && !folderMap.ContainsKey(pair.Value))
+            {
+                throw new InvalidOperationException("Compatible playlist folder prefix rewrite collides with existing folder: " + pair.Value);
+            }
+        }
+    }
+
     public bool EnableExternalSync()
     {
         if (Page_url != null && Page_url.Scheme == "bmseeker")

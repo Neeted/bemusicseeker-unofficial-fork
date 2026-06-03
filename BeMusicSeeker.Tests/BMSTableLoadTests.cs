@@ -1,6 +1,9 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Reflection;
 using BeMusicSeeker.Models;
+using Codeplex.Data;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
@@ -76,5 +79,111 @@ public sealed class BMSTableLoadTests
         StringAssert.Contains(table.HeaderToJson(), "\"tag\": \"st\"");
         StringAssert.Contains(table.HeaderToJson(), "\"course\"");
         StringAssert.Contains(table.HeaderToJson(), "\"grade_mirror\"");
+    }
+
+    [TestMethod]
+    public void RewriteCompatibleFolderPrefix_UpdatesEntriesAndFolderOrderWithoutTouchingLastUpdate()
+    {
+        var lastUpdate = new DateTime(2026, 1, 2, 3, 4, 5);
+        var table = new BMSTable
+        {
+            compat_prefix = "LEVEL ",
+            last_update = lastUpdate,
+            entries =
+            [
+                CreateEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "LEVEL 1"),
+                CreateEntry("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "LEVEL 2")
+            ],
+            Folder_order = ["LEVEL 2", "LEVEL 1"]
+        };
+        int revisionBefore = table.PlaylistEntriesRevision;
+        var changedProperties = new List<string>();
+        table.PropertyChanged += (_, e) => changedProperties.Add(e.PropertyName);
+
+        bool changed = table.RewriteCompatibleFolderPrefix("LEVEL ", "★");
+
+        Assert.IsTrue(changed);
+        Assert.AreEqual("★1", table.entries[0].folder);
+        Assert.AreEqual("★2", table.entries[1].folder);
+        CollectionAssert.AreEqual(new[] { "★2", "★1" }, table.Folder_order);
+        CollectionAssert.AreEqual(new[] { "★2", "★1" }, table.folder_list);
+        CollectionAssert.AreEqual(new[] { "★2", "★1" }, table.FolderNodes.Where(node => !node.IsSpecial).Select(node => node.FolderName).ToList());
+        Assert.AreEqual(lastUpdate, table.last_update);
+        Assert.AreEqual(revisionBefore + 1, table.PlaylistEntriesRevision);
+        CollectionAssert.Contains(changedProperties, "folder_list");
+        CollectionAssert.Contains(changedProperties, "FolderNodes");
+        CollectionAssert.Contains(changedProperties, "PlaylistEntriesRevision");
+    }
+
+    [TestMethod]
+    public void RewriteCompatibleFolderPrefix_DoesNotPrefixLocalFoldersWhenOldPrefixIsEmpty()
+    {
+        var table = new BMSTable
+        {
+            compat_prefix = string.Empty,
+            entries =
+            [
+                CreateEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Alpha"),
+                CreateEntry("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "Beta")
+            ],
+            Folder_order = ["Alpha", "Beta"]
+        };
+
+        bool changed = table.RewriteCompatibleFolderPrefix(string.Empty, "★");
+
+        Assert.IsFalse(changed);
+        Assert.AreEqual("Alpha", table.entries[0].folder);
+        Assert.AreEqual("Beta", table.entries[1].folder);
+        CollectionAssert.AreEqual(new[] { "Alpha", "Beta" }, table.Folder_order);
+    }
+
+    [TestMethod]
+    public void RewriteCompatibleFolderPrefix_PrefixesExternalFoldersWhenOldPrefixIsEmpty()
+    {
+        var table = new BMSTable
+        {
+            is_external_sync = true,
+            compat_prefix = string.Empty,
+            entries =
+            [
+                CreateEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "1"),
+                CreateEntry("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "2")
+            ],
+            Folder_order = ["2", "1"]
+        };
+
+        bool changed = table.RewriteCompatibleFolderPrefix(string.Empty, "★");
+
+        Assert.IsTrue(changed);
+        Assert.AreEqual("★1", table.entries[0].folder);
+        Assert.AreEqual("★2", table.entries[1].folder);
+        CollectionAssert.AreEqual(new[] { "★2", "★1" }, table.Folder_order);
+    }
+
+    [TestMethod]
+    public void RewriteCompatibleFolderPrefix_CollisionDoesNotMutateTable()
+    {
+        var table = new BMSTable
+        {
+            compat_prefix = "LEVEL ",
+            entries =
+            [
+                CreateEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "LEVEL 1"),
+                CreateEntry("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "★1")
+            ],
+            Folder_order = ["LEVEL 1", "★1"]
+        };
+
+        Assert.IsFalse(table.CanRewriteCompatibleFolderPrefix("LEVEL ", "★"));
+        Assert.ThrowsException<InvalidOperationException>(() => table.RewriteCompatibleFolderPrefix("LEVEL ", "★"));
+
+        Assert.AreEqual("LEVEL 1", table.entries[0].folder);
+        Assert.AreEqual("★1", table.entries[1].folder);
+        CollectionAssert.AreEqual(new[] { "LEVEL 1", "★1" }, table.Folder_order);
+    }
+
+    private static BMSTableEntry CreateEntry(string md5, string folder)
+    {
+        return new BMSTableEntry(DynamicJson.Parse("{\"md5\":\"" + md5 + "\",\"title\":\"" + md5 + "\",\"level\":\"" + folder + "\"}"));
     }
 }

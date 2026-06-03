@@ -3229,6 +3229,27 @@ public partial class BMSPlaylist : NotificationObject
     }
 
     /// <summary>
+    /// プレイリスト本体とエントリを DB へ保存します。LR2 カスタムフォルダ出力は行いません。
+    /// </summary>
+    /// <param name="bmsTable">保存対象のプレイリスト。</param>
+    /// <exception cref="ArgumentNullException"><paramref name="bmsTable"/> が <see langword="null"/> の場合。</exception>
+    internal void CommitBMSTableWithEntriesToDB(BMSTable bmsTable)
+    {
+        if (bmsTable == null)
+        {
+            throw new ArgumentNullException(nameof(bmsTable));
+        }
+        EnsurePlaylistEntriesLoaded(bmsTable, "CommitBMSTableWithEntriesToDB");
+        using (bmsTable.ReaderWriterLock.GetWriterGuard())
+        {
+            if (BMSTables.Contains(bmsTable))
+            {
+                CommitBMSTable(bmsTable);
+            }
+        }
+    }
+
+    /// <summary>
     /// プレイリスト本体のヘッダ情報を DB へ保存します。
     /// </summary>
     /// <param name="bmsTable">保存対象のプレイリスト。</param>

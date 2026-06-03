@@ -29,7 +29,7 @@
 | `page_url` / `header_url` / `data_url` | 外部同期元 URL。外部表の `.bmt` URL は `page_url` 優先、無ければ絶対 header URL を使う。 |
 | `header_sha256` | 取得した header JSON 全体の SHA-256。header 由来情報の更新検知に使う。 |
 | `data_sha256` | 取得した data JSON 全体の SHA-256。raw data JSON の更新検知に使う。 |
-| `compat_prefix` | LR2 custom folder 互換 level 名の prefix。外部表で `tag` と `symbol` が無い場合の `.bmt` folder 名 prefix 候補。 |
+| `compat_prefix` | compatible level folder 名の materialized prefix。LR2 custom folder 互換 level 名と、外部表で `tag` と `symbol` が無い場合の `.bmt` folder 名 prefix 候補。 |
 | `last_update` | 前回状態から既知の内容変化があった時だけ更新する日時。hash 初期化だけでは更新しない。 |
 | `output_dir` / `is_root_folder` / `ignore_folder_output` | LR2 custom folder 出力設定。 |
 | `folder_order` / `folder_sort_key` / `folder_sort_ascending` | folder 順序と並び替え設定。 |
@@ -93,7 +93,7 @@ header の `course` は `[[{...}]]` のような入れ子配列も平坦化し�
 - 外部表を初めて登録する場合は、取得した header の `last_update` があればそれを使い、無ければ登録時刻を初期 `last_update` として保存する。Walkure 系リコメンド表のように取得処理が更新日時を持つ場合は、その取得元日時を設定する。
 - ローカルの空プレイリストを新規作成する場合は、`CreateBMSTable()` 時点で作成時刻を初期 `last_update` として持つ。DB には後続のプロパティ保存など、通常のプレイリスト保存処理で反映される。
 - ローカル表の folder / entry 構成を手動編集した場合は、`RenameFolder`、`CreateNewFolder`、`AddBMSTableEntriesToFolder`、`RemoveBMSTableEntries` が `last_update` を編集時刻へ更新する。
-- プレイリスト名、symbol、URL、custom folder 出力先、folder sort/order などのプロパティ保存だけでは `last_update` を更新しない。これらは DB 保存や `.bmt` / LR2 custom folder 出力の対象にはなるが、譜面構成そのものの更新日時としては扱わない。
+- プレイリスト名、symbol、URL、custom folder 出力先、folder sort/order、`compat_prefix` などのプロパティ保存だけでは `last_update` を更新しない。`compat_prefix` 変更で compatible folder 名を再 materialize する場合も、譜面 membership 変更ではなく表示・出力 projection の更新として扱う。
 
 この分離により、機能追加後の旧 DB 初回補完で `last_update` が現在時刻へ塗り替わることを避ける。
 
@@ -101,7 +101,13 @@ header の `course` は `[[{...}]]` のような入れ子配列も平坦化し�
 
 プレイリスト名、symbol、外部同期 URL、folder 順序、custom folder 出力設定、course などの正本は DB の `playlist` / `playlist_course` / `playlist_entry` に保存する。DB 保存は LR2 linked profile と standalone profile のどちらでも行う。
 
-プレイリストプロパティ保存では、まず `playlist` 本体と `playlist_course` を mode 非依存で保存する。その後、LR2 linked profile でのみ `.lr2folder` の移動・再生成や `config.xml` の BMS search directory 更新を行う。standalone profile では `.lr2folder` 実出力は行わないが、プレイリスト名などの DB 保存と beatoraja `.bmt` 再出力要求は行う。
+プレイリストプロパティ保存では、`playlist` 本体と `playlist_course` を mode 非依存で保存する。`compat_prefix` 変更により compatible folder 名の再 materialize が必要な場合だけ、`playlist_entry.folder` も同じ transaction 系で保存する。それ以外のプロパティ変更では `playlist_entry` を保存し直さない。
+
+`compat_prefix` の再 materialize は、既存 prefix 付き folder を新 prefix 付き folder へ写像する。既存 prefix が空の場合、外部同期表だけ未 prefix folder を新 prefix 付き folder として扱い、ローカル任意 folder 名は一括 rename しない。folder 名衝突が起きる場合は保存を失敗させ、既存 folder 構成を保持する。
+
+entry folder projection を更新した場合は、DB 保存だけで終わらせず、プレイリスト詳細 source revision を進める。表示中の playlist detail は source を再構築し、ツリーの folder node と一覧の `FOLDER` 列は同じ materialized folder 名を表示する。変更前の folder を選択中だった場合は、同じ rewrite mapping で選択中 folder key も変更後 folder へ追従させる。
+
+DB 保存後、LR2 linked profile でのみ `.lr2folder` の移動・再生成や `config.xml` の BMS search directory 更新を行う。standalone profile では `.lr2folder` 実出力は行わないが、プレイリスト header / entry の DB 保存と beatoraja `.bmt` 再出力要求は行う。
 
 entry の追加・削除・folder 編集など、`playlist_entry` の全置換が必要なローカル編集では、DB 全体保存を行った後に LR2 linked profile でのみ custom folder を再出力する。custom folder 出力処理は DB 保存の副作用を持たず、DB 保存の有無は呼び出し元の正本更新処理で決める。
 
