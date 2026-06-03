@@ -203,6 +203,63 @@ public sealed class BmtTableExportServiceTests
 
     [TestMethod]
     [TestCategory("Playlist")]
+    public void ExportTableDataSet_SkipsUnchangedManagedPlaylistWrites()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectory)
+        {
+            JObject tableData = CreateLocalTableData("bemusicseeker://playlist/1", "First");
+            BmtTableExportService.ExportResult firstResult = BmtTableExportService.ExportTableDataSet(tempDirectory,
+            [
+                Tuple.Create("1", tableData)
+            ], cleanupStaleManagedFiles: true);
+            string fileName = BMSTable.ComputeSha256Hex(tableData.Value<string>("url")) + ".bmt";
+            string filePath = Path.Combine(tempDirectory, fileName);
+            var markerTime = new DateTime(2024, 1, 2, 3, 4, 5, DateTimeKind.Utc);
+            File.SetLastWriteTimeUtc(filePath, markerTime);
+            DateTime stampedTime = File.GetLastWriteTimeUtc(filePath);
+
+            BmtTableExportService.ExportResult secondResult = BmtTableExportService.ExportTableDataSet(tempDirectory,
+            [
+                Tuple.Create("1", tableData)
+            ], cleanupStaleManagedFiles: true);
+
+            Assert.AreEqual(1, firstResult.WrittenCount);
+            Assert.AreEqual(0, firstResult.SkippedWriteCount);
+            Assert.AreEqual(0, firstResult.RemovedCount);
+            Assert.AreEqual(0, secondResult.WrittenCount);
+            Assert.AreEqual(1, secondResult.SkippedWriteCount);
+            Assert.AreEqual(0, secondResult.RemovedCount);
+            Assert.AreEqual(stampedTime, File.GetLastWriteTimeUtc(filePath));
+            Assert.IsFalse(string.IsNullOrWhiteSpace(secondResult.CurrentManagedTables.Single().ContentHash));
+        });
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public void ExportTableDataSet_RewritesWhenManagedPlaylistContentChanges()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectory)
+        {
+            JObject tableData = CreateLocalTableData("bemusicseeker://playlist/1", "First");
+            BmtTableExportService.ExportTableDataSet(tempDirectory,
+            [
+                Tuple.Create("1", tableData)
+            ], cleanupStaleManagedFiles: true);
+            JObject changedTableData = CreateLocalTableData("bemusicseeker://playlist/1", "First changed");
+
+            BmtTableExportService.ExportResult result = BmtTableExportService.ExportTableDataSet(tempDirectory,
+            [
+                Tuple.Create("1", changedTableData)
+            ], cleanupStaleManagedFiles: true);
+
+            Assert.AreEqual(1, result.WrittenCount);
+            Assert.AreEqual(0, result.SkippedWriteCount);
+            Assert.AreEqual("First changed", result.CurrentManagedTables.Single().Name);
+        });
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
     public void ExportTableDataSet_WithCleanupAndEmptyCurrentSetRemovesAllManagedFiles()
     {
         WithTemporaryDirectory(delegate (string tempDirectory)

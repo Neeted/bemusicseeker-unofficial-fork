@@ -1039,6 +1039,9 @@ public partial class BMSPlaylist : NotificationObject
             LogPlaylistPerformance("beatoraja_bmt_export_all completed reason=" + FormatTextForLog(reason)
                 + " tableCount=" + tablesSnapshot.Count
                 + " outputCount=" + tableDataSet.Count
+                + " written=" + exportResult.WrittenCount
+                + " skipped=" + exportResult.SkippedWriteCount
+                + " removed=" + exportResult.RemovedCount
                 + " snapshotMs=" + snapshotStopwatch.ElapsedMilliseconds
                 + " resolverMs=" + resolverStopwatch.ElapsedMilliseconds
                 + " projectionMs=" + projectionStopwatch.ElapsedMilliseconds
