@@ -235,6 +235,11 @@ public partial class BMSPlaylist : NotificationObject
     private readonly Func<List<BMSScore>> bmsScores;
 
     /// <summary>
+    /// beatoraja `.bmt` 出力時に playlist entry の欠けている hash を補完する resolver を取得します。
+    /// </summary>
+    private readonly Func<Func<BMSTableEntry, Tuple<string, string>>> beatorajaBmtSongHashResolverFactory;
+
+    /// <summary>
     /// 初期化処理の連携用に一時保持するセマフォです。
     /// </summary>
     private SemaphoreSlim initSemaphore;
@@ -734,9 +739,15 @@ public partial class BMSPlaylist : NotificationObject
     /// <param name="getLR2Config">LR2 設定を返すデリゲート。</param>
     /// <param name="_lr2ScoreDB">推奨表更新に使う LR2 Score DB パス。</param>
     /// <param name="getBMSScores">ローカルスコア一覧を返すデリゲート。</param>
+    /// <param name="getBeatorajaBmtSongHashResolver">beatoraja `.bmt` 出力用 hash 補完 resolver を返すデリゲート。</param>
     /// <exception cref="ArgumentNullException"><paramref name="_lr2SongDB"/> が <see langword="null"/> の場合。</exception>
     /// <exception cref="ArgumentException">必要な DB ファイルが存在しない場合。</exception>
-    public BMSPlaylist(string _lr2SongDB, Func<LR2Config> getLR2Config = null, string _lr2ScoreDB = null, Func<List<BMSScore>> getBMSScores = null)
+    public BMSPlaylist(
+        string _lr2SongDB,
+        Func<LR2Config> getLR2Config = null,
+        string _lr2ScoreDB = null,
+        Func<List<BMSScore>> getBMSScores = null,
+        Func<Func<BMSTableEntry, Tuple<string, string>>> getBeatorajaBmtSongHashResolver = null)
     {
         if (_lr2SongDB == null)
         {
@@ -754,6 +765,7 @@ public partial class BMSPlaylist : NotificationObject
         lr2ScoreDBPath = _lr2ScoreDB;
         lr2config = (getLR2Config ?? (Func<LR2Config>)(() => (LR2Config)null));
         bmsScores = (getBMSScores ?? (Func<List<BMSScore>>)(() => (List<BMSScore>)null));
+        beatorajaBmtSongHashResolverFactory = getBeatorajaBmtSongHashResolver;
         listenerForRwlockBMSTablesInitializedAll = new PropertyChangedEventListener(rwlockBMSTablesInitializeAll);
         listenerForRwlockBMSTablesInitializedMin = new PropertyChangedEventListener(rwlockBMSTablesInitializeMin);
         listenerForRwlockBMSTables = new PropertyChangedEventListener(rwlockBMSTables);
@@ -1157,9 +1169,25 @@ public partial class BMSPlaylist : NotificationObject
             return null;
         }
         EnsurePlaylistEntriesLoaded(table, reason ?? "BeatorajaBmtExport");
+        Func<BMSTableEntry, Tuple<string, string>> hashResolverFunc = beatorajaBmtSongHashResolverFactory?.Invoke();
+        BmtTableExportService.ISongHashResolver hashResolver = hashResolverFunc == null
+            ? null
+            : new BeatorajaBmtSongHashResolver(hashResolverFunc);
         using (table.ReaderWriterLock.GetReaderGuard())
         {
-            return BmtTableExportService.BuildTableData(table);
+            return BmtTableExportService.BuildTableData(table, hashResolver);
+        }
+    }
+
+    private sealed class BeatorajaBmtSongHashResolver(Func<BMSTableEntry, Tuple<string, string>> resolve)
+        : BmtTableExportService.ISongHashResolver
+    {
+        public BmtTableExportService.SongHashResolution Resolve(BMSTableEntry entry)
+        {
+            Tuple<string, string> resolved = resolve?.Invoke(entry);
+            return resolved == null
+                ? null
+                : new BmtTableExportService.SongHashResolution(resolved.Item1, resolved.Item2);
         }
     }
 
@@ -4016,7 +4044,7 @@ public partial class BMSPlaylist : NotificationObject
         {
             using var lR2SongDBExtended = new LR2SongDBExtended(lr2SongDBPath);
             lR2SongDBExtended.BeginTransaction();
-            lR2SongDBExtended.Execute("DELETE FROM " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetTableName() + " WHERE " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.playlist_id) + " = " + entry.playlist_id + " AND " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.md5) + BuildNullableSqlEquality(entry.md5, blankAsNull: true) + " AND " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.sha256) + BuildNullableSqlEquality(entry.sha256, blankAsNull: true) + " AND " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.folder) + " = " + sqlQuote(entry.folder) + " AND " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.lr2_bmsid) + BuildNullableSqlEquality(entry.lr2_bmsid, blankAsNull: true) + " AND " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.title) + BuildNullableSqlEquality(entry.title) + ";");
+            lR2SongDBExtended.Execute("DELETE FROM " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetTableName() + " WHERE " + BuildPlaylistEntryReplacementPredicate(entry) + ";");
             lR2SongDBExtended.InsertOrReplace(entry, typeof(LR2SongDBExtended.playlist_entry));
             lR2SongDBExtended.Commit();
         }
@@ -4205,6 +4233,40 @@ public partial class BMSPlaylist : NotificationObject
             return " IS NULL ";
         }
         return " = " + sqlQuote(value);
+    }
+
+    private static string BuildPlaylistEntryReplacementPredicate(BMSTableEntry entry)
+    {
+        string playlistIdColumn = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.playlist_id);
+        string md5Column = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.md5);
+        string sha256Column = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.sha256);
+        string folderColumn = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.folder);
+        string lr2BmsIdColumn = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.lr2_bmsid);
+        string titleColumn = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.title);
+
+        string hashPredicate;
+        if (!string.IsNullOrWhiteSpace(entry.md5))
+        {
+            hashPredicate = md5Column + " = " + sqlQuote(entry.md5);
+            if (!string.IsNullOrWhiteSpace(entry.sha256))
+            {
+                hashPredicate = "(" + hashPredicate + " OR (" + md5Column + " IS NULL AND " + sha256Column + " = " + sqlQuote(entry.sha256) + "))";
+            }
+        }
+        else if (!string.IsNullOrWhiteSpace(entry.sha256))
+        {
+            hashPredicate = md5Column + " IS NULL AND " + sha256Column + " = " + sqlQuote(entry.sha256);
+        }
+        else
+        {
+            hashPredicate = md5Column + " IS NULL AND " + sha256Column + " IS NULL";
+        }
+
+        return playlistIdColumn + " = " + entry.playlist_id
+            + " AND " + hashPredicate
+            + " AND " + folderColumn + " = " + sqlQuote(entry.folder)
+            + " AND " + lr2BmsIdColumn + BuildNullableSqlEquality(entry.lr2_bmsid, blankAsNull: true)
+            + " AND " + titleColumn + BuildNullableSqlEquality(entry.title);
     }
 
     /// <summary>

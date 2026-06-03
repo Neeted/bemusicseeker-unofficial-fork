@@ -250,30 +250,45 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
     }
 
     [TestMethod]
-    public void GetPlaylistOrgMd5sForChart_UsesCandidateWavHealthInSameDirectory()
+    public void GetPlaylistOrgMd5sForChart_ReturnsBmsAndBmsonMd5sInSameDirectory()
     {
         string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
         string libraryDirectoryPath = Path.Combine(tempRootPath, "Library");
+        string otherDirectoryPath = Path.Combine(tempRootPath, "Other");
         Directory.CreateDirectory(libraryDirectoryPath);
+        Directory.CreateDirectory(otherDirectoryPath);
         try
         {
             string songDbPath = Path.Combine(tempRootPath, "song.db");
             File.WriteAllBytes(songDbPath, []);
-            File.WriteAllText(Path.Combine(libraryDirectoryPath, "present.wav"), string.Empty);
             string sourceHash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
             string includedHash = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
-            string excludedHash = "cccccccccccccccccccccccccccccccc";
-            TestableBmsFile source = CreateLibraryFile(sourceHash, Path.Combine(libraryDirectoryPath, "source.bms"), "present.wav");
-            TestableBmsFile included = CreateLibraryFile(includedHash, Path.Combine(libraryDirectoryPath, "included.bms"), "present.wav");
-            TestableBmsFile excluded = CreateLibraryFile(excludedHash, Path.Combine(libraryDirectoryPath, "excluded.bms"), "missing.wav");
+            string bmsonHash = "cccccccccccccccccccccccccccccccc";
+            string otherHash = "dddddddddddddddddddddddddddddddd";
+            TestableBmsFile source = CreateLibraryFile(sourceHash, Path.Combine(libraryDirectoryPath, "source.bms"));
+            TestableBmsFile included = CreateLibraryFile(includedHash, Path.Combine(libraryDirectoryPath, "included.bms"));
+            TestableBmsFile otherDirectory = CreateLibraryFile(otherHash, Path.Combine(otherDirectoryPath, "other.bms"));
+            var bmson = new LR2SongDBExtended.bmson_song
+            {
+                path = Path.Combine(libraryDirectoryPath, "chart.bmson"),
+                md5 = bmsonHash,
+                sha256 = new string('c', 64)
+            };
+            var md5lessBmson = new LR2SongDBExtended.bmson_song
+            {
+                path = Path.Combine(libraryDirectoryPath, "md5less.bmson"),
+                md5 = null,
+                sha256 = new string('e', 64)
+            };
             var library = new BMSLibrary(songDbPath)
             {
-                BMSFiles = [source, included, excluded]
+                BMSFiles = [source, included, otherDirectory],
+                BmsonSongs = [bmson, md5lessBmson]
             };
 
             List<string> orgMd5s = library.GetPlaylistOrgMd5sForChart(ChartFileProjection.FromBmsFile(source));
 
-            CollectionAssert.AreEqual(new[] { sourceHash, includedHash }, orgMd5s);
+            CollectionAssert.AreEqual(new[] { sourceHash, includedHash, bmsonHash }, orgMd5s);
         }
         finally
         {

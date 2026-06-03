@@ -5,6 +5,7 @@ using System.IO.Compression;
 using System.Linq;
 using System.Text;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.LR2;
 using Codeplex.Data;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Newtonsoft.Json.Linq;
@@ -17,6 +18,7 @@ public sealed class BmtTableExportServiceTests
     private const string Sha256A = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     private const string Sha256B = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
     private const string Md5A = "11111111111111111111111111111111";
+    private const string Md5B = "22222222222222222222222222222222";
 
     [TestMethod]
     [TestCategory("Playlist")]
@@ -64,6 +66,50 @@ public sealed class BmtTableExportServiceTests
 
         Assert.AreEqual("bemusicseeker://playlist/42", json.Value<string>("url"));
         Assert.AreEqual("Alpha", json["folder"]![0]!.Value<string>("name"));
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public void BuildTableData_ResolverFillsMissingFolderSongHashesButNotCourses()
+    {
+        var table = new BMSTable
+        {
+            name = "Local Table",
+            playlist_id = 43,
+            Folder_order = ["Alpha"],
+            entries =
+            [
+                new BMSTableEntry(DynamicJson.Parse("{\"title\":\"Md5 Only\",\"md5\":\"" + Md5A + "\",\"level\":\"Alpha\"}")),
+                new BMSTableEntry(DynamicJson.Parse("{\"title\":\"Sha Only\",\"sha256\":\"" + Sha256B + "\",\"level\":\"Alpha\"}")),
+                new BMSTableEntry(DynamicJson.Parse("{\"title\":\"Both\",\"md5\":\"33333333333333333333333333333333\",\"sha256\":\"" + new string('c', 64) + "\",\"level\":\"Alpha\"}"))
+            ]
+        };
+        table.SetPersistedCourses(
+        [
+            new LR2SongDBExtended.playlist_course
+            {
+                course_json = "{\"name\":\"Course\",\"md5\":[\"" + Md5A + "\"]}"
+            }
+        ]);
+        var resolver = new TestSongHashResolver(new Dictionary<string, Tuple<string, string>>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Md5 Only"] = Tuple.Create(Md5A, Sha256A),
+            ["Sha Only"] = Tuple.Create(Md5B, Sha256B),
+            ["Both"] = Tuple.Create(Md5B, Sha256B)
+        });
+
+        JObject json = BmtTableExportService.BuildTableData(table, resolver);
+
+        JToken md5Only = json["folder"]![0]!["songs"]![0]!;
+        JToken shaOnly = json["folder"]![0]!["songs"]![1]!;
+        JToken both = json["folder"]![0]!["songs"]![2]!;
+        Assert.AreEqual(Md5A, md5Only.Value<string>("md5"));
+        Assert.AreEqual(Sha256A, md5Only.Value<string>("sha256"));
+        Assert.AreEqual(Md5B, shaOnly.Value<string>("md5"));
+        Assert.AreEqual(Sha256B, shaOnly.Value<string>("sha256"));
+        Assert.AreEqual("33333333333333333333333333333333", both.Value<string>("md5"));
+        Assert.AreEqual(new string('c', 64), both.Value<string>("sha256"));
+        Assert.IsNull(json["course"]![0]!["hash"]![0]!["sha256"]);
     }
 
     [TestMethod]
@@ -317,6 +363,17 @@ public sealed class BmtTableExportServiceTests
             {
                 Directory.Delete(tempDirectory, recursive: true);
             }
+        }
+    }
+
+    private sealed class TestSongHashResolver(Dictionary<string, Tuple<string, string>> hashesByTitle)
+        : BmtTableExportService.ISongHashResolver
+    {
+        public BmtTableExportService.SongHashResolution Resolve(BMSTableEntry entry)
+        {
+            return entry != null && hashesByTitle.TryGetValue(entry.title, out Tuple<string, string> hashes)
+                ? new BmtTableExportService.SongHashResolution(hashes.Item1, hashes.Item2)
+                : new BmtTableExportService.SongHashResolution(null, null);
         }
     }
 }

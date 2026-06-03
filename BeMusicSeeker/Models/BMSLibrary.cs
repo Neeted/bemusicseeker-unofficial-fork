@@ -5131,6 +5131,77 @@ completeFileEnumerationOnce,
         return null;
     }
 
+    internal Func<BMSTableEntry, Tuple<string, string>> CreateBeatorajaBmtSongHashResolver()
+    {
+        PlaylistLibraryResolveIndexSnapshot resolveIndex = GetPlaylistLibraryResolveIndexSnapshot(
+            CancellationToken.None,
+            out _,
+            out _);
+        var resolver = new BeatorajaBmtSongHashResolver(this, resolveIndex);
+        return resolver.Resolve;
+    }
+
+    private sealed class BeatorajaBmtSongHashResolver(
+        BMSLibrary library,
+        PlaylistLibraryResolveIndexSnapshot resolveIndex)
+    {
+        public Tuple<string, string> Resolve(BMSTableEntry entry)
+        {
+            if (entry == null)
+            {
+                return null;
+            }
+            string md5 = null;
+            string sha256 = null;
+            LibraryChartRef resolvedChart = resolveIndex?.ResolveChartForPlaylistEntry(entry);
+            if (IsResolvedChartCompatible(entry, resolvedChart))
+            {
+                md5 = resolvedChart.Md5;
+                sha256 = resolvedChart.Sha256;
+            }
+            LR2SongDBExtended.chart_info chartInfo = ResolveChartInfoForEntry(library, entry);
+            if (chartInfo != null)
+            {
+                if (string.IsNullOrWhiteSpace(md5) && TryGetChartInfoMd5(chartInfo, out string chartInfoMd5))
+                {
+                    md5 = chartInfoMd5;
+                }
+                if (string.IsNullOrWhiteSpace(sha256) && TryGetChartInfoSha256(chartInfo, out string chartInfoSha256))
+                {
+                    sha256 = chartInfoSha256;
+                }
+            }
+            return string.IsNullOrWhiteSpace(md5) && string.IsNullOrWhiteSpace(sha256)
+                ? null
+                : Tuple.Create(md5, sha256);
+        }
+
+        private static LR2SongDBExtended.chart_info ResolveChartInfoForEntry(BMSLibrary library, BMSTableEntry entry)
+        {
+            if (library == null || entry == null)
+            {
+                return null;
+            }
+            return string.IsNullOrWhiteSpace(entry.md5)
+                ? library.ResolveChartInfo(entry.sha256, null)
+                : library.ResolveChartInfo(null, entry.md5);
+        }
+
+        private static bool IsResolvedChartCompatible(BMSTableEntry entry, LibraryChartRef resolvedChart)
+        {
+            if (entry == null || resolvedChart == null)
+            {
+                return false;
+            }
+            if (!string.IsNullOrWhiteSpace(entry.md5))
+            {
+                return string.Equals(entry.md5, resolvedChart.Md5, StringComparison.OrdinalIgnoreCase);
+            }
+            return !string.IsNullOrWhiteSpace(entry.sha256)
+                && string.Equals(entry.sha256, resolvedChart.Sha256, StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
     private LR2SongDBExtended.chart_info ResolveChartInfoForChart(ChartFile chart)
     {
         return chart == null ? null : ResolveChartInfo(chart.Sha256, chart.Md5);
@@ -13941,71 +14012,62 @@ completeFileEnumerationOnce,
 
     internal List<string> GetPlaylistOrgMd5sForChart(ChartFile chart)
     {
-        if (chart == null)
+        if (chart == null || string.IsNullOrWhiteSpace(chart.Path))
         {
-            return null;
+            return [];
         }
-        BMSFile bmsFile = chart.GetBmsStorageOwner();
-        return bmsFile == null
-            ? []
-            : GetMD5sOfTheSameSong(bmsFile);
+        return GetPlaylistPackageMd5sByDirectory(DirectoryExt.GetDirectoryNameSimple(chart.Path));
     }
 
     internal List<string> GetPlaylistFolderOrgMd5sForCharts(IEnumerable<ChartFile> charts)
     {
-        foreach (ChartFile chart in charts ?? [])
-        {
-            List<string> orgMd5s = GetPlaylistOrgMd5sForChart(chart);
-            if (orgMd5s?.Count > 0)
-            {
-                return orgMd5s;
-            }
-        }
-        return [];
+        string directoryPath = (charts ?? [])
+            .Where(chart => chart != null && !string.IsNullOrWhiteSpace(chart.Path))
+            .Select(chart => DirectoryExt.GetDirectoryNameSimple(chart.Path))
+            .FirstOrDefault(directory => !string.IsNullOrWhiteSpace(directory));
+        return string.IsNullOrWhiteSpace(directoryPath)
+            ? []
+            : GetPlaylistPackageMd5sByDirectory(directoryPath);
     }
 
-    private List<string> GetMD5sOfTheSameSong(BMSFile file)
+    private List<string> GetPlaylistPackageMd5sByDirectory(string directoryPath)
     {
-        if (file == null)
+        if (string.IsNullOrWhiteSpace(directoryPath))
         {
-            throw new ArgumentNullException("file");
+            return [];
         }
-        List<string> list = [];
+        var md5s = new List<string>();
         using (rwlockBMSFilesInitializedAll.GetReaderGuard())
         {
             using (rwlockBMSFiles.GetReaderGuard())
             {
-                if (!BMSFiles.Contains(file))
+                foreach (BMSFile file in BMSFiles ?? [])
                 {
-                    return null;
-                }
-                var lookupContext = new ResourceHealthLookupContext(directoryResourceLookupCache);
-                BMSFileMaintenanceInfo sourceHealth = BmsLibraryMaintenanceService.BuildBmsResourceHealthMaintenanceInfo(file, lookupContext, clearResourceReferences: true);
-                if (sourceHealth?.GetWAVHealth() > innerWavHealthThreshForNormalBMSFile)
-                {
-                    string dirname = DirectoryExt.GetDirectoryNameSimple(file.path);
-                    list.Add(file.hash);
-                    foreach (BMSFile candidate in BMSFiles)
+                    if (file == null
+                        || string.IsNullOrWhiteSpace(file.path)
+                        || string.IsNullOrWhiteSpace(file.hash)
+                        || !LR2SongDB.md5HashRegex.IsMatch(file.hash)
+                        || !string.Equals(DirectoryExt.GetDirectoryNameSimple(file.path), directoryPath, StringComparison.OrdinalIgnoreCase))
                     {
-                        if (ReferenceEquals(candidate, file))
-                        {
-                            continue;
-                        }
-                        if (!DirectoryExt.GetDirectoryNameSimple(candidate.path).Equals(dirname, StringComparison.OrdinalIgnoreCase))
-                        {
-                            continue;
-                        }
-                        BMSFileMaintenanceInfo candidateHealth = BmsLibraryMaintenanceService.BuildBmsResourceHealthMaintenanceInfo(candidate, lookupContext, clearResourceReferences: true);
-                        if (candidateHealth?.GetWAVHealth() > innerWavHealthThreshForNormalBMSFile)
-                        {
-                            list.Add(candidate.hash);
-                        }
+                        continue;
                     }
-                    return [.. list.Distinct()];
+                    md5s.Add(file.hash);
                 }
-                return null;
+                foreach (LR2SongDBExtended.bmson_song song in BmsonSongs ?? [])
+                {
+                    if (song == null
+                        || string.IsNullOrWhiteSpace(song.path)
+                        || string.IsNullOrWhiteSpace(song.md5)
+                        || !LR2SongDB.md5HashRegex.IsMatch(song.md5)
+                        || !string.Equals(DirectoryExt.GetDirectoryNameSimple(song.path), directoryPath, StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+                    md5s.Add(song.md5);
+                }
             }
         }
+        return [.. md5s.Distinct(StringComparer.OrdinalIgnoreCase).Select(md5 => md5.ToLowerInvariant())];
     }
 
     public static string GetLongestCommonChartInfo(IEnumerable<string> strings)

@@ -45,6 +45,18 @@ internal static class BmtTableExportService
         public List<ManagedTableUrlEntry> CurrentManagedTables { get; } = [];
     }
 
+    internal sealed class SongHashResolution(string md5, string sha256)
+    {
+        public string Md5 { get; } = md5;
+
+        public string Sha256 { get; } = sha256;
+    }
+
+    internal interface ISongHashResolver
+    {
+        SongHashResolution Resolve(BMSTableEntry entry);
+    }
+
     internal static ExportResult ExportTables(string tablePath, IEnumerable<BMSTable> tables, bool cleanupStaleManagedFiles)
     {
         if (string.IsNullOrWhiteSpace(tablePath))
@@ -202,6 +214,11 @@ internal static class BmtTableExportService
 
     internal static JObject BuildTableData(BMSTable table)
     {
+        return BuildTableData(table, null);
+    }
+
+    internal static JObject BuildTableData(BMSTable table, ISongHashResolver hashResolver)
+    {
         if (table == null)
         {
             return null;
@@ -211,7 +228,7 @@ internal static class BmtTableExportService
         {
             return null;
         }
-        JArray folders = BuildFolders(table);
+        JArray folders = BuildFolders(table, hashResolver);
         JArray courses = BuildCourses(table);
         if (folders.Count == 0 && courses.Count == 0)
         {
@@ -255,7 +272,7 @@ internal static class BmtTableExportService
         return (table.compat_prefix ?? string.Empty).Trim();
     }
 
-    private static JArray BuildFolders(BMSTable table)
+    private static JArray BuildFolders(BMSTable table, ISongHashResolver hashResolver)
     {
         JArray folders = [];
         List<string> folderNames = table.folder_list ?? [];
@@ -266,7 +283,7 @@ internal static class BmtTableExportService
                 .Where(entry => entry != null && !entry.is_removed && string.Equals(entry.folder ?? string.Empty, folderName ?? string.Empty, StringComparison.Ordinal));
             foreach (BMSTableEntry entry in entries)
             {
-                JObject song = BuildSong(entry, null);
+                JObject song = BuildSong(entry, null, hashResolver);
                 if (song != null)
                 {
                     songs.Add(song);
@@ -300,10 +317,17 @@ internal static class BmtTableExportService
         return tag + level;
     }
 
-    private static JObject BuildSong(BMSTableEntry entry, JObject sourceChart)
+    private static JObject BuildSong(BMSTableEntry entry, JObject sourceChart, ISongHashResolver hashResolver)
     {
-        string md5 = FirstNonEmpty(entry?.md5, sourceChart?.Value<string>("md5"));
-        string sha256 = FirstNonEmpty(entry?.sha256, sourceChart?.Value<string>("sha256"));
+        SongHashResolution resolvedHashes = hashResolver?.Resolve(entry);
+        string md5 = FirstNonEmpty(
+            entry?.md5,
+            string.IsNullOrWhiteSpace(entry?.md5) ? resolvedHashes?.Md5 : null,
+            sourceChart?.Value<string>("md5"));
+        string sha256 = FirstNonEmpty(
+            entry?.sha256,
+            string.IsNullOrWhiteSpace(entry?.sha256) ? resolvedHashes?.Sha256 : null,
+            sourceChart?.Value<string>("sha256"));
         string title = FirstNonEmpty(entry?.title, sourceChart?.Value<string>("title"));
         if (string.IsNullOrWhiteSpace(title) || (string.IsNullOrWhiteSpace(md5) && string.IsNullOrWhiteSpace(sha256)))
         {

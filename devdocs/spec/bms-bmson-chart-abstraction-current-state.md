@@ -125,7 +125,7 @@ parent folder cache は UI / settings の語彙としては BMS root / BMS direc
 
 playlist reference 表示は、BMS / bmson を分けず `ChartFile` identity から解決する。playlist entry は `PlaylistEntryLookupKey` で「md5 があれば md5、md5 がなければ sha256」を selected key とし、md5 miss 後に同一 entry の sha256 へ探索を広げない。`PlaylistReferenceIndex` は selected key だけを通常一覧 row / virtual source row / playlist detail source row に注入する。`BMSLibrary` の playlist reference 更新も BMS storage row の `RefTables` cache へは書き戻さず、UI 更新は `PlaylistReferenceIndex` の version / table 更新通知と chart row の playlist reference projection invalidation で行う。BMS storage row の playlist reference cache は削除済みであり、表示 / sort / keyword search / `BMSLibrary` mutation の正本は `PlaylistReferenceIndex` である。`RefreshReferenceDisplayForTable(...)` / `RemoveReferenceBMSTables(...)` などの BMS 名は playlist table の歴史的語彙として残るが、実装は index の replace / remove / synchronize だけを行い、BMS storage row へ playlist reference を書き戻さない。
 
-playlist 追加時の LR2 `org_md5` 補助探索は `GetPlaylistOrgMd5sForChart(...)` から入る。実体は `GetMD5sOfTheSameSong(BMSFile)` の BMS storage row / WAV health heuristic であり、bmson chart では空を返す。これは playlist reference index とは別の LR2 互換補助処理で、Chart entrypoint を持つが producer は BMS-only boundary として残る。同一ディレクトリ内の候補を返す際は、候補 chart 自身の WAV health を見る。
+playlist 追加時の LR2 `org_md5` 補助探索は `GetPlaylistOrgMd5sForChart(...)` から入る。`org_md5` は chart の `Path` の親ディレクトリを同一パッケージ key とし、そのディレクトリにある current owned BMS / bmson chart の valid MD5 集合を保存する。これは playlist reference index とは別の LR2 互換補助処理で、entry lookup の selected key とは独立した補助 metadata である。
 
 score / ranking 系の表示値は `ChartScoreSnapshot` として `ChartFile` に投影され、`LibraryChartRow` / `ChartListSourceRow` は `BMSFile` の score 表示 getter を直接読まない。通常一覧の source row は `BMSLibrary.ScoreSnapshot` provider を優先し、LR2 score は md5、beatoraja score は sha256 から解決する。`BMSFile` 側には `bmsScore` attachment と listener lifecycle だけを残し、`clear` / `rank` / `score` / `rateDouble` / `rankingString` などの表示・sort getter は row read model 側へ閉じる。通常 library の所持 bmson は現時点で LR2 score storage を持たないため、path がある chart は `NO_PLAY`、path が無い chart は `NO_SONG` の既定 snapshot になる。これは「score 表示 API の入口は Chart だが、score の storage producer は BMS/LR2 境界に残る」という整理である。
 
@@ -194,7 +194,7 @@ duplicate warning の永続的な正本はまだ BMS 側に寄っている。BMS
 
 BMS / bmson storage row から warning なしの installed / standard snapshot を作る境界も `ChartFileProjection.FromStorageRows(...)` / `FromBmsFiles(...)` / `FromBmsonSongs(...)` に集約する。current installed source は owned chart collection を優先し、任意 subset のように collection view としてまだ表現できない入力だけ storage row projection を使う。追加 bmson だけのように直近 mutation の `AddedCharts` で対象が既に分かるものは、その bounded chart input から再投影し、`BmsonSongs` 全体を scan しない。Model / ViewModel 側は BMS row list と bmson row list を直接結合する実装を増やさず、storage owner から chart domain model へ投影する責務を `ChartFileProjection` に閉じる。
 
-playlist row では `ChartFile.Kind` を chart 種別の正本にし、BMS / bmson の storage owner が必要な場合だけ `GetBmsStorageOwner()` / `GetBmsonStorageOwner()` で降りる。どちらの storage owner もない playlist entry は、現状 `ChartFileKind.Bms` の missing row として扱われる。細かい実装メモとして、`BMSTableEntry(ChartFile)` の bmson playlist identity は owner 有無ではなく `ChartFile.Kind == Bmson` で決める。これは metadata-only / ownerless bmson projection でも sha256 playlist identity を維持し、BMS 用 `org_md5` を混ぜないためである。
+playlist row では `ChartFile.Kind` を chart 種別の正本にし、BMS / bmson の storage owner が必要な場合だけ `GetBmsStorageOwner()` / `GetBmsonStorageOwner()` で降りる。どちらの storage owner もない playlist entry は、現状 `ChartFileKind.Bms` の missing row として扱われる。`BMSTableEntry(ChartFile)` は BMS / bmson とも chart から分かる `md5` / `sha256` を保存する。lookup / reference / summary の selected key は md5 があれば md5、md5 が無ければ sha256 であり、persisted hash の両方保存とは分けて扱う。
 
 `GridRowResolver.TryGetBmsPlayerFile(...)` は、View / preview 経路の BMS player 用 API として残る。BMS player は BMS storage row だけを再生対象にするため、この API は BMS-only 境界であり、bmson adapter は返さない。chart 種別を判断する正本ではない。operation 判定は `TryGetChartFile(...)` / `TryGetChartOperationTarget(...)` と capability を優先する。chart-common mutation は `ChartFile` / `LibraryChartRef` / `PackageChartEntry` を使い、BMS player / BMS-only handler だけが `GetBmsStorageOwner()` や `TryGetBmsPlayerFile(...)` を見る。hash / repository SHA256 / display title などの chart row getter は raw `BMSFile` fallback を持たず、row / read model が `ChartFile` を公開している場合だけ値を返す。BMS player controls が raw `BMSFile` から表示文字列を読む必要がある箇所は `GetBmsPlayerDisplayTitle(...)` などの BMS-only helper に分ける。BMS storage owner 入口の LR2IR lookup は MD5 を見る。playlist row は entry snapshot の `lr2_bmsid` fallback を使う。`FOLDER` セル編集は `TryGetFolderEditChartOperationTarget(...)` で `MoveInLibrary` capability を確認し、UI thread 上で `RenameChartFolderTargetSnapshot` を作ってから `RenameChartFolder(...)` へ渡すため、owned bmson row も BMS row と同じ folder rename 経路に入るが、background task 側で bmson compatibility adapter を materialize しない。`ChartFile` の BMS storage owner は private で、明示 helper 経由でだけ読む。
 
@@ -373,11 +373,11 @@ playlist entry は md5 と sha256 の両方を持てる。
 
 現行方針:
 
-- BMS entry は md5 identity が基本。
-- bmson entry は sha256-only identity が基本。
+- 手動追加された所持 BMS / bmson entry は、owned chart から分かる `md5` / `sha256` を両方保存する。
+- 外部同期 row や既存互換 row は sha256-only でも扱える。既存 DB row は自動 backfill せず、読み込んだ値を維持する。
 - resolve / reference / summary は `PlaylistEntryLookupKey` を使い、entry に md5 があれば md5 だけ、md5 がなければ sha256 だけを selected key にする。md5 が定義された entry で md5 が見つからない場合に sha256 を追加探索しない。
-- `BMSTableEntry(BMSFile)` は BMS storage row 専用で、md5 identity を使う。
-- bmson entry は `BMSTableEntry(ChartFile)` を入口にし、`ChartFile.Kind == Bmson` の場合に `MarkAsBmsonPlaylistIdentity(...)` を呼び、`md5 = null`, `sha256 = preferredSha256`, `Org_md5 = []` にする。
+- `BMSTableEntry(BMSFile)` と `BMSTableEntry(ChartFile)` は BMS / bmson とも persisted hash を分かる限り設定する。`MarkAsBmsonPlaylistIdentity(...)` は sha256-only 互換 row を明示的に作る境界に限る。
+- `org_md5` は BMS-only 補助情報ではなく、ドロップ元 chart と同じディレクトリにある BMS / bmson chart の MD5 集合として扱う。
 
 ### Playlist detail resolution
 
@@ -402,14 +402,14 @@ playlist detail 表示時の `ChartRowsView` 実体は `PlaylistDetailVirtualVie
 
 `MainWindowViewModel.AddChartRowsToFolderBMSTable(...)` は、playlist table 概念として `BMSTable` 名を残しつつ、追加元の一覧 row は Chart として解決する。
 
-通常 folder への追加では、row から `ResolvePlaylistDropChart(...)` で `ChartFile` を解決し、`BMSTableEntry(ChartFile)` で playlist entry を作る。bmson はこの経路で `PendingChartEntry` adapter を作らず、`ChartFile.Kind == Bmson` と `ChartFile.GetBmsonStorageOwner()` から sha256 identity の playlist entry になる。
+通常 folder への追加では、row から `ResolvePlaylistDropChart(...)` で `ChartFile` を解決し、`BMSTableEntry(ChartFile)` で playlist entry を作る。bmson はこの経路で `PendingChartEntry` adapter を作らず、`ChartFile.Kind == Bmson` と `ChartFile.GetBmsonStorageOwner()` から md5 / sha256 を分かる限り保存する playlist entry になる。
 
 - BMS row は実体 `BMSFile` を使う。
 - bmson library row は `ChartFile` / `BmsonSong` の identity から playlist entry を作り、playlist 追加のためだけには `PendingChartEntry` adapter を作らない。
 - playlist row は通常 folder 追加では `BMSTableEntry.Duplicate()` を優先し、既存 playlist metadata を保つ。
 - 追加後の playlist reference 表示更新は、追加元 row から解決した `ChartFile` list を `BMSLibrary` の playlist reference index 更新へ渡す。旧実装のように追加後の対象を `BMSFile` list へ戻すと bmson が参照更新対象から落ちるため、その中間表現は残さない。playlist reference 表示は BMS storage row の `RefTables` ではなく、`PlaylistReferenceIndex` と chart row invalidation で反映する。
 
-folder table root への追加では、BMS は従来の同一ディレクトリ md5 group を使う。所持 playlist row は BMS / bmson とも `ResolvePlaylistDropChart(...)` で `ChartFile` へ解決され、root folder 自動振り分けでは新しい `BMSTableEntry(chart)` を作る。missing row など chart を解決できない playlist row は `BMSTableEntry.Duplicate()` で既存 metadata を保つ。bmson は sha256 identity を保ち、`Org_md5` は空にする。
+folder table root への追加では、BMS / bmson とも同一ディレクトリの current owned chart MD5 集合を `org_md5` として使う。所持 playlist row は BMS / bmson とも `ResolvePlaylistDropChart(...)` で `ChartFile` へ解決され、root folder 自動振り分けでは新しい `BMSTableEntry(chart)` を作る。missing row など chart を解決できない playlist row は `BMSTableEntry.Duplicate()` で既存 metadata を保つ。
 
 ## File read pipeline
 
@@ -495,7 +495,7 @@ UI 文言と翻訳 resource は、機能自体がユーザー目線で変わっ�
 - BMS-format selection helper: `GetSelectedBmsFormatCharts(...)`
 - model mutation reference: `LibraryChartRef`
 - installed directory lookup: BMS / bmson の両方を hash / path で登録する shared lookup
-- playlist entry identity: md5-only と sha256-only の両対応
+- playlist entry identity: persisted hash は md5 / sha256 を両方持てるが、lookup は md5 優先 selected key
 - package discovery: `PackageChartEntry` / `ChartFile` により BMS / bmson を pending chart として扱う
 
 ## 現在残す storage / producer 境界

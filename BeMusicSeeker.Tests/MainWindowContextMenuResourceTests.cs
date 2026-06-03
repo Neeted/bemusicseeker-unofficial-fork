@@ -383,7 +383,8 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(standaloneDbCode, "FileMode.OpenOrCreate");
         StringAssert.Contains(standaloneDbCode, "BMSPlaylist.EnsureSchema(songDbPath)");
         StringAssert.Contains(viewModelCode, "StandaloneLibraryDatabase.EnsurePortableSongDb()");
-        StringAssert.Contains(viewModelCode, "tables = new BMSPlaylist(libraryProfile.SongDbPath");
+        StringAssert.Contains(viewModelCode, "tables = new BMSPlaylist(");
+        StringAssert.Contains(viewModelCode, "libraryProfile.SongDbPath");
         StringAssert.Contains(viewModelCode, "files.SearchTargets.AddRange(libraryProfile.SearchRoots)");
         StringAssert.Contains(viewModelCode, "return [];");
         StringAssert.Contains(viewModelCode, "temp_output_dir_full_path = Settings.Default.OperationModeLR2DB ? BMSPlaylist.GetCustomFolderOutputDirectory(bmsTable) : null;");
@@ -1873,10 +1874,10 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(libraryCode, "ChartStorageTargetSet.FromCharts(context.AddedCharts)");
         Assert.IsFalse(libraryCode.Contains("ResolveAddedBmsonSongsFromInstalledPackages"));
         Assert.IsFalse(libraryCode.Contains("CreateAddedBmsonChartProjectionsFromInstalledPackages"));
-        Assert.IsFalse(libraryCode.Contains("foreach (LR2SongDBExtended.bmson_song song in BmsonSongs"));
+        string estimatedInstallMethod = ExtractMethodBody(libraryCode, "public void InstallPendingPackagesToEstimatedDestinations");
+        Assert.IsFalse(estimatedInstallMethod.Contains("foreach (LR2SongDBExtended.bmson_song song in BmsonSongs"));
         StringAssert.Contains(libraryCode, "CreateAddedBmsonChartProjections(batchApplyContext.AddedCharts)");
         StringAssert.Contains(libraryCode, "BuildEstimatedInstallMaintenanceTargets(batchResult.DeferredMaintenanceCharts)");
-        string estimatedInstallMethod = ExtractMethodBody(libraryCode, "public void InstallPendingPackagesToEstimatedDestinations");
         Assert.IsFalse(estimatedInstallMethod.Contains("ResourceHealthIndexUpdateMode.FullOnUpdates"));
         StringAssert.Contains(estimatedInstallMethod, "resourceHealthIndexUpdateMode: ResourceHealthIndexUpdateMode.DeltaOnUpdates");
         StringAssert.Contains(libraryCode, "LogReverseLookupMutationAndQueueWarmupIfNeeded(\"install_package\", reverseLookupMutation);");

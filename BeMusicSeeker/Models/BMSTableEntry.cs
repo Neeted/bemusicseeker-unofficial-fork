@@ -12,7 +12,6 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
     private enum PlaylistHashIdentityKind
     {
         Automatic,
-        Md5Only,
         Sha256Only
     }
 
@@ -391,9 +390,9 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
             throw new ArgumentNullException("bmsFile");
         }
         md5 = bmsFile.hash;
+        sha256 = bmsFile.sha256;
         bmsfile = bmsFile;
         base.level = bmsFile.level;
-        playlistHashIdentityKind = PlaylistHashIdentityKind.Md5Only;
     }
 
     internal BMSTableEntry(ChartFile chart)
@@ -405,34 +404,35 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
         }
         if (chart.Kind == ChartFileKind.Bmson)
         {
+            md5 = chart.Md5;
+            sha256 = chart.Sha256;
             title = chart.Title;
             artist = chart.Artist;
             base.level = chart.Level;
             base.folder = chart.Folder ?? string.Empty;
-            MarkAsBmsonPlaylistIdentity(chart.Sha256);
             return;
         }
         BMSFile bmsFile = chart.GetBmsStorageOwner();
         if (bmsFile != null)
         {
             md5 = bmsFile.hash;
+            sha256 = bmsFile.sha256;
             bmsfile = bmsFile;
             base.level = bmsFile.level;
-            playlistHashIdentityKind = PlaylistHashIdentityKind.Md5Only;
             return;
         }
         md5 = chart.Md5;
+        sha256 = chart.Sha256;
         title = chart.Title;
         artist = chart.Artist;
         base.level = chart.Level;
         base.folder = chart.Folder ?? string.Empty;
-        playlistHashIdentityKind = PlaylistHashIdentityKind.Md5Only;
     }
 
-    internal static BMSTableEntry CreateForPlaylistDrop(ChartFile chart, IEnumerable<string> bmsFolderOrgMd5s = null)
+    internal static BMSTableEntry CreateForPlaylistDrop(ChartFile chart, IEnumerable<string> packageOrgMd5s = null)
     {
         var entry = new BMSTableEntry(chart);
-        entry.Org_md5 = chart?.Kind == ChartFileKind.Bmson ? [] : [.. bmsFolderOrgMd5s ?? []];
+        entry.Org_md5 = [.. packageOrgMd5s ?? []];
         return entry;
     }
 
@@ -626,7 +626,7 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
 
     internal void MarkAsBmsPlaylistIdentity()
     {
-        playlistHashIdentityKind = PlaylistHashIdentityKind.Md5Only;
+        playlistHashIdentityKind = PlaylistHashIdentityKind.Automatic;
     }
 
     internal void MarkAsBmsonPlaylistIdentity(string preferredSha256 = null)
@@ -639,7 +639,23 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
         {
             sha256 = preferredSha256;
         }
-        Org_md5 = [];
+    }
+
+    internal void ApplyPlaylistHashesFromChart(ChartFile chart)
+    {
+        if (chart == null)
+        {
+            return;
+        }
+        if (_bmsfile == null)
+        {
+            md5 = chart.Md5;
+        }
+        if (!string.IsNullOrWhiteSpace(chart.Sha256))
+        {
+            sha256 = chart.Sha256;
+        }
+        playlistHashIdentityKind = PlaylistHashIdentityKind.Automatic;
     }
 
     internal void NormalizeForPlaylistPersistence()
@@ -648,11 +664,10 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
         Org_md5 = Org_md5;
         switch (playlistHashIdentityKind)
         {
-            case PlaylistHashIdentityKind.Md5Only:
-                sha256 = null;
-                break;
             case PlaylistHashIdentityKind.Sha256Only:
-                MarkAsBmsonPlaylistIdentity(sha256);
+                materializeCurrentDisplayValues();
+                _bmsfile = null;
+                md5 = null;
                 break;
         }
     }

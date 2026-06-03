@@ -1598,7 +1598,7 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
-    public void ResolvePlaylistDropChart_LibraryBmsonRowCreatesSha256PlaylistEntryWithoutAdapter()
+    public void ResolvePlaylistDropChart_LibraryBmsonRowCreatesPlaylistEntryWithBothHashes()
     {
         var bmson = new LR2SongDBExtended.bmson_song
         {
@@ -1621,7 +1621,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreSame(bmson, chart.GetBmsonStorageOwner());
         Assert.AreEqual(bmson.path, chart.Path);
         Assert.AreEqual(bmson.title, chart.Title);
-        Assert.IsNull(entry.md5);
+        Assert.AreEqual(bmson.md5, entry.md5);
         Assert.AreEqual(bmson.sha256, entry.sha256);
         Assert.AreEqual(0, entry.Org_md5.Count);
     }
@@ -1631,16 +1631,18 @@ public sealed class PlaylistViewPipelineTests
     {
         var file = new TestableBmsFile();
         file.ApplySnapshot("abababababababababababababababab", "BMS", 8);
+        file.SetSha256(new string('e', 64));
         ChartFile chart = ChartFileProjection.FromBmsFile(file);
 
         var entry = BMSTableEntry.CreateForPlaylistDrop(chart, ["cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"]);
 
         Assert.AreEqual(file.hash, entry.md5);
+        Assert.AreEqual(file.sha256, entry.sha256);
         CollectionAssert.AreEqual(new[] { "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd" }, entry.Org_md5);
     }
 
     [TestMethod]
-    public void CreateForPlaylistDrop_OwnerlessBmsonChartUsesSha256IdentityAndEmptyOrgMd5()
+    public void CreateForPlaylistDrop_OwnerlessBmsonChartPreservesBothHashesAndOrgMd5()
     {
         var chart = new ChartFile(
             ChartFileKind.Bmson,
@@ -1662,10 +1664,68 @@ public sealed class PlaylistViewPipelineTests
 
         var entry = BMSTableEntry.CreateForPlaylistDrop(chart, ["cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"]);
 
-        Assert.IsNull(entry.md5);
+        Assert.AreEqual(chart.Md5, entry.md5);
         Assert.AreEqual(chart.Sha256, entry.sha256);
         Assert.AreEqual("Ownerless bmson", entry.title);
-        Assert.AreEqual(0, entry.Org_md5.Count);
+        CollectionAssert.AreEqual(new[] { "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd" }, entry.Org_md5);
+    }
+
+    [TestMethod]
+    public void CommitPlaylistRow_ExternalSyncEntryDoesNotBackfillHashesFromResolvedChart()
+    {
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "PlaylistViewPipelineTests", Guid.NewGuid().ToString("N"));
+        string songDbPath = Path.Combine(tempDirectory, "song.db");
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            using (var _ = new LR2SongDBExtended(songDbPath))
+            {
+            }
+            BMSPlaylist.EnsureSchema(songDbPath);
+            var table = new BMSTable
+            {
+                playlist_id = 9101,
+                name = "External",
+                is_external_sync = true
+            };
+            using (var db = new LR2SongDBExtended(songDbPath))
+            {
+                db.InsertOrReplace(table, typeof(LR2SongDBExtended.playlist));
+            }
+            var entry = new TestablePlaylistEntry
+            {
+                parent = table,
+                folder = string.Empty,
+                memo = "memo"
+            };
+            entry.SetSha256(new string('9', 64));
+            entry.SetTitle("External Bmson");
+            var bmson = new LR2SongDBExtended.bmson_song
+            {
+                path = "C:\\Songs\\Bmson\\external.bmson",
+                title = "External Bmson",
+                md5 = "99999999999999999999999999999999",
+                sha256 = entry.sha256
+            };
+            PlaylistDetailRow row = new PlaylistDetailSourceRow(entry, ChartFileProjection.FromBmsonSong(bmson, includeWarningSnapshot: false)).CreateViewRow();
+            var viewModel = new MainWindowViewModel();
+            typeof(MainWindowViewModel).GetField("tables", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(viewModel, new BMSPlaylist(songDbPath));
+
+            viewModel.CommitPlaylistRow(row);
+
+            using var verifyDb = new LR2SongDBExtended(songDbPath);
+            BMSTableEntry stored = verifyDb.Table<BMSTableEntry>().Single(dbRow => dbRow.playlist_id == table.playlist_id);
+            Assert.IsNull(entry.md5);
+            Assert.IsNull(stored.md5);
+            Assert.AreEqual(entry.sha256, stored.sha256);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
     }
 
     [TestMethod]

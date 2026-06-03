@@ -44,13 +44,15 @@
 | Column | 意味 |
 | --- | --- |
 | `playlist_id` | 所属 playlist。 |
-| `md5` / `sha256` | 譜面識別 hash。`.bmt` song ではどちらか一方以上が必要。 |
+| `md5` / `sha256` | 譜面識別 hash。手動追加された所持 BMS / bmson entry は、owned chart から分かる両方の hash を保存する。外部同期 row は同期元の値を保存する。lookup は md5 があれば md5、md5 が無ければ sha256 を selected key とする。 |
 | `title` / `artist` | 表示と `.bmt` song 出力に使う。`.bmt` song では `title` が必要。 |
 | `folder` / `level` | 所属 folder と level。外部表の `.bmt` folder 名は header tag/symbol と compatible level から組み立てる。 |
-| `url` / `url_diff` / `name_diff` / `org_md5` | 入手先・差分・親 hash などの補助情報。`.bmt` song では対応範囲で `url`、`appendurl`、`org_md5` に出力する。 |
+| `url` / `url_diff` / `name_diff` / `org_md5` | 入手先・差分・親 hash などの補助情報。手動追加の `org_md5` は、ドロップ元 chart と同じディレクトリにある所持 BMS / bmson chart の MD5 集合を保存する。`.bmt` song では対応範囲で `url`、`appendurl`、`org_md5` に出力する。 |
 | `memo` / `adddate` / `is_removed` | ローカル状態。外部同期時に一致行へ引き継ぐ。 |
 
 外部同期の entry 更新検知は `data_sha256` で行う。entry fingerprint 相当の比較は、再取得 row と既存 row の対応付けを補助し、`memo`、`adddate`、`is_removed` などのローカル状態を引き継ぐために使うが、`last_update` や `playlist_entry` 更新のトリガーにはしない。
+
+`playlist_entry` に md5 と sha256 の両方がある場合、解決・参照・summary の正本は md5 である。md5 が保存されている row では、md5 miss 後に同じ row の sha256 へ探索を広げない。sha256-only row は、外部同期元が sha256 しか持たない場合や既存互換 row のための入力として維持する。
 
 ### `playlist_course`
 
@@ -146,7 +148,7 @@ top-level:
 
 出力ファイル名は `SHA-256(TableData.url) + ".bmt"`。
 
-song は `title` と `md5` / `sha256` のどちらかを持つ行だけ出力する。対応範囲で `artist`、`url`、`appendurl`、`ipfs`、`appendipfs`、`org_md5` を出力する。空 folder は出力しない。folder と course が両方空の table は出力しない。
+song は `title` と `md5` / `sha256` のどちらかを持つ行だけ出力する。folder song では DB row に保存された hash を第一候補にし、selected-key で所持 chart または chart_info を解決できる場合だけ、欠けている counterpart hash を `.bmt` 出力 projection 上で補完する。md5 と sha256 が別 chart を指す場合は md5 を正本にし、危険な counterpart 補完は行わない。course は header source JSON の hash だけを出力し、補完対象にしない。対応範囲で `artist`、`url`、`appendurl`、`ipfs`、`appendipfs`、`org_md5` を出力する。空 folder は出力しない。folder と course が両方空の table は出力しない。
 
 外部表の `folder[].name` は header `tag` 優先、無ければ `symbol`、最後に `compat_prefix` を使い、`tag + compatibleLevel` 形式にする。ローカル表は既存 folder 名をそのまま使う。
 

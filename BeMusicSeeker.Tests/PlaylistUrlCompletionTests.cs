@@ -409,6 +409,40 @@ public sealed class PlaylistUrlCompletionTests
 
     [TestMethod]
     [TestCategory("Playlist")]
+    public void CommitBMSTableEntry_AddedMd5ReplacesExistingSha256CompatibilityRow()
+    {
+        string tempDbPath = CreateEmptySongDbPath();
+        try
+        {
+            BMSPlaylist.EnsureSchema(tempDbPath);
+            var playlist = new BMSPlaylist(tempDbPath);
+            BMSTable table = CreateTable(4005, "ShaToBothTable");
+            InsertPlaylistHeader(tempDbPath, table);
+            string sha256 = "4545454545454545454545454545454545454545454545454545454545454545";
+            TestablePlaylistEntry first = CreateShaOnlyEntry(sha256, "BmsonSong", "old");
+            first.playlist_id = table.playlist_id;
+            TestablePlaylistEntry second = CreateShaOnlyEntry(sha256, "BmsonSong", "new");
+            second.SetMd5("abababababababababababababababab");
+            second.playlist_id = table.playlist_id;
+
+            playlist.CommitBMSTableEntry(first);
+            playlist.CommitBMSTableEntry(second);
+
+            using var db = new LR2SongDBExtended(tempDbPath);
+            List<BMSTableEntry> rows = [.. db.Table<BMSTableEntry>().Where(row => row.playlist_id == table.playlist_id)];
+            Assert.AreEqual(1, rows.Count);
+            Assert.AreEqual(second.md5, rows[0].md5);
+            Assert.AreEqual(second.sha256, rows[0].sha256);
+            Assert.AreEqual("new", rows[0].memo);
+        }
+        finally
+        {
+            DeleteTempSongDbDirectory(tempDbPath);
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
     public void BMSTableEntry_ToDynamicJson_RoundTripsSha256()
     {
         TestablePlaylistEntry entry = CreateShaOnlyEntry("5656565656565656565656565656565656565656565656565656565656565656", "ShaRoundTrip", "memo");
@@ -448,7 +482,7 @@ public sealed class PlaylistUrlCompletionTests
 
     [TestMethod]
     [TestCategory("Playlist")]
-    public void CommitBMSTableEntry_BmsonPlaylistEntry_PersistsSha256OnlyAndEmptyOrgMd5()
+    public void CommitBMSTableEntry_BmsonPlaylistEntry_PersistsBothHashesAndOrgMd5()
     {
         string tempDbPath = CreateEmptySongDbPath();
         try
@@ -471,16 +505,16 @@ public sealed class PlaylistUrlCompletionTests
             {
                 folder = string.Empty,
                 playlist_id = table.playlist_id,
-                Org_md5 = null
+                Org_md5 = ["abababababababababababababababab"]
             };
 
             playlist.CommitBMSTableEntry(entry);
 
             using var db = new LR2SongDBExtended(tempDbPath);
             BMSTableEntry storedEntry = db.Table<BMSTableEntry>().Single(row => row.playlist_id == table.playlist_id && row.sha256 == entry.sha256);
-            Assert.IsNull(storedEntry.md5);
+            Assert.AreEqual("99999999999999999999999999999999", storedEntry.md5);
             Assert.AreEqual("8989898989898989898989898989898989898989898989898989898989898989", storedEntry.sha256);
-            Assert.AreEqual(string.Empty, storedEntry.org_md5);
+            CollectionAssert.AreEqual(new[] { "abababababababababababababababab" }, storedEntry.Org_md5);
         }
         finally
         {
@@ -584,6 +618,11 @@ public sealed class PlaylistUrlCompletionTests
         public void SetSha256(string value)
         {
             sha256 = value;
+        }
+
+        public void SetMd5(string value)
+        {
+            md5 = value;
         }
 
         public void SetTitle(string value)

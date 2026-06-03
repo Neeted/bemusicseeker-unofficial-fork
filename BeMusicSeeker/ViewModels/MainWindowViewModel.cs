@@ -15250,7 +15250,12 @@ public class MainWindowViewModel : ViewModel
         {
             LibraryProfile libraryProfile = CreateLibraryProfileForStartup();
             files = new BMSLibrary(libraryProfile.SongDbPath, libraryProfile.Lr2ConfigProvider, libraryProfile.Lr2ScoreDbPath);
-            tables = new BMSPlaylist(libraryProfile.SongDbPath, libraryProfile.Lr2ConfigProvider, libraryProfile.Lr2ScoreDbPath, () => files.GetBMSScores());
+            tables = new BMSPlaylist(
+                libraryProfile.SongDbPath,
+                libraryProfile.Lr2ConfigProvider,
+                libraryProfile.Lr2ScoreDbPath,
+                () => files.GetBMSScores(),
+                () => files.CreateBeatorajaBmtSongHashResolver());
             files.StartupBackgroundTaskScheduler = QueueStartupBackgroundTask;
             files.StartupBackgroundTaskReporter = RecordStartupBackgroundTaskCompleted;
             tables.StartupBackgroundTaskScheduler = QueueStartupBackgroundTask;
@@ -18330,9 +18335,9 @@ public class MainWindowViewModel : ViewModel
             throw new ArgumentNullException(nameof(playlistRow));
         }
         ChartFile chart = playlistRow.Chart;
-        if (chart?.Kind == ChartFileKind.Bmson)
+        if (chart != null && playlistRow.Entry?.parent?.is_external_sync != true)
         {
-            playlistRow.Entry.MarkAsBmsonPlaylistIdentity(playlistRow.sha256 ?? chart.Sha256);
+            playlistRow.Entry.ApplyPlaylistHashesFromChart(chart);
         }
         tables.CommitBMSTableEntry(playlistRow.Entry);
     }
