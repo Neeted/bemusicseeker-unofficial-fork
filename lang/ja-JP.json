@@ -20,6 +20,8 @@
   "Msg_confirm_skip_offline_score_ranking_estimation": "起動後に未送信スコアのランキング推定を行いません\n起動後のCPU/DISK使用率が低下しますが、\nスコア未送信楽曲のランキングが表示されなくなります\n\n再起動後に変更が反映されます",
   "Playlist_sync_progress_label_format": "プレイリスト同期 {0}/{1}",
   "Playlist_sync_progress_single_label": "プレイリスト同期",
+  "Beatoraja_bmt_export_progress_label_format": ".bmt出力 {0}/{1}",
+  "Beatoraja_bmt_export_progress_single_label": ".bmt出力",
   "Playlist_import_progress_label_format": "外部表インポート {0}/{1}",
   "Playlist_import_progress_single_label": "外部表インポート",
   "Statusbar_progress_startup": "初期化中",

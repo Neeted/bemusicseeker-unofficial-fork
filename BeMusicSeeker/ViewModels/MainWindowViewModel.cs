@@ -5996,6 +5996,8 @@ public class MainWindowViewModel : ViewModel
 
     private int playlistSyncProgressActiveOperationCount;
 
+    private readonly HashSet<long> activeBeatorajaBmtExportProgressOperations = [];
+
     private bool _IsPlaylistSyncProgressActive;
 
     private readonly object lockPlaylistReloadCleanup = new();
@@ -15284,6 +15286,7 @@ public class MainWindowViewModel : ViewModel
             files.StartupBackgroundTaskScheduler = QueueStartupBackgroundTask;
             files.StartupBackgroundTaskReporter = RecordStartupBackgroundTaskCompleted;
             tables.StartupBackgroundTaskScheduler = QueueStartupBackgroundTask;
+            tables.BeatorajaBmtExportProgressReporter = UpdateBeatorajaBmtExportProgressStatus;
             if (!libraryProfile.OperationModeLR2DB)
             {
                 files.SearchTargets.AddRange(libraryProfile.SearchRoots);
@@ -18749,6 +18752,37 @@ public class MainWindowViewModel : ViewModel
                 CurrentTableName = string.Empty,
                 CurrentUri = null
             });
+        }
+    }
+
+    private void UpdateBeatorajaBmtExportProgressStatus(PlaylistSyncProgressSnapshot snapshot)
+    {
+        bool isActive = snapshot != null && snapshot.IsActive;
+        long operationId = snapshot?.OperationId ?? 0;
+        bool shouldBegin = false;
+        bool shouldEnd = false;
+        lock (playlistSyncProgressLock)
+        {
+            if (isActive && operationId != 0 && activeBeatorajaBmtExportProgressOperations.Add(operationId))
+            {
+                shouldBegin = true;
+            }
+            else if (!isActive && operationId != 0 && activeBeatorajaBmtExportProgressOperations.Remove(operationId))
+            {
+                shouldEnd = true;
+            }
+        }
+        if (shouldBegin)
+        {
+            BeginPlaylistSyncProgressOperation();
+        }
+        if (isActive)
+        {
+            UpdatePlaylistSyncProgressStatus(snapshot);
+        }
+        if (shouldEnd)
+        {
+            EndPlaylistSyncProgressOperation();
         }
     }
 

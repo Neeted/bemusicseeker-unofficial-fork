@@ -15,6 +15,8 @@
   "Details_use_everything_for_pending_package_source_scan": "Utiliser Everything lors de l'estimation des paquets en attente",
   "Playlist_sync_progress_label_format": "Synchronisation des playlists {0}/{1}",
   "Playlist_sync_progress_single_label": "Synchronisation des playlists",
+  "Beatoraja_bmt_export_progress_label_format": "Export .bmt {0}/{1}",
+  "Beatoraja_bmt_export_progress_single_label": "Export .bmt",
   "Playlist_import_progress_label_format": "Import de tables externes {0}/{1}",
   "Playlist_import_progress_single_label": "Import de tables externes",
   "Statusbar_progress_startup": "Initialisation",

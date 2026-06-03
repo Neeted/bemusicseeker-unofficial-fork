@@ -277,7 +277,11 @@ public partial class BMSPlaylist : NotificationObject
 
     private int beatorajaBmtExportQueued;
 
+    private long beatorajaBmtExportProgressOperationSeed;
+
     internal Func<string, string, string, Func<Task>, bool> StartupBackgroundTaskScheduler { get; set; }
+
+    internal Action<PlaylistSyncProgressSnapshot> BeatorajaBmtExportProgressReporter { get; set; }
 
     /// <summary>
     /// 全件初期化ロックの状態変化を監視するリスナーです。
@@ -988,6 +992,20 @@ public partial class BMSPlaylist : NotificationObject
         return Settings.Default.EnableBeatorajaBmtOutput && !string.IsNullOrWhiteSpace(GetBeatorajaBmtTablePath());
     }
 
+    private void ReportBeatorajaBmtExportProgress(long operationId, bool isActive, int totalCount, int completedCount, string currentTableName)
+    {
+        BeatorajaBmtExportProgressReporter?.Invoke(new PlaylistSyncProgressSnapshot
+        {
+            IsActive = isActive,
+            OperationId = operationId,
+            TotalTableCount = totalCount,
+            CompletedTableCount = completedCount,
+            CurrentTableName = currentTableName ?? string.Empty,
+            LabelFormat = Resources.Beatoraja_bmt_export_progress_label_format,
+            SingleLabel = Resources.Beatoraja_bmt_export_progress_single_label
+        });
+    }
+
     internal void QueueBeatorajaBmtExportAll(string reason, string cleanupTablePath = null)
     {
         string outputPath = GetBeatorajaBmtTablePath();
@@ -997,6 +1015,7 @@ public partial class BMSPlaylist : NotificationObject
         {
             await Task.Yield();
             var totalStopwatch = Stopwatch.StartNew();
+            long progressOperationId = Interlocked.Increment(ref beatorajaBmtExportProgressOperationSeed);
             if (!string.IsNullOrWhiteSpace(cleanupTablePath)
                 && (!enabled || !string.Equals(cleanupTablePath, outputPath, StringComparison.OrdinalIgnoreCase))
                 && (enabled || !keepFilesWhenDisabled))
@@ -1024,39 +1043,60 @@ public partial class BMSPlaylist : NotificationObject
                 tablesSnapshot = BMSTables?.Where(table => table != null).ToList() ?? [];
             }
             snapshotStopwatch.Stop();
-            var resolverStopwatch = Stopwatch.StartNew();
-            Func<BMSTableEntry, Tuple<string, string>> hashResolverFunc = beatorajaBmtSongHashResolverFactory?.Invoke();
-            resolverStopwatch.Stop();
-            List<Tuple<string, JObject>> tableDataSet = [];
-            var projectionStopwatch = Stopwatch.StartNew();
-            foreach (BMSTable table in tablesSnapshot)
+            bool progressStarted = false;
+            try
             {
-                JObject tableData = BuildBeatorajaBmtTableDataSnapshot(table, reason, hashResolverFunc);
-                if (tableData != null)
+                int projectionTotal = Math.Max(tablesSnapshot.Count, 1);
+                ReportBeatorajaBmtExportProgress(progressOperationId, true, projectionTotal, 0, string.Empty);
+                progressStarted = true;
+                var resolverStopwatch = Stopwatch.StartNew();
+                Func<BMSTableEntry, Tuple<string, string>> hashResolverFunc = beatorajaBmtSongHashResolverFactory?.Invoke();
+                resolverStopwatch.Stop();
+                List<Tuple<string, JObject>> tableDataSet = [];
+                var projectionStopwatch = Stopwatch.StartNew();
+                int projectedCount = 0;
+                foreach (BMSTable table in tablesSnapshot)
                 {
-                    tableDataSet.Add(Tuple.Create(GetBeatorajaBmtPlaylistIdentity(table), tableData));
+                    JObject tableData = BuildBeatorajaBmtTableDataSnapshot(table, reason, hashResolverFunc);
+                    if (tableData != null)
+                    {
+                        tableDataSet.Add(Tuple.Create(GetBeatorajaBmtPlaylistIdentity(table), tableData));
+                    }
+                    projectedCount++;
+                    ReportBeatorajaBmtExportProgress(progressOperationId, true, projectionTotal, projectedCount, table?.name);
+                }
+                projectionStopwatch.Stop();
+                var exportStopwatch = Stopwatch.StartNew();
+                int exportProgressTotal = tablesSnapshot.Count + tableDataSet.Count;
+                BmtTableExportService.ExportResult exportResult = BmtTableExportService.ExportTableDataSet(outputPath, tableDataSet, cleanupStaleManagedFiles: true, delegate (int completed, int total, string tableName)
+                {
+                    ReportBeatorajaBmtExportProgress(progressOperationId, true, Math.Max(exportProgressTotal, 1), tablesSnapshot.Count + completed, tableName);
+                });
+                exportStopwatch.Stop();
+                var urlSyncStopwatch = Stopwatch.StartNew();
+                SyncBeatorajaManagedTableUrls(outputPath, exportResult.PreviousManagedTables, exportResult.CurrentManagedTables);
+                urlSyncStopwatch.Stop();
+                totalStopwatch.Stop();
+                LogPlaylistPerformance("beatoraja_bmt_export_all completed reason=" + FormatTextForLog(reason)
+                    + " tableCount=" + tablesSnapshot.Count
+                    + " outputCount=" + tableDataSet.Count
+                    + " written=" + exportResult.WrittenCount
+                    + " skipped=" + exportResult.SkippedWriteCount
+                    + " removed=" + exportResult.RemovedCount
+                    + " snapshotMs=" + snapshotStopwatch.ElapsedMilliseconds
+                    + " resolverMs=" + resolverStopwatch.ElapsedMilliseconds
+                    + " projectionMs=" + projectionStopwatch.ElapsedMilliseconds
+                    + " exportMs=" + exportStopwatch.ElapsedMilliseconds
+                    + " urlSyncMs=" + urlSyncStopwatch.ElapsedMilliseconds
+                    + " elapsedMs=" + totalStopwatch.ElapsedMilliseconds);
+            }
+            finally
+            {
+                if (progressStarted)
+                {
+                    ReportBeatorajaBmtExportProgress(progressOperationId, false, 0, 0, string.Empty);
                 }
             }
-            projectionStopwatch.Stop();
-            var exportStopwatch = Stopwatch.StartNew();
-            BmtTableExportService.ExportResult exportResult = BmtTableExportService.ExportTableDataSet(outputPath, tableDataSet, cleanupStaleManagedFiles: true);
-            exportStopwatch.Stop();
-            var urlSyncStopwatch = Stopwatch.StartNew();
-            SyncBeatorajaManagedTableUrls(outputPath, exportResult.PreviousManagedTables, exportResult.CurrentManagedTables);
-            urlSyncStopwatch.Stop();
-            totalStopwatch.Stop();
-            LogPlaylistPerformance("beatoraja_bmt_export_all completed reason=" + FormatTextForLog(reason)
-                + " tableCount=" + tablesSnapshot.Count
-                + " outputCount=" + tableDataSet.Count
-                + " written=" + exportResult.WrittenCount
-                + " skipped=" + exportResult.SkippedWriteCount
-                + " removed=" + exportResult.RemovedCount
-                + " snapshotMs=" + snapshotStopwatch.ElapsedMilliseconds
-                + " resolverMs=" + resolverStopwatch.ElapsedMilliseconds
-                + " projectionMs=" + projectionStopwatch.ElapsedMilliseconds
-                + " exportMs=" + exportStopwatch.ElapsedMilliseconds
-                + " urlSyncMs=" + urlSyncStopwatch.ElapsedMilliseconds
-                + " elapsedMs=" + totalStopwatch.ElapsedMilliseconds);
         }
         if (StartupBackgroundTaskScheduler != null && StartupBackgroundTaskScheduler("beatoraja_bmt_export_all", reason ?? "queue", null, work))
         {

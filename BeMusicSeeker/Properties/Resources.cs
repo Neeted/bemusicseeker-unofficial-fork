@@ -311,6 +311,10 @@ public class Resources
 
     public static string Playlist_sync_progress_single_label => ResourceManager.GetString("Playlist_sync_progress_single_label", resourceCulture);
 
+    public static string Beatoraja_bmt_export_progress_label_format => ResourceManager.GetString("Beatoraja_bmt_export_progress_label_format", resourceCulture);
+
+    public static string Beatoraja_bmt_export_progress_single_label => ResourceManager.GetString("Beatoraja_bmt_export_progress_single_label", resourceCulture);
+
     public static string Playlist_import_progress_label_format => ResourceManager.GetString("Playlist_import_progress_label_format", resourceCulture);
 
     public static string Playlist_import_progress_single_label => ResourceManager.GetString("Playlist_import_progress_single_label", resourceCulture);

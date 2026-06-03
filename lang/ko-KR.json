@@ -15,6 +15,8 @@
   "Details_use_everything_for_pending_package_source_scan": "보류 패키지 추정 시 Everything 사용",
   "Playlist_sync_progress_label_format": "플레이리스트 동기화 {0}/{1}",
   "Playlist_sync_progress_single_label": "플레이리스트 동기화",
+  "Beatoraja_bmt_export_progress_label_format": ".bmt 출력 {0}/{1}",
+  "Beatoraja_bmt_export_progress_single_label": ".bmt 출력",
   "Playlist_import_progress_label_format": "외부 표 가져오기 {0}/{1}",
   "Playlist_import_progress_single_label": "외부 표 가져오기",
   "Statusbar_progress_startup": "초기화 중",

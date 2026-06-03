@@ -164,6 +164,8 @@ course constraints は header source の `grade_mirror` などから beatoraja e
 - プレイリスト削除と backup restore 後は全出力系を使い、manifest cleanup により不要な managed `.bmt` を削除する。
 - `RegisterBeatorajaBmtUrls` が ON の場合、`.bmt` 出力後に `config_sys.json` の `tableURL` も同期する。
 
+全 playlist の `.bmt` 出力中は、ステータスバーに `.bmt` 出力の件数進捗と処理中 playlist 名を表示する。進捗は table data projection と gzip 書き込みの両方を含む。
+
 ### Managed Cleanup
 
 出力先直下に `.bemusicseeker-bmt-manifest` を置く。拡張子 `.json` は付けない。

@@ -12,6 +12,8 @@
   "Details_use_everything_for_pending_package_source_scan": "Use Everything when estimating pending packages",
   "Playlist_sync_progress_label_format": "Playlist Sync {0}/{1}",
   "Playlist_sync_progress_single_label": "Playlist Sync",
+  "Beatoraja_bmt_export_progress_label_format": ".bmt Export {0}/{1}",
+  "Beatoraja_bmt_export_progress_single_label": ".bmt Export",
   "Playlist_import_progress_label_format": "External Table Import {0}/{1}",
   "Playlist_import_progress_single_label": "External Table Import",
   "Statusbar_progress_startup": "Initializing",

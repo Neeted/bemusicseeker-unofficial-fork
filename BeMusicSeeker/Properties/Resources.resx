@@ -1249,6 +1249,12 @@ BMSファイルが重複しないようにマージします。
   <data name="Playlist_sync_progress_single_label" xml:space="preserve">
     <value>プレイリスト同期</value>
   </data>
+  <data name="Beatoraja_bmt_export_progress_label_format" xml:space="preserve">
+    <value>.bmt出力 {0}/{1}</value>
+  </data>
+  <data name="Beatoraja_bmt_export_progress_single_label" xml:space="preserve">
+    <value>.bmt出力</value>
+  </data>
   <data name="Playlist_import_progress_label_format" xml:space="preserve">
     <value>外部表インポート {0}/{1}</value>
   </data>

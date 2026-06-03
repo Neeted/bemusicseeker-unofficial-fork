@@ -260,6 +260,55 @@ public sealed class BmtTableExportServiceTests
 
     [TestMethod]
     [TestCategory("Playlist")]
+    public void ExportTableDataSet_ReportsProgressForEachManagedPlaylistEvenWhenSkipped()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectory)
+        {
+            JObject firstTableData = CreateLocalTableData("bemusicseeker://playlist/1", "First");
+            JObject secondTableData = CreateLocalTableData("bemusicseeker://playlist/2", "Second");
+            BmtTableExportService.ExportTableDataSet(tempDirectory,
+            [
+                Tuple.Create("1", firstTableData),
+                Tuple.Create("2", secondTableData)
+            ], cleanupStaleManagedFiles: true);
+            var progress = new List<Tuple<int, int, string>>();
+
+            BmtTableExportService.ExportResult result = BmtTableExportService.ExportTableDataSet(tempDirectory,
+            [
+                Tuple.Create("1", firstTableData),
+                Tuple.Create("2", secondTableData)
+            ], cleanupStaleManagedFiles: true, delegate (int completed, int total, string tableName)
+            {
+                progress.Add(Tuple.Create(completed, total, tableName));
+            });
+
+            Assert.AreEqual(0, result.WrittenCount);
+            Assert.AreEqual(2, result.SkippedWriteCount);
+            Assert.AreEqual(2, progress.Count);
+            Assert.AreEqual(Tuple.Create(1, 2, "First"), progress[0]);
+            Assert.AreEqual(Tuple.Create(2, 2, "Second"), progress[1]);
+        });
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public void ExportTableDataSet_DoesNotReportProgressForEmptyDataSet()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectory)
+        {
+            var progress = new List<Tuple<int, int, string>>();
+
+            BmtTableExportService.ExportTableDataSet(tempDirectory, Array.Empty<Tuple<string, JObject>>(), cleanupStaleManagedFiles: true, delegate (int completed, int total, string tableName)
+            {
+                progress.Add(Tuple.Create(completed, total, tableName));
+            });
+
+            Assert.AreEqual(0, progress.Count);
+        });
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
     public void ExportTableDataSet_WithCleanupAndEmptyCurrentSetRemovesAllManagedFiles()
     {
         WithTemporaryDirectory(delegate (string tempDirectory)

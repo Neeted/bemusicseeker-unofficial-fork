@@ -87,10 +87,15 @@ internal static class BmtTableExportService
 
     internal static ExportResult ExportTableDataSet(string tablePath, IEnumerable<JObject> tableDataSet, bool cleanupStaleManagedFiles)
     {
-        return ExportTableDataSet(tablePath, (tableDataSet ?? []).Select(tableData => Tuple.Create<string, JObject>(null, tableData)), cleanupStaleManagedFiles);
+        return ExportTableDataSet(tablePath, (tableDataSet ?? []).Select(tableData => Tuple.Create<string, JObject>(null, tableData)), cleanupStaleManagedFiles, null);
     }
 
     internal static ExportResult ExportTableDataSet(string tablePath, IEnumerable<Tuple<string, JObject>> tableDataSet, bool cleanupStaleManagedFiles)
+    {
+        return ExportTableDataSet(tablePath, tableDataSet, cleanupStaleManagedFiles, null);
+    }
+
+    internal static ExportResult ExportTableDataSet(string tablePath, IEnumerable<Tuple<string, JObject>> tableDataSet, bool cleanupStaleManagedFiles, Action<int, int, string> progressReporter)
     {
         if (string.IsNullOrWhiteSpace(tablePath))
         {
@@ -106,7 +111,9 @@ internal static class BmtTableExportService
         var result = new ExportResult();
         var exportedFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var playlists = new Dictionary<string, ManifestPlaylistEntry>(StringComparer.Ordinal);
-        foreach (Tuple<string, JObject> item in tableDataSet ?? [])
+        List<Tuple<string, JObject>> items = (tableDataSet ?? []).ToList();
+        int processedCount = 0;
+        foreach (Tuple<string, JObject> item in items)
         {
             string playlistIdentity = item?.Item1;
             JObject tableData = item?.Item2;
@@ -129,6 +136,8 @@ internal static class BmtTableExportService
                     playlists[playlistIdentity] = CreateManifestPlaylistEntry(playlistIdentity, fileName, tableData, contentHash);
                 }
             }
+            processedCount++;
+            progressReporter?.Invoke(processedCount, items.Count, tableData?.Value<string>("name") ?? playlistIdentity ?? string.Empty);
         }
         ExportResult manifestResult = UpdateManifest(tablePath, exportedFiles, playlists, cleanupStaleManagedFiles);
         result.PreviousManagedTables.Clear();

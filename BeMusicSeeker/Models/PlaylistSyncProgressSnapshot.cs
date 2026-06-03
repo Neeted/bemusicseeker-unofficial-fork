@@ -6,6 +6,8 @@ internal sealed class PlaylistSyncProgressSnapshot
 {
     public bool IsActive { get; set; }
 
+    public long OperationId { get; set; }
+
     public int TotalTableCount { get; set; }
 
     public int CompletedTableCount { get; set; }

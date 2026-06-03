@@ -15,6 +15,8 @@
   "Details_use_everything_for_pending_package_source_scan": "估算保留包时使用 Everything",
   "Playlist_sync_progress_label_format": "播放列表同步 {0}/{1}",
   "Playlist_sync_progress_single_label": "播放列表同步",
+  "Beatoraja_bmt_export_progress_label_format": ".bmt 输出 {0}/{1}",
+  "Beatoraja_bmt_export_progress_single_label": ".bmt 输出",
   "Playlist_import_progress_label_format": "外部表导入 {0}/{1}",
   "Playlist_import_progress_single_label": "外部表导入",
   "Statusbar_progress_startup": "初始化中",
