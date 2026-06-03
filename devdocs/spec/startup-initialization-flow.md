@@ -230,7 +230,7 @@ background hydration 完了時の通常ライブラリ一覧更新は、起動�
 
 `maintenance` は通常、譜面導入時または明示 rescan 時に計算された snapshot として扱う。`BMSFile.maintenanceInfo` の lazy default は `MaintenanceInfoOrigin.Placeholder` であり、resource health の valid snapshot ではない。valid snapshot は DB 由来 `DbHydrated`、file diff / 導入 / 手動 rescan 由来 `Calculated` に限定する。
 
-不足 resource を後から追加した場合や、隣接 resource を削除した場合の再評価は通常起動では行わない。行右クリックの `ファイルスキャン > 再スキャン` は選択行、`ファイルスキャン > 全譜面を再スキャン` は owned BMS 全件 + installed bmson 全件を重い明示操作として再計算する。
+不足 resource を後から追加した場合や、隣接 resource を削除した場合の再評価は通常起動では行わない。行右クリックの `ファイルスキャン > 再スキャン` は選択行、`ファイルスキャン > 全譜面を再スキャン` は owned BMS 全件 + installed bmson 全件を重い明示操作として再計算する。明示 rescan は file diff inline maintenance と同じ evaluator を使い、単一 reader が bounded queue へ流した `ChartFileSnapshot` を並列 evaluator が消費し、single DB writer が changed row だけを chunk commit する。進捗は BMS / bmson を分けず、全 target の processed / total として報告する。
 
 ## Ranking Refresh
 

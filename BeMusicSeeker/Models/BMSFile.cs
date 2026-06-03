@@ -1241,6 +1241,19 @@ public class BMSFile : LR2SongDB.song
         bmsFile.ApplySha256(GetSHA256Hash(bmsFile.path));
     }
 
+    internal void ApplyComponentFilesFromParsedSnapshot(BMSFile parsedFile)
+    {
+        if (parsedFile == null)
+        {
+            return;
+        }
+        WAVfiles = parsedFile.WAVfiles;
+        BGAfiles = parsedFile.BGAfiles;
+        UnsupportedResourceReferences = [.. (parsedFile.UnsupportedResourceReferences ?? [])];
+        hash = parsedFile.hash;
+        ApplySha256(parsedFile.sha256);
+    }
+
     private static string getMD5Hash(string filePath)
     {
         var mD = MD5.Create();

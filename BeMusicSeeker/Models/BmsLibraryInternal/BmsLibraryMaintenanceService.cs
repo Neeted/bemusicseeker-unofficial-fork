@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -636,6 +637,18 @@ internal sealed class BmsLibraryMaintenanceService
         Action<MaintenanceWorkflowProgress> progressReporter = null,
         CancellationToken cancellationToken = default)
     {
+        if (forceUpdate)
+        {
+            return UpdateMaintenanceInfoSnapshotPipeline(
+                charts,
+                dbGateway,
+                dialogService,
+                resourceLookupContext,
+                progressLogger,
+                progressReporter,
+                cancellationToken);
+        }
+
         List<BMSFile> bmsTargets = [];
         var bmsonTargetsByPath = new Dictionary<string, LR2SongDBExtended.bmson_song>(StringComparer.OrdinalIgnoreCase);
         foreach (ChartFile chart in charts ?? [])
@@ -676,6 +689,606 @@ internal sealed class BmsLibraryMaintenanceService
         }
         MaintenanceWorkflowResult bmsonResult = UpdateBmsonMaintenanceInfo(bmsonTargets, forceUpdate, dbGateway, dialogService, resourceLookupContext, progressLogger, progressReporter, cancellationToken);
         return CombineResults(bmsResult, bmsonResult);
+    }
+
+    private MaintenanceWorkflowResult UpdateMaintenanceInfoSnapshotPipeline(
+        IEnumerable<ChartFile> charts,
+        BmsLibraryDbGateway dbGateway,
+        IBmsLibraryDialogService dialogService,
+        ResourceHealthLookupContext resourceLookupContext = null,
+        Action<string> progressLogger = null,
+        Action<MaintenanceWorkflowProgress> progressReporter = null,
+        CancellationToken cancellationToken = default)
+    {
+        var result = new MaintenanceWorkflowResult();
+        if (charts == null || dbGateway == null)
+        {
+            return result;
+        }
+
+        var stopwatch = Stopwatch.StartNew();
+        List<MaintenanceWorkflowTarget> targets = CreateSnapshotPipelineTargets(charts);
+        result.CheckedFileCount = targets.Count;
+        result.BmsResourceTargetCount = targets.Count(target => target.Kind == ChartFileKind.Bms);
+        result.BmsonResourceTargetCount = targets.Count(target => target.Kind == ChartFileKind.Bmson);
+        result.HealthTargetCount = targets.Count;
+        result.HealthDegree = maintenanceHealthDegree;
+        result.ForceTargetCount = targets.Count;
+        resourceLookupContext ??= new ResourceHealthLookupContext(null);
+        progressLogger?.Invoke("maintenance_target_summary total=" + targets.Count
+            + " sourceCount=" + targets.Count
+            + " force=" + result.ForceTargetCount
+            + " missingInfo=0"
+            + " missingEncoding=0"
+            + " bmsonMissingFreshRefs=" + targets.Count(target => target.Kind == ChartFileKind.Bmson && !HasFreshCurrentBmsonResourceReferences(target.BmsonSong))
+            + " healthDegree=" + maintenanceHealthDegree);
+        if (targets.Count == 0)
+        {
+            stopwatch.Stop();
+            ApplyLookupCounters(result, resourceLookupContext);
+            result.TotalMs = stopwatch.ElapsedMilliseconds;
+            progressReporter?.Invoke(new MaintenanceWorkflowProgress
+            {
+                TotalCount = 0,
+                ProcessedCount = 0,
+                IsCompleted = true
+            });
+            return result;
+        }
+
+        progressReporter?.Invoke(new MaintenanceWorkflowProgress
+        {
+            TotalCount = targets.Count,
+            ProcessedCount = 0,
+            CurrentPath = targets[0].Path
+        });
+
+        const int chunkSize = 1000;
+        int readQueueCapacity = chunkSize * 2;
+        int computedQueueCapacity = chunkSize * 2;
+        using var readQueue = new BlockingCollection<MaintenanceWorkflowCandidate>(readQueueCapacity);
+        using var computedQueue = new BlockingCollection<MaintenanceWorkflowComputedItem>(computedQueueCapacity);
+        long readTicks = 0L;
+        long computeTicks = 0L;
+        long healthTicks = 0L;
+        long encodingTicks = 0L;
+        long bmsonRefreshTicks = 0L;
+        long commitTicks = 0L;
+        int chunkIndex = 0;
+        int processedCount = 0;
+        int writerFailed = 0;
+        Exception writerFailure = null;
+
+        void FlushChunk(List<MaintenanceWorkflowComputedItem> chunk)
+        {
+            if (chunk.Count == 0)
+            {
+                return;
+            }
+
+            int currentChunkIndex = ++chunkIndex;
+            var chunkStopwatch = Stopwatch.StartNew();
+            int bmsCount = 0;
+            int bmsonCount = 0;
+            int unchangedInChunk = 0;
+            int bmsonReparsedInChunk = 0;
+            int bmsonReparseFailedInChunk = 0;
+            int bmsonResourceReferencesReusedInChunk = 0;
+            var changedMaintenanceInfos = new List<BMSFileMaintenanceInfo>();
+            var reloadedFiles = new List<BMSFile>();
+            long chunkReadTicks = 0L;
+            long chunkComputeTicks = 0L;
+            long chunkHealthTicks = 0L;
+            long chunkEncodingTicks = 0L;
+            long chunkBmsonRefreshTicks = 0L;
+
+            foreach (MaintenanceWorkflowComputedItem item in chunk)
+            {
+                if (item.Target.Kind == ChartFileKind.Bms)
+                {
+                    bmsCount++;
+                }
+                else
+                {
+                    bmsonCount++;
+                }
+                chunkReadTicks += item.ReadElapsedTicks;
+                chunkComputeTicks += item.ComputeElapsedTicks;
+                MaintenanceEvaluationResult itemResult = item.Result;
+                if (itemResult == null)
+                {
+                    continue;
+                }
+                chunkHealthTicks += itemResult.HealthElapsedTicks;
+                chunkEncodingTicks += itemResult.EncodingElapsedTicks;
+                chunkBmsonRefreshTicks += itemResult.BmsonRefreshElapsedTicks;
+                if (itemResult.MaintenanceInfoChanged && itemResult.MaintenanceInfo?.IsInformationChecked() == true)
+                {
+                    changedMaintenanceInfos.Add(itemResult.MaintenanceInfo);
+                }
+                else if (itemResult.MaintenanceInfo?.IsInformationChecked() == true)
+                {
+                    unchangedInChunk++;
+                }
+                if (itemResult.ReloadedBmsFile != null)
+                {
+                    reloadedFiles.Add(itemResult.ReloadedBmsFile);
+                }
+                switch (itemResult.BmsonRefreshResult)
+                {
+                    case BmsonResourceRefreshResult.Success:
+                        bmsonReparsedInChunk++;
+                        break;
+                    case BmsonResourceRefreshResult.Failed:
+                        bmsonReparseFailedInChunk++;
+                        break;
+                    case BmsonResourceRefreshResult.Reused:
+                        bmsonResourceReferencesReusedInChunk++;
+                        break;
+                }
+            }
+
+            var commitStopwatch = Stopwatch.StartNew();
+            if (changedMaintenanceInfos.Count > 0 || reloadedFiles.Count > 0)
+            {
+                dbGateway.ExecuteSongDbTransaction(delegate (Models.LR2.LR2SongDBExtended songDb)
+                {
+                    foreach (BMSFileMaintenanceInfo maintenanceInfo in changedMaintenanceInfos)
+                    {
+                        songDb.InsertOrReplace(maintenanceInfo, typeof(Models.LR2.LR2SongDBExtended.maintenance));
+                    }
+                    foreach (BMSFile reloadedFile in reloadedFiles)
+                    {
+                        songDb.InsertOrReplace(reloadedFile, typeof(Models.LR2.LR2SongDB.song));
+                    }
+                });
+                result.HasUpdates = true;
+                result.MaintenanceInfoUpsertCount += changedMaintenanceInfos.Count;
+                result.ReloadedSongCount += reloadedFiles.Count;
+                result.SongUpsertCount += reloadedFiles.Count;
+            }
+            commitStopwatch.Stop();
+
+            readTicks += chunkReadTicks;
+            computeTicks += chunkComputeTicks;
+            healthTicks += chunkHealthTicks;
+            encodingTicks += chunkEncodingTicks;
+            bmsonRefreshTicks += chunkBmsonRefreshTicks;
+            commitTicks += commitStopwatch.ElapsedTicks;
+            result.MaintenanceInfoUnchangedCount += unchangedInChunk;
+            result.BmsonReparsedCount += bmsonReparsedInChunk;
+            result.BmsonReparseFailedCount += bmsonReparseFailedInChunk;
+            result.BmsonResourceReferenceReusedCount += bmsonResourceReferencesReusedInChunk;
+            processedCount += chunk.Count;
+            chunkStopwatch.Stop();
+
+            string currentPath = chunk[chunk.Count - 1].Target.Path ?? string.Empty;
+            progressLogger?.Invoke("maintenance_rescan_chunk chunk=" + currentChunkIndex
+                + " targetCount=" + chunk.Count
+                + " total=" + targets.Count
+                + " bmsCount=" + bmsCount
+                + " bmsonCount=" + bmsonCount
+                + " maintenanceUpserted=" + changedMaintenanceInfos.Count
+                + " maintenanceUnchanged=" + unchangedInChunk
+                + " songReloaded=" + reloadedFiles.Count
+                + " bmsonReparsed=" + bmsonReparsedInChunk
+                + " bmsonReparseFailed=" + bmsonReparseFailedInChunk
+                + " bmsonResourceRefsReused=" + bmsonResourceReferencesReusedInChunk
+                + " readMs=" + TicksToMilliseconds(chunkReadTicks)
+                + " computeMs=" + TicksToMilliseconds(chunkComputeTicks)
+                + " commitMs=" + commitStopwatch.ElapsedMilliseconds
+                + " elapsedMs=" + chunkStopwatch.ElapsedMilliseconds);
+            progressReporter?.Invoke(new MaintenanceWorkflowProgress
+            {
+                TotalCount = targets.Count,
+                ProcessedCount = processedCount,
+                CurrentPath = currentPath,
+                IsCanceled = result.Canceled
+            });
+        }
+
+        Task readerTask = Task.Run(delegate
+        {
+            try
+            {
+                foreach (MaintenanceWorkflowTarget target in targets)
+                {
+                    if (cancellationToken.IsCancellationRequested)
+                    {
+                        result.Canceled = true;
+                        break;
+                    }
+
+                    readQueue.Add(ReadMaintenanceWorkflowCandidate(target, dialogService));
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                result.Canceled = true;
+            }
+            finally
+            {
+                readQueue.CompleteAdding();
+            }
+        });
+
+        Task[] evaluatorTasks = [.. Enumerable.Range(0, maintenanceHealthDegree)
+            .Select(_ => Task.Run(delegate
+            {
+                foreach (MaintenanceWorkflowCandidate candidate in readQueue.GetConsumingEnumerable())
+                {
+                    long computeStart = Stopwatch.GetTimestamp();
+                    MaintenanceEvaluationResult itemResult = null;
+                    if (candidate.Snapshot != null)
+                    {
+                        itemResult = EvaluateMaintenanceTarget(candidate.Target, candidate.Snapshot, resourceLookupContext, forceUpdate: true);
+                    }
+                    long computeElapsedTicks = candidate.Snapshot == null
+                        ? 0L
+                        : Stopwatch.GetTimestamp() - computeStart;
+                    if (Volatile.Read(ref writerFailed) != 0)
+                    {
+                        break;
+                    }
+                    try
+                    {
+                        computedQueue.Add(new MaintenanceWorkflowComputedItem(candidate.Target, itemResult, candidate.ReadElapsedTicks, computeElapsedTicks));
+                    }
+                    catch (InvalidOperationException) when (Volatile.Read(ref writerFailed) != 0)
+                    {
+                        break;
+                    }
+                }
+            }))];
+        Task evaluatorCompletionTask = Task.WhenAll(evaluatorTasks).ContinueWith(_ => computedQueue.CompleteAdding());
+
+        Task writerTask = Task.Run(delegate
+        {
+            var chunk = new List<MaintenanceWorkflowComputedItem>(chunkSize);
+            try
+            {
+                foreach (MaintenanceWorkflowComputedItem item in computedQueue.GetConsumingEnumerable())
+                {
+                    chunk.Add(item);
+                    if (chunk.Count >= chunkSize)
+                    {
+                        FlushChunk(chunk);
+                        chunk = new List<MaintenanceWorkflowComputedItem>(chunkSize);
+                    }
+                }
+                FlushChunk(chunk);
+            }
+            catch (Exception ex)
+            {
+                writerFailure = ex;
+                Volatile.Write(ref writerFailed, 1);
+                try
+                {
+                    computedQueue.CompleteAdding();
+                }
+                catch (InvalidOperationException)
+                {
+                }
+                progressLogger?.Invoke("maintenance_rescan_chunk_failed chunk=" + (chunkIndex + 1)
+                    + " targetCount=" + chunk.Count
+                    + " processed=" + processedCount
+                    + " elapsedMs=" + stopwatch.ElapsedMilliseconds
+                    + " message=" + SanitizeLogValue(ex.Message));
+                throw;
+            }
+        });
+
+        Exception pipelineException = null;
+        try
+        {
+            readerTask.Wait();
+        }
+        catch (AggregateException ex)
+        {
+            pipelineException = ex.Flatten().InnerExceptions.FirstOrDefault() ?? ex;
+        }
+        try
+        {
+            Task.WaitAll(evaluatorTasks);
+        }
+        catch (AggregateException ex)
+        {
+            pipelineException ??= ex.Flatten().InnerExceptions.FirstOrDefault() ?? ex;
+        }
+        try
+        {
+            evaluatorCompletionTask.Wait();
+            writerTask.Wait();
+        }
+        catch (AggregateException ex)
+        {
+            pipelineException ??= ex.Flatten().InnerExceptions.FirstOrDefault() ?? ex;
+        }
+        if (pipelineException != null)
+        {
+            throw writerFailure ?? pipelineException;
+        }
+
+        stopwatch.Stop();
+        result.ReadMs = TicksToMilliseconds(readTicks);
+        result.ComputeMs = TicksToMilliseconds(computeTicks);
+        result.CommitMs = TicksToMilliseconds(commitTicks);
+        result.HealthMs = TicksToMilliseconds(healthTicks);
+        result.EncodingMs = TicksToMilliseconds(encodingTicks);
+        result.BmsonRefreshMs = TicksToMilliseconds(bmsonRefreshTicks);
+        ApplyLookupCounters(result, resourceLookupContext);
+        result.TotalMs = stopwatch.ElapsedMilliseconds;
+        progressReporter?.Invoke(new MaintenanceWorkflowProgress
+        {
+            TotalCount = targets.Count,
+            ProcessedCount = processedCount,
+            CurrentPath = string.Empty,
+            IsCompleted = !result.Canceled,
+            IsCanceled = result.Canceled
+        });
+        return result;
+    }
+
+    private static List<MaintenanceWorkflowTarget> CreateSnapshotPipelineTargets(IEnumerable<ChartFile> charts)
+    {
+        List<MaintenanceWorkflowTarget> targets = [];
+        var bmsonPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (ChartFile chart in charts ?? [])
+        {
+            if (chart == null || string.IsNullOrWhiteSpace(chart.Path))
+            {
+                continue;
+            }
+
+            BMSFile bmsFile = chart.GetBmsStorageOwner();
+            if (ChartFileKindResolver.IsBmsChartFile(bmsFile))
+            {
+                targets.Add(MaintenanceWorkflowTarget.FromBms(bmsFile));
+                continue;
+            }
+
+            LR2SongDBExtended.bmson_song bmsonSong = chart.GetBmsonStorageOwner();
+            if (bmsonSong != null
+                && !string.IsNullOrWhiteSpace(bmsonSong.path)
+                && bmsonPaths.Add(bmsonSong.path))
+            {
+                targets.Add(MaintenanceWorkflowTarget.FromBmson(bmsonSong));
+            }
+        }
+        return targets;
+    }
+
+    private static MaintenanceWorkflowCandidate ReadMaintenanceWorkflowCandidate(
+        MaintenanceWorkflowTarget target,
+        IBmsLibraryDialogService dialogService)
+    {
+        var stopwatch = Stopwatch.StartNew();
+        try
+        {
+            ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(target.Path);
+            stopwatch.Stop();
+            return new MaintenanceWorkflowCandidate(target, snapshot, null, stopwatch.ElapsedTicks);
+        }
+        catch (Exception ex) when (IsMaintenanceRecoverable(ex))
+        {
+            stopwatch.Stop();
+            dialogService?.Show(string.Format(Resources.Error_BmsLoadFailedSkip, target.Path, ex.Message), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+            return new MaintenanceWorkflowCandidate(target, null, ex, stopwatch.ElapsedTicks);
+        }
+    }
+
+    private static MaintenanceEvaluationResult EvaluateMaintenanceTarget(
+        MaintenanceWorkflowTarget target,
+        ChartFileSnapshot snapshot,
+        ResourceHealthLookupContext resourceLookupContext,
+        bool forceUpdate)
+    {
+        return target.Kind == ChartFileKind.Bmson
+            ? EvaluateBmsonMaintenance(target.BmsonSong, snapshot, resourceLookupContext, forceUpdate)
+            : EvaluateBmsMaintenance(target.BmsFile, snapshot, resourceLookupContext, forceUpdate);
+    }
+
+    internal static MaintenanceEvaluationResult EvaluateBmsMaintenanceForInline(
+        BMSFile file,
+        ChartFileSnapshot snapshot,
+        DirectoryResourceLookupCache lookupCache,
+        bool forceUpdate = false)
+    {
+        return EvaluateBmsMaintenance(file, snapshot, new ResourceHealthLookupContext(lookupCache), forceUpdate);
+    }
+
+    internal static MaintenanceEvaluationResult EvaluateBmsonMaintenanceForInline(
+        LR2SongDBExtended.bmson_song song,
+        DirectoryResourceLookupCache lookupCache)
+    {
+        return EvaluateBmsonMaintenance(song, null, new ResourceHealthLookupContext(lookupCache), forceUpdate: false);
+    }
+
+    private static MaintenanceEvaluationResult EvaluateBmsMaintenance(
+        BMSFile file,
+        ChartFileSnapshot snapshot,
+        ResourceHealthLookupContext resourceLookupContext,
+        bool forceUpdate)
+    {
+        var result = new MaintenanceEvaluationResult();
+        if (!ChartFileKindResolver.IsBmsChartFile(file))
+        {
+            return result;
+        }
+
+        BMSFileMaintenanceInfo beforeInfo = CloneMaintenanceInfo(file.TryGetMaintenanceInfoWithoutCreating());
+        var beforeSnapshot = MaintenanceSnapshot.FromFile(file);
+        if (snapshot != null)
+        {
+            BMSFile parsed = BMSFile.CreateBMSFileFromSnapshot(snapshot);
+            file.ApplyComponentFilesFromParsedSnapshot(parsed);
+        }
+
+        long healthStart = Stopwatch.GetTimestamp();
+        ApplyBmsResourceHealthMaintenanceInfo(file, resourceLookupContext, forceUpdate, clearResourceReferences: true);
+        result.HealthElapsedTicks = Stopwatch.GetTimestamp() - healthStart;
+
+        bool encodingNeeded = forceUpdate || string.IsNullOrWhiteSpace(file.maintenanceInfo.encoding);
+        if (encodingNeeded)
+        {
+            long encodingStart = Stopwatch.GetTimestamp();
+            BMSFile.BmsEncodingDetectionResult detectionResult = snapshot != null
+                ? file.SetEncodingInfoFromSnapshotDetailed(snapshot)
+                : file.SetEncodingInfoFromSnapshotDetailed(ChartFileContentReader.ReadSnapshot(file.path));
+            result.EncodingDetectionResult = detectionResult;
+            result.EncodingElapsedTicks += Stopwatch.GetTimestamp() - encodingStart;
+            if (ShouldReloadBmsForFixedEncoding(file.maintenanceInfo?.encoding))
+            {
+                long reloadStart = Stopwatch.GetTimestamp();
+                if (snapshot != null)
+                {
+                    BMSFile.ReloadBMSMetadataWithEncodingDetection(file, snapshot, detectionResult);
+                }
+                else
+                {
+                    BMSFile.ReloadBMSFileWithEncoding(file, file.maintenanceInfo.encoding);
+                }
+                file.maintenanceInfo.is_encoding_fixed = true;
+                long reloadTicks = Stopwatch.GetTimestamp() - reloadStart;
+                result.EncodingElapsedTicks += reloadTicks;
+                result.EncodingReloadElapsedTicks = reloadTicks;
+                result.EncodingReloadCount = 1;
+                result.ReloadedBmsFile = file;
+            }
+        }
+
+        var afterSnapshot = MaintenanceSnapshot.FromFile(file);
+        bool encodingChanged = !string.Equals(beforeSnapshot.Encoding, afterSnapshot.Encoding, StringComparison.Ordinal);
+        bool healthChanged = beforeSnapshot.WAVHealth != afterSnapshot.WAVHealth
+            || beforeSnapshot.BGAHealth != afterSnapshot.BGAHealth
+            || beforeSnapshot.MovieHealth != afterSnapshot.MovieHealth
+            || beforeSnapshot.StagefileHealth != afterSnapshot.StagefileHealth
+            || beforeSnapshot.BannerHealth != afterSnapshot.BannerHealth
+            || beforeSnapshot.BackbmpHealth != afterSnapshot.BackbmpHealth;
+        if (encodingChanged || healthChanged)
+        {
+            file.NotifyMaintenanceInfoChanged(encodingChanged, healthChanged);
+        }
+
+        result.MaintenanceInfo = file.TryGetMaintenanceInfoWithoutCreating();
+        result.MaintenanceInfoChanged = !MaintenanceRowsEquivalent(beforeInfo, result.MaintenanceInfo);
+        result.CacheHitCount = resourceLookupContext?.CacheHitCount ?? 0L;
+        result.FileExistsFallbackCount = resourceLookupContext?.FileExistsFallbackCount ?? 0L;
+        return result;
+    }
+
+    private static MaintenanceEvaluationResult EvaluateBmsonMaintenance(
+        LR2SongDBExtended.bmson_song song,
+        ChartFileSnapshot snapshot,
+        ResourceHealthLookupContext resourceLookupContext,
+        bool forceUpdate)
+    {
+        var result = new MaintenanceEvaluationResult();
+        if (song == null || string.IsNullOrWhiteSpace(song.path))
+        {
+            return result;
+        }
+
+        BMSFileMaintenanceInfo beforeInfo = CloneMaintenanceInfo(GetBmsonMaintenanceInfoForWorkflow(song));
+        if (forceUpdate || !HasFreshCurrentBmsonResourceReferences(song))
+        {
+            long refreshStart = Stopwatch.GetTimestamp();
+            result.BmsonRefreshResult = TryRefreshBmsonResourceReferences(song, forceUpdate, snapshot);
+            result.BmsonRefreshElapsedTicks = Stopwatch.GetTimestamp() - refreshStart;
+            if (result.BmsonRefreshResult == BmsonResourceRefreshResult.Failed
+                || result.BmsonRefreshResult == BmsonResourceRefreshResult.NotApplicable)
+            {
+                return result;
+            }
+        }
+        else
+        {
+            result.BmsonRefreshResult = BmsonResourceRefreshResult.Reused;
+        }
+
+        long healthStart = Stopwatch.GetTimestamp();
+        ChartFile chart = ChartFileProjection.FromBmsonSong(
+            song,
+            includeWarningSnapshot: false,
+            includeResourceReferences: false);
+        BMSFileMaintenanceInfo afterInfo = BuildResourceHealthMaintenanceInfo(chart, resourceLookupContext, forceUpdate);
+        result.HealthElapsedTicks = Stopwatch.GetTimestamp() - healthStart;
+        if (afterInfo == null)
+        {
+            return result;
+        }
+        if (!forceUpdate && IsCurrentBmsonMaintenanceInfo(song, beforeInfo))
+        {
+            afterInfo.is_files_warning_ignored = beforeInfo.is_files_warning_ignored;
+        }
+        afterInfo.NormalizeForBmson(song.path, song.md5);
+        song.MaintenanceInfo = afterInfo;
+        result.MaintenanceInfo = afterInfo;
+        result.MaintenanceInfoChanged = !MaintenanceRowsEquivalent(beforeInfo, afterInfo);
+        result.CacheHitCount = resourceLookupContext?.CacheHitCount ?? 0L;
+        result.FileExistsFallbackCount = resourceLookupContext?.FileExistsFallbackCount ?? 0L;
+        return result;
+    }
+
+    private static bool ShouldReloadBmsForFixedEncoding(string encoding)
+    {
+        return !string.IsNullOrWhiteSpace(encoding)
+            && !encoding.StartsWith("shift_jis", StringComparison.OrdinalIgnoreCase)
+            && !encoding.EndsWith("?", StringComparison.Ordinal)
+            && !string.Equals(encoding, "unknown", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool MaintenanceRowsEquivalent(BMSFileMaintenanceInfo left, BMSFileMaintenanceInfo right)
+    {
+        if (left == null || right == null)
+        {
+            return left == null && right == null;
+        }
+        return string.Equals(left.hash ?? string.Empty, right.hash ?? string.Empty, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(left.path ?? string.Empty, right.path ?? string.Empty, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(left.encoding ?? string.Empty, right.encoding ?? string.Empty, StringComparison.Ordinal)
+            && left.is_encoding_fixed == right.is_encoding_fixed
+            && left.wav_files_existing == right.wav_files_existing
+            && left.wav_files_defined == right.wav_files_defined
+            && left.bga_files_existing == right.bga_files_existing
+            && left.bga_files_defined == right.bga_files_defined
+            && left.movie_files_existing == right.movie_files_existing
+            && left.movie_files_defined == right.movie_files_defined
+            && left.is_stagefile_existing == right.is_stagefile_existing
+            && left.is_stagefile_defined == right.is_stagefile_defined
+            && left.is_banner_existing == right.is_banner_existing
+            && left.is_banner_defined == right.is_banner_defined
+            && left.is_backbmp_existing == right.is_backbmp_existing
+            && left.is_backbmp_defined == right.is_backbmp_defined
+            && left.is_files_warning_ignored == right.is_files_warning_ignored;
+    }
+
+    private static BMSFileMaintenanceInfo CloneMaintenanceInfo(BMSFileMaintenanceInfo source)
+    {
+        if (source == null)
+        {
+            return null;
+        }
+        return new BMSFileMaintenanceInfo
+        {
+            hash = source.hash,
+            path = source.path,
+            encoding = source.encoding,
+            is_encoding_fixed = source.is_encoding_fixed,
+            wav_files_existing = source.wav_files_existing,
+            wav_files_defined = source.wav_files_defined,
+            bga_files_existing = source.bga_files_existing,
+            bga_files_defined = source.bga_files_defined,
+            movie_files_existing = source.movie_files_existing,
+            movie_files_defined = source.movie_files_defined,
+            is_stagefile_existing = source.is_stagefile_existing,
+            is_stagefile_defined = source.is_stagefile_defined,
+            is_banner_existing = source.is_banner_existing,
+            is_banner_defined = source.is_banner_defined,
+            is_backbmp_existing = source.is_backbmp_existing,
+            is_backbmp_defined = source.is_backbmp_defined,
+            is_files_warning_ignored = source.is_files_warning_ignored
+        };
     }
 
     private MaintenanceWorkflowResult UpdateBmsMaintenanceInfo(
@@ -1224,9 +1837,13 @@ internal sealed class BmsLibraryMaintenanceService
         first.BmsonReparseFailedCount += second.BmsonReparseFailedCount;
         first.BmsonResourceReferenceReusedCount += second.BmsonResourceReferenceReusedCount;
         first.MaintenanceInfoUpsertCount += second.MaintenanceInfoUpsertCount;
+        first.MaintenanceInfoUnchangedCount += second.MaintenanceInfoUnchangedCount;
         first.SongUpsertCount += second.SongUpsertCount;
         first.ReloadedSongCount += second.ReloadedSongCount;
         first.ZeroNoteChangedCount += second.ZeroNoteChangedCount;
+        first.ReadMs += second.ReadMs;
+        first.ComputeMs += second.ComputeMs;
+        first.CommitMs += second.CommitMs;
         first.WarningReapplyTargets += second.WarningReapplyTargets;
         first.WarningChangedCount += second.WarningChangedCount;
         first.Canceled |= second.Canceled;
@@ -1245,12 +1862,25 @@ internal sealed class BmsLibraryMaintenanceService
         return (value ?? string.Empty).Replace('\r', ' ').Replace('\n', ' ');
     }
 
+    private static bool IsMaintenanceRecoverable(Exception ex)
+    {
+        return ex is DirectoryNotFoundException
+            || ex is FileNotFoundException
+            || ex is IOException
+            || ex is PathTooLongException
+            || ex is SecurityException
+            || ex is UnauthorizedAccessException;
+    }
+
     private static long TicksToMilliseconds(long stopwatchTicks)
     {
         return stopwatchTicks <= 0L ? 0L : (long)(stopwatchTicks * 1000.0 / Stopwatch.Frequency);
     }
 
-    private static BmsonResourceRefreshResult TryRefreshBmsonResourceReferences(LR2SongDBExtended.bmson_song song, bool forceUpdate)
+    private static BmsonResourceRefreshResult TryRefreshBmsonResourceReferences(
+        LR2SongDBExtended.bmson_song song,
+        bool forceUpdate,
+        ChartFileSnapshot snapshot = null)
     {
         if (song == null || string.IsNullOrWhiteSpace(song.path) || !File.Exists(song.path))
         {
@@ -1262,7 +1892,9 @@ internal sealed class BmsLibraryMaintenanceService
         }
         try
         {
-            LR2SongDBExtended.bmson_song parsed = BmsonSongParser.Parse(song.path);
+            LR2SongDBExtended.bmson_song parsed = snapshot != null
+                ? BmsonSongParser.ParseSnapshot(snapshot)
+                : BmsonSongParser.Parse(song.path);
             UpdateBmsonResourceReferences(song, parsed);
             return BmsonResourceRefreshResult.Success;
         }
@@ -1284,6 +1916,7 @@ internal sealed class BmsLibraryMaintenanceService
         target.preview_music = parsed.preview_music;
         target.wav_files = parsed.wav_files ?? [];
         target.bga_files = parsed.bga_files ?? [];
+        target.UnsupportedResourceReferences = [.. (parsed.UnsupportedResourceReferences ?? [])];
         target.HasFreshResourceReferences = parsed.HasFreshResourceReferences;
     }
 
@@ -1303,12 +1936,97 @@ internal sealed class BmsLibraryMaintenanceService
         }
     }
 
-    private enum BmsonResourceRefreshResult
+    internal enum BmsonResourceRefreshResult
     {
         NotApplicable,
         Reused,
         Success,
         Failed
+    }
+
+    private sealed class MaintenanceWorkflowTarget
+    {
+        private MaintenanceWorkflowTarget(ChartFileKind kind, BMSFile bmsFile, LR2SongDBExtended.bmson_song bmsonSong)
+        {
+            Kind = kind;
+            BmsFile = bmsFile;
+            BmsonSong = bmsonSong;
+        }
+
+        public ChartFileKind Kind { get; }
+
+        public BMSFile BmsFile { get; }
+
+        public LR2SongDBExtended.bmson_song BmsonSong { get; }
+
+        public string Path => BmsFile?.path ?? BmsonSong?.path ?? string.Empty;
+
+        public static MaintenanceWorkflowTarget FromBms(BMSFile file)
+        {
+            return new MaintenanceWorkflowTarget(ChartFileKind.Bms, file, null);
+        }
+
+        public static MaintenanceWorkflowTarget FromBmson(LR2SongDBExtended.bmson_song song)
+        {
+            return new MaintenanceWorkflowTarget(ChartFileKind.Bmson, null, song);
+        }
+    }
+
+    private sealed class MaintenanceWorkflowCandidate(
+        MaintenanceWorkflowTarget target,
+        ChartFileSnapshot snapshot,
+        Exception exception,
+        long readElapsedTicks)
+    {
+        public MaintenanceWorkflowTarget Target { get; } = target;
+
+        public ChartFileSnapshot Snapshot { get; } = snapshot;
+
+        public Exception Exception { get; } = exception;
+
+        public long ReadElapsedTicks { get; } = readElapsedTicks;
+    }
+
+    private sealed class MaintenanceWorkflowComputedItem(
+        MaintenanceWorkflowTarget target,
+        MaintenanceEvaluationResult result,
+        long readElapsedTicks,
+        long computeElapsedTicks)
+    {
+        public MaintenanceWorkflowTarget Target { get; } = target;
+
+        public MaintenanceEvaluationResult Result { get; } = result;
+
+        public long ReadElapsedTicks { get; } = readElapsedTicks;
+
+        public long ComputeElapsedTicks { get; } = computeElapsedTicks;
+    }
+
+    internal sealed class MaintenanceEvaluationResult
+    {
+        public BMSFileMaintenanceInfo MaintenanceInfo { get; set; }
+
+        public bool MaintenanceInfoChanged { get; set; }
+
+        public BMSFile ReloadedBmsFile { get; set; }
+
+        public long HealthElapsedTicks { get; set; }
+
+        public long EncodingElapsedTicks { get; set; }
+
+        public long EncodingReloadElapsedTicks { get; set; }
+
+        public long BmsonRefreshElapsedTicks { get; set; }
+
+        public BMSFile.BmsEncodingDetectionResult EncodingDetectionResult { get; set; }
+
+        public int EncodingReloadCount { get; set; }
+
+        public long CacheHitCount { get; set; }
+
+        public long FileExistsFallbackCount { get; set; }
+
+        public BmsonResourceRefreshResult BmsonRefreshResult { get; set; } = BmsonResourceRefreshResult.NotApplicable;
     }
 
     private readonly struct MaintenanceSnapshot

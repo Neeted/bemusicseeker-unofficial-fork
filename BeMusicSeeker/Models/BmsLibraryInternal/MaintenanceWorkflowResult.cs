@@ -50,11 +50,19 @@ internal sealed class MaintenanceWorkflowResult
 
     public int MaintenanceInfoUpsertCount { get; set; }
 
+    public int MaintenanceInfoUnchangedCount { get; set; }
+
     public int SongUpsertCount { get; set; }
 
     public int ReloadedSongCount { get; set; }
 
     public int ZeroNoteChangedCount { get; set; }
+
+    public long ReadMs { get; set; }
+
+    public long ComputeMs { get; set; }
+
+    public long CommitMs { get; set; }
 
     public long ResourceHealthIndexMs { get; set; }
 

@@ -1128,48 +1128,27 @@ internal sealed class BmsLibraryInitializationService
         {
             return InlineMaintenanceItemResult.Empty;
         }
-        var lookupContext = new ResourceHealthLookupContext(lookupCache);
         var stopwatch = Stopwatch.StartNew();
         long healthMs = 0L;
         long encodingMs = 0L;
         long encodingReloadMs = 0L;
+        long cacheHitCount = 0L;
+        long fileExistsFallbackCount = 0L;
         int encodingReloadCount = 0;
         bool completed = false;
         string warning = null;
         BMSFile.BmsEncodingDetectionResult detectionResult = null;
         try
         {
-            var stepStopwatch = Stopwatch.StartNew();
-            BmsLibraryMaintenanceService.ApplyBmsResourceHealthMaintenanceInfo(file, lookupContext, forceUpdate: false);
-            stepStopwatch.Stop();
-            healthMs = stepStopwatch.ElapsedMilliseconds;
-            stepStopwatch.Restart();
-            if (snapshot != null)
-            {
-                detectionResult = file.SetEncodingInfoFromSnapshotDetailed(snapshot);
-            }
-            else
-            {
-                file.SetEncosingInfo();
-            }
-            stepStopwatch.Stop();
-            encodingMs = stepStopwatch.ElapsedMilliseconds;
-            if (ShouldReloadBmsForFixedEncoding(file.maintenanceInfo?.encoding))
-            {
-                encodingReloadCount = 1;
-                stepStopwatch.Restart();
-                if (snapshot != null)
-                {
-                    BMSFile.ReloadBMSMetadataWithEncodingDetection(file, snapshot, detectionResult);
-                }
-                else
-                {
-                    BMSFile.ReloadBMSFileWithEncoding(file, file.maintenanceInfo.encoding);
-                }
-                stepStopwatch.Stop();
-                encodingReloadMs = stepStopwatch.ElapsedMilliseconds;
-                file.maintenanceInfo.is_encoding_fixed = true;
-            }
+            BmsLibraryMaintenanceService.MaintenanceEvaluationResult maintenanceResult =
+                BmsLibraryMaintenanceService.EvaluateBmsMaintenanceForInline(file, snapshot, lookupCache);
+            healthMs = TicksToMilliseconds(maintenanceResult.HealthElapsedTicks);
+            encodingMs = TicksToMilliseconds(maintenanceResult.EncodingElapsedTicks);
+            encodingReloadMs = TicksToMilliseconds(maintenanceResult.EncodingReloadElapsedTicks);
+            encodingReloadCount = maintenanceResult.EncodingReloadCount;
+            detectionResult = maintenanceResult.EncodingDetectionResult;
+            cacheHitCount = maintenanceResult.CacheHitCount;
+            fileExistsFallbackCount = maintenanceResult.FileExistsFallbackCount;
             completed = file.maintenanceInfo?.IsInformationChecked() == true;
         }
         catch (Exception ex) when (IsInlineMaintenanceRecoverable(ex))
@@ -1193,8 +1172,8 @@ internal sealed class BmsLibraryInitializationService
             encodingReloadMs: encodingReloadMs,
             encodingReloadCount: encodingReloadCount,
             encodingDetectionResult: detectionResult,
-            cacheHitCount: lookupContext.CacheHitCount,
-            fileExistsFallbackCount: lookupContext.FileExistsFallbackCount,
+            cacheHitCount: cacheHitCount,
+            fileExistsFallbackCount: fileExistsFallbackCount,
             warningMessage: warning);
     }
 
@@ -1206,23 +1185,20 @@ internal sealed class BmsLibraryInitializationService
         {
             return InlineMaintenanceItemResult.Empty;
         }
-        var lookupContext = new ResourceHealthLookupContext(lookupCache);
         var stopwatch = Stopwatch.StartNew();
+        long healthMs = 0L;
+        long cacheHitCount = 0L;
+        long fileExistsFallbackCount = 0L;
         bool completed = false;
         string warning = null;
         try
         {
-            ChartFile chart = ChartFileProjection.FromBmsonSong(
-                song,
-                includeWarningSnapshot: false,
-                includeResourceReferences: false);
-            BMSFileMaintenanceInfo maintenanceInfo = BmsLibraryMaintenanceService.BuildResourceHealthMaintenanceInfo(chart, lookupContext);
-            if (maintenanceInfo != null)
-            {
-                maintenanceInfo.NormalizeForBmson(song.path, song.md5);
-                song.MaintenanceInfo = maintenanceInfo;
-            }
-            completed = maintenanceInfo?.IsInformationChecked() == true;
+            BmsLibraryMaintenanceService.MaintenanceEvaluationResult maintenanceResult =
+                BmsLibraryMaintenanceService.EvaluateBmsonMaintenanceForInline(song, lookupCache);
+            completed = maintenanceResult.MaintenanceInfo?.IsInformationChecked() == true;
+            healthMs = TicksToMilliseconds(maintenanceResult.HealthElapsedTicks);
+            cacheHitCount = maintenanceResult.CacheHitCount;
+            fileExistsFallbackCount = maintenanceResult.FileExistsFallbackCount;
         }
         catch (Exception ex) when (IsInlineMaintenanceRecoverable(ex))
         {
@@ -1240,13 +1216,13 @@ internal sealed class BmsLibraryInitializationService
             successCount: completed ? 1 : 0,
             failedCount: completed ? 0 : 1,
             elapsedMs: stopwatch.ElapsedMilliseconds,
-            healthMs: stopwatch.ElapsedMilliseconds,
+            healthMs: healthMs,
             encodingMs: 0,
             encodingReloadMs: 0,
             encodingReloadCount: 0,
             encodingDetectionResult: null,
-            cacheHitCount: lookupContext.CacheHitCount,
-            fileExistsFallbackCount: lookupContext.FileExistsFallbackCount,
+            cacheHitCount: cacheHitCount,
+            fileExistsFallbackCount: fileExistsFallbackCount,
             warningMessage: warning);
     }
 
@@ -1321,14 +1297,6 @@ internal sealed class BmsLibraryInitializationService
                 logInstallPerformanceWarn(itemResult.WarningMessage);
             }
         }
-    }
-
-    private static bool ShouldReloadBmsForFixedEncoding(string encoding)
-    {
-        return !string.IsNullOrWhiteSpace(encoding)
-            && !encoding.StartsWith("shift_jis", StringComparison.OrdinalIgnoreCase)
-            && !encoding.EndsWith("?", StringComparison.Ordinal)
-            && !string.Equals(encoding, "unknown", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool IsInlineMaintenanceRecoverable(Exception ex)

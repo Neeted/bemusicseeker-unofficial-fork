@@ -58,6 +58,65 @@ public sealed class BmsLibraryMaintenanceServiceTests
     }
 
     [TestMethod]
+    public void EvaluateBmsMaintenanceForInline_ForceUpdateReportsUnchangedWhenPersistentRowIsSame()
+    {
+        string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectoryPath);
+        string chartPath = Path.Combine(tempDirectoryPath, "chart.bms");
+        try
+        {
+            File.WriteAllText(chartPath, "#TITLE test\r\n#WAV01 missing.wav\r\n", Encoding.ASCII);
+            ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
+            BMSFile file = BMSFile.CreateBMSFileFromSnapshot(snapshot);
+
+            BmsLibraryMaintenanceService.MaintenanceEvaluationResult first =
+                BmsLibraryMaintenanceService.EvaluateBmsMaintenanceForInline(file, snapshot, lookupCache: null, forceUpdate: true);
+            BmsLibraryMaintenanceService.MaintenanceEvaluationResult second =
+                BmsLibraryMaintenanceService.EvaluateBmsMaintenanceForInline(file, snapshot, lookupCache: null, forceUpdate: true);
+
+            Assert.IsTrue(first.MaintenanceInfoChanged);
+            Assert.IsFalse(second.MaintenanceInfoChanged);
+            Assert.IsTrue(second.MaintenanceInfo.IsInformationChecked());
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectoryPath))
+            {
+                Directory.Delete(tempDirectoryPath, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void EvaluateBmsMaintenanceForInline_ForceUpdateReportsChangedWhenIgnoredFlagIsReset()
+    {
+        string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectoryPath);
+        string chartPath = Path.Combine(tempDirectoryPath, "chart.bms");
+        try
+        {
+            File.WriteAllText(chartPath, "#TITLE test\r\n#WAV01 missing.wav\r\n", Encoding.ASCII);
+            ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
+            BMSFile file = BMSFile.CreateBMSFileFromSnapshot(snapshot);
+            _ = BmsLibraryMaintenanceService.EvaluateBmsMaintenanceForInline(file, snapshot, lookupCache: null, forceUpdate: true);
+            file.maintenanceInfo.is_files_warning_ignored = true;
+
+            BmsLibraryMaintenanceService.MaintenanceEvaluationResult result =
+                BmsLibraryMaintenanceService.EvaluateBmsMaintenanceForInline(file, snapshot, lookupCache: null, forceUpdate: true);
+
+            Assert.IsTrue(result.MaintenanceInfoChanged);
+            Assert.IsFalse(result.MaintenanceInfo.is_files_warning_ignored);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectoryPath))
+            {
+                Directory.Delete(tempDirectoryPath, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
     public void PendingBmsonEncodingOnlyMaintenance_IsPlaceholder()
     {
         var song = new LR2SongDBExtended.bmson_song
