@@ -250,6 +250,7 @@
   "Beatoraja_integration": "beatoraja 連動",
   "Use_beatoraja_scoreDB": "讀取 beatoraja 分數",
   "Use_beatoraja_bmt_output": "輸出 .bmt（難易度表讀取相容快取）",
+  "Keep_beatoraja_bmt_files_when_output_disabled": "停用 .bmt 輸出時保留既有檔案",
   "Register_beatoraja_bmt_urls": "將 .bmt URL 登錄到 config_sys.json（穩定選曲畫面順序）",
   "Diff_URL": "差分 URL",
   "Open_association": "以關聯程式開啟",

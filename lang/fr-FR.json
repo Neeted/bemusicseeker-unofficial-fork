@@ -250,6 +250,7 @@
   "Beatoraja_integration": "Intégration beatoraja",
   "Use_beatoraja_scoreDB": "Charger les scores beatoraja",
   "Use_beatoraja_bmt_output": "Exporter les fichiers .bmt (cache compatible table de difficulté)",
+  "Keep_beatoraja_bmt_files_when_output_disabled": "Conserver les fichiers .bmt existants lorsque la sortie est désactivée",
   "Register_beatoraja_bmt_urls": "Enregistrer les URL .bmt dans config_sys.json (ordre stable en sélection)",
   "Diff_URL": "Diff URL",
   "Open_association": "Ouvrir avec...",

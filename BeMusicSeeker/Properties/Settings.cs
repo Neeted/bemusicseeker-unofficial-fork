@@ -187,6 +187,21 @@ internal sealed class Settings : ApplicationSettingsBase
 
     [UserScopedSetting]
     [DebuggerNonUserCode]
+    [DefaultSettingValue("False")]
+    public bool KeepBeatorajaBmtFilesWhenOutputDisabled
+    {
+        get
+        {
+            return (bool)this["KeepBeatorajaBmtFilesWhenOutputDisabled"];
+        }
+        set
+        {
+            this["KeepBeatorajaBmtFilesWhenOutputDisabled"] = value;
+        }
+    }
+
+    [UserScopedSetting]
+    [DebuggerNonUserCode]
     [DefaultSettingValue("")]
     public string BeatorajaBmtTablePath
     {

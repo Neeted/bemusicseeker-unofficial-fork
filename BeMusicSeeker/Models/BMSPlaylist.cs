@@ -992,20 +992,29 @@ public partial class BMSPlaylist : NotificationObject
     {
         string outputPath = GetBeatorajaBmtTablePath();
         bool enabled = IsBeatorajaBmtOutputEnabled();
+        bool keepFilesWhenDisabled = Settings.Default.KeepBeatorajaBmtFilesWhenOutputDisabled;
         async Task work()
         {
             await Task.Yield();
             var totalStopwatch = Stopwatch.StartNew();
-            if (!string.IsNullOrWhiteSpace(cleanupTablePath) && (!enabled || !string.Equals(cleanupTablePath, outputPath, StringComparison.OrdinalIgnoreCase)))
+            if (!string.IsNullOrWhiteSpace(cleanupTablePath)
+                && (!enabled || !string.Equals(cleanupTablePath, outputPath, StringComparison.OrdinalIgnoreCase))
+                && (enabled || !keepFilesWhenDisabled))
             {
                 SyncBeatorajaManagedTableUrls(cleanupTablePath, BmtTableExportService.ReadManagedTableUrls(cleanupTablePath), []);
                 BmtTableExportService.CleanupManagedFiles(cleanupTablePath);
             }
             if (!enabled)
             {
-                SyncBeatorajaManagedTableUrls(outputPath, BmtTableExportService.ReadManagedTableUrls(outputPath), []);
+                if (!keepFilesWhenDisabled)
+                {
+                    SyncBeatorajaManagedTableUrls(outputPath, BmtTableExportService.ReadManagedTableUrls(outputPath), []);
+                }
                 totalStopwatch.Stop();
-                LogPlaylistPerformance("beatoraja_bmt_export_all skipped reason=" + FormatTextForLog(reason) + " enabled=false elapsedMs=" + totalStopwatch.ElapsedMilliseconds);
+                LogPlaylistPerformance("beatoraja_bmt_export_all skipped reason=" + FormatTextForLog(reason)
+                    + " enabled=false"
+                    + " keepFiles=" + keepFilesWhenDisabled
+                    + " elapsedMs=" + totalStopwatch.ElapsedMilliseconds);
                 return;
             }
             List<BMSTable> tablesSnapshot;

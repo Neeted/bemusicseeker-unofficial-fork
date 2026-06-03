@@ -257,6 +257,8 @@ public class Resources
 
     public static string Register_beatoraja_bmt_urls => ResourceManager.GetString("Register_beatoraja_bmt_urls", resourceCulture);
 
+    public static string Keep_beatoraja_bmt_files_when_output_disabled => ResourceManager.GetString("Keep_beatoraja_bmt_files_when_output_disabled", resourceCulture);
+
     public static string FilePath_songDB => ResourceManager.GetString("FilePath_songDB", resourceCulture);
 
     public static string FilePath_StageFile => ResourceManager.GetString("FilePath_StageFile", resourceCulture);

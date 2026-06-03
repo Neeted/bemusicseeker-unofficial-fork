@@ -250,6 +250,7 @@
   "Beatoraja_integration": "beatoraja integration",
   "Use_beatoraja_scoreDB": "Load beatoraja scores",
   "Use_beatoraja_bmt_output": "Output .bmt files (difficulty table compatibility cache)",
+  "Keep_beatoraja_bmt_files_when_output_disabled": "Keep existing .bmt files when output is disabled",
   "Register_beatoraja_bmt_urls": "Register .bmt URLs in config_sys.json (stabilizes song-select order)",
   "Diff_URL": "Diff URL",
   "Open_association": "Open in association",

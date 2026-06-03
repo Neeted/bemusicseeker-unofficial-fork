@@ -747,6 +747,9 @@ LR2をプレイヤーとして使用すると再生できない場合があり�
   <data name="Use_beatoraja_bmt_output" xml:space="preserve">
     <value>.bmtを出力する(難易度表読み込み互換処理)</value>
   </data>
+  <data name="Keep_beatoraja_bmt_files_when_output_disabled" xml:space="preserve">
+    <value>.bmt出力を無効化しても既存ファイルを削除しない</value>
+  </data>
   <data name="Diff_URL" xml:space="preserve">
     <value>差分URL</value>
   </data>

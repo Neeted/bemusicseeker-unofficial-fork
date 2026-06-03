@@ -250,6 +250,7 @@
   "Beatoraja_integration": "beatoraja 연동",
   "Use_beatoraja_scoreDB": "beatoraja 점수 불러오기",
   "Use_beatoraja_bmt_output": ".bmt 출력(난이도표 읽기 호환 캐시)",
+  "Keep_beatoraja_bmt_files_when_output_disabled": ".bmt 출력을 비활성화해도 기존 파일을 삭제하지 않음",
   "Register_beatoraja_bmt_urls": "config_sys.json에 .bmt URL 등록(선곡 화면 순서 안정화)",
   "Diff_URL": "차분 URL",
   "Open_association": "연결된 프로그램으로 열기",

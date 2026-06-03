@@ -262,6 +262,7 @@ public sealed class MainWindowContextMenuResourceTests
             "Use_beatoraja_scoreDB",
             "Beatoraja_player",
             "Use_beatoraja_bmt_output",
+            "Keep_beatoraja_bmt_files_when_output_disabled",
             "Register_beatoraja_bmt_urls",
             "Error_InvalidBeatorajaRootPath",
             "Error_InvalidBeatorajaScoreDbPath"
@@ -281,6 +282,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(xaml, "Path=Resources.Use_beatoraja_scoreDB");
         StringAssert.Contains(xaml, "Path=Resources.Beatoraja_player");
         StringAssert.Contains(xaml, "Path=Resources.Use_beatoraja_bmt_output");
+        StringAssert.Contains(xaml, "Path=Resources.Keep_beatoraja_bmt_files_when_output_disabled");
         StringAssert.Contains(xaml, "Path=Resources.Register_beatoraja_bmt_urls");
         StringAssert.Contains(viewModelCode, "Resources.Error_InvalidBeatorajaRootPath");
         StringAssert.Contains(viewModelCode, "Resources.Error_InvalidBeatorajaScoreDbPath");

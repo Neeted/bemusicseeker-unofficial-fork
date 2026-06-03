@@ -566,6 +566,8 @@ public class MainWindowViewModel : ViewModel
 
         private bool tempEnableBeatorajaBmtOutput;
 
+        private bool tempKeepBeatorajaBmtFilesWhenOutputDisabled;
+
         private string tempBeatorajaBmtTablePath;
 
         private bool tempRegisterBeatorajaBmtUrls;
@@ -1080,6 +1082,23 @@ public class MainWindowViewModel : ViewModel
                 {
                     Settings.Default.EnableBeatorajaBmtOutput = value;
                     RaisePropertyChanged("EnableBeatorajaBmtOutput");
+                    RaiseValidationStateChanged();
+                }
+            }
+        }
+
+        public bool KeepBeatorajaBmtFilesWhenOutputDisabled
+        {
+            get
+            {
+                return Settings.Default.KeepBeatorajaBmtFilesWhenOutputDisabled;
+            }
+            set
+            {
+                if (Settings.Default.KeepBeatorajaBmtFilesWhenOutputDisabled != value)
+                {
+                    Settings.Default.KeepBeatorajaBmtFilesWhenOutputDisabled = value;
+                    RaisePropertyChanged("KeepBeatorajaBmtFilesWhenOutputDisabled");
                     RaiseValidationStateChanged();
                 }
             }
@@ -3346,6 +3365,7 @@ public class MainWindowViewModel : ViewModel
             tempBeatorajaPlayerId = Settings.Default.BeatorajaPlayerId;
             tempBeatorajaScoreDbPath = Settings.Default.BeatorajaScoreDbPath;
             tempEnableBeatorajaBmtOutput = Settings.Default.EnableBeatorajaBmtOutput;
+            tempKeepBeatorajaBmtFilesWhenOutputDisabled = Settings.Default.KeepBeatorajaBmtFilesWhenOutputDisabled;
             tempBeatorajaBmtTablePath = Settings.Default.BeatorajaBmtTablePath;
             tempRegisterBeatorajaBmtUrls = Settings.Default.RegisterBeatorajaBmtUrls;
             tempBMSRootPath = Settings.Default.BMSRootPath;
@@ -3504,12 +3524,15 @@ public class MainWindowViewModel : ViewModel
                 ownerViewModel.tables.SchedulePlaylistUrlCompletionRefresh("SettingDialog.SaveSettings");
             }
             if (tempEnableBeatorajaBmtOutput != Settings.Default.EnableBeatorajaBmtOutput
+                || tempKeepBeatorajaBmtFilesWhenOutputDisabled != Settings.Default.KeepBeatorajaBmtFilesWhenOutputDisabled
                 || tempRegisterBeatorajaBmtUrls != Settings.Default.RegisterBeatorajaBmtUrls
                 || !string.Equals(tempBeatorajaRootPath, Settings.Default.BeatorajaRootPath, StringComparison.OrdinalIgnoreCase)
                 || !string.Equals(tempBeatorajaBmtTablePath, Settings.Default.BeatorajaBmtTablePath, StringComparison.OrdinalIgnoreCase))
             {
+                bool preserveDisabledBmtOutput = !Settings.Default.EnableBeatorajaBmtOutput && Settings.Default.KeepBeatorajaBmtFilesWhenOutputDisabled;
                 if (BeatorajaConfigService.IsBeatorajaRootPathValid(tempBeatorajaRootPath)
                     && !string.IsNullOrWhiteSpace(tempBeatorajaBmtTablePath)
+                    && !preserveDisabledBmtOutput
                     && (!string.Equals(tempBeatorajaRootPath, Settings.Default.BeatorajaRootPath, StringComparison.OrdinalIgnoreCase)
                         || !Settings.Default.EnableBeatorajaBmtOutput
                         || !Settings.Default.RegisterBeatorajaBmtUrls))
@@ -3706,6 +3729,7 @@ public class MainWindowViewModel : ViewModel
             Settings.Default.BeatorajaPlayerId = tempBeatorajaPlayerId;
             Settings.Default.BeatorajaScoreDbPath = tempBeatorajaScoreDbPath;
             Settings.Default.EnableBeatorajaBmtOutput = tempEnableBeatorajaBmtOutput;
+            Settings.Default.KeepBeatorajaBmtFilesWhenOutputDisabled = tempKeepBeatorajaBmtFilesWhenOutputDisabled;
             Settings.Default.BeatorajaBmtTablePath = tempBeatorajaBmtTablePath;
             Settings.Default.RegisterBeatorajaBmtUrls = tempRegisterBeatorajaBmtUrls;
             Settings.Default.BMSRootPath = tempBMSRootPath;
@@ -3806,6 +3830,7 @@ public class MainWindowViewModel : ViewModel
             RaisePropertyChanged(() => BeatorajaPlayerId);
             RaisePropertyChanged(() => BeatorajaScoreDbPath);
             RaisePropertyChanged(() => EnableBeatorajaBmtOutput);
+            RaisePropertyChanged(() => KeepBeatorajaBmtFilesWhenOutputDisabled);
             RaisePropertyChanged(() => BeatorajaBmtTablePath);
             RaisePropertyChanged(() => RegisterBeatorajaBmtUrls);
             RaisePropertyChanged(() => uBMplayPath);
