@@ -4958,6 +4958,8 @@ completeFileEnumerationOnce,
                     RootDirectories = input.RootDirectories,
                     ChartPaths = input.ChartPaths,
                     FolderInfoFilePaths = input.FolderInfoFilePaths,
+                    Lr2FolderFilePaths = input.Lr2FolderFilePaths,
+                    Lr2FolderFileDiscoveryComplete = input.Lr2FolderFileDiscoveryComplete,
                     SongRows = input.SongRows,
                     StartedAtUtc = DateTime.UtcNow
                 });
@@ -4968,6 +4970,8 @@ completeFileEnumerationOnce,
                 + " roots=" + input.RootDirectories.Count
                 + " charts=" + input.ChartPaths.Count
                 + " folderInfoCandidates=" + input.FolderInfoFilePaths.Count
+                + " lr2FolderCandidates=" + input.Lr2FolderFilePaths.Count
+                + " lr2FolderDiscoveryComplete=" + input.Lr2FolderFileDiscoveryComplete.ToString().ToLowerInvariant()
                 + " songRows=" + input.SongRows.Count
                 + " normalFolderGenerated=" + (result.NormalFolderSyncResult?.GeneratedCount ?? 0)
                 + " normalFolderUpserted=" + (result.NormalFolderSyncResult?.UpsertedCount ?? 0)
@@ -4975,6 +4979,12 @@ completeFileEnumerationOnce,
                 + " normalFolderSkippedUnsupported=" + (result.NormalFolderSyncResult?.SkippedUnsupportedPathCount ?? 0)
                 + " normalFolderSkippedMissingMetadata=" + (result.NormalFolderSyncResult?.SkippedMissingMetadataCount ?? 0)
                 + " normalFolderSkippedIncompatibleChart=" + (result.NormalFolderSyncResult?.SkippedIncompatibleChartPathCount ?? 0)
+                + " lr2FolderGenerated=" + (result.Lr2FolderFileSyncResult?.GeneratedCount ?? 0)
+                + " lr2FolderUpserted=" + (result.Lr2FolderFileSyncResult?.UpsertedCount ?? 0)
+                + " lr2FolderDeleted=" + (result.Lr2FolderFileSyncResult?.DeletedCount ?? 0)
+                + " lr2FolderSkippedUnsupported=" + (result.Lr2FolderFileSyncResult?.SkippedUnsupportedPathCount ?? 0)
+                + " lr2FolderSkippedMissingMetadata=" + (result.Lr2FolderFileSyncResult?.SkippedMissingMetadataCount ?? 0)
+                + " lr2FolderProcessed=" + result.Lr2FolderFileProcessedCount
                 + " songRowProcessed=" + result.SongRowProcessedCount
                 + " processed=" + result.ProcessedCount
                 + " total=" + result.TotalCount
@@ -5027,10 +5037,13 @@ completeFileEnumerationOnce,
                 .Select(file => file.CreateSongRowPersistenceCopy())];
         }
         List<string> roots = getBMSDirectories();
+        Lr2FolderFileCandidateSnapshot lr2FolderFileCandidates = CreateLr2FullGenerationLr2FolderFileCandidates(roots);
         return new Lr2FullGenerationBackfillInput(
             roots,
             chartPaths,
             CreateLr2FullGenerationFolderInfoCandidates(roots, chartPaths),
+            lr2FolderFileCandidates.Paths,
+            lr2FolderFileCandidates.DiscoveryComplete,
             songRows);
     }
 
@@ -5058,10 +5071,37 @@ completeFileEnumerationOnce,
         return [.. result.OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
     }
 
+    private const string Lr2FolderFileEnumerationGroupName = "lr2folder";
+
+    private static Lr2FolderFileCandidateSnapshot CreateLr2FullGenerationLr2FolderFileCandidates(IEnumerable<string> rootDirectories)
+    {
+        List<string> roots = [.. (rootDirectories ?? [])
+            .Where(path => !string.IsNullOrWhiteSpace(path) && Directory.Exists(path))
+            .Select(Path.GetFullPath)
+            .Distinct(StringComparer.OrdinalIgnoreCase)];
+        if (roots.Count == 0)
+        {
+            return new Lr2FolderFileCandidateSnapshot([], discoveryComplete: true);
+        }
+
+        RootFileEnumerationResult result = RootFileEnumerationService.EnumerateFilesWithFallback(
+            roots,
+            [new RootFileEnumerationGroup(Lr2FolderFileEnumerationGroupName, [".lr2folder"])]);
+        if (!result.Success)
+        {
+            return new Lr2FolderFileCandidateSnapshot([], discoveryComplete: false);
+        }
+        return new Lr2FolderFileCandidateSnapshot([.. result.GetPaths(Lr2FolderFileEnumerationGroupName)
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)], discoveryComplete: true);
+    }
+
     private sealed class Lr2FullGenerationBackfillInput(
         IReadOnlyList<string> rootDirectories,
         IReadOnlyList<string> chartPaths,
         IReadOnlyList<string> folderInfoFilePaths,
+        IReadOnlyList<string> lr2FolderFilePaths,
+        bool lr2FolderFileDiscoveryComplete,
         IReadOnlyList<BMSFile> songRows)
     {
         public IReadOnlyList<string> RootDirectories { get; } = rootDirectories ?? [];
@@ -5070,7 +5110,20 @@ completeFileEnumerationOnce,
 
         public IReadOnlyList<string> FolderInfoFilePaths { get; } = folderInfoFilePaths ?? [];
 
+        public IReadOnlyList<string> Lr2FolderFilePaths { get; } = lr2FolderFilePaths ?? [];
+
+        public bool Lr2FolderFileDiscoveryComplete { get; } = lr2FolderFileDiscoveryComplete;
+
         public IReadOnlyList<BMSFile> SongRows { get; } = songRows ?? [];
+    }
+
+    private sealed class Lr2FolderFileCandidateSnapshot(
+        IReadOnlyList<string> paths,
+        bool discoveryComplete)
+    {
+        public IReadOnlyList<string> Paths { get; } = paths ?? [];
+
+        public bool DiscoveryComplete { get; } = discoveryComplete;
     }
 
     /// <summary>

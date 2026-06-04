@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
+using System.Text;
 using BeMusicSeeker.Models.LR2;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
@@ -17,6 +19,10 @@ internal sealed class Lr2FullGenerationBackfillRequest
     public IReadOnlyCollection<string> ChartPaths { get; set; } = [];
 
     public IReadOnlyCollection<string> FolderInfoFilePaths { get; set; } = [];
+
+    public IReadOnlyCollection<string> Lr2FolderFilePaths { get; set; } = [];
+
+    public bool Lr2FolderFileDiscoveryComplete { get; set; }
 
     public IReadOnlyCollection<BMSFile> SongRows { get; set; } = [];
 
@@ -34,6 +40,10 @@ internal sealed class Lr2FullGenerationBackfillResult
     public string IncompleteReason { get; set; }
 
     public Lr2NormalFolderDbSyncResult NormalFolderSyncResult { get; set; }
+
+    public Lr2FolderFileDbSyncResult Lr2FolderFileSyncResult { get; set; }
+
+    public int Lr2FolderFileProcessedCount { get; set; }
 
     public int SongRowProcessedCount { get; set; }
 
@@ -66,9 +76,12 @@ internal static class Lr2FullGenerationBackfillService
         List<string> folderInfoFilePaths = [.. (request.FolderInfoFilePaths ?? [])
             .Where(path => !string.IsNullOrWhiteSpace(path))
             .Distinct(StringComparer.OrdinalIgnoreCase)];
+        List<string> lr2FolderFilePaths = [.. (request.Lr2FolderFilePaths ?? [])
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)];
         List<BMSFile> songRows = [.. (request.SongRows ?? [])
             .Where(file => file != null && !string.IsNullOrWhiteSpace(file.path))];
-        int totalCount = roots.Count + chartPaths.Count + folderInfoFilePaths.Count + songRows.Count;
+        int totalCount = roots.Count + chartPaths.Count + folderInfoFilePaths.Count + lr2FolderFilePaths.Count + songRows.Count;
 
         Lr2FullGenerationStatusService.MarkRunning(
             songDb,
@@ -108,11 +121,45 @@ internal static class Lr2FullGenerationBackfillService
             request.RunId,
             processedCursor: normalFolderProcessedCount,
             totalCount: totalCount,
+            stage: "lr2folder_files",
+            nowUtc: DateTime.UtcNow);
+
+        Lr2FolderFileDbSyncResult lr2FolderFileResult = null;
+        int lr2FolderFileProcessedCount = 0;
+        if (roots.Count > 0)
+        {
+            Lr2FolderFileSyncItemsResult syncItems = CreateLr2FolderFileSyncItems(lr2FolderFilePaths);
+            lr2FolderFileResult = Lr2FolderFileDbSyncService.Sync(songDb, new Lr2FolderFileDbSyncRequest
+            {
+                Items = syncItems.Items,
+                ScopeDirectories = roots,
+                AllowPrune = request.Lr2FolderFileDiscoveryComplete && !syncItems.HasReadFailures,
+                GeneratedAtUtc = request.StartedAtUtc
+            });
+            lr2FolderFileProcessedCount = lr2FolderFileResult.ItemCount;
+        }
+        int folderProcessedCount = normalFolderProcessedCount + lr2FolderFileProcessedCount;
+
+        Lr2FullGenerationStatusService.UpdateCursor(
+            songDb,
+            request.Signature,
+            request.RunId,
+            processedCursor: folderProcessedCount,
+            totalCount: totalCount,
+            stage: "lr2folder_files_completed",
+            nowUtc: DateTime.UtcNow);
+
+        Lr2FullGenerationStatusService.UpdateCursor(
+            songDb,
+            request.Signature,
+            request.RunId,
+            processedCursor: folderProcessedCount,
+            totalCount: totalCount,
             stage: "song_rows",
             nowUtc: DateTime.UtcNow);
 
         int songRowProcessedCount = UpsertSongRows(songDb, songRows);
-        int processedCount = normalFolderProcessedCount + songRowProcessedCount;
+        int processedCount = folderProcessedCount + songRowProcessedCount;
 
         Lr2FullGenerationStatusService.UpdateCursor(
             songDb,
@@ -141,9 +188,63 @@ internal static class Lr2FullGenerationBackfillService
             FinalStage = RemainingStagesPendingStage,
             IncompleteReason = RemainingStagesPendingReason,
             NormalFolderSyncResult = normalFolderResult,
+            Lr2FolderFileSyncResult = lr2FolderFileResult,
+            Lr2FolderFileProcessedCount = lr2FolderFileProcessedCount,
             SongRowProcessedCount = songRowProcessedCount,
             ElapsedMs = stopwatch.ElapsedMilliseconds
         };
+    }
+
+    private static Lr2FolderFileSyncItemsResult CreateLr2FolderFileSyncItems(IEnumerable<string> filePaths)
+    {
+        var items = new List<Lr2FolderFileSyncItem>();
+        bool hasReadFailures = false;
+        foreach (string filePath in filePaths ?? [])
+        {
+            if (string.IsNullOrWhiteSpace(filePath))
+            {
+                continue;
+            }
+
+            Lr2FolderFileSyncItem item = CreateLr2FolderFileSyncItem(filePath);
+            if (item.LastWriteTimeUtc == null)
+            {
+                hasReadFailures = true;
+            }
+            items.Add(item);
+        }
+        return new Lr2FolderFileSyncItemsResult(items, hasReadFailures);
+    }
+
+    private static Lr2FolderFileSyncItem CreateLr2FolderFileSyncItem(string filePath)
+    {
+        try
+        {
+            return new Lr2FolderFileSyncItem
+            {
+                FilePath = filePath,
+                LastWriteTimeUtc = File.GetLastWriteTimeUtc(filePath),
+                Definition = Lr2FolderFileProjection.ParseDefinition(File.ReadLines(filePath, Encoding.GetEncoding("shift_jis")))
+            };
+        }
+        catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException || ex is DecoderFallbackException)
+        {
+            return new Lr2FolderFileSyncItem
+            {
+                FilePath = filePath,
+                LastWriteTimeUtc = null,
+                Definition = null
+            };
+        }
+    }
+
+    private sealed class Lr2FolderFileSyncItemsResult(
+        IReadOnlyCollection<Lr2FolderFileSyncItem> items,
+        bool hasReadFailures)
+    {
+        public IReadOnlyCollection<Lr2FolderFileSyncItem> Items { get; } = items ?? [];
+
+        public bool HasReadFailures { get; } = hasReadFailures;
     }
 
     private static int UpsertSongRows(LR2SongDBExtended songDb, IReadOnlyCollection<BMSFile> songRows)

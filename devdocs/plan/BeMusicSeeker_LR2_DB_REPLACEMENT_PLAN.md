@@ -1066,6 +1066,11 @@ parse directive:
   変更せずに `song.folder` / `song.parent` などの generated columns と `chart_digest_map` を backfill する。
   persistence 用 copy では live row の `folder` / `parent` が形式上 valid でも path と一致する保証がないため、
   これらを空にして `Lr2SongRowEnricher` に再生成させる。
+  さらに LR2 BMS root 配下の `.lr2folder` は `RootFileEnumerationService` の Everything/fallback path で discovery し、
+  `Lr2FolderFileDbSyncService` へ渡して `folder.type = 2` row を sync / prune する。custom folder 出力 base と
+  LR2 built-in custom folder source の discovery root 追加は後続 cycle で接続する。
+  `.lr2folder` prune は discovery surface が complete で、かつ発見した各 file を読み取れた場合だけ許可する。
+  enumeration failure や一時的な file read failure がある場合、その回は upsert のみにして既存 row を消さない。
   この段階はファイル再読込・全 parse backfill ではないため、sync 後も `Completed` にはせず、`Incomplete`
   (`remaining_backfill_stages_not_implemented`) を記録する。任意 `.lr2folder` discovery、
   startup-scan blocker diagnostic、必要な full parse backfill が入るまで完全生成完了とは扱わない。
