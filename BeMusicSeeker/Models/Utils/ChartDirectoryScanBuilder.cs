@@ -122,7 +122,9 @@ internal static class ChartDirectoryScanBuilder
         AssignResourceFiles(result.ChartDirectories, audioFilePaths, ChartResourceKind.Audio, audioRelativePathHashes, selfOwnedAudioRelativePathHashes);
         AssignResourceFiles(result.ChartDirectories, imageFilePaths, ChartResourceKind.Image, imageRelativePathHashes, selfOwnedImageRelativePathHashes);
         AssignResourceFiles(result.ChartDirectories, movieFilePaths, ChartResourceKind.Movie, movieRelativePathHashes, selfOwnedMovieRelativePathHashes);
-        AssignTextFiles(result.ChartDirectories, textFilePaths, result.ChartDirectoriesWithTextFiles);
+        string[] normalizedTextFilePaths = NormalizeTextFilePaths(textFilePaths);
+        AssignTextFiles(result.ChartDirectories, normalizedTextFilePaths, result.ChartDirectoriesWithTextFiles);
+        AddFolderInfoFilePaths(result, normalizedTextFilePaths);
 
         SetDictionary(result.AudioRelativePathHashesByChartDirectory, audioRelativePathHashes);
         SetDictionary(result.ImageRelativePathHashesByChartDirectory, imageRelativePathHashes);
@@ -225,7 +227,40 @@ internal static class ChartDirectoryScanBuilder
         {
             return;
         }
-        AssignTextFiles(result.ChartDirectories, textFilePaths, result.ChartDirectoriesWithTextFiles);
+        string[] normalizedTextFilePaths = NormalizeTextFilePaths(textFilePaths);
+        AssignTextFiles(result.ChartDirectories, normalizedTextFilePaths, result.ChartDirectoriesWithTextFiles);
+        AddFolderInfoFilePaths(result, normalizedTextFilePaths);
+    }
+
+    private static void AddFolderInfoFilePaths(ChartScanResult result, IEnumerable<string> textFilePaths)
+    {
+        if (result == null)
+        {
+            return;
+        }
+
+        foreach (string absolutePath in (textFilePaths ?? [])
+            .Where(IsFolderInfoFilePath)
+            .Select(Path.GetFullPath)
+            .Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            result.FolderInfoFilePaths.Add(absolutePath);
+        }
+    }
+
+    private static bool IsFolderInfoFilePath(string path)
+    {
+        return !string.IsNullOrWhiteSpace(path)
+            && string.Equals(Path.GetFileName(path), "folderinfo.txt", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string[] NormalizeTextFilePaths(IEnumerable<string> textFilePaths)
+    {
+        return [.. (textFilePaths ?? [])
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Where(path => string.Equals(Path.GetExtension(path), ".txt", StringComparison.OrdinalIgnoreCase))
+            .Select(Path.GetFullPath)
+            .Distinct(StringComparer.OrdinalIgnoreCase)];
     }
 
     private static void SetDictionary(Dictionary<string, uint[]> destination, Dictionary<string, HashSet<uint>> source)

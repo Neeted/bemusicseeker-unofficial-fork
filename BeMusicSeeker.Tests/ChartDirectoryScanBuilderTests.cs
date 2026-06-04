@@ -1,4 +1,6 @@
 using System;
+using System.Collections;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using BeMusicSeeker.Models;
@@ -118,16 +120,23 @@ public sealed class ChartDirectoryScanBuilderTests
         string nestedChartDir = Path.Combine(tempRoot, "nested");
         Directory.CreateDirectory(directChartDir);
         Directory.CreateDirectory(Path.Combine(nestedChartDir, "docs"));
+        string rootFolderInfo = Path.Combine(tempRoot, "folderinfo.txt");
+        string nestedFolderInfo = Path.Combine(nestedChartDir, "docs", "folderinfo.txt");
         File.WriteAllText(Path.Combine(directChartDir, "chart.bms"), "#PLAYER 1");
         File.WriteAllText(Path.Combine(directChartDir, "readme.txt"), "text");
         File.WriteAllText(Path.Combine(nestedChartDir, "chart.bms"), "#PLAYER 1");
         File.WriteAllText(Path.Combine(nestedChartDir, "docs", "readme.txt"), "text");
+        File.WriteAllText(rootFolderInfo, "#TITLE Root");
+        File.WriteAllText(nestedFolderInfo, "#TITLE Nested");
         try
         {
             ChartScanResult result = ChartDirectoryScanBuilder.BuildFromRoots([tempRoot]);
 
             CollectionAssert.Contains(result.ChartDirectoriesWithTextFiles.ToList(), directChartDir);
             CollectionAssert.DoesNotContain(result.ChartDirectoriesWithTextFiles.ToList(), nestedChartDir);
+            CollectionAssert.Contains(result.FolderInfoFilePaths.ToList(), rootFolderInfo);
+            CollectionAssert.Contains(result.FolderInfoFilePaths.ToList(), nestedFolderInfo);
+            CollectionAssert.DoesNotContain(result.FolderInfoFilePaths.ToList(), Path.Combine(directChartDir, "readme.txt"));
         }
         finally
         {
@@ -135,6 +144,47 @@ public sealed class ChartDirectoryScanBuilderTests
             {
                 Directory.Delete(tempRoot, recursive: true);
             }
+        }
+    }
+
+    [TestMethod]
+    public void BuildFromAbsolutePaths_PreservesFolderInfoPathsFromSingleUseTextEnumerable()
+    {
+        string chartDirectory = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_ChartDirTextOnce_" + Guid.NewGuid().ToString("N"));
+        string folderInfoPath = Path.Combine(chartDirectory, "folderinfo.txt");
+        string readmePath = Path.Combine(chartDirectory, "readme.txt");
+        string chartPath = Path.Combine(chartDirectory, "chart.bms");
+
+        ChartScanResult result = ChartDirectoryScanBuilder.BuildFromAbsolutePaths(
+            [chartPath],
+            [],
+            [],
+            [],
+            new SingleUseEnumerable<string>([folderInfoPath, readmePath]));
+
+        CollectionAssert.Contains(result.ChartDirectoriesWithTextFiles.ToList(), chartDirectory);
+        CollectionAssert.Contains(result.FolderInfoFilePaths.ToList(), folderInfoPath);
+        CollectionAssert.DoesNotContain(result.FolderInfoFilePaths.ToList(), readmePath);
+    }
+
+    private sealed class SingleUseEnumerable<T>(IEnumerable<T> values) : IEnumerable<T>
+    {
+        private bool enumerated;
+
+        public IEnumerator<T> GetEnumerator()
+        {
+            if (enumerated)
+            {
+                return Enumerable.Empty<T>().GetEnumerator();
+            }
+
+            enumerated = true;
+            return (values ?? []).GetEnumerator();
+        }
+
+        IEnumerator IEnumerable.GetEnumerator()
+        {
+            return GetEnumerator();
         }
     }
 }
