@@ -2551,6 +2551,79 @@ public sealed class BmsLibraryInitializationServiceTests
     }
 
     [TestMethod]
+    public void ApplyFileScanDiff_MovedBmsWithSameMd5PreservesUserSongColumns()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
+        {
+            string oldPath = Path.Combine(lr2RootPath, "Old", "moved.bms");
+            string newPath = Path.Combine(lr2RootPath, "New", "moved.bms");
+            Directory.CreateDirectory(Path.GetDirectoryName(oldPath));
+            Directory.CreateDirectory(Path.GetDirectoryName(newPath));
+            string bmsText = CreateValidBmsText("Moved Same Md5");
+            File.WriteAllText(oldPath, bmsText, Encoding.ASCII);
+            File.WriteAllText(newPath, bmsText, Encoding.ASCII);
+            var timestamp = new DateTime(2026, 5, 3, 1, 0, 0, DateTimeKind.Utc);
+            File.SetLastWriteTimeUtc(newPath, timestamp);
+            BMSFile oldParsed = BMSFile.CreateBMSFileFromFile(oldPath);
+            var existingFile = new TestableBmsFile
+            {
+                path = oldPath,
+                date = ToUnixSeconds(timestamp.AddDays(-1)),
+                adddate = 34567,
+                tag = "moved-tag"
+            };
+            existingFile.SetHash(oldParsed.hash);
+            existingFile.SetFavorite(3);
+
+            using (var songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDB.song>();
+                BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
+                songDb.InsertOrReplace(existingFile, typeof(LR2SongDB.song));
+            }
+
+            var service = new BmsLibraryInitializationService();
+            SongTableFileCheckResult result = service.ApplyFileScanDiff(
+                new BmsLibraryDbGateway(songDbPath),
+                new BmsLibraryOptionsSnapshot(),
+                [existingFile],
+                new ChartScanExecutionResult
+                {
+                    Success = true,
+                    Result = CreateScanResult(
+                        [newPath],
+                        new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
+                        {
+                            { Path.GetDirectoryName(newPath), Array.Empty<string>() }
+                        })
+                },
+                0L,
+                () => null,
+                null);
+
+            CollectionAssert.Contains(result.DeletedPaths, oldPath);
+            Assert.AreEqual(1, result.BmsMovedHashRelinkCount);
+            Assert.AreEqual(1, result.AddedFiles.Count);
+            Assert.AreEqual(1, result.NextFiles.Count);
+            BMSFile moved = result.NextFiles[0];
+            Assert.AreEqual(newPath, moved.path);
+            Assert.AreEqual(oldParsed.hash, moved.hash);
+            Assert.AreEqual(3, moved.favorite);
+            Assert.AreEqual(34567, moved.adddate);
+            Assert.AreEqual("moved-tag", moved.tag);
+
+            using var verify = new LR2SongDBExtended(songDbPath);
+            Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM song WHERE path = ?;", oldPath));
+            LR2SongDB.song row = verify.Table<LR2SongDB.song>().Single();
+            Assert.AreEqual(newPath, row.path);
+            Assert.AreEqual(3, row.favorite);
+            Assert.AreEqual(34567, row.adddate);
+            Assert.AreEqual("moved-tag", row.tag);
+        });
+    }
+
+    [TestMethod]
     public void ApplyFileScanDiff_UpdatedBmsonUsesSnapshotTimestamp()
     {
         TestResourceInitializer.EnsureJapaneseResources();

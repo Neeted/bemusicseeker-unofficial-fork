@@ -399,6 +399,11 @@ internal sealed class BmsLibraryInitializationService
             .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
         var currentPaths = new HashSet<string>(currentBmsByPath.Keys, StringComparer.OrdinalIgnoreCase);
         result.DeletedPaths.AddRange(currentPaths.Except(scannedPaths, StringComparer.OrdinalIgnoreCase));
+        Dictionary<string, Queue<BMSFile>> movedBmsSourcesByMd5 = BuildQueueByMd5(
+            result.DeletedPaths
+                .Select(path => currentBmsByPath.TryGetValue(path, out BMSFile file) ? file : null)
+                .Where(file => file != null),
+            file => file.hash);
         List<FileDiffParseTarget> bmsParseTargets = [.. scannedPaths
             .Select(path => CreateBmsFileDiffTarget(path, currentBmsByPath))
             .Where(target => target != null)];
@@ -473,6 +478,7 @@ internal sealed class BmsLibraryInitializationService
             logInstallPerformance,
             logInstallPerformanceWarn,
             inlineMaintenanceLookupContext,
+            movedBmsSourcesByMd5,
             commitContext);
         bmsLightweightParseMs = pipelineResult.BmsParseMs;
         result.NewFileParseMs = bmsLightweightParseMs;
@@ -484,6 +490,7 @@ internal sealed class BmsLibraryInitializationService
         result.AddedFiles.AddRange(pipelineResult.AddedFiles);
         result.AddedBmsonSongs.AddRange(pipelineResult.ParsedBmsonSongs);
         result.BmsDateOnlyUpdateCount = pipelineResult.BmsDateOnlyUpdateCount;
+        result.BmsMovedHashRelinkCount = pipelineResult.BmsMovedHashRelinkCount;
 
         var stopwatchApply = Stopwatch.StartNew();
         var deletedPathSet = new HashSet<string>(result.DeletedPaths, StringComparer.OrdinalIgnoreCase);
@@ -590,6 +597,7 @@ internal sealed class BmsLibraryInitializationService
             + " deleted_count=" + result.DeletedPaths.Count
             + " added_count=" + result.AddedFiles.Count
             + " bms_date_only_update_count=" + result.BmsDateOnlyUpdateCount
+            + " bms_moved_hash_relink_count=" + result.BmsMovedHashRelinkCount
             + " bms_added_target_count=" + result.BmsAddedTargetCount
             + " bmson_deleted_count=" + result.DeletedBmsonPaths.Count
             + " bmson_upsert_count=" + result.AddedBmsonSongs.Count
@@ -688,6 +696,7 @@ internal sealed class BmsLibraryInitializationService
         Action<string> logInstallPerformance,
         Action<string> logInstallPerformanceWarn,
         ResourceHealthLookupContext inlineMaintenanceLookupContext,
+        Dictionary<string, Queue<BMSFile>> movedBmsSourcesByMd5,
         FileDiffStreamingCommitContext commitContext)
     {
         var pipelineResult = new FileDiffParsePipelineResult();
@@ -748,6 +757,7 @@ internal sealed class BmsLibraryInitializationService
                         logInstallPerformance,
                         logInstallPerformanceWarn,
                         inlineMaintenanceLookupContext,
+                        movedBmsSourcesByMd5,
                         commitContext?.ShouldPruneCommittedInlineRows == true,
                         commitQueue,
                         ref commitQueueWaitTicks);
@@ -993,6 +1003,7 @@ internal sealed class BmsLibraryInitializationService
         Action<string> logInstallPerformance,
         Action<string> logInstallPerformanceWarn,
         ResourceHealthLookupContext inlineMaintenanceLookupContext,
+        Dictionary<string, Queue<BMSFile>> movedBmsSourcesByMd5,
         bool shouldPruneCommittedInlineRows,
         BlockingCollection<FileScanDiffCommitChunk> commitQueue,
         ref long commitQueueWaitTicks)
@@ -1081,6 +1092,10 @@ internal sealed class BmsLibraryInitializationService
                 }
                 if (candidate.File != null)
                 {
+                    if (TryPreserveMovedBmsUserColumns(candidate, movedBmsSourcesByMd5))
+                    {
+                        pipelineResult.BmsMovedHashRelinkCount++;
+                    }
                     if (bmsMaintenanceResults != null && i < bmsMaintenanceResults.Length && bmsMaintenanceResults[i]?.Succeeded == true)
                     {
                         commitChunk.AddMaintenanceInfoRow(candidate.File.maintenanceInfo);
@@ -1136,6 +1151,32 @@ internal sealed class BmsLibraryInitializationService
             && candidate.ExistingFile != null
             && candidate.File.date.HasValue
             && string.Equals(candidate.File.hash, candidate.ExistingFile.hash, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool TryPreserveMovedBmsUserColumns(
+        InlineBmsParseCandidate candidate,
+        Dictionary<string, Queue<BMSFile>> movedBmsSourcesByMd5)
+    {
+        if (candidate?.File == null
+            || candidate.ExistingFile != null
+            || movedBmsSourcesByMd5 == null
+            || string.IsNullOrWhiteSpace(candidate.File.hash))
+        {
+            return false;
+        }
+        if (!movedBmsSourcesByMd5.TryGetValue(candidate.File.hash, out Queue<BMSFile> candidates)
+            || candidates == null
+            || candidates.Count == 0)
+        {
+            return false;
+        }
+        BMSFile source = candidates.Dequeue();
+        if (source == null)
+        {
+            return false;
+        }
+        candidate.File.PreserveUserSongColumnsFrom(source);
+        return true;
     }
 
     private static InlineMaintenanceItemResult[] BuildInlineBmsMaintenanceBatch(
@@ -1928,6 +1969,8 @@ internal sealed class BmsLibraryInitializationService
         public HashSet<string> SuccessfullyReplacedBmsPaths { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         public int BmsDateOnlyUpdateCount { get; set; }
+
+        public int BmsMovedHashRelinkCount { get; set; }
 
         public List<LR2SongDBExtended.bmson_song> ParsedBmsonSongs { get; } = [];
 
