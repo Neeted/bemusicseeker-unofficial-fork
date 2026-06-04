@@ -4908,7 +4908,10 @@ completeFileEnumerationOnce,
         BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
         bool enabled = options.OperationModeLR2DB && options.EnableLR2SongDbFullGeneration;
         List<string> rootDirectoriesForSignature = enabled ? getBMSDirectories() : [];
-        string signature = Lr2FullGenerationSignatureBuilder.Build(options, rootDirectoriesForSignature);
+        List<string> lr2FolderDiscoveryDirectoriesForSignature = enabled
+            ? CreateLr2FullGenerationLr2FolderDiscoveryDirectories(rootDirectoriesForSignature)
+            : [];
+        string signature = Lr2FullGenerationSignatureBuilder.Build(options, rootDirectoriesForSignature, lr2FolderDiscoveryDirectoriesForSignature);
         Lr2FullGenerationStatusSnapshot status;
         using (LR2SongDBExtended songDb = dbGateway.OpenSongDb())
         {

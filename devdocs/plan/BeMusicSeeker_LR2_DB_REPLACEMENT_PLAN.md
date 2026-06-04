@@ -1077,7 +1077,8 @@ parse directive:
   (`remaining_backfill_stages_not_implemented`) を記録する。任意 `.lr2folder` discovery、
   startup-scan blocker diagnostic、必要な full parse backfill が入るまで完全生成完了とは扱わない。
   status signature は normalized / deduplicated / case-insensitive な LR2 BMS root set を含める。
-  root set が変わった場合は既存 `Completed` を信用せず、backfill needed として再評価する。
+  加えて `.lr2folder` discovery root set も含める。root set が変わった場合は既存 `Completed` を信用せず、
+  backfill needed として再評価する。
 
 ## 作業エージェント向け実装順
 

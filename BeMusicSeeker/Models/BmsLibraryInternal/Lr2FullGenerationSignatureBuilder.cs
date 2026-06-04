@@ -11,12 +11,14 @@ internal static class Lr2FullGenerationSignatureBuilder
 
     internal static string Build(
         BmsLibraryOptionsSnapshot options,
-        IEnumerable<string> rootDirectories)
+        IEnumerable<string> rootDirectories,
+        IEnumerable<string> lr2FolderDiscoveryDirectories = null)
     {
         return Version
             + "|operationModeLR2DB=" + ((options?.OperationModeLR2DB ?? false) ? "1" : "0")
             + "|fullGeneration=" + ((options?.EnableLR2SongDbFullGeneration ?? false) ? "1" : "0")
-            + "|roots=" + FormatRootSet(rootDirectories);
+            + "|roots=" + FormatRootSet(rootDirectories)
+            + "|lr2folderRoots=" + FormatRootSet(lr2FolderDiscoveryDirectories);
     }
 
     private static string FormatRootSet(IEnumerable<string> rootDirectories)

@@ -39,4 +39,25 @@ public sealed class Lr2FullGenerationSignatureBuilderTests
 
         Assert.AreNotEqual(first, second);
     }
+
+    [TestMethod]
+    public void Build_ChangesWhenLr2FolderDiscoveryRootSetChanges()
+    {
+        var options = new BmsLibraryOptionsSnapshot
+        {
+            OperationModeLR2DB = true,
+            EnableLR2SongDbFullGeneration = true
+        };
+
+        string first = Lr2FullGenerationSignatureBuilder.Build(
+            options,
+            [@"D:\BMS"],
+            [@"D:\BMS", @"D:\LR2files\CustomFolder"]);
+        string second = Lr2FullGenerationSignatureBuilder.Build(
+            options,
+            [@"D:\BMS"],
+            [@"D:\BMS", @"E:\LR2files\CustomFolder"]);
+
+        Assert.AreNotEqual(first, second);
+    }
 }
