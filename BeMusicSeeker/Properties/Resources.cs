@@ -1017,6 +1017,15 @@ public class Resources
     public static string WarningDigest_Lr2PathEncodingUnsupported => ResourceManager.GetString("WarningDigest_Lr2PathEncodingUnsupported", resourceCulture);
 
 
+    public static string WarningDigest_Lr2PathTooLong => ResourceManager.GetString("WarningDigest_Lr2PathTooLong", resourceCulture);
+
+
+    public static string WarningDigest_Lr2ResourcePathUnsupported => ResourceManager.GetString("WarningDigest_Lr2ResourcePathUnsupported", resourceCulture);
+
+
+    public static string WarningDigest_Lr2ResourcePathTooLong => ResourceManager.GetString("WarningDigest_Lr2ResourcePathTooLong", resourceCulture);
+
+
     public static string WarningDigest_DuplicateChart => ResourceManager.GetString("WarningDigest_DuplicateChart", resourceCulture);
 
 
@@ -1102,6 +1111,15 @@ public class Resources
 
 
     public static string Warning_Lr2PathEncodingUnsupported => ResourceManager.GetString("Warning_Lr2PathEncodingUnsupported", resourceCulture);
+
+
+    public static string Warning_Lr2PathTooLong => ResourceManager.GetString("Warning_Lr2PathTooLong", resourceCulture);
+
+
+    public static string Warning_Lr2ResourcePathUnsupported => ResourceManager.GetString("Warning_Lr2ResourcePathUnsupported", resourceCulture);
+
+
+    public static string Warning_Lr2ResourcePathTooLong => ResourceManager.GetString("Warning_Lr2ResourcePathTooLong", resourceCulture);
 
 
     public static string Chart_info_parse_errors => ResourceManager.GetString("Chart_info_parse_errors", resourceCulture);

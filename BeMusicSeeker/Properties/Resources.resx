@@ -1595,6 +1595,15 @@ BMSファイルが重複しないようにマージします。
   <data name="WarningDigest_Lr2PathEncodingUnsupported" xml:space="preserve">
     <value>LR2パス非対応</value>
   </data>
+  <data name="WarningDigest_Lr2PathTooLong" xml:space="preserve">
+    <value>LR2パス長超過</value>
+  </data>
+  <data name="WarningDigest_Lr2ResourcePathUnsupported" xml:space="preserve">
+    <value>LR2リソース非対応</value>
+  </data>
+  <data name="WarningDigest_Lr2ResourcePathTooLong" xml:space="preserve">
+    <value>LR2リソースパス長超過</value>
+  </data>
   <data name="WarningDigest_DuplicateChart" xml:space="preserve">
     <value>重複譜面</value>
   </data>
@@ -1691,6 +1700,15 @@ BMSファイルが重複しないようにマージします。
   </data>
   <data name="Warning_Lr2PathEncodingUnsupported" xml:space="preserve">
     <value>譜面パスに Shift_JIS で表現できない文字が含まれているため、LR2 の folder/parent ID を計算できません。Shift_JIS 互換のパスへリネームまたは移動してください。</value>
+  </data>
+  <data name="Warning_Lr2PathTooLong" xml:space="preserve">
+    <value>譜面パスが LR2 のパス長制限を超える可能性があります。短いパスへ移動してください。</value>
+  </data>
+  <data name="Warning_Lr2ResourcePathUnsupported" xml:space="preserve">
+    <value>LR2 で扱えない可能性があるリソースパスが含まれています。Shift_JIS 互換のリソース名にするか、親ディレクトリ参照を使わない配置にしてください。</value>
+  </data>
+  <data name="Warning_Lr2ResourcePathTooLong" xml:space="preserve">
+    <value>LR2 のパス長制限を超える可能性があるリソースパスが含まれています。リソース名または配置パスを短くしてください。</value>
   </data>
   <data name="Chart_info_parse_errors" xml:space="preserve">
     <value>解析エラー</value>

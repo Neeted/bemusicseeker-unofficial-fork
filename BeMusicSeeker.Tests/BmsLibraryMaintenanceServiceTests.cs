@@ -103,6 +103,69 @@ public sealed class BmsLibraryMaintenanceServiceTests
     }
 
     [TestMethod]
+    public void SetMaintenanceInfo_ProjectsLr2CompatibilityWarningsFromFacts()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        var info = new BMSFileMaintenanceInfo(file)
+        {
+            hash = file.hash,
+            lr2_path_warning_flags = (int)(Lr2PathWarningFlags.PathEncodingUnsupported | Lr2PathWarningFlags.FolderScanPathTooLong),
+            lr2_chart_path_cp932_bytes = null,
+            lr2_folder_scan_cp932_bytes = 300,
+            lr2_resource_warning_flags = (int)(Lr2ResourceWarningFlags.ParentTraversalUnsupported | Lr2ResourceWarningFlags.ResolvedPathTooLong),
+            lr2_resource_unsupported_count = 1,
+            lr2_resource_max_resolved_cp932_bytes = 300
+        };
+
+        file.SetMaintenanceInfo(info, suppressPropertyChanged: true, origin: MaintenanceInfoOrigin.DbHydrated);
+
+        Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.Lr2PathEncodingUnsupported));
+        Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.Lr2PathTooLong));
+        Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.Lr2ResourcePathUnsupported));
+        Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.Lr2ResourcePathTooLong));
+        Assert.AreEqual("[4] LR2パス非対応, LR2パス長超過, LR2リソース非対応, LR2リソースパス長超過", file.Warnings.BuildDigestText());
+    }
+
+    [TestMethod]
+    public void SetMaintenanceInfo_ClearsLr2CompatibilityWarningsWhenEvaluatedClean()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        file.SetWarning(ChartWarningKind.Lr2PathEncodingUnsupported, Resources.Warning_Lr2PathEncodingUnsupported);
+        var info = new BMSFileMaintenanceInfo(file)
+        {
+            hash = file.hash,
+            lr2_path_warning_flags = (int)Lr2PathWarningFlags.None,
+            lr2_chart_path_cp932_bytes = 20,
+            lr2_resource_warning_flags = (int)Lr2ResourceWarningFlags.None,
+            lr2_resource_unsupported_count = 0
+        };
+
+        file.SetMaintenanceInfo(info, suppressPropertyChanged: true, origin: MaintenanceInfoOrigin.Calculated);
+
+        Assert.IsFalse(file.Warnings.Contains(ChartWarningKind.Lr2PathEncodingUnsupported));
+        Assert.AreEqual(string.Empty, file.Warnings.BuildDigestText());
+    }
+
+    [TestMethod]
+    public void SetMaintenanceInfo_DoesNotClearLr2CompatibilityWarningsWithoutFacts()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        file.SetWarning(ChartWarningKind.Lr2PathEncodingUnsupported, Resources.Warning_Lr2PathEncodingUnsupported);
+        var info = new BMSFileMaintenanceInfo(file)
+        {
+            hash = file.hash
+        };
+
+        file.SetMaintenanceInfo(info, suppressPropertyChanged: true, origin: MaintenanceInfoOrigin.DbHydrated);
+
+        Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.Lr2PathEncodingUnsupported));
+        Assert.AreEqual("[1] LR2パス非対応", file.Warnings.BuildDigestText());
+    }
+
+    [TestMethod]
     public void EvaluateBmsMaintenanceForInline_ForceUpdateReportsUnchangedWhenPersistentRowIsSame()
     {
         string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
@@ -584,6 +647,32 @@ public sealed class BmsLibraryMaintenanceServiceTests
         Assert.IsTrue(snapshot.GetProjection(ignoredChart).IsIgnored);
         Assert.IsFalse(active.Warnings.Contains(ChartWarningKind.ResourceWavMissing));
         Assert.IsFalse(ignored.Warnings.Contains(ChartWarningKind.ResourceBgaMissing));
+    }
+
+    [TestMethod]
+    public void ResourceHealthIndexSnapshot_DoesNotTreatLr2CompatibilityWarningsAsResourceTargets()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var service = new BmsLibraryMaintenanceService();
+        TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        file.path = @"C:\Library\active.bms";
+        file.SetMaintenanceInfo(new BMSFileMaintenanceInfo(file)
+        {
+            hash = file.hash,
+            lr2_path_warning_flags = (int)Lr2PathWarningFlags.PathTooLong,
+            lr2_chart_path_cp932_bytes = 300,
+            lr2_resource_warning_flags = (int)Lr2ResourceWarningFlags.ParentTraversalUnsupported,
+            lr2_resource_unsupported_count = 1
+        }, suppressPropertyChanged: true);
+        ChartFile chart = ChartFileProjection.FromBmsFile(file);
+
+        var snapshot = ResourceHealthIndexSnapshot.Build([chart], service, version: 4);
+
+        Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.Lr2PathTooLong));
+        Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.Lr2ResourcePathUnsupported));
+        Assert.AreEqual(0, snapshot.ActiveTargets.Count);
+        Assert.AreEqual(0, snapshot.IgnoredTargets.Count);
+        Assert.IsFalse(snapshot.GetProjection(chart).HasIssues);
     }
 
     [TestMethod]

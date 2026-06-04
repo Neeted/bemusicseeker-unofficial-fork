@@ -469,6 +469,7 @@ public class BMSFile : LR2SongDB.song
         if (_maintenanceInfo == value)
         {
             maintenanceInfoOrigin = nextOrigin;
+            Lr2CompatibilityWarningProjection.ApplyTo(this, value);
             return;
         }
         if (value.hash != hash)
@@ -477,6 +478,7 @@ public class BMSFile : LR2SongDB.song
         }
         _maintenanceInfo = value;
         maintenanceInfoOrigin = nextOrigin;
+        Lr2CompatibilityWarningProjection.ApplyTo(this, value);
         if (!suppressPropertyChanged)
         {
             RaisePropertyChanged("maintenanceInfo");

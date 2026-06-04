@@ -31,7 +31,10 @@ internal enum ChartWarningKind
     DuplicateChart,
     ZeroNoteMismatch,
     ChartInfoParseFailure,
-    Lr2PathEncodingUnsupported
+    Lr2PathEncodingUnsupported,
+    Lr2PathTooLong,
+    Lr2ResourcePathUnsupported,
+    Lr2ResourcePathTooLong
 }
 
 /// <summary>
@@ -188,6 +191,9 @@ internal sealed class ChartWarningDefinition
             ChartWarningKind.ZeroNoteMismatch => new ChartWarningDefinition(ChartWarningCategory.ChartContent, 20, Resources.WarningDigest_ZeroNoteMismatch, highlightRow: true),
             ChartWarningKind.ChartInfoParseFailure => new ChartWarningDefinition(ChartWarningCategory.ChartMetadata, 15, Resources.WarningDigest_ChartInfoParseFailure, highlightRow: true),
             ChartWarningKind.Lr2PathEncodingUnsupported => new ChartWarningDefinition(ChartWarningCategory.Lr2Compatibility, 18, Resources.WarningDigest_Lr2PathEncodingUnsupported, highlightRow: true),
+            ChartWarningKind.Lr2PathTooLong => new ChartWarningDefinition(ChartWarningCategory.Lr2Compatibility, 19, Resources.WarningDigest_Lr2PathTooLong, highlightRow: true),
+            ChartWarningKind.Lr2ResourcePathUnsupported => new ChartWarningDefinition(ChartWarningCategory.Lr2Compatibility, 21, Resources.WarningDigest_Lr2ResourcePathUnsupported, highlightRow: true),
+            ChartWarningKind.Lr2ResourcePathTooLong => new ChartWarningDefinition(ChartWarningCategory.Lr2Compatibility, 22, Resources.WarningDigest_Lr2ResourcePathTooLong, highlightRow: true),
             ChartWarningKind.DuplicateChart => new ChartWarningDefinition(ChartWarningCategory.Duplicate, 30, Resources.WarningDigest_DuplicateChart, highlightRow: true),
             ChartWarningKind.InstallEstimationAmbiguous => new ChartWarningDefinition(ChartWarningCategory.InstallEstimation, 40, Resources.WarningDigest_InstallEstimationAmbiguous, highlightRow: true),
             ChartWarningKind.InstallEstimationMetadataMismatch => new ChartWarningDefinition(ChartWarningCategory.InstallEstimation, 41, Resources.WarningDigest_InstallEstimationMetadataMismatch, highlightRow: true),

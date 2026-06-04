@@ -6,6 +6,7 @@
 
 - WARNING は主に BMS storage row の `BMSFile.Warnings`、pending package entry の warning state、または `ChartFile` projection 上の `ChartWarning` の集合として扱います。所持 bmson の storage row は `bmson_song` であり、通常一覧や playlist detail では operation adapter ではなく `ChartFile` / `ChartFileTransientState` を通して表示されます。
 - 通常一覧と導入済み直後の `新規` 画面の `ResourceHealth` warning は例外的に、cache-aware health 判定で更新した `maintenanceInfo` から構築する runtime `ResourceHealthIndexSnapshot` を `LibraryChartRow` が投影して表示します。DB 永続 warning ではありません。
+- LR2 互換 warning は BMS の `maintenanceInfo` に保存した compatibility facts から `BMSFile.Warnings` の `Lr2Compatibility` category へ投影します。resource health の対象抽出や無視状態とは別カテゴリであり、`ResourceHealthIndexSnapshot` には混ぜません。
 - `maintenanceInfo` は、DB 由来または計算済みの resource health snapshot だけを正本として扱います。BMS の `BMSFile.maintenanceInfo` lazy default や bmson parse 直後の encoding-only `bmson_song.MaintenanceInfo` は placeholder であり、resource health の defined / existing count が揃うまでは正本に昇格しません。DB 由来の partial snapshot は既存仕様どおり該当カテゴリの warning 投影に使います。
 - 旧来の自由文字列 `warning` は廃止済みで、表示・tooltip・行ハイライトは structured warning から算出します。
 - `DisplayWarning` は tooltip と同じ詳細全文、`WarningDigestText` は一覧セル用 digest、`WarningTooltipText` は tooltip 詳細です。
@@ -30,6 +31,9 @@
 | `NestedChartFileInPackage` | `PackageLayout` | 10 | `サブフォルダ譜面` | false | warning が存在する場合 |
 | `ChartInfoParseFailure` | `ChartMetadata` | 15 | `メタデータ解析エラー` | true | warning が存在する場合 |
 | `Lr2PathEncodingUnsupported` | `Lr2Compatibility` | 18 | `LR2パス非対応` | true | warning が存在する場合 |
+| `Lr2PathTooLong` | `Lr2Compatibility` | 19 | `LR2パス長超過` | true | warning が存在する場合 |
+| `Lr2ResourcePathUnsupported` | `Lr2Compatibility` | 21 | `LR2リソース非対応` | true | warning が存在する場合 |
+| `Lr2ResourcePathTooLong` | `Lr2Compatibility` | 22 | `LR2リソースパス長超過` | true | warning が存在する場合 |
 | `ZeroNoteMismatch` | `ChartContent` | 20 | `ゼロノート不整合` | true | warning が存在する場合 |
 | `DuplicateChart` | `Duplicate` | 30 | `重複譜面` | true | warning が存在する場合 |
 | `InstallEstimationAmbiguous` | `InstallEstimation` | 40 | `推定先複数` | true | warning が存在する場合 |
@@ -58,7 +62,7 @@
 - `DuplicateChart` は kind 単位で set / clear します。
 - `ZeroNoteMismatch` は `chart_info.notes == 0` の BMS を正規表現で確認したとき、本文に可視ノート風記述がある場合に set し、`chart_info` が未生成または 0 notes ではなくなった場合は stale warning として clear します。
 - `ChartInfoParseFailure` は解析エラー画面用の表示 shim 行に付与します。通常ライブラリの元行へは mutation しません。
-- `Lr2PathEncodingUnsupported` は起動時の `song` 正規化、file diff 追加、`UpsertSongs()` 前補正で付与します。Shift_JIS 互換 path として LR2 `folder` / `parent` CRC を計算できる場合は clear します。この警告は「LR2 と連携中か」ではなく「LR2 では扱えない可能性が高い path か」を示すため、standalone profile の既存 `song` 読み込みでも同じ判定を行います。
+- `Lr2Compatibility` は BMS の maintenance facts が評価済みなら category 単位で再構築します。`Lr2PathEncodingUnsupported` は譜面 path / folder scan path が CP932 で表せない場合、`Lr2PathTooLong` は LR2 の legacy path 長を超える可能性がある場合、`Lr2ResourcePathUnsupported` は resource raw/resolved path が CP932 非対応または親ディレクトリ参照を含む場合、`Lr2ResourcePathTooLong` は resource path が LR2 の legacy path 長を超える可能性がある場合に付与します。maintenance facts が未評価の row では、既存の direct warning を placeholder attach だけで消しません。
 - `NestedChartFileInPackage`、`AlreadyInstalled`、`SingleBmsFile`、`SingleBmsonFile` は保留パッケージや復元時の状態初期化で付与します。
 
 ## 参照実装

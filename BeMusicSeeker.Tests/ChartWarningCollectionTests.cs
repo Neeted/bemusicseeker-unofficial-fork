@@ -207,6 +207,22 @@ public sealed class ChartWarningCollectionTests
     }
 
     [TestMethod]
+    public void Lr2CompatibilityWarnings_HighlightAndUseDedicatedDigests()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var file = new BMSFile();
+
+        file.SetWarning(ChartWarningKind.Lr2PathTooLong, Resources.Warning_Lr2PathTooLong);
+        file.SetWarning(ChartWarningKind.Lr2ResourcePathUnsupported, Resources.Warning_Lr2ResourcePathUnsupported);
+        file.SetWarning(ChartWarningKind.Lr2ResourcePathTooLong, Resources.Warning_Lr2ResourcePathTooLong);
+
+        Assert.IsTrue(file.Warnings.HasHighlightedWarning);
+        Assert.AreEqual("[3] LR2パス長超過, LR2リソース非対応, LR2リソースパス長超過", file.Warnings.BuildDigestText());
+        StringAssert.Contains(file.Warnings.BuildTooltipText(), "パス長制限");
+        StringAssert.Contains(file.Warnings.BuildTooltipText(), "リソースパス");
+    }
+
+    [TestMethod]
     public void ClearWarning_RemovesMatchingStructuredWarning()
     {
         TestResourceInitializer.EnsureJapaneseResources();
