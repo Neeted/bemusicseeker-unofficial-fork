@@ -5224,6 +5224,161 @@ completeFileEnumerationOnce,
         return [.. result.OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
     }
 
+    private void SyncLr2NormalFoldersForOwnedMutation(OwnedChartCollectionStorageMutation mutation, string reason)
+    {
+        if (mutation == null)
+        {
+            return;
+        }
+
+        BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
+        if (options?.OperationModeLR2DB != true || options.EnableLR2SongDbFullGeneration != true)
+        {
+            return;
+        }
+
+        var stopwatch = Stopwatch.StartNew();
+        List<string> roots = [];
+        List<string> affectedBmsPaths = [];
+        try
+        {
+            roots = getBMSDirectories();
+            if (roots.Count == 0)
+            {
+                return;
+            }
+
+            affectedBmsPaths = CreateLr2NormalFolderMutationChartPaths(mutation, roots);
+            if (affectedBmsPaths.Count == 0)
+            {
+                return;
+            }
+
+            List<string> folderInfoCandidates = CreateLr2FullGenerationFolderInfoCandidates(roots, affectedBmsPaths);
+            using LR2SongDBExtended songDb = dbGateway.OpenSongDb();
+            Lr2NormalFolderDbSyncResult syncResult = Lr2NormalFolderDbSyncService.Sync(songDb, new Lr2NormalFolderDbSyncRequest
+            {
+                RootDirectories = roots,
+                ChartPaths = affectedBmsPaths,
+                FolderInfoFilePaths = folderInfoCandidates,
+                GeneratedAtUtc = DateTime.UtcNow,
+                AllowPrune = false
+            });
+            stopwatch.Stop();
+            LogInstallPerformance("lr2_normal_folder_mutation_sync done"
+                + " reason=" + (reason ?? "unknown")
+                + " paths=" + affectedBmsPaths.Count
+                + " roots=" + roots.Count
+                + " generated=" + syncResult.GeneratedCount
+                + " upserted=" + syncResult.UpsertedCount
+                + " deleted=" + syncResult.DeletedCount
+                + " skippedUnsupported=" + syncResult.SkippedUnsupportedPathCount
+                + " skippedMissingMetadata=" + syncResult.SkippedMissingMetadataCount
+                + " skippedIncompatibleChart=" + syncResult.SkippedIncompatibleChartPathCount
+                + " folderInfoCandidates=" + syncResult.FolderInfoCandidateCount
+                + " folderInfoApplied=" + syncResult.FolderInfoAppliedCount
+                + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
+        }
+        catch (Exception ex)
+        {
+            stopwatch.Stop();
+            MarkLr2FullGenerationIncompleteAfterMutationSyncFailure(options, ex);
+            LogInstallPerformanceWarn("lr2_normal_folder_mutation_sync failed"
+                + " reason=" + (reason ?? "unknown")
+                + " paths=" + affectedBmsPaths.Count
+                + " roots=" + roots.Count
+                + " elapsedMs=" + stopwatch.ElapsedMilliseconds
+                + " exception=" + ex.GetType().Name
+                + " message=" + GetDisplayedExceptionMessage(ex).Replace(Environment.NewLine, " | "));
+        }
+    }
+
+    private static List<string> CreateLr2NormalFolderMutationChartPaths(
+        OwnedChartCollectionStorageMutation mutation,
+        IEnumerable<string> rootDirectories)
+    {
+        if (mutation == null)
+        {
+            return [];
+        }
+
+        List<string> roots = [.. (rootDirectories ?? [])
+            .Select(Lr2FolderPath.NormalizeDirectoryPath)
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)];
+        if (roots.Count == 0)
+        {
+            return [];
+        }
+
+        var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (BMSFile file in mutation.AddedBmsFiles ?? [])
+        {
+            AddIfUnderAnyRoot(result, file?.path, roots);
+        }
+
+        foreach (LibraryChartPathChange pathChange in mutation.PathChanges ?? [])
+        {
+            if (pathChange?.GetBmsStorageOwner() == null)
+            {
+                continue;
+            }
+            AddIfUnderAnyRoot(result, pathChange.NewPath, roots);
+        }
+
+        return [.. result.OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
+    }
+
+    private static void AddIfUnderAnyRoot(HashSet<string> result, string chartPath, IReadOnlyCollection<string> rootDirectories)
+    {
+        if (result == null || string.IsNullOrWhiteSpace(chartPath) || rootDirectories == null || rootDirectories.Count == 0)
+        {
+            return;
+        }
+
+        string chartDirectory = Lr2FolderPath.NormalizeDirectoryPath(Lr2FolderPath.SafeGetDirectoryName(chartPath));
+        if (string.IsNullOrWhiteSpace(chartDirectory))
+        {
+            return;
+        }
+
+        foreach (string root in rootDirectories)
+        {
+            if (Lr2FolderPath.IsSameOrDescendant(chartDirectory, root))
+            {
+                result.Add(chartPath);
+                return;
+            }
+        }
+    }
+
+    private void MarkLr2FullGenerationIncompleteAfterMutationSyncFailure(BmsLibraryOptionsSnapshot options, Exception failure)
+    {
+        try
+        {
+            List<string> roots = getBMSDirectories();
+            List<string> lr2FolderDiscoveryDirectories = CreateLr2FullGenerationLr2FolderDiscoveryDirectories(roots);
+            string signature = Lr2FullGenerationSignatureBuilder.Build(options, roots, lr2FolderDiscoveryDirectories);
+            using LR2SongDBExtended songDb = dbGateway.OpenSongDb();
+            Lr2FullGenerationStatusService.MarkIncomplete(
+                songDb,
+                signature,
+                runId: "mutation",
+                processedCursor: null,
+                totalCount: null,
+                stage: "lr2_normal_folder_mutation_sync_failed",
+                detail: "lr2_normal_folder_mutation_sync_failed: " + (failure?.Message ?? failure?.GetType().Name ?? "unknown"),
+                nowUtc: DateTime.UtcNow);
+        }
+        catch (Exception ex)
+        {
+            LogInstallPerformanceWarn("lr2_full_generation_status mark_incomplete_failed"
+                + " reason=lr2_normal_folder_mutation_sync_failed"
+                + " exception=" + ex.GetType().Name
+                + " message=" + GetDisplayedExceptionMessage(ex).Replace(Environment.NewLine, " | "));
+        }
+    }
+
     private static List<string> CreateLr2FullGenerationTextFileDirectories(IEnumerable<string> chartPaths)
     {
         return [.. Lr2TextGroupResolver.CreateTextFileDirectories(chartPaths)];
@@ -8484,6 +8639,7 @@ completeFileEnumerationOnce,
             {
                 mutationResult.ResourceHealthMutation.Invalidate = true;
             }
+            SyncLr2NormalFoldersForOwnedMutation(mutationResult.StorageMutation, lookupReason ?? "install_package");
             DispatchOwnedChartCollectionMutation(mutationResult, lookupReason);
         }
         catch
@@ -15299,6 +15455,7 @@ completeFileEnumerationOnce,
         long stateApplyMs = 0;
         long ownedCollectionApplyMs = 0;
         long resourceHealthDisposeMs = 0;
+        long lr2NormalFolderSyncMs = 0;
         long dispatchMs = 0;
         try
         {
@@ -15343,6 +15500,9 @@ completeFileEnumerationOnce,
             {
                 mutationResult.ResourceHealthMutation.Invalidate = true;
             }
+            Stopwatch lr2NormalFolderSyncStopwatch = StartPerformanceStepStopwatch(collectPerformanceLog);
+            SyncLr2NormalFoldersForOwnedMutation(mutationResult.StorageMutation, performanceLogContext ?? "library_delta");
+            lr2NormalFolderSyncMs = StopPerformanceStepStopwatch(lr2NormalFolderSyncStopwatch);
         }
         catch
         {
@@ -15404,6 +15564,7 @@ completeFileEnumerationOnce,
                 + " stateApplyMs=" + stateApplyMs
                 + " ownedCollectionApplyMs=" + ownedCollectionApplyMs
                 + " resourceHealthDisposeMs=" + resourceHealthDisposeMs
+                + " lr2NormalFolderSyncMs=" + lr2NormalFolderSyncMs
                 + " dispatchMs=" + dispatchMs
                 + " elapsedMs=" + StopPerformanceStepStopwatch(totalStopwatch));
         }

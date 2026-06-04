@@ -1098,6 +1098,12 @@ parse directive:
   `Lr2SongDbWriter` / storage row update へ渡す。
   path replacement では `song.folder` / `song.parent` を一度空にして `Lr2SongRowEnricher` に再生成させる。
   これにより通常 mutation でも backfill / file diff と同じ CP932 非対応判定と LR2 CRC contract を使う。
+  direct install / path replacement 後は、同じ owned mutation 成功 path で normal `folder.type = 1` row も
+  `Lr2NormalFolderDbSyncService` に渡して upsert-only sync する。対象は追加/移動された BMS の新 path とし、
+  bmson は `song` / `folder` の対象にしない。mutation 中は complete chart path surface ではないため
+  `AllowPrune=false` とし、stale normal folder row の削除は full scan / backfill に任せる。
+  この best-effort sync が失敗しても owned mutation は成功扱いにし、`lr2_full_generation_status` を
+  `Incomplete(lr2_normal_folder_mutation_sync_failed)` にして次回 backfill で修復できるようにする。
   `folder` row の path replacement / startup normalization でも parent CRC は `Lr2SongFolderParentNormalizer.ComputeDirectoryHash`
   を使い、`LR2CRC32` の直接呼び出しを通常 mutation / initialization surface に増やさない。
   完了直前の source staleness check は、service に caller-provided predicate を渡す形にし、`BMSLibrary` 側で
