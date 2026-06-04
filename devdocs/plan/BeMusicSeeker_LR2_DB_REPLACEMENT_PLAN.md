@@ -1058,13 +1058,17 @@ parse directive:
   `Completed` かつ signature 一致のときだけ backfill 不要と判定する。`Failed` / `Cancelled` / `Incomplete` /
   signature mismatch / missing row は `Needed` として再開可能にする。
   初期接続では `startup_initialization_complete` 後の best-effort warmup から status を評価し、必要なら
-  `lr2_full_generation_backfill` startup background task を queue する。backfill runner 本体が入るまで、この task は
-  `Running` から `Incomplete` (`backfill_runner_not_implemented`) に遷移させ、通常 startup readiness を待たせない。
-  最初の実 runner は normal folder stage だけを実行し、current owned BMS path snapshot と LR2 BMS root から
+  `lr2_full_generation_backfill` startup background task を queue する。この task は通常 startup readiness を待たせず、
+  実装済み stage を進めたうえで残 stage がある場合は `Incomplete` として再開可能にする。
+  最初の実 runner は normal folder stage を実行し、current owned BMS path snapshot と LR2 BMS root から
   root / ancestor / chart directory `folder` row を sync する。`folderinfo.txt` は normal folder generator と同じ
-  metadata target から候補を作る。sync 後も `Completed` にはせず、`Incomplete`
-  (`song_backfill_not_implemented`) を記録する。song row backfill、任意 `.lr2folder` discovery、
-  startup-scan blocker diagnostic が入るまで完全生成完了とは扱わない。
+  metadata target から候補を作る。続いて current owned `BMSFile` から persistence 用 copy を作り、live UI row を
+  変更せずに `song.folder` / `song.parent` などの generated columns と `chart_digest_map` を backfill する。
+  persistence 用 copy では live row の `folder` / `parent` が形式上 valid でも path と一致する保証がないため、
+  これらを空にして `Lr2SongRowEnricher` に再生成させる。
+  この段階はファイル再読込・全 parse backfill ではないため、sync 後も `Completed` にはせず、`Incomplete`
+  (`remaining_backfill_stages_not_implemented`) を記録する。任意 `.lr2folder` discovery、
+  startup-scan blocker diagnostic、必要な full parse backfill が入るまで完全生成完了とは扱わない。
   status signature は normalized / deduplicated / case-insensitive な LR2 BMS root set を含める。
   root set が変わった場合は既存 `Completed` を信用せず、backfill needed として再評価する。
 

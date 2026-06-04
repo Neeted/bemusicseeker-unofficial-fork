@@ -64,10 +64,19 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
                 path = chartPath
             };
             file.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+            file.ApplySha256("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+            file.folder = "00000000";
+            file.parent = "11111111";
             library.BMSFiles = [file];
 
             using (var setup = new LR2SongDBExtended(scope.SongDbPath))
             {
+                setup.InsertOrReplace(new TestableBmsFile
+                {
+                    path = chartPath,
+                    adddate = 98765,
+                    tag = "keep-tag"
+                }.WithHashAndFavorite("cccccccccccccccccccccccccccccccc", 3), typeof(LR2SongDB.song));
                 string stalePath = ToFolderPath(Path.Combine(rootDirectory, "Removed"));
                 setup.InsertOrReplace(new LR2SongDB.folder
                 {
@@ -102,8 +111,8 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
             LR2SongDBExtended.lr2_full_generation_status row = verify.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
             Assert.IsNotNull(row);
             Assert.AreEqual("Incomplete", row.status);
-            Assert.AreEqual(Lr2FullGenerationBackfillService.SongRowsPendingReason, row.last_error);
-            Assert.AreEqual(Lr2FullGenerationBackfillService.SongRowsPendingStage, row.stage);
+            Assert.AreEqual(Lr2FullGenerationBackfillService.RemainingStagesPendingReason, row.last_error);
+            Assert.AreEqual(Lr2FullGenerationBackfillService.RemainingStagesPendingStage, row.stage);
             Assert.AreEqual(row.total_count, row.processed_cursor);
             Assert.IsTrue(row.total_count > 0);
 
@@ -121,6 +130,15 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
             Assert.AreEqual("Song", song.title);
             Assert.AreEqual(0, folderRows.Count(folder => folder.path == expectedRemovedFolderPath));
             Assert.AreEqual(1, folderRows.Count(folder => folder.path == expectedCustomFolderPath));
+            string expectedSongFolderHash = Lr2SongFolderParentNormalizer.ComputeDirectoryHash(songDirectory);
+            Assert.AreEqual(expectedSongFolderHash, verify.ExecuteScalar<string>("SELECT folder FROM song WHERE path = ?;", chartPath));
+            Assert.IsFalse(string.IsNullOrWhiteSpace(verify.ExecuteScalar<string>("SELECT parent FROM song WHERE path = ?;", chartPath)));
+            Assert.AreEqual(file.hash, verify.ExecuteScalar<string>("SELECT hash FROM song WHERE path = ?;", chartPath));
+            Assert.AreEqual(3, verify.ExecuteScalar<int>("SELECT favorite FROM song WHERE path = ?;", chartPath));
+            Assert.AreEqual(98765, verify.ExecuteScalar<int>("SELECT adddate FROM song WHERE path = ?;", chartPath));
+            Assert.AreEqual("keep-tag", verify.ExecuteScalar<string>("SELECT tag FROM song WHERE path = ?;", chartPath));
+            Assert.AreEqual("00000000", file.folder);
+            Assert.AreEqual("11111111", file.parent);
         }
         finally
         {
@@ -152,10 +170,56 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
             LR2SongDBExtended.lr2_full_generation_status row = verify.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
             Assert.IsNotNull(row);
             Assert.AreEqual("Incomplete", row.status);
-            Assert.AreEqual(Lr2FullGenerationBackfillService.SongRowsPendingReason, row.last_error);
+            Assert.AreEqual(Lr2FullGenerationBackfillService.RemainingStagesPendingReason, row.last_error);
             Assert.AreEqual(0, row.processed_cursor);
             Assert.AreEqual(0, row.total_count);
             Assert.AreEqual(0, verify.Table<LR2SongDB.folder>().ToList().Count);
+        }
+        finally
+        {
+            ResetTouchedSettings();
+        }
+    }
+
+    [TestMethod]
+    public void QueueLr2FullGenerationBackfillIfNeeded_WithNoRootsStillBackfillsSongRows()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        try
+        {
+            Settings.Default.OperationModeLR2DB = true;
+            Settings.Default.EnableLR2SongDbFullGeneration = true;
+            string songDirectory = Path.Combine(scope.DirectoryPath, "Loose");
+            Directory.CreateDirectory(songDirectory);
+            string chartPath = Path.Combine(songDirectory, "chart.bms");
+            File.WriteAllText(chartPath, "#TITLE test");
+            var file = new TestableBmsFile
+            {
+                path = chartPath
+            };
+            file.SetHash("dddddddddddddddddddddddddddddddd");
+            var library = new BMSLibrary(scope.SongDbPath)
+            {
+                SearchTargets = [],
+                BMSFiles = [file]
+            };
+            library.StartupBackgroundTaskScheduler = delegate (string name, string reason, string dependency, Func<Task> work)
+            {
+                work().GetAwaiter().GetResult();
+                return true;
+            };
+
+            library.QueueLr2FullGenerationBackfillIfNeeded("test_no_roots_with_song");
+
+            using var verify = new LR2SongDBExtended(scope.SongDbPath);
+            LR2SongDBExtended.lr2_full_generation_status row = verify.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
+            Assert.IsNotNull(row);
+            Assert.AreEqual("Incomplete", row.status);
+            Assert.AreEqual(Lr2FullGenerationBackfillService.RemainingStagesPendingReason, row.last_error);
+            Assert.AreEqual(1, row.processed_cursor);
+            Assert.AreEqual(2, row.total_count);
+            Assert.AreEqual(0, verify.Table<LR2SongDB.folder>().ToList().Count);
+            Assert.AreEqual(Lr2SongFolderParentNormalizer.ComputeDirectoryHash(songDirectory), verify.ExecuteScalar<string>("SELECT folder FROM song WHERE path = ?;", chartPath));
         }
         finally
         {
@@ -209,6 +273,18 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
         public void SetHash(string value)
         {
             hash = value;
+        }
+
+        public void SetFavorite(int? value)
+        {
+            favorite = value;
+        }
+
+        public TestableBmsFile WithHashAndFavorite(string hashValue, int? favoriteValue)
+        {
+            SetHash(hashValue);
+            SetFavorite(favoriteValue);
+            return this;
         }
     }
 }

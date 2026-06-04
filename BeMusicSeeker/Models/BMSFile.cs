@@ -703,6 +703,43 @@ public class BMSFile : LR2SongDB.song
         tag = existing.tag;
     }
 
+    internal BMSFile CreateSongRowPersistenceCopy()
+    {
+        return new BMSFile
+        {
+            _hash = _hash,
+            _title = _title,
+            _subtitle = _subtitle,
+            _artist = _artist,
+            _subartist = _subartist,
+            genre = genre,
+            _tag = _tag,
+            _path = _path,
+            type = type,
+            folder = null,
+            _stagefile = _stagefile,
+            _banner = _banner,
+            _backbmp = _backbmp,
+            parent = null,
+            level = level,
+            difficulty = difficulty,
+            maxbpm = maxbpm,
+            minbpm = minbpm,
+            mode = mode,
+            _judge = _judge,
+            longnote = longnote,
+            bga = bga,
+            random = random,
+            date = date,
+            favorite = favorite,
+            txt = txt,
+            _karinotes = _karinotes,
+            adddate = adddate,
+            exlevel = exlevel,
+            _sha256 = _sha256
+        };
+    }
+
     internal void SetTextGroupFlag(int value)
     {
         txt = value == 0 ? 0 : 1;

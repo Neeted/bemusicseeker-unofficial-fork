@@ -4958,6 +4958,7 @@ completeFileEnumerationOnce,
                     RootDirectories = input.RootDirectories,
                     ChartPaths = input.ChartPaths,
                     FolderInfoFilePaths = input.FolderInfoFilePaths,
+                    SongRows = input.SongRows,
                     StartedAtUtc = DateTime.UtcNow
                 });
             }
@@ -4967,12 +4968,14 @@ completeFileEnumerationOnce,
                 + " roots=" + input.RootDirectories.Count
                 + " charts=" + input.ChartPaths.Count
                 + " folderInfoCandidates=" + input.FolderInfoFilePaths.Count
+                + " songRows=" + input.SongRows.Count
                 + " normalFolderGenerated=" + (result.NormalFolderSyncResult?.GeneratedCount ?? 0)
                 + " normalFolderUpserted=" + (result.NormalFolderSyncResult?.UpsertedCount ?? 0)
                 + " normalFolderDeleted=" + (result.NormalFolderSyncResult?.DeletedCount ?? 0)
                 + " normalFolderSkippedUnsupported=" + (result.NormalFolderSyncResult?.SkippedUnsupportedPathCount ?? 0)
                 + " normalFolderSkippedMissingMetadata=" + (result.NormalFolderSyncResult?.SkippedMissingMetadataCount ?? 0)
                 + " normalFolderSkippedIncompatibleChart=" + (result.NormalFolderSyncResult?.SkippedIncompatibleChartPathCount ?? 0)
+                + " songRowProcessed=" + result.SongRowProcessedCount
                 + " processed=" + result.ProcessedCount
                 + " total=" + result.TotalCount
                 + " stage=" + result.FinalStage
@@ -5012,18 +5015,23 @@ completeFileEnumerationOnce,
     private Lr2FullGenerationBackfillInput CreateLr2FullGenerationBackfillInput()
     {
         List<string> chartPaths;
+        List<BMSFile> songRows;
         using (rwlockBMSFilesInitializedAll.GetReaderGuard())
         {
             chartPaths = [.. (_BMSFiles ?? [])
                 .Where(file => file != null && !string.IsNullOrWhiteSpace(file.path))
                 .Select(file => file.path)
                 .Distinct(StringComparer.OrdinalIgnoreCase)];
+            songRows = [.. (_BMSFiles ?? [])
+                .Where(file => file != null && !string.IsNullOrWhiteSpace(file.path))
+                .Select(file => file.CreateSongRowPersistenceCopy())];
         }
         List<string> roots = getBMSDirectories();
         return new Lr2FullGenerationBackfillInput(
             roots,
             chartPaths,
-            CreateLr2FullGenerationFolderInfoCandidates(roots, chartPaths));
+            CreateLr2FullGenerationFolderInfoCandidates(roots, chartPaths),
+            songRows);
     }
 
     private static List<string> CreateLr2FullGenerationFolderInfoCandidates(
@@ -5053,13 +5061,16 @@ completeFileEnumerationOnce,
     private sealed class Lr2FullGenerationBackfillInput(
         IReadOnlyList<string> rootDirectories,
         IReadOnlyList<string> chartPaths,
-        IReadOnlyList<string> folderInfoFilePaths)
+        IReadOnlyList<string> folderInfoFilePaths,
+        IReadOnlyList<BMSFile> songRows)
     {
         public IReadOnlyList<string> RootDirectories { get; } = rootDirectories ?? [];
 
         public IReadOnlyList<string> ChartPaths { get; } = chartPaths ?? [];
 
         public IReadOnlyList<string> FolderInfoFilePaths { get; } = folderInfoFilePaths ?? [];
+
+        public IReadOnlyList<BMSFile> SongRows { get; } = songRows ?? [];
     }
 
     /// <summary>
