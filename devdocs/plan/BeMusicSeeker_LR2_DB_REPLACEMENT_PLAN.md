@@ -55,9 +55,13 @@ BeMusicSeeker は譜面管理アプリなので、LR2 で完全に読めない�
   - ただし maintenance 列や scan group が必要な warning は完全生成有効時のみ出す。
   - スタンドアロンモードでは `LR2非対応パス` ツリー自体を非表示にする。
 - backfill は通常運用では発生しない想定にする。
-  - 既存 LR2 DB に必要列が欠けている、または完全生成を初回有効化した場合だけ backfill が発生する。
+  - 完全生成が有効で、LR2 `song.db` 内の完全生成 status が completed でない場合だけ backfill が発生する。
+  - 既存 LR2 DB に必要列が欠けている、完全生成を初回有効化した、status signature が変わった、
+    前回 run が incomplete / failed / cancelled の場合は backfill needed とする。
   - backfill が必要な場合は警告・進捗・キャンセル可能性を UI / log に出す。
-  - 初回 backfill は startup ready / operable を待たせず、初期化完了後の background workflow として開始する。
+  - 初回 backfill は startup ready / operable を待たせず、`startup_initialization_complete` 後の
+    background workflow として開始する。
+  - 完全生成設定を OFF から ON に変更した場合も、保存後に同じ background workflow を queue する。
   - BeMusicSeeker からの LR2 起動導線で backfill 完了待ちや起動 block は行わない。
     LR2 が再走査する可能性は完全生成 status の警告として表示する。
 - 段階実装中は、Phase 8 / Phase 9 まで完了するまでは完全生成設定を hidden / disabled にする。
@@ -327,7 +331,7 @@ row が残ると、manual-only でも LR2 が不要な scan に入る。
   cleanup は明示操作として別導線で実行する。
   - cleanup 導線は Phase 8 の初期実装に含める。
   - cleanup は全 `folder` row 削除ではなく、diagnostic で列挙した startup-scan blocker row だけを
-    backup 作成後に削除する。
+    確認後に transaction で削除する。
   - cleanup できない、または cleanup 後も blocker が残る場合は完全生成 status を warning にし、
     LR2 起動時に再走査が起き得る状態として表示する。
 
@@ -361,8 +365,13 @@ background workflow として進める。この workflow は DB 生成状態の�
 LR2 起動導線の block は行わない。
 
 - backfill が必要な場合は、警告・進捗・キャンセル可能性を表示する。
-- 完全生成が incomplete / failed / cancelled の場合は、完全生成 status に warning を出す。
-- LR2 側の DB 自動更新設定が手動のみでない可能性がある場合は、設定画面または status warning として注意を出す。
+- status は `NotNeeded` / `Needed` / `Running` / `Completed` / `Failed` / `Cancelled` /
+  `Incomplete` を持つ。
+- `Completed` の signature が現設定・schema・generator・parser・root set・folder source と一致する場合は
+  backfill 不要とする。
+- `Needed` / `Running` / `Incomplete` / `Failed` / `Cancelled` は完全生成 status に warning を出す。
+- 完全生成設定値が欠落または不正な場合は、他の設定値と同じく既定値へ正規化し、設定値 warning は出さない。
+- LR2 側の DB 自動更新設定が手動のみでない可能性がある場合は、設定画面または status info として注意を出す。
   - 現行 `LR2Config` wrapper には autoreload 判定 API がないため、実装時に config 要素名と値を確認する。
   - BeMusicSeeker 側から LR2 config を自動変更しない。
 - LR2 が起動中の場合の DB write 競合を検出する。
@@ -381,6 +390,11 @@ LR2 起動導線の block は行わない。
   変わる時に bump する。
 - backfill は startup ready / operable をブロックしない。初期化完了後に background workflow として開始し、
   LR2 起動要求が来ても同じ workflow へ join して待つことはしない。
+- backfill 中は read-only 操作を許可する。
+  - 一覧閲覧、検索、ソート、プレイリスト表示、設定画面表示は許可する。
+  - owned collection / LR2 `song.db` に mutation を起こす操作は開始前に抑止する。
+    例: 譜面追加、削除、移動、install/reinstall、全譜面再スキャン、BMS root 設定変更、
+    完全生成設定の切替。
 
 ## LR2 互換性評価
 
@@ -718,30 +732,38 @@ parse directive:
 実装:
 
 - 完全生成 status を保持する。
-- backfill needed / running / completed / failed を log と UI に出す。
+- status は `NotNeeded` / `Needed` / `Running` / `Completed` / `Failed` / `Cancelled` /
+  `Incomplete` とする。
+- status と signature を LR2 `song.db` 内の BeMusicSeeker-owned metadata table に保存する。
+- status が存在しない、signature が変わった、または前回 status が `Failed` / `Cancelled` /
+  `Incomplete` の場合は `Needed` とする。
+- 完全生成が有効で `Needed` の場合、`startup_initialization_complete` 後に background workflow を queue する。
+- 完全生成設定を OFF から ON に変更した場合も、設定保存後に同じ workflow を queue する。
+- backfill needed / running / completed / failed / cancelled / incomplete を log と UI に出す。
 - backfill progress は全体合算 total と stage 別 processed count の両方を表示する。
-- incomplete / failed / cancelled は完全生成 status warning として表示する。
+- `Needed` / `Running` / `Incomplete` / `Failed` / `Cancelled` は完全生成 status warning として表示する。
+- 設定値が欠落または不正な場合は既定値へ正規化する。設定値 warning は出さない。
 - LR2 config の auto update 設定は config 要素名を確認して検出する。検出できない場合は
-  「自動更新設定を確認できない」warning を出し、BeMusicSeeker 側からは config を自動変更しない。
-- backfill 開始前に LR2 `song.db` 全体の backup を作る。
-  - backup は LR2 `song.db` と同じ directory の `bemusicseeker-backup` subdirectory に
-    `song.db.<yyyyMMddHHmmss>.bak` として作る。
-  - backup 世代は最新 2 件を保持し、それより古い BeMusicSeeker 作成 backup は成功後に削除する。
-  - backup 作成に失敗した場合は DB write を開始せず、backfill を failed にする。
-- write は per-chunk transaction とし、run id/status を durable に更新する。
+  「自動更新設定を確認できない」status info を出し、BeMusicSeeker 側からは config を自動変更しない。
+- backfill のためだけの自動 backup は作らない。
+- write は per-chunk transaction とし、chunk commit 成功後に processed cursor / run id / status を durable に更新する。
+- chunk 失敗時はその chunk の transaction を rollback し、status を `Failed` にする。
 - cancel 後の partial write は incomplete として扱い、status warning に出す。
-- backup / restore の対象は LR2 `song.db` 全体とする。
-  - durable status / maintenance schema 変更は同じ DB 内に置き、backup から戻せば一貫して戻る。
-  - 外部設定ファイルや `.lr2folder` 実ファイルは backup 対象外なので、必要な場合は別操作で扱う。
+- 次回 run は最後に成功した cursor から再開する。再開前に必要なら current status / signature を再検証する。
+- backfill 中は read-only 操作を許可し、owned collection / LR2 `song.db` mutation 操作は開始前に抑止する。
 
 テスト:
 
 - backfill 不要時は警告なし。
 - backfill 必要時は警告と進捗が出る。
+- status 欠落、signature 変更、前回 `Failed` / `Cancelled` / `Incomplete` で `Needed` になる。
+- 完全生成設定 OFF では queue されず、ON へ変更すると queue される。
+- 不正な設定値は既定値へ正規化され、設定値 warning は出ない。
 - failed 状態で完全生成 status warning が出る。
-- cancel 後に incomplete status が残り、再開または rollback できる。
+- cancel 後に incomplete status が残り、次回再開できる。
+- backfill 中に read-only 操作は許可され、library mutation 操作は抑止される。
 
-### Phase 9: migration / backfill
+### Phase 9: resumable backfill
 
 対象:
 
@@ -757,8 +779,9 @@ parse directive:
 
 - chunked / idempotent。
 - changed-only write。
-- preflight backup / restore point を作る。
-- run id / durable status を持つ。
+- preflight backup / restore point は作らない。
+- run id / durable status / processed cursor を持つ。
+- chunk 成功後だけ cursor を進め、失敗 chunk は rollback して次回再処理する。
 - `favorite` / `adddate` / `tag` を維持。
 - CP932 非対応 BMS row は BeMusicSeeker DB から削除しない。
 - backfill 再実行で追加差分が出ない。
@@ -770,7 +793,7 @@ parse directive:
 - CP932 非対応 BMS row が削除されない。
 - 2 回目 backfill が no-op になる。
 - partial run 後に resume できる。
-- backup から restore できる。
+- failed chunk が rollback され、次回同じ target から再開できる。
 
 ## データマッピング早見表
 
