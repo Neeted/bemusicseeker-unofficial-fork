@@ -2938,6 +2938,7 @@ public class BMSLibrary : NotificationObject
         using (LR2SongDBExtended lR2SongDBExtended = dbGateway.OpenSongDb())
         {
             BmsLibraryDbGateway.EnsureSongLookupIndexes(lR2SongDBExtended);
+            lR2SongDBExtended.CreateTable<LR2SongDB.folder>();
             lR2SongDBExtended.CreateTable<LR2SongDBExtended.install>();
             BmsLibraryDbGateway.EnsureMaintenanceSchema(lR2SongDBExtended);
             lR2SongDBExtended.CreateTable<LR2SongDBExtended.ir_score>();
@@ -4928,7 +4929,7 @@ completeFileEnumerationOnce,
 
         Task work()
         {
-            RunLr2FullGenerationBackfillPlaceholder(reason, signature);
+            RunLr2FullGenerationBackfill(reason, signature);
             return Task.CompletedTask;
         }
         if (StartupBackgroundTaskScheduler != null
@@ -4936,7 +4937,7 @@ completeFileEnumerationOnce,
         {
             return status;
         }
-        Task.Run(() => RunLr2FullGenerationBackfillPlaceholder(reason, signature)).Logging("Lr2FullGenerationBackfill");
+        Task.Run(() => RunLr2FullGenerationBackfill(reason, signature)).Logging("Lr2FullGenerationBackfill");
         return status;
     }
 
@@ -4947,36 +4948,66 @@ completeFileEnumerationOnce,
             + "|fullGeneration=" + ((options?.EnableLR2SongDbFullGeneration ?? false) ? "1" : "0");
     }
 
-    private void RunLr2FullGenerationBackfillPlaceholder(string reason, string signature)
+    private void RunLr2FullGenerationBackfill(string reason, string signature)
     {
         var stopwatch = Stopwatch.StartNew();
         string runId = Guid.NewGuid().ToString("N");
         try
         {
             ReportStartupBackgroundTask("lr2_full_generation_backfill", "start", 0L, failed: false, detail: "runId=" + runId);
+            Lr2FullGenerationBackfillInput input = CreateLr2FullGenerationBackfillInput();
+            Lr2FullGenerationBackfillResult result;
             using (LR2SongDBExtended songDb = dbGateway.OpenSongDb())
             {
-                Lr2FullGenerationStatusService.MarkRunning(songDb, signature, runId, totalCount: 0, stage: "not_implemented", nowUtc: DateTime.UtcNow);
-                Lr2FullGenerationStatusService.MarkIncomplete(
-                    songDb,
-                    signature,
-                    runId,
-                    processedCursor: 0,
-                    totalCount: 0,
-                    stage: "not_implemented",
-                    detail: "backfill_runner_not_implemented",
-                    nowUtc: DateTime.UtcNow);
+                result = Lr2FullGenerationBackfillService.Run(songDb, new Lr2FullGenerationBackfillRequest
+                {
+                    Signature = signature,
+                    RunId = runId,
+                    RootDirectories = input.RootDirectories,
+                    ChartPaths = input.ChartPaths,
+                    FolderInfoFilePaths = input.FolderInfoFilePaths,
+                    StartedAtUtc = DateTime.UtcNow
+                });
             }
             stopwatch.Stop();
             LogInstallPerformance("lr2_full_generation_backfill incomplete reason=" + (reason ?? "unknown")
                 + " runId=" + runId
-                + " detail=backfill_runner_not_implemented"
+                + " roots=" + input.RootDirectories.Count
+                + " charts=" + input.ChartPaths.Count
+                + " folderInfoCandidates=" + input.FolderInfoFilePaths.Count
+                + " normalFolderGenerated=" + (result.NormalFolderSyncResult?.GeneratedCount ?? 0)
+                + " normalFolderUpserted=" + (result.NormalFolderSyncResult?.UpsertedCount ?? 0)
+                + " normalFolderDeleted=" + (result.NormalFolderSyncResult?.DeletedCount ?? 0)
+                + " normalFolderSkippedUnsupported=" + (result.NormalFolderSyncResult?.SkippedUnsupportedPathCount ?? 0)
+                + " normalFolderSkippedMissingMetadata=" + (result.NormalFolderSyncResult?.SkippedMissingMetadataCount ?? 0)
+                + " normalFolderSkippedIncompatibleChart=" + (result.NormalFolderSyncResult?.SkippedIncompatibleChartPathCount ?? 0)
+                + " processed=" + result.ProcessedCount
+                + " total=" + result.TotalCount
+                + " stage=" + result.FinalStage
+                + " detail=" + result.IncompleteReason
                 + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
-            ReportStartupBackgroundTask("lr2_full_generation_backfill", "incomplete", stopwatch.ElapsedMilliseconds, failed: false, detail: "backfill_runner_not_implemented");
+            ReportStartupBackgroundTask("lr2_full_generation_backfill", "incomplete", stopwatch.ElapsedMilliseconds, failed: false, detail: result.IncompleteReason);
         }
         catch (Exception ex)
         {
             stopwatch.Stop();
+            try
+            {
+                using LR2SongDBExtended songDb = dbGateway.OpenSongDb();
+                Lr2FullGenerationStatusService.MarkFailed(
+                    songDb,
+                    signature,
+                    runId,
+                    processedCursor: null,
+                    totalCount: null,
+                    stage: "failed",
+                    error: ex.Message,
+                    nowUtc: DateTime.UtcNow);
+            }
+            catch
+            {
+                // Preserve the original failure in the startup task report.
+            }
             LogInstallPerformance("lr2_full_generation_backfill failed reason=" + (reason ?? "unknown")
                 + " runId=" + runId
                 + " elapsedMs=" + stopwatch.ElapsedMilliseconds
@@ -4984,6 +5015,59 @@ completeFileEnumerationOnce,
                 + " message=" + ex.Message);
             ReportStartupBackgroundTask("lr2_full_generation_backfill", "failed", stopwatch.ElapsedMilliseconds, failed: true, detail: ex.Message);
         }
+    }
+
+    private Lr2FullGenerationBackfillInput CreateLr2FullGenerationBackfillInput()
+    {
+        List<string> chartPaths;
+        using (rwlockBMSFilesInitializedAll.GetReaderGuard())
+        {
+            chartPaths = [.. (_BMSFiles ?? [])
+                .Where(file => file != null && !string.IsNullOrWhiteSpace(file.path))
+                .Select(file => file.path)
+                .Distinct(StringComparer.OrdinalIgnoreCase)];
+        }
+        List<string> roots = getBMSDirectories();
+        return new Lr2FullGenerationBackfillInput(
+            roots,
+            chartPaths,
+            CreateLr2FullGenerationFolderInfoCandidates(roots, chartPaths));
+    }
+
+    private static List<string> CreateLr2FullGenerationFolderInfoCandidates(
+        IEnumerable<string> rootDirectories,
+        IEnumerable<string> chartPaths)
+    {
+        var result = new List<string>();
+        foreach (string directory in Lr2NormalFolderDbSyncService.CreateDirectoryMetadataTargets(rootDirectories, chartPaths))
+        {
+            string candidate;
+            try
+            {
+                candidate = Path.Combine(directory, "folderinfo.txt");
+            }
+            catch (Exception ex) when (ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException)
+            {
+                continue;
+            }
+            if (File.Exists(candidate))
+            {
+                result.Add(candidate);
+            }
+        }
+        return [.. result.OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
+    }
+
+    private sealed class Lr2FullGenerationBackfillInput(
+        IReadOnlyList<string> rootDirectories,
+        IReadOnlyList<string> chartPaths,
+        IReadOnlyList<string> folderInfoFilePaths)
+    {
+        public IReadOnlyList<string> RootDirectories { get; } = rootDirectories ?? [];
+
+        public IReadOnlyList<string> ChartPaths { get; } = chartPaths ?? [];
+
+        public IReadOnlyList<string> FolderInfoFilePaths { get; } = folderInfoFilePaths ?? [];
     }
 
     /// <summary>
