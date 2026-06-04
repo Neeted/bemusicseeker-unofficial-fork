@@ -307,12 +307,29 @@ internal static class BmtTableExportService
     private static JArray BuildFolders(BMSTable table, ISongHashResolver hashResolver)
     {
         JArray folders = [];
+        var entriesByFolder = new Dictionary<string, List<BMSTableEntry>>(StringComparer.Ordinal);
+        foreach (BMSTableEntry entry in table.entries ?? [])
+        {
+            if (entry == null || entry.is_removed)
+            {
+                continue;
+            }
+            string folderKey = entry.folder ?? string.Empty;
+            if (!entriesByFolder.TryGetValue(folderKey, out List<BMSTableEntry> folderEntries))
+            {
+                folderEntries = [];
+                entriesByFolder[folderKey] = folderEntries;
+            }
+            folderEntries.Add(entry);
+        }
         List<string> folderNames = table.folder_list ?? [];
         foreach (string folderName in folderNames)
         {
             JArray songs = [];
-            IEnumerable<BMSTableEntry> entries = (table.entries ?? [])
-                .Where(entry => entry != null && !entry.is_removed && string.Equals(entry.folder ?? string.Empty, folderName ?? string.Empty, StringComparison.Ordinal));
+            if (!entriesByFolder.TryGetValue(folderName ?? string.Empty, out List<BMSTableEntry> entries))
+            {
+                continue;
+            }
             foreach (BMSTableEntry entry in entries)
             {
                 JObject song = BuildSong(entry, null, hashResolver);

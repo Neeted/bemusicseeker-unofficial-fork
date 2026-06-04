@@ -114,6 +114,44 @@ public sealed class BmtTableExportServiceTests
 
     [TestMethod]
     [TestCategory("Playlist")]
+    public void BuildTableData_GroupsFolderSongsWithoutChangingFolderOrEntryOrder()
+    {
+        var table = new BMSTable
+        {
+            name = "Local Table",
+            playlist_id = 44,
+            Folder_order = ["Beta", "Alpha"],
+            entries =
+            [
+                new BMSTableEntry(DynamicJson.Parse("{\"title\":\"Alpha 1\",\"md5\":\"" + Md5A + "\",\"level\":\"Alpha\"}")),
+                new BMSTableEntry(DynamicJson.Parse("{\"title\":\"Beta 1\",\"md5\":\"" + Md5B + "\",\"level\":\"Beta\"}")),
+                new BMSTableEntry(DynamicJson.Parse("{\"title\":\"Alpha 2\",\"sha256\":\"" + Sha256A + "\",\"level\":\"Alpha\"}")),
+                new BMSTableEntry(DynamicJson.Parse("{\"title\":\"Removed\",\"md5\":\"33333333333333333333333333333333\",\"level\":\"Beta\"}"))
+                {
+                    is_removed = true
+                },
+                new BMSTableEntry(DynamicJson.Parse("{\"title\":\"No Hash\",\"level\":\"Beta\"}")),
+                new BMSTableEntry(DynamicJson.Parse("{\"title\":\"Empty Folder\",\"level\":\"Gamma\"}"))
+            ]
+        };
+
+        JObject json = BmtTableExportService.BuildTableData(table);
+
+        JArray folders = (JArray)json["folder"]!;
+        Assert.AreEqual(2, folders.Count);
+        Assert.AreEqual("Beta", folders[0]!.Value<string>("name"));
+        Assert.AreEqual("Alpha", folders[1]!.Value<string>("name"));
+        JArray betaSongs = (JArray)folders[0]!["songs"]!;
+        JArray alphaSongs = (JArray)folders[1]!["songs"]!;
+        Assert.AreEqual(1, betaSongs.Count);
+        Assert.AreEqual("Beta 1", betaSongs[0]!.Value<string>("title"));
+        Assert.AreEqual(2, alphaSongs.Count);
+        Assert.AreEqual("Alpha 1", alphaSongs[0]!.Value<string>("title"));
+        Assert.AreEqual("Alpha 2", alphaSongs[1]!.Value<string>("title"));
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
     public void CleanupManagedFiles_RemovesOnlyManifestEntries()
     {
         WithTemporaryDirectory(delegate (string tempDirectory)
