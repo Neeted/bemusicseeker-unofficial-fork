@@ -1153,3 +1153,6 @@ parse directive:
 - `Lr2SongDbWriter.UpsertGeneratedSong(...)` は direct install / path replacement / backfill の共通 persistence 境界として扱う。
   呼び出し元の `BMSFile` に `date` が無い場合は実ファイル mtime から補完し、新規 `song` row で `adddate`
   が無い場合だけ現在時刻を入れる。既存 row の `adddate` は writer update では変更しない。
+- install package inline `chart_info` build は、parse / current row skip で得た `chart_info` row を BMS storage owner
+  に反映してから `Lr2SongDbWriter` へ渡す。これにより direct install 直後の `song` row も、backfill を待たずに
+  `level` / `difficulty` / BPM / `mode` / `longnote` / `random` / `karinotes` を持つ。

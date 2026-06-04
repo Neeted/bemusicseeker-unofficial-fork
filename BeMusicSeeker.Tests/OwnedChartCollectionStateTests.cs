@@ -3152,6 +3152,48 @@ public sealed class OwnedChartCollectionStateTests
     }
 
     [TestMethod]
+    public void BuildInlineChartInfo_UpsertsSongRowsWithAppliedChartInfoColumns()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            new BmsLibraryDbGateway(songDbPath).EnsureChartInfoSchema();
+            string chartDirectory = Path.Combine(Path.GetDirectoryName(songDbPath), "InlineChartInfo");
+            Directory.CreateDirectory(chartDirectory);
+            string chartPath = Path.Combine(chartDirectory, "chart.bms");
+            File.WriteAllText(
+                chartPath,
+                "#PLAYER 1\r\n#TITLE inline chart info\r\n#ARTIST artist\r\n#BPM 180\r\n#PLAYLEVEL 12\r\n#DIFFICULTY 4\r\n#00111:01\r\n",
+                System.Text.Encoding.ASCII);
+            ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
+            var bmsFile = CreateFile(snapshot.Md5, chartPath, snapshot.Sha256);
+            var library = new BMSLibrary(songDbPath);
+            SetLibraryFilesWithoutNotification(library, [bmsFile]);
+            SetLibraryBmsonSongsWithoutNotification(library, []);
+            SetDuplicateChartGroupsWithoutNotification(library, []);
+
+            ChartInfoInlineBuildResult result = InvokeBuildAndPersistInlineChartInfoForInstalledCharts(
+                library,
+                "test_inline_chart_info_song_row",
+                [ChartFileProjection.FromBmsFile(bmsFile, includeWarningSnapshot: false)]);
+
+            Assert.AreEqual(1, result.AppliedRows.Count);
+            Assert.AreEqual(12, bmsFile.level);
+            Assert.AreEqual(4, bmsFile.difficulty);
+            Assert.AreEqual(180, bmsFile.maxbpm);
+            Assert.AreEqual(180, bmsFile.minbpm);
+            Assert.IsTrue(bmsFile.karinotes > 0);
+            using var verify = new LR2SongDBExtended(songDbPath);
+            LR2SongDB.song row = verify.Table<LR2SongDB.song>().Single(candidate => candidate.path == chartPath);
+            Assert.AreEqual(12, row.level);
+            Assert.AreEqual(4, row.difficulty);
+            Assert.AreEqual(180, row.maxbpm);
+            Assert.AreEqual(180, row.minbpm);
+            Assert.IsTrue(row.karinotes > 0);
+        });
+    }
+
+    [TestMethod]
     public void DispatchOwnedChartDigestChanges_ShaOnlyBmsChangeKeepsPrimaryHashCaches()
     {
         TestResourceInitializer.EnsureJapaneseResources();

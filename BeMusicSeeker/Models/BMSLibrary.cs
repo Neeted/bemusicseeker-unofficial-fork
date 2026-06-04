@@ -6217,6 +6217,9 @@ completeFileEnumerationOnce,
                     targetCharts,
                     LogInstallPerformance,
                     LogInstallPerformanceWarn);
+                int songRowChartInfoApplied = ApplyChartInfoRowsToBmsStorageRows(
+                    storageTargets.BmsFiles,
+                    result.AppliedRows);
                 if (storageTargets.BmsFiles.Count > 0)
                 {
                     dbGateway.UpsertSongs(storageTargets.BmsFiles);
@@ -6248,6 +6251,7 @@ completeFileEnumerationOnce,
                     + " failurePersisted=" + result.FailurePersistedCount
                     + " failureCleared=" + result.FailureClearedCount
                     + " readFailed=" + result.ReadFailedCount
+                    + " songRowChartInfoApplied=" + songRowChartInfoApplied
                     + " parseMs=" + result.ParseMs);
                 return result;
             }
@@ -6263,6 +6267,60 @@ completeFileEnumerationOnce,
                 }
             }
         }
+    }
+
+    private static int ApplyChartInfoRowsToBmsStorageRows(
+        IEnumerable<BMSFile> bmsFiles,
+        IEnumerable<LR2SongDBExtended.chart_info> chartInfoRows)
+    {
+        List<BMSFile> files = [.. (bmsFiles ?? []).Where(file => file != null)];
+        if (files.Count == 0)
+        {
+            return 0;
+        }
+
+        Dictionary<string, LR2SongDBExtended.chart_info> rowsBySha256 = new(StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, LR2SongDBExtended.chart_info> rowsByMd5 = new(StringComparer.OrdinalIgnoreCase);
+        foreach (LR2SongDBExtended.chart_info row in chartInfoRows ?? [])
+        {
+            if (row == null)
+            {
+                continue;
+            }
+            if (!string.IsNullOrWhiteSpace(row.sha256))
+            {
+                rowsBySha256[row.sha256] = row;
+            }
+            if (!string.IsNullOrWhiteSpace(row.md5) && !rowsByMd5.ContainsKey(row.md5))
+            {
+                rowsByMd5[row.md5] = row;
+            }
+        }
+        if (rowsBySha256.Count == 0 && rowsByMd5.Count == 0)
+        {
+            return 0;
+        }
+
+        int applied = 0;
+        foreach (BMSFile file in files)
+        {
+            LR2SongDBExtended.chart_info row = null;
+            if (!string.IsNullOrWhiteSpace(file.sha256))
+            {
+                rowsBySha256.TryGetValue(file.sha256, out row);
+            }
+            if (row == null && !string.IsNullOrWhiteSpace(file.hash))
+            {
+                rowsByMd5.TryGetValue(file.hash, out row);
+            }
+            if (row == null)
+            {
+                continue;
+            }
+            file.ApplyLr2ChartInfoColumns(row);
+            applied++;
+        }
+        return applied;
     }
 
     /// <summary>
