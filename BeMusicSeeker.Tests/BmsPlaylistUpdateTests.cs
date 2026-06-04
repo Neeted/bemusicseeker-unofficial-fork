@@ -659,6 +659,68 @@ public sealed class BmsPlaylistUpdateTests
 
     [TestMethod]
     [TestCategory("Playlist")]
+    public void ReOutputCustomFolderAndCommitToDB_SyncsRootFolderRowsWithRootParent()
+    {
+        bool previousOperationModeLr2Db = Settings.Default.OperationModeLR2DB;
+        string previousRootOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDirRootType;
+        string previousLr2RootPath = Settings.Default.LR2RootPath;
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string rootOutputBaseDir = Path.Combine(tempDirectory, "RootCustomFolder");
+            Settings.Default.OperationModeLR2DB = true;
+            Settings.Default.LR2CustomFolderOutputBaseDirRootType = rootOutputBaseDir;
+            Settings.Default.LR2RootPath = Path.Combine(tempDirectory, "LR2");
+            string songDbPath = CreateTempSongDbPath(tempDirectory);
+            BMSPlaylist.EnsureSchema(songDbPath);
+            var table = new BMSTable
+            {
+                playlist_id = 7302,
+                name = "RootFolderTable",
+                symbol = "RFT",
+                Output_dir = "RootFolderTable",
+                is_root_folder = true,
+                entries =
+                [
+                    CreateEntry("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "Root Folder")
+                ],
+                Folder_order = ["Root Folder"]
+            };
+            using (var db = new LR2SongDBExtended(songDbPath))
+            {
+                db.CreateTable<LR2SongDB.folder>();
+            }
+            var playlist = new BMSPlaylist(songDbPath)
+            {
+                BMSTables = new DispatcherCollection<BMSTable>(
+                    new ObservableCollection<BMSTable>(new[] { table }),
+                    Dispatcher.CurrentDispatcher)
+            };
+
+            playlist.ReOutputCustomFolderAndCommitToDB(table);
+
+            string outputPath = Path.Combine(rootOutputBaseDir, "RootFolderTable", "0000.lr2folder");
+            using var verify = new LR2SongDBExtended(songDbPath);
+            LR2SongDB.folder folder = verify.Table<LR2SongDB.folder>().Single(row => row.path == outputPath);
+            Assert.AreEqual(2, folder.type);
+            Assert.AreEqual("Root Folder", folder.title);
+            Assert.AreEqual(Lr2SongFolderParentNormalizer.RootParentHash, folder.parent);
+        }
+        finally
+        {
+            Settings.Default.OperationModeLR2DB = previousOperationModeLr2Db;
+            Settings.Default.LR2CustomFolderOutputBaseDirRootType = previousRootOutputBaseDir;
+            Settings.Default.LR2RootPath = previousLr2RootPath;
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
     public void RemoveCustomFolder_PrunesOnlyExactOutputDirectoryRows()
     {
         bool previousOperationModeLr2Db = Settings.Default.OperationModeLR2DB;

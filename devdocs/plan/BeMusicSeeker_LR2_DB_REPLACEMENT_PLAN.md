@@ -1156,3 +1156,6 @@ parse directive:
 - install package inline `chart_info` build は、parse / current row skip で得た `chart_info` row を BMS storage owner
   に反映してから `Lr2SongDbWriter` へ渡す。これにより direct install 直後の `song` row も、backfill を待たずに
   `level` / `difficulty` / BPM / `mode` / `longnote` / `random` / `karinotes` を持つ。
+- playlist custom folder output workflow は `.lr2folder` file を出力した同じ操作内で `folder` row も sync する。
+  ルートフォルダ出力 (`is_root_folder`) では playlist workflow 側でも `Lr2FolderFileSourceClassifier` を通し、
+  generated `.lr2folder` row の parent を `ROOT` に揃える。

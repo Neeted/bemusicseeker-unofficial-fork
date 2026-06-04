@@ -2788,6 +2788,7 @@ public partial class BMSPlaylist : NotificationObject
                     Definition = Lr2FolderFileProjection.ParseDefinition(ReadLinesFromText(item2)),
                     LastWriteTimeUtc = File.GetLastWriteTimeUtc(filePath)
                 });
+                ApplyCustomFolderSourceClassification(syncItems[syncItems.Count - 1], bmsTable);
                 num++;
             }
             SyncCustomFolderRows(outputDir, syncItems);
@@ -2829,6 +2830,23 @@ public partial class BMSPlaylist : NotificationObject
                 removeCustomFolder(GetCustomFolderOutputDirectory(bmsTable), pruneRows: true, out _);
             }
         }
+    }
+
+    private static void ApplyCustomFolderSourceClassification(Lr2FolderFileSyncItem item, BMSTable bmsTable)
+    {
+        if (item == null || bmsTable?.is_root_folder != true)
+        {
+            return;
+        }
+        Lr2FolderFileSourceClassification classification = Lr2FolderFileSourceClassifier.Classify(new Lr2FolderFileSourceClassificationRequest
+        {
+            FilePath = item.FilePath,
+            Lr2RootPath = Settings.Default.LR2RootPath,
+            RootCustomFolderOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDirRootType
+        });
+        item.DatabasePath = classification.DatabasePath;
+        item.FolderType = classification.FolderType;
+        item.ParentHash = classification.ParentHash;
     }
 
     private void SyncCustomFolderRows(string outputDir, IReadOnlyCollection<Lr2FolderFileSyncItem> items)
