@@ -60,4 +60,23 @@ public sealed class Lr2FullGenerationSignatureBuilderTests
 
         Assert.AreNotEqual(first, second);
     }
+
+    [TestMethod]
+    public void Build_IncludesSchemaParserAndGeneratorVersions()
+    {
+        var options = new BmsLibraryOptionsSnapshot
+        {
+            OperationModeLR2DB = true,
+            EnableLR2SongDbFullGeneration = true
+        };
+
+        string signature = Lr2FullGenerationSignatureBuilder.Build(options, [@"D:\BMS"]);
+
+        StringAssert.Contains(signature, "|appSchema=");
+        StringAssert.Contains(signature, "|chartInfoSchema=");
+        StringAssert.Contains(signature, "|chartInfoParser=");
+        StringAssert.Contains(signature, "|songFolderGenerator=");
+        StringAssert.Contains(signature, "|lr2FolderFileParser=");
+        StringAssert.Contains(signature, "|lr2CompatibilityFacts=");
+    }
 }

@@ -1103,6 +1103,9 @@ parse directive:
   status signature は normalized / deduplicated / case-insensitive な LR2 BMS root set を含める。
   加えて `.lr2folder` discovery root set も含める。root set が変わった場合は既存 `Completed` を信用せず、
   backfill needed として再評価する。
+  signature には app schema / chart_info schema / chart_info parser / song-folder generator /
+  `.lr2folder` parser / LR2 compatibility fact の version も含める。各 component の生成意味が変わった場合は
+  対応 version を bump し、既存 `Completed` を再評価対象にする。
 
 ## 作業エージェント向け実装順
 
