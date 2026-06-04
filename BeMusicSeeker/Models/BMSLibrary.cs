@@ -2691,8 +2691,6 @@ public class BMSLibrary : NotificationObject
 
     private readonly BmsLibraryStateApplier stateApplier;
 
-    private const string Lr2FullGenerationSignatureVersion = "lr2_full_generation_v1";
-
     private BmsLibraryOptionsSnapshot CurrentOptionsSnapshot => BmsLibraryOptionsSnapshot.CreateCurrent();
 
     private BmsLibraryInstallEstimationService CreateInstallEstimationService()
@@ -4909,7 +4907,8 @@ completeFileEnumerationOnce,
     {
         BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
         bool enabled = options.OperationModeLR2DB && options.EnableLR2SongDbFullGeneration;
-        string signature = CreateLr2FullGenerationSignature(options);
+        List<string> rootDirectoriesForSignature = enabled ? getBMSDirectories() : [];
+        string signature = Lr2FullGenerationSignatureBuilder.Build(options, rootDirectoriesForSignature);
         Lr2FullGenerationStatusSnapshot status;
         using (LR2SongDBExtended songDb = dbGateway.OpenSongDb())
         {
@@ -4939,13 +4938,6 @@ completeFileEnumerationOnce,
         }
         Task.Run(() => RunLr2FullGenerationBackfill(reason, signature)).Logging("Lr2FullGenerationBackfill");
         return status;
-    }
-
-    private static string CreateLr2FullGenerationSignature(BmsLibraryOptionsSnapshot options)
-    {
-        return Lr2FullGenerationSignatureVersion
-            + "|operationModeLR2DB=" + ((options?.OperationModeLR2DB ?? false) ? "1" : "0")
-            + "|fullGeneration=" + ((options?.EnableLR2SongDbFullGeneration ?? false) ? "1" : "0");
     }
 
     private void RunLr2FullGenerationBackfill(string reason, string signature)

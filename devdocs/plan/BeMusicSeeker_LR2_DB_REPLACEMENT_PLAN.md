@@ -1065,6 +1065,8 @@ parse directive:
   metadata target から候補を作る。sync 後も `Completed` にはせず、`Incomplete`
   (`song_backfill_not_implemented`) を記録する。song row backfill、任意 `.lr2folder` discovery、
   startup-scan blocker diagnostic が入るまで完全生成完了とは扱わない。
+  status signature は normalized / deduplicated / case-insensitive な LR2 BMS root set を含める。
+  root set が変わった場合は既存 `Completed` を信用せず、backfill needed として再評価する。
 
 ## 作業エージェント向け実装順
 
