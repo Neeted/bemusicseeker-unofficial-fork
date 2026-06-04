@@ -839,7 +839,7 @@ internal sealed class BmsLibraryMaintenanceService
                     }
                     foreach (BMSFile reloadedFile in reloadedFiles)
                     {
-                        songDb.InsertOrReplace(reloadedFile, typeof(Models.LR2.LR2SongDB.song));
+                        Lr2SongDbWriter.UpsertGeneratedSong(songDb, reloadedFile);
                     }
                 });
                 result.HasUpdates = true;
@@ -1481,7 +1481,7 @@ internal sealed class BmsLibraryMaintenanceService
                         }
                         foreach (BMSFile reloadedFile in reloadedFiles)
                         {
-                            songDb.InsertOrReplace(reloadedFile, typeof(Models.LR2.LR2SongDB.song));
+                            Lr2SongDbWriter.UpsertGeneratedSong(songDb, reloadedFile);
                         }
                     });
                     result.HasUpdates = true;

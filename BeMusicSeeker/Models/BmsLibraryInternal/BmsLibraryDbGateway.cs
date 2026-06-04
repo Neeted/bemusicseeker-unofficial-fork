@@ -166,13 +166,10 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
         ExecuteSongDbTransaction(delegate (LR2SongDBExtended songDb)
         {
             EnsureBmsonSchema(songDb);
+            EnsureSongLookupIndexes(songDb);
             foreach (BMSFile file in files)
             {
-                Lr2SongFolderParentNormalizer.ApplyIfMissingOrInvalid(file);
-                string previousHash = GetSongHashByPath(songDb, file.path);
-                songDb.InsertOrReplace(file, typeof(LR2SongDB.song));
-                UpsertChartDigest(songDb, file);
-                DeleteChartDigestIfOrphaned(songDb, previousHash, file.hash);
+                Lr2SongDbWriter.UpsertGeneratedSong(songDb, file);
             }
         });
     }
@@ -197,7 +194,7 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
         {
             if (updatedDate != null && !string.IsNullOrWhiteSpace(updatedDate.Path))
             {
-                songDb.Execute("UPDATE song SET date = ? WHERE path = ?;", updatedDate.Date, updatedDate.Path);
+                Lr2SongDbWriter.UpdateDate(songDb, updatedDate.Path, updatedDate.Date);
             }
         }
         foreach (BMSFile addedFile in chunk.AddedBmsFiles)
@@ -206,11 +203,7 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
             {
                 continue;
             }
-            Lr2SongFolderParentNormalizer.ApplyIfMissingOrInvalid(addedFile);
-            string previousHash = GetSongHashByPath(songDb, addedFile.path);
-            songDb.InsertOrReplace(addedFile, typeof(LR2SongDB.song));
-            UpsertChartDigest(songDb, addedFile);
-            DeleteChartDigestIfOrphaned(songDb, previousHash, addedFile.hash);
+            Lr2SongDbWriter.UpsertGeneratedSong(songDb, addedFile);
         }
         BulkDeleteBmsonPaths(songDb, chunk.DeletedBmsonPaths);
         foreach (LR2SongDBExtended.bmson_song addedBmsonSong in chunk.UpsertBmsonSongs)
@@ -543,8 +536,7 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
                 songDb.InsertOrReplace(maintenanceInfo, typeof(LR2SongDBExtended.maintenance));
             }
             Lr2SongFolderParentNormalizer.ApplyIfMissingOrInvalid(bmsFile);
-            songDb.InsertOrReplace(bmsFile, typeof(LR2SongDB.song));
-            UpsertChartDigest(songDb, bmsFile);
+            Lr2SongDbWriter.UpsertGeneratedSong(songDb, bmsFile);
         });
     }
 

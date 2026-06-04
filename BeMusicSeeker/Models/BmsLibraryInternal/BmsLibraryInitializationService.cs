@@ -2530,10 +2530,7 @@ internal sealed class BmsLibraryInitializationService
         songDb.BeginTransaction();
         foreach (BMSFile updatedSong in result.UpdatedSongs)
         {
-            string previousHash = songDb.ExecuteScalar<string>("SELECT hash FROM song WHERE path = " + BMSPlaylist.SqlQuoteForTest(updatedSong.path) + " LIMIT 1;");
-            songDb.InsertOrReplace(updatedSong, typeof(LR2SongDB.song));
-            BmsLibraryDbGateway.UpsertChartDigest(songDb, updatedSong);
-            BmsLibraryDbGateway.DeleteChartDigestIfOrphaned(songDb, previousHash, updatedSong.hash);
+            Lr2SongDbWriter.UpsertGeneratedSong(songDb, updatedSong);
         }
         var stopwatchCommit = Stopwatch.StartNew();
         songDb.Commit();
@@ -2706,10 +2703,7 @@ internal sealed class BmsLibraryInitializationService
             }
             foreach (BMSFile updatedSong in result.UpdatedSongs)
             {
-                string previousHash = songDb.ExecuteScalar<string>("SELECT hash FROM song WHERE path = " + BMSPlaylist.SqlQuoteForTest(updatedSong.path) + " LIMIT 1;");
-                songDb.InsertOrReplace(updatedSong, typeof(LR2SongDB.song));
-                BmsLibraryDbGateway.UpsertChartDigest(songDb, updatedSong);
-                BmsLibraryDbGateway.DeleteChartDigestIfOrphaned(songDb, previousHash, updatedSong.hash);
+                Lr2SongDbWriter.UpsertGeneratedSong(songDb, updatedSong);
             }
             foreach (string deletedFolderPath in result.DeletedFolderPaths)
             {

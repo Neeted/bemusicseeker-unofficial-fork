@@ -953,6 +953,47 @@ public sealed class BmsLibraryInitializationServiceTests
     }
 
     [TestMethod]
+    public void UpsertSongs_UpdatesGeneratedColumnsWithoutOverwritingUserSongColumns()
+    {
+        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
+        {
+            string chartDirectoryPath = Path.Combine(lr2RootPath, "MergeSong");
+            Directory.CreateDirectory(chartDirectoryPath);
+            string bmsPath = Path.Combine(chartDirectoryPath, "chart.bms");
+            File.WriteAllText(bmsPath, CreateValidBmsText("Updated Title"), Encoding.ASCII);
+            using (var songDbConnection = new LR2SongDBExtended(songDbPath))
+            {
+                songDbConnection.CreateTable<LR2SongDB.song>();
+                var existing = new TestableBmsFile
+                {
+                    path = bmsPath,
+                    date = 100,
+                    adddate = 12345,
+                    tag = "user-tag"
+                };
+                existing.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+                existing.SetFavorite(7);
+                songDbConnection.InsertOrReplace(existing, typeof(LR2SongDB.song));
+            }
+
+            BMSFile updated = BMSFile.CreateBMSFileFromFile(bmsPath);
+            updated.date = 200;
+
+            new BmsLibraryDbGateway(songDbPath).UpsertSongs([updated]);
+
+            using var verify = new LR2SongDBExtended(songDbPath);
+            LR2SongDB.song row = verify.Table<LR2SongDB.song>().Single();
+            Assert.AreEqual(bmsPath, row.path);
+            Assert.AreEqual("Updated Title", row.title);
+            Assert.AreEqual(updated.hash, row.hash);
+            Assert.AreEqual(200, row.date);
+            Assert.AreEqual(7, row.favorite);
+            Assert.AreEqual(12345, row.adddate);
+            Assert.AreEqual("user-tag", row.tag);
+        });
+    }
+
+    [TestMethod]
     public void ApplyFileScanDiff_AddsBmsAndPersistsInlineChartInfo()
     {
         TestResourceInitializer.EnsureJapaneseResources();

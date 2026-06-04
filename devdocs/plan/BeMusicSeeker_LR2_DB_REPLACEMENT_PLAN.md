@@ -952,6 +952,11 @@ parse directive:
   - まず file diff で既存 BMS の `song.date` / mtime mismatch を parse target に入れる。
   - MD5 が同じ場合は `song.date` の targeted update だけ行い、chart_info / maintenance は再生成しない。
   - MD5 が変わる場合は parsed row へ差し替え、`favorite` / `adddate` / `tag` は既存 row から維持する。
+- Phase 2 は段階的に追加する。
+  - まず `Lr2SongDbWriter` を導入し、既存 `song.path` row がある場合は `favorite` / `adddate` / `tag` を
+    DB 上に残したまま generated columns だけを更新する。
+  - `txt` / text group は Phase 3 で正本を設計してから扱うため、この段階では従来どおり generated row 側の値を保存する。
+  - `song.hash` が `NULL` の既存 row も existing row として扱い、hash 取得結果だけで new row 判定しない。
 
 ## 作業エージェント向け実装順
 
