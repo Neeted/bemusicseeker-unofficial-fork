@@ -1049,6 +1049,10 @@ parse directive:
   - `.lr2folder` sync は reserved normal directory type (`type = 1`) を生成しない。既存 `type = 1` row と同じ path が
     input に来た場合も、その row を `.lr2folder` row で置き換えない。
   - 外部 `.lr2folder` 互換用に `#GENRE` は `#CATEGORY`、`#PLAYLEVEL` は `#MAXTRACKS` の alias として扱う。
+  - BeMusicSeeker の playlist custom folder output は、`.lr2folder` file を書いた直後に同じ本文から
+    `Lr2FolderFileDefinition` を作り、同じ output directory を `ScopeDirectories` として `folder` row を sync する。
+    これにより、従来 `.lr2folder` 再出力だけだった操作でも `folder.command` / `folder.date` / `folder.max` が
+    同じ workflow で更新される。file 出力に成功した path だけを sync item にし、file mtime を `folder.date` の正本にする。
 
 ## 作業エージェント向け実装順
 

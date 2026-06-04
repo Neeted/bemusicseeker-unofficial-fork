@@ -965,13 +965,10 @@ public partial class BMSPlaylist : NotificationObject
                 {
                     lock (folderoutLock)
                     {
-                        string customFolderOutputDirectory2 = GetCustomFolderOutputDirectory(oldtable);
-                        if (customFolderOutputDirectory != customFolderOutputDirectory2)
-                        {
-                            removeCustomFolder(customFolderOutputDirectory2);
-                        }
-                        removeCustomFolder(customFolderOutputDirectory);
-                        createCustomFolder(bMSTable, customFolderOutputDirectory);
+                        string customFolderOutputDirectory2 = oldtable != null && !string.IsNullOrWhiteSpace(oldtable.Output_dir)
+                            ? GetCustomFolderOutputDirectory(oldtable)
+                            : customFolderOutputDirectory;
+                        migrateCustomFolderOutputDirectoryFiles(bMSTable, customFolderOutputDirectory2, customFolderOutputDirectory);
                     }
                 }
             }
@@ -2584,8 +2581,10 @@ public partial class BMSPlaylist : NotificationObject
                 EnsurePlaylistEntriesLoaded(item, "ChangeCustomFolderBaseDirectory");
                 using (item.ReaderWriterLock.GetWriterGuard())
                 {
-                    removeCustomFolder(Path.Combine(outputDirBaseBefore, item.Output_dir), Path.Combine(outputDirBaseAfter, item.Output_dir));
-                    createCustomFolder(item, Path.Combine(outputDirBaseAfter, item.Output_dir));
+                    migrateCustomFolderOutputDirectoryFiles(
+                        item,
+                        Path.Combine(outputDirBaseBefore, item.Output_dir),
+                        Path.Combine(outputDirBaseAfter, item.Output_dir));
                 }
             }
         }
@@ -2616,8 +2615,10 @@ public partial class BMSPlaylist : NotificationObject
                 EnsurePlaylistEntriesLoaded(item, "ChangeCustomFolderBaseDirectoryRoot");
                 using (item.ReaderWriterLock.GetWriterGuard())
                 {
-                    removeCustomFolder(Path.Combine(outputDirBaseBefore, item.Output_dir), Path.Combine(outputDirBaseAfter, item.Output_dir));
-                    createCustomFolder(item, Path.Combine(outputDirBaseAfter, item.Output_dir));
+                    migrateCustomFolderOutputDirectoryFiles(
+                        item,
+                        Path.Combine(outputDirBaseBefore, item.Output_dir),
+                        Path.Combine(outputDirBaseAfter, item.Output_dir));
                 }
             }
         }
@@ -2698,8 +2699,36 @@ public partial class BMSPlaylist : NotificationObject
 
     private void migrateCustomFolderOutputDirectoryFiles(BMSTable bmsTable, string outputDirPathBefore, string outputDirPathAfter)
     {
-        removeCustomFolder(outputDirPathBefore, outputDirPathAfter);
-        createCustomFolder(bmsTable, outputDirPathAfter);
+        bool sameDirectory = IsSameCustomFolderDirectory(outputDirPathBefore, outputDirPathAfter);
+        if (!removeCustomFolder(outputDirPathBefore, pruneRows: false, out List<string> removedFilePaths))
+        {
+            return;
+        }
+
+        bool created = createCustomFolder(bmsTable, outputDirPathAfter);
+        if (!sameDirectory || !created)
+        {
+            try
+            {
+                SyncCustomFolderRowsByPaths(removedFilePaths);
+            }
+            catch
+            {
+                if (created)
+                {
+                    DispatcherMessageBox.Show(string.Format(Resources.Warn_FileOrDirDeleteFailed, outputDirPathBefore), Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
+                }
+            }
+        }
+    }
+
+    private static bool IsSameCustomFolderDirectory(string left, string right)
+    {
+        string normalizedLeft = Lr2FolderPath.NormalizeDirectoryPath(left);
+        string normalizedRight = Lr2FolderPath.NormalizeDirectoryPath(right);
+        return !string.IsNullOrWhiteSpace(normalizedLeft)
+            && !string.IsNullOrWhiteSpace(normalizedRight)
+            && string.Equals(normalizedLeft, normalizedRight, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
@@ -2707,7 +2736,7 @@ public partial class BMSPlaylist : NotificationObject
     /// </summary>
     /// <param name="bmsTable">出力元のプレイリスト。</param>
     /// <param name="outputDir">出力先ディレクトリ。</param>
-    private void createCustomFolder(BMSTable bmsTable, string outputDir)
+    private bool createCustomFolder(BMSTable bmsTable, string outputDir)
     {
         List<string> list = [];
         foreach (Tuple<LR2SongDBExtended.playlist.CustomFolderType, Func<BMSTable, List<string>>> item in new List<Tuple<LR2SongDBExtended.playlist.CustomFolderType, Func<BMSTable, List<string>>>>
@@ -2731,30 +2760,43 @@ public partial class BMSPlaylist : NotificationObject
         {
             try
             {
-                if (Directory.Exists(outputDir))
+                if (Directory.Exists(outputDir)
+                    && Directory.GetFileSystemEntries(outputDir).Count() == 0)
                 {
                     FileSystem.DeleteDirectory(outputDir, DeleteDirectoryOption.ThrowIfDirectoryNonEmpty);
                 }
-                return;
+                SyncCustomFolderRows(outputDir, []);
+                return true;
             }
             catch
             {
-                return;
+                return false;
             }
         }
         int num = 0;
         try
         {
             Directory.CreateDirectory(outputDir);
+            var syncItems = new List<Lr2FolderFileSyncItem>();
             foreach (string item2 in list)
             {
-                File.WriteAllText(Path.Combine(outputDir, $"{num:D4}" + ".lr2folder"), item2, Encoding.GetEncoding("shift_jis"));
+                string filePath = Path.Combine(outputDir, $"{num:D4}" + ".lr2folder");
+                File.WriteAllText(filePath, item2, Encoding.GetEncoding("shift_jis"));
+                syncItems.Add(new Lr2FolderFileSyncItem
+                {
+                    FilePath = filePath,
+                    Definition = Lr2FolderFileProjection.ParseDefinition(ReadLinesFromText(item2)),
+                    LastWriteTimeUtc = File.GetLastWriteTimeUtc(filePath)
+                });
                 num++;
             }
+            SyncCustomFolderRows(outputDir, syncItems);
+            return true;
         }
         catch
         {
             DispatcherMessageBox.Show(string.Format(Resources.Warn_CustomFolderOutputFailed, bmsTable.name, outputDir), Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
+            return false;
         }
     }
 
@@ -2784,72 +2826,95 @@ public partial class BMSPlaylist : NotificationObject
         {
             if (BMSTables.Contains(bmsTable))
             {
-                removeCustomFolder(GetCustomFolderOutputDirectory(bmsTable));
+                removeCustomFolder(GetCustomFolderOutputDirectory(bmsTable), pruneRows: true, out _);
             }
+        }
+    }
+
+    private void SyncCustomFolderRows(string outputDir, IReadOnlyCollection<Lr2FolderFileSyncItem> items)
+    {
+        if (string.IsNullOrWhiteSpace(outputDir) || string.IsNullOrWhiteSpace(lr2SongDBPath))
+        {
+            return;
+        }
+
+        using var lr2Song = new LR2SongDBExtended(lr2SongDBPath);
+        Lr2FolderFileDbSyncService.Sync(lr2Song, new Lr2FolderFileDbSyncRequest
+        {
+            Items = items ?? [],
+            ScopeDirectories = [outputDir],
+            AllowPrune = true
+        });
+    }
+
+    private void SyncCustomFolderRowsByPaths(IReadOnlyCollection<string> filePaths)
+    {
+        if (filePaths == null || filePaths.Count == 0 || string.IsNullOrWhiteSpace(lr2SongDBPath))
+        {
+            return;
+        }
+
+        using var lr2Song = new LR2SongDBExtended(lr2SongDBPath);
+        Lr2FolderFileDbSyncService.Sync(lr2Song, new Lr2FolderFileDbSyncRequest
+        {
+            ScopePaths = filePaths,
+            AllowPrune = true
+        });
+    }
+
+    private static IEnumerable<string> ReadLinesFromText(string text)
+    {
+        using var reader = new StringReader(text ?? string.Empty);
+        string line;
+        while ((line = reader.ReadLine()) != null)
+        {
+            yield return line;
         }
     }
 
     /// <summary>
     /// 指定ディレクトリ配下の <c>.lr2folder</c> と LR2 DB 上の対応フォルダ情報を削除します。
-    /// 同階層への移動時は DB のパスだけ新ディレクトリへ付け替えます。
     /// </summary>
     /// <param name="targetDir">削除対象ディレクトリ。</param>
-    /// <param name="newDir">同階層移動時の移動先ディレクトリ。</param>
-    private void removeCustomFolder(string targetDir, string newDir = null)
+    /// <param name="pruneRows">対応する LR2 folder row も削除する場合は <see langword="true"/>。</param>
+    private bool removeCustomFolder(string targetDir, bool pruneRows, out List<string> deletedFilePaths)
     {
-        if (!Directory.Exists(targetDir))
+        deletedFilePaths = [];
+        if (Directory.Exists(targetDir))
         {
-            return;
-        }
-        try
-        {
-            foreach (string item in Directory.EnumerateFiles(targetDir, "*.lr2folder", System.IO.SearchOption.TopDirectoryOnly))
+            try
             {
-                FileSystem.DeleteFile(item, UIOption.OnlyErrorDialogs, RecycleOption.DeletePermanently);
-            }
-            if ((newDir == null || !targetDir.Equals(newDir, StringComparison.OrdinalIgnoreCase)) && Directory.GetFileSystemEntries(targetDir).Count() == 0)
-            {
-                FileSystem.DeleteDirectory(targetDir, DeleteDirectoryOption.ThrowIfDirectoryNonEmpty);
-            }
-        }
-        catch
-        {
-            DispatcherMessageBox.Show(string.Format(Resources.Warn_FileOrDirDeleteFailed, targetDir), Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
-        }
-        var lr2Song = new LR2SongDBExtended(lr2SongDBPath);
-        try
-        {
-            lr2Song.BeginTransaction();
-            (from f in lr2Song.Table<LR2SongDB.folder>().ToList()
-             where !string.Equals(f.path, targetDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) && f.path.StartsWith(targetDir, StringComparison.OrdinalIgnoreCase)
-             select f.path).ToList().ForEach(delegate (string p)
-         {
-             lr2Song.Delete<LR2SongDB.folder>(p);
-         });
-            List<LR2SongDB.folder> source = [.. (from f in lr2Song.Table<LR2SongDB.folder>().ToList()
-                                             where string.Equals(f.path, targetDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
-                                             select f)];
-            if (source.Count() > 0)
-            {
-                LR2SongDB.folder folder = source.First();
-                lr2Song.Delete<LR2SongDB.folder>(folder.path);
-                if (!string.IsNullOrWhiteSpace(newDir) && string.Equals(Path.GetDirectoryName(targetDir), Path.GetDirectoryName(newDir), StringComparison.OrdinalIgnoreCase))
+                foreach (string item in Directory.EnumerateFiles(targetDir, "*.lr2folder", System.IO.SearchOption.TopDirectoryOnly))
                 {
-                    folder.path = folder.path.ReplaceFromStart(targetDir, newDir, isIgnoreCase: true);
-                    folder.date = null;
-                    folder.adddate = null;
-                    lr2Song.InsertOrReplace(folder, typeof(LR2SongDB.folder));
+                    FileSystem.DeleteFile(item, UIOption.OnlyErrorDialogs, RecycleOption.DeletePermanently);
+                    deletedFilePaths.Add(item);
+                }
+                if (Directory.GetFileSystemEntries(targetDir).Count() == 0)
+                {
+                    FileSystem.DeleteDirectory(targetDir, DeleteDirectoryOption.ThrowIfDirectoryNonEmpty);
                 }
             }
-            lr2Song.Commit();
-        }
-        finally
-        {
-            if (lr2Song != null)
+            catch
             {
-                ((IDisposable)lr2Song).Dispose();
+                DispatcherMessageBox.Show(string.Format(Resources.Warn_FileOrDirDeleteFailed, targetDir), Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
+                return false;
             }
         }
+
+        if (pruneRows)
+        {
+            try
+            {
+                SyncCustomFolderRows(targetDir, []);
+            }
+            catch
+            {
+                DispatcherMessageBox.Show(string.Format(Resources.Warn_FileOrDirDeleteFailed, targetDir), Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /// <summary>
@@ -2891,8 +2956,7 @@ public partial class BMSPlaylist : NotificationObject
                 if (Settings.Default.OperationModeLR2DB)
                 {
                     string customFolderOutputDirectory = GetCustomFolderOutputDirectory(bMSTable);
-                    removeCustomFolder(customFolderOutputDirectory);
-                    createCustomFolder(bMSTable, customFolderOutputDirectory);
+                    migrateCustomFolderOutputDirectoryFiles(bMSTable, customFolderOutputDirectory, customFolderOutputDirectory);
                 }
             }
         }
