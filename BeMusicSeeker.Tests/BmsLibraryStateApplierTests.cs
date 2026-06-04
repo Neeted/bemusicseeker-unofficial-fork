@@ -204,6 +204,76 @@ public sealed class BmsLibraryStateApplierTests
     }
 
     [TestMethod]
+    public void ApplyLibraryMutationDelta_PathReplaceUsesSharedLr2CompatibilityNormalizer()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_StateApplier_" + Guid.NewGuid().ToString("N"));
+            string oldDirectoryPath = Path.Combine(tempRootPath, "OldFolder");
+            string newDirectoryPath = Path.Combine(tempRootPath, "New😀Folder");
+            Directory.CreateDirectory(oldDirectoryPath);
+            Directory.CreateDirectory(newDirectoryPath);
+            string oldChartPath = Path.Combine(oldDirectoryPath, "chart.bms");
+            string newChartPath = Path.Combine(newDirectoryPath, "chart.bms");
+            File.WriteAllText(oldChartPath, "#PLAYER 1");
+            File.WriteAllText(newChartPath, "#PLAYER 1");
+            try
+            {
+                var movedFile = new TestableBmsFile
+                {
+                    path = newChartPath
+                };
+                movedFile.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+                using (var songDb = new LR2SongDBExtended(songDbPath))
+                {
+                    songDb.CreateTable<LR2SongDB.song>();
+                    songDb.CreateTable<LR2SongDBExtended.maintenance>();
+                    var oldRow = new TestableBmsFile
+                    {
+                        path = oldChartPath,
+                        folder = "stale-folder",
+                        parent = "stale-parent"
+                    };
+                    oldRow.SetHash(movedFile.hash);
+                    songDb.InsertOrReplace(oldRow, typeof(LR2SongDB.song));
+                }
+
+                DispatcherCollection<ChartPackage> pendingPackages = CreatePackageCollection([]);
+                DispatcherCollection<ChartPackage> installedPackages = CreatePackageCollection([]);
+                var callbacks = new TrackingCallbacks();
+                BmsLibraryStateApplier applier = CreateStateApplier(songDbPath, callbacks, () => pendingPackages, packages => pendingPackages = packages, () => installedPackages, packages => installedPackages = packages);
+                var delta = new LibraryMutationDelta();
+                delta.ChartPathChanges.Add(new LibraryChartPathChange
+                {
+                    Chart = ChartFileProjection.FromBmsFile(movedFile),
+                    OldPath = oldChartPath,
+                    NewPath = newChartPath
+                });
+
+                applier.ApplyLibraryMutationDelta(delta);
+
+                Assert.IsTrue(string.IsNullOrWhiteSpace(movedFile.folder));
+                Assert.IsTrue(string.IsNullOrWhiteSpace(movedFile.parent));
+                Assert.IsTrue(movedFile.Warnings.Contains(ChartWarningKind.Lr2PathEncodingUnsupported));
+                using var verifySongDb = new LR2SongDBExtended(songDbPath);
+                verifySongDb.CreateTable<LR2SongDB.song>();
+                Assert.IsFalse(verifySongDb.Table<BMSFile>().Any(file => file.path == oldChartPath));
+                Assert.AreEqual(1L, verifySongDb.ExecuteScalar<long>("SELECT COUNT(1) FROM song WHERE path = ?;", newChartPath));
+                Assert.IsTrue(string.IsNullOrWhiteSpace(verifySongDb.ExecuteScalar<string>("SELECT folder FROM song WHERE path = ?;", newChartPath)));
+                Assert.IsTrue(string.IsNullOrWhiteSpace(verifySongDb.ExecuteScalar<string>("SELECT parent FROM song WHERE path = ?;", newChartPath)));
+            }
+            finally
+            {
+                if (Directory.Exists(tempRootPath))
+                {
+                    Directory.Delete(tempRootPath, recursive: true);
+                }
+            }
+        });
+    }
+
+    [TestMethod]
     public void ApplyLibraryMutationDelta_FullClearBuildsChartSnapshotWithoutMutatingBmsOwner()
     {
         TestResourceInitializer.EnsureJapaneseResources();

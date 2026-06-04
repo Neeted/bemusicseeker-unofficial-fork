@@ -3,9 +3,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
-using System.Text;
 using BeMusicSeeker.Models.LR2;
-using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using Livet;
 
@@ -77,7 +75,7 @@ internal sealed class BmsLibraryStateApplier(
             BMSFile bmsFile = chartPathChange?.GetBmsStorageOwner();
             if (bmsFile != null)
             {
-                ReplaceBmsFilePath(bmsFile, chartPathChange.NewPath, chartPathChange.OldPath, chartPathChange.CalcFolderParent);
+                ReplaceBmsFilePath(bmsFile, chartPathChange.NewPath, chartPathChange.OldPath);
             }
             else
             {
@@ -265,7 +263,7 @@ internal sealed class BmsLibraryStateApplier(
         }
     }
 
-    private void ReplaceBmsFilePath(BMSFile bmsFile, string newPath, string oldPath = null, bool calcFolderParent = true)
+    private void ReplaceBmsFilePath(BMSFile bmsFile, string newPath, string oldPath = null)
     {
         if (bmsFile == null)
         {
@@ -294,30 +292,9 @@ internal sealed class BmsLibraryStateApplier(
 
         bmsFile.path = newPath;
         bmsFile.SetTextGroupFlag(Lr2TextGroupResolver.ResolveFlag(newPath, bmsFile.txt.GetValueOrDefault()));
-        if (calcFolderParent)
-        {
-            try
-            {
-                string directoryName = Path.GetDirectoryName(bmsFile.path);
-                var encoding = Encoding.GetEncoding("shift_jis", EncoderFallback.ExceptionFallback, DecoderFallback.ExceptionFallback);
-                bmsFile.folder = LR2CRC32.Compute(encoding.GetBytes(directoryName + "\\\0")).ToString("x");
-                bmsFile.parent = LR2CRC32.Compute(encoding.GetBytes(Path.GetDirectoryName(directoryName) + "\\\0")).ToString("x");
-            }
-            catch
-            {
-                bmsFile.parent = null;
-                bmsFile.folder = null;
-                bmsFile.adddate = null;
-                bmsFile.date = null;
-            }
-        }
-        else
-        {
-            bmsFile.parent = null;
-            bmsFile.folder = null;
-            bmsFile.adddate = null;
-            bmsFile.date = null;
-        }
+        bmsFile.folder = null;
+        bmsFile.parent = null;
+        Lr2SongRowEnricher.EnrichGeneratedSong(bmsFile);
 
         dbGateway.ReplaceSongPathWithMaintenance(bmsFile, oldPath);
     }

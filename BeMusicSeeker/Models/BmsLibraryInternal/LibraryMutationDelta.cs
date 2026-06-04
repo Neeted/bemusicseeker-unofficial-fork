@@ -72,8 +72,6 @@ internal sealed class LibraryChartPathChange
 
     public string OldPath { get; set; }
 
-    public bool CalcFolderParent { get; set; } = true;
-
     internal BMSFile GetBmsStorageOwner()
     {
         return Chart?.GetBmsStorageOwner();

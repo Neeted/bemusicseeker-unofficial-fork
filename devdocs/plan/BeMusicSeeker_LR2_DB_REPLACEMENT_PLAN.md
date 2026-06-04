@@ -1096,6 +1096,8 @@ parse directive:
   file diff を通らない direct install / path replacement では、DB helper ではなく mutation application 層で
   `Lr2TextGroupResolver` を呼び、導入後 / 移動後 directory の direct `.txt` presence を `BMSFile.txt` に反映してから
   `Lr2SongDbWriter` / storage row update へ渡す。
+  path replacement では `song.folder` / `song.parent` を一度空にして `Lr2SongRowEnricher` に再生成させる。
+  これにより通常 mutation でも backfill / file diff と同じ CP932 非対応判定と LR2 CRC contract を使う。
   完了直前の source staleness check は、service に caller-provided predicate を渡す形にし、`BMSLibrary` 側で
   owned collection / storage row version と root / `.lr2folder` / `folderinfo.txt` / text group surface を開始時入力と
   再比較する。stale の場合は `Completed` にせず `Incomplete(source_stale_detected)` とする。
