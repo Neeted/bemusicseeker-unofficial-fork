@@ -1096,6 +1096,9 @@ parse directive:
   file diff を通らない direct install / path replacement では、DB helper ではなく mutation application 層で
   `Lr2TextGroupResolver` を呼び、導入後 / 移動後 directory の direct `.txt` presence を `BMSFile.txt` に反映してから
   `Lr2SongDbWriter` / storage row update へ渡す。
+  完了直前の source staleness check は、service に caller-provided predicate を渡す形にし、`BMSLibrary` 側で
+  owned collection / storage row version と root / `.lr2folder` / `folderinfo.txt` / text group surface を開始時入力と
+  再比較する。stale の場合は `Completed` にせず `Incomplete(source_stale_detected)` とする。
   sync 後は startup-scan blocker diagnostic を実行し、root set 欠落、current song row 欠落、
   `song.date` 欠落 / `0`、known root 外 song row が無い場合だけ `Completed` を記録する。
   blocker が残る場合は `Incomplete` (`startup_scan_blockers_detected`) とし、diagnostic count を log / status

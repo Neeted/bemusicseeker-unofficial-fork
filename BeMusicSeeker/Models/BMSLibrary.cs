@@ -4968,7 +4968,8 @@ completeFileEnumerationOnce,
                     Lr2FolderFileDiscoveryComplete = input.Lr2FolderFileDiscoveryComplete,
                     SongRows = input.SongRows,
                     TextFileDirectories = input.TextFileDirectories,
-                    StartedAtUtc = DateTime.UtcNow
+                    StartedAtUtc = DateTime.UtcNow,
+                    IsSourceCurrent = () => IsLr2FullGenerationBackfillInputCurrent(input)
                 });
             }
             stopwatch.Stop();
@@ -5119,6 +5120,8 @@ completeFileEnumerationOnce,
     {
         List<string> chartPaths;
         List<BMSFile> songRows;
+        int ownedCollectionVersion;
+        StorageRowsVersionSnapshot storageRowsVersion;
         using (rwlockBMSFilesInitializedAll.GetReaderGuard())
         {
             chartPaths = [.. (_BMSFiles ?? [])
@@ -5128,6 +5131,8 @@ completeFileEnumerationOnce,
             songRows = [.. (_BMSFiles ?? [])
                 .Where(file => file != null && !string.IsNullOrWhiteSpace(file.path))
                 .Select(file => file.CreateSongRowPersistenceCopy())];
+            ownedCollectionVersion = OwnedChartCollectionVersion;
+            storageRowsVersion = CreateCurrentStorageRowsVersionSnapshotUnsafe();
         }
         List<string> roots = getBMSDirectories();
         List<string> lr2FolderDiscoveryDirectories = CreateLr2FullGenerationLr2FolderDiscoveryDirectories(roots);
@@ -5141,7 +5146,80 @@ completeFileEnumerationOnce,
             lr2FolderFileCandidates.Paths,
             lr2FolderFileCandidates.DiscoveryComplete,
             songRows,
-            CreateLr2FullGenerationTextFileDirectories(chartPaths));
+            CreateLr2FullGenerationTextFileDirectories(chartPaths),
+            ownedCollectionVersion,
+            storageRowsVersion.BmsRowsVersion,
+            storageRowsVersion.BmsonRowsVersion);
+    }
+
+    private bool IsLr2FullGenerationBackfillInputCurrent(Lr2FullGenerationBackfillInput input)
+    {
+        if (input == null
+            || OwnedChartCollectionVersion != input.OwnedChartCollectionVersion
+            || Volatile.Read(ref bmsStorageRowsVersion) != input.BmsRowsVersion
+            || Volatile.Read(ref bmsonStorageRowsVersion) != input.BmsonRowsVersion)
+        {
+            return false;
+        }
+
+        List<string> currentChartPaths;
+        using (rwlockBMSFilesInitializedAll.GetReaderGuard())
+        {
+            currentChartPaths = [.. (_BMSFiles ?? [])
+                .Where(file => file != null && !string.IsNullOrWhiteSpace(file.path))
+                .Select(file => file.path)];
+        }
+        if (!ArePathSetsEqual(input.ChartPaths, currentChartPaths))
+        {
+            return false;
+        }
+
+        List<string> roots = getBMSDirectories();
+        if (!ArePathSetsEqual(input.RootDirectories, roots))
+        {
+            return false;
+        }
+
+        List<string> lr2FolderDiscoveryDirectories = CreateLr2FullGenerationLr2FolderDiscoveryDirectories(roots);
+        if (!ArePathSetsEqual(input.Lr2FolderDiscoveryDirectories, lr2FolderDiscoveryDirectories))
+        {
+            return false;
+        }
+
+        Lr2FolderFileCandidateSnapshot lr2FolderFileCandidates = CreateLr2FullGenerationLr2FolderFileCandidates(lr2FolderDiscoveryDirectories);
+        if (input.Lr2FolderFileDiscoveryComplete != lr2FolderFileCandidates.DiscoveryComplete
+            || !ArePathSetsEqual(input.Lr2FolderFilePaths, lr2FolderFileCandidates.Paths)
+            || !ArePathSetsEqual(input.FolderInfoFilePaths, CreateLr2FullGenerationFolderInfoCandidates(roots, input.ChartPaths))
+            || !ArePathSetsEqual(input.TextFileDirectories, CreateLr2FullGenerationTextFileDirectories(input.ChartPaths)))
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool ArePathSetsEqual(IEnumerable<string> first, IEnumerable<string> second)
+    {
+        return new HashSet<string>(
+            (first ?? []).Where(path => !string.IsNullOrWhiteSpace(path)).Select(SafeFullPathOrOriginal),
+            StringComparer.OrdinalIgnoreCase)
+            .SetEquals((second ?? []).Where(path => !string.IsNullOrWhiteSpace(path)).Select(SafeFullPathOrOriginal));
+    }
+
+    private static string SafeFullPathOrOriginal(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return string.Empty;
+        }
+        try
+        {
+            return Path.GetFullPath(path);
+        }
+        catch (Exception ex) when (ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException)
+        {
+            return path;
+        }
     }
 
     private static List<string> CreateLr2FullGenerationFolderInfoCandidates(
@@ -5226,7 +5304,10 @@ completeFileEnumerationOnce,
         IReadOnlyList<string> lr2FolderFilePaths,
         bool lr2FolderFileDiscoveryComplete,
         IReadOnlyList<BMSFile> songRows,
-        IReadOnlyList<string> textFileDirectories)
+        IReadOnlyList<string> textFileDirectories,
+        int ownedChartCollectionVersion,
+        int bmsRowsVersion,
+        int bmsonRowsVersion)
     {
         public IReadOnlyList<string> RootDirectories { get; } = rootDirectories ?? [];
 
@@ -5245,6 +5326,12 @@ completeFileEnumerationOnce,
         public IReadOnlyList<BMSFile> SongRows { get; } = songRows ?? [];
 
         public IReadOnlyList<string> TextFileDirectories { get; } = textFileDirectories ?? [];
+
+        public int OwnedChartCollectionVersion { get; } = ownedChartCollectionVersion;
+
+        public int BmsRowsVersion { get; } = bmsRowsVersion;
+
+        public int BmsonRowsVersion { get; } = bmsonRowsVersion;
     }
 
     private sealed class Lr2FolderFileCandidateSnapshot(

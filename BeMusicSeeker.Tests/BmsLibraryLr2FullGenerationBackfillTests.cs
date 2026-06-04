@@ -476,6 +476,40 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
     }
 
     [TestMethod]
+    public void BackfillService_LeavesIncompleteWhenSourceBecomesStaleBeforeCompletion()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        string rootDirectory = Path.Combine(scope.DirectoryPath, "Root");
+        string songDirectory = Path.Combine(rootDirectory, "Song");
+        Directory.CreateDirectory(songDirectory);
+        string chartPath = Path.Combine(songDirectory, "chart.bms");
+        File.WriteAllText(chartPath, "#TITLE source stale\r\n");
+        ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
+        TestableBmsFile file = CreateBackfillTestFile(chartPath, snapshot);
+        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        songDb.CreateTable<LR2SongDB.song>();
+        songDb.CreateTable<LR2SongDB.folder>();
+
+        Lr2FullGenerationBackfillResult result = Lr2FullGenerationBackfillService.Run(songDb, new Lr2FullGenerationBackfillRequest
+        {
+            Signature = "source-stale",
+            RunId = "source-stale",
+            RootDirectories = [rootDirectory],
+            ChartPaths = [chartPath],
+            SongRows = [file],
+            StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc),
+            IsSourceCurrent = () => false
+        });
+
+        Assert.AreEqual(Lr2FullGenerationBackfillService.SourceStaleStage, result.FinalStage);
+        Assert.AreEqual(Lr2FullGenerationBackfillService.SourceStaleReason, result.IncompleteReason);
+        LR2SongDBExtended.lr2_full_generation_status row = songDb.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
+        Assert.AreEqual("Incomplete", row.status);
+        Assert.AreEqual(Lr2FullGenerationBackfillService.SourceStaleStage, row.stage);
+        StringAssert.Contains(row.last_error, Lr2FullGenerationBackfillService.SourceStaleReason);
+    }
+
+    [TestMethod]
     public void BackfillService_ParsesSongRowsWithDetectedUtf8Encoding()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();

@@ -33,6 +33,8 @@ internal sealed class Lr2FullGenerationBackfillRequest
     public IReadOnlyCollection<string> TextFileDirectories { get; set; } = [];
 
     public DateTime StartedAtUtc { get; set; } = DateTime.UtcNow;
+
+    public Func<bool> IsSourceCurrent { get; set; }
 }
 
 internal sealed class Lr2FullGenerationBackfillResult
@@ -114,6 +116,10 @@ internal static class Lr2FullGenerationBackfillService
     internal const string StartupScanBlockersStage = "startup_scan_blockers";
 
     internal const string StartupScanBlockersReason = "startup_scan_blockers_detected";
+
+    internal const string SourceStaleStage = "source_stale";
+
+    internal const string SourceStaleReason = "source_stale_detected";
 
     internal static Lr2FullGenerationBackfillResult Run(
         LR2SongDBExtended songDb,
@@ -251,18 +257,7 @@ internal static class Lr2FullGenerationBackfillService
             songRows);
         string finalStage;
         string incompleteReason;
-        if (diagnosticResult.IsClean)
-        {
-            Lr2FullGenerationStatusService.MarkCompleted(
-                songDb,
-                request.Signature,
-                request.RunId,
-                totalCount,
-                nowUtc: DateTime.UtcNow);
-            finalStage = CompletedStage;
-            incompleteReason = null;
-        }
-        else
+        if (!diagnosticResult.IsClean)
         {
             Lr2FullGenerationStatusService.MarkIncomplete(
                 songDb,
@@ -275,6 +270,31 @@ internal static class Lr2FullGenerationBackfillService
                 nowUtc: DateTime.UtcNow);
             finalStage = StartupScanBlockersStage;
             incompleteReason = StartupScanBlockersReason;
+        }
+        else if (!IsSourceCurrent(request))
+        {
+            Lr2FullGenerationStatusService.MarkIncomplete(
+                songDb,
+                request.Signature,
+                request.RunId,
+                processedCursor: processedCount,
+                totalCount,
+                stage: SourceStaleStage,
+                detail: SourceStaleReason,
+                nowUtc: DateTime.UtcNow);
+            finalStage = SourceStaleStage;
+            incompleteReason = SourceStaleReason;
+        }
+        else
+        {
+            Lr2FullGenerationStatusService.MarkCompleted(
+                songDb,
+                request.Signature,
+                request.RunId,
+                totalCount,
+                nowUtc: DateTime.UtcNow);
+            finalStage = CompletedStage;
+            incompleteReason = null;
         }
 
         stopwatch.Stop();
@@ -295,6 +315,22 @@ internal static class Lr2FullGenerationBackfillService
             StartupScanDiagnosticResult = diagnosticResult,
             ElapsedMs = stopwatch.ElapsedMilliseconds
         };
+    }
+
+    private static bool IsSourceCurrent(Lr2FullGenerationBackfillRequest request)
+    {
+        if (request?.IsSourceCurrent == null)
+        {
+            return true;
+        }
+        try
+        {
+            return request.IsSourceCurrent();
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private static Lr2StartupScanDiagnosticResult DiagnoseStartupScanBlockers(
