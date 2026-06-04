@@ -1044,6 +1044,14 @@ public sealed class BmsLibraryInitializationServiceTests
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM song;"));
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info WHERE sha256 = ? AND md5 = ?;", result.AddedFiles[0].sha256, result.AddedFiles[0].hash));
             Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info_parse_failure;"));
+            LR2SongDB.song songRow = verify.Table<LR2SongDB.song>().Single();
+            Assert.AreEqual(120, songRow.maxbpm);
+            Assert.AreEqual(120, songRow.minbpm);
+            Assert.AreEqual(5, songRow.mode);
+            Assert.AreEqual(1, songRow.karinotes);
+            Assert.AreEqual(0, songRow.longnote);
+            Assert.AreEqual(0, songRow.random);
+            Assert.IsNull(songRow.judge);
         });
     }
 

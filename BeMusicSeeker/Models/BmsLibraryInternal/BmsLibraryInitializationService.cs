@@ -1063,6 +1063,7 @@ internal sealed class BmsLibraryInitializationService
         Dictionary<string, Queue<LR2SongDBExtended.chart_info>> chartInfoByMd5 = BuildQueueByMd5(chartInfoRows, row => row?.md5);
         Dictionary<string, Queue<LR2SongDBExtended.chart_info>> appliedChartInfoByMd5 = BuildQueueByMd5(appliedRows, row => row?.md5);
         Dictionary<string, Queue<LR2SongDBExtended.chart_info_parse_failure>> failureByMd5 = BuildQueueByMd5(failureRows, row => row?.md5);
+        Dictionary<string, LR2SongDBExtended.chart_info> appliedChartInfoByPath = BuildAppliedChartInfoByPath(fullBmsBatch, appliedRows);
         var failureDeletes = new HashSet<string>(failureDeleteMd5s, StringComparer.OrdinalIgnoreCase);
         var commitChunk = new FileScanDiffCommitChunk();
         DirectoryResourceLookupCache lookupCache = inlineMaintenanceLookupContext?.DirectoryLookupCache;
@@ -1131,6 +1132,7 @@ internal sealed class BmsLibraryInitializationService
                     {
                         commitChunk.AddMaintenanceInfoRow(candidate.File.maintenanceInfo);
                     }
+                    Lr2SongRowEnricher.EnrichFromChartInfo(candidate.File, ResolveAppliedChartInfo(candidate, appliedChartInfoByPath));
                     pipelineResult.SuccessfullyReplacedBmsPaths.Add(candidate.Path);
                     pipelineResult.AddedFiles.Add(candidate.File);
                     commitChunk.AddAddedBmsFile(candidate.File);
@@ -1722,6 +1724,53 @@ internal sealed class BmsLibraryInitializationService
         {
             chunk.AddParseFailureDeleteMd5(md5, countMutation: false);
         }
+    }
+
+    private static Dictionary<string, LR2SongDBExtended.chart_info> BuildAppliedChartInfoByPath(
+        IEnumerable<InlineBmsParseCandidate> candidates,
+        IEnumerable<LR2SongDBExtended.chart_info> appliedRows)
+    {
+        var rowsBySha256 = new Dictionary<string, LR2SongDBExtended.chart_info>(StringComparer.OrdinalIgnoreCase);
+        foreach (LR2SongDBExtended.chart_info row in appliedRows ?? [])
+        {
+            if (row == null || string.IsNullOrWhiteSpace(row.sha256))
+            {
+                continue;
+            }
+            rowsBySha256[row.sha256] = row;
+        }
+        if (rowsBySha256.Count == 0)
+        {
+            return new Dictionary<string, LR2SongDBExtended.chart_info>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        var result = new Dictionary<string, LR2SongDBExtended.chart_info>(StringComparer.OrdinalIgnoreCase);
+        foreach (InlineBmsParseCandidate candidate in candidates ?? [])
+        {
+            if (candidate?.File == null || string.IsNullOrWhiteSpace(candidate.Path) || string.IsNullOrWhiteSpace(candidate.File.sha256))
+            {
+                continue;
+            }
+            if (rowsBySha256.TryGetValue(candidate.File.sha256, out LR2SongDBExtended.chart_info row))
+            {
+                result[candidate.Path] = row;
+            }
+        }
+        return result;
+    }
+
+    private static LR2SongDBExtended.chart_info ResolveAppliedChartInfo(
+        InlineBmsParseCandidate candidate,
+        Dictionary<string, LR2SongDBExtended.chart_info> appliedChartInfoByPath)
+    {
+        if (candidate == null
+            || string.IsNullOrWhiteSpace(candidate.Path)
+            || appliedChartInfoByPath == null
+            || !appliedChartInfoByPath.TryGetValue(candidate.Path, out LR2SongDBExtended.chart_info row))
+        {
+            return null;
+        }
+        return row;
     }
 
     private static void AddRemainingInlineRows(

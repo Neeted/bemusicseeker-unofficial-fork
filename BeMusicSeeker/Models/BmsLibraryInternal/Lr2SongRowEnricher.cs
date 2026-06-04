@@ -1,4 +1,5 @@
 using System;
+using BeMusicSeeker.Models.LR2;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
@@ -36,6 +37,11 @@ internal static class Lr2SongRowEnricher
             return;
         }
         Lr2SongFolderParentNormalizer.ApplyIfMissingOrInvalid(song, folderParentHashCache);
+    }
+
+    internal static void EnrichFromChartInfo(BMSFile song, LR2SongDBExtended.chart_info chartInfo)
+    {
+        song?.ApplyLr2ChartInfoColumns(chartInfo);
     }
 
     internal static int ToLr2UnixSeconds(DateTime utcTime)

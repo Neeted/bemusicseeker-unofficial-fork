@@ -48,6 +48,12 @@ internal enum MaintenanceInfoOrigin
 
 public class BMSFile : LR2SongDB.song
 {
+    private const int ChartInfoFeatureUndefinedLongNote = 1;
+    private const int ChartInfoFeatureRandom = 4;
+    private const int ChartInfoFeatureLongNote = 8;
+    private const int ChartInfoFeatureChargeNote = 16;
+    private const int ChartInfoFeatureHellChargeNote = 32;
+
     private sealed class BulkLoadNotificationScope : IDisposable
     {
         private bool disposed;
@@ -700,6 +706,55 @@ public class BMSFile : LR2SongDB.song
     internal void SetTextGroupFlag(int value)
     {
         txt = value == 0 ? 0 : 1;
+    }
+
+    internal void ApplyLr2ChartInfoColumns(LR2SongDBExtended.chart_info chartInfo)
+    {
+        if (chartInfo == null)
+        {
+            return;
+        }
+        if (!string.IsNullOrWhiteSpace(hash)
+            && !string.IsNullOrWhiteSpace(chartInfo.md5)
+            && !string.Equals(hash, chartInfo.md5, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        level = chartInfo.level;
+        difficulty = chartInfo.difficulty;
+        maxbpm = ToLr2SongInteger(chartInfo.maxbpm);
+        minbpm = ToLr2SongInteger(chartInfo.minbpm);
+        mode = chartInfo.mode;
+        longnote = HasLongNoteFeature(chartInfo.feature) ? 1 : 0;
+        random = (chartInfo.feature & ChartInfoFeatureRandom) != 0 ? 1 : 0;
+        karinotes = chartInfo.notes;
+    }
+
+    private static int? ToLr2SongInteger(double? value)
+    {
+        if (!value.HasValue)
+        {
+            return null;
+        }
+        if (value.Value > int.MaxValue)
+        {
+            return int.MaxValue;
+        }
+        if (value.Value < int.MinValue)
+        {
+            return int.MinValue;
+        }
+        return (int)value.Value;
+    }
+
+    private static bool HasLongNoteFeature(int feature)
+    {
+        const int longNoteFlags = ChartInfoFeatureUndefinedLongNote
+            | ChartInfoFeatureLongNote
+            | ChartInfoFeatureChargeNote
+            | ChartInfoFeatureHellChargeNote;
+        return (feature & longNoteFlags) != 0;
     }
 
     private static IEnumerable<string> ReadSnapshotLines(ChartFileSnapshot snapshot, Encoding encoding)

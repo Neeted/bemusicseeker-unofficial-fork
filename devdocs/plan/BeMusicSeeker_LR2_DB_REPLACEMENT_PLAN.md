@@ -980,6 +980,10 @@ parse directive:
   - まず `Lr2SongRowEnricher` を導入し、既存の `date` / `txt` / user columns preservation / folder-parent CRC 正規化を
     file diff parser と DB writer から同じ入口へ寄せる。
   - detailed parser / `chart_info` 由来 numeric columns は、同じ enricher に後続 cycle で接続する。
+  - 初回接続では `chart_info` に正本がある `level` / `difficulty` / `maxbpm` / `minbpm` / `mode` /
+    `longnote` / `random` / `karinotes` を反映する。
+  - `song.judge` は LR2 の raw `#RANK` 値で、`chart_info.judge` は判定幅 percent なので写さない。
+    `bga` / `exlevel` も現行 `chart_info` に直接の正本がないため、推測で埋めず、対応する parser fact を追加する cycle まで残す。
 
 ## 作業エージェント向け実装順
 

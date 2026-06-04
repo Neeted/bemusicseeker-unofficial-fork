@@ -3,6 +3,7 @@ using System.IO;
 using System.Text;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.LR2;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
@@ -65,11 +66,71 @@ public sealed class Lr2SongRowEnricherTests
         Assert.IsTrue(string.IsNullOrWhiteSpace(file.parent));
     }
 
+    [TestMethod]
+    public void EnrichFromChartInfo_AppliesLr2NumericColumns()
+    {
+        var file = new TestableBmsFile();
+        file.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        file.SetJudgeForTest(1);
+        var chartInfo = new LR2SongDBExtended.chart_info
+        {
+            md5 = file.hash,
+            level = 12,
+            difficulty = 4,
+            maxbpm = 180.9,
+            minbpm = 90.1,
+            mode = 14,
+            judge = 100,
+            feature = 4 | 8,
+            notes = 1234
+        };
+
+        Lr2SongRowEnricher.EnrichFromChartInfo(file, chartInfo);
+
+        Assert.AreEqual(12, file.level);
+        Assert.AreEqual(4, file.difficulty);
+        Assert.AreEqual(180, file.maxbpm);
+        Assert.AreEqual(90, file.minbpm);
+        Assert.AreEqual(14, file.mode);
+        Assert.AreEqual(1, file.judge);
+        Assert.AreEqual(1, file.longnote);
+        Assert.AreEqual(1, file.random);
+        Assert.AreEqual(1234, file.karinotes);
+    }
+
+    [TestMethod]
+    public void EnrichFromChartInfo_IgnoresMismatchedMd5()
+    {
+        var file = new TestableBmsFile();
+        file.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        var chartInfo = new LR2SongDBExtended.chart_info
+        {
+            md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            level = 12,
+            notes = 1234
+        };
+
+        Lr2SongRowEnricher.EnrichFromChartInfo(file, chartInfo);
+
+        Assert.IsNull(file.level);
+        Assert.IsNull(file.karinotes);
+    }
+
     private sealed class TestableBmsFile : BMSFile
     {
+        public void SetHash(string value)
+        {
+            hash = value;
+        }
+
         public void SetFavorite(int? value)
         {
             favorite = value;
+        }
+
+        public void SetJudgeForTest(int? value)
+        {
+            judge = value;
         }
     }
 }
