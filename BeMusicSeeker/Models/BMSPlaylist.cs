@@ -1052,19 +1052,15 @@ public partial class BMSPlaylist : NotificationObject
                 var resolverStopwatch = Stopwatch.StartNew();
                 Func<BmtSongHashResolveRequest, Tuple<string, string>> hashResolverFunc = beatorajaBmtSongHashResolverFactory?.Invoke();
                 resolverStopwatch.Stop();
-                List<Tuple<string, JObject>> tableDataSet = [];
                 var projectionStopwatch = Stopwatch.StartNew();
-                int projectedCount = 0;
-                foreach (BMSTable table in tablesSnapshot)
-                {
-                    JObject tableData = BuildBeatorajaBmtTableDataSnapshot(table, reason, hashResolverFunc);
-                    if (tableData != null)
+                List<Tuple<string, JObject>> tableDataSet = BuildBeatorajaBmtTableDataSetSnapshot(
+                    tablesSnapshot,
+                    reason,
+                    hashResolverFunc,
+                    delegate (int completed, int total, string tableName)
                     {
-                        tableDataSet.Add(Tuple.Create(GetBeatorajaBmtPlaylistIdentity(table), tableData));
-                    }
-                    projectedCount++;
-                    ReportBeatorajaBmtExportProgress(progressOperationId, true, projectionTotal, projectedCount, table?.name);
-                }
+                        ReportBeatorajaBmtExportProgress(progressOperationId, true, Math.Max(total, 1), completed, tableName);
+                    });
                 projectionStopwatch.Stop();
                 var exportStopwatch = Stopwatch.StartNew();
                 int exportProgressTotal = tablesSnapshot.Count + tableDataSet.Count;
@@ -1241,6 +1237,77 @@ public partial class BMSPlaylist : NotificationObject
     private JObject BuildBeatorajaBmtTableDataSnapshot(BMSTable table, string reason)
     {
         return BuildBeatorajaBmtTableDataSnapshot(table, reason, beatorajaBmtSongHashResolverFactory?.Invoke());
+    }
+
+    private List<Tuple<string, JObject>> BuildBeatorajaBmtTableDataSetSnapshot(
+        List<BMSTable> tablesSnapshot,
+        string reason,
+        Func<BmtSongHashResolveRequest, Tuple<string, string>> hashResolverFunc,
+        Action<int, int, string> progressReporter)
+    {
+        if (tablesSnapshot == null || tablesSnapshot.Count == 0)
+        {
+            return [];
+        }
+        var projectionInputs = new BeatorajaBmtTableProjectionInput[tablesSnapshot.Count];
+        for (int index = 0; index < tablesSnapshot.Count; index++)
+        {
+            BMSTable table = tablesSnapshot[index];
+            projectionInputs[index] = CreateBeatorajaBmtTableProjectionInput(table, reason, index);
+        }
+        var projectionResults = new Tuple<string, JObject>[projectionInputs.Length];
+        int projectedCount = 0;
+        object progressLock = new();
+        Parallel.ForEach(
+            projectionInputs,
+            new ParallelOptions { MaxDegreeOfParallelism = ResolveBeatorajaBmtProjectionDegree(projectionInputs.Length) },
+            input =>
+            {
+                if (input?.Snapshot != null)
+                {
+                    BmtTableExportService.ISongHashResolver hashResolver = hashResolverFunc == null
+                        ? null
+                        : new BeatorajaBmtSongHashResolver(hashResolverFunc);
+                    JObject tableData = BmtTableExportService.BuildTableData(input.Snapshot, hashResolver);
+                    if (tableData != null)
+                    {
+                        projectionResults[input.Index] = Tuple.Create(input.PlaylistIdentity, tableData);
+                    }
+                }
+                lock (progressLock)
+                {
+                    projectedCount++;
+                    progressReporter?.Invoke(projectedCount, projectionInputs.Length, input?.TableName);
+                }
+            });
+        return [.. projectionResults.Where(result => result != null)];
+    }
+
+    private BeatorajaBmtTableProjectionInput CreateBeatorajaBmtTableProjectionInput(BMSTable table, string reason, int index)
+    {
+        if (table == null)
+        {
+            return new BeatorajaBmtTableProjectionInput
+            {
+                Index = index
+            };
+        }
+        EnsurePlaylistEntriesLoaded(table, reason ?? "BeatorajaBmtExport");
+        using (table.ReaderWriterLock.GetReaderGuard())
+        {
+            return new BeatorajaBmtTableProjectionInput
+            {
+                Index = index,
+                PlaylistIdentity = GetBeatorajaBmtPlaylistIdentity(table),
+                TableName = table.name,
+                Snapshot = BmtTableExportService.CreateProjectionSnapshot(table)
+            };
+        }
+    }
+
+    private static int ResolveBeatorajaBmtProjectionDegree(int count)
+    {
+        return Math.Max(1, Math.Min(Math.Min(Environment.ProcessorCount, 4), Math.Max(count, 1)));
     }
 
     private JObject BuildBeatorajaBmtTableDataSnapshot(BMSTable table, string reason, Func<BmtSongHashResolveRequest, Tuple<string, string>> hashResolverFunc)
@@ -2508,6 +2575,17 @@ public partial class BMSPlaylist : NotificationObject
                 }
             }
         }
+    }
+
+    private sealed class BeatorajaBmtTableProjectionInput
+    {
+        public int Index { get; set; }
+
+        public string PlaylistIdentity { get; set; }
+
+        public string TableName { get; set; }
+
+        public BmtTableExportService.TableDataProjectionSnapshot Snapshot { get; set; }
     }
 
     /// <summary>
