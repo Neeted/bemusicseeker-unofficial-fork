@@ -153,6 +153,10 @@ public sealed class ChartResourceSnapshotTests
             Assert.AreEqual(snapshot.AudioReferences.Single().RawPath, aggregate.AudioReferences.Single().RawPath);
             Assert.AreEqual(snapshot.VisualReferences.Single().RawPath, aggregate.VisualReferences.Single().RawPath);
             Assert.AreEqual(snapshot.MovieReferences.Single().RawPath, aggregate.MovieReferences.Single().RawPath);
+            Assert.AreEqual(3, snapshot.ResourceReferences.Count);
+            CollectionAssert.AreEquivalent(
+                snapshot.ResourceReferences.Select(reference => reference.RawPath).ToArray(),
+                aggregate.ResourceReferences.Select(reference => reference.RawPath).ToArray());
         }
         finally
         {
@@ -199,7 +203,7 @@ public sealed class ChartResourceSnapshotTests
     }
 
     [TestMethod]
-    public void Create_DuplicateNormalizedResourceKeepsFirstRawPath()
+    public void Create_DuplicateNormalizedResourceKeepsUniqueLookupAndAllRawReferences()
     {
         BMSFile file = CreateBmsFile("C:\\Pending\\duplicate.bms", ["sound.wav", "sound.ogg"], []);
         file.ResourceReferences =
@@ -230,6 +234,10 @@ public sealed class ChartResourceSnapshotTests
         Assert.AreEqual(1, snapshot.AudioReferenceCount);
         Assert.AreEqual(@".\sound.wav", snapshot.AudioReferences.Single().RawPath);
         CollectionAssert.Contains(snapshot.AudioRelativePaths.ToArray(), "sound");
+        Assert.AreEqual(2, snapshot.ResourceReferences.Count);
+        CollectionAssert.AreEqual(
+            new[] { @".\sound.wav", "sound.ogg" },
+            snapshot.ResourceReferences.Select(reference => reference.RawPath).ToArray());
     }
 
     [TestMethod]

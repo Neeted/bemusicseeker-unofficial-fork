@@ -966,7 +966,14 @@ parse directive:
   - raw resource reference は runtime-only の `ChartResourceReference` として BMS parser で保持する。
     `WAVfiles` / `BGAfiles` の normalized lookup set は既存 resource health / install estimation の正本として残し、
     LR2 warning 用 raw path は `ChartResourceSnapshot.ResourceReference.RawPath` へ別投影する。
+  - `ChartResourceSnapshot.AudioReferences` / `VisualReferences` / `MovieReferences` は既存どおり unique lookup key の list とし、
+    LR2 warning 用には `ResourceReferences` で valid raw directive を全件保持する。同一 lookup key に複数 raw directive があっても、
+    resource health の count は増やさず、LR2 raw path evaluation では全 raw directive を見る。
   - optional image (`stagefile` / `banner` / `backbmp`) は既存 snapshot field から扱い、`#WAV` / `#BMP` raw reference collection へは混ぜない。
+- Phase 4 は段階的に追加する。
+  - まず `Lr2CompatibilityEvaluator` を fact-only service として導入し、schema / warning projection には接続しない。
+  - path CRC は `Lr2SongFolderParentNormalizer` の既存 contract を再利用し、CP932 byte length と resource raw/resolved path fact だけを追加する。
+  - legacy path length boundary は NUL 終端を除いた CP932 259 bytes を上限として扱う。
 
 ## 作業エージェント向け実装順
 

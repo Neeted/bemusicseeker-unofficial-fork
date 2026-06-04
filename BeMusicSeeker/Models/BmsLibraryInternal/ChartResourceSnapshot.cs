@@ -8,8 +8,10 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 internal sealed class ChartResourceSnapshot
 {
-    internal readonly struct ResourceReference(string normalizedPath, uint relativePathHash, bool isPathAware, string rawPath = null)
+    internal readonly struct ResourceReference(string normalizedPath, uint relativePathHash, bool isPathAware, string rawPath = null, ChartResourceKind kind = ChartResourceKind.Unknown)
     {
+        public ChartResourceKind Kind { get; } = kind;
+
         public string NormalizedPath { get; } = normalizedPath ?? string.Empty;
 
         public uint RelativePathHash { get; } = relativePathHash;
@@ -26,6 +28,8 @@ internal sealed class ChartResourceSnapshot
     private readonly List<ResourceReference> movieReferences = [];
 
     private readonly List<ResourceReference> optionalImageReferences = [];
+
+    private readonly List<ResourceReference> resourceReferences = [];
 
     private readonly List<UnsupportedChartResourceReference> unsupportedResourceReferences = [];
 
@@ -92,6 +96,8 @@ internal sealed class ChartResourceSnapshot
     public IReadOnlyList<ResourceReference> MovieReferences => movieReferences;
 
     public IReadOnlyList<ResourceReference> OptionalImageReferences => optionalImageReferences;
+
+    public IReadOnlyList<ResourceReference> ResourceReferences => resourceReferences;
 
     public IReadOnlyList<UnsupportedChartResourceReference> UnsupportedResourceReferences => unsupportedResourceReferences;
 
@@ -291,6 +297,7 @@ internal sealed class ChartResourceSnapshot
         {
             AddResourceKey(OptionalImageRelativePaths, OptionalImageRelativePathHashes, OptionalImagePathAwareRelativePaths, OptionalImagePathAwareRelativePathHashes, optionalImageReferences, reference);
         }
+        resourceReferences.AddRange(other.ResourceReferences);
         AddUnsupportedReferences(other.UnsupportedResourceReferences);
     }
 
@@ -350,17 +357,20 @@ internal sealed class ChartResourceSnapshot
         {
             return;
         }
+        var reference = new ResourceReference(
+            normalizedPath,
+            ChartResourceKeyHash.GetLookupHash(normalizedPath),
+            IsNormalizedPathAware(normalizedPath),
+            rawPath ?? path,
+            kind);
+        resourceReferences.Add(reference);
         AddResourceKey(
             relativePaths,
             relativePathHashes,
             pathAwareRelativePaths,
             pathAwareRelativePathHashes,
             references,
-            new ResourceReference(
-                normalizedPath,
-                ChartResourceKeyHash.GetLookupHash(normalizedPath),
-                IsNormalizedPathAware(normalizedPath),
-                rawPath ?? path));
+            reference);
     }
 
     private void AddUnsupportedReferenceIfNeeded(
@@ -410,7 +420,7 @@ internal sealed class ChartResourceSnapshot
             pathAwareRelativePaths.Add(normalizedPath);
             pathAwareRelativePathHashes.Add(relativePathHash);
         }
-        references?.Add(new ResourceReference(normalizedPath, relativePathHash, isPathAware, reference.RawPath));
+        references?.Add(new ResourceReference(normalizedPath, relativePathHash, isPathAware, reference.RawPath, reference.Kind));
     }
 
     private static bool IsNormalizedPathAware(string normalizedPath)
