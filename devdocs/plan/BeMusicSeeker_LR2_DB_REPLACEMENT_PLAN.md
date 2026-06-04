@@ -1098,6 +1098,8 @@ parse directive:
   `Lr2SongDbWriter` / storage row update へ渡す。
   path replacement では `song.folder` / `song.parent` を一度空にして `Lr2SongRowEnricher` に再生成させる。
   これにより通常 mutation でも backfill / file diff と同じ CP932 非対応判定と LR2 CRC contract を使う。
+  `folder` row の path replacement / startup normalization でも parent CRC は `Lr2SongFolderParentNormalizer.ComputeDirectoryHash`
+  を使い、`LR2CRC32` の直接呼び出しを通常 mutation / initialization surface に増やさない。
   完了直前の source staleness check は、service に caller-provided predicate を渡す形にし、`BMSLibrary` 側で
   owned collection / storage row version と root / `.lr2folder` / `folderinfo.txt` / text group surface を開始時入力と
   再比較する。stale の場合は `Completed` にせず `Incomplete(source_stale_detected)` とする。

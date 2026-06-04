@@ -4524,28 +4524,6 @@ public class BMSLibrary : NotificationObject
         ChartInfoMetadataBundleStartupImporter.TryImportFromBaseDirectory(AppDomain.CurrentDomain.BaseDirectory, dbGateway, LogInstallPerformance);
     }
 
-    private static bool IsLikelyCrcHex(string value)
-    {
-        if (string.IsNullOrWhiteSpace(value) || value.Length < 1 || value.Length > 8)
-        {
-            return false;
-        }
-        for (int i = 0; i < value.Length; i++)
-        {
-            char c = value[i];
-            if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')))
-            {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    private static string ComputeLR2DirectoryHash(string directoryPath, Encoding encoding)
-    {
-        return LR2CRC32.Compute(encoding.GetBytes((directoryPath ?? string.Empty) + "\\\0")).ToString("x");
-    }
-
     /// <summary>
     /// Initialize から呼ばれる実際の初期化内部ロジックです。
     /// song.db からのデータ再取得、BMS ファイルのディレクトリ走査、スコア反映、保守テーブルチェックを順次実行します。

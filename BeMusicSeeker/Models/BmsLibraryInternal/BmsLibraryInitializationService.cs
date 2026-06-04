@@ -2790,7 +2790,6 @@ internal sealed class BmsLibraryInitializationService
         Func<Exception, string> getDisplayedExceptionMessage,
         Action<string> logInstallPerformance)
     {
-        var crcEncoding = Encoding.GetEncoding("shift_jis", EncoderFallback.ExceptionFallback, DecoderFallback.ExceptionFallback);
         int unixtime = (DateTime.Now + new TimeSpan(30, 0, 0, 0)).ToUnixtime();
         var stopwatchSongNormalizeLoop = Stopwatch.StartNew();
         foreach (BMSFile song in loadedSongs)
@@ -2875,7 +2874,7 @@ internal sealed class BmsLibraryInitializationService
                         }
                         if (folder.parent != Lr2SongFolderParentNormalizer.RootParentHash)
                         {
-                            folder.parent = ComputeLR2DirectoryHash(directoryName, crcEncoding);
+                            folder.parent = Lr2SongFolderParentNormalizer.ComputeDirectoryHash(directoryName);
                         }
                         return true;
                     }
@@ -2974,11 +2973,6 @@ internal sealed class BmsLibraryInitializationService
             + " crcSkipped=" + result.CrcSkippedCount
             + " updatedFolders=" + result.UpdatedFolders.Count
             + " deletedFolders=" + result.DeletedFolderPaths.Count);
-    }
-
-    private static string ComputeLR2DirectoryHash(string directoryPath, Encoding encoding)
-    {
-        return LR2CRC32.Compute(encoding.GetBytes((directoryPath ?? string.Empty) + "\\\0")).ToString("x");
     }
 
     private static bool IsLeapYearTimestamp(DateTime lastWriteTime)

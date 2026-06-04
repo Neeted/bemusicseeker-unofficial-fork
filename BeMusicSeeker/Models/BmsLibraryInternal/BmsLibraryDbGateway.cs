@@ -5,7 +5,6 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Security;
-using System.Text;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
@@ -1298,8 +1297,7 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
                 if (folder.parent != Lr2SongFolderParentNormalizer.RootParentHash)
                 {
                     string directoryName = Path.GetDirectoryName(newFolderPath.TrimEnd(Path.DirectorySeparatorChar));
-                    var encoding = Encoding.GetEncoding("shift_jis", EncoderFallback.ExceptionFallback, DecoderFallback.ExceptionFallback);
-                    folder.parent = LR2CRC32.Compute(encoding.GetBytes(directoryName + "\\\0")).ToString("x");
+                    folder.parent = Lr2SongFolderParentNormalizer.ComputeDirectoryHash(directoryName);
                 }
                 songDb.InsertOrReplace(folder, typeof(LR2SongDB.folder));
             });

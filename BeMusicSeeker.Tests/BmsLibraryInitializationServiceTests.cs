@@ -47,6 +47,13 @@ public sealed class BmsLibraryInitializationServiceTests
                     parent = "e2977170",
                     type = 1
                 }, typeof(LR2SongDB.folder));
+                songDb.InsertOrReplace(new LR2SongDB.folder
+                {
+                    path = Path.Combine("Songs", "Nested") + "\\",
+                    title = "Nested",
+                    parent = "stale-parent",
+                    type = 1
+                }, typeof(LR2SongDB.folder));
                 songDb.InsertOrReplace(new BMSFileMaintenanceInfo
                 {
                     path = rootedChartPath,
@@ -71,6 +78,13 @@ public sealed class BmsLibraryInitializationServiceTests
             Assert.IsTrue(result.DbWriteRequired);
             CollectionAssert.Contains(result.DeletedSongPaths, Path.Combine("Songs", "chart.bms"));
             Assert.IsTrue(result.UpdatedSongs.Any(file => file.path == rootedChartPath));
+
+            using var verify = new LR2SongDBExtended(songDbPath);
+            string rootedNestedFolderPath = Path.Combine(lr2RootPath, "Songs", "Nested") + "\\";
+            LR2SongDB.folder nested = verify.Table<LR2SongDB.folder>().Single(folder => folder.path == rootedNestedFolderPath);
+            Assert.AreEqual(
+                Lr2SongFolderParentNormalizer.ComputeDirectoryHash(Path.Combine(lr2RootPath, "Songs")),
+                nested.parent);
         });
     }
 
