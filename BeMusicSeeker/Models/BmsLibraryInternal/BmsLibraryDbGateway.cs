@@ -188,7 +188,7 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
         EnsureBmsonSchema(songDb);
         EnsureChartInfoSchema(songDb);
         EnsureSongLookupIndexes(songDb);
-        songDb.CreateTable<LR2SongDBExtended.maintenance>();
+        EnsureMaintenanceSchema(songDb);
         BulkDeleteBmsPaths(songDb, chunk.DeletedBmsPaths);
         foreach (BmsDateOnlyUpdate updatedDate in chunk.UpdatedBmsDates)
         {
@@ -335,6 +335,7 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
         }
         ExecuteSongDbTransaction(delegate (LR2SongDBExtended songDb)
         {
+            EnsureMaintenanceSchema(songDb);
             foreach (BMSFileMaintenanceInfo entry in entries)
             {
                 songDb.InsertOrReplace(entry, typeof(LR2SongDBExtended.maintenance));
@@ -547,6 +548,22 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
         try
         {
             EnsureBmsonSchema(songDb);
+            songDb.Commit();
+        }
+        catch (Exception)
+        {
+            songDb.RollbackTo(savepoint);
+            throw;
+        }
+    }
+
+    public void EnsureMaintenanceSchema()
+    {
+        using LR2SongDBExtended songDb = OpenSongDb();
+        string savepoint = songDb.SaveTransactionPoint();
+        try
+        {
+            EnsureMaintenanceSchema(songDb);
             songDb.Commit();
         }
         catch (Exception)
@@ -1495,6 +1512,24 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
         EnsureIndex(songDb, "song_idx_folder", tableName, SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.folder));
     }
 
+    internal static void EnsureMaintenanceSchema(LR2SongDBExtended songDb)
+    {
+        if (songDb == null)
+        {
+            throw new ArgumentNullException(nameof(songDb));
+        }
+        string tableName = SQLiteTable<LR2SongDBExtended.maintenance>.GetTableName();
+        songDb.CreateTable<LR2SongDBExtended.maintenance>();
+        HashSet<string> columns = GetTableColumns(songDb, null, tableName);
+        EnsureColumn(songDb, tableName, columns, "lr2_path_warning_flags", "INTEGER NULL");
+        EnsureColumn(songDb, tableName, columns, "lr2_chart_path_cp932_bytes", "INTEGER NULL");
+        EnsureColumn(songDb, tableName, columns, "lr2_folder_scan_cp932_bytes", "INTEGER NULL");
+        EnsureColumn(songDb, tableName, columns, "lr2_resource_warning_flags", "INTEGER NULL");
+        EnsureColumn(songDb, tableName, columns, "lr2_resource_max_raw_cp932_bytes", "INTEGER NULL");
+        EnsureColumn(songDb, tableName, columns, "lr2_resource_max_resolved_cp932_bytes", "INTEGER NULL");
+        EnsureColumn(songDb, tableName, columns, "lr2_resource_unsupported_count", "INTEGER NULL");
+    }
+
     internal static void EnsureIrDataSchema(LR2SongDBExtended songDb)
     {
         if (songDb == null)
@@ -1594,6 +1629,7 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
         }
         BMSPlaylist.EnsureSchema(songDb);
         EnsureBmsonSchema(songDb);
+        EnsureMaintenanceSchema(songDb);
         EnsureChartInfoSchema(songDb);
         EnsureIrDataSchema(songDb);
         EnsureSongLookupIndexes(songDb);
@@ -1979,6 +2015,21 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
             songDb.Query<TableInfoRow>("PRAGMA " + pragmaPrefix + "table_info('" + tableName.Replace("'", "''") + "');")
                 .Select(row => row.name),
             StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static void EnsureColumn(
+        LR2SongDBExtended songDb,
+        string tableName,
+        ISet<string> columns,
+        string columnName,
+        string columnType)
+    {
+        if (columns.Contains(columnName))
+        {
+            return;
+        }
+        songDb.Execute("ALTER TABLE \"" + tableName.Replace("\"", "\"\"") + "\" ADD COLUMN \"" + columnName.Replace("\"", "\"\"") + "\" " + columnType + ";");
+        columns.Add(columnName);
     }
 
     private static Dictionary<string, string> LoadReusableChartDigestMap(LR2SongDBExtended songDb)

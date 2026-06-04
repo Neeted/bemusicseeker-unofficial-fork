@@ -34,7 +34,7 @@ internal static class StandaloneLibraryDatabase
         BmsLibraryDbGateway.EnsureSongLookupIndexes(songDb);
         songDb.CreateTable<LR2SongDB.folder>();
         songDb.CreateTable<LR2SongDBExtended.install>();
-        songDb.CreateTable<LR2SongDBExtended.maintenance>();
+        BmsLibraryDbGateway.EnsureMaintenanceSchema(songDb);
         songDb.CreateTable<LR2SongDBExtended.ir_score>();
         BmsLibraryDbGateway.EnsureIrDataSchema(songDb);
     }

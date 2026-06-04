@@ -182,8 +182,29 @@ internal sealed class BmsLibraryMaintenanceService
         {
             maintenanceInfo.is_files_warning_ignored = false;
         }
+        ApplyLr2CompatibilityFacts(chart, resources, maintenanceInfo);
 
         return maintenanceInfo;
+    }
+
+    private static void ApplyLr2CompatibilityFacts(
+        ChartFile chart,
+        ChartResourceSnapshot resources,
+        BMSFileMaintenanceInfo maintenanceInfo)
+    {
+        if (chart?.Kind != ChartFileKind.Bms || maintenanceInfo == null)
+        {
+            return;
+        }
+        Lr2ChartPathEvaluation pathEvaluation = Lr2CompatibilityEvaluator.EvaluateChartPath(chart.Path);
+        Lr2ResourceReferenceEvaluation resourceEvaluation = Lr2CompatibilityEvaluator.EvaluateResourceReferences(chart.Path, resources);
+        maintenanceInfo.lr2_path_warning_flags = (int)pathEvaluation.WarningFlags;
+        maintenanceInfo.lr2_chart_path_cp932_bytes = pathEvaluation.ChartPathCp932Bytes;
+        maintenanceInfo.lr2_folder_scan_cp932_bytes = pathEvaluation.FolderScanPathCp932Bytes;
+        maintenanceInfo.lr2_resource_warning_flags = (int)resourceEvaluation.WarningFlags;
+        maintenanceInfo.lr2_resource_max_raw_cp932_bytes = resourceEvaluation.MaxRawCp932Bytes;
+        maintenanceInfo.lr2_resource_max_resolved_cp932_bytes = resourceEvaluation.MaxResolvedCp932Bytes;
+        maintenanceInfo.lr2_resource_unsupported_count = resourceEvaluation.UnsupportedCount;
     }
 
     internal static BMSFileMaintenanceInfo BuildBmsResourceHealthMaintenanceInfo(
@@ -273,6 +294,13 @@ internal sealed class BmsLibraryMaintenanceService
             targetInfo.is_banner_existing = computedInfo.is_banner_existing;
             targetInfo.is_backbmp_defined = computedInfo.is_backbmp_defined;
             targetInfo.is_backbmp_existing = computedInfo.is_backbmp_existing;
+            targetInfo.lr2_path_warning_flags = computedInfo.lr2_path_warning_flags;
+            targetInfo.lr2_chart_path_cp932_bytes = computedInfo.lr2_chart_path_cp932_bytes;
+            targetInfo.lr2_folder_scan_cp932_bytes = computedInfo.lr2_folder_scan_cp932_bytes;
+            targetInfo.lr2_resource_warning_flags = computedInfo.lr2_resource_warning_flags;
+            targetInfo.lr2_resource_max_raw_cp932_bytes = computedInfo.lr2_resource_max_raw_cp932_bytes;
+            targetInfo.lr2_resource_max_resolved_cp932_bytes = computedInfo.lr2_resource_max_resolved_cp932_bytes;
+            targetInfo.lr2_resource_unsupported_count = computedInfo.lr2_resource_unsupported_count;
             targetInfo.encoding = encoding;
             targetInfo.is_encoding_fixed = isEncodingFixed;
             targetInfo.is_files_warning_ignored = forceUpdate ? false : isFilesWarningIgnored;
@@ -1260,7 +1288,14 @@ internal sealed class BmsLibraryMaintenanceService
             && left.is_banner_defined == right.is_banner_defined
             && left.is_backbmp_existing == right.is_backbmp_existing
             && left.is_backbmp_defined == right.is_backbmp_defined
-            && left.is_files_warning_ignored == right.is_files_warning_ignored;
+            && left.is_files_warning_ignored == right.is_files_warning_ignored
+            && left.lr2_path_warning_flags == right.lr2_path_warning_flags
+            && left.lr2_chart_path_cp932_bytes == right.lr2_chart_path_cp932_bytes
+            && left.lr2_folder_scan_cp932_bytes == right.lr2_folder_scan_cp932_bytes
+            && left.lr2_resource_warning_flags == right.lr2_resource_warning_flags
+            && left.lr2_resource_max_raw_cp932_bytes == right.lr2_resource_max_raw_cp932_bytes
+            && left.lr2_resource_max_resolved_cp932_bytes == right.lr2_resource_max_resolved_cp932_bytes
+            && left.lr2_resource_unsupported_count == right.lr2_resource_unsupported_count;
     }
 
     private static BMSFileMaintenanceInfo CloneMaintenanceInfo(BMSFileMaintenanceInfo source)
@@ -1287,7 +1322,14 @@ internal sealed class BmsLibraryMaintenanceService
             is_banner_defined = source.is_banner_defined,
             is_backbmp_existing = source.is_backbmp_existing,
             is_backbmp_defined = source.is_backbmp_defined,
-            is_files_warning_ignored = source.is_files_warning_ignored
+            is_files_warning_ignored = source.is_files_warning_ignored,
+            lr2_path_warning_flags = source.lr2_path_warning_flags,
+            lr2_chart_path_cp932_bytes = source.lr2_chart_path_cp932_bytes,
+            lr2_folder_scan_cp932_bytes = source.lr2_folder_scan_cp932_bytes,
+            lr2_resource_warning_flags = source.lr2_resource_warning_flags,
+            lr2_resource_max_raw_cp932_bytes = source.lr2_resource_max_raw_cp932_bytes,
+            lr2_resource_max_resolved_cp932_bytes = source.lr2_resource_max_resolved_cp932_bytes,
+            lr2_resource_unsupported_count = source.lr2_resource_unsupported_count
         };
     }
 

@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
@@ -488,6 +489,78 @@ public sealed class AppSchemaPreflightServiceTests
         }
     }
 
+    [TestMethod]
+    public void EnsureMaintenanceSchema_AddsLr2CompatibilityColumnsWithoutDroppingRows()
+    {
+        string tempDbPath = CreateEmptySongDbPath();
+        try
+        {
+            using (var db = new LR2SongDBExtended(tempDbPath))
+            {
+                db.Execute("CREATE TABLE maintenance (hash TEXT NULL, path TEXT PRIMARY KEY, encoding TEXT NULL, is_files_warning_ignored INTEGER NOT NULL DEFAULT 0);");
+                db.Execute("INSERT INTO maintenance (hash, path, encoding, is_files_warning_ignored) VALUES ('0123456789abcdef0123456789abcdef', 'D:\\BMS\\chart.bms', 'shift_jis', 0);");
+            }
+
+            new BmsLibraryDbGateway(tempDbPath).EnsureMaintenanceSchema();
+
+            using var verify = new LR2SongDBExtended(tempDbPath);
+            string[] columns = [.. verify.Query<ColumnNameRow>("PRAGMA table_info(maintenance);").Select(row => row.name)];
+            CollectionAssert.Contains(columns, "lr2_path_warning_flags");
+            CollectionAssert.Contains(columns, "lr2_chart_path_cp932_bytes");
+            CollectionAssert.Contains(columns, "lr2_folder_scan_cp932_bytes");
+            CollectionAssert.Contains(columns, "lr2_resource_warning_flags");
+            CollectionAssert.Contains(columns, "lr2_resource_max_raw_cp932_bytes");
+            CollectionAssert.Contains(columns, "lr2_resource_max_resolved_cp932_bytes");
+            CollectionAssert.Contains(columns, "lr2_resource_unsupported_count");
+            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM maintenance WHERE path = 'D:\\BMS\\chart.bms';"));
+        }
+        finally
+        {
+            DeleteTempSongDbDirectory(tempDbPath);
+        }
+    }
+
+    [TestMethod]
+    public void UpsertMaintenanceInfos_AddsLr2CompatibilityColumnsAndRoundTripsValues()
+    {
+        string tempDbPath = CreateEmptySongDbPath();
+        try
+        {
+            using (var db = new LR2SongDBExtended(tempDbPath))
+            {
+                db.Execute("CREATE TABLE maintenance (hash TEXT NULL, path TEXT PRIMARY KEY, encoding TEXT NULL, is_files_warning_ignored INTEGER NOT NULL DEFAULT 0);");
+            }
+            var info = new BMSFileMaintenanceInfo
+            {
+                path = @"D:\BMS\chart.bms",
+                hash = "0123456789abcdef0123456789abcdef",
+                lr2_path_warning_flags = 1,
+                lr2_chart_path_cp932_bytes = 20,
+                lr2_folder_scan_cp932_bytes = 18,
+                lr2_resource_warning_flags = 3,
+                lr2_resource_max_raw_cp932_bytes = 12,
+                lr2_resource_max_resolved_cp932_bytes = 40,
+                lr2_resource_unsupported_count = 2
+            };
+
+            new BmsLibraryDbGateway(tempDbPath).UpsertMaintenanceInfos([info]);
+
+            using var verify = new LR2SongDBExtended(tempDbPath);
+            BMSFileMaintenanceInfo row = verify.Table<BMSFileMaintenanceInfo>().Single(item => item.path == info.path);
+            Assert.AreEqual(1, row.lr2_path_warning_flags);
+            Assert.AreEqual(20, row.lr2_chart_path_cp932_bytes);
+            Assert.AreEqual(18, row.lr2_folder_scan_cp932_bytes);
+            Assert.AreEqual(3, row.lr2_resource_warning_flags);
+            Assert.AreEqual(12, row.lr2_resource_max_raw_cp932_bytes);
+            Assert.AreEqual(40, row.lr2_resource_max_resolved_cp932_bytes);
+            Assert.AreEqual(2, row.lr2_resource_unsupported_count);
+        }
+        finally
+        {
+            DeleteTempSongDbDirectory(tempDbPath);
+        }
+    }
+
     private static string CreateEmptySongDbPath()
     {
         string tempDirectory = Path.Combine(Path.GetTempPath(), "AppSchemaPreflightServiceTests", Guid.NewGuid().ToString("N"));
@@ -520,5 +593,10 @@ public sealed class AppSchemaPreflightServiceTests
         {
             Directory.Delete(directoryPath, recursive: true);
         }
+    }
+
+    private sealed class ColumnNameRow
+    {
+        public string name { get; set; } = string.Empty;
     }
 }

@@ -58,6 +58,51 @@ public sealed class BmsLibraryMaintenanceServiceTests
     }
 
     [TestMethod]
+    public void BuildResourceHealthMaintenanceInfo_PersistsLr2CompatibilityFactsForBmsOnly()
+    {
+        TestableBmsFile bms = CreateFile("0123456789abcdef0123456789abcdef");
+        bms.path = @"D:\BMS\Pack\Song\chart.bms";
+        bms.WAVfiles = ["sound.wav"];
+        bms.BGAfiles = [];
+        bms.ResourceReferences =
+        [
+            new ChartResourceReference(ChartResourceKind.Audio, "sound.wav", "sound.wav")
+        ];
+        ChartFile bmsChart = ChartFileProjection.FromBmsFile(
+            bms,
+            includeWarningSnapshot: false,
+            includeResourceReferences: false,
+            includeScoreSnapshot: false);
+
+        BMSFileMaintenanceInfo bmsInfo = BmsLibraryMaintenanceService.BuildResourceHealthMaintenanceInfo(bmsChart);
+
+        Assert.AreEqual((int)Lr2PathWarningFlags.None, bmsInfo.lr2_path_warning_flags);
+        Assert.AreEqual((int)Lr2ResourceWarningFlags.None, bmsInfo.lr2_resource_warning_flags);
+        Assert.AreEqual(Lr2SongFolderParentNormalizer.ComputeDirectoryHash(@"D:\BMS\Pack\Song"), Lr2CompatibilityEvaluator.EvaluateChartPath(bms.path).FolderHash);
+        Assert.AreEqual(Encoding.GetEncoding("shift_jis").GetByteCount(bms.path), bmsInfo.lr2_chart_path_cp932_bytes);
+        Assert.AreEqual(Encoding.GetEncoding("shift_jis").GetByteCount("sound.wav"), bmsInfo.lr2_resource_max_raw_cp932_bytes);
+
+        var bmson = new LR2SongDBExtended.bmson_song
+        {
+            path = @"D:\BMS\Pack\Song\chart.bmson",
+            md5 = "fedcba9876543210fedcba9876543210",
+            wav_files = ["sound.wav"],
+            bga_files = []
+        };
+        ChartFile bmsonChart = ChartFileProjection.FromBmsonSong(
+            bmson,
+            includeWarningSnapshot: false,
+            includeResourceReferences: true);
+
+        BMSFileMaintenanceInfo bmsonInfo = BmsLibraryMaintenanceService.BuildResourceHealthMaintenanceInfo(bmsonChart);
+
+        Assert.IsNull(bmsonInfo.lr2_path_warning_flags);
+        Assert.IsNull(bmsonInfo.lr2_chart_path_cp932_bytes);
+        Assert.IsNull(bmsonInfo.lr2_resource_warning_flags);
+        Assert.IsNull(bmsonInfo.lr2_resource_max_raw_cp932_bytes);
+    }
+
+    [TestMethod]
     public void EvaluateBmsMaintenanceForInline_ForceUpdateReportsUnchangedWhenPersistentRowIsSame()
     {
         string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));

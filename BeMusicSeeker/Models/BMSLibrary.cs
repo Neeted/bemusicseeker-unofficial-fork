@@ -2937,7 +2937,7 @@ public class BMSLibrary : NotificationObject
         {
             BmsLibraryDbGateway.EnsureSongLookupIndexes(lR2SongDBExtended);
             lR2SongDBExtended.CreateTable<LR2SongDBExtended.install>();
-            lR2SongDBExtended.CreateTable<LR2SongDBExtended.maintenance>();
+            BmsLibraryDbGateway.EnsureMaintenanceSchema(lR2SongDBExtended);
             lR2SongDBExtended.CreateTable<LR2SongDBExtended.ir_score>();
             BmsLibraryDbGateway.EnsureIrDataSchema(lR2SongDBExtended);
             BmsLibraryDbGateway.EnsureChartInfoSchema(lR2SongDBExtended);
