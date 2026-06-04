@@ -4950,6 +4950,7 @@ completeFileEnumerationOnce,
         try
         {
             ReportStartupBackgroundTask("lr2_full_generation_backfill", "start", 0L, failed: false, detail: "runId=" + runId);
+            EnsureLr2FullGenerationChartInfoBackfill(reason);
             Lr2FullGenerationBackfillInput input = CreateLr2FullGenerationBackfillInput();
             Lr2FullGenerationBackfillResult result;
             using (LR2SongDBExtended songDb = dbGateway.OpenSongDb())
@@ -5032,6 +5033,20 @@ completeFileEnumerationOnce,
                 + " message=" + ex.Message);
             ReportStartupBackgroundTask("lr2_full_generation_backfill", "failed", stopwatch.ElapsedMilliseconds, failed: true, detail: ex.Message);
         }
+    }
+
+    private void EnsureLr2FullGenerationChartInfoBackfill(string reason)
+    {
+        var stopwatch = Stopwatch.StartNew();
+        string backfillReason = "lr2_full_generation_" + (string.IsNullOrWhiteSpace(reason) ? "backfill" : reason);
+        QueueChartInfoBackfill(backfillReason, processSynchronously: true);
+        stopwatch.Stop();
+        LogInstallPerformance("lr2_full_generation_chart_info_backfill ensured"
+            + " reason=" + (reason ?? "unknown")
+            + " elapsedMs=" + stopwatch.ElapsedMilliseconds
+            + " requestedVersion=" + ChartInfoBackfillRequestedVersion
+            + " completedVersion=" + ChartInfoBackfillCompletedVersion
+            + " digestBackfilled=" + ChartInfoBackfillDigestBackfilledCount);
     }
 
     private Lr2FullGenerationBackfillInput CreateLr2FullGenerationBackfillInput()
