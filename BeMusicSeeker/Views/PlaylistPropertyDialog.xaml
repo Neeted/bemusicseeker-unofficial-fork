@@ -23,7 +23,7 @@
                     <RowDefinition Height="*" />
                   </Grid.RowDefinitions>
                   <TabPanel Name="HeaderPanel" Grid.Row="0" Margin="0,0,4,-1" Background="#00FFFFFF" IsItemsHost="True" ZIndex="1" KeyboardNavigation.TabIndex="1" />
-                  <Border Name="Border" Grid.Row="1" Background="{DynamicResource WindowBackgroundBrush}" BorderBrush="{DynamicResource SolidBorderBrush}" BorderThickness="1" CornerRadius="4" KeyboardNavigation.DirectionalNavigation="Contained" KeyboardNavigation.TabNavigation="Local" KeyboardNavigation.TabIndex="2">
+                  <Border Name="Border" Grid.Row="1" Background="{DynamicResource WindowBackgroundBrush}" BorderBrush="{DynamicResource SolidBorderBrush}" BorderThickness="1" CornerRadius="0,4,4,4" KeyboardNavigation.DirectionalNavigation="Contained" KeyboardNavigation.TabNavigation="Local" KeyboardNavigation.TabIndex="2">
                     <ScrollViewer Margin="4" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                       <ContentPresenter Name="PART_SelectedContentHost" ContentSource="SelectedContent" />
                     </ScrollViewer>
@@ -42,6 +42,29 @@
         <Style TargetType="{x:Type TabItem}" BasedOn="{StaticResource {x:Type TabItem}}">
           <Setter Property="Padding" Value="10,4,10,4" />
           <Setter Property="FontFamily" Value="Meiryo UI" />
+          <Setter Property="Template">
+            <Setter.Value>
+              <ControlTemplate TargetType="{x:Type TabItem}">
+                <Grid>
+                  <Border Name="Border" Margin="0,0,-4,0" Background="{DynamicResource LightBrush}" BorderBrush="{DynamicResource SolidBorderBrush}" BorderThickness="1,1,1,1" CornerRadius="2,2,0,0">
+                    <ContentPresenter Name="ContentSite" HorizontalAlignment="Center" Margin="{TemplateBinding Control.Padding}" VerticalAlignment="Center" RecognizesAccessKey="True" ContentSource="Header" TextElement.Foreground="{TemplateBinding Control.Foreground}" />
+                  </Border>
+                </Grid>
+                <ControlTemplate.Triggers>
+                  <Trigger Property="TabItem.IsSelected" Value="True">
+                    <Setter Property="Panel.ZIndex" Value="100" />
+                    <Setter Value="{DynamicResource WindowBackgroundBrush}" TargetName="Border" Property="Border.Background" />
+                    <Setter TargetName="Border" Property="Border.BorderThickness" Value="1,1,1,0" />
+                  </Trigger>
+                  <Trigger Property="IsEnabled" Value="False">
+                    <Setter Value="{DynamicResource DisabledBackgroundBrush}" TargetName="Border" Property="Border.Background" />
+                    <Setter Value="{DynamicResource DisabledBorderBrush}" TargetName="Border" Property="Border.BorderBrush" />
+                    <Setter Value="{DynamicResource DisabledForegroundBrush}" Property="Foreground" />
+                  </Trigger>
+                </ControlTemplate.Triggers>
+              </ControlTemplate>
+            </Setter.Value>
+          </Setter>
         </Style>
         <Style TargetType="{x:Type GroupBox}" BasedOn="{StaticResource {x:Type GroupBox}}">
           <Setter Property="Margin" Value="0,0,0,8" />
