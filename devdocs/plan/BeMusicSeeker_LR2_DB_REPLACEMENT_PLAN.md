@@ -1007,6 +1007,11 @@ parse directive:
     `folderinfo.txt` candidate path set で、mtime 取得・`folderinfo.txt #TITLE` parse・欠落/読み取り失敗 count をここで集約する。
     native bridge ABI へ directory mtime を急いで追加せず、initialization / mutation 側は Everything grouped query または managed fallback で
     得た `folderinfo.txt` file surface と、owned chart から dedupe した directory set をこの snapshot に渡す。
+  - `Lr2NormalFolderDbSyncService` は normal directory folder row の production-shaped compose 層にする。
+    既存 row 読み込み、metadata snapshot、normal row 生成、scope plan、DB writer 適用をまとめるが、initialization / mutation の
+    呼び出し判断や feature gate は持たない。chunk-local な file diff commit へ folder prune を混ぜず、full scan 完了後に
+    complete chart path set を渡す呼び出し側から使う。`AllowPrune` は complete scan と source generation の整合を確認した
+    caller だけが立て、既定では upsert のみ行って stale row delete はしない。
 
 ## 作業エージェント向け実装順
 
