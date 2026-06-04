@@ -1003,6 +1003,10 @@ parse directive:
   - `Lr2FolderDbWriter` は scope plan を exact path の delete と generated row の upsert として単一 transaction で適用する
     薄い層にする。安全判定は planner の責務にし、writer 側で独自 prune 判断を増やさない。
   - generation scope plan の initialization / mutation workflow への接続は後続 cycle で行う。
+  - directory metadata surface は `Lr2FolderDirectoryMetadataSnapshot` として分離する。入力は unique directory set と
+    `folderinfo.txt` candidate path set で、mtime 取得・`folderinfo.txt #TITLE` parse・欠落/読み取り失敗 count をここで集約する。
+    native bridge ABI へ directory mtime を急いで追加せず、initialization / mutation 側は Everything grouped query または managed fallback で
+    得た `folderinfo.txt` file surface と、owned chart から dedupe した directory set をこの snapshot に渡す。
 
 ## 作業エージェント向け実装順
 

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Security;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -318,6 +319,99 @@ public sealed class Lr2FolderRowGeneratorTests
 
         Assert.AreEqual(0, plan.UpsertRows.Count);
         Assert.AreEqual(0, plan.DeletePaths.Count);
+    }
+
+    [TestMethod]
+    public void DirectoryMetadataBuilder_DeduplicatesDirectoriesAndAppliesFolderInfoTitle()
+    {
+        DateTime rootTime = new(2026, 6, 7, 1, 2, 3, DateTimeKind.Utc);
+        DateTime packTime = rootTime.AddMinutes(1);
+        var timeByDirectory = new Dictionary<string, DateTime?>(StringComparer.OrdinalIgnoreCase)
+        {
+            [Normalize(@"D:\BMS")] = rootTime,
+            [Normalize(@"D:\BMS\Pack")] = packTime
+        };
+        var readPaths = new List<string>();
+
+        Lr2FolderDirectoryMetadataSnapshot snapshot = Lr2FolderDirectoryMetadataBuilder.Build(new Lr2FolderDirectoryMetadataBuildRequest
+        {
+            DirectoryPaths = [@"D:\BMS", @"D:\BMS\", @"D:\BMS\Pack"],
+            FolderInfoFilePaths =
+            [
+                @"D:\BMS\Pack\folderinfo.txt",
+                @"D:\BMS\Pack\notes.txt"
+            ],
+            DirectoryLastWriteTimeUtcResolver = path => timeByDirectory.TryGetValue(Normalize(path), out DateTime? timestamp) ? timestamp : null,
+            FolderInfoLinesReader = path =>
+            {
+                readPaths.Add(path);
+                return ["#TITLE Pack Title"];
+            }
+        });
+
+        Assert.AreEqual(2, snapshot.RequestedDirectoryCount);
+        Assert.AreEqual(2, snapshot.ResolvedDirectoryCount);
+        Assert.AreEqual(0, snapshot.MissingDirectoryCount);
+        Assert.AreEqual(1, snapshot.FolderInfoCandidateCount);
+        Assert.AreEqual(1, snapshot.FolderInfoAppliedCount);
+        Assert.AreEqual(0, snapshot.FolderInfoReadFailureCount);
+        Assert.IsTrue(snapshot.TryGetMetadata(@"D:\BMS\Pack", out Lr2FolderDirectoryMetadata metadata));
+        Assert.AreEqual(packTime, metadata.LastWriteTimeUtc);
+        Assert.AreEqual("Pack Title", metadata.FolderInfoTitle);
+        CollectionAssert.AreEqual(new[] { Path.GetFullPath(@"D:\BMS\Pack\folderinfo.txt") }, readPaths.ToArray());
+    }
+
+    [TestMethod]
+    public void DirectoryMetadataBuilder_TracksMissingDirectoryAndFolderInfoReadFailure()
+    {
+        Lr2FolderDirectoryMetadataSnapshot snapshot = Lr2FolderDirectoryMetadataBuilder.Build(new Lr2FolderDirectoryMetadataBuildRequest
+        {
+            DirectoryPaths = [@"D:\BMS", @"D:\BMS\Missing", @"D:\BMS\Security"],
+            FolderInfoFilePaths = [@"D:\BMS\folderinfo.txt"],
+            DirectoryLastWriteTimeUtcResolver = path =>
+            {
+                if (string.Equals(Normalize(path), Normalize(@"D:\BMS"), StringComparison.OrdinalIgnoreCase))
+                {
+                    return new DateTime(2026, 6, 7, 1, 2, 3, DateTimeKind.Utc);
+                }
+                if (string.Equals(Normalize(path), Normalize(@"D:\BMS\Security"), StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new SecurityException("denied");
+                }
+                throw new IOException("missing");
+            },
+            FolderInfoLinesReader = _ => throw new IOException("locked")
+        });
+
+        Assert.AreEqual(3, snapshot.RequestedDirectoryCount);
+        Assert.AreEqual(1, snapshot.ResolvedDirectoryCount);
+        Assert.AreEqual(2, snapshot.MissingDirectoryCount);
+        Assert.AreEqual(1, snapshot.FolderInfoCandidateCount);
+        Assert.AreEqual(0, snapshot.FolderInfoAppliedCount);
+        Assert.AreEqual(1, snapshot.FolderInfoReadFailureCount);
+        Assert.IsTrue(snapshot.TryGetMetadata(@"D:\BMS", out Lr2FolderDirectoryMetadata metadata));
+        Assert.IsFalse(metadata.HasFolderInfoTitle);
+        Assert.IsFalse(snapshot.TryGetMetadata(@"D:\BMS\Missing", out _));
+        Assert.IsFalse(snapshot.TryGetMetadata(@"D:\BMS\Security", out _));
+    }
+
+    [TestMethod]
+    public void DirectoryMetadataBuilder_TreatsUnixEpochOrOlderTimestampAsMissing()
+    {
+        Lr2FolderDirectoryMetadataSnapshot snapshot = Lr2FolderDirectoryMetadataBuilder.Build(new Lr2FolderDirectoryMetadataBuildRequest
+        {
+            DirectoryPaths = [@"D:\BMS", @"D:\BMS\Pack"],
+            DirectoryLastWriteTimeUtcResolver = path => string.Equals(Normalize(path), Normalize(@"D:\BMS\Pack"), StringComparison.OrdinalIgnoreCase)
+                ? new DateTime(1970, 1, 1, 0, 0, 1, DateTimeKind.Utc)
+                : new DateTime(1601, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+        });
+
+        Assert.AreEqual(2, snapshot.RequestedDirectoryCount);
+        Assert.AreEqual(1, snapshot.ResolvedDirectoryCount);
+        Assert.AreEqual(1, snapshot.MissingDirectoryCount);
+        Assert.IsFalse(snapshot.TryGetMetadata(@"D:\BMS", out _));
+        Assert.IsTrue(snapshot.TryGetMetadata(@"D:\BMS\Pack", out Lr2FolderDirectoryMetadata metadata));
+        Assert.AreEqual(new DateTime(1970, 1, 1, 0, 0, 1, DateTimeKind.Utc), metadata.LastWriteTimeUtc);
     }
 
     private static string Normalize(string path)
