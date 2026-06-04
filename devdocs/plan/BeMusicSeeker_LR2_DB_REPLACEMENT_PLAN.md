@@ -88,7 +88,7 @@ database / executable path が有効に解決できる状態を指す。
   - chart / audio / image / movie の列挙でよい。
   - `song.txt`、`.lr2folder`、`folderinfo.txt`、LR2 folder hierarchy のための追加列挙は行わない。
 - 完全生成が有効:
-  - BMS の変更検出に必要な chart mtime / size / hash 判定を行う。
+  - BMS の変更検出に必要な `song.path` / `song.date` / hash 判定を行う。
   - BMS chart directory 直下の text group を列挙する。
   - BeMusicSeeker 管理外の `.lr2folder`、BeMusicSeeker 管理の `.lr2folder`、
     `folderinfo.txt` を LR2 `folder` テーブル生成の入力として扱う。
@@ -192,13 +192,14 @@ SELECT path,date FROM folder WHERE parent = ROOT OR date = 0
 
 方針:
 
-- BMS / bmson に関係なく、owned chart の変更検出 contract は統一する。
-- DB row と現 file の `path` / high precision mtime / size が一致する場合は更新なし。
-- high precision mtime または size が変わった場合は `ChartFileSnapshot` を読み、MD5 を比較する。
-- mtime / size が変わり MD5 も変わった場合:
+- BMS / bmson に関係なく、owned chart の path add / delete / move 検出 contract は統一する。
+- LR2 `song` row を生成する BMS では、`song.path` と `song.date` を変更検出の正本にする。
+- DB row の `path` と現 file path、`song.date` と現 file mtime の Unix 秒が一致する場合は更新なし。
+- `path` または `song.date` が変わった場合は `ChartFileSnapshot` を読み、MD5 を比較する。
+- `path` / `song.date` が変わり MD5 も変わった場合:
   - BMS は再parseし、`song` / `chart_info` / `maintenance` / LR2 compatibility snapshot を更新する。
   - bmson は現行の `bmson_song` 更新経路を維持する。
-- mtime / size が変わったが MD5 が同じ場合:
+- `song.date` が変わったが MD5 が同じ場合:
   - BMS は `song.date` だけ更新する。
   - hash identity は変えない。
   - `folder.date` / directory mtime は folder pipeline の metadata freshness に従って更新する。
@@ -218,10 +219,9 @@ SELECT path,date FROM folder WHERE parent = ROOT OR date = 0
 性能上の条件:
 
 - 200k 件級で毎回全 BMS bytes を読む設計にはしない。
-- high precision mtime / size / path の軽量 metadata を scan contract に入れるか、DB 側に
-  metadata snapshot を持つ。
-- high precision mtime は Windows FILETIME ticks 相当で保持する。
-- hash 読みは mtime / size 変化対象だけに限定する。
+- LR2 `song` row に既にある `path` / `date` を差分検出の正本にし、file size や
+  high precision mtime の独自永続列は追加しない。
+- hash 読みは `path` / `song.date` 変化対象だけに限定する。
 - mtime が保持された外部コピーや同秒更新は完全には検出できないため、明示的な全譜面再スキャンを
   force verify として残す。
 - text group の freshness は BMS file metadata とは別に扱う。
@@ -343,10 +343,10 @@ LR2 compatibility warning は BMS のみを対象にする。bmson は対象外�
 - 完全生成有効時は maintenance fact から warning を投影する。
 - 完全生成無効時は、既存の `Lr2PathEncodingUnsupported` など軽い path warning だけ維持する。
 - スタンドアロンモードでは `LR2非対応パス` ツリーを出さない。
-- warning の ignore は resource health と独立させる。
-  - `is_lr2_compatibility_warning_ignored` が true の BMS は、warning digest / tooltip / `LR2非対応パス`
-    membership から除外する。
-  - raw maintenance facts は保持し、ignore 解除時に再評価なしで表示へ戻せるようにする。
+- LR2 compatibility warning の ignore 永続化はこの計画では追加しない。
+  - warning digest / tooltip / `LR2非対応パス` membership は `warning-model.md` の structured warning
+    projection に従って組み立てる。
+  - 将来 ignore UI / ignore list を追加する場合は、別計画で永続 state を追加する。
 
 ### LR2 起動前 workflow
 
@@ -413,22 +413,18 @@ LR2 compatibility warning は BMS のみを対象にする。bmson は対象外�
 LR2 互換性 warning は、起動時に毎回 BMS を全量読み込んで再判定しない。
 BMS ファイルを読む機会に `maintenance` へ同期し、起動時・一覧表示時は保存済み結果を使う。
 
-`maintenance` の freshness は既存の `path` / `hash` を基本にし、BMS metadata snapshot を
-追加する場合は `path + hash + high precision mtime + size` で判断する。
+`maintenance` の freshness は既存の `path` / `hash` を基本にする。LR2 互換性評価のために
+file size / high precision mtime の独自 freshness 列は追加しない。
 
 推奨列:
 
 - `lr2_path_warning_flags INTEGER NULL`
-- `lr2_path_cp932_bytes INTEGER NULL`
+- `lr2_chart_path_cp932_bytes INTEGER NULL`
 - `lr2_folder_scan_cp932_bytes INTEGER NULL`
 - `lr2_resource_warning_flags INTEGER NULL`
-- `lr2_resource_warning_count INTEGER NULL`
-- `lr2_resource_warning_examples TEXT NULL`
-- `lr2_resource_max_relative_cp932_bytes INTEGER NULL`
+- `lr2_resource_max_raw_cp932_bytes INTEGER NULL`
 - `lr2_resource_max_resolved_cp932_bytes INTEGER NULL`
-- `is_lr2_compatibility_warning_ignored BOOLEAN NOT NULL DEFAULT 0`
-- `lr2_evaluated_mtime INTEGER NULL`
-- `lr2_evaluated_file_size INTEGER NULL`
+- `lr2_resource_unsupported_count INTEGER NULL`
 
 schema migration:
 
@@ -439,8 +435,9 @@ schema migration:
 - maintenance hydrate / write は `EnsureMaintenanceSchemaVNext` 相当の schema ensure より前に実行しない。
 - `BMSFileMaintenanceInfo`、`MaintenanceRowsEquivalent`、`CloneMaintenanceInfo` に新列を追加する。
 
-保存するものは「全 resource reference の完全リスト」ではなく、警告表示と診断に必要な
-サマリを基本にする。全参照を JSON で保持すると DB サイズが大きくなりやすい。
+保存するものは警告テキストや全 resource reference の完全リストではなく、警告 kind を判定する
+最小 fact に限定する。表示文言、digest、tooltip は `warning-model.md` の structured warning
+projection に従って実行時に組み立てる。詳細な具体例を tooltip に出す機能はこの計画では追加しない。
 
 ## 実装フェーズ
 
@@ -469,7 +466,7 @@ schema migration:
 - `Lr2FolderRowGenerator` 用 golden tests
 - コピーした `song.db` での dry-run 検証手順
 
-### Phase 1: BMS 変更検出を mtime/size/hash ベースに統一する
+### Phase 1: BMS 変更検出を `song.path` / `song.date` / hash ベースに統一する
 
 目的:
 
@@ -478,18 +475,17 @@ schema migration:
 
 実装:
 
-- scan result または DB-side snapshot に BMS high precision mtime / size を持たせる。
-- DB row の path / high precision mtime / size が一致する場合は unchanged。
-- mtime または size が変わった場合だけ `ChartFileSnapshot` を読み、MD5 を比較する。
-- MD5 が同じなら `song.date` / mtime / size snapshot のみ更新する。
+- DB row の `song.path` と実 path、`song.date` と実 BMS mtime の Unix 秒が一致する場合は unchanged。
+- `song.path` または `song.date` が変わった場合だけ `ChartFileSnapshot` を読み、MD5 を比較する。
+- MD5 が同じなら `song.date` のみ更新する。
 - MD5 が違うなら再parseする。
 - deleted path と added path の MD5 が同じ場合は move/relink として維持列を引き継ぐ。
 
 テスト:
 
-- path + high precision mtime + size 一致は parse しない。
-- mtime/size changed + MD5 same は `song.date` のみ更新する。
-- mtime/size changed + MD5 changed は BMS row / chart_info / maintenance を更新する。
+- `song.path` + `song.date` 一致は parse しない。
+- `song.date` changed + MD5 same は `song.date` のみ更新する。
+- `song.date` changed + MD5 changed は BMS row / chart_info / maintenance を更新する。
 - path move + MD5 same で `favorite` / `adddate` / `tag` が維持される。
 - bmson の現行更新検出と矛盾しない。
 
@@ -566,9 +562,9 @@ scope:
 
 - CP932 非対応 BMS path が warning になる。
 - BMS path byte length boundary が warning になる。
-- resource resolved path の CP932 非対応 / byte length boundary が warning になる。
+- resource raw path / resolved path の CP932 非対応と byte length boundary が warning になる。
 - bmson は warning 対象にならない。
-- ignore flag の表示・一覧 membership の挙動が固定される。
+- maintenance の最小 fact から `warning-model.md` 準拠の digest / tooltip が組み立てられる。
 
 ### Phase 5: `song` row enricher を追加する
 
@@ -809,8 +805,8 @@ parse directive:
 ## リスクと注意点
 
 - BMS 変更検出は完全生成の前提条件。path added/deleted だけでは不十分。
-- mtime だけではなく high precision mtime + size を扱う。これでも mtime preserved copy は
-  完全には検出できないため、force rescan を残す。
+- 通常差分検出は LR2 `song.path` / `song.date` を正本にする。mtime preserved copy や
+  同秒更新は完全には検出できないため、force rescan を残す。
 - Everything と managed fallback の結果は意味的に揃える。片方だけ text group や metadata
   を返す状態にしない。
 - text group だけでなく、directory mtime、`folderinfo.txt`、`.lr2folder` の existence /
@@ -827,7 +823,7 @@ parse directive:
 ## 作業エージェント向け実装順
 
 1. Phase 0 の golden fixture を追加する。
-2. BMS 変更検出を mtime/size/hash ベースに統一する。
+2. BMS 変更検出を `song.path` / `song.date` / hash ベースに統一する。
 3. `song` row merge / ownership writer を追加する。
 4. text group と raw resource reference snapshot を scan/parse contract に追加する。
 5. `Lr2CompatibilityEvaluator` を追加する。
