@@ -52,6 +52,21 @@ internal sealed class Settings : ApplicationSettingsBase
 
     [UserScopedSetting]
     [DebuggerNonUserCode]
+    [DefaultSettingValue("False")]
+    public bool EnableLR2SongDbFullGeneration
+    {
+        get
+        {
+            return (bool)this["EnableLR2SongDbFullGeneration"];
+        }
+        set
+        {
+            this["EnableLR2SongDbFullGeneration"] = value;
+        }
+    }
+
+    [UserScopedSetting]
+    [DebuggerNonUserCode]
     [DefaultSettingValue("")]
     public string LR2RootPath
     {

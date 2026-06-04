@@ -4867,7 +4867,8 @@ completeFileEnumerationOnce,
                 }
                 committedInlineChartInfoRows.AddRange(rows.Where(row => row != null));
             },
-            currentInstallDestinationCharts);
+            currentInstallDestinationCharts,
+            bmsDirectories);
         completeFileEnumerationOnce();
         ApplyLibraryFileScanStorageMutation(fileCheckResult, reason);
         if (committedInlineChartInfoRows.Count > 0)

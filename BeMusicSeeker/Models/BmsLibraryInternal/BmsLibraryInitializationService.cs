@@ -317,7 +317,8 @@ internal sealed class BmsLibraryInitializationService
         Action<int, int, string> reportParseProgress = null,
         Action<string> logInstallPerformanceWarn = null,
         Action<IReadOnlyList<LR2SongDBExtended.chart_info>> inlineChartInfoRowsCommitted = null,
-        IEnumerable<ChartFile> currentInstallDestinationCharts = null)
+        IEnumerable<ChartFile> currentInstallDestinationCharts = null,
+        IEnumerable<string> lr2NormalFolderSyncRootDirectories = null)
     {
         var result = new SongTableFileCheckResult();
         var stopwatchScan = Stopwatch.StartNew();
@@ -336,6 +337,7 @@ internal sealed class BmsLibraryInitializationService
         {
             return result;
         }
+        bool bmsFileScanSucceeded = scanResult.Success;
         fileDiffStarted?.Invoke();
         ChartScanResult mergedScanResult = scanResult.Result;
         if (executeBmsonScan != null)
@@ -569,6 +571,16 @@ internal sealed class BmsLibraryInitializationService
                 result.InlineChartInfoParseFailureDeleteMd5s.Clear();
             }
         }
+        SyncLr2NormalFoldersIfEnabled(
+            dbGateway,
+            options,
+            lr2NormalFolderSyncRootDirectories,
+            scannedPaths,
+            mergedScanResult.FolderInfoFilePaths,
+            result,
+            logInstallPerformance,
+            logInstallPerformanceWarn,
+            bmsFileScanSucceeded);
 
         bool IsCurrentChartOwner(ChartFile chart)
         {
@@ -667,7 +679,21 @@ internal sealed class BmsLibraryInitializationService
             + " db_commit_chunks=" + result.DbCommitChunks
             + " db_commit_chunk_size=" + result.DbCommitChunkSize
             + " db_commit_max_chunk_ms=" + result.DbCommitMaxChunkMs
-            + " instl_dst_cleanup_ms=" + result.InstlDstCleanupMs);
+            + " instl_dst_cleanup_ms=" + result.InstlDstCleanupMs
+            + " lr2_normal_folder_sync_executed=" + result.Lr2NormalFolderSyncExecuted.ToString().ToLowerInvariant()
+            + " lr2_normal_folder_sync_failed=" + result.Lr2NormalFolderSyncFailed.ToString().ToLowerInvariant()
+            + " lr2_normal_folder_generated=" + result.Lr2NormalFolderGeneratedCount
+            + " lr2_normal_folder_upserted=" + result.Lr2NormalFolderUpsertedCount
+            + " lr2_normal_folder_deleted=" + result.Lr2NormalFolderDeletedCount
+            + " lr2_normal_folder_skipped_unsupported=" + result.Lr2NormalFolderSkippedUnsupportedPathCount
+            + " lr2_normal_folder_skipped_missing_metadata=" + result.Lr2NormalFolderSkippedMissingMetadataCount
+            + " lr2_normal_folder_skipped_incompatible_chart=" + result.Lr2NormalFolderSkippedIncompatibleChartPathCount
+            + " lr2_normal_folder_metadata_requested=" + result.Lr2NormalFolderMetadataRequestedDirectoryCount
+            + " lr2_normal_folder_metadata_resolved=" + result.Lr2NormalFolderMetadataResolvedDirectoryCount
+            + " lr2_normal_folderinfo_candidates=" + result.Lr2NormalFolderInfoCandidateCount
+            + " lr2_normal_folderinfo_applied=" + result.Lr2NormalFolderInfoAppliedCount
+            + " lr2_normal_folderinfo_read_failures=" + result.Lr2NormalFolderInfoReadFailureCount
+            + " lr2_normal_folder_sync_ms=" + result.Lr2NormalFolderSyncMs);
         logInstallPerformance?.Invoke(
             "song_tbl_file_check_cache_counts chartDirs=" + result.DirectoryCount
             + " audioResourceKeyEntries=" + result.AudioResourceKeyHashEntryCount
@@ -684,6 +710,87 @@ internal sealed class BmsLibraryInitializationService
             + " dirs=" + result.DirectoryCount
             + " prefetched=" + result.PrefetchedScanUsed.ToString().ToLowerInvariant());
         return result;
+    }
+
+    private static void SyncLr2NormalFoldersIfEnabled(
+        BmsLibraryDbGateway dbGateway,
+        BmsLibraryOptionsSnapshot options,
+        IEnumerable<string> rootDirectories,
+        IEnumerable<string> scannedBmsPaths,
+        IEnumerable<string> folderInfoFilePaths,
+        SongTableFileCheckResult result,
+        Action<string> logInstallPerformance,
+        Action<string> logInstallPerformanceWarn,
+        bool scanCompletedSuccessfully)
+    {
+        if (dbGateway == null
+            || result == null
+            || options?.OperationModeLR2DB != true
+            || options.EnableLR2SongDbFullGeneration != true)
+        {
+            return;
+        }
+
+        List<string> roots = [.. (rootDirectories ?? [])
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)];
+        if (roots.Count == 0)
+        {
+            return;
+        }
+        if (!scanCompletedSuccessfully)
+        {
+            logInstallPerformance?.Invoke("lr2_normal_folder_sync skipped reason=incomplete_scan");
+            return;
+        }
+
+        result.Lr2NormalFolderSyncExecuted = true;
+        try
+        {
+            using LR2SongDBExtended songDb = dbGateway.OpenSongDb();
+            Lr2NormalFolderDbSyncResult syncResult = Lr2NormalFolderDbSyncService.Sync(songDb, new Lr2NormalFolderDbSyncRequest
+            {
+                RootDirectories = roots,
+                ChartPaths = [.. (scannedBmsPaths ?? [])],
+                FolderInfoFilePaths = [.. (folderInfoFilePaths ?? [])],
+                AllowPrune = true
+            });
+            ApplyLr2NormalFolderSyncResult(result, syncResult);
+            logInstallPerformance?.Invoke("lr2_normal_folder_sync done generated=" + syncResult.GeneratedCount
+                + " upserted=" + syncResult.UpsertedCount
+                + " deleted=" + syncResult.DeletedCount
+                + " skippedUnsupported=" + syncResult.SkippedUnsupportedPathCount
+                + " skippedMissingMetadata=" + syncResult.SkippedMissingMetadataCount
+                + " skippedIncompatibleChart=" + syncResult.SkippedIncompatibleChartPathCount
+                + " metadataRequested=" + syncResult.MetadataRequestedDirectoryCount
+                + " metadataResolved=" + syncResult.MetadataResolvedDirectoryCount
+                + " folderInfoCandidates=" + syncResult.FolderInfoCandidateCount
+                + " folderInfoApplied=" + syncResult.FolderInfoAppliedCount
+                + " folderInfoReadFailures=" + syncResult.FolderInfoReadFailureCount
+                + " elapsedMs=" + syncResult.ElapsedMs);
+        }
+        catch (Exception ex)
+        {
+            result.Lr2NormalFolderSyncFailed = true;
+            result.Lr2NormalFolderSyncFailureReason = ex.Message ?? ex.GetType().Name;
+            logInstallPerformanceWarn?.Invoke("lr2_normal_folder_sync failed reason=" + QuoteLogValue(result.Lr2NormalFolderSyncFailureReason));
+        }
+    }
+
+    private static void ApplyLr2NormalFolderSyncResult(SongTableFileCheckResult result, Lr2NormalFolderDbSyncResult syncResult)
+    {
+        result.Lr2NormalFolderGeneratedCount = syncResult.GeneratedCount;
+        result.Lr2NormalFolderUpsertedCount = syncResult.UpsertedCount;
+        result.Lr2NormalFolderDeletedCount = syncResult.DeletedCount;
+        result.Lr2NormalFolderSkippedUnsupportedPathCount = syncResult.SkippedUnsupportedPathCount;
+        result.Lr2NormalFolderSkippedMissingMetadataCount = syncResult.SkippedMissingMetadataCount;
+        result.Lr2NormalFolderSkippedIncompatibleChartPathCount = syncResult.SkippedIncompatibleChartPathCount;
+        result.Lr2NormalFolderMetadataRequestedDirectoryCount = syncResult.MetadataRequestedDirectoryCount;
+        result.Lr2NormalFolderMetadataResolvedDirectoryCount = syncResult.MetadataResolvedDirectoryCount;
+        result.Lr2NormalFolderInfoCandidateCount = syncResult.FolderInfoCandidateCount;
+        result.Lr2NormalFolderInfoAppliedCount = syncResult.FolderInfoAppliedCount;
+        result.Lr2NormalFolderInfoReadFailureCount = syncResult.FolderInfoReadFailureCount;
+        result.Lr2NormalFolderSyncMs = syncResult.ElapsedMs;
     }
 
     private FileDiffParsePipelineResult RunFileDiffParsePipeline(

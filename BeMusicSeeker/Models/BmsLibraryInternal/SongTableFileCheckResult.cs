@@ -200,6 +200,36 @@ internal sealed class SongTableFileCheckResult
 
     public long InstlDstCleanupMs { get; set; }
 
+    public bool Lr2NormalFolderSyncExecuted { get; set; }
+
+    public bool Lr2NormalFolderSyncFailed { get; set; }
+
+    public string Lr2NormalFolderSyncFailureReason { get; set; }
+
+    public int Lr2NormalFolderGeneratedCount { get; set; }
+
+    public int Lr2NormalFolderUpsertedCount { get; set; }
+
+    public int Lr2NormalFolderDeletedCount { get; set; }
+
+    public int Lr2NormalFolderSkippedUnsupportedPathCount { get; set; }
+
+    public int Lr2NormalFolderSkippedMissingMetadataCount { get; set; }
+
+    public int Lr2NormalFolderSkippedIncompatibleChartPathCount { get; set; }
+
+    public int Lr2NormalFolderMetadataRequestedDirectoryCount { get; set; }
+
+    public int Lr2NormalFolderMetadataResolvedDirectoryCount { get; set; }
+
+    public int Lr2NormalFolderInfoCandidateCount { get; set; }
+
+    public int Lr2NormalFolderInfoAppliedCount { get; set; }
+
+    public int Lr2NormalFolderInfoReadFailureCount { get; set; }
+
+    public long Lr2NormalFolderSyncMs { get; set; }
+
     public ulong AudioResourceKeyHashEntryCount { get; set; }
 
     public ulong ImageResourceKeyHashEntryCount { get; set; }

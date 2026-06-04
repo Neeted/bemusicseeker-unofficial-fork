@@ -887,6 +887,234 @@ public sealed class BmsLibraryInitializationServiceTests
     }
 
     [TestMethod]
+    public void ApplyFileScanDiff_SyncsLr2NormalFoldersAfterFullScanWhenEnabled()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
+        {
+            string packDirectoryPath = Path.Combine(lr2RootPath, "Pack");
+            Directory.CreateDirectory(packDirectoryPath);
+            string bmsPath = Path.Combine(packDirectoryPath, "added.bms");
+            string folderInfoPath = Path.Combine(packDirectoryPath, "folderinfo.txt");
+            File.WriteAllText(bmsPath, CreateValidBmsText("Folder Sync"), Encoding.ASCII);
+            File.WriteAllText(folderInfoPath, "#TITLE Synced Folder", Encoding.GetEncoding(932));
+
+            using (var songDbConnection = new LR2SongDBExtended(songDbPath))
+            {
+                songDbConnection.CreateTable<LR2SongDB.song>();
+                songDbConnection.CreateTable<LR2SongDB.folder>();
+            }
+
+            ChartScanResult scanResult = CreateScanResult(
+                [bmsPath],
+                new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
+                {
+                    { packDirectoryPath, Array.Empty<string>() }
+                });
+            scanResult.FolderInfoFilePaths.Add(folderInfoPath);
+
+            var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
+            SongTableFileCheckResult result = service.ApplyFileScanDiff(
+                new BmsLibraryDbGateway(songDbPath),
+                new BmsLibraryOptionsSnapshot
+                {
+                    OperationModeLR2DB = true,
+                    EnableLR2SongDbFullGeneration = true
+                },
+                [],
+                new ChartScanExecutionResult
+                {
+                    Success = true,
+                    Result = scanResult
+                },
+                0L,
+                () => null,
+                null,
+                currentBmsonSongs: [],
+                lr2NormalFolderSyncRootDirectories: [lr2RootPath]);
+
+            Assert.IsTrue(result.Lr2NormalFolderSyncExecuted);
+            Assert.IsFalse(result.Lr2NormalFolderSyncFailed);
+            Assert.AreEqual(2, result.Lr2NormalFolderGeneratedCount);
+            Assert.AreEqual(2, result.Lr2NormalFolderUpsertedCount);
+            Assert.AreEqual(0, result.Lr2NormalFolderDeletedCount);
+            Assert.AreEqual(2, result.Lr2NormalFolderMetadataRequestedDirectoryCount);
+            Assert.AreEqual(2, result.Lr2NormalFolderMetadataResolvedDirectoryCount);
+            Assert.AreEqual(1, result.Lr2NormalFolderInfoCandidateCount);
+            Assert.AreEqual(1, result.Lr2NormalFolderInfoAppliedCount);
+
+            using var verify = new LR2SongDBExtended(songDbPath);
+            LR2SongDB.folder root = verify.Table<LR2SongDB.folder>().Single(row => row.path == ToFolderPath(lr2RootPath));
+            LR2SongDB.folder pack = verify.Table<LR2SongDB.folder>().Single(row => row.path == ToFolderPath(packDirectoryPath));
+            Assert.AreEqual(1, root.type);
+            Assert.AreEqual(1, pack.type);
+            Assert.AreEqual("Synced Folder", pack.title);
+            Assert.IsTrue(pack.date.HasValue);
+        });
+    }
+
+    [TestMethod]
+    public void ApplyFileScanDiff_DoesNotSyncLr2NormalFoldersWhenFullGenerationDisabled()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
+        {
+            string packDirectoryPath = Path.Combine(lr2RootPath, "Pack");
+            Directory.CreateDirectory(packDirectoryPath);
+            string bmsPath = Path.Combine(packDirectoryPath, "added.bms");
+            File.WriteAllText(bmsPath, CreateValidBmsText("Folder Sync Disabled"), Encoding.ASCII);
+            string stalePath = ToFolderPath(Path.Combine(lr2RootPath, "Stale"));
+
+            using (var songDbConnection = new LR2SongDBExtended(songDbPath))
+            {
+                songDbConnection.CreateTable<LR2SongDB.song>();
+                songDbConnection.CreateTable<LR2SongDB.folder>();
+                songDbConnection.InsertOrReplace(new LR2SongDB.folder
+                {
+                    path = stalePath,
+                    type = 1
+                }, typeof(LR2SongDB.folder));
+            }
+
+            var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
+            SongTableFileCheckResult result = service.ApplyFileScanDiff(
+                new BmsLibraryDbGateway(songDbPath),
+                new BmsLibraryOptionsSnapshot
+                {
+                    OperationModeLR2DB = true,
+                    EnableLR2SongDbFullGeneration = false
+                },
+                [],
+                new ChartScanExecutionResult
+                {
+                    Success = true,
+                    Result = CreateScanResult(
+                        [bmsPath],
+                        new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
+                        {
+                            { packDirectoryPath, Array.Empty<string>() }
+                        })
+                },
+                0L,
+                () => null,
+                null,
+                currentBmsonSongs: [],
+                lr2NormalFolderSyncRootDirectories: [lr2RootPath]);
+
+            Assert.IsFalse(result.Lr2NormalFolderSyncExecuted);
+            using var verify = new LR2SongDBExtended(songDbPath);
+            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM folder;"));
+            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path = ?;", stalePath));
+        });
+    }
+
+    [TestMethod]
+    public void ApplyFileScanDiff_DoesNotSyncLr2NormalFoldersOutsideLr2Mode()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
+        {
+            string packDirectoryPath = Path.Combine(lr2RootPath, "Pack");
+            Directory.CreateDirectory(packDirectoryPath);
+            string bmsPath = Path.Combine(packDirectoryPath, "added.bms");
+            File.WriteAllText(bmsPath, CreateValidBmsText("Folder Sync Disabled"), Encoding.ASCII);
+
+            using (var songDbConnection = new LR2SongDBExtended(songDbPath))
+            {
+                songDbConnection.CreateTable<LR2SongDB.song>();
+                songDbConnection.CreateTable<LR2SongDB.folder>();
+            }
+
+            var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
+            SongTableFileCheckResult result = service.ApplyFileScanDiff(
+                new BmsLibraryDbGateway(songDbPath),
+                new BmsLibraryOptionsSnapshot
+                {
+                    OperationModeLR2DB = false,
+                    EnableLR2SongDbFullGeneration = true
+                },
+                [],
+                new ChartScanExecutionResult
+                {
+                    Success = true,
+                    Result = CreateScanResult(
+                        [bmsPath],
+                        new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
+                        {
+                            { packDirectoryPath, Array.Empty<string>() }
+                        })
+                },
+                0L,
+                () => null,
+                null,
+                currentBmsonSongs: [],
+                lr2NormalFolderSyncRootDirectories: [lr2RootPath]);
+
+            Assert.IsFalse(result.Lr2NormalFolderSyncExecuted);
+            using var verify = new LR2SongDBExtended(songDbPath);
+            Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM folder;"));
+        });
+    }
+
+    [TestMethod]
+    public void ApplyFileScanDiff_DoesNotSyncLr2NormalFoldersWhenScanIsIncomplete()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
+        {
+            string packDirectoryPath = Path.Combine(lr2RootPath, "Pack");
+            Directory.CreateDirectory(packDirectoryPath);
+            string bmsPath = Path.Combine(packDirectoryPath, "added.bms");
+            File.WriteAllText(bmsPath, CreateValidBmsText("Folder Sync Incomplete"), Encoding.ASCII);
+            string stalePath = ToFolderPath(Path.Combine(lr2RootPath, "Stale"));
+            var logs = new List<string>();
+
+            using (var songDbConnection = new LR2SongDBExtended(songDbPath))
+            {
+                songDbConnection.CreateTable<LR2SongDB.song>();
+                songDbConnection.CreateTable<LR2SongDB.folder>();
+                songDbConnection.InsertOrReplace(new LR2SongDB.folder
+                {
+                    path = stalePath,
+                    type = 1
+                }, typeof(LR2SongDB.folder));
+            }
+
+            var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
+            SongTableFileCheckResult result = service.ApplyFileScanDiff(
+                new BmsLibraryDbGateway(songDbPath),
+                new BmsLibraryOptionsSnapshot
+                {
+                    OperationModeLR2DB = true,
+                    EnableLR2SongDbFullGeneration = true
+                },
+                [],
+                new ChartScanExecutionResult
+                {
+                    Success = false,
+                    Result = CreateScanResult(
+                        [bmsPath],
+                        new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
+                        {
+                            { packDirectoryPath, Array.Empty<string>() }
+                        })
+                },
+                0L,
+                () => null,
+                null,
+                logInstallPerformance: logs.Add,
+                currentBmsonSongs: [],
+                lr2NormalFolderSyncRootDirectories: [lr2RootPath]);
+
+            Assert.IsFalse(result.Lr2NormalFolderSyncExecuted);
+            Assert.IsTrue(logs.Any(message => message.Contains("lr2_normal_folder_sync skipped reason=incomplete_scan")));
+            using var verify = new LR2SongDBExtended(songDbPath);
+            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM folder;"));
+            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path = ?;", stalePath));
+        });
+    }
+
+    [TestMethod]
     public void UpsertSongs_FillsLr2FolderAndParentForInstalledBmsRows()
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -3479,6 +3707,21 @@ public sealed class BmsLibraryInitializationServiceTests
     private static int ToUnixSeconds(DateTime utcTime)
     {
         return (int)new DateTimeOffset(DateTime.SpecifyKind(utcTime, DateTimeKind.Utc)).ToUnixTimeSeconds();
+    }
+
+    private static string ToFolderPath(string path)
+    {
+        string fullPath = Path.GetFullPath(path);
+        string root = Path.GetPathRoot(fullPath);
+        string trimmed = fullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        string normalized = !string.IsNullOrEmpty(root)
+            && string.Equals(trimmed, root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar), StringComparison.OrdinalIgnoreCase)
+                ? root.TrimEnd(Path.AltDirectorySeparatorChar)
+                : trimmed;
+        return normalized.EndsWith(Path.DirectorySeparatorChar.ToString(), StringComparison.Ordinal)
+            || normalized.EndsWith(Path.AltDirectorySeparatorChar.ToString(), StringComparison.Ordinal)
+                ? normalized
+                : normalized + Path.DirectorySeparatorChar;
     }
 
     private static SongTableFileCheckResult RunWithParserDegreeOverride(int? overrideValue, string songDbPath)

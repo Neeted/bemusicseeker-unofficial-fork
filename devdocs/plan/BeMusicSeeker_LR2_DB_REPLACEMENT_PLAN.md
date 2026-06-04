@@ -71,7 +71,9 @@ BeMusicSeeker は譜面管理アプリなので、LR2 で完全に読めない�
 ## 設定方針
 
 完全な `song.db` 生成は設定化する。ただし LR2 連携ユーザーにとって望ましい既定動作なので、
-LR2 連携モードでは **デフォルト有効** にする。
+最終仕様では LR2 連携モードで **デフォルト有効** にする。
+段階実装中は Phase 8 / Phase 9 の status / backfill UI が入るまで hidden setting として扱い、
+実装上の既定値は `false` のままにする。
 
 この計画でいう LR2 連携モードは、設定上 `OperationModeLR2DB == true` であり、LR2 の
 database / executable path が有効に解決できる状態を指す。
@@ -83,7 +85,8 @@ database / executable path が有効に解決できる状態を指す。
   - `LR2用song.dbをBeMusicSeekerで完全生成する`
   - または `LR2起動時のDB自動更新をBeMusicSeekerで代替する`
 - 初期値:
-  - `OperationModeLR2DB == true` の場合は有効。
+  - 最終仕様では `OperationModeLR2DB == true` の場合は有効。
+  - Phase 8 / Phase 9 までの段階実装では hidden / disabled で、`Settings` / `app.config` の既定値は `false`。
   - スタンドアロン運用では無効にし、設定項目も非表示にする。
 
 設定別の処理方針:
@@ -1012,6 +1015,16 @@ parse directive:
     呼び出し判断や feature gate は持たない。chunk-local な file diff commit へ folder prune を混ぜず、full scan 完了後に
     complete chart path set を渡す呼び出し側から使う。`AllowPrune` は complete scan と source generation の整合を確認した
     caller だけが立て、既定では upsert のみ行って stale row delete はしない。
+  - initialization への最初の production 接続は hidden setting `EnableLR2SongDbFullGeneration=false` を既定にし、
+    LR2 linked mode かつ設定が明示的に有効な場合だけ full file scan 完了後に normal folder sync を実行する。
+    Phase 8 / Phase 9 の status / backfill UI が入るまで通常ユーザー経路からは有効化しない。
+  - full scan 後の normal folder sync は file diff DB commit を flush した後に別 workflow として実行し、
+    owned collection の `HasDbDiff` や UI refresh 判定には混ぜない。folder sync の生成 / upsert / delete / metadata 欠落は
+    `song_tbl_file_check_breakdown` の LR2 normal folder metrics として追跡する。
+  - full scan 境界では complete chart path set と `folderinfo.txt` scan surface を渡せるため `AllowPrune=true` とする。
+    ただし compose service 側は CP932 非対応 chart path や metadata 欠落がある場合に stale normal row deletion を抑止する。
+    `ChartScanExecutionResult.Success != true` の partial surface では normal folder sync 自体を skip し、`folderinfo.txt`
+    surface 欠落や chart path 不完全性を stale row prune / title overwrite に使わない。
 
 ## 作業エージェント向け実装順
 
