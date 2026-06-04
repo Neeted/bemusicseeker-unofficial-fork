@@ -973,6 +973,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 };
                 existing.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
                 existing.SetFavorite(7);
+                existing.SetTextGroupFlagForTest(1);
                 songDbConnection.InsertOrReplace(existing, typeof(LR2SongDB.song));
             }
 
@@ -988,6 +989,7 @@ public sealed class BmsLibraryInitializationServiceTests
             Assert.AreEqual(updated.hash, row.hash);
             Assert.AreEqual(200, row.date);
             Assert.AreEqual(7, row.favorite);
+            Assert.AreEqual(1, row.txt);
             Assert.AreEqual(12345, row.adddate);
             Assert.AreEqual("user-tag", row.tag);
         });
@@ -2624,6 +2626,124 @@ public sealed class BmsLibraryInitializationServiceTests
     }
 
     [TestMethod]
+    public void ApplyFileScanDiff_NewBmsSetsTxtFromDirectTextGroupOnly()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
+        {
+            string directDirectory = Path.Combine(lr2RootPath, "DirectText");
+            string nestedDirectory = Path.Combine(lr2RootPath, "NestedText");
+            Directory.CreateDirectory(directDirectory);
+            Directory.CreateDirectory(nestedDirectory);
+            string directBmsPath = Path.Combine(directDirectory, "direct.bms");
+            string nestedBmsPath = Path.Combine(nestedDirectory, "nested.bms");
+            File.WriteAllText(directBmsPath, CreateValidBmsText("Direct Text"), Encoding.ASCII);
+            File.WriteAllText(nestedBmsPath, CreateValidBmsText("Nested Text"), Encoding.ASCII);
+            using (var songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDB.song>();
+                BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
+            }
+
+            var service = new BmsLibraryInitializationService();
+            SongTableFileCheckResult result = service.ApplyFileScanDiff(
+                new BmsLibraryDbGateway(songDbPath),
+                new BmsLibraryOptionsSnapshot(),
+                [],
+                new ChartScanExecutionResult
+                {
+                    Success = true,
+                    Result = CreateScanResult(
+                        [directBmsPath, nestedBmsPath],
+                        new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
+                        {
+                            { directDirectory, ["readme.txt"] },
+                            { nestedDirectory, [Path.Combine("docs", "readme.txt")] }
+                        })
+                },
+                0L,
+                () => null,
+                null);
+
+            Assert.AreEqual(2, result.AddedFiles.Count);
+            Assert.AreEqual(1, result.AddedFiles.Single(file => file.path == directBmsPath).txt);
+            Assert.AreEqual(0, result.AddedFiles.Single(file => file.path == nestedBmsPath).txt);
+
+            using var verify = new LR2SongDBExtended(songDbPath);
+            Assert.AreEqual(1, verify.ExecuteScalar<int>("SELECT txt FROM song WHERE path = ?;", directBmsPath));
+            Assert.AreEqual(0, verify.ExecuteScalar<int>("SELECT txt FROM song WHERE path = ?;", nestedBmsPath));
+        });
+    }
+
+    [TestMethod]
+    public void ApplyFileScanDiff_ExistingBmsTextGroupChangeUpdatesTxtOnly()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
+        {
+            string chartDirectory = Path.Combine(lr2RootPath, "TextOnly");
+            Directory.CreateDirectory(chartDirectory);
+            string bmsPath = Path.Combine(chartDirectory, "text-only.bms");
+            File.WriteAllText(bmsPath, CreateValidBmsText("Text Only"), Encoding.ASCII);
+            var timestamp = new DateTime(2026, 5, 4, 1, 0, 0, DateTimeKind.Utc);
+            File.SetLastWriteTimeUtc(bmsPath, timestamp);
+            BMSFile parsed = BMSFile.CreateBMSFileFromFile(bmsPath);
+            var existingFile = new TestableBmsFile
+            {
+                path = bmsPath,
+                date = ToUnixSeconds(timestamp),
+                adddate = 45678,
+                tag = "text-tag"
+            };
+            existingFile.SetHash(parsed.hash);
+            existingFile.SetFavorite(4);
+            existingFile.SetTextGroupFlagForTest(0);
+            using (var songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDB.song>();
+                BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
+                songDb.InsertOrReplace(existingFile, typeof(LR2SongDB.song));
+            }
+
+            var service = new BmsLibraryInitializationService();
+            SongTableFileCheckResult result = service.ApplyFileScanDiff(
+                new BmsLibraryDbGateway(songDbPath),
+                new BmsLibraryOptionsSnapshot(),
+                [existingFile],
+                new ChartScanExecutionResult
+                {
+                    Success = true,
+                    Result = CreateScanResult(
+                        [bmsPath],
+                        new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
+                        {
+                            { chartDirectory, ["readme.txt"] }
+                        })
+                },
+                0L,
+                () => null,
+                null);
+
+            Assert.AreEqual(1, result.BmsAddedTargetCount);
+            Assert.AreEqual(0, result.BmsDateOnlyUpdateCount);
+            Assert.AreEqual(1, result.BmsTextOnlyUpdateCount);
+            Assert.AreEqual(0, result.AddedFiles.Count);
+            Assert.AreSame(existingFile, result.NextFiles.Single());
+            Assert.AreEqual(1, existingFile.txt);
+            Assert.AreEqual(45678, existingFile.adddate);
+            Assert.AreEqual("text-tag", existingFile.tag);
+
+            using var verify = new LR2SongDBExtended(songDbPath);
+            LR2SongDB.song row = verify.Table<LR2SongDB.song>().Single();
+            Assert.AreEqual(1, row.txt);
+            Assert.AreEqual(ToUnixSeconds(timestamp), row.date);
+            Assert.AreEqual(4, row.favorite);
+            Assert.AreEqual(45678, row.adddate);
+            Assert.AreEqual("text-tag", row.tag);
+        });
+    }
+
+    [TestMethod]
     public void ApplyFileScanDiff_UpdatedBmsonUsesSnapshotTimestamp()
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -3497,8 +3617,22 @@ public sealed class BmsLibraryInitializationServiceTests
             result.SelfOwnedAudioRelativePathHashesByChartDirectory[chartDirectory] = entry.SelfOwnedAudioRelativePathHashArray;
             result.SelfOwnedImageRelativePathHashesByChartDirectory[chartDirectory] = entry.SelfOwnedImageRelativePathHashArray;
             result.SelfOwnedMovieRelativePathHashesByChartDirectory[chartDirectory] = entry.SelfOwnedMovieRelativePathHashArray;
+            if ((resourceFiles ?? []).Any(IsDirectTextFile))
+            {
+                result.ChartDirectoriesWithTextFiles.Add(chartDirectory);
+            }
         }
         return result;
+    }
+
+    private static bool IsDirectTextFile(string path)
+    {
+        if (!string.Equals(Path.GetExtension(path ?? string.Empty), ".txt", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+        string directory = Path.GetDirectoryName(path);
+        return string.IsNullOrWhiteSpace(directory);
     }
 
     private sealed class TestableBmsFile : BMSFile
@@ -3516,6 +3650,11 @@ public sealed class BmsLibraryInitializationServiceTests
         public void SetFavorite(int? value)
         {
             favorite = value;
+        }
+
+        public void SetTextGroupFlagForTest(int value)
+        {
+            SetTextGroupFlag(value);
         }
     }
 

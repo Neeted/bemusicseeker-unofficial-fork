@@ -691,6 +691,11 @@ public class BMSFile : LR2SongDB.song
         tag = existing.tag;
     }
 
+    internal void SetTextGroupFlag(int value)
+    {
+        txt = value == 0 ? 0 : 1;
+    }
+
     private static IEnumerable<string> ReadSnapshotLines(ChartFileSnapshot snapshot, Encoding encoding)
     {
         using var stream = new MemoryStream(snapshot.Bytes, writable: false);

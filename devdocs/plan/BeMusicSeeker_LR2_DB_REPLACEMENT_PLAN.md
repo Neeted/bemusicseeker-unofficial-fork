@@ -600,7 +600,7 @@ projection に従って実行時に組み立てる。詳細な具体例を toolt
 
 text group:
 
-- BMS chart directory 直下の `.txt` 有無だけを扱う。
+- BMS chart directory 直下の任意 `.txt` 有無だけを扱い、特定ファイル名 `song.txt` には限定しない。
 - descendant / ancestor の `.txt` を拾わない。
 - 完全生成無効時は走らせない。
 
@@ -896,7 +896,7 @@ parse directive:
 - `favorite`: 既存値を維持、なければ `0`。
 - `tag`: 既存値を維持。
 - `type`: `0`。
-- `txt`: text group で BMS chart directory 直下に `.txt` があれば `1`、なければ `0`。
+- `txt`: text group で BMS chart directory 直下に任意 `.txt` があれば `1`、なければ `0`。
 
 ### `folder`
 
@@ -957,6 +957,12 @@ parse directive:
     DB 上に残したまま generated columns だけを更新する。
   - `txt` / text group は Phase 3 で正本を設計してから扱うため、この段階では従来どおり generated row 側の値を保存する。
   - `song.hash` が `NULL` の既存 row も existing row として扱い、hash 取得結果だけで new row 判定しない。
+- Phase 3 は段階的に追加する。
+  - まず scan surface に BMS chart directory 直下の `.txt` 有無を追加し、`song.txt` へ反映する。
+  - fixed native resource scan は維持し、`.txt` だけ Everything grouped query で補完する。
+    grouped query が使えない場合に managed 全列挙へ落とすと起動コストが跳ねるため、この段階では text surface を空扱いにする。
+  - `song.date` が一致していて BMS 本体 MD5 が同じ場合、`.txt` 増減は targeted `song.txt` update だけ行い、
+    chart_info / maintenance は再生成しない。
 
 ## 作業エージェント向け実装順
 

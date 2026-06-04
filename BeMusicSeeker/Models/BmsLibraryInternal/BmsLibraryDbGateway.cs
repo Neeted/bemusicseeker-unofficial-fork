@@ -194,7 +194,7 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
         {
             if (updatedDate != null && !string.IsNullOrWhiteSpace(updatedDate.Path))
             {
-                Lr2SongDbWriter.UpdateDate(songDb, updatedDate.Path, updatedDate.Date);
+                Lr2SongDbWriter.UpdateMetadata(songDb, updatedDate.Path, updatedDate.Date, updatedDate.TextFlag);
             }
         }
         foreach (BMSFile addedFile in chunk.AddedBmsFiles)

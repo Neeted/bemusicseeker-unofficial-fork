@@ -33,12 +33,29 @@ internal static class Lr2SongDbWriter
 
     internal static void UpdateDate(LR2SongDBExtended songDb, string path, int date)
     {
+        UpdateMetadata(songDb, path, date, null);
+    }
+
+    internal static void UpdateMetadata(LR2SongDBExtended songDb, string path, int date, int? textFlag)
+    {
         if (songDb == null)
         {
             throw new ArgumentNullException(nameof(songDb));
         }
         if (string.IsNullOrWhiteSpace(path))
         {
+            return;
+        }
+        if (textFlag.HasValue)
+        {
+            songDb.Execute(
+                "UPDATE " + SQLiteTable<LR2SongDB.song>.GetTableName()
+                + " SET " + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.date) + " = ?, "
+                + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.txt) + " = ?"
+                + " WHERE " + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.path) + " = ?;",
+                date,
+                textFlag.Value,
+                path);
             return;
         }
         songDb.Execute(
@@ -93,7 +110,7 @@ internal static class Lr2SongDbWriter
             + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.bga) + " = ?, "
             + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.random) + " = ?, "
             + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.date) + " = ?, "
-            + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.txt) + " = ?, "
+            + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.txt) + " = COALESCE(?, " + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.txt) + "), "
             + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.karinotes) + " = ?, "
             + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.exlevel) + " = ?"
             + " WHERE " + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.path) + " = ?;",

@@ -109,4 +109,32 @@ public sealed class ChartDirectoryScanBuilderTests
             }
         }
     }
+
+    [TestMethod]
+    public void BuildFromRoots_TextGroupUsesOnlyDirectChartDirectoryTxtFiles()
+    {
+        string tempRoot = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_ChartDirText_" + Guid.NewGuid().ToString("N"));
+        string directChartDir = Path.Combine(tempRoot, "direct");
+        string nestedChartDir = Path.Combine(tempRoot, "nested");
+        Directory.CreateDirectory(directChartDir);
+        Directory.CreateDirectory(Path.Combine(nestedChartDir, "docs"));
+        File.WriteAllText(Path.Combine(directChartDir, "chart.bms"), "#PLAYER 1");
+        File.WriteAllText(Path.Combine(directChartDir, "readme.txt"), "text");
+        File.WriteAllText(Path.Combine(nestedChartDir, "chart.bms"), "#PLAYER 1");
+        File.WriteAllText(Path.Combine(nestedChartDir, "docs", "readme.txt"), "text");
+        try
+        {
+            ChartScanResult result = ChartDirectoryScanBuilder.BuildFromRoots([tempRoot]);
+
+            CollectionAssert.Contains(result.ChartDirectoriesWithTextFiles.ToList(), directChartDir);
+            CollectionAssert.DoesNotContain(result.ChartDirectoriesWithTextFiles.ToList(), nestedChartDir);
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot))
+            {
+                Directory.Delete(tempRoot, recursive: true);
+            }
+        }
+    }
 }

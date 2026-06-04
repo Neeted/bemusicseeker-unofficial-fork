@@ -13,7 +13,8 @@ internal sealed class EverythingRootFileEnumerator : IRootFileEnumerator
         { ChartDirectoryScanBuilder.AudioGroupName, 2u },
         { ChartDirectoryScanBuilder.ImageGroupName, 3u },
         { ChartDirectoryScanBuilder.MovieGroupName, 4u },
-        { RootFileEnumerationService.AllFilesGroupName, 5u }
+        { ChartDirectoryScanBuilder.TextGroupName, 5u },
+        { RootFileEnumerationService.AllFilesGroupName, 6u }
     };
 
     public RootFileEnumerationResult EnumerateFiles(IEnumerable<string> rootDirectories, IEnumerable<RootFileEnumerationGroup> groups, bool verboseLog = false)

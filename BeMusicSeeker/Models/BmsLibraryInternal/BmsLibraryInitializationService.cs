@@ -399,13 +399,14 @@ internal sealed class BmsLibraryInitializationService
             .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
         var currentPaths = new HashSet<string>(currentBmsByPath.Keys, StringComparer.OrdinalIgnoreCase);
         result.DeletedPaths.AddRange(currentPaths.Except(scannedPaths, StringComparer.OrdinalIgnoreCase));
+        HashSet<string> textFileDirectories = mergedScanResult.ChartDirectoriesWithTextFiles ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         Dictionary<string, Queue<BMSFile>> movedBmsSourcesByMd5 = BuildQueueByMd5(
             result.DeletedPaths
                 .Select(path => currentBmsByPath.TryGetValue(path, out BMSFile file) ? file : null)
                 .Where(file => file != null),
             file => file.hash);
         List<FileDiffParseTarget> bmsParseTargets = [.. scannedPaths
-            .Select(path => CreateBmsFileDiffTarget(path, currentBmsByPath))
+            .Select(path => CreateBmsFileDiffTarget(path, currentBmsByPath, textFileDirectories))
             .Where(target => target != null)];
         List<LR2SongDBExtended.bmson_song> currentBmsonList = [.. (currentBmsonSongs ?? []).Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))];
         var scannedBmsonPaths = new HashSet<string>(
@@ -490,6 +491,7 @@ internal sealed class BmsLibraryInitializationService
         result.AddedFiles.AddRange(pipelineResult.AddedFiles);
         result.AddedBmsonSongs.AddRange(pipelineResult.ParsedBmsonSongs);
         result.BmsDateOnlyUpdateCount = pipelineResult.BmsDateOnlyUpdateCount;
+        result.BmsTextOnlyUpdateCount = pipelineResult.BmsTextOnlyUpdateCount;
         result.BmsMovedHashRelinkCount = pipelineResult.BmsMovedHashRelinkCount;
 
         var stopwatchApply = Stopwatch.StartNew();
@@ -552,6 +554,7 @@ internal sealed class BmsLibraryInitializationService
         result.HasDbDiff = result.DeletedPaths.Count > 0
             || result.AddedFiles.Count > 0
             || result.BmsDateOnlyUpdateCount > 0
+            || result.BmsTextOnlyUpdateCount > 0
             || result.DeletedBmsonPaths.Count > 0
             || result.AddedBmsonSongs.Count > 0;
 
@@ -597,6 +600,7 @@ internal sealed class BmsLibraryInitializationService
             + " deleted_count=" + result.DeletedPaths.Count
             + " added_count=" + result.AddedFiles.Count
             + " bms_date_only_update_count=" + result.BmsDateOnlyUpdateCount
+            + " bms_text_only_update_count=" + result.BmsTextOnlyUpdateCount
             + " bms_moved_hash_relink_count=" + result.BmsMovedHashRelinkCount
             + " bms_added_target_count=" + result.BmsAddedTargetCount
             + " bmson_deleted_count=" + result.DeletedBmsonPaths.Count
@@ -910,15 +914,17 @@ internal sealed class BmsLibraryInitializationService
 
     private static FileDiffParseTarget CreateBmsFileDiffTarget(
         string path,
-        IReadOnlyDictionary<string, BMSFile> currentBmsByPath)
+        IReadOnlyDictionary<string, BMSFile> currentBmsByPath,
+        ISet<string> textFileDirectories)
     {
         if (string.IsNullOrWhiteSpace(path))
         {
             return null;
         }
+        int textFlag = ResolveTextGroupFlag(path, textFileDirectories);
         if (currentBmsByPath == null || !currentBmsByPath.TryGetValue(path, out BMSFile existing))
         {
-            return new FileDiffParseTarget(FileDiffChartKind.Bms, path);
+            return new FileDiffParseTarget(FileDiffChartKind.Bms, path, null, textFlag);
         }
         DateTime lastWriteTimeUtc = SafeGetLastWriteTimeUtc(path);
         if (lastWriteTimeUtc == DateTime.MinValue)
@@ -926,9 +932,20 @@ internal sealed class BmsLibraryInitializationService
             return null;
         }
         int currentDate = ToLr2UnixSeconds(lastWriteTimeUtc);
-        return existing.date == currentDate
+        int existingTextFlag = existing.txt.GetValueOrDefault();
+        return existing.date == currentDate && existingTextFlag == textFlag
             ? null
-            : new FileDiffParseTarget(FileDiffChartKind.Bms, path, existing);
+            : new FileDiffParseTarget(FileDiffChartKind.Bms, path, existing, textFlag);
+    }
+
+    private static int ResolveTextGroupFlag(string path, ISet<string> textFileDirectories)
+    {
+        if (string.IsNullOrWhiteSpace(path) || textFileDirectories == null || textFileDirectories.Count == 0)
+        {
+            return 0;
+        }
+        string directory = Path.GetDirectoryName(path);
+        return !string.IsNullOrWhiteSpace(directory) && textFileDirectories.Contains(directory) ? 1 : 0;
     }
 
     private static FileDiffReadCandidate ReadFileDiffTarget(FileDiffParseTarget target, ref long readTicks)
@@ -939,15 +956,15 @@ internal sealed class BmsLibraryInitializationService
             ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(target.Path);
             stopwatch.Stop();
             Interlocked.Add(ref readTicks, stopwatch.ElapsedTicks);
-            return FileDiffReadCandidate.CreateSuccess(target.Kind, target.Path, snapshot, target.ExistingBmsFile);
+            return FileDiffReadCandidate.CreateSuccess(target.Kind, target.Path, snapshot, target.ExistingBmsFile, target.TextFlag);
         }
         catch (IOException ex)
         {
-            return FileDiffReadCandidate.CreateFailure(target.Kind, target.Path, target.ExistingBmsFile, ex);
+            return FileDiffReadCandidate.CreateFailure(target.Kind, target.Path, target.ExistingBmsFile, target.TextFlag, ex);
         }
         catch (Exception ex) when (target.Kind == FileDiffChartKind.Bmson)
         {
-            return FileDiffReadCandidate.CreateFailure(target.Kind, target.Path, target.ExistingBmsFile, ex);
+            return FileDiffReadCandidate.CreateFailure(target.Kind, target.Path, target.ExistingBmsFile, target.TextFlag, ex);
         }
     }
 
@@ -966,6 +983,7 @@ internal sealed class BmsLibraryInitializationService
             var stopwatch = Stopwatch.StartNew();
             var file = BMSFile.CreateBMSFileFromSnapshot(candidate.Snapshot);
             file.date = ToLr2UnixSeconds(candidate.Snapshot.LastWriteTimeUtc);
+            file.SetTextGroupFlag(candidate.TextFlag);
             file.PreserveUserSongColumnsFrom(candidate.ExistingBmsFile);
             Lr2SongFolderParentNormalizer.ApplyIfMissingOrInvalid(file, folderParentHashCache);
             stopwatch.Stop();
@@ -1078,9 +1096,20 @@ internal sealed class BmsLibraryInitializationService
                 if (IsBmsDateOnlyCandidate(candidate))
                 {
                     int date = candidate.File.date.GetValueOrDefault();
+                    int textFlag = candidate.File.txt.GetValueOrDefault();
+                    bool dateChanged = candidate.ExistingFile.date != date;
+                    bool textChanged = candidate.ExistingFile.txt.GetValueOrDefault() != textFlag;
                     candidate.ExistingFile.date = date;
-                    pipelineResult.BmsDateOnlyUpdateCount++;
-                    commitChunk.AddUpdatedBmsDate(candidate.File.path, date);
+                    candidate.ExistingFile.SetTextGroupFlag(textFlag);
+                    if (dateChanged)
+                    {
+                        pipelineResult.BmsDateOnlyUpdateCount++;
+                    }
+                    if (textChanged)
+                    {
+                        pipelineResult.BmsTextOnlyUpdateCount++;
+                    }
+                    commitChunk.AddUpdatedBmsMetadata(candidate.File.path, date, textChanged ? textFlag : null);
                 }
             }
             for (int i = 0; i < fullBmsBatch.Count; i++)
@@ -1866,23 +1895,26 @@ internal sealed class BmsLibraryInitializationService
         Bmson
     }
 
-    private sealed class FileDiffParseTarget(BmsLibraryInitializationService.FileDiffChartKind kind, string path, BMSFile existingBmsFile = null)
+    private sealed class FileDiffParseTarget(BmsLibraryInitializationService.FileDiffChartKind kind, string path, BMSFile existingBmsFile = null, int textFlag = 0)
     {
         public FileDiffChartKind Kind { get; } = kind;
 
         public string Path { get; } = path ?? string.Empty;
 
         public BMSFile ExistingBmsFile { get; } = existingBmsFile;
+
+        public int TextFlag { get; } = textFlag == 0 ? 0 : 1;
     }
 
     private sealed class FileDiffReadCandidate
     {
-        private FileDiffReadCandidate(FileDiffChartKind kind, string path, ChartFileSnapshot snapshot, BMSFile existingBmsFile, Exception exception)
+        private FileDiffReadCandidate(FileDiffChartKind kind, string path, ChartFileSnapshot snapshot, BMSFile existingBmsFile, int textFlag, Exception exception)
         {
             Kind = kind;
             Path = path ?? string.Empty;
             Snapshot = snapshot;
             ExistingBmsFile = existingBmsFile;
+            TextFlag = textFlag == 0 ? 0 : 1;
             Exception = exception;
         }
 
@@ -1894,16 +1926,18 @@ internal sealed class BmsLibraryInitializationService
 
         public BMSFile ExistingBmsFile { get; }
 
+        public int TextFlag { get; }
+
         public Exception Exception { get; }
 
-        public static FileDiffReadCandidate CreateSuccess(FileDiffChartKind kind, string path, ChartFileSnapshot snapshot, BMSFile existingBmsFile)
+        public static FileDiffReadCandidate CreateSuccess(FileDiffChartKind kind, string path, ChartFileSnapshot snapshot, BMSFile existingBmsFile, int textFlag)
         {
-            return new FileDiffReadCandidate(kind, path, snapshot, existingBmsFile, null);
+            return new FileDiffReadCandidate(kind, path, snapshot, existingBmsFile, textFlag, null);
         }
 
-        public static FileDiffReadCandidate CreateFailure(FileDiffChartKind kind, string path, BMSFile existingBmsFile, Exception exception)
+        public static FileDiffReadCandidate CreateFailure(FileDiffChartKind kind, string path, BMSFile existingBmsFile, int textFlag, Exception exception)
         {
-            return new FileDiffReadCandidate(kind, path, null, existingBmsFile, exception);
+            return new FileDiffReadCandidate(kind, path, null, existingBmsFile, textFlag, exception);
         }
     }
 
@@ -1969,6 +2003,8 @@ internal sealed class BmsLibraryInitializationService
         public HashSet<string> SuccessfullyReplacedBmsPaths { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         public int BmsDateOnlyUpdateCount { get; set; }
+
+        public int BmsTextOnlyUpdateCount { get; set; }
 
         public int BmsMovedHashRelinkCount { get; set; }
 
@@ -2272,6 +2308,7 @@ internal sealed class BmsLibraryInitializationService
         {
             merged.ChartFilePaths.UnionWith(scanResult.ChartFilePaths ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase));
             merged.ChartDirectories.UnionWith(scanResult.ChartDirectories ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+            merged.ChartDirectoriesWithTextFiles.UnionWith(scanResult.ChartDirectoriesWithTextFiles ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase));
             MergeHashDictionary(merged.AudioRelativePathHashesByChartDirectory, scanResult.AudioRelativePathHashesByChartDirectory);
             MergeHashDictionary(merged.ImageRelativePathHashesByChartDirectory, scanResult.ImageRelativePathHashesByChartDirectory);
             MergeHashDictionary(merged.MovieRelativePathHashesByChartDirectory, scanResult.MovieRelativePathHashesByChartDirectory);

@@ -16,6 +16,8 @@ internal static class ChartDirectoryScanBuilder
 
     internal const string MovieGroupName = "movie";
 
+    internal const string TextGroupName = "text";
+
     internal static readonly string[] ChartExtensions = [.. ChartFileKindResolver.ChartExtensions];
 
     internal static readonly string[] AudioExtensions = [.. ChartResourceExtensions.AudioExtensions];
@@ -23,6 +25,8 @@ internal static class ChartDirectoryScanBuilder
     internal static readonly string[] ImageExtensions = [.. ChartResourceExtensions.ImageExtensions];
 
     internal static readonly string[] MovieExtensions = [.. ChartResourceExtensions.MovieExtensions];
+
+    internal static readonly string[] TextExtensions = [".txt"];
 
     private static readonly HashSet<string> chartExtensionsSet = new(ChartExtensions, StringComparer.OrdinalIgnoreCase);
 
@@ -55,7 +59,8 @@ internal static class ChartDirectoryScanBuilder
             new RootFileEnumerationGroup(ChartGroupName, ResolveChartExtensions(chartExtensions)),
             new RootFileEnumerationGroup(AudioGroupName, AudioExtensions),
             new RootFileEnumerationGroup(ImageGroupName, ImageExtensions),
-            new RootFileEnumerationGroup(MovieGroupName, MovieExtensions)
+            new RootFileEnumerationGroup(MovieGroupName, MovieExtensions),
+            new RootFileEnumerationGroup(TextGroupName, TextExtensions)
         ];
         if (includeAllFiles)
         {
@@ -80,14 +85,16 @@ internal static class ChartDirectoryScanBuilder
             enumerationResult?.GetPaths(ChartGroupName) ?? [],
             enumerationResult?.GetPaths(AudioGroupName) ?? [],
             enumerationResult?.GetPaths(ImageGroupName) ?? [],
-            enumerationResult?.GetPaths(MovieGroupName) ?? []);
+            enumerationResult?.GetPaths(MovieGroupName) ?? [],
+            enumerationResult?.GetPaths(TextGroupName) ?? []);
     }
 
     internal static ChartScanResult BuildFromAbsolutePaths(
         IEnumerable<string> chartFilePaths,
         IEnumerable<string> audioFilePaths,
         IEnumerable<string> imageFilePaths,
-        IEnumerable<string> movieFilePaths)
+        IEnumerable<string> movieFilePaths,
+        IEnumerable<string> textFilePaths = null)
     {
         var result = new ChartScanResult();
         var normalizedChartPaths = new HashSet<string>(
@@ -115,6 +122,7 @@ internal static class ChartDirectoryScanBuilder
         AssignResourceFiles(result.ChartDirectories, audioFilePaths, ChartResourceKind.Audio, audioRelativePathHashes, selfOwnedAudioRelativePathHashes);
         AssignResourceFiles(result.ChartDirectories, imageFilePaths, ChartResourceKind.Image, imageRelativePathHashes, selfOwnedImageRelativePathHashes);
         AssignResourceFiles(result.ChartDirectories, movieFilePaths, ChartResourceKind.Movie, movieRelativePathHashes, selfOwnedMovieRelativePathHashes);
+        AssignTextFiles(result.ChartDirectories, textFilePaths, result.ChartDirectoriesWithTextFiles);
 
         SetDictionary(result.AudioRelativePathHashesByChartDirectory, audioRelativePathHashes);
         SetDictionary(result.ImageRelativePathHashesByChartDirectory, imageRelativePathHashes);
@@ -189,6 +197,35 @@ internal static class ChartDirectoryScanBuilder
             currentDirectory = Path.GetDirectoryName(currentDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
         }
         return owners;
+    }
+
+    private static void AssignTextFiles(
+        IEnumerable<string> chartDirectories,
+        IEnumerable<string> absolutePaths,
+        ISet<string> chartDirectoriesWithTextFiles)
+    {
+        var directorySet = new HashSet<string>(chartDirectories ?? [], StringComparer.OrdinalIgnoreCase);
+        foreach (string absolutePath in (absolutePaths ?? [])
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Where(path => string.Equals(Path.GetExtension(path), ".txt", StringComparison.OrdinalIgnoreCase))
+            .Select(Path.GetFullPath)
+            .Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            string directory = Path.GetDirectoryName(absolutePath);
+            if (!string.IsNullOrWhiteSpace(directory) && directorySet.Contains(directory))
+            {
+                chartDirectoriesWithTextFiles.Add(directory);
+            }
+        }
+    }
+
+    internal static void AddDirectTextFileDirectories(ChartScanResult result, IEnumerable<string> textFilePaths)
+    {
+        if (result == null)
+        {
+            return;
+        }
+        AssignTextFiles(result.ChartDirectories, textFilePaths, result.ChartDirectoriesWithTextFiles);
     }
 
     private static void SetDictionary(Dictionary<string, uint[]> destination, Dictionary<string, HashSet<uint>> source)

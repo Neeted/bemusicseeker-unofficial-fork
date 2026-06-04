@@ -9,6 +9,8 @@ public class ChartScanResult
 
     public HashSet<string> ChartDirectories { get; set; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
+    public HashSet<string> ChartDirectoriesWithTextFiles { get; set; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
     public Dictionary<string, uint[]> AudioRelativePathHashesByChartDirectory { get; set; } = new Dictionary<string, uint[]>(StringComparer.OrdinalIgnoreCase);
 
     public Dictionary<string, uint[]> ImageRelativePathHashesByChartDirectory { get; set; } = new Dictionary<string, uint[]>(StringComparer.OrdinalIgnoreCase);

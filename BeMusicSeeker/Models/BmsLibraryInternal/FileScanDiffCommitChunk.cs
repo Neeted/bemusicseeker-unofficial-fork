@@ -57,11 +57,16 @@ internal sealed class FileScanDiffCommitChunk
 
     public void AddUpdatedBmsDate(string path, int date)
     {
+        AddUpdatedBmsMetadata(path, date, null);
+    }
+
+    public void AddUpdatedBmsMetadata(string path, int date, int? textFlag)
+    {
         if (string.IsNullOrWhiteSpace(path))
         {
             return;
         }
-        UpdatedBmsDates.Add(new BmsDateOnlyUpdate(path, date));
+        UpdatedBmsDates.Add(new BmsDateOnlyUpdate(path, date, textFlag));
         MutationCount++;
     }
 
@@ -166,9 +171,11 @@ internal sealed class FileScanDiffCommitChunk
     }
 }
 
-internal sealed class BmsDateOnlyUpdate(string path, int date)
+internal sealed class BmsDateOnlyUpdate(string path, int date, int? textFlag = null)
 {
     public string Path { get; } = path;
 
     public int Date { get; } = date;
+
+    public int? TextFlag { get; } = textFlag;
 }
