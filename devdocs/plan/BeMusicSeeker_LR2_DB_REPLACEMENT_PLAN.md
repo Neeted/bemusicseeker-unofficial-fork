@@ -1000,7 +1000,9 @@ parse directive:
     `InsertOrReplace` で上書きしないようにする。
   - metadata mtime 欠落がある partial generation では prune と exact-key drift repair を抑止し、完全な metadata surface で
     再生成できた時点で delete + upsert を行う。
-  - generation scope plan の SQLite upsert/delete 接続は後続 cycle で行う。
+  - `Lr2FolderDbWriter` は scope plan を exact path の delete と generated row の upsert として単一 transaction で適用する
+    薄い層にする。安全判定は planner の責務にし、writer 側で独自 prune 判断を増やさない。
+  - generation scope plan の initialization / mutation workflow への接続は後続 cycle で行う。
 
 ## 作業エージェント向け実装順
 
