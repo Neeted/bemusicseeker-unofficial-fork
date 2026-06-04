@@ -443,6 +443,7 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
 
     private static void ClearInstalledBmsMetadata(BMSFile chartFile)
     {
+        chartFile.SetTextGroupFlag(Lr2TextGroupResolver.ResolveFlag(chartFile.path, chartFile.txt.GetValueOrDefault()));
         chartFile.parent = null;
         chartFile.folder = null;
         chartFile.adddate = null;

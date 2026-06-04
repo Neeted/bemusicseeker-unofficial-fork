@@ -76,6 +76,7 @@ public sealed class BmsLibraryStateApplierTests
             string newBmsonPath = Path.Combine(newDirectoryPath, "chart.bmson");
             File.WriteAllText(oldChartPath, "#PLAYER 1");
             File.WriteAllText(newChartPath, "#PLAYER 1");
+            File.WriteAllText(Path.Combine(newDirectoryPath, "readme.txt"), "text group");
             File.WriteAllText(oldBmsonPath, "{}");
             File.WriteAllText(newBmsonPath, "{}");
             try
@@ -172,6 +173,7 @@ public sealed class BmsLibraryStateApplierTests
                 applier.ApplyLibraryMutationDelta(delta);
 
                 Assert.AreEqual(newChartPath, movedFile.path);
+                Assert.AreEqual(1, movedFile.txt);
                 ChartFile appliedInstallDestinationChart = delta.CreateAppliedInstallDestinationChartSnapshots().Single();
                 Assert.AreSame(installLinkedFile, appliedInstallDestinationChart.GetBmsStorageOwner());
                 Assert.AreEqual(newDirectoryPath, appliedInstallDestinationChart.InstallDestination);
@@ -186,6 +188,7 @@ public sealed class BmsLibraryStateApplierTests
                 verifySongDb.CreateTable<LR2SongDB.folder>();
                 verifySongDb.CreateTable<LR2SongDBExtended.bmson_song>();
                 Assert.IsTrue(verifySongDb.Table<BMSFile>().Any(file => file.path == newChartPath));
+                Assert.AreEqual(1, verifySongDb.ExecuteScalar<int>("SELECT txt FROM song WHERE path = ?;", newChartPath));
                 Assert.IsFalse(verifySongDb.Table<BMSFile>().Any(file => file.path == oldChartPath));
                 Assert.IsTrue(verifySongDb.Table<LR2SongDB.folder>().Any(folder => folder.path == newDirectoryPath.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar));
                 Assert.IsTrue(verifySongDb.Table<LR2SongDBExtended.bmson_song>().Any(song => song.path == newBmsonPath));

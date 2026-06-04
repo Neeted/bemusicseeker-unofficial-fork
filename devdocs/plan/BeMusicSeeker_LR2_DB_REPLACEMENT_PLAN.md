@@ -1093,6 +1093,9 @@ parse directive:
   backfill 入力に渡し、`song.txt` へ反映する。通常 file diff でも BMS 本体 mtime が変わらず `.txt`
   presence だけ変わる場合は targeted `song.date` / `song.txt` update へ落とすため、text group freshness は
   current scan contract に含まれる。
+  file diff を通らない direct install / path replacement では、DB helper ではなく mutation application 層で
+  `Lr2TextGroupResolver` を呼び、導入後 / 移動後 directory の direct `.txt` presence を `BMSFile.txt` に反映してから
+  `Lr2SongDbWriter` / storage row update へ渡す。
   sync 後は startup-scan blocker diagnostic を実行し、root set 欠落、current song row 欠落、
   `song.date` 欠落 / `0`、known root 外 song row が無い場合だけ `Completed` を記録する。
   blocker が残る場合は `Incomplete` (`startup_scan_blockers_detected`) とし、diagnostic count を log / status

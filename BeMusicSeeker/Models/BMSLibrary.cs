@@ -5170,47 +5170,7 @@ completeFileEnumerationOnce,
 
     private static List<string> CreateLr2FullGenerationTextFileDirectories(IEnumerable<string> chartPaths)
     {
-        var directories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (string chartPath in chartPaths ?? [])
-        {
-            if (string.IsNullOrWhiteSpace(chartPath))
-            {
-                continue;
-            }
-
-            string directory;
-            try
-            {
-                directory = Path.GetDirectoryName(chartPath);
-                if (string.IsNullOrWhiteSpace(directory))
-                {
-                    continue;
-                }
-                directory = Path.GetFullPath(directory);
-            }
-            catch (Exception ex) when (ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException)
-            {
-                continue;
-            }
-
-            if (!Directory.Exists(directory))
-            {
-                continue;
-            }
-
-            try
-            {
-                if (Directory.EnumerateFiles(directory, "*.txt", System.IO.SearchOption.TopDirectoryOnly).Any())
-                {
-                    directories.Add(directory);
-                }
-            }
-            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException)
-            {
-                continue;
-            }
-        }
-        return [.. directories.OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
+        return [.. Lr2TextGroupResolver.CreateTextFileDirectories(chartPaths)];
     }
 
     private const string Lr2FolderFileEnumerationGroupName = "lr2folder";

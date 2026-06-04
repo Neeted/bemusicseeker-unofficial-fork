@@ -293,6 +293,7 @@ internal sealed class BmsLibraryStateApplier(
         }
 
         bmsFile.path = newPath;
+        bmsFile.SetTextGroupFlag(Lr2TextGroupResolver.ResolveFlag(newPath, bmsFile.txt.GetValueOrDefault()));
         if (calcFolderParent)
         {
             try

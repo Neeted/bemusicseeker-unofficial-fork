@@ -1211,6 +1211,46 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     }
 
     [TestMethod]
+    public void PackageChartEntry_BmsStorageOwnerRecomputesTextGroupOnInstalledPath()
+    {
+        WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService _)
+        {
+            string destinationDirectory = Path.Combine(tempRoot, "Installed");
+            Directory.CreateDirectory(destinationDirectory);
+            string installedPath = Path.Combine(destinationDirectory, "chart.bms");
+            File.WriteAllText(installedPath, "#PLAYER 1");
+            File.WriteAllText(Path.Combine(destinationDirectory, "readme.txt"), "text group");
+            TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(tempRoot, "Pending", "chart.bms"));
+            PackageChartEntry entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(file));
+
+            entry.ApplyInstalledPath(installedPath);
+
+            Assert.AreEqual(1, file.txt);
+            Assert.AreEqual(1, entry.Chart.GetBmsStorageOwner()?.txt);
+        });
+    }
+
+    [TestMethod]
+    public void PackageChartEntry_BmsStorageOwnerClearsStaleTextGroupOnInstalledPath()
+    {
+        WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService _)
+        {
+            string destinationDirectory = Path.Combine(tempRoot, "Installed");
+            Directory.CreateDirectory(destinationDirectory);
+            string installedPath = Path.Combine(destinationDirectory, "chart.bms");
+            File.WriteAllText(installedPath, "#PLAYER 1");
+            TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(tempRoot, "Pending", "chart.bms"));
+            file.SetTextGroupFlag(1);
+            PackageChartEntry entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(file));
+
+            entry.ApplyInstalledPath(installedPath);
+
+            Assert.AreEqual(0, file.txt);
+            Assert.AreEqual(0, entry.Chart.GetBmsStorageOwner()?.txt);
+        });
+    }
+
+    [TestMethod]
     public void PackageChartEntry_BmsStorageOwnerProjectsPackageWarningsWithoutHidingStorageWarnings()
     {
         TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Pending", "chart.bms"));
