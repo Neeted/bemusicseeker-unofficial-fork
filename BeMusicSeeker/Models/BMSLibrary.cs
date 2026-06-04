@@ -4972,7 +4972,9 @@ completeFileEnumerationOnce,
                 });
             }
             stopwatch.Stop();
-            LogInstallPerformance("lr2_full_generation_backfill incomplete reason=" + (reason ?? "unknown")
+            bool completed = string.Equals(result.FinalStage, Lr2FullGenerationBackfillService.CompletedStage, StringComparison.Ordinal);
+            LogInstallPerformance("lr2_full_generation_backfill " + (completed ? "completed" : "incomplete")
+                + " reason=" + (reason ?? "unknown")
                 + " runId=" + runId
                 + " roots=" + input.RootDirectories.Count
                 + " charts=" + input.ChartPaths.Count
@@ -5001,11 +5003,18 @@ completeFileEnumerationOnce,
                 + " songRowLr2CompatibilityApplied=" + result.SongRowLr2CompatibilityAppliedCount
                 + " processed=" + result.ProcessedCount
                 + " total=" + result.TotalCount
+                + " startupScanBlockers=" + (result.StartupScanDiagnosticResult?.TotalBlockerCount ?? 0)
+                + " startupScanNoRootSet=" + (result.StartupScanDiagnosticResult?.NoRootSetBlockerCount ?? 0)
+                + " startupScanMissingSongRows=" + (result.StartupScanDiagnosticResult?.MissingCurrentSongRowCount ?? 0)
+                + " startupScanDateMissingSongRows=" + (result.StartupScanDiagnosticResult?.DateMissingSongRowCount ?? 0)
+                + " startupScanUnknownRootSongRows=" + (result.StartupScanDiagnosticResult?.UnknownRootSongRowCount ?? 0)
+                + " startupScanDateMissingFolderRows=" + (result.StartupScanDiagnosticResult?.DateMissingFolderRowCount ?? 0)
+                + " startupScanUnknownRootFolderRows=" + (result.StartupScanDiagnosticResult?.UnknownRootFolderRowCount ?? 0)
                 + " stage=" + result.FinalStage
-                + " detail=" + result.IncompleteReason
+                + " detail=" + (result.IncompleteReason ?? "completed")
                 + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
             ApplyLr2FullGenerationCompatibilityProjection(result.Lr2CompatibilityMaintenanceInfos, reason);
-            ReportStartupBackgroundTask("lr2_full_generation_backfill", "incomplete", stopwatch.ElapsedMilliseconds, failed: false, detail: result.IncompleteReason);
+            ReportStartupBackgroundTask("lr2_full_generation_backfill", completed ? "done" : "incomplete", stopwatch.ElapsedMilliseconds, failed: false, detail: result.IncompleteReason ?? "completed");
         }
         catch (Exception ex)
         {

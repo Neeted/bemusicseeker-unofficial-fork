@@ -61,14 +61,59 @@ internal sealed class Lr2FullGenerationBackfillResult
 
     public IReadOnlyList<BMSFileMaintenanceInfo> Lr2CompatibilityMaintenanceInfos { get; set; } = [];
 
+    public Lr2StartupScanDiagnosticResult StartupScanDiagnosticResult { get; set; }
+
     public long ElapsedMs { get; set; }
+}
+
+internal sealed class Lr2StartupScanDiagnosticResult(
+    int noRootSetBlockerCount,
+    int missingCurrentSongRowCount,
+    int dateMissingSongRowCount,
+    int unknownRootSongRowCount,
+    int dateMissingFolderRowCount,
+    int unknownRootFolderRowCount)
+{
+    public int NoRootSetBlockerCount { get; } = noRootSetBlockerCount;
+
+    public int MissingCurrentSongRowCount { get; } = missingCurrentSongRowCount;
+
+    public int DateMissingSongRowCount { get; } = dateMissingSongRowCount;
+
+    public int UnknownRootSongRowCount { get; } = unknownRootSongRowCount;
+
+    public int DateMissingFolderRowCount { get; } = dateMissingFolderRowCount;
+
+    public int UnknownRootFolderRowCount { get; } = unknownRootFolderRowCount;
+
+    public int TotalBlockerCount => NoRootSetBlockerCount
+        + MissingCurrentSongRowCount
+        + DateMissingSongRowCount
+        + UnknownRootSongRowCount
+        + DateMissingFolderRowCount
+        + UnknownRootFolderRowCount;
+
+    public bool IsClean => TotalBlockerCount == 0;
+
+    public string ToLogDetail()
+    {
+        return "startup_scan_blockers"
+            + " noRootSet=" + NoRootSetBlockerCount
+            + " missingSongRows=" + MissingCurrentSongRowCount
+            + " dateMissingSongRows=" + DateMissingSongRowCount
+            + " unknownRootSongRows=" + UnknownRootSongRowCount
+            + " dateMissingFolderRows=" + DateMissingFolderRowCount
+            + " unknownRootFolderRows=" + UnknownRootFolderRowCount;
+    }
 }
 
 internal static class Lr2FullGenerationBackfillService
 {
-    internal const string RemainingStagesPendingStage = "remaining_stages_pending";
+    internal const string CompletedStage = "completed";
 
-    internal const string RemainingStagesPendingReason = "remaining_backfill_stages_not_implemented";
+    internal const string StartupScanBlockersStage = "startup_scan_blockers";
+
+    internal const string StartupScanBlockersReason = "startup_scan_blockers_detected";
 
     internal static Lr2FullGenerationBackfillResult Run(
         LR2SongDBExtended songDb,
@@ -199,23 +244,46 @@ internal static class Lr2FullGenerationBackfillService
             stage: "song_rows_completed",
             nowUtc: DateTime.UtcNow);
 
-        Lr2FullGenerationStatusService.MarkIncomplete(
+        Lr2StartupScanDiagnosticResult diagnosticResult = DiagnoseStartupScanBlockers(
             songDb,
-            request.Signature,
-            request.RunId,
-            processedCursor: processedCount,
-            totalCount,
-            stage: RemainingStagesPendingStage,
-            detail: RemainingStagesPendingReason,
-            nowUtc: DateTime.UtcNow);
+            roots,
+            lr2FolderDiscoveryDirectories,
+            songRows);
+        string finalStage;
+        string incompleteReason;
+        if (diagnosticResult.IsClean)
+        {
+            Lr2FullGenerationStatusService.MarkCompleted(
+                songDb,
+                request.Signature,
+                request.RunId,
+                totalCount,
+                nowUtc: DateTime.UtcNow);
+            finalStage = CompletedStage;
+            incompleteReason = null;
+        }
+        else
+        {
+            Lr2FullGenerationStatusService.MarkIncomplete(
+                songDb,
+                request.Signature,
+                request.RunId,
+                processedCursor: processedCount,
+                totalCount,
+                stage: StartupScanBlockersStage,
+                detail: StartupScanBlockersReason + " " + diagnosticResult.ToLogDetail(),
+                nowUtc: DateTime.UtcNow);
+            finalStage = StartupScanBlockersStage;
+            incompleteReason = StartupScanBlockersReason;
+        }
 
         stopwatch.Stop();
         return new Lr2FullGenerationBackfillResult
         {
             TotalCount = totalCount,
             ProcessedCount = processedCount,
-            FinalStage = RemainingStagesPendingStage,
-            IncompleteReason = RemainingStagesPendingReason,
+            FinalStage = finalStage,
+            IncompleteReason = incompleteReason,
             NormalFolderSyncResult = normalFolderResult,
             Lr2FolderFileSyncResult = lr2FolderFileResult,
             Lr2FolderFileProcessedCount = lr2FolderFileProcessedCount,
@@ -224,8 +292,178 @@ internal static class Lr2FullGenerationBackfillService
             SongRowChartInfoAppliedCount = songRowResult.ChartInfoAppliedCount,
             SongRowLr2CompatibilityAppliedCount = songRowResult.Lr2CompatibilityAppliedCount,
             Lr2CompatibilityMaintenanceInfos = songRowResult.Lr2CompatibilityMaintenanceInfos,
+            StartupScanDiagnosticResult = diagnosticResult,
             ElapsedMs = stopwatch.ElapsedMilliseconds
         };
+    }
+
+    private static Lr2StartupScanDiagnosticResult DiagnoseStartupScanBlockers(
+        LR2SongDBExtended songDb,
+        IReadOnlyCollection<string> rootDirectories,
+        IReadOnlyCollection<string> lr2FolderDiscoveryDirectories,
+        IReadOnlyCollection<BMSFile> currentSongRows)
+    {
+        songDb.CreateTable<LR2SongDB.song>();
+        songDb.CreateTable<LR2SongDB.folder>();
+        List<string> roots = [.. (rootDirectories ?? [])
+            .Select(NormalizeDirectoryPathOrNull)
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)];
+        List<string> lr2FolderRoots = [.. (lr2FolderDiscoveryDirectories ?? [])
+            .Select(NormalizeDirectoryPathOrNull)
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)];
+        List<string> allFolderRoots = [.. roots
+            .Concat(lr2FolderRoots)
+            .Distinct(StringComparer.OrdinalIgnoreCase)];
+        var currentPaths = new HashSet<string>(
+            (currentSongRows ?? []).Select(row => NormalizeFilePathOrNull(row?.path)).Where(path => !string.IsNullOrWhiteSpace(path)),
+            StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, StartupDiagnosticSongRow> rowsByPath = songDb.Query<StartupDiagnosticSongRow>(
+                "SELECT "
+                + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.path) + " AS Path, "
+                + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.date) + " AS Date"
+                + " FROM " + SQLiteTable<LR2SongDB.song>.GetTableName() + ";")
+            .Where(row => !string.IsNullOrWhiteSpace(row?.Path))
+            .GroupBy(row => NormalizeFilePathOrNull(row.Path) ?? row.Path, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+
+        int noRootSetBlockerCount = roots.Count == 0 ? 1 : 0;
+        int missingCurrentSongRowCount = 0;
+        int dateMissingSongRowCount = 0;
+        foreach (string currentPath in currentPaths)
+        {
+            if (!rowsByPath.TryGetValue(currentPath, out StartupDiagnosticSongRow row))
+            {
+                missingCurrentSongRowCount++;
+                continue;
+            }
+            if (!row.Date.HasValue || row.Date.GetValueOrDefault() <= 0)
+            {
+                dateMissingSongRowCount++;
+            }
+        }
+
+        int unknownRootSongRowCount = 0;
+        if (roots.Count > 0)
+        {
+            foreach (string path in rowsByPath.Keys)
+            {
+                if (!IsUnderAnyRoot(path, roots))
+                {
+                    unknownRootSongRowCount++;
+                }
+            }
+        }
+
+        int dateMissingFolderRowCount = 0;
+        int unknownRootFolderRowCount = 0;
+        foreach (StartupDiagnosticFolderRow row in songDb.Query<StartupDiagnosticFolderRow>(
+            "SELECT "
+            + SQLiteTable<LR2SongDB.folder>.GetColumnName(folder => folder.path) + " AS Path, "
+            + SQLiteTable<LR2SongDB.folder>.GetColumnName(folder => folder.type) + " AS Type, "
+            + SQLiteTable<LR2SongDB.folder>.GetColumnName(folder => folder.date) + " AS Date"
+            + " FROM " + SQLiteTable<LR2SongDB.folder>.GetTableName() + ";"))
+        {
+            if (string.IsNullOrWhiteSpace(row?.Path))
+            {
+                continue;
+            }
+
+            if (!row.Date.HasValue || row.Date.GetValueOrDefault() <= 0)
+            {
+                dateMissingFolderRowCount++;
+            }
+
+            string diagnosticPath = NormalizeFolderDiagnosticPath(row.Path);
+            if (string.IsNullOrWhiteSpace(diagnosticPath))
+            {
+                continue;
+            }
+
+            IReadOnlyList<string> scopeRoots = row.Type.GetValueOrDefault() == 1
+                ? roots
+                : allFolderRoots;
+            if (scopeRoots.Count > 0 && !IsUnderAnyRoot(diagnosticPath, scopeRoots))
+            {
+                unknownRootFolderRowCount++;
+            }
+        }
+
+        return new Lr2StartupScanDiagnosticResult(
+            noRootSetBlockerCount,
+            missingCurrentSongRowCount,
+            dateMissingSongRowCount,
+            unknownRootSongRowCount,
+            dateMissingFolderRowCount,
+            unknownRootFolderRowCount);
+    }
+
+    private static bool IsUnderAnyRoot(string filePath, IEnumerable<string> roots)
+    {
+        string normalizedFilePath = NormalizeFilePathOrNull(filePath);
+        if (string.IsNullOrWhiteSpace(normalizedFilePath))
+        {
+            return false;
+        }
+        foreach (string root in roots ?? [])
+        {
+            if (Lr2FolderPath.IsSameOrDescendant(normalizedFilePath, root))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static string NormalizeFilePathOrNull(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return null;
+        }
+        try
+        {
+            return Path.GetFullPath(path);
+        }
+        catch (Exception ex) when (ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException)
+        {
+            return null;
+        }
+    }
+
+    private static string NormalizeDirectoryPathOrNull(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return null;
+        }
+        try
+        {
+            return Lr2FolderPath.NormalizeDirectoryPath(path);
+        }
+        catch (Exception ex) when (ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException)
+        {
+            return null;
+        }
+    }
+
+    private static string NormalizeFolderDiagnosticPath(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return null;
+        }
+        try
+        {
+            return string.Equals(Path.GetExtension(path), ".lr2folder", StringComparison.OrdinalIgnoreCase)
+                ? Path.GetFullPath(path)
+                : Lr2FolderPath.NormalizeDirectoryPath(path);
+        }
+        catch (Exception ex) when (ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException)
+        {
+            return null;
+        }
     }
 
     private static Lr2FolderFileSyncItemsResult CreateLr2FolderFileSyncItems(IEnumerable<string> filePaths)
@@ -655,5 +893,21 @@ internal static class Lr2FullGenerationBackfillService
         public int Lr2CompatibilityAppliedCount { get; } = lr2CompatibilityAppliedCount;
 
         public IReadOnlyList<BMSFileMaintenanceInfo> Lr2CompatibilityMaintenanceInfos { get; } = lr2CompatibilityMaintenanceInfos ?? [];
+    }
+
+    private sealed class StartupDiagnosticSongRow
+    {
+        public string Path { get; set; }
+
+        public int? Date { get; set; }
+    }
+
+    private sealed class StartupDiagnosticFolderRow
+    {
+        public string Path { get; set; }
+
+        public int? Type { get; set; }
+
+        public int? Date { get; set; }
     }
 }

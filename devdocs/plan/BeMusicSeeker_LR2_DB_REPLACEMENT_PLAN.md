@@ -1089,9 +1089,14 @@ parse directive:
   `.lr2folder` prune は discovery surface が complete で、かつ発見した各 file を読み取れた場合だけ許可する。
   enumeration failure や一時的な file read failure がある場合、その回は upsert のみにして既存 row を消さない。
   file read / parse に失敗した row は persistence copy の folder/parent 再生成に fallback し、失敗で既存 DB row を消さない。
-  この段階は text group freshness の完全統合前であるため、sync 後も `Completed` にはせず、`Incomplete`
-  (`remaining_backfill_stages_not_implemented`) を記録する。startup-scan blocker diagnostic と、
-  text group mutation freshness が入るまで完全生成完了とは扱わない。
+  current owned chart directory 直下の `.txt` presence は file diff の text group scan surface と同じ意味で
+  backfill 入力に渡し、`song.txt` へ反映する。通常 file diff でも BMS 本体 mtime が変わらず `.txt`
+  presence だけ変わる場合は targeted `song.date` / `song.txt` update へ落とすため、text group freshness は
+  current scan contract に含まれる。
+  sync 後は startup-scan blocker diagnostic を実行し、root set 欠落、current song row 欠落、
+  `song.date` 欠落 / `0`、known root 外 song row が無い場合だけ `Completed` を記録する。
+  blocker が残る場合は `Incomplete` (`startup_scan_blockers_detected`) とし、diagnostic count を log / status
+  detail に残す。初期実装では blocker row の自動削除は行わず、cleanup 導線は後続 cycle に残す。
   status signature は normalized / deduplicated / case-insensitive な LR2 BMS root set を含める。
   加えて `.lr2folder` discovery root set も含める。root set が変わった場合は既存 `Completed` を信用せず、
   backfill needed として再評価する。

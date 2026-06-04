@@ -44,7 +44,7 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
     }
 
     [TestMethod]
-    public void QueueLr2FullGenerationBackfillIfNeeded_RunsNormalFolderStageAndLeavesSongStageIncomplete()
+    public void QueueLr2FullGenerationBackfillIfNeeded_RunsFullGenerationBackfillAndMarksCompletedWhenClean()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         try
@@ -137,11 +137,12 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
             using var verify = new LR2SongDBExtended(scope.SongDbPath);
             LR2SongDBExtended.lr2_full_generation_status row = verify.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
             Assert.IsNotNull(row);
-            Assert.AreEqual("Incomplete", row.status);
-            Assert.AreEqual(Lr2FullGenerationBackfillService.RemainingStagesPendingReason, row.last_error);
-            Assert.AreEqual(Lr2FullGenerationBackfillService.RemainingStagesPendingStage, row.stage);
+            Assert.AreEqual("Completed", row.status);
+            Assert.AreEqual(string.Empty, row.last_error);
+            Assert.AreEqual(Lr2FullGenerationBackfillService.CompletedStage, row.stage);
             Assert.AreEqual(row.total_count, row.processed_cursor);
             Assert.IsTrue(row.total_count > 0);
+            Assert.IsNotNull(row.completed_at);
 
             string expectedRootFolderPath = ToFolderPath(rootDirectory);
             string expectedPackFolderPath = ToFolderPath(packDirectory);
@@ -214,9 +215,10 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
             LR2SongDBExtended.lr2_full_generation_status row = verify.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
             Assert.IsNotNull(row);
             Assert.AreEqual("Incomplete", row.status);
-            Assert.AreEqual(Lr2FullGenerationBackfillService.RemainingStagesPendingReason, row.last_error);
+            StringAssert.Contains(row.last_error, Lr2FullGenerationBackfillService.StartupScanBlockersReason);
             Assert.AreEqual(0, row.processed_cursor);
             Assert.AreEqual(0, row.total_count);
+            Assert.AreEqual(Lr2FullGenerationBackfillService.StartupScanBlockersStage, row.stage);
             Assert.AreEqual(0, verify.Table<LR2SongDB.folder>().ToList().Count);
         }
         finally
@@ -260,9 +262,10 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
             LR2SongDBExtended.lr2_full_generation_status row = verify.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
             Assert.IsNotNull(row);
             Assert.AreEqual("Incomplete", row.status);
-            Assert.AreEqual(Lr2FullGenerationBackfillService.RemainingStagesPendingReason, row.last_error);
+            StringAssert.Contains(row.last_error, Lr2FullGenerationBackfillService.StartupScanBlockersReason);
             Assert.AreEqual(1, row.processed_cursor);
             Assert.AreEqual(1, row.total_count);
+            Assert.AreEqual(Lr2FullGenerationBackfillService.StartupScanBlockersStage, row.stage);
             Assert.AreEqual(0, verify.Table<LR2SongDB.folder>().ToList().Count);
             Assert.AreEqual(Lr2SongFolderParentNormalizer.ComputeDirectoryHash(songDirectory), verify.ExecuteScalar<string>("SELECT folder FROM song WHERE path = ?;", chartPath));
         }
@@ -405,6 +408,71 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
         Assert.AreEqual(0, songDb.ExecuteScalar<int>("SELECT txt FROM song WHERE path = ?;", missingChartPath));
         Assert.AreEqual("stale-folder", file.folder);
         Assert.AreEqual("stale-parent", file.parent);
+    }
+
+    [TestMethod]
+    public void BackfillService_LeavesIncompleteWhenUnknownRootFolderRowRemains()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        string rootDirectory = Path.Combine(scope.DirectoryPath, "KnownRoot");
+        string outsideDirectory = Path.Combine(scope.DirectoryPath, "OutsideRoot");
+        Directory.CreateDirectory(rootDirectory);
+        Directory.CreateDirectory(outsideDirectory);
+        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        songDb.CreateTable<LR2SongDB.song>();
+        songDb.CreateTable<LR2SongDB.folder>();
+        songDb.InsertOrReplace(new LR2SongDB.folder
+        {
+            path = ToFolderPath(outsideDirectory),
+            type = 1,
+            date = 1
+        }, typeof(LR2SongDB.folder));
+
+        Lr2FullGenerationBackfillResult result = Lr2FullGenerationBackfillService.Run(songDb, new Lr2FullGenerationBackfillRequest
+        {
+            Signature = "unknown-root-folder",
+            RunId = "unknown-root-folder",
+            RootDirectories = [rootDirectory],
+            StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc)
+        });
+
+        Assert.AreEqual(Lr2FullGenerationBackfillService.StartupScanBlockersStage, result.FinalStage);
+        Assert.AreEqual(1, result.StartupScanDiagnosticResult.UnknownRootFolderRowCount);
+        LR2SongDBExtended.lr2_full_generation_status row = songDb.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
+        Assert.AreEqual("Incomplete", row.status);
+        StringAssert.Contains(row.last_error, "unknownRootFolderRows=1");
+    }
+
+    [TestMethod]
+    public void BackfillService_LeavesIncompleteWhenFolderDateIsMissing()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        string rootDirectory = Path.Combine(scope.DirectoryPath, "KnownRoot");
+        Directory.CreateDirectory(rootDirectory);
+        string lr2FolderPath = Path.Combine(rootDirectory, "broken.lr2folder");
+        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        songDb.CreateTable<LR2SongDB.song>();
+        songDb.CreateTable<LR2SongDB.folder>();
+        songDb.InsertOrReplace(new LR2SongDB.folder
+        {
+            path = lr2FolderPath,
+            type = 2,
+            date = 0
+        }, typeof(LR2SongDB.folder));
+
+        Lr2FullGenerationBackfillResult result = Lr2FullGenerationBackfillService.Run(songDb, new Lr2FullGenerationBackfillRequest
+        {
+            Signature = "folder-date-missing",
+            RunId = "folder-date-missing",
+            RootDirectories = [rootDirectory],
+            StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc)
+        });
+
+        Assert.AreEqual(Lr2FullGenerationBackfillService.StartupScanBlockersStage, result.FinalStage);
+        Assert.AreEqual(1, result.StartupScanDiagnosticResult.DateMissingFolderRowCount);
+        LR2SongDBExtended.lr2_full_generation_status row = songDb.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
+        Assert.AreEqual("Incomplete", row.status);
+        StringAssert.Contains(row.last_error, "dateMissingFolderRows=1");
     }
 
     [TestMethod]
@@ -640,6 +708,8 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
             LR2SongDBExtended.lr2_full_generation_status row = verify.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
             Assert.IsNotNull(row);
             Assert.AreEqual("Incomplete", row.status);
+            Assert.AreEqual(Lr2FullGenerationBackfillService.StartupScanBlockersStage, row.stage);
+            StringAssert.Contains(row.last_error, "unknownRootFolderRows=1");
             Assert.AreEqual(row.total_count, row.processed_cursor);
             LR2SongDB.folder lr2Folder = verify.Table<LR2SongDB.folder>().ToList().Single(folder => folder.path == lr2FolderPath);
             Assert.AreEqual(2, lr2Folder.type);
