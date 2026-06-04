@@ -2557,7 +2557,7 @@ internal sealed class BmsLibraryInitializationService
                         {
                             directoryName = Path.GetDirectoryName(directoryName);
                         }
-                        if (folder.parent != "e2977170")
+                        if (folder.parent != Lr2SongFolderParentNormalizer.RootParentHash)
                         {
                             folder.parent = ComputeLR2DirectoryHash(directoryName, crcEncoding);
                         }

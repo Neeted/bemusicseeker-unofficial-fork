@@ -1280,7 +1280,7 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
                 songDb.Delete<LR2SongDB.folder>(folder.path);
                 folder.title = Path.GetFileName(newFolderPath);
                 folder.path = newFolderPath.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
-                if (folder.parent != "e2977170")
+                if (folder.parent != Lr2SongFolderParentNormalizer.RootParentHash)
                 {
                     string directoryName = Path.GetDirectoryName(newFolderPath.TrimEnd(Path.DirectorySeparatorChar));
                     var encoding = Encoding.GetEncoding("shift_jis", EncoderFallback.ExceptionFallback, DecoderFallback.ExceptionFallback);

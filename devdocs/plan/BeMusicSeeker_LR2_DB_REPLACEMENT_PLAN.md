@@ -941,6 +941,14 @@ parse directive:
 - folder row の削除は generation scope 内に限定する。scope 外の row は原則触らない。
 - LR2 が起動中の `song.db` 書き込みは競合する可能性があるため、busy/lock 失敗を明示ログにする。
 
+## 実装メモ
+
+- Phase 0 の golden fixture は段階的に追加する。
+  - まず既存 `Lr2SongFolderParentNormalizer` の CRC / CP932 encode contract を固定する。
+  - byte length boundary、`folderinfo.txt`、`.lr2folder`、manual-only scan 対象の fixture は、
+    `Lr2CompatibilityEvaluator` / `Lr2FolderRowGenerator` の導入 cycle で追加する。
+  - LR2 root sentinel は `LR2CRC32("ROOT")` ではなく `LR2CRC32("ROOT\0") = e2977170` として扱う。
+
 ## 作業エージェント向け実装順
 
 1. Phase 0 の golden fixture を追加する。

@@ -9,6 +9,8 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 internal static class Lr2SongFolderParentNormalizer
 {
+    internal const string RootParentHash = "e2977170";
+
     private static readonly Encoding StrictShiftJis = Encoding.GetEncoding(
         "shift_jis",
         EncoderFallback.ExceptionFallback,
@@ -109,6 +111,21 @@ internal static class Lr2SongFolderParentNormalizer
         return true;
     }
 
+    internal static bool TryComputeExpectedHashes(string chartPath, out string folder, out string parent)
+    {
+        return TryCompute(chartPath, out folder, out parent);
+    }
+
+    internal static string ComputeDirectoryHash(string directoryPath)
+    {
+        return LR2CRC32.Compute(StrictShiftJis.GetBytes((directoryPath ?? string.Empty) + "\\\0")).ToString("x");
+    }
+
+    internal static string ComputeRootHash()
+    {
+        return LR2CRC32.Compute(StrictShiftJis.GetBytes("ROOT\0")).ToString("x");
+    }
+
     private static bool TryCompute(string chartPath, out string folder, out string parent)
     {
         folder = null;
@@ -147,11 +164,6 @@ internal static class Lr2SongFolderParentNormalizer
             return TryCompute(chartPath, out folder, out parent);
         }
         return cache.TryCompute(chartPath, out folder, out parent);
-    }
-
-    private static string ComputeDirectoryHash(string directoryPath)
-    {
-        return LR2CRC32.Compute(StrictShiftJis.GetBytes((directoryPath ?? string.Empty) + "\\\0")).ToString("x");
     }
 
     private static bool MarkUnsupported(BMSFile song)
