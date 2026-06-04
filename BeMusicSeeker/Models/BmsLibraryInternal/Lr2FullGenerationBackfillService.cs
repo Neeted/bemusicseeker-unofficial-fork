@@ -59,6 +59,8 @@ internal sealed class Lr2FullGenerationBackfillResult
 
     public int SongRowLr2CompatibilityAppliedCount { get; set; }
 
+    public IReadOnlyList<BMSFileMaintenanceInfo> Lr2CompatibilityMaintenanceInfos { get; set; } = [];
+
     public long ElapsedMs { get; set; }
 }
 
@@ -221,6 +223,7 @@ internal static class Lr2FullGenerationBackfillService
             SongRowParseFailureCount = songRowResult.ParseFailureCount,
             SongRowChartInfoAppliedCount = songRowResult.ChartInfoAppliedCount,
             SongRowLr2CompatibilityAppliedCount = songRowResult.Lr2CompatibilityAppliedCount,
+            Lr2CompatibilityMaintenanceInfos = songRowResult.Lr2CompatibilityMaintenanceInfos,
             ElapsedMs = stopwatch.ElapsedMilliseconds
         };
     }
@@ -284,7 +287,7 @@ internal static class Lr2FullGenerationBackfillService
     {
         if (songRows == null || songRows.Count == 0)
         {
-            return new SongRowBackfillResult(0, 0, 0, 0);
+            return new SongRowBackfillResult(0, 0, 0, 0, []);
         }
 
         var rowsToWrite = new List<BMSFile>();
@@ -304,7 +307,7 @@ internal static class Lr2FullGenerationBackfillService
         }
         if (rowsToWrite.Count == 0)
         {
-            return new SongRowBackfillResult(0, parseFailureCount, 0, 0);
+            return new SongRowBackfillResult(0, parseFailureCount, 0, 0, []);
         }
 
         BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
@@ -313,14 +316,17 @@ internal static class Lr2FullGenerationBackfillService
         BmsLibraryDbGateway.EnsureMaintenanceSchema(songDb);
         int processed = 0;
         int compatibilityApplied = 0;
+        var compatibilityInfos = new List<BMSFileMaintenanceInfo>();
         songDb.BeginTransaction();
         try
         {
             foreach (BMSFile song in rowsToWrite)
             {
                 Lr2SongDbWriter.UpsertGeneratedSong(songDb, song);
-                if (UpsertLr2CompatibilityFacts(songDb, song))
+                if (TryCreateLr2CompatibilityMaintenanceInfo(song, out BMSFileMaintenanceInfo compatibilityInfo))
                 {
+                    UpsertLr2CompatibilityFacts(songDb, compatibilityInfo);
+                    compatibilityInfos.Add(compatibilityInfo);
                     compatibilityApplied++;
                 }
                 processed++;
@@ -332,7 +338,7 @@ internal static class Lr2FullGenerationBackfillService
             songDb.Rollback();
             throw;
         }
-        return new SongRowBackfillResult(processed, parseFailureCount, chartInfoAppliedCount, compatibilityApplied);
+        return new SongRowBackfillResult(processed, parseFailureCount, chartInfoAppliedCount, compatibilityApplied, compatibilityInfos);
     }
 
     private static BMSFile CreateBackfillSongRow(
@@ -550,12 +556,11 @@ internal static class Lr2FullGenerationBackfillService
             : row.md5;
     }
 
-    private static bool UpsertLr2CompatibilityFacts(LR2SongDBExtended songDb, BMSFile row)
+    private static void UpsertLr2CompatibilityFacts(LR2SongDBExtended songDb, BMSFileMaintenanceInfo info)
     {
-        BMSFileMaintenanceInfo info = CreateLr2CompatibilityMaintenanceInfo(row);
         if (info == null)
         {
-            return false;
+            return;
         }
 
         string tableName = SQLiteTable<LR2SongDBExtended.maintenance>.GetTableName();
@@ -584,14 +589,14 @@ internal static class Lr2FullGenerationBackfillService
         {
             songDb.Insert(info, typeof(LR2SongDBExtended.maintenance));
         }
-        return true;
     }
 
-    private static BMSFileMaintenanceInfo CreateLr2CompatibilityMaintenanceInfo(BMSFile row)
+    private static bool TryCreateLr2CompatibilityMaintenanceInfo(BMSFile row, out BMSFileMaintenanceInfo info)
     {
+        info = null;
         if (row == null || string.IsNullOrWhiteSpace(row.path))
         {
-            return null;
+            return false;
         }
 
         ChartFile chart = ChartFileProjection.FromBmsFile(
@@ -601,13 +606,13 @@ internal static class Lr2FullGenerationBackfillService
             includeScoreSnapshot: false);
         if (chart == null)
         {
-            return null;
+            return false;
         }
 
         ChartResourceSnapshot resources = TryCreateChartResourceSnapshot(chart);
         Lr2ChartPathEvaluation pathEvaluation = Lr2CompatibilityEvaluator.EvaluateChartPath(chart.Path);
         Lr2ResourceReferenceEvaluation resourceEvaluation = Lr2CompatibilityEvaluator.EvaluateResourceReferences(chart.Path, resources);
-        return new BMSFileMaintenanceInfo
+        info = new BMSFileMaintenanceInfo
         {
             path = row.path,
             hash = row.hash,
@@ -619,6 +624,7 @@ internal static class Lr2FullGenerationBackfillService
             lr2_resource_max_resolved_cp932_bytes = resourceEvaluation.MaxResolvedCp932Bytes,
             lr2_resource_unsupported_count = resourceEvaluation.UnsupportedCount
         };
+        return true;
     }
 
     private static ChartResourceSnapshot TryCreateChartResourceSnapshot(ChartFile chart)
@@ -633,7 +639,12 @@ internal static class Lr2FullGenerationBackfillService
         }
     }
 
-    private sealed class SongRowBackfillResult(int processedCount, int parseFailureCount, int chartInfoAppliedCount, int lr2CompatibilityAppliedCount)
+    private sealed class SongRowBackfillResult(
+        int processedCount,
+        int parseFailureCount,
+        int chartInfoAppliedCount,
+        int lr2CompatibilityAppliedCount,
+        IReadOnlyList<BMSFileMaintenanceInfo> lr2CompatibilityMaintenanceInfos)
     {
         public int ProcessedCount { get; } = processedCount;
 
@@ -642,5 +653,7 @@ internal static class Lr2FullGenerationBackfillService
         public int ChartInfoAppliedCount { get; } = chartInfoAppliedCount;
 
         public int Lr2CompatibilityAppliedCount { get; } = lr2CompatibilityAppliedCount;
+
+        public IReadOnlyList<BMSFileMaintenanceInfo> Lr2CompatibilityMaintenanceInfos { get; } = lr2CompatibilityMaintenanceInfos ?? [];
     }
 }

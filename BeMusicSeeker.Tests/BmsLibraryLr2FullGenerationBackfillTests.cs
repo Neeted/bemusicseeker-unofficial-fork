@@ -547,6 +547,53 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
     }
 
     [TestMethod]
+    public void QueueLr2FullGenerationBackfillIfNeeded_ProjectsLr2CompatibilityWarningsToLiveRows()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        try
+        {
+            Settings.Default.OperationModeLR2DB = true;
+            Settings.Default.EnableLR2SongDbFullGeneration = true;
+            ResetLr2FolderDiscoverySettings();
+            string songDirectory = Path.Combine(scope.DirectoryPath, "LiveLr2Compatibility");
+            Directory.CreateDirectory(songDirectory);
+            string chartPath = Path.Combine(songDirectory, "chart.bms");
+            File.WriteAllText(chartPath, "#TITLE live lr2 compatibility\r\n#WAV01 emoji😀.wav\r\n", new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+            ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
+            TestableBmsFile file = CreateBackfillTestFile(chartPath, snapshot);
+            file.SetMaintenanceInfo(new BMSFileMaintenanceInfo(file)
+            {
+                hash = file.hash,
+                wav_files_defined = 99,
+                wav_files_existing = 88
+            }, suppressPropertyChanged: true, origin: MaintenanceInfoOrigin.Calculated);
+            var library = new BMSLibrary(scope.SongDbPath)
+            {
+                SearchTargets = [],
+                BMSFiles = [file]
+            };
+            library.StartupBackgroundTaskScheduler = delegate (string name, string reason, string dependency, Func<Task> work)
+            {
+                work().GetAwaiter().GetResult();
+                return true;
+            };
+
+            library.QueueLr2FullGenerationBackfillIfNeeded("test_live_lr2_compatibility");
+
+            Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.Lr2ResourcePathUnsupported));
+            Assert.AreEqual(99, file.maintenanceInfo.wav_files_defined);
+            Assert.AreEqual(88, file.maintenanceInfo.wav_files_existing);
+            int flags = file.maintenanceInfo.lr2_resource_warning_flags.GetValueOrDefault();
+            Assert.IsTrue((flags & (int)Lr2ResourceWarningFlags.RawPathEncodingUnsupported) != 0);
+        }
+        finally
+        {
+            ResetTouchedSettings();
+        }
+    }
+
+    [TestMethod]
     public void QueueLr2FullGenerationBackfillIfNeeded_DiscoversLr2FolderWithoutCharts()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();

@@ -377,4 +377,36 @@ public class BMSFileMaintenanceInfo : LR2SongDBExtended.maintenance
         encoding = "utf-8";
         is_encoding_fixed = false;
     }
+
+    internal void ApplyLr2CompatibilityFactsFrom(BMSFileMaintenanceInfo source)
+    {
+        if (source == null)
+        {
+            return;
+        }
+
+        lr2_path_warning_flags = source.lr2_path_warning_flags;
+        lr2_chart_path_cp932_bytes = source.lr2_chart_path_cp932_bytes;
+        lr2_folder_scan_cp932_bytes = source.lr2_folder_scan_cp932_bytes;
+        lr2_resource_warning_flags = source.lr2_resource_warning_flags;
+        lr2_resource_max_raw_cp932_bytes = source.lr2_resource_max_raw_cp932_bytes;
+        lr2_resource_max_resolved_cp932_bytes = source.lr2_resource_max_resolved_cp932_bytes;
+        lr2_resource_unsupported_count = source.lr2_resource_unsupported_count;
+    }
+
+    internal bool HasSameLr2CompatibilityFacts(BMSFileMaintenanceInfo source)
+    {
+        if (source == null)
+        {
+            return false;
+        }
+
+        return lr2_path_warning_flags == source.lr2_path_warning_flags
+            && lr2_chart_path_cp932_bytes == source.lr2_chart_path_cp932_bytes
+            && lr2_folder_scan_cp932_bytes == source.lr2_folder_scan_cp932_bytes
+            && lr2_resource_warning_flags == source.lr2_resource_warning_flags
+            && lr2_resource_max_raw_cp932_bytes == source.lr2_resource_max_raw_cp932_bytes
+            && lr2_resource_max_resolved_cp932_bytes == source.lr2_resource_max_resolved_cp932_bytes
+            && lr2_resource_unsupported_count == source.lr2_resource_unsupported_count;
+    }
 }

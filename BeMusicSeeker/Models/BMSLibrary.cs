@@ -5004,6 +5004,7 @@ completeFileEnumerationOnce,
                 + " stage=" + result.FinalStage
                 + " detail=" + result.IncompleteReason
                 + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
+            ApplyLr2FullGenerationCompatibilityProjection(result.Lr2CompatibilityMaintenanceInfos, reason);
             ReportStartupBackgroundTask("lr2_full_generation_backfill", "incomplete", stopwatch.ElapsedMilliseconds, failed: false, detail: result.IncompleteReason);
         }
         catch (Exception ex)
@@ -5032,6 +5033,62 @@ completeFileEnumerationOnce,
                 + " exception=" + ex.GetType().Name
                 + " message=" + ex.Message);
             ReportStartupBackgroundTask("lr2_full_generation_backfill", "failed", stopwatch.ElapsedMilliseconds, failed: true, detail: ex.Message);
+        }
+    }
+
+    private void ApplyLr2FullGenerationCompatibilityProjection(
+        IReadOnlyList<BMSFileMaintenanceInfo> maintenanceInfos,
+        string reason)
+    {
+        List<BMSFileMaintenanceInfo> infoList = [.. (maintenanceInfos ?? [])
+            .Where(info => info != null && !string.IsNullOrWhiteSpace(info.path))];
+        if (infoList.Count == 0)
+        {
+            LogInstallPerformance("lr2_full_generation_compatibility_projection skipped"
+                + " reason=" + (reason ?? "unknown")
+                + " input=0 applied=0");
+            return;
+        }
+
+        int applied = 0;
+        using (rwlockBMSFiles.GetWriterGuard())
+        {
+            Dictionary<string, BMSFile> bmsByPath = (_BMSFiles ?? [])
+                .Where(file => file != null && !string.IsNullOrWhiteSpace(file.path))
+                .GroupBy(file => file.path, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+            foreach (BMSFileMaintenanceInfo sourceInfo in infoList)
+            {
+                if (!bmsByPath.TryGetValue(sourceInfo.path, out BMSFile file)
+                    || file == null
+                    || (!string.IsNullOrWhiteSpace(sourceInfo.hash)
+                        && !string.Equals(sourceInfo.hash, file.hash, StringComparison.OrdinalIgnoreCase)))
+                {
+                    continue;
+                }
+
+                BMSFileMaintenanceInfo targetInfo = file.TryGetMaintenanceInfoWithoutCreating();
+                if (targetInfo == null || !file.HasMaintenanceInfoHash(file.hash))
+                {
+                    targetInfo = new BMSFileMaintenanceInfo(file);
+                }
+                if (targetInfo.HasSameLr2CompatibilityFacts(sourceInfo))
+                {
+                    continue;
+                }
+                targetInfo.ApplyLr2CompatibilityFactsFrom(sourceInfo);
+                file.SetMaintenanceInfo(targetInfo, suppressPropertyChanged: true, MaintenanceInfoOrigin.Calculated);
+                applied++;
+            }
+        }
+
+        LogInstallPerformance("lr2_full_generation_compatibility_projection applied"
+            + " reason=" + (reason ?? "unknown")
+            + " input=" + infoList.Count
+            + " applied=" + applied);
+        if (applied > 0)
+        {
+            DispatchWarningPresentationChanged("lr2_full_generation_compatibility_projection");
         }
     }
 
