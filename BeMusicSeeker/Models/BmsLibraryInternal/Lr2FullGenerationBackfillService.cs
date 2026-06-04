@@ -22,6 +22,10 @@ internal sealed class Lr2FullGenerationBackfillRequest
 
     public IReadOnlyCollection<string> Lr2FolderFilePaths { get; set; } = [];
 
+    public IReadOnlyCollection<string> Lr2FolderDiscoveryDirectories { get; set; } = [];
+
+    public IReadOnlyCollection<string> Lr2FolderPruneDirectories { get; set; } = [];
+
     public bool Lr2FolderFileDiscoveryComplete { get; set; }
 
     public IReadOnlyCollection<BMSFile> SongRows { get; set; } = [];
@@ -79,6 +83,12 @@ internal static class Lr2FullGenerationBackfillService
         List<string> lr2FolderFilePaths = [.. (request.Lr2FolderFilePaths ?? [])
             .Where(path => !string.IsNullOrWhiteSpace(path))
             .Distinct(StringComparer.OrdinalIgnoreCase)];
+        List<string> lr2FolderDiscoveryDirectories = [.. (request.Lr2FolderDiscoveryDirectories ?? [])
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)];
+        List<string> lr2FolderPruneDirectories = [.. (request.Lr2FolderPruneDirectories ?? [])
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)];
         List<BMSFile> songRows = [.. (request.SongRows ?? [])
             .Where(file => file != null && !string.IsNullOrWhiteSpace(file.path))];
         int totalCount = roots.Count + chartPaths.Count + folderInfoFilePaths.Count + lr2FolderFilePaths.Count + songRows.Count;
@@ -126,14 +136,16 @@ internal static class Lr2FullGenerationBackfillService
 
         Lr2FolderFileDbSyncResult lr2FolderFileResult = null;
         int lr2FolderFileProcessedCount = 0;
-        if (roots.Count > 0)
+        if (lr2FolderDiscoveryDirectories.Count > 0)
         {
             Lr2FolderFileSyncItemsResult syncItems = CreateLr2FolderFileSyncItems(lr2FolderFilePaths);
             lr2FolderFileResult = Lr2FolderFileDbSyncService.Sync(songDb, new Lr2FolderFileDbSyncRequest
             {
                 Items = syncItems.Items,
-                ScopeDirectories = roots,
-                AllowPrune = request.Lr2FolderFileDiscoveryComplete && !syncItems.HasReadFailures,
+                ScopeDirectories = lr2FolderPruneDirectories,
+                AllowPrune = lr2FolderPruneDirectories.Count > 0
+                    && request.Lr2FolderFileDiscoveryComplete
+                    && !syncItems.HasReadFailures,
                 GeneratedAtUtc = request.StartedAtUtc
             });
             lr2FolderFileProcessedCount = lr2FolderFileResult.ItemCount;

@@ -23,6 +23,7 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
         {
             Settings.Default.OperationModeLR2DB = true;
             Settings.Default.EnableLR2SongDbFullGeneration = false;
+            ResetLr2FolderDiscoverySettings();
             var library = new BMSLibrary(scope.SongDbPath);
             bool queued = false;
             library.StartupBackgroundTaskScheduler = delegate
@@ -50,6 +51,7 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
         {
             Settings.Default.OperationModeLR2DB = true;
             Settings.Default.EnableLR2SongDbFullGeneration = true;
+            ResetLr2FolderDiscoverySettings();
             string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
             string packDirectory = Path.Combine(rootDirectory, "Pack");
             string songDirectory = Path.Combine(packDirectory, "Song");
@@ -168,6 +170,7 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
         {
             Settings.Default.OperationModeLR2DB = true;
             Settings.Default.EnableLR2SongDbFullGeneration = true;
+            ResetLr2FolderDiscoverySettings();
             var library = new BMSLibrary(scope.SongDbPath)
             {
                 SearchTargets = []
@@ -203,6 +206,7 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
         {
             Settings.Default.OperationModeLR2DB = true;
             Settings.Default.EnableLR2SongDbFullGeneration = true;
+            ResetLr2FolderDiscoverySettings();
             string songDirectory = Path.Combine(scope.DirectoryPath, "Loose");
             Directory.CreateDirectory(songDirectory);
             string chartPath = Path.Combine(songDirectory, "chart.bms");
@@ -249,6 +253,7 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
         {
             Settings.Default.OperationModeLR2DB = true;
             Settings.Default.EnableLR2SongDbFullGeneration = true;
+            ResetLr2FolderDiscoverySettings();
             string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
             string nestedDirectory = Path.Combine(rootDirectory, "Custom");
             Directory.CreateDirectory(nestedDirectory);
@@ -303,6 +308,56 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
     }
 
     [TestMethod]
+    public void QueueLr2FullGenerationBackfillIfNeeded_DiscoversLr2FolderFromCustomFolderOutputBase()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        try
+        {
+            Settings.Default.OperationModeLR2DB = true;
+            Settings.Default.EnableLR2SongDbFullGeneration = true;
+            ResetLr2FolderDiscoverySettings();
+            string outputBase = Path.Combine(scope.DirectoryPath, "CustomOutput");
+            Directory.CreateDirectory(outputBase);
+            string lr2FolderPath = Path.Combine(outputBase, "0000.lr2folder");
+            string stalePath = Path.Combine(outputBase, "stale.lr2folder");
+            File.WriteAllText(lr2FolderPath, "#TITLE Output Folder", Encoding.GetEncoding("shift_jis"));
+            Settings.Default.LR2CustomFolderOutputBaseDir = outputBase;
+            var library = new BMSLibrary(scope.SongDbPath)
+            {
+                SearchTargets = [],
+                BMSFiles = []
+            };
+            using (var setup = new LR2SongDBExtended(scope.SongDbPath))
+            {
+                setup.InsertOrReplace(new LR2SongDB.folder
+                {
+                    path = stalePath,
+                    type = 2,
+                    title = "Keep Stale",
+                    date = 1
+                }, typeof(LR2SongDB.folder));
+            }
+            library.StartupBackgroundTaskScheduler = delegate (string name, string reason, string dependency, Func<Task> work)
+            {
+                work().GetAwaiter().GetResult();
+                return true;
+            };
+
+            library.QueueLr2FullGenerationBackfillIfNeeded("test_custom_folder_output_base");
+
+            using var verify = new LR2SongDBExtended(scope.SongDbPath);
+            LR2SongDB.folder lr2Folder = verify.Table<LR2SongDB.folder>().ToList().Single(folder => folder.path == lr2FolderPath);
+            Assert.AreEqual(2, lr2Folder.type);
+            Assert.AreEqual("Output Folder", lr2Folder.title);
+            Assert.AreEqual(1, verify.Table<LR2SongDB.folder>().ToList().Count(folder => folder.path == stalePath));
+        }
+        finally
+        {
+            ResetTouchedSettings();
+        }
+    }
+
+    [TestMethod]
     public void BackfillService_DoesNotPruneLr2FolderRowsWhenDiscoveredFileCannotBeRead()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
@@ -324,6 +379,8 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
             Signature = "test",
             RunId = "run",
             RootDirectories = [rootDirectory],
+            Lr2FolderDiscoveryDirectories = [rootDirectory],
+            Lr2FolderPruneDirectories = [rootDirectory],
             Lr2FolderFilePaths = [missingPath],
             Lr2FolderFileDiscoveryComplete = true,
             StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc)
@@ -373,6 +430,14 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
     {
         Settings.Default.OperationModeLR2DB = true;
         Settings.Default.EnableLR2SongDbFullGeneration = false;
+        ResetLr2FolderDiscoverySettings();
+    }
+
+    private static void ResetLr2FolderDiscoverySettings()
+    {
+        Settings.Default.LR2CustomFolderOutputBaseDir = string.Empty;
+        Settings.Default.LR2CustomFolderOutputBaseDirRootType = string.Empty;
+        Settings.Default.LR2RootPath = string.Empty;
     }
 
     private sealed class TestableBmsFile : BMSFile

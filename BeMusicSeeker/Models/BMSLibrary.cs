@@ -4959,6 +4959,8 @@ completeFileEnumerationOnce,
                     ChartPaths = input.ChartPaths,
                     FolderInfoFilePaths = input.FolderInfoFilePaths,
                     Lr2FolderFilePaths = input.Lr2FolderFilePaths,
+                    Lr2FolderDiscoveryDirectories = input.Lr2FolderDiscoveryDirectories,
+                    Lr2FolderPruneDirectories = input.Lr2FolderPruneDirectories,
                     Lr2FolderFileDiscoveryComplete = input.Lr2FolderFileDiscoveryComplete,
                     SongRows = input.SongRows,
                     StartedAtUtc = DateTime.UtcNow
@@ -4970,6 +4972,8 @@ completeFileEnumerationOnce,
                 + " roots=" + input.RootDirectories.Count
                 + " charts=" + input.ChartPaths.Count
                 + " folderInfoCandidates=" + input.FolderInfoFilePaths.Count
+                + " lr2FolderRoots=" + input.Lr2FolderDiscoveryDirectories.Count
+                + " lr2FolderPruneRoots=" + input.Lr2FolderPruneDirectories.Count
                 + " lr2FolderCandidates=" + input.Lr2FolderFilePaths.Count
                 + " lr2FolderDiscoveryComplete=" + input.Lr2FolderFileDiscoveryComplete.ToString().ToLowerInvariant()
                 + " songRows=" + input.SongRows.Count
@@ -5037,11 +5041,14 @@ completeFileEnumerationOnce,
                 .Select(file => file.CreateSongRowPersistenceCopy())];
         }
         List<string> roots = getBMSDirectories();
-        Lr2FolderFileCandidateSnapshot lr2FolderFileCandidates = CreateLr2FullGenerationLr2FolderFileCandidates(roots);
+        List<string> lr2FolderDiscoveryDirectories = CreateLr2FullGenerationLr2FolderDiscoveryDirectories(roots);
+        Lr2FolderFileCandidateSnapshot lr2FolderFileCandidates = CreateLr2FullGenerationLr2FolderFileCandidates(lr2FolderDiscoveryDirectories);
         return new Lr2FullGenerationBackfillInput(
             roots,
             chartPaths,
             CreateLr2FullGenerationFolderInfoCandidates(roots, chartPaths),
+            lr2FolderDiscoveryDirectories,
+            roots,
             lr2FolderFileCandidates.Paths,
             lr2FolderFileCandidates.DiscoveryComplete,
             songRows);
@@ -5073,6 +5080,25 @@ completeFileEnumerationOnce,
 
     private const string Lr2FolderFileEnumerationGroupName = "lr2folder";
 
+    private static List<string> CreateLr2FullGenerationLr2FolderDiscoveryDirectories(IEnumerable<string> rootDirectories)
+    {
+        var candidates = new List<string>();
+        candidates.AddRange(rootDirectories ?? []);
+        candidates.Add(Settings.Default.LR2CustomFolderOutputBaseDir);
+        candidates.Add(Settings.Default.LR2CustomFolderOutputBaseDirRootType);
+        if (!string.IsNullOrWhiteSpace(Settings.Default.LR2RootPath))
+        {
+            candidates.Add(Path.Combine(Settings.Default.LR2RootPath, "LR2files", "CustomFolder"));
+            candidates.Add(Path.Combine(Settings.Default.LR2RootPath, "LR2files", "Rival"));
+        }
+
+        return [.. candidates
+            .Where(path => !string.IsNullOrWhiteSpace(path) && Directory.Exists(path))
+            .Select(Path.GetFullPath)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
+    }
+
     private static Lr2FolderFileCandidateSnapshot CreateLr2FullGenerationLr2FolderFileCandidates(IEnumerable<string> rootDirectories)
     {
         List<string> roots = [.. (rootDirectories ?? [])
@@ -5100,6 +5126,8 @@ completeFileEnumerationOnce,
         IReadOnlyList<string> rootDirectories,
         IReadOnlyList<string> chartPaths,
         IReadOnlyList<string> folderInfoFilePaths,
+        IReadOnlyList<string> lr2FolderDiscoveryDirectories,
+        IReadOnlyList<string> lr2FolderPruneDirectories,
         IReadOnlyList<string> lr2FolderFilePaths,
         bool lr2FolderFileDiscoveryComplete,
         IReadOnlyList<BMSFile> songRows)
@@ -5109,6 +5137,10 @@ completeFileEnumerationOnce,
         public IReadOnlyList<string> ChartPaths { get; } = chartPaths ?? [];
 
         public IReadOnlyList<string> FolderInfoFilePaths { get; } = folderInfoFilePaths ?? [];
+
+        public IReadOnlyList<string> Lr2FolderDiscoveryDirectories { get; } = lr2FolderDiscoveryDirectories ?? [];
+
+        public IReadOnlyList<string> Lr2FolderPruneDirectories { get; } = lr2FolderPruneDirectories ?? [];
 
         public IReadOnlyList<string> Lr2FolderFilePaths { get; } = lr2FolderFilePaths ?? [];
 
