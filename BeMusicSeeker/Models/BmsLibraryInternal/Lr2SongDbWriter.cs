@@ -1,4 +1,6 @@
 using System;
+using System.IO;
+using System.Security;
 using BeMusicSeeker.Models.LR2;
 using SQLite;
 
@@ -17,8 +19,9 @@ internal static class Lr2SongDbWriter
             return false;
         }
 
-        Lr2SongRowEnricher.EnrichGeneratedSong(song);
         GeneratedSongRow existingSong = FindSongByPath(songDb, song.path);
+        Lr2SongRowEnricher.EnrichGeneratedSong(song);
+        ApplyGeneratedPersistenceDefaults(song, isNewRow: existingSong == null);
         string previousHash = existingSong?.hash;
         bool changed = false;
         if (existingSong == null)
@@ -34,6 +37,60 @@ internal static class Lr2SongDbWriter
         BmsLibraryDbGateway.UpsertChartDigest(songDb, song);
         BmsLibraryDbGateway.DeleteChartDigestIfOrphaned(songDb, previousHash, song.hash);
         return changed;
+    }
+
+    private static void ApplyGeneratedPersistenceDefaults(BMSFile song, bool isNewRow)
+    {
+        if (song == null)
+        {
+            return;
+        }
+        if ((!song.date.HasValue || song.date <= 0) && TryGetLastWriteTimeUtc(song.path, out DateTime lastWriteTimeUtc))
+        {
+            song.date = Lr2SongRowEnricher.ToLr2UnixSeconds(lastWriteTimeUtc);
+        }
+        if (isNewRow && (!song.adddate.HasValue || song.adddate <= 0))
+        {
+            song.adddate = Lr2SongRowEnricher.ToLr2UnixSeconds(DateTime.UtcNow);
+        }
+    }
+
+    private static bool TryGetLastWriteTimeUtc(string path, out DateTime lastWriteTimeUtc)
+    {
+        lastWriteTimeUtc = default;
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return false;
+        }
+        try
+        {
+            if (!File.Exists(path))
+            {
+                return false;
+            }
+            lastWriteTimeUtc = File.GetLastWriteTimeUtc(path);
+            return true;
+        }
+        catch (IOException)
+        {
+            return false;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return false;
+        }
+        catch (SecurityException)
+        {
+            return false;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+        catch (NotSupportedException)
+        {
+            return false;
+        }
     }
 
     internal static void UpdateDate(LR2SongDBExtended songDb, string path, int date)

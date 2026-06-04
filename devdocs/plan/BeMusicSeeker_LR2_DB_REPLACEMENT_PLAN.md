@@ -1147,3 +1147,9 @@ parse directive:
 12. migration / backfill を追加する。
 13. コピーした `song.db` で統合確認する。
 14. LR2 を manual-only で起動し、未変更 root で再帰スキャンに入らないことを確認する。
+
+## 実装メモ
+
+- `Lr2SongDbWriter.UpsertGeneratedSong(...)` は direct install / path replacement / backfill の共通 persistence 境界として扱う。
+  呼び出し元の `BMSFile` に `date` が無い場合は実ファイル mtime から補完し、新規 `song` row で `adddate`
+  が無い場合だけ現在時刻を入れる。既存 row の `adddate` は writer update では変更しない。

@@ -91,6 +91,60 @@ public sealed class Lr2SongDbWriterTests
         });
     }
 
+    [TestMethod]
+    public void UpsertGeneratedSong_FillsMissingDateAndNewAddDate()
+    {
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            using var songDb = new LR2SongDBExtended(songDbPath);
+            songDb.CreateTable<LR2SongDB.song>();
+            songDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
+            string chartPath = Path.Combine(Path.GetDirectoryName(songDbPath), "chart.bms");
+            File.WriteAllText(chartPath, "#TITLE test\r\n");
+            var timestamp = new DateTime(2026, 6, 5, 1, 2, 3, DateTimeKind.Utc);
+            File.SetLastWriteTimeUtc(chartPath, timestamp);
+            TestableBmsFile file = CreateSong(chartPath, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Title");
+            file.date = null;
+            file.adddate = null;
+
+            int before = Lr2SongRowEnricher.ToLr2UnixSeconds(DateTime.UtcNow.AddSeconds(-1));
+            Assert.IsTrue(Lr2SongDbWriter.UpsertGeneratedSong(songDb, file));
+            int after = Lr2SongRowEnricher.ToLr2UnixSeconds(DateTime.UtcNow.AddSeconds(1));
+
+            LR2SongDB.song row = songDb.Table<LR2SongDB.song>().Single();
+            Assert.AreEqual(Lr2SongRowEnricher.ToLr2UnixSeconds(timestamp), row.date);
+            Assert.IsTrue(row.adddate >= before && row.adddate <= after, "New rows should receive a current adddate.");
+        });
+    }
+
+    [TestMethod]
+    public void UpsertGeneratedSong_FillsMissingDateButPreservesExistingAddDate()
+    {
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            using var songDb = new LR2SongDBExtended(songDbPath);
+            songDb.CreateTable<LR2SongDB.song>();
+            songDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
+            string chartPath = Path.Combine(Path.GetDirectoryName(songDbPath), "chart.bms");
+            File.WriteAllText(chartPath, "#TITLE test\r\n");
+            var timestamp = new DateTime(2026, 6, 5, 2, 3, 4, DateTimeKind.Utc);
+            File.SetLastWriteTimeUtc(chartPath, timestamp);
+            TestableBmsFile file = CreateSong(chartPath, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Old");
+            file.adddate = 98765;
+            Assert.IsTrue(Lr2SongDbWriter.UpsertGeneratedSong(songDb, file));
+
+            TestableBmsFile updated = CreateSong(chartPath, file.hash, "New");
+            updated.date = null;
+            updated.adddate = null;
+            Assert.IsTrue(Lr2SongDbWriter.UpsertGeneratedSong(songDb, updated));
+
+            LR2SongDB.song row = songDb.Table<LR2SongDB.song>().Single();
+            Assert.AreEqual("New", row.title);
+            Assert.AreEqual(Lr2SongRowEnricher.ToLr2UnixSeconds(timestamp), row.date);
+            Assert.AreEqual(98765, row.adddate);
+        });
+    }
+
     private static TestableBmsFile CreateSong(string path, string hash, string title)
     {
         var file = new TestableBmsFile
