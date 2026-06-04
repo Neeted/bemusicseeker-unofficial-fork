@@ -57,6 +57,8 @@ internal sealed class Lr2FullGenerationBackfillResult
 
     public int SongRowChartInfoAppliedCount { get; set; }
 
+    public int SongRowLr2CompatibilityAppliedCount { get; set; }
+
     public long ElapsedMs { get; set; }
 }
 
@@ -218,6 +220,7 @@ internal static class Lr2FullGenerationBackfillService
             SongRowProcessedCount = songRowResult.ProcessedCount,
             SongRowParseFailureCount = songRowResult.ParseFailureCount,
             SongRowChartInfoAppliedCount = songRowResult.ChartInfoAppliedCount,
+            SongRowLr2CompatibilityAppliedCount = songRowResult.Lr2CompatibilityAppliedCount,
             ElapsedMs = stopwatch.ElapsedMilliseconds
         };
     }
@@ -281,7 +284,7 @@ internal static class Lr2FullGenerationBackfillService
     {
         if (songRows == null || songRows.Count == 0)
         {
-            return new SongRowBackfillResult(0, 0, 0);
+            return new SongRowBackfillResult(0, 0, 0, 0);
         }
 
         var rowsToWrite = new List<BMSFile>();
@@ -301,19 +304,25 @@ internal static class Lr2FullGenerationBackfillService
         }
         if (rowsToWrite.Count == 0)
         {
-            return new SongRowBackfillResult(0, parseFailureCount, 0);
+            return new SongRowBackfillResult(0, parseFailureCount, 0, 0);
         }
 
         BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
         int chartInfoAppliedCount = ApplyCurrentChartInfoRows(songDb, rowsToWrite);
         BmsLibraryDbGateway.EnsureSongLookupIndexes(songDb);
+        BmsLibraryDbGateway.EnsureMaintenanceSchema(songDb);
         int processed = 0;
+        int compatibilityApplied = 0;
         songDb.BeginTransaction();
         try
         {
             foreach (BMSFile song in rowsToWrite)
             {
                 Lr2SongDbWriter.UpsertGeneratedSong(songDb, song);
+                if (UpsertLr2CompatibilityFacts(songDb, song))
+                {
+                    compatibilityApplied++;
+                }
                 processed++;
             }
             songDb.Commit();
@@ -323,7 +332,7 @@ internal static class Lr2FullGenerationBackfillService
             songDb.Rollback();
             throw;
         }
-        return new SongRowBackfillResult(processed, parseFailureCount, chartInfoAppliedCount);
+        return new SongRowBackfillResult(processed, parseFailureCount, chartInfoAppliedCount, compatibilityApplied);
     }
 
     private static BMSFile CreateBackfillSongRow(
@@ -541,12 +550,97 @@ internal static class Lr2FullGenerationBackfillService
             : row.md5;
     }
 
-    private sealed class SongRowBackfillResult(int processedCount, int parseFailureCount, int chartInfoAppliedCount)
+    private static bool UpsertLr2CompatibilityFacts(LR2SongDBExtended songDb, BMSFile row)
+    {
+        BMSFileMaintenanceInfo info = CreateLr2CompatibilityMaintenanceInfo(row);
+        if (info == null)
+        {
+            return false;
+        }
+
+        string tableName = SQLiteTable<LR2SongDBExtended.maintenance>.GetTableName();
+        int updated = songDb.Execute(
+            "UPDATE " + tableName
+            + " SET "
+            + SQLiteTable<LR2SongDBExtended.maintenance>.GetColumnName(item => item.hash) + " = ?, "
+            + SQLiteTable<LR2SongDBExtended.maintenance>.GetColumnName(item => item.lr2_path_warning_flags) + " = ?, "
+            + SQLiteTable<LR2SongDBExtended.maintenance>.GetColumnName(item => item.lr2_chart_path_cp932_bytes) + " = ?, "
+            + SQLiteTable<LR2SongDBExtended.maintenance>.GetColumnName(item => item.lr2_folder_scan_cp932_bytes) + " = ?, "
+            + SQLiteTable<LR2SongDBExtended.maintenance>.GetColumnName(item => item.lr2_resource_warning_flags) + " = ?, "
+            + SQLiteTable<LR2SongDBExtended.maintenance>.GetColumnName(item => item.lr2_resource_max_raw_cp932_bytes) + " = ?, "
+            + SQLiteTable<LR2SongDBExtended.maintenance>.GetColumnName(item => item.lr2_resource_max_resolved_cp932_bytes) + " = ?, "
+            + SQLiteTable<LR2SongDBExtended.maintenance>.GetColumnName(item => item.lr2_resource_unsupported_count) + " = ?"
+            + " WHERE " + SQLiteTable<LR2SongDBExtended.maintenance>.GetColumnName(item => item.path) + " = ?;",
+            info.hash,
+            info.lr2_path_warning_flags,
+            info.lr2_chart_path_cp932_bytes,
+            info.lr2_folder_scan_cp932_bytes,
+            info.lr2_resource_warning_flags,
+            info.lr2_resource_max_raw_cp932_bytes,
+            info.lr2_resource_max_resolved_cp932_bytes,
+            info.lr2_resource_unsupported_count,
+            info.path);
+        if (updated <= 0)
+        {
+            songDb.Insert(info, typeof(LR2SongDBExtended.maintenance));
+        }
+        return true;
+    }
+
+    private static BMSFileMaintenanceInfo CreateLr2CompatibilityMaintenanceInfo(BMSFile row)
+    {
+        if (row == null || string.IsNullOrWhiteSpace(row.path))
+        {
+            return null;
+        }
+
+        ChartFile chart = ChartFileProjection.FromBmsFile(
+            row,
+            includeWarningSnapshot: false,
+            includeResourceReferences: true,
+            includeScoreSnapshot: false);
+        if (chart == null)
+        {
+            return null;
+        }
+
+        ChartResourceSnapshot resources = TryCreateChartResourceSnapshot(chart);
+        Lr2ChartPathEvaluation pathEvaluation = Lr2CompatibilityEvaluator.EvaluateChartPath(chart.Path);
+        Lr2ResourceReferenceEvaluation resourceEvaluation = Lr2CompatibilityEvaluator.EvaluateResourceReferences(chart.Path, resources);
+        return new BMSFileMaintenanceInfo
+        {
+            path = row.path,
+            hash = row.hash,
+            lr2_path_warning_flags = (int)pathEvaluation.WarningFlags,
+            lr2_chart_path_cp932_bytes = pathEvaluation.ChartPathCp932Bytes,
+            lr2_folder_scan_cp932_bytes = pathEvaluation.FolderScanPathCp932Bytes,
+            lr2_resource_warning_flags = (int)resourceEvaluation.WarningFlags,
+            lr2_resource_max_raw_cp932_bytes = resourceEvaluation.MaxRawCp932Bytes,
+            lr2_resource_max_resolved_cp932_bytes = resourceEvaluation.MaxResolvedCp932Bytes,
+            lr2_resource_unsupported_count = resourceEvaluation.UnsupportedCount
+        };
+    }
+
+    private static ChartResourceSnapshot TryCreateChartResourceSnapshot(ChartFile chart)
+    {
+        try
+        {
+            return ChartResourceSnapshot.Create(chart);
+        }
+        catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException || ex is DecoderFallbackException)
+        {
+            return null;
+        }
+    }
+
+    private sealed class SongRowBackfillResult(int processedCount, int parseFailureCount, int chartInfoAppliedCount, int lr2CompatibilityAppliedCount)
     {
         public int ProcessedCount { get; } = processedCount;
 
         public int ParseFailureCount { get; } = parseFailureCount;
 
         public int ChartInfoAppliedCount { get; } = chartInfoAppliedCount;
+
+        public int Lr2CompatibilityAppliedCount { get; } = lr2CompatibilityAppliedCount;
     }
 }

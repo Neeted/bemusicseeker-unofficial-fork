@@ -4997,6 +4997,7 @@ completeFileEnumerationOnce,
                 + " songRowProcessed=" + result.SongRowProcessedCount
                 + " songRowParseFailed=" + result.SongRowParseFailureCount
                 + " songRowChartInfoApplied=" + result.SongRowChartInfoAppliedCount
+                + " songRowLr2CompatibilityApplied=" + result.SongRowLr2CompatibilityAppliedCount
                 + " processed=" + result.ProcessedCount
                 + " total=" + result.TotalCount
                 + " stage=" + result.FinalStage
