@@ -323,8 +323,9 @@ public sealed class BmtTableExportServiceTests
             Assert.AreEqual(0, result.WrittenCount);
             Assert.AreEqual(2, result.SkippedWriteCount);
             Assert.AreEqual(2, progress.Count);
-            Assert.AreEqual(Tuple.Create(1, 2, "First"), progress[0]);
-            Assert.AreEqual(Tuple.Create(2, 2, "Second"), progress[1]);
+            CollectionAssert.AreEqual(new[] { 1, 2 }, progress.Select(item => item.Item1).ToArray());
+            Assert.IsTrue(progress.All(item => item.Item2 == 2));
+            CollectionAssert.AreEquivalent(new[] { "First", "Second" }, progress.Select(item => item.Item3).ToArray());
         });
     }
 

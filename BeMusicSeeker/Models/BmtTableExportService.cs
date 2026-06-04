@@ -5,6 +5,7 @@ using System.IO.Compression;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
+using System.Threading.Tasks;
 using BeMusicSeeker.Models.LR2;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -16,6 +17,8 @@ internal static class BmtTableExportService
     internal const string ManifestFileName = ".bemusicseeker-bmt-manifest";
 
     private static readonly object ManifestLock = new();
+
+    private const int MaxParallelExportDegree = 4;
 
     private sealed class ManifestState
     {
@@ -39,6 +42,30 @@ internal static class BmtTableExportService
 
     private sealed class ManifestPlaylistEntry : ManagedTableUrlEntry
     {
+    }
+
+    private sealed class TableDataExportWorkItem
+    {
+        public int Index { get; set; }
+
+        public string PlaylistIdentity { get; set; }
+
+        public JObject TableData { get; set; }
+
+        public string FileName { get; set; }
+
+        public string TableName { get; set; }
+    }
+
+    private sealed class TableDataExportWorkResult
+    {
+        public TableDataExportWorkItem Item { get; set; }
+
+        public string ContentHash { get; set; }
+
+        public bool WroteFile { get; set; }
+
+        public bool SkippedWrite { get; set; }
     }
 
     internal sealed class ExportResult
@@ -111,33 +138,31 @@ internal static class BmtTableExportService
         var result = new ExportResult();
         var exportedFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var playlists = new Dictionary<string, ManifestPlaylistEntry>(StringComparer.Ordinal);
-        List<Tuple<string, JObject>> items = (tableDataSet ?? []).ToList();
-        int processedCount = 0;
-        foreach (Tuple<string, JObject> item in items)
+        List<TableDataExportWorkItem> items = CreateExportWorkItems(tableDataSet);
+        TableDataExportWorkResult[] workResults = ExportPreparedTableDataSet(tablePath, previousManifest, items, progressReporter);
+        foreach (TableDataExportWorkResult workResult in workResults)
         {
-            string playlistIdentity = item?.Item1;
-            JObject tableData = item?.Item2;
-            string fileName = GetOutputFileName(tableData);
-            if (!string.IsNullOrWhiteSpace(fileName))
+            if (workResult?.Item == null || string.IsNullOrWhiteSpace(workResult.Item.FileName))
             {
-                string contentHash = ComputeContentHash(tableData);
-                if (!ShouldSkipWrite(tablePath, previousManifest, playlistIdentity, fileName, contentHash))
-                {
-                    WriteTableDataFile(tablePath, tableData, fileName);
-                    result.WrittenCount++;
-                }
-                else
-                {
-                    result.SkippedWriteCount++;
-                }
-                exportedFiles.Add(fileName);
-                if (!string.IsNullOrWhiteSpace(playlistIdentity))
-                {
-                    playlists[playlistIdentity] = CreateManifestPlaylistEntry(playlistIdentity, fileName, tableData, contentHash);
-                }
+                continue;
             }
-            processedCount++;
-            progressReporter?.Invoke(processedCount, items.Count, tableData?.Value<string>("name") ?? playlistIdentity ?? string.Empty);
+            exportedFiles.Add(workResult.Item.FileName);
+            if (!string.IsNullOrWhiteSpace(workResult.Item.PlaylistIdentity))
+            {
+                playlists[workResult.Item.PlaylistIdentity] = CreateManifestPlaylistEntry(
+                    workResult.Item.PlaylistIdentity,
+                    workResult.Item.FileName,
+                    workResult.Item.TableData,
+                    workResult.ContentHash);
+            }
+            if (workResult.WroteFile)
+            {
+                result.WrittenCount++;
+            }
+            else if (workResult.SkippedWrite)
+            {
+                result.SkippedWriteCount++;
+            }
         }
         ExportResult manifestResult = UpdateManifest(tablePath, exportedFiles, playlists, cleanupStaleManagedFiles);
         result.PreviousManagedTables.Clear();
@@ -146,6 +171,122 @@ internal static class BmtTableExportService
         result.CurrentManagedTables.AddRange(manifestResult.CurrentManagedTables);
         result.RemovedCount = manifestResult.RemovedCount;
         return result;
+    }
+
+    private static List<TableDataExportWorkItem> CreateExportWorkItems(IEnumerable<Tuple<string, JObject>> tableDataSet)
+    {
+        int index = 0;
+        return [.. (tableDataSet ?? []).Select(item =>
+        {
+            JObject tableData = item?.Item2;
+            string playlistIdentity = item?.Item1;
+            return new TableDataExportWorkItem
+            {
+                Index = index++,
+                PlaylistIdentity = playlistIdentity,
+                TableData = tableData,
+                FileName = GetOutputFileName(tableData),
+                TableName = tableData?.Value<string>("name") ?? playlistIdentity ?? string.Empty
+            };
+        })];
+    }
+
+    private static TableDataExportWorkResult[] ExportPreparedTableDataSet(
+        string tablePath,
+        ManifestState previousManifest,
+        List<TableDataExportWorkItem> items,
+        Action<int, int, string> progressReporter)
+    {
+        if (items == null || items.Count == 0)
+        {
+            return [];
+        }
+        var workResults = new TableDataExportWorkResult[items.Count];
+        int parallelDegree = ResolveParallelExportDegree(items);
+        if (parallelDegree <= 1)
+        {
+            ExportPreparedTableDataSetSequential(tablePath, previousManifest, items, workResults, progressReporter);
+            return workResults;
+        }
+        int processedCount = 0;
+        object progressLock = new();
+        Parallel.ForEach(
+            items,
+            new ParallelOptions { MaxDegreeOfParallelism = parallelDegree },
+            item =>
+            {
+                TableDataExportWorkResult workResult = ExportPreparedTableDataItem(tablePath, previousManifest, item);
+                workResults[item.Index] = workResult;
+                lock (progressLock)
+                {
+                    processedCount++;
+                    progressReporter?.Invoke(processedCount, items.Count, item.TableName);
+                }
+            });
+        return workResults;
+    }
+
+    private static void ExportPreparedTableDataSetSequential(
+        string tablePath,
+        ManifestState previousManifest,
+        List<TableDataExportWorkItem> items,
+        TableDataExportWorkResult[] workResults,
+        Action<int, int, string> progressReporter)
+    {
+        int processedCount = 0;
+        foreach (TableDataExportWorkItem item in items)
+        {
+            workResults[item.Index] = ExportPreparedTableDataItem(tablePath, previousManifest, item);
+            processedCount++;
+            progressReporter?.Invoke(processedCount, items.Count, item.TableName);
+        }
+    }
+
+    private static TableDataExportWorkResult ExportPreparedTableDataItem(string tablePath, ManifestState previousManifest, TableDataExportWorkItem item)
+    {
+        var result = new TableDataExportWorkResult
+        {
+            Item = item
+        };
+        if (item == null || string.IsNullOrWhiteSpace(item.FileName))
+        {
+            return result;
+        }
+        result.ContentHash = ComputeContentHash(item.TableData);
+        if (ShouldSkipWrite(tablePath, previousManifest, item.PlaylistIdentity, item.FileName, result.ContentHash))
+        {
+            result.SkippedWrite = true;
+            return result;
+        }
+        WriteTableDataFile(tablePath, item.TableData, item.FileName);
+        result.WroteFile = true;
+        return result;
+    }
+
+    private static int ResolveParallelExportDegree(List<TableDataExportWorkItem> items)
+    {
+        if (items == null || items.Count <= 1 || HasDuplicateOutputFileName(items))
+        {
+            return 1;
+        }
+        return Math.Max(1, Math.Min(Math.Min(Environment.ProcessorCount, MaxParallelExportDegree), items.Count));
+    }
+
+    private static bool HasDuplicateOutputFileName(IEnumerable<TableDataExportWorkItem> items)
+    {
+        var fileNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (TableDataExportWorkItem item in items ?? [])
+        {
+            if (string.IsNullOrWhiteSpace(item?.FileName))
+            {
+                continue;
+            }
+            if (!fileNames.Add(item.FileName))
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     internal static string ExportTable(string tablePath, BMSTable table)
