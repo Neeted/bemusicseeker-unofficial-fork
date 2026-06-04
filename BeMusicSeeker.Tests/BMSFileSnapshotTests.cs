@@ -169,6 +169,34 @@ public sealed class BMSFileSnapshotTests
     }
 
     [TestMethod]
+    public void CreateBMSFileFromSnapshot_PreservesRawResourceReferences()
+    {
+        WithTempDirectory(delegate (string tempDirectory)
+        {
+            string filePath = Path.Combine(tempDirectory, "resources.bms");
+            File.WriteAllText(filePath,
+                "#PLAYER 1\r\n"
+                + "#TITLE Resources\r\n"
+                + "#WAV01 .\\sound\\kick.wav\r\n"
+                + "#BMP01 visual\\bg.final.png\r\n"
+                + "#BMP02 movie\\op.mpg\r\n"
+                + "#WAV02 ..\\shared\\hit.wav\r\n"
+                + "#00111:01\r\n",
+                Encoding.GetEncoding("shift_jis"));
+
+            ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(filePath);
+            var actual = BMSFile.CreateBMSFileFromSnapshot(snapshot);
+
+            Assert.AreEqual(3, actual.ResourceReferences.Count);
+            AssertResourceReference(actual, ChartResourceKind.Audio, @".\sound\kick.wav", Path.Combine("sound", "kick.wav"));
+            AssertResourceReference(actual, ChartResourceKind.Image, @"visual\bg.final.png", Path.Combine("visual", "bg.final.png"));
+            AssertResourceReference(actual, ChartResourceKind.Movie, @"movie\op.mpg", Path.Combine("movie", "op.mpg"));
+            Assert.AreEqual(1, actual.UnsupportedResourceReferences.Count);
+            Assert.AreEqual(@"..\shared\hit.wav", actual.UnsupportedResourceReferences[0].RawPath);
+        });
+    }
+
+    [TestMethod]
     public void DetectEncodingOfBMSFile_SnapshotMatchesPathApiForRepresentativeEncodings()
     {
         (string CaseName, byte[] Bytes)[] cases =
@@ -357,6 +385,32 @@ public sealed class BMSFileSnapshotTests
         Assert.AreEqual(expected.sha256, actual.sha256);
         CollectionAssert.AreEquivalent(expected.WAVfiles.ToArray(), actual.WAVfiles.ToArray());
         CollectionAssert.AreEquivalent(expected.BGAfiles.ToArray(), actual.BGAfiles.ToArray());
+        CollectionAssert.AreEqual(
+            (expected.ResourceReferences ?? []).Select(ToComparableResourceReference).ToArray(),
+            (actual.ResourceReferences ?? []).Select(ToComparableResourceReference).ToArray());
+        CollectionAssert.AreEqual(
+            (expected.UnsupportedResourceReferences ?? []).Select(ToComparableUnsupportedResourceReference).ToArray(),
+            (actual.UnsupportedResourceReferences ?? []).Select(ToComparableUnsupportedResourceReference).ToArray());
+    }
+
+    private static void AssertResourceReference(BMSFile file, ChartResourceKind kind, string rawPath, string normalizedPath)
+    {
+        Assert.IsTrue(
+            file.ResourceReferences.Any(reference =>
+                reference.Kind == kind
+                && reference.RawPath == rawPath
+                && reference.NormalizedPath == normalizedPath),
+            kind + "|" + rawPath + "|" + normalizedPath);
+    }
+
+    private static string ToComparableResourceReference(ChartResourceReference reference)
+    {
+        return reference.Kind + "|" + reference.RawPath + "|" + reference.NormalizedPath;
+    }
+
+    private static string ToComparableUnsupportedResourceReference(UnsupportedChartResourceReference reference)
+    {
+        return reference.Kind + "|" + reference.RawPath + "|" + reference.Reason;
     }
 
     private static void WithTempDirectory(Action<string> action)

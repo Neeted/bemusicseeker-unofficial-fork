@@ -963,6 +963,10 @@ parse directive:
     grouped query が使えない場合に managed 全列挙へ落とすと起動コストが跳ねるため、この段階では text surface を空扱いにする。
   - `song.date` が一致していて BMS 本体 MD5 が同じ場合、`.txt` 増減は targeted `song.txt` update だけ行い、
     chart_info / maintenance は再生成しない。
+  - raw resource reference は runtime-only の `ChartResourceReference` として BMS parser で保持する。
+    `WAVfiles` / `BGAfiles` の normalized lookup set は既存 resource health / install estimation の正本として残し、
+    LR2 warning 用 raw path は `ChartResourceSnapshot.ResourceReference.RawPath` へ別投影する。
+  - optional image (`stagefile` / `banner` / `backbmp`) は既存 snapshot field から扱い、`#WAV` / `#BMP` raw reference collection へは混ぜない。
 
 ## 作業エージェント向け実装順
 
