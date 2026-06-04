@@ -95,7 +95,7 @@ internal static class Lr2FolderRowGenerator
 
         foreach (string chartPath in request.ChartPaths ?? [])
         {
-            string chartDirectory = NormalizeDirectoryPath(SafeGetDirectoryName(chartPath));
+            string chartDirectory = Lr2FolderPath.NormalizeDirectoryPath(Lr2FolderPath.SafeGetDirectoryName(chartPath));
             if (string.IsNullOrWhiteSpace(chartDirectory))
             {
                 continue;
@@ -177,7 +177,7 @@ internal static class Lr2FolderRowGenerator
         ref int skippedUnsupportedPathCount,
         ref int skippedMissingMetadataCount)
     {
-        string path = ToFolderPath(directory);
+        string path = Lr2FolderPath.ToFolderPath(directory);
         if (string.IsNullOrWhiteSpace(path) || rowsByPath.ContainsKey(path) || skippedPaths.Contains(path))
         {
             return;
@@ -188,7 +188,7 @@ internal static class Lr2FolderRowGenerator
         {
             parentHash = Lr2SongFolderParentNormalizer.RootParentHash;
         }
-        else if (!TryComputeDirectoryHash(SafeGetDirectoryName(directory), out parentHash))
+        else if (!TryComputeDirectoryHash(Lr2FolderPath.SafeGetDirectoryName(directory), out parentHash))
         {
             skippedPaths.Add(path);
             skippedUnsupportedPathCount++;
@@ -236,7 +236,7 @@ internal static class Lr2FolderRowGenerator
         var result = new Dictionary<string, LR2SongDB.folder>(PathComparer);
         foreach (LR2SongDB.folder row in existingRows ?? [])
         {
-            string path = ToFolderPath(row?.path);
+            string path = Lr2FolderPath.ToFolderPath(row?.path);
             if (string.IsNullOrWhiteSpace(path) || result.ContainsKey(path))
             {
                 continue;
@@ -252,7 +252,7 @@ internal static class Lr2FolderRowGenerator
         var seen = new HashSet<string>(PathComparer);
         foreach (string root in rootDirectories ?? [])
         {
-            string normalized = NormalizeDirectoryPath(root);
+            string normalized = Lr2FolderPath.NormalizeDirectoryPath(root);
             if (string.IsNullOrWhiteSpace(normalized) || !seen.Add(normalized))
             {
                 continue;
@@ -267,14 +267,14 @@ internal static class Lr2FolderRowGenerator
         var stack = new Stack<string>();
         string current = targetDirectory;
         while (!string.IsNullOrWhiteSpace(current)
-            && IsSameOrDescendant(current, root))
+            && Lr2FolderPath.IsSameOrDescendant(current, root))
         {
             stack.Push(current);
             if (string.Equals(current, root, StringComparison.OrdinalIgnoreCase))
             {
                 break;
             }
-            current = NormalizeDirectoryPath(SafeGetDirectoryName(current));
+            current = Lr2FolderPath.NormalizeDirectoryPath(Lr2FolderPath.SafeGetDirectoryName(current));
         }
 
         while (stack.Count > 0)
@@ -287,29 +287,12 @@ internal static class Lr2FolderRowGenerator
     {
         foreach (string root in roots)
         {
-            if (IsSameOrDescendant(directory, root))
+            if (Lr2FolderPath.IsSameOrDescendant(directory, root))
             {
                 return root;
             }
         }
         return null;
-    }
-
-    private static bool IsSameOrDescendant(string path, string ancestor)
-    {
-        if (string.IsNullOrWhiteSpace(path) || string.IsNullOrWhiteSpace(ancestor))
-        {
-            return false;
-        }
-
-        if (string.Equals(path, ancestor, StringComparison.OrdinalIgnoreCase))
-        {
-            return true;
-        }
-
-        string ancestorWithSeparator = ToFolderPath(ancestor);
-        string pathWithSeparator = ToFolderPath(path);
-        return pathWithSeparator.StartsWith(ancestorWithSeparator, StringComparison.OrdinalIgnoreCase);
     }
 
     private static string ResolveTitle(string directory, Lr2FolderDirectoryMetadata metadata)
@@ -319,54 +302,10 @@ internal static class Lr2FolderRowGenerator
             return metadata.FolderInfoTitle;
         }
 
-        string trimmed = TrimTrailingSeparators(directory ?? string.Empty);
+        string trimmed = (Lr2FolderPath.NormalizeDirectoryPath(directory) ?? directory ?? string.Empty)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         string fileName = Path.GetFileName(trimmed);
         return string.IsNullOrWhiteSpace(fileName) ? trimmed : fileName;
-    }
-
-    private static string NormalizeDirectoryPath(string path)
-    {
-        if (string.IsNullOrWhiteSpace(path))
-        {
-            return null;
-        }
-
-        try
-        {
-            return TrimTrailingSeparators(Path.GetFullPath(path));
-        }
-        catch (Exception ex) when (ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException)
-        {
-            return null;
-        }
-    }
-
-    private static string ToFolderPath(string directory)
-    {
-        string normalized = NormalizeDirectoryPath(directory);
-        if (string.IsNullOrWhiteSpace(normalized))
-        {
-            return null;
-        }
-
-        return AppendDirectorySeparator(TrimTrailingSeparators(normalized));
-    }
-
-    private static string SafeGetDirectoryName(string path)
-    {
-        if (string.IsNullOrWhiteSpace(path))
-        {
-            return null;
-        }
-
-        try
-        {
-            return Path.GetDirectoryName(path);
-        }
-        catch (Exception ex) when (ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException)
-        {
-            return null;
-        }
     }
 
     private static bool TryComputeDirectoryHash(string directoryPath, out string hash)
@@ -396,33 +335,4 @@ internal static class Lr2FolderRowGenerator
         return Lr2CompatibilityEvaluator.TryGetCp932ByteCount(value, out byteCount);
     }
 
-    private static string TrimTrailingSeparators(string path)
-    {
-        if (string.IsNullOrWhiteSpace(path))
-        {
-            return path;
-        }
-
-        string root = Path.GetPathRoot(path);
-        string trimmed = path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        if (!string.IsNullOrEmpty(root)
-            && string.Equals(trimmed, root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar), StringComparison.OrdinalIgnoreCase))
-        {
-            return root.TrimEnd(Path.AltDirectorySeparatorChar);
-        }
-        return trimmed;
-    }
-
-    private static string AppendDirectorySeparator(string path)
-    {
-        if (string.IsNullOrWhiteSpace(path))
-        {
-            return path;
-        }
-
-        return path.EndsWith(Path.DirectorySeparatorChar.ToString(), StringComparison.Ordinal)
-            || path.EndsWith(Path.AltDirectorySeparatorChar.ToString(), StringComparison.Ordinal)
-                ? path
-                : path + Path.DirectorySeparatorChar;
-    }
 }

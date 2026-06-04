@@ -992,7 +992,15 @@ parse directive:
   - 既存 `folder` row の `adddate` は path match で維持し、`date` は directory metadata mtime を正本にする。
   - directory metadata mtime が取れない row は `date = NULL` で生成せず、metadata surface 側の欠落として扱う。
   - CP932 非対応の directory row は生成せず、通常 BMS の `song.folder` / `song.parent` と同じく LR2 に踏ませない前提にする。
-  - generation scope 内 prune / DB upsert は generator contract が固まった後の cycle で接続する。
+  - DB writer 接続前に `Lr2FolderGenerationScopePlanner` を追加し、生成 row と既存 row から upsert/delete plan を作る。
+    prune 対象は current LR2 root scope 内の normal `folder.type = 1` row に限定し、`.lr2folder` / custom folder row と
+    scope 外 row は触らない。
+  - 既存 non-normal row と同じ normalized key に normal row が生成される場合、normal row upsert は抑止する。
+    同一 path 複数 source の優先順位は Phase 7 の `.lr2folder` source 統合で扱い、normal generator が custom row を
+    `InsertOrReplace` で上書きしないようにする。
+  - metadata mtime 欠落がある partial generation では prune と exact-key drift repair を抑止し、完全な metadata surface で
+    再生成できた時点で delete + upsert を行う。
+  - generation scope plan の SQLite upsert/delete 接続は後続 cycle で行う。
 
 ## 作業エージェント向け実装順
 
