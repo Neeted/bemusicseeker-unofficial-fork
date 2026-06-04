@@ -60,6 +60,7 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
             string chartPath = Path.Combine(songDirectory, "chart.bms");
             File.WriteAllText(chartPath, "#TITLE Parsed Title\r\n#ARTIST Parsed Artist\r\n#BPM 120\r\n#00111:01\r\n");
             ChartFileSnapshot chartSnapshot = ChartFileContentReader.ReadSnapshot(chartPath);
+            File.WriteAllText(Path.Combine(songDirectory, "readme.txt"), "text group");
             string customFolderPath = Path.Combine(rootDirectory, "custom.lr2folder");
             File.WriteAllText(customFolderPath, "#TITLE Custom Folder");
 
@@ -175,6 +176,7 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
             Assert.AreEqual(1, verify.ExecuteScalar<int>("SELECT random FROM song WHERE path = ?;", chartPath));
             Assert.AreEqual(1, verify.ExecuteScalar<int>("SELECT longnote FROM song WHERE path = ?;", chartPath));
             Assert.AreEqual(1234, verify.ExecuteScalar<int>("SELECT karinotes FROM song WHERE path = ?;", chartPath));
+            Assert.AreEqual(1, verify.ExecuteScalar<int>("SELECT txt FROM song WHERE path = ?;", chartPath));
             Assert.AreEqual(3, verify.ExecuteScalar<int>("SELECT favorite FROM song WHERE path = ?;", chartPath));
             Assert.AreEqual(98765, verify.ExecuteScalar<int>("SELECT adddate FROM song WHERE path = ?;", chartPath));
             Assert.AreEqual("keep-tag", verify.ExecuteScalar<string>("SELECT tag FROM song WHERE path = ?;", chartPath));
@@ -285,6 +287,7 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
         file.SetArtistForTest("Existing Artist");
         file.SetHash("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
         file.ApplySha256("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+        file.SetTextGroupFlag(1);
         file.folder = "stale-folder";
         file.parent = "stale-parent";
         using var songDb = new LR2SongDBExtended(scope.SongDbPath);
@@ -295,6 +298,7 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
             Signature = "missing-song",
             RunId = "missing-song",
             SongRows = [file],
+            TextFileDirectories = [],
             StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc)
         });
 
@@ -303,6 +307,7 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
         Assert.AreEqual(Lr2SongFolderParentNormalizer.ComputeDirectoryHash(songDirectory), songDb.ExecuteScalar<string>("SELECT folder FROM song WHERE path = ?;", missingChartPath));
         Assert.AreEqual("Existing Title", songDb.ExecuteScalar<string>("SELECT title FROM song WHERE path = ?;", missingChartPath));
         Assert.AreEqual("Existing Artist", songDb.ExecuteScalar<string>("SELECT artist FROM song WHERE path = ?;", missingChartPath));
+        Assert.AreEqual(0, songDb.ExecuteScalar<int>("SELECT txt FROM song WHERE path = ?;", missingChartPath));
         Assert.AreEqual("stale-folder", file.folder);
         Assert.AreEqual("stale-parent", file.parent);
     }

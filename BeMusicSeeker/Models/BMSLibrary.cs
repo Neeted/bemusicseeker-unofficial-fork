@@ -4966,6 +4966,7 @@ completeFileEnumerationOnce,
                     Lr2FolderPruneDirectories = input.Lr2FolderPruneDirectories,
                     Lr2FolderFileDiscoveryComplete = input.Lr2FolderFileDiscoveryComplete,
                     SongRows = input.SongRows,
+                    TextFileDirectories = input.TextFileDirectories,
                     StartedAtUtc = DateTime.UtcNow
                 });
             }
@@ -4979,6 +4980,7 @@ completeFileEnumerationOnce,
                 + " lr2FolderPruneRoots=" + input.Lr2FolderPruneDirectories.Count
                 + " lr2FolderCandidates=" + input.Lr2FolderFilePaths.Count
                 + " lr2FolderDiscoveryComplete=" + input.Lr2FolderFileDiscoveryComplete.ToString().ToLowerInvariant()
+                + " textFileDirs=" + input.TextFileDirectories.Count
                 + " songRows=" + input.SongRows.Count
                 + " normalFolderGenerated=" + (result.NormalFolderSyncResult?.GeneratedCount ?? 0)
                 + " normalFolderUpserted=" + (result.NormalFolderSyncResult?.UpsertedCount ?? 0)
@@ -5056,7 +5058,8 @@ completeFileEnumerationOnce,
             roots,
             lr2FolderFileCandidates.Paths,
             lr2FolderFileCandidates.DiscoveryComplete,
-            songRows);
+            songRows,
+            CreateLr2FullGenerationTextFileDirectories(chartPaths));
     }
 
     private static List<string> CreateLr2FullGenerationFolderInfoCandidates(
@@ -5081,6 +5084,51 @@ completeFileEnumerationOnce,
             }
         }
         return [.. result.OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
+    }
+
+    private static List<string> CreateLr2FullGenerationTextFileDirectories(IEnumerable<string> chartPaths)
+    {
+        var directories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (string chartPath in chartPaths ?? [])
+        {
+            if (string.IsNullOrWhiteSpace(chartPath))
+            {
+                continue;
+            }
+
+            string directory;
+            try
+            {
+                directory = Path.GetDirectoryName(chartPath);
+                if (string.IsNullOrWhiteSpace(directory))
+                {
+                    continue;
+                }
+                directory = Path.GetFullPath(directory);
+            }
+            catch (Exception ex) when (ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException)
+            {
+                continue;
+            }
+
+            if (!Directory.Exists(directory))
+            {
+                continue;
+            }
+
+            try
+            {
+                if (Directory.EnumerateFiles(directory, "*.txt", System.IO.SearchOption.TopDirectoryOnly).Any())
+                {
+                    directories.Add(directory);
+                }
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException)
+            {
+                continue;
+            }
+        }
+        return [.. directories.OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
     }
 
     private const string Lr2FolderFileEnumerationGroupName = "lr2folder";
@@ -5135,7 +5183,8 @@ completeFileEnumerationOnce,
         IReadOnlyList<string> lr2FolderPruneDirectories,
         IReadOnlyList<string> lr2FolderFilePaths,
         bool lr2FolderFileDiscoveryComplete,
-        IReadOnlyList<BMSFile> songRows)
+        IReadOnlyList<BMSFile> songRows,
+        IReadOnlyList<string> textFileDirectories)
     {
         public IReadOnlyList<string> RootDirectories { get; } = rootDirectories ?? [];
 
@@ -5152,6 +5201,8 @@ completeFileEnumerationOnce,
         public bool Lr2FolderFileDiscoveryComplete { get; } = lr2FolderFileDiscoveryComplete;
 
         public IReadOnlyList<BMSFile> SongRows { get; } = songRows ?? [];
+
+        public IReadOnlyList<string> TextFileDirectories { get; } = textFileDirectories ?? [];
     }
 
     private sealed class Lr2FolderFileCandidateSnapshot(

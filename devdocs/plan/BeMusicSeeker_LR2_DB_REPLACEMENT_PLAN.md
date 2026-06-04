@@ -1068,6 +1068,8 @@ parse directive:
   `unknown` / unsupported の場合は既存 row copy に fallback して文字化けした metadata を永続化しない。
   current parser version の `chart_info` row が既に存在する場合は、`level` / `difficulty` / BPM / `mode` /
   `longnote` / `random` / `karinotes` を同じ backfill write で `song` に反映する。
+  current owned chart directory 直下の `.txt` presence も `TextFileDirectories` scan surface として渡し、
+  `song.txt` を同じ backfill write で再生成する。
   persistence 用 copy では live row の `folder` / `parent` が形式上 valid でも path と一致する保証がないため、
   これらを空にして `Lr2SongRowEnricher` に再生成させる。
   さらに LR2 BMS root、通常 custom folder 出力 base、root custom folder 出力 base 配下の `.lr2folder` は
@@ -1078,9 +1080,9 @@ parse directive:
   `.lr2folder` prune は discovery surface が complete で、かつ発見した各 file を読み取れた場合だけ許可する。
   enumeration failure や一時的な file read failure がある場合、その回は upsert のみにして既存 row を消さない。
   file read / parse に失敗した row は persistence copy の folder/parent 再生成に fallback し、失敗で既存 DB row を消さない。
-  この段階は chart_info full build / LR2 compatibility warning / text group source の完全統合前であるため、sync 後も `Completed` にはせず、`Incomplete`
+  この段階は chart_info full build / LR2 compatibility warning / text group freshness の完全統合前であるため、sync 後も `Completed` にはせず、`Incomplete`
   (`remaining_backfill_stages_not_implemented`) を記録する。startup-scan blocker diagnostic と、
-  missing chart_info build / LR2 compatibility warning / text group source が入るまで完全生成完了とは扱わない。
+  missing chart_info build / LR2 compatibility warning / text group mutation freshness が入るまで完全生成完了とは扱わない。
   status signature は normalized / deduplicated / case-insensitive な LR2 BMS root set を含める。
   加えて `.lr2folder` discovery root set も含める。root set が変わった場合は既存 `Completed` を信用せず、
   backfill needed として再評価する。

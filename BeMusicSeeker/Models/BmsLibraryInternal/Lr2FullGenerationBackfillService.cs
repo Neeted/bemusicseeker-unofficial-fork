@@ -30,6 +30,8 @@ internal sealed class Lr2FullGenerationBackfillRequest
 
     public IReadOnlyCollection<BMSFile> SongRows { get; set; } = [];
 
+    public IReadOnlyCollection<string> TextFileDirectories { get; set; } = [];
+
     public DateTime StartedAtUtc { get; set; } = DateTime.UtcNow;
 }
 
@@ -95,6 +97,10 @@ internal static class Lr2FullGenerationBackfillService
             .Distinct(StringComparer.OrdinalIgnoreCase)];
         List<BMSFile> songRows = [.. (request.SongRows ?? [])
             .Where(file => file != null && !string.IsNullOrWhiteSpace(file.path))];
+        HashSet<string> textFileDirectories = [.. (request.TextFileDirectories ?? [])
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Select(Path.GetFullPath)
+            .Distinct(StringComparer.OrdinalIgnoreCase)];
         int normalFolderTargetCount = roots.Count > 0
             ? roots.Count + chartPaths.Count + folderInfoFilePaths.Count
             : 0;
@@ -177,7 +183,7 @@ internal static class Lr2FullGenerationBackfillService
             stage: "song_rows",
             nowUtc: DateTime.UtcNow);
 
-        SongRowBackfillResult songRowResult = UpsertSongRows(songDb, songRows);
+        SongRowBackfillResult songRowResult = UpsertSongRows(songDb, songRows, textFileDirectories);
         int processedCount = folderProcessedCount + songRowResult.ProcessedCount;
 
         Lr2FullGenerationStatusService.UpdateCursor(
@@ -268,7 +274,10 @@ internal static class Lr2FullGenerationBackfillService
         public bool HasReadFailures { get; } = hasReadFailures;
     }
 
-    private static SongRowBackfillResult UpsertSongRows(LR2SongDBExtended songDb, IReadOnlyCollection<BMSFile> songRows)
+    private static SongRowBackfillResult UpsertSongRows(
+        LR2SongDBExtended songDb,
+        IReadOnlyCollection<BMSFile> songRows,
+        ISet<string> textFileDirectories)
     {
         if (songRows == null || songRows.Count == 0)
         {
@@ -279,7 +288,7 @@ internal static class Lr2FullGenerationBackfillService
         int parseFailureCount = 0;
         foreach (BMSFile song in songRows.Where(song => song != null && !string.IsNullOrWhiteSpace(song.path)))
         {
-            BMSFile row = CreateBackfillSongRow(song, out bool parsedFromSnapshot);
+            BMSFile row = CreateBackfillSongRow(song, textFileDirectories, out bool parsedFromSnapshot);
             if (row == null || string.IsNullOrWhiteSpace(row.path))
             {
                 continue;
@@ -317,7 +326,10 @@ internal static class Lr2FullGenerationBackfillService
         return new SongRowBackfillResult(processed, parseFailureCount, chartInfoAppliedCount);
     }
 
-    private static BMSFile CreateBackfillSongRow(BMSFile existingSong, out bool parsedFromSnapshot)
+    private static BMSFile CreateBackfillSongRow(
+        BMSFile existingSong,
+        ISet<string> textFileDirectories,
+        out bool parsedFromSnapshot)
     {
         parsedFromSnapshot = false;
         if (existingSong == null || string.IsNullOrWhiteSpace(existingSong.path))
@@ -332,22 +344,29 @@ internal static class Lr2FullGenerationBackfillService
             string encodingName = ResolveSafeBackfillParseEncoding(detectionResult);
             if (string.IsNullOrWhiteSpace(encodingName))
             {
-                return existingSong.CreateSongRowPersistenceCopy();
+                return CreateFallbackBackfillSongRow(existingSong, textFileDirectories);
             }
 
             BMSFile parsed = BMSFile.CreateBMSFileFromSnapshot(snapshot, encodingName);
             Lr2SongRowEnricher.EnrichParsedSong(
                 parsed,
                 snapshot,
-                existingSong.txt.GetValueOrDefault(),
+                ResolveTextGroupFlag(existingSong.path, textFileDirectories, existingSong.txt.GetValueOrDefault()),
                 existingSong);
             parsedFromSnapshot = true;
             return parsed;
         }
         catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException || ex is DecoderFallbackException)
         {
-            return existingSong.CreateSongRowPersistenceCopy();
+            return CreateFallbackBackfillSongRow(existingSong, textFileDirectories);
         }
+    }
+
+    private static BMSFile CreateFallbackBackfillSongRow(BMSFile existingSong, ISet<string> textFileDirectories)
+    {
+        BMSFile copy = existingSong?.CreateSongRowPersistenceCopy();
+        copy?.SetTextGroupFlag(ResolveTextGroupFlag(existingSong?.path, textFileDirectories, existingSong?.txt.GetValueOrDefault() ?? 0));
+        return copy;
     }
 
     private static string ResolveSafeBackfillParseEncoding(BMSFile.BmsEncodingDetectionResult detectionResult)
@@ -368,6 +387,29 @@ internal static class Lr2FullGenerationBackfillService
             return null;
         }
         return encodingName.TrimEnd('?');
+    }
+
+    private static int ResolveTextGroupFlag(string path, ISet<string> textFileDirectories, int fallback)
+    {
+        if (string.IsNullOrWhiteSpace(path) || textFileDirectories == null)
+        {
+            return fallback == 0 ? 0 : 1;
+        }
+
+        string directory;
+        try
+        {
+            directory = Path.GetDirectoryName(path);
+        }
+        catch (Exception ex) when (ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException)
+        {
+            return fallback == 0 ? 0 : 1;
+        }
+        if (string.IsNullOrWhiteSpace(directory))
+        {
+            return fallback == 0 ? 0 : 1;
+        }
+        return textFileDirectories.Contains(Path.GetFullPath(directory)) ? 1 : 0;
     }
 
     private static int ApplyCurrentChartInfoRows(LR2SongDBExtended songDb, IReadOnlyCollection<BMSFile> rows)
