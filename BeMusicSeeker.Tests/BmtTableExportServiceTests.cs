@@ -514,9 +514,9 @@ public sealed class BmtTableExportServiceTests
     private sealed class TestSongHashResolver(Dictionary<string, Tuple<string, string>> hashesByTitle)
         : BmtTableExportService.ISongHashResolver
     {
-        public BmtTableExportService.SongHashResolution Resolve(BMSTableEntry entry)
+        public BmtTableExportService.SongHashResolution Resolve(BmtSongHashResolveRequest request)
         {
-            return entry != null && hashesByTitle.TryGetValue(entry.title, out Tuple<string, string> hashes)
+            return request != null && hashesByTitle.TryGetValue(request.Title, out Tuple<string, string> hashes)
                 ? new BmtTableExportService.SongHashResolution(hashes.Item1, hashes.Item2)
                 : new BmtTableExportService.SongHashResolution(null, null);
         }

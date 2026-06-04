@@ -97,6 +97,25 @@ internal sealed class PlaylistLibraryResolveIndexSnapshot
     internal LibraryChartRef ResolveChartForPlaylistEntry(BMSTableEntry entry)
     {
         PlaylistEntryLookupKey lookupKey = PlaylistEntryLookupKey.FromEntry(entry);
+        return ResolveChartForPlaylistLookupKey(lookupKey);
+    }
+
+    /// <summary>
+    /// playlist entry snapshot の md5 / sha256 から、現在ライブラリに存在する chart を解決します。
+    /// </summary>
+    /// <param name="md5">playlist entry の MD5。</param>
+    /// <param name="sha256">playlist entry の SHA256。</param>
+    /// <returns>一致した chart。見つからない場合は null。</returns>
+    internal LibraryChartRef ResolveChartForPlaylistHash(string md5, string sha256)
+    {
+        PlaylistEntryLookupKey lookupKey = !string.IsNullOrWhiteSpace(md5)
+            ? new PlaylistEntryLookupKey(PlaylistEntryLookupKeyKind.Md5, md5)
+            : (!string.IsNullOrWhiteSpace(sha256) ? new PlaylistEntryLookupKey(PlaylistEntryLookupKeyKind.Sha256, sha256) : default);
+        return ResolveChartForPlaylistLookupKey(lookupKey);
+    }
+
+    private LibraryChartRef ResolveChartForPlaylistLookupKey(PlaylistEntryLookupKey lookupKey)
+    {
         if (!lookupKey.HasValue)
         {
             return null;

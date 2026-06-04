@@ -5131,7 +5131,7 @@ completeFileEnumerationOnce,
         return null;
     }
 
-    internal Func<BMSTableEntry, Tuple<string, string>> CreateBeatorajaBmtSongHashResolver()
+    internal Func<BmtSongHashResolveRequest, Tuple<string, string>> CreateBeatorajaBmtSongHashResolver()
     {
         PlaylistLibraryResolveIndexSnapshot resolveIndex = GetPlaylistLibraryResolveIndexSnapshot(
             CancellationToken.None,
@@ -5145,21 +5145,21 @@ completeFileEnumerationOnce,
         BMSLibrary library,
         PlaylistLibraryResolveIndexSnapshot resolveIndex)
     {
-        public Tuple<string, string> Resolve(BMSTableEntry entry)
+        public Tuple<string, string> Resolve(BmtSongHashResolveRequest request)
         {
-            if (entry == null)
+            if (request == null)
             {
                 return null;
             }
             string md5 = null;
             string sha256 = null;
-            LibraryChartRef resolvedChart = resolveIndex?.ResolveChartForPlaylistEntry(entry);
-            if (IsResolvedChartCompatible(entry, resolvedChart))
+            LibraryChartRef resolvedChart = resolveIndex?.ResolveChartForPlaylistHash(request.Md5, request.Sha256);
+            if (IsResolvedChartCompatible(request, resolvedChart))
             {
                 md5 = resolvedChart.Md5;
                 sha256 = resolvedChart.Sha256;
             }
-            LR2SongDBExtended.chart_info chartInfo = ResolveChartInfoForEntry(library, entry);
+            LR2SongDBExtended.chart_info chartInfo = ResolveChartInfoForRequest(library, request);
             if (chartInfo != null)
             {
                 if (string.IsNullOrWhiteSpace(md5) && TryGetChartInfoMd5(chartInfo, out string chartInfoMd5))
@@ -5176,29 +5176,29 @@ completeFileEnumerationOnce,
                 : Tuple.Create(md5, sha256);
         }
 
-        private static LR2SongDBExtended.chart_info ResolveChartInfoForEntry(BMSLibrary library, BMSTableEntry entry)
+        private static LR2SongDBExtended.chart_info ResolveChartInfoForRequest(BMSLibrary library, BmtSongHashResolveRequest request)
         {
-            if (library == null || entry == null)
+            if (library == null || request == null)
             {
                 return null;
             }
-            return string.IsNullOrWhiteSpace(entry.md5)
-                ? library.ResolveChartInfo(entry.sha256, null)
-                : library.ResolveChartInfo(null, entry.md5);
+            return string.IsNullOrWhiteSpace(request.Md5)
+                ? library.ResolveChartInfo(request.Sha256, null)
+                : library.ResolveChartInfo(null, request.Md5);
         }
 
-        private static bool IsResolvedChartCompatible(BMSTableEntry entry, LibraryChartRef resolvedChart)
+        private static bool IsResolvedChartCompatible(BmtSongHashResolveRequest request, LibraryChartRef resolvedChart)
         {
-            if (entry == null || resolvedChart == null)
+            if (request == null || resolvedChart == null)
             {
                 return false;
             }
-            if (!string.IsNullOrWhiteSpace(entry.md5))
+            if (!string.IsNullOrWhiteSpace(request.Md5))
             {
-                return string.Equals(entry.md5, resolvedChart.Md5, StringComparison.OrdinalIgnoreCase);
+                return string.Equals(request.Md5, resolvedChart.Md5, StringComparison.OrdinalIgnoreCase);
             }
-            return !string.IsNullOrWhiteSpace(entry.sha256)
-                && string.Equals(entry.sha256, resolvedChart.Sha256, StringComparison.OrdinalIgnoreCase);
+            return !string.IsNullOrWhiteSpace(request.Sha256)
+                && string.Equals(request.Sha256, resolvedChart.Sha256, StringComparison.OrdinalIgnoreCase);
         }
     }
 

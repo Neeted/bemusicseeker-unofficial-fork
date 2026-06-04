@@ -237,7 +237,7 @@ public partial class BMSPlaylist : NotificationObject
     /// <summary>
     /// beatoraja `.bmt` 出力時に playlist entry の欠けている hash を補完する resolver を取得します。
     /// </summary>
-    private readonly Func<Func<BMSTableEntry, Tuple<string, string>>> beatorajaBmtSongHashResolverFactory;
+    private readonly Func<Func<BmtSongHashResolveRequest, Tuple<string, string>>> beatorajaBmtSongHashResolverFactory;
 
     /// <summary>
     /// 初期化処理の連携用に一時保持するセマフォです。
@@ -751,7 +751,7 @@ public partial class BMSPlaylist : NotificationObject
         Func<LR2Config> getLR2Config = null,
         string _lr2ScoreDB = null,
         Func<List<BMSScore>> getBMSScores = null,
-        Func<Func<BMSTableEntry, Tuple<string, string>>> getBeatorajaBmtSongHashResolver = null)
+        Func<Func<BmtSongHashResolveRequest, Tuple<string, string>>> getBeatorajaBmtSongHashResolver = null)
     {
         if (_lr2SongDB == null)
         {
@@ -1050,7 +1050,7 @@ public partial class BMSPlaylist : NotificationObject
                 ReportBeatorajaBmtExportProgress(progressOperationId, true, projectionTotal, 0, string.Empty);
                 progressStarted = true;
                 var resolverStopwatch = Stopwatch.StartNew();
-                Func<BMSTableEntry, Tuple<string, string>> hashResolverFunc = beatorajaBmtSongHashResolverFactory?.Invoke();
+                Func<BmtSongHashResolveRequest, Tuple<string, string>> hashResolverFunc = beatorajaBmtSongHashResolverFactory?.Invoke();
                 resolverStopwatch.Stop();
                 List<Tuple<string, JObject>> tableDataSet = [];
                 var projectionStopwatch = Stopwatch.StartNew();
@@ -1243,7 +1243,7 @@ public partial class BMSPlaylist : NotificationObject
         return BuildBeatorajaBmtTableDataSnapshot(table, reason, beatorajaBmtSongHashResolverFactory?.Invoke());
     }
 
-    private JObject BuildBeatorajaBmtTableDataSnapshot(BMSTable table, string reason, Func<BMSTableEntry, Tuple<string, string>> hashResolverFunc)
+    private JObject BuildBeatorajaBmtTableDataSnapshot(BMSTable table, string reason, Func<BmtSongHashResolveRequest, Tuple<string, string>> hashResolverFunc)
     {
         if (table == null)
         {
@@ -1259,12 +1259,12 @@ public partial class BMSPlaylist : NotificationObject
         }
     }
 
-    private sealed class BeatorajaBmtSongHashResolver(Func<BMSTableEntry, Tuple<string, string>> resolve)
+    private sealed class BeatorajaBmtSongHashResolver(Func<BmtSongHashResolveRequest, Tuple<string, string>> resolve)
         : BmtTableExportService.ISongHashResolver
     {
-        public BmtTableExportService.SongHashResolution Resolve(BMSTableEntry entry)
+        public BmtTableExportService.SongHashResolution Resolve(BmtSongHashResolveRequest request)
         {
-            Tuple<string, string> resolved = resolve?.Invoke(entry);
+            Tuple<string, string> resolved = resolve?.Invoke(request);
             return resolved == null
                 ? null
                 : new BmtTableExportService.SongHashResolution(resolved.Item1, resolved.Item2);

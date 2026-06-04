@@ -12,6 +12,15 @@ using Newtonsoft.Json.Linq;
 
 namespace BeMusicSeeker.Models;
 
+public sealed class BmtSongHashResolveRequest
+{
+    public string Md5 { get; set; }
+
+    public string Sha256 { get; set; }
+
+    public string Title { get; set; }
+}
+
 internal static class BmtTableExportService
 {
     internal const string ManifestFileName = ".bemusicseeker-bmt-manifest";
@@ -68,6 +77,46 @@ internal static class BmtTableExportService
         public bool SkippedWrite { get; set; }
     }
 
+    internal sealed class TableDataProjectionSnapshot
+    {
+        public string Url { get; set; }
+
+        public string Name { get; set; }
+
+        public string Tag { get; set; }
+
+        public bool IsExternalSync { get; set; }
+
+        public string CompatiblePrefix { get; set; }
+
+        public List<string> FolderNames { get; set; } = [];
+
+        public List<TableEntryProjectionSnapshot> Entries { get; set; } = [];
+
+        public List<string> CourseJsonRows { get; set; } = [];
+    }
+
+    internal sealed class TableEntryProjectionSnapshot
+    {
+        public bool IsRemoved { get; set; }
+
+        public string Folder { get; set; }
+
+        public string Title { get; set; }
+
+        public string Artist { get; set; }
+
+        public string Md5 { get; set; }
+
+        public string Sha256 { get; set; }
+
+        public string Url { get; set; }
+
+        public string UrlDiff { get; set; }
+
+        public List<string> OrgMd5 { get; set; } = [];
+    }
+
     internal sealed class ExportResult
     {
         public List<ManagedTableUrlEntry> PreviousManagedTables { get; } = [];
@@ -90,7 +139,7 @@ internal static class BmtTableExportService
 
     internal interface ISongHashResolver
     {
-        SongHashResolution Resolve(BMSTableEntry entry);
+        SongHashResolution Resolve(BmtSongHashResolveRequest request);
     }
 
     internal static ExportResult ExportTables(string tablePath, IEnumerable<BMSTable> tables, bool cleanupStaleManagedFiles)
@@ -392,30 +441,69 @@ internal static class BmtTableExportService
 
     internal static JObject BuildTableData(BMSTable table, ISongHashResolver hashResolver)
     {
-        if (table == null)
+        return BuildTableData(CreateProjectionSnapshot(table), hashResolver);
+    }
+
+    internal static JObject BuildTableData(TableDataProjectionSnapshot snapshot, ISongHashResolver hashResolver)
+    {
+        if (snapshot == null)
         {
             return null;
         }
-        string url = ResolveTableUrl(table);
-        if (string.IsNullOrWhiteSpace(url) || string.IsNullOrWhiteSpace(table.name))
+        if (string.IsNullOrWhiteSpace(snapshot.Url) || string.IsNullOrWhiteSpace(snapshot.Name))
         {
             return null;
         }
-        JArray folders = BuildFolders(table, hashResolver);
-        JArray courses = BuildCourses(table);
+        JArray folders = BuildFolders(snapshot, hashResolver);
+        JArray courses = BuildCourses(snapshot);
         if (folders.Count == 0 && courses.Count == 0)
         {
             return null;
         }
         var root = new JObject
         {
-            ["url"] = url,
-            ["name"] = table.name ?? string.Empty,
-            ["tag"] = ResolveTag(table),
+            ["url"] = snapshot.Url,
+            ["name"] = snapshot.Name ?? string.Empty,
+            ["tag"] = snapshot.Tag ?? string.Empty,
             ["folder"] = folders,
             ["course"] = courses
         };
         return root;
+    }
+
+    internal static TableDataProjectionSnapshot CreateProjectionSnapshot(BMSTable table)
+    {
+        if (table == null)
+        {
+            return null;
+        }
+        return new TableDataProjectionSnapshot
+        {
+            Url = ResolveTableUrl(table),
+            Name = table.name ?? string.Empty,
+            Tag = ResolveTag(table),
+            IsExternalSync = table.is_external_sync,
+            CompatiblePrefix = table.compat_prefix ?? string.Empty,
+            FolderNames = [.. table.folder_list ?? []],
+            Entries = [.. (table.entries ?? []).Where(entry => entry != null).Select(CreateEntryProjectionSnapshot)],
+            CourseJsonRows = [.. (table.Courses ?? []).Select(course => course?.course_json).Where(courseJson => !string.IsNullOrWhiteSpace(courseJson))]
+        };
+    }
+
+    private static TableEntryProjectionSnapshot CreateEntryProjectionSnapshot(BMSTableEntry entry)
+    {
+        return new TableEntryProjectionSnapshot
+        {
+            IsRemoved = entry.is_removed,
+            Folder = entry.folder ?? string.Empty,
+            Title = entry.title,
+            Artist = entry.artist,
+            Md5 = entry.md5,
+            Sha256 = entry.sha256,
+            Url = entry.url,
+            UrlDiff = entry.url_diff,
+            OrgMd5 = [.. entry.Org_md5 ?? []]
+        };
     }
 
     private static string ResolveTableUrl(BMSTable table)
@@ -445,33 +533,33 @@ internal static class BmtTableExportService
         return (table.compat_prefix ?? string.Empty).Trim();
     }
 
-    private static JArray BuildFolders(BMSTable table, ISongHashResolver hashResolver)
+    private static JArray BuildFolders(TableDataProjectionSnapshot snapshot, ISongHashResolver hashResolver)
     {
         JArray folders = [];
-        var entriesByFolder = new Dictionary<string, List<BMSTableEntry>>(StringComparer.Ordinal);
-        foreach (BMSTableEntry entry in table.entries ?? [])
+        var entriesByFolder = new Dictionary<string, List<TableEntryProjectionSnapshot>>(StringComparer.Ordinal);
+        foreach (TableEntryProjectionSnapshot entry in snapshot.Entries ?? [])
         {
-            if (entry == null || entry.is_removed)
+            if (entry == null || entry.IsRemoved)
             {
                 continue;
             }
-            string folderKey = entry.folder ?? string.Empty;
-            if (!entriesByFolder.TryGetValue(folderKey, out List<BMSTableEntry> folderEntries))
+            string folderKey = entry.Folder ?? string.Empty;
+            if (!entriesByFolder.TryGetValue(folderKey, out List<TableEntryProjectionSnapshot> folderEntries))
             {
                 folderEntries = [];
                 entriesByFolder[folderKey] = folderEntries;
             }
             folderEntries.Add(entry);
         }
-        List<string> folderNames = table.folder_list ?? [];
+        List<string> folderNames = snapshot.FolderNames ?? [];
         foreach (string folderName in folderNames)
         {
             JArray songs = [];
-            if (!entriesByFolder.TryGetValue(folderName ?? string.Empty, out List<BMSTableEntry> entries))
+            if (!entriesByFolder.TryGetValue(folderName ?? string.Empty, out List<TableEntryProjectionSnapshot> entries))
             {
                 continue;
             }
-            foreach (BMSTableEntry entry in entries)
+            foreach (TableEntryProjectionSnapshot entry in entries)
             {
                 JObject song = BuildSong(entry, null, hashResolver);
                 if (song != null)
@@ -485,21 +573,21 @@ internal static class BmtTableExportService
             }
             folders.Add(new JObject
             {
-                ["name"] = ResolveFolderName(table, folderName),
+                ["name"] = ResolveFolderName(snapshot, folderName),
                 ["songs"] = songs
             });
         }
         return folders;
     }
 
-    private static string ResolveFolderName(BMSTable table, string folderName)
+    private static string ResolveFolderName(TableDataProjectionSnapshot snapshot, string folderName)
     {
-        if (!table.is_external_sync)
+        if (snapshot?.IsExternalSync != true)
         {
             return folderName ?? string.Empty;
         }
-        string level = table.ConvertBackFolderNameToCompatibleLevelName(folderName ?? string.Empty);
-        string tag = ResolveTag(table);
+        string level = RemoveCompatiblePrefix(folderName ?? string.Empty, snapshot.CompatiblePrefix);
+        string tag = snapshot.Tag ?? string.Empty;
         if (string.IsNullOrWhiteSpace(tag))
         {
             return folderName ?? string.Empty;
@@ -507,18 +595,26 @@ internal static class BmtTableExportService
         return tag + level;
     }
 
-    private static JObject BuildSong(BMSTableEntry entry, JObject sourceChart, ISongHashResolver hashResolver)
+    private static string RemoveCompatiblePrefix(string folderName, string compatiblePrefix)
     {
-        SongHashResolution resolvedHashes = hashResolver?.Resolve(entry);
+        string normalizedFolderName = folderName ?? string.Empty;
+        return !string.IsNullOrEmpty(compatiblePrefix) && normalizedFolderName.StartsWith(compatiblePrefix, StringComparison.Ordinal)
+            ? normalizedFolderName.Substring(compatiblePrefix.Length)
+            : normalizedFolderName;
+    }
+
+    private static JObject BuildSong(TableEntryProjectionSnapshot entry, JObject sourceChart, ISongHashResolver hashResolver)
+    {
+        SongHashResolution resolvedHashes = hashResolver?.Resolve(CreateSongHashResolveRequest(entry));
         string md5 = FirstNonEmpty(
-            entry?.md5,
-            string.IsNullOrWhiteSpace(entry?.md5) ? resolvedHashes?.Md5 : null,
+            entry?.Md5,
+            string.IsNullOrWhiteSpace(entry?.Md5) ? resolvedHashes?.Md5 : null,
             sourceChart?.Value<string>("md5"));
         string sha256 = FirstNonEmpty(
-            entry?.sha256,
-            string.IsNullOrWhiteSpace(entry?.sha256) ? resolvedHashes?.Sha256 : null,
+            entry?.Sha256,
+            string.IsNullOrWhiteSpace(entry?.Sha256) ? resolvedHashes?.Sha256 : null,
             sourceChart?.Value<string>("sha256"));
-        string title = FirstNonEmpty(entry?.title, sourceChart?.Value<string>("title"));
+        string title = FirstNonEmpty(entry?.Title, sourceChart?.Value<string>("title"));
         if (string.IsNullOrWhiteSpace(title) || (string.IsNullOrWhiteSpace(md5) && string.IsNullOrWhiteSpace(sha256)))
         {
             return null;
@@ -527,11 +623,11 @@ internal static class BmtTableExportService
         {
             ["title"] = title
         };
-        AddIfNotEmpty(song, "artist", FirstNonEmpty(entry?.artist, sourceChart?.Value<string>("artist")));
+        AddIfNotEmpty(song, "artist", FirstNonEmpty(entry?.Artist, sourceChart?.Value<string>("artist")));
         AddIfNotEmpty(song, "md5", md5?.ToLowerInvariant());
         AddIfNotEmpty(song, "sha256", sha256?.ToLowerInvariant());
-        AddIfNotEmpty(song, "url", FirstNonEmpty(entry?.url, sourceChart?.Value<string>("url")));
-        AddIfNotEmpty(song, "appendurl", FirstNonEmpty(entry?.url_diff, sourceChart?.Value<string>("url_diff"), sourceChart?.Value<string>("appendurl")));
+        AddIfNotEmpty(song, "url", FirstNonEmpty(entry?.Url, sourceChart?.Value<string>("url")));
+        AddIfNotEmpty(song, "appendurl", FirstNonEmpty(entry?.UrlDiff, sourceChart?.Value<string>("url_diff"), sourceChart?.Value<string>("appendurl")));
         AddIfNotEmpty(song, "ipfs", sourceChart?.Value<string>("ipfs"));
         AddIfNotEmpty(song, "appendipfs", FirstNonEmpty(sourceChart?.Value<string>("ipfs_diff"), sourceChart?.Value<string>("appendipfs")));
         JArray orgMd5 = BuildOrgMd5(entry, sourceChart);
@@ -542,16 +638,34 @@ internal static class BmtTableExportService
         return song;
     }
 
-    private static JArray BuildOrgMd5(BMSTableEntry entry, JObject sourceChart)
+    private static BmtSongHashResolveRequest CreateSongHashResolveRequest(TableEntryProjectionSnapshot entry)
+    {
+        return entry == null
+            ? null
+            : new BmtSongHashResolveRequest
+            {
+                Md5 = entry.Md5,
+                Sha256 = entry.Sha256,
+                Title = entry.Title
+            };
+    }
+
+    private static JArray BuildOrgMd5(TableEntryProjectionSnapshot entry, JObject sourceChart)
     {
         JArray values = [];
-        foreach (string value in entry?.Org_md5 ?? Enumerable.Empty<string>())
+        foreach (string value in entry?.OrgMd5 ?? Enumerable.Empty<string>())
         {
             if (!string.IsNullOrWhiteSpace(value))
             {
                 values.Add(value.ToLowerInvariant());
             }
         }
+        AddSourceOrgMd5(values, sourceChart);
+        return new JArray(values.Select(item => item.ToString()).Distinct(StringComparer.OrdinalIgnoreCase));
+    }
+
+    private static void AddSourceOrgMd5(JArray values, JObject sourceChart)
+    {
         JToken sourceOrg = sourceChart?["org_md5"];
         if (sourceOrg is JArray array)
         {
@@ -572,15 +686,14 @@ internal static class BmtTableExportService
                 values.Add(value.ToLowerInvariant());
             }
         }
-        return new JArray(values.Select(item => item.ToString()).Distinct(StringComparer.OrdinalIgnoreCase));
     }
 
-    private static JArray BuildCourses(BMSTable table)
+    private static JArray BuildCourses(TableDataProjectionSnapshot snapshot)
     {
         JArray courses = [];
-        foreach (LR2SongDBExtended.playlist_course courseRow in table.Courses ?? [])
+        foreach (string courseJson in snapshot?.CourseJsonRows ?? [])
         {
-            JObject course = ConvertCourse(courseRow?.course_json);
+            JObject course = ConvertCourse(courseJson);
             if (course != null)
             {
                 courses.Add(course);
