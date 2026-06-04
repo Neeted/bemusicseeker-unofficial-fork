@@ -51,12 +51,14 @@ BeMusicSeeker は譜面管理アプリなので、LR2 で完全に読めない�
   - 設定化する主目的は、スタンドアロンモードで LR2 用の重い補助列挙・解析を避けること。
   - LR2 連携モードでも、LR2 自身に厳密な譜面走査を任せたいユーザー向けに無効化できる余地を残す。
 - LR2 compatibility warning は完全生成設定が有効なときの評価を正本にする。
-  - 既存の `Lr2PathEncodingUnsupported` のように軽く出せる warning は継続してよい。
+  - 既存の `Lr2PathEncodingUnsupported` のように軽く出せる warning は継続する。
   - ただし maintenance 列や scan group が必要な warning は完全生成有効時のみ出す。
-  - スタンドアロンモードで煩雑になる場合は、`LR2非対応パス` ツリー自体を非表示にしてよい。
+  - スタンドアロンモードでは `LR2非対応パス` ツリー自体を非表示にする。
 - backfill は通常運用では発生しない想定にする。
   - 既存 LR2 DB に必要列が欠けている、または完全生成を初回有効化した場合だけ backfill が発生する。
   - backfill が必要な場合は警告・進捗・キャンセル可能性を UI / log に出す。
+  - 初回 backfill は startup ready / operable を待たせず、初期化完了後の background workflow として開始する。
+  - LR2 起動導線では backfill 完了まで起動を止め、警告付き強行起動は提供しない。
 - 段階実装中は、Phase 8 / Phase 9 まで完了するまでは完全生成設定を hidden / disabled にする。
   - `song` row だけ新形式になり、対応する `folder` row / manifest / backfill が未整備な中間状態を
     ユーザー環境で有効化しない。
@@ -66,6 +68,9 @@ BeMusicSeeker は譜面管理アプリなので、LR2 で完全に読めない�
 完全な `song.db` 生成は設定化する。ただし LR2 連携ユーザーにとって望ましい既定動作なので、
 LR2 連携モードでは **デフォルト有効** にする。
 
+この計画でいう LR2 連携モードは、設定上 `OperationModeLR2DB == true` であり、LR2 の
+database / executable path が有効に解決できる状態を指す。
+
 推奨 UI:
 
 - 設定画面の「動作モード」内、「LR2と連携する」の近くに置く。
@@ -74,7 +79,7 @@ LR2 連携モードでは **デフォルト有効** にする。
   - または `LR2起動時のDB自動更新をBeMusicSeekerで代替する`
 - 初期値:
   - `OperationModeLR2DB == true` の場合は有効。
-  - スタンドアロン運用では無効、または設定自体を非表示にしてよい。
+  - スタンドアロン運用では無効にし、設定項目も非表示にする。
 
 設定別の処理方針:
 
@@ -194,15 +199,17 @@ SELECT path,date FROM folder WHERE parent = ROOT OR date = 0
 - mtime / size が変わったが MD5 が同じ場合:
   - BMS は `song.date` だけ更新する。
   - hash identity は変えない。
-  - 必要なら `folder.date` / directory mtime は別途 folder pipeline で更新する。
+  - `folder.date` / directory mtime は folder pipeline の metadata freshness に従って更新する。
 - BMS 本体が未変更でも、chart directory 直下の `.txt` 追加・削除は `song.txt` 更新対象にする。
   - text group snapshot / directory metadata freshness を持ち、差分があれば該当 directory の BMS row を
     `txt` 更新対象にする。
 - path が消え、同じ MD5 の新 path が同時に追加された場合は move/relink として扱う。
   - LR2 `song.path` は primary key なので、delete + insert ではなく維持列を旧 row から新 row へ引き継ぐ。
   - `favorite` / `adddate` / `tag` を維持する。
-  - 同一 MD5 の deleted / added が複数ある場合は自動 relink しない。
-  - 移動先 path に既存 row がある場合も自動 relink せず、通常の delete/add または warning 対象にする。
+- 同一 MD5 の deleted / added が複数ある場合は自動 relink しない。
+  - 移動先 path に既存 row がある場合も自動 relink しない。
+  - relink 不成立時は `lr2_song_relink_ambiguous` warning log を出し、削除対象は通常 delete、
+    追加対象は既存 row merge または新規 add として処理する。維持列の引き継ぎは行わない。
 - path が消えた場合は owned collection から unregister し、LR2 `song` から削除する。
 - path が追加された場合は通常の追加 parse を行う。
 
@@ -211,7 +218,7 @@ SELECT path,date FROM folder WHERE parent = ROOT OR date = 0
 - 200k 件級で毎回全 BMS bytes を読む設計にはしない。
 - high precision mtime / size / path の軽量 metadata を scan contract に入れるか、DB 側に
   metadata snapshot を持つ。
-- high precision mtime は可能なら Windows FILETIME ticks 相当で保持する。
+- high precision mtime は Windows FILETIME ticks 相当で保持する。
 - hash 読みは mtime / size 変化対象だけに限定する。
 - mtime が保持された外部コピーや同秒更新は完全には検出できないため、明示的な全譜面再スキャンを
   force verify として残す。
@@ -280,23 +287,27 @@ row が残ると、manual-only でも LR2 が不要な scan に入る。
 - manifest には generation run id / source root signature / generator version を持たせる。
 - manifest がない既存 row を不用意に削除しない。
 - 既存 row のうち、現在の LR2 root / BMS chart directory set から deterministic に一致する
-  root / ancestor row は初回 backfill 時に app-owned として採用してよい。
+  root / ancestor row は初回 backfill 時に app-owned として採用する。
 - root / ancestor / normal folder row は、現在の LR2 BMS root と BMS chart directory set から
   deterministic に再生成する。
 - `.lr2folder` row は、BeMusicSeeker が出力・管理する custom folder を中心に扱う。
 - LR2 root 配下の任意 `.lr2folder` を広域探索しない。
-- `.lr2folder` の parse 対象は BeMusicSeeker-owned manifest、既知 playlist 出力、既存 scan
-  結果で明示的に得た path に限定する。
-- 任意 `.lr2folder` を扱う必要が出た場合は、明示 opt-in と source ownership を追加してから
-  対象にする。
+- `.lr2folder` の parse 対象は BeMusicSeeker-owned manifest と既知 playlist 出力に限定する。
+- 任意 `.lr2folder` の広域探索はこの計画では実装しない。必要になった場合は、source ownership
+  と明示設定を持つ別機能として計画する。
 
 削除ルール:
 
-- 生成対象から消えた app-owned normal folder row は削除してよい。
+- 生成対象から消えた app-owned normal folder row は削除する。
 - BeMusicSeeker が出力した `.lr2folder` を削除した場合、対応する app-owned `folder` row も削除する。
 - ユーザー管理かどうか不明な `.lr2folder` row は削除しない。
 - unknown root row または `date = 0` row が残り、LR2 startup scan 抑止に影響する場合は
-  silent retention せず warning / 起動前 block / ユーザー承認付き cleanup の対象にする。
+  silent retention しない。初期実装では自動削除せず warning と起動前 block の対象にし、
+  cleanup は明示操作として別導線で実行する。
+  - cleanup 導線は Phase 8 の初期実装に含める。
+  - cleanup は全 `folder` row 削除ではなく、diagnostic で列挙した startup-scan blocker row だけを
+    backup 作成後に削除する。
+  - cleanup できない、または cleanup 後も blocker が残る場合は LR2 起動を継続して block する。
 
 ### LR2 compatibility warning の scope
 
@@ -314,22 +325,25 @@ LR2 compatibility warning は BMS のみを対象にする。bmson は対象外�
 表示方針:
 
 - 完全生成有効時は maintenance fact から warning を投影する。
-- 完全生成無効時は、既存の `Lr2PathEncodingUnsupported` など軽い path warning だけ維持してよい。
-- スタンドアロンモードでは `LR2非対応パス` ツリーを出さない方針でもよい。
+- 完全生成無効時は、既存の `Lr2PathEncodingUnsupported` など軽い path warning だけ維持する。
+- スタンドアロンモードでは `LR2非対応パス` ツリーを出さない。
 - warning の ignore は resource health と独立させる。
-  - `is_lr2_compatibility_warning_ignored` は warning digest / tooltip / `LR2非対応パス` membership への影響を明確にする。
+  - `is_lr2_compatibility_warning_ignored` が true の BMS は、warning digest / tooltip / `LR2非対応パス`
+    membership から除外する。
+  - raw maintenance facts は保持し、ignore 解除時に再評価なしで表示へ戻せるようにする。
 
 ### LR2 起動前 workflow
 
 完全生成が有効な場合、BeMusicSeeker から LR2 を起動する前に以下を満たす。
 
-- 完全生成が未完了なら、起動前に完了待ちするか、未完了 warning を出して起動を止める。
+- 完全生成が未完了なら、起動前 workflow で backfill を開始または再開し、完了するまで LR2 起動を止める。
 - backfill が必要な場合は、警告・進捗・キャンセル可能性を表示する。
 - LR2 側の DB 自動更新設定が手動のみでない可能性がある場合は注意を出す。
   - 現行 `LR2Config` wrapper には autoreload 判定 API がないため、実装時に config 要素名と値を確認する。
 - LR2 が起動中の場合の DB write 競合を検出する。
   - SQLite busy timeout / file lock / transaction 失敗時の扱いをログに出す。
 - 完全生成 status は durable に保存する。
+  - 保存先は LR2 `song.db` 内の BeMusicSeeker-owned metadata table とする。
   - schema version
   - generator version
   - parser version
@@ -337,6 +351,11 @@ LR2 compatibility warning は BMS のみを対象にする。bmson は対象外�
   - 完全生成設定値
   - folder manifest generation id
   を含め、いずれかが変わった場合は completed を無効化する。
+- generator version は `song` / `folder` 生成列、LR2 folder manifest、warning projection の意味が変わる時に bump する。
+- parser version は BMS metadata parse、text group parse、raw resource reference parse、CRC 入力正規化の意味が
+  変わる時に bump する。
+- backfill は startup ready / operable をブロックしない。初期化完了後に background workflow として開始し、
+  LR2 起動要求が来た時点で未完了なら同じ workflow に join して完了まで待つ。
 
 ## LR2 互換性評価
 
@@ -392,8 +411,8 @@ BMS ファイルを読む機会に `maintenance` へ同期し、起動時・一�
 - `lr2_resource_max_relative_cp932_bytes INTEGER NULL`
 - `lr2_resource_max_resolved_cp932_bytes INTEGER NULL`
 - `is_lr2_compatibility_warning_ignored BOOLEAN NOT NULL DEFAULT 0`
-- 必要なら `lr2_evaluated_mtime INTEGER NULL`
-- 必要なら `lr2_evaluated_file_size INTEGER NULL`
+- `lr2_evaluated_mtime INTEGER NULL`
+- `lr2_evaluated_file_size INTEGER NULL`
 
 schema migration:
 
@@ -468,7 +487,7 @@ schema migration:
 
 - `Lr2SongRowMerger` または `Lr2SongDbWriter` を追加する。
 - 既存 row がある場合は維持列を読んでから generated columns を更新する。
-- 可能なら targeted `UPDATE` を使う。
+- generated column ごとの targeted `UPDATE` を基本にし、full row replace は使わない。
 - `favorite` / `adddate` / `tag` は維持する。
 
 テスト:
@@ -520,7 +539,7 @@ raw resource reference:
 - `Lr2CompatibilityWarningProjection`
 - `ChartWarningKind.Lr2PathTooLong`
 - `ChartWarningKind.Lr2ResourcePathUnsupported`
-- 必要なら `ChartWarningKind.Lr2ResourcePathTooLong`
+- `ChartWarningKind.Lr2ResourcePathTooLong`
 
 scope:
 
@@ -624,9 +643,8 @@ scope:
 
 - BeMusicSeeker が出力・管理する `.lr2folder`。
 - LR2 root 配下の任意 `.lr2folder` の全探索は初期対象にしない。
-- parse 対象は BeMusicSeeker-owned manifest、既知 playlist 出力、既存 scan 結果で見つかった
-  明示対象に限定する。
-- 任意 `.lr2folder` の広域探索が必要になった場合は明示 opt-in とする。
+- parse 対象は BeMusicSeeker-owned manifest と既知 playlist 出力に限定する。
+- 任意 `.lr2folder` の広域探索はこの計画では実装しない。
 
 parse directive:
 
@@ -658,10 +676,15 @@ parse directive:
 
 - 完全生成 status を保持する。
 - backfill needed / running / completed / failed を log と UI に出す。
-- backfill progress は BMS target count と folder target count を合算または stage 別に表示する。
+- backfill progress は全体合算 total と stage 別 processed count の両方を表示する。
 - LR2 起動前に incomplete / failed なら警告する。
-- LR2 config の auto update 設定を検出できるなら warning を出す。
-- backfill 開始前に song.db backup または復元点を作る。
+- LR2 config の auto update 設定は config 要素名を確認して検出する。検出できない場合は
+  「自動更新設定を確認できない」warning を出し、BeMusicSeeker 側からは config を自動変更しない。
+- backfill 開始前に LR2 `song.db` 全体の backup を作る。
+  - backup は LR2 `song.db` と同じ directory の `bemusicseeker-backup` subdirectory に
+    `song.db.<yyyyMMddHHmmss>.bak` として作る。
+  - backup 世代は最新 2 件を保持し、それより古い BeMusicSeeker 作成 backup は成功後に削除する。
+  - backup 作成に失敗した場合は DB write を開始せず、backfill を failed にする。
 - write は per-chunk transaction とし、run id/status を durable に更新する。
 - cancel 後の partial write は incomplete として扱い、LR2 起動前に警告する。
 - app-owned folder rows は manifest generation id で resume / rollback できるようにする。
