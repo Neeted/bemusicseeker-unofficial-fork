@@ -41,6 +41,8 @@ internal sealed class Lr2FullGenerationBackfillRequest
     public DateTime StartedAtUtc { get; set; } = DateTime.UtcNow;
 
     public Func<bool> IsSourceCurrent { get; set; }
+
+    public Action<int, int, string> ProgressReporter { get; set; }
 }
 
 internal sealed class Lr2FullGenerationBackfillResult
@@ -174,6 +176,7 @@ internal static class Lr2FullGenerationBackfillService
             totalCount,
             stage: "normal_folders",
             nowUtc: request.StartedAtUtc);
+        ReportProgress(request, 0, totalCount, "normal_folders");
 
         Lr2NormalFolderDbSyncResult normalFolderResult = null;
         int normalFolderProcessedCount = 0;
@@ -198,6 +201,7 @@ internal static class Lr2FullGenerationBackfillService
             totalCount: totalCount,
             stage: "normal_folders_completed",
             nowUtc: DateTime.UtcNow);
+        ReportProgress(request, normalFolderProcessedCount, totalCount, "normal_folders_completed");
 
         Lr2FullGenerationStatusService.UpdateCursor(
             songDb,
@@ -207,6 +211,7 @@ internal static class Lr2FullGenerationBackfillService
             totalCount: totalCount,
             stage: "lr2folder_files",
             nowUtc: DateTime.UtcNow);
+        ReportProgress(request, normalFolderProcessedCount, totalCount, "lr2folder_files");
 
         Lr2FolderFileDbSyncResult lr2FolderFileResult = null;
         int lr2FolderFileProcessedCount = 0;
@@ -234,6 +239,7 @@ internal static class Lr2FullGenerationBackfillService
             totalCount: totalCount,
             stage: "lr2folder_files_completed",
             nowUtc: DateTime.UtcNow);
+        ReportProgress(request, folderProcessedCount, totalCount, "lr2folder_files_completed");
 
         Lr2FullGenerationStatusService.UpdateCursor(
             songDb,
@@ -243,6 +249,7 @@ internal static class Lr2FullGenerationBackfillService
             totalCount: totalCount,
             stage: "song_rows",
             nowUtc: DateTime.UtcNow);
+        ReportProgress(request, folderProcessedCount, totalCount, "song_rows");
 
         SongRowBackfillResult songRowResult = UpsertSongRows(songDb, songRows, textFileDirectories);
         int processedCount = folderProcessedCount + songRowResult.ProcessedCount;
@@ -255,6 +262,7 @@ internal static class Lr2FullGenerationBackfillService
             totalCount: totalCount,
             stage: "song_rows_completed",
             nowUtc: DateTime.UtcNow);
+        ReportProgress(request, processedCount, totalCount, "song_rows_completed");
 
         Lr2StartupScanDiagnosticResult diagnosticResult = DiagnoseStartupScanBlockers(
             songDb,
@@ -275,6 +283,7 @@ internal static class Lr2FullGenerationBackfillService
                 stage: StartupScanBlockersStage,
                 detail: StartupScanBlockersReason + " " + diagnosticResult.ToLogDetail(),
                 nowUtc: DateTime.UtcNow);
+            ReportProgress(request, processedCount, totalCount, StartupScanBlockersStage);
             finalStage = StartupScanBlockersStage;
             incompleteReason = StartupScanBlockersReason;
         }
@@ -289,6 +298,7 @@ internal static class Lr2FullGenerationBackfillService
                 stage: SourceStaleStage,
                 detail: SourceStaleReason,
                 nowUtc: DateTime.UtcNow);
+            ReportProgress(request, processedCount, totalCount, SourceStaleStage);
             finalStage = SourceStaleStage;
             incompleteReason = SourceStaleReason;
         }
@@ -300,6 +310,7 @@ internal static class Lr2FullGenerationBackfillService
                 request.RunId,
                 totalCount,
                 nowUtc: DateTime.UtcNow);
+            ReportProgress(request, totalCount, totalCount, CompletedStage);
             finalStage = CompletedStage;
             incompleteReason = null;
         }
@@ -337,6 +348,25 @@ internal static class Lr2FullGenerationBackfillService
         catch
         {
             return false;
+        }
+    }
+
+    private static void ReportProgress(
+        Lr2FullGenerationBackfillRequest request,
+        int processedCount,
+        int totalCount,
+        string stage)
+    {
+        try
+        {
+            request?.ProgressReporter?.Invoke(
+                Math.Max(0, processedCount),
+                Math.Max(0, totalCount),
+                stage ?? string.Empty);
+        }
+        catch
+        {
+            // Progress observation must not affect the durable backfill run.
         }
     }
 

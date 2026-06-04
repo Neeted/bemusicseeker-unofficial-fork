@@ -116,6 +116,9 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
 
             Assert.AreEqual(Lr2FullGenerationStatusKind.NotNeeded, snapshot.Status);
             Assert.IsFalse(queued);
+            Assert.AreEqual(0, library.Lr2FullGenerationBackfillRequestedVersion);
+            Assert.AreEqual(0, library.Lr2FullGenerationBackfillCompletedVersion);
+            Assert.IsFalse(library.Lr2FullGenerationBackfillRunning);
         }
         finally
         {
@@ -263,6 +266,12 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
             Assert.AreEqual("keep-tag", verify.ExecuteScalar<string>("SELECT tag FROM song WHERE path = ?;", chartPath));
             Assert.AreEqual("00000000", file.folder);
             Assert.AreEqual("11111111", file.parent);
+            Assert.AreEqual(1, library.Lr2FullGenerationBackfillRequestedVersion);
+            Assert.AreEqual(1, library.Lr2FullGenerationBackfillCompletedVersion);
+            Assert.IsFalse(library.Lr2FullGenerationBackfillRunning);
+            Assert.AreEqual(row.total_count.GetValueOrDefault(), library.Lr2FullGenerationBackfillTotalCount);
+            Assert.AreEqual(row.processed_cursor.GetValueOrDefault(), library.Lr2FullGenerationBackfillProcessedCount);
+            Assert.AreEqual(Lr2FullGenerationBackfillService.CompletedStage, library.Lr2FullGenerationBackfillStage);
         }
         finally
         {

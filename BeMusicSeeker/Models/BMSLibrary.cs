@@ -1122,6 +1122,12 @@ public class BMSLibrary : NotificationObject
 
     private int chartInfoBackfillHydrationBypassUntilVersion;
 
+    private readonly object lockLr2FullGenerationBackfill = new();
+
+    private int lr2FullGenerationBackfillRequestedVersion;
+
+    private int lr2FullGenerationBackfillCompletedVersion;
+
     private int chartInfoHydrationRequestedVersion;
 
     private readonly object lockDeferredScoreHydration = new();
@@ -1267,6 +1273,18 @@ public class BMSLibrary : NotificationObject
     private int _ChartInfoBackfillDigestBackfilledCount;
 
     private string _ChartInfoBackfillCurrentPath = string.Empty;
+
+    private bool _Lr2FullGenerationBackfillRunning;
+
+    private int _Lr2FullGenerationBackfillRequestedVersion;
+
+    private int _Lr2FullGenerationBackfillCompletedVersion;
+
+    private int _Lr2FullGenerationBackfillTotalCount;
+
+    private int _Lr2FullGenerationBackfillProcessedCount;
+
+    private string _Lr2FullGenerationBackfillStage = string.Empty;
 
     private bool _ChartInfoHydrationRunning;
 
@@ -2289,6 +2307,103 @@ public class BMSLibrary : NotificationObject
             {
                 _ChartInfoBackfillCurrentPath = value;
                 RaisePropertyChanged(() => ChartInfoBackfillCurrentPath);
+            }
+        }
+    }
+
+    public bool Lr2FullGenerationBackfillRunning
+    {
+        get
+        {
+            return _Lr2FullGenerationBackfillRunning;
+        }
+        private set
+        {
+            if (_Lr2FullGenerationBackfillRunning != value)
+            {
+                _Lr2FullGenerationBackfillRunning = value;
+                RaisePropertyChanged(() => Lr2FullGenerationBackfillRunning);
+            }
+        }
+    }
+
+    public int Lr2FullGenerationBackfillRequestedVersion
+    {
+        get
+        {
+            return _Lr2FullGenerationBackfillRequestedVersion;
+        }
+        private set
+        {
+            if (_Lr2FullGenerationBackfillRequestedVersion != value)
+            {
+                _Lr2FullGenerationBackfillRequestedVersion = value;
+                RaisePropertyChanged(() => Lr2FullGenerationBackfillRequestedVersion);
+            }
+        }
+    }
+
+    public int Lr2FullGenerationBackfillCompletedVersion
+    {
+        get
+        {
+            return _Lr2FullGenerationBackfillCompletedVersion;
+        }
+        private set
+        {
+            if (_Lr2FullGenerationBackfillCompletedVersion != value)
+            {
+                _Lr2FullGenerationBackfillCompletedVersion = value;
+                RaisePropertyChanged(() => Lr2FullGenerationBackfillCompletedVersion);
+            }
+        }
+    }
+
+    public int Lr2FullGenerationBackfillTotalCount
+    {
+        get
+        {
+            return _Lr2FullGenerationBackfillTotalCount;
+        }
+        private set
+        {
+            if (_Lr2FullGenerationBackfillTotalCount != value)
+            {
+                _Lr2FullGenerationBackfillTotalCount = value;
+                RaisePropertyChanged(() => Lr2FullGenerationBackfillTotalCount);
+            }
+        }
+    }
+
+    public int Lr2FullGenerationBackfillProcessedCount
+    {
+        get
+        {
+            return _Lr2FullGenerationBackfillProcessedCount;
+        }
+        private set
+        {
+            if (_Lr2FullGenerationBackfillProcessedCount != value)
+            {
+                _Lr2FullGenerationBackfillProcessedCount = value;
+                RaisePropertyChanged(() => Lr2FullGenerationBackfillProcessedCount);
+            }
+        }
+    }
+
+    public string Lr2FullGenerationBackfillStage
+    {
+        get
+        {
+            return _Lr2FullGenerationBackfillStage;
+        }
+        private set
+        {
+            value ??= string.Empty;
+            if (_Lr2FullGenerationBackfillStage != value)
+            {
+                _Lr2FullGenerationBackfillStage = value;
+                RaisePropertyChanged(() => Lr2FullGenerationBackfillStage);
             }
         }
     }
@@ -4907,9 +5022,10 @@ completeFileEnumerationOnce,
             return status;
         }
 
+        int requestVersion = BeginLr2FullGenerationBackfillRequest();
         Task work()
         {
-            RunLr2FullGenerationBackfill(reason, signature);
+            RunLr2FullGenerationBackfill(reason, signature, requestVersion);
             return Task.CompletedTask;
         }
         if (StartupBackgroundTaskScheduler != null
@@ -4917,11 +5033,47 @@ completeFileEnumerationOnce,
         {
             return status;
         }
-        Task.Run(() => RunLr2FullGenerationBackfill(reason, signature)).Logging("Lr2FullGenerationBackfill");
+        Task.Run(() => RunLr2FullGenerationBackfill(reason, signature, requestVersion)).Logging("Lr2FullGenerationBackfill");
         return status;
     }
 
-    private void RunLr2FullGenerationBackfill(string reason, string signature)
+    private int BeginLr2FullGenerationBackfillRequest()
+    {
+        int requestVersion;
+        lock (lockLr2FullGenerationBackfill)
+        {
+            lr2FullGenerationBackfillRequestedVersion++;
+            requestVersion = lr2FullGenerationBackfillRequestedVersion;
+        }
+
+        Lr2FullGenerationBackfillRequestedVersion = requestVersion;
+        Lr2FullGenerationBackfillTotalCount = 0;
+        Lr2FullGenerationBackfillProcessedCount = 0;
+        Lr2FullGenerationBackfillStage = "queued";
+        Lr2FullGenerationBackfillRunning = true;
+        return requestVersion;
+    }
+
+    private void UpdateLr2FullGenerationBackfillProgress(int processedCount, int totalCount, string stage)
+    {
+        Lr2FullGenerationBackfillTotalCount = Math.Max(0, totalCount);
+        Lr2FullGenerationBackfillProcessedCount = Math.Max(0, processedCount);
+        Lr2FullGenerationBackfillStage = stage ?? string.Empty;
+    }
+
+    private void CompleteLr2FullGenerationBackfillRequest(int requestVersion, string stage)
+    {
+        lock (lockLr2FullGenerationBackfill)
+        {
+            lr2FullGenerationBackfillCompletedVersion = Math.Max(lr2FullGenerationBackfillCompletedVersion, requestVersion);
+        }
+
+        Lr2FullGenerationBackfillCompletedVersion = lr2FullGenerationBackfillCompletedVersion;
+        Lr2FullGenerationBackfillStage = stage ?? string.Empty;
+        Lr2FullGenerationBackfillRunning = false;
+    }
+
+    private void RunLr2FullGenerationBackfill(string reason, string signature, int requestVersion)
     {
         var stopwatch = Stopwatch.StartNew();
         string runId = Guid.NewGuid().ToString("N");
@@ -4950,7 +5102,8 @@ completeFileEnumerationOnce,
                     SongRows = input.SongRows,
                     TextFileDirectories = input.TextFileDirectories,
                     StartedAtUtc = DateTime.UtcNow,
-                    IsSourceCurrent = () => IsLr2FullGenerationBackfillInputCurrent(input)
+                    IsSourceCurrent = () => IsLr2FullGenerationBackfillInputCurrent(input),
+                    ProgressReporter = UpdateLr2FullGenerationBackfillProgress
                 });
             }
             stopwatch.Stop();
@@ -4996,6 +5149,7 @@ completeFileEnumerationOnce,
                 + " detail=" + (result.IncompleteReason ?? "completed")
                 + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
             ApplyLr2FullGenerationCompatibilityProjection(result.Lr2CompatibilityMaintenanceInfos, reason);
+            CompleteLr2FullGenerationBackfillRequest(requestVersion, result.FinalStage);
             ReportStartupBackgroundTask("lr2_full_generation_backfill", completed ? "done" : "incomplete", stopwatch.ElapsedMilliseconds, failed: false, detail: result.IncompleteReason ?? "completed");
         }
         catch (Exception ex)
@@ -5023,6 +5177,7 @@ completeFileEnumerationOnce,
                 + " elapsedMs=" + stopwatch.ElapsedMilliseconds
                 + " exception=" + ex.GetType().Name
                 + " message=" + ex.Message);
+            CompleteLr2FullGenerationBackfillRequest(requestVersion, "failed");
             ReportStartupBackgroundTask("lr2_full_generation_backfill", "failed", stopwatch.ElapsedMilliseconds, failed: true, detail: ex.Message);
         }
     }

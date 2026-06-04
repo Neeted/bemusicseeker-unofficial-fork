@@ -1161,3 +1161,6 @@ parse directive:
   generated `.lr2folder` row の parent を `ROOT` に揃える。
 - playlist entry level の LR2 `song.level` writeback は、complete row writer ではなく targeted `UPDATE song SET level`
   を使う。既存 `song` row が無い path には不完全 row を作らず、既存 row の user / generated columns も触らない。
+- LR2 full generation backfill の進捗は、durable status table と log に加えて `BMSLibrary` の bindable property
+  (`Running` / requested-completed version / total / processed / stage) にも投影する。service 側は progress callback を
+  観測専用として扱い、callback 失敗で durable backfill を失敗させない。
