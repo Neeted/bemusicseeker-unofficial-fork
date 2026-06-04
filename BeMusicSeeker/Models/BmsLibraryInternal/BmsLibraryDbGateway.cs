@@ -536,7 +536,6 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
             {
                 songDb.InsertOrReplace(maintenanceInfo, typeof(LR2SongDBExtended.maintenance));
             }
-            Lr2SongFolderParentNormalizer.ApplyIfMissingOrInvalid(bmsFile);
             Lr2SongDbWriter.UpsertGeneratedSong(songDb, bmsFile);
         });
     }

@@ -976,6 +976,10 @@ parse directive:
   - legacy path length boundary は NUL 終端を除いた CP932 259 bytes を上限として扱う。
   - warning projection は `ResourceHealthWarningProjection` へ混ぜず、maintenance facts が評価済みの BMS row だけ
     `BMSFile.Warnings` の `Lr2Compatibility` category として差し替える。未評価 row は placeholder attach だけで既存 warning を消さない。
+- Phase 5 は段階的に追加する。
+  - まず `Lr2SongRowEnricher` を導入し、既存の `date` / `txt` / user columns preservation / folder-parent CRC 正規化を
+    file diff parser と DB writer から同じ入口へ寄せる。
+  - detailed parser / `chart_info` 由来 numeric columns は、同じ enricher に後続 cycle で接続する。
 
 ## 作業エージェント向け実装順
 

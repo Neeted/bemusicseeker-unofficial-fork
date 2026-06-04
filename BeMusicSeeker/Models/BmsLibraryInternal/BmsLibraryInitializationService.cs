@@ -931,7 +931,7 @@ internal sealed class BmsLibraryInitializationService
         {
             return null;
         }
-        int currentDate = ToLr2UnixSeconds(lastWriteTimeUtc);
+        int currentDate = Lr2SongRowEnricher.ToLr2UnixSeconds(lastWriteTimeUtc);
         int existingTextFlag = existing.txt.GetValueOrDefault();
         return existing.date == currentDate && existingTextFlag == textFlag
             ? null
@@ -982,10 +982,12 @@ internal sealed class BmsLibraryInitializationService
             }
             var stopwatch = Stopwatch.StartNew();
             var file = BMSFile.CreateBMSFileFromSnapshot(candidate.Snapshot);
-            file.date = ToLr2UnixSeconds(candidate.Snapshot.LastWriteTimeUtc);
-            file.SetTextGroupFlag(candidate.TextFlag);
-            file.PreserveUserSongColumnsFrom(candidate.ExistingBmsFile);
-            Lr2SongFolderParentNormalizer.ApplyIfMissingOrInvalid(file, folderParentHashCache);
+            Lr2SongRowEnricher.EnrichParsedSong(
+                file,
+                candidate.Snapshot,
+                candidate.TextFlag,
+                candidate.ExistingBmsFile,
+                folderParentHashCache);
             stopwatch.Stop();
             Interlocked.Add(ref bmsParseTicks, stopwatch.ElapsedTicks);
             return FileDiffParsedCandidate.FromBms(InlineBmsParseCandidate.CreateSuccess(candidate.Path, candidate.Snapshot, file, candidate.ExistingBmsFile));
@@ -2858,17 +2860,4 @@ internal sealed class BmsLibraryInitializationService
         }
     }
 
-    private static int ToLr2UnixSeconds(DateTime utcTime)
-    {
-        long seconds = new DateTimeOffset(DateTime.SpecifyKind(utcTime, DateTimeKind.Utc)).ToUnixTimeSeconds();
-        if (seconds > int.MaxValue)
-        {
-            return int.MaxValue;
-        }
-        if (seconds < int.MinValue)
-        {
-            return int.MinValue;
-        }
-        return (int)seconds;
-    }
 }

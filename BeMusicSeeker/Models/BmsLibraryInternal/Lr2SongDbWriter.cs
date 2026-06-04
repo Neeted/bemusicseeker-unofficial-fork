@@ -17,7 +17,7 @@ internal static class Lr2SongDbWriter
             return;
         }
 
-        Lr2SongFolderParentNormalizer.ApplyIfMissingOrInvalid(song);
+        Lr2SongRowEnricher.EnrichGeneratedSong(song);
         bool rowExists = TryGetSongHashByPath(songDb, song.path, out string previousHash);
         if (!rowExists)
         {
