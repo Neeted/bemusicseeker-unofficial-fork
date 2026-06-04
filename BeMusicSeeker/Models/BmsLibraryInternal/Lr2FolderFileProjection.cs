@@ -33,6 +33,8 @@ internal sealed class Lr2FolderFileRowRequest
 {
     public string FilePath { get; set; }
 
+    public string DatabasePath { get; set; }
+
     public Lr2FolderFileDefinition Definition { get; set; }
 
     public LR2SongDB.folder ExistingRow { get; set; }
@@ -102,20 +104,20 @@ internal static class Lr2FolderFileProjection
     {
         row = null;
         request ??= new Lr2FolderFileRowRequest();
-        string filePath = NormalizeFilePath(request.FilePath);
-        if (string.IsNullOrWhiteSpace(filePath) || request.LastWriteTimeUtc == null || request.FolderType == 1)
+        string databasePath = NormalizeDatabasePath(request.DatabasePath ?? request.FilePath);
+        if (string.IsNullOrWhiteSpace(databasePath) || request.LastWriteTimeUtc == null || request.FolderType == 1)
         {
             return false;
         }
 
-        if (!Lr2CompatibilityEvaluator.TryGetCp932ByteCount(filePath, out _))
+        if (!Lr2CompatibilityEvaluator.TryGetCp932ByteCount(databasePath, out _))
         {
             return false;
         }
 
         string parentHash = request.ParentHash;
         if (string.IsNullOrWhiteSpace(parentHash)
-            && !TryComputeParentHash(filePath, out parentHash))
+            && !TryComputeParentHash(databasePath, out parentHash))
         {
             return false;
         }
@@ -129,7 +131,7 @@ internal static class Lr2FolderFileProjection
             info_a = definition.InformationA,
             info_b = definition.InformationB,
             command = definition.Command,
-            path = filePath,
+            path = databasePath,
             type = request.FolderType,
             banner = definition.Banner,
             parent = parentHash,
@@ -165,7 +167,7 @@ internal static class Lr2FolderFileProjection
         return true;
     }
 
-    private static string NormalizeFilePath(string filePath)
+    internal static string NormalizeDatabasePath(string filePath)
     {
         if (string.IsNullOrWhiteSpace(filePath))
         {
@@ -174,12 +176,36 @@ internal static class Lr2FolderFileProjection
 
         try
         {
-            return Path.GetFullPath(filePath);
+            string normalizedRelative = NormalizeKnownRelativeLr2FolderPath(filePath);
+            return normalizedRelative ?? Path.GetFullPath(filePath);
         }
         catch (Exception ex) when (ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException)
         {
             return null;
         }
+    }
+
+    internal static string NormalizeKnownRelativeLr2FolderPath(string filePath)
+    {
+        if (string.IsNullOrWhiteSpace(filePath))
+        {
+            return null;
+        }
+
+        string normalized = filePath.Trim()
+            .Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar);
+        if (Path.IsPathRooted(normalized))
+        {
+            return null;
+        }
+
+        return IsKnownRelativeLr2FolderPath(normalized) ? normalized : null;
+    }
+
+    private static bool IsKnownRelativeLr2FolderPath(string filePath)
+    {
+        return filePath.StartsWith("LR2files" + Path.DirectorySeparatorChar + "CustomFolder" + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+            || filePath.StartsWith("LR2files" + Path.DirectorySeparatorChar + "Rival" + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool TryComputeParentHash(string filePath, out string parentHash)

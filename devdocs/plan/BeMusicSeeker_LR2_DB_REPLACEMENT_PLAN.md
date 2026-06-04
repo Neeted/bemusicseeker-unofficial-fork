@@ -1032,8 +1032,17 @@ parse directive:
     `#TAG` と `#COMMAND` は LR2 互換の command alias として後勝ちにし、通常の `.lr2folder` row は `type = 2` を既定にする。
   - `.lr2folder` row の `path` はファイル path そのもの、normal directory row の `path` は末尾 separator 付き directory path として分離する。
     `Lr2FolderFileProjection` は existing row の `adddate` を維持し、新規 row だけ生成時刻を入れる。
+    ただし LR2 executable directory 配下の built-in source (`LR2files\CustomFolder` / `LR2files\Rival`) は、
+    既存 startup normalization と同じく LR2 root 相対 path (`LR2files\...`) を DB path として保持する。
+    実ファイル読み取り用の file path と DB に保存する path は `Lr2FolderFileSyncItem.FilePath` /
+    `DatabasePath` として分離する。
   - `#CUSTOMFOLDER` は parse fact として保持するが、BeMusicSeeker 生成 `.lr2folder` の必須条件にはしない。
     OpenLR2 の built-in / root 特殊 type は後続の discovered source 統合で explicit type を渡す。
+  - source 分類は `Lr2FolderFileSourceClassifier` に閉じる。通常 BMS root / 通常 custom folder 出力 base は
+    `type = 2` と directory parent hash、root custom folder 出力 base は `type = 2` と root parent hash を使う。
+    LR2 built-in source は LR2 root 相対 path に変換し、source directory 直下の `.lr2folder` だけ root parent hash、
+    入れ子の `.lr2folder` は相対 path の containing directory hash を使う。OpenLR2 の root 特殊 `type = 3/4/6` は、
+    type の確定条件を fixture で固定する cycle まで推測で振らない。
   - normal folder sync は `type = 1` の scope だけを prune / upsert 対象にし、`type = 2` の `.lr2folder` row を
     上書き・削除しない境界を維持する。
   - `.lr2folder` DB sync は `Lr2FolderFileDbSyncService` に分離する。
@@ -1083,9 +1092,11 @@ parse directive:
   これらを空にして `Lr2SongRowEnricher` に再生成させる。
   さらに LR2 BMS root、通常 custom folder 出力 base、root custom folder 出力 base 配下の `.lr2folder` は
   `RootFileEnumerationService` の Everything/fallback path で discovery し、`Lr2FolderFileDbSyncService` へ渡して
-  `folder.type = 2` row を sync する。stale prune scope は LR2 BMS root に限定し、custom folder 出力 base は
-  discovery-only とする。playlist 出力先の exact prune は既存の playlist output workflow が担当する。
+  source classification 済みの `folder.type = 2` row を sync する。stale prune scope は LR2 BMS root に限定し、
+  custom folder 出力 base は discovery-only とする。playlist 出力先の exact prune は既存の playlist output workflow が担当する。
   LR2 built-in custom folder source (`LR2files\CustomFolder` / `LR2files\Rival`) も discovery root に含める。
+  built-in source は LR2 root 相対 path で sync し、source 直下は root parent hash、入れ子は relative containing
+  directory hash を使う。通常出力先 / BMS root 由来の `.lr2folder` は絶対 path と directory parent hash のまま扱う。
   `.lr2folder` prune は discovery surface が complete で、かつ発見した各 file を読み取れた場合だけ許可する。
   enumeration failure や一時的な file read failure がある場合、その回は upsert のみにして既存 row を消さない。
   file read / parse に失敗した row は persistence copy の folder/parent 再生成に fallback し、失敗で既存 DB row を消さない。

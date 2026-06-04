@@ -140,6 +140,60 @@ public sealed class Lr2FolderFileProjectionTests
     }
 
     [TestMethod]
+    public void TryCreateFolderRow_AllowsKnownLr2RootRelativeDatabasePath()
+    {
+        DateTime timestamp = new(2026, 6, 9, 1, 2, 3, DateTimeKind.Utc);
+        string filePath = Path.GetFullPath(@"D:\LR2beta3\LR2files\CustomFolder\favorite.lr2folder");
+
+        bool created = Lr2FolderFileProjection.TryCreateFolderRow(new Lr2FolderFileRowRequest
+        {
+            FilePath = filePath,
+            DatabasePath = @"LR2files\CustomFolder\favorite.lr2folder",
+            LastWriteTimeUtc = timestamp,
+            ParentHash = Lr2SongFolderParentNormalizer.RootParentHash,
+            Definition = Lr2FolderFileProjection.ParseDefinition(["#TITLE Favorite"])
+        }, out LR2SongDB.folder row);
+
+        Assert.IsTrue(created);
+        Assert.AreEqual(@"LR2files\CustomFolder\favorite.lr2folder", row.path);
+        Assert.AreEqual(Lr2SongFolderParentNormalizer.RootParentHash, row.parent);
+        Assert.AreEqual(2, row.type);
+    }
+
+    [TestMethod]
+    public void SourceClassifier_UsesRelativePathWithoutFlatteningNestedBuiltinFolders()
+    {
+        string lr2Root = Path.GetFullPath(@"D:\LR2beta3");
+        string builtinRoot = Path.Combine(lr2Root, "LR2files", "CustomFolder");
+        string nestedFilePath = Path.Combine(builtinRoot, "RANDOM", "random.lr2folder");
+
+        Lr2FolderFileSourceClassification classification = Lr2FolderFileSourceClassifier.Classify(new Lr2FolderFileSourceClassificationRequest
+        {
+            FilePath = nestedFilePath,
+            Lr2RootPath = lr2Root,
+            BuiltinSourceDirectories = [builtinRoot]
+        });
+
+        Assert.AreEqual(@"LR2files\CustomFolder\RANDOM\random.lr2folder", classification.DatabasePath);
+        Assert.IsNull(classification.ParentHash);
+
+        bool created = Lr2FolderFileProjection.TryCreateFolderRow(new Lr2FolderFileRowRequest
+        {
+            FilePath = nestedFilePath,
+            DatabasePath = classification.DatabasePath,
+            LastWriteTimeUtc = new DateTime(2026, 6, 9, 1, 2, 3, DateTimeKind.Utc),
+            ParentHash = classification.ParentHash,
+            Definition = Lr2FolderFileProjection.ParseDefinition(["#TITLE Random"])
+        }, out LR2SongDB.folder row);
+
+        Assert.IsTrue(created);
+        Assert.AreEqual(
+            Lr2SongFolderParentNormalizer.ComputeDirectoryHash(@"LR2files\CustomFolder\RANDOM"),
+            row.parent);
+        Assert.AreNotEqual(Lr2SongFolderParentNormalizer.RootParentHash, row.parent);
+    }
+
+    [TestMethod]
     public void TryCreateFolderRow_SkipsCp932UnsupportedPath()
     {
         bool created = Lr2FolderFileProjection.TryCreateFolderRow(new Lr2FolderFileRowRequest

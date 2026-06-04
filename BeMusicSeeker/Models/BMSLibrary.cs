@@ -4943,6 +4943,9 @@ completeFileEnumerationOnce,
                     Lr2FolderFilePaths = input.Lr2FolderFilePaths,
                     Lr2FolderDiscoveryDirectories = input.Lr2FolderDiscoveryDirectories,
                     Lr2FolderPruneDirectories = input.Lr2FolderPruneDirectories,
+                    Lr2RootPath = input.Lr2RootPath,
+                    Lr2RootCustomFolderOutputBaseDir = input.Lr2RootCustomFolderOutputBaseDir,
+                    Lr2BuiltinFolderSourceDirectories = input.Lr2BuiltinFolderSourceDirectories,
                     Lr2FolderFileDiscoveryComplete = input.Lr2FolderFileDiscoveryComplete,
                     SongRows = input.SongRows,
                     TextFileDirectories = input.TextFileDirectories,
@@ -5115,12 +5118,18 @@ completeFileEnumerationOnce,
         List<string> roots = getBMSDirectories();
         List<string> lr2FolderDiscoveryDirectories = CreateLr2FullGenerationLr2FolderDiscoveryDirectories(roots);
         Lr2FolderFileCandidateSnapshot lr2FolderFileCandidates = CreateLr2FullGenerationLr2FolderFileCandidates(lr2FolderDiscoveryDirectories);
+        string lr2RootPath = Settings.Default.LR2RootPath;
+        string lr2RootCustomFolderOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDirRootType;
+        List<string> lr2BuiltinFolderSourceDirectories = CreateLr2FullGenerationBuiltinFolderSourceDirectories();
         return new Lr2FullGenerationBackfillInput(
             roots,
             chartPaths,
             CreateLr2FullGenerationFolderInfoCandidates(roots, chartPaths),
             lr2FolderDiscoveryDirectories,
             roots,
+            lr2RootPath,
+            lr2RootCustomFolderOutputBaseDir,
+            lr2BuiltinFolderSourceDirectories,
             lr2FolderFileCandidates.Paths,
             lr2FolderFileCandidates.DiscoveryComplete,
             songRows,
@@ -5160,6 +5169,12 @@ completeFileEnumerationOnce,
 
         List<string> lr2FolderDiscoveryDirectories = CreateLr2FullGenerationLr2FolderDiscoveryDirectories(roots);
         if (!ArePathSetsEqual(input.Lr2FolderDiscoveryDirectories, lr2FolderDiscoveryDirectories))
+        {
+            return false;
+        }
+        if (!string.Equals(SafeFullPathOrOriginal(input.Lr2RootPath), SafeFullPathOrOriginal(Settings.Default.LR2RootPath), StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(SafeFullPathOrOriginal(input.Lr2RootCustomFolderOutputBaseDir), SafeFullPathOrOriginal(Settings.Default.LR2CustomFolderOutputBaseDirRootType), StringComparison.OrdinalIgnoreCase)
+            || !ArePathSetsEqual(input.Lr2BuiltinFolderSourceDirectories, CreateLr2FullGenerationBuiltinFolderSourceDirectories()))
         {
             return false;
         }
@@ -5392,11 +5407,7 @@ completeFileEnumerationOnce,
         candidates.AddRange(rootDirectories ?? []);
         candidates.Add(Settings.Default.LR2CustomFolderOutputBaseDir);
         candidates.Add(Settings.Default.LR2CustomFolderOutputBaseDirRootType);
-        if (!string.IsNullOrWhiteSpace(Settings.Default.LR2RootPath))
-        {
-            candidates.Add(Path.Combine(Settings.Default.LR2RootPath, "LR2files", "CustomFolder"));
-            candidates.Add(Path.Combine(Settings.Default.LR2RootPath, "LR2files", "Rival"));
-        }
+        candidates.AddRange(CreateLr2FullGenerationBuiltinFolderSourceDirectories());
 
         return [.. candidates
             .Where(path => !string.IsNullOrWhiteSpace(path) && Directory.Exists(path))
@@ -5428,12 +5439,33 @@ completeFileEnumerationOnce,
             .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)], discoveryComplete: true);
     }
 
+    private static List<string> CreateLr2FullGenerationBuiltinFolderSourceDirectories()
+    {
+        if (string.IsNullOrWhiteSpace(Settings.Default.LR2RootPath))
+        {
+            return [];
+        }
+
+        return [.. new[]
+            {
+                Path.Combine(Settings.Default.LR2RootPath, "LR2files", "CustomFolder"),
+                Path.Combine(Settings.Default.LR2RootPath, "LR2files", "Rival")
+            }
+            .Where(path => !string.IsNullOrWhiteSpace(path) && Directory.Exists(path))
+            .Select(Path.GetFullPath)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
+    }
+
     private sealed class Lr2FullGenerationBackfillInput(
         IReadOnlyList<string> rootDirectories,
         IReadOnlyList<string> chartPaths,
         IReadOnlyList<string> folderInfoFilePaths,
         IReadOnlyList<string> lr2FolderDiscoveryDirectories,
         IReadOnlyList<string> lr2FolderPruneDirectories,
+        string lr2RootPath,
+        string lr2RootCustomFolderOutputBaseDir,
+        IReadOnlyList<string> lr2BuiltinFolderSourceDirectories,
         IReadOnlyList<string> lr2FolderFilePaths,
         bool lr2FolderFileDiscoveryComplete,
         IReadOnlyList<BMSFile> songRows,
@@ -5451,6 +5483,12 @@ completeFileEnumerationOnce,
         public IReadOnlyList<string> Lr2FolderDiscoveryDirectories { get; } = lr2FolderDiscoveryDirectories ?? [];
 
         public IReadOnlyList<string> Lr2FolderPruneDirectories { get; } = lr2FolderPruneDirectories ?? [];
+
+        public string Lr2RootPath { get; } = lr2RootPath;
+
+        public string Lr2RootCustomFolderOutputBaseDir { get; } = lr2RootCustomFolderOutputBaseDir;
+
+        public IReadOnlyList<string> Lr2BuiltinFolderSourceDirectories { get; } = lr2BuiltinFolderSourceDirectories ?? [];
 
         public IReadOnlyList<string> Lr2FolderFilePaths { get; } = lr2FolderFilePaths ?? [];
 

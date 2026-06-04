@@ -26,6 +26,12 @@ internal sealed class Lr2FullGenerationBackfillRequest
 
     public IReadOnlyCollection<string> Lr2FolderPruneDirectories { get; set; } = [];
 
+    public string Lr2RootPath { get; set; }
+
+    public string Lr2RootCustomFolderOutputBaseDir { get; set; }
+
+    public IReadOnlyCollection<string> Lr2BuiltinFolderSourceDirectories { get; set; } = [];
+
     public bool Lr2FolderFileDiscoveryComplete { get; set; }
 
     public IReadOnlyCollection<BMSFile> SongRows { get; set; } = [];
@@ -206,7 +212,7 @@ internal static class Lr2FullGenerationBackfillService
         int lr2FolderFileProcessedCount = 0;
         if (lr2FolderDiscoveryDirectories.Count > 0)
         {
-            Lr2FolderFileSyncItemsResult syncItems = CreateLr2FolderFileSyncItems(lr2FolderFilePaths);
+            Lr2FolderFileSyncItemsResult syncItems = CreateLr2FolderFileSyncItems(lr2FolderFilePaths, request);
             lr2FolderFileResult = Lr2FolderFileDbSyncService.Sync(songDb, new Lr2FolderFileDbSyncRequest
             {
                 Items = syncItems.Items,
@@ -254,7 +260,8 @@ internal static class Lr2FullGenerationBackfillService
             songDb,
             roots,
             lr2FolderDiscoveryDirectories,
-            songRows);
+            songRows,
+            request.Lr2RootPath);
         string finalStage;
         string incompleteReason;
         if (!diagnosticResult.IsClean)
@@ -337,7 +344,8 @@ internal static class Lr2FullGenerationBackfillService
         LR2SongDBExtended songDb,
         IReadOnlyCollection<string> rootDirectories,
         IReadOnlyCollection<string> lr2FolderDiscoveryDirectories,
-        IReadOnlyCollection<BMSFile> currentSongRows)
+        IReadOnlyCollection<BMSFile> currentSongRows,
+        string lr2RootPath)
     {
         songDb.CreateTable<LR2SongDB.song>();
         songDb.CreateTable<LR2SongDB.folder>();
@@ -411,7 +419,7 @@ internal static class Lr2FullGenerationBackfillService
                 dateMissingFolderRowCount++;
             }
 
-            string diagnosticPath = NormalizeFolderDiagnosticPath(row.Path);
+            string diagnosticPath = NormalizeFolderDiagnosticPath(row.Path, lr2RootPath);
             if (string.IsNullOrWhiteSpace(diagnosticPath))
             {
                 continue;
@@ -484,7 +492,7 @@ internal static class Lr2FullGenerationBackfillService
         }
     }
 
-    private static string NormalizeFolderDiagnosticPath(string path)
+    private static string NormalizeFolderDiagnosticPath(string path, string lr2RootPath)
     {
         if (string.IsNullOrWhiteSpace(path))
         {
@@ -492,6 +500,12 @@ internal static class Lr2FullGenerationBackfillService
         }
         try
         {
+            string relativeLr2FolderPath = Lr2FolderFileProjection.NormalizeKnownRelativeLr2FolderPath(path);
+            if (!string.IsNullOrWhiteSpace(relativeLr2FolderPath) && !string.IsNullOrWhiteSpace(lr2RootPath))
+            {
+                return Path.GetFullPath(Path.Combine(lr2RootPath, relativeLr2FolderPath));
+            }
+
             return string.Equals(Path.GetExtension(path), ".lr2folder", StringComparison.OrdinalIgnoreCase)
                 ? Path.GetFullPath(path)
                 : Lr2FolderPath.NormalizeDirectoryPath(path);
@@ -502,7 +516,9 @@ internal static class Lr2FullGenerationBackfillService
         }
     }
 
-    private static Lr2FolderFileSyncItemsResult CreateLr2FolderFileSyncItems(IEnumerable<string> filePaths)
+    private static Lr2FolderFileSyncItemsResult CreateLr2FolderFileSyncItems(
+        IEnumerable<string> filePaths,
+        Lr2FullGenerationBackfillRequest request)
     {
         var items = new List<Lr2FolderFileSyncItem>();
         bool hasReadFailures = false;
@@ -513,7 +529,7 @@ internal static class Lr2FullGenerationBackfillService
                 continue;
             }
 
-            Lr2FolderFileSyncItem item = CreateLr2FolderFileSyncItem(filePath);
+            Lr2FolderFileSyncItem item = CreateLr2FolderFileSyncItem(filePath, request);
             if (item.LastWriteTimeUtc == null)
             {
                 hasReadFailures = true;
@@ -523,15 +539,27 @@ internal static class Lr2FullGenerationBackfillService
         return new Lr2FolderFileSyncItemsResult(items, hasReadFailures);
     }
 
-    private static Lr2FolderFileSyncItem CreateLr2FolderFileSyncItem(string filePath)
+    private static Lr2FolderFileSyncItem CreateLr2FolderFileSyncItem(
+        string filePath,
+        Lr2FullGenerationBackfillRequest request)
     {
+        Lr2FolderFileSourceClassification classification = Lr2FolderFileSourceClassifier.Classify(new Lr2FolderFileSourceClassificationRequest
+        {
+            FilePath = filePath,
+            Lr2RootPath = request?.Lr2RootPath,
+            RootCustomFolderOutputBaseDir = request?.Lr2RootCustomFolderOutputBaseDir,
+            BuiltinSourceDirectories = request?.Lr2BuiltinFolderSourceDirectories
+        });
         try
         {
             return new Lr2FolderFileSyncItem
             {
                 FilePath = filePath,
+                DatabasePath = classification.DatabasePath,
                 LastWriteTimeUtc = File.GetLastWriteTimeUtc(filePath),
-                Definition = Lr2FolderFileProjection.ParseDefinition(File.ReadLines(filePath, Encoding.GetEncoding("shift_jis")))
+                Definition = Lr2FolderFileProjection.ParseDefinition(File.ReadLines(filePath, Encoding.GetEncoding("shift_jis"))),
+                FolderType = classification.FolderType,
+                ParentHash = classification.ParentHash
             };
         }
         catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException || ex is DecoderFallbackException)
@@ -539,8 +567,11 @@ internal static class Lr2FullGenerationBackfillService
             return new Lr2FolderFileSyncItem
             {
                 FilePath = filePath,
+                DatabasePath = classification.DatabasePath,
                 LastWriteTimeUtc = null,
-                Definition = null
+                Definition = null,
+                FolderType = classification.FolderType,
+                ParentHash = classification.ParentHash
             };
         }
     }
