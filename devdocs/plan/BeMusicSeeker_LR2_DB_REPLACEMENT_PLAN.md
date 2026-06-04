@@ -984,6 +984,15 @@ parse directive:
     `longnote` / `random` / `karinotes` を反映する。
   - `song.judge` は LR2 の raw `#RANK` 値で、`chart_info.judge` は判定幅 percent なので写さない。
     `bga` / `exlevel` も現行 `chart_info` に直接の正本がないため、推測で埋めず、対応する parser fact を追加する cycle まで残す。
+- Phase 6 は段階的に追加する。
+  - まず DB 接続前の pure `Lr2FolderRowGenerator` を追加し、LR2 root / ancestor / chart directory から
+    normal `folder` row と generation scope path set を作る contract を固定する。
+  - `folderinfo.txt` は、この段階では caller が渡す metadata の `#TITLE` として扱い、file discovery / read は後続の
+    scan surface cycle に残す。
+  - 既存 `folder` row の `adddate` は path match で維持し、`date` は directory metadata mtime を正本にする。
+  - directory metadata mtime が取れない row は `date = NULL` で生成せず、metadata surface 側の欠落として扱う。
+  - CP932 非対応の directory row は生成せず、通常 BMS の `song.folder` / `song.parent` と同じく LR2 に踏ませない前提にする。
+  - generation scope 内 prune / DB upsert は generator contract が固まった後の cycle で接続する。
 
 ## 作業エージェント向け実装順
 
