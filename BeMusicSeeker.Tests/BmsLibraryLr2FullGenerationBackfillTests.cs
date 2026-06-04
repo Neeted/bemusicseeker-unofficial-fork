@@ -58,7 +58,8 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
             Directory.CreateDirectory(songDirectory);
             File.WriteAllText(Path.Combine(packDirectory, "folderinfo.txt"), "#TITLE Pack Title");
             string chartPath = Path.Combine(songDirectory, "chart.bms");
-            File.WriteAllText(chartPath, "*---------------------- HEADER FIELD");
+            File.WriteAllText(chartPath, "#TITLE Parsed Title\r\n#ARTIST Parsed Artist\r\n#BPM 120\r\n#00111:01\r\n");
+            ChartFileSnapshot chartSnapshot = ChartFileContentReader.ReadSnapshot(chartPath);
             string customFolderPath = Path.Combine(rootDirectory, "custom.lr2folder");
             File.WriteAllText(customFolderPath, "#TITLE Custom Folder");
 
@@ -68,8 +69,8 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
             {
                 path = chartPath
             };
-            file.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-            file.ApplySha256("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+            file.SetHash(chartSnapshot.Md5);
+            file.ApplySha256(chartSnapshot.Sha256);
             file.folder = "00000000";
             file.parent = "11111111";
             library.BMSFiles = [file];
@@ -149,6 +150,8 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
             string expectedSongFolderHash = Lr2SongFolderParentNormalizer.ComputeDirectoryHash(songDirectory);
             Assert.AreEqual(expectedSongFolderHash, verify.ExecuteScalar<string>("SELECT folder FROM song WHERE path = ?;", chartPath));
             Assert.IsFalse(string.IsNullOrWhiteSpace(verify.ExecuteScalar<string>("SELECT parent FROM song WHERE path = ?;", chartPath)));
+            Assert.AreEqual("Parsed Title", verify.ExecuteScalar<string>("SELECT title FROM song WHERE path = ?;", chartPath));
+            Assert.AreEqual("Parsed Artist", verify.ExecuteScalar<string>("SELECT artist FROM song WHERE path = ?;", chartPath));
             Assert.AreEqual(file.hash, verify.ExecuteScalar<string>("SELECT hash FROM song WHERE path = ?;", chartPath));
             Assert.AreEqual(3, verify.ExecuteScalar<int>("SELECT favorite FROM song WHERE path = ?;", chartPath));
             Assert.AreEqual(98765, verify.ExecuteScalar<int>("SELECT adddate FROM song WHERE path = ?;", chartPath));
@@ -235,7 +238,7 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
             Assert.AreEqual("Incomplete", row.status);
             Assert.AreEqual(Lr2FullGenerationBackfillService.RemainingStagesPendingReason, row.last_error);
             Assert.AreEqual(1, row.processed_cursor);
-            Assert.AreEqual(2, row.total_count);
+            Assert.AreEqual(1, row.total_count);
             Assert.AreEqual(0, verify.Table<LR2SongDB.folder>().ToList().Count);
             Assert.AreEqual(Lr2SongFolderParentNormalizer.ComputeDirectoryHash(songDirectory), verify.ExecuteScalar<string>("SELECT folder FROM song WHERE path = ?;", chartPath));
         }
@@ -243,6 +246,77 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
         {
             ResetTouchedSettings();
         }
+    }
+
+    [TestMethod]
+    public void BackfillService_FallsBackToSongCopyWhenChartSnapshotCannotBeRead()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        string songDirectory = Path.Combine(scope.DirectoryPath, "Missing");
+        Directory.CreateDirectory(songDirectory);
+        string missingChartPath = Path.Combine(songDirectory, "missing.bms");
+        var file = new TestableBmsFile
+        {
+            path = missingChartPath
+        };
+        file.SetTitleForTest("Existing Title");
+        file.SetArtistForTest("Existing Artist");
+        file.SetHash("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
+        file.ApplySha256("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+        file.folder = "stale-folder";
+        file.parent = "stale-parent";
+        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        songDb.CreateTable<LR2SongDB.song>();
+
+        Lr2FullGenerationBackfillResult result = Lr2FullGenerationBackfillService.Run(songDb, new Lr2FullGenerationBackfillRequest
+        {
+            Signature = "missing-song",
+            RunId = "missing-song",
+            SongRows = [file],
+            StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc)
+        });
+
+        Assert.AreEqual(1, result.SongRowProcessedCount);
+        Assert.AreEqual(1, result.SongRowParseFailureCount);
+        Assert.AreEqual(Lr2SongFolderParentNormalizer.ComputeDirectoryHash(songDirectory), songDb.ExecuteScalar<string>("SELECT folder FROM song WHERE path = ?;", missingChartPath));
+        Assert.AreEqual("Existing Title", songDb.ExecuteScalar<string>("SELECT title FROM song WHERE path = ?;", missingChartPath));
+        Assert.AreEqual("Existing Artist", songDb.ExecuteScalar<string>("SELECT artist FROM song WHERE path = ?;", missingChartPath));
+        Assert.AreEqual("stale-folder", file.folder);
+        Assert.AreEqual("stale-parent", file.parent);
+    }
+
+    [TestMethod]
+    public void BackfillService_ParsesSongRowsWithDetectedUtf8Encoding()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        string songDirectory = Path.Combine(scope.DirectoryPath, "Utf8");
+        Directory.CreateDirectory(songDirectory);
+        string chartPath = Path.Combine(songDirectory, "utf8.bms");
+        File.WriteAllText(chartPath, "#TITLE 解析タイトル\r\n#ARTIST 解析アーティスト\r\n", new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+        ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
+        var file = new TestableBmsFile
+        {
+            path = chartPath
+        };
+        file.SetHash(snapshot.Md5);
+        file.ApplySha256(snapshot.Sha256);
+        file.SetTitleForTest("Stale Title");
+        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        songDb.CreateTable<LR2SongDB.song>();
+
+        Lr2FullGenerationBackfillResult result = Lr2FullGenerationBackfillService.Run(songDb, new Lr2FullGenerationBackfillRequest
+        {
+            Signature = "utf8-song",
+            RunId = "utf8-song",
+            SongRows = [file],
+            StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc)
+        });
+
+        Assert.AreEqual(1, result.SongRowProcessedCount);
+        Assert.AreEqual(0, result.SongRowParseFailureCount);
+        Assert.AreEqual("解析タイトル", songDb.ExecuteScalar<string>("SELECT title FROM song WHERE path = ?;", chartPath));
+        Assert.AreEqual("解析アーティスト", songDb.ExecuteScalar<string>("SELECT artist FROM song WHERE path = ?;", chartPath));
+        Assert.AreEqual("Stale Title", file.title);
     }
 
     [TestMethod]
@@ -450,6 +524,16 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
         public void SetFavorite(int? value)
         {
             favorite = value;
+        }
+
+        public void SetTitleForTest(string value)
+        {
+            title = value;
+        }
+
+        public void SetArtistForTest(string value)
+        {
+            artist = value;
         }
 
         public TestableBmsFile WithHashAndFavorite(string hashValue, int? favoriteValue)

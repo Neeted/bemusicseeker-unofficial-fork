@@ -4993,6 +4993,7 @@ completeFileEnumerationOnce,
                 + " lr2FolderSkippedMissingMetadata=" + (result.Lr2FolderFileSyncResult?.SkippedMissingMetadataCount ?? 0)
                 + " lr2FolderProcessed=" + result.Lr2FolderFileProcessedCount
                 + " songRowProcessed=" + result.SongRowProcessedCount
+                + " songRowParseFailed=" + result.SongRowParseFailureCount
                 + " processed=" + result.ProcessedCount
                 + " total=" + result.TotalCount
                 + " stage=" + result.FinalStage

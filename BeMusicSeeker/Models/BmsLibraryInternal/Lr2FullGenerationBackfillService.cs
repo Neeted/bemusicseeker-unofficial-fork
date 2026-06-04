@@ -51,6 +51,8 @@ internal sealed class Lr2FullGenerationBackfillResult
 
     public int SongRowProcessedCount { get; set; }
 
+    public int SongRowParseFailureCount { get; set; }
+
     public long ElapsedMs { get; set; }
 }
 
@@ -91,7 +93,10 @@ internal static class Lr2FullGenerationBackfillService
             .Distinct(StringComparer.OrdinalIgnoreCase)];
         List<BMSFile> songRows = [.. (request.SongRows ?? [])
             .Where(file => file != null && !string.IsNullOrWhiteSpace(file.path))];
-        int totalCount = roots.Count + chartPaths.Count + folderInfoFilePaths.Count + lr2FolderFilePaths.Count + songRows.Count;
+        int normalFolderTargetCount = roots.Count > 0
+            ? roots.Count + chartPaths.Count + folderInfoFilePaths.Count
+            : 0;
+        int totalCount = normalFolderTargetCount + lr2FolderFilePaths.Count + songRows.Count;
 
         Lr2FullGenerationStatusService.MarkRunning(
             songDb,
@@ -113,7 +118,7 @@ internal static class Lr2FullGenerationBackfillService
                 AllowPrune = true,
                 GeneratedAtUtc = request.StartedAtUtc
             });
-            normalFolderProcessedCount = roots.Count + chartPaths.Count + folderInfoFilePaths.Count;
+            normalFolderProcessedCount = normalFolderTargetCount;
         }
 
         Lr2FullGenerationStatusService.UpdateCursor(
@@ -170,8 +175,8 @@ internal static class Lr2FullGenerationBackfillService
             stage: "song_rows",
             nowUtc: DateTime.UtcNow);
 
-        int songRowProcessedCount = UpsertSongRows(songDb, songRows);
-        int processedCount = folderProcessedCount + songRowProcessedCount;
+        SongRowBackfillResult songRowResult = UpsertSongRows(songDb, songRows);
+        int processedCount = folderProcessedCount + songRowResult.ProcessedCount;
 
         Lr2FullGenerationStatusService.UpdateCursor(
             songDb,
@@ -202,7 +207,8 @@ internal static class Lr2FullGenerationBackfillService
             NormalFolderSyncResult = normalFolderResult,
             Lr2FolderFileSyncResult = lr2FolderFileResult,
             Lr2FolderFileProcessedCount = lr2FolderFileProcessedCount,
-            SongRowProcessedCount = songRowProcessedCount,
+            SongRowProcessedCount = songRowResult.ProcessedCount,
+            SongRowParseFailureCount = songRowResult.ParseFailureCount,
             ElapsedMs = stopwatch.ElapsedMilliseconds
         };
     }
@@ -259,11 +265,31 @@ internal static class Lr2FullGenerationBackfillService
         public bool HasReadFailures { get; } = hasReadFailures;
     }
 
-    private static int UpsertSongRows(LR2SongDBExtended songDb, IReadOnlyCollection<BMSFile> songRows)
+    private static SongRowBackfillResult UpsertSongRows(LR2SongDBExtended songDb, IReadOnlyCollection<BMSFile> songRows)
     {
         if (songRows == null || songRows.Count == 0)
         {
-            return 0;
+            return new SongRowBackfillResult(0, 0);
+        }
+
+        var rowsToWrite = new List<BMSFile>();
+        int parseFailureCount = 0;
+        foreach (BMSFile song in songRows.Where(song => song != null && !string.IsNullOrWhiteSpace(song.path)))
+        {
+            BMSFile row = CreateBackfillSongRow(song, out bool parsedFromSnapshot);
+            if (row == null || string.IsNullOrWhiteSpace(row.path))
+            {
+                continue;
+            }
+            if (!parsedFromSnapshot)
+            {
+                parseFailureCount++;
+            }
+            rowsToWrite.Add(row);
+        }
+        if (rowsToWrite.Count == 0)
+        {
+            return new SongRowBackfillResult(0, parseFailureCount);
         }
 
         BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
@@ -272,12 +298,8 @@ internal static class Lr2FullGenerationBackfillService
         songDb.BeginTransaction();
         try
         {
-            foreach (BMSFile song in songRows)
+            foreach (BMSFile song in rowsToWrite)
             {
-                if (song == null || string.IsNullOrWhiteSpace(song.path))
-                {
-                    continue;
-                }
                 Lr2SongDbWriter.UpsertGeneratedSong(songDb, song);
                 processed++;
             }
@@ -288,6 +310,66 @@ internal static class Lr2FullGenerationBackfillService
             songDb.Rollback();
             throw;
         }
-        return processed;
+        return new SongRowBackfillResult(processed, parseFailureCount);
+    }
+
+    private static BMSFile CreateBackfillSongRow(BMSFile existingSong, out bool parsedFromSnapshot)
+    {
+        parsedFromSnapshot = false;
+        if (existingSong == null || string.IsNullOrWhiteSpace(existingSong.path))
+        {
+            return null;
+        }
+
+        try
+        {
+            ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(existingSong.path);
+            BMSFile.BmsEncodingDetectionResult detectionResult = BMSFile.DetectEncodingOfBMSFileDetailed(snapshot);
+            string encodingName = ResolveSafeBackfillParseEncoding(detectionResult);
+            if (string.IsNullOrWhiteSpace(encodingName))
+            {
+                return existingSong.CreateSongRowPersistenceCopy();
+            }
+
+            BMSFile parsed = BMSFile.CreateBMSFileFromSnapshot(snapshot, encodingName);
+            Lr2SongRowEnricher.EnrichParsedSong(
+                parsed,
+                snapshot,
+                existingSong.txt.GetValueOrDefault(),
+                existingSong);
+            parsedFromSnapshot = true;
+            return parsed;
+        }
+        catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException || ex is DecoderFallbackException)
+        {
+            return existingSong.CreateSongRowPersistenceCopy();
+        }
+    }
+
+    private static string ResolveSafeBackfillParseEncoding(BMSFile.BmsEncodingDetectionResult detectionResult)
+    {
+        if (detectionResult == null)
+        {
+            return null;
+        }
+        if (detectionResult.Outcome == BMSFile.EncodingDetectionOutcome.Unknown
+            || detectionResult.Outcome == BMSFile.EncodingDetectionOutcome.Other)
+        {
+            return null;
+        }
+
+        string encodingName = detectionResult.EncodingName;
+        if (string.IsNullOrWhiteSpace(encodingName))
+        {
+            return null;
+        }
+        return encodingName.TrimEnd('?');
+    }
+
+    private sealed class SongRowBackfillResult(int processedCount, int parseFailureCount)
+    {
+        public int ProcessedCount { get; } = processedCount;
+
+        public int ParseFailureCount { get; } = parseFailureCount;
     }
 }

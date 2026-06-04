@@ -1062,20 +1062,23 @@ parse directive:
   実装済み stage を進めたうえで残 stage がある場合は `Incomplete` として再開可能にする。
   最初の実 runner は normal folder stage を実行し、current owned BMS path snapshot と LR2 BMS root から
   root / ancestor / chart directory `folder` row を sync する。`folderinfo.txt` は normal folder generator と同じ
-  metadata target から候補を作る。続いて current owned `BMSFile` から persistence 用 copy を作り、live UI row を
-  変更せずに `song.folder` / `song.parent` などの generated columns と `chart_digest_map` を backfill する。
+  metadata target から候補を作る。続いて current owned `BMSFile` から persistence 用 copy を作り、可能なら
+  `ChartFileSnapshot` から BMS を再 parse して、live UI row を変更せずに `song` generated columns と
+  `chart_digest_map` を backfill する。再 parse は snapshot の encoding detection 結果を使い、encoding が
+  `unknown` / unsupported の場合は既存 row copy に fallback して文字化けした metadata を永続化しない。
   persistence 用 copy では live row の `folder` / `parent` が形式上 valid でも path と一致する保証がないため、
   これらを空にして `Lr2SongRowEnricher` に再生成させる。
   さらに LR2 BMS root、通常 custom folder 出力 base、root custom folder 出力 base 配下の `.lr2folder` は
   `RootFileEnumerationService` の Everything/fallback path で discovery し、`Lr2FolderFileDbSyncService` へ渡して
   `folder.type = 2` row を sync する。stale prune scope は LR2 BMS root に限定し、custom folder 出力 base は
   discovery-only とする。playlist 出力先の exact prune は既存の playlist output workflow が担当する。
-  LR2 built-in custom folder source の discovery root 追加は後続 cycle で接続する。
+  LR2 built-in custom folder source (`LR2files\CustomFolder` / `LR2files\Rival`) も discovery root に含める。
   `.lr2folder` prune は discovery surface が complete で、かつ発見した各 file を読み取れた場合だけ許可する。
   enumeration failure や一時的な file read failure がある場合、その回は upsert のみにして既存 row を消さない。
-  この段階はファイル再読込・全 parse backfill ではないため、sync 後も `Completed` にはせず、`Incomplete`
-  (`remaining_backfill_stages_not_implemented`) を記録する。任意 `.lr2folder` discovery、
-  startup-scan blocker diagnostic、必要な full parse backfill が入るまで完全生成完了とは扱わない。
+  file read / parse に失敗した row は persistence copy の folder/parent 再生成に fallback し、失敗で既存 DB row を消さない。
+  この段階は chart_info / LR2 compatibility warning / text group source の完全統合前であるため、sync 後も `Completed` にはせず、`Incomplete`
+  (`remaining_backfill_stages_not_implemented`) を記録する。startup-scan blocker diagnostic と、
+  chart_info / LR2 compatibility warning / text group source が入るまで完全生成完了とは扱わない。
   status signature は normalized / deduplicated / case-insensitive な LR2 BMS root set を含める。
   加えて `.lr2folder` discovery root set も含める。root set が変わった場合は既存 `Completed` を信用せず、
   backfill needed として再評価する。
