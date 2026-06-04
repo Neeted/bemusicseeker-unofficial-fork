@@ -90,7 +90,8 @@ database / executable path が有効に解決できる状態を指す。
 - 完全生成が有効:
   - BMS の変更検出に必要な chart mtime / size / hash 判定を行う。
   - BMS chart directory 直下の text group を列挙する。
-  - `.lr2folder` と `folderinfo.txt` を LR2 `folder` テーブル生成の入力として扱う。
+  - BeMusicSeeker 管理外の `.lr2folder`、BeMusicSeeker 管理の `.lr2folder`、
+    `folderinfo.txt` を LR2 `folder` テーブル生成の入力として扱う。
   - root folder と BMS chart ancestor directory の mtime を取得する。
   - LR2 互換性 warning 用に CP932 変換可否と CP932 byte length を評価する。
 
@@ -170,6 +171,7 @@ SELECT path,date FROM folder WHERE parent = ROOT OR date = 0
 - 現在の `ChartScanResult` は chart path / chart directory / audio/image/movie の
   resource hash を持つ。
 - 現在の `ChartScanResult` は file mtime、directory mtime、`.txt` 有無を持たない。
+- 現在の chart/resource scan surface は `.lr2folder` discovery を正本として持たない。
 - `ChartFileSnapshot` には file bytes、MD5、SHA256、`LastWriteTimeUtc` がある。
 - `BMSFile.CreateBMSFileFromSnapshot` は軽量パーサー。
 - 軽量パーサーは `#WAVxx`、`#BMPxx`、主要メタデータ、`#STAGEFILE`、
@@ -279,8 +281,8 @@ row が残ると、manual-only でも LR2 が不要な scan に入る。
 
 方針:
 
-- BeMusicSeeker が生成する normal folder row と BeMusicSeeker が出力した `.lr2folder` row を
-  app-owned として扱う。
+- BeMusicSeeker が生成する normal folder row、managed `.lr2folder` row、
+  external `.lr2folder` 由来の派生 row を app-owned として扱う。
 - app-owned row の管理には app-owned manifest table を必ず追加する。
   - 例: `lr2_generated_folder_manifest(path TEXT PRIMARY KEY, kind TEXT, source_key TEXT, updated_at INTEGER)`
   - 未リリース前提でも、stale pruning、resume、rollback のために所有権を明示する。
@@ -290,17 +292,29 @@ row が残ると、manual-only でも LR2 が不要な scan に入る。
   root / ancestor row は初回 backfill 時に app-owned として採用する。
 - root / ancestor / normal folder row は、現在の LR2 BMS root と BMS chart directory set から
   deterministic に再生成する。
-- `.lr2folder` row は、BeMusicSeeker が出力・管理する custom folder を中心に扱う。
-- LR2 root 配下の任意 `.lr2folder` を広域探索しない。
-- `.lr2folder` の parse 対象は BeMusicSeeker-owned manifest と既知 playlist 出力に限定する。
-- 任意 `.lr2folder` の広域探索はこの計画では実装しない。必要になった場合は、source ownership
-  と明示設定を持つ別機能として計画する。
+- `.lr2folder` row は source ownership を分けて扱う。
+  - `managed_lr2folder`: BeMusicSeeker がプレイリスト出力として生成・削除する `.lr2folder`。
+    実ファイルと DB row の両方を BeMusicSeeker が管理する。
+  - `external_lr2folder`: LR2 BMS root 配下から discovery した任意 `.lr2folder`。
+    実ファイルは管理外だが、LR2 起動時 scan 抑止のための `folder` row は
+    BeMusicSeeker が派生生成・更新・prune する。
+- external `.lr2folder` discovery は、完全生成有効時だけ行う。
+- discovery root は LR2 BMS search root から作る。ただし BeMusicSeeker の custom folder 出力 base は
+  discovery 対象から除外する。
+  - 通常出力先 `LR2CustomFolderOutputBaseDir`
+  - ルート出力先 `LR2CustomFolderOutputBaseDirRootType`
+- 出力 base は BMS / bmson と混在しない前提の出力専用領域として扱い、chart scan root からも除外する。
+  overlap が検出された場合は設定 warning を出し、出力 base 側を優先して除外する。
+- Everything query には exclude query 概念を追加しない。root / extension / filename を調整して
+  `.lr2folder` file surface を取得し、managed fallback と同じ結果側正規化・出力 base filter を必ず通す。
 
 削除ルール:
 
 - 生成対象から消えた app-owned normal folder row は削除する。
 - BeMusicSeeker が出力した `.lr2folder` を削除した場合、対応する app-owned `folder` row も削除する。
-- ユーザー管理かどうか不明な `.lr2folder` row は削除しない。
+- external discovery で見つからなくなった `external_lr2folder` row は削除する。実 `.lr2folder` ファイルは
+  BeMusicSeeker から削除しない。
+- manifest がなく、ユーザー管理かどうか不明な `.lr2folder` row は削除しない。
 - unknown root row または `date = 0` row が残り、LR2 startup scan 抑止に影響する場合は
   silent retention しない。初期実装では自動削除せず warning と起動前 block の対象にし、
   cleanup は明示操作として別導線で実行する。
@@ -318,7 +332,7 @@ LR2 compatibility warning は BMS のみを対象にする。bmson は対象外�
 - BMS chart file path
 - BMS chart directory の `folder\*.*` scan path
 - BMS resource reference の resolved path
-- BMS root folder / ancestor folder / BeMusicSeeker-owned `.lr2folder`
+- BMS root folder / ancestor folder / managed `.lr2folder` / external discovered `.lr2folder`
 - shared `maintenance` table の LR2 columns は bmson row では `NULL` / ignored とし、
   projection 側でも chart kind gate を置く。
 
@@ -604,6 +618,8 @@ scope:
 - BMS chart directories
 - directory mtime
 - `folderinfo.txt`
+- external discovered `.lr2folder`
+- managed `.lr2folder` output paths
 - existing folder rows
 - app-owned folder manifest
 
@@ -613,6 +629,9 @@ scope:
 - root / ancestor / BMS chart directory を unique directory set に dedupe してから metadata を取得する。
 - directory metadata と `folderinfo.txt` / `.lr2folder` existence は Everything / managed fallback で
   意味が揃うよう parity test を置く。
+- `LR2CustomFolderOutputBaseDir` / `LR2CustomFolderOutputBaseDirRootType` は chart scan root と
+  external `.lr2folder` discovery root から除外する。Everything query に exclude DSL は追加せず、
+  root / extension / filename の組み合わせと結果側 filter で managed fallback と意味を揃える。
 
 生成ルール:
 
@@ -637,14 +656,16 @@ scope:
 
 目的:
 
-- BeMusicSeeker が出力した `.lr2folder` を LR2 scan に任せず `folder` table へ同期する。
+- BeMusicSeeker が出力した `.lr2folder` と、LR2 BMS root 配下の任意 `.lr2folder` を
+  LR2 scan に任せず `folder` table へ同期する。
 
 対象:
 
-- BeMusicSeeker が出力・管理する `.lr2folder`。
-- LR2 root 配下の任意 `.lr2folder` の全探索は初期対象にしない。
-- parse 対象は BeMusicSeeker-owned manifest と既知 playlist 出力に限定する。
-- 任意 `.lr2folder` の広域探索はこの計画では実装しない。
+- `managed_lr2folder`: BeMusicSeeker が出力・管理する `.lr2folder`。
+- `external_lr2folder`: LR2 BMS root 配下から discovery した任意 `.lr2folder`。
+- discovery では `LR2CustomFolderOutputBaseDir` / `LR2CustomFolderOutputBaseDirRootType` 配下を除外する。
+- external `.lr2folder` は実ファイルを管理せず、manifest 管理する派生 `folder` row だけを
+  update / prune する。
 
 parse directive:
 
@@ -662,6 +683,9 @@ parse directive:
 
 - playlist 由来 `.lr2folder` 出力で `folder` row が入る。
 - `.lr2folder` 削除で app-owned row が消える。
+- external discovered `.lr2folder` で `folder` row が入る。
+- external `.lr2folder` が消えた場合は派生 `folder` row だけが消え、実ファイル削除は行わない。
+- 通常出力先 / ルート出力先配下の `.lr2folder` は external discovery に混ざらない。
 - unknown `.lr2folder` row は誤削除しない。
 - Shift_JIS 出力した `.lr2folder` を同じ解釈で parse できる。
 
@@ -764,6 +788,13 @@ parse directive:
 - `banner`: `#BANNER`。
 - `parent`: root は ROOT CRC、それ以外は containing folder CRC。
 - `date`: directory または `.lr2folder` file mtime の Unix 秒。
+
+`folder` row の source ownership:
+
+- `normal_folder`: LR2 root / ancestor / chart directory から生成した row。
+- `managed_lr2folder`: BeMusicSeeker が出力した `.lr2folder` から生成した row。
+- `external_lr2folder`: LR2 BMS root 配下で discovery した管理外 `.lr2folder` から生成した row。
+  実ファイルは管理せず、DB row だけを派生 cache として管理する。
 - `max`: `#MAXTRACKS` または `#PLAYLEVEL`。なければ `0`。
 - `adddate`: 新規 row は現在時刻。既存 row は維持。
 
@@ -796,7 +827,7 @@ parse directive:
 7. `Lr2CompatibilityWarningProjection` を追加する。
 8. `Lr2SongRowEnricher` を追加し、BMS file diff path に組み込む。
 9. `Lr2FolderRowGenerator` と folder ownership manifest を追加する。
-10. `.lr2folder` parser と app-owned `folder` row sync を追加する。
+10. `.lr2folder` parser、external discovery、app-owned `folder` row sync を追加する。
 11. LR2 起動前 workflow と backfill progress / warning を追加する。
 12. migration / backfill を追加する。
 13. コピーした `song.db` で統合確認する。
