@@ -259,6 +259,14 @@ public class Resources
 
     public static string Keep_beatoraja_bmt_files_when_output_disabled => ResourceManager.GetString("Keep_beatoraja_bmt_files_when_output_disabled", resourceCulture);
 
+    public static string Beatoraja_bmt_hash_output_mode => ResourceManager.GetString("Beatoraja_bmt_hash_output_mode", resourceCulture);
+
+    public static string Beatoraja_bmt_hash_output_original => ResourceManager.GetString("Beatoraja_bmt_hash_output_original", resourceCulture);
+
+    public static string Beatoraja_bmt_hash_output_fill_missing => ResourceManager.GetString("Beatoraja_bmt_hash_output_fill_missing", resourceCulture);
+
+    public static string Beatoraja_bmt_hash_output_prefer_sha256_only => ResourceManager.GetString("Beatoraja_bmt_hash_output_prefer_sha256_only", resourceCulture);
+
     public static string FilePath_songDB => ResourceManager.GetString("FilePath_songDB", resourceCulture);
 
     public static string FilePath_StageFile => ResourceManager.GetString("FilePath_StageFile", resourceCulture);

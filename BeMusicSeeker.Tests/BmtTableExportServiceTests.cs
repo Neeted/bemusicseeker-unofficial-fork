@@ -114,6 +114,85 @@ public sealed class BmtTableExportServiceTests
 
     [TestMethod]
     [TestCategory("Playlist")]
+    public void BuildTableData_OriginalHashModeDoesNotUseResolver()
+    {
+        var table = new BMSTable
+        {
+            name = "Local Table",
+            playlist_id = 45,
+            Folder_order = ["Alpha"],
+            entries =
+            [
+                new BMSTableEntry(DynamicJson.Parse("{\"title\":\"Md5 Only\",\"md5\":\"" + Md5A + "\",\"level\":\"Alpha\"}")),
+                new BMSTableEntry(DynamicJson.Parse("{\"title\":\"Sha Only\",\"sha256\":\"" + Sha256B + "\",\"level\":\"Alpha\"}"))
+            ]
+        };
+        var resolver = new TestSongHashResolver(new Dictionary<string, Tuple<string, string>>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Md5 Only"] = Tuple.Create(Md5A, Sha256A),
+            ["Sha Only"] = Tuple.Create(Md5B, Sha256B)
+        });
+
+        JObject json = BmtTableExportService.BuildTableData(table, resolver, BeatorajaBmtHashOutputMode.Original);
+
+        JToken md5Only = json["folder"]![0]!["songs"]![0]!;
+        JToken shaOnly = json["folder"]![0]!["songs"]![1]!;
+        Assert.AreEqual(Md5A, md5Only.Value<string>("md5"));
+        Assert.IsNull(md5Only["sha256"]);
+        Assert.IsNull(shaOnly["md5"]);
+        Assert.AreEqual(Sha256B, shaOnly.Value<string>("sha256"));
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public void BuildTableData_PreferSha256OnlyModeKeepsMd5WhenSha256Unavailable()
+    {
+        var table = new BMSTable
+        {
+            name = "Local Table",
+            playlist_id = 46,
+            Folder_order = ["Alpha"],
+            entries =
+            [
+                new BMSTableEntry(DynamicJson.Parse("{\"title\":\"Md5 Resolved\",\"md5\":\"" + Md5A + "\",\"level\":\"Alpha\"}")),
+                new BMSTableEntry(DynamicJson.Parse("{\"title\":\"Md5 Unresolved\",\"md5\":\"" + Md5B + "\",\"level\":\"Alpha\"}")),
+                new BMSTableEntry(DynamicJson.Parse("{\"title\":\"Sha Only\",\"sha256\":\"" + Sha256B + "\",\"level\":\"Alpha\"}")),
+                new BMSTableEntry(DynamicJson.Parse("{\"title\":\"Both\",\"md5\":\"33333333333333333333333333333333\",\"sha256\":\"" + new string('c', 64) + "\",\"level\":\"Alpha\"}"))
+            ]
+        };
+        var resolver = new TestSongHashResolver(new Dictionary<string, Tuple<string, string>>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Md5 Resolved"] = Tuple.Create(Md5A, Sha256A),
+            ["Md5 Unresolved"] = Tuple.Create(Md5B, string.Empty)
+        });
+
+        JObject json = BmtTableExportService.BuildTableData(table, resolver, BeatorajaBmtHashOutputMode.PreferSha256Only);
+
+        JToken md5Resolved = json["folder"]![0]!["songs"]![0]!;
+        JToken md5Unresolved = json["folder"]![0]!["songs"]![1]!;
+        JToken shaOnly = json["folder"]![0]!["songs"]![2]!;
+        JToken both = json["folder"]![0]!["songs"]![3]!;
+        Assert.IsNull(md5Resolved["md5"]);
+        Assert.AreEqual(Sha256A, md5Resolved.Value<string>("sha256"));
+        Assert.AreEqual(Md5B, md5Unresolved.Value<string>("md5"));
+        Assert.IsNull(md5Unresolved["sha256"]);
+        Assert.IsNull(shaOnly["md5"]);
+        Assert.AreEqual(Sha256B, shaOnly.Value<string>("sha256"));
+        Assert.IsNull(both["md5"]);
+        Assert.AreEqual(new string('c', 64), both.Value<string>("sha256"));
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public void NormalizeHashOutputMode_InvalidValueFallsBackToOriginal()
+    {
+        Assert.AreEqual(BeatorajaBmtHashOutputMode.Original, BmtTableExportService.NormalizeHashOutputMode(null));
+        Assert.AreEqual(BeatorajaBmtHashOutputMode.Original, BmtTableExportService.NormalizeHashOutputMode("unknown"));
+        Assert.AreEqual(BeatorajaBmtHashOutputMode.FillMissingMd5Sha256, BmtTableExportService.NormalizeHashOutputMode("FillMissingMd5Sha256"));
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
     public void BuildTableData_GroupsFolderSongsWithoutChangingFolderOrEntryOrder()
     {
         var table = new BMSTable

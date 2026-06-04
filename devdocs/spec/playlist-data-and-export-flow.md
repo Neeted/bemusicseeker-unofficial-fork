@@ -148,7 +148,7 @@ top-level:
 
 出力ファイル名は `SHA-256(TableData.url) + ".bmt"`。
 
-song は `title` と `md5` / `sha256` のどちらかを持つ行だけ出力する。folder song では DB row に保存された hash を第一候補にし、selected-key で所持 chart または chart_info を解決できる場合だけ、欠けている counterpart hash を `.bmt` 出力 projection 上で補完する。md5 と sha256 が別 chart を指す場合は md5 を正本にし、危険な counterpart 補完は行わない。course は header source JSON の hash だけを出力し、補完対象にしない。対応範囲で `artist`、`url`、`appendurl`、`ipfs`、`appendipfs`、`org_md5` を出力する。空 folder は出力しない。folder と course が両方空の table は出力しない。
+song は `title` と `md5` / `sha256` のどちらかを持つ行だけ出力する。folder song の hash 出力は `BeatorajaBmtHashOutputMode` で切り替える。`Original` は DB row に保存された hash だけをそのまま出力する。`FillMissingMd5Sha256` は DB row に保存された hash を第一候補にし、selected-key で所持 chart または chart_info を解決できる場合だけ、欠けている counterpart hash を `.bmt` 出力 projection 上で補完する。md5 と sha256 が別 chart を指す場合は md5 を正本にし、危険な counterpart 補完は行わない。`PreferSha256Only` は sha256 を出せる song では md5 を省略して sha256 のみを出力し、sha256 を解決できない md5 row は譜面を落とさず md5 のまま出力する。既定値は `Original`。course は header source JSON の hash だけを出力し、全 mode で補完対象にしない。対応範囲で `artist`、`url`、`appendurl`、`ipfs`、`appendipfs`、`org_md5` を出力する。空 folder は出力しない。folder と course が両方空の table は出力しない。
 
 外部表の `folder[].name` は header `tag` 優先、無ければ `symbol`、最後に `compat_prefix` を使い、`tag + compatibleLevel` 形式にする。ローカル表は既存 folder 名をそのまま使う。
 

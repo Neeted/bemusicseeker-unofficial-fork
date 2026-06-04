@@ -568,6 +568,8 @@ public class MainWindowViewModel : ViewModel
 
         private bool tempKeepBeatorajaBmtFilesWhenOutputDisabled;
 
+        private string tempBeatorajaBmtHashOutputMode;
+
         private string tempBeatorajaBmtTablePath;
 
         private bool tempRegisterBeatorajaBmtUrls;
@@ -617,6 +619,8 @@ public class MainWindowViewModel : ViewModel
         private string tempAppearanceTheme;
 
         private readonly IReadOnlyList<AppearanceThemeOption> appearanceThemeOptions;
+
+        private readonly IReadOnlyList<BeatorajaBmtHashOutputModeOption> beatorajaBmtHashOutputModeOptions;
 
         private bool tempShowScoreViewerRegisterConfirmMsg;
 
@@ -1645,6 +1649,61 @@ public class MainWindowViewModel : ViewModel
             }
         }
 
+        public sealed class BeatorajaBmtHashOutputModeOption : ViewModel
+        {
+            internal BeatorajaBmtHashOutputModeOption(BeMusicSeeker.Models.BeatorajaBmtHashOutputMode mode)
+            {
+                Key = mode.ToString();
+            }
+
+            public string Key { get; }
+
+            public string DisplayName
+            {
+                get
+                {
+                    BeMusicSeeker.Models.BeatorajaBmtHashOutputMode mode = BmtTableExportService.NormalizeHashOutputMode(Key);
+                    return mode switch
+                    {
+                        BeMusicSeeker.Models.BeatorajaBmtHashOutputMode.FillMissingMd5Sha256 => BeMusicSeeker.Properties.Resources.Beatoraja_bmt_hash_output_fill_missing,
+                        BeMusicSeeker.Models.BeatorajaBmtHashOutputMode.PreferSha256Only => BeMusicSeeker.Properties.Resources.Beatoraja_bmt_hash_output_prefer_sha256_only,
+                        _ => BeMusicSeeker.Properties.Resources.Beatoraja_bmt_hash_output_original
+                    };
+                }
+            }
+
+            internal void RefreshDisplayName()
+            {
+                RaisePropertyChanged(() => DisplayName);
+            }
+        }
+
+        public IReadOnlyList<BeatorajaBmtHashOutputModeOption> BeatorajaBmtHashOutputModeOptions
+        {
+            get
+            {
+                return beatorajaBmtHashOutputModeOptions;
+            }
+        }
+
+        public string BeatorajaBmtHashOutputMode
+        {
+            get
+            {
+                return BmtTableExportService.NormalizeHashOutputMode(Settings.Default.BeatorajaBmtHashOutputMode).ToString();
+            }
+            set
+            {
+                string normalizedValue = BmtTableExportService.NormalizeHashOutputMode(value).ToString();
+                if (Settings.Default.BeatorajaBmtHashOutputMode != normalizedValue)
+                {
+                    Settings.Default.BeatorajaBmtHashOutputMode = normalizedValue;
+                    RaisePropertyChanged("BeatorajaBmtHashOutputMode");
+                    RaiseValidationStateChanged();
+                }
+            }
+        }
+
         public string AppearanceTheme
         {
             get
@@ -2513,6 +2572,12 @@ public class MainWindowViewModel : ViewModel
                 new AppearanceThemeOption(AppThemeService.Light),
                 new AppearanceThemeOption(AppThemeService.Dark)
             ];
+            beatorajaBmtHashOutputModeOptions =
+            [
+                new BeatorajaBmtHashOutputModeOption(BeMusicSeeker.Models.BeatorajaBmtHashOutputMode.Original),
+                new BeatorajaBmtHashOutputModeOption(BeMusicSeeker.Models.BeatorajaBmtHashOutputMode.FillMissingMd5Sha256),
+                new BeatorajaBmtHashOutputModeOption(BeMusicSeeker.Models.BeatorajaBmtHashOutputMode.PreferSha256Only)
+            ];
             ownerViewModelEventListener = new PropertyChangedEventListener(ownerViewModel);
             ownerViewModelEventListener.RegisterHandler(() => owner.BMSTables, delegate
             {
@@ -2531,6 +2596,10 @@ public class MainWindowViewModel : ViewModel
             resourceServiceEventListener.RegisterHandler(() => ResourceService.Current.Resources, delegate
             {
                 foreach (AppearanceThemeOption option in settingDialogViewModel.appearanceThemeOptions)
+                {
+                    option.RefreshDisplayName();
+                }
+                foreach (BeatorajaBmtHashOutputModeOption option in settingDialogViewModel.beatorajaBmtHashOutputModeOptions)
                 {
                     option.RefreshDisplayName();
                 }
@@ -3366,6 +3435,7 @@ public class MainWindowViewModel : ViewModel
             tempBeatorajaScoreDbPath = Settings.Default.BeatorajaScoreDbPath;
             tempEnableBeatorajaBmtOutput = Settings.Default.EnableBeatorajaBmtOutput;
             tempKeepBeatorajaBmtFilesWhenOutputDisabled = Settings.Default.KeepBeatorajaBmtFilesWhenOutputDisabled;
+            tempBeatorajaBmtHashOutputMode = BeatorajaBmtHashOutputMode;
             tempBeatorajaBmtTablePath = Settings.Default.BeatorajaBmtTablePath;
             tempRegisterBeatorajaBmtUrls = Settings.Default.RegisterBeatorajaBmtUrls;
             tempBMSRootPath = Settings.Default.BMSRootPath;
@@ -3525,6 +3595,7 @@ public class MainWindowViewModel : ViewModel
             }
             if (tempEnableBeatorajaBmtOutput != Settings.Default.EnableBeatorajaBmtOutput
                 || tempKeepBeatorajaBmtFilesWhenOutputDisabled != Settings.Default.KeepBeatorajaBmtFilesWhenOutputDisabled
+                || !string.Equals(tempBeatorajaBmtHashOutputMode, BeatorajaBmtHashOutputMode, StringComparison.Ordinal)
                 || tempRegisterBeatorajaBmtUrls != Settings.Default.RegisterBeatorajaBmtUrls
                 || !string.Equals(tempBeatorajaRootPath, Settings.Default.BeatorajaRootPath, StringComparison.OrdinalIgnoreCase)
                 || !string.Equals(tempBeatorajaBmtTablePath, Settings.Default.BeatorajaBmtTablePath, StringComparison.OrdinalIgnoreCase))
@@ -3730,6 +3801,7 @@ public class MainWindowViewModel : ViewModel
             Settings.Default.BeatorajaScoreDbPath = tempBeatorajaScoreDbPath;
             Settings.Default.EnableBeatorajaBmtOutput = tempEnableBeatorajaBmtOutput;
             Settings.Default.KeepBeatorajaBmtFilesWhenOutputDisabled = tempKeepBeatorajaBmtFilesWhenOutputDisabled;
+            Settings.Default.BeatorajaBmtHashOutputMode = tempBeatorajaBmtHashOutputMode;
             Settings.Default.BeatorajaBmtTablePath = tempBeatorajaBmtTablePath;
             Settings.Default.RegisterBeatorajaBmtUrls = tempRegisterBeatorajaBmtUrls;
             Settings.Default.BMSRootPath = tempBMSRootPath;
@@ -3831,6 +3903,7 @@ public class MainWindowViewModel : ViewModel
             RaisePropertyChanged(() => BeatorajaScoreDbPath);
             RaisePropertyChanged(() => EnableBeatorajaBmtOutput);
             RaisePropertyChanged(() => KeepBeatorajaBmtFilesWhenOutputDisabled);
+            RaisePropertyChanged(() => BeatorajaBmtHashOutputMode);
             RaisePropertyChanged(() => BeatorajaBmtTablePath);
             RaisePropertyChanged(() => RegisterBeatorajaBmtUrls);
             RaisePropertyChanged(() => uBMplayPath);

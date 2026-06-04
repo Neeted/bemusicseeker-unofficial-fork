@@ -262,6 +262,10 @@ public sealed class MainWindowContextMenuResourceTests
             "Use_beatoraja_scoreDB",
             "Beatoraja_player",
             "Use_beatoraja_bmt_output",
+            "Beatoraja_bmt_hash_output_mode",
+            "Beatoraja_bmt_hash_output_original",
+            "Beatoraja_bmt_hash_output_fill_missing",
+            "Beatoraja_bmt_hash_output_prefer_sha256_only",
             "Keep_beatoraja_bmt_files_when_output_disabled",
             "Register_beatoraja_bmt_urls",
             "Error_InvalidBeatorajaRootPath",
@@ -282,6 +286,9 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(xaml, "Path=Resources.Use_beatoraja_scoreDB");
         StringAssert.Contains(xaml, "Path=Resources.Beatoraja_player");
         StringAssert.Contains(xaml, "Path=Resources.Use_beatoraja_bmt_output");
+        StringAssert.Contains(xaml, "Path=Resources.Beatoraja_bmt_hash_output_mode");
+        StringAssert.Contains(xaml, "ItemsSource=\"{Binding settingDialog.BeatorajaBmtHashOutputModeOptions}\"");
+        StringAssert.Contains(xaml, "SelectedValue=\"{Binding settingDialog.BeatorajaBmtHashOutputMode, Mode=TwoWay}\"");
         StringAssert.Contains(xaml, "Path=Resources.Keep_beatoraja_bmt_files_when_output_disabled");
         StringAssert.Contains(xaml, "Path=Resources.Register_beatoraja_bmt_urls");
         StringAssert.Contains(viewModelCode, "Resources.Error_InvalidBeatorajaRootPath");

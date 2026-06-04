@@ -272,6 +272,10 @@
                       <Label Height="28" DockPanel.Dock="Right" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Beatoraja_player, Mode=OneWay}" />
                     </DockPanel>
                     <CheckBox Height="20" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Use_beatoraja_bmt_output, Mode=OneWay}" IsChecked="{Binding settingDialog.EnableBeatorajaBmtOutput}" />
+                    <DockPanel LastChildFill="False" Margin="16,0,0,0" IsEnabled="{Binding settingDialog.EnableBeatorajaBmtOutput}">
+                      <ComboBox Width="180" Height="24" DockPanel.Dock="Right" ItemsSource="{Binding settingDialog.BeatorajaBmtHashOutputModeOptions}" DisplayMemberPath="DisplayName" SelectedValuePath="Key" SelectedValue="{Binding settingDialog.BeatorajaBmtHashOutputMode, Mode=TwoWay}" />
+                      <Label Height="28" DockPanel.Dock="Right" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Beatoraja_bmt_hash_output_mode, Mode=OneWay}" />
+                    </DockPanel>
                     <CheckBox Height="20" Margin="16,0,0,0" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Keep_beatoraja_bmt_files_when_output_disabled, Mode=OneWay}" IsChecked="{Binding settingDialog.KeepBeatorajaBmtFilesWhenOutputDisabled}" />
                     <CheckBox Height="20" Margin="16,0,0,0" IsEnabled="{Binding settingDialog.EnableBeatorajaBmtOutput}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Register_beatoraja_bmt_urls, Mode=OneWay}" IsChecked="{Binding settingDialog.RegisterBeatorajaBmtUrls}" />
                   </StackPanel>

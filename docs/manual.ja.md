@@ -132,6 +132,8 @@ beatoraja 連携では beatoraja ディレクトリを指定します。直下�
 
 `.bmtを出力する(難易度表読み込み互換処理)` を有効にすると、BeMusicSeeker の全プレイリストを beatoraja が読み込める `.bmt` キャッシュとして `config_sys.json` の `tablepath` 配下へ出力します。これは beatoraja 側の level 集約処理が重く、難易度表読み込みで遅延する環境向けの互換処理です。外部同期表は元の難易度表 URL、ローカルプレイリストは `bemusicseeker://playlist/{playlist_id}` を使って `.bmt` の保存名を決めます。出力先直下には BeMusicSeeker 管理用の `.bemusicseeker-bmt-manifest` が作られ、設定変更や再出力時の cleanup では、この manifest に記録された `.bmt` だけを削除対象にします。
 
+`.bmt hash 出力` では、folder song の `md5` / `sha256` の出し方を選べます。`オリジナル` はプレイリストに保存されている hash だけをそのまま出力します。`md5/sha256をできるだけ補完` は、所持譜面や譜面メタデータから安全に解決できる場合に不足している hash を補完します。`できるだけsha256のみ` は、sha256 を出せる譜面では md5 を出さず sha256 のみに寄せますが、sha256 を解決できない譜面は md5 のまま残します。既定値は `オリジナル` です。段位コースの hash は元の難易度表データをそのまま使い、この補完対象にはなりません。
+
 `config_sys.jsonに.bmtのURLを登録する(選曲画面での並びが安定します)` が有効な場合、BeMusicSeeker 管理の `.bmt` URL を `config_sys.json` の `tableURL` へ登録します。管理外の `tableURL` は既存順を維持し、BeMusicSeeker 管理分はプレイリスト名順で後ろに並びます。
 
 ### 外観

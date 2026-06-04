@@ -747,6 +747,18 @@ LR2をプレイヤーとして使用すると再生できない場合があり�
   <data name="Use_beatoraja_bmt_output" xml:space="preserve">
     <value>.bmtを出力する(難易度表読み込み互換処理)</value>
   </data>
+  <data name="Beatoraja_bmt_hash_output_mode" xml:space="preserve">
+    <value>.bmt hash 出力</value>
+  </data>
+  <data name="Beatoraja_bmt_hash_output_original" xml:space="preserve">
+    <value>オリジナル</value>
+  </data>
+  <data name="Beatoraja_bmt_hash_output_fill_missing" xml:space="preserve">
+    <value>md5/sha256をできるだけ補完</value>
+  </data>
+  <data name="Beatoraja_bmt_hash_output_prefer_sha256_only" xml:space="preserve">
+    <value>できるだけsha256のみ</value>
+  </data>
   <data name="Keep_beatoraja_bmt_files_when_output_disabled" xml:space="preserve">
     <value>.bmt出力を無効化しても既存ファイルを削除しない</value>
   </data>

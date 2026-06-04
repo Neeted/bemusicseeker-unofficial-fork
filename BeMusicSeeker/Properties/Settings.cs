@@ -202,6 +202,21 @@ internal sealed class Settings : ApplicationSettingsBase
 
     [UserScopedSetting]
     [DebuggerNonUserCode]
+    [DefaultSettingValue("Original")]
+    public string BeatorajaBmtHashOutputMode
+    {
+        get
+        {
+            return (string)this["BeatorajaBmtHashOutputMode"];
+        }
+        set
+        {
+            this["BeatorajaBmtHashOutputMode"] = value;
+        }
+    }
+
+    [UserScopedSetting]
+    [DebuggerNonUserCode]
     [DefaultSettingValue("")]
     public string BeatorajaBmtTablePath
     {

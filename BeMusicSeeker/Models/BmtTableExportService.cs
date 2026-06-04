@@ -21,6 +21,13 @@ public sealed class BmtSongHashResolveRequest
     public string Title { get; set; }
 }
 
+public enum BeatorajaBmtHashOutputMode
+{
+    Original,
+    FillMissingMd5Sha256,
+    PreferSha256Only
+}
+
 internal static class BmtTableExportService
 {
     internal const string ManifestFileName = ".bemusicseeker-bmt-manifest";
@@ -28,6 +35,14 @@ internal static class BmtTableExportService
     private static readonly object ManifestLock = new();
 
     private const int MaxParallelExportDegree = 4;
+
+    internal static BeatorajaBmtHashOutputMode NormalizeHashOutputMode(string value)
+    {
+        return Enum.TryParse(value, ignoreCase: true, out BeatorajaBmtHashOutputMode mode)
+            && Enum.IsDefined(typeof(BeatorajaBmtHashOutputMode), mode)
+            ? mode
+            : BeatorajaBmtHashOutputMode.Original;
+    }
 
     private sealed class ManifestState
     {
@@ -441,10 +456,20 @@ internal static class BmtTableExportService
 
     internal static JObject BuildTableData(BMSTable table, ISongHashResolver hashResolver)
     {
-        return BuildTableData(CreateProjectionSnapshot(table), hashResolver);
+        return BuildTableData(table, hashResolver, BeatorajaBmtHashOutputMode.FillMissingMd5Sha256);
+    }
+
+    internal static JObject BuildTableData(BMSTable table, ISongHashResolver hashResolver, BeatorajaBmtHashOutputMode hashOutputMode)
+    {
+        return BuildTableData(CreateProjectionSnapshot(table), hashResolver, hashOutputMode);
     }
 
     internal static JObject BuildTableData(TableDataProjectionSnapshot snapshot, ISongHashResolver hashResolver)
+    {
+        return BuildTableData(snapshot, hashResolver, BeatorajaBmtHashOutputMode.FillMissingMd5Sha256);
+    }
+
+    internal static JObject BuildTableData(TableDataProjectionSnapshot snapshot, ISongHashResolver hashResolver, BeatorajaBmtHashOutputMode hashOutputMode)
     {
         if (snapshot == null)
         {
@@ -454,7 +479,7 @@ internal static class BmtTableExportService
         {
             return null;
         }
-        JArray folders = BuildFolders(snapshot, hashResolver);
+        JArray folders = BuildFolders(snapshot, hashResolver, hashOutputMode);
         JArray courses = BuildCourses(snapshot);
         if (folders.Count == 0 && courses.Count == 0)
         {
@@ -533,7 +558,7 @@ internal static class BmtTableExportService
         return (table.compat_prefix ?? string.Empty).Trim();
     }
 
-    private static JArray BuildFolders(TableDataProjectionSnapshot snapshot, ISongHashResolver hashResolver)
+    private static JArray BuildFolders(TableDataProjectionSnapshot snapshot, ISongHashResolver hashResolver, BeatorajaBmtHashOutputMode hashOutputMode)
     {
         JArray folders = [];
         var entriesByFolder = new Dictionary<string, List<TableEntryProjectionSnapshot>>(StringComparer.Ordinal);
@@ -561,7 +586,7 @@ internal static class BmtTableExportService
             }
             foreach (TableEntryProjectionSnapshot entry in entries)
             {
-                JObject song = BuildSong(entry, null, hashResolver);
+                JObject song = BuildSong(entry, null, hashResolver, hashOutputMode);
                 if (song != null)
                 {
                     songs.Add(song);
@@ -603,17 +628,9 @@ internal static class BmtTableExportService
             : normalizedFolderName;
     }
 
-    private static JObject BuildSong(TableEntryProjectionSnapshot entry, JObject sourceChart, ISongHashResolver hashResolver)
+    private static JObject BuildSong(TableEntryProjectionSnapshot entry, JObject sourceChart, ISongHashResolver hashResolver, BeatorajaBmtHashOutputMode hashOutputMode)
     {
-        SongHashResolution resolvedHashes = hashResolver?.Resolve(CreateSongHashResolveRequest(entry));
-        string md5 = FirstNonEmpty(
-            entry?.Md5,
-            string.IsNullOrWhiteSpace(entry?.Md5) ? resolvedHashes?.Md5 : null,
-            sourceChart?.Value<string>("md5"));
-        string sha256 = FirstNonEmpty(
-            entry?.Sha256,
-            string.IsNullOrWhiteSpace(entry?.Sha256) ? resolvedHashes?.Sha256 : null,
-            sourceChart?.Value<string>("sha256"));
+        ResolveSongHashes(entry, sourceChart, hashResolver, hashOutputMode, out string md5, out string sha256);
         string title = FirstNonEmpty(entry?.Title, sourceChart?.Value<string>("title"));
         if (string.IsNullOrWhiteSpace(title) || (string.IsNullOrWhiteSpace(md5) && string.IsNullOrWhiteSpace(sha256)))
         {
@@ -636,6 +653,37 @@ internal static class BmtTableExportService
             song["org_md5"] = orgMd5;
         }
         return song;
+    }
+
+    private static void ResolveSongHashes(
+        TableEntryProjectionSnapshot entry,
+        JObject sourceChart,
+        ISongHashResolver hashResolver,
+        BeatorajaBmtHashOutputMode hashOutputMode,
+        out string md5,
+        out string sha256)
+    {
+        string savedMd5 = FirstNonEmpty(entry?.Md5, sourceChart?.Value<string>("md5"));
+        string savedSha256 = FirstNonEmpty(entry?.Sha256, sourceChart?.Value<string>("sha256"));
+        if (hashOutputMode == BeatorajaBmtHashOutputMode.Original)
+        {
+            md5 = savedMd5;
+            sha256 = savedSha256;
+            return;
+        }
+        SongHashResolution resolvedHashes = hashResolver?.Resolve(CreateSongHashResolveRequest(entry));
+        if (hashOutputMode == BeatorajaBmtHashOutputMode.PreferSha256Only)
+        {
+            sha256 = FirstNonEmpty(savedSha256, resolvedHashes?.Sha256);
+            md5 = string.IsNullOrWhiteSpace(sha256) ? savedMd5 : null;
+            return;
+        }
+        md5 = FirstNonEmpty(
+            savedMd5,
+            string.IsNullOrWhiteSpace(savedMd5) ? resolvedHashes?.Md5 : null);
+        sha256 = FirstNonEmpty(
+            savedSha256,
+            string.IsNullOrWhiteSpace(savedSha256) ? resolvedHashes?.Sha256 : null);
     }
 
     private static BmtSongHashResolveRequest CreateSongHashResolveRequest(TableEntryProjectionSnapshot entry)

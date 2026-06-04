@@ -1050,12 +1050,16 @@ public partial class BMSPlaylist : NotificationObject
                 ReportBeatorajaBmtExportProgress(progressOperationId, true, projectionTotal, 0, string.Empty);
                 progressStarted = true;
                 var resolverStopwatch = Stopwatch.StartNew();
-                Func<BmtSongHashResolveRequest, Tuple<string, string>> hashResolverFunc = beatorajaBmtSongHashResolverFactory?.Invoke();
+                BeatorajaBmtHashOutputMode hashOutputMode = GetBeatorajaBmtHashOutputMode();
+                Func<BmtSongHashResolveRequest, Tuple<string, string>> hashResolverFunc = hashOutputMode == BeatorajaBmtHashOutputMode.Original
+                    ? null
+                    : beatorajaBmtSongHashResolverFactory?.Invoke();
                 resolverStopwatch.Stop();
                 var projectionStopwatch = Stopwatch.StartNew();
                 List<Tuple<string, JObject>> tableDataSet = BuildBeatorajaBmtTableDataSetSnapshot(
                     tablesSnapshot,
                     reason,
+                    hashOutputMode,
                     hashResolverFunc,
                     delegate (int completed, int total, string tableName)
                     {
@@ -1236,12 +1240,17 @@ public partial class BMSPlaylist : NotificationObject
 
     private JObject BuildBeatorajaBmtTableDataSnapshot(BMSTable table, string reason)
     {
-        return BuildBeatorajaBmtTableDataSnapshot(table, reason, beatorajaBmtSongHashResolverFactory?.Invoke());
+        BeatorajaBmtHashOutputMode hashOutputMode = GetBeatorajaBmtHashOutputMode();
+        Func<BmtSongHashResolveRequest, Tuple<string, string>> hashResolverFunc = hashOutputMode == BeatorajaBmtHashOutputMode.Original
+            ? null
+            : beatorajaBmtSongHashResolverFactory?.Invoke();
+        return BuildBeatorajaBmtTableDataSnapshot(table, reason, hashOutputMode, hashResolverFunc);
     }
 
     private List<Tuple<string, JObject>> BuildBeatorajaBmtTableDataSetSnapshot(
         List<BMSTable> tablesSnapshot,
         string reason,
+        BeatorajaBmtHashOutputMode hashOutputMode,
         Func<BmtSongHashResolveRequest, Tuple<string, string>> hashResolverFunc,
         Action<int, int, string> progressReporter)
     {
@@ -1268,7 +1277,7 @@ public partial class BMSPlaylist : NotificationObject
                     BmtTableExportService.ISongHashResolver hashResolver = hashResolverFunc == null
                         ? null
                         : new BeatorajaBmtSongHashResolver(hashResolverFunc);
-                    JObject tableData = BmtTableExportService.BuildTableData(input.Snapshot, hashResolver);
+                    JObject tableData = BmtTableExportService.BuildTableData(input.Snapshot, hashResolver, hashOutputMode);
                     if (tableData != null)
                     {
                         projectionResults[input.Index] = Tuple.Create(input.PlaylistIdentity, tableData);
@@ -1310,7 +1319,7 @@ public partial class BMSPlaylist : NotificationObject
         return Math.Max(1, Math.Min(Math.Min(Environment.ProcessorCount, 4), Math.Max(count, 1)));
     }
 
-    private JObject BuildBeatorajaBmtTableDataSnapshot(BMSTable table, string reason, Func<BmtSongHashResolveRequest, Tuple<string, string>> hashResolverFunc)
+    private JObject BuildBeatorajaBmtTableDataSnapshot(BMSTable table, string reason, BeatorajaBmtHashOutputMode hashOutputMode, Func<BmtSongHashResolveRequest, Tuple<string, string>> hashResolverFunc)
     {
         if (table == null)
         {
@@ -1322,8 +1331,13 @@ public partial class BMSPlaylist : NotificationObject
             : new BeatorajaBmtSongHashResolver(hashResolverFunc);
         using (table.ReaderWriterLock.GetReaderGuard())
         {
-            return BmtTableExportService.BuildTableData(table, hashResolver);
+            return BmtTableExportService.BuildTableData(table, hashResolver, hashOutputMode);
         }
+    }
+
+    private static BeatorajaBmtHashOutputMode GetBeatorajaBmtHashOutputMode()
+    {
+        return BmtTableExportService.NormalizeHashOutputMode(Settings.Default.BeatorajaBmtHashOutputMode);
     }
 
     private sealed class BeatorajaBmtSongHashResolver(Func<BmtSongHashResolveRequest, Tuple<string, string>> resolve)
