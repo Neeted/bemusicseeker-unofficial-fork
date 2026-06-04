@@ -15959,13 +15959,15 @@ completeFileEnumerationOnce,
         {
             using (rwlockBMSFiles.GetWriterGuard())
             {
-                IEnumerable<BMSFile> bmsFiles = from file in _BMSFiles ?? []
-                                                where file != null && !string.IsNullOrWhiteSpace(file.hash) && !string.IsNullOrWhiteSpace(file.path)
-                                                join entry in from entry in bmsTable.GetEntriesExceptDummy()
-                                                              where !entry.is_removed && entry.level.HasValue
-                                                              select entry on file.hash equals entry.md5
-                                                select ApplyPlaylistEntryLevel(file, entry.level);
-                dbGateway.UpsertSongs(bmsFiles.Where(file => file != null));
+                List<BMSFile> bmsFiles = [.. from file in _BMSFiles ?? []
+                                             where file != null && !string.IsNullOrWhiteSpace(file.hash) && !string.IsNullOrWhiteSpace(file.path)
+                                             join entry in from entry in bmsTable.GetEntriesExceptDummy()
+                                                           where !entry.is_removed && entry.level.HasValue
+                                                           select entry on file.hash equals entry.md5
+                                             select ApplyPlaylistEntryLevel(file, entry.level) into file
+                                             where file != null
+                                             select file];
+                dbGateway.UpdateSongLevels(bmsFiles);
             }
         }
     }

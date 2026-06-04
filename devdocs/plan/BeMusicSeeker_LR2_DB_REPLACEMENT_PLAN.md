@@ -1159,3 +1159,5 @@ parse directive:
 - playlist custom folder output workflow は `.lr2folder` file を出力した同じ操作内で `folder` row も sync する。
   ルートフォルダ出力 (`is_root_folder`) では playlist workflow 側でも `Lr2FolderFileSourceClassifier` を通し、
   generated `.lr2folder` row の parent を `ROOT` に揃える。
+- playlist entry level の LR2 `song.level` writeback は、complete row writer ではなく targeted `UPDATE song SET level`
+  を使う。既存 `song` row が無い path には不完全 row を作らず、既存 row の user / generated columns も触らない。

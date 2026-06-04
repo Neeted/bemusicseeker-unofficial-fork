@@ -960,7 +960,8 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(viewModelCode.Contains("private IEnumerable<BeMusicSeeker.Models.BMSFile> BMSFiles"));
         Assert.IsFalse(viewModelCode.Contains("files?.BMSFiles"));
         StringAssert.Contains(libraryCode, "internal void ReplaceBmsFileLevelByTableEntryLevel(BMSTable bmsTable)");
-        StringAssert.Contains(libraryCode, "IEnumerable<BMSFile> bmsFiles = from file in _BMSFiles ?? []");
+        StringAssert.Contains(libraryCode, "List<BMSFile> bmsFiles = [.. from file in _BMSFiles ?? []");
+        StringAssert.Contains(libraryCode, "dbGateway.UpdateSongLevels(bmsFiles)");
     }
 
     [TestMethod]

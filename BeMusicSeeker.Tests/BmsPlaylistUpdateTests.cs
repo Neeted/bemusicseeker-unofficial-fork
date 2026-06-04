@@ -960,6 +960,75 @@ public sealed class BmsPlaylistUpdateTests
 
     [TestMethod]
     [TestCategory("Playlist")]
+    public void ReplaceBmsFileLevelByTableEntryLevel_UpdatesOnlyExistingSongLevel()
+    {
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string songDbPath = CreateTempSongDbPath(tempDirectory);
+            string chartPath = Path.Combine(tempDirectory, "chart.bms");
+            string missingPath = Path.Combine(tempDirectory, "missing.bms");
+            const string md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+            const string missingMd5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+            var file = new TestableBmsFile
+            {
+                path = chartPath,
+                level = 3,
+                date = 123456,
+                adddate = 98765,
+                tag = "keep-tag"
+            };
+            file.SetHash(md5);
+            file.SetTitleForTest("KeepTitle");
+            var missingFile = new TestableBmsFile
+            {
+                path = missingPath,
+                level = 1
+            };
+            missingFile.SetHash(missingMd5);
+            missingFile.SetTitleForTest("Missing");
+            using (var setup = new LR2SongDBExtended(songDbPath))
+            {
+                setup.InsertOrReplace(file, typeof(LR2SongDB.song));
+                setup.Execute("DELETE FROM song WHERE path = ?;", missingPath);
+            }
+            var library = new BMSLibrary(songDbPath)
+            {
+                BMSFiles = [file, missingFile],
+                BmsonSongs = []
+            };
+            var table = new BMSTable
+            {
+                entries =
+                [
+                    CreateEntryWithLevel(md5, 12),
+                    CreateEntryWithLevel(missingMd5, 11)
+                ]
+            };
+
+            library.ReplaceBmsFileLevelByTableEntryLevel(table);
+
+            using var verify = new LR2SongDBExtended(songDbPath);
+            LR2SongDB.song row = verify.Table<LR2SongDB.song>().Single(candidate => candidate.path == chartPath);
+            Assert.AreEqual(12, row.level);
+            Assert.AreEqual("KeepTitle", row.title);
+            Assert.AreEqual(123456, row.date);
+            Assert.AreEqual(98765, row.adddate);
+            Assert.AreEqual("keep-tag", row.tag);
+            Assert.AreEqual(0, verify.Table<LR2SongDB.song>().Count(candidate => candidate.path == missingPath));
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
     public void LoadStartupPlaylistEntries_UsesPlaylistIdProjectionAndKeepsRemovedRows()
     {
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
@@ -1012,5 +1081,23 @@ public sealed class BmsPlaylistUpdateTests
     private static BMSTableEntry CreateEntry(string md5, string folder)
     {
         return new BMSTableEntry(DynamicJson.Parse("{\"md5\":\"" + md5 + "\",\"title\":\"" + md5 + "\",\"level\":\"" + folder + "\"}"));
+    }
+
+    private static BMSTableEntry CreateEntryWithLevel(string md5, int level)
+    {
+        return new BMSTableEntry(DynamicJson.Parse("{\"md5\":\"" + md5 + "\",\"title\":\"" + md5 + "\",\"level\":" + level + "}"));
+    }
+
+    private sealed class TestableBmsFile : BMSFile
+    {
+        public void SetHash(string value)
+        {
+            hash = value;
+        }
+
+        public void SetTitleForTest(string value)
+        {
+            Title = value;
+        }
     }
 }

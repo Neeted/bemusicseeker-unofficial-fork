@@ -173,6 +173,32 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
         });
     }
 
+    public void UpdateSongLevels(IEnumerable<BMSFile> bmsFiles)
+    {
+        List<BMSFile> files = [.. (bmsFiles ?? [])
+            .Where(file => file != null && !string.IsNullOrWhiteSpace(file.path) && file.level.HasValue)];
+        if (files.Count == 0)
+        {
+            return;
+        }
+
+        ExecuteSongDbTransaction(delegate (LR2SongDBExtended songDb)
+        {
+            string tableName = SQLiteTable<LR2SongDB.song>.GetTableName();
+            string levelColumn = SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.level);
+            string pathColumn = SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.path);
+            foreach (BMSFile file in files)
+            {
+                songDb.Execute(
+                    "UPDATE " + tableName
+                    + " SET " + levelColumn + " = ?"
+                    + " WHERE " + pathColumn + " = ?;",
+                    file.level,
+                    file.path);
+            }
+        });
+    }
+
     internal static void CommitFileScanDiffChunk(LR2SongDBExtended songDb, FileScanDiffCommitChunk chunk)
     {
         if (songDb == null)
