@@ -67,6 +67,7 @@ internal static class Lr2FolderFileProjection
                     definition.Subtitle = body;
                     break;
                 case "CATEGORY":
+                case "GENRE":
                     definition.Category = body;
                     break;
                 case "INFORMATION_A":
@@ -80,6 +81,7 @@ internal static class Lr2FolderFileProjection
                     definition.Command = body;
                     break;
                 case "MAXTRACKS":
+                case "PLAYLEVEL":
                     if (int.TryParse(body, NumberStyles.Integer, CultureInfo.InvariantCulture, out int maxTracks))
                     {
                         definition.MaxTracks = maxTracks;
@@ -101,7 +103,7 @@ internal static class Lr2FolderFileProjection
         row = null;
         request ??= new Lr2FolderFileRowRequest();
         string filePath = NormalizeFilePath(request.FilePath);
-        if (string.IsNullOrWhiteSpace(filePath) || request.LastWriteTimeUtc == null)
+        if (string.IsNullOrWhiteSpace(filePath) || request.LastWriteTimeUtc == null || request.FolderType == 1)
         {
             return false;
         }

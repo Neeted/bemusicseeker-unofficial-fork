@@ -61,6 +61,19 @@ public sealed class Lr2FolderFileProjectionTests
     }
 
     [TestMethod]
+    public void ParseDefinition_TreatsGenreAndPlayLevelAsFolderAliases()
+    {
+        Lr2FolderFileDefinition definition = Lr2FolderFileProjection.ParseDefinition(
+        [
+            "#GENRE Genre Category",
+            "#PLAYLEVEL 40"
+        ]);
+
+        Assert.AreEqual("Genre Category", definition.Category);
+        Assert.AreEqual(40, definition.MaxTracks);
+    }
+
+    [TestMethod]
     public void TryCreateFolderRow_ProjectsDefinitionToCustomFolderRow()
     {
         DateTime timestamp = new(2026, 6, 9, 1, 2, 3, DateTimeKind.Utc);
@@ -133,6 +146,21 @@ public sealed class Lr2FolderFileProjectionTests
         {
             FilePath = @"D:\BMS\emoji_😀\0000.lr2folder",
             LastWriteTimeUtc = new DateTime(2026, 6, 9, 1, 2, 3, DateTimeKind.Utc),
+            Definition = Lr2FolderFileProjection.ParseDefinition(["#TITLE Folder"])
+        }, out LR2SongDB.folder row);
+
+        Assert.IsFalse(created);
+        Assert.IsNull(row);
+    }
+
+    [TestMethod]
+    public void TryCreateFolderRow_SkipsReservedNormalDirectoryType()
+    {
+        bool created = Lr2FolderFileProjection.TryCreateFolderRow(new Lr2FolderFileRowRequest
+        {
+            FilePath = @"D:\BMS\#BeMusicSeeker\0000.lr2folder",
+            LastWriteTimeUtc = new DateTime(2026, 6, 9, 1, 2, 3, DateTimeKind.Utc),
+            FolderType = 1,
             Definition = Lr2FolderFileProjection.ParseDefinition(["#TITLE Folder"])
         }, out LR2SongDB.folder row);
 

@@ -1036,6 +1036,19 @@ parse directive:
     OpenLR2 の built-in / root 特殊 type は後続の discovered source 統合で explicit type を渡す。
   - normal folder sync は `type = 1` の scope だけを prune / upsert 対象にし、`type = 2` の `.lr2folder` row を
     上書き・削除しない境界を維持する。
+  - `.lr2folder` DB sync は `Lr2FolderFileDbSyncService` に分離する。
+    入力 item は current `.lr2folder` file projection、`ScopeDirectories` / `ScopePaths` は stale row prune の境界として扱う。
+    `AllowPrune=false` では upsert のみ行い、`AllowPrune=true` でも scope 内の `.lr2folder` file path row だけを削除対象にする。
+    normal directory row (`type = 1`) と scope 外 `.lr2folder` row は削除しない。
+  - `.lr2folder` file path は CP932 非対応なら row 生成しない。mtime 欠落 row は missing metadata として skip し、
+    `date = NULL` の `.lr2folder` row は生成しない。
+    prune 判断は input path ではなく「実際に生成できた row path」を current set にするため、非対応 / metadata 欠落 row は
+    scope 内 stale row として削除対象にできる。
+  - `.lr2folder` row の exact path casing が変わった場合は、case-insensitive key で既存 `adddate` を引き継ぎつつ、
+    古い exact path row を削除して新しい exact path row を upsert する。
+  - `.lr2folder` sync は reserved normal directory type (`type = 1`) を生成しない。既存 `type = 1` row と同じ path が
+    input に来た場合も、その row を `.lr2folder` row で置き換えない。
+  - 外部 `.lr2folder` 互換用に `#GENRE` は `#CATEGORY`、`#PLAYLEVEL` は `#MAXTRACKS` の alias として扱う。
 
 ## 作業エージェント向け実装順
 
