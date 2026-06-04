@@ -58,7 +58,8 @@ BeMusicSeeker は譜面管理アプリなので、LR2 で完全に読めない�
   - 既存 LR2 DB に必要列が欠けている、または完全生成を初回有効化した場合だけ backfill が発生する。
   - backfill が必要な場合は警告・進捗・キャンセル可能性を UI / log に出す。
   - 初回 backfill は startup ready / operable を待たせず、初期化完了後の background workflow として開始する。
-  - LR2 起動導線では backfill 完了まで起動を止め、警告付き強行起動は提供しない。
+  - BeMusicSeeker からの LR2 起動導線で backfill 完了待ちや起動 block は行わない。
+    LR2 が再走査する可能性は完全生成 status の警告として表示する。
 - 段階実装中は、Phase 8 / Phase 9 まで完了するまでは完全生成設定を hidden / disabled にする。
   - `song` row だけ新形式になり、対応する `folder` row 生成 scope / backfill が未整備な中間状態を
     ユーザー環境で有効化しない。
@@ -322,12 +323,13 @@ row が残ると、manual-only でも LR2 が不要な scan に入る。
   BeMusicSeeker から削除しない。
 - generation scope 外の既存 `folder` row は原則触らない。
 - unknown root row または `date = 0` row が残り、LR2 startup scan 抑止に影響する場合は
-  silent retention しない。初期実装では自動削除せず warning と起動前 block の対象にし、
+  silent retention しない。初期実装では自動削除せず warning / diagnostic の対象にし、
   cleanup は明示操作として別導線で実行する。
   - cleanup 導線は Phase 8 の初期実装に含める。
   - cleanup は全 `folder` row 削除ではなく、diagnostic で列挙した startup-scan blocker row だけを
     backup 作成後に削除する。
-  - cleanup できない、または cleanup 後も blocker が残る場合は LR2 起動を継続して block する。
+  - cleanup できない、または cleanup 後も blocker が残る場合は完全生成 status を warning にし、
+    LR2 起動時に再走査が起き得る状態として表示する。
 
 ### LR2 compatibility warning の scope
 
@@ -352,14 +354,17 @@ LR2 compatibility warning は BMS のみを対象にする。bmson は対象外�
     projection に従って組み立てる。
   - 将来 ignore UI / ignore list を追加する場合は、別計画で永続 state を追加する。
 
-### LR2 起動前 workflow
+### 完全生成 status / backfill workflow
 
-完全生成が有効な場合、BeMusicSeeker から LR2 を起動する前に以下を満たす。
+完全生成が有効な場合、BeMusicSeeker は生成状態を durable に管理し、必要な backfill を
+background workflow として進める。この workflow は DB 生成状態の可視化と復旧を目的にし、
+LR2 起動導線の block は行わない。
 
-- 完全生成が未完了なら、起動前 workflow で backfill を開始または再開し、完了するまで LR2 起動を止める。
 - backfill が必要な場合は、警告・進捗・キャンセル可能性を表示する。
-- LR2 側の DB 自動更新設定が手動のみでない可能性がある場合は注意を出す。
+- 完全生成が incomplete / failed / cancelled の場合は、完全生成 status に warning を出す。
+- LR2 側の DB 自動更新設定が手動のみでない可能性がある場合は、設定画面または status warning として注意を出す。
   - 現行 `LR2Config` wrapper には autoreload 判定 API がないため、実装時に config 要素名と値を確認する。
+  - BeMusicSeeker 側から LR2 config を自動変更しない。
 - LR2 が起動中の場合の DB write 競合を検出する。
   - SQLite busy timeout / file lock / transaction 失敗時の扱いをログに出す。
 - 完全生成 status は durable に保存する。
@@ -375,7 +380,7 @@ LR2 compatibility warning は BMS のみを対象にする。bmson は対象外�
 - parser version は BMS metadata parse、text group parse、raw resource reference parse、CRC 入力正規化の意味が
   変わる時に bump する。
 - backfill は startup ready / operable をブロックしない。初期化完了後に background workflow として開始し、
-  LR2 起動要求が来た時点で未完了なら同じ workflow に join して完了まで待つ。
+  LR2 起動要求が来ても同じ workflow へ join して待つことはしない。
 
 ## LR2 互換性評価
 
@@ -703,11 +708,11 @@ parse directive:
 - generation scope 外の unknown `.lr2folder` row は誤削除しない。
 - Shift_JIS 出力した `.lr2folder` を同じ解釈で parse できる。
 
-### Phase 8: LR2 起動前 workflow と backfill UI を追加する
+### Phase 8: 完全生成 status / backfill UI を追加する
 
 目的:
 
-- 完全生成が未完了の状態で LR2 を起動しない。
+- 完全生成が未完了の状態を UI / log で追跡できるようにする。
 - backfill が発生する場合にユーザーへ見える形にする。
 
 実装:
@@ -715,7 +720,7 @@ parse directive:
 - 完全生成 status を保持する。
 - backfill needed / running / completed / failed を log と UI に出す。
 - backfill progress は全体合算 total と stage 別 processed count の両方を表示する。
-- LR2 起動前に incomplete / failed なら警告する。
+- incomplete / failed / cancelled は完全生成 status warning として表示する。
 - LR2 config の auto update 設定は config 要素名を確認して検出する。検出できない場合は
   「自動更新設定を確認できない」warning を出し、BeMusicSeeker 側からは config を自動変更しない。
 - backfill 開始前に LR2 `song.db` 全体の backup を作る。
@@ -724,7 +729,7 @@ parse directive:
   - backup 世代は最新 2 件を保持し、それより古い BeMusicSeeker 作成 backup は成功後に削除する。
   - backup 作成に失敗した場合は DB write を開始せず、backfill を failed にする。
 - write は per-chunk transaction とし、run id/status を durable に更新する。
-- cancel 後の partial write は incomplete として扱い、LR2 起動前に警告する。
+- cancel 後の partial write は incomplete として扱い、status warning に出す。
 - backup / restore の対象は LR2 `song.db` 全体とする。
   - durable status / maintenance schema 変更は同じ DB 内に置き、backup から戻せば一貫して戻る。
   - 外部設定ファイルや `.lr2folder` 実ファイルは backup 対象外なので、必要な場合は別操作で扱う。
@@ -733,7 +738,7 @@ parse directive:
 
 - backfill 不要時は警告なし。
 - backfill 必要時は警告と進捗が出る。
-- failed 状態で LR2 起動導線が警告する。
+- failed 状態で完全生成 status warning が出る。
 - cancel 後に incomplete status が残り、再開または rollback できる。
 
 ### Phase 9: migration / backfill
@@ -842,7 +847,7 @@ parse directive:
 8. `Lr2SongRowEnricher` を追加し、BMS file diff path に組み込む。
 9. `Lr2FolderRowGenerator` と folder generation scope を追加する。
 10. `.lr2folder` parser、discovery、generation scope 内の `folder` row sync を追加する。
-11. LR2 起動前 workflow と backfill progress / warning を追加する。
+11. 完全生成 status と backfill progress / warning を追加する。
 12. migration / backfill を追加する。
 13. コピーした `song.db` で統合確認する。
 14. LR2 を manual-only で起動し、未変更 root で再帰スキャンに入らないことを確認する。
