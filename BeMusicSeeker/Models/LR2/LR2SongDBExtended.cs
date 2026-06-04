@@ -22,6 +22,7 @@ public sealed class LR2SongDBExtended : LR2SongDB
         SQLiteTable<chart_info_import_history>.GetTableName(),
         SQLiteTable<bmson_song>.GetTableName(),
         SQLiteTable<app_schema_version>.GetTableName(),
+        SQLiteTable<lr2_full_generation_status>.GetTableName(),
         SQLiteTable<ir_score>.GetTableName(),
         SQLiteTable<ir_score_refresh_metadata>.GetTableName(),
         SQLiteTable<ir_data>.GetTableName()
@@ -724,6 +725,31 @@ public sealed class LR2SongDBExtended : LR2SongDB
         public virtual string name { get; set; }
 
         public virtual int version { get; set; }
+    }
+
+    [Table("lr2_full_generation_status")]
+    public class lr2_full_generation_status : SQLiteTable<lr2_full_generation_status>
+    {
+        [PrimaryKey]
+        public virtual string name { get; set; }
+
+        public virtual string status { get; set; }
+
+        public virtual string signature { get; set; }
+
+        public virtual string run_id { get; set; }
+
+        public virtual int? processed_cursor { get; set; }
+
+        public virtual int? total_count { get; set; }
+
+        public virtual string stage { get; set; }
+
+        public virtual string last_error { get; set; }
+
+        public virtual DateTime updated_at { get; set; }
+
+        public virtual DateTime? completed_at { get; set; }
     }
 
     [Table("ir_score_refresh_metadata")]

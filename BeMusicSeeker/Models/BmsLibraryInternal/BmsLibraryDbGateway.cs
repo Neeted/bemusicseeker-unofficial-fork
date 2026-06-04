@@ -1547,6 +1547,15 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
             ]);
     }
 
+    internal static void EnsureLr2FullGenerationStatusSchema(LR2SongDBExtended songDb)
+    {
+        if (songDb == null)
+        {
+            throw new ArgumentNullException(nameof(songDb));
+        }
+        songDb.CreateTable<LR2SongDBExtended.lr2_full_generation_status>();
+    }
+
     /// <summary>
     /// chart_info テーブルと関連 index を作成または修復します。
     /// </summary>
@@ -1632,6 +1641,7 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
         EnsureChartInfoSchema(songDb);
         EnsureIrDataSchema(songDb);
         EnsureSongLookupIndexes(songDb);
+        EnsureLr2FullGenerationStatusSchema(songDb);
         if (stampVersion)
         {
             SetCurrentAppSchemaVersion(songDb);

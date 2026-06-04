@@ -1053,6 +1053,10 @@ parse directive:
     `Lr2FolderFileDefinition` を作り、同じ output directory を `ScopeDirectories` として `folder` row を sync する。
     これにより、従来 `.lr2folder` 再出力だけだった操作でも `folder.command` / `folder.date` / `folder.max` が
     同じ workflow で更新される。file 出力に成功した path だけを sync item にし、file mtime を `folder.date` の正本にする。
+- Phase 8 は `lr2_full_generation_status` table の単一 row (`name = "default"`) から開始する。
+  `status` / `signature` / `run_id` / `processed_cursor` / `total_count` / `stage` / `last_error` を durable に保持し、
+  `Completed` かつ signature 一致のときだけ backfill 不要と判定する。`Failed` / `Cancelled` / `Incomplete` /
+  signature mismatch / missing row は `Needed` として再開可能にする。
 
 ## 作業エージェント向け実装順
 

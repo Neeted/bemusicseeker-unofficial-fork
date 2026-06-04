@@ -45,6 +45,7 @@ public sealed class LR2SongDBExtendedUninstallTests
             songDb.CreateTable<LR2SongDBExtended.ir_score>();
             songDb.CreateTable<LR2SongDBExtended.ir_score_refresh_metadata>();
             BmsLibraryDbGateway.EnsureIrDataSchema(songDb);
+            BmsLibraryDbGateway.EnsureLr2FullGenerationStatusSchema(songDb);
             songDb.Insert(new LR2SongDBExtended.playlist
             {
                 name = "uninstall sequence test"
