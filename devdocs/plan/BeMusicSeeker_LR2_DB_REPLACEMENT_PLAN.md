@@ -299,14 +299,16 @@ row が残ると、manual-only でも LR2 が不要な scan に入る。
     実ファイルは管理外だが、LR2 起動時 scan 抑止のための `folder` row は
     BeMusicSeeker が派生生成・更新・prune する。
 - external `.lr2folder` discovery は、完全生成有効時だけ行う。
-- discovery root は LR2 BMS search root から作る。ただし BeMusicSeeker の custom folder 出力 base は
-  discovery 対象から除外する。
+- `.lr2folder` discovery root は、LR2 BMS search root と BeMusicSeeker の custom folder 出力 base から作る。
   - 通常出力先 `LR2CustomFolderOutputBaseDir`
   - ルート出力先 `LR2CustomFolderOutputBaseDirRootType`
-- 出力 base は BMS / bmson と混在しない前提の出力専用領域として扱い、chart scan root からも除外する。
-  overlap が検出された場合は設定 warning を出し、出力 base 側を優先して除外する。
+- chart / resource scan root は LR2 BMS search root から作る。ただし custom folder 出力 base が
+  LR2 BMS search root に explicit root として含まれている場合は、その explicit root だけ除外する。
+  - 親の BMS root 配下に出力 base が内包される場合は subtree 除外しない。
+  - 出力 base 配下に BMS / bmson / resource が存在する場合も、親 root の通常探索結果として扱う。
 - Everything query には exclude query 概念を追加しない。root / extension / filename を調整して
-  `.lr2folder` file surface を取得し、managed fallback と同じ結果側正規化・出力 base filter を必ず通す。
+  chart / resource surface と `.lr2folder` file surface を別々に取得する。
+  Everything 結果は query contract 通りに扱い、アプリ固有かどうかは結果分類で判定する。
 
 削除ルール:
 
@@ -629,9 +631,11 @@ scope:
 - root / ancestor / BMS chart directory を unique directory set に dedupe してから metadata を取得する。
 - directory metadata と `folderinfo.txt` / `.lr2folder` existence は Everything / managed fallback で
   意味が揃うよう parity test を置く。
-- `LR2CustomFolderOutputBaseDir` / `LR2CustomFolderOutputBaseDirRootType` は chart scan root と
-  external `.lr2folder` discovery root から除外する。Everything query に exclude DSL は追加せず、
-  root / extension / filename の組み合わせと結果側 filter で managed fallback と意味を揃える。
+- `LR2CustomFolderOutputBaseDir` / `LR2CustomFolderOutputBaseDirRootType` は chart / resource scan の
+  explicit root にはしない。ただし親 BMS root に内包される場合は subtree 除外しない。
+- `.lr2folder` discovery root には LR2 BMS search root、通常出力先、ルート出力先を含める。
+- Everything query に exclude DSL は追加せず、root / extension / filename の組み合わせで
+  chart / resource surface と `.lr2folder` file surface を分ける。
 
 生成ルール:
 
@@ -663,7 +667,10 @@ scope:
 
 - `managed_lr2folder`: BeMusicSeeker が出力・管理する `.lr2folder`。
 - `external_lr2folder`: LR2 BMS root 配下から discovery した任意 `.lr2folder`。
-- discovery では `LR2CustomFolderOutputBaseDir` / `LR2CustomFolderOutputBaseDirRootType` 配下を除外する。
+- discovery root には LR2 BMS search root、通常出力先 `LR2CustomFolderOutputBaseDir`、
+  ルート出力先 `LR2CustomFolderOutputBaseDirRootType` を含める。
+- managed / external は query では絞らず、discovery result と playlist output manifest / current output set の
+  照合で分類する。
 - external `.lr2folder` は実ファイルを管理せず、manifest 管理する派生 `folder` row だけを
   update / prune する。
 
@@ -685,7 +692,8 @@ parse directive:
 - `.lr2folder` 削除で app-owned row が消える。
 - external discovered `.lr2folder` で `folder` row が入る。
 - external `.lr2folder` が消えた場合は派生 `folder` row だけが消え、実ファイル削除は行わない。
-- 通常出力先 / ルート出力先配下の `.lr2folder` は external discovery に混ざらない。
+- 通常出力先 / ルート出力先配下の外部生成 `.lr2folder` は external discovery として扱われる。
+- BeMusicSeeker 生成 `.lr2folder` は同じ discovery result から managed として分類される。
 - unknown `.lr2folder` row は誤削除しない。
 - Shift_JIS 出力した `.lr2folder` を同じ解釈で parse できる。
 
