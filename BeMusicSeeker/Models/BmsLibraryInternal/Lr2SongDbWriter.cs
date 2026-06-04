@@ -6,7 +6,7 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 internal static class Lr2SongDbWriter
 {
-    internal static void UpsertGeneratedSong(LR2SongDBExtended songDb, BMSFile song)
+    internal static bool UpsertGeneratedSong(LR2SongDBExtended songDb, BMSFile song)
     {
         if (songDb == null)
         {
@@ -14,21 +14,26 @@ internal static class Lr2SongDbWriter
         }
         if (song == null || string.IsNullOrWhiteSpace(song.path))
         {
-            return;
+            return false;
         }
 
         Lr2SongRowEnricher.EnrichGeneratedSong(song);
-        bool rowExists = TryGetSongHashByPath(songDb, song.path, out string previousHash);
-        if (!rowExists)
+        GeneratedSongRow existingSong = FindSongByPath(songDb, song.path);
+        string previousHash = existingSong?.hash;
+        bool changed = false;
+        if (existingSong == null)
         {
             songDb.InsertOrReplace(song, typeof(LR2SongDB.song));
+            changed = true;
         }
-        else
+        else if (!HasSameGeneratedColumns(song, existingSong))
         {
             UpdateGeneratedColumns(songDb, song);
+            changed = true;
         }
         BmsLibraryDbGateway.UpsertChartDigest(songDb, song);
         BmsLibraryDbGateway.DeleteChartDigestIfOrphaned(songDb, previousHash, song.hash);
+        return changed;
     }
 
     internal static void UpdateDate(LR2SongDBExtended songDb, string path, int date)
@@ -66,21 +71,71 @@ internal static class Lr2SongDbWriter
             path);
     }
 
-    private static bool TryGetSongHashByPath(LR2SongDBExtended songDb, string path, out string hash)
+    private static GeneratedSongRow FindSongByPath(LR2SongDBExtended songDb, string path)
     {
-        var existingRows = songDb.Query<SongHashRow>(
-            "SELECT " + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.hash) + " AS Hash"
+        var existingRows = songDb.Query<GeneratedSongRow>(
+            "SELECT "
+            + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.hash) + " AS hash, "
+            + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.title) + " AS title, "
+            + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.subtitle) + " AS subtitle, "
+            + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.artist) + " AS artist, "
+            + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.subartist) + " AS subartist, "
+            + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.genre) + " AS genre, "
+            + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.type) + " AS type, "
+            + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.folder) + " AS folder, "
+            + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.stagefile) + " AS stagefile, "
+            + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.banner) + " AS banner, "
+            + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.backbmp) + " AS backbmp, "
+            + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.parent) + " AS parent, "
+            + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.level) + " AS level, "
+            + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.difficulty) + " AS difficulty, "
+            + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.maxbpm) + " AS maxbpm, "
+            + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.minbpm) + " AS minbpm, "
+            + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.mode) + " AS mode, "
+            + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.judge) + " AS judge, "
+            + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.longnote) + " AS longnote, "
+            + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.bga) + " AS bga, "
+            + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.random) + " AS random, "
+            + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.date) + " AS date, "
+            + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.txt) + " AS txt, "
+            + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.karinotes) + " AS karinotes, "
+            + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.exlevel) + " AS exlevel"
             + " FROM " + SQLiteTable<LR2SongDB.song>.GetTableName()
             + " WHERE " + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.path)
             + " = ? LIMIT 1;",
             path);
-        if (existingRows.Count == 0)
-        {
-            hash = null;
-            return false;
-        }
-        hash = existingRows[0]?.Hash;
-        return true;
+        return existingRows.Count == 0 ? null : existingRows[0];
+    }
+
+    private static bool HasSameGeneratedColumns(BMSFile expected, GeneratedSongRow existing)
+    {
+        return expected != null
+            && existing != null
+            && string.Equals(expected.hash, existing.hash, StringComparison.Ordinal)
+            && string.Equals(expected.title, existing.title, StringComparison.Ordinal)
+            && string.Equals(expected.subtitle, existing.subtitle, StringComparison.Ordinal)
+            && string.Equals(expected.artist, existing.artist, StringComparison.Ordinal)
+            && string.Equals(expected.subartist, existing.subartist, StringComparison.Ordinal)
+            && string.Equals(expected.genre, existing.genre, StringComparison.Ordinal)
+            && expected.type == existing.type
+            && string.Equals(expected.folder, existing.folder, StringComparison.Ordinal)
+            && string.Equals(expected.stagefile, existing.stagefile, StringComparison.Ordinal)
+            && string.Equals(expected.banner, existing.banner, StringComparison.Ordinal)
+            && string.Equals(expected.backbmp, existing.backbmp, StringComparison.Ordinal)
+            && string.Equals(expected.parent, existing.parent, StringComparison.Ordinal)
+            && expected.level == existing.level
+            && expected.difficulty == existing.difficulty
+            && expected.maxbpm == existing.maxbpm
+            && expected.minbpm == existing.minbpm
+            && expected.mode == existing.mode
+            && expected.judge == existing.judge
+            && expected.longnote == existing.longnote
+            && expected.bga == existing.bga
+            && expected.random == existing.random
+            && expected.date == existing.date
+            && (!expected.txt.HasValue || expected.txt == existing.txt)
+            && expected.karinotes == existing.karinotes
+            && expected.exlevel == existing.exlevel;
     }
 
     private static void UpdateGeneratedColumns(LR2SongDBExtended songDb, BMSFile song)
@@ -142,8 +197,56 @@ internal static class Lr2SongDbWriter
             song.path);
     }
 
-    private sealed class SongHashRow
+    private sealed class GeneratedSongRow
     {
-        public string Hash { get; set; }
+        public string hash { get; set; }
+
+        public string title { get; set; }
+
+        public string subtitle { get; set; }
+
+        public string artist { get; set; }
+
+        public string subartist { get; set; }
+
+        public string genre { get; set; }
+
+        public int? type { get; set; }
+
+        public string folder { get; set; }
+
+        public string stagefile { get; set; }
+
+        public string banner { get; set; }
+
+        public string backbmp { get; set; }
+
+        public string parent { get; set; }
+
+        public int? level { get; set; }
+
+        public int? difficulty { get; set; }
+
+        public int? maxbpm { get; set; }
+
+        public int? minbpm { get; set; }
+
+        public int? mode { get; set; }
+
+        public int? judge { get; set; }
+
+        public int? longnote { get; set; }
+
+        public int? bga { get; set; }
+
+        public int? random { get; set; }
+
+        public int? date { get; set; }
+
+        public int? txt { get; set; }
+
+        public int? karinotes { get; set; }
+
+        public int? exlevel { get; set; }
     }
 }
