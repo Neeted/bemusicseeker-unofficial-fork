@@ -680,6 +680,17 @@ public class BMSFile : LR2SongDB.song
             () => snapshot.Sha256);
     }
 
+    internal void PreserveUserSongColumnsFrom(BMSFile existing)
+    {
+        if (existing == null)
+        {
+            return;
+        }
+        favorite = existing.favorite;
+        adddate = existing.adddate;
+        tag = existing.tag;
+    }
+
     private static IEnumerable<string> ReadSnapshotLines(ChartFileSnapshot snapshot, Encoding encoding)
     {
         using var stream = new MemoryStream(snapshot.Bytes, writable: false);

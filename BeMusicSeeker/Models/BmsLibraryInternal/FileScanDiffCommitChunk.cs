@@ -9,6 +9,8 @@ internal sealed class FileScanDiffCommitChunk
 
     public List<BMSFile> AddedBmsFiles { get; } = [];
 
+    public List<BmsDateOnlyUpdate> UpdatedBmsDates { get; } = [];
+
     public List<string> DeletedBmsonPaths { get; } = [];
 
     public List<LR2SongDBExtended.bmson_song> UpsertBmsonSongs { get; } = [];
@@ -27,6 +29,7 @@ internal sealed class FileScanDiffCommitChunk
 
     public bool HasItems => MutationCount > 0
         || ChartInfoRows.Count > 0
+        || UpdatedBmsDates.Count > 0
         || MaintenanceInfoRows.Count > 0
         || AppliedChartInfoRows.Count > 0
         || ParseFailureRows.Count > 0
@@ -49,6 +52,16 @@ internal sealed class FileScanDiffCommitChunk
             return;
         }
         AddedBmsFiles.Add(file);
+        MutationCount++;
+    }
+
+    public void AddUpdatedBmsDate(string path, int date)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return;
+        }
+        UpdatedBmsDates.Add(new BmsDateOnlyUpdate(path, date));
         MutationCount++;
     }
 
@@ -141,6 +154,7 @@ internal sealed class FileScanDiffCommitChunk
         }
         DeletedBmsPaths.AddRange(source.DeletedBmsPaths);
         AddedBmsFiles.AddRange(source.AddedBmsFiles);
+        UpdatedBmsDates.AddRange(source.UpdatedBmsDates);
         DeletedBmsonPaths.AddRange(source.DeletedBmsonPaths);
         UpsertBmsonSongs.AddRange(source.UpsertBmsonSongs);
         MaintenanceInfoRows.AddRange(source.MaintenanceInfoRows);
@@ -150,4 +164,11 @@ internal sealed class FileScanDiffCommitChunk
         ParseFailureDeleteMd5s.AddRange(source.ParseFailureDeleteMd5s);
         MutationCount += source.MutationCount;
     }
+}
+
+internal sealed class BmsDateOnlyUpdate(string path, int date)
+{
+    public string Path { get; } = path;
+
+    public int Date { get; } = date;
 }

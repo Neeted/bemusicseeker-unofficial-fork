@@ -948,6 +948,10 @@ parse directive:
   - byte length boundary、`folderinfo.txt`、`.lr2folder`、manual-only scan 対象の fixture は、
     `Lr2CompatibilityEvaluator` / `Lr2FolderRowGenerator` の導入 cycle で追加する。
   - LR2 root sentinel は `LR2CRC32("ROOT")` ではなく `LR2CRC32("ROOT\0") = e2977170` として扱う。
+- Phase 1 は段階的に追加する。
+  - まず file diff で既存 BMS の `song.date` / mtime mismatch を parse target に入れる。
+  - MD5 が同じ場合は `song.date` の targeted update だけ行い、chart_info / maintenance は再生成しない。
+  - MD5 が変わる場合は parsed row へ差し替え、`favorite` / `adddate` / `tag` は既存 row から維持する。
 
 ## 作業エージェント向け実装順
 

@@ -66,6 +66,8 @@ internal sealed class SongTableFileCheckResult
 
     public int BmsDeletedTargetCount { get; set; }
 
+    public int BmsDateOnlyUpdateCount { get; set; }
+
     public int BmsonUpsertTargetCount { get; set; }
 
     public int BmsonDeletedTargetCount { get; set; }

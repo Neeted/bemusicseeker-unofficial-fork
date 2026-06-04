@@ -393,9 +393,15 @@ internal sealed class BmsLibraryInitializationService
 
         var stopwatchDiff = Stopwatch.StartNew();
         List<BMSFile> currentFileList = [.. (currentFiles ?? []).Where(file => file != null)];
-        var currentPaths = new HashSet<string>(currentFileList.Select(file => file.path), StringComparer.OrdinalIgnoreCase);
+        var currentBmsByPath = currentFileList
+            .Where(file => !string.IsNullOrWhiteSpace(file.path))
+            .GroupBy(file => file.path, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+        var currentPaths = new HashSet<string>(currentBmsByPath.Keys, StringComparer.OrdinalIgnoreCase);
         result.DeletedPaths.AddRange(currentPaths.Except(scannedPaths, StringComparer.OrdinalIgnoreCase));
-        List<string> addedPaths = [.. scannedPaths.Except(currentPaths, StringComparer.OrdinalIgnoreCase)];
+        List<FileDiffParseTarget> bmsParseTargets = [.. scannedPaths
+            .Select(path => CreateBmsFileDiffTarget(path, currentBmsByPath))
+            .Where(target => target != null)];
         List<LR2SongDBExtended.bmson_song> currentBmsonList = [.. (currentBmsonSongs ?? []).Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))];
         var scannedBmsonPaths = new HashSet<string>(
             (mergedScanResult.ChartFilePaths ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase))
@@ -414,17 +420,17 @@ internal sealed class BmsLibraryInitializationService
             })];
         stopwatchDiff.Stop();
         result.DiffMs = stopwatchDiff.ElapsedMilliseconds;
-        result.BmsAddedTargetCount = addedPaths.Count;
+        result.BmsAddedTargetCount = bmsParseTargets.Count;
         result.BmsDeletedTargetCount = result.DeletedPaths.Count;
         result.BmsonUpsertTargetCount = addedOrUpdatedBmsonPaths.Count;
         result.BmsonDeletedTargetCount = result.DeletedBmsonPaths.Count;
         result.FileDiffParserDegree = ResolveFileDiffParserDegree();
         result.ParseReadBytesEstimate = SaturatingAdd(
-            EstimateCurrentFileDiffReadBytes(addedPaths),
+            EstimateCurrentFileDiffReadBytes(bmsParseTargets.Select(target => target.Path)),
             EstimateCurrentFileDiffReadBytes(addedOrUpdatedBmsonPaths));
 
         long bmsLightweightParseMs = 0L;
-        int parseTargetCount = addedPaths.Count + addedOrUpdatedBmsonPaths.Count;
+        int parseTargetCount = bmsParseTargets.Count + addedOrUpdatedBmsonPaths.Count;
         int parseProcessedCount = 0;
         if (parseTargetCount > 0)
         {
@@ -454,7 +460,7 @@ internal sealed class BmsLibraryInitializationService
             commitContext.AddDeletedBmsonPath(deletedBmsonPath);
         }
         FileDiffParsePipelineResult pipelineResult = RunFileDiffParsePipeline(
-            addedPaths,
+            bmsParseTargets,
             addedOrUpdatedBmsonPaths,
             dbGateway,
             currentChartInfoParseFailures,
@@ -477,9 +483,14 @@ internal sealed class BmsLibraryInitializationService
         result.SnapshotQueueHighWatermark = pipelineResult.SnapshotQueueHighWatermark;
         result.AddedFiles.AddRange(pipelineResult.AddedFiles);
         result.AddedBmsonSongs.AddRange(pipelineResult.ParsedBmsonSongs);
+        result.BmsDateOnlyUpdateCount = pipelineResult.BmsDateOnlyUpdateCount;
 
         var stopwatchApply = Stopwatch.StartNew();
         var deletedPathSet = new HashSet<string>(result.DeletedPaths, StringComparer.OrdinalIgnoreCase);
+        foreach (string updatedPath in pipelineResult.SuccessfullyReplacedBmsPaths)
+        {
+            deletedPathSet.Add(updatedPath);
+        }
         result.NextFiles.AddRange(currentFileList.Where(file => !deletedPathSet.Contains(file.path)));
         result.NextFiles.AddRange(result.AddedFiles);
         var removedBmsonPaths = new HashSet<string>(result.DeletedBmsonPaths, StringComparer.OrdinalIgnoreCase);
@@ -531,7 +542,11 @@ internal sealed class BmsLibraryInitializationService
         logEverythingScan?.Invoke("bmson_scan totalPaths=" + scannedBmsonPaths.Count + " deleted=" + result.DeletedBmsonPaths.Count + " upserted=" + result.AddedBmsonSongs.Count);
         result.DirectoryCount = result.NextDirectoryResourceLookupCache?.Count ?? 0;
 
-        result.HasDbDiff = result.DeletedPaths.Count > 0 || result.AddedFiles.Count > 0 || result.DeletedBmsonPaths.Count > 0 || result.AddedBmsonSongs.Count > 0;
+        result.HasDbDiff = result.DeletedPaths.Count > 0
+            || result.AddedFiles.Count > 0
+            || result.BmsDateOnlyUpdateCount > 0
+            || result.DeletedBmsonPaths.Count > 0
+            || result.AddedBmsonSongs.Count > 0;
 
         if (result.HasDbDiff)
         {
@@ -574,6 +589,7 @@ internal sealed class BmsLibraryInitializationService
             + " diff_ms=" + result.DiffMs
             + " deleted_count=" + result.DeletedPaths.Count
             + " added_count=" + result.AddedFiles.Count
+            + " bms_date_only_update_count=" + result.BmsDateOnlyUpdateCount
             + " bms_added_target_count=" + result.BmsAddedTargetCount
             + " bmson_deleted_count=" + result.DeletedBmsonPaths.Count
             + " bmson_upsert_count=" + result.AddedBmsonSongs.Count
@@ -659,7 +675,7 @@ internal sealed class BmsLibraryInitializationService
     }
 
     private FileDiffParsePipelineResult RunFileDiffParsePipeline(
-        IReadOnlyList<string> bmsPaths,
+        IReadOnlyList<FileDiffParseTarget> bmsTargets,
         IReadOnlyList<string> bmsonPaths,
         BmsLibraryDbGateway dbGateway,
         IDictionary<string, LR2SongDBExtended.chart_info_parse_failure> currentChartInfoParseFailures,
@@ -781,7 +797,7 @@ internal sealed class BmsLibraryInitializationService
         {
             try
             {
-                foreach (FileDiffParseTarget target in EnumerateFileDiffTargets(bmsPaths, bmsonPaths))
+                foreach (FileDiffParseTarget target in EnumerateFileDiffTargets(bmsTargets, bmsonPaths))
                 {
                     FileDiffReadCandidate candidate = ReadFileDiffTarget(target, ref readTicks);
                     AddWithWait(readQueue, candidate, ref readerOutputWaitTicks);
@@ -867,16 +883,42 @@ internal sealed class BmsLibraryInitializationService
         return pipelineResult;
     }
 
-    private static IEnumerable<FileDiffParseTarget> EnumerateFileDiffTargets(IReadOnlyList<string> bmsPaths, IReadOnlyList<string> bmsonPaths)
+    private static IEnumerable<FileDiffParseTarget> EnumerateFileDiffTargets(IReadOnlyList<FileDiffParseTarget> bmsTargets, IReadOnlyList<string> bmsonPaths)
     {
-        foreach (string path in bmsPaths ?? [])
+        foreach (FileDiffParseTarget target in bmsTargets ?? [])
         {
-            yield return new FileDiffParseTarget(FileDiffChartKind.Bms, path);
+            if (target != null)
+            {
+                yield return target;
+            }
         }
         foreach (string path in bmsonPaths ?? [])
         {
             yield return new FileDiffParseTarget(FileDiffChartKind.Bmson, path);
         }
+    }
+
+    private static FileDiffParseTarget CreateBmsFileDiffTarget(
+        string path,
+        IReadOnlyDictionary<string, BMSFile> currentBmsByPath)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return null;
+        }
+        if (currentBmsByPath == null || !currentBmsByPath.TryGetValue(path, out BMSFile existing))
+        {
+            return new FileDiffParseTarget(FileDiffChartKind.Bms, path);
+        }
+        DateTime lastWriteTimeUtc = SafeGetLastWriteTimeUtc(path);
+        if (lastWriteTimeUtc == DateTime.MinValue)
+        {
+            return null;
+        }
+        int currentDate = ToLr2UnixSeconds(lastWriteTimeUtc);
+        return existing.date == currentDate
+            ? null
+            : new FileDiffParseTarget(FileDiffChartKind.Bms, path, existing);
     }
 
     private static FileDiffReadCandidate ReadFileDiffTarget(FileDiffParseTarget target, ref long readTicks)
@@ -887,15 +929,15 @@ internal sealed class BmsLibraryInitializationService
             ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(target.Path);
             stopwatch.Stop();
             Interlocked.Add(ref readTicks, stopwatch.ElapsedTicks);
-            return FileDiffReadCandidate.CreateSuccess(target.Kind, target.Path, snapshot);
+            return FileDiffReadCandidate.CreateSuccess(target.Kind, target.Path, snapshot, target.ExistingBmsFile);
         }
         catch (IOException ex)
         {
-            return FileDiffReadCandidate.CreateFailure(target.Kind, target.Path, ex);
+            return FileDiffReadCandidate.CreateFailure(target.Kind, target.Path, target.ExistingBmsFile, ex);
         }
         catch (Exception ex) when (target.Kind == FileDiffChartKind.Bmson)
         {
-            return FileDiffReadCandidate.CreateFailure(target.Kind, target.Path, ex);
+            return FileDiffReadCandidate.CreateFailure(target.Kind, target.Path, target.ExistingBmsFile, ex);
         }
     }
 
@@ -909,14 +951,16 @@ internal sealed class BmsLibraryInitializationService
         {
             if (candidate.Exception is IOException readException)
             {
-                return FileDiffParsedCandidate.FromBms(InlineBmsParseCandidate.CreateFailure(candidate.Path, readException));
+                return FileDiffParsedCandidate.FromBms(InlineBmsParseCandidate.CreateFailure(candidate.Path, candidate.ExistingBmsFile, readException));
             }
             var stopwatch = Stopwatch.StartNew();
             var file = BMSFile.CreateBMSFileFromSnapshot(candidate.Snapshot);
+            file.date = ToLr2UnixSeconds(candidate.Snapshot.LastWriteTimeUtc);
+            file.PreserveUserSongColumnsFrom(candidate.ExistingBmsFile);
             Lr2SongFolderParentNormalizer.ApplyIfMissingOrInvalid(file, folderParentHashCache);
             stopwatch.Stop();
             Interlocked.Add(ref bmsParseTicks, stopwatch.ElapsedTicks);
-            return FileDiffParsedCandidate.FromBms(InlineBmsParseCandidate.CreateSuccess(candidate.Path, candidate.Snapshot, file));
+            return FileDiffParsedCandidate.FromBms(InlineBmsParseCandidate.CreateSuccess(candidate.Path, candidate.Snapshot, file, candidate.ExistingBmsFile));
         }
 
         if (candidate.Exception != null)
@@ -962,14 +1006,17 @@ internal sealed class BmsLibraryInitializationService
         {
             return metrics;
         }
+        List<InlineBmsParseCandidate> fullBmsBatch = bmsBatch == null
+            ? []
+            : [.. bmsBatch.Where(candidate => !IsBmsDateOnlyCandidate(candidate))];
         int chartInfoStart = result.InlineChartInfoRows.Count;
         int appliedStart = result.InlineChartInfoAppliedRows.Count;
         int failureStart = result.InlineChartInfoParseFailureRows.Count;
         int failureDeleteStart = result.InlineChartInfoParseFailureDeleteMd5s.Count;
         var chartInfoStopwatch = Stopwatch.StartNew();
-        if (bmsBatch != null && bmsBatch.Count > 0)
+        if (fullBmsBatch.Count > 0)
         {
-            ProcessInlineBmsChartInfo(bmsBatch, dbGateway, currentChartInfoParseFailures, result, logInstallPerformance, logInstallPerformanceWarn);
+            ProcessInlineBmsChartInfo(fullBmsBatch, dbGateway, currentChartInfoParseFailures, result, logInstallPerformance, logInstallPerformanceWarn);
         }
         if (bmsonBatch != null && bmsonBatch.Count > 0)
         {
@@ -991,7 +1038,7 @@ internal sealed class BmsLibraryInitializationService
         var maintenanceStopwatch = Stopwatch.StartNew();
         var bmsMaintenanceStopwatch = Stopwatch.StartNew();
         InlineMaintenanceItemResult[] bmsMaintenanceResults = BuildInlineBmsMaintenanceBatch(
-            bmsBatch,
+            fullBmsBatch,
             lookupCache,
             Math.Max(1, result.InlineMaintenanceDegree),
             logInstallPerformanceWarn);
@@ -1015,9 +1062,19 @@ internal sealed class BmsLibraryInitializationService
 
         if (bmsBatch != null && bmsBatch.Count > 0)
         {
-            for (int i = 0; i < bmsBatch.Count; i++)
+            foreach (InlineBmsParseCandidate candidate in bmsBatch)
             {
-                InlineBmsParseCandidate candidate = bmsBatch[i];
+                if (IsBmsDateOnlyCandidate(candidate))
+                {
+                    int date = candidate.File.date.GetValueOrDefault();
+                    candidate.ExistingFile.date = date;
+                    pipelineResult.BmsDateOnlyUpdateCount++;
+                    commitChunk.AddUpdatedBmsDate(candidate.File.path, date);
+                }
+            }
+            for (int i = 0; i < fullBmsBatch.Count; i++)
+            {
+                InlineBmsParseCandidate candidate = fullBmsBatch[i];
                 if (candidate.Exception != null)
                 {
                     dialogService?.Show(string.Format(Resources.Error_InitializationFailed, candidate.Path, candidate.Exception.Message), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
@@ -1028,6 +1085,7 @@ internal sealed class BmsLibraryInitializationService
                     {
                         commitChunk.AddMaintenanceInfoRow(candidate.File.maintenanceInfo);
                     }
+                    pipelineResult.SuccessfullyReplacedBmsPaths.Add(candidate.Path);
                     pipelineResult.AddedFiles.Add(candidate.File);
                     commitChunk.AddAddedBmsFile(candidate.File);
                     AttachInlineChartInfoRows(commitChunk, candidate.File.hash, chartInfoByMd5, appliedChartInfoByMd5, failureByMd5, failureDeletes);
@@ -1070,6 +1128,14 @@ internal sealed class BmsLibraryInitializationService
             RemoveRangeIfAny(result.InlineChartInfoParseFailureDeleteMd5s, failureDeleteStart, failureDeleteMd5s.Count);
         }
         return metrics;
+    }
+
+    private static bool IsBmsDateOnlyCandidate(InlineBmsParseCandidate candidate)
+    {
+        return candidate?.File != null
+            && candidate.ExistingFile != null
+            && candidate.File.date.HasValue
+            && string.Equals(candidate.File.hash, candidate.ExistingFile.hash, StringComparison.OrdinalIgnoreCase);
     }
 
     private static InlineMaintenanceItemResult[] BuildInlineBmsMaintenanceBatch(
@@ -1454,6 +1520,7 @@ internal sealed class BmsLibraryInitializationService
             logInstallPerformance?.Invoke("song_tbl_file_check db_commit_chunk_start chunk=" + chunkNumber
                 + " deleted=" + chunk.DeletedBmsPaths.Count
                 + " added=" + chunk.AddedBmsFiles.Count
+                + " bmsDateOnly=" + chunk.UpdatedBmsDates.Count
                 + " bmsonDeleted=" + chunk.DeletedBmsonPaths.Count
                 + " bmsonUpsert=" + chunk.UpsertBmsonSongs.Count
                 + " maintenance=" + chunk.MaintenanceInfoRows.Count
@@ -1493,6 +1560,7 @@ internal sealed class BmsLibraryInitializationService
                 + " elapsedMs=" + chunkStopwatch.ElapsedMilliseconds
                 + " deleted=" + chunk.DeletedBmsPaths.Count
                 + " added=" + chunk.AddedBmsFiles.Count
+                + " bmsDateOnly=" + chunk.UpdatedBmsDates.Count
                 + " bmsonDeleted=" + chunk.DeletedBmsonPaths.Count
                 + " bmsonUpsert=" + chunk.UpsertBmsonSongs.Count
                 + " maintenance=" + chunk.MaintenanceInfoRows.Count
@@ -1757,20 +1825,23 @@ internal sealed class BmsLibraryInitializationService
         Bmson
     }
 
-    private sealed class FileDiffParseTarget(BmsLibraryInitializationService.FileDiffChartKind kind, string path)
+    private sealed class FileDiffParseTarget(BmsLibraryInitializationService.FileDiffChartKind kind, string path, BMSFile existingBmsFile = null)
     {
         public FileDiffChartKind Kind { get; } = kind;
 
         public string Path { get; } = path ?? string.Empty;
+
+        public BMSFile ExistingBmsFile { get; } = existingBmsFile;
     }
 
     private sealed class FileDiffReadCandidate
     {
-        private FileDiffReadCandidate(FileDiffChartKind kind, string path, ChartFileSnapshot snapshot, Exception exception)
+        private FileDiffReadCandidate(FileDiffChartKind kind, string path, ChartFileSnapshot snapshot, BMSFile existingBmsFile, Exception exception)
         {
             Kind = kind;
             Path = path ?? string.Empty;
             Snapshot = snapshot;
+            ExistingBmsFile = existingBmsFile;
             Exception = exception;
         }
 
@@ -1780,16 +1851,18 @@ internal sealed class BmsLibraryInitializationService
 
         public ChartFileSnapshot Snapshot { get; }
 
+        public BMSFile ExistingBmsFile { get; }
+
         public Exception Exception { get; }
 
-        public static FileDiffReadCandidate CreateSuccess(FileDiffChartKind kind, string path, ChartFileSnapshot snapshot)
+        public static FileDiffReadCandidate CreateSuccess(FileDiffChartKind kind, string path, ChartFileSnapshot snapshot, BMSFile existingBmsFile)
         {
-            return new FileDiffReadCandidate(kind, path, snapshot, null);
+            return new FileDiffReadCandidate(kind, path, snapshot, existingBmsFile, null);
         }
 
-        public static FileDiffReadCandidate CreateFailure(FileDiffChartKind kind, string path, Exception exception)
+        public static FileDiffReadCandidate CreateFailure(FileDiffChartKind kind, string path, BMSFile existingBmsFile, Exception exception)
         {
-            return new FileDiffReadCandidate(kind, path, null, exception);
+            return new FileDiffReadCandidate(kind, path, null, existingBmsFile, exception);
         }
     }
 
@@ -1851,6 +1924,10 @@ internal sealed class BmsLibraryInitializationService
     private sealed class FileDiffParsePipelineResult
     {
         public List<BMSFile> AddedFiles { get; } = [];
+
+        public HashSet<string> SuccessfullyReplacedBmsPaths { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        public int BmsDateOnlyUpdateCount { get; set; }
 
         public List<LR2SongDBExtended.bmson_song> ParsedBmsonSongs { get; } = [];
 
@@ -1994,11 +2071,12 @@ internal sealed class BmsLibraryInitializationService
 
     private sealed class InlineBmsParseCandidate
     {
-        private InlineBmsParseCandidate(string path, ChartFileSnapshot snapshot, BMSFile file, IOException exception)
+        private InlineBmsParseCandidate(string path, ChartFileSnapshot snapshot, BMSFile file, BMSFile existingFile, IOException exception)
         {
             Path = path ?? string.Empty;
             Snapshot = snapshot;
             File = file;
+            ExistingFile = existingFile;
             Exception = exception;
         }
 
@@ -2008,16 +2086,18 @@ internal sealed class BmsLibraryInitializationService
 
         public BMSFile File { get; }
 
+        public BMSFile ExistingFile { get; }
+
         public IOException Exception { get; }
 
-        public static InlineBmsParseCandidate CreateSuccess(string path, ChartFileSnapshot snapshot, BMSFile file)
+        public static InlineBmsParseCandidate CreateSuccess(string path, ChartFileSnapshot snapshot, BMSFile file, BMSFile existingFile)
         {
-            return new InlineBmsParseCandidate(path, snapshot, file, null);
+            return new InlineBmsParseCandidate(path, snapshot, file, existingFile, null);
         }
 
-        public static InlineBmsParseCandidate CreateFailure(string path, IOException exception)
+        public static InlineBmsParseCandidate CreateFailure(string path, BMSFile existingFile, IOException exception)
         {
-            return new InlineBmsParseCandidate(path, null, null, exception);
+            return new InlineBmsParseCandidate(path, null, null, existingFile, exception);
         }
     }
 
@@ -2702,5 +2782,19 @@ internal sealed class BmsLibraryInitializationService
         {
             return DateTime.MinValue;
         }
+    }
+
+    private static int ToLr2UnixSeconds(DateTime utcTime)
+    {
+        long seconds = new DateTimeOffset(DateTime.SpecifyKind(utcTime, DateTimeKind.Utc)).ToUnixTimeSeconds();
+        if (seconds > int.MaxValue)
+        {
+            return int.MaxValue;
+        }
+        if (seconds < int.MinValue)
+        {
+            return int.MinValue;
+        }
+        return (int)seconds;
     }
 }

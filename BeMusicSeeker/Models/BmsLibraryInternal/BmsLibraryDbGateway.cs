@@ -193,6 +193,13 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
         EnsureSongLookupIndexes(songDb);
         songDb.CreateTable<LR2SongDBExtended.maintenance>();
         BulkDeleteBmsPaths(songDb, chunk.DeletedBmsPaths);
+        foreach (BmsDateOnlyUpdate updatedDate in chunk.UpdatedBmsDates)
+        {
+            if (updatedDate != null && !string.IsNullOrWhiteSpace(updatedDate.Path))
+            {
+                songDb.Execute("UPDATE song SET date = ? WHERE path = ?;", updatedDate.Date, updatedDate.Path);
+            }
+        }
         foreach (BMSFile addedFile in chunk.AddedBmsFiles)
         {
             if (addedFile == null)
