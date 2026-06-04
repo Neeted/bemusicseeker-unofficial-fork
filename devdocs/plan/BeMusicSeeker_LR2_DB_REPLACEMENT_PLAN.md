@@ -199,6 +199,8 @@ SELECT path,date FROM folder WHERE parent = ROOT OR date = 0
 
 - BMS / bmson に関係なく、owned chart の path add / delete / move 検出 contract は統一する。
 - LR2 `song` row を生成する BMS では、`song.path` と `song.date` を変更検出の正本にする。
+- `Startup`、`ReloadFileDiff`、search root 変更後 reload、manual rescan のいずれでも、
+  既存 path の `song.date` と実 BMS mtime の mismatch を update target として扱う。
 - DB row の `path` と現 file path、`song.date` と現 file mtime の Unix 秒が一致する場合は更新なし。
 - `path` または `song.date` が変わった場合は `ChartFileSnapshot` を読み、MD5 を比較する。
 - `path` / `song.date` が変わり MD5 も変わった場合:
@@ -273,9 +275,13 @@ BeMusicSeeker が生成・更新する列:
 
 DB write 方針:
 
+- LR2 `song` row の DB 書き込み入口は `Lr2SongDbWriter` に単一化する。
+  - 既存の `UpsertSongs`、file diff commit、maintenance update などからの直接 `InsertOrReplace(song)` は
+    廃止し、`Lr2SongRowEnricher` / `Lr2SongDbWriter` 経由へ寄せる。
+  - 例外的な low-level write helper は `Lr2SongDbWriter` 内部だけに閉じる。
 - 新規 row は full insert でよい。
 - 既存 row は列単位 merge または targeted `UPDATE` に寄せる。
-- やむを得ず `InsertOrReplace` を使う場合は、既存 row から維持列を読んでから書く。
+- やむを得ず writer 内部で `InsertOrReplace` を使う場合は、既存 row から維持列を読んでから書く。
 - path move/relink では旧 path row の維持列を新 path row へ引き継ぐ。
 - `favorite` / `adddate` / `tag` の維持をテストで固定する。
 
@@ -295,6 +301,9 @@ row が残ると、manual-only でも LR2 が不要な scan に入る。
   - 既存 row が同じ `path` にあれば `adddate` など維持列を引き継ぐ。
 - root / ancestor / normal folder row は、現在の LR2 BMS root と BMS chart directory set から
   deterministic に再生成する。
+- LR2 互換 path として扱えない BMS は `song.folder` / `song.parent` を `NULL` にし、その BMS だけを
+  根拠にした `folder` expected row は生成しない。同じ directory に LR2 互換 BMS がある場合は、
+  その互換 BMS 由来の chart directory set として folder row を生成する。
 - `.lr2folder` row は discovery source を分類するが、所有権として永続化しない。
   - `playlist_output_lr2folder`: BeMusicSeeker がプレイリスト出力として生成する `.lr2folder`。
     実ファイルは既存の出力設定・出力 directory convention で管理する。
@@ -335,6 +344,45 @@ row が残ると、manual-only でも LR2 が不要な scan に入る。
   - cleanup できない、または cleanup 後も blocker が残る場合は完全生成 status を warning にし、
     LR2 起動時に再走査が起き得る状態として表示する。
 
+### 通常 mutation 時の LR2 DB writer contract
+
+完全生成の完了後は、初回 backfill に頼らず、所持譜面ライブラリの mutation と同じ operation 内で
+LR2 `song` / `folder` を最新状態へ保つ。
+
+対象 mutation:
+
+- file diff / startup scan による BMS add / delete / move / update。
+- 手動 install / reinstall / uninstall。
+- duplicate merge や実ファイル削除などの owner-backed unregister。
+- BMS root set 変更、root folder 設定変更。
+- manual rescan で LR2 生成列に差分が出た場合。
+
+方針:
+
+- LR2 `song` row への保存は、すべて `Lr2SongDbWriter` / `Lr2SongRowEnricher` を通す。
+- mutation producer は、owned collection delta と同じ単位で LR2 song/folder delta を作る。
+- BMS add/update は `ChartFileSnapshot`、text group snapshot、chart_info/detailed parser result、
+  existing song row を入力にし、`Lr2SongRowEnricher` と `Lr2SongDbWriter` を通して generated columns を
+  changed-only に保存する。
+- BMS delete は LR2 `song.path` を正本にして該当 row を削除する。delete だけで再帰 folder prune を行わず、
+  affected folder scope を dirty にし、同 operation の末尾で不要 folder row を prune する。
+- BMS move/relink は旧 `song` row の維持列 `favorite` / `adddate` / `tag` を新 path row へ引き継ぐ。
+- text group、directory mtime、`folderinfo.txt`、`.lr2folder` source に影響する mutation は
+  folder generation scope を dirty にし、同 operation の末尾で affected scope を再生成して
+  scope 内 upsert / prune まで完了させる。
+- root set 変更や custom folder output base 変更のように影響範囲が広い場合は、scope 全体を再生成する。
+- LR2 DB write が busy / lock / unexpected failure で失敗した場合、owned collection mutation は成功させてよいが、
+  完全生成 status を `Incomplete` にし、次回 backfill / diff run で再同期できる状態にする。
+- 完全生成設定が OFF の場合、通常 mutation で LR2 補助列挙・folder generation は行わない。
+
+テスト:
+
+- BMS add/update/delete/move で LR2 `song` row と維持列が期待通りになる。
+- install / uninstall / duplicate merge 後に `song` row が stale にならない。
+- text group 変更で同 directory の `song.txt` が更新される。
+- directory rename / root set 変更で affected folder rows が再生成される。
+- LR2 DB write failure は完全生成 status を `Incomplete` にし、次回 backfill で復旧できる。
+
 ### LR2 compatibility warning の scope
 
 LR2 compatibility warning は BMS のみを対象にする。bmson は対象外。
@@ -369,6 +417,8 @@ LR2 起動導線の block は行わない。
   `Incomplete` を持つ。
 - `Completed` の signature が現設定・schema・generator・parser・root set・folder source と一致する場合は
   backfill 不要とする。
+- `Completed` は generation scope の反映完了に加え、startup-scan blocker diagnostic が clean であることを
+  条件にする。unknown root row や `date = 0` row が残る場合は `Incomplete` とし、status warning に出す。
 - `Needed` / `Running` / `Incomplete` / `Failed` / `Cancelled` は完全生成 status に warning を出す。
 - 完全生成設定値が欠落または不正な場合は、他の設定値と同じく既定値へ正規化し、設定値 warning は出さない。
 - LR2 側の DB 自動更新設定が手動のみでない可能性がある場合は、設定画面または status info として注意を出す。
@@ -395,6 +445,9 @@ LR2 起動導線の block は行わない。
   - owned collection / LR2 `song.db` に mutation を起こす操作は開始前に抑止する。
     例: 譜面追加、削除、移動、install/reinstall、全譜面再スキャン、BMS root 設定変更、
     完全生成設定の切替。
+- backfill 完了前に current scan / owned source generation / folder source signature を再確認する。
+  - backfill 開始後に外部ファイル変更などで入力が stale になっていれば `Completed` にせず `Needed` に戻す。
+  - stale でなければ `Completed` を記録し、以後は通常 mutation 時の LR2 DB writer contract で差分維持する。
 
 ## LR2 互換性評価
 
@@ -500,6 +553,8 @@ projection に従って実行時に組み立てる。詳細な具体例を toolt
 
 - DB row の `song.path` と実 path、`song.date` と実 BMS mtime の Unix 秒が一致する場合は unchanged。
 - `song.path` または `song.date` が変わった場合だけ `ChartFileSnapshot` を読み、MD5 を比較する。
+- `Startup` / `ReloadFileDiff` / search root 変更後 reload では、既存 path の mtime mismatch を
+  update target set に含める。
 - MD5 が同じなら `song.date` のみ更新する。
 - MD5 が違うなら再parseする。
 - deleted path と added path の MD5 が同じ場合は move/relink として維持列を引き継ぐ。
@@ -509,6 +564,7 @@ projection に従って実行時に組み立てる。詳細な具体例を toolt
 - `song.path` + `song.date` 一致は parse しない。
 - `song.date` changed + MD5 same は `song.date` のみ更新する。
 - `song.date` changed + MD5 changed は BMS row / chart_info / maintenance を更新する。
+- `Startup` / `ReloadFileDiff` / search root 変更後 reload の全経路で既存 path の mtime mismatch を検出する。
 - path move + MD5 same で `favorite` / `adddate` / `tag` が維持される。
 - bmson の現行更新検出と矛盾しない。
 
@@ -521,6 +577,8 @@ projection に従って実行時に組み立てる。詳細な具体例を toolt
 実装:
 
 - `Lr2SongRowMerger` または `Lr2SongDbWriter` を追加する。
+- LR2 `song` row への直接 `InsertOrReplace(song)` / direct update sites を洗い出し、
+  `Lr2SongDbWriter` 経由へ移行する。
 - 既存 row がある場合は維持列を読んでから generated columns を更新する。
 - generated column ごとの targeted `UPDATE` を基本にし、full row replace は使わない。
 - `favorite` / `adddate` / `tag` は維持する。
@@ -532,6 +590,7 @@ projection に従って実行時に組み立てる。詳細な具体例を toolt
 - existing `tag` が維持される。
 - generated columns は更新される。
 - 新規 row は必要列が null/0 不正にならない。
+- file diff、manual rescan、maintenance update などの既存 song write 経路が `Lr2SongDbWriter` を通る。
 
 ### Phase 3: text group と raw resource reference snapshot を scan/parse contract に追加する
 
@@ -694,10 +753,22 @@ scope:
     を初期対象にする。
 - playlist output / discovered / built-in は query では絞らず、discovery result と current output path set の
   照合で分類する。
-- `.lr2folder` 実ファイルは既存の出力設定または外部ツールの管理に任せ、DB row は現在の
-  discovery result から派生生成する。
+- BeMusicSeeker 管理の `playlist_output_lr2folder` では、`.lr2folder` 実ファイルを正本にしない。
+  - `playlist` / `playlist_entry` / `playlist_course` とプレイリスト出力設定を正本にする。
+  - 同一の `Lr2PlaylistCustomFolderProjection` から `.lr2folder` 本文と LR2 `folder` row を生成する。
+  - `folder.command` は生成した `#COMMAND` と一致させる。既存の numbered `.lr2folder` が
+    `playlist_entry` table を参照する SQL command を出す場合、entry 内容の正本は
+    `playlist_entry` table であり、command はその table を参照する projection として同期する。
+  - `folder.date` は出力後の `.lr2folder` file mtime にする。`date = NULL` / `date = 0` は禁止する。
+  - `adddate` は既存 row があれば維持し、新規 row だけ現在時刻にする。
+- 外部由来の `discovered_lr2folder` と LR2 built-in custom folder source だけが `.lr2folder` parse 結果を
+  `folder` row 生成の正本にする。
+- `.lr2folder` 実ファイルは既存の出力設定または外部ツールの管理に任せる。
 - Everything query に exclude DSL は追加せず、root / extension / filename の組み合わせで
   `.lr2folder` file surface を取得する。アプリ生成物か外部生成物かは query ではなく結果分類で判定する。
+- 既存の custom folder 出力し直し、出力先移動、削除、`ignore_folder_output` 変更、
+  `is_root_folder` 変更、playlist entry 更新後の再出力では、`.lr2folder` file 出力だけで終わらせず、
+  同じ workflow で generation scope 内の `folder` row を upsert / prune する。
 
 parse directive:
 
@@ -714,7 +785,12 @@ parse directive:
 テスト:
 
 - playlist 由来 `.lr2folder` 出力で `folder` row が入る。
+- playlist 由来 `.lr2folder` 出力で、`.lr2folder` 本文と `folder.command` が同一 projection から生成される。
+- `.lr2folder` 再出力だけだった操作でも `folder.command` / `folder.date` / `folder.max` が更新される。
 - `.lr2folder` 削除で generation scope から row が消える。
+- custom folder 出力先移動で旧 numbered `.lr2folder` の `folder` row が prune され、新 row の
+  `date` / `adddate` が `NULL` にならない。
+- `ignore_folder_output` / `is_root_folder` / playlist entry 更新で affected `folder` row が upsert / prune される。
 - discovered `.lr2folder` で `folder` row が入る。
 - discovered `.lr2folder` が消えた場合は派生 `folder` row だけが消え、実ファイル削除は行わない。
 - 通常出力先 / ルート出力先配下の外部生成 `.lr2folder` は discovery result として扱われる。
@@ -742,6 +818,7 @@ parse directive:
 - backfill needed / running / completed / failed / cancelled / incomplete を log と UI に出す。
 - backfill progress は全体合算 total と stage 別 processed count の両方を表示する。
 - `Needed` / `Running` / `Incomplete` / `Failed` / `Cancelled` は完全生成 status warning として表示する。
+- startup-scan blocker diagnostic が clean でない場合は `Completed` にせず `Incomplete` にする。
 - 設定値が欠落または不正な場合は既定値へ正規化する。設定値 warning は出さない。
 - LR2 config の auto update 設定は config 要素名を確認して検出する。検出できない場合は
   「自動更新設定を確認できない」status info を出し、BeMusicSeeker 側からは config を自動変更しない。
@@ -751,6 +828,8 @@ parse directive:
 - cancel 後の partial write は incomplete として扱い、status warning に出す。
 - 次回 run は最後に成功した cursor から再開する。再開前に必要なら current status / signature を再検証する。
 - backfill 中は read-only 操作を許可し、owned collection / LR2 `song.db` mutation 操作は開始前に抑止する。
+- backfill の完了直前に source generation / folder source signature / startup-scan blocker diagnostic を再確認し、
+  stale または blocker 残存なら `Completed` にしない。
 
 テスト:
 
@@ -762,6 +841,8 @@ parse directive:
 - failed 状態で完全生成 status warning が出る。
 - cancel 後に incomplete status が残り、次回再開できる。
 - backfill 中に read-only 操作は許可され、library mutation 操作は抑止される。
+- blocker diagnostic が残る場合は `Completed` にならない。
+- 完了直前に source signature が変わった場合は `Needed` に戻る。
 
 ### Phase 9: resumable backfill
 
@@ -782,6 +863,7 @@ parse directive:
 - preflight backup / restore point は作らない。
 - run id / durable status / processed cursor を持つ。
 - chunk 成功後だけ cursor を進め、失敗 chunk は rollback して次回再処理する。
+- 完了直前の source staleness check と startup-scan blocker diagnostic が clean な場合だけ `Completed` を記録する。
 - `favorite` / `adddate` / `tag` を維持。
 - CP932 非対応 BMS row は BeMusicSeeker DB から削除しない。
 - backfill 再実行で追加差分が出ない。
@@ -794,6 +876,7 @@ parse directive:
 - 2 回目 backfill が no-op になる。
 - partial run 後に resume できる。
 - failed chunk が rollback され、次回同じ target から再開できる。
+- source staleness が検出された run は `Completed` にならず、次回再実行対象になる。
 
 ## データマッピング早見表
 
