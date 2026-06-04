@@ -8491,6 +8491,10 @@ public class MainWindowViewModel : ViewModel
         {
             return 60;
         }
+        if (string.Equals(name, "lr2_full_generation_backfill", StringComparison.OrdinalIgnoreCase))
+        {
+            return 90;
+        }
         return 100;
     }
 
@@ -11971,6 +11975,7 @@ public class MainWindowViewModel : ViewModel
 
     private void SchedulePostStartupBestEffortWarmups(string reason)
     {
+        files?.QueueLr2FullGenerationBackfillIfNeeded("post_startup_" + (reason ?? string.Empty));
         if (IsVirtualNormalLibraryOrderPrewarmRunning())
         {
             LogMainViewBuild("post_startup_warmup queued reason=" + (reason ?? string.Empty)

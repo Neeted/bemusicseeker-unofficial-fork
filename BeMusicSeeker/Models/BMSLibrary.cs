@@ -2691,6 +2691,8 @@ public class BMSLibrary : NotificationObject
 
     private readonly BmsLibraryStateApplier stateApplier;
 
+    private const string Lr2FullGenerationSignatureVersion = "lr2_full_generation_v1";
+
     private BmsLibraryOptionsSnapshot CurrentOptionsSnapshot => BmsLibraryOptionsSnapshot.CreateCurrent();
 
     private BmsLibraryInstallEstimationService CreateInstallEstimationService()
@@ -4900,6 +4902,88 @@ completeFileEnumerationOnce,
         ChartDigestBackfillCurrentPath = string.Empty;
         ChartDigestBackfillRunning = false;
         LogInstallPerformance("chart_digest_backfill skipped reason=combined_chart_info_pipeline");
+    }
+
+    internal Lr2FullGenerationStatusSnapshot QueueLr2FullGenerationBackfillIfNeeded(string reason)
+    {
+        BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
+        bool enabled = options.OperationModeLR2DB && options.EnableLR2SongDbFullGeneration;
+        string signature = CreateLr2FullGenerationSignature(options);
+        Lr2FullGenerationStatusSnapshot status;
+        using (LR2SongDBExtended songDb = dbGateway.OpenSongDb())
+        {
+            status = Lr2FullGenerationStatusService.Evaluate(songDb, enabled, signature, DateTime.UtcNow);
+        }
+
+        LogInstallPerformance("lr2_full_generation_status evaluate reason=" + (reason ?? "unknown")
+            + " enabled=" + enabled.ToString().ToLowerInvariant()
+            + " status=" + status.Status
+            + " storedStatus=" + (status.StoredStatus?.ToString() ?? "(none)")
+            + " signature=" + (status.Signature ?? string.Empty));
+
+        if (!enabled || !status.IsNeeded)
+        {
+            return status;
+        }
+
+        Task work()
+        {
+            RunLr2FullGenerationBackfillPlaceholder(reason, signature);
+            return Task.CompletedTask;
+        }
+        if (StartupBackgroundTaskScheduler != null
+            && StartupBackgroundTaskScheduler("lr2_full_generation_backfill", reason ?? "queue", null, work))
+        {
+            return status;
+        }
+        Task.Run(() => RunLr2FullGenerationBackfillPlaceholder(reason, signature)).Logging("Lr2FullGenerationBackfill");
+        return status;
+    }
+
+    private static string CreateLr2FullGenerationSignature(BmsLibraryOptionsSnapshot options)
+    {
+        return Lr2FullGenerationSignatureVersion
+            + "|operationModeLR2DB=" + ((options?.OperationModeLR2DB ?? false) ? "1" : "0")
+            + "|fullGeneration=" + ((options?.EnableLR2SongDbFullGeneration ?? false) ? "1" : "0");
+    }
+
+    private void RunLr2FullGenerationBackfillPlaceholder(string reason, string signature)
+    {
+        var stopwatch = Stopwatch.StartNew();
+        string runId = Guid.NewGuid().ToString("N");
+        try
+        {
+            ReportStartupBackgroundTask("lr2_full_generation_backfill", "start", 0L, failed: false, detail: "runId=" + runId);
+            using (LR2SongDBExtended songDb = dbGateway.OpenSongDb())
+            {
+                Lr2FullGenerationStatusService.MarkRunning(songDb, signature, runId, totalCount: 0, stage: "not_implemented", nowUtc: DateTime.UtcNow);
+                Lr2FullGenerationStatusService.MarkIncomplete(
+                    songDb,
+                    signature,
+                    runId,
+                    processedCursor: 0,
+                    totalCount: 0,
+                    stage: "not_implemented",
+                    detail: "backfill_runner_not_implemented",
+                    nowUtc: DateTime.UtcNow);
+            }
+            stopwatch.Stop();
+            LogInstallPerformance("lr2_full_generation_backfill incomplete reason=" + (reason ?? "unknown")
+                + " runId=" + runId
+                + " detail=backfill_runner_not_implemented"
+                + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
+            ReportStartupBackgroundTask("lr2_full_generation_backfill", "incomplete", stopwatch.ElapsedMilliseconds, failed: false, detail: "backfill_runner_not_implemented");
+        }
+        catch (Exception ex)
+        {
+            stopwatch.Stop();
+            LogInstallPerformance("lr2_full_generation_backfill failed reason=" + (reason ?? "unknown")
+                + " runId=" + runId
+                + " elapsedMs=" + stopwatch.ElapsedMilliseconds
+                + " exception=" + ex.GetType().Name
+                + " message=" + ex.Message);
+            ReportStartupBackgroundTask("lr2_full_generation_backfill", "failed", stopwatch.ElapsedMilliseconds, failed: true, detail: ex.Message);
+        }
     }
 
     /// <summary>

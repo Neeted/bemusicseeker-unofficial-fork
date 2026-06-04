@@ -1057,6 +1057,9 @@ parse directive:
   `status` / `signature` / `run_id` / `processed_cursor` / `total_count` / `stage` / `last_error` を durable に保持し、
   `Completed` かつ signature 一致のときだけ backfill 不要と判定する。`Failed` / `Cancelled` / `Incomplete` /
   signature mismatch / missing row は `Needed` として再開可能にする。
+  初期接続では `startup_initialization_complete` 後の best-effort warmup から status を評価し、必要なら
+  `lr2_full_generation_backfill` startup background task を queue する。backfill runner 本体が入るまで、この task は
+  `Running` から `Incomplete` (`backfill_runner_not_implemented`) に遷移させ、通常 startup readiness を待たせない。
 
 ## 作業エージェント向け実装順
 
