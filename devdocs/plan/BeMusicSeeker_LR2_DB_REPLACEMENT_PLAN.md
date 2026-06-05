@@ -947,25 +947,46 @@ parse directive:
 - folder row の削除は generation scope 内に限定する。scope 外の row は原則触らない。
 - LR2 が起動中の `song.db` 書き込みは競合する可能性があるため、busy/lock 失敗を明示ログにする。
 
-## 実装メモ
+## フェーズ進捗
 
-- Phase 0 の golden fixture は段階的に追加する。
+この表は、この計画書を実装タスクとして渡す際の現在地を示す。上の「実装フェーズ」は
+ゴール仕様、ここは実装済み範囲と残作業の管理を目的にする。
+
+| Phase | 状態 | 実装済み / 現行決定 | 残作業 / 注意 |
+| --- | --- | --- | --- |
+| Phase 0: Golden fixture と contract 固定 | 一部完了 | `LR2CRC32` / ROOT sentinel / CP932 boundary の contract、OpenLR2 source classifier の推測抑止、`exlevel` contract はテスト化済み。 | `folderinfo.txt` / `.lr2folder` / copied `song.db` dry-run など、実 DB 由来の golden fixture を追加する。 |
+| Phase 1: BMS 変更検出 | 主要実装済み | `song.path` / `song.date` / hash を使う変更検出、same MD5 の targeted update、runtime reload の再評価 queue は接続済み。 | 大規模 root 変更・mtime preserved copy の手動検証を残す。 |
+| Phase 2: `song` row merge / ownership | 主要実装済み | `Lr2SongDbWriter`、generated/user column 分離、runtime write failure の status marking、merge 時 user column preservation は接続済み。 | copied `song.db` で LR2 user column が維持されることを統合確認する。 |
+| Phase 3: text group / raw resource reference | 一部完了 | BMS parser / snapshot 側の raw resource reference、text group の targeted `song.txt` 更新、完全生成 ON 時だけの scan 条件は実装済み。 | Everything native bridge の ABI 拡張は未着手。現状は grouped query / managed fallback で意味を揃える方針として扱う。 |
+| Phase 4: LR2 compatibility warning | 主要実装済み | `Lr2CompatibilityEvaluator`、maintenance 最小 fact、standalone mode での LR2 非対応パス tree 非表示は接続済み。 | warning 表示の実機確認と、copied DB での backfill 表示確認を残す。 |
+| Phase 5: `song` row enricher | 主要実装済み | `Lr2SongRowEnricher`、`chart_info` 由来 numeric columns、`exlevel = #EXLEVEL raw int / 未設定 0` は実装済み。 | LR2IR / tag.db 由来の exlevel 上書きは対象外として維持する。 |
+| Phase 6: normal `folder` row generator | 主要実装済み | normal folder generator / scope planner / DB sync、mutation・file diff failure の incomplete marking は接続済み。 | Everything native bridge へ directory metadata を載せるかは未決定。現状は native ABI を増やさず grouped/fallback surface を使う。 |
+| Phase 7: `.lr2folder` DB sync | 主要実装済み | playlist projection と `.lr2folder` / `folder` row sync の同一化、discovery、built-in source の no-inference guard は接続済み。 | OpenLR2 special type `3/4/6` は explicit caller だけを受け付ける。source 別の実 fixture が揃うまで推測実装しない。 |
+| Phase 8: status / backfill UI | 主要実装済み | durable status、runtime progress、setting queue、cancel、mutation guard、startup blocker diagnostic / cleanup は実装済み。 | 長時間 backfill の UI 手動確認と failure/cancel 再起動確認を残す。 |
+| Phase 9: resumable backfill | 一部完了 | durable cursor、stage / chunk resume、changed-only song row backfill、cancel boundary の基盤は実装済み。 | 実 DB での partial resume、failed chunk rollback、copied `song.db` での no-op 2 回目 backfill を統合確認する。 |
+
+### フェーズ別進捗メモ
+
+以下はフェーズごとの設計責務と実装時の注意を残す詳細メモである。完了 / 未完了の判定は
+上の進捗表を正とし、残作業は後続の「残作業の推奨順」で管理する。
+
+- Phase 0: golden fixture は一部実装済みで、残りは該当 service の実装・検証 cycle に合わせて追加する。
   - まず既存 `Lr2SongFolderParentNormalizer` の CRC / CP932 encode contract を固定する。
   - byte length boundary、`folderinfo.txt`、`.lr2folder`、manual-only scan 対象の fixture は、
     `Lr2CompatibilityEvaluator` / `Lr2FolderRowGenerator` の導入 cycle で追加する。
   - LR2 root sentinel は `LR2CRC32("ROOT")` ではなく `LR2CRC32("ROOT\0") = e2977170` として扱う。
-- Phase 1 は段階的に追加する。
+- Phase 1: BMS 変更検出は主要経路へ接続済み。残りの検証では以下を固定する。
   - まず file diff で既存 BMS の `song.date` / mtime mismatch を parse target に入れる。
   - MD5 が同じ場合は `song.date` の targeted update だけ行い、chart_info / maintenance は再生成しない。
   - MD5 が変わる場合は parsed row へ差し替え、`favorite` / `adddate` / `tag` は既存 row から維持する。
   - 削除された path と新規 path が同じ MD5 で一意に対応する場合だけ、LR2 user columns を新規 row へ継承する。
     source または destination が同一 MD5 で複数ある場合は `lr2_song_relink_ambiguous` として記録し、誤継承を避ける。
-- Phase 2 は段階的に追加する。
+- Phase 2: `Lr2SongDbWriter` と generated/user column 分離は実装済み。
   - まず `Lr2SongDbWriter` を導入し、既存 `song.path` row がある場合は `favorite` / `adddate` / `tag` を
     DB 上に残したまま generated columns だけを更新する。
   - `txt` / text group は Phase 3 で正本を設計してから扱うため、この段階では従来どおり generated row 側の値を保存する。
   - `song.hash` が `NULL` の既存 row も existing row として扱い、hash 取得結果だけで new row 判定しない。
-- Phase 3 は段階的に追加する。
+- Phase 3: text group と raw resource reference の基盤は実装済み。Everything native bridge ABI 拡張は残作業。
   - まず scan surface に BMS chart directory 直下の `.txt` 有無を追加し、`song.txt` へ反映する。
   - fixed native resource scan は維持し、`.txt` だけ Everything grouped query で補完する。
     grouped query が使えない場合に managed 全列挙へ落とすと起動コストが跳ねるため、この段階では text surface を空扱いにする。
@@ -978,13 +999,13 @@ parse directive:
     LR2 warning 用には `ResourceReferences` で valid raw directive を全件保持する。同一 lookup key に複数 raw directive があっても、
     resource health の count は増やさず、LR2 raw path evaluation では全 raw directive を見る。
   - optional image (`stagefile` / `banner` / `backbmp`) は既存 snapshot field から扱い、`#WAV` / `#BMP` raw reference collection へは混ぜない。
-- Phase 4 は段階的に追加する。
+- Phase 4: compatibility evaluator と maintenance projection は実装済み。
   - まず `Lr2CompatibilityEvaluator` を fact-only service として導入し、schema / warning projection には接続しない。
   - path CRC は `Lr2SongFolderParentNormalizer` の既存 contract を再利用し、CP932 byte length と resource raw/resolved path fact だけを追加する。
   - legacy path length boundary は NUL 終端を除いた CP932 259 bytes を上限として扱う。
   - warning projection は `ResourceHealthWarningProjection` へ混ぜず、maintenance facts が評価済みの BMS row だけ
     `BMSFile.Warnings` の `Lr2Compatibility` category として差し替える。未評価 row は placeholder attach だけで既存 warning を消さない。
-- Phase 5 は段階的に追加する。
+- Phase 5: `Lr2SongRowEnricher` と chart_info 由来 column reflection は実装済み。
   - まず `Lr2SongRowEnricher` を導入し、既存の `date` / `txt` / user columns preservation / folder-parent CRC 正規化を
     file diff parser と DB writer から同じ入口へ寄せる。
   - detailed parser / `chart_info` 由来 numeric columns は同じ enricher から反映する。
@@ -993,7 +1014,7 @@ parse directive:
   - `song.judge` は LR2 の raw `#RANK` 値で、`chart_info.judge` は判定幅 percent なので写さない。
   - `bga` は BMS/BMSON timeline 上の BGA event 有無、`exlevel` は BMS `#EXLEVEL` の raw 値を正本にする。
     `#DEFEXRANK` は判定幅計算だけに使い、`exlevel` 未定義時は `0` を入れる。
-- Phase 6 は段階的に追加する。
+- Phase 6: normal folder generator / scope planner / DB sync は主要経路へ接続済み。
   - まず DB 接続前の pure `Lr2FolderRowGenerator` を追加し、LR2 root / ancestor / chart directory から
     normal `folder` row と generation scope path set を作る contract を固定する。
   - `folderinfo.txt` は directory metadata snapshot の候補 surface から読み、`#TITLE` を normal folder row title へ反映する。
@@ -1032,7 +1053,7 @@ parse directive:
     ただし compose service 側は CP932 非対応 chart path や metadata 欠落がある場合に stale normal row deletion を抑止する。
     `ChartScanExecutionResult.Success != true` の partial surface では normal folder sync 自体を skip し、`folderinfo.txt`
     surface 欠落や chart path 不完全性を stale row prune / title overwrite に使わない。
-- Phase 7 は段階的に追加する。
+- Phase 7: `.lr2folder` projection / DB sync / playlist output sync / discovery は主要経路へ接続済み。
   - まず `.lr2folder` 本文を `LR2SongDB.folder` row へ投影する pure `Lr2FolderFileProjection` を追加する。
     この層は `#TITLE` / `#SUBTITLE` / `#CATEGORY` / `#INFORMATION_A` / `#INFORMATION_B` /
     `#COMMAND` / `#TAG` / `#MAXTRACKS` / `#BANNER` / `#CUSTOMFOLDER` を parse する。
@@ -1142,24 +1163,46 @@ parse directive:
   `.lr2folder` parser / LR2 compatibility fact の version も含める。各 component の生成意味が変わった場合は
   対応 version を bump し、既存 `Completed` を再評価対象にする。
 
-## 作業エージェント向け実装順
+## File Enumeration / Everything Surface Contract
 
-1. Phase 0 の golden fixture を追加する。
-2. BMS 変更検出を `song.path` / `song.date` / hash ベースに統一する。
-3. `song` row merge / ownership writer を追加する。
-4. text group と raw resource reference snapshot を scan/parse contract に追加する。
-5. `Lr2CompatibilityEvaluator` を追加する。
-6. `maintenance` に LR2 compatibility warning 用の列を追加し、schema preflight に組み込む。
-7. `Lr2CompatibilityWarningProjection` を追加する。
-8. `Lr2SongRowEnricher` を追加し、BMS file diff path に組み込む。
-9. `Lr2FolderRowGenerator` と folder generation scope を追加する。
-10. `.lr2folder` parser、discovery、generation scope 内の `folder` row sync を追加する。
-11. 完全生成 status と backfill progress / warning を追加する。
-12. migration / backfill を追加する。
-13. コピーした `song.db` で統合確認する。
-14. LR2 を manual-only で起動し、未変更 root で再帰スキャンに入らないことを確認する。
+Everything native bridge と managed fallback は、完全生成 status の `Completed` 判定に影響する
+入力 surface として扱う。特に `.txt`、directory mtime、`folderinfo.txt`、`.lr2folder`
+existence / mtime は意味的に揃える。
 
-## 実装メモ
+現状の整理:
+
+- chart / resource scan は既存 native bridge を維持する。
+- text group / directory metadata / `.lr2folder` discovery は grouped Everything query または managed fallback
+  で補う。native bridge ABI への追加は未着手で、必要になるまで急いで増やさない。
+- surface が不完全な場合は「存在しない」と見なして `Completed` にしない。stale row prune や
+  startup-scan blocker diagnostic へ使う surface は complete flag とセットで扱う。
+- Everything query に exclude DSL は追加しない。root / extension / filename の組み合わせで surface を分け、
+  アプリ管理物か外部由来かは結果分類で判定する。
+- 今後 native bridge を拡張する場合は layout version / result version を log に出し、managed fallback との
+  parity test を先に追加する。
+
+## 残作業の推奨順
+
+1. Phase 9 の統合確認を固める。
+   - copied `song.db` で、初回 backfill、2 回目 no-op、partial resume、failed chunk rollback、
+     cancel/restart、startup-scan blocker cleanup を確認する。
+   - 実機ログで `processed_cursor` / `stage` / `Completed` / `Incomplete` の遷移が想定どおりか確認する。
+2. Everything surface の扱いを確定する。
+   - 当面 grouped query / managed fallback を正式 contract として進めるか、native bridge ABI を拡張するかを
+     実ログのコストと不完全 surface の頻度で判断する。
+   - native bridge を拡張する場合は `.txt`、directory mtime、`folderinfo.txt`、`.lr2folder` を同じ cycle で扱う。
+3. Phase 0 の残 fixture を追加する。
+   - `folderinfo.txt`、`.lr2folder`、manual-only scan 対象、copied `song.db` の dry-run fixture を追加する。
+4. OpenLR2 built-in source の special `folder.type = 3/4/6` を fixture-confirmed にする。
+   - 現状は explicit caller だけが special type を渡せる。source classifier 側では推測しない。
+5. LR2 manual-only 起動での最終確認を行う。
+   - 完全生成後、未変更 root で LR2 / OpenLR2 が再帰 scan に入らないことを確認する。
+   - LR2 起動そのもののブロッキングや排他はこの計画の対象外として扱う。
+
+## 横断的な実装済みメモ
+
+この節は、個別 Phase へ閉じにくい実装済みの判断と runtime 境界をまとめる。新しい残作業は
+上の「残作業の推奨順」へ追加し、この節には完了済み contract だけを残す。
 
 - `Lr2SongDbWriter.UpsertGeneratedSong(...)` は direct install / path replacement / backfill の共通 persistence 境界として扱う。
   呼び出し元の `BMSFile` に `date` が無い場合は実ファイル mtime から補完し、新規 `song` row で `adddate`
