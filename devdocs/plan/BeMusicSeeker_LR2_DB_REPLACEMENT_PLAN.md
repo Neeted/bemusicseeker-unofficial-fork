@@ -506,9 +506,14 @@ LR2 起動導線の block は行わない。
   - owned collection / LR2 `song.db` に mutation を起こす操作は開始前に抑止する。
     例: 譜面追加、削除、移動、install/reinstall、全譜面再スキャン、BMS root 設定変更、
     完全生成設定の切替。
-- backfill 完了前に current scan / owned source generation / folder source signature を再確認する。
-  - backfill 開始後に外部ファイル変更などで入力が stale になっていれば `Completed` にせず `Needed` に戻す。
-  - stale でなければ `Completed` を記録し、以後は通常 mutation 時の LR2 DB writer contract で差分維持する。
+- backfill 完了前に owned collection / storage row generation と LR2 root / `.lr2folder` discovery root /
+  built-in custom folder 設定の snapshot が変わっていないかを確認する。
+  - 完了直前に `.txt` / `folderinfo.txt` / `.lr2folder` / directory mtime を広く再列挙しない。
+    backfill 中に外部ファイルが変わった場合は、次回 scan / signature 再評価で新しい input として扱う。
+  - built-in `newsong.lr2folder` の有効/無効は backfill input 作成時の `titleflash` 判定に固定する。
+    長時間 run が titleflash 境界を跨いでも、それだけで current 判定を stale にしない。
+  - アプリ内の mutation や設定変更で source snapshot が変わっていなければ `Completed` を記録し、
+    以後は通常 mutation 時の LR2 DB writer contract で差分維持する。
 
 ## LR2 互換性評価
 
@@ -926,8 +931,10 @@ parse directive:
 - cancel 後の partial write は incomplete として扱い、status warning に出す。
 - 次回 run は最後に成功した cursor から再開する。再開前に必要なら current status / signature を再検証する。
 - backfill 中は read-only 操作を許可し、owned collection / LR2 `song.db` mutation 操作は開始前に抑止する。
-- backfill の完了直前に source generation / folder source signature / startup-scan blocker diagnostic を再確認し、
-  stale または blocker 残存なら `Completed` にしない。
+- backfill の完了直前に owned / storage generation と LR2 root / `.lr2folder` discovery root /
+  built-in custom folder 設定 snapshot を再確認し、stale または startup-scan blocker 残存なら
+  `Completed` にしない。`.txt` / `folderinfo.txt` / `.lr2folder` / directory metadata の広域再列挙は
+  完了直前には行わず、次回 scan / signature 再評価へ委ねる。
 
 テスト:
 
@@ -939,9 +946,11 @@ parse directive:
 - failed 状態で完全生成 status warning が出る。
 - cancel 後に incomplete status が残り、次回再開できる。
 - backfill 中に read-only 操作は許可され、library mutation 操作は抑止される。
-- workflow 修復後も expected current row の欠落や source stale など、再試行で実際に解消すべき不整合が
+- workflow 修復後も expected current row の欠落や owned / storage / root 設定 snapshot の stale など、
+  再試行で実際に解消すべき不整合が
   残る場合は `Completed` にならない。
-- 完了直前に source signature が変わった場合は `Needed` に戻る。
+- 完了直前に owned / storage generation や LR2 root / built-in custom folder 設定 snapshot が
+  変わった場合は `Needed` に戻る。
 
 ### Phase 9: resumable backfill
 
@@ -965,7 +974,8 @@ parse directive:
   BMS row build / LR2 compatibility facts を作り、single writer が chunk transaction と durable cursor 更新を行う。
   commit 成功後だけ cursor を進め、cancel / failure は chunk 境界で再開できるようにする。
 - chunk 成功後だけ cursor を進め、失敗 chunk は rollback して次回再処理する。
-- 完了直前の source staleness check と startup-scan blocker diagnostic が clean な場合だけ `Completed` を記録する。
+- 完了直前の owned / storage / root 設定 snapshot check と startup-scan blocker diagnostic が
+  clean な場合だけ `Completed` を記録する。
 - `favorite` / `adddate` / `tag` を維持。
 - CP932 非対応 BMS row は BeMusicSeeker DB から削除しない。
 - backfill 再実行で追加差分が出ない。
@@ -978,7 +988,8 @@ parse directive:
 - 2 回目 backfill が no-op になる。
 - partial run 後に resume できる。
 - failed chunk が rollback され、次回同じ target から再開できる。
-- source staleness が検出された run は `Completed` にならず、次回再実行対象になる。
+- owned / storage / root 設定 snapshot の staleness が検出された run は `Completed` にならず、
+  次回再実行対象になる。
 
 ## データマッピング早見表
 
@@ -1270,9 +1281,11 @@ parse directive:
   `Incomplete(lr2_normal_folder_mutation_sync_failed)` にして次回 backfill で修復できるようにする。
   `folder` row の path replacement / startup normalization でも parent CRC は `Lr2SongFolderParentNormalizer.ComputeDirectoryHash`
   を使い、`LR2CRC32` の直接呼び出しを通常 mutation / initialization surface に増やさない。
-  完了直前の source staleness check は、service に caller-provided predicate を渡す形にし、`BMSLibrary` 側で
-  owned collection / storage row version と root / `.lr2folder` / `folderinfo.txt` / text group surface を開始時入力と
-  再比較する。stale の場合は `Completed` にせず `Incomplete(source_stale_detected)` とする。
+  完了直前の snapshot staleness check は、service に caller-provided predicate を渡す形にし、`BMSLibrary` 側で
+  owned collection / storage row version と LR2 root / `.lr2folder` discovery root /
+  built-in custom folder 設定 snapshot を開始時入力と再比較する。ここでは `.lr2folder` /
+  `folderinfo.txt` / text group / directory metadata を再列挙しない。stale の場合は `Completed` にせず
+  `Incomplete(source_stale_detected)` とする。
   sync 後は startup-scan blocker diagnostic を実行し、current song row 欠落、
   `song.date` 欠落 / `0`、expected normal folder row 欠落、expected `.lr2folder` row 欠落が
   無い場合だけ `Completed` を記録する。root set が空の場合は生成対象なしとして扱い、
@@ -1439,7 +1452,7 @@ existence / mtime は意味的に揃える。
   `chart_info.exlevel IS NULL` または generated song row の未設定値だけを LR2 と同じ `0` に正規化する。
 - manual `ReloadFileDiff` / search root 変更後は file diff 適用完了後に
   `QueueLr2FullGenerationBackfillIfNeeded("ReloadFileDiff")` で status を再評価する。
-  これにより root set / folder source signature mismatch は次回起動待ちにせず検出するが、
+  これにより root set / built-in custom folder 設定 signature mismatch は次回起動待ちにせず検出するが、
   durable status が clean な場合は backfill を開始しない。
 - startup-scan blocker diagnostic は legacy `folder.type = 0 / NULL` row も扱う。
   `folder.type` だけで normal directory / `.lr2folder` を判定せず、normalized path が `.lr2folder`

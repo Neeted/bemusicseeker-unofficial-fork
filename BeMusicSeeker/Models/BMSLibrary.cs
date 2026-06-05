@@ -5744,18 +5744,6 @@ completeFileEnumerationOnce,
             return false;
         }
 
-        List<string> currentChartPaths;
-        using (rwlockBMSFilesInitializedAll.GetReaderGuard())
-        {
-            currentChartPaths = [.. (_BMSFiles ?? [])
-                .Where(file => file != null && !string.IsNullOrWhiteSpace(file.path))
-                .Select(file => file.path)];
-        }
-        if (!ArePathSetsEqual(input.ChartPaths, currentChartPaths))
-        {
-            return false;
-        }
-
         List<string> roots = getBMSDirectories();
         if (!ArePathSetsEqual(input.RootDirectories, roots))
         {
@@ -5767,30 +5755,14 @@ completeFileEnumerationOnce,
         {
             return false;
         }
-        Lr2BuiltinCustomFolderSettings builtinCustomFolderSettings = CreateLr2BuiltinCustomFolderSettings(input.SongRows, DateTime.UtcNow);
-        if (!AreLr2BuiltinCustomFolderSettingsEqual(input.Lr2BuiltinCustomFolderSettings, builtinCustomFolderSettings))
+        Lr2BuiltinCustomFolderSettings builtinCustomFolderSettings = Lr2BuiltinCustomFolderSettings.Create(CreateCurrentLr2ConfigOrNull(), [], DateTime.UtcNow);
+        if (!AreLr2BuiltinCustomFolderConfigurationEqual(input.Lr2BuiltinCustomFolderSettings, builtinCustomFolderSettings))
         {
             return false;
         }
         if (!string.Equals(SafeFullPathOrOriginal(input.Lr2RootPath), SafeFullPathOrOriginal(Settings.Default.LR2RootPath), StringComparison.OrdinalIgnoreCase)
             || !string.Equals(SafeFullPathOrOriginal(input.Lr2RootCustomFolderOutputBaseDir), SafeFullPathOrOriginal(Settings.Default.LR2CustomFolderOutputBaseDirRootType), StringComparison.OrdinalIgnoreCase)
             || !ArePathSetsEqual(input.Lr2BuiltinFolderSourceDirectories, CreateLr2FullGenerationBuiltinFolderSourceDirectories()))
-        {
-            return false;
-        }
-
-        Lr2FolderFileCandidateSnapshot lr2FolderFileCandidates = CreateLr2FullGenerationLr2FolderFileCandidates(
-            lr2FolderDiscoveryDirectories,
-            input.Lr2RootPath,
-            builtinCustomFolderSettings);
-        Lr2FolderInfoCandidateSnapshot folderInfoCandidates = CreateLr2FullGenerationFolderInfoCandidates(roots, input.ChartPaths);
-        if (input.Lr2FolderFileDiscoveryComplete != lr2FolderFileCandidates.DiscoveryComplete
-            || !AreLr2FolderCandidateSetsEqual(input.DirectoryEntries, CreateLr2FullGenerationDirectoryEntries(
-                roots,
-                Lr2NormalFolderDbSyncService.CreateDirectoryMetadataTargets(roots, input.ChartPaths)))
-            || !AreLr2FolderCandidateSetsEqual(input.Lr2FolderFileEntries, lr2FolderFileCandidates.EntriesByPath)
-            || !AreLr2FolderCandidateSetsEqual(input.FolderInfoFileEntries, folderInfoCandidates.EntriesByPath)
-            || !ArePathSetsEqual(input.TextFileDirectories, CreateLr2FullGenerationTextFileDirectories(input.ChartPaths)))
         {
             return false;
         }
@@ -5806,51 +5778,12 @@ completeFileEnumerationOnce,
             .SetEquals((second ?? []).Where(path => !string.IsNullOrWhiteSpace(path)).Select(SafeFullPathOrOriginal));
     }
 
-    private static bool AreLr2BuiltinCustomFolderSettingsEqual(
+    private static bool AreLr2BuiltinCustomFolderConfigurationEqual(
         Lr2BuiltinCustomFolderSettings first,
         Lr2BuiltinCustomFolderSettings second)
     {
         return (first?.CustomFolderMask ?? 0) == (second?.CustomFolderMask ?? 0)
-            && (first?.TitleFlashHours ?? 24) == (second?.TitleFlashHours ?? 24)
-            && (first?.IncludeNewSongFolder ?? false) == (second?.IncludeNewSongFolder ?? false);
-    }
-
-    private static bool AreLr2FolderCandidateSetsEqual(
-        IReadOnlyDictionary<string, RootFileEnumerationEntry> first,
-        IReadOnlyDictionary<string, RootFileEnumerationEntry> second)
-    {
-        Dictionary<string, int?> firstMap = CreateEnumerationTimestampMap(first);
-        Dictionary<string, int?> secondMap = CreateEnumerationTimestampMap(second);
-        if (firstMap.Count != secondMap.Count)
-        {
-            return false;
-        }
-
-        foreach (KeyValuePair<string, int?> pair in firstMap)
-        {
-            if (!secondMap.TryGetValue(pair.Key, out int? timestamp)
-                || timestamp != pair.Value)
-            {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    private static Dictionary<string, int?> CreateEnumerationTimestampMap(
-        IReadOnlyDictionary<string, RootFileEnumerationEntry> entriesByPath)
-    {
-        var result = new Dictionary<string, int?>(StringComparer.OrdinalIgnoreCase);
-        foreach (KeyValuePair<string, RootFileEnumerationEntry> pair in entriesByPath ?? new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase))
-        {
-            string path = !string.IsNullOrWhiteSpace(pair.Value?.Path) ? pair.Value.Path : pair.Key;
-            if (string.IsNullOrWhiteSpace(path))
-            {
-                continue;
-            }
-            result[SafeFullPathOrOriginal(path)] = pair.Value?.LastWriteTimeUnixSeconds;
-        }
-        return result;
+            && (first?.TitleFlashHours ?? 24) == (second?.TitleFlashHours ?? 24);
     }
 
     private static string SafeFullPathOrOriginal(string path)

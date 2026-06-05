@@ -681,7 +681,7 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
     }
 
     [TestMethod]
-    public void IsLr2FullGenerationBackfillInputCurrent_DetectsFolderInfoSurfaceChange()
+    public void IsLr2FullGenerationBackfillInputCurrent_UsesSnapshotSurfaceAndDetectsRootChange()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         try
@@ -701,6 +701,14 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
 
             Assert.IsTrue(InvokeIsLr2FullGenerationBackfillInputCurrent(library, input));
             File.WriteAllText(Path.Combine(rootDirectory, "folderinfo.txt"), "#TITLE Root Title");
+            File.WriteAllText(Path.Combine(rootDirectory, "custom.lr2folder"), "#TITLE Custom");
+            File.WriteAllText(Path.Combine(rootDirectory, "readme.txt"), "text group");
+            Assert.IsTrue(InvokeIsLr2FullGenerationBackfillInputCurrent(library, input));
+
+            string otherRootDirectory = Path.Combine(scope.DirectoryPath, "OtherBMS");
+            Directory.CreateDirectory(otherRootDirectory);
+            library.SearchTargets = [otherRootDirectory];
+
             Assert.IsFalse(InvokeIsLr2FullGenerationBackfillInputCurrent(library, input));
         }
         finally
