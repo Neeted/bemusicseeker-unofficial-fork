@@ -417,6 +417,35 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
     }
 
     [TestMethod]
+    public void IsLr2FullGenerationBackfillInputCurrent_DetectsFolderInfoSurfaceChange()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        try
+        {
+            Settings.Default.OperationModeLR2DB = true;
+            Settings.Default.EnableLR2SongDbFullGeneration = true;
+            ResetLr2FolderDiscoverySettings();
+            string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
+            Directory.CreateDirectory(rootDirectory);
+            var library = new BMSLibrary(scope.SongDbPath)
+            {
+                SearchTargets = [rootDirectory],
+                BMSFiles = []
+            };
+
+            object input = InvokeCreateLr2FullGenerationBackfillInput(library);
+
+            Assert.IsTrue(InvokeIsLr2FullGenerationBackfillInputCurrent(library, input));
+            File.WriteAllText(Path.Combine(rootDirectory, "folderinfo.txt"), "#TITLE Root Title");
+            Assert.IsFalse(InvokeIsLr2FullGenerationBackfillInputCurrent(library, input));
+        }
+        finally
+        {
+            ResetTouchedSettings();
+        }
+    }
+
+    [TestMethod]
     public void QueueLr2FullGenerationBackfillIfNeeded_RunsFullGenerationBackfillAndMarksCompletedWhenClean()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
@@ -1782,6 +1811,20 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
         bool started = (bool)methodInfo.Invoke(library, arguments);
         requestVersion = (int)arguments[0];
         return started;
+    }
+
+    private static object InvokeCreateLr2FullGenerationBackfillInput(BMSLibrary library)
+    {
+        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("CreateLr2FullGenerationBackfillInput", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(methodInfo);
+        return methodInfo.Invoke(library, []);
+    }
+
+    private static bool InvokeIsLr2FullGenerationBackfillInputCurrent(BMSLibrary library, object input)
+    {
+        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("IsLr2FullGenerationBackfillInputCurrent", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(methodInfo);
+        return (bool)methodInfo.Invoke(library, [input]);
     }
 
     private static void InvokeSetModeAndCommitToDb(BMSLibrary library, IEnumerable<BMSFile> files)
