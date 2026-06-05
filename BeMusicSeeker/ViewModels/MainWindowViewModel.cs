@@ -3613,9 +3613,15 @@ public class MainWindowViewModel : ViewModel
             {
                 ownerViewModel.tables.SchedulePlaylistUrlCompletionRefresh("SettingDialog.SaveSettings");
             }
+            bool lr2FullGenerationInputChanged =
+                tempOperationModeLR2DB != Settings.Default.OperationModeLR2DB
+                || tempEnableLR2SongDbFullGeneration != Settings.Default.EnableLR2SongDbFullGeneration
+                || !string.Equals(tempLR2RootPath, Settings.Default.LR2RootPath, StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(tempLR2CustomFolderOutputDir, Settings.Default.LR2CustomFolderOutputBaseDir, StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(tempLR2CustomFolderAsRootOutputDir, Settings.Default.LR2CustomFolderOutputBaseDirRootType, StringComparison.OrdinalIgnoreCase);
             if (Settings.Default.OperationModeLR2DB
-                && !tempEnableLR2SongDbFullGeneration
-                && Settings.Default.EnableLR2SongDbFullGeneration)
+                && Settings.Default.EnableLR2SongDbFullGeneration
+                && lr2FullGenerationInputChanged)
             {
                 ownerViewModel.files?.QueueLr2FullGenerationBackfillIfNeeded("SettingDialog.SaveSettings");
             }

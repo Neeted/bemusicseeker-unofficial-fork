@@ -1195,6 +1195,9 @@ parse directive:
 - 完全生成設定は設定ダイアログの LR2 連携項目として表示する。既定値は LR2 連携モードの標準挙動に合わせて
   `true` とし、OFF から ON に変更して保存した場合は
   `QueueLr2FullGenerationBackfillIfNeeded("SettingDialog.SaveSettings")` を呼んで同じ background workflow に流す。
+  LR2 連携 mode / 完全生成設定 / LR2 root / 通常 custom folder 出力先 /
+  ルート custom folder 出力先のいずれかが変更され、保存後に完全生成が有効な場合も同じ queue に流す。
+  これらは signature と `.lr2folder` discovery surface を変えるためである。
 - LR2 full generation backfill 実行中は、install / merge / rename / root move / extension rename / delete など
   owned collection と LR2 `song.db` を同時に変える操作を入口で警告して中止する。加えて
   `ApplyInstalledChartStorageTargets` / `ApplyLibraryMutationDelta` に low-level guard を置き、将来の追加経路や

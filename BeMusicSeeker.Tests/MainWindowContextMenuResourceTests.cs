@@ -766,6 +766,9 @@ public sealed class MainWindowContextMenuResourceTests
             viewModelCode,
             "private async Task SaveSettingsCore(bool runPostSaveActions)",
             "public void SaveOperationModeForRestart");
+        string postSaveSteps = ExtractBlockAfter(
+            viewModelCode,
+            "private async Task necessaryStepsAfterSaved()");
         string reloadFileDiff = ExtractBetween(
             viewModelCode,
             "public async void ReloadFileDiff()",
@@ -777,6 +780,11 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsTrue(rootAdd.IndexOf("ApplyRuntimeSearchRootsForCurrentMode();", StringComparison.Ordinal) < rootAdd.IndexOf("ownerViewModel.ReloadFileDiff();", StringComparison.Ordinal));
         StringAssert.Contains(saveCore, "ApplyRuntimeSearchRootsForCurrentMode();");
         StringAssert.Contains(viewModelCode, "QueueLr2FullGenerationBackfillIfNeeded(\"SettingDialog.SaveSettings\")");
+        StringAssert.Contains(postSaveSteps, "tempOperationModeLR2DB != Settings.Default.OperationModeLR2DB");
+        StringAssert.Contains(postSaveSteps, "tempEnableLR2SongDbFullGeneration != Settings.Default.EnableLR2SongDbFullGeneration");
+        StringAssert.Contains(postSaveSteps, "tempLR2RootPath, Settings.Default.LR2RootPath");
+        StringAssert.Contains(postSaveSteps, "tempLR2CustomFolderOutputDir, Settings.Default.LR2CustomFolderOutputBaseDir");
+        StringAssert.Contains(postSaveSteps, "tempLR2CustomFolderAsRootOutputDir, Settings.Default.LR2CustomFolderOutputBaseDirRootType");
         StringAssert.Contains(reloadFileDiff, "QueueLr2FullGenerationBackfillIfNeeded(\"ReloadFileDiff\")");
         Assert.IsTrue(
             reloadFileDiff.IndexOf("files.ReloadFileDiff();", StringComparison.Ordinal)
