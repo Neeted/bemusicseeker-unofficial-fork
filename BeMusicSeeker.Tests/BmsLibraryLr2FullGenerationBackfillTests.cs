@@ -2284,7 +2284,7 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
             LR2SongDB.folder lr2Folder = verify.Table<LR2SongDB.folder>().ToList().Single(folder => folder.path == lr2FolderPath);
             Assert.AreEqual(2, lr2Folder.type);
             Assert.AreEqual("Output Folder", lr2Folder.title);
-            Assert.AreEqual(1, verify.Table<LR2SongDB.folder>().ToList().Count(folder => folder.path == stalePath));
+            Assert.AreEqual(0, verify.Table<LR2SongDB.folder>().ToList().Count(folder => folder.path == stalePath));
         }
         finally
         {

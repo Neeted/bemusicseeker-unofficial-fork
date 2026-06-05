@@ -6375,6 +6375,8 @@ completeFileEnumerationOnce,
     {
         var candidates = new List<string>();
         candidates.AddRange(rootDirectories ?? []);
+        candidates.Add(Settings.Default.LR2CustomFolderOutputBaseDir);
+        candidates.Add(Settings.Default.LR2CustomFolderOutputBaseDirRootType);
         candidates.AddRange(builtinSourceDirectories ?? []);
         if ((builtinSourceDirectories ?? []).Any())
         {
