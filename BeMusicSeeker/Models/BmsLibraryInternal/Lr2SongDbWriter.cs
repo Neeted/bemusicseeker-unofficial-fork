@@ -1,13 +1,28 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Security;
 using BeMusicSeeker.Models.LR2;
 using SQLite;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
+internal readonly struct Lr2SongPruneResult(int deletedCount, int currentPathCount)
+{
+    public int DeletedCount { get; } = deletedCount;
+
+    public int CurrentPathCount { get; } = currentPathCount;
+}
+
 internal static class Lr2SongDbWriter
 {
+    private const string TempCurrentSongPathTable = "lr2_full_generation_current_song_path";
+
+    private const string TempDeletedSongHashTable = "lr2_full_generation_deleted_song_hash";
+
+    private const string TempLiveSongHashTable = "lr2_full_generation_live_song_hash";
+
     internal static bool UpsertGeneratedSong(LR2SongDBExtended songDb, BMSFile song)
     {
         if (songDb == null)
@@ -37,6 +52,77 @@ internal static class Lr2SongDbWriter
         BmsLibraryDbGateway.UpsertChartDigest(songDb, song);
         BmsLibraryDbGateway.DeleteChartDigestIfOrphaned(songDb, previousHash, song.hash);
         return changed;
+    }
+
+    internal static Lr2SongPruneResult DeleteSongsExceptCurrentPaths(
+        LR2SongDBExtended songDb,
+        IEnumerable<string> currentPaths)
+    {
+        if (songDb == null)
+        {
+            throw new ArgumentNullException(nameof(songDb));
+        }
+
+        string[] sourcePaths = [.. (currentPaths ?? [])
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)];
+        songDb.CreateTable<LR2SongDB.song>();
+        BmsLibraryDbGateway.EnsureMaintenanceSchema(songDb);
+        BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
+        songDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
+
+        string savepoint = songDb.SaveTransactionPoint();
+        try
+        {
+            PrepareTempPathTable(songDb, TempCurrentSongPathTable);
+            foreach (string path in sourcePaths)
+            {
+                songDb.Execute(
+                    "INSERT OR IGNORE INTO temp." + TempCurrentSongPathTable + " (path) VALUES (?);",
+                    path);
+            }
+
+            PrepareTempHashTable(songDb, TempDeletedSongHashTable);
+            string songTable = SQLiteTable<LR2SongDB.song>.GetTableName();
+            string songPathColumn = SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.path);
+            string songHashColumn = SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.hash);
+            string maintenanceTable = SQLiteTable<LR2SongDBExtended.maintenance>.GetTableName();
+            string maintenancePathColumn = SQLiteTable<LR2SongDBExtended.maintenance>.GetColumnName(row => row.path);
+
+            songDb.Execute(
+                "INSERT OR IGNORE INTO temp." + TempDeletedSongHashTable + " (md5) "
+                + "SELECT DISTINCT lower(trim(s." + songHashColumn + ")) "
+                + "FROM " + songTable + " s "
+                + "WHERE s." + songHashColumn + " IS NOT NULL "
+                + "AND trim(s." + songHashColumn + ") <> '' "
+                + "AND NOT EXISTS (SELECT 1 FROM temp." + TempCurrentSongPathTable + " c "
+                + "WHERE c.path = s." + songPathColumn + " COLLATE NOCASE);");
+
+            songDb.Execute(
+                "DELETE FROM " + maintenanceTable
+                + " WHERE " + maintenancePathColumn + " IN ("
+                + "SELECT s." + songPathColumn + " FROM " + songTable + " s "
+                + "WHERE NOT EXISTS (SELECT 1 FROM temp." + TempCurrentSongPathTable + " c "
+                + "WHERE c.path = s." + songPathColumn + " COLLATE NOCASE));");
+
+            int deleted = songDb.Execute(
+                "DELETE FROM " + songTable
+                + " WHERE rowid IN ("
+                + "SELECT s.rowid FROM " + songTable + " s "
+                + "WHERE NOT EXISTS (SELECT 1 FROM temp." + TempCurrentSongPathTable + " c "
+                + "WHERE c.path = s." + songPathColumn + " COLLATE NOCASE));");
+
+            DeleteOrphanedChartDigestsFromTemp(songDb, TempDeletedSongHashTable);
+            ClearTempTable(songDb, TempDeletedSongHashTable);
+            ClearTempTable(songDb, TempCurrentSongPathTable);
+            songDb.Commit();
+            return new Lr2SongPruneResult(deleted, sourcePaths.Length);
+        }
+        catch
+        {
+            songDb.RollbackTo(savepoint);
+            throw;
+        }
     }
 
     private static void ApplyGeneratedPersistenceDefaults(BMSFile song, bool isNewRow)
@@ -91,6 +177,52 @@ internal static class Lr2SongDbWriter
         {
             return false;
         }
+    }
+
+    private static void PrepareTempPathTable(LR2SongDBExtended songDb, string tableName)
+    {
+        songDb.Execute("CREATE TEMP TABLE IF NOT EXISTS temp." + tableName + " (path TEXT PRIMARY KEY COLLATE NOCASE);");
+        ClearTempTable(songDb, tableName);
+    }
+
+    private static void PrepareTempHashTable(LR2SongDBExtended songDb, string tableName)
+    {
+        songDb.Execute("CREATE TEMP TABLE IF NOT EXISTS temp." + tableName + " (md5 TEXT PRIMARY KEY);");
+        ClearTempTable(songDb, tableName);
+    }
+
+    private static void ClearTempTable(LR2SongDBExtended songDb, string tableName)
+    {
+        songDb.Execute("DELETE FROM temp." + tableName + ";");
+    }
+
+    private static void DeleteOrphanedChartDigestsFromTemp(LR2SongDBExtended songDb, string tempHashTableName)
+    {
+        string digestTable = SQLiteTable<LR2SongDBExtended.chart_digest_map>.GetTableName();
+        string digestMd5Column = SQLiteTable<LR2SongDBExtended.chart_digest_map>.GetColumnName(row => row.md5);
+        string songTable = SQLiteTable<LR2SongDB.song>.GetTableName();
+        string songHashColumn = SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.hash);
+        string bmsonTable = SQLiteTable<LR2SongDBExtended.bmson_song>.GetTableName();
+        string bmsonMd5Column = SQLiteTable<LR2SongDBExtended.bmson_song>.GetColumnName(row => row.md5);
+
+        PrepareTempHashTable(songDb, TempLiveSongHashTable);
+        songDb.Execute(
+            "INSERT OR IGNORE INTO temp." + TempLiveSongHashTable + " (md5) "
+            + "SELECT DISTINCT lower(trim(s." + songHashColumn + ")) "
+            + "FROM " + songTable + " s "
+            + "WHERE s." + songHashColumn + " IS NOT NULL "
+            + "AND trim(s." + songHashColumn + ") <> '';");
+        songDb.Execute(
+            "INSERT OR IGNORE INTO temp." + TempLiveSongHashTable + " (md5) "
+            + "SELECT DISTINCT lower(trim(b." + bmsonMd5Column + ")) "
+            + "FROM " + bmsonTable + " b "
+            + "WHERE b." + bmsonMd5Column + " IS NOT NULL "
+            + "AND trim(b." + bmsonMd5Column + ") <> '';");
+        songDb.Execute(
+            "DELETE FROM " + digestTable
+            + " WHERE " + digestMd5Column + " IN (SELECT md5 FROM temp." + tempHashTableName + ") "
+            + "AND NOT EXISTS (SELECT 1 FROM temp." + TempLiveSongHashTable + " live WHERE live.md5 = " + digestTable + "." + digestMd5Column + ");");
+        ClearTempTable(songDb, TempLiveSongHashTable);
     }
 
     internal static void UpdateDate(LR2SongDBExtended songDb, string path, int date)

@@ -5521,6 +5521,7 @@ completeFileEnumerationOnce,
                 + " songRowParseFailed=" + result.SongRowParseFailureCount
                 + " songRowChartInfoApplied=" + result.SongRowChartInfoAppliedCount
                 + " songRowLr2CompatibilityApplied=" + result.SongRowLr2CompatibilityAppliedCount
+                + " staleSongRowsPruned=" + result.StaleSongRowPrunedCount
                 + " processed=" + result.ProcessedCount
                 + " total=" + result.TotalCount
                 + " startupScanBlockers=" + (result.StartupScanDiagnosticResult?.TotalBlockerCount ?? 0)
@@ -5531,6 +5532,8 @@ completeFileEnumerationOnce,
                 + " startupScanDateMissingFolderRows=" + (result.StartupScanDiagnosticResult?.DateMissingFolderRowCount ?? 0)
                 + " startupScanDateStaleFolderRows=" + (result.StartupScanDiagnosticResult?.DateStaleFolderRowCount ?? 0)
                 + " startupScanUnknownRootFolderRows=" + (result.StartupScanDiagnosticResult?.UnknownRootFolderRowCount ?? 0)
+                + " startupScanCleanupFolderRows=" + (result.StartupScanDiagnosticResult?.CleanupFolderRowCount ?? 0)
+                + " startupScanFolderDateUpdates=" + (result.StartupScanDiagnosticResult?.FolderDateUpdateCount ?? 0)
                 + " stage=" + result.FinalStage
                 + " detail=" + (result.IncompleteReason ?? "completed")
                 + " elapsedMs=" + stopwatch.ElapsedMilliseconds);

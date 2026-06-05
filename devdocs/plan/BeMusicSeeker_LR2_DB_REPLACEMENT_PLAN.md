@@ -395,6 +395,10 @@ row が残ると、manual-only でも LR2 が不要な scan に入る。
 - 完全生成 ON では、current generation input から導けない既存 `folder` row は prune 対象にする。
   `unknown root` / `date = 0` / 実 directory または `.lr2folder` file の消失 / mtime 不一致は、
   完了を妨げる永続状態として温存せず、生成 workflow 内で削除または上書きして収束させる。
+- 完全生成 ON では、current owned BMS path set から導けない既存 `song` row も prune 対象にする。
+  `song` は実ファイル由来の一覧 cache であり、既知 root 外や旧 root の stale row を保護して
+  `Incomplete` に残さない。対応する `maintenance` row と orphaned `chart_digest_map` も同じ
+  cleanup transaction で整理する。
 - cleanup 導線は、workflow で修復できない既存 DB の残骸を手動で消すための補助に留める。
   定常的な startup-scan blocker 解消は workflow 自身の upsert / prune によって行う。
 
@@ -910,9 +914,9 @@ parse directive:
 - backfill needed / running / completed / failed / cancelled / incomplete を log と UI に出す。
 - backfill progress は全体合算 total と stage 別 processed count の両方を表示する。
 - `Needed` / `Running` / `Incomplete` / `Failed` / `Cancelled` は完全生成 status warning として表示する。
-- startup-scan blocker diagnostic は、workflow が upsert / prune した後に in-scope 不整合が残っていないかを
-  確認する最終検査にする。修復可能な stale / unknown row は workflow 内で削除または上書きし、
-  温存したまま `Incomplete` にしない。
+- startup-scan blocker diagnostic は、workflow が upsert / prune した後に expected current output が
+  揃っているかを確認する最終検査にする。修復可能な stale / unknown row は workflow 内で削除または
+  上書きし、温存したまま `Incomplete` にしない。
 - 設定値が欠落または不正な場合は既定値へ正規化する。設定値 warning は出さない。
 - LR2 config の auto update 設定検出や変更は行わない。manual-only 運用の推奨は docs に記載し、
   full generation status には含めない。
@@ -935,7 +939,8 @@ parse directive:
 - failed 状態で完全生成 status warning が出る。
 - cancel 後に incomplete status が残り、次回再開できる。
 - backfill 中に read-only 操作は許可され、library mutation 操作は抑止される。
-- workflow 修復後も in-scope blocker diagnostic が残る場合は `Completed` にならない。
+- workflow 修復後も expected current row の欠落や source stale など、再試行で実際に解消すべき不整合が
+  残る場合は `Completed` にならない。
 - 完了直前に source signature が変わった場合は `Needed` に戻る。
 
 ### Phase 9: resumable backfill
@@ -1268,13 +1273,14 @@ parse directive:
   完了直前の source staleness check は、service に caller-provided predicate を渡す形にし、`BMSLibrary` 側で
   owned collection / storage row version と root / `.lr2folder` / `folderinfo.txt` / text group surface を開始時入力と
   再比較する。stale の場合は `Completed` にせず `Incomplete(source_stale_detected)` とする。
-  sync 後は startup-scan blocker diagnostic を実行し、root set 欠落、current song row 欠落、
-  `song.date` 欠落 / `0`、generation scope 内の `folder.date` 欠落 / `0`、missing target、
-  実 directory / `.lr2folder` file の mtime と一致しない `folder.date` が無い場合だけ `Completed` を記録する。
-  診断で unknown root / date missing / missing target の `folder` row が見つかった場合は、同じ full generation run 内で
-  cleanup delete を適用してから再診断する。mtime mismatch は列挙 metadata と live filesystem の差分や resume 境界の
-  可能性があるため即削除せず、残る場合は `Incomplete(startup_scan_blockers_detected)` として
-  diagnostic count を log / status detail に残す。
+  sync 後は startup-scan blocker diagnostic を実行し、current song row 欠落、
+  `song.date` 欠落 / `0`、expected normal folder row 欠落、expected `.lr2folder` row 欠落が
+  無い場合だけ `Completed` を記録する。root set が空の場合は生成対象なしとして扱い、
+  それ自体を blocker にしない。
+  診断で current path set から導けない既存 `song` row があれば同じ run 内で prune し、
+  対応する `maintenance` / orphan digest も整理する。`folder` row の unknown root / date missing /
+  missing target は削除し、列挙 metadata から正しい mtime が解決できる `folder.date` mismatch は
+  UPDATE してから再診断する。修復可能な stale row を温存して `Incomplete` にしない。
   status signature は normalized / deduplicated / case-insensitive な LR2 BMS root set を含める。
   加えて `.lr2folder` discovery root set、LR2 setup の `<customfolder>` bitmask、`titleflash` を含める。
   root set や built-in CustomFolder の対象条件が変わった場合は既存 `Completed` を信用せず、
@@ -1294,10 +1300,13 @@ existence / mtime は意味的に揃える。
 
 - native bridge ABI は拡張する前提にする。chart / resource / `.txt` / `folderinfo.txt` / `.lr2folder`
   の grouped query result は、path だけでなく file mtime を含む file entry surface を返す。
-- managed fallback も同じ file entry surface を返す。fallback scan 後に同じ path へ mtime を再問い合わせする
-  二段構えにはしない。
+- managed fallback も同じ file entry surface を返す。通常の生成 workflow では、fallback scan 後に
+  同じ path へ mtime を再問い合わせする二段構えにはしない。
 - `.lr2folder` sync item も enumeration entry の mtime を正本にする。path だけが渡された `.lr2folder` は
-  missing metadata として扱い、後段で `File.GetLastWriteTimeUtc` を呼んで補完しない。
+  missing metadata として扱い、生成 row の `folder.date` は後段で `File.GetLastWriteTimeUtc` を呼んで補完しない。
+- startup-scan blocker diagnostic / cleanup helper が legacy DB row や手動 cleanup 入力を扱う場合だけ、
+  enumeration entry が無い row の修復補助として live filesystem mtime へ fallback してよい。この fallback は
+  current generation surface の正本ではなく、古い `folder.date` を修復するための限定的な補助である。
 - directory mtime は normal folder row と startup-scan blocker diagnostic の正本であるため、
   native bridge / fallback の metadata surface に含める。
 - surface が不完全な場合は「存在しない」と見なして `Completed` にしない。stale row prune や
@@ -1398,9 +1407,9 @@ existence / mtime は意味的に揃える。
   次回 evaluate では通常の resumable backfill request に戻す。`Running` status は status bar にキャンセル操作を表示し、
   UI は model の cancellation token request を発火するだけで、durable status の確定は backfill runner の境界処理に任せる。
 - startup-scan blocker diagnostic は、resume により folder stage をスキップした場合でも、current generation scope の
-  `folder` row が存在し、`folder.date` が directory / `.lr2folder` file の Unix 秒 mtime と一致するかを
-  最後に検証する。missing target または不一致が残る run は `Completed` にせず
-  `Incomplete(startup_scan_blockers_detected)` とする。
+  expected `folder` row が存在するかを最後に検証する。`folder.date` の mismatch は
+  directory / `.lr2folder` file の列挙 metadata から mtime を解決できる場合に同じ run 内で UPDATE し、
+  missing target や unknown root row は cleanup する。
 - 同 diagnostic は current root / chart path から導出される通常 folder target が `folder` table に存在することも検証する。
   `normal_folders_completed` 以降の durable resume では normal folder stage を再実行しないため、期待される root /
   ancestor / chart directory row が欠けている場合は `missingExpectedFolderRows` blocker として `Completed` にしない。
@@ -1409,8 +1418,10 @@ existence / mtime は意味的に揃える。
   expected row から外し、欠落検出は `missingExpectedLr2FolderRows` として log / status detail に残す。
 - startup-scan blocker cleanup は、通常 workflow で修復できなかった既存 DB 残骸を削除する補助 helper
   (`CleanupStartupScanBlockerFolderRows`) として残す。full generation 本体も unknown root / date missing /
-  missing target の `folder` row は同一 run 内で cleanup し、mtime mismatch は cleanup せず incomplete diagnostic として残す。
-  `song` row 欠落、root 未設定、known root 外 `song` row は削除で直せる問題ではないため cleanup 対象にしない。
+  missing target の `folder` row を同一 run 内で cleanup し、解決可能な mtime mismatch は date update に寄せる。
+  current path set から導けない `song` row は full generation 本体の song prune で削除する。
+  `song` row 欠落や `song.date` 欠落は current row write の不整合として扱い、cleanup helper ではなく
+  backfill retry で直す。
 - `LR2非対応パス` tree は LR2 連携モード専用の compatibility surface として扱い、standalone mode では表示しない。
 - library root scan の `.txt` surface は LR2 連携モードかつ完全生成設定 ON のときだけ列挙する。
   pending package / install estimation の局所 scan は package 表示・導入時 projection のため既存どおり text group を扱う。
