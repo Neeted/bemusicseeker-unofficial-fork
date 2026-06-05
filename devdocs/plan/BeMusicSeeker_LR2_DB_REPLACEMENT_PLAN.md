@@ -1267,6 +1267,9 @@ parse directive:
 - file diff reload と maintenance workflow は下位 service 内で `Lr2SongDbWriter` を直接呼ぶため、workflow 境界で
   fatal failure を durable full generation status `Incomplete` にする。下位 writer をすべて status-aware にするより、
   UI/operation semantics を変えず、backfill/retry の入口を失わないことを優先する。
+- direct runtime の `dbGateway.UpsertSongs(...)` / `UpdateSongLevels(...)` call site は、
+  `BMSLibrary.ExecuteLr2SongDbWrite(...)` を status boundary として通す。下位 `BmsLibraryDbGateway` はテストや
+  internal service の raw DB gateway として残るため、production `BMSLibrary` 側の call site guard test で回帰を防ぐ。
 - playlist custom folder output は `.lr2folder` file と LR2 `folder` row を同じ projection から更新するため、
   LR2 full generation backfill 実行中は playlist 側の `.lr2folder` sync 境界でも mutation guard を通す。
   `folder` row sync が失敗した場合は、既存の playlist warning 表示 semantics は維持しつつ、durable full generation

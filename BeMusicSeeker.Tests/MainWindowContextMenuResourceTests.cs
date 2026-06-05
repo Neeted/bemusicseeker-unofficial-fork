@@ -1019,6 +1019,24 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
+    public void Lr2SongDbRuntimeWritesUseFullGenerationStatusBoundary()
+    {
+        string libraryCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "BMSLibrary.cs"));
+        string[] lines = libraryCode.Split(["\r\n", "\n"], StringSplitOptions.None);
+        for (int i = 0; i < lines.Length; i++)
+        {
+            if (lines[i].IndexOf("dbGateway.UpsertSongs(", StringComparison.Ordinal) < 0
+                && lines[i].IndexOf("dbGateway.UpdateSongLevels(", StringComparison.Ordinal) < 0)
+            {
+                continue;
+            }
+
+            string localContext = string.Join(Environment.NewLine, lines.Skip(Math.Max(0, i - 4)).Take(5));
+            StringAssert.Contains(localContext, "ExecuteLr2SongDbWrite(");
+        }
+    }
+
+    [TestMethod]
     public void OwnedMutationDispatcherDoesNotUseLegacyInvalidationSuppressions()
     {
         string libraryCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "BMSLibrary.cs"));
