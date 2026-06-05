@@ -29,10 +29,14 @@ BeMusicSeeker は譜面管理アプリなので、LR2 で完全に読めない�
   現在の実ファイル・設定・プレイリスト出力から作る一覧 cache として扱う。
   current generation input から導けない stale / unknown row は温存せず、生成 workflow 内で
   削除または上書きして収束させる。
+- 完全生成 completed 後の steady-state 起動では、`.bmt` 出力 OFF かつ file diff が 0 件から数件の
+  ケースで、LR2 完全生成の再 backfill や heavyweight validation を起動 background tail に混ぜない。
+  この状態では従来の path-only 差分確認に近い負荷に戻し、`startup_background_summary` は 50 秒未満を目標にする。
 - LR2 起動時の root folder チェックで `date` が一致し、再帰スキャンに入らない。
 - LR2 非対応 BMS は BeMusicSeeker の owned collection と LR2 `song` row には残す。
 - LR2 非対応 BMS は `folder` / `parent` を LR2 表示対象として使えない状態にし、
-  LR2 起動時 scan に踏ませない。
+  LR2 起動時 scan に踏ませない。非対応 chart の存在だけで backfill 完了や stale `folder` cleanup を
+  block しない。
 - 非対応 BMS を LR2 のプレイ画面から開いた場合に失敗することは許容する。
 - ただし、LR2 起動時のファイル走査で非対応パスを踏ませないことを優先する。
 
@@ -65,6 +69,9 @@ BeMusicSeeker は譜面管理アプリなので、LR2 で完全に読めない�
   - backfill が必要な場合は警告・進捗・キャンセル可能性を UI / log に出す。
   - 初回 backfill は startup ready / operable を待たせず、`startup_initialization_complete` 後の
     background workflow として開始する。
+  - 初回 backfill の `song_rows` stage は、起動時 file diff や手動 maintenance rescan と同じ
+    bounded producer / consumer 形にする。単純な `500 件読む -> 逐次 parse -> DB commit -> 次 chunk`
+    という段階処理は最終形ではない。
   - 完全生成設定を OFF から ON に変更した場合も、保存後に同じ background workflow を queue する。
   - BeMusicSeeker からの LR2 起動導線で backfill 完了待ちや起動 block は行わない。
     LR2 が再走査する可能性は完全生成 status の警告として表示する。
@@ -949,6 +956,9 @@ parse directive:
 - changed-only write。
 - preflight backup / restore point は作らない。
 - run id / durable status / processed cursor を持つ。
+- `song_rows` は reader が `ChartFileSnapshot` を bounded queue に流し、parallel workers が
+  BMS row build / LR2 compatibility facts を作り、single writer が chunk transaction と durable cursor 更新を行う。
+  commit 成功後だけ cursor を進め、cancel / failure は chunk 境界で再開できるようにする。
 - chunk 成功後だけ cursor を進め、失敗 chunk は rollback して次回再処理する。
 - 完了直前の source staleness check と startup-scan blocker diagnostic が clean な場合だけ `Completed` を記録する。
 - `favorite` / `adddate` / `tag` を維持。
@@ -1044,7 +1054,7 @@ parse directive:
 | Phase 6: normal `folder` row generator | 主要実装済み | normal folder generator / scope planner / DB sync、mutation・file diff failure の incomplete marking、directory metadata surface 由来の `folder.date` resolver、`folderinfo.txt` entry metadata surface は接続済み。 | 実機で directory mtime / folder row freshness を確認する。 |
 | Phase 7: `.lr2folder` DB sync | 主要実装済み | playlist projection と `.lr2folder` / `folder` row sync の同一化、通常 discovery、built-in source の相対 path 化、root custom output / built-in category parent row 生成、`LR2files\Rival` の built-in discovery 非対象化、`LR2files\CustomFolder` の `<customfolder>` bitmask、`newsong` dynamic row、`course1-3` の `type=6` は接続済み。 | 実 LR2 setup / built-in folder fixture での最終確認を残す。 |
 | Phase 8: status / backfill UI | 主要実装済み | durable status、runtime progress、setting queue、cancel、mutation guard、startup blocker diagnostic / cleanup は実装済み。 | 長時間 backfill の UI 手動確認と failure/cancel 再起動確認を残す。 |
-| Phase 9: resumable backfill | 一部完了 | durable cursor、stage / chunk resume、changed-only song row backfill、cancel boundary の基盤、completed status current 時の 2 回目 no-op queue、copied `song.db` の current completed no-op、failed song-row chunk rollback/retry、cancel 後 restart resume は自動テスト済み。 | 実 DB での partial resume / cancel-restart を統合確認する。 |
+| Phase 9: resumable backfill | 一部完了 | durable cursor、stage / chunk resume、changed-only song row backfill、cancel boundary の基盤、completed status current 時の 2 回目 no-op queue、copied `song.db` の current completed no-op、failed song-row chunk rollback/retry、cancel 後 restart resume は自動テスト済み。 | `song_rows` stage を bounded reader / parallel worker / single writer pipeline に置き換える。実 DB での partial resume / cancel-restart を統合確認する。 |
 
 ### フェーズ別進捗メモ
 
@@ -1299,25 +1309,35 @@ existence / mtime は意味的に揃える。
 
 ## 残作業の推奨順
 
-現時点で計画本体の production 接続と自動テストで固定できる主要 contract は実装済みである。
-この節に残す作業は、実機 Everything / 実 LR2 DB / 実 LR2 起動ログが必要な統合確認、または
-実 DB 由来 fixture を入手した後に追加する contract 補強である。実機確認・手動確認・LR2 での確認を
-後回しにする作業サイクルでは、新しい実装ブロッカーとしては扱わない。
+現時点で計画本体の production 接続と自動テストで固定できる主要 contract は多く接続済みだが、
+性能上の production 残作業として `song_rows` stage の streaming pipeline 化が残っている。
+実機確認・手動確認・LR2 での確認は後回しにできるが、以下の 1 は実装サイクルとして先に進める。
 
-1. native bridge metadata parity を統合確認する。
+1. `song_rows` stage を bounded streaming pipeline に置き換える。
+   - 現行の逐次 chunk 処理は、初期化 file diff / manual maintenance rescan と比べて file read と parse の並列化が弱い。
+   - reader は 1 本、worker は `max(1, Environment.ProcessorCount - 1)` を既定にし、queue capacity は
+     chunk size と worker 数から bounded に決める。
+   - writer は 500 件程度の chunk transaction を維持し、chunk commit 成功後だけ durable cursor を進める。
+   - `readMs` / `parseMs` / `commitMs` / queue wait / fallback / parse failure / compatibility count を
+     chunk log に残し、長時間 run で途中状態を追えるようにする。
+2. completed steady-state の no-op 性能を確認する。
+   - `.bmt` 出力 OFF、完全生成 completed、file diff 0 件から数件の起動で、
+     LR2 full generation task が queue されず、`startup_background_summary` が 50 秒未満に戻ることを確認する。
+   - completed status と signature current 判定に、full validation や全件 DB scan を混ぜない。
+3. native bridge metadata parity を統合確認する。
    - fixed scan の `.txt` / `folderinfo.txt` entry、grouped enumeration の `.lr2folder` entry、directory mtime が同じ `RootFileEnumerationEntry` contract になることを実機 Everything 環境で確認する。
    - bridge layout / result version log を必要に応じて追加する。
-2. Phase 9 の統合確認を固める。
+4. Phase 9 の統合確認を固める。
    - copied `song.db` で、初回 backfill、2 回目 no-op、partial resume、failed chunk rollback、
      cancel/restart、startup-scan blocker cleanup を確認する。
    - completed status と signature が current な場合に 2 回目 backfill queue が発生しないことは unit/integration-shaped test で固定済み。
    - copied `song.db` でも completed status と signature が current な場合に backfill queue が発生しないことは unit/integration-shaped test で固定済み。
    - song row chunk failure では chunk transaction が rollback され、durable `Failed` cursor から再実行できることは unit/integration-shaped test で固定済み。
    - 実機ログで `processed_cursor` / `stage` / `Completed` / `Incomplete` の遷移が想定どおりか確認する。
-3. Phase 0 の残 fixture を追加する。
+5. Phase 0 の残 fixture を追加する。
    - `folderinfo.txt`、`.lr2folder` の実 DB 由来 fixture を追加する。これは fixture 入手後の contract 補強であり、
      現行 synthetic fixture と既存 unit / integration-shaped test が production 実装の前提を固定している。
-4. LR2 manual-only 起動での最終確認を行う。
+6. LR2 manual-only 起動での最終確認を行う。
    - 完全生成後、未変更 root で LR2 / OpenLR2 が再帰 scan に入らないことを確認する。
    - LR2 起動そのもののブロッキングや排他はこの計画の対象外として扱う。
 
