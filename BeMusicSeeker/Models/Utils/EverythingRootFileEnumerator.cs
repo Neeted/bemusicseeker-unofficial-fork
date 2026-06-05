@@ -14,7 +14,8 @@ internal sealed class EverythingRootFileEnumerator : IRootFileEnumerator
         { ChartDirectoryScanBuilder.ImageGroupName, 3u },
         { ChartDirectoryScanBuilder.MovieGroupName, 4u },
         { ChartDirectoryScanBuilder.TextGroupName, 5u },
-        { RootFileEnumerationService.AllFilesGroupName, 6u }
+        { RootFileEnumerationService.AllFilesGroupName, 6u },
+        { RootFileEnumerationService.DirectoriesGroupName, 7u }
     };
 
     public RootFileEnumerationResult EnumerateFiles(IEnumerable<string> rootDirectories, IEnumerable<RootFileEnumerationGroup> groups, bool verboseLog = false)
@@ -46,7 +47,9 @@ internal sealed class EverythingRootFileEnumerator : IRootFileEnumerator
             {
                 uint groupId = GetStableGroupId(group.Name);
                 groupNamesById[groupId] = group.Name;
-                string query = group.IncludeAllFiles
+                string query = group.IncludeDirectories
+                    ? EverythingNative.BuildDirectoriesQuery([.. roots])
+                    : group.IncludeAllFiles
                     ? EverythingNative.BuildAllFilesQuery([.. roots])
                     : EverythingNative.BuildFilesQuery([.. roots], Array.ConvertAll(group.Extensions, extension => extension.TrimStart('.')));
                 groupedQueries.Add(new EverythingNative.BridgeGroupedQuery(groupId, query));
@@ -79,7 +82,11 @@ internal sealed class EverythingRootFileEnumerator : IRootFileEnumerator
             }
             else
             {
-                result.TotalFileCount = groupedResult?.TotalFileCount ?? result.PathsByGroup.Values.SelectMany(paths => paths).Distinct(StringComparer.OrdinalIgnoreCase).Count();
+                result.TotalFileCount = groupedResult?.TotalFileCount ?? 0;
+                if (result.TotalFileCount == 0)
+                {
+                    result.TotalFileCount = result.PathsByGroup.Values.SelectMany(paths => paths).Distinct(StringComparer.OrdinalIgnoreCase).Count();
+                }
             }
 
             if (result.TotalFileCount == 0)

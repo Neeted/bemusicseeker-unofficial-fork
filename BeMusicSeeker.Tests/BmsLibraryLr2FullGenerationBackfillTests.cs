@@ -2187,6 +2187,37 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
         Assert.AreEqual(1, result.StartupScanDiagnosticResult.DateStaleFolderRowCount);
     }
 
+    [TestMethod]
+    public void BackfillService_UsesEnumeratedDirectoryTimestampForNormalFolderRow()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
+        Directory.CreateDirectory(rootDirectory);
+        DateTime enumeratedTimestamp = new(2026, 6, 5, 5, 0, 0, DateTimeKind.Utc);
+        DateTime liveTimestamp = enumeratedTimestamp.AddMinutes(10);
+        Directory.SetLastWriteTimeUtc(rootDirectory, liveTimestamp);
+        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        songDb.CreateTable<LR2SongDB.folder>();
+
+        Lr2FullGenerationBackfillResult result = Lr2FullGenerationBackfillService.Run(songDb, new Lr2FullGenerationBackfillRequest
+        {
+            Signature = "directory-enumerated-time",
+            RunId = "directory-enumerated-time-run",
+            RootDirectories = [rootDirectory],
+            DirectoryEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase)
+            {
+                [rootDirectory] = new RootFileEnumerationEntry(rootDirectory, enumeratedTimestamp)
+            },
+            StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc)
+        });
+
+        LR2SongDB.folder row = songDb.Table<LR2SongDB.folder>().Single(folder => folder.path == ToFolderPath(rootDirectory));
+        Assert.AreEqual(Lr2SongRowEnricher.ToLr2UnixSeconds(enumeratedTimestamp), row.date);
+        Assert.AreEqual(1, result.NormalFolderSyncResult.GeneratedCount);
+        Assert.AreEqual(Lr2FullGenerationBackfillService.StartupScanBlockersStage, result.FinalStage);
+        Assert.AreEqual(1, result.StartupScanDiagnosticResult.DateStaleFolderRowCount);
+    }
+
     private sealed class TestDatabaseScope : IDisposable
     {
         public string DirectoryPath { get; }

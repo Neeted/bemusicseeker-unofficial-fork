@@ -149,6 +149,12 @@ internal static class EverythingNative
         return "file: " + paths;
     }
 
+    internal static string BuildDirectoriesQuery(string[] roots)
+    {
+        string paths = "<" + string.Join("|", Array.ConvertAll(roots ?? [], root => "path:" + QuotePath(PathWithTrailingSeparator(root)))) + ">";
+        return "folder: " + paths;
+    }
+
     internal static bool TryScanSourceRoots(IReadOnlyList<string> rootDirectories, out BridgeSourceRootScanResult result, out string reason)
     {
         result = null;

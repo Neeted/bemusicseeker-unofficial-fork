@@ -753,11 +753,15 @@ internal sealed class BmsLibraryInitializationService
         try
         {
             using LR2SongDBExtended songDb = dbGateway.OpenSongDb();
+            IReadOnlyDictionary<string, RootFileEnumerationEntry> directoryEntries = CreateLr2NormalFolderDirectoryEntries(
+                roots,
+                Lr2NormalFolderDbSyncService.CreateDirectoryMetadataTargets(roots, scannedBmsPaths));
             Lr2NormalFolderDbSyncResult syncResult = Lr2NormalFolderDbSyncService.Sync(songDb, new Lr2NormalFolderDbSyncRequest
             {
                 RootDirectories = roots,
                 ChartPaths = [.. (scannedBmsPaths ?? [])],
                 FolderInfoFilePaths = [.. (folderInfoFilePaths ?? [])],
+                DirectoryLastWriteTimeUtcResolver = CreateLastWriteTimeResolver(directoryEntries),
                 AllowPrune = true
             });
             ApplyLr2NormalFolderSyncResult(result, syncResult);
@@ -780,6 +784,31 @@ internal sealed class BmsLibraryInitializationService
             result.Lr2NormalFolderSyncFailureReason = ex.Message ?? ex.GetType().Name;
             logInstallPerformanceWarn?.Invoke("lr2_normal_folder_sync failed reason=" + QuoteLogValue(result.Lr2NormalFolderSyncFailureReason));
         }
+    }
+
+    private static IReadOnlyDictionary<string, RootFileEnumerationEntry> CreateLr2NormalFolderDirectoryEntries(
+        IEnumerable<string> rootDirectories,
+        IEnumerable<string> targetDirectories)
+    {
+        return Lr2FolderDirectoryEnumerationService.CreateEntries(rootDirectories, targetDirectories);
+    }
+
+    private static Func<string, DateTime?> CreateLastWriteTimeResolver(
+        IReadOnlyDictionary<string, RootFileEnumerationEntry> entriesByPath)
+    {
+        if (entriesByPath == null || entriesByPath.Count == 0)
+        {
+            return null;
+        }
+
+        return path =>
+        {
+            string key = Lr2FolderPath.NormalizeDirectoryPath(path);
+            return !string.IsNullOrWhiteSpace(key)
+                && entriesByPath.TryGetValue(key, out RootFileEnumerationEntry entry)
+                    ? entry.LastWriteTimeUtc
+                    : null;
+        };
     }
 
     private static void ApplyLr2NormalFolderSyncResult(SongTableFileCheckResult result, Lr2NormalFolderDbSyncResult syncResult)

@@ -30,16 +30,33 @@ internal sealed class FastRootFileEnumerator : IRootFileEnumerator
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
         try
         {
+            bool needsFileEntries = groupList.Any(group => !group.IncludeDirectories);
+            bool needsDirectoryEntries = groupList.Any(group => group.IncludeDirectories);
             var allFiles = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
-            foreach (RootFileEnumerationEntry entry in roots
-                .AsParallel()
-                .SelectMany(EnumerateAllFilesForRoot)
-                .Where(entry => entry != null && !string.IsNullOrWhiteSpace(entry.Path)))
+            if (needsFileEntries)
             {
-                allFiles[entry.Path] = entry;
+                foreach (RootFileEnumerationEntry entry in roots
+                    .AsParallel()
+                    .SelectMany(EnumerateAllFilesForRoot)
+                    .Where(entry => entry != null && !string.IsNullOrWhiteSpace(entry.Path)))
+                {
+                    allFiles[entry.Path] = entry;
+                }
             }
 
-            result.TotalFileCount = allFiles.Count;
+            var allDirectories = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
+            if (needsDirectoryEntries)
+            {
+                foreach (RootFileEnumerationEntry entry in roots
+                    .AsParallel()
+                    .SelectMany(EnumerateAllDirectoriesForRoot)
+                    .Where(entry => entry != null && !string.IsNullOrWhiteSpace(entry.Path)))
+                {
+                    allDirectories[entry.Path] = entry;
+                }
+            }
+
+            result.TotalFileCount = allFiles.Count + allDirectories.Count;
             foreach (RootFileEnumerationEntry entry in allFiles.Values)
             {
                 string absolutePath = entry.Path;
@@ -47,6 +64,16 @@ internal sealed class FastRootFileEnumerator : IRootFileEnumerator
                 foreach (RootFileEnumerationGroup group in groupList)
                 {
                     if (group.IncludeAllFiles || (!string.IsNullOrWhiteSpace(extension) && group.Extensions.Contains(extension, StringComparer.OrdinalIgnoreCase)))
+                    {
+                        result.AddEntry(group.Name, entry);
+                    }
+                }
+            }
+            foreach (RootFileEnumerationEntry entry in allDirectories.Values)
+            {
+                foreach (RootFileEnumerationGroup group in groupList)
+                {
+                    if (group.IncludeDirectories)
                     {
                         result.AddEntry(group.Name, entry);
                     }
@@ -117,6 +144,30 @@ internal sealed class FastRootFileEnumerator : IRootFileEnumerator
         }
     }
 
+    private static IEnumerable<RootFileEnumerationEntry> EnumerateAllDirectoriesForRoot(string root)
+    {
+        var entries = new List<RootFileEnumerationEntry>();
+        RootFileEnumerationEntry rootEntry = RootFileEnumerationEntry.FromDirectoryInfo(root);
+        if (rootEntry != null)
+        {
+            entries.Add(rootEntry);
+        }
+
+        try
+        {
+            entries.AddRange(Directory.EnumerateDirectories(root, "*", SearchOption.AllDirectories)
+                .Where(path => !string.IsNullOrWhiteSpace(path))
+                .Select(Path.GetFullPath)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Select(RootFileEnumerationEntry.FromDirectoryInfo)
+                .Where(entry => entry != null));
+        }
+        catch
+        {
+        }
+        return entries;
+    }
+
     private static RootFileEnumerationEntry CreateEntryFromFileInfo(string path)
     {
         try
@@ -129,4 +180,5 @@ internal sealed class FastRootFileEnumerator : IRootFileEnumerator
             return new RootFileEnumerationEntry(path);
         }
     }
+
 }

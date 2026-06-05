@@ -23,6 +23,9 @@ internal sealed class Lr2FullGenerationBackfillRequest
 
     public IReadOnlyCollection<string> FolderInfoFilePaths { get; set; } = [];
 
+    public IReadOnlyDictionary<string, RootFileEnumerationEntry> DirectoryEntries { get; set; } =
+        new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
+
     public IReadOnlyCollection<string> Lr2FolderFilePaths { get; set; } = [];
 
     public IReadOnlyDictionary<string, RootFileEnumerationEntry> Lr2FolderFileEntries { get; set; } =
@@ -191,6 +194,7 @@ internal static class Lr2FullGenerationBackfillService
         List<string> folderInfoFilePaths = [.. (request.FolderInfoFilePaths ?? [])
             .Where(path => !string.IsNullOrWhiteSpace(path))
             .Distinct(StringComparer.OrdinalIgnoreCase)];
+        Dictionary<string, RootFileEnumerationEntry> directoryEntries = NormalizeEnumerationEntries(request.DirectoryEntries);
         Dictionary<string, RootFileEnumerationEntry> lr2FolderFileEntries = NormalizeEnumerationEntries(request.Lr2FolderFileEntries);
         List<string> lr2FolderFilePaths = [.. (request.Lr2FolderFilePaths ?? [])
             .Where(path => !string.IsNullOrWhiteSpace(path))
@@ -248,6 +252,7 @@ internal static class Lr2FullGenerationBackfillService
                 RootDirectories = roots,
                 ChartPaths = chartPaths,
                 FolderInfoFilePaths = folderInfoFilePaths,
+                DirectoryLastWriteTimeUtcResolver = CreateLastWriteTimeResolver(directoryEntries),
                 AllowPrune = true,
                 GeneratedAtUtc = request.StartedAtUtc
             });
@@ -1042,6 +1047,17 @@ internal static class Lr2FullGenerationBackfillService
             && entriesByPath?.TryGetValue(filePath, out RootFileEnumerationEntry entry) == true
                 ? entry
                 : null;
+    }
+
+    private static Func<string, DateTime?> CreateLastWriteTimeResolver(
+        IReadOnlyDictionary<string, RootFileEnumerationEntry> entriesByPath)
+    {
+        if (entriesByPath == null || entriesByPath.Count == 0)
+        {
+            return null;
+        }
+
+        return path => ResolveEnumerationEntry(entriesByPath, path)?.LastWriteTimeUtc;
     }
 
     private static Dictionary<string, RootFileEnumerationEntry> NormalizeEnumerationEntries(

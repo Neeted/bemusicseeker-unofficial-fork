@@ -57,6 +57,40 @@ public sealed class RootFileEnumerationTests
         Assert.AreEqual(ToUnixSeconds(utc), entry.LastWriteTimeUnixSeconds);
     }
 
+    [TestMethod]
+    public void FastEnumerator_ReturnsDirectoryMetadataEntries()
+    {
+        string tempRoot = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_RootEnumDirs_" + Guid.NewGuid().ToString("N"));
+        string nestedDirectory = Path.Combine(tempRoot, "Pack", "Song");
+        DateTime rootWriteTimeUtc = new(2026, 6, 5, 3, 0, 0, DateTimeKind.Utc);
+        DateTime nestedWriteTimeUtc = new(2026, 6, 5, 4, 0, 0, DateTimeKind.Utc);
+        Directory.CreateDirectory(nestedDirectory);
+        Directory.SetLastWriteTimeUtc(tempRoot, rootWriteTimeUtc);
+        Directory.SetLastWriteTimeUtc(nestedDirectory, nestedWriteTimeUtc);
+
+        try
+        {
+            RootFileEnumerationResult result = new FastRootFileEnumerator().EnumerateFiles(
+                [tempRoot],
+                [new RootFileEnumerationGroup(RootFileEnumerationService.DirectoriesGroupName, [], includeDirectories: true)]);
+
+            Assert.IsTrue(result.Success);
+            RootFileEnumerationEntry rootEntry = result.GetEntry(RootFileEnumerationService.DirectoriesGroupName, tempRoot);
+            RootFileEnumerationEntry nestedEntry = result.GetEntry(RootFileEnumerationService.DirectoriesGroupName, nestedDirectory);
+            Assert.IsNotNull(rootEntry);
+            Assert.IsNotNull(nestedEntry);
+            Assert.AreEqual(ToUnixSeconds(rootWriteTimeUtc), rootEntry.LastWriteTimeUnixSeconds);
+            Assert.AreEqual(ToUnixSeconds(nestedWriteTimeUtc), nestedEntry.LastWriteTimeUnixSeconds);
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot))
+            {
+                Directory.Delete(tempRoot, recursive: true);
+            }
+        }
+    }
+
     private static int ToUnixSeconds(DateTime timestampUtc)
     {
         DateTime utc = timestampUtc.Kind == DateTimeKind.Utc ? timestampUtc : timestampUtc.ToUniversalTime();

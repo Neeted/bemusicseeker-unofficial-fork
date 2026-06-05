@@ -23,6 +23,21 @@ internal sealed class RootFileEnumerationEntry(string path, DateTime? lastWriteT
             : new RootFileEnumerationEntry(file.Path, file.LastWriteTimeUtc, file.Size);
     }
 
+    internal static RootFileEnumerationEntry FromDirectoryInfo(string path)
+    {
+        try
+        {
+            var directoryInfo = new System.IO.DirectoryInfo(path);
+            return directoryInfo.Exists
+                ? new RootFileEnumerationEntry(directoryInfo.FullName, directoryInfo.LastWriteTimeUtc)
+                : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     private static DateTime? NormalizeUtc(DateTime? timestamp)
     {
         if (!timestamp.HasValue || timestamp.Value <= DateTime.MinValue)
@@ -51,7 +66,11 @@ internal sealed class RootFileEnumerationEntry(string path, DateTime? lastWriteT
     }
 }
 
-internal sealed class RootFileEnumerationGroup(string name, IEnumerable<string> extensions, bool includeAllFiles = false)
+internal sealed class RootFileEnumerationGroup(
+    string name,
+    IEnumerable<string> extensions,
+    bool includeAllFiles = false,
+    bool includeDirectories = false)
 {
     public string Name { get; } = name ?? string.Empty;
 
@@ -61,6 +80,8 @@ internal sealed class RootFileEnumerationGroup(string name, IEnumerable<string> 
             .Distinct(StringComparer.OrdinalIgnoreCase)];
 
     public bool IncludeAllFiles { get; } = includeAllFiles;
+
+    public bool IncludeDirectories { get; } = includeDirectories;
 }
 
 internal sealed class RootFileEnumerationResult
@@ -166,6 +187,8 @@ internal interface IRootFileEnumerator
 internal static class RootFileEnumerationService
 {
     internal const string AllFilesGroupName = "__all__";
+
+    internal const string DirectoriesGroupName = "__directories__";
 
     internal static RootFileEnumerationResult EnumerateFilesWithFallback(IEnumerable<string> rootDirectories, IEnumerable<RootFileEnumerationGroup> groups, bool verboseLog = false)
     {
