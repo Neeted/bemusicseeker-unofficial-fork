@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -6,6 +7,7 @@ using System.Linq;
 using System.Security;
 using System.Text;
 using System.Threading;
+using System.Threading.Tasks;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 
@@ -1271,48 +1273,73 @@ internal static class Lr2FullGenerationBackfillService
         BmsLibraryDbGateway.EnsureSongLookupIndexes(songDb);
         BmsLibraryDbGateway.EnsureMaintenanceSchema(songDb);
         const int songRowBackfillChunkSize = 500;
+        int workerDegree = ResolveSongRowBackfillWorkerDegree();
+        int readQueueCapacity = Math.Max(workerDegree * 2, Math.Min(songRowBackfillChunkSize * 2, Math.Max(songRowBackfillChunkSize, workerDegree * 16)));
+        int computedQueueCapacity = Math.Max(songRowBackfillChunkSize, workerDegree * 16);
         int processed = 0;
         int parseFailureCount = 0;
         int chartInfoAppliedCount = 0;
         int compatibilityApplied = 0;
         var compatibilityInfos = new List<BMSFileMaintenanceInfo>();
+        using var readQueue = new BlockingCollection<SongRowBackfillReadCandidate>(readQueueCapacity);
+        using var computedQueue = new BlockingCollection<SongRowBackfillComputedItem>(computedQueueCapacity);
+        long readerOutputWaitTicks = 0L;
+        long workerOutputWaitTicks = 0L;
+        int readQueueHighWatermark = 0;
+        int computedQueueHighWatermark = 0;
+        int writerFailed = 0;
+        Exception pipelineException = null;
+        CancellationToken cancellationToken = request?.CancellationToken ?? CancellationToken.None;
+        LogBackfill(request, "lr2_full_generation_backfill pipeline_start"
+            + " stage=song_rows"
+            + " startIndex=" + safeStartIndex
+            + " targetCount=" + targetRows.Count
+            + " chunkSize=" + songRowBackfillChunkSize
+            + " workerDegree=" + workerDegree
+            + " readQueueCapacity=" + readQueueCapacity
+            + " computedQueueCapacity=" + computedQueueCapacity);
+        ThrowIfCancellationRequested(
+            songDb,
+            request,
+            baseProcessedCursor + safeStartIndex,
+            totalCount,
+            "song_rows");
 
-        for (int offset = safeStartIndex; offset < targetRows.Count; offset += songRowBackfillChunkSize)
+        void FlushSongRowChunk(List<SongRowBackfillComputedItem> chunk)
         {
+            if (chunk == null || chunk.Count == 0)
+            {
+                return;
+            }
+
+            int offset = chunk[0].Index;
             ThrowIfCancellationRequested(
                 songDb,
                 request,
                 baseProcessedCursor + offset,
                 totalCount,
                 "song_rows");
-            List<BMSFile> chunkTargets = [.. targetRows.Skip(offset).Take(songRowBackfillChunkSize)];
             LogBackfill(request, "lr2_full_generation_backfill chunk_start"
                 + " stage=song_rows"
                 + " offset=" + offset
-                + " count=" + chunkTargets.Count
+                + " count=" + chunk.Count
                 + " processedCursor=" + (baseProcessedCursor + offset));
-            var rowsToWrite = new List<BMSFile>(chunkTargets.Count);
-            long chunkReadMs = 0L;
-            long chunkParseMs = 0L;
+            var rowsToWrite = new List<BMSFile>(chunk.Count);
+            long chunkReadTicks = 0L;
+            long chunkParseTicks = 0L;
             int chunkFallbackCount = 0;
             int chunkParseFailureCount = 0;
-            foreach (BMSFile song in chunkTargets)
+            foreach (SongRowBackfillComputedItem item in chunk)
             {
-                BMSFile row = CreateBackfillSongRow(
-                    song,
-                    textFileDirectories,
-                    out bool parsedFromSnapshot,
-                    out long readMs,
-                    out long parseMs);
-                chunkReadMs += readMs;
-                chunkParseMs += parseMs;
+                chunkReadTicks += item.ReadElapsedTicks;
+                chunkParseTicks += item.ParseElapsedTicks;
+                BMSFile row = item.Row;
                 if (row == null || string.IsNullOrWhiteSpace(row.path))
                 {
                     continue;
                 }
-                if (!parsedFromSnapshot)
+                if (!item.ParsedFromSnapshot)
                 {
-                    parseFailureCount++;
                     chunkParseFailureCount++;
                     chunkFallbackCount++;
                 }
@@ -1322,27 +1349,36 @@ internal static class Lr2FullGenerationBackfillService
             var stopwatchChartInfo = Stopwatch.StartNew();
             int chunkChartInfoAppliedCount = ApplyCurrentChartInfoRows(songDb, rowsToWrite);
             stopwatchChartInfo.Stop();
+            var stopwatchCompatibility = Stopwatch.StartNew();
+            var chunkCompatibilityInfos = new List<BMSFileMaintenanceInfo>();
+            foreach (BMSFile song in rowsToWrite)
+            {
+                if (TryCreateLr2CompatibilityMaintenanceInfo(song, out BMSFileMaintenanceInfo compatibilityInfo))
+                {
+                    chunkCompatibilityInfos.Add(compatibilityInfo);
+                }
+            }
+            stopwatchCompatibility.Stop();
             var stopwatchCommit = Stopwatch.StartNew();
             songDb.BeginTransaction();
             try
             {
-                int chunkCompatibilityApplied = 0;
                 foreach (BMSFile song in rowsToWrite)
                 {
                     Lr2SongDbWriter.UpsertGeneratedSong(songDb, song);
-                    if (TryCreateLr2CompatibilityMaintenanceInfo(song, out BMSFileMaintenanceInfo compatibilityInfo))
-                    {
-                        UpsertLr2CompatibilityFacts(songDb, compatibilityInfo);
-                        compatibilityInfos.Add(compatibilityInfo);
-                        compatibilityApplied++;
-                        chunkCompatibilityApplied++;
-                    }
+                }
+                foreach (BMSFileMaintenanceInfo compatibilityInfo in chunkCompatibilityInfos)
+                {
+                    UpsertLr2CompatibilityFacts(songDb, compatibilityInfo);
                 }
                 songDb.Commit();
                 stopwatchCommit.Stop();
+                compatibilityInfos.AddRange(chunkCompatibilityInfos);
+                compatibilityApplied += chunkCompatibilityInfos.Count;
+                parseFailureCount += chunkParseFailureCount;
                 chartInfoAppliedCount += chunkChartInfoAppliedCount;
-                processed += chunkTargets.Count;
-                int processedCursor = baseProcessedCursor + offset + chunkTargets.Count;
+                processed += chunk.Count;
+                int processedCursor = baseProcessedCursor + offset + chunk.Count;
                 Lr2FullGenerationStatusService.UpdateCursor(
                     songDb,
                     signature,
@@ -1351,18 +1387,19 @@ internal static class Lr2FullGenerationBackfillService
                     totalCount,
                     stage: "song_rows",
                     nowUtc: DateTime.UtcNow);
-                ReportProgress(request, processedCursor, totalCount, "song_rows", offset + chunkTargets.Count, targetRows.Count);
+                ReportProgress(request, processedCursor, totalCount, "song_rows", offset + chunk.Count, targetRows.Count);
                 LogBackfill(request, "lr2_full_generation_backfill chunk_done"
                     + " stage=song_rows"
                     + " offset=" + offset
-                    + " count=" + chunkTargets.Count
-                    + " readMs=" + chunkReadMs
-                    + " parseMs=" + chunkParseMs
+                    + " count=" + chunk.Count
+                    + " readMs=" + TicksToMilliseconds(chunkReadTicks)
+                    + " parseMs=" + TicksToMilliseconds(chunkParseTicks)
                     + " chartInfoApplyMs=" + stopwatchChartInfo.ElapsedMilliseconds
+                    + " compatibilityBuildMs=" + stopwatchCompatibility.ElapsedMilliseconds
                     + " commitMs=" + stopwatchCommit.ElapsedMilliseconds
                     + " fallbackCount=" + chunkFallbackCount
                     + " parseFailureCount=" + chunkParseFailureCount
-                    + " compatibilityApplied=" + chunkCompatibilityApplied
+                    + " compatibilityApplied=" + chunkCompatibilityInfos.Count
                     + " processedCursor=" + processedCursor);
             }
             catch (Exception ex)
@@ -1384,7 +1421,179 @@ internal static class Lr2FullGenerationBackfillService
             }
         }
 
+        Task readerTask = Task.Run(delegate
+        {
+            try
+            {
+                for (int index = safeStartIndex; index < targetRows.Count; index++)
+                {
+                    if (Volatile.Read(ref writerFailed) != 0)
+                    {
+                        break;
+                    }
+                    SongRowBackfillReadCandidate candidate = ReadBackfillSongRowCandidate(index, targetRows[index]);
+                    try
+                    {
+                        AddWithWait(readQueue, candidate, ref readerOutputWaitTicks, cancellationToken);
+                        UpdateHighWatermark(ref readQueueHighWatermark, readQueue.Count);
+                    }
+                    catch (InvalidOperationException) when (Volatile.Read(ref writerFailed) != 0)
+                    {
+                        break;
+                    }
+                }
+            }
+            finally
+            {
+                readQueue.CompleteAdding();
+            }
+        });
+
+        Task[] workerTasks = [.. Enumerable.Range(0, workerDegree)
+            .Select(_ => Task.Run(delegate
+            {
+                foreach (SongRowBackfillReadCandidate candidate in readQueue.GetConsumingEnumerable(cancellationToken))
+                {
+                    if (Volatile.Read(ref writerFailed) != 0)
+                    {
+                        break;
+                    }
+                    SongRowBackfillComputedItem item = CreateBackfillSongRowItem(candidate, textFileDirectories);
+                    try
+                    {
+                        AddWithWait(computedQueue, item, ref workerOutputWaitTicks, cancellationToken);
+                        UpdateHighWatermark(ref computedQueueHighWatermark, computedQueue.Count);
+                    }
+                    catch (InvalidOperationException) when (Volatile.Read(ref writerFailed) != 0)
+                    {
+                        break;
+                    }
+                }
+            }))];
+        Task workerCompletionTask = Task.WhenAll(workerTasks).ContinueWith(_ => TryCompleteAdding(computedQueue));
+        var pendingItems = new SortedDictionary<int, SongRowBackfillComputedItem>();
+        var writerChunk = new List<SongRowBackfillComputedItem>(songRowBackfillChunkSize);
+        int nextIndexToCommit = safeStartIndex;
+        try
+        {
+            foreach (SongRowBackfillComputedItem item in computedQueue.GetConsumingEnumerable(cancellationToken))
+            {
+                pendingItems[item.Index] = item;
+                while (pendingItems.TryGetValue(nextIndexToCommit, out SongRowBackfillComputedItem nextItem))
+                {
+                    pendingItems.Remove(nextIndexToCommit);
+                    writerChunk.Add(nextItem);
+                    nextIndexToCommit++;
+                    if (writerChunk.Count >= songRowBackfillChunkSize)
+                    {
+                        FlushSongRowChunk(writerChunk);
+                        writerChunk = new List<SongRowBackfillComputedItem>(songRowBackfillChunkSize);
+                    }
+                }
+            }
+            Task.WaitAll(workerTasks);
+            workerCompletionTask.Wait();
+            FlushSongRowChunk(writerChunk);
+        }
+        catch (Exception ex)
+        {
+            pipelineException = UnwrapPipelineException(ex);
+            Volatile.Write(ref writerFailed, 1);
+            TryCompleteAdding(readQueue);
+            TryCompleteAdding(computedQueue);
+        }
+
+        try
+        {
+            readerTask.Wait();
+        }
+        catch (AggregateException ex)
+        {
+            pipelineException ??= ex.Flatten().InnerExceptions.FirstOrDefault() ?? ex;
+        }
+        try
+        {
+            Task.WaitAll(workerTasks);
+            workerCompletionTask.Wait();
+        }
+        catch (AggregateException ex)
+        {
+            pipelineException ??= ex.Flatten().InnerExceptions.FirstOrDefault() ?? ex;
+        }
+
+        if (pipelineException != null)
+        {
+            if (pipelineException is OperationCanceledException)
+            {
+                ThrowIfCancellationRequested(
+                    songDb,
+                    request,
+                    baseProcessedCursor + safeStartIndex + processed,
+                    totalCount,
+                    "song_rows");
+            }
+            Lr2FullGenerationStatusService.MarkFailed(
+                songDb,
+                signature,
+                runId,
+                processedCursor: baseProcessedCursor + safeStartIndex + processed,
+                totalCount,
+                stage: "song_rows",
+                error: pipelineException.Message,
+                nowUtc: DateTime.UtcNow);
+            throw pipelineException;
+        }
+
+        LogBackfill(request, "lr2_full_generation_backfill pipeline_done"
+            + " stage=song_rows"
+            + " processed=" + processed
+            + " parseFailureCount=" + parseFailureCount
+            + " chartInfoApplied=" + chartInfoAppliedCount
+            + " compatibilityApplied=" + compatibilityApplied
+            + " readerOutputWaitMs=" + TicksToMilliseconds(readerOutputWaitTicks)
+            + " workerOutputWaitMs=" + TicksToMilliseconds(workerOutputWaitTicks)
+            + " readQueueHighWatermark=" + readQueueHighWatermark
+            + " computedQueueHighWatermark=" + computedQueueHighWatermark);
         return new SongRowBackfillResult(processed, parseFailureCount, chartInfoAppliedCount, compatibilityApplied, compatibilityInfos);
+    }
+
+    private static void AddWithWait<T>(BlockingCollection<T> queue, T item, ref long waitTicks, CancellationToken cancellationToken)
+    {
+        long start = Stopwatch.GetTimestamp();
+        queue.Add(item, cancellationToken);
+        Interlocked.Add(ref waitTicks, Stopwatch.GetTimestamp() - start);
+    }
+
+    private static void UpdateHighWatermark(ref int highWatermark, int value)
+    {
+        int current;
+        while (value > (current = Volatile.Read(ref highWatermark))
+            && Interlocked.CompareExchange(ref highWatermark, value, current) != current)
+        {
+        }
+    }
+
+    private static void TryCompleteAdding<T>(BlockingCollection<T> queue)
+    {
+        try
+        {
+            queue?.CompleteAdding();
+        }
+        catch (InvalidOperationException)
+        {
+        }
+    }
+
+    private static int ResolveSongRowBackfillWorkerDegree()
+    {
+        return Math.Max(1, Environment.ProcessorCount - 1);
+    }
+
+    private static Exception UnwrapPipelineException(Exception ex)
+    {
+        return ex is AggregateException aggregateException
+            ? aggregateException.Flatten().InnerExceptions.FirstOrDefault() ?? aggregateException
+            : ex;
     }
 
     private static Exception TryRollbackSongRowChunk(LR2SongDBExtended songDb)
@@ -1408,45 +1617,76 @@ internal static class Lr2FullGenerationBackfillService
         }
     }
 
-    private static BMSFile CreateBackfillSongRow(
-        BMSFile existingSong,
-        ISet<string> textFileDirectories,
-        out bool parsedFromSnapshot,
-        out long readMs,
-        out long parseMs)
+    private static SongRowBackfillReadCandidate ReadBackfillSongRowCandidate(int index, BMSFile existingSong)
     {
-        parsedFromSnapshot = false;
-        readMs = 0L;
-        parseMs = 0L;
         if (existingSong == null || string.IsNullOrWhiteSpace(existingSong.path))
         {
-            return null;
+            return new SongRowBackfillReadCandidate(index, existingSong, null, 0L);
         }
 
         try
         {
-            var stopwatchRead = Stopwatch.StartNew();
+            var stopwatch = Stopwatch.StartNew();
             ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(existingSong.path);
-            stopwatchRead.Stop();
-            readMs = stopwatchRead.ElapsedMilliseconds;
+            stopwatch.Stop();
+            return new SongRowBackfillReadCandidate(index, existingSong, snapshot, stopwatch.ElapsedTicks);
+        }
+        catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException || ex is DecoderFallbackException)
+        {
+            return new SongRowBackfillReadCandidate(index, existingSong, null, 0L);
+        }
+    }
+
+    private static SongRowBackfillComputedItem CreateBackfillSongRowItem(
+        SongRowBackfillReadCandidate candidate,
+        ISet<string> textFileDirectories)
+    {
+        BMSFile row = CreateBackfillSongRow(
+            candidate,
+            textFileDirectories,
+            out bool parsedFromSnapshot,
+            out long parseTicks);
+        return new SongRowBackfillComputedItem(candidate.Index, row, parsedFromSnapshot, candidate.ReadElapsedTicks, parseTicks);
+    }
+
+    private static BMSFile CreateBackfillSongRow(
+        SongRowBackfillReadCandidate candidate,
+        ISet<string> textFileDirectories,
+        out bool parsedFromSnapshot,
+        out long parseTicks)
+    {
+        parsedFromSnapshot = false;
+        parseTicks = 0L;
+        BMSFile existingSong = candidate?.ExistingSong;
+        if (existingSong == null || string.IsNullOrWhiteSpace(existingSong.path))
+        {
+            return null;
+        }
+        if (candidate.Snapshot == null)
+        {
+            return CreateFallbackBackfillSongRow(existingSong, textFileDirectories);
+        }
+
+        try
+        {
             var stopwatchParse = Stopwatch.StartNew();
-            BMSFile.BmsEncodingDetectionResult detectionResult = BMSFile.DetectEncodingOfBMSFileDetailed(snapshot);
+            BMSFile.BmsEncodingDetectionResult detectionResult = BMSFile.DetectEncodingOfBMSFileDetailed(candidate.Snapshot);
             string encodingName = ResolveSafeBackfillParseEncoding(detectionResult);
             if (string.IsNullOrWhiteSpace(encodingName))
             {
                 stopwatchParse.Stop();
-                parseMs = stopwatchParse.ElapsedMilliseconds;
+                parseTicks = stopwatchParse.ElapsedTicks;
                 return CreateFallbackBackfillSongRow(existingSong, textFileDirectories);
             }
 
-            BMSFile parsed = BMSFile.CreateBMSFileFromSnapshot(snapshot, encodingName);
+            BMSFile parsed = BMSFile.CreateBMSFileFromSnapshot(candidate.Snapshot, encodingName);
             Lr2SongRowEnricher.EnrichParsedSong(
                 parsed,
-                snapshot,
+                candidate.Snapshot,
                 ResolveTextGroupFlag(existingSong.path, textFileDirectories, existingSong.txt.GetValueOrDefault()),
                 existingSong);
             stopwatchParse.Stop();
-            parseMs = stopwatchParse.ElapsedMilliseconds;
+            parseTicks = stopwatchParse.ElapsedTicks;
             parsedFromSnapshot = true;
             return parsed;
         }
@@ -1454,6 +1694,11 @@ internal static class Lr2FullGenerationBackfillService
         {
             return CreateFallbackBackfillSongRow(existingSong, textFileDirectories);
         }
+    }
+
+    private static long TicksToMilliseconds(long ticks)
+    {
+        return ticks <= 0L ? 0L : (long)(ticks * 1000.0 / Stopwatch.Frequency);
     }
 
     private static BMSFile CreateFallbackBackfillSongRow(BMSFile existingSong, ISet<string> textFileDirectories)
@@ -1716,6 +1961,39 @@ internal static class Lr2FullGenerationBackfillService
         {
             return null;
         }
+    }
+
+    private sealed class SongRowBackfillReadCandidate(
+        int index,
+        BMSFile existingSong,
+        ChartFileSnapshot snapshot,
+        long readElapsedTicks)
+    {
+        public int Index { get; } = index;
+
+        public BMSFile ExistingSong { get; } = existingSong;
+
+        public ChartFileSnapshot Snapshot { get; } = snapshot;
+
+        public long ReadElapsedTicks { get; } = readElapsedTicks;
+    }
+
+    private sealed class SongRowBackfillComputedItem(
+        int index,
+        BMSFile row,
+        bool parsedFromSnapshot,
+        long readElapsedTicks,
+        long parseElapsedTicks)
+    {
+        public int Index { get; } = index;
+
+        public BMSFile Row { get; } = row;
+
+        public bool ParsedFromSnapshot { get; } = parsedFromSnapshot;
+
+        public long ReadElapsedTicks { get; } = readElapsedTicks;
+
+        public long ParseElapsedTicks { get; } = parseElapsedTicks;
     }
 
     private sealed class SongRowBackfillResult(

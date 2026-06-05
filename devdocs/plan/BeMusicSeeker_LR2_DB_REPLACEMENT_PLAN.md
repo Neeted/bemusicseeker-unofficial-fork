@@ -1054,7 +1054,7 @@ parse directive:
 | Phase 6: normal `folder` row generator | 主要実装済み | normal folder generator / scope planner / DB sync、mutation・file diff failure の incomplete marking、directory metadata surface 由来の `folder.date` resolver、`folderinfo.txt` entry metadata surface は接続済み。 | 実機で directory mtime / folder row freshness を確認する。 |
 | Phase 7: `.lr2folder` DB sync | 主要実装済み | playlist projection と `.lr2folder` / `folder` row sync の同一化、通常 discovery、built-in source の相対 path 化、root custom output / built-in category parent row 生成、`LR2files\Rival` の built-in discovery 非対象化、`LR2files\CustomFolder` の `<customfolder>` bitmask、`newsong` dynamic row、`course1-3` の `type=6` は接続済み。 | 実 LR2 setup / built-in folder fixture での最終確認を残す。 |
 | Phase 8: status / backfill UI | 主要実装済み | durable status、runtime progress、setting queue、cancel、mutation guard、startup blocker diagnostic / cleanup は実装済み。 | 長時間 backfill の UI 手動確認と failure/cancel 再起動確認を残す。 |
-| Phase 9: resumable backfill | 一部完了 | durable cursor、stage / chunk resume、changed-only song row backfill、cancel boundary の基盤、completed status current 時の 2 回目 no-op queue、copied `song.db` の current completed no-op、failed song-row chunk rollback/retry、cancel 後 restart resume は自動テスト済み。 | `song_rows` stage を bounded reader / parallel worker / single writer pipeline に置き換える。実 DB での partial resume / cancel-restart を統合確認する。 |
+| Phase 9: resumable backfill | 主要実装済み | durable cursor、stage / chunk resume、changed-only song row backfill、`song_rows` bounded reader / parallel worker / ordered single writer pipeline、cancel boundary の基盤、completed status current 時の 2 回目 no-op queue、copied `song.db` の current completed no-op、failed song-row chunk rollback/retry、cancel 後 restart resume は自動テスト済み。 | 実 DB での partial resume / cancel-restart と、長時間 `song_rows` run の chunk log / queue metrics を統合確認する。 |
 
 ### フェーズ別進捗メモ
 
@@ -1309,17 +1309,15 @@ existence / mtime は意味的に揃える。
 
 ## 残作業の推奨順
 
-現時点で計画本体の production 接続と自動テストで固定できる主要 contract は多く接続済みだが、
-性能上の production 残作業として `song_rows` stage の streaming pipeline 化が残っている。
-実機確認・手動確認・LR2 での確認は後回しにできるが、以下の 1 は実装サイクルとして先に進める。
+現時点で計画本体の production 接続と自動テストで固定できる主要 contract は接続済みである。
+以下は実機 Everything / 実 LR2 DB / 実 LR2 起動ログが必要な統合確認、または実 DB 由来 fixture を
+入手した後に追加する contract 補強である。実機確認・手動確認・LR2 での確認を後回しにする
+作業サイクルでは、新しい実装ブロッカーとしては扱わない。
 
-1. `song_rows` stage を bounded streaming pipeline に置き換える。
-   - 現行の逐次 chunk 処理は、初期化 file diff / manual maintenance rescan と比べて file read と parse の並列化が弱い。
-   - reader は 1 本、worker は `max(1, Environment.ProcessorCount - 1)` を既定にし、queue capacity は
-     chunk size と worker 数から bounded に決める。
-   - writer は 500 件程度の chunk transaction を維持し、chunk commit 成功後だけ durable cursor を進める。
-   - `readMs` / `parseMs` / `commitMs` / queue wait / fallback / parse failure / compatibility count を
-     chunk log に残し、長時間 run で途中状態を追えるようにする。
+1. `song_rows` bounded pipeline の実ログを確認する。
+   - 長時間 run で `pipeline_start` / `chunk_done` / `pipeline_done` が継続して出ることを確認する。
+   - `readMs` / `parseMs` / `chartInfoApplyMs` / `compatibilityBuildMs` / `commitMs` /
+     queue wait / high-watermark から、次に詰まる箇所が reader、workers、writer のどこかを判断する。
 2. completed steady-state の no-op 性能を確認する。
    - `.bmt` 出力 OFF、完全生成 completed、file diff 0 件から数件の起動で、
      LR2 full generation task が queue されず、`startup_background_summary` が 50 秒未満に戻ることを確認する。

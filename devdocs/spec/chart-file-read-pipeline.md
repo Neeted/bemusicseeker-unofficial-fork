@@ -114,6 +114,37 @@ package install は起動時 file diff と完全には同じではない。起�
 
 manual rescan は `chart_info` を作らない。既存 `chart_info` の不足や parser version 差分は `chart_info_hydration` / `chart_info_backfill` が担当する。manual encoding fix は snapshot bytes から metadata を読み直し、適用対象は file diff と同じ raw `title` / `subtitle` / `artist` / `subartist` / `genre` に限定する。再計算した `maintenance` row が既存 row と同一の場合、DB upsert は行わない。
 
+## LR2 Full Generation Song Rows
+
+LR2 `song.db` 完全生成の `song_rows` stage も、譜面 bytes を扱う大量処理として bounded pipeline を使う。
+
+```text
+current owned BMS song rows
+  -> single reader
+       ChartFileContentReader.ReadSnapshot(path)
+  -> parallel workers
+       encoding detection
+       BMSFile.CreateBMSFileFromSnapshot(...)
+       Lr2SongRowEnricher.EnrichParsedSong(...)
+       recoverable failure は existing row copy fallback
+  -> ordered single writer
+       current chart_info apply
+       LR2 compatibility fact build
+       song / maintenance targeted upsert
+       durable cursor update after chunk commit
+```
+
+writer は worker 完了順ではなく input index 順の contiguous chunk だけを commit する。`processed_cursor` は
+「この index より前の `song_rows` target は transaction commit 済み」という durable resume contract であり、
+out-of-order commit で進めない。chunk size は transaction 範囲であり、snapshot bytes の保持上限は reader /
+computed queue capacity と各譜面ファイルサイズに依存する。queue は件数上限で bytes を bounded にするための
+実用的な backpressure であり、巨大な個別譜面ファイルの byte[] size そのものを固定上限にするものではない。
+
+`song_rows` stage は `chart_info` full backfill 自体を再実装しない。current parser version の
+`chart_info` は `ChartInfoBuildService` 側で先に補完し、`song_rows` writer は chunk 内の対象 hash に対する
+current row を lookup して `song` numeric columns に反映する。LR2 compatibility facts は resource health /
+encoding row を置換せず、maintenance の LR2 列だけを targeted update する。
+
 ## Full Backfill
 
 full backfill は、既存 DB 補完用の background 処理として残す。
