@@ -864,6 +864,64 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
     }
 
     [TestMethod]
+    public void QueueLr2FullGenerationBackfillIfNeeded_DoesNotQueueSecondBackfillWhenCompletedStatusIsCurrent()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        try
+        {
+            Settings.Default.OperationModeLR2DB = true;
+            Settings.Default.EnableLR2SongDbFullGeneration = true;
+            ResetLr2FolderDiscoverySettings();
+            string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
+            string songDirectory = Path.Combine(rootDirectory, "Song");
+            Directory.CreateDirectory(songDirectory);
+            string chartPath = Path.Combine(songDirectory, "chart.bms");
+            File.WriteAllText(chartPath, "#TITLE Noop Backfill\r\n#00111:01\r\n", Encoding.ASCII);
+            ChartFileSnapshot chartSnapshot = ChartFileContentReader.ReadSnapshot(chartPath);
+            var file = new TestableBmsFile
+            {
+                path = chartPath
+            };
+            file.SetHash(chartSnapshot.Md5);
+            file.ApplySha256(chartSnapshot.Sha256);
+            var library = new BMSLibrary(scope.SongDbPath)
+            {
+                SearchTargets = [rootDirectory],
+                BMSFiles = [file]
+            };
+            int scheduledCount = 0;
+            library.StartupBackgroundTaskScheduler = delegate (string name, string reason, string dependency, Func<Task> work)
+            {
+                scheduledCount++;
+                work().GetAwaiter().GetResult();
+                return true;
+            };
+
+            Lr2FullGenerationStatusSnapshot first = library.QueueLr2FullGenerationBackfillIfNeeded("test_first");
+            int requestedVersionAfterFirst = library.Lr2FullGenerationBackfillRequestedVersion;
+            int completedVersionAfterFirst = library.Lr2FullGenerationBackfillCompletedVersion;
+            int statusVersionAfterFirst = library.Lr2FullGenerationStatusVersion;
+            Lr2FullGenerationStatusSnapshot second = library.QueueLr2FullGenerationBackfillIfNeeded("test_second");
+
+            Assert.AreEqual(Lr2FullGenerationStatusKind.Needed, first.Status);
+            Assert.AreEqual(Lr2FullGenerationStatusKind.Completed, second.Status);
+            Assert.AreEqual(1, scheduledCount);
+            Assert.AreEqual(requestedVersionAfterFirst, library.Lr2FullGenerationBackfillRequestedVersion);
+            Assert.AreEqual(completedVersionAfterFirst, library.Lr2FullGenerationBackfillCompletedVersion);
+            Assert.AreEqual(statusVersionAfterFirst + 1, library.Lr2FullGenerationStatusVersion);
+            Assert.IsFalse(library.Lr2FullGenerationBackfillRunning);
+            using var verify = new LR2SongDBExtended(scope.SongDbPath);
+            LR2SongDBExtended.lr2_full_generation_status row = verify.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
+            Assert.AreEqual("Completed", row.status);
+            Assert.AreEqual(Lr2FullGenerationBackfillService.CompletedStage, row.stage);
+        }
+        finally
+        {
+            ResetTouchedSettings();
+        }
+    }
+
+    [TestMethod]
     public void QueueLr2FullGenerationBackfillIfNeeded_WithNoRootsDoesNotCompleteGeneration()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
