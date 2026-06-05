@@ -1027,7 +1027,7 @@ parse directive:
 | Phase 6: normal `folder` row generator | 主要実装済み | normal folder generator / scope planner / DB sync、mutation・file diff failure の incomplete marking、directory metadata surface 由来の `folder.date` resolver、`folderinfo.txt` entry metadata surface は接続済み。 | 実機で directory mtime / folder row freshness を確認する。 |
 | Phase 7: `.lr2folder` DB sync | 主要実装済み | playlist projection と `.lr2folder` / `folder` row sync の同一化、通常 discovery、built-in source の相対 path 化、`LR2files\Rival` の built-in discovery 非対象化、`LR2files\CustomFolder` の `<customfolder>` bitmask、`newsong` dynamic row、`course1-3` の `type=6` は接続済み。 | 実 LR2 setup / built-in folder fixture での最終確認を残す。 |
 | Phase 8: status / backfill UI | 主要実装済み | durable status、runtime progress、setting queue、cancel、mutation guard、startup blocker diagnostic / cleanup は実装済み。 | 長時間 backfill の UI 手動確認と failure/cancel 再起動確認を残す。 |
-| Phase 9: resumable backfill | 一部完了 | durable cursor、stage / chunk resume、changed-only song row backfill、cancel boundary の基盤、completed status current 時の 2 回目 no-op queue、copied `song.db` の current completed no-op、failed song-row chunk rollback/retry は自動テスト済み。 | 実 DB での partial resume / cancel-restart を統合確認する。 |
+| Phase 9: resumable backfill | 一部完了 | durable cursor、stage / chunk resume、changed-only song row backfill、cancel boundary の基盤、completed status current 時の 2 回目 no-op queue、copied `song.db` の current completed no-op、failed song-row chunk rollback/retry、cancel 後 restart resume は自動テスト済み。 | 実 DB での partial resume / cancel-restart を統合確認する。 |
 
 ### フェーズ別進捗メモ
 

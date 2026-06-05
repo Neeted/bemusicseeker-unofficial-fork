@@ -1970,6 +1970,68 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
     }
 
     [TestMethod]
+    public void BackfillService_CancelledAfterFolderStageResumesAndCompletes()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        string rootDirectory = Path.Combine(scope.DirectoryPath, "CancelResumeRoot");
+        string songDirectory = Path.Combine(rootDirectory, "Song");
+        Directory.CreateDirectory(songDirectory);
+        string chartPath = Path.Combine(songDirectory, "chart.bms");
+        File.WriteAllText(chartPath, "#TITLE cancel resume\r\n#00111:01\r\n", Encoding.ASCII);
+        TestableBmsFile file = CreateBackfillTestFile(chartPath, ChartFileContentReader.ReadSnapshot(chartPath));
+        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        songDb.CreateTable<LR2SongDB.song>();
+        songDb.CreateTable<LR2SongDB.folder>();
+        using var cancellation = new CancellationTokenSource();
+        const string signature = "cancel-resume-after-folder";
+
+        Assert.ThrowsException<OperationCanceledException>(() => Lr2FullGenerationBackfillService.Run(songDb, new Lr2FullGenerationBackfillRequest
+        {
+            Signature = signature,
+            RunId = "cancel-run",
+            RootDirectories = [rootDirectory],
+            ChartPaths = [chartPath],
+            SongRows = [file],
+            StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc),
+            CancellationToken = cancellation.Token,
+            ProgressReporter = (processed, total, stage) =>
+            {
+                if (stage == "song_rows")
+                {
+                    cancellation.Cancel();
+                }
+            }
+        }));
+
+        LR2SongDBExtended.lr2_full_generation_status cancelled = songDb.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
+        Assert.AreEqual("Cancelled", cancelled.status);
+        Assert.AreEqual("song_rows", cancelled.stage);
+        Assert.AreEqual(2, cancelled.processed_cursor);
+        Assert.AreEqual(3, cancelled.total_count);
+        Assert.AreEqual(2, songDb.Table<LR2SongDB.folder>().Count());
+        Assert.AreEqual(0, songDb.Table<LR2SongDB.song>().Count());
+
+        Lr2FullGenerationBackfillResult resumed = Lr2FullGenerationBackfillService.Run(songDb, new Lr2FullGenerationBackfillRequest
+        {
+            Signature = signature,
+            RunId = "resume-after-cancel-run",
+            RootDirectories = [rootDirectory],
+            ChartPaths = [chartPath],
+            SongRows = [file],
+            StartedAtUtc = new DateTime(2026, 6, 5, 0, 1, 0, DateTimeKind.Utc)
+        });
+
+        Assert.AreEqual(Lr2FullGenerationBackfillService.CompletedStage, resumed.FinalStage);
+        Assert.IsNull(resumed.NormalFolderSyncResult);
+        Assert.AreEqual(1, resumed.SongRowProcessedCount);
+        Assert.AreEqual("cancel resume", songDb.ExecuteScalar<string>("SELECT title FROM song WHERE path = ?;", chartPath));
+        LR2SongDBExtended.lr2_full_generation_status completed = songDb.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
+        Assert.AreEqual("Completed", completed.status);
+        Assert.AreEqual(3, completed.processed_cursor);
+        Assert.AreEqual(3, completed.total_count);
+    }
+
+    [TestMethod]
     public void BackfillService_UpsertsLr2CompatibilityFactsWithoutReplacingMaintenanceHealth()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
