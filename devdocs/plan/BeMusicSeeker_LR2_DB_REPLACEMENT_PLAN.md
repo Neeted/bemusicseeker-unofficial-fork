@@ -25,6 +25,10 @@ BeMusicSeeker は譜面管理アプリなので、LR2 で完全に読めない�
 
 - LR2 のデータベース自動更新は「手動のみ」で運用できる。
 - BeMusicSeeker が LR2 `song` / `folder` テーブルを更新する。
+- 完全生成が有効な LR2 `song` / `folder` は、外部編集を守る表ではなく、
+  現在の実ファイル・設定・プレイリスト出力から作る一覧 cache として扱う。
+  current generation input から導けない stale / unknown row は温存せず、生成 workflow 内で
+  削除または上書きして収束させる。
 - LR2 起動時の root folder チェックで `date` が一致し、再帰スキャンに入らない。
 - LR2 非対応 BMS は BeMusicSeeker の owned collection と LR2 `song` row には残す。
 - LR2 非対応 BMS は `folder` / `parent` を LR2 表示対象として使えない状態にし、
@@ -317,7 +321,9 @@ row が残ると、manual-only でも LR2 が不要な scan に入る。
 
 - `folder` は LR2 native table の派生 cache として扱い、app-owned manifest / row ownership は追加しない。
 - BeMusicSeeker は現在の入力 source から `expected folder path set` を deterministic に生成し、
-  その generation scope 内だけを upsert / prune する。
+  完全生成 ON では `folder` table をその expected set へ収束させる。
+  row ownership 列は追加しないが、現在の LR2 root / custom folder 出力 / built-in source から
+  導けない stale row は削除対象にする。
 - generation scope は `path` を正本にする。
   - scope 内で同じ `path` が複数 source から出る場合は、LR2 built-in custom folder、
     `.lr2folder` file、`folderinfo.txt` 付き directory、通常 directory の順で 1 row に正規化する。
@@ -327,6 +333,9 @@ row が残ると、manual-only でも LR2 が不要な scan に入る。
 - LR2 互換 path として扱えない BMS は `song.folder` / `song.parent` を `NULL` にし、その BMS だけを
   根拠にした `folder` expected row は生成しない。同じ directory に LR2 互換 BMS がある場合は、
   その互換 BMS 由来の chart directory set として folder row を生成する。
+- LR2 互換 path として扱えない BMS は completion blocker にしない。
+  `song` row と compatibility warning は残しつつ、folder generation source からだけ除外する。
+  非互換 BMS が 1 件あることを理由に、他の managed normal folder row の prune / upsert を停止しない。
 - `.lr2folder` row は discovery source を分類するが、所有権として永続化しない。
   - `playlist_output_lr2folder`: BeMusicSeeker がプレイリスト出力として生成する `.lr2folder`。
     実ファイルは既存の出力設定・出力 directory convention で管理する。
@@ -343,6 +352,12 @@ row が残ると、manual-only でも LR2 が不要な scan に入る。
   - 通常出力先 `LR2CustomFolderOutputBaseDir`
   - ルート出力先 `LR2CustomFolderOutputBaseDirRootType`
   - LR2 executable directory 配下の `LR2files\CustomFolder`
+- ルート出力先配下の `.lr2folder` 親 directory row も、LR2 root folder hierarchy の一部として
+  expected folder scope に含める。たとえば `D:\BMS\ROOT\...` に出力された playlist / table folder は、
+  `.lr2folder` file row だけでなく親 directory row も unknown root 扱いにしない。
+- LR2 built-in `LR2files\CustomFolder` のカテゴリ directory row
+  (`RANDOM\`, `PLAYLEVEL\`, `CLEAR\`, `RANK\`, `INSANE01\`, `INSANE02\` など) も、
+  対応 bitmask が有効な場合は expected scope に含める。
 - `LR2files\CustomFolder` は LR2 setup の `<customfolder>` bitmask を正本にして対象を決める。
   - `1`: `RANDOM/`
   - `2`: `favorite.lr2folder`
@@ -370,16 +385,11 @@ row が残ると、manual-only でも LR2 が不要な scan に入る。
   expected set から消え、対応する `folder` row が削除される。
 - discovery で見つからなくなった `.lr2folder` row は削除する。実 `.lr2folder` ファイルは
   BeMusicSeeker から削除しない。
-- generation scope 外の既存 `folder` row は原則触らない。
-- unknown root row、`date = 0` row、実 directory / `.lr2folder` file が消えた row、または
-  実 mtime と `folder.date` が一致しない row が残り、LR2 startup scan 抑止に影響する場合は
-  silent retention しない。自動削除はせず warning / diagnostic の対象にし、
-  cleanup は明示操作として別導線で実行する。
-  - cleanup 導線は Phase 8 の初期実装に含める。
-  - cleanup は全 `folder` row 削除ではなく、diagnostic で列挙した startup-scan blocker row だけを
-    確認後に transaction で削除する。
-  - cleanup できない、または cleanup 後も blocker が残る場合は完全生成 status を warning にし、
-    LR2 起動時に再走査が起き得る状態として表示する。
+- 完全生成 ON では、current generation input から導けない既存 `folder` row は prune 対象にする。
+  `unknown root` / `date = 0` / 実 directory または `.lr2folder` file の消失 / mtime 不一致は、
+  完了を妨げる永続状態として温存せず、生成 workflow 内で削除または上書きして収束させる。
+- cleanup 導線は、workflow で修復できない既存 DB の残骸を手動で消すための補助に留める。
+  定常的な startup-scan blocker 解消は workflow 自身の upsert / prune によって行う。
 
 ### 通常 mutation 時の LR2 DB writer contract
 
@@ -454,8 +464,11 @@ LR2 起動導線の block は行わない。
   `Incomplete` を持つ。
 - `Completed` の signature が現設定・schema・generator・parser・root set・folder source と一致する場合は
   backfill 不要とする。
-- `Completed` は generation scope の反映完了に加え、startup-scan blocker diagnostic が clean であることを
-  条件にする。unknown root row や `date = 0` row が残る場合は `Incomplete` とし、status warning に出す。
+- `Completed` は current generation input から導いた `song` / `folder` expected set に DB が収束していることを
+  条件にする。旧 row や unknown root row を温存したまま `Incomplete` にするのではなく、
+  workflow 内で削除または上書きできるものは修復してから完了判定する。
+- startup-scan blocker diagnostic は、workflow が修復したはずの in-scope 不整合が残っていないことを確認する
+  最終検査として使う。generation scope 外の古い row を保護するための検査にはしない。
 - `Needed` / `Running` / `Incomplete` / `Failed` / `Cancelled` は完全生成 status に warning を出す。
 - 完全生成設定値が欠落または不正な場合は、他の設定値と同じく既定値へ正規化し、設定値 warning は出さない。
 - LR2 側の DB 自動更新設定はこの計画の実装対象にしない。
@@ -787,7 +800,7 @@ scope:
 - root folder row の `date` が directory mtime。
 - nested folder row の `parent` が親 directory CRC。
 - generation scope から消えた row が prune される。
-- generation scope 外の unknown row は削除されない。
+- current LR2 root / custom folder output / built-in CustomFolder source から導けない stale row は prune される。
 - Phase 7 の `.lr2folder` source を追加しても prune 基盤を流用できる。
 
 ### Phase 7: `.lr2folder` DB 同期を追加する
@@ -865,7 +878,9 @@ parse directive:
 - `course1.lr2folder` / `course2.lr2folder` / `course3.lr2folder` は `type = 6` で同期される。
 - `LR2files\Rival` は built-in discovery root に含めず、既存 row を全件 prune しない。
 - 通常 discovery 範囲で見つかった `__RIVAL__` `.lr2folder` は外部 `.lr2folder` として同期される。
-- generation scope 外の unknown `.lr2folder` row は誤削除しない。
+- current discovery scope から導けなくなった unknown / stale `.lr2folder` row は prune される。
+- ルート出力先配下の `.lr2folder` 親 directory row と built-in `LR2files\CustomFolder` のカテゴリ directory row は
+  expected scope として扱われ、unknown root blocker にならない。
 - Shift_JIS 出力した `.lr2folder` を同じ解釈で parse できる。
 
 ### Phase 8: 完全生成 status / backfill UI を追加する
@@ -888,7 +903,9 @@ parse directive:
 - backfill needed / running / completed / failed / cancelled / incomplete を log と UI に出す。
 - backfill progress は全体合算 total と stage 別 processed count の両方を表示する。
 - `Needed` / `Running` / `Incomplete` / `Failed` / `Cancelled` は完全生成 status warning として表示する。
-- startup-scan blocker diagnostic が clean でない場合は `Completed` にせず `Incomplete` にする。
+- startup-scan blocker diagnostic は、workflow が upsert / prune した後に in-scope 不整合が残っていないかを
+  確認する最終検査にする。修復可能な stale / unknown row は workflow 内で削除または上書きし、
+  温存したまま `Incomplete` にしない。
 - 設定値が欠落または不正な場合は既定値へ正規化する。設定値 warning は出さない。
 - LR2 config の auto update 設定検出や変更は行わない。manual-only 運用の推奨は docs に記載し、
   full generation status には含めない。
@@ -911,7 +928,7 @@ parse directive:
 - failed 状態で完全生成 status warning が出る。
 - cancel 後に incomplete status が残り、次回再開できる。
 - backfill 中に read-only 操作は許可され、library mutation 操作は抑止される。
-- blocker diagnostic が残る場合は `Completed` にならない。
+- workflow 修復後も in-scope blocker diagnostic が残る場合は `Completed` にならない。
 - 完了直前に source signature が変わった場合は `Needed` に戻る。
 
 ### Phase 9: resumable backfill
@@ -1237,12 +1254,11 @@ parse directive:
   owned collection / storage row version と root / `.lr2folder` / `folderinfo.txt` / text group surface を開始時入力と
   再比較する。stale の場合は `Completed` にせず `Incomplete(source_stale_detected)` とする。
   sync 後は startup-scan blocker diagnostic を実行し、root set 欠落、current song row 欠落、
-  `song.date` 欠落 / `0`、known root 外 song row、`folder.date` 欠落 / `0`、known root 外
-  folder row、missing target、実 directory / `.lr2folder` file の mtime と一致しない `folder.date`
-  が無い場合だけ `Completed` を記録する。
-  blocker が残る場合は `Incomplete` (`startup_scan_blockers_detected`) とし、diagnostic count を log / status
-  detail に残す。blocker row は自動削除せず、diagnostic で列挙した cleanup 対象 row だけを
-  `CleanupStartupScanBlockerFolderRows` から明示操作で削除する。
+  `song.date` 欠落 / `0`、generation scope 内の `folder.date` 欠落 / `0`、missing target、
+  実 directory / `.lr2folder` file の mtime と一致しない `folder.date` が無い場合だけ `Completed` を記録する。
+  診断前に current generation input から導けない stale / unknown `folder` row は upsert / prune workflow で
+  削除されていることを前提にする。残存する場合は実装不備または surface 不完全として
+  `Incomplete(startup_scan_blockers_detected)` にし、diagnostic count を log / status detail に残す。
   status signature は normalized / deduplicated / case-insensitive な LR2 BMS root set を含める。
   加えて `.lr2folder` discovery root set、LR2 setup の `<customfolder>` bitmask、`titleflash` を含める。
   root set や built-in CustomFolder の対象条件が変わった場合は既存 `Completed` を信用せず、
@@ -1357,8 +1373,8 @@ existence / mtime は意味的に揃える。
   `Cancelled` status と current cursor を durable に記録する。runtime request state も `Cancelled` として終端し、
   次回 evaluate では通常の resumable backfill request に戻す。`Running` status は status bar にキャンセル操作を表示し、
   UI は model の cancellation token request を発火するだけで、durable status の確定は backfill runner の境界処理に任せる。
-- startup-scan blocker diagnostic は、resume により folder stage をスキップした場合でも、既存 `folder`
-  row の実 target が存在し、`folder.date` が directory / `.lr2folder` file の Unix 秒 mtime と一致するかを
+- startup-scan blocker diagnostic は、resume により folder stage をスキップした場合でも、current generation scope の
+  `folder` row が存在し、`folder.date` が directory / `.lr2folder` file の Unix 秒 mtime と一致するかを
   最後に検証する。missing target または不一致が残る run は `Completed` にせず
   `Incomplete(startup_scan_blockers_detected)` とする。
 - 同 diagnostic は current root / chart path から導出される通常 folder target が `folder` table に存在することも検証する。
@@ -1367,10 +1383,10 @@ existence / mtime は意味的に揃える。
 - 同 diagnostic は `.lr2folder` stage を resume でスキップした場合も、読込・projection 可能な `.lr2folder`
   source に対応する `folder` row が存在することを検証する。読めない `.lr2folder` は既存の prune 抑止と同じく
   expected row から外し、欠落検出は `missingExpectedLr2FolderRows` として log / status detail に残す。
-- startup-scan blocker cleanup は、diagnostic が列挙した `folder` blocker row だけを削除する model helper
-  (`CleanupStartupScanBlockerFolderRows`) を正本にする。対象は unknown root / `date = 0` / missing target /
-  stale date の `folder` row に限定し、`song` row 欠落、root 未設定、known root 外 `song` row は削除で直せる
-  問題ではないため cleanup 対象にしない。UI はこの helper の削除前後 diagnostic を表示・再実行するだけにする。
+- startup-scan blocker cleanup は、通常 workflow で修復できなかった既存 DB 残骸を削除する補助 helper
+  (`CleanupStartupScanBlockerFolderRows`) として残す。定常的な unknown root / stale date / missing target の
+  `folder` row 解消は full generation workflow の upsert / prune が正本であり、cleanup 前提にしない。
+  `song` row 欠落、root 未設定、known root 外 `song` row は削除で直せる問題ではないため cleanup 対象にしない。
 - `LR2非対応パス` tree は LR2 連携モード専用の compatibility surface として扱い、standalone mode では表示しない。
 - library root scan の `.txt` surface は LR2 連携モードかつ完全生成設定 ON のときだけ列挙する。
   pending package / install estimation の局所 scan は package 表示・導入時 projection のため既存どおり text group を扱う。
