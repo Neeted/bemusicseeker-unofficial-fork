@@ -1549,10 +1549,7 @@ internal static class Lr2FullGenerationBackfillService
             songDb.BeginTransaction();
             try
             {
-                foreach (BMSFile song in rowsToWrite)
-                {
-                    Lr2SongDbWriter.UpsertGeneratedSong(songDb, song);
-                }
+                Lr2SongDbWriter.UpsertGeneratedSongs(songDb, rowsToWrite);
                 foreach (BMSFileMaintenanceInfo compatibilityInfo in chunkCompatibilityInfos)
                 {
                     UpsertLr2CompatibilityFacts(songDb, compatibilityInfo);

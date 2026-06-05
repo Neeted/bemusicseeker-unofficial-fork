@@ -51,6 +51,33 @@ public sealed class Lr2SongDbWriterTests
     }
 
     [TestMethod]
+    public void UpsertGeneratedSongs_UpdatesChunkWithSingleExistingLookupAndPreservesUserColumns()
+    {
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            using var songDb = new LR2SongDBExtended(songDbPath);
+            songDb.CreateTable<LR2SongDB.song>();
+            songDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
+            TestableBmsFile existing = CreateSong(@"D:\BMS\Pack\existing.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Old");
+            existing.SetUserColumns(favoriteValue: 7, addDateValue: 12345, tagValue: "keep");
+            Assert.IsTrue(Lr2SongDbWriter.UpsertGeneratedSong(songDb, existing));
+            TestableBmsFile updated = CreateSong(existing.path, existing.hash, "New");
+            TestableBmsFile added = CreateSong(@"D:\BMS\Pack\added.bms", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "Added");
+
+            int changed = Lr2SongDbWriter.UpsertGeneratedSongs(songDb, [updated, added]);
+
+            Assert.AreEqual(2, changed);
+            Assert.AreEqual(2, songDb.Table<LR2SongDB.song>().Count());
+            LR2SongDB.song updatedRow = songDb.Table<LR2SongDB.song>().Single(row => row.path == existing.path);
+            Assert.AreEqual("New", updatedRow.title);
+            Assert.AreEqual(7, updatedRow.favorite);
+            Assert.AreEqual(12345, updatedRow.adddate);
+            Assert.AreEqual("keep", updatedRow.tag);
+            Assert.AreEqual("Added", songDb.Table<LR2SongDB.song>().Single(row => row.path == added.path).title);
+        });
+    }
+
+    [TestMethod]
     public void UpsertGeneratedSong_TreatsNullTextFlagAsUnchanged()
     {
         WithTemporarySongDb(delegate (string songDbPath)

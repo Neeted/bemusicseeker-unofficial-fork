@@ -52,6 +52,49 @@ internal static class Lr2SongDbWriter
         return changed;
     }
 
+    internal static int UpsertGeneratedSongs(LR2SongDBExtended songDb, IReadOnlyList<BMSFile> songs)
+    {
+        if (songDb == null)
+        {
+            throw new ArgumentNullException(nameof(songDb));
+        }
+
+        List<BMSFile> rows = [.. (songs ?? [])
+            .Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))];
+        if (rows.Count == 0)
+        {
+            return 0;
+        }
+
+        Dictionary<string, GeneratedSongRow> existingByPath = FindSongsByPaths(songDb, rows.Select(song => song.path));
+        int changedCount = 0;
+        foreach (BMSFile song in rows)
+        {
+            existingByPath.TryGetValue(song.path, out GeneratedSongRow existingSong);
+            Lr2SongRowEnricher.EnrichGeneratedSong(song);
+            ApplyGeneratedPersistenceDefaults(song, isNewRow: existingSong == null);
+            string previousHash = existingSong?.hash;
+            bool changed = false;
+            if (existingSong == null)
+            {
+                songDb.InsertOrReplace(song, typeof(LR2SongDB.song));
+                changed = true;
+            }
+            else if (!HasSameGeneratedColumns(song, existingSong))
+            {
+                UpdateGeneratedColumns(songDb, song);
+                changed = true;
+            }
+            BmsLibraryDbGateway.UpsertChartDigest(songDb, song);
+            BmsLibraryDbGateway.DeleteChartDigestIfOrphaned(songDb, previousHash, song.hash);
+            if (changed)
+            {
+                changedCount++;
+            }
+        }
+        return changedCount;
+    }
+
     internal static Lr2SongPruneResult DeleteSongsExceptCurrentPaths(
         LR2SongDBExtended songDb,
         IEnumerable<string> currentPaths)
@@ -220,6 +263,7 @@ internal static class Lr2SongDbWriter
     {
         var existingRows = songDb.Query<GeneratedSongRow>(
             "SELECT "
+            + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.path) + " AS path, "
             + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.hash) + " AS hash, "
             + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.title) + " AS title, "
             + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.subtitle) + " AS subtitle, "
@@ -250,6 +294,63 @@ internal static class Lr2SongDbWriter
             + " = ? LIMIT 1;",
             path);
         return existingRows.Count == 0 ? null : existingRows[0];
+    }
+
+    private static Dictionary<string, GeneratedSongRow> FindSongsByPaths(LR2SongDBExtended songDb, IEnumerable<string> paths)
+    {
+        var result = new Dictionary<string, GeneratedSongRow>(StringComparer.OrdinalIgnoreCase);
+        List<string> normalizedPaths = [.. (paths ?? [])
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)];
+        if (normalizedPaths.Count == 0)
+        {
+            return result;
+        }
+
+        const int chunkSize = 500;
+        for (int offset = 0; offset < normalizedPaths.Count; offset += chunkSize)
+        {
+            List<string> chunk = normalizedPaths.Skip(offset).Take(chunkSize).ToList();
+            string placeholders = string.Join(",", chunk.Select(_ => "?"));
+            string sql = "SELECT "
+                + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.path) + " AS path, "
+                + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.hash) + " AS hash, "
+                + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.title) + " AS title, "
+                + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.subtitle) + " AS subtitle, "
+                + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.artist) + " AS artist, "
+                + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.subartist) + " AS subartist, "
+                + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.genre) + " AS genre, "
+                + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.type) + " AS type, "
+                + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.folder) + " AS folder, "
+                + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.stagefile) + " AS stagefile, "
+                + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.banner) + " AS banner, "
+                + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.backbmp) + " AS backbmp, "
+                + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.parent) + " AS parent, "
+                + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.level) + " AS level, "
+                + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.difficulty) + " AS difficulty, "
+                + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.maxbpm) + " AS maxbpm, "
+                + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.minbpm) + " AS minbpm, "
+                + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.mode) + " AS mode, "
+                + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.judge) + " AS judge, "
+                + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.longnote) + " AS longnote, "
+                + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.bga) + " AS bga, "
+                + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.random) + " AS random, "
+                + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.date) + " AS date, "
+                + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.txt) + " AS txt, "
+                + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.karinotes) + " AS karinotes, "
+                + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.exlevel) + " AS exlevel"
+                + " FROM " + SQLiteTable<LR2SongDB.song>.GetTableName()
+                + " WHERE " + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.path)
+                + " IN (" + placeholders + ");";
+            foreach (GeneratedSongRow row in songDb.Query<GeneratedSongRow>(sql, [.. chunk.Cast<object>()]))
+            {
+                if (!string.IsNullOrWhiteSpace(row?.path) && !result.ContainsKey(row.path))
+                {
+                    result[row.path] = row;
+                }
+            }
+        }
+        return result;
     }
 
     private static bool HasSameGeneratedColumns(BMSFile expected, GeneratedSongRow existing)
@@ -344,6 +445,8 @@ internal static class Lr2SongDbWriter
 
     private sealed class GeneratedSongRow
     {
+        public string path { get; set; }
+
         public string hash { get; set; }
 
         public string title { get; set; }

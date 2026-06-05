@@ -1392,9 +1392,10 @@ existence / mtime は意味的に揃える。
    - encoding detection / parse / resource reference evaluation の二重走査をなくす。
    - chunk log は wall time と worker aggregate time を分けて出す。
 5. full backfill 用 bulk DB writer を導入する。
-   - chunk 単位で existing user columns / adddate / generated identity をまとめて読み、bulk upsert する。
+   - chunk 単位で existing user columns / adddate / generated identity をまとめて読む。完了。
+   - generated column の update / insert を bulk upsert へ寄せる。
    - `chart_digest_map` update / orphan cleanup は chunk / run 単位へ寄せる。
-   - 行単位 `FindSongByPath` / `UpsertChartDigest` / `DeleteChartDigestIfOrphaned` を hot path から外す。
+   - 行単位 `UpsertChartDigest` / `DeleteChartDigestIfOrphaned` を hot path から外す。
 6. final diagnostics / blocker 判定を prune-first に整理する。
    - `song` / `folder` / `maintenance` は実ファイル由来の一覧 cache として current surface へ収束させる。
    - expected set 外 row / unknown root row は守らず prune する。
