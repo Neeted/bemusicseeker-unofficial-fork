@@ -550,24 +550,12 @@ internal static class Lr2FullGenerationBackfillService
             }
             if (!diagnosticResult.IsClean)
             {
-                Lr2FullGenerationStatusService.MarkIncomplete(
-                    songDb,
-                    request.Signature,
-                    request.RunId,
-                    processedCursor: processedCount,
-                    totalCount,
-                    stage: StartupScanBlockersStage,
-                    detail: StartupScanBlockersReason + " " + diagnosticResult.ToLogDetail(),
-                    nowUtc: DateTime.UtcNow);
-                LogBackfill(request, "lr2_full_generation_backfill startup_scan_blockers " + diagnosticResult.ToLogDetail()
+                LogBackfill(request, "lr2_full_generation_backfill startup_scan_diagnostics_remaining " + diagnosticResult.ToLogDetail()
                     + " total=" + diagnosticResult.TotalBlockerCount
                     + " cleanupFolderRows=" + diagnosticResult.CleanupFolderRowCount
                     + " processedCursor=" + processedCount);
-                ReportProgress(request, processedCount, totalCount, StartupScanBlockersStage, 0, diagnosticResult.TotalBlockerCount);
-                finalStage = StartupScanBlockersStage;
-                incompleteReason = StartupScanBlockersReason;
             }
-            else if (!IsSourceCurrent(request))
+            if (!IsSourceCurrent(request))
             {
                 Lr2FullGenerationStatusService.MarkIncomplete(
                     songDb,

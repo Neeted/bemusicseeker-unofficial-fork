@@ -1344,6 +1344,38 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
     }
 
     [TestMethod]
+    public void BackfillService_CompletesWhenCurrentSongRowIsOutsideRootAndKeepsDiagnostic()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        string rootDirectory = Path.Combine(scope.DirectoryPath, "KnownRoot");
+        string outsideDirectory = Path.Combine(scope.DirectoryPath, "OutsideRoot");
+        Directory.CreateDirectory(rootDirectory);
+        Directory.CreateDirectory(outsideDirectory);
+        string chartPath = Path.Combine(outsideDirectory, "outside.bms");
+        File.WriteAllText(chartPath, "#TITLE Outside Root\r\n#00111:01\r\n", Encoding.ASCII);
+        TestableBmsFile file = CreateBackfillTestFile(chartPath, ChartFileContentReader.ReadSnapshot(chartPath));
+        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        songDb.CreateTable<LR2SongDB.song>();
+        songDb.CreateTable<LR2SongDB.folder>();
+
+        Lr2FullGenerationBackfillResult result = Lr2FullGenerationBackfillService.Run(songDb, new Lr2FullGenerationBackfillRequest
+        {
+            Signature = "unknown-root-current-song",
+            RunId = "unknown-root-current-song",
+            RootDirectories = [rootDirectory],
+            SongRows = [file],
+            StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc)
+        });
+
+        Assert.AreEqual(Lr2FullGenerationBackfillService.CompletedStage, result.FinalStage);
+        Assert.IsNull(result.IncompleteReason);
+        Assert.AreEqual(1, result.StartupScanDiagnosticResult.UnknownRootSongRowCount);
+        Assert.IsNotNull(songDb.Find<LR2SongDB.song>(chartPath));
+        LR2SongDBExtended.lr2_full_generation_status row = songDb.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
+        Assert.AreEqual("Completed", row.status);
+    }
+
+    [TestMethod]
     public void BackfillService_DeletesFolderDateMissingRowAndCompletes()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();

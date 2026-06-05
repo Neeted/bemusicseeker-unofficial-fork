@@ -479,12 +479,14 @@ LR2 起動導線の block は行わない。
   `Incomplete` を持つ。
 - `Completed` の signature が現設定・schema・generator・parser・root set・folder source と一致する場合は
   backfill 不要とする。
-- `Completed` は current generation input から導いた `song` / `folder` expected set に DB が収束していることを
-  条件にする。旧 row や unknown root row を温存したまま `Incomplete` にするのではなく、
-  workflow 内で削除または上書きできるものは修復してから完了判定する。
+- `Completed` は current generation input から導いた `song` / `folder` expected set へ DB を収束させた
+  run の完了状態である。旧 row や unknown root row を温存したまま `Incomplete` にするのではなく、
+  workflow 内で削除または上書きできるものは修復してから完了する。
 - startup-scan blocker diagnostic は、workflow が収束させたはずの in-scope 不整合が残っていないことを確認する
   最終検査として使う。resume で folder stage がスキップされ、expected row が欠けている場合は
   該当 stage を一度だけ再同期してから再診断する。generation scope 外の古い row を保護するための検査にはしない。
+  それでも残る diagnostic はログと result に残すが、source snapshot が current で DB write が成功している限り
+  backfill 完了は妨げない。
 - `Needed` / `Running` / `Incomplete` / `Failed` / `Cancelled` は完全生成 status に warning を出す。
 - 完全生成設定値が欠落または不正な場合は、他の設定値と同じく既定値へ正規化し、設定値 warning は出さない。
 - LR2 側の DB 自動更新設定はこの計画の実装対象にしない。
@@ -938,8 +940,9 @@ parse directive:
 - 次回 run は最後に成功した cursor から再開する。再開前に必要なら current status / signature を再検証する。
 - backfill 中は read-only 操作を許可し、owned collection / LR2 `song.db` mutation 操作は開始前に抑止する。
 - backfill の完了直前に owned / storage generation と LR2 root / `.lr2folder` discovery root /
-  built-in custom folder 設定 snapshot を再確認し、stale または startup-scan blocker 残存なら
-  `Completed` にしない。`.txt` / `folderinfo.txt` / `.lr2folder` / directory metadata の広域再列挙は
+  built-in custom folder 設定 snapshot を再確認し、stale なら `Completed` にしない。
+  startup-scan diagnostic は同じ run で可能な prune / update / resync を行い、残件はログに残す。
+  `.txt` / `folderinfo.txt` / `.lr2folder` / directory metadata の広域再列挙は
   完了直前には行わず、次回 scan / signature 再評価へ委ねる。
 
 テスト:
@@ -952,9 +955,9 @@ parse directive:
 - failed 状態で完全生成 status warning が出る。
 - cancel 後に incomplete status が残り、次回再開できる。
 - backfill 中に read-only 操作は許可され、library mutation 操作は抑止される。
-- workflow 修復後も expected current row の欠落や owned / storage / root 設定 snapshot の stale など、
-  再試行で実際に解消すべき不整合が
-  残る場合は `Completed` にならない。
+- workflow 修復後も owned / storage / root 設定 snapshot の stale など、再試行で実際に解消すべき
+  source 不整合が残る場合は `Completed` にならない。startup-scan diagnostic の残件だけでは
+  `Completed` を妨げず、ログで次の改善対象として追う。
 - 完了直前に owned / storage generation や LR2 root / built-in custom folder 設定 snapshot が
   変わった場合は `Needed` に戻る。
 
@@ -991,10 +994,11 @@ parse directive:
   `chart_digest_map` update と orphan cleanup も chunk / run 単位でまとめ、行単位の `FindSongByPath` /
   `UpsertChartDigest` / `DeleteChartDigestIfOrphaned` を hot path に置かない。
 - chunk 成功後だけ cursor を進め、失敗 chunk は rollback して次回再処理する。
-- 完了直前の owned / storage / root 設定 snapshot check と startup-scan blocker diagnostic が
-  clean な場合だけ `Completed` を記録する。ただし generated DB row は実ファイル由来の一覧 cache なので、
+- 完了直前の owned / storage / root 設定 snapshot check が current であり、startup-scan diagnostic に対する
+  prune / update / resync を同じ run 内で試みたら `Completed` を記録する。generated DB row は実ファイル由来の一覧 cache なので、
   expected set 外 row / unknown root row / stale generated row は守らず、同じ run 内で prune または update して
-  current surface へ収束させる。LR2 compatibility warning は blocker にせず maintenance warning として保持する。
+  current surface へ収束させる。残った diagnostic はログ化し、LR2 compatibility warning は blocker にせず
+  maintenance warning として保持する。
 - `favorite` / `adddate` / `tag` を維持。
 - CP932 非対応 BMS row は BeMusicSeeker DB から削除しない。
 - backfill 再実行で追加差分が出ない。
@@ -1311,10 +1315,9 @@ parse directive:
   built-in custom folder 設定 snapshot を開始時入力と再比較する。ここでは `.lr2folder` /
   `folderinfo.txt` / text group / directory metadata を再列挙しない。stale の場合は `Completed` にせず
   `Incomplete(source_stale_detected)` とする。
-  sync 後は startup-scan blocker diagnostic を実行し、current song row 欠落、
-  `song.date` 欠落 / `0`、expected normal folder row 欠落、expected `.lr2folder` row 欠落が
-  無い場合だけ `Completed` を記録する。root set が空の場合は生成対象なしとして扱い、
-  それ自体を blocker にしない。
+  sync 後は startup-scan diagnostic を実行し、current song row 欠落、
+  `song.date` 欠落 / `0`、expected normal folder row 欠落、expected `.lr2folder` row 欠落を
+  ログに残す。root set が空の場合は生成対象なしとして扱い、それ自体を blocker にしない。
   診断で current path set から導けない既存 `song` row があれば同じ run 内で prune し、
   対応する `maintenance` / orphan digest も整理する。`folder` row の unknown root / date missing /
   expected set 外 row は削除し、列挙 metadata から正しい mtime が解決できる `folder.date` mismatch は
@@ -1355,8 +1358,8 @@ existence / mtime は意味的に揃える。
   完了直前や cleanup helper 内で live filesystem mtime へ fallback しない。
 - directory mtime は normal folder row と startup-scan blocker diagnostic の正本であるため、
   native bridge / fallback の metadata surface に含める。
-- surface が不完全な場合は「存在しない」と見なして `Completed` にしない。stale row prune や
-  startup-scan blocker diagnostic へ使う surface は complete flag とセットで扱う。
+- surface が不完全な場合、該当 surface を使った destructive prune は抑止する。stale row prune や
+  startup-scan diagnostic へ使う surface は complete flag とセットで扱い、残件はログに残す。
 - Everything query に exclude DSL は追加しない。root / extension / filename の組み合わせで surface を分け、
   アプリ管理物か外部由来かは結果分類で判定する。query の戻り値は Everything / native bridge contract を
   信用し、期待外拡張子や filename を後段で再フィルタする通常処理は増やさない。
@@ -1397,7 +1400,7 @@ existence / mtime は意味的に揃える。
    - `chart_digest_map` update / orphan cleanup は chunk 単位へ寄せる。完了。
    - 行単位 `UpsertChartDigest` / `DeleteChartDigestIfOrphaned` は full backfill hot path から外し、
      単発 mutation API 専用に残す。完了。
-6. final diagnostics / blocker 判定を prune-first に整理する。
+6. final diagnostics / blocker 判定を prune-first に整理する。主要実装済み。
    - `song` / `folder` / `maintenance` は実ファイル由来の一覧 cache として current surface へ収束させる。
    - expected set 外 row / unknown root row は守らず prune する。
    - compatibility warning は blocker にせず warning projection として扱う。
