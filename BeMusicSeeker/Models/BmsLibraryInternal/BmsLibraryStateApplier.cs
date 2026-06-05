@@ -280,14 +280,14 @@ internal sealed class BmsLibraryStateApplier(
             throw new FileNotFoundException(Resources.Error_RenameDestFileNotFound, newPath);
         }
 
-        if (!string.IsNullOrWhiteSpace(oldPath) && !bmsFile.path.Equals(newPath, StringComparison.OrdinalIgnoreCase))
-        {
-            throw new InvalidCastException(Resources.Error_OldPathMismatch);
-        }
-
         if (string.IsNullOrWhiteSpace(oldPath))
         {
             oldPath = bmsFile.path;
+        }
+        else if (!string.Equals(bmsFile.path, oldPath, StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(bmsFile.path, newPath, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidCastException(Resources.Error_OldPathMismatch);
         }
 
         bmsFile.path = newPath;

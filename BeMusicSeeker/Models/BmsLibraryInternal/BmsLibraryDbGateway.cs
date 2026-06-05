@@ -35,6 +35,15 @@ internal sealed class ChartDigestBackfillEntry(string md5, string sha256)
     public string Sha256 { get; } = sha256 ?? string.Empty;
 }
 
+internal sealed class Lr2SongUserColumns
+{
+    public int? favorite { get; set; }
+
+    public int? adddate { get; set; }
+
+    public string tag { get; set; }
+}
+
 internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath = null)
 {
     private const int ChartInfoLookupChunkSize = 500;
@@ -171,6 +180,39 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
                 Lr2SongDbWriter.UpsertGeneratedSong(songDb, file);
             }
         });
+    }
+
+    internal IReadOnlyDictionary<string, Lr2SongUserColumns> CreateSongUserColumnSnapshot(IEnumerable<string> paths)
+    {
+        List<string> pathList = [.. (paths ?? [])
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)];
+        if (pathList.Count == 0)
+        {
+            return new Dictionary<string, Lr2SongUserColumns>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        var result = new Dictionary<string, Lr2SongUserColumns>(StringComparer.OrdinalIgnoreCase);
+        using LR2SongDBExtended songDb = OpenSongDb();
+        foreach (string path in pathList)
+        {
+            Lr2SongUserColumns userColumns = ReadSongUserColumns(songDb, path);
+            if (userColumns != null)
+            {
+                result[path] = userColumns;
+            }
+        }
+        return result;
+    }
+
+    internal static void ApplySongUserColumns(BMSFile bmsFile, Lr2SongUserColumns userColumns)
+    {
+        if (bmsFile == null || userColumns == null)
+        {
+            return;
+        }
+
+        bmsFile.PreserveUserSongColumns(userColumns.favorite, userColumns.adddate, userColumns.tag);
     }
 
     public void UpdateSongLevels(IEnumerable<BMSFile> bmsFiles)
@@ -552,7 +594,7 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
         ExecuteSongDbTransaction(delegate (LR2SongDBExtended songDb)
         {
             EnsureBmsonSchema(songDb);
-            SongUserColumns userColumns = ReadSongUserColumns(songDb, oldPath);
+            Lr2SongUserColumns userColumns = ReadSongUserColumns(songDb, oldPath);
             songDb.Delete<LR2SongDB.song>(oldPath);
             songDb.Delete<LR2SongDBExtended.maintenance>(oldPath);
             BMSFileMaintenanceInfo maintenanceInfo = bmsFile.HasValidMaintenanceInfoSnapshot
@@ -567,14 +609,14 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
         });
     }
 
-    private static SongUserColumns ReadSongUserColumns(LR2SongDBExtended songDb, string oldPath)
+    private static Lr2SongUserColumns ReadSongUserColumns(LR2SongDBExtended songDb, string oldPath)
     {
         if (songDb == null || string.IsNullOrWhiteSpace(oldPath))
         {
             return null;
         }
 
-        return songDb.Query<SongUserColumns>(
+        return songDb.Query<Lr2SongUserColumns>(
             "SELECT "
             + SQLiteTable<LR2SongDB.song>.GetColumnName(song => song.favorite) + " AS favorite, "
             + SQLiteTable<LR2SongDB.song>.GetColumnName(song => song.adddate) + " AS adddate, "
@@ -584,7 +626,7 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
             oldPath).FirstOrDefault();
     }
 
-    private static void ApplySongUserColumns(LR2SongDBExtended songDb, string path, SongUserColumns userColumns)
+    private static void ApplySongUserColumns(LR2SongDBExtended songDb, string path, Lr2SongUserColumns userColumns)
     {
         if (songDb == null || string.IsNullOrWhiteSpace(path) || userColumns == null)
         {
@@ -618,15 +660,6 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
             songDb.RollbackTo(savepoint);
             throw;
         }
-    }
-
-    private sealed class SongUserColumns
-    {
-        public int? favorite { get; set; }
-
-        public int? adddate { get; set; }
-
-        public string tag { get; set; }
     }
 
     public void EnsureMaintenanceSchema()

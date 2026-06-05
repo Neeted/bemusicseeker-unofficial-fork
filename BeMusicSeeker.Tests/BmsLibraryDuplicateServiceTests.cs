@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Text;
 using System.Windows;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
@@ -462,6 +463,71 @@ public sealed class BmsLibraryDuplicateServiceTests
     }
 
     [TestMethod]
+    public void MergeChartDirectory_BmsChartPreservesExistingLr2SongUserColumns()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_DuplicateMergeBms_" + System.Guid.NewGuid().ToString("N"));
+            string srcDir = Path.Combine(tempRootPath, "Src");
+            string dstDir = Path.Combine(tempRootPath, "Dst");
+            string srcChartPath = Path.Combine(srcDir, "chart.bms");
+            Directory.CreateDirectory(srcDir);
+            Directory.CreateDirectory(dstDir);
+            File.WriteAllText(srcChartPath, "#PLAYER 1\r\n#TITLE merge target\r\n#ARTIST artist\r\n#00111:01\r\n", Encoding.ASCII);
+            try
+            {
+                BMSFile sourceFile = BMSFile.CreateBMSFileFromFile(srcChartPath);
+                var existingRow = new TestableBmsFile
+                {
+                    path = srcChartPath,
+                    adddate = 12345,
+                    tag = "merge-user-tag"
+                };
+                existingRow.SetHash(sourceFile.hash);
+                existingRow.SetFavorite(7);
+                using (var songDb = new LR2SongDBExtended(songDbPath))
+                {
+                    songDb.InsertOrReplace(existingRow, typeof(LR2SongDB.song));
+                }
+
+                var library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
+                {
+                    BMSFiles = [sourceFile],
+                    BmsonSongs = []
+                };
+
+                library.MergeChartDirectory(srcDir, dstDir);
+
+                string dstChartPath = Path.Combine(dstDir, "chart.bms");
+                Assert.IsFalse(File.Exists(srcChartPath));
+                Assert.IsFalse(Directory.Exists(srcDir));
+                Assert.IsTrue(File.Exists(dstChartPath));
+                Assert.AreEqual(1, library.BMSFiles.Count);
+                Assert.AreEqual(dstChartPath, library.BMSFiles[0].path);
+                using var verify = new LR2SongDBExtended(songDbPath);
+                Assert.IsNull(verify.Find<LR2SongDB.song>(srcChartPath));
+                LR2SongDB.song row = verify.Find<LR2SongDB.song>(dstChartPath);
+                Assert.IsNotNull(row);
+                Assert.AreEqual(sourceFile.hash, row.hash);
+                Assert.AreEqual("merge target", row.title);
+                Assert.AreEqual(7, row.favorite);
+                Assert.AreEqual(12345, row.adddate);
+                Assert.AreEqual("merge-user-tag", row.tag);
+                Assert.IsFalse(string.IsNullOrWhiteSpace(row.folder));
+                Assert.IsFalse(string.IsNullOrWhiteSpace(row.parent));
+            }
+            finally
+            {
+                if (Directory.Exists(tempRootPath))
+                {
+                    Directory.Delete(tempRootPath, recursive: true);
+                }
+            }
+        });
+    }
+
+    [TestMethod]
     public void MergeChartDirectory_BmsonDuplicateSkip_KeepsDestinationOnly()
     {
         WithTemporarySongDb(delegate (string songDbPath)
@@ -588,6 +654,11 @@ public sealed class BmsLibraryDuplicateServiceTests
         public void SetSha256(string? value)
         {
             sha256 = value;
+        }
+
+        public void SetFavorite(int? value)
+        {
+            favorite = value;
         }
     }
 

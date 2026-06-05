@@ -15522,6 +15522,17 @@ completeFileEnumerationOnce,
                         .Select(chart => chart?.GetBmsonStorageOwner())
                         .Where(song => song != null)
                         .Distinct()];
+                        IReadOnlyDictionary<string, Lr2SongUserColumns> sourceUserColumnsByPath = dbGateway.CreateSongUserColumnSnapshot(sourceBmsFiles.Select(file => file?.path));
+                        var sourceUserColumnsByOwner = new Dictionary<BMSFile, Lr2SongUserColumns>();
+                        foreach (BMSFile sourceBmsFile in sourceBmsFiles)
+                        {
+                            if (sourceBmsFile != null
+                                && !string.IsNullOrWhiteSpace(sourceBmsFile.path)
+                                && sourceUserColumnsByPath.TryGetValue(sourceBmsFile.path, out Lr2SongUserColumns userColumns))
+                            {
+                                sourceUserColumnsByOwner[sourceBmsFile] = userColumns;
+                            }
+                        }
                         LogInstallPerformance("duplicate_merge_model source_snapshot_done op=" + operationId
                             + " elapsedMs=" + sourceSnapshotStopwatch.ElapsedMilliseconds
                             + " bms=" + sourceBmsFiles.Count
@@ -15577,6 +15588,13 @@ completeFileEnumerationOnce,
                         .Where(chart => chart != null && IsFilePathUnderDirectory(chart.Path, dst)));
                         List<BMSFile> movedBmsFiles = movedTargets.BmsFiles;
                         List<LR2SongDBExtended.bmson_song> movedBmsonSongs = movedTargets.BmsonSongs;
+                        foreach (BMSFile movedBmsFile in movedBmsFiles)
+                        {
+                            if (movedBmsFile != null && sourceUserColumnsByOwner.TryGetValue(movedBmsFile, out Lr2SongUserColumns userColumns))
+                            {
+                                BmsLibraryDbGateway.ApplySongUserColumns(movedBmsFile, userColumns);
+                            }
+                        }
                         LogInstallPerformance("duplicate_merge_model moved_snapshot_done op=" + operationId
                             + " elapsedMs=" + movedSnapshotStopwatch.ElapsedMilliseconds
                             + " bms=" + movedBmsFiles.Count

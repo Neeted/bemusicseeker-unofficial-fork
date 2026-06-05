@@ -1244,3 +1244,7 @@ parse directive:
 - direct owned mutation 中の normal folder sync failure は、file diff normal folder sync failure と同じく
   durable full generation status を `Incomplete` にする。mutation は user operation の正しさを優先して進め、
   folder row の再同期は次回 backfill / retry で復旧できる状態にする。
+- duplicate merge の BMS source unregister は LR2 `song` row を一度削除してから destination path を再登録するため、
+  unregister 前に source path の LR2 user columns (`favorite` / `adddate` / `tag`) を snapshot し、
+  moved BMS owner へ再適用してから destination `song` row を upsert する。これにより merge は
+  direct path replacement と同じく DB 側 user state を保持する。

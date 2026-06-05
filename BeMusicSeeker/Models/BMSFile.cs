@@ -698,9 +698,14 @@ public class BMSFile : LR2SongDB.song
         {
             return;
         }
-        favorite = existing.favorite;
-        adddate = existing.adddate;
-        tag = existing.tag;
+        PreserveUserSongColumns(existing.favorite, existing.adddate, existing.tag);
+    }
+
+    internal void PreserveUserSongColumns(int? favoriteValue, int? adddateValue, string tagValue)
+    {
+        favorite = favoriteValue;
+        adddate = adddateValue;
+        tag = tagValue;
     }
 
     internal BMSFile CreateSongRowPersistenceCopy()
