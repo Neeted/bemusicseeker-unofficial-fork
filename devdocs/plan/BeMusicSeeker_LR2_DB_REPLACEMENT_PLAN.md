@@ -1393,7 +1393,7 @@ existence / mtime は意味的に揃える。
    - chunk log は wall time と worker aggregate time を分けて出す。
 5. full backfill 用 bulk DB writer を導入する。
    - chunk 単位で existing user columns / adddate / generated identity をまとめて読む。完了。
-   - generated column の update / insert を bulk upsert へ寄せる。
+   - generated column の insert は multi-value insert、既存 row update は temp table update へ寄せる。完了。
    - `chart_digest_map` update / orphan cleanup は chunk 単位へ寄せる。完了。
    - 行単位 `UpsertChartDigest` / `DeleteChartDigestIfOrphaned` は full backfill hot path から外し、
      単発 mutation API 専用に残す。完了。

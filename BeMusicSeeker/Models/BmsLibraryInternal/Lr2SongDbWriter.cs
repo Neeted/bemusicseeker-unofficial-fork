@@ -19,6 +19,8 @@ internal static class Lr2SongDbWriter
 
     private const string TempDeletedSongHashTable = "lr2_full_generation_deleted_song_hash";
 
+    private const string TempGeneratedSongUpdateTable = "lr2_full_generation_generated_song_update";
+
     internal static bool UpsertGeneratedSong(LR2SongDBExtended songDb, BMSFile song)
     {
         if (songDb == null)
@@ -66,6 +68,8 @@ internal static class Lr2SongDbWriter
 
         Dictionary<string, GeneratedSongRow> existingByPath = FindSongsByPaths(songDb, rows.Select(song => song.path));
         var previousHashesToCheck = new List<string>();
+        var rowsToInsert = new List<BMSFile>();
+        var rowsToUpdate = new List<BMSFile>();
         int changedCount = 0;
         foreach (BMSFile song in rows)
         {
@@ -76,12 +80,12 @@ internal static class Lr2SongDbWriter
             bool changed = false;
             if (existingSong == null)
             {
-                songDb.InsertOrReplace(song, typeof(LR2SongDB.song));
+                rowsToInsert.Add(song);
                 changed = true;
             }
             else if (!HasSameGeneratedColumns(song, existingSong))
             {
-                UpdateGeneratedColumns(songDb, song);
+                rowsToUpdate.Add(song);
                 changed = true;
             }
             if (!string.IsNullOrWhiteSpace(previousHash)
@@ -94,6 +98,8 @@ internal static class Lr2SongDbWriter
                 changedCount++;
             }
         }
+        BulkInsertGeneratedSongs(songDb, rowsToInsert);
+        BulkUpdateGeneratedColumns(songDb, rowsToUpdate);
         UpsertChartDigests(songDb, rows);
         DeleteOrphanedChartDigests(songDb, previousHashesToCheck);
         return changedCount;
@@ -199,6 +205,212 @@ internal static class Lr2SongDbWriter
         songDb.Execute("DELETE FROM temp." + tableName + ";");
     }
 
+    private static void BulkInsertGeneratedSongs(LR2SongDBExtended songDb, IReadOnlyList<BMSFile> songs)
+    {
+        if (songs == null || songs.Count == 0)
+        {
+            return;
+        }
+
+        string songTable = SQLiteTable<LR2SongDB.song>.GetTableName();
+        string[] columns =
+        [
+            SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.hash),
+            SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.title),
+            SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.subtitle),
+            SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.artist),
+            SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.subartist),
+            SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.genre),
+            SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.tag),
+            SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.path),
+            SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.type),
+            SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.folder),
+            SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.stagefile),
+            SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.banner),
+            SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.backbmp),
+            SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.parent),
+            SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.level),
+            SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.difficulty),
+            SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.maxbpm),
+            SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.minbpm),
+            SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.mode),
+            SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.judge),
+            SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.longnote),
+            SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.bga),
+            SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.random),
+            SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.date),
+            SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.favorite),
+            SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.txt),
+            SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.karinotes),
+            SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.adddate),
+            SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.exlevel)
+        ];
+        int columnCount = columns.Length;
+        const int chunkSize = 30;
+        for (int offset = 0; offset < songs.Count; offset += chunkSize)
+        {
+            List<BMSFile> chunk = songs.Skip(offset).Take(chunkSize).ToList();
+            string rowPlaceholders = "(" + string.Join(",", Enumerable.Repeat("?", columnCount)) + ")";
+            string placeholders = string.Join(",", chunk.Select(_ => rowPlaceholders));
+            var args = new List<object>(chunk.Count * columnCount);
+            foreach (BMSFile song in chunk)
+            {
+                AddGeneratedSongInsertArgs(args, song);
+            }
+            songDb.Execute(
+                "INSERT OR REPLACE INTO " + songTable + " ("
+                + string.Join(",", columns) + ") VALUES " + placeholders + ";",
+                [.. args]);
+        }
+    }
+
+    private static void AddGeneratedSongInsertArgs(List<object> args, BMSFile song)
+    {
+        args.Add(song.hash);
+        args.Add(song.title);
+        args.Add(song.subtitle);
+        args.Add(song.artist);
+        args.Add(song.subartist);
+        args.Add(song.genre);
+        args.Add(song.tag);
+        args.Add(song.path);
+        args.Add(song.type);
+        args.Add(song.folder);
+        args.Add(song.stagefile);
+        args.Add(song.banner);
+        args.Add(song.backbmp);
+        args.Add(song.parent);
+        args.Add(song.level);
+        args.Add(song.difficulty);
+        args.Add(song.maxbpm);
+        args.Add(song.minbpm);
+        args.Add(song.mode);
+        args.Add(song.judge);
+        args.Add(song.longnote);
+        args.Add(song.bga);
+        args.Add(song.random);
+        args.Add(song.date);
+        args.Add(song.favorite);
+        args.Add(song.txt);
+        args.Add(song.karinotes);
+        args.Add(song.adddate);
+        args.Add(song.exlevel);
+    }
+
+    private static void BulkUpdateGeneratedColumns(LR2SongDBExtended songDb, IReadOnlyList<BMSFile> songs)
+    {
+        if (songs == null || songs.Count == 0)
+        {
+            return;
+        }
+
+        PrepareTempGeneratedSongUpdateTable(songDb);
+        const int chunkSize = 35;
+        for (int offset = 0; offset < songs.Count; offset += chunkSize)
+        {
+            List<BMSFile> chunk = songs.Skip(offset).Take(chunkSize).ToList();
+            string rowPlaceholders = "(" + string.Join(",", Enumerable.Repeat("?", 26)) + ")";
+            string placeholders = string.Join(",", chunk.Select(_ => rowPlaceholders));
+            var args = new List<object>(chunk.Count * 26);
+            foreach (BMSFile song in chunk)
+            {
+                AddGeneratedSongUpdateArgs(args, song);
+            }
+            songDb.Execute(
+                "INSERT OR REPLACE INTO temp." + TempGeneratedSongUpdateTable
+                + " (path, hash, title, subtitle, artist, subartist, genre, type, folder, stagefile, banner, backbmp, parent, "
+                + "level, difficulty, maxbpm, minbpm, mode, judge, longnote, bga, random, date, txt, karinotes, exlevel) "
+                + "VALUES " + placeholders + ";",
+                [.. args]);
+        }
+
+        string songTable = SQLiteTable<LR2SongDB.song>.GetTableName();
+        string songPathColumn = SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.path);
+        songDb.Execute(
+            "UPDATE " + songTable
+            + " SET "
+            + BuildGeneratedColumnAssignment(nameof(LR2SongDB.song.hash)) + ", "
+            + BuildGeneratedColumnAssignment(nameof(LR2SongDB.song.title)) + ", "
+            + BuildGeneratedColumnAssignment(nameof(LR2SongDB.song.subtitle)) + ", "
+            + BuildGeneratedColumnAssignment(nameof(LR2SongDB.song.artist)) + ", "
+            + BuildGeneratedColumnAssignment(nameof(LR2SongDB.song.subartist)) + ", "
+            + BuildGeneratedColumnAssignment(nameof(LR2SongDB.song.genre)) + ", "
+            + BuildGeneratedColumnAssignment(nameof(LR2SongDB.song.type)) + ", "
+            + BuildGeneratedColumnAssignment(nameof(LR2SongDB.song.folder)) + ", "
+            + BuildGeneratedColumnAssignment(nameof(LR2SongDB.song.stagefile)) + ", "
+            + BuildGeneratedColumnAssignment(nameof(LR2SongDB.song.banner)) + ", "
+            + BuildGeneratedColumnAssignment(nameof(LR2SongDB.song.backbmp)) + ", "
+            + BuildGeneratedColumnAssignment(nameof(LR2SongDB.song.parent)) + ", "
+            + BuildGeneratedColumnAssignment(nameof(LR2SongDB.song.level)) + ", "
+            + BuildGeneratedColumnAssignment(nameof(LR2SongDB.song.difficulty)) + ", "
+            + BuildGeneratedColumnAssignment(nameof(LR2SongDB.song.maxbpm)) + ", "
+            + BuildGeneratedColumnAssignment(nameof(LR2SongDB.song.minbpm)) + ", "
+            + BuildGeneratedColumnAssignment(nameof(LR2SongDB.song.mode)) + ", "
+            + BuildGeneratedColumnAssignment(nameof(LR2SongDB.song.judge)) + ", "
+            + BuildGeneratedColumnAssignment(nameof(LR2SongDB.song.longnote)) + ", "
+            + BuildGeneratedColumnAssignment(nameof(LR2SongDB.song.bga)) + ", "
+            + BuildGeneratedColumnAssignment(nameof(LR2SongDB.song.random)) + ", "
+            + BuildGeneratedColumnAssignment(nameof(LR2SongDB.song.date)) + ", "
+            + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.txt)
+            + " = COALESCE((SELECT txt FROM temp." + TempGeneratedSongUpdateTable + " u WHERE u.path = " + songTable + "." + songPathColumn + " COLLATE NOCASE), "
+            + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.txt) + "), "
+            + BuildGeneratedColumnAssignment(nameof(LR2SongDB.song.karinotes)) + ", "
+            + BuildGeneratedColumnAssignment(nameof(LR2SongDB.song.exlevel))
+            + " WHERE EXISTS (SELECT 1 FROM temp." + TempGeneratedSongUpdateTable + " u WHERE u.path = "
+            + songTable + "." + songPathColumn + " COLLATE NOCASE);");
+        ClearTempTable(songDb, TempGeneratedSongUpdateTable);
+    }
+
+    private static void PrepareTempGeneratedSongUpdateTable(LR2SongDBExtended songDb)
+    {
+        songDb.Execute(
+            "CREATE TEMP TABLE IF NOT EXISTS temp." + TempGeneratedSongUpdateTable + " ("
+            + "path TEXT PRIMARY KEY COLLATE NOCASE, "
+            + "hash TEXT, title TEXT, subtitle TEXT, artist TEXT, subartist TEXT, genre TEXT, "
+            + "type INTEGER, folder TEXT, stagefile TEXT, banner TEXT, backbmp TEXT, parent TEXT, "
+            + "level INTEGER, difficulty INTEGER, maxbpm INTEGER, minbpm INTEGER, mode INTEGER, judge INTEGER, "
+            + "longnote INTEGER, bga INTEGER, random INTEGER, date INTEGER, txt INTEGER, karinotes INTEGER, exlevel INTEGER);");
+        ClearTempTable(songDb, TempGeneratedSongUpdateTable);
+    }
+
+    private static void AddGeneratedSongUpdateArgs(List<object> args, BMSFile song)
+    {
+        args.Add(song.path);
+        args.Add(song.hash);
+        args.Add(song.title);
+        args.Add(song.subtitle);
+        args.Add(song.artist);
+        args.Add(song.subartist);
+        args.Add(song.genre);
+        args.Add(song.type);
+        args.Add(song.folder);
+        args.Add(song.stagefile);
+        args.Add(song.banner);
+        args.Add(song.backbmp);
+        args.Add(song.parent);
+        args.Add(song.level);
+        args.Add(song.difficulty);
+        args.Add(song.maxbpm);
+        args.Add(song.minbpm);
+        args.Add(song.mode);
+        args.Add(song.judge);
+        args.Add(song.longnote);
+        args.Add(song.bga);
+        args.Add(song.random);
+        args.Add(song.date);
+        args.Add(song.txt);
+        args.Add(song.karinotes);
+        args.Add(song.exlevel);
+    }
+
+    private static string BuildGeneratedColumnAssignment(string columnName)
+    {
+        string sqlColumn = columnName;
+        return sqlColumn + " = (SELECT " + sqlColumn + " FROM temp." + TempGeneratedSongUpdateTable
+            + " u WHERE u.path = " + SQLiteTable<LR2SongDB.song>.GetTableName() + "."
+            + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.path) + " COLLATE NOCASE)";
+    }
+
     private static void UpsertChartDigests(LR2SongDBExtended songDb, IEnumerable<BMSFile> songs)
     {
         var digestsByMd5 = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -292,18 +504,18 @@ internal static class Lr2SongDbWriter
         {
             liveExistsClauses.Add(
                 "EXISTS (SELECT 1 FROM " + songTable + " s WHERE s." + songHashColumn
-                + " = " + digestTable + "." + digestMd5Column + " COLLATE NOCASE)");
+                + " = " + digestTable + "." + digestMd5Column + ")");
         }
         if (TableExists(songDb, bmsonTable))
         {
             liveExistsClauses.Add(
                 "EXISTS (SELECT 1 FROM " + bmsonTable + " b WHERE b." + bmsonMd5Column
-                + " = " + digestTable + "." + digestMd5Column + " COLLATE NOCASE)");
+                + " = " + digestTable + "." + digestMd5Column + ")");
         }
         string liveExistsCondition = liveExistsClauses.Count == 0 ? "0" : string.Join(" OR ", liveExistsClauses);
         songDb.Execute(
             "DELETE FROM " + digestTable
-            + " WHERE lower(trim(" + digestMd5Column + ")) IN (SELECT md5 FROM temp." + tempHashTableName + ") "
+            + " WHERE " + digestMd5Column + " IN (SELECT md5 FROM temp." + tempHashTableName + ") "
             + "AND NOT (" + liveExistsCondition + ");");
     }
 
