@@ -1020,7 +1020,7 @@ parse directive:
 | --- | --- | --- | --- |
 | Phase 0: Golden fixture と contract 固定 | 一部完了 | `LR2CRC32` / ROOT sentinel / CP932 boundary の contract、OpenLR2 source classifier の推測抑止、`exlevel` contract、manual-only scan blocker、copied `song.db` の current completed no-op はテスト化済み。 | `folderinfo.txt` / `.lr2folder` など、実 DB 由来の golden fixture を追加する。 |
 | Phase 1: BMS 変更検出 | 主要実装済み | `song.path` / `song.date` / hash を使う変更検出、same MD5 の targeted update、runtime reload の再評価 queue は接続済み。 | 大規模 root 変更・mtime preserved copy の手動検証を残す。 |
-| Phase 2: `song` row merge / ownership | 主要実装済み | `Lr2SongDbWriter`、generated/user column 分離、runtime write failure の status marking、merge 時 user column preservation は接続済み。 | copied `song.db` で LR2 user column が維持されることを統合確認する。 |
+| Phase 2: `song` row merge / ownership | 主要実装済み | `Lr2SongDbWriter`、generated/user column 分離、runtime write failure の status marking、merge 時 user column preservation、copied `song.db` backfill 時の user column preservation は自動テスト済み。 | 実 DB copy での総合確認を残す。 |
 | Phase 3: metadata-bearing scan surface / raw resource reference | 一部完了 | BMS parser / snapshot 側の raw resource reference、text group の targeted `song.txt` 更新、完全生成 ON 時だけの scan 条件、`RootFileEnumerationResult` の file / directory mtime entry、Everything fixed scan / grouped bridge ABI / managed fallback の metadata surface は実装済み。`.txt` / `folderinfo.txt` / `.lr2folder` / normal folder directory mtime は backfill / sync に接続済み。fallback metadata fixture は追加済み。 | native bridge 実機 parity を統合確認する。 |
 | Phase 4: LR2 compatibility warning | 主要実装済み | `Lr2CompatibilityEvaluator`、maintenance 最小 fact、standalone mode での LR2 非対応パス tree 非表示は接続済み。 | warning 表示の実機確認と、copied DB での backfill 表示確認を残す。 |
 | Phase 5: `song` row enricher | 主要実装済み | `Lr2SongRowEnricher`、`chart_info` 由来 numeric columns、`exlevel = #EXLEVEL raw int / 未設定 0` は実装済み。 | LR2IR / tag.db 由来の exlevel 上書きは対象外として維持する。 |
@@ -1036,8 +1036,8 @@ parse directive:
 
 - Phase 0: golden fixture は一部実装済みで、残りは該当 service の実装・検証 cycle に合わせて追加する。
   - まず既存 `Lr2SongFolderParentNormalizer` の CRC / CP932 encode contract を固定する。
-  - byte length boundary、`folderinfo.txt`、`.lr2folder`、manual-only scan 対象の fixture は、
-    `Lr2CompatibilityEvaluator` / `Lr2FolderRowGenerator` の導入 cycle で追加する。
+  - byte length boundary と manual-only scan blocker は自動テスト済みである。
+  - `folderinfo.txt` / `.lr2folder` は synthetic fixture で主要 contract を固定済みで、残りは実 DB 由来 fixture として追加する。
   - LR2 root sentinel は `LR2CRC32("ROOT")` ではなく `LR2CRC32("ROOT\0") = e2977170` として扱う。
 - Phase 1: BMS 変更検出は主要経路へ接続済み。残りの検証では以下を固定する。
   - まず file diff で既存 BMS の `song.date` / mtime mismatch を parse target に入れる。

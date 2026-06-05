@@ -988,6 +988,56 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
     }
 
     [TestMethod]
+    public void BackfillService_PreservesUserColumnsWhenRunningOnCopiedSongDb()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
+        string songDirectory = Path.Combine(rootDirectory, "Song");
+        Directory.CreateDirectory(songDirectory);
+        string chartPath = Path.Combine(songDirectory, "chart.bms");
+        File.WriteAllText(chartPath, "#TITLE Copied User Columns\r\n#ARTIST Parsed Artist\r\n#00111:01\r\n", Encoding.ASCII);
+        ChartFileSnapshot chartSnapshot = ChartFileContentReader.ReadSnapshot(chartPath);
+        TestableBmsFile file = CreateBackfillTestFile(chartPath, chartSnapshot);
+
+        using (var sourceDb = new LR2SongDBExtended(scope.SongDbPath))
+        {
+            sourceDb.CreateTable<LR2SongDB.song>();
+            var existing = new TestableBmsFile
+            {
+                path = chartPath,
+                adddate = 123456,
+                tag = "copied-user-tag"
+            }.WithHashAndFavorite("cccccccccccccccccccccccccccccccc", 5);
+            existing.SetTitleForTest("Old Copied Title");
+            sourceDb.InsertOrReplace(existing, typeof(LR2SongDB.song));
+        }
+
+        string copiedDirectory = Path.Combine(scope.DirectoryPath, "CopiedUserColumns");
+        Directory.CreateDirectory(copiedDirectory);
+        string copiedSongDbPath = Path.Combine(copiedDirectory, "song.db");
+        File.Copy(scope.SongDbPath, copiedSongDbPath, overwrite: true);
+        using var copiedDb = new LR2SongDBExtended(copiedSongDbPath);
+        copiedDb.CreateTable<LR2SongDB.folder>();
+
+        Lr2FullGenerationBackfillResult result = Lr2FullGenerationBackfillService.Run(copiedDb, new Lr2FullGenerationBackfillRequest
+        {
+            Signature = "copied-user-columns",
+            RunId = "copied-user-columns-run",
+            RootDirectories = [rootDirectory],
+            ChartPaths = [chartPath],
+            SongRows = [file],
+            StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc)
+        });
+
+        Assert.AreEqual(Lr2FullGenerationBackfillService.CompletedStage, result.FinalStage);
+        Assert.AreEqual("Copied User Columns", copiedDb.ExecuteScalar<string>("SELECT title FROM song WHERE path = ?;", chartPath));
+        Assert.AreEqual(chartSnapshot.Md5, copiedDb.ExecuteScalar<string>("SELECT hash FROM song WHERE path = ?;", chartPath));
+        Assert.AreEqual(5, copiedDb.ExecuteScalar<int>("SELECT favorite FROM song WHERE path = ?;", chartPath));
+        Assert.AreEqual(123456, copiedDb.ExecuteScalar<int>("SELECT adddate FROM song WHERE path = ?;", chartPath));
+        Assert.AreEqual("copied-user-tag", copiedDb.ExecuteScalar<string>("SELECT tag FROM song WHERE path = ?;", chartPath));
+    }
+
+    [TestMethod]
     public void QueueLr2FullGenerationBackfillIfNeeded_WithNoRootsDoesNotCompleteGeneration()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
