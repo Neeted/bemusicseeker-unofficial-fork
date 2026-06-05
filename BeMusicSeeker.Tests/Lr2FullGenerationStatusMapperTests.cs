@@ -48,6 +48,25 @@ public sealed class Lr2FullGenerationStatusMapperTests
     }
 
     [TestMethod]
+    public void Create_RunningBuildsVisibleRuntimeStatusWithoutRetry()
+    {
+        Lr2FullGenerationRuntimeStatus status = Lr2FullGenerationStatusMapper.Create(new Lr2FullGenerationStatusSnapshot
+        {
+            Status = Lr2FullGenerationStatusKind.Running,
+            Stage = "song_rows",
+            ProcessedCursor = 12,
+            TotalCount = 100
+        }, new DateTime(2026, 6, 5, 12, 0, 0));
+
+        Assert.AreEqual(Resources.Lr2_full_generation_status_running, status.StatusText);
+        Assert.IsTrue(status.HasWarningStatus);
+        Assert.IsFalse(status.CanRetry);
+        Assert.IsFalse(status.CanCleanupStartupScanBlockers);
+        StringAssert.Contains(status.Detail, "[12/100]");
+        StringAssert.Contains(status.Detail, "song rows");
+    }
+
+    [TestMethod]
     public void Create_FailedAndIncompleteAreWarningStatuses()
     {
         Lr2FullGenerationRuntimeStatus failed = Lr2FullGenerationStatusMapper.Create(new Lr2FullGenerationStatusSnapshot

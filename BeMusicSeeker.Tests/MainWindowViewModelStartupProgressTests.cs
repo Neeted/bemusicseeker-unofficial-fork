@@ -394,6 +394,11 @@ public sealed class MainWindowViewModelStartupProgressTests
             hasWarningStatus: true,
             startupProgressActive: false,
             startupProgressFailed: false));
+        Assert.IsTrue(MainWindowViewModel.ShouldShowLr2FullGenerationStatusForTest(
+            hasWarningStatus: true,
+            startupProgressActive: true,
+            startupProgressFailed: false,
+            startupProgressTracksLr2FullGeneration: false));
         Assert.IsFalse(MainWindowViewModel.ShouldShowLr2FullGenerationStatusForTest(
             hasWarningStatus: false,
             startupProgressActive: true,

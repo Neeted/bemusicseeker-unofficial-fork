@@ -43,6 +43,7 @@ internal static class Lr2FullGenerationStatusMapper
     private static bool HasWarningStatus(Lr2FullGenerationStatusKind kind)
     {
         return kind == Lr2FullGenerationStatusKind.Needed
+            || kind == Lr2FullGenerationStatusKind.Running
             || kind == Lr2FullGenerationStatusKind.Failed
             || kind == Lr2FullGenerationStatusKind.Incomplete
             || kind == Lr2FullGenerationStatusKind.Cancelled;

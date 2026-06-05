@@ -19798,8 +19798,16 @@ public class MainWindowViewModel : ViewModel
     {
         lock (startupProgressLock)
         {
-            return startupProgressState.IsActive && !startupProgressState.IsFailed;
+            return IsStartupProgressBlockingLr2FullGenerationStatus(
+                startupProgressState.IsActive,
+                startupProgressState.IsFailed,
+                CanCompleteStartupProgressPhase(startupProgressState, StartupProgressPhase.Lr2FullGenerationBackfillDone));
         }
+    }
+
+    private static bool IsStartupProgressBlockingLr2FullGenerationStatus(bool startupProgressActive, bool startupProgressFailed, bool startupProgressTracksLr2FullGeneration)
+    {
+        return startupProgressActive && !startupProgressFailed && startupProgressTracksLr2FullGeneration;
     }
 
     private static bool ShouldShowLr2FullGenerationStatus(bool hasWarningStatus, bool startupProgressBlocksLr2Status)
@@ -19807,9 +19815,11 @@ public class MainWindowViewModel : ViewModel
         return hasWarningStatus && !startupProgressBlocksLr2Status;
     }
 
-    internal static bool ShouldShowLr2FullGenerationStatusForTest(bool hasWarningStatus, bool startupProgressActive, bool startupProgressFailed)
+    internal static bool ShouldShowLr2FullGenerationStatusForTest(bool hasWarningStatus, bool startupProgressActive, bool startupProgressFailed, bool startupProgressTracksLr2FullGeneration = true)
     {
-        return ShouldShowLr2FullGenerationStatus(hasWarningStatus, startupProgressActive && !startupProgressFailed);
+        return ShouldShowLr2FullGenerationStatus(
+            hasWarningStatus,
+            IsStartupProgressBlockingLr2FullGenerationStatus(startupProgressActive, startupProgressFailed, startupProgressTracksLr2FullGeneration));
     }
 
     public void RetryLr2FullGenerationBackfill()
