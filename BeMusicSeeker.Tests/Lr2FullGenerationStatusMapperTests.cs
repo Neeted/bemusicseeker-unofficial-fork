@@ -26,6 +26,7 @@ public sealed class Lr2FullGenerationStatusMapperTests
         Assert.AreEqual(Resources.Lr2_full_generation_status_needed, status.StatusText);
         Assert.IsTrue(status.HasWarningStatus);
         Assert.IsTrue(status.CanRetry);
+        Assert.IsFalse(status.CanCancel);
         Assert.IsFalse(status.CanCleanupStartupScanBlockers);
         StringAssert.Contains(status.Detail, "[12/100]");
         StringAssert.Contains(status.Detail, "song rows");
@@ -44,6 +45,7 @@ public sealed class Lr2FullGenerationStatusMapperTests
         Assert.AreEqual(Resources.Lr2_full_generation_status_completed, status.StatusText);
         Assert.IsFalse(status.HasWarningStatus);
         Assert.IsFalse(status.CanRetry);
+        Assert.IsFalse(status.CanCancel);
         Assert.IsFalse(status.CanCleanupStartupScanBlockers);
     }
 
@@ -61,6 +63,7 @@ public sealed class Lr2FullGenerationStatusMapperTests
         Assert.AreEqual(Resources.Lr2_full_generation_status_running, status.StatusText);
         Assert.IsTrue(status.HasWarningStatus);
         Assert.IsFalse(status.CanRetry);
+        Assert.IsTrue(status.CanCancel);
         Assert.IsFalse(status.CanCleanupStartupScanBlockers);
         StringAssert.Contains(status.Detail, "[12/100]");
         StringAssert.Contains(status.Detail, "song rows");

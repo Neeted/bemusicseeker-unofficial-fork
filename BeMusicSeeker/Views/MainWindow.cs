@@ -6312,6 +6312,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         (base.DataContext as MainWindowViewModel)?.RetryLr2FullGenerationBackfill();
     }
 
+    private void cancelLr2FullGenerationBackfillClick(object sender, RoutedEventArgs e)
+    {
+        (base.DataContext as MainWindowViewModel)?.CancelLr2FullGenerationBackfill();
+    }
+
     private void cleanupLr2FullGenerationStartupScanBlockersClick(object sender, RoutedEventArgs e)
     {
         (base.DataContext as MainWindowViewModel)?.CleanupLr2FullGenerationStartupScanBlockersAndRetry();

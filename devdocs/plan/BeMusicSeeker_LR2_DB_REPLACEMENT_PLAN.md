@@ -1208,7 +1208,8 @@ parse directive:
   既存 cursor / total は維持する。
 - backfill cancellation は request token を service へ渡し、stage 境界と `song_rows` chunk 境界で
   `Cancelled` status と current cursor を durable に記録する。runtime request state も `Cancelled` として終端し、
-  次回 evaluate では通常の resumable backfill request に戻す。
+  次回 evaluate では通常の resumable backfill request に戻す。`Running` status は status bar にキャンセル操作を表示し、
+  UI は model の cancellation token request を発火するだけで、durable status の確定は backfill runner の境界処理に任せる。
 - startup-scan blocker diagnostic は、resume により folder stage をスキップした場合でも、既存 `folder`
   row の実 target が存在し、`folder.date` が directory / `.lr2folder` file の Unix 秒 mtime と一致するかを
   最後に検証する。missing target または不一致が残る run は `Completed` にせず

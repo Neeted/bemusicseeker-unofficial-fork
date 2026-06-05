@@ -6158,6 +6158,8 @@ public class MainWindowViewModel : ViewModel
 
     private bool _IsLr2FullGenerationRetryVisible;
 
+    private bool _IsLr2FullGenerationCancelVisible;
+
     private bool _IsLr2FullGenerationCleanupVisible;
 
     private bool _IsPlaylistTreeExpanded = true;
@@ -14179,6 +14181,22 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
+    public bool IsLr2FullGenerationCancelVisible
+    {
+        get
+        {
+            return _IsLr2FullGenerationCancelVisible;
+        }
+        set
+        {
+            if (_IsLr2FullGenerationCancelVisible != value)
+            {
+                _IsLr2FullGenerationCancelVisible = value;
+                RaisePropertyChanged("IsLr2FullGenerationCancelVisible");
+            }
+        }
+    }
+
     public bool IsLr2FullGenerationCleanupVisible
     {
         get
@@ -19791,6 +19809,7 @@ public class MainWindowViewModel : ViewModel
         Lr2FullGenerationStatusLabel = isActive ? status.StatusText : string.Empty;
         Lr2FullGenerationStatusSubLabel = isActive ? status.Detail : string.Empty;
         IsLr2FullGenerationRetryVisible = isActive && status.CanRetry;
+        IsLr2FullGenerationCancelVisible = isActive && status.CanCancel;
         IsLr2FullGenerationCleanupVisible = isActive && status.CanCleanupStartupScanBlockers;
     }
 
@@ -19825,6 +19844,11 @@ public class MainWindowViewModel : ViewModel
     public void RetryLr2FullGenerationBackfill()
     {
         files?.QueueLr2FullGenerationBackfillIfNeeded("status_bar_retry");
+    }
+
+    public void CancelLr2FullGenerationBackfill()
+    {
+        files?.CancelLr2FullGenerationBackfill("status_bar_cancel");
     }
 
     public void CleanupLr2FullGenerationStartupScanBlockersAndRetry()

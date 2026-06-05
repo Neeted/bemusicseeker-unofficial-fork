@@ -15,6 +15,7 @@ internal static class Lr2FullGenerationStatusMapper
             Detail = string.Empty,
             HasWarningStatus = false,
             CanRetry = false,
+            CanCancel = false,
             CanCleanupStartupScanBlockers = false,
             CheckedAt = DateTime.MinValue
         };
@@ -35,6 +36,7 @@ internal static class Lr2FullGenerationStatusMapper
             Detail = BuildDetail(snapshot, statusText, checkedAt),
             HasWarningStatus = HasWarningStatus(snapshot.Status),
             CanRetry = CanRetry(snapshot.Status),
+            CanCancel = CanCancel(snapshot.Status),
             CanCleanupStartupScanBlockers = CanCleanupStartupScanBlockers(snapshot),
             CheckedAt = checkedAt
         };
@@ -55,6 +57,11 @@ internal static class Lr2FullGenerationStatusMapper
             || kind == Lr2FullGenerationStatusKind.Failed
             || kind == Lr2FullGenerationStatusKind.Incomplete
             || kind == Lr2FullGenerationStatusKind.Cancelled;
+    }
+
+    private static bool CanCancel(Lr2FullGenerationStatusKind kind)
+    {
+        return kind == Lr2FullGenerationStatusKind.Running;
     }
 
     private static bool CanCleanupStartupScanBlockers(Lr2FullGenerationStatusSnapshot snapshot)

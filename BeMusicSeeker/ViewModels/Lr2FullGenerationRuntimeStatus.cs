@@ -15,6 +15,8 @@ internal sealed class Lr2FullGenerationRuntimeStatus
 
     internal bool CanRetry { get; set; }
 
+    internal bool CanCancel { get; set; }
+
     internal bool CanCleanupStartupScanBlockers { get; set; }
 
     internal DateTime CheckedAt { get; set; }

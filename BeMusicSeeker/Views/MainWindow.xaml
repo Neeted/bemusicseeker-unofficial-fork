@@ -1030,6 +1030,14 @@
                 </DataTrigger>
               </Style.Triggers>
             </Style>
+            <Style x:Key="styleLr2FullGenerationCancelStatusBarItem" TargetType="{x:Type StatusBarItem}">
+              <Setter Property="Visibility" Value="Collapsed" />
+              <Style.Triggers>
+                <DataTrigger Binding="{Binding IsLr2FullGenerationCancelVisible}" Value="True">
+                  <Setter Property="Visibility" Value="Visible" />
+                </DataTrigger>
+              </Style.Triggers>
+            </Style>
             <Style x:Key="styleLr2FullGenerationCleanupStatusBarItem" TargetType="{x:Type StatusBarItem}">
               <Setter Property="Visibility" Value="Collapsed" />
               <Style.Triggers>
@@ -1136,6 +1144,9 @@
           </StatusBarItem>
           <StatusBarItem Style="{StaticResource styleLr2FullGenerationRetryStatusBarItem}">
             <Button MinWidth="70" Padding="8,1" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Lr2_full_generation_retry, Mode=OneWay}" Click="retryLr2FullGenerationBackfillClick" />
+          </StatusBarItem>
+          <StatusBarItem Style="{StaticResource styleLr2FullGenerationCancelStatusBarItem}">
+            <Button MinWidth="70" Padding="8,1" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Cancel, Mode=OneWay}" Click="cancelLr2FullGenerationBackfillClick" />
           </StatusBarItem>
           <StatusBarItem Style="{StaticResource styleLr2FullGenerationCleanupStatusBarItem}">
             <Button MinWidth="150" Padding="8,1" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Lr2_full_generation_cleanup_startup_scan_blockers, Mode=OneWay}" Click="cleanupLr2FullGenerationStartupScanBlockersClick" />
