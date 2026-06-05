@@ -1,8 +1,6 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
-using System.Security;
 using BeMusicSeeker.Models.LR2;
 using SQLite;
 
@@ -131,51 +129,9 @@ internal static class Lr2SongDbWriter
         {
             return;
         }
-        if ((!song.date.HasValue || song.date <= 0) && TryGetLastWriteTimeUtc(song.path, out DateTime lastWriteTimeUtc))
-        {
-            song.date = Lr2SongRowEnricher.ToLr2UnixSeconds(lastWriteTimeUtc);
-        }
         if (isNewRow && (!song.adddate.HasValue || song.adddate <= 0))
         {
             song.adddate = Lr2SongRowEnricher.ToLr2UnixSeconds(DateTime.UtcNow);
-        }
-    }
-
-    private static bool TryGetLastWriteTimeUtc(string path, out DateTime lastWriteTimeUtc)
-    {
-        lastWriteTimeUtc = default;
-        if (string.IsNullOrWhiteSpace(path))
-        {
-            return false;
-        }
-        try
-        {
-            if (!File.Exists(path))
-            {
-                return false;
-            }
-            lastWriteTimeUtc = File.GetLastWriteTimeUtc(path);
-            return true;
-        }
-        catch (IOException)
-        {
-            return false;
-        }
-        catch (UnauthorizedAccessException)
-        {
-            return false;
-        }
-        catch (SecurityException)
-        {
-            return false;
-        }
-        catch (ArgumentException)
-        {
-            return false;
-        }
-        catch (NotSupportedException)
-        {
-            return false;
         }
     }
 

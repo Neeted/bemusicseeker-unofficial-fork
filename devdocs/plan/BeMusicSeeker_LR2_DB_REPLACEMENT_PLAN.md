@@ -1369,8 +1369,10 @@ existence / mtime は意味的に揃える。
 上の「残作業の推奨順」へ追加し、この節には完了済み contract だけを残す。
 
 - `Lr2SongDbWriter.UpsertGeneratedSong(...)` は direct install / path replacement / backfill の共通 persistence 境界として扱う。
-  呼び出し元の `BMSFile` に `date` が無い場合は実ファイル mtime から補完し、新規 `song` row で `adddate`
-  が無い場合だけ現在時刻を入れる。既存 row の `adddate` は writer update では変更しない。
+  writer は DB-oriented な境界であり、`date` 欠落時に実ファイル mtime へ fallback しない。
+  BMS mtime は caller が `ChartFileSnapshot` / enumeration metadata から `BMSFile.date` に反映してから渡す。
+  writer は新規 `song` row で `adddate` が無い場合だけ現在時刻を入れ、既存 row の `adddate` は
+  update では変更しない。
 - install package inline `chart_info` build は、parse / current row skip で得た `chart_info` row を BMS storage owner
   に反映してから `Lr2SongDbWriter` へ渡す。これにより direct install 直後の `song` row も、backfill を待たずに
   `level` / `difficulty` / BPM / `mode` / `longnote` / `random` / `karinotes` を持つ。
