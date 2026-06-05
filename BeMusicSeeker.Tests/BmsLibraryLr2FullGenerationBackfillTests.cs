@@ -119,6 +119,118 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
     }
 
     [TestMethod]
+    public void ApplyLibraryMutationDelta_PrunesNormalFolderRowsForRemovedBmsWhenFullGenerationEnabled()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        try
+        {
+            Settings.Default.OperationModeLR2DB = true;
+            Settings.Default.EnableLR2SongDbFullGeneration = true;
+            ResetLr2FolderDiscoverySettings();
+            string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
+            string packDirectory = Path.Combine(rootDirectory, "Pack");
+            string keepDirectory = Path.Combine(packDirectory, "Keep");
+            string removeDirectory = Path.Combine(packDirectory, "Remove");
+            Directory.CreateDirectory(keepDirectory);
+            Directory.CreateDirectory(removeDirectory);
+            string keepPath = Path.Combine(keepDirectory, "keep.bms");
+            string removePath = Path.Combine(removeDirectory, "remove.bms");
+            File.WriteAllText(keepPath, "#TITLE Keep\r\n#00111:01\r\n", Encoding.ASCII);
+            File.WriteAllText(removePath, "#TITLE Remove\r\n#00111:01\r\n", Encoding.ASCII);
+            BMSFile keepFile = CreateBackfillTestFile(keepPath, ChartFileContentReader.ReadSnapshot(keepPath));
+            BMSFile removeFile = CreateBackfillTestFile(removePath, ChartFileContentReader.ReadSnapshot(removePath));
+            using (var setup = new LR2SongDBExtended(scope.SongDbPath))
+            {
+                setup.CreateTable<LR2SongDB.folder>();
+                setup.CreateTable<LR2SongDB.song>();
+                setup.InsertOrReplace(keepFile, typeof(LR2SongDB.song));
+                setup.InsertOrReplace(removeFile, typeof(LR2SongDB.song));
+            }
+            var library = new BMSLibrary(scope.SongDbPath)
+            {
+                SearchTargets = [rootDirectory],
+                BMSFiles = []
+            };
+            InvokeApplyInstalledChartStorageTargets(library, ChartStorageTargetSet.FromRows([keepFile, removeFile], []), "test_lr2_normal_folder_seed");
+            var delta = new LibraryMutationDelta();
+            delta.ChartRemoveRequests.Add(OwnedChartRemoveRequest.FromOwnerReference(removeFile));
+
+            InvokeApplyLibraryMutationDelta(library, delta);
+
+            using var verify = new LR2SongDBExtended(scope.SongDbPath);
+            List<LR2SongDB.folder> folders = [.. verify.Table<LR2SongDB.folder>()];
+            Assert.IsTrue(folders.Any(folder => folder.path == ToFolderPath(rootDirectory)));
+            Assert.IsTrue(folders.Any(folder => folder.path == ToFolderPath(packDirectory)));
+            Assert.IsTrue(folders.Any(folder => folder.path == ToFolderPath(keepDirectory)));
+            Assert.IsFalse(folders.Any(folder => folder.path == ToFolderPath(removeDirectory)));
+            Assert.IsNotNull(verify.Find<LR2SongDB.song>(keepPath));
+            Assert.IsNull(verify.Find<LR2SongDB.song>(removePath));
+        }
+        finally
+        {
+            ResetTouchedSettings();
+        }
+    }
+
+    [TestMethod]
+    public void ApplyLibraryMutationDelta_MovesNormalFolderRowsForMovedBmsWhenFullGenerationEnabled()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        try
+        {
+            Settings.Default.OperationModeLR2DB = true;
+            Settings.Default.EnableLR2SongDbFullGeneration = true;
+            ResetLr2FolderDiscoverySettings();
+            string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
+            string packDirectory = Path.Combine(rootDirectory, "Pack");
+            string oldDirectory = Path.Combine(packDirectory, "Old");
+            string newDirectory = Path.Combine(packDirectory, "New");
+            Directory.CreateDirectory(oldDirectory);
+            Directory.CreateDirectory(newDirectory);
+            string oldPath = Path.Combine(oldDirectory, "chart.bms");
+            string newPath = Path.Combine(newDirectory, "chart.bms");
+            File.WriteAllText(oldPath, "#TITLE Moved\r\n#00111:01\r\n", Encoding.ASCII);
+            File.WriteAllText(newPath, "#TITLE Moved\r\n#00111:01\r\n", Encoding.ASCII);
+            BMSFile file = CreateBackfillTestFile(oldPath, ChartFileContentReader.ReadSnapshot(oldPath));
+            using (var setup = new LR2SongDBExtended(scope.SongDbPath))
+            {
+                setup.CreateTable<LR2SongDB.folder>();
+                setup.CreateTable<LR2SongDB.song>();
+                setup.InsertOrReplace(file, typeof(LR2SongDB.song));
+            }
+            var library = new BMSLibrary(scope.SongDbPath)
+            {
+                SearchTargets = [rootDirectory],
+                BMSFiles = []
+            };
+            InvokeApplyInstalledChartStorageTargets(library, ChartStorageTargetSet.FromRows([file], []), "test_lr2_normal_folder_seed");
+            var delta = new LibraryMutationDelta();
+            delta.ChartPathChanges.Add(new LibraryChartPathChange
+            {
+                Chart = ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false, includeResourceReferences: false),
+                OldPath = oldPath,
+                NewPath = newPath
+            });
+
+            InvokeApplyLibraryMutationDelta(library, delta);
+
+            using var verify = new LR2SongDBExtended(scope.SongDbPath);
+            List<LR2SongDB.folder> folders = [.. verify.Table<LR2SongDB.folder>()];
+            Assert.AreEqual(newPath, file.path);
+            Assert.IsTrue(folders.Any(folder => folder.path == ToFolderPath(rootDirectory)));
+            Assert.IsTrue(folders.Any(folder => folder.path == ToFolderPath(packDirectory)));
+            Assert.IsFalse(folders.Any(folder => folder.path == ToFolderPath(oldDirectory)));
+            Assert.IsTrue(folders.Any(folder => folder.path == ToFolderPath(newDirectory)));
+            Assert.IsNull(verify.Find<LR2SongDB.song>(oldPath));
+            Assert.IsNotNull(verify.Find<LR2SongDB.song>(newPath));
+        }
+        finally
+        {
+            ResetTouchedSettings();
+        }
+    }
+
+    [TestMethod]
     public void ApplyInstalledChartStorageTargets_BlocksWhileFullGenerationBackfillIsRunning()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
@@ -1795,6 +1907,13 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
         MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("ApplyInstalledChartStorageTargets", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.IsNotNull(methodInfo);
         methodInfo.Invoke(library, [targets, reason]);
+    }
+
+    private static void InvokeApplyLibraryMutationDelta(BMSLibrary library, LibraryMutationDelta delta)
+    {
+        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("ApplyLibraryMutationDelta", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(methodInfo);
+        methodInfo.Invoke(library, [delta]);
     }
 
     private static void InvokeBeginLr2FullGenerationBackfillRequest(BMSLibrary library)
