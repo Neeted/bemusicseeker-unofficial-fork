@@ -2037,6 +2037,7 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
         songDb.CreateTable<LR2SongDB.folder>();
         using var cancellation = new CancellationTokenSource();
         const string signature = "cancel-resume-after-folder";
+        var progressEvents = new List<Lr2FullGenerationBackfillProgress>();
 
         Assert.ThrowsException<OperationCanceledException>(() => Lr2FullGenerationBackfillService.Run(songDb, new Lr2FullGenerationBackfillRequest
         {
@@ -2047,9 +2048,13 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
             SongRows = [file],
             StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc),
             CancellationToken = cancellation.Token,
-            ProgressReporter = (processed, total, stage) =>
+            ProgressReporter = progress =>
             {
-                if (stage == "song_rows")
+                if (progress != null)
+                {
+                    progressEvents.Add(progress);
+                }
+                if (progress?.Stage == "song_rows")
                 {
                     cancellation.Cancel();
                 }
@@ -2063,6 +2068,11 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
         Assert.AreEqual(3, cancelled.total_count);
         Assert.AreEqual(2, songDb.Table<LR2SongDB.folder>().Count());
         Assert.AreEqual(0, songDb.Table<LR2SongDB.song>().Count());
+        Lr2FullGenerationBackfillProgress songRowsProgress = progressEvents.First(progress => progress.Stage == "song_rows" && progress.StageTotalCount > 0);
+        Assert.AreEqual(2, songRowsProgress.ProcessedCursor);
+        Assert.AreEqual(3, songRowsProgress.TotalCount);
+        Assert.AreEqual(0, songRowsProgress.StageProcessedCount);
+        Assert.AreEqual(1, songRowsProgress.StageTotalCount);
 
         Lr2FullGenerationBackfillResult resumed = Lr2FullGenerationBackfillService.Run(songDb, new Lr2FullGenerationBackfillRequest
         {

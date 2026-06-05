@@ -11,6 +11,14 @@ internal sealed class Lr2FullGenerationRuntimeStatus
 
     internal string Detail { get; set; } = string.Empty;
 
+    internal string ProgressText { get; set; } = string.Empty;
+
+    internal double ProgressValue { get; set; }
+
+    internal double ProgressMaximum { get; set; } = 1.0;
+
+    internal bool HasProgress { get; set; }
+
     internal bool HasWarningStatus { get; set; }
 
     internal bool CanRetry { get; set; }

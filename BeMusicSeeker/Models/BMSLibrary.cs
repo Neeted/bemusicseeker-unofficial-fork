@@ -1299,6 +1299,10 @@ public class BMSLibrary : NotificationObject
 
     private string _Lr2FullGenerationBackfillStage = string.Empty;
 
+    private int _Lr2FullGenerationBackfillStageProcessedCount;
+
+    private int _Lr2FullGenerationBackfillStageTotalCount;
+
     private string _Lr2FullGenerationBackfillFailureMessage = string.Empty;
 
     private int _Lr2FullGenerationStatusVersion;
@@ -2437,6 +2441,38 @@ public class BMSLibrary : NotificationObject
             {
                 _Lr2FullGenerationBackfillStage = value;
                 RaisePropertyChanged(() => Lr2FullGenerationBackfillStage);
+            }
+        }
+    }
+
+    public int Lr2FullGenerationBackfillStageProcessedCount
+    {
+        get
+        {
+            return _Lr2FullGenerationBackfillStageProcessedCount;
+        }
+        private set
+        {
+            if (_Lr2FullGenerationBackfillStageProcessedCount != value)
+            {
+                _Lr2FullGenerationBackfillStageProcessedCount = value;
+                RaisePropertyChanged(() => Lr2FullGenerationBackfillStageProcessedCount);
+            }
+        }
+    }
+
+    public int Lr2FullGenerationBackfillStageTotalCount
+    {
+        get
+        {
+            return _Lr2FullGenerationBackfillStageTotalCount;
+        }
+        private set
+        {
+            if (_Lr2FullGenerationBackfillStageTotalCount != value)
+            {
+                _Lr2FullGenerationBackfillStageTotalCount = value;
+                RaisePropertyChanged(() => Lr2FullGenerationBackfillStageTotalCount);
             }
         }
     }
@@ -5136,6 +5172,8 @@ completeFileEnumerationOnce,
             status.Stage = Lr2FullGenerationBackfillStage;
             status.ProcessedCursor = Lr2FullGenerationBackfillProcessedCount;
             status.TotalCount = Lr2FullGenerationBackfillTotalCount;
+            status.StageProcessedCount = Lr2FullGenerationBackfillStageProcessedCount;
+            status.StageTotalCount = Lr2FullGenerationBackfillStageTotalCount;
             PublishLr2FullGenerationStatus(status);
             return status;
         }
@@ -5146,7 +5184,9 @@ completeFileEnumerationOnce,
             stage: "queued",
             processedCursor: 0,
             totalCount: 0,
-            lastError: null));
+            lastError: null,
+            stageProcessedCount: 0,
+            stageTotalCount: 0));
         Task work()
         {
             RunLr2FullGenerationBackfill(reason, signature, requestVersion);
@@ -5222,7 +5262,9 @@ completeFileEnumerationOnce,
         string stage,
         int? processedCursor,
         int? totalCount,
-        string lastError)
+        string lastError,
+        int? stageProcessedCount = null,
+        int? stageTotalCount = null)
     {
         return new Lr2FullGenerationStatusSnapshot
         {
@@ -5232,6 +5274,8 @@ completeFileEnumerationOnce,
             Stage = stage ?? string.Empty,
             ProcessedCursor = processedCursor,
             TotalCount = totalCount,
+            StageProcessedCount = stageProcessedCount,
+            StageTotalCount = stageTotalCount,
             LastError = lastError ?? string.Empty,
             UpdatedAt = DateTime.UtcNow
         };
@@ -5255,24 +5299,35 @@ completeFileEnumerationOnce,
             Lr2FullGenerationBackfillTotalCount = 0;
             Lr2FullGenerationBackfillProcessedCount = 0;
             Lr2FullGenerationBackfillStage = "queued";
+            Lr2FullGenerationBackfillStageProcessedCount = 0;
+            Lr2FullGenerationBackfillStageTotalCount = 0;
             Lr2FullGenerationBackfillFailureMessage = string.Empty;
             Lr2FullGenerationBackfillRunning = true;
             return true;
         }
     }
 
-    private void UpdateLr2FullGenerationBackfillProgress(int processedCount, int totalCount, string stage)
+    private void UpdateLr2FullGenerationBackfillProgress(Lr2FullGenerationBackfillProgress progress)
     {
-        Lr2FullGenerationBackfillTotalCount = Math.Max(0, totalCount);
-        Lr2FullGenerationBackfillProcessedCount = Math.Max(0, processedCount);
-        Lr2FullGenerationBackfillStage = stage ?? string.Empty;
+        if (progress == null)
+        {
+            return;
+        }
+
+        Lr2FullGenerationBackfillTotalCount = Math.Max(0, progress.TotalCount);
+        Lr2FullGenerationBackfillProcessedCount = Math.Max(0, progress.ProcessedCursor);
+        Lr2FullGenerationBackfillStage = progress.Stage ?? string.Empty;
+        Lr2FullGenerationBackfillStageProcessedCount = Math.Max(0, progress.StageProcessedCount);
+        Lr2FullGenerationBackfillStageTotalCount = Math.Max(0, progress.StageTotalCount);
         PublishLr2FullGenerationStatus(CreateRuntimeLr2FullGenerationStatus(
             Lr2FullGenerationStatusKind.Running,
             GetLr2FullGenerationStatusSnapshot().Signature,
             Lr2FullGenerationBackfillStage,
             Lr2FullGenerationBackfillProcessedCount,
             Lr2FullGenerationBackfillTotalCount,
-            lastError: null));
+            lastError: null,
+            Lr2FullGenerationBackfillStageProcessedCount,
+            Lr2FullGenerationBackfillStageTotalCount));
     }
 
     private void CompleteLr2FullGenerationBackfillRequest(int requestVersion, string stage)
@@ -5284,6 +5339,12 @@ completeFileEnumerationOnce,
 
         Lr2FullGenerationBackfillCompletedVersion = lr2FullGenerationBackfillCompletedVersion;
         Lr2FullGenerationBackfillStage = stage ?? string.Empty;
+        Lr2FullGenerationBackfillStageProcessedCount = Lr2FullGenerationBackfillStageTotalCount > 0
+            ? Lr2FullGenerationBackfillStageTotalCount
+            : Lr2FullGenerationBackfillProcessedCount;
+        Lr2FullGenerationBackfillStageTotalCount = Lr2FullGenerationBackfillStageTotalCount > 0
+            ? Lr2FullGenerationBackfillStageTotalCount
+            : Lr2FullGenerationBackfillTotalCount;
         Lr2FullGenerationBackfillRunning = false;
         DisposeLr2FullGenerationBackfillCancellation();
         PublishLr2FullGenerationStatus(CreateRuntimeLr2FullGenerationStatus(
@@ -5292,7 +5353,9 @@ completeFileEnumerationOnce,
             Lr2FullGenerationBackfillStage,
             Lr2FullGenerationBackfillProcessedCount,
             Lr2FullGenerationBackfillTotalCount,
-            lastError: null));
+            lastError: null,
+            Lr2FullGenerationBackfillStageProcessedCount,
+            Lr2FullGenerationBackfillStageTotalCount));
     }
 
     private void FailLr2FullGenerationBackfillRequest(int requestVersion, Lr2FullGenerationStatusKind status, string stage, string message)
@@ -5313,7 +5376,9 @@ completeFileEnumerationOnce,
             Lr2FullGenerationBackfillStage,
             Lr2FullGenerationBackfillProcessedCount,
             Lr2FullGenerationBackfillTotalCount,
-            Lr2FullGenerationBackfillFailureMessage));
+            Lr2FullGenerationBackfillFailureMessage,
+            Lr2FullGenerationBackfillStageProcessedCount,
+            Lr2FullGenerationBackfillStageTotalCount));
     }
 
     internal bool CancelLr2FullGenerationBackfill(string reason)
@@ -5422,7 +5487,8 @@ completeFileEnumerationOnce,
                     StartedAtUtc = DateTime.UtcNow,
                     CancellationToken = cancellationToken,
                     IsSourceCurrent = () => IsLr2FullGenerationBackfillInputCurrent(input),
-                    ProgressReporter = UpdateLr2FullGenerationBackfillProgress
+                    ProgressReporter = UpdateLr2FullGenerationBackfillProgress,
+                    LogInstallPerformance = LogInstallPerformance
                 });
             }
             stopwatch.Stop();
@@ -5475,9 +5541,9 @@ completeFileEnumerationOnce,
             }
             else
             {
-                FailLr2FullGenerationBackfillRequest(requestVersion, Lr2FullGenerationStatusKind.Incomplete, result.FinalStage, result.IncompleteReason ?? result.FinalStage);
+                FailLr2FullGenerationBackfillRequest(requestVersion, Lr2FullGenerationStatusKind.Incomplete, result.FinalStage, BuildLr2FullGenerationIncompleteDetail(result));
             }
-            ReportStartupBackgroundTask("lr2_full_generation_backfill", completed ? "done" : "incomplete", stopwatch.ElapsedMilliseconds, failed: false, detail: result.IncompleteReason ?? "completed");
+            ReportStartupBackgroundTask("lr2_full_generation_backfill", completed ? "done" : "incomplete", stopwatch.ElapsedMilliseconds, failed: false, detail: completed ? "completed" : BuildLr2FullGenerationIncompleteDetail(result));
         }
         catch (OperationCanceledException)
         {
@@ -5519,6 +5585,22 @@ completeFileEnumerationOnce,
             FailLr2FullGenerationBackfillRequest(requestVersion, Lr2FullGenerationStatusKind.Failed, "failed", ex.Message);
             ReportStartupBackgroundTask("lr2_full_generation_backfill", "failed", stopwatch.ElapsedMilliseconds, failed: true, detail: ex.Message);
         }
+    }
+
+    private static string BuildLr2FullGenerationIncompleteDetail(Lr2FullGenerationBackfillResult result)
+    {
+        if (result == null)
+        {
+            return string.Empty;
+        }
+
+        string reason = result.IncompleteReason ?? result.FinalStage ?? string.Empty;
+        if (string.Equals(result.FinalStage, Lr2FullGenerationBackfillService.StartupScanBlockersStage, StringComparison.Ordinal)
+            && result.StartupScanDiagnosticResult != null)
+        {
+            return reason + " " + result.StartupScanDiagnosticResult.ToLogDetail();
+        }
+        return reason;
     }
 
     private void ApplyLr2FullGenerationCompatibilityProjection(

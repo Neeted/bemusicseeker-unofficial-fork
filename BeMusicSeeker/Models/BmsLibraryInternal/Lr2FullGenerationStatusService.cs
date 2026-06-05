@@ -30,6 +30,10 @@ internal sealed class Lr2FullGenerationStatusSnapshot
 
     public string Stage { get; set; }
 
+    public int? StageProcessedCount { get; set; }
+
+    public int? StageTotalCount { get; set; }
+
     public string LastError { get; set; }
 
     public DateTime UpdatedAt { get; set; }
@@ -51,6 +55,8 @@ internal sealed class Lr2FullGenerationStatusSnapshot
             ProcessedCursor = ProcessedCursor,
             TotalCount = TotalCount,
             Stage = Stage,
+            StageProcessedCount = StageProcessedCount,
+            StageTotalCount = StageTotalCount,
             LastError = LastError,
             UpdatedAt = UpdatedAt,
             CompletedAt = CompletedAt,

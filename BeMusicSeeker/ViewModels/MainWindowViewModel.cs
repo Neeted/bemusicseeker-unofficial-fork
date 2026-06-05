@@ -5404,6 +5404,10 @@ public class MainWindowViewModel : ViewModel
 
         internal string Lr2FullGenerationBackfillStage = string.Empty;
 
+        internal int Lr2FullGenerationBackfillStageProcessedCount;
+
+        internal int Lr2FullGenerationBackfillStageTotalCount;
+
         internal BMSLibrary.LibraryInitializationProgressStage LibraryInitializationProgressStage;
 
         internal string LibraryInitializationProgressScannerLabel = string.Empty;
@@ -5440,6 +5444,10 @@ public class MainWindowViewModel : ViewModel
         internal bool IsCompleted { get; set; }
 
         internal bool IsFailed { get; set; }
+
+        internal double ProgressValue { get; set; }
+
+        internal double ProgressMaximum { get; set; }
     }
 
     /// <summary>
@@ -6161,6 +6169,14 @@ public class MainWindowViewModel : ViewModel
     private string _Lr2FullGenerationStatusLabel = string.Empty;
 
     private string _Lr2FullGenerationStatusSubLabel = string.Empty;
+
+    private string _Lr2FullGenerationStatusToolTip = string.Empty;
+
+    private double _Lr2FullGenerationStatusProgressValue;
+
+    private double _Lr2FullGenerationStatusProgressMaximum = 1.0;
+
+    private bool _IsLr2FullGenerationStatusProgressVisible;
 
     private bool _IsLr2FullGenerationRetryVisible;
 
@@ -14171,6 +14187,71 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
+    public string Lr2FullGenerationStatusToolTip
+    {
+        get
+        {
+            return _Lr2FullGenerationStatusToolTip;
+        }
+        private set
+        {
+            value ??= string.Empty;
+            if (_Lr2FullGenerationStatusToolTip != value)
+            {
+                _Lr2FullGenerationStatusToolTip = value;
+                RaisePropertyChanged("Lr2FullGenerationStatusToolTip");
+            }
+        }
+    }
+
+    public double Lr2FullGenerationStatusProgressValue
+    {
+        get
+        {
+            return _Lr2FullGenerationStatusProgressValue;
+        }
+        private set
+        {
+            if (_Lr2FullGenerationStatusProgressValue != value)
+            {
+                _Lr2FullGenerationStatusProgressValue = value;
+                RaisePropertyChanged("Lr2FullGenerationStatusProgressValue");
+            }
+        }
+    }
+
+    public double Lr2FullGenerationStatusProgressMaximum
+    {
+        get
+        {
+            return _Lr2FullGenerationStatusProgressMaximum;
+        }
+        private set
+        {
+            if (_Lr2FullGenerationStatusProgressMaximum != value)
+            {
+                _Lr2FullGenerationStatusProgressMaximum = value;
+                RaisePropertyChanged("Lr2FullGenerationStatusProgressMaximum");
+            }
+        }
+    }
+
+    public bool IsLr2FullGenerationStatusProgressVisible
+    {
+        get
+        {
+            return _IsLr2FullGenerationStatusProgressVisible;
+        }
+        private set
+        {
+            if (_IsLr2FullGenerationStatusProgressVisible != value)
+            {
+                _IsLr2FullGenerationStatusProgressVisible = value;
+                RaisePropertyChanged("IsLr2FullGenerationStatusProgressVisible");
+            }
+        }
+    }
+
     public bool IsLr2FullGenerationRetryVisible
     {
         get
@@ -15750,15 +15831,23 @@ public class MainWindowViewModel : ViewModel
         });
         listenerForBMSLibrary.RegisterHandler(() => files.Lr2FullGenerationBackfillTotalCount, delegate
         {
-            UpdateStartupProgressLr2FullGenerationBackfillStatus(files.Lr2FullGenerationBackfillTotalCount, files.Lr2FullGenerationBackfillProcessedCount, files.Lr2FullGenerationBackfillStage);
+            UpdateStartupProgressLr2FullGenerationBackfillStatus(files.Lr2FullGenerationBackfillTotalCount, files.Lr2FullGenerationBackfillProcessedCount, files.Lr2FullGenerationBackfillStage, files.Lr2FullGenerationBackfillStageProcessedCount, files.Lr2FullGenerationBackfillStageTotalCount);
         });
         listenerForBMSLibrary.RegisterHandler(() => files.Lr2FullGenerationBackfillProcessedCount, delegate
         {
-            UpdateStartupProgressLr2FullGenerationBackfillStatus(files.Lr2FullGenerationBackfillTotalCount, files.Lr2FullGenerationBackfillProcessedCount, files.Lr2FullGenerationBackfillStage);
+            UpdateStartupProgressLr2FullGenerationBackfillStatus(files.Lr2FullGenerationBackfillTotalCount, files.Lr2FullGenerationBackfillProcessedCount, files.Lr2FullGenerationBackfillStage, files.Lr2FullGenerationBackfillStageProcessedCount, files.Lr2FullGenerationBackfillStageTotalCount);
         });
         listenerForBMSLibrary.RegisterHandler(() => files.Lr2FullGenerationBackfillStage, delegate
         {
-            UpdateStartupProgressLr2FullGenerationBackfillStatus(files.Lr2FullGenerationBackfillTotalCount, files.Lr2FullGenerationBackfillProcessedCount, files.Lr2FullGenerationBackfillStage);
+            UpdateStartupProgressLr2FullGenerationBackfillStatus(files.Lr2FullGenerationBackfillTotalCount, files.Lr2FullGenerationBackfillProcessedCount, files.Lr2FullGenerationBackfillStage, files.Lr2FullGenerationBackfillStageProcessedCount, files.Lr2FullGenerationBackfillStageTotalCount);
+        });
+        listenerForBMSLibrary.RegisterHandler(() => files.Lr2FullGenerationBackfillStageProcessedCount, delegate
+        {
+            UpdateStartupProgressLr2FullGenerationBackfillStatus(files.Lr2FullGenerationBackfillTotalCount, files.Lr2FullGenerationBackfillProcessedCount, files.Lr2FullGenerationBackfillStage, files.Lr2FullGenerationBackfillStageProcessedCount, files.Lr2FullGenerationBackfillStageTotalCount);
+        });
+        listenerForBMSLibrary.RegisterHandler(() => files.Lr2FullGenerationBackfillStageTotalCount, delegate
+        {
+            UpdateStartupProgressLr2FullGenerationBackfillStatus(files.Lr2FullGenerationBackfillTotalCount, files.Lr2FullGenerationBackfillProcessedCount, files.Lr2FullGenerationBackfillStage, files.Lr2FullGenerationBackfillStageProcessedCount, files.Lr2FullGenerationBackfillStageTotalCount);
         });
         listenerForBMSLibrary.RegisterHandler(() => files.DuplicateChartGroups, delegate
         {
@@ -19644,7 +19733,12 @@ public class MainWindowViewModel : ViewModel
         RecomputeStartupProgressPresentation();
     }
 
-    private void UpdateStartupProgressLr2FullGenerationBackfillStatus(int totalCount, int processedCount, string stage)
+    private void UpdateStartupProgressLr2FullGenerationBackfillStatus(
+        int totalCount,
+        int processedCount,
+        string stage,
+        int stageProcessedCount,
+        int stageTotalCount)
     {
         lock (startupProgressLock)
         {
@@ -19655,6 +19749,8 @@ public class MainWindowViewModel : ViewModel
             startupProgressState.Lr2FullGenerationBackfillTotalCount = totalCount;
             startupProgressState.Lr2FullGenerationBackfillProcessedCount = processedCount;
             startupProgressState.Lr2FullGenerationBackfillStage = stage ?? string.Empty;
+            startupProgressState.Lr2FullGenerationBackfillStageProcessedCount = Math.Max(0, stageProcessedCount);
+            startupProgressState.Lr2FullGenerationBackfillStageTotalCount = Math.Max(0, stageTotalCount);
         }
         RecomputeStartupProgressPresentation();
     }
@@ -19816,7 +19912,11 @@ public class MainWindowViewModel : ViewModel
         bool isActive = ShouldShowLr2FullGenerationStatus(status.HasWarningStatus, IsStartupProgressBlockingLr2FullGenerationStatus());
         IsLr2FullGenerationStatusActive = isActive;
         Lr2FullGenerationStatusLabel = isActive ? status.StatusText : string.Empty;
-        Lr2FullGenerationStatusSubLabel = isActive ? status.Detail : string.Empty;
+        Lr2FullGenerationStatusSubLabel = isActive ? status.ProgressText : string.Empty;
+        Lr2FullGenerationStatusToolTip = isActive ? status.Detail : string.Empty;
+        Lr2FullGenerationStatusProgressValue = isActive ? status.ProgressValue : 0.0;
+        Lr2FullGenerationStatusProgressMaximum = isActive ? status.ProgressMaximum : 1.0;
+        IsLr2FullGenerationStatusProgressVisible = isActive && status.HasProgress;
         IsLr2FullGenerationRetryVisible = isActive && status.CanRetry;
         IsLr2FullGenerationCancelVisible = isActive && status.CanCancel;
         IsLr2FullGenerationCleanupVisible = isActive && status.CanCleanupStartupScanBlockers;
@@ -20030,6 +20130,11 @@ public class MainWindowViewModel : ViewModel
             {
                 maximum = Math.Max(1.0, CountExpectedStartupProgressPhases(state));
                 value = CountCompletedExpectedStartupProgressPhases(state);
+                if (TryGetStartupProgressStageValue(state, out double stageValue, out double stageMaximum))
+                {
+                    value = stageValue;
+                    maximum = stageMaximum;
+                }
                 bool operableCompleted = (state.CompletedPhases & StartupProgressPhase.StartupReadyOperable) != 0;
                 bool operationCompleted = !state.IsFailed && AreExpectedStartupProgressPhasesCompleted(state);
                 operationCompletedForLog = operationCompleted;
@@ -20402,10 +20507,16 @@ public class MainWindowViewModel : ViewModel
         }
         if (!IsStartupProgressPhaseCompletedOrNotExpected(state, StartupProgressPhase.Lr2FullGenerationBackfillDone))
         {
+            int displayedProcessedCount = state.Lr2FullGenerationBackfillStageTotalCount > 0
+                ? state.Lr2FullGenerationBackfillStageProcessedCount
+                : state.Lr2FullGenerationBackfillProcessedCount;
+            int displayedTotalCount = state.Lr2FullGenerationBackfillStageTotalCount > 0
+                ? state.Lr2FullGenerationBackfillStageTotalCount
+                : state.Lr2FullGenerationBackfillTotalCount;
             return FormatStartupProgressCountLabel(
                 BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_lr2_full_generation,
-                state.Lr2FullGenerationBackfillProcessedCount,
-                state.Lr2FullGenerationBackfillTotalCount,
+                displayedProcessedCount,
+                displayedTotalCount,
                 FormatLr2FullGenerationBackfillStageLabel(state.Lr2FullGenerationBackfillStage));
         }
         if (!IsStartupProgressPhaseCompletedOrNotExpected(state, StartupProgressPhase.PlaylistReferenceApplied) || !IsStartupProgressPhaseCompletedOrNotExpected(state, StartupProgressPhase.ExternalPlaylistSyncDone))
@@ -20436,6 +20547,24 @@ public class MainWindowViewModel : ViewModel
         return string.IsNullOrWhiteSpace(stage)
             ? string.Empty
             : stage.Replace('_', ' ');
+    }
+
+    private static bool TryGetStartupProgressStageValue(StartupProgressState state, out double value, out double maximum)
+    {
+        value = 0.0;
+        maximum = 1.0;
+        if (state == null
+            || !state.IsActive
+            || state.IsFailed
+            || !CanCompleteStartupProgressPhase(state, StartupProgressPhase.Lr2FullGenerationBackfillDone)
+            || state.Lr2FullGenerationBackfillStageTotalCount <= 0)
+        {
+            return false;
+        }
+
+        maximum = Math.Max(1.0, state.Lr2FullGenerationBackfillStageTotalCount);
+        value = Math.Max(0.0, Math.Min(maximum, state.Lr2FullGenerationBackfillStageProcessedCount));
+        return true;
     }
 
     private static string GetStartupProgressLibraryLoadSubLabel(StartupProgressState state)
@@ -20739,6 +20868,14 @@ public class MainWindowViewModel : ViewModel
                 {
                     state.Lr2FullGenerationBackfillStage = statusParts[2];
                 }
+                if (statusParts.Length > 3)
+                {
+                    state.Lr2FullGenerationBackfillStageTotalCount = int.Parse(statusParts[3], CultureInfo.InvariantCulture);
+                }
+                if (statusParts.Length > 4)
+                {
+                    state.Lr2FullGenerationBackfillStageProcessedCount = int.Parse(statusParts[4], CultureInfo.InvariantCulture);
+                }
             }
             else
             {
@@ -20755,6 +20892,13 @@ public class MainWindowViewModel : ViewModel
         string subLabel = state.IsFailed
             ? (!string.IsNullOrWhiteSpace(state.FailureSubLabel) ? state.FailureSubLabel : GetStartupProgressSubLabel(state))
             : completed ? string.Empty : GetStartupProgressSubLabel(state);
+        double progressMaximum = Math.Max(1.0, CountExpectedStartupProgressPhases(state));
+        double progressValue = CountCompletedExpectedStartupProgressPhases(state);
+        if (TryGetStartupProgressStageValue(state, out double stageValue, out double stageMaximum))
+        {
+            progressValue = stageValue;
+            progressMaximum = stageMaximum;
+        }
         return new StartupProgressTestResult
         {
             ExpectedCount = CountExpectedStartupProgressPhases(state),
@@ -20766,7 +20910,9 @@ public class MainWindowViewModel : ViewModel
             Label = label,
             SubLabel = subLabel,
             IsCompleted = completed,
-            IsFailed = state.IsFailed
+            IsFailed = state.IsFailed,
+            ProgressValue = progressValue,
+            ProgressMaximum = progressMaximum
         };
     }
 

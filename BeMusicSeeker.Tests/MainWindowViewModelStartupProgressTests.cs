@@ -341,10 +341,12 @@ public sealed class MainWindowViewModelStartupProgressTests
             "skip:MaintenanceDeferredDone",
             "skip:InstallableMaintenanceDeferredDone",
             "request:Lr2FullGenerationBackfillDone",
-            "lr2full:100|25|song_rows");
+            "lr2full:432464|243780|song_rows|209684|209000");
 
         Assert.AreEqual(Resources.Statusbar_progress_operable_background, result.Label);
-        Assert.AreEqual("[25/100] " + Resources.Statusbar_progress_phase_lr2_full_generation + " song rows", result.SubLabel);
+        Assert.AreEqual("[209000/209684] " + Resources.Statusbar_progress_phase_lr2_full_generation + " song rows", result.SubLabel);
+        Assert.AreEqual(209000.0, result.ProgressValue);
+        Assert.AreEqual(209684.0, result.ProgressMaximum);
         Assert.IsFalse(result.IsCompleted);
     }
 

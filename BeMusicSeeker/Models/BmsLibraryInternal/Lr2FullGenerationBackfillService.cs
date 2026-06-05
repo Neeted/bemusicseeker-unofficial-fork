@@ -56,7 +56,22 @@ internal sealed class Lr2FullGenerationBackfillRequest
 
     public Func<bool> IsSourceCurrent { get; set; }
 
-    public Action<int, int, string> ProgressReporter { get; set; }
+    public Action<Lr2FullGenerationBackfillProgress> ProgressReporter { get; set; }
+
+    public Action<string> LogInstallPerformance { get; set; }
+}
+
+internal sealed class Lr2FullGenerationBackfillProgress
+{
+    public int ProcessedCursor { get; set; }
+
+    public int TotalCount { get; set; }
+
+    public string Stage { get; set; } = string.Empty;
+
+    public int StageProcessedCount { get; set; }
+
+    public int StageTotalCount { get; set; }
 }
 
 internal sealed class Lr2FullGenerationBackfillResult
@@ -241,7 +256,16 @@ internal static class Lr2FullGenerationBackfillService
             stage: initialStage,
             nowUtc: request.StartedAtUtc,
             processedCursor: resumeCursor);
-        ReportProgress(request, resumeCursor, totalCount, initialStage);
+        LogBackfill(request, "lr2_full_generation_backfill input_summary"
+            + " roots=" + roots.Count
+            + " charts=" + chartPaths.Count
+            + " folderInfoCandidates=" + folderInfoFilePaths.Count
+            + " lr2FolderCandidates=" + lr2FolderFilePaths.Count
+            + " songRows=" + songRows.Count
+            + " durableTotal=" + totalCount
+            + " resumeCursor=" + resumeCursor
+            + " initialStage=" + initialStage);
+        ReportProgress(request, resumeCursor, totalCount, initialStage, ResolveStageProcessedCount(resumeCursor, normalFolderEndCursor, lr2FolderEndCursor), ResolveStageTotalCount(initialStage, normalFolderTargetCount, lr2FolderFilePaths.Count, songRows.Count));
         ThrowIfCancellationRequested(songDb, request, resumeCursor, totalCount, initialStage);
 
         Lr2NormalFolderDbSyncResult normalFolderResult = null;
@@ -250,6 +274,7 @@ internal static class Lr2FullGenerationBackfillService
             : 0;
         if (resumeCursor < normalFolderEndCursor && roots.Count > 0)
         {
+            LogStage(request, "stage_start", "normal_folders", normalFolderTargetCount, normalFolderProcessedCount, normalFolderProcessedCount);
             normalFolderResult = Lr2NormalFolderDbSyncService.Sync(songDb, new Lr2NormalFolderDbSyncRequest
             {
                 RootDirectories = roots,
@@ -261,6 +286,7 @@ internal static class Lr2FullGenerationBackfillService
                 GeneratedAtUtc = request.StartedAtUtc
             });
             normalFolderProcessedCount = normalFolderTargetCount;
+            LogStage(request, "stage_done", "normal_folders", normalFolderTargetCount, normalFolderProcessedCount, normalFolderProcessedCount);
         }
         ThrowIfCancellationRequested(songDb, request, normalFolderProcessedCount, totalCount, "normal_folders_completed");
 
@@ -274,11 +300,12 @@ internal static class Lr2FullGenerationBackfillService
                 totalCount: totalCount,
                 stage: "normal_folders_completed",
                 nowUtc: DateTime.UtcNow);
-            ReportProgress(request, normalFolderProcessedCount, totalCount, "normal_folders_completed");
+            ReportProgress(request, normalFolderProcessedCount, totalCount, "normal_folders_completed", normalFolderTargetCount, normalFolderTargetCount);
         }
 
         if (resumeCursor < lr2FolderEndCursor)
         {
+            LogStage(request, "stage_start", "lr2folder_files", lr2FolderFilePaths.Count, 0, normalFolderProcessedCount);
             Lr2FullGenerationStatusService.UpdateCursor(
                 songDb,
                 request.Signature,
@@ -287,7 +314,7 @@ internal static class Lr2FullGenerationBackfillService
                 totalCount: totalCount,
                 stage: "lr2folder_files",
                 nowUtc: DateTime.UtcNow);
-            ReportProgress(request, normalFolderProcessedCount, totalCount, "lr2folder_files");
+            ReportProgress(request, normalFolderProcessedCount, totalCount, "lr2folder_files", 0, lr2FolderFilePaths.Count);
         }
         ThrowIfCancellationRequested(songDb, request, normalFolderProcessedCount, totalCount, "lr2folder_files");
 
@@ -310,6 +337,10 @@ internal static class Lr2FullGenerationBackfillService
             lr2FolderFileProcessedCount = lr2FolderFileResult.ItemCount;
         }
         int folderProcessedCount = normalFolderProcessedCount + lr2FolderFileProcessedCount;
+        if (resumeCursor < lr2FolderEndCursor)
+        {
+            LogStage(request, "stage_done", "lr2folder_files", lr2FolderFilePaths.Count, lr2FolderFileProcessedCount, folderProcessedCount);
+        }
         ThrowIfCancellationRequested(songDb, request, folderProcessedCount, totalCount, "lr2folder_files_completed");
 
         if (resumeCursor < lr2FolderEndCursor)
@@ -322,22 +353,25 @@ internal static class Lr2FullGenerationBackfillService
                 totalCount: totalCount,
                 stage: "lr2folder_files_completed",
                 nowUtc: DateTime.UtcNow);
-            ReportProgress(request, folderProcessedCount, totalCount, "lr2folder_files_completed");
+            ReportProgress(request, folderProcessedCount, totalCount, "lr2folder_files_completed", lr2FolderFileProcessedCount, lr2FolderFilePaths.Count);
         }
 
         if (resumeCursor < songRowsEndCursor)
         {
+            int songStageStart = Math.Max(0, resumeCursor - lr2FolderEndCursor);
+            int songStageProcessedCursor = folderProcessedCount + songStageStart;
+            LogStage(request, "stage_start", "song_rows", songRows.Count, songStageStart, songStageProcessedCursor);
             Lr2FullGenerationStatusService.UpdateCursor(
                 songDb,
                 request.Signature,
                 request.RunId,
-                processedCursor: folderProcessedCount,
+                processedCursor: songStageProcessedCursor,
                 totalCount: totalCount,
                 stage: "song_rows",
                 nowUtc: DateTime.UtcNow);
-            ReportProgress(request, folderProcessedCount, totalCount, "song_rows");
+            ReportProgress(request, songStageProcessedCursor, totalCount, "song_rows", songStageStart, songRows.Count);
         }
-        ThrowIfCancellationRequested(songDb, request, folderProcessedCount, totalCount, "song_rows");
+        ThrowIfCancellationRequested(songDb, request, Math.Max(folderProcessedCount, resumeCursor), totalCount, "song_rows");
 
         int songRowStartIndex = Math.Max(0, resumeCursor - lr2FolderEndCursor);
         SongRowBackfillResult songRowResult = resumeCursor >= songRowsEndCursor
@@ -367,7 +401,8 @@ internal static class Lr2FullGenerationBackfillService
                 totalCount: totalCount,
                 stage: "song_rows_completed",
                 nowUtc: DateTime.UtcNow);
-            ReportProgress(request, processedCount, totalCount, "song_rows_completed");
+            ReportProgress(request, processedCount, totalCount, "song_rows_completed", songRowStartIndex + songRowResult.ProcessedCount, songRows.Count);
+            LogStage(request, "stage_done", "song_rows", songRows.Count, songRowStartIndex + songRowResult.ProcessedCount, processedCount);
         }
 
         Lr2StartupScanDiagnosticResult diagnosticResult = DiagnoseStartupScanBlockers(
@@ -390,7 +425,11 @@ internal static class Lr2FullGenerationBackfillService
                 stage: StartupScanBlockersStage,
                 detail: StartupScanBlockersReason + " " + diagnosticResult.ToLogDetail(),
                 nowUtc: DateTime.UtcNow);
-            ReportProgress(request, processedCount, totalCount, StartupScanBlockersStage);
+            LogBackfill(request, "lr2_full_generation_backfill startup_scan_blockers " + diagnosticResult.ToLogDetail()
+                + " total=" + diagnosticResult.TotalBlockerCount
+                + " cleanupFolderRows=" + diagnosticResult.CleanupFolderRowCount
+                + " processedCursor=" + processedCount);
+            ReportProgress(request, processedCount, totalCount, StartupScanBlockersStage, 0, diagnosticResult.TotalBlockerCount);
             finalStage = StartupScanBlockersStage;
             incompleteReason = StartupScanBlockersReason;
         }
@@ -405,7 +444,7 @@ internal static class Lr2FullGenerationBackfillService
                 stage: SourceStaleStage,
                 detail: SourceStaleReason,
                 nowUtc: DateTime.UtcNow);
-            ReportProgress(request, processedCount, totalCount, SourceStaleStage);
+            ReportProgress(request, processedCount, totalCount, SourceStaleStage, 0, 0);
             finalStage = SourceStaleStage;
             incompleteReason = SourceStaleReason;
         }
@@ -417,7 +456,7 @@ internal static class Lr2FullGenerationBackfillService
                 request.RunId,
                 totalCount,
                 nowUtc: DateTime.UtcNow);
-            ReportProgress(request, totalCount, totalCount, CompletedStage);
+            ReportProgress(request, totalCount, totalCount, CompletedStage, totalCount, totalCount);
             finalStage = CompletedStage;
             incompleteReason = null;
         }
@@ -478,7 +517,7 @@ internal static class Lr2FullGenerationBackfillService
             totalCount,
             stage,
             DateTime.UtcNow);
-        ReportProgress(request, processedCursor, totalCount, stage ?? "cancelled");
+        ReportProgress(request, processedCursor, totalCount, stage ?? "cancelled", 0, 0);
         throw new OperationCanceledException(request.CancellationToken);
     }
 
@@ -517,22 +556,79 @@ internal static class Lr2FullGenerationBackfillService
         return "normal_folders";
     }
 
+    private static int ResolveStageProcessedCount(int durableCursor, int normalFolderEndCursor, int lr2FolderEndCursor)
+    {
+        if (durableCursor >= lr2FolderEndCursor)
+        {
+            return Math.Max(0, durableCursor - lr2FolderEndCursor);
+        }
+        if (durableCursor >= normalFolderEndCursor)
+        {
+            return Math.Max(0, durableCursor - normalFolderEndCursor);
+        }
+        return Math.Max(0, durableCursor);
+    }
+
+    private static int ResolveStageTotalCount(string stage, int normalFolderTotalCount, int lr2FolderTotalCount, int songRowTotalCount)
+    {
+        return stage switch
+        {
+            "normal_folders" or "normal_folders_completed" => Math.Max(0, normalFolderTotalCount),
+            "lr2folder_files" or "lr2folder_files_completed" => Math.Max(0, lr2FolderTotalCount),
+            "song_rows" or "song_rows_completed" => Math.Max(0, songRowTotalCount),
+            _ => 0,
+        };
+    }
+
     private static void ReportProgress(
         Lr2FullGenerationBackfillRequest request,
         int processedCount,
         int totalCount,
-        string stage)
+        string stage,
+        int stageProcessedCount,
+        int stageTotalCount)
     {
         try
         {
-            request?.ProgressReporter?.Invoke(
-                Math.Max(0, processedCount),
-                Math.Max(0, totalCount),
-                stage ?? string.Empty);
+            request?.ProgressReporter?.Invoke(new Lr2FullGenerationBackfillProgress
+            {
+                ProcessedCursor = Math.Max(0, processedCount),
+                TotalCount = Math.Max(0, totalCount),
+                Stage = stage ?? string.Empty,
+                StageProcessedCount = Math.Max(0, stageProcessedCount),
+                StageTotalCount = Math.Max(0, stageTotalCount)
+            });
         }
         catch
         {
             // Progress observation must not affect the durable backfill run.
+        }
+    }
+
+    private static void LogStage(
+        Lr2FullGenerationBackfillRequest request,
+        string action,
+        string stage,
+        int totalCount,
+        int processedCount,
+        int processedCursor)
+    {
+        LogBackfill(request, "lr2_full_generation_backfill " + action
+            + " stage=" + (stage ?? string.Empty)
+            + " processed=" + Math.Max(0, processedCount)
+            + " total=" + Math.Max(0, totalCount)
+            + " processedCursor=" + Math.Max(0, processedCursor));
+    }
+
+    private static void LogBackfill(Lr2FullGenerationBackfillRequest request, string message)
+    {
+        try
+        {
+            request?.LogInstallPerformance?.Invoke(message);
+        }
+        catch
+        {
+            // Diagnostics must not affect durable backfill semantics.
         }
     }
 
@@ -1138,10 +1234,26 @@ internal static class Lr2FullGenerationBackfillService
                 totalCount,
                 "song_rows");
             List<BMSFile> chunkTargets = [.. targetRows.Skip(offset).Take(songRowBackfillChunkSize)];
+            LogBackfill(request, "lr2_full_generation_backfill chunk_start"
+                + " stage=song_rows"
+                + " offset=" + offset
+                + " count=" + chunkTargets.Count
+                + " processedCursor=" + (baseProcessedCursor + offset));
             var rowsToWrite = new List<BMSFile>(chunkTargets.Count);
+            long chunkReadMs = 0L;
+            long chunkParseMs = 0L;
+            int chunkFallbackCount = 0;
+            int chunkParseFailureCount = 0;
             foreach (BMSFile song in chunkTargets)
             {
-                BMSFile row = CreateBackfillSongRow(song, textFileDirectories, out bool parsedFromSnapshot);
+                BMSFile row = CreateBackfillSongRow(
+                    song,
+                    textFileDirectories,
+                    out bool parsedFromSnapshot,
+                    out long readMs,
+                    out long parseMs);
+                chunkReadMs += readMs;
+                chunkParseMs += parseMs;
                 if (row == null || string.IsNullOrWhiteSpace(row.path))
                 {
                     continue;
@@ -1149,14 +1261,20 @@ internal static class Lr2FullGenerationBackfillService
                 if (!parsedFromSnapshot)
                 {
                     parseFailureCount++;
+                    chunkParseFailureCount++;
+                    chunkFallbackCount++;
                 }
                 rowsToWrite.Add(row);
             }
 
+            var stopwatchChartInfo = Stopwatch.StartNew();
             int chunkChartInfoAppliedCount = ApplyCurrentChartInfoRows(songDb, rowsToWrite);
+            stopwatchChartInfo.Stop();
+            var stopwatchCommit = Stopwatch.StartNew();
             songDb.BeginTransaction();
             try
             {
+                int chunkCompatibilityApplied = 0;
                 foreach (BMSFile song in rowsToWrite)
                 {
                     Lr2SongDbWriter.UpsertGeneratedSong(songDb, song);
@@ -1165,9 +1283,11 @@ internal static class Lr2FullGenerationBackfillService
                         UpsertLr2CompatibilityFacts(songDb, compatibilityInfo);
                         compatibilityInfos.Add(compatibilityInfo);
                         compatibilityApplied++;
+                        chunkCompatibilityApplied++;
                     }
                 }
                 songDb.Commit();
+                stopwatchCommit.Stop();
                 chartInfoAppliedCount += chunkChartInfoAppliedCount;
                 processed += chunkTargets.Count;
                 int processedCursor = baseProcessedCursor + offset + chunkTargets.Count;
@@ -1179,10 +1299,23 @@ internal static class Lr2FullGenerationBackfillService
                     totalCount,
                     stage: "song_rows",
                     nowUtc: DateTime.UtcNow);
-                ReportProgress(request, processedCursor, totalCount, "song_rows");
+                ReportProgress(request, processedCursor, totalCount, "song_rows", offset + chunkTargets.Count, targetRows.Count);
+                LogBackfill(request, "lr2_full_generation_backfill chunk_done"
+                    + " stage=song_rows"
+                    + " offset=" + offset
+                    + " count=" + chunkTargets.Count
+                    + " readMs=" + chunkReadMs
+                    + " parseMs=" + chunkParseMs
+                    + " chartInfoApplyMs=" + stopwatchChartInfo.ElapsedMilliseconds
+                    + " commitMs=" + stopwatchCommit.ElapsedMilliseconds
+                    + " fallbackCount=" + chunkFallbackCount
+                    + " parseFailureCount=" + chunkParseFailureCount
+                    + " compatibilityApplied=" + chunkCompatibilityApplied
+                    + " processedCursor=" + processedCursor);
             }
             catch (Exception ex)
             {
+                stopwatchCommit.Stop();
                 Exception rollbackException = TryRollbackSongRowChunk(songDb);
                 Lr2FullGenerationStatusService.MarkFailed(
                     songDb,
@@ -1226,9 +1359,13 @@ internal static class Lr2FullGenerationBackfillService
     private static BMSFile CreateBackfillSongRow(
         BMSFile existingSong,
         ISet<string> textFileDirectories,
-        out bool parsedFromSnapshot)
+        out bool parsedFromSnapshot,
+        out long readMs,
+        out long parseMs)
     {
         parsedFromSnapshot = false;
+        readMs = 0L;
+        parseMs = 0L;
         if (existingSong == null || string.IsNullOrWhiteSpace(existingSong.path))
         {
             return null;
@@ -1236,11 +1373,17 @@ internal static class Lr2FullGenerationBackfillService
 
         try
         {
+            var stopwatchRead = Stopwatch.StartNew();
             ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(existingSong.path);
+            stopwatchRead.Stop();
+            readMs = stopwatchRead.ElapsedMilliseconds;
+            var stopwatchParse = Stopwatch.StartNew();
             BMSFile.BmsEncodingDetectionResult detectionResult = BMSFile.DetectEncodingOfBMSFileDetailed(snapshot);
             string encodingName = ResolveSafeBackfillParseEncoding(detectionResult);
             if (string.IsNullOrWhiteSpace(encodingName))
             {
+                stopwatchParse.Stop();
+                parseMs = stopwatchParse.ElapsedMilliseconds;
                 return CreateFallbackBackfillSongRow(existingSong, textFileDirectories);
             }
 
@@ -1250,6 +1393,8 @@ internal static class Lr2FullGenerationBackfillService
                 snapshot,
                 ResolveTextGroupFlag(existingSong.path, textFileDirectories, existingSong.txt.GetValueOrDefault()),
                 existingSong);
+            stopwatchParse.Stop();
+            parseMs = stopwatchParse.ElapsedMilliseconds;
             parsedFromSnapshot = true;
             return parsed;
         }
