@@ -1177,7 +1177,7 @@ internal static class Lr2FullGenerationBackfillService
             }
             catch (Exception ex)
             {
-                songDb.Rollback();
+                Exception rollbackException = TryRollbackSongRowChunk(songDb);
                 Lr2FullGenerationStatusService.MarkFailed(
                     songDb,
                     signature,
@@ -1185,13 +1185,36 @@ internal static class Lr2FullGenerationBackfillService
                     processedCursor: baseProcessedCursor + offset,
                     totalCount,
                     stage: "song_rows",
-                    error: ex.Message,
+                    error: rollbackException == null
+                        ? ex.Message
+                        : ex.Message + " rollback=" + rollbackException.Message,
                     nowUtc: DateTime.UtcNow);
                 throw;
             }
         }
 
         return new SongRowBackfillResult(processed, parseFailureCount, chartInfoAppliedCount, compatibilityApplied, compatibilityInfos);
+    }
+
+    private static Exception TryRollbackSongRowChunk(LR2SongDBExtended songDb)
+    {
+        try
+        {
+            songDb.Rollback();
+            return null;
+        }
+        catch (Exception rollbackEx)
+        {
+            try
+            {
+                songDb.Execute("ROLLBACK;");
+                return rollbackEx;
+            }
+            catch (Exception directRollbackEx)
+            {
+                return new AggregateException(rollbackEx, directRollbackEx);
+            }
+        }
     }
 
     private static BMSFile CreateBackfillSongRow(

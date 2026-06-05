@@ -1721,6 +1721,64 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
     }
 
     [TestMethod]
+    public void BackfillService_RollsBackFailedSongRowChunkAndRetriesFromChunkStart()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        string rootDirectory = Path.Combine(scope.DirectoryPath, "RollbackSongRoot");
+        string songDirectory = Path.Combine(rootDirectory, "Song");
+        Directory.CreateDirectory(songDirectory);
+        string firstPath = Path.Combine(songDirectory, "first.bms");
+        string secondPath = Path.Combine(songDirectory, "second.bms");
+        File.WriteAllText(firstPath, "#TITLE first rollback\r\n", Encoding.ASCII);
+        File.WriteAllText(secondPath, "#TITLE second rollback\r\n", Encoding.ASCII);
+        TestableBmsFile firstFile = CreateBackfillTestFile(firstPath, ChartFileContentReader.ReadSnapshot(firstPath));
+        TestableBmsFile secondFile = CreateBackfillTestFile(secondPath, ChartFileContentReader.ReadSnapshot(secondPath));
+        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        songDb.CreateTable<LR2SongDB.song>();
+        songDb.CreateTable<LR2SongDB.folder>();
+        const string signature = "rollback-song-chunk";
+        songDb.Execute(
+            "CREATE TRIGGER fail_second_song_insert BEFORE INSERT ON song"
+            + " WHEN NEW.path = '" + EscapeSqlLiteral(secondPath) + "'"
+            + " BEGIN SELECT RAISE(ABORT, 'fail_second_song_insert'); END;");
+
+        Assert.ThrowsException<SQLite.SQLiteException>(() => Lr2FullGenerationBackfillService.Run(songDb, new Lr2FullGenerationBackfillRequest
+        {
+            Signature = signature,
+            RunId = "rollback-fail-run",
+            RootDirectories = [rootDirectory],
+            ChartPaths = [firstPath, secondPath],
+            SongRows = [firstFile, secondFile],
+            StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc)
+        }));
+        Assert.AreEqual(0, songDb.Table<LR2SongDB.song>().Count());
+        LR2SongDBExtended.lr2_full_generation_status failed = songDb.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
+        Assert.AreEqual("Failed", failed.status);
+        Assert.AreEqual("song_rows", failed.stage);
+        Assert.AreEqual(3, failed.processed_cursor);
+        Assert.AreEqual(5, failed.total_count);
+
+        songDb.Execute("DROP TRIGGER fail_second_song_insert;");
+        Lr2FullGenerationBackfillResult retry = Lr2FullGenerationBackfillService.Run(songDb, new Lr2FullGenerationBackfillRequest
+        {
+            Signature = signature,
+            RunId = "rollback-retry-run",
+            RootDirectories = [rootDirectory],
+            ChartPaths = [firstPath, secondPath],
+            SongRows = [firstFile, secondFile],
+            StartedAtUtc = new DateTime(2026, 6, 5, 0, 1, 0, DateTimeKind.Utc)
+        });
+
+        Assert.AreEqual(Lr2FullGenerationBackfillService.CompletedStage, retry.FinalStage);
+        Assert.AreEqual(2, retry.SongRowProcessedCount);
+        Assert.AreEqual("first rollback", songDb.ExecuteScalar<string>("SELECT title FROM song WHERE path = ?;", firstPath));
+        Assert.AreEqual("second rollback", songDb.ExecuteScalar<string>("SELECT title FROM song WHERE path = ?;", secondPath));
+        LR2SongDBExtended.lr2_full_generation_status completed = songDb.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
+        Assert.AreEqual("Completed", completed.status);
+        Assert.AreEqual(5, completed.processed_cursor);
+    }
+
+    [TestMethod]
     public void BackfillService_ParsesSongRowsWithDetectedUtf8Encoding()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
@@ -2523,6 +2581,11 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
         file.SetHash(snapshot.Md5);
         file.ApplySha256(snapshot.Sha256);
         return file;
+    }
+
+    private static string EscapeSqlLiteral(string value)
+    {
+        return (value ?? string.Empty).Replace("'", "''");
     }
 
     private static LR2SongDBExtended.chart_info CreateChartInfo(string sha256, string md5, int level, int? parserVersion = null)
