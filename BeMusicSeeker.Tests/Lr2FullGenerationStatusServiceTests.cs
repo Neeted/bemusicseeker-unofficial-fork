@@ -109,6 +109,24 @@ public sealed class Lr2FullGenerationStatusServiceTests
     }
 
     [TestMethod]
+    public void MarkFailed_PreservesSameRunCursorWhenNoCursorIsProvided()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        DateTime now = new(2026, 6, 4, 1, 2, 3, DateTimeKind.Utc);
+
+        Lr2FullGenerationStatusService.MarkRunning(songDb, "sig1", "run1", totalCount: 100, stage: "song", nowUtc: now);
+        Lr2FullGenerationStatusService.UpdateCursor(songDb, "sig1", "run1", processedCursor: 40, totalCount: 100, stage: "song", nowUtc: now.AddMinutes(1));
+        Lr2FullGenerationStatusService.MarkFailed(songDb, "sig1", "run1", processedCursor: null, totalCount: null, stage: "failed", error: "boom", nowUtc: now.AddMinutes(2));
+
+        LR2SongDBExtended.lr2_full_generation_status row = songDb.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
+        Assert.AreEqual("Failed", row.status);
+        Assert.AreEqual(40, row.processed_cursor);
+        Assert.AreEqual(100, row.total_count);
+        Assert.AreEqual("failed", row.stage);
+    }
+
+    [TestMethod]
     public void EnsureAppOwnedSchema_CreatesStatusTable()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();

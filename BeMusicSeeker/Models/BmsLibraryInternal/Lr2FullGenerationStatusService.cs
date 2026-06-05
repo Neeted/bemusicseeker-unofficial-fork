@@ -259,6 +259,20 @@ internal static class Lr2FullGenerationStatusService
         string error,
         DateTime nowUtc)
     {
+        if (songDb == null)
+        {
+            throw new ArgumentNullException(nameof(songDb));
+        }
+
+        BmsLibraryDbGateway.EnsureLr2FullGenerationStatusSchema(songDb);
+        LR2SongDBExtended.lr2_full_generation_status existing = LoadRow(songDb);
+        if (existing != null
+            && string.Equals(existing.signature ?? string.Empty, signature ?? string.Empty, StringComparison.Ordinal)
+            && string.Equals(existing.run_id ?? string.Empty, runId ?? string.Empty, StringComparison.Ordinal))
+        {
+            processedCursor ??= existing.processed_cursor;
+            totalCount ??= existing.total_count;
+        }
         return Upsert(songDb, Lr2FullGenerationStatusKind.Failed, signature, runId, processedCursor, totalCount, stage, error, completedAt: null, nowUtc);
     }
 

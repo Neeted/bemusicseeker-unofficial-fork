@@ -831,6 +831,61 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
     }
 
     [TestMethod]
+    public void BackfillService_ResumesInsideSongRowsFromDurableCursor()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        string rootDirectory = Path.Combine(scope.DirectoryPath, "ResumeSongRoot");
+        string songDirectory = Path.Combine(rootDirectory, "Song");
+        Directory.CreateDirectory(songDirectory);
+        string firstPath = Path.Combine(songDirectory, "first.bms");
+        string secondPath = Path.Combine(songDirectory, "second.bms");
+        File.WriteAllText(firstPath, "#TITLE first updated\r\n");
+        File.WriteAllText(secondPath, "#TITLE second updated\r\n");
+        ChartFileSnapshot firstSnapshot = ChartFileContentReader.ReadSnapshot(firstPath);
+        ChartFileSnapshot secondSnapshot = ChartFileContentReader.ReadSnapshot(secondPath);
+        TestableBmsFile firstFile = CreateBackfillTestFile(firstPath, firstSnapshot);
+        TestableBmsFile secondFile = CreateBackfillTestFile(secondPath, secondSnapshot);
+        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        songDb.CreateTable<LR2SongDB.song>();
+        songDb.CreateTable<LR2SongDB.folder>();
+        var existingFirstRow = new TestableBmsFile
+        {
+            path = firstPath,
+            date = 1
+        }.WithHashAndFavorite(firstFile.hash, favoriteValue: null);
+        existingFirstRow.SetTitleForTest("first stale");
+        songDb.InsertOrReplace(existingFirstRow, typeof(LR2SongDB.song));
+        const string signature = "resume-song-row";
+        Lr2FullGenerationStatusService.MarkIncomplete(
+            songDb,
+            signature,
+            "previous-run",
+            processedCursor: 4,
+            totalCount: 5,
+            stage: "song_rows",
+            detail: "interrupted",
+            nowUtc: new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc));
+
+        Lr2FullGenerationBackfillResult result = Lr2FullGenerationBackfillService.Run(songDb, new Lr2FullGenerationBackfillRequest
+        {
+            Signature = signature,
+            RunId = "resume-run",
+            RootDirectories = [rootDirectory],
+            ChartPaths = [firstPath, secondPath],
+            SongRows = [firstFile, secondFile],
+            StartedAtUtc = new DateTime(2026, 6, 5, 0, 1, 0, DateTimeKind.Utc)
+        });
+
+        Assert.AreEqual(Lr2FullGenerationBackfillService.CompletedStage, result.FinalStage);
+        Assert.AreEqual(1, result.SongRowProcessedCount);
+        Assert.AreEqual("first stale", songDb.ExecuteScalar<string>("SELECT title FROM song WHERE path = ?;", firstPath));
+        Assert.AreEqual("second updated", songDb.ExecuteScalar<string>("SELECT title FROM song WHERE path = ?;", secondPath));
+        LR2SongDBExtended.lr2_full_generation_status row = songDb.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
+        Assert.AreEqual("Completed", row.status);
+        Assert.AreEqual(5, row.processed_cursor);
+    }
+
+    [TestMethod]
     public void BackfillService_ParsesSongRowsWithDetectedUtf8Encoding()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();

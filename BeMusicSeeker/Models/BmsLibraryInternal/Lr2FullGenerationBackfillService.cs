@@ -281,12 +281,22 @@ internal static class Lr2FullGenerationBackfillService
             ReportProgress(request, folderProcessedCount, totalCount, "song_rows");
         }
 
+        int songRowStartIndex = Math.Max(0, resumeCursor - lr2FolderEndCursor);
         SongRowBackfillResult songRowResult = resumeCursor >= songRowsEndCursor
             ? new SongRowBackfillResult(0, 0, 0, 0, [])
-            : UpsertSongRows(songDb, songRows, textFileDirectories);
+            : UpsertSongRows(
+                songDb,
+                songRows,
+                textFileDirectories,
+                songRowStartIndex,
+                lr2FolderEndCursor,
+                totalCount,
+                request.Signature,
+                request.RunId,
+                request);
         int processedCount = resumeCursor >= songRowsEndCursor
             ? songRowsEndCursor
-            : folderProcessedCount + songRowResult.ProcessedCount;
+            : lr2FolderEndCursor + songRowStartIndex + songRowResult.ProcessedCount;
 
         if (resumeCursor < songRowsEndCursor)
         {
@@ -403,11 +413,7 @@ internal static class Lr2FullGenerationBackfillService
         {
             return normalFolderEndCursor;
         }
-        if (safeCursor < songRowsEndCursor)
-        {
-            return lr2FolderEndCursor;
-        }
-        return songRowsEndCursor;
+        return safeCursor;
     }
 
     private static string ResolveInitialStage(int resumeCursor, int normalFolderEndCursor, int lr2FolderEndCursor, int songRowsEndCursor)
@@ -694,61 +700,98 @@ internal static class Lr2FullGenerationBackfillService
     private static SongRowBackfillResult UpsertSongRows(
         LR2SongDBExtended songDb,
         IReadOnlyCollection<BMSFile> songRows,
-        ISet<string> textFileDirectories)
+        ISet<string> textFileDirectories,
+        int startIndex,
+        int baseProcessedCursor,
+        int totalCount,
+        string signature,
+        string runId,
+        Lr2FullGenerationBackfillRequest request)
     {
         if (songRows == null || songRows.Count == 0)
         {
             return new SongRowBackfillResult(0, 0, 0, 0, []);
         }
 
-        var rowsToWrite = new List<BMSFile>();
-        int parseFailureCount = 0;
-        foreach (BMSFile song in songRows.Where(song => song != null && !string.IsNullOrWhiteSpace(song.path)))
+        List<BMSFile> targetRows = [.. songRows.Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))];
+        int safeStartIndex = Math.Max(0, startIndex);
+        if (targetRows.Count == 0 || safeStartIndex >= targetRows.Count)
         {
-            BMSFile row = CreateBackfillSongRow(song, textFileDirectories, out bool parsedFromSnapshot);
-            if (row == null || string.IsNullOrWhiteSpace(row.path))
-            {
-                continue;
-            }
-            if (!parsedFromSnapshot)
-            {
-                parseFailureCount++;
-            }
-            rowsToWrite.Add(row);
-        }
-        if (rowsToWrite.Count == 0)
-        {
-            return new SongRowBackfillResult(0, parseFailureCount, 0, 0, []);
+            return new SongRowBackfillResult(0, 0, 0, 0, []);
         }
 
         BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
-        int chartInfoAppliedCount = ApplyCurrentChartInfoRows(songDb, rowsToWrite);
         BmsLibraryDbGateway.EnsureSongLookupIndexes(songDb);
         BmsLibraryDbGateway.EnsureMaintenanceSchema(songDb);
+        const int songRowBackfillChunkSize = 500;
         int processed = 0;
+        int parseFailureCount = 0;
+        int chartInfoAppliedCount = 0;
         int compatibilityApplied = 0;
         var compatibilityInfos = new List<BMSFileMaintenanceInfo>();
-        songDb.BeginTransaction();
-        try
+
+        for (int offset = safeStartIndex; offset < targetRows.Count; offset += songRowBackfillChunkSize)
         {
-            foreach (BMSFile song in rowsToWrite)
+            List<BMSFile> chunkTargets = [.. targetRows.Skip(offset).Take(songRowBackfillChunkSize)];
+            var rowsToWrite = new List<BMSFile>(chunkTargets.Count);
+            foreach (BMSFile song in chunkTargets)
             {
-                Lr2SongDbWriter.UpsertGeneratedSong(songDb, song);
-                if (TryCreateLr2CompatibilityMaintenanceInfo(song, out BMSFileMaintenanceInfo compatibilityInfo))
+                BMSFile row = CreateBackfillSongRow(song, textFileDirectories, out bool parsedFromSnapshot);
+                if (row == null || string.IsNullOrWhiteSpace(row.path))
                 {
-                    UpsertLr2CompatibilityFacts(songDb, compatibilityInfo);
-                    compatibilityInfos.Add(compatibilityInfo);
-                    compatibilityApplied++;
+                    continue;
                 }
-                processed++;
+                if (!parsedFromSnapshot)
+                {
+                    parseFailureCount++;
+                }
+                rowsToWrite.Add(row);
             }
-            songDb.Commit();
+
+            int chunkChartInfoAppliedCount = ApplyCurrentChartInfoRows(songDb, rowsToWrite);
+            songDb.BeginTransaction();
+            try
+            {
+                foreach (BMSFile song in rowsToWrite)
+                {
+                    Lr2SongDbWriter.UpsertGeneratedSong(songDb, song);
+                    if (TryCreateLr2CompatibilityMaintenanceInfo(song, out BMSFileMaintenanceInfo compatibilityInfo))
+                    {
+                        UpsertLr2CompatibilityFacts(songDb, compatibilityInfo);
+                        compatibilityInfos.Add(compatibilityInfo);
+                        compatibilityApplied++;
+                    }
+                }
+                songDb.Commit();
+                chartInfoAppliedCount += chunkChartInfoAppliedCount;
+                processed += chunkTargets.Count;
+                int processedCursor = baseProcessedCursor + offset + chunkTargets.Count;
+                Lr2FullGenerationStatusService.UpdateCursor(
+                    songDb,
+                    signature,
+                    runId,
+                    processedCursor,
+                    totalCount,
+                    stage: "song_rows",
+                    nowUtc: DateTime.UtcNow);
+                ReportProgress(request, processedCursor, totalCount, "song_rows");
+            }
+            catch (Exception ex)
+            {
+                songDb.Rollback();
+                Lr2FullGenerationStatusService.MarkFailed(
+                    songDb,
+                    signature,
+                    runId,
+                    processedCursor: baseProcessedCursor + offset,
+                    totalCount,
+                    stage: "song_rows",
+                    error: ex.Message,
+                    nowUtc: DateTime.UtcNow);
+                throw;
+            }
         }
-        catch
-        {
-            songDb.Rollback();
-            throw;
-        }
+
         return new SongRowBackfillResult(processed, parseFailureCount, chartInfoAppliedCount, compatibilityApplied, compatibilityInfos);
     }
 
