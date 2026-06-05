@@ -5461,6 +5461,7 @@ completeFileEnumerationOnce,
         {
             ReportStartupBackgroundTask("lr2_full_generation_backfill", "start", 0L, failed: false, detail: "runId=" + runId);
             EnsureLr2FullGenerationChartInfoBackfill(reason);
+            EnsureLr2FullGenerationChartInfoIndexHydrated(reason);
             Lr2FullGenerationBackfillInput input = CreateLr2FullGenerationBackfillInput();
             Lr2FullGenerationBackfillResult result;
             using (LR2SongDBExtended songDb = dbGateway.OpenSongDb())
@@ -5484,6 +5485,7 @@ completeFileEnumerationOnce,
                     Lr2FolderFileDiscoveryComplete = input.Lr2FolderFileDiscoveryComplete,
                     SongRows = input.SongRows,
                     TextFileDirectories = input.TextFileDirectories,
+                    ChartInfoResolver = row => ResolveChartInfo(row?.sha256, row?.hash),
                     StartedAtUtc = DateTime.UtcNow,
                     CancellationToken = cancellationToken,
                     IsSourceCurrent = () => IsLr2FullGenerationBackfillInputCurrent(input),
@@ -5674,6 +5676,29 @@ completeFileEnumerationOnce,
             + " requestedVersion=" + ChartInfoBackfillRequestedVersion
             + " completedVersion=" + ChartInfoBackfillCompletedVersion
             + " digestBackfilled=" + ChartInfoBackfillDigestBackfilledCount);
+    }
+
+    private void EnsureLr2FullGenerationChartInfoIndexHydrated(string reason)
+    {
+        WaitForChartInfoHydrationIdle();
+        lock (lockChartInfoIndex)
+        {
+            if (_ChartInfoIndexHydrated)
+            {
+                return;
+            }
+        }
+
+        var stopwatch = Stopwatch.StartNew();
+        ChartInfoHydrationResult result = HydrateChartInfos("lr2_full_generation_" + (string.IsNullOrWhiteSpace(reason) ? "backfill" : reason));
+        stopwatch.Stop();
+        LogInstallPerformance("lr2_full_generation_chart_info_hydration ensured"
+            + " reason=" + (reason ?? "unknown")
+            + " elapsedMs=" + stopwatch.ElapsedMilliseconds
+            + " succeeded=" + result.Succeeded.ToString().ToLowerInvariant()
+            + " totalRows=" + result.TotalRows
+            + " dbLoadMs=" + result.DbLoadMs
+            + " indexBuildMs=" + result.IndexBuildMs);
     }
 
     private Lr2FullGenerationBackfillInput CreateLr2FullGenerationBackfillInput()

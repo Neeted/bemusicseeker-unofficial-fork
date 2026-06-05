@@ -51,6 +51,8 @@ internal sealed class Lr2FullGenerationBackfillRequest
 
     public IReadOnlyCollection<string> TextFileDirectories { get; set; } = [];
 
+    public Func<BMSFile, LR2SongDBExtended.chart_info> ChartInfoResolver { get; set; }
+
     public DateTime StartedAtUtc { get; set; } = DateTime.UtcNow;
 
     public CancellationToken CancellationToken { get; set; }
@@ -1463,6 +1465,8 @@ internal static class Lr2FullGenerationBackfillService
         int chartInfoAppliedCount = 0;
         int compatibilityApplied = 0;
         var compatibilityInfos = new List<BMSFileMaintenanceInfo>();
+        Func<BMSFile, LR2SongDBExtended.chart_info> chartInfoResolver =
+            request?.ChartInfoResolver ?? CreateCurrentChartInfoResolver(songDb);
         using var readQueue = new BlockingCollection<SongRowBackfillReadCandidate>(readQueueCapacity);
         using var computedQueue = new BlockingCollection<SongRowBackfillComputedItem>(computedQueueCapacity);
         long readerOutputWaitTicks = 0L;
@@ -1529,7 +1533,7 @@ internal static class Lr2FullGenerationBackfillService
             }
 
             var stopwatchChartInfo = Stopwatch.StartNew();
-            int chunkChartInfoAppliedCount = ApplyCurrentChartInfoRows(songDb, rowsToWrite);
+            int chunkChartInfoAppliedCount = ApplyCurrentChartInfoRows(rowsToWrite, chartInfoResolver);
             stopwatchChartInfo.Stop();
             var stopwatchCompatibility = Stopwatch.StartNew();
             var chunkCompatibilityInfos = new List<BMSFileMaintenanceInfo>();
@@ -1933,28 +1937,22 @@ internal static class Lr2FullGenerationBackfillService
         return textFileDirectories.Contains(Path.GetFullPath(directory)) ? 1 : 0;
     }
 
-    private static int ApplyCurrentChartInfoRows(LR2SongDBExtended songDb, IReadOnlyCollection<BMSFile> rows)
+    private static int ApplyCurrentChartInfoRows(
+        IReadOnlyCollection<BMSFile> rows,
+        Func<BMSFile, LR2SongDBExtended.chart_info> chartInfoResolver)
     {
         if (rows == null || rows.Count == 0)
         {
             return 0;
         }
-
-        BmsLibraryDbGateway.EnsureChartInfoSchema(songDb);
-        Dictionary<string, LR2SongDBExtended.chart_info> bySha256 = LoadCurrentChartInfoRowsByColumn(
-            songDb,
-            SQLiteTable<LR2SongDBExtended.chart_info>.GetColumnName(row => row.sha256),
-            rows.Select(row => row?.sha256));
-        Dictionary<string, LR2SongDBExtended.chart_info> byMd5 = LoadCurrentChartInfoRowsByColumn(
-            songDb,
-            SQLiteTable<LR2SongDBExtended.chart_info>.GetColumnName(row => row.md5),
-            rows.Select(row => row?.hash),
-            firstRowPerKey: true);
-
+        if (chartInfoResolver == null)
+        {
+            return 0;
+        }
         int applied = 0;
         foreach (BMSFile row in rows)
         {
-            LR2SongDBExtended.chart_info chartInfo = ResolveChartInfo(row, bySha256, byMd5);
+            LR2SongDBExtended.chart_info chartInfo = chartInfoResolver(row);
             if (chartInfo == null)
             {
                 continue;
@@ -1970,28 +1968,87 @@ internal static class Lr2FullGenerationBackfillService
         return applied;
     }
 
-    private static LR2SongDBExtended.chart_info ResolveChartInfo(
-        BMSFile row,
-        IReadOnlyDictionary<string, LR2SongDBExtended.chart_info> bySha256,
-        IReadOnlyDictionary<string, LR2SongDBExtended.chart_info> byMd5)
+    private static Func<BMSFile, LR2SongDBExtended.chart_info> CreateCurrentChartInfoResolver(LR2SongDBExtended songDb)
     {
-        if (row == null)
+        if (songDb == null)
         {
             return null;
         }
-        if (!string.IsNullOrWhiteSpace(row.sha256)
-            && bySha256 != null
-            && bySha256.TryGetValue(row.sha256, out LR2SongDBExtended.chart_info bySha256Row))
+        BmsLibraryDbGateway.EnsureChartInfoSchema(songDb);
+        string tableName = SQLiteTable<LR2SongDBExtended.chart_info>.GetTableName();
+        string parserVersionColumn = SQLiteTable<LR2SongDBExtended.chart_info>.GetColumnName(row => row.parser_version);
+        string sha256Column = SQLiteTable<LR2SongDBExtended.chart_info>.GetColumnName(row => row.sha256);
+        var bySha256 = new Dictionary<string, LR2SongDBExtended.chart_info>(StringComparer.OrdinalIgnoreCase);
+        var byMd5 = new Dictionary<string, LR2SongDBExtended.chart_info>(StringComparer.OrdinalIgnoreCase);
+        foreach (LR2SongDBExtended.chart_info row in songDb.Query<LR2SongDBExtended.chart_info>(
+            "SELECT * FROM " + tableName
+            + " WHERE " + parserVersionColumn + " = ?"
+            + " ORDER BY " + sha256Column + " ASC;",
+            BmsLibraryDbGateway.CurrentChartInfoParserVersion))
         {
-            return bySha256Row;
+            if (row == null)
+            {
+                continue;
+            }
+            if (!string.IsNullOrWhiteSpace(row.sha256))
+            {
+                bySha256[row.sha256] = row;
+            }
+            if (!string.IsNullOrWhiteSpace(row.md5) && !byMd5.ContainsKey(row.md5))
+            {
+                byMd5[row.md5] = row;
+            }
         }
-        if (!string.IsNullOrWhiteSpace(row.hash)
-            && byMd5 != null
-            && byMd5.TryGetValue(row.hash, out LR2SongDBExtended.chart_info byMd5Row))
+        return CreateChartInfoResolver(bySha256, byMd5);
+    }
+
+    internal static Func<BMSFile, LR2SongDBExtended.chart_info> CreateChartInfoResolverForTest(
+        IEnumerable<LR2SongDBExtended.chart_info> rows)
+    {
+        var bySha256 = new Dictionary<string, LR2SongDBExtended.chart_info>(StringComparer.OrdinalIgnoreCase);
+        var byMd5 = new Dictionary<string, LR2SongDBExtended.chart_info>(StringComparer.OrdinalIgnoreCase);
+        foreach (LR2SongDBExtended.chart_info row in rows ?? [])
         {
-            return byMd5Row;
+            if (row == null || row.parser_version != BmsLibraryDbGateway.CurrentChartInfoParserVersion)
+            {
+                continue;
+            }
+            if (!string.IsNullOrWhiteSpace(row.sha256))
+            {
+                bySha256[row.sha256] = row;
+            }
+            if (!string.IsNullOrWhiteSpace(row.md5) && !byMd5.ContainsKey(row.md5))
+            {
+                byMd5[row.md5] = row;
+            }
         }
-        return null;
+        return CreateChartInfoResolver(bySha256, byMd5);
+    }
+
+    private static Func<BMSFile, LR2SongDBExtended.chart_info> CreateChartInfoResolver(
+        IReadOnlyDictionary<string, LR2SongDBExtended.chart_info> bySha256,
+        IReadOnlyDictionary<string, LR2SongDBExtended.chart_info> byMd5)
+    {
+        return row =>
+        {
+            if (row == null)
+            {
+                return null;
+            }
+            if (!string.IsNullOrWhiteSpace(row.sha256)
+                && bySha256 != null
+                && bySha256.TryGetValue(row.sha256, out LR2SongDBExtended.chart_info bySha256Row))
+            {
+                return bySha256Row;
+            }
+            if (!string.IsNullOrWhiteSpace(row.hash)
+                && byMd5 != null
+                && byMd5.TryGetValue(row.hash, out LR2SongDBExtended.chart_info byMd5Row))
+            {
+                return byMd5Row;
+            }
+            return null;
+        };
     }
 
     private static bool IsChartInfoCompatible(BMSFile row, LR2SongDBExtended.chart_info chartInfo)
@@ -2003,63 +2060,6 @@ internal static class Lr2FullGenerationBackfillService
         return string.IsNullOrWhiteSpace(row.hash)
             || string.IsNullOrWhiteSpace(chartInfo.md5)
             || string.Equals(row.hash, chartInfo.md5, StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static Dictionary<string, LR2SongDBExtended.chart_info> LoadCurrentChartInfoRowsByColumn(
-        LR2SongDBExtended songDb,
-        string columnName,
-        IEnumerable<string> keys,
-        bool firstRowPerKey = false)
-    {
-        List<string> normalizedKeys = [.. (keys ?? [])
-            .Where(key => !string.IsNullOrWhiteSpace(key))
-            .Select(key => key.Trim().ToLowerInvariant())
-            .Distinct(StringComparer.OrdinalIgnoreCase)];
-        var result = new Dictionary<string, LR2SongDBExtended.chart_info>(StringComparer.OrdinalIgnoreCase);
-        if (normalizedKeys.Count == 0)
-        {
-            return result;
-        }
-
-        string tableName = SQLiteTable<LR2SongDBExtended.chart_info>.GetTableName();
-        string parserVersionColumn = SQLiteTable<LR2SongDBExtended.chart_info>.GetColumnName(row => row.parser_version);
-        const int chunkSize = 500;
-        for (int offset = 0; offset < normalizedKeys.Count; offset += chunkSize)
-        {
-            List<string> chunk = normalizedKeys.Skip(offset).Take(chunkSize).ToList();
-            string placeholders = string.Join(",", chunk.Select(_ => "?"));
-            string sql = "SELECT * FROM " + tableName
-                + " WHERE " + columnName + " IN (" + placeholders + ")"
-                + " AND " + parserVersionColumn + " >= ?"
-                + " ORDER BY " + columnName + " ASC, "
-                + SQLiteTable<LR2SongDBExtended.chart_info>.GetColumnName(row => row.sha256) + " ASC;";
-            object[] parameters = [.. chunk.Cast<object>(), BmsLibraryDbGateway.CurrentChartInfoParserVersion];
-            foreach (LR2SongDBExtended.chart_info row in songDb.Query<LR2SongDBExtended.chart_info>(sql, parameters))
-            {
-                string key = GetChartInfoLookupKey(row, columnName);
-                if (string.IsNullOrWhiteSpace(key))
-                {
-                    continue;
-                }
-                if (firstRowPerKey && result.ContainsKey(key))
-                {
-                    continue;
-                }
-                result[key] = row;
-            }
-        }
-        return result;
-    }
-
-    private static string GetChartInfoLookupKey(LR2SongDBExtended.chart_info row, string columnName)
-    {
-        if (row == null)
-        {
-            return null;
-        }
-        return string.Equals(columnName, SQLiteTable<LR2SongDBExtended.chart_info>.GetColumnName(info => info.sha256), StringComparison.OrdinalIgnoreCase)
-            ? row.sha256
-            : row.md5;
     }
 
     private static void UpsertLr2CompatibilityFacts(LR2SongDBExtended songDb, BMSFileMaintenanceInfo info)

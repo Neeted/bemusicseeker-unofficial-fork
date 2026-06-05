@@ -2098,6 +2098,36 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
     }
 
     [TestMethod]
+    public void BackfillService_UsesRequestChartInfoResolverWithoutChartInfoDbLookup()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        string songDirectory = Path.Combine(scope.DirectoryPath, "ChartInfoResolver");
+        Directory.CreateDirectory(songDirectory);
+        string chartPath = Path.Combine(songDirectory, "resolver.bms");
+        File.WriteAllText(chartPath, "#TITLE resolver\r\n");
+        ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
+        TestableBmsFile file = CreateBackfillTestFile(chartPath, snapshot);
+        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        songDb.CreateTable<LR2SongDB.song>();
+
+        Lr2FullGenerationBackfillResult result = Lr2FullGenerationBackfillService.Run(songDb, new Lr2FullGenerationBackfillRequest
+        {
+            Signature = "chart-info-resolver",
+            RunId = "chart-info-resolver",
+            SongRows = [file],
+            ChartInfoResolver = Lr2FullGenerationBackfillService.CreateChartInfoResolverForTest(
+            [
+                CreateChartInfo(snapshot.Sha256, snapshot.Md5, level: 13)
+            ]),
+            StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc)
+        });
+
+        Assert.AreEqual(1, result.SongRowProcessedCount);
+        Assert.AreEqual(1, result.SongRowChartInfoAppliedCount);
+        Assert.AreEqual(13, songDb.ExecuteScalar<int>("SELECT level FROM song WHERE path = ?;", chartPath));
+    }
+
+    [TestMethod]
     public void BackfillService_UsesStableMd5ChartInfoFallbackWhenSha256DoesNotMatch()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
