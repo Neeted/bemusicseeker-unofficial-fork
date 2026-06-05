@@ -255,6 +255,8 @@ public class Resources
 
     public static string Beatoraja_player => ResourceManager.GetString("Beatoraja_player", resourceCulture);
 
+    public static string Enable_lr2_song_db_full_generation => ResourceManager.GetString("Enable_lr2_song_db_full_generation", resourceCulture);
+
     public static string Register_beatoraja_bmt_urls => ResourceManager.GetString("Register_beatoraja_bmt_urls", resourceCulture);
 
     public static string Keep_beatoraja_bmt_files_when_output_disabled => ResourceManager.GetString("Keep_beatoraja_bmt_files_when_output_disabled", resourceCulture);

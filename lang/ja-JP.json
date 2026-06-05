@@ -261,6 +261,7 @@
   "Record_setting_encoder_desc": "※対応バイナリ: lame.exe|neroAacEnc.exe|opusenc.exe|flac.exe|oggenc2.exe",
   "Download": "ダウンロード",
   "Use_LR2_DB": "LR2と連携する",
+  "Enable_lr2_song_db_full_generation": "LR2用song.dbをBeMusicSeekerで完全生成する",
   "Beatoraja_integration": "beatoraja連携",
   "Use_beatoraja_scoreDB": "beatorajaのスコアを読み込む",
   "Use_beatoraja_bmt_output": ".bmtを出力する(難易度表読み込み互換処理)",

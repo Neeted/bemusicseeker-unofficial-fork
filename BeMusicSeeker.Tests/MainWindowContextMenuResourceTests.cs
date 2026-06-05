@@ -305,6 +305,8 @@ public sealed class MainWindowContextMenuResourceTests
     public void SettingDialogGeneralAndPlaylistGroups_AreSeparatedByFeature()
     {
         string xaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "SettingDialog.xaml"));
+        string resources = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Properties", "Resources.resx"));
+        string resourceCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Properties", "Resources.cs"));
         string generalTab = ExtractBetween(
             xaml,
             "Name=\"tabItemGeneral\"",
@@ -316,6 +318,15 @@ public sealed class MainWindowContextMenuResourceTests
 
         StringAssert.Contains(generalTab, "Path=Resources.Operation_Mode");
         StringAssert.Contains(generalTab, "Path=Resources.Language");
+        StringAssert.Contains(generalTab, "Path=Resources.Enable_lr2_song_db_full_generation");
+        StringAssert.Contains(generalTab, "Visibility=\"Collapsed\"");
+        StringAssert.Contains(resources, "name=\"Enable_lr2_song_db_full_generation\"");
+        StringAssert.Contains(resourceCode, "Enable_lr2_song_db_full_generation");
+        foreach (string languageFile in Directory.GetFiles(Path.Combine(FindRepositoryRoot(), "lang"), "*.json"))
+        {
+            string languageJson = File.ReadAllText(languageFile);
+            StringAssert.Contains(languageJson, "\"Enable_lr2_song_db_full_generation\"");
+        }
         StringAssert.Contains(generalTab, "Path=Resources.Beatoraja_integration");
         Assert.IsTrue(generalTab.IndexOf("Path=Resources.Language", StringComparison.Ordinal) < generalTab.IndexOf("Path=Resources.Operation_Mode", StringComparison.Ordinal));
         Assert.IsTrue(generalTab.IndexOf("Path=Resources.Operation_Mode", StringComparison.Ordinal) < generalTab.IndexOf("Path=Resources.Beatoraja_integration", StringComparison.Ordinal));
@@ -721,6 +732,7 @@ public sealed class MainWindowContextMenuResourceTests
             "public class PlaylistPropertyDialogViewModel");
 
         StringAssert.Contains(backupSavedSettings, "tempStandaloneBmsRootPaths = SerializeStandaloneBmsRootPaths(StandaloneBmsRootPathList);");
+        StringAssert.Contains(backupSavedSettings, "tempEnableLR2SongDbFullGeneration = Settings.Default.EnableLR2SongDbFullGeneration;");
         Assert.IsFalse(viewModelCode.Contains("tempValidation"));
         Assert.IsFalse(restartDecision.Contains("CheckValidation()"));
         StringAssert.Contains(restartDecision, "scoreSourceChanged");
@@ -750,6 +762,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(rootAdd, "ApplyRuntimeSearchRootsForCurrentMode();");
         Assert.IsTrue(rootAdd.IndexOf("ApplyRuntimeSearchRootsForCurrentMode();", StringComparison.Ordinal) < rootAdd.IndexOf("ownerViewModel.ReloadFileDiff();", StringComparison.Ordinal));
         StringAssert.Contains(saveCore, "ApplyRuntimeSearchRootsForCurrentMode();");
+        StringAssert.Contains(viewModelCode, "QueueLr2FullGenerationBackfillIfNeeded(\"SettingDialog.SaveSettings\")");
     }
 
     [TestMethod]

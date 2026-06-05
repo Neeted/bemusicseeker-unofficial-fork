@@ -556,6 +556,8 @@ public class MainWindowViewModel : ViewModel
 
         private string tempLR2ConfigXmlPath;
 
+        private bool tempEnableLR2SongDbFullGeneration;
+
         private bool tempUseBeatorajaScoreDb;
 
         private string tempBeatorajaRootPath;
@@ -747,6 +749,23 @@ public class MainWindowViewModel : ViewModel
         public bool CanUseLr2Features => OperationModeLR2DB;
 
         public bool IsOperationModeChanged => tempOperationModeLR2DB != OperationModeLR2DB;
+
+        public bool EnableLR2SongDbFullGeneration
+        {
+            get
+            {
+                return Settings.Default.EnableLR2SongDbFullGeneration;
+            }
+            set
+            {
+                if (Settings.Default.EnableLR2SongDbFullGeneration != value)
+                {
+                    Settings.Default.EnableLR2SongDbFullGeneration = value;
+                    RaisePropertyChanged("EnableLR2SongDbFullGeneration");
+                    RaiseValidationStateChanged();
+                }
+            }
+        }
 
         public bool CanSaveSettings => CheckValidation();
 
@@ -3429,6 +3448,7 @@ public class MainWindowViewModel : ViewModel
             tempLR2RootPath = Settings.Default.LR2RootPath;
             tempLR2SongDBPath = Settings.Default.LR2SongDBPath;
             tempLR2ConfigXmlPath = Settings.Default.LR2ConfigXmlPath;
+            tempEnableLR2SongDbFullGeneration = Settings.Default.EnableLR2SongDbFullGeneration;
             tempUseBeatorajaScoreDb = Settings.Default.UseBeatorajaScoreDb;
             tempBeatorajaRootPath = Settings.Default.BeatorajaRootPath;
             tempBeatorajaPlayerId = Settings.Default.BeatorajaPlayerId;
@@ -3592,6 +3612,12 @@ public class MainWindowViewModel : ViewModel
             if (tempEnablePlaylistUrlCompletion != Settings.Default.EnablePlaylistUrlCompletion || tempOverwritePlaylistUrlsWithCompletion != Settings.Default.OverwritePlaylistUrlsWithCompletion || tempEnableStellaFullPlaylistUrlCompletion != Settings.Default.EnableStellaFullPlaylistUrlCompletion || !string.Equals(tempPlaylistMd5UrlMappingTsvUri, Settings.Default.PlaylistMd5UrlMappingTsvUri, StringComparison.Ordinal))
             {
                 ownerViewModel.tables.SchedulePlaylistUrlCompletionRefresh("SettingDialog.SaveSettings");
+            }
+            if (Settings.Default.OperationModeLR2DB
+                && !tempEnableLR2SongDbFullGeneration
+                && Settings.Default.EnableLR2SongDbFullGeneration)
+            {
+                ownerViewModel.files?.QueueLr2FullGenerationBackfillIfNeeded("SettingDialog.SaveSettings");
             }
             if (tempEnableBeatorajaBmtOutput != Settings.Default.EnableBeatorajaBmtOutput
                 || tempKeepBeatorajaBmtFilesWhenOutputDisabled != Settings.Default.KeepBeatorajaBmtFilesWhenOutputDisabled
@@ -3795,6 +3821,7 @@ public class MainWindowViewModel : ViewModel
             Settings.Default.OperationModeLR2DB = tempOperationModeLR2DB;
             Settings.Default.LR2RootPath = tempLR2RootPath;
             Settings.Default.LR2SongDBPath = tempLR2SongDBPath;
+            Settings.Default.EnableLR2SongDbFullGeneration = tempEnableLR2SongDbFullGeneration;
             Settings.Default.UseBeatorajaScoreDb = tempUseBeatorajaScoreDb;
             Settings.Default.BeatorajaRootPath = tempBeatorajaRootPath;
             Settings.Default.BeatorajaPlayerId = tempBeatorajaPlayerId;
@@ -3896,6 +3923,7 @@ public class MainWindowViewModel : ViewModel
             RaisePropertyChanged(() => AvailableBMSDirectories);
             RaisePropertyChanged(() => LR2SongDBPath);
             RaisePropertyChanged(() => LR2ConfigXmlPath);
+            RaisePropertyChanged(() => EnableLR2SongDbFullGeneration);
             RaisePropertyChanged(() => UseBeatorajaScoreDb);
             RaisePropertyChanged(() => BeatorajaRootPath);
             RaisePropertyChanged(() => AvailableBeatorajaPlayers);

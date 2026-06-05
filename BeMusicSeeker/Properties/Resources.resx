@@ -738,6 +738,9 @@ LR2をプレイヤーとして使用すると再生できない場合があり�
   <data name="Use_LR2_DB" xml:space="preserve">
     <value>LR2と連携する</value>
   </data>
+  <data name="Enable_lr2_song_db_full_generation" xml:space="preserve">
+    <value>LR2用song.dbをBeMusicSeekerで完全生成する</value>
+  </data>
   <data name="Beatoraja_integration" xml:space="preserve">
     <value>beatoraja連携</value>
   </data>

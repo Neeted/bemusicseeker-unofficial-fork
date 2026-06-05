@@ -253,6 +253,7 @@
   "Record_setting_encoder_desc": "* Exe file: lame.exe|neroAacEnc.exe|opusenc.exe|flac.exe|oggenc2.exe",
   "Download": "Telecharger",
   "Use_LR2_DB": "Lier avec LR2",
+  "Enable_lr2_song_db_full_generation": "Générer entièrement song.db LR2 avec BeMusicSeeker",
   "Beatoraja_integration": "Intégration beatoraja",
   "Use_beatoraja_scoreDB": "Charger les scores beatoraja",
   "Use_beatoraja_bmt_output": "Exporter les fichiers .bmt (cache compatible table de difficulté)",

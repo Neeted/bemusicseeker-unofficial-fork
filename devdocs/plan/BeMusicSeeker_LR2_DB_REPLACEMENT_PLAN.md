@@ -1167,3 +1167,7 @@ parse directive:
 - startup progress では LR2 full generation backfill を startup / full reinitialize の background phase として扱う。
   request が来た場合だけ `[processed/total] LR2 song.db 完全生成 <stage>` を表示し、request 前に skip された場合は
   post-startup warmup 由来の遅い request で進捗を巻き戻さない。
+- 完全生成設定は設定ダイアログの LR2 連携項目として binding / resource / 保存後 queue だけ先に配線し、
+  mutation blocking と status warning 表示が入るまでは UI 上 `Collapsed` の hidden setting とする。
+  既定値は段階実装中の安全側として `false` のままにし、OFF から ON に変更して保存した場合は
+  `QueueLr2FullGenerationBackfillIfNeeded("SettingDialog.SaveSettings")` を呼んで同じ background workflow に流す。
