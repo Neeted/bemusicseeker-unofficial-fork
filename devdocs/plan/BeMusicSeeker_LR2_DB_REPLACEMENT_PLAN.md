@@ -393,8 +393,9 @@ row が残ると、manual-only でも LR2 が不要な scan に入る。
 - discovery で見つからなくなった `.lr2folder` row は削除する。実 `.lr2folder` ファイルは
   BeMusicSeeker から削除しない。
 - 完全生成 ON では、current generation input から導けない既存 `folder` row は prune 対象にする。
-  `unknown root` / `date = 0` / 実 directory または `.lr2folder` file の消失 / mtime 不一致は、
+  `unknown root` / `date = 0` / expected set 外 row / 列挙 metadata から解決できる mtime 不一致は、
   完了を妨げる永続状態として温存せず、生成 workflow 内で削除または上書きして収束させる。
+  完了直前に live filesystem へ戻って missing target や mtime を再検証することはしない。
 - 完全生成 ON では、current owned BMS path set から導けない既存 `song` row も prune 対象にする。
   `song` は実ファイル由来の一覧 cache であり、既知 root 外や旧 root の stale row を保護して
   `Incomplete` に残さない。対応する `maintenance` row と orphaned `chart_digest_map` も同じ
@@ -478,8 +479,9 @@ LR2 起動導線の block は行わない。
 - `Completed` は current generation input から導いた `song` / `folder` expected set に DB が収束していることを
   条件にする。旧 row や unknown root row を温存したまま `Incomplete` にするのではなく、
   workflow 内で削除または上書きできるものは修復してから完了判定する。
-- startup-scan blocker diagnostic は、workflow が修復したはずの in-scope 不整合が残っていないことを確認する
-  最終検査として使う。generation scope 外の古い row を保護するための検査にはしない。
+- startup-scan blocker diagnostic は、workflow が収束させたはずの in-scope 不整合が残っていないことを確認する
+  最終検査として使う。resume で folder stage がスキップされ、expected row が欠けている場合は
+  該当 stage を一度だけ再同期してから再診断する。generation scope 外の古い row を保護するための検査にはしない。
 - `Needed` / `Running` / `Incomplete` / `Failed` / `Cancelled` は完全生成 status に warning を出す。
 - 完全生成設定値が欠落または不正な場合は、他の設定値と同じく既定値へ正規化し、設定値 warning は出さない。
 - LR2 側の DB 自動更新設定はこの計画の実装対象にしない。
@@ -920,7 +922,8 @@ parse directive:
 - backfill progress は全体合算 total と stage 別 processed count の両方を表示する。
 - `Needed` / `Running` / `Incomplete` / `Failed` / `Cancelled` は完全生成 status warning として表示する。
 - startup-scan blocker diagnostic は、workflow が upsert / prune した後に expected current output が
-  揃っているかを確認する最終検査にする。修復可能な stale / unknown row は workflow 内で削除または
+  揃っているかを確認する最終検査にする。resume 境界で expected row が欠けている場合は
+  normal folder / `.lr2folder` stage を一度だけ再同期する。修復可能な stale / unknown row は workflow 内で削除または
   上書きし、温存したまま `Incomplete` にしない。
 - 設定値が欠落または不正な場合は既定値へ正規化する。設定値 warning は出さない。
 - LR2 config の auto update 設定検出や変更は行わない。manual-only 運用の推奨は docs に記載し、
@@ -1292,7 +1295,7 @@ parse directive:
   それ自体を blocker にしない。
   診断で current path set から導けない既存 `song` row があれば同じ run 内で prune し、
   対応する `maintenance` / orphan digest も整理する。`folder` row の unknown root / date missing /
-  missing target は削除し、列挙 metadata から正しい mtime が解決できる `folder.date` mismatch は
+  expected set 外 row は削除し、列挙 metadata から正しい mtime が解決できる `folder.date` mismatch は
   UPDATE してから再診断する。修復可能な stale row を温存して `Incomplete` にしない。
   status signature は normalized / deduplicated / case-insensitive な LR2 BMS root set を含める。
   加えて `.lr2folder` discovery root set、LR2 setup の `<customfolder>` bitmask、`titleflash` を含める。
@@ -1317,9 +1320,8 @@ existence / mtime は意味的に揃える。
   同じ path へ mtime を再問い合わせする二段構えにはしない。
 - `.lr2folder` sync item も enumeration entry の mtime を正本にする。path だけが渡された `.lr2folder` は
   missing metadata として扱い、生成 row の `folder.date` は後段で `File.GetLastWriteTimeUtc` を呼んで補完しない。
-- startup-scan blocker diagnostic / cleanup helper が legacy DB row や手動 cleanup 入力を扱う場合だけ、
-  enumeration entry が無い row の修復補助として live filesystem mtime へ fallback してよい。この fallback は
-  current generation surface の正本ではなく、古い `folder.date` を修復するための限定的な補助である。
+- startup-scan blocker diagnostic / cleanup helper も、渡された enumeration entry と DB row を入力にする。
+  完了直前や cleanup helper 内で live filesystem mtime へ fallback しない。
 - directory mtime は normal folder row と startup-scan blocker diagnostic の正本であるため、
   native bridge / fallback の metadata surface に含める。
 - surface が不完全な場合は「存在しない」と見なして `Completed` にしない。stale row prune や
@@ -1420,18 +1422,19 @@ existence / mtime は意味的に揃える。
   次回 evaluate では通常の resumable backfill request に戻す。`Running` status は status bar にキャンセル操作を表示し、
   UI は model の cancellation token request を発火するだけで、durable status の確定は backfill runner の境界処理に任せる。
 - startup-scan blocker diagnostic は、resume により folder stage をスキップした場合でも、current generation scope の
-  expected `folder` row が存在するかを最後に検証する。`folder.date` の mismatch は
-  directory / `.lr2folder` file の列挙 metadata から mtime を解決できる場合に同じ run 内で UPDATE し、
-  missing target や unknown root row は cleanup する。
-- 同 diagnostic は current root / chart path から導出される通常 folder target が `folder` table に存在することも検証する。
-  `normal_folders_completed` 以降の durable resume では normal folder stage を再実行しないため、期待される root /
-  ancestor / chart directory row が欠けている場合は `missingExpectedFolderRows` blocker として `Completed` にしない。
-- 同 diagnostic は `.lr2folder` stage を resume でスキップした場合も、読込・projection 可能な `.lr2folder`
-  source に対応する `folder` row が存在することを検証する。読めない `.lr2folder` は既存の prune 抑止と同じく
-  expected row から外し、欠落検出は `missingExpectedLr2FolderRows` として log / status detail に残す。
+  expected `folder` row が存在するかを最後に検証する。欠けている場合は `missingExpectedFolderRows` を
+  log に残し、normal folder stage を一度だけ再同期してから再診断する。
+- 同 diagnostic は `.lr2folder` stage を resume でスキップした場合も、列挙 metadata が揃っている
+  `.lr2folder` source に対応する `folder` row が存在することを検証する。欠けている場合は
+  `missingExpectedLr2FolderRows` を log に残し、`.lr2folder` sync を一度だけ再実行する。読めない /
+  metadata がない `.lr2folder` は expected row から外し、次回 scan input へ委ねる。
+- `folder.date` の mismatch は directory / `.lr2folder` file の列挙 metadata から mtime を解決できる場合に
+  同じ run 内で UPDATE する。完了直前に `File.Exists` / `Directory.Exists` / live mtime 取得へ fallback しない。
+  expected set 外 row や unknown root row は cleanup する。
 - startup-scan blocker cleanup は、通常 workflow で修復できなかった既存 DB 残骸を削除する補助 helper
   (`CleanupStartupScanBlockerFolderRows`) として残す。full generation 本体も unknown root / date missing /
-  missing target の `folder` row を同一 run 内で cleanup し、解決可能な mtime mismatch は date update に寄せる。
+  expected set 外の `folder` row を同一 run 内で cleanup し、列挙 metadata から解決可能な mtime mismatch は
+  date update に寄せる。
   current path set から導けない `song` row は full generation 本体の song prune で削除する。
   `song` row 欠落や `song.date` 欠落は current row write の不整合として扱い、cleanup helper ではなく
   backfill retry で直す。
@@ -1456,8 +1459,8 @@ existence / mtime は意味的に揃える。
   durable status が clean な場合は backfill を開始しない。
 - startup-scan blocker diagnostic は legacy `folder.type = 0 / NULL` row も扱う。
   `folder.type` だけで normal directory / `.lr2folder` を判定せず、normalized path が `.lr2folder`
-  で終わるかを target 種別の正本にする。これにより旧 DB の directory row でも
-  directory mtime / existence を検証し、stale / missing target を cleanup 対象にできる。
+  で終わるかを target 種別の正本にする。legacy normal directory row は、expected normal folder path に
+  含まれなければ cleanup 対象、含まれる場合は normal folder resync で現行 projection へ収束させる。
 - direct owned mutation 中の normal folder sync failure は、file diff normal folder sync failure と同じく
   durable full generation status を `Incomplete` にする。mutation は user operation の正しさを優先して進め、
   folder row の再同期は次回 backfill / retry で復旧できる状態にする。
