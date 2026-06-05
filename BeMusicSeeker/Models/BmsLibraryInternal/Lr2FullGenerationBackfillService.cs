@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Security;
 using System.Text;
 using BeMusicSeeker.Models.LR2;
 
@@ -82,6 +83,7 @@ internal sealed class Lr2StartupScanDiagnosticResult(
     int dateMissingSongRowCount,
     int unknownRootSongRowCount,
     int dateMissingFolderRowCount,
+    int dateStaleFolderRowCount,
     int unknownRootFolderRowCount)
 {
     public int NoRootSetBlockerCount { get; } = noRootSetBlockerCount;
@@ -94,6 +96,8 @@ internal sealed class Lr2StartupScanDiagnosticResult(
 
     public int DateMissingFolderRowCount { get; } = dateMissingFolderRowCount;
 
+    public int DateStaleFolderRowCount { get; } = dateStaleFolderRowCount;
+
     public int UnknownRootFolderRowCount { get; } = unknownRootFolderRowCount;
 
     public int TotalBlockerCount => NoRootSetBlockerCount
@@ -101,6 +105,7 @@ internal sealed class Lr2StartupScanDiagnosticResult(
         + DateMissingSongRowCount
         + UnknownRootSongRowCount
         + DateMissingFolderRowCount
+        + DateStaleFolderRowCount
         + UnknownRootFolderRowCount;
 
     public bool IsClean => TotalBlockerCount == 0;
@@ -113,6 +118,7 @@ internal sealed class Lr2StartupScanDiagnosticResult(
             + " dateMissingSongRows=" + DateMissingSongRowCount
             + " unknownRootSongRows=" + UnknownRootSongRowCount
             + " dateMissingFolderRows=" + DateMissingFolderRowCount
+            + " dateStaleFolderRows=" + DateStaleFolderRowCount
             + " unknownRootFolderRows=" + UnknownRootFolderRowCount;
     }
 }
@@ -513,6 +519,7 @@ internal static class Lr2FullGenerationBackfillService
         }
 
         int dateMissingFolderRowCount = 0;
+        int dateStaleFolderRowCount = 0;
         int unknownRootFolderRowCount = 0;
         foreach (StartupDiagnosticFolderRow row in songDb.Query<StartupDiagnosticFolderRow>(
             "SELECT "
@@ -537,6 +544,16 @@ internal static class Lr2FullGenerationBackfillService
                 continue;
             }
 
+            if (row.Date.HasValue && row.Date.GetValueOrDefault() > 0)
+            {
+                FolderDiagnosticDateStatus dateStatus = ResolveFolderDiagnosticDate(row, diagnosticPath, out int expectedDate);
+                if (dateStatus == FolderDiagnosticDateStatus.MissingTarget
+                    || (dateStatus == FolderDiagnosticDateStatus.Resolved && expectedDate != row.Date.GetValueOrDefault()))
+                {
+                    dateStaleFolderRowCount++;
+                }
+            }
+
             IReadOnlyList<string> scopeRoots = row.Type.GetValueOrDefault() == 1
                 ? roots
                 : allFolderRoots;
@@ -552,7 +569,81 @@ internal static class Lr2FullGenerationBackfillService
             dateMissingSongRowCount,
             unknownRootSongRowCount,
             dateMissingFolderRowCount,
+            dateStaleFolderRowCount,
             unknownRootFolderRowCount);
+    }
+
+    private static FolderDiagnosticDateStatus ResolveFolderDiagnosticDate(StartupDiagnosticFolderRow row, string diagnosticPath, out int date)
+    {
+        date = 0;
+        try
+        {
+            FolderDiagnosticDateStatus status = row?.Type.GetValueOrDefault() == 1
+                ? ResolveDirectoryLastWriteTimeUtc(diagnosticPath, out DateTime? lastWriteTimeUtc)
+                : ResolveLr2FolderLastWriteTimeUtc(diagnosticPath, out lastWriteTimeUtc);
+            if (status != FolderDiagnosticDateStatus.Resolved || lastWriteTimeUtc == null)
+            {
+                return status;
+            }
+
+            date = Lr2SongRowEnricher.ToLr2UnixSeconds(lastWriteTimeUtc.Value);
+            return date > 0
+                ? FolderDiagnosticDateStatus.Resolved
+                : FolderDiagnosticDateStatus.Unavailable;
+        }
+        catch (IOException)
+        {
+            return FolderDiagnosticDateStatus.Unavailable;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return FolderDiagnosticDateStatus.Unavailable;
+        }
+        catch (NotSupportedException)
+        {
+            return FolderDiagnosticDateStatus.Unavailable;
+        }
+        catch (ArgumentException)
+        {
+            return FolderDiagnosticDateStatus.Unavailable;
+        }
+        catch (SecurityException)
+        {
+            return FolderDiagnosticDateStatus.Unavailable;
+        }
+    }
+
+    private static FolderDiagnosticDateStatus ResolveDirectoryLastWriteTimeUtc(string directoryPath, out DateTime? lastWriteTimeUtc)
+    {
+        lastWriteTimeUtc = null;
+        if (string.IsNullOrWhiteSpace(directoryPath))
+        {
+            return FolderDiagnosticDateStatus.Unavailable;
+        }
+        if (!Directory.Exists(directoryPath))
+        {
+            return FolderDiagnosticDateStatus.MissingTarget;
+        }
+
+        lastWriteTimeUtc = Directory.GetLastWriteTimeUtc(directoryPath);
+        return FolderDiagnosticDateStatus.Resolved;
+    }
+
+    private static FolderDiagnosticDateStatus ResolveLr2FolderLastWriteTimeUtc(string filePath, out DateTime? lastWriteTimeUtc)
+    {
+        lastWriteTimeUtc = null;
+        if (string.IsNullOrWhiteSpace(filePath)
+            || !string.Equals(Path.GetExtension(filePath), ".lr2folder", StringComparison.OrdinalIgnoreCase))
+        {
+            return FolderDiagnosticDateStatus.Unavailable;
+        }
+        if (!File.Exists(filePath))
+        {
+            return FolderDiagnosticDateStatus.MissingTarget;
+        }
+
+        lastWriteTimeUtc = File.GetLastWriteTimeUtc(filePath);
+        return FolderDiagnosticDateStatus.Resolved;
     }
 
     private static bool IsUnderAnyRoot(string filePath, IEnumerable<string> roots)
@@ -1125,5 +1216,12 @@ internal static class Lr2FullGenerationBackfillService
         public int? Type { get; set; }
 
         public int? Date { get; set; }
+    }
+
+    private enum FolderDiagnosticDateStatus
+    {
+        Unavailable,
+        MissingTarget,
+        Resolved
     }
 }

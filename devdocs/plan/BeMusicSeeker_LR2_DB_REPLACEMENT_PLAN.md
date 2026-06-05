@@ -176,9 +176,11 @@ SELECT path,date FROM folder WHERE parent = ROOT OR date = 0
 
 - Everything を優先し、失敗時に managed filesystem scan へ fallback する。
 - 現在の `ChartScanResult` は chart path / chart directory / audio/image/movie の
-  resource hash を持つ。
-- 現在の `ChartScanResult` は file mtime、directory mtime、`.txt` 有無を持たない。
-- 現在の chart/resource scan surface は `.lr2folder` discovery を正本として持たない。
+  resource hash に加え、chart directory 直下の `.txt` presence と `folderinfo.txt` 候補を持つ。
+- 現在の `ChartScanResult` は file mtime / directory mtime そのものは持たない。BMS file mtime は
+  file diff 側で実ファイルから確認し、normal folder row の directory mtime は folder sync 側で取得する。
+- `.lr2folder` discovery は LR2 full generation 入力として、chart/resource scan surface とは別に
+  root / extension / filename を調整した file surface から作る。
 - `ChartFileSnapshot` には file bytes、MD5、SHA256、`LastWriteTimeUtc` がある。
 - `BMSFile.CreateBMSFileFromSnapshot` は軽量パーサー。
 - 軽量パーサーは `#WAVxx`、`#BMPxx`、主要メタデータ、`#STAGEFILE`、
@@ -188,7 +190,8 @@ SELECT path,date FROM folder WHERE parent = ROOT OR date = 0
 - 詳細解析結果は `chart_info` にあるが、素の LR2 `song` 列へ同期されていない。
 - `.lr2folder` ファイル出力はあるが、出力と同時に `folder` テーブルを完全に作る層は
   不十分。
-- 既存 BMS の変更検出は、完全生成に必要な `path + mtime` 差分検出としては不足している。
+- BMS の `path + song.date` 差分検出と `.txt` presence の targeted update は実装済みであり、
+  完全生成でも同じ contract を使う。
 
 ## 実装前に固定する必要がある contract
 
@@ -337,7 +340,8 @@ row が残ると、manual-only でも LR2 が不要な scan に入る。
 - discovery で見つからなくなった `.lr2folder` row は削除する。実 `.lr2folder` ファイルは
   BeMusicSeeker から削除しない。
 - generation scope 外の既存 `folder` row は原則触らない。
-- unknown root row または `date = 0` row が残り、LR2 startup scan 抑止に影響する場合は
+- unknown root row、`date = 0` row、実 directory / `.lr2folder` file が消えた row、または
+  実 mtime と `folder.date` が一致しない row が残り、LR2 startup scan 抑止に影響する場合は
   silent retention しない。初期実装では自動削除せず warning / diagnostic の対象にし、
   cleanup は明示操作として別導線で実行する。
   - cleanup 導線は Phase 8 の初期実装に含める。
@@ -1119,7 +1123,9 @@ parse directive:
   owned collection / storage row version と root / `.lr2folder` / `folderinfo.txt` / text group surface を開始時入力と
   再比較する。stale の場合は `Completed` にせず `Incomplete(source_stale_detected)` とする。
   sync 後は startup-scan blocker diagnostic を実行し、root set 欠落、current song row 欠落、
-  `song.date` 欠落 / `0`、known root 外 song row が無い場合だけ `Completed` を記録する。
+  `song.date` 欠落 / `0`、known root 外 song row、`folder.date` 欠落 / `0`、known root 外
+  folder row、missing target、実 directory / `.lr2folder` file の mtime と一致しない `folder.date`
+  が無い場合だけ `Completed` を記録する。
   blocker が残る場合は `Incomplete` (`startup_scan_blockers_detected`) とし、diagnostic count を log / status
   detail に残す。初期実装では blocker row の自動削除は行わず、cleanup 導線は後続 cycle に残す。
   status signature は normalized / deduplicated / case-insensitive な LR2 BMS root set を含める。
@@ -1190,3 +1196,7 @@ parse directive:
   再実行しない。`song_rows` は chunk commit 成功後だけ cursor を進め、次回 run では cursor 以前の
   song target をスキップする。失敗時に outer catch が durable failed status を上書きしても、同一 run の
   既存 cursor / total は維持する。
+- startup-scan blocker diagnostic は、resume により folder stage をスキップした場合でも、既存 `folder`
+  row の実 target が存在し、`folder.date` が directory / `.lr2folder` file の Unix 秒 mtime と一致するかを
+  最後に検証する。missing target または不一致が残る run は `Completed` にせず
+  `Incomplete(startup_scan_blockers_detected)` とする。
