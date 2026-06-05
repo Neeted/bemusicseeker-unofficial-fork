@@ -2218,6 +2218,32 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
         Assert.AreEqual(1, result.StartupScanDiagnosticResult.DateStaleFolderRowCount);
     }
 
+    [TestMethod]
+    public void FolderInfoCandidateEnumeration_ReturnsTargetFolderInfoMetadata()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
+        string chartDirectory = Path.Combine(rootDirectory, "Pack");
+        string unrelatedDirectory = Path.Combine(rootDirectory, "Other");
+        Directory.CreateDirectory(chartDirectory);
+        Directory.CreateDirectory(unrelatedDirectory);
+        string folderInfoPath = Path.Combine(chartDirectory, "folderinfo.txt");
+        string unrelatedFolderInfoPath = Path.Combine(unrelatedDirectory, "folderinfo.txt");
+        DateTime folderInfoTimestamp = new(2026, 6, 5, 6, 0, 0, DateTimeKind.Utc);
+        File.WriteAllText(folderInfoPath, "#TITLE Pack");
+        File.WriteAllText(unrelatedFolderInfoPath, "#TITLE Other");
+        File.SetLastWriteTimeUtc(folderInfoPath, folderInfoTimestamp);
+
+        Lr2FolderInfoCandidateSnapshot snapshot = Lr2FolderInfoCandidateEnumerationService.CreateSnapshot(
+            [rootDirectory],
+            [chartDirectory]);
+
+        CollectionAssert.AreEqual(new[] { folderInfoPath }, snapshot.Paths.ToArray());
+        Assert.IsTrue(snapshot.DiscoveryComplete);
+        Assert.IsTrue(snapshot.EntriesByPath.TryGetValue(folderInfoPath, out RootFileEnumerationEntry entry));
+        Assert.AreEqual(Lr2SongRowEnricher.ToLr2UnixSeconds(folderInfoTimestamp), entry.LastWriteTimeUnixSeconds);
+    }
+
     private sealed class TestDatabaseScope : IDisposable
     {
         public string DirectoryPath { get; }

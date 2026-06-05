@@ -5600,6 +5600,7 @@ completeFileEnumerationOnce,
         List<string> roots = getBMSDirectories();
         List<string> lr2FolderDiscoveryDirectories = CreateLr2FullGenerationLr2FolderDiscoveryDirectories(roots);
         Lr2FolderFileCandidateSnapshot lr2FolderFileCandidates = CreateLr2FullGenerationLr2FolderFileCandidates(lr2FolderDiscoveryDirectories);
+        Lr2FolderInfoCandidateSnapshot folderInfoCandidates = CreateLr2FullGenerationFolderInfoCandidates(roots, chartPaths);
         IReadOnlyDictionary<string, RootFileEnumerationEntry> directoryEntries = CreateLr2FullGenerationDirectoryEntries(
             roots,
             Lr2NormalFolderDbSyncService.CreateDirectoryMetadataTargets(roots, chartPaths));
@@ -5609,7 +5610,8 @@ completeFileEnumerationOnce,
         return new Lr2FullGenerationBackfillInput(
             roots,
             chartPaths,
-            CreateLr2FullGenerationFolderInfoCandidates(roots, chartPaths),
+            folderInfoCandidates.Paths,
+            folderInfoCandidates.EntriesByPath,
             directoryEntries,
             lr2FolderDiscoveryDirectories,
             roots,
@@ -5667,12 +5669,13 @@ completeFileEnumerationOnce,
         }
 
         Lr2FolderFileCandidateSnapshot lr2FolderFileCandidates = CreateLr2FullGenerationLr2FolderFileCandidates(lr2FolderDiscoveryDirectories);
+        Lr2FolderInfoCandidateSnapshot folderInfoCandidates = CreateLr2FullGenerationFolderInfoCandidates(roots, input.ChartPaths);
         if (input.Lr2FolderFileDiscoveryComplete != lr2FolderFileCandidates.DiscoveryComplete
             || !AreLr2FolderCandidateSetsEqual(input.DirectoryEntries, CreateLr2FullGenerationDirectoryEntries(
                 roots,
                 Lr2NormalFolderDbSyncService.CreateDirectoryMetadataTargets(roots, input.ChartPaths)))
             || !AreLr2FolderCandidateSetsEqual(input.Lr2FolderFileEntries, lr2FolderFileCandidates.EntriesByPath)
-            || !ArePathSetsEqual(input.FolderInfoFilePaths, CreateLr2FullGenerationFolderInfoCandidates(roots, input.ChartPaths))
+            || !AreLr2FolderCandidateSetsEqual(input.FolderInfoFileEntries, folderInfoCandidates.EntriesByPath)
             || !ArePathSetsEqual(input.TextFileDirectories, CreateLr2FullGenerationTextFileDirectories(input.ChartPaths)))
         {
             return false;
@@ -5743,28 +5746,13 @@ completeFileEnumerationOnce,
         }
     }
 
-    private static List<string> CreateLr2FullGenerationFolderInfoCandidates(
+    private static Lr2FolderInfoCandidateSnapshot CreateLr2FullGenerationFolderInfoCandidates(
         IEnumerable<string> rootDirectories,
         IEnumerable<string> chartPaths)
     {
-        var result = new List<string>();
-        foreach (string directory in Lr2NormalFolderDbSyncService.CreateDirectoryMetadataTargets(rootDirectories, chartPaths))
-        {
-            string candidate;
-            try
-            {
-                candidate = Path.Combine(directory, "folderinfo.txt");
-            }
-            catch (Exception ex) when (ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException)
-            {
-                continue;
-            }
-            if (File.Exists(candidate))
-            {
-                result.Add(candidate);
-            }
-        }
-        return [.. result.OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
+        return Lr2FolderInfoCandidateEnumerationService.CreateSnapshot(
+            rootDirectories,
+            Lr2NormalFolderDbSyncService.CreateDirectoryMetadataTargets(rootDirectories, chartPaths));
     }
 
     private static IReadOnlyDictionary<string, RootFileEnumerationEntry> CreateLr2FullGenerationDirectoryEntries(
@@ -5822,7 +5810,7 @@ completeFileEnumerationOnce,
                 return;
             }
 
-            List<string> folderInfoCandidates = CreateLr2FullGenerationFolderInfoCandidates(roots, syncInput.ChartPaths);
+            Lr2FolderInfoCandidateSnapshot folderInfoCandidates = CreateLr2FullGenerationFolderInfoCandidates(roots, syncInput.ChartPaths);
             IReadOnlyDictionary<string, RootFileEnumerationEntry> directoryEntries = CreateLr2FullGenerationDirectoryEntries(
                 roots,
                 Lr2NormalFolderDbSyncService.CreateDirectoryMetadataTargets(roots, syncInput.ChartPaths));
@@ -5831,7 +5819,7 @@ completeFileEnumerationOnce,
             {
                 RootDirectories = roots,
                 ChartPaths = syncInput.ChartPaths,
-                FolderInfoFilePaths = folderInfoCandidates,
+                FolderInfoFilePaths = folderInfoCandidates.Paths,
                 DirectoryLastWriteTimeUtcResolver = CreateLastWriteTimeResolver(directoryEntries),
                 PruneScopeDirectories = syncInput.PruneScopeDirectories,
                 GeneratedAtUtc = DateTime.UtcNow,
@@ -6258,6 +6246,7 @@ completeFileEnumerationOnce,
         IReadOnlyList<string> rootDirectories,
         IReadOnlyList<string> chartPaths,
         IReadOnlyList<string> folderInfoFilePaths,
+        IReadOnlyDictionary<string, RootFileEnumerationEntry> folderInfoFileEntries,
         IReadOnlyDictionary<string, RootFileEnumerationEntry> directoryEntries,
         IReadOnlyList<string> lr2FolderDiscoveryDirectories,
         IReadOnlyList<string> lr2FolderPruneDirectories,
@@ -6278,6 +6267,9 @@ completeFileEnumerationOnce,
         public IReadOnlyList<string> ChartPaths { get; } = chartPaths ?? [];
 
         public IReadOnlyList<string> FolderInfoFilePaths { get; } = folderInfoFilePaths ?? [];
+
+        public IReadOnlyDictionary<string, RootFileEnumerationEntry> FolderInfoFileEntries { get; } =
+            folderInfoFileEntries ?? new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
 
         public IReadOnlyDictionary<string, RootFileEnumerationEntry> DirectoryEntries { get; } =
             directoryEntries ?? new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
