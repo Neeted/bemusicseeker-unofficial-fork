@@ -922,6 +922,72 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
     }
 
     [TestMethod]
+    public void QueueLr2FullGenerationBackfillIfNeeded_DoesNotQueueWhenCompletedCopiedSongDbIsCurrent()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        try
+        {
+            Settings.Default.OperationModeLR2DB = true;
+            Settings.Default.EnableLR2SongDbFullGeneration = true;
+            ResetLr2FolderDiscoverySettings();
+            string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
+            string songDirectory = Path.Combine(rootDirectory, "Song");
+            Directory.CreateDirectory(songDirectory);
+            string chartPath = Path.Combine(songDirectory, "chart.bms");
+            File.WriteAllText(chartPath, "#TITLE Copied Noop Backfill\r\n#00111:01\r\n", Encoding.ASCII);
+            ChartFileSnapshot chartSnapshot = ChartFileContentReader.ReadSnapshot(chartPath);
+            TestableBmsFile file = CreateBackfillTestFile(chartPath, chartSnapshot);
+            var firstLibrary = new BMSLibrary(scope.SongDbPath)
+            {
+                SearchTargets = [rootDirectory],
+                BMSFiles = [file]
+            };
+            int firstScheduledCount = 0;
+            firstLibrary.StartupBackgroundTaskScheduler = delegate (string name, string reason, string dependency, Func<Task> work)
+            {
+                firstScheduledCount++;
+                work().GetAwaiter().GetResult();
+                return true;
+            };
+
+            Lr2FullGenerationStatusSnapshot first = firstLibrary.QueueLr2FullGenerationBackfillIfNeeded("test_first_for_copy");
+            string copiedDirectory = Path.Combine(scope.DirectoryPath, "Copied");
+            Directory.CreateDirectory(copiedDirectory);
+            string copiedSongDbPath = Path.Combine(copiedDirectory, "song.db");
+            File.Copy(scope.SongDbPath, copiedSongDbPath, overwrite: true);
+            var copiedLibrary = new BMSLibrary(copiedSongDbPath)
+            {
+                SearchTargets = [rootDirectory],
+                BMSFiles = [file]
+            };
+            int copiedScheduledCount = 0;
+            copiedLibrary.StartupBackgroundTaskScheduler = delegate (string name, string reason, string dependency, Func<Task> work)
+            {
+                copiedScheduledCount++;
+                work().GetAwaiter().GetResult();
+                return true;
+            };
+
+            Lr2FullGenerationStatusSnapshot second = copiedLibrary.QueueLr2FullGenerationBackfillIfNeeded("test_copied_song_db");
+
+            Assert.AreEqual(Lr2FullGenerationStatusKind.Needed, first.Status);
+            Assert.AreEqual(1, firstScheduledCount);
+            Assert.AreEqual(Lr2FullGenerationStatusKind.Completed, second.Status);
+            Assert.AreEqual(0, copiedScheduledCount);
+            Assert.AreEqual(0, copiedLibrary.Lr2FullGenerationBackfillRequestedVersion);
+            Assert.AreEqual(0, copiedLibrary.Lr2FullGenerationBackfillCompletedVersion);
+            using var verify = new LR2SongDBExtended(copiedSongDbPath);
+            LR2SongDBExtended.lr2_full_generation_status row = verify.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
+            Assert.AreEqual("Completed", row.status);
+            Assert.AreEqual(Lr2FullGenerationBackfillService.CompletedStage, row.stage);
+        }
+        finally
+        {
+            ResetTouchedSettings();
+        }
+    }
+
+    [TestMethod]
     public void QueueLr2FullGenerationBackfillIfNeeded_WithNoRootsDoesNotCompleteGeneration()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
