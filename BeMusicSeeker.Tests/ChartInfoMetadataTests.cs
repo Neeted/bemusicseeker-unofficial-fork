@@ -3062,7 +3062,21 @@ createTempDirectory);
             Directory.CreateDirectory(sourceDir);
             Directory.CreateDirectory(installDir);
             string sourceChartPath = Path.Combine(sourceDir, "install.bms");
-            File.WriteAllText(sourceChartPath, "#PLAYER 1\r\n#TITLE install bms\r\n#BPM 120\r\n#00111:01\r\n", Encoding.ASCII);
+            File.WriteAllText(
+                sourceChartPath,
+                "#PLAYER 1\r\n"
+                    + "#TITLE install bms\r\n"
+                    + "#BPM 120\r\n"
+                    + "#PLAYLEVEL 12\r\n"
+                    + "#DIFFICULTY 3\r\n"
+                    + "#RANK 3\r\n"
+                    + "#TOTAL 300\r\n"
+                    + "#00111:0100\r\n"
+                    + "#00112:0001\r\n"
+                    + "#00116:0100\r\n"
+                    + "#00251:0101\r\n"
+                    + "#003D1:01\r\n",
+                Encoding.ASCII);
             BMSFile pendingChart = BMSFile.CreateBMSFileFromFile(sourceChartPath);
             var package = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(pendingChart))]);
             package.path = sourceDir;
@@ -3077,6 +3091,14 @@ createTempDirectory);
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM song WHERE path = '" + installedFile.path.Replace("'", "''") + "';"));
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_digest_map WHERE md5 = '" + installedFile.hash + "' AND sha256 = '" + installedFile.sha256 + "';"));
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info WHERE sha256 = '" + installedFile.sha256 + "';"));
+            LR2SongDB.song song = verify.Query<LR2SongDB.song>("SELECT * FROM song WHERE path = ?;", installedFile.path).Single();
+            Assert.AreEqual(12, song.level);
+            Assert.AreEqual(3, song.difficulty);
+            Assert.AreEqual(120, song.maxbpm);
+            Assert.AreEqual(120, song.minbpm);
+            Assert.AreEqual(5, song.mode);
+            Assert.AreEqual(1, song.longnote);
+            Assert.AreEqual(4, song.karinotes);
             Assert.IsNotNull(library.ResolveChartInfo(installedFile.sha256, installedFile.hash));
         });
     }
