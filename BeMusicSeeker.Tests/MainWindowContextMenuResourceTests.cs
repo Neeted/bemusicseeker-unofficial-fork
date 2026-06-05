@@ -776,6 +776,20 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
+    public void Lr2CompatibilityTree_IsShownOnlyInLr2Mode()
+    {
+        string xaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "MainWindow.xaml"));
+        string viewModelCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string unregisteredTreeItem = ExtractBetween(
+            xaml,
+            "Path=Resources.Unregistered_in_lr2_db",
+            "Path=Resources.Search_zero_note");
+
+        StringAssert.Contains(unregisteredTreeItem, "IsLr2CompatibilityTreeVisible");
+        StringAssert.Contains(viewModelCode, "public bool IsLr2CompatibilityTreeVisible => Settings.Default.OperationModeLR2DB;");
+    }
+
+    [TestMethod]
     public void StandaloneRootNormalization_PreservesExistingRootsWhenAddingInstallDestination()
     {
         string viewModelCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));

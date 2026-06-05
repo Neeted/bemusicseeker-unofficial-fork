@@ -14127,6 +14127,8 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
+    public bool IsLr2CompatibilityTreeVisible => Settings.Default.OperationModeLR2DB;
+
     public string Lr2FullGenerationStatusLabel
     {
         get

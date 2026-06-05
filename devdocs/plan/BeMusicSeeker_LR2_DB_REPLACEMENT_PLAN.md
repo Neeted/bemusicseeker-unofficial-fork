@@ -427,9 +427,9 @@ LR2 起動導線の block は行わない。
   条件にする。unknown root row や `date = 0` row が残る場合は `Incomplete` とし、status warning に出す。
 - `Needed` / `Running` / `Incomplete` / `Failed` / `Cancelled` は完全生成 status に warning を出す。
 - 完全生成設定値が欠落または不正な場合は、他の設定値と同じく既定値へ正規化し、設定値 warning は出さない。
-- LR2 側の DB 自動更新設定が手動のみでない可能性がある場合は、設定画面または status info として注意を出す。
-  - 現行 `LR2Config` wrapper には autoreload 判定 API がないため、実装時に config 要素名と値を確認する。
+- LR2 側の DB 自動更新設定はこの計画の実装対象にしない。
   - BeMusicSeeker 側から LR2 config を自動変更しない。
+  - manual-only 運用はユーザー向け docs の推奨として扱い、status / schema / backfill の判定条件には含めない。
 - LR2 が起動中の場合の DB write 競合を検出する。
   - SQLite busy timeout / file lock / transaction 失敗時の扱いをログに出す。
 - 完全生成 status は durable に保存する。
@@ -826,8 +826,8 @@ parse directive:
 - `Needed` / `Running` / `Incomplete` / `Failed` / `Cancelled` は完全生成 status warning として表示する。
 - startup-scan blocker diagnostic が clean でない場合は `Completed` にせず `Incomplete` にする。
 - 設定値が欠落または不正な場合は既定値へ正規化する。設定値 warning は出さない。
-- LR2 config の auto update 設定は config 要素名を確認して検出する。検出できない場合は
-  「自動更新設定を確認できない」status info を出し、BeMusicSeeker 側からは config を自動変更しない。
+- LR2 config の auto update 設定検出や変更は行わない。manual-only 運用の推奨は docs に記載し、
+  full generation status には含めない。
 - backfill のためだけの自動 backup は作らない。
 - write は per-chunk transaction とし、chunk commit 成功後に processed cursor / run id / status を durable に更新する。
 - chunk 失敗時はその chunk の transaction を rollback し、status を `Failed` にする。
@@ -1204,3 +1204,4 @@ parse directive:
   (`CleanupStartupScanBlockerFolderRows`) を正本にする。対象は unknown root / `date = 0` / missing target /
   stale date の `folder` row に限定し、`song` row 欠落、root 未設定、known root 外 `song` row は削除で直せる
   問題ではないため cleanup 対象にしない。UI はこの helper の削除前後 diagnostic を表示・再実行するだけにする。
+- `LR2非対応パス` tree は LR2 連携モード専用の compatibility surface として扱い、standalone mode では表示しない。
