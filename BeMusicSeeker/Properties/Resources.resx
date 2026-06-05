@@ -1357,6 +1357,9 @@ BMSファイルが重複しないようにマージします。
   <data name="Statusbar_progress_phase_background" xml:space="preserve">
     <value>バックグラウンド更新中</value>
   </data>
+  <data name="Statusbar_progress_phase_lr2_full_generation" xml:space="preserve">
+    <value>LR2 song.db 完全生成</value>
+  </data>
   <data name="Install" xml:space="preserve">
     <value>インストール</value>
   </data>

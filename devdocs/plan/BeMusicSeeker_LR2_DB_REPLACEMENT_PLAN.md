@@ -1164,3 +1164,6 @@ parse directive:
 - LR2 full generation backfill の進捗は、durable status table と log に加えて `BMSLibrary` の bindable property
   (`Running` / requested-completed version / total / processed / stage) にも投影する。service 側は progress callback を
   観測専用として扱い、callback 失敗で durable backfill を失敗させない。
+- startup progress では LR2 full generation backfill を startup / full reinitialize の background phase として扱う。
+  request が来た場合だけ `[processed/total] LR2 song.db 完全生成 <stage>` を表示し、request 前に skip された場合は
+  post-startup warmup 由来の遅い request で進捗を巻き戻さない。

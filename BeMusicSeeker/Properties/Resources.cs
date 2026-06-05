@@ -383,6 +383,8 @@ public class Resources
 
     public static string Statusbar_progress_phase_background => ResourceManager.GetString("Statusbar_progress_phase_background", resourceCulture);
 
+    public static string Statusbar_progress_phase_lr2_full_generation => ResourceManager.GetString("Statusbar_progress_phase_lr2_full_generation", resourceCulture);
+
     public static string Install => ResourceManager.GetString("Install", resourceCulture);
 
     public static string Install_desc => ResourceManager.GetString("Install_desc", resourceCulture);

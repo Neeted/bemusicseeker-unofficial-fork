@@ -52,6 +52,7 @@
   "Statusbar_progress_phase_chart_info": "譜面メタデータ解析",
   "Statusbar_progress_phase_chart_info_load": "譜面メタデータ反映",
   "Statusbar_progress_phase_background": "バックグラウンド更新中",
+  "Statusbar_progress_phase_lr2_full_generation": "LR2 song.db 完全生成",
   "Appearance_theme": "テーマ:",
   "Appearance_theme_light": "ライト",
   "Appearance_theme_dark": "ダーク",

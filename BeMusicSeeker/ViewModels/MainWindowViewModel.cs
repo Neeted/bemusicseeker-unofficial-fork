@@ -5270,7 +5270,8 @@ public class MainWindowViewModel : ViewModel
         LibraryDatabaseLoadDone = 8192,
         LibraryFileEnumerationDone = 16384,
         LibraryFileDiffDone = 32768,
-        InstallableMaintenanceDeferredDone = 65536
+        InstallableMaintenanceDeferredDone = 65536,
+        Lr2FullGenerationBackfillDone = 131072
     }
 
     /// <summary>
@@ -5319,6 +5320,8 @@ public class MainWindowViewModel : ViewModel
 
         internal int ChartInfoHydrationBaselineCompletedVersion;
 
+        internal int Lr2FullGenerationBackfillBaselineCompletedVersion;
+
         internal int PlaylistEntriesHydrationBaselineCompletedVersion;
 
         internal int LibraryDatabaseLoadBaselineCompletedVersion;
@@ -5343,6 +5346,8 @@ public class MainWindowViewModel : ViewModel
 
         internal int RequiredChartInfoHydrationCompletedVersion;
 
+        internal int RequiredLr2FullGenerationBackfillCompletedVersion;
+
         internal int ChartDigestBackfillTotalCount;
 
         internal int ChartDigestBackfillProcessedCount;
@@ -5358,6 +5363,12 @@ public class MainWindowViewModel : ViewModel
         internal int ChartInfoHydrationTotalCount;
 
         internal int ChartInfoHydrationAppliedCount;
+
+        internal int Lr2FullGenerationBackfillTotalCount;
+
+        internal int Lr2FullGenerationBackfillProcessedCount;
+
+        internal string Lr2FullGenerationBackfillStage = string.Empty;
 
         internal BMSLibrary.LibraryInitializationProgressStage LibraryInitializationProgressStage;
 
@@ -15154,6 +15165,7 @@ public class MainWindowViewModel : ViewModel
             StartupProgressPhase.ChartInfoHydrationDone,
             StartupProgressPhase.ChartInfoBackfillDone,
             StartupProgressPhase.ChartDigestBackfillDone,
+            StartupProgressPhase.Lr2FullGenerationBackfillDone,
             StartupProgressPhase.ScoreHydrationDone,
             StartupProgressPhase.RankingRefreshDone,
             StartupProgressPhase.MaintenanceDeferredDone,
@@ -15566,6 +15578,26 @@ public class MainWindowViewModel : ViewModel
         {
             UpdateStartupProgressChartInfoHydrationStatus(files.ChartInfoHydrationTotalCount, files.ChartInfoHydrationAppliedCount);
         });
+        listenerForBMSLibrary.RegisterHandler(() => files.Lr2FullGenerationBackfillRequestedVersion, delegate
+        {
+            TrackStartupProgressLr2FullGenerationBackfillRequested(files.Lr2FullGenerationBackfillRequestedVersion);
+        });
+        listenerForBMSLibrary.RegisterHandler(() => files.Lr2FullGenerationBackfillCompletedVersion, delegate
+        {
+            TryCompleteStartupProgressLr2FullGenerationBackfill(files.Lr2FullGenerationBackfillCompletedVersion);
+        });
+        listenerForBMSLibrary.RegisterHandler(() => files.Lr2FullGenerationBackfillTotalCount, delegate
+        {
+            UpdateStartupProgressLr2FullGenerationBackfillStatus(files.Lr2FullGenerationBackfillTotalCount, files.Lr2FullGenerationBackfillProcessedCount, files.Lr2FullGenerationBackfillStage);
+        });
+        listenerForBMSLibrary.RegisterHandler(() => files.Lr2FullGenerationBackfillProcessedCount, delegate
+        {
+            UpdateStartupProgressLr2FullGenerationBackfillStatus(files.Lr2FullGenerationBackfillTotalCount, files.Lr2FullGenerationBackfillProcessedCount, files.Lr2FullGenerationBackfillStage);
+        });
+        listenerForBMSLibrary.RegisterHandler(() => files.Lr2FullGenerationBackfillStage, delegate
+        {
+            UpdateStartupProgressLr2FullGenerationBackfillStatus(files.Lr2FullGenerationBackfillTotalCount, files.Lr2FullGenerationBackfillProcessedCount, files.Lr2FullGenerationBackfillStage);
+        });
         listenerForBMSLibrary.RegisterHandler(() => files.DuplicateChartGroups, delegate
         {
             RefreshDuplicatePresentationAfterGroupsChanged("bms_files_duplicated_changed");
@@ -15849,6 +15881,7 @@ public class MainWindowViewModel : ViewModel
             StartupProgressPhase.ChartInfoHydrationDone,
             StartupProgressPhase.ChartInfoBackfillDone,
             StartupProgressPhase.ChartDigestBackfillDone,
+            StartupProgressPhase.Lr2FullGenerationBackfillDone,
             StartupProgressPhase.ExternalPlaylistSyncDone,
             StartupProgressPhase.PlaylistReferenceApplied,
             StartupProgressPhase.ScoreHydrationDone,
@@ -18925,6 +18958,7 @@ public class MainWindowViewModel : ViewModel
             ChartDigestBackfillBaselineCompletedVersion = files?.ChartDigestBackfillCompletedVersion ?? 0,
             ChartInfoBackfillBaselineCompletedVersion = files?.ChartInfoBackfillCompletedVersion ?? 0,
             ChartInfoHydrationBaselineCompletedVersion = files?.ChartInfoHydrationCompletedVersion ?? 0,
+            Lr2FullGenerationBackfillBaselineCompletedVersion = files?.Lr2FullGenerationBackfillCompletedVersion ?? 0,
             PlaylistEntriesHydrationBaselineCompletedVersion = tables?.PlaylistEntriesHydrationCompletedVersion ?? 0,
             LibraryDatabaseLoadBaselineCompletedVersion = files?.LibraryDatabaseLoadCompletedVersion ?? 0,
             LibraryFileEnumerationBaselineCompletedVersion = files?.LibraryFileEnumerationCompletedVersion ?? 0,
@@ -19346,6 +19380,24 @@ public class MainWindowViewModel : ViewModel
             state => state.RequiredChartInfoBackfillCompletedVersion = Math.Max(state.RequiredChartInfoBackfillCompletedVersion, expectedBackfillVersion));
     }
 
+    private void TrackStartupProgressLr2FullGenerationBackfillRequested(int requestedVersion)
+    {
+        bool shouldTrack;
+        lock (startupProgressLock)
+        {
+            shouldTrack = startupProgressState.IsActive && requestedVersion > startupProgressState.Lr2FullGenerationBackfillBaselineCompletedVersion;
+        }
+        if (!shouldTrack)
+        {
+            return;
+        }
+        TryTrackStartupProgressPhaseRequest(
+            StartupProgressPhase.Lr2FullGenerationBackfillDone,
+            requestedVersion,
+            "lr2_full_generation_backfill",
+            state => state.RequiredLr2FullGenerationBackfillCompletedVersion = Math.Max(state.RequiredLr2FullGenerationBackfillCompletedVersion, requestedVersion));
+    }
+
     private void TrackStartupProgressPlaylistEntriesHydrationRequested(int requestedVersion)
     {
         bool shouldTrack;
@@ -19426,6 +19478,21 @@ public class MainWindowViewModel : ViewModel
             }
             startupProgressState.ChartInfoHydrationTotalCount = totalCount;
             startupProgressState.ChartInfoHydrationAppliedCount = appliedCount;
+        }
+        RecomputeStartupProgressPresentation();
+    }
+
+    private void UpdateStartupProgressLr2FullGenerationBackfillStatus(int totalCount, int processedCount, string stage)
+    {
+        lock (startupProgressLock)
+        {
+            if (!startupProgressState.IsActive || !CanCompleteStartupProgressPhase(startupProgressState, StartupProgressPhase.Lr2FullGenerationBackfillDone))
+            {
+                return;
+            }
+            startupProgressState.Lr2FullGenerationBackfillTotalCount = totalCount;
+            startupProgressState.Lr2FullGenerationBackfillProcessedCount = processedCount;
+            startupProgressState.Lr2FullGenerationBackfillStage = stage ?? string.Empty;
         }
         RecomputeStartupProgressPresentation();
     }
@@ -19529,6 +19596,23 @@ public class MainWindowViewModel : ViewModel
         if (shouldComplete)
         {
             MarkStartupProgressPhaseCompleted(StartupProgressPhase.ChartInfoHydrationDone);
+        }
+    }
+
+    private void TryCompleteStartupProgressLr2FullGenerationBackfill(int completedVersion)
+    {
+        bool shouldComplete = false;
+        lock (startupProgressLock)
+        {
+            if (!startupProgressState.IsActive || !CanCompleteStartupProgressPhase(startupProgressState, StartupProgressPhase.Lr2FullGenerationBackfillDone))
+            {
+                return;
+            }
+            shouldComplete = completedVersion >= startupProgressState.RequiredLr2FullGenerationBackfillCompletedVersion;
+        }
+        if (shouldComplete)
+        {
+            MarkStartupProgressPhaseCompleted(StartupProgressPhase.Lr2FullGenerationBackfillDone);
         }
     }
 
@@ -20037,6 +20121,14 @@ public class MainWindowViewModel : ViewModel
             string fileName = string.IsNullOrWhiteSpace(state.ChartDigestBackfillCurrentPath) ? string.Empty : Path.GetFileName(state.ChartDigestBackfillCurrentPath);
             return FormatStartupProgressCountLabel(BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_chart_info, state.ChartDigestBackfillProcessedCount, state.ChartDigestBackfillTotalCount, fileName);
         }
+        if (!IsStartupProgressPhaseCompletedOrNotExpected(state, StartupProgressPhase.Lr2FullGenerationBackfillDone))
+        {
+            return FormatStartupProgressCountLabel(
+                BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_lr2_full_generation,
+                state.Lr2FullGenerationBackfillProcessedCount,
+                state.Lr2FullGenerationBackfillTotalCount,
+                FormatLr2FullGenerationBackfillStageLabel(state.Lr2FullGenerationBackfillStage));
+        }
         if (!IsStartupProgressPhaseCompletedOrNotExpected(state, StartupProgressPhase.PlaylistReferenceApplied) || !IsStartupProgressPhaseCompletedOrNotExpected(state, StartupProgressPhase.ExternalPlaylistSyncDone))
         {
             return BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_playlist_ref;
@@ -20058,6 +20150,13 @@ public class MainWindowViewModel : ViewModel
             return BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_installable_maintenance;
         }
         return BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_background;
+    }
+
+    private static string FormatLr2FullGenerationBackfillStageLabel(string stage)
+    {
+        return string.IsNullOrWhiteSpace(stage)
+            ? string.Empty
+            : stage.Replace('_', ' ');
     }
 
     private static string GetStartupProgressLibraryLoadSubLabel(StartupProgressState state)
@@ -20150,6 +20249,7 @@ public class MainWindowViewModel : ViewModel
         CountExpectedStartupProgressPhase(state, StartupProgressPhase.ChartDigestBackfillDone, ref count);
         CountExpectedStartupProgressPhase(state, StartupProgressPhase.ChartInfoHydrationDone, ref count);
         CountExpectedStartupProgressPhase(state, StartupProgressPhase.ChartInfoBackfillDone, ref count);
+        CountExpectedStartupProgressPhase(state, StartupProgressPhase.Lr2FullGenerationBackfillDone, ref count);
         CountExpectedStartupProgressPhase(state, StartupProgressPhase.ScoreHydrationDone, ref count);
         CountExpectedStartupProgressPhase(state, StartupProgressPhase.RankingRefreshDone, ref count);
         return count;
@@ -20175,6 +20275,7 @@ public class MainWindowViewModel : ViewModel
                                 | StartupProgressPhase.ChartDigestBackfillDone
                                 | StartupProgressPhase.ChartInfoBackfillDone
                                 | StartupProgressPhase.ChartInfoHydrationDone
+                                | StartupProgressPhase.Lr2FullGenerationBackfillDone
                                 | StartupProgressPhase.PlaylistEntriesHydrationDone,
             StartupProgressOperationKind.FullReinitialize => StartupProgressPhase.CoreInitializeStarted
                                 | StartupProgressPhase.LibraryDatabaseLoadDone
@@ -20189,6 +20290,7 @@ public class MainWindowViewModel : ViewModel
                                 | StartupProgressPhase.ChartDigestBackfillDone
                                 | StartupProgressPhase.ChartInfoBackfillDone
                                 | StartupProgressPhase.ChartInfoHydrationDone
+                                | StartupProgressPhase.Lr2FullGenerationBackfillDone
                                 | StartupProgressPhase.PlaylistEntriesHydrationDone,
             StartupProgressOperationKind.ReloadFileDiff => StartupProgressPhase.CoreInitializeStarted
                                 | StartupProgressPhase.LibraryFileEnumerationDone
@@ -20227,6 +20329,7 @@ public class MainWindowViewModel : ViewModel
         CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.ChartDigestBackfillDone, ref count);
         CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.ChartInfoHydrationDone, ref count);
         CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.ChartInfoBackfillDone, ref count);
+        CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.Lr2FullGenerationBackfillDone, ref count);
         CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.ScoreHydrationDone, ref count);
         CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.RankingRefreshDone, ref count);
         return count;
@@ -20336,6 +20439,22 @@ public class MainWindowViewModel : ViewModel
                     state.ChartInfoHydrationAppliedCount = int.Parse(statusParts[1], CultureInfo.InvariantCulture);
                 }
             }
+            else if (string.Equals(verb, "lr2full", StringComparison.OrdinalIgnoreCase))
+            {
+                string[] statusParts = parts[1].Split('|');
+                if (statusParts.Length > 0)
+                {
+                    state.Lr2FullGenerationBackfillTotalCount = int.Parse(statusParts[0], CultureInfo.InvariantCulture);
+                }
+                if (statusParts.Length > 1)
+                {
+                    state.Lr2FullGenerationBackfillProcessedCount = int.Parse(statusParts[1], CultureInfo.InvariantCulture);
+                }
+                if (statusParts.Length > 2)
+                {
+                    state.Lr2FullGenerationBackfillStage = statusParts[2];
+                }
+            }
             else
             {
                 throw new ArgumentException("Unsupported action verb: " + verb, nameof(actions));
@@ -20393,6 +20512,7 @@ public class MainWindowViewModel : ViewModel
         CountStartupProgressPhase(phases, StartupProgressPhase.ChartDigestBackfillDone, ref count);
         CountStartupProgressPhase(phases, StartupProgressPhase.ChartInfoHydrationDone, ref count);
         CountStartupProgressPhase(phases, StartupProgressPhase.ChartInfoBackfillDone, ref count);
+        CountStartupProgressPhase(phases, StartupProgressPhase.Lr2FullGenerationBackfillDone, ref count);
         CountStartupProgressPhase(phases, StartupProgressPhase.ScoreHydrationDone, ref count);
         CountStartupProgressPhase(phases, StartupProgressPhase.RankingRefreshDone, ref count);
         return count;
