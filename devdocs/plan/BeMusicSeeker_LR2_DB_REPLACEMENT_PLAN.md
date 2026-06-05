@@ -1018,7 +1018,7 @@ parse directive:
 
 | Phase | 状態 | 実装済み / 現行決定 | 残作業 / 注意 |
 | --- | --- | --- | --- |
-| Phase 0: Golden fixture と contract 固定 | 一部完了 | `LR2CRC32` / ROOT sentinel / CP932 boundary の contract、OpenLR2 source classifier の推測抑止、`exlevel` contract はテスト化済み。 | `folderinfo.txt` / `.lr2folder` / copied `song.db` dry-run など、実 DB 由来の golden fixture を追加する。 |
+| Phase 0: Golden fixture と contract 固定 | 一部完了 | `LR2CRC32` / ROOT sentinel / CP932 boundary の contract、OpenLR2 source classifier の推測抑止、`exlevel` contract、manual-only scan blocker、copied `song.db` の current completed no-op はテスト化済み。 | `folderinfo.txt` / `.lr2folder` など、実 DB 由来の golden fixture を追加する。 |
 | Phase 1: BMS 変更検出 | 主要実装済み | `song.path` / `song.date` / hash を使う変更検出、same MD5 の targeted update、runtime reload の再評価 queue は接続済み。 | 大規模 root 変更・mtime preserved copy の手動検証を残す。 |
 | Phase 2: `song` row merge / ownership | 主要実装済み | `Lr2SongDbWriter`、generated/user column 分離、runtime write failure の status marking、merge 時 user column preservation は接続済み。 | copied `song.db` で LR2 user column が維持されることを統合確認する。 |
 | Phase 3: metadata-bearing scan surface / raw resource reference | 一部完了 | BMS parser / snapshot 側の raw resource reference、text group の targeted `song.txt` 更新、完全生成 ON 時だけの scan 条件、`RootFileEnumerationResult` の file / directory mtime entry、Everything fixed scan / grouped bridge ABI / managed fallback の metadata surface は実装済み。`.txt` / `folderinfo.txt` / `.lr2folder` / normal folder directory mtime は backfill / sync に接続済み。fallback metadata fixture は追加済み。 | native bridge 実機 parity を統合確認する。 |
@@ -1286,7 +1286,7 @@ existence / mtime は意味的に揃える。
    - song row chunk failure では chunk transaction が rollback され、durable `Failed` cursor から再実行できることは unit/integration-shaped test で固定済み。
    - 実機ログで `processed_cursor` / `stage` / `Completed` / `Incomplete` の遷移が想定どおりか確認する。
 3. Phase 0 の残 fixture を追加する。
-   - `folderinfo.txt`、`.lr2folder`、manual-only scan 対象、copied `song.db` の dry-run fixture を追加する。
+   - `folderinfo.txt`、`.lr2folder` の実 DB 由来 fixture を追加する。
 4. LR2 manual-only 起動での最終確認を行う。
    - 完全生成後、未変更 root で LR2 / OpenLR2 が再帰 scan に入らないことを確認する。
    - LR2 起動そのもののブロッキングや排他はこの計画の対象外として扱う。
