@@ -11,6 +11,7 @@ Native bridge DLL for BeMusicSeeker chart/resource split scan.
   - audio files
   - image files
   - movie files
+  - text files (`.txt`, including `folderinfo.txt`) with modified timestamps
 - source-root scan inputs into:
   - one or more roots
   - chart/audio/image/movie queries
@@ -31,6 +32,7 @@ The bridge returns a chart-directory keyed hash-only result with two ownership v
 
 - chart file paths
 - chart directories
+- text file paths and modified timestamps
 - aggregate ownership
   - audio/image/movie chart-relative resource-key hashes by chart directory
 - self-only ownership
@@ -70,6 +72,9 @@ from those samples.
 Fixed scan uses a single `Everything3_GetResultFullPathNameW` call per result and
 splits directory/name natively. Source-root and grouped scan surfaces keep the older
 `GetResultPathW + GetResultNameW` read path.
+Text files in fixed scan also use the full-path read path and request `Date Modified`
+so managed code can keep `.txt` / `folderinfo.txt` on the same metadata-bearing
+surface as chart/resource enumeration.
 
 `sibling:` based resource collection is no longer used.
 
@@ -101,6 +106,7 @@ int  __cdecl EBridge_ScanChartAndResources(
     const wchar_t* audioQuery,
     const wchar_t* imageQuery,
     const wchar_t* movieQuery,
+    const wchar_t* textQuery,
     EBridgeResult** outResult);
 int  __cdecl EBridge_ScanSourceRoots(
     const EBridgeSourceRootRequest* roots,

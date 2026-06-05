@@ -30,6 +30,9 @@ public class EverythingFileScanner : IChartFileScanner
         string audioQuery = EverythingNative.BuildFilesQuery([.. roots], Array.ConvertAll(ChartDirectoryScanBuilder.AudioExtensions, ext => ext.TrimStart('.')));
         string imageQuery = EverythingNative.BuildFilesQuery([.. roots], Array.ConvertAll(ChartDirectoryScanBuilder.ImageExtensions, ext => ext.TrimStart('.')));
         string movieQuery = EverythingNative.BuildFilesQuery([.. roots], Array.ConvertAll(ChartDirectoryScanBuilder.MovieExtensions, ext => ext.TrimStart('.')));
+        string textQuery = includeTextSurface
+            ? EverythingNative.BuildFilesQuery([.. roots], Array.ConvertAll(ChartDirectoryScanBuilder.TextExtensions, ext => ext.TrimStart('.')))
+            : string.Empty;
 
         if (verboseLog)
         {
@@ -37,7 +40,7 @@ public class EverythingFileScanner : IChartFileScanner
         }
 
         var stopwatch = Stopwatch.StartNew();
-        ChartScanExecutionResult result = EverythingNative.ExecuteScan(chartQuery, audioQuery, imageQuery, movieQuery);
+        ChartScanExecutionResult result = EverythingNative.ExecuteScan(chartQuery, audioQuery, imageQuery, movieQuery, textQuery);
         stopwatch.Stop();
         if (!result.Success)
         {
@@ -60,10 +63,6 @@ public class EverythingFileScanner : IChartFileScanner
                 Success = false,
                 ErrorReason = "empty_results_with_roots:bridgeReason=" + (result.NativeBridgeReason ?? result.ErrorReason ?? "unknown") + ":bridgeMs=" + result.NativeBridgeMs
             };
-        }
-        if (includeTextSurface)
-        {
-            PopulateTextFileSurface(result.Result, roots, verboseLog);
         }
         if (verboseLog)
         {
@@ -149,26 +148,4 @@ public class EverythingFileScanner : IChartFileScanner
         return result;
     }
 
-    private static void PopulateTextFileSurface(ChartScanResult scanResult, IReadOnlyList<string> roots, bool verboseLog)
-    {
-        if (scanResult == null || scanResult.ChartDirectories.Count == 0 || roots == null || roots.Count == 0)
-        {
-            return;
-        }
-        RootFileEnumerationResult textEnumeration = new EverythingRootFileEnumerator().EnumerateFiles(
-            roots,
-            [new RootFileEnumerationGroup(ChartDirectoryScanBuilder.TextGroupName, ChartDirectoryScanBuilder.TextExtensions)],
-            verboseLog);
-        if (!textEnumeration.Success)
-        {
-            if (verboseLog)
-            {
-                logger.Info("everything_scan text_group_skipped reason={0}", textEnumeration.ErrorReason ?? "unknown");
-            }
-            return;
-        }
-        ChartDirectoryScanBuilder.AddDirectTextFileEntries(
-            scanResult,
-            textEnumeration.GetEntries(ChartDirectoryScanBuilder.TextGroupName));
-    }
 }

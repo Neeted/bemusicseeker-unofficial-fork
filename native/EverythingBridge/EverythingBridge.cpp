@@ -127,9 +127,21 @@ struct EBridgeResult {
 	unsigned long long image_name_resize_count;
 	unsigned long long movie_path_resize_count;
 	unsigned long long movie_name_resize_count;
+	unsigned long long text_count;
+	unsigned int* text_offsets;
+	wchar_t* text_blob;
+	unsigned long long* text_last_write_filetimes;
+	unsigned long long text_query_hits;
+	long long text_query_ms;
+	long long text_search_ms;
+	long long text_read_ms;
+	long long text_sdk_read_ms;
+	long long text_callback_ms;
+	unsigned long long text_path_resize_count;
+	unsigned long long text_name_resize_count;
 };
 
-static constexpr unsigned int EBRIDGE_SCAN_CONTRACT_VERSION = 2026050708u;
+static constexpr unsigned int EBRIDGE_SCAN_CONTRACT_VERSION = 2026060502u;
 static constexpr unsigned int EBRIDGE_GROUPED_ENUMERATION_CONTRACT_VERSION = 2026060501u;
 
 struct EBridgeGroupedQuery {
@@ -204,7 +216,7 @@ struct EBridgeSourceRootsResult {
 	unsigned long long raw_buffer_size;
 };
 
-__declspec(dllexport) int __cdecl EBridge_ScanChartAndResources(const wchar_t* chartQuery, const wchar_t* audioQuery, const wchar_t* imageQuery, const wchar_t* movieQuery, EBridgeResult** outResult);
+__declspec(dllexport) int __cdecl EBridge_ScanChartAndResources(const wchar_t* chartQuery, const wchar_t* audioQuery, const wchar_t* imageQuery, const wchar_t* movieQuery, const wchar_t* textQuery, EBridgeResult** outResult);
 __declspec(dllexport) int __cdecl EBridge_ScanSourceRoots(const EBridgeSourceRootRequest* roots, unsigned int rootCount, const wchar_t* chartQuery, const wchar_t* audioQuery, const wchar_t* imageQuery, const wchar_t* movieQuery, EBridgeSourceRootsResult** outResult);
 __declspec(dllexport) int __cdecl EBridge_EnumerateGroupedFiles(const EBridgeGroupedQuery* queries, unsigned int queryCount, EBridgeGroupedFilesResult** outResult);
 __declspec(dllexport) void __cdecl EBridge_FreeResult(EBridgeResult* result);
@@ -234,7 +246,8 @@ enum BridgeError {
 	BRIDGE_OUT_OF_MEMORY = 8,
 	BRIDGE_INTERNAL_ERROR = 9,
 	BRIDGE_GROUPED_QUERY_FAILED = 10,
-	BRIDGE_SOURCE_ROOT_QUERY_FAILED = 11
+	BRIDGE_SOURCE_ROOT_QUERY_FAILED = 11,
+	BRIDGE_TEXT_QUERY_FAILED = 12
 };
 
 using Everything3_ConnectWFn = void*(__stdcall*)(const wchar_t* instance_name);
@@ -278,10 +291,16 @@ struct EverythingApi {
 	Everything3_GetResultDateModifiedFn GetResultDateModified = nullptr;
 };
 
+struct GroupedFileEntry {
+	std::wstring fullPath;
+	unsigned long long lastWriteFileTime = 0ull;
+};
+
 struct ScanAggregate {
 	std::vector<std::wstring> chartPaths;
 	std::vector<std::wstring> chartDirectories;
 	std::unordered_map<std::wstring, uint32_t> chartDirIndex;
+	std::vector<GroupedFileEntry> textFiles;
 	std::vector<std::vector<uint32_t>> audioResourceKeyHashes;
 	std::vector<std::vector<uint32_t>> imageResourceKeyHashes;
 	std::vector<std::vector<uint32_t>> movieResourceKeyHashes;
@@ -313,6 +332,7 @@ struct BridgeExecutionStats {
 	QueryExecutionStats audioQuery;
 	QueryExecutionStats imageQuery;
 	QueryExecutionStats movieQuery;
+	QueryExecutionStats textQuery;
 	long long assignMs = 0;
 	long long dedupeMs = 0;
 	long long packMs = 0;
@@ -386,11 +406,6 @@ struct CategoryProcessingMetrics {
 	long long groupMs = 0;
 	long long assignMs = 0;
 	long long mergeMs = 0;
-};
-
-struct GroupedFileEntry {
-	std::wstring fullPath;
-	unsigned long long lastWriteFileTime = 0ull;
 };
 
 struct GroupedQueryResult {
@@ -1124,13 +1139,13 @@ bool ExecuteQuery(void* client, const wchar_t* query, Callback&& onResult, Query
 }
 
 template <typename Callback, typename HitCountCallback>
-bool ExecuteQueryWithNewClient(const wchar_t* query, Callback&& onResult, QueryExecutionStats* stats, HitCountCallback&& onHitCount, bool useFullPathRead = false) {
+bool ExecuteQueryWithNewClient(const wchar_t* query, Callback&& onResult, QueryExecutionStats* stats, HitCountCallback&& onHitCount, bool useFullPathRead = false, bool includeDateModified = false) {
 	unsigned int connectError = EVERYTHING3_OK;
 	void* client = TryConnectClient(&connectError);
 	if (!client) {
 		return false;
 	}
-	bool ok = ExecuteQuery(client, query, std::forward<Callback>(onResult), stats, std::forward<HitCountCallback>(onHitCount), useFullPathRead);
+	bool ok = ExecuteQuery(client, query, std::forward<Callback>(onResult), stats, std::forward<HitCountCallback>(onHitCount), useFullPathRead, includeDateModified);
 	g_api.DestroyClient(client);
 	return ok;
 }
@@ -1651,6 +1666,7 @@ void ProcessResourceCategory(
 void DedupeAggregate(ScanAggregate& aggregate) {
 	std::sort(aggregate.chartPaths.begin(), aggregate.chartPaths.end());
 	aggregate.chartPaths.erase(std::unique(aggregate.chartPaths.begin(), aggregate.chartPaths.end()), aggregate.chartPaths.end());
+	DedupeGroupedFileEntries(aggregate.textFiles);
 	std::vector<std::vector<std::vector<uint32_t>>*> groups = {
 		&aggregate.audioResourceKeyHashes,
 		&aggregate.imageResourceKeyHashes,
@@ -1858,9 +1874,14 @@ int BuildResultBuffer(const ScanAggregate& aggregate, const BridgeExecutionStats
 	auto layoutStartedAt = std::chrono::steady_clock::now();
 	size_t chartCount = aggregate.chartPaths.size();
 	size_t dirCount = aggregate.chartDirectories.size();
+	size_t textCount = aggregate.textFiles.size();
 
 	size_t chartBlobChars = SumBlobChars(aggregate.chartPaths);
 	size_t dirBlobChars = SumBlobChars(aggregate.chartDirectories);
+	size_t textBlobChars = 0;
+	for (const GroupedFileEntry& file : aggregate.textFiles) {
+		textBlobChars += file.fullPath.size() + 1;
+	}
 	size_t audioResourceKeyHashCount = SumHashCount(aggregate.audioResourceKeyHashes);
 	size_t imageResourceKeyHashCount = SumHashCount(aggregate.imageResourceKeyHashes);
 	size_t movieResourceKeyHashCount = SumHashCount(aggregate.movieResourceKeyHashes);
@@ -1905,6 +1926,9 @@ int BuildResultBuffer(const ScanAggregate& aggregate, const BridgeExecutionStats
 	size_t cursor = AlignUp(sizeof(EBridgeResult), 8);
 	size_t chartOffsetsPos = cursor; cursor += chartCount * sizeof(uint32_t);
 	size_t dirOffsetsPos = cursor; cursor += dirCount * sizeof(uint32_t);
+	size_t textOffsetsPos = cursor; cursor += textCount * sizeof(uint32_t);
+	cursor = AlignUp(cursor, alignof(unsigned long long));
+	size_t textLastWriteFileTimesPos = cursor; cursor += textCount * sizeof(unsigned long long);
 
 	size_t audioResourceKeyOffsetsPos = cursor; cursor += dirCount * sizeof(uint32_t);
 	size_t audioResourceKeyLengthsPos = cursor; cursor += dirCount * sizeof(uint32_t);
@@ -1931,6 +1955,7 @@ int BuildResultBuffer(const ScanAggregate& aggregate, const BridgeExecutionStats
 	cursor = AlignUp(cursor, alignof(wchar_t));
 	size_t chartBlobPos = cursor; cursor += chartBlobChars * sizeof(wchar_t);
 	size_t dirBlobPos = cursor; cursor += dirBlobChars * sizeof(wchar_t);
+	size_t textBlobPos = cursor; cursor += textBlobChars * sizeof(wchar_t);
 
 	cursor = AlignUp(cursor, alignof(uint32_t));
 	size_t audioResourceKeyHashesPos = cursor; cursor += audioResourceKeyHashCount * sizeof(uint32_t);
@@ -1958,6 +1983,18 @@ int BuildResultBuffer(const ScanAggregate& aggregate, const BridgeExecutionStats
 	auto writeStartedAt = std::chrono::steady_clock::now();
 	WriteStringBlob(raw, chartOffsetsPos, chartBlobPos, aggregate.chartPaths, result->chart_offsets, result->chart_blob);
 	WriteStringBlob(raw, dirOffsetsPos, dirBlobPos, aggregate.chartDirectories, result->dir_offsets, result->dir_blob);
+	result->text_offsets = reinterpret_cast<unsigned int*>(raw + textOffsetsPos);
+	result->text_last_write_filetimes = reinterpret_cast<unsigned long long*>(raw + textLastWriteFileTimesPos);
+	result->text_blob = reinterpret_cast<wchar_t*>(raw + textBlobPos);
+	unsigned char* textBlobCursor = reinterpret_cast<unsigned char*>(result->text_blob);
+	for (size_t i = 0; i < aggregate.textFiles.size(); i++) {
+		const GroupedFileEntry& file = aggregate.textFiles[i];
+		size_t chars = file.fullPath.size() + 1;
+		result->text_offsets[i] = static_cast<unsigned int>(textBlobCursor - reinterpret_cast<unsigned char*>(result->text_blob));
+		result->text_last_write_filetimes[i] = file.lastWriteFileTime;
+		std::memcpy(textBlobCursor, file.fullPath.c_str(), chars * sizeof(wchar_t));
+		textBlobCursor += chars * sizeof(wchar_t);
+	}
 	WriteHashGroup(raw, audioResourceKeyOffsetsPos, audioResourceKeyLengthsPos, audioResourceKeyHashesPos, aggregate.audioResourceKeyHashes, result->audio_resource_key_hash_offsets, result->audio_resource_key_hash_lengths, result->audio_resource_key_hashes_blob);
 	WriteHashGroup(raw, imageResourceKeyOffsetsPos, imageResourceKeyLengthsPos, imageResourceKeyHashesPos, aggregate.imageResourceKeyHashes, result->image_resource_key_hash_offsets, result->image_resource_key_hash_lengths, result->image_resource_key_hashes_blob);
 	WriteHashGroup(raw, movieResourceKeyOffsetsPos, movieResourceKeyLengthsPos, movieResourceKeyHashesPos, aggregate.movieResourceKeyHashes, result->movie_resource_key_hash_offsets, result->movie_resource_key_hash_lengths, result->movie_resource_key_hashes_blob);
@@ -1975,14 +2012,17 @@ int BuildResultBuffer(const ScanAggregate& aggregate, const BridgeExecutionStats
 	result->error_code = 0;
 	result->chart_count = static_cast<unsigned long long>(chartCount);
 	result->dir_count = static_cast<unsigned long long>(dirCount);
+	result->text_count = static_cast<unsigned long long>(textCount);
 	result->chart_query_hits = stats.chartQuery.hitCount;
 	result->audio_query_hits = stats.audioQuery.hitCount;
 	result->image_query_hits = stats.imageQuery.hitCount;
 	result->movie_query_hits = stats.movieQuery.hitCount;
+	result->text_query_hits = stats.textQuery.hitCount;
 	result->chart_query_ms = stats.chartQuery.elapsedMs;
 	result->audio_query_ms = stats.audioQuery.elapsedMs;
 	result->image_query_ms = stats.imageQuery.elapsedMs;
 	result->movie_query_ms = stats.movieQuery.elapsedMs;
+	result->text_query_ms = stats.textQuery.elapsedMs;
 	result->assign_ms = stats.assignMs;
 	result->dedupe_ms = stats.dedupeMs;
 	result->pack_ms = stats.packMs;
@@ -2002,6 +2042,8 @@ int BuildResultBuffer(const ScanAggregate& aggregate, const BridgeExecutionStats
 	result->image_read_ms = stats.imageQuery.readMs;
 	result->movie_search_ms = stats.movieQuery.searchMs;
 	result->movie_read_ms = stats.movieQuery.readMs;
+	result->text_search_ms = stats.textQuery.searchMs;
+	result->text_read_ms = stats.textQuery.readMs;
 	result->chart_sdk_read_ms = stats.chartQuery.sdkReadMs;
 	result->chart_callback_ms = stats.chartQuery.callbackMs;
 	result->audio_sdk_read_ms = stats.audioQuery.sdkReadMs;
@@ -2010,6 +2052,8 @@ int BuildResultBuffer(const ScanAggregate& aggregate, const BridgeExecutionStats
 	result->image_callback_ms = stats.imageQuery.callbackMs;
 	result->movie_sdk_read_ms = stats.movieQuery.sdkReadMs;
 	result->movie_callback_ms = stats.movieQuery.callbackMs;
+	result->text_sdk_read_ms = stats.textQuery.sdkReadMs;
+	result->text_callback_ms = stats.textQuery.callbackMs;
 	result->chart_path_resize_count = stats.chartQuery.pathResizeCount;
 	result->chart_name_resize_count = stats.chartQuery.nameResizeCount;
 	result->audio_path_resize_count = stats.audioQuery.pathResizeCount;
@@ -2018,6 +2062,8 @@ int BuildResultBuffer(const ScanAggregate& aggregate, const BridgeExecutionStats
 	result->image_name_resize_count = stats.imageQuery.nameResizeCount;
 	result->movie_path_resize_count = stats.movieQuery.pathResizeCount;
 	result->movie_name_resize_count = stats.movieQuery.nameResizeCount;
+	result->text_path_resize_count = stats.textQuery.pathResizeCount;
+	result->text_name_resize_count = stats.textQuery.nameResizeCount;
 	result->chart_directory_count = static_cast<unsigned long long>(dirCount);
 	result->audio_assigned_count = stats.audioAssignedCount;
 	result->image_assigned_count = stats.imageAssignedCount;
@@ -2052,7 +2098,7 @@ int BuildResultBuffer(const ScanAggregate& aggregate, const BridgeExecutionStats
 
 }  // namespace
 
-extern "C" __declspec(dllexport) int __cdecl EBridge_ScanChartAndResources(const wchar_t* chartQuery, const wchar_t* audioQuery, const wchar_t* imageQuery, const wchar_t* movieQuery, EBridgeResult** outResult) {
+extern "C" __declspec(dllexport) int __cdecl EBridge_ScanChartAndResources(const wchar_t* chartQuery, const wchar_t* audioQuery, const wchar_t* imageQuery, const wchar_t* movieQuery, const wchar_t* textQuery, EBridgeResult** outResult) {
 	if (!outResult) {
 		return BRIDGE_INVALID_ARGUMENT;
 	}
@@ -2075,10 +2121,13 @@ extern "C" __declspec(dllexport) int __cdecl EBridge_ScanChartAndResources(const
 	QueryExecutionStats audioQueryStats;
 	QueryExecutionStats imageQueryStats;
 	QueryExecutionStats movieQueryStats;
+	QueryExecutionStats textQueryStats;
 	bool okChart = false;
 	bool okAudio = false;
 	bool okImage = false;
 	bool okMovie = false;
+	bool okText = true;
+	bool hasTextQuery = textQuery && textQuery[0] != L'\0';
 	std::thread chartQueryWorker([&]() {
 		okChart = ExecuteQueryWithNewClient(chartQuery, [&chartRawHits](std::wstring& path, std::wstring& name) {
 			if (path.empty() || name.empty()) {
@@ -2119,14 +2168,33 @@ extern "C" __declspec(dllexport) int __cdecl EBridge_ScanChartAndResources(const
 			ReserveCategoryRawHits(movieRawHits, hitCount);
 		}, true);
 	});
+	std::thread textQueryWorker;
+	if (hasTextQuery) {
+		okText = false;
+		textQueryWorker = std::thread([&]() {
+			okText = ExecuteQueryWithNewClient(textQuery, [&aggregate](const std::wstring& path, const std::wstring& name, unsigned long long dateModifiedFileTime) {
+				if (path.empty() || name.empty()) {
+					return;
+				}
+				aggregate.textFiles.push_back(GroupedFileEntry{
+					CombinePathAndName(TrimTrailingSeparators(ReplaceAltSeparators(path)), name),
+					dateModifiedFileTime
+				});
+			}, &textQueryStats, NoopHitCountCallback{}, true, true);
+		});
+	}
 	chartQueryWorker.join();
 	audioQueryWorker.join();
 	imageQueryWorker.join();
 	movieQueryWorker.join();
+	if (textQueryWorker.joinable()) {
+		textQueryWorker.join();
+	}
 	stats.chartQuery = chartQueryStats;
 	stats.audioQuery = audioQueryStats;
 	stats.imageQuery = imageQueryStats;
 	stats.movieQuery = movieQueryStats;
+	stats.textQuery = textQueryStats;
 	if (!okChart) {
 		return BRIDGE_CHART_QUERY_FAILED;
 	}

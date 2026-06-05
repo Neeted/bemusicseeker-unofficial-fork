@@ -1021,7 +1021,7 @@ parse directive:
 | Phase 0: Golden fixture と contract 固定 | 一部完了 | `LR2CRC32` / ROOT sentinel / CP932 boundary の contract、OpenLR2 source classifier の推測抑止、`exlevel` contract はテスト化済み。 | `folderinfo.txt` / `.lr2folder` / copied `song.db` dry-run など、実 DB 由来の golden fixture を追加する。 |
 | Phase 1: BMS 変更検出 | 主要実装済み | `song.path` / `song.date` / hash を使う変更検出、same MD5 の targeted update、runtime reload の再評価 queue は接続済み。 | 大規模 root 変更・mtime preserved copy の手動検証を残す。 |
 | Phase 2: `song` row merge / ownership | 主要実装済み | `Lr2SongDbWriter`、generated/user column 分離、runtime write failure の status marking、merge 時 user column preservation は接続済み。 | copied `song.db` で LR2 user column が維持されることを統合確認する。 |
-| Phase 3: metadata-bearing scan surface / raw resource reference | 一部完了 | BMS parser / snapshot 側の raw resource reference、text group の targeted `song.txt` 更新、完全生成 ON 時だけの scan 条件、`RootFileEnumerationResult` の file / directory mtime entry、Everything grouped bridge ABI / managed fallback の metadata surface は実装済み。`.lr2folder`、normal folder directory mtime、`ChartScanResult` の `.txt` / `folderinfo.txt` entry metadata は backfill / sync に接続済み。 | fixed native resource scan と grouped enumeration surface の統合、native / fallback parity fixture を追加する。 |
+| Phase 3: metadata-bearing scan surface / raw resource reference | 一部完了 | BMS parser / snapshot 側の raw resource reference、text group の targeted `song.txt` 更新、完全生成 ON 時だけの scan 条件、`RootFileEnumerationResult` の file / directory mtime entry、Everything fixed scan / grouped bridge ABI / managed fallback の metadata surface は実装済み。`.txt` / `folderinfo.txt` / `.lr2folder` / normal folder directory mtime は backfill / sync に接続済み。 | native / fallback parity fixture を追加する。 |
 | Phase 4: LR2 compatibility warning | 主要実装済み | `Lr2CompatibilityEvaluator`、maintenance 最小 fact、standalone mode での LR2 非対応パス tree 非表示は接続済み。 | warning 表示の実機確認と、copied DB での backfill 表示確認を残す。 |
 | Phase 5: `song` row enricher | 主要実装済み | `Lr2SongRowEnricher`、`chart_info` 由来 numeric columns、`exlevel = #EXLEVEL raw int / 未設定 0` は実装済み。 | LR2IR / tag.db 由来の exlevel 上書きは対象外として維持する。 |
 | Phase 6: normal `folder` row generator | 主要実装済み | normal folder generator / scope planner / DB sync、mutation・file diff failure の incomplete marking、directory metadata surface 由来の `folder.date` resolver、`folderinfo.txt` entry metadata surface は接続済み。 | 実機で directory mtime / folder row freshness を確認する。 |
@@ -1054,8 +1054,9 @@ parse directive:
   `RootFileEnumerationResult` と native grouped bridge decode result は file / directory metadata entry surface になっている。
   `ChartScanResult` は `.txt` / `folderinfo.txt` entry metadata を保持し、merged scan result と normal folder sync /
   backfill request へ渡す。
-  - fixed native resource scan は、chart / audio / image / movie に加えて `.txt` / `folderinfo.txt` /
-    `.lr2folder` query と file mtime を同じ bridge layout で返す surface へ寄せる。
+  - fixed native resource scan は、chart / audio / image / movie に加えて `.txt` / `folderinfo.txt`
+    query と file mtime を同じ bridge layout で返す。
+  - `.lr2folder` は grouped enumeration surface で列挙し、同じ `RootFileEnumerationEntry` shape で backfill へ渡す。
   - managed fallback は列挙時に同じ metadata を持つ。native / fallback のどちらでも後追い全件 stat を行わない。
   - `song.date` が一致していて BMS 本体 MD5 が同じ場合、`.txt` 増減は targeted `song.txt` update だけ行い、
     chart_info / maintenance は再生成しない。
@@ -1262,9 +1263,9 @@ existence / mtime は意味的に揃える。
 
 ## 残作業の推奨順
 
-1. fixed native resource scan と grouped enumeration surface の境界を整理する。
-   - `.txt` / `folderinfo.txt` / `.lr2folder` を fixed native resource scan と同じ metadata-bearing grouped request に並べる。
-   - native / fallback parity tests と bridge layout / result version log を追加する。
+1. native / fallback metadata parity fixture を追加する。
+   - fixed scan の `.txt` / `folderinfo.txt` entry、grouped enumeration の `.lr2folder` entry、directory mtime が同じ `RootFileEnumerationEntry` contract になることを固定する。
+   - bridge layout / result version log を必要に応じて追加する。
 2. Phase 9 の統合確認を固める。
    - copied `song.db` で、初回 backfill、2 回目 no-op、partial resume、failed chunk rollback、
      cancel/restart、startup-scan blocker cleanup を確認する。

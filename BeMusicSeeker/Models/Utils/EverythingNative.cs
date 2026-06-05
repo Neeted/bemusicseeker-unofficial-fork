@@ -20,7 +20,7 @@ internal static class EverythingNative
 
     internal const string SourceRootScanBackendName = "everything_bridge_source_surface";
 
-    private const uint FixedScanContractVersion = 2026050708u;
+    private const uint FixedScanContractVersion = 2026060502u;
 
     private static IntPtr loadedBridgeModule = IntPtr.Zero;
 
@@ -352,9 +352,9 @@ internal static class EverythingNative
         }
     }
 
-    internal static ChartScanExecutionResult ExecuteScan(string chartQuery, string audioQuery, string imageQuery, string movieQuery)
+    internal static ChartScanExecutionResult ExecuteScan(string chartQuery, string audioQuery, string imageQuery, string movieQuery, string textQuery = null)
     {
-        if (!TryExecuteBridgeScan(chartQuery, audioQuery, imageQuery, movieQuery, out ChartScanExecutionResult result, out string reason, out long elapsedMs))
+        if (!TryExecuteBridgeScan(chartQuery, audioQuery, imageQuery, movieQuery, textQuery, out ChartScanExecutionResult result, out string reason, out long elapsedMs))
         {
             return Failed(reason, elapsedMs);
         }
@@ -365,7 +365,7 @@ internal static class EverythingNative
         return result;
     }
 
-    private static bool TryExecuteBridgeScan(string chartQuery, string audioQuery, string imageQuery, string movieQuery, out ChartScanExecutionResult result, out string reason, out long elapsedMs)
+    private static bool TryExecuteBridgeScan(string chartQuery, string audioQuery, string imageQuery, string movieQuery, string textQuery, out ChartScanExecutionResult result, out string reason, out long elapsedMs)
     {
         result = null;
         reason = null;
@@ -379,7 +379,7 @@ internal static class EverythingNative
             }
 
             var nativeBridgeStopwatch = Stopwatch.StartNew();
-            int status = EBridge_ScanChartAndResources(chartQuery, audioQuery, imageQuery, movieQuery, out resultPtr);
+            int status = EBridge_ScanChartAndResources(chartQuery, audioQuery, imageQuery, movieQuery, textQuery ?? string.Empty, out resultPtr);
             nativeBridgeStopwatch.Stop();
             long nativeBridgeMs = nativeBridgeStopwatch.ElapsedMilliseconds;
             if (status != 0)
@@ -449,6 +449,7 @@ internal static class EverythingNative
     {
         string[] chartPaths = ReadStringArray(header.chart_count, header.chart_offsets, header.chart_blob);
         string[] chartDirectories = ReadStringArray(header.dir_count, header.dir_offsets, header.dir_blob);
+        Dictionary<string, RootFileEnumerationEntry> textFileEntries = ReadGroupedFileEntries(header.text_count, header.text_offsets, header.text_last_write_filetimes, header.text_blob);
         uint[][] audioRelativeHashes = null;
         uint[][] imageRelativeHashes = null;
         uint[][] movieRelativeHashes = null;
@@ -489,6 +490,7 @@ internal static class EverythingNative
         {
             ChartPaths = chartPaths,
             ChartDirectories = chartDirectories,
+            TextFileEntries = textFileEntries,
             AudioRelativeHashes = audioRelativeHashes,
             ImageRelativeHashes = imageRelativeHashes,
             MovieRelativeHashes = movieRelativeHashes,
@@ -849,6 +851,9 @@ internal static class EverythingNative
             ChartFilePaths = chartFilePaths,
             ChartDirectories = chartDirectories
         };
+        IEnumerable<RootFileEnumerationEntry> textFileEntries = decodedResult?.TextFileEntries?.Values
+            ?? Enumerable.Empty<RootFileEnumerationEntry>();
+        ChartDirectoryScanBuilder.AddDirectTextFileEntries(scanResult, textFileEntries);
         return new ChartScanExecutionResult
         {
             Success = true,
@@ -987,7 +992,7 @@ internal static class EverythingNative
     private static extern IntPtr GetProcAddress(IntPtr hModule, string procName);
 
     [DllImport(BridgeDllName, CharSet = CharSet.Unicode, CallingConvention = CallingConvention.Cdecl, EntryPoint = "EBridge_ScanChartAndResources")]
-    private static extern int EBridge_ScanChartAndResources(string chartQuery, string audioQuery, string imageQuery, string movieQuery, out IntPtr outResult);
+    private static extern int EBridge_ScanChartAndResources(string chartQuery, string audioQuery, string imageQuery, string movieQuery, string textQuery, out IntPtr outResult);
 
     [DllImport(BridgeDllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "EBridge_FreeResult")]
     private static extern void EBridge_FreeResult(IntPtr result);
@@ -1107,6 +1112,8 @@ internal static class EverythingNative
         internal string[] ChartPaths { get; set; } = [];
 
         internal string[] ChartDirectories { get; set; } = [];
+
+        internal Dictionary<string, RootFileEnumerationEntry> TextFileEntries { get; set; } = [];
 
         internal uint[][] AudioRelativeHashes { get; set; } = [];
 
@@ -1350,5 +1357,17 @@ internal static class EverythingNative
         public ulong image_name_resize_count;
         public ulong movie_path_resize_count;
         public ulong movie_name_resize_count;
+        public ulong text_count;
+        public IntPtr text_offsets;
+        public IntPtr text_blob;
+        public IntPtr text_last_write_filetimes;
+        public ulong text_query_hits;
+        public long text_query_ms;
+        public long text_search_ms;
+        public long text_read_ms;
+        public long text_sdk_read_ms;
+        public long text_callback_ms;
+        public ulong text_path_resize_count;
+        public ulong text_name_resize_count;
     }
 }
