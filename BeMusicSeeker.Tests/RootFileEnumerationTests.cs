@@ -91,6 +91,55 @@ public sealed class RootFileEnumerationTests
         }
     }
 
+    [TestMethod]
+    public void FastEnumerator_ReturnsUnifiedMetadataSurfaceForTextLr2FolderAndDirectories()
+    {
+        string tempRoot = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_RootEnumUnified_" + Guid.NewGuid().ToString("N"));
+        string packDirectory = Path.Combine(tempRoot, "Pack");
+        string folderInfoPath = Path.Combine(packDirectory, "folderinfo.txt");
+        string lr2FolderPath = Path.Combine(tempRoot, "Custom.lr2folder");
+        DateTime folderInfoTimeUtc = new(2026, 6, 5, 5, 0, 0, DateTimeKind.Utc);
+        DateTime lr2FolderTimeUtc = new(2026, 6, 5, 6, 0, 0, DateTimeKind.Utc);
+        DateTime directoryTimeUtc = new(2026, 6, 5, 7, 0, 0, DateTimeKind.Utc);
+        Directory.CreateDirectory(packDirectory);
+        File.WriteAllText(folderInfoPath, "#TITLE Pack");
+        File.WriteAllText(lr2FolderPath, "#TITLE Custom");
+        File.SetLastWriteTimeUtc(folderInfoPath, folderInfoTimeUtc);
+        File.SetLastWriteTimeUtc(lr2FolderPath, lr2FolderTimeUtc);
+        Directory.SetLastWriteTimeUtc(packDirectory, directoryTimeUtc);
+
+        try
+        {
+            RootFileEnumerationResult result = new FastRootFileEnumerator().EnumerateFiles(
+                [tempRoot],
+                [
+                    new RootFileEnumerationGroup(ChartDirectoryScanBuilder.TextGroupName, ChartDirectoryScanBuilder.TextExtensions),
+                    new RootFileEnumerationGroup("lr2folder", [".lr2folder"]),
+                    new RootFileEnumerationGroup(RootFileEnumerationService.DirectoriesGroupName, [], includeDirectories: true)
+                ]);
+
+            Assert.IsTrue(result.Success);
+            RootFileEnumerationEntry folderInfoEntry = result.GetEntry(ChartDirectoryScanBuilder.TextGroupName, folderInfoPath);
+            RootFileEnumerationEntry lr2FolderEntry = result.GetEntry("lr2folder", lr2FolderPath);
+            RootFileEnumerationEntry directoryEntry = result.GetEntry(RootFileEnumerationService.DirectoriesGroupName, packDirectory);
+            Assert.IsNotNull(folderInfoEntry);
+            Assert.IsNotNull(lr2FolderEntry);
+            Assert.IsNotNull(directoryEntry);
+            Assert.AreEqual(ToUnixSeconds(folderInfoTimeUtc), folderInfoEntry.LastWriteTimeUnixSeconds);
+            Assert.AreEqual(ToUnixSeconds(lr2FolderTimeUtc), lr2FolderEntry.LastWriteTimeUnixSeconds);
+            Assert.AreEqual(ToUnixSeconds(directoryTimeUtc), directoryEntry.LastWriteTimeUnixSeconds);
+            Assert.IsTrue(folderInfoEntry.FileSize > 0);
+            Assert.IsTrue(lr2FolderEntry.FileSize > 0);
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot))
+            {
+                Directory.Delete(tempRoot, recursive: true);
+            }
+        }
+    }
+
     private static int ToUnixSeconds(DateTime timestampUtc)
     {
         DateTime utc = timestampUtc.Kind == DateTimeKind.Utc ? timestampUtc : timestampUtc.ToUniversalTime();
