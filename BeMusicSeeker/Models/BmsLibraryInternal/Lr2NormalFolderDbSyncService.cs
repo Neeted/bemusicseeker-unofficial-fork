@@ -113,8 +113,7 @@ internal static class Lr2NormalFolderDbSyncService
             existingRows,
             rootDirectories,
             pruneScopeDirectories);
-        bool canPrune = request.AllowPrune
-            && chartPathFilter.SkippedIncompatibleChartPathCount == 0;
+        bool canPrune = request.AllowPrune;
         if (!canPrune && plan.DeletePaths.Count > 0)
         {
             plan = new Lr2FolderGenerationSyncPlan(plan.UpsertRows, []);

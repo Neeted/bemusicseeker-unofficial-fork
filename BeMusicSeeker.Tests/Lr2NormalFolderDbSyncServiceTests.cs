@@ -303,7 +303,7 @@ public sealed class Lr2NormalFolderDbSyncServiceTests
     }
 
     [TestMethod]
-    public void Sync_SuppressesPruneWhenAnyChartPathIsIncompatibleEvenIfPruneIsAllowed()
+    public void Sync_PrunesStaleRowsEvenWhenSomeChartPathsAreIncompatible()
     {
         string tempDirectory = Path.Combine(Path.GetTempPath(), nameof(Lr2NormalFolderDbSyncServiceTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
@@ -332,9 +332,10 @@ public sealed class Lr2NormalFolderDbSyncServiceTests
             });
 
             Assert.AreEqual(1, result.SkippedIncompatibleChartPathCount);
-            Assert.AreEqual(0, result.DeletedCount);
-            Assert.AreEqual(1, songDb.Table<LR2SongDB.folder>().Count(row => row.path == stalePath));
+            Assert.AreEqual(1, result.DeletedCount);
+            Assert.AreEqual(0, songDb.Table<LR2SongDB.folder>().Count(row => row.path == stalePath));
             Assert.IsTrue(songDb.Table<LR2SongDB.folder>().Any(row => row.path == FolderPath(@"D:\BMS\Pack")));
+            Assert.IsFalse(songDb.Table<LR2SongDB.folder>().Any(row => row.path == FolderPath(@"D:\BMS\emoji_😀")));
         }
         finally
         {
