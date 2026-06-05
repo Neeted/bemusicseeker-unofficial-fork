@@ -581,6 +581,7 @@ internal sealed class BmsLibraryInitializationService
             lr2NormalFolderSyncRootDirectories,
             scannedPaths,
             mergedScanResult.FolderInfoFilePaths,
+            mergedScanResult.FolderInfoFileEntriesByPath,
             result,
             logInstallPerformance,
             logInstallPerformanceWarn,
@@ -723,6 +724,7 @@ internal sealed class BmsLibraryInitializationService
         IEnumerable<string> rootDirectories,
         IEnumerable<string> scannedBmsPaths,
         IEnumerable<string> folderInfoFilePaths,
+        IReadOnlyDictionary<string, RootFileEnumerationEntry> folderInfoFileEntries,
         SongTableFileCheckResult result,
         Action<string> logInstallPerformance,
         Action<string> logInstallPerformanceWarn,
@@ -761,6 +763,7 @@ internal sealed class BmsLibraryInitializationService
                 RootDirectories = roots,
                 ChartPaths = [.. (scannedBmsPaths ?? [])],
                 FolderInfoFilePaths = [.. (folderInfoFilePaths ?? [])],
+                FolderInfoFileEntries = folderInfoFileEntries ?? new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase),
                 DirectoryLastWriteTimeUtcResolver = CreateLastWriteTimeResolver(directoryEntries),
                 AllowPrune = true
             });
@@ -2551,6 +2554,8 @@ internal sealed class BmsLibraryInitializationService
             merged.ChartDirectories.UnionWith(scanResult.ChartDirectories ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase));
             merged.ChartDirectoriesWithTextFiles.UnionWith(scanResult.ChartDirectoriesWithTextFiles ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase));
             merged.FolderInfoFilePaths.UnionWith(scanResult.FolderInfoFilePaths ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+            MergeFileEntryDictionary(merged.TextFileEntriesByPath, scanResult.TextFileEntriesByPath);
+            MergeFileEntryDictionary(merged.FolderInfoFileEntriesByPath, scanResult.FolderInfoFileEntriesByPath);
             MergeHashDictionary(merged.AudioRelativePathHashesByChartDirectory, scanResult.AudioRelativePathHashesByChartDirectory);
             MergeHashDictionary(merged.ImageRelativePathHashesByChartDirectory, scanResult.ImageRelativePathHashesByChartDirectory);
             MergeHashDictionary(merged.MovieRelativePathHashesByChartDirectory, scanResult.MovieRelativePathHashesByChartDirectory);
@@ -2559,6 +2564,26 @@ internal sealed class BmsLibraryInitializationService
             MergeHashDictionary(merged.SelfOwnedMovieRelativePathHashesByChartDirectory, scanResult.SelfOwnedMovieRelativePathHashesByChartDirectory);
         }
         return merged;
+    }
+
+    private static void MergeFileEntryDictionary(
+        Dictionary<string, RootFileEnumerationEntry> destination,
+        Dictionary<string, RootFileEnumerationEntry> source)
+    {
+        if (destination == null || source == null)
+        {
+            return;
+        }
+
+        foreach (KeyValuePair<string, RootFileEnumerationEntry> item in source)
+        {
+            if (string.IsNullOrWhiteSpace(item.Key) || item.Value == null)
+            {
+                continue;
+            }
+
+            destination[item.Key] = item.Value;
+        }
     }
 
     private static void MergeHashDictionary(Dictionary<string, uint[]> destination, Dictionary<string, uint[]> source)

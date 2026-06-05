@@ -167,8 +167,8 @@ public class EverythingFileScanner : IChartFileScanner
             }
             return;
         }
-        ChartDirectoryScanBuilder.AddDirectTextFileDirectories(
+        ChartDirectoryScanBuilder.AddDirectTextFileEntries(
             scanResult,
-            textEnumeration.GetPaths(ChartDirectoryScanBuilder.TextGroupName));
+            textEnumeration.GetEntries(ChartDirectoryScanBuilder.TextGroupName));
     }
 }

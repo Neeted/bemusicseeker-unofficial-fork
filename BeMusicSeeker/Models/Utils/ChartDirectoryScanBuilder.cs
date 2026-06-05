@@ -89,7 +89,7 @@ internal static class ChartDirectoryScanBuilder
             enumerationResult?.GetPaths(AudioGroupName) ?? [],
             enumerationResult?.GetPaths(ImageGroupName) ?? [],
             enumerationResult?.GetPaths(MovieGroupName) ?? [],
-            enumerationResult?.GetPaths(TextGroupName) ?? []);
+            enumerationResult?.GetEntries(TextGroupName) ?? []);
     }
 
     internal static ChartScanResult BuildFromAbsolutePaths(
@@ -98,6 +98,21 @@ internal static class ChartDirectoryScanBuilder
         IEnumerable<string> imageFilePaths,
         IEnumerable<string> movieFilePaths,
         IEnumerable<string> textFilePaths = null)
+    {
+        return BuildFromAbsolutePaths(
+            chartFilePaths,
+            audioFilePaths,
+            imageFilePaths,
+            movieFilePaths,
+            NormalizeTextFilePaths(textFilePaths).Select(path => new RootFileEnumerationEntry(path)));
+    }
+
+    internal static ChartScanResult BuildFromAbsolutePaths(
+        IEnumerable<string> chartFilePaths,
+        IEnumerable<string> audioFilePaths,
+        IEnumerable<string> imageFilePaths,
+        IEnumerable<string> movieFilePaths,
+        IEnumerable<RootFileEnumerationEntry> textFileEntries)
     {
         var result = new ChartScanResult();
         var normalizedChartPaths = new HashSet<string>(
@@ -125,9 +140,8 @@ internal static class ChartDirectoryScanBuilder
         AssignResourceFiles(result.ChartDirectories, audioFilePaths, ChartResourceKind.Audio, audioRelativePathHashes, selfOwnedAudioRelativePathHashes);
         AssignResourceFiles(result.ChartDirectories, imageFilePaths, ChartResourceKind.Image, imageRelativePathHashes, selfOwnedImageRelativePathHashes);
         AssignResourceFiles(result.ChartDirectories, movieFilePaths, ChartResourceKind.Movie, movieRelativePathHashes, selfOwnedMovieRelativePathHashes);
-        string[] normalizedTextFilePaths = NormalizeTextFilePaths(textFilePaths);
-        AssignTextFiles(result.ChartDirectories, normalizedTextFilePaths, result.ChartDirectoriesWithTextFiles);
-        AddFolderInfoFilePaths(result, normalizedTextFilePaths);
+        RootFileEnumerationEntry[] normalizedTextFileEntries = NormalizeTextFileEntries(textFileEntries);
+        AddTextFileEntries(result, normalizedTextFileEntries);
 
         SetDictionary(result.AudioRelativePathHashesByChartDirectory, audioRelativePathHashes);
         SetDictionary(result.ImageRelativePathHashesByChartDirectory, imageRelativePathHashes);
@@ -226,28 +240,40 @@ internal static class ChartDirectoryScanBuilder
 
     internal static void AddDirectTextFileDirectories(ChartScanResult result, IEnumerable<string> textFilePaths)
     {
+        AddDirectTextFileEntries(result, NormalizeTextFilePaths(textFilePaths).Select(path => new RootFileEnumerationEntry(path)));
+    }
+
+    internal static void AddDirectTextFileEntries(ChartScanResult result, IEnumerable<RootFileEnumerationEntry> textFileEntries)
+    {
         if (result == null)
         {
             return;
         }
-        string[] normalizedTextFilePaths = NormalizeTextFilePaths(textFilePaths);
-        AssignTextFiles(result.ChartDirectories, normalizedTextFilePaths, result.ChartDirectoriesWithTextFiles);
-        AddFolderInfoFilePaths(result, normalizedTextFilePaths);
+        AddTextFileEntries(result, NormalizeTextFileEntries(textFileEntries));
     }
 
-    private static void AddFolderInfoFilePaths(ChartScanResult result, IEnumerable<string> textFilePaths)
+    private static void AddTextFileEntries(ChartScanResult result, IEnumerable<RootFileEnumerationEntry> textFileEntries)
     {
         if (result == null)
         {
             return;
         }
 
-        foreach (string absolutePath in (textFilePaths ?? [])
-            .Where(IsFolderInfoFilePath)
-            .Select(Path.GetFullPath)
-            .Distinct(StringComparer.OrdinalIgnoreCase))
+        RootFileEnumerationEntry[] entries = [.. textFileEntries ?? []];
+        AssignTextFiles(result.ChartDirectories, entries.Select(entry => entry.Path), result.ChartDirectoriesWithTextFiles);
+        foreach (RootFileEnumerationEntry entry in entries)
         {
-            result.FolderInfoFilePaths.Add(absolutePath);
+            string absolutePath = entry?.Path;
+            if (string.IsNullOrWhiteSpace(absolutePath))
+            {
+                continue;
+            }
+            result.TextFileEntriesByPath[absolutePath] = entry;
+            if (IsFolderInfoFilePath(absolutePath))
+            {
+                result.FolderInfoFilePaths.Add(absolutePath);
+                result.FolderInfoFileEntriesByPath[absolutePath] = entry;
+            }
         }
     }
 
@@ -264,6 +290,22 @@ internal static class ChartDirectoryScanBuilder
             .Where(path => string.Equals(Path.GetExtension(path), ".txt", StringComparison.OrdinalIgnoreCase))
             .Select(Path.GetFullPath)
             .Distinct(StringComparer.OrdinalIgnoreCase)];
+    }
+
+    private static RootFileEnumerationEntry[] NormalizeTextFileEntries(IEnumerable<RootFileEnumerationEntry> textFileEntries)
+    {
+        return [.. (textFileEntries ?? [])
+            .Where(entry => entry != null && !string.IsNullOrWhiteSpace(entry.Path))
+            .Where(entry => string.Equals(Path.GetExtension(entry.Path), ".txt", StringComparison.OrdinalIgnoreCase))
+            .GroupBy(entry => Path.GetFullPath(entry.Path), StringComparer.OrdinalIgnoreCase)
+            .Select(group =>
+            {
+                RootFileEnumerationEntry entry = group.First();
+                string fullPath = Path.GetFullPath(entry.Path);
+                return string.Equals(fullPath, entry.Path, StringComparison.OrdinalIgnoreCase)
+                    ? entry
+                    : new RootFileEnumerationEntry(fullPath, entry.LastWriteTimeUtc, entry.FileSize);
+            })];
     }
 
     private static void SetDictionary(Dictionary<string, uint[]> destination, Dictionary<string, HashSet<uint>> source)

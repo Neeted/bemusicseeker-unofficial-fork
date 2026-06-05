@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.Models.Utils;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
@@ -14,6 +15,9 @@ internal sealed class Lr2NormalFolderDbSyncRequest
     public IReadOnlyCollection<string> ChartPaths { get; set; } = [];
 
     public IReadOnlyCollection<string> FolderInfoFilePaths { get; set; } = [];
+
+    public IReadOnlyDictionary<string, RootFileEnumerationEntry> FolderInfoFileEntries { get; set; } =
+        new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
 
     public IReadOnlyCollection<string> PruneScopeDirectories { get; set; } = [];
 
@@ -88,6 +92,7 @@ internal static class Lr2NormalFolderDbSyncService
         {
             DirectoryPaths = CreateDirectoryMetadataTargets(rootDirectories, compatibleChartPaths),
             FolderInfoFilePaths = request.FolderInfoFilePaths,
+            FolderInfoFileEntries = request.FolderInfoFileEntries,
             DirectoryLastWriteTimeUtcResolver = request.DirectoryLastWriteTimeUtcResolver,
             FolderInfoLinesReader = request.FolderInfoLinesReader
         });

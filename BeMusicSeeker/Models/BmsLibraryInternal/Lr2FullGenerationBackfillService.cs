@@ -23,6 +23,9 @@ internal sealed class Lr2FullGenerationBackfillRequest
 
     public IReadOnlyCollection<string> FolderInfoFilePaths { get; set; } = [];
 
+    public IReadOnlyDictionary<string, RootFileEnumerationEntry> FolderInfoFileEntries { get; set; } =
+        new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
+
     public IReadOnlyDictionary<string, RootFileEnumerationEntry> DirectoryEntries { get; set; } =
         new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
 
@@ -252,6 +255,7 @@ internal static class Lr2FullGenerationBackfillService
                 RootDirectories = roots,
                 ChartPaths = chartPaths,
                 FolderInfoFilePaths = folderInfoFilePaths,
+                FolderInfoFileEntries = request.FolderInfoFileEntries,
                 DirectoryLastWriteTimeUtcResolver = CreateLastWriteTimeResolver(directoryEntries),
                 AllowPrune = true,
                 GeneratedAtUtc = request.StartedAtUtc

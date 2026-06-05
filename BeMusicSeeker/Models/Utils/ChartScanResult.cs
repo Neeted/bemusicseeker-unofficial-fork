@@ -13,6 +13,10 @@ public class ChartScanResult
 
     public HashSet<string> FolderInfoFilePaths { get; set; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
+    internal Dictionary<string, RootFileEnumerationEntry> TextFileEntriesByPath { get; set; } = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
+
+    internal Dictionary<string, RootFileEnumerationEntry> FolderInfoFileEntriesByPath { get; set; } = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
+
     public Dictionary<string, uint[]> AudioRelativePathHashesByChartDirectory { get; set; } = new Dictionary<string, uint[]>(StringComparer.OrdinalIgnoreCase);
 
     public Dictionary<string, uint[]> ImageRelativePathHashesByChartDirectory { get; set; } = new Dictionary<string, uint[]>(StringComparer.OrdinalIgnoreCase);

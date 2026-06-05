@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Security;
 using System.Text;
+using BeMusicSeeker.Models.Utils;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
@@ -12,6 +13,9 @@ internal sealed class Lr2FolderDirectoryMetadataBuildRequest
     public IReadOnlyCollection<string> DirectoryPaths { get; set; } = [];
 
     public IReadOnlyCollection<string> FolderInfoFilePaths { get; set; } = [];
+
+    public IReadOnlyDictionary<string, RootFileEnumerationEntry> FolderInfoFileEntries { get; set; } =
+        new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
 
     public Func<string, DateTime?> DirectoryLastWriteTimeUtcResolver { get; set; }
 
@@ -63,7 +67,9 @@ internal static class Lr2FolderDirectoryMetadataBuilder
     {
         request ??= new Lr2FolderDirectoryMetadataBuildRequest();
 
-        Dictionary<string, string> folderInfoPathsByDirectory = CreateFolderInfoPathMap(request.FolderInfoFilePaths);
+        Dictionary<string, string> folderInfoPathsByDirectory = CreateFolderInfoPathMap(
+            request.FolderInfoFilePaths,
+            request.FolderInfoFileEntries);
         var metadataByDirectory = new Dictionary<string, Lr2FolderDirectoryMetadata>(StringComparer.OrdinalIgnoreCase);
         int requestedDirectoryCount = 0;
         int missingDirectoryCount = 0;
@@ -135,9 +141,25 @@ internal static class Lr2FolderDirectoryMetadataBuilder
             .OrderBy(path => path, StringComparer.OrdinalIgnoreCase);
     }
 
-    private static Dictionary<string, string> CreateFolderInfoPathMap(IEnumerable<string> folderInfoFilePaths)
+    private static Dictionary<string, string> CreateFolderInfoPathMap(
+        IEnumerable<string> folderInfoFilePaths,
+        IReadOnlyDictionary<string, RootFileEnumerationEntry> folderInfoFileEntries)
     {
         var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        AddFolderInfoPaths(result, (folderInfoFileEntries ?? new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase))
+            .Values
+            .Select(entry => entry?.Path));
+        AddFolderInfoPaths(result, folderInfoFilePaths);
+        return result;
+    }
+
+    private static void AddFolderInfoPaths(Dictionary<string, string> result, IEnumerable<string> folderInfoFilePaths)
+    {
+        if (result == null)
+        {
+            return;
+        }
+
         foreach (string filePath in NormalizeFolderInfoFilePaths(folderInfoFilePaths))
         {
             string directoryPath = Lr2FolderPath.NormalizeDirectoryPath(Path.GetDirectoryName(filePath));
@@ -146,7 +168,6 @@ internal static class Lr2FolderDirectoryMetadataBuilder
                 result.Add(directoryPath, filePath);
             }
         }
-        return result;
     }
 
     private static IEnumerable<string> NormalizeFolderInfoFilePaths(IEnumerable<string> folderInfoFilePaths)

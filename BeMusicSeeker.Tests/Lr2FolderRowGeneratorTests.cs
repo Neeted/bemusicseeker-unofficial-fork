@@ -5,6 +5,7 @@ using System.Linq;
 using System.Security;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.Models.Utils;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Ribbit.Util.Extensions;
 
@@ -391,6 +392,38 @@ public sealed class Lr2FolderRowGeneratorTests
         Assert.AreEqual(packTime, metadata.LastWriteTimeUtc);
         Assert.AreEqual("Pack Title", metadata.FolderInfoTitle);
         CollectionAssert.AreEqual(new[] { Path.GetFullPath(@"D:\BMS\Pack\folderinfo.txt") }, readPaths.ToArray());
+    }
+
+    [TestMethod]
+    public void DirectoryMetadataBuilder_AppliesFolderInfoEntryMap()
+    {
+        DateTime packTime = new(2026, 6, 8, 1, 2, 3, DateTimeKind.Utc);
+        string folderInfoPath = Path.GetFullPath(@"D:\BMS\Pack\folderinfo.txt");
+        var readPaths = new List<string>();
+
+        Lr2FolderDirectoryMetadataSnapshot snapshot = Lr2FolderDirectoryMetadataBuilder.Build(new Lr2FolderDirectoryMetadataBuildRequest
+        {
+            DirectoryPaths = [@"D:\BMS\Pack"],
+            FolderInfoFileEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase)
+            {
+                [folderInfoPath] = new RootFileEnumerationEntry(folderInfoPath, new DateTime(2026, 6, 8, 1, 2, 4, DateTimeKind.Utc), 99)
+            },
+            DirectoryLastWriteTimeUtcResolver = path => string.Equals(Normalize(path), Normalize(@"D:\BMS\Pack"), StringComparison.OrdinalIgnoreCase)
+                ? packTime
+                : null,
+            FolderInfoLinesReader = path =>
+            {
+                readPaths.Add(path);
+                return ["#TITLE Entry Map Title"];
+            }
+        });
+
+        Assert.AreEqual(1, snapshot.FolderInfoCandidateCount);
+        Assert.AreEqual(1, snapshot.FolderInfoAppliedCount);
+        Assert.IsTrue(snapshot.TryGetMetadata(@"D:\BMS\Pack", out Lr2FolderDirectoryMetadata metadata));
+        Assert.AreEqual(packTime, metadata.LastWriteTimeUtc);
+        Assert.AreEqual("Entry Map Title", metadata.FolderInfoTitle);
+        CollectionAssert.AreEqual(new[] { folderInfoPath }, readPaths.ToArray());
     }
 
     [TestMethod]
