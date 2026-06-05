@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
@@ -1243,6 +1244,29 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
 
         Assert.AreEqual(1, result.SongRowChartInfoAppliedCount);
         Assert.AreEqual(11, songDb.ExecuteScalar<int>("SELECT level FROM song WHERE path = ?;", chartPath));
+    }
+
+    [TestMethod]
+    public void BackfillService_CancelledRequestMarksCancelledStatus()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        Assert.ThrowsException<OperationCanceledException>(() => Lr2FullGenerationBackfillService.Run(songDb, new Lr2FullGenerationBackfillRequest
+        {
+            Signature = "sig_cancel",
+            RunId = "run_cancel",
+            CancellationToken = cancellation.Token
+        }));
+
+        LR2SongDBExtended.lr2_full_generation_status row = songDb.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
+        Assert.IsNotNull(row);
+        Assert.AreEqual(Lr2FullGenerationStatusKind.Cancelled.ToString(), row.status);
+        Assert.AreEqual("final_validation", row.stage);
+        Assert.AreEqual(0, row.processed_cursor);
+        Assert.AreEqual(0, row.total_count);
     }
 
     [TestMethod]

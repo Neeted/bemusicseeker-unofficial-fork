@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Security;
 using System.Text;
+using System.Threading;
 using BeMusicSeeker.Models.LR2;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
@@ -40,6 +41,8 @@ internal sealed class Lr2FullGenerationBackfillRequest
     public IReadOnlyCollection<string> TextFileDirectories { get; set; } = [];
 
     public DateTime StartedAtUtc { get; set; } = DateTime.UtcNow;
+
+    public CancellationToken CancellationToken { get; set; }
 
     public Func<bool> IsSourceCurrent { get; set; }
 
@@ -216,6 +219,7 @@ internal static class Lr2FullGenerationBackfillService
             nowUtc: request.StartedAtUtc,
             processedCursor: resumeCursor);
         ReportProgress(request, resumeCursor, totalCount, initialStage);
+        ThrowIfCancellationRequested(songDb, request, resumeCursor, totalCount, initialStage);
 
         Lr2NormalFolderDbSyncResult normalFolderResult = null;
         int normalFolderProcessedCount = resumeCursor >= normalFolderEndCursor
@@ -233,6 +237,7 @@ internal static class Lr2FullGenerationBackfillService
             });
             normalFolderProcessedCount = normalFolderTargetCount;
         }
+        ThrowIfCancellationRequested(songDb, request, normalFolderProcessedCount, totalCount, "normal_folders_completed");
 
         if (resumeCursor < normalFolderEndCursor)
         {
@@ -259,6 +264,7 @@ internal static class Lr2FullGenerationBackfillService
                 nowUtc: DateTime.UtcNow);
             ReportProgress(request, normalFolderProcessedCount, totalCount, "lr2folder_files");
         }
+        ThrowIfCancellationRequested(songDb, request, normalFolderProcessedCount, totalCount, "lr2folder_files");
 
         Lr2FolderFileDbSyncResult lr2FolderFileResult = null;
         int lr2FolderFileProcessedCount = resumeCursor >= lr2FolderEndCursor
@@ -279,6 +285,7 @@ internal static class Lr2FullGenerationBackfillService
             lr2FolderFileProcessedCount = lr2FolderFileResult.ItemCount;
         }
         int folderProcessedCount = normalFolderProcessedCount + lr2FolderFileProcessedCount;
+        ThrowIfCancellationRequested(songDb, request, folderProcessedCount, totalCount, "lr2folder_files_completed");
 
         if (resumeCursor < lr2FolderEndCursor)
         {
@@ -305,6 +312,7 @@ internal static class Lr2FullGenerationBackfillService
                 nowUtc: DateTime.UtcNow);
             ReportProgress(request, folderProcessedCount, totalCount, "song_rows");
         }
+        ThrowIfCancellationRequested(songDb, request, folderProcessedCount, totalCount, "song_rows");
 
         int songRowStartIndex = Math.Max(0, resumeCursor - lr2FolderEndCursor);
         SongRowBackfillResult songRowResult = resumeCursor >= songRowsEndCursor
@@ -322,6 +330,7 @@ internal static class Lr2FullGenerationBackfillService
         int processedCount = resumeCursor >= songRowsEndCursor
             ? songRowsEndCursor
             : lr2FolderEndCursor + songRowStartIndex + songRowResult.ProcessedCount;
+        ThrowIfCancellationRequested(songDb, request, processedCount, totalCount, "song_rows_completed");
 
         if (resumeCursor < songRowsEndCursor)
         {
@@ -421,6 +430,30 @@ internal static class Lr2FullGenerationBackfillService
         {
             return false;
         }
+    }
+
+    private static void ThrowIfCancellationRequested(
+        LR2SongDBExtended songDb,
+        Lr2FullGenerationBackfillRequest request,
+        int processedCursor,
+        int totalCount,
+        string stage)
+    {
+        if (request?.CancellationToken.IsCancellationRequested != true)
+        {
+            return;
+        }
+
+        Lr2FullGenerationStatusService.MarkCancelled(
+            songDb,
+            request.Signature,
+            request.RunId,
+            processedCursor,
+            totalCount,
+            stage,
+            DateTime.UtcNow);
+        ReportProgress(request, processedCursor, totalCount, stage ?? "cancelled");
+        throw new OperationCanceledException(request.CancellationToken);
     }
 
     private static int NormalizeResumeCursor(int cursor, int normalFolderEndCursor, int lr2FolderEndCursor, int songRowsEndCursor)
@@ -891,6 +924,12 @@ internal static class Lr2FullGenerationBackfillService
 
         for (int offset = safeStartIndex; offset < targetRows.Count; offset += songRowBackfillChunkSize)
         {
+            ThrowIfCancellationRequested(
+                songDb,
+                request,
+                baseProcessedCursor + offset,
+                totalCount,
+                "song_rows");
             List<BMSFile> chunkTargets = [.. targetRows.Skip(offset).Take(songRowBackfillChunkSize)];
             var rowsToWrite = new List<BMSFile>(chunkTargets.Count);
             foreach (BMSFile song in chunkTargets)
