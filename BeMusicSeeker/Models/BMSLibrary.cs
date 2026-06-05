@@ -5070,6 +5070,7 @@ completeFileEnumerationOnce,
             DispatchWarningPresentationChanged("file_diff_inline_chart_info_parse_failure");
         }
         ApplyLibraryMutationDelta(fileCheckResult.MutationDelta);
+        MarkLr2FullGenerationIncompleteAfterFileDiffNormalFolderSyncFailure(options, fileCheckResult);
         if (trackLibraryFileCheckProgress)
         {
             CompleteLibraryFileDiffProgress();
@@ -5720,7 +5721,11 @@ completeFileEnumerationOnce,
         catch (Exception ex)
         {
             stopwatch.Stop();
-            MarkLr2FullGenerationIncompleteAfterMutationSyncFailure(options, ex);
+            MarkLr2FullGenerationIncompleteAfterNormalFolderSyncFailure(
+                options,
+                stage: "lr2_normal_folder_mutation_sync_failed",
+                detail: "lr2_normal_folder_mutation_sync_failed: " + (ex.Message ?? ex.GetType().Name ?? "unknown"),
+                logReason: "lr2_normal_folder_mutation_sync_failed");
             LogInstallPerformanceWarn("lr2_normal_folder_mutation_sync failed"
                 + " reason=" + (reason ?? "unknown")
                 + " paths=" + syncInput.ChartPaths.Count
@@ -5872,28 +5877,57 @@ completeFileEnumerationOnce,
         }
     }
 
-    private void MarkLr2FullGenerationIncompleteAfterMutationSyncFailure(BmsLibraryOptionsSnapshot options, Exception failure)
+    private void MarkLr2FullGenerationIncompleteAfterFileDiffNormalFolderSyncFailure(
+        BmsLibraryOptionsSnapshot options,
+        SongTableFileCheckResult result)
     {
+        if (result?.Lr2NormalFolderSyncFailed != true)
+        {
+            return;
+        }
+
+        string failureReason = string.IsNullOrWhiteSpace(result.Lr2NormalFolderSyncFailureReason)
+            ? "unknown"
+            : result.Lr2NormalFolderSyncFailureReason;
+        MarkLr2FullGenerationIncompleteAfterNormalFolderSyncFailure(
+            options,
+            stage: "lr2_normal_folder_file_diff_sync_failed",
+            detail: "lr2_normal_folder_file_diff_sync_failed: " + failureReason,
+            logReason: "lr2_normal_folder_file_diff_sync_failed");
+    }
+
+    private void MarkLr2FullGenerationIncompleteAfterNormalFolderSyncFailure(
+        BmsLibraryOptionsSnapshot options,
+        string stage,
+        string detail,
+        string logReason)
+    {
+        if (options?.OperationModeLR2DB != true || options.EnableLR2SongDbFullGeneration != true)
+        {
+            return;
+        }
+
         try
         {
             List<string> roots = getBMSDirectories();
             List<string> lr2FolderDiscoveryDirectories = CreateLr2FullGenerationLr2FolderDiscoveryDirectories(roots);
             string signature = Lr2FullGenerationSignatureBuilder.Build(options, roots, lr2FolderDiscoveryDirectories);
             using LR2SongDBExtended songDb = dbGateway.OpenSongDb();
-            Lr2FullGenerationStatusService.MarkIncomplete(
+            Lr2FullGenerationStatusSnapshot status = Lr2FullGenerationStatusService.MarkIncomplete(
                 songDb,
                 signature,
-                runId: "mutation",
+                runId: "normal_folder_sync",
                 processedCursor: null,
                 totalCount: null,
-                stage: "lr2_normal_folder_mutation_sync_failed",
-                detail: "lr2_normal_folder_mutation_sync_failed: " + (failure?.Message ?? failure?.GetType().Name ?? "unknown"),
+                stage: stage,
+                detail: detail,
                 nowUtc: DateTime.UtcNow);
+            PublishLr2FullGenerationStatus(status);
         }
         catch (Exception ex)
         {
             LogInstallPerformanceWarn("lr2_full_generation_status mark_incomplete_failed"
-                + " reason=lr2_normal_folder_mutation_sync_failed"
+                + " reason=" + (logReason ?? "unknown")
                 + " exception=" + ex.GetType().Name
                 + " message=" + GetDisplayedExceptionMessage(ex).Replace(Environment.NewLine, " | "));
         }
