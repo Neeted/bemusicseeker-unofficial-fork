@@ -5714,8 +5714,7 @@ completeFileEnumerationOnce,
                 .Select(file => file.path)
                 .Distinct(StringComparer.OrdinalIgnoreCase)];
             songRows = [.. (_BMSFiles ?? [])
-                .Where(file => file != null && !string.IsNullOrWhiteSpace(file.path))
-                .Select(file => file.CreateSongRowPersistenceCopy())];
+                .Where(file => file != null && !string.IsNullOrWhiteSpace(file.path))];
             ownedCollectionVersion = OwnedChartCollectionVersion;
             storageRowsVersion = CreateCurrentStorageRowsVersionSnapshotUnsafe();
         }

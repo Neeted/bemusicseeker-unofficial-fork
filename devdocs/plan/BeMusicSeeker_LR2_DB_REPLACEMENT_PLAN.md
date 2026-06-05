@@ -1089,7 +1089,7 @@ parse directive:
 | Phase 6: normal `folder` row generator | 主要実装済み | normal folder generator / scope planner / DB sync、mutation・file diff failure の incomplete marking、directory metadata surface 由来の `folder.date` resolver、`folderinfo.txt` entry metadata surface は接続済み。 | 実機で directory mtime / folder row freshness を確認する。 |
 | Phase 7: `.lr2folder` DB sync | 主要実装済み | playlist projection と `.lr2folder` / `folder` row sync の同一化、通常 discovery、built-in source の相対 path 化、root custom output / built-in category parent row 生成、`LR2files\Rival` の built-in discovery 非対象化、`LR2files\CustomFolder` の `<customfolder>` bitmask、`newsong` dynamic row、`course1-3` の `type=6` は接続済み。 | 実 LR2 setup / built-in folder fixture での最終確認を残す。 |
 | Phase 8: status / backfill UI | 主要実装済み | durable status、runtime progress、setting queue、cancel、mutation guard、startup blocker diagnostic / cleanup は実装済み。 | 長時間 backfill の UI 手動確認と failure/cancel 再起動確認を残す。 |
-| Phase 9: resumable backfill | 再設計中 | durable cursor、stage / chunk resume、cancel boundary、completed status current 時の 2 回目 no-op queue、copied `song.db` の current completed no-op、failed song-row chunk rollback/retry、cancel 後 restart resume、`song_rows` の run-scoped `chart_info` resolver は自動テスト済み。 | 現行 `song_rows` は全件 `BMSFile` copy、行単位 writer / digest orphan check、別 parser / 別 compatibility projection を含むため、初期化同型の bounded streaming pipeline + full backfill bulk writer へ置き換える。 |
+| Phase 9: resumable backfill | 再設計中 | durable cursor、stage / chunk resume、cancel boundary、completed status current 時の 2 回目 no-op queue、copied `song.db` の current completed no-op、failed song-row chunk rollback/retry、cancel 後 restart resume、`song_rows` の run-scoped `chart_info` resolver、backfill input の全件 `BMSFile` persistence copy 廃止は自動テスト済み。 | 現行 `song_rows` は行単位 writer / digest orphan check、別 parser / 別 compatibility projection を含むため、初期化同型の bounded streaming pipeline + full backfill bulk writer へ置き換える。 |
 
 ### フェーズ別進捗メモ
 
@@ -1382,7 +1382,7 @@ existence / mtime は意味的に揃える。
    - LR2 full generation が必要な run の開始時に current `chart_info` index を一括で準備する。
    - `song_rows` chunk ごとの `chart_info` DB SELECT を撤廃する。
    - 空 DB 初期構築では file diff の inline `chart_info` result をそのまま LR2 projection へ渡す。
-3. backfill input の全件 `BMSFile` copy を廃止する。
+3. backfill input の全件 `BMSFile` copy を廃止する。完了。
    - input は lightweight target list、scan metadata surface、version snapshot だけを保持する。
    - `songRows=...` は persistence copy count ではなく target count として扱う。
    - memory usage が current catalog + bounded queue + current chunk の範囲に収まることを log で確認する。
