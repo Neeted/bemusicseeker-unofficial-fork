@@ -20,7 +20,8 @@ internal sealed class BmsLibraryStateApplier(
     Action<DispatcherCollection<ChartPackage>> setPendingPackages,
     Func<DispatcherCollection<ChartPackage>> getInstalledPackages,
     Action<DispatcherCollection<ChartPackage>> setInstalledPackages,
-    Action raiseInstalledPackagesChanged)
+    Action raiseInstalledPackagesChanged,
+    Action<string, Exception> notifyLr2SongDbWriteFailure = null)
 {
     private readonly BmsLibraryDbGateway dbGateway = dbGateway ?? throw new ArgumentNullException(nameof(dbGateway));
 
@@ -33,6 +34,8 @@ internal sealed class BmsLibraryStateApplier(
     private readonly Action<DispatcherCollection<ChartPackage>> setInstalledPackages = setInstalledPackages ?? throw new ArgumentNullException(nameof(setInstalledPackages));
 
     private readonly Action raiseInstalledPackagesChanged = raiseInstalledPackagesChanged ?? throw new ArgumentNullException(nameof(raiseInstalledPackagesChanged));
+
+    private readonly Action<string, Exception> notifyLr2SongDbWriteFailure = notifyLr2SongDbWriteFailure;
 
     public void ApplyPendingPackageMutationDelta(PendingPackageMutationDelta delta)
     {
@@ -181,8 +184,12 @@ internal sealed class BmsLibraryStateApplier(
             pathCleanupList.Select(OwnedChartCollectionState.CreateOwnedPathKey).Where(path => !string.IsNullOrWhiteSpace(path)),
             StringComparer.OrdinalIgnoreCase);
         var removedFileRefs = new HashSet<BMSFile>(removedFilesList);
-        dbGateway.DeleteSongsAndMaintenance(removedFilesList);
-        dbGateway.DeleteSongsAndMaintenanceByPath(pathCleanupList);
+        ExecuteLr2SongDbMutation(
+            () => dbGateway.DeleteSongsAndMaintenance(removedFilesList),
+            "lr2_song_db_bms_unregister_failed");
+        ExecuteLr2SongDbMutation(
+            () => dbGateway.DeleteSongsAndMaintenanceByPath(pathCleanupList),
+            "lr2_song_db_bms_path_cleanup_failed");
         DispatcherCollection<ChartPackage> installedPackages = getInstalledPackages();
         bool installedPackagesChanged = false;
         List<ChartPackage> emptyInstalledPackages = [];
@@ -296,7 +303,27 @@ internal sealed class BmsLibraryStateApplier(
         bmsFile.parent = null;
         Lr2SongRowEnricher.EnrichGeneratedSong(bmsFile);
 
-        dbGateway.ReplaceSongPathWithMaintenance(bmsFile, oldPath);
+        ExecuteLr2SongDbMutation(
+            () => dbGateway.ReplaceSongPathWithMaintenance(bmsFile, oldPath),
+            "lr2_song_db_bms_path_replace_failed");
+    }
+
+    private void ExecuteLr2SongDbMutation(Action mutation, string stage)
+    {
+        if (mutation == null)
+        {
+            return;
+        }
+
+        try
+        {
+            mutation();
+        }
+        catch (Exception ex)
+        {
+            notifyLr2SongDbWriteFailure?.Invoke(stage, ex);
+            throw;
+        }
     }
 
     private void ReplaceBmsonSongPath(LR2SongDBExtended.bmson_song bmsonSong, string newPath, string oldPath = null)

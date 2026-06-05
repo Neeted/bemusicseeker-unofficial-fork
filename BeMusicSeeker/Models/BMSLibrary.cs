@@ -3122,7 +3122,8 @@ public class BMSLibrary : NotificationObject
             pendingPackages => ChartPackagesPending = pendingPackages,
             () => ChartPackagesInstalled,
             installedPackages => ChartPackagesInstalled = installedPackages,
-            () => RaisePropertyChanged(() => ChartPackagesInstalled));
+            () => RaisePropertyChanged(() => ChartPackagesInstalled),
+            MarkLr2FullGenerationIncompleteAfterStateApplierSongDbWriteFailure);
         pendingInstallEstimateQueueProcessor = new PendingInstallEstimateQueueProcessor(ProcessPendingInstallEstimateBatch, UpdatePendingEstimateQueueStatus, HandlePendingEstimateBatchException);
         lr2config = (getLR2Config ?? (Func<LR2Config>)(() => (LR2Config)null));
         using (LR2SongDBExtended lR2SongDBExtended = dbGateway.OpenSongDb())
@@ -5953,6 +5954,35 @@ completeFileEnumerationOnce,
         string detail,
         string logReason)
     {
+        MarkLr2FullGenerationIncomplete(
+            options,
+            runId: "normal_folder_sync",
+            stage: stage,
+            detail: detail,
+            logReason: logReason);
+    }
+
+    private void MarkLr2FullGenerationIncompleteAfterSongDbWriteFailure(
+        BmsLibraryOptionsSnapshot options,
+        string stage,
+        string detail,
+        string logReason)
+    {
+        MarkLr2FullGenerationIncomplete(
+            options,
+            runId: "song_db_write",
+            stage: stage,
+            detail: detail,
+            logReason: logReason);
+    }
+
+    private void MarkLr2FullGenerationIncomplete(
+        BmsLibraryOptionsSnapshot options,
+        string runId,
+        string stage,
+        string detail,
+        string logReason)
+    {
         if (options?.OperationModeLR2DB != true || options.EnableLR2SongDbFullGeneration != true)
         {
             return;
@@ -5967,7 +5997,7 @@ completeFileEnumerationOnce,
             Lr2FullGenerationStatusSnapshot status = Lr2FullGenerationStatusService.MarkIncomplete(
                 songDb,
                 signature,
-                runId: "normal_folder_sync",
+                runId: string.IsNullOrWhiteSpace(runId) ? "runtime_write" : runId,
                 processedCursor: null,
                 totalCount: null,
                 stage: stage,
@@ -5982,6 +6012,50 @@ completeFileEnumerationOnce,
                 + " exception=" + ex.GetType().Name
                 + " message=" + GetDisplayedExceptionMessage(ex).Replace(Environment.NewLine, " | "));
         }
+    }
+
+    private void ExecuteLr2SongDbWrite(Action writeAction, string stage, string logReason)
+    {
+        if (writeAction == null)
+        {
+            return;
+        }
+
+        try
+        {
+            writeAction();
+        }
+        catch (Exception ex)
+        {
+            string displayedMessage = GetDisplayedExceptionMessage(ex).Replace(Environment.NewLine, " | ");
+            MarkLr2FullGenerationIncompleteAfterSongDbWriteFailure(
+                CurrentOptionsSnapshot,
+                stage: string.IsNullOrWhiteSpace(stage) ? "lr2_song_db_write_failed" : stage,
+                detail: (string.IsNullOrWhiteSpace(stage) ? "lr2_song_db_write_failed" : stage) + ": " + displayedMessage,
+                logReason: string.IsNullOrWhiteSpace(logReason) ? "lr2_song_db_write_failed" : logReason);
+            LogInstallPerformanceWarn("lr2_song_db_write failed"
+                + " reason=" + (string.IsNullOrWhiteSpace(logReason) ? "unknown" : logReason)
+                + " stage=" + (string.IsNullOrWhiteSpace(stage) ? "lr2_song_db_write_failed" : stage)
+                + " exception=" + ex.GetType().Name
+                + " message=" + displayedMessage);
+            throw;
+        }
+    }
+
+    private void MarkLr2FullGenerationIncompleteAfterStateApplierSongDbWriteFailure(string stage, Exception ex)
+    {
+        string resolvedStage = string.IsNullOrWhiteSpace(stage) ? "lr2_song_db_library_mutation_write_failed" : stage;
+        string displayedMessage = GetDisplayedExceptionMessage(ex).Replace(Environment.NewLine, " | ");
+        MarkLr2FullGenerationIncompleteAfterSongDbWriteFailure(
+            CurrentOptionsSnapshot,
+            stage: resolvedStage,
+            detail: resolvedStage + ": " + displayedMessage,
+            logReason: resolvedStage);
+        LogInstallPerformanceWarn("lr2_song_db_write failed"
+            + " reason=" + resolvedStage
+            + " stage=" + resolvedStage
+            + " exception=" + (ex?.GetType().Name ?? "unknown")
+            + " message=" + displayedMessage);
     }
 
     private static List<string> CreateLr2FullGenerationTextFileDirectories(IEnumerable<string> chartPaths)
@@ -6823,7 +6897,10 @@ completeFileEnumerationOnce,
                     result.AppliedRows);
                 if (storageTargets.BmsFiles.Count > 0)
                 {
-                    dbGateway.UpsertSongs(storageTargets.BmsFiles);
+                    ExecuteLr2SongDbWrite(
+                        () => dbGateway.UpsertSongs(storageTargets.BmsFiles),
+                        stage: "lr2_song_db_chart_info_inline_upsert_failed",
+                        logReason: reason ?? "chart_info_inline_install");
                 }
                 if (storageTargets.BmsonSongs.Count > 0)
                 {
@@ -12376,7 +12453,10 @@ completeFileEnumerationOnce,
                 MaintenanceEncodingUpdateResult updateResult = maintenanceService.ApplyEncoding(bmsFiles, encoding);
                 if (updateResult.SongsToUpsert.Count > 0)
                 {
-                    dbGateway.UpsertSongs(updateResult.SongsToUpsert);
+                    ExecuteLr2SongDbWrite(
+                        () => dbGateway.UpsertSongs(updateResult.SongsToUpsert),
+                        stage: "lr2_song_db_encoding_upsert_failed",
+                        logReason: nameof(SetBMSFilesEncoding));
                 }
                 if (updateResult.MaintenanceInfosToUpsert.Count > 0)
                 {
@@ -12492,7 +12572,10 @@ completeFileEnumerationOnce,
             {
                 return 0;
             }
-            dbGateway.UpsertSongs(list);
+            ExecuteLr2SongDbWrite(
+                () => dbGateway.UpsertSongs(list),
+                stage: "lr2_song_db_mode_upsert_failed",
+                logReason: nameof(setModeAndCommitToDB));
             return list.Count;
         }
     }
@@ -13180,7 +13263,10 @@ completeFileEnumerationOnce,
             ChartStorageTargetSet addedTargets = CreateAddedStorageTargets(installResult);
             if (addedTargets.BmsFiles.Count > 0)
             {
-                dbGateway.UpsertSongs(addedTargets.BmsFiles);
+                ExecuteLr2SongDbWrite(
+                    () => dbGateway.UpsertSongs(addedTargets.BmsFiles),
+                    stage: "lr2_song_db_install_upsert_failed",
+                    logReason: "install_package");
             }
             if (addedTargets.BmsonSongs.Count > 0)
             {
@@ -15600,7 +15686,10 @@ completeFileEnumerationOnce,
                             + " bms=" + movedBmsFiles.Count
                             + " bmson=" + movedBmsonSongs.Count);
                         var dbStopwatch = Stopwatch.StartNew();
-                        dbGateway.UpsertSongs(movedBmsFiles);
+                        ExecuteLr2SongDbWrite(
+                            () => dbGateway.UpsertSongs(movedBmsFiles),
+                            stage: "lr2_song_db_duplicate_merge_upsert_failed",
+                            logReason: "duplicate_merge");
                         if (movedBmsonSongs.Count > 0)
                         {
                             dbGateway.UpsertBmsonSongs(movedBmsonSongs);
@@ -16642,7 +16731,10 @@ completeFileEnumerationOnce,
                                              select ApplyPlaylistEntryLevel(file, entry.level) into file
                                              where file != null
                                              select file];
-                dbGateway.UpdateSongLevels(bmsFiles);
+                ExecuteLr2SongDbWrite(
+                    () => dbGateway.UpdateSongLevels(bmsFiles),
+                    stage: "lr2_song_db_playlist_level_update_failed",
+                    logReason: nameof(ReplaceBmsFileLevelByTableEntryLevel));
             }
         }
     }
@@ -16680,7 +16772,10 @@ completeFileEnumerationOnce,
         {
             using (rwlockBMSFiles.GetWriterGuard())
             {
-                dbGateway.UpsertSongs(_bmsFiles);
+                ExecuteLr2SongDbWrite(
+                    () => dbGateway.UpsertSongs(_bmsFiles),
+                    stage: "lr2_song_db_commit_bms_files_failed",
+                    logReason: nameof(CommitBMSFiles));
             }
         }
     }

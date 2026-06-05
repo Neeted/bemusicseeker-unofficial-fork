@@ -2053,7 +2053,6 @@ public sealed class OwnedChartCollectionStateTests
             Directory.CreateDirectory(newDirectoryPath);
             string oldBmsPath = Path.Combine(oldDirectoryPath, "chart.bms");
             string newBmsPath = Path.Combine(newDirectoryPath, "chart.bms");
-            File.WriteAllText(newBmsPath, "#PLAYER 1");
             try
             {
                 TestableBmsFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", oldBmsPath);
@@ -2089,7 +2088,7 @@ public sealed class OwnedChartCollectionStateTests
                 TargetInvocationException exception = Assert.ThrowsException<TargetInvocationException>(() =>
                     InvokeApplyLibraryMutationDelta(library, delta));
 
-                Assert.IsInstanceOfType(exception.InnerException, typeof(InvalidCastException));
+                Assert.IsInstanceOfType(exception.InnerException, typeof(FileNotFoundException));
                 Assert.AreEqual(baselineParentFolderVersion + 1, library.BMSParentFolderListCacheVersion);
                 Assert.AreEqual(1, parentFolderVersionChanged);
                 Assert.IsNull(library.DuplicateChartGroups);

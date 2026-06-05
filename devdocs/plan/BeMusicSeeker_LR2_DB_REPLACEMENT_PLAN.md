@@ -1254,3 +1254,10 @@ parse directive:
   unregister 前に source path の LR2 user columns (`favorite` / `adddate` / `tag`) を snapshot し、
   moved BMS owner へ再適用してから destination `song` row を upsert する。これにより merge は
   direct path replacement と同じく DB 側 user state を保持する。
+- direct runtime の LR2 `song` write failure (`song` upsert / level update / mutation delete / path replacement)
+  は normal folder sync failure と同じく durable full generation status を `Incomplete` にする。
+  この段階では既存の user operation 失敗 semantics は変えず、例外は再 throw する。次回 backfill / retry が
+  復旧経路になるよう、失敗 stage と message を status に残す。
+  owned mutation apply は state applier 全体ではなく、BMS `song` row を実際に触る unregister / path cleanup /
+  path replacement の callback で marking する。bmson row や installed package state の失敗を LR2 full generation
+  status に誤分類しないためである。
