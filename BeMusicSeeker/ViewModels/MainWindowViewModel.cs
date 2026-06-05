@@ -6148,6 +6148,14 @@ public class MainWindowViewModel : ViewModel
 
     private double _StartupProgressMaximum;
 
+    private Lr2FullGenerationRuntimeStatus latestLr2FullGenerationStatus = Lr2FullGenerationStatusMapper.CreateNone();
+
+    private bool _IsLr2FullGenerationStatusActive;
+
+    private string _Lr2FullGenerationStatusLabel = string.Empty;
+
+    private string _Lr2FullGenerationStatusSubLabel = string.Empty;
+
     private bool _IsPlaylistTreeExpanded = true;
 
     private ModeFilterType _ModeFilter = ModeFilterType.All;
@@ -14016,6 +14024,7 @@ public class MainWindowViewModel : ViewModel
                 _IsStartupProgressActive = value;
                 RaisePropertyChanged("IsStartupProgressActive");
                 RaisePropertyChanged("IsLibraryOperationInProgress");
+                RecomputeLr2FullGenerationStatusPresentation();
             }
         }
     }
@@ -14094,6 +14103,56 @@ public class MainWindowViewModel : ViewModel
             {
                 _StartupProgressMaximum = value;
                 RaisePropertyChanged("StartupProgressMaximum");
+            }
+        }
+    }
+
+    public bool IsLr2FullGenerationStatusActive
+    {
+        get
+        {
+            return _IsLr2FullGenerationStatusActive;
+        }
+        private set
+        {
+            if (_IsLr2FullGenerationStatusActive != value)
+            {
+                _IsLr2FullGenerationStatusActive = value;
+                RaisePropertyChanged("IsLr2FullGenerationStatusActive");
+            }
+        }
+    }
+
+    public string Lr2FullGenerationStatusLabel
+    {
+        get
+        {
+            return _Lr2FullGenerationStatusLabel;
+        }
+        private set
+        {
+            value ??= string.Empty;
+            if (_Lr2FullGenerationStatusLabel != value)
+            {
+                _Lr2FullGenerationStatusLabel = value;
+                RaisePropertyChanged("Lr2FullGenerationStatusLabel");
+            }
+        }
+    }
+
+    public string Lr2FullGenerationStatusSubLabel
+    {
+        get
+        {
+            return _Lr2FullGenerationStatusSubLabel;
+        }
+        private set
+        {
+            value ??= string.Empty;
+            if (_Lr2FullGenerationStatusSubLabel != value)
+            {
+                _Lr2FullGenerationStatusSubLabel = value;
+                RaisePropertyChanged("Lr2FullGenerationStatusSubLabel");
             }
         }
     }
@@ -15619,6 +15678,10 @@ public class MainWindowViewModel : ViewModel
         listenerForBMSLibrary.RegisterHandler(() => files.Lr2FullGenerationBackfillFailedVersion, delegate
         {
             TryFailStartupProgressLr2FullGenerationBackfill(files.Lr2FullGenerationBackfillFailedVersion, files.Lr2FullGenerationBackfillFailureMessage);
+        });
+        listenerForBMSLibrary.RegisterHandler(() => files.Lr2FullGenerationStatusVersion, delegate
+        {
+            UpdateLr2FullGenerationRuntimeStatus(files.GetLr2FullGenerationStatusSnapshot());
         });
         listenerForBMSLibrary.RegisterHandler(() => files.Lr2FullGenerationBackfillTotalCount, delegate
         {
@@ -19674,6 +19737,21 @@ public class MainWindowViewModel : ViewModel
         {
             RecomputeStartupProgressPresentation();
         }
+    }
+
+    private void UpdateLr2FullGenerationRuntimeStatus(Lr2FullGenerationStatusSnapshot snapshot)
+    {
+        latestLr2FullGenerationStatus = Lr2FullGenerationStatusMapper.Create(snapshot, DateTime.Now);
+        RecomputeLr2FullGenerationStatusPresentation();
+    }
+
+    private void RecomputeLr2FullGenerationStatusPresentation()
+    {
+        Lr2FullGenerationRuntimeStatus status = latestLr2FullGenerationStatus ?? Lr2FullGenerationStatusMapper.CreateNone();
+        bool isActive = status.HasWarningStatus && !IsStartupProgressActive;
+        IsLr2FullGenerationStatusActive = isActive;
+        Lr2FullGenerationStatusLabel = isActive ? status.StatusText : string.Empty;
+        Lr2FullGenerationStatusSubLabel = isActive ? status.Detail : string.Empty;
     }
 
     private void TryCompleteStartupProgressPlaylistEntriesHydration(int completedVersion)

@@ -1171,6 +1171,10 @@ parse directive:
 - backfill runner の `Incomplete` / `Failed` は startup progress の完了版数を進めない。
   `Lr2FullGenerationBackfillFailedVersion` と failure message で ViewModel へ通知し、進捗バーは失敗状態として残す。
   `CompletedVersion` は durable status が `Completed` になった run だけで進める。
+- LR2 full generation status は durable table の評価結果と runtime progress を `BMSLibrary` の internal snapshot +
+  public version に投影する。`MainWindowViewModel` はこれを status bar 用の runtime status に変換し、
+  `Needed` / `Failed` / `Incomplete` / `Cancelled` を startup progress 外でも persistent warning として表示する。
+  `Running` は既存 startup progress を正本にし、`Completed` / `NotNeeded` は status bar では非表示にする。
 - 完全生成設定は設定ダイアログの LR2 連携項目として表示する。既定値は LR2 連携モードの標準挙動に合わせて
   `true` とし、OFF から ON に変更して保存した場合は
   `QueueLr2FullGenerationBackfillIfNeeded("SettingDialog.SaveSettings")` を呼んで同じ background workflow に流す。

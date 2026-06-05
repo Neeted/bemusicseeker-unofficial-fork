@@ -967,6 +967,9 @@
                 <DataTrigger Binding="{Binding IsMaintenanceRescanProgressActive}" Value="True">
                   <Setter Property="Visibility" Value="Visible" />
                 </DataTrigger>
+                <DataTrigger Binding="{Binding IsLr2FullGenerationStatusActive}" Value="True">
+                  <Setter Property="Visibility" Value="Visible" />
+                </DataTrigger>
               </Style.Triggers>
             </Style>
           </StatusBar.Style>
@@ -1007,6 +1010,14 @@
               <Setter Property="Visibility" Value="Collapsed" />
               <Style.Triggers>
                 <DataTrigger Binding="{Binding IsMaintenanceRescanProgressActive}" Value="True">
+                  <Setter Property="Visibility" Value="Visible" />
+                </DataTrigger>
+              </Style.Triggers>
+            </Style>
+            <Style x:Key="styleLr2FullGenerationStatusBarItem" TargetType="{x:Type StatusBarItem}">
+              <Setter Property="Visibility" Value="Collapsed" />
+              <Style.Triggers>
+                <DataTrigger Binding="{Binding IsLr2FullGenerationStatusActive}" Value="True">
                   <Setter Property="Visibility" Value="Visible" />
                 </DataTrigger>
               </Style.Triggers>
@@ -1097,6 +1108,15 @@
           </StatusBarItem>
           <StatusBarItem Style="{StaticResource styleMaintenanceRescanStatusBarItem}">
             <Button Style="{StaticResource styleMaintenanceRescanCancelButton}" MinWidth="70" Padding="8,1" IsEnabled="{Binding MaintenanceRescanCanCancel}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Cancel, Mode=OneWay}" Click="cancelMaintenanceRescanClick" />
+          </StatusBarItem>
+          <StatusBarItem Style="{StaticResource styleLr2FullGenerationStatusBarItem}">
+            <TextBlock Text="{Binding Lr2FullGenerationStatusLabel}" Foreground="{DynamicResource App.WarningTextBrush}" />
+          </StatusBarItem>
+          <StatusBarItem Style="{StaticResource styleLr2FullGenerationStatusBarItem}">
+            <Separator />
+          </StatusBarItem>
+          <StatusBarItem Style="{StaticResource styleLr2FullGenerationStatusBarItem}">
+            <TextBlock Width="300" TextTrimming="CharacterEllipsis" Text="{Binding Lr2FullGenerationStatusSubLabel}" ToolTip="{Binding Lr2FullGenerationStatusSubLabel}" />
           </StatusBarItem>
         </StatusBar>
         <Grid Name="grid">

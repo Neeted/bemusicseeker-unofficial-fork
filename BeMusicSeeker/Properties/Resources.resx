@@ -1363,6 +1363,21 @@ BMSファイルが重複しないようにマージします。
   <data name="Statusbar_progress_phase_lr2_full_generation" xml:space="preserve">
     <value>LR2 song.db 完全生成</value>
   </data>
+  <data name="Lr2_full_generation_status_needed" xml:space="preserve">
+    <value>LR2 song.db 完全生成が必要です</value>
+  </data>
+  <data name="Lr2_full_generation_status_running" xml:space="preserve">
+    <value>LR2 song.db 完全生成中</value>
+  </data>
+  <data name="Lr2_full_generation_status_completed" xml:space="preserve">
+    <value>LR2 song.db 完全生成済み</value>
+  </data>
+  <data name="Lr2_full_generation_status_failed" xml:space="preserve">
+    <value>LR2 song.db 完全生成に失敗しました</value>
+  </data>
+  <data name="Lr2_full_generation_status_incomplete" xml:space="preserve">
+    <value>LR2 song.db 完全生成が未完了です</value>
+  </data>
   <data name="Install" xml:space="preserve">
     <value>インストール</value>
   </data>

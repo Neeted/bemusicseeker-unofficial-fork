@@ -214,6 +214,8 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
             Lr2FullGenerationStatusSnapshot snapshot = library.QueueLr2FullGenerationBackfillIfNeeded("test_disabled");
 
             Assert.AreEqual(Lr2FullGenerationStatusKind.NotNeeded, snapshot.Status);
+            Assert.AreEqual(1, library.Lr2FullGenerationStatusVersion);
+            Assert.AreEqual(Lr2FullGenerationStatusKind.NotNeeded, library.GetLr2FullGenerationStatusSnapshot().Status);
             Assert.IsFalse(queued);
             Assert.AreEqual(0, library.Lr2FullGenerationBackfillRequestedVersion);
             Assert.AreEqual(0, library.Lr2FullGenerationBackfillCompletedVersion);
@@ -251,6 +253,7 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
             Lr2FullGenerationStatusSnapshot snapshot = library.QueueLr2FullGenerationBackfillIfNeeded("test_running");
 
             Assert.AreEqual(Lr2FullGenerationStatusKind.Running, snapshot.Status);
+            Assert.AreEqual(Lr2FullGenerationStatusKind.Running, library.GetLr2FullGenerationStatusSnapshot().Status);
             Assert.IsFalse(queued);
             Assert.AreEqual(1, library.Lr2FullGenerationBackfillRequestedVersion);
             Assert.IsTrue(library.Lr2FullGenerationBackfillRunning);
@@ -407,6 +410,7 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
             Assert.AreEqual(row.total_count.GetValueOrDefault(), library.Lr2FullGenerationBackfillTotalCount);
             Assert.AreEqual(row.processed_cursor.GetValueOrDefault(), library.Lr2FullGenerationBackfillProcessedCount);
             Assert.AreEqual(Lr2FullGenerationBackfillService.CompletedStage, library.Lr2FullGenerationBackfillStage);
+            Assert.AreEqual(Lr2FullGenerationStatusKind.Completed, library.GetLr2FullGenerationStatusSnapshot().Status);
         }
         finally
         {
@@ -449,6 +453,7 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
             Assert.AreEqual(1, library.Lr2FullGenerationBackfillFailedVersion);
             Assert.IsFalse(library.Lr2FullGenerationBackfillRunning);
             StringAssert.Contains(library.Lr2FullGenerationBackfillFailureMessage, Lr2FullGenerationBackfillService.StartupScanBlockersReason);
+            Assert.AreEqual(Lr2FullGenerationStatusKind.Incomplete, library.GetLr2FullGenerationStatusSnapshot().Status);
         }
         finally
         {

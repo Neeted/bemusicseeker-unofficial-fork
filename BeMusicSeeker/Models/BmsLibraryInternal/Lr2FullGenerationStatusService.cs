@@ -37,6 +37,23 @@ internal sealed class Lr2FullGenerationStatusSnapshot
     public DateTime? CompletedAt { get; set; }
 
     public bool IsNeeded => Status == Lr2FullGenerationStatusKind.Needed;
+
+    internal Lr2FullGenerationStatusSnapshot Clone()
+    {
+        return new Lr2FullGenerationStatusSnapshot
+        {
+            Status = Status,
+            StoredStatus = StoredStatus,
+            Signature = Signature,
+            RunId = RunId,
+            ProcessedCursor = ProcessedCursor,
+            TotalCount = TotalCount,
+            Stage = Stage,
+            LastError = LastError,
+            UpdatedAt = UpdatedAt,
+            CompletedAt = CompletedAt
+        };
+    }
 }
 
 internal static class Lr2FullGenerationStatusService

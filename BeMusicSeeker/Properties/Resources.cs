@@ -387,6 +387,16 @@ public class Resources
 
     public static string Statusbar_progress_phase_lr2_full_generation => ResourceManager.GetString("Statusbar_progress_phase_lr2_full_generation", resourceCulture);
 
+    public static string Lr2_full_generation_status_needed => ResourceManager.GetString("Lr2_full_generation_status_needed", resourceCulture);
+
+    public static string Lr2_full_generation_status_running => ResourceManager.GetString("Lr2_full_generation_status_running", resourceCulture);
+
+    public static string Lr2_full_generation_status_completed => ResourceManager.GetString("Lr2_full_generation_status_completed", resourceCulture);
+
+    public static string Lr2_full_generation_status_failed => ResourceManager.GetString("Lr2_full_generation_status_failed", resourceCulture);
+
+    public static string Lr2_full_generation_status_incomplete => ResourceManager.GetString("Lr2_full_generation_status_incomplete", resourceCulture);
+
     public static string Install => ResourceManager.GetString("Install", resourceCulture);
 
     public static string Install_desc => ResourceManager.GetString("Install_desc", resourceCulture);
