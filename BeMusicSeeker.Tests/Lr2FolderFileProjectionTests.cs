@@ -270,6 +270,14 @@ public sealed class Lr2FolderFileProjectionTests
     [DataRow(@"LR2files\CustomFolder\favorite.lr2folder")]
     [DataRow(@"LR2files\CustomFolder\TOP10.lr2folder")]
     [DataRow(@"LR2files\CustomFolder\PLAYLEVEL\1.lr2folder")]
+    [DataRow(@"LR2files\CustomFolder\CLEAR\clear.lr2folder")]
+    [DataRow(@"LR2files\CustomFolder\RANK\rank.lr2folder")]
+    [DataRow(@"LR2files\CustomFolder\ignore.lr2folder")]
+    [DataRow(@"LR2files\CustomFolder\INSANE01\01.lr2folder")]
+    [DataRow(@"LR2files\CustomFolder\INSANE02\02.lr2folder")]
+    [DataRow(@"LR2files\CustomFolder\course1.lr2folder")]
+    [DataRow(@"LR2files\CustomFolder\course2.lr2folder")]
+    [DataRow(@"LR2files\CustomFolder\course3.lr2folder")]
     [DataRow(@"LR2files\Rival\rival.lr2folder")]
     public void SourceClassifier_DoesNotInferOpenLr2SpecialFolderTypeFromKnownSourcePath(string relativePath)
     {
