@@ -459,14 +459,6 @@ internal sealed class BmsLibraryInitializationService
             logInstallPerformance,
             logInstallPerformanceWarn,
             inlineChartInfoRowsCommitted);
-        foreach (string deletedPath in result.DeletedPaths)
-        {
-            commitContext.AddDeletedBmsPath(deletedPath);
-        }
-        foreach (string deletedBmsonPath in result.DeletedBmsonPaths)
-        {
-            commitContext.AddDeletedBmsonPath(deletedBmsonPath);
-        }
         FileDiffParsePipelineResult pipelineResult = RunFileDiffParsePipeline(
             bmsParseTargets,
             addedOrUpdatedBmsonPaths,
@@ -496,6 +488,17 @@ internal sealed class BmsLibraryInitializationService
         result.BmsTextOnlyUpdateCount = pipelineResult.BmsTextOnlyUpdateCount;
         result.BmsMovedHashRelinkCount = pipelineResult.BmsMovedHashRelinkCount;
         result.BmsMovedHashRelinkAmbiguousCount = pipelineResult.BmsMovedHashRelinkAmbiguousCount;
+        foreach (string deletedPath in result.DeletedPaths)
+        {
+            if (!pipelineResult.BmsMovedHashRelinkDeletedPaths.Contains(deletedPath))
+            {
+                commitContext.AddDeletedBmsPath(deletedPath);
+            }
+        }
+        foreach (string deletedBmsonPath in result.DeletedBmsonPaths)
+        {
+            commitContext.AddDeletedBmsonPath(deletedBmsonPath);
+        }
 
         var stopwatchApply = Stopwatch.StartNew();
         var deletedPathSet = new HashSet<string>(result.DeletedPaths, StringComparer.OrdinalIgnoreCase);
@@ -850,6 +853,7 @@ internal sealed class BmsLibraryInitializationService
         int snapshotQueueHighWatermark = 0;
         Exception postParseException = null;
         var folderParentHashCache = new Lr2SongFolderParentNormalizer.Lr2FolderParentHashCache();
+        var parsedCommitChunks = new List<FileScanDiffCommitChunk>();
 
         var postParseTask = Task.Run(delegate
         {
@@ -913,6 +917,13 @@ internal sealed class BmsLibraryInitializationService
             finally
             {
                 commitQueue.CompleteAdding();
+            }
+        });
+        var commitCollectorTask = Task.Run(delegate
+        {
+            foreach (FileScanDiffCommitChunk chunk in commitQueue.GetConsumingEnumerable())
+            {
+                parsedCommitChunks.Add(chunk);
             }
         });
 
@@ -982,13 +993,13 @@ internal sealed class BmsLibraryInitializationService
         Task.WaitAll(workerTasks);
         parserCompletionTask.Wait();
         postParseTask.Wait();
-        foreach (FileScanDiffCommitChunk chunk in commitQueue.GetConsumingEnumerable())
+        commitCollectorTask.Wait();
+        ApplyMovedBmsUserColumnRelinks(pipelineResult, movedBmsSourcesByMd5, logInstallPerformanceWarn);
+        foreach (FileScanDiffCommitChunk chunk in parsedCommitChunks)
         {
             commitContext?.AddChunk(chunk);
         }
-        ApplyMovedBmsUserColumnRelinks(pipelineResult, movedBmsSourcesByMd5, logInstallPerformanceWarn);
         commitContext?.Flush();
-        commitContext?.UpdateRelinkedBmsUserColumns(pipelineResult.RelinkedBmsFiles);
 
         pipelineResult.ReadMs = TicksToMilliseconds(readTicks);
         pipelineResult.BmsParseMs = TicksToMilliseconds(bmsParseTicks);
@@ -1235,7 +1246,7 @@ internal sealed class BmsLibraryInitializationService
                 }
                 if (candidate.File != null)
                 {
-                    pipelineResult.TrackBmsRelinkDestinationCandidate(candidate);
+                    pipelineResult.TrackBmsRelinkDestinationCandidate(candidate, commitChunk);
                     if (bmsMaintenanceResults != null && i < bmsMaintenanceResults.Length && bmsMaintenanceResults[i]?.Succeeded == true)
                     {
                         commitChunk.AddMaintenanceInfoRow(candidate.File.maintenanceInfo);
@@ -1305,14 +1316,14 @@ internal sealed class BmsLibraryInitializationService
         }
 
         var destinationsByMd5 = pipelineResult.BmsRelinkDestinationCandidates
-            .Where(file => file != null && !string.IsNullOrWhiteSpace(file.hash))
-            .GroupBy(file => file.hash, StringComparer.OrdinalIgnoreCase)
+            .Where(candidate => candidate?.File != null && !string.IsNullOrWhiteSpace(candidate.File.hash))
+            .GroupBy(candidate => candidate.File.hash, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(group => group.Key, group => group.ToList(), StringComparer.OrdinalIgnoreCase);
         foreach (KeyValuePair<string, Queue<BMSFile>> sourceEntry in movedBmsSourcesByMd5)
         {
             string md5 = sourceEntry.Key;
             if (string.IsNullOrWhiteSpace(md5)
-                || !destinationsByMd5.TryGetValue(md5, out List<BMSFile> destinations)
+                || !destinationsByMd5.TryGetValue(md5, out List<BmsRelinkDestinationCandidate> destinations)
                 || destinations == null
                 || destinations.Count == 0)
             {
@@ -1322,8 +1333,14 @@ internal sealed class BmsLibraryInitializationService
             int sourceCount = sourceEntry.Value?.Count ?? 0;
             if (sourceCount == 1 && destinations.Count == 1)
             {
-                destinations[0].PreserveUserSongColumnsFrom(sourceEntry.Value.Peek());
-                pipelineResult.RelinkedBmsFiles.Add(destinations[0]);
+                BMSFile source = sourceEntry.Value.Peek();
+                BmsRelinkDestinationCandidate destination = destinations[0];
+                destination.File.PreserveUserSongColumnsFrom(source);
+                if (!string.IsNullOrWhiteSpace(source.path))
+                {
+                    destination.CommitChunk?.AddDeletedBmsPath(source.path);
+                    pipelineResult.BmsMovedHashRelinkDeletedPaths.Add(source.path);
+                }
                 pipelineResult.BmsMovedHashRelinkCount++;
                 continue;
             }
@@ -1690,48 +1707,6 @@ internal sealed class BmsLibraryInitializationService
                 CommitChunk(pendingChunk);
                 pendingChunk = new FileScanDiffCommitChunk();
             }
-        }
-
-        public void UpdateRelinkedBmsUserColumns(IReadOnlyList<BMSFile> files)
-        {
-            if (files == null || files.Count == 0)
-            {
-                return;
-            }
-            EnsureSongDb();
-            string savepoint = songDb.SaveTransactionPoint();
-            var stopwatch = Stopwatch.StartNew();
-            try
-            {
-                foreach (BMSFile file in files)
-                {
-                    Lr2SongDbWriter.UpdateUserColumns(songDb, file);
-                }
-                songDb.Commit();
-            }
-            catch (Exception ex)
-            {
-                stopwatch.Stop();
-                try
-                {
-                    songDb.RollbackTo(savepoint);
-                }
-                catch
-                {
-                }
-                logInstallPerformanceWarn?.Invoke("song_tbl_file_check relink_user_columns_failed"
-                    + " count=" + files.Count
-                    + " elapsedMs=" + stopwatch.ElapsedMilliseconds
-                    + " exception=" + ex.GetType().Name
-                    + " message=" + QuoteLogValue(ex.Message));
-                throw;
-            }
-            stopwatch.Stop();
-            result.DbCommitMs += stopwatch.ElapsedMilliseconds;
-            result.DbCommitMaxChunkMs = Math.Max(result.DbCommitMaxChunkMs, stopwatch.ElapsedMilliseconds);
-            logInstallPerformance?.Invoke("song_tbl_file_check relink_user_columns_done"
-                + " count=" + files.Count
-                + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
         }
 
         public void Dispose()
@@ -2226,9 +2201,9 @@ internal sealed class BmsLibraryInitializationService
 
         public int BmsMovedHashRelinkAmbiguousCount { get; set; }
 
-        public List<BMSFile> BmsRelinkDestinationCandidates { get; } = [];
+        public List<BmsRelinkDestinationCandidate> BmsRelinkDestinationCandidates { get; } = [];
 
-        public List<BMSFile> RelinkedBmsFiles { get; } = [];
+        public HashSet<string> BmsMovedHashRelinkDeletedPaths { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         public List<LR2SongDBExtended.bmson_song> ParsedBmsonSongs { get; } = [];
 
@@ -2242,13 +2217,20 @@ internal sealed class BmsLibraryInitializationService
 
         public int SnapshotQueueHighWatermark { get; set; }
 
-        public void TrackBmsRelinkDestinationCandidate(InlineBmsParseCandidate candidate)
+        public void TrackBmsRelinkDestinationCandidate(InlineBmsParseCandidate candidate, FileScanDiffCommitChunk commitChunk)
         {
             if (candidate?.File != null && candidate.ExistingFile == null)
             {
-                BmsRelinkDestinationCandidates.Add(candidate.File);
+                BmsRelinkDestinationCandidates.Add(new BmsRelinkDestinationCandidate(candidate.File, commitChunk));
             }
         }
+    }
+
+    private sealed class BmsRelinkDestinationCandidate(BMSFile file, FileScanDiffCommitChunk commitChunk)
+    {
+        public BMSFile File { get; } = file;
+
+        public FileScanDiffCommitChunk CommitChunk { get; } = commitChunk;
     }
 
     private sealed class InlineMaintenanceItemResult

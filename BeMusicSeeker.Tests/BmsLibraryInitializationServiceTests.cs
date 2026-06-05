@@ -2835,7 +2835,8 @@ public sealed class BmsLibraryInitializationServiceTests
                 songDb.InsertOrReplace(existingFile, typeof(LR2SongDB.song));
             }
 
-            var service = new BmsLibraryInitializationService();
+            List<string> logs = [];
+            var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1, fileDiffCommitChunkSizeOverride: 1);
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
                 new BmsLibraryOptionsSnapshot(),
@@ -2852,7 +2853,8 @@ public sealed class BmsLibraryInitializationServiceTests
                 },
                 0L,
                 () => null,
-                null);
+                null,
+                logInstallPerformance: logs.Add);
 
             CollectionAssert.Contains(result.DeletedPaths, oldPath);
             Assert.AreEqual(1, result.BmsMovedHashRelinkCount);
@@ -2872,6 +2874,9 @@ public sealed class BmsLibraryInitializationServiceTests
             Assert.AreEqual(3, row.favorite);
             Assert.AreEqual(34567, row.adddate);
             Assert.AreEqual("moved-tag", row.tag);
+            Assert.IsTrue(logs.Any(message => message.Contains("db_commit_chunk_done")
+                && message.Contains("deleted=1")
+                && message.Contains("added=1")));
         });
     }
 
