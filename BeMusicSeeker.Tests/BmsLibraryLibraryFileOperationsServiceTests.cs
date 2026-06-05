@@ -811,7 +811,9 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             notifyStorageRowPathChanges: true);
 
         Assert.IsTrue(delta.NotifyStorageRowPathChanges);
-        Assert.AreEqual("C:\\Lib\\Dst\\A\\a.bms", delta.ChartPathChanges.Single().NewPath);
+        LibraryChartPathChange pathChange = delta.ChartPathChanges.Single();
+        Assert.AreEqual("C:\\Lib\\Src\\A\\a.bms", pathChange.OldPath);
+        Assert.AreEqual("C:\\Lib\\Dst\\A\\a.bms", pathChange.NewPath);
     }
 
     [TestMethod]
@@ -1200,8 +1202,10 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
 
         Assert.AreEqual(2, delta.ChartPathChanges.Count);
         LibraryChartPathChange bmsPathChange = delta.ChartPathChanges.Single(change => change.GetBmsStorageOwner() == bmsFile);
+        Assert.AreEqual("C:\\Lib\\Src\\Pkg\\chart.bms", bmsPathChange.OldPath);
         Assert.AreEqual("C:\\Lib\\Dst\\Pkg\\chart.bms", bmsPathChange.NewPath);
         LibraryChartPathChange bmsonPathChange = delta.ChartPathChanges.Single(change => change.GetBmsonStorageOwner() == bmsonSong);
+        Assert.AreEqual("C:\\Lib\\Src\\Pkg\\chart.bmson", bmsonPathChange.OldPath);
         Assert.AreEqual("C:\\Lib\\Dst\\Pkg\\chart.bmson", bmsonPathChange.NewPath);
         Assert.IsTrue(delta.NotifyStorageRowPathChanges);
         Assert.IsTrue(delta.InvalidateInstalledDirectoryIndex);
@@ -1412,6 +1416,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             Assert.AreEqual(0, delta.SkippedCount);
             Assert.AreEqual(1, delta.ChartPathChanges.Count);
             Assert.AreEqual(1, delta.ChartRemoveRequests.Count);
+            Assert.AreEqual(renameSourcePath, delta.ChartPathChanges[0].OldPath);
             Assert.AreEqual(Path.Combine(tempDirectoryPath, "rename_me.bme"), delta.ChartPathChanges[0].NewPath);
             Assert.AreSame(renameFile, delta.ChartPathChanges[0].GetBmsStorageOwner());
             Assert.AreSame(duplicateFile, delta.ChartRemoveRequests[0].BmsOwner);

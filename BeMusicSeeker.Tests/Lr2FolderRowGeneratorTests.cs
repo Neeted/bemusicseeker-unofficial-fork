@@ -244,6 +244,38 @@ public sealed class Lr2FolderRowGeneratorTests
     }
 
     [TestMethod]
+    public void PlanNormalDirectorySync_PrunesOnlyRequestedPruneScope()
+    {
+        Lr2FolderGenerationResult generation = Lr2FolderRowGenerator.GenerateNormalDirectoryRows(new Lr2FolderGenerationRequest
+        {
+            RootDirectories = [@"D:\BMS"],
+            ChartPaths = [@"D:\BMS\Pack\chart.bms"],
+            DirectoryMetadataResolver = ConstantMetadataResolver()
+        });
+        LR2SongDB.folder root = generation.Rows.Single(row => string.Equals(row.path, FolderPath(@"D:\BMS"), StringComparison.Ordinal));
+        LR2SongDB.folder pack = generation.Rows.Single(row => string.Equals(row.path, FolderPath(@"D:\BMS\Pack"), StringComparison.Ordinal));
+        var staleInPruneScope = new LR2SongDB.folder
+        {
+            path = FolderPath(@"D:\BMS\Removed"),
+            type = 1
+        };
+        var staleOutsidePruneScope = new LR2SongDB.folder
+        {
+            path = FolderPath(@"D:\BMS\Other"),
+            type = 1
+        };
+
+        Lr2FolderGenerationSyncPlan plan = Lr2FolderGenerationScopePlanner.PlanNormalDirectorySync(
+            generation,
+            [Clone(root), Clone(pack), staleInPruneScope, staleOutsidePruneScope],
+            [@"D:\BMS"],
+            [@"D:\BMS\Removed"]);
+
+        CollectionAssert.AreEqual(new[] { staleInPruneScope.path }, plan.DeletePaths.ToArray());
+        Assert.AreEqual(0, plan.UpsertRows.Count);
+    }
+
+    [TestMethod]
     public void PlanNormalDirectorySync_DoesNotOverwriteNonNormalRowsWithSamePath()
     {
         Lr2FolderGenerationResult generation = Lr2FolderRowGenerator.GenerateNormalDirectoryRows(new Lr2FolderGenerationRequest

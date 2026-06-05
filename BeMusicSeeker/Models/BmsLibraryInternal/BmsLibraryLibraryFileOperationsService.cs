@@ -383,6 +383,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
                 delta.ChartPathChanges.Add(new LibraryChartPathChange
                 {
                     Chart = ToChartFile(chart),
+                    OldPath = chart.Path,
                     NewPath = chart.Path.ReplaceFromStart(srcDir, dstDir, isIgnoreCase: true)
                 });
             }
@@ -900,6 +901,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
                                 file,
                                 includeWarningSnapshot: true,
                                 includeResourceReferences: false),
+                            OldPath = file.path,
                             NewPath = renameResult.FinalPath
                         });
                         delta.NotifyStorageRowPathChanges = true;

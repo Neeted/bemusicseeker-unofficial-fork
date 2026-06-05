@@ -25,7 +25,8 @@ internal static class Lr2FolderGenerationScopePlanner
     internal static Lr2FolderGenerationSyncPlan PlanNormalDirectorySync(
         Lr2FolderGenerationResult generation,
         IEnumerable<LR2SongDB.folder> existingRows,
-        IEnumerable<string> rootDirectories)
+        IEnumerable<string> rootDirectories,
+        IEnumerable<string> pruneScopeDirectories = null)
     {
         if (generation == null)
         {
@@ -67,6 +68,9 @@ internal static class Lr2FolderGenerationScopePlanner
         }
 
         List<string> roots = NormalizeRoots(rootDirectories);
+        List<string> pruneScopes = pruneScopeDirectories == null
+            ? roots
+            : NormalizeRoots(pruneScopeDirectories);
         var deletes = new List<string>();
         foreach (LR2SongDB.folder row in existingRowList)
         {
@@ -74,7 +78,7 @@ internal static class Lr2FolderGenerationScopePlanner
             if (string.IsNullOrWhiteSpace(path)
                 || !IsNormalDirectoryRow(row)
                 || generatedExactPaths.Contains(row.path)
-                || !IsInScope(path, roots))
+                || !IsInScope(path, pruneScopes))
             {
                 continue;
             }

@@ -15,6 +15,8 @@ internal sealed class Lr2NormalFolderDbSyncRequest
 
     public IReadOnlyCollection<string> FolderInfoFilePaths { get; set; } = [];
 
+    public IReadOnlyCollection<string> PruneScopeDirectories { get; set; } = [];
+
     public Func<string, DateTime?> DirectoryLastWriteTimeUtcResolver { get; set; }
 
     public Func<string, IEnumerable<string>> FolderInfoLinesReader { get; set; }
@@ -98,10 +100,14 @@ internal static class Lr2NormalFolderDbSyncService
             DirectoryMetadataResolver = metadataSnapshot.Resolve,
             GeneratedAtUtc = request.GeneratedAtUtc
         });
+        IReadOnlyCollection<string> pruneScopeDirectories = request.PruneScopeDirectories?.Count > 0
+            ? NormalizePruneScopeDirectories(request.PruneScopeDirectories, rootDirectories)
+            : null;
         Lr2FolderGenerationSyncPlan plan = Lr2FolderGenerationScopePlanner.PlanNormalDirectorySync(
             generation,
             existingRows,
-            rootDirectories);
+            rootDirectories,
+            pruneScopeDirectories);
         bool canPrune = request.AllowPrune
             && chartPathFilter.SkippedIncompatibleChartPathCount == 0;
         if (!canPrune && plan.DeletePaths.Count > 0)
@@ -166,6 +172,18 @@ internal static class Lr2NormalFolderDbSyncService
         return [.. (rootDirectories ?? [])
             .Select(Lr2FolderPath.NormalizeDirectoryPath)
             .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)];
+    }
+
+    private static List<string> NormalizePruneScopeDirectories(IEnumerable<string> pruneScopeDirectories, IReadOnlyCollection<string> rootDirectories)
+    {
+        if (rootDirectories == null || rootDirectories.Count == 0)
+        {
+            return [];
+        }
+
+        return [.. NormalizeRootDirectories(pruneScopeDirectories)
+            .Where(path => rootDirectories.Any(root => Lr2FolderPath.IsSameOrDescendant(path, root)))
             .Distinct(StringComparer.OrdinalIgnoreCase)];
     }
 
