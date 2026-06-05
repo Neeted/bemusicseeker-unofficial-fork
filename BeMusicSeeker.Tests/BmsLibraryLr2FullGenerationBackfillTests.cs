@@ -2332,6 +2332,55 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
     }
 
     [TestMethod]
+    public void QueueLr2FullGenerationBackfillIfNeeded_GeneratesRootCustomFolderOutputParentRow()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        try
+        {
+            Settings.Default.OperationModeLR2DB = true;
+            Settings.Default.EnableLR2SongDbFullGeneration = true;
+            ResetLr2FolderDiscoverySettings();
+            string bmsRoot = Path.Combine(scope.DirectoryPath, "BMS");
+            Directory.CreateDirectory(bmsRoot);
+            string outputBase = Path.Combine(scope.DirectoryPath, "RootCustomOutput");
+            string tableDirectory = Path.Combine(outputBase, "Table");
+            Directory.CreateDirectory(tableDirectory);
+            string lr2FolderPath = Path.Combine(tableDirectory, "0000.lr2folder");
+            File.WriteAllText(lr2FolderPath, "#TITLE Root Output", Encoding.GetEncoding("shift_jis"));
+            Settings.Default.LR2CustomFolderOutputBaseDirRootType = outputBase;
+            var library = new BMSLibrary(scope.SongDbPath)
+            {
+                SearchTargets = [bmsRoot],
+                BMSFiles = []
+            };
+            library.StartupBackgroundTaskScheduler = delegate (string name, string reason, string dependency, Func<Task> work)
+            {
+                work().GetAwaiter().GetResult();
+                return true;
+            };
+
+            library.QueueLr2FullGenerationBackfillIfNeeded("test_root_custom_folder_output_parent");
+
+            using var verify = new LR2SongDBExtended(scope.SongDbPath);
+            LR2SongDB.folder parentRow = verify.Table<LR2SongDB.folder>().ToList().Single(folder => folder.path == Lr2FolderPath.ToFolderPath(tableDirectory));
+            Assert.AreEqual(1, parentRow.type);
+            Assert.AreEqual("Table", parentRow.title);
+            Assert.AreEqual(Lr2SongFolderParentNormalizer.RootParentHash, parentRow.parent);
+            Assert.IsTrue(parentRow.date.GetValueOrDefault() > 0);
+            LR2SongDB.folder lr2Folder = verify.Table<LR2SongDB.folder>().ToList().Single(folder => folder.path == lr2FolderPath);
+            Assert.AreEqual(2, lr2Folder.type);
+            Assert.AreEqual(Lr2SongFolderParentNormalizer.RootParentHash, lr2Folder.parent);
+            LR2SongDBExtended.lr2_full_generation_status status = verify.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
+            Assert.IsNotNull(status);
+            Assert.AreEqual("Completed", status.status);
+        }
+        finally
+        {
+            ResetTouchedSettings();
+        }
+    }
+
+    [TestMethod]
     public void QueueLr2FullGenerationBackfillIfNeeded_DiscoversEnabledLr2BuiltinCustomFolderAsRelativeRootRow()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
@@ -2379,6 +2428,62 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
     }
 
     [TestMethod]
+    public void QueueLr2FullGenerationBackfillIfNeeded_GeneratesBuiltinCustomFolderCategoryRow()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        try
+        {
+            Settings.Default.OperationModeLR2DB = true;
+            Settings.Default.EnableLR2SongDbFullGeneration = true;
+            ResetLr2FolderDiscoverySettings();
+            string bmsRoot = Path.Combine(scope.DirectoryPath, "BMS");
+            Directory.CreateDirectory(bmsRoot);
+            string lr2Root = Path.Combine(scope.DirectoryPath, "LR2beta3");
+            string randomDirectory = Path.Combine(lr2Root, "LR2files", "CustomFolder", "RANDOM");
+            string subDirectory = Path.Combine(randomDirectory, "Sub");
+            Directory.CreateDirectory(subDirectory);
+            string lr2FolderPath = Path.Combine(subDirectory, "random.lr2folder");
+            File.WriteAllText(lr2FolderPath, "#TITLE Random", Encoding.GetEncoding("shift_jis"));
+            Settings.Default.LR2RootPath = lr2Root;
+            LR2Config config = CreateLr2Config(lr2Root, customFolderMask: 0x1, titleFlashHours: 24, bmsRoot);
+            var library = new BMSLibrary(scope.SongDbPath, () => config)
+            {
+                SearchTargets = [bmsRoot],
+                BMSFiles = []
+            };
+            library.StartupBackgroundTaskScheduler = delegate (string name, string reason, string dependency, Func<Task> work)
+            {
+                work().GetAwaiter().GetResult();
+                return true;
+            };
+
+            library.QueueLr2FullGenerationBackfillIfNeeded("test_builtin_custom_folder_category");
+
+            using var verify = new LR2SongDBExtended(scope.SongDbPath);
+            LR2SongDB.folder category = verify.Table<LR2SongDB.folder>().ToList().Single(folder => folder.path == @"LR2files\CustomFolder\RANDOM\");
+            Assert.AreEqual(2, category.type);
+            Assert.AreEqual("RANDOM", category.title);
+            Assert.AreEqual(Lr2SongFolderParentNormalizer.RootParentHash, category.parent);
+            Assert.IsTrue(category.date.GetValueOrDefault() > 0);
+            LR2SongDB.folder subCategory = verify.Table<LR2SongDB.folder>().ToList().Single(folder => folder.path == @"LR2files\CustomFolder\RANDOM\Sub\");
+            Assert.AreEqual(2, subCategory.type);
+            Assert.AreEqual("Sub", subCategory.title);
+            Assert.AreEqual(Lr2SongFolderParentNormalizer.ComputeDirectoryHash(@"LR2files\CustomFolder\RANDOM"), subCategory.parent);
+            Assert.IsTrue(subCategory.date.GetValueOrDefault() > 0);
+            LR2SongDB.folder lr2Folder = verify.Table<LR2SongDB.folder>().ToList().Single(folder => folder.path == @"LR2files\CustomFolder\RANDOM\Sub\random.lr2folder");
+            Assert.AreEqual(2, lr2Folder.type);
+            Assert.AreEqual(Lr2SongFolderParentNormalizer.ComputeDirectoryHash(@"LR2files\CustomFolder\RANDOM\Sub"), lr2Folder.parent);
+            LR2SongDBExtended.lr2_full_generation_status status = verify.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
+            Assert.IsNotNull(status);
+            Assert.AreEqual("Completed", status.status);
+        }
+        finally
+        {
+            ResetTouchedSettings();
+        }
+    }
+
+    [TestMethod]
     public void QueueLr2FullGenerationBackfillIfNeeded_SkipsDisabledLr2BuiltinCustomFolder()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
@@ -2398,6 +2503,13 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
             using (var setup = new LR2SongDBExtended(scope.SongDbPath))
             {
                 setup.CreateTable<LR2SongDB.folder>();
+                setup.InsertOrReplace(new LR2SongDB.folder
+                {
+                    path = @"LR2files\CustomFolder\RANDOM\",
+                    type = 2,
+                    title = "Stale Random",
+                    parent = Lr2SongFolderParentNormalizer.RootParentHash
+                }, typeof(LR2SongDB.folder));
                 setup.InsertOrReplace(new LR2SongDB.folder
                 {
                     path = @"LR2files\CustomFolder\favorite.lr2folder",
@@ -2421,6 +2533,7 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
             library.QueueLr2FullGenerationBackfillIfNeeded("test_lr2_builtin_custom_folder_disabled");
 
             using var verify = new LR2SongDBExtended(scope.SongDbPath);
+            Assert.IsFalse(verify.Table<LR2SongDB.folder>().Any(folder => folder.path == @"LR2files\CustomFolder\RANDOM\"));
             Assert.IsFalse(verify.Table<LR2SongDB.folder>().Any(folder => folder.path == @"LR2files\CustomFolder\favorite.lr2folder"));
             LR2SongDBExtended.lr2_full_generation_status status = verify.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
             Assert.IsNotNull(status);

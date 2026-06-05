@@ -7,7 +7,7 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 internal static class Lr2FullGenerationSignatureBuilder
 {
-    private const string Version = "lr2_full_generation_v1";
+    private const string Version = "lr2_full_generation_v2";
     private const int SongFolderGeneratorVersion = 1;
     private const int Lr2FolderFileParserVersion = 1;
     private const int Lr2CompatibilityFactsVersion = 1;

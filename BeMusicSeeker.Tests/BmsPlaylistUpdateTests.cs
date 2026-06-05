@@ -889,12 +889,14 @@ public sealed class BmsPlaylistUpdateTests
             };
             string oldOutputDir = Path.Combine(outputBaseDir, "ToggleTable");
             string oldPath = Path.Combine(oldOutputDir, "0000.lr2folder");
+            string oldParentPath = Lr2FolderPath.ToFolderPath(oldOutputDir);
             Directory.CreateDirectory(oldOutputDir);
             File.WriteAllText(oldPath, "#TITLE stale", Encoding.GetEncoding("shift_jis"));
             using (var db = new LR2SongDBExtended(songDbPath))
             {
                 db.CreateTable<LR2SongDB.folder>();
                 db.InsertOrReplace(new LR2SongDB.folder { path = oldPath, title = "stale", type = 2 }, typeof(LR2SongDB.folder));
+                db.InsertOrReplace(new LR2SongDB.folder { path = oldParentPath, title = "stale parent", type = 1 }, typeof(LR2SongDB.folder));
             }
             var playlist = new BMSPlaylist(songDbPath)
             {
@@ -912,6 +914,7 @@ public sealed class BmsPlaylistUpdateTests
             Assert.IsTrue(File.Exists(newPath));
             using var verify = new LR2SongDBExtended(songDbPath);
             Assert.AreEqual(0, verify.Table<LR2SongDB.folder>().Count(row => row.path == oldPath));
+            Assert.AreEqual(0, verify.Table<LR2SongDB.folder>().Count(row => row.path == oldParentPath));
             LR2SongDB.folder generated = verify.Table<LR2SongDB.folder>().Single(row => row.path == newPath);
             Assert.AreEqual("Folder A", generated.title);
             Assert.AreEqual(Lr2SongFolderParentNormalizer.RootParentHash, generated.parent);

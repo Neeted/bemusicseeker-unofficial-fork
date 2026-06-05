@@ -329,6 +329,7 @@ internal static class Lr2FullGenerationBackfillService
             {
                 Items = syncItems.Items,
                 ScopeDirectories = lr2FolderPruneDirectories,
+                DirectoryRowScopeDirectories = CreateLr2FolderDirectoryRowScopeDirectories(request),
                 AllowPrune = lr2FolderPruneDirectories.Count > 0
                     && request.Lr2FolderFileDiscoveryComplete
                     && !syncItems.HasReadFailures,
@@ -733,6 +734,7 @@ internal static class Lr2FullGenerationBackfillService
             }
 
             bool isLr2FolderFileRow = IsLr2FolderDiagnosticPath(diagnosticPath);
+            bool isLr2FolderScopedRow = isLr2FolderFileRow || IsUnderAnyRoot(diagnosticPath, lr2FolderRoots);
             if (isLr2FolderFileRow && IsExistingLr2FolderRowKind(row.Type))
             {
                 string databasePath = Lr2FolderFileProjection.NormalizeDatabasePath(row.Path);
@@ -753,7 +755,7 @@ internal static class Lr2FullGenerationBackfillService
                 }
             }
 
-            IReadOnlyList<string> scopeRoots = isLr2FolderFileRow ? allFolderRoots : roots;
+            IReadOnlyList<string> scopeRoots = isLr2FolderScopedRow ? allFolderRoots : roots;
             if (scopeRoots.Count > 0 && !IsUnderAnyRoot(diagnosticPath, scopeRoots))
             {
                 unknownRootFolderRowCount++;
@@ -1096,6 +1098,35 @@ internal static class Lr2FullGenerationBackfillService
             items.Add(item);
         }
         return new Lr2FolderFileSyncItemsResult(items, hasReadFailures);
+    }
+
+    private static IReadOnlyCollection<string> CreateLr2FolderDirectoryRowScopeDirectories(Lr2FullGenerationBackfillRequest request)
+    {
+        var candidates = new List<string>();
+        HashSet<string> excludedAbsoluteDirectories = [.. (request?.RootDirectories ?? [])
+            .Concat(request?.Lr2BuiltinFolderSourceDirectories ?? [])
+            .Select(NormalizeDirectoryPathOrNull)
+            .Where(path => !string.IsNullOrWhiteSpace(path))];
+        foreach (string directory in request?.Lr2FolderPruneDirectories ?? [])
+        {
+            if (string.IsNullOrWhiteSpace(directory) || !Path.IsPathRooted(directory))
+            {
+                continue;
+            }
+            string normalized = NormalizeDirectoryPathOrNull(directory);
+            if (!string.IsNullOrWhiteSpace(normalized)
+                && !excludedAbsoluteDirectories.Contains(normalized))
+            {
+                candidates.Add(normalized);
+            }
+        }
+        if (request?.Lr2BuiltinFolderSourceDirectories?.Count > 0)
+        {
+            candidates.Add(@"LR2files\CustomFolder");
+        }
+        return [.. candidates
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)];
     }
 
     private static Lr2FolderFileSyncItem CreateLr2FolderFileSyncItem(

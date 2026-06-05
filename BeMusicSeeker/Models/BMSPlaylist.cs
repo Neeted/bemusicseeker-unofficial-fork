@@ -2714,7 +2714,13 @@ public partial class BMSPlaylist : NotificationObject
         {
             try
             {
-                SyncCustomFolderRowsByPaths(removedFilePaths);
+                IReadOnlyCollection<string> directoryRowScopeDirectories = CanPruneRemovedCustomFolderDirectoryRows(
+                    outputDirPathBefore,
+                    outputDirPathAfter,
+                    created)
+                        ? [outputDirPathBefore]
+                        : [];
+                SyncCustomFolderRowsByPaths(removedFilePaths, directoryRowScopeDirectories);
             }
             catch
             {
@@ -2733,6 +2739,23 @@ public partial class BMSPlaylist : NotificationObject
         return !string.IsNullOrWhiteSpace(normalizedLeft)
             && !string.IsNullOrWhiteSpace(normalizedRight)
             && string.Equals(normalizedLeft, normalizedRight, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool CanPruneRemovedCustomFolderDirectoryRows(
+        string removedDirectory,
+        string newDirectory,
+        bool newDirectoryCreated)
+    {
+        if (!newDirectoryCreated)
+        {
+            return true;
+        }
+
+        string normalizedRemoved = Lr2FolderPath.NormalizeDirectoryPath(removedDirectory);
+        string normalizedNew = Lr2FolderPath.NormalizeDirectoryPath(newDirectory);
+        return !string.IsNullOrWhiteSpace(normalizedRemoved)
+            && !string.IsNullOrWhiteSpace(normalizedNew)
+            && !Lr2FolderPath.IsSameOrDescendant(normalizedNew, normalizedRemoved);
     }
 
     /// <summary>
@@ -2867,14 +2890,22 @@ public partial class BMSPlaylist : NotificationObject
             {
                 Items = items ?? [],
                 ScopeDirectories = [outputDir],
+                DirectoryRowScopeDirectories = [outputDir],
                 AllowPrune = true
             });
         });
     }
 
-    private void SyncCustomFolderRowsByPaths(IReadOnlyCollection<string> filePaths)
+    private void SyncCustomFolderRowsByPaths(
+        IReadOnlyCollection<string> filePaths,
+        IReadOnlyCollection<string> directoryRowScopeDirectories = null)
     {
-        if (filePaths == null || filePaths.Count == 0 || string.IsNullOrWhiteSpace(lr2SongDBPath))
+        if ((filePaths == null || filePaths.Count == 0)
+            && (directoryRowScopeDirectories == null || directoryRowScopeDirectories.Count == 0))
+        {
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(lr2SongDBPath))
         {
             return;
         }
@@ -2885,6 +2916,7 @@ public partial class BMSPlaylist : NotificationObject
             Lr2FolderFileDbSyncService.Sync(lr2Song, new Lr2FolderFileDbSyncRequest
             {
                 ScopePaths = filePaths,
+                DirectoryRowScopeDirectories = directoryRowScopeDirectories ?? [],
                 AllowPrune = true
             });
         });
