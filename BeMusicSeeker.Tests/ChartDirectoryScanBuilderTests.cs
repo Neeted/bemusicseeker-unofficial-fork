@@ -148,6 +148,24 @@ public sealed class ChartDirectoryScanBuilderTests
     }
 
     [TestMethod]
+    public void CreateEnumerationGroups_CanOmitTextGroup()
+    {
+        IReadOnlyList<RootFileEnumerationGroup> withText = ChartDirectoryScanBuilder.CreateEnumerationGroups(
+            ChartDirectoryScanBuilder.ChartExtensions,
+            includeTextFiles: true);
+        IReadOnlyList<RootFileEnumerationGroup> withoutText = ChartDirectoryScanBuilder.CreateEnumerationGroups(
+            ChartDirectoryScanBuilder.ChartExtensions,
+            includeTextFiles: false);
+
+        CollectionAssert.Contains(withText.Select(group => group.Name).ToList(), ChartDirectoryScanBuilder.TextGroupName);
+        CollectionAssert.DoesNotContain(withoutText.Select(group => group.Name).ToList(), ChartDirectoryScanBuilder.TextGroupName);
+        CollectionAssert.Contains(withoutText.Select(group => group.Name).ToList(), ChartDirectoryScanBuilder.ChartGroupName);
+        CollectionAssert.Contains(withoutText.Select(group => group.Name).ToList(), ChartDirectoryScanBuilder.AudioGroupName);
+        CollectionAssert.Contains(withoutText.Select(group => group.Name).ToList(), ChartDirectoryScanBuilder.ImageGroupName);
+        CollectionAssert.Contains(withoutText.Select(group => group.Name).ToList(), ChartDirectoryScanBuilder.MovieGroupName);
+    }
+
+    [TestMethod]
     public void BuildFromAbsolutePaths_PreservesFolderInfoPathsFromSingleUseTextEnumerable()
     {
         string chartDirectory = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_ChartDirTextOnce_" + Guid.NewGuid().ToString("N"));

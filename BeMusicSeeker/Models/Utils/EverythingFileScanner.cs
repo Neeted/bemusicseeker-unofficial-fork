@@ -11,7 +11,7 @@ public class EverythingFileScanner : IChartFileScanner
 {
     private static readonly Logger logger = LogManager.GetLogger("InstallPerformance.EverythingScanner");
 
-    public ChartScanExecutionResult Scan(IEnumerable<string> rootDirectories, IEnumerable<string> chartExtensions, bool verboseLog = false)
+    public ChartScanExecutionResult Scan(IEnumerable<string> rootDirectories, IEnumerable<string> chartExtensions, bool verboseLog = false, bool includeTextSurface = true)
     {
         List<string> roots = [.. (rootDirectories ?? [])
             .Where(p => !string.IsNullOrWhiteSpace(p) && Directory.Exists(p))
@@ -61,7 +61,10 @@ public class EverythingFileScanner : IChartFileScanner
                 ErrorReason = "empty_results_with_roots:bridgeReason=" + (result.NativeBridgeReason ?? result.ErrorReason ?? "unknown") + ":bridgeMs=" + result.NativeBridgeMs
             };
         }
-        PopulateTextFileSurface(result.Result, roots, verboseLog);
+        if (includeTextSurface)
+        {
+            PopulateTextFileSurface(result.Result, roots, verboseLog);
+        }
         if (verboseLog)
         {
             logger.Info("everything_scan success charts={0} dirs={1} totalMs={2} nativeBridgeUsed={3} nativeBridgeMs={4} nativeBridgeReason={5} managedDecodeMs={6} managedMaterializeMs={7} bridgeRawBufferBytes={8} hashDirs={9} categoryResourceKeyHashEntries={10} chartQueryHits={11} audioQueryHits={12} imageQueryHits={13} movieQueryHits={14} chartQueryMs={15} audioQueryMs={16} imageQueryMs={17} movieQueryMs={18} chartSearchMs={19} chartReadMs={20} audioSearchMs={21} audioReadMs={22} imageSearchMs={23} imageReadMs={24} movieSearchMs={25} movieReadMs={26} chartDirectoryCount={27} audioAssignedCount={28} imageAssignedCount={29} movieAssignedCount={30} audioResourceKeyHashCount={31} imageResourceKeyHashCount={32} movieResourceKeyHashCount={33} audioResourceDirCount={34} imageResourceDirCount={35} movieResourceDirCount={36} ownerCacheHitCount={37} ownerCacheMissCount={38} relativePrefixCacheHitCount={39} relativePrefixCacheMissCount={40} audioGroupMs={41} audioAssignMs={42} audioMergeMs={43} imageGroupMs={44} imageAssignMs={45} imageMergeMs={46} movieGroupMs={47} movieAssignMs={48} movieMergeMs={49} assignMs={50} dedupeMs={51} packMs={52} packReverseBuildMs={53} audioReverseBuildMs={54} imageReverseBuildMs={55} movieReverseBuildMs={56} packLayoutMs={57} packAllocMs={58} packWriteMs={59} reverseIndexBytes={60} chartSdkReadMs={61} chartCallbackMs={62} audioSdkReadMs={63} audioCallbackMs={64} imageSdkReadMs={65} imageCallbackMs={66} movieSdkReadMs={67} movieCallbackMs={68} chartPathResizeCount={69} chartNameResizeCount={70} audioPathResizeCount={71} audioNameResizeCount={72} imagePathResizeCount={73} imageNameResizeCount={74} moviePathResizeCount={75} movieNameResizeCount={76}",

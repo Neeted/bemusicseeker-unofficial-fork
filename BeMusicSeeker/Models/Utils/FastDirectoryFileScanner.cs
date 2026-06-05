@@ -6,14 +6,14 @@ namespace BeMusicSeeker.Models.Utils;
 
 public class FastDirectoryFileScanner : IChartFileScanner
 {
-    public ChartScanExecutionResult Scan(IEnumerable<string> rootDirectories, IEnumerable<string> chartExtensions, bool verboseLog = false)
+    public ChartScanExecutionResult Scan(IEnumerable<string> rootDirectories, IEnumerable<string> chartExtensions, bool verboseLog = false, bool includeTextSurface = true)
     {
         try
         {
             List<string> roots = [.. (rootDirectories ?? [])
                 .Where(p => !string.IsNullOrWhiteSpace(p))
                 .Distinct(StringComparer.OrdinalIgnoreCase)];
-            RootFileEnumerationResult enumerationResult = new FastRootFileEnumerator().EnumerateFiles(roots, ChartDirectoryScanBuilder.CreateEnumerationGroups(chartExtensions), verboseLog);
+            RootFileEnumerationResult enumerationResult = new FastRootFileEnumerator().EnumerateFiles(roots, ChartDirectoryScanBuilder.CreateEnumerationGroups(chartExtensions, includeTextFiles: includeTextSurface), verboseLog);
             if (!enumerationResult.Success)
             {
                 return new ChartScanExecutionResult

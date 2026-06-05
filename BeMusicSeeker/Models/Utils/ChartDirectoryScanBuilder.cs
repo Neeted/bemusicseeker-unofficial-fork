@@ -47,21 +47,24 @@ internal static class ChartDirectoryScanBuilder
         return BuildFromRoots(chartDirectories);
     }
 
-    internal static IReadOnlyList<RootFileEnumerationGroup> CreateDefaultEnumerationGroups(bool includeAllFiles = false)
+    internal static IReadOnlyList<RootFileEnumerationGroup> CreateDefaultEnumerationGroups(bool includeAllFiles = false, bool includeTextFiles = true)
     {
-        return CreateEnumerationGroups(ChartExtensions, includeAllFiles);
+        return CreateEnumerationGroups(ChartExtensions, includeAllFiles, includeTextFiles);
     }
 
-    internal static IReadOnlyList<RootFileEnumerationGroup> CreateEnumerationGroups(IEnumerable<string> chartExtensions, bool includeAllFiles = false)
+    internal static IReadOnlyList<RootFileEnumerationGroup> CreateEnumerationGroups(IEnumerable<string> chartExtensions, bool includeAllFiles = false, bool includeTextFiles = true)
     {
         List<RootFileEnumerationGroup> groups =
         [
             new RootFileEnumerationGroup(ChartGroupName, ResolveChartExtensions(chartExtensions)),
             new RootFileEnumerationGroup(AudioGroupName, AudioExtensions),
             new RootFileEnumerationGroup(ImageGroupName, ImageExtensions),
-            new RootFileEnumerationGroup(MovieGroupName, MovieExtensions),
-            new RootFileEnumerationGroup(TextGroupName, TextExtensions)
+            new RootFileEnumerationGroup(MovieGroupName, MovieExtensions)
         ];
+        if (includeTextFiles)
+        {
+            groups.Add(new RootFileEnumerationGroup(TextGroupName, TextExtensions));
+        }
         if (includeAllFiles)
         {
             groups.Add(new RootFileEnumerationGroup(RootFileEnumerationService.AllFilesGroupName, [], includeAllFiles: true));

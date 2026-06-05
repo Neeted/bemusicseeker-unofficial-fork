@@ -1205,3 +1205,5 @@ parse directive:
   stale date の `folder` row に限定し、`song` row 欠落、root 未設定、known root 外 `song` row は削除で直せる
   問題ではないため cleanup 対象にしない。UI はこの helper の削除前後 diagnostic を表示・再実行するだけにする。
 - `LR2非対応パス` tree は LR2 連携モード専用の compatibility surface として扱い、standalone mode では表示しない。
+- library root scan の `.txt` surface は LR2 連携モードかつ完全生成設定 ON のときだけ列挙する。
+  pending package / install estimation の局所 scan は package 表示・導入時 projection のため既存どおり text group を扱う。

@@ -18,6 +18,27 @@ namespace BeMusicSeeker.Tests;
 public sealed class BmsLibraryLr2FullGenerationBackfillTests
 {
     [TestMethod]
+    public void ShouldIncludeLr2TextSurface_OnlyWhenLr2FullGenerationEnabled()
+    {
+        Assert.IsTrue(BMSLibrary.ShouldIncludeLr2TextSurface(new BmsLibraryOptionsSnapshot
+        {
+            OperationModeLR2DB = true,
+            EnableLR2SongDbFullGeneration = true
+        }));
+        Assert.IsFalse(BMSLibrary.ShouldIncludeLr2TextSurface(new BmsLibraryOptionsSnapshot
+        {
+            OperationModeLR2DB = true,
+            EnableLR2SongDbFullGeneration = false
+        }));
+        Assert.IsFalse(BMSLibrary.ShouldIncludeLr2TextSurface(new BmsLibraryOptionsSnapshot
+        {
+            OperationModeLR2DB = false,
+            EnableLR2SongDbFullGeneration = true
+        }));
+        Assert.IsFalse(BMSLibrary.ShouldIncludeLr2TextSurface(null));
+    }
+
+    [TestMethod]
     public void ApplyInstalledChartStorageTargets_SyncsNormalFolderRowsWhenFullGenerationEnabled()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();

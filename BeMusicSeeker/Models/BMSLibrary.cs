@@ -4432,11 +4432,11 @@ public class BMSLibrary : NotificationObject
     /// <summary>
     /// native bridge を優先し、Everything API が使えない場合は managed scan で chart files を走査します。
     /// </summary>
-    private ChartScanExecutionResult ExecuteChartScanWithManagedFallback(List<string> bmsDirectories, Action<string> reportScanner = null)
+    private ChartScanExecutionResult ExecuteChartScanWithManagedFallback(List<string> bmsDirectories, bool includeTextSurface, Action<string> reportScanner = null)
     {
         IChartFileScanner scanner = new EverythingFileScanner();
         reportScanner?.Invoke("Native");
-        ChartScanExecutionResult scanResult = scanner.Scan(bmsDirectories, ChartDirectoryScanBuilder.ChartExtensions, everythingScanLoggingEnabled);
+        ChartScanExecutionResult scanResult = scanner.Scan(bmsDirectories, ChartDirectoryScanBuilder.ChartExtensions, everythingScanLoggingEnabled, includeTextSurface);
         if (scanResult.Success && scanResult.Result != null)
         {
             return scanResult;
@@ -4451,7 +4451,7 @@ public class BMSLibrary : NotificationObject
 
         LogEverythingScan("chart native file scan unavailable reason=" + nativeFailureReason + " fallback=managed");
         reportScanner?.Invoke("Fallback");
-        ChartScanExecutionResult fallbackResult = new FastDirectoryFileScanner().Scan(bmsDirectories, ChartDirectoryScanBuilder.ChartExtensions, everythingScanLoggingEnabled);
+        ChartScanExecutionResult fallbackResult = new FastDirectoryFileScanner().Scan(bmsDirectories, ChartDirectoryScanBuilder.ChartExtensions, everythingScanLoggingEnabled, includeTextSurface);
         if (!fallbackResult.Success || fallbackResult.Result == null)
         {
             string fallbackFailureReason = fallbackResult?.ErrorReason ?? "unknown";
@@ -4460,6 +4460,11 @@ public class BMSLibrary : NotificationObject
         }
         LogEverythingScan("chart fallback file scan succeeded nativeReason=" + nativeFailureReason + " charts=" + fallbackResult.Result.ChartFilePaths.Count + " dirs=" + fallbackResult.Result.ChartDirectories.Count);
         return fallbackResult;
+    }
+
+    internal static bool ShouldIncludeLr2TextSurface(BmsLibraryOptionsSnapshot options)
+    {
+        return options?.OperationModeLR2DB == true && options.EnableLR2SongDbFullGeneration;
     }
 
     private static bool IsNativeBridgeContractFailure(string reason)
@@ -4532,6 +4537,7 @@ public class BMSLibrary : NotificationObject
                     var stopwatchPrefetch = Stopwatch.StartNew();
                     ChartScanExecutionResult scanResult = ExecuteChartScanWithManagedFallback(
                         prefetchDirectories,
+                        ShouldIncludeLr2TextSurface(options),
                         scannerLabel => ReportLibraryInitializationProgress(
                             LibraryInitializationProgressStage.FileEnumeration,
                             scannerLabel,
@@ -5002,6 +5008,7 @@ public class BMSLibrary : NotificationObject
             chartScanPrefetchInfo?.ElapsedMs ?? 0L,
             () => ExecuteChartScanWithManagedFallback(
                 bmsDirectories,
+                ShouldIncludeLr2TextSurface(options),
                 scannerLabel =>
                 {
                     if (trackLibraryFileCheckProgress)
