@@ -283,6 +283,10 @@ public partial class BMSPlaylist : NotificationObject
 
     internal Action<PlaylistSyncProgressSnapshot> BeatorajaBmtExportProgressReporter { get; set; }
 
+    internal Action<string> Lr2FolderSyncMutationGuard { get; set; }
+
+    internal Action<string, Exception> Lr2FolderSyncFailureReporter { get; set; }
+
     /// <summary>
     /// 全件初期化ロックの状態変化を監視するリスナーです。
     /// </summary>
@@ -2856,12 +2860,15 @@ public partial class BMSPlaylist : NotificationObject
             return;
         }
 
-        using var lr2Song = new LR2SongDBExtended(lr2SongDBPath);
-        Lr2FolderFileDbSyncService.Sync(lr2Song, new Lr2FolderFileDbSyncRequest
+        ExecuteLr2FolderSync("playlist_lr2folder_sync", delegate
         {
-            Items = items ?? [],
-            ScopeDirectories = [outputDir],
-            AllowPrune = true
+            using var lr2Song = new LR2SongDBExtended(lr2SongDBPath);
+            Lr2FolderFileDbSyncService.Sync(lr2Song, new Lr2FolderFileDbSyncRequest
+            {
+                Items = items ?? [],
+                ScopeDirectories = [outputDir],
+                AllowPrune = true
+            });
         });
     }
 
@@ -2872,12 +2879,29 @@ public partial class BMSPlaylist : NotificationObject
             return;
         }
 
-        using var lr2Song = new LR2SongDBExtended(lr2SongDBPath);
-        Lr2FolderFileDbSyncService.Sync(lr2Song, new Lr2FolderFileDbSyncRequest
+        ExecuteLr2FolderSync("playlist_lr2folder_prune", delegate
         {
-            ScopePaths = filePaths,
-            AllowPrune = true
+            using var lr2Song = new LR2SongDBExtended(lr2SongDBPath);
+            Lr2FolderFileDbSyncService.Sync(lr2Song, new Lr2FolderFileDbSyncRequest
+            {
+                ScopePaths = filePaths,
+                AllowPrune = true
+            });
         });
+    }
+
+    private void ExecuteLr2FolderSync(string operation, Action action)
+    {
+        Lr2FolderSyncMutationGuard?.Invoke(operation);
+        try
+        {
+            action?.Invoke();
+        }
+        catch (Exception ex)
+        {
+            Lr2FolderSyncFailureReporter?.Invoke(operation, ex);
+            throw;
+        }
     }
 
     private static IEnumerable<string> ReadLinesFromText(string text)

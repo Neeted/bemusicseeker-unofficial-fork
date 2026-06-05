@@ -1267,3 +1267,10 @@ parse directive:
 - file diff reload と maintenance workflow は下位 service 内で `Lr2SongDbWriter` を直接呼ぶため、workflow 境界で
   fatal failure を durable full generation status `Incomplete` にする。下位 writer をすべて status-aware にするより、
   UI/operation semantics を変えず、backfill/retry の入口を失わないことを優先する。
+- playlist custom folder output は `.lr2folder` file と LR2 `folder` row を同じ projection から更新するため、
+  LR2 full generation backfill 実行中は playlist 側の `.lr2folder` sync 境界でも mutation guard を通す。
+  `folder` row sync が失敗した場合は、既存の playlist warning 表示 semantics は維持しつつ、durable full generation
+  status を `Incomplete(lr2_playlist_lr2folder_sync_failed)` にする。
+- `.lr2folder` DB sync は explicit `FolderType = 3/4/6` を保存できるが、source classifier はこれらを推測しない。
+  OpenLR2 root special type は fixture-confirmed caller が explicit type を渡すまで通常 custom folder `type = 2`
+  として扱う。

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Threading;
@@ -20,6 +21,77 @@ namespace BeMusicSeeker.Tests;
 [DoNotParallelize]
 public sealed class BmsPlaylistUpdateTests
 {
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public void Lr2FolderSync_InvokesMutationGuardBeforeOpeningDatabase()
+    {
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string songDbPath = CreateTempSongDbPath(tempDirectory);
+            var playlist = new BMSPlaylist(songDbPath);
+            bool guardInvoked = false;
+            playlist.Lr2FolderSyncMutationGuard = operation =>
+            {
+                guardInvoked = true;
+                Assert.AreEqual("playlist_lr2folder_sync", operation);
+                throw new InvalidOperationException(Resources.Warn_Lr2FullGenerationBackfillRunning);
+            };
+
+            TargetInvocationException exception = Assert.ThrowsException<TargetInvocationException>(() =>
+                InvokeSyncCustomFolderRows(playlist, Path.Combine(tempDirectory, "Output"), []));
+
+            Assert.IsTrue(guardInvoked);
+            Assert.IsInstanceOfType(exception.InnerException, typeof(InvalidOperationException));
+            Assert.AreEqual(Resources.Warn_Lr2FullGenerationBackfillRunning, exception.InnerException.Message);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public void Lr2FolderSync_ReportsFailureBeforeRethrowing()
+    {
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string songDbPath = Path.Combine(tempDirectory, "song.db");
+            using (var _ = new LR2SongDBExtended(songDbPath))
+            {
+            }
+            var playlist = new BMSPlaylist(songDbPath);
+            string reportedOperation = string.Empty;
+            Exception reportedException = new InvalidOperationException("not invoked");
+            playlist.Lr2FolderSyncFailureReporter = (operation, ex) =>
+            {
+                reportedOperation = operation;
+                reportedException = ex;
+            };
+
+            TargetInvocationException exception = Assert.ThrowsException<TargetInvocationException>(() =>
+                InvokeSyncCustomFolderRows(playlist, Path.Combine(tempDirectory, "Output"), []));
+
+            Assert.AreEqual("playlist_lr2folder_sync", reportedOperation);
+            Assert.IsNotNull(reportedException);
+            Assert.AreSame(exception.InnerException, reportedException);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
     [TestMethod]
     [TestCategory("Playlist")]
     public void UpdateBmsTablesInternal_CallbackFailureDoesNotAbortUpdate()
@@ -1214,6 +1286,13 @@ public sealed class BmsPlaylistUpdateTests
         string tempSongDbPath = Path.Combine(tempDirectory, "song.db");
         File.Copy(sourceSongDbPath, tempSongDbPath, overwrite: true);
         return tempSongDbPath;
+    }
+
+    private static void InvokeSyncCustomFolderRows(BMSPlaylist playlist, string outputDir, IReadOnlyCollection<Lr2FolderFileSyncItem> items)
+    {
+        MethodInfo methodInfo = typeof(BMSPlaylist).GetMethod("SyncCustomFolderRows", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(methodInfo);
+        methodInfo.Invoke(playlist, [outputDir, items]);
     }
 
     private static BMSTableEntry CreateEntry(string md5, string folder)

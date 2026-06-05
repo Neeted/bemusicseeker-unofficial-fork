@@ -5367,6 +5367,11 @@ completeFileEnumerationOnce,
         }
     }
 
+    internal void ThrowIfLr2FullGenerationMutationBlockedForPlaylist(string operation)
+    {
+        ThrowIfLr2FullGenerationMutationBlocked(operation);
+    }
+
     private void RunLr2FullGenerationBackfill(string reason, string signature, int requestVersion)
     {
         var stopwatch = Stopwatch.StartNew();
@@ -5970,6 +5975,17 @@ completeFileEnumerationOnce,
             stage: "lr2_song_db_maintenance_write_failed",
             detail: "lr2_song_db_maintenance_write_failed: " + displayedMessage,
             logReason: string.IsNullOrWhiteSpace(reason) ? "maintenance_update" : reason);
+    }
+
+    internal void MarkLr2FullGenerationIncompleteAfterPlaylistLr2FolderSyncFailure(Exception ex, string reason)
+    {
+        string displayedMessage = GetDisplayedExceptionMessage(ex).Replace(Environment.NewLine, " | ");
+        MarkLr2FullGenerationIncomplete(
+            CurrentOptionsSnapshot,
+            runId: "playlist_lr2folder_sync",
+            stage: "lr2_playlist_lr2folder_sync_failed",
+            detail: "lr2_playlist_lr2folder_sync_failed: " + displayedMessage,
+            logReason: string.IsNullOrWhiteSpace(reason) ? "playlist_lr2folder_sync" : reason);
     }
 
     private void MarkLr2FullGenerationIncompleteAfterNormalFolderSyncFailure(

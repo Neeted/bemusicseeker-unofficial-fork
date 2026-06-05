@@ -15525,6 +15525,8 @@ public class MainWindowViewModel : ViewModel
                 libraryProfile.Lr2ScoreDbPath,
                 () => files.GetBMSScores(),
                 () => files.CreateBeatorajaBmtSongHashResolver());
+            tables.Lr2FolderSyncMutationGuard = operation => files.ThrowIfLr2FullGenerationMutationBlockedForPlaylist(operation);
+            tables.Lr2FolderSyncFailureReporter = (operation, ex) => files.MarkLr2FullGenerationIncompleteAfterPlaylistLr2FolderSyncFailure(ex, operation);
             files.StartupBackgroundTaskScheduler = QueueStartupBackgroundTask;
             files.StartupBackgroundTaskReporter = RecordStartupBackgroundTaskCompleted;
             tables.StartupBackgroundTaskScheduler = QueueStartupBackgroundTask;

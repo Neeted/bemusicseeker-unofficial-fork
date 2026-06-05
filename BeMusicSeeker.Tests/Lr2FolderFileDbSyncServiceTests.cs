@@ -190,6 +190,39 @@ public sealed class Lr2FolderFileDbSyncServiceTests
         });
     }
 
+    [DataTestMethod]
+    [DataRow(3)]
+    [DataRow(4)]
+    [DataRow(6)]
+    public void Sync_PreservesExplicitSupportedSpecialFolderType(int folderType)
+    {
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            using var songDb = new LR2SongDBExtended(songDbPath);
+            songDb.CreateTable<LR2SongDB.folder>();
+            string path = Path.GetFullPath(@"D:\LR2beta3\LR2files\CustomFolder\special.lr2folder");
+
+            Lr2FolderFileDbSyncResult result = Lr2FolderFileDbSyncService.Sync(songDb, new Lr2FolderFileDbSyncRequest
+            {
+                Items =
+                [
+                    new Lr2FolderFileSyncItem
+                    {
+                        FilePath = path,
+                        LastWriteTimeUtc = new DateTime(2026, 6, 10, 1, 2, 3, DateTimeKind.Utc),
+                        FolderType = folderType,
+                        Definition = Lr2FolderFileProjection.ParseDefinition(["#TITLE Special"])
+                    }
+                ]
+            });
+
+            Assert.AreEqual(1, result.GeneratedCount);
+            Assert.AreEqual(1, result.UpsertedCount);
+            LR2SongDB.folder row = songDb.Table<LR2SongDB.folder>().Single(candidate => candidate.path == path);
+            Assert.AreEqual(folderType, row.type);
+        });
+    }
+
     [TestMethod]
     public void Sync_PrunesRowsForInputsThatCannotGenerateRows()
     {
