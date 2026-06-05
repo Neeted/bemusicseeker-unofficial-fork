@@ -41,6 +41,45 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
     }
 
     [TestMethod]
+    public void GetBmsDirectories_ExcludesOnlyExplicitCustomFolderOutputSearchRoots()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        try
+        {
+            Settings.Default.OperationModeLR2DB = true;
+            ResetLr2FolderDiscoverySettings();
+            string bmsRoot = Path.Combine(scope.DirectoryPath, "BMS");
+            string nestedCustomOutputLikeDirectory = Path.Combine(bmsRoot, "#BeMusicSeeker");
+            string normalOutputBase = Path.Combine(scope.DirectoryPath, "NormalCustomFolderOutput");
+            string rootOutputBase = Path.Combine(scope.DirectoryPath, "RootCustomFolderOutput");
+            string rootOutputChild = Path.Combine(rootOutputBase, "Table");
+            Directory.CreateDirectory(bmsRoot);
+            Directory.CreateDirectory(nestedCustomOutputLikeDirectory);
+            Directory.CreateDirectory(normalOutputBase);
+            Directory.CreateDirectory(rootOutputBase);
+            Directory.CreateDirectory(rootOutputChild);
+            Settings.Default.LR2CustomFolderOutputBaseDir = normalOutputBase;
+            Settings.Default.LR2CustomFolderOutputBaseDirRootType = rootOutputBase;
+            var library = new BMSLibrary(scope.SongDbPath)
+            {
+                SearchTargets = [bmsRoot, nestedCustomOutputLikeDirectory, normalOutputBase, rootOutputBase, rootOutputChild]
+            };
+
+            HashSet<string> directories = [.. InvokeGetBmsDirectories(library).Select(NormalizeDirectory)];
+
+            Assert.IsTrue(directories.Contains(NormalizeDirectory(bmsRoot)));
+            Assert.IsTrue(directories.Contains(NormalizeDirectory(nestedCustomOutputLikeDirectory)));
+            Assert.IsFalse(directories.Contains(NormalizeDirectory(normalOutputBase)));
+            Assert.IsFalse(directories.Contains(NormalizeDirectory(rootOutputBase)));
+            Assert.IsFalse(directories.Contains(NormalizeDirectory(rootOutputChild)));
+        }
+        finally
+        {
+            ResetTouchedSettings();
+        }
+    }
+
+    [TestMethod]
     public void ApplyInstalledChartStorageTargets_SyncsNormalFolderRowsWhenFullGenerationEnabled()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
@@ -3095,6 +3134,18 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
         MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("MarkLr2FullGenerationIncompleteAfterMaintenanceSongDbWriteFailure", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.IsNotNull(methodInfo);
         methodInfo.Invoke(library, [exception, reason]);
+    }
+
+    private static List<string> InvokeGetBmsDirectories(BMSLibrary library)
+    {
+        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("getBMSDirectories", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(methodInfo);
+        return (List<string>)methodInfo.Invoke(library, null);
+    }
+
+    private static string NormalizeDirectory(string path)
+    {
+        return Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
     }
 
     private static void ResetTouchedSettings()

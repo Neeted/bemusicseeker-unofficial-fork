@@ -8327,20 +8327,22 @@ completeFileEnumerationOnce,
                 SearchTargets = [];
             }
         }
-        HashSet<string> excludedRootCustomOutputDirs = BuildExcludedRootCustomOutputDirectories();
+        HashSet<string> excludedCustomOutputSearchRoots = BuildExcludedCustomOutputSearchRootDirectories();
         return [.. (SearchTargets ?? Enumerable.Empty<string>())
             .Where(d => Directory.Exists(d))
-            .Where(d => !excludedRootCustomOutputDirs.Contains(Path.GetFullPath(d).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)))];
+            .Where(d => !excludedCustomOutputSearchRoots.Contains(Path.GetFullPath(d).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)))];
     }
 
-    private HashSet<string> BuildExcludedRootCustomOutputDirectories()
+    private HashSet<string> BuildExcludedCustomOutputSearchRootDirectories()
     {
         var excluded = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         if (!Settings.Default.OperationModeLR2DB)
         {
             return excluded;
         }
+        AddNormalizedDirectory(excluded, Settings.Default.LR2CustomFolderOutputBaseDir);
         string rootBaseDir = Settings.Default.LR2CustomFolderOutputBaseDirRootType;
+        AddNormalizedDirectory(excluded, rootBaseDir);
         if (string.IsNullOrWhiteSpace(rootBaseDir))
         {
             return excluded;
@@ -8375,6 +8377,21 @@ completeFileEnumerationOnce,
             }
         }
         return excluded;
+    }
+
+    private static void AddNormalizedDirectory(HashSet<string> directories, string path)
+    {
+        if (directories == null || string.IsNullOrWhiteSpace(path))
+        {
+            return;
+        }
+        try
+        {
+            directories.Add(Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+        }
+        catch
+        {
+        }
     }
 
     private bool IsPendingPackageContainingOnlyInstalledCharts(ChartPackage package)
