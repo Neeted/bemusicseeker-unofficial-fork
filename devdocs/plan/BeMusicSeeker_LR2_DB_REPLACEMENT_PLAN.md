@@ -1241,3 +1241,6 @@ parse directive:
   `folder.type` だけで normal directory / `.lr2folder` を判定せず、normalized path が `.lr2folder`
   で終わるかを target 種別の正本にする。これにより旧 DB の directory row でも
   directory mtime / existence を検証し、stale / missing target を cleanup 対象にできる。
+- direct owned mutation 中の normal folder sync failure は、file diff normal folder sync failure と同じく
+  durable full generation status を `Incomplete` にする。mutation は user operation の正しさを優先して進め、
+  folder row の再同期は次回 backfill / retry で復旧できる状態にする。
