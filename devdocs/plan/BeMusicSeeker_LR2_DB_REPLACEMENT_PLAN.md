@@ -342,7 +342,7 @@ row が残ると、manual-only でも LR2 が不要な scan に入る。
 - generation scope 外の既存 `folder` row は原則触らない。
 - unknown root row、`date = 0` row、実 directory / `.lr2folder` file が消えた row、または
   実 mtime と `folder.date` が一致しない row が残り、LR2 startup scan 抑止に影響する場合は
-  silent retention しない。初期実装では自動削除せず warning / diagnostic の対象にし、
+  silent retention しない。自動削除はせず warning / diagnostic の対象にし、
   cleanup は明示操作として別導線で実行する。
   - cleanup 導線は Phase 8 の初期実装に含める。
   - cleanup は全 `folder` row 削除ではなく、diagnostic で列挙した startup-scan blocker row だけを
@@ -958,6 +958,8 @@ parse directive:
   - まず file diff で既存 BMS の `song.date` / mtime mismatch を parse target に入れる。
   - MD5 が同じ場合は `song.date` の targeted update だけ行い、chart_info / maintenance は再生成しない。
   - MD5 が変わる場合は parsed row へ差し替え、`favorite` / `adddate` / `tag` は既存 row から維持する。
+  - 削除された path と新規 path が同じ MD5 で一意に対応する場合だけ、LR2 user columns を新規 row へ継承する。
+    source または destination が同一 MD5 で複数ある場合は `lr2_song_relink_ambiguous` として記録し、誤継承を避ける。
 - Phase 2 は段階的に追加する。
   - まず `Lr2SongDbWriter` を導入し、既存 `song.path` row がある場合は `favorite` / `adddate` / `tag` を
     DB 上に残したまま generated columns だけを更新する。
@@ -985,16 +987,15 @@ parse directive:
 - Phase 5 は段階的に追加する。
   - まず `Lr2SongRowEnricher` を導入し、既存の `date` / `txt` / user columns preservation / folder-parent CRC 正規化を
     file diff parser と DB writer から同じ入口へ寄せる。
-  - detailed parser / `chart_info` 由来 numeric columns は、同じ enricher に後続 cycle で接続する。
-  - 初回接続では `chart_info` に正本がある `level` / `difficulty` / `maxbpm` / `minbpm` / `mode` /
+  - detailed parser / `chart_info` 由来 numeric columns は同じ enricher から反映する。
+  - 現行接続では `chart_info` に正本がある `level` / `difficulty` / `maxbpm` / `minbpm` / `mode` /
     `longnote` / `random` / `karinotes` を反映する。
   - `song.judge` は LR2 の raw `#RANK` 値で、`chart_info.judge` は判定幅 percent なので写さない。
     `bga` / `exlevel` も現行 `chart_info` に直接の正本がないため、推測で埋めず、対応する parser fact を追加する cycle まで残す。
 - Phase 6 は段階的に追加する。
   - まず DB 接続前の pure `Lr2FolderRowGenerator` を追加し、LR2 root / ancestor / chart directory から
     normal `folder` row と generation scope path set を作る contract を固定する。
-  - `folderinfo.txt` は、この段階では caller が渡す metadata の `#TITLE` として扱い、file discovery / read は後続の
-    scan surface cycle に残す。
+  - `folderinfo.txt` は directory metadata snapshot の候補 surface から読み、`#TITLE` を normal folder row title へ反映する。
   - 既存 `folder` row の `adddate` は path match で維持し、`date` は directory metadata mtime を正本にする。
   - directory metadata mtime が取れない row は `date = NULL` で生成せず、metadata surface 側の欠落として扱う。
   - CP932 非対応の directory row は生成せず、通常 BMS の `song.folder` / `song.parent` と同じく LR2 に踏ませない前提にする。
@@ -1008,7 +1009,10 @@ parse directive:
     再生成できた時点で delete + upsert を行う。
   - `Lr2FolderDbWriter` は scope plan を exact path の delete と generated row の upsert として単一 transaction で適用する
     薄い層にする。安全判定は planner の責務にし、writer 側で独自 prune 判断を増やさない。
-  - generation scope plan の initialization / mutation workflow への接続は後続 cycle で行う。
+  - generation scope plan は initialization / file diff / owned mutation workflow へ接続する。
+    file diff の full scan 失敗時は normal folder sync を skip し、normal folder sync 自体が失敗した場合は
+    `lr2_full_generation_status` を `Incomplete(lr2_normal_folder_file_diff_sync_failed)` に落として次回 backfill で修復する。
+    owned mutation 側も sync 失敗時は `Incomplete(lr2_normal_folder_mutation_sync_failed)` に落とす。
   - directory metadata surface は `Lr2FolderDirectoryMetadataSnapshot` として分離する。入力は unique directory set と
     `folderinfo.txt` candidate path set で、mtime 取得・`folderinfo.txt #TITLE` parse・欠落/読み取り失敗 count をここで集約する。
     native bridge ABI へ directory mtime を急いで追加せず、initialization / mutation 側は Everything grouped query または managed fallback で
@@ -1039,7 +1043,7 @@ parse directive:
     実ファイル読み取り用の file path と DB に保存する path は `Lr2FolderFileSyncItem.FilePath` /
     `DatabasePath` として分離する。
   - `#CUSTOMFOLDER` は parse fact として保持するが、BeMusicSeeker 生成 `.lr2folder` の必須条件にはしない。
-    OpenLR2 の built-in / root 特殊 type は後続の discovered source 統合で explicit type を渡す。
+    OpenLR2 root 特殊 type は、fixture で確定した source だけが explicit type を渡す。
   - source 分類は `Lr2FolderFileSourceClassifier` に閉じる。通常 BMS root / 通常 custom folder 出力 base は
     `type = 2` と directory parent hash、root custom folder 出力 base は `type = 2` と root parent hash を使う。
     LR2 built-in source は LR2 root 相対 path に変換し、source directory 直下の `.lr2folder` だけ root parent hash、
@@ -1128,7 +1132,8 @@ parse directive:
   folder row、missing target、実 directory / `.lr2folder` file の mtime と一致しない `folder.date`
   が無い場合だけ `Completed` を記録する。
   blocker が残る場合は `Incomplete` (`startup_scan_blockers_detected`) とし、diagnostic count を log / status
-  detail に残す。初期実装では blocker row の自動削除は行わず、cleanup 導線は後続 cycle に残す。
+  detail に残す。blocker row は自動削除せず、diagnostic で列挙した cleanup 対象 row だけを
+  `CleanupStartupScanBlockerFolderRows` から明示操作で削除する。
   status signature は normalized / deduplicated / case-insensitive な LR2 BMS root set を含める。
   加えて `.lr2folder` discovery root set も含める。root set が変わった場合は既存 `Completed` を信用せず、
   backfill needed として再評価する。
@@ -1201,6 +1206,9 @@ parse directive:
   再実行しない。`song_rows` は chunk commit 成功後だけ cursor を進め、次回 run では cursor 以前の
   song target をスキップする。失敗時に outer catch が durable failed status を上書きしても、同一 run の
   既存 cursor / total は維持する。
+- backfill cancellation は request token を service へ渡し、stage 境界と `song_rows` chunk 境界で
+  `Cancelled` status と current cursor を durable に記録する。runtime request state も `Cancelled` として終端し、
+  次回 evaluate では通常の resumable backfill request に戻す。
 - startup-scan blocker diagnostic は、resume により folder stage をスキップした場合でも、既存 `folder`
   row の実 target が存在し、`folder.date` が directory / `.lr2folder` file の Unix 秒 mtime と一致するかを
   最後に検証する。missing target または不一致が残る run は `Completed` にせず
