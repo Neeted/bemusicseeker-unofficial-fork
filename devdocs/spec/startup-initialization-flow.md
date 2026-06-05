@@ -114,12 +114,16 @@ metadata bundle は所持譜面から生成した DB 由来情報ではなく、
 | --- | --- | --- |
 | Catalog DB load | `song`, `bmson_song`, `chart_digest_map` などを読む | `maintenance` と `chart_info` 全件 hydration は background |
 | Score DB load | active score source を読み、LR2 source の場合だけ `LR2ID` 確定後に `ir_score_prefetch` を開始する | standalone + beatoraja 無効なら score source は `None` |
-| File enumeration | native bridge `EBridge_ScanChartAndResources` で root 配下を列挙し、native canonical resource index を作る | Everything API / service が使えない場合は managed scan に fallback する |
+| File enumeration | native bridge `EBridge_ScanChartAndResources` で root 配下を列挙し、native canonical resource index と LR2 完全生成用 metadata surface を作る | Everything API / service が使えない場合は managed scan に fallback する |
 | File diff | in-memory catalog と scan result を比較し、新規・更新・削除を DB と memory に反映する | 新規・更新譜面の inline `chart_info` / maintenance はここで処理する |
 
 native bridge と C# 側は同一ビルド成果物として扱う。Everything が使えない場合の managed scan fallback は残すが、古い native DLL / 旧 ABI / contract mismatch への互換 fallback は行わない。
 
 Everything scan は install readiness に必要な destination resource index と reverse lookup surface を完成させる処理である。現行契約では、通常起動で全 audio / image / movie result を列挙し、resource-key -> candidate directory reverse lookup まで native scan 成果物に含める。これを未完成のまま `startup_install_estimation_ready` にしたり、pending package batch 側の lazy build へ持ち越したりしない。
+
+LR2 `song.db` 完全生成が有効な場合、同じ file enumeration contract で LR2 用 metadata surface も作る。metadata surface は chart/resource scan と同じ native bridge / managed fallback 境界に揃え、`.txt`、`folderinfo.txt`、`.lr2folder`、directory mtime を `RootFileEnumerationEntry` 形で保持する。LR2 完全生成後段で `.lr2folder` や `folderinfo.txt` を別途広域列挙したり、path だけを保持して後から全件 mtime を取り直したりしない。
+
+chart/resource search roots と `.lr2folder` discovery roots は意味が異なる。chart/resource search roots は LR2 / standalone の BMS search directories を正本にし、BeMusicSeeker が明示的に管理する通常 custom folder 出力先と root custom folder 出力先が search root として登録されている場合は root set から外す。ただし `D:\BMS\` のような親 root 配下に出力先 directory が自然に含まれることは subtree filter で除外しない。`.lr2folder` discovery roots は BMS search directories に加え、通常 custom folder 出力先、root custom folder 出力先、LR2 built-in `LR2files\CustomFolder` を含める。アプリ管理 output か外部由来か、built-in source かは query ではなく列挙結果の source classifier で判定する。
 
 resource index は chart-relative resource key を正本にする。`foo.wav` は `foo`、`sound/foo.wav` は `sound/foo` として扱い、旧 basename-only matching は使わない。native bridge / managed fallback scan は audio / image / movie のカテゴリ別 index とカテゴリ別 reverse lookup だけを作り、旧 all-resource surface は保持しない。folder-level hash が必要な箇所ではカテゴリ union をその場で派生する。
 
@@ -140,6 +144,10 @@ resource index は chart-relative resource key を正本にする。`foo.wav` �
 導入可能 readiness の支配項は起動状態で異なる。通常起動 / 差分なしに近い起動では Everything scan / native bridge が支配項である。`song_tbl_load` 由来の catalog load は 3 秒台まで短縮済みだが、file enumeration と並走しており、現状の導入可能 wall clock では Everything scan に隠れる。`song_tbl_load` の micro optimization は、通常起動の導入可能短縮の主対象にはしない。
 
 空 DB 初回構築では、Everything scan そのものよりも file diff apply 内の全譜面 read、lightweight parse、inline maintenance、encoding detection、DB commit が支配的になる。この経路では追加/更新 chart の `ChartFileSnapshot` を起点に `song` 登録、inline `chart_info`、inline `maintenance`、encoding 補正をまとめて処理する。非 Shift_JIS が確定した BMS の metadata reload は snapshot bytes から raw `title` / `subtitle` / `artist` / `subartist` / `genre` を再適用し、旧 setter 合成に戻さない。
+
+LR2 `song.db` 完全生成が有効な空 DB 初回構築では、file diff apply の同じ snapshot / parser result から LR2 generated song columns、`chart_info` 由来 numeric columns、LR2 compatibility facts、text group flag を作る。初期構築完了後に LR2 backfill がもう一度全譜面を読み直す形にはしない。既存 DB の backfill が必要な場合だけ、初期構築と同型の bounded streaming pipeline を使う。
+
+`chart_info` は所持譜面への metadata 付与用に一括で準備される session index / DB-backed index である。LR2 完全生成が有効な run では、`song_rows` 処理開始前に current `chart_info` resolver を一括で準備し、worker は memory lookup だけを行う。`song_rows` chunk ごとに `chart_info` table へ SELECT することはしない。
 
 | Log | 意味 |
 | --- | --- |
