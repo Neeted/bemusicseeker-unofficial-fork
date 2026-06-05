@@ -38,6 +38,8 @@ internal sealed class Lr2FullGenerationStatusSnapshot
 
     public bool IsNeeded => Status == Lr2FullGenerationStatusKind.Needed;
 
+    public bool IsResumeCandidate { get; set; }
+
     internal Lr2FullGenerationStatusSnapshot Clone()
     {
         return new Lr2FullGenerationStatusSnapshot
@@ -51,9 +53,21 @@ internal sealed class Lr2FullGenerationStatusSnapshot
             Stage = Stage,
             LastError = LastError,
             UpdatedAt = UpdatedAt,
-            CompletedAt = CompletedAt
+            CompletedAt = CompletedAt,
+            IsResumeCandidate = IsResumeCandidate
         };
     }
+}
+
+internal sealed class Lr2FullGenerationResumeCandidate
+{
+    public int ProcessedCursor { get; set; }
+
+    public int? TotalCount { get; set; }
+
+    public string Stage { get; set; }
+
+    public Lr2FullGenerationStatusKind StoredStatus { get; set; }
 }
 
 internal static class Lr2FullGenerationStatusService
@@ -119,7 +133,8 @@ internal static class Lr2FullGenerationStatusService
             storedStatus,
             row,
             signature,
-            nowUtc);
+            nowUtc,
+            isResumeCandidate: IsResumableStoredStatus(storedStatus) && row.processed_cursor.GetValueOrDefault() > 0);
     }
 
     internal static Lr2FullGenerationStatusSnapshot MarkRunning(
@@ -128,19 +143,68 @@ internal static class Lr2FullGenerationStatusService
         string runId,
         int? totalCount,
         string stage,
-        DateTime nowUtc)
+        DateTime nowUtc,
+        int? processedCursor = null)
     {
         return Upsert(
             songDb,
             Lr2FullGenerationStatusKind.Running,
             signature,
             runId,
-            processedCursor: 0,
+            processedCursor: processedCursor.GetValueOrDefault(0),
             totalCount,
             stage,
             lastError: null,
             completedAt: null,
             nowUtc);
+    }
+
+    internal static bool TryCreateResumeCandidate(
+        LR2SongDBExtended songDb,
+        string signature,
+        int totalCount,
+        out Lr2FullGenerationResumeCandidate candidate)
+    {
+        candidate = null;
+        if (songDb == null)
+        {
+            throw new ArgumentNullException(nameof(songDb));
+        }
+
+        BmsLibraryDbGateway.EnsureLr2FullGenerationStatusSchema(songDb);
+        LR2SongDBExtended.lr2_full_generation_status row = LoadRow(songDb);
+        if (row == null)
+        {
+            return false;
+        }
+
+        Lr2FullGenerationStatusKind storedStatus = ParseStatus(row.status);
+        if (!IsResumableStoredStatus(storedStatus))
+        {
+            return false;
+        }
+        if (!string.Equals(row.signature ?? string.Empty, signature ?? string.Empty, StringComparison.Ordinal))
+        {
+            return false;
+        }
+        if (row.total_count.HasValue && row.total_count.Value != totalCount)
+        {
+            return false;
+        }
+        int processedCursor = row.processed_cursor.GetValueOrDefault();
+        if (processedCursor <= 0)
+        {
+            return false;
+        }
+
+        candidate = new Lr2FullGenerationResumeCandidate
+        {
+            ProcessedCursor = Math.Min(processedCursor, Math.Max(0, totalCount)),
+            TotalCount = row.total_count,
+            Stage = row.stage ?? string.Empty,
+            StoredStatus = storedStatus
+        };
+        return true;
     }
 
     internal static Lr2FullGenerationStatusSnapshot UpdateCursor(
@@ -268,7 +332,8 @@ internal static class Lr2FullGenerationStatusService
         Lr2FullGenerationStatusKind? storedStatus,
         LR2SongDBExtended.lr2_full_generation_status row,
         string signature,
-        DateTime nowUtc)
+        DateTime nowUtc,
+        bool isResumeCandidate = false)
     {
         return new Lr2FullGenerationStatusSnapshot
         {
@@ -281,8 +346,17 @@ internal static class Lr2FullGenerationStatusService
             Stage = row?.stage ?? string.Empty,
             LastError = row?.last_error ?? string.Empty,
             UpdatedAt = row?.updated_at == default ? NormalizeUtc(nowUtc) : row.updated_at,
-            CompletedAt = row?.completed_at
+            CompletedAt = row?.completed_at,
+            IsResumeCandidate = isResumeCandidate
         };
+    }
+
+    private static bool IsResumableStoredStatus(Lr2FullGenerationStatusKind status)
+    {
+        return status == Lr2FullGenerationStatusKind.Running
+            || status == Lr2FullGenerationStatusKind.Failed
+            || status == Lr2FullGenerationStatusKind.Cancelled
+            || status == Lr2FullGenerationStatusKind.Incomplete;
     }
 
     private static Lr2FullGenerationStatusKind ParseStatus(string status)

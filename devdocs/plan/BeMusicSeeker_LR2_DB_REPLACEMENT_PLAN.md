@@ -1185,3 +1185,7 @@ parse directive:
   file diff reload / full reinitialize / pending install apply / install destination repair / playlist level writeback /
   encoding commit / mode commit / direct song commit も同じ backfill priority window で止める。
   pending-only 操作は current owned source mutation ではないため、この guard の対象外とする。
+- resumable backfill はまず stage 境界 resume として実装する。durable status の `processed_cursor` が
+  `normal_folders` / `.lr2folder` / `song_rows` の完了境界に達している場合、その完了済み stage を再実行しない。
+  cursor が stage の途中を指す場合は、その stage の先頭境界まで戻して idempotent に再実行する。
+  per-item / per-chunk resume は、song row writer を chunk transaction 化する後続サイクルで扱う。

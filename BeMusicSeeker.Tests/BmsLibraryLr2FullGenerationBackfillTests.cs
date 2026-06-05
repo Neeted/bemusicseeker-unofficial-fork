@@ -744,6 +744,93 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
     }
 
     [TestMethod]
+    public void BackfillService_ResumesFromCompletedNormalFolderBoundary()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        string rootDirectory = Path.Combine(scope.DirectoryPath, "ResumeRoot");
+        string songDirectory = Path.Combine(rootDirectory, "Song");
+        Directory.CreateDirectory(songDirectory);
+        string chartPath = Path.Combine(songDirectory, "chart.bms");
+        File.WriteAllText(chartPath, "#TITLE resume song\r\n");
+        ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
+        TestableBmsFile file = CreateBackfillTestFile(chartPath, snapshot);
+        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        songDb.CreateTable<LR2SongDB.song>();
+        songDb.CreateTable<LR2SongDB.folder>();
+        const string signature = "resume-normal-complete";
+        Lr2FullGenerationStatusService.MarkIncomplete(
+            songDb,
+            signature,
+            "previous-run",
+            processedCursor: 2,
+            totalCount: 3,
+            stage: "normal_folders_completed",
+            detail: "interrupted",
+            nowUtc: new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc));
+
+        Lr2FullGenerationBackfillResult result = Lr2FullGenerationBackfillService.Run(songDb, new Lr2FullGenerationBackfillRequest
+        {
+            Signature = signature,
+            RunId = "resume-run",
+            RootDirectories = [rootDirectory],
+            ChartPaths = [chartPath],
+            SongRows = [file],
+            StartedAtUtc = new DateTime(2026, 6, 5, 0, 1, 0, DateTimeKind.Utc)
+        });
+
+        Assert.AreEqual(Lr2FullGenerationBackfillService.CompletedStage, result.FinalStage);
+        Assert.IsNull(result.NormalFolderSyncResult);
+        Assert.AreEqual(0, songDb.Table<LR2SongDB.folder>().Count());
+        Assert.AreEqual("resume song", songDb.ExecuteScalar<string>("SELECT title FROM song WHERE path = ?;", chartPath));
+        LR2SongDBExtended.lr2_full_generation_status row = songDb.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
+        Assert.AreEqual("Completed", row.status);
+        Assert.AreEqual(row.total_count, row.processed_cursor);
+    }
+
+    [TestMethod]
+    public void BackfillService_RestartsWhenResumeTotalCountDiffers()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        string rootDirectory = Path.Combine(scope.DirectoryPath, "ResumeMismatchRoot");
+        string songDirectory = Path.Combine(rootDirectory, "Song");
+        Directory.CreateDirectory(songDirectory);
+        string chartPath = Path.Combine(songDirectory, "chart.bms");
+        File.WriteAllText(chartPath, "#TITLE resume mismatch\r\n");
+        ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
+        TestableBmsFile file = CreateBackfillTestFile(chartPath, snapshot);
+        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        songDb.CreateTable<LR2SongDB.song>();
+        songDb.CreateTable<LR2SongDB.folder>();
+        const string signature = "resume-total-mismatch";
+        Lr2FullGenerationStatusService.MarkIncomplete(
+            songDb,
+            signature,
+            "previous-run",
+            processedCursor: 2,
+            totalCount: 99,
+            stage: "normal_folders_completed",
+            detail: "old total",
+            nowUtc: new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc));
+
+        Lr2FullGenerationBackfillResult result = Lr2FullGenerationBackfillService.Run(songDb, new Lr2FullGenerationBackfillRequest
+        {
+            Signature = signature,
+            RunId = "restart-run",
+            RootDirectories = [rootDirectory],
+            ChartPaths = [chartPath],
+            SongRows = [file],
+            StartedAtUtc = new DateTime(2026, 6, 5, 0, 1, 0, DateTimeKind.Utc)
+        });
+
+        Assert.AreEqual(Lr2FullGenerationBackfillService.CompletedStage, result.FinalStage);
+        Assert.IsNotNull(result.NormalFolderSyncResult);
+        Assert.IsTrue(songDb.Table<LR2SongDB.folder>().Any());
+        LR2SongDBExtended.lr2_full_generation_status row = songDb.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
+        Assert.AreEqual("Completed", row.status);
+        Assert.AreEqual(3, row.total_count);
+    }
+
+    [TestMethod]
     public void BackfillService_ParsesSongRowsWithDetectedUtf8Encoding()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();

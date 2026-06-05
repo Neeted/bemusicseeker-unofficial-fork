@@ -168,19 +168,35 @@ internal static class Lr2FullGenerationBackfillService
             ? roots.Count + chartPaths.Count + folderInfoFilePaths.Count
             : 0;
         int totalCount = normalFolderTargetCount + lr2FolderFilePaths.Count + songRows.Count;
+        int normalFolderEndCursor = normalFolderTargetCount;
+        int lr2FolderEndCursor = normalFolderEndCursor + lr2FolderFilePaths.Count;
+        int songRowsEndCursor = totalCount;
+        int resumeCursor = 0;
+        if (Lr2FullGenerationStatusService.TryCreateResumeCandidate(songDb, request.Signature, totalCount, out Lr2FullGenerationResumeCandidate resumeCandidate))
+        {
+            resumeCursor = NormalizeResumeCursor(
+                resumeCandidate.ProcessedCursor,
+                normalFolderEndCursor,
+                lr2FolderEndCursor,
+                songRowsEndCursor);
+        }
+        string initialStage = ResolveInitialStage(resumeCursor, normalFolderEndCursor, lr2FolderEndCursor, songRowsEndCursor);
 
         Lr2FullGenerationStatusService.MarkRunning(
             songDb,
             request.Signature,
             request.RunId,
             totalCount,
-            stage: "normal_folders",
-            nowUtc: request.StartedAtUtc);
-        ReportProgress(request, 0, totalCount, "normal_folders");
+            stage: initialStage,
+            nowUtc: request.StartedAtUtc,
+            processedCursor: resumeCursor);
+        ReportProgress(request, resumeCursor, totalCount, initialStage);
 
         Lr2NormalFolderDbSyncResult normalFolderResult = null;
-        int normalFolderProcessedCount = 0;
-        if (roots.Count > 0)
+        int normalFolderProcessedCount = resumeCursor >= normalFolderEndCursor
+            ? normalFolderEndCursor
+            : 0;
+        if (resumeCursor < normalFolderEndCursor && roots.Count > 0)
         {
             normalFolderResult = Lr2NormalFolderDbSyncService.Sync(songDb, new Lr2NormalFolderDbSyncRequest
             {
@@ -193,29 +209,37 @@ internal static class Lr2FullGenerationBackfillService
             normalFolderProcessedCount = normalFolderTargetCount;
         }
 
-        Lr2FullGenerationStatusService.UpdateCursor(
-            songDb,
-            request.Signature,
-            request.RunId,
-            processedCursor: normalFolderProcessedCount,
-            totalCount: totalCount,
-            stage: "normal_folders_completed",
-            nowUtc: DateTime.UtcNow);
-        ReportProgress(request, normalFolderProcessedCount, totalCount, "normal_folders_completed");
+        if (resumeCursor < normalFolderEndCursor)
+        {
+            Lr2FullGenerationStatusService.UpdateCursor(
+                songDb,
+                request.Signature,
+                request.RunId,
+                processedCursor: normalFolderProcessedCount,
+                totalCount: totalCount,
+                stage: "normal_folders_completed",
+                nowUtc: DateTime.UtcNow);
+            ReportProgress(request, normalFolderProcessedCount, totalCount, "normal_folders_completed");
+        }
 
-        Lr2FullGenerationStatusService.UpdateCursor(
-            songDb,
-            request.Signature,
-            request.RunId,
-            processedCursor: normalFolderProcessedCount,
-            totalCount: totalCount,
-            stage: "lr2folder_files",
-            nowUtc: DateTime.UtcNow);
-        ReportProgress(request, normalFolderProcessedCount, totalCount, "lr2folder_files");
+        if (resumeCursor < lr2FolderEndCursor)
+        {
+            Lr2FullGenerationStatusService.UpdateCursor(
+                songDb,
+                request.Signature,
+                request.RunId,
+                processedCursor: normalFolderProcessedCount,
+                totalCount: totalCount,
+                stage: "lr2folder_files",
+                nowUtc: DateTime.UtcNow);
+            ReportProgress(request, normalFolderProcessedCount, totalCount, "lr2folder_files");
+        }
 
         Lr2FolderFileDbSyncResult lr2FolderFileResult = null;
-        int lr2FolderFileProcessedCount = 0;
-        if (lr2FolderDiscoveryDirectories.Count > 0)
+        int lr2FolderFileProcessedCount = resumeCursor >= lr2FolderEndCursor
+            ? lr2FolderFilePaths.Count
+            : 0;
+        if (resumeCursor < lr2FolderEndCursor && lr2FolderDiscoveryDirectories.Count > 0)
         {
             Lr2FolderFileSyncItemsResult syncItems = CreateLr2FolderFileSyncItems(lr2FolderFilePaths, request);
             lr2FolderFileResult = Lr2FolderFileDbSyncService.Sync(songDb, new Lr2FolderFileDbSyncRequest
@@ -231,38 +255,51 @@ internal static class Lr2FullGenerationBackfillService
         }
         int folderProcessedCount = normalFolderProcessedCount + lr2FolderFileProcessedCount;
 
-        Lr2FullGenerationStatusService.UpdateCursor(
-            songDb,
-            request.Signature,
-            request.RunId,
-            processedCursor: folderProcessedCount,
-            totalCount: totalCount,
-            stage: "lr2folder_files_completed",
-            nowUtc: DateTime.UtcNow);
-        ReportProgress(request, folderProcessedCount, totalCount, "lr2folder_files_completed");
+        if (resumeCursor < lr2FolderEndCursor)
+        {
+            Lr2FullGenerationStatusService.UpdateCursor(
+                songDb,
+                request.Signature,
+                request.RunId,
+                processedCursor: folderProcessedCount,
+                totalCount: totalCount,
+                stage: "lr2folder_files_completed",
+                nowUtc: DateTime.UtcNow);
+            ReportProgress(request, folderProcessedCount, totalCount, "lr2folder_files_completed");
+        }
 
-        Lr2FullGenerationStatusService.UpdateCursor(
-            songDb,
-            request.Signature,
-            request.RunId,
-            processedCursor: folderProcessedCount,
-            totalCount: totalCount,
-            stage: "song_rows",
-            nowUtc: DateTime.UtcNow);
-        ReportProgress(request, folderProcessedCount, totalCount, "song_rows");
+        if (resumeCursor < songRowsEndCursor)
+        {
+            Lr2FullGenerationStatusService.UpdateCursor(
+                songDb,
+                request.Signature,
+                request.RunId,
+                processedCursor: folderProcessedCount,
+                totalCount: totalCount,
+                stage: "song_rows",
+                nowUtc: DateTime.UtcNow);
+            ReportProgress(request, folderProcessedCount, totalCount, "song_rows");
+        }
 
-        SongRowBackfillResult songRowResult = UpsertSongRows(songDb, songRows, textFileDirectories);
-        int processedCount = folderProcessedCount + songRowResult.ProcessedCount;
+        SongRowBackfillResult songRowResult = resumeCursor >= songRowsEndCursor
+            ? new SongRowBackfillResult(0, 0, 0, 0, [])
+            : UpsertSongRows(songDb, songRows, textFileDirectories);
+        int processedCount = resumeCursor >= songRowsEndCursor
+            ? songRowsEndCursor
+            : folderProcessedCount + songRowResult.ProcessedCount;
 
-        Lr2FullGenerationStatusService.UpdateCursor(
-            songDb,
-            request.Signature,
-            request.RunId,
-            processedCursor: processedCount,
-            totalCount: totalCount,
-            stage: "song_rows_completed",
-            nowUtc: DateTime.UtcNow);
-        ReportProgress(request, processedCount, totalCount, "song_rows_completed");
+        if (resumeCursor < songRowsEndCursor)
+        {
+            Lr2FullGenerationStatusService.UpdateCursor(
+                songDb,
+                request.Signature,
+                request.RunId,
+                processedCursor: processedCount,
+                totalCount: totalCount,
+                stage: "song_rows_completed",
+                nowUtc: DateTime.UtcNow);
+            ReportProgress(request, processedCount, totalCount, "song_rows_completed");
+        }
 
         Lr2StartupScanDiagnosticResult diagnosticResult = DiagnoseStartupScanBlockers(
             songDb,
@@ -349,6 +386,45 @@ internal static class Lr2FullGenerationBackfillService
         {
             return false;
         }
+    }
+
+    private static int NormalizeResumeCursor(int cursor, int normalFolderEndCursor, int lr2FolderEndCursor, int songRowsEndCursor)
+    {
+        if (cursor <= 0)
+        {
+            return 0;
+        }
+        int safeCursor = Math.Min(cursor, Math.Max(0, songRowsEndCursor));
+        if (safeCursor < normalFolderEndCursor)
+        {
+            return 0;
+        }
+        if (safeCursor < lr2FolderEndCursor)
+        {
+            return normalFolderEndCursor;
+        }
+        if (safeCursor < songRowsEndCursor)
+        {
+            return lr2FolderEndCursor;
+        }
+        return songRowsEndCursor;
+    }
+
+    private static string ResolveInitialStage(int resumeCursor, int normalFolderEndCursor, int lr2FolderEndCursor, int songRowsEndCursor)
+    {
+        if (resumeCursor >= songRowsEndCursor)
+        {
+            return "final_validation";
+        }
+        if (resumeCursor >= lr2FolderEndCursor)
+        {
+            return "song_rows";
+        }
+        if (resumeCursor >= normalFolderEndCursor)
+        {
+            return "lr2folder_files";
+        }
+        return "normal_folders";
     }
 
     private static void ReportProgress(
