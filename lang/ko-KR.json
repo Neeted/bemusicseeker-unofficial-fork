@@ -563,6 +563,7 @@
   "Warn_MoveDestAlreadyExists": "이동 대상 폴더가 이미 존재하여 중단했습니다.\n원본: {0}\n대상: {1}",
   "Error_FolderMoveFailed": "폴더 이동에 실패했습니다.\n정상적으로 접근할 수 있는지 확인해 주세요.\n원본: {0}\n대상: {1}\n\n{2}",
   "Warn_RenameDestAlreadyExists": "대상 파일이 이미 존재하여 중단했습니다.\n원본: {0}\n대상: {1}",
+  "Warn_Lr2FullGenerationBackfillRunning": "LR2 song.db 전체 생성 중입니다.\n완료 후 다시 실행해 주세요.",
   "Error_BmsFileMoveFailed": "BMS 파일 이동에 실패했습니다.\n정상적으로 접근할 수 있는지 확인해 주세요.\n원본: {0}\n대상: {1}\n\n{2}",
   "Confirm_DeleteFolderWithNoBms": "삭제를 계속하면 해당 폴더에 BMS 파일이\n남지 않게 됩니다. 폴더 전체를 삭제하시겠습니까?\n(다른 파일이 포함되어 있을 수 있습니다)\n\n대상: \n{0}",
   "Error_FolderOrTrashDeleteFailed": "폴더 삭제 또는 휴지통으로 이동에 실패했습니다.\n정상적으로 접근할 수 있는지 확인해 주세요.\n{0}\n\n{1}",

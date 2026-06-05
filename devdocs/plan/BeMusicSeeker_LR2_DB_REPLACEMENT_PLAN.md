@@ -1171,3 +1171,10 @@ parse directive:
   mutation blocking と status warning 表示が入るまでは UI 上 `Collapsed` の hidden setting とする。
   既定値は段階実装中の安全側として `false` のままにし、OFF から ON に変更して保存した場合は
   `QueueLr2FullGenerationBackfillIfNeeded("SettingDialog.SaveSettings")` を呼んで同じ background workflow に流す。
+- LR2 full generation backfill 実行中は、install / merge / rename / root move / extension rename / delete など
+  owned collection と LR2 `song.db` を同時に変える操作を入口で警告して中止する。加えて
+  `ApplyInstalledChartStorageTargets` / `ApplyLibraryMutationDelta` に low-level guard を置き、将来の追加経路や
+  テスト用 reflection 経路が入口 guard を迂回しても DB / owned collection を書き換えないようにする。
+  file diff reload / full reinitialize / pending install apply / install destination repair / playlist level writeback /
+  encoding commit / mode commit / direct song commit も同じ backfill priority window で止める。
+  pending-only 操作は current owned source mutation ではないため、この guard の対象外とする。

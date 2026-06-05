@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -88,6 +89,104 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
 
             using var verify = new LR2SongDBExtended(scope.SongDbPath);
             Assert.AreEqual(0, verify.Table<LR2SongDB.folder>().Count());
+        }
+        finally
+        {
+            ResetTouchedSettings();
+        }
+    }
+
+    [TestMethod]
+    public void ApplyInstalledChartStorageTargets_BlocksWhileFullGenerationBackfillIsRunning()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        try
+        {
+            Settings.Default.OperationModeLR2DB = true;
+            Settings.Default.EnableLR2SongDbFullGeneration = true;
+            ResetLr2FolderDiscoverySettings();
+            string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
+            string songDirectory = Path.Combine(rootDirectory, "Pack", "Song");
+            Directory.CreateDirectory(songDirectory);
+            string chartPath = Path.Combine(songDirectory, "chart.bms");
+            File.WriteAllText(chartPath, "#TITLE Added\r\n#00111:01\r\n", Encoding.ASCII);
+            ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
+            BMSFile file = CreateBackfillTestFile(chartPath, snapshot);
+            var library = new BMSLibrary(scope.SongDbPath)
+            {
+                SearchTargets = [rootDirectory],
+                BMSFiles = []
+            };
+            InvokeBeginLr2FullGenerationBackfillRequest(library);
+
+            TargetInvocationException exception = Assert.ThrowsException<TargetInvocationException>(
+                () => InvokeApplyInstalledChartStorageTargets(library, ChartStorageTargetSet.FromRows([file], []), "test_blocked_add"));
+            Assert.IsInstanceOfType(exception.InnerException, typeof(InvalidOperationException));
+            Assert.AreEqual(Resources.Warn_Lr2FullGenerationBackfillRunning, exception.InnerException.Message);
+        }
+        finally
+        {
+            ResetTouchedSettings();
+        }
+    }
+
+    [TestMethod]
+    public void ApplyInstalledChartStorageTargets_DoesNotBlockRunningBackfillWhenFeatureIsDisabled()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        try
+        {
+            Settings.Default.OperationModeLR2DB = true;
+            Settings.Default.EnableLR2SongDbFullGeneration = false;
+            ResetLr2FolderDiscoverySettings();
+            string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
+            string songDirectory = Path.Combine(rootDirectory, "Pack", "Song");
+            Directory.CreateDirectory(songDirectory);
+            string chartPath = Path.Combine(songDirectory, "chart.bms");
+            File.WriteAllText(chartPath, "#TITLE Added\r\n#00111:01\r\n", Encoding.ASCII);
+            ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
+            BMSFile file = CreateBackfillTestFile(chartPath, snapshot);
+            using (var setup = new LR2SongDBExtended(scope.SongDbPath))
+            {
+                setup.CreateTable<LR2SongDB.folder>();
+            }
+            var library = new BMSLibrary(scope.SongDbPath)
+            {
+                SearchTargets = [rootDirectory],
+                BMSFiles = []
+            };
+            InvokeBeginLr2FullGenerationBackfillRequest(library);
+
+            InvokeApplyInstalledChartStorageTargets(library, ChartStorageTargetSet.FromRows([file], []), "test_disabled_running_add");
+
+            using var verify = new LR2SongDBExtended(scope.SongDbPath);
+            Assert.AreEqual(0, verify.Table<LR2SongDB.folder>().Count());
+        }
+        finally
+        {
+            ResetTouchedSettings();
+        }
+    }
+
+    [TestMethod]
+    public void SetModeAndCommitToDb_BlocksWhileFullGenerationBackfillIsRunning()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        try
+        {
+            Settings.Default.OperationModeLR2DB = true;
+            Settings.Default.EnableLR2SongDbFullGeneration = true;
+            ResetLr2FolderDiscoverySettings();
+            var library = new BMSLibrary(scope.SongDbPath)
+            {
+                BMSFiles = []
+            };
+            InvokeBeginLr2FullGenerationBackfillRequest(library);
+
+            TargetInvocationException exception = Assert.ThrowsException<TargetInvocationException>(
+                () => InvokeSetModeAndCommitToDb(library, []));
+            Assert.IsInstanceOfType(exception.InnerException, typeof(InvalidOperationException));
+            Assert.AreEqual(Resources.Warn_Lr2FullGenerationBackfillRunning, exception.InnerException.Message);
         }
         finally
         {
@@ -1057,6 +1156,20 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
         MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("ApplyInstalledChartStorageTargets", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.IsNotNull(methodInfo);
         methodInfo.Invoke(library, [targets, reason]);
+    }
+
+    private static void InvokeBeginLr2FullGenerationBackfillRequest(BMSLibrary library)
+    {
+        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("BeginLr2FullGenerationBackfillRequest", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(methodInfo);
+        methodInfo.Invoke(library, []);
+    }
+
+    private static void InvokeSetModeAndCommitToDb(BMSLibrary library, IEnumerable<BMSFile> files)
+    {
+        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("setModeAndCommitToDB", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(methodInfo);
+        methodInfo.Invoke(library, [files, false]);
     }
 
     private static void ResetTouchedSettings()

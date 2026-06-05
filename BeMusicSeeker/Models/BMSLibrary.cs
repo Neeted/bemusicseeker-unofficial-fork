@@ -4437,6 +4437,11 @@ public class BMSLibrary : NotificationObject
         string deferredMaintenanceReason = mode == LibraryInitializeMode.FullReinitialize ? "full_reinitialize" : "initialize";
         bool isScoreOnly = mode == LibraryInitializeMode.ScoreOnly;
         bool isStartup = mode == LibraryInitializeMode.Startup;
+        if (mode == LibraryInitializeMode.FullReinitialize
+            && TryBlockLr2FullGenerationMutation(nameof(Reinitialize)))
+        {
+            return;
+        }
         bool songTblLoad = !isScoreOnly;
         bool songTblFileCheck = mode == LibraryInitializeMode.FullReinitialize || (isStartup && !options.SkipInitFileCheck);
         bool setMaintenanceInfo = !isScoreOnly;
@@ -4846,6 +4851,10 @@ public class BMSLibrary : NotificationObject
 
     public void ReloadFileDiff()
     {
+        if (TryBlockLr2FullGenerationMutation(nameof(ReloadFileDiff)))
+        {
+            return;
+        }
         BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
         List<string> bmsDirectories = getBMSDirectories();
         var stopwatch = Stopwatch.StartNew();
@@ -4880,6 +4889,7 @@ public class BMSLibrary : NotificationObject
         bool trackLibraryFileCheckProgress,
         string reason)
     {
+        ThrowIfLr2FullGenerationMutationBlocked(nameof(ApplyLibraryFileScanDiff));
         var emptyResult = new SongTableFileCheckResult();
         if (bmsDirectories == null || bmsDirectories.Count == 0)
         {
@@ -5071,6 +5081,44 @@ completeFileEnumerationOnce,
         Lr2FullGenerationBackfillCompletedVersion = lr2FullGenerationBackfillCompletedVersion;
         Lr2FullGenerationBackfillStage = stage ?? string.Empty;
         Lr2FullGenerationBackfillRunning = false;
+    }
+
+    private bool IsLr2FullGenerationMutationBlocked()
+    {
+        BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
+        return options.OperationModeLR2DB
+            && options.EnableLR2SongDbFullGeneration
+            && Lr2FullGenerationBackfillRunning;
+    }
+
+    private bool TryBlockLr2FullGenerationMutation(string operation, bool showMessage = true)
+    {
+        if (!IsLr2FullGenerationMutationBlocked())
+        {
+            return false;
+        }
+        LogInstallPerformance("lr2_full_generation_mutation_blocked operation=" + (operation ?? "(unknown)")
+            + " stage=" + (Lr2FullGenerationBackfillStage ?? string.Empty)
+            + " processed=" + Lr2FullGenerationBackfillProcessedCount
+            + " total=" + Lr2FullGenerationBackfillTotalCount);
+        if (showMessage)
+        {
+            dialogService.Show(
+                Resources.Warn_Lr2FullGenerationBackfillRunning,
+                Resources.MessageBoxTitle_Warning,
+                MessageBoxButton.OK,
+                MessageBoxImage.Exclamation,
+                MessageBoxResult.OK);
+        }
+        return true;
+    }
+
+    private void ThrowIfLr2FullGenerationMutationBlocked(string operation)
+    {
+        if (TryBlockLr2FullGenerationMutation(operation, showMessage: false))
+        {
+            throw new InvalidOperationException(Resources.Warn_Lr2FullGenerationBackfillRunning);
+        }
     }
 
     private void RunLr2FullGenerationBackfill(string reason, string signature, int requestVersion)
@@ -8864,6 +8912,7 @@ completeFileEnumerationOnce,
         {
             return;
         }
+        ThrowIfLr2FullGenerationMutationBlocked(nameof(ApplyInstalledChartStorageTargets));
         OwnedChartCollectionMutationResult mutationResult = null;
         try
         {
@@ -11918,6 +11967,10 @@ completeFileEnumerationOnce,
         {
             return;
         }
+        if (TryBlockLr2FullGenerationMutation(nameof(SetBMSFilesEncoding)))
+        {
+            return;
+        }
         using (rwlockBMSFilesInitializedMin.GetReaderGuard())
         {
             using (rwlockBMSFiles.GetWriterGuard())
@@ -12033,6 +12086,7 @@ completeFileEnumerationOnce,
     /// </summary>
     private int setModeAndCommitToDB(IEnumerable<BMSFile> bmsFiles, bool forceUpdate = false)
     {
+        ThrowIfLr2FullGenerationMutationBlocked(nameof(setModeAndCommitToDB));
         using (rwlockBMSFiles.GetReaderGuard())
         {
             List<BMSFile> list = maintenanceService.DetectModeChanges(bmsFiles, forceUpdate);
@@ -12449,6 +12503,10 @@ completeFileEnumerationOnce,
         List<ChartPackage> registeredPackages = [];
         List<string> regroupEligibleSourceDirectories = [];
         PendingEstimateSourceBatchSnapshot pendingBatchSourceSnapshot = null;
+        if (TryBlockLr2FullGenerationMutation(nameof(InstallChartPackagesAuto)))
+        {
+            return registeredPackages;
+        }
         using (rwlockBMSFilesInitializedAll.GetReaderGuard())
         {
             using (rwlockPendingInstallCharts.GetWriterGuard())
@@ -12710,6 +12768,7 @@ completeFileEnumerationOnce,
 
     private List<ChartPackage> installChartPackages(IEnumerable<ChartPackage> chartPackagesInstall, string installationDirectory = null, List<ChartFile> deferredMaintenanceCharts = null, List<ChartPackage> deferredInstalledPackages = null, Dictionary<ChartPackage, HashSet<string>> excludedComponentPathsByPackage = null, IPrimaryHashLookup existingHashes = null, bool skipInstalledPackageWhenNoBms = false, bool deleteSourceContentsAfterSuccessfulInstall = false, EstimatedInstallBatchApplyContext estimatedInstallBatchApplyContext = null)
     {
+        ThrowIfLr2FullGenerationMutationBlocked(nameof(installChartPackages));
         List<ChartPackage> installPackageList = [.. (chartPackagesInstall ?? []).Where(package => package != null)];
         List<ChartFile> addedChartsForChartInfo = [];
 
@@ -13443,6 +13502,10 @@ completeFileEnumerationOnce,
         {
             throw new ArgumentNullException("packages");
         }
+        if (TryBlockLr2FullGenerationMutation(nameof(ForceInstallPendingPackages)))
+        {
+            return;
+        }
         using (rwlockBMSFilesInitializedAll.GetReaderGuard())
         {
             using (rwlockPendingInstallCharts.GetWriterGuard())
@@ -13610,6 +13673,10 @@ completeFileEnumerationOnce,
         if (packages == null)
         {
             throw new ArgumentNullException("packages");
+        }
+        if (TryBlockLr2FullGenerationMutation(nameof(InstallPendingPackagesToEstimatedDestinations)))
+        {
+            return;
         }
         BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
         var totalStopwatch = Stopwatch.StartNew();
@@ -14993,6 +15060,10 @@ completeFileEnumerationOnce,
         {
             throw new ArgumentNullException("dst");
         }
+        if (TryBlockLr2FullGenerationMutation(nameof(MergeChartDirectory)))
+        {
+            return;
+        }
         var totalStopwatch = Stopwatch.StartNew();
         LogInstallPerformance("duplicate_merge_model start op=" + operationId + " src=" + src + " dst=" + dst);
         try
@@ -15205,6 +15276,10 @@ completeFileEnumerationOnce,
         {
             throw new ArgumentNullException("charts");
         }
+        if (TryBlockLr2FullGenerationMutation(nameof(FixInstallationDirectoryCharts)))
+        {
+            return;
+        }
         using (rwlockBMSFilesInitializedAll.GetReaderGuard())
         {
             using (rwlockBMSFiles.GetWriterGuard())
@@ -15244,6 +15319,10 @@ completeFileEnumerationOnce,
         {
             throw new ArgumentNullException("chartFiles");
         }
+        if (TryBlockLr2FullGenerationMutation(nameof(AutoRenameChartFolders)))
+        {
+            return;
+        }
         using (rwlockBMSFilesInitializedMin.GetReaderGuard())
         {
             using (rwlockPendingInstallCharts.GetWriterGuard())
@@ -15277,6 +15356,10 @@ completeFileEnumerationOnce,
 
     internal bool AutoRenameAllChartFolders(string parentDir = null)
     {
+        if (TryBlockLr2FullGenerationMutation(nameof(AutoRenameAllChartFolders)))
+        {
+            return false;
+        }
         using (rwlockBMSFilesInitializedMin.GetReaderGuard())
         {
             using (rwlockPendingInstallCharts.GetWriterGuard())
@@ -15362,6 +15445,10 @@ completeFileEnumerationOnce,
         {
             throw new ArgumentNullException("newName");
         }
+        if (TryBlockLr2FullGenerationMutation(nameof(RenameChartFolder)))
+        {
+            return;
+        }
         BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
         if (!renameRootFolder && getBMSDirectories().Contains(srcDir, StringComparer.OrdinalIgnoreCase))
         {
@@ -15408,6 +15495,10 @@ completeFileEnumerationOnce,
         if (dstDir == null)
         {
             throw new ArgumentNullException("dstDir");
+        }
+        if (TryBlockLr2FullGenerationMutation(nameof(MoveLibraryRootFolder)))
+        {
+            return;
         }
         using (rwlockBMSFilesInitializedMin.GetReaderGuard())
         {
@@ -15506,6 +15597,10 @@ completeFileEnumerationOnce,
     internal void RenameBMSFilesExtensions(IEnumerable<ChartFile> charts, string newExt, bool? unregister = false)
     {
         List<ChartFile> targetCharts = [.. (charts ?? []).Where(chart => chart?.GetBmsStorageOwner() != null)];
+        if (TryBlockLr2FullGenerationMutation(nameof(RenameBMSFilesExtensions)))
+        {
+            return;
+        }
         using (rwlockBMSFilesInitializedMin.GetReaderGuard())
         {
             using (rwlockBMSFiles.GetWriterGuard())
@@ -15590,6 +15685,10 @@ completeFileEnumerationOnce,
 
     internal void RemoveLibraryCharts(IEnumerable<LibraryChartRef> charts, bool sendToRecycleBin = true, IEnumerable<string> approvedWholeFolderDeletePaths = null)
     {
+        if (TryBlockLr2FullGenerationMutation(nameof(RemoveLibraryCharts)))
+        {
+            return;
+        }
         HashSet<string> approvedWholeFolderDeletes = approvedWholeFolderDeletePaths == null
             ? null
             : new HashSet<string>(approvedWholeFolderDeletePaths.Where(path => !string.IsNullOrWhiteSpace(path)), StringComparer.OrdinalIgnoreCase);
@@ -15696,6 +15795,7 @@ completeFileEnumerationOnce,
 
     private void ApplyLibraryMutationDeltaWithPerformanceContext(LibraryMutationDelta delta, string performanceLogContext)
     {
+        ThrowIfLr2FullGenerationMutationBlocked(nameof(ApplyLibraryMutationDelta));
         OwnedChartCollectionMutationResult mutationResult = null;
         bool collectPerformanceLog = !string.IsNullOrWhiteSpace(performanceLogContext);
         Stopwatch totalStopwatch = StartPerformanceStepStopwatch(collectPerformanceLog);
@@ -16110,6 +16210,10 @@ completeFileEnumerationOnce,
         {
             return;
         }
+        if (TryBlockLr2FullGenerationMutation(nameof(ReplaceBmsFileLevelByTableEntryLevel)))
+        {
+            return;
+        }
         using (rwlockBMSFilesInitializedAll.GetReaderGuard())
         {
             using (rwlockBMSFiles.GetWriterGuard())
@@ -16151,6 +16255,10 @@ completeFileEnumerationOnce,
         if (_bmsFiles == null)
         {
             throw new ArgumentNullException("_bmsFiles");
+        }
+        if (TryBlockLr2FullGenerationMutation(nameof(CommitBMSFiles)))
+        {
+            return;
         }
         using (rwlockBMSFilesInitializedAll.GetReaderGuard())
         {

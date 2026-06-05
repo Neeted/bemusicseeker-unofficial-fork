@@ -1254,6 +1254,8 @@ public class Resources
 
     public static string Warn_RenameDestAlreadyExists => ResourceManager.GetString("Warn_RenameDestAlreadyExists", resourceCulture);
 
+    public static string Warn_Lr2FullGenerationBackfillRunning => ResourceManager.GetString("Warn_Lr2FullGenerationBackfillRunning", resourceCulture);
+
     public static string Warn_no_pending_installed_only_packages => ResourceManager.GetString("Warn_no_pending_installed_only_packages", resourceCulture);
 
     public static string Warn_no_pending_charts => ResourceManager.GetString("Warn_no_pending_charts", resourceCulture);

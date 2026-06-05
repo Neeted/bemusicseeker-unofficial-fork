@@ -563,6 +563,7 @@
   "Warn_MoveDestAlreadyExists": "Opération annulée car le dossier de destination existe déjà.\nSource : {0}\nDestination : {1}",
   "Error_FolderMoveFailed": "Échec du déplacement du dossier.\nVeuillez vérifier s'il est accessible.\nSource : {0}\nDestination : {1}\n\n{2}",
   "Warn_RenameDestAlreadyExists": "Opération annulée car le fichier de destination existe déjà.\nSource : {0}\nDestination : {1}",
+  "Warn_Lr2FullGenerationBackfillRunning": "La génération complète de LR2 song.db est en cours.\nVeuillez réessayer après sa fin.",
   "Error_BmsFileMoveFailed": "Échec du déplacement du fichier BMS.\nVeuillez vérifier s'il est accessible.\nSource : {0}\nDestination : {1}\n\n{2}",
   "Confirm_DeleteFolderWithNoBms": "Si vous continuez la suppression, il n'y aura plus de fichiers BMS\ndans le dossier. Supprimer le dossier entier ?\n(D'autres fichiers peuvent encore être présents)\n\nCible : \n{0}",
   "Error_FolderOrTrashDeleteFailed": "Échec de la suppression du dossier ou du déplacement vers la corbeille.\nVeuillez vérifier s'il est accessible.\n{0}\n\n{1}",

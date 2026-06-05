@@ -563,6 +563,7 @@
   "Warn_MoveDestAlreadyExists": "Operation cancelled because the destination folder already exists.\nSource: {0}\nDestination: {1}",
   "Error_FolderMoveFailed": "Failed to move the folder.\nPlease check if it is accessible.\nSource: {0}\nDestination: {1}\n\n{2}",
   "Warn_RenameDestAlreadyExists": "Operation cancelled because the destination file already exists.\nSource: {0}\nDestination: {1}",
+  "Warn_Lr2FullGenerationBackfillRunning": "LR2 song.db full generation is running.\nPlease try again after it completes.",
   "Error_BmsFileMoveFailed": "Failed to move the BMS file.\nPlease check if it is accessible.\nSource: {0}\nDestination: {1}\n\n{2}",
   "Confirm_DeleteFolderWithNoBms": "Continuing the deletion will result in no BMS files\nremaining in the folder. Delete the entire folder?\n(Other files may still be present)\n\nTarget: \n{0}",
   "Error_FolderOrTrashDeleteFailed": "Failed to delete the folder or move it to the recycle bin.\nPlease check if it is accessible.\n{0}\n\n{1}",

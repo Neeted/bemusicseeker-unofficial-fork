@@ -1935,6 +1935,10 @@ BMSファイルが重複しないようにマージします。
 変更元: {0}
 変更先: {1}</value>
   </data>
+  <data name="Warn_Lr2FullGenerationBackfillRunning" xml:space="preserve">
+    <value>LR2用song.dbの完全生成中です。
+完了後にもう一度実行してください。</value>
+  </data>
   <data name="Warn_no_pending_installed_only_packages" xml:space="preserve">
     <value>既所持譜面のみの保留パッケージはありません。</value>
   </data>

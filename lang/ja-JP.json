@@ -563,6 +563,7 @@
   "Warn_MoveDestAlreadyExists": "移動先フォルダが既に存在するため中止しました。\n移動元: {0}\n移動先: {1}",
   "Error_FolderMoveFailed": "フォルダの移動に失敗しました。\n正常にアクセスできるか確認して下さい。\n移動元: {0}\n移動先: {1}\n\n{2}",
   "Warn_RenameDestAlreadyExists": "変更先ファイルが既に存在するため中止しました。\n変更元: {0}\n変更先: {1}",
+  "Warn_Lr2FullGenerationBackfillRunning": "LR2用song.dbの完全生成中です。\n完了後にもう一度実行してください。",
   "Error_BmsFileMoveFailed": "BMSファイルの移動に失敗しました。\n正常にアクセスできるか確認して下さい。\n移動元: {0}\n移動先: {1}\n\n{2}",
   "Confirm_DeleteFolderWithNoBms": "削除を続行すると対象のフォルダにはBMSファイルが\n含まれなくなります。フォルダごと削除しますか?\n(その他のファイルは含まれている場合があります)\n\n対象: \n{0}",
   "Error_FolderOrTrashDeleteFailed": "フォルダの削除またはごみ箱への移動に失敗しました。\n正常にアクセスできるか確認して下さい。\n{0}\n\n{1}",

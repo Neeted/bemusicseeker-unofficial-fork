@@ -563,6 +563,7 @@
   "Warn_MoveDestAlreadyExists": "由于目标文件夹已存在，操作已取消。\n源路径: {0}\n目标路径: {1}",
   "Error_FolderMoveFailed": "文件夹移动失败。\n请确认是否可以正常访问。\n源路径: {0}\n目标路径: {1}\n\n{2}",
   "Warn_RenameDestAlreadyExists": "由于目标文件已存在，操作已取消。\n来源: {0}\n目标: {1}",
+  "Warn_Lr2FullGenerationBackfillRunning": "正在完整生成 LR2 song.db。\n请在完成后重试。",
   "Error_BmsFileMoveFailed": "BMS文件移动失败。\n请确认是否可以正常访问。\n源路径: {0}\n目标路径: {1}\n\n{2}",
   "Confirm_DeleteFolderWithNoBms": "继续删除后该文件夹将不再包含BMS文件。\n是否删除整个文件夹？\n(可能仍包含其他文件)\n\n目标: \n{0}",
   "Error_FolderOrTrashDeleteFailed": "文件夹删除或移至回收站失败。\n请确认是否可以正常访问。\n{0}\n\n{1}",
