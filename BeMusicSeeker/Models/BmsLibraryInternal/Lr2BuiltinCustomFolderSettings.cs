@@ -39,7 +39,18 @@ internal sealed class Lr2BuiltinCustomFolderSettings
     {
         int customFolderMask = Math.Max(0, config?.GetCustomFolderMask() ?? 0);
         int titleFlashHours = Math.Max(0, config?.GetTitleFlashHours() ?? 24);
-        bool includeNewSongFolder = HasRecentSong(songRows, titleFlashHours, nowUtc);
+        bool includeNewSongFolder = HasRecentSongAddDates((songRows ?? []).Select(song => song?.adddate), titleFlashHours, nowUtc);
+        return new Lr2BuiltinCustomFolderSettings(customFolderMask, titleFlashHours, includeNewSongFolder);
+    }
+
+    public static Lr2BuiltinCustomFolderSettings CreateFromAddDates(
+        LR2Config config,
+        IEnumerable<int?> songAddDates,
+        DateTime nowUtc)
+    {
+        int customFolderMask = Math.Max(0, config?.GetCustomFolderMask() ?? 0);
+        int titleFlashHours = Math.Max(0, config?.GetTitleFlashHours() ?? 24);
+        bool includeNewSongFolder = HasRecentSongAddDates(songAddDates, titleFlashHours, nowUtc);
         return new Lr2BuiltinCustomFolderSettings(customFolderMask, titleFlashHours, includeNewSongFolder);
     }
 
@@ -115,7 +126,7 @@ internal sealed class Lr2BuiltinCustomFolderSettings
         return (CustomFolderMask & mask) != 0;
     }
 
-    private static bool HasRecentSong(IEnumerable<BMSFile> songRows, int titleFlashHours, DateTime nowUtc)
+    private static bool HasRecentSongAddDates(IEnumerable<int?> songAddDates, int titleFlashHours, DateTime nowUtc)
     {
         if (titleFlashHours <= 0)
         {
@@ -123,17 +134,13 @@ internal sealed class Lr2BuiltinCustomFolderSettings
         }
 
         int cutoff = ToUnixSeconds(nowUtc.ToUniversalTime()) - (titleFlashHours * 60 * 60);
-        return (songRows ?? []).Any(song =>
+        return (songAddDates ?? []).Any(addDate =>
         {
-            if (song == null)
-            {
-                return false;
-            }
-            if (!song.adddate.HasValue || song.adddate <= 0)
+            if (!addDate.HasValue || addDate <= 0)
             {
                 return true;
             }
-            return song.adddate > cutoff;
+            return addDate > cutoff;
         });
     }
 

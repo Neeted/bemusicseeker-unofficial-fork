@@ -5880,17 +5880,24 @@ completeFileEnumerationOnce,
 
     private Lr2BuiltinCustomFolderSettings CreateCurrentLr2BuiltinCustomFolderSettings(DateTime nowUtc)
     {
-        List<BMSFile> songRows;
+        LR2Config config = CreateCurrentLr2ConfigOrNull();
         using (rwlockBMSFilesInitializedAll.GetReaderGuard())
         {
-            songRows = [.. (_BMSFiles ?? [])
-                .Where(file => file != null && !string.IsNullOrWhiteSpace(file.path))
-                .Select(file => file.CreateSongRowPersistenceCopy())];
+            return Lr2BuiltinCustomFolderSettings.CreateFromAddDates(
+                config,
+                (_BMSFiles ?? [])
+                    .Where(file => file != null && !string.IsNullOrWhiteSpace(file.path))
+                    .Select(file => file.adddate),
+                nowUtc);
         }
-        return CreateLr2BuiltinCustomFolderSettings(songRows, nowUtc);
     }
 
     private Lr2BuiltinCustomFolderSettings CreateLr2BuiltinCustomFolderSettings(IEnumerable<BMSFile> songRows, DateTime nowUtc)
+    {
+        return Lr2BuiltinCustomFolderSettings.Create(CreateCurrentLr2ConfigOrNull(), songRows, nowUtc);
+    }
+
+    private LR2Config CreateCurrentLr2ConfigOrNull()
     {
         LR2Config config = null;
         try
@@ -5901,7 +5908,7 @@ completeFileEnumerationOnce,
         {
             config = null;
         }
-        return Lr2BuiltinCustomFolderSettings.Create(config, songRows, nowUtc);
+        return config;
     }
 
     private static IReadOnlyDictionary<string, RootFileEnumerationEntry> CreateLr2FullGenerationDirectoryEntries(
