@@ -692,6 +692,29 @@ public class BMSFile : LR2SongDB.song
             () => snapshot.Sha256);
     }
 
+    internal static BMSFile CreateBMSFileFromSnapshot(
+        ChartFileSnapshot snapshot,
+        BmsEncodingDetectionResult detectionResult)
+    {
+        if (snapshot == null)
+        {
+            throw new ArgumentNullException(nameof(snapshot));
+        }
+        if (detectionResult == null)
+        {
+            return CreateBMSFileFromSnapshot(snapshot);
+        }
+
+        IEnumerable<string> lines = detectionResult.DecodedText != null
+            ? ReadTextLines(detectionResult.DecodedText)
+            : ReadSnapshotLines(snapshot, Encoding.GetEncoding(NormalizeSnapshotEncodingName(detectionResult.EncodingName)));
+        return CreateBMSFileFromLines(
+            lines,
+            snapshot.Path,
+            () => snapshot.Md5,
+            () => snapshot.Sha256);
+    }
+
     internal void PreserveUserSongColumnsFrom(BMSFile existing)
     {
         if (existing == null)
@@ -810,6 +833,26 @@ public class BMSFile : LR2SongDB.song
         {
             yield return line;
         }
+    }
+
+    private static IEnumerable<string> ReadTextLines(string text)
+    {
+        using var reader = new StringReader(text ?? string.Empty);
+        string line;
+        while ((line = reader.ReadLine()) != null)
+        {
+            yield return line;
+        }
+    }
+
+    private static string NormalizeSnapshotEncodingName(string codepageName)
+    {
+        if (string.IsNullOrWhiteSpace(codepageName)
+            || string.Equals(codepageName, "unknown", StringComparison.OrdinalIgnoreCase))
+        {
+            return "shift_jis";
+        }
+        return codepageName.TrimEnd('?');
     }
 
     private static BMSFile CreateBMSFileFromLines(

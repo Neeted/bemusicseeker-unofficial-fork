@@ -1850,7 +1850,7 @@ internal static class Lr2FullGenerationBackfillService
                 return CreateFallbackBackfillSongRow(existingSong, textFileDirectories);
             }
 
-            BMSFile parsed = BMSFile.CreateBMSFileFromSnapshot(candidate.Snapshot, encodingName);
+            BMSFile parsed = BMSFile.CreateBMSFileFromSnapshot(candidate.Snapshot, detectionResult);
             Lr2SongRowEnricher.EnrichParsedSong(
                 parsed,
                 candidate.Snapshot,
