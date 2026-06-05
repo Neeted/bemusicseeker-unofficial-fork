@@ -194,6 +194,7 @@ public sealed class Lr2FolderFileProjectionTests
         });
 
         Assert.AreEqual(@"LR2files\CustomFolder\RANDOM\random.lr2folder", classification.DatabasePath);
+        Assert.AreEqual(2, classification.FolderType);
         Assert.IsNull(classification.ParentHash);
 
         bool created = Lr2FolderFileProjection.TryCreateFolderRow(new Lr2FolderFileRowRequest
@@ -227,6 +228,7 @@ public sealed class Lr2FolderFileProjectionTests
         });
 
         Assert.AreEqual(@"LR2files\Rival\rival.lr2folder", classification.DatabasePath);
+        Assert.AreEqual(2, classification.FolderType);
         Assert.AreEqual(Lr2SongFolderParentNormalizer.RootParentHash, classification.ParentHash);
 
         bool created = Lr2FolderFileProjection.TryCreateFolderRow(new Lr2FolderFileRowRequest
@@ -260,7 +262,28 @@ public sealed class Lr2FolderFileProjectionTests
         });
 
         Assert.AreEqual(filePath, classification.DatabasePath);
+        Assert.AreEqual(2, classification.FolderType);
         Assert.AreEqual(Lr2SongFolderParentNormalizer.RootParentHash, classification.ParentHash);
+    }
+
+    [DataTestMethod]
+    [DataRow(@"LR2files\CustomFolder\favorite.lr2folder")]
+    [DataRow(@"LR2files\CustomFolder\TOP10.lr2folder")]
+    [DataRow(@"LR2files\CustomFolder\PLAYLEVEL\1.lr2folder")]
+    [DataRow(@"LR2files\Rival\rival.lr2folder")]
+    public void SourceClassifier_DoesNotInferOpenLr2SpecialFolderTypeFromKnownSourcePath(string relativePath)
+    {
+        string lr2Root = Path.GetFullPath(@"D:\LR2beta3");
+        string filePath = Path.Combine(lr2Root, relativePath);
+
+        Lr2FolderFileSourceClassification classification = Lr2FolderFileSourceClassifier.Classify(new Lr2FolderFileSourceClassificationRequest
+        {
+            FilePath = filePath,
+            Lr2RootPath = lr2Root
+        });
+
+        Assert.AreEqual(relativePath, classification.DatabasePath);
+        Assert.AreEqual(2, classification.FolderType);
     }
 
     [TestMethod]
