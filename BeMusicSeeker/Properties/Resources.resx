@@ -1378,6 +1378,18 @@ BMSファイルが重複しないようにマージします。
   <data name="Lr2_full_generation_status_incomplete" xml:space="preserve">
     <value>LR2 song.db 完全生成が未完了です</value>
   </data>
+  <data name="Lr2_full_generation_retry" xml:space="preserve">
+    <value>再試行</value>
+  </data>
+  <data name="Lr2_full_generation_cleanup_startup_scan_blockers" xml:space="preserve">
+    <value>LR2 folder DB行を削除して再試行</value>
+  </data>
+  <data name="Msg_confirm_lr2_full_generation_startup_scan_blocker_cleanup" xml:space="preserve">
+    <value>LR2 song.db 完全生成の完了を妨げている古い folder 行を削除してから再試行します。
+削除するのは診断対象になった LR2 folder テーブル行のみで、譜面ファイルや .lr2folder ファイルは削除しません。
+
+続行しますか?</value>
+  </data>
   <data name="Install" xml:space="preserve">
     <value>インストール</value>
   </data>

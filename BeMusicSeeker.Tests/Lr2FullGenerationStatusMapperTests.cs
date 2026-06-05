@@ -25,6 +25,8 @@ public sealed class Lr2FullGenerationStatusMapperTests
         Assert.AreEqual(Lr2FullGenerationStatusKind.Needed, status.Kind);
         Assert.AreEqual(Resources.Lr2_full_generation_status_needed, status.StatusText);
         Assert.IsTrue(status.HasWarningStatus);
+        Assert.IsTrue(status.CanRetry);
+        Assert.IsFalse(status.CanCleanupStartupScanBlockers);
         StringAssert.Contains(status.Detail, "[12/100]");
         StringAssert.Contains(status.Detail, "song rows");
         StringAssert.Contains(status.Detail, "failed before");
@@ -41,6 +43,8 @@ public sealed class Lr2FullGenerationStatusMapperTests
 
         Assert.AreEqual(Resources.Lr2_full_generation_status_completed, status.StatusText);
         Assert.IsFalse(status.HasWarningStatus);
+        Assert.IsFalse(status.CanRetry);
+        Assert.IsFalse(status.CanCleanupStartupScanBlockers);
     }
 
     [TestMethod]
@@ -63,5 +67,33 @@ public sealed class Lr2FullGenerationStatusMapperTests
         Assert.IsTrue(incomplete.HasWarningStatus);
         Assert.AreEqual(Resources.Lr2_full_generation_status_incomplete, incomplete.StatusText);
         StringAssert.Contains(incomplete.Detail, "startup scan blockers");
+    }
+
+    [TestMethod]
+    public void Create_StartupScanBlockersIncompleteEnablesCleanup()
+    {
+        Lr2FullGenerationRuntimeStatus status = Lr2FullGenerationStatusMapper.Create(new Lr2FullGenerationStatusSnapshot
+        {
+            Status = Lr2FullGenerationStatusKind.Incomplete,
+            Stage = Lr2FullGenerationBackfillService.StartupScanBlockersStage,
+            LastError = "startup scan blockers"
+        }, DateTime.MinValue);
+
+        Assert.IsTrue(status.CanRetry);
+        Assert.IsTrue(status.CanCleanupStartupScanBlockers);
+    }
+
+    [TestMethod]
+    public void Create_IncompleteNonStartupScanBlockerDoesNotEnableCleanup()
+    {
+        Lr2FullGenerationRuntimeStatus status = Lr2FullGenerationStatusMapper.Create(new Lr2FullGenerationStatusSnapshot
+        {
+            Status = Lr2FullGenerationStatusKind.Incomplete,
+            Stage = "song_rows",
+            LastError = "song rows"
+        }, DateTime.MinValue);
+
+        Assert.IsTrue(status.CanRetry);
+        Assert.IsFalse(status.CanCleanupStartupScanBlockers);
     }
 }

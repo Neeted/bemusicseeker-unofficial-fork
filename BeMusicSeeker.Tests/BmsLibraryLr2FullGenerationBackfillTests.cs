@@ -816,6 +816,60 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
     }
 
     [TestMethod]
+    public void CleanupStartupScanBlockerFolderRows_DeletesOnlyFolderBlockers()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        string rootDirectory = Path.Combine(scope.DirectoryPath, "KnownRoot");
+        string outsideDirectory = Path.Combine(scope.DirectoryPath, "OutsideRoot");
+        string dateMissingPath = Path.Combine(rootDirectory, "date-missing.lr2folder");
+        string missingTargetPath = Path.Combine(rootDirectory, "missing.lr2folder");
+        Directory.CreateDirectory(rootDirectory);
+        Directory.CreateDirectory(outsideDirectory);
+        DateTime rootTime = new(2026, 6, 5, 3, 0, 0, DateTimeKind.Utc);
+        Directory.SetLastWriteTimeUtc(rootDirectory, rootTime);
+        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        songDb.CreateTable<LR2SongDB.song>();
+        songDb.CreateTable<LR2SongDB.folder>();
+        songDb.InsertOrReplace(new LR2SongDB.folder
+        {
+            path = ToFolderPath(rootDirectory),
+            type = 1,
+            date = Lr2SongRowEnricher.ToLr2UnixSeconds(rootTime)
+        }, typeof(LR2SongDB.folder));
+        songDb.InsertOrReplace(new LR2SongDB.folder
+        {
+            path = ToFolderPath(outsideDirectory),
+            type = 1,
+            date = 1
+        }, typeof(LR2SongDB.folder));
+        songDb.InsertOrReplace(new LR2SongDB.folder
+        {
+            path = dateMissingPath,
+            type = 2,
+            date = 0
+        }, typeof(LR2SongDB.folder));
+        songDb.InsertOrReplace(new LR2SongDB.folder
+        {
+            path = missingTargetPath,
+            type = 2,
+            date = 1
+        }, typeof(LR2SongDB.folder));
+
+        Lr2StartupScanBlockerCleanupResult result = Lr2FullGenerationBackfillService.CleanupStartupScanBlockerFolderRows(
+            songDb,
+            [rootDirectory],
+            [rootDirectory],
+            [],
+            lr2RootPath: null);
+
+        Assert.AreEqual(3, result.DiagnosticBefore.CleanupFolderRowCount);
+        Assert.AreEqual(3, result.DeletedFolderRowCount);
+        Assert.IsTrue(result.DiagnosticAfter.IsClean);
+        Assert.AreEqual(1, songDb.Table<LR2SongDB.folder>().Count());
+        Assert.AreEqual(ToFolderPath(rootDirectory), songDb.Table<LR2SongDB.folder>().Single().path);
+    }
+
+    [TestMethod]
     public void BackfillService_LeavesIncompleteWhenSourceBecomesStaleBeforeCompletion()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();

@@ -5143,6 +5143,45 @@ completeFileEnumerationOnce,
         return status;
     }
 
+    internal Lr2StartupScanBlockerCleanupResult CleanupLr2FullGenerationStartupScanBlockerFolderRows(string reason)
+    {
+        if (Lr2FullGenerationBackfillRunning)
+        {
+            throw new InvalidOperationException(Resources.Warn_Lr2FullGenerationBackfillRunning);
+        }
+
+        BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
+        bool enabled = options.OperationModeLR2DB && options.EnableLR2SongDbFullGeneration;
+        if (!enabled)
+        {
+            return null;
+        }
+
+        Lr2FullGenerationBackfillInput input = CreateLr2FullGenerationBackfillInput();
+        string signature = Lr2FullGenerationSignatureBuilder.Build(options, input.RootDirectories, input.Lr2FolderDiscoveryDirectories);
+        Lr2StartupScanBlockerCleanupResult result;
+        Lr2FullGenerationStatusSnapshot status;
+        using (LR2SongDBExtended songDb = dbGateway.OpenSongDb())
+        {
+            result = Lr2FullGenerationBackfillService.CleanupStartupScanBlockerFolderRows(
+                songDb,
+                input.RootDirectories,
+                input.Lr2FolderDiscoveryDirectories,
+                input.SongRows,
+                input.Lr2RootPath);
+            status = Lr2FullGenerationStatusService.Evaluate(songDb, enabled, signature, DateTime.UtcNow);
+        }
+
+        LogInstallPerformance("lr2_full_generation_startup_scan_blocker_cleanup reason=" + (reason ?? "unknown")
+            + " deletedFolderRows=" + (result?.DeletedFolderRowCount ?? 0)
+            + " beforeBlockers=" + (result?.DiagnosticBefore?.TotalBlockerCount ?? 0)
+            + " beforeCleanupFolderRows=" + (result?.DiagnosticBefore?.CleanupFolderRowCount ?? 0)
+            + " afterBlockers=" + (result?.DiagnosticAfter?.TotalBlockerCount ?? 0)
+            + " signature=" + signature);
+        PublishLr2FullGenerationStatus(status);
+        return result;
+    }
+
     private void PublishLr2FullGenerationStatus(Lr2FullGenerationStatusSnapshot status)
     {
         lock (lockLr2FullGenerationStatus)

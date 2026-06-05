@@ -14,6 +14,8 @@ internal static class Lr2FullGenerationStatusMapper
             StatusText = string.Empty,
             Detail = string.Empty,
             HasWarningStatus = false,
+            CanRetry = false,
+            CanCleanupStartupScanBlockers = false,
             CheckedAt = DateTime.MinValue
         };
     }
@@ -32,6 +34,8 @@ internal static class Lr2FullGenerationStatusMapper
             StatusText = statusText,
             Detail = BuildDetail(snapshot, statusText, checkedAt),
             HasWarningStatus = HasWarningStatus(snapshot.Status),
+            CanRetry = CanRetry(snapshot.Status),
+            CanCleanupStartupScanBlockers = CanCleanupStartupScanBlockers(snapshot),
             CheckedAt = checkedAt
         };
     }
@@ -42,6 +46,20 @@ internal static class Lr2FullGenerationStatusMapper
             || kind == Lr2FullGenerationStatusKind.Failed
             || kind == Lr2FullGenerationStatusKind.Incomplete
             || kind == Lr2FullGenerationStatusKind.Cancelled;
+    }
+
+    private static bool CanRetry(Lr2FullGenerationStatusKind kind)
+    {
+        return kind == Lr2FullGenerationStatusKind.Needed
+            || kind == Lr2FullGenerationStatusKind.Failed
+            || kind == Lr2FullGenerationStatusKind.Incomplete
+            || kind == Lr2FullGenerationStatusKind.Cancelled;
+    }
+
+    private static bool CanCleanupStartupScanBlockers(Lr2FullGenerationStatusSnapshot snapshot)
+    {
+        return snapshot?.Status == Lr2FullGenerationStatusKind.Incomplete
+            && string.Equals(snapshot.Stage, Lr2FullGenerationBackfillService.StartupScanBlockersStage, StringComparison.Ordinal);
     }
 
     private static string GetStatusText(Lr2FullGenerationStatusKind kind)

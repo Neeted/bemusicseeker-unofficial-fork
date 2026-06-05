@@ -6307,6 +6307,16 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         (base.DataContext as MainWindowViewModel)?.CancelMaintenanceRescan();
     }
 
+    private void retryLr2FullGenerationBackfillClick(object sender, RoutedEventArgs e)
+    {
+        (base.DataContext as MainWindowViewModel)?.RetryLr2FullGenerationBackfill();
+    }
+
+    private void cleanupLr2FullGenerationStartupScanBlockersClick(object sender, RoutedEventArgs e)
+    {
+        (base.DataContext as MainWindowViewModel)?.CleanupLr2FullGenerationStartupScanBlockersAndRetry();
+    }
+
     private async void tableContextMenuItemSearchLinkSubmenuClick(object sender, RoutedEventArgs e)
     {
         if (e.Source is not MenuItem menuItem)

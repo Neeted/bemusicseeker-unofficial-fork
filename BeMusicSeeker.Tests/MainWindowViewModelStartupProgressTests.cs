@@ -380,6 +380,27 @@ public sealed class MainWindowViewModelStartupProgressTests
     }
 
     [TestMethod]
+    public void Lr2FullGenerationWarningStatus_IsVisibleWhenStartupProgressFailed()
+    {
+        Assert.IsFalse(MainWindowViewModel.ShouldShowLr2FullGenerationStatusForTest(
+            hasWarningStatus: true,
+            startupProgressActive: true,
+            startupProgressFailed: false));
+        Assert.IsTrue(MainWindowViewModel.ShouldShowLr2FullGenerationStatusForTest(
+            hasWarningStatus: true,
+            startupProgressActive: true,
+            startupProgressFailed: true));
+        Assert.IsTrue(MainWindowViewModel.ShouldShowLr2FullGenerationStatusForTest(
+            hasWarningStatus: true,
+            startupProgressActive: false,
+            startupProgressFailed: false));
+        Assert.IsFalse(MainWindowViewModel.ShouldShowLr2FullGenerationStatusForTest(
+            hasWarningStatus: false,
+            startupProgressActive: true,
+            startupProgressFailed: true));
+    }
+
+    [TestMethod]
     public void StartupProgress_Lr2FullGenerationRequestAfterSkip_DoesNotMoveBackToPending()
     {
         MainWindowViewModel.StartupProgressTestResult result = MainWindowViewModel.ReduceStartupProgressForTest(

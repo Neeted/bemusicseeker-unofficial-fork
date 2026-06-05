@@ -6156,6 +6156,10 @@ public class MainWindowViewModel : ViewModel
 
     private string _Lr2FullGenerationStatusSubLabel = string.Empty;
 
+    private bool _IsLr2FullGenerationRetryVisible;
+
+    private bool _IsLr2FullGenerationCleanupVisible;
+
     private bool _IsPlaylistTreeExpanded = true;
 
     private ModeFilterType _ModeFilter = ModeFilterType.All;
@@ -14157,6 +14161,38 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
+    public bool IsLr2FullGenerationRetryVisible
+    {
+        get
+        {
+            return _IsLr2FullGenerationRetryVisible;
+        }
+        set
+        {
+            if (_IsLr2FullGenerationRetryVisible != value)
+            {
+                _IsLr2FullGenerationRetryVisible = value;
+                RaisePropertyChanged("IsLr2FullGenerationRetryVisible");
+            }
+        }
+    }
+
+    public bool IsLr2FullGenerationCleanupVisible
+    {
+        get
+        {
+            return _IsLr2FullGenerationCleanupVisible;
+        }
+        set
+        {
+            if (_IsLr2FullGenerationCleanupVisible != value)
+            {
+                _IsLr2FullGenerationCleanupVisible = value;
+                RaisePropertyChanged("IsLr2FullGenerationCleanupVisible");
+            }
+        }
+    }
+
     public PlaylistSummaryColumnSettings PlaylistSummaryColumnsSettings
     {
         get
@@ -19748,10 +19784,70 @@ public class MainWindowViewModel : ViewModel
     private void RecomputeLr2FullGenerationStatusPresentation()
     {
         Lr2FullGenerationRuntimeStatus status = latestLr2FullGenerationStatus ?? Lr2FullGenerationStatusMapper.CreateNone();
-        bool isActive = status.HasWarningStatus && !IsStartupProgressActive;
+        bool isActive = ShouldShowLr2FullGenerationStatus(status.HasWarningStatus, IsStartupProgressBlockingLr2FullGenerationStatus());
         IsLr2FullGenerationStatusActive = isActive;
         Lr2FullGenerationStatusLabel = isActive ? status.StatusText : string.Empty;
         Lr2FullGenerationStatusSubLabel = isActive ? status.Detail : string.Empty;
+        IsLr2FullGenerationRetryVisible = isActive && status.CanRetry;
+        IsLr2FullGenerationCleanupVisible = isActive && status.CanCleanupStartupScanBlockers;
+    }
+
+    private bool IsStartupProgressBlockingLr2FullGenerationStatus()
+    {
+        lock (startupProgressLock)
+        {
+            return startupProgressState.IsActive && !startupProgressState.IsFailed;
+        }
+    }
+
+    private static bool ShouldShowLr2FullGenerationStatus(bool hasWarningStatus, bool startupProgressBlocksLr2Status)
+    {
+        return hasWarningStatus && !startupProgressBlocksLr2Status;
+    }
+
+    internal static bool ShouldShowLr2FullGenerationStatusForTest(bool hasWarningStatus, bool startupProgressActive, bool startupProgressFailed)
+    {
+        return ShouldShowLr2FullGenerationStatus(hasWarningStatus, startupProgressActive && !startupProgressFailed);
+    }
+
+    public void RetryLr2FullGenerationBackfill()
+    {
+        files?.QueueLr2FullGenerationBackfillIfNeeded("status_bar_retry");
+    }
+
+    public void CleanupLr2FullGenerationStartupScanBlockersAndRetry()
+    {
+        if (files == null)
+        {
+            return;
+        }
+
+        var confirmationMessage = new ConfirmationMessage(
+            BeMusicSeeker.Properties.Resources.Msg_confirm_lr2_full_generation_startup_scan_blocker_cleanup,
+            BeMusicSeeker.Properties.Resources.Warning,
+            MessageBoxImage.Exclamation,
+            MessageBoxButton.OKCancel,
+            "ConfirmationDialog");
+        base.Messenger.Raise(confirmationMessage);
+        if (confirmationMessage.Response != true)
+        {
+            return;
+        }
+
+        try
+        {
+            files.CleanupLr2FullGenerationStartupScanBlockerFolderRows("status_bar_cleanup");
+            files.QueueLr2FullGenerationBackfillIfNeeded("status_bar_cleanup_retry");
+        }
+        catch (Exception ex)
+        {
+            base.Messenger.Raise(new ConfirmationMessage(
+                BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + ex.Message,
+                BeMusicSeeker.Properties.Resources.Error,
+                MessageBoxImage.Hand,
+                MessageBoxButton.OK,
+                "ConfirmationDialog"));
+        }
     }
 
     private void TryCompleteStartupProgressPlaylistEntriesHydration(int completedVersion)
