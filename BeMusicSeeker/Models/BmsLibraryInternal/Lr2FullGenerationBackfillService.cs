@@ -413,6 +413,24 @@ internal static class Lr2FullGenerationBackfillService
             songRows,
             request.Lr2RootPath,
             request);
+        if (!diagnosticResult.IsClean && diagnosticResult.CleanupFolderRowCount > 0)
+        {
+            Lr2FolderGenerationWriteResult cleanupWriteResult = Lr2FolderDbWriter.ApplySyncPlan(
+                songDb,
+                new Lr2FolderGenerationSyncPlan([], diagnosticResult.CleanupFolderRowPaths));
+            LogBackfill(request, "lr2_full_generation_backfill startup_scan_blocker_cleanup"
+                + " before=" + diagnosticResult.TotalBlockerCount
+                + " deletedFolderRows=" + cleanupWriteResult.DeletedCount
+                + " cleanupFolderRows=" + diagnosticResult.CleanupFolderRowCount
+                + " processedCursor=" + processedCount);
+            diagnosticResult = DiagnoseStartupScanBlockers(
+                songDb,
+                roots,
+                lr2FolderDiscoveryDirectories,
+                songRows,
+                request.Lr2RootPath,
+                request);
+        }
         string finalStage;
         string incompleteReason;
         if (!diagnosticResult.IsClean)
@@ -751,7 +769,10 @@ internal static class Lr2FullGenerationBackfillService
                     || (dateStatus == FolderDiagnosticDateStatus.Resolved && expectedDate != row.Date.GetValueOrDefault()))
                 {
                     dateStaleFolderRowCount++;
-                    AddCleanupFolderRowPath(cleanupFolderRowPaths, row.Path);
+                    if (dateStatus == FolderDiagnosticDateStatus.MissingTarget)
+                    {
+                        AddCleanupFolderRowPath(cleanupFolderRowPaths, row.Path);
+                    }
                 }
             }
 

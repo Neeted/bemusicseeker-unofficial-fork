@@ -1261,9 +1261,10 @@ parse directive:
   sync 後は startup-scan blocker diagnostic を実行し、root set 欠落、current song row 欠落、
   `song.date` 欠落 / `0`、generation scope 内の `folder.date` 欠落 / `0`、missing target、
   実 directory / `.lr2folder` file の mtime と一致しない `folder.date` が無い場合だけ `Completed` を記録する。
-  診断前に current generation input から導けない stale / unknown `folder` row は upsert / prune workflow で
-  削除されていることを前提にする。残存する場合は実装不備または surface 不完全として
-  `Incomplete(startup_scan_blockers_detected)` にし、diagnostic count を log / status detail に残す。
+  診断で unknown root / date missing / missing target の `folder` row が見つかった場合は、同じ full generation run 内で
+  cleanup delete を適用してから再診断する。mtime mismatch は列挙 metadata と live filesystem の差分や resume 境界の
+  可能性があるため即削除せず、残る場合は `Incomplete(startup_scan_blockers_detected)` として
+  diagnostic count を log / status detail に残す。
   status signature は normalized / deduplicated / case-insensitive な LR2 BMS root set を含める。
   加えて `.lr2folder` discovery root set、LR2 setup の `<customfolder>` bitmask、`titleflash` を含める。
   root set や built-in CustomFolder の対象条件が変わった場合は既存 `Completed` を信用せず、
@@ -1389,8 +1390,8 @@ existence / mtime は意味的に揃える。
   source に対応する `folder` row が存在することを検証する。読めない `.lr2folder` は既存の prune 抑止と同じく
   expected row から外し、欠落検出は `missingExpectedLr2FolderRows` として log / status detail に残す。
 - startup-scan blocker cleanup は、通常 workflow で修復できなかった既存 DB 残骸を削除する補助 helper
-  (`CleanupStartupScanBlockerFolderRows`) として残す。定常的な unknown root / stale date / missing target の
-  `folder` row 解消は full generation workflow の upsert / prune が正本であり、cleanup 前提にしない。
+  (`CleanupStartupScanBlockerFolderRows`) として残す。full generation 本体も unknown root / date missing /
+  missing target の `folder` row は同一 run 内で cleanup し、mtime mismatch は cleanup せず incomplete diagnostic として残す。
   `song` row 欠落、root 未設定、known root 外 `song` row は削除で直せる問題ではないため cleanup 対象にしない。
 - `LR2非対応パス` tree は LR2 連携モード専用の compatibility surface として扱い、standalone mode では表示しない。
 - library root scan の `.txt` surface は LR2 連携モードかつ完全生成設定 ON のときだけ列挙する。
