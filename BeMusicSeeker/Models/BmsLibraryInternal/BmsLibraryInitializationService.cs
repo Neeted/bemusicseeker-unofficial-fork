@@ -750,6 +750,11 @@ internal sealed class BmsLibraryInitializationService
             logInstallPerformance?.Invoke("lr2_normal_folder_sync skipped reason=incomplete_scan");
             return;
         }
+        if (!result.HasDbDiff)
+        {
+            logInstallPerformance?.Invoke("lr2_normal_folder_sync skipped reason=no_db_diff");
+            return;
+        }
 
         result.Lr2NormalFolderSyncExecuted = true;
         try

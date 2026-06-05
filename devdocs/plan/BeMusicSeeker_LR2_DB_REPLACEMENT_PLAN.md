@@ -1176,7 +1176,9 @@ parse directive:
     complete chart path set を渡す呼び出し側から使う。`AllowPrune` は complete scan と source generation の整合を確認した
     caller だけが立て、既定では upsert のみ行って stale row delete はしない。
   - initialization への production 接続は `EnableLR2SongDbFullGeneration` で gate し、
-    LR2 linked mode かつ設定が有効な場合だけ full file scan 完了後に normal folder sync を実行する。
+    LR2 linked mode かつ設定が有効で、file diff が `song` / `bmson_song` への DB 差分を検出した場合だけ
+    full file scan 完了後に normal folder sync を実行する。`Completed` かつ file diff が空の steady-state では
+    normal folder row の全件検証や directory metadata 解決を行わない。
   - full scan 後の normal folder sync は file diff DB commit を flush した後に別 workflow として実行し、
     owned collection の `HasDbDiff` や UI refresh 判定には混ぜない。folder sync の生成 / upsert / delete / metadata 欠落は
     `song_tbl_file_check_breakdown` の LR2 normal folder metrics として追跡する。
