@@ -995,6 +995,7 @@ parse directive:
   `UpsertChartDigest` / `DeleteChartDigestIfOrphaned` を hot path に置かない。
   LR2 compatibility facts の `maintenance` update / insert も chunk temp table 経由でまとめ、
   row ごとの update-miss-insert を hot path に置かない。
+  final song prune の current path temp table も multi-value insert で作り、path ごとの SQL round-trip を避ける。
 - chunk 成功後だけ cursor を進め、失敗 chunk は rollback して次回再処理する。
 - 完了直前の owned / storage / root 設定 snapshot check が current であり、startup-scan diagnostic に対する
   prune / update / resync を同じ run 内で試みたら `Completed` を記録する。generated DB row は実ファイル由来の一覧 cache なので、
@@ -1401,6 +1402,7 @@ existence / mtime は意味的に揃える。
    - generated column の insert は multi-value insert、既存 row update は temp table update へ寄せる。完了。
    - `chart_digest_map` update / orphan cleanup は chunk 単位へ寄せる。完了。
    - LR2 compatibility facts の `maintenance` update / insert は chunk temp table へ寄せる。完了。
+   - final song prune の current path temp table insert は multi-value chunk へ寄せる。完了。
    - 行単位 `UpsertChartDigest` / `DeleteChartDigestIfOrphaned` は full backfill hot path から外し、
      単発 mutation API 専用に残す。完了。
 6. final diagnostics / blocker 判定を prune-first に整理する。主要実装済み。

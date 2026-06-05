@@ -126,12 +126,7 @@ internal static class Lr2SongDbWriter
         try
         {
             PrepareTempPathTable(songDb, TempCurrentSongPathTable);
-            foreach (string path in sourcePaths)
-            {
-                songDb.Execute(
-                    "INSERT OR IGNORE INTO temp." + TempCurrentSongPathTable + " (path) VALUES (?);",
-                    path);
-            }
+            BulkInsertTempPaths(songDb, TempCurrentSongPathTable, sourcePaths);
 
             PrepareTempHashTable(songDb, TempDeletedSongHashTable);
             string songTable = SQLiteTable<LR2SongDB.song>.GetTableName();
@@ -203,6 +198,28 @@ internal static class Lr2SongDbWriter
     private static void ClearTempTable(LR2SongDBExtended songDb, string tableName)
     {
         songDb.Execute("DELETE FROM temp." + tableName + ";");
+    }
+
+    private static void BulkInsertTempPaths(
+        LR2SongDBExtended songDb,
+        string tableName,
+        IReadOnlyList<string> paths)
+    {
+        if (paths == null || paths.Count == 0)
+        {
+            return;
+        }
+
+        const int chunkSize = 200;
+        for (int offset = 0; offset < paths.Count; offset += chunkSize)
+        {
+            string[] chunk = [.. paths.Skip(offset).Take(chunkSize)];
+            string placeholders = string.Join(",", chunk.Select(_ => "(?)"));
+            object[] args = [.. chunk.Cast<object>()];
+            songDb.Execute(
+                "INSERT OR IGNORE INTO temp." + tableName + " (path) VALUES " + placeholders + ";",
+                args);
+        }
     }
 
     private static void BulkInsertGeneratedSongs(LR2SongDBExtended songDb, IReadOnlyList<BMSFile> songs)
