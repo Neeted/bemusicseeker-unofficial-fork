@@ -160,6 +160,25 @@ public sealed class Lr2FolderFileProjectionTests
         Assert.AreEqual(2, row.type);
     }
 
+    [DataTestMethod]
+    [DataRow(2)]
+    [DataRow(3)]
+    [DataRow(4)]
+    [DataRow(6)]
+    public void TryCreateFolderRow_AllowsSupportedCustomFolderTypes(int folderType)
+    {
+        bool created = Lr2FolderFileProjection.TryCreateFolderRow(new Lr2FolderFileRowRequest
+        {
+            FilePath = @"D:\BMS\#BeMusicSeeker\0000.lr2folder",
+            LastWriteTimeUtc = new DateTime(2026, 6, 9, 1, 2, 3, DateTimeKind.Utc),
+            FolderType = folderType,
+            Definition = Lr2FolderFileProjection.ParseDefinition(["#TITLE Folder"])
+        }, out LR2SongDB.folder row);
+
+        Assert.IsTrue(created);
+        Assert.AreEqual(folderType, row.type);
+    }
+
     [TestMethod]
     public void SourceClassifier_UsesRelativePathWithoutFlatteningNestedBuiltinFolders()
     {
@@ -194,6 +213,57 @@ public sealed class Lr2FolderFileProjectionTests
     }
 
     [TestMethod]
+    public void SourceClassifier_UsesRelativePathForRivalBuiltinFolder()
+    {
+        string lr2Root = Path.GetFullPath(@"D:\LR2beta3");
+        string builtinRoot = Path.Combine(lr2Root, "LR2files", "Rival");
+        string filePath = Path.Combine(builtinRoot, "rival.lr2folder");
+
+        Lr2FolderFileSourceClassification classification = Lr2FolderFileSourceClassifier.Classify(new Lr2FolderFileSourceClassificationRequest
+        {
+            FilePath = filePath,
+            Lr2RootPath = lr2Root,
+            BuiltinSourceDirectories = [builtinRoot]
+        });
+
+        Assert.AreEqual(@"LR2files\Rival\rival.lr2folder", classification.DatabasePath);
+        Assert.AreEqual(Lr2SongFolderParentNormalizer.RootParentHash, classification.ParentHash);
+
+        bool created = Lr2FolderFileProjection.TryCreateFolderRow(new Lr2FolderFileRowRequest
+        {
+            FilePath = filePath,
+            DatabasePath = classification.DatabasePath,
+            LastWriteTimeUtc = new DateTime(2026, 6, 9, 1, 2, 3, DateTimeKind.Utc),
+            ParentHash = classification.ParentHash,
+            Definition = Lr2FolderFileProjection.ParseDefinition(["#TITLE Rival"])
+        }, out LR2SongDB.folder row);
+
+        Assert.IsTrue(created);
+        Assert.AreEqual(@"LR2files\Rival\rival.lr2folder", row.path);
+        Assert.AreEqual(Lr2SongFolderParentNormalizer.RootParentHash, row.parent);
+    }
+
+    [TestMethod]
+    public void SourceClassifier_PrefersRootCustomOutputOverOverlappingBuiltinSource()
+    {
+        string lr2Root = Path.GetFullPath(@"D:\LR2beta3");
+        string builtinRoot = Path.Combine(lr2Root, "LR2files", "CustomFolder");
+        string rootOutput = Path.Combine(builtinRoot, "BeMusicSeekerRoot");
+        string filePath = Path.Combine(rootOutput, "0000.lr2folder");
+
+        Lr2FolderFileSourceClassification classification = Lr2FolderFileSourceClassifier.Classify(new Lr2FolderFileSourceClassificationRequest
+        {
+            FilePath = filePath,
+            Lr2RootPath = lr2Root,
+            RootCustomFolderOutputBaseDir = rootOutput,
+            BuiltinSourceDirectories = [builtinRoot]
+        });
+
+        Assert.AreEqual(filePath, classification.DatabasePath);
+        Assert.AreEqual(Lr2SongFolderParentNormalizer.RootParentHash, classification.ParentHash);
+    }
+
+    [TestMethod]
     public void TryCreateFolderRow_SkipsCp932UnsupportedPath()
     {
         bool created = Lr2FolderFileProjection.TryCreateFolderRow(new Lr2FolderFileRowRequest
@@ -215,6 +285,21 @@ public sealed class Lr2FolderFileProjectionTests
             FilePath = @"D:\BMS\#BeMusicSeeker\0000.lr2folder",
             LastWriteTimeUtc = new DateTime(2026, 6, 9, 1, 2, 3, DateTimeKind.Utc),
             FolderType = 1,
+            Definition = Lr2FolderFileProjection.ParseDefinition(["#TITLE Folder"])
+        }, out LR2SongDB.folder row);
+
+        Assert.IsFalse(created);
+        Assert.IsNull(row);
+    }
+
+    [TestMethod]
+    public void TryCreateFolderRow_SkipsUnknownCustomFolderType()
+    {
+        bool created = Lr2FolderFileProjection.TryCreateFolderRow(new Lr2FolderFileRowRequest
+        {
+            FilePath = @"D:\BMS\#BeMusicSeeker\0000.lr2folder",
+            LastWriteTimeUtc = new DateTime(2026, 6, 9, 1, 2, 3, DateTimeKind.Utc),
+            FolderType = 999,
             Definition = Lr2FolderFileProjection.ParseDefinition(["#TITLE Folder"])
         }, out LR2SongDB.folder row);
 

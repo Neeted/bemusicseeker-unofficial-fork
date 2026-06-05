@@ -105,7 +105,9 @@ internal static class Lr2FolderFileProjection
         row = null;
         request ??= new Lr2FolderFileRowRequest();
         string databasePath = NormalizeDatabasePath(request.DatabasePath ?? request.FilePath);
-        if (string.IsNullOrWhiteSpace(databasePath) || request.LastWriteTimeUtc == null || request.FolderType == 1)
+        if (string.IsNullOrWhiteSpace(databasePath)
+            || request.LastWriteTimeUtc == null
+            || !IsSupportedFolderType(request.FolderType))
         {
             return false;
         }
@@ -140,6 +142,11 @@ internal static class Lr2FolderFileProjection
             adddate = request.ExistingRow?.adddate ?? request.GeneratedAtUtc.ToUnixtime()
         };
         return true;
+    }
+
+    private static bool IsSupportedFolderType(int folderType)
+    {
+        return folderType == 2 || folderType == 3 || folderType == 4 || folderType == 6;
     }
 
     private static bool TryReadDirective(string line, out string directive, out string body)

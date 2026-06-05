@@ -1207,3 +1207,11 @@ parse directive:
 - `LR2非対応パス` tree は LR2 連携モード専用の compatibility surface として扱い、standalone mode では表示しない。
 - library root scan の `.txt` surface は LR2 連携モードかつ完全生成設定 ON のときだけ列挙する。
   pending package / install estimation の局所 scan は package 表示・導入時 projection のため既存どおり text group を扱う。
+- `.lr2folder` projection は、通常 custom folder の `type = 2` と OpenLR2 root special 用の
+  `type = 3/4/6` だけを受け付ける。source classifier は特殊 type を推測せず、将来 fixture で
+  確定した source だけが explicit type を渡す。未知 type や reserved normal directory `type = 1`
+  は `folder` row にしない。
+- root custom folder 出力先が `LR2files\CustomFolder` / `LR2files\Rival` 配下と重なる場合は、
+  BeMusicSeeker 管理出力を優先し、absolute path + root parent として扱う。これは出力 workflow の
+  scope prune を absolute output directory で完結させるためであり、外部由来の built-in source は
+  引き続き LR2 root 相対 path (`LR2files\...`) として扱う。
