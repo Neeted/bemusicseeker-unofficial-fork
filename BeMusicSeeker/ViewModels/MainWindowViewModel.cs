@@ -5432,6 +5432,8 @@ public class MainWindowViewModel : ViewModel
         internal string SubLabel { get; set; } = string.Empty;
 
         internal bool IsCompleted { get; set; }
+
+        internal bool IsFailed { get; set; }
     }
 
     /// <summary>
@@ -15614,6 +15616,10 @@ public class MainWindowViewModel : ViewModel
         {
             TryCompleteStartupProgressLr2FullGenerationBackfill(files.Lr2FullGenerationBackfillCompletedVersion);
         });
+        listenerForBMSLibrary.RegisterHandler(() => files.Lr2FullGenerationBackfillFailedVersion, delegate
+        {
+            TryFailStartupProgressLr2FullGenerationBackfill(files.Lr2FullGenerationBackfillFailedVersion, files.Lr2FullGenerationBackfillFailureMessage);
+        });
         listenerForBMSLibrary.RegisterHandler(() => files.Lr2FullGenerationBackfillTotalCount, delegate
         {
             UpdateStartupProgressLr2FullGenerationBackfillStatus(files.Lr2FullGenerationBackfillTotalCount, files.Lr2FullGenerationBackfillProcessedCount, files.Lr2FullGenerationBackfillStage);
@@ -19644,6 +19650,32 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
+    private void TryFailStartupProgressLr2FullGenerationBackfill(int failedVersion, string message)
+    {
+        bool shouldFail = false;
+        lock (startupProgressLock)
+        {
+            if (!startupProgressState.IsActive || !CanCompleteStartupProgressPhase(startupProgressState, StartupProgressPhase.Lr2FullGenerationBackfillDone))
+            {
+                return;
+            }
+            shouldFail = failedVersion >= startupProgressState.RequiredLr2FullGenerationBackfillCompletedVersion
+                && failedVersion > startupProgressState.Lr2FullGenerationBackfillBaselineCompletedVersion;
+            if (shouldFail)
+            {
+                startupProgressState.IsFailed = true;
+                startupProgressState.FailureSubLabel = string.IsNullOrWhiteSpace(message)
+                    ? GetStartupProgressSubLabel(startupProgressState)
+                    : message;
+                startupProgressState.CompletionHideScheduled = false;
+            }
+        }
+        if (shouldFail)
+        {
+            RecomputeStartupProgressPresentation();
+        }
+    }
+
     private void TryCompleteStartupProgressPlaylistEntriesHydration(int completedVersion)
     {
         bool shouldComplete = false;
@@ -20418,6 +20450,12 @@ public class MainWindowViewModel : ViewModel
                     state.SkippedPhases |= phase;
                 }
             }
+            else if (string.Equals(verb, "fail", StringComparison.OrdinalIgnoreCase))
+            {
+                state.IsFailed = true;
+                state.FailureSubLabel = parts[1].Trim();
+                state.CompletionHideScheduled = false;
+            }
             else if (string.Equals(verb, "library", StringComparison.OrdinalIgnoreCase))
             {
                 string[] statusParts = parts[1].Split('|');
@@ -20490,9 +20528,14 @@ public class MainWindowViewModel : ViewModel
         }
         bool completed = AreExpectedStartupProgressPhasesCompleted(state);
         bool operableCompleted = (state.CompletedPhases & StartupProgressPhase.StartupReadyOperable) != 0;
-        string label = completed
+        string label = state.IsFailed
+            ? GetStartupProgressFailedLabel(operationKind)
+            : completed
             ? GetStartupProgressCompletedLabel(operationKind)
             : (operableCompleted ? BeMusicSeeker.Properties.Resources.Statusbar_progress_operable_background : GetStartupProgressRunningLabel(operationKind));
+        string subLabel = state.IsFailed
+            ? (!string.IsNullOrWhiteSpace(state.FailureSubLabel) ? state.FailureSubLabel : GetStartupProgressSubLabel(state))
+            : completed ? string.Empty : GetStartupProgressSubLabel(state);
         return new StartupProgressTestResult
         {
             ExpectedCount = CountExpectedStartupProgressPhases(state),
@@ -20502,8 +20545,9 @@ public class MainWindowViewModel : ViewModel
             IgnoredRequestCount = ignoredRequests,
             IgnoredCompleteCount = ignoredCompletes,
             Label = label,
-            SubLabel = completed ? string.Empty : GetStartupProgressSubLabel(state),
-            IsCompleted = completed
+            SubLabel = subLabel,
+            IsCompleted = completed,
+            IsFailed = state.IsFailed
         };
     }
 

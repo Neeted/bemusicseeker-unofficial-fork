@@ -444,6 +444,11 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
             Assert.AreEqual(0, row.total_count);
             Assert.AreEqual(Lr2FullGenerationBackfillService.StartupScanBlockersStage, row.stage);
             Assert.AreEqual(0, verify.Table<LR2SongDB.folder>().ToList().Count);
+            Assert.AreEqual(1, library.Lr2FullGenerationBackfillRequestedVersion);
+            Assert.AreEqual(0, library.Lr2FullGenerationBackfillCompletedVersion);
+            Assert.AreEqual(1, library.Lr2FullGenerationBackfillFailedVersion);
+            Assert.IsFalse(library.Lr2FullGenerationBackfillRunning);
+            StringAssert.Contains(library.Lr2FullGenerationBackfillFailureMessage, Lr2FullGenerationBackfillService.StartupScanBlockersReason);
         }
         finally
         {

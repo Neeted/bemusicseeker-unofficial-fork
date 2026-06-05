@@ -1168,6 +1168,9 @@ parse directive:
 - in-process で `Lr2FullGenerationBackfillRunning` の間に同じ workflow が再要求された場合は、durable status が
   `Needed` のままでも追加 queue せず、現在の bindable progress を返す。アプリ再起動後の persisted `Running` は
   incomplete run として再評価し、通常の backfill request へ戻す。
+- backfill runner の `Incomplete` / `Failed` は startup progress の完了版数を進めない。
+  `Lr2FullGenerationBackfillFailedVersion` と failure message で ViewModel へ通知し、進捗バーは失敗状態として残す。
+  `CompletedVersion` は durable status が `Completed` になった run だけで進める。
 - 完全生成設定は設定ダイアログの LR2 連携項目として表示する。既定値は LR2 連携モードの標準挙動に合わせて
   `true` とし、OFF から ON に変更して保存した場合は
   `QueueLr2FullGenerationBackfillIfNeeded("SettingDialog.SaveSettings")` を呼んで同じ background workflow に流す。

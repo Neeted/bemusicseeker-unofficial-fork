@@ -1128,6 +1128,8 @@ public class BMSLibrary : NotificationObject
 
     private int lr2FullGenerationBackfillCompletedVersion;
 
+    private int lr2FullGenerationBackfillFailedVersion;
+
     private int chartInfoHydrationRequestedVersion;
 
     private readonly object lockDeferredScoreHydration = new();
@@ -1280,11 +1282,15 @@ public class BMSLibrary : NotificationObject
 
     private int _Lr2FullGenerationBackfillCompletedVersion;
 
+    private int _Lr2FullGenerationBackfillFailedVersion;
+
     private int _Lr2FullGenerationBackfillTotalCount;
 
     private int _Lr2FullGenerationBackfillProcessedCount;
 
     private string _Lr2FullGenerationBackfillStage = string.Empty;
+
+    private string _Lr2FullGenerationBackfillFailureMessage = string.Empty;
 
     private bool _ChartInfoHydrationRunning;
 
@@ -2359,6 +2365,22 @@ public class BMSLibrary : NotificationObject
         }
     }
 
+    public int Lr2FullGenerationBackfillFailedVersion
+    {
+        get
+        {
+            return _Lr2FullGenerationBackfillFailedVersion;
+        }
+        private set
+        {
+            if (_Lr2FullGenerationBackfillFailedVersion != value)
+            {
+                _Lr2FullGenerationBackfillFailedVersion = value;
+                RaisePropertyChanged(() => Lr2FullGenerationBackfillFailedVersion);
+            }
+        }
+    }
+
     public int Lr2FullGenerationBackfillTotalCount
     {
         get
@@ -2404,6 +2426,23 @@ public class BMSLibrary : NotificationObject
             {
                 _Lr2FullGenerationBackfillStage = value;
                 RaisePropertyChanged(() => Lr2FullGenerationBackfillStage);
+            }
+        }
+    }
+
+    public string Lr2FullGenerationBackfillFailureMessage
+    {
+        get
+        {
+            return _Lr2FullGenerationBackfillFailureMessage;
+        }
+        private set
+        {
+            value ??= string.Empty;
+            if (_Lr2FullGenerationBackfillFailureMessage != value)
+            {
+                _Lr2FullGenerationBackfillFailureMessage = value;
+                RaisePropertyChanged(() => Lr2FullGenerationBackfillFailureMessage);
             }
         }
     }
@@ -5072,6 +5111,7 @@ completeFileEnumerationOnce,
         Lr2FullGenerationBackfillTotalCount = 0;
         Lr2FullGenerationBackfillProcessedCount = 0;
         Lr2FullGenerationBackfillStage = "queued";
+        Lr2FullGenerationBackfillFailureMessage = string.Empty;
         Lr2FullGenerationBackfillRunning = true;
         return requestVersion;
     }
@@ -5091,6 +5131,19 @@ completeFileEnumerationOnce,
         }
 
         Lr2FullGenerationBackfillCompletedVersion = lr2FullGenerationBackfillCompletedVersion;
+        Lr2FullGenerationBackfillStage = stage ?? string.Empty;
+        Lr2FullGenerationBackfillRunning = false;
+    }
+
+    private void FailLr2FullGenerationBackfillRequest(int requestVersion, string stage, string message)
+    {
+        lock (lockLr2FullGenerationBackfill)
+        {
+            lr2FullGenerationBackfillFailedVersion = Math.Max(lr2FullGenerationBackfillFailedVersion, requestVersion);
+        }
+
+        Lr2FullGenerationBackfillFailedVersion = lr2FullGenerationBackfillFailedVersion;
+        Lr2FullGenerationBackfillFailureMessage = message ?? string.Empty;
         Lr2FullGenerationBackfillStage = stage ?? string.Empty;
         Lr2FullGenerationBackfillRunning = false;
     }
@@ -5209,7 +5262,14 @@ completeFileEnumerationOnce,
                 + " detail=" + (result.IncompleteReason ?? "completed")
                 + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
             ApplyLr2FullGenerationCompatibilityProjection(result.Lr2CompatibilityMaintenanceInfos, reason);
-            CompleteLr2FullGenerationBackfillRequest(requestVersion, result.FinalStage);
+            if (completed)
+            {
+                CompleteLr2FullGenerationBackfillRequest(requestVersion, result.FinalStage);
+            }
+            else
+            {
+                FailLr2FullGenerationBackfillRequest(requestVersion, result.FinalStage, result.IncompleteReason ?? result.FinalStage);
+            }
             ReportStartupBackgroundTask("lr2_full_generation_backfill", completed ? "done" : "incomplete", stopwatch.ElapsedMilliseconds, failed: false, detail: result.IncompleteReason ?? "completed");
         }
         catch (Exception ex)
@@ -5237,7 +5297,7 @@ completeFileEnumerationOnce,
                 + " elapsedMs=" + stopwatch.ElapsedMilliseconds
                 + " exception=" + ex.GetType().Name
                 + " message=" + ex.Message);
-            CompleteLr2FullGenerationBackfillRequest(requestVersion, "failed");
+            FailLr2FullGenerationBackfillRequest(requestVersion, "failed", ex.Message);
             ReportStartupBackgroundTask("lr2_full_generation_backfill", "failed", stopwatch.ElapsedMilliseconds, failed: true, detail: ex.Message);
         }
     }

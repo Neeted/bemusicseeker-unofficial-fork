@@ -349,6 +349,37 @@ public sealed class MainWindowViewModelStartupProgressTests
     }
 
     [TestMethod]
+    public void StartupProgress_Lr2FullGenerationFailureKeepsProgressFailed()
+    {
+        MainWindowViewModel.StartupProgressTestResult result = MainWindowViewModel.ReduceStartupProgressForTest(
+            "Startup",
+            "complete:LibraryDatabaseLoadDone",
+            "complete:LibraryFileEnumerationDone",
+            "complete:LibraryFileDiffDone",
+            "complete:StartupReadyData",
+            "complete:StartupReadyUi",
+            "complete:StartupReadyOperable",
+            "skip:PlaylistEntriesHydrationDone",
+            "skip:ChartInfoHydrationDone",
+            "skip:ChartInfoBackfillDone",
+            "skip:ChartDigestBackfillDone",
+            "skip:PlaylistReferenceApplied",
+            "skip:ExternalPlaylistSyncDone",
+            "skip:ScoreHydrationDone",
+            "skip:RankingRefreshDone",
+            "skip:MaintenanceDeferredDone",
+            "skip:InstallableMaintenanceDeferredDone",
+            "request:Lr2FullGenerationBackfillDone",
+            "lr2full:0|0|startup_scan_blockers",
+            "fail:startup scan blockers");
+
+        Assert.AreEqual(Resources.Statusbar_progress_failed, result.Label);
+        Assert.AreEqual("startup scan blockers", result.SubLabel);
+        Assert.IsFalse(result.IsCompleted);
+        Assert.IsTrue(result.IsFailed);
+    }
+
+    [TestMethod]
     public void StartupProgress_Lr2FullGenerationRequestAfterSkip_DoesNotMoveBackToPending()
     {
         MainWindowViewModel.StartupProgressTestResult result = MainWindowViewModel.ReduceStartupProgressForTest(
