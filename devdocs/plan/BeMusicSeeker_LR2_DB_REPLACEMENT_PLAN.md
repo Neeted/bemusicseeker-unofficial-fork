@@ -176,12 +176,15 @@ SELECT path,date FROM folder WHERE parent = ROOT OR date = 0
 現状:
 
 - Everything を優先し、失敗時に managed filesystem scan へ fallback する。
+- `RootFileEnumerationResult` は file / directory の metadata entry (`path`, `mtime`) を持つ。
+  Everything grouped bridge と managed fallback は同じ entry surface へ materialize する。
 - 現在の `ChartScanResult` は chart path / chart directory / audio/image/movie の
   resource hash に加え、chart directory 直下の `.txt` presence と `folderinfo.txt` 候補を持つ。
-- 現在の `ChartScanResult` は file mtime / directory mtime そのものは持たない。BMS file mtime は
-  file diff 側で実ファイルから確認し、normal folder row の directory mtime は folder sync 側で取得する。
+- 現在の `ChartScanResult` は file mtime / directory mtime そのものはまだ持たない。BMS file mtime は
+  file diff 側で snapshot から扱う。normal folder row の directory mtime は、backfill / file diff /
+  mutation sync の入口で directory metadata surface から resolver として渡す。
 - `.lr2folder` discovery は LR2 full generation 入力として、chart/resource scan surface とは別に
-  root / extension / filename を調整した file surface から作る。
+  root / extension / filename を調整した metadata-bearing file surface から作る。
 - `ChartFileSnapshot` には file bytes、MD5、SHA256、`LastWriteTimeUtc` がある。
 - `BMSFile.CreateBMSFileFromSnapshot` は軽量パーサー。
 - 軽量パーサーは `#WAVxx`、`#BMPxx`、主要メタデータ、`#STAGEFILE`、
@@ -201,8 +204,8 @@ SELECT path,date FROM folder WHERE parent = ROOT OR date = 0
 - native bridge を拡張せずに列挙後 managed API で mtime を再取得する方針は採らない。
   fallback 側だけ列挙時に mtime を持つ方針も採らない。
 - Everything query は既存の並列 grouped query の考え方に揃え、chart / audio / image / movie に加えて
-  `.txt`、`folderinfo.txt`、`.lr2folder` 用の query を並べる。`.txt` / `folderinfo.txt` / `.lr2folder`
-  は chart / resource より件数が少ない前提で、独立 query として扱う。
+  `.txt`、`folderinfo.txt`、`.lr2folder`、directory 用の query を並べる。
+  `.txt` / `folderinfo.txt` / `.lr2folder` は chart / resource より件数が少ない前提で、独立 query として扱う。
 - managed fallback も `FastRootFileEnumerator` / `WIN32_FIND_DATA` 由来の列挙時 metadata を
   同じ `RootFileEnumerationResult` 相当へ格納し、後段は backend に依存しない。
 - `ChartScanResult` / normal folder metadata / `.lr2folder` discovery は、path-only set ではなく
@@ -1018,10 +1021,10 @@ parse directive:
 | Phase 0: Golden fixture と contract 固定 | 一部完了 | `LR2CRC32` / ROOT sentinel / CP932 boundary の contract、OpenLR2 source classifier の推測抑止、`exlevel` contract はテスト化済み。 | `folderinfo.txt` / `.lr2folder` / copied `song.db` dry-run など、実 DB 由来の golden fixture を追加する。 |
 | Phase 1: BMS 変更検出 | 主要実装済み | `song.path` / `song.date` / hash を使う変更検出、same MD5 の targeted update、runtime reload の再評価 queue は接続済み。 | 大規模 root 変更・mtime preserved copy の手動検証を残す。 |
 | Phase 2: `song` row merge / ownership | 主要実装済み | `Lr2SongDbWriter`、generated/user column 分離、runtime write failure の status marking、merge 時 user column preservation は接続済み。 | copied `song.db` で LR2 user column が維持されることを統合確認する。 |
-| Phase 3: metadata-bearing scan surface / raw resource reference | 一部完了 | BMS parser / snapshot 側の raw resource reference、text group の targeted `song.txt` 更新、完全生成 ON 時だけの scan 条件は実装済み。 | Everything native bridge ABI と managed fallback を `path + mtime` surface へ拡張し、`.txt` / `folderinfo.txt` / `.lr2folder` を同じ grouped enumeration に載せる。 |
+| Phase 3: metadata-bearing scan surface / raw resource reference | 一部完了 | BMS parser / snapshot 側の raw resource reference、text group の targeted `song.txt` 更新、完全生成 ON 時だけの scan 条件、`RootFileEnumerationResult` の file / directory mtime entry、Everything grouped bridge ABI / managed fallback の metadata surface は実装済み。`.lr2folder` と normal folder directory mtime は backfill / sync に接続済み。 | `ChartScanResult` へ `.txt` / `folderinfo.txt` entry metadata を残し、`folderinfo.txt` candidate の `File.Exists` 後追いをなくす。fixed native resource scan と grouped enumeration surface の統合、native / fallback parity fixture を追加する。 |
 | Phase 4: LR2 compatibility warning | 主要実装済み | `Lr2CompatibilityEvaluator`、maintenance 最小 fact、standalone mode での LR2 非対応パス tree 非表示は接続済み。 | warning 表示の実機確認と、copied DB での backfill 表示確認を残す。 |
 | Phase 5: `song` row enricher | 主要実装済み | `Lr2SongRowEnricher`、`chart_info` 由来 numeric columns、`exlevel = #EXLEVEL raw int / 未設定 0` は実装済み。 | LR2IR / tag.db 由来の exlevel 上書きは対象外として維持する。 |
-| Phase 6: normal `folder` row generator | 主要実装済み | normal folder generator / scope planner / DB sync、mutation・file diff failure の incomplete marking は接続済み。 | Phase 3 の directory metadata surface を正本にし、managed `Directory.GetLastWriteTime` 後追い取得を残さない形へ接続する。 |
+| Phase 6: normal `folder` row generator | 主要実装済み | normal folder generator / scope planner / DB sync、mutation・file diff failure の incomplete marking、directory metadata surface 由来の `folder.date` resolver は接続済み。 | `folderinfo.txt` entry metadata を Phase 3 surface から渡し、candidate discovery の後追い `File.Exists` をなくす。実機で directory mtime / folder row freshness を確認する。 |
 | Phase 7: `.lr2folder` DB sync | 一部完了 | playlist projection と `.lr2folder` / `folder` row sync の同一化、通常 discovery、built-in source の相対 path 化は接続済み。 | `LR2files\CustomFolder` の `<customfolder>` bitmask、`newsong` dynamic row、`course1-3` の `type=6`、`LR2files\Rival` 非対象化を実装・fixture 化する。 |
 | Phase 8: status / backfill UI | 主要実装済み | durable status、runtime progress、setting queue、cancel、mutation guard、startup blocker diagnostic / cleanup は実装済み。 | 長時間 backfill の UI 手動確認と failure/cancel 再起動確認を残す。 |
 | Phase 9: resumable backfill | 一部完了 | durable cursor、stage / chunk resume、changed-only song row backfill、cancel boundary の基盤は実装済み。 | 実 DB での partial resume、failed chunk rollback、copied `song.db` での no-op 2 回目 backfill を統合確認する。 |
@@ -1047,12 +1050,12 @@ parse directive:
     DB 上に残したまま generated columns だけを更新する。
   - `txt` / text group は Phase 3 で正本を設計してから扱うため、この段階では従来どおり generated row 側の値を保存する。
   - `song.hash` が `NULL` の既存 row も existing row として扱い、hash 取得結果だけで new row 判定しない。
-- Phase 3: raw resource reference と targeted `song.txt` 更新の基盤は実装済み。metadata-bearing scan surface は残作業。
-  - `RootFileEnumerationResult` / `ChartScanResult` / native bridge decode result を、path set ではなく
-    file entry metadata surface として扱う。
-  - fixed native resource scan は拡張し、chart / audio / image / movie に加えて `.txt` / `folderinfo.txt` /
-    `.lr2folder` query と file mtime を同じ bridge layout で返す。
-  - managed fallback も列挙時に同じ metadata を持ち、native / fallback のどちらでも後追い全件 stat を行わない。
+- Phase 3: raw resource reference と targeted `song.txt` 更新の基盤は実装済み。
+  `RootFileEnumerationResult` と native grouped bridge decode result は file / directory metadata entry surface になっている。
+  - `ChartScanResult` はまだ path set 中心なので、`.txt` / `folderinfo.txt` entry metadata を落とさないよう拡張する。
+  - fixed native resource scan は、chart / audio / image / movie に加えて `.txt` / `folderinfo.txt` /
+    `.lr2folder` query と file mtime を同じ bridge layout で返す surface へ寄せる。
+  - managed fallback は列挙時に同じ metadata を持つ。native / fallback のどちらでも後追い全件 stat を行わない。
   - `song.date` が一致していて BMS 本体 MD5 が同じ場合、`.txt` 増減は targeted `song.txt` update だけ行い、
     chart_info / maintenance は再生成しない。
   - raw resource reference は runtime-only の `ChartResourceReference` として BMS parser で保持する。
@@ -1258,11 +1261,11 @@ existence / mtime は意味的に揃える。
 
 ## 残作業の推奨順
 
-1. Everything native bridge ABI と fallback surface を metadata-bearing enumeration へ拡張する。
-   - `RootFileEnumerationResult` / bridge decode result / managed fallback を `path + mtime` entry surface に揃える。
-   - chart / audio / image / movie / `.txt` / `folderinfo.txt` / `.lr2folder` query を同じ grouped enumeration に並べる。
-   - directory mtime surface を追加し、normal folder sync / startup blocker diagnostic の managed後追い取得を削る。
-   - bridge layout version / result version log と native / fallback parity tests を追加する。
+1. `ChartScanResult` / `folderinfo.txt` surface を metadata-bearing enumeration に寄せる。
+   - `folderinfo.txt` candidate を `File.Exists` 後追いではなく `.txt` grouped entry surface から作る。
+   - `ChartDirectoryScanBuilder` / `EverythingFileScanner.PopulateTextFileSurface` が entry metadata を落とさないようにする。
+   - fixed native resource scan と grouped enumeration surface の境界を整理し、`.txt` / `folderinfo.txt` を同じ grouped request に並べる。
+   - native / fallback parity tests と bridge layout / result version log を追加する。
 2. Phase 9 の統合確認を固める。
    - copied `song.db` で、初回 backfill、2 回目 no-op、partial resume、failed chunk rollback、
      cancel/restart、startup-scan blocker cleanup を確認する。
