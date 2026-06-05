@@ -552,6 +552,7 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
         ExecuteSongDbTransaction(delegate (LR2SongDBExtended songDb)
         {
             EnsureBmsonSchema(songDb);
+            SongUserColumns userColumns = ReadSongUserColumns(songDb, oldPath);
             songDb.Delete<LR2SongDB.song>(oldPath);
             songDb.Delete<LR2SongDBExtended.maintenance>(oldPath);
             BMSFileMaintenanceInfo maintenanceInfo = bmsFile.HasValidMaintenanceInfoSnapshot
@@ -562,7 +563,45 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
                 songDb.InsertOrReplace(maintenanceInfo, typeof(LR2SongDBExtended.maintenance));
             }
             Lr2SongDbWriter.UpsertGeneratedSong(songDb, bmsFile);
+            ApplySongUserColumns(songDb, bmsFile.path, userColumns);
         });
+    }
+
+    private static SongUserColumns ReadSongUserColumns(LR2SongDBExtended songDb, string oldPath)
+    {
+        if (songDb == null || string.IsNullOrWhiteSpace(oldPath))
+        {
+            return null;
+        }
+
+        return songDb.Query<SongUserColumns>(
+            "SELECT "
+            + SQLiteTable<LR2SongDB.song>.GetColumnName(song => song.favorite) + " AS favorite, "
+            + SQLiteTable<LR2SongDB.song>.GetColumnName(song => song.adddate) + " AS adddate, "
+            + SQLiteTable<LR2SongDB.song>.GetColumnName(song => song.tag) + " AS tag"
+            + " FROM " + SQLiteTable<LR2SongDB.song>.GetTableName()
+            + " WHERE " + SQLiteTable<LR2SongDB.song>.GetColumnName(song => song.path) + " = ? LIMIT 1;",
+            oldPath).FirstOrDefault();
+    }
+
+    private static void ApplySongUserColumns(LR2SongDBExtended songDb, string path, SongUserColumns userColumns)
+    {
+        if (songDb == null || string.IsNullOrWhiteSpace(path) || userColumns == null)
+        {
+            return;
+        }
+
+        songDb.Execute(
+            "UPDATE " + SQLiteTable<LR2SongDB.song>.GetTableName()
+            + " SET "
+            + SQLiteTable<LR2SongDB.song>.GetColumnName(song => song.favorite) + " = ?, "
+            + SQLiteTable<LR2SongDB.song>.GetColumnName(song => song.adddate) + " = ?, "
+            + SQLiteTable<LR2SongDB.song>.GetColumnName(song => song.tag) + " = ?"
+            + " WHERE " + SQLiteTable<LR2SongDB.song>.GetColumnName(song => song.path) + " = ?;",
+            userColumns.favorite,
+            userColumns.adddate,
+            userColumns.tag,
+            path);
     }
 
     public void EnsureBmsonSchema()
@@ -579,6 +618,15 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
             songDb.RollbackTo(savepoint);
             throw;
         }
+    }
+
+    private sealed class SongUserColumns
+    {
+        public int? favorite { get; set; }
+
+        public int? adddate { get; set; }
+
+        public string tag { get; set; }
     }
 
     public void EnsureMaintenanceSchema()

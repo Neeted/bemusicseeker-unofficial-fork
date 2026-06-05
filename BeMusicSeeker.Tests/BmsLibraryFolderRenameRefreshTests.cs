@@ -383,6 +383,69 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     }
 
     [TestMethod]
+    public void FixInstallationDirectoryCharts_BmsChartPreservesExistingLr2SongUserColumns()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_BmsRepair_" + Guid.NewGuid().ToString("N"));
+            string sourceDirectoryPath = Path.Combine(tempRootPath, "Broken");
+            string destinationDirectoryPath = Path.Combine(tempRootPath, "Installed");
+            string sourceChartPath = Path.Combine(sourceDirectoryPath, "chart.bms");
+            string destinationChartPath = Path.Combine(destinationDirectoryPath, "chart.bms");
+            Directory.CreateDirectory(sourceDirectoryPath);
+            Directory.CreateDirectory(destinationDirectoryPath);
+            File.WriteAllText(sourceChartPath, "#PLAYER 1\r\n#TITLE repaired\r\n");
+            try
+            {
+                BMSFile file = BMSFile.CreateBMSFileFromFile(sourceChartPath);
+                string hash = file.hash;
+                var existing = new TestableBmsFile
+                {
+                    path = sourceChartPath,
+                    adddate = 12345,
+                    tag = "external-user-tag"
+                };
+                existing.SetHash(hash);
+                existing.SetFavorite(7);
+                using (var songDb = new LR2SongDBExtended(songDbPath))
+                {
+                    songDb.InsertOrReplace(existing, typeof(LR2SongDB.song));
+                }
+
+                var library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
+                SetLibraryFilesWithoutNotification(library, [file]);
+                ChartFile repairTarget = ChartFileProjection.WithPackageState(
+                    ChartFileProjection.FromBmsFile(file),
+                    destinationDirectoryPath,
+                    string.Empty,
+                    string.Empty,
+                    []);
+
+                library.FixInstallationDirectoryCharts([repairTarget]);
+
+                using var verify = new LR2SongDBExtended(songDbPath);
+                Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM song WHERE path = ?;", sourceChartPath));
+                LR2SongDB.song row = verify.Table<LR2SongDB.song>().Single(candidate => candidate.path == destinationChartPath);
+                Assert.AreEqual(hash, row.hash);
+                Assert.AreEqual("repaired", row.title);
+                Assert.AreEqual(12345, row.adddate);
+                Assert.AreEqual(7, row.favorite);
+                Assert.AreEqual("external-user-tag", row.tag);
+                Assert.IsFalse(string.IsNullOrWhiteSpace(row.folder));
+                Assert.IsFalse(string.IsNullOrWhiteSpace(row.parent));
+            }
+            finally
+            {
+                if (Directory.Exists(tempRootPath))
+                {
+                    Directory.Delete(tempRootPath, recursive: true);
+                }
+            }
+        });
+    }
+
+    [TestMethod]
     public void ApplyLibraryMutationDelta_BmsInstallDestinationUsesModelOverlayWithoutMutatingOwner()
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -1374,6 +1437,11 @@ public sealed class BmsLibraryFolderRenameRefreshTests
         public void SetSha256(string value)
         {
             ApplySha256(value);
+        }
+
+        public void SetFavorite(int? value)
+        {
+            favorite = value;
         }
     }
 
