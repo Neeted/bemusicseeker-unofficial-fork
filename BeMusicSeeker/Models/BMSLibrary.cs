@@ -5114,7 +5114,7 @@ completeFileEnumerationOnce,
         {
             return status;
         }
-        if (Lr2FullGenerationBackfillRunning)
+        if (!TryBeginLr2FullGenerationBackfillRequest(out int requestVersion))
         {
             LogInstallPerformance("lr2_full_generation_backfill queue_skipped reason=" + (reason ?? "unknown")
                 + " status=" + status.Status
@@ -5128,7 +5128,6 @@ completeFileEnumerationOnce,
             return status;
         }
 
-        int requestVersion = BeginLr2FullGenerationBackfillRequest();
         PublishLr2FullGenerationStatus(CreateRuntimeLr2FullGenerationStatus(
             Lr2FullGenerationStatusKind.Running,
             signature,
@@ -5222,22 +5221,26 @@ completeFileEnumerationOnce,
         };
     }
 
-    private int BeginLr2FullGenerationBackfillRequest()
+    private bool TryBeginLr2FullGenerationBackfillRequest(out int requestVersion)
     {
-        int requestVersion;
         lock (lockLr2FullGenerationBackfill)
         {
+            if (_Lr2FullGenerationBackfillRunning)
+            {
+                requestVersion = _Lr2FullGenerationBackfillRequestedVersion;
+                return false;
+            }
             lr2FullGenerationBackfillRequestedVersion++;
             requestVersion = lr2FullGenerationBackfillRequestedVersion;
-        }
 
-        Lr2FullGenerationBackfillRequestedVersion = requestVersion;
-        Lr2FullGenerationBackfillTotalCount = 0;
-        Lr2FullGenerationBackfillProcessedCount = 0;
-        Lr2FullGenerationBackfillStage = "queued";
-        Lr2FullGenerationBackfillFailureMessage = string.Empty;
-        Lr2FullGenerationBackfillRunning = true;
-        return requestVersion;
+            Lr2FullGenerationBackfillRequestedVersion = requestVersion;
+            Lr2FullGenerationBackfillTotalCount = 0;
+            Lr2FullGenerationBackfillProcessedCount = 0;
+            Lr2FullGenerationBackfillStage = "queued";
+            Lr2FullGenerationBackfillFailureMessage = string.Empty;
+            Lr2FullGenerationBackfillRunning = true;
+            return true;
+        }
     }
 
     private void UpdateLr2FullGenerationBackfillProgress(int processedCount, int totalCount, string stage)
@@ -5295,10 +5298,7 @@ completeFileEnumerationOnce,
 
     private bool IsLr2FullGenerationMutationBlocked()
     {
-        BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
-        return options.OperationModeLR2DB
-            && options.EnableLR2SongDbFullGeneration
-            && Lr2FullGenerationBackfillRunning;
+        return Lr2FullGenerationBackfillRunning;
     }
 
     private bool TryBlockLr2FullGenerationMutation(string operation, bool showMessage = true)

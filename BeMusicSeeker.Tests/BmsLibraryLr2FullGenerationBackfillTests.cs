@@ -152,7 +152,7 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
     }
 
     [TestMethod]
-    public void ApplyInstalledChartStorageTargets_DoesNotBlockRunningBackfillWhenFeatureIsDisabled()
+    public void ApplyInstalledChartStorageTargets_BlocksRunningBackfillEvenWhenFeatureIsDisabled()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         try
@@ -178,10 +178,10 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
             };
             InvokeBeginLr2FullGenerationBackfillRequest(library);
 
-            InvokeApplyInstalledChartStorageTargets(library, ChartStorageTargetSet.FromRows([file], []), "test_disabled_running_add");
-
-            using var verify = new LR2SongDBExtended(scope.SongDbPath);
-            Assert.AreEqual(0, verify.Table<LR2SongDB.folder>().Count());
+            TargetInvocationException exception = Assert.ThrowsException<TargetInvocationException>(
+                () => InvokeApplyInstalledChartStorageTargets(library, ChartStorageTargetSet.FromRows([file], []), "test_disabled_running_add"));
+            Assert.IsInstanceOfType(exception.InnerException, typeof(InvalidOperationException));
+            Assert.AreEqual(Resources.Warn_Lr2FullGenerationBackfillRunning, exception.InnerException.Message);
         }
         finally
         {
@@ -276,6 +276,30 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
             Assert.AreEqual(Lr2FullGenerationStatusKind.Running, snapshot.Status);
             Assert.AreEqual(Lr2FullGenerationStatusKind.Running, library.GetLr2FullGenerationStatusSnapshot().Status);
             Assert.IsFalse(queued);
+            Assert.AreEqual(1, library.Lr2FullGenerationBackfillRequestedVersion);
+            Assert.IsTrue(library.Lr2FullGenerationBackfillRunning);
+        }
+        finally
+        {
+            ResetTouchedSettings();
+        }
+    }
+
+    [TestMethod]
+    public void TryBeginLr2FullGenerationBackfillRequest_DoesNotAdvanceVersionWhenAlreadyRunning()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        try
+        {
+            Settings.Default.OperationModeLR2DB = true;
+            Settings.Default.EnableLR2SongDbFullGeneration = true;
+            ResetLr2FolderDiscoverySettings();
+            var library = new BMSLibrary(scope.SongDbPath);
+
+            Assert.IsTrue(InvokeTryBeginLr2FullGenerationBackfillRequest(library, out int firstVersion));
+            Assert.AreEqual(1, firstVersion);
+            Assert.IsFalse(InvokeTryBeginLr2FullGenerationBackfillRequest(library, out int secondVersion));
+            Assert.AreEqual(firstVersion, secondVersion);
             Assert.AreEqual(1, library.Lr2FullGenerationBackfillRequestedVersion);
             Assert.IsTrue(library.Lr2FullGenerationBackfillRunning);
         }
@@ -1575,9 +1599,18 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
 
     private static void InvokeBeginLr2FullGenerationBackfillRequest(BMSLibrary library)
     {
-        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("BeginLr2FullGenerationBackfillRequest", BindingFlags.Instance | BindingFlags.NonPublic);
+        bool started = InvokeTryBeginLr2FullGenerationBackfillRequest(library, out _);
+        Assert.IsTrue(started);
+    }
+
+    private static bool InvokeTryBeginLr2FullGenerationBackfillRequest(BMSLibrary library, out int requestVersion)
+    {
+        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("TryBeginLr2FullGenerationBackfillRequest", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.IsNotNull(methodInfo);
-        methodInfo.Invoke(library, []);
+        object[] arguments = [0];
+        bool started = (bool)methodInfo.Invoke(library, arguments);
+        requestVersion = (int)arguments[0];
+        return started;
     }
 
     private static void InvokeSetModeAndCommitToDb(BMSLibrary library, IEnumerable<BMSFile> files)
