@@ -746,7 +746,13 @@ internal static class Lr2FullGenerationBackfillService
             NormalizeEnumerationEntries(request.Lr2FolderFileEntries));
         foreach (Lr2FolderFileSyncItem item in syncItems.Items)
         {
-            if (item?.LastWriteTimeUtc == null || item.FolderType == 1)
+            if (item?.LastWriteTimeUtc == null)
+            {
+                missing++;
+                continue;
+            }
+
+            if (item.FolderType == 1)
             {
                 continue;
             }
@@ -1034,13 +1040,13 @@ internal static class Lr2FullGenerationBackfillService
         }
     }
 
-    private static DateTime ResolveLastWriteTimeUtc(string filePath, RootFileEnumerationEntry enumerationEntry)
+    private static DateTime? ResolveLastWriteTimeUtc(string filePath, RootFileEnumerationEntry enumerationEntry)
     {
         if (enumerationEntry?.LastWriteTimeUtc != null)
         {
             return enumerationEntry.LastWriteTimeUtc.Value;
         }
-        return File.GetLastWriteTimeUtc(filePath);
+        return null;
     }
 
     private static RootFileEnumerationEntry ResolveEnumerationEntry(

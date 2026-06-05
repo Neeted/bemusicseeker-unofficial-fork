@@ -1264,6 +1264,8 @@ existence / mtime は意味的に揃える。
   の grouped query result は、path だけでなく file mtime を含む file entry surface を返す。
 - managed fallback も同じ file entry surface を返す。fallback scan 後に同じ path へ mtime を再問い合わせする
   二段構えにはしない。
+- `.lr2folder` sync item も enumeration entry の mtime を正本にする。path だけが渡された `.lr2folder` は
+  missing metadata として扱い、後段で `File.GetLastWriteTimeUtc` を呼んで補完しない。
 - directory mtime は normal folder row と startup-scan blocker diagnostic の正本であるため、
   native bridge / fallback の metadata surface に含める。
 - surface が不完全な場合は「存在しない」と見なして `Completed` にしない。stale row prune や

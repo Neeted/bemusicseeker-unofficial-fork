@@ -1373,6 +1373,7 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
             RootDirectories = [rootDirectory],
             Lr2FolderDiscoveryDirectories = [rootDirectory],
             Lr2FolderFilePaths = [lr2FolderPath],
+            Lr2FolderFileEntries = CreateFileEntryMap(lr2FolderPath),
             StartedAtUtc = new DateTime(2026, 6, 5, 0, 1, 0, DateTimeKind.Utc)
         });
 
@@ -1688,6 +1689,7 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
             RootDirectories = [rootDirectory],
             Lr2FolderDiscoveryDirectories = [rootDirectory],
             Lr2FolderFilePaths = [lr2FolderPath],
+            Lr2FolderFileEntries = CreateFileEntryMap(lr2FolderPath),
             StartedAtUtc = new DateTime(2026, 6, 5, 0, 1, 0, DateTimeKind.Utc)
         });
 
@@ -1699,7 +1701,7 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
     }
 
     [TestMethod]
-    public void BackfillService_DoesNotRequireUnreadableLr2FolderRowAfterResume()
+    public void BackfillService_LeavesIncompleteWhenExpectedLr2FolderMetadataIsMissingAfterResume()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         string rootDirectory = Path.Combine(scope.DirectoryPath, "ResumeUnreadableLr2FolderRoot");
@@ -1709,7 +1711,7 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
         songDb.CreateTable<LR2SongDB.song>();
         songDb.CreateTable<LR2SongDB.folder>();
         InsertNormalFolderRow(songDb, rootDirectory, Lr2SongFolderParentNormalizer.RootParentHash);
-        const string signature = "resume-lr2folder-unreadable";
+        const string signature = "resume-lr2folder-missing-metadata";
         Lr2FullGenerationStatusService.MarkIncomplete(
             songDb,
             signature,
@@ -1723,17 +1725,18 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
         Lr2FullGenerationBackfillResult result = Lr2FullGenerationBackfillService.Run(songDb, new Lr2FullGenerationBackfillRequest
         {
             Signature = signature,
-            RunId = "resume-unreadable-lr2folder-run",
+            RunId = "resume-missing-metadata-lr2folder-run",
             RootDirectories = [rootDirectory],
             Lr2FolderDiscoveryDirectories = [rootDirectory],
             Lr2FolderFilePaths = [missingLr2FolderPath],
             StartedAtUtc = new DateTime(2026, 6, 5, 0, 1, 0, DateTimeKind.Utc)
         });
 
-        Assert.AreEqual(Lr2FullGenerationBackfillService.CompletedStage, result.FinalStage);
-        Assert.AreEqual(0, result.StartupScanDiagnosticResult.MissingExpectedLr2FolderRowCount);
+        Assert.AreEqual(Lr2FullGenerationBackfillService.StartupScanBlockersStage, result.FinalStage);
+        Assert.AreEqual(1, result.StartupScanDiagnosticResult.MissingExpectedLr2FolderRowCount);
         LR2SongDBExtended.lr2_full_generation_status row = songDb.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
-        Assert.AreEqual("Completed", row.status);
+        Assert.AreEqual("Incomplete", row.status);
+        StringAssert.Contains(row.last_error, "missingExpectedLr2FolderRows=1");
     }
 
     [TestMethod]
@@ -2933,6 +2936,22 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
     private static string EscapeSqlLiteral(string value)
     {
         return (value ?? string.Empty).Replace("'", "''");
+    }
+
+    private static Dictionary<string, RootFileEnumerationEntry> CreateFileEntryMap(params string[] filePaths)
+    {
+        var result = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
+        foreach (string filePath in filePaths ?? [])
+        {
+            if (string.IsNullOrWhiteSpace(filePath))
+            {
+                continue;
+            }
+
+            result[filePath] = new RootFileEnumerationEntry(filePath, File.GetLastWriteTimeUtc(filePath));
+        }
+
+        return result;
     }
 
     private static LR2SongDBExtended.chart_info CreateChartInfo(string sha256, string md5, int level, int? parserVersion = null)
