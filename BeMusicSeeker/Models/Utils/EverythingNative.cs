@@ -510,6 +510,8 @@ internal static class EverythingNative
     {
         var result = new BridgeGroupedEnumerationResult
         {
+            ContractVersion = header.contract_version,
+            HeaderSize = header.header_size,
             TotalFileCount = (int)header.total_file_count,
             EnumerationMs = header.enumeration_ms
         };
@@ -523,10 +525,48 @@ internal static class EverythingNative
                 GroupId = groupHeader.group_id,
                 HitCount = groupHeader.hit_count,
                 QueryMs = groupHeader.query_ms,
-                Paths = new HashSet<string>(ReadStringList(groupHeader.path_count, groupHeader.path_offsets, header.path_blob), StringComparer.OrdinalIgnoreCase)
+                Paths = new HashSet<string>(ReadStringList(groupHeader.path_count, groupHeader.path_offsets, header.path_blob), StringComparer.OrdinalIgnoreCase),
+                Entries = ReadGroupedFileEntries(groupHeader.path_count, groupHeader.path_offsets, groupHeader.last_write_filetimes, header.path_blob)
             };
         }
         return result;
+    }
+
+    private static Dictionary<string, RootFileEnumerationEntry> ReadGroupedFileEntries(ulong count, IntPtr offsets, IntPtr lastWriteFileTimes, IntPtr blob)
+    {
+        var entries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
+        for (ulong i = 0; i < count; i += 1)
+        {
+            uint byteOffset = (uint)Marshal.ReadInt32(offsets, checked((int)(i * 4)));
+            string value = ReadUtf16FromBlob(blob, byteOffset);
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                continue;
+            }
+
+            ulong fileTime = lastWriteFileTimes == IntPtr.Zero
+                ? 0UL
+                : unchecked((ulong)Marshal.ReadInt64(lastWriteFileTimes, checked((int)(i * 8))));
+            entries[value] = new RootFileEnumerationEntry(value, ConvertFileTimeUtc(fileTime));
+        }
+        return entries;
+    }
+
+    private static DateTime? ConvertFileTimeUtc(ulong fileTime)
+    {
+        if (fileTime == 0UL || fileTime == ulong.MaxValue || fileTime > (ulong)DateTime.MaxValue.ToFileTimeUtc())
+        {
+            return null;
+        }
+
+        try
+        {
+            return DateTime.FromFileTimeUtc(unchecked((long)fileTime));
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private static SourceRootDecodedResult DecodeSourceRootsResult(EBridgeSourceRootsResultHeader header)
@@ -977,6 +1017,8 @@ internal static class EverythingNative
 
         internal HashSet<string> Paths { get; set; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
+        internal Dictionary<string, RootFileEnumerationEntry> Entries { get; set; } = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
+
         internal ulong HitCount { get; set; }
 
         internal long QueryMs { get; set; }
@@ -985,6 +1027,10 @@ internal static class EverythingNative
     internal sealed class BridgeGroupedEnumerationResult
     {
         internal Dictionary<uint, BridgeGroupedEnumerationGroupResult> Groups { get; } = [];
+
+        internal uint ContractVersion { get; set; }
+
+        internal uint HeaderSize { get; set; }
 
         internal int TotalFileCount { get; set; }
 
@@ -1123,11 +1169,14 @@ internal static class EverythingNative
         public long query_ms;
         public ulong path_count;
         public IntPtr path_offsets;
+        public IntPtr last_write_filetimes;
     }
 
     [StructLayout(LayoutKind.Sequential)]
     private struct EBridgeGroupedFilesResultHeader
     {
+        public uint contract_version;
+        public uint header_size;
         public int status;
         public int error_code;
         public ulong group_count;

@@ -260,6 +260,12 @@ public static class FastDirectoryEnumerator
     [SuppressUnmanagedCodeSecurity]
     public static IEnumerable<string> GetFilePathsAsParallel(string dirPath, string[] extensions = null, SearchOption searchOption = SearchOption.TopDirectoryOnly)
     {
+        return GetFileDataAsParallel(dirPath, extensions, searchOption).Select(file => file.Path);
+    }
+
+    [SuppressUnmanagedCodeSecurity]
+    public static IEnumerable<FileData> GetFileDataAsParallel(string dirPath, string[] extensions = null, SearchOption searchOption = SearchOption.TopDirectoryOnly)
+    {
         FINDEX_INFO_LEVELS fInfoLevelId = (Environment.OSVersion.IsLaterOrEqual(OperatingSystemExt.WindowsProductName.WindowsHomeServer2011) ? FINDEX_INFO_LEVELS.FindExInfoBasic : FINDEX_INFO_LEVELS.FindExInfoStandard);
         int dwAdditionalFlags = (Environment.OSVersion.IsLaterOrEqual(OperatingSystemExt.WindowsProductName.WindowsHomeServer2011) ? 2 : 0);
         try
@@ -291,7 +297,7 @@ public static class FastDirectoryEnumerator
             }
             if (extensions == null || extensions.Any(e => m_win_find_data.cFileName.EndsWith(e, StringComparison.OrdinalIgnoreCase)))
             {
-                yield return text;
+                yield return new FileData(dirPath, m_win_find_data);
             }
         }
         while (FindNextFile(m_hndFindFile, m_win_find_data));
@@ -299,7 +305,7 @@ public static class FastDirectoryEnumerator
         {
             yield break;
         }
-        foreach (string item in subdirs.AsParallel().SelectMany(path => GetFilePathsAsParallel(path, extensions, searchOption)))
+        foreach (FileData item in subdirs.AsParallel().SelectMany(path => GetFileDataAsParallel(path, extensions, searchOption)))
         {
             yield return item;
         }

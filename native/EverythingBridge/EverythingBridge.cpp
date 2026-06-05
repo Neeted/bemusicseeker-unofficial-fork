@@ -6,6 +6,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <cwctype>
+#include <type_traits>
 #include <thread>
 #include <string>
 #include <unordered_map>
@@ -129,6 +130,7 @@ struct EBridgeResult {
 };
 
 static constexpr unsigned int EBRIDGE_SCAN_CONTRACT_VERSION = 2026050708u;
+static constexpr unsigned int EBRIDGE_GROUPED_ENUMERATION_CONTRACT_VERSION = 2026060501u;
 
 struct EBridgeGroupedQuery {
 	unsigned int group_id;
@@ -141,9 +143,12 @@ struct EBridgeGroupedResultGroup {
 	long long query_ms;
 	unsigned long long path_count;
 	unsigned int* path_offsets;
+	unsigned long long* last_write_filetimes;
 };
 
 struct EBridgeGroupedFilesResult {
+	unsigned int contract_version;
+	unsigned int header_size;
 	int status;
 	int error_code;
 	unsigned long long group_count;
@@ -248,6 +253,8 @@ using Everything3_GetResultListViewportCountFn = size_t(__stdcall*)(const void* 
 using Everything3_GetResultPathWFn = size_t(__stdcall*)(const void* result_list, size_t result_index, wchar_t* out_wbuf, size_t wbuf_size_in_wchars);
 using Everything3_GetResultNameWFn = size_t(__stdcall*)(const void* result_list, size_t result_index, wchar_t* out_wbuf, size_t wbuf_size_in_wchars);
 using Everything3_GetResultFullPathNameWFn = size_t(__stdcall*)(const void* result_list, size_t result_index, wchar_t* out_wbuf, size_t wbuf_size_in_wchars);
+using Everything3_FindPropertyWFn = unsigned int(__stdcall*)(void* client, const wchar_t* canonical_name);
+using Everything3_GetResultDateModifiedFn = unsigned long long(__stdcall*)(const void* result_list, size_t result_index);
 
 struct EverythingApi {
 	HMODULE everythingModule = nullptr;
@@ -267,6 +274,8 @@ struct EverythingApi {
 	Everything3_GetResultPathWFn GetResultPathW = nullptr;
 	Everything3_GetResultNameWFn GetResultNameW = nullptr;
 	Everything3_GetResultFullPathNameWFn GetResultFullPathNameW = nullptr;
+	Everything3_FindPropertyWFn FindPropertyW = nullptr;
+	Everything3_GetResultDateModifiedFn GetResultDateModified = nullptr;
 };
 
 struct ScanAggregate {
@@ -379,10 +388,15 @@ struct CategoryProcessingMetrics {
 	long long mergeMs = 0;
 };
 
+struct GroupedFileEntry {
+	std::wstring fullPath;
+	unsigned long long lastWriteFileTime = 0ull;
+};
+
 struct GroupedQueryResult {
 	uint32_t groupId = 0u;
 	QueryExecutionStats stats;
-	std::vector<std::wstring> fullPaths;
+	std::vector<GroupedFileEntry> files;
 };
 
 struct SourceRootAggregate {
@@ -462,11 +476,14 @@ bool EnsureEverythingApiLoaded() {
 	g_api.GetResultPathW = LoadProc<Everything3_GetResultPathWFn>(module, "Everything3_GetResultPathW");
 	g_api.GetResultNameW = LoadProc<Everything3_GetResultNameWFn>(module, "Everything3_GetResultNameW");
 	g_api.GetResultFullPathNameW = LoadProc<Everything3_GetResultFullPathNameWFn>(module, "Everything3_GetResultFullPathNameW");
+	g_api.FindPropertyW = LoadProc<Everything3_FindPropertyWFn>(module, "Everything3_FindPropertyW");
+	g_api.GetResultDateModified = LoadProc<Everything3_GetResultDateModifiedFn>(module, "Everything3_GetResultDateModified");
 
 	return g_api.ConnectW && g_api.DestroyClient && g_api.GetLastError && g_api.CreateSearchState && g_api.DestroySearchState &&
 		g_api.SetSearchTextW && g_api.ClearSearchPropertyRequests && g_api.AddSearchPropertyRequest &&
 		g_api.SetSearchViewportOffset && g_api.SetSearchViewportCount && g_api.Search &&
-		g_api.DestroyResultList && g_api.GetResultListViewportCount && g_api.GetResultPathW && g_api.GetResultNameW;
+		g_api.DestroyResultList && g_api.GetResultListViewportCount && g_api.GetResultPathW && g_api.GetResultNameW &&
+		g_api.FindPropertyW && g_api.GetResultDateModified;
 }
 
 void* TryConnectClient(unsigned int* lastError) {
@@ -492,6 +509,17 @@ void* TryConnectClient(unsigned int* lastError) {
 		}
 	}
 	return nullptr;
+}
+
+unsigned int FindDateModifiedPropertyId(void* client) {
+	if (!client || !g_api.FindPropertyW) {
+		return 0xFFFFFFFFu;
+	}
+	unsigned int propertyId = g_api.FindPropertyW(client, L"Date Modified");
+	if (propertyId != 0xFFFFFFFFu) {
+		return propertyId;
+	}
+	return g_api.FindPropertyW(client, L"System.DateModified");
 }
 
 bool GetResultPath(void* resultList, size_t index, std::vector<wchar_t>& buffer, std::wstring& out, unsigned long long* resizeCount = nullptr) {
@@ -976,7 +1004,7 @@ void AppendCategoryRawHit(CategoryRawHits& rawHits, std::wstring&& directoryPath
 }
 
 template <typename Callback, typename HitCountCallback>
-bool ExecuteQuery(void* client, const wchar_t* query, Callback&& onResult, QueryExecutionStats* stats, HitCountCallback&& onHitCount, bool useFullPathRead = false) {
+bool ExecuteQuery(void* client, const wchar_t* query, Callback&& onResult, QueryExecutionStats* stats, HitCountCallback&& onHitCount, bool useFullPathRead = false, bool includeDateModified = false) {
 	void* state = g_api.CreateSearchState();
 	if (!state) {
 		return false;
@@ -994,6 +1022,13 @@ bool ExecuteQuery(void* client, const wchar_t* query, Callback&& onResult, Query
 		} else {
 			g_api.AddSearchPropertyRequest(state, EVERYTHING3_PROPERTY_ID_PATH);
 			g_api.AddSearchPropertyRequest(state, EVERYTHING3_PROPERTY_ID_NAME);
+		}
+		unsigned int dateModifiedPropertyId = 0xFFFFFFFFu;
+		if (includeDateModified) {
+			dateModifiedPropertyId = FindDateModifiedPropertyId(client);
+			if (dateModifiedPropertyId == 0xFFFFFFFFu || !g_api.AddSearchPropertyRequest(state, dateModifiedPropertyId)) {
+				break;
+			}
 		}
 		g_api.SetSearchViewportOffset(state, 0);
 		g_api.SetSearchViewportCount(state, static_cast<size_t>(-1));
@@ -1040,7 +1075,18 @@ bool ExecuteQuery(void* client, const wchar_t* query, Callback&& onResult, Query
 			if (!gotResult) {
 				continue;
 			}
-			onResult(path, name);
+			unsigned long long dateModifiedFileTime = 0ull;
+			if (includeDateModified && g_api.GetResultDateModified) {
+				dateModifiedFileTime = g_api.GetResultDateModified(result, i);
+				if (dateModifiedFileTime == 0xFFFFFFFFFFFFFFFFull) {
+					dateModifiedFileTime = 0ull;
+				}
+			}
+			if constexpr (std::is_invocable_v<Callback, const std::wstring&, const std::wstring&, unsigned long long>) {
+				onResult(path, name, dateModifiedFileTime);
+			} else {
+				onResult(path, name);
+			}
 		}
 		if (stats) {
 			long long readMs = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - readStartedAt).count();
@@ -1104,6 +1150,15 @@ bool ExecuteQueryWithNewClient(const wchar_t* query, Callback&& onResult, QueryE
 void DedupePaths(std::vector<std::wstring>& paths) {
 	std::sort(paths.begin(), paths.end());
 	paths.erase(std::unique(paths.begin(), paths.end()), paths.end());
+}
+
+void DedupeGroupedFileEntries(std::vector<GroupedFileEntry>& files) {
+	std::sort(files.begin(), files.end(), [](const GroupedFileEntry& left, const GroupedFileEntry& right) {
+		return left.fullPath < right.fullPath;
+	});
+	files.erase(std::unique(files.begin(), files.end(), [](const GroupedFileEntry& left, const GroupedFileEntry& right) {
+		return left.fullPath == right.fullPath;
+	}), files.end());
 }
 
 size_t AlignUp(size_t value, size_t align);
@@ -1298,15 +1353,16 @@ int BuildGroupedFilesResultBuffer(const std::vector<GroupedQueryResult>& grouped
 	size_t totalBlobBytes = 0;
 	std::unordered_set<std::wstring> uniquePaths;
 	for (const GroupedQueryResult& groupedResult : groupedResults) {
-		totalPathCount += groupedResult.fullPaths.size();
-		for (const std::wstring& fullPath : groupedResult.fullPaths) {
-			totalBlobBytes += (fullPath.size() + 1) * sizeof(wchar_t);
-			uniquePaths.insert(fullPath);
+		totalPathCount += groupedResult.files.size();
+		for (const GroupedFileEntry& file : groupedResult.files) {
+			totalBlobBytes += (file.fullPath.size() + 1) * sizeof(wchar_t);
+			uniquePaths.insert(file.fullPath);
 		}
 	}
 
 	size_t totalBytes = sizeof(EBridgeGroupedFilesResult)
 		+ sizeof(EBridgeGroupedResultGroup) * groupCount
+		+ sizeof(unsigned long long) * totalPathCount
 		+ sizeof(unsigned int) * totalPathCount
 		+ totalBlobBytes;
 	unsigned char* buffer = static_cast<unsigned char*>(std::malloc(totalBytes));
@@ -1318,11 +1374,15 @@ int BuildGroupedFilesResultBuffer(const std::vector<GroupedQueryResult>& grouped
 	unsigned char* cursor = buffer + sizeof(EBridgeGroupedFilesResult);
 	EBridgeGroupedResultGroup* groupHeaders = reinterpret_cast<EBridgeGroupedResultGroup*>(cursor);
 	cursor += sizeof(EBridgeGroupedResultGroup) * groupCount;
+	unsigned long long* lastWriteFileTimesBase = reinterpret_cast<unsigned long long*>(cursor);
+	cursor += sizeof(unsigned long long) * totalPathCount;
 	unsigned int* pathOffsetsBase = reinterpret_cast<unsigned int*>(cursor);
 	cursor += sizeof(unsigned int) * totalPathCount;
 	wchar_t* pathBlob = reinterpret_cast<wchar_t*>(cursor);
 
 	EBridgeGroupedFilesResult* result = reinterpret_cast<EBridgeGroupedFilesResult*>(buffer);
+	result->contract_version = EBRIDGE_GROUPED_ENUMERATION_CONTRACT_VERSION;
+	result->header_size = sizeof(EBridgeGroupedFilesResult);
 	result->status = BRIDGE_OK;
 	result->error_code = 0;
 	result->group_count = static_cast<unsigned long long>(groupCount);
@@ -1340,13 +1400,15 @@ int BuildGroupedFilesResultBuffer(const std::vector<GroupedQueryResult>& grouped
 		groupHeader.group_id = groupedResult.groupId;
 		groupHeader.hit_count = groupedResult.stats.hitCount;
 		groupHeader.query_ms = groupedResult.stats.elapsedMs;
-		groupHeader.path_count = static_cast<unsigned long long>(groupedResult.fullPaths.size());
+		groupHeader.path_count = static_cast<unsigned long long>(groupedResult.files.size());
 		groupHeader.path_offsets = pathOffsetsBase + globalPathIndex;
+		groupHeader.last_write_filetimes = lastWriteFileTimesBase + globalPathIndex;
 
-		for (const std::wstring& fullPath : groupedResult.fullPaths) {
-			size_t chars = fullPath.size() + 1;
+		for (const GroupedFileEntry& file : groupedResult.files) {
+			size_t chars = file.fullPath.size() + 1;
 			pathOffsetsBase[globalPathIndex++] = static_cast<unsigned int>(blobCursor - reinterpret_cast<unsigned char*>(pathBlob));
-			std::memcpy(blobCursor, fullPath.c_str(), chars * sizeof(wchar_t));
+			lastWriteFileTimesBase[globalPathIndex - 1] = file.lastWriteFileTime;
+			std::memcpy(blobCursor, file.fullPath.c_str(), chars * sizeof(wchar_t));
 			blobCursor += chars * sizeof(wchar_t);
 		}
 	}
@@ -2258,17 +2320,20 @@ extern "C" __declspec(dllexport) int __cdecl EBridge_EnumerateGroupedFiles(const
 
 		GroupedQueryResult groupedResult;
 		groupedResult.groupId = query.group_id;
-		bool ok = ExecuteQuery(client, query.query_text, [&groupedResult](const std::wstring& path, const std::wstring& name) {
+		bool ok = ExecuteQuery(client, query.query_text, [&groupedResult](const std::wstring& path, const std::wstring& name, unsigned long long dateModifiedFileTime) {
 			if (path.empty() || name.empty()) {
 				return;
 			}
-			groupedResult.fullPaths.push_back(CombinePathAndName(TrimTrailingSeparators(ReplaceAltSeparators(path)), name));
-		}, &groupedResult.stats);
+			groupedResult.files.push_back(GroupedFileEntry{
+				CombinePathAndName(TrimTrailingSeparators(ReplaceAltSeparators(path)), name),
+				dateModifiedFileTime
+			});
+		}, &groupedResult.stats, NoopHitCountCallback{}, false, true);
 		if (!ok) {
 			g_api.DestroyClient(client);
 			return BRIDGE_GROUPED_QUERY_FAILED;
 		}
-		DedupePaths(groupedResult.fullPaths);
+		DedupeGroupedFileEntries(groupedResult.files);
 		groupedResults.push_back(std::move(groupedResult));
 	}
 	g_api.DestroyClient(client);

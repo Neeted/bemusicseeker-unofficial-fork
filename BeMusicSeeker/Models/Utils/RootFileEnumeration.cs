@@ -4,6 +4,53 @@ using System.Linq;
 
 namespace BeMusicSeeker.Models.Utils;
 
+internal sealed class RootFileEnumerationEntry(string path, DateTime? lastWriteTimeUtc = null, long? fileSize = null)
+{
+    private static readonly DateTime UnixEpochUtc = new(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+    public string Path { get; } = path ?? string.Empty;
+
+    public DateTime? LastWriteTimeUtc { get; } = NormalizeUtc(lastWriteTimeUtc);
+
+    public long? FileSize { get; } = fileSize >= 0 ? fileSize : null;
+
+    public int? LastWriteTimeUnixSeconds => LastWriteTimeUtc.HasValue ? ToUnixSeconds(LastWriteTimeUtc.Value) : null;
+
+    internal static RootFileEnumerationEntry FromFileData(FileData file)
+    {
+        return file == null
+            ? null
+            : new RootFileEnumerationEntry(file.Path, file.LastWriteTimeUtc, file.Size);
+    }
+
+    private static DateTime? NormalizeUtc(DateTime? timestamp)
+    {
+        if (!timestamp.HasValue || timestamp.Value <= DateTime.MinValue)
+        {
+            return null;
+        }
+
+        return timestamp.Value.Kind == DateTimeKind.Utc
+            ? timestamp.Value
+            : timestamp.Value.ToUniversalTime();
+    }
+
+    private static int ToUnixSeconds(DateTime timestampUtc)
+    {
+        DateTime normalized = timestampUtc.Kind == DateTimeKind.Utc ? timestampUtc : timestampUtc.ToUniversalTime();
+        long seconds = (long)Math.Floor((normalized - UnixEpochUtc).TotalSeconds);
+        if (seconds < int.MinValue)
+        {
+            return int.MinValue;
+        }
+        if (seconds > int.MaxValue)
+        {
+            return int.MaxValue;
+        }
+        return (int)seconds;
+    }
+}
+
 internal sealed class RootFileEnumerationGroup(string name, IEnumerable<string> extensions, bool includeAllFiles = false)
 {
     public string Name { get; } = name ?? string.Empty;
@@ -30,9 +77,47 @@ internal sealed class RootFileEnumerationResult
 
     public Dictionary<string, HashSet<string>> PathsByGroup { get; } = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
 
+    public Dictionary<string, Dictionary<string, RootFileEnumerationEntry>> EntriesByGroup { get; } = new Dictionary<string, Dictionary<string, RootFileEnumerationEntry>>(StringComparer.OrdinalIgnoreCase);
+
     public Dictionary<string, long> QueryMsByGroup { get; } = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
 
     public Dictionary<string, ulong> QueryHitCountByGroup { get; } = new Dictionary<string, ulong>(StringComparer.OrdinalIgnoreCase);
+
+    public void InitializeGroup(string groupName)
+    {
+        if (string.IsNullOrWhiteSpace(groupName))
+        {
+            return;
+        }
+
+        PathsByGroup[groupName] = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        EntriesByGroup[groupName] = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
+        QueryMsByGroup[groupName] = 0L;
+        QueryHitCountByGroup[groupName] = 0UL;
+    }
+
+    public void AddEntry(string groupName, RootFileEnumerationEntry entry)
+    {
+        if (string.IsNullOrWhiteSpace(groupName) || entry == null || string.IsNullOrWhiteSpace(entry.Path))
+        {
+            return;
+        }
+
+        if (!PathsByGroup.TryGetValue(groupName, out HashSet<string> paths))
+        {
+            paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            PathsByGroup[groupName] = paths;
+        }
+
+        if (!EntriesByGroup.TryGetValue(groupName, out Dictionary<string, RootFileEnumerationEntry> entries))
+        {
+            entries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
+            EntriesByGroup[groupName] = entries;
+        }
+
+        paths.Add(entry.Path);
+        entries[entry.Path] = entry;
+    }
 
     public IReadOnlyCollection<string> GetPaths(string groupName)
     {
@@ -41,6 +126,25 @@ internal sealed class RootFileEnumerationResult
             return paths;
         }
         return [];
+    }
+
+    public IReadOnlyCollection<RootFileEnumerationEntry> GetEntries(string groupName)
+    {
+        if (!string.IsNullOrWhiteSpace(groupName) && EntriesByGroup.TryGetValue(groupName, out Dictionary<string, RootFileEnumerationEntry> entries))
+        {
+            return entries.Values;
+        }
+        return [];
+    }
+
+    public RootFileEnumerationEntry GetEntry(string groupName, string path)
+    {
+        return !string.IsNullOrWhiteSpace(groupName)
+            && !string.IsNullOrWhiteSpace(path)
+            && EntriesByGroup.TryGetValue(groupName, out Dictionary<string, RootFileEnumerationEntry> entries)
+            && entries.TryGetValue(path, out RootFileEnumerationEntry entry)
+            ? entry
+            : null;
     }
 
     public long GetQueryMs(string groupName)

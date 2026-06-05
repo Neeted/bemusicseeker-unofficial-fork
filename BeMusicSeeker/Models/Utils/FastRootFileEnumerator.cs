@@ -18,9 +18,7 @@ internal sealed class FastRootFileEnumerator : IRootFileEnumerator
         List<RootFileEnumerationGroup> groupList = [.. (groups ?? []).Where(group => group != null && !string.IsNullOrWhiteSpace(group.Name))];
         foreach (RootFileEnumerationGroup group in groupList)
         {
-            result.PathsByGroup[group.Name] = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            result.QueryMsByGroup[group.Name] = 0L;
-            result.QueryHitCountByGroup[group.Name] = 0UL;
+            result.InitializeGroup(group.Name);
         }
 
         if (roots.Count == 0 || groupList.Count == 0)
@@ -32,22 +30,25 @@ internal sealed class FastRootFileEnumerator : IRootFileEnumerator
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
         try
         {
-            var allFiles = new HashSet<string>(
-                roots
-                    .AsParallel()
-                    .SelectMany(EnumerateAllFilesForRoot)
-                    .Where(path => !string.IsNullOrWhiteSpace(path)),
-                StringComparer.OrdinalIgnoreCase);
+            var allFiles = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
+            foreach (RootFileEnumerationEntry entry in roots
+                .AsParallel()
+                .SelectMany(EnumerateAllFilesForRoot)
+                .Where(entry => entry != null && !string.IsNullOrWhiteSpace(entry.Path)))
+            {
+                allFiles[entry.Path] = entry;
+            }
 
             result.TotalFileCount = allFiles.Count;
-            foreach (string absolutePath in allFiles)
+            foreach (RootFileEnumerationEntry entry in allFiles.Values)
             {
+                string absolutePath = entry.Path;
                 string extension = Path.GetExtension(absolutePath ?? string.Empty);
                 foreach (RootFileEnumerationGroup group in groupList)
                 {
                     if (group.IncludeAllFiles || (!string.IsNullOrWhiteSpace(extension) && group.Extensions.Contains(extension, StringComparer.OrdinalIgnoreCase)))
                     {
-                        result.PathsByGroup[group.Name].Add(absolutePath);
+                        result.AddEntry(group.Name, entry);
                     }
                 }
             }
@@ -81,24 +82,25 @@ internal sealed class FastRootFileEnumerator : IRootFileEnumerator
             .Distinct(StringComparer.OrdinalIgnoreCase)];
     }
 
-    private static IEnumerable<string> EnumerateAllFilesForRoot(string root)
+    private static IEnumerable<RootFileEnumerationEntry> EnumerateAllFilesForRoot(string root)
     {
-        List<string> fastPaths = [];
+        List<RootFileEnumerationEntry> fastEntries = [];
         try
         {
-            fastPaths = [.. FastDirectoryEnumerator.GetFilePathsAsParallel(root, null, SearchOption.AllDirectories)
-                .Where(path => !string.IsNullOrWhiteSpace(path))
-                .Select(Path.GetFullPath)
-                .Distinct(StringComparer.OrdinalIgnoreCase)];
+            fastEntries = [.. FastDirectoryEnumerator.GetFileDataAsParallel(root, null, SearchOption.AllDirectories)
+                .Select(RootFileEnumerationEntry.FromFileData)
+                .Where(entry => entry != null && !string.IsNullOrWhiteSpace(entry.Path))
+                .GroupBy(entry => Path.GetFullPath(entry.Path), StringComparer.OrdinalIgnoreCase)
+                .Select(group => new RootFileEnumerationEntry(Path.GetFullPath(group.First().Path), group.First().LastWriteTimeUtc, group.First().FileSize))];
         }
         catch
         {
-            fastPaths = [];
+            fastEntries = [];
         }
 
-        if (fastPaths.Count > 0)
+        if (fastEntries.Count > 0)
         {
-            return fastPaths;
+            return fastEntries;
         }
 
         try
@@ -106,11 +108,25 @@ internal sealed class FastRootFileEnumerator : IRootFileEnumerator
             return [.. Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories)
                 .Where(path => !string.IsNullOrWhiteSpace(path))
                 .Select(Path.GetFullPath)
-                .Distinct(StringComparer.OrdinalIgnoreCase)];
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Select(CreateEntryFromFileInfo)];
         }
         catch
         {
             return [];
+        }
+    }
+
+    private static RootFileEnumerationEntry CreateEntryFromFileInfo(string path)
+    {
+        try
+        {
+            var fileInfo = new FileInfo(path);
+            return new RootFileEnumerationEntry(fileInfo.FullName, fileInfo.LastWriteTimeUtc, fileInfo.Length);
+        }
+        catch
+        {
+            return new RootFileEnumerationEntry(path);
         }
     }
 }

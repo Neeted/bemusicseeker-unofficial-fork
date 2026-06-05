@@ -33,6 +33,11 @@ public class FileData
 
     internal FileData(string dir, WIN32_FIND_DATA findData)
     {
+        Attributes = findData.dwFileAttributes;
+        CreationTimeUtc = ConvertDateTime(findData.ftCreationTime_dwHighDateTime, findData.ftCreationTime_dwLowDateTime);
+        LastAccessTimeUtc = ConvertDateTime(findData.ftLastAccessTime_dwHighDateTime, findData.ftLastAccessTime_dwLowDateTime);
+        LastWriteTimeUtc = ConvertDateTime(findData.ftLastWriteTime_dwHighDateTime, findData.ftLastWriteTime_dwLowDateTime);
+        Size = CombineHighLowInts(findData.nFileSizeHigh, findData.nFileSizeLow);
         Name = findData.cFileName;
         Path = System.IO.Path.Combine(dir, findData.cFileName);
     }

@@ -28,9 +28,7 @@ internal sealed class EverythingRootFileEnumerator : IRootFileEnumerator
         List<RootFileEnumerationGroup> groupList = [.. (groups ?? []).Where(group => group != null && !string.IsNullOrWhiteSpace(group.Name))];
         foreach (RootFileEnumerationGroup group in groupList)
         {
-            result.PathsByGroup[group.Name] = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            result.QueryMsByGroup[group.Name] = 0L;
-            result.QueryHitCountByGroup[group.Name] = 0UL;
+            result.InitializeGroup(group.Name);
         }
 
         if (roots.Count == 0 || groupList.Count == 0)
@@ -70,6 +68,7 @@ internal sealed class EverythingRootFileEnumerator : IRootFileEnumerator
 
                 EverythingNative.BridgeGroupedEnumerationGroupResult groupResult = entry.Value;
                 result.PathsByGroup[groupName] = groupResult.Paths ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                result.EntriesByGroup[groupName] = groupResult.Entries ?? new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
                 result.QueryMsByGroup[groupName] = groupResult.QueryMs;
                 result.QueryHitCountByGroup[groupName] = groupResult.HitCount;
             }
