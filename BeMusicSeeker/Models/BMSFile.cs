@@ -763,6 +763,8 @@ public class BMSFile : LR2SongDB.song
         maxbpm = ToLr2SongInteger(chartInfo.maxbpm);
         minbpm = ToLr2SongInteger(chartInfo.minbpm);
         mode = chartInfo.mode;
+        bga = chartInfo.bga;
+        exlevel = chartInfo.exlevel;
         longnote = HasLongNoteFeature(chartInfo.feature) ? 1 : 0;
         random = (chartInfo.feature & ChartInfoFeatureRandom) != 0 ? 1 : 0;
         karinotes = chartInfo.notes;

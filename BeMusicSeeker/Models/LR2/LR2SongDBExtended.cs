@@ -527,6 +527,16 @@ public sealed class LR2SongDBExtended : LR2SongDB
         public int? judge { get; set; }
 
         /// <summary>
+        /// LR2 song.bga へ反映する BGA 使用有無です。
+        /// </summary>
+        public int? bga { get; set; }
+
+        /// <summary>
+        /// LR2 song.exlevel へ反映する #DEFEXRANK の raw 値です。
+        /// </summary>
+        public int? exlevel { get; set; }
+
+        /// <summary>
         /// 譜面特徴を表す bit flag です。
         /// </summary>
         public int feature { get; set; }

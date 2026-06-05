@@ -44,8 +44,8 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
 
     private const string ChartInfoUpsertSql =
         "INSERT OR REPLACE INTO chart_info ("
-        + "sha256, md5, charthash, level, difficulty, difficulty_defined, mainbpm, maxbpm, minbpm, length, mode, judge, feature, notes, n, ln, s, ls, total, total_defined, density, peakdensity, enddensity, distribution, speedchange, speedchange_count, lanenotes, parser_version, updated_at"
-        + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);";
+        + "sha256, md5, charthash, level, difficulty, difficulty_defined, mainbpm, maxbpm, minbpm, length, mode, judge, bga, exlevel, feature, notes, n, ln, s, ls, total, total_defined, density, peakdensity, enddensity, distribution, speedchange, speedchange_count, lanenotes, parser_version, updated_at"
+        + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);";
 
     private const string ChartInfoParseFailureUpsertSql =
         "INSERT OR REPLACE INTO chart_info_parse_failure ("
@@ -62,15 +62,15 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
     private const string TempDeletedBmsonPathTable = "file_scan_deleted_bmson_path";
 
     private const string ChartInfoColumnList =
-        "sha256, md5, charthash, level, difficulty, difficulty_defined, mainbpm, maxbpm, minbpm, length, mode, judge, feature, notes, n, ln, s, ls, total, total_defined, density, peakdensity, enddensity, distribution, speedchange, speedchange_count, lanenotes, parser_version, updated_at";
+        "sha256, md5, charthash, level, difficulty, difficulty_defined, mainbpm, maxbpm, minbpm, length, mode, judge, bga, exlevel, feature, notes, n, ln, s, ls, total, total_defined, density, peakdensity, enddensity, distribution, speedchange, speedchange_count, lanenotes, parser_version, updated_at";
 
     internal const string AppSchemaVersionName = "app_schema";
 
     internal const int CurrentAppSchemaVersion = 1;
 
-    internal const int CurrentChartInfoSchemaVersion = 4;
+    internal const int CurrentChartInfoSchemaVersion = 5;
 
-    internal const int CurrentChartInfoParserVersion = 20;
+    internal const int CurrentChartInfoParserVersion = 21;
 
     internal const int ChartInfoMetadataBundleFormatVersion = 1;
 
@@ -1073,11 +1073,11 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
         Exception importException = null;
         try
         {
+            EnsureChartInfoSchema(songDb);
+            EnsureBmsonSchema(songDb);
             songDb.Execute("ATTACH DATABASE ? AS bundle;", bundleDbPath);
             attached = true;
             savepoint = songDb.SaveTransactionPoint();
-            EnsureChartInfoSchema(songDb);
-            EnsureBmsonSchema(songDb);
             ChartInfoMetadataBundleManifest manifest = LoadChartInfoMetadataBundleManifest(songDb);
             result.BundleId = manifest.bundle_id;
             result.SourceChartInfoCount = Math.Max(0, manifest.chart_info_count);
@@ -1242,6 +1242,8 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
             row.length,
             row.mode,
             row.judge,
+            row.bga,
+            row.exlevel,
             row.feature,
             row.notes,
             row.n,
@@ -1999,6 +2001,8 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
             + "b.length AS length, "
             + "b.mode AS mode, "
             + "b.judge AS judge, "
+            + "b.bga AS bga, "
+            + "b.exlevel AS exlevel, "
             + "b.feature AS feature, "
             + "b.notes AS notes, "
             + "b.n AS n, "
@@ -2367,6 +2371,8 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
             "length",
             "mode",
             "judge",
+            "bga",
+            "exlevel",
             "feature",
             "notes",
             "n",

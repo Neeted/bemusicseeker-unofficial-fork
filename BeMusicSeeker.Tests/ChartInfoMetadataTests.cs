@@ -87,6 +87,8 @@ public sealed class ChartInfoMetadataTests
                     "length",
                     "mode",
                     "judge",
+                    "bga",
+                    "exlevel",
                     "feature",
                     "notes",
                     "n",
@@ -832,11 +834,14 @@ createTempDirectory);
                     + "#BPM 120\r\n"
                     + "#PLAYLEVEL 12\r\n"
                     + "#DIFFICULTY 3\r\n"
+                    + "#DEFEXRANK 120\r\n"
                     + "#RANK 3\r\n"
                     + "#TOTAL 300\r\n"
+                    + "#BMP01 bg.png\r\n"
                     + "#00111:0100\r\n"
                     + "#00112:0001\r\n"
                     + "#00116:0100\r\n"
+                    + "#00104:0100\r\n"
                     + "#00251:0101\r\n"
                     + "#003D1:01\r\n",
                 Encoding.ASCII);
@@ -854,6 +859,8 @@ createTempDirectory);
             Assert.IsTrue(row.difficulty_defined);
             Assert.AreEqual(5, row.mode);
             Assert.AreEqual(100, row.judge);
+            Assert.AreEqual(1, row.bga);
+            Assert.AreEqual(120, row.exlevel);
             Assert.AreEqual(120.0, row.mainbpm.GetValueOrDefault(), 0.0001);
             Assert.AreEqual(120.0, row.minbpm.GetValueOrDefault(), 0.0001);
             Assert.AreEqual(120.0, row.maxbpm.GetValueOrDefault(), 0.0001);
@@ -3069,11 +3076,14 @@ createTempDirectory);
                     + "#BPM 120\r\n"
                     + "#PLAYLEVEL 12\r\n"
                     + "#DIFFICULTY 3\r\n"
+                    + "#DEFEXRANK 120\r\n"
                     + "#RANK 3\r\n"
                     + "#TOTAL 300\r\n"
+                    + "#BMP01 bg.png\r\n"
                     + "#00111:0100\r\n"
                     + "#00112:0001\r\n"
                     + "#00116:0100\r\n"
+                    + "#00104:0100\r\n"
                     + "#00251:0101\r\n"
                     + "#003D1:01\r\n",
                 Encoding.ASCII);
@@ -3097,6 +3107,8 @@ createTempDirectory);
             Assert.AreEqual(120, song.maxbpm);
             Assert.AreEqual(120, song.minbpm);
             Assert.AreEqual(5, song.mode);
+            Assert.AreEqual(1, song.bga);
+            Assert.AreEqual(120, song.exlevel);
             Assert.AreEqual(1, song.longnote);
             Assert.AreEqual(4, song.karinotes);
             Assert.IsNotNull(library.ResolveChartInfo(installedFile.sha256, installedFile.hash));
@@ -3861,6 +3873,8 @@ createTempDirectory);
         Assert.AreEqual(expected.length, actual.length);
         Assert.AreEqual(expected.mode, actual.mode);
         Assert.AreEqual(expected.judge, actual.judge);
+        Assert.AreEqual(expected.bga, actual.bga);
+        Assert.AreEqual(expected.exlevel, actual.exlevel);
         Assert.AreEqual(expected.feature, actual.feature);
         Assert.AreEqual(expected.notes, actual.notes);
         Assert.AreEqual(expected.n, actual.n);
@@ -3949,6 +3963,8 @@ createTempDirectory);
             length = 0,
             mode = 7,
             judge = 100,
+            bga = 0,
+            exlevel = null,
             feature = FeatureLongByLnMode,
             notes = 1,
             n = 1,

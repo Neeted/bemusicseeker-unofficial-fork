@@ -81,6 +81,8 @@ public sealed class Lr2SongRowEnricherTests
             minbpm = 90.1,
             mode = 14,
             judge = 100,
+            bga = 1,
+            exlevel = 120,
             feature = 4 | 8,
             notes = 1234
         };
@@ -93,6 +95,8 @@ public sealed class Lr2SongRowEnricherTests
         Assert.AreEqual(90, file.minbpm);
         Assert.AreEqual(14, file.mode);
         Assert.AreEqual(1, file.judge);
+        Assert.AreEqual(1, file.bga);
+        Assert.AreEqual(120, file.exlevel);
         Assert.AreEqual(1, file.longnote);
         Assert.AreEqual(1, file.random);
         Assert.AreEqual(1234, file.karinotes);

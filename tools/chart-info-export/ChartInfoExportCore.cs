@@ -53,9 +53,9 @@ public sealed class ChartInfoExportResult
 
 public static class ChartInfoExportRunner
 {
-    public const int CurrentChartInfoSchemaVersion = 4;
+    public const int CurrentChartInfoSchemaVersion = 5;
 
-    public const int CurrentChartInfoParserVersion = 20;
+    public const int CurrentChartInfoParserVersion = 21;
 
     public const int MetadataBundleFormatVersion = 1;
 
@@ -75,6 +75,8 @@ public static class ChartInfoExportRunner
         "length",
         "mode",
         "judge",
+        "bga",
+        "exlevel",
         "feature",
         "notes",
         "n",
@@ -322,6 +324,8 @@ public static class ChartInfoExportRunner
             + "length INTEGER, "
             + "mode INTEGER, "
             + "judge INTEGER, "
+            + "bga INTEGER, "
+            + "exlevel INTEGER, "
             + "feature INTEGER, "
             + "notes INTEGER, "
             + "n INTEGER, "
@@ -364,7 +368,7 @@ public static class ChartInfoExportRunner
             + "lower(trim(c.sha256)), "
             + "lower(trim(c.md5)), "
             + NormalizedOptionalSha256Expression("c.charthash") + ", "
-            + "c.level, c.difficulty, c.difficulty_defined, c.mainbpm, c.maxbpm, c.minbpm, c.length, c.mode, c.judge, c.feature, c.notes, c.n, c.ln, c.s, c.ls, c.total, c.total_defined, c.density, c.peakdensity, c.enddensity, c.distribution, c.speedchange, c.speedchange_count, c.lanenotes, c.parser_version, c.updated_at "
+            + "c.level, c.difficulty, c.difficulty_defined, c.mainbpm, c.maxbpm, c.minbpm, c.length, c.mode, c.judge, c.bga, c.exlevel, c.feature, c.notes, c.n, c.ln, c.s, c.ls, c.total, c.total_defined, c.density, c.peakdensity, c.enddensity, c.distribution, c.speedchange, c.speedchange_count, c.lanenotes, c.parser_version, c.updated_at "
             + "FROM src.chart_info c WHERE "
             + ValidSha256Condition("c.sha256")
             + " AND " + ValidMd5Condition("c.md5")

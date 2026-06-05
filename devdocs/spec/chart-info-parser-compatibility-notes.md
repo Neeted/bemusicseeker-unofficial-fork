@@ -1,6 +1,6 @@
 # chart_info parser compatibility notes
 
-最終更新: 2026-04-27
+最終更新: 2026-06-05
 
 この文書は、`chart_info` 生成で beatoraja / jbms-parser 互換を目指す際に確認した実装上の注意点をまとめる。
 一般的な BMS / BMSON 仕様から自然には読めない、参照実装固有の解釈や Java 実装由来の挙動を優先して記録する。
@@ -91,6 +91,10 @@ C# 側で `:\s*(.*)` のように空白を食べると、本来無視される�
 
 `level` は `chart_info` では nullable とし、未定義 / invalid は `NULL` にする。
 beatoraja DB では未定義相当が `0` になるため、互換比較では `0 == NULL` として扱う。
+
+`#DEFEXRANK` は判定幅計算に使うだけでなく、LR2 `song.exlevel` へ反映する raw 値として
+`chart_info.exlevel` に保持する。`#RANK` が後続で判定幅を上書きする場合でも、`exlevel` は
+最後に valid だった `#DEFEXRANK` の値を保持する。
 
 ### double 系
 
@@ -492,6 +496,10 @@ BMSON root default:
 - `mine_channels = []`
 - `key_channels = []`
 - `bga = new`
+
+`chart_info.bga` は、BMS の BGA/LAYER channel または BMSON `bga.bga_events` に
+実際の timeline event が存在する場合に `1`、存在しない場合に `0` とする。
+リソース定義だけが存在し、timeline で使われていない場合は BGA 使用とは扱わない。
 
 BMSON info default:
 

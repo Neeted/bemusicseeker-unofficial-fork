@@ -989,9 +989,9 @@ parse directive:
     file diff parser と DB writer から同じ入口へ寄せる。
   - detailed parser / `chart_info` 由来 numeric columns は同じ enricher から反映する。
   - 現行接続では `chart_info` に正本がある `level` / `difficulty` / `maxbpm` / `minbpm` / `mode` /
-    `longnote` / `random` / `karinotes` を反映する。
+    `longnote` / `bga` / `random` / `karinotes` / `exlevel` を反映する。
   - `song.judge` は LR2 の raw `#RANK` 値で、`chart_info.judge` は判定幅 percent なので写さない。
-    `bga` / `exlevel` も現行 `chart_info` に直接の正本がないため、推測で埋めず、対応する parser fact を追加する cycle まで残す。
+  - `bga` は BMS/BMSON timeline 上の BGA event 有無、`exlevel` は BMS `#DEFEXRANK` の raw 値を正本にする。
 - Phase 6 は段階的に追加する。
   - まず DB 接続前の pure `Lr2FolderRowGenerator` を追加し、LR2 root / ancestor / chart directory から
     normal `folder` row と generation scope path set を作る contract を固定する。

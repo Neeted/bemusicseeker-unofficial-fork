@@ -223,6 +223,8 @@ internal static class ChartInfoParser
             length = length,
             mode = model.DisplayMode,
             judge = model.JudgeRank,
+            bga = model.HasBga ? 1 : 0,
+            exlevel = model.ExLevel,
             feature = model.GetFeatureFlags(),
             notes = statistics.TotalNotes,
             n = statistics.NormalKeyNotes,
@@ -1437,6 +1439,8 @@ internal static class ChartInfoParser
 
         public JudgeRankType JudgeRankType { get; private set; } = JudgeRankType.BmsRank;
 
+        public int? ExLevel { get; private set; }
+
         public double Total { get; private set; } = 100.0;
 
         public bool TotalDefined { get; private set; }
@@ -1576,6 +1580,7 @@ internal static class ChartInfoParser
                 {
                     JudgeRank = defExRank;
                     JudgeRankType = JudgeRankType.BmsDefExRank;
+                    ExLevel = defExRank;
                 }
                 return;
             }
@@ -1669,6 +1674,7 @@ internal static class ChartInfoParser
                 Total = Total,
                 TotalDefined = TotalDefined,
                 LnMode = LnMode,
+                ExLevel = ExLevel,
                 HasRandom = HasRandom
             };
             double[] sectionStarts = BuildSectionStarts(out double[] sectionRates);
@@ -2645,11 +2651,15 @@ internal static class ChartInfoParser
 
         public int LnMode { get; set; }
 
+        public int? ExLevel { get; set; }
+
         public bool HasRandom { get; set; }
 
         public int DisplayMode => Mode.DisplayMode;
 
         public IReadOnlyList<ChartTimeline> Timelines => timelines;
+
+        public bool HasBga => Timelines.Any(timeline => timeline != null && timeline.HasBga);
 
         public void SetTimelines(List<ChartTimeline> value)
         {
