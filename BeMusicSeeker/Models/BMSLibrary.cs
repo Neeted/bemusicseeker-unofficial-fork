@@ -6315,6 +6315,7 @@ completeFileEnumerationOnce,
             .Distinct(StringComparer.OrdinalIgnoreCase)];
         if (roots.Count == 0)
         {
+            LogEverythingScan("lr2folder_scan skipped reason=no_roots roots=0");
             return new Lr2FolderFileCandidateSnapshot([], new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase), discoveryComplete: true);
         }
 
@@ -6323,14 +6324,32 @@ completeFileEnumerationOnce,
             [new RootFileEnumerationGroup(Lr2FolderFileEnumerationGroupName, [".lr2folder"])]);
         if (!result.Success)
         {
+            LogEverythingScan("lr2folder_scan failed"
+                + " roots=" + roots.Count
+                + " backend=" + (result.BackendName ?? string.Empty)
+                + " enumerationMs=" + result.EnumerationMs
+                + " reason=" + (result.ErrorReason ?? "unknown"));
             return new Lr2FolderFileCandidateSnapshot([], new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase), discoveryComplete: false);
         }
-        Dictionary<string, RootFileEnumerationEntry> entriesByPath = result.GetEntries(Lr2FolderFileEnumerationGroupName)
+        List<RootFileEnumerationEntry> rawEntries = [.. result.GetEntries(Lr2FolderFileEnumerationGroupName)
+            .Where(entry => entry != null && !string.IsNullOrWhiteSpace(entry.Path))];
+        List<RootFileEnumerationEntry> includedEntries = [.. rawEntries
+            .Where(entry => builtinCustomFolderSettings?.ShouldIncludeCustomFolderFile(entry.Path, lr2RootPath) != false)];
+        Dictionary<string, RootFileEnumerationEntry> entriesByPath = includedEntries
             .Where(entry => entry != null && !string.IsNullOrWhiteSpace(entry.Path))
-            .Where(entry => builtinCustomFolderSettings?.ShouldIncludeCustomFolderFile(entry.Path, lr2RootPath) != false)
             .GroupBy(entry => entry.Path, StringComparer.OrdinalIgnoreCase)
             .Select(group => group.First())
             .ToDictionary(entry => entry.Path, entry => entry, StringComparer.OrdinalIgnoreCase);
+        LogEverythingScan("lr2folder_scan success"
+            + " roots=" + roots.Count
+            + " backend=" + (result.BackendName ?? string.Empty)
+            + " enumerationMs=" + result.EnumerationMs
+            + " queryHits=" + result.GetQueryHitCount(Lr2FolderFileEnumerationGroupName)
+            + " queryMs=" + result.GetQueryMs(Lr2FolderFileEnumerationGroupName)
+            + " rawEntries=" + rawEntries.Count
+            + " includedEntries=" + includedEntries.Count
+            + " dedupedEntries=" + entriesByPath.Count
+            + " filteredEntries=" + (rawEntries.Count - includedEntries.Count));
         return new Lr2FolderFileCandidateSnapshot([.. entriesByPath.Keys
             .Where(path => !string.IsNullOrWhiteSpace(path))
             .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)], entriesByPath, discoveryComplete: true);
