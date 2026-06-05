@@ -1233,3 +1233,7 @@ parse directive:
 - `song.exlevel` は BMS `#EXLEVEL` の raw integer を正本にし、`#DEFEXRANK` は判定幅計算にだけ使う。
   この修正では parser / schema version を上げないため、既存 `chart_info.exlevel` の非 null 値はそのまま扱い、
   `chart_info.exlevel IS NULL` または generated song row の未設定値だけを LR2 と同じ `0` に正規化する。
+- manual `ReloadFileDiff` / search root 変更後は file diff 適用完了後に
+  `QueueLr2FullGenerationBackfillIfNeeded("ReloadFileDiff")` で status を再評価する。
+  これにより root set / folder source signature mismatch は次回起動待ちにせず検出するが、
+  durable status が clean な場合は backfill を開始しない。

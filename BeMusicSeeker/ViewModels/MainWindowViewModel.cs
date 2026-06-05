@@ -15226,6 +15226,7 @@ public class MainWindowViewModel : ViewModel
                 LogInitStage("file_diff_reload_call", "ReloadFileDiff");
                 files.ReloadFileDiff();
             }).Logging("ReloadFileDiff");
+            files.QueueLr2FullGenerationBackfillIfNeeded("ReloadFileDiff");
             LogInitStage("file_diff_reload_done", "ReloadFileDiff");
             scheduleDeferredPlaylistRef = true;
             if (!TrySuppress(UiRefreshChannel.LibraryFolderTree))

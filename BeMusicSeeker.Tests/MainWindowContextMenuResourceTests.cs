@@ -766,6 +766,10 @@ public sealed class MainWindowContextMenuResourceTests
             viewModelCode,
             "private async Task SaveSettingsCore(bool runPostSaveActions)",
             "public void SaveOperationModeForRestart");
+        string reloadFileDiff = ExtractBetween(
+            viewModelCode,
+            "public async void ReloadFileDiff()",
+            "public async void ReinitializeLibrary()");
 
         StringAssert.Contains(runtimeSync, "ownerViewModel.files.SearchTargets = [.. lr2config.GetBMSSearchDirectories()];");
         StringAssert.Contains(runtimeSync, "ownerViewModel.files.SearchTargets = [.. GetStandaloneBmsRootPathsFromSettings()];");
@@ -773,6 +777,11 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsTrue(rootAdd.IndexOf("ApplyRuntimeSearchRootsForCurrentMode();", StringComparison.Ordinal) < rootAdd.IndexOf("ownerViewModel.ReloadFileDiff();", StringComparison.Ordinal));
         StringAssert.Contains(saveCore, "ApplyRuntimeSearchRootsForCurrentMode();");
         StringAssert.Contains(viewModelCode, "QueueLr2FullGenerationBackfillIfNeeded(\"SettingDialog.SaveSettings\")");
+        StringAssert.Contains(reloadFileDiff, "QueueLr2FullGenerationBackfillIfNeeded(\"ReloadFileDiff\")");
+        Assert.IsTrue(
+            reloadFileDiff.IndexOf("files.ReloadFileDiff();", StringComparison.Ordinal)
+            < reloadFileDiff.IndexOf("QueueLr2FullGenerationBackfillIfNeeded(\"ReloadFileDiff\")", StringComparison.Ordinal),
+            "LR2 full generation status should be evaluated after file diff has applied root/source changes.");
     }
 
     [TestMethod]
