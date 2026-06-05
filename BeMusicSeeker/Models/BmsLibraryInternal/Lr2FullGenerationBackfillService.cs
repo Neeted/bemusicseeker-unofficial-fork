@@ -598,9 +598,10 @@ internal static class Lr2FullGenerationBackfillService
                 continue;
             }
 
+            bool isLr2FolderFileRow = IsLr2FolderDiagnosticPath(diagnosticPath);
             if (row.Date.HasValue && row.Date.GetValueOrDefault() > 0)
             {
-                FolderDiagnosticDateStatus dateStatus = ResolveFolderDiagnosticDate(row, diagnosticPath, out int expectedDate);
+                FolderDiagnosticDateStatus dateStatus = ResolveFolderDiagnosticDate(isLr2FolderFileRow, diagnosticPath, out int expectedDate);
                 if (dateStatus == FolderDiagnosticDateStatus.MissingTarget
                     || (dateStatus == FolderDiagnosticDateStatus.Resolved && expectedDate != row.Date.GetValueOrDefault()))
                 {
@@ -609,9 +610,7 @@ internal static class Lr2FullGenerationBackfillService
                 }
             }
 
-            IReadOnlyList<string> scopeRoots = row.Type.GetValueOrDefault() == 1
-                ? roots
-                : allFolderRoots;
+            IReadOnlyList<string> scopeRoots = isLr2FolderFileRow ? allFolderRoots : roots;
             if (scopeRoots.Count > 0 && !IsUnderAnyRoot(diagnosticPath, scopeRoots))
             {
                 unknownRootFolderRowCount++;
@@ -674,14 +673,14 @@ internal static class Lr2FullGenerationBackfillService
         }
     }
 
-    private static FolderDiagnosticDateStatus ResolveFolderDiagnosticDate(StartupDiagnosticFolderRow row, string diagnosticPath, out int date)
+    private static FolderDiagnosticDateStatus ResolveFolderDiagnosticDate(bool isLr2FolderFileRow, string diagnosticPath, out int date)
     {
         date = 0;
         try
         {
-            FolderDiagnosticDateStatus status = row?.Type.GetValueOrDefault() == 1
-                ? ResolveDirectoryLastWriteTimeUtc(diagnosticPath, out DateTime? lastWriteTimeUtc)
-                : ResolveLr2FolderLastWriteTimeUtc(diagnosticPath, out lastWriteTimeUtc);
+            FolderDiagnosticDateStatus status = isLr2FolderFileRow
+                ? ResolveLr2FolderLastWriteTimeUtc(diagnosticPath, out DateTime? lastWriteTimeUtc)
+                : ResolveDirectoryLastWriteTimeUtc(diagnosticPath, out lastWriteTimeUtc);
             if (status != FolderDiagnosticDateStatus.Resolved || lastWriteTimeUtc == null)
             {
                 return status;
@@ -712,6 +711,12 @@ internal static class Lr2FullGenerationBackfillService
         {
             return FolderDiagnosticDateStatus.Unavailable;
         }
+    }
+
+    private static bool IsLr2FolderDiagnosticPath(string diagnosticPath)
+    {
+        return !string.IsNullOrWhiteSpace(diagnosticPath)
+            && string.Equals(Path.GetExtension(diagnosticPath), ".lr2folder", StringComparison.OrdinalIgnoreCase);
     }
 
     private static FolderDiagnosticDateStatus ResolveDirectoryLastWriteTimeUtc(string directoryPath, out DateTime? lastWriteTimeUtc)

@@ -1237,3 +1237,7 @@ parse directive:
   `QueueLr2FullGenerationBackfillIfNeeded("ReloadFileDiff")` で status を再評価する。
   これにより root set / folder source signature mismatch は次回起動待ちにせず検出するが、
   durable status が clean な場合は backfill を開始しない。
+- startup-scan blocker diagnostic は legacy `folder.type = 0 / NULL` row も扱う。
+  `folder.type` だけで normal directory / `.lr2folder` を判定せず、normalized path が `.lr2folder`
+  で終わるかを target 種別の正本にする。これにより旧 DB の directory row でも
+  directory mtime / existence を検証し、stale / missing target を cleanup 対象にできる。
