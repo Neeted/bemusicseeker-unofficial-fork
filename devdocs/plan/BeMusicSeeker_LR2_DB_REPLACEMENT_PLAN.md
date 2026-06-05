@@ -1264,3 +1264,6 @@ parse directive:
   owned mutation apply は state applier 全体ではなく、BMS `song` row を実際に触る unregister / path cleanup /
   path replacement の callback で marking する。bmson row や installed package state の失敗を LR2 full generation
   status に誤分類しないためである。
+- file diff reload と maintenance workflow は下位 service 内で `Lr2SongDbWriter` を直接呼ぶため、workflow 境界で
+  fatal failure を durable full generation status `Incomplete` にする。下位 writer をすべて status-aware にするより、
+  UI/operation semantics を変えず、backfill/retry の入口を失わないことを優先する。

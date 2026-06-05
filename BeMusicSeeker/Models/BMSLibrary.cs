@@ -4962,6 +4962,7 @@ public class BMSLibrary : NotificationObject
         {
             stopwatch.Stop();
             LogInstallPerformance("library_file_diff_reload failed elapsedMs=" + stopwatch.ElapsedMilliseconds + " message=" + ex.Message);
+            MarkLr2FullGenerationIncompleteAfterFileDiffSongDbWriteFailure(options, ex, "reload_file_diff");
             throw;
         }
     }
@@ -5946,6 +5947,29 @@ completeFileEnumerationOnce,
             stage: "lr2_normal_folder_file_diff_sync_failed",
             detail: "lr2_normal_folder_file_diff_sync_failed: " + failureReason,
             logReason: "lr2_normal_folder_file_diff_sync_failed");
+    }
+
+    private void MarkLr2FullGenerationIncompleteAfterFileDiffSongDbWriteFailure(
+        BmsLibraryOptionsSnapshot options,
+        Exception ex,
+        string reason)
+    {
+        string displayedMessage = GetDisplayedExceptionMessage(ex).Replace(Environment.NewLine, " | ");
+        MarkLr2FullGenerationIncompleteAfterSongDbWriteFailure(
+            options,
+            stage: "lr2_song_db_file_diff_write_failed",
+            detail: "lr2_song_db_file_diff_write_failed: " + displayedMessage,
+            logReason: string.IsNullOrWhiteSpace(reason) ? "file_diff" : reason);
+    }
+
+    private void MarkLr2FullGenerationIncompleteAfterMaintenanceSongDbWriteFailure(Exception ex, string reason)
+    {
+        string displayedMessage = GetDisplayedExceptionMessage(ex).Replace(Environment.NewLine, " | ");
+        MarkLr2FullGenerationIncompleteAfterSongDbWriteFailure(
+            CurrentOptionsSnapshot,
+            stage: "lr2_song_db_maintenance_write_failed",
+            detail: "lr2_song_db_maintenance_write_failed: " + displayedMessage,
+            logReason: string.IsNullOrWhiteSpace(reason) ? "maintenance_update" : reason);
     }
 
     private void MarkLr2FullGenerationIncompleteAfterNormalFolderSyncFailure(
@@ -12179,8 +12203,9 @@ completeFileEnumerationOnce,
                 deltaTargetResourceHealthInputVersion = resourceHealthInputMutation.TargetInputVersion;
             }
         }
-        catch
+        catch (Exception ex)
         {
+            MarkLr2FullGenerationIncompleteAfterMaintenanceSongDbWriteFailure(ex, resourceHealthMutationReason);
             throw;
         }
         currentMaintenanceTargetCharts = maintenanceTargetCharts;

@@ -521,6 +521,104 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
     }
 
     [TestMethod]
+    public void FileDiffSongDbWriteFailureMarksFullGenerationIncomplete()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        try
+        {
+            Settings.Default.OperationModeLR2DB = true;
+            Settings.Default.EnableLR2SongDbFullGeneration = true;
+            ResetLr2FolderDiscoverySettings();
+            string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
+            Directory.CreateDirectory(rootDirectory);
+            var library = new BMSLibrary(scope.SongDbPath)
+            {
+                SearchTargets = [rootDirectory]
+            };
+            using (var setup = new LR2SongDBExtended(scope.SongDbPath))
+            {
+                Lr2FullGenerationStatusService.MarkCompleted(
+                    setup,
+                    signature: "previous",
+                    runId: "completed",
+                    totalCount: 1,
+                    nowUtc: DateTime.UtcNow);
+            }
+            var options = new BmsLibraryOptionsSnapshot
+            {
+                OperationModeLR2DB = true,
+                EnableLR2SongDbFullGeneration = true
+            };
+
+            InvokeMarkLr2FullGenerationIncompleteAfterFileDiffSongDbWriteFailure(
+                library,
+                options,
+                new InvalidOperationException("db locked"),
+                "reload_file_diff");
+
+            using var verify = new LR2SongDBExtended(scope.SongDbPath);
+            LR2SongDBExtended.lr2_full_generation_status row = verify.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
+            Assert.IsNotNull(row);
+            Assert.AreEqual(Lr2FullGenerationStatusKind.Incomplete.ToString(), row.status);
+            Assert.AreEqual("lr2_song_db_file_diff_write_failed", row.stage);
+            StringAssert.Contains(row.last_error, "db locked");
+            Lr2FullGenerationStatusSnapshot snapshot = library.GetLr2FullGenerationStatusSnapshot();
+            Assert.AreEqual(Lr2FullGenerationStatusKind.Incomplete, snapshot.Status);
+            Assert.AreEqual("lr2_song_db_file_diff_write_failed", snapshot.Stage);
+        }
+        finally
+        {
+            ResetTouchedSettings();
+        }
+    }
+
+    [TestMethod]
+    public void MaintenanceSongDbWriteFailureMarksFullGenerationIncomplete()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        try
+        {
+            Settings.Default.OperationModeLR2DB = true;
+            Settings.Default.EnableLR2SongDbFullGeneration = true;
+            ResetLr2FolderDiscoverySettings();
+            string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
+            Directory.CreateDirectory(rootDirectory);
+            var library = new BMSLibrary(scope.SongDbPath)
+            {
+                SearchTargets = [rootDirectory]
+            };
+            using (var setup = new LR2SongDBExtended(scope.SongDbPath))
+            {
+                Lr2FullGenerationStatusService.MarkCompleted(
+                    setup,
+                    signature: "previous",
+                    runId: "completed",
+                    totalCount: 1,
+                    nowUtc: DateTime.UtcNow);
+            }
+
+            InvokeMarkLr2FullGenerationIncompleteAfterMaintenanceSongDbWriteFailure(
+                library,
+                new InvalidOperationException("db locked"),
+                "manual_rescan_all_owned");
+
+            using var verify = new LR2SongDBExtended(scope.SongDbPath);
+            LR2SongDBExtended.lr2_full_generation_status row = verify.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
+            Assert.IsNotNull(row);
+            Assert.AreEqual(Lr2FullGenerationStatusKind.Incomplete.ToString(), row.status);
+            Assert.AreEqual("lr2_song_db_maintenance_write_failed", row.stage);
+            StringAssert.Contains(row.last_error, "db locked");
+            Lr2FullGenerationStatusSnapshot snapshot = library.GetLr2FullGenerationStatusSnapshot();
+            Assert.AreEqual(Lr2FullGenerationStatusKind.Incomplete, snapshot.Status);
+            Assert.AreEqual("lr2_song_db_maintenance_write_failed", snapshot.Stage);
+        }
+        finally
+        {
+            ResetTouchedSettings();
+        }
+    }
+
+    [TestMethod]
     public void QueueLr2FullGenerationBackfillIfNeeded_DoesNotQueueAgainWhileRunning()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
@@ -2182,6 +2280,27 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
         MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("MarkLr2FullGenerationIncompleteAfterSongDbWriteFailure", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.IsNotNull(methodInfo);
         methodInfo.Invoke(library, [options, stage, detail, logReason]);
+    }
+
+    private static void InvokeMarkLr2FullGenerationIncompleteAfterFileDiffSongDbWriteFailure(
+        BMSLibrary library,
+        BmsLibraryOptionsSnapshot options,
+        Exception exception,
+        string reason)
+    {
+        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("MarkLr2FullGenerationIncompleteAfterFileDiffSongDbWriteFailure", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(methodInfo);
+        methodInfo.Invoke(library, [options, exception, reason]);
+    }
+
+    private static void InvokeMarkLr2FullGenerationIncompleteAfterMaintenanceSongDbWriteFailure(
+        BMSLibrary library,
+        Exception exception,
+        string reason)
+    {
+        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("MarkLr2FullGenerationIncompleteAfterMaintenanceSongDbWriteFailure", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(methodInfo);
+        methodInfo.Invoke(library, [exception, reason]);
     }
 
     private static void ResetTouchedSettings()
