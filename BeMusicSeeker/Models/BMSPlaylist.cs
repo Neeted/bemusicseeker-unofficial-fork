@@ -3511,6 +3511,38 @@ public partial class BMSPlaylist : NotificationObject
     }
 
     /// <summary>
+    /// プレイリストを永続化し、LR2DB モード時は旧出力先から新出力先へカスタムフォルダも移行します。
+    /// </summary>
+    /// <param name="bmsTable">反映対象のプレイリスト。</param>
+    /// <param name="outputDirPathBefore">変更前の出力先パス。</param>
+    /// <param name="outputDirPathAfter">変更後の出力先パス。省略時は現設定から算出します。</param>
+    /// <exception cref="ArgumentNullException"><paramref name="bmsTable"/> が <see langword="null"/> の場合。</exception>
+    internal void MigrateCustomFolderOutputDirectoryAndCommitToDB(BMSTable bmsTable, string outputDirPathBefore, string outputDirPathAfter = null)
+    {
+        if (bmsTable == null)
+        {
+            throw new ArgumentNullException(nameof(bmsTable));
+        }
+        EnsurePlaylistEntriesLoaded(bmsTable, "MigrateCustomFolderOutputDirectoryAndCommitToDB");
+        using (bmsTable.ReaderWriterLock.GetWriterGuard())
+        {
+            if (BMSTables.Contains(bmsTable))
+            {
+                CommitBMSTable(bmsTable);
+                if (Settings.Default.OperationModeLR2DB)
+                {
+                    if (string.IsNullOrWhiteSpace(outputDirPathAfter))
+                    {
+                        outputDirPathAfter = GetCustomFolderOutputDirectory(bmsTable);
+                    }
+                    migrateCustomFolderOutputDirectoryFiles(bmsTable, outputDirPathBefore, outputDirPathAfter);
+                }
+            }
+        }
+        QueueBeatorajaBmtExport(bmsTable, "MigrateCustomFolderOutputDirectoryAndCommitToDB");
+    }
+
+    /// <summary>
     /// プレイリスト本体とエントリを DB へ保存します。LR2 カスタムフォルダ出力は行いません。
     /// </summary>
     /// <param name="bmsTable">保存対象のプレイリスト。</param>
@@ -4308,6 +4340,17 @@ public partial class BMSPlaylist : NotificationObject
         }
         if (owningTable != null)
         {
+            if (Settings.Default.OperationModeLR2DB && !string.IsNullOrWhiteSpace(owningTable.Output_dir))
+            {
+                EnsurePlaylistEntriesLoaded(owningTable, "CommitBMSTableEntry");
+                using (owningTable.ReaderWriterLock.GetWriterGuard())
+                {
+                    if (BMSTables.Contains(owningTable))
+                    {
+                        reOutputCustomFolderFiles(owningTable);
+                    }
+                }
+            }
             QueueBeatorajaBmtExport(owningTable, "CommitBMSTableEntry");
         }
     }

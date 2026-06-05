@@ -21388,6 +21388,9 @@ public class MainWindowViewModel : ViewModel
             BMSTable tableRef = item.TableRef;
             bool flag2 = false;
             bool? nullable = null;
+            string customFolderOutputDirectoryBefore = Settings.Default.OperationModeLR2DB && !string.IsNullOrWhiteSpace(tableRef.Output_dir)
+                ? BMSPlaylist.GetCustomFolderOutputDirectory(tableRef)
+                : null;
             if (isExternalSync.HasValue)
             {
                 bool flag3 = tableRef.is_external_sync != isExternalSync.Value;
@@ -21411,7 +21414,17 @@ public class MainWindowViewModel : ViewModel
             {
                 continue;
             }
-            tables.ReOutputCustomFolderAndCommitToDB(tableRef);
+            if (Settings.Default.OperationModeLR2DB && nullable.HasValue && !string.IsNullOrWhiteSpace(tableRef.Output_dir))
+            {
+                tables.MigrateCustomFolderOutputDirectoryAndCommitToDB(
+                    tableRef,
+                    customFolderOutputDirectoryBefore,
+                    BMSPlaylist.GetCustomFolderOutputDirectory(tableRef));
+            }
+            else
+            {
+                tables.ReOutputCustomFolderAndCommitToDB(tableRef);
+            }
             if (Settings.Default.OperationModeLR2DB && nullable.HasValue && lr2config != null && !string.IsNullOrWhiteSpace(tableRef.Output_dir))
             {
                 string customFolderOutputDirectory = BMSPlaylist.GetCustomFolderOutputDirectory(tableRef);
@@ -21422,7 +21435,7 @@ public class MainWindowViewModel : ViewModel
                 }
                 else
                 {
-                    lr2config.SetBMSSearchDirectories(bMSSearchDirectories.Except([customFolderOutputDirectory], StringComparer.OrdinalIgnoreCase));
+                    lr2config.SetBMSSearchDirectories(bMSSearchDirectories.Except([customFolderOutputDirectoryBefore], StringComparer.OrdinalIgnoreCase));
                 }
                 lr2config.Save();
             }
