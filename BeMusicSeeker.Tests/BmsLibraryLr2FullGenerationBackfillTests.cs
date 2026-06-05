@@ -1326,6 +1326,91 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
     }
 
     [TestMethod]
+    public void BackfillService_LeavesIncompleteWhenExpectedLr2FolderRowIsMissingAfterResume()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        string rootDirectory = Path.Combine(scope.DirectoryPath, "ResumeMissingLr2FolderRoot");
+        Directory.CreateDirectory(rootDirectory);
+        string lr2FolderPath = Path.Combine(rootDirectory, "table.lr2folder");
+        File.WriteAllText(lr2FolderPath, "#TITLE table\r\n", Encoding.GetEncoding("shift_jis"));
+        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        songDb.CreateTable<LR2SongDB.song>();
+        songDb.CreateTable<LR2SongDB.folder>();
+        InsertNormalFolderRow(songDb, rootDirectory, Lr2SongFolderParentNormalizer.RootParentHash);
+        songDb.InsertOrReplace(new LR2SongDB.folder
+        {
+            path = lr2FolderPath,
+            type = 99,
+            title = "unsupported type",
+            date = Lr2SongRowEnricher.ToLr2UnixSeconds(File.GetLastWriteTimeUtc(lr2FolderPath))
+        }, typeof(LR2SongDB.folder));
+        const string signature = "resume-lr2folder-missing-row";
+        Lr2FullGenerationStatusService.MarkIncomplete(
+            songDb,
+            signature,
+            "previous-run",
+            processedCursor: 2,
+            totalCount: 2,
+            stage: "lr2folder_files_completed",
+            detail: "interrupted",
+            nowUtc: new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc));
+
+        Lr2FullGenerationBackfillResult result = Lr2FullGenerationBackfillService.Run(songDb, new Lr2FullGenerationBackfillRequest
+        {
+            Signature = signature,
+            RunId = "resume-missing-lr2folder-row-run",
+            RootDirectories = [rootDirectory],
+            Lr2FolderDiscoveryDirectories = [rootDirectory],
+            Lr2FolderFilePaths = [lr2FolderPath],
+            StartedAtUtc = new DateTime(2026, 6, 5, 0, 1, 0, DateTimeKind.Utc)
+        });
+
+        Assert.AreEqual(Lr2FullGenerationBackfillService.StartupScanBlockersStage, result.FinalStage);
+        Assert.AreEqual(1, result.StartupScanDiagnosticResult.MissingExpectedLr2FolderRowCount);
+        LR2SongDBExtended.lr2_full_generation_status row = songDb.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
+        Assert.AreEqual("Incomplete", row.status);
+        StringAssert.Contains(row.last_error, "missingExpectedLr2FolderRows=1");
+    }
+
+    [TestMethod]
+    public void BackfillService_DoesNotRequireUnreadableLr2FolderRowAfterResume()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        string rootDirectory = Path.Combine(scope.DirectoryPath, "ResumeUnreadableLr2FolderRoot");
+        Directory.CreateDirectory(rootDirectory);
+        string missingLr2FolderPath = Path.Combine(rootDirectory, "missing.lr2folder");
+        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        songDb.CreateTable<LR2SongDB.song>();
+        songDb.CreateTable<LR2SongDB.folder>();
+        InsertNormalFolderRow(songDb, rootDirectory, Lr2SongFolderParentNormalizer.RootParentHash);
+        const string signature = "resume-lr2folder-unreadable";
+        Lr2FullGenerationStatusService.MarkIncomplete(
+            songDb,
+            signature,
+            "previous-run",
+            processedCursor: 2,
+            totalCount: 2,
+            stage: "lr2folder_files_completed",
+            detail: "interrupted",
+            nowUtc: new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc));
+
+        Lr2FullGenerationBackfillResult result = Lr2FullGenerationBackfillService.Run(songDb, new Lr2FullGenerationBackfillRequest
+        {
+            Signature = signature,
+            RunId = "resume-unreadable-lr2folder-run",
+            RootDirectories = [rootDirectory],
+            Lr2FolderDiscoveryDirectories = [rootDirectory],
+            Lr2FolderFilePaths = [missingLr2FolderPath],
+            StartedAtUtc = new DateTime(2026, 6, 5, 0, 1, 0, DateTimeKind.Utc)
+        });
+
+        Assert.AreEqual(Lr2FullGenerationBackfillService.CompletedStage, result.FinalStage);
+        Assert.AreEqual(0, result.StartupScanDiagnosticResult.MissingExpectedLr2FolderRowCount);
+        LR2SongDBExtended.lr2_full_generation_status row = songDb.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
+        Assert.AreEqual("Completed", row.status);
+    }
+
+    [TestMethod]
     public void BackfillService_RestartsWhenResumeTotalCountDiffers()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();

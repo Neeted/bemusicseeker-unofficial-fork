@@ -86,6 +86,7 @@ internal sealed class Lr2StartupScanDiagnosticResult(
     int dateMissingSongRowCount,
     int unknownRootSongRowCount,
     int missingExpectedFolderRowCount,
+    int missingExpectedLr2FolderRowCount,
     int dateMissingFolderRowCount,
     int dateStaleFolderRowCount,
     int unknownRootFolderRowCount,
@@ -100,6 +101,8 @@ internal sealed class Lr2StartupScanDiagnosticResult(
     public int UnknownRootSongRowCount { get; } = unknownRootSongRowCount;
 
     public int MissingExpectedFolderRowCount { get; } = missingExpectedFolderRowCount;
+
+    public int MissingExpectedLr2FolderRowCount { get; } = missingExpectedLr2FolderRowCount;
 
     public int DateMissingFolderRowCount { get; } = dateMissingFolderRowCount;
 
@@ -116,6 +119,7 @@ internal sealed class Lr2StartupScanDiagnosticResult(
         + DateMissingSongRowCount
         + UnknownRootSongRowCount
         + MissingExpectedFolderRowCount
+        + MissingExpectedLr2FolderRowCount
         + DateMissingFolderRowCount
         + DateStaleFolderRowCount
         + UnknownRootFolderRowCount;
@@ -130,6 +134,7 @@ internal sealed class Lr2StartupScanDiagnosticResult(
             + " dateMissingSongRows=" + DateMissingSongRowCount
             + " unknownRootSongRows=" + UnknownRootSongRowCount
             + " missingExpectedFolderRows=" + MissingExpectedFolderRowCount
+            + " missingExpectedLr2FolderRows=" + MissingExpectedLr2FolderRowCount
             + " dateMissingFolderRows=" + DateMissingFolderRowCount
             + " dateStaleFolderRows=" + DateStaleFolderRowCount
             + " unknownRootFolderRows=" + UnknownRootFolderRowCount;
@@ -355,7 +360,8 @@ internal static class Lr2FullGenerationBackfillService
             roots,
             lr2FolderDiscoveryDirectories,
             songRows,
-            request.Lr2RootPath);
+            request.Lr2RootPath,
+            request);
         string finalStage;
         string incompleteReason;
         if (!diagnosticResult.IsClean)
@@ -520,7 +526,8 @@ internal static class Lr2FullGenerationBackfillService
         IReadOnlyCollection<string> rootDirectories,
         IReadOnlyCollection<string> lr2FolderDiscoveryDirectories,
         IReadOnlyCollection<BMSFile> currentSongRows,
-        string lr2RootPath)
+        string lr2RootPath,
+        Lr2FullGenerationBackfillRequest request = null)
     {
         songDb.CreateTable<LR2SongDB.song>();
         songDb.CreateTable<LR2SongDB.folder>();
@@ -580,6 +587,7 @@ internal static class Lr2FullGenerationBackfillService
         int unknownRootFolderRowCount = 0;
         var cleanupFolderRowPaths = new HashSet<string>(StringComparer.Ordinal);
         var existingNormalFolderPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var existingLr2FolderPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (StartupDiagnosticFolderRow row in songDb.Query<StartupDiagnosticFolderRow>(
             "SELECT "
             + SQLiteTable<LR2SongDB.folder>.GetColumnName(folder => folder.path) + " AS Path, "
@@ -614,6 +622,15 @@ internal static class Lr2FullGenerationBackfillService
             }
 
             bool isLr2FolderFileRow = IsLr2FolderDiagnosticPath(diagnosticPath);
+            if (isLr2FolderFileRow && IsExistingLr2FolderRowKind(row.Type))
+            {
+                string databasePath = Lr2FolderFileProjection.NormalizeDatabasePath(row.Path);
+                if (!string.IsNullOrWhiteSpace(databasePath))
+                {
+                    existingLr2FolderPaths.Add(databasePath);
+                }
+            }
+
             if (row.Date.HasValue && row.Date.GetValueOrDefault() > 0)
             {
                 FolderDiagnosticDateStatus dateStatus = ResolveFolderDiagnosticDate(isLr2FolderFileRow, diagnosticPath, out int expectedDate);
@@ -636,6 +653,9 @@ internal static class Lr2FullGenerationBackfillService
             roots,
             currentPaths,
             existingNormalFolderPaths);
+        int missingExpectedLr2FolderRowCount = CountMissingExpectedLr2FolderRows(
+            request,
+            existingLr2FolderPaths);
 
         return new Lr2StartupScanDiagnosticResult(
             noRootSetBlockerCount,
@@ -643,6 +663,7 @@ internal static class Lr2FullGenerationBackfillService
             dateMissingSongRowCount,
             unknownRootSongRowCount,
             missingExpectedFolderRowCount,
+            missingExpectedLr2FolderRowCount,
             dateMissingFolderRowCount,
             dateStaleFolderRowCount,
             unknownRootFolderRowCount,
@@ -675,6 +696,60 @@ internal static class Lr2FullGenerationBackfillService
             string expectedPath = Lr2FolderPath.ToFolderPath(directory);
             if (!string.IsNullOrWhiteSpace(expectedPath)
                 && existingNormalFolderPaths?.Contains(expectedPath) != true)
+            {
+                missing++;
+            }
+        }
+        return missing;
+    }
+
+    private static bool IsExistingLr2FolderRowKind(int? folderType)
+    {
+        if (!folderType.HasValue)
+        {
+            return true;
+        }
+
+        int type = folderType.GetValueOrDefault();
+        return type == 0 || type == 2 || type == 3 || type == 4 || type == 6;
+    }
+
+    private static int CountMissingExpectedLr2FolderRows(
+        Lr2FullGenerationBackfillRequest request,
+        ISet<string> existingLr2FolderPaths)
+    {
+        if (request?.Lr2FolderFilePaths?.Count > 0 != true
+            || request.Lr2FolderDiscoveryDirectories?.Count > 0 != true)
+        {
+            return 0;
+        }
+
+        int missing = 0;
+        Lr2FolderFileSyncItemsResult syncItems = CreateLr2FolderFileSyncItems(request.Lr2FolderFilePaths, request);
+        foreach (Lr2FolderFileSyncItem item in syncItems.Items)
+        {
+            if (item?.LastWriteTimeUtc == null || item.FolderType == 1)
+            {
+                continue;
+            }
+
+            bool created = Lr2FolderFileProjection.TryCreateFolderRow(new Lr2FolderFileRowRequest
+            {
+                FilePath = item.FilePath,
+                DatabasePath = item.DatabasePath,
+                Definition = item.Definition,
+                LastWriteTimeUtc = item.LastWriteTimeUtc,
+                FolderType = item.FolderType,
+                ParentHash = item.ParentHash
+            }, out LR2SongDB.folder row);
+            if (!created || string.IsNullOrWhiteSpace(row?.path))
+            {
+                continue;
+            }
+
+            string databasePath = Lr2FolderFileProjection.NormalizeDatabasePath(row.path);
+            if (!string.IsNullOrWhiteSpace(databasePath)
+                && existingLr2FolderPaths?.Contains(databasePath) != true)
             {
                 missing++;
             }

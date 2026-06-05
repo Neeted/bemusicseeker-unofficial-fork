@@ -1218,6 +1218,9 @@ parse directive:
 - 同 diagnostic は current root / chart path から導出される通常 folder target が `folder` table に存在することも検証する。
   `normal_folders_completed` 以降の durable resume では normal folder stage を再実行しないため、期待される root /
   ancestor / chart directory row が欠けている場合は `missingExpectedFolderRows` blocker として `Completed` にしない。
+- 同 diagnostic は `.lr2folder` stage を resume でスキップした場合も、読込・projection 可能な `.lr2folder`
+  source に対応する `folder` row が存在することを検証する。読めない `.lr2folder` は既存の prune 抑止と同じく
+  expected row から外し、欠落検出は `missingExpectedLr2FolderRows` として log / status detail に残す。
 - startup-scan blocker cleanup は、diagnostic が列挙した `folder` blocker row だけを削除する model helper
   (`CleanupStartupScanBlockerFolderRows`) を正本にする。対象は unknown root / `date = 0` / missing target /
   stale date の `folder` row に限定し、`song` row 欠落、root 未設定、known root 外 `song` row は削除で直せる
