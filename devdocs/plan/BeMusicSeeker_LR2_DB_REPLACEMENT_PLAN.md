@@ -1277,6 +1277,11 @@ existence / mtime は意味的に揃える。
 
 ## 残作業の推奨順
 
+現時点で計画本体の production 接続と自動テストで固定できる主要 contract は実装済みである。
+この節に残す作業は、実機 Everything / 実 LR2 DB / 実 LR2 起動ログが必要な統合確認、または
+実 DB 由来 fixture を入手した後に追加する contract 補強である。実機確認・手動確認・LR2 での確認を
+後回しにする作業サイクルでは、新しい実装ブロッカーとしては扱わない。
+
 1. native bridge metadata parity を統合確認する。
    - fixed scan の `.txt` / `folderinfo.txt` entry、grouped enumeration の `.lr2folder` entry、directory mtime が同じ `RootFileEnumerationEntry` contract になることを実機 Everything 環境で確認する。
    - bridge layout / result version log を必要に応じて追加する。
@@ -1288,7 +1293,8 @@ existence / mtime は意味的に揃える。
    - song row chunk failure では chunk transaction が rollback され、durable `Failed` cursor から再実行できることは unit/integration-shaped test で固定済み。
    - 実機ログで `processed_cursor` / `stage` / `Completed` / `Incomplete` の遷移が想定どおりか確認する。
 3. Phase 0 の残 fixture を追加する。
-   - `folderinfo.txt`、`.lr2folder` の実 DB 由来 fixture を追加する。
+   - `folderinfo.txt`、`.lr2folder` の実 DB 由来 fixture を追加する。これは fixture 入手後の contract 補強であり、
+     現行 synthetic fixture と既存 unit / integration-shaped test が production 実装の前提を固定している。
 4. LR2 manual-only 起動での最終確認を行う。
    - 完全生成後、未変更 root で LR2 / OpenLR2 が再帰 scan に入らないことを確認する。
    - LR2 起動そのもののブロッキングや排他はこの計画の対象外として扱う。
