@@ -267,18 +267,19 @@ public sealed class Lr2FolderFileProjectionTests
     }
 
     [DataTestMethod]
-    [DataRow(@"LR2files\CustomFolder\favorite.lr2folder")]
-    [DataRow(@"LR2files\CustomFolder\TOP10.lr2folder")]
-    [DataRow(@"LR2files\CustomFolder\PLAYLEVEL\1.lr2folder")]
-    [DataRow(@"LR2files\CustomFolder\CLEAR\clear.lr2folder")]
-    [DataRow(@"LR2files\CustomFolder\RANK\rank.lr2folder")]
-    [DataRow(@"LR2files\CustomFolder\ignore.lr2folder")]
-    [DataRow(@"LR2files\CustomFolder\INSANE01\01.lr2folder")]
-    [DataRow(@"LR2files\CustomFolder\INSANE02\02.lr2folder")]
-    [DataRow(@"LR2files\CustomFolder\course1.lr2folder")]
-    [DataRow(@"LR2files\CustomFolder\course2.lr2folder")]
-    [DataRow(@"LR2files\CustomFolder\course3.lr2folder")]
-    public void SourceClassifier_DoesNotInferOpenLr2SpecialFolderTypeFromKnownSourcePath(string relativePath)
+    [DataRow(@"LR2files\CustomFolder\favorite.lr2folder", 2)]
+    [DataRow(@"LR2files\CustomFolder\TOP10.lr2folder", 2)]
+    [DataRow(@"LR2files\CustomFolder\PLAYLEVEL\1.lr2folder", 2)]
+    [DataRow(@"LR2files\CustomFolder\CLEAR\clear.lr2folder", 2)]
+    [DataRow(@"LR2files\CustomFolder\RANK\rank.lr2folder", 2)]
+    [DataRow(@"LR2files\CustomFolder\ignore.lr2folder", 2)]
+    [DataRow(@"LR2files\CustomFolder\INSANE01\01.lr2folder", 2)]
+    [DataRow(@"LR2files\CustomFolder\INSANE02\02.lr2folder", 2)]
+    [DataRow(@"LR2files\CustomFolder\newsong.lr2folder", 3)]
+    [DataRow(@"LR2files\CustomFolder\course1.lr2folder", 6)]
+    [DataRow(@"LR2files\CustomFolder\course2.lr2folder", 6)]
+    [DataRow(@"LR2files\CustomFolder\course3.lr2folder", 6)]
+    public void SourceClassifier_InfersOpenLr2SpecialFolderTypeFromKnownSourcePath(string relativePath, int expectedFolderType)
     {
         string lr2Root = Path.GetFullPath(@"D:\LR2beta3");
         string filePath = Path.Combine(lr2Root, relativePath);
@@ -290,7 +291,7 @@ public sealed class Lr2FolderFileProjectionTests
         });
 
         Assert.AreEqual(relativePath, classification.DatabasePath);
-        Assert.AreEqual(2, classification.FolderType);
+        Assert.AreEqual(expectedFolderType, classification.FolderType);
     }
 
     [TestMethod]

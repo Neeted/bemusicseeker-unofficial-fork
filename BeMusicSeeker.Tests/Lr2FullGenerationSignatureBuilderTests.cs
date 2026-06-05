@@ -62,6 +62,35 @@ public sealed class Lr2FullGenerationSignatureBuilderTests
     }
 
     [TestMethod]
+    public void Build_ChangesWhenBuiltinCustomFolderSettingsChange()
+    {
+        var options = new BmsLibraryOptionsSnapshot
+        {
+            OperationModeLR2DB = true,
+            EnableLR2SongDbFullGeneration = true
+        };
+
+        string maskOff = Lr2FullGenerationSignatureBuilder.Build(
+            options,
+            [@"D:\BMS"],
+            [@"D:\LR2beta3\LR2files\CustomFolder"],
+            new Lr2BuiltinCustomFolderSettings(0, 24, includeNewSongFolder: false));
+        string maskOn = Lr2FullGenerationSignatureBuilder.Build(
+            options,
+            [@"D:\BMS"],
+            [@"D:\LR2beta3\LR2files\CustomFolder"],
+            new Lr2BuiltinCustomFolderSettings(2, 24, includeNewSongFolder: false));
+        string newSong = Lr2FullGenerationSignatureBuilder.Build(
+            options,
+            [@"D:\BMS"],
+            [@"D:\LR2beta3\LR2files\CustomFolder"],
+            new Lr2BuiltinCustomFolderSettings(2, 24, includeNewSongFolder: true));
+
+        Assert.AreNotEqual(maskOff, maskOn);
+        Assert.AreNotEqual(maskOn, newSong);
+    }
+
+    [TestMethod]
     public void Build_IncludesSchemaParserAndGeneratorVersions()
     {
         var options = new BmsLibraryOptionsSnapshot

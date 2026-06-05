@@ -53,6 +53,27 @@ public class LR2Config : XDocument
         ConfigPath = configPath;
     }
 
+    public int GetCustomFolderMask()
+    {
+        return GetSystemIntValue("customfolder", 0);
+    }
+
+    public int GetTitleFlashHours()
+    {
+        return GetSystemIntValue("titleflash", 24);
+    }
+
+    private int GetSystemIntValue(string name, int defaultValue)
+    {
+        using (new ReaderGuard(rwlock))
+        {
+            string value = Element("config")?.Element("system")?.Element(name)?.Value;
+            return int.TryParse(value, out int parsed)
+                ? parsed
+                : defaultValue;
+        }
+    }
+
     public List<string> GetBMSSearchDirectories()
     {
         bool needSave = false;

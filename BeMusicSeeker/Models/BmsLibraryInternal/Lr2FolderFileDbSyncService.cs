@@ -219,7 +219,7 @@ internal static class Lr2FolderFileDbSyncService
         IEnumerable<string> scopePaths)
     {
         List<string> directories = [.. (scopeDirectories ?? [])
-            .Select(Lr2FolderPath.NormalizeDirectoryPath)
+            .Select(NormalizeScopeDirectory)
             .Where(path => !string.IsNullOrWhiteSpace(path))
             .Distinct(PathComparer)];
         var explicitPaths = new HashSet<string>(
@@ -247,7 +247,7 @@ internal static class Lr2FolderFileDbSyncService
             if ((generatedPathsByKey != null
                     && generatedPathsByKey.ContainsKey(path))
                 || explicitPaths.Contains(path)
-                || directories.Any(directory => Lr2FolderPath.IsSameOrDescendant(path, directory)))
+                || directories.Any(directory => IsSameOrDescendantForScope(path, directory)))
             {
                 deletePaths.Add(row.path);
             }
@@ -303,5 +303,56 @@ internal static class Lr2FolderFileDbSyncService
         {
             return null;
         }
+    }
+
+    private static string NormalizeScopeDirectory(string directoryPath)
+    {
+        if (string.IsNullOrWhiteSpace(directoryPath))
+        {
+            return null;
+        }
+
+        string trimmed = directoryPath.Trim();
+        if (Path.IsPathRooted(trimmed))
+        {
+            return Lr2FolderPath.NormalizeDirectoryPath(directoryPath);
+        }
+
+        string normalized = trimmed
+            .Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar)
+            .TrimEnd(Path.DirectorySeparatorChar);
+        if (IsKnownRelativeLr2FolderDirectory(normalized))
+        {
+            return normalized;
+        }
+        return null;
+    }
+
+    private static bool IsSameOrDescendantForScope(string path, string scopeDirectory)
+    {
+        if (string.IsNullOrWhiteSpace(path) || string.IsNullOrWhiteSpace(scopeDirectory))
+        {
+            return false;
+        }
+
+        if (Path.IsPathRooted(scopeDirectory))
+        {
+            return Lr2FolderPath.IsSameOrDescendant(path, scopeDirectory);
+        }
+
+        string normalizedPath = path.Trim()
+            .Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar)
+            .TrimEnd(Path.DirectorySeparatorChar);
+        string normalizedScope = scopeDirectory.Trim()
+            .Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar)
+            .TrimEnd(Path.DirectorySeparatorChar);
+        return string.Equals(normalizedPath, normalizedScope, StringComparison.OrdinalIgnoreCase)
+            || normalizedPath.StartsWith(normalizedScope + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsKnownRelativeLr2FolderDirectory(string directoryPath)
+    {
+        return string.Equals(directoryPath, @"LR2files\CustomFolder", StringComparison.OrdinalIgnoreCase)
+            || directoryPath.StartsWith(@"LR2files\CustomFolder\", StringComparison.OrdinalIgnoreCase);
     }
 }

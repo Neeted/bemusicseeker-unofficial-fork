@@ -15,7 +15,8 @@ internal static class Lr2FullGenerationSignatureBuilder
     internal static string Build(
         BmsLibraryOptionsSnapshot options,
         IEnumerable<string> rootDirectories,
-        IEnumerable<string> lr2FolderDiscoveryDirectories = null)
+        IEnumerable<string> lr2FolderDiscoveryDirectories = null,
+        Lr2BuiltinCustomFolderSettings builtinCustomFolderSettings = null)
     {
         return Version
             + "|appSchema=" + BmsLibraryDbGateway.CurrentAppSchemaVersion.ToString(CultureInfo.InvariantCulture)
@@ -26,6 +27,9 @@ internal static class Lr2FullGenerationSignatureBuilder
             + "|lr2CompatibilityFacts=" + Lr2CompatibilityFactsVersion.ToString(CultureInfo.InvariantCulture)
             + "|operationModeLR2DB=" + ((options?.OperationModeLR2DB ?? false) ? "1" : "0")
             + "|fullGeneration=" + ((options?.EnableLR2SongDbFullGeneration ?? false) ? "1" : "0")
+            + "|lr2CustomFolderMask=" + (builtinCustomFolderSettings?.CustomFolderMask ?? 0).ToString(CultureInfo.InvariantCulture)
+            + "|lr2TitleFlashHours=" + (builtinCustomFolderSettings?.TitleFlashHours ?? 24).ToString(CultureInfo.InvariantCulture)
+            + "|lr2IncludeNewSongFolder=" + ((builtinCustomFolderSettings?.IncludeNewSongFolder ?? false) ? "1" : "0")
             + "|roots=" + FormatRootSet(rootDirectories)
             + "|lr2folderRoots=" + FormatRootSet(lr2FolderDiscoveryDirectories);
     }

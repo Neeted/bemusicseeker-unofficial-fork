@@ -83,6 +83,7 @@ internal static class Lr2FolderFileSourceClassifier
             classification = new Lr2FolderFileSourceClassification
             {
                 DatabasePath = databasePath,
+                FolderType = Lr2BuiltinCustomFolderSettings.ResolveBuiltinFolderType(databasePath),
                 ParentHash = IsDirectChildFile(filePath, sourceDirectory)
                     ? Lr2SongFolderParentNormalizer.RootParentHash
                     : null
