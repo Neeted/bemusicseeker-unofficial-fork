@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -2147,6 +2148,43 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
         Assert.AreEqual(1, result.Lr2FolderFileSyncResult.ItemCount);
         Assert.AreEqual(0, result.Lr2FolderFileSyncResult.DeletedCount);
         Assert.AreEqual(1, songDb.Table<LR2SongDB.folder>().ToList().Count(folder => folder.path == missingPath));
+    }
+
+    [TestMethod]
+    public void BackfillService_UsesEnumeratedLr2FolderTimestampForGeneratedRow()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
+        Directory.CreateDirectory(rootDirectory);
+        string lr2FolderPath = Path.Combine(rootDirectory, "table.lr2folder");
+        File.WriteAllText(lr2FolderPath, "#TITLE Table");
+        DateTime enumeratedTimestamp = new(2026, 6, 5, 1, 2, 3, DateTimeKind.Utc);
+        DateTime liveTimestamp = enumeratedTimestamp.AddMinutes(10);
+        File.SetLastWriteTimeUtc(lr2FolderPath, liveTimestamp);
+        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        songDb.CreateTable<LR2SongDB.folder>();
+
+        Lr2FullGenerationBackfillResult result = Lr2FullGenerationBackfillService.Run(songDb, new Lr2FullGenerationBackfillRequest
+        {
+            Signature = "lr2folder-enumerated-time",
+            RunId = "lr2folder-enumerated-time-run",
+            RootDirectories = [rootDirectory],
+            Lr2FolderDiscoveryDirectories = [rootDirectory],
+            Lr2FolderPruneDirectories = [rootDirectory],
+            Lr2FolderFilePaths = [lr2FolderPath],
+            Lr2FolderFileEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase)
+            {
+                [lr2FolderPath] = new RootFileEnumerationEntry(lr2FolderPath, enumeratedTimestamp)
+            },
+            Lr2FolderFileDiscoveryComplete = true,
+            StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc)
+        });
+
+        LR2SongDB.folder row = songDb.Table<LR2SongDB.folder>().Single(folder => folder.path == lr2FolderPath);
+        Assert.AreEqual(Lr2SongRowEnricher.ToLr2UnixSeconds(enumeratedTimestamp), row.date);
+        Assert.AreEqual(1, result.Lr2FolderFileSyncResult.GeneratedCount);
+        Assert.AreEqual(Lr2FullGenerationBackfillService.StartupScanBlockersStage, result.FinalStage);
+        Assert.AreEqual(1, result.StartupScanDiagnosticResult.DateStaleFolderRowCount);
     }
 
     private sealed class TestDatabaseScope : IDisposable

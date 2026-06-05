@@ -5397,6 +5397,7 @@ completeFileEnumerationOnce,
                     ChartPaths = input.ChartPaths,
                     FolderInfoFilePaths = input.FolderInfoFilePaths,
                     Lr2FolderFilePaths = input.Lr2FolderFilePaths,
+                    Lr2FolderFileEntries = input.Lr2FolderFileEntries,
                     Lr2FolderDiscoveryDirectories = input.Lr2FolderDiscoveryDirectories,
                     Lr2FolderPruneDirectories = input.Lr2FolderPruneDirectories,
                     Lr2RootPath = input.Lr2RootPath,
@@ -5611,6 +5612,7 @@ completeFileEnumerationOnce,
             lr2RootCustomFolderOutputBaseDir,
             lr2BuiltinFolderSourceDirectories,
             lr2FolderFileCandidates.Paths,
+            lr2FolderFileCandidates.EntriesByPath,
             lr2FolderFileCandidates.DiscoveryComplete,
             songRows,
             CreateLr2FullGenerationTextFileDirectories(chartPaths),
@@ -5661,7 +5663,7 @@ completeFileEnumerationOnce,
 
         Lr2FolderFileCandidateSnapshot lr2FolderFileCandidates = CreateLr2FullGenerationLr2FolderFileCandidates(lr2FolderDiscoveryDirectories);
         if (input.Lr2FolderFileDiscoveryComplete != lr2FolderFileCandidates.DiscoveryComplete
-            || !ArePathSetsEqual(input.Lr2FolderFilePaths, lr2FolderFileCandidates.Paths)
+            || !AreLr2FolderCandidateSetsEqual(input.Lr2FolderFileEntries, lr2FolderFileCandidates.EntriesByPath)
             || !ArePathSetsEqual(input.FolderInfoFilePaths, CreateLr2FullGenerationFolderInfoCandidates(roots, input.ChartPaths))
             || !ArePathSetsEqual(input.TextFileDirectories, CreateLr2FullGenerationTextFileDirectories(input.ChartPaths)))
         {
@@ -5677,6 +5679,44 @@ completeFileEnumerationOnce,
             (first ?? []).Where(path => !string.IsNullOrWhiteSpace(path)).Select(SafeFullPathOrOriginal),
             StringComparer.OrdinalIgnoreCase)
             .SetEquals((second ?? []).Where(path => !string.IsNullOrWhiteSpace(path)).Select(SafeFullPathOrOriginal));
+    }
+
+    private static bool AreLr2FolderCandidateSetsEqual(
+        IReadOnlyDictionary<string, RootFileEnumerationEntry> first,
+        IReadOnlyDictionary<string, RootFileEnumerationEntry> second)
+    {
+        Dictionary<string, int?> firstMap = CreateEnumerationTimestampMap(first);
+        Dictionary<string, int?> secondMap = CreateEnumerationTimestampMap(second);
+        if (firstMap.Count != secondMap.Count)
+        {
+            return false;
+        }
+
+        foreach (KeyValuePair<string, int?> pair in firstMap)
+        {
+            if (!secondMap.TryGetValue(pair.Key, out int? timestamp)
+                || timestamp != pair.Value)
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static Dictionary<string, int?> CreateEnumerationTimestampMap(
+        IReadOnlyDictionary<string, RootFileEnumerationEntry> entriesByPath)
+    {
+        var result = new Dictionary<string, int?>(StringComparer.OrdinalIgnoreCase);
+        foreach (KeyValuePair<string, RootFileEnumerationEntry> pair in entriesByPath ?? new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase))
+        {
+            string path = !string.IsNullOrWhiteSpace(pair.Value?.Path) ? pair.Value.Path : pair.Key;
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                continue;
+            }
+            result[SafeFullPathOrOriginal(path)] = pair.Value?.LastWriteTimeUnixSeconds;
+        }
+        return result;
     }
 
     private static string SafeFullPathOrOriginal(string path)
@@ -6128,7 +6168,7 @@ completeFileEnumerationOnce,
             .Distinct(StringComparer.OrdinalIgnoreCase)];
         if (roots.Count == 0)
         {
-            return new Lr2FolderFileCandidateSnapshot([], discoveryComplete: true);
+            return new Lr2FolderFileCandidateSnapshot([], new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase), discoveryComplete: true);
         }
 
         RootFileEnumerationResult result = RootFileEnumerationService.EnumerateFilesWithFallback(
@@ -6136,11 +6176,16 @@ completeFileEnumerationOnce,
             [new RootFileEnumerationGroup(Lr2FolderFileEnumerationGroupName, [".lr2folder"])]);
         if (!result.Success)
         {
-            return new Lr2FolderFileCandidateSnapshot([], discoveryComplete: false);
+            return new Lr2FolderFileCandidateSnapshot([], new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase), discoveryComplete: false);
         }
-        return new Lr2FolderFileCandidateSnapshot([.. result.GetPaths(Lr2FolderFileEnumerationGroupName)
+        Dictionary<string, RootFileEnumerationEntry> entriesByPath = result.GetEntries(Lr2FolderFileEnumerationGroupName)
+            .Where(entry => entry != null && !string.IsNullOrWhiteSpace(entry.Path))
+            .GroupBy(entry => entry.Path, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.First())
+            .ToDictionary(entry => entry.Path, entry => entry, StringComparer.OrdinalIgnoreCase);
+        return new Lr2FolderFileCandidateSnapshot([.. entriesByPath.Keys
             .Where(path => !string.IsNullOrWhiteSpace(path))
-            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)], discoveryComplete: true);
+            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)], entriesByPath, discoveryComplete: true);
     }
 
     private static List<string> CreateLr2FullGenerationBuiltinFolderSourceDirectories()
@@ -6182,6 +6227,7 @@ completeFileEnumerationOnce,
         string lr2RootCustomFolderOutputBaseDir,
         IReadOnlyList<string> lr2BuiltinFolderSourceDirectories,
         IReadOnlyList<string> lr2FolderFilePaths,
+        IReadOnlyDictionary<string, RootFileEnumerationEntry> lr2FolderFileEntries,
         bool lr2FolderFileDiscoveryComplete,
         IReadOnlyList<BMSFile> songRows,
         IReadOnlyList<string> textFileDirectories,
@@ -6207,6 +6253,9 @@ completeFileEnumerationOnce,
 
         public IReadOnlyList<string> Lr2FolderFilePaths { get; } = lr2FolderFilePaths ?? [];
 
+        public IReadOnlyDictionary<string, RootFileEnumerationEntry> Lr2FolderFileEntries { get; } =
+            lr2FolderFileEntries ?? new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
+
         public bool Lr2FolderFileDiscoveryComplete { get; } = lr2FolderFileDiscoveryComplete;
 
         public IReadOnlyList<BMSFile> SongRows { get; } = songRows ?? [];
@@ -6222,9 +6271,13 @@ completeFileEnumerationOnce,
 
     private sealed class Lr2FolderFileCandidateSnapshot(
         IReadOnlyList<string> paths,
+        IReadOnlyDictionary<string, RootFileEnumerationEntry> entriesByPath,
         bool discoveryComplete)
     {
         public IReadOnlyList<string> Paths { get; } = paths ?? [];
+
+        public IReadOnlyDictionary<string, RootFileEnumerationEntry> EntriesByPath { get; } =
+            entriesByPath ?? new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
 
         public bool DiscoveryComplete { get; } = discoveryComplete;
     }

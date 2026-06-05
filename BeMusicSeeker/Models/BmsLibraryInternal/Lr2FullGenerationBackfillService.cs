@@ -7,6 +7,7 @@ using System.Security;
 using System.Text;
 using System.Threading;
 using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.Models.Utils;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
@@ -23,6 +24,9 @@ internal sealed class Lr2FullGenerationBackfillRequest
     public IReadOnlyCollection<string> FolderInfoFilePaths { get; set; } = [];
 
     public IReadOnlyCollection<string> Lr2FolderFilePaths { get; set; } = [];
+
+    public IReadOnlyDictionary<string, RootFileEnumerationEntry> Lr2FolderFileEntries { get; set; } =
+        new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
 
     public IReadOnlyCollection<string> Lr2FolderDiscoveryDirectories { get; set; } = [];
 
@@ -187,8 +191,10 @@ internal static class Lr2FullGenerationBackfillService
         List<string> folderInfoFilePaths = [.. (request.FolderInfoFilePaths ?? [])
             .Where(path => !string.IsNullOrWhiteSpace(path))
             .Distinct(StringComparer.OrdinalIgnoreCase)];
+        Dictionary<string, RootFileEnumerationEntry> lr2FolderFileEntries = NormalizeEnumerationEntries(request.Lr2FolderFileEntries);
         List<string> lr2FolderFilePaths = [.. (request.Lr2FolderFilePaths ?? [])
             .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Concat(lr2FolderFileEntries.Keys)
             .Distinct(StringComparer.OrdinalIgnoreCase)];
         List<string> lr2FolderDiscoveryDirectories = [.. (request.Lr2FolderDiscoveryDirectories ?? [])
             .Where(path => !string.IsNullOrWhiteSpace(path))
@@ -282,7 +288,7 @@ internal static class Lr2FullGenerationBackfillService
             : 0;
         if (resumeCursor < lr2FolderEndCursor && lr2FolderDiscoveryDirectories.Count > 0)
         {
-            Lr2FolderFileSyncItemsResult syncItems = CreateLr2FolderFileSyncItems(lr2FolderFilePaths, request);
+            Lr2FolderFileSyncItemsResult syncItems = CreateLr2FolderFileSyncItems(lr2FolderFilePaths, request, lr2FolderFileEntries);
             lr2FolderFileResult = Lr2FolderFileDbSyncService.Sync(songDb, new Lr2FolderFileDbSyncRequest
             {
                 Items = syncItems.Items,
@@ -725,7 +731,10 @@ internal static class Lr2FullGenerationBackfillService
         }
 
         int missing = 0;
-        Lr2FolderFileSyncItemsResult syncItems = CreateLr2FolderFileSyncItems(request.Lr2FolderFilePaths, request);
+        Lr2FolderFileSyncItemsResult syncItems = CreateLr2FolderFileSyncItems(
+            request.Lr2FolderFilePaths,
+            request,
+            NormalizeEnumerationEntries(request.Lr2FolderFileEntries));
         foreach (Lr2FolderFileSyncItem item in syncItems.Items)
         {
             if (item?.LastWriteTimeUtc == null || item.FolderType == 1)
@@ -955,7 +964,8 @@ internal static class Lr2FullGenerationBackfillService
 
     private static Lr2FolderFileSyncItemsResult CreateLr2FolderFileSyncItems(
         IEnumerable<string> filePaths,
-        Lr2FullGenerationBackfillRequest request)
+        Lr2FullGenerationBackfillRequest request,
+        IReadOnlyDictionary<string, RootFileEnumerationEntry> entriesByPath = null)
     {
         var items = new List<Lr2FolderFileSyncItem>();
         bool hasReadFailures = false;
@@ -966,7 +976,8 @@ internal static class Lr2FullGenerationBackfillService
                 continue;
             }
 
-            Lr2FolderFileSyncItem item = CreateLr2FolderFileSyncItem(filePath, request);
+            RootFileEnumerationEntry entry = ResolveEnumerationEntry(entriesByPath, filePath);
+            Lr2FolderFileSyncItem item = CreateLr2FolderFileSyncItem(filePath, request, entry);
             if (item.LastWriteTimeUtc == null)
             {
                 hasReadFailures = true;
@@ -978,7 +989,8 @@ internal static class Lr2FullGenerationBackfillService
 
     private static Lr2FolderFileSyncItem CreateLr2FolderFileSyncItem(
         string filePath,
-        Lr2FullGenerationBackfillRequest request)
+        Lr2FullGenerationBackfillRequest request,
+        RootFileEnumerationEntry enumerationEntry = null)
     {
         Lr2FolderFileSourceClassification classification = Lr2FolderFileSourceClassifier.Classify(new Lr2FolderFileSourceClassificationRequest
         {
@@ -993,7 +1005,7 @@ internal static class Lr2FullGenerationBackfillService
             {
                 FilePath = filePath,
                 DatabasePath = classification.DatabasePath,
-                LastWriteTimeUtc = File.GetLastWriteTimeUtc(filePath),
+                LastWriteTimeUtc = ResolveLastWriteTimeUtc(filePath, enumerationEntry),
                 Definition = Lr2FolderFileProjection.ParseDefinition(File.ReadLines(filePath, Encoding.GetEncoding("shift_jis"))),
                 FolderType = classification.FolderType,
                 ParentHash = classification.ParentHash
@@ -1011,6 +1023,42 @@ internal static class Lr2FullGenerationBackfillService
                 ParentHash = classification.ParentHash
             };
         }
+    }
+
+    private static DateTime ResolveLastWriteTimeUtc(string filePath, RootFileEnumerationEntry enumerationEntry)
+    {
+        if (enumerationEntry?.LastWriteTimeUtc != null)
+        {
+            return enumerationEntry.LastWriteTimeUtc.Value;
+        }
+        return File.GetLastWriteTimeUtc(filePath);
+    }
+
+    private static RootFileEnumerationEntry ResolveEnumerationEntry(
+        IReadOnlyDictionary<string, RootFileEnumerationEntry> entriesByPath,
+        string filePath)
+    {
+        return !string.IsNullOrWhiteSpace(filePath)
+            && entriesByPath?.TryGetValue(filePath, out RootFileEnumerationEntry entry) == true
+                ? entry
+                : null;
+    }
+
+    private static Dictionary<string, RootFileEnumerationEntry> NormalizeEnumerationEntries(
+        IReadOnlyDictionary<string, RootFileEnumerationEntry> entries)
+    {
+        var result = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
+        foreach (KeyValuePair<string, RootFileEnumerationEntry> pair in entries ?? new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase))
+        {
+            RootFileEnumerationEntry entry = pair.Value;
+            string path = !string.IsNullOrWhiteSpace(entry?.Path) ? entry.Path : pair.Key;
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                continue;
+            }
+            result[path] = entry ?? new RootFileEnumerationEntry(path);
+        }
+        return result;
     }
 
     private sealed class Lr2FolderFileSyncItemsResult(
