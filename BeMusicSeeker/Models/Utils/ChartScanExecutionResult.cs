@@ -38,6 +38,8 @@ public class ChartScanExecutionResult
 
     public ulong MovieQueryHitCount { get; set; }
 
+    public ulong TextQueryHitCount { get; set; }
+
     public long ChartQueryMs { get; set; }
 
     public long AudioQueryMs { get; set; }
@@ -45,6 +47,8 @@ public class ChartScanExecutionResult
     public long ImageQueryMs { get; set; }
 
     public long MovieQueryMs { get; set; }
+
+    public long TextQueryMs { get; set; }
 
     public long AssignMs { get; set; }
 
@@ -84,6 +88,10 @@ public class ChartScanExecutionResult
 
     public long MovieReadMs { get; set; }
 
+    public long TextSearchMs { get; set; }
+
+    public long TextReadMs { get; set; }
+
     public long ChartSdkReadMs { get; set; }
 
     public long ChartCallbackMs { get; set; }
@@ -100,6 +108,10 @@ public class ChartScanExecutionResult
 
     public long MovieCallbackMs { get; set; }
 
+    public long TextSdkReadMs { get; set; }
+
+    public long TextCallbackMs { get; set; }
+
     public ulong ChartPathResizeCount { get; set; }
 
     public ulong ChartNameResizeCount { get; set; }
@@ -115,6 +127,10 @@ public class ChartScanExecutionResult
     public ulong MoviePathResizeCount { get; set; }
 
     public ulong MovieNameResizeCount { get; set; }
+
+    public ulong TextPathResizeCount { get; set; }
+
+    public ulong TextNameResizeCount { get; set; }
 
     public ulong ChartDirectoryCount { get; set; }
 

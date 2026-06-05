@@ -36,7 +36,7 @@ public class EverythingFileScanner : IChartFileScanner
 
         if (verboseLog)
         {
-            logger.Info("everything_scan start roots={0} chartQuery={1} audioQuery={2} imageQuery={3} movieQuery={4}", roots.Count, chartQuery, audioQuery, imageQuery, movieQuery);
+            logger.Info("everything_scan start roots={0} chartQuery={1} audioQuery={2} imageQuery={3} movieQuery={4} textQuery={5}", roots.Count, chartQuery, audioQuery, imageQuery, movieQuery, textQuery);
         }
 
         var stopwatch = Stopwatch.StartNew();
@@ -66,7 +66,7 @@ public class EverythingFileScanner : IChartFileScanner
         }
         if (verboseLog)
         {
-            logger.Info("everything_scan success charts={0} dirs={1} totalMs={2} nativeBridgeUsed={3} nativeBridgeMs={4} nativeBridgeReason={5} managedDecodeMs={6} managedMaterializeMs={7} bridgeRawBufferBytes={8} hashDirs={9} categoryResourceKeyHashEntries={10} chartQueryHits={11} audioQueryHits={12} imageQueryHits={13} movieQueryHits={14} chartQueryMs={15} audioQueryMs={16} imageQueryMs={17} movieQueryMs={18} chartSearchMs={19} chartReadMs={20} audioSearchMs={21} audioReadMs={22} imageSearchMs={23} imageReadMs={24} movieSearchMs={25} movieReadMs={26} chartDirectoryCount={27} audioAssignedCount={28} imageAssignedCount={29} movieAssignedCount={30} audioResourceKeyHashCount={31} imageResourceKeyHashCount={32} movieResourceKeyHashCount={33} audioResourceDirCount={34} imageResourceDirCount={35} movieResourceDirCount={36} ownerCacheHitCount={37} ownerCacheMissCount={38} relativePrefixCacheHitCount={39} relativePrefixCacheMissCount={40} audioGroupMs={41} audioAssignMs={42} audioMergeMs={43} imageGroupMs={44} imageAssignMs={45} imageMergeMs={46} movieGroupMs={47} movieAssignMs={48} movieMergeMs={49} assignMs={50} dedupeMs={51} packMs={52} packReverseBuildMs={53} audioReverseBuildMs={54} imageReverseBuildMs={55} movieReverseBuildMs={56} packLayoutMs={57} packAllocMs={58} packWriteMs={59} reverseIndexBytes={60} chartSdkReadMs={61} chartCallbackMs={62} audioSdkReadMs={63} audioCallbackMs={64} imageSdkReadMs={65} imageCallbackMs={66} movieSdkReadMs={67} movieCallbackMs={68} chartPathResizeCount={69} chartNameResizeCount={70} audioPathResizeCount={71} audioNameResizeCount={72} imagePathResizeCount={73} imageNameResizeCount={74} moviePathResizeCount={75} movieNameResizeCount={76}",
+            logger.Info("everything_scan success charts={0} dirs={1} totalMs={2} nativeBridgeUsed={3} nativeBridgeMs={4} nativeBridgeReason={5} managedDecodeMs={6} managedMaterializeMs={7} bridgeRawBufferBytes={8} hashDirs={9} categoryResourceKeyHashEntries={10} chartQueryHits={11} audioQueryHits={12} imageQueryHits={13} movieQueryHits={14} textQueryHits={15} chartQueryMs={16} audioQueryMs={17} imageQueryMs={18} movieQueryMs={19} textQueryMs={20} chartSearchMs={21} chartReadMs={22} audioSearchMs={23} audioReadMs={24} imageSearchMs={25} imageReadMs={26} movieSearchMs={27} movieReadMs={28} textSearchMs={29} textReadMs={30} chartDirectoryCount={31} audioAssignedCount={32} imageAssignedCount={33} movieAssignedCount={34} textFileEntries={35} folderInfoHits={36} textFileDirs={37} audioResourceKeyHashCount={38} imageResourceKeyHashCount={39} movieResourceKeyHashCount={40} audioResourceDirCount={41} imageResourceDirCount={42} movieResourceDirCount={43} ownerCacheHitCount={44} ownerCacheMissCount={45} relativePrefixCacheHitCount={46} relativePrefixCacheMissCount={47} audioGroupMs={48} audioAssignMs={49} audioMergeMs={50} imageGroupMs={51} imageAssignMs={52} imageMergeMs={53} movieGroupMs={54} movieAssignMs={55} movieMergeMs={56} assignMs={57} dedupeMs={58} packMs={59} packReverseBuildMs={60} audioReverseBuildMs={61} imageReverseBuildMs={62} movieReverseBuildMs={63} packLayoutMs={64} packAllocMs={65} packWriteMs={66} reverseIndexBytes={67} chartSdkReadMs={68} chartCallbackMs={69} audioSdkReadMs={70} audioCallbackMs={71} imageSdkReadMs={72} imageCallbackMs={73} movieSdkReadMs={74} movieCallbackMs={75} textSdkReadMs={76} textCallbackMs={77} chartPathResizeCount={78} chartNameResizeCount={79} audioPathResizeCount={80} audioNameResizeCount={81} imagePathResizeCount={82} imageNameResizeCount={83} moviePathResizeCount={84} movieNameResizeCount={85} textPathResizeCount={86} textNameResizeCount={87}",
                 result.Result.ChartFilePaths.Count,
                 result.Result.ChartDirectories.Count,
                 stopwatch.ElapsedMilliseconds,
@@ -82,10 +82,12 @@ public class EverythingFileScanner : IChartFileScanner
                 result.AudioQueryHitCount,
                 result.ImageQueryHitCount,
                 result.MovieQueryHitCount,
+                result.TextQueryHitCount,
                 result.ChartQueryMs,
                 result.AudioQueryMs,
                 result.ImageQueryMs,
                 result.MovieQueryMs,
+                result.TextQueryMs,
                 result.ChartSearchMs,
                 result.ChartReadMs,
                 result.AudioSearchMs,
@@ -94,10 +96,15 @@ public class EverythingFileScanner : IChartFileScanner
                 result.ImageReadMs,
                 result.MovieSearchMs,
                 result.MovieReadMs,
+                result.TextSearchMs,
+                result.TextReadMs,
                 result.ChartDirectoryCount,
                 result.AudioAssignedCount,
                 result.ImageAssignedCount,
                 result.MovieAssignedCount,
+                result.Result.TextFileEntriesByPath.Count,
+                result.Result.FolderInfoFilePaths.Count,
+                result.Result.ChartDirectoriesWithTextFiles.Count,
                 result.AudioResourceKeyHashCount,
                 result.ImageResourceKeyHashCount,
                 result.MovieResourceKeyHashCount,
@@ -136,6 +143,8 @@ public class EverythingFileScanner : IChartFileScanner
                 result.ImageCallbackMs,
                 result.MovieSdkReadMs,
                 result.MovieCallbackMs,
+                result.TextSdkReadMs,
+                result.TextCallbackMs,
                 result.ChartPathResizeCount,
                 result.ChartNameResizeCount,
                 result.AudioPathResizeCount,
@@ -143,7 +152,9 @@ public class EverythingFileScanner : IChartFileScanner
                 result.ImagePathResizeCount,
                 result.ImageNameResizeCount,
                 result.MoviePathResizeCount,
-                result.MovieNameResizeCount);
+                result.MovieNameResizeCount,
+                result.TextPathResizeCount,
+                result.TextNameResizeCount);
         }
         return result;
     }
