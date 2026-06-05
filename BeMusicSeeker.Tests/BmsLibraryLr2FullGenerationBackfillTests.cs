@@ -1261,6 +1261,8 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
             stage: "normal_folders_completed",
             detail: "interrupted",
             nowUtc: new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc));
+        InsertNormalFolderRow(songDb, rootDirectory, Lr2SongFolderParentNormalizer.RootParentHash);
+        InsertNormalFolderRow(songDb, songDirectory, Lr2SongFolderParentNormalizer.ComputeDirectoryHash(rootDirectory));
 
         Lr2FullGenerationBackfillResult result = Lr2FullGenerationBackfillService.Run(songDb, new Lr2FullGenerationBackfillRequest
         {
@@ -1274,11 +1276,53 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
 
         Assert.AreEqual(Lr2FullGenerationBackfillService.CompletedStage, result.FinalStage);
         Assert.IsNull(result.NormalFolderSyncResult);
-        Assert.AreEqual(0, songDb.Table<LR2SongDB.folder>().Count());
+        Assert.AreEqual(2, songDb.Table<LR2SongDB.folder>().Count());
         Assert.AreEqual("resume song", songDb.ExecuteScalar<string>("SELECT title FROM song WHERE path = ?;", chartPath));
         LR2SongDBExtended.lr2_full_generation_status row = songDb.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
         Assert.AreEqual("Completed", row.status);
         Assert.AreEqual(row.total_count, row.processed_cursor);
+    }
+
+    [TestMethod]
+    public void BackfillService_LeavesIncompleteWhenExpectedNormalFolderRowsAreMissingAfterResume()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        string rootDirectory = Path.Combine(scope.DirectoryPath, "ResumeMissingFolderRoot");
+        string songDirectory = Path.Combine(rootDirectory, "Song");
+        Directory.CreateDirectory(songDirectory);
+        string chartPath = Path.Combine(songDirectory, "chart.bms");
+        File.WriteAllText(chartPath, "#TITLE resume missing folder\r\n");
+        ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
+        TestableBmsFile file = CreateBackfillTestFile(chartPath, snapshot);
+        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        songDb.CreateTable<LR2SongDB.song>();
+        songDb.CreateTable<LR2SongDB.folder>();
+        const string signature = "resume-normal-missing-folder";
+        Lr2FullGenerationStatusService.MarkIncomplete(
+            songDb,
+            signature,
+            "previous-run",
+            processedCursor: 2,
+            totalCount: 3,
+            stage: "normal_folders_completed",
+            detail: "interrupted",
+            nowUtc: new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc));
+
+        Lr2FullGenerationBackfillResult result = Lr2FullGenerationBackfillService.Run(songDb, new Lr2FullGenerationBackfillRequest
+        {
+            Signature = signature,
+            RunId = "resume-missing-folder-run",
+            RootDirectories = [rootDirectory],
+            ChartPaths = [chartPath],
+            SongRows = [file],
+            StartedAtUtc = new DateTime(2026, 6, 5, 0, 1, 0, DateTimeKind.Utc)
+        });
+
+        Assert.AreEqual(Lr2FullGenerationBackfillService.StartupScanBlockersStage, result.FinalStage);
+        Assert.AreEqual(2, result.StartupScanDiagnosticResult.MissingExpectedFolderRowCount);
+        LR2SongDBExtended.lr2_full_generation_status row = songDb.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
+        Assert.AreEqual("Incomplete", row.status);
+        StringAssert.Contains(row.last_error, "missingExpectedFolderRows=2");
     }
 
     [TestMethod]
@@ -1359,6 +1403,8 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
             stage: "song_rows",
             detail: "interrupted",
             nowUtc: new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc));
+        InsertNormalFolderRow(songDb, rootDirectory, Lr2SongFolderParentNormalizer.RootParentHash);
+        InsertNormalFolderRow(songDb, songDirectory, Lr2SongFolderParentNormalizer.ComputeDirectoryHash(rootDirectory));
 
         Lr2FullGenerationBackfillResult result = Lr2FullGenerationBackfillService.Run(songDb, new Lr2FullGenerationBackfillRequest
         {
@@ -1900,6 +1946,19 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
     {
         return Path.GetFullPath(directoryPath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
             + Path.DirectorySeparatorChar;
+    }
+
+    private static void InsertNormalFolderRow(LR2SongDBExtended songDb, string directoryPath, string parentHash)
+    {
+        songDb.InsertOrReplace(new LR2SongDB.folder
+        {
+            path = ToFolderPath(directoryPath),
+            title = Path.GetFileName(directoryPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)),
+            type = 1,
+            parent = parentHash,
+            date = Lr2SongRowEnricher.ToLr2UnixSeconds(Directory.GetLastWriteTimeUtc(directoryPath)),
+            adddate = Lr2SongRowEnricher.ToLr2UnixSeconds(new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc))
+        }, typeof(LR2SongDB.folder));
     }
 
     private static void InvokeApplyInstalledChartStorageTargets(BMSLibrary library, ChartStorageTargetSet targets, string reason)

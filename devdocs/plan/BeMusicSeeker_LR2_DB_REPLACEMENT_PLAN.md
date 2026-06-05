@@ -1215,6 +1215,9 @@ parse directive:
   row の実 target が存在し、`folder.date` が directory / `.lr2folder` file の Unix 秒 mtime と一致するかを
   最後に検証する。missing target または不一致が残る run は `Completed` にせず
   `Incomplete(startup_scan_blockers_detected)` とする。
+- 同 diagnostic は current root / chart path から導出される通常 folder target が `folder` table に存在することも検証する。
+  `normal_folders_completed` 以降の durable resume では normal folder stage を再実行しないため、期待される root /
+  ancestor / chart directory row が欠けている場合は `missingExpectedFolderRows` blocker として `Completed` にしない。
 - startup-scan blocker cleanup は、diagnostic が列挙した `folder` blocker row だけを削除する model helper
   (`CleanupStartupScanBlockerFolderRows`) を正本にする。対象は unknown root / `date = 0` / missing target /
   stale date の `folder` row に限定し、`song` row 欠落、root 未設定、known root 外 `song` row は削除で直せる

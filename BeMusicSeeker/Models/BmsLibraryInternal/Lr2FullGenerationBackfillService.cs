@@ -85,6 +85,7 @@ internal sealed class Lr2StartupScanDiagnosticResult(
     int missingCurrentSongRowCount,
     int dateMissingSongRowCount,
     int unknownRootSongRowCount,
+    int missingExpectedFolderRowCount,
     int dateMissingFolderRowCount,
     int dateStaleFolderRowCount,
     int unknownRootFolderRowCount,
@@ -97,6 +98,8 @@ internal sealed class Lr2StartupScanDiagnosticResult(
     public int DateMissingSongRowCount { get; } = dateMissingSongRowCount;
 
     public int UnknownRootSongRowCount { get; } = unknownRootSongRowCount;
+
+    public int MissingExpectedFolderRowCount { get; } = missingExpectedFolderRowCount;
 
     public int DateMissingFolderRowCount { get; } = dateMissingFolderRowCount;
 
@@ -112,6 +115,7 @@ internal sealed class Lr2StartupScanDiagnosticResult(
         + MissingCurrentSongRowCount
         + DateMissingSongRowCount
         + UnknownRootSongRowCount
+        + MissingExpectedFolderRowCount
         + DateMissingFolderRowCount
         + DateStaleFolderRowCount
         + UnknownRootFolderRowCount;
@@ -125,6 +129,7 @@ internal sealed class Lr2StartupScanDiagnosticResult(
             + " missingSongRows=" + MissingCurrentSongRowCount
             + " dateMissingSongRows=" + DateMissingSongRowCount
             + " unknownRootSongRows=" + UnknownRootSongRowCount
+            + " missingExpectedFolderRows=" + MissingExpectedFolderRowCount
             + " dateMissingFolderRows=" + DateMissingFolderRowCount
             + " dateStaleFolderRows=" + DateStaleFolderRowCount
             + " unknownRootFolderRows=" + UnknownRootFolderRowCount;
@@ -574,6 +579,7 @@ internal static class Lr2FullGenerationBackfillService
         int dateStaleFolderRowCount = 0;
         int unknownRootFolderRowCount = 0;
         var cleanupFolderRowPaths = new HashSet<string>(StringComparer.Ordinal);
+        var existingNormalFolderPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (StartupDiagnosticFolderRow row in songDb.Query<StartupDiagnosticFolderRow>(
             "SELECT "
             + SQLiteTable<LR2SongDB.folder>.GetColumnName(folder => folder.path) + " AS Path, "
@@ -584,6 +590,15 @@ internal static class Lr2FullGenerationBackfillService
             if (string.IsNullOrWhiteSpace(row?.Path))
             {
                 continue;
+            }
+
+            if (row.Type.GetValueOrDefault() == 1)
+            {
+                string normalFolderPath = Lr2FolderPath.ToFolderPath(row.Path);
+                if (!string.IsNullOrWhiteSpace(normalFolderPath))
+                {
+                    existingNormalFolderPaths.Add(normalFolderPath);
+                }
             }
 
             if (!row.Date.HasValue || row.Date.GetValueOrDefault() <= 0)
@@ -617,16 +632,54 @@ internal static class Lr2FullGenerationBackfillService
                 AddCleanupFolderRowPath(cleanupFolderRowPaths, row.Path);
             }
         }
+        int missingExpectedFolderRowCount = CountMissingExpectedNormalFolderRows(
+            roots,
+            currentPaths,
+            existingNormalFolderPaths);
 
         return new Lr2StartupScanDiagnosticResult(
             noRootSetBlockerCount,
             missingCurrentSongRowCount,
             dateMissingSongRowCount,
             unknownRootSongRowCount,
+            missingExpectedFolderRowCount,
             dateMissingFolderRowCount,
             dateStaleFolderRowCount,
             unknownRootFolderRowCount,
             [.. cleanupFolderRowPaths]);
+    }
+
+    private static int CountMissingExpectedNormalFolderRows(
+        IReadOnlyCollection<string> rootDirectories,
+        IEnumerable<string> currentChartPaths,
+        ISet<string> existingNormalFolderPaths)
+    {
+        if (rootDirectories == null || rootDirectories.Count == 0)
+        {
+            return 0;
+        }
+
+        var compatibleChartPaths = new List<string>();
+        foreach (string path in currentChartPaths ?? [])
+        {
+            if (!string.IsNullOrWhiteSpace(path)
+                && Lr2CompatibilityEvaluator.EvaluateChartPath(path).CanComputeFolderParent)
+            {
+                compatibleChartPaths.Add(path);
+            }
+        }
+
+        int missing = 0;
+        foreach (string directory in Lr2NormalFolderDbSyncService.CreateDirectoryMetadataTargets(rootDirectories, compatibleChartPaths))
+        {
+            string expectedPath = Lr2FolderPath.ToFolderPath(directory);
+            if (!string.IsNullOrWhiteSpace(expectedPath)
+                && existingNormalFolderPaths?.Contains(expectedPath) != true)
+            {
+                missing++;
+            }
+        }
+        return missing;
     }
 
     internal static Lr2StartupScanBlockerCleanupResult CleanupStartupScanBlockerFolderRows(
