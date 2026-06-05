@@ -19,8 +19,6 @@ internal static class Lr2SongDbWriter
 
     private const string TempDeletedSongHashTable = "lr2_full_generation_deleted_song_hash";
 
-    private const string TempLiveSongHashTable = "lr2_full_generation_live_song_hash";
-
     internal static bool UpsertGeneratedSong(LR2SongDBExtended songDb, BMSFile song)
     {
         if (songDb == null)
@@ -67,6 +65,7 @@ internal static class Lr2SongDbWriter
         }
 
         Dictionary<string, GeneratedSongRow> existingByPath = FindSongsByPaths(songDb, rows.Select(song => song.path));
+        var previousHashesToCheck = new List<string>();
         int changedCount = 0;
         foreach (BMSFile song in rows)
         {
@@ -85,13 +84,18 @@ internal static class Lr2SongDbWriter
                 UpdateGeneratedColumns(songDb, song);
                 changed = true;
             }
-            BmsLibraryDbGateway.UpsertChartDigest(songDb, song);
-            BmsLibraryDbGateway.DeleteChartDigestIfOrphaned(songDb, previousHash, song.hash);
+            if (!string.IsNullOrWhiteSpace(previousHash)
+                && !string.Equals(previousHash, song.hash, StringComparison.OrdinalIgnoreCase))
+            {
+                previousHashesToCheck.Add(previousHash);
+            }
             if (changed)
             {
                 changedCount++;
             }
         }
+        UpsertChartDigests(songDb, rows);
+        DeleteOrphanedChartDigests(songDb, previousHashesToCheck);
         return changedCount;
     }
 
@@ -195,6 +199,81 @@ internal static class Lr2SongDbWriter
         songDb.Execute("DELETE FROM temp." + tableName + ";");
     }
 
+    private static void UpsertChartDigests(LR2SongDBExtended songDb, IEnumerable<BMSFile> songs)
+    {
+        var digestsByMd5 = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (BMSFile song in songs ?? [])
+        {
+            if (song == null || string.IsNullOrWhiteSpace(song.hash) || string.IsNullOrWhiteSpace(song.sha256))
+            {
+                continue;
+            }
+            digestsByMd5[song.hash] = song.sha256;
+        }
+        if (digestsByMd5.Count == 0)
+        {
+            return;
+        }
+
+        string digestTable = SQLiteTable<LR2SongDBExtended.chart_digest_map>.GetTableName();
+        string digestMd5Column = SQLiteTable<LR2SongDBExtended.chart_digest_map>.GetColumnName(row => row.md5);
+        string digestSha256Column = SQLiteTable<LR2SongDBExtended.chart_digest_map>.GetColumnName(row => row.sha256);
+        songDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
+
+        const int chunkSize = 400;
+        List<KeyValuePair<string, string>> digests = [.. digestsByMd5];
+        for (int offset = 0; offset < digests.Count; offset += chunkSize)
+        {
+            List<KeyValuePair<string, string>> chunk = digests.Skip(offset).Take(chunkSize).ToList();
+            string placeholders = string.Join(",", chunk.Select(_ => "(?, ?)"));
+            var args = new List<object>(chunk.Count * 2);
+            foreach (KeyValuePair<string, string> digest in chunk)
+            {
+                args.Add(digest.Key);
+                args.Add(digest.Value);
+            }
+            songDb.Execute(
+                "INSERT OR REPLACE INTO " + digestTable + " ("
+                + digestMd5Column + ", " + digestSha256Column + ") VALUES " + placeholders + ";",
+                [.. args]);
+        }
+    }
+
+    private static void DeleteOrphanedChartDigests(LR2SongDBExtended songDb, IEnumerable<string> md5s)
+    {
+        List<string> normalizedHashes = [.. (md5s ?? [])
+            .Select(NormalizeHashForTemp)
+            .Where(hash => !string.IsNullOrWhiteSpace(hash))
+            .Distinct(StringComparer.OrdinalIgnoreCase)];
+        if (normalizedHashes.Count == 0)
+        {
+            return;
+        }
+
+        PrepareTempHashTable(songDb, TempDeletedSongHashTable);
+        InsertHashesIntoTempHashTable(songDb, TempDeletedSongHashTable, normalizedHashes);
+        DeleteOrphanedChartDigestsFromTemp(songDb, TempDeletedSongHashTable);
+        ClearTempTable(songDb, TempDeletedSongHashTable);
+    }
+
+    private static void InsertHashesIntoTempHashTable(LR2SongDBExtended songDb, string tableName, IReadOnlyList<string> hashes)
+    {
+        if (hashes == null || hashes.Count == 0)
+        {
+            return;
+        }
+
+        const int chunkSize = 500;
+        for (int offset = 0; offset < hashes.Count; offset += chunkSize)
+        {
+            List<string> chunk = hashes.Skip(offset).Take(chunkSize).ToList();
+            string placeholders = string.Join(",", chunk.Select(_ => "(?)"));
+            songDb.Execute(
+                "INSERT OR IGNORE INTO temp." + tableName + " (md5) VALUES " + placeholders + ";",
+                [.. chunk.Cast<object>()]);
+        }
+    }
+
     private static void DeleteOrphanedChartDigestsFromTemp(LR2SongDBExtended songDb, string tempHashTableName)
     {
         string digestTable = SQLiteTable<LR2SongDBExtended.chart_digest_map>.GetTableName();
@@ -203,25 +282,41 @@ internal static class Lr2SongDbWriter
         string songHashColumn = SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.hash);
         string bmsonTable = SQLiteTable<LR2SongDBExtended.bmson_song>.GetTableName();
         string bmsonMd5Column = SQLiteTable<LR2SongDBExtended.bmson_song>.GetColumnName(row => row.md5);
+        if (!TableExists(songDb, digestTable))
+        {
+            return;
+        }
 
-        PrepareTempHashTable(songDb, TempLiveSongHashTable);
-        songDb.Execute(
-            "INSERT OR IGNORE INTO temp." + TempLiveSongHashTable + " (md5) "
-            + "SELECT DISTINCT lower(trim(s." + songHashColumn + ")) "
-            + "FROM " + songTable + " s "
-            + "WHERE s." + songHashColumn + " IS NOT NULL "
-            + "AND trim(s." + songHashColumn + ") <> '';");
-        songDb.Execute(
-            "INSERT OR IGNORE INTO temp." + TempLiveSongHashTable + " (md5) "
-            + "SELECT DISTINCT lower(trim(b." + bmsonMd5Column + ")) "
-            + "FROM " + bmsonTable + " b "
-            + "WHERE b." + bmsonMd5Column + " IS NOT NULL "
-            + "AND trim(b." + bmsonMd5Column + ") <> '';");
+        var liveExistsClauses = new List<string>();
+        if (TableExists(songDb, songTable))
+        {
+            liveExistsClauses.Add(
+                "EXISTS (SELECT 1 FROM " + songTable + " s WHERE s." + songHashColumn
+                + " = " + digestTable + "." + digestMd5Column + " COLLATE NOCASE)");
+        }
+        if (TableExists(songDb, bmsonTable))
+        {
+            liveExistsClauses.Add(
+                "EXISTS (SELECT 1 FROM " + bmsonTable + " b WHERE b." + bmsonMd5Column
+                + " = " + digestTable + "." + digestMd5Column + " COLLATE NOCASE)");
+        }
+        string liveExistsCondition = liveExistsClauses.Count == 0 ? "0" : string.Join(" OR ", liveExistsClauses);
         songDb.Execute(
             "DELETE FROM " + digestTable
-            + " WHERE " + digestMd5Column + " IN (SELECT md5 FROM temp." + tempHashTableName + ") "
-            + "AND NOT EXISTS (SELECT 1 FROM temp." + TempLiveSongHashTable + " live WHERE live.md5 = " + digestTable + "." + digestMd5Column + ");");
-        ClearTempTable(songDb, TempLiveSongHashTable);
+            + " WHERE lower(trim(" + digestMd5Column + ")) IN (SELECT md5 FROM temp." + tempHashTableName + ") "
+            + "AND NOT (" + liveExistsCondition + ");");
+    }
+
+    private static string NormalizeHashForTemp(string hash)
+    {
+        return string.IsNullOrWhiteSpace(hash) ? null : hash.Trim().ToLowerInvariant();
+    }
+
+    private static bool TableExists(LR2SongDBExtended songDb, string tableName)
+    {
+        return songDb.ExecuteScalar<long>(
+            "SELECT COUNT(1) FROM sqlite_master WHERE type = 'table' AND name = ?;",
+            tableName) > 0;
     }
 
     internal static void UpdateDate(LR2SongDBExtended songDb, string path, int date)

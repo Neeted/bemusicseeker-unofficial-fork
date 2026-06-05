@@ -1394,8 +1394,9 @@ existence / mtime は意味的に揃える。
 5. full backfill 用 bulk DB writer を導入する。
    - chunk 単位で existing user columns / adddate / generated identity をまとめて読む。完了。
    - generated column の update / insert を bulk upsert へ寄せる。
-   - `chart_digest_map` update / orphan cleanup は chunk / run 単位へ寄せる。
-   - 行単位 `UpsertChartDigest` / `DeleteChartDigestIfOrphaned` を hot path から外す。
+   - `chart_digest_map` update / orphan cleanup は chunk 単位へ寄せる。完了。
+   - 行単位 `UpsertChartDigest` / `DeleteChartDigestIfOrphaned` は full backfill hot path から外し、
+     単発 mutation API 専用に残す。完了。
 6. final diagnostics / blocker 判定を prune-first に整理する。
    - `song` / `folder` / `maintenance` は実ファイル由来の一覧 cache として current surface へ収束させる。
    - expected set 外 row / unknown root row は守らず prune する。

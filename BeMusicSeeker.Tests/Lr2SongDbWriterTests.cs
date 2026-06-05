@@ -78,6 +78,67 @@ public sealed class Lr2SongDbWriterTests
     }
 
     [TestMethod]
+    public void UpsertGeneratedSongs_UpsertsDigestRowsAndRemovesOrphanedPreviousHash()
+    {
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            using var songDb = new LR2SongDBExtended(songDbPath);
+            songDb.CreateTable<LR2SongDB.song>();
+            songDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
+            string oldHash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+            string newHash = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+            string oldSha = Sha('1');
+            string newSha = Sha('2');
+            TestableBmsFile existing = CreateSong(@"D:\BMS\Pack\existing.bms", oldHash, "Old");
+            existing.SetSha256(oldSha);
+            Assert.IsTrue(Lr2SongDbWriter.UpsertGeneratedSong(songDb, existing));
+
+            TestableBmsFile updated = CreateSong(existing.path, newHash, "New");
+            updated.SetSha256(newSha);
+            int changed = Lr2SongDbWriter.UpsertGeneratedSongs(songDb, [updated]);
+
+            Assert.AreEqual(1, changed);
+            Assert.AreEqual(0, songDb.ExecuteScalar<int>("SELECT COUNT(*) FROM chart_digest_map WHERE md5 = ?;", oldHash));
+            Assert.AreEqual(1, songDb.ExecuteScalar<int>("SELECT COUNT(*) FROM chart_digest_map WHERE md5 = ? AND sha256 = ?;", newHash, newSha));
+        });
+    }
+
+    [TestMethod]
+    public void UpsertGeneratedSongs_KeepsPreviousDigestWhenBmsonStillReferencesHash()
+    {
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            using var songDb = new LR2SongDBExtended(songDbPath);
+            songDb.CreateTable<LR2SongDB.song>();
+            songDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
+            songDb.CreateTable<LR2SongDBExtended.bmson_song>();
+            string oldHash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+            string newHash = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+            string oldSha = Sha('1');
+            string newSha = Sha('2');
+            TestableBmsFile existing = CreateSong(@"D:\BMS\Pack\existing.bms", oldHash, "Old");
+            existing.SetSha256(oldSha);
+            Assert.IsTrue(Lr2SongDbWriter.UpsertGeneratedSong(songDb, existing));
+            songDb.InsertOrReplace(new LR2SongDBExtended.bmson_song
+            {
+                path = @"D:\BMS\Pack\chart.bmson",
+                folder = @"D:\BMS\Pack",
+                title = "Bmson",
+                md5 = oldHash,
+                sha256 = oldSha
+            }, typeof(LR2SongDBExtended.bmson_song));
+
+            TestableBmsFile updated = CreateSong(existing.path, newHash, "New");
+            updated.SetSha256(newSha);
+            int changed = Lr2SongDbWriter.UpsertGeneratedSongs(songDb, [updated]);
+
+            Assert.AreEqual(1, changed);
+            Assert.AreEqual(1, songDb.ExecuteScalar<int>("SELECT COUNT(*) FROM chart_digest_map WHERE md5 = ? AND sha256 = ?;", oldHash, oldSha));
+            Assert.AreEqual(1, songDb.ExecuteScalar<int>("SELECT COUNT(*) FROM chart_digest_map WHERE md5 = ? AND sha256 = ?;", newHash, newSha));
+        });
+    }
+
+    [TestMethod]
     public void UpsertGeneratedSong_TreatsNullTextFlagAsUnchanged()
     {
         WithTemporarySongDb(delegate (string songDbPath)
@@ -182,6 +243,11 @@ public sealed class Lr2SongDbWriterTests
         return file;
     }
 
+    private static string Sha(char value)
+    {
+        return new string(value, 64);
+    }
+
     private static void WithTemporarySongDb(Action<string> testAction)
     {
         string tempDirectory = Path.Combine(Path.GetTempPath(), nameof(Lr2SongDbWriterTests), Guid.NewGuid().ToString("N"));
@@ -205,6 +271,11 @@ public sealed class Lr2SongDbWriterTests
         public void SetHash(string value)
         {
             hash = value;
+        }
+
+        public void SetSha256(string value)
+        {
+            sha256 = value;
         }
 
         public void SetTitleForTest(string value)
