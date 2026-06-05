@@ -128,6 +128,28 @@ internal static class Lr2SongDbWriter
             path);
     }
 
+    internal static void UpdateUserColumns(LR2SongDBExtended songDb, BMSFile song)
+    {
+        if (songDb == null)
+        {
+            throw new ArgumentNullException(nameof(songDb));
+        }
+        if (song == null || string.IsNullOrWhiteSpace(song.path))
+        {
+            return;
+        }
+        songDb.Execute(
+            "UPDATE " + SQLiteTable<LR2SongDB.song>.GetTableName()
+            + " SET " + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.favorite) + " = ?, "
+            + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.adddate) + " = ?, "
+            + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.tag) + " = ?"
+            + " WHERE " + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.path) + " = ?;",
+            song.favorite,
+            song.adddate,
+            song.tag,
+            song.path);
+    }
+
     private static GeneratedSongRow FindSongByPath(LR2SongDBExtended songDb, string path)
     {
         var existingRows = songDb.Query<GeneratedSongRow>(

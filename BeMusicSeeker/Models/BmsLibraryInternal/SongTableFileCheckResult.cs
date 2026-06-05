@@ -72,6 +72,8 @@ internal sealed class SongTableFileCheckResult
 
     public int BmsMovedHashRelinkCount { get; set; }
 
+    public int BmsMovedHashRelinkAmbiguousCount { get; set; }
+
     public int BmsonUpsertTargetCount { get; set; }
 
     public int BmsonDeletedTargetCount { get; set; }
