@@ -991,7 +991,8 @@ parse directive:
   - 現行接続では `chart_info` に正本がある `level` / `difficulty` / `maxbpm` / `minbpm` / `mode` /
     `longnote` / `bga` / `random` / `karinotes` / `exlevel` を反映する。
   - `song.judge` は LR2 の raw `#RANK` 値で、`chart_info.judge` は判定幅 percent なので写さない。
-  - `bga` は BMS/BMSON timeline 上の BGA event 有無、`exlevel` は BMS `#DEFEXRANK` の raw 値を正本にする。
+  - `bga` は BMS/BMSON timeline 上の BGA event 有無、`exlevel` は BMS `#EXLEVEL` の raw 値を正本にする。
+    `#DEFEXRANK` は判定幅計算だけに使い、`exlevel` 未定義時は `0` を入れる。
 - Phase 6 は段階的に追加する。
   - まず DB 接続前の pure `Lr2FolderRowGenerator` を追加し、LR2 root / ancestor / chart directory から
     normal `folder` row と generation scope path set を作る contract を固定する。
@@ -1229,3 +1230,6 @@ parse directive:
   BeMusicSeeker 管理出力を優先し、absolute path + root parent として扱う。これは出力 workflow の
   scope prune を absolute output directory で完結させるためであり、外部由来の built-in source は
   引き続き LR2 root 相対 path (`LR2files\...`) として扱う。
+- `song.exlevel` は BMS `#EXLEVEL` の raw integer を正本にし、`#DEFEXRANK` は判定幅計算にだけ使う。
+  この修正では parser / schema version を上げないため、既存 `chart_info.exlevel` の非 null 値はそのまま扱い、
+  `chart_info.exlevel IS NULL` または generated song row の未設定値だけを LR2 と同じ `0` に正規化する。

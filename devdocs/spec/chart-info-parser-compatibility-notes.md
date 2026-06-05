@@ -78,7 +78,7 @@ C# 側で `:\s*(.*)` のように空白を食べると、本来無視される�
 
 ### Java `Integer.parseInt` 相当
 
-`#PLAYLEVEL`, `#DIFFICULTY`, `#RANK`, `#DEFEXRANK`, `#LNMODE`, `#BASE`, `#RANDOM`, `#IF` などの int 系は Java `Integer.parseInt` 相当に寄せる。
+`#PLAYLEVEL`, `#DIFFICULTY`, `#RANK`, `#DEFEXRANK`, `#EXLEVEL`, `#LNMODE`, `#BASE`, `#RANDOM`, `#IF` などの int 系は Java `Integer.parseInt` 相当に寄せる。
 
 重要点:
 
@@ -92,9 +92,9 @@ C# 側で `:\s*(.*)` のように空白を食べると、本来無視される�
 `level` は `chart_info` では nullable とし、未定義 / invalid は `NULL` にする。
 beatoraja DB では未定義相当が `0` になるため、互換比較では `0 == NULL` として扱う。
 
-`#DEFEXRANK` は判定幅計算に使うだけでなく、LR2 `song.exlevel` へ反映する raw 値として
-`chart_info.exlevel` に保持する。`#RANK` が後続で判定幅を上書きする場合でも、`exlevel` は
-最後に valid だった `#DEFEXRANK` の値を保持する。
+`#DEFEXRANK` は判定幅計算にだけ使い、LR2 `song.exlevel` へは反映しない。
+`chart_info.exlevel` は LR2 と同じく `#EXLEVEL` の整数値を保持し、未定義時は `0` にする。
+複数の `#EXLEVEL` がある場合は最後に valid だった値を保持する。
 
 ### double 系
 

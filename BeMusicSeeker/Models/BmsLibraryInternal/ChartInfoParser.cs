@@ -1439,7 +1439,7 @@ internal static class ChartInfoParser
 
         public JudgeRankType JudgeRankType { get; private set; } = JudgeRankType.BmsRank;
 
-        public int? ExLevel { get; private set; }
+        public int? ExLevel { get; private set; } = 0;
 
         public double Total { get; private set; } = 100.0;
 
@@ -1580,7 +1580,15 @@ internal static class ChartInfoParser
                 {
                     JudgeRank = defExRank;
                     JudgeRankType = JudgeRankType.BmsDefExRank;
-                    ExLevel = defExRank;
+                }
+                return;
+            }
+            if (MatchesReserveWord(trimmed, "EXLEVEL"))
+            {
+                string argument = GetReserveWordArgument(trimmed, "EXLEVEL");
+                if (TryParseJavaIntStrict(argument, out int exLevel))
+                {
+                    ExLevel = exLevel;
                 }
                 return;
             }

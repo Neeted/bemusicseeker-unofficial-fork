@@ -37,6 +37,7 @@ internal static class Lr2SongRowEnricher
             return;
         }
         Lr2SongFolderParentNormalizer.ApplyIfMissingOrInvalid(song, folderParentHashCache);
+        song.exlevel ??= 0;
     }
 
     internal static void EnrichFromChartInfo(BMSFile song, LR2SongDBExtended.chart_info chartInfo)

@@ -835,6 +835,7 @@ createTempDirectory);
                     + "#PLAYLEVEL 12\r\n"
                     + "#DIFFICULTY 3\r\n"
                     + "#DEFEXRANK 120\r\n"
+                    + "#EXLEVEL 9\r\n"
                     + "#RANK 3\r\n"
                     + "#TOTAL 300\r\n"
                     + "#BMP01 bg.png\r\n"
@@ -860,7 +861,7 @@ createTempDirectory);
             Assert.AreEqual(5, row.mode);
             Assert.AreEqual(100, row.judge);
             Assert.AreEqual(1, row.bga);
-            Assert.AreEqual(120, row.exlevel);
+            Assert.AreEqual(9, row.exlevel);
             Assert.AreEqual(120.0, row.mainbpm.GetValueOrDefault(), 0.0001);
             Assert.AreEqual(120.0, row.minbpm.GetValueOrDefault(), 0.0001);
             Assert.AreEqual(120.0, row.maxbpm.GetValueOrDefault(), 0.0001);
@@ -877,6 +878,28 @@ createTempDirectory);
             StringAssert.StartsWith(row.distribution, "#");
             StringAssert.StartsWith(row.lanenotes, "1,1,1,");
             Assert.AreEqual(64, row.charthash.Length);
+        });
+    }
+
+    [TestMethod]
+    public void ParseBms_ExLevelDefaultsToZeroAndIgnoresDefExRank()
+    {
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
+        {
+            string chartPath = Path.Combine(tempRootPath, "exlevel-default.bms");
+            File.WriteAllText(
+                chartPath,
+                "#PLAYER 1\r\n"
+                    + "#TITLE ExLevel Default\r\n"
+                    + "#BPM 120\r\n"
+                    + "#DEFEXRANK 120\r\n"
+                    + "#00111:01\r\n",
+                Encoding.ASCII);
+            var digest = BMSFile.CreateBMSFileFromFile(chartPath);
+
+            LR2SongDBExtended.chart_info row = ChartInfoParser.Parse(chartPath, digest.hash, digest.sha256);
+
+            Assert.AreEqual(0, row.exlevel);
         });
     }
 
@@ -3077,6 +3100,7 @@ createTempDirectory);
                     + "#PLAYLEVEL 12\r\n"
                     + "#DIFFICULTY 3\r\n"
                     + "#DEFEXRANK 120\r\n"
+                    + "#EXLEVEL 9\r\n"
                     + "#RANK 3\r\n"
                     + "#TOTAL 300\r\n"
                     + "#BMP01 bg.png\r\n"
@@ -3108,7 +3132,7 @@ createTempDirectory);
             Assert.AreEqual(120, song.minbpm);
             Assert.AreEqual(5, song.mode);
             Assert.AreEqual(1, song.bga);
-            Assert.AreEqual(120, song.exlevel);
+            Assert.AreEqual(9, song.exlevel);
             Assert.AreEqual(1, song.longnote);
             Assert.AreEqual(4, song.karinotes);
             Assert.IsNotNull(library.ResolveChartInfo(installedFile.sha256, installedFile.hash));
@@ -3964,7 +3988,7 @@ createTempDirectory);
             mode = 7,
             judge = 100,
             bga = 0,
-            exlevel = null,
+            exlevel = 0,
             feature = FeatureLongByLnMode,
             notes = 1,
             n = 1,

@@ -67,6 +67,19 @@ public sealed class Lr2SongRowEnricherTests
     }
 
     [TestMethod]
+    public void EnrichGeneratedSong_DefaultsExLevelToZero()
+    {
+        var file = new TestableBmsFile
+        {
+            path = @"C:\BMS\Pack\chart.bms"
+        };
+
+        Lr2SongRowEnricher.EnrichGeneratedSong(file);
+
+        Assert.AreEqual(0, file.exlevel);
+    }
+
+    [TestMethod]
     public void EnrichFromChartInfo_AppliesLr2NumericColumns()
     {
         var file = new TestableBmsFile();
@@ -118,6 +131,22 @@ public sealed class Lr2SongRowEnricherTests
 
         Assert.IsNull(file.level);
         Assert.IsNull(file.karinotes);
+    }
+
+    [TestMethod]
+    public void EnrichFromChartInfo_DefaultsNullExLevelToZero()
+    {
+        var file = new TestableBmsFile();
+        file.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        var chartInfo = new LR2SongDBExtended.chart_info
+        {
+            md5 = file.hash,
+            exlevel = null
+        };
+
+        Lr2SongRowEnricher.EnrichFromChartInfo(file, chartInfo);
+
+        Assert.AreEqual(0, file.exlevel);
     }
 
     private sealed class TestableBmsFile : BMSFile

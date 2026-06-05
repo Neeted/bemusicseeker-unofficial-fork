@@ -532,7 +532,7 @@ public sealed class LR2SongDBExtended : LR2SongDB
         public int? bga { get; set; }
 
         /// <summary>
-        /// LR2 song.exlevel へ反映する #DEFEXRANK の raw 値です。
+        /// LR2 song.exlevel へ反映する #EXLEVEL の raw 値です。
         /// </summary>
         public int? exlevel { get; set; }
 
