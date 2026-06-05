@@ -101,8 +101,7 @@ internal static class Lr2FolderFileSourceClassifier
         }
         return
         [
-            Path.Combine(root, "LR2files", "CustomFolder"),
-            Path.Combine(root, "LR2files", "Rival")
+            Path.Combine(root, "LR2files", "CustomFolder")
         ];
     }
 

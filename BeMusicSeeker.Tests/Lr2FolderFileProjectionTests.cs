@@ -214,22 +214,20 @@ public sealed class Lr2FolderFileProjectionTests
     }
 
     [TestMethod]
-    public void SourceClassifier_UsesRelativePathForRivalBuiltinFolder()
+    public void SourceClassifier_DoesNotTreatLr2FilesRivalAsDefaultBuiltinSource()
     {
         string lr2Root = Path.GetFullPath(@"D:\LR2beta3");
-        string builtinRoot = Path.Combine(lr2Root, "LR2files", "Rival");
-        string filePath = Path.Combine(builtinRoot, "rival.lr2folder");
+        string filePath = Path.Combine(lr2Root, "LR2files", "Rival", "rival.lr2folder");
 
         Lr2FolderFileSourceClassification classification = Lr2FolderFileSourceClassifier.Classify(new Lr2FolderFileSourceClassificationRequest
         {
             FilePath = filePath,
-            Lr2RootPath = lr2Root,
-            BuiltinSourceDirectories = [builtinRoot]
+            Lr2RootPath = lr2Root
         });
 
-        Assert.AreEqual(@"LR2files\Rival\rival.lr2folder", classification.DatabasePath);
+        Assert.AreEqual(filePath, classification.DatabasePath);
         Assert.AreEqual(2, classification.FolderType);
-        Assert.AreEqual(Lr2SongFolderParentNormalizer.RootParentHash, classification.ParentHash);
+        Assert.IsNull(classification.ParentHash);
 
         bool created = Lr2FolderFileProjection.TryCreateFolderRow(new Lr2FolderFileRowRequest
         {
@@ -241,8 +239,10 @@ public sealed class Lr2FolderFileProjectionTests
         }, out LR2SongDB.folder row);
 
         Assert.IsTrue(created);
-        Assert.AreEqual(@"LR2files\Rival\rival.lr2folder", row.path);
-        Assert.AreEqual(Lr2SongFolderParentNormalizer.RootParentHash, row.parent);
+        Assert.AreEqual(filePath, row.path);
+        Assert.AreEqual(
+            Lr2SongFolderParentNormalizer.ComputeDirectoryHash(Path.GetDirectoryName(filePath)),
+            row.parent);
     }
 
     [TestMethod]
@@ -278,7 +278,6 @@ public sealed class Lr2FolderFileProjectionTests
     [DataRow(@"LR2files\CustomFolder\course1.lr2folder")]
     [DataRow(@"LR2files\CustomFolder\course2.lr2folder")]
     [DataRow(@"LR2files\CustomFolder\course3.lr2folder")]
-    [DataRow(@"LR2files\Rival\rival.lr2folder")]
     public void SourceClassifier_DoesNotInferOpenLr2SpecialFolderTypeFromKnownSourcePath(string relativePath)
     {
         string lr2Root = Path.GetFullPath(@"D:\LR2beta3");

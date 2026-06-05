@@ -6224,8 +6224,7 @@ completeFileEnumerationOnce,
 
         return [.. new[]
             {
-                Path.Combine(Settings.Default.LR2RootPath, "LR2files", "CustomFolder"),
-                Path.Combine(Settings.Default.LR2RootPath, "LR2files", "Rival")
+                Path.Combine(Settings.Default.LR2RootPath, "LR2files", "CustomFolder")
             }
             .Where(path => !string.IsNullOrWhiteSpace(path) && Directory.Exists(path))
             .Select(Path.GetFullPath)

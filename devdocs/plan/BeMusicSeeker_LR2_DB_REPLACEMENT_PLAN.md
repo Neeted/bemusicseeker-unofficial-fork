@@ -1025,7 +1025,7 @@ parse directive:
 | Phase 4: LR2 compatibility warning | 主要実装済み | `Lr2CompatibilityEvaluator`、maintenance 最小 fact、standalone mode での LR2 非対応パス tree 非表示は接続済み。 | warning 表示の実機確認と、copied DB での backfill 表示確認を残す。 |
 | Phase 5: `song` row enricher | 主要実装済み | `Lr2SongRowEnricher`、`chart_info` 由来 numeric columns、`exlevel = #EXLEVEL raw int / 未設定 0` は実装済み。 | LR2IR / tag.db 由来の exlevel 上書きは対象外として維持する。 |
 | Phase 6: normal `folder` row generator | 主要実装済み | normal folder generator / scope planner / DB sync、mutation・file diff failure の incomplete marking、directory metadata surface 由来の `folder.date` resolver、`folderinfo.txt` entry metadata surface は接続済み。 | 実機で directory mtime / folder row freshness を確認する。 |
-| Phase 7: `.lr2folder` DB sync | 一部完了 | playlist projection と `.lr2folder` / `folder` row sync の同一化、通常 discovery、built-in source の相対 path 化は接続済み。 | `LR2files\CustomFolder` の `<customfolder>` bitmask、`newsong` dynamic row、`course1-3` の `type=6`、`LR2files\Rival` 非対象化を実装・fixture 化する。 |
+| Phase 7: `.lr2folder` DB sync | 一部完了 | playlist projection と `.lr2folder` / `folder` row sync の同一化、通常 discovery、built-in source の相対 path 化、`LR2files\Rival` の built-in discovery 非対象化は接続済み。 | `LR2files\CustomFolder` の `<customfolder>` bitmask、`newsong` dynamic row、`course1-3` の `type=6` を実装・fixture 化する。 |
 | Phase 8: status / backfill UI | 主要実装済み | durable status、runtime progress、setting queue、cancel、mutation guard、startup blocker diagnostic / cleanup は実装済み。 | 長時間 backfill の UI 手動確認と failure/cancel 再起動確認を残す。 |
 | Phase 9: resumable backfill | 一部完了 | durable cursor、stage / chunk resume、changed-only song row backfill、cancel boundary の基盤は実装済み。 | 実 DB での partial resume、failed chunk rollback、copied `song.db` での no-op 2 回目 backfill を統合確認する。 |
 
@@ -1143,6 +1143,8 @@ parse directive:
     LR2 built-in CustomFolder source は LR2 root 相対 path に変換し、source directory 直下の `.lr2folder` だけ
     root parent hash、入れ子の `.lr2folder` は相対 path の containing directory hash を使う。
     `LR2files\Rival` は LR2 が server 通信と active rival ID から動的に反映するため、built-in source classifier では扱わない。
+    既定の built-in discovery root は `LR2files\CustomFolder` のみで、通常 scan root / custom folder 出力 base で見つかった
+    `__RIVAL__` 系 `.lr2folder` は外部 `discovered_lr2folder` として扱う。
   - normal folder sync は `type = 1` の scope だけを prune / upsert 対象にし、`type = 2` の `.lr2folder` row を
     上書き・削除しない境界を維持する。
   - `.lr2folder` DB sync は `Lr2FolderFileDbSyncService` に分離する。
@@ -1275,7 +1277,6 @@ existence / mtime は意味的に揃える。
 4. LR2 built-in custom folder の設定連動を fixture-confirmed にする。
    - `LR2files\CustomFolder` は `<customfolder>` bitmask に基づいて対象化する。
    - `newsong.lr2folder` は `type = 3`、`course1-3.lr2folder` は `type = 6` として固定する。
-   - `LR2files\Rival` は built-in discovery root に含めず、通常 discovery 範囲の `__RIVAL__` だけを外部 `.lr2folder` として扱う。
 5. LR2 manual-only 起動での最終確認を行う。
    - 完全生成後、未変更 root で LR2 / OpenLR2 が再帰 scan に入らないことを確認する。
    - LR2 起動そのもののブロッキングや排他はこの計画の対象外として扱う。

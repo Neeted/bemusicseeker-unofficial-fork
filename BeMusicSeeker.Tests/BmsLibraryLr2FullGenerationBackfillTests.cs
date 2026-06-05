@@ -2071,7 +2071,7 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
     }
 
     [TestMethod]
-    public void QueueLr2FullGenerationBackfillIfNeeded_DiscoversLr2BuiltinRivalFolderAsRelativeRootRow()
+    public void QueueLr2FullGenerationBackfillIfNeeded_DoesNotDiscoverBuiltinLr2RivalFolder()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         try
@@ -2101,10 +2101,54 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
             library.QueueLr2FullGenerationBackfillIfNeeded("test_lr2_builtin_rival_folder");
 
             using var verify = new LR2SongDBExtended(scope.SongDbPath);
-            LR2SongDB.folder lr2Folder = verify.Table<LR2SongDB.folder>().ToList().Single(folder => folder.path == @"LR2files\Rival\rival.lr2folder");
+            List<LR2SongDB.folder> folders = [.. verify.Table<LR2SongDB.folder>()];
+            Assert.IsFalse(folders.Any(folder => folder.path == @"LR2files\Rival\rival.lr2folder"));
+            Assert.IsFalse(folders.Any(folder => string.Equals(folder.path, lr2FolderPath, StringComparison.OrdinalIgnoreCase)));
+            LR2SongDBExtended.lr2_full_generation_status status = verify.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
+            Assert.IsNotNull(status);
+            Assert.AreEqual("Completed", status.status);
+            Assert.AreEqual(Lr2FullGenerationBackfillService.CompletedStage, status.stage);
+        }
+        finally
+        {
+            ResetTouchedSettings();
+        }
+    }
+
+    [TestMethod]
+    public void QueueLr2FullGenerationBackfillIfNeeded_DiscoversRivalFolderFromNormalScanRootAsExternalFolder()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        try
+        {
+            Settings.Default.OperationModeLR2DB = true;
+            Settings.Default.EnableLR2SongDbFullGeneration = true;
+            ResetLr2FolderDiscoverySettings();
+            string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
+            string rivalDirectory = Path.Combine(rootDirectory, "__RIVAL__");
+            Directory.CreateDirectory(rivalDirectory);
+            string lr2FolderPath = Path.Combine(rivalDirectory, "rival.lr2folder");
+            File.WriteAllText(lr2FolderPath, "#TITLE Rival External", Encoding.GetEncoding("shift_jis"));
+            var library = new BMSLibrary(scope.SongDbPath)
+            {
+                SearchTargets = [rootDirectory],
+                BMSFiles = []
+            };
+            library.StartupBackgroundTaskScheduler = delegate (string name, string reason, string dependency, Func<Task> work)
+            {
+                work().GetAwaiter().GetResult();
+                return true;
+            };
+
+            library.QueueLr2FullGenerationBackfillIfNeeded("test_external_rival_folder");
+
+            using var verify = new LR2SongDBExtended(scope.SongDbPath);
+            LR2SongDB.folder lr2Folder = verify.Table<LR2SongDB.folder>().ToList().Single(folder => folder.path == lr2FolderPath);
             Assert.AreEqual(2, lr2Folder.type);
-            Assert.AreEqual("Rival", lr2Folder.title);
-            Assert.AreEqual(Lr2SongFolderParentNormalizer.RootParentHash, lr2Folder.parent);
+            Assert.AreEqual("Rival External", lr2Folder.title);
+            Assert.AreEqual(
+                Lr2SongFolderParentNormalizer.ComputeDirectoryHash(rivalDirectory),
+                lr2Folder.parent);
             LR2SongDBExtended.lr2_full_generation_status status = verify.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
             Assert.IsNotNull(status);
             Assert.AreEqual("Completed", status.status);
