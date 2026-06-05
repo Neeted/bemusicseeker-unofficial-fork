@@ -64,16 +64,15 @@ BeMusicSeeker は譜面管理アプリなので、LR2 で完全に読めない�
   - 完全生成設定を OFF から ON に変更した場合も、保存後に同じ background workflow を queue する。
   - BeMusicSeeker からの LR2 起動導線で backfill 完了待ちや起動 block は行わない。
     LR2 が再走査する可能性は完全生成 status の警告として表示する。
-- 段階実装中は、Phase 8 / Phase 9 まで完了するまでは完全生成設定を hidden / disabled にする。
-  - `song` row だけ新形式になり、対応する `folder` row 生成 scope / backfill が未整備な中間状態を
-    ユーザー環境で有効化しない。
+- 完全生成設定は、status / backfill progress と mutation guard が揃った段階から設定 UI に表示する。
+  - 設定 ON 時に backfill が必要なら background workflow で進捗を表示し、owned collection / LR2 `song.db`
+    mutation 操作は開始前に抑止する。
 
 ## 設定方針
 
 完全な `song.db` 生成は設定化する。ただし LR2 連携ユーザーにとって望ましい既定動作なので、
-最終仕様では LR2 連携モードで **デフォルト有効** にする。
-段階実装中は Phase 8 / Phase 9 の status / backfill UI が入るまで hidden setting として扱い、
-実装上の既定値は `false` のままにする。
+LR2 連携モードで **デフォルト有効** にする。スタンドアロンモードでは、設定値が true でも
+完全生成 workflow は走らない。
 
 この計画でいう LR2 連携モードは、設定上 `OperationModeLR2DB == true` であり、LR2 の
 database / executable path が有効に解決できる状態を指す。
@@ -85,8 +84,8 @@ database / executable path が有効に解決できる状態を指す。
   - `LR2用song.dbをBeMusicSeekerで完全生成する`
   - または `LR2起動時のDB自動更新をBeMusicSeekerで代替する`
 - 初期値:
-  - 最終仕様では `OperationModeLR2DB == true` の場合は有効。
-  - Phase 8 / Phase 9 までの段階実装では hidden / disabled で、`Settings` / `app.config` の既定値は `false`。
+  - `OperationModeLR2DB == true` の場合は有効。
+  - `Settings` の既定値は `true`。
   - スタンドアロン運用では無効にし、設定項目も非表示にする。
 
 設定別の処理方針:
@@ -1015,9 +1014,8 @@ parse directive:
     呼び出し判断や feature gate は持たない。chunk-local な file diff commit へ folder prune を混ぜず、full scan 完了後に
     complete chart path set を渡す呼び出し側から使う。`AllowPrune` は complete scan と source generation の整合を確認した
     caller だけが立て、既定では upsert のみ行って stale row delete はしない。
-  - initialization への最初の production 接続は hidden setting `EnableLR2SongDbFullGeneration=false` を既定にし、
-    LR2 linked mode かつ設定が明示的に有効な場合だけ full file scan 完了後に normal folder sync を実行する。
-    Phase 8 / Phase 9 の status / backfill UI が入るまで通常ユーザー経路からは有効化しない。
+  - initialization への production 接続は `EnableLR2SongDbFullGeneration` で gate し、
+    LR2 linked mode かつ設定が有効な場合だけ full file scan 完了後に normal folder sync を実行する。
   - full scan 後の normal folder sync は file diff DB commit を flush した後に別 workflow として実行し、
     owned collection の `HasDbDiff` や UI refresh 判定には混ぜない。folder sync の生成 / upsert / delete / metadata 欠落は
     `song_tbl_file_check_breakdown` の LR2 normal folder metrics として追跡する。
@@ -1167,9 +1165,11 @@ parse directive:
 - startup progress では LR2 full generation backfill を startup / full reinitialize の background phase として扱う。
   request が来た場合だけ `[processed/total] LR2 song.db 完全生成 <stage>` を表示し、request 前に skip された場合は
   post-startup warmup 由来の遅い request で進捗を巻き戻さない。
-- 完全生成設定は設定ダイアログの LR2 連携項目として binding / resource / 保存後 queue だけ先に配線し、
-  mutation blocking と status warning 表示が入るまでは UI 上 `Collapsed` の hidden setting とする。
-  既定値は段階実装中の安全側として `false` のままにし、OFF から ON に変更して保存した場合は
+- in-process で `Lr2FullGenerationBackfillRunning` の間に同じ workflow が再要求された場合は、durable status が
+  `Needed` のままでも追加 queue せず、現在の bindable progress を返す。アプリ再起動後の persisted `Running` は
+  incomplete run として再評価し、通常の backfill request へ戻す。
+- 完全生成設定は設定ダイアログの LR2 連携項目として表示する。既定値は LR2 連携モードの標準挙動に合わせて
+  `true` とし、OFF から ON に変更して保存した場合は
   `QueueLr2FullGenerationBackfillIfNeeded("SettingDialog.SaveSettings")` を呼んで同じ background workflow に流す。
 - LR2 full generation backfill 実行中は、install / merge / rename / root move / extension rename / delete など
   owned collection と LR2 `song.db` を同時に変える操作を入口で警告して中止する。加えて

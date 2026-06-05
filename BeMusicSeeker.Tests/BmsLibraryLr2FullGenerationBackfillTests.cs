@@ -226,6 +226,42 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
     }
 
     [TestMethod]
+    public void QueueLr2FullGenerationBackfillIfNeeded_DoesNotQueueAgainWhileRunning()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        try
+        {
+            Settings.Default.OperationModeLR2DB = true;
+            Settings.Default.EnableLR2SongDbFullGeneration = true;
+            ResetLr2FolderDiscoverySettings();
+            string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
+            Directory.CreateDirectory(rootDirectory);
+            var library = new BMSLibrary(scope.SongDbPath)
+            {
+                SearchTargets = [rootDirectory]
+            };
+            bool queued = false;
+            library.StartupBackgroundTaskScheduler = delegate
+            {
+                queued = true;
+                return true;
+            };
+            InvokeBeginLr2FullGenerationBackfillRequest(library);
+
+            Lr2FullGenerationStatusSnapshot snapshot = library.QueueLr2FullGenerationBackfillIfNeeded("test_running");
+
+            Assert.AreEqual(Lr2FullGenerationStatusKind.Running, snapshot.Status);
+            Assert.IsFalse(queued);
+            Assert.AreEqual(1, library.Lr2FullGenerationBackfillRequestedVersion);
+            Assert.IsTrue(library.Lr2FullGenerationBackfillRunning);
+        }
+        finally
+        {
+            ResetTouchedSettings();
+        }
+    }
+
+    [TestMethod]
     public void QueueLr2FullGenerationBackfillIfNeeded_RunsFullGenerationBackfillAndMarksCompletedWhenClean()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();

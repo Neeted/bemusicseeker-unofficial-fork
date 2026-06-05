@@ -5031,6 +5031,18 @@ completeFileEnumerationOnce,
         {
             return status;
         }
+        if (Lr2FullGenerationBackfillRunning)
+        {
+            LogInstallPerformance("lr2_full_generation_backfill queue_skipped reason=" + (reason ?? "unknown")
+                + " status=" + status.Status
+                + " stage=" + (Lr2FullGenerationBackfillStage ?? string.Empty)
+                + " requestedVersion=" + Lr2FullGenerationBackfillRequestedVersion);
+            status.Status = Lr2FullGenerationStatusKind.Running;
+            status.Stage = Lr2FullGenerationBackfillStage;
+            status.ProcessedCursor = Lr2FullGenerationBackfillProcessedCount;
+            status.TotalCount = Lr2FullGenerationBackfillTotalCount;
+            return status;
+        }
 
         int requestVersion = BeginLr2FullGenerationBackfillRequest();
         Task work()

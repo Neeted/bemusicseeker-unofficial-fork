@@ -307,6 +307,7 @@ public sealed class MainWindowContextMenuResourceTests
         string xaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "SettingDialog.xaml"));
         string resources = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Properties", "Resources.resx"));
         string resourceCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Properties", "Resources.cs"));
+        string settingsCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Properties", "Settings.cs"));
         string generalTab = ExtractBetween(
             xaml,
             "Name=\"tabItemGeneral\"",
@@ -319,9 +320,18 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(generalTab, "Path=Resources.Operation_Mode");
         StringAssert.Contains(generalTab, "Path=Resources.Language");
         StringAssert.Contains(generalTab, "Path=Resources.Enable_lr2_song_db_full_generation");
-        StringAssert.Contains(generalTab, "Visibility=\"Collapsed\"");
+        string lr2FullGenerationCheckbox = ExtractBetween(
+            generalTab,
+            "Path=Resources.Enable_lr2_song_db_full_generation",
+            "<DockPanel LastChildFill=\"False\">");
+        Assert.IsFalse(lr2FullGenerationCheckbox.Contains("Visibility=\"Collapsed\""));
         StringAssert.Contains(resources, "name=\"Enable_lr2_song_db_full_generation\"");
         StringAssert.Contains(resourceCode, "Enable_lr2_song_db_full_generation");
+        int lr2FullGenerationPropertyIndex = settingsCode.IndexOf("public bool EnableLR2SongDbFullGeneration", StringComparison.Ordinal);
+        Assert.IsTrue(lr2FullGenerationPropertyIndex > 0);
+        string lr2FullGenerationSettingPrefix = settingsCode.Substring(Math.Max(0, lr2FullGenerationPropertyIndex - 160), Math.Min(160, lr2FullGenerationPropertyIndex));
+        StringAssert.Contains(lr2FullGenerationSettingPrefix, "[DefaultSettingValue(\"True\")]");
+        Assert.IsFalse(lr2FullGenerationSettingPrefix.Contains("[DefaultSettingValue(\"False\")]"));
         foreach (string languageFile in Directory.GetFiles(Path.Combine(FindRepositoryRoot(), "lang"), "*.json"))
         {
             string languageJson = File.ReadAllText(languageFile);

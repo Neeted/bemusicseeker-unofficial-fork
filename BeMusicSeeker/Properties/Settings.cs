@@ -52,7 +52,7 @@ internal sealed class Settings : ApplicationSettingsBase
 
     [UserScopedSetting]
     [DebuggerNonUserCode]
-    [DefaultSettingValue("False")]
+    [DefaultSettingValue("True")]
     public bool EnableLR2SongDbFullGeneration
     {
         get

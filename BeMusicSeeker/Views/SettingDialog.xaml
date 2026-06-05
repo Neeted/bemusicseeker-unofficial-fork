@@ -171,7 +171,7 @@
                       </DockPanel>
                     </Grid>
                     <RadioButton Name="radioButtonUseLR2" Height="20" GroupName="Operation Mode" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Use_LR2_DB, Mode=OneWay}" IsChecked="{Binding settingDialog.OperationModeLR2DB}" />
-                    <CheckBox Height="20" Margin="16,0,0,4" Visibility="Collapsed" IsEnabled="{Binding IsChecked, ElementName=radioButtonUseLR2}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Enable_lr2_song_db_full_generation, Mode=OneWay}" IsChecked="{Binding settingDialog.EnableLR2SongDbFullGeneration}" />
+                    <CheckBox Height="20" Margin="16,0,0,4" IsEnabled="{Binding IsChecked, ElementName=radioButtonUseLR2}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Enable_lr2_song_db_full_generation, Mode=OneWay}" IsChecked="{Binding settingDialog.EnableLR2SongDbFullGeneration}" />
                     <DockPanel LastChildFill="False">
                       <Button Width="75" DockPanel.Dock="Right" Height="24" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Browse, Mode=OneWay}">
                         <i:Interaction.Triggers>
