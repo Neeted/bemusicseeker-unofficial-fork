@@ -386,11 +386,6 @@ internal sealed class BmsLibraryInitializationService
         result.ImageResourceKeyHashEntryCount = imageResourceKeyEntryCount;
         result.MovieResourceKeyHashEntryCount = movieResourceKeyEntryCount;
 
-        var scannedPaths = new HashSet<string>(
-            (mergedScanResult.ChartFilePaths ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase))
-                .Where(path => !string.Equals(Path.GetExtension(path), ".bmson", StringComparison.OrdinalIgnoreCase)),
-            StringComparer.OrdinalIgnoreCase);
-        result.BmsPathCount = scannedPaths.Count;
         if (bmsFileScanSucceeded)
         {
             result.Lr2ScanSurfaceAvailable = true;
@@ -407,13 +402,75 @@ internal sealed class BmsLibraryInitializationService
         result.DirectoryCount = result.NextDirectoryResourceLookupCache?.Count ?? 0;
 
         var stopwatchDiff = Stopwatch.StartNew();
-        List<BMSFile> currentFileList = [.. (currentFiles ?? []).Where(file => file != null)];
-        var currentBmsByPath = currentFileList
-            .Where(file => !string.IsNullOrWhiteSpace(file.path))
-            .GroupBy(file => file.path, StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
-        var currentPaths = new HashSet<string>(currentBmsByPath.Keys, StringComparer.OrdinalIgnoreCase);
-        result.DeletedPaths.AddRange(currentPaths.Except(scannedPaths, StringComparer.OrdinalIgnoreCase));
+        var stopwatchCurrentIndex = Stopwatch.StartNew();
+        var currentFileList = new List<BMSFile>();
+        var currentBmsByPath = new Dictionary<string, BMSFile>(StringComparer.OrdinalIgnoreCase);
+        foreach (BMSFile file in currentFiles ?? [])
+        {
+            if (file == null)
+            {
+                continue;
+            }
+            currentFileList.Add(file);
+            if (!string.IsNullOrWhiteSpace(file.path) && !currentBmsByPath.ContainsKey(file.path))
+            {
+                currentBmsByPath[file.path] = file;
+            }
+        }
+        var currentBmsonList = new List<LR2SongDBExtended.bmson_song>();
+        var currentBmsonByPath = new Dictionary<string, LR2SongDBExtended.bmson_song>(StringComparer.OrdinalIgnoreCase);
+        foreach (LR2SongDBExtended.bmson_song song in currentBmsonSongs ?? [])
+        {
+            if (song == null || string.IsNullOrWhiteSpace(song.path))
+            {
+                continue;
+            }
+            currentBmsonList.Add(song);
+            currentBmsonByPath[song.path] = song;
+        }
+        stopwatchCurrentIndex.Stop();
+        result.DiffCurrentIndexMs = stopwatchCurrentIndex.ElapsedMilliseconds;
+
+        var stopwatchScannedSplit = Stopwatch.StartNew();
+        var scannedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var scannedBmsonPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (string path in mergedScanResult.ChartFilePaths ?? [])
+        {
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                continue;
+            }
+            if (IsBmsonChartPath(path))
+            {
+                scannedBmsonPaths.Add(path);
+            }
+            else
+            {
+                scannedPaths.Add(path);
+            }
+        }
+        stopwatchScannedSplit.Stop();
+        result.DiffScannedSplitMs = stopwatchScannedSplit.ElapsedMilliseconds;
+        result.BmsPathCount = scannedPaths.Count;
+
+        var stopwatchDeleted = Stopwatch.StartNew();
+        foreach (string currentPath in currentBmsByPath.Keys)
+        {
+            if (!scannedPaths.Contains(currentPath))
+            {
+                result.DeletedPaths.Add(currentPath);
+            }
+        }
+        foreach (string currentPath in currentBmsonByPath.Keys)
+        {
+            if (!scannedBmsonPaths.Contains(currentPath))
+            {
+                result.DeletedBmsonPaths.Add(currentPath);
+            }
+        }
+        stopwatchDeleted.Stop();
+        result.DiffDeletedMs = stopwatchDeleted.ElapsedMilliseconds;
+
         HashSet<string> textFileDirectories = mergedScanResult.ChartDirectoriesWithTextFiles ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         IReadOnlyDictionary<string, RootFileEnumerationEntry> chartFileEntriesByPath =
             mergedScanResult.ChartFileEntriesByPath ?? new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
@@ -423,6 +480,7 @@ internal sealed class BmsLibraryInitializationService
                 .Where(file => file != null),
             file => file.hash);
         List<FileDiffParseTarget> bmsParseTargets = [];
+        var stopwatchBmsTargets = Stopwatch.StartNew();
         foreach (string path in scannedPaths)
         {
             FileDiffParseTarget target = CreateBmsFileDiffTarget(
@@ -436,14 +494,11 @@ internal sealed class BmsLibraryInitializationService
                 bmsParseTargets.Add(target);
             }
         }
-        List<LR2SongDBExtended.bmson_song> currentBmsonList = [.. (currentBmsonSongs ?? []).Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))];
-        var scannedBmsonPaths = new HashSet<string>(
-            (mergedScanResult.ChartFilePaths ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase))
-                .Where(path => string.Equals(Path.GetExtension(path), ".bmson", StringComparison.OrdinalIgnoreCase)),
-            StringComparer.OrdinalIgnoreCase);
-        var currentBmsonByPath = currentBmsonList.ToDictionary(song => song.path, StringComparer.OrdinalIgnoreCase);
-        result.DeletedBmsonPaths.AddRange(currentBmsonByPath.Keys.Except(scannedBmsonPaths, StringComparer.OrdinalIgnoreCase));
+        stopwatchBmsTargets.Stop();
+        result.DiffBmsTargetMs = stopwatchBmsTargets.ElapsedMilliseconds;
+
         List<string> addedOrUpdatedBmsonPaths = [];
+        var stopwatchBmsonTargets = Stopwatch.StartNew();
         foreach (string path in scannedBmsonPaths)
         {
             if (!currentBmsonByPath.TryGetValue(path, out LR2SongDBExtended.bmson_song existing))
@@ -462,6 +517,8 @@ internal sealed class BmsLibraryInitializationService
                 addedOrUpdatedBmsonPaths.Add(path);
             }
         }
+        stopwatchBmsonTargets.Stop();
+        result.DiffBmsonTargetMs = stopwatchBmsonTargets.ElapsedMilliseconds;
         stopwatchDiff.Stop();
         result.DiffMs = stopwatchDiff.ElapsedMilliseconds;
         result.BmsAddedTargetCount = bmsParseTargets.Count;
@@ -654,6 +711,11 @@ internal sealed class BmsLibraryInitializationService
             + " lazy_hash_build_ms=" + (result.NextDirectoryResourceLookupCache?.LazyHashBuildMs ?? 0L)
             + " lazy_hash_lookup_count=" + (result.NextDirectoryResourceLookupCache?.LazyHashLookupCount ?? 0L)
             + " diff_ms=" + result.DiffMs
+            + " diff_current_index_ms=" + result.DiffCurrentIndexMs
+            + " diff_scanned_split_ms=" + result.DiffScannedSplitMs
+            + " diff_deleted_ms=" + result.DiffDeletedMs
+            + " diff_bms_target_ms=" + result.DiffBmsTargetMs
+            + " diff_bmson_target_ms=" + result.DiffBmsonTargetMs
             + " deleted_count=" + result.DeletedPaths.Count
             + " added_count=" + result.AddedFiles.Count
             + " bms_date_only_update_count=" + result.BmsDateOnlyUpdateCount
@@ -1195,6 +1257,12 @@ internal sealed class BmsLibraryInitializationService
         }
         string directory = Path.GetDirectoryName(path);
         return !string.IsNullOrWhiteSpace(directory) && textFileDirectories.Contains(directory) ? 1 : 0;
+    }
+
+    private static bool IsBmsonChartPath(string path)
+    {
+        return !string.IsNullOrWhiteSpace(path)
+            && path.EndsWith(".bmson", StringComparison.OrdinalIgnoreCase);
     }
 
     private static FileDiffReadCandidate ReadFileDiffTarget(FileDiffParseTarget target, ref long readTicks)

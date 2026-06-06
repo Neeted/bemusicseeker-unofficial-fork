@@ -72,6 +72,16 @@ internal sealed class SongTableFileCheckResult
 
     public long DiffMs { get; set; }
 
+    public long DiffCurrentIndexMs { get; set; }
+
+    public long DiffScannedSplitMs { get; set; }
+
+    public long DiffDeletedMs { get; set; }
+
+    public long DiffBmsTargetMs { get; set; }
+
+    public long DiffBmsonTargetMs { get; set; }
+
     public int BmsAddedTargetCount { get; set; }
 
     public int BmsDeletedTargetCount { get; set; }
