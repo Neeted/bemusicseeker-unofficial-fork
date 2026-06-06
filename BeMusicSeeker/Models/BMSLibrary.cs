@@ -5176,6 +5176,7 @@ completeFileEnumerationOnce,
             snapshot = new Lr2FullGenerationScanSurfaceSnapshot(
                 generation,
                 roots,
+                fileCheckResult.Lr2ScanNormalFolderDirectoryPaths,
                 fileCheckResult.Lr2ScanFolderInfoFilePaths,
                 fileCheckResult.Lr2ScanFolderInfoFileEntries,
                 fileCheckResult.Lr2ScanTextFileDirectories,
@@ -5187,6 +5188,7 @@ completeFileEnumerationOnce,
         LogInstallPerformance("lr2_full_generation_scan_surface captured"
             + " generation=" + snapshot.Generation
             + " roots=" + snapshot.RootDirectories.Count
+            + " normalFolderDirs=" + snapshot.NormalFolderDirectoryPaths.Count
             + " folderInfoCandidates=" + snapshot.FolderInfoFilePaths.Count
             + " textFileDirs=" + snapshot.TextFileDirectories.Count
             + " ownedCollectionVersion=" + snapshot.OwnedCollectionVersion
@@ -5940,7 +5942,9 @@ completeFileEnumerationOnce,
             roots,
             ownedCollectionVersion,
             storageRowsVersion);
-        IReadOnlyCollection<string> directoryMetadataTargets = Lr2NormalFolderDbSyncService.CreateDirectoryMetadataTargets(roots, chartPaths);
+        IReadOnlyCollection<string> directoryMetadataTargets = scanSurface?.NormalFolderDirectoryPaths?.Count > 0
+            ? scanSurface.NormalFolderDirectoryPaths
+            : Lr2NormalFolderDbSyncService.CreateDirectoryMetadataTargets(roots, chartPaths);
         Lr2FolderFileCandidateSnapshot lr2FolderFileCandidates = CreateLr2FullGenerationLr2FolderFileCandidates(
             lr2FolderDiscoveryDirectories,
             lr2RootPath,
@@ -5960,6 +5964,7 @@ completeFileEnumerationOnce,
         LogInstallPerformance("lr2_full_generation_input_surface"
             + " reusedScanSurface=" + (scanSurface != null).ToString().ToLowerInvariant()
             + " scanSurfaceGeneration=" + (scanSurface?.Generation ?? 0)
+            + " scanSurfaceNormalFolderDirs=" + (scanSurface?.NormalFolderDirectoryPaths?.Count ?? 0)
             + " directoryTargets=" + directoryMetadataTargets.Count
             + " directoryEntries=" + directoryEntries.Count
             + " folderInfoCandidates=" + folderInfoCandidates.Paths.Count
@@ -6576,6 +6581,7 @@ completeFileEnumerationOnce,
     private sealed class Lr2FullGenerationScanSurfaceSnapshot(
         int generation,
         IReadOnlyList<string> rootDirectories,
+        IReadOnlyList<string> normalFolderDirectoryPaths,
         IReadOnlyList<string> folderInfoFilePaths,
         IReadOnlyDictionary<string, RootFileEnumerationEntry> folderInfoFileEntries,
         IReadOnlyList<string> textFileDirectories,
@@ -6586,6 +6592,8 @@ completeFileEnumerationOnce,
         public int Generation { get; } = generation;
 
         public IReadOnlyList<string> RootDirectories { get; } = rootDirectories ?? [];
+
+        public IReadOnlyList<string> NormalFolderDirectoryPaths { get; } = normalFolderDirectoryPaths ?? [];
 
         public IReadOnlyList<string> FolderInfoFilePaths { get; } = folderInfoFilePaths ?? [];
 

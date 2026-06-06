@@ -215,6 +215,41 @@ internal static class Lr2NormalFolderDbSyncService
         return [.. result.OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
     }
 
+    internal static IReadOnlyCollection<string> CreateDirectoryMetadataTargetsFromDirectories(
+        IEnumerable<string> rootDirectories,
+        IEnumerable<string> chartDirectories)
+    {
+        List<string> roots = NormalizeRootDirectories(rootDirectories);
+        List<string> rootsForMatching = [.. roots.OrderByDescending(root => root.Length)];
+        var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (string root in roots)
+        {
+            result.Add(root);
+        }
+
+        foreach (string chartDirectory in chartDirectories ?? [])
+        {
+            string normalized = Lr2FolderPath.NormalizeDirectoryPath(chartDirectory);
+            if (string.IsNullOrWhiteSpace(normalized))
+            {
+                continue;
+            }
+
+            string root = FindContainingRoot(normalized, rootsForMatching);
+            if (string.IsNullOrWhiteSpace(root))
+            {
+                continue;
+            }
+
+            foreach (string directory in EnumerateDirectoriesFromRoot(root, normalized))
+            {
+                result.Add(directory);
+            }
+        }
+
+        return [.. result.OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
+    }
+
     private static IReadOnlyCollection<string> ResolveDirectoryMetadataTargets(
         IReadOnlyCollection<string> rootDirectories,
         IEnumerable<string> directoryPaths,
