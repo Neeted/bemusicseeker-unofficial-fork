@@ -30,7 +30,8 @@ public sealed class LR2SongDBExtended : LR2SongDB
 
     internal static IReadOnlyList<string> BeMusicSeekerOwnedNativeIndexNames { get; } =
     [
-        "song_idx_folder"
+        "song_idx_folder",
+        "song_idx_path_nocase"
     ];
 
     [Table("install")]

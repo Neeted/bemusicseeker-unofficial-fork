@@ -1616,6 +1616,7 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
         EnsureIndex(songDb, "hashidx", tableName, SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.hash));
         EnsureIndex(songDb, "parentidx", tableName, SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.parent));
         EnsureIndex(songDb, "song_idx_folder", tableName, SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.folder));
+        EnsureNocaseIndex(songDb, "song_idx_path_nocase", tableName, SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.path));
     }
 
     internal static void EnsureMaintenanceSchema(LR2SongDBExtended songDb)
@@ -1634,6 +1635,7 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
         EnsureColumn(songDb, tableName, columns, "lr2_resource_max_raw_cp932_bytes", "INTEGER NULL");
         EnsureColumn(songDb, tableName, columns, "lr2_resource_max_resolved_cp932_bytes", "INTEGER NULL");
         EnsureColumn(songDb, tableName, columns, "lr2_resource_unsupported_count", "INTEGER NULL");
+        EnsureNocaseIndex(songDb, "maintenance_idx_path_nocase", tableName, SQLiteTable<LR2SongDBExtended.maintenance>.GetColumnName(row => row.path));
     }
 
     internal static void EnsureIrDataSchema(LR2SongDBExtended songDb)
@@ -1813,6 +1815,16 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
         if (!IndexExists(songDb, indexName))
         {
             songDb.CreateIndex(indexName, tableName, columnName);
+        }
+    }
+
+    private static void EnsureNocaseIndex(LR2SongDBExtended songDb, string indexName, string tableName, string columnName)
+    {
+        if (!IndexExists(songDb, indexName))
+        {
+            songDb.Execute(
+                "CREATE INDEX " + indexName
+                + " ON " + tableName + " (" + columnName + " COLLATE NOCASE);");
         }
     }
 

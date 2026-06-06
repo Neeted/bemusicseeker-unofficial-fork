@@ -1656,18 +1656,39 @@ internal static class Lr2FullGenerationBackfillService
                 }
             }
             var stopwatchCommit = Stopwatch.StartNew();
+            long songStageMs = 0L;
+            long chartInfoStageMs = 0L;
+            long compatibilityStageMs = 0L;
+            long sqliteCommitMs = 0L;
+            long statusCursorMs = 0L;
+            Lr2CompatibilityFactsWriteResult compatibilityWriteResult = Lr2CompatibilityFactsWriteResult.Empty;
             songDb.BeginTransaction();
             try
             {
+                var stageStopwatch = Stopwatch.StartNew();
                 Lr2SongDbWriter.UpsertGeneratedSongsForFullGeneration(songDb, rowsToWrite);
+                stageStopwatch.Stop();
+                songStageMs = stageStopwatch.ElapsedMilliseconds;
+
+                stageStopwatch.Restart();
                 BmsLibraryDbGateway.UpsertChartInfoBackfillChunk(
                     songDb,
                     [],
                     chunkChartInfoRows,
                     chunkChartInfoParseFailures,
                     chunkChartInfoParseFailureDeleteMd5s);
-                UpsertLr2CompatibilityFacts(songDb, chunkCompatibilityInfos);
+                stageStopwatch.Stop();
+                chartInfoStageMs = stageStopwatch.ElapsedMilliseconds;
+
+                stageStopwatch.Restart();
+                compatibilityWriteResult = UpsertLr2CompatibilityFacts(songDb, chunkCompatibilityInfos);
+                stageStopwatch.Stop();
+                compatibilityStageMs = stageStopwatch.ElapsedMilliseconds;
+
+                stageStopwatch.Restart();
                 songDb.Commit();
+                stageStopwatch.Stop();
+                sqliteCommitMs = stageStopwatch.ElapsedMilliseconds;
                 stopwatchCommit.Stop();
                 ReportCommittedChartInfoRows(request, chunkChartInfoRows);
                 ReportCommittedChartInfoParseFailures(
@@ -1684,6 +1705,7 @@ internal static class Lr2FullGenerationBackfillService
                 chartInfoAppliedCount += chunkChartInfoAppliedCount;
                 processed += chunk.Count;
                 int processedCursor = baseProcessedCursor + offset + chunk.Count;
+                stageStopwatch.Restart();
                 Lr2FullGenerationStatusService.UpdateCursor(
                     songDb,
                     signature,
@@ -1692,6 +1714,8 @@ internal static class Lr2FullGenerationBackfillService
                     totalCount,
                     stage: "song_rows",
                     nowUtc: DateTime.UtcNow);
+                stageStopwatch.Stop();
+                statusCursorMs = stageStopwatch.ElapsedMilliseconds;
                 ReportProgress(request, processedCursor, totalCount, "song_rows", offset + chunk.Count, targetRows.Count);
                 LogBackfill(request, "lr2_full_generation_backfill chunk_done"
                     + " stage=song_rows"
@@ -1706,6 +1730,13 @@ internal static class Lr2FullGenerationBackfillService
                     + " chartInfoParseFailureSkipped=" + chunk.Count(item => item.ChartInfoParseFailureSkipped)
                     + " compatibilityBuildMs=" + TicksToMilliseconds(chunkCompatibilityTicks)
                     + " commitMs=" + stopwatchCommit.ElapsedMilliseconds
+                    + " songStageMs=" + songStageMs
+                    + " chartInfoStageMs=" + chartInfoStageMs
+                    + " compatibilityStageMs=" + compatibilityStageMs
+                    + " compatibilityUpdated=" + compatibilityWriteResult.UpdatedCount
+                    + " compatibilityInserted=" + compatibilityWriteResult.InsertedCount
+                    + " sqliteCommitMs=" + sqliteCommitMs
+                    + " statusCursorMs=" + statusCursorMs
                     + " fallbackCount=" + chunkFallbackCount
                     + " parseFailureCount=" + chunkParseFailureCount
                     + " compatibilityApplied=" + chunkCompatibilityInfos.Count
@@ -2461,19 +2492,28 @@ internal static class Lr2FullGenerationBackfillService
             && IsChartInfoCompatible(row, chartInfo);
     }
 
-    private static void UpsertLr2CompatibilityFacts(
+    private sealed class Lr2CompatibilityFactsWriteResult(int updatedCount, int insertedCount)
+    {
+        internal static Lr2CompatibilityFactsWriteResult Empty { get; } = new(0, 0);
+
+        internal int UpdatedCount { get; } = updatedCount;
+
+        internal int InsertedCount { get; } = insertedCount;
+    }
+
+    private static Lr2CompatibilityFactsWriteResult UpsertLr2CompatibilityFacts(
         LR2SongDBExtended songDb,
         IReadOnlyCollection<BMSFileMaintenanceInfo> infos)
     {
         if (songDb == null)
         {
-            return;
+            return Lr2CompatibilityFactsWriteResult.Empty;
         }
         List<BMSFileMaintenanceInfo> rows = [.. (infos ?? [])
             .Where(info => info != null && !string.IsNullOrWhiteSpace(info.path))];
         if (rows.Count == 0)
         {
-            return;
+            return Lr2CompatibilityFactsWriteResult.Empty;
         }
 
         PrepareTempLr2CompatibilityMaintenanceTable(songDb);
@@ -2491,20 +2531,32 @@ internal static class Lr2FullGenerationBackfillService
         string unsupportedCountColumn = SQLiteTable<LR2SongDBExtended.maintenance>.GetColumnName(item => item.lr2_resource_unsupported_count);
 
         string tempName = "temp." + TempLr2CompatibilityMaintenanceTable;
-        songDb.Execute(
+        string changedPredicate =
+            "m." + hashColumn + " IS NOT t.hash"
+            + " OR m." + pathFlagsColumn + " IS NOT t.lr2_path_warning_flags"
+            + " OR m." + chartPathBytesColumn + " IS NOT t.lr2_chart_path_cp932_bytes"
+            + " OR m." + folderScanBytesColumn + " IS NOT t.lr2_folder_scan_cp932_bytes"
+            + " OR m." + resourceFlagsColumn + " IS NOT t.lr2_resource_warning_flags"
+            + " OR m." + maxRawBytesColumn + " IS NOT t.lr2_resource_max_raw_cp932_bytes"
+            + " OR m." + maxResolvedBytesColumn + " IS NOT t.lr2_resource_max_resolved_cp932_bytes"
+            + " OR m." + unsupportedCountColumn + " IS NOT t.lr2_resource_unsupported_count";
+        int updated = songDb.Execute(
             "UPDATE " + tableName
             + " SET "
-            + hashColumn + " = (SELECT t.hash FROM " + tempName + " t WHERE t.path = " + tableName + "." + pathColumn + "), "
-            + pathFlagsColumn + " = (SELECT t.lr2_path_warning_flags FROM " + tempName + " t WHERE t.path = " + tableName + "." + pathColumn + "), "
-            + chartPathBytesColumn + " = (SELECT t.lr2_chart_path_cp932_bytes FROM " + tempName + " t WHERE t.path = " + tableName + "." + pathColumn + "), "
-            + folderScanBytesColumn + " = (SELECT t.lr2_folder_scan_cp932_bytes FROM " + tempName + " t WHERE t.path = " + tableName + "." + pathColumn + "), "
-            + resourceFlagsColumn + " = (SELECT t.lr2_resource_warning_flags FROM " + tempName + " t WHERE t.path = " + tableName + "." + pathColumn + "), "
-            + maxRawBytesColumn + " = (SELECT t.lr2_resource_max_raw_cp932_bytes FROM " + tempName + " t WHERE t.path = " + tableName + "." + pathColumn + "), "
-            + maxResolvedBytesColumn + " = (SELECT t.lr2_resource_max_resolved_cp932_bytes FROM " + tempName + " t WHERE t.path = " + tableName + "." + pathColumn + "), "
-            + unsupportedCountColumn + " = (SELECT t.lr2_resource_unsupported_count FROM " + tempName + " t WHERE t.path = " + tableName + "." + pathColumn + ")"
-            + " WHERE EXISTS (SELECT 1 FROM " + tempName + " t WHERE t.path = " + tableName + "." + pathColumn + ");");
+            + hashColumn + " = (SELECT t.hash FROM " + tempName + " t WHERE t.path = " + tableName + "." + pathColumn + " COLLATE NOCASE), "
+            + pathFlagsColumn + " = (SELECT t.lr2_path_warning_flags FROM " + tempName + " t WHERE t.path = " + tableName + "." + pathColumn + " COLLATE NOCASE), "
+            + chartPathBytesColumn + " = (SELECT t.lr2_chart_path_cp932_bytes FROM " + tempName + " t WHERE t.path = " + tableName + "." + pathColumn + " COLLATE NOCASE), "
+            + folderScanBytesColumn + " = (SELECT t.lr2_folder_scan_cp932_bytes FROM " + tempName + " t WHERE t.path = " + tableName + "." + pathColumn + " COLLATE NOCASE), "
+            + resourceFlagsColumn + " = (SELECT t.lr2_resource_warning_flags FROM " + tempName + " t WHERE t.path = " + tableName + "." + pathColumn + " COLLATE NOCASE), "
+            + maxRawBytesColumn + " = (SELECT t.lr2_resource_max_raw_cp932_bytes FROM " + tempName + " t WHERE t.path = " + tableName + "." + pathColumn + " COLLATE NOCASE), "
+            + maxResolvedBytesColumn + " = (SELECT t.lr2_resource_max_resolved_cp932_bytes FROM " + tempName + " t WHERE t.path = " + tableName + "." + pathColumn + " COLLATE NOCASE), "
+            + unsupportedCountColumn + " = (SELECT t.lr2_resource_unsupported_count FROM " + tempName + " t WHERE t.path = " + tableName + "." + pathColumn + " COLLATE NOCASE)"
+            + " WHERE rowid IN ("
+            + "SELECT m.rowid FROM " + tableName + " m "
+            + "JOIN " + tempName + " t ON t.path = m." + pathColumn + " COLLATE NOCASE "
+            + "WHERE " + changedPredicate + ");");
 
-        songDb.Execute(
+        int inserted = songDb.Execute(
             "INSERT INTO " + tableName
             + " (" + pathColumn
             + ", " + hashColumn
@@ -2526,14 +2578,15 @@ internal static class Lr2FullGenerationBackfillService
             + ", t.lr2_resource_max_resolved_cp932_bytes"
             + ", t.lr2_resource_unsupported_count "
             + "FROM " + tempName + " t "
-            + "WHERE NOT EXISTS (SELECT 1 FROM " + tableName + " m WHERE m." + pathColumn + " = t.path);");
+            + "WHERE NOT EXISTS (SELECT 1 FROM " + tableName + " m WHERE m." + pathColumn + " = t.path COLLATE NOCASE);");
+        return new Lr2CompatibilityFactsWriteResult(updated, inserted);
     }
 
     private static void PrepareTempLr2CompatibilityMaintenanceTable(LR2SongDBExtended songDb)
     {
         songDb.Execute(
             "CREATE TEMP TABLE IF NOT EXISTS temp." + TempLr2CompatibilityMaintenanceTable
-            + " (path TEXT PRIMARY KEY, "
+            + " (path TEXT PRIMARY KEY COLLATE NOCASE, "
             + "hash TEXT, "
             + "lr2_path_warning_flags INTEGER, "
             + "lr2_chart_path_cp932_bytes INTEGER, "
