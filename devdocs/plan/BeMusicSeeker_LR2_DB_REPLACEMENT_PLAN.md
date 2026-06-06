@@ -1096,7 +1096,7 @@ parse directive:
 | Phase 6: normal `folder` row generator | 主要実装済み | normal folder generator / scope planner / DB sync、mutation・file diff failure の incomplete marking、directory metadata surface 由来の `folder.date` resolver、`folderinfo.txt` entry metadata surface は接続済み。通常 file diff では BMS path 差分 scope だけを同期し、完全生成 backfill input では root 配下 directory の広域再列挙を行わない。 | 実機で directory mtime / folder row freshness を確認する。 |
 | Phase 7: `.lr2folder` DB sync | 主要実装済み | playlist projection と `.lr2folder` / `folder` row sync の同一化、通常 discovery、built-in source の相対 path 化、root custom output / built-in category parent row 生成、`LR2files\Rival` の built-in discovery 非対象化、`LR2files\CustomFolder` の `<customfolder>` bitmask、`newsong` dynamic row、`course1-3` の `type=6` は接続済み。 | 実 LR2 setup / built-in folder fixture での最終確認を残す。 |
 | Phase 8: status / backfill UI | 主要実装済み | durable status、runtime progress、setting queue、cancel、mutation guard、startup blocker diagnostic / cleanup は実装済み。 | 長時間 backfill の UI 手動確認と failure/cancel 再起動確認を残す。 |
-| Phase 9: resumable backfill | 主要実装済み | durable cursor、stage / chunk resume、cancel boundary、completed status current 時の 2 回目 no-op queue、copied `song.db` の current completed no-op、failed song-row chunk rollback/retry、cancel 後 restart resume、`song_rows` の bounded reader / worker / writer pipeline、run-scoped `chart_info` resolver、backfill input の全件 `BMSFile` persistence copy 廃止、bulk generated song writer、chunk digest / maintenance facts writer、final prune temp path bulk insert は自動テスト済み。 | 実機ログで `song_rows` が単純 file read benchmark に近づいているか、chunk `readMs` / `parseMs` / `commitMs` / queue wait を確認する。 |
+| Phase 9: resumable backfill | 主要実装済み | durable cursor、stage / chunk resume、cancel boundary、completed status current 時の 2 回目 no-op queue、copied `song.db` の current completed no-op、failed song-row chunk rollback/retry、cancel 後 restart resume、`song_rows` の bounded reader / worker / writer pipeline、worker-side `chart_info` apply / LR2 compatibility fact build、run-scoped `chart_info` resolver、backfill input の全件 `BMSFile` persistence copy 廃止、bulk generated song writer、chunk digest / maintenance facts writer、final prune temp path bulk insert は自動テスト済み。 | 実機ログで `song_rows` が単純 file read benchmark に近づいているか、chunk `readMs` / `parseMs` / `commitMs` / queue wait を確認する。 |
 
 ### フェーズ別進捗メモ
 
@@ -1399,7 +1399,8 @@ existence / mtime は意味的に揃える。
    - 完了: backfill input は使用した scan surface generation を保持し、後続 file diff scan で `.txt` /
      `folderinfo.txt` surface が更新された場合は完了直前の source current 判定で `source_stale` にする。
    - 残作業: chart/resource search roots から、明示的な通常 custom folder 出力先と root custom folder 出力先を外す。
-   - 残作業: `.lr2folder` discovery roots は BMS roots + 通常出力先 + root 出力先 + `LR2files\CustomFolder` にする。
+   - 完了: `.lr2folder` discovery roots は BMS roots + 通常出力先 + root 出力先 + `LR2files\CustomFolder` にする。
+   - 残作業: optional grouped scan で 0 hits が正常な場合に、managed fallback の広域列挙へ落ちないようにする。
    - 残作業: native bridge / managed fallback の metadata surface を同じ contract に揃え、ログに text /
      folderinfo / `.lr2folder` / directory counts を出す。
    - 残作業: `.lr2folder` discovery と directory mtime は startup scan surface へ統合し、backfill input 作成中に
@@ -1412,11 +1413,11 @@ existence / mtime は意味的に揃える。
    - input は lightweight target list、scan metadata surface、version snapshot だけを保持する。
    - `songRows=...` は persistence copy count ではなく target count として扱う。
    - memory usage が current catalog + bounded queue + current chunk の範囲に収まることを log で確認する。
-5. `song_rows` pipeline を writer が詰まらない構造へ寄せる。
+5. `song_rows` pipeline を writer が詰まらない構造へ寄せる。主要実装済み。
    - reader は譜面 bytes / mtime の供給を主責務にする。
-   - workers が parse / chart_info apply / LR2 compatibility facts を同じ parse result から作り、
+   - 完了: workers が parse / chart_info apply / LR2 compatibility facts を同じ parse result から作り、
      `BMSFile` と `BMSFileMaintenanceInfo` を含む「DB に書ける completed item」を出力する。
-   - writer は順序制御、bulk song write、bulk compatibility facts write、durable cursor update に専念する。
+   - 完了: writer は順序制御、bulk song write、bulk compatibility facts write、durable cursor update に専念する。
    - encoding detection / parse / resource reference evaluation の二重走査をなくす。
    - chunk log は wall time、reader wait、worker wait、queue high watermark、worker aggregate time、
      commit time を分けて出す。
