@@ -1355,14 +1355,26 @@ existence / mtime は意味的に揃える。
 現行計画の整理:
 
 - chart / resource search roots と `.lr2folder` discovery roots は別 surface として扱う。
-  chart / resource roots は LR2 / standalone の BMS search directories を正本にし、BeMusicSeeker が
-  明示的に管理する通常 custom folder 出力先と root custom folder 出力先が search root として登録されている場合は
-  root set から外す。これは出力先を chart/resource query root として明示的に足さないための整理であり、
-  BMS root 配下に出力先 directory が自然に含まれることを subtree filter で除外するものではない。
+  chart / resource roots は、BeMusicSeeker 内で「BMS root folder」として扱う root だけを正本にする。
+  BeMusicSeeker が明示的に管理する通常 custom folder 出力先と root custom folder 出力先は、
+  chart / resource query root として扱わない。
+  - 通常出力先は 1 つの base root として扱い、その配下の numbered `.lr2folder` / directory は
+    chart / resource root list に並べない。
+  - root custom folder 出力先も同じく 1 つの base root として扱う。LR2 config や既存 DB 由来で
+    `D:\BMS\ROOT\...` のような子 directory が search root として列挙されていても、
+    chart / resource root list には入れない。
+  - これは query root の正規化であり、`D:\BMS\` という BMS root の配下に
+    `D:\BMS\#BeMusicSeeker\` が自然に存在する場合まで Everything exclude DSL で subtree 除外する
+    という意味ではない。重要なのは、アプリ管理の出力先を追加 root として増やさないこと。
 - `.lr2folder` discovery roots は BMS search directories、通常 custom folder 出力先、root custom folder 出力先、
   LR2 built-in `LR2files\CustomFolder` を含める。通常出力先や root 出力先に外部 tool が
   `.lr2folder` を生成する運用があるため、`.lr2folder` discovery は chart/resource search より広い。
   app-managed output / external discovered source / built-in source の判定は query ではなく result classifier で行う。
+- `.lr2folder` discovery は backfill 専用の後追い列挙にしない。
+  完全生成 completed 後の steady-state でも、file diff / startup scan surface で `.lr2folder` の
+  existence / mtime 変化を検出し、`folder` row へ反映できる必要がある。
+  したがって `.lr2folder` は chart / resource と同じ grouped enumeration request の別 group として
+  扱い、`ChartScanResult` またはそれに並ぶ startup scan surface に entry を保持する。
 - native bridge ABI は拡張する前提にする。chart / resource / `.txt` / `folderinfo.txt` / `.lr2folder`
   の grouped query result は、path だけでなく file mtime を含む file entry surface を返す。
 - managed fallback も同じ file entry surface を返す。通常の生成 workflow では、fallback scan 後に
@@ -1382,6 +1394,11 @@ existence / mtime は意味的に揃える。
   観測できる粒度にする。最低限 `textQuery` / `textQueryHits` / `folderInfoHits` /
   `lr2FolderQueryHits` / `directoryQueryHits` / metadata bridge ms / fallback reason を出し、
   `.lr2folder` discovery が backfill input で突然始まるように見えないようにする。
+- root normalization log を追加する。
+  chart / resource roots には BMS root folder だけが残り、通常 custom folder 出力先、root custom folder 出力先、
+  およびそれらの子 directory が explicit root として混ざらないことを確認できるようにする。
+  `.lr2folder` roots には BMS root folder 群、通常 custom folder 出力先、root custom folder 出力先、
+  LR2 built-in `LR2files\CustomFolder` が入ることを別 counts で出す。
 - bridge layout version / result version はログ分析用に出してよい。アプリ本体と native bridge DLL は
   同一配布物なので、旧 ABI DLL を runtime fallback する互換分岐は計画に含めない。
 
@@ -1390,6 +1407,19 @@ existence / mtime は意味的に揃える。
 現時点では、cursor / status / cancellation などの基盤は実装済みだが、hot path は初期化同型に
 収束していない。以下は実装サイクルの推奨順であり、実機確認・手動確認・LR2 起動確認は
 最後にまとめて行う。
+
+各実装サイクルの開始前に、設計レビューでは機能面だけでなく性能面も必ず確認する。
+特に以下を禁止事項として扱う。
+
+- backfill input 作成中に、startup / file diff scan surface で既に得た情報を広域再列挙する。
+- chart / resource / `.lr2folder` / directory metadata の root contract を別々の ad hoc helper で
+  再解釈する。
+- completed steady-state の通常起動へ、初回 backfill 用の full validation / full table scan /
+  full hydration を混ぜる。
+- 200k 件級の hot path で、chunk ごとの DB SELECT、行単位 upsert、既存 DB 保護のための
+  defensive merge を増やす。
+- 「こうなるかもしれない」だけで incomplete blocker を増やし、実ファイル由来の一覧 cache へ
+  収束させる方針を弱める。
 
 1. 通常 file diff と LR2 full generation の重い folder sync を切り離す。完了。
    - `ReloadFileDiff` / startup file diff の「差分あり」は owned BMS / bmson の実ファイル差分だけを正本にする。
@@ -1413,14 +1443,22 @@ existence / mtime は意味的に揃える。
      `folderInfoCandidates` / `textFileDirs` を出し、scan surface が使われているかを確認できるようにする。
    - 完了: backfill input は使用した scan surface generation を保持し、後続 file diff scan で `.txt` /
      `folderinfo.txt` surface が更新された場合は完了直前の source current 判定で `source_stale` にする。
-   - 残作業: chart/resource search roots から、明示的な通常 custom folder 出力先と root custom folder 出力先を外す。
-   - 完了: `.lr2folder` discovery roots は BMS roots + 通常出力先 + root 出力先 + `LR2files\CustomFolder` にする。
+   - 最優先残作業: chart/resource search roots を「BMS root folder として扱う root」だけに正規化する。
+     通常 custom folder 出力先、root custom folder 出力先、およびそれらの配下の explicit root は
+     chart / resource scan root から除外する。ログで `D:\BMS\ROOT\...` のような root 出力先子 directory が
+     query に大量に並ぶ状態は設計不一致として扱う。
+   - 残作業: `.lr2folder` discovery roots は BMS roots + 通常出力先 + root 出力先 + `LR2files\CustomFolder`
+     にする。ただしこれは backfill input 内の別列挙ではなく、startup / file diff scan surface の
+     `.lr2folder` group として保持する。
    - 完了: grouped scan fallback は requested extension union だけを列挙し、`.lr2folder` / `folderinfo.txt`
      discovery の fallback が root 配下全ファイルの metadata surface を作らないようにする。
    - 残作業: native bridge / managed fallback の metadata surface を同じ contract に揃え、ログに text /
      folderinfo / `.lr2folder` / directory counts を出す。
    - 残作業: `.lr2folder` discovery と directory mtime は startup scan surface へ統合し、backfill input 作成中に
      `.lr2folder` / directory mtime の広域 discovery を開始しない形へ寄せる。
+   - 残作業: 完全生成 completed 後の通常 file diff でも `.lr2folder` / `folderinfo.txt` / `.txt`
+     surface の差分を検出し、該当 folder row / song.txt を scoped sync する。backfill 初回だけで
+     `.lr2folder` を見る設計にはしない。
 3. `chart_info` run-scoped resolver と inline chart_info 生成を導入する。完了。
    - LR2 full generation が必要な run の開始時に current `chart_info` index を一括で準備する。
    - `song_rows` chunk ごとの `chart_info` DB SELECT を撤廃する。
@@ -1444,9 +1482,19 @@ existence / mtime は意味的に揃える。
      `song` row を UPDATE しない。
    - 完了: LR2 compatibility facts は chunk commit 後に live warning projection へ渡し、全件分の
      `BMSFileMaintenanceInfo` を backfill result に保持しない。
-   - 残作業: encoding detection / BMS metadata parse 内部の二重走査をなくせるかを実機ログで判断する。
-   - chunk log は wall time、reader wait、worker wait、queue high watermark、worker aggregate time、
-     commit time を分けて出す。
+   - 最優先残作業: `song_rows` の DB commit が reader / parser より支配的になっている場合は、
+     読み込み側の微調整ではなく writer contract を先に直す。
+     1000 件 chunk ごとに `song` temp table upsert、`chart_digest_map`、LR2 compatibility facts、
+     status cursor update を同一 hot transaction で繰り返す形は最終形ではない。
+   - 残作業: full backfill では実ファイル由来の一覧へ収束させることを優先し、既存 `song.db` を守るための
+     defensive merge を hot path に増やさない。保存する user columns / `adddate` / `favorite` / `tag`
+     だけを明示的に snapshot し、generated columns は staging table から set-based に反映する。
+   - 残作業: chunk log は wall time、reader wait、worker wait、queue high watermark、worker aggregate time、
+     commit time、writer sub-step time (`songStageMs`, `digestStageMs`, `compatibilityStageMs`,
+     `statusCursorMs`) を分けて出す。
+   - 残作業: encoding detection / BMS metadata parse 内部の二重走査をなくせるかは、
+     writer commit を潰した後に判断する。現ログで commit が支配的な場合、parser 側の最適化は
+     次順位とする。
    - `ChartFileContentReader` は read-only snapshot と hash付き snapshot の責務を分け、hash 計算を
      worker 側へ逃がせる形にする。
 6. full backfill 用 bulk DB writer を導入する。
@@ -1457,6 +1505,10 @@ existence / mtime は意味的に揃える。
    - final song prune の current path temp table insert は multi-value chunk へ寄せる。完了。
    - 行単位 `UpsertChartDigest` / `DeleteChartDigestIfOrphaned` は full backfill hot path から外し、
      単発 mutation API 専用に残す。完了。
+   - 残作業: 現ログで 1000 件あたり `commitMs` が数秒から数十秒へ膨らんでいるため、
+     「完了」扱いの bulk writer も再レビューする。設計レビューでは SQL の set-based 化だけでなく、
+     temp table clear / index maintenance / transaction granularity / status update 頻度が
+     200k 件で妥当かを必ず確認する。
 7. final diagnostics / blocker 判定を prune-first に整理する。主要実装済み。
    - `song` / `folder` / `maintenance` は実ファイル由来の一覧 cache として current surface へ収束させる。
    - expected set 外 row / unknown root row は守らず prune する。
@@ -1467,6 +1519,12 @@ existence / mtime は意味的に揃える。
    - completed status と signature current 判定に、full validation や全件 DB scan を混ぜない。
    - 完了: file diff が DB diff なしの場合は storage row replacement / storage row version increment を行わず、
      resource index / health presentation だけを必要範囲で更新する。
+   - 残作業: chart_info / song.db full generation の backfill 系は初回または signature 変更時だけ走る。
+     completed status で signature current の場合、通常起動の file diff は実ファイル由来の変更検出だけを行い、
+     chart_info full hydration や LR2 folder full validation を「念のため」混ぜない。
+   - 残作業: `.bmt` 出力 OFF、完全生成 completed、file diff 0 件から数件の条件で、
+     `startup_background_summary < 50s` を acceptance とする。50 秒を超える場合は、
+     backfill ではなく startup background task の常時 hydration / prewarm を疑う。
 9. native bridge metadata parity を統合確認する。
    - fixed scan の `.txt` / `folderinfo.txt` entry、grouped enumeration の `.lr2folder` entry、directory mtime が同じ `RootFileEnumerationEntry` contract になることを実機 Everything 環境で確認する。
    - bridge layout / result version log を必要に応じて追加する。
