@@ -20,9 +20,30 @@ internal static class Lr2FolderDirectoryEnumerationService
         }
 
         var entries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
-        foreach (string targetDirectory in targetSet)
+        RootFileEnumerationResult enumeration = RootFileEnumerationService.EnumerateFilesWithFallback(
+            rootDirectories,
+            [new RootFileEnumerationGroup(RootFileEnumerationService.DirectoriesGroupName, [], includeDirectories: true)]);
+        if (enumeration?.Success == true)
         {
-            AddEntryIfTarget(entries, targetSet, RootFileEnumerationEntry.FromDirectoryInfo(targetDirectory));
+            foreach (RootFileEnumerationEntry entry in enumeration.GetEntries(RootFileEnumerationService.DirectoriesGroupName))
+            {
+                AddEntryIfTarget(entries, targetSet, entry);
+            }
+        }
+        else
+        {
+            foreach (string targetDirectory in targetSet)
+            {
+                AddEntryIfTarget(entries, targetSet, RootFileEnumerationEntry.FromDirectoryInfo(targetDirectory));
+            }
+        }
+
+        foreach (string root in (rootDirectories ?? []).Select(Lr2FolderPath.NormalizeDirectoryPath))
+        {
+            if (!string.IsNullOrWhiteSpace(root) && targetSet.Contains(root) && !entries.ContainsKey(root))
+            {
+                AddEntryIfTarget(entries, targetSet, RootFileEnumerationEntry.FromDirectoryInfo(root));
+            }
         }
         return entries;
     }

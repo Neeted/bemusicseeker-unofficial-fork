@@ -5955,9 +5955,11 @@ completeFileEnumerationOnce,
                 scanSurface.FolderInfoFileEntries.Values,
                 directoryMetadataTargets)
             : CreateLr2FullGenerationFolderInfoCandidates(roots, directoryMetadataTargets);
+        var directoryEntriesStopwatch = Stopwatch.StartNew();
         IReadOnlyDictionary<string, RootFileEnumerationEntry> directoryEntries = CreateLr2FullGenerationDirectoryEntries(
             roots,
             directoryMetadataTargets);
+        directoryEntriesStopwatch.Stop();
         string lr2RootCustomFolderOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDirRootType;
         IReadOnlyList<string> textFileDirectories = scanSurface?.TextFileDirectories
             ?? CreateLr2FullGenerationTextFileDirectories(chartPaths);
@@ -5967,6 +5969,7 @@ completeFileEnumerationOnce,
             + " scanSurfaceNormalFolderDirs=" + (scanSurface?.NormalFolderDirectoryPaths?.Count ?? 0)
             + " directoryTargets=" + directoryMetadataTargets.Count
             + " directoryEntries=" + directoryEntries.Count
+            + " directoryEntriesMs=" + directoryEntriesStopwatch.ElapsedMilliseconds
             + " folderInfoCandidates=" + folderInfoCandidates.Paths.Count
             + " textFileDirs=" + textFileDirectories.Count);
         return new Lr2FullGenerationBackfillInput(
