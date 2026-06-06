@@ -1373,8 +1373,9 @@ existence / mtime は意味的に揃える。
 - `.lr2folder` discovery は backfill 専用の後追い列挙にしない。
   完全生成 completed 後の steady-state でも、file diff / startup scan surface で `.lr2folder` の
   existence / mtime 変化を検出し、`folder` row へ反映できる必要がある。
-  したがって `.lr2folder` は chart / resource と同じ grouped enumeration request の別 group として
-  扱い、`ChartScanResult` またはそれに並ぶ startup scan surface に entry を保持する。
+  ただし `.lr2folder` discovery roots は chart / resource roots より広いため、同一 query root set に
+  無理に混ぜない。startup / file-diff cycle 内で同じ grouped enumeration API を使い、
+  chart/resource surface と `.lr2folder` surface を別 root set の entry snapshot として保持する。
 - native bridge ABI は拡張する前提にする。chart / resource / `.txt` / `folderinfo.txt` / `.lr2folder`
   の grouped query result は、path だけでなく file mtime を含む file entry surface を返す。
 - managed fallback も同じ file entry surface を返す。通常の生成 workflow では、fallback scan 後に
