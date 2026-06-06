@@ -890,7 +890,8 @@ internal sealed class BmsLibraryInitializationService
                 DirectoryLastWriteTimeUtcResolver = CreateLastWriteTimeResolver(directoryEntries),
                 PruneScopeDirectories = syncInput.PruneScopeDirectories,
                 PruneExactDirectories = syncInput.PruneExactDirectories,
-                AllowPrune = syncInput.PruneScopeDirectories.Count > 0 || syncInput.PruneExactDirectories.Count > 0
+                AllowPrune = syncInput.PruneScopeDirectories.Count > 0 || syncInput.PruneExactDirectories.Count > 0,
+                UseScopedExistingRows = true
             });
             ApplyLr2NormalFolderSyncResult(result, syncResult);
             logInstallPerformance?.Invoke("lr2_normal_folder_sync done generated=" + syncResult.GeneratedCount

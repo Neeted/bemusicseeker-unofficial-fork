@@ -6197,7 +6197,8 @@ completeFileEnumerationOnce,
                 PruneScopeDirectories = syncInput.PruneScopeDirectories,
                 PruneExactDirectories = syncInput.PruneExactDirectories,
                 GeneratedAtUtc = DateTime.UtcNow,
-                AllowPrune = syncInput.PruneScopeDirectories.Count > 0 || syncInput.PruneExactDirectories.Count > 0
+                AllowPrune = syncInput.PruneScopeDirectories.Count > 0 || syncInput.PruneExactDirectories.Count > 0,
+                UseScopedExistingRows = true
             });
             stopwatch.Stop();
             LogInstallPerformance("lr2_normal_folder_mutation_sync done"

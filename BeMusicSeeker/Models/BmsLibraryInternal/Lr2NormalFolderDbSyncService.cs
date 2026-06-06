@@ -32,6 +32,8 @@ internal sealed class Lr2NormalFolderDbSyncRequest
     public DateTime GeneratedAtUtc { get; set; } = DateTime.UtcNow;
 
     public bool AllowPrune { get; set; }
+
+    public bool UseScopedExistingRows { get; set; }
 }
 
 internal sealed class Lr2NormalFolderDbSyncResult(
@@ -123,7 +125,11 @@ internal static class Lr2NormalFolderDbSyncService
             FolderInfoLinesReader = request.FolderInfoLinesReader
         });
         long metadataBuildMs = RestartElapsed(stepStopwatch);
-        List<LR2SongDB.folder> existingRows = [.. songDb.Table<LR2SongDB.folder>()];
+        List<LR2SongDB.folder> existingRows = ReadExistingRows(
+            songDb,
+            request,
+            rootDirectories,
+            directoryMetadataTargets);
         long existingReadMs = RestartElapsed(stepStopwatch);
         Lr2FolderGenerationResult generation = Lr2FolderRowGenerator.GenerateNormalDirectoryRows(new Lr2FolderGenerationRequest
         {
@@ -294,6 +300,144 @@ internal static class Lr2NormalFolderDbSyncService
         }
 
         return [.. result.OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
+    }
+
+    private static List<LR2SongDB.folder> ReadExistingRows(
+        LR2SongDBExtended songDb,
+        Lr2NormalFolderDbSyncRequest request,
+        IReadOnlyCollection<string> rootDirectories,
+        IReadOnlyCollection<string> directoryMetadataTargets)
+    {
+        if (request?.UseScopedExistingRows != true)
+        {
+            return [.. songDb.Table<LR2SongDB.folder>()];
+        }
+
+        var rowsByPath = new Dictionary<string, LR2SongDB.folder>(StringComparer.Ordinal);
+        foreach (LR2SongDB.folder row in QueryExistingRowsByExactPaths(
+            songDb,
+            CreateExistingRowExactPathScope(directoryMetadataTargets, request.PruneExactDirectories)))
+        {
+            AddExistingRow(rowsByPath, row);
+        }
+
+        foreach (LR2SongDB.folder row in QueryExistingRowsByScopeDirectories(
+            songDb,
+            NormalizePruneScopeDirectories(request.PruneScopeDirectories, rootDirectories)))
+        {
+            AddExistingRow(rowsByPath, row);
+        }
+
+        return [.. rowsByPath.Values];
+    }
+
+    private static IReadOnlyCollection<string> CreateExistingRowExactPathScope(
+        IEnumerable<string> directoryMetadataTargets,
+        IEnumerable<string> pruneExactDirectories)
+    {
+        var result = new HashSet<string>(StringComparer.Ordinal);
+        foreach (string directory in directoryMetadataTargets ?? [])
+        {
+            AddFolderPath(result, directory);
+        }
+        foreach (string directory in pruneExactDirectories ?? [])
+        {
+            AddFolderPath(result, directory);
+        }
+        return result;
+    }
+
+    private static void AddFolderPath(ISet<string> result, string directory)
+    {
+        if (result == null)
+        {
+            return;
+        }
+
+        string path = Lr2FolderPath.ToFolderPath(directory);
+        if (!string.IsNullOrWhiteSpace(path))
+        {
+            result.Add(path);
+        }
+    }
+
+    private static void AddExistingRow(IDictionary<string, LR2SongDB.folder> rowsByPath, LR2SongDB.folder row)
+    {
+        if (rowsByPath == null || string.IsNullOrWhiteSpace(row?.path))
+        {
+            return;
+        }
+
+        rowsByPath[row.path] = row;
+    }
+
+    private static IEnumerable<LR2SongDB.folder> QueryExistingRowsByExactPaths(
+        LR2SongDBExtended songDb,
+        IReadOnlyCollection<string> exactPaths)
+    {
+        if (songDb == null || exactPaths == null || exactPaths.Count == 0)
+        {
+            return [];
+        }
+
+        string tableName = SQLiteTable<LR2SongDB.folder>.GetTableName();
+        string pathColumn = SQLiteTable<LR2SongDB.folder>.GetColumnName(row => row.path);
+        string[] paths = [.. exactPaths.Where(path => !string.IsNullOrWhiteSpace(path)).Distinct(StringComparer.Ordinal)];
+        const int chunkSize = 500;
+        var rows = new List<LR2SongDB.folder>();
+        for (int offset = 0; offset < paths.Length; offset += chunkSize)
+        {
+            int count = Math.Min(chunkSize, paths.Length - offset);
+            string placeholders = string.Join(",", Enumerable.Repeat("?", count));
+            object[] args = new object[count];
+            for (int index = 0; index < count; index++)
+            {
+                args[index] = paths[offset + index];
+            }
+            rows.AddRange(songDb.Query<LR2SongDB.folder>(
+                "SELECT * FROM " + tableName + " WHERE " + pathColumn + " COLLATE NOCASE IN (" + placeholders + ");",
+                args));
+        }
+        return rows;
+    }
+
+    private static IEnumerable<LR2SongDB.folder> QueryExistingRowsByScopeDirectories(
+        LR2SongDBExtended songDb,
+        IReadOnlyCollection<string> scopeDirectories)
+    {
+        if (songDb == null || scopeDirectories == null || scopeDirectories.Count == 0)
+        {
+            return [];
+        }
+
+        string tableName = SQLiteTable<LR2SongDB.folder>.GetTableName();
+        string pathColumn = SQLiteTable<LR2SongDB.folder>.GetColumnName(row => row.path);
+        var rowsByPath = new Dictionary<string, LR2SongDB.folder>(StringComparer.Ordinal);
+        foreach (string scopeDirectory in scopeDirectories)
+        {
+            string scopePath = Lr2FolderPath.ToFolderPath(scopeDirectory);
+            if (string.IsNullOrWhiteSpace(scopePath))
+            {
+                continue;
+            }
+
+            foreach (LR2SongDB.folder row in songDb.Query<LR2SongDB.folder>(
+                "SELECT * FROM " + tableName + " WHERE " + pathColumn + " = ? COLLATE NOCASE OR " + pathColumn + " LIKE ? ESCAPE '\\';",
+                scopePath,
+                EscapeSqliteLikePattern(scopePath) + "%"))
+            {
+                AddExistingRow(rowsByPath, row);
+            }
+        }
+        return rowsByPath.Values;
+    }
+
+    private static string EscapeSqliteLikePattern(string value)
+    {
+        return (value ?? string.Empty)
+            .Replace("\\", "\\\\")
+            .Replace("%", "\\%")
+            .Replace("_", "\\_");
     }
 
     private static List<string> NormalizeRootDirectories(IEnumerable<string> rootDirectories)

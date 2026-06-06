@@ -90,6 +90,70 @@ public sealed class Lr2NormalFolderDbSyncServiceTests
     }
 
     [TestMethod]
+    public void Sync_ScopedExistingRows_LoadsGeneratedAndPruneScopeRowsOnly()
+    {
+        string tempDirectory = Path.Combine(Path.GetTempPath(), nameof(Lr2NormalFolderDbSyncServiceTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        string songDbPath = Path.Combine(tempDirectory, "song.db");
+        try
+        {
+            using var songDb = new LR2SongDBExtended(songDbPath);
+            songDb.CreateTable<LR2SongDB.folder>();
+            string packPath = FolderPath(@"D:\BMS\Pack");
+            string childPath = FolderPath(@"D:\BMS\Pack\Song");
+            string stalePath = FolderPath(@"D:\BMS\Removed");
+            string untouchedPath = FolderPath(@"D:\BMS\Other");
+            songDb.InsertOrReplace(new LR2SongDB.folder
+            {
+                path = packPath.ToUpperInvariant(),
+                type = 1,
+                adddate = 777
+            }, typeof(LR2SongDB.folder));
+            songDb.InsertOrReplace(new LR2SongDB.folder
+            {
+                path = childPath,
+                type = 2
+            }, typeof(LR2SongDB.folder));
+            songDb.InsertOrReplace(new LR2SongDB.folder
+            {
+                path = stalePath,
+                type = 1
+            }, typeof(LR2SongDB.folder));
+            songDb.InsertOrReplace(new LR2SongDB.folder
+            {
+                path = untouchedPath,
+                type = 1
+            }, typeof(LR2SongDB.folder));
+
+            DateTime timestamp = new(2026, 6, 8, 1, 2, 3, DateTimeKind.Utc);
+            Lr2NormalFolderDbSyncResult result = Lr2NormalFolderDbSyncService.Sync(songDb, new Lr2NormalFolderDbSyncRequest
+            {
+                RootDirectories = [@"D:\BMS"],
+                ChartPaths = [@"D:\BMS\Pack\Song\chart.bms"],
+                PruneScopeDirectories = [@"D:\BMS\Removed"],
+                DirectoryLastWriteTimeUtcResolver = _ => timestamp,
+                GeneratedAtUtc = timestamp.AddDays(1),
+                AllowPrune = true,
+                UseScopedExistingRows = true
+            });
+
+            Assert.AreEqual(1, result.DeletedCount);
+            Assert.AreEqual(0, songDb.Table<LR2SongDB.folder>().Count(row => row.path == stalePath));
+            Assert.AreEqual(1, songDb.Table<LR2SongDB.folder>().Count(row => row.path == untouchedPath));
+            Assert.AreEqual(777, songDb.Table<LR2SongDB.folder>().Single(row => row.path == packPath.ToUpperInvariant()).adddate);
+            Assert.AreEqual(2, songDb.Table<LR2SongDB.folder>().Single(row => row.path == childPath).type);
+            Assert.AreEqual(0, songDb.Table<LR2SongDB.folder>().Count(row => row.path == childPath && row.type == 1));
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
     public void Sync_PrunesOnlyRequestedNormalFolderScope()
     {
         string tempDirectory = Path.Combine(Path.GetTempPath(), nameof(Lr2NormalFolderDbSyncServiceTests), Guid.NewGuid().ToString("N"));

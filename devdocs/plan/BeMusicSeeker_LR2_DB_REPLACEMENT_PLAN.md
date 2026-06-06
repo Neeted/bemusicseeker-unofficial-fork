@@ -1395,6 +1395,7 @@ existence / mtime は意味的に揃える。
    - `ReloadFileDiff` / startup file diff の「差分あり」は owned BMS / bmson の実ファイル差分だけを正本にする。
    - LR2 `folder` table の incomplete / stale / expected row 欠落を通常 file diff の差分扱いへ混ぜない。
    - startup file diff で LR2 normal folder sync を行う場合も、変更 path と prune scope を正本にした scoped sync にする。
+   - scoped sync は既存 `folder` row も生成対象と prune scope だけを読み、少量差分で `folder` table 全件 read に戻さない。
    - LR2 full generation backfill / cleanup 用の全件 normal folder sync は full generation stage 専用に残す。
    - 完全生成未完了 status の評価は軽量に保ち、未完了であること自体が通常差分確認を秒単位で遅くしない。
    - file diff と owned mutation は共通の `Lr2NormalFolderSyncScopeBuilder` で `ChartPaths` / `PruneScopeDirectories` を作る。
