@@ -20,7 +20,7 @@ internal static class EverythingNative
 
     internal const string SourceRootScanBackendName = "everything_bridge_source_surface";
 
-    private const uint FixedScanContractVersion = 2026060502u;
+    private const uint FixedScanContractVersion = 2026060601u;
 
     private static IntPtr loadedBridgeModule = IntPtr.Zero;
 
@@ -447,7 +447,8 @@ internal static class EverythingNative
 
     private static FixedScanDecodedResult DecodeFixedScanResult(EBridgeResultHeader header)
     {
-        string[] chartPaths = ReadStringArray(header.chart_count, header.chart_offsets, header.chart_blob);
+        Dictionary<string, RootFileEnumerationEntry> chartFileEntries = ReadGroupedFileEntries(header.chart_count, header.chart_offsets, header.chart_last_write_filetimes, header.chart_blob);
+        string[] chartPaths = [.. chartFileEntries.Keys];
         string[] chartDirectories = ReadStringArray(header.dir_count, header.dir_offsets, header.dir_blob);
         Dictionary<string, RootFileEnumerationEntry> textFileEntries = ReadGroupedFileEntries(header.text_count, header.text_offsets, header.text_last_write_filetimes, header.text_blob);
         uint[][] audioRelativeHashes = null;
@@ -489,6 +490,7 @@ internal static class EverythingNative
         return new FixedScanDecodedResult
         {
             ChartPaths = chartPaths,
+            ChartFileEntries = chartFileEntries,
             ChartDirectories = chartDirectories,
             TextFileEntries = textFileEntries,
             AudioRelativeHashes = audioRelativeHashes,
@@ -849,6 +851,9 @@ internal static class EverythingNative
         var scanResult = new ChartScanResult
         {
             ChartFilePaths = chartFilePaths,
+            ChartFileEntriesByPath = new Dictionary<string, RootFileEnumerationEntry>(
+                decodedResult?.ChartFileEntries ?? [],
+                StringComparer.OrdinalIgnoreCase),
             ChartDirectories = chartDirectories
         };
         IEnumerable<RootFileEnumerationEntry> textFileEntries = decodedResult?.TextFileEntries?.Values
@@ -1119,6 +1124,8 @@ internal static class EverythingNative
     {
         internal string[] ChartPaths { get; set; } = [];
 
+        internal Dictionary<string, RootFileEnumerationEntry> ChartFileEntries { get; set; } = [];
+
         internal string[] ChartDirectories { get; set; } = [];
 
         internal Dictionary<string, RootFileEnumerationEntry> TextFileEntries { get; set; } = [];
@@ -1262,6 +1269,7 @@ internal static class EverythingNative
         public ulong chart_count;
         public IntPtr chart_offsets;
         public IntPtr chart_blob;
+        public IntPtr chart_last_write_filetimes;
         public ulong dir_count;
         public IntPtr dir_offsets;
         public IntPtr dir_blob;

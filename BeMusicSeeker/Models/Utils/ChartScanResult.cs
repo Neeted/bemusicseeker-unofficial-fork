@@ -7,6 +7,8 @@ public class ChartScanResult
 {
     public HashSet<string> ChartFilePaths { get; set; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
+    internal Dictionary<string, RootFileEnumerationEntry> ChartFileEntriesByPath { get; set; } = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
+
     public HashSet<string> ChartDirectories { get; set; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
     public HashSet<string> ChartDirectoriesWithTextFiles { get; set; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);

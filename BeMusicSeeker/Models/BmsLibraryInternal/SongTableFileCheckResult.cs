@@ -88,6 +88,10 @@ internal sealed class SongTableFileCheckResult
 
     public int BmsonDeletedTargetCount { get; set; }
 
+    public int BmsMtimeFallbackCount { get; set; }
+
+    public int BmsonMtimeFallbackCount { get; set; }
+
     public int FileDiffParserDegree { get; set; }
 
     public int ReadQueueCapacity { get; set; }

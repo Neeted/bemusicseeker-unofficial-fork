@@ -159,16 +159,20 @@ public sealed class ChartDirectoryScanBuilderTests
         string chartPath = Path.Combine(chartDirectory, "chart.bms");
         string readmePath = Path.Combine(chartDirectory, "readme.txt");
         string folderInfoPath = Path.Combine(chartDirectory, "folderinfo.txt");
+        DateTime chartTimestamp = new(2026, 1, 2, 3, 4, 5, DateTimeKind.Utc);
         DateTime readmeTimestamp = new(2026, 2, 3, 4, 5, 6, DateTimeKind.Utc);
         DateTime folderInfoTimestamp = new(2026, 3, 4, 5, 6, 7, DateTimeKind.Utc);
 
         var enumerationResult = new RootFileEnumerationResult { Success = true };
-        enumerationResult.AddEntry(ChartDirectoryScanBuilder.ChartGroupName, new RootFileEnumerationEntry(chartPath));
+        enumerationResult.AddEntry(ChartDirectoryScanBuilder.ChartGroupName, new RootFileEnumerationEntry(chartPath, chartTimestamp, 789));
         enumerationResult.AddEntry(ChartDirectoryScanBuilder.TextGroupName, new RootFileEnumerationEntry(readmePath, readmeTimestamp, 123));
         enumerationResult.AddEntry(ChartDirectoryScanBuilder.TextGroupName, new RootFileEnumerationEntry(folderInfoPath, folderInfoTimestamp, 456));
 
         ChartScanResult result = ChartDirectoryScanBuilder.BuildFromGroupedPaths(enumerationResult);
 
+        Assert.IsTrue(result.ChartFileEntriesByPath.TryGetValue(chartPath, out RootFileEnumerationEntry chartEntry));
+        Assert.AreEqual(chartTimestamp, chartEntry.LastWriteTimeUtc);
+        Assert.AreEqual((long?)789, chartEntry.FileSize);
         CollectionAssert.Contains(result.ChartDirectoriesWithTextFiles.ToList(), chartDirectory);
         CollectionAssert.Contains(result.FolderInfoFilePaths.ToList(), folderInfoPath);
         Assert.IsTrue(result.TextFileEntriesByPath.TryGetValue(readmePath, out RootFileEnumerationEntry readmeEntry));

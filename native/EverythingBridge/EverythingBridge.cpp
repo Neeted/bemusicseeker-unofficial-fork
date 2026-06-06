@@ -24,6 +24,7 @@ struct EBridgeResult {
 	unsigned long long chart_count;
 	unsigned int* chart_offsets;
 	wchar_t* chart_blob;
+	unsigned long long* chart_last_write_filetimes;
 	unsigned long long dir_count;
 	unsigned int* dir_offsets;
 	wchar_t* dir_blob;
@@ -141,7 +142,7 @@ struct EBridgeResult {
 	unsigned long long text_name_resize_count;
 };
 
-static constexpr unsigned int EBRIDGE_SCAN_CONTRACT_VERSION = 2026060502u;
+static constexpr unsigned int EBRIDGE_SCAN_CONTRACT_VERSION = 2026060601u;
 static constexpr unsigned int EBRIDGE_GROUPED_ENUMERATION_CONTRACT_VERSION = 2026060501u;
 
 struct EBridgeGroupedQuery {
@@ -297,6 +298,7 @@ struct GroupedFileEntry {
 };
 
 struct ScanAggregate {
+	std::vector<GroupedFileEntry> chartFiles;
 	std::vector<std::wstring> chartPaths;
 	std::vector<std::wstring> chartDirectories;
 	std::unordered_map<std::wstring, uint32_t> chartDirIndex;
@@ -386,8 +388,14 @@ struct CategoryRawHits {
 	std::unordered_map<std::wstring, std::vector<std::wstring>> fileNamesByDirectory;
 };
 
+struct ChartRawHit {
+	std::wstring directoryPath;
+	std::wstring fileName;
+	unsigned long long lastWriteFileTime = 0ull;
+};
+
 struct ChartRawHits {
-	std::vector<std::pair<std::wstring, std::wstring>> files;
+	std::vector<ChartRawHit> files;
 };
 
 struct NoopHitCountCallback {
@@ -1664,8 +1672,12 @@ void ProcessResourceCategory(
 }
 
 void DedupeAggregate(ScanAggregate& aggregate) {
-	std::sort(aggregate.chartPaths.begin(), aggregate.chartPaths.end());
-	aggregate.chartPaths.erase(std::unique(aggregate.chartPaths.begin(), aggregate.chartPaths.end()), aggregate.chartPaths.end());
+	DedupeGroupedFileEntries(aggregate.chartFiles);
+	aggregate.chartPaths.clear();
+	aggregate.chartPaths.reserve(aggregate.chartFiles.size());
+	for (const GroupedFileEntry& file : aggregate.chartFiles) {
+		aggregate.chartPaths.push_back(file.fullPath);
+	}
 	DedupeGroupedFileEntries(aggregate.textFiles);
 	std::vector<std::vector<std::vector<uint32_t>>*> groups = {
 		&aggregate.audioResourceKeyHashes,
@@ -1925,6 +1937,8 @@ int BuildResultBuffer(const ScanAggregate& aggregate, const BridgeExecutionStats
 
 	size_t cursor = AlignUp(sizeof(EBridgeResult), 8);
 	size_t chartOffsetsPos = cursor; cursor += chartCount * sizeof(uint32_t);
+	cursor = AlignUp(cursor, alignof(unsigned long long));
+	size_t chartLastWriteFileTimesPos = cursor; cursor += chartCount * sizeof(unsigned long long);
 	size_t dirOffsetsPos = cursor; cursor += dirCount * sizeof(uint32_t);
 	size_t textOffsetsPos = cursor; cursor += textCount * sizeof(uint32_t);
 	cursor = AlignUp(cursor, alignof(unsigned long long));
@@ -1982,6 +1996,10 @@ int BuildResultBuffer(const ScanAggregate& aggregate, const BridgeExecutionStats
 
 	auto writeStartedAt = std::chrono::steady_clock::now();
 	WriteStringBlob(raw, chartOffsetsPos, chartBlobPos, aggregate.chartPaths, result->chart_offsets, result->chart_blob);
+	result->chart_last_write_filetimes = reinterpret_cast<unsigned long long*>(raw + chartLastWriteFileTimesPos);
+	for (size_t i = 0; i < aggregate.chartFiles.size(); i++) {
+		result->chart_last_write_filetimes[i] = aggregate.chartFiles[i].lastWriteFileTime;
+	}
 	WriteStringBlob(raw, dirOffsetsPos, dirBlobPos, aggregate.chartDirectories, result->dir_offsets, result->dir_blob);
 	result->text_offsets = reinterpret_cast<unsigned int*>(raw + textOffsetsPos);
 	result->text_last_write_filetimes = reinterpret_cast<unsigned long long*>(raw + textLastWriteFileTimesPos);
@@ -2129,14 +2147,18 @@ extern "C" __declspec(dllexport) int __cdecl EBridge_ScanChartAndResources(const
 	bool okText = true;
 	bool hasTextQuery = textQuery && textQuery[0] != L'\0';
 	std::thread chartQueryWorker([&]() {
-		okChart = ExecuteQueryWithNewClient(chartQuery, [&chartRawHits](std::wstring& path, std::wstring& name) {
+		okChart = ExecuteQueryWithNewClient(chartQuery, [&chartRawHits](const std::wstring& path, const std::wstring& name, unsigned long long dateModifiedFileTime) {
 			if (path.empty() || name.empty()) {
 				return;
 			}
-			chartRawHits.files.emplace_back(std::move(path), std::move(name));
+			chartRawHits.files.push_back(ChartRawHit{
+				path,
+				name,
+				dateModifiedFileTime
+			});
 		}, &chartQueryStats, [&chartRawHits](size_t hitCount) {
 			chartRawHits.files.reserve(hitCount);
-		}, true);
+		}, true, true);
 	});
 	std::thread audioQueryWorker([&]() {
 		okAudio = ExecuteQueryWithNewClient(audioQuery, [&audioRawHits](std::wstring& path, std::wstring& name) {
@@ -2207,10 +2229,13 @@ extern "C" __declspec(dllexport) int __cdecl EBridge_ScanChartAndResources(const
 	if (!okMovie) {
 		return BRIDGE_MOVIE_QUERY_FAILED;
 	}
-	for (const auto& hit : chartRawHits.files) {
-		const std::wstring& chartDirectory = hit.first;
-		std::wstring chartPath = CombinePathAndName(chartDirectory, hit.second);
-		aggregate.chartPaths.push_back(chartPath);
+	for (const ChartRawHit& hit : chartRawHits.files) {
+		const std::wstring& chartDirectory = hit.directoryPath;
+		std::wstring chartPath = CombinePathAndName(chartDirectory, hit.fileName);
+		aggregate.chartFiles.push_back(GroupedFileEntry{
+			chartPath,
+			hit.lastWriteFileTime
+		});
 		EnsureChartDirectory(aggregate, chartDirectory);
 	}
 	ProcessResourceCategory(aggregate, assignmentContext, stats, ResourceCategory::Audio, std::move(audioRawHits));

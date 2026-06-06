@@ -75,6 +75,9 @@ splits directory/name natively. Source-root and grouped scan surfaces keep the o
 Text files in fixed scan also use the full-path read path and request `Date Modified`
 so managed code can keep `.txt` / `folderinfo.txt` on the same metadata-bearing
 surface as chart/resource enumeration.
+Chart files also carry `Date Modified` in the fixed scan result. Managed file diff uses
+that metadata for `song.date` / `bmson_song.updated_at` comparison and falls back to
+live filesystem timestamp lookup only when scan metadata is missing.
 
 `sibling:` based resource collection is no longer used.
 

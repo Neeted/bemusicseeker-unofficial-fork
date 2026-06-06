@@ -415,14 +415,27 @@ internal sealed class BmsLibraryInitializationService
         var currentPaths = new HashSet<string>(currentBmsByPath.Keys, StringComparer.OrdinalIgnoreCase);
         result.DeletedPaths.AddRange(currentPaths.Except(scannedPaths, StringComparer.OrdinalIgnoreCase));
         HashSet<string> textFileDirectories = mergedScanResult.ChartDirectoriesWithTextFiles ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        IReadOnlyDictionary<string, RootFileEnumerationEntry> chartFileEntriesByPath =
+            mergedScanResult.ChartFileEntriesByPath ?? new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
         Dictionary<string, Queue<BMSFile>> movedBmsSourcesByMd5 = BuildQueueByMd5(
             result.DeletedPaths
                 .Select(path => currentBmsByPath.TryGetValue(path, out BMSFile file) ? file : null)
                 .Where(file => file != null),
             file => file.hash);
-        List<FileDiffParseTarget> bmsParseTargets = [.. scannedPaths
-            .Select(path => CreateBmsFileDiffTarget(path, currentBmsByPath, textFileDirectories))
-            .Where(target => target != null)];
+        List<FileDiffParseTarget> bmsParseTargets = [];
+        foreach (string path in scannedPaths)
+        {
+            FileDiffParseTarget target = CreateBmsFileDiffTarget(
+                path,
+                currentBmsByPath,
+                textFileDirectories,
+                chartFileEntriesByPath,
+                result);
+            if (target != null)
+            {
+                bmsParseTargets.Add(target);
+            }
+        }
         List<LR2SongDBExtended.bmson_song> currentBmsonList = [.. (currentBmsonSongs ?? []).Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))];
         var scannedBmsonPaths = new HashSet<string>(
             (mergedScanResult.ChartFilePaths ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase))
@@ -430,15 +443,25 @@ internal sealed class BmsLibraryInitializationService
             StringComparer.OrdinalIgnoreCase);
         var currentBmsonByPath = currentBmsonList.ToDictionary(song => song.path, StringComparer.OrdinalIgnoreCase);
         result.DeletedBmsonPaths.AddRange(currentBmsonByPath.Keys.Except(scannedBmsonPaths, StringComparer.OrdinalIgnoreCase));
-        List<string> addedOrUpdatedBmsonPaths = [.. scannedBmsonPaths
-            .Where(delegate (string path)
+        List<string> addedOrUpdatedBmsonPaths = [];
+        foreach (string path in scannedBmsonPaths)
+        {
+            if (!currentBmsonByPath.TryGetValue(path, out LR2SongDBExtended.bmson_song existing))
             {
-                if (!currentBmsonByPath.TryGetValue(path, out LR2SongDBExtended.bmson_song existing))
-                {
-                    return true;
-                }
-                return existing.updated_at != SafeGetLastWriteTimeUtc(path);
-            })];
+                addedOrUpdatedBmsonPaths.Add(path);
+                continue;
+            }
+
+            DateTime lastWriteTimeUtc = ResolveScannedChartLastWriteTimeUtc(
+                path,
+                chartFileEntriesByPath,
+                result,
+                isBmson: true);
+            if (lastWriteTimeUtc != DateTime.MinValue && existing.updated_at != lastWriteTimeUtc)
+            {
+                addedOrUpdatedBmsonPaths.Add(path);
+            }
+        }
         stopwatchDiff.Stop();
         result.DiffMs = stopwatchDiff.ElapsedMilliseconds;
         result.BmsAddedTargetCount = bmsParseTargets.Count;
@@ -641,6 +664,8 @@ internal sealed class BmsLibraryInitializationService
             + " bmson_deleted_count=" + result.DeletedBmsonPaths.Count
             + " bmson_upsert_count=" + result.AddedBmsonSongs.Count
             + " bmson_upsert_target_count=" + result.BmsonUpsertTargetCount
+            + " bms_mtime_fallback_count=" + result.BmsMtimeFallbackCount
+            + " bmson_mtime_fallback_count=" + result.BmsonMtimeFallbackCount
             + " file_diff_parser_degree=" + result.FileDiffParserDegree
             + " read_queue_capacity=" + result.ReadQueueCapacity
             + " parsed_queue_capacity=" + result.ParsedQueueCapacity
@@ -1099,7 +1124,9 @@ internal sealed class BmsLibraryInitializationService
     private static FileDiffParseTarget CreateBmsFileDiffTarget(
         string path,
         IReadOnlyDictionary<string, BMSFile> currentBmsByPath,
-        ISet<string> textFileDirectories)
+        ISet<string> textFileDirectories,
+        IReadOnlyDictionary<string, RootFileEnumerationEntry> chartFileEntriesByPath,
+        SongTableFileCheckResult result)
     {
         if (string.IsNullOrWhiteSpace(path))
         {
@@ -1110,7 +1137,11 @@ internal sealed class BmsLibraryInitializationService
         {
             return new FileDiffParseTarget(FileDiffChartKind.Bms, path, null, textFlag);
         }
-        DateTime lastWriteTimeUtc = SafeGetLastWriteTimeUtc(path);
+        DateTime lastWriteTimeUtc = ResolveScannedChartLastWriteTimeUtc(
+            path,
+            chartFileEntriesByPath,
+            result,
+            isBmson: false);
         if (lastWriteTimeUtc == DateTime.MinValue)
         {
             return null;
@@ -1120,6 +1151,35 @@ internal sealed class BmsLibraryInitializationService
         return existing.date == currentDate && existingTextFlag == textFlag
             ? null
             : new FileDiffParseTarget(FileDiffChartKind.Bms, path, existing, textFlag);
+    }
+
+    private static DateTime ResolveScannedChartLastWriteTimeUtc(
+        string path,
+        IReadOnlyDictionary<string, RootFileEnumerationEntry> chartFileEntriesByPath,
+        SongTableFileCheckResult result,
+        bool isBmson)
+    {
+        if (!string.IsNullOrWhiteSpace(path)
+            && chartFileEntriesByPath != null
+            && chartFileEntriesByPath.TryGetValue(path, out RootFileEnumerationEntry entry)
+            && entry?.LastWriteTimeUtc != null)
+        {
+            return entry.LastWriteTimeUtc.Value;
+        }
+
+        if (isBmson)
+        {
+            if (result != null)
+            {
+                result.BmsonMtimeFallbackCount++;
+            }
+        }
+        else if (result != null)
+        {
+            result.BmsMtimeFallbackCount++;
+        }
+
+        return SafeGetLastWriteTimeUtc(path);
     }
 
     private static int ResolveTextGroupFlag(string path, ISet<string> textFileDirectories)
@@ -2581,6 +2641,7 @@ internal sealed class BmsLibraryInitializationService
         foreach (ChartScanResult scanResult in scanResults.Where(scanResult => scanResult != null))
         {
             merged.ChartFilePaths.UnionWith(scanResult.ChartFilePaths ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+            MergeFileEntryDictionary(merged.ChartFileEntriesByPath, scanResult.ChartFileEntriesByPath);
             merged.ChartDirectories.UnionWith(scanResult.ChartDirectories ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase));
             merged.ChartDirectoriesWithTextFiles.UnionWith(scanResult.ChartDirectoriesWithTextFiles ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase));
             merged.FolderInfoFilePaths.UnionWith(scanResult.FolderInfoFilePaths ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase));

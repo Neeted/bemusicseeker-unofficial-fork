@@ -85,7 +85,7 @@ internal static class ChartDirectoryScanBuilder
     internal static ChartScanResult BuildFromGroupedPaths(RootFileEnumerationResult enumerationResult)
     {
         return BuildFromAbsolutePaths(
-            enumerationResult?.GetPaths(ChartGroupName) ?? [],
+            enumerationResult?.GetEntries(ChartGroupName) ?? [],
             enumerationResult?.GetPaths(AudioGroupName) ?? [],
             enumerationResult?.GetPaths(ImageGroupName) ?? [],
             enumerationResult?.GetPaths(MovieGroupName) ?? [],
@@ -114,15 +114,28 @@ internal static class ChartDirectoryScanBuilder
         IEnumerable<string> movieFilePaths,
         IEnumerable<RootFileEnumerationEntry> textFileEntries)
     {
+        return BuildFromAbsolutePaths(
+            NormalizeChartFilePaths(chartFilePaths).Select(path => new RootFileEnumerationEntry(path)),
+            audioFilePaths,
+            imageFilePaths,
+            movieFilePaths,
+            textFileEntries);
+    }
+
+    internal static ChartScanResult BuildFromAbsolutePaths(
+        IEnumerable<RootFileEnumerationEntry> chartFileEntries,
+        IEnumerable<string> audioFilePaths,
+        IEnumerable<string> imageFilePaths,
+        IEnumerable<string> movieFilePaths,
+        IEnumerable<RootFileEnumerationEntry> textFileEntries)
+    {
         var result = new ChartScanResult();
-        var normalizedChartPaths = new HashSet<string>(
-            (chartFilePaths ?? [])
-                .Where(path => !string.IsNullOrWhiteSpace(path))
-                .Select(Path.GetFullPath),
-            StringComparer.OrdinalIgnoreCase);
-        foreach (string chartPath in normalizedChartPaths.OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
+        RootFileEnumerationEntry[] normalizedChartEntries = NormalizeChartFileEntries(chartFileEntries);
+        foreach (RootFileEnumerationEntry chartEntry in normalizedChartEntries.OrderBy(entry => entry.Path, StringComparer.OrdinalIgnoreCase))
         {
+            string chartPath = chartEntry.Path;
             result.ChartFilePaths.Add(chartPath);
+            result.ChartFileEntriesByPath[chartPath] = chartEntry;
             string chartDirectory = Path.GetDirectoryName(chartPath);
             if (!string.IsNullOrWhiteSpace(chartDirectory))
             {
@@ -290,6 +303,29 @@ internal static class ChartDirectoryScanBuilder
             .Where(path => string.Equals(Path.GetExtension(path), ".txt", StringComparison.OrdinalIgnoreCase))
             .Select(Path.GetFullPath)
             .Distinct(StringComparer.OrdinalIgnoreCase)];
+    }
+
+    private static string[] NormalizeChartFilePaths(IEnumerable<string> chartFilePaths)
+    {
+        return [.. (chartFilePaths ?? [])
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Select(Path.GetFullPath)
+            .Distinct(StringComparer.OrdinalIgnoreCase)];
+    }
+
+    private static RootFileEnumerationEntry[] NormalizeChartFileEntries(IEnumerable<RootFileEnumerationEntry> chartFileEntries)
+    {
+        return [.. (chartFileEntries ?? [])
+            .Where(entry => entry != null && !string.IsNullOrWhiteSpace(entry.Path))
+            .GroupBy(entry => Path.GetFullPath(entry.Path), StringComparer.OrdinalIgnoreCase)
+            .Select(group =>
+            {
+                RootFileEnumerationEntry entry = group.First();
+                string fullPath = Path.GetFullPath(entry.Path);
+                return string.Equals(fullPath, entry.Path, StringComparison.OrdinalIgnoreCase)
+                    ? entry
+                    : new RootFileEnumerationEntry(fullPath, entry.LastWriteTimeUtc, entry.FileSize);
+            })];
     }
 
     private static RootFileEnumerationEntry[] NormalizeTextFileEntries(IEnumerable<RootFileEnumerationEntry> textFileEntries)
