@@ -5600,7 +5600,8 @@ completeFileEnumerationOnce,
                     Lr2FolderFileDiscoveryComplete = input.Lr2FolderFileDiscoveryComplete,
                     SongRows = input.SongRows,
                     TextFileDirectories = input.TextFileDirectories,
-                    ChartInfoResolver = row => ResolveChartInfo(row?.sha256, row?.hash),
+                    ChartInfoResolver = CreateLr2FullGenerationChartInfoResolverSnapshot(),
+                    ChartInfoResolverIsThreadSafe = true,
                     StartedAtUtc = DateTime.UtcNow,
                     CancellationToken = cancellationToken,
                     IsSourceCurrent = () => IsLr2FullGenerationBackfillInputCurrent(input),
@@ -6801,6 +6802,43 @@ completeFileEnumerationOnce,
             }
         }
         return null;
+    }
+
+    private Func<BMSFile, LR2SongDBExtended.chart_info> CreateLr2FullGenerationChartInfoResolverSnapshot()
+    {
+        Dictionary<string, LR2SongDBExtended.chart_info> bySha256;
+        Dictionary<string, LR2SongDBExtended.chart_info> byMd5;
+        lock (lockChartInfoIndex)
+        {
+            bySha256 = new Dictionary<string, LR2SongDBExtended.chart_info>(
+                chartInfoIndexBySha256,
+                StringComparer.OrdinalIgnoreCase);
+            byMd5 = chartInfoIndexByMd5
+                .Where(pair => !string.IsNullOrWhiteSpace(pair.Key) && pair.Value != null && pair.Value.Count > 0)
+                .ToDictionary(
+                    pair => pair.Key,
+                    pair => pair.Value.First().Value,
+                    StringComparer.OrdinalIgnoreCase);
+        }
+
+        return row =>
+        {
+            if (row == null)
+            {
+                return null;
+            }
+            if (!string.IsNullOrWhiteSpace(row.sha256)
+                && bySha256.TryGetValue(row.sha256, out LR2SongDBExtended.chart_info bySha256Row))
+            {
+                return bySha256Row;
+            }
+            if (!string.IsNullOrWhiteSpace(row.hash)
+                && byMd5.TryGetValue(row.hash, out LR2SongDBExtended.chart_info byMd5Row))
+            {
+                return byMd5Row;
+            }
+            return null;
+        };
     }
 
     internal Func<BmtSongHashResolveRequest, Tuple<string, string>> CreateBeatorajaBmtSongHashResolver()

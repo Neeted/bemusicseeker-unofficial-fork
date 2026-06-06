@@ -53,6 +53,8 @@ internal sealed class Lr2FullGenerationBackfillRequest
 
     public Func<BMSFile, LR2SongDBExtended.chart_info> ChartInfoResolver { get; set; }
 
+    public bool ChartInfoResolverIsThreadSafe { get; set; }
+
     public DateTime StartedAtUtc { get; set; } = DateTime.UtcNow;
 
     public CancellationToken CancellationToken { get; set; }
@@ -1456,7 +1458,10 @@ internal static class Lr2FullGenerationBackfillService
         int compatibilityApplied = 0;
         var compatibilityInfos = new List<BMSFileMaintenanceInfo>();
         Func<BMSFile, LR2SongDBExtended.chart_info> chartInfoResolver =
-            CreateSongRowBackfillChartInfoResolver(songDb, request?.ChartInfoResolver);
+            CreateSongRowBackfillChartInfoResolver(
+                songDb,
+                request?.ChartInfoResolver,
+                request?.ChartInfoResolverIsThreadSafe == true);
         using var readQueue = new BlockingCollection<SongRowBackfillReadCandidate>(readQueueCapacity);
         using var computedQueue = new BlockingCollection<SongRowBackfillComputedItem>(computedQueueCapacity);
         long readerOutputWaitTicks = 0L;
@@ -2012,10 +2017,16 @@ internal static class Lr2FullGenerationBackfillService
 
     private static Func<BMSFile, LR2SongDBExtended.chart_info> CreateSongRowBackfillChartInfoResolver(
         LR2SongDBExtended songDb,
-        Func<BMSFile, LR2SongDBExtended.chart_info> requestResolver)
+        Func<BMSFile, LR2SongDBExtended.chart_info> requestResolver,
+        bool requestResolverIsThreadSafe)
     {
         if (requestResolver != null)
         {
+            if (requestResolverIsThreadSafe)
+            {
+                return requestResolver;
+            }
+
             object sync = new();
             return row =>
             {
