@@ -8643,7 +8643,7 @@ completeFileEnumerationOnce,
         HashSet<string> excludedCustomOutputSearchRoots = BuildExcludedCustomOutputSearchRootDirectories();
         return [.. (SearchTargets ?? Enumerable.Empty<string>())
             .Where(d => Directory.Exists(d))
-            .Where(d => !excludedCustomOutputSearchRoots.Contains(Path.GetFullPath(d).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)))];
+            .Where(d => !IsExcludedCustomOutputSearchRoot(d, excludedCustomOutputSearchRoots))];
     }
 
     private HashSet<string> BuildExcludedCustomOutputSearchRootDirectories()
@@ -8671,6 +8671,24 @@ completeFileEnumerationOnce,
         catch
         {
         }
+    }
+
+    private static bool IsExcludedCustomOutputSearchRoot(string directory, HashSet<string> excludedCustomOutputSearchRoots)
+    {
+        if (string.IsNullOrWhiteSpace(directory) || excludedCustomOutputSearchRoots == null || excludedCustomOutputSearchRoots.Count == 0)
+        {
+            return false;
+        }
+        string normalized;
+        try
+        {
+            normalized = Lr2FolderPath.NormalizeDirectoryPath(directory);
+        }
+        catch
+        {
+            return false;
+        }
+        return excludedCustomOutputSearchRoots.Any(excluded => Lr2FolderPath.IsSameOrDescendant(normalized, excluded));
     }
 
     private bool IsPendingPackageContainingOnlyInstalledCharts(ChartPackage package)

@@ -41,7 +41,7 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
     }
 
     [TestMethod]
-    public void GetBmsDirectories_ExcludesOnlyExplicitCustomFolderOutputSearchRoots()
+    public void GetBmsDirectories_ExcludesCustomFolderOutputSearchRootsAndExplicitChildren()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         try
@@ -51,18 +51,20 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
             string bmsRoot = Path.Combine(scope.DirectoryPath, "BMS");
             string nestedCustomOutputLikeDirectory = Path.Combine(bmsRoot, "#BeMusicSeeker");
             string normalOutputBase = Path.Combine(scope.DirectoryPath, "NormalCustomFolderOutput");
+            string normalOutputChild = Path.Combine(normalOutputBase, "Table");
             string rootOutputBase = Path.Combine(scope.DirectoryPath, "RootCustomFolderOutput");
             string rootOutputChild = Path.Combine(rootOutputBase, "Table");
             Directory.CreateDirectory(bmsRoot);
             Directory.CreateDirectory(nestedCustomOutputLikeDirectory);
             Directory.CreateDirectory(normalOutputBase);
+            Directory.CreateDirectory(normalOutputChild);
             Directory.CreateDirectory(rootOutputBase);
             Directory.CreateDirectory(rootOutputChild);
             Settings.Default.LR2CustomFolderOutputBaseDir = normalOutputBase;
             Settings.Default.LR2CustomFolderOutputBaseDirRootType = rootOutputBase;
             var library = new BMSLibrary(scope.SongDbPath)
             {
-                SearchTargets = [bmsRoot, nestedCustomOutputLikeDirectory, normalOutputBase, rootOutputBase, rootOutputChild]
+                SearchTargets = [bmsRoot, nestedCustomOutputLikeDirectory, normalOutputBase, normalOutputChild, rootOutputBase, rootOutputChild]
             };
 
             HashSet<string> directories = [.. InvokeGetBmsDirectories(library).Select(NormalizeDirectory)];
@@ -70,8 +72,9 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
             Assert.IsTrue(directories.Contains(NormalizeDirectory(bmsRoot)));
             Assert.IsTrue(directories.Contains(NormalizeDirectory(nestedCustomOutputLikeDirectory)));
             Assert.IsFalse(directories.Contains(NormalizeDirectory(normalOutputBase)));
+            Assert.IsFalse(directories.Contains(NormalizeDirectory(normalOutputChild)));
             Assert.IsFalse(directories.Contains(NormalizeDirectory(rootOutputBase)));
-            Assert.IsTrue(directories.Contains(NormalizeDirectory(rootOutputChild)));
+            Assert.IsFalse(directories.Contains(NormalizeDirectory(rootOutputChild)));
         }
         finally
         {
