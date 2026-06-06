@@ -5118,6 +5118,7 @@ completeFileEnumerationOnce,
             },
             currentInstallDestinationCharts,
             bmsDirectories);
+        AttachLr2FolderScanSurface(options, bmsDirectories, fileCheckResult);
         completeFileEnumerationOnce();
         ApplyLibraryFileScanStorageMutation(fileCheckResult, reason);
         if (committedInlineChartInfoRows.Count > 0)
@@ -5144,6 +5145,30 @@ completeFileEnumerationOnce,
         return fileCheckResult;
     }
 
+    private void AttachLr2FolderScanSurface(
+        BmsLibraryOptionsSnapshot options,
+        IEnumerable<string> rootDirectories,
+        SongTableFileCheckResult fileCheckResult)
+    {
+        if (options?.OperationModeLR2DB != true
+            || options.EnableLR2SongDbFullGeneration != true
+            || fileCheckResult == null
+            || fileCheckResult.Lr2ScanSurfaceAvailable != true)
+        {
+            return;
+        }
+
+        List<string> lr2FolderDiscoveryDirectories = CreateLr2FullGenerationLr2FolderDiscoveryDirectories(rootDirectories);
+        Lr2FolderFileCandidateSnapshot candidates = CreateLr2FullGenerationLr2FolderFileCandidates(
+            lr2FolderDiscoveryDirectories,
+            Settings.Default.LR2RootPath,
+            CreateCurrentLr2BuiltinCustomFolderSettings(DateTime.UtcNow));
+        fileCheckResult.Lr2ScanLr2FolderDiscoveryDirectories = lr2FolderDiscoveryDirectories;
+        fileCheckResult.Lr2ScanLr2FolderFilePaths = candidates.Paths;
+        fileCheckResult.Lr2ScanLr2FolderFileEntries = candidates.EntriesByPath;
+        fileCheckResult.Lr2ScanLr2FolderFileDiscoveryComplete = candidates.DiscoveryComplete;
+    }
+
     private void CaptureLr2FullGenerationScanSurface(
         BmsLibraryOptionsSnapshot options,
         IEnumerable<string> rootDirectories,
@@ -5166,11 +5191,22 @@ completeFileEnumerationOnce,
             return;
         }
 
-        List<string> lr2FolderDiscoveryDirectories = CreateLr2FullGenerationLr2FolderDiscoveryDirectories(roots);
-        Lr2FolderFileCandidateSnapshot lr2FolderFileCandidates = CreateLr2FullGenerationLr2FolderFileCandidates(
-            lr2FolderDiscoveryDirectories,
-            Settings.Default.LR2RootPath,
-            CreateCurrentLr2BuiltinCustomFolderSettings(DateTime.UtcNow));
+        IReadOnlyList<string> lr2FolderDiscoveryDirectories = fileCheckResult.Lr2ScanLr2FolderDiscoveryDirectories ?? [];
+        IReadOnlyList<string> lr2FolderFilePaths = fileCheckResult.Lr2ScanLr2FolderFilePaths ?? [];
+        IReadOnlyDictionary<string, RootFileEnumerationEntry> lr2FolderFileEntries =
+            fileCheckResult.Lr2ScanLr2FolderFileEntries ?? new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
+        bool lr2FolderFileDiscoveryComplete = fileCheckResult.Lr2ScanLr2FolderFileDiscoveryComplete;
+        if (lr2FolderDiscoveryDirectories.Count == 0)
+        {
+            lr2FolderDiscoveryDirectories = CreateLr2FullGenerationLr2FolderDiscoveryDirectories(roots);
+            Lr2FolderFileCandidateSnapshot candidates = CreateLr2FullGenerationLr2FolderFileCandidates(
+                lr2FolderDiscoveryDirectories,
+                Settings.Default.LR2RootPath,
+                CreateCurrentLr2BuiltinCustomFolderSettings(DateTime.UtcNow));
+            lr2FolderFilePaths = candidates.Paths;
+            lr2FolderFileEntries = candidates.EntriesByPath;
+            lr2FolderFileDiscoveryComplete = candidates.DiscoveryComplete;
+        }
         Lr2FullGenerationScanSurfaceSnapshot snapshot;
         lock (lockLr2FullGenerationScanSurface)
         {
@@ -5186,9 +5222,9 @@ completeFileEnumerationOnce,
                 fileCheckResult.Lr2ScanFolderInfoFileEntries,
                 fileCheckResult.Lr2ScanTextFileDirectories,
                 lr2FolderDiscoveryDirectories,
-                lr2FolderFileCandidates.Paths,
-                lr2FolderFileCandidates.EntriesByPath,
-                lr2FolderFileCandidates.DiscoveryComplete,
+                lr2FolderFilePaths,
+                lr2FolderFileEntries,
+                lr2FolderFileDiscoveryComplete,
                 OwnedChartCollectionVersion,
                 Volatile.Read(ref bmsStorageRowsVersion),
                 Volatile.Read(ref bmsonStorageRowsVersion));
