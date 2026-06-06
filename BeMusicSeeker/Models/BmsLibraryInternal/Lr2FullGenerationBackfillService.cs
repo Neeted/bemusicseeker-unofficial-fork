@@ -55,6 +55,14 @@ internal sealed class Lr2FullGenerationBackfillRequest
 
     public bool ChartInfoResolverIsThreadSafe { get; set; }
 
+    public TimeSpan? ChartInfoParseTimeout { get; set; }
+
+    public ISet<string> CurrentChartInfoParseFailureMd5s { get; set; }
+
+    public Action<IReadOnlyList<LR2SongDBExtended.chart_info>> ChartInfoRowsCommitted { get; set; }
+
+    public Action<int, int> ChartInfoParseFailuresCommitted { get; set; }
+
     public DateTime StartedAtUtc { get; set; } = DateTime.UtcNow;
 
     public CancellationToken CancellationToken { get; set; }
@@ -211,6 +219,8 @@ internal sealed class Lr2StartupScanBlockerCleanupResult(
 internal static class Lr2FullGenerationBackfillService
 {
     private const string TempLr2CompatibilityMaintenanceTable = "lr2_full_generation_compatibility_maintenance";
+
+    private const int MaxPersistedChartInfoParseFailureMessageLength = 1024;
 
     internal const string CompletedStage = "completed";
 
@@ -1459,18 +1469,19 @@ internal static class Lr2FullGenerationBackfillService
         BmsLibraryDbGateway.EnsureMaintenanceSchema(songDb);
         const int songRowBackfillChunkSize = 500;
         int workerDegree = ResolveSongRowBackfillWorkerDegree();
-        int readerDegree = ResolveSongRowBackfillReaderDegree(workerDegree);
-        int readQueueCapacity = Math.Max(
-            readerDegree * 16,
-            Math.Max(workerDegree * 2, Math.Min(songRowBackfillChunkSize * 2, Math.Max(songRowBackfillChunkSize, workerDegree * 16))));
+        int readerDegree = 1;
+        int readQueueCapacity = Math.Max(1, workerDegree * 2);
         int computedQueueCapacity = Math.Max(songRowBackfillChunkSize, workerDegree * 16);
         int processed = 0;
         int parseFailureCount = 0;
         int chartInfoAppliedCount = 0;
+        int chartInfoGeneratedCount = 0;
+        int chartInfoParseFailurePersistedCount = 0;
+        int chartInfoParseFailureClearedCount = 0;
+        int chartInfoParseFailureSkippedCount = 0;
         int compatibilityApplied = 0;
         Func<BMSFile, LR2SongDBExtended.chart_info> chartInfoResolver =
             CreateSongRowBackfillChartInfoResolver(
-                songDb,
                 request?.ChartInfoResolver,
                 request?.ChartInfoResolverIsThreadSafe == true);
         using var readQueue = new BlockingCollection<SongRowBackfillReadCandidate>(readQueueCapacity);
@@ -1543,6 +1554,9 @@ internal static class Lr2FullGenerationBackfillService
             long chunkCompatibilityTicks = 0L;
             int chunkChartInfoAppliedCount = 0;
             var chunkCompatibilityInfos = new List<BMSFileMaintenanceInfo>();
+            var chunkChartInfoRows = new List<LR2SongDBExtended.chart_info>();
+            var chunkChartInfoParseFailures = new List<LR2SongDBExtended.chart_info_parse_failure>();
+            var chunkChartInfoParseFailureDeleteMd5s = new List<string>();
             foreach (SongRowBackfillComputedItem item in chunk)
             {
                 chunkChartInfoTicks += item.ChartInfoElapsedTicks;
@@ -1555,16 +1569,43 @@ internal static class Lr2FullGenerationBackfillService
                 {
                     chunkCompatibilityInfos.Add(item.Lr2CompatibilityInfo);
                 }
+                if (item.GeneratedChartInfoRow != null)
+                {
+                    chunkChartInfoRows.Add(item.GeneratedChartInfoRow);
+                }
+                if (item.ChartInfoParseFailureRow != null)
+                {
+                    chunkChartInfoParseFailures.Add(item.ChartInfoParseFailureRow);
+                }
+                if (!string.IsNullOrWhiteSpace(item.ChartInfoParseFailureDeleteMd5))
+                {
+                    chunkChartInfoParseFailureDeleteMd5s.Add(item.ChartInfoParseFailureDeleteMd5);
+                }
             }
             var stopwatchCommit = Stopwatch.StartNew();
             songDb.BeginTransaction();
             try
             {
                 Lr2SongDbWriter.UpsertGeneratedSongsForFullGeneration(songDb, rowsToWrite);
+                BmsLibraryDbGateway.UpsertChartInfoBackfillChunk(
+                    songDb,
+                    [],
+                    chunkChartInfoRows,
+                    chunkChartInfoParseFailures,
+                    chunkChartInfoParseFailureDeleteMd5s);
                 UpsertLr2CompatibilityFacts(songDb, chunkCompatibilityInfos);
                 songDb.Commit();
                 stopwatchCommit.Stop();
+                ReportCommittedChartInfoRows(request, chunkChartInfoRows);
+                ReportCommittedChartInfoParseFailures(
+                    request,
+                    chunkChartInfoParseFailures.Count,
+                    chunkChartInfoParseFailureDeleteMd5s.Count);
                 ReportCommittedLr2CompatibilityFacts(request, chunkCompatibilityInfos);
+                chartInfoGeneratedCount += chunkChartInfoRows.Count;
+                chartInfoParseFailurePersistedCount += chunkChartInfoParseFailures.Count;
+                chartInfoParseFailureClearedCount += chunkChartInfoParseFailureDeleteMd5s.Count;
+                chartInfoParseFailureSkippedCount += chunk.Count(item => item.ChartInfoParseFailureSkipped);
                 compatibilityApplied += chunkCompatibilityInfos.Count;
                 parseFailureCount += chunkParseFailureCount;
                 chartInfoAppliedCount += chunkChartInfoAppliedCount;
@@ -1586,6 +1627,10 @@ internal static class Lr2FullGenerationBackfillService
                     + " readMs=" + TicksToMilliseconds(chunkReadTicks)
                     + " parseMs=" + TicksToMilliseconds(chunkParseTicks)
                     + " chartInfoApplyMs=" + TicksToMilliseconds(chunkChartInfoTicks)
+                    + " chartInfoGenerated=" + chunkChartInfoRows.Count
+                    + " chartInfoParseFailurePersisted=" + chunkChartInfoParseFailures.Count
+                    + " chartInfoParseFailureCleared=" + chunkChartInfoParseFailureDeleteMd5s.Count
+                    + " chartInfoParseFailureSkipped=" + chunk.Count(item => item.ChartInfoParseFailureSkipped)
                     + " compatibilityBuildMs=" + TicksToMilliseconds(chunkCompatibilityTicks)
                     + " commitMs=" + stopwatchCommit.ElapsedMilliseconds
                     + " fallbackCount=" + chunkFallbackCount
@@ -1657,7 +1702,9 @@ internal static class Lr2FullGenerationBackfillService
                     SongRowBackfillComputedItem item = CreateBackfillSongRowItem(
                         candidate,
                         textFileDirectories,
-                        chartInfoResolver);
+                        chartInfoResolver,
+                        request?.ChartInfoParseTimeout,
+                        request?.CurrentChartInfoParseFailureMd5s);
                     try
                     {
                         AddWithWait(computedQueue, item, ref workerOutputWaitTicks, cancellationToken);
@@ -1749,6 +1796,10 @@ internal static class Lr2FullGenerationBackfillService
             + " processed=" + processed
             + " parseFailureCount=" + parseFailureCount
             + " chartInfoApplied=" + chartInfoAppliedCount
+            + " chartInfoGenerated=" + chartInfoGeneratedCount
+            + " chartInfoParseFailurePersisted=" + chartInfoParseFailurePersistedCount
+            + " chartInfoParseFailureCleared=" + chartInfoParseFailureClearedCount
+            + " chartInfoParseFailureSkipped=" + chartInfoParseFailureSkippedCount
             + " compatibilityApplied=" + compatibilityApplied
             + " readerOutputWaitMs=" + TicksToMilliseconds(readerOutputWaitTicks)
             + " workerOutputWaitMs=" + TicksToMilliseconds(workerOutputWaitTicks)
@@ -1776,6 +1827,53 @@ internal static class Lr2FullGenerationBackfillService
         {
             LogBackfill(request, "lr2_full_generation_backfill compatibility_projection_callback_failed"
                 + " count=" + compatibilityInfos.Count
+                + " reason=" + QuoteLogValue(ex.Message ?? ex.GetType().Name));
+        }
+    }
+
+    private static void ReportCommittedChartInfoRows(
+        Lr2FullGenerationBackfillRequest request,
+        IReadOnlyList<LR2SongDBExtended.chart_info> chartInfoRows)
+    {
+        if (request?.ChartInfoRowsCommitted == null
+            || chartInfoRows == null
+            || chartInfoRows.Count == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            request.ChartInfoRowsCommitted(chartInfoRows);
+        }
+        catch (Exception ex)
+        {
+            LogBackfill(request, "lr2_full_generation_backfill chart_info_callback_failed"
+                + " count=" + chartInfoRows.Count
+                + " reason=" + QuoteLogValue(ex.Message ?? ex.GetType().Name));
+        }
+    }
+
+    private static void ReportCommittedChartInfoParseFailures(
+        Lr2FullGenerationBackfillRequest request,
+        int persistedCount,
+        int clearedCount)
+    {
+        if (request?.ChartInfoParseFailuresCommitted == null
+            || (persistedCount <= 0 && clearedCount <= 0))
+        {
+            return;
+        }
+
+        try
+        {
+            request.ChartInfoParseFailuresCommitted(persistedCount, clearedCount);
+        }
+        catch (Exception ex)
+        {
+            LogBackfill(request, "lr2_full_generation_backfill chart_info_failure_callback_failed"
+                + " persisted=" + persistedCount
+                + " cleared=" + clearedCount
                 + " reason=" + QuoteLogValue(ex.Message ?? ex.GetType().Name));
         }
     }
@@ -1810,13 +1908,6 @@ internal static class Lr2FullGenerationBackfillService
     private static int ResolveSongRowBackfillWorkerDegree()
     {
         return Math.Max(1, Environment.ProcessorCount - 1);
-    }
-
-    private static int ResolveSongRowBackfillReaderDegree(int workerDegree)
-    {
-        int processorBound = Math.Max(1, Environment.ProcessorCount);
-        int workerBound = Math.Max(1, workerDegree);
-        return Math.Max(1, Math.Min(processorBound, workerBound));
     }
 
     private static Exception UnwrapPipelineException(Exception ex)
@@ -1870,7 +1961,9 @@ internal static class Lr2FullGenerationBackfillService
     private static SongRowBackfillComputedItem CreateBackfillSongRowItem(
         SongRowBackfillReadCandidate candidate,
         ISet<string> textFileDirectories,
-        Func<BMSFile, LR2SongDBExtended.chart_info> chartInfoResolver)
+        Func<BMSFile, LR2SongDBExtended.chart_info> chartInfoResolver,
+        TimeSpan? chartInfoParseTimeout,
+        ISet<string> currentChartInfoParseFailureMd5s)
     {
         BMSFile row = CreateBackfillSongRow(
             candidate,
@@ -1879,10 +1972,32 @@ internal static class Lr2FullGenerationBackfillService
             out long parseTicks);
         bool chartInfoApplied = false;
         long chartInfoTicks = 0L;
-        if (row != null && chartInfoResolver != null)
+        LR2SongDBExtended.chart_info generatedChartInfoRow = null;
+        LR2SongDBExtended.chart_info_parse_failure chartInfoParseFailureRow = null;
+        string chartInfoParseFailureDeleteMd5 = null;
+        bool chartInfoParseFailureSkipped = false;
+        if (row != null)
         {
             long chartInfoStart = Stopwatch.GetTimestamp();
-            chartInfoApplied = TryApplyCurrentChartInfoRow(row, chartInfoResolver);
+            LR2SongDBExtended.chart_info chartInfo = chartInfoResolver?.Invoke(row);
+            if (!IsUsableChartInfo(row, chartInfo))
+            {
+                chartInfo = null;
+            }
+            if (chartInfo == null && IsCurrentChartInfoParseFailure(row, candidate, currentChartInfoParseFailureMd5s))
+            {
+                chartInfoParseFailureSkipped = true;
+            }
+            else if (chartInfo == null && TryBuildChartInfoFromSnapshot(
+                candidate,
+                chartInfoParseTimeout,
+                out generatedChartInfoRow,
+                out chartInfoParseFailureRow,
+                out chartInfoParseFailureDeleteMd5))
+            {
+                chartInfo = generatedChartInfoRow;
+            }
+            chartInfoApplied = TryApplyChartInfoRow(row, chartInfo);
             chartInfoTicks = Stopwatch.GetTimestamp() - chartInfoStart;
         }
 
@@ -1903,8 +2018,100 @@ internal static class Lr2FullGenerationBackfillService
             parseTicks,
             chartInfoApplied,
             chartInfoTicks,
+            generatedChartInfoRow,
+            chartInfoParseFailureRow,
+            chartInfoParseFailureDeleteMd5,
+            chartInfoParseFailureSkipped,
             compatibilityInfo,
             compatibilityTicks);
+    }
+
+    private static bool IsCurrentChartInfoParseFailure(
+        BMSFile row,
+        SongRowBackfillReadCandidate candidate,
+        ISet<string> currentChartInfoParseFailureMd5s)
+    {
+        if (currentChartInfoParseFailureMd5s == null || currentChartInfoParseFailureMd5s.Count == 0)
+        {
+            return false;
+        }
+
+        string md5 = !string.IsNullOrWhiteSpace(row?.hash)
+            ? row.hash
+            : (!string.IsNullOrWhiteSpace(candidate?.Snapshot?.Md5)
+                ? candidate.Snapshot.Md5
+                : candidate?.ExistingSong?.hash);
+        return !string.IsNullOrWhiteSpace(md5) && currentChartInfoParseFailureMd5s.Contains(md5);
+    }
+
+    private static bool TryBuildChartInfoFromSnapshot(
+        SongRowBackfillReadCandidate candidate,
+        TimeSpan? parseTimeout,
+        out LR2SongDBExtended.chart_info row,
+        out LR2SongDBExtended.chart_info_parse_failure parseFailureRow,
+        out string parseFailureDeleteMd5)
+    {
+        row = null;
+        parseFailureRow = null;
+        parseFailureDeleteMd5 = null;
+        ChartFileSnapshot snapshot = candidate?.Snapshot;
+        if (snapshot == null || string.IsNullOrWhiteSpace(snapshot.Path))
+        {
+            return false;
+        }
+
+        string md5 = !string.IsNullOrWhiteSpace(snapshot.Md5)
+            ? snapshot.Md5
+            : candidate?.ExistingSong?.hash;
+        string sha256 = !string.IsNullOrWhiteSpace(snapshot.Sha256)
+            ? snapshot.Sha256
+            : candidate?.ExistingSong?.sha256;
+        try
+        {
+            ChartInfoParser.ChartInfoParseResult parseResult = ChartInfoParser.ParseBytesDetailed(
+                snapshot.Bytes,
+                snapshot.Path,
+                md5,
+                sha256,
+                encodingName: null,
+                timeout: parseTimeout);
+            row = parseResult.Row;
+            if (!string.IsNullOrWhiteSpace(row?.md5))
+            {
+                parseFailureDeleteMd5 = row.md5;
+            }
+            return row != null;
+        }
+        catch (Exception ex)
+        {
+            if (!string.IsNullOrWhiteSpace(md5))
+            {
+                bool timeoutFailed = ex is ChartInfoParser.ChartInfoParseTimeoutException;
+                parseFailureRow = new LR2SongDBExtended.chart_info_parse_failure
+                {
+                    md5 = md5,
+                    sha256 = sha256,
+                    path = snapshot.Path,
+                    parser_version = BmsLibraryDbGateway.CurrentChartInfoParserVersion,
+                    failure_kind = timeoutFailed ? "timeout" : "parse_failed",
+                    exception_type = ex.GetType().Name,
+                    message = NormalizePersistedChartInfoParseFailureMessage(ex.Message),
+                    parse_timeout_ms = timeoutFailed && parseTimeout.HasValue
+                        ? Math.Max(0, (int)Math.Ceiling(parseTimeout.Value.TotalMilliseconds))
+                        : null,
+                    updated_at = DateTime.UtcNow
+                };
+            }
+            return false;
+        }
+    }
+
+    private static string NormalizePersistedChartInfoParseFailureMessage(string message)
+    {
+        string normalized = string.IsNullOrWhiteSpace(message) ? string.Empty : message.Trim();
+        return normalized.Length <= MaxPersistedChartInfoParseFailureMessageLength
+            ? normalized
+            : normalized.Substring(0, MaxPersistedChartInfoParseFailureMessageLength);
     }
 
     private static BMSFile CreateBackfillSongRow(
@@ -2009,17 +2216,15 @@ internal static class Lr2FullGenerationBackfillService
         return textFileDirectories.Contains(Path.GetFullPath(directory)) ? 1 : 0;
     }
 
-    private static bool TryApplyCurrentChartInfoRow(
+    private static bool TryApplyChartInfoRow(
         BMSFile row,
-        Func<BMSFile, LR2SongDBExtended.chart_info> chartInfoResolver)
+        LR2SongDBExtended.chart_info chartInfo)
     {
-        if (row == null || chartInfoResolver == null)
+        if (row == null || chartInfo == null)
         {
             return false;
         }
-
-        LR2SongDBExtended.chart_info chartInfo = chartInfoResolver(row);
-        if (chartInfo == null || !IsChartInfoCompatible(row, chartInfo))
+        if (!IsUsableChartInfo(row, chartInfo))
         {
             return false;
         }
@@ -2028,42 +2233,7 @@ internal static class Lr2FullGenerationBackfillService
         return true;
     }
 
-    private static Func<BMSFile, LR2SongDBExtended.chart_info> CreateCurrentChartInfoResolver(LR2SongDBExtended songDb)
-    {
-        if (songDb == null)
-        {
-            return null;
-        }
-        BmsLibraryDbGateway.EnsureChartInfoSchema(songDb);
-        string tableName = SQLiteTable<LR2SongDBExtended.chart_info>.GetTableName();
-        string parserVersionColumn = SQLiteTable<LR2SongDBExtended.chart_info>.GetColumnName(row => row.parser_version);
-        string sha256Column = SQLiteTable<LR2SongDBExtended.chart_info>.GetColumnName(row => row.sha256);
-        var bySha256 = new Dictionary<string, LR2SongDBExtended.chart_info>(StringComparer.OrdinalIgnoreCase);
-        var byMd5 = new Dictionary<string, LR2SongDBExtended.chart_info>(StringComparer.OrdinalIgnoreCase);
-        foreach (LR2SongDBExtended.chart_info row in songDb.Query<LR2SongDBExtended.chart_info>(
-            "SELECT * FROM " + tableName
-            + " WHERE " + parserVersionColumn + " = ?"
-            + " ORDER BY " + sha256Column + " ASC;",
-            BmsLibraryDbGateway.CurrentChartInfoParserVersion))
-        {
-            if (row == null)
-            {
-                continue;
-            }
-            if (!string.IsNullOrWhiteSpace(row.sha256))
-            {
-                bySha256[row.sha256] = row;
-            }
-            if (!string.IsNullOrWhiteSpace(row.md5) && !byMd5.ContainsKey(row.md5))
-            {
-                byMd5[row.md5] = row;
-            }
-        }
-        return CreateChartInfoResolver(bySha256, byMd5);
-    }
-
     private static Func<BMSFile, LR2SongDBExtended.chart_info> CreateSongRowBackfillChartInfoResolver(
-        LR2SongDBExtended songDb,
         Func<BMSFile, LR2SongDBExtended.chart_info> requestResolver,
         bool requestResolverIsThreadSafe)
     {
@@ -2083,14 +2253,14 @@ internal static class Lr2FullGenerationBackfillService
                 }
             };
         }
-        return CreateCurrentChartInfoResolver(songDb);
+        return null;
     }
 
     internal static Func<BMSFile, LR2SongDBExtended.chart_info> CreateChartInfoResolverForTest(
         IEnumerable<LR2SongDBExtended.chart_info> rows)
     {
         var bySha256 = new Dictionary<string, LR2SongDBExtended.chart_info>(StringComparer.OrdinalIgnoreCase);
-        var byMd5 = new Dictionary<string, LR2SongDBExtended.chart_info>(StringComparer.OrdinalIgnoreCase);
+        var md5Candidates = new Dictionary<string, SortedDictionary<string, LR2SongDBExtended.chart_info>>(StringComparer.OrdinalIgnoreCase);
         foreach (LR2SongDBExtended.chart_info row in rows ?? [])
         {
             if (row == null || row.parser_version != BmsLibraryDbGateway.CurrentChartInfoParserVersion)
@@ -2101,11 +2271,19 @@ internal static class Lr2FullGenerationBackfillService
             {
                 bySha256[row.sha256] = row;
             }
-            if (!string.IsNullOrWhiteSpace(row.md5) && !byMd5.ContainsKey(row.md5))
+            if (!string.IsNullOrWhiteSpace(row.md5) && !string.IsNullOrWhiteSpace(row.sha256))
             {
-                byMd5[row.md5] = row;
+                if (!md5Candidates.TryGetValue(row.md5, out SortedDictionary<string, LR2SongDBExtended.chart_info> candidates))
+                {
+                    candidates = new SortedDictionary<string, LR2SongDBExtended.chart_info>(StringComparer.OrdinalIgnoreCase);
+                    md5Candidates[row.md5] = candidates;
+                }
+                candidates[row.sha256] = row;
             }
         }
+        Dictionary<string, LR2SongDBExtended.chart_info> byMd5 = md5Candidates
+            .Where(pair => pair.Value.Count > 0)
+            .ToDictionary(pair => pair.Key, pair => pair.Value.First().Value, StringComparer.OrdinalIgnoreCase);
         return CreateChartInfoResolver(bySha256, byMd5);
     }
 
@@ -2144,6 +2322,13 @@ internal static class Lr2FullGenerationBackfillService
         return string.IsNullOrWhiteSpace(row.hash)
             || string.IsNullOrWhiteSpace(chartInfo.md5)
             || string.Equals(row.hash, chartInfo.md5, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsUsableChartInfo(BMSFile row, LR2SongDBExtended.chart_info chartInfo)
+    {
+        return chartInfo != null
+            && chartInfo.parser_version >= BmsLibraryDbGateway.CurrentChartInfoParserVersion
+            && IsChartInfoCompatible(row, chartInfo);
     }
 
     private static void UpsertLr2CompatibilityFacts(
@@ -2316,6 +2501,10 @@ internal static class Lr2FullGenerationBackfillService
         long parseElapsedTicks,
         bool chartInfoApplied,
         long chartInfoElapsedTicks,
+        LR2SongDBExtended.chart_info generatedChartInfoRow,
+        LR2SongDBExtended.chart_info_parse_failure chartInfoParseFailureRow,
+        string chartInfoParseFailureDeleteMd5,
+        bool chartInfoParseFailureSkipped,
         BMSFileMaintenanceInfo lr2CompatibilityInfo,
         long compatibilityElapsedTicks)
     {
@@ -2332,6 +2521,14 @@ internal static class Lr2FullGenerationBackfillService
         public bool ChartInfoApplied { get; } = chartInfoApplied;
 
         public long ChartInfoElapsedTicks { get; } = chartInfoElapsedTicks;
+
+        public LR2SongDBExtended.chart_info GeneratedChartInfoRow { get; } = generatedChartInfoRow;
+
+        public LR2SongDBExtended.chart_info_parse_failure ChartInfoParseFailureRow { get; } = chartInfoParseFailureRow;
+
+        public string ChartInfoParseFailureDeleteMd5 { get; } = chartInfoParseFailureDeleteMd5;
+
+        public bool ChartInfoParseFailureSkipped { get; } = chartInfoParseFailureSkipped;
 
         public BMSFileMaintenanceInfo Lr2CompatibilityInfo { get; } = lr2CompatibilityInfo;
 

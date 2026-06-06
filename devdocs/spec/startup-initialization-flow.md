@@ -149,9 +149,9 @@ resource index は chart-relative resource key を正本にする。`foo.wav` �
 
 LR2 `song.db` 完全生成が有効な空 DB 初回構築では、file diff apply の同じ snapshot / parser result から LR2 generated song columns、`chart_info` 由来 numeric columns、LR2 compatibility facts、text group flag を作る。初期構築完了後に LR2 backfill がもう一度全譜面を読み直す形にはしない。既存 DB の backfill が必要な場合だけ、初期構築と同型の bounded streaming pipeline を使う。
 
-`chart_info` は所持譜面への metadata 付与用に一括で準備される session index / DB-backed index である。LR2 完全生成が有効な run では、`song_rows` 処理開始前に current `chart_info` resolver を一括で準備し、worker は memory lookup だけを行う。`song_rows` chunk ごとに `chart_info` table へ SELECT することはしない。
+`chart_info` は所持譜面への metadata 付与用に一括で準備される session index / DB-backed index である。LR2 完全生成が有効な run では、開始時点で current parser version の `chart_info` resolver と current `chart_info_parse_failure` MD5 set を memory snapshot として準備し、worker はその resolver / set だけを lookup する。missing / stale `chart_info` は、完全生成前の別 backfill ではなく `song_rows` worker が同じ `ChartFileSnapshot` から作り、song row と同じ chunk transaction で保存する。current parse failure は再 parse せず skip する。`song_rows` chunk ごとに `chart_info` table へ SELECT することはしない。
 
-LR2 backfill の `song_rows` pipeline は reader / worker / writer の責務を明確に分ける。reader は譜面 bytes と列挙 metadata を bounded queue へ流し、worker は encoding detection、parse、`chart_info` apply、LR2 compatibility facts の作成までを同じ parse result から完了させる。writer は completed item の順序制御、bulk song write、bulk compatibility facts write、durable cursor update に専念する。writer chunk 内で `chart_info` apply や compatibility facts build のような CPU work を行わず、DB commit 前に pipeline を詰まらせない。
+LR2 backfill の `song_rows` pipeline は reader / worker / writer の責務を明確に分ける。reader は通常 file diff と同じ単一 producer として譜面 bytes と列挙 metadata を bounded queue へ流し、worker は encoding detection、parse、`chart_info` apply、LR2 compatibility facts の作成までを同じ parse result から完了させる。writer は completed item の順序制御、bulk song write、bulk compatibility facts write、durable cursor update に専念する。writer chunk 内で `chart_info` apply や compatibility facts build のような CPU work を行わず、DB commit 前に pipeline を詰まらせない。
 
 | Log | 意味 |
 | --- | --- |

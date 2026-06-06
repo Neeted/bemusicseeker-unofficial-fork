@@ -5575,11 +5575,12 @@ completeFileEnumerationOnce,
         try
         {
             ReportStartupBackgroundTask("lr2_full_generation_backfill", "start", 0L, failed: false, detail: "runId=" + runId);
-            EnsureLr2FullGenerationChartInfoBackfill(reason);
             EnsureLr2FullGenerationChartInfoIndexHydrated(reason);
             Lr2FullGenerationBackfillInput input = CreateLr2FullGenerationBackfillInput();
             Dictionary<string, BMSFile> compatibilityProjectionIndex = CreateLr2FullGenerationCompatibilityProjectionIndex();
             int projectedCompatibilityWarningCount = 0;
+            int committedChartInfoRowCount = 0;
+            int committedChartInfoParseFailureChangeCount = 0;
             Lr2FullGenerationBackfillResult result;
             using (LR2SongDBExtended songDb = dbGateway.OpenSongDb())
             {
@@ -5604,6 +5605,25 @@ completeFileEnumerationOnce,
                     TextFileDirectories = input.TextFileDirectories,
                     ChartInfoResolver = CreateLr2FullGenerationChartInfoResolverSnapshot(),
                     ChartInfoResolverIsThreadSafe = true,
+                    ChartInfoParseTimeout = chartInfoBuildService.CurrentParseTimeout,
+                    CurrentChartInfoParseFailureMd5s = CreateLr2FullGenerationCurrentChartInfoParseFailureMd5Snapshot(reason),
+                    ChartInfoRowsCommitted = rows =>
+                    {
+                        int count = rows?.Count ?? 0;
+                        if (count > 0)
+                        {
+                            UpsertChartInfoIndexRows(rows, "lr2_full_generation_inline_chart_info", dispatchPresentation: false);
+                            Interlocked.Add(ref committedChartInfoRowCount, count);
+                        }
+                    },
+                    ChartInfoParseFailuresCommitted = (persisted, cleared) =>
+                    {
+                        int count = Math.Max(0, persisted) + Math.Max(0, cleared);
+                        if (count > 0)
+                        {
+                            Interlocked.Add(ref committedChartInfoParseFailureChangeCount, count);
+                        }
+                    },
                     StartedAtUtc = DateTime.UtcNow,
                     CancellationToken = cancellationToken,
                     IsSourceCurrent = () => IsLr2FullGenerationBackfillInputCurrent(input),
@@ -5674,6 +5694,14 @@ completeFileEnumerationOnce,
                 + " reason=" + (reason ?? "unknown")
                 + " input=" + result.SongRowLr2CompatibilityAppliedCount
                 + " applied=" + projectedCompatibilityWarningCount);
+            LogInstallPerformance("lr2_full_generation_chart_info_projection applied"
+                + " reason=" + (reason ?? "unknown")
+                + " rows=" + committedChartInfoRowCount
+                + " parseFailureChanges=" + committedChartInfoParseFailureChangeCount);
+            if (committedChartInfoRowCount > 0 || committedChartInfoParseFailureChangeCount > 0)
+            {
+                DispatchWarningPresentationChanged("lr2_full_generation_inline_chart_info");
+            }
             if (projectedCompatibilityWarningCount > 0)
             {
                 DispatchWarningPresentationChanged("lr2_full_generation_compatibility_projection");
@@ -5823,23 +5851,6 @@ completeFileEnumerationOnce,
         }
     }
 
-    private void EnsureLr2FullGenerationChartInfoBackfill(string reason)
-    {
-        var stopwatch = Stopwatch.StartNew();
-        string backfillReason = "lr2_full_generation_" + (string.IsNullOrWhiteSpace(reason) ? "backfill" : reason);
-        QueueChartInfoBackfill(
-            backfillReason,
-            processSynchronously: true,
-            hydrationResult: CreateCurrentChartInfoHydrationAllCurrentResult());
-        stopwatch.Stop();
-        LogInstallPerformance("lr2_full_generation_chart_info_backfill ensured"
-            + " reason=" + (reason ?? "unknown")
-            + " elapsedMs=" + stopwatch.ElapsedMilliseconds
-            + " requestedVersion=" + ChartInfoBackfillRequestedVersion
-            + " completedVersion=" + ChartInfoBackfillCompletedVersion
-            + " digestBackfilled=" + ChartInfoBackfillDigestBackfilledCount);
-    }
-
     private void EnsureLr2FullGenerationChartInfoIndexHydrated(string reason)
     {
         WaitForChartInfoHydrationIdle();
@@ -5861,6 +5872,34 @@ completeFileEnumerationOnce,
             + " totalRows=" + result.TotalRows
             + " dbLoadMs=" + result.DbLoadMs
             + " indexBuildMs=" + result.IndexBuildMs);
+    }
+
+    private HashSet<string> CreateLr2FullGenerationCurrentChartInfoParseFailureMd5Snapshot(string reason)
+    {
+        var stopwatch = Stopwatch.StartNew();
+        try
+        {
+            Dictionary<string, LR2SongDBExtended.chart_info_parse_failure> failures =
+                dbGateway.LoadCurrentChartInfoParseFailureMap(chartInfoBuildService.CurrentParseTimeout);
+            stopwatch.Stop();
+            var result = new HashSet<string>(
+                (failures?.Keys ?? Enumerable.Empty<string>()).Where(md5 => !string.IsNullOrWhiteSpace(md5)),
+                StringComparer.OrdinalIgnoreCase);
+            LogInstallPerformance("lr2_full_generation_chart_info_parse_failure_snapshot"
+                + " reason=" + (reason ?? "unknown")
+                + " count=" + result.Count
+                + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
+            return result;
+        }
+        catch (Exception ex)
+        {
+            stopwatch.Stop();
+            LogInstallPerformance("lr2_full_generation_chart_info_parse_failure_snapshot_failed"
+                + " reason=" + (reason ?? "unknown")
+                + " elapsedMs=" + stopwatch.ElapsedMilliseconds
+                + " message=" + ex.Message);
+            return [];
+        }
     }
 
     private Lr2FullGenerationBackfillInput CreateLr2FullGenerationBackfillInput()
@@ -6859,14 +6898,19 @@ completeFileEnumerationOnce,
         lock (lockChartInfoIndex)
         {
             bySha256 = new Dictionary<string, LR2SongDBExtended.chart_info>(
-                chartInfoIndexBySha256,
+                chartInfoIndexBySha256
+                    .Where(pair => IsCurrentChartInfoRow(pair.Value))
+                    .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.OrdinalIgnoreCase),
                 StringComparer.OrdinalIgnoreCase);
             byMd5 = chartInfoIndexByMd5
                 .Where(pair => !string.IsNullOrWhiteSpace(pair.Key) && pair.Value != null && pair.Value.Count > 0)
-                .ToDictionary(
-                    pair => pair.Key,
-                    pair => pair.Value.First().Value,
-                    StringComparer.OrdinalIgnoreCase);
+                .Select(pair => new
+                {
+                    pair.Key,
+                    Row = pair.Value.Values.FirstOrDefault(IsCurrentChartInfoRow)
+                })
+                .Where(pair => pair.Row != null)
+                .ToDictionary(pair => pair.Key, pair => pair.Row, StringComparer.OrdinalIgnoreCase);
         }
 
         return row =>
@@ -6887,6 +6931,11 @@ completeFileEnumerationOnce,
             }
             return null;
         };
+    }
+
+    private static bool IsCurrentChartInfoRow(LR2SongDBExtended.chart_info row)
+    {
+        return row != null && row.parser_version >= BmsLibraryDbGateway.CurrentChartInfoParserVersion;
     }
 
     internal Func<BmtSongHashResolveRequest, Tuple<string, string>> CreateBeatorajaBmtSongHashResolver()
@@ -7005,7 +7054,7 @@ completeFileEnumerationOnce,
         return result;
     }
 
-    private ChartInfoIndexUpdateResult UpsertChartInfoIndexRows(IEnumerable<LR2SongDBExtended.chart_info> rows, string reason)
+    private ChartInfoIndexUpdateResult UpsertChartInfoIndexRows(IEnumerable<LR2SongDBExtended.chart_info> rows, string reason, bool dispatchPresentation = true)
     {
         List<LR2SongDBExtended.chart_info> rowList = [.. (rows ?? []).Where(row => row != null && !string.IsNullOrWhiteSpace(row.sha256))];
         if (rowList.Count == 0)
@@ -7038,7 +7087,10 @@ completeFileEnumerationOnce,
             result.ByMd5Count = chartInfoIndexByMd5.Count;
         }
         RaisePropertyChanged(() => ChartInfoIndexVersion);
-        DispatchWarningPresentationChanged("chart_info_index_delta");
+        if (dispatchPresentation)
+        {
+            DispatchWarningPresentationChanged("chart_info_index_delta");
+        }
         LogInstallPerformance("chart_info_index_delta upserted=" + rowList.Count
             + " bySha256=" + result.BySha256Count
             + " byMd5=" + result.ByMd5Count

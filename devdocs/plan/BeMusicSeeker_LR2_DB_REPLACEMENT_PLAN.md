@@ -1267,7 +1267,7 @@ parse directive:
   root / ancestor / chart directory `folder` row を sync する。`folderinfo.txt` は file enumeration の
   metadata surface から渡された候補を使う。続く `song_rows` stage は current owned BMS path / hash /
   mtime / owner identity だけを軽量 target として持ち、current owned `BMSFile` の persistence 用 copy を
-  全件 materialize しない。reader が `ChartFileSnapshot` を bounded queue に流し、parallel workers が
+  全件 materialize しない。単一 reader が `ChartFileSnapshot` を bounded queue に流し、parallel workers が
   snapshot から BMS row、LR2 generated columns、LR2 compatibility facts を一度で作る。LR2 compatibility facts は
   parsed BMS row の raw resource references から直接評価し、BMS row を `ChartFile` / `ChartResourceSnapshot`
   へ再投影しない。parse 失敗時だけ
@@ -1275,11 +1275,14 @@ parse directive:
   current parser version の `chart_info` row は run 開始時に一括 resolver として準備し、`level` /
   `difficulty` / BPM / `mode` / `longnote` / `random` / `karinotes` / `exlevel` を memory lookup で反映する。
   `song_rows` chunk 内で `chart_info` table へ SELECT しない。
-  LR2 full generation runner は、必要な `chart_info` が missing / stale の場合、既存の
-  `ChartInfoBuildService` full backfill を synchronous に完了させる。これにより missing / stale
-  `chart_info` も既存の reader -> parser workers -> DB commit writer pipeline で生成され、LR2 backfill
-  service 側に別 parser / 別 queue を増やさない。空 DB 初期構築では file diff apply 側の snapshot /
-  parser result から同じ LR2 projection を作り、backfill が同じ chart をもう一度全件読む形にはしない。
+  必要な `chart_info` が missing / stale の場合も、完全生成開始前に別の synchronous full backfill を走らせない。
+  `song_rows` worker が同じ `ChartFileSnapshot` から current parser version の `chart_info` row / parse failure
+  を作り、song row / LR2 compatibility facts と同じ chunk transaction で保存する。commit 成功後だけ
+  durable cursor を進めるため、rollback / retry 時は chart_info と song row が同じ chunk boundary で再試行される。
+  current `chart_info_parse_failure` の MD5 は run 開始時に memory set として渡し、既知失敗は再 parse しない。
+  chart_info row / parse failure の presentation 更新は chunk ごとに dispatch せず、run 後に一回だけ coalesce する。
+  空 DB 初期構築では file diff apply 側の snapshot / parser result から同じ LR2 projection を作り、
+  backfill が同じ chart をもう一度全件読む形にはしない。
   current owned chart directory 直下の `.txt` presence も `TextFileDirectories` scan surface として渡し、
   `song.txt` を同じ backfill write で再生成する。
   LR2 compatibility facts は `maintenance` の LR2 列だけを bulk update し、既存 resource health /
@@ -1417,16 +1420,19 @@ existence / mtime は意味的に揃える。
      folderinfo / `.lr2folder` / directory counts を出す。
    - 残作業: `.lr2folder` discovery と directory mtime は startup scan surface へ統合し、backfill input 作成中に
      `.lr2folder` / directory mtime の広域 discovery を開始しない形へ寄せる。
-3. `chart_info` run-scoped resolver を導入する。完了。
+3. `chart_info` run-scoped resolver と inline chart_info 生成を導入する。完了。
    - LR2 full generation が必要な run の開始時に current `chart_info` index を一括で準備する。
    - `song_rows` chunk ごとの `chart_info` DB SELECT を撤廃する。
+   - missing / stale `chart_info` は、完全生成開始前の同期 full backfill ではなく、`song_rows` worker が
+     同じ `ChartFileSnapshot` から作り、song row と同じ chunk transaction で保存する。
+   - current `chart_info_parse_failure` は run-scoped MD5 set として渡し、既知失敗を timeout まで再 parse しない。
    - 空 DB 初期構築では file diff の inline `chart_info` result をそのまま LR2 projection へ渡す。
 4. backfill input の全件 `BMSFile` copy を廃止する。完了。
    - input は lightweight target list、scan metadata surface、version snapshot だけを保持する。
    - `songRows=...` は persistence copy count ではなく target count として扱う。
    - memory usage が current catalog + bounded queue + current chunk の範囲に収まることを log で確認する。
 5. `song_rows` pipeline を writer が詰まらない構造へ寄せる。主要実装済み。
-   - 完了: reader は bounded parallel reader として譜面 bytes / mtime の供給を主責務にし、
+   - 完了: reader は通常 file diff と同じ単一 producer として譜面 bytes / mtime の供給を主責務にし、
      read queue capacity を超えて全件 bytes を保持しない。
    - 完了: workers が parse / chart_info apply / LR2 compatibility facts を同じ parse result から作り、
      `BMSFile` と `BMSFileMaintenanceInfo` を含む「DB に書ける completed item」を出力する。

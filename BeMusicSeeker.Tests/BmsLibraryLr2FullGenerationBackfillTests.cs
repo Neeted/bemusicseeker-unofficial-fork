@@ -1232,7 +1232,7 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
     }
 
     [TestMethod]
-    public void QueueLr2FullGenerationBackfillIfNeeded_BuildsMissingChartInfoBeforeSongRows()
+    public void QueueLr2FullGenerationBackfillIfNeeded_BuildsMissingChartInfoInsideSongRows()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         try
@@ -1269,7 +1269,7 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info WHERE sha256 = ? AND md5 = ?;", snapshot.Sha256, snapshot.Md5));
             Assert.AreEqual(12, verify.ExecuteScalar<int>("SELECT level FROM song WHERE path = ?;", chartPath));
             Assert.AreEqual(1, verify.ExecuteScalar<int>("SELECT karinotes FROM song WHERE path = ?;", chartPath));
-            Assert.AreEqual(1, library.ChartInfoBackfillRequestedVersion);
+            Assert.AreEqual(0, library.ChartInfoBackfillRequestedVersion);
             Assert.AreEqual(library.ChartInfoBackfillRequestedVersion, library.ChartInfoBackfillCompletedVersion);
             Assert.IsFalse(library.ChartInfoBackfillRunning);
         }
@@ -1280,7 +1280,7 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
     }
 
     [TestMethod]
-    public void QueueLr2FullGenerationBackfillIfNeeded_RebuildsStaleChartInfoBeforeSongRows()
+    public void QueueLr2FullGenerationBackfillIfNeeded_RebuildsStaleChartInfoInsideSongRows()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         try
@@ -2146,7 +2146,7 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
     }
 
     [TestMethod]
-    public void BackfillService_AppliesOnlyCurrentCompatibleChartInfo()
+    public void BackfillService_BuildsChartInfoFromSongRowSnapshotsWhenNoResolverIsProvided()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         string songDirectory = Path.Combine(scope.DirectoryPath, "ChartInfo");
@@ -2154,9 +2154,9 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
         string currentPath = Path.Combine(songDirectory, "current.bms");
         string stalePath = Path.Combine(songDirectory, "stale.bms");
         string mismatchPath = Path.Combine(songDirectory, "mismatch.bms");
-        File.WriteAllText(currentPath, "#TITLE current\r\n");
-        File.WriteAllText(stalePath, "#TITLE stale\r\n");
-        File.WriteAllText(mismatchPath, "#TITLE mismatch\r\n");
+        File.WriteAllText(currentPath, "#PLAYER 1\r\n#TITLE current\r\n#BPM 150\r\n#PLAYLEVEL 7\r\n#RANK 3\r\n#WAV01 kick.wav\r\n#00111:01\r\n");
+        File.WriteAllText(stalePath, "#PLAYER 1\r\n#TITLE stale\r\n#BPM 150\r\n#PLAYLEVEL 9\r\n#RANK 3\r\n#WAV01 kick.wav\r\n#00111:01\r\n");
+        File.WriteAllText(mismatchPath, "#PLAYER 1\r\n#TITLE mismatch\r\n#BPM 150\r\n#PLAYLEVEL 11\r\n#RANK 3\r\n#WAV01 kick.wav\r\n#00111:01\r\n");
         ChartFileSnapshot currentSnapshot = ChartFileContentReader.ReadSnapshot(currentPath);
         ChartFileSnapshot staleSnapshot = ChartFileContentReader.ReadSnapshot(stalePath);
         ChartFileSnapshot mismatchSnapshot = ChartFileContentReader.ReadSnapshot(mismatchPath);
@@ -2179,10 +2179,48 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
         });
 
         Assert.AreEqual(3, result.SongRowProcessedCount);
-        Assert.AreEqual(1, result.SongRowChartInfoAppliedCount);
-        Assert.AreEqual(7, songDb.ExecuteScalar<int>("SELECT COALESCE(level, -1) FROM song WHERE path = ?;", currentPath));
-        Assert.AreEqual(-1, songDb.ExecuteScalar<int>("SELECT COALESCE(level, -1) FROM song WHERE path = ?;", stalePath));
-        Assert.AreEqual(-1, songDb.ExecuteScalar<int>("SELECT COALESCE(level, -1) FROM song WHERE path = ?;", mismatchPath));
+        Assert.AreEqual(3, result.SongRowChartInfoAppliedCount);
+        Assert.AreEqual(1, songDb.ExecuteScalar<int>("SELECT COALESCE(karinotes, -1) FROM song WHERE path = ?;", currentPath));
+        Assert.AreEqual(1, songDb.ExecuteScalar<int>("SELECT COALESCE(karinotes, -1) FROM song WHERE path = ?;", stalePath));
+        Assert.AreEqual(1, songDb.ExecuteScalar<int>("SELECT COALESCE(karinotes, -1) FROM song WHERE path = ?;", mismatchPath));
+        Assert.AreEqual(3L, songDb.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info;"));
+    }
+
+    [TestMethod]
+    public void BackfillService_SkipsChartInfoParseWhenCurrentParseFailureIsKnown()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        string songDirectory = Path.Combine(scope.DirectoryPath, "ChartInfoFailureSkip");
+        Directory.CreateDirectory(songDirectory);
+        string chartPath = Path.Combine(songDirectory, "failure-skip.bms");
+        File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE failure skip\r\n#BPM 150\r\n#WAV01 kick.wav\r\n#00111:01\r\n");
+        ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
+        TestableBmsFile file = CreateBackfillTestFile(chartPath, snapshot);
+        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        songDb.CreateTable<LR2SongDB.song>();
+        BmsLibraryDbGateway.EnsureChartInfoSchema(songDb);
+        bool chartInfoCallbackCalled = false;
+        bool parseFailureCallbackCalled = false;
+
+        Lr2FullGenerationBackfillResult result = Lr2FullGenerationBackfillService.Run(songDb, new Lr2FullGenerationBackfillRequest
+        {
+            Signature = "chart-info-failure-skip",
+            RunId = "chart-info-failure-skip",
+            SongRows = [file],
+            CurrentChartInfoParseFailureMd5s = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                snapshot.Md5
+            },
+            ChartInfoRowsCommitted = _ => chartInfoCallbackCalled = true,
+            ChartInfoParseFailuresCommitted = (_, _) => parseFailureCallbackCalled = true,
+            StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc)
+        });
+
+        Assert.AreEqual(1, result.SongRowProcessedCount);
+        Assert.AreEqual(0, result.SongRowChartInfoAppliedCount);
+        Assert.AreEqual(0L, songDb.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info;"));
+        Assert.IsFalse(chartInfoCallbackCalled);
+        Assert.IsFalse(parseFailureCallbackCalled);
     }
 
     [TestMethod]
@@ -2216,7 +2254,7 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
     }
 
     [TestMethod]
-    public void BackfillService_UsesStableMd5ChartInfoFallbackWhenSha256DoesNotMatch()
+    public void BackfillService_RequestChartInfoResolverUsesStableMd5FallbackWhenSha256DoesNotMatch()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         string songDirectory = Path.Combine(scope.DirectoryPath, "Md5Fallback");
@@ -2236,11 +2274,45 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
             Signature = "chart-info-md5",
             RunId = "chart-info-md5",
             SongRows = [file],
+            ChartInfoResolver = Lr2FullGenerationBackfillService.CreateChartInfoResolverForTest(
+            [
+                CreateChartInfo(new string('2', 64), snapshot.Md5, level: 22),
+                CreateChartInfo(new string('1', 64), snapshot.Md5, level: 11)
+            ]),
             StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc)
         });
 
         Assert.AreEqual(1, result.SongRowChartInfoAppliedCount);
         Assert.AreEqual(11, songDb.ExecuteScalar<int>("SELECT level FROM song WHERE path = ?;", chartPath));
+    }
+
+    [TestMethod]
+    public void BackfillService_RebuildsChartInfoWhenRequestResolverReturnsStaleRow()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        string songDirectory = Path.Combine(scope.DirectoryPath, "StaleResolver");
+        Directory.CreateDirectory(songDirectory);
+        string chartPath = Path.Combine(songDirectory, "stale-resolver.bms");
+        File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE stale resolver\r\n#BPM 150\r\n#WAV01 kick.wav\r\n#00111:01\r\n");
+        ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
+        TestableBmsFile file = CreateBackfillTestFile(chartPath, snapshot);
+        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        songDb.CreateTable<LR2SongDB.song>();
+
+        Lr2FullGenerationBackfillResult result = Lr2FullGenerationBackfillService.Run(songDb, new Lr2FullGenerationBackfillRequest
+        {
+            Signature = "chart-info-stale-resolver",
+            RunId = "chart-info-stale-resolver",
+            SongRows = [file],
+            ChartInfoResolver = _ => CreateChartInfo(snapshot.Sha256, snapshot.Md5, level: 99, parserVersion: BmsLibraryDbGateway.CurrentChartInfoParserVersion - 1),
+            StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc)
+        });
+
+        Assert.AreEqual(1, result.SongRowProcessedCount);
+        Assert.AreEqual(1, result.SongRowChartInfoAppliedCount);
+        LR2SongDBExtended.chart_info chartInfo = songDb.Query<LR2SongDBExtended.chart_info>("SELECT * FROM chart_info WHERE sha256 = ?;", snapshot.Sha256).Single();
+        Assert.AreEqual(BmsLibraryDbGateway.CurrentChartInfoParserVersion, chartInfo.parser_version);
+        Assert.AreEqual(1, songDb.ExecuteScalar<int>("SELECT COALESCE(karinotes, -1) FROM song WHERE path = ?;", chartPath));
     }
 
     [TestMethod]
