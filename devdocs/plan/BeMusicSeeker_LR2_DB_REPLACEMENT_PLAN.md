@@ -986,6 +986,8 @@ parse directive:
 - `song_rows` は reader が `ChartFileSnapshot` を bounded queue に流し、parallel workers が
   BMS row build / `chart_info` memory resolver apply / LR2 compatibility facts を同じ parse result から作り、
   single writer が chunk transaction と durable cursor 更新を行う。
+  LR2 compatibility facts は parsed BMS row の raw resource references から直接評価し、
+  `ChartFileProjection` / `ChartResourceSnapshot` への再投影を hot path に置かない。
   commit 成功後だけ cursor を進め、cancel / failure は chunk 境界で再開できるようにする。
 - `chart_info` は run 開始時に current row index / session index として一括準備する。
   `song_rows` chunk ごとに `chart_info` table を SELECT しない。
@@ -1265,7 +1267,9 @@ parse directive:
   metadata surface から渡された候補を使う。続く `song_rows` stage は current owned BMS path / hash /
   mtime / owner identity だけを軽量 target として持ち、current owned `BMSFile` の persistence 用 copy を
   全件 materialize しない。reader が `ChartFileSnapshot` を bounded queue に流し、parallel workers が
-  snapshot から BMS row、LR2 generated columns、LR2 compatibility facts を一度で作る。parse 失敗時だけ
+  snapshot から BMS row、LR2 generated columns、LR2 compatibility facts を一度で作る。LR2 compatibility facts は
+  parsed BMS row の raw resource references から直接評価し、BMS row を `ChartFile` / `ChartResourceSnapshot`
+  へ再投影しない。parse 失敗時だけ
   既存 generated row / owner identity から安全な fallback row を作り、fallback 件数を log に残す。
   current parser version の `chart_info` row は run 開始時に一括 resolver として準備し、`level` /
   `difficulty` / BPM / `mode` / `longnote` / `random` / `karinotes` / `exlevel` を memory lookup で反映する。
@@ -1425,10 +1429,12 @@ existence / mtime は意味的に揃える。
      read queue capacity を超えて全件 bytes を保持しない。
    - 完了: workers が parse / chart_info apply / LR2 compatibility facts を同じ parse result から作り、
      `BMSFile` と `BMSFileMaintenanceInfo` を含む「DB に書ける completed item」を出力する。
+   - 完了: LR2 compatibility facts は parsed BMS row の raw resource references から直接評価し、
+     `ChartFileProjection` / `ChartResourceSnapshot` を hot path から外す。
    - 完了: writer は順序制御、bulk song write、bulk compatibility facts write、durable cursor update に専念する。
    - 完了: LR2 compatibility facts は chunk commit 後に live warning projection へ渡し、全件分の
      `BMSFileMaintenanceInfo` を backfill result に保持しない。
-   - 残作業: encoding detection / parse / resource reference evaluation の二重走査をなくす。
+   - 残作業: encoding detection / BMS metadata parse 内部の二重走査をなくせるかを実機ログで判断する。
    - chunk log は wall time、reader wait、worker wait、queue high watermark、worker aggregate time、
      commit time を分けて出す。
    - `ChartFileContentReader` は read-only snapshot と hash付き snapshot の責務を分け、hash 計算を

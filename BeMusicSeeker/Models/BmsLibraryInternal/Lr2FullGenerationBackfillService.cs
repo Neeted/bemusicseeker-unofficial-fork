@@ -2276,19 +2276,8 @@ internal static class Lr2FullGenerationBackfillService
             return false;
         }
 
-        ChartFile chart = ChartFileProjection.FromBmsFile(
-            row,
-            includeWarningSnapshot: false,
-            includeResourceReferences: true,
-            includeScoreSnapshot: false);
-        if (chart == null)
-        {
-            return false;
-        }
-
-        ChartResourceSnapshot resources = TryCreateChartResourceSnapshot(chart);
-        Lr2ChartPathEvaluation pathEvaluation = Lr2CompatibilityEvaluator.EvaluateChartPath(chart.Path);
-        Lr2ResourceReferenceEvaluation resourceEvaluation = Lr2CompatibilityEvaluator.EvaluateResourceReferences(chart.Path, resources);
+        Lr2ChartPathEvaluation pathEvaluation = Lr2CompatibilityEvaluator.EvaluateChartPath(row.path);
+        Lr2ResourceReferenceEvaluation resourceEvaluation = Lr2CompatibilityEvaluator.EvaluateBmsResourceReferences(row.path, row);
         info = new BMSFileMaintenanceInfo
         {
             path = row.path,
@@ -2302,18 +2291,6 @@ internal static class Lr2FullGenerationBackfillService
             lr2_resource_unsupported_count = resourceEvaluation.UnsupportedCount
         };
         return true;
-    }
-
-    private static ChartResourceSnapshot TryCreateChartResourceSnapshot(ChartFile chart)
-    {
-        try
-        {
-            return ChartResourceSnapshot.Create(chart);
-        }
-        catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException || ex is DecoderFallbackException)
-        {
-            return null;
-        }
     }
 
     private sealed class SongRowBackfillReadCandidate(

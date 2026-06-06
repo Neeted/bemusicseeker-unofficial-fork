@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
@@ -130,35 +132,47 @@ internal static class Lr2CompatibilityEvaluator
             string rawPath = string.IsNullOrWhiteSpace(reference.RawPath)
                 ? reference.NormalizedPath
                 : reference.RawPath;
-            if (TryGetCp932ByteCount(rawPath, out int rawBytes))
-            {
-                maxRawBytes = Math.Max(maxRawBytes.GetValueOrDefault(), rawBytes);
-                if (rawBytes > MaxLegacyPathBytes)
-                {
-                    flags |= Lr2ResourceWarningFlags.RawPathTooLong;
-                }
-            }
-            else
-            {
-                flags |= Lr2ResourceWarningFlags.RawPathEncodingUnsupported;
-            }
-
-            string resolvedPath = ResolveResourcePath(chartPath, rawPath);
-            if (TryGetCp932ByteCount(resolvedPath, out int resolvedBytes))
-            {
-                maxResolvedBytes = Math.Max(maxResolvedBytes.GetValueOrDefault(), resolvedBytes);
-                if (resolvedBytes > MaxLegacyPathBytes)
-                {
-                    flags |= Lr2ResourceWarningFlags.ResolvedPathTooLong;
-                }
-            }
-            else
-            {
-                flags |= Lr2ResourceWarningFlags.ResolvedPathEncodingUnsupported;
-            }
+            ApplyResourcePathEvaluation(
+                chartPath,
+                rawPath,
+                ref flags,
+                ref maxRawBytes,
+                ref maxResolvedBytes);
         }
 
         int unsupportedCount = snapshot.UnsupportedResourceReferenceCount;
+        if (unsupportedCount > 0)
+        {
+            flags |= Lr2ResourceWarningFlags.ParentTraversalUnsupported;
+        }
+
+        return new Lr2ResourceReferenceEvaluation(flags, maxRawBytes, maxResolvedBytes, unsupportedCount);
+    }
+
+    internal static Lr2ResourceReferenceEvaluation EvaluateBmsResourceReferences(
+        string chartPath,
+        BMSFile file)
+    {
+        if (file == null)
+        {
+            return new Lr2ResourceReferenceEvaluation(Lr2ResourceWarningFlags.None, null, null, 0);
+        }
+
+        Lr2ResourceWarningFlags flags = Lr2ResourceWarningFlags.None;
+        int? maxRawBytes = null;
+        int? maxResolvedBytes = null;
+        foreach (string rawPath in EnumerateBmsSupportedResourcePaths(file))
+        {
+            ApplyResourcePathEvaluation(
+                chartPath,
+                rawPath,
+                ref flags,
+                ref maxRawBytes,
+                ref maxResolvedBytes);
+        }
+
+        int unsupportedCount = file.UnsupportedResourceReferences?
+            .Count(reference => reference.Reason == ChartResourcePathNormalizationStatus.ParentTraversalUnsupported) ?? 0;
         if (unsupportedCount > 0)
         {
             flags |= Lr2ResourceWarningFlags.ParentTraversalUnsupported;
@@ -182,6 +196,93 @@ internal static class Lr2CompatibilityEvaluator
         catch (EncoderFallbackException)
         {
             return false;
+        }
+    }
+
+    private static IEnumerable<string> EnumerateBmsSupportedResourcePaths(BMSFile file)
+    {
+        if (file == null)
+        {
+            yield break;
+        }
+
+        if ((file.ResourceReferences?.Count ?? 0) > 0)
+        {
+            foreach (ChartResourceReference reference in file.ResourceReferences)
+            {
+                string rawPath = string.IsNullOrWhiteSpace(reference.RawPath)
+                    ? reference.NormalizedPath
+                    : reference.RawPath;
+                if (!string.IsNullOrWhiteSpace(rawPath))
+                {
+                    yield return rawPath;
+                }
+            }
+        }
+        else
+        {
+            foreach (string audioPath in file.WAVfiles ?? Enumerable.Empty<string>())
+            {
+                if (!string.IsNullOrWhiteSpace(audioPath))
+                {
+                    yield return audioPath;
+                }
+            }
+            foreach (string visualPath in file.BGAfiles ?? Enumerable.Empty<string>())
+            {
+                if (!string.IsNullOrWhiteSpace(visualPath))
+                {
+                    yield return visualPath;
+                }
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(file.banner))
+        {
+            yield return file.banner;
+        }
+        if (!string.IsNullOrWhiteSpace(file.backbmp))
+        {
+            yield return file.backbmp;
+        }
+        if (!string.IsNullOrWhiteSpace(file.stagefile))
+        {
+            yield return file.stagefile;
+        }
+    }
+
+    private static void ApplyResourcePathEvaluation(
+        string chartPath,
+        string rawPath,
+        ref Lr2ResourceWarningFlags flags,
+        ref int? maxRawBytes,
+        ref int? maxResolvedBytes)
+    {
+        if (TryGetCp932ByteCount(rawPath, out int rawBytes))
+        {
+            maxRawBytes = Math.Max(maxRawBytes.GetValueOrDefault(), rawBytes);
+            if (rawBytes > MaxLegacyPathBytes)
+            {
+                flags |= Lr2ResourceWarningFlags.RawPathTooLong;
+            }
+        }
+        else
+        {
+            flags |= Lr2ResourceWarningFlags.RawPathEncodingUnsupported;
+        }
+
+        string resolvedPath = ResolveResourcePath(chartPath, rawPath);
+        if (TryGetCp932ByteCount(resolvedPath, out int resolvedBytes))
+        {
+            maxResolvedBytes = Math.Max(maxResolvedBytes.GetValueOrDefault(), resolvedBytes);
+            if (resolvedBytes > MaxLegacyPathBytes)
+            {
+                flags |= Lr2ResourceWarningFlags.ResolvedPathTooLong;
+            }
+        }
+        else
+        {
+            flags |= Lr2ResourceWarningFlags.ResolvedPathEncodingUnsupported;
         }
     }
 
