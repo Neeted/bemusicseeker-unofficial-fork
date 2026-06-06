@@ -1313,7 +1313,7 @@ internal static class Lr2FullGenerationBackfillService
         }
     }
 
-    private static Lr2FolderFileSyncItemsResult CreateLr2FolderFileSyncItems(
+    internal static Lr2FolderFileSyncItemsResult CreateLr2FolderFileSyncItems(
         IEnumerable<string> filePaths,
         Lr2FullGenerationBackfillRequest request,
         IReadOnlyDictionary<string, RootFileEnumerationEntry> entriesByPath = null)
@@ -1338,7 +1338,7 @@ internal static class Lr2FullGenerationBackfillService
         return new Lr2FolderFileSyncItemsResult(items, hasReadFailures);
     }
 
-    private static IReadOnlyCollection<string> CreateLr2FolderDirectoryRowScopeDirectories(Lr2FullGenerationBackfillRequest request)
+    internal static IReadOnlyCollection<string> CreateLr2FolderDirectoryRowScopeDirectories(Lr2FullGenerationBackfillRequest request)
     {
         var candidates = new List<string>();
         HashSet<string> excludedAbsoluteDirectories = [.. (request?.RootDirectories ?? [])
@@ -1452,7 +1452,7 @@ internal static class Lr2FullGenerationBackfillService
         return result;
     }
 
-    private sealed class Lr2FolderFileSyncItemsResult(
+    internal sealed class Lr2FolderFileSyncItemsResult(
         IReadOnlyCollection<Lr2FolderFileSyncItem> items,
         bool hasReadFailures)
     {

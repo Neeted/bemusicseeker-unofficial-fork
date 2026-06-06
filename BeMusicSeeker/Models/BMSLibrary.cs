@@ -5119,6 +5119,7 @@ completeFileEnumerationOnce,
             currentInstallDestinationCharts,
             bmsDirectories);
         AttachLr2FolderScanSurface(options, bmsDirectories, fileCheckResult);
+        ApplyLr2FolderFileDiffSync(options, bmsDirectories, fileCheckResult, reason);
         completeFileEnumerationOnce();
         ApplyLibraryFileScanStorageMutation(fileCheckResult, reason);
         if (committedInlineChartInfoRows.Count > 0)
@@ -5167,6 +5168,100 @@ completeFileEnumerationOnce,
         fileCheckResult.Lr2ScanLr2FolderFilePaths = candidates.Paths;
         fileCheckResult.Lr2ScanLr2FolderFileEntries = candidates.EntriesByPath;
         fileCheckResult.Lr2ScanLr2FolderFileDiscoveryComplete = candidates.DiscoveryComplete;
+    }
+
+    private void ApplyLr2FolderFileDiffSync(
+        BmsLibraryOptionsSnapshot options,
+        IReadOnlyList<string> rootDirectories,
+        SongTableFileCheckResult fileCheckResult,
+        string reason)
+    {
+        if (options?.OperationModeLR2DB != true
+            || options.EnableLR2SongDbFullGeneration != true
+            || fileCheckResult?.Lr2ScanSurfaceAvailable != true
+            || fileCheckResult.Lr2ScanLr2FolderDiscoveryDirectories?.Count > 0 != true)
+        {
+            return;
+        }
+
+        List<string> roots = [.. (rootDirectories ?? [])
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Select(SafeFullPathOrOriginal)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
+        List<string> builtinSourceDirectories = CreateLr2FullGenerationBuiltinFolderSourceDirectories();
+        var request = new Lr2FullGenerationBackfillRequest
+        {
+            RootDirectories = roots,
+            Lr2FolderDiscoveryDirectories = fileCheckResult.Lr2ScanLr2FolderDiscoveryDirectories,
+            Lr2FolderPruneDirectories = CreateLr2FullGenerationLr2FolderPruneDirectories(roots, builtinSourceDirectories),
+            Lr2FolderFilePaths = fileCheckResult.Lr2ScanLr2FolderFilePaths,
+            Lr2FolderFileEntries = fileCheckResult.Lr2ScanLr2FolderFileEntries,
+            Lr2FolderFileDiscoveryComplete = fileCheckResult.Lr2ScanLr2FolderFileDiscoveryComplete,
+            Lr2RootPath = Settings.Default.LR2RootPath,
+            Lr2RootCustomFolderOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDirRootType,
+            Lr2BuiltinFolderSourceDirectories = builtinSourceDirectories
+        };
+        var stopwatch = Stopwatch.StartNew();
+        try
+        {
+            Lr2FullGenerationBackfillService.Lr2FolderFileSyncItemsResult syncItems =
+                Lr2FullGenerationBackfillService.CreateLr2FolderFileSyncItems(
+                    request.Lr2FolderFilePaths,
+                    request,
+                    request.Lr2FolderFileEntries);
+            using LR2SongDBExtended songDb = dbGateway.OpenSongDb();
+            string savepoint = songDb.SaveTransactionPoint();
+            Lr2FolderFileDbSyncResult syncResult;
+            try
+            {
+                syncResult = Lr2FolderFileDbSyncService.Sync(songDb, new Lr2FolderFileDbSyncRequest
+                {
+                    Items = syncItems.Items,
+                    ScopeDirectories = request.Lr2FolderPruneDirectories,
+                    DirectoryRowScopeDirectories = Lr2FullGenerationBackfillService.CreateLr2FolderDirectoryRowScopeDirectories(request),
+                    ScopePaths = request.Lr2FolderFilePaths,
+                    GeneratedAtUtc = DateTime.UtcNow,
+                    AllowPrune = request.Lr2FolderFileDiscoveryComplete && !syncItems.HasReadFailures
+                });
+                songDb.Commit();
+            }
+            catch
+            {
+                songDb.RollbackTo(savepoint);
+                throw;
+            }
+
+            stopwatch.Stop();
+            LogInstallPerformance("lr2folder_file_diff_sync done"
+                + " reason=" + (reason ?? "unknown")
+                + " roots=" + request.Lr2FolderDiscoveryDirectories.Count
+                + " candidates=" + request.Lr2FolderFilePaths.Count
+                + " discoveryComplete=" + request.Lr2FolderFileDiscoveryComplete.ToString().ToLowerInvariant()
+                + " readFailures=" + syncItems.HasReadFailures.ToString().ToLowerInvariant()
+                + " allowPrune=" + (request.Lr2FolderFileDiscoveryComplete && !syncItems.HasReadFailures).ToString().ToLowerInvariant()
+                + " generated=" + syncResult.GeneratedCount
+                + " upserted=" + syncResult.UpsertedCount
+                + " deleted=" + syncResult.DeletedCount
+                + " skippedUnsupported=" + syncResult.SkippedUnsupportedPathCount
+                + " skippedMissingMetadata=" + syncResult.SkippedMissingMetadataCount
+                + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
+        }
+        catch (Exception ex)
+        {
+            stopwatch.Stop();
+            MarkLr2FullGenerationIncomplete(
+                options,
+                runId: "lr2folder_file_diff_sync",
+                stage: "lr2folder_file_diff_sync_failed",
+                detail: "lr2folder_file_diff_sync_failed: " + GetDisplayedExceptionMessage(ex).Replace(Environment.NewLine, " | "),
+                logReason: "lr2folder_file_diff_sync_failed");
+            LogInstallPerformanceWarn("lr2folder_file_diff_sync failed"
+                + " reason=" + (reason ?? "unknown")
+                + " elapsedMs=" + stopwatch.ElapsedMilliseconds
+                + " exception=" + ex.GetType().Name
+                + " message=" + GetDisplayedExceptionMessage(ex).Replace(Environment.NewLine, " | "));
+        }
     }
 
     private void CaptureLr2FullGenerationScanSurface(
