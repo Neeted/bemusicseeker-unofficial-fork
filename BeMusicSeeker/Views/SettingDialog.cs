@@ -141,7 +141,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
         }
     }
 
-    private async void resyncLr2FullGenerationDataButtonClicked(object sender, RoutedEventArgs e)
+    private void resyncLr2FullGenerationDataButtonClicked(object sender, RoutedEventArgs e)
     {
         if (base.DataContext is not MainWindowViewModel viewModel)
         {
@@ -165,7 +165,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
         settingDialogRootGrid.IsEnabled = false;
         try
         {
-            await Task.Run(() => viewModel.RequestLr2FullGenerationDataSync("setting_dialog_manual_resync", force: true)).Logging("resyncLr2FullGenerationDataButtonClicked");
+            viewModel.RequestLr2FullGenerationDataSync("setting_dialog_manual_resync", force: true);
         }
         catch (Exception ex)
         {

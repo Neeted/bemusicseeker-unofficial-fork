@@ -754,6 +754,7 @@ public sealed class MainWindowContextMenuResourceTests
     public void SearchRootChanges_UpdateRuntimeSearchTargetsBeforeFileDiffReload()
     {
         string viewModelCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string settingDialogCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "SettingDialog.cs"));
         string runtimeSync = ExtractBetween(
             viewModelCode,
             "private void ApplyRuntimeSearchRootsForCurrentMode()",
@@ -780,6 +781,10 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsTrue(rootAdd.IndexOf("ApplyRuntimeSearchRootsForCurrentMode();", StringComparison.Ordinal) < rootAdd.IndexOf("ownerViewModel.ReloadFileDiff();", StringComparison.Ordinal));
         StringAssert.Contains(saveCore, "ApplyRuntimeSearchRootsForCurrentMode();");
         StringAssert.Contains(viewModelCode, "RequestLr2FullGenerationDataSync(\"SettingDialog.SaveSettings\", force: false)");
+        StringAssert.Contains(settingDialogCode, "viewModel.RequestLr2FullGenerationDataSync(\"setting_dialog_manual_resync\", force: true);");
+        Assert.IsFalse(
+            settingDialogCode.IndexOf("Task.Run(() => viewModel.RequestLr2FullGenerationDataSync", StringComparison.Ordinal) >= 0,
+            "Manual LR2 generated-data sync must not run the UI-affine playlist projection on a background thread.");
         StringAssert.Contains(postSaveSteps, "tempOperationModeLR2DB != Settings.Default.OperationModeLR2DB");
         StringAssert.Contains(postSaveSteps, "tempEnableLR2SongDbFullGeneration != Settings.Default.EnableLR2SongDbFullGeneration");
         StringAssert.Contains(postSaveSteps, "tempLR2RootPath, Settings.Default.LR2RootPath");
