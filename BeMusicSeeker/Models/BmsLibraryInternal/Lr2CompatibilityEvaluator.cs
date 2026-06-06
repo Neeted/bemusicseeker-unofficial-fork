@@ -77,6 +77,15 @@ internal readonly struct Lr2ResourcePathEvaluationContext(
     public bool ChartDirectoryEncodingSupported { get; } = chartDirectoryEncodingSupported;
 }
 
+internal readonly struct Lr2ResourcePathReference(
+    string rawPath,
+    string normalizedPath)
+{
+    public string RawPath { get; } = rawPath ?? string.Empty;
+
+    public string NormalizedPath { get; } = normalizedPath ?? string.Empty;
+}
+
 internal static class Lr2CompatibilityEvaluator
 {
     internal const int MaxLegacyPathBytes = 259;
@@ -147,6 +156,7 @@ internal static class Lr2CompatibilityEvaluator
             ApplyResourcePathEvaluation(
                 context,
                 rawPath,
+                null,
                 ref flags,
                 ref maxRawBytes,
                 ref maxResolvedBytes);
@@ -174,11 +184,12 @@ internal static class Lr2CompatibilityEvaluator
         int? maxRawBytes = null;
         int? maxResolvedBytes = null;
         Lr2ResourcePathEvaluationContext context = CreateResourcePathEvaluationContext(chartPath);
-        foreach (string rawPath in EnumerateBmsSupportedResourcePaths(file))
+        foreach (Lr2ResourcePathReference reference in EnumerateBmsSupportedResourcePaths(file))
         {
             ApplyResourcePathEvaluation(
                 context,
-                rawPath,
+                reference.RawPath,
+                reference.NormalizedPath,
                 ref flags,
                 ref maxRawBytes,
                 ref maxResolvedBytes);
@@ -212,7 +223,7 @@ internal static class Lr2CompatibilityEvaluator
         }
     }
 
-    private static IEnumerable<string> EnumerateBmsSupportedResourcePaths(BMSFile file)
+    private static IEnumerable<Lr2ResourcePathReference> EnumerateBmsSupportedResourcePaths(BMSFile file)
     {
         if (file == null)
         {
@@ -228,7 +239,7 @@ internal static class Lr2CompatibilityEvaluator
                     : reference.RawPath;
                 if (!string.IsNullOrWhiteSpace(rawPath))
                 {
-                    yield return rawPath;
+                    yield return new Lr2ResourcePathReference(rawPath, reference.NormalizedPath);
                 }
             }
         }
@@ -238,29 +249,29 @@ internal static class Lr2CompatibilityEvaluator
             {
                 if (!string.IsNullOrWhiteSpace(audioPath))
                 {
-                    yield return audioPath;
+                    yield return new Lr2ResourcePathReference(audioPath, null);
                 }
             }
             foreach (string visualPath in file.BGAfiles ?? Enumerable.Empty<string>())
             {
                 if (!string.IsNullOrWhiteSpace(visualPath))
                 {
-                    yield return visualPath;
+                    yield return new Lr2ResourcePathReference(visualPath, null);
                 }
             }
         }
 
         if (!string.IsNullOrWhiteSpace(file.banner))
         {
-            yield return file.banner;
+            yield return new Lr2ResourcePathReference(file.banner, null);
         }
         if (!string.IsNullOrWhiteSpace(file.backbmp))
         {
-            yield return file.backbmp;
+            yield return new Lr2ResourcePathReference(file.backbmp, null);
         }
         if (!string.IsNullOrWhiteSpace(file.stagefile))
         {
-            yield return file.stagefile;
+            yield return new Lr2ResourcePathReference(file.stagefile, null);
         }
     }
 
@@ -286,6 +297,7 @@ internal static class Lr2CompatibilityEvaluator
     private static void ApplyResourcePathEvaluation(
         Lr2ResourcePathEvaluationContext context,
         string rawPath,
+        string normalizedPath,
         ref Lr2ResourceWarningFlags flags,
         ref int? maxRawBytes,
         ref int? maxResolvedBytes)
@@ -303,7 +315,7 @@ internal static class Lr2CompatibilityEvaluator
             flags |= Lr2ResourceWarningFlags.RawPathEncodingUnsupported;
         }
 
-        if (TryGetResolvedResourcePathCp932ByteCount(context, rawPath, out int resolvedBytes))
+        if (TryGetResolvedResourcePathCp932ByteCount(context, rawPath, normalizedPath, out int resolvedBytes))
         {
             maxResolvedBytes = Math.Max(maxResolvedBytes.GetValueOrDefault(), resolvedBytes);
             if (resolvedBytes > MaxLegacyPathBytes)
@@ -320,6 +332,7 @@ internal static class Lr2CompatibilityEvaluator
     private static bool TryGetResolvedResourcePathCp932ByteCount(
         Lr2ResourcePathEvaluationContext context,
         string rawPath,
+        string normalizedPath,
         out int byteCount)
     {
         byteCount = 0;
@@ -331,7 +344,9 @@ internal static class Lr2CompatibilityEvaluator
         {
             return TryGetCp932ByteCount(rawPath, out byteCount);
         }
-        if (!TryNormalizeRelativeResourcePathForByteCount(rawPath, out string relativePath))
+        string relativePath = normalizedPath;
+        if (string.IsNullOrWhiteSpace(relativePath)
+            && !TryNormalizeRelativeResourcePathForByteCount(rawPath, out relativePath))
         {
             return TryGetCp932ByteCount(rawPath, out byteCount);
         }

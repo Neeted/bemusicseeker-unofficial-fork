@@ -218,6 +218,8 @@ internal sealed class Lr2StartupScanBlockerCleanupResult(
 
 internal static class Lr2FullGenerationBackfillService
 {
+    private const int SongRowBackfillMaxWorkerDegree = 6;
+
     private const string TempLr2CompatibilityMaintenanceTable = "lr2_full_generation_compatibility_maintenance";
 
     private const int MaxPersistedChartInfoParseFailureMessageLength = 1024;
@@ -1468,8 +1470,11 @@ internal static class Lr2FullGenerationBackfillService
         BmsLibraryDbGateway.EnsureSongLookupIndexes(songDb);
         BmsLibraryDbGateway.EnsureMaintenanceSchema(songDb);
         const int songRowBackfillChunkSize = 500;
-        int workerDegree = ResolveSongRowBackfillWorkerDegree();
+        int processorCount = Environment.ProcessorCount;
+        int workerDegree = ResolveSongRowBackfillWorkerDegree(processorCount);
+        workerDegree = Math.Max(1, Math.Min(workerDegree, targetRows.Count - safeStartIndex));
         int readerDegree = 1;
+        int orderingWindowCapacity = songRowBackfillChunkSize * 2;
         int readQueueCapacity = Math.Max(1, workerDegree * 2);
         int computedQueueCapacity = Math.Max(songRowBackfillChunkSize, workerDegree * 16);
         int processed = 0;
@@ -1490,9 +1495,13 @@ internal static class Lr2FullGenerationBackfillService
         long workerOutputWaitTicks = 0L;
         int readQueueHighWatermark = 0;
         int computedQueueHighWatermark = 0;
+        int pendingItemsHighWatermark = 0;
         int writerFailed = 0;
         Exception pipelineException = null;
         CancellationToken cancellationToken = request?.CancellationToken ?? CancellationToken.None;
+        using var pipelineCancellationSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        CancellationToken pipelineToken = pipelineCancellationSource.Token;
+        using var orderingWindow = new SemaphoreSlim(orderingWindowCapacity, orderingWindowCapacity);
         LogBackfill(request, "lr2_full_generation_backfill pipeline_start"
             + " stage=song_rows"
             + " startIndex=" + safeStartIndex
@@ -1500,6 +1509,9 @@ internal static class Lr2FullGenerationBackfillService
             + " chunkSize=" + songRowBackfillChunkSize
             + " readerDegree=" + readerDegree
             + " workerDegree=" + workerDegree
+            + " processorCount=" + processorCount
+            + " maxWorkerDegree=" + SongRowBackfillMaxWorkerDegree
+            + " orderingWindowCapacity=" + orderingWindowCapacity
             + " readQueueCapacity=" + readQueueCapacity
             + " computedQueueCapacity=" + computedQueueCapacity);
         ThrowIfCancellationRequested(
@@ -1636,7 +1648,8 @@ internal static class Lr2FullGenerationBackfillService
                     + " fallbackCount=" + chunkFallbackCount
                     + " parseFailureCount=" + chunkParseFailureCount
                     + " compatibilityApplied=" + chunkCompatibilityInfos.Count
-                    + " processedCursor=" + processedCursor);
+                    + " processedCursor=" + processedCursor
+                    + " managedBytes=" + GC.GetTotalMemory(false));
             }
             catch (Exception ex)
             {
@@ -1674,16 +1687,39 @@ internal static class Lr2FullGenerationBackfillService
                         break;
                     }
 
-                    cancellationToken.ThrowIfCancellationRequested();
-                    SongRowBackfillReadCandidate candidate = ReadBackfillSongRowCandidate(index, targetRows[index]);
+                    bool windowSlotAcquired = false;
+                    bool windowSlotTransferred = false;
                     try
                     {
-                        AddWithWait(readQueue, candidate, ref readerOutputWaitTicks, cancellationToken);
+                        orderingWindow.Wait(pipelineToken);
+                        windowSlotAcquired = true;
+                        if (Volatile.Read(ref writerFailed) != 0)
+                        {
+                            break;
+                        }
+
+                        cancellationToken.ThrowIfCancellationRequested();
+                        SongRowBackfillReadCandidate candidate = ReadBackfillSongRowCandidate(index, targetRows[index]);
+                        AddWithWait(readQueue, candidate, ref readerOutputWaitTicks, pipelineToken);
+                        windowSlotTransferred = true;
                         UpdateHighWatermark(ref readQueueHighWatermark, readQueue.Count);
                     }
                     catch (InvalidOperationException) when (Volatile.Read(ref writerFailed) != 0)
                     {
                         break;
+                    }
+                    finally
+                    {
+                        if (windowSlotAcquired && !windowSlotTransferred)
+                        {
+                            try
+                            {
+                                orderingWindow.Release();
+                            }
+                            catch (SemaphoreFullException)
+                            {
+                            }
+                        }
                     }
                 }
             }))];
@@ -1692,7 +1728,7 @@ internal static class Lr2FullGenerationBackfillService
         Task[] workerTasks = [.. Enumerable.Range(0, workerDegree)
             .Select(_ => Task.Run(delegate
             {
-                foreach (SongRowBackfillReadCandidate candidate in readQueue.GetConsumingEnumerable(cancellationToken))
+                foreach (SongRowBackfillReadCandidate candidate in readQueue.GetConsumingEnumerable(pipelineToken))
                 {
                     if (Volatile.Read(ref writerFailed) != 0)
                     {
@@ -1707,7 +1743,7 @@ internal static class Lr2FullGenerationBackfillService
                         request?.CurrentChartInfoParseFailureMd5s);
                     try
                     {
-                        AddWithWait(computedQueue, item, ref workerOutputWaitTicks, cancellationToken);
+                        AddWithWait(computedQueue, item, ref workerOutputWaitTicks, pipelineToken);
                         UpdateHighWatermark(ref computedQueueHighWatermark, computedQueue.Count);
                     }
                     catch (InvalidOperationException) when (Volatile.Read(ref writerFailed) != 0)
@@ -1722,13 +1758,15 @@ internal static class Lr2FullGenerationBackfillService
         int nextIndexToCommit = safeStartIndex;
         try
         {
-            foreach (SongRowBackfillComputedItem item in computedQueue.GetConsumingEnumerable(cancellationToken))
+            foreach (SongRowBackfillComputedItem item in computedQueue.GetConsumingEnumerable(pipelineToken))
             {
                 pendingItems[item.Index] = item;
+                UpdateHighWatermark(ref pendingItemsHighWatermark, pendingItems.Count);
                 while (pendingItems.TryGetValue(nextIndexToCommit, out SongRowBackfillComputedItem nextItem))
                 {
                     pendingItems.Remove(nextIndexToCommit);
                     writerChunk.Add(nextItem);
+                    orderingWindow.Release();
                     nextIndexToCommit++;
                     if (writerChunk.Count >= songRowBackfillChunkSize)
                     {
@@ -1745,6 +1783,7 @@ internal static class Lr2FullGenerationBackfillService
         {
             pipelineException = UnwrapPipelineException(ex);
             Volatile.Write(ref writerFailed, 1);
+            pipelineCancellationSource.Cancel();
             TryCompleteAdding(readQueue);
             TryCompleteAdding(computedQueue);
         }
@@ -1804,7 +1843,8 @@ internal static class Lr2FullGenerationBackfillService
             + " readerOutputWaitMs=" + TicksToMilliseconds(readerOutputWaitTicks)
             + " workerOutputWaitMs=" + TicksToMilliseconds(workerOutputWaitTicks)
             + " readQueueHighWatermark=" + readQueueHighWatermark
-            + " computedQueueHighWatermark=" + computedQueueHighWatermark);
+            + " computedQueueHighWatermark=" + computedQueueHighWatermark
+            + " pendingItemsHighWatermark=" + pendingItemsHighWatermark);
         return new SongRowBackfillResult(processed, parseFailureCount, chartInfoAppliedCount, compatibilityApplied);
     }
 
@@ -1905,9 +1945,10 @@ internal static class Lr2FullGenerationBackfillService
         }
     }
 
-    private static int ResolveSongRowBackfillWorkerDegree()
+    private static int ResolveSongRowBackfillWorkerDegree(int processorCount)
     {
-        return Math.Max(1, Environment.ProcessorCount - 1);
+        int availableWorkerCount = Math.Max(1, processorCount - 1);
+        return Math.Max(1, Math.Min(availableWorkerCount, SongRowBackfillMaxWorkerDegree));
     }
 
     private static Exception UnwrapPipelineException(Exception ex)
