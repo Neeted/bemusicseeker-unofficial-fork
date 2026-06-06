@@ -22,6 +22,8 @@ internal sealed class Lr2FullGenerationBackfillRequest
 
     public IReadOnlyCollection<string> ChartPaths { get; set; } = [];
 
+    public IReadOnlyCollection<string> NormalFolderDirectoryPaths { get; set; } = [];
+
     public IReadOnlyCollection<string> FolderInfoFilePaths { get; set; } = [];
 
     public IReadOnlyDictionary<string, RootFileEnumerationEntry> FolderInfoFileEntries { get; set; } =
@@ -251,6 +253,13 @@ internal static class Lr2FullGenerationBackfillService
         List<string> chartPaths = [.. (request.ChartPaths ?? [])
             .Where(path => !string.IsNullOrWhiteSpace(path))
             .Distinct(StringComparer.OrdinalIgnoreCase)];
+        List<string> normalFolderDirectoryPaths = [.. (request.NormalFolderDirectoryPaths ?? [])
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)];
+        if (normalFolderDirectoryPaths.Count == 0 && roots.Count > 0)
+        {
+            normalFolderDirectoryPaths = [.. Lr2NormalFolderDbSyncService.CreateDirectoryMetadataTargets(roots, chartPaths)];
+        }
         List<string> folderInfoFilePaths = [.. (request.FolderInfoFilePaths ?? [])
             .Where(path => !string.IsNullOrWhiteSpace(path))
             .Distinct(StringComparer.OrdinalIgnoreCase)];
@@ -273,7 +282,7 @@ internal static class Lr2FullGenerationBackfillService
             .Select(Path.GetFullPath)
             .Distinct(StringComparer.OrdinalIgnoreCase)];
         int normalFolderTargetCount = roots.Count > 0
-            ? roots.Count + chartPaths.Count + folderInfoFilePaths.Count
+            ? normalFolderDirectoryPaths.Count + folderInfoFilePaths.Count
             : 0;
         int totalCount = normalFolderTargetCount + lr2FolderFilePaths.Count + songRows.Count;
         int normalFolderEndCursor = normalFolderTargetCount;
@@ -301,6 +310,7 @@ internal static class Lr2FullGenerationBackfillService
         LogBackfill(request, "lr2_full_generation_backfill input_summary"
             + " roots=" + roots.Count
             + " charts=" + chartPaths.Count
+            + " normalFolderDirs=" + normalFolderDirectoryPaths.Count
             + " folderInfoCandidates=" + folderInfoFilePaths.Count
             + " lr2FolderCandidates=" + lr2FolderFilePaths.Count
             + " songRows=" + songRows.Count
@@ -321,6 +331,7 @@ internal static class Lr2FullGenerationBackfillService
             {
                 RootDirectories = roots,
                 ChartPaths = chartPaths,
+                DirectoryPaths = normalFolderDirectoryPaths,
                 FolderInfoFilePaths = folderInfoFilePaths,
                 FolderInfoFileEntries = request.FolderInfoFileEntries,
                 DirectoryLastWriteTimeUtcResolver = CreateLastWriteTimeResolver(directoryEntries),
@@ -487,12 +498,14 @@ internal static class Lr2FullGenerationBackfillService
                 songRows,
                 request.Lr2RootPath,
                 request);
-            if (diagnosticResult.MissingExpectedFolderRowCount > 0 && roots.Count > 0)
+            bool canResyncNormalFolders = normalFolderResult == null;
+            if (diagnosticResult.MissingExpectedFolderRowCount > 0 && roots.Count > 0 && canResyncNormalFolders)
             {
                 Lr2NormalFolderDbSyncResult resyncResult = Lr2NormalFolderDbSyncService.Sync(songDb, new Lr2NormalFolderDbSyncRequest
                 {
                     RootDirectories = roots,
                     ChartPaths = chartPaths,
+                    DirectoryPaths = normalFolderDirectoryPaths,
                     FolderInfoFilePaths = folderInfoFilePaths,
                     FolderInfoFileEntries = request.FolderInfoFileEntries,
                     DirectoryLastWriteTimeUtcResolver = CreateLastWriteTimeResolver(directoryEntries),
@@ -847,7 +860,10 @@ internal static class Lr2FullGenerationBackfillService
         int unknownRootFolderRowCount = 0;
         var cleanupFolderRowPaths = new HashSet<string>(StringComparer.Ordinal);
         var folderDateUpdates = new Dictionary<string, Lr2StartupScanFolderDateUpdate>(StringComparer.Ordinal);
-        HashSet<string> expectedNormalFolderPaths = CreateExpectedNormalFolderRowPaths(roots, currentPaths);
+        HashSet<string> expectedNormalFolderPaths = CreateExpectedNormalFolderRowPaths(
+            roots,
+            request?.NormalFolderDirectoryPaths,
+            currentPaths);
         HashSet<string> expectedLr2FolderPaths = CreateExpectedLr2FolderRowPaths(request);
         var existingNormalFolderPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var existingLr2FolderPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -956,6 +972,7 @@ internal static class Lr2FullGenerationBackfillService
 
     private static HashSet<string> CreateExpectedNormalFolderRowPaths(
         IReadOnlyCollection<string> rootDirectories,
+        IReadOnlyCollection<string> normalFolderDirectoryPaths,
         IEnumerable<string> currentChartPaths)
     {
         var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -964,19 +981,17 @@ internal static class Lr2FullGenerationBackfillService
             return result;
         }
 
-        var compatibleChartPaths = new List<string>();
-        foreach (string path in currentChartPaths ?? [])
+        Lr2FolderGenerationResult generation = Lr2FolderRowGenerator.GenerateNormalDirectoryRows(new Lr2FolderGenerationRequest
         {
-            if (!string.IsNullOrWhiteSpace(path)
-                && Lr2CompatibilityEvaluator.EvaluateChartPath(path).CanComputeFolderParent)
-            {
-                compatibleChartPaths.Add(path);
-            }
-        }
+            RootDirectories = rootDirectories,
+            DirectoryPaths = normalFolderDirectoryPaths ?? [],
+            ChartPaths = currentChartPaths?.ToArray() ?? [],
+            DirectoryMetadataResolver = _ => DiagnosticExpectedFolderMetadata
+        });
 
-        foreach (string directory in Lr2NormalFolderDbSyncService.CreateDirectoryMetadataTargets(rootDirectories, compatibleChartPaths))
+        foreach (LR2SongDB.folder row in generation.Rows ?? [])
         {
-            string expectedPath = Lr2FolderPath.ToFolderPath(directory);
+            string expectedPath = Lr2FolderPath.ToFolderPath(row?.path);
             if (!string.IsNullOrWhiteSpace(expectedPath))
             {
                 result.Add(expectedPath);
@@ -984,6 +999,9 @@ internal static class Lr2FullGenerationBackfillService
         }
         return result;
     }
+
+    private static readonly Lr2FolderDirectoryMetadata DiagnosticExpectedFolderMetadata =
+        new(new DateTime(2026, 1, 1, 0, 0, 1, DateTimeKind.Utc));
 
     private static bool IsExistingLr2FolderRowKind(int? folderType)
     {

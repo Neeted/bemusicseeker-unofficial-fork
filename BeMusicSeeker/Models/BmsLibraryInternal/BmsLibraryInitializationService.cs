@@ -872,13 +872,16 @@ internal sealed class BmsLibraryInitializationService
         try
         {
             using LR2SongDBExtended songDb = dbGateway.OpenSongDb();
+            IReadOnlyCollection<string> directoryMetadataTargets =
+                Lr2NormalFolderDbSyncService.CreateDirectoryMetadataTargets(roots, syncInput.ChartPaths);
             IReadOnlyDictionary<string, RootFileEnumerationEntry> directoryEntries = CreateLr2NormalFolderDirectoryEntries(
                 roots,
-                Lr2NormalFolderDbSyncService.CreateDirectoryMetadataTargets(roots, syncInput.ChartPaths));
+                directoryMetadataTargets);
             Lr2NormalFolderDbSyncResult syncResult = Lr2NormalFolderDbSyncService.Sync(songDb, new Lr2NormalFolderDbSyncRequest
             {
                 RootDirectories = roots,
                 ChartPaths = syncInput.ChartPaths,
+                DirectoryPaths = directoryMetadataTargets,
                 FolderInfoFilePaths = [.. (folderInfoFilePaths ?? [])],
                 FolderInfoFileEntries = folderInfoFileEntries ?? new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase),
                 DirectoryLastWriteTimeUtcResolver = CreateLastWriteTimeResolver(directoryEntries),
@@ -901,6 +904,12 @@ internal sealed class BmsLibraryInitializationService
                 + " folderInfoCandidates=" + syncResult.FolderInfoCandidateCount
                 + " folderInfoApplied=" + syncResult.FolderInfoAppliedCount
                 + " folderInfoReadFailures=" + syncResult.FolderInfoReadFailureCount
+                + " targetBuildMs=" + syncResult.TargetBuildMs
+                + " metadataBuildMs=" + syncResult.MetadataBuildMs
+                + " existingReadMs=" + syncResult.ExistingReadMs
+                + " rowGenerateMs=" + syncResult.RowGenerateMs
+                + " planMs=" + syncResult.PlanMs
+                + " writeMs=" + syncResult.WriteMs
                 + " elapsedMs=" + syncResult.ElapsedMs);
         }
         catch (Exception ex)

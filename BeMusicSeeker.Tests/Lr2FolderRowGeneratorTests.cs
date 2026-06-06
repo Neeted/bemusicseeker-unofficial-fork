@@ -131,6 +131,35 @@ public sealed class Lr2FolderRowGeneratorTests
     }
 
     [TestMethod]
+    public void GenerateNormalDirectoryRows_UsesProvidedDirectoryTargetsWhenPresent()
+    {
+        DateTime timestamp = new(2026, 6, 3, 1, 2, 3, DateTimeKind.Utc);
+
+        Lr2FolderGenerationResult result = Lr2FolderRowGenerator.GenerateNormalDirectoryRows(new Lr2FolderGenerationRequest
+        {
+            RootDirectories = [@"D:\BMS"],
+            ChartPaths = [@"D:\BMS\Ignored\chart.bms"],
+            DirectoryPaths =
+            [
+                @"D:\BMS",
+                @"D:\BMS\Pack",
+                @"D:\BMS\Pack\Song"
+            ],
+            DirectoryMetadataResolver = _ => new Lr2FolderDirectoryMetadata(timestamp)
+        });
+
+        CollectionAssert.AreEqual(
+            new[]
+            {
+                FolderPath(@"D:\BMS"),
+                FolderPath(@"D:\BMS\Pack"),
+                FolderPath(@"D:\BMS\Pack\Song")
+            },
+            result.Rows.Select(row => row.path).ToArray());
+        Assert.IsFalse(result.Rows.Any(row => string.Equals(row.path, FolderPath(@"D:\BMS\Ignored"), StringComparison.Ordinal)));
+    }
+
+    [TestMethod]
     public void GenerateNormalDirectoryRows_PreservesDriveRootFolderPath()
     {
         Lr2FolderGenerationResult result = Lr2FolderRowGenerator.GenerateNormalDirectoryRows(new Lr2FolderGenerationRequest

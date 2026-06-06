@@ -14,6 +14,8 @@ internal sealed class Lr2NormalFolderDbSyncRequest
 
     public IReadOnlyCollection<string> ChartPaths { get; set; } = [];
 
+    public IReadOnlyCollection<string> DirectoryPaths { get; set; } = [];
+
     public IReadOnlyCollection<string> FolderInfoFilePaths { get; set; } = [];
 
     public IReadOnlyDictionary<string, RootFileEnumerationEntry> FolderInfoFileEntries { get; set; } =
@@ -44,6 +46,12 @@ internal sealed class Lr2NormalFolderDbSyncResult(
     int folderInfoAppliedCount,
     int folderInfoReadFailureCount,
     int skippedIncompatibleChartPathCount,
+    long targetBuildMs,
+    long metadataBuildMs,
+    long existingReadMs,
+    long rowGenerateMs,
+    long planMs,
+    long writeMs,
     long elapsedMs)
 {
     public int GeneratedCount { get; } = generatedCount;
@@ -68,6 +76,18 @@ internal sealed class Lr2NormalFolderDbSyncResult(
 
     public int SkippedIncompatibleChartPathCount { get; } = skippedIncompatibleChartPathCount;
 
+    public long TargetBuildMs { get; } = targetBuildMs;
+
+    public long MetadataBuildMs { get; } = metadataBuildMs;
+
+    public long ExistingReadMs { get; } = existingReadMs;
+
+    public long RowGenerateMs { get; } = rowGenerateMs;
+
+    public long PlanMs { get; } = planMs;
+
+    public long WriteMs { get; } = writeMs;
+
     public long ElapsedMs { get; } = elapsedMs;
 
     public bool HasChanges => UpsertedCount > 0 || DeletedCount > 0;
@@ -86,27 +106,34 @@ internal static class Lr2NormalFolderDbSyncService
 
         request ??= new Lr2NormalFolderDbSyncRequest();
         var stopwatch = Stopwatch.StartNew();
+        var stepStopwatch = Stopwatch.StartNew();
 
         List<string> rootDirectories = NormalizeRootDirectories(request.RootDirectories);
-        ChartPathFilterResult chartPathFilter = FilterCompatibleChartPaths(request.ChartPaths);
-        List<string> compatibleChartPaths = chartPathFilter.CompatibleChartPaths;
+        IReadOnlyCollection<string> directoryMetadataTargets = ResolveDirectoryMetadataTargets(
+            rootDirectories,
+            request.DirectoryPaths,
+            request.ChartPaths);
+        long targetBuildMs = RestartElapsed(stepStopwatch);
         Lr2FolderDirectoryMetadataSnapshot metadataSnapshot = Lr2FolderDirectoryMetadataBuilder.Build(new Lr2FolderDirectoryMetadataBuildRequest
         {
-            DirectoryPaths = CreateDirectoryMetadataTargets(rootDirectories, compatibleChartPaths),
+            DirectoryPaths = directoryMetadataTargets,
             FolderInfoFilePaths = request.FolderInfoFilePaths,
             FolderInfoFileEntries = request.FolderInfoFileEntries,
             DirectoryLastWriteTimeUtcResolver = request.DirectoryLastWriteTimeUtcResolver,
             FolderInfoLinesReader = request.FolderInfoLinesReader
         });
+        long metadataBuildMs = RestartElapsed(stepStopwatch);
         List<LR2SongDB.folder> existingRows = [.. songDb.Table<LR2SongDB.folder>()];
+        long existingReadMs = RestartElapsed(stepStopwatch);
         Lr2FolderGenerationResult generation = Lr2FolderRowGenerator.GenerateNormalDirectoryRows(new Lr2FolderGenerationRequest
         {
             RootDirectories = rootDirectories,
-            ChartPaths = compatibleChartPaths,
+            DirectoryPaths = directoryMetadataTargets,
             ExistingRows = existingRows,
             DirectoryMetadataResolver = metadataSnapshot.Resolve,
             GeneratedAtUtc = request.GeneratedAtUtc
         });
+        long rowGenerateMs = RestartElapsed(stepStopwatch);
         bool hasExplicitPrune = request.PruneScopeDirectories?.Count > 0 || request.PruneExactDirectories?.Count > 0;
         IReadOnlyCollection<string> pruneScopeDirectories = request.PruneScopeDirectories?.Count > 0
             ? NormalizePruneScopeDirectories(request.PruneScopeDirectories, rootDirectories)
@@ -127,7 +154,9 @@ internal static class Lr2NormalFolderDbSyncService
         {
             plan = new Lr2FolderGenerationSyncPlan(plan.UpsertRows, []);
         }
+        long planMs = RestartElapsed(stepStopwatch);
         Lr2FolderGenerationWriteResult writeResult = Lr2FolderDbWriter.ApplySyncPlan(songDb, plan);
+        long writeMs = RestartElapsed(stepStopwatch);
 
         stopwatch.Stop();
         return new Lr2NormalFolderDbSyncResult(
@@ -141,7 +170,13 @@ internal static class Lr2NormalFolderDbSyncService
             metadataSnapshot.FolderInfoCandidateCount,
             metadataSnapshot.FolderInfoAppliedCount,
             metadataSnapshot.FolderInfoReadFailureCount,
-            chartPathFilter.SkippedIncompatibleChartPathCount,
+            skippedIncompatibleChartPathCount: 0,
+            targetBuildMs,
+            metadataBuildMs,
+            existingReadMs,
+            rowGenerateMs,
+            planMs,
+            writeMs,
             stopwatch.ElapsedMilliseconds);
     }
 
@@ -180,6 +215,52 @@ internal static class Lr2NormalFolderDbSyncService
         return [.. result.OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
     }
 
+    private static IReadOnlyCollection<string> ResolveDirectoryMetadataTargets(
+        IReadOnlyCollection<string> rootDirectories,
+        IEnumerable<string> directoryPaths,
+        IEnumerable<string> chartPaths)
+    {
+        bool hasDirectoryPaths = false;
+        foreach (string directoryPath in directoryPaths ?? [])
+        {
+            if (!string.IsNullOrWhiteSpace(directoryPath))
+            {
+                hasDirectoryPaths = true;
+                break;
+            }
+        }
+
+        if (!hasDirectoryPaths)
+        {
+            return CreateDirectoryMetadataTargets(rootDirectories, chartPaths);
+        }
+
+        List<string> roots = NormalizeRootDirectories(rootDirectories);
+        List<string> rootsForMatching = [.. roots.OrderByDescending(root => root.Length)];
+        var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (string root in roots)
+        {
+            result.Add(root);
+        }
+
+        foreach (string directoryPath in directoryPaths ?? [])
+        {
+            string normalized = Lr2FolderPath.NormalizeDirectoryPath(directoryPath);
+            if (string.IsNullOrWhiteSpace(normalized))
+            {
+                continue;
+            }
+
+            string root = FindContainingRoot(normalized, rootsForMatching);
+            if (!string.IsNullOrWhiteSpace(root))
+            {
+                result.Add(normalized);
+            }
+        }
+
+        return [.. result.OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
+    }
+
     private static List<string> NormalizeRootDirectories(IEnumerable<string> rootDirectories)
     {
         return [.. (rootDirectories ?? [])
@@ -198,32 +279,6 @@ internal static class Lr2NormalFolderDbSyncService
         return [.. NormalizeRootDirectories(pruneScopeDirectories)
             .Where(path => rootDirectories.Any(root => Lr2FolderPath.IsSameOrDescendant(path, root)))
             .Distinct(StringComparer.OrdinalIgnoreCase)];
-    }
-
-    private static ChartPathFilterResult FilterCompatibleChartPaths(IEnumerable<string> chartPaths)
-    {
-        var compatible = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        int skipped = 0;
-        foreach (string path in chartPaths ?? [])
-        {
-            if (string.IsNullOrWhiteSpace(path))
-            {
-                continue;
-            }
-
-            if (Lr2CompatibilityEvaluator.EvaluateChartPath(path).CanComputeFolderParent)
-            {
-                compatible.Add(path);
-            }
-            else
-            {
-                skipped++;
-            }
-        }
-
-        return new ChartPathFilterResult(
-            [.. compatible.OrderBy(path => path, StringComparer.OrdinalIgnoreCase)],
-            skipped);
     }
 
     private static IEnumerable<string> EnumerateDirectoriesFromRoot(string root, string targetDirectory)
@@ -259,10 +314,10 @@ internal static class Lr2NormalFolderDbSyncService
         return null;
     }
 
-    private sealed class ChartPathFilterResult(List<string> compatibleChartPaths, int skippedIncompatibleChartPathCount)
+    private static long RestartElapsed(Stopwatch stopwatch)
     {
-        public List<string> CompatibleChartPaths { get; } = compatibleChartPaths;
-
-        public int SkippedIncompatibleChartPathCount { get; } = skippedIncompatibleChartPathCount;
+        long elapsedMs = stopwatch.ElapsedMilliseconds;
+        stopwatch.Restart();
+        return elapsedMs;
     }
 }

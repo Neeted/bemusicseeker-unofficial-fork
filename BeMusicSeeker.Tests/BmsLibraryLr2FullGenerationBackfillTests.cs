@@ -1972,8 +1972,8 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
             songDb,
             signature,
             "previous-run",
-            processedCursor: 4,
-            totalCount: 5,
+            processedCursor: 3,
+            totalCount: 4,
             stage: "song_rows",
             detail: "interrupted",
             nowUtc: new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc));
@@ -1996,7 +1996,7 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
         Assert.AreEqual("second updated", songDb.ExecuteScalar<string>("SELECT title FROM song WHERE path = ?;", secondPath));
         LR2SongDBExtended.lr2_full_generation_status row = songDb.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
         Assert.AreEqual("Completed", row.status);
-        Assert.AreEqual(5, row.processed_cursor);
+        Assert.AreEqual(4, row.processed_cursor);
     }
 
     [TestMethod]
@@ -2088,8 +2088,8 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
         LR2SongDBExtended.lr2_full_generation_status failed = songDb.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
         Assert.AreEqual("Failed", failed.status);
         Assert.AreEqual("song_rows", failed.stage);
-        Assert.AreEqual(3, failed.processed_cursor);
-        Assert.AreEqual(5, failed.total_count);
+        Assert.AreEqual(2, failed.processed_cursor);
+        Assert.AreEqual(4, failed.total_count);
 
         songDb.Execute("DROP TRIGGER fail_second_song_insert;");
         Lr2FullGenerationBackfillResult retry = Lr2FullGenerationBackfillService.Run(songDb, new Lr2FullGenerationBackfillRequest
@@ -2108,7 +2108,7 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
         Assert.AreEqual("second rollback", songDb.ExecuteScalar<string>("SELECT title FROM song WHERE path = ?;", secondPath));
         LR2SongDBExtended.lr2_full_generation_status completed = songDb.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
         Assert.AreEqual("Completed", completed.status);
-        Assert.AreEqual(5, completed.processed_cursor);
+        Assert.AreEqual(4, completed.processed_cursor);
     }
 
     [TestMethod]

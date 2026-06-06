@@ -271,7 +271,7 @@ public sealed class Lr2NormalFolderDbSyncServiceTests
     }
 
     [TestMethod]
-    public void Sync_DoesNotUseCp932UnsupportedChartPathAsFolderSource()
+    public void Sync_DoesNotUseCp932UnsupportedDirectoryAsFolderSource()
     {
         string tempDirectory = Path.Combine(Path.GetTempPath(), nameof(Lr2NormalFolderDbSyncServiceTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
@@ -289,7 +289,8 @@ public sealed class Lr2NormalFolderDbSyncServiceTests
             });
 
             Assert.AreEqual(1, result.GeneratedCount);
-            Assert.AreEqual(1, result.SkippedIncompatibleChartPathCount);
+            Assert.AreEqual(0, result.SkippedIncompatibleChartPathCount);
+            Assert.AreEqual(1, result.SkippedUnsupportedPathCount);
             Assert.AreEqual(1, songDb.Table<LR2SongDB.folder>().Count());
             Assert.AreEqual(FolderPath(@"D:\BMS"), songDb.Table<LR2SongDB.folder>().Single().path);
         }
@@ -331,7 +332,8 @@ public sealed class Lr2NormalFolderDbSyncServiceTests
                 AllowPrune = true
             });
 
-            Assert.AreEqual(1, result.SkippedIncompatibleChartPathCount);
+            Assert.AreEqual(0, result.SkippedIncompatibleChartPathCount);
+            Assert.AreEqual(1, result.SkippedUnsupportedPathCount);
             Assert.AreEqual(1, result.DeletedCount);
             Assert.AreEqual(0, songDb.Table<LR2SongDB.folder>().Count(row => row.path == stalePath));
             Assert.IsTrue(songDb.Table<LR2SongDB.folder>().Any(row => row.path == FolderPath(@"D:\BMS\Pack")));
@@ -398,6 +400,44 @@ public sealed class Lr2NormalFolderDbSyncServiceTests
                 Normalize(@"D:\BMS\Pack\Song")
             },
             targets.ToArray());
+    }
+
+    [TestMethod]
+    public void Sync_UsesProvidedDirectoryTargetsWithoutRewalkingChartPaths()
+    {
+        string tempDirectory = Path.Combine(Path.GetTempPath(), nameof(Lr2NormalFolderDbSyncServiceTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        string songDbPath = Path.Combine(tempDirectory, "song.db");
+        try
+        {
+            using var songDb = new LR2SongDBExtended(songDbPath);
+            songDb.CreateTable<LR2SongDB.folder>();
+            DateTime timestamp = new(2026, 6, 9, 1, 2, 3, DateTimeKind.Utc);
+
+            Lr2NormalFolderDbSyncResult result = Lr2NormalFolderDbSyncService.Sync(songDb, new Lr2NormalFolderDbSyncRequest
+            {
+                RootDirectories = [@"D:\BMS"],
+                ChartPaths = [@"D:\BMS\Ignored\chart.bms"],
+                DirectoryPaths =
+                [
+                    @"D:\BMS",
+                    @"D:\BMS\Pack",
+                    @"D:\BMS\Pack\Song"
+                ],
+                DirectoryLastWriteTimeUtcResolver = _ => timestamp
+            });
+
+            Assert.AreEqual(3, result.GeneratedCount);
+            Assert.IsTrue(songDb.Table<LR2SongDB.folder>().Any(row => row.path == FolderPath(@"D:\BMS\Pack\Song")));
+            Assert.IsFalse(songDb.Table<LR2SongDB.folder>().Any(row => row.path == FolderPath(@"D:\BMS\Ignored")));
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
     }
 
     private static string Normalize(string path)

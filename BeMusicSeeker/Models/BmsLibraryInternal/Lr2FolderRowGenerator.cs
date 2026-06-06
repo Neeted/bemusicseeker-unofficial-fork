@@ -31,6 +31,8 @@ internal sealed class Lr2FolderGenerationRequest
 
     public IReadOnlyCollection<string> ChartPaths { get; set; } = [];
 
+    public IReadOnlyCollection<string> DirectoryPaths { get; set; } = [];
+
     public IReadOnlyCollection<LR2SongDB.folder> ExistingRows { get; set; } = [];
 
     public Func<string, Lr2FolderDirectoryMetadata> DirectoryMetadataResolver { get; set; }
@@ -93,22 +95,16 @@ internal static class Lr2FolderRowGenerator
                 ref skippedMissingMetadataCount);
         }
 
-        foreach (string chartPath in request.ChartPaths ?? [])
+        if ((request.DirectoryPaths?.Count ?? 0) > 0)
         {
-            string chartDirectory = Lr2FolderPath.NormalizeDirectoryPath(Lr2FolderPath.SafeGetDirectoryName(chartPath));
-            if (string.IsNullOrWhiteSpace(chartDirectory))
+            foreach (string directory in NormalizeDirectoryPaths(request.DirectoryPaths))
             {
-                continue;
-            }
+                string root = FindContainingRoot(directory, rootsForMatching);
+                if (string.IsNullOrWhiteSpace(root))
+                {
+                    continue;
+                }
 
-            string root = FindContainingRoot(chartDirectory, rootsForMatching);
-            if (string.IsNullOrWhiteSpace(root))
-            {
-                continue;
-            }
-
-            foreach (string directory in EnumerateDirectoriesFromRoot(root, chartDirectory))
-            {
                 AddDirectory(
                     directory,
                     root,
@@ -122,6 +118,40 @@ internal static class Lr2FolderRowGenerator
                     generatedAt,
                     ref skippedUnsupportedPathCount,
                     ref skippedMissingMetadataCount);
+            }
+        }
+        else
+        {
+            foreach (string chartPath in request.ChartPaths ?? [])
+            {
+                string chartDirectory = Lr2FolderPath.NormalizeDirectoryPath(Lr2FolderPath.SafeGetDirectoryName(chartPath));
+                if (string.IsNullOrWhiteSpace(chartDirectory))
+                {
+                    continue;
+                }
+
+                string root = FindContainingRoot(chartDirectory, rootsForMatching);
+                if (string.IsNullOrWhiteSpace(root))
+                {
+                    continue;
+                }
+
+                foreach (string directory in EnumerateDirectoriesFromRoot(root, chartDirectory))
+                {
+                    AddDirectory(
+                        directory,
+                        root,
+                        isRoot: string.Equals(directory, root, StringComparison.OrdinalIgnoreCase),
+                        request,
+                        existingRowsByPath,
+                        sourceKinds,
+                        rowsByPath,
+                        skippedPaths,
+                        orderedPaths,
+                        generatedAt,
+                        ref skippedUnsupportedPathCount,
+                        ref skippedMissingMetadataCount);
+                }
             }
         }
 
@@ -260,6 +290,15 @@ internal static class Lr2FolderRowGenerator
             roots.Add(normalized);
         }
         return roots;
+    }
+
+    private static List<string> NormalizeDirectoryPaths(IEnumerable<string> directoryPaths)
+    {
+        return [.. (directoryPaths ?? [])
+            .Select(Lr2FolderPath.NormalizeDirectoryPath)
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
     }
 
     private static IEnumerable<string> EnumerateDirectoriesFromRoot(string root, string targetDirectory)

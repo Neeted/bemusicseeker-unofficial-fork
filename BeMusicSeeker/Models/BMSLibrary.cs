@@ -5590,6 +5590,7 @@ completeFileEnumerationOnce,
                     RunId = runId,
                     RootDirectories = input.RootDirectories,
                     ChartPaths = input.ChartPaths,
+                    NormalFolderDirectoryPaths = input.NormalFolderDirectoryPaths,
                     FolderInfoFilePaths = input.FolderInfoFilePaths,
                     FolderInfoFileEntries = input.FolderInfoFileEntries,
                     DirectoryEntries = input.DirectoryEntries,
@@ -5651,6 +5652,7 @@ completeFileEnumerationOnce,
                 + " runId=" + runId
                 + " roots=" + input.RootDirectories.Count
                 + " charts=" + input.ChartPaths.Count
+                + " normalFolderDirs=" + input.NormalFolderDirectoryPaths.Count
                 + " folderInfoCandidates=" + input.FolderInfoFilePaths.Count
                 + " lr2FolderRoots=" + input.Lr2FolderDiscoveryDirectories.Count
                 + " lr2FolderPruneRoots=" + input.Lr2FolderPruneDirectories.Count
@@ -5664,6 +5666,12 @@ completeFileEnumerationOnce,
                 + " normalFolderSkippedUnsupported=" + (result.NormalFolderSyncResult?.SkippedUnsupportedPathCount ?? 0)
                 + " normalFolderSkippedMissingMetadata=" + (result.NormalFolderSyncResult?.SkippedMissingMetadataCount ?? 0)
                 + " normalFolderSkippedIncompatibleChart=" + (result.NormalFolderSyncResult?.SkippedIncompatibleChartPathCount ?? 0)
+                + " normalFolderTargetBuildMs=" + (result.NormalFolderSyncResult?.TargetBuildMs ?? 0)
+                + " normalFolderMetadataBuildMs=" + (result.NormalFolderSyncResult?.MetadataBuildMs ?? 0)
+                + " normalFolderExistingReadMs=" + (result.NormalFolderSyncResult?.ExistingReadMs ?? 0)
+                + " normalFolderRowGenerateMs=" + (result.NormalFolderSyncResult?.RowGenerateMs ?? 0)
+                + " normalFolderPlanMs=" + (result.NormalFolderSyncResult?.PlanMs ?? 0)
+                + " normalFolderWriteMs=" + (result.NormalFolderSyncResult?.WriteMs ?? 0)
                 + " lr2FolderGenerated=" + (result.Lr2FolderFileSyncResult?.GeneratedCount ?? 0)
                 + " lr2FolderUpserted=" + (result.Lr2FolderFileSyncResult?.UpsertedCount ?? 0)
                 + " lr2FolderDeleted=" + (result.Lr2FolderFileSyncResult?.DeletedCount ?? 0)
@@ -5959,6 +5967,7 @@ completeFileEnumerationOnce,
         return new Lr2FullGenerationBackfillInput(
             roots,
             chartPaths,
+            [.. directoryMetadataTargets],
             folderInfoCandidates.Paths,
             folderInfoCandidates.EntriesByPath,
             directoryEntries,
@@ -6188,6 +6197,12 @@ completeFileEnumerationOnce,
                 + " skippedIncompatibleChart=" + syncResult.SkippedIncompatibleChartPathCount
                 + " folderInfoCandidates=" + syncResult.FolderInfoCandidateCount
                 + " folderInfoApplied=" + syncResult.FolderInfoAppliedCount
+                + " targetBuildMs=" + syncResult.TargetBuildMs
+                + " metadataBuildMs=" + syncResult.MetadataBuildMs
+                + " existingReadMs=" + syncResult.ExistingReadMs
+                + " rowGenerateMs=" + syncResult.RowGenerateMs
+                + " planMs=" + syncResult.PlanMs
+                + " writeMs=" + syncResult.WriteMs
                 + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
         }
         catch (Exception ex)
@@ -6491,6 +6506,7 @@ completeFileEnumerationOnce,
     private sealed class Lr2FullGenerationBackfillInput(
         IReadOnlyList<string> rootDirectories,
         IReadOnlyList<string> chartPaths,
+        IReadOnlyList<string> normalFolderDirectoryPaths,
         IReadOnlyList<string> folderInfoFilePaths,
         IReadOnlyDictionary<string, RootFileEnumerationEntry> folderInfoFileEntries,
         IReadOnlyDictionary<string, RootFileEnumerationEntry> directoryEntries,
@@ -6513,6 +6529,8 @@ completeFileEnumerationOnce,
         public IReadOnlyList<string> RootDirectories { get; } = rootDirectories ?? [];
 
         public IReadOnlyList<string> ChartPaths { get; } = chartPaths ?? [];
+
+        public IReadOnlyList<string> NormalFolderDirectoryPaths { get; } = normalFolderDirectoryPaths ?? [];
 
         public IReadOnlyList<string> FolderInfoFilePaths { get; } = folderInfoFilePaths ?? [];
 
