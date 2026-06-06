@@ -2858,7 +2858,10 @@ public partial class BMSPlaylist : NotificationObject
         CustomFolderBatchMaterializationResult materialization = MaterializeCustomFolderOutputBatch(projections);
         materializeStopwatch.Stop();
         var syncStopwatch = Stopwatch.StartNew();
-        Lr2FolderFileDbSyncResult syncResult = SyncCustomFolderRowsBatch(materialization.OutputDirectories, materialization.SyncItems);
+        Lr2FolderFileDbSyncResult syncResult = SyncCustomFolderRowsBatch(
+            materialization.OutputDirectories,
+            materialization.SyncItems,
+            materialization.DirectoryRowGenerationScopeDirectories);
         syncStopwatch.Stop();
         stopwatch.Stop();
         LogPlaylistPerformance(operation + " done"
@@ -2909,6 +2912,8 @@ public partial class BMSPlaylist : NotificationObject
     {
         public List<string> OutputDirectories { get; } = [];
 
+        public List<string> DirectoryRowGenerationScopeDirectories { get; } = [];
+
         public List<Lr2FolderFileSyncItem> SyncItems { get; } = [];
 
         public int WrittenFileCount { get; set; }
@@ -2941,6 +2946,7 @@ public partial class BMSPlaylist : NotificationObject
 
             string outputDir = projection.OutputDirectory;
             result.OutputDirectories.Add(outputDir);
+            result.DirectoryRowGenerationScopeDirectories.AddRange(CreateCustomFolderDirectoryRowGenerationScopes(outputDir, projection.Table));
             var expectedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             IReadOnlyList<string> texts = projection.Texts ?? [];
             if (texts.Count > 0)
@@ -3103,7 +3109,7 @@ public partial class BMSPlaylist : NotificationObject
                 {
                     FileSystem.DeleteDirectory(outputDir, DeleteDirectoryOption.ThrowIfDirectoryNonEmpty);
                 }
-                SyncCustomFolderRows(outputDir, []);
+                SyncCustomFolderRows(outputDir, [], bmsTable);
                 return true;
             }
             catch
@@ -3129,7 +3135,7 @@ public partial class BMSPlaylist : NotificationObject
                 ApplyCustomFolderSourceClassification(syncItems[syncItems.Count - 1], bmsTable);
                 num++;
             }
-            SyncCustomFolderRows(outputDir, syncItems);
+            SyncCustomFolderRows(outputDir, syncItems, bmsTable);
             return true;
         }
         catch
@@ -3187,7 +3193,7 @@ public partial class BMSPlaylist : NotificationObject
         item.ParentHash = classification.ParentHash;
     }
 
-    private void SyncCustomFolderRows(string outputDir, IReadOnlyCollection<Lr2FolderFileSyncItem> items)
+    private void SyncCustomFolderRows(string outputDir, IReadOnlyCollection<Lr2FolderFileSyncItem> items, BMSTable bmsTable = null)
     {
         if (string.IsNullOrWhiteSpace(outputDir) || string.IsNullOrWhiteSpace(lr2SongDBPath))
         {
@@ -3203,14 +3209,17 @@ public partial class BMSPlaylist : NotificationObject
                 Items = items ?? [],
                 ScopeDirectories = [outputDir],
                 DirectoryRowScopeDirectories = [outputDir],
-                DirectoryRowGenerationScopeDirectories = CreateCustomFolderDirectoryRowGenerationScopes(outputDir),
+                DirectoryRowGenerationScopeDirectories = CreateCustomFolderDirectoryRowGenerationScopes(outputDir, bmsTable),
                 AllowPrune = true
             });
         });
         LogLr2FolderSyncResult("playlist_lr2folder_sync", result, 1, items?.Count ?? 0);
     }
 
-    private Lr2FolderFileDbSyncResult SyncCustomFolderRowsBatch(IReadOnlyCollection<string> outputDirs, IReadOnlyCollection<Lr2FolderFileSyncItem> items)
+    private Lr2FolderFileDbSyncResult SyncCustomFolderRowsBatch(
+        IReadOnlyCollection<string> outputDirs,
+        IReadOnlyCollection<Lr2FolderFileSyncItem> items,
+        IReadOnlyCollection<string> directoryRowGenerationScopeDirectories = null)
     {
         outputDirs = [.. (outputDirs ?? [])
             .Where(directory => !string.IsNullOrWhiteSpace(directory))
@@ -3220,8 +3229,7 @@ public partial class BMSPlaylist : NotificationObject
             return null;
         }
 
-        IReadOnlyCollection<string> directoryRowGenerationScopes = [.. outputDirs
-            .SelectMany(CreateCustomFolderDirectoryRowGenerationScopes)
+        IReadOnlyCollection<string> directoryRowGenerationScopes = [.. (directoryRowGenerationScopeDirectories ?? [])
             .Where(directory => !string.IsNullOrWhiteSpace(directory))
             .Distinct(StringComparer.OrdinalIgnoreCase)];
         Lr2FolderFileDbSyncResult result = null;
@@ -3241,7 +3249,7 @@ public partial class BMSPlaylist : NotificationObject
         return result;
     }
 
-    private static IReadOnlyCollection<string> CreateCustomFolderDirectoryRowGenerationScopes(string outputDir)
+    private IReadOnlyCollection<string> CreateCustomFolderDirectoryRowGenerationScopes(string outputDir, BMSTable bmsTable = null)
     {
         if (string.IsNullOrWhiteSpace(outputDir))
         {
@@ -3250,6 +3258,15 @@ public partial class BMSPlaylist : NotificationObject
         try
         {
             string normalizedOutputDir = Lr2FolderPath.NormalizeDirectoryPath(outputDir);
+            if (bmsTable?.is_root_folder != true)
+            {
+                string containingBmsRoot = ResolveContainingBmsSearchRootForNormalCustomFolderOutput(normalizedOutputDir);
+                if (!string.IsNullOrWhiteSpace(containingBmsRoot))
+                {
+                    return [CreateCustomFolderDirectoryRowGenerationBoundary(containingBmsRoot)];
+                }
+            }
+
             string baseDirectory = Path.GetDirectoryName(normalizedOutputDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
             return string.IsNullOrWhiteSpace(baseDirectory)
                 ? [normalizedOutputDir]
@@ -3258,6 +3275,70 @@ public partial class BMSPlaylist : NotificationObject
         catch (Exception ex) when (ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException)
         {
             return [outputDir];
+        }
+    }
+
+    private static string CreateCustomFolderDirectoryRowGenerationBoundary(string bmsRoot)
+    {
+        if (string.IsNullOrWhiteSpace(bmsRoot))
+        {
+            return null;
+        }
+        try
+        {
+            string normalizedRoot = Lr2FolderPath.NormalizeDirectoryPath(bmsRoot);
+            string parentDirectory = Path.GetDirectoryName(normalizedRoot.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+            return string.IsNullOrWhiteSpace(parentDirectory)
+                ? normalizedRoot
+                : Lr2FolderPath.NormalizeDirectoryPath(parentDirectory);
+        }
+        catch (Exception ex) when (ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException)
+        {
+            return bmsRoot;
+        }
+    }
+
+    private string ResolveContainingBmsSearchRootForNormalCustomFolderOutput(string outputDir)
+    {
+        if (string.IsNullOrWhiteSpace(outputDir))
+        {
+            return null;
+        }
+
+        string normalOutputBase = NormalizeDirectoryPathOrNull(Settings.Default.LR2CustomFolderOutputBaseDir);
+        List<string> searchRoots;
+        try
+        {
+            searchRoots = lr2config?.Invoke()?.GetBMSSearchDirectories() ?? [];
+        }
+        catch
+        {
+            searchRoots = [];
+        }
+
+        return searchRoots
+            .Select(NormalizeDirectoryPathOrNull)
+            .Where(root => !string.IsNullOrWhiteSpace(root))
+            .Where(root => Lr2FolderPath.IsSameOrDescendant(outputDir, root))
+            .Where(root => string.IsNullOrWhiteSpace(normalOutputBase)
+                || !Lr2FolderPath.IsSameOrDescendant(root, normalOutputBase))
+            .OrderByDescending(root => root.Length)
+            .FirstOrDefault();
+    }
+
+    private static string NormalizeDirectoryPathOrNull(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return null;
+        }
+        try
+        {
+            return Lr2FolderPath.NormalizeDirectoryPath(path);
+        }
+        catch (Exception ex) when (ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException)
+        {
+            return null;
         }
     }
 

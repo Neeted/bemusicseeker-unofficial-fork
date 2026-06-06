@@ -983,6 +983,74 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
+    public void QueueLr2FullGenerationDataSync_InvalidatesScanSurfaceAfterPreparedLr2FolderOutput()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        try
+        {
+            Settings.Default.OperationModeLR2DB = true;
+            Settings.Default.EnableLR2SongDbFullGeneration = true;
+            ResetLr2FolderDiscoverySettings();
+            string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
+            string outputBase = Path.Combine(rootDirectory, "#BeMusicSeeker");
+            string tableDirectory = Path.Combine(outputBase, "Table");
+            string lr2FolderPath = Path.Combine(tableDirectory, "0000.lr2folder");
+            Directory.CreateDirectory(rootDirectory);
+            Settings.Default.LR2CustomFolderOutputBaseDir = outputBase;
+            var library = new BMSLibrary(scope.SongDbPath)
+            {
+                SearchTargets = [rootDirectory],
+                BMSFiles = []
+            };
+            var options = new BmsLibraryOptionsSnapshot
+            {
+                OperationModeLR2DB = true,
+                EnableLR2SongDbFullGeneration = true
+            };
+            InvokeCaptureLr2FullGenerationScanSurface(library, options, [rootDirectory], new SongTableFileCheckResult
+            {
+                Lr2ScanSurfaceAvailable = true,
+                Lr2ScanNormalFolderDirectoryPaths = [],
+                Lr2ScanFolderInfoFilePaths = [],
+                Lr2ScanFolderInfoFileEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase),
+                Lr2ScanTextFileDirectories = [],
+                Lr2ScanLr2FolderDiscoveryDirectories = [outputBase],
+                Lr2ScanLr2FolderFilePaths = [],
+                Lr2ScanLr2FolderFileEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase),
+                Lr2ScanLr2FolderFileDiscoveryComplete = true
+            });
+            library.StartupBackgroundTaskScheduler = delegate (string name, string reason, string dependency, Func<Task> work)
+            {
+                work().GetAwaiter().GetResult();
+                return true;
+            };
+
+            library.QueueLr2FullGenerationDataSync(
+                "test_prepare_lr2folder_surface",
+                force: true,
+                prepareGeneratedData: () =>
+                {
+                    Directory.CreateDirectory(tableDirectory);
+                    File.WriteAllText(lr2FolderPath, "#TITLE Prepared Folder", Encoding.GetEncoding("shift_jis"));
+                });
+
+            using var verify = new LR2SongDBExtended(scope.SongDbPath);
+            LR2SongDB.folder lr2Folder = verify.Table<LR2SongDB.folder>().ToList().Single(row => row.path == lr2FolderPath);
+            Assert.AreEqual(2, lr2Folder.type);
+            Assert.AreEqual("Prepared Folder", lr2Folder.title);
+            Assert.AreEqual(Lr2SongFolderParentNormalizer.ComputeDirectoryHash(tableDirectory), lr2Folder.parent);
+            Assert.AreEqual(0, verify.Table<LR2SongDB.folder>().Count(row => row.path == lr2FolderPath && row.title == "stale"));
+            LR2SongDBExtended.lr2_full_generation_status status = verify.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
+            Assert.IsNotNull(status);
+            Assert.AreEqual("Completed", status.status);
+        }
+        finally
+        {
+            ResetTouchedSettings();
+        }
+    }
+
+    [TestMethod]
     public void QueueLr2FullGenerationDataSync_RunsFullGenerationSyncAndMarksCompletedWhenClean()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();

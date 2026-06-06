@@ -353,6 +353,9 @@ row が残ると、manual-only でも LR2 が不要な scan に入る。
     LR2 built-in custom folder source (`LR2files\CustomFolder`) から discovery した `.lr2folder`。
   - DB row はどちらも現在の discovery result から生成する派生 cache とし、消えた file の row は
     generation scope 内の path prune で削除する。実 `.lr2folder` ファイルは discovery では削除しない。
+  - `playlist_output_lr2folder` は物理 file discovery の偶然の結果ではなく、playlist 正本からの
+    materialization result を正本にする。playlist materialization 後に LR2 full generation を実行する場合は、
+    materialization 前に捕捉した startup scan surface を再利用しない。
 - `LR2files\Rival` は LR2 が ranking server 通信と active rival ID に基づいて動的に反映する領域なので、
   BeMusicSeeker の built-in discovery root には含めない。通常の LR2 BMS search root や custom folder
   出力 base で発見した `__RIVAL__` `.lr2folder` は、他の外部 `.lr2folder` と同じく処理する。
@@ -368,6 +371,11 @@ row が残ると、manual-only でも LR2 が不要な scan に入る。
   ルート出力 playlist/table の directory row は `parent = ROOT` とし、その directory 配下に生成される
   numbered `.lr2folder` row は containing directory の hash を `parent` にする。ルート出力 base 直下へ
   直接置かれた standalone `.lr2folder` だけは LR2 root 直下 row として扱う。
+- 通常出力先が LR2 BMS search root 配下にある場合、通常出力先は独自 ROOT 境界ではなく OpenLR2 の
+  recursive directory scan と同じ通常 directory chain として扱う。たとえば
+  `D:\BMS\#BeMusicSeeker\<Table>\0000.lr2folder` は `D:\BMS\` を root にし、
+  `D:\BMS\#BeMusicSeeker\` と `D:\BMS\#BeMusicSeeker\<Table>\` の `type = 1`
+  parent row を作ったうえで、`.lr2folder` row の parent を containing directory hash にする。
 - LR2 built-in `LR2files\CustomFolder` のカテゴリ directory row
   (`RANDOM\`, `PLAYLEVEL\`, `CLEAR\`, `RANK\`, `INSANE01\`, `INSANE02\` など) も、
   対応 bitmask が有効な場合は expected scope に含める。
@@ -1256,8 +1264,9 @@ parse directive:
     通常 / root custom folder 出力先と built-in `LR2files\CustomFolder` については、同じ sync request の
     directory row generation scope から親 / カテゴリ directory row も生成する。prune 用の
     `DirectoryRowScopeDirectories` とは分け、playlist 単位の再出力で sibling playlist の directory row を
-    削除しない。通常 BMS root は directory row generation scope に入れず、normal `folder.type = 1`
-    生成の責務を混ぜない。
+    削除しない。通常出力先が BMS search root 配下にある場合は、BMS search root 自体も directory row
+    として生成される境界を使い、OpenLR2 と同じ parent chain を作る。prune 用 scope は引き続き出力
+    directory に限定し、sibling playlist や BMS root 全体へ広げない。
     同一親に複数 `.lr2folder` がある場合、親 row は一度だけ upsert 候補にし、generated path set で
     stale parent row pruning と重複 write を抑止する。
     `AllowPrune=false` では upsert のみ行い、`AllowPrune=true` でも scope 内の `.lr2folder` file path row だけを削除対象にする。
@@ -1615,6 +1624,8 @@ existence / mtime は意味的に揃える。
   に反映してから `Lr2SongDbWriter` へ渡す。これにより direct install 直後の `song` row も、sync を待たずに
   `level` / `difficulty` / BPM / `mode` / `longnote` / `random` / `karinotes` を持つ。
 - playlist custom folder output workflow は `.lr2folder` file を出力した同じ操作内で `folder` row も sync する。
+  通常フォルダ出力では、出力 directory が LR2 BMS search root 配下にある場合に BMS search root からの
+  normal directory row chain を生成する。
   ルートフォルダ出力 (`is_root_folder`) では playlist workflow 側でも `Lr2FolderFileSourceClassifier` を通し、
   playlist/table directory row を `ROOT` 親に置き、generated `.lr2folder` row の parent はその containing
   directory hash に揃える。ルート出力 base 直下の standalone `.lr2folder` だけは `ROOT` 親にする。

@@ -803,7 +803,8 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(manualResyncClickHandler, "settingDialog.Visibility = Visibility.Hidden;");
         StringAssert.Contains(manualResyncClickHandler, "await Dispatcher.Yield(DispatcherPriority.Background);");
         StringAssert.Contains(playlistCode, "RepairMissingCustomFolderOutputsAfterHydration(reason)");
-        StringAssert.Contains(playlistCode, "Lr2FolderFileDbSyncResult syncResult = SyncCustomFolderRowsBatch(materialization.OutputDirectories, materialization.SyncItems);");
+        StringAssert.Contains(playlistCode, "Lr2FolderFileDbSyncResult syncResult = SyncCustomFolderRowsBatch(");
+        StringAssert.Contains(playlistCode, "materialization.DirectoryRowGenerationScopeDirectories");
         Assert.IsFalse(
             playlistCode.Contains("CreateCustomFolderOutputUpdateCallback"),
             "Startup playlist hydration must not run per-table custom folder output callbacks; missing .lr2folder repair must use the batch materialization path.");

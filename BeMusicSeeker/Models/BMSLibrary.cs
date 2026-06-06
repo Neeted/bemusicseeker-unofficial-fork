@@ -5402,6 +5402,18 @@ completeFileEnumerationOnce,
             + " bmsonRowsVersion=" + snapshot.BmsonRowsVersion);
     }
 
+    private void InvalidateLr2FullGenerationScanSurface(string reason)
+    {
+        lock (lockLr2FullGenerationScanSurface)
+        {
+            lr2FullGenerationScanSurfaceSnapshot = null;
+            lr2FullGenerationScanSurfaceGeneration = lr2FullGenerationScanSurfaceGeneration == int.MaxValue
+                ? 1
+                : lr2FullGenerationScanSurfaceGeneration + 1;
+        }
+        LogInstallPerformance("lr2_full_generation_scan_surface invalidated reason=" + (reason ?? "unknown"));
+    }
+
     private Lr2FullGenerationScanSurfaceSnapshot GetCurrentLr2FullGenerationScanSurface(
         IEnumerable<string> rootDirectories,
         IEnumerable<string> lr2FolderDiscoveryDirectories,
@@ -5519,6 +5531,7 @@ completeFileEnumerationOnce,
             try
             {
                 prepareGeneratedData();
+                InvalidateLr2FullGenerationScanSurface("prepare_generated_data");
             }
             catch (Exception ex)
             {
@@ -5613,6 +5626,7 @@ completeFileEnumerationOnce,
         {
             LogInstallPerformance("lr2_full_generation_data_prepare start reason=" + (reason ?? "unknown"));
             prepareGeneratedData();
+            InvalidateLr2FullGenerationScanSurface("prepare_generated_data");
             LogInstallPerformance("lr2_full_generation_data_prepare done reason=" + (reason ?? "unknown"));
             return true;
         }
