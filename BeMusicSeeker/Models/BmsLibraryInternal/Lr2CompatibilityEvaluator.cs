@@ -212,6 +212,10 @@ internal static class Lr2CompatibilityEvaluator
         {
             return true;
         }
+        if (TryGetAsciiByteCount(value, out byteCount))
+        {
+            return true;
+        }
         try
         {
             byteCount = StrictShiftJis.GetByteCount(value);
@@ -302,8 +306,10 @@ internal static class Lr2CompatibilityEvaluator
         ref int? maxRawBytes,
         ref int? maxResolvedBytes)
     {
+        int? rawByteCount = null;
         if (TryGetCp932ByteCount(rawPath, out int rawBytes))
         {
+            rawByteCount = rawBytes;
             maxRawBytes = Math.Max(maxRawBytes.GetValueOrDefault(), rawBytes);
             if (rawBytes > MaxLegacyPathBytes)
             {
@@ -315,7 +321,7 @@ internal static class Lr2CompatibilityEvaluator
             flags |= Lr2ResourceWarningFlags.RawPathEncodingUnsupported;
         }
 
-        if (TryGetResolvedResourcePathCp932ByteCount(context, rawPath, normalizedPath, out int resolvedBytes))
+        if (TryGetResolvedResourcePathCp932ByteCount(context, rawPath, normalizedPath, rawByteCount, out int resolvedBytes))
         {
             maxResolvedBytes = Math.Max(maxResolvedBytes.GetValueOrDefault(), resolvedBytes);
             if (resolvedBytes > MaxLegacyPathBytes)
@@ -333,6 +339,7 @@ internal static class Lr2CompatibilityEvaluator
         Lr2ResourcePathEvaluationContext context,
         string rawPath,
         string normalizedPath,
+        int? rawCp932Bytes,
         out int byteCount)
     {
         byteCount = 0;
@@ -350,7 +357,12 @@ internal static class Lr2CompatibilityEvaluator
         {
             return TryGetCp932ByteCount(rawPath, out byteCount);
         }
-        if (!TryGetCp932ByteCount(relativePath, out int relativeBytes))
+        int relativeBytes;
+        if (rawCp932Bytes.HasValue && string.Equals(relativePath, rawPath, StringComparison.Ordinal))
+        {
+            relativeBytes = rawCp932Bytes.Value;
+        }
+        else if (!TryGetCp932ByteCount(relativePath, out relativeBytes))
         {
             return false;
         }
@@ -359,6 +371,25 @@ internal static class Lr2CompatibilityEvaluator
         // equivalent to "<chart directory>\<relative resource path>" and avoids
         // allocating/normalizing a full path per resource definition.
         byteCount = context.ChartDirectoryCp932Bytes.Value + 1 + relativeBytes;
+        return true;
+    }
+
+    private static bool TryGetAsciiByteCount(string value, out int byteCount)
+    {
+        byteCount = 0;
+        if (value == null)
+        {
+            return false;
+        }
+        foreach (char ch in value)
+        {
+            if (ch > 0x7f)
+            {
+                byteCount = 0;
+                return false;
+            }
+        }
+        byteCount = value.Length;
         return true;
     }
 

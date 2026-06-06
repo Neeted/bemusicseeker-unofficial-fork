@@ -7,21 +7,37 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 internal static class Lr2FolderDirectoryEnumerationService
 {
+    private const int DirectLookupTargetThreshold = 512;
+
     internal static IReadOnlyDictionary<string, RootFileEnumerationEntry> CreateEntries(
         IEnumerable<string> rootDirectories,
         IEnumerable<string> targetDirectories)
     {
+        List<string> roots = [.. (rootDirectories ?? [])
+            .Select(Lr2FolderPath.NormalizeDirectoryPath)
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)];
         HashSet<string> targetSet = new((targetDirectories ?? [])
             .Select(Lr2FolderPath.NormalizeDirectoryPath)
-            .Where(path => !string.IsNullOrWhiteSpace(path)), StringComparer.OrdinalIgnoreCase);
-        if (targetSet.Count == 0)
+            .Where(path => !string.IsNullOrWhiteSpace(path)
+                && roots.Any(root => Lr2FolderPath.IsSameOrDescendant(path, root))), StringComparer.OrdinalIgnoreCase);
+        if (roots.Count == 0 || targetSet.Count == 0)
         {
             return new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
         }
 
         var entries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
+        if (targetSet.Count <= DirectLookupTargetThreshold)
+        {
+            foreach (string targetDirectory in targetSet)
+            {
+                AddEntryIfTarget(entries, targetSet, RootFileEnumerationEntry.FromDirectoryInfo(targetDirectory));
+            }
+            return entries;
+        }
+
         RootFileEnumerationResult enumeration = RootFileEnumerationService.EnumerateFilesWithFallback(
-            rootDirectories,
+            roots,
             [new RootFileEnumerationGroup(RootFileEnumerationService.DirectoriesGroupName, [], includeDirectories: true)]);
         if (enumeration?.Success == true)
         {
@@ -38,7 +54,7 @@ internal static class Lr2FolderDirectoryEnumerationService
             }
         }
 
-        foreach (string root in (rootDirectories ?? []).Select(Lr2FolderPath.NormalizeDirectoryPath))
+        foreach (string root in roots)
         {
             if (!string.IsNullOrWhiteSpace(root) && targetSet.Contains(root) && !entries.ContainsKey(root))
             {

@@ -1487,7 +1487,7 @@ internal static class Lr2FullGenerationBackfillService
         BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
         BmsLibraryDbGateway.EnsureSongLookupIndexes(songDb);
         BmsLibraryDbGateway.EnsureMaintenanceSchema(songDb);
-        const int songRowBackfillChunkSize = 500;
+        const int songRowBackfillChunkSize = 1000;
         int processorCount = Environment.ProcessorCount;
         int workerDegree = ResolveSongRowBackfillWorkerDegree(processorCount);
         workerDegree = Math.Max(1, Math.Min(workerDegree, targetRows.Count - safeStartIndex));

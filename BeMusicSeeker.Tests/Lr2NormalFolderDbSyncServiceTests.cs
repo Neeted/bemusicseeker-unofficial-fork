@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.Models.Utils;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Ribbit.Util.Extensions;
 
@@ -447,6 +448,42 @@ public sealed class Lr2NormalFolderDbSyncServiceTests
             Assert.AreEqual(3, result.GeneratedCount);
             Assert.IsTrue(songDb.Table<LR2SongDB.folder>().Any(row => row.path == FolderPath(@"D:\BMS\Pack\Song")));
             Assert.IsFalse(songDb.Table<LR2SongDB.folder>().Any(row => row.path == FolderPath(@"D:\BMS\Ignored")));
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void DirectoryEnumeration_ResolvesSmallTargetSetDirectlyWithinRoots()
+    {
+        string tempDirectory = Path.Combine(Path.GetTempPath(), nameof(Lr2NormalFolderDbSyncServiceTests), Guid.NewGuid().ToString("N"));
+        try
+        {
+            string rootDirectory = Path.Combine(tempDirectory, "BMS");
+            string packDirectory = Path.Combine(rootDirectory, "Pack");
+            string outsideDirectory = Path.Combine(tempDirectory, "Outside");
+            Directory.CreateDirectory(packDirectory);
+            Directory.CreateDirectory(outsideDirectory);
+            DateTime rootTimestamp = new(2026, 6, 10, 1, 2, 3, DateTimeKind.Utc);
+            DateTime packTimestamp = rootTimestamp.AddMinutes(1);
+            Directory.SetLastWriteTimeUtc(rootDirectory, rootTimestamp);
+            Directory.SetLastWriteTimeUtc(packDirectory, packTimestamp);
+
+            IReadOnlyDictionary<string, RootFileEnumerationEntry> entries = Lr2FolderDirectoryEnumerationService.CreateEntries(
+                [rootDirectory],
+                [rootDirectory, packDirectory, outsideDirectory]);
+
+            Assert.AreEqual(2, entries.Count);
+            Assert.IsTrue(entries.TryGetValue(Normalize(rootDirectory), out RootFileEnumerationEntry rootEntry));
+            Assert.IsTrue(entries.TryGetValue(Normalize(packDirectory), out RootFileEnumerationEntry packEntry));
+            Assert.IsFalse(entries.ContainsKey(Normalize(outsideDirectory)));
+            Assert.AreEqual(rootTimestamp, rootEntry.LastWriteTimeUtc);
+            Assert.AreEqual(packTimestamp, packEntry.LastWriteTimeUtc);
         }
         finally
         {
