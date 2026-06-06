@@ -755,6 +755,7 @@ public sealed class MainWindowContextMenuResourceTests
     {
         string viewModelCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
         string settingDialogCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "SettingDialog.cs"));
+        string playlistCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "BMSPlaylist.cs"));
         string runtimeSync = ExtractBetween(
             viewModelCode,
             "private void ApplyRuntimeSearchRootsForCurrentMode()",
@@ -778,6 +779,10 @@ public sealed class MainWindowContextMenuResourceTests
             settingDialogCode,
             "private async void resyncLr2FullGenerationDataButtonClicked",
             "private async void detailTabItemBackupButtonClicked");
+        string manualResyncPlaylistMethod = ExtractBetween(
+            playlistCode,
+            "private async Task<int> ReOutputAllCustomFoldersForLr2FullGenerationDataSyncCoreAsync",
+            "private sealed class CustomFolderOutputProjection");
 
         StringAssert.Contains(runtimeSync, "ownerViewModel.files.SearchTargets = [.. lr2config.GetBMSSearchDirectories()];");
         StringAssert.Contains(runtimeSync, "ownerViewModel.files.SearchTargets = [.. GetStandaloneBmsRootPathsFromSettings()];");
@@ -789,8 +794,13 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(viewModelCode, "files?.SyncLr2BuiltinCustomFolderRows(reason);");
         StringAssert.Contains(viewModelCode, "files?.QueueLr2FullGenerationDataSync(reason, force: false, allowIncompleteToQueue: false);");
         StringAssert.Contains(viewModelCode, "public async Task RequestLr2FullGenerationDataSyncAsync(string reason, bool force)");
-        StringAssert.Contains(viewModelCode, "await tables.ReOutputAllCustomFoldersForLr2FullGenerationDataSyncAsync(reason);");
+        StringAssert.Contains(viewModelCode, "await tables.ReOutputAllCustomFoldersForLr2FullGenerationDataSyncAsync(");
+        StringAssert.Contains(viewModelCode, "files?.PublishLr2FullGenerationExternalStageProgress(");
         StringAssert.Contains(settingDialogCode, "await viewModel.RequestLr2FullGenerationDataSyncAsync(\"setting_dialog_manual_resync\", force: true);");
+        StringAssert.Contains(playlistCode, "SyncCustomFolderRowsBatch(materialization.OutputDirectories, materialization.SyncItems);");
+        Assert.IsFalse(
+            manualResyncPlaylistMethod.IndexOf("ReOutputCustomFolder(table)", StringComparison.Ordinal) >= 0,
+            "Manual LR2 generated-data sync must batch app-managed custom folder projection instead of running per-table physical reoutput and DB sync.");
         Assert.IsFalse(
             settingDialogCode.IndexOf("Task.Run(() => viewModel.RequestLr2FullGenerationDataSync", StringComparison.Ordinal) >= 0,
             "Manual LR2 generated-data sync must not run the UI-affine playlist projection on a background thread.");

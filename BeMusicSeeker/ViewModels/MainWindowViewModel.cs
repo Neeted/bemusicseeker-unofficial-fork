@@ -19976,7 +19976,13 @@ public class MainWindowViewModel : ViewModel
 
         if (tables != null)
         {
-            await tables.ReOutputAllCustomFoldersForLr2FullGenerationDataSyncAsync(reason);
+            await tables.ReOutputAllCustomFoldersForLr2FullGenerationDataSyncAsync(
+                reason,
+                (processed, total, tableName) => files?.PublishLr2FullGenerationExternalStageProgress(
+                    "playlist_materialization",
+                    processed,
+                    total,
+                    tableName));
         }
 
         files?.QueueLr2FullGenerationDataSync(reason, force);

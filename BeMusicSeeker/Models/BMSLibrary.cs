@@ -5621,6 +5621,29 @@ completeFileEnumerationOnce,
         return result;
     }
 
+    internal void PublishLr2FullGenerationExternalStageProgress(string stage, int processedCount, int totalCount, string detail = null)
+    {
+        BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
+        bool enabled = options.OperationModeLR2DB && options.EnableLR2SongDbFullGeneration;
+        if (!enabled)
+        {
+            return;
+        }
+
+        string signature = Lr2FullGenerationSignatureBuilder.Build(options);
+        int safeTotal = Math.Max(0, totalCount);
+        int safeProcessed = Math.Max(0, Math.Min(Math.Max(0, processedCount), safeTotal));
+        PublishLr2FullGenerationStatus(CreateRuntimeLr2FullGenerationStatus(
+            Lr2FullGenerationStatusKind.Running,
+            signature,
+            stage: stage,
+            processedCursor: safeProcessed,
+            totalCount: safeTotal,
+            lastError: detail,
+            stageProcessedCount: safeProcessed,
+            stageTotalCount: safeTotal));
+    }
+
     private void PublishLr2FullGenerationStatus(Lr2FullGenerationStatusSnapshot status)
     {
         lock (lockLr2FullGenerationStatus)

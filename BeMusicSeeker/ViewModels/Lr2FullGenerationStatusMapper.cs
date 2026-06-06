@@ -44,7 +44,7 @@ internal static class Lr2FullGenerationStatusMapper
             HasProgress = HasProgress(snapshot),
             HasWarningStatus = HasWarningStatus(snapshot.Status),
             CanRetry = CanRetry(snapshot),
-            CanCancel = CanCancel(snapshot.Status),
+            CanCancel = CanCancel(snapshot),
             CanCleanupStartupScanBlockers = CanCleanupStartupScanBlockers(snapshot),
             CheckedAt = checkedAt
         };
@@ -73,9 +73,10 @@ internal static class Lr2FullGenerationStatusMapper
             || kind == Lr2FullGenerationStatusKind.Cancelled;
     }
 
-    private static bool CanCancel(Lr2FullGenerationStatusKind kind)
+    private static bool CanCancel(Lr2FullGenerationStatusSnapshot snapshot)
     {
-        return kind == Lr2FullGenerationStatusKind.Running;
+        return snapshot?.Status == Lr2FullGenerationStatusKind.Running
+            && !string.Equals(snapshot.Stage, "playlist_materialization", StringComparison.Ordinal);
     }
 
     private static bool CanCleanupStartupScanBlockers(Lr2FullGenerationStatusSnapshot snapshot)

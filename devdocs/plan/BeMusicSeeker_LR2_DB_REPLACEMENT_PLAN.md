@@ -1645,8 +1645,11 @@ existence / mtime は意味的に揃える。
   派生 cache を再同期するためのもので、`maintenance` 全譜面再スキャンや `chart_info` sync とは別の機能として表示する。
   アプリ管理 playlist 出力は `.lr2folder` 実ファイルの有無だけを見ず、`playlist` / `playlist_entry` 正本から
   `.lr2folder` file と `folder` row を同じ projection で再 materialize する。
-  手動再同期は playlist materialization stage を先に進め、その stage の開始、table 単位進捗、完了を
-  performance log に出す。設定画面全体を同期的に無効化して queue 前の長時間処理を隠さない。
+  手動再同期は playlist materialization stage を先に進め、その stage では全対象 playlist の期待 projection を
+  batch 化し、物理 `.lr2folder` は差分だけ書き換え、LR2 `folder` row は単発 batch sync にまとめる。
+  table ごとに既存出力を削除して LR2 `folder` table を全読みする処理を繰り返さない。開始、table 単位 projection、
+  batch materialization / sync 完了を performance log と status bar に出す。設定画面全体を同期的に無効化して
+  queue 前の長時間処理を隠さない。
   既存 DB が壊れている場合も、通常 startup diff を重くするのではなく、この明示再同期または full generation sync で正常化する。
 - 完全生成設定は設定ダイアログの LR2 連携項目として表示する。既定値は LR2 連携モードの標準挙動に合わせて
   `true` とし、OFF から ON に変更して保存した場合は status 再評価を行い、未生成または contract mismatch の

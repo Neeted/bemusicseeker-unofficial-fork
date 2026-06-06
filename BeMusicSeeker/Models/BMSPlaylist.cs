@@ -2711,12 +2711,12 @@ public partial class BMSPlaylist : NotificationObject
             .GetResult();
     }
 
-    internal Task<int> ReOutputAllCustomFoldersForLr2FullGenerationDataSyncAsync(string reason)
+    internal Task<int> ReOutputAllCustomFoldersForLr2FullGenerationDataSyncAsync(string reason, Action<int, int, string> progressCallback = null)
     {
-        return ReOutputAllCustomFoldersForLr2FullGenerationDataSyncCoreAsync(reason, yieldBetweenTables: true);
+        return ReOutputAllCustomFoldersForLr2FullGenerationDataSyncCoreAsync(reason, yieldBetweenTables: true, progressCallback);
     }
 
-    private async Task<int> ReOutputAllCustomFoldersForLr2FullGenerationDataSyncCoreAsync(string reason, bool yieldBetweenTables)
+    private async Task<int> ReOutputAllCustomFoldersForLr2FullGenerationDataSyncCoreAsync(string reason, bool yieldBetweenTables, Action<int, int, string> progressCallback = null)
     {
         if (!Settings.Default.OperationModeLR2DB)
         {
@@ -2727,6 +2727,8 @@ public partial class BMSPlaylist : NotificationObject
             : [.. BMSTables.Where(table => table != null && !string.IsNullOrWhiteSpace(table.Output_dir))];
         int reOutputCount = 0;
         var stopwatch = Stopwatch.StartNew();
+        var projectionStopwatch = Stopwatch.StartNew();
+        var projections = new List<CustomFolderOutputProjection>();
         LogPlaylistPerformance("playlist_lr2_full_generation_data_resync start"
             + " reason=" + (reason ?? "unknown")
             + " tableCount=" + tablesSnapshot.Count);
@@ -2745,9 +2747,16 @@ public partial class BMSPlaylist : NotificationObject
                 + " total=" + tablesSnapshot.Count
                 + " name=" + QuoteLogValue(table?.name));
             EnsurePlaylistEntriesLoaded(table, "ReOutputAllCustomFoldersForLr2FullGenerationDataSync");
-            ReOutputCustomFolder(table);
-            reOutputCount++;
+            using (table.ReaderWriterLock.GetReaderGuard())
+            {
+                if (BMSTables.Contains(table))
+                {
+                    projections.Add(CreateCustomFolderOutputProjection(table));
+                    reOutputCount++;
+                }
+            }
             tableStopwatch.Stop();
+            progressCallback?.Invoke(index + 1, tablesSnapshot.Count, table?.name ?? string.Empty);
             LogPlaylistPerformance("playlist_lr2_full_generation_data_resync table_done"
                 + " reason=" + (reason ?? "unknown")
                 + " index=" + (index + 1)
@@ -2755,13 +2764,155 @@ public partial class BMSPlaylist : NotificationObject
                 + " name=" + QuoteLogValue(table?.name)
                 + " elapsedMs=" + tableStopwatch.ElapsedMilliseconds);
         }
+        projectionStopwatch.Stop();
+        var materializeStopwatch = Stopwatch.StartNew();
+        CustomFolderBatchMaterializationResult materialization = MaterializeCustomFolderOutputBatch(projections);
+        materializeStopwatch.Stop();
+        var syncStopwatch = Stopwatch.StartNew();
+        SyncCustomFolderRowsBatch(materialization.OutputDirectories, materialization.SyncItems);
+        syncStopwatch.Stop();
         stopwatch.Stop();
         LogPlaylistPerformance("playlist_lr2_full_generation_data_resync done"
             + " reason=" + (reason ?? "unknown")
             + " tableCount=" + tablesSnapshot.Count
             + " reOutputCount=" + reOutputCount
+            + " outputDirCount=" + materialization.OutputDirectories.Count
+            + " syncItemCount=" + materialization.SyncItems.Count
+            + " writtenFiles=" + materialization.WrittenFileCount
+            + " unchangedFiles=" + materialization.UnchangedFileCount
+            + " deletedFiles=" + materialization.DeletedFileCount
+            + " projectionMs=" + projectionStopwatch.ElapsedMilliseconds
+            + " materializeMs=" + materializeStopwatch.ElapsedMilliseconds
+            + " syncMs=" + syncStopwatch.ElapsedMilliseconds
             + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
         return reOutputCount;
+    }
+
+    private sealed class CustomFolderOutputProjection
+    {
+        public BMSTable Table { get; set; }
+
+        public string OutputDirectory { get; set; }
+
+        public IReadOnlyList<string> Texts { get; set; }
+    }
+
+    private sealed class CustomFolderBatchMaterializationResult
+    {
+        public List<string> OutputDirectories { get; } = [];
+
+        public List<Lr2FolderFileSyncItem> SyncItems { get; } = [];
+
+        public int WrittenFileCount { get; set; }
+
+        public int UnchangedFileCount { get; set; }
+
+        public int DeletedFileCount { get; set; }
+    }
+
+    private CustomFolderOutputProjection CreateCustomFolderOutputProjection(BMSTable table)
+    {
+        return new CustomFolderOutputProjection
+        {
+            Table = table,
+            OutputDirectory = GetCustomFolderOutputDirectory(table),
+            Texts = BuildCustomFolderTexts(table)
+        };
+    }
+
+    private CustomFolderBatchMaterializationResult MaterializeCustomFolderOutputBatch(IReadOnlyList<CustomFolderOutputProjection> projections)
+    {
+        var result = new CustomFolderBatchMaterializationResult();
+        var shiftJis = Encoding.GetEncoding("shift_jis");
+        foreach (CustomFolderOutputProjection projection in projections ?? [])
+        {
+            if (projection == null || string.IsNullOrWhiteSpace(projection.OutputDirectory))
+            {
+                continue;
+            }
+
+            string outputDir = projection.OutputDirectory;
+            result.OutputDirectories.Add(outputDir);
+            var expectedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            IReadOnlyList<string> texts = projection.Texts ?? [];
+            if (texts.Count > 0)
+            {
+                Directory.CreateDirectory(outputDir);
+            }
+
+            for (int index = 0; index < texts.Count; index++)
+            {
+                string text = texts[index] ?? string.Empty;
+                string filePath = Path.Combine(outputDir, $"{index:D4}.lr2folder");
+                expectedPaths.Add(filePath);
+                bool writeRequired = true;
+                if (File.Exists(filePath))
+                {
+                    string existingText = File.ReadAllText(filePath, shiftJis);
+                    writeRequired = !string.Equals(existingText, text, StringComparison.Ordinal);
+                }
+                if (writeRequired)
+                {
+                    File.WriteAllText(filePath, text, shiftJis);
+                    result.WrittenFileCount++;
+                }
+                else
+                {
+                    result.UnchangedFileCount++;
+                }
+
+                var syncItem = new Lr2FolderFileSyncItem
+                {
+                    FilePath = filePath,
+                    Definition = Lr2FolderFileProjection.ParseDefinition(ReadLinesFromText(text)),
+                    LastWriteTimeUtc = File.GetLastWriteTimeUtc(filePath)
+                };
+                ApplyCustomFolderSourceClassification(syncItem, projection.Table);
+                result.SyncItems.Add(syncItem);
+            }
+
+            if (Directory.Exists(outputDir))
+            {
+                foreach (string existingFile in Directory.EnumerateFiles(outputDir, "*.lr2folder", System.IO.SearchOption.TopDirectoryOnly))
+                {
+                    if (expectedPaths.Contains(existingFile))
+                    {
+                        continue;
+                    }
+                    File.Delete(existingFile);
+                    result.DeletedFileCount++;
+                }
+                if (!Directory.EnumerateFileSystemEntries(outputDir).Any())
+                {
+                    Directory.Delete(outputDir);
+                }
+            }
+        }
+
+        result.OutputDirectories.RemoveAll(string.IsNullOrWhiteSpace);
+        return result;
+    }
+
+    private List<string> BuildCustomFolderTexts(BMSTable bmsTable)
+    {
+        List<string> list = [];
+        foreach (Tuple<LR2SongDBExtended.playlist.CustomFolderType, Func<BMSTable, List<string>>> item in new List<Tuple<LR2SongDBExtended.playlist.CustomFolderType, Func<BMSTable, List<string>>>>
+        {
+            new(LR2SongDBExtended.playlist.CustomFolderType.UserFolder, makeCustomFolderTextsUserFolder),
+            new(LR2SongDBExtended.playlist.CustomFolderType.LevelFolder, makeCustomFolderTextsLevelFolder),
+            new(LR2SongDBExtended.playlist.CustomFolderType.AlphabetFolder, makeCustomFolderTextsAlphabetFolder),
+            new(LR2SongDBExtended.playlist.CustomFolderType.ClearFolder, makeCustomFolderTextsClearFolder),
+            new(LR2SongDBExtended.playlist.CustomFolderType.DJLevelFolder, makeCustomFolderTextsDJLevelFolder),
+            new(LR2SongDBExtended.playlist.CustomFolderType.CategoryAllFolder, makeCustomFolderTextsCategoryAllFolder),
+            new(LR2SongDBExtended.playlist.CustomFolderType.OtherFolder, makeCustomFolderTextsOtherFolder)
+        })
+        {
+            if ((item.Item1 & bmsTable.ignore_folder_output) == 0)
+            {
+                list.AddRange(item.Item2(bmsTable));
+            }
+        }
+        return [.. list];
     }
 
     private void reOutputCustomFolderFiles(BMSTable bmsTable)
@@ -2834,24 +2985,7 @@ public partial class BMSPlaylist : NotificationObject
     /// <param name="outputDir">出力先ディレクトリ。</param>
     private bool createCustomFolder(BMSTable bmsTable, string outputDir)
     {
-        List<string> list = [];
-        foreach (Tuple<LR2SongDBExtended.playlist.CustomFolderType, Func<BMSTable, List<string>>> item in new List<Tuple<LR2SongDBExtended.playlist.CustomFolderType, Func<BMSTable, List<string>>>>
-        {
-            new(LR2SongDBExtended.playlist.CustomFolderType.UserFolder, makeCustomFolderTextsUserFolder),
-            new(LR2SongDBExtended.playlist.CustomFolderType.LevelFolder, makeCustomFolderTextsLevelFolder),
-            new(LR2SongDBExtended.playlist.CustomFolderType.AlphabetFolder, makeCustomFolderTextsAlphabetFolder),
-            new(LR2SongDBExtended.playlist.CustomFolderType.ClearFolder, makeCustomFolderTextsClearFolder),
-            new(LR2SongDBExtended.playlist.CustomFolderType.DJLevelFolder, makeCustomFolderTextsDJLevelFolder),
-            new(LR2SongDBExtended.playlist.CustomFolderType.CategoryAllFolder, makeCustomFolderTextsCategoryAllFolder),
-            new(LR2SongDBExtended.playlist.CustomFolderType.OtherFolder, makeCustomFolderTextsOtherFolder)
-        })
-        {
-            if ((item.Item1 & bmsTable.ignore_folder_output) == 0)
-            {
-                list.AddRange(item.Item2(bmsTable));
-            }
-        }
-        list = [.. list];
+        List<string> list = BuildCustomFolderTexts(bmsTable);
         if (list.Count() == 0)
         {
             try
@@ -2961,6 +3095,34 @@ public partial class BMSPlaylist : NotificationObject
                 ScopeDirectories = [outputDir],
                 DirectoryRowScopeDirectories = [outputDir],
                 DirectoryRowGenerationScopeDirectories = CreateCustomFolderDirectoryRowGenerationScopes(outputDir),
+                AllowPrune = true
+            });
+        });
+    }
+
+    private void SyncCustomFolderRowsBatch(IReadOnlyCollection<string> outputDirs, IReadOnlyCollection<Lr2FolderFileSyncItem> items)
+    {
+        outputDirs = [.. (outputDirs ?? [])
+            .Where(directory => !string.IsNullOrWhiteSpace(directory))
+            .Distinct(StringComparer.OrdinalIgnoreCase)];
+        if (outputDirs.Count == 0 || string.IsNullOrWhiteSpace(lr2SongDBPath))
+        {
+            return;
+        }
+
+        IReadOnlyCollection<string> directoryRowGenerationScopes = [.. outputDirs
+            .SelectMany(CreateCustomFolderDirectoryRowGenerationScopes)
+            .Where(directory => !string.IsNullOrWhiteSpace(directory))
+            .Distinct(StringComparer.OrdinalIgnoreCase)];
+        ExecuteLr2FolderSync("playlist_lr2folder_batch_sync", delegate
+        {
+            using var lr2Song = new LR2SongDBExtended(lr2SongDBPath);
+            Lr2FolderFileDbSyncService.Sync(lr2Song, new Lr2FolderFileDbSyncRequest
+            {
+                Items = items ?? [],
+                ScopeDirectories = outputDirs,
+                DirectoryRowScopeDirectories = outputDirs,
+                DirectoryRowGenerationScopeDirectories = directoryRowGenerationScopes,
                 AllowPrune = true
             });
         });
