@@ -798,6 +798,82 @@ public sealed class BmsPlaylistUpdateTests
 
     [TestMethod]
     [TestCategory("Playlist")]
+    public void MissingCustomFolderOutputRepair_BatchesMissingTablesIntoSingleFolderSync()
+    {
+        bool previousOperationModeLr2Db = Settings.Default.OperationModeLR2DB;
+        string previousOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDir;
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string outputBaseDir = Path.Combine(tempDirectory, "CustomFolder");
+            Settings.Default.OperationModeLR2DB = true;
+            Settings.Default.LR2CustomFolderOutputBaseDir = outputBaseDir;
+            string songDbPath = CreateTempSongDbPath(tempDirectory);
+            BMSPlaylist.EnsureSchema(songDbPath);
+            using (var db = new LR2SongDBExtended(songDbPath))
+            {
+                db.CreateTable<LR2SongDB.folder>();
+            }
+            var firstTable = new BMSTable
+            {
+                playlist_id = 7501,
+                name = "MissingOne",
+                symbol = "M1",
+                Output_dir = "MissingOne",
+                entries =
+                [
+                    CreateEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Folder A")
+                ],
+                Folder_order = ["Folder A"]
+            };
+            var secondTable = new BMSTable
+            {
+                playlist_id = 7502,
+                name = "MissingTwo",
+                symbol = "M2",
+                Output_dir = "MissingTwo",
+                entries =
+                [
+                    CreateEntry("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "Folder B")
+                ],
+                Folder_order = ["Folder B"]
+            };
+            var playlist = new BMSPlaylist(songDbPath)
+            {
+                BMSTables = new DispatcherCollection<BMSTable>(
+                    new ObservableCollection<BMSTable>(new[] { firstTable, secondTable }),
+                    Dispatcher.CurrentDispatcher)
+            };
+            List<string> operations = [];
+            playlist.Lr2FolderSyncMutationGuard = operations.Add;
+
+            int repairedCount = InvokeRepairMissingCustomFolderOutputsAfterHydration(playlist, "test");
+
+            Assert.AreEqual(2, repairedCount);
+            CollectionAssert.AreEqual(new[] { "playlist_lr2folder_batch_sync" }, operations);
+            Assert.IsTrue(File.Exists(Path.Combine(outputBaseDir, "MissingOne", "0000.lr2folder")));
+            Assert.IsTrue(File.Exists(Path.Combine(outputBaseDir, "MissingTwo", "0000.lr2folder")));
+            using var verify = new LR2SongDBExtended(songDbPath);
+            Assert.IsTrue(verify.Table<LR2SongDB.folder>().ToList().Count(row =>
+                row.type == 2
+                && row.path != null
+                && row.path.StartsWith(outputBaseDir, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(Path.GetExtension(row.path), ".lr2folder", StringComparison.OrdinalIgnoreCase)) >= 2);
+        }
+        finally
+        {
+            Settings.Default.OperationModeLR2DB = previousOperationModeLr2Db;
+            Settings.Default.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
     public void CommitBMSTableEntry_ReoutputsLr2FolderRowsForLevelProjection()
     {
         bool previousOperationModeLr2Db = Settings.Default.OperationModeLR2DB;
@@ -1306,6 +1382,13 @@ public sealed class BmsPlaylistUpdateTests
         MethodInfo methodInfo = typeof(BMSPlaylist).GetMethod("SyncCustomFolderRows", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.IsNotNull(methodInfo);
         methodInfo.Invoke(playlist, [outputDir, items]);
+    }
+
+    private static int InvokeRepairMissingCustomFolderOutputsAfterHydration(BMSPlaylist playlist, string reason)
+    {
+        MethodInfo methodInfo = typeof(BMSPlaylist).GetMethod("RepairMissingCustomFolderOutputsAfterHydration", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(methodInfo);
+        return (int)methodInfo.Invoke(playlist, [reason]);
     }
 
     private static BMSTableEntry CreateEntry(string md5, string folder)

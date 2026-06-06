@@ -163,6 +163,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
             return;
         }
         settingDialog.Visibility = Visibility.Hidden;
+        await Dispatcher.Yield(DispatcherPriority.Background);
         Control control = sender as Control;
         if (control != null)
         {

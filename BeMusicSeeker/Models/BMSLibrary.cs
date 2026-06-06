@@ -5582,6 +5582,52 @@ completeFileEnumerationOnce,
         return status;
     }
 
+    internal bool TryRunLr2FullGenerationDataPreparation(string reason, Action prepareGeneratedData)
+    {
+        if (prepareGeneratedData == null)
+        {
+            return false;
+        }
+
+        BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
+        bool enabled = options.OperationModeLR2DB && options.EnableLR2SongDbFullGeneration;
+        if (!enabled)
+        {
+            return false;
+        }
+
+        lock (lockLr2FullGenerationSync)
+        {
+            if (_Lr2FullGenerationSyncRunning || lr2FullGenerationSyncPrepareInProgress)
+            {
+                LogInstallPerformance("lr2_full_generation_data_prepare skipped reason=" + (reason ?? "unknown")
+                    + " stage=" + (Lr2FullGenerationSyncStage ?? string.Empty)
+                    + " requestedVersion=" + Lr2FullGenerationSyncRequestedVersion
+                    + " preparing=" + lr2FullGenerationSyncPrepareInProgress.ToString().ToLowerInvariant());
+                return false;
+            }
+            lr2FullGenerationSyncPrepareInProgress = true;
+        }
+
+        try
+        {
+            LogInstallPerformance("lr2_full_generation_data_prepare start reason=" + (reason ?? "unknown"));
+            prepareGeneratedData();
+            LogInstallPerformance("lr2_full_generation_data_prepare done reason=" + (reason ?? "unknown"));
+            return true;
+        }
+        catch (Exception ex)
+        {
+            LogInstallPerformance("lr2_full_generation_data_prepare failed reason=" + (reason ?? "unknown")
+                + " message=" + ex.Message);
+            throw;
+        }
+        finally
+        {
+            ClearLr2FullGenerationSyncPrepareReservation();
+        }
+    }
+
     internal Lr2StartupScanBlockerCleanupResult CleanupLr2FullGenerationStartupScanBlockerFolderRows(string reason)
     {
         if (Lr2FullGenerationSyncRunning)

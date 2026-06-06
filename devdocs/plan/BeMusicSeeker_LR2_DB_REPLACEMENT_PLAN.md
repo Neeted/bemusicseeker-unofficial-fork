@@ -1650,6 +1650,8 @@ existence / mtime は意味的に揃える。
   table ごとに既存出力を削除して LR2 `folder` table を全読みする処理を繰り返さない。開始、table 単位 projection、
   batch materialization / sync 完了を performance log と status bar に出す。設定画面全体を同期的に無効化して
   queue 前の長時間処理を隠さない。
+  起動時の playlist entries hydration 後に検出した物理 `.lr2folder` 欠損も、同じ batch materialization /
+  単発 LR2 `folder` row sync で修復する。`playlist_update` の per-table callback から DB sync を繰り返す経路は使わない。
   既存 DB が壊れている場合も、通常 startup diff を重くするのではなく、この明示再同期または full generation sync で正常化する。
 - 完全生成設定は設定ダイアログの LR2 連携項目として表示する。既定値は LR2 連携モードの標準挙動に合わせて
   `true` とし、OFF から ON に変更して保存した場合は status 再評価を行い、未生成または contract mismatch の

@@ -790,20 +790,30 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsTrue(rootAdd.IndexOf("ApplyRuntimeSearchRootsForCurrentMode();", StringComparison.Ordinal) < rootAdd.IndexOf("ownerViewModel.ReloadFileDiff();", StringComparison.Ordinal));
         StringAssert.Contains(saveCore, "ApplyRuntimeSearchRootsForCurrentMode();");
         StringAssert.Contains(viewModelCode, "SyncLr2FullGenerationFolderDataAfterSettingsChange(\"SettingDialog.SaveSettings\")");
-        StringAssert.Contains(viewModelCode, "tables?.ReOutputAllCustomFoldersForLr2FullGenerationDataSync(reason);");
+        StringAssert.Contains(viewModelCode, "private void ReOutputAllCustomFoldersForLr2GeneratedDataSync(string reason)");
+        StringAssert.Contains(viewModelCode, "tables?.ReOutputAllCustomFoldersForLr2FullGenerationDataSync(");
         StringAssert.Contains(viewModelCode, "files?.SyncLr2BuiltinCustomFolderRows(reason);");
         StringAssert.Contains(viewModelCode, "files?.QueueLr2FullGenerationDataSync(reason, force: false, allowIncompleteToQueue: false);");
         StringAssert.Contains(viewModelCode, "public async Task RequestLr2FullGenerationDataSyncAsync(string reason, bool force)");
-        StringAssert.Contains(viewModelCode, "await tables.ReOutputAllCustomFoldersForLr2FullGenerationDataSyncAsync(");
+        StringAssert.Contains(viewModelCode, "files?.QueueLr2FullGenerationDataSync(");
+        StringAssert.Contains(viewModelCode, "() => ReOutputAllCustomFoldersForLr2GeneratedDataSync(reason)");
+        StringAssert.Contains(viewModelCode, "files?.TryRunLr2FullGenerationDataPreparation(");
         StringAssert.Contains(viewModelCode, "files?.PublishLr2FullGenerationExternalStageProgress(");
         StringAssert.Contains(settingDialogCode, "await viewModel.RequestLr2FullGenerationDataSyncAsync(\"setting_dialog_manual_resync\", force: true);");
-        StringAssert.Contains(playlistCode, "SyncCustomFolderRowsBatch(materialization.OutputDirectories, materialization.SyncItems);");
+        StringAssert.Contains(manualResyncClickHandler, "settingDialog.Visibility = Visibility.Hidden;");
+        StringAssert.Contains(manualResyncClickHandler, "await Dispatcher.Yield(DispatcherPriority.Background);");
+        StringAssert.Contains(playlistCode, "RepairMissingCustomFolderOutputsAfterHydration(reason)");
+        StringAssert.Contains(playlistCode, "Lr2FolderFileDbSyncResult syncResult = SyncCustomFolderRowsBatch(materialization.OutputDirectories, materialization.SyncItems);");
+        Assert.IsFalse(
+            playlistCode.Contains("CreateCustomFolderOutputUpdateCallback"),
+            "Startup playlist hydration must not run per-table custom folder output callbacks; missing .lr2folder repair must use the batch materialization path.");
         Assert.IsFalse(
             manualResyncPlaylistMethod.IndexOf("ReOutputCustomFolder(table)", StringComparison.Ordinal) >= 0,
             "Manual LR2 generated-data sync must batch app-managed custom folder projection instead of running per-table physical reoutput and DB sync.");
-        Assert.IsFalse(
-            settingDialogCode.IndexOf("Task.Run(() => viewModel.RequestLr2FullGenerationDataSync", StringComparison.Ordinal) >= 0,
-            "Manual LR2 generated-data sync must not run the UI-affine playlist projection on a background thread.");
+        Assert.IsTrue(
+            viewModelCode.IndexOf("() => ReOutputAllCustomFoldersForLr2GeneratedDataSync(reason)", StringComparison.Ordinal)
+            < viewModelCode.IndexOf("files?.QueueLr2FullGenerationDataSync(reason, force: false, allowIncompleteToQueue: false);", StringComparison.Ordinal),
+            "LR2 generated-data preparation must stay behind the LR2 preparation/queue gate instead of running as an unguarded pre-step.");
         Assert.IsFalse(
             manualResyncClickHandler.IndexOf("settingDialogRootGrid.IsEnabled = false;", StringComparison.Ordinal) >= 0,
             "Manual LR2 generated-data sync must not disable the entire settings dialog while playlist projection is running.");

@@ -102,6 +102,8 @@ internal static class Lr2FolderFileDbSyncService
             request.DirectoryRowGenerationScopeDirectories?.Count > 0
                 ? request.DirectoryRowGenerationScopeDirectories
                 : request.DirectoryRowScopeDirectories;
+        DirectoryScopeMatcher directoryRowGenerationScopeMatcher =
+            DirectoryScopeMatcher.Create(directoryRowGenerationScopeDirectories);
 
         foreach (Lr2FolderFileSyncItem item in request.Items ?? [])
         {
@@ -130,7 +132,7 @@ internal static class Lr2FolderFileDbSyncService
                 UpsertParentDirectoryRows(
                     item,
                     databasePath,
-                    directoryRowGenerationScopeDirectories,
+                    directoryRowGenerationScopeMatcher,
                     existingRowsByPath,
                     request.GeneratedAtUtc,
                     generatedPathsByKey,
@@ -178,7 +180,7 @@ internal static class Lr2FolderFileDbSyncService
             UpsertParentDirectoryRows(
                 item,
                 databasePath,
-                directoryRowGenerationScopeDirectories,
+                directoryRowGenerationScopeMatcher,
                 existingRowsByPath,
                 request.GeneratedAtUtc,
                 generatedPathsByKey,
@@ -219,7 +221,7 @@ internal static class Lr2FolderFileDbSyncService
     private static void UpsertParentDirectoryRows(
         Lr2FolderFileSyncItem item,
         string databasePath,
-        IEnumerable<string> directoryRowScopeDirectories,
+        DirectoryScopeMatcher directoryRowScopeMatcher,
         IReadOnlyDictionary<string, LR2SongDB.folder> existingRowsByPath,
         DateTime generatedAtUtc,
         IDictionary<string, string> generatedPathsByKey,
@@ -229,13 +231,13 @@ internal static class Lr2FolderFileDbSyncService
         foreach (ParentDirectoryRowTarget parentTarget in CreateParentDirectoryRowTargets(
             item,
             databasePath,
-            directoryRowScopeDirectories))
+            directoryRowScopeMatcher))
         {
             if (!generatedParentDirectoryKeys.Add(parentTarget.DatabaseDirectory)
                 || !TryCreateParentDirectoryRow(
                     parentTarget.DatabaseDirectory,
                     parentTarget.PhysicalDirectory,
-                    directoryRowScopeDirectories,
+                    directoryRowScopeMatcher,
                     existingRowsByPath,
                     generatedAtUtc,
                     out LR2SongDB.folder parentRow))
@@ -305,14 +307,8 @@ internal static class Lr2FolderFileDbSyncService
         IEnumerable<string> directoryRowScopeDirectories,
         IEnumerable<string> scopePaths)
     {
-        List<string> directories = [.. (scopeDirectories ?? [])
-            .Select(NormalizeScopeDirectory)
-            .Where(path => !string.IsNullOrWhiteSpace(path))
-            .Distinct(PathComparer)];
-        List<string> directoryRowDirectories = [.. (directoryRowScopeDirectories ?? [])
-            .Select(NormalizeScopeDirectory)
-            .Where(path => !string.IsNullOrWhiteSpace(path))
-            .Distinct(PathComparer)];
+        DirectoryScopeMatcher scopeMatcher = DirectoryScopeMatcher.Create(scopeDirectories);
+        DirectoryScopeMatcher directoryRowScopeMatcher = DirectoryScopeMatcher.Create(directoryRowScopeDirectories);
         var explicitPaths = new HashSet<string>(
             (scopePaths ?? []).Select(NormalizeFilePath).Where(path => !string.IsNullOrWhiteSpace(path)),
             PathComparer);
@@ -327,7 +323,7 @@ internal static class Lr2FolderFileDbSyncService
             }
 
             bool isLr2FolderPath = IsLr2FolderPath(path);
-            bool isDirectoryRowScopePath = directoryRowDirectories.Any(directory => IsSameOrDescendantForScope(path, directory));
+            bool isDirectoryRowScopePath = directoryRowScopeMatcher.Contains(path);
             if (!isLr2FolderPath && !isDirectoryRowScopePath)
             {
                 continue;
@@ -347,7 +343,7 @@ internal static class Lr2FolderFileDbSyncService
             if ((generatedPathsByKey != null
                     && generatedPathsByKey.ContainsKey(path))
                 || explicitPaths.Contains(path)
-                || directories.Any(directory => IsSameOrDescendantForScope(path, directory))
+                || scopeMatcher.Contains(path)
                 || isDirectoryRowScopePath)
             {
                 deletePaths.Add(row.path);
@@ -360,7 +356,7 @@ internal static class Lr2FolderFileDbSyncService
     private static bool TryCreateParentDirectoryRow(
         string databaseDirectory,
         string physicalDirectory,
-        IEnumerable<string> directoryRowScopeDirectories,
+        DirectoryScopeMatcher directoryRowScopeMatcher,
         IReadOnlyDictionary<string, LR2SongDB.folder> existingRowsByPath,
         DateTime generatedAtUtc,
         out LR2SongDB.folder row)
@@ -389,7 +385,7 @@ internal static class Lr2FolderFileDbSyncService
             return false;
         }
 
-        string parentHash = TryComputeParentDirectoryHash(databaseDirectory, isKnownRelativeLr2Directory, directoryRowScopeDirectories);
+        string parentHash = TryComputeParentDirectoryHash(databaseDirectory, isKnownRelativeLr2Directory, directoryRowScopeMatcher);
         if (string.IsNullOrWhiteSpace(parentHash))
         {
             return false;
@@ -486,26 +482,119 @@ internal static class Lr2FolderFileDbSyncService
         return null;
     }
 
-    private static bool IsSameOrDescendantForScope(string path, string scopeDirectory)
+    private sealed class DirectoryScopeMatcher
     {
-        if (string.IsNullOrWhiteSpace(path) || string.IsNullOrWhiteSpace(scopeDirectory))
+        private static readonly DirectoryScopeMatcher Empty = new([]);
+
+        private readonly List<string> scopes;
+
+        private readonly HashSet<string> roots;
+
+        private DirectoryScopeMatcher(List<string> scopes)
         {
+            this.scopes = scopes ?? [];
+            roots = new HashSet<string>(this.scopes, PathComparer);
+        }
+
+        public static DirectoryScopeMatcher Create(IEnumerable<string> scopeDirectories)
+        {
+            List<string> normalizedScopes = [.. (scopeDirectories ?? [])
+                .Select(NormalizeScopeDirectory)
+                .Where(path => !string.IsNullOrWhiteSpace(path))
+                .Distinct(PathComparer)
+                .OrderBy(path => path.Length)];
+            return normalizedScopes.Count == 0
+                ? Empty
+                : new DirectoryScopeMatcher(normalizedScopes);
+        }
+
+        public bool Contains(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path) || scopes.Count == 0)
+            {
+                return false;
+            }
+
+            string normalizedPath = NormalizePathForScopeComparison(path);
+            if (string.IsNullOrWhiteSpace(normalizedPath))
+            {
+                return false;
+            }
+
+            string current = normalizedPath;
+            while (!string.IsNullOrWhiteSpace(current))
+            {
+                if (roots.Contains(current))
+                {
+                    return true;
+                }
+                string parent = GetParentPathForScopeComparison(current);
+                if (string.IsNullOrWhiteSpace(parent) || string.Equals(parent, current, StringComparison.OrdinalIgnoreCase))
+                {
+                    break;
+                }
+                current = parent;
+            }
             return false;
         }
 
-        if (Path.IsPathRooted(scopeDirectory))
+        public bool ContainsRoot(string directory)
         {
-            return Lr2FolderPath.IsSameOrDescendant(path, scopeDirectory);
+            if (string.IsNullOrWhiteSpace(directory) || roots.Count == 0)
+            {
+                return false;
+            }
+
+            string normalizedDirectory = NormalizeScopeDirectory(directory);
+            return !string.IsNullOrWhiteSpace(normalizedDirectory) && roots.Contains(normalizedDirectory);
         }
 
-        string normalizedPath = path.Trim()
-            .Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar)
-            .TrimEnd(Path.DirectorySeparatorChar);
-        string normalizedScope = scopeDirectory.Trim()
-            .Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar)
-            .TrimEnd(Path.DirectorySeparatorChar);
-        return string.Equals(normalizedPath, normalizedScope, StringComparison.OrdinalIgnoreCase)
-            || normalizedPath.StartsWith(normalizedScope + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+        private static string NormalizePathForScopeComparison(string path)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(path))
+                {
+                    return null;
+                }
+                if (Path.IsPathRooted(path))
+                {
+                    return Lr2FolderPath.NormalizeDirectoryPath(path);
+                }
+                return path.Trim()
+                    .Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar)
+                    .TrimEnd(Path.DirectorySeparatorChar);
+            }
+            catch (Exception ex) when (ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException)
+            {
+                return null;
+            }
+        }
+
+        private static string GetParentPathForScopeComparison(string normalizedPath)
+        {
+            if (string.IsNullOrWhiteSpace(normalizedPath))
+            {
+                return null;
+            }
+
+            try
+            {
+                if (Path.IsPathRooted(normalizedPath))
+                {
+                    return Lr2FolderPath.NormalizeDirectoryPath(Path.GetDirectoryName(normalizedPath));
+                }
+
+                int separatorIndex = normalizedPath.LastIndexOf(Path.DirectorySeparatorChar);
+                return separatorIndex <= 0
+                    ? null
+                    : normalizedPath.Substring(0, separatorIndex);
+            }
+            catch (Exception ex) when (ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException)
+            {
+                return null;
+            }
+        }
     }
 
     private static bool IsKnownRelativeLr2FolderDirectory(string directoryPath)
@@ -523,15 +612,15 @@ internal static class Lr2FolderFileDbSyncService
     private static List<ParentDirectoryRowTarget> CreateParentDirectoryRowTargets(
         Lr2FolderFileSyncItem item,
         string databasePath,
-        IEnumerable<string> directoryRowScopeDirectories)
+        DirectoryScopeMatcher directoryRowScopeMatcher)
     {
         var targets = new List<ParentDirectoryRowTarget>();
         string databaseDirectory = NormalizeParentDirectoryPath(databasePath);
         string physicalDirectory = NormalizePhysicalParentDirectoryPath(item?.FilePath);
         while (!string.IsNullOrWhiteSpace(databaseDirectory)
             && !string.IsNullOrWhiteSpace(physicalDirectory)
-            && IsInDirectoryRowScope(databaseDirectory, directoryRowScopeDirectories)
-            && !IsDirectoryRowScopeRoot(databaseDirectory, directoryRowScopeDirectories))
+            && directoryRowScopeMatcher.Contains(databaseDirectory)
+            && !directoryRowScopeMatcher.ContainsRoot(databaseDirectory))
         {
             targets.Add(new ParentDirectoryRowTarget(databaseDirectory, physicalDirectory));
             databaseDirectory = NormalizeParentDirectoryPath(databaseDirectory);
@@ -546,44 +635,6 @@ internal static class Lr2FolderFileDbSyncService
         public string DatabaseDirectory { get; } = databaseDirectory;
 
         public string PhysicalDirectory { get; } = physicalDirectory;
-    }
-
-    private static bool IsInDirectoryRowScope(string directory, IEnumerable<string> directoryRowScopeDirectories)
-    {
-        if (string.IsNullOrWhiteSpace(directory))
-        {
-            return false;
-        }
-
-        foreach (string scopeDirectory in directoryRowScopeDirectories ?? [])
-        {
-            string normalizedScope = NormalizeScopeDirectory(scopeDirectory);
-            if (!string.IsNullOrWhiteSpace(normalizedScope)
-                && IsSameOrDescendantForScope(directory, normalizedScope))
-            {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private static bool IsDirectoryRowScopeRoot(string directory, IEnumerable<string> directoryRowScopeDirectories)
-    {
-        if (string.IsNullOrWhiteSpace(directory))
-        {
-            return false;
-        }
-
-        foreach (string scopeDirectory in directoryRowScopeDirectories ?? [])
-        {
-            string normalizedScope = NormalizeScopeDirectory(scopeDirectory);
-            if (!string.IsNullOrWhiteSpace(normalizedScope)
-                && string.Equals(NormalizeScopeDirectory(directory), normalizedScope, StringComparison.OrdinalIgnoreCase))
-            {
-                return true;
-            }
-        }
-        return false;
     }
 
     private static string NormalizeParentDirectoryPath(string databasePath)
@@ -687,7 +738,7 @@ internal static class Lr2FolderFileDbSyncService
     private static string TryComputeParentDirectoryHash(
         string directory,
         bool isKnownRelativeLr2Directory,
-        IEnumerable<string> directoryRowScopeDirectories)
+        DirectoryScopeMatcher directoryRowScopeMatcher)
     {
         try
         {
@@ -697,7 +748,7 @@ internal static class Lr2FolderFileDbSyncService
                 return null;
             }
 
-            if (IsDirectoryRowScopeRoot(parentDirectory, directoryRowScopeDirectories)
+            if (directoryRowScopeMatcher.ContainsRoot(parentDirectory)
                 || (isKnownRelativeLr2Directory && IsKnownRelativeLr2FolderDirectoryRoot(parentDirectory)))
             {
                 return Lr2SongFolderParentNormalizer.RootParentHash;

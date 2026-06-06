@@ -19961,10 +19961,13 @@ public class MainWindowViewModel : ViewModel
         {
             return;
         }
-        files?.QueueLr2FullGenerationDataSync(
-            reason,
-            force,
-            () => tables?.ReOutputAllCustomFoldersForLr2FullGenerationDataSync(reason));
+        Task.Run(delegate
+        {
+            files?.QueueLr2FullGenerationDataSync(
+                reason,
+                force,
+                () => ReOutputAllCustomFoldersForLr2GeneratedDataSync(reason));
+        }).Logging("RequestLr2FullGenerationDataSync");
     }
 
     public async Task RequestLr2FullGenerationDataSyncAsync(string reason, bool force)
@@ -19974,18 +19977,14 @@ public class MainWindowViewModel : ViewModel
             return;
         }
 
-        if (tables != null)
+        await Task.Run(async delegate
         {
-            await tables.ReOutputAllCustomFoldersForLr2FullGenerationDataSyncAsync(
+            files?.QueueLr2FullGenerationDataSync(
                 reason,
-                (processed, total, tableName) => files?.PublishLr2FullGenerationExternalStageProgress(
-                    "playlist_materialization",
-                    processed,
-                    total,
-                    tableName));
-        }
-
-        files?.QueueLr2FullGenerationDataSync(reason, force);
+                force,
+                () => ReOutputAllCustomFoldersForLr2GeneratedDataSync(reason));
+            await Task.CompletedTask.ConfigureAwait(false);
+        }).ConfigureAwait(false);
     }
 
     public void SyncLr2FullGenerationFolderDataAfterSettingsChange(string reason)
@@ -19995,9 +19994,28 @@ public class MainWindowViewModel : ViewModel
             return;
         }
 
-        tables?.ReOutputAllCustomFoldersForLr2FullGenerationDataSync(reason);
-        files?.SyncLr2BuiltinCustomFolderRows(reason);
-        files?.QueueLr2FullGenerationDataSync(reason, force: false, allowIncompleteToQueue: false);
+        Task.Run(delegate
+        {
+            files?.TryRunLr2FullGenerationDataPreparation(
+                reason,
+                () =>
+                {
+                    ReOutputAllCustomFoldersForLr2GeneratedDataSync(reason);
+                    files?.SyncLr2BuiltinCustomFolderRows(reason);
+                });
+            files?.QueueLr2FullGenerationDataSync(reason, force: false, allowIncompleteToQueue: false);
+        }).Logging("SyncLr2FullGenerationFolderDataAfterSettingsChange");
+    }
+
+    private void ReOutputAllCustomFoldersForLr2GeneratedDataSync(string reason)
+    {
+        tables?.ReOutputAllCustomFoldersForLr2FullGenerationDataSync(
+            reason,
+            (processed, total, tableName) => files?.PublishLr2FullGenerationExternalStageProgress(
+                "playlist_materialization",
+                processed,
+                total,
+                tableName));
     }
 
     public void CancelLr2FullGenerationSync()
