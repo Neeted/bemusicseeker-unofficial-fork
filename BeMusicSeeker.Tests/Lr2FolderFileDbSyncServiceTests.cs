@@ -88,6 +88,62 @@ public sealed class Lr2FolderFileDbSyncServiceTests
     }
 
     [TestMethod]
+    public void Sync_PreservesUnchangedRowsWithoutDefinitionParse()
+    {
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            using var songDb = new LR2SongDBExtended(songDbPath);
+            songDb.CreateTable<LR2SongDB.folder>();
+            string outputDirectory = Path.GetFullPath(@"D:\BMS\#BeMusicSeeker");
+            string currentPath = Path.Combine(outputDirectory, "0000.lr2folder");
+            string stalePath = Path.Combine(outputDirectory, "0001.lr2folder");
+            DateTime timestamp = new(2026, 6, 10, 1, 2, 3, DateTimeKind.Utc);
+            songDb.InsertOrReplace(new LR2SongDB.folder
+            {
+                path = currentPath,
+                title = "Current",
+                type = 2,
+                date = timestamp.ToUnixtime(),
+                adddate = 12345
+            }, typeof(LR2SongDB.folder));
+            songDb.InsertOrReplace(new LR2SongDB.folder
+            {
+                path = stalePath,
+                title = "Stale",
+                type = 2
+            }, typeof(LR2SongDB.folder));
+
+            Lr2FolderFileDbSyncResult result = Lr2FolderFileDbSyncService.Sync(songDb, new Lr2FolderFileDbSyncRequest
+            {
+                Items =
+                [
+                    new Lr2FolderFileSyncItem
+                    {
+                        FilePath = currentPath,
+                        LastWriteTimeUtc = timestamp,
+                        Definition = null,
+                        PreserveExistingRowOnly = true
+                    }
+                ],
+                ScopeDirectories = [outputDirectory],
+                ScopePaths = [currentPath],
+                GeneratedAtUtc = timestamp.AddDays(1),
+                AllowPrune = true
+            });
+
+            Assert.AreEqual(1, result.ItemCount);
+            Assert.AreEqual(0, result.GeneratedCount);
+            Assert.AreEqual(1, result.PreservedCount);
+            Assert.AreEqual(0, result.UpsertedCount);
+            Assert.AreEqual(1, result.DeletedCount);
+            LR2SongDB.folder current = songDb.Table<LR2SongDB.folder>().Single(row => row.path == currentPath);
+            Assert.AreEqual("Current", current.title);
+            Assert.AreEqual(12345, current.adddate);
+            Assert.AreEqual(0, songDb.Table<LR2SongDB.folder>().Count(row => row.path == stalePath));
+        });
+    }
+
+    [TestMethod]
     public void Sync_DoesNotPruneRowsUnlessAllowed()
     {
         WithTemporarySongDb(delegate (string songDbPath)

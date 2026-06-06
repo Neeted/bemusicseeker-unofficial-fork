@@ -22,6 +22,8 @@ internal sealed class Lr2FolderFileSyncItem
     public int FolderType { get; set; } = 2;
 
     public string ParentHash { get; set; }
+
+    public bool PreserveExistingRowOnly { get; set; }
 }
 
 internal sealed class Lr2FolderFileDbSyncRequest
@@ -44,6 +46,7 @@ internal sealed class Lr2FolderFileDbSyncResult(
     int generatedCount,
     int upsertedCount,
     int deletedCount,
+    int preservedCount,
     int skippedUnsupportedPathCount,
     int skippedMissingMetadataCount,
     long elapsedMs)
@@ -55,6 +58,8 @@ internal sealed class Lr2FolderFileDbSyncResult(
     public int UpsertedCount { get; } = upsertedCount;
 
     public int DeletedCount { get; } = deletedCount;
+
+    public int PreservedCount { get; } = preservedCount;
 
     public int SkippedUnsupportedPathCount { get; } = skippedUnsupportedPathCount;
 
@@ -88,6 +93,7 @@ internal static class Lr2FolderFileDbSyncService
         var replaceDeletePaths = new List<string>();
         int itemCount = 0;
         int generatedCount = 0;
+        int preservedCount = 0;
         int skippedUnsupportedPathCount = 0;
         int skippedMissingMetadataCount = 0;
 
@@ -109,6 +115,18 @@ internal static class Lr2FolderFileDbSyncService
             if (item.FolderType == 1 || IsNormalDirectoryRow(existingRow))
             {
                 skippedUnsupportedPathCount++;
+                continue;
+            }
+            if (item.PreserveExistingRowOnly && existingRow != null)
+            {
+                preservedCount++;
+                generatedPathsByKey[databasePath] = databasePath;
+                MarkParentDirectoryTargetsAsGenerated(
+                    item,
+                    databasePath,
+                    request.DirectoryRowScopeDirectories,
+                    generatedPathsByKey,
+                    generatedParentDirectoryKeys);
                 continue;
             }
 
@@ -200,9 +218,32 @@ internal static class Lr2FolderFileDbSyncService
             generatedCount,
             writeResult.UpsertedCount,
             writeResult.DeletedCount,
+            preservedCount,
             skippedUnsupportedPathCount,
             skippedMissingMetadataCount,
             stopwatch.ElapsedMilliseconds);
+    }
+
+    private static void MarkParentDirectoryTargetsAsGenerated(
+        Lr2FolderFileSyncItem item,
+        string databasePath,
+        IEnumerable<string> directoryRowScopeDirectories,
+        IDictionary<string, string> generatedPathsByKey,
+        ISet<string> generatedParentDirectoryKeys)
+    {
+        foreach (ParentDirectoryRowTarget parentTarget in CreateParentDirectoryRowTargets(
+            item,
+            databasePath,
+            directoryRowScopeDirectories))
+        {
+            if (!generatedParentDirectoryKeys.Add(parentTarget.DatabaseDirectory)
+                || !TryCreateDirectoryRowPath(parentTarget.DatabaseDirectory, out string rowPath, out _)
+                || string.IsNullOrWhiteSpace(rowPath))
+            {
+                continue;
+            }
+            generatedPathsByKey[rowPath] = rowPath;
+        }
     }
 
     private static Dictionary<string, LR2SongDB.folder> CreateExistingRowMap(IEnumerable<LR2SongDB.folder> existingRows)

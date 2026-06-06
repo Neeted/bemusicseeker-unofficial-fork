@@ -1316,7 +1316,8 @@ internal static class Lr2FullGenerationBackfillService
     internal static Lr2FolderFileSyncItemsResult CreateLr2FolderFileSyncItems(
         IEnumerable<string> filePaths,
         Lr2FullGenerationBackfillRequest request,
-        IReadOnlyDictionary<string, RootFileEnumerationEntry> entriesByPath = null)
+        IReadOnlyDictionary<string, RootFileEnumerationEntry> entriesByPath = null,
+        Func<string, int?> existingDateResolver = null)
     {
         var items = new List<Lr2FolderFileSyncItem>();
         bool hasReadFailures = false;
@@ -1328,7 +1329,7 @@ internal static class Lr2FullGenerationBackfillService
             }
 
             RootFileEnumerationEntry entry = ResolveEnumerationEntry(entriesByPath, filePath);
-            Lr2FolderFileSyncItem item = CreateLr2FolderFileSyncItem(filePath, request, entry);
+            Lr2FolderFileSyncItem item = CreateLr2FolderFileSyncItem(filePath, request, entry, existingDateResolver);
             if (item.LastWriteTimeUtc == null)
             {
                 hasReadFailures = true;
@@ -1370,7 +1371,8 @@ internal static class Lr2FullGenerationBackfillService
     private static Lr2FolderFileSyncItem CreateLr2FolderFileSyncItem(
         string filePath,
         Lr2FullGenerationBackfillRequest request,
-        RootFileEnumerationEntry enumerationEntry = null)
+        RootFileEnumerationEntry enumerationEntry = null,
+        Func<string, int?> existingDateResolver = null)
     {
         Lr2FolderFileSourceClassification classification = Lr2FolderFileSourceClassifier.Classify(new Lr2FolderFileSourceClassificationRequest
         {
@@ -1379,13 +1381,31 @@ internal static class Lr2FullGenerationBackfillService
             RootCustomFolderOutputBaseDir = request?.Lr2RootCustomFolderOutputBaseDir,
             BuiltinSourceDirectories = request?.Lr2BuiltinFolderSourceDirectories
         });
+        DateTime? lastWriteTimeUtc = ResolveLastWriteTimeUtc(filePath, enumerationEntry);
+        string databasePath = classification.DatabasePath;
+        if (lastWriteTimeUtc.HasValue
+            && existingDateResolver != null
+            && !string.IsNullOrWhiteSpace(databasePath)
+            && existingDateResolver(databasePath) == Lr2SongRowEnricher.ToLr2UnixSeconds(lastWriteTimeUtc.Value))
+        {
+            return new Lr2FolderFileSyncItem
+            {
+                FilePath = filePath,
+                DatabasePath = databasePath,
+                LastWriteTimeUtc = lastWriteTimeUtc,
+                Definition = null,
+                FolderType = classification.FolderType,
+                ParentHash = classification.ParentHash,
+                PreserveExistingRowOnly = true
+            };
+        }
         try
         {
             return new Lr2FolderFileSyncItem
             {
                 FilePath = filePath,
-                DatabasePath = classification.DatabasePath,
-                LastWriteTimeUtc = ResolveLastWriteTimeUtc(filePath, enumerationEntry),
+                DatabasePath = databasePath,
+                LastWriteTimeUtc = lastWriteTimeUtc,
                 Definition = Lr2FolderFileProjection.ParseDefinition(File.ReadLines(filePath, Encoding.GetEncoding("shift_jis"))),
                 FolderType = classification.FolderType,
                 ParentHash = classification.ParentHash
@@ -1396,7 +1416,7 @@ internal static class Lr2FullGenerationBackfillService
             return new Lr2FolderFileSyncItem
             {
                 FilePath = filePath,
-                DatabasePath = classification.DatabasePath,
+                DatabasePath = databasePath,
                 LastWriteTimeUtc = null,
                 Definition = null,
                 FolderType = classification.FolderType,

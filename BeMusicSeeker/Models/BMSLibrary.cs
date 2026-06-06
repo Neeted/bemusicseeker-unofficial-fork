@@ -5205,12 +5205,14 @@ completeFileEnumerationOnce,
         var stopwatch = Stopwatch.StartNew();
         try
         {
+            using LR2SongDBExtended songDb = dbGateway.OpenSongDb();
+            IReadOnlyDictionary<string, int?> existingDatesByPath = CreateExistingLr2FolderDateMap(songDb);
             Lr2FullGenerationBackfillService.Lr2FolderFileSyncItemsResult syncItems =
                 Lr2FullGenerationBackfillService.CreateLr2FolderFileSyncItems(
                     request.Lr2FolderFilePaths,
                     request,
-                    request.Lr2FolderFileEntries);
-            using LR2SongDBExtended songDb = dbGateway.OpenSongDb();
+                    request.Lr2FolderFileEntries,
+                    path => existingDatesByPath.TryGetValue(path, out int? date) ? date : null);
             string savepoint = songDb.SaveTransactionPoint();
             Lr2FolderFileDbSyncResult syncResult;
             try
@@ -5241,6 +5243,7 @@ completeFileEnumerationOnce,
                 + " readFailures=" + syncItems.HasReadFailures.ToString().ToLowerInvariant()
                 + " allowPrune=" + (request.Lr2FolderFileDiscoveryComplete && !syncItems.HasReadFailures).ToString().ToLowerInvariant()
                 + " generated=" + syncResult.GeneratedCount
+                + " preserved=" + syncResult.PreservedCount
                 + " upserted=" + syncResult.UpsertedCount
                 + " deleted=" + syncResult.DeletedCount
                 + " skippedUnsupported=" + syncResult.SkippedUnsupportedPathCount
@@ -5262,6 +5265,20 @@ completeFileEnumerationOnce,
                 + " exception=" + ex.GetType().Name
                 + " message=" + GetDisplayedExceptionMessage(ex).Replace(Environment.NewLine, " | "));
         }
+    }
+
+    private static IReadOnlyDictionary<string, int?> CreateExistingLr2FolderDateMap(LR2SongDBExtended songDb)
+    {
+        if (songDb == null)
+        {
+            return new Dictionary<string, int?>(StringComparer.OrdinalIgnoreCase);
+        }
+        return songDb.Table<LR2SongDB.folder>()
+            .ToList()
+            .Where(row => !string.IsNullOrWhiteSpace(row?.path)
+                && string.Equals(Path.GetExtension(row.path), ".lr2folder", StringComparison.OrdinalIgnoreCase))
+            .GroupBy(row => row.path, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.First().date, StringComparer.Ordinal);
     }
 
     private void CaptureLr2FullGenerationScanSurface(
