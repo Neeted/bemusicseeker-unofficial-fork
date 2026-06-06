@@ -1548,7 +1548,7 @@ internal static class Lr2FullGenerationBackfillService
             songDb.BeginTransaction();
             try
             {
-                Lr2SongDbWriter.UpsertGeneratedSongs(songDb, rowsToWrite);
+                Lr2SongDbWriter.UpsertGeneratedSongsForFullGeneration(songDb, rowsToWrite);
                 UpsertLr2CompatibilityFacts(songDb, chunkCompatibilityInfos);
                 songDb.Commit();
                 stopwatchCommit.Stop();
