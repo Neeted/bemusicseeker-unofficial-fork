@@ -125,6 +125,8 @@ LR2 `song.db` 完全生成が有効な場合、同じ file enumeration contract 
 
 chart/resource search roots と `.lr2folder` discovery roots は意味が異なる。chart/resource search roots は LR2 / standalone の BMS search directories を正本にし、BeMusicSeeker が明示的に管理する通常 custom folder 出力先と root custom folder 出力先が search root として登録されている場合は root set から外す。ただし `D:\BMS\` のような親 root 配下に出力先 directory が自然に含まれることは subtree filter で除外しない。`.lr2folder` discovery roots は BMS search directories に加え、通常 custom folder 出力先、root custom folder 出力先、LR2 built-in `LR2files\CustomFolder` を含める。アプリ管理 output か外部由来か、built-in source かは query ではなく列挙結果の source classifier で判定する。
 
+通常の file diff と LR2 full generation は、入力 surface を共有しても差分の意味を混ぜない。file diff の「差分あり」は owned BMS / bmson 実ファイルの追加・削除・mtime / hash 変更を正本にし、LR2 `folder` table の incomplete / stale / expected row 欠落だけで通常 file diff を重くしない。LR2 normal folder の全件再同期、startup-scan blocker cleanup、expected set 外 row pruning は full generation backfill / cleanup stage の責務である。file diff 中に LR2 `folder` row を更新する必要がある場合も、変更 path と prune scope に基づく scoped sync を使い、差分 0 件や完全生成未完了 status だけで全件 normal folder sync を走らせない。
+
 resource index は chart-relative resource key を正本にする。`foo.wav` は `foo`、`sound/foo.wav` は `sound/foo` として扱い、旧 basename-only matching は使わない。native bridge / managed fallback scan は audio / image / movie のカテゴリ別 index とカテゴリ別 reverse lookup だけを作り、旧 all-resource surface は保持しない。folder-level hash が必要な箇所ではカテゴリ union をその場で派生する。
 
 通常の native scan path では `LibraryResourceIndex` を native decoded arrays から直接構築し、`ChartScanResult` の resource dictionaries は materialize しない。`ChartScanResult` は file diff に必要な chart path / chart directory の carrier として使い、managed fallback scan とテスト用 merge path だけが resource dictionaries を持つ。
@@ -148,6 +150,8 @@ resource index は chart-relative resource key を正本にする。`foo.wav` �
 LR2 `song.db` 完全生成が有効な空 DB 初回構築では、file diff apply の同じ snapshot / parser result から LR2 generated song columns、`chart_info` 由来 numeric columns、LR2 compatibility facts、text group flag を作る。初期構築完了後に LR2 backfill がもう一度全譜面を読み直す形にはしない。既存 DB の backfill が必要な場合だけ、初期構築と同型の bounded streaming pipeline を使う。
 
 `chart_info` は所持譜面への metadata 付与用に一括で準備される session index / DB-backed index である。LR2 完全生成が有効な run では、`song_rows` 処理開始前に current `chart_info` resolver を一括で準備し、worker は memory lookup だけを行う。`song_rows` chunk ごとに `chart_info` table へ SELECT することはしない。
+
+LR2 backfill の `song_rows` pipeline は reader / worker / writer の責務を明確に分ける。reader は譜面 bytes と列挙 metadata を bounded queue へ流し、worker は encoding detection、parse、`chart_info` apply、LR2 compatibility facts の作成までを同じ parse result から完了させる。writer は completed item の順序制御、bulk song write、bulk compatibility facts write、durable cursor update に専念する。writer chunk 内で `chart_info` apply や compatibility facts build のような CPU work を行わず、DB commit 前に pipeline を詰まらせない。
 
 | Log | 意味 |
 | --- | --- |
