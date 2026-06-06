@@ -19967,6 +19967,21 @@ public class MainWindowViewModel : ViewModel
             () => tables?.ReOutputAllCustomFoldersForLr2FullGenerationDataSync(reason));
     }
 
+    public async Task RequestLr2FullGenerationDataSyncAsync(string reason, bool force)
+    {
+        if (!Settings.Default.OperationModeLR2DB || !Settings.Default.EnableLR2SongDbFullGeneration)
+        {
+            return;
+        }
+
+        if (tables != null)
+        {
+            await tables.ReOutputAllCustomFoldersForLr2FullGenerationDataSyncAsync(reason);
+        }
+
+        files?.QueueLr2FullGenerationDataSync(reason, force);
+    }
+
     public void SyncLr2FullGenerationFolderDataAfterSettingsChange(string reason)
     {
         if (!Settings.Default.OperationModeLR2DB || !Settings.Default.EnableLR2SongDbFullGeneration)

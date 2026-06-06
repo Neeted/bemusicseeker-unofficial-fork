@@ -128,7 +128,7 @@ LR2 custom folder 出力は LR2 linked profile の機能であり、standalone p
 
 LR2 linked profile では、custom folder 出力は `.lr2folder` 実ファイルだけでなく LR2 `folder` table row も同じ projection から同期する。通常出力では出力 directory 配下の numbered `.lr2folder` row をその directory の子として扱う。root 出力では playlist/table directory row を LR2 root 直下に置き、その配下の level/user/alphabet などの `.lr2folder` row は playlist/table directory row の子にする。配下 row をすべて LR2 root 直下へ flatten しない。
 
-アプリ管理 playlist の custom folder は `playlist` / `playlist_entry` / `playlist_course` と出力設定が正本であり、出力済み `.lr2folder` ファイルの存在だけを正本にしない。出力先変更、root 出力切替、entry/folder 編集、明示的な LR2 完全生成データ再同期では、playlist 正本から `.lr2folder` file と LR2 `folder` row を再 materialize する。外部ツールが作った `.lr2folder` は LR2 完全生成側の discovery result として扱う。
+アプリ管理 playlist の custom folder は `playlist` / `playlist_entry` / `playlist_course` と出力設定が正本であり、出力済み `.lr2folder` ファイルの存在だけを正本にしない。出力先変更、root 出力切替、entry/folder 編集、明示的な LR2 完全生成データ再同期では、playlist 正本から `.lr2folder` file と LR2 `folder` row を再 materialize する。手動再同期の playlist materialization は stage 開始、table 単位、完了を performance log に出し、設定画面全体を同期的に無効化して隠れた長時間処理にしない。外部ツールが作った `.lr2folder` は LR2 完全生成側の discovery result として扱う。
 
 ## beatoraja `.bmt` 出力
 

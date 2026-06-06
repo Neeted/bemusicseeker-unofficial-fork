@@ -129,7 +129,7 @@ chart/resource search roots と `.lr2folder` discovery roots は意味が異な�
 
 LR2 full generation の durable completed signature は schema / generator / parser contract を表す。LR2 BMS root、`.lr2folder` discovery root、LR2 setup の `<customfolder>` / `titleflash` / `newsong` 設定は実行時入力であり、変更されても signature mismatch だけで `song_rows` 全量再同期を開始しない。これらの変更は file diff、`.lr2folder` diff、built-in special folder scoped sync で `folder` row を収束させる。
 
-アプリ管理 playlist の custom folder 出力は、playlist 正本から `.lr2folder` file と LR2 `folder` row を同じ操作で materialize する。起動時 file diff は外部 `.lr2folder` の追加・更新・削除検出を軽量に扱い、アプリ管理 playlist の欠落 row を毎回全検査しない。既存 DB の playlist/custom folder 派生 row を明示的に直す場合は、設定画面の `LR2 song.db 完全生成データを再同期` 導線または full generation sync で行う。
+アプリ管理 playlist の custom folder 出力は、playlist 正本から `.lr2folder` file と LR2 `folder` row を同じ操作で materialize する。起動時 file diff は外部 `.lr2folder` の追加・更新・削除検出を軽量に扱い、アプリ管理 playlist の欠落 row を毎回全検査しない。既存 DB の playlist/custom folder 派生 row を明示的に直す場合は、設定画面の `LR2 song.db 完全生成データを再同期` 導線または full generation sync で行う。手動再同期では playlist materialization stage をログ付きで先に進め、完了後に LR2 generated data sync を queue する。この前処理は UI 操作として同期的に固めず、進捗が見える独立 stage として扱う。
 
 resource index は chart-relative resource key を正本にする。`foo.wav` は `foo`、`sound/foo.wav` は `sound/foo` として扱い、旧 basename-only matching は使わない。native bridge / managed fallback scan は audio / image / movie のカテゴリ別 index とカテゴリ別 reverse lookup だけを作り、旧 all-resource surface は保持しない。folder-level hash が必要な箇所ではカテゴリ union をその場で派生する。
 

@@ -202,6 +202,15 @@ public partial class BMSPlaylist : NotificationObject
         return string.IsNullOrWhiteSpace(value) ? "(empty)" : value;
     }
 
+    private static string QuoteLogValue(string value)
+    {
+        if (string.IsNullOrEmpty(value))
+        {
+            return "\"\"";
+        }
+        return "\"" + value.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
+    }
+
     /// <summary>
     /// <see cref="BMSPlaylist"/> 内の HTTP 通信に使う共有クライアントです。
     /// 外部テーブル同期は応答待ちが長くなりやすいため、既定より長いタイムアウトを設定します。
@@ -2697,6 +2706,18 @@ public partial class BMSPlaylist : NotificationObject
 
     internal int ReOutputAllCustomFoldersForLr2FullGenerationDataSync(string reason)
     {
+        return ReOutputAllCustomFoldersForLr2FullGenerationDataSyncCoreAsync(reason, yieldBetweenTables: false)
+            .GetAwaiter()
+            .GetResult();
+    }
+
+    internal Task<int> ReOutputAllCustomFoldersForLr2FullGenerationDataSyncAsync(string reason)
+    {
+        return ReOutputAllCustomFoldersForLr2FullGenerationDataSyncCoreAsync(reason, yieldBetweenTables: true);
+    }
+
+    private async Task<int> ReOutputAllCustomFoldersForLr2FullGenerationDataSyncCoreAsync(string reason, bool yieldBetweenTables)
+    {
         if (!Settings.Default.OperationModeLR2DB)
         {
             return 0;
@@ -2706,14 +2727,36 @@ public partial class BMSPlaylist : NotificationObject
             : [.. BMSTables.Where(table => table != null && !string.IsNullOrWhiteSpace(table.Output_dir))];
         int reOutputCount = 0;
         var stopwatch = Stopwatch.StartNew();
-        foreach (BMSTable table in tablesSnapshot)
+        LogPlaylistPerformance("playlist_lr2_full_generation_data_resync start"
+            + " reason=" + (reason ?? "unknown")
+            + " tableCount=" + tablesSnapshot.Count);
+        for (int index = 0; index < tablesSnapshot.Count; index++)
         {
+            if (yieldBetweenTables)
+            {
+                await Task.Yield();
+            }
+
+            BMSTable table = tablesSnapshot[index];
+            var tableStopwatch = Stopwatch.StartNew();
+            LogPlaylistPerformance("playlist_lr2_full_generation_data_resync table_start"
+                + " reason=" + (reason ?? "unknown")
+                + " index=" + (index + 1)
+                + " total=" + tablesSnapshot.Count
+                + " name=" + QuoteLogValue(table?.name));
             EnsurePlaylistEntriesLoaded(table, "ReOutputAllCustomFoldersForLr2FullGenerationDataSync");
             ReOutputCustomFolder(table);
             reOutputCount++;
+            tableStopwatch.Stop();
+            LogPlaylistPerformance("playlist_lr2_full_generation_data_resync table_done"
+                + " reason=" + (reason ?? "unknown")
+                + " index=" + (index + 1)
+                + " total=" + tablesSnapshot.Count
+                + " name=" + QuoteLogValue(table?.name)
+                + " elapsedMs=" + tableStopwatch.ElapsedMilliseconds);
         }
         stopwatch.Stop();
-        LogPlaylistPerformance("playlist_lr2_full_generation_data_resync"
+        LogPlaylistPerformance("playlist_lr2_full_generation_data_resync done"
             + " reason=" + (reason ?? "unknown")
             + " tableCount=" + tablesSnapshot.Count
             + " reOutputCount=" + reOutputCount

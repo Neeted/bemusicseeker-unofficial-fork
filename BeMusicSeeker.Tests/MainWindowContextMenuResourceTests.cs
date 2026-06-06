@@ -774,6 +774,10 @@ public sealed class MainWindowContextMenuResourceTests
             viewModelCode,
             "public async void ReloadFileDiff()",
             "public async void ReinitializeLibrary()");
+        string manualResyncClickHandler = ExtractBetween(
+            settingDialogCode,
+            "private async void resyncLr2FullGenerationDataButtonClicked",
+            "private async void detailTabItemBackupButtonClicked");
 
         StringAssert.Contains(runtimeSync, "ownerViewModel.files.SearchTargets = [.. lr2config.GetBMSSearchDirectories()];");
         StringAssert.Contains(runtimeSync, "ownerViewModel.files.SearchTargets = [.. GetStandaloneBmsRootPathsFromSettings()];");
@@ -784,10 +788,15 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(viewModelCode, "tables?.ReOutputAllCustomFoldersForLr2FullGenerationDataSync(reason);");
         StringAssert.Contains(viewModelCode, "files?.SyncLr2BuiltinCustomFolderRows(reason);");
         StringAssert.Contains(viewModelCode, "files?.QueueLr2FullGenerationDataSync(reason, force: false, allowIncompleteToQueue: false);");
-        StringAssert.Contains(settingDialogCode, "viewModel.RequestLr2FullGenerationDataSync(\"setting_dialog_manual_resync\", force: true);");
+        StringAssert.Contains(viewModelCode, "public async Task RequestLr2FullGenerationDataSyncAsync(string reason, bool force)");
+        StringAssert.Contains(viewModelCode, "await tables.ReOutputAllCustomFoldersForLr2FullGenerationDataSyncAsync(reason);");
+        StringAssert.Contains(settingDialogCode, "await viewModel.RequestLr2FullGenerationDataSyncAsync(\"setting_dialog_manual_resync\", force: true);");
         Assert.IsFalse(
             settingDialogCode.IndexOf("Task.Run(() => viewModel.RequestLr2FullGenerationDataSync", StringComparison.Ordinal) >= 0,
             "Manual LR2 generated-data sync must not run the UI-affine playlist projection on a background thread.");
+        Assert.IsFalse(
+            manualResyncClickHandler.IndexOf("settingDialogRootGrid.IsEnabled = false;", StringComparison.Ordinal) >= 0,
+            "Manual LR2 generated-data sync must not disable the entire settings dialog while playlist projection is running.");
         StringAssert.Contains(postSaveSteps, "tempOperationModeLR2DB != Settings.Default.OperationModeLR2DB");
         StringAssert.Contains(postSaveSteps, "tempEnableLR2SongDbFullGeneration != Settings.Default.EnableLR2SongDbFullGeneration");
         StringAssert.Contains(postSaveSteps, "tempLR2RootPath, Settings.Default.LR2RootPath");
