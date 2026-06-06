@@ -81,7 +81,7 @@ internal static class Lr2FullGenerationStatusMapper
     private static bool CanCleanupStartupScanBlockers(Lr2FullGenerationStatusSnapshot snapshot)
     {
         return snapshot?.Status == Lr2FullGenerationStatusKind.Incomplete
-            && string.Equals(snapshot.Stage, Lr2FullGenerationBackfillService.StartupScanBlockersStage, StringComparison.Ordinal);
+            && string.Equals(snapshot.Stage, Lr2FullGenerationSyncService.StartupScanBlockersStage, StringComparison.Ordinal);
     }
 
     private static string GetStatusText(Lr2FullGenerationStatusKind kind)

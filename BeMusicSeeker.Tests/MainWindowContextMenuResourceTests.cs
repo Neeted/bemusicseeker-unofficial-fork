@@ -779,16 +779,16 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(rootAdd, "ApplyRuntimeSearchRootsForCurrentMode();");
         Assert.IsTrue(rootAdd.IndexOf("ApplyRuntimeSearchRootsForCurrentMode();", StringComparison.Ordinal) < rootAdd.IndexOf("ownerViewModel.ReloadFileDiff();", StringComparison.Ordinal));
         StringAssert.Contains(saveCore, "ApplyRuntimeSearchRootsForCurrentMode();");
-        StringAssert.Contains(viewModelCode, "QueueLr2FullGenerationBackfillIfNeeded(\"SettingDialog.SaveSettings\")");
+        StringAssert.Contains(viewModelCode, "RequestLr2FullGenerationDataSync(\"SettingDialog.SaveSettings\", force: false)");
         StringAssert.Contains(postSaveSteps, "tempOperationModeLR2DB != Settings.Default.OperationModeLR2DB");
         StringAssert.Contains(postSaveSteps, "tempEnableLR2SongDbFullGeneration != Settings.Default.EnableLR2SongDbFullGeneration");
         StringAssert.Contains(postSaveSteps, "tempLR2RootPath, Settings.Default.LR2RootPath");
         StringAssert.Contains(postSaveSteps, "tempLR2CustomFolderOutputDir, Settings.Default.LR2CustomFolderOutputBaseDir");
         StringAssert.Contains(postSaveSteps, "tempLR2CustomFolderAsRootOutputDir, Settings.Default.LR2CustomFolderOutputBaseDirRootType");
-        StringAssert.Contains(reloadFileDiff, "QueueLr2FullGenerationBackfillIfNeeded(\"ReloadFileDiff\")");
+        StringAssert.Contains(reloadFileDiff, "QueueLr2FullGenerationDataSync(\"ReloadFileDiff\")");
         Assert.IsTrue(
             reloadFileDiff.IndexOf("files.ReloadFileDiff();", StringComparison.Ordinal)
-            < reloadFileDiff.IndexOf("QueueLr2FullGenerationBackfillIfNeeded(\"ReloadFileDiff\")", StringComparison.Ordinal),
+            < reloadFileDiff.IndexOf("QueueLr2FullGenerationDataSync(\"ReloadFileDiff\")", StringComparison.Ordinal),
             "LR2 full generation status should be evaluated after file diff has applied root/source changes.");
     }
 

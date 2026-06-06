@@ -36,7 +36,7 @@ public sealed class BmsPlaylistUpdateTests
             {
                 guardInvoked = true;
                 Assert.AreEqual("playlist_lr2folder_sync", operation);
-                throw new InvalidOperationException(Resources.Warn_Lr2FullGenerationBackfillRunning);
+                throw new InvalidOperationException(Resources.Warn_Lr2FullGenerationSyncRunning);
             };
 
             TargetInvocationException exception = Assert.ThrowsException<TargetInvocationException>(() =>
@@ -44,7 +44,7 @@ public sealed class BmsPlaylistUpdateTests
 
             Assert.IsTrue(guardInvoked);
             Assert.IsInstanceOfType(exception.InnerException, typeof(InvalidOperationException));
-            Assert.AreEqual(Resources.Warn_Lr2FullGenerationBackfillRunning, exception.InnerException.Message);
+            Assert.AreEqual(Resources.Warn_Lr2FullGenerationSyncRunning, exception.InnerException.Message);
         }
         finally
         {

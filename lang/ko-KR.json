@@ -55,7 +55,7 @@
   "Lr2_full_generation_status_incomplete": "LR2 song.db 완전 생성이 완료되지 않았습니다",
   "Lr2_full_generation_retry": "다시 시도",
   "Lr2_full_generation_data_resync": "LR2 song.db 완전 생성 데이터 재동기화",
-  "Lr2_full_generation_data_resync_tooltip": "현재 보유 채보와 플레이리스트에서 LR2 song/folder 파생 데이터를 다시 동기화합니다. maintenance 또는 chart_info 재스캔은 아닙니다.",
+  "Lr2_full_generation_data_resync_tooltip": "현재 보유 보면과 플레이리스트에서 LR2의 song / folder 생성 데이터를 다시 동기화합니다. maintenance 재스캔이나 chart_info 전체 보완은 아닙니다.",
   "Lr2_full_generation_cleanup_startup_scan_blockers": "LR2 folder DB 행 삭제 후 다시 시도",
   "Msg_confirm_lr2_full_generation_startup_scan_blocker_cleanup": "LR2 song.db 완전 생성을 완료하지 못하게 하는 오래된 folder 행을 삭제한 뒤 다시 시도합니다.\n삭제되는 것은 진단 대상인 LR2 folder 테이블 행뿐이며, 채보 파일이나 .lr2folder 파일은 삭제하지 않습니다.\n\n계속하시겠습니까?",
   "Msg_failed_remove_playlist_entry": "재생 목록에서 채보를 제거하지 못했습니다.\n해당 재생 목록이 외부 동기화 모드로 설정되어 있습니다.",
@@ -573,7 +573,7 @@
   "Warn_MoveDestAlreadyExists": "이동 대상 폴더가 이미 존재하여 중단했습니다.\n원본: {0}\n대상: {1}",
   "Error_FolderMoveFailed": "폴더 이동에 실패했습니다.\n정상적으로 접근할 수 있는지 확인해 주세요.\n원본: {0}\n대상: {1}\n\n{2}",
   "Warn_RenameDestAlreadyExists": "대상 파일이 이미 존재하여 중단했습니다.\n원본: {0}\n대상: {1}",
-  "Warn_Lr2FullGenerationBackfillRunning": "LR2 song.db 전체 생성 중입니다.\n완료 후 다시 실행해 주세요.",
+  "Warn_Lr2FullGenerationSyncRunning": "LR2 song.db 전체 생성 중입니다.\n완료 후 다시 실행해 주세요.",
   "Error_BmsFileMoveFailed": "BMS 파일 이동에 실패했습니다.\n정상적으로 접근할 수 있는지 확인해 주세요.\n원본: {0}\n대상: {1}\n\n{2}",
   "Confirm_DeleteFolderWithNoBms": "삭제를 계속하면 해당 폴더에 BMS 파일이\n남지 않게 됩니다. 폴더 전체를 삭제하시겠습니까?\n(다른 파일이 포함되어 있을 수 있습니다)\n\n대상: \n{0}",
   "Error_FolderOrTrashDeleteFailed": "폴더 삭제 또는 휴지통으로 이동에 실패했습니다.\n정상적으로 접근할 수 있는지 확인해 주세요.\n{0}\n\n{1}",
@@ -617,5 +617,6 @@
   "Warn_ArchiveExtractFailed": "Failed to extract the archive.\nTarget: {0}\nDetails: {1}",
   "Warn_ArchiveTimestampRestoreFailed": "Installation was aborted because the last write time could not be restored for a file inside the archive.\nArchive: {0}\nTarget: {1}\nDetails: {2}",
   "Warn_ArchiveLastWriteTimeMissingDetail": "The archive entry does not contain a last write time.",
-  "Warn_ArchiveBundledSevenZipMissingDetail": "The bundled archive extraction library could not be found."
+  "Warn_ArchiveBundledSevenZipMissingDetail": "The bundled archive extraction library could not be found.",
+  "Msg_confirm_lr2_full_generation_data_resync": "현재 보유 보면과 플레이리스트에서 LR2의 song / folder 생성 데이터를 다시 동기화합니다.\nmaintenance 재스캔이나 chart_info 전체 보완은 실행하지 않습니다.\n\n계속하시겠습니까?"
 }

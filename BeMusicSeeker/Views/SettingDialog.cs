@@ -152,10 +152,20 @@ public partial class SettingDialog : UserControl, IComponentConnector
             DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_settings_apply_blocked_during_initialization, BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation);
             return;
         }
+        if (DispatcherMessageBox.Show(
+            Window.GetWindow(this),
+            BeMusicSeeker.Properties.Resources.Msg_confirm_lr2_full_generation_data_resync,
+            BeMusicSeeker.Properties.Resources.Confirm,
+            MessageBoxButton.OKCancel,
+            MessageBoxImage.Question,
+            MessageBoxResult.Cancel) != MessageBoxResult.OK)
+        {
+            return;
+        }
         settingDialogRootGrid.IsEnabled = false;
         try
         {
-            await Task.Run(viewModel.ResyncLr2FullGenerationData).Logging("resyncLr2FullGenerationDataButtonClicked");
+            await Task.Run(() => viewModel.RequestLr2FullGenerationDataSync("setting_dialog_manual_resync", force: true)).Logging("resyncLr2FullGenerationDataButtonClicked");
         }
         catch (Exception ex)
         {

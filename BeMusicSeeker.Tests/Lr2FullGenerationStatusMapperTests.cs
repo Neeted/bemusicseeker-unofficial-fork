@@ -104,7 +104,7 @@ public sealed class Lr2FullGenerationStatusMapperTests
         Lr2FullGenerationRuntimeStatus status = Lr2FullGenerationStatusMapper.Create(new Lr2FullGenerationStatusSnapshot
         {
             Status = Lr2FullGenerationStatusKind.Incomplete,
-            Stage = Lr2FullGenerationBackfillService.StartupScanBlockersStage,
+            Stage = Lr2FullGenerationSyncService.StartupScanBlockersStage,
             LastError = "startup scan blockers"
         }, DateTime.MinValue);
 

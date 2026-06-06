@@ -30,12 +30,12 @@ BeMusicSeeker は譜面管理アプリなので、LR2 で完全に読めない�
   current generation input から導けない stale / unknown row は温存せず、生成 workflow 内で
   削除または上書きして収束させる。
 - 完全生成 completed 後の steady-state 起動では、`.bmt` 出力 OFF かつ file diff が 0 件から数件の
-  ケースで、LR2 完全生成の再 backfill や heavyweight validation を起動 background tail に混ぜない。
+  ケースで、LR2 完全生成の再 sync や heavyweight validation を起動 background tail に混ぜない。
   この状態では従来の path-only 差分確認に近い負荷に戻し、`startup_background_summary` は 50 秒未満を目標にする。
 - LR2 起動時の root folder チェックで `date` が一致し、再帰スキャンに入らない。
 - LR2 非対応 BMS は BeMusicSeeker の owned collection と LR2 `song` row には残す。
 - LR2 非対応 BMS は `folder` / `parent` を LR2 表示対象として使えない状態にし、
-  LR2 起動時 scan に踏ませない。非対応 chart の存在だけで backfill 完了や stale `folder` cleanup を
+  LR2 起動時 scan に踏ませない。非対応 chart の存在だけで sync 完了や stale `folder` cleanup を
   block しない。
 - 非対応 BMS を LR2 のプレイ画面から開いた場合に失敗することは許容する。
 - ただし、LR2 起動時のファイル走査で非対応パスを踏ませないことを優先する。
@@ -62,24 +62,24 @@ BeMusicSeeker は譜面管理アプリなので、LR2 で完全に読めない�
   - 既存の `Lr2PathEncodingUnsupported` のように軽く出せる warning は継続する。
   - ただし maintenance 列や scan group が必要な warning は完全生成有効時のみ出す。
   - スタンドアロンモードでは `LR2非対応パス` ツリー自体を非表示にする。
-- backfill は通常運用では発生しない想定にする。
-  - 完全生成が有効で、LR2 `song.db` 内の完全生成 status が completed でない場合だけ backfill が発生する。
+- sync は通常運用では発生しない想定にする。
+  - 完全生成が有効で、LR2 `song.db` 内の完全生成 status が completed でない場合だけ sync が発生する。
   - 既存 LR2 DB に必要列が欠けている、完全生成を初回有効化した、status signature が変わった、
-    前回 run が incomplete / failed / cancelled の場合は backfill needed とする。
-  - backfill が必要な場合は警告・進捗・キャンセル可能性を UI / log に出す。
-  - 初回 backfill は startup ready / operable を待たせず、`startup_initialization_complete` 後の
+    前回 run が incomplete / failed / cancelled の場合は sync needed とする。
+  - sync が必要な場合は警告・進捗・キャンセル可能性を UI / log に出す。
+  - 初回 sync は startup ready / operable を待たせず、`startup_initialization_complete` 後の
     background workflow として開始する。
-  - 初回 backfill の `song_rows` stage は、起動時 file diff や手動 maintenance rescan と同じ
+  - 初回 sync の `song_rows` stage は、起動時 file diff や手動 maintenance rescan と同じ
     bounded producer / consumer 形にする。単純な `500 件読む -> 逐次 parse -> DB commit -> 次 chunk`
     という段階処理や、`song_rows` chunk ごとの DB SELECT / 行単位 upsert は最終形ではない。
   - 空 DB 初期構築では、file diff apply の `ChartFileSnapshot` / parser result から LR2 generated song columns、
     `chart_info` 由来 numeric columns、LR2 compatibility facts、text group flag を同時に作る。
-    初期構築後に LR2 backfill が同じ BMS chart を全件再読込する設計にはしない。
+    初期構築後に LR2 sync が同じ BMS chart を全件再読込する設計にはしない。
   - 完全生成設定を OFF から ON に変更した場合も、保存後に同じ background workflow を queue する。
-  - BeMusicSeeker からの LR2 起動導線で backfill 完了待ちや起動 block は行わない。
+  - BeMusicSeeker からの LR2 起動導線で sync 完了待ちや起動 block は行わない。
     LR2 が再走査する可能性は完全生成 status の警告として表示する。
-- 完全生成設定は、status / backfill progress と mutation guard が揃った段階から設定 UI に表示する。
-  - 設定 ON 時に backfill が必要なら background workflow で進捗を表示し、owned collection / LR2 `song.db`
+- 完全生成設定は、status / sync progress と mutation guard が揃った段階から設定 UI に表示する。
+  - 設定 ON 時に sync が必要なら background workflow で進捗を表示し、owned collection / LR2 `song.db`
     mutation 操作は開始前に抑止する。
 
 ## 設定方針
@@ -195,7 +195,7 @@ SELECT path,date FROM folder WHERE parent = ROOT OR date = 0
 - 現在の `ChartScanResult` は chart path / chart directory / audio/image/movie の
   resource hash に加え、chart directory 直下の `.txt` presence と `folderinfo.txt` 候補を持つ。
 - 現在の `ChartScanResult` は file mtime / directory mtime そのものはまだ持たない。BMS file mtime は
-  file diff 側で snapshot から扱う。normal folder row の directory mtime は、backfill / file diff /
+  file diff 側で snapshot から扱う。normal folder row の directory mtime は、sync / file diff /
   mutation sync の入口で directory metadata surface から resolver として渡す。
 - `.lr2folder` discovery は LR2 full generation 入力として、chart/resource scan surface とは別に
   root / extension / filename を調整した metadata-bearing file surface から作る。
@@ -411,7 +411,7 @@ row が残ると、manual-only でも LR2 が不要な scan に入る。
 
 ### 通常 mutation 時の LR2 DB writer contract
 
-完全生成の完了後は、初回 backfill に頼らず、所持譜面ライブラリの mutation と同じ operation 内で
+完全生成の完了後は、初回 sync に頼らず、所持譜面ライブラリの mutation と同じ operation 内で
 LR2 `song` / `folder` を最新状態へ保つ。
 
 対象 mutation:
@@ -437,7 +437,7 @@ LR2 `song` / `folder` を最新状態へ保つ。
   scope 内 upsert / prune まで完了させる。
 - root set 変更や custom folder output base 変更のように影響範囲が広い場合は、scope 全体を再生成する。
 - LR2 DB write が busy / lock / unexpected failure で失敗した場合、owned collection mutation は成功させてよいが、
-  完全生成 status を `Incomplete` にし、次回 backfill / diff run で再同期できる状態にする。
+  完全生成 status を `Incomplete` にし、次回 sync / diff run で再同期できる状態にする。
 - 完全生成設定が OFF の場合、通常 mutation で LR2 補助列挙・folder generation は行わない。
 
 テスト:
@@ -446,7 +446,7 @@ LR2 `song` / `folder` を最新状態へ保つ。
 - install / uninstall / duplicate merge 後に `song` row が stale にならない。
 - text group 変更で同 directory の `song.txt` が更新される。
 - directory rename / root set 変更で affected folder rows が再生成される。
-- LR2 DB write failure は完全生成 status を `Incomplete` にし、次回 backfill で復旧できる。
+- LR2 DB write failure は完全生成 status を `Incomplete` にし、次回 sync で復旧できる。
 
 ### LR2 compatibility warning の scope
 
@@ -471,17 +471,17 @@ LR2 compatibility warning は BMS のみを対象にする。bmson は対象外�
     projection に従って組み立てる。
   - 将来 ignore UI / ignore list を追加する場合は、別計画で永続 state を追加する。
 
-### 完全生成 status / backfill workflow
+### 完全生成 status / sync workflow
 
-完全生成が有効な場合、BeMusicSeeker は生成状態を durable に管理し、必要な backfill を
+完全生成が有効な場合、BeMusicSeeker は生成状態を durable に管理し、必要な sync を
 background workflow として進める。この workflow は DB 生成状態の可視化と復旧を目的にし、
 LR2 起動導線の block は行わない。
 
-- backfill が必要な場合は、警告・進捗・キャンセル可能性を表示する。
+- sync が必要な場合は、警告・進捗・キャンセル可能性を表示する。
 - status は `NotNeeded` / `Needed` / `Running` / `Completed` / `Failed` / `Cancelled` /
   `Incomplete` を持つ。
 - `Completed` の signature が現設定・schema・generator・parser・root set・folder source と一致する場合は
-  backfill 不要とする。
+  sync 不要とする。
 - `Completed` は current generation input から導いた `song` / `folder` expected set へ DB を収束させた
   run の完了状態である。旧 row や unknown root row を温存したまま `Incomplete` にするのではなく、
   workflow 内で削除または上書きできるものは修復してから完了する。
@@ -489,12 +489,12 @@ LR2 起動導線の block は行わない。
   最終検査として使う。resume で folder stage がスキップされ、expected row が欠けている場合は
   該当 stage を一度だけ再同期してから再診断する。generation scope 外の古い row を保護するための検査にはしない。
   それでも残る diagnostic はログと result に残すが、source snapshot が current で DB write が成功している限り
-  backfill 完了は妨げない。
+  sync 完了は妨げない。
 - `Needed` / `Running` / `Incomplete` / `Failed` / `Cancelled` は完全生成 status に warning を出す。
 - 完全生成設定値が欠落または不正な場合は、他の設定値と同じく既定値へ正規化し、設定値 warning は出さない。
 - LR2 側の DB 自動更新設定はこの計画の実装対象にしない。
   - BeMusicSeeker 側から LR2 config を自動変更しない。
-  - manual-only 運用はユーザー向け docs の推奨として扱い、status / schema / backfill の判定条件には含めない。
+  - manual-only 運用はユーザー向け docs の推奨として扱い、status / schema / sync の判定条件には含めない。
 - LR2 が起動中の場合の DB write 競合を検出する。
   - SQLite busy timeout / file lock / transaction 失敗時の扱いをログに出す。
 - 完全生成 status は durable に保存する。
@@ -509,18 +509,18 @@ LR2 起動導線の block は行わない。
 - generator version は `song` / `folder` 生成列、folder generation scope、warning projection の意味が変わる時に bump する。
 - parser version は BMS metadata parse、text group parse、raw resource reference parse、CRC 入力正規化の意味が
   変わる時に bump する。
-- backfill は startup ready / operable をブロックしない。初期化完了後に background workflow として開始し、
+- sync は startup ready / operable をブロックしない。初期化完了後に background workflow として開始し、
   LR2 起動要求が来ても同じ workflow へ join して待つことはしない。
-- backfill 中は read-only 操作を許可する。
+- sync 中は read-only 操作を許可する。
   - 一覧閲覧、検索、ソート、プレイリスト表示、設定画面表示は許可する。
   - owned collection / LR2 `song.db` に mutation を起こす操作は開始前に抑止する。
     例: 譜面追加、削除、移動、install/reinstall、全譜面再スキャン、BMS root 設定変更、
     完全生成設定の切替。
-- backfill 完了前に owned collection / storage row generation と LR2 root / `.lr2folder` discovery root /
+- sync 完了前に owned collection / storage row generation と LR2 root / `.lr2folder` discovery root /
   built-in custom folder 設定の snapshot が変わっていないかを確認する。
   - 完了直前に `.txt` / `folderinfo.txt` / `.lr2folder` / directory mtime を広く再列挙しない。
-    backfill 中に外部ファイルが変わった場合は、次回 scan / signature 再評価で新しい input として扱う。
-  - built-in `newsong.lr2folder` の有効/無効は backfill input 作成時の `titleflash` 判定に固定する。
+    sync 中に外部ファイルが変わった場合は、次回 scan / signature 再評価で新しい input として扱う。
+  - built-in `newsong.lr2folder` の有効/無効は sync input 作成時の `titleflash` 判定に固定する。
     長時間 run が titleflash 境界を跨いでも、それだけで current 判定を stale にしない。
   - アプリ内の mutation や設定変更で source snapshot が変わっていなければ `Completed` を記録し、
     以後は通常 mutation 時の LR2 DB writer contract で差分維持する。
@@ -912,12 +912,12 @@ parse directive:
   expected scope として扱われ、unknown root blocker にならない。
 - Shift_JIS 出力した `.lr2folder` を同じ解釈で parse できる。
 
-### Phase 8: 完全生成 status / backfill UI を追加する
+### Phase 8: 完全生成 status / sync UI を追加する
 
 目的:
 
 - 完全生成が未完了の状態を UI / log で追跡できるようにする。
-- backfill が発生する場合にユーザーへ見える形にする。
+- sync が発生する場合にユーザーへ見える形にする。
 
 実装:
 
@@ -929,8 +929,8 @@ parse directive:
   `Incomplete` の場合は `Needed` とする。
 - 完全生成が有効で `Needed` の場合、`startup_initialization_complete` 後に background workflow を queue する。
 - 完全生成設定を OFF から ON に変更した場合も、設定保存後に同じ workflow を queue する。
-- backfill needed / running / completed / failed / cancelled / incomplete を log と UI に出す。
-- backfill progress は全体合算 total と stage 別 processed count の両方を表示する。
+- sync needed / running / completed / failed / cancelled / incomplete を log と UI に出す。
+- sync progress は全体合算 total と stage 別 processed count の両方を表示する。
 - `Needed` / `Running` / `Incomplete` / `Failed` / `Cancelled` は完全生成 status warning として表示する。
 - startup-scan blocker diagnostic は、workflow が upsert / prune した後に expected current output が
   揃っているかを確認する最終検査にする。resume 境界で expected row が欠けている場合は
@@ -939,13 +939,13 @@ parse directive:
 - 設定値が欠落または不正な場合は既定値へ正規化する。設定値 warning は出さない。
 - LR2 config の auto update 設定検出や変更は行わない。manual-only 運用の推奨は docs に記載し、
   full generation status には含めない。
-- backfill のためだけの自動 backup は作らない。
+- sync のためだけの自動 backup は作らない。
 - write は per-chunk transaction とし、chunk commit 成功後に processed cursor / run id / status を durable に更新する。
 - chunk 失敗時はその chunk の transaction を rollback し、status を `Failed` にする。
 - cancel 後の partial write は incomplete として扱い、status warning に出す。
 - 次回 run は最後に成功した cursor から再開する。再開前に必要なら current status / signature を再検証する。
-- backfill 中は read-only 操作を許可し、owned collection / LR2 `song.db` mutation 操作は開始前に抑止する。
-- backfill の完了直前に owned / storage generation と LR2 root / `.lr2folder` discovery root /
+- sync 中は read-only 操作を許可し、owned collection / LR2 `song.db` mutation 操作は開始前に抑止する。
+- sync の完了直前に owned / storage generation と LR2 root / `.lr2folder` discovery root /
   built-in custom folder 設定 snapshot を再確認し、stale なら `Completed` にしない。
   startup-scan diagnostic は同じ run で可能な prune / update / resync を行い、残件はログに残す。
   `.txt` / `folderinfo.txt` / `.lr2folder` / directory metadata の広域再列挙は
@@ -953,21 +953,21 @@ parse directive:
 
 テスト:
 
-- backfill 不要時は警告なし。
-- backfill 必要時は警告と進捗が出る。
+- sync 不要時は警告なし。
+- sync 必要時は警告と進捗が出る。
 - status 欠落、signature 変更、前回 `Failed` / `Cancelled` / `Incomplete` で `Needed` になる。
 - 完全生成設定 OFF では queue されず、ON へ変更すると queue される。
 - 不正な設定値は既定値へ正規化され、設定値 warning は出ない。
 - failed 状態で完全生成 status warning が出る。
 - cancel 後に incomplete status が残り、次回再開できる。
-- backfill 中に read-only 操作は許可され、library mutation 操作は抑止される。
+- sync 中に read-only 操作は許可され、library mutation 操作は抑止される。
 - workflow 修復後も owned / storage / root 設定 snapshot の stale など、再試行で実際に解消すべき
   source 不整合が残る場合は `Completed` にならない。startup-scan diagnostic の残件だけでは
   `Completed` を妨げず、ログで次の改善対象として追う。
 - 完了直前に owned / storage generation や LR2 root / built-in custom folder 設定 snapshot が
   変わった場合は `Needed` に戻る。
 
-### Phase 9: resumable backfill
+### Phase 9: resumable sync
 
 対象:
 
@@ -988,7 +988,7 @@ parse directive:
 - preflight backup / restore point は作らない。
 - run id / durable status / processed cursor を持つ。
 - `song_rows` は軽量 target list から開始する。`BMSFile.CreateSongRowPersistenceCopy()` を全件分作って
-  backfill input に保持しない。
+  sync input に保持しない。
 - `song_rows` は reader が `ChartFileSnapshot` を bounded queue に流し、parallel workers が
   BMS row build / `chart_info` memory resolver apply / LR2 compatibility facts を同じ parse result から作り、
   single writer が chunk transaction と durable cursor 更新を行う。
@@ -997,7 +997,7 @@ parse directive:
   commit 成功後だけ cursor を進め、cancel / failure は chunk 境界で再開できるようにする。
 - `chart_info` は run 開始時に current row index / session index として一括準備する。
   `song_rows` chunk ごとに `chart_info` table を SELECT しない。
-- writer は full backfill 用 bulk writer を使う。chunk 開始時に必要な既存 user columns / `adddate` /
+- writer は full sync 用 bulk writer を使う。chunk 開始時に必要な既存 user columns / `adddate` /
   generated row identity をまとめて読み、memory 上で preservation / changed decision を行う。
   existing row の generated columns が一致する場合は `song` row を更新しない。
   `chart_digest_map` update と orphan cleanup も chunk / run 単位でまとめ、行単位の `FindSongByPath` /
@@ -1013,14 +1013,14 @@ parse directive:
   maintenance warning として保持する。
 - `favorite` / `adddate` / `tag` を維持。
 - CP932 非対応 BMS row は BeMusicSeeker DB から削除しない。
-- backfill 再実行で追加差分が出ない。
+- sync 再実行で追加差分が出ない。
 
 テスト:
 
-- `date = null` の既存 row が mtime で backfill される。
+- `date = null` の既存 row が mtime で sync される。
 - 維持列が維持される。
 - CP932 非対応 BMS row が削除されない。
-- 2 回目 backfill が no-op になる。
+- 2 回目 sync が no-op になる。
 - partial run 後に resume できる。
 - failed chunk が rollback され、次回同じ target から再開できる。
 - owned / storage / root 設定 snapshot の staleness が検出された run は `Completed` にならず、
@@ -1098,14 +1098,14 @@ parse directive:
 | --- | --- | --- | --- |
 | Phase 0: Golden fixture と contract 固定 | 一部完了 | `LR2CRC32` / ROOT sentinel / CP932 boundary の contract、OpenLR2 source classifier の推測抑止、`exlevel` contract、manual-only scan blocker、copied `song.db` の current completed no-op はテスト化済み。 | `folderinfo.txt` / `.lr2folder` など、実 DB 由来の golden fixture を追加する。 |
 | Phase 1: BMS 変更検出 | 主要実装済み | `song.path` / `song.date` / hash を使う変更検出、same MD5 の targeted update、runtime reload の再評価 queue は接続済み。 | 大規模 root 変更・mtime preserved copy の手動検証を残す。 |
-| Phase 2: `song` row merge / ownership | 主要実装済み | `Lr2SongDbWriter`、generated/user column 分離、runtime write failure の status marking、merge 時 user column preservation、copied `song.db` backfill 時の user column preservation は自動テスト済み。 | 実 DB copy での総合確認を残す。 |
-| Phase 3: metadata-bearing scan surface / raw resource reference | 一部完了 | BMS parser / snapshot 側の raw resource reference、text group の targeted `song.txt` 更新、完全生成 ON 時だけの scan 条件、`RootFileEnumerationResult` の file / directory mtime entry、Everything fixed scan / grouped bridge ABI / managed fallback の metadata surface は実装済み。chart file mtime は fixed native scan / managed fallback の両方から `ChartScanResult` に保持し、通常 file diff の `song.date` / `bmson_song.updated_at` 判定へ使う。`.txt` / `folderinfo.txt` は startup / file diff scan surface から backfill input へ保持し、normal folder directory mtime は必要 directory だけを direct metadata lookup する。fallback metadata fixture は追加済み。 | `.lr2folder` discovery と directory mtime を native fixed scan surface に完全統合し、実機 parity とログ粒度を確認する。 |
-| Phase 4: LR2 compatibility warning | 主要実装済み | `Lr2CompatibilityEvaluator`、maintenance 最小 fact、standalone mode での LR2 非対応パス tree 非表示は接続済み。 | warning 表示の実機確認と、copied DB での backfill 表示確認を残す。 |
+| Phase 2: `song` row merge / ownership | 主要実装済み | `Lr2SongDbWriter`、generated/user column 分離、runtime write failure の status marking、merge 時 user column preservation、copied `song.db` sync 時の user column preservation は自動テスト済み。 | 実 DB copy での総合確認を残す。 |
+| Phase 3: metadata-bearing scan surface / raw resource reference | 一部完了 | BMS parser / snapshot 側の raw resource reference、text group の targeted `song.txt` 更新、完全生成 ON 時だけの scan 条件、`RootFileEnumerationResult` の file / directory mtime entry、Everything fixed scan / grouped bridge ABI / managed fallback の metadata surface は実装済み。chart file mtime は fixed native scan / managed fallback の両方から `ChartScanResult` に保持し、通常 file diff の `song.date` / `bmson_song.updated_at` 判定へ使う。`.txt` / `folderinfo.txt` は startup / file diff scan surface から sync input へ保持し、normal folder directory mtime は必要 directory だけを direct metadata lookup する。fallback metadata fixture は追加済み。 | `.lr2folder` discovery と directory mtime を native fixed scan surface に完全統合し、実機 parity とログ粒度を確認する。 |
+| Phase 4: LR2 compatibility warning | 主要実装済み | `Lr2CompatibilityEvaluator`、maintenance 最小 fact、standalone mode での LR2 非対応パス tree 非表示は接続済み。 | warning 表示の実機確認と、copied DB での sync 表示確認を残す。 |
 | Phase 5: `song` row enricher | 主要実装済み | `Lr2SongRowEnricher`、`chart_info` 由来 numeric columns、`exlevel = #EXLEVEL raw int / 未設定 0` は実装済み。 | LR2IR / tag.db 由来の exlevel 上書きは対象外として維持する。 |
-| Phase 6: normal `folder` row generator | 主要実装済み | normal folder generator / scope planner / DB sync、mutation・file diff failure の incomplete marking、directory metadata surface 由来の `folder.date` resolver、`folderinfo.txt` entry metadata surface は接続済み。通常 file diff では BMS path 差分 scope だけを同期し、完全生成 backfill input では root 配下 directory の広域再列挙を行わない。 | 実機で directory mtime / folder row freshness を確認する。 |
+| Phase 6: normal `folder` row generator | 主要実装済み | normal folder generator / scope planner / DB sync、mutation・file diff failure の incomplete marking、directory metadata surface 由来の `folder.date` resolver、`folderinfo.txt` entry metadata surface は接続済み。通常 file diff では BMS path 差分 scope だけを同期し、完全生成 sync input では root 配下 directory の広域再列挙を行わない。 | 実機で directory mtime / folder row freshness を確認する。 |
 | Phase 7: `.lr2folder` DB sync | 主要実装済み | playlist projection と `.lr2folder` / `folder` row sync の同一化、通常 discovery、built-in source の相対 path 化、root custom output / built-in category parent row 生成、`LR2files\Rival` の built-in discovery 非対象化、`LR2files\CustomFolder` の `<customfolder>` bitmask、`newsong` dynamic row、`course1-3` の `type=6` は接続済み。 | 実 LR2 setup / built-in folder fixture での最終確認を残す。 |
-| Phase 8: status / backfill UI | 主要実装済み | durable status、runtime progress、setting queue、cancel、mutation guard、startup blocker diagnostic / cleanup は実装済み。 | 長時間 backfill の UI 手動確認と failure/cancel 再起動確認を残す。 |
-| Phase 9: resumable backfill | 主要実装済み | durable cursor、stage / chunk resume、cancel boundary、completed status current 時の 2 回目 no-op queue、copied `song.db` の current completed no-op、failed song-row chunk rollback/retry、cancel 後 restart resume、`song_rows` の bounded reader / worker / writer pipeline、worker-side `chart_info` apply / LR2 compatibility fact build、run-scoped `chart_info` resolver、backfill input の全件 `BMSFile` persistence copy 廃止、full-generation 専用 generated song temp-table writer、chunk digest / maintenance facts writer、final prune temp path bulk insert は自動テスト済み。 | 実機ログで `song_rows` が単純 file read benchmark に近づいているか、chunk `readMs` / `parseMs` / `commitMs` / queue wait を確認する。 |
+| Phase 8: status / sync UI | 主要実装済み | durable status、runtime progress、setting queue、cancel、mutation guard、startup blocker diagnostic / cleanup は実装済み。 | 長時間 sync の UI 手動確認と failure/cancel 再起動確認を残す。 |
+| Phase 9: resumable sync | 主要実装済み | durable cursor、stage / chunk resume、cancel boundary、completed status current 時の 2 回目 no-op queue、copied `song.db` の current completed no-op、failed song-row chunk rollback/retry、cancel 後 restart resume、`song_rows` の bounded reader / worker / writer pipeline、worker-side `chart_info` apply / LR2 compatibility fact build、run-scoped `chart_info` resolver、sync input の全件 `BMSFile` persistence copy 廃止、full-generation 専用 generated song temp-table writer、chunk digest / maintenance facts writer、final prune temp path bulk insert は自動テスト済み。 | 実機ログで `song_rows` が単純 file read benchmark に近づいているか、chunk `readMs` / `parseMs` / `commitMs` / queue wait を確認する。 |
 
 ### フェーズ別進捗メモ
 
@@ -1131,10 +1131,10 @@ parse directive:
 - Phase 3: raw resource reference と targeted `song.txt` 更新の基盤は実装済み。
   `RootFileEnumerationResult` と native grouped bridge decode result は file / directory metadata entry surface になっている。
   `ChartScanResult` は `.txt` / `folderinfo.txt` entry metadata を保持し、merged scan result と normal folder sync /
-  backfill request へ渡す。
+  sync request へ渡す。
   - fixed native resource scan は、chart file mtime と、chart / audio / image / movie に加えて `.txt` / `folderinfo.txt`
     query の file mtime を同じ bridge layout で返す。通常 file diff はこの metadata を使い、metadata 欠落時だけ live filesystem timestamp lookup に fallback する。
-  - `.lr2folder` は grouped enumeration surface で列挙し、同じ `RootFileEnumerationEntry` shape で backfill へ渡す。
+  - `.lr2folder` は grouped enumeration surface で列挙し、同じ `RootFileEnumerationEntry` shape で sync へ渡す。
   - managed fallback は列挙時に同じ metadata を持つ。native / fallback のどちらでも後追い全件 stat を行わない。
   - `song.date` が一致していて BMS 本体 MD5 が同じ場合、`.txt` 増減は targeted `song.txt` update だけ行い、
     chart_info / maintenance は再生成しない。
@@ -1179,7 +1179,7 @@ parse directive:
     薄い層にする。安全判定は planner の責務にし、writer 側で独自 prune 判断を増やさない。
   - generation scope plan は initialization / file diff / owned mutation workflow へ接続する。
     file diff の full scan 失敗時は normal folder sync を skip し、normal folder sync 自体が失敗した場合は
-    `lr2_full_generation_status` を `Incomplete(lr2_normal_folder_file_diff_sync_failed)` に落として次回 backfill で修復する。
+    `lr2_full_generation_status` を `Incomplete(lr2_normal_folder_file_diff_sync_failed)` に落として次回 sync で修復する。
     owned mutation 側も sync 失敗時は `Incomplete(lr2_normal_folder_mutation_sync_failed)` に落とす。
   - directory metadata surface は `Lr2FolderDirectoryMetadataSnapshot` として分離する。入力は unique directory set と
     metadata-bearing enumeration surface の directory mtime / `folderinfo.txt` candidate file entry で、
@@ -1237,8 +1237,8 @@ parse directive:
     `newsong.lr2folder` は `config/system/titleflash` と `song.adddate` から対象曲がある場合だけ対象化する。
     `song.adddate` 未設定の current row は、完全生成で新規 `song` row として `adddate = now` が入る可能性があるため
     `newsong` 対象として扱う。空ライブラリや titleflash 無効時は対象にしない。
-    `customfolder` / `titleflash` / `newsong` 対象有無は backfill signature に含めるため、LR2 setup 変更や
-    `newsong` 期限切れは次回評価で backfill needed になる。
+    `customfolder` / `titleflash` / `newsong` 対象有無は sync signature に含めるため、LR2 setup 変更や
+    `newsong` 期限切れは次回評価で sync needed になる。
     disabled になった built-in row は `LR2files\CustomFolder` DB-relative prune scope で削除対象にする。
   - normal folder sync は `type = 1` の scope だけを prune / upsert 対象にし、`type = 2` の `.lr2folder` row を
     上書き・削除しない境界を維持する。
@@ -1268,10 +1268,10 @@ parse directive:
     同じ workflow で更新される。file 出力に成功した path だけを sync item にし、file mtime を `folder.date` の正本にする。
 - Phase 8 は `lr2_full_generation_status` table の単一 row (`name = "default"`) から開始する。
   `status` / `signature` / `run_id` / `processed_cursor` / `total_count` / `stage` / `last_error` を durable に保持し、
-  `Completed` かつ signature 一致のときだけ backfill 不要と判定する。`Failed` / `Cancelled` / `Incomplete` /
+  `Completed` かつ signature 一致のときだけ sync 不要と判定する。`Failed` / `Cancelled` / `Incomplete` /
   signature mismatch / missing row は `Needed` として再開可能にする。
   初期接続では `startup_initialization_complete` 後の best-effort warmup から status を評価し、必要なら
-  `lr2_full_generation_backfill` startup background task を queue する。この task は通常 startup readiness を待たせず、
+  `lr2_full_generation_sync` startup background task を queue する。この task は通常 startup readiness を待たせず、
   実装済み stage を進めたうえで残 stage がある場合は `Incomplete` として再開可能にする。
   runner は normal folder stage を実行し、current owned BMS path snapshot と LR2 BMS root から
   root / ancestor / chart directory `folder` row を sync する。`folderinfo.txt` は file enumeration の
@@ -1285,19 +1285,19 @@ parse directive:
   current parser version の `chart_info` row は run 開始時に一括 resolver として準備し、`level` /
   `difficulty` / BPM / `mode` / `longnote` / `random` / `karinotes` / `exlevel` を memory lookup で反映する。
   `song_rows` chunk 内で `chart_info` table へ SELECT しない。
-  必要な `chart_info` が missing / stale の場合も、完全生成開始前に別の synchronous full backfill を走らせない。
+  必要な `chart_info` が missing / stale の場合も、完全生成開始前に別の synchronous full sync を走らせない。
   `song_rows` worker が同じ `ChartFileSnapshot` から current parser version の `chart_info` row / parse failure
   を作り、song row / LR2 compatibility facts と同じ chunk transaction で保存する。commit 成功後だけ
   durable cursor を進めるため、rollback / retry 時は chart_info と song row が同じ chunk boundary で再試行される。
   current `chart_info_parse_failure` の MD5 は run 開始時に memory set として渡し、既知失敗は再 parse しない。
   chart_info row / parse failure の presentation 更新は chunk ごとに dispatch せず、run 後に一回だけ coalesce する。
   空 DB 初期構築では file diff apply 側の snapshot / parser result から同じ LR2 projection を作り、
-  backfill が同じ chart をもう一度全件読む形にはしない。
+  sync が同じ chart をもう一度全件読む形にはしない。
   current owned chart directory 直下の `.txt` presence も `TextFileDirectories` scan surface として渡し、
-  `song.txt` を同じ backfill write で再生成する。
+  `song.txt` を同じ sync write で再生成する。
   LR2 compatibility facts は `maintenance` の LR2 列だけを bulk update し、既存 resource health /
   encoding columns は置換しない。`maintenance` row が無い場合だけ path/hash と LR2 列の最小 row を作る。
-  同じ backfill run で計算した LR2 compatibility facts は live BMS row の materialized `maintenanceInfo` に
+  同じ sync run で計算した LR2 compatibility facts は live BMS row の materialized `maintenanceInfo` に
   LR2 列だけ overlay し、`Lr2CompatibilityWarningProjection` を通して warning 表示を更新する。
   resource health / encoding state は live row 側でも上書きしないため、この refresh のためだけに full
   `maintenance_hydration` や resource health index rebuild は走らせない。
@@ -1317,22 +1317,22 @@ parse directive:
   enumeration failure や一時的な file read failure がある場合、その回は upsert のみにして既存 row を消さない。
   file read / parse に失敗した row は persistence copy の folder/parent 再生成に fallback し、失敗で既存 DB row を消さない。
   current owned chart directory 直下の `.txt` presence は file diff の text group scan surface と同じ意味で
-  backfill 入力に渡し、`song.txt` へ反映する。通常 file diff でも BMS 本体 mtime が変わらず `.txt`
+  sync 入力に渡し、`song.txt` へ反映する。通常 file diff でも BMS 本体 mtime が変わらず `.txt`
   presence だけ変わる場合は targeted `song.date` / `song.txt` update へ落とすため、text group freshness は
   current scan contract に含まれる。
   file diff を通らない direct install / path replacement では、DB helper ではなく mutation application 層で
   `Lr2TextGroupResolver` を呼び、導入後 / 移動後 directory の direct `.txt` presence を `BMSFile.txt` に反映してから
   `Lr2SongDbWriter` / storage row update へ渡す。
   path replacement では `song.folder` / `song.parent` を一度空にして `Lr2SongRowEnricher` に再生成させる。
-  これにより通常 mutation でも backfill / file diff と同じ CP932 非対応判定と LR2 CRC contract を使う。
+  これにより通常 mutation でも sync / file diff と同じ CP932 非対応判定と LR2 CRC contract を使う。
   direct install / path replacement / remove 後は、同じ owned mutation 成功 path で normal `folder.type = 1` row も
   `Lr2NormalFolderDbSyncService` に渡して sync する。追加だけの mutation は upsert-only とし、削除または移動を含む
   mutation は old / new chart directory を dirty prune scope として渡す。dirty scope は exact chart directory であり、
   root 子 directory へ広げない。sync input にはその scope 内に残る current BMS path も含め、scope 内で期待されなくなった
   normal folder row だけを削除する。bmson は `song` / `folder` の対象にしない。
-  root set 変更や scan surface が不完全な場合の広域 prune は引き続き full scan / backfill に任せる。
+  root set 変更や scan surface が不完全な場合の広域 prune は引き続き full scan / sync に任せる。
   この best-effort sync が失敗しても owned mutation は成功扱いにし、`lr2_full_generation_status` を
-  `Incomplete(lr2_normal_folder_mutation_sync_failed)` にして次回 backfill で修復できるようにする。
+  `Incomplete(lr2_normal_folder_mutation_sync_failed)` にして次回 sync で修復できるようにする。
   `folder` row の path replacement / startup normalization でも parent CRC は `Lr2SongFolderParentNormalizer.ComputeDirectoryHash`
   を使い、`LR2CRC32` の直接呼び出しを通常 mutation / initialization surface に増やさない。
   完了直前の snapshot staleness check は、service に caller-provided predicate を渡す形にし、`BMSLibrary` 側で
@@ -1350,7 +1350,7 @@ parse directive:
   status signature は normalized / deduplicated / case-insensitive な LR2 BMS root set を含める。
   加えて `.lr2folder` discovery root set、LR2 setup の `<customfolder>` bitmask、`titleflash` を含める。
   root set や built-in CustomFolder の対象条件が変わった場合は既存 `Completed` を信用せず、
-  backfill needed として再評価する。`LR2files\Rival` は BeMusicSeeker の built-in discovery root ではないため、
+  sync needed として再評価する。`LR2files\Rival` は BeMusicSeeker の built-in discovery root ではないため、
   signature へ含めない。
   signature には app schema / chart_info schema / chart_info parser / song-folder generator /
   `.lr2folder` parser / LR2 compatibility fact の version も含める。各 component の生成意味が変わった場合は
@@ -1380,7 +1380,7 @@ existence / mtime は意味的に揃える。
   LR2 built-in `LR2files\CustomFolder` を含める。通常出力先や root 出力先に外部 tool が
   `.lr2folder` を生成する運用があるため、`.lr2folder` discovery は chart/resource search より広い。
   app-managed output / external discovered source / built-in source の判定は query ではなく result classifier で行う。
-- `.lr2folder` discovery は backfill 専用の後追い列挙にしない。
+- `.lr2folder` discovery は sync 専用の後追い列挙にしない。
   完全生成 completed 後の steady-state でも、file diff / startup scan surface で `.lr2folder` の
   existence / mtime 変化を検出し、`folder` row へ反映できる必要がある。
   ただし `.lr2folder` discovery roots は chart / resource roots より広いため、同一 query root set に
@@ -1404,7 +1404,7 @@ existence / mtime は意味的に揃える。
 - `everything_scan` log は chart / audio / image / movie だけでなく、完全生成有効時の metadata surface も
   観測できる粒度にする。最低限 `textQuery` / `textQueryHits` / `folderInfoHits` /
   `lr2FolderQueryHits` / `directoryQueryHits` / metadata bridge ms / fallback reason を出し、
-  `.lr2folder` discovery が backfill input で突然始まるように見えないようにする。
+  `.lr2folder` discovery が sync input で突然始まるように見えないようにする。
 - root normalization log を追加する。
   chart / resource roots には BMS root folder だけが残り、通常 custom folder 出力先、root custom folder 出力先、
   およびそれらの子 directory が explicit root として混ざらないことを確認できるようにする。
@@ -1422,10 +1422,10 @@ existence / mtime は意味的に揃える。
 各実装サイクルの開始前に、設計レビューでは機能面だけでなく性能面も必ず確認する。
 特に以下を禁止事項として扱う。
 
-- backfill input 作成中に、startup / file diff scan surface で既に得た情報を広域再列挙する。
+- sync input 作成中に、startup / file diff scan surface で既に得た情報を広域再列挙する。
 - chart / resource / `.lr2folder` / directory metadata の root contract を別々の ad hoc helper で
   再解釈する。
-- completed steady-state の通常起動へ、初回 backfill 用の full validation / full table scan /
+- completed steady-state の通常起動へ、初回 sync 用の full validation / full table scan /
   full hydration を混ぜる。
 - 200k 件級の hot path で、chunk ごとの DB SELECT、行単位 upsert、既存 DB 保護のための
   defensive merge を増やす。
@@ -1437,47 +1437,47 @@ existence / mtime は意味的に揃える。
    - LR2 `folder` table の incomplete / stale / expected row 欠落を通常 file diff の差分扱いへ混ぜない。
    - startup file diff で LR2 normal folder sync を行う場合も、変更 path と prune scope を正本にした scoped sync にする。
    - scoped sync は既存 `folder` row も生成対象と prune scope だけを読み、少量差分で `folder` table 全件 read に戻さない。
-   - LR2 full generation backfill / cleanup 用の全件 normal folder sync は full generation stage 専用に残す。
+   - LR2 full generation sync / cleanup 用の全件 normal folder sync は full generation stage 専用に残す。
    - 完全生成未完了 status の評価は軽量に保ち、未完了であること自体が通常差分確認を秒単位で遅くしない。
    - file diff と owned mutation は共通の `Lr2NormalFolderSyncScopeBuilder` で `ChartPaths` / `PruneScopeDirectories` を作る。
      delete / move の prune scope は affected chart directory の exact scope とし、root 子 directory へ広げない。
      date-only / text-only / bmson-only の DB 差分では LR2 normal folder sync を起動しない。
 2. scan surface / root contract を実装へ反映し、完全生成 input の再列挙をなくす。
    - 完了: 通常 file diff の `everything_scan` surface から `.txt` / `folderinfo.txt` を
-     `RootFileEnumerationEntry` として保持し、`CreateLr2FullGenerationBackfillInput()` はその surface を
-     再利用する。backfill input 作成中に `folderinfo.txt` を root 配下から広域再列挙しない。
+     `RootFileEnumerationEntry` として保持し、`CreateLr2FullGenerationSyncInput()` はその surface を
+     再利用する。sync input 作成中に `folderinfo.txt` を root 配下から広域再列挙しない。
    - 完了: `CreateDirectoryMetadataTargets(roots, chartPaths)` は input 作成中に一度だけ作り、
      folderinfo 候補、directory entry lookup、normal folder sync で共有する。
    - 完了: normal folder directory mtime は root 配下 directory の全列挙ではなく、metadata target だけを
      `DirectoryInfo` で解決する。これはまだ scan surface 完全統合ではないが、広域再列挙は行わない。
    - 完了: input 作成ログに `reusedScanSurface` / `directoryTargets` / `directoryEntries` /
      `folderInfoCandidates` / `textFileDirs` を出し、scan surface が使われているかを確認できるようにする。
-   - 完了: backfill input は使用した scan surface generation を保持し、後続 file diff scan で `.txt` /
+   - 完了: sync input は使用した scan surface generation を保持し、後続 file diff scan で `.txt` /
      `folderinfo.txt` surface が更新された場合は完了直前の source current 判定で `source_stale` にする。
    - 最優先残作業: chart/resource search roots を「BMS root folder として扱う root」だけに正規化する。
      通常 custom folder 出力先、root custom folder 出力先、およびそれらの配下の explicit root は
      chart / resource scan root から除外する。ログで `D:\BMS\ROOT\...` のような root 出力先子 directory が
      query に大量に並ぶ状態は設計不一致として扱う。
    - 残作業: `.lr2folder` discovery roots は BMS roots + 通常出力先 + root 出力先 + `LR2files\CustomFolder`
-     にする。ただしこれは backfill input 内の別列挙ではなく、startup / file diff scan surface の
+     にする。ただしこれは sync input 内の別列挙ではなく、startup / file diff scan surface の
      `.lr2folder` group として保持する。
    - 完了: grouped scan fallback は requested extension union だけを列挙し、`.lr2folder` / `folderinfo.txt`
      discovery の fallback が root 配下全ファイルの metadata surface を作らないようにする。
    - 残作業: native bridge / managed fallback の metadata surface を同じ contract に揃え、ログに text /
      folderinfo / `.lr2folder` / directory counts を出す。
-   - 残作業: `.lr2folder` discovery と directory mtime は startup scan surface へ統合し、backfill input 作成中に
+   - 残作業: `.lr2folder` discovery と directory mtime は startup scan surface へ統合し、sync input 作成中に
      `.lr2folder` / directory mtime の広域 discovery を開始しない形へ寄せる。
    - 残作業: 完全生成 completed 後の通常 file diff でも `.lr2folder` / `folderinfo.txt` / `.txt`
-     surface の差分を検出し、該当 folder row / song.txt を scoped sync する。backfill 初回だけで
+     surface の差分を検出し、該当 folder row / song.txt を scoped sync する。sync 初回だけで
      `.lr2folder` を見る設計にはしない。
 3. `chart_info` run-scoped resolver と inline chart_info 生成を導入する。完了。
    - LR2 full generation が必要な run の開始時に current `chart_info` index を一括で準備する。
    - `song_rows` chunk ごとの `chart_info` DB SELECT を撤廃する。
-   - missing / stale `chart_info` は、完全生成開始前の同期 full backfill ではなく、`song_rows` worker が
+   - missing / stale `chart_info` は、完全生成開始前の同期 full sync ではなく、`song_rows` worker が
      同じ `ChartFileSnapshot` から作り、song row と同じ chunk transaction で保存する。
    - current `chart_info_parse_failure` は run-scoped MD5 set として渡し、既知失敗を timeout まで再 parse しない。
    - 空 DB 初期構築では file diff の inline `chart_info` result をそのまま LR2 projection へ渡す。
-4. backfill input の全件 `BMSFile` copy を廃止する。完了。
+4. sync input の全件 `BMSFile` copy を廃止する。完了。
    - input は lightweight target list、scan metadata surface、version snapshot だけを保持する。
    - `songRows=...` は persistence copy count ではなく target count として扱う。
    - memory usage が current catalog + bounded queue + current chunk の範囲に収まることを log で確認する。
@@ -1492,7 +1492,7 @@ existence / mtime は意味的に揃える。
    - 完了: full-generation 用 bulk song writer は既存 row の generated columns が unchanged の場合、
      `song` row を UPDATE しない。
    - 完了: LR2 compatibility facts は chunk commit 後に live warning projection へ渡し、全件分の
-     `BMSFileMaintenanceInfo` を backfill result に保持しない。
+     `BMSFileMaintenanceInfo` を sync result に保持しない。
    - 最優先残作業: `song_rows` の DB commit が reader / parser より支配的になっている場合は、
      読み込み側の微調整ではなく writer contract を先に直す。
      1000 件 chunk ごとに `song` temp table upsert、`chart_digest_map`、LR2 compatibility facts、
@@ -1507,10 +1507,10 @@ existence / mtime は意味的に揃える。
    - `maintenance` の LR2 compatibility facts は、chunk temp table から全 `maintenance` row へ
      correlated subquery を繰り返す形にしない。`path` indexed lookup と changed-only update /
      missing-row insert に寄せ、同一値 row は update しない。
-   - full backfill の `song` generated column 更新も、実ファイル由来の一覧 cache へ収束させることを
+   - full sync の `song` generated column 更新も、実ファイル由来の一覧 cache へ収束させることを
      主目的にする。LR2 / user-owned column の維持は明示した列だけを snapshot して戻し、
      generated columns については defensive merge を増やさない。
-   - 残作業: full backfill では実ファイル由来の一覧へ収束させることを優先し、既存 `song.db` を守るための
+   - 残作業: full sync では実ファイル由来の一覧へ収束させることを優先し、既存 `song.db` を守るための
      defensive merge を hot path に増やさない。保存する user columns / `adddate` / `favorite` / `tag`
      だけを明示的に snapshot し、generated columns は staging table から set-based に反映する。
    - 残作業: chunk log は wall time、reader wait、worker wait、queue high watermark、worker aggregate time、
@@ -1521,13 +1521,13 @@ existence / mtime は意味的に揃える。
      次順位とする。
    - `ChartFileContentReader` は read-only snapshot と hash付き snapshot の責務を分け、hash 計算を
      worker 側へ逃がせる形にする。
-6. full backfill 用 bulk DB writer を導入する。
+6. full sync 用 bulk DB writer を導入する。
    - chunk 単位で existing user columns / adddate / generated identity をまとめて読む。完了。
    - generated column の insert は multi-value insert、既存 row update は temp table update へ寄せる。完了。
    - `chart_digest_map` update / orphan cleanup は chunk 単位へ寄せる。完了。
    - LR2 compatibility facts の `maintenance` update / insert は chunk temp table へ寄せる。完了。
    - final song prune の current path temp table insert は multi-value chunk へ寄せる。完了。
-   - 行単位 `UpsertChartDigest` / `DeleteChartDigestIfOrphaned` は full backfill hot path から外し、
+   - 行単位 `UpsertChartDigest` / `DeleteChartDigestIfOrphaned` は full sync hot path から外し、
      単発 mutation API 専用に残す。完了。
    - 残作業: 現ログで 1000 件あたり `commitMs` が数秒から数十秒へ膨らんでいるため、
      「完了」扱いの bulk writer も再レビューする。設計レビューでは SQL の set-based 化だけでなく、
@@ -1539,7 +1539,7 @@ existence / mtime は意味的に揃える。
         schema ensure に寄せる。
      3. LR2 compatibility facts writer を chunk-scoped indexed update + changed-only insert/update に変える。
      4. まだ `songStageMs` が支配的なら、`song` generated rows の staging + set-based apply を
-        full-backfill 専用 writer として再整理する。
+        full-sync 専用 writer として再整理する。
 7. final diagnostics / blocker 判定を prune-first に整理する。主要実装済み。
    - `song` / `folder` / `maintenance` は実ファイル由来の一覧 cache として current surface へ収束させる。
    - expected set 外 row / unknown root row は守らず prune する。
@@ -1550,14 +1550,14 @@ existence / mtime は意味的に揃える。
    - completed status と signature current 判定に、full validation や全件 DB scan を混ぜない。
    - 完了: file diff が DB diff なしの場合は storage row replacement / storage row version increment を行わず、
      resource index / health presentation だけを必要範囲で更新する。
-   - 残作業: chart_info / song.db full generation の backfill 系は初回または signature 変更時だけ走る。
+   - 残作業: chart_info backfill / song.db full generation sync 系は初回または signature 変更時だけ走る。
      completed status で signature current の場合、通常起動の file diff は実ファイル由来の変更検出だけを行い、
      chart_info full hydration や LR2 folder full validation を「念のため」混ぜない。
    - 残作業: `.bmt` 出力 OFF、完全生成 completed、file diff 0 件から数件の条件で、
      `startup_background_summary < 50s` を acceptance とする。50 秒を超える場合は、
-     backfill ではなく startup background task の常時 hydration / prewarm を疑う。
+     sync ではなく startup background task の常時 hydration / prewarm を疑う。
 9. `.lr2folder` / `folderinfo.txt` / `.txt` の steady-state diff sync を実装する。
-   - `.lr2folder` discovery は初回 backfill 用の入力ではなく、通常 file diff surface の一部として扱う。
+   - `.lr2folder` discovery は初回 sync 用の入力ではなく、通常 file diff surface の一部として扱う。
      完全生成 completed 後も、アプリ管理外の `.lr2folder` 作成 / 更新 / 削除を startup file diff で検出し、
      対応する `folder` row を scoped sync する。
    - `.lr2folder` roots は BMS root folder 群、通常 custom folder 出力先、root custom folder 出力先、
@@ -1567,16 +1567,16 @@ existence / mtime は意味的に揃える。
      full generation completed 後は変更 path / affected directory scope だけを再同期する。
    - `.txt` は `song.txt` 生成列の source なので、BMS 本体 mtime が変わらない text-only 変更でも
      scoped song row update の対象にする。
-   - backfill 完了後の steady-state では、これらの変更検出のために full backfill や全件 folder validation を
+   - sync 完了後の steady-state では、これらの変更検出のために full sync や全件 folder validation を
      queue しない。file diff surface の差分から scoped DB writer を起動する。
 10. native bridge metadata parity を統合確認する。
    - fixed scan の `.txt` / `folderinfo.txt` entry、grouped enumeration の `.lr2folder` entry、directory mtime が同じ `RootFileEnumerationEntry` contract になることを実機 Everything 環境で確認する。
    - bridge layout / result version log を必要に応じて追加する。
 11. Phase 9 の統合確認を固める。
-   - copied `song.db` で、初回 backfill、2 回目 no-op、partial resume、failed chunk rollback、
+   - copied `song.db` で、初回 sync、2 回目 no-op、partial resume、failed chunk rollback、
      cancel/restart、startup-scan blocker cleanup を確認する。
-   - completed status と signature が current な場合に 2 回目 backfill queue が発生しないことは unit/integration-shaped test で固定済み。
-   - copied `song.db` でも completed status と signature が current な場合に backfill queue が発生しないことは unit/integration-shaped test で固定済み。
+   - completed status と signature が current な場合に 2 回目 sync queue が発生しないことは unit/integration-shaped test で固定済み。
+   - copied `song.db` でも completed status と signature が current な場合に sync queue が発生しないことは unit/integration-shaped test で固定済み。
    - song row chunk failure では chunk transaction が rollback され、durable `Failed` cursor から再実行できることは unit/integration-shaped test で固定済み。
    - 実機ログで `processed_cursor` / `stage` / `Completed` / `Incomplete` の遷移が想定どおりか確認する。
 12. Phase 0 の残 fixture を追加する。
@@ -1592,14 +1592,14 @@ existence / mtime は意味的に揃える。
 上の「残作業の推奨順」へ追加し、この節には完了済み contract だけを残す。
 
 - `Lr2SongDbWriter.UpsertGeneratedSong(...)` は direct install / path replacement など単発 runtime mutation の
-  persistence 境界として扱う。full backfill / 空 DB 初期構築の hot path では、同じ preservation rule を持つ
+  persistence 境界として扱う。full sync / 空 DB 初期構築の hot path では、同じ preservation rule を持つ
   bulk writer を使う。
   writer は DB-oriented な境界であり、`date` 欠落時に実ファイル mtime へ fallback しない。
   BMS mtime は caller が `ChartFileSnapshot` / enumeration metadata から `BMSFile.date` に反映してから渡す。
   writer は新規 `song` row で `adddate` が無い場合だけ現在時刻を入れ、既存 row の `adddate` は
   update では変更しない。
 - install package inline `chart_info` build は、parse / current row skip で得た `chart_info` row を BMS storage owner
-  に反映してから `Lr2SongDbWriter` へ渡す。これにより direct install 直後の `song` row も、backfill を待たずに
+  に反映してから `Lr2SongDbWriter` へ渡す。これにより direct install 直後の `song` row も、sync を待たずに
   `level` / `difficulty` / BPM / `mode` / `longnote` / `random` / `karinotes` を持つ。
 - playlist custom folder output workflow は `.lr2folder` file を出力した同じ操作内で `folder` row も sync する。
   ルートフォルダ出力 (`is_root_folder`) では playlist workflow 側でも `Lr2FolderFileSourceClassifier` を通し、
@@ -1610,51 +1610,51 @@ existence / mtime は意味的に揃える。
   commit と同じ operation 内で旧 directory row を prune してから新出力先を生成する。
 - playlist entry level の LR2 `song.level` writeback は、complete row writer ではなく targeted `UPDATE song SET level`
   を使う。既存 `song` row が無い path には不完全 row を作らず、既存 row の user / generated columns も触らない。
-- LR2 full generation backfill の進捗は、durable status table と log に加えて `BMSLibrary` の bindable property
+- LR2 full generation sync の進捗は、durable status table と log に加えて `BMSLibrary` の bindable property
   (`Running` / requested-completed version / total / processed / stage) にも投影する。service 側は progress callback を
-  観測専用として扱い、callback 失敗で durable backfill を失敗させない。
-- startup progress では LR2 full generation backfill を startup / full reinitialize の background phase として扱う。
+  観測専用として扱い、callback 失敗で durable sync を失敗させない。
+- startup progress では LR2 full generation sync を startup / full reinitialize の background phase として扱う。
   request が来た場合だけ `[processed/total] LR2 song.db 完全生成 <stage>` を表示し、request 前に skip された場合は
   post-startup warmup 由来の遅い request で進捗を巻き戻さない。
-- in-process で `Lr2FullGenerationBackfillRunning` の間に同じ workflow が再要求された場合は、durable status が
+- in-process で `Lr2FullGenerationSyncRunning` の間に同じ workflow が再要求された場合は、durable status が
   `Needed` のままでも追加 queue せず、現在の bindable progress を返す。アプリ再起動後の persisted `Running` は
-  incomplete run として再評価し、通常の backfill request へ戻す。
-- backfill runner の `Incomplete` / `Failed` は startup progress の完了版数を進めない。
-  `Lr2FullGenerationBackfillFailedVersion` と failure message で ViewModel へ通知し、進捗バーは失敗状態として残す。
+  incomplete run として再評価し、通常の sync request へ戻す。
+- sync runner の `Incomplete` / `Failed` は startup progress の完了版数を進めない。
+  `Lr2FullGenerationSyncFailedVersion` と failure message で ViewModel へ通知し、進捗バーは失敗状態として残す。
   `CompletedVersion` は durable status が `Completed` になった run だけで進める。
 - LR2 full generation status は durable table の評価結果と runtime progress を `BMSLibrary` の internal snapshot +
   public version に投影する。`MainWindowViewModel` はこれを status bar 用の runtime status に変換し、
   `Needed` / `Failed` / `Incomplete` / `Cancelled` を startup progress 外でも persistent warning として表示する。
   `Running` は startup progress が表示中なら既存 startup progress を正本にし、startup progress 外では設定保存後の
-  background backfill などを見失わないよう status bar に表示する。`Completed` / `NotNeeded` は status bar では非表示にする。
+  background sync などを見失わないよう status bar に表示する。`Completed` / `NotNeeded` は status bar では非表示にする。
 - 設定画面の明示導線は `LR2完全生成データを再同期` とする。
   この操作は current owned BMS と app-managed playlist custom folder projection から LR2 `song` / `folder`
-  派生 cache を再同期するためのもので、`maintenance` 全譜面再スキャンや `chart_info` backfill とは別の機能として表示する。
+  派生 cache を再同期するためのもので、`maintenance` 全譜面再スキャンや `chart_info` sync とは別の機能として表示する。
   アプリ管理 playlist 出力は `.lr2folder` 実ファイルの有無だけを見ず、`playlist` / `playlist_entry` 正本から
   `.lr2folder` file と `folder` row を同じ projection で再 materialize する。
-  既存 DB が壊れている場合も、通常 startup diff を重くするのではなく、この明示再同期または full generation backfill で正常化する。
+  既存 DB が壊れている場合も、通常 startup diff を重くするのではなく、この明示再同期または full generation sync で正常化する。
 - 完全生成設定は設定ダイアログの LR2 連携項目として表示する。既定値は LR2 連携モードの標準挙動に合わせて
   `true` とし、OFF から ON に変更して保存した場合は
-  `QueueLr2FullGenerationBackfillIfNeeded("SettingDialog.SaveSettings")` を呼んで同じ background workflow に流す。
+  `QueueLr2FullGenerationDataSync("SettingDialog.SaveSettings")` を呼んで同じ background workflow に流す。
   LR2 連携 mode / 完全生成設定 / LR2 root / 通常 custom folder 出力先 /
   ルート custom folder 出力先のいずれかが変更され、保存後に完全生成が有効な場合も同じ queue に流す。
   これらは signature と `.lr2folder` discovery surface を変えるためである。
-- LR2 full generation backfill 実行中は、install / merge / rename / root move / extension rename / delete など
+- LR2 full generation sync 実行中は、install / merge / rename / root move / extension rename / delete など
   owned collection と LR2 `song.db` を同時に変える操作を入口で警告して中止する。加えて
   `ApplyInstalledChartStorageTargets` / `ApplyLibraryMutationDelta` に low-level guard を置き、将来の追加経路や
   テスト用 reflection 経路が入口 guard を迂回しても DB / owned collection を書き換えないようにする。
   file diff reload / full reinitialize / pending install apply / install destination repair / playlist level writeback /
-  encoding commit / mode commit / direct song commit も同じ backfill priority window で止める。
+  encoding commit / mode commit / direct song commit も同じ sync priority window で止める。
   pending-only 操作は current owned source mutation ではないため、この guard の対象外とする。
-- resumable backfill は folder 系を stage 境界、`song_rows` を chunk 境界で再開する。durable status の
+- resumable sync は folder 系を stage 境界、`song_rows` を chunk 境界で再開する。durable status の
   `processed_cursor` が `normal_folders` / `.lr2folder` の完了境界に達している場合、その完了済み stage は
   再実行しない。`song_rows` は chunk commit 成功後だけ cursor を進め、次回 run では cursor 以前の
   song target をスキップする。失敗時に outer catch が durable failed status を上書きしても、同一 run の
   既存 cursor / total は維持する。
-- backfill cancellation は request token を service へ渡し、stage 境界と `song_rows` chunk 境界で
+- sync cancellation は request token を service へ渡し、stage 境界と `song_rows` chunk 境界で
   `Cancelled` status と current cursor を durable に記録する。runtime request state も `Cancelled` として終端し、
-  次回 evaluate では通常の resumable backfill request に戻す。`Running` status は status bar にキャンセル操作を表示し、
-  UI は model の cancellation token request を発火するだけで、durable status の確定は backfill runner の境界処理に任せる。
+  次回 evaluate では通常の resumable sync request に戻す。`Running` status は status bar にキャンセル操作を表示し、
+  UI は model の cancellation token request を発火するだけで、durable status の確定は sync runner の境界処理に任せる。
 - startup-scan blocker diagnostic は、resume により folder stage をスキップした場合でも、current generation scope の
   expected `folder` row が存在するかを最後に検証する。欠けている場合は `missingExpectedFolderRows` を
   log に残し、normal folder stage を一度だけ再同期してから再診断する。
@@ -1671,7 +1671,7 @@ existence / mtime は意味的に揃える。
   date update に寄せる。
   current path set から導けない `song` row は full generation 本体の song prune で削除する。
   `song` row 欠落や `song.date` 欠落は current row write の不整合として扱い、cleanup helper ではなく
-  backfill retry で直す。
+  sync retry で直す。
 - `LR2非対応パス` tree は LR2 連携モード専用の compatibility surface として扱い、standalone mode では表示しない。
 - library root scan の `.txt` surface は LR2 連携モードかつ完全生成設定 ON のときだけ列挙する。
   pending package / install estimation の局所 scan は package 表示・導入時 projection のため既存どおり text group を扱う。
@@ -1688,35 +1688,35 @@ existence / mtime は意味的に揃える。
   この修正では parser / schema version を上げないため、既存 `chart_info.exlevel` の非 null 値はそのまま扱い、
   `chart_info.exlevel IS NULL` または generated song row の未設定値だけを LR2 と同じ `0` に正規化する。
 - manual `ReloadFileDiff` / search root 変更後は file diff 適用完了後に
-  `QueueLr2FullGenerationBackfillIfNeeded("ReloadFileDiff")` で status を再評価する。
+  `QueueLr2FullGenerationDataSync("ReloadFileDiff")` で status を再評価する。
   これにより root set / built-in custom folder 設定 signature mismatch は次回起動待ちにせず検出するが、
-  durable status が clean な場合は backfill を開始しない。
+  durable status が clean な場合は sync を開始しない。
 - startup-scan blocker diagnostic は legacy `folder.type = 0 / NULL` row も扱う。
   `folder.type` だけで normal directory / `.lr2folder` を判定せず、normalized path が `.lr2folder`
   で終わるかを target 種別の正本にする。legacy normal directory row は、expected normal folder path に
   含まれなければ cleanup 対象、含まれる場合は normal folder resync で現行 projection へ収束させる。
 - direct owned mutation 中の normal folder sync failure は、file diff normal folder sync failure と同じく
   durable full generation status を `Incomplete` にする。mutation は user operation の正しさを優先して進め、
-  folder row の再同期は次回 backfill / retry で復旧できる状態にする。
+  folder row の再同期は次回 sync / retry で復旧できる状態にする。
 - duplicate merge の BMS source unregister は LR2 `song` row を一度削除してから destination path を再登録するため、
   unregister 前に source path の LR2 user columns (`favorite` / `adddate` / `tag`) を snapshot し、
   moved BMS owner へ再適用してから destination `song` row を upsert する。これにより merge は
   direct path replacement と同じく DB 側 user state を保持する。
 - direct runtime の LR2 `song` write failure (`song` upsert / level update / mutation delete / path replacement)
   は normal folder sync failure と同じく durable full generation status を `Incomplete` にする。
-  この段階では既存の user operation 失敗 semantics は変えず、例外は再 throw する。次回 backfill / retry が
+  この段階では既存の user operation 失敗 semantics は変えず、例外は再 throw する。次回 sync / retry が
   復旧経路になるよう、失敗 stage と message を status に残す。
   owned mutation apply は state applier 全体ではなく、BMS `song` row を実際に触る unregister / path cleanup /
   path replacement の callback で marking する。bmson row や installed package state の失敗を LR2 full generation
   status に誤分類しないためである。
 - file diff reload と maintenance workflow は下位 service 内で `Lr2SongDbWriter` を直接呼ぶため、workflow 境界で
   fatal failure を durable full generation status `Incomplete` にする。下位 writer をすべて status-aware にするより、
-  UI/operation semantics を変えず、backfill/retry の入口を失わないことを優先する。
+  UI/operation semantics を変えず、sync/retry の入口を失わないことを優先する。
 - direct runtime の `dbGateway.UpsertSongs(...)` / `UpdateSongLevels(...)` call site は、
   `BMSLibrary.ExecuteLr2SongDbWrite(...)` を status boundary として通す。下位 `BmsLibraryDbGateway` はテストや
   internal service の raw DB gateway として残るため、production `BMSLibrary` 側の call site guard test で回帰を防ぐ。
 - playlist custom folder output は `.lr2folder` file と LR2 `folder` row を同じ projection から更新するため、
-  LR2 full generation backfill 実行中は playlist 側の `.lr2folder` sync 境界でも mutation guard を通す。
+  LR2 full generation sync 実行中は playlist 側の `.lr2folder` sync 境界でも mutation guard を通す。
   `folder` row sync が失敗した場合は、既存の playlist warning 表示 semantics は維持しつつ、durable full generation
   status を `Incomplete(lr2_playlist_lr2folder_sync_failed)` にする。
 - `.lr2folder` DB sync は explicit `FolderType = 3/4/6` を保存できる。

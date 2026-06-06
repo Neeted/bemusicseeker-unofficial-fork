@@ -55,7 +55,7 @@
   "Lr2_full_generation_status_incomplete": "LR2 song.db 完整生成未完成",
   "Lr2_full_generation_retry": "重试",
   "Lr2_full_generation_data_resync": "重新同步 LR2 song.db 完整生成数据",
-  "Lr2_full_generation_data_resync_tooltip": "根据当前已持有谱面和播放列表重新同步 LR2 song/folder 派生数据。不会重新扫描 maintenance 或 chart_info。",
+  "Lr2_full_generation_data_resync_tooltip": "根据当前持有谱面和播放列表重新同步 LR2 的 song / folder 生成数据。这不是 maintenance 重新扫描，也不是 chart_info 全谱面补全。",
   "Lr2_full_generation_cleanup_startup_scan_blockers": "删除 LR2 folder DB 行后重试",
   "Msg_confirm_lr2_full_generation_startup_scan_blocker_cleanup": "将删除阻止 LR2 song.db 完整生成完成的旧 folder 行，然后重试。\n只会删除诊断出的 LR2 folder 表行，不会删除谱面文件或 .lr2folder 文件。\n\n继续吗?",
   "Msg_failed_remove_playlist_entry": "谱面从播放列表移除失败。\n该播放列表已设置为外部同步模式。",
@@ -573,7 +573,7 @@
   "Warn_MoveDestAlreadyExists": "由于目标文件夹已存在，操作已取消。\n源路径: {0}\n目标路径: {1}",
   "Error_FolderMoveFailed": "文件夹移动失败。\n请确认是否可以正常访问。\n源路径: {0}\n目标路径: {1}\n\n{2}",
   "Warn_RenameDestAlreadyExists": "由于目标文件已存在，操作已取消。\n来源: {0}\n目标: {1}",
-  "Warn_Lr2FullGenerationBackfillRunning": "正在完整生成 LR2 song.db。\n请在完成后重试。",
+  "Warn_Lr2FullGenerationSyncRunning": "正在完整生成 LR2 song.db。\n请在完成后重试。",
   "Error_BmsFileMoveFailed": "BMS文件移动失败。\n请确认是否可以正常访问。\n源路径: {0}\n目标路径: {1}\n\n{2}",
   "Confirm_DeleteFolderWithNoBms": "继续删除后该文件夹将不再包含BMS文件。\n是否删除整个文件夹？\n(可能仍包含其他文件)\n\n目标: \n{0}",
   "Error_FolderOrTrashDeleteFailed": "文件夹删除或移至回收站失败。\n请确认是否可以正常访问。\n{0}\n\n{1}",
@@ -617,5 +617,6 @@
   "Warn_ArchiveExtractFailed": "Failed to extract the archive.\nTarget: {0}\nDetails: {1}",
   "Warn_ArchiveTimestampRestoreFailed": "Installation was aborted because the last write time could not be restored for a file inside the archive.\nArchive: {0}\nTarget: {1}\nDetails: {2}",
   "Warn_ArchiveLastWriteTimeMissingDetail": "The archive entry does not contain a last write time.",
-  "Warn_ArchiveBundledSevenZipMissingDetail": "The bundled archive extraction library could not be found."
+  "Warn_ArchiveBundledSevenZipMissingDetail": "The bundled archive extraction library could not be found.",
+  "Msg_confirm_lr2_full_generation_data_resync": "将根据当前持有谱面和播放列表重新同步 LR2 的 song / folder 生成数据。\n不会执行 maintenance 重新扫描或 chart_info 全谱面补全。\n\n要继续吗？"
 }

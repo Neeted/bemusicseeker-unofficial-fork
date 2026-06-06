@@ -6307,14 +6307,14 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         (base.DataContext as MainWindowViewModel)?.CancelMaintenanceRescan();
     }
 
-    private void retryLr2FullGenerationBackfillClick(object sender, RoutedEventArgs e)
+    private void retryLr2FullGenerationSyncClick(object sender, RoutedEventArgs e)
     {
-        (base.DataContext as MainWindowViewModel)?.RetryLr2FullGenerationBackfill();
+        (base.DataContext as MainWindowViewModel)?.RetryLr2FullGenerationSync();
     }
 
-    private void cancelLr2FullGenerationBackfillClick(object sender, RoutedEventArgs e)
+    private void cancelLr2FullGenerationSyncClick(object sender, RoutedEventArgs e)
     {
-        (base.DataContext as MainWindowViewModel)?.CancelLr2FullGenerationBackfill();
+        (base.DataContext as MainWindowViewModel)?.CancelLr2FullGenerationSync();
     }
 
     private void cleanupLr2FullGenerationStartupScanBlockersClick(object sender, RoutedEventArgs e)

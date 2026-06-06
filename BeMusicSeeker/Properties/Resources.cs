@@ -403,6 +403,8 @@ public class Resources
 
     public static string Lr2_full_generation_data_resync_tooltip => ResourceManager.GetString("Lr2_full_generation_data_resync_tooltip", resourceCulture);
 
+    public static string Msg_confirm_lr2_full_generation_data_resync => ResourceManager.GetString("Msg_confirm_lr2_full_generation_data_resync", resourceCulture);
+
     public static string Lr2_full_generation_cleanup_startup_scan_blockers => ResourceManager.GetString("Lr2_full_generation_cleanup_startup_scan_blockers", resourceCulture);
 
     public static string Msg_confirm_lr2_full_generation_startup_scan_blocker_cleanup => ResourceManager.GetString("Msg_confirm_lr2_full_generation_startup_scan_blocker_cleanup", resourceCulture);
@@ -1274,7 +1276,7 @@ public class Resources
 
     public static string Warn_RenameDestAlreadyExists => ResourceManager.GetString("Warn_RenameDestAlreadyExists", resourceCulture);
 
-    public static string Warn_Lr2FullGenerationBackfillRunning => ResourceManager.GetString("Warn_Lr2FullGenerationBackfillRunning", resourceCulture);
+    public static string Warn_Lr2FullGenerationSyncRunning => ResourceManager.GetString("Warn_Lr2FullGenerationSyncRunning", resourceCulture);
 
     public static string Warn_no_pending_installed_only_packages => ResourceManager.GetString("Warn_no_pending_installed_only_packages", resourceCulture);
 

@@ -1122,13 +1122,13 @@ public class BMSLibrary : NotificationObject
 
     private int chartInfoBackfillHydrationBypassUntilVersion;
 
-    private readonly object lockLr2FullGenerationBackfill = new();
+    private readonly object lockLr2FullGenerationSync = new();
 
-    private int lr2FullGenerationBackfillRequestedVersion;
+    private int lr2FullGenerationSyncRequestedVersion;
 
-    private int lr2FullGenerationBackfillCompletedVersion;
+    private int lr2FullGenerationSyncCompletedVersion;
 
-    private int lr2FullGenerationBackfillFailedVersion;
+    private int lr2FullGenerationSyncFailedVersion;
 
     private readonly object lockLr2FullGenerationStatus = new();
 
@@ -1291,27 +1291,27 @@ public class BMSLibrary : NotificationObject
 
     private ChartInfoHydrationAllCurrentSnapshot chartInfoHydrationAllCurrentSnapshot;
 
-    private bool _Lr2FullGenerationBackfillRunning;
+    private bool _Lr2FullGenerationSyncRunning;
 
-    private CancellationTokenSource lr2FullGenerationBackfillCancellation;
+    private CancellationTokenSource lr2FullGenerationSyncCancellation;
 
-    private int _Lr2FullGenerationBackfillRequestedVersion;
+    private int _Lr2FullGenerationSyncRequestedVersion;
 
-    private int _Lr2FullGenerationBackfillCompletedVersion;
+    private int _Lr2FullGenerationSyncCompletedVersion;
 
-    private int _Lr2FullGenerationBackfillFailedVersion;
+    private int _Lr2FullGenerationSyncFailedVersion;
 
-    private int _Lr2FullGenerationBackfillTotalCount;
+    private int _Lr2FullGenerationSyncTotalCount;
 
-    private int _Lr2FullGenerationBackfillProcessedCount;
+    private int _Lr2FullGenerationSyncProcessedCount;
 
-    private string _Lr2FullGenerationBackfillStage = string.Empty;
+    private string _Lr2FullGenerationSyncStage = string.Empty;
 
-    private int _Lr2FullGenerationBackfillStageProcessedCount;
+    private int _Lr2FullGenerationSyncStageProcessedCount;
 
-    private int _Lr2FullGenerationBackfillStageTotalCount;
+    private int _Lr2FullGenerationSyncStageTotalCount;
 
-    private string _Lr2FullGenerationBackfillFailureMessage = string.Empty;
+    private string _Lr2FullGenerationSyncFailureMessage = string.Empty;
 
     private int _Lr2FullGenerationStatusVersion;
 
@@ -2340,164 +2340,164 @@ public class BMSLibrary : NotificationObject
         }
     }
 
-    public bool Lr2FullGenerationBackfillRunning
+    public bool Lr2FullGenerationSyncRunning
     {
         get
         {
-            return _Lr2FullGenerationBackfillRunning;
+            return _Lr2FullGenerationSyncRunning;
         }
         private set
         {
-            if (_Lr2FullGenerationBackfillRunning != value)
+            if (_Lr2FullGenerationSyncRunning != value)
             {
-                _Lr2FullGenerationBackfillRunning = value;
-                RaisePropertyChanged(() => Lr2FullGenerationBackfillRunning);
+                _Lr2FullGenerationSyncRunning = value;
+                RaisePropertyChanged(() => Lr2FullGenerationSyncRunning);
             }
         }
     }
 
-    public int Lr2FullGenerationBackfillRequestedVersion
+    public int Lr2FullGenerationSyncRequestedVersion
     {
         get
         {
-            return _Lr2FullGenerationBackfillRequestedVersion;
+            return _Lr2FullGenerationSyncRequestedVersion;
         }
         private set
         {
-            if (_Lr2FullGenerationBackfillRequestedVersion != value)
+            if (_Lr2FullGenerationSyncRequestedVersion != value)
             {
-                _Lr2FullGenerationBackfillRequestedVersion = value;
-                RaisePropertyChanged(() => Lr2FullGenerationBackfillRequestedVersion);
+                _Lr2FullGenerationSyncRequestedVersion = value;
+                RaisePropertyChanged(() => Lr2FullGenerationSyncRequestedVersion);
             }
         }
     }
 
-    public int Lr2FullGenerationBackfillCompletedVersion
+    public int Lr2FullGenerationSyncCompletedVersion
     {
         get
         {
-            return _Lr2FullGenerationBackfillCompletedVersion;
+            return _Lr2FullGenerationSyncCompletedVersion;
         }
         private set
         {
-            if (_Lr2FullGenerationBackfillCompletedVersion != value)
+            if (_Lr2FullGenerationSyncCompletedVersion != value)
             {
-                _Lr2FullGenerationBackfillCompletedVersion = value;
-                RaisePropertyChanged(() => Lr2FullGenerationBackfillCompletedVersion);
+                _Lr2FullGenerationSyncCompletedVersion = value;
+                RaisePropertyChanged(() => Lr2FullGenerationSyncCompletedVersion);
             }
         }
     }
 
-    public int Lr2FullGenerationBackfillFailedVersion
+    public int Lr2FullGenerationSyncFailedVersion
     {
         get
         {
-            return _Lr2FullGenerationBackfillFailedVersion;
+            return _Lr2FullGenerationSyncFailedVersion;
         }
         private set
         {
-            if (_Lr2FullGenerationBackfillFailedVersion != value)
+            if (_Lr2FullGenerationSyncFailedVersion != value)
             {
-                _Lr2FullGenerationBackfillFailedVersion = value;
-                RaisePropertyChanged(() => Lr2FullGenerationBackfillFailedVersion);
+                _Lr2FullGenerationSyncFailedVersion = value;
+                RaisePropertyChanged(() => Lr2FullGenerationSyncFailedVersion);
             }
         }
     }
 
-    public int Lr2FullGenerationBackfillTotalCount
+    public int Lr2FullGenerationSyncTotalCount
     {
         get
         {
-            return _Lr2FullGenerationBackfillTotalCount;
+            return _Lr2FullGenerationSyncTotalCount;
         }
         private set
         {
-            if (_Lr2FullGenerationBackfillTotalCount != value)
+            if (_Lr2FullGenerationSyncTotalCount != value)
             {
-                _Lr2FullGenerationBackfillTotalCount = value;
-                RaisePropertyChanged(() => Lr2FullGenerationBackfillTotalCount);
+                _Lr2FullGenerationSyncTotalCount = value;
+                RaisePropertyChanged(() => Lr2FullGenerationSyncTotalCount);
             }
         }
     }
 
-    public int Lr2FullGenerationBackfillProcessedCount
+    public int Lr2FullGenerationSyncProcessedCount
     {
         get
         {
-            return _Lr2FullGenerationBackfillProcessedCount;
+            return _Lr2FullGenerationSyncProcessedCount;
         }
         private set
         {
-            if (_Lr2FullGenerationBackfillProcessedCount != value)
+            if (_Lr2FullGenerationSyncProcessedCount != value)
             {
-                _Lr2FullGenerationBackfillProcessedCount = value;
-                RaisePropertyChanged(() => Lr2FullGenerationBackfillProcessedCount);
+                _Lr2FullGenerationSyncProcessedCount = value;
+                RaisePropertyChanged(() => Lr2FullGenerationSyncProcessedCount);
             }
         }
     }
 
-    public string Lr2FullGenerationBackfillStage
+    public string Lr2FullGenerationSyncStage
     {
         get
         {
-            return _Lr2FullGenerationBackfillStage;
+            return _Lr2FullGenerationSyncStage;
         }
         private set
         {
             value ??= string.Empty;
-            if (_Lr2FullGenerationBackfillStage != value)
+            if (_Lr2FullGenerationSyncStage != value)
             {
-                _Lr2FullGenerationBackfillStage = value;
-                RaisePropertyChanged(() => Lr2FullGenerationBackfillStage);
+                _Lr2FullGenerationSyncStage = value;
+                RaisePropertyChanged(() => Lr2FullGenerationSyncStage);
             }
         }
     }
 
-    public int Lr2FullGenerationBackfillStageProcessedCount
+    public int Lr2FullGenerationSyncStageProcessedCount
     {
         get
         {
-            return _Lr2FullGenerationBackfillStageProcessedCount;
+            return _Lr2FullGenerationSyncStageProcessedCount;
         }
         private set
         {
-            if (_Lr2FullGenerationBackfillStageProcessedCount != value)
+            if (_Lr2FullGenerationSyncStageProcessedCount != value)
             {
-                _Lr2FullGenerationBackfillStageProcessedCount = value;
-                RaisePropertyChanged(() => Lr2FullGenerationBackfillStageProcessedCount);
+                _Lr2FullGenerationSyncStageProcessedCount = value;
+                RaisePropertyChanged(() => Lr2FullGenerationSyncStageProcessedCount);
             }
         }
     }
 
-    public int Lr2FullGenerationBackfillStageTotalCount
+    public int Lr2FullGenerationSyncStageTotalCount
     {
         get
         {
-            return _Lr2FullGenerationBackfillStageTotalCount;
+            return _Lr2FullGenerationSyncStageTotalCount;
         }
         private set
         {
-            if (_Lr2FullGenerationBackfillStageTotalCount != value)
+            if (_Lr2FullGenerationSyncStageTotalCount != value)
             {
-                _Lr2FullGenerationBackfillStageTotalCount = value;
-                RaisePropertyChanged(() => Lr2FullGenerationBackfillStageTotalCount);
+                _Lr2FullGenerationSyncStageTotalCount = value;
+                RaisePropertyChanged(() => Lr2FullGenerationSyncStageTotalCount);
             }
         }
     }
 
-    public string Lr2FullGenerationBackfillFailureMessage
+    public string Lr2FullGenerationSyncFailureMessage
     {
         get
         {
-            return _Lr2FullGenerationBackfillFailureMessage;
+            return _Lr2FullGenerationSyncFailureMessage;
         }
         private set
         {
             value ??= string.Empty;
-            if (_Lr2FullGenerationBackfillFailureMessage != value)
+            if (_Lr2FullGenerationSyncFailureMessage != value)
             {
-                _Lr2FullGenerationBackfillFailureMessage = value;
-                RaisePropertyChanged(() => Lr2FullGenerationBackfillFailureMessage);
+                _Lr2FullGenerationSyncFailureMessage = value;
+                RaisePropertyChanged(() => Lr2FullGenerationSyncFailureMessage);
             }
         }
     }
@@ -5190,7 +5190,7 @@ completeFileEnumerationOnce,
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
         List<string> builtinSourceDirectories = CreateLr2FullGenerationBuiltinFolderSourceDirectories();
-        var request = new Lr2FullGenerationBackfillRequest
+        var request = new Lr2FullGenerationSyncRequest
         {
             RootDirectories = roots,
             Lr2FolderDiscoveryDirectories = fileCheckResult.Lr2ScanLr2FolderDiscoveryDirectories,
@@ -5207,8 +5207,8 @@ completeFileEnumerationOnce,
         {
             using LR2SongDBExtended songDb = dbGateway.OpenSongDb();
             IReadOnlyDictionary<string, LR2SongDB.folder> existingRowsByPath = CreateExistingLr2FolderRowMap(songDb);
-            Lr2FullGenerationBackfillService.Lr2FolderFileSyncItemsResult syncItems =
-                Lr2FullGenerationBackfillService.CreateLr2FolderFileSyncItems(
+            Lr2FullGenerationSyncService.Lr2FolderFileSyncItemsResult syncItems =
+                Lr2FullGenerationSyncService.CreateLr2FolderFileSyncItems(
                     request.Lr2FolderFilePaths,
                     request,
                     request.Lr2FolderFileEntries,
@@ -5221,7 +5221,7 @@ completeFileEnumerationOnce,
                 {
                     Items = syncItems.Items,
                     ScopeDirectories = request.Lr2FolderPruneDirectories,
-                    DirectoryRowScopeDirectories = Lr2FullGenerationBackfillService.CreateLr2FolderDirectoryRowScopeDirectories(request),
+                    DirectoryRowScopeDirectories = Lr2FullGenerationSyncService.CreateLr2FolderDirectoryRowScopeDirectories(request),
                     ScopePaths = request.Lr2FolderFilePaths,
                     GeneratedAtUtc = DateTime.UtcNow,
                     AllowPrune = request.Lr2FolderFileDiscoveryComplete && !syncItems.HasReadFailures
@@ -5379,7 +5379,7 @@ completeFileEnumerationOnce,
         return snapshot;
     }
 
-    private bool IsCurrentLr2FullGenerationScanSurface(Lr2FullGenerationBackfillInput input)
+    private bool IsCurrentLr2FullGenerationScanSurface(Lr2FullGenerationSyncInput input)
     {
         if (input == null || input.ScanSurfaceGeneration <= 0)
         {
@@ -5409,7 +5409,10 @@ completeFileEnumerationOnce,
         LogInstallPerformance("chart_digest_backfill skipped reason=combined_chart_info_pipeline");
     }
 
-    internal Lr2FullGenerationStatusSnapshot QueueLr2FullGenerationBackfillIfNeeded(string reason)
+    internal Lr2FullGenerationStatusSnapshot QueueLr2FullGenerationDataSync(
+        string reason,
+        bool force = false,
+        Action prepareGeneratedData = null)
     {
         BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
         bool enabled = options.OperationModeLR2DB && options.EnableLR2SongDbFullGeneration;
@@ -5432,30 +5435,46 @@ completeFileEnumerationOnce,
         }
         PublishLr2FullGenerationStatus(status);
 
-        LogInstallPerformance("lr2_full_generation_status evaluate reason=" + (reason ?? "unknown")
+        LogInstallPerformance("lr2_full_generation_sync_status evaluate reason=" + (reason ?? "unknown")
             + " enabled=" + enabled.ToString().ToLowerInvariant()
+            + " force=" + force.ToString().ToLowerInvariant()
             + " status=" + status.Status
             + " storedStatus=" + (status.StoredStatus?.ToString() ?? "(none)")
             + " signature=" + (status.Signature ?? string.Empty));
 
-        if (!enabled || !status.IsNeeded)
+        if (!enabled || (!force && !status.IsNeeded))
         {
             return status;
         }
-        if (!TryBeginLr2FullGenerationBackfillRequest(out int requestVersion))
+        if (!TryBeginLr2FullGenerationSyncRequest(out int requestVersion))
         {
-            LogInstallPerformance("lr2_full_generation_backfill queue_skipped reason=" + (reason ?? "unknown")
+            LogInstallPerformance("lr2_full_generation_sync queue_skipped reason=" + (reason ?? "unknown")
                 + " status=" + status.Status
-                + " stage=" + (Lr2FullGenerationBackfillStage ?? string.Empty)
-                + " requestedVersion=" + Lr2FullGenerationBackfillRequestedVersion);
+                + " stage=" + (Lr2FullGenerationSyncStage ?? string.Empty)
+                + " requestedVersion=" + Lr2FullGenerationSyncRequestedVersion);
             status.Status = Lr2FullGenerationStatusKind.Running;
-            status.Stage = Lr2FullGenerationBackfillStage;
-            status.ProcessedCursor = Lr2FullGenerationBackfillProcessedCount;
-            status.TotalCount = Lr2FullGenerationBackfillTotalCount;
-            status.StageProcessedCount = Lr2FullGenerationBackfillStageProcessedCount;
-            status.StageTotalCount = Lr2FullGenerationBackfillStageTotalCount;
+            status.Stage = Lr2FullGenerationSyncStage;
+            status.ProcessedCursor = Lr2FullGenerationSyncProcessedCount;
+            status.TotalCount = Lr2FullGenerationSyncTotalCount;
+            status.StageProcessedCount = Lr2FullGenerationSyncStageProcessedCount;
+            status.StageTotalCount = Lr2FullGenerationSyncStageTotalCount;
             PublishLr2FullGenerationStatus(status);
             return status;
+        }
+
+        if (prepareGeneratedData != null)
+        {
+            try
+            {
+                prepareGeneratedData();
+            }
+            catch (Exception ex)
+            {
+                LogInstallPerformance("lr2_full_generation_sync prepare_failed reason=" + (reason ?? "unknown")
+                    + " message=" + ex.Message);
+                FailLr2FullGenerationSyncRequest(requestVersion, Lr2FullGenerationStatusKind.Failed, "prepare_failed", ex.Message);
+                throw;
+            }
         }
 
         PublishLr2FullGenerationStatus(CreateRuntimeLr2FullGenerationStatus(
@@ -5469,23 +5488,23 @@ completeFileEnumerationOnce,
             stageTotalCount: 0));
         Task work()
         {
-            RunLr2FullGenerationBackfill(reason, signature, requestVersion);
+            RunLr2FullGenerationSync(reason, signature, requestVersion);
             return Task.CompletedTask;
         }
         if (StartupBackgroundTaskScheduler != null
-            && StartupBackgroundTaskScheduler("lr2_full_generation_backfill", reason ?? "queue", null, work))
+            && StartupBackgroundTaskScheduler("lr2_full_generation_sync", reason ?? "queue", null, work))
         {
             return status;
         }
-        Task.Run(() => RunLr2FullGenerationBackfill(reason, signature, requestVersion)).Logging("Lr2FullGenerationBackfill");
+        Task.Run(() => RunLr2FullGenerationSync(reason, signature, requestVersion)).Logging("Lr2FullGenerationSync");
         return status;
     }
 
     internal Lr2StartupScanBlockerCleanupResult CleanupLr2FullGenerationStartupScanBlockerFolderRows(string reason)
     {
-        if (Lr2FullGenerationBackfillRunning)
+        if (Lr2FullGenerationSyncRunning)
         {
-            throw new InvalidOperationException(Resources.Warn_Lr2FullGenerationBackfillRunning);
+            throw new InvalidOperationException(Resources.Warn_Lr2FullGenerationSyncRunning);
         }
 
         BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
@@ -5495,7 +5514,7 @@ completeFileEnumerationOnce,
             return null;
         }
 
-        Lr2FullGenerationBackfillInput input = CreateLr2FullGenerationBackfillInput();
+        Lr2FullGenerationSyncInput input = CreateLr2FullGenerationSyncInput();
         string signature = Lr2FullGenerationSignatureBuilder.Build(
             options,
             input.RootDirectories,
@@ -5505,7 +5524,7 @@ completeFileEnumerationOnce,
         Lr2FullGenerationStatusSnapshot status;
         using (LR2SongDBExtended songDb = dbGateway.OpenSongDb())
         {
-            result = Lr2FullGenerationBackfillService.CleanupStartupScanBlockerFolderRows(
+            result = Lr2FullGenerationSyncService.CleanupStartupScanBlockerFolderRows(
                 songDb,
                 input.RootDirectories,
                 input.Lr2FolderDiscoveryDirectories,
@@ -5561,136 +5580,136 @@ completeFileEnumerationOnce,
         };
     }
 
-    private bool TryBeginLr2FullGenerationBackfillRequest(out int requestVersion)
+    private bool TryBeginLr2FullGenerationSyncRequest(out int requestVersion)
     {
-        lock (lockLr2FullGenerationBackfill)
+        lock (lockLr2FullGenerationSync)
         {
-            if (_Lr2FullGenerationBackfillRunning)
+            if (_Lr2FullGenerationSyncRunning)
             {
-                requestVersion = _Lr2FullGenerationBackfillRequestedVersion;
+                requestVersion = _Lr2FullGenerationSyncRequestedVersion;
                 return false;
             }
-            lr2FullGenerationBackfillRequestedVersion++;
-            requestVersion = lr2FullGenerationBackfillRequestedVersion;
+            lr2FullGenerationSyncRequestedVersion++;
+            requestVersion = lr2FullGenerationSyncRequestedVersion;
 
-            lr2FullGenerationBackfillCancellation?.Dispose();
-            lr2FullGenerationBackfillCancellation = new CancellationTokenSource();
-            Lr2FullGenerationBackfillRequestedVersion = requestVersion;
-            Lr2FullGenerationBackfillTotalCount = 0;
-            Lr2FullGenerationBackfillProcessedCount = 0;
-            Lr2FullGenerationBackfillStage = "queued";
-            Lr2FullGenerationBackfillStageProcessedCount = 0;
-            Lr2FullGenerationBackfillStageTotalCount = 0;
-            Lr2FullGenerationBackfillFailureMessage = string.Empty;
-            Lr2FullGenerationBackfillRunning = true;
+            lr2FullGenerationSyncCancellation?.Dispose();
+            lr2FullGenerationSyncCancellation = new CancellationTokenSource();
+            Lr2FullGenerationSyncRequestedVersion = requestVersion;
+            Lr2FullGenerationSyncTotalCount = 0;
+            Lr2FullGenerationSyncProcessedCount = 0;
+            Lr2FullGenerationSyncStage = "queued";
+            Lr2FullGenerationSyncStageProcessedCount = 0;
+            Lr2FullGenerationSyncStageTotalCount = 0;
+            Lr2FullGenerationSyncFailureMessage = string.Empty;
+            Lr2FullGenerationSyncRunning = true;
             return true;
         }
     }
 
-    private void UpdateLr2FullGenerationBackfillProgress(Lr2FullGenerationBackfillProgress progress)
+    private void UpdateLr2FullGenerationSyncProgress(Lr2FullGenerationSyncProgress progress)
     {
         if (progress == null)
         {
             return;
         }
 
-        Lr2FullGenerationBackfillTotalCount = Math.Max(0, progress.TotalCount);
-        Lr2FullGenerationBackfillProcessedCount = Math.Max(0, progress.ProcessedCursor);
-        Lr2FullGenerationBackfillStage = progress.Stage ?? string.Empty;
-        Lr2FullGenerationBackfillStageProcessedCount = Math.Max(0, progress.StageProcessedCount);
-        Lr2FullGenerationBackfillStageTotalCount = Math.Max(0, progress.StageTotalCount);
+        Lr2FullGenerationSyncTotalCount = Math.Max(0, progress.TotalCount);
+        Lr2FullGenerationSyncProcessedCount = Math.Max(0, progress.ProcessedCursor);
+        Lr2FullGenerationSyncStage = progress.Stage ?? string.Empty;
+        Lr2FullGenerationSyncStageProcessedCount = Math.Max(0, progress.StageProcessedCount);
+        Lr2FullGenerationSyncStageTotalCount = Math.Max(0, progress.StageTotalCount);
         PublishLr2FullGenerationStatus(CreateRuntimeLr2FullGenerationStatus(
             Lr2FullGenerationStatusKind.Running,
             GetLr2FullGenerationStatusSnapshot().Signature,
-            Lr2FullGenerationBackfillStage,
-            Lr2FullGenerationBackfillProcessedCount,
-            Lr2FullGenerationBackfillTotalCount,
+            Lr2FullGenerationSyncStage,
+            Lr2FullGenerationSyncProcessedCount,
+            Lr2FullGenerationSyncTotalCount,
             lastError: null,
-            Lr2FullGenerationBackfillStageProcessedCount,
-            Lr2FullGenerationBackfillStageTotalCount));
+            Lr2FullGenerationSyncStageProcessedCount,
+            Lr2FullGenerationSyncStageTotalCount));
     }
 
-    private void CompleteLr2FullGenerationBackfillRequest(int requestVersion, string stage)
+    private void CompleteLr2FullGenerationSyncRequest(int requestVersion, string stage)
     {
-        lock (lockLr2FullGenerationBackfill)
+        lock (lockLr2FullGenerationSync)
         {
-            lr2FullGenerationBackfillCompletedVersion = Math.Max(lr2FullGenerationBackfillCompletedVersion, requestVersion);
+            lr2FullGenerationSyncCompletedVersion = Math.Max(lr2FullGenerationSyncCompletedVersion, requestVersion);
         }
 
-        Lr2FullGenerationBackfillCompletedVersion = lr2FullGenerationBackfillCompletedVersion;
-        Lr2FullGenerationBackfillStage = stage ?? string.Empty;
-        Lr2FullGenerationBackfillStageProcessedCount = Lr2FullGenerationBackfillStageTotalCount > 0
-            ? Lr2FullGenerationBackfillStageTotalCount
-            : Lr2FullGenerationBackfillProcessedCount;
-        Lr2FullGenerationBackfillStageTotalCount = Lr2FullGenerationBackfillStageTotalCount > 0
-            ? Lr2FullGenerationBackfillStageTotalCount
-            : Lr2FullGenerationBackfillTotalCount;
-        Lr2FullGenerationBackfillRunning = false;
-        DisposeLr2FullGenerationBackfillCancellation();
+        Lr2FullGenerationSyncCompletedVersion = lr2FullGenerationSyncCompletedVersion;
+        Lr2FullGenerationSyncStage = stage ?? string.Empty;
+        Lr2FullGenerationSyncStageProcessedCount = Lr2FullGenerationSyncStageTotalCount > 0
+            ? Lr2FullGenerationSyncStageTotalCount
+            : Lr2FullGenerationSyncProcessedCount;
+        Lr2FullGenerationSyncStageTotalCount = Lr2FullGenerationSyncStageTotalCount > 0
+            ? Lr2FullGenerationSyncStageTotalCount
+            : Lr2FullGenerationSyncTotalCount;
+        Lr2FullGenerationSyncRunning = false;
+        DisposeLr2FullGenerationSyncCancellation();
         PublishLr2FullGenerationStatus(CreateRuntimeLr2FullGenerationStatus(
             Lr2FullGenerationStatusKind.Completed,
             GetLr2FullGenerationStatusSnapshot().Signature,
-            Lr2FullGenerationBackfillStage,
-            Lr2FullGenerationBackfillProcessedCount,
-            Lr2FullGenerationBackfillTotalCount,
+            Lr2FullGenerationSyncStage,
+            Lr2FullGenerationSyncProcessedCount,
+            Lr2FullGenerationSyncTotalCount,
             lastError: null,
-            Lr2FullGenerationBackfillStageProcessedCount,
-            Lr2FullGenerationBackfillStageTotalCount));
+            Lr2FullGenerationSyncStageProcessedCount,
+            Lr2FullGenerationSyncStageTotalCount));
     }
 
-    private void FailLr2FullGenerationBackfillRequest(int requestVersion, Lr2FullGenerationStatusKind status, string stage, string message)
+    private void FailLr2FullGenerationSyncRequest(int requestVersion, Lr2FullGenerationStatusKind status, string stage, string message)
     {
-        lock (lockLr2FullGenerationBackfill)
+        lock (lockLr2FullGenerationSync)
         {
-            lr2FullGenerationBackfillFailedVersion = Math.Max(lr2FullGenerationBackfillFailedVersion, requestVersion);
+            lr2FullGenerationSyncFailedVersion = Math.Max(lr2FullGenerationSyncFailedVersion, requestVersion);
         }
 
-        Lr2FullGenerationBackfillFailedVersion = lr2FullGenerationBackfillFailedVersion;
-        Lr2FullGenerationBackfillFailureMessage = message ?? string.Empty;
-        Lr2FullGenerationBackfillStage = stage ?? string.Empty;
-        Lr2FullGenerationBackfillRunning = false;
-        DisposeLr2FullGenerationBackfillCancellation();
+        Lr2FullGenerationSyncFailedVersion = lr2FullGenerationSyncFailedVersion;
+        Lr2FullGenerationSyncFailureMessage = message ?? string.Empty;
+        Lr2FullGenerationSyncStage = stage ?? string.Empty;
+        Lr2FullGenerationSyncRunning = false;
+        DisposeLr2FullGenerationSyncCancellation();
         PublishLr2FullGenerationStatus(CreateRuntimeLr2FullGenerationStatus(
             status,
             GetLr2FullGenerationStatusSnapshot().Signature,
-            Lr2FullGenerationBackfillStage,
-            Lr2FullGenerationBackfillProcessedCount,
-            Lr2FullGenerationBackfillTotalCount,
-            Lr2FullGenerationBackfillFailureMessage,
-            Lr2FullGenerationBackfillStageProcessedCount,
-            Lr2FullGenerationBackfillStageTotalCount));
+            Lr2FullGenerationSyncStage,
+            Lr2FullGenerationSyncProcessedCount,
+            Lr2FullGenerationSyncTotalCount,
+            Lr2FullGenerationSyncFailureMessage,
+            Lr2FullGenerationSyncStageProcessedCount,
+            Lr2FullGenerationSyncStageTotalCount));
     }
 
-    internal bool CancelLr2FullGenerationBackfill(string reason)
+    internal bool CancelLr2FullGenerationSync(string reason)
     {
-        lock (lockLr2FullGenerationBackfill)
+        lock (lockLr2FullGenerationSync)
         {
-            if (!_Lr2FullGenerationBackfillRunning || lr2FullGenerationBackfillCancellation == null)
+            if (!_Lr2FullGenerationSyncRunning || lr2FullGenerationSyncCancellation == null)
             {
                 return false;
             }
-            LogInstallPerformance("lr2_full_generation_backfill cancel_requested"
+            LogInstallPerformance("lr2_full_generation_sync cancel_requested"
                 + " reason=" + (reason ?? "unknown")
-                + " stage=" + (Lr2FullGenerationBackfillStage ?? string.Empty)
-                + " processed=" + Lr2FullGenerationBackfillProcessedCount
-                + " total=" + Lr2FullGenerationBackfillTotalCount);
-            lr2FullGenerationBackfillCancellation.Cancel();
+                + " stage=" + (Lr2FullGenerationSyncStage ?? string.Empty)
+                + " processed=" + Lr2FullGenerationSyncProcessedCount
+                + " total=" + Lr2FullGenerationSyncTotalCount);
+            lr2FullGenerationSyncCancellation.Cancel();
             return true;
         }
     }
 
-    private void DisposeLr2FullGenerationBackfillCancellation()
+    private void DisposeLr2FullGenerationSyncCancellation()
     {
-        lock (lockLr2FullGenerationBackfill)
+        lock (lockLr2FullGenerationSync)
         {
-            lr2FullGenerationBackfillCancellation?.Dispose();
-            lr2FullGenerationBackfillCancellation = null;
+            lr2FullGenerationSyncCancellation?.Dispose();
+            lr2FullGenerationSyncCancellation = null;
         }
     }
 
     private bool IsLr2FullGenerationMutationBlocked()
     {
-        return Lr2FullGenerationBackfillRunning;
+        return Lr2FullGenerationSyncRunning;
     }
 
     private bool TryBlockLr2FullGenerationMutation(string operation, bool showMessage = true)
@@ -5700,13 +5719,13 @@ completeFileEnumerationOnce,
             return false;
         }
         LogInstallPerformance("lr2_full_generation_mutation_blocked operation=" + (operation ?? "(unknown)")
-            + " stage=" + (Lr2FullGenerationBackfillStage ?? string.Empty)
-            + " processed=" + Lr2FullGenerationBackfillProcessedCount
-            + " total=" + Lr2FullGenerationBackfillTotalCount);
+            + " stage=" + (Lr2FullGenerationSyncStage ?? string.Empty)
+            + " processed=" + Lr2FullGenerationSyncProcessedCount
+            + " total=" + Lr2FullGenerationSyncTotalCount);
         if (showMessage)
         {
             dialogService.Show(
-                Resources.Warn_Lr2FullGenerationBackfillRunning,
+                Resources.Warn_Lr2FullGenerationSyncRunning,
                 Resources.MessageBoxTitle_Warning,
                 MessageBoxButton.OK,
                 MessageBoxImage.Exclamation,
@@ -5719,7 +5738,7 @@ completeFileEnumerationOnce,
     {
         if (TryBlockLr2FullGenerationMutation(operation, showMessage: false))
         {
-            throw new InvalidOperationException(Resources.Warn_Lr2FullGenerationBackfillRunning);
+            throw new InvalidOperationException(Resources.Warn_Lr2FullGenerationSyncRunning);
         }
     }
 
@@ -5728,28 +5747,28 @@ completeFileEnumerationOnce,
         ThrowIfLr2FullGenerationMutationBlocked(operation);
     }
 
-    private void RunLr2FullGenerationBackfill(string reason, string signature, int requestVersion)
+    private void RunLr2FullGenerationSync(string reason, string signature, int requestVersion)
     {
         var stopwatch = Stopwatch.StartNew();
         string runId = Guid.NewGuid().ToString("N");
         CancellationToken cancellationToken;
-        lock (lockLr2FullGenerationBackfill)
+        lock (lockLr2FullGenerationSync)
         {
-            cancellationToken = lr2FullGenerationBackfillCancellation?.Token ?? CancellationToken.None;
+            cancellationToken = lr2FullGenerationSyncCancellation?.Token ?? CancellationToken.None;
         }
         try
         {
-            ReportStartupBackgroundTask("lr2_full_generation_backfill", "start", 0L, failed: false, detail: "runId=" + runId);
+            ReportStartupBackgroundTask("lr2_full_generation_sync", "start", 0L, failed: false, detail: "runId=" + runId);
             EnsureLr2FullGenerationChartInfoIndexHydrated(reason);
-            Lr2FullGenerationBackfillInput input = CreateLr2FullGenerationBackfillInput();
+            Lr2FullGenerationSyncInput input = CreateLr2FullGenerationSyncInput();
             Dictionary<string, BMSFile> compatibilityProjectionIndex = CreateLr2FullGenerationCompatibilityProjectionIndex();
             int projectedCompatibilityWarningCount = 0;
             int committedChartInfoRowCount = 0;
             int committedChartInfoParseFailureChangeCount = 0;
-            Lr2FullGenerationBackfillResult result;
+            Lr2FullGenerationSyncResult result;
             using (LR2SongDBExtended songDb = dbGateway.OpenSongDb())
             {
-                result = Lr2FullGenerationBackfillService.Run(songDb, new Lr2FullGenerationBackfillRequest
+                result = Lr2FullGenerationSyncService.Run(songDb, new Lr2FullGenerationSyncRequest
                 {
                     Signature = signature,
                     RunId = runId,
@@ -5792,8 +5811,8 @@ completeFileEnumerationOnce,
                     },
                     StartedAtUtc = DateTime.UtcNow,
                     CancellationToken = cancellationToken,
-                    IsSourceCurrent = () => IsLr2FullGenerationBackfillInputCurrent(input),
-                    ProgressReporter = UpdateLr2FullGenerationBackfillProgress,
+                    IsSourceCurrent = () => IsLr2FullGenerationSyncInputCurrent(input),
+                    ProgressReporter = UpdateLr2FullGenerationSyncProgress,
                     Lr2CompatibilityFactsCommitted = infos =>
                     {
                         int applied = ApplyLr2FullGenerationCompatibilityProjection(
@@ -5811,8 +5830,8 @@ completeFileEnumerationOnce,
                 });
             }
             stopwatch.Stop();
-            bool completed = string.Equals(result.FinalStage, Lr2FullGenerationBackfillService.CompletedStage, StringComparison.Ordinal);
-            LogInstallPerformance("lr2_full_generation_backfill " + (completed ? "completed" : "incomplete")
+            bool completed = string.Equals(result.FinalStage, Lr2FullGenerationSyncService.CompletedStage, StringComparison.Ordinal);
+            LogInstallPerformance("lr2_full_generation_sync " + (completed ? "completed" : "incomplete")
                 + " reason=" + (reason ?? "unknown")
                 + " runId=" + runId
                 + " roots=" + input.RootDirectories.Count
@@ -5881,25 +5900,25 @@ completeFileEnumerationOnce,
             }
             if (completed)
             {
-                CompleteLr2FullGenerationBackfillRequest(requestVersion, result.FinalStage);
+                CompleteLr2FullGenerationSyncRequest(requestVersion, result.FinalStage);
             }
             else
             {
-                FailLr2FullGenerationBackfillRequest(requestVersion, Lr2FullGenerationStatusKind.Incomplete, result.FinalStage, BuildLr2FullGenerationIncompleteDetail(result));
+                FailLr2FullGenerationSyncRequest(requestVersion, Lr2FullGenerationStatusKind.Incomplete, result.FinalStage, BuildLr2FullGenerationIncompleteDetail(result));
             }
-            ReportStartupBackgroundTask("lr2_full_generation_backfill", completed ? "done" : "incomplete", stopwatch.ElapsedMilliseconds, failed: false, detail: completed ? "completed" : BuildLr2FullGenerationIncompleteDetail(result));
+            ReportStartupBackgroundTask("lr2_full_generation_sync", completed ? "done" : "incomplete", stopwatch.ElapsedMilliseconds, failed: false, detail: completed ? "completed" : BuildLr2FullGenerationIncompleteDetail(result));
         }
         catch (OperationCanceledException)
         {
             stopwatch.Stop();
-            LogInstallPerformance("lr2_full_generation_backfill cancelled reason=" + (reason ?? "unknown")
+            LogInstallPerformance("lr2_full_generation_sync cancelled reason=" + (reason ?? "unknown")
                 + " runId=" + runId
                 + " elapsedMs=" + stopwatch.ElapsedMilliseconds
-                + " stage=" + (Lr2FullGenerationBackfillStage ?? string.Empty)
-                + " processed=" + Lr2FullGenerationBackfillProcessedCount
-                + " total=" + Lr2FullGenerationBackfillTotalCount);
-            FailLr2FullGenerationBackfillRequest(requestVersion, Lr2FullGenerationStatusKind.Cancelled, Lr2FullGenerationBackfillStage, string.Empty);
-            ReportStartupBackgroundTask("lr2_full_generation_backfill", "cancelled", stopwatch.ElapsedMilliseconds, failed: false, detail: "cancelled");
+                + " stage=" + (Lr2FullGenerationSyncStage ?? string.Empty)
+                + " processed=" + Lr2FullGenerationSyncProcessedCount
+                + " total=" + Lr2FullGenerationSyncTotalCount);
+            FailLr2FullGenerationSyncRequest(requestVersion, Lr2FullGenerationStatusKind.Cancelled, Lr2FullGenerationSyncStage, string.Empty);
+            ReportStartupBackgroundTask("lr2_full_generation_sync", "cancelled", stopwatch.ElapsedMilliseconds, failed: false, detail: "cancelled");
         }
         catch (Exception ex)
         {
@@ -5921,17 +5940,17 @@ completeFileEnumerationOnce,
             {
                 // Preserve the original failure in the startup task report.
             }
-            LogInstallPerformance("lr2_full_generation_backfill failed reason=" + (reason ?? "unknown")
+            LogInstallPerformance("lr2_full_generation_sync failed reason=" + (reason ?? "unknown")
                 + " runId=" + runId
                 + " elapsedMs=" + stopwatch.ElapsedMilliseconds
                 + " exception=" + ex.GetType().Name
                 + " message=" + ex.Message);
-            FailLr2FullGenerationBackfillRequest(requestVersion, Lr2FullGenerationStatusKind.Failed, "failed", ex.Message);
-            ReportStartupBackgroundTask("lr2_full_generation_backfill", "failed", stopwatch.ElapsedMilliseconds, failed: true, detail: ex.Message);
+            FailLr2FullGenerationSyncRequest(requestVersion, Lr2FullGenerationStatusKind.Failed, "failed", ex.Message);
+            ReportStartupBackgroundTask("lr2_full_generation_sync", "failed", stopwatch.ElapsedMilliseconds, failed: true, detail: ex.Message);
         }
     }
 
-    private static string BuildLr2FullGenerationIncompleteDetail(Lr2FullGenerationBackfillResult result)
+    private static string BuildLr2FullGenerationIncompleteDetail(Lr2FullGenerationSyncResult result)
     {
         if (result == null)
         {
@@ -5939,7 +5958,7 @@ completeFileEnumerationOnce,
         }
 
         string reason = result.IncompleteReason ?? result.FinalStage ?? string.Empty;
-        if (string.Equals(result.FinalStage, Lr2FullGenerationBackfillService.StartupScanBlockersStage, StringComparison.Ordinal)
+        if (string.Equals(result.FinalStage, Lr2FullGenerationSyncService.StartupScanBlockersStage, StringComparison.Ordinal)
             && result.StartupScanDiagnosticResult != null)
         {
             return reason + " " + result.StartupScanDiagnosticResult.ToLogDetail();
@@ -6036,7 +6055,7 @@ completeFileEnumerationOnce,
         }
 
         var stopwatch = Stopwatch.StartNew();
-        ChartInfoHydrationResult result = HydrateChartInfos("lr2_full_generation_" + (string.IsNullOrWhiteSpace(reason) ? "backfill" : reason));
+        ChartInfoHydrationResult result = HydrateChartInfos("lr2_full_generation_" + (string.IsNullOrWhiteSpace(reason) ? "sync" : reason));
         stopwatch.Stop();
         LogInstallPerformance("lr2_full_generation_chart_info_hydration ensured"
             + " reason=" + (reason ?? "unknown")
@@ -6075,7 +6094,7 @@ completeFileEnumerationOnce,
         }
     }
 
-    private Lr2FullGenerationBackfillInput CreateLr2FullGenerationBackfillInput()
+    private Lr2FullGenerationSyncInput CreateLr2FullGenerationSyncInput()
     {
         List<string> chartPaths;
         List<BMSFile> songRows;
@@ -6152,7 +6171,7 @@ completeFileEnumerationOnce,
             + " lr2FolderCandidates=" + lr2FolderFileCandidates.Paths.Count
             + " lr2FolderDiscoveryComplete=" + lr2FolderFileCandidates.DiscoveryComplete.ToString().ToLowerInvariant()
             + " textFileDirs=" + textFileDirectories.Count);
-        return new Lr2FullGenerationBackfillInput(
+        return new Lr2FullGenerationSyncInput(
             roots,
             chartPaths,
             [.. directoryMetadataTargets],
@@ -6176,7 +6195,7 @@ completeFileEnumerationOnce,
             storageRowsVersion.BmsonRowsVersion);
     }
 
-    private bool IsLr2FullGenerationBackfillInputCurrent(Lr2FullGenerationBackfillInput input)
+    private bool IsLr2FullGenerationSyncInputCurrent(Lr2FullGenerationSyncInput input)
     {
         if (input == null
             || OwnedChartCollectionVersion != input.OwnedChartCollectionVersion
@@ -6692,7 +6711,7 @@ completeFileEnumerationOnce,
             .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
     }
 
-    private sealed class Lr2FullGenerationBackfillInput(
+    private sealed class Lr2FullGenerationSyncInput(
         IReadOnlyList<string> rootDirectories,
         IReadOnlyList<string> chartPaths,
         IReadOnlyList<string> normalFolderDirectoryPaths,

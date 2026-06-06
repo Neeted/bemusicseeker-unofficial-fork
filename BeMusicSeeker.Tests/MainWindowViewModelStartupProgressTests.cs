@@ -307,7 +307,7 @@ public sealed class MainWindowViewModelStartupProgressTests
             "skip:ChartInfoHydrationDone",
             "skip:ChartInfoBackfillDone",
             "skip:ChartDigestBackfillDone",
-            "skip:Lr2FullGenerationBackfillDone",
+            "skip:Lr2FullGenerationSyncDone",
             "skip:PlaylistReferenceApplied",
             "skip:ScoreHydrationDone",
             "skip:RankingRefreshDone",
@@ -320,7 +320,7 @@ public sealed class MainWindowViewModelStartupProgressTests
     }
 
     [TestMethod]
-    public void StartupProgress_Lr2FullGenerationBackfillUsesDedicatedSubLabel()
+    public void StartupProgress_Lr2FullGenerationSyncUsesDedicatedSubLabel()
     {
         MainWindowViewModel.StartupProgressTestResult result = MainWindowViewModel.ReduceStartupProgressForTest(
             "Startup",
@@ -340,7 +340,7 @@ public sealed class MainWindowViewModelStartupProgressTests
             "skip:RankingRefreshDone",
             "skip:MaintenanceDeferredDone",
             "skip:InstallableMaintenanceDeferredDone",
-            "request:Lr2FullGenerationBackfillDone",
+            "request:Lr2FullGenerationSyncDone",
             "lr2full:432464|243780|song_rows|209684|209000");
 
         Assert.AreEqual(Resources.Statusbar_progress_operable_background, result.Label);
@@ -371,7 +371,7 @@ public sealed class MainWindowViewModelStartupProgressTests
             "skip:RankingRefreshDone",
             "skip:MaintenanceDeferredDone",
             "skip:InstallableMaintenanceDeferredDone",
-            "request:Lr2FullGenerationBackfillDone",
+            "request:Lr2FullGenerationSyncDone",
             "lr2full:0|0|startup_scan_blockers",
             "fail:startup scan blockers");
 
@@ -412,8 +412,8 @@ public sealed class MainWindowViewModelStartupProgressTests
     {
         MainWindowViewModel.StartupProgressTestResult result = MainWindowViewModel.ReduceStartupProgressForTest(
             "Startup",
-            "skip:Lr2FullGenerationBackfillDone",
-            "request:Lr2FullGenerationBackfillDone");
+            "skip:Lr2FullGenerationSyncDone",
+            "request:Lr2FullGenerationSyncDone");
 
         Assert.AreEqual(18, result.ExpectedCount);
         Assert.AreEqual(2, result.CompletedCount);

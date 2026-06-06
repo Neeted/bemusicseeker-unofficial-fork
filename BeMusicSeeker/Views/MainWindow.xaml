@@ -1157,10 +1157,10 @@
             <ProgressBar Width="160" Height="14" Minimum="0" Maximum="{Binding Lr2FullGenerationStatusProgressMaximum, Mode=OneWay}" Value="{Binding Lr2FullGenerationStatusProgressValue, Mode=OneWay}" />
           </StatusBarItem>
           <StatusBarItem Style="{StaticResource styleLr2FullGenerationRetryStatusBarItem}">
-            <Button MinWidth="70" Padding="8,1" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Lr2_full_generation_retry, Mode=OneWay}" Click="retryLr2FullGenerationBackfillClick" />
+            <Button MinWidth="70" Padding="8,1" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Lr2_full_generation_retry, Mode=OneWay}" Click="retryLr2FullGenerationSyncClick" />
           </StatusBarItem>
           <StatusBarItem Style="{StaticResource styleLr2FullGenerationCancelStatusBarItem}">
-            <Button MinWidth="70" Padding="8,1" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Cancel, Mode=OneWay}" Click="cancelLr2FullGenerationBackfillClick" />
+            <Button MinWidth="70" Padding="8,1" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Cancel, Mode=OneWay}" Click="cancelLr2FullGenerationSyncClick" />
           </StatusBarItem>
           <StatusBarItem Style="{StaticResource styleLr2FullGenerationCleanupStatusBarItem}">
             <Button MinWidth="150" Padding="8,1" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Lr2_full_generation_cleanup_startup_scan_blockers, Mode=OneWay}" Click="cleanupLr2FullGenerationStartupScanBlockersClick" />
