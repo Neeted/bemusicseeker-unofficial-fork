@@ -1487,6 +1487,19 @@ existence / mtime は意味的に揃える。
      読み込み側の微調整ではなく writer contract を先に直す。
      1000 件 chunk ごとに `song` temp table upsert、`chart_digest_map`、LR2 compatibility facts、
      status cursor update を同一 hot transaction で繰り返す形は最終形ではない。
+   - 現ログでは `song_rows` chunk の `readMs` / `parseMs` が数秒以下である一方、
+     `commitMs` が数秒から数十秒へ膨らんでいる。この状態では file reader / parser pipeline の
+     微調整を先に行わず、DB writer の SQL 形状、index、changed-only 判定、transaction 粒度を
+     最優先で直す。
+   - writer 改善 cycle では `commitMs` を `songStageMs` / `chartInfoStageMs` / `digestStageMs` /
+     `compatibilityStageMs` / `sqliteCommitMs` / `statusCursorMs` に分解する。性能レビューでは
+     「どこが重いか」だけでなく、その処理自体が 200k 件級 hot path に入るべきかを確認する。
+   - `maintenance` の LR2 compatibility facts は、chunk temp table から全 `maintenance` row へ
+     correlated subquery を繰り返す形にしない。`path` indexed lookup と changed-only update /
+     missing-row insert に寄せ、同一値 row は update しない。
+   - full backfill の `song` generated column 更新も、実ファイル由来の一覧 cache へ収束させることを
+     主目的にする。LR2 / user-owned column の維持は明示した列だけを snapshot して戻し、
+     generated columns については defensive merge を増やさない。
    - 残作業: full backfill では実ファイル由来の一覧へ収束させることを優先し、既存 `song.db` を守るための
      defensive merge を hot path に増やさない。保存する user columns / `adddate` / `favorite` / `tag`
      だけを明示的に snapshot し、generated columns は staging table から set-based に反映する。
@@ -1510,6 +1523,13 @@ existence / mtime は意味的に揃える。
      「完了」扱いの bulk writer も再レビューする。設計レビューでは SQL の set-based 化だけでなく、
      temp table clear / index maintenance / transaction granularity / status update 頻度が
      200k 件で妥当かを必ず確認する。
+   - 次の実装 cycle の具体順:
+     1. `FlushSongRowChunk` の DB write 内訳ログを追加する。
+     2. `maintenance.path` / `song.path` / temp table の collation と index を確認し、必要な index を
+        schema ensure に寄せる。
+     3. LR2 compatibility facts writer を chunk-scoped indexed update + changed-only insert/update に変える。
+     4. まだ `songStageMs` が支配的なら、`song` generated rows の staging + set-based apply を
+        full-backfill 専用 writer として再整理する。
 7. final diagnostics / blocker 判定を prune-first に整理する。主要実装済み。
    - `song` / `folder` / `maintenance` は実ファイル由来の一覧 cache として current surface へ収束させる。
    - expected set 外 row / unknown root row は守らず prune する。
@@ -1526,20 +1546,33 @@ existence / mtime は意味的に揃える。
    - 残作業: `.bmt` 出力 OFF、完全生成 completed、file diff 0 件から数件の条件で、
      `startup_background_summary < 50s` を acceptance とする。50 秒を超える場合は、
      backfill ではなく startup background task の常時 hydration / prewarm を疑う。
-9. native bridge metadata parity を統合確認する。
+9. `.lr2folder` / `folderinfo.txt` / `.txt` の steady-state diff sync を実装する。
+   - `.lr2folder` discovery は初回 backfill 用の入力ではなく、通常 file diff surface の一部として扱う。
+     完全生成 completed 後も、アプリ管理外の `.lr2folder` 作成 / 更新 / 削除を startup file diff で検出し、
+     対応する `folder` row を scoped sync する。
+   - `.lr2folder` roots は BMS root folder 群、通常 custom folder 出力先、root custom folder 出力先、
+     LR2 built-in `LR2files\CustomFolder` であり、chart/resource roots とは別 root set で同じ grouped
+     enumeration API へ渡す。
+   - `folderinfo.txt` と directory metadata は normal folder row の title / date source として扱い、
+     full generation completed 後は変更 path / affected directory scope だけを再同期する。
+   - `.txt` は `song.txt` 生成列の source なので、BMS 本体 mtime が変わらない text-only 変更でも
+     scoped song row update の対象にする。
+   - backfill 完了後の steady-state では、これらの変更検出のために full backfill や全件 folder validation を
+     queue しない。file diff surface の差分から scoped DB writer を起動する。
+10. native bridge metadata parity を統合確認する。
    - fixed scan の `.txt` / `folderinfo.txt` entry、grouped enumeration の `.lr2folder` entry、directory mtime が同じ `RootFileEnumerationEntry` contract になることを実機 Everything 環境で確認する。
    - bridge layout / result version log を必要に応じて追加する。
-10. Phase 9 の統合確認を固める。
+11. Phase 9 の統合確認を固める。
    - copied `song.db` で、初回 backfill、2 回目 no-op、partial resume、failed chunk rollback、
      cancel/restart、startup-scan blocker cleanup を確認する。
    - completed status と signature が current な場合に 2 回目 backfill queue が発生しないことは unit/integration-shaped test で固定済み。
    - copied `song.db` でも completed status と signature が current な場合に backfill queue が発生しないことは unit/integration-shaped test で固定済み。
    - song row chunk failure では chunk transaction が rollback され、durable `Failed` cursor から再実行できることは unit/integration-shaped test で固定済み。
    - 実機ログで `processed_cursor` / `stage` / `Completed` / `Incomplete` の遷移が想定どおりか確認する。
-11. Phase 0 の残 fixture を追加する。
+12. Phase 0 の残 fixture を追加する。
    - `folderinfo.txt`、`.lr2folder` の実 DB 由来 fixture を追加する。これは fixture 入手後の contract 補強であり、
      現行 synthetic fixture と既存 unit / integration-shaped test が production 実装の前提を固定している。
-12. LR2 manual-only 起動での最終確認を行う。
+13. LR2 manual-only 起動での最終確認を行う。
    - 完全生成後、未変更 root で LR2 / OpenLR2 が再帰 scan に入らないことを確認する。
    - LR2 起動そのもののブロッキングや排他はこの計画の対象外として扱う。
 
