@@ -190,7 +190,11 @@ internal static class RootFileEnumerationService
 
     internal const string DirectoriesGroupName = "__directories__";
 
-    internal static RootFileEnumerationResult EnumerateFilesWithFallback(IEnumerable<string> rootDirectories, IEnumerable<RootFileEnumerationGroup> groups, bool verboseLog = false)
+    internal static RootFileEnumerationResult EnumerateFilesWithFallback(
+        IEnumerable<string> rootDirectories,
+        IEnumerable<RootFileEnumerationGroup> groups,
+        bool verboseLog = false,
+        bool allowEmptyResults = false)
     {
         List<RootFileEnumerationGroup> groupList = [.. (groups ?? []).Where(group => group != null && !string.IsNullOrWhiteSpace(group.Name))];
         if (groupList.Count == 0)
@@ -207,6 +211,10 @@ internal static class RootFileEnumerationService
         {
             return result;
         }
+        if (TryMarkEmptyEverythingResultAsSuccess(result, allowEmptyResults))
+        {
+            return result;
+        }
 
         RootFileEnumerationResult fallbackResult = new FastRootFileEnumerator().EnumerateFiles(rootDirectories, groupList, verboseLog);
         if (fallbackResult.Success && string.IsNullOrWhiteSpace(fallbackResult.ErrorReason))
@@ -214,5 +222,20 @@ internal static class RootFileEnumerationService
             fallbackResult.ErrorReason = result.ErrorReason ?? string.Empty;
         }
         return fallbackResult;
+    }
+
+    internal static bool TryMarkEmptyEverythingResultAsSuccess(RootFileEnumerationResult result, bool allowEmptyResults)
+    {
+        if (!allowEmptyResults
+            || result == null
+            || !string.Equals(result.ErrorReason, "empty_results_with_roots", StringComparison.Ordinal)
+            || result.TotalFileCount != 0)
+        {
+            return false;
+        }
+
+        result.Success = true;
+        result.ErrorReason = string.Empty;
+        return true;
     }
 }

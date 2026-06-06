@@ -6309,13 +6309,15 @@ completeFileEnumerationOnce,
 
         RootFileEnumerationResult result = RootFileEnumerationService.EnumerateFilesWithFallback(
             roots,
-            [new RootFileEnumerationGroup(Lr2FolderFileEnumerationGroupName, [".lr2folder"])]);
+            [new RootFileEnumerationGroup(Lr2FolderFileEnumerationGroupName, [".lr2folder"])],
+            allowEmptyResults: true);
         if (!result.Success)
         {
             LogEverythingScan("lr2folder_scan failed"
                 + " roots=" + roots.Count
                 + " backend=" + (result.BackendName ?? string.Empty)
                 + " enumerationMs=" + result.EnumerationMs
+                + " allowEmptyResults=true"
                 + " reason=" + (result.ErrorReason ?? "unknown"));
             return new Lr2FolderFileCandidateSnapshot([], new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase), discoveryComplete: false);
         }
@@ -6332,6 +6334,7 @@ completeFileEnumerationOnce,
             + " roots=" + roots.Count
             + " backend=" + (result.BackendName ?? string.Empty)
             + " enumerationMs=" + result.EnumerationMs
+            + " allowEmptyResults=true"
             + " queryHits=" + result.GetQueryHitCount(Lr2FolderFileEnumerationGroupName)
             + " queryMs=" + result.GetQueryMs(Lr2FolderFileEnumerationGroupName)
             + " rawEntries=" + rawEntries.Count

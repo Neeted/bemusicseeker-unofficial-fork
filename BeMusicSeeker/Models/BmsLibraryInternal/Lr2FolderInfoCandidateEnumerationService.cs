@@ -44,7 +44,8 @@ internal static class Lr2FolderInfoCandidateEnumerationService
 
         RootFileEnumerationResult result = RootFileEnumerationService.EnumerateFilesWithFallback(
             roots,
-            [new RootFileEnumerationGroup(ChartDirectoryScanBuilder.TextGroupName, ChartDirectoryScanBuilder.TextExtensions)]);
+            [new RootFileEnumerationGroup(ChartDirectoryScanBuilder.TextGroupName, ChartDirectoryScanBuilder.TextExtensions)],
+            allowEmptyResults: true);
         if (!result.Success)
         {
             return new Lr2FolderInfoCandidateSnapshot([], new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase), discoveryComplete: false);
