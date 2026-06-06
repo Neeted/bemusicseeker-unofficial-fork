@@ -9790,12 +9790,17 @@ completeFileEnumerationOnce,
                 {
                     using (mutationResult.ResourceHealthIndexInvalidated ? SuppressResourceHealthIndexInvalidation() : null)
                     {
-                        StorageRowsSnapshot storageRows = SetStorageRowsFromInternalMutationUnsafe(
-                            fileCheckResult.NextFiles,
-                            fileCheckResult.NextBmsonSongs);
+                        StorageRowsSnapshot storageRows = fileCheckResult.HasDbDiff
+                            ? SetStorageRowsFromInternalMutationUnsafe(
+                                fileCheckResult.NextFiles,
+                                fileCheckResult.NextBmsonSongs)
+                            : CreateStorageRowsSnapshotUnsafe();
                         libraryResourceIndex = fileCheckResult.NextResourceIndex ?? LibraryResourceIndex.CreateFromScanResult(new ChartScanResult());
                         directoryResourceLookupCache = libraryResourceIndex.DirectoryLookupCache ?? new DirectoryResourceLookupCache();
-                        ApplyOwnedChartCollectionStorageReplacement(storageRows);
+                        if (fileCheckResult.HasDbDiff)
+                        {
+                            ApplyOwnedChartCollectionStorageReplacement(storageRows);
+                        }
                     }
                 }
                 catch

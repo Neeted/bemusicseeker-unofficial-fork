@@ -1443,6 +1443,8 @@ existence / mtime は意味的に揃える。
    - `.bmt` 出力 OFF、完全生成 completed、file diff 0 件から数件の起動で、
      LR2 full generation task が queue されず、`startup_background_summary` が 50 秒未満に戻ることを確認する。
    - completed status と signature current 判定に、full validation や全件 DB scan を混ぜない。
+   - 完了: file diff が DB diff なしの場合は storage row replacement / storage row version increment を行わず、
+     resource index / health presentation だけを必要範囲で更新する。
 9. native bridge metadata parity を統合確認する。
    - fixed scan の `.txt` / `folderinfo.txt` entry、grouped enumeration の `.lr2folder` entry、directory mtime が同じ `RootFileEnumerationEntry` contract になることを実機 Everything 環境で確認する。
    - bridge layout / result version log を必要に応じて追加する。
