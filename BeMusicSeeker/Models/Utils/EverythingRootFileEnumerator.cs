@@ -7,6 +7,8 @@ namespace BeMusicSeeker.Models.Utils;
 
 internal sealed class EverythingRootFileEnumerator : IRootFileEnumerator
 {
+    private const uint RootVisibilityProbeGroupId = 0xFFFFFFFEu;
+
     private static readonly Dictionary<string, uint> StableGroupIds = new(StringComparer.OrdinalIgnoreCase)
     {
         { ChartDirectoryScanBuilder.ChartGroupName, 1u },
@@ -91,8 +93,16 @@ internal sealed class EverythingRootFileEnumerator : IRootFileEnumerator
 
             if (result.TotalFileCount == 0)
             {
+                if (TryProbeRootVisibility(roots, out string probeReason))
+                {
+                    result.Success = true;
+                    result.ErrorReason = string.Empty;
+                    return result;
+                }
                 result.Success = false;
-                result.ErrorReason = "empty_results_with_roots";
+                result.ErrorReason = string.IsNullOrWhiteSpace(probeReason)
+                    ? "empty_results_with_roots"
+                    : "empty_results_with_roots:" + probeReason;
                 return result;
             }
 
@@ -104,6 +114,26 @@ internal sealed class EverythingRootFileEnumerator : IRootFileEnumerator
             stopwatch.Stop();
             result.EnumerationMs = stopwatch.ElapsedMilliseconds;
         }
+    }
+
+    private static bool TryProbeRootVisibility(IReadOnlyCollection<string> roots, out string reason)
+    {
+        reason = null;
+        if (roots == null || roots.Count == 0)
+        {
+            return true;
+        }
+
+        if (!EverythingNative.TryEnumerateGroupedFiles(
+            [new EverythingNative.BridgeGroupedQuery(RootVisibilityProbeGroupId, EverythingNative.BuildDirectoriesQuery([.. roots]))],
+            out EverythingNative.BridgeGroupedEnumerationResult result,
+            out reason))
+        {
+            return false;
+        }
+
+        return result.Groups.TryGetValue(RootVisibilityProbeGroupId, out EverythingNative.BridgeGroupedEnumerationGroupResult group)
+            && group.HitCount > 0;
     }
 
     private static List<string> NormalizeRoots(IEnumerable<string> rootDirectories)
