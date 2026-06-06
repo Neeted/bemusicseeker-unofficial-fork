@@ -1189,6 +1189,9 @@ parse directive:
   - full scan 後の normal folder sync は file diff DB commit を flush した後に別 workflow として実行し、
     owned collection の `HasDbDiff` や UI refresh 判定には混ぜない。folder sync の生成 / upsert / delete / metadata 欠落は
     `song_tbl_file_check_breakdown` の LR2 normal folder metrics として追跡する。
+  - 通常 file diff / owned mutation の delete・move scope は、削除または移動された譜面の chart directory を正本にする。
+    root 配下の top-level directory へ promotion しない。少数削除で sibling subtree 全体を再生成・prune しないため、
+    scope 内に残る current BMS path だけを追加して、その exact directory 内の stale normal folder row を収束させる。
   - full scan 境界では complete chart path set と `folderinfo.txt` scan surface を渡せるため `AllowPrune=true` とする。
     ただし compose service 側は CP932 非対応 chart path や metadata 欠落がある場合に stale normal row deletion を抑止する。
     `ChartScanExecutionResult.Success != true` の partial surface では normal folder sync 自体を skip し、`folderinfo.txt`
@@ -1306,8 +1309,9 @@ parse directive:
   これにより通常 mutation でも backfill / file diff と同じ CP932 非対応判定と LR2 CRC contract を使う。
   direct install / path replacement / remove 後は、同じ owned mutation 成功 path で normal `folder.type = 1` row も
   `Lr2NormalFolderDbSyncService` に渡して sync する。追加だけの mutation は upsert-only とし、削除または移動を含む
-  mutation は old / new chart directory を dirty prune scope として渡す。sync input にはその scope 内に残る current BMS path も
-  含め、scope 内で期待されなくなった normal folder row だけを削除する。bmson は `song` / `folder` の対象にしない。
+  mutation は old / new chart directory を dirty prune scope として渡す。dirty scope は exact chart directory であり、
+  root 子 directory へ広げない。sync input にはその scope 内に残る current BMS path も含め、scope 内で期待されなくなった
+  normal folder row だけを削除する。bmson は `song` / `folder` の対象にしない。
   root set 変更や scan surface が不完全な場合の広域 prune は引き続き full scan / backfill に任せる。
   この best-effort sync が失敗しても owned mutation は成功扱いにし、`lr2_full_generation_status` を
   `Incomplete(lr2_normal_folder_mutation_sync_failed)` にして次回 backfill で修復できるようにする。
@@ -1385,7 +1389,9 @@ existence / mtime は意味的に揃える。
    - startup file diff で LR2 normal folder sync を行う場合も、変更 path と prune scope を正本にした scoped sync にする。
    - LR2 full generation backfill / cleanup 用の全件 normal folder sync は full generation stage 専用に残す。
    - 完全生成未完了 status の評価は軽量に保ち、未完了であること自体が通常差分確認を秒単位で遅くしない。
-   - file diff と owned mutation は共通の `Lr2NormalFolderSyncScopeBuilder` で `ChartPaths` / `PruneScopeDirectories` を作る。date-only / text-only / bmson-only の DB 差分では LR2 normal folder sync を起動しない。
+   - file diff と owned mutation は共通の `Lr2NormalFolderSyncScopeBuilder` で `ChartPaths` / `PruneScopeDirectories` を作る。
+     delete / move の prune scope は affected chart directory の exact scope とし、root 子 directory へ広げない。
+     date-only / text-only / bmson-only の DB 差分では LR2 normal folder sync を起動しない。
 2. scan surface / root contract を実装へ反映し、完全生成 input の再列挙をなくす。
    - 完了: 通常 file diff の `everything_scan` surface から `.txt` / `folderinfo.txt` を
      `RootFileEnumerationEntry` として保持し、`CreateLr2FullGenerationBackfillInput()` はその surface を

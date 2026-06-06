@@ -21,6 +21,8 @@ internal sealed class Lr2NormalFolderDbSyncRequest
 
     public IReadOnlyCollection<string> PruneScopeDirectories { get; set; } = [];
 
+    public IReadOnlyCollection<string> PruneExactDirectories { get; set; } = [];
+
     public Func<string, DateTime?> DirectoryLastWriteTimeUtcResolver { get; set; }
 
     public Func<string, IEnumerable<string>> FolderInfoLinesReader { get; set; }
@@ -105,14 +107,21 @@ internal static class Lr2NormalFolderDbSyncService
             DirectoryMetadataResolver = metadataSnapshot.Resolve,
             GeneratedAtUtc = request.GeneratedAtUtc
         });
+        bool hasExplicitPrune = request.PruneScopeDirectories?.Count > 0 || request.PruneExactDirectories?.Count > 0;
         IReadOnlyCollection<string> pruneScopeDirectories = request.PruneScopeDirectories?.Count > 0
             ? NormalizePruneScopeDirectories(request.PruneScopeDirectories, rootDirectories)
-            : null;
+            : hasExplicitPrune
+                ? []
+                : null;
+        IReadOnlyCollection<string> pruneExactDirectories = request.PruneExactDirectories?.Count > 0
+            ? NormalizePruneScopeDirectories(request.PruneExactDirectories, rootDirectories)
+            : [];
         Lr2FolderGenerationSyncPlan plan = Lr2FolderGenerationScopePlanner.PlanNormalDirectorySync(
             generation,
             existingRows,
             rootDirectories,
-            pruneScopeDirectories);
+            pruneScopeDirectories,
+            pruneExactDirectories);
         bool canPrune = request.AllowPrune;
         if (!canPrune && plan.DeletePaths.Count > 0)
         {

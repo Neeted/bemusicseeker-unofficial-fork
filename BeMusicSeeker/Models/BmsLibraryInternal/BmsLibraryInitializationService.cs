@@ -797,7 +797,10 @@ internal sealed class BmsLibraryInitializationService
             logInstallPerformance?.Invoke("lr2_normal_folder_sync skipped reason=no_db_diff");
             return;
         }
-        if (syncInput == null || (syncInput.ChartPaths.Count == 0 && syncInput.PruneScopeDirectories.Count == 0))
+        if (syncInput == null
+            || (syncInput.ChartPaths.Count == 0
+                && syncInput.PruneScopeDirectories.Count == 0
+                && syncInput.PruneExactDirectories.Count == 0))
         {
             logInstallPerformance?.Invoke("lr2_normal_folder_sync skipped reason=no_bms_path_diff");
             return;
@@ -818,7 +821,8 @@ internal sealed class BmsLibraryInitializationService
                 FolderInfoFileEntries = folderInfoFileEntries ?? new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase),
                 DirectoryLastWriteTimeUtcResolver = CreateLastWriteTimeResolver(directoryEntries),
                 PruneScopeDirectories = syncInput.PruneScopeDirectories,
-                AllowPrune = syncInput.PruneScopeDirectories.Count > 0
+                PruneExactDirectories = syncInput.PruneExactDirectories,
+                AllowPrune = syncInput.PruneScopeDirectories.Count > 0 || syncInput.PruneExactDirectories.Count > 0
             });
             ApplyLr2NormalFolderSyncResult(result, syncResult);
             logInstallPerformance?.Invoke("lr2_normal_folder_sync done generated=" + syncResult.GeneratedCount
@@ -826,6 +830,7 @@ internal sealed class BmsLibraryInitializationService
                 + " deleted=" + syncResult.DeletedCount
                 + " paths=" + syncInput.ChartPaths.Count
                 + " pruneScopes=" + syncInput.PruneScopeDirectories.Count
+                + " exactPrunes=" + syncInput.PruneExactDirectories.Count
                 + " skippedUnsupported=" + syncResult.SkippedUnsupportedPathCount
                 + " skippedMissingMetadata=" + syncResult.SkippedMissingMetadataCount
                 + " skippedIncompatibleChart=" + syncResult.SkippedIncompatibleChartPathCount

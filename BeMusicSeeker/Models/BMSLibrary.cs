@@ -6109,7 +6109,9 @@ completeFileEnumerationOnce,
                 mutation.PathChanges,
                 mutation.RemoveRequests,
                 _BMSFiles);
-            if (syncInput.ChartPaths.Count == 0 && syncInput.PruneScopeDirectories.Count == 0)
+            if (syncInput.ChartPaths.Count == 0
+                && syncInput.PruneScopeDirectories.Count == 0
+                && syncInput.PruneExactDirectories.Count == 0)
             {
                 return;
             }
@@ -6128,14 +6130,16 @@ completeFileEnumerationOnce,
                 FolderInfoFileEntries = folderInfoCandidates.EntriesByPath,
                 DirectoryLastWriteTimeUtcResolver = CreateLastWriteTimeResolver(directoryEntries),
                 PruneScopeDirectories = syncInput.PruneScopeDirectories,
+                PruneExactDirectories = syncInput.PruneExactDirectories,
                 GeneratedAtUtc = DateTime.UtcNow,
-                AllowPrune = syncInput.PruneScopeDirectories.Count > 0
+                AllowPrune = syncInput.PruneScopeDirectories.Count > 0 || syncInput.PruneExactDirectories.Count > 0
             });
             stopwatch.Stop();
             LogInstallPerformance("lr2_normal_folder_mutation_sync done"
                 + " reason=" + (reason ?? "unknown")
                 + " paths=" + syncInput.ChartPaths.Count
                 + " pruneScopes=" + syncInput.PruneScopeDirectories.Count
+                + " exactPrunes=" + syncInput.PruneExactDirectories.Count
                 + " roots=" + roots.Count
                 + " generated=" + syncResult.GeneratedCount
                 + " upserted=" + syncResult.UpsertedCount
@@ -6159,6 +6163,7 @@ completeFileEnumerationOnce,
                 + " reason=" + (reason ?? "unknown")
                 + " paths=" + syncInput.ChartPaths.Count
                 + " pruneScopes=" + syncInput.PruneScopeDirectories.Count
+                + " exactPrunes=" + syncInput.PruneExactDirectories.Count
                 + " roots=" + roots.Count
                 + " elapsedMs=" + stopwatch.ElapsedMilliseconds
                 + " exception=" + ex.GetType().Name
