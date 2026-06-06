@@ -1289,6 +1289,8 @@ public class BMSLibrary : NotificationObject
 
     private string _ChartInfoBackfillCurrentPath = string.Empty;
 
+    private ChartInfoHydrationAllCurrentSnapshot chartInfoHydrationAllCurrentSnapshot;
+
     private bool _Lr2FullGenerationBackfillRunning;
 
     private CancellationTokenSource lr2FullGenerationBackfillCancellation;
@@ -3097,6 +3099,21 @@ public class BMSLibrary : NotificationObject
         public long TotalMs { get; set; }
 
         public bool Succeeded { get; set; }
+    }
+
+    private sealed class ChartInfoHydrationAllCurrentSnapshot
+    {
+        public int OwnedCollectionVersion { get; set; }
+
+        public int BmsRowsVersion { get; set; }
+
+        public int BmsonRowsVersion { get; set; }
+
+        public int OwnerCount { get; set; }
+
+        public int CurrentChartInfoOwnerCount { get; set; }
+
+        public int CurrentParseFailureOwnerCount { get; set; }
     }
 
     private sealed class ChartInfoIndexUpdateResult
@@ -5766,7 +5783,10 @@ completeFileEnumerationOnce,
     {
         var stopwatch = Stopwatch.StartNew();
         string backfillReason = "lr2_full_generation_" + (string.IsNullOrWhiteSpace(reason) ? "backfill" : reason);
-        QueueChartInfoBackfill(backfillReason, processSynchronously: true);
+        QueueChartInfoBackfill(
+            backfillReason,
+            processSynchronously: true,
+            hydrationResult: CreateCurrentChartInfoHydrationAllCurrentResult());
         stopwatch.Stop();
         LogInstallPerformance("lr2_full_generation_chart_info_backfill ensured"
             + " reason=" + (reason ?? "unknown")
@@ -6309,15 +6329,13 @@ completeFileEnumerationOnce,
 
         RootFileEnumerationResult result = RootFileEnumerationService.EnumerateFilesWithFallback(
             roots,
-            [new RootFileEnumerationGroup(Lr2FolderFileEnumerationGroupName, [".lr2folder"])],
-            allowEmptyResults: true);
+            [new RootFileEnumerationGroup(Lr2FolderFileEnumerationGroupName, [".lr2folder"])]);
         if (!result.Success)
         {
             LogEverythingScan("lr2folder_scan failed"
                 + " roots=" + roots.Count
                 + " backend=" + (result.BackendName ?? string.Empty)
                 + " enumerationMs=" + result.EnumerationMs
-                + " allowEmptyResults=true"
                 + " reason=" + (result.ErrorReason ?? "unknown"));
             return new Lr2FolderFileCandidateSnapshot([], new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase), discoveryComplete: false);
         }
@@ -6334,7 +6352,6 @@ completeFileEnumerationOnce,
             + " roots=" + roots.Count
             + " backend=" + (result.BackendName ?? string.Empty)
             + " enumerationMs=" + result.EnumerationMs
-            + " allowEmptyResults=true"
             + " queryHits=" + result.GetQueryHitCount(Lr2FolderFileEnumerationGroupName)
             + " queryMs=" + result.GetQueryMs(Lr2FolderFileEnumerationGroupName)
             + " rawEntries=" + rawEntries.Count
@@ -6685,6 +6702,9 @@ completeFileEnumerationOnce,
             + " indexBuildMs=" + result.IndexBuildMs);
 
         var ownerClassifyStopwatch = Stopwatch.StartNew();
+        int ownedCollectionVersionAtSummary = 0;
+        int bmsRowsVersionAtSummary = 0;
+        int bmsonRowsVersionAtSummary = 0;
         using (rwlockBMSFiles.GetReaderGuard())
         {
             ChartInfoHydrationOwnerSummary ownerSummary = CreateChartInfoHydrationOwnerSummaryUnsafe(
@@ -6695,6 +6715,9 @@ completeFileEnumerationOnce,
             result.CurrentParseFailureOwnerCount = ownerSummary.CurrentParseFailureOwnerCount;
             result.BackfillCandidateOwnerCount = ownerSummary.BackfillCandidateOwnerCount;
             result.OwnerApplySkippedCount = ownerSummary.OwnerApplySkippedCount;
+            ownedCollectionVersionAtSummary = OwnedChartCollectionVersion;
+            bmsRowsVersionAtSummary = Volatile.Read(ref bmsStorageRowsVersion);
+            bmsonRowsVersionAtSummary = Volatile.Read(ref bmsonStorageRowsVersion);
         }
         ownerClassifyStopwatch.Stop();
         result.OwnerApplyMs = ownerClassifyStopwatch.ElapsedMilliseconds;
@@ -6702,7 +6725,66 @@ completeFileEnumerationOnce,
         totalStopwatch.Stop();
         result.TotalMs = totalStopwatch.ElapsedMilliseconds;
         result.Succeeded = true;
+        CaptureChartInfoHydrationAllCurrentSnapshot(
+            result,
+            ownedCollectionVersionAtSummary,
+            bmsRowsVersionAtSummary,
+            bmsonRowsVersionAtSummary);
         return result;
+    }
+
+    private void CaptureChartInfoHydrationAllCurrentSnapshot(
+        ChartInfoHydrationResult result,
+        int ownedCollectionVersion,
+        int bmsRowsVersion,
+        int bmsonRowsVersion)
+    {
+        ChartInfoHydrationAllCurrentSnapshot snapshot = null;
+        if (result != null
+            && result.Succeeded
+            && result.OwnerCount > 0
+            && result.BackfillCandidateOwnerCount <= 0)
+        {
+            snapshot = new ChartInfoHydrationAllCurrentSnapshot
+            {
+                OwnedCollectionVersion = ownedCollectionVersion,
+                BmsRowsVersion = bmsRowsVersion,
+                BmsonRowsVersion = bmsonRowsVersion,
+                OwnerCount = result.OwnerCount,
+                CurrentChartInfoOwnerCount = result.CurrentChartInfoOwnerCount,
+                CurrentParseFailureOwnerCount = result.CurrentParseFailureOwnerCount
+            };
+        }
+
+        lock (lockChartInfoHydration)
+        {
+            chartInfoHydrationAllCurrentSnapshot = snapshot;
+        }
+    }
+
+    private ChartInfoHydrationResult CreateCurrentChartInfoHydrationAllCurrentResult()
+    {
+        ChartInfoHydrationAllCurrentSnapshot snapshot;
+        lock (lockChartInfoHydration)
+        {
+            snapshot = chartInfoHydrationAllCurrentSnapshot;
+        }
+        if (snapshot == null
+            || snapshot.OwnedCollectionVersion != OwnedChartCollectionVersion
+            || snapshot.BmsRowsVersion != Volatile.Read(ref bmsStorageRowsVersion)
+            || snapshot.BmsonRowsVersion != Volatile.Read(ref bmsonStorageRowsVersion))
+        {
+            return null;
+        }
+
+        return new ChartInfoHydrationResult
+        {
+            Succeeded = true,
+            OwnerCount = snapshot.OwnerCount,
+            CurrentChartInfoOwnerCount = snapshot.CurrentChartInfoOwnerCount,
+            CurrentParseFailureOwnerCount = snapshot.CurrentParseFailureOwnerCount,
+            BackfillCandidateOwnerCount = 0
+        };
     }
 
     internal LR2SongDBExtended.chart_info ResolveChartInfo(string sha256, string md5)

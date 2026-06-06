@@ -140,50 +140,6 @@ public sealed class RootFileEnumerationTests
         }
     }
 
-    [TestMethod]
-    public void RootFileEnumerationService_AllowsEmptyOptionalGroupedResults()
-    {
-        string tempRoot = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_RootEnumEmpty_" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tempRoot);
-
-        try
-        {
-            RootFileEnumerationResult result = RootFileEnumerationService.EnumerateFilesWithFallback(
-                [tempRoot],
-                [new RootFileEnumerationGroup("lr2folder", [".lr2folder"])],
-                allowEmptyResults: true);
-
-            Assert.IsTrue(result.Success);
-            Assert.AreEqual(0, result.GetEntries("lr2folder").Count);
-        }
-        finally
-        {
-            if (Directory.Exists(tempRoot))
-            {
-                Directory.Delete(tempRoot, recursive: true);
-            }
-        }
-    }
-
-    [TestMethod]
-    public void RootFileEnumerationService_EmptyEverythingResultSuccessRequiresOptIn()
-    {
-        var result = new RootFileEnumerationResult
-        {
-            Success = false,
-            BackendName = EverythingNative.GroupedEnumerationBackendName,
-            ErrorReason = "empty_results_with_roots",
-            TotalFileCount = 0
-        };
-
-        Assert.IsFalse(RootFileEnumerationService.TryMarkEmptyEverythingResultAsSuccess(result, allowEmptyResults: false));
-        Assert.IsFalse(result.Success);
-
-        Assert.IsTrue(RootFileEnumerationService.TryMarkEmptyEverythingResultAsSuccess(result, allowEmptyResults: true));
-        Assert.IsTrue(result.Success);
-        Assert.AreEqual(string.Empty, result.ErrorReason);
-    }
-
     private static int ToUnixSeconds(DateTime timestampUtc)
     {
         DateTime utc = timestampUtc.Kind == DateTimeKind.Utc ? timestampUtc : timestampUtc.ToUniversalTime();

@@ -1400,7 +1400,8 @@ existence / mtime は意味的に揃える。
      `folderinfo.txt` surface が更新された場合は完了直前の source current 判定で `source_stale` にする。
    - 残作業: chart/resource search roots から、明示的な通常 custom folder 出力先と root custom folder 出力先を外す。
    - 完了: `.lr2folder` discovery roots は BMS roots + 通常出力先 + root 出力先 + `LR2files\CustomFolder` にする。
-   - 完了: optional grouped scan で 0 hits が正常な場合に、managed fallback の広域列挙へ落ちないようにする。
+   - 完了: grouped scan fallback は requested extension union だけを列挙し、`.lr2folder` / `folderinfo.txt`
+     discovery の fallback が root 配下全ファイルの metadata surface を作らないようにする。
    - 残作業: native bridge / managed fallback の metadata surface を同じ contract に揃え、ログに text /
      folderinfo / `.lr2folder` / directory counts を出す。
    - 残作業: `.lr2folder` discovery と directory mtime は startup scan surface へ統合し、backfill input 作成中に

@@ -35,9 +35,17 @@ internal sealed class FastRootFileEnumerator : IRootFileEnumerator
             var allFiles = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
             if (needsFileEntries)
             {
+                bool includeAllFiles = groupList.Any(group => group.IncludeAllFiles);
+                string[] fileExtensions = includeAllFiles
+                    ? null
+                    : [.. groupList
+                        .Where(group => !group.IncludeDirectories)
+                        .SelectMany(group => group.Extensions ?? [])
+                        .Where(extension => !string.IsNullOrWhiteSpace(extension))
+                        .Distinct(StringComparer.OrdinalIgnoreCase)];
                 foreach (RootFileEnumerationEntry entry in roots
                     .AsParallel()
-                    .SelectMany(EnumerateAllFilesForRoot)
+                    .SelectMany(root => EnumerateAllFilesForRoot(root, fileExtensions))
                     .Where(entry => entry != null && !string.IsNullOrWhiteSpace(entry.Path)))
                 {
                     allFiles[entry.Path] = entry;
@@ -109,12 +117,12 @@ internal sealed class FastRootFileEnumerator : IRootFileEnumerator
             .Distinct(StringComparer.OrdinalIgnoreCase)];
     }
 
-    private static IEnumerable<RootFileEnumerationEntry> EnumerateAllFilesForRoot(string root)
+    private static IEnumerable<RootFileEnumerationEntry> EnumerateAllFilesForRoot(string root, string[] extensions)
     {
         List<RootFileEnumerationEntry> fastEntries = [];
         try
         {
-            fastEntries = [.. FastDirectoryEnumerator.GetFileDataAsParallel(root, null, SearchOption.AllDirectories)
+            fastEntries = [.. FastDirectoryEnumerator.GetFileDataAsParallel(root, extensions, SearchOption.AllDirectories)
                 .Select(RootFileEnumerationEntry.FromFileData)
                 .Where(entry => entry != null && !string.IsNullOrWhiteSpace(entry.Path))
                 .GroupBy(entry => Path.GetFullPath(entry.Path), StringComparer.OrdinalIgnoreCase)
@@ -134,6 +142,7 @@ internal sealed class FastRootFileEnumerator : IRootFileEnumerator
         {
             return [.. Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories)
                 .Where(path => !string.IsNullOrWhiteSpace(path))
+                .Where(path => extensions == null || extensions.Length == 0 || extensions.Contains(Path.GetExtension(path), StringComparer.OrdinalIgnoreCase))
                 .Select(Path.GetFullPath)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .Select(CreateEntryFromFileInfo)];
