@@ -5578,6 +5578,8 @@ completeFileEnumerationOnce,
             EnsureLr2FullGenerationChartInfoBackfill(reason);
             EnsureLr2FullGenerationChartInfoIndexHydrated(reason);
             Lr2FullGenerationBackfillInput input = CreateLr2FullGenerationBackfillInput();
+            Dictionary<string, BMSFile> compatibilityProjectionIndex = CreateLr2FullGenerationCompatibilityProjectionIndex();
+            int projectedCompatibilityWarningCount = 0;
             Lr2FullGenerationBackfillResult result;
             using (LR2SongDBExtended songDb = dbGateway.OpenSongDb())
             {
@@ -5606,6 +5608,19 @@ completeFileEnumerationOnce,
                     CancellationToken = cancellationToken,
                     IsSourceCurrent = () => IsLr2FullGenerationBackfillInputCurrent(input),
                     ProgressReporter = UpdateLr2FullGenerationBackfillProgress,
+                    Lr2CompatibilityFactsCommitted = infos =>
+                    {
+                        int applied = ApplyLr2FullGenerationCompatibilityProjection(
+                            infos,
+                            reason,
+                            compatibilityProjectionIndex,
+                            logSummary: false,
+                            dispatchPresentation: false);
+                        if (applied > 0)
+                        {
+                            Interlocked.Add(ref projectedCompatibilityWarningCount, applied);
+                        }
+                    },
                     LogInstallPerformance = LogInstallPerformance
                 });
             }
@@ -5655,7 +5670,14 @@ completeFileEnumerationOnce,
                 + " stage=" + result.FinalStage
                 + " detail=" + (result.IncompleteReason ?? "completed")
                 + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
-            ApplyLr2FullGenerationCompatibilityProjection(result.Lr2CompatibilityMaintenanceInfos, reason);
+            LogInstallPerformance("lr2_full_generation_compatibility_projection applied"
+                + " reason=" + (reason ?? "unknown")
+                + " input=" + result.SongRowLr2CompatibilityAppliedCount
+                + " applied=" + projectedCompatibilityWarningCount);
+            if (projectedCompatibilityWarningCount > 0)
+            {
+                DispatchWarningPresentationChanged("lr2_full_generation_compatibility_projection");
+            }
             if (completed)
             {
                 CompleteLr2FullGenerationBackfillRequest(requestVersion, result.FinalStage);
@@ -5724,24 +5746,30 @@ completeFileEnumerationOnce,
         return reason;
     }
 
-    private void ApplyLr2FullGenerationCompatibilityProjection(
+    private int ApplyLr2FullGenerationCompatibilityProjection(
         IReadOnlyList<BMSFileMaintenanceInfo> maintenanceInfos,
-        string reason)
+        string reason,
+        IReadOnlyDictionary<string, BMSFile> bmsByPath = null,
+        bool logSummary = true,
+        bool dispatchPresentation = true)
     {
         List<BMSFileMaintenanceInfo> infoList = [.. (maintenanceInfos ?? [])
             .Where(info => info != null && !string.IsNullOrWhiteSpace(info.path))];
         if (infoList.Count == 0)
         {
-            LogInstallPerformance("lr2_full_generation_compatibility_projection skipped"
-                + " reason=" + (reason ?? "unknown")
-                + " input=0 applied=0");
-            return;
+            if (logSummary)
+            {
+                LogInstallPerformance("lr2_full_generation_compatibility_projection skipped"
+                    + " reason=" + (reason ?? "unknown")
+                    + " input=0 applied=0");
+            }
+            return 0;
         }
 
         int applied = 0;
         using (rwlockBMSFiles.GetWriterGuard())
         {
-            Dictionary<string, BMSFile> bmsByPath = (_BMSFiles ?? [])
+            bmsByPath ??= (_BMSFiles ?? [])
                 .Where(file => file != null && !string.IsNullOrWhiteSpace(file.path))
                 .GroupBy(file => file.path, StringComparer.OrdinalIgnoreCase)
                 .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
@@ -5770,13 +5798,28 @@ completeFileEnumerationOnce,
             }
         }
 
-        LogInstallPerformance("lr2_full_generation_compatibility_projection applied"
-            + " reason=" + (reason ?? "unknown")
-            + " input=" + infoList.Count
-            + " applied=" + applied);
-        if (applied > 0)
+        if (logSummary)
+        {
+            LogInstallPerformance("lr2_full_generation_compatibility_projection applied"
+                + " reason=" + (reason ?? "unknown")
+                + " input=" + infoList.Count
+                + " applied=" + applied);
+        }
+        if (dispatchPresentation && applied > 0)
         {
             DispatchWarningPresentationChanged("lr2_full_generation_compatibility_projection");
+        }
+        return applied;
+    }
+
+    private Dictionary<string, BMSFile> CreateLr2FullGenerationCompatibilityProjectionIndex()
+    {
+        using (rwlockBMSFiles.GetReaderGuard())
+        {
+            return (_BMSFiles ?? [])
+                .Where(file => file != null && !string.IsNullOrWhiteSpace(file.path))
+                .GroupBy(file => file.path, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
         }
     }
 

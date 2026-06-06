@@ -63,6 +63,8 @@ internal sealed class Lr2FullGenerationBackfillRequest
 
     public Action<Lr2FullGenerationBackfillProgress> ProgressReporter { get; set; }
 
+    public Action<IReadOnlyList<BMSFileMaintenanceInfo>> Lr2CompatibilityFactsCommitted { get; set; }
+
     public Action<string> LogInstallPerformance { get; set; }
 }
 
@@ -104,8 +106,6 @@ internal sealed class Lr2FullGenerationBackfillResult
     public int SongRowLr2CompatibilityAppliedCount { get; set; }
 
     public int StaleSongRowPrunedCount { get; set; }
-
-    public IReadOnlyList<BMSFileMaintenanceInfo> Lr2CompatibilityMaintenanceInfos { get; set; } = [];
 
     public Lr2StartupScanDiagnosticResult StartupScanDiagnosticResult { get; set; }
 
@@ -406,7 +406,7 @@ internal static class Lr2FullGenerationBackfillService
 
         int songRowStartIndex = Math.Max(0, resumeCursor - lr2FolderEndCursor);
         SongRowBackfillResult songRowResult = resumeCursor >= songRowsEndCursor
-            ? new SongRowBackfillResult(0, 0, 0, 0, [])
+            ? new SongRowBackfillResult(0, 0, 0, 0)
             : UpsertSongRows(
                 songDb,
                 songRows,
@@ -603,7 +603,6 @@ internal static class Lr2FullGenerationBackfillService
             SongRowChartInfoAppliedCount = songRowResult.ChartInfoAppliedCount,
             SongRowLr2CompatibilityAppliedCount = songRowResult.Lr2CompatibilityAppliedCount,
             StaleSongRowPrunedCount = songPruneResult.DeletedCount,
-            Lr2CompatibilityMaintenanceInfos = songRowResult.Lr2CompatibilityMaintenanceInfos,
             StartupScanDiagnosticResult = diagnosticResult,
             ElapsedMs = stopwatch.ElapsedMilliseconds
         };
@@ -758,6 +757,16 @@ internal static class Lr2FullGenerationBackfillService
         {
             // Diagnostics must not affect durable backfill semantics.
         }
+    }
+
+    private static string QuoteLogValue(string value)
+    {
+        if (string.IsNullOrEmpty(value))
+        {
+            return "\"\"";
+        }
+
+        return "\"" + value.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\r", " ").Replace("\n", " ") + "\"";
     }
 
     private static Lr2StartupScanDiagnosticResult DiagnoseStartupScanBlockers(
@@ -1435,14 +1444,14 @@ internal static class Lr2FullGenerationBackfillService
     {
         if (songRows == null || songRows.Count == 0)
         {
-            return new SongRowBackfillResult(0, 0, 0, 0, []);
+            return new SongRowBackfillResult(0, 0, 0, 0);
         }
 
         List<BMSFile> targetRows = [.. songRows.Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))];
         int safeStartIndex = Math.Max(0, startIndex);
         if (targetRows.Count == 0 || safeStartIndex >= targetRows.Count)
         {
-            return new SongRowBackfillResult(0, 0, 0, 0, []);
+            return new SongRowBackfillResult(0, 0, 0, 0);
         }
 
         BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
@@ -1450,13 +1459,15 @@ internal static class Lr2FullGenerationBackfillService
         BmsLibraryDbGateway.EnsureMaintenanceSchema(songDb);
         const int songRowBackfillChunkSize = 500;
         int workerDegree = ResolveSongRowBackfillWorkerDegree();
-        int readQueueCapacity = Math.Max(workerDegree * 2, Math.Min(songRowBackfillChunkSize * 2, Math.Max(songRowBackfillChunkSize, workerDegree * 16)));
+        int readerDegree = ResolveSongRowBackfillReaderDegree(workerDegree);
+        int readQueueCapacity = Math.Max(
+            readerDegree * 16,
+            Math.Max(workerDegree * 2, Math.Min(songRowBackfillChunkSize * 2, Math.Max(songRowBackfillChunkSize, workerDegree * 16))));
         int computedQueueCapacity = Math.Max(songRowBackfillChunkSize, workerDegree * 16);
         int processed = 0;
         int parseFailureCount = 0;
         int chartInfoAppliedCount = 0;
         int compatibilityApplied = 0;
-        var compatibilityInfos = new List<BMSFileMaintenanceInfo>();
         Func<BMSFile, LR2SongDBExtended.chart_info> chartInfoResolver =
             CreateSongRowBackfillChartInfoResolver(
                 songDb,
@@ -1476,6 +1487,7 @@ internal static class Lr2FullGenerationBackfillService
             + " startIndex=" + safeStartIndex
             + " targetCount=" + targetRows.Count
             + " chunkSize=" + songRowBackfillChunkSize
+            + " readerDegree=" + readerDegree
             + " workerDegree=" + workerDegree
             + " readQueueCapacity=" + readQueueCapacity
             + " computedQueueCapacity=" + computedQueueCapacity);
@@ -1552,7 +1564,7 @@ internal static class Lr2FullGenerationBackfillService
                 UpsertLr2CompatibilityFacts(songDb, chunkCompatibilityInfos);
                 songDb.Commit();
                 stopwatchCommit.Stop();
-                compatibilityInfos.AddRange(chunkCompatibilityInfos);
+                ReportCommittedLr2CompatibilityFacts(request, chunkCompatibilityInfos);
                 compatibilityApplied += chunkCompatibilityInfos.Count;
                 parseFailureCount += chunkParseFailureCount;
                 chartInfoAppliedCount += chunkChartInfoAppliedCount;
@@ -1600,16 +1612,24 @@ internal static class Lr2FullGenerationBackfillService
             }
         }
 
-        Task readerTask = Task.Run(delegate
-        {
-            try
+        int nextReadIndex = safeStartIndex - 1;
+        Task[] readerTasks = [.. Enumerable.Range(0, readerDegree)
+            .Select(_ => Task.Run(delegate
             {
-                for (int index = safeStartIndex; index < targetRows.Count; index++)
+                while (true)
                 {
                     if (Volatile.Read(ref writerFailed) != 0)
                     {
                         break;
                     }
+
+                    int index = Interlocked.Increment(ref nextReadIndex);
+                    if (index >= targetRows.Count)
+                    {
+                        break;
+                    }
+
+                    cancellationToken.ThrowIfCancellationRequested();
                     SongRowBackfillReadCandidate candidate = ReadBackfillSongRowCandidate(index, targetRows[index]);
                     try
                     {
@@ -1621,12 +1641,8 @@ internal static class Lr2FullGenerationBackfillService
                         break;
                     }
                 }
-            }
-            finally
-            {
-                readQueue.CompleteAdding();
-            }
-        });
+            }))];
+        Task readerCompletionTask = Task.WhenAll(readerTasks).ContinueWith(_ => TryCompleteAdding(readQueue));
 
         Task[] workerTasks = [.. Enumerable.Range(0, workerDegree)
             .Select(_ => Task.Run(delegate
@@ -1688,7 +1704,8 @@ internal static class Lr2FullGenerationBackfillService
 
         try
         {
-            readerTask.Wait();
+            Task.WaitAll(readerTasks);
+            readerCompletionTask.Wait();
         }
         catch (AggregateException ex)
         {
@@ -1737,7 +1754,30 @@ internal static class Lr2FullGenerationBackfillService
             + " workerOutputWaitMs=" + TicksToMilliseconds(workerOutputWaitTicks)
             + " readQueueHighWatermark=" + readQueueHighWatermark
             + " computedQueueHighWatermark=" + computedQueueHighWatermark);
-        return new SongRowBackfillResult(processed, parseFailureCount, chartInfoAppliedCount, compatibilityApplied, compatibilityInfos);
+        return new SongRowBackfillResult(processed, parseFailureCount, chartInfoAppliedCount, compatibilityApplied);
+    }
+
+    private static void ReportCommittedLr2CompatibilityFacts(
+        Lr2FullGenerationBackfillRequest request,
+        IReadOnlyList<BMSFileMaintenanceInfo> compatibilityInfos)
+    {
+        if (request?.Lr2CompatibilityFactsCommitted == null
+            || compatibilityInfos == null
+            || compatibilityInfos.Count == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            request.Lr2CompatibilityFactsCommitted(compatibilityInfos);
+        }
+        catch (Exception ex)
+        {
+            LogBackfill(request, "lr2_full_generation_backfill compatibility_projection_callback_failed"
+                + " count=" + compatibilityInfos.Count
+                + " reason=" + QuoteLogValue(ex.Message ?? ex.GetType().Name));
+        }
     }
 
     private static void AddWithWait<T>(BlockingCollection<T> queue, T item, ref long waitTicks, CancellationToken cancellationToken)
@@ -1770,6 +1810,13 @@ internal static class Lr2FullGenerationBackfillService
     private static int ResolveSongRowBackfillWorkerDegree()
     {
         return Math.Max(1, Environment.ProcessorCount - 1);
+    }
+
+    private static int ResolveSongRowBackfillReaderDegree(int workerDegree)
+    {
+        int processorBound = Math.Max(1, Environment.ProcessorCount);
+        int workerBound = Math.Max(1, workerDegree);
+        return Math.Max(1, Math.Min(processorBound, workerBound));
     }
 
     private static Exception UnwrapPipelineException(Exception ex)
@@ -2318,8 +2365,7 @@ internal static class Lr2FullGenerationBackfillService
         int processedCount,
         int parseFailureCount,
         int chartInfoAppliedCount,
-        int lr2CompatibilityAppliedCount,
-        IReadOnlyList<BMSFileMaintenanceInfo> lr2CompatibilityMaintenanceInfos)
+        int lr2CompatibilityAppliedCount)
     {
         public int ProcessedCount { get; } = processedCount;
 
@@ -2328,8 +2374,6 @@ internal static class Lr2FullGenerationBackfillService
         public int ChartInfoAppliedCount { get; } = chartInfoAppliedCount;
 
         public int Lr2CompatibilityAppliedCount { get; } = lr2CompatibilityAppliedCount;
-
-        public IReadOnlyList<BMSFileMaintenanceInfo> Lr2CompatibilityMaintenanceInfos { get; } = lr2CompatibilityMaintenanceInfos ?? [];
     }
 
     private sealed class StartupDiagnosticSongRow

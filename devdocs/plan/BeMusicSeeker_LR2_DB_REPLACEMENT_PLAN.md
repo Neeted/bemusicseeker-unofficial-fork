@@ -1415,11 +1415,14 @@ existence / mtime は意味的に揃える。
    - `songRows=...` は persistence copy count ではなく target count として扱う。
    - memory usage が current catalog + bounded queue + current chunk の範囲に収まることを log で確認する。
 5. `song_rows` pipeline を writer が詰まらない構造へ寄せる。主要実装済み。
-   - reader は譜面 bytes / mtime の供給を主責務にする。
+   - 完了: reader は bounded parallel reader として譜面 bytes / mtime の供給を主責務にし、
+     read queue capacity を超えて全件 bytes を保持しない。
    - 完了: workers が parse / chart_info apply / LR2 compatibility facts を同じ parse result から作り、
      `BMSFile` と `BMSFileMaintenanceInfo` を含む「DB に書ける completed item」を出力する。
    - 完了: writer は順序制御、bulk song write、bulk compatibility facts write、durable cursor update に専念する。
-   - encoding detection / parse / resource reference evaluation の二重走査をなくす。
+   - 完了: LR2 compatibility facts は chunk commit 後に live warning projection へ渡し、全件分の
+     `BMSFileMaintenanceInfo` を backfill result に保持しない。
+   - 残作業: encoding detection / parse / resource reference evaluation の二重走査をなくす。
    - chunk log は wall time、reader wait、worker wait、queue high watermark、worker aggregate time、
      commit time を分けて出す。
    - `ChartFileContentReader` は read-only snapshot と hash付き snapshot の責務を分け、hash 計算を

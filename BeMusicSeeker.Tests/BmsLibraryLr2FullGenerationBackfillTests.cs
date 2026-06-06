@@ -2359,15 +2359,19 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
             wav_files_existing = 88
         }, typeof(LR2SongDBExtended.maintenance));
 
+        var committedCompatibilityFacts = new List<BMSFileMaintenanceInfo>();
         Lr2FullGenerationBackfillResult result = Lr2FullGenerationBackfillService.Run(songDb, new Lr2FullGenerationBackfillRequest
         {
             Signature = "lr2-compatibility",
             RunId = "lr2-compatibility",
             SongRows = [file],
-            StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc)
+            StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc),
+            Lr2CompatibilityFactsCommitted = infos => committedCompatibilityFacts.AddRange(infos)
         });
 
         Assert.AreEqual(1, result.SongRowLr2CompatibilityAppliedCount);
+        Assert.AreEqual(1, committedCompatibilityFacts.Count);
+        Assert.AreEqual(chartPath, committedCompatibilityFacts[0].path);
         Assert.AreEqual(file.hash, songDb.ExecuteScalar<string>("SELECT hash FROM maintenance WHERE path = ?;", chartPath));
         Assert.AreEqual(99, songDb.ExecuteScalar<int>("SELECT wav_files_defined FROM maintenance WHERE path = ?;", chartPath));
         Assert.AreEqual(88, songDb.ExecuteScalar<int>("SELECT wav_files_existing FROM maintenance WHERE path = ?;", chartPath));
