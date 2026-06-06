@@ -1379,12 +1379,13 @@ existence / mtime は意味的に揃える。
 収束していない。以下は実装サイクルの推奨順であり、実機確認・手動確認・LR2 起動確認は
 最後にまとめて行う。
 
-1. 通常 file diff と LR2 full generation の重い folder sync を切り離す。
+1. 通常 file diff と LR2 full generation の重い folder sync を切り離す。完了。
    - `ReloadFileDiff` / startup file diff の「差分あり」は owned BMS / bmson の実ファイル差分だけを正本にする。
    - LR2 `folder` table の incomplete / stale / expected row 欠落を通常 file diff の差分扱いへ混ぜない。
    - startup file diff で LR2 normal folder sync を行う場合も、変更 path と prune scope を正本にした scoped sync にする。
    - LR2 full generation backfill / cleanup 用の全件 normal folder sync は full generation stage 専用に残す。
    - 完全生成未完了 status の評価は軽量に保ち、未完了であること自体が通常差分確認を秒単位で遅くしない。
+   - file diff と owned mutation は共通の `Lr2NormalFolderSyncScopeBuilder` で `ChartPaths` / `PruneScopeDirectories` を作る。date-only / text-only / bmson-only の DB 差分では LR2 normal folder sync を起動しない。
 2. scan surface / root contract を実装へ反映し、完全生成 input の再列挙をなくす。
    - chart/resource search roots から、明示的な通常 custom folder 出力先と root custom folder 出力先を外す。
    - `.lr2folder` discovery roots は BMS roots + 通常出力先 + root 出力先 + `LR2files\CustomFolder` にする。

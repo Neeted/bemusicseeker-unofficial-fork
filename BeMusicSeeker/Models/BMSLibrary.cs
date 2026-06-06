@@ -5908,7 +5908,7 @@ completeFileEnumerationOnce,
 
         var stopwatch = Stopwatch.StartNew();
         List<string> roots = [];
-        Lr2NormalFolderMutationSyncInput syncInput = Lr2NormalFolderMutationSyncInput.Empty;
+        Lr2NormalFolderSyncScope syncInput = Lr2NormalFolderSyncScope.Empty;
         try
         {
             roots = getBMSDirectories();
@@ -5917,7 +5917,12 @@ completeFileEnumerationOnce,
                 return;
             }
 
-            syncInput = CreateLr2NormalFolderMutationSyncInput(mutation, roots, _BMSFiles);
+            syncInput = Lr2NormalFolderSyncScopeBuilder.CreateForStorageMutation(
+                roots,
+                mutation.AddedBmsFiles,
+                mutation.PathChanges,
+                mutation.RemoveRequests,
+                _BMSFiles);
             if (syncInput.ChartPaths.Count == 0 && syncInput.PruneScopeDirectories.Count == 0)
             {
                 return;
@@ -5971,146 +5976,6 @@ completeFileEnumerationOnce,
                 + " elapsedMs=" + stopwatch.ElapsedMilliseconds
                 + " exception=" + ex.GetType().Name
                 + " message=" + GetDisplayedExceptionMessage(ex).Replace(Environment.NewLine, " | "));
-        }
-    }
-
-    private static Lr2NormalFolderMutationSyncInput CreateLr2NormalFolderMutationSyncInput(
-        OwnedChartCollectionStorageMutation mutation,
-        IEnumerable<string> rootDirectories,
-        IEnumerable<BMSFile> currentBmsFiles)
-    {
-        if (mutation == null)
-        {
-            return Lr2NormalFolderMutationSyncInput.Empty;
-        }
-
-        List<string> roots = [.. (rootDirectories ?? [])
-            .Select(Lr2FolderPath.NormalizeDirectoryPath)
-            .Where(path => !string.IsNullOrWhiteSpace(path))
-            .Distinct(StringComparer.OrdinalIgnoreCase)];
-        if (roots.Count == 0)
-        {
-            return Lr2NormalFolderMutationSyncInput.Empty;
-        }
-
-        var chartPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var pruneScopeDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (BMSFile file in mutation.AddedBmsFiles ?? [])
-        {
-            AddIfUnderAnyRoot(chartPaths, file?.path, roots);
-        }
-
-        foreach (LibraryChartPathChange pathChange in mutation.PathChanges ?? [])
-        {
-            if (pathChange?.GetBmsStorageOwner() == null)
-            {
-                continue;
-            }
-            AddIfUnderAnyRoot(chartPaths, pathChange.NewPath, roots);
-            AddTopLevelDirectoryScopeIfUnderAnyRoot(pruneScopeDirectories, pathChange.OldPath, roots);
-            AddTopLevelDirectoryScopeIfUnderAnyRoot(pruneScopeDirectories, pathChange.NewPath, roots);
-        }
-
-        foreach (OwnedChartRemoveRequest removeRequest in mutation.RemoveRequests ?? [])
-        {
-            if (removeRequest?.Kind != ChartFileKind.Bms)
-            {
-                continue;
-            }
-            AddTopLevelDirectoryScopeIfUnderAnyRoot(pruneScopeDirectories, removeRequest.Path, roots);
-        }
-
-        if (pruneScopeDirectories.Count > 0)
-        {
-            foreach (BMSFile file in currentBmsFiles ?? [])
-            {
-                AddIfUnderAnyPruneScope(chartPaths, file?.path, pruneScopeDirectories);
-            }
-        }
-
-        return new Lr2NormalFolderMutationSyncInput(
-            [.. chartPaths.OrderBy(path => path, StringComparer.OrdinalIgnoreCase)],
-            [.. pruneScopeDirectories.OrderBy(path => path, StringComparer.OrdinalIgnoreCase)]);
-    }
-
-    private static void AddIfUnderAnyRoot(HashSet<string> result, string chartPath, IReadOnlyCollection<string> rootDirectories)
-    {
-        if (result == null || string.IsNullOrWhiteSpace(chartPath) || rootDirectories == null || rootDirectories.Count == 0)
-        {
-            return;
-        }
-
-        string chartDirectory = Lr2FolderPath.NormalizeDirectoryPath(Lr2FolderPath.SafeGetDirectoryName(chartPath));
-        if (string.IsNullOrWhiteSpace(chartDirectory))
-        {
-            return;
-        }
-
-        foreach (string root in rootDirectories)
-        {
-            if (Lr2FolderPath.IsSameOrDescendant(chartDirectory, root))
-            {
-                result.Add(chartPath);
-                return;
-            }
-        }
-    }
-
-    private static void AddTopLevelDirectoryScopeIfUnderAnyRoot(HashSet<string> result, string chartPath, IReadOnlyCollection<string> rootDirectories)
-    {
-        if (result == null || string.IsNullOrWhiteSpace(chartPath) || rootDirectories == null || rootDirectories.Count == 0)
-        {
-            return;
-        }
-
-        string directoryPath = Lr2FolderPath.NormalizeDirectoryPath(Lr2FolderPath.SafeGetDirectoryName(chartPath));
-        if (string.IsNullOrWhiteSpace(directoryPath))
-        {
-            return;
-        }
-
-        string rootDirectory = rootDirectories
-            .Where(root => Lr2FolderPath.IsSameOrDescendant(directoryPath, root))
-            .OrderByDescending(root => root.Length)
-            .FirstOrDefault();
-        if (string.IsNullOrWhiteSpace(rootDirectory) || string.Equals(directoryPath, rootDirectory, StringComparison.OrdinalIgnoreCase))
-        {
-            return;
-        }
-
-        string current = directoryPath;
-        while (!string.IsNullOrWhiteSpace(current))
-        {
-            string parent = Lr2FolderPath.NormalizeDirectoryPath(Lr2FolderPath.SafeGetDirectoryName(current));
-            if (string.IsNullOrWhiteSpace(parent) || string.Equals(parent, rootDirectory, StringComparison.OrdinalIgnoreCase))
-            {
-                result.Add(current);
-                return;
-            }
-            current = parent;
-        }
-    }
-
-    private static void AddIfUnderAnyPruneScope(HashSet<string> result, string chartPath, IEnumerable<string> pruneScopeDirectories)
-    {
-        if (result == null || string.IsNullOrWhiteSpace(chartPath))
-        {
-            return;
-        }
-
-        string chartDirectory = Lr2FolderPath.NormalizeDirectoryPath(Lr2FolderPath.SafeGetDirectoryName(chartPath));
-        if (string.IsNullOrWhiteSpace(chartDirectory))
-        {
-            return;
-        }
-
-        foreach (string pruneScopeDirectory in pruneScopeDirectories ?? [])
-        {
-            if (Lr2FolderPath.IsSameOrDescendant(chartDirectory, pruneScopeDirectory))
-            {
-                result.Add(chartPath);
-                return;
-            }
         }
     }
 
@@ -6390,17 +6255,6 @@ completeFileEnumerationOnce,
             .Select(Path.GetFullPath)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
-    }
-
-    private sealed class Lr2NormalFolderMutationSyncInput(
-        IReadOnlyList<string> chartPaths,
-        IReadOnlyList<string> pruneScopeDirectories)
-    {
-        public static Lr2NormalFolderMutationSyncInput Empty { get; } = new([], []);
-
-        public IReadOnlyList<string> ChartPaths { get; } = chartPaths ?? [];
-
-        public IReadOnlyList<string> PruneScopeDirectories { get; } = pruneScopeDirectories ?? [];
     }
 
     private sealed class Lr2FullGenerationBackfillInput(

@@ -579,7 +579,11 @@ internal sealed class BmsLibraryInitializationService
             dbGateway,
             options,
             lr2NormalFolderSyncRootDirectories,
-            scannedPaths,
+            Lr2NormalFolderSyncScopeBuilder.CreateForFileDiff(
+                lr2NormalFolderSyncRootDirectories,
+                scannedPaths,
+                result.AddedFiles,
+                result.DeletedPaths),
             mergedScanResult.FolderInfoFilePaths,
             mergedScanResult.FolderInfoFileEntriesByPath,
             result,
@@ -722,7 +726,7 @@ internal sealed class BmsLibraryInitializationService
         BmsLibraryDbGateway dbGateway,
         BmsLibraryOptionsSnapshot options,
         IEnumerable<string> rootDirectories,
-        IEnumerable<string> scannedBmsPaths,
+        Lr2NormalFolderSyncScope syncInput,
         IEnumerable<string> folderInfoFilePaths,
         IReadOnlyDictionary<string, RootFileEnumerationEntry> folderInfoFileEntries,
         SongTableFileCheckResult result,
@@ -755,6 +759,11 @@ internal sealed class BmsLibraryInitializationService
             logInstallPerformance?.Invoke("lr2_normal_folder_sync skipped reason=no_db_diff");
             return;
         }
+        if (syncInput == null || (syncInput.ChartPaths.Count == 0 && syncInput.PruneScopeDirectories.Count == 0))
+        {
+            logInstallPerformance?.Invoke("lr2_normal_folder_sync skipped reason=no_bms_path_diff");
+            return;
+        }
 
         result.Lr2NormalFolderSyncExecuted = true;
         try
@@ -762,20 +771,23 @@ internal sealed class BmsLibraryInitializationService
             using LR2SongDBExtended songDb = dbGateway.OpenSongDb();
             IReadOnlyDictionary<string, RootFileEnumerationEntry> directoryEntries = CreateLr2NormalFolderDirectoryEntries(
                 roots,
-                Lr2NormalFolderDbSyncService.CreateDirectoryMetadataTargets(roots, scannedBmsPaths));
+                Lr2NormalFolderDbSyncService.CreateDirectoryMetadataTargets(roots, syncInput.ChartPaths));
             Lr2NormalFolderDbSyncResult syncResult = Lr2NormalFolderDbSyncService.Sync(songDb, new Lr2NormalFolderDbSyncRequest
             {
                 RootDirectories = roots,
-                ChartPaths = [.. (scannedBmsPaths ?? [])],
+                ChartPaths = syncInput.ChartPaths,
                 FolderInfoFilePaths = [.. (folderInfoFilePaths ?? [])],
                 FolderInfoFileEntries = folderInfoFileEntries ?? new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase),
                 DirectoryLastWriteTimeUtcResolver = CreateLastWriteTimeResolver(directoryEntries),
-                AllowPrune = true
+                PruneScopeDirectories = syncInput.PruneScopeDirectories,
+                AllowPrune = syncInput.PruneScopeDirectories.Count > 0
             });
             ApplyLr2NormalFolderSyncResult(result, syncResult);
             logInstallPerformance?.Invoke("lr2_normal_folder_sync done generated=" + syncResult.GeneratedCount
                 + " upserted=" + syncResult.UpsertedCount
                 + " deleted=" + syncResult.DeletedCount
+                + " paths=" + syncInput.ChartPaths.Count
+                + " pruneScopes=" + syncInput.PruneScopeDirectories.Count
                 + " skippedUnsupported=" + syncResult.SkippedUnsupportedPathCount
                 + " skippedMissingMetadata=" + syncResult.SkippedMissingMetadataCount
                 + " skippedIncompatibleChart=" + syncResult.SkippedIncompatibleChartPathCount
