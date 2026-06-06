@@ -757,6 +757,62 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
     }
 
     [TestMethod]
+    public void IsLr2FullGenerationBackfillInputCurrent_DetectsNewerScanSurface()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        try
+        {
+            Settings.Default.OperationModeLR2DB = true;
+            Settings.Default.EnableLR2SongDbFullGeneration = true;
+            ResetLr2FolderDiscoverySettings();
+            string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
+            string chartDirectory = Path.Combine(rootDirectory, "Pack");
+            Directory.CreateDirectory(chartDirectory);
+            string folderInfoPath = Path.Combine(chartDirectory, "folderinfo.txt");
+            var library = new BMSLibrary(scope.SongDbPath)
+            {
+                SearchTargets = [rootDirectory],
+                BMSFiles = []
+            };
+            var options = new BmsLibraryOptionsSnapshot
+            {
+                OperationModeLR2DB = true,
+                EnableLR2SongDbFullGeneration = true
+            };
+            InvokeCaptureLr2FullGenerationScanSurface(library, options, [rootDirectory], new SongTableFileCheckResult
+            {
+                Lr2ScanSurfaceAvailable = true,
+                Lr2ScanFolderInfoFilePaths = [folderInfoPath],
+                Lr2ScanFolderInfoFileEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase)
+                {
+                    [folderInfoPath] = new RootFileEnumerationEntry(folderInfoPath, new DateTime(2026, 6, 5, 8, 0, 0, DateTimeKind.Utc))
+                },
+                Lr2ScanTextFileDirectories = []
+            });
+            object input = InvokeCreateLr2FullGenerationBackfillInput(library);
+
+            Assert.IsTrue(InvokeIsLr2FullGenerationBackfillInputCurrent(library, input));
+
+            InvokeCaptureLr2FullGenerationScanSurface(library, options, [rootDirectory], new SongTableFileCheckResult
+            {
+                Lr2ScanSurfaceAvailable = true,
+                Lr2ScanFolderInfoFilePaths = [folderInfoPath],
+                Lr2ScanFolderInfoFileEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase)
+                {
+                    [folderInfoPath] = new RootFileEnumerationEntry(folderInfoPath, new DateTime(2026, 6, 5, 8, 1, 0, DateTimeKind.Utc))
+                },
+                Lr2ScanTextFileDirectories = [chartDirectory]
+            });
+
+            Assert.IsFalse(InvokeIsLr2FullGenerationBackfillInputCurrent(library, input));
+        }
+        finally
+        {
+            ResetTouchedSettings();
+        }
+    }
+
+    [TestMethod]
     public void QueueLr2FullGenerationBackfillIfNeeded_RunsFullGenerationBackfillAndMarksCompletedWhenClean()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
@@ -3044,6 +3100,44 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
         Assert.AreEqual(Lr2SongRowEnricher.ToLr2UnixSeconds(folderInfoTimestamp), entry.LastWriteTimeUnixSeconds);
     }
 
+    [TestMethod]
+    public void FolderInfoCandidateEnumerationFromEntries_MatchesTargetDirectoryCaseInsensitively()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
+        string chartDirectory = Path.Combine(rootDirectory, "Pack");
+        Directory.CreateDirectory(chartDirectory);
+        string folderInfoPath = Path.Combine(chartDirectory, "folderinfo.txt");
+        DateTime folderInfoTimestamp = new(2026, 6, 5, 7, 0, 0, DateTimeKind.Utc);
+        RootFileEnumerationEntry entry = new(folderInfoPath, folderInfoTimestamp);
+
+        Lr2FolderInfoCandidateSnapshot snapshot = Lr2FolderInfoCandidateEnumerationService.CreateSnapshotFromEntries(
+            [entry],
+            [chartDirectory.ToUpperInvariant()]);
+
+        CollectionAssert.AreEqual(new[] { Path.GetFullPath(folderInfoPath) }, snapshot.Paths.ToArray());
+        Assert.IsTrue(snapshot.DiscoveryComplete);
+        Assert.AreEqual(Lr2SongRowEnricher.ToLr2UnixSeconds(folderInfoTimestamp), snapshot.EntriesByPath[Path.GetFullPath(folderInfoPath)].LastWriteTimeUnixSeconds);
+    }
+
+    [TestMethod]
+    public void FolderInfoCandidateEnumerationFromSurface_KeepsPathOnlyCandidate()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
+        string chartDirectory = Path.Combine(rootDirectory, "Pack");
+        Directory.CreateDirectory(chartDirectory);
+        string folderInfoPath = Path.Combine(chartDirectory, "folderinfo.txt");
+
+        Lr2FolderInfoCandidateSnapshot snapshot = Lr2FolderInfoCandidateEnumerationService.CreateSnapshotFromSurface(
+            [folderInfoPath],
+            [],
+            [chartDirectory]);
+
+        CollectionAssert.AreEqual(new[] { Path.GetFullPath(folderInfoPath) }, snapshot.Paths.ToArray());
+        Assert.IsFalse(snapshot.EntriesByPath[Path.GetFullPath(folderInfoPath)].LastWriteTimeUnixSeconds.HasValue);
+    }
+
     private sealed class TestDatabaseScope : IDisposable
     {
         public string DirectoryPath { get; }
@@ -3134,6 +3228,17 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
         MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("IsLr2FullGenerationBackfillInputCurrent", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.IsNotNull(methodInfo);
         return (bool)methodInfo.Invoke(library, [input]);
+    }
+
+    private static void InvokeCaptureLr2FullGenerationScanSurface(
+        BMSLibrary library,
+        BmsLibraryOptionsSnapshot options,
+        IEnumerable<string> rootDirectories,
+        SongTableFileCheckResult result)
+    {
+        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("CaptureLr2FullGenerationScanSurface", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(methodInfo);
+        methodInfo.Invoke(library, [options, rootDirectories, result]);
     }
 
     private static void InvokeSetModeAndCommitToDb(BMSLibrary library, IEnumerable<BMSFile> files)

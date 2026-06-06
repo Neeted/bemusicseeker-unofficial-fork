@@ -391,6 +391,19 @@ internal sealed class BmsLibraryInitializationService
                 .Where(path => !string.Equals(Path.GetExtension(path), ".bmson", StringComparison.OrdinalIgnoreCase)),
             StringComparer.OrdinalIgnoreCase);
         result.BmsPathCount = scannedPaths.Count;
+        if (bmsFileScanSucceeded)
+        {
+            result.Lr2ScanSurfaceAvailable = true;
+            result.Lr2ScanFolderInfoFilePaths = [.. (mergedScanResult.FolderInfoFilePaths ?? [])
+                .Where(path => !string.IsNullOrWhiteSpace(path))
+                .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
+            result.Lr2ScanFolderInfoFileEntries = new Dictionary<string, RootFileEnumerationEntry>(
+                mergedScanResult.FolderInfoFileEntriesByPath ?? new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase),
+                StringComparer.OrdinalIgnoreCase);
+            result.Lr2ScanTextFileDirectories = [.. (mergedScanResult.ChartDirectoriesWithTextFiles ?? [])
+                .Where(path => !string.IsNullOrWhiteSpace(path))
+                .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
+        }
         result.DirectoryCount = result.NextDirectoryResourceLookupCache?.Count ?? 0;
 
         var stopwatchDiff = Stopwatch.StartNew();

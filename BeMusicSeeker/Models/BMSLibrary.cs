@@ -1137,6 +1137,12 @@ public class BMSLibrary : NotificationObject
         Status = Lr2FullGenerationStatusKind.NotNeeded
     };
 
+    private readonly object lockLr2FullGenerationScanSurface = new();
+
+    private Lr2FullGenerationScanSurfaceSnapshot lr2FullGenerationScanSurfaceSnapshot;
+
+    private int lr2FullGenerationScanSurfaceGeneration;
+
     private int chartInfoHydrationRequestedVersion;
 
     private readonly object lockDeferredScoreHydration = new();
@@ -5110,6 +5116,7 @@ completeFileEnumerationOnce,
             DispatchWarningPresentationChanged("file_diff_inline_chart_info_parse_failure");
         }
         ApplyLibraryMutationDelta(fileCheckResult.MutationDelta);
+        CaptureLr2FullGenerationScanSurface(options, bmsDirectories, fileCheckResult);
         MarkLr2FullGenerationIncompleteAfterFileDiffNormalFolderSyncFailure(options, fileCheckResult);
         if (trackLibraryFileCheckProgress)
         {
@@ -5118,6 +5125,97 @@ completeFileEnumerationOnce,
         fileCheckResult.ReleasePostApplyTransientBuffers();
         LogStartupMemoryCheckpoint("file_diff", "after_release");
         return fileCheckResult;
+    }
+
+    private void CaptureLr2FullGenerationScanSurface(
+        BmsLibraryOptionsSnapshot options,
+        IEnumerable<string> rootDirectories,
+        SongTableFileCheckResult fileCheckResult)
+    {
+        if (options?.OperationModeLR2DB != true
+            || options.EnableLR2SongDbFullGeneration != true
+            || fileCheckResult?.Lr2ScanSurfaceAvailable != true)
+        {
+            return;
+        }
+
+        List<string> roots = [.. (rootDirectories ?? [])
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Select(SafeFullPathOrOriginal)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
+        if (roots.Count == 0)
+        {
+            return;
+        }
+
+        Lr2FullGenerationScanSurfaceSnapshot snapshot;
+        lock (lockLr2FullGenerationScanSurface)
+        {
+            int generation = lr2FullGenerationScanSurfaceGeneration == int.MaxValue
+                ? 1
+                : lr2FullGenerationScanSurfaceGeneration + 1;
+            lr2FullGenerationScanSurfaceGeneration = generation;
+            snapshot = new Lr2FullGenerationScanSurfaceSnapshot(
+                generation,
+                roots,
+                fileCheckResult.Lr2ScanFolderInfoFilePaths,
+                fileCheckResult.Lr2ScanFolderInfoFileEntries,
+                fileCheckResult.Lr2ScanTextFileDirectories,
+                OwnedChartCollectionVersion,
+                Volatile.Read(ref bmsStorageRowsVersion),
+                Volatile.Read(ref bmsonStorageRowsVersion));
+            lr2FullGenerationScanSurfaceSnapshot = snapshot;
+        }
+        LogInstallPerformance("lr2_full_generation_scan_surface captured"
+            + " generation=" + snapshot.Generation
+            + " roots=" + snapshot.RootDirectories.Count
+            + " folderInfoCandidates=" + snapshot.FolderInfoFilePaths.Count
+            + " textFileDirs=" + snapshot.TextFileDirectories.Count
+            + " ownedCollectionVersion=" + snapshot.OwnedCollectionVersion
+            + " bmsRowsVersion=" + snapshot.BmsRowsVersion
+            + " bmsonRowsVersion=" + snapshot.BmsonRowsVersion);
+    }
+
+    private Lr2FullGenerationScanSurfaceSnapshot GetCurrentLr2FullGenerationScanSurface(
+        IEnumerable<string> rootDirectories,
+        int ownedCollectionVersion,
+        StorageRowsVersionSnapshot storageRowsVersion)
+    {
+        Lr2FullGenerationScanSurfaceSnapshot snapshot;
+        lock (lockLr2FullGenerationScanSurface)
+        {
+            snapshot = lr2FullGenerationScanSurfaceSnapshot;
+        }
+        if (snapshot == null
+            || snapshot.OwnedCollectionVersion != ownedCollectionVersion
+            || snapshot.BmsRowsVersion != storageRowsVersion.BmsRowsVersion
+            || snapshot.BmsonRowsVersion != storageRowsVersion.BmsonRowsVersion
+            || !ArePathSetsEqual(snapshot.RootDirectories, rootDirectories))
+        {
+            return null;
+        }
+        return snapshot;
+    }
+
+    private bool IsCurrentLr2FullGenerationScanSurface(Lr2FullGenerationBackfillInput input)
+    {
+        if (input == null || input.ScanSurfaceGeneration <= 0)
+        {
+            return true;
+        }
+
+        Lr2FullGenerationScanSurfaceSnapshot snapshot;
+        lock (lockLr2FullGenerationScanSurface)
+        {
+            snapshot = lr2FullGenerationScanSurfaceSnapshot;
+        }
+        return snapshot != null
+            && snapshot.Generation == input.ScanSurfaceGeneration
+            && snapshot.OwnedCollectionVersion == input.OwnedChartCollectionVersion
+            && snapshot.BmsRowsVersion == input.BmsRowsVersion
+            && snapshot.BmsonRowsVersion == input.BmsonRowsVersion
+            && ArePathSetsEqual(snapshot.RootDirectories, input.RootDirectories);
     }
 
     private void RunChartDigestBackfill()
@@ -5727,15 +5825,34 @@ completeFileEnumerationOnce,
         List<string> lr2FolderPruneDirectories = CreateLr2FullGenerationLr2FolderPruneDirectories(
             roots,
             lr2BuiltinFolderSourceDirectories);
+        Lr2FullGenerationScanSurfaceSnapshot scanSurface = GetCurrentLr2FullGenerationScanSurface(
+            roots,
+            ownedCollectionVersion,
+            storageRowsVersion);
+        IReadOnlyCollection<string> directoryMetadataTargets = Lr2NormalFolderDbSyncService.CreateDirectoryMetadataTargets(roots, chartPaths);
         Lr2FolderFileCandidateSnapshot lr2FolderFileCandidates = CreateLr2FullGenerationLr2FolderFileCandidates(
             lr2FolderDiscoveryDirectories,
             lr2RootPath,
             builtinCustomFolderSettings);
-        Lr2FolderInfoCandidateSnapshot folderInfoCandidates = CreateLr2FullGenerationFolderInfoCandidates(roots, chartPaths);
+        Lr2FolderInfoCandidateSnapshot folderInfoCandidates = scanSurface != null
+            ? Lr2FolderInfoCandidateEnumerationService.CreateSnapshotFromSurface(
+                scanSurface.FolderInfoFilePaths,
+                scanSurface.FolderInfoFileEntries.Values,
+                directoryMetadataTargets)
+            : CreateLr2FullGenerationFolderInfoCandidates(roots, directoryMetadataTargets);
         IReadOnlyDictionary<string, RootFileEnumerationEntry> directoryEntries = CreateLr2FullGenerationDirectoryEntries(
             roots,
-            Lr2NormalFolderDbSyncService.CreateDirectoryMetadataTargets(roots, chartPaths));
+            directoryMetadataTargets);
         string lr2RootCustomFolderOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDirRootType;
+        IReadOnlyList<string> textFileDirectories = scanSurface?.TextFileDirectories
+            ?? CreateLr2FullGenerationTextFileDirectories(chartPaths);
+        LogInstallPerformance("lr2_full_generation_input_surface"
+            + " reusedScanSurface=" + (scanSurface != null).ToString().ToLowerInvariant()
+            + " scanSurfaceGeneration=" + (scanSurface?.Generation ?? 0)
+            + " directoryTargets=" + directoryMetadataTargets.Count
+            + " directoryEntries=" + directoryEntries.Count
+            + " folderInfoCandidates=" + folderInfoCandidates.Paths.Count
+            + " textFileDirs=" + textFileDirectories.Count);
         return new Lr2FullGenerationBackfillInput(
             roots,
             chartPaths,
@@ -5752,7 +5869,8 @@ completeFileEnumerationOnce,
             lr2FolderFileCandidates.EntriesByPath,
             lr2FolderFileCandidates.DiscoveryComplete,
             songRows,
-            CreateLr2FullGenerationTextFileDirectories(chartPaths),
+            textFileDirectories,
+            scanSurface?.Generation ?? 0,
             ownedCollectionVersion,
             storageRowsVersion.BmsRowsVersion,
             storageRowsVersion.BmsonRowsVersion);
@@ -5770,6 +5888,10 @@ completeFileEnumerationOnce,
 
         List<string> roots = getBMSDirectories();
         if (!ArePathSetsEqual(input.RootDirectories, roots))
+        {
+            return false;
+        }
+        if (!IsCurrentLr2FullGenerationScanSurface(input))
         {
             return false;
         }
@@ -5828,11 +5950,11 @@ completeFileEnumerationOnce,
 
     private static Lr2FolderInfoCandidateSnapshot CreateLr2FullGenerationFolderInfoCandidates(
         IEnumerable<string> rootDirectories,
-        IEnumerable<string> chartPaths)
+        IEnumerable<string> targetDirectories)
     {
         return Lr2FolderInfoCandidateEnumerationService.CreateSnapshot(
             rootDirectories,
-            Lr2NormalFolderDbSyncService.CreateDirectoryMetadataTargets(rootDirectories, chartPaths));
+            targetDirectories);
     }
 
     private Lr2BuiltinCustomFolderSettings CreateCurrentLr2BuiltinCustomFolderSettings(DateTime nowUtc)
@@ -5928,10 +6050,11 @@ completeFileEnumerationOnce,
                 return;
             }
 
-            Lr2FolderInfoCandidateSnapshot folderInfoCandidates = CreateLr2FullGenerationFolderInfoCandidates(roots, syncInput.ChartPaths);
+            IReadOnlyCollection<string> directoryMetadataTargets = Lr2NormalFolderDbSyncService.CreateDirectoryMetadataTargets(roots, syncInput.ChartPaths);
+            Lr2FolderInfoCandidateSnapshot folderInfoCandidates = CreateLr2FullGenerationFolderInfoCandidates(roots, directoryMetadataTargets);
             IReadOnlyDictionary<string, RootFileEnumerationEntry> directoryEntries = CreateLr2FullGenerationDirectoryEntries(
                 roots,
-                Lr2NormalFolderDbSyncService.CreateDirectoryMetadataTargets(roots, syncInput.ChartPaths));
+                directoryMetadataTargets);
             using LR2SongDBExtended songDb = dbGateway.OpenSongDb();
             Lr2NormalFolderDbSyncResult syncResult = Lr2NormalFolderDbSyncService.Sync(songDb, new Lr2NormalFolderDbSyncRequest
             {
@@ -6274,6 +6397,7 @@ completeFileEnumerationOnce,
         bool lr2FolderFileDiscoveryComplete,
         IReadOnlyList<BMSFile> songRows,
         IReadOnlyList<string> textFileDirectories,
+        int scanSurfaceGeneration,
         int ownedChartCollectionVersion,
         int bmsRowsVersion,
         int bmsonRowsVersion)
@@ -6314,7 +6438,37 @@ completeFileEnumerationOnce,
 
         public IReadOnlyList<string> TextFileDirectories { get; } = textFileDirectories ?? [];
 
+        public int ScanSurfaceGeneration { get; } = scanSurfaceGeneration;
+
         public int OwnedChartCollectionVersion { get; } = ownedChartCollectionVersion;
+
+        public int BmsRowsVersion { get; } = bmsRowsVersion;
+
+        public int BmsonRowsVersion { get; } = bmsonRowsVersion;
+    }
+
+    private sealed class Lr2FullGenerationScanSurfaceSnapshot(
+        int generation,
+        IReadOnlyList<string> rootDirectories,
+        IReadOnlyList<string> folderInfoFilePaths,
+        IReadOnlyDictionary<string, RootFileEnumerationEntry> folderInfoFileEntries,
+        IReadOnlyList<string> textFileDirectories,
+        int ownedCollectionVersion,
+        int bmsRowsVersion,
+        int bmsonRowsVersion)
+    {
+        public int Generation { get; } = generation;
+
+        public IReadOnlyList<string> RootDirectories { get; } = rootDirectories ?? [];
+
+        public IReadOnlyList<string> FolderInfoFilePaths { get; } = folderInfoFilePaths ?? [];
+
+        public IReadOnlyDictionary<string, RootFileEnumerationEntry> FolderInfoFileEntries { get; } =
+            folderInfoFileEntries ?? new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
+
+        public IReadOnlyList<string> TextFileDirectories { get; } = textFileDirectories ?? [];
+
+        public int OwnedCollectionVersion { get; } = ownedCollectionVersion;
 
         public int BmsRowsVersion { get; } = bmsRowsVersion;
 

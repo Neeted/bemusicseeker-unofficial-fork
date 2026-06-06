@@ -25,9 +25,9 @@ internal static class Lr2FolderInfoCandidateEnumerationService
         IEnumerable<string> rootDirectories,
         IEnumerable<string> targetDirectories)
     {
-        HashSet<string> targetSet = [.. (targetDirectories ?? [])
+        HashSet<string> targetSet = new((targetDirectories ?? [])
             .Select(Lr2FolderPath.NormalizeDirectoryPath)
-            .Where(path => !string.IsNullOrWhiteSpace(path))];
+            .Where(path => !string.IsNullOrWhiteSpace(path)), StringComparer.OrdinalIgnoreCase);
         if (targetSet.Count == 0)
         {
             return new Lr2FolderInfoCandidateSnapshot([], new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase), discoveryComplete: true);
@@ -70,6 +70,69 @@ internal static class Lr2FolderInfoCandidateEnumerationService
             [.. entriesByPath.Keys.OrderBy(path => path, StringComparer.OrdinalIgnoreCase)],
             entriesByPath,
             discoveryComplete: true);
+    }
+
+    internal static Lr2FolderInfoCandidateSnapshot CreateSnapshotFromEntries(
+        IEnumerable<RootFileEnumerationEntry> entries,
+        IEnumerable<string> targetDirectories,
+        bool discoveryComplete = true)
+    {
+        List<RootFileEnumerationEntry> entryList = [.. entries ?? []];
+        return CreateSnapshotFromSurface(
+            entryList.Select(entry => entry?.Path),
+            entryList,
+            targetDirectories,
+            discoveryComplete);
+    }
+
+    internal static Lr2FolderInfoCandidateSnapshot CreateSnapshotFromSurface(
+        IEnumerable<string> folderInfoFilePaths,
+        IEnumerable<RootFileEnumerationEntry> entries,
+        IEnumerable<string> targetDirectories,
+        bool discoveryComplete = true)
+    {
+        HashSet<string> targetSet = new((targetDirectories ?? [])
+            .Select(Lr2FolderPath.NormalizeDirectoryPath)
+            .Where(path => !string.IsNullOrWhiteSpace(path)), StringComparer.OrdinalIgnoreCase);
+        if (targetSet.Count == 0)
+        {
+            return new Lr2FolderInfoCandidateSnapshot([], new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase), discoveryComplete);
+        }
+
+        var entriesByPath = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
+        foreach (RootFileEnumerationEntry entry in entries ?? [])
+        {
+            string path = NormalizeFolderInfoPath(entry?.Path);
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                continue;
+            }
+
+            string directoryPath = Lr2FolderPath.NormalizeDirectoryPath(Path.GetDirectoryName(path));
+            if (!string.IsNullOrWhiteSpace(directoryPath) && targetSet.Contains(directoryPath))
+            {
+                entriesByPath[path] = new RootFileEnumerationEntry(path, entry.LastWriteTimeUtc, entry.FileSize);
+            }
+        }
+        foreach (string candidatePath in folderInfoFilePaths ?? [])
+        {
+            string path = NormalizeFolderInfoPath(candidatePath);
+            if (string.IsNullOrWhiteSpace(path) || entriesByPath.ContainsKey(path))
+            {
+                continue;
+            }
+
+            string directoryPath = Lr2FolderPath.NormalizeDirectoryPath(Path.GetDirectoryName(path));
+            if (!string.IsNullOrWhiteSpace(directoryPath) && targetSet.Contains(directoryPath))
+            {
+                entriesByPath[path] = new RootFileEnumerationEntry(path);
+            }
+        }
+
+        return new Lr2FolderInfoCandidateSnapshot(
+            [.. entriesByPath.Keys.OrderBy(path => path, StringComparer.OrdinalIgnoreCase)],
+            entriesByPath,
+            discoveryComplete);
     }
 
     private static string NormalizeFolderInfoPath(string path)

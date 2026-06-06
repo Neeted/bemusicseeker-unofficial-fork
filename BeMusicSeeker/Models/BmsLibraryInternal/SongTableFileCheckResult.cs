@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
@@ -37,6 +38,15 @@ internal sealed class SongTableFileCheckResult
     public bool HasDbDiff { get; set; }
 
     public bool PrefetchedScanUsed { get; set; }
+
+    public bool Lr2ScanSurfaceAvailable { get; set; }
+
+    public IReadOnlyList<string> Lr2ScanFolderInfoFilePaths { get; set; } = [];
+
+    public IReadOnlyDictionary<string, RootFileEnumerationEntry> Lr2ScanFolderInfoFileEntries { get; set; } =
+        new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
+
+    public IReadOnlyList<string> Lr2ScanTextFileDirectories { get; set; } = [];
 
     public int BmsPathCount { get; set; }
 
@@ -250,5 +260,9 @@ internal sealed class SongTableFileCheckResult
         DeletedBmsonPaths.Clear();
         MutationDelta.Clear();
         Pragmas.Clear();
+        Lr2ScanSurfaceAvailable = false;
+        Lr2ScanFolderInfoFilePaths = [];
+        Lr2ScanFolderInfoFileEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
+        Lr2ScanTextFileDirectories = [];
     }
 }
