@@ -166,7 +166,8 @@ internal static class Lr2SongDbWriter
             + BuildGeneratedColumnAssignment(nameof(LR2SongDB.song.exlevel), TempGeneratedSongUpsertTable)
             + " WHERE rowid IN ("
             + "SELECT s.rowid FROM temp." + TempGeneratedSongUpsertTable + " u "
-            + "JOIN " + songTable + " s ON s." + songPathColumn + " = u.path COLLATE NOCASE);");
+            + "JOIN " + songTable + " s ON s." + songPathColumn + " = u.path COLLATE NOCASE "
+            + "WHERE " + BuildGeneratedColumnChangePredicate("s", "u") + ");");
 
         int inserted = InsertMissingGeneratedSongsFromTemp(songDb, TempGeneratedSongUpsertTable);
         UpsertChartDigests(songDb, rows);
@@ -629,6 +630,49 @@ internal static class Lr2SongDbWriter
         return sqlColumn + " = (SELECT " + sqlColumn + " FROM temp." + tempTableName
             + " u WHERE u.path = " + SQLiteTable<LR2SongDB.song>.GetTableName() + "."
             + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.path) + " COLLATE NOCASE)";
+    }
+
+    private static string BuildGeneratedColumnChangePredicate(string songAlias, string tempAlias)
+    {
+        return "(" + string.Join(" OR ",
+            BuildColumnChangedCondition(songAlias, tempAlias, nameof(LR2SongDB.song.hash)),
+            BuildColumnChangedCondition(songAlias, tempAlias, nameof(LR2SongDB.song.title)),
+            BuildColumnChangedCondition(songAlias, tempAlias, nameof(LR2SongDB.song.subtitle)),
+            BuildColumnChangedCondition(songAlias, tempAlias, nameof(LR2SongDB.song.artist)),
+            BuildColumnChangedCondition(songAlias, tempAlias, nameof(LR2SongDB.song.subartist)),
+            BuildColumnChangedCondition(songAlias, tempAlias, nameof(LR2SongDB.song.genre)),
+            BuildColumnChangedCondition(songAlias, tempAlias, nameof(LR2SongDB.song.type)),
+            BuildColumnChangedCondition(songAlias, tempAlias, nameof(LR2SongDB.song.folder)),
+            BuildColumnChangedCondition(songAlias, tempAlias, nameof(LR2SongDB.song.stagefile)),
+            BuildColumnChangedCondition(songAlias, tempAlias, nameof(LR2SongDB.song.banner)),
+            BuildColumnChangedCondition(songAlias, tempAlias, nameof(LR2SongDB.song.backbmp)),
+            BuildColumnChangedCondition(songAlias, tempAlias, nameof(LR2SongDB.song.parent)),
+            BuildColumnChangedCondition(songAlias, tempAlias, nameof(LR2SongDB.song.level)),
+            BuildColumnChangedCondition(songAlias, tempAlias, nameof(LR2SongDB.song.difficulty)),
+            BuildColumnChangedCondition(songAlias, tempAlias, nameof(LR2SongDB.song.maxbpm)),
+            BuildColumnChangedCondition(songAlias, tempAlias, nameof(LR2SongDB.song.minbpm)),
+            BuildColumnChangedCondition(songAlias, tempAlias, nameof(LR2SongDB.song.mode)),
+            BuildColumnChangedCondition(songAlias, tempAlias, nameof(LR2SongDB.song.judge)),
+            BuildColumnChangedCondition(songAlias, tempAlias, nameof(LR2SongDB.song.longnote)),
+            BuildColumnChangedCondition(songAlias, tempAlias, nameof(LR2SongDB.song.bga)),
+            BuildColumnChangedCondition(songAlias, tempAlias, nameof(LR2SongDB.song.random)),
+            BuildColumnChangedCondition(songAlias, tempAlias, nameof(LR2SongDB.song.date)),
+            BuildTextColumnChangedCondition(songAlias, tempAlias),
+            BuildColumnChangedCondition(songAlias, tempAlias, nameof(LR2SongDB.song.karinotes)),
+            BuildColumnChangedCondition(songAlias, tempAlias, nameof(LR2SongDB.song.exlevel))) + ")";
+    }
+
+    private static string BuildColumnChangedCondition(string songAlias, string tempAlias, string columnName)
+    {
+        string sqlColumn = columnName;
+        return songAlias + "." + sqlColumn + " IS NOT " + tempAlias + "." + sqlColumn;
+    }
+
+    private static string BuildTextColumnChangedCondition(string songAlias, string tempAlias)
+    {
+        string sqlColumn = nameof(LR2SongDB.song.txt);
+        return "(" + tempAlias + "." + sqlColumn + " IS NOT NULL AND "
+            + songAlias + "." + sqlColumn + " IS NOT " + tempAlias + "." + sqlColumn + ")";
     }
 
     private static void UpsertChartDigests(LR2SongDBExtended songDb, IEnumerable<BMSFile> songs)

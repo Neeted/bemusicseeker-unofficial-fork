@@ -993,6 +993,7 @@ parse directive:
   `song_rows` chunk ごとに `chart_info` table を SELECT しない。
 - writer は full backfill 用 bulk writer を使う。chunk 開始時に必要な既存 user columns / `adddate` /
   generated row identity をまとめて読み、memory 上で preservation / changed decision を行う。
+  existing row の generated columns が一致する場合は `song` row を更新しない。
   `chart_digest_map` update と orphan cleanup も chunk / run 単位でまとめ、行単位の `FindSongByPath` /
   `UpsertChartDigest` / `DeleteChartDigestIfOrphaned` を hot path に置かない。
   LR2 compatibility facts の `maintenance` update / insert も chunk temp table 経由でまとめ、
@@ -1432,6 +1433,8 @@ existence / mtime は意味的に揃える。
    - 完了: LR2 compatibility facts は parsed BMS row の raw resource references から直接評価し、
      `ChartFileProjection` / `ChartResourceSnapshot` を hot path から外す。
    - 完了: writer は順序制御、bulk song write、bulk compatibility facts write、durable cursor update に専念する。
+   - 完了: full-generation 用 bulk song writer は既存 row の generated columns が unchanged の場合、
+     `song` row を UPDATE しない。
    - 完了: LR2 compatibility facts は chunk commit 後に live warning projection へ渡し、全件分の
      `BMSFileMaintenanceInfo` を backfill result に保持しない。
    - 残作業: encoding detection / BMS metadata parse 内部の二重走査をなくせるかを実機ログで判断する。

@@ -168,6 +168,74 @@ public sealed class Lr2SongDbWriterTests
     }
 
     [TestMethod]
+    public void UpsertGeneratedSongsForFullGeneration_SkipsUnchangedGeneratedColumns()
+    {
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            using var songDb = new LR2SongDBExtended(songDbPath);
+            songDb.CreateTable<LR2SongDB.song>();
+            songDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
+            TestableBmsFile file = CreateSong(@"D:\BMS\Pack\unchanged.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Title");
+            file.SetSha256(Sha('1'));
+            Assert.IsTrue(Lr2SongDbWriter.UpsertGeneratedSong(songDb, file));
+
+            TestableBmsFile unchanged = CreateSong(file.path, file.hash, "Title");
+            unchanged.CopyGeneratedHashesFrom(file);
+            unchanged.SetSha256(file.sha256);
+            int written = Lr2SongDbWriter.UpsertGeneratedSongsForFullGeneration(songDb, [unchanged]);
+
+            Assert.AreEqual(0, written);
+            Assert.AreEqual(1, songDb.Table<LR2SongDB.song>().Count());
+            Assert.AreEqual(1, songDb.ExecuteScalar<int>("SELECT COUNT(*) FROM chart_digest_map WHERE md5 = ? AND sha256 = ?;", file.hash, file.sha256));
+        });
+    }
+
+    [TestMethod]
+    public void UpsertGeneratedSongsForFullGeneration_RepairsDigestForUnchangedGeneratedColumns()
+    {
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            using var songDb = new LR2SongDBExtended(songDbPath);
+            songDb.CreateTable<LR2SongDB.song>();
+            songDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
+            TestableBmsFile file = CreateSong(@"D:\BMS\Pack\unchanged-digest.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Title");
+            file.SetSha256(Sha('1'));
+            Assert.IsTrue(Lr2SongDbWriter.UpsertGeneratedSong(songDb, file));
+            songDb.Execute("DELETE FROM chart_digest_map WHERE md5 = ?;", file.hash);
+
+            TestableBmsFile unchanged = CreateSong(file.path, file.hash, "Title");
+            unchanged.CopyGeneratedHashesFrom(file);
+            unchanged.SetSha256(file.sha256);
+            int written = Lr2SongDbWriter.UpsertGeneratedSongsForFullGeneration(songDb, [unchanged]);
+
+            Assert.AreEqual(0, written);
+            Assert.AreEqual(1, songDb.ExecuteScalar<int>("SELECT COUNT(*) FROM chart_digest_map WHERE md5 = ? AND sha256 = ?;", file.hash, file.sha256));
+        });
+    }
+
+    [TestMethod]
+    public void UpsertGeneratedSongsForFullGeneration_NormalizesExistingUppercaseHash()
+    {
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            using var songDb = new LR2SongDBExtended(songDbPath);
+            songDb.CreateTable<LR2SongDB.song>();
+            songDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
+            TestableBmsFile file = CreateSong(@"D:\BMS\Pack\uppercase.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Title");
+            Assert.IsTrue(Lr2SongDbWriter.UpsertGeneratedSong(songDb, file));
+            songDb.Execute(
+                "UPDATE song SET hash = ? WHERE path = ?;",
+                "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                file.path);
+
+            int written = Lr2SongDbWriter.UpsertGeneratedSongsForFullGeneration(songDb, [file]);
+
+            Assert.AreEqual(1, written);
+            Assert.AreEqual("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", songDb.ExecuteScalar<string>("SELECT hash FROM song WHERE path = ?;", file.path));
+        });
+    }
+
+    [TestMethod]
     public void UpsertGeneratedSongsForFullGeneration_UpsertsDigestRowsAndRemovesOrphanedPreviousHash()
     {
         WithTemporarySongDb(delegate (string songDbPath)
@@ -245,7 +313,7 @@ public sealed class Lr2SongDbWriterTests
             withoutTextFlag.SetTextFlagForTest(null);
             int written = Lr2SongDbWriter.UpsertGeneratedSongsForFullGeneration(songDb, [withoutTextFlag]);
 
-            Assert.AreEqual(1, written);
+            Assert.AreEqual(0, written);
             Assert.AreEqual(1, songDb.Table<LR2SongDB.song>().Single().txt);
         });
     }
