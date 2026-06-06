@@ -1293,6 +1293,8 @@ public class BMSLibrary : NotificationObject
 
     private bool _Lr2FullGenerationSyncRunning;
 
+    private bool lr2FullGenerationSyncPrepareInProgress;
+
     private CancellationTokenSource lr2FullGenerationSyncCancellation;
 
     private int _Lr2FullGenerationSyncRequestedVersion;
@@ -5202,6 +5204,48 @@ completeFileEnumerationOnce,
             Lr2RootCustomFolderOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDirRootType,
             Lr2BuiltinFolderSourceDirectories = builtinSourceDirectories
         };
+        SyncLr2FolderFileRows(options, request, reason, "lr2folder_file_diff_sync");
+    }
+
+    internal Lr2FolderFileDbSyncResult SyncLr2BuiltinCustomFolderRows(string reason)
+    {
+        BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
+        if (options?.OperationModeLR2DB != true || options.EnableLR2SongDbFullGeneration != true)
+        {
+            return null;
+        }
+
+        List<string> builtinSourceDirectories = CreateLr2FullGenerationBuiltinFolderSourceDirectories();
+        Lr2FolderFileCandidateSnapshot candidates = builtinSourceDirectories.Count > 0
+            ? CreateLr2FullGenerationLr2FolderFileCandidates(
+                builtinSourceDirectories,
+                Settings.Default.LR2RootPath,
+                CreateCurrentLr2BuiltinCustomFolderSettings(DateTime.UtcNow))
+            : new Lr2FolderFileCandidateSnapshot(
+                [],
+                new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase),
+                discoveryComplete: true);
+        var request = new Lr2FullGenerationSyncRequest
+        {
+            RootDirectories = [],
+            Lr2FolderDiscoveryDirectories = builtinSourceDirectories,
+            Lr2FolderPruneDirectories = CreateLr2BuiltinCustomFolderPruneDirectories(),
+            Lr2FolderFilePaths = candidates.Paths,
+            Lr2FolderFileEntries = candidates.EntriesByPath,
+            Lr2FolderFileDiscoveryComplete = candidates.DiscoveryComplete,
+            Lr2RootPath = Settings.Default.LR2RootPath,
+            Lr2RootCustomFolderOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDirRootType,
+            Lr2BuiltinFolderSourceDirectories = builtinSourceDirectories
+        };
+        return SyncLr2FolderFileRows(options, request, reason, "lr2_builtin_folder_scoped_sync");
+    }
+
+    private Lr2FolderFileDbSyncResult SyncLr2FolderFileRows(
+        BmsLibraryOptionsSnapshot options,
+        Lr2FullGenerationSyncRequest request,
+        string reason,
+        string logName)
+    {
         var stopwatch = Stopwatch.StartNew();
         try
         {
@@ -5235,7 +5279,7 @@ completeFileEnumerationOnce,
             }
 
             stopwatch.Stop();
-            LogInstallPerformance("lr2folder_file_diff_sync done"
+            LogInstallPerformance(logName + " done"
                 + " reason=" + (reason ?? "unknown")
                 + " roots=" + request.Lr2FolderDiscoveryDirectories.Count
                 + " candidates=" + request.Lr2FolderFilePaths.Count
@@ -5249,21 +5293,23 @@ completeFileEnumerationOnce,
                 + " skippedUnsupported=" + syncResult.SkippedUnsupportedPathCount
                 + " skippedMissingMetadata=" + syncResult.SkippedMissingMetadataCount
                 + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
+            return syncResult;
         }
         catch (Exception ex)
         {
             stopwatch.Stop();
             MarkLr2FullGenerationIncomplete(
                 options,
-                runId: "lr2folder_file_diff_sync",
-                stage: "lr2folder_file_diff_sync_failed",
-                detail: "lr2folder_file_diff_sync_failed: " + GetDisplayedExceptionMessage(ex).Replace(Environment.NewLine, " | "),
-                logReason: "lr2folder_file_diff_sync_failed");
-            LogInstallPerformanceWarn("lr2folder_file_diff_sync failed"
+                runId: logName,
+                stage: logName + "_failed",
+                detail: logName + "_failed: " + GetDisplayedExceptionMessage(ex).Replace(Environment.NewLine, " | "),
+                logReason: logName + "_failed");
+            LogInstallPerformanceWarn(logName + " failed"
                 + " reason=" + (reason ?? "unknown")
                 + " elapsedMs=" + stopwatch.ElapsedMilliseconds
                 + " exception=" + ex.GetType().Name
                 + " message=" + GetDisplayedExceptionMessage(ex).Replace(Environment.NewLine, " | "));
+            return null;
         }
     }
 
@@ -5412,22 +5458,12 @@ completeFileEnumerationOnce,
     internal Lr2FullGenerationStatusSnapshot QueueLr2FullGenerationDataSync(
         string reason,
         bool force = false,
-        Action prepareGeneratedData = null)
+        Action prepareGeneratedData = null,
+        bool allowIncompleteToQueue = true)
     {
         BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
         bool enabled = options.OperationModeLR2DB && options.EnableLR2SongDbFullGeneration;
-        List<string> rootDirectoriesForSignature = enabled ? getBMSDirectories() : [];
-        List<string> lr2FolderDiscoveryDirectoriesForSignature = enabled
-            ? CreateLr2FullGenerationLr2FolderDiscoveryDirectories(rootDirectoriesForSignature)
-            : [];
-        Lr2BuiltinCustomFolderSettings builtinCustomFolderSettings = enabled
-            ? CreateCurrentLr2BuiltinCustomFolderSettings(DateTime.UtcNow)
-            : null;
-        string signature = Lr2FullGenerationSignatureBuilder.Build(
-            options,
-            rootDirectoriesForSignature,
-            lr2FolderDiscoveryDirectoriesForSignature,
-            builtinCustomFolderSettings);
+        string signature = Lr2FullGenerationSignatureBuilder.Build(options);
         Lr2FullGenerationStatusSnapshot status;
         using (LR2SongDBExtended songDb = dbGateway.OpenSongDb())
         {
@@ -5442,12 +5478,68 @@ completeFileEnumerationOnce,
             + " storedStatus=" + (status.StoredStatus?.ToString() ?? "(none)")
             + " signature=" + (status.Signature ?? string.Empty));
 
-        if (!enabled || (!force && !status.IsNeeded))
+        if (!enabled
+            || (!force && !status.IsNeeded)
+            || (!force
+                && !allowIncompleteToQueue
+                && (status.Status == Lr2FullGenerationStatusKind.Incomplete
+                    || status.StoredStatus == Lr2FullGenerationStatusKind.Incomplete)))
         {
             return status;
         }
+
+        bool prepareReserved = false;
+        lock (lockLr2FullGenerationSync)
+        {
+            if (_Lr2FullGenerationSyncRunning || lr2FullGenerationSyncPrepareInProgress)
+            {
+                LogInstallPerformance("lr2_full_generation_sync queue_skipped reason=" + (reason ?? "unknown")
+                    + " status=" + status.Status
+                    + " stage=" + (Lr2FullGenerationSyncStage ?? string.Empty)
+                    + " requestedVersion=" + Lr2FullGenerationSyncRequestedVersion
+                    + " preparing=" + lr2FullGenerationSyncPrepareInProgress.ToString().ToLowerInvariant());
+                status.Status = Lr2FullGenerationStatusKind.Running;
+                status.Stage = Lr2FullGenerationSyncStage;
+                status.ProcessedCursor = Lr2FullGenerationSyncProcessedCount;
+                status.TotalCount = Lr2FullGenerationSyncTotalCount;
+                status.StageProcessedCount = Lr2FullGenerationSyncStageProcessedCount;
+                status.StageTotalCount = Lr2FullGenerationSyncStageTotalCount;
+                PublishLr2FullGenerationStatus(status);
+                return status;
+            }
+            if (prepareGeneratedData != null)
+            {
+                lr2FullGenerationSyncPrepareInProgress = true;
+                prepareReserved = true;
+            }
+        }
+
+        if (prepareGeneratedData != null)
+        {
+            try
+            {
+                prepareGeneratedData();
+            }
+            catch (Exception ex)
+            {
+                LogInstallPerformance("lr2_full_generation_sync prepare_failed reason=" + (reason ?? "unknown")
+                    + " message=" + ex.Message);
+                if (prepareReserved)
+                {
+                    ClearLr2FullGenerationSyncPrepareReservation();
+                    prepareReserved = false;
+                }
+                throw;
+            }
+        }
+
         if (!TryBeginLr2FullGenerationSyncRequest(out int requestVersion))
         {
+            if (prepareReserved)
+            {
+                ClearLr2FullGenerationSyncPrepareReservation();
+                prepareReserved = false;
+            }
             LogInstallPerformance("lr2_full_generation_sync queue_skipped reason=" + (reason ?? "unknown")
                 + " status=" + status.Status
                 + " stage=" + (Lr2FullGenerationSyncStage ?? string.Empty)
@@ -5461,20 +5553,10 @@ completeFileEnumerationOnce,
             PublishLr2FullGenerationStatus(status);
             return status;
         }
-
-        if (prepareGeneratedData != null)
+        if (prepareReserved)
         {
-            try
-            {
-                prepareGeneratedData();
-            }
-            catch (Exception ex)
-            {
-                LogInstallPerformance("lr2_full_generation_sync prepare_failed reason=" + (reason ?? "unknown")
-                    + " message=" + ex.Message);
-                FailLr2FullGenerationSyncRequest(requestVersion, Lr2FullGenerationStatusKind.Failed, "prepare_failed", ex.Message);
-                throw;
-            }
+            ClearLr2FullGenerationSyncPrepareReservation();
+            prepareReserved = false;
         }
 
         PublishLr2FullGenerationStatus(CreateRuntimeLr2FullGenerationStatus(
@@ -5515,11 +5597,7 @@ completeFileEnumerationOnce,
         }
 
         Lr2FullGenerationSyncInput input = CreateLr2FullGenerationSyncInput();
-        string signature = Lr2FullGenerationSignatureBuilder.Build(
-            options,
-            input.RootDirectories,
-            input.Lr2FolderDiscoveryDirectories,
-            input.Lr2BuiltinCustomFolderSettings);
+        string signature = Lr2FullGenerationSignatureBuilder.Build(options);
         Lr2StartupScanBlockerCleanupResult result;
         Lr2FullGenerationStatusSnapshot status;
         using (LR2SongDBExtended songDb = dbGateway.OpenSongDb())
@@ -5603,6 +5681,14 @@ completeFileEnumerationOnce,
             Lr2FullGenerationSyncFailureMessage = string.Empty;
             Lr2FullGenerationSyncRunning = true;
             return true;
+        }
+    }
+
+    private void ClearLr2FullGenerationSyncPrepareReservation()
+    {
+        lock (lockLr2FullGenerationSync)
+        {
+            lr2FullGenerationSyncPrepareInProgress = false;
         }
     }
 
@@ -6528,14 +6614,7 @@ completeFileEnumerationOnce,
 
         try
         {
-            List<string> roots = getBMSDirectories();
-            List<string> lr2FolderDiscoveryDirectories = CreateLr2FullGenerationLr2FolderDiscoveryDirectories(roots);
-            Lr2BuiltinCustomFolderSettings builtinCustomFolderSettings = CreateCurrentLr2BuiltinCustomFolderSettings(DateTime.UtcNow);
-            string signature = Lr2FullGenerationSignatureBuilder.Build(
-                options,
-                roots,
-                lr2FolderDiscoveryDirectories,
-                builtinCustomFolderSettings);
+            string signature = Lr2FullGenerationSignatureBuilder.Build(options);
             using LR2SongDBExtended songDb = dbGateway.OpenSongDb();
             Lr2FullGenerationStatusSnapshot status = Lr2FullGenerationStatusService.MarkIncomplete(
                 songDb,
@@ -6676,12 +6755,16 @@ completeFileEnumerationOnce,
 
     private static List<string> CreateLr2FullGenerationLr2FolderPruneDirectories(
         IEnumerable<string> rootDirectories,
-        IEnumerable<string> builtinSourceDirectories)
+        IEnumerable<string> builtinSourceDirectories,
+        bool includeAppManagedOutputDirectories = true)
     {
         var candidates = new List<string>();
         candidates.AddRange(rootDirectories ?? []);
-        candidates.Add(Settings.Default.LR2CustomFolderOutputBaseDir);
-        candidates.Add(Settings.Default.LR2CustomFolderOutputBaseDirRootType);
+        if (includeAppManagedOutputDirectories)
+        {
+            candidates.Add(Settings.Default.LR2CustomFolderOutputBaseDir);
+            candidates.Add(Settings.Default.LR2CustomFolderOutputBaseDirRootType);
+        }
         candidates.AddRange(builtinSourceDirectories ?? []);
         if ((builtinSourceDirectories ?? []).Any())
         {
@@ -6692,6 +6775,11 @@ completeFileEnumerationOnce,
             .Where(path => !string.IsNullOrWhiteSpace(path))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
+    }
+
+    private static List<string> CreateLr2BuiltinCustomFolderPruneDirectories()
+    {
+        return [@"LR2files\CustomFolder"];
     }
 
     private static List<string> CreateLr2FullGenerationBuiltinFolderSourceDirectories()

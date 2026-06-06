@@ -699,6 +699,173 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
+    public void QueueLr2FullGenerationDataSync_DoesNotStartFromIncompleteWhenDisallowed()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        try
+        {
+            Settings.Default.OperationModeLR2DB = true;
+            Settings.Default.EnableLR2SongDbFullGeneration = true;
+            ResetLr2FolderDiscoverySettings();
+            var library = new BMSLibrary(scope.SongDbPath);
+            using (var setup = new LR2SongDBExtended(scope.SongDbPath))
+            {
+                Lr2FullGenerationStatusService.MarkIncomplete(
+                    setup,
+                    Lr2FullGenerationSignatureBuilder.Build(new BmsLibraryOptionsSnapshot
+                    {
+                        OperationModeLR2DB = true,
+                        EnableLR2SongDbFullGeneration = true
+                    }),
+                    "scoped-folder-sync",
+                    processedCursor: null,
+                    totalCount: null,
+                    stage: "lr2_builtin_folder_scoped_sync_failed",
+                    detail: "failed",
+                    nowUtc: DateTime.UtcNow);
+            }
+            bool queued = false;
+            library.StartupBackgroundTaskScheduler = delegate
+            {
+                queued = true;
+                return true;
+            };
+
+            Lr2FullGenerationStatusSnapshot snapshot = library.QueueLr2FullGenerationDataSync(
+                "test_settings_scoped_failure",
+                force: false,
+                allowIncompleteToQueue: false);
+
+            Assert.AreEqual(Lr2FullGenerationStatusKind.Incomplete, snapshot.StoredStatus);
+            Assert.IsFalse(queued);
+            Assert.AreEqual(0, library.Lr2FullGenerationSyncRequestedVersion);
+            Assert.IsFalse(library.Lr2FullGenerationSyncRunning);
+        }
+        finally
+        {
+            ResetTouchedSettings();
+        }
+    }
+
+    [TestMethod]
+    public void QueueLr2FullGenerationDataSync_RunsPrepareBeforeMarkingSyncRunning()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        try
+        {
+            Settings.Default.OperationModeLR2DB = true;
+            Settings.Default.EnableLR2SongDbFullGeneration = true;
+            ResetLr2FolderDiscoverySettings();
+            string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
+            Directory.CreateDirectory(rootDirectory);
+            var library = new BMSLibrary(scope.SongDbPath)
+            {
+                SearchTargets = [rootDirectory]
+            };
+            library.StartupBackgroundTaskScheduler = delegate
+            {
+                return true;
+            };
+            bool prepareCalled = false;
+
+            Lr2FullGenerationStatusSnapshot snapshot = library.QueueLr2FullGenerationDataSync(
+                "test_prepare_order",
+                force: false,
+                () =>
+                {
+                    prepareCalled = true;
+                    Assert.IsFalse(library.Lr2FullGenerationSyncRunning);
+                    Assert.AreEqual(0, library.Lr2FullGenerationSyncRequestedVersion);
+                });
+
+            Assert.IsTrue(prepareCalled);
+            Assert.AreEqual(Lr2FullGenerationStatusKind.Needed, snapshot.Status);
+            Assert.AreEqual(1, library.Lr2FullGenerationSyncRequestedVersion);
+            Assert.IsTrue(library.Lr2FullGenerationSyncRunning);
+        }
+        finally
+        {
+            ResetTouchedSettings();
+        }
+    }
+
+    [TestMethod]
+    public void SyncLr2BuiltinCustomFolderRows_DoesNotPruneAppManagedOutputUnderBuiltinPhysicalDirectory()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        try
+        {
+            Settings.Default.OperationModeLR2DB = true;
+            Settings.Default.EnableLR2SongDbFullGeneration = true;
+            ResetLr2FolderDiscoverySettings();
+            string lr2Root = Path.Combine(scope.DirectoryPath, "LR2beta3");
+            string builtinRoot = Path.Combine(lr2Root, "LR2files", "CustomFolder");
+            string appManagedDirectory = Path.Combine(builtinRoot, "BeMusicSeekerRoot");
+            Directory.CreateDirectory(appManagedDirectory);
+            Settings.Default.LR2RootPath = lr2Root;
+            string appManagedLr2FolderPath = Path.Combine(appManagedDirectory, "0000.lr2folder");
+            using (var setup = new LR2SongDBExtended(scope.SongDbPath))
+            {
+                setup.CreateTable<LR2SongDB.folder>();
+                setup.InsertOrReplace(new LR2SongDB.folder
+                {
+                    path = appManagedLr2FolderPath,
+                    title = "App Managed",
+                    parent = Lr2SongFolderParentNormalizer.RootParentHash,
+                    type = 2,
+                    date = 1
+                }, typeof(LR2SongDB.folder));
+            }
+            var library = new BMSLibrary(scope.SongDbPath);
+
+            library.SyncLr2BuiltinCustomFolderRows("test_builtin_scope");
+
+            using var verify = new LR2SongDBExtended(scope.SongDbPath);
+            Assert.IsNotNull(verify.Table<LR2SongDB.folder>().ToList().SingleOrDefault(row => row.path == appManagedLr2FolderPath));
+        }
+        finally
+        {
+            ResetTouchedSettings();
+        }
+    }
+
+    [TestMethod]
+    public void SyncLr2BuiltinCustomFolderRows_PrunesRelativeBuiltinRowsWhenSourceDirectoryMissing()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        try
+        {
+            Settings.Default.OperationModeLR2DB = true;
+            Settings.Default.EnableLR2SongDbFullGeneration = true;
+            ResetLr2FolderDiscoverySettings();
+            Settings.Default.LR2RootPath = Path.Combine(scope.DirectoryPath, "MissingLR2");
+            const string staleBuiltinPath = @"LR2files\CustomFolder\favorite.lr2folder";
+            using (var setup = new LR2SongDBExtended(scope.SongDbPath))
+            {
+                setup.CreateTable<LR2SongDB.folder>();
+                setup.InsertOrReplace(new LR2SongDB.folder
+                {
+                    path = staleBuiltinPath,
+                    title = "Favorite",
+                    parent = Lr2SongFolderParentNormalizer.RootParentHash,
+                    type = 2,
+                    date = 1
+                }, typeof(LR2SongDB.folder));
+            }
+            var library = new BMSLibrary(scope.SongDbPath);
+
+            library.SyncLr2BuiltinCustomFolderRows("test_builtin_missing_source");
+
+            using var verify = new LR2SongDBExtended(scope.SongDbPath);
+            Assert.IsNull(verify.Table<LR2SongDB.folder>().ToList().SingleOrDefault(row => row.path == staleBuiltinPath));
+        }
+        finally
+        {
+            ResetTouchedSettings();
+        }
+    }
+
+    [TestMethod]
     public void TryBeginLr2FullGenerationSyncRequest_DoesNotAdvanceVersionWhenAlreadyRunning()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();

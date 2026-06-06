@@ -480,8 +480,10 @@ LR2 起動導線の block は行わない。
 - sync が必要な場合は、警告・進捗・キャンセル可能性を表示する。
 - status は `NotNeeded` / `Needed` / `Running` / `Completed` / `Failed` / `Cancelled` /
   `Incomplete` を持つ。
-- `Completed` の signature が現設定・schema・generator・parser・root set・folder source と一致する場合は
-  sync 不要とする。
+- `Completed` の signature が schema / generator / parser / full-generation contract と一致する場合は
+  full sync 不要とする。BMS root、`.lr2folder` discovery root、LR2 built-in special folder 設定のような
+  runtime input は file diff / scoped folder sync の責務で収束させ、signature mismatch だけで `song_rows`
+  全量再同期へ倒さない。
 - `Completed` は current generation input から導いた `song` / `folder` expected set へ DB を収束させた
   run の完了状態である。旧 row や unknown root row を温存したまま `Incomplete` にするのではなく、
   workflow 内で削除または上書きできるものは修復してから完了する。
@@ -502,10 +504,12 @@ LR2 起動導線の block は行わない。
   - schema version
   - generator version
   - parser version
-  - LR2 BMS root set signature
-  - folder generation source signature
   - 完全生成設定値
   を含め、いずれかが変わった場合は completed を無効化する。
+- LR2 BMS root set、`.lr2folder` discovery root set、LR2 setup の `<customfolder>` bitmask /
+  `titleflash` / `newsong` 対象有無は durable completed signature に含めない。
+  これらは現在の実ファイル・設定から `song` / `folder` row を差分更新できる runtime input であり、
+  変更時は file diff / `.lr2folder` diff / built-in special folder scoped sync を queue する。
 - generator version は `song` / `folder` 生成列、folder generation scope、warning projection の意味が変わる時に bump する。
 - parser version は BMS metadata parse、text group parse、raw resource reference parse、CRC 入力正規化の意味が
   変わる時に bump する。
@@ -517,7 +521,9 @@ LR2 起動導線の block は行わない。
     例: 譜面追加、削除、移動、install/reinstall、全譜面再スキャン、BMS root 設定変更、
     完全生成設定の切替。
 - sync 完了前に owned collection / storage row generation と LR2 root / `.lr2folder` discovery root /
-  built-in custom folder 設定の snapshot が変わっていないかを確認する。
+  built-in custom folder 設定の snapshot が変わっていないかを確認する。これは実行中に入力が変わった
+  run を `Completed` として publish しないための running-run guard であり、次回起動の durable signature
+  invalidation ではない。
   - 完了直前に `.txt` / `folderinfo.txt` / `.lr2folder` / directory mtime を広く再列挙しない。
     sync 中に外部ファイルが変わった場合は、次回 scan / signature 再評価で新しい input として扱う。
   - built-in `newsong.lr2folder` の有効/無効は sync input 作成時の `titleflash` 判定に固定する。
@@ -925,8 +931,8 @@ parse directive:
 - status は `NotNeeded` / `Needed` / `Running` / `Completed` / `Failed` / `Cancelled` /
   `Incomplete` とする。
 - status と signature を LR2 `song.db` 内の BeMusicSeeker-owned metadata table に保存する。
-- status が存在しない、signature が変わった、または前回 status が `Failed` / `Cancelled` /
-  `Incomplete` の場合は `Needed` とする。
+- status が存在しない、contract signature が変わった、または前回 status が `Failed` / `Cancelled` /
+  `Incomplete` の場合は `Needed` とする。root set や built-in folder 設定の変化だけでは `Needed` にしない。
 - 完全生成が有効で `Needed` の場合、`startup_initialization_complete` 後に background workflow を queue する。
 - 完全生成設定を OFF から ON に変更した場合も、設定保存後に同じ workflow を queue する。
 - sync needed / running / completed / failed / cancelled / incomplete を log と UI に出す。
@@ -946,7 +952,8 @@ parse directive:
 - 次回 run は最後に成功した cursor から再開する。再開前に必要なら current status / signature を再検証する。
 - sync 中は read-only 操作を許可し、owned collection / LR2 `song.db` mutation 操作は開始前に抑止する。
 - sync の完了直前に owned / storage generation と LR2 root / `.lr2folder` discovery root /
-  built-in custom folder 設定 snapshot を再確認し、stale なら `Completed` にしない。
+  built-in custom folder 設定 snapshot を再確認し、同じ run の開始時入力から変わっていれば `Completed` にしない。
+  この確認は running-run guard であり、保存済み `Completed` signature に runtime input を含めるものではない。
   startup-scan diagnostic は同じ run で可能な prune / update / resync を行い、残件はログに残す。
   `.txt` / `folderinfo.txt` / `.lr2folder` / directory metadata の広域再列挙は
   完了直前には行わず、次回 scan / signature 再評価へ委ねる。
@@ -965,7 +972,9 @@ parse directive:
   source 不整合が残る場合は `Completed` にならない。startup-scan diagnostic の残件だけでは
   `Completed` を妨げず、ログで次の改善対象として追う。
 - 完了直前に owned / storage generation や LR2 root / built-in custom folder 設定 snapshot が
-  変わった場合は `Needed` に戻る。
+  同じ run の開始時入力から変わった場合は、その run を `Completed` にしない。
+  次回起動時は schema / generator / parser contract signature で full sync 要否を判定し、runtime input の変化は
+  file diff / scoped folder sync で収束させる。
 
 ### Phase 9: resumable sync
 
@@ -1237,8 +1246,8 @@ parse directive:
     `newsong.lr2folder` は `config/system/titleflash` と `song.adddate` から対象曲がある場合だけ対象化する。
     `song.adddate` 未設定の current row は、完全生成で新規 `song` row として `adddate = now` が入る可能性があるため
     `newsong` 対象として扱う。空ライブラリや titleflash 無効時は対象にしない。
-    `customfolder` / `titleflash` / `newsong` 対象有無は sync signature に含めるため、LR2 setup 変更や
-    `newsong` 期限切れは次回評価で sync needed になる。
+    `customfolder` / `titleflash` / `newsong` 対象有無は sync signature に含めず、LR2 setup 変更や
+    `newsong` 期限切れは built-in special folder scoped sync で反映する。
     disabled になった built-in row は `LR2files\CustomFolder` DB-relative prune scope で削除対象にする。
   - normal folder sync は `type = 1` の scope だけを prune / upsert 対象にし、`type = 2` の `.lr2folder` row を
     上書き・削除しない境界を維持する。
@@ -1268,8 +1277,8 @@ parse directive:
     同じ workflow で更新される。file 出力に成功した path だけを sync item にし、file mtime を `folder.date` の正本にする。
 - Phase 8 は `lr2_full_generation_status` table の単一 row (`name = "default"`) から開始する。
   `status` / `signature` / `run_id` / `processed_cursor` / `total_count` / `stage` / `last_error` を durable に保持し、
-  `Completed` かつ signature 一致のときだけ sync 不要と判定する。`Failed` / `Cancelled` / `Incomplete` /
-  signature mismatch / missing row は `Needed` として再開可能にする。
+  `Completed` かつ contract signature 一致のときだけ full sync 不要と判定する。`Failed` / `Cancelled` / `Incomplete` /
+  contract signature mismatch / missing row は `Needed` として再開可能にする。
   初期接続では `startup_initialization_complete` 後の best-effort warmup から status を評価し、必要なら
   `lr2_full_generation_sync` startup background task を queue する。この task は通常 startup readiness を待たせず、
   実装済み stage を進めたうえで残 stage がある場合は `Incomplete` として再開可能にする。
@@ -1337,7 +1346,9 @@ parse directive:
   を使い、`LR2CRC32` の直接呼び出しを通常 mutation / initialization surface に増やさない。
   完了直前の snapshot staleness check は、service に caller-provided predicate を渡す形にし、`BMSLibrary` 側で
   owned collection / storage row version と LR2 root / `.lr2folder` discovery root /
-  built-in custom folder 設定 snapshot を開始時入力と再比較する。ここでは `.lr2folder` /
+  built-in custom folder 設定 snapshot を開始時入力と再比較する。これは実行中に入力が変わった run を
+  completed として publish しないための running-run guard であり、次回起動の full sync signature ではない。
+  ここでは `.lr2folder` /
   `folderinfo.txt` / text group / directory metadata を再列挙しない。stale の場合は `Completed` にせず
   `Incomplete(source_stale_detected)` とする。
   sync 後は startup-scan diagnostic を実行し、current song row 欠落、
@@ -1347,11 +1358,13 @@ parse directive:
   対応する `maintenance` / orphan digest も整理する。`folder` row の unknown root / date missing /
   expected set 外 row は削除し、列挙 metadata から正しい mtime が解決できる `folder.date` mismatch は
   UPDATE してから再診断する。修復可能な stale row を温存して `Incomplete` にしない。
-  status signature は normalized / deduplicated / case-insensitive な LR2 BMS root set を含める。
-  加えて `.lr2folder` discovery root set、LR2 setup の `<customfolder>` bitmask、`titleflash` を含める。
-  root set や built-in CustomFolder の対象条件が変わった場合は既存 `Completed` を信用せず、
-  sync needed として再評価する。`LR2files\Rival` は BeMusicSeeker の built-in discovery root ではないため、
-  signature へ含めない。
+  status signature は schema / generator / parser contract のみを current 判定に使う。
+  normalized / deduplicated / case-insensitive な LR2 BMS root set、`.lr2folder` discovery root set、
+  LR2 setup の `<customfolder>` bitmask、`titleflash` は signature へ含めない。
+  root set や built-in CustomFolder の対象条件が変わった場合は既存 `Completed` を無効化せず、
+  対応する file diff / scoped folder sync で `folder` row を更新する。`LR2files\Rival` は
+  BeMusicSeeker の built-in discovery root ではないため、通常 discovery で見つかる external `.lr2folder`
+  だけを処理する。
   signature には app schema / chart_info schema / chart_info parser / song-folder generator /
   `.lr2folder` parser / LR2 compatibility fact の version も含める。各 component の生成意味が変わった場合は
   対応 version を bump し、既存 `Completed` を再評価対象にする。
@@ -1634,11 +1647,15 @@ existence / mtime は意味的に揃える。
   `.lr2folder` file と `folder` row を同じ projection で再 materialize する。
   既存 DB が壊れている場合も、通常 startup diff を重くするのではなく、この明示再同期または full generation sync で正常化する。
 - 完全生成設定は設定ダイアログの LR2 連携項目として表示する。既定値は LR2 連携モードの標準挙動に合わせて
-  `true` とし、OFF から ON に変更して保存した場合は
-  `QueueLr2FullGenerationDataSync("SettingDialog.SaveSettings")` を呼んで同じ background workflow に流す。
+  `true` とし、OFF から ON に変更して保存した場合は status 再評価を行い、未生成または contract mismatch の
+  ときだけ `song_rows` sync を queue する。
   LR2 連携 mode / 完全生成設定 / LR2 root / 通常 custom folder 出力先 /
-  ルート custom folder 出力先のいずれかが変更され、保存後に完全生成が有効な場合も同じ queue に流す。
-  これらは signature と `.lr2folder` discovery surface を変えるためである。
+  ルート custom folder 出力先のいずれかが変更され、保存後に完全生成が有効な場合は scoped folder sync を実行する。
+  具体的には、アプリ管理 playlist は `playlist` / `playlist_entry` 正本から `.lr2folder` と `folder` row を再
+  materialize し、LR2 built-in special folder は `LR2files\CustomFolder` に限定した `.lr2folder` diff sync を行う。
+  ただし LR2 root / custom folder 出力先 / built-in special folder 設定の変更は full sync signature を
+  変えない。保存後の処理は status 再評価と scoped folder sync の入口であり、`song_rows` 全量再同期を
+  自動で開始する入口ではない。
 - LR2 full generation sync 実行中は、install / merge / rename / root move / extension rename / delete など
   owned collection と LR2 `song.db` を同時に変える操作を入口で警告して中止する。加えて
   `ApplyInstalledChartStorageTargets` / `ApplyLibraryMutationDelta` に low-level guard を置き、将来の追加経路や
@@ -1684,13 +1701,15 @@ existence / mtime は意味的に揃える。
   BeMusicSeeker 管理出力を優先し、absolute path と app-managed output hierarchy として扱う。これは出力 workflow の
   scope prune を absolute output directory で完結させるためであり、外部由来の built-in CustomFolder source は
   引き続き LR2 root 相対 path (`LR2files\CustomFolder\...`) として扱う。
+  built-in special folder の scoped sync は DB-relative `LR2files\CustomFolder` row だけを prune scope にし、
+  物理 `LR2files\CustomFolder` 配下にある app-managed output の absolute row を巻き込まない。
 - `song.exlevel` は BMS `#EXLEVEL` の raw integer を正本にし、`#DEFEXRANK` は判定幅計算にだけ使う。
   この修正では parser / schema version を上げないため、既存 `chart_info.exlevel` の非 null 値はそのまま扱い、
   `chart_info.exlevel IS NULL` または generated song row の未設定値だけを LR2 と同じ `0` に正規化する。
 - manual `ReloadFileDiff` / search root 変更後は file diff 適用完了後に
   `QueueLr2FullGenerationDataSync("ReloadFileDiff")` で status を再評価する。
-  これにより root set / built-in custom folder 設定 signature mismatch は次回起動待ちにせず検出するが、
-  durable status が clean な場合は sync を開始しない。
+  これにより schema / generator contract mismatch は次回起動待ちにせず検出するが、
+  root set / built-in custom folder 設定の変更だけで durable completed status を invalid にしない。
 - startup-scan blocker diagnostic は legacy `folder.type = 0 / NULL` row も扱う。
   `folder.type` だけで normal directory / `.lr2folder` を判定せず、normalized path が `.lr2folder`
   で終わるかを target 種別の正本にする。legacy normal directory row は、expected normal folder path に

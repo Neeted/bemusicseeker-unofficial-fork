@@ -1359,7 +1359,9 @@ internal static class Lr2FullGenerationSyncService
                 candidates.Add(normalized);
             }
         }
-        if (request?.Lr2BuiltinFolderSourceDirectories?.Count > 0)
+        if (request?.Lr2BuiltinFolderSourceDirectories?.Count > 0
+            || (request?.Lr2FolderPruneDirectories ?? []).Any(directory =>
+                string.Equals(directory, @"LR2files\CustomFolder", StringComparison.OrdinalIgnoreCase)))
         {
             candidates.Add(@"LR2files\CustomFolder");
         }

@@ -3623,7 +3623,7 @@ public class MainWindowViewModel : ViewModel
                 && Settings.Default.EnableLR2SongDbFullGeneration
                 && lr2FullGenerationInputChanged)
             {
-                ownerViewModel.RequestLr2FullGenerationDataSync("SettingDialog.SaveSettings", force: false);
+                ownerViewModel.SyncLr2FullGenerationFolderDataAfterSettingsChange("SettingDialog.SaveSettings");
             }
             if (tempEnableBeatorajaBmtOutput != Settings.Default.EnableBeatorajaBmtOutput
                 || tempKeepBeatorajaBmtFilesWhenOutputDisabled != Settings.Default.KeepBeatorajaBmtFilesWhenOutputDisabled
@@ -19965,6 +19965,18 @@ public class MainWindowViewModel : ViewModel
             reason,
             force,
             () => tables?.ReOutputAllCustomFoldersForLr2FullGenerationDataSync(reason));
+    }
+
+    public void SyncLr2FullGenerationFolderDataAfterSettingsChange(string reason)
+    {
+        if (!Settings.Default.OperationModeLR2DB || !Settings.Default.EnableLR2SongDbFullGeneration)
+        {
+            return;
+        }
+
+        tables?.ReOutputAllCustomFoldersForLr2FullGenerationDataSync(reason);
+        files?.SyncLr2BuiltinCustomFolderRows(reason);
+        files?.QueueLr2FullGenerationDataSync(reason, force: false, allowIncompleteToQueue: false);
     }
 
     public void CancelLr2FullGenerationSync()

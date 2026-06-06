@@ -780,7 +780,10 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(rootAdd, "ApplyRuntimeSearchRootsForCurrentMode();");
         Assert.IsTrue(rootAdd.IndexOf("ApplyRuntimeSearchRootsForCurrentMode();", StringComparison.Ordinal) < rootAdd.IndexOf("ownerViewModel.ReloadFileDiff();", StringComparison.Ordinal));
         StringAssert.Contains(saveCore, "ApplyRuntimeSearchRootsForCurrentMode();");
-        StringAssert.Contains(viewModelCode, "RequestLr2FullGenerationDataSync(\"SettingDialog.SaveSettings\", force: false)");
+        StringAssert.Contains(viewModelCode, "SyncLr2FullGenerationFolderDataAfterSettingsChange(\"SettingDialog.SaveSettings\")");
+        StringAssert.Contains(viewModelCode, "tables?.ReOutputAllCustomFoldersForLr2FullGenerationDataSync(reason);");
+        StringAssert.Contains(viewModelCode, "files?.SyncLr2BuiltinCustomFolderRows(reason);");
+        StringAssert.Contains(viewModelCode, "files?.QueueLr2FullGenerationDataSync(reason, force: false, allowIncompleteToQueue: false);");
         StringAssert.Contains(settingDialogCode, "viewModel.RequestLr2FullGenerationDataSync(\"setting_dialog_manual_resync\", force: true);");
         Assert.IsFalse(
             settingDialogCode.IndexOf("Task.Run(() => viewModel.RequestLr2FullGenerationDataSync", StringComparison.Ordinal) >= 0,

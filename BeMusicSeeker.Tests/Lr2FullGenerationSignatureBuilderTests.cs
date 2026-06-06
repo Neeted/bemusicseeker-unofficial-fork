@@ -7,7 +7,7 @@ namespace BeMusicSeeker.Tests;
 public sealed class Lr2FullGenerationSignatureBuilderTests
 {
     [TestMethod]
-    public void Build_NormalizesRootOrderDuplicatesAndCase()
+    public void Build_DoesNotIncludeRuntimeRootSet()
     {
         var options = new BmsLibraryOptionsSnapshot
         {
@@ -15,18 +15,30 @@ public sealed class Lr2FullGenerationSignatureBuilderTests
             EnableLR2SongDbFullGeneration = true
         };
 
-        string first = Lr2FullGenerationSignatureBuilder.Build(
-            options,
-            [@"d:\bms\", @"C:\Charts", @"D:\BMS"]);
-        string second = Lr2FullGenerationSignatureBuilder.Build(
-            options,
-            [@"C:\Charts\", @"D:\BMS"]);
+        string first = Lr2FullGenerationSignatureBuilder.Build(options);
+        string second = Lr2FullGenerationSignatureBuilder.Build(options);
+
+        Assert.AreEqual(first, second);
+        Assert.IsFalse(first.Contains("|roots="));
+    }
+
+    [TestMethod]
+    public void Build_DoesNotChangeWhenRootSetChanges()
+    {
+        var options = new BmsLibraryOptionsSnapshot
+        {
+            OperationModeLR2DB = true,
+            EnableLR2SongDbFullGeneration = true
+        };
+
+        string first = Lr2FullGenerationSignatureBuilder.Build(options);
+        string second = Lr2FullGenerationSignatureBuilder.Build(options);
 
         Assert.AreEqual(first, second);
     }
 
     [TestMethod]
-    public void Build_ChangesWhenRootSetChanges()
+    public void Build_DoesNotIncludeLr2FolderDiscoveryRootSet()
     {
         var options = new BmsLibraryOptionsSnapshot
         {
@@ -34,14 +46,15 @@ public sealed class Lr2FullGenerationSignatureBuilderTests
             EnableLR2SongDbFullGeneration = true
         };
 
-        string first = Lr2FullGenerationSignatureBuilder.Build(options, [@"D:\BMS"]);
-        string second = Lr2FullGenerationSignatureBuilder.Build(options, [@"D:\BMS", @"E:\BMS"]);
+        string first = Lr2FullGenerationSignatureBuilder.Build(options);
+        string second = Lr2FullGenerationSignatureBuilder.Build(options);
 
-        Assert.AreNotEqual(first, second);
+        Assert.AreEqual(first, second);
+        Assert.IsFalse(first.Contains("|lr2folderRoots="));
     }
 
     [TestMethod]
-    public void Build_ChangesWhenLr2FolderDiscoveryRootSetChanges()
+    public void Build_DoesNotIncludeMutableBuiltinCustomFolderSettings()
     {
         var options = new BmsLibraryOptionsSnapshot
         {
@@ -49,45 +62,11 @@ public sealed class Lr2FullGenerationSignatureBuilderTests
             EnableLR2SongDbFullGeneration = true
         };
 
-        string first = Lr2FullGenerationSignatureBuilder.Build(
-            options,
-            [@"D:\BMS"],
-            [@"D:\BMS", @"D:\LR2files\CustomFolder"]);
-        string second = Lr2FullGenerationSignatureBuilder.Build(
-            options,
-            [@"D:\BMS"],
-            [@"D:\BMS", @"E:\LR2files\CustomFolder"]);
+        string signature = Lr2FullGenerationSignatureBuilder.Build(options);
 
-        Assert.AreNotEqual(first, second);
-    }
-
-    [TestMethod]
-    public void Build_ChangesWhenBuiltinCustomFolderSettingsChange()
-    {
-        var options = new BmsLibraryOptionsSnapshot
-        {
-            OperationModeLR2DB = true,
-            EnableLR2SongDbFullGeneration = true
-        };
-
-        string maskOff = Lr2FullGenerationSignatureBuilder.Build(
-            options,
-            [@"D:\BMS"],
-            [@"D:\LR2beta3\LR2files\CustomFolder"],
-            new Lr2BuiltinCustomFolderSettings(0, 24, includeNewSongFolder: false));
-        string maskOn = Lr2FullGenerationSignatureBuilder.Build(
-            options,
-            [@"D:\BMS"],
-            [@"D:\LR2beta3\LR2files\CustomFolder"],
-            new Lr2BuiltinCustomFolderSettings(2, 24, includeNewSongFolder: false));
-        string newSong = Lr2FullGenerationSignatureBuilder.Build(
-            options,
-            [@"D:\BMS"],
-            [@"D:\LR2beta3\LR2files\CustomFolder"],
-            new Lr2BuiltinCustomFolderSettings(2, 24, includeNewSongFolder: true));
-
-        Assert.AreNotEqual(maskOff, maskOn);
-        Assert.AreNotEqual(maskOn, newSong);
+        Assert.IsFalse(signature.Contains("lr2CustomFolderMask"));
+        Assert.IsFalse(signature.Contains("lr2TitleFlashHours"));
+        Assert.IsFalse(signature.Contains("lr2IncludeNewSongFolder"));
     }
 
     [TestMethod]
@@ -99,7 +78,7 @@ public sealed class Lr2FullGenerationSignatureBuilderTests
             EnableLR2SongDbFullGeneration = true
         };
 
-        string signature = Lr2FullGenerationSignatureBuilder.Build(options, [@"D:\BMS"]);
+        string signature = Lr2FullGenerationSignatureBuilder.Build(options);
 
         StringAssert.Contains(signature, "|appSchema=");
         StringAssert.Contains(signature, "|chartInfoSchema=");
