@@ -2229,6 +2229,9 @@ extern "C" __declspec(dllexport) int __cdecl EBridge_ScanChartAndResources(const
 	if (!okMovie) {
 		return BRIDGE_MOVIE_QUERY_FAILED;
 	}
+	if (hasTextQuery && !okText) {
+		return BRIDGE_TEXT_QUERY_FAILED;
+	}
 	for (const ChartRawHit& hit : chartRawHits.files) {
 		const std::wstring& chartDirectory = hit.directoryPath;
 		std::wstring chartPath = CombinePathAndName(chartDirectory, hit.fileName);

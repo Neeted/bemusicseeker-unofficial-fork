@@ -71,7 +71,7 @@ public sealed class BmsLibraryLr2FullGenerationBackfillTests
             Assert.IsTrue(directories.Contains(NormalizeDirectory(nestedCustomOutputLikeDirectory)));
             Assert.IsFalse(directories.Contains(NormalizeDirectory(normalOutputBase)));
             Assert.IsFalse(directories.Contains(NormalizeDirectory(rootOutputBase)));
-            Assert.IsFalse(directories.Contains(NormalizeDirectory(rootOutputChild)));
+            Assert.IsTrue(directories.Contains(NormalizeDirectory(rootOutputChild)));
         }
         finally
         {

@@ -8615,41 +8615,7 @@ completeFileEnumerationOnce,
             return excluded;
         }
         AddNormalizedDirectory(excluded, Settings.Default.LR2CustomFolderOutputBaseDir);
-        string rootBaseDir = Settings.Default.LR2CustomFolderOutputBaseDirRootType;
-        AddNormalizedDirectory(excluded, rootBaseDir);
-        if (string.IsNullOrWhiteSpace(rootBaseDir))
-        {
-            return excluded;
-        }
-        string normalizedRootBaseDir;
-        try
-        {
-            normalizedRootBaseDir = Path.GetFullPath(rootBaseDir).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        }
-        catch
-        {
-            return excluded;
-        }
-        foreach (string searchTarget in SearchTargets ?? Enumerable.Empty<string>())
-        {
-            if (string.IsNullOrWhiteSpace(searchTarget))
-            {
-                continue;
-            }
-            try
-            {
-                string normalizedSearchTarget = Path.GetFullPath(searchTarget).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-                string parentDirectory = Path.GetDirectoryName(normalizedSearchTarget);
-                if (!string.IsNullOrWhiteSpace(parentDirectory)
-                    && string.Equals(parentDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar), normalizedRootBaseDir, StringComparison.OrdinalIgnoreCase))
-                {
-                    excluded.Add(normalizedSearchTarget);
-                }
-            }
-            catch
-            {
-            }
-        }
+        AddNormalizedDirectory(excluded, Settings.Default.LR2CustomFolderOutputBaseDirRootType);
         return excluded;
     }
 
