@@ -140,6 +140,37 @@ public sealed class RootFileEnumerationTests
         }
     }
 
+    [TestMethod]
+    public void FastEnumerator_CollapsesDescendantExecutionRoots()
+    {
+        string tempRoot = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_RootEnumCollapse_" + Guid.NewGuid().ToString("N"));
+        string nestedDirectory = Path.Combine(tempRoot, "Output", "Table");
+        string rootChartPath = Path.Combine(tempRoot, "root.bms");
+        string nestedChartPath = Path.Combine(nestedDirectory, "nested.bms");
+        Directory.CreateDirectory(nestedDirectory);
+        File.WriteAllText(rootChartPath, "#PLAYER 1");
+        File.WriteAllText(nestedChartPath, "#PLAYER 1");
+
+        try
+        {
+            RootFileEnumerationResult result = new FastRootFileEnumerator().EnumerateFiles(
+                [nestedDirectory, tempRoot, Path.Combine(tempRoot, "Output")],
+                [new RootFileEnumerationGroup(ChartDirectoryScanBuilder.ChartGroupName, [".bms"])]);
+
+            Assert.IsTrue(result.Success);
+            CollectionAssert.Contains(result.GetPaths(ChartDirectoryScanBuilder.ChartGroupName).ToList(), rootChartPath);
+            CollectionAssert.Contains(result.GetPaths(ChartDirectoryScanBuilder.ChartGroupName).ToList(), nestedChartPath);
+            Assert.AreEqual(2, result.GetPaths(ChartDirectoryScanBuilder.ChartGroupName).Count);
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot))
+            {
+                Directory.Delete(tempRoot, recursive: true);
+            }
+        }
+    }
+
     private static int ToUnixSeconds(DateTime timestampUtc)
     {
         DateTime utc = timestampUtc.Kind == DateTimeKind.Utc ? timestampUtc : timestampUtc.ToUniversalTime();

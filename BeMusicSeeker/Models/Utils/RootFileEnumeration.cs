@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 
 namespace BeMusicSeeker.Models.Utils;
@@ -190,6 +191,27 @@ internal static class RootFileEnumerationService
 
     internal const string DirectoriesGroupName = "__directories__";
 
+    internal static List<string> NormalizeExecutionRoots(IEnumerable<string> rootDirectories)
+    {
+        List<string> roots = [.. (rootDirectories ?? [])
+            .Where(path => !string.IsNullOrWhiteSpace(path) && Directory.Exists(path))
+            .Select(Path.GetFullPath)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(path => path.Length)
+            .ThenBy(path => path, StringComparer.OrdinalIgnoreCase)];
+
+        var result = new List<string>(roots.Count);
+        foreach (string root in roots)
+        {
+            if (result.Any(existing => IsSameOrDescendant(root, existing)))
+            {
+                continue;
+            }
+            result.Add(root);
+        }
+        return result;
+    }
+
     internal static RootFileEnumerationResult EnumerateFilesWithFallback(IEnumerable<string> rootDirectories, IEnumerable<RootFileEnumerationGroup> groups, bool verboseLog = false)
     {
         List<RootFileEnumerationGroup> groupList = [.. (groups ?? []).Where(group => group != null && !string.IsNullOrWhiteSpace(group.Name))];
@@ -214,5 +236,24 @@ internal static class RootFileEnumerationService
             fallbackResult.ErrorReason = result.ErrorReason ?? string.Empty;
         }
         return fallbackResult;
+    }
+
+    private static bool IsSameOrDescendant(string candidate, string root)
+    {
+        if (string.IsNullOrWhiteSpace(candidate) || string.IsNullOrWhiteSpace(root))
+        {
+            return false;
+        }
+
+        string normalizedCandidate = NormalizeDirectoryForComparison(candidate);
+        string normalizedRoot = NormalizeDirectoryForComparison(root);
+        return string.Equals(normalizedCandidate, normalizedRoot, StringComparison.OrdinalIgnoreCase)
+            || normalizedCandidate.StartsWith(normalizedRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string NormalizeDirectoryForComparison(string path)
+    {
+        string fullPath = Path.GetFullPath(path);
+        return fullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
     }
 }

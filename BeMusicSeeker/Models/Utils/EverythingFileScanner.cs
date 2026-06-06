@@ -13,10 +13,11 @@ public class EverythingFileScanner : IChartFileScanner
 
     public ChartScanExecutionResult Scan(IEnumerable<string> rootDirectories, IEnumerable<string> chartExtensions, bool verboseLog = false, bool includeTextSurface = true)
     {
-        List<string> roots = [.. (rootDirectories ?? [])
-            .Where(p => !string.IsNullOrWhiteSpace(p) && Directory.Exists(p))
+        List<string> requestedRoots = [.. (rootDirectories ?? [])
+            .Where(p => !string.IsNullOrWhiteSpace(p))
             .Select(Path.GetFullPath)
             .Distinct(StringComparer.OrdinalIgnoreCase)];
+        List<string> roots = RootFileEnumerationService.NormalizeExecutionRoots(requestedRoots);
         if (roots.Count == 0)
         {
             return new ChartScanExecutionResult
@@ -36,7 +37,14 @@ public class EverythingFileScanner : IChartFileScanner
 
         if (verboseLog)
         {
-            logger.Info("everything_scan start roots={0} chartQuery={1} audioQuery={2} imageQuery={3} movieQuery={4} textQuery={5}", roots.Count, chartQuery, audioQuery, imageQuery, movieQuery, textQuery);
+            logger.Info("everything_scan start roots={0} requestedRoots={1} chartQuery={2} audioQuery={3} imageQuery={4} movieQuery={5} textQuery={6}",
+                roots.Count,
+                requestedRoots.Count,
+                chartQuery,
+                audioQuery,
+                imageQuery,
+                movieQuery,
+                textQuery);
         }
 
         var stopwatch = Stopwatch.StartNew();

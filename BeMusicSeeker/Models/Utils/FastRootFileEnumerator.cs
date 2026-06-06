@@ -111,10 +111,7 @@ internal sealed class FastRootFileEnumerator : IRootFileEnumerator
 
     private static List<string> NormalizeRoots(IEnumerable<string> rootDirectories)
     {
-        return [.. (rootDirectories ?? [])
-            .Where(path => !string.IsNullOrWhiteSpace(path) && Directory.Exists(path))
-            .Select(Path.GetFullPath)
-            .Distinct(StringComparer.OrdinalIgnoreCase)];
+        return RootFileEnumerationService.NormalizeExecutionRoots(rootDirectories);
     }
 
     private static IEnumerable<RootFileEnumerationEntry> EnumerateAllFilesForRoot(string root, string[] extensions)
