@@ -68,6 +68,15 @@ internal readonly struct Lr2ResourceReferenceEvaluation(
     public bool HasWarning => WarningFlags != Lr2ResourceWarningFlags.None;
 }
 
+internal readonly struct Lr2ResourcePathEvaluationContext(
+    int? chartDirectoryCp932Bytes,
+    bool chartDirectoryEncodingSupported)
+{
+    public int? ChartDirectoryCp932Bytes { get; } = chartDirectoryCp932Bytes;
+
+    public bool ChartDirectoryEncodingSupported { get; } = chartDirectoryEncodingSupported;
+}
+
 internal static class Lr2CompatibilityEvaluator
 {
     internal const int MaxLegacyPathBytes = 259;
@@ -76,6 +85,8 @@ internal static class Lr2CompatibilityEvaluator
         "shift_jis",
         EncoderFallback.ExceptionFallback,
         DecoderFallback.ExceptionFallback);
+
+    private static readonly char[] InvalidPathChars = Path.GetInvalidPathChars();
 
     internal static Lr2ChartPathEvaluation EvaluateChartPath(string chartPath)
     {
@@ -127,13 +138,14 @@ internal static class Lr2CompatibilityEvaluator
         Lr2ResourceWarningFlags flags = Lr2ResourceWarningFlags.None;
         int? maxRawBytes = null;
         int? maxResolvedBytes = null;
+        Lr2ResourcePathEvaluationContext context = CreateResourcePathEvaluationContext(chartPath);
         foreach (ChartResourceSnapshot.ResourceReference reference in snapshot.ResourceReferences)
         {
             string rawPath = string.IsNullOrWhiteSpace(reference.RawPath)
                 ? reference.NormalizedPath
                 : reference.RawPath;
             ApplyResourcePathEvaluation(
-                chartPath,
+                context,
                 rawPath,
                 ref flags,
                 ref maxRawBytes,
@@ -161,10 +173,11 @@ internal static class Lr2CompatibilityEvaluator
         Lr2ResourceWarningFlags flags = Lr2ResourceWarningFlags.None;
         int? maxRawBytes = null;
         int? maxResolvedBytes = null;
+        Lr2ResourcePathEvaluationContext context = CreateResourcePathEvaluationContext(chartPath);
         foreach (string rawPath in EnumerateBmsSupportedResourcePaths(file))
         {
             ApplyResourcePathEvaluation(
-                chartPath,
+                context,
                 rawPath,
                 ref flags,
                 ref maxRawBytes,
@@ -251,8 +264,27 @@ internal static class Lr2CompatibilityEvaluator
         }
     }
 
+    private static Lr2ResourcePathEvaluationContext CreateResourcePathEvaluationContext(string chartPath)
+    {
+        try
+        {
+            string directory = Path.GetDirectoryName(chartPath ?? string.Empty);
+            if (string.IsNullOrWhiteSpace(directory))
+            {
+                return new Lr2ResourcePathEvaluationContext(null, chartDirectoryEncodingSupported: true);
+            }
+            return TryGetCp932ByteCount(directory, out int directoryBytes)
+                ? new Lr2ResourcePathEvaluationContext(directoryBytes, chartDirectoryEncodingSupported: true)
+                : new Lr2ResourcePathEvaluationContext(null, chartDirectoryEncodingSupported: false);
+        }
+        catch (Exception ex) when (ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException)
+        {
+            return new Lr2ResourcePathEvaluationContext(null, chartDirectoryEncodingSupported: false);
+        }
+    }
+
     private static void ApplyResourcePathEvaluation(
-        string chartPath,
+        Lr2ResourcePathEvaluationContext context,
         string rawPath,
         ref Lr2ResourceWarningFlags flags,
         ref int? maxRawBytes,
@@ -271,8 +303,7 @@ internal static class Lr2CompatibilityEvaluator
             flags |= Lr2ResourceWarningFlags.RawPathEncodingUnsupported;
         }
 
-        string resolvedPath = ResolveResourcePath(chartPath, rawPath);
-        if (TryGetCp932ByteCount(resolvedPath, out int resolvedBytes))
+        if (TryGetResolvedResourcePathCp932ByteCount(context, rawPath, out int resolvedBytes))
         {
             maxResolvedBytes = Math.Max(maxResolvedBytes.GetValueOrDefault(), resolvedBytes);
             if (resolvedBytes > MaxLegacyPathBytes)
@@ -284,6 +315,74 @@ internal static class Lr2CompatibilityEvaluator
         {
             flags |= Lr2ResourceWarningFlags.ResolvedPathEncodingUnsupported;
         }
+    }
+
+    private static bool TryGetResolvedResourcePathCp932ByteCount(
+        Lr2ResourcePathEvaluationContext context,
+        string rawPath,
+        out int byteCount)
+    {
+        byteCount = 0;
+        if (!context.ChartDirectoryEncodingSupported)
+        {
+            return false;
+        }
+        if (!context.ChartDirectoryCp932Bytes.HasValue)
+        {
+            return TryGetCp932ByteCount(rawPath, out byteCount);
+        }
+        if (!TryNormalizeRelativeResourcePathForByteCount(rawPath, out string relativePath))
+        {
+            return TryGetCp932ByteCount(rawPath, out byteCount);
+        }
+        if (!TryGetCp932ByteCount(relativePath, out int relativeBytes))
+        {
+            return false;
+        }
+
+        // LR2 receives a filesystem path here. For chart-relative resources this is
+        // equivalent to "<chart directory>\<relative resource path>" and avoids
+        // allocating/normalizing a full path per resource definition.
+        byteCount = context.ChartDirectoryCp932Bytes.Value + 1 + relativeBytes;
+        return true;
+    }
+
+    private static bool TryNormalizeRelativeResourcePathForByteCount(string rawPath, out string relativePath)
+    {
+        relativePath = null;
+        if (string.IsNullOrWhiteSpace(rawPath))
+        {
+            return false;
+        }
+
+        string normalized = rawPath.Trim().Replace('/', Path.DirectorySeparatorChar).Replace('\\', Path.DirectorySeparatorChar);
+        normalized = normalized.TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        if (string.IsNullOrWhiteSpace(normalized)
+            || normalized.IndexOfAny(InvalidPathChars) >= 0
+            || Path.IsPathRooted(normalized))
+        {
+            return false;
+        }
+
+        var segments = new List<string>();
+        foreach (string segment in normalized.Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar], StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (segment == ".")
+            {
+                continue;
+            }
+            if (segment == "..")
+            {
+                return false;
+            }
+            segments.Add(segment);
+        }
+        if (segments.Count == 0)
+        {
+            return false;
+        }
+        relativePath = string.Join(Path.DirectorySeparatorChar.ToString(), segments);
+        return true;
     }
 
     private static string CreateFolderScanPath(string chartPath)
@@ -315,16 +414,4 @@ internal static class Lr2CompatibilityEvaluator
         }
     }
 
-    private static string ResolveResourcePath(string chartPath, string rawPath)
-    {
-        try
-        {
-            string directory = Path.GetDirectoryName(chartPath ?? string.Empty) ?? string.Empty;
-            return Path.GetFullPath(Path.Combine(directory, rawPath ?? string.Empty));
-        }
-        catch (Exception ex) when (ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException)
-        {
-            return rawPath ?? string.Empty;
-        }
-    }
 }

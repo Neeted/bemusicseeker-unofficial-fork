@@ -2008,6 +2008,7 @@ internal static class Lr2FullGenerationBackfillService
             long compatibilityStart = Stopwatch.GetTimestamp();
             TryCreateLr2CompatibilityMaintenanceInfo(row, out compatibilityInfo);
             compatibilityTicks = Stopwatch.GetTimestamp() - compatibilityStart;
+            row.ClearResourceReferenceCollections();
         }
 
         return new SongRowBackfillComputedItem(
