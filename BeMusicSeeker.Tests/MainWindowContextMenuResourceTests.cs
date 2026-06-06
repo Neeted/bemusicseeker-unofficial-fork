@@ -1900,6 +1900,19 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
+    public void SettingDialog_DoesNotUseMultiParameterQuickConverterBindings()
+    {
+        string settingDialogXaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "SettingDialog.xaml"));
+
+        Assert.IsFalse(
+            settingDialogXaml.IndexOf("qc:Binding '$P0", StringComparison.Ordinal) >= 0,
+            "SettingDialog is loaded during MainWindow startup; multi-parameter QuickConverter bindings can fail during BAML load.");
+        StringAssert.Contains(settingDialogXaml, "Lr2_full_generation_data_resync");
+        StringAssert.Contains(settingDialogXaml, "IsEnabled=\"{Binding IsChecked, ElementName=radioButtonUseLR2}\"");
+        StringAssert.Contains(settingDialogXaml, "IsEnabled=\"{Binding IsChecked, ElementName=checkBoxEnableLr2SongDbFullGeneration}\"");
+    }
+
+    [TestMethod]
     public void SettingDialogUninstall_ShowsResultBeforeExit()
     {
         string root = FindRepositoryRoot();
