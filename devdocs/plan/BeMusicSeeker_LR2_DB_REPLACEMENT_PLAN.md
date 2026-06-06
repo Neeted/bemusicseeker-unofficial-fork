@@ -1267,7 +1267,7 @@ parse directive:
   root / ancestor / chart directory `folder` row を sync する。`folderinfo.txt` は file enumeration の
   metadata surface から渡された候補を使う。続く `song_rows` stage は current owned BMS path / hash /
   mtime / owner identity だけを軽量 target として持ち、current owned `BMSFile` の persistence 用 copy を
-  全件 materialize しない。単一 reader が `ChartFileSnapshot` を bounded queue に流し、parallel workers が
+  全件 materialize しない。少数の bounded reader が `ChartFileSnapshot` を bounded queue に流し、parallel workers が
   snapshot から BMS row、LR2 generated columns、LR2 compatibility facts を一度で作る。LR2 compatibility facts は
   parsed BMS row の raw resource references から直接評価し、BMS row を `ChartFile` / `ChartResourceSnapshot`
   へ再投影しない。parse 失敗時だけ
@@ -1432,8 +1432,8 @@ existence / mtime は意味的に揃える。
    - `songRows=...` は persistence copy count ではなく target count として扱う。
    - memory usage が current catalog + bounded queue + current chunk の範囲に収まることを log で確認する。
 5. `song_rows` pipeline を writer が詰まらない構造へ寄せる。主要実装済み。
-   - 完了: reader は通常 file diff と同じ単一 producer として譜面 bytes / mtime の供給を主責務にし、
-     read queue capacity を超えて全件 bytes を保持しない。
+   - 完了: reader は bounded producer として譜面 bytes / mtime の供給を主責務にし、
+     full generation では worker 飢餓を避けるため最大 2 本まで使う。read queue capacity を超えて全件 bytes を保持しない。
    - 完了: workers が parse / chart_info apply / LR2 compatibility facts を同じ parse result から作り、
      `BMSFile` と `BMSFileMaintenanceInfo` を含む「DB に書ける completed item」を出力する。
    - 完了: LR2 compatibility facts は parsed BMS row の raw resource references から直接評価し、

@@ -5920,12 +5920,21 @@ completeFileEnumerationOnce,
         StorageRowsVersionSnapshot storageRowsVersion;
         using (rwlockBMSFilesInitializedAll.GetReaderGuard())
         {
-            chartPaths = [.. (_BMSFiles ?? [])
-                .Where(file => file != null && !string.IsNullOrWhiteSpace(file.path))
-                .Select(file => file.path)
-                .Distinct(StringComparer.OrdinalIgnoreCase)];
-            songRows = [.. (_BMSFiles ?? [])
-                .Where(file => file != null && !string.IsNullOrWhiteSpace(file.path))];
+            var chartPathSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            chartPaths = [];
+            songRows = [];
+            foreach (BMSFile file in _BMSFiles ?? [])
+            {
+                if (file == null || string.IsNullOrWhiteSpace(file.path))
+                {
+                    continue;
+                }
+                songRows.Add(file);
+                if (chartPathSet.Add(file.path))
+                {
+                    chartPaths.Add(file.path);
+                }
+            }
             ownedCollectionVersion = OwnedChartCollectionVersion;
             storageRowsVersion = CreateCurrentStorageRowsVersionSnapshotUnsafe();
         }

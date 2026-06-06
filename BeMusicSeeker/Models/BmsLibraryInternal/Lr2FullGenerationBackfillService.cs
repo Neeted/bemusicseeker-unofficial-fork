@@ -1491,10 +1491,15 @@ internal static class Lr2FullGenerationBackfillService
         int processorCount = Environment.ProcessorCount;
         int workerDegree = ResolveSongRowBackfillWorkerDegree(processorCount);
         workerDegree = Math.Max(1, Math.Min(workerDegree, targetRows.Count - safeStartIndex));
-        int readerDegree = 1;
-        int orderingWindowCapacity = songRowBackfillChunkSize * 2;
-        int readQueueCapacity = Math.Max(1, workerDegree * 2);
-        int computedQueueCapacity = Math.Max(songRowBackfillChunkSize, workerDegree * 16);
+        int remainingTargetCount = targetRows.Count - safeStartIndex;
+        int readerDegree = ResolveSongRowBackfillReaderDegree(processorCount, remainingTargetCount);
+        int orderingWindowCapacity = ResolveSongRowBackfillOrderingWindowCapacity(
+            songRowBackfillChunkSize,
+            workerDegree,
+            readerDegree,
+            remainingTargetCount);
+        int readQueueCapacity = Math.Max(1, workerDegree * Math.Max(2, readerDegree * 2));
+        int computedQueueCapacity = Math.Max(songRowBackfillChunkSize * 2, workerDegree * 32);
         int processed = 0;
         int parseFailureCount = 0;
         int chartInfoAppliedCount = 0;
@@ -1967,6 +1972,29 @@ internal static class Lr2FullGenerationBackfillService
     {
         int availableWorkerCount = Math.Max(1, processorCount - 1);
         return Math.Max(1, Math.Min(availableWorkerCount, SongRowBackfillMaxWorkerDegree));
+    }
+
+    private static int ResolveSongRowBackfillReaderDegree(int processorCount, int remainingTargetCount)
+    {
+        if (remainingTargetCount <= 1 || processorCount < 6)
+        {
+            return 1;
+        }
+
+        return 2;
+    }
+
+    private static int ResolveSongRowBackfillOrderingWindowCapacity(
+        int chunkSize,
+        int workerDegree,
+        int readerDegree,
+        int remainingTargetCount)
+    {
+        int minimum = Math.Max(chunkSize * 2, 1);
+        int workerBufferedChunks = Math.Max(4, (workerDegree / 2) + readerDegree);
+        int desired = chunkSize * workerBufferedChunks;
+        int maximum = chunkSize * 8;
+        return Math.Max(1, Math.Min(remainingTargetCount, Math.Min(maximum, Math.Max(minimum, desired))));
     }
 
     private static Exception UnwrapPipelineException(Exception ex)
@@ -2485,15 +2513,16 @@ internal static class Lr2FullGenerationBackfillService
         }
 
         const int columnCount = 9;
-        const int chunkSize = 50;
+        const int chunkSize = 100;
         for (int offset = 0; offset < rows.Count; offset += chunkSize)
         {
-            List<BMSFileMaintenanceInfo> chunk = rows.Skip(offset).Take(chunkSize).ToList();
+            int count = Math.Min(chunkSize, rows.Count - offset);
             string rowPlaceholders = "(" + string.Join(",", Enumerable.Repeat("?", columnCount)) + ")";
-            string placeholders = string.Join(",", chunk.Select(_ => rowPlaceholders));
-            var args = new List<object>(chunk.Count * columnCount);
-            foreach (BMSFileMaintenanceInfo row in chunk)
+            string placeholders = string.Join(",", Enumerable.Repeat(rowPlaceholders, count));
+            var args = new List<object>(count * columnCount);
+            for (int index = 0; index < count; index++)
             {
+                BMSFileMaintenanceInfo row = rows[offset + index];
                 args.Add(row.path);
                 args.Add(row.hash);
                 args.Add(row.lr2_path_warning_flags);
