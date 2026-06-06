@@ -5206,13 +5206,13 @@ completeFileEnumerationOnce,
         try
         {
             using LR2SongDBExtended songDb = dbGateway.OpenSongDb();
-            IReadOnlyDictionary<string, int?> existingDatesByPath = CreateExistingLr2FolderDateMap(songDb);
+            IReadOnlyDictionary<string, LR2SongDB.folder> existingRowsByPath = CreateExistingLr2FolderRowMap(songDb);
             Lr2FullGenerationBackfillService.Lr2FolderFileSyncItemsResult syncItems =
                 Lr2FullGenerationBackfillService.CreateLr2FolderFileSyncItems(
                     request.Lr2FolderFilePaths,
                     request,
                     request.Lr2FolderFileEntries,
-                    path => existingDatesByPath.TryGetValue(path, out int? date) ? date : null);
+                    path => existingRowsByPath.TryGetValue(path, out LR2SongDB.folder row) ? row : null);
             string savepoint = songDb.SaveTransactionPoint();
             Lr2FolderFileDbSyncResult syncResult;
             try
@@ -5267,18 +5267,18 @@ completeFileEnumerationOnce,
         }
     }
 
-    private static IReadOnlyDictionary<string, int?> CreateExistingLr2FolderDateMap(LR2SongDBExtended songDb)
+    private static IReadOnlyDictionary<string, LR2SongDB.folder> CreateExistingLr2FolderRowMap(LR2SongDBExtended songDb)
     {
         if (songDb == null)
         {
-            return new Dictionary<string, int?>(StringComparer.OrdinalIgnoreCase);
+            return new Dictionary<string, LR2SongDB.folder>(StringComparer.OrdinalIgnoreCase);
         }
         return songDb.Table<LR2SongDB.folder>()
             .ToList()
             .Where(row => !string.IsNullOrWhiteSpace(row?.path)
                 && string.Equals(Path.GetExtension(row.path), ".lr2folder", StringComparison.OrdinalIgnoreCase))
             .GroupBy(row => row.path, StringComparer.Ordinal)
-            .ToDictionary(group => group.Key, group => group.First().date, StringComparer.Ordinal);
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
     }
 
     private void CaptureLr2FullGenerationScanSurface(

@@ -1317,7 +1317,7 @@ internal static class Lr2FullGenerationBackfillService
         IEnumerable<string> filePaths,
         Lr2FullGenerationBackfillRequest request,
         IReadOnlyDictionary<string, RootFileEnumerationEntry> entriesByPath = null,
-        Func<string, int?> existingDateResolver = null)
+        Func<string, LR2SongDB.folder> existingRowResolver = null)
     {
         var items = new List<Lr2FolderFileSyncItem>();
         bool hasReadFailures = false;
@@ -1329,7 +1329,7 @@ internal static class Lr2FullGenerationBackfillService
             }
 
             RootFileEnumerationEntry entry = ResolveEnumerationEntry(entriesByPath, filePath);
-            Lr2FolderFileSyncItem item = CreateLr2FolderFileSyncItem(filePath, request, entry, existingDateResolver);
+            Lr2FolderFileSyncItem item = CreateLr2FolderFileSyncItem(filePath, request, entry, existingRowResolver);
             if (item.LastWriteTimeUtc == null)
             {
                 hasReadFailures = true;
@@ -1372,7 +1372,7 @@ internal static class Lr2FullGenerationBackfillService
         string filePath,
         Lr2FullGenerationBackfillRequest request,
         RootFileEnumerationEntry enumerationEntry = null,
-        Func<string, int?> existingDateResolver = null)
+        Func<string, LR2SongDB.folder> existingRowResolver = null)
     {
         Lr2FolderFileSourceClassification classification = Lr2FolderFileSourceClassifier.Classify(new Lr2FolderFileSourceClassificationRequest
         {
@@ -1384,9 +1384,8 @@ internal static class Lr2FullGenerationBackfillService
         DateTime? lastWriteTimeUtc = ResolveLastWriteTimeUtc(filePath, enumerationEntry);
         string databasePath = classification.DatabasePath;
         if (lastWriteTimeUtc.HasValue
-            && existingDateResolver != null
-            && !string.IsNullOrWhiteSpace(databasePath)
-            && existingDateResolver(databasePath) == Lr2SongRowEnricher.ToLr2UnixSeconds(lastWriteTimeUtc.Value))
+            && existingRowResolver != null
+            && CanPreserveExistingLr2FolderRow(databasePath, classification, lastWriteTimeUtc.Value, existingRowResolver(databasePath)))
         {
             return new Lr2FolderFileSyncItem
             {
@@ -1423,6 +1422,28 @@ internal static class Lr2FullGenerationBackfillService
                 ParentHash = classification.ParentHash
             };
         }
+    }
+
+    private static bool CanPreserveExistingLr2FolderRow(
+        string databasePath,
+        Lr2FolderFileSourceClassification classification,
+        DateTime lastWriteTimeUtc,
+        LR2SongDB.folder existingRow)
+    {
+        if (existingRow == null || string.IsNullOrWhiteSpace(databasePath))
+        {
+            return false;
+        }
+        if (existingRow.date != Lr2SongRowEnricher.ToLr2UnixSeconds(lastWriteTimeUtc))
+        {
+            return false;
+        }
+        if (existingRow.type != classification.FolderType)
+        {
+            return false;
+        }
+        return Lr2FolderFileProjection.TryResolveParentHash(databasePath, classification.ParentHash, out string expectedParentHash)
+            && string.Equals(existingRow.parent, expectedParentHash, StringComparison.OrdinalIgnoreCase);
     }
 
     private static DateTime? ResolveLastWriteTimeUtc(string filePath, RootFileEnumerationEntry enumerationEntry)

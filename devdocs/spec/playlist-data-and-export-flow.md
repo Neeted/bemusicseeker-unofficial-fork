@@ -126,6 +126,10 @@ LR2 custom folder 出力は LR2 linked profile の機能であり、standalone p
 
 出力先は `LR2CustomFolderOutputBaseDir` または root 用の `LR2CustomFolderOutputBaseDirRootType` と、playlist の `output_dir` から決まる。`ignore_folder_output` により level/user/alphabet/clear などの folder 種別を除外できる。
 
+LR2 linked profile では、custom folder 出力は `.lr2folder` 実ファイルだけでなく LR2 `folder` table row も同じ projection から同期する。通常出力では出力 directory 配下の numbered `.lr2folder` row をその directory の子として扱う。root 出力では playlist/table directory row を LR2 root 直下に置き、その配下の level/user/alphabet などの `.lr2folder` row は playlist/table directory row の子にする。配下 row をすべて LR2 root 直下へ flatten しない。
+
+アプリ管理 playlist の custom folder は `playlist` / `playlist_entry` / `playlist_course` と出力設定が正本であり、出力済み `.lr2folder` ファイルの存在だけを正本にしない。出力先変更、root 出力切替、entry/folder 編集、明示的な LR2 完全生成データ再同期では、playlist 正本から `.lr2folder` file と LR2 `folder` row を再 materialize する。外部ツールが作った `.lr2folder` は LR2 完全生成側の discovery result として扱う。
+
 ## beatoraja `.bmt` 出力
 
 beatoraja `.bmt` 出力は LR2 linked profile に依存しない。設定 `EnableBeatorajaBmtOutput` が ON で、`BeatorajaRootPath` が有効な beatoraja ディレクトリを指す場合だけ有効になる。beatoraja ディレクトリは直下に `config_sys.json` と `beatoraja.jar` または `beatoraja.exe` があることを条件にする。

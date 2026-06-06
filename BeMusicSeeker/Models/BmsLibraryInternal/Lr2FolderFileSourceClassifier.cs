@@ -44,7 +44,9 @@ internal static class Lr2FolderFileSourceClassifier
             return new Lr2FolderFileSourceClassification
             {
                 DatabasePath = filePath,
-                ParentHash = Lr2SongFolderParentNormalizer.RootParentHash
+                ParentHash = IsDirectChildFile(filePath, request.RootCustomFolderOutputBaseDir)
+                    ? Lr2SongFolderParentNormalizer.RootParentHash
+                    : null
             };
         }
 

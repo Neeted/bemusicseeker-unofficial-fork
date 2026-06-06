@@ -54,6 +54,8 @@
   "Lr2_full_generation_status_failed": "LR2 song.db 완전 생성에 실패했습니다",
   "Lr2_full_generation_status_incomplete": "LR2 song.db 완전 생성이 완료되지 않았습니다",
   "Lr2_full_generation_retry": "다시 시도",
+  "Lr2_full_generation_data_resync": "LR2 song.db 완전 생성 데이터 재동기화",
+  "Lr2_full_generation_data_resync_tooltip": "현재 보유 채보와 플레이리스트에서 LR2 song/folder 파생 데이터를 다시 동기화합니다. maintenance 또는 chart_info 재스캔은 아닙니다.",
   "Lr2_full_generation_cleanup_startup_scan_blockers": "LR2 folder DB 행 삭제 후 다시 시도",
   "Msg_confirm_lr2_full_generation_startup_scan_blocker_cleanup": "LR2 song.db 완전 생성을 완료하지 못하게 하는 오래된 folder 행을 삭제한 뒤 다시 시도합니다.\n삭제되는 것은 진단 대상인 LR2 folder 테이블 행뿐이며, 채보 파일이나 .lr2folder 파일은 삭제하지 않습니다.\n\n계속하시겠습니까?",
   "Msg_failed_remove_playlist_entry": "재생 목록에서 채보를 제거하지 못했습니다.\n해당 재생 목록이 외부 동기화 모드로 설정되어 있습니다.",

@@ -117,9 +117,7 @@ internal static class Lr2FolderFileProjection
             return false;
         }
 
-        string parentHash = request.ParentHash;
-        if (string.IsNullOrWhiteSpace(parentHash)
-            && !TryComputeParentHash(databasePath, out parentHash))
+        if (!TryResolveParentHash(databasePath, request.ParentHash, out string parentHash))
         {
             return false;
         }
@@ -147,6 +145,13 @@ internal static class Lr2FolderFileProjection
     private static bool IsSupportedFolderType(int folderType)
     {
         return folderType == 2 || folderType == 3 || folderType == 4 || folderType == 6;
+    }
+
+    internal static bool TryResolveParentHash(string databasePath, string explicitParentHash, out string parentHash)
+    {
+        parentHash = explicitParentHash;
+        return !string.IsNullOrWhiteSpace(parentHash)
+            || TryComputeParentHash(databasePath, out parentHash);
     }
 
     private static bool TryReadDirective(string line, out string directive, out string body)

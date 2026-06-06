@@ -19955,6 +19955,16 @@ public class MainWindowViewModel : ViewModel
         files?.QueueLr2FullGenerationBackfillIfNeeded("status_bar_retry");
     }
 
+    public void ResyncLr2FullGenerationData()
+    {
+        if (!Settings.Default.OperationModeLR2DB || !Settings.Default.EnableLR2SongDbFullGeneration)
+        {
+            return;
+        }
+        tables?.ReOutputAllCustomFoldersForLr2FullGenerationDataSync("setting_dialog_manual_resync");
+        files?.QueueLr2FullGenerationBackfillIfNeeded("setting_dialog_manual_resync");
+    }
+
     public void CancelLr2FullGenerationBackfill()
     {
         files?.CancelLr2FullGenerationBackfill("status_bar_cancel");

@@ -59,6 +59,8 @@
   "Lr2_full_generation_status_failed": "LR2 song.db 完全生成に失敗しました",
   "Lr2_full_generation_status_incomplete": "LR2 song.db 完全生成が未完了です",
   "Lr2_full_generation_retry": "再試行",
+  "Lr2_full_generation_data_resync": "LR2完全生成データを再同期",
+  "Lr2_full_generation_data_resync_tooltip": "現在の所持譜面とプレイリストから LR2 の song / folder 派生データを再同期します。maintenance や chart_info の再スキャンではありません。",
   "Lr2_full_generation_cleanup_startup_scan_blockers": "LR2 folder DB行を削除して再試行",
   "Msg_confirm_lr2_full_generation_startup_scan_blocker_cleanup": "LR2 song.db 完全生成の完了を妨げている古い folder 行を削除してから再試行します。\n削除するのは診断対象になった LR2 folder テーブル行のみで、譜面ファイルや .lr2folder ファイルは削除しません。\n\n続行しますか?",
   "Appearance_theme": "テーマ:",

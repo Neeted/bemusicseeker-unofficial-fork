@@ -365,6 +365,9 @@ row が残ると、manual-only でも LR2 が不要な scan に入る。
 - ルート出力先配下の `.lr2folder` 親 directory row も、LR2 root folder hierarchy の一部として
   expected folder scope に含める。たとえば `D:\BMS\ROOT\...` に出力された playlist / table folder は、
   `.lr2folder` file row だけでなく親 directory row も unknown root 扱いにしない。
+  ルート出力 playlist/table の directory row は `parent = ROOT` とし、その directory 配下に生成される
+  numbered `.lr2folder` row は containing directory の hash を `parent` にする。ルート出力 base 直下へ
+  直接置かれた standalone `.lr2folder` だけは LR2 root 直下 row として扱う。
 - LR2 built-in `LR2files\CustomFolder` のカテゴリ directory row
   (`RANDOM\`, `PLAYLEVEL\`, `CLEAR\`, `RANK\`, `INSANE01\`, `INSANE02\` など) も、
   対応 bitmask が有効な場合は expected scope に含める。
@@ -857,6 +860,9 @@ scope:
 - BeMusicSeeker 管理の `playlist_output_lr2folder` では、`.lr2folder` 実ファイルを正本にしない。
   - `playlist` / `playlist_entry` / `playlist_course` とプレイリスト出力設定を正本にする。
   - 同一の `Lr2PlaylistCustomFolderProjection` から `.lr2folder` 本文と LR2 `folder` row を生成する。
+  - ルートフォルダ出力では、playlist/table directory row を LR2 root 直下に生成し、配下の
+    numbered `.lr2folder` row はその directory row の子として生成する。配下 row をすべて
+    `ROOT` 親へ flatten しない。
   - `folder.command` は生成した `#COMMAND` と一致させる。既存の numbered `.lr2folder` が
     `playlist_entry` table を参照する SQL command を出す場合、entry 内容の正本は
     `playlist_entry` table であり、command はその table を参照する projection として同期する。
@@ -1215,7 +1221,9 @@ parse directive:
     固定 source は `newsong.lr2folder` の `type = 3` と、
     `course1.lr2folder` / `course2.lr2folder` / `course3.lr2folder` の `type = 6` とする。
   - source 分類は `Lr2FolderFileSourceClassifier` に閉じる。通常 BMS root / 通常 custom folder 出力 base は
-    `type = 2` と directory parent hash、root custom folder 出力 base は `type = 2` と root parent hash を使う。
+    `type = 2` と directory parent hashを使う。root custom folder 出力 base では、base 直下の standalone
+    `.lr2folder` だけ root parent hash を使い、playlist/table directory 配下の `.lr2folder` は containing
+    directory hash を使う。
     LR2 built-in CustomFolder source は LR2 root 相対 path に変換し、source directory 直下の `.lr2folder` だけ
     root parent hash、入れ子の `.lr2folder` は相対 path の containing directory hash を使う。
     `LR2files\Rival` は LR2 が server 通信と active rival ID から動的に反映するため、built-in source classifier では扱わない。
@@ -1236,9 +1244,11 @@ parse directive:
     上書き・削除しない境界を維持する。
   - `.lr2folder` DB sync は `Lr2FolderFileDbSyncService` に分離する。
     入力 item は current `.lr2folder` file projection、`ScopeDirectories` / `ScopePaths` は stale row prune の境界として扱う。
-    root custom folder 出力先と built-in `LR2files\CustomFolder` については、同じ sync request の
-    `DirectoryRowScopeDirectories` から親 / カテゴリ directory row も生成する。通常 BMS root は
-    `DirectoryRowScopeDirectories` に入れず、normal `folder.type = 1` 生成の責務を混ぜない。
+    通常 / root custom folder 出力先と built-in `LR2files\CustomFolder` については、同じ sync request の
+    directory row generation scope から親 / カテゴリ directory row も生成する。prune 用の
+    `DirectoryRowScopeDirectories` とは分け、playlist 単位の再出力で sibling playlist の directory row を
+    削除しない。通常 BMS root は directory row generation scope に入れず、normal `folder.type = 1`
+    生成の責務を混ぜない。
     同一親に複数 `.lr2folder` がある場合、親 row は一度だけ upsert 候補にし、generated path set で
     stale parent row pruning と重複 write を抑止する。
     `AllowPrune=false` では upsert のみ行い、`AllowPrune=true` でも scope 内の `.lr2folder` file path row だけを削除対象にする。
@@ -1593,7 +1603,8 @@ existence / mtime は意味的に揃える。
   `level` / `difficulty` / BPM / `mode` / `longnote` / `random` / `karinotes` を持つ。
 - playlist custom folder output workflow は `.lr2folder` file を出力した同じ操作内で `folder` row も sync する。
   ルートフォルダ出力 (`is_root_folder`) では playlist workflow 側でも `Lr2FolderFileSourceClassifier` を通し、
-  generated `.lr2folder` row の parent を `ROOT` に揃える。
+  playlist/table directory row を `ROOT` 親に置き、generated `.lr2folder` row の parent はその containing
+  directory hash に揃える。ルート出力 base 直下の standalone `.lr2folder` だけは `ROOT` 親にする。
   playlist entry の行単位編集保存も、LR2 連携モードで出力先が設定されている場合は owning table の `.lr2folder` projection を再出力し、
   `folder` row を同じ scope で pruning する。`is_root_folder` の一括変更は旧出力先 directory を変更前に捕捉し、
   commit と同じ operation 内で旧 directory row を prune してから新出力先を生成する。
@@ -1616,6 +1627,12 @@ existence / mtime は意味的に揃える。
   `Needed` / `Failed` / `Incomplete` / `Cancelled` を startup progress 外でも persistent warning として表示する。
   `Running` は startup progress が表示中なら既存 startup progress を正本にし、startup progress 外では設定保存後の
   background backfill などを見失わないよう status bar に表示する。`Completed` / `NotNeeded` は status bar では非表示にする。
+- 設定画面の明示導線は `LR2完全生成データを再同期` とする。
+  この操作は current owned BMS と app-managed playlist custom folder projection から LR2 `song` / `folder`
+  派生 cache を再同期するためのもので、`maintenance` 全譜面再スキャンや `chart_info` backfill とは別の機能として表示する。
+  アプリ管理 playlist 出力は `.lr2folder` 実ファイルの有無だけを見ず、`playlist` / `playlist_entry` 正本から
+  `.lr2folder` file と `folder` row を同じ projection で再 materialize する。
+  既存 DB が壊れている場合も、通常 startup diff を重くするのではなく、この明示再同期または full generation backfill で正常化する。
 - 完全生成設定は設定ダイアログの LR2 連携項目として表示する。既定値は LR2 連携モードの標準挙動に合わせて
   `true` とし、OFF から ON に変更して保存した場合は
   `QueueLr2FullGenerationBackfillIfNeeded("SettingDialog.SaveSettings")` を呼んで同じ background workflow に流す。
@@ -1664,7 +1681,7 @@ existence / mtime は意味的に揃える。
   それ以外の source は fixture で確定するまで特殊 type を推測しない。未知 type や reserved normal directory `type = 1`
   は `folder` row にしない。
 - root custom folder 出力先が `LR2files\CustomFolder` 配下と重なる場合は、
-  BeMusicSeeker 管理出力を優先し、absolute path + root parent として扱う。これは出力 workflow の
+  BeMusicSeeker 管理出力を優先し、absolute path と app-managed output hierarchy として扱う。これは出力 workflow の
   scope prune を absolute output directory で完結させるためであり、外部由来の built-in CustomFolder source は
   引き続き LR2 root 相対 path (`LR2files\CustomFolder\...`) として扱う。
 - `song.exlevel` は BMS `#EXLEVEL` の raw integer を正本にし、`#DEFEXRANK` は判定幅計算にだけ使う。

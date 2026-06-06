@@ -731,7 +731,7 @@ public sealed class BmsPlaylistUpdateTests
 
     [TestMethod]
     [TestCategory("Playlist")]
-    public void ReOutputCustomFolderAndCommitToDB_SyncsRootFolderRowsWithRootParent()
+    public void ReOutputCustomFolderAndCommitToDB_SyncsRootOutputRowsUnderTableDirectory()
     {
         bool previousOperationModeLr2Db = Settings.Default.OperationModeLR2DB;
         string previousRootOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDirRootType;
@@ -777,7 +777,12 @@ public sealed class BmsPlaylistUpdateTests
             LR2SongDB.folder folder = verify.Table<LR2SongDB.folder>().Single(row => row.path == outputPath);
             Assert.AreEqual(2, folder.type);
             Assert.AreEqual("Root Folder", folder.title);
-            Assert.AreEqual(Lr2SongFolderParentNormalizer.RootParentHash, folder.parent);
+            Assert.AreEqual(
+                Lr2SongFolderParentNormalizer.ComputeDirectoryHash(Path.GetDirectoryName(outputPath)),
+                folder.parent);
+            LR2SongDB.folder parentFolder = verify.Table<LR2SongDB.folder>().Single(row => row.path == Lr2FolderPath.ToFolderPath(Path.GetDirectoryName(outputPath)));
+            Assert.AreEqual(1, parentFolder.type);
+            Assert.AreEqual(Lr2SongFolderParentNormalizer.RootParentHash, parentFolder.parent);
         }
         finally
         {
@@ -917,7 +922,12 @@ public sealed class BmsPlaylistUpdateTests
             Assert.AreEqual(0, verify.Table<LR2SongDB.folder>().Count(row => row.path == oldParentPath));
             LR2SongDB.folder generated = verify.Table<LR2SongDB.folder>().Single(row => row.path == newPath);
             Assert.AreEqual("Folder A", generated.title);
-            Assert.AreEqual(Lr2SongFolderParentNormalizer.RootParentHash, generated.parent);
+            Assert.AreEqual(
+                Lr2SongFolderParentNormalizer.ComputeDirectoryHash(Path.GetDirectoryName(newPath)),
+                generated.parent);
+            LR2SongDB.folder parentFolder = verify.Table<LR2SongDB.folder>().Single(row => row.path == Lr2FolderPath.ToFolderPath(Path.GetDirectoryName(newPath)));
+            Assert.AreEqual(1, parentFolder.type);
+            Assert.AreEqual(Lr2SongFolderParentNormalizer.RootParentHash, parentFolder.parent);
         }
         finally
         {

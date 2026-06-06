@@ -127,6 +127,8 @@ chart/resource search roots と `.lr2folder` discovery roots は意味が異な�
 
 通常の file diff と LR2 full generation は、入力 surface を共有しても差分の意味を混ぜない。file diff の「差分あり」は owned BMS / bmson 実ファイルの追加・削除・mtime / hash 変更を正本にし、LR2 `folder` table の incomplete / stale / expected row 欠落だけで通常 file diff を重くしない。LR2 normal folder の全件再同期、startup-scan blocker cleanup、expected set 外 row pruning は full generation backfill / cleanup stage の責務である。file diff 中に LR2 `folder` row を更新する必要がある場合も、変更 path と prune scope に基づく scoped sync を使い、既存 `folder` row も生成対象と prune scope だけを読む。差分 0 件や完全生成未完了 status だけで全件 normal folder sync を走らせない。
 
+アプリ管理 playlist の custom folder 出力は、playlist 正本から `.lr2folder` file と LR2 `folder` row を同じ操作で materialize する。起動時 file diff は外部 `.lr2folder` の追加・更新・削除検出を軽量に扱い、アプリ管理 playlist の欠落 row を毎回全検査しない。既存 DB の playlist/custom folder 派生 row を明示的に直す場合は、設定画面の `LR2 song.db 完全生成データを再同期` 導線または full generation backfill で行う。
+
 resource index は chart-relative resource key を正本にする。`foo.wav` は `foo`、`sound/foo.wav` は `sound/foo` として扱い、旧 basename-only matching は使わない。native bridge / managed fallback scan は audio / image / movie のカテゴリ別 index とカテゴリ別 reverse lookup だけを作り、旧 all-resource surface は保持しない。folder-level hash が必要な箇所ではカテゴリ union をその場で派生する。
 
 通常の native scan path では `LibraryResourceIndex` を native decoded arrays から直接構築し、`ChartScanResult` の resource dictionaries は materialize しない。`ChartScanResult` は file diff に必要な chart path / chart directory の carrier として使い、managed fallback scan とテスト用 merge path だけが resource dictionaries を持つ。

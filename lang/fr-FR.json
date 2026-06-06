@@ -54,6 +54,8 @@
   "Lr2_full_generation_status_failed": "La generation complete de LR2 song.db a echoue",
   "Lr2_full_generation_status_incomplete": "La generation complete de LR2 song.db est incomplete",
   "Lr2_full_generation_retry": "Reessayer",
+  "Lr2_full_generation_data_resync": "Resynchroniser les donnees de generation complete LR2 song.db",
+  "Lr2_full_generation_data_resync_tooltip": "Resynchronise les donnees LR2 song/folder depuis les charts possedes et les playlists actuelles. Ne relance pas maintenance ni chart_info.",
   "Lr2_full_generation_cleanup_startup_scan_blockers": "Supprimer les lignes DB folder LR2 et reessayer",
   "Msg_confirm_lr2_full_generation_startup_scan_blocker_cleanup": "Les anciennes lignes de dossier qui empechent la generation complete de LR2 song.db seront supprimees avant la nouvelle tentative.\nSeules les lignes de la table folder LR2 diagnostiquees sont supprimees. Les fichiers de chart et les fichiers .lr2folder ne sont pas supprimes.\n\nContinuer?",
   "Msg_failed_remove_playlist_entry": "Failed to remove the song from the playlist.\nThe playlist is set to the external synchronization mode.",

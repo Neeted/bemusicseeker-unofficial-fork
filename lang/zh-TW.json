@@ -54,6 +54,8 @@
   "Lr2_full_generation_status_failed": "完整產生 LR2 song.db 失敗",
   "Lr2_full_generation_status_incomplete": "LR2 song.db 完整產生未完成",
   "Lr2_full_generation_retry": "重試",
+  "Lr2_full_generation_data_resync": "重新同步 LR2 song.db 完整產生資料",
+  "Lr2_full_generation_data_resync_tooltip": "根據目前已持有譜面與播放清單重新同步 LR2 song/folder 衍生資料。不會重新掃描 maintenance 或 chart_info。",
   "Lr2_full_generation_cleanup_startup_scan_blockers": "刪除 LR2 folder DB 行後重試",
   "Msg_confirm_lr2_full_generation_startup_scan_blocker_cleanup": "將刪除阻止 LR2 song.db 完整產生完成的舊 folder 行，然後重試。\n只會刪除診斷出的 LR2 folder 表格行，不會刪除譜面檔案或 .lr2folder 檔案。\n\n要繼續嗎?",
   "Msg_failed_remove_playlist_entry": "無法從播放清單移除譜面。\n該播放清單已設定為外部同步模式。",

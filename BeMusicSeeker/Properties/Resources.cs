@@ -399,6 +399,10 @@ public class Resources
 
     public static string Lr2_full_generation_retry => ResourceManager.GetString("Lr2_full_generation_retry", resourceCulture);
 
+    public static string Lr2_full_generation_data_resync => ResourceManager.GetString("Lr2_full_generation_data_resync", resourceCulture);
+
+    public static string Lr2_full_generation_data_resync_tooltip => ResourceManager.GetString("Lr2_full_generation_data_resync_tooltip", resourceCulture);
+
     public static string Lr2_full_generation_cleanup_startup_scan_blockers => ResourceManager.GetString("Lr2_full_generation_cleanup_startup_scan_blockers", resourceCulture);
 
     public static string Msg_confirm_lr2_full_generation_startup_scan_blocker_cleanup => ResourceManager.GetString("Msg_confirm_lr2_full_generation_startup_scan_blocker_cleanup", resourceCulture);

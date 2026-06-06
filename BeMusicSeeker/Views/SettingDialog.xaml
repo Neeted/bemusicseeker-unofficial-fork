@@ -171,7 +171,10 @@
                       </DockPanel>
                     </Grid>
                     <RadioButton Name="radioButtonUseLR2" Height="20" GroupName="Operation Mode" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Use_LR2_DB, Mode=OneWay}" IsChecked="{Binding settingDialog.OperationModeLR2DB}" />
-                    <CheckBox Height="20" Margin="16,0,0,4" IsEnabled="{Binding IsChecked, ElementName=radioButtonUseLR2}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Enable_lr2_song_db_full_generation, Mode=OneWay}" IsChecked="{Binding settingDialog.EnableLR2SongDbFullGeneration}" />
+                    <CheckBox Name="checkBoxEnableLr2SongDbFullGeneration" Height="20" Margin="16,0,0,4" IsEnabled="{Binding IsChecked, ElementName=radioButtonUseLR2}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Enable_lr2_song_db_full_generation, Mode=OneWay}" IsChecked="{Binding settingDialog.EnableLR2SongDbFullGeneration}" />
+                    <DockPanel Margin="32,0,0,4" LastChildFill="False" IsEnabled="{qc:Binding '$P0 &amp;&amp; $P1', P0={Binding IsChecked, ElementName=radioButtonUseLR2}, P1={Binding IsChecked, ElementName=checkBoxEnableLr2SongDbFullGeneration}}">
+                      <Button Width="190" Height="24" DockPanel.Dock="Left" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Lr2_full_generation_data_resync, Mode=OneWay}" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Lr2_full_generation_data_resync_tooltip, Mode=OneWay}" Click="resyncLr2FullGenerationDataButtonClicked" />
+                    </DockPanel>
                     <DockPanel LastChildFill="False">
                       <Button Width="75" DockPanel.Dock="Right" Height="24" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Browse, Mode=OneWay}">
                         <i:Interaction.Triggers>

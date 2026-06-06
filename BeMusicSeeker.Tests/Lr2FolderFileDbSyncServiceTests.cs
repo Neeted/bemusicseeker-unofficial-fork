@@ -455,6 +455,108 @@ public sealed class Lr2FolderFileDbSyncServiceTests
         });
     }
 
+    [TestMethod]
+    public void Sync_GeneratesRootOutputDirectoryRowWithoutPruningSiblingTables()
+    {
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            using var songDb = new LR2SongDBExtended(songDbPath);
+            songDb.CreateTable<LR2SongDB.folder>();
+            string baseDirectory = Path.Combine(Path.GetDirectoryName(songDbPath), "ROOT");
+            string tableDirectory = Path.Combine(baseDirectory, "Table");
+            string siblingDirectory = Path.Combine(baseDirectory, "Sibling");
+            Directory.CreateDirectory(tableDirectory);
+            Directory.CreateDirectory(siblingDirectory);
+            string filePath = Path.Combine(tableDirectory, "0000.lr2folder");
+            string siblingFolderPath = Lr2FolderPath.ToFolderPath(siblingDirectory);
+            DateTime timestamp = new(2026, 6, 10, 1, 2, 3, DateTimeKind.Utc);
+            songDb.InsertOrReplace(new LR2SongDB.folder
+            {
+                path = siblingFolderPath,
+                title = "Sibling",
+                type = 1,
+                parent = Lr2SongFolderParentNormalizer.RootParentHash,
+                date = timestamp.ToUnixtime()
+            }, typeof(LR2SongDB.folder));
+
+            Lr2FolderFileDbSyncResult result = Lr2FolderFileDbSyncService.Sync(songDb, new Lr2FolderFileDbSyncRequest
+            {
+                Items =
+                [
+                    new Lr2FolderFileSyncItem
+                    {
+                        FilePath = filePath,
+                        LastWriteTimeUtc = timestamp,
+                        Definition = Lr2FolderFileProjection.ParseDefinition(["#TITLE Level Folder"])
+                    }
+                ],
+                ScopeDirectories = [tableDirectory],
+                DirectoryRowScopeDirectories = [tableDirectory],
+                DirectoryRowGenerationScopeDirectories = [baseDirectory],
+                AllowPrune = true
+            });
+
+            Assert.AreEqual(2, result.UpsertedCount);
+            Assert.AreEqual(0, result.DeletedCount);
+            LR2SongDB.folder parentRow = songDb.Table<LR2SongDB.folder>().Single(row => row.path == Lr2FolderPath.ToFolderPath(tableDirectory));
+            Assert.AreEqual(1, parentRow.type);
+            Assert.AreEqual("Table", parentRow.title);
+            Assert.AreEqual(Lr2SongFolderParentNormalizer.RootParentHash, parentRow.parent);
+            LR2SongDB.folder childRow = songDb.Table<LR2SongDB.folder>().Single(row => row.path == filePath);
+            Assert.AreEqual(2, childRow.type);
+            Assert.AreEqual(Lr2SongFolderParentNormalizer.ComputeDirectoryHash(tableDirectory), childRow.parent);
+            Assert.AreEqual(1, songDb.Table<LR2SongDB.folder>().Count(row => row.path == siblingFolderPath));
+        });
+    }
+
+    [TestMethod]
+    public void Sync_PreserveExistingChildStillCreatesMissingParentDirectoryRow()
+    {
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            using var songDb = new LR2SongDBExtended(songDbPath);
+            songDb.CreateTable<LR2SongDB.folder>();
+            string baseDirectory = Path.Combine(Path.GetDirectoryName(songDbPath), "ROOT");
+            string tableDirectory = Path.Combine(baseDirectory, "Table");
+            Directory.CreateDirectory(tableDirectory);
+            string filePath = Path.Combine(tableDirectory, "0000.lr2folder");
+            DateTime timestamp = new(2026, 6, 10, 1, 2, 3, DateTimeKind.Utc);
+            songDb.InsertOrReplace(new LR2SongDB.folder
+            {
+                path = filePath,
+                title = "Preserved",
+                type = 2,
+                parent = Lr2SongFolderParentNormalizer.ComputeDirectoryHash(tableDirectory),
+                date = timestamp.ToUnixtime()
+            }, typeof(LR2SongDB.folder));
+
+            Lr2FolderFileDbSyncResult result = Lr2FolderFileDbSyncService.Sync(songDb, new Lr2FolderFileDbSyncRequest
+            {
+                Items =
+                [
+                    new Lr2FolderFileSyncItem
+                    {
+                        FilePath = filePath,
+                        LastWriteTimeUtc = timestamp,
+                        PreserveExistingRowOnly = true
+                    }
+                ],
+                ScopeDirectories = [tableDirectory],
+                ScopePaths = [filePath],
+                DirectoryRowScopeDirectories = [tableDirectory],
+                DirectoryRowGenerationScopeDirectories = [baseDirectory],
+                AllowPrune = true
+            });
+
+            Assert.AreEqual(1, result.PreservedCount);
+            Assert.AreEqual(1, result.UpsertedCount);
+            LR2SongDB.folder parentRow = songDb.Table<LR2SongDB.folder>().Single(row => row.path == Lr2FolderPath.ToFolderPath(tableDirectory));
+            Assert.AreEqual(1, parentRow.type);
+            Assert.AreEqual(Lr2SongFolderParentNormalizer.RootParentHash, parentRow.parent);
+            Assert.AreEqual(1, songDb.Table<LR2SongDB.folder>().Count(row => row.path == filePath));
+        });
+    }
+
     private static void WithTemporarySongDb(Action<string> testAction)
     {
         string tempDirectory = Path.Combine(Path.GetTempPath(), nameof(Lr2FolderFileDbSyncServiceTests), Guid.NewGuid().ToString("N"));

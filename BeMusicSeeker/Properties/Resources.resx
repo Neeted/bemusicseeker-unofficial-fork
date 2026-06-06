@@ -1381,6 +1381,12 @@ BMSファイルが重複しないようにマージします。
   <data name="Lr2_full_generation_retry" xml:space="preserve">
     <value>再試行</value>
   </data>
+  <data name="Lr2_full_generation_data_resync" xml:space="preserve">
+    <value>LR2完全生成データを再同期</value>
+  </data>
+  <data name="Lr2_full_generation_data_resync_tooltip" xml:space="preserve">
+    <value>現在の所持譜面とプレイリストから LR2 の song / folder 派生データを再同期します。maintenance や chart_info の再スキャンではありません。</value>
+  </data>
   <data name="Lr2_full_generation_cleanup_startup_scan_blockers" xml:space="preserve">
     <value>LR2 folder DB行を削除して再試行</value>
   </data>

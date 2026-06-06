@@ -34,6 +34,8 @@ internal sealed class Lr2FolderFileDbSyncRequest
 
     public IReadOnlyCollection<string> DirectoryRowScopeDirectories { get; set; } = [];
 
+    public IReadOnlyCollection<string> DirectoryRowGenerationScopeDirectories { get; set; } = [];
+
     public IReadOnlyCollection<string> ScopePaths { get; set; } = [];
 
     public DateTime GeneratedAtUtc { get; set; } = DateTime.UtcNow;
@@ -96,6 +98,10 @@ internal static class Lr2FolderFileDbSyncService
         int preservedCount = 0;
         int skippedUnsupportedPathCount = 0;
         int skippedMissingMetadataCount = 0;
+        IReadOnlyCollection<string> directoryRowGenerationScopeDirectories =
+            request.DirectoryRowGenerationScopeDirectories?.Count > 0
+                ? request.DirectoryRowGenerationScopeDirectories
+                : request.DirectoryRowScopeDirectories;
 
         foreach (Lr2FolderFileSyncItem item in request.Items ?? [])
         {
@@ -121,12 +127,15 @@ internal static class Lr2FolderFileDbSyncService
             {
                 preservedCount++;
                 generatedPathsByKey[databasePath] = databasePath;
-                MarkParentDirectoryTargetsAsGenerated(
+                UpsertParentDirectoryRows(
                     item,
                     databasePath,
-                    request.DirectoryRowScopeDirectories,
+                    directoryRowGenerationScopeDirectories,
+                    existingRowsByPath,
+                    request.GeneratedAtUtc,
                     generatedPathsByKey,
-                    generatedParentDirectoryKeys);
+                    generatedParentDirectoryKeys,
+                    upsertRows);
                 continue;
             }
 
@@ -166,32 +175,15 @@ internal static class Lr2FolderFileDbSyncService
                 upsertRows.Add(row);
             }
 
-            foreach (ParentDirectoryRowTarget parentTarget in CreateParentDirectoryRowTargets(
+            UpsertParentDirectoryRows(
                 item,
                 databasePath,
-                request.DirectoryRowScopeDirectories))
-            {
-                if (!generatedParentDirectoryKeys.Add(parentTarget.DatabaseDirectory)
-                    || !TryCreateParentDirectoryRow(
-                        parentTarget.DatabaseDirectory,
-                        parentTarget.PhysicalDirectory,
-                        request.DirectoryRowScopeDirectories,
-                        existingRowsByPath,
-                        request.GeneratedAtUtc,
-                        out LR2SongDB.folder parentRow))
-                {
-                    continue;
-                }
-
-                generatedPathsByKey[parentRow.path] = parentRow.path;
-                LR2SongDB.folder existingParentRow = existingRowsByPath.TryGetValue(parentRow.path, out LR2SongDB.folder existingParent)
-                    ? existingParent
-                    : null;
-                if (!AreEquivalent(parentRow, existingParentRow))
-                {
-                    upsertRows.Add(parentRow);
-                }
-            }
+                directoryRowGenerationScopeDirectories,
+                existingRowsByPath,
+                request.GeneratedAtUtc,
+                generatedPathsByKey,
+                generatedParentDirectoryKeys,
+                upsertRows);
         }
 
         List<string> deletePaths = [.. replaceDeletePaths];
@@ -224,12 +216,15 @@ internal static class Lr2FolderFileDbSyncService
             stopwatch.ElapsedMilliseconds);
     }
 
-    private static void MarkParentDirectoryTargetsAsGenerated(
+    private static void UpsertParentDirectoryRows(
         Lr2FolderFileSyncItem item,
         string databasePath,
         IEnumerable<string> directoryRowScopeDirectories,
+        IReadOnlyDictionary<string, LR2SongDB.folder> existingRowsByPath,
+        DateTime generatedAtUtc,
         IDictionary<string, string> generatedPathsByKey,
-        ISet<string> generatedParentDirectoryKeys)
+        ISet<string> generatedParentDirectoryKeys,
+        IList<LR2SongDB.folder> upsertRows)
     {
         foreach (ParentDirectoryRowTarget parentTarget in CreateParentDirectoryRowTargets(
             item,
@@ -237,12 +232,25 @@ internal static class Lr2FolderFileDbSyncService
             directoryRowScopeDirectories))
         {
             if (!generatedParentDirectoryKeys.Add(parentTarget.DatabaseDirectory)
-                || !TryCreateDirectoryRowPath(parentTarget.DatabaseDirectory, out string rowPath, out _)
-                || string.IsNullOrWhiteSpace(rowPath))
+                || !TryCreateParentDirectoryRow(
+                    parentTarget.DatabaseDirectory,
+                    parentTarget.PhysicalDirectory,
+                    directoryRowScopeDirectories,
+                    existingRowsByPath,
+                    generatedAtUtc,
+                    out LR2SongDB.folder parentRow))
             {
                 continue;
             }
-            generatedPathsByKey[rowPath] = rowPath;
+
+            generatedPathsByKey[parentRow.path] = parentRow.path;
+            LR2SongDB.folder existingParentRow = existingRowsByPath.TryGetValue(parentRow.path, out LR2SongDB.folder existingParent)
+                ? existingParent
+                : null;
+            if (!AreEquivalent(parentRow, existingParentRow))
+            {
+                upsertRows.Add(parentRow);
+            }
         }
     }
 

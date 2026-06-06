@@ -2695,6 +2695,32 @@ public partial class BMSPlaylist : NotificationObject
         }
     }
 
+    internal int ReOutputAllCustomFoldersForLr2FullGenerationDataSync(string reason)
+    {
+        if (!Settings.Default.OperationModeLR2DB)
+        {
+            return 0;
+        }
+        List<BMSTable> tablesSnapshot = BMSTables == null
+            ? []
+            : [.. BMSTables.Where(table => table != null && !string.IsNullOrWhiteSpace(table.Output_dir))];
+        int reOutputCount = 0;
+        var stopwatch = Stopwatch.StartNew();
+        foreach (BMSTable table in tablesSnapshot)
+        {
+            EnsurePlaylistEntriesLoaded(table, "ReOutputAllCustomFoldersForLr2FullGenerationDataSync");
+            ReOutputCustomFolder(table);
+            reOutputCount++;
+        }
+        stopwatch.Stop();
+        LogPlaylistPerformance("playlist_lr2_full_generation_data_resync"
+            + " reason=" + (reason ?? "unknown")
+            + " tableCount=" + tablesSnapshot.Count
+            + " reOutputCount=" + reOutputCount
+            + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
+        return reOutputCount;
+    }
+
     private void reOutputCustomFolderFiles(BMSTable bmsTable)
     {
         string customFolderOutputDirectory = GetCustomFolderOutputDirectory(bmsTable);
@@ -2891,9 +2917,30 @@ public partial class BMSPlaylist : NotificationObject
                 Items = items ?? [],
                 ScopeDirectories = [outputDir],
                 DirectoryRowScopeDirectories = [outputDir],
+                DirectoryRowGenerationScopeDirectories = CreateCustomFolderDirectoryRowGenerationScopes(outputDir),
                 AllowPrune = true
             });
         });
+    }
+
+    private static IReadOnlyCollection<string> CreateCustomFolderDirectoryRowGenerationScopes(string outputDir)
+    {
+        if (string.IsNullOrWhiteSpace(outputDir))
+        {
+            return [];
+        }
+        try
+        {
+            string normalizedOutputDir = Lr2FolderPath.NormalizeDirectoryPath(outputDir);
+            string baseDirectory = Path.GetDirectoryName(normalizedOutputDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+            return string.IsNullOrWhiteSpace(baseDirectory)
+                ? [normalizedOutputDir]
+                : [Lr2FolderPath.NormalizeDirectoryPath(baseDirectory)];
+        }
+        catch (Exception ex) when (ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException)
+        {
+            return [outputDir];
+        }
     }
 
     private void SyncCustomFolderRowsByPaths(

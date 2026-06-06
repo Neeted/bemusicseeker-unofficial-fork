@@ -266,6 +266,79 @@ public sealed class Lr2FolderFileProjectionTests
         Assert.AreEqual(Lr2SongFolderParentNormalizer.RootParentHash, classification.ParentHash);
     }
 
+    [TestMethod]
+    public void SourceClassifier_DoesNotFlattenNestedRootCustomOutputFolders()
+    {
+        string rootOutput = Path.GetFullPath(@"D:\BMS\ROOT");
+        string tableDirectory = Path.Combine(rootOutput, "Table");
+        string filePath = Path.Combine(tableDirectory, "0000.lr2folder");
+
+        Lr2FolderFileSourceClassification classification = Lr2FolderFileSourceClassifier.Classify(new Lr2FolderFileSourceClassificationRequest
+        {
+            FilePath = filePath,
+            RootCustomFolderOutputBaseDir = rootOutput
+        });
+
+        Assert.AreEqual(filePath, classification.DatabasePath);
+        Assert.AreEqual(2, classification.FolderType);
+        Assert.IsNull(classification.ParentHash);
+
+        bool created = Lr2FolderFileProjection.TryCreateFolderRow(new Lr2FolderFileRowRequest
+        {
+            FilePath = filePath,
+            DatabasePath = classification.DatabasePath,
+            LastWriteTimeUtc = new DateTime(2026, 6, 9, 1, 2, 3, DateTimeKind.Utc),
+            ParentHash = classification.ParentHash,
+            Definition = Lr2FolderFileProjection.ParseDefinition(["#TITLE Table Child"])
+        }, out LR2SongDB.folder row);
+
+        Assert.IsTrue(created);
+        Assert.AreEqual(Lr2SongFolderParentNormalizer.ComputeDirectoryHash(tableDirectory), row.parent);
+    }
+
+    [TestMethod]
+    public void CreateLr2FolderFileSyncItems_DoesNotPreserveExistingRowWhenParentDiffers()
+    {
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "Lr2FolderFileProjectionTests", Guid.NewGuid().ToString("N"));
+        string rootOutput = Path.Combine(tempDirectory, "ROOT");
+        string tableDirectory = Path.Combine(rootOutput, "Table");
+        Directory.CreateDirectory(tableDirectory);
+        string filePath = Path.Combine(tableDirectory, "0000.lr2folder");
+        DateTime lastWriteTimeUtc = new DateTime(2026, 6, 9, 1, 2, 3, DateTimeKind.Utc);
+        try
+        {
+            File.WriteAllText(filePath, "#TITLE Table Child");
+            File.SetLastWriteTimeUtc(filePath, lastWriteTimeUtc);
+            var request = new Lr2FullGenerationBackfillRequest
+            {
+                Lr2RootCustomFolderOutputBaseDir = rootOutput
+            };
+
+            Lr2FullGenerationBackfillService.Lr2FolderFileSyncItemsResult result =
+                Lr2FullGenerationBackfillService.CreateLr2FolderFileSyncItems(
+                    [filePath],
+                    request,
+                    existingRowResolver: path => new LR2SongDB.folder
+                    {
+                        path = path,
+                        type = 2,
+                        parent = Lr2SongFolderParentNormalizer.RootParentHash,
+                        date = lastWriteTimeUtc.ToUnixtime()
+                    });
+
+            Lr2FolderFileSyncItem item = result.Items.Single();
+            Assert.IsFalse(item.PreserveExistingRowOnly);
+            Assert.IsNotNull(item.Definition);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
     [DataTestMethod]
     [DataRow(@"LR2files\CustomFolder\favorite.lr2folder", 2)]
     [DataRow(@"LR2files\CustomFolder\TOP10.lr2folder", 2)]

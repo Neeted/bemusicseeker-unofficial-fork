@@ -141,6 +141,32 @@ public partial class SettingDialog : UserControl, IComponentConnector
         }
     }
 
+    private async void resyncLr2FullGenerationDataButtonClicked(object sender, RoutedEventArgs e)
+    {
+        if (base.DataContext is not MainWindowViewModel viewModel)
+        {
+            return;
+        }
+        if (viewModel.IsLibraryOperationInProgress)
+        {
+            DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_settings_apply_blocked_during_initialization, BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation);
+            return;
+        }
+        settingDialogRootGrid.IsEnabled = false;
+        try
+        {
+            await Task.Run(viewModel.ResyncLr2FullGenerationData).Logging("resyncLr2FullGenerationDataButtonClicked");
+        }
+        catch (Exception ex)
+        {
+            DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + Environment.NewLine + ex.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxButton.OK, MessageBoxImage.Hand);
+        }
+        finally
+        {
+            settingDialogRootGrid.IsEnabled = true;
+        }
+    }
+
     private async void detailTabItemBackupButtonClicked(object sender, RoutedEventArgs e)
     {
         if (base.DataContext is not MainWindowViewModel viewModel || viewModel.BMSTables == null)
