@@ -5166,6 +5166,11 @@ completeFileEnumerationOnce,
             return;
         }
 
+        List<string> lr2FolderDiscoveryDirectories = CreateLr2FullGenerationLr2FolderDiscoveryDirectories(roots);
+        Lr2FolderFileCandidateSnapshot lr2FolderFileCandidates = CreateLr2FullGenerationLr2FolderFileCandidates(
+            lr2FolderDiscoveryDirectories,
+            Settings.Default.LR2RootPath,
+            CreateCurrentLr2BuiltinCustomFolderSettings(DateTime.UtcNow));
         Lr2FullGenerationScanSurfaceSnapshot snapshot;
         lock (lockLr2FullGenerationScanSurface)
         {
@@ -5180,6 +5185,10 @@ completeFileEnumerationOnce,
                 fileCheckResult.Lr2ScanFolderInfoFilePaths,
                 fileCheckResult.Lr2ScanFolderInfoFileEntries,
                 fileCheckResult.Lr2ScanTextFileDirectories,
+                lr2FolderDiscoveryDirectories,
+                lr2FolderFileCandidates.Paths,
+                lr2FolderFileCandidates.EntriesByPath,
+                lr2FolderFileCandidates.DiscoveryComplete,
                 OwnedChartCollectionVersion,
                 Volatile.Read(ref bmsStorageRowsVersion),
                 Volatile.Read(ref bmsonStorageRowsVersion));
@@ -5190,6 +5199,9 @@ completeFileEnumerationOnce,
             + " roots=" + snapshot.RootDirectories.Count
             + " normalFolderDirs=" + snapshot.NormalFolderDirectoryPaths.Count
             + " folderInfoCandidates=" + snapshot.FolderInfoFilePaths.Count
+            + " lr2FolderDiscoveryRoots=" + snapshot.Lr2FolderDiscoveryDirectories.Count
+            + " lr2FolderCandidates=" + snapshot.Lr2FolderFilePaths.Count
+            + " lr2FolderDiscoveryComplete=" + snapshot.Lr2FolderFileDiscoveryComplete.ToString().ToLowerInvariant()
             + " textFileDirs=" + snapshot.TextFileDirectories.Count
             + " ownedCollectionVersion=" + snapshot.OwnedCollectionVersion
             + " bmsRowsVersion=" + snapshot.BmsRowsVersion
@@ -5198,6 +5210,7 @@ completeFileEnumerationOnce,
 
     private Lr2FullGenerationScanSurfaceSnapshot GetCurrentLr2FullGenerationScanSurface(
         IEnumerable<string> rootDirectories,
+        IEnumerable<string> lr2FolderDiscoveryDirectories,
         int ownedCollectionVersion,
         StorageRowsVersionSnapshot storageRowsVersion)
     {
@@ -5210,7 +5223,8 @@ completeFileEnumerationOnce,
             || snapshot.OwnedCollectionVersion != ownedCollectionVersion
             || snapshot.BmsRowsVersion != storageRowsVersion.BmsRowsVersion
             || snapshot.BmsonRowsVersion != storageRowsVersion.BmsonRowsVersion
-            || !ArePathSetsEqual(snapshot.RootDirectories, rootDirectories))
+            || !ArePathSetsEqual(snapshot.RootDirectories, rootDirectories)
+            || !ArePathSetsEqual(snapshot.Lr2FolderDiscoveryDirectories, lr2FolderDiscoveryDirectories))
         {
             return null;
         }
@@ -5234,7 +5248,8 @@ completeFileEnumerationOnce,
             && snapshot.OwnedCollectionVersion == input.OwnedChartCollectionVersion
             && snapshot.BmsRowsVersion == input.BmsRowsVersion
             && snapshot.BmsonRowsVersion == input.BmsonRowsVersion
-            && ArePathSetsEqual(snapshot.RootDirectories, input.RootDirectories);
+            && ArePathSetsEqual(snapshot.RootDirectories, input.RootDirectories)
+            && ArePathSetsEqual(snapshot.Lr2FolderDiscoveryDirectories, input.Lr2FolderDiscoveryDirectories);
     }
 
     private void RunChartDigestBackfill()
@@ -5949,15 +5964,21 @@ completeFileEnumerationOnce,
             lr2BuiltinFolderSourceDirectories);
         Lr2FullGenerationScanSurfaceSnapshot scanSurface = GetCurrentLr2FullGenerationScanSurface(
             roots,
+            lr2FolderDiscoveryDirectories,
             ownedCollectionVersion,
             storageRowsVersion);
         IReadOnlyCollection<string> directoryMetadataTargets = scanSurface?.NormalFolderDirectoryPaths?.Count > 0
             ? scanSurface.NormalFolderDirectoryPaths
             : Lr2NormalFolderDbSyncService.CreateDirectoryMetadataTargets(roots, chartPaths);
-        Lr2FolderFileCandidateSnapshot lr2FolderFileCandidates = CreateLr2FullGenerationLr2FolderFileCandidates(
-            lr2FolderDiscoveryDirectories,
-            lr2RootPath,
-            builtinCustomFolderSettings);
+        Lr2FolderFileCandidateSnapshot lr2FolderFileCandidates = scanSurface != null
+            ? new Lr2FolderFileCandidateSnapshot(
+                scanSurface.Lr2FolderFilePaths,
+                scanSurface.Lr2FolderFileEntries,
+                scanSurface.Lr2FolderFileDiscoveryComplete)
+            : CreateLr2FullGenerationLr2FolderFileCandidates(
+                lr2FolderDiscoveryDirectories,
+                lr2RootPath,
+                builtinCustomFolderSettings);
         Lr2FolderInfoCandidateSnapshot folderInfoCandidates = scanSurface != null
             ? Lr2FolderInfoCandidateEnumerationService.CreateSnapshotFromSurface(
                 scanSurface.FolderInfoFilePaths,
@@ -5980,6 +6001,8 @@ completeFileEnumerationOnce,
             + " directoryEntries=" + directoryEntries.Count
             + " directoryEntriesMs=" + directoryEntriesStopwatch.ElapsedMilliseconds
             + " folderInfoCandidates=" + folderInfoCandidates.Paths.Count
+            + " lr2FolderCandidates=" + lr2FolderFileCandidates.Paths.Count
+            + " lr2FolderDiscoveryComplete=" + lr2FolderFileCandidates.DiscoveryComplete.ToString().ToLowerInvariant()
             + " textFileDirs=" + textFileDirectories.Count);
         return new Lr2FullGenerationBackfillInput(
             roots,
@@ -6598,6 +6621,10 @@ completeFileEnumerationOnce,
         IReadOnlyList<string> folderInfoFilePaths,
         IReadOnlyDictionary<string, RootFileEnumerationEntry> folderInfoFileEntries,
         IReadOnlyList<string> textFileDirectories,
+        IReadOnlyList<string> lr2FolderDiscoveryDirectories,
+        IReadOnlyList<string> lr2FolderFilePaths,
+        IReadOnlyDictionary<string, RootFileEnumerationEntry> lr2FolderFileEntries,
+        bool lr2FolderFileDiscoveryComplete,
         int ownedCollectionVersion,
         int bmsRowsVersion,
         int bmsonRowsVersion)
@@ -6614,6 +6641,15 @@ completeFileEnumerationOnce,
             folderInfoFileEntries ?? new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
 
         public IReadOnlyList<string> TextFileDirectories { get; } = textFileDirectories ?? [];
+
+        public IReadOnlyList<string> Lr2FolderDiscoveryDirectories { get; } = lr2FolderDiscoveryDirectories ?? [];
+
+        public IReadOnlyList<string> Lr2FolderFilePaths { get; } = lr2FolderFilePaths ?? [];
+
+        public IReadOnlyDictionary<string, RootFileEnumerationEntry> Lr2FolderFileEntries { get; } =
+            lr2FolderFileEntries ?? new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
+
+        public bool Lr2FolderFileDiscoveryComplete { get; } = lr2FolderFileDiscoveryComplete;
 
         public int OwnedCollectionVersion { get; } = ownedCollectionVersion;
 
