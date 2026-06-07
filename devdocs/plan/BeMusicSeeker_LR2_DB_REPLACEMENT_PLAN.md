@@ -1635,8 +1635,8 @@ Everything / filesystem 広域再スキャンを始める入口ではない。su
      `commitMs` が数秒から数十秒へ膨らんでいる。この状態では file reader / parser pipeline の
      微調整を先に行わず、DB writer の SQL 形状、index、changed-only 判定、transaction 粒度を
      最優先で直す。
-   - writer 改善 cycle では `commitMs` を `songStageMs` / `chartInfoStageMs` / `digestStageMs` /
-     `compatibilityStageMs` / `sqliteCommitMs` / `statusCursorMs` に分解する。性能レビューでは
+   - writer 改善 cycle では `commitMs` とは別に `songStageMs` / `chartInfoStageMs` /
+     `compatibilityStageMs` / `sqliteCommitMs` / post-commit `statusCursorMs` を出す。性能レビューでは
      「どこが重いか」だけでなく、その処理自体が 200k 件級 hot path に入るべきかを確認する。
    - `maintenance` の LR2 compatibility facts は、chunk temp table から全 `maintenance` row へ
      correlated subquery を繰り返す形にしない。`path` indexed lookup と changed-only update /
@@ -1647,9 +1647,12 @@ Everything / filesystem 広域再スキャンを始める入口ではない。su
    - 残作業: full sync では実ファイル由来の一覧へ収束させることを優先し、既存 `song.db` を守るための
      defensive merge を hot path に増やさない。保存する user columns / `adddate` / `favorite` / `tag`
      だけを明示的に snapshot し、generated columns は staging table から set-based に反映する。
-   - 残作業: chunk log は wall time、reader wait、worker wait、queue high watermark、worker aggregate time、
-     commit time、writer sub-step time (`songStageMs`, `digestStageMs`, `compatibilityStageMs`,
-     `statusCursorMs`) を分けて出す。
+   - 完了: chunk log は `readMs` / `parseMs` / `chartInfoApplyMs` / `compatibilityBuildMs` /
+     `commitMs` と writer sub-step time (`songStageMs`, `chartInfoStageMs`, `compatibilityStageMs`,
+     `sqliteCommitMs`, `statusCursorMs`) を分けて出す。
+   - 残作業: stage-level の reader wait、worker wait、queue high watermark は `pipeline_done` に出ているため、
+     必要なら chunk-level の worker aggregate time を追加し、DB writer が支配的か、
+     producer/consumer の詰まりが残っているかを同じ run で判断できるようにする。
    - 残作業: encoding detection / BMS metadata parse 内部の二重走査をなくせるかは、
      writer commit を潰した後に判断する。現ログで commit が支配的な場合、parser 側の最適化は
      次順位とする。
@@ -1668,11 +1671,10 @@ Everything / filesystem 広域再スキャンを始める入口ではない。su
      temp table clear / index maintenance / transaction granularity / status update 頻度が
      200k 件で妥当かを必ず確認する。
    - 次の実装 cycle の具体順:
-     1. `FlushSongRowChunk` の DB write 内訳ログを追加する。
-     2. `maintenance.path` / `song.path` / temp table の collation と index を確認し、必要な index を
+     1. `maintenance.path` / `song.path` / temp table の collation と index を確認し、必要な index を
         schema ensure に寄せる。
-     3. LR2 compatibility facts writer を chunk-scoped indexed update + changed-only insert/update に変える。
-     4. まだ `songStageMs` が支配的なら、`song` generated rows の staging + set-based apply を
+     2. LR2 compatibility facts writer を chunk-scoped indexed update + changed-only insert/update に変える。
+     3. まだ `songStageMs` が支配的なら、`song` generated rows の staging + set-based apply を
         full-sync 専用 writer として再整理する。
 7. final diagnostics / blocker 判定を prune-first に整理する。主要実装済み。
    - `song` / `folder` / `maintenance` は実ファイル由来の一覧 cache として current surface へ収束させる。
