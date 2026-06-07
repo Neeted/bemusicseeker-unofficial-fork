@@ -318,7 +318,9 @@ internal sealed class BmsLibraryInitializationService
         Action<string> logInstallPerformanceWarn = null,
         Action<IReadOnlyList<LR2SongDBExtended.chart_info>> inlineChartInfoRowsCommitted = null,
         IEnumerable<ChartFile> currentInstallDestinationCharts = null,
-        IEnumerable<string> lr2NormalFolderSyncRootDirectories = null)
+        IEnumerable<string> lr2NormalFolderSyncRootDirectories = null,
+        IEnumerable<string> lr2FolderDiscoveryRootDirectories = null,
+        Lr2BuiltinCustomFolderSettings lr2BuiltinCustomFolderSettings = null)
     {
         var result = new SongTableFileCheckResult();
         var stopwatchScan = Stopwatch.StartNew();
@@ -331,13 +333,25 @@ internal sealed class BmsLibraryInitializationService
         {
             scanResult = executeScan?.Invoke();
         }
-        stopwatchScan.Stop();
-        scanCompleted?.Invoke();
         if (scanResult?.Result == null)
         {
+            stopwatchScan.Stop();
+            scanCompleted?.Invoke();
             return result;
         }
         bool bmsFileScanSucceeded = scanResult.Success;
+        if (bmsFileScanSucceeded)
+        {
+            result.Lr2ScanSurfaceAvailable = true;
+            ApplyLr2FolderScanSurface(
+                result,
+                options,
+                lr2FolderDiscoveryRootDirectories,
+                lr2BuiltinCustomFolderSettings,
+                logEverythingScan);
+        }
+        stopwatchScan.Stop();
+        scanCompleted?.Invoke();
         fileDiffStarted?.Invoke();
         ChartScanResult mergedScanResult = scanResult.Result;
         if (executeBmsonScan != null)
@@ -388,7 +402,6 @@ internal sealed class BmsLibraryInitializationService
 
         if (bmsFileScanSucceeded)
         {
-            result.Lr2ScanSurfaceAvailable = true;
             result.Lr2ScanNormalFolderDirectoryPaths = [.. Lr2NormalFolderDbSyncService.CreateDirectoryMetadataTargetsFromDirectories(
                 lr2NormalFolderSyncRootDirectories,
                 mergedScanResult.ChartDirectories ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase))];
@@ -827,6 +840,37 @@ internal sealed class BmsLibraryInitializationService
             + " dirs=" + result.DirectoryCount
             + " prefetched=" + result.PrefetchedScanUsed.ToString().ToLowerInvariant());
         return result;
+    }
+
+    private static void ApplyLr2FolderScanSurface(
+        SongTableFileCheckResult result,
+        BmsLibraryOptionsSnapshot options,
+        IEnumerable<string> rootDirectories,
+        Lr2BuiltinCustomFolderSettings builtinCustomFolderSettings,
+        Action<string> logEverythingScan)
+    {
+        if (result == null
+            || options?.OperationModeLR2DB != true
+            || options.EnableLR2SongDbFullGeneration != true)
+        {
+            return;
+        }
+
+        List<string> lr2FolderDiscoveryDirectories = Lr2FolderFileDiscoveryService.CreateDiscoveryDirectories(
+            rootDirectories,
+            options.LR2CustomFolderOutputBaseDir,
+            options.LR2CustomFolderOutputBaseDirRootType,
+            Lr2FolderFileDiscoveryService.CreateBuiltinFolderSourceDirectories(options.LR2RootPath));
+        Lr2FolderFileCandidateSnapshot candidates = Lr2FolderFileDiscoveryService.CreateFileCandidates(
+            lr2FolderDiscoveryDirectories,
+            options.LR2RootPath,
+            builtinCustomFolderSettings ?? new Lr2BuiltinCustomFolderSettings(0, 24, false),
+            logEverythingScan);
+
+        result.Lr2ScanLr2FolderDiscoveryDirectories = lr2FolderDiscoveryDirectories;
+        result.Lr2ScanLr2FolderFilePaths = candidates.Paths;
+        result.Lr2ScanLr2FolderFileEntries = candidates.EntriesByPath;
+        result.Lr2ScanLr2FolderFileDiscoveryComplete = candidates.DiscoveryComplete;
     }
 
     private static void SyncLr2NormalFoldersIfEnabled(

@@ -5149,8 +5149,9 @@ completeFileEnumerationOnce,
                 committedInlineChartInfoRows.AddRange(rows.Where(row => row != null));
             },
             currentInstallDestinationCharts,
-            bmsDirectories);
-        AttachLr2FolderScanSurface(options, bmsDirectories, fileCheckResult);
+            bmsDirectories,
+            lr2FolderDiscoveryRootDirectories: bmsDirectories,
+            lr2BuiltinCustomFolderSettings: CreateCurrentLr2BuiltinCustomFolderSettings(DateTime.UtcNow));
         ApplyLr2FolderFileDiffSync(options, bmsDirectories, fileCheckResult, reason);
         completeFileEnumerationOnce();
         ApplyLibraryFileScanStorageMutation(fileCheckResult, reason);
@@ -5176,30 +5177,6 @@ completeFileEnumerationOnce,
         fileCheckResult.ReleasePostApplyTransientBuffers();
         LogStartupMemoryCheckpoint("file_diff", "after_release");
         return fileCheckResult;
-    }
-
-    private void AttachLr2FolderScanSurface(
-        BmsLibraryOptionsSnapshot options,
-        IEnumerable<string> rootDirectories,
-        SongTableFileCheckResult fileCheckResult)
-    {
-        if (options?.OperationModeLR2DB != true
-            || options.EnableLR2SongDbFullGeneration != true
-            || fileCheckResult == null
-            || fileCheckResult.Lr2ScanSurfaceAvailable != true)
-        {
-            return;
-        }
-
-        List<string> lr2FolderDiscoveryDirectories = CreateLr2FullGenerationLr2FolderDiscoveryDirectories(rootDirectories);
-        Lr2FolderFileCandidateSnapshot candidates = CreateLr2FullGenerationLr2FolderFileCandidates(
-            lr2FolderDiscoveryDirectories,
-            Settings.Default.LR2RootPath,
-            CreateCurrentLr2BuiltinCustomFolderSettings(DateTime.UtcNow));
-        fileCheckResult.Lr2ScanLr2FolderDiscoveryDirectories = lr2FolderDiscoveryDirectories;
-        fileCheckResult.Lr2ScanLr2FolderFilePaths = candidates.Paths;
-        fileCheckResult.Lr2ScanLr2FolderFileEntries = candidates.EntriesByPath;
-        fileCheckResult.Lr2ScanLr2FolderFileDiscoveryComplete = candidates.DiscoveryComplete;
     }
 
     private void ApplyLr2FolderFileDiffSync(
