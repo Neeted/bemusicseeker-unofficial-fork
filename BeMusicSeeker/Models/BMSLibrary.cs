@@ -5201,6 +5201,8 @@ completeFileEnumerationOnce,
             Lr2FolderPruneDirectories = CreateLr2FullGenerationLr2FolderPruneDirectories(roots, builtinSourceDirectories),
             Lr2FolderFilePaths = fileCheckResult.Lr2ScanLr2FolderFilePaths,
             Lr2FolderFileEntries = fileCheckResult.Lr2ScanLr2FolderFileEntries,
+            FolderInfoFilePaths = fileCheckResult.Lr2ScanFolderInfoFilePaths,
+            FolderInfoFileEntries = fileCheckResult.Lr2ScanFolderInfoFileEntries,
             Lr2FolderFileDiscoveryComplete = fileCheckResult.Lr2ScanLr2FolderFileDiscoveryComplete,
             Lr2RootPath = Settings.Default.LR2RootPath,
             Lr2NormalCustomFolderOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDir,
@@ -5261,6 +5263,8 @@ completeFileEnumerationOnce,
                     request,
                     request.Lr2FolderFileEntries,
                     path => existingRowsByPath.TryGetValue(path, out LR2SongDB.folder row) ? row : null);
+            Lr2FolderDirectoryMetadataSnapshot parentDirectoryMetadata =
+                Lr2FullGenerationSyncService.CreateLr2FolderParentDirectoryMetadataSnapshot(syncItems.Items, request);
             string savepoint = songDb.SaveTransactionPoint();
             Lr2FolderFileDbSyncResult syncResult;
             try
@@ -5272,6 +5276,7 @@ completeFileEnumerationOnce,
                     DirectoryRowScopeDirectories = Lr2FullGenerationSyncService.CreateLr2FolderDirectoryRowScopeDirectories(request),
                     DirectoryRowGenerationScopeDirectories = Lr2FullGenerationSyncService.CreateLr2FolderDirectoryRowGenerationScopeDirectories(request),
                     ScopePaths = request.Lr2FolderFilePaths,
+                    DirectoryMetadataResolver = parentDirectoryMetadata.Resolve,
                     GeneratedAtUtc = DateTime.UtcNow,
                     AllowPrune = request.Lr2FolderFileDiscoveryComplete && !syncItems.HasReadFailures
                 });

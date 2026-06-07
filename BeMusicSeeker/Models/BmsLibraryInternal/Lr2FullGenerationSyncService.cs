@@ -380,12 +380,15 @@ internal static class Lr2FullGenerationSyncService
         if (resumeCursor < lr2FolderEndCursor && lr2FolderDiscoveryDirectories.Count > 0)
         {
             Lr2FolderFileSyncItemsResult syncItems = CreateLr2FolderFileSyncItems(lr2FolderFilePaths, request, lr2FolderFileEntries);
+            Lr2FolderDirectoryMetadataSnapshot lr2FolderParentDirectoryMetadata =
+                CreateLr2FolderParentDirectoryMetadataSnapshot(syncItems.Items, request);
             lr2FolderFileResult = Lr2FolderFileDbSyncService.Sync(songDb, new Lr2FolderFileDbSyncRequest
             {
                 Items = syncItems.Items,
                 ScopeDirectories = lr2FolderPruneDirectories,
                 DirectoryRowScopeDirectories = CreateLr2FolderDirectoryRowScopeDirectories(request),
                 DirectoryRowGenerationScopeDirectories = CreateLr2FolderDirectoryRowGenerationScopeDirectories(request),
+                DirectoryMetadataResolver = lr2FolderParentDirectoryMetadata.Resolve,
                 AllowPrune = lr2FolderPruneDirectories.Count > 0
                     && request.Lr2FolderFileDiscoveryComplete
                     && !syncItems.HasReadFailures,
@@ -540,12 +543,15 @@ internal static class Lr2FullGenerationSyncService
             if (diagnosticResult.MissingExpectedLr2FolderRowCount > 0 && lr2FolderDiscoveryDirectories.Count > 0)
             {
                 Lr2FolderFileSyncItemsResult syncItems = CreateLr2FolderFileSyncItems(lr2FolderFilePaths, request, lr2FolderFileEntries);
+                Lr2FolderDirectoryMetadataSnapshot lr2FolderParentDirectoryMetadata =
+                    CreateLr2FolderParentDirectoryMetadataSnapshot(syncItems.Items, request);
                 Lr2FolderFileDbSyncResult resyncResult = Lr2FolderFileDbSyncService.Sync(songDb, new Lr2FolderFileDbSyncRequest
                 {
                     Items = syncItems.Items,
                     ScopeDirectories = lr2FolderPruneDirectories,
                     DirectoryRowScopeDirectories = CreateLr2FolderDirectoryRowScopeDirectories(request),
                     DirectoryRowGenerationScopeDirectories = CreateLr2FolderDirectoryRowGenerationScopeDirectories(request),
+                    DirectoryMetadataResolver = lr2FolderParentDirectoryMetadata.Resolve,
                     AllowPrune = lr2FolderPruneDirectories.Count > 0
                         && request.Lr2FolderFileDiscoveryComplete
                         && !syncItems.HasReadFailures,
@@ -1009,6 +1015,66 @@ internal static class Lr2FullGenerationSyncService
             }
         }
         return result;
+    }
+
+    internal static Lr2FolderDirectoryMetadataSnapshot CreateLr2FolderParentDirectoryMetadataSnapshot(
+        IReadOnlyCollection<Lr2FolderFileSyncItem> items,
+        Lr2FullGenerationSyncRequest request)
+    {
+        IReadOnlyCollection<string> directoryTargets = Lr2FolderFileDbSyncService.CreateParentDirectoryMetadataTargets(
+            items,
+            CreateLr2FolderDirectoryRowGenerationScopeDirectories(request));
+        IReadOnlyCollection<string> builtinFolderSourceDirectories = ResolveLr2BuiltinFolderSourceDirectories(request);
+        IReadOnlyCollection<string> directoryMetadataSourceDirectories =
+            ResolveLr2FolderDirectoryMetadataSourceDirectories(request, builtinFolderSourceDirectories);
+        Lr2FolderInfoCandidateSnapshot surfaceCandidates = Lr2FolderInfoCandidateEnumerationService.CreateSnapshotFromSurface(
+            request?.FolderInfoFilePaths,
+            request?.FolderInfoFileEntries?.Values,
+            directoryTargets);
+        Lr2FolderInfoCandidateSnapshot builtinCandidates = Lr2FolderInfoCandidateEnumerationService.CreateSnapshotFromTargetDirectories(
+            builtinFolderSourceDirectories,
+            directoryTargets);
+        Dictionary<string, RootFileEnumerationEntry> folderInfoEntriesByPath = MergeEnumerationEntries(
+            surfaceCandidates.EntriesByPath,
+            builtinCandidates.EntriesByPath);
+        Dictionary<string, RootFileEnumerationEntry> directoryEntriesByPath = MergeEnumerationEntries(
+            request?.DirectoryEntries,
+            Lr2FolderDirectoryEnumerationService.CreateEntries(directoryMetadataSourceDirectories, directoryTargets));
+
+        return Lr2FolderDirectoryMetadataBuilder.Build(new Lr2FolderDirectoryMetadataBuildRequest
+        {
+            DirectoryPaths = directoryTargets,
+            FolderInfoFilePaths = [.. (surfaceCandidates.Paths ?? []).Concat(builtinCandidates.Paths ?? [])],
+            FolderInfoFileEntries = folderInfoEntriesByPath,
+            DirectoryLastWriteTimeUtcResolver = CreateLastWriteTimeResolver(directoryEntriesByPath)
+        });
+    }
+
+    private static IReadOnlyCollection<string> ResolveLr2BuiltinFolderSourceDirectories(Lr2FullGenerationSyncRequest request)
+    {
+        List<string> sourceDirectories = [.. (request?.Lr2BuiltinFolderSourceDirectories ?? [])
+            .Where(path => !string.IsNullOrWhiteSpace(path))];
+        if (sourceDirectories.Count > 0)
+        {
+            return sourceDirectories;
+        }
+
+        string lr2Root = NormalizeDirectoryPathOrNull(request?.Lr2RootPath);
+        if (string.IsNullOrWhiteSpace(lr2Root))
+        {
+            return [];
+        }
+        return [Path.Combine(lr2Root, "LR2files", "CustomFolder")];
+    }
+
+    private static IReadOnlyCollection<string> ResolveLr2FolderDirectoryMetadataSourceDirectories(
+        Lr2FullGenerationSyncRequest request,
+        IEnumerable<string> builtinFolderSourceDirectories)
+    {
+        return [.. (request?.Lr2FolderDiscoveryDirectories ?? [])
+            .Concat(builtinFolderSourceDirectories ?? [])
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)];
     }
 
     private static readonly Lr2FolderDirectoryMetadata DiagnosticExpectedFolderMetadata =
@@ -1627,6 +1693,24 @@ internal static class Lr2FullGenerationSyncService
                 continue;
             }
             result[path] = entry ?? new RootFileEnumerationEntry(path);
+        }
+        return result;
+    }
+
+    private static Dictionary<string, RootFileEnumerationEntry> MergeEnumerationEntries(
+        params IReadOnlyDictionary<string, RootFileEnumerationEntry>[] entrySets)
+    {
+        var result = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
+        foreach (IReadOnlyDictionary<string, RootFileEnumerationEntry> entries in entrySets ?? [])
+        {
+            foreach (KeyValuePair<string, RootFileEnumerationEntry> pair in NormalizeEnumerationEntries(entries))
+            {
+                if (!result.TryGetValue(pair.Key, out RootFileEnumerationEntry existing)
+                    || existing.LastWriteTimeUtc == null && pair.Value?.LastWriteTimeUtc != null)
+                {
+                    result[pair.Key] = pair.Value;
+                }
+            }
         }
         return result;
     }

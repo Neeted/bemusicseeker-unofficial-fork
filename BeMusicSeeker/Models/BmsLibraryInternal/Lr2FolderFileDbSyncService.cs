@@ -38,6 +38,8 @@ internal sealed class Lr2FolderFileDbSyncRequest
 
     public IReadOnlyCollection<string> ScopePaths { get; set; } = [];
 
+    public Func<string, Lr2FolderDirectoryMetadata> DirectoryMetadataResolver { get; set; }
+
     public DateTime GeneratedAtUtc { get; set; } = DateTime.UtcNow;
 
     public bool AllowPrune { get; set; }
@@ -135,6 +137,7 @@ internal static class Lr2FolderFileDbSyncService
                     directoryRowGenerationScopeMatcher,
                     existingRowsByPath,
                     request.GeneratedAtUtc,
+                    request.DirectoryMetadataResolver,
                     generatedPathsByKey,
                     generatedParentDirectoryKeys,
                     upsertRows);
@@ -183,6 +186,7 @@ internal static class Lr2FolderFileDbSyncService
                 directoryRowGenerationScopeMatcher,
                 existingRowsByPath,
                 request.GeneratedAtUtc,
+                request.DirectoryMetadataResolver,
                 generatedPathsByKey,
                 generatedParentDirectoryKeys,
                 upsertRows);
@@ -224,6 +228,7 @@ internal static class Lr2FolderFileDbSyncService
         DirectoryScopeMatcher directoryRowScopeMatcher,
         IReadOnlyDictionary<string, LR2SongDB.folder> existingRowsByPath,
         DateTime generatedAtUtc,
+        Func<string, Lr2FolderDirectoryMetadata> directoryMetadataResolver,
         IDictionary<string, string> generatedPathsByKey,
         ISet<string> generatedParentDirectoryKeys,
         IList<LR2SongDB.folder> upsertRows)
@@ -240,6 +245,7 @@ internal static class Lr2FolderFileDbSyncService
                     directoryRowScopeMatcher,
                     existingRowsByPath,
                     generatedAtUtc,
+                    directoryMetadataResolver,
                     out LR2SongDB.folder parentRow))
             {
                 continue;
@@ -353,12 +359,48 @@ internal static class Lr2FolderFileDbSyncService
         return deletePaths;
     }
 
+    internal static IReadOnlyCollection<string> CreateParentDirectoryMetadataTargets(
+        IEnumerable<Lr2FolderFileSyncItem> items,
+        IEnumerable<string> directoryRowGenerationScopeDirectories)
+    {
+        DirectoryScopeMatcher directoryRowGenerationScopeMatcher =
+            DirectoryScopeMatcher.Create(directoryRowGenerationScopeDirectories);
+        var result = new HashSet<string>(PathComparer);
+        foreach (Lr2FolderFileSyncItem item in items ?? [])
+        {
+            if (item == null)
+            {
+                continue;
+            }
+
+            string databasePath = NormalizeFilePath(item.DatabasePath ?? item.FilePath);
+            if (string.IsNullOrWhiteSpace(databasePath))
+            {
+                continue;
+            }
+
+            foreach (ParentDirectoryRowTarget target in CreateParentDirectoryRowTargets(
+                item,
+                databasePath,
+                directoryRowGenerationScopeMatcher))
+            {
+                if (!string.IsNullOrWhiteSpace(target.PhysicalDirectory))
+                {
+                    result.Add(target.PhysicalDirectory);
+                }
+            }
+        }
+
+        return [.. result.OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
+    }
+
     private static bool TryCreateParentDirectoryRow(
         string databaseDirectory,
         string physicalDirectory,
         DirectoryScopeMatcher directoryRowScopeMatcher,
         IReadOnlyDictionary<string, LR2SongDB.folder> existingRowsByPath,
         DateTime generatedAtUtc,
+        Func<string, Lr2FolderDirectoryMetadata> directoryMetadataResolver,
         out LR2SongDB.folder row)
     {
         row = null;
@@ -380,7 +422,16 @@ internal static class Lr2FolderFileDbSyncService
             return false;
         }
 
-        if (!TryResolveDirectoryLastWriteTimeUtc(physicalDirectory, out DateTime lastWriteTimeUtc))
+        bool hasMetadataResolver = directoryMetadataResolver != null;
+        Lr2FolderDirectoryMetadata metadata = ResolveDirectoryMetadata(physicalDirectory, directoryMetadataResolver);
+        DateTime? lastWriteTimeUtc = metadata?.LastWriteTimeUtc;
+        if (!lastWriteTimeUtc.HasValue
+            && !hasMetadataResolver
+            && TryResolveDirectoryLastWriteTimeUtc(physicalDirectory, out DateTime resolvedLastWriteTimeUtc))
+        {
+            lastWriteTimeUtc = resolvedLastWriteTimeUtc;
+        }
+        if (!lastWriteTimeUtc.HasValue)
         {
             return false;
         }
@@ -400,11 +451,13 @@ internal static class Lr2FolderFileDbSyncService
         existingRowsByPath?.TryGetValue(rowPath, out existingRow);
         row = new LR2SongDB.folder
         {
-            title = ResolveDirectoryTitle(databaseDirectory),
+            title = metadata?.HasFolderInfoTitle == true
+                ? metadata.FolderInfoTitle
+                : ResolveDirectoryTitle(databaseDirectory),
             path = rowPath,
             type = isKnownRelativeLr2Directory ? 2 : 1,
             parent = parentHash,
-            date = lastWriteTimeUtc.ToUnixtime(),
+            date = lastWriteTimeUtc.Value.ToUnixtime(),
             adddate = existingRow?.adddate ?? generatedAtUtc.ToUnixtime()
         };
         return true;
@@ -732,6 +785,25 @@ internal static class Lr2FolderFileDbSyncService
         catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException)
         {
             return false;
+        }
+    }
+
+    private static Lr2FolderDirectoryMetadata ResolveDirectoryMetadata(
+        string directoryPath,
+        Func<string, Lr2FolderDirectoryMetadata> resolver)
+    {
+        if (resolver == null || string.IsNullOrWhiteSpace(directoryPath))
+        {
+            return null;
+        }
+
+        try
+        {
+            return resolver(directoryPath);
+        }
+        catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException)
+        {
+            return null;
         }
     }
 

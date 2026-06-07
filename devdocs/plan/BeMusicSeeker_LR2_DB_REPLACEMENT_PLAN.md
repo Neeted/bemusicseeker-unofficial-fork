@@ -1185,7 +1185,7 @@ parse directive:
 | Phase 4: LR2 compatibility warning | 主要実装済み | `Lr2CompatibilityEvaluator`、maintenance 最小 fact、standalone mode での LR2 非対応パス tree 非表示は接続済み。 | warning 表示の実機確認と、copied DB での sync 表示確認を残す。 |
 | Phase 5: `song` row enricher | 主要実装済み | `song_rows` stage は `ChartFileSnapshot` から lightweight parser を再実行し、`Lr2SongRowEnricher` で `date` / `txt` / folder-parent CRC / user column preservation を適用する。missing / stale `chart_info` は同じ snapshot から worker が生成し、`chart_info.judge` を `song.judge` へ流用しない判断は維持する。lightweight parser の `#PLAYLEVEL` / `#DIFFICULTY` / `#RANK` / mode detection は OpenLR2 寄せ済みで、完全生成 / 再同期の prune 後に OpenLR2 `SetUndefinedDifficulty` 相当の DB-wide finalization を行う。 | 実 DB fixture で OpenLR2 生成 DB と `song` numeric columns を比較する。LR2IR / tag.db 由来の exlevel 上書きは対象外として維持する。 |
 | Phase 6: normal `folder` row generator | 主要実装済み | normal folder generator / scope planner / DB sync、mutation・file diff failure の incomplete marking、directory metadata surface 由来の `folder.date` resolver、`folderinfo.txt` entry metadata surface は接続済み。通常 file diff では BMS path 差分 scope だけを同期し、完全生成 sync input では root 配下 directory の広域再列挙を行わない。 | 実機で directory mtime / folder row freshness を確認する。 |
-| Phase 7: `.lr2folder` DB sync | 主要実装済み | playlist projection と `.lr2folder` / `folder` row sync の同一化、通常 discovery、built-in source の相対 path 化、root custom output / built-in category parent row 生成、`LR2files\Rival` の built-in discovery 非対象化、`LR2files\CustomFolder` の `<customfolder>` bitmask、`newsong` dynamic row、`course1-3` の `type=6` は接続済み。 | `LR2files\CustomFolder` 配下の category parent row に `folderinfo.txt #TITLE` を反映する metadata resolver を接続し、実 LR2 setup / built-in folder fixture で最終確認する。 |
+| Phase 7: `.lr2folder` DB sync | 主要実装済み | playlist projection と `.lr2folder` / `folder` row sync の同一化、通常 discovery、built-in source の相対 path 化、root custom output / built-in category parent row 生成、`LR2files\Rival` の built-in discovery 非対象化、`LR2files\CustomFolder` の `<customfolder>` bitmask、built-in category parent row の `folderinfo.txt #TITLE` 反映、`newsong` dynamic row、`course1-3` の `type=6` は接続済み。 | 実 LR2 setup / built-in folder fixture で最終確認する。 |
 | Phase 8: status / sync UI | 主要実装済み | durable status、runtime progress、setting queue、cancel、mutation guard、startup blocker diagnostic / cleanup は実装済み。 | 長時間 sync の UI 手動確認と failure/cancel 再起動確認を残す。 |
 | Phase 9: resumable sync | 主要実装済み | durable cursor、stage / chunk resume、cancel boundary、completed status current 時の 2 回目 no-op queue、copied `song.db` の current completed no-op、failed song-row chunk rollback/retry、cancel 後 restart resume、`song_rows` の bounded reader / worker / writer pipeline、worker-side `chart_info` apply / LR2 compatibility fact build、run-scoped `chart_info` resolver、sync input の全件 `BMSFile` persistence copy 廃止、full-generation 専用 generated song temp-table writer、chunk digest / maintenance facts writer、final prune temp path bulk insert は自動テスト済み。 | 実機ログで `song_rows` が単純 file read benchmark に近づいているか、chunk `readMs` / `parseMs` / `commitMs` / queue wait を確認する。 |
 
@@ -1347,6 +1347,11 @@ parse directive:
     prune 用 scope は引き続き出力 directory に限定し、sibling playlist や custom folder 出力 base 全体へ広げない。
     同一親に複数 `.lr2folder` がある場合、親 row は一度だけ upsert 候補にし、generated path set で
     stale parent row pruning と重複 write を抑止する。
+    親 / カテゴリ directory row の `title` と `date` は `Lr2FolderDirectoryMetadataSnapshot` を正本にし、
+    `.lr2folder` sync service 側では `folderinfo.txt` を直接読まない。built-in `LR2files\CustomFolder`
+    については、`.lr2folder` parent directory targets から `target\folderinfo.txt` と directory mtime
+    だけを metadata surface として補い、既存の normal folder 用 `DirectoryEntries` と merge して同じ
+    resolver contract へ揃える。
     `AllowPrune=false` では upsert のみ行い、`AllowPrune=true` でも scope 内の `.lr2folder` file path row だけを削除対象にする。
     normal directory row (`type = 1`) と scope 外 `.lr2folder` row は削除しない。
   - `.lr2folder` file path は CP932 非対応なら row 生成しない。mtime 欠落 row は missing metadata として skip し、
@@ -1670,8 +1675,8 @@ Everything / filesystem 広域再スキャンを始める入口ではない。su
    - `.lr2folder` roots は BMS root folder 群、通常 custom folder 出力先、root custom folder 出力先、
      LR2 built-in `LR2files\CustomFolder` であり、chart/resource roots とは別 root set で同じ grouped
      enumeration API へ渡す。
-   - `folderinfo.txt` と directory metadata は normal folder row の title / date source として扱い、
-     full generation completed 後は変更 path / affected directory scope だけを再同期する。
+   - `folderinfo.txt` と directory metadata は normal folder row と `.lr2folder` parent/category row の
+     title / date source として扱い、full generation completed 後は変更 path / affected directory scope だけを再同期する。
    - `.txt` は `song.txt` 生成列の source なので、BMS 本体 mtime が変わらない text-only 変更でも
      scoped song row update の対象にする。
    - sync 完了後の steady-state では、これらの変更検出のために full sync や全件 folder validation を

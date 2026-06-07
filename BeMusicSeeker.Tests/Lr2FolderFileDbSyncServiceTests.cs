@@ -1,8 +1,11 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.Models.Utils;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Ribbit.Util.Extensions;
 
@@ -452,6 +455,170 @@ public sealed class Lr2FolderFileDbSyncServiceTests
             Assert.AreEqual("Favorite", row.title);
             Assert.AreEqual(12345, row.adddate);
             Assert.AreEqual(Lr2SongFolderParentNormalizer.RootParentHash, row.parent);
+        });
+    }
+
+    [TestMethod]
+    public void Sync_UsesDirectoryMetadataForBuiltinCustomFolderParentRow()
+    {
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            using var songDb = new LR2SongDBExtended(songDbPath);
+            songDb.CreateTable<LR2SongDB.folder>();
+            string customFolderRoot = Path.Combine(Path.GetDirectoryName(songDbPath), "LR2files", "CustomFolder");
+            string randomDirectory = Path.Combine(customFolderRoot, "RANDOM");
+            Directory.CreateDirectory(randomDirectory);
+            string filePath = Path.Combine(randomDirectory, "select.lr2folder");
+            string databasePath = @"LR2files\CustomFolder\RANDOM\select.lr2folder";
+            DateTime timestamp = new(2026, 6, 10, 1, 2, 3, DateTimeKind.Utc);
+
+            Lr2FolderFileDbSyncResult result = Lr2FolderFileDbSyncService.Sync(songDb, new Lr2FolderFileDbSyncRequest
+            {
+                Items =
+                [
+                    new Lr2FolderFileSyncItem
+                    {
+                        FilePath = filePath,
+                        DatabasePath = databasePath,
+                        LastWriteTimeUtc = timestamp,
+                        Definition = Lr2FolderFileProjection.ParseDefinition(["#TITLE Random Select"])
+                    }
+                ],
+                DirectoryRowScopeDirectories = [@"LR2files\CustomFolder"],
+                DirectoryRowGenerationScopeDirectories = [@"LR2files\CustomFolder"],
+                DirectoryMetadataResolver = directory => string.Equals(directory, randomDirectory, StringComparison.OrdinalIgnoreCase)
+                    ? new Lr2FolderDirectoryMetadata(timestamp.AddMinutes(1), "Folder Info Random")
+                    : null
+            });
+
+            Assert.AreEqual(2, result.UpsertedCount);
+            LR2SongDB.folder parentRow = songDb.Table<LR2SongDB.folder>().Single(row => row.path == @"LR2files\CustomFolder\RANDOM\");
+            Assert.AreEqual(2, parentRow.type);
+            Assert.AreEqual("Folder Info Random", parentRow.title);
+            Assert.AreEqual(timestamp.AddMinutes(1).ToUnixtime(), parentRow.date);
+            Assert.AreEqual(Lr2SongFolderParentNormalizer.RootParentHash, parentRow.parent);
+            LR2SongDB.folder childRow = songDb.Table<LR2SongDB.folder>().Single(row => row.path == databasePath);
+            Assert.AreEqual("Random Select", childRow.title);
+        });
+    }
+
+    [TestMethod]
+    public void Sync_DoesNotFallbackToDirectoryInfoWhenDirectoryMetadataResolverMisses()
+    {
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            using var songDb = new LR2SongDBExtended(songDbPath);
+            songDb.CreateTable<LR2SongDB.folder>();
+            string customFolderRoot = Path.Combine(Path.GetDirectoryName(songDbPath), "LR2files", "CustomFolder");
+            string randomDirectory = Path.Combine(customFolderRoot, "RANDOM");
+            Directory.CreateDirectory(randomDirectory);
+            string filePath = Path.Combine(randomDirectory, "select.lr2folder");
+            DateTime timestamp = new(2026, 6, 10, 1, 2, 3, DateTimeKind.Utc);
+
+            Lr2FolderFileDbSyncResult result = Lr2FolderFileDbSyncService.Sync(songDb, new Lr2FolderFileDbSyncRequest
+            {
+                Items =
+                [
+                    new Lr2FolderFileSyncItem
+                    {
+                        FilePath = filePath,
+                        DatabasePath = @"LR2files\CustomFolder\RANDOM\select.lr2folder",
+                        LastWriteTimeUtc = timestamp,
+                        Definition = Lr2FolderFileProjection.ParseDefinition(["#TITLE Random Select"])
+                    }
+                ],
+                DirectoryRowScopeDirectories = [@"LR2files\CustomFolder"],
+                DirectoryRowGenerationScopeDirectories = [@"LR2files\CustomFolder"],
+                DirectoryMetadataResolver = _ => null
+            });
+
+            Assert.AreEqual(1, result.UpsertedCount);
+            Assert.IsFalse(songDb.Table<LR2SongDB.folder>().Any(row => row.path == @"LR2files\CustomFolder\RANDOM\"));
+            Assert.IsTrue(songDb.Table<LR2SongDB.folder>().Any(row => row.path == @"LR2files\CustomFolder\RANDOM\select.lr2folder"));
+        });
+    }
+
+    [TestMethod]
+    public void CreateLr2FolderParentDirectoryMetadataSnapshot_ReadsBuiltinFolderInfo()
+    {
+        string tempDirectory = Path.Combine(Path.GetTempPath(), nameof(Lr2FolderFileDbSyncServiceTests), Guid.NewGuid().ToString("N"));
+        try
+        {
+            string lr2Root = Path.Combine(tempDirectory, "LR2beta3");
+            string randomDirectory = Path.Combine(lr2Root, "LR2files", "CustomFolder", "RANDOM");
+            Directory.CreateDirectory(randomDirectory);
+            File.WriteAllText(Path.Combine(randomDirectory, "folderinfo.txt"), "#TITLE Random Folder Info", Encoding.GetEncoding("shift_jis"));
+            string filePath = Path.Combine(randomDirectory, "select.lr2folder");
+            Lr2FolderDirectoryMetadataSnapshot snapshot = Lr2FullGenerationSyncService.CreateLr2FolderParentDirectoryMetadataSnapshot(
+                [
+                    new Lr2FolderFileSyncItem
+                    {
+                        FilePath = filePath,
+                        DatabasePath = @"LR2files\CustomFolder\RANDOM\select.lr2folder",
+                        LastWriteTimeUtc = new DateTime(2026, 6, 10, 1, 2, 3, DateTimeKind.Utc),
+                        Definition = Lr2FolderFileProjection.ParseDefinition(["#TITLE Random"])
+                    }
+                ],
+                new Lr2FullGenerationSyncRequest
+                {
+                    Lr2BuiltinFolderSourceDirectories = [Path.Combine(lr2Root, "LR2files", "CustomFolder")],
+                    Lr2FolderPruneDirectories = [@"LR2files\CustomFolder"]
+                });
+
+            Assert.IsTrue(snapshot.TryGetMetadata(randomDirectory, out Lr2FolderDirectoryMetadata metadata));
+            Assert.AreEqual("Random Folder Info", metadata.FolderInfoTitle);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void FullGenerationRun_UsesBuiltinFolderInfoForCategoryRow()
+    {
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            using var songDb = new LR2SongDBExtended(songDbPath);
+            songDb.CreateTable<LR2SongDB.folder>();
+            string rootDirectory = Path.Combine(Path.GetDirectoryName(songDbPath), "BMS");
+            Directory.CreateDirectory(rootDirectory);
+            string lr2Root = Path.Combine(Path.GetDirectoryName(songDbPath), "LR2beta3");
+            string builtinRoot = Path.Combine(lr2Root, "LR2files", "CustomFolder");
+            string randomDirectory = Path.Combine(builtinRoot, "RANDOM");
+            Directory.CreateDirectory(randomDirectory);
+            File.WriteAllText(Path.Combine(randomDirectory, "folderinfo.txt"), "#TITLE Random Folder Info", Encoding.GetEncoding("shift_jis"));
+            string lr2FolderPath = Path.Combine(randomDirectory, "select.lr2folder");
+            File.WriteAllText(lr2FolderPath, "#TITLE Random", Encoding.GetEncoding("shift_jis"));
+            DateTime timestamp = new(2026, 6, 10, 1, 2, 3, DateTimeKind.Utc);
+
+            Lr2FullGenerationSyncService.Run(songDb, new Lr2FullGenerationSyncRequest
+            {
+                Signature = "test",
+                RunId = "run",
+                RootDirectories = [rootDirectory],
+                ChartPaths = [],
+                NormalFolderDirectoryPaths = [rootDirectory],
+                Lr2FolderFilePaths = [lr2FolderPath],
+                Lr2FolderFileEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase)
+                {
+                    [lr2FolderPath] = new RootFileEnumerationEntry(lr2FolderPath, timestamp, null)
+                },
+                Lr2FolderDiscoveryDirectories = [builtinRoot],
+                Lr2FolderPruneDirectories = [@"LR2files\CustomFolder"],
+                Lr2RootPath = lr2Root,
+                Lr2BuiltinFolderSourceDirectories = [builtinRoot],
+                Lr2FolderFileDiscoveryComplete = true,
+                SongRows = [],
+                IsSourceCurrent = () => true,
+                StartedAtUtc = timestamp
+            });
+
+            LR2SongDB.folder category = songDb.Table<LR2SongDB.folder>().ToList().Single(row => row.path == @"LR2files\CustomFolder\RANDOM\");
+            Assert.AreEqual("Random Folder Info", category.title);
         });
     }
 
