@@ -1791,7 +1791,7 @@ public sealed class BmsLibraryInitializationServiceTests
             Assert.AreEqual(1, songRow.karinotes);
             Assert.AreEqual(0, songRow.longnote);
             Assert.AreEqual(0, songRow.random);
-            Assert.IsNull(songRow.judge);
+            Assert.AreEqual(2, songRow.judge);
         });
     }
 
@@ -2239,7 +2239,7 @@ public sealed class BmsLibraryInitializationServiceTests
     }
 
     [TestMethod]
-    public void EnsureSongLookupIndexes_CreatesLr2CompatibleHashAndParentIndexes()
+    public void EnsureSongLookupIndexes_CreatesLr2CompatibleLookupIndexes()
     {
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
@@ -2252,6 +2252,11 @@ public sealed class BmsLibraryInitializationServiceTests
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'index' AND name = 'hashidx';"));
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'index' AND name = 'parentidx';"));
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'index' AND name = 'song_idx_folder';"));
+            Assert.AreEqual(
+                1L,
+                verify.ExecuteScalar<long>(
+                    "SELECT COUNT(1) FROM sqlite_master WHERE type = 'index' AND name = ?;",
+                    BmsLibraryDbGateway.SongPathNocaseIndexName));
         });
     }
 

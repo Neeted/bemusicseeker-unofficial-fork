@@ -513,6 +513,11 @@ public sealed class AppSchemaPreflightServiceTests
             CollectionAssert.Contains(columns, "lr2_resource_max_resolved_cp932_bytes");
             CollectionAssert.Contains(columns, "lr2_resource_unsupported_count");
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM maintenance WHERE path = 'D:\\BMS\\chart.bms';"));
+            Assert.AreEqual(
+                1L,
+                verify.ExecuteScalar<long>(
+                    "SELECT COUNT(1) FROM sqlite_master WHERE type = 'index' AND name = ?;",
+                    BmsLibraryDbGateway.MaintenancePathNocaseIndexName));
         }
         finally
         {

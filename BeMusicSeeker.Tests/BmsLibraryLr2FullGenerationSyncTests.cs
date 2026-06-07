@@ -3362,6 +3362,43 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
+    public void SyncService_UpsertsLr2CompatibilityFactsByPathNocaseWithoutDuplicate()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        string songDirectory = Path.Combine(scope.DirectoryPath, "Lr2CompatibilityNocase");
+        Directory.CreateDirectory(songDirectory);
+        string chartPath = Path.Combine(songDirectory, "chart.bms");
+        File.WriteAllText(chartPath, "#TITLE lr2 compatibility nocase\r\n#WAV01 emoji😀.wav\r\n", new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+        ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
+        TestableBmsFile file = CreateSyncTestFile(chartPath, snapshot);
+        string existingPath = Path.Combine(songDirectory, "CHART.BMS");
+        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        songDb.CreateTable<LR2SongDB.song>();
+        BmsLibraryDbGateway.EnsureMaintenanceSchema(songDb);
+        songDb.InsertOrReplace(new BMSFileMaintenanceInfo
+        {
+            path = existingPath,
+            hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }, typeof(LR2SongDBExtended.maintenance));
+
+        Lr2FullGenerationSyncResult result = Lr2FullGenerationSyncService.Run(songDb, new Lr2FullGenerationSyncRequest
+        {
+            Signature = "lr2-compatibility-nocase",
+            RunId = "lr2-compatibility-nocase",
+            SongRows = [file],
+            StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc)
+        });
+
+        Assert.AreEqual(1, result.SongRowLr2CompatibilityAppliedCount);
+        Assert.AreEqual(
+            1,
+            songDb.ExecuteScalar<int>("SELECT COUNT(*) FROM maintenance WHERE path = ? COLLATE NOCASE;", chartPath));
+        Assert.AreEqual(file.hash, songDb.ExecuteScalar<string>("SELECT hash FROM maintenance WHERE path = ?;", existingPath));
+        int flags = songDb.ExecuteScalar<int>("SELECT lr2_resource_warning_flags FROM maintenance WHERE path = ?;", existingPath);
+        Assert.IsTrue((flags & (int)Lr2ResourceWarningFlags.RawPathEncodingUnsupported) != 0);
+    }
+
+    [TestMethod]
     public void QueueLr2FullGenerationDataSync_ProjectsLr2CompatibilityWarningsToLiveRows()
     {
         TestResourceInitializer.EnsureJapaneseResources();

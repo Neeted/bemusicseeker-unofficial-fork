@@ -226,6 +226,8 @@ internal static class Lr2FullGenerationSyncService
 
     private const string TempLr2CompatibilityMaintenanceTable = "lr2_full_generation_compatibility_maintenance";
 
+    private const string TempLr2CompatibilityMaintenanceMatchTable = "lr2_full_generation_compatibility_maintenance_match";
+
     private const int MaxPersistedChartInfoParseFailureMessageLength = 1024;
 
     internal const string CompletedStage = "completed";
@@ -2763,6 +2765,7 @@ internal static class Lr2FullGenerationSyncService
         string unsupportedCountColumn = SQLiteTable<LR2SongDBExtended.maintenance>.GetColumnName(item => item.lr2_resource_unsupported_count);
 
         string tempName = "temp." + TempLr2CompatibilityMaintenanceTable;
+        string matchTempName = "temp." + TempLr2CompatibilityMaintenanceMatchTable;
         string changedPredicate =
             "m." + hashColumn + " IS NOT t.hash"
             + " OR m." + pathFlagsColumn + " IS NOT t.lr2_path_warning_flags"
@@ -2772,21 +2775,37 @@ internal static class Lr2FullGenerationSyncService
             + " OR m." + maxRawBytesColumn + " IS NOT t.lr2_resource_max_raw_cp932_bytes"
             + " OR m." + maxResolvedBytesColumn + " IS NOT t.lr2_resource_max_resolved_cp932_bytes"
             + " OR m." + unsupportedCountColumn + " IS NOT t.lr2_resource_unsupported_count";
+        PrepareTempLr2CompatibilityMaintenanceMatchTable(songDb);
+        songDb.Execute(
+            "INSERT OR REPLACE INTO " + matchTempName
+            + " (target_rowid, hash, lr2_path_warning_flags, lr2_chart_path_cp932_bytes, lr2_folder_scan_cp932_bytes, "
+            + "lr2_resource_warning_flags, lr2_resource_max_raw_cp932_bytes, lr2_resource_max_resolved_cp932_bytes, lr2_resource_unsupported_count) "
+            + "SELECT m.rowid"
+            + ", t.hash"
+            + ", t.lr2_path_warning_flags"
+            + ", t.lr2_chart_path_cp932_bytes"
+            + ", t.lr2_folder_scan_cp932_bytes"
+            + ", t.lr2_resource_warning_flags"
+            + ", t.lr2_resource_max_raw_cp932_bytes"
+            + ", t.lr2_resource_max_resolved_cp932_bytes"
+            + ", t.lr2_resource_unsupported_count "
+            + "FROM " + tempName + " t "
+            + "JOIN " + tableName + " m INDEXED BY " + BmsLibraryDbGateway.MaintenancePathNocaseIndexName
+            + " ON m." + pathColumn + " = t.path COLLATE NOCASE "
+            + "WHERE m." + pathColumn + " COLLATE NOCASE IN (SELECT path FROM " + tempName + ") "
+            + "AND (" + changedPredicate + ");");
         int updated = songDb.Execute(
             "UPDATE " + tableName
             + " SET "
-            + hashColumn + " = (SELECT t.hash FROM " + tempName + " t WHERE t.path = " + tableName + "." + pathColumn + " COLLATE NOCASE), "
-            + pathFlagsColumn + " = (SELECT t.lr2_path_warning_flags FROM " + tempName + " t WHERE t.path = " + tableName + "." + pathColumn + " COLLATE NOCASE), "
-            + chartPathBytesColumn + " = (SELECT t.lr2_chart_path_cp932_bytes FROM " + tempName + " t WHERE t.path = " + tableName + "." + pathColumn + " COLLATE NOCASE), "
-            + folderScanBytesColumn + " = (SELECT t.lr2_folder_scan_cp932_bytes FROM " + tempName + " t WHERE t.path = " + tableName + "." + pathColumn + " COLLATE NOCASE), "
-            + resourceFlagsColumn + " = (SELECT t.lr2_resource_warning_flags FROM " + tempName + " t WHERE t.path = " + tableName + "." + pathColumn + " COLLATE NOCASE), "
-            + maxRawBytesColumn + " = (SELECT t.lr2_resource_max_raw_cp932_bytes FROM " + tempName + " t WHERE t.path = " + tableName + "." + pathColumn + " COLLATE NOCASE), "
-            + maxResolvedBytesColumn + " = (SELECT t.lr2_resource_max_resolved_cp932_bytes FROM " + tempName + " t WHERE t.path = " + tableName + "." + pathColumn + " COLLATE NOCASE), "
-            + unsupportedCountColumn + " = (SELECT t.lr2_resource_unsupported_count FROM " + tempName + " t WHERE t.path = " + tableName + "." + pathColumn + " COLLATE NOCASE)"
-            + " WHERE rowid IN ("
-            + "SELECT m.rowid FROM " + tableName + " m "
-            + "JOIN " + tempName + " t ON t.path = m." + pathColumn + " COLLATE NOCASE "
-            + "WHERE " + changedPredicate + ");");
+            + hashColumn + " = (SELECT t.hash FROM " + matchTempName + " t WHERE t.target_rowid = " + tableName + ".rowid), "
+            + pathFlagsColumn + " = (SELECT t.lr2_path_warning_flags FROM " + matchTempName + " t WHERE t.target_rowid = " + tableName + ".rowid), "
+            + chartPathBytesColumn + " = (SELECT t.lr2_chart_path_cp932_bytes FROM " + matchTempName + " t WHERE t.target_rowid = " + tableName + ".rowid), "
+            + folderScanBytesColumn + " = (SELECT t.lr2_folder_scan_cp932_bytes FROM " + matchTempName + " t WHERE t.target_rowid = " + tableName + ".rowid), "
+            + resourceFlagsColumn + " = (SELECT t.lr2_resource_warning_flags FROM " + matchTempName + " t WHERE t.target_rowid = " + tableName + ".rowid), "
+            + maxRawBytesColumn + " = (SELECT t.lr2_resource_max_raw_cp932_bytes FROM " + matchTempName + " t WHERE t.target_rowid = " + tableName + ".rowid), "
+            + maxResolvedBytesColumn + " = (SELECT t.lr2_resource_max_resolved_cp932_bytes FROM " + matchTempName + " t WHERE t.target_rowid = " + tableName + ".rowid), "
+            + unsupportedCountColumn + " = (SELECT t.lr2_resource_unsupported_count FROM " + matchTempName + " t WHERE t.target_rowid = " + tableName + ".rowid)"
+            + " WHERE rowid IN (SELECT target_rowid FROM " + matchTempName + ");");
 
         int inserted = songDb.Execute(
             "INSERT INTO " + tableName
@@ -2810,7 +2829,8 @@ internal static class Lr2FullGenerationSyncService
             + ", t.lr2_resource_max_resolved_cp932_bytes"
             + ", t.lr2_resource_unsupported_count "
             + "FROM " + tempName + " t "
-            + "WHERE NOT EXISTS (SELECT 1 FROM " + tableName + " m WHERE m." + pathColumn + " = t.path COLLATE NOCASE);");
+            + "WHERE NOT EXISTS (SELECT 1 FROM " + tableName + " m INDEXED BY " + BmsLibraryDbGateway.MaintenancePathNocaseIndexName
+            + " WHERE m." + pathColumn + " = t.path COLLATE NOCASE);");
         return new Lr2CompatibilityFactsWriteResult(updated, inserted);
     }
 
@@ -2828,6 +2848,22 @@ internal static class Lr2FullGenerationSyncService
             + "lr2_resource_max_resolved_cp932_bytes INTEGER, "
             + "lr2_resource_unsupported_count INTEGER);");
         songDb.Execute("DELETE FROM temp." + TempLr2CompatibilityMaintenanceTable + ";");
+    }
+
+    private static void PrepareTempLr2CompatibilityMaintenanceMatchTable(LR2SongDBExtended songDb)
+    {
+        songDb.Execute(
+            "CREATE TEMP TABLE IF NOT EXISTS temp." + TempLr2CompatibilityMaintenanceMatchTable
+            + " (target_rowid INTEGER PRIMARY KEY, "
+            + "hash TEXT, "
+            + "lr2_path_warning_flags INTEGER, "
+            + "lr2_chart_path_cp932_bytes INTEGER, "
+            + "lr2_folder_scan_cp932_bytes INTEGER, "
+            + "lr2_resource_warning_flags INTEGER, "
+            + "lr2_resource_max_raw_cp932_bytes INTEGER, "
+            + "lr2_resource_max_resolved_cp932_bytes INTEGER, "
+            + "lr2_resource_unsupported_count INTEGER);");
+        songDb.Execute("DELETE FROM temp." + TempLr2CompatibilityMaintenanceMatchTable + ";");
     }
 
     private static void BulkInsertLr2CompatibilityMaintenanceTempRows(

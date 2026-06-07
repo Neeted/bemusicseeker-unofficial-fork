@@ -46,6 +46,10 @@ internal sealed class Lr2SongUserColumns
 
 internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath = null)
 {
+    internal const string SongPathNocaseIndexName = "song_idx_path_nocase";
+
+    internal const string MaintenancePathNocaseIndexName = "maintenance_idx_path_nocase";
+
     private const int ChartInfoLookupChunkSize = 500;
 
     private const string ChartDigestMapUpsertSql =
@@ -1616,7 +1620,7 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
         EnsureIndex(songDb, "hashidx", tableName, SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.hash));
         EnsureIndex(songDb, "parentidx", tableName, SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.parent));
         EnsureIndex(songDb, "song_idx_folder", tableName, SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.folder));
-        EnsureNocaseIndex(songDb, "song_idx_path_nocase", tableName, SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.path));
+        EnsureNocaseIndex(songDb, SongPathNocaseIndexName, tableName, SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.path));
     }
 
     internal static void EnsureMaintenanceSchema(LR2SongDBExtended songDb)
@@ -1635,7 +1639,7 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
         EnsureColumn(songDb, tableName, columns, "lr2_resource_max_raw_cp932_bytes", "INTEGER NULL");
         EnsureColumn(songDb, tableName, columns, "lr2_resource_max_resolved_cp932_bytes", "INTEGER NULL");
         EnsureColumn(songDb, tableName, columns, "lr2_resource_unsupported_count", "INTEGER NULL");
-        EnsureNocaseIndex(songDb, "maintenance_idx_path_nocase", tableName, SQLiteTable<LR2SongDBExtended.maintenance>.GetColumnName(row => row.path));
+        EnsureNocaseIndex(songDb, MaintenancePathNocaseIndexName, tableName, SQLiteTable<LR2SongDBExtended.maintenance>.GetColumnName(row => row.path));
     }
 
     internal static void EnsureIrDataSchema(LR2SongDBExtended songDb)
