@@ -775,6 +775,16 @@ public class BMSFile : LR2SongDB.song
 
     internal void ApplyLr2ChartInfoColumns(LR2SongDBExtended.chart_info chartInfo)
     {
+        ApplyLr2ChartInfoColumns(chartInfo, includeLightweightMetadata: true);
+    }
+
+    internal void ApplyLr2ChartInfoDetailedColumns(LR2SongDBExtended.chart_info chartInfo)
+    {
+        ApplyLr2ChartInfoColumns(chartInfo, includeLightweightMetadata: false);
+    }
+
+    private void ApplyLr2ChartInfoColumns(LR2SongDBExtended.chart_info chartInfo, bool includeLightweightMetadata)
+    {
         if (chartInfo == null)
         {
             return;
@@ -786,11 +796,14 @@ public class BMSFile : LR2SongDB.song
             return;
         }
 
-        level = chartInfo.level;
-        difficulty = chartInfo.difficulty;
+        if (includeLightweightMetadata)
+        {
+            level = chartInfo.level;
+            difficulty = chartInfo.difficulty;
+            mode = chartInfo.mode;
+        }
         maxbpm = ToLr2SongInteger(chartInfo.maxbpm);
         minbpm = ToLr2SongInteger(chartInfo.minbpm);
-        mode = chartInfo.mode;
         bga = chartInfo.bga;
         exlevel = chartInfo.exlevel ?? 0;
         longnote = HasLongNoteFeature(chartInfo.feature) ? 1 : 0;
@@ -861,18 +874,17 @@ public class BMSFile : LR2SongDB.song
         Func<string> md5Provider,
         Func<string> sha256Provider)
     {
-        var bMSFile = new BMSFile();
+        var bMSFile = new BMSFile
+        {
+            level = 0,
+            difficulty = -1,
+            mode = 5,
+            judge = 2
+        };
         var hashSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var hashSet2 = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var resourceReferences = new List<ChartResourceReference>();
         var unsupportedReferences = new List<UnsupportedChartResourceReference>();
-        bool flag = false;
-        bool flag2 = false;
-        bool flag3 = false;
-        bool flag4 = false;
-        bool flag5 = false;
-        bool flag6 = false;
-        bool flag7 = false;
         bool flag8 = false;
         bool flag9 = false;
         bool flag10 = false;
@@ -884,8 +896,14 @@ public class BMSFile : LR2SongDB.song
         bool flag16 = false;
         bool flag17 = false;
         bool flag18 = false;
+        bool forcePmsMode = filePath.EndsWith(".pms", StringComparison.OrdinalIgnoreCase);
         foreach (string item in enumerable)
         {
+            if (IsFpDscDirective(item))
+            {
+                forcePmsMode = true;
+                continue;
+            }
             if (!TryParseDirectiveLine(item, out BmsDirective directive, out int valueStart))
             {
                 continue;
@@ -896,29 +914,9 @@ public class BMSFile : LR2SongDB.song
                 {
                     case '1':
                     case '3':
+                    case '5':
                         switch (lane)
                         {
-                            case '1':
-                                flag = true;
-                                break;
-                            case '2':
-                                flag2 = true;
-                                break;
-                            case '3':
-                                flag3 = true;
-                                break;
-                            case '4':
-                                flag4 = true;
-                                break;
-                            case '5':
-                                flag5 = true;
-                                break;
-                            case '6':
-                                flag6 = true;
-                                break;
-                            case '7':
-                                flag7 = true;
-                                break;
                             case '8':
                                 flag8 = true;
                                 break;
@@ -929,6 +927,7 @@ public class BMSFile : LR2SongDB.song
                         break;
                     case '2':
                     case '4':
+                    case '6':
                         switch (lane)
                         {
                             case '1':
@@ -991,22 +990,16 @@ public class BMSFile : LR2SongDB.song
                     }
                     break;
                 case BmsDirective.PlayLevel:
-                    if (!bMSFile.level.HasValue)
-                    {
-                        bMSFile.level = TryParseDirectiveInt(value);
-                    }
+                    bMSFile.level = ParseLr2DirectiveInt(value);
+                    break;
+                case BmsDirective.MaxTracks:
+                    bMSFile.level = ParseLr2DirectiveInt(value);
                     break;
                 case BmsDirective.Difficulty:
-                    if (!bMSFile.difficulty.HasValue)
-                    {
-                        bMSFile.difficulty = TryParseDirectiveInt(value);
-                    }
+                    bMSFile.difficulty = ParseLr2DirectiveInt(value);
                     break;
                 case BmsDirective.Rank:
-                    if (!bMSFile.judge.HasValue)
-                    {
-                        bMSFile.judge = TryParseDirectiveInt(value);
-                    }
+                    bMSFile.judge = ParseLr2DirectiveInt(value);
                     break;
                 case BmsDirective.SubTitle:
                     if (string.IsNullOrWhiteSpace(bMSFile.subtitle))
@@ -1047,36 +1040,21 @@ public class BMSFile : LR2SongDB.song
         bMSFile.hash = md5Provider();
         bMSFile.ApplySha256(sha256Provider());
         bMSFile.path = filePath;
-        if (bMSFile.path.EndsWith(".pms", StringComparison.OrdinalIgnoreCase))
+        if (forcePmsMode)
         {
             bMSFile.mode = 9;
         }
-        else if (!flag8 && !flag9 && !flag10 && !flag11 && !flag12 && !flag13 && !flag14 && !flag15 && !flag16 && !flag17 && !flag18)
-        {
-            if (!flag && !flag2 && !flag3 && !flag4 && !flag5)
-            {
-                bMSFile.mode = 7;
-            }
-            else
-            {
-                bMSFile.mode = 5;
-            }
-        }
-        else if (!flag6 && !flag7 && !flag8 && !flag9 && !flag10 && !flag15 && !flag16 && !flag17 && !flag18)
-        {
-            bMSFile.mode = 9;
-        }
-        else if (!flag8 && !flag9 && !flag17 && !flag18)
-        {
-            bMSFile.mode = 10;
-        }
-        else if (!flag10 && !flag11 && !flag12 && !flag13 && !flag14 && !flag15 && !flag16 && !flag17 && !flag18)
-        {
-            bMSFile.mode = 7;
-        }
-        else
+        else if (flag17 || flag18)
         {
             bMSFile.mode = 14;
+        }
+        else if (flag10 || flag11 || flag12 || flag13 || flag14 || flag15 || flag16)
+        {
+            bMSFile.mode = flag8 || flag9 ? 14 : 10;
+        }
+        else if (flag8 || flag9)
+        {
+            bMSFile.mode = 7;
         }
         return bMSFile;
     }
@@ -1096,6 +1074,7 @@ public class BMSFile : LR2SongDB.song
         BackBmp,
         Banner,
         PlayLevel,
+        MaxTracks,
         Difficulty,
         Rank
     }
@@ -1234,6 +1213,11 @@ public class BMSFile : LR2SongDB.song
                     directive = BmsDirective.PlayLevel;
                     return true;
                 }
+                if (EqualsAsciiIgnoreCase(line, start, "MAXTRACKS"))
+                {
+                    directive = BmsDirective.MaxTracks;
+                    return true;
+                }
                 break;
             case 10:
                 if (EqualsAsciiIgnoreCase(line, start, "DIFFICULTY"))
@@ -1310,20 +1294,49 @@ public class BMSFile : LR2SongDB.song
         }
     }
 
-    private static int? TryParseDirectiveInt(string value)
+    private static bool IsFpDscDirective(string value)
     {
-        if (string.IsNullOrEmpty(value) || !IsAsciiDigit(value[0]))
+        if (string.IsNullOrWhiteSpace(value))
         {
-            return null;
+            return false;
         }
-        try
+        string trimmed = value.TrimStart();
+        return trimmed.StartsWith("#FP/DSC", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static int ParseLr2DirectiveInt(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
         {
-            return int.Parse(value);
+            return 0;
         }
-        catch
+        string trimmed = value.TrimStart();
+        int sign = 1;
+        int index = 0;
+        if (index < trimmed.Length && (trimmed[index] == '+' || trimmed[index] == '-'))
         {
-            return null;
+            sign = trimmed[index] == '-' ? -1 : 1;
+            index++;
         }
+
+        long result = 0;
+        bool hasDigit = false;
+        while (index < trimmed.Length && IsAsciiDigit(trimmed[index]))
+        {
+            hasDigit = true;
+            result = (result * 10) + (trimmed[index] - '0');
+            long signed = sign < 0 ? -result : result;
+            if (signed > int.MaxValue)
+            {
+                return int.MaxValue;
+            }
+            if (signed < int.MinValue)
+            {
+                return int.MinValue;
+            }
+            index++;
+        }
+        return hasDigit ? (int)(sign * result) : 0;
     }
 
     private static bool TryParseModeChannelLine(string line, out char channelGroup, out char lane)
@@ -1353,7 +1366,12 @@ public class BMSFile : LR2SongDB.song
         }
         channelGroup = line[index + 3];
         lane = line[index + 4];
-        if (!((channelGroup == '1' || channelGroup == '2' || channelGroup == '3' || channelGroup == '4')
+        if (!((channelGroup == '1'
+                || channelGroup == '2'
+                || channelGroup == '3'
+                || channelGroup == '4'
+                || channelGroup == '5'
+                || channelGroup == '6')
             && lane >= '1'
             && lane <= '9'))
         {

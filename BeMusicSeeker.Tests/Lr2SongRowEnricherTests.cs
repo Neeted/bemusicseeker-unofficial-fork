@@ -80,11 +80,16 @@ public sealed class Lr2SongRowEnricherTests
     }
 
     [TestMethod]
-    public void EnrichFromChartInfo_AppliesLr2NumericColumns()
+    public void EnrichFromChartInfo_AppliesDetailedColumnsWithoutOverwritingLightweightMetadata()
     {
-        var file = new TestableBmsFile();
+        var file = new TestableBmsFile
+        {
+            level = 3,
+            difficulty = -1
+        };
         file.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         file.SetJudgeForTest(1);
+        file.SetModeForTest(5);
         var chartInfo = new LR2SongDBExtended.chart_info
         {
             md5 = file.hash,
@@ -102,11 +107,11 @@ public sealed class Lr2SongRowEnricherTests
 
         Lr2SongRowEnricher.EnrichFromChartInfo(file, chartInfo);
 
-        Assert.AreEqual(12, file.level);
-        Assert.AreEqual(4, file.difficulty);
+        Assert.AreEqual(3, file.level);
+        Assert.AreEqual(-1, file.difficulty);
         Assert.AreEqual(180, file.maxbpm);
         Assert.AreEqual(90, file.minbpm);
-        Assert.AreEqual(14, file.mode);
+        Assert.AreEqual(5, file.mode);
         Assert.AreEqual(1, file.judge);
         Assert.AreEqual(1, file.bga);
         Assert.AreEqual(120, file.exlevel);
@@ -164,6 +169,11 @@ public sealed class Lr2SongRowEnricherTests
         public void SetJudgeForTest(int? value)
         {
             judge = value;
+        }
+
+        public void SetModeForTest(int? value)
+        {
+            mode = value;
         }
     }
 }

@@ -98,13 +98,15 @@ public sealed class BMSFileSnapshotTests
         (string FileName, string ChannelLine, int ExpectedMode)[] cases =
         [
             ("fivekey.bms", "#00111:01", 5),
-            ("default-seven.bms", "#00111:000000", 7),
-            ("legacy-seven.bms", "#00116:01", 7),
+            ("default-five.bms", "#00111:000000", 5),
+            ("legacy-seven.bms", "#00118:01", 7),
             ("pms-forced.pms", "#00111:01", 9),
             ("tenkey.bms", "#00121:01", 10),
             ("fourteenkey.bms", "#00128:01", 14),
+            ("ln-seven.bms", "#00158:01", 7),
+            ("ln-tenkey.bms", "#00161:01", 10),
             ("fullwidth-leading-space.bms", "\u3000#00111:01", 5),
-            ("whitespace-separator-is-ignored.bms", "#00111 01", 7)
+            ("whitespace-separator-is-ignored.bms", "#00111 01", 5)
         ];
         foreach ((string fileName, string channelLine, int expectedMode) in cases)
         {
@@ -165,6 +167,28 @@ public sealed class BMSFileSnapshotTests
             Assert.IsFalse(actual.WAVfiles.Any(string.IsNullOrWhiteSpace));
             Assert.IsFalse(actual.BGAfiles.Any(value => value.Contains(":")));
             Assert.AreEqual(5, actual.mode);
+        });
+    }
+
+    [TestMethod]
+    public void CreateBMSFileFromSnapshot_UsesLr2SongMetadataDefaults()
+    {
+        WithTempDirectory(delegate (string tempDirectory)
+        {
+            string filePath = Path.Combine(tempDirectory, "defaults.bms");
+            File.WriteAllText(filePath,
+                "#TITLE Defaults\r\n"
+                + "#RANK foo\r\n"
+                + "#MAXTRACKS 12tail\r\n",
+                Encoding.GetEncoding("shift_jis"));
+
+            ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(filePath);
+            var actual = BMSFile.CreateBMSFileFromSnapshot(snapshot);
+
+            Assert.AreEqual(12, actual.level);
+            Assert.AreEqual(-1, actual.difficulty);
+            Assert.AreEqual(5, actual.mode);
+            Assert.AreEqual(0, actual.judge);
         });
     }
 

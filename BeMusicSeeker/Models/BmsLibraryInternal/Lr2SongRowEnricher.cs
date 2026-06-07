@@ -42,7 +42,7 @@ internal static class Lr2SongRowEnricher
 
     internal static void EnrichFromChartInfo(BMSFile song, LR2SongDBExtended.chart_info chartInfo)
     {
-        song?.ApplyLr2ChartInfoColumns(chartInfo);
+        song?.ApplyLr2ChartInfoDetailedColumns(chartInfo);
     }
 
     internal static int ToLr2UnixSeconds(DateTime utcTime)

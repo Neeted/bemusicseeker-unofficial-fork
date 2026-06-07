@@ -2563,7 +2563,7 @@ internal static class Lr2FullGenerationSyncService
             return false;
         }
 
-        row.ApplyLr2ChartInfoColumns(chartInfo);
+        row.ApplyLr2ChartInfoDetailedColumns(chartInfo);
         return true;
     }
 

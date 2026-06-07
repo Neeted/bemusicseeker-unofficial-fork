@@ -1129,7 +1129,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             Directory.CreateDirectory(songDirectory);
             File.WriteAllText(Path.Combine(packDirectory, "folderinfo.txt"), "#TITLE Pack Title");
             string chartPath = Path.Combine(songDirectory, "chart.bms");
-            File.WriteAllText(chartPath, "#TITLE Parsed Title\r\n#ARTIST Parsed Artist\r\n#BPM 120\r\n#00111:01\r\n");
+            File.WriteAllText(chartPath, "#TITLE Parsed Title\r\n#ARTIST Parsed Artist\r\n#BPM 120\r\n#PLAYLEVEL 4\r\n#DIFFICULTY 2\r\n#RANK 3\r\n#00111:01\r\n");
             ChartFileSnapshot chartSnapshot = ChartFileContentReader.ReadSnapshot(chartPath);
             File.WriteAllText(Path.Combine(songDirectory, "readme.txt"), "text group");
             string customFolderPath = Path.Combine(rootDirectory, "custom.lr2folder");
@@ -1240,11 +1240,11 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             Assert.AreEqual("Parsed Title", verify.ExecuteScalar<string>("SELECT title FROM song WHERE path = ?;", chartPath));
             Assert.AreEqual("Parsed Artist", verify.ExecuteScalar<string>("SELECT artist FROM song WHERE path = ?;", chartPath));
             Assert.AreEqual(file.hash, verify.ExecuteScalar<string>("SELECT hash FROM song WHERE path = ?;", chartPath));
-            Assert.AreEqual(9, verify.ExecuteScalar<int>("SELECT level FROM song WHERE path = ?;", chartPath));
-            Assert.AreEqual(3, verify.ExecuteScalar<int>("SELECT difficulty FROM song WHERE path = ?;", chartPath));
+            Assert.AreEqual(4, verify.ExecuteScalar<int>("SELECT level FROM song WHERE path = ?;", chartPath));
+            Assert.AreEqual(2, verify.ExecuteScalar<int>("SELECT difficulty FROM song WHERE path = ?;", chartPath));
             Assert.AreEqual(180, verify.ExecuteScalar<int>("SELECT maxbpm FROM song WHERE path = ?;", chartPath));
             Assert.AreEqual(120, verify.ExecuteScalar<int>("SELECT minbpm FROM song WHERE path = ?;", chartPath));
-            Assert.AreEqual(7, verify.ExecuteScalar<int>("SELECT mode FROM song WHERE path = ?;", chartPath));
+            Assert.AreEqual(5, verify.ExecuteScalar<int>("SELECT mode FROM song WHERE path = ?;", chartPath));
             Assert.AreEqual(1, verify.ExecuteScalar<int>("SELECT random FROM song WHERE path = ?;", chartPath));
             Assert.AreEqual(1, verify.ExecuteScalar<int>("SELECT longnote FROM song WHERE path = ?;", chartPath));
             Assert.AreEqual(1234, verify.ExecuteScalar<int>("SELECT karinotes FROM song WHERE path = ?;", chartPath));
@@ -2552,7 +2552,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
 
         Assert.AreEqual(1, result.SongRowProcessedCount);
         Assert.AreEqual(1, result.SongRowChartInfoAppliedCount);
-        Assert.AreEqual(13, songDb.ExecuteScalar<int>("SELECT level FROM song WHERE path = ?;", chartPath));
+        Assert.AreEqual(0, songDb.ExecuteScalar<int>("SELECT level FROM song WHERE path = ?;", chartPath));
     }
 
     [TestMethod]
@@ -2585,7 +2585,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         });
 
         Assert.AreEqual(1, result.SongRowChartInfoAppliedCount);
-        Assert.AreEqual(11, songDb.ExecuteScalar<int>("SELECT level FROM song WHERE path = ?;", chartPath));
+        Assert.AreEqual(0, songDb.ExecuteScalar<int>("SELECT level FROM song WHERE path = ?;", chartPath));
     }
 
     [TestMethod]

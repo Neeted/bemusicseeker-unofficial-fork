@@ -1234,10 +1234,11 @@ parse directive:
     file diff parser と DB writer から同じ入口へ寄せる。
   - 完全生成 / 再同期では `ChartFileSnapshot` から `BMSFile.CreateBMSFileFromSnapshot` を通し、
     lightweight parser の結果を `song` row の基本メタデータにする。
-  - 現行接続では `chart_info` から `level` / `difficulty` / `maxbpm` / `minbpm` / `mode` /
-    `longnote` / `bga` / `random` / `karinotes` / `exlevel` を反映している。
-    今後は `level` / `difficulty` / `mode` の precedence を列ごとに明示し、
-    OpenLR2 寄せの default 補正は lightweight parser 側で行う。
+  - `level` / `difficulty` / `mode` / `judge` は lightweight parser の値を使う。
+    OpenLR2 寄せの default 補正も lightweight parser 側で行い、完全生成 / 再同期では既存 DB の
+    `NULL` や `chart_info` の overlapping value で上書きしない。
+  - `chart_info` は `maxbpm` / `minbpm` / `longnote` / `bga` / `random` / `karinotes` /
+    `exlevel` など、lightweight parser だけでは足りない詳細列の補完に限定する。
   - `song.judge` は LR2 の raw `#RANK` 値で、`chart_info.judge` は判定幅 percent なので写さない。
   - `bga` は BMS/BMSON timeline 上の BGA event 有無、`exlevel` は BMS `#EXLEVEL` の raw 値を正本にする。
     `#DEFEXRANK` は判定幅計算だけに使い、`exlevel` 未定義時は `0` を入れる。
