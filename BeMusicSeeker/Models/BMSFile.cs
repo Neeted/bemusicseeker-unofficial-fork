@@ -904,6 +904,11 @@ public class BMSFile : LR2SongDB.song
                 forcePmsMode = true;
                 continue;
             }
+            if (IsLr2CustomFolderDirective(item))
+            {
+                bMSFile.judge = 2;
+                continue;
+            }
             if (!TryParseDirectiveLine(item, out BmsDirective directive, out int valueStart))
             {
                 continue;
@@ -1505,6 +1510,16 @@ public class BMSFile : LR2SongDB.song
         }
         string trimmed = value.TrimStart();
         return trimmed.StartsWith("#FP/DSC", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsLr2CustomFolderDirective(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return false;
+        }
+        string trimmed = value.TrimStart();
+        return trimmed.StartsWith("#CUSTOMFOLDER", StringComparison.OrdinalIgnoreCase);
     }
 
     private static int ParseLr2DirectiveInt(string value)
