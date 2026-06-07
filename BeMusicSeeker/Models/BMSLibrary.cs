@@ -5901,6 +5901,31 @@ completeFileEnumerationOnce,
             Lr2FullGenerationSyncStageTotalCount));
     }
 
+    private void PublishLr2FullGenerationPreflightStage(string stage, string reason, string runId)
+    {
+        UpdateLr2FullGenerationSyncProgress(new Lr2FullGenerationSyncProgress
+        {
+            Stage = stage ?? string.Empty,
+            ProcessedCursor = 0,
+            TotalCount = 0,
+            StageProcessedCount = 0,
+            StageTotalCount = 0
+        });
+        LogInstallPerformance("lr2_full_generation_sync preflight_stage_start"
+            + " stage=" + (stage ?? string.Empty)
+            + " reason=" + (reason ?? "unknown")
+            + " runId=" + (runId ?? string.Empty));
+    }
+
+    private void LogLr2FullGenerationPreflightStageDone(string stage, string reason, string runId, long elapsedMs)
+    {
+        LogInstallPerformance("lr2_full_generation_sync preflight_stage_done"
+            + " stage=" + (stage ?? string.Empty)
+            + " reason=" + (reason ?? "unknown")
+            + " runId=" + (runId ?? string.Empty)
+            + " elapsedMs=" + elapsedMs);
+    }
+
     private void CompleteLr2FullGenerationSyncRequest(int requestVersion, string stage)
     {
         lock (lockLr2FullGenerationSync)
@@ -6024,6 +6049,7 @@ completeFileEnumerationOnce,
         var stopwatch = Stopwatch.StartNew();
         string runId = Guid.NewGuid().ToString("N");
         CancellationToken cancellationToken;
+        bool enteredSyncService = false;
         lock (lockLr2FullGenerationSync)
         {
             cancellationToken = lr2FullGenerationSyncCancellation?.Token ?? CancellationToken.None;
@@ -6031,15 +6057,38 @@ completeFileEnumerationOnce,
         try
         {
             ReportStartupBackgroundTask("lr2_full_generation_sync", "start", 0L, failed: false, detail: "runId=" + runId);
+            PublishLr2FullGenerationPreflightStage("chart_info_hydration", reason, runId);
+            var preflightStageStopwatch = Stopwatch.StartNew();
             EnsureLr2FullGenerationChartInfoIndexHydrated(reason);
+            LogLr2FullGenerationPreflightStageDone("chart_info_hydration", reason, runId, preflightStageStopwatch.ElapsedMilliseconds);
+            cancellationToken.ThrowIfCancellationRequested();
+
+            PublishLr2FullGenerationPreflightStage("input_surface", reason, runId);
+            preflightStageStopwatch.Restart();
             Lr2FullGenerationSyncInput input = CreateLr2FullGenerationSyncInput();
+            LogLr2FullGenerationPreflightStageDone("input_surface", reason, runId, preflightStageStopwatch.ElapsedMilliseconds);
+            cancellationToken.ThrowIfCancellationRequested();
+
+            PublishLr2FullGenerationPreflightStage("compatibility_projection_index", reason, runId);
+            preflightStageStopwatch.Restart();
             Dictionary<string, BMSFile> compatibilityProjectionIndex = CreateLr2FullGenerationCompatibilityProjectionIndex();
+            LogLr2FullGenerationPreflightStageDone("compatibility_projection_index", reason, runId, preflightStageStopwatch.ElapsedMilliseconds);
+            cancellationToken.ThrowIfCancellationRequested();
+
+            PublishLr2FullGenerationPreflightStage("chart_info_resolver_snapshot", reason, runId);
+            preflightStageStopwatch.Restart();
+            Func<BMSFile, LR2SongDBExtended.chart_info> chartInfoResolver = CreateLr2FullGenerationChartInfoResolverSnapshot();
+            HashSet<string> currentChartInfoParseFailureMd5s = CreateLr2FullGenerationCurrentChartInfoParseFailureMd5Snapshot(reason);
+            LogLr2FullGenerationPreflightStageDone("chart_info_resolver_snapshot", reason, runId, preflightStageStopwatch.ElapsedMilliseconds);
+            cancellationToken.ThrowIfCancellationRequested();
+
             int projectedCompatibilityWarningCount = 0;
             int committedChartInfoRowCount = 0;
             int committedChartInfoParseFailureChangeCount = 0;
             Lr2FullGenerationSyncResult result;
             using (LR2SongDBExtended songDb = dbGateway.OpenSongDb())
             {
+                enteredSyncService = true;
                 result = Lr2FullGenerationSyncService.Run(songDb, new Lr2FullGenerationSyncRequest
                 {
                     Signature = signature,
@@ -6061,10 +6110,10 @@ completeFileEnumerationOnce,
                     Lr2FolderFileDiscoveryComplete = input.Lr2FolderFileDiscoveryComplete,
                     SongRows = input.SongRows,
                     TextFileDirectories = input.TextFileDirectories,
-                    ChartInfoResolver = CreateLr2FullGenerationChartInfoResolverSnapshot(),
+                    ChartInfoResolver = chartInfoResolver,
                     ChartInfoResolverIsThreadSafe = true,
                     ChartInfoParseTimeout = chartInfoBuildService.CurrentParseTimeout,
-                    CurrentChartInfoParseFailureMd5s = CreateLr2FullGenerationCurrentChartInfoParseFailureMd5Snapshot(reason),
+                    CurrentChartInfoParseFailureMd5s = currentChartInfoParseFailureMd5s,
                     ChartInfoRowsCommitted = rows =>
                     {
                         int count = rows?.Count ?? 0;
@@ -6184,6 +6233,10 @@ completeFileEnumerationOnce,
         catch (OperationCanceledException)
         {
             stopwatch.Stop();
+            if (!enteredSyncService)
+            {
+                MarkLr2FullGenerationSyncPreflightCancelled(signature, runId, Lr2FullGenerationSyncStage);
+            }
             LogInstallPerformance("lr2_full_generation_sync cancelled reason=" + (reason ?? "unknown")
                 + " runId=" + runId
                 + " elapsedMs=" + stopwatch.ElapsedMilliseconds
@@ -6220,6 +6273,26 @@ completeFileEnumerationOnce,
                 + " message=" + ex.Message);
             FailLr2FullGenerationSyncRequest(requestVersion, Lr2FullGenerationStatusKind.Failed, "failed", ex.Message);
             ReportStartupBackgroundTask("lr2_full_generation_sync", "failed", stopwatch.ElapsedMilliseconds, failed: true, detail: ex.Message);
+        }
+    }
+
+    private void MarkLr2FullGenerationSyncPreflightCancelled(string signature, string runId, string stage)
+    {
+        try
+        {
+            using LR2SongDBExtended songDb = dbGateway.OpenSongDb();
+            Lr2FullGenerationStatusService.MarkCancelled(
+                songDb,
+                signature,
+                runId,
+                processedCursor: 0,
+                totalCount: 0,
+                stage,
+                DateTime.UtcNow);
+        }
+        catch
+        {
+            // Runtime cancellation state is still reported by the caller's catch block.
         }
     }
 

@@ -1326,6 +1326,14 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
 
             string queuedName = string.Empty;
             string queuedReason = string.Empty;
+            var observedStages = new List<string>();
+            library.PropertyChanged += (sender, args) =>
+            {
+                if (string.Equals(args.PropertyName, nameof(BMSLibrary.Lr2FullGenerationSyncStage), StringComparison.Ordinal))
+                {
+                    observedStages.Add(library.Lr2FullGenerationSyncStage);
+                }
+            };
             library.StartupBackgroundTaskScheduler = delegate (string name, string reason, string dependency, Func<Task> work)
             {
                 queuedName = name;
@@ -1339,6 +1347,10 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             Assert.AreEqual(Lr2FullGenerationStatusKind.Needed, snapshot.Status);
             Assert.AreEqual("lr2_full_generation_sync", queuedName);
             Assert.AreEqual("test_enabled", queuedReason);
+            CollectionAssert.Contains(observedStages, "chart_info_hydration");
+            CollectionAssert.Contains(observedStages, "input_surface");
+            CollectionAssert.Contains(observedStages, "compatibility_projection_index");
+            CollectionAssert.Contains(observedStages, "chart_info_resolver_snapshot");
             using var verify = new LR2SongDBExtended(scope.SongDbPath);
             LR2SongDBExtended.lr2_full_generation_status row = verify.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
             Assert.IsNotNull(row);
@@ -1395,6 +1407,109 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             Assert.AreEqual(row.processed_cursor.GetValueOrDefault(), library.Lr2FullGenerationSyncProcessedCount);
             Assert.AreEqual(Lr2FullGenerationSyncService.CompletedStage, library.Lr2FullGenerationSyncStage);
             Assert.AreEqual(Lr2FullGenerationStatusKind.Completed, library.GetLr2FullGenerationStatusSnapshot().Status);
+        }
+        finally
+        {
+            ResetTouchedSettings();
+        }
+    }
+
+    [TestMethod]
+    public void QueueLr2FullGenerationDataSync_PreflightCancelMarksDurableCancelledStatus()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        try
+        {
+            Settings.Default.OperationModeLR2DB = true;
+            Settings.Default.EnableLR2SongDbFullGeneration = true;
+            ResetLr2FolderDiscoverySettings();
+            string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
+            Directory.CreateDirectory(rootDirectory);
+            var library = new BMSLibrary(scope.SongDbPath)
+            {
+                SearchTargets = [rootDirectory],
+                BMSFiles = []
+            };
+            bool cancelRequested = false;
+            library.PropertyChanged += (sender, args) =>
+            {
+                if (!cancelRequested
+                    && string.Equals(args.PropertyName, nameof(BMSLibrary.Lr2FullGenerationSyncStage), StringComparison.Ordinal)
+                    && string.Equals(library.Lr2FullGenerationSyncStage, "chart_info_hydration", StringComparison.Ordinal))
+                {
+                    cancelRequested = library.CancelLr2FullGenerationSync("test_preflight_cancel");
+                }
+            };
+            library.StartupBackgroundTaskScheduler = delegate (string name, string reason, string dependency, Func<Task> work)
+            {
+                work().GetAwaiter().GetResult();
+                return true;
+            };
+
+            library.QueueLr2FullGenerationDataSync("test_preflight_cancel", force: true);
+
+            Assert.IsTrue(cancelRequested);
+            using var verify = new LR2SongDBExtended(scope.SongDbPath);
+            LR2SongDBExtended.lr2_full_generation_status row = verify.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
+            Assert.IsNotNull(row);
+            Assert.AreEqual("Cancelled", row.status);
+            Assert.AreEqual("chart_info_hydration", row.stage);
+            Assert.AreEqual(0, row.processed_cursor);
+            Assert.AreEqual(0, row.total_count);
+        }
+        finally
+        {
+            ResetTouchedSettings();
+        }
+    }
+
+    [TestMethod]
+    public void QueueLr2FullGenerationDataSync_ServiceCancelKeepsDurableProgress()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        try
+        {
+            Settings.Default.OperationModeLR2DB = true;
+            Settings.Default.EnableLR2SongDbFullGeneration = true;
+            ResetLr2FolderDiscoverySettings();
+            string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
+            string songDirectory = Path.Combine(rootDirectory, "Song");
+            Directory.CreateDirectory(songDirectory);
+            string chartPath = Path.Combine(songDirectory, "chart.bms");
+            File.WriteAllText(chartPath, "#TITLE Cancel In Service\r\n#00111:01\r\n", Encoding.ASCII);
+            ChartFileSnapshot chartSnapshot = ChartFileContentReader.ReadSnapshot(chartPath);
+            TestableBmsFile file = CreateSyncTestFile(chartPath, chartSnapshot);
+            var library = new BMSLibrary(scope.SongDbPath)
+            {
+                SearchTargets = [rootDirectory],
+                BMSFiles = [file]
+            };
+            bool cancelRequested = false;
+            library.PropertyChanged += (sender, args) =>
+            {
+                if (!cancelRequested
+                    && string.Equals(args.PropertyName, nameof(BMSLibrary.Lr2FullGenerationSyncStage), StringComparison.Ordinal)
+                    && string.Equals(library.Lr2FullGenerationSyncStage, "normal_folders", StringComparison.Ordinal))
+                {
+                    cancelRequested = library.CancelLr2FullGenerationSync("test_service_cancel");
+                }
+            };
+            library.StartupBackgroundTaskScheduler = delegate (string name, string reason, string dependency, Func<Task> work)
+            {
+                work().GetAwaiter().GetResult();
+                return true;
+            };
+
+            library.QueueLr2FullGenerationDataSync("test_service_cancel", force: true);
+
+            Assert.IsTrue(cancelRequested);
+            using var verify = new LR2SongDBExtended(scope.SongDbPath);
+            LR2SongDBExtended.lr2_full_generation_status row = verify.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
+            Assert.IsNotNull(row);
+            Assert.AreEqual("Cancelled", row.status);
+            Assert.AreEqual("normal_folders", row.stage);
+            Assert.AreEqual(0, row.processed_cursor);
+            Assert.IsTrue(row.total_count.GetValueOrDefault() > 0);
         }
         finally
         {
