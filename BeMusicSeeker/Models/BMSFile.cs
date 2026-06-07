@@ -731,6 +731,14 @@ public class BMSFile : LR2SongDB.song
         tag = tagValue;
     }
 
+    internal void ApplyLr2LightweightDefaults()
+    {
+        level ??= 0;
+        difficulty ??= -1;
+        mode ??= 5;
+        judge ??= 2;
+    }
+
     internal BMSFile CreateSongRowPersistenceCopy()
     {
         return new BMSFile

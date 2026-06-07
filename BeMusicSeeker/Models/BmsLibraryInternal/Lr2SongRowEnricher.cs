@@ -37,6 +37,7 @@ internal static class Lr2SongRowEnricher
             return;
         }
         Lr2SongFolderParentNormalizer.ApplyIfMissingOrInvalid(song, folderParentHashCache);
+        song.ApplyLr2LightweightDefaults();
         song.exlevel ??= 0;
     }
 

@@ -80,6 +80,22 @@ public sealed class Lr2SongRowEnricherTests
     }
 
     [TestMethod]
+    public void EnrichGeneratedSong_DefaultsLr2LightweightColumns()
+    {
+        var file = new TestableBmsFile
+        {
+            path = @"C:\BMS\Pack\chart.bms"
+        };
+
+        Lr2SongRowEnricher.EnrichGeneratedSong(file);
+
+        Assert.AreEqual(0, file.level);
+        Assert.AreEqual(-1, file.difficulty);
+        Assert.AreEqual(5, file.mode);
+        Assert.AreEqual(2, file.judge);
+    }
+
+    [TestMethod]
     public void EnrichFromChartInfo_AppliesDetailedColumnsWithoutOverwritingLightweightMetadata()
     {
         var file = new TestableBmsFile
