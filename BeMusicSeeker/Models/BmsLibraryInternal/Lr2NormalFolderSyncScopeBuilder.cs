@@ -28,9 +28,8 @@ internal static class Lr2NormalFolderSyncScopeBuilder
     internal static Lr2NormalFolderSyncScope CreateForFileDiff(
         IEnumerable<string> rootDirectories,
         IEnumerable<string> scannedBmsPaths,
-        IEnumerable<BMSFile> addedBmsFiles,
-        IEnumerable<string> deletedBmsPaths,
-        IEnumerable<string> changedFolderInfoDirectoryPaths = null)
+        IEnumerable<string> changedDirectoryPaths = null,
+        IEnumerable<string> pruneScopeDirectoryPaths = null)
     {
         List<string> roots = NormalizeRoots(rootDirectories);
         if (roots.Count == 0)
@@ -42,24 +41,21 @@ internal static class Lr2NormalFolderSyncScopeBuilder
         var directoryPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var pruneScopeDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var pruneExactDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        List<string> deletedPathList = [.. deletedBmsPaths ?? []];
-        HashSet<string> currentAncestorDirectories = deletedPathList.Count > 0
-            ? CreateCurrentAncestorDirectorySet(scannedBmsPaths, roots)
-            : [];
-        foreach (BMSFile file in addedBmsFiles ?? [])
-        {
-            AddIfUnderAnyRoot(chartPaths, file?.path, roots);
-        }
 
-        foreach (string deletedPath in deletedPathList)
-        {
-            AddChartDirectoryScopeIfUnderAnyRoot(pruneScopeDirectories, deletedPath, roots);
-            AddEmptyAncestorExactScopesIfUnderAnyRoot(pruneExactDirectories, deletedPath, roots, currentAncestorDirectories);
-        }
-
-        foreach (string directoryPath in changedFolderInfoDirectoryPaths ?? [])
+        foreach (string directoryPath in changedDirectoryPaths ?? [])
         {
             AddDirectoryIfUnderAnyRoot(directoryPaths, directoryPath, roots);
+        }
+        foreach (string directoryPath in pruneScopeDirectoryPaths ?? [])
+        {
+            AddDirectoryIfUnderAnyRoot(pruneScopeDirectories, directoryPath, roots);
+        }
+        HashSet<string> currentAncestorDirectories = pruneScopeDirectories.Count > 0
+            ? CreateCurrentAncestorDirectorySet(scannedBmsPaths, roots)
+            : [];
+        foreach (string pruneScopeDirectory in pruneScopeDirectories)
+        {
+            AddEmptyAncestorExactScopesForDirectoryIfUnderAnyRoot(pruneExactDirectories, pruneScopeDirectory, roots, currentAncestorDirectories);
         }
 
         AddCurrentPathsUnderPruneScopes(chartPaths, scannedBmsPaths, pruneScopeDirectories);
@@ -249,13 +245,28 @@ internal static class Lr2NormalFolderSyncScopeBuilder
         }
 
         string directoryPath = Lr2FolderPath.NormalizeDirectoryPath(Lr2FolderPath.SafeGetDirectoryName(chartPath));
-        if (string.IsNullOrWhiteSpace(directoryPath))
+        AddEmptyAncestorExactScopesForDirectoryIfUnderAnyRoot(result, directoryPath, rootDirectories, currentAncestorDirectories);
+    }
+
+    private static void AddEmptyAncestorExactScopesForDirectoryIfUnderAnyRoot(
+        HashSet<string> result,
+        string directoryPath,
+        IReadOnlyCollection<string> rootDirectories,
+        ISet<string> currentAncestorDirectories)
+    {
+        if (result == null || string.IsNullOrWhiteSpace(directoryPath) || rootDirectories == null || rootDirectories.Count == 0)
+        {
+            return;
+        }
+
+        string normalizedDirectoryPath = Lr2FolderPath.NormalizeDirectoryPath(directoryPath);
+        if (string.IsNullOrWhiteSpace(normalizedDirectoryPath))
         {
             return;
         }
 
         string rootDirectory = rootDirectories
-            .Where(root => Lr2FolderPath.IsSameOrDescendant(directoryPath, root))
+            .Where(root => Lr2FolderPath.IsSameOrDescendant(normalizedDirectoryPath, root))
             .OrderByDescending(root => root.Length)
             .FirstOrDefault();
         if (string.IsNullOrWhiteSpace(rootDirectory))
@@ -263,7 +274,7 @@ internal static class Lr2NormalFolderSyncScopeBuilder
             return;
         }
 
-        string current = directoryPath;
+        string current = normalizedDirectoryPath;
         while (!string.IsNullOrWhiteSpace(current)
             && Lr2FolderPath.IsSameOrDescendant(current, rootDirectory))
         {

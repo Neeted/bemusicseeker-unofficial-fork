@@ -5094,8 +5094,6 @@ public class BMSLibrary : NotificationObject
 
         List<LR2SongDBExtended.chart_info> committedInlineChartInfoRows = [];
         List<ChartFile> currentInstallDestinationCharts = CreateCurrentInstallDestinationCleanupCharts();
-        Lr2FullGenerationScanSurfaceSnapshot previousLr2ScanSurface =
-            GetCurrentLr2FullGenerationScanSurfaceForFileDiff(options, bmsDirectories);
         SongTableFileCheckResult fileCheckResult = initializationService.ApplyFileScanDiff(
             dbGateway,
             options,
@@ -5153,9 +5151,7 @@ completeFileEnumerationOnce,
             currentInstallDestinationCharts,
             bmsDirectories,
             lr2FolderDiscoveryRootDirectories: bmsDirectories,
-            lr2BuiltinCustomFolderSettings: CreateCurrentLr2BuiltinCustomFolderSettings(DateTime.UtcNow),
-            previousLr2ScanFolderInfoFilePaths: previousLr2ScanSurface?.FolderInfoFilePaths,
-            previousLr2ScanFolderInfoFileEntries: previousLr2ScanSurface?.FolderInfoFileEntries);
+            lr2BuiltinCustomFolderSettings: CreateCurrentLr2BuiltinCustomFolderSettings(DateTime.UtcNow));
         ApplyLr2FolderFileDiffSync(options, bmsDirectories, fileCheckResult, reason);
         completeFileEnumerationOnce();
         ApplyLibraryFileScanStorageMutation(fileCheckResult, reason);
@@ -5633,31 +5629,6 @@ completeFileEnumerationOnce,
         if (!ArePathSetsEqual(snapshot.Lr2FolderDiscoveryDirectories, lr2FolderDiscoveryDirectories))
         {
             missReason = "lr2folder_roots";
-            return null;
-        }
-        return snapshot;
-    }
-
-    private Lr2FullGenerationScanSurfaceSnapshot GetCurrentLr2FullGenerationScanSurfaceForFileDiff(
-        BmsLibraryOptionsSnapshot options,
-        IEnumerable<string> rootDirectories)
-    {
-        if (options?.OperationModeLR2DB != true || options.EnableLR2SongDbFullGeneration != true)
-        {
-            return null;
-        }
-
-        Lr2FullGenerationScanSurfaceSnapshot snapshot;
-        lock (lockLr2FullGenerationScanSurface)
-        {
-            snapshot = lr2FullGenerationScanSurfaceSnapshot;
-        }
-        if (snapshot == null
-            || snapshot.OwnedCollectionVersion != OwnedChartCollectionVersion
-            || snapshot.BmsRowsVersion != Volatile.Read(ref bmsStorageRowsVersion)
-            || snapshot.BmsonRowsVersion != Volatile.Read(ref bmsonStorageRowsVersion)
-            || !ArePathSetsEqual(snapshot.RootDirectories, rootDirectories))
-        {
             return null;
         }
         return snapshot;
