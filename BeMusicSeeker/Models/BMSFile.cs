@@ -1580,21 +1580,7 @@ public class BMSFile : LR2SongDB.song
         {
             return false;
         }
-        index += 5;
-        while (index < line.Length && char.IsWhiteSpace(line[index]))
-        {
-            index++;
-        }
-        if (index >= line.Length || line[index] != ':')
-        {
-            return false;
-        }
-        index++;
-        while (index < line.Length && (char.IsWhiteSpace(line[index]) || line[index] == '0'))
-        {
-            index++;
-        }
-        return index < line.Length && !char.IsWhiteSpace(line[index]);
+        return true;
     }
 
     private static bool IsAsciiDigit(char value)

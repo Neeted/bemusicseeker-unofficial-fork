@@ -120,6 +120,33 @@ public sealed class Lr2SongRowEnricherTests
         Assert.AreEqual(1234, file.karinotes);
     }
 
+    [DataTestMethod]
+    [DataRow("#00118:00\r\n", 7)]
+    [DataRow("#00121:00\r\n", 10)]
+    [DataRow("#00129:00\r\n", 14)]
+    [DataRow("#00128 00\r\n", 14)]
+    public void CreateBMSFileFromSnapshot_InfersLr2ModeFromChannelPresence(string chartText, int expectedMode)
+    {
+        string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_Lr2SongRowEnricher_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectoryPath);
+        string chartPath = Path.Combine(tempDirectoryPath, "chart.bms");
+        try
+        {
+            File.WriteAllText(chartPath, chartText, Encoding.ASCII);
+            ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
+            BMSFile parsed = BMSFile.CreateBMSFileFromSnapshot(snapshot);
+
+            Assert.AreEqual(expectedMode, parsed.mode);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectoryPath))
+            {
+                Directory.Delete(tempDirectoryPath, recursive: true);
+            }
+        }
+    }
+
     [TestMethod]
     public void EnrichFromChartInfo_IgnoresMismatchedMd5()
     {
