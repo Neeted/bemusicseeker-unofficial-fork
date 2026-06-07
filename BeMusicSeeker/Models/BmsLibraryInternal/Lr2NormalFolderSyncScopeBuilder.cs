@@ -8,12 +8,15 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 internal sealed class Lr2NormalFolderSyncScope(
     IReadOnlyList<string> chartPaths,
+    IReadOnlyList<string> directoryPaths,
     IReadOnlyList<string> pruneScopeDirectories,
     IReadOnlyList<string> pruneExactDirectories)
 {
-    public static Lr2NormalFolderSyncScope Empty { get; } = new([], [], []);
+    public static Lr2NormalFolderSyncScope Empty { get; } = new([], [], [], []);
 
     public IReadOnlyList<string> ChartPaths { get; } = chartPaths ?? [];
+
+    public IReadOnlyList<string> DirectoryPaths { get; } = directoryPaths ?? [];
 
     public IReadOnlyList<string> PruneScopeDirectories { get; } = pruneScopeDirectories ?? [];
 
@@ -26,7 +29,8 @@ internal static class Lr2NormalFolderSyncScopeBuilder
         IEnumerable<string> rootDirectories,
         IEnumerable<string> scannedBmsPaths,
         IEnumerable<BMSFile> addedBmsFiles,
-        IEnumerable<string> deletedBmsPaths)
+        IEnumerable<string> deletedBmsPaths,
+        IEnumerable<string> changedFolderInfoDirectoryPaths = null)
     {
         List<string> roots = NormalizeRoots(rootDirectories);
         if (roots.Count == 0)
@@ -35,6 +39,7 @@ internal static class Lr2NormalFolderSyncScopeBuilder
         }
 
         var chartPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var directoryPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var pruneScopeDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var pruneExactDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         List<string> deletedPathList = [.. deletedBmsPaths ?? []];
@@ -52,8 +57,13 @@ internal static class Lr2NormalFolderSyncScopeBuilder
             AddEmptyAncestorExactScopesIfUnderAnyRoot(pruneExactDirectories, deletedPath, roots, currentAncestorDirectories);
         }
 
+        foreach (string directoryPath in changedFolderInfoDirectoryPaths ?? [])
+        {
+            AddDirectoryIfUnderAnyRoot(directoryPaths, directoryPath, roots);
+        }
+
         AddCurrentPathsUnderPruneScopes(chartPaths, scannedBmsPaths, pruneScopeDirectories);
-        return CreateResult(chartPaths, pruneScopeDirectories, pruneExactDirectories);
+        return CreateResult(chartPaths, directoryPaths, pruneScopeDirectories, pruneExactDirectories);
     }
 
     internal static Lr2NormalFolderSyncScope CreateForStorageMutation(
@@ -70,6 +80,7 @@ internal static class Lr2NormalFolderSyncScopeBuilder
         }
 
         var chartPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var directoryPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var pruneScopeDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var pruneExactDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         List<LibraryChartPathChange> pathChangeList = [.. pathChanges ?? []];
@@ -113,7 +124,7 @@ internal static class Lr2NormalFolderSyncScopeBuilder
             chartPaths,
             currentBmsPaths,
             pruneScopeDirectories);
-        return CreateResult(chartPaths, pruneScopeDirectories, pruneExactDirectories);
+        return CreateResult(chartPaths, directoryPaths, pruneScopeDirectories, pruneExactDirectories);
     }
 
     private static List<string> NormalizeRoots(IEnumerable<string> rootDirectories)
@@ -126,11 +137,13 @@ internal static class Lr2NormalFolderSyncScopeBuilder
 
     private static Lr2NormalFolderSyncScope CreateResult(
         HashSet<string> chartPaths,
+        HashSet<string> directoryPaths,
         HashSet<string> pruneScopeDirectories,
         HashSet<string> pruneExactDirectories)
     {
         return new Lr2NormalFolderSyncScope(
             [.. (chartPaths ?? []).OrderBy(path => path, StringComparer.OrdinalIgnoreCase)],
+            [.. (directoryPaths ?? []).OrderBy(path => path, StringComparer.OrdinalIgnoreCase)],
             [.. (pruneScopeDirectories ?? []).OrderBy(path => path, StringComparer.OrdinalIgnoreCase)],
             [.. (pruneExactDirectories ?? []).OrderBy(path => path, StringComparer.OrdinalIgnoreCase)]);
     }
@@ -170,6 +183,29 @@ internal static class Lr2NormalFolderSyncScopeBuilder
             if (Lr2FolderPath.IsSameOrDescendant(chartDirectory, root))
             {
                 result.Add(chartPath);
+                return;
+            }
+        }
+    }
+
+    private static void AddDirectoryIfUnderAnyRoot(HashSet<string> result, string directoryPath, IReadOnlyCollection<string> rootDirectories)
+    {
+        if (result == null || string.IsNullOrWhiteSpace(directoryPath) || rootDirectories == null || rootDirectories.Count == 0)
+        {
+            return;
+        }
+
+        string normalized = Lr2FolderPath.NormalizeDirectoryPath(directoryPath);
+        if (string.IsNullOrWhiteSpace(normalized))
+        {
+            return;
+        }
+
+        foreach (string root in rootDirectories)
+        {
+            if (Lr2FolderPath.IsSameOrDescendant(normalized, root))
+            {
+                result.Add(normalized);
                 return;
             }
         }

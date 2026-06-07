@@ -320,7 +320,9 @@ internal sealed class BmsLibraryInitializationService
         IEnumerable<ChartFile> currentInstallDestinationCharts = null,
         IEnumerable<string> lr2NormalFolderSyncRootDirectories = null,
         IEnumerable<string> lr2FolderDiscoveryRootDirectories = null,
-        Lr2BuiltinCustomFolderSettings lr2BuiltinCustomFolderSettings = null)
+        Lr2BuiltinCustomFolderSettings lr2BuiltinCustomFolderSettings = null,
+        IReadOnlyList<string> previousLr2ScanFolderInfoFilePaths = null,
+        IReadOnlyDictionary<string, RootFileEnumerationEntry> previousLr2ScanFolderInfoFileEntries = null)
     {
         var result = new SongTableFileCheckResult();
         var stopwatchScan = Stopwatch.StartNew();
@@ -695,7 +697,14 @@ internal sealed class BmsLibraryInitializationService
                 lr2NormalFolderSyncRootDirectories,
                 scannedPaths,
                 result.AddedFiles,
-                result.DeletedPaths),
+                result.DeletedPaths,
+                CreateChangedFolderInfoDirectoryPaths(
+                    lr2NormalFolderSyncRootDirectories,
+                    result.Lr2ScanNormalFolderDirectoryPaths,
+                    previousLr2ScanFolderInfoFilePaths,
+                    previousLr2ScanFolderInfoFileEntries,
+                    mergedScanResult.FolderInfoFilePaths,
+                    mergedScanResult.FolderInfoFileEntriesByPath)),
             result.Lr2ScanNormalFolderDirectoryEntries,
             mergedScanResult.FolderInfoFilePaths,
             mergedScanResult.FolderInfoFileEntriesByPath,
@@ -906,15 +915,16 @@ internal sealed class BmsLibraryInitializationService
             logInstallPerformance?.Invoke("lr2_normal_folder_sync skipped reason=incomplete_scan");
             return;
         }
-        if (!result.HasDbDiff)
+        if (syncInput == null
+            || (!result.HasDbDiff && syncInput.DirectoryPaths.Count == 0))
         {
             logInstallPerformance?.Invoke("lr2_normal_folder_sync skipped reason=no_db_diff");
             return;
         }
-        if (syncInput == null
-            || (syncInput.ChartPaths.Count == 0
+        if (syncInput.ChartPaths.Count == 0
+                && syncInput.DirectoryPaths.Count == 0
                 && syncInput.PruneScopeDirectories.Count == 0
-                && syncInput.PruneExactDirectories.Count == 0))
+                && syncInput.PruneExactDirectories.Count == 0)
         {
             logInstallPerformance?.Invoke("lr2_normal_folder_sync skipped reason=no_bms_path_diff");
             return;
@@ -924,8 +934,10 @@ internal sealed class BmsLibraryInitializationService
         try
         {
             using LR2SongDBExtended songDb = dbGateway.OpenSongDb();
-            IReadOnlyCollection<string> directoryMetadataTargets =
-                Lr2NormalFolderDbSyncService.CreateDirectoryMetadataTargets(roots, syncInput.ChartPaths);
+            IReadOnlyCollection<string> directoryMetadataTargets = [.. Lr2NormalFolderDbSyncService.CreateDirectoryMetadataTargets(roots, syncInput.ChartPaths)
+                .Concat(Lr2NormalFolderDbSyncService.CreateDirectoryMetadataTargetsFromDirectories(roots, syncInput.DirectoryPaths))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
             IReadOnlyDictionary<string, RootFileEnumerationEntry> directoryEntries = Lr2FolderDirectoryEnumerationService.CreateEntriesFromSurface(
                 directoryEntrySurface,
                 directoryMetadataTargets);
@@ -947,6 +959,7 @@ internal sealed class BmsLibraryInitializationService
                 + " upserted=" + syncResult.UpsertedCount
                 + " deleted=" + syncResult.DeletedCount
                 + " paths=" + syncInput.ChartPaths.Count
+                + " directoryPaths=" + syncInput.DirectoryPaths.Count
                 + " pruneScopes=" + syncInput.PruneScopeDirectories.Count
                 + " exactPrunes=" + syncInput.PruneExactDirectories.Count
                 + " skippedUnsupported=" + syncResult.SkippedUnsupportedPathCount
@@ -971,6 +984,152 @@ internal sealed class BmsLibraryInitializationService
             result.Lr2NormalFolderSyncFailureReason = ex.Message ?? ex.GetType().Name;
             logInstallPerformanceWarn?.Invoke("lr2_normal_folder_sync failed reason=" + QuoteLogValue(result.Lr2NormalFolderSyncFailureReason));
         }
+    }
+
+    private static IReadOnlyList<string> CreateChangedFolderInfoDirectoryPaths(
+        IEnumerable<string> rootDirectories,
+        IEnumerable<string> currentNormalFolderDirectoryPaths,
+        IEnumerable<string> previousFolderInfoFilePaths,
+        IReadOnlyDictionary<string, RootFileEnumerationEntry> previousFolderInfoFileEntries,
+        IEnumerable<string> currentFolderInfoFilePaths,
+        IReadOnlyDictionary<string, RootFileEnumerationEntry> currentFolderInfoFileEntries)
+    {
+        if (previousFolderInfoFilePaths == null && previousFolderInfoFileEntries == null)
+        {
+            return [];
+        }
+
+        HashSet<string> normalFolderDirectorySet = CreateNormalizedDirectorySet(currentNormalFolderDirectoryPaths);
+        if (normalFolderDirectorySet.Count == 0)
+        {
+            return [];
+        }
+
+        HashSet<string> rootSet = CreateNormalizedDirectorySet(rootDirectories);
+        Dictionary<string, RootFileEnumerationEntry> previousByPath = CreateFolderInfoEntryMap(
+            previousFolderInfoFilePaths,
+            previousFolderInfoFileEntries);
+        Dictionary<string, RootFileEnumerationEntry> currentByPath = CreateFolderInfoEntryMap(
+            currentFolderInfoFilePaths,
+            currentFolderInfoFileEntries);
+        var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (KeyValuePair<string, RootFileEnumerationEntry> pair in currentByPath)
+        {
+            if (!previousByPath.TryGetValue(pair.Key, out RootFileEnumerationEntry previousEntry)
+                || !HasSameEnumerationMetadata(previousEntry, pair.Value))
+            {
+                AddChangedFolderInfoDirectory(result, pair.Key, normalFolderDirectorySet, rootSet);
+            }
+        }
+
+        foreach (string previousPath in previousByPath.Keys)
+        {
+            if (!currentByPath.ContainsKey(previousPath))
+            {
+                AddChangedFolderInfoDirectory(result, previousPath, normalFolderDirectorySet, rootSet);
+            }
+        }
+
+        return [.. result.OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
+    }
+
+    private static Dictionary<string, RootFileEnumerationEntry> CreateFolderInfoEntryMap(
+        IEnumerable<string> folderInfoFilePaths,
+        IReadOnlyDictionary<string, RootFileEnumerationEntry> folderInfoFileEntries)
+    {
+        var result = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
+        foreach (string path in folderInfoFilePaths ?? [])
+        {
+            AddFolderInfoEntry(result, path, null);
+        }
+        foreach (RootFileEnumerationEntry entry in (folderInfoFileEntries
+            ?? new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase)).Values)
+        {
+            AddFolderInfoEntry(result, entry?.Path, entry);
+        }
+        return result;
+    }
+
+    private static void AddFolderInfoEntry(
+        IDictionary<string, RootFileEnumerationEntry> result,
+        string path,
+        RootFileEnumerationEntry entry)
+    {
+        if (result == null || !TryNormalizeFolderInfoFilePath(path, out string normalizedPath))
+        {
+            return;
+        }
+        result[normalizedPath] = entry == null
+            ? new RootFileEnumerationEntry(normalizedPath)
+            : new RootFileEnumerationEntry(normalizedPath, entry.LastWriteTimeUtc, entry.FileSize);
+    }
+
+    private static bool TryNormalizeFolderInfoFilePath(string path, out string normalizedPath)
+    {
+        normalizedPath = null;
+        try
+        {
+            if (string.IsNullOrWhiteSpace(path)
+                || !string.Equals(Path.GetFileName(path), "folderinfo.txt", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+            normalizedPath = Path.GetFullPath(path);
+            return !string.IsNullOrWhiteSpace(normalizedPath);
+        }
+        catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is NotSupportedException || ex is ArgumentException || ex is System.Security.SecurityException)
+        {
+            return false;
+        }
+    }
+
+    private static HashSet<string> CreateNormalizedDirectorySet(IEnumerable<string> directories)
+    {
+        return [.. (directories ?? [])
+            .Select(Lr2FolderPath.NormalizeDirectoryPath)
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)];
+    }
+
+    private static bool HasSameEnumerationMetadata(RootFileEnumerationEntry left, RootFileEnumerationEntry right)
+    {
+        if (!Nullable.Equals(left?.LastWriteTimeUtc, right?.LastWriteTimeUtc))
+        {
+            return false;
+        }
+
+        return left?.FileSize == null
+            || right?.FileSize == null
+            || Nullable.Equals(left.FileSize, right.FileSize);
+    }
+
+    private static void AddChangedFolderInfoDirectory(
+        ISet<string> result,
+        string folderInfoFilePath,
+        ISet<string> normalFolderDirectorySet,
+        ISet<string> rootSet)
+    {
+        if (result == null || !TryNormalizeFolderInfoFilePath(folderInfoFilePath, out string normalizedPath))
+        {
+            return;
+        }
+
+        string directoryPath = Lr2FolderPath.NormalizeDirectoryPath(Path.GetDirectoryName(normalizedPath));
+        if (string.IsNullOrWhiteSpace(directoryPath)
+            || normalFolderDirectorySet?.Contains(directoryPath) != true)
+        {
+            return;
+        }
+
+        if (rootSet != null
+            && rootSet.Count > 0
+            && !rootSet.Any(root => Lr2FolderPath.IsSameOrDescendant(directoryPath, root)))
+        {
+            return;
+        }
+
+        result.Add(directoryPath);
     }
 
     private static Func<string, DateTime?> CreateLastWriteTimeResolver(

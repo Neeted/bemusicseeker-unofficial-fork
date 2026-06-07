@@ -968,6 +968,321 @@ public sealed class BmsLibraryInitializationServiceTests
     }
 
     [TestMethod]
+    public void ApplyFileScanDiff_SyncsLr2NormalFoldersForChangedFolderInfoSurfaceWithoutSongDbDiff()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
+        {
+            string packDirectoryPath = Path.Combine(lr2RootPath, "Pack");
+            Directory.CreateDirectory(packDirectoryPath);
+            string bmsPath = Path.Combine(packDirectoryPath, "current.bms");
+            string folderInfoPath = Path.Combine(packDirectoryPath, "folderinfo.txt");
+            File.WriteAllText(bmsPath, CreateValidBmsText("Current"), Encoding.ASCII);
+            File.WriteAllText(folderInfoPath, "#TITLE Updated Folder", Encoding.GetEncoding(932));
+            DateTime timestamp = new(2026, 6, 8, 1, 0, 0, DateTimeKind.Utc);
+            DateTime previousFolderInfoTimestamp = new(2026, 6, 8, 1, 0, 0, DateTimeKind.Utc);
+            DateTime currentFolderInfoTimestamp = new(2026, 6, 8, 1, 5, 0, DateTimeKind.Utc);
+            File.SetLastWriteTimeUtc(bmsPath, timestamp);
+            File.SetLastWriteTimeUtc(folderInfoPath, currentFolderInfoTimestamp);
+            Directory.SetLastWriteTimeUtc(packDirectoryPath, timestamp);
+            var currentFile = new TestableBmsFile
+            {
+                path = bmsPath,
+                date = Lr2SongRowEnricher.ToLr2UnixSeconds(timestamp)
+            };
+
+            using (var songDbConnection = new LR2SongDBExtended(songDbPath))
+            {
+                songDbConnection.CreateTable<LR2SongDB.song>();
+                songDbConnection.CreateTable<LR2SongDB.folder>();
+                songDbConnection.InsertOrReplace(currentFile, typeof(LR2SongDB.song));
+                songDbConnection.InsertOrReplace(new LR2SongDB.folder
+                {
+                    path = ToFolderPath(packDirectoryPath),
+                    title = "Old Folder",
+                    type = 1,
+                    date = Lr2SongRowEnricher.ToLr2UnixSeconds(timestamp)
+                }, typeof(LR2SongDB.folder));
+            }
+
+            ChartScanResult scanResult = CreateScanResult(
+                [bmsPath],
+                new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
+                {
+                    { packDirectoryPath, Array.Empty<string>() }
+                });
+            scanResult.FolderInfoFilePaths.Add(folderInfoPath);
+            scanResult.FolderInfoFileEntriesByPath[folderInfoPath] =
+                new RootFileEnumerationEntry(folderInfoPath, File.GetLastWriteTimeUtc(folderInfoPath), new FileInfo(folderInfoPath).Length);
+
+            var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
+            SongTableFileCheckResult result = service.ApplyFileScanDiff(
+                new BmsLibraryDbGateway(songDbPath),
+                new BmsLibraryOptionsSnapshot
+                {
+                    OperationModeLR2DB = true,
+                    EnableLR2SongDbFullGeneration = true
+                },
+                [currentFile],
+                new ChartScanExecutionResult
+                {
+                    Success = true,
+                    Result = scanResult
+                },
+                0L,
+                () => null,
+                null,
+                currentBmsonSongs: [],
+                lr2NormalFolderSyncRootDirectories: [lr2RootPath],
+                previousLr2ScanFolderInfoFilePaths: [folderInfoPath],
+                previousLr2ScanFolderInfoFileEntries: new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase)
+                {
+                    [folderInfoPath] = new RootFileEnumerationEntry(folderInfoPath, previousFolderInfoTimestamp, 8)
+                });
+
+            Assert.IsFalse(result.HasDbDiff);
+            Assert.IsTrue(result.Lr2NormalFolderSyncExecuted);
+            Assert.AreEqual(1, result.Lr2NormalFolderInfoCandidateCount);
+            Assert.AreEqual(1, result.Lr2NormalFolderInfoAppliedCount);
+            using var verify = new LR2SongDBExtended(songDbPath);
+            LR2SongDB.folder pack = verify.Table<LR2SongDB.folder>().Single(row => row.path == ToFolderPath(packDirectoryPath));
+            Assert.AreEqual("Updated Folder", pack.title);
+        });
+    }
+
+    [TestMethod]
+    public void ApplyFileScanDiff_DoesNotSyncLr2NormalFoldersForUnchangedFolderInfoSurfaceWithoutSongDbDiff()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
+        {
+            string packDirectoryPath = Path.Combine(lr2RootPath, "Pack");
+            Directory.CreateDirectory(packDirectoryPath);
+            string bmsPath = Path.Combine(packDirectoryPath, "current.bms");
+            string folderInfoPath = Path.Combine(packDirectoryPath, "folderinfo.txt");
+            File.WriteAllText(bmsPath, CreateValidBmsText("Current"), Encoding.ASCII);
+            File.WriteAllText(folderInfoPath, "#TITLE Updated Folder", Encoding.GetEncoding(932));
+            DateTime timestamp = new(2026, 6, 8, 1, 0, 0, DateTimeKind.Utc);
+            DateTime folderInfoTimestamp = new(2026, 6, 8, 1, 5, 0, DateTimeKind.Utc);
+            File.SetLastWriteTimeUtc(bmsPath, timestamp);
+            File.SetLastWriteTimeUtc(folderInfoPath, folderInfoTimestamp);
+            Directory.SetLastWriteTimeUtc(packDirectoryPath, timestamp);
+            var currentFile = new TestableBmsFile
+            {
+                path = bmsPath,
+                date = Lr2SongRowEnricher.ToLr2UnixSeconds(timestamp)
+            };
+            currentFile.SetTextGroupFlagForTest(0);
+
+            using (var songDbConnection = new LR2SongDBExtended(songDbPath))
+            {
+                songDbConnection.CreateTable<LR2SongDB.song>();
+                songDbConnection.CreateTable<LR2SongDB.folder>();
+                songDbConnection.InsertOrReplace(currentFile, typeof(LR2SongDB.song));
+                songDbConnection.InsertOrReplace(new LR2SongDB.folder
+                {
+                    path = ToFolderPath(packDirectoryPath),
+                    title = "Old Folder",
+                    type = 1,
+                    date = Lr2SongRowEnricher.ToLr2UnixSeconds(timestamp)
+                }, typeof(LR2SongDB.folder));
+            }
+
+            ChartScanResult scanResult = CreateScanResult(
+                [bmsPath],
+                new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
+                {
+                    { packDirectoryPath, Array.Empty<string>() }
+                });
+            RootFileEnumerationEntry folderInfoEntry =
+                new(folderInfoPath, File.GetLastWriteTimeUtc(folderInfoPath), new FileInfo(folderInfoPath).Length);
+            scanResult.FolderInfoFilePaths.Add(folderInfoPath);
+            scanResult.FolderInfoFileEntriesByPath[folderInfoPath] = folderInfoEntry;
+
+            var logs = new List<string>();
+            var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
+            SongTableFileCheckResult result = service.ApplyFileScanDiff(
+                new BmsLibraryDbGateway(songDbPath),
+                new BmsLibraryOptionsSnapshot
+                {
+                    OperationModeLR2DB = true,
+                    EnableLR2SongDbFullGeneration = true
+                },
+                [currentFile],
+                new ChartScanExecutionResult
+                {
+                    Success = true,
+                    Result = scanResult
+                },
+                0L,
+                () => null,
+                null,
+                logInstallPerformance: logs.Add,
+                currentBmsonSongs: [],
+                lr2NormalFolderSyncRootDirectories: [lr2RootPath],
+                previousLr2ScanFolderInfoFilePaths: [folderInfoPath],
+                previousLr2ScanFolderInfoFileEntries: new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase)
+                {
+                    [folderInfoPath] = folderInfoEntry
+                });
+
+            Assert.IsFalse(result.HasDbDiff);
+            Assert.IsFalse(result.Lr2NormalFolderSyncExecuted);
+            Assert.IsTrue(logs.Any(message => message.Contains("lr2_normal_folder_sync skipped reason=no_db_diff")));
+            using var verify = new LR2SongDBExtended(songDbPath);
+            LR2SongDB.folder pack = verify.Table<LR2SongDB.folder>().Single(row => row.path == ToFolderPath(packDirectoryPath));
+            Assert.AreEqual("Old Folder", pack.title);
+        });
+    }
+
+    [TestMethod]
+    public void ApplyFileScanDiff_DoesNotSyncLr2NormalFoldersWhenOnlyFolderInfoSizeCapabilityDiffers()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
+        {
+            string packDirectoryPath = Path.Combine(lr2RootPath, "Pack");
+            Directory.CreateDirectory(packDirectoryPath);
+            string bmsPath = Path.Combine(packDirectoryPath, "current.bms");
+            string folderInfoPath = Path.Combine(packDirectoryPath, "folderinfo.txt");
+            File.WriteAllText(bmsPath, CreateValidBmsText("Current"), Encoding.ASCII);
+            File.WriteAllText(folderInfoPath, "#TITLE Updated Folder", Encoding.GetEncoding(932));
+            DateTime timestamp = new(2026, 6, 8, 1, 0, 0, DateTimeKind.Utc);
+            DateTime folderInfoTimestamp = new(2026, 6, 8, 1, 5, 0, DateTimeKind.Utc);
+            File.SetLastWriteTimeUtc(bmsPath, timestamp);
+            File.SetLastWriteTimeUtc(folderInfoPath, folderInfoTimestamp);
+            var currentFile = new TestableBmsFile
+            {
+                path = bmsPath,
+                date = Lr2SongRowEnricher.ToLr2UnixSeconds(timestamp)
+            };
+            currentFile.SetTextGroupFlagForTest(0);
+
+            using (var songDbConnection = new LR2SongDBExtended(songDbPath))
+            {
+                songDbConnection.CreateTable<LR2SongDB.song>();
+                songDbConnection.CreateTable<LR2SongDB.folder>();
+                songDbConnection.InsertOrReplace(currentFile, typeof(LR2SongDB.song));
+            }
+
+            ChartScanResult scanResult = CreateScanResult(
+                [bmsPath],
+                new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
+                {
+                    { packDirectoryPath, Array.Empty<string>() }
+                });
+            scanResult.FolderInfoFilePaths.Add(folderInfoPath);
+            scanResult.FolderInfoFileEntriesByPath[folderInfoPath] =
+                new RootFileEnumerationEntry(folderInfoPath, folderInfoTimestamp, new FileInfo(folderInfoPath).Length);
+
+            var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
+            SongTableFileCheckResult result = service.ApplyFileScanDiff(
+                new BmsLibraryDbGateway(songDbPath),
+                new BmsLibraryOptionsSnapshot
+                {
+                    OperationModeLR2DB = true,
+                    EnableLR2SongDbFullGeneration = true
+                },
+                [currentFile],
+                new ChartScanExecutionResult
+                {
+                    Success = true,
+                    Result = scanResult
+                },
+                0L,
+                () => null,
+                null,
+                currentBmsonSongs: [],
+                lr2NormalFolderSyncRootDirectories: [lr2RootPath],
+                previousLr2ScanFolderInfoFilePaths: [folderInfoPath],
+                previousLr2ScanFolderInfoFileEntries: new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase)
+                {
+                    [folderInfoPath] = new RootFileEnumerationEntry(folderInfoPath, folderInfoTimestamp)
+                });
+
+            Assert.IsFalse(result.HasDbDiff);
+            Assert.IsFalse(result.Lr2NormalFolderSyncExecuted);
+        });
+    }
+
+    [TestMethod]
+    public void ApplyFileScanDiff_SyncsLr2NormalFoldersForDeletedFolderInfoSurfaceWithoutSongDbDiff()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
+        {
+            string packDirectoryPath = Path.Combine(lr2RootPath, "Pack");
+            Directory.CreateDirectory(packDirectoryPath);
+            string bmsPath = Path.Combine(packDirectoryPath, "current.bms");
+            string folderInfoPath = Path.Combine(packDirectoryPath, "folderinfo.txt");
+            File.WriteAllText(bmsPath, CreateValidBmsText("Current"), Encoding.ASCII);
+            DateTime timestamp = new(2026, 6, 8, 1, 0, 0, DateTimeKind.Utc);
+            DateTime previousFolderInfoTimestamp = new(2026, 6, 8, 0, 55, 0, DateTimeKind.Utc);
+            File.SetLastWriteTimeUtc(bmsPath, timestamp);
+            Directory.SetLastWriteTimeUtc(packDirectoryPath, timestamp);
+            var currentFile = new TestableBmsFile
+            {
+                path = bmsPath,
+                date = Lr2SongRowEnricher.ToLr2UnixSeconds(timestamp)
+            };
+            currentFile.SetTextGroupFlagForTest(0);
+
+            using (var songDbConnection = new LR2SongDBExtended(songDbPath))
+            {
+                songDbConnection.CreateTable<LR2SongDB.song>();
+                songDbConnection.CreateTable<LR2SongDB.folder>();
+                songDbConnection.InsertOrReplace(currentFile, typeof(LR2SongDB.song));
+                songDbConnection.InsertOrReplace(new LR2SongDB.folder
+                {
+                    path = ToFolderPath(packDirectoryPath),
+                    title = "Old FolderInfo",
+                    type = 1,
+                    date = Lr2SongRowEnricher.ToLr2UnixSeconds(timestamp)
+                }, typeof(LR2SongDB.folder));
+            }
+
+            ChartScanResult scanResult = CreateScanResult(
+                [bmsPath],
+                new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
+                {
+                    { packDirectoryPath, Array.Empty<string>() }
+                });
+
+            var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
+            SongTableFileCheckResult result = service.ApplyFileScanDiff(
+                new BmsLibraryDbGateway(songDbPath),
+                new BmsLibraryOptionsSnapshot
+                {
+                    OperationModeLR2DB = true,
+                    EnableLR2SongDbFullGeneration = true
+                },
+                [currentFile],
+                new ChartScanExecutionResult
+                {
+                    Success = true,
+                    Result = scanResult
+                },
+                0L,
+                () => null,
+                null,
+                currentBmsonSongs: [],
+                lr2NormalFolderSyncRootDirectories: [lr2RootPath],
+                previousLr2ScanFolderInfoFilePaths: [folderInfoPath],
+                previousLr2ScanFolderInfoFileEntries: new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase)
+                {
+                    [folderInfoPath] = new RootFileEnumerationEntry(folderInfoPath, previousFolderInfoTimestamp, 8)
+                });
+
+            Assert.IsFalse(result.HasDbDiff);
+            Assert.IsTrue(result.Lr2NormalFolderSyncExecuted);
+            Assert.AreEqual(0, result.Lr2NormalFolderInfoCandidateCount);
+            using var verify = new LR2SongDBExtended(songDbPath);
+            LR2SongDB.folder pack = verify.Table<LR2SongDB.folder>().Single(row => row.path == ToFolderPath(packDirectoryPath));
+            Assert.AreEqual("Pack", pack.title);
+        });
+    }
+
+    [TestMethod]
     public void ApplyFileScanDiff_UsesDirectoryMtimeFromScanSurfaceForLr2NormalFolders()
     {
         TestResourceInitializer.EnsureJapaneseResources();

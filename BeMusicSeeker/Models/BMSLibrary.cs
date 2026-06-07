@@ -5094,6 +5094,8 @@ public class BMSLibrary : NotificationObject
 
         List<LR2SongDBExtended.chart_info> committedInlineChartInfoRows = [];
         List<ChartFile> currentInstallDestinationCharts = CreateCurrentInstallDestinationCleanupCharts();
+        Lr2FullGenerationScanSurfaceSnapshot previousLr2ScanSurface =
+            GetCurrentLr2FullGenerationScanSurfaceForFileDiff(options, bmsDirectories);
         SongTableFileCheckResult fileCheckResult = initializationService.ApplyFileScanDiff(
             dbGateway,
             options,
@@ -5151,7 +5153,9 @@ completeFileEnumerationOnce,
             currentInstallDestinationCharts,
             bmsDirectories,
             lr2FolderDiscoveryRootDirectories: bmsDirectories,
-            lr2BuiltinCustomFolderSettings: CreateCurrentLr2BuiltinCustomFolderSettings(DateTime.UtcNow));
+            lr2BuiltinCustomFolderSettings: CreateCurrentLr2BuiltinCustomFolderSettings(DateTime.UtcNow),
+            previousLr2ScanFolderInfoFilePaths: previousLr2ScanSurface?.FolderInfoFilePaths,
+            previousLr2ScanFolderInfoFileEntries: previousLr2ScanSurface?.FolderInfoFileEntries);
         ApplyLr2FolderFileDiffSync(options, bmsDirectories, fileCheckResult, reason);
         completeFileEnumerationOnce();
         ApplyLibraryFileScanStorageMutation(fileCheckResult, reason);
@@ -5421,6 +5425,23 @@ completeFileEnumerationOnce,
         {
             return;
         }
+        if (fileCheckResult.Lr2NormalFolderSyncFailed
+            || fileCheckResult.Lr2NormalFolderSkippedMissingMetadataCount > 0
+            || fileCheckResult.Lr2NormalFolderInfoReadFailureCount > 0)
+        {
+            int preservedGeneration;
+            lock (lockLr2FullGenerationScanSurface)
+            {
+                preservedGeneration = lr2FullGenerationScanSurfaceSnapshot?.Generation ?? 0;
+            }
+            LogInstallPerformance("lr2_full_generation_scan_surface skipped"
+                + " reason=normal_folder_sync_unapplied"
+                + " failed=" + fileCheckResult.Lr2NormalFolderSyncFailed.ToString().ToLowerInvariant()
+                + " skippedMissingMetadata=" + fileCheckResult.Lr2NormalFolderSkippedMissingMetadataCount
+                + " folderInfoReadFailures=" + fileCheckResult.Lr2NormalFolderInfoReadFailureCount
+                + " preservedGeneration=" + preservedGeneration);
+            return;
+        }
 
         IReadOnlyList<string> lr2FolderDiscoveryDirectories = fileCheckResult.Lr2ScanLr2FolderDiscoveryDirectories ?? [];
         IReadOnlyList<string> lr2FolderFilePaths = fileCheckResult.Lr2ScanLr2FolderFilePaths ?? [];
@@ -5612,6 +5633,31 @@ completeFileEnumerationOnce,
         if (!ArePathSetsEqual(snapshot.Lr2FolderDiscoveryDirectories, lr2FolderDiscoveryDirectories))
         {
             missReason = "lr2folder_roots";
+            return null;
+        }
+        return snapshot;
+    }
+
+    private Lr2FullGenerationScanSurfaceSnapshot GetCurrentLr2FullGenerationScanSurfaceForFileDiff(
+        BmsLibraryOptionsSnapshot options,
+        IEnumerable<string> rootDirectories)
+    {
+        if (options?.OperationModeLR2DB != true || options.EnableLR2SongDbFullGeneration != true)
+        {
+            return null;
+        }
+
+        Lr2FullGenerationScanSurfaceSnapshot snapshot;
+        lock (lockLr2FullGenerationScanSurface)
+        {
+            snapshot = lr2FullGenerationScanSurfaceSnapshot;
+        }
+        if (snapshot == null
+            || snapshot.OwnedCollectionVersion != OwnedChartCollectionVersion
+            || snapshot.BmsRowsVersion != Volatile.Read(ref bmsStorageRowsVersion)
+            || snapshot.BmsonRowsVersion != Volatile.Read(ref bmsonStorageRowsVersion)
+            || !ArePathSetsEqual(snapshot.RootDirectories, rootDirectories))
+        {
             return null;
         }
         return snapshot;

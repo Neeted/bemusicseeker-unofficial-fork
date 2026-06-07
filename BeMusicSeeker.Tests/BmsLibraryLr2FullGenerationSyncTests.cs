@@ -1174,6 +1174,128 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
+    public void CaptureLr2FullGenerationScanSurface_PreservesPreviousSurfaceWhenNormalFolderSyncUnapplied()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        try
+        {
+            Settings.Default.OperationModeLR2DB = true;
+            Settings.Default.EnableLR2SongDbFullGeneration = true;
+            ResetLr2FolderDiscoverySettings();
+            string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
+            Directory.CreateDirectory(rootDirectory);
+            string folderInfoPath = Path.Combine(rootDirectory, "folderinfo.txt");
+            var library = new BMSLibrary(scope.SongDbPath)
+            {
+                SearchTargets = [rootDirectory],
+                BMSFiles = []
+            };
+            var options = new BmsLibraryOptionsSnapshot
+            {
+                OperationModeLR2DB = true,
+                EnableLR2SongDbFullGeneration = true
+            };
+            DateTime previousTimestamp = new(2026, 6, 8, 1, 0, 0, DateTimeKind.Utc);
+            DateTime failedTimestamp = new(2026, 6, 8, 1, 5, 0, DateTimeKind.Utc);
+            InvokeCaptureLr2FullGenerationScanSurface(library, options, [rootDirectory], new SongTableFileCheckResult
+            {
+                Lr2ScanSurfaceAvailable = true,
+                Lr2ScanNormalFolderDirectoryPaths = [rootDirectory],
+                Lr2ScanNormalFolderDirectoryEntries = CreateDirectoryEntryMap(rootDirectory),
+                Lr2ScanFolderInfoFilePaths = [folderInfoPath],
+                Lr2ScanFolderInfoFileEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase)
+                {
+                    [folderInfoPath] = new RootFileEnumerationEntry(folderInfoPath, previousTimestamp)
+                },
+                Lr2ScanTextFileDirectories = [],
+                Lr2ScanLr2FolderDiscoveryDirectories = [rootDirectory],
+                Lr2ScanLr2FolderFilePaths = [],
+                Lr2ScanLr2FolderFileEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase),
+                Lr2ScanLr2FolderFileDiscoveryComplete = true
+            });
+            object previousInput = InvokeCreateLr2FullGenerationSyncInput(library);
+            int previousGeneration = GetInputInt(previousInput, "ScanSurfaceGeneration");
+
+            InvokeCaptureLr2FullGenerationScanSurface(library, options, [rootDirectory], new SongTableFileCheckResult
+            {
+                Lr2ScanSurfaceAvailable = true,
+                Lr2NormalFolderSyncFailed = true,
+                Lr2NormalFolderSyncFailureReason = "write failed",
+                Lr2ScanNormalFolderDirectoryPaths = [rootDirectory],
+                Lr2ScanNormalFolderDirectoryEntries = CreateDirectoryEntryMap(rootDirectory),
+                Lr2ScanFolderInfoFilePaths = [folderInfoPath],
+                Lr2ScanFolderInfoFileEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase)
+                {
+                    [folderInfoPath] = new RootFileEnumerationEntry(folderInfoPath, failedTimestamp)
+                },
+                Lr2ScanTextFileDirectories = [],
+                Lr2ScanLr2FolderDiscoveryDirectories = [rootDirectory],
+                Lr2ScanLr2FolderFilePaths = [],
+                Lr2ScanLr2FolderFileEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase),
+                Lr2ScanLr2FolderFileDiscoveryComplete = true
+            });
+
+            object inputAfterFailure = InvokeCreateLr2FullGenerationSyncInput(library);
+            Assert.AreEqual(previousGeneration, GetInputInt(inputAfterFailure, "ScanSurfaceGeneration"));
+            IReadOnlyDictionary<string, RootFileEnumerationEntry> entries = GetInputEntryMap(inputAfterFailure, "FolderInfoFileEntries");
+            Assert.IsTrue(entries.TryGetValue(folderInfoPath, out RootFileEnumerationEntry entry));
+            Assert.AreEqual(previousTimestamp, entry.LastWriteTimeUtc);
+
+            InvokeCaptureLr2FullGenerationScanSurface(library, options, [rootDirectory], new SongTableFileCheckResult
+            {
+                Lr2ScanSurfaceAvailable = true,
+                Lr2NormalFolderSkippedMissingMetadataCount = 1,
+                Lr2ScanNormalFolderDirectoryPaths = [rootDirectory],
+                Lr2ScanNormalFolderDirectoryEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase),
+                Lr2ScanFolderInfoFilePaths = [folderInfoPath],
+                Lr2ScanFolderInfoFileEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase)
+                {
+                    [folderInfoPath] = new RootFileEnumerationEntry(folderInfoPath, failedTimestamp)
+                },
+                Lr2ScanTextFileDirectories = [],
+                Lr2ScanLr2FolderDiscoveryDirectories = [rootDirectory],
+                Lr2ScanLr2FolderFilePaths = [],
+                Lr2ScanLr2FolderFileEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase),
+                Lr2ScanLr2FolderFileDiscoveryComplete = true
+            });
+
+            object inputAfterMissingMetadata = InvokeCreateLr2FullGenerationSyncInput(library);
+            Assert.AreEqual(previousGeneration, GetInputInt(inputAfterMissingMetadata, "ScanSurfaceGeneration"));
+            entries = GetInputEntryMap(inputAfterMissingMetadata, "FolderInfoFileEntries");
+            Assert.IsTrue(entries.TryGetValue(folderInfoPath, out entry));
+            Assert.AreEqual(previousTimestamp, entry.LastWriteTimeUtc);
+
+            InvokeCaptureLr2FullGenerationScanSurface(library, options, [rootDirectory], new SongTableFileCheckResult
+            {
+                Lr2ScanSurfaceAvailable = true,
+                Lr2NormalFolderInfoReadFailureCount = 1,
+                Lr2ScanNormalFolderDirectoryPaths = [rootDirectory],
+                Lr2ScanNormalFolderDirectoryEntries = CreateDirectoryEntryMap(rootDirectory),
+                Lr2ScanFolderInfoFilePaths = [folderInfoPath],
+                Lr2ScanFolderInfoFileEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase)
+                {
+                    [folderInfoPath] = new RootFileEnumerationEntry(folderInfoPath, failedTimestamp)
+                },
+                Lr2ScanTextFileDirectories = [],
+                Lr2ScanLr2FolderDiscoveryDirectories = [rootDirectory],
+                Lr2ScanLr2FolderFilePaths = [],
+                Lr2ScanLr2FolderFileEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase),
+                Lr2ScanLr2FolderFileDiscoveryComplete = true
+            });
+
+            object inputAfterFolderInfoReadFailure = InvokeCreateLr2FullGenerationSyncInput(library);
+            Assert.AreEqual(previousGeneration, GetInputInt(inputAfterFolderInfoReadFailure, "ScanSurfaceGeneration"));
+            entries = GetInputEntryMap(inputAfterFolderInfoReadFailure, "FolderInfoFileEntries");
+            Assert.IsTrue(entries.TryGetValue(folderInfoPath, out entry));
+            Assert.AreEqual(previousTimestamp, entry.LastWriteTimeUtc);
+        }
+        finally
+        {
+            ResetTouchedSettings();
+        }
+    }
+
+    [TestMethod]
     public void QueueLr2FullGenerationDataSync_MergesPreparedLr2FolderSurfaceAfterPreparedOutput()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();

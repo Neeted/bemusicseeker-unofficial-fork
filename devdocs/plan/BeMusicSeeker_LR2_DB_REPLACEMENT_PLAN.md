@@ -1211,7 +1211,7 @@ parse directive:
 | Phase 3: metadata-bearing scan surface / raw resource reference | 主要実装済み | BMS parser / snapshot 側の raw resource reference、text group の targeted `song.txt` 更新、完全生成 ON 時だけの scan 条件、`RootFileEnumerationResult` の file / directory mtime entry、Everything fixed scan + grouped directory query / managed fallback の metadata surface は実装済み。chart file mtime は fixed native scan / managed fallback の両方から `ChartScanResult` に保持し、通常 file diff の `song.date` / `bmson_song.updated_at` 判定へ使う。`.txt` / `folderinfo.txt` は startup / file diff scan surface から sync input へ保持し、scan surface が無い full generation input でも grouped text metadata surface を生成して対象 directory に絞る。normal folder directory mtime は startup / file diff producer が root-wide directory group surface を作り、full generation input / normal folder sync は必要 target だけをその surface から読む。`.lr2folder` discovery は chart/resource roots とは別 contract の producer-owned surface として startup / file diff で生成し、scan surface が無い場合の外部 `.lr2folder` discovery は grouped Everything / managed fallback で再取得する。producer-owned 出力 directory は prepared surface として既存 scan surface に合成する。chart/resource search roots から app-managed custom folder output root / child explicit roots を除外する正規化は実装・テスト済みで、`bms_search_root_normalization` log から chart/resource root count と `.lr2folder` discovery root count を確認できる。fallback metadata fixture は追加済み。 | directory mtime と `.lr2folder` entry metadata の native bridge / managed fallback 実機 parity を確認する。 |
 | Phase 4: LR2 compatibility warning | 主要実装済み | `Lr2CompatibilityEvaluator`、maintenance 最小 fact、standalone mode での LR2 非対応パス tree 非表示は接続済み。 | warning 表示の実機確認と、copied DB での sync 表示確認を残す。 |
 | Phase 5: `song` row enricher | 主要実装済み | `song_rows` stage は `ChartFileSnapshot` から lightweight parser を再実行し、`Lr2SongRowEnricher` で `date` / `txt` / folder-parent CRC / user column preservation を適用する。missing / stale `chart_info` は同じ snapshot から worker が生成し、`chart_info.judge` を `song.judge` へ流用しない判断は維持する。lightweight parser の `#PLAYLEVEL` / `#DIFFICULTY` / `#TITLE` / `#GENRE` difficulty inference / `#RANK` / mode detection は OpenLR2 寄せ済みで、完全生成 / 再同期の prune 後に OpenLR2 `SetUndefinedDifficulty` 相当の DB-wide finalization を行う。 | 実 DB fixture で OpenLR2 生成 DB と `song` numeric columns を比較する。LR2IR / tag.db 由来の exlevel 上書きは対象外として維持する。 |
-| Phase 6: normal `folder` row generator | 主要実装済み | normal folder generator / scope planner / DB sync、mutation・file diff failure の incomplete marking、directory metadata surface 由来の `folder.date` resolver、`folderinfo.txt` entry metadata surface は接続済み。通常 file diff では BMS path 差分 scope だけを同期し、directory metadata は同じ scan surface から読む。完全生成 sync input は reusable scan surface があれば再利用し、無ければ grouped Everything / managed fallback の directory surface を再取得する。 | 実機で directory mtime / folder row freshness を確認する。 |
+| Phase 6: normal `folder` row generator | 主要実装済み | normal folder generator / scope planner / DB sync、mutation・file diff failure の incomplete marking、directory metadata surface 由来の `folder.date` resolver、`folderinfo.txt` entry metadata surface は接続済み。通常 file diff では BMS path 差分 scope、または前回保持した scan surface との差分で追加・更新・削除された `folderinfo.txt` の affected directory だけを同期し、directory metadata は同じ scan surface から読む。完全生成 sync input は reusable scan surface があれば再利用し、無ければ grouped Everything / managed fallback の directory surface を再取得する。 | 実機で directory mtime / folder row freshness を確認する。 |
 | Phase 7: `.lr2folder` DB sync | 主要実装済み | playlist projection と `.lr2folder` / `folder` row sync の同一化、通常 discovery、built-in source の相対 path 化、root custom output / built-in category parent row 生成、`LR2files\Rival` の built-in discovery 非対象化、`LR2files\CustomFolder` の `<customfolder>` bitmask、built-in category parent row の `folderinfo.txt #TITLE` 反映、`newsong` dynamic row、`course1-3` の `type=6` は接続済み。 | 実 LR2 setup / built-in folder fixture で最終確認する。 |
 | Phase 8: status / sync UI | 主要実装済み | durable status、runtime progress、setting queue、cancel、mutation guard、startup blocker diagnostic / cleanup、queued 後 preflight stage (`chart_info_hydration` / `input_surface` / `compatibility_projection_index` / `chart_info_resolver_snapshot`) の runtime 表示は実装済み。 | 長時間 sync の UI 手動確認と failure/cancel 再起動確認を残す。 |
 | Phase 9: resumable sync | 主要実装済み | durable cursor、stage / chunk resume、cancel boundary、completed status current 時の 2 回目 no-op queue、copied `song.db` の current completed no-op、failed song-row chunk rollback/retry、cancel 後 restart resume、`song_rows` の bounded reader / worker / writer pipeline、worker-side `chart_info` apply / LR2 compatibility fact build、run-scoped `chart_info` resolver、sync input の全件 `BMSFile` persistence copy 廃止、full-generation 専用 generated song temp-table writer、chunk digest / maintenance facts writer、final prune temp path bulk insert は自動テスト済み。 | 実機ログで `song_rows` が単純 file read benchmark に近づいているか、chunk `readMs` / `parseMs` / `commitMs` / queue wait を確認する。 |
@@ -1318,9 +1318,10 @@ parse directive:
     complete chart path set を渡す呼び出し側から使う。`AllowPrune` は complete scan と source generation の整合を確認した
     caller だけが立て、既定では upsert のみ行って stale row delete はしない。
   - initialization への production 接続は `EnableLR2SongDbFullGeneration` で gate し、
-    LR2 linked mode かつ設定が有効で、file diff が `song` / `bmson_song` への DB 差分を検出した場合だけ
-    full file scan 完了後に normal folder sync を実行する。`Completed` かつ file diff が空の steady-state では
-    normal folder row の全件検証や directory metadata 解決を行わない。
+    LR2 linked mode かつ設定が有効で、file diff が `song` / `bmson_song` への DB 差分を検出した場合、
+    または前回保持した scan surface から `folderinfo.txt` の追加・更新・削除 affected directory を検出した場合だけ
+    full file scan 完了後に normal folder sync を実行する。`Completed` かつ file diff と folderinfo surface diff が空の
+    steady-state では normal folder row の全件検証や directory metadata 解決を行わない。
   - full scan 後の normal folder sync は file diff DB commit を flush した後に別 workflow として実行し、
     owned collection の `HasDbDiff` や UI refresh 判定には混ぜない。folder sync の生成 / upsert / delete / metadata 欠落は
     `song_tbl_file_check_breakdown` の LR2 normal folder metrics として追跡する。
@@ -1331,6 +1332,14 @@ parse directive:
     ただし compose service 側は CP932 非対応 chart path や metadata 欠落がある場合に stale normal row deletion を抑止する。
     `ChartScanExecutionResult.Success != true` の partial surface では normal folder sync 自体を skip し、`folderinfo.txt`
     surface 欠落や chart path 不完全性を stale row prune / title overwrite に使わない。
+  - `folderinfo.txt` の metadata-only 差分は、受け取り側の全候補再検証ではなく producer 側で保持した
+    previous/current `RootFileEnumerationEntry` surface を比較して directory scope を作る。mtime は一致必須、
+    file size は両 surface にある場合だけ比較し、native Everything と managed fallback の metadata capability 差で
+    clean scan が毎回 folder sync へ落ちないようにする。
+  - normal folder sync が失敗した場合、directory metadata 欠落で row 生成が未適用だった場合、
+    または `folderinfo.txt` read failure で title source を反映できなかった場合は、
+    current scan surface を次回の previous baseline として捕捉しない。未反映の `folderinfo.txt` 差分を
+    次回 file diff で再試行できるよう、成功済み surface だけを baseline にする。
 - Phase 7: `.lr2folder` projection / DB sync / playlist output sync / 通常 discovery / built-in CustomFolder 連動は主要経路へ接続済み。
   - まず `.lr2folder` 本文を `LR2SongDB.folder` row へ投影する pure `Lr2FolderFileProjection` を追加する。
     この層は `#TITLE` / `#SUBTITLE` / `#CATEGORY` / `#INFORMATION_A` / `#INFORMATION_B` /
@@ -1747,7 +1756,7 @@ Everything / filesystem 広域再スキャンを始める入口ではない。su
    - 残作業: `.bmt` 出力 OFF、完全生成 completed、file diff 0 件から数件の条件で、
      `startup_background_summary < 50s` を acceptance とする。50 秒を超える場合は、
      sync ではなく startup background task の常時 hydration / prewarm を疑う。
-9. `.lr2folder` / `folderinfo.txt` / `.txt` の steady-state diff sync を実装する。
+9. `.lr2folder` / `folderinfo.txt` / `.txt` の steady-state diff sync を実機確認する。
    - `.lr2folder` discovery は初回 sync 用の入力ではなく、通常 file diff surface の一部として扱う。
      完全生成 completed 後も、アプリ管理外の `.lr2folder` 作成 / 更新 / 削除を startup file diff で検出し、
      対応する `folder` row を scoped sync する。
@@ -1756,10 +1765,14 @@ Everything / filesystem 広域再スキャンを始める入口ではない。su
      enumeration API へ渡す。
    - `folderinfo.txt` と directory metadata は normal folder row と `.lr2folder` parent/category row の
      title / date source として扱い、full generation completed 後は変更 path / affected directory scope だけを再同期する。
+     `folderinfo.txt` は previous/current scan surface の entry 差分から affected directory を作り、削除時も旧 title を
+     温存せず現 surface 由来の normal directory row へ戻す。
    - `.txt` は `song.txt` 生成列の source なので、BMS 本体 mtime が変わらない text-only 変更でも
      scoped song row update の対象にする。
    - sync 完了後の steady-state では、これらの変更検出のために full sync や全件 folder validation を
      queue しない。file diff surface の差分から scoped DB writer を起動する。
+   - 残確認: Everything native / managed fallback を切り替えても `folderinfo.txt` の metadata capability 差だけで
+     clean scan が毎回 normal folder sync へ落ちないことを実機ログで確認する。
 10. native bridge metadata parity を統合確認する。
    - fixed scan の `.txt` / `folderinfo.txt` entry、grouped enumeration の `.lr2folder` entry、directory mtime が同じ `RootFileEnumerationEntry` contract になることを実機 Everything 環境で確認する。
    - bridge layout / result version log を必要に応じて追加する。
