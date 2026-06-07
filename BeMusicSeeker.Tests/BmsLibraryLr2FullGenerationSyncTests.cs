@@ -1046,7 +1046,11 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                 {
                     [folderInfoPath] = new RootFileEnumerationEntry(folderInfoPath, new DateTime(2026, 6, 5, 8, 0, 0, DateTimeKind.Utc))
                 },
-                Lr2ScanTextFileDirectories = []
+                Lr2ScanTextFileDirectories = [],
+                Lr2ScanLr2FolderDiscoveryDirectories = [rootDirectory],
+                Lr2ScanLr2FolderFilePaths = [],
+                Lr2ScanLr2FolderFileEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase),
+                Lr2ScanLr2FolderFileDiscoveryComplete = true
             });
             object input = InvokeCreateLr2FullGenerationSyncInput(library);
 
@@ -1060,10 +1064,66 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                 {
                     [folderInfoPath] = new RootFileEnumerationEntry(folderInfoPath, new DateTime(2026, 6, 5, 8, 1, 0, DateTimeKind.Utc))
                 },
-                Lr2ScanTextFileDirectories = [chartDirectory]
+                Lr2ScanTextFileDirectories = [chartDirectory],
+                Lr2ScanLr2FolderDiscoveryDirectories = [rootDirectory],
+                Lr2ScanLr2FolderFilePaths = [],
+                Lr2ScanLr2FolderFileEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase),
+                Lr2ScanLr2FolderFileDiscoveryComplete = true
             });
 
             Assert.IsFalse(InvokeIsLr2FullGenerationSyncInputCurrent(library, input));
+        }
+        finally
+        {
+            ResetTouchedSettings();
+        }
+    }
+
+    [TestMethod]
+    public void CaptureLr2FullGenerationScanSurface_SkipsWhenLr2FolderSurfaceMissing()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        try
+        {
+            Settings.Default.OperationModeLR2DB = true;
+            Settings.Default.EnableLR2SongDbFullGeneration = true;
+            ResetLr2FolderDiscoverySettings();
+            string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
+            Directory.CreateDirectory(rootDirectory);
+            var library = new BMSLibrary(scope.SongDbPath)
+            {
+                SearchTargets = [rootDirectory],
+                BMSFiles = []
+            };
+            var options = new BmsLibraryOptionsSnapshot
+            {
+                OperationModeLR2DB = true,
+                EnableLR2SongDbFullGeneration = true
+            };
+            InvokeCaptureLr2FullGenerationScanSurface(library, options, [rootDirectory], new SongTableFileCheckResult
+            {
+                Lr2ScanSurfaceAvailable = true,
+                Lr2ScanNormalFolderDirectoryPaths = [rootDirectory],
+                Lr2ScanTextFileDirectories = [],
+                Lr2ScanLr2FolderDiscoveryDirectories = [rootDirectory],
+                Lr2ScanLr2FolderFilePaths = [],
+                Lr2ScanLr2FolderFileEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase),
+                Lr2ScanLr2FolderFileDiscoveryComplete = true
+            });
+            object capturedInput = InvokeCreateLr2FullGenerationSyncInput(library);
+            Assert.IsTrue(GetInputInt(capturedInput, "ScanSurfaceGeneration") > 0);
+
+            InvokeCaptureLr2FullGenerationScanSurface(library, options, [rootDirectory], new SongTableFileCheckResult
+            {
+                Lr2ScanSurfaceAvailable = true,
+                Lr2ScanNormalFolderDirectoryPaths = [rootDirectory],
+                Lr2ScanTextFileDirectories = []
+            });
+
+            object input = InvokeCreateLr2FullGenerationSyncInput(library);
+
+            Assert.AreEqual(0, GetInputInt(input, "ScanSurfaceGeneration"));
+            Assert.IsFalse(InvokeIsLr2FullGenerationSyncInputCurrent(library, capturedInput));
         }
         finally
         {

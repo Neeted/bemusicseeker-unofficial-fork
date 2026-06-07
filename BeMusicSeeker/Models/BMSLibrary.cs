@@ -5366,14 +5366,17 @@ completeFileEnumerationOnce,
         bool lr2FolderFileDiscoveryComplete = fileCheckResult.Lr2ScanLr2FolderFileDiscoveryComplete;
         if (lr2FolderDiscoveryDirectories.Count == 0)
         {
-            lr2FolderDiscoveryDirectories = CreateLr2FullGenerationLr2FolderDiscoveryDirectories(roots);
-            Lr2FolderFileCandidateSnapshot candidates = CreateLr2FullGenerationLr2FolderFileCandidates(
-                lr2FolderDiscoveryDirectories,
-                Settings.Default.LR2RootPath,
-                CreateCurrentLr2BuiltinCustomFolderSettings(DateTime.UtcNow));
-            lr2FolderFilePaths = candidates.Paths;
-            lr2FolderFileEntries = candidates.EntriesByPath;
-            lr2FolderFileDiscoveryComplete = candidates.DiscoveryComplete;
+            int previousGeneration = 0;
+            lock (lockLr2FullGenerationScanSurface)
+            {
+                previousGeneration = lr2FullGenerationScanSurfaceSnapshot?.Generation ?? 0;
+                lr2FullGenerationScanSurfaceSnapshot = null;
+            }
+            LogInstallPerformance("lr2_full_generation_scan_surface skipped"
+                + " reason=missing_lr2folder_surface"
+                + " roots=" + roots.Count
+                + " invalidatedGeneration=" + previousGeneration);
+            return;
         }
         Lr2FullGenerationScanSurfaceSnapshot snapshot;
         lock (lockLr2FullGenerationScanSurface)

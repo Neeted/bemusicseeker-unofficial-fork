@@ -232,6 +232,9 @@ SELECT path,date FROM folder WHERE parent = ROOT OR date = 0
 - `ChartScanResult` / normal folder metadata / `.lr2folder` discovery は、path-only set ではなく
   metadata-bearing surface から派生させる。
 - sync input 作成は、startup / file diff で得た surface を正本として再利用する。
+  scan surface capture は producer から渡された `.lr2folder` discovery / entry surface を保存するだけにし、
+  欠けている場合に capture 側で別 scan を実行して補完しない。欠けた surface は producer contract の不備として扱い、
+  既存 snapshot を再利用不可にしたうえで、`AttachLr2FolderScanSurface` または grouped enumeration producer 側で修正する。
   playlist materialization などで一部入力が変わる場合も、surface 全体を破棄せず、
   影響を受けた `.lr2folder` group だけを materialization result または同じ grouped enumeration API で
   refresh する。`.txt` / `folderinfo.txt` / directory metadata まで失効させて、
