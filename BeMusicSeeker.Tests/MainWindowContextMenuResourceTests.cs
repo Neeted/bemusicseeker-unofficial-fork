@@ -781,7 +781,7 @@ public sealed class MainWindowContextMenuResourceTests
             "private async void detailTabItemBackupButtonClicked");
         string manualResyncPlaylistMethod = ExtractBetween(
             playlistCode,
-            "private async Task<int> ReOutputAllCustomFoldersForLr2FullGenerationDataSyncCoreAsync",
+            "private async Task<Lr2FullGenerationPreparedDataSurface> ReOutputAllCustomFoldersForLr2FullGenerationDataSyncCoreAsync",
             "private sealed class CustomFolderOutputProjection");
 
         StringAssert.Contains(runtimeSync, "ownerViewModel.files.SearchTargets = [.. lr2config.GetBMSSearchDirectories()];");
@@ -790,9 +790,10 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsTrue(rootAdd.IndexOf("ApplyRuntimeSearchRootsForCurrentMode();", StringComparison.Ordinal) < rootAdd.IndexOf("ownerViewModel.ReloadFileDiff();", StringComparison.Ordinal));
         StringAssert.Contains(saveCore, "ApplyRuntimeSearchRootsForCurrentMode();");
         StringAssert.Contains(viewModelCode, "SyncLr2FullGenerationFolderDataAfterSettingsChange(\"SettingDialog.SaveSettings\")");
-        StringAssert.Contains(viewModelCode, "private void ReOutputAllCustomFoldersForLr2GeneratedDataSync(string reason)");
+        StringAssert.Contains(viewModelCode, "private Lr2FullGenerationPreparedDataSurface ReOutputAllCustomFoldersForLr2GeneratedDataSync(string reason)");
         StringAssert.Contains(viewModelCode, "tables?.ReOutputAllCustomFoldersForLr2FullGenerationDataSync(");
-        StringAssert.Contains(viewModelCode, "files?.SyncLr2BuiltinCustomFolderRows(reason);");
+        StringAssert.Contains(viewModelCode, "files?.SyncLr2BuiltinCustomFolderRows(reason) ?? Lr2FullGenerationPreparedDataSurface.Empty;");
+        StringAssert.Contains(viewModelCode, "Lr2FullGenerationPreparedDataSurface.Merge(playlistSurface, builtinSurface);");
         StringAssert.Contains(viewModelCode, "files?.QueueLr2FullGenerationDataSync(reason, force: false, allowIncompleteToQueue: false);");
         StringAssert.Contains(viewModelCode, "public async Task RequestLr2FullGenerationDataSyncAsync(string reason, bool force)");
         StringAssert.Contains(viewModelCode, "files?.QueueLr2FullGenerationDataSync(");

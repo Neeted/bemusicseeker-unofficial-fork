@@ -20000,22 +20000,25 @@ public class MainWindowViewModel : ViewModel
                 reason,
                 () =>
                 {
-                    ReOutputAllCustomFoldersForLr2GeneratedDataSync(reason);
-                    files?.SyncLr2BuiltinCustomFolderRows(reason);
+                    Lr2FullGenerationPreparedDataSurface playlistSurface = ReOutputAllCustomFoldersForLr2GeneratedDataSync(reason);
+                    Lr2FullGenerationPreparedDataSurface builtinSurface =
+                        files?.SyncLr2BuiltinCustomFolderRows(reason) ?? Lr2FullGenerationPreparedDataSurface.Empty;
+                    return Lr2FullGenerationPreparedDataSurface.Merge(playlistSurface, builtinSurface);
                 });
             files?.QueueLr2FullGenerationDataSync(reason, force: false, allowIncompleteToQueue: false);
         }).Logging("SyncLr2FullGenerationFolderDataAfterSettingsChange");
     }
 
-    private void ReOutputAllCustomFoldersForLr2GeneratedDataSync(string reason)
+    private Lr2FullGenerationPreparedDataSurface ReOutputAllCustomFoldersForLr2GeneratedDataSync(string reason)
     {
-        tables?.ReOutputAllCustomFoldersForLr2FullGenerationDataSync(
+        return tables?.ReOutputAllCustomFoldersForLr2FullGenerationDataSync(
             reason,
             (processed, total, tableName) => files?.PublishLr2FullGenerationExternalStageProgress(
                 "playlist_materialization",
                 processed,
                 total,
-                tableName));
+                tableName))
+            ?? Lr2FullGenerationPreparedDataSurface.Empty;
     }
 
     public void CancelLr2FullGenerationSync()

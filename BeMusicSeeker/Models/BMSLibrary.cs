@@ -1143,7 +1143,8 @@ public class BMSLibrary : NotificationObject
 
     private int lr2FullGenerationScanSurfaceGeneration;
 
-    private bool lr2FullGenerationPreparedLr2FolderRefreshPending;
+    private Lr2FullGenerationPreparedDataSurface lr2FullGenerationPreparedDataSurface =
+        Lr2FullGenerationPreparedDataSurface.Empty;
 
     private int chartInfoHydrationRequestedVersion;
 
@@ -5212,12 +5213,12 @@ completeFileEnumerationOnce,
         SyncLr2FolderFileRows(options, request, reason, "lr2folder_file_diff_sync");
     }
 
-    internal Lr2FolderFileDbSyncResult SyncLr2BuiltinCustomFolderRows(string reason)
+    internal Lr2FullGenerationPreparedDataSurface SyncLr2BuiltinCustomFolderRows(string reason)
     {
         BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
         if (options?.OperationModeLR2DB != true || options.EnableLR2SongDbFullGeneration != true)
         {
-            return null;
+            return Lr2FullGenerationPreparedDataSurface.Empty;
         }
 
         List<string> builtinSourceDirectories = CreateLr2FullGenerationBuiltinFolderSourceDirectories();
@@ -5243,7 +5244,12 @@ completeFileEnumerationOnce,
             Lr2RootCustomFolderOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDirRootType,
             Lr2BuiltinFolderSourceDirectories = builtinSourceDirectories
         };
-        return SyncLr2FolderFileRows(options, request, reason, "lr2_builtin_folder_scoped_sync");
+        SyncLr2FolderFileRows(options, request, reason, "lr2_builtin_folder_scoped_sync");
+        return new Lr2FullGenerationPreparedDataSurface(
+            builtinSourceDirectories,
+            candidates.Paths,
+            candidates.EntriesByPath,
+            candidates.DiscoveryComplete);
     }
 
     private Lr2FolderFileDbSyncResult SyncLr2FolderFileRows(
@@ -5415,85 +5421,94 @@ completeFileEnumerationOnce,
             + " bmsonRowsVersion=" + snapshot.BmsonRowsVersion);
     }
 
-    private void InvalidateLr2FullGenerationLr2FolderScanSurface(string reason)
+    private void ApplyLr2FullGenerationPreparedDataSurface(
+        string reason,
+        Lr2FullGenerationPreparedDataSurface preparedSurface)
     {
-        Lr2FullGenerationScanSurfaceSnapshot snapshot;
+        preparedSurface ??= Lr2FullGenerationPreparedDataSurface.Empty;
+        Lr2FullGenerationScanSurfaceSnapshot snapshot = null;
         lock (lockLr2FullGenerationScanSurface)
         {
+            lr2FullGenerationPreparedDataSurface = preparedSurface;
             snapshot = lr2FullGenerationScanSurfaceSnapshot;
-            lr2FullGenerationPreparedLr2FolderRefreshPending = true;
-            if (snapshot == null)
+            if (snapshot == null || !preparedSurface.HasLr2FolderSurface)
             {
-                return;
+                snapshot = null;
             }
-
-            int generation = lr2FullGenerationScanSurfaceGeneration == int.MaxValue
-                ? 1
-                : lr2FullGenerationScanSurfaceGeneration + 1;
-            lr2FullGenerationScanSurfaceGeneration = generation;
-            IReadOnlyList<string> lr2FolderDiscoveryDirectories = CreateLr2FullGenerationLr2FolderDiscoveryDirectories(snapshot.RootDirectories);
-            snapshot = new Lr2FullGenerationScanSurfaceSnapshot(
-                generation,
-                snapshot.RootDirectories,
-                snapshot.NormalFolderDirectoryPaths,
-                snapshot.FolderInfoFilePaths,
-                snapshot.FolderInfoFileEntries,
-                snapshot.TextFileDirectories,
-                lr2FolderDiscoveryDirectories,
-                [],
-                new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase),
-                false,
-                snapshot.OwnedCollectionVersion,
-                snapshot.BmsRowsVersion,
-                snapshot.BmsonRowsVersion);
-            lr2FullGenerationScanSurfaceSnapshot = snapshot;
+            else if (!ArePathSetsEqual(
+                snapshot.Lr2FolderDiscoveryDirectories,
+                CreateLr2FullGenerationLr2FolderDiscoveryDirectories(snapshot.RootDirectories)))
+            {
+                snapshot = null;
+            }
+            else
+            {
+                int generation = lr2FullGenerationScanSurfaceGeneration == int.MaxValue
+                    ? 1
+                    : lr2FullGenerationScanSurfaceGeneration + 1;
+                lr2FullGenerationScanSurfaceGeneration = generation;
+                Lr2FolderFileCandidateSnapshot candidates = MergeLr2FolderFileCandidateSurface(
+                    new Lr2FolderFileCandidateSnapshot(
+                        snapshot.Lr2FolderFilePaths,
+                        snapshot.Lr2FolderFileEntries,
+                        snapshot.Lr2FolderFileDiscoveryComplete),
+                    preparedSurface);
+                snapshot = new Lr2FullGenerationScanSurfaceSnapshot(
+                    generation,
+                    snapshot.RootDirectories,
+                    snapshot.NormalFolderDirectoryPaths,
+                    snapshot.FolderInfoFilePaths,
+                    snapshot.FolderInfoFileEntries,
+                    snapshot.TextFileDirectories,
+                    snapshot.Lr2FolderDiscoveryDirectories,
+                    candidates.Paths,
+                    candidates.EntriesByPath,
+                    candidates.DiscoveryComplete,
+                    snapshot.OwnedCollectionVersion,
+                    snapshot.BmsRowsVersion,
+                    snapshot.BmsonRowsVersion);
+                lr2FullGenerationScanSurfaceSnapshot = snapshot;
+            }
         }
-        LogInstallPerformance("lr2_full_generation_scan_surface partial_invalidated"
+
+        LogInstallPerformance("lr2_full_generation_prepared_surface applied"
             + " reason=" + (reason ?? "unknown")
-            + " generation=" + snapshot.Generation
-            + " preservedNormalFolderDirs=" + snapshot.NormalFolderDirectoryPaths.Count
-            + " preservedFolderInfoCandidates=" + snapshot.FolderInfoFilePaths.Count
-            + " refreshedLr2FolderDiscoveryRoots=" + snapshot.Lr2FolderDiscoveryDirectories.Count
-            + " preservedTextFileDirs=" + snapshot.TextFileDirectories.Count);
+            + " scopeDirs=" + preparedSurface.Lr2FolderScopeDirectories.Count
+            + " lr2FolderCandidates=" + preparedSurface.Lr2FolderFilePaths.Count
+            + " discoveryComplete=" + preparedSurface.Lr2FolderFileDiscoveryComplete.ToString().ToLowerInvariant()
+            + " mergedScanSurfaceGeneration=" + (snapshot?.Generation ?? 0));
     }
 
-    private bool IsLr2FullGenerationPreparedLr2FolderRefreshPending()
+    private bool HasLr2FullGenerationPreparedDataSurface()
     {
         lock (lockLr2FullGenerationScanSurface)
         {
-            return lr2FullGenerationPreparedLr2FolderRefreshPending;
+            return lr2FullGenerationPreparedDataSurface?.HasLr2FolderSurface == true;
         }
     }
 
-    private void CompleteLr2FullGenerationPreparedLr2FolderRefresh(
-        Lr2FullGenerationScanSurfaceSnapshot scanSurface,
-        Lr2FolderFileCandidateSnapshot candidates)
+    private void ClearLr2FullGenerationPreparedDataSurface(string reason)
+    {
+        bool hadSurface;
+        lock (lockLr2FullGenerationScanSurface)
+        {
+            hadSurface = lr2FullGenerationPreparedDataSurface?.HasLr2FolderSurface == true;
+            lr2FullGenerationPreparedDataSurface = Lr2FullGenerationPreparedDataSurface.Empty;
+        }
+        if (hadSurface)
+        {
+            LogInstallPerformance("lr2_full_generation_prepared_surface cleared reason=" + (reason ?? "unknown"));
+        }
+    }
+
+    private Lr2FullGenerationPreparedDataSurface TakeLr2FullGenerationPreparedDataSurface()
     {
         lock (lockLr2FullGenerationScanSurface)
         {
-            lr2FullGenerationPreparedLr2FolderRefreshPending = false;
-            if (scanSurface == null
-                || candidates == null
-                || lr2FullGenerationScanSurfaceSnapshot == null
-                || lr2FullGenerationScanSurfaceSnapshot.Generation != scanSurface.Generation)
-            {
-                return;
-            }
-
-            lr2FullGenerationScanSurfaceSnapshot = new Lr2FullGenerationScanSurfaceSnapshot(
-                scanSurface.Generation,
-                scanSurface.RootDirectories,
-                scanSurface.NormalFolderDirectoryPaths,
-                scanSurface.FolderInfoFilePaths,
-                scanSurface.FolderInfoFileEntries,
-                scanSurface.TextFileDirectories,
-                scanSurface.Lr2FolderDiscoveryDirectories,
-                candidates.Paths,
-                candidates.EntriesByPath,
-                candidates.DiscoveryComplete,
-                scanSurface.OwnedCollectionVersion,
-                scanSurface.BmsRowsVersion,
-                scanSurface.BmsonRowsVersion);
+            Lr2FullGenerationPreparedDataSurface surface = lr2FullGenerationPreparedDataSurface
+                ?? Lr2FullGenerationPreparedDataSurface.Empty;
+            lr2FullGenerationPreparedDataSurface = Lr2FullGenerationPreparedDataSurface.Empty;
+            return surface;
         }
     }
 
@@ -5576,7 +5591,7 @@ completeFileEnumerationOnce,
     internal Lr2FullGenerationStatusSnapshot QueueLr2FullGenerationDataSync(
         string reason,
         bool force = false,
-        Action prepareGeneratedData = null,
+        Func<Lr2FullGenerationPreparedDataSurface> prepareGeneratedData = null,
         bool allowIncompleteToQueue = true)
     {
         BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
@@ -5603,6 +5618,7 @@ completeFileEnumerationOnce,
                 && (status.Status == Lr2FullGenerationStatusKind.Incomplete
                     || status.StoredStatus == Lr2FullGenerationStatusKind.Incomplete)))
         {
+            ClearLr2FullGenerationPreparedDataSurface("queue_not_needed");
             return status;
         }
 
@@ -5636,11 +5652,12 @@ completeFileEnumerationOnce,
         {
             try
             {
-                prepareGeneratedData();
-                InvalidateLr2FullGenerationLr2FolderScanSurface("prepare_generated_data");
+                Lr2FullGenerationPreparedDataSurface preparedSurface = prepareGeneratedData();
+                ApplyLr2FullGenerationPreparedDataSurface("prepare_generated_data", preparedSurface);
             }
             catch (Exception ex)
             {
+                ClearLr2FullGenerationPreparedDataSurface("prepare_failed");
                 LogInstallPerformance("lr2_full_generation_sync prepare_failed reason=" + (reason ?? "unknown")
                     + " message=" + ex.Message);
                 if (prepareReserved)
@@ -5654,6 +5671,7 @@ completeFileEnumerationOnce,
 
         if (!TryBeginLr2FullGenerationSyncRequest(out int requestVersion))
         {
+            ClearLr2FullGenerationPreparedDataSurface("queue_skipped");
             if (prepareReserved)
             {
                 ClearLr2FullGenerationSyncPrepareReservation();
@@ -5701,7 +5719,7 @@ completeFileEnumerationOnce,
         return status;
     }
 
-    internal bool TryRunLr2FullGenerationDataPreparation(string reason, Action prepareGeneratedData)
+    internal bool TryRunLr2FullGenerationDataPreparation(string reason, Func<Lr2FullGenerationPreparedDataSurface> prepareGeneratedData)
     {
         if (prepareGeneratedData == null)
         {
@@ -5731,8 +5749,8 @@ completeFileEnumerationOnce,
         try
         {
             LogInstallPerformance("lr2_full_generation_data_prepare start reason=" + (reason ?? "unknown"));
-            prepareGeneratedData();
-            InvalidateLr2FullGenerationLr2FolderScanSurface("prepare_generated_data");
+            Lr2FullGenerationPreparedDataSurface preparedSurface = prepareGeneratedData();
+            ApplyLr2FullGenerationPreparedDataSurface("prepare_generated_data", preparedSurface);
             LogInstallPerformance("lr2_full_generation_data_prepare done reason=" + (reason ?? "unknown"));
             return true;
         }
@@ -6503,26 +6521,34 @@ completeFileEnumerationOnce,
             : Lr2NormalFolderDbSyncService.CreateDirectoryMetadataTargets(roots, chartPaths);
         directoryTargetsStopwatch.Stop();
 
-        bool preparedLr2FolderRefreshPending = IsLr2FullGenerationPreparedLr2FolderRefreshPending();
-        bool reusedLr2FolderSurface = scanSurface?.Lr2FolderFileDiscoveryComplete == true && !preparedLr2FolderRefreshPending;
-        bool refreshPreparedLr2FolderSurface = preparedLr2FolderRefreshPending
-            || (scanSurface != null && !reusedLr2FolderSurface);
+        Lr2FullGenerationPreparedDataSurface preparedSurface = TakeLr2FullGenerationPreparedDataSurface();
+        bool hasPreparedSurface = preparedSurface?.HasLr2FolderSurface == true;
+        bool reusedLr2FolderSurface = scanSurface?.Lr2FolderFileDiscoveryComplete == true;
         var lr2FolderCandidatesStopwatch = Stopwatch.StartNew();
-        Lr2FolderFileCandidateSnapshot lr2FolderFileCandidates = reusedLr2FolderSurface
-            ? new Lr2FolderFileCandidateSnapshot(
+        Lr2FolderFileCandidateSnapshot lr2FolderFileCandidates;
+        if (scanSurface != null)
+        {
+            lr2FolderFileCandidates = new Lr2FolderFileCandidateSnapshot(
                 scanSurface.Lr2FolderFilePaths,
                 scanSurface.Lr2FolderFileEntries,
-                scanSurface.Lr2FolderFileDiscoveryComplete)
-            : CreateLr2FullGenerationLr2FolderFileCandidates(
-                lr2FolderDiscoveryDirectories,
-                lr2RootPath,
-                builtinCustomFolderSettings,
-                forceManagedEnumeration: refreshPreparedLr2FolderSurface);
-        lr2FolderCandidatesStopwatch.Stop();
-        if (refreshPreparedLr2FolderSurface && lr2FolderFileCandidates.DiscoveryComplete)
-        {
-            CompleteLr2FullGenerationPreparedLr2FolderRefresh(scanSurface, lr2FolderFileCandidates);
+                scanSurface.Lr2FolderFileDiscoveryComplete);
+            if (hasPreparedSurface)
+            {
+                lr2FolderFileCandidates = MergeLr2FolderFileCandidateSurface(lr2FolderFileCandidates, preparedSurface);
+            }
         }
+        else
+        {
+            lr2FolderFileCandidates = CreateLr2FullGenerationLr2FolderFileCandidates(
+                CreateLr2FolderDiscoveryDirectoriesForEnumeration(lr2FolderDiscoveryDirectories, preparedSurface),
+                lr2RootPath,
+                builtinCustomFolderSettings);
+            if (hasPreparedSurface)
+            {
+                lr2FolderFileCandidates = MergeLr2FolderFileCandidateSurface(lr2FolderFileCandidates, preparedSurface);
+            }
+        }
+        lr2FolderCandidatesStopwatch.Stop();
         var folderInfoCandidatesStopwatch = Stopwatch.StartNew();
         Lr2FolderInfoCandidateSnapshot folderInfoCandidates = scanSurface != null
             ? Lr2FolderInfoCandidateEnumerationService.CreateSnapshotFromSurface(
@@ -6553,7 +6579,7 @@ completeFileEnumerationOnce,
             + " folderInfoCandidates=" + folderInfoCandidates.Paths.Count
             + " lr2FolderCandidates=" + lr2FolderFileCandidates.Paths.Count
             + " reusedLr2FolderSurface=" + reusedLr2FolderSurface.ToString().ToLowerInvariant()
-            + " refreshedPreparedLr2FolderSurface=" + refreshPreparedLr2FolderSurface.ToString().ToLowerInvariant()
+            + " hasPreparedLr2FolderSurface=" + hasPreparedSurface.ToString().ToLowerInvariant()
             + " lr2FolderDiscoveryComplete=" + lr2FolderFileCandidates.DiscoveryComplete.ToString().ToLowerInvariant()
             + " textFileDirs=" + textFileDirectories.Count
             + " rowSnapshotMs=" + rowSnapshotStopwatch.ElapsedMilliseconds
@@ -7015,8 +7041,7 @@ completeFileEnumerationOnce,
     private static Lr2FolderFileCandidateSnapshot CreateLr2FullGenerationLr2FolderFileCandidates(
         IEnumerable<string> rootDirectories,
         string lr2RootPath,
-        Lr2BuiltinCustomFolderSettings builtinCustomFolderSettings,
-        bool forceManagedEnumeration = false)
+        Lr2BuiltinCustomFolderSettings builtinCustomFolderSettings)
     {
         List<string> roots = [.. (rootDirectories ?? [])
             .Where(path => !string.IsNullOrWhiteSpace(path) && Directory.Exists(path))
@@ -7029,9 +7054,7 @@ completeFileEnumerationOnce,
         }
 
         RootFileEnumerationGroup[] groups = [new RootFileEnumerationGroup(Lr2FolderFileEnumerationGroupName, [".lr2folder"])];
-        RootFileEnumerationResult result = forceManagedEnumeration
-            ? new FastRootFileEnumerator().EnumerateFiles(roots, groups)
-            : RootFileEnumerationService.EnumerateFilesWithFallback(roots, groups);
+        RootFileEnumerationResult result = RootFileEnumerationService.EnumerateFilesWithFallback(roots, groups);
         if (!result.Success)
         {
             LogEverythingScan("lr2folder_scan failed"
@@ -7063,6 +7086,95 @@ completeFileEnumerationOnce,
         return new Lr2FolderFileCandidateSnapshot([.. entriesByPath.Keys
             .Where(path => !string.IsNullOrWhiteSpace(path))
             .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)], entriesByPath, discoveryComplete: true);
+    }
+
+    private static Lr2FolderFileCandidateSnapshot MergeLr2FolderFileCandidateSurface(
+        Lr2FolderFileCandidateSnapshot baseCandidates,
+        Lr2FullGenerationPreparedDataSurface preparedSurface)
+    {
+        if (preparedSurface?.HasLr2FolderSurface != true)
+        {
+            return baseCandidates ?? new Lr2FolderFileCandidateSnapshot(
+                [],
+                new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase),
+                discoveryComplete: true);
+        }
+
+        var entriesByPath = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
+        foreach (string path in baseCandidates?.Paths ?? [])
+        {
+            if (string.IsNullOrWhiteSpace(path) || IsPathInsideAnyDirectory(path, preparedSurface.Lr2FolderScopeDirectories))
+            {
+                continue;
+            }
+
+            entriesByPath[path] = baseCandidates.EntriesByPath != null
+                && baseCandidates.EntriesByPath.TryGetValue(path, out RootFileEnumerationEntry entry)
+                    ? entry
+                    : new RootFileEnumerationEntry(path);
+        }
+
+        foreach (string path in preparedSurface.Lr2FolderFilePaths)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                continue;
+            }
+
+            entriesByPath[path] = preparedSurface.Lr2FolderFileEntries != null
+                && preparedSurface.Lr2FolderFileEntries.TryGetValue(path, out RootFileEnumerationEntry entry)
+                    ? entry
+                    : new RootFileEnumerationEntry(path);
+        }
+
+        return new Lr2FolderFileCandidateSnapshot(
+            [.. entriesByPath.Keys.OrderBy(path => path, StringComparer.OrdinalIgnoreCase)],
+            entriesByPath,
+            (baseCandidates?.DiscoveryComplete ?? false) && preparedSurface.Lr2FolderFileDiscoveryComplete);
+    }
+
+    private static IReadOnlyList<string> CreateLr2FolderDiscoveryDirectoriesForEnumeration(
+        IEnumerable<string> discoveryDirectories,
+        Lr2FullGenerationPreparedDataSurface preparedSurface)
+    {
+        if (preparedSurface?.HasLr2FolderSurface != true)
+        {
+            return [.. (discoveryDirectories ?? [])];
+        }
+
+        return [.. (discoveryDirectories ?? [])
+            .Where(directory => !IsDirectoryInsideAnyDirectory(directory, preparedSurface.Lr2FolderScopeDirectories))
+            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
+    }
+
+    private static bool IsPathInsideAnyDirectory(string path, IEnumerable<string> directories)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return false;
+        }
+
+        string directory = Lr2FolderPath.SafeGetDirectoryName(path);
+        if (string.IsNullOrWhiteSpace(directory))
+        {
+            return false;
+        }
+
+        string normalizedDirectory = Lr2FolderPath.NormalizeDirectoryPath(directory);
+        return !string.IsNullOrWhiteSpace(normalizedDirectory)
+            && IsDirectoryInsideAnyDirectory(normalizedDirectory, directories);
+    }
+
+    private static bool IsDirectoryInsideAnyDirectory(string directory, IEnumerable<string> directories)
+    {
+        string normalizedDirectory = Lr2FolderPath.NormalizeDirectoryPath(directory);
+        return !string.IsNullOrWhiteSpace(normalizedDirectory)
+            && (directories ?? []).Any(scope =>
+            {
+                string normalizedScope = Lr2FolderPath.NormalizeDirectoryPath(scope);
+                return !string.IsNullOrWhiteSpace(normalizedScope)
+                    && Lr2FolderPath.IsSameOrDescendant(normalizedDirectory, normalizedScope);
+            });
     }
 
     private static List<string> CreateLr2FullGenerationLr2FolderPruneDirectories(

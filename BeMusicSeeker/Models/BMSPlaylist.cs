@@ -2693,28 +2693,28 @@ public partial class BMSPlaylist : NotificationObject
         }
     }
 
-    internal int ReOutputAllCustomFoldersForLr2FullGenerationDataSync(string reason)
+    internal Lr2FullGenerationPreparedDataSurface ReOutputAllCustomFoldersForLr2FullGenerationDataSync(string reason)
     {
         return ReOutputAllCustomFoldersForLr2FullGenerationDataSync(reason, null);
     }
 
-    internal int ReOutputAllCustomFoldersForLr2FullGenerationDataSync(string reason, Action<int, int, string> progressCallback)
+    internal Lr2FullGenerationPreparedDataSurface ReOutputAllCustomFoldersForLr2FullGenerationDataSync(string reason, Action<int, int, string> progressCallback)
     {
         return ReOutputAllCustomFoldersForLr2FullGenerationDataSyncCoreAsync(reason, yieldBetweenTables: false, progressCallback)
             .GetAwaiter()
             .GetResult();
     }
 
-    internal Task<int> ReOutputAllCustomFoldersForLr2FullGenerationDataSyncAsync(string reason, Action<int, int, string> progressCallback = null)
+    internal Task<Lr2FullGenerationPreparedDataSurface> ReOutputAllCustomFoldersForLr2FullGenerationDataSyncAsync(string reason, Action<int, int, string> progressCallback = null)
     {
         return ReOutputAllCustomFoldersForLr2FullGenerationDataSyncCoreAsync(reason, yieldBetweenTables: true, progressCallback);
     }
 
-    private async Task<int> ReOutputAllCustomFoldersForLr2FullGenerationDataSyncCoreAsync(string reason, bool yieldBetweenTables, Action<int, int, string> progressCallback = null)
+    private async Task<Lr2FullGenerationPreparedDataSurface> ReOutputAllCustomFoldersForLr2FullGenerationDataSyncCoreAsync(string reason, bool yieldBetweenTables, Action<int, int, string> progressCallback = null)
     {
         if (!Settings.Default.OperationModeLR2DB)
         {
-            return 0;
+            return Lr2FullGenerationPreparedDataSurface.Empty;
         }
         List<BMSTable> tablesSnapshot;
         using (rwlockBMSTables.GetReaderGuard())
@@ -2729,7 +2729,7 @@ public partial class BMSPlaylist : NotificationObject
             "playlist_lr2_full_generation_data_resync",
             yieldBetweenTables,
             progressCallback);
-        return result.ReOutputCount;
+        return result.PreparedDataSurface ?? Lr2FullGenerationPreparedDataSurface.Empty;
     }
 
     private int RepairMissingCustomFolderOutputsAfterHydration(string reason)
@@ -2884,6 +2884,9 @@ public partial class BMSPlaylist : NotificationObject
             ReOutputCount = reOutputCount,
             Materialization = materialization,
             SyncResult = syncResult,
+            PreparedDataSurface = Lr2FullGenerationPreparedDataSurface.FromSyncItems(
+                materialization.Lr2FolderSurfaceScopeDirectories,
+                materialization.SyncItems),
             ElapsedMs = stopwatch.ElapsedMilliseconds
         };
     }
@@ -2895,6 +2898,8 @@ public partial class BMSPlaylist : NotificationObject
         public CustomFolderBatchMaterializationResult Materialization { get; set; }
 
         public Lr2FolderFileDbSyncResult SyncResult { get; set; }
+
+        public Lr2FullGenerationPreparedDataSurface PreparedDataSurface { get; set; }
 
         public long ElapsedMs { get; set; }
     }
@@ -2913,6 +2918,8 @@ public partial class BMSPlaylist : NotificationObject
         public List<string> OutputDirectories { get; } = [];
 
         public List<string> DirectoryRowGenerationScopeDirectories { get; } = [];
+
+        public List<string> Lr2FolderSurfaceScopeDirectories { get; } = [];
 
         public List<Lr2FolderFileSyncItem> SyncItems { get; } = [];
 
@@ -2946,6 +2953,8 @@ public partial class BMSPlaylist : NotificationObject
 
             string outputDir = projection.OutputDirectory;
             result.OutputDirectories.Add(outputDir);
+            result.Lr2FolderSurfaceScopeDirectories.AddRange(
+                CreateCustomFolderLr2FolderSurfaceScopes(outputDir, projection.Table));
             result.DirectoryRowGenerationScopeDirectories.AddRange(CreateCustomFolderDirectoryRowGenerationScopes(outputDir, projection.Table));
             var expectedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             IReadOnlyList<string> texts = projection.Texts ?? [];
@@ -3005,6 +3014,19 @@ public partial class BMSPlaylist : NotificationObject
 
         result.OutputDirectories.RemoveAll(string.IsNullOrWhiteSpace);
         return result;
+    }
+
+    private static IReadOnlyCollection<string> CreateCustomFolderLr2FolderSurfaceScopes(string outputDir, BMSTable bmsTable)
+    {
+        if (string.IsNullOrWhiteSpace(outputDir))
+        {
+            return [];
+        }
+
+        string normalizedOutput = Lr2FolderPath.NormalizeDirectoryPath(outputDir);
+        return string.IsNullOrWhiteSpace(normalizedOutput)
+            ? [outputDir]
+            : [normalizedOutput];
     }
 
     private List<string> BuildCustomFolderTexts(BMSTable bmsTable)
