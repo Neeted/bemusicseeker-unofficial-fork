@@ -190,7 +190,7 @@ public sealed class Lr2SongDbWriterTests
         WithTemporarySongDb(delegate (string songDbPath)
         {
             using var songDb = new LR2SongDBExtended(songDbPath);
-            songDb.CreateTable<LR2SongDB.song>();
+            PrepareFullGenerationSongWriterSchema(songDb);
             songDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
             TestableBmsFile existing = CreateSong(@"D:\BMS\Pack\existing.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Old");
             existing.SetUserColumns(favoriteValue: 7, addDateValue: 12345, tagValue: "keep");
@@ -214,12 +214,39 @@ public sealed class Lr2SongDbWriterTests
     }
 
     [TestMethod]
+    public void UpsertGeneratedSongsForFullGeneration_UpdatesExistingPathNocaseWithoutDuplicate()
+    {
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            using var songDb = new LR2SongDBExtended(songDbPath);
+            PrepareFullGenerationSongWriterSchema(songDb);
+            songDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
+            TestableBmsFile existing = CreateSong(@"D:\BMS\Pack\CHART.BMS", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Old");
+            existing.SetUserColumns(favoriteValue: 7, addDateValue: 12345, tagValue: "keep");
+            Assert.IsTrue(Lr2SongDbWriter.UpsertGeneratedSong(songDb, existing));
+            TestableBmsFile updated = CreateSong(@"D:\BMS\Pack\chart.bms", existing.hash, "New");
+
+            int written = Lr2SongDbWriter.UpsertGeneratedSongsForFullGeneration(songDb, [updated]);
+
+            Assert.AreEqual(1, written);
+            Assert.AreEqual(
+                1,
+                songDb.ExecuteScalar<int>("SELECT COUNT(*) FROM song WHERE path = ? COLLATE NOCASE;", updated.path));
+            LR2SongDB.song updatedRow = songDb.Find<LR2SongDB.song>(existing.path);
+            Assert.AreEqual("New", updatedRow.title);
+            Assert.AreEqual(7, updatedRow.favorite);
+            Assert.AreEqual(12345, updatedRow.adddate);
+            Assert.AreEqual("keep", updatedRow.tag);
+        });
+    }
+
+    [TestMethod]
     public void UpsertGeneratedSongsForFullGeneration_SkipsUnchangedGeneratedColumns()
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
             using var songDb = new LR2SongDBExtended(songDbPath);
-            songDb.CreateTable<LR2SongDB.song>();
+            PrepareFullGenerationSongWriterSchema(songDb);
             songDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
             TestableBmsFile file = CreateSong(@"D:\BMS\Pack\unchanged.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Title");
             file.SetSha256(Sha('1'));
@@ -242,7 +269,7 @@ public sealed class Lr2SongDbWriterTests
         WithTemporarySongDb(delegate (string songDbPath)
         {
             using var songDb = new LR2SongDBExtended(songDbPath);
-            songDb.CreateTable<LR2SongDB.song>();
+            PrepareFullGenerationSongWriterSchema(songDb);
             songDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
             TestableBmsFile file = CreateSong(@"D:\BMS\Pack\unchanged-digest.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Title");
             file.SetSha256(Sha('1'));
@@ -265,7 +292,7 @@ public sealed class Lr2SongDbWriterTests
         WithTemporarySongDb(delegate (string songDbPath)
         {
             using var songDb = new LR2SongDBExtended(songDbPath);
-            songDb.CreateTable<LR2SongDB.song>();
+            PrepareFullGenerationSongWriterSchema(songDb);
             songDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
             TestableBmsFile file = CreateSong(@"D:\BMS\Pack\uppercase.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Title");
             Assert.IsTrue(Lr2SongDbWriter.UpsertGeneratedSong(songDb, file));
@@ -287,7 +314,7 @@ public sealed class Lr2SongDbWriterTests
         WithTemporarySongDb(delegate (string songDbPath)
         {
             using var songDb = new LR2SongDBExtended(songDbPath);
-            songDb.CreateTable<LR2SongDB.song>();
+            PrepareFullGenerationSongWriterSchema(songDb);
             songDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
             string oldHash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
             string newHash = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
@@ -313,7 +340,7 @@ public sealed class Lr2SongDbWriterTests
         WithTemporarySongDb(delegate (string songDbPath)
         {
             using var songDb = new LR2SongDBExtended(songDbPath);
-            songDb.CreateTable<LR2SongDB.song>();
+            PrepareFullGenerationSongWriterSchema(songDb);
             songDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
             songDb.CreateTable<LR2SongDBExtended.bmson_song>();
             string oldHash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -348,7 +375,7 @@ public sealed class Lr2SongDbWriterTests
         WithTemporarySongDb(delegate (string songDbPath)
         {
             using var songDb = new LR2SongDBExtended(songDbPath);
-            songDb.CreateTable<LR2SongDB.song>();
+            PrepareFullGenerationSongWriterSchema(songDb);
             songDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
             TestableBmsFile file = CreateSong(@"D:\BMS\Pack\chart.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Title");
             file.SetTextFlagForTest(1);
@@ -370,7 +397,7 @@ public sealed class Lr2SongDbWriterTests
         WithTemporarySongDb(delegate (string songDbPath)
         {
             using var songDb = new LR2SongDBExtended(songDbPath);
-            songDb.CreateTable<LR2SongDB.song>();
+            PrepareFullGenerationSongWriterSchema(songDb);
             songDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
             TestableBmsFile file = CreateSong(@"D:\BMS\Pack\chart.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Old");
             file.adddate = 98765;
@@ -535,6 +562,11 @@ public sealed class Lr2SongDbWriterTests
                 Directory.Delete(tempDirectory, recursive: true);
             }
         }
+    }
+
+    private static void PrepareFullGenerationSongWriterSchema(LR2SongDBExtended songDb)
+    {
+        BmsLibraryDbGateway.EnsureSongLookupIndexes(songDb);
     }
 
     private sealed class TestableBmsFile : BMSFile

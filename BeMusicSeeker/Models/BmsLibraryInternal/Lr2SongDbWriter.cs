@@ -175,8 +175,10 @@ internal static class Lr2SongDbWriter
             + BuildGeneratedColumnAssignment(nameof(LR2SongDB.song.exlevel), TempGeneratedSongUpsertTable)
             + " WHERE rowid IN ("
             + "SELECT s.rowid FROM temp." + TempGeneratedSongUpsertTable + " u "
-            + "JOIN " + songTable + " s ON s." + songPathColumn + " = u.path COLLATE NOCASE "
-            + "WHERE " + BuildGeneratedColumnChangePredicate("s", "u") + ");");
+            + "JOIN " + songTable + " s INDEXED BY " + BmsLibraryDbGateway.SongPathNocaseIndexName
+            + " ON s." + songPathColumn + " = u.path COLLATE NOCASE "
+            + "WHERE s." + songPathColumn + " COLLATE NOCASE IN (SELECT path FROM temp." + TempGeneratedSongUpsertTable + ") "
+            + "AND " + BuildGeneratedColumnChangePredicate("s", "u") + ");");
 
         int inserted = InsertMissingGeneratedSongsFromTemp(songDb, TempGeneratedSongUpsertTable);
         UpsertChartDigests(songDb, rows);
@@ -595,7 +597,8 @@ internal static class Lr2SongDbWriter
         return songDb.Execute(
             "INSERT INTO " + songTable + " (" + string.Join(",", columns) + ") "
             + "SELECT " + string.Join(",", columns) + " FROM temp." + tempTableName + " u "
-            + "WHERE NOT EXISTS (SELECT 1 FROM " + songTable + " s WHERE s." + songPathColumn + " = u.path COLLATE NOCASE);");
+            + "WHERE NOT EXISTS (SELECT 1 FROM " + songTable + " s INDEXED BY " + BmsLibraryDbGateway.SongPathNocaseIndexName
+            + " WHERE s." + songPathColumn + " = u.path COLLATE NOCASE);");
     }
 
     private static void InsertChangedPreviousHashesIntoTemp(LR2SongDBExtended songDb, string tempTableName, string tempHashTableName)
@@ -606,10 +609,11 @@ internal static class Lr2SongDbWriter
         songDb.Execute(
             "INSERT OR IGNORE INTO temp." + tempHashTableName + " (md5) "
             + "SELECT DISTINCT lower(trim(s." + songHashColumn + ")) "
-            + "FROM " + songTable + " s "
+            + "FROM " + songTable + " s INDEXED BY " + BmsLibraryDbGateway.SongPathNocaseIndexName + " "
             + "JOIN temp." + tempTableName + " u ON u.path = s." + songPathColumn + " COLLATE NOCASE "
             + "WHERE s." + songHashColumn + " IS NOT NULL "
             + "AND trim(s." + songHashColumn + ") <> '' "
+            + "AND s." + songPathColumn + " COLLATE NOCASE IN (SELECT path FROM temp." + tempTableName + ") "
             + "AND (u.hash IS NULL OR trim(u.hash) = '' OR lower(trim(s." + songHashColumn + ")) <> lower(trim(u.hash)));");
     }
 
