@@ -2262,6 +2262,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             Signature = signature,
             RunId = "folder-target-missing-run",
             RootDirectories = [rootDirectory],
+            DirectoryEntries = CreateDirectoryEntryMap(rootDirectory),
             Lr2FolderDiscoveryDirectories = [rootDirectory],
             Lr2FolderFilePaths = [missingLr2FolderPath],
             StartedAtUtc = new DateTime(2026, 6, 5, 0, 1, 0, DateTimeKind.Utc)
@@ -2459,6 +2460,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             RunId = "resume-missing-folder-run",
             RootDirectories = [rootDirectory],
             ChartPaths = [chartPath],
+            DirectoryEntries = CreateDirectoryEntryMap(rootDirectory, songDirectory),
             SongRows = [file],
             StartedAtUtc = new DateTime(2026, 6, 5, 0, 1, 0, DateTimeKind.Utc)
         });
@@ -2594,6 +2596,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             RunId = "restart-run",
             RootDirectories = [rootDirectory],
             ChartPaths = [chartPath],
+            DirectoryEntries = CreateDirectoryEntryMap(rootDirectory, songDirectory),
             SongRows = [file],
             StartedAtUtc = new DateTime(2026, 6, 5, 0, 1, 0, DateTimeKind.Utc)
         });
@@ -3025,6 +3028,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             RunId = "cancel-run",
             RootDirectories = [rootDirectory],
             ChartPaths = [chartPath],
+            DirectoryEntries = CreateDirectoryEntryMap(rootDirectory, songDirectory),
             SongRows = [file],
             StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc),
             CancellationToken = cancellation.Token,
@@ -3060,6 +3064,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             RunId = "resume-after-cancel-run",
             RootDirectories = [rootDirectory],
             ChartPaths = [chartPath],
+            DirectoryEntries = CreateDirectoryEntryMap(rootDirectory, songDirectory),
             SongRows = [file],
             StartedAtUtc = new DateTime(2026, 6, 5, 0, 1, 0, DateTimeKind.Utc)
         });
@@ -3785,6 +3790,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             Signature = "test",
             RunId = "run",
             RootDirectories = [rootDirectory],
+            DirectoryEntries = CreateDirectoryEntryMap(rootDirectory),
             Lr2FolderDiscoveryDirectories = [rootDirectory],
             Lr2FolderPruneDirectories = [rootDirectory],
             Lr2FolderFilePaths = [missingPath],
@@ -4237,6 +4243,22 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             }
 
             result[filePath] = new RootFileEnumerationEntry(filePath, File.GetLastWriteTimeUtc(filePath));
+        }
+
+        return result;
+    }
+
+    private static Dictionary<string, RootFileEnumerationEntry> CreateDirectoryEntryMap(params string[] directoryPaths)
+    {
+        var result = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
+        foreach (string directoryPath in directoryPaths ?? [])
+        {
+            if (string.IsNullOrWhiteSpace(directoryPath))
+            {
+                continue;
+            }
+
+            result[directoryPath] = RootFileEnumerationEntry.FromDirectoryInfo(directoryPath);
         }
 
         return result;

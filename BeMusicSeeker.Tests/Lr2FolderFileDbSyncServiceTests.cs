@@ -660,6 +660,7 @@ public sealed class Lr2FolderFileDbSyncServiceTests
                 ScopeDirectories = [tableDirectory],
                 DirectoryRowScopeDirectories = [tableDirectory],
                 DirectoryRowGenerationScopeDirectories = [baseDirectory],
+                DirectoryMetadataResolver = CreateDirectoryMetadataResolver(timestamp, tableDirectory),
                 AllowPrune = true
             });
 
@@ -704,6 +705,7 @@ public sealed class Lr2FolderFileDbSyncServiceTests
                 ScopeDirectories = [tableDirectory],
                 DirectoryRowScopeDirectories = [tableDirectory],
                 DirectoryRowGenerationScopeDirectories = [bmsRoot],
+                DirectoryMetadataResolver = CreateDirectoryMetadataResolver(timestamp, outputBase, tableDirectory),
                 AllowPrune = true
             });
 
@@ -758,6 +760,7 @@ public sealed class Lr2FolderFileDbSyncServiceTests
                 ScopePaths = [filePath],
                 DirectoryRowScopeDirectories = [tableDirectory],
                 DirectoryRowGenerationScopeDirectories = [baseDirectory],
+                DirectoryMetadataResolver = CreateDirectoryMetadataResolver(timestamp, tableDirectory),
                 AllowPrune = true
             });
 
@@ -768,6 +771,54 @@ public sealed class Lr2FolderFileDbSyncServiceTests
             Assert.AreEqual(Lr2SongFolderParentNormalizer.RootParentHash, parentRow.parent);
             Assert.AreEqual(1, songDb.Table<LR2SongDB.folder>().Count(row => row.path == filePath));
         });
+    }
+
+    [TestMethod]
+    public void Sync_DoesNotFallbackToDirectoryInfoWhenDirectoryMetadataResolverMissing()
+    {
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            using var songDb = new LR2SongDBExtended(songDbPath);
+            songDb.CreateTable<LR2SongDB.folder>();
+            string baseDirectory = Path.Combine(Path.GetDirectoryName(songDbPath), "ROOT");
+            string tableDirectory = Path.Combine(baseDirectory, "Table");
+            Directory.CreateDirectory(tableDirectory);
+            string filePath = Path.Combine(tableDirectory, "0000.lr2folder");
+            DateTime timestamp = new(2026, 6, 10, 1, 2, 3, DateTimeKind.Utc);
+
+            Lr2FolderFileDbSyncResult result = Lr2FolderFileDbSyncService.Sync(songDb, new Lr2FolderFileDbSyncRequest
+            {
+                Items =
+                [
+                    new Lr2FolderFileSyncItem
+                    {
+                        FilePath = filePath,
+                        LastWriteTimeUtc = timestamp,
+                        Definition = Lr2FolderFileProjection.ParseDefinition(["#TITLE Level Folder"])
+                    }
+                ],
+                ScopeDirectories = [tableDirectory],
+                DirectoryRowScopeDirectories = [tableDirectory],
+                DirectoryRowGenerationScopeDirectories = [baseDirectory],
+                AllowPrune = true
+            });
+
+            Assert.AreEqual(1, result.UpsertedCount);
+            Assert.IsFalse(songDb.Table<LR2SongDB.folder>().Any(row => row.path == Lr2FolderPath.ToFolderPath(tableDirectory)));
+            Assert.IsTrue(songDb.Table<LR2SongDB.folder>().Any(row => row.path == filePath));
+        });
+    }
+
+    private static Func<string, Lr2FolderDirectoryMetadata> CreateDirectoryMetadataResolver(
+        DateTime timestamp,
+        params string[] directories)
+    {
+        var normalizedDirectories = new HashSet<string>(
+            (directories ?? []).Select(Lr2FolderPath.NormalizeDirectoryPath).Where(path => !string.IsNullOrWhiteSpace(path)),
+            StringComparer.OrdinalIgnoreCase);
+        return path => normalizedDirectories.Contains(Lr2FolderPath.NormalizeDirectoryPath(path))
+            ? new Lr2FolderDirectoryMetadata(timestamp)
+            : null!;
     }
 
     private static void WithTemporarySongDb(Action<string> testAction)

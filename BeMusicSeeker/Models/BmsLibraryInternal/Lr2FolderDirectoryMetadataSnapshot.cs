@@ -228,45 +228,13 @@ internal static class Lr2FolderDirectoryMetadataBuilder
 
     private static DateTime? ResolveLastWriteTimeUtc(string directoryPath, Func<string, DateTime?> resolver)
     {
-        if (resolver != null)
+        if (resolver == null)
         {
-            try
-            {
-                return NormalizeLastWriteTimeUtc(resolver(directoryPath));
-            }
-            catch (IOException)
-            {
-                return null;
-            }
-            catch (UnauthorizedAccessException)
-            {
-                return null;
-            }
-            catch (NotSupportedException)
-            {
-                return null;
-            }
-            catch (ArgumentException)
-            {
-                return null;
-            }
-            catch (SecurityException)
-            {
-                return null;
-            }
+            return null;
         }
-
         try
         {
-            if (!Directory.Exists(directoryPath))
-            {
-                return null;
-            }
-
-            DateTime timestamp = Directory.GetLastWriteTimeUtc(directoryPath);
-            return Directory.Exists(directoryPath)
-                ? NormalizeLastWriteTimeUtc(timestamp)
-                : null;
+            return NormalizeLastWriteTimeUtc(resolver(directoryPath));
         }
         catch (IOException)
         {

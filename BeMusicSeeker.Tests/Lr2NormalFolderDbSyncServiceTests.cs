@@ -558,6 +558,38 @@ public sealed class Lr2NormalFolderDbSyncServiceTests
         }
     }
 
+    [TestMethod]
+    public void DirectoryEnumeration_ResolvesLargeTargetSetDirectlyFromTargets()
+    {
+        string tempDirectory = Path.Combine(Path.GetTempPath(), nameof(Lr2NormalFolderDbSyncServiceTests), Guid.NewGuid().ToString("N"));
+        try
+        {
+            string existingDirectory = Path.Combine(tempDirectory, "Existing");
+            Directory.CreateDirectory(existingDirectory);
+            DateTime timestamp = new(2026, 6, 10, 1, 2, 3, DateTimeKind.Utc);
+            Directory.SetLastWriteTimeUtc(existingDirectory, timestamp);
+            List<string> targets = [existingDirectory];
+            for (int index = 0; index < 600; index++)
+            {
+                targets.Add(Path.Combine(tempDirectory, "Missing" + index.ToString("D4")));
+            }
+
+            IReadOnlyDictionary<string, RootFileEnumerationEntry> entries =
+                Lr2FolderDirectoryEnumerationService.CreateEntriesFromTargets(targets);
+
+            Assert.AreEqual(1, entries.Count);
+            Assert.IsTrue(entries.TryGetValue(Normalize(existingDirectory), out RootFileEnumerationEntry entry));
+            Assert.AreEqual(timestamp, entry.LastWriteTimeUtc);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
     private static string Normalize(string path)
     {
         string fullPath = Path.GetFullPath(path);

@@ -422,15 +422,8 @@ internal static class Lr2FolderFileDbSyncService
             return false;
         }
 
-        bool hasMetadataResolver = directoryMetadataResolver != null;
         Lr2FolderDirectoryMetadata metadata = ResolveDirectoryMetadata(physicalDirectory, directoryMetadataResolver);
         DateTime? lastWriteTimeUtc = metadata?.LastWriteTimeUtc;
-        if (!lastWriteTimeUtc.HasValue
-            && !hasMetadataResolver
-            && TryResolveDirectoryLastWriteTimeUtc(physicalDirectory, out DateTime resolvedLastWriteTimeUtc))
-        {
-            lastWriteTimeUtc = resolvedLastWriteTimeUtc;
-        }
         if (!lastWriteTimeUtc.HasValue)
         {
             return false;
@@ -767,25 +760,6 @@ internal static class Lr2FolderFileDbSyncService
         return IsKnownRelativeLr2FolderDirectory(normalized)
             ? normalized
             : null;
-    }
-
-    private static bool TryResolveDirectoryLastWriteTimeUtc(string directoryPath, out DateTime lastWriteTimeUtc)
-    {
-        lastWriteTimeUtc = default;
-        try
-        {
-            if (string.IsNullOrWhiteSpace(directoryPath) || !Directory.Exists(directoryPath))
-            {
-                return false;
-            }
-
-            lastWriteTimeUtc = Directory.GetLastWriteTimeUtc(directoryPath);
-            return true;
-        }
-        catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException)
-        {
-            return false;
-        }
     }
 
     private static Lr2FolderDirectoryMetadata ResolveDirectoryMetadata(

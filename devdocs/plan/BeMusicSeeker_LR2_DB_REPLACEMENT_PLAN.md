@@ -235,6 +235,10 @@ SELECT path,date FROM folder WHERE parent = ROOT OR date = 0
   scan surface capture は producer から渡された `.lr2folder` discovery / entry surface を保存するだけにし、
   欠けている場合に capture 側で別 scan を実行して補完しない。欠けた surface は producer contract の不備として扱い、
   既存 snapshot を再利用不可にしたうえで、`AttachLr2FolderScanSurface` または grouped enumeration producer 側で修正する。
+  playlist custom folder 出力も同様に、`.lr2folder` parent directory metadata は
+  `Lr2FolderFileDbSyncService` 内部の filesystem fallback ではなく、出力側 producer が scoped metadata snapshot を
+  作って resolver として渡す。この scoped producer は対象 directory だけを direct lookup し、
+  target 数によって output base/root 全体の directory enumeration へ切り替えない。
   playlist materialization などで一部入力が変わる場合も、surface 全体を破棄せず、
   影響を受けた `.lr2folder` group だけを materialization result または同じ grouped enumeration API で
   refresh する。`.txt` / `folderinfo.txt` / directory metadata まで失効させて、

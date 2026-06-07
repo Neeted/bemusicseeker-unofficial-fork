@@ -3200,6 +3200,10 @@ public partial class BMSPlaylist : NotificationObject
             return;
         }
 
+        IReadOnlyCollection<string> directoryRowGenerationScopes = CreateCustomFolderDirectoryRowGenerationScopes(outputDir, bmsTable);
+        Lr2FolderDirectoryMetadataSnapshot directoryMetadata = CreateCustomFolderParentDirectoryMetadataSnapshot(
+            items,
+            directoryRowGenerationScopes);
         Lr2FolderFileDbSyncResult result = null;
         ExecuteLr2FolderSync("playlist_lr2folder_sync", delegate
         {
@@ -3209,7 +3213,8 @@ public partial class BMSPlaylist : NotificationObject
                 Items = items ?? [],
                 ScopeDirectories = [outputDir],
                 DirectoryRowScopeDirectories = [outputDir],
-                DirectoryRowGenerationScopeDirectories = CreateCustomFolderDirectoryRowGenerationScopes(outputDir, bmsTable),
+                DirectoryRowGenerationScopeDirectories = directoryRowGenerationScopes,
+                DirectoryMetadataResolver = directoryMetadata.Resolve,
                 AllowPrune = true
             });
         });
@@ -3232,6 +3237,9 @@ public partial class BMSPlaylist : NotificationObject
         IReadOnlyCollection<string> directoryRowGenerationScopes = [.. (directoryRowGenerationScopeDirectories ?? [])
             .Where(directory => !string.IsNullOrWhiteSpace(directory))
             .Distinct(StringComparer.OrdinalIgnoreCase)];
+        Lr2FolderDirectoryMetadataSnapshot directoryMetadata = CreateCustomFolderParentDirectoryMetadataSnapshot(
+            items,
+            directoryRowGenerationScopes);
         Lr2FolderFileDbSyncResult result = null;
         ExecuteLr2FolderSync("playlist_lr2folder_batch_sync", delegate
         {
@@ -3242,11 +3250,43 @@ public partial class BMSPlaylist : NotificationObject
                 ScopeDirectories = outputDirs,
                 DirectoryRowScopeDirectories = outputDirs,
                 DirectoryRowGenerationScopeDirectories = directoryRowGenerationScopes,
+                DirectoryMetadataResolver = directoryMetadata.Resolve,
                 AllowPrune = true
             });
         });
         LogLr2FolderSyncResult("playlist_lr2folder_batch_sync", result, outputDirs.Count, items?.Count ?? 0);
         return result;
+    }
+
+    private static Lr2FolderDirectoryMetadataSnapshot CreateCustomFolderParentDirectoryMetadataSnapshot(
+        IReadOnlyCollection<Lr2FolderFileSyncItem> items,
+        IReadOnlyCollection<string> directoryRowGenerationScopeDirectories)
+    {
+        IReadOnlyCollection<string> metadataTargets = Lr2FolderFileDbSyncService.CreateParentDirectoryMetadataTargets(
+            items,
+            directoryRowGenerationScopeDirectories);
+        IReadOnlyDictionary<string, RootFileEnumerationEntry> directoryEntries =
+            Lr2FolderDirectoryEnumerationService.CreateEntriesFromTargets(metadataTargets);
+
+        return Lr2FolderDirectoryMetadataBuilder.Build(new Lr2FolderDirectoryMetadataBuildRequest
+        {
+            DirectoryPaths = metadataTargets,
+            DirectoryLastWriteTimeUtcResolver = CreateDirectoryLastWriteTimeResolver(directoryEntries)
+        });
+    }
+
+    private static Func<string, DateTime?> CreateDirectoryLastWriteTimeResolver(
+        IReadOnlyDictionary<string, RootFileEnumerationEntry> entriesByPath)
+    {
+        return path =>
+        {
+            string key = Lr2FolderPath.NormalizeDirectoryPath(path);
+            return !string.IsNullOrWhiteSpace(key)
+                && entriesByPath != null
+                && entriesByPath.TryGetValue(key, out RootFileEnumerationEntry entry)
+                    ? entry.LastWriteTimeUtc
+                    : null;
+        };
     }
 
     private IReadOnlyCollection<string> CreateCustomFolderDirectoryRowGenerationScopes(string outputDir, BMSTable bmsTable = null)

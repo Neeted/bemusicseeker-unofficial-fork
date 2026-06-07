@@ -490,6 +490,19 @@ public sealed class Lr2FolderRowGeneratorTests
     }
 
     [TestMethod]
+    public void DirectoryMetadataBuilder_DoesNotReadDirectoryTimestampWithoutResolver()
+    {
+        Lr2FolderDirectoryMetadataSnapshot snapshot = Lr2FolderDirectoryMetadataBuilder.Build(new Lr2FolderDirectoryMetadataBuildRequest
+        {
+            DirectoryPaths = [Path.GetTempPath()]
+        });
+
+        Assert.AreEqual(1, snapshot.RequestedDirectoryCount);
+        Assert.AreEqual(0, snapshot.ResolvedDirectoryCount);
+        Assert.AreEqual(1, snapshot.MissingDirectoryCount);
+    }
+
+    [TestMethod]
     public void DirectoryMetadataBuilder_TreatsUnixEpochOrOlderTimestampAsMissing()
     {
         Lr2FolderDirectoryMetadataSnapshot snapshot = Lr2FolderDirectoryMetadataBuilder.Build(new Lr2FolderDirectoryMetadataBuildRequest

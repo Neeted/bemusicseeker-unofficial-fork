@@ -64,6 +64,20 @@ internal static class Lr2FolderDirectoryEnumerationService
         return entries;
     }
 
+    internal static IReadOnlyDictionary<string, RootFileEnumerationEntry> CreateEntriesFromTargets(
+        IEnumerable<string> targetDirectories)
+    {
+        HashSet<string> targetSet = new((targetDirectories ?? [])
+            .Select(Lr2FolderPath.NormalizeDirectoryPath)
+            .Where(path => !string.IsNullOrWhiteSpace(path)), StringComparer.OrdinalIgnoreCase);
+        var entries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
+        foreach (string targetDirectory in targetSet)
+        {
+            AddEntryIfTarget(entries, targetSet, RootFileEnumerationEntry.FromDirectoryInfo(targetDirectory));
+        }
+        return entries;
+    }
+
     private static void AddEntryIfTarget(
         IDictionary<string, RootFileEnumerationEntry> entries,
         ISet<string> targetSet,
