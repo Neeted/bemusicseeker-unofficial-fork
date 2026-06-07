@@ -1204,6 +1204,51 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
+    public void CreateLr2FullGenerationSyncInputWithoutScanSurface_UsesTargetFolderInfoOnly()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        try
+        {
+            Settings.Default.OperationModeLR2DB = true;
+            Settings.Default.EnableLR2SongDbFullGeneration = true;
+            ResetLr2FolderDiscoverySettings();
+            string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
+            string packDirectory = Path.Combine(rootDirectory, "Pack");
+            string songDirectory = Path.Combine(packDirectory, "Song");
+            string unrelatedDirectory = Path.Combine(rootDirectory, "Other");
+            Directory.CreateDirectory(songDirectory);
+            Directory.CreateDirectory(unrelatedDirectory);
+            string chartPath = Path.Combine(songDirectory, "chart.bms");
+            string packFolderInfoPath = Path.Combine(packDirectory, "folderinfo.txt");
+            string unrelatedFolderInfoPath = Path.Combine(unrelatedDirectory, "folderinfo.txt");
+            File.WriteAllText(chartPath, "#TITLE Test");
+            File.WriteAllText(packFolderInfoPath, "#TITLE Pack", Encoding.GetEncoding("shift_jis"));
+            File.WriteAllText(unrelatedFolderInfoPath, "#TITLE Other", Encoding.GetEncoding("shift_jis"));
+            var library = new BMSLibrary(scope.SongDbPath)
+            {
+                SearchTargets = [rootDirectory],
+                BMSFiles =
+                [
+                    new TestableBmsFile
+                    {
+                        path = chartPath
+                    }
+                ]
+            };
+
+            object input = InvokeCreateLr2FullGenerationSyncInput(library);
+            List<string> folderInfoFilePaths = GetInputStringList(input, "FolderInfoFilePaths").ToList();
+
+            CollectionAssert.Contains(folderInfoFilePaths, packFolderInfoPath);
+            CollectionAssert.DoesNotContain(folderInfoFilePaths, unrelatedFolderInfoPath);
+        }
+        finally
+        {
+            ResetTouchedSettings();
+        }
+    }
+
+    [TestMethod]
     public void QueueLr2FullGenerationDataSync_RunsFullGenerationSyncAndMarksCompletedWhenClean()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
