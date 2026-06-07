@@ -83,6 +83,45 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
+    public void GetBmsDirectories_ReportsCustomFolderOutputRootNormalizationCounts()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        try
+        {
+            Settings.Default.OperationModeLR2DB = true;
+            ResetLr2FolderDiscoverySettings();
+            string bmsRoot = Path.Combine(scope.DirectoryPath, "BMS");
+            string missingRoot = Path.Combine(scope.DirectoryPath, "Missing");
+            string normalOutputBase = Path.Combine(scope.DirectoryPath, "NormalCustomFolderOutput");
+            string normalOutputChild = Path.Combine(normalOutputBase, "Table");
+            string rootOutputBase = Path.Combine(scope.DirectoryPath, "RootCustomFolderOutput");
+            Directory.CreateDirectory(bmsRoot);
+            Directory.CreateDirectory(normalOutputBase);
+            Directory.CreateDirectory(normalOutputChild);
+            Directory.CreateDirectory(rootOutputBase);
+            Settings.Default.LR2CustomFolderOutputBaseDir = normalOutputBase;
+            Settings.Default.LR2CustomFolderOutputBaseDirRootType = rootOutputBase;
+            var library = new BMSLibrary(scope.SongDbPath)
+            {
+                SearchTargets = [bmsRoot, missingRoot, normalOutputBase, normalOutputChild, rootOutputBase]
+            };
+
+            List<string> directories = InvokeGetBmsDirectories(library, out object normalization);
+
+            CollectionAssert.AreEqual(new[] { NormalizeDirectory(bmsRoot) }, directories.Select(NormalizeDirectory).ToArray());
+            Assert.AreEqual(5, GetPrivateInt(normalization, "RequestedRootCount"));
+            Assert.AreEqual(4, GetPrivateInt(normalization, "ExistingRootCount"));
+            Assert.AreEqual(1, GetPrivateInt(normalization, "RootCount"));
+            Assert.AreEqual(2, GetPrivateInt(normalization, "ConfiguredCustomOutputRootCount"));
+            Assert.AreEqual(3, GetPrivateInt(normalization, "ExcludedCustomOutputRootCount"));
+        }
+        finally
+        {
+            ResetTouchedSettings();
+        }
+    }
+
+    [TestMethod]
     public void ApplyInstalledChartStorageTargets_SyncsNormalFolderRowsWhenFullGenerationEnabled()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
@@ -4393,9 +4432,37 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
 
     private static List<string> InvokeGetBmsDirectories(BMSLibrary library)
     {
-        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("getBMSDirectories", BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("getBMSDirectories", BindingFlags.Instance | BindingFlags.NonPublic, null, [], null);
         Assert.IsNotNull(methodInfo);
         return (List<string>)methodInfo.Invoke(library, null);
+    }
+
+    private static List<string> InvokeGetBmsDirectories(BMSLibrary library, out object normalization)
+    {
+        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod(
+            "getBMSDirectories",
+            BindingFlags.Instance | BindingFlags.NonPublic,
+            null,
+            [typeof(object).MakeByRefType()],
+            null);
+        if (methodInfo == null)
+        {
+            methodInfo = typeof(BMSLibrary)
+                .GetMethods(BindingFlags.Instance | BindingFlags.NonPublic)
+                .Single(method => method.Name == "getBMSDirectories" && method.GetParameters().Length == 1);
+        }
+        object[] args = [null!];
+        List<string> result = (List<string>)methodInfo.Invoke(library, args);
+        normalization = args[0];
+        return result;
+    }
+
+    private static int GetPrivateInt(object instance, string propertyName)
+    {
+        Assert.IsNotNull(instance);
+        PropertyInfo propertyInfo = instance.GetType().GetProperty(propertyName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        Assert.IsNotNull(propertyInfo);
+        return (int)propertyInfo.GetValue(instance);
     }
 
     private static string NormalizeDirectory(string path)

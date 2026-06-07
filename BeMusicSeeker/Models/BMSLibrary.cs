@@ -4819,7 +4819,12 @@ public class BMSLibrary : NotificationObject
         int lr2IdAfterScoreLoad = 0;
         var options = BmsLibraryOptionsSnapshot.CreateCurrent();
         bool scoreOnlyLoad = !songTblLoad && scoreTblrLoad && !songTblFileCheck && !setMainteInfo && !installTblCheck;
-        List<string> bMSDirectories = getBMSDirectories();
+        bool logRootNormalizationForFileScan = songTblFileCheck;
+        List<string> bMSDirectories = getBMSDirectories(out BmsSearchRootNormalizationSnapshot rootNormalization);
+        if (logRootNormalizationForFileScan)
+        {
+            LogBmsSearchRootNormalization("initialize", options, rootNormalization, bMSDirectories);
+        }
         if (bMSDirectories.Count == 0)
         {
             songTblFileCheck = false;
@@ -5004,8 +5009,9 @@ public class BMSLibrary : NotificationObject
             return;
         }
         BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
-        List<string> bmsDirectories = getBMSDirectories();
+        List<string> bmsDirectories = getBMSDirectories(out BmsSearchRootNormalizationSnapshot rootNormalization);
         var stopwatch = Stopwatch.StartNew();
+        LogBmsSearchRootNormalization("reload_file_diff", options, rootNormalization, bmsDirectories);
         LogInstallPerformance("library_file_diff_reload start directories=" + bmsDirectories.Count);
         try
         {
@@ -6572,6 +6578,10 @@ completeFileEnumerationOnce,
             + " reusedScanSurface=" + (scanSurface != null).ToString().ToLowerInvariant()
             + " scanSurfaceMissReason=" + (scanSurfaceMissReason ?? string.Empty)
             + " scanSurfaceGeneration=" + (scanSurface?.Generation ?? 0)
+            + " rootDirs=" + roots.Count
+            + " lr2FolderDiscoveryDirs=" + lr2FolderDiscoveryDirectories.Count
+            + " lr2BuiltinFolderSourceDirs=" + lr2BuiltinFolderSourceDirectories.Count
+            + " lr2FolderPruneDirs=" + lr2FolderPruneDirectories.Count
             + " scanSurfaceNormalFolderDirs=" + (scanSurface?.NormalFolderDirectoryPaths?.Count ?? 0)
             + " directoryTargets=" + directoryMetadataTargets.Count
             + " directoryEntries=" + directoryEntries.Count
@@ -9343,6 +9353,11 @@ completeFileEnumerationOnce,
 
     private List<string> getBMSDirectories()
     {
+        return getBMSDirectories(out _);
+    }
+
+    private List<string> getBMSDirectories(out BmsSearchRootNormalizationSnapshot normalizationSnapshot)
+    {
         if (UseLR2 && lr2config != null)
         {
             try
@@ -9359,9 +9374,56 @@ completeFileEnumerationOnce,
             }
         }
         HashSet<string> excludedCustomOutputSearchRoots = BuildExcludedCustomOutputSearchRootDirectories();
-        return [.. (SearchTargets ?? Enumerable.Empty<string>())
-            .Where(d => Directory.Exists(d))
+        List<string> requestedRoots = [.. (SearchTargets ?? Enumerable.Empty<string>())];
+        List<string> existingRoots = [.. requestedRoots.Where(d => !string.IsNullOrWhiteSpace(d) && Directory.Exists(d))];
+        List<string> roots = [.. existingRoots
             .Where(d => !IsExcludedCustomOutputSearchRoot(d, excludedCustomOutputSearchRoots))];
+        normalizationSnapshot = new BmsSearchRootNormalizationSnapshot
+        {
+            RequestedRootCount = requestedRoots.Count,
+            ExistingRootCount = existingRoots.Count,
+            ExcludedCustomOutputRootCount = existingRoots.Count - roots.Count,
+            RootCount = roots.Count,
+            ConfiguredCustomOutputRootCount = excludedCustomOutputSearchRoots.Count
+        };
+        return roots;
+    }
+
+    private void LogBmsSearchRootNormalization(
+        string reason,
+        BmsLibraryOptionsSnapshot options,
+        BmsSearchRootNormalizationSnapshot normalization,
+        IReadOnlyCollection<string> roots)
+    {
+        normalization ??= new BmsSearchRootNormalizationSnapshot
+        {
+            RootCount = roots?.Count ?? 0
+        };
+        int lr2FolderDiscoveryRootCount = options?.OperationModeLR2DB == true
+            && options.EnableLR2SongDbFullGeneration
+                ? CreateLr2FullGenerationLr2FolderDiscoveryDirectories(roots ?? []).Count
+                : 0;
+        LogInstallPerformance("bms_search_root_normalization"
+            + " reason=" + (reason ?? "unknown")
+            + " requestedRoots=" + normalization.RequestedRootCount
+            + " existingRoots=" + normalization.ExistingRootCount
+            + " chartResourceRoots=" + normalization.RootCount
+            + " configuredCustomOutputRoots=" + normalization.ConfiguredCustomOutputRootCount
+            + " excludedCustomOutputRoots=" + normalization.ExcludedCustomOutputRootCount
+            + " lr2FolderDiscoveryRoots=" + lr2FolderDiscoveryRootCount);
+    }
+
+    private sealed class BmsSearchRootNormalizationSnapshot
+    {
+        public int RequestedRootCount { get; set; }
+
+        public int ExistingRootCount { get; set; }
+
+        public int RootCount { get; set; }
+
+        public int ConfiguredCustomOutputRootCount { get; set; }
+
+        public int ExcludedCustomOutputRootCount { get; set; }
     }
 
     private HashSet<string> BuildExcludedCustomOutputSearchRootDirectories()
