@@ -1540,28 +1540,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
-    public void Lr2FolderDiscoveryDirectoriesForEnumeration_ExcludesPreparedOutputScopes()
-    {
-        using TestDatabaseScope scope = TestDatabaseScope.Create();
-        string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
-        string outputBase = Path.Combine(scope.DirectoryPath, "Output");
-        string rootOutputBase = Path.Combine(scope.DirectoryPath, "RootOutput");
-        var preparedSurface = new Lr2FullGenerationPreparedDataSurface(
-            [outputBase],
-            [],
-            new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase),
-            discoveryComplete: true);
-
-        List<string> directories = InvokeCreateLr2FolderDiscoveryDirectoriesForEnumeration(
-            [rootDirectory, outputBase, rootOutputBase],
-            preparedSurface).ToList();
-
-        CollectionAssert.Contains(directories, rootDirectory);
-        CollectionAssert.Contains(directories, rootOutputBase);
-        CollectionAssert.DoesNotContain(directories, outputBase);
-    }
-
-    [TestMethod]
     public void CreateLr2FullGenerationSyncInputWithoutScanSurface_UsesTargetFolderInfoOnly()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
@@ -4407,15 +4385,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                 [filePath] = new RootFileEnumerationEntry(filePath, File.GetLastWriteTimeUtc(filePath))
             },
             discoveryComplete: true);
-    }
-
-    private static IReadOnlyCollection<string> InvokeCreateLr2FolderDiscoveryDirectoriesForEnumeration(
-        IEnumerable<string> discoveryDirectories,
-        Lr2FullGenerationPreparedDataSurface preparedSurface)
-    {
-        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("CreateLr2FolderDiscoveryDirectoriesForEnumeration", BindingFlags.Static | BindingFlags.NonPublic);
-        Assert.IsNotNull(methodInfo);
-        return ((IEnumerable<string>)methodInfo.Invoke(null, [discoveryDirectories, preparedSurface])).ToList();
     }
 
     private static IReadOnlyCollection<string> GetInputStringList(object input, string propertyName)

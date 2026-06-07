@@ -1,0 +1,232 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using BeMusicSeeker.Models.Utils;
+
+namespace BeMusicSeeker.Models.BmsLibraryInternal;
+
+internal sealed class Lr2FolderFileCandidateSnapshot(
+    IReadOnlyList<string> paths,
+    IReadOnlyDictionary<string, RootFileEnumerationEntry> entriesByPath,
+    bool discoveryComplete)
+{
+    public IReadOnlyList<string> Paths { get; } = paths ?? [];
+
+    public IReadOnlyDictionary<string, RootFileEnumerationEntry> EntriesByPath { get; } =
+        entriesByPath ?? new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
+
+    public bool DiscoveryComplete { get; } = discoveryComplete;
+}
+
+internal static class Lr2FolderFileDiscoveryService
+{
+    private const string Lr2FolderFileEnumerationGroupName = "lr2folder";
+
+    internal static List<string> CreateDiscoveryDirectories(
+        IEnumerable<string> rootDirectories,
+        string normalCustomFolderOutputBaseDir,
+        string rootCustomFolderOutputBaseDir,
+        IEnumerable<string> builtinSourceDirectories)
+    {
+        var candidates = new List<string>();
+        candidates.AddRange(rootDirectories ?? []);
+        candidates.Add(normalCustomFolderOutputBaseDir);
+        candidates.Add(rootCustomFolderOutputBaseDir);
+        candidates.AddRange(builtinSourceDirectories ?? []);
+
+        return [.. candidates
+            .Where(path => !string.IsNullOrWhiteSpace(path) && Directory.Exists(path))
+            .Select(Path.GetFullPath)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
+    }
+
+    internal static Lr2FolderFileCandidateSnapshot CreateFileCandidates(
+        IEnumerable<string> rootDirectories,
+        string lr2RootPath,
+        Lr2BuiltinCustomFolderSettings builtinCustomFolderSettings,
+        Action<string> logScan)
+    {
+        List<string> roots = [.. (rootDirectories ?? [])
+            .Where(path => !string.IsNullOrWhiteSpace(path) && Directory.Exists(path))
+            .Select(Path.GetFullPath)
+            .Distinct(StringComparer.OrdinalIgnoreCase)];
+        if (roots.Count == 0)
+        {
+            logScan?.Invoke("lr2folder_scan skipped reason=no_roots roots=0");
+            return new Lr2FolderFileCandidateSnapshot([], new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase), discoveryComplete: true);
+        }
+
+        RootFileEnumerationGroup[] groups = [new RootFileEnumerationGroup(Lr2FolderFileEnumerationGroupName, [".lr2folder"])];
+        RootFileEnumerationResult result = RootFileEnumerationService.EnumerateFilesWithFallback(roots, groups);
+        if (!result.Success)
+        {
+            logScan?.Invoke("lr2folder_scan failed"
+                + " roots=" + roots.Count
+                + " backend=" + (result.BackendName ?? string.Empty)
+                + " enumerationMs=" + result.EnumerationMs
+                + " reason=" + (result.ErrorReason ?? "unknown"));
+            return new Lr2FolderFileCandidateSnapshot([], new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase), discoveryComplete: false);
+        }
+        List<RootFileEnumerationEntry> rawEntries = [.. result.GetEntries(Lr2FolderFileEnumerationGroupName)
+            .Where(entry => entry != null && !string.IsNullOrWhiteSpace(entry.Path))];
+        List<RootFileEnumerationEntry> includedEntries = [.. rawEntries
+            .Where(entry => builtinCustomFolderSettings?.ShouldIncludeCustomFolderFile(entry.Path, lr2RootPath) != false)];
+        Dictionary<string, RootFileEnumerationEntry> entriesByPath = includedEntries
+            .Where(entry => entry != null && !string.IsNullOrWhiteSpace(entry.Path))
+            .GroupBy(entry => entry.Path, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.First())
+            .ToDictionary(entry => entry.Path, entry => entry, StringComparer.OrdinalIgnoreCase);
+        logScan?.Invoke("lr2folder_scan success"
+            + " roots=" + roots.Count
+            + " backend=" + (result.BackendName ?? string.Empty)
+            + " enumerationMs=" + result.EnumerationMs
+            + " queryHits=" + result.GetQueryHitCount(Lr2FolderFileEnumerationGroupName)
+            + " queryMs=" + result.GetQueryMs(Lr2FolderFileEnumerationGroupName)
+            + " rawEntries=" + rawEntries.Count
+            + " includedEntries=" + includedEntries.Count
+            + " dedupedEntries=" + entriesByPath.Count
+            + " filteredEntries=" + (rawEntries.Count - includedEntries.Count));
+        return new Lr2FolderFileCandidateSnapshot([.. entriesByPath.Keys
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)], entriesByPath, discoveryComplete: true);
+    }
+
+    internal static Lr2FolderFileCandidateSnapshot MergeCandidateSurface(
+        Lr2FolderFileCandidateSnapshot baseCandidates,
+        Lr2FullGenerationPreparedDataSurface preparedSurface)
+    {
+        if (preparedSurface?.HasLr2FolderSurface != true)
+        {
+            return baseCandidates ?? new Lr2FolderFileCandidateSnapshot(
+                [],
+                new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase),
+                discoveryComplete: true);
+        }
+
+        var entriesByPath = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
+        foreach (string path in baseCandidates?.Paths ?? [])
+        {
+            if (string.IsNullOrWhiteSpace(path) || IsPathInsideAnyDirectory(path, preparedSurface.Lr2FolderScopeDirectories))
+            {
+                continue;
+            }
+
+            entriesByPath[path] = baseCandidates.EntriesByPath != null
+                && baseCandidates.EntriesByPath.TryGetValue(path, out RootFileEnumerationEntry entry)
+                    ? entry
+                    : new RootFileEnumerationEntry(path);
+        }
+
+        foreach (string path in preparedSurface.Lr2FolderFilePaths)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                continue;
+            }
+
+            entriesByPath[path] = preparedSurface.Lr2FolderFileEntries != null
+                && preparedSurface.Lr2FolderFileEntries.TryGetValue(path, out RootFileEnumerationEntry entry)
+                    ? entry
+                    : new RootFileEnumerationEntry(path);
+        }
+
+        return new Lr2FolderFileCandidateSnapshot(
+            [.. entriesByPath.Keys.OrderBy(path => path, StringComparer.OrdinalIgnoreCase)],
+            entriesByPath,
+            (baseCandidates?.DiscoveryComplete ?? false) && preparedSurface.Lr2FolderFileDiscoveryComplete);
+    }
+
+    internal static IReadOnlyList<string> CreateDiscoveryDirectoriesForEnumeration(
+        IEnumerable<string> discoveryDirectories,
+        Lr2FullGenerationPreparedDataSurface preparedSurface)
+    {
+        if (preparedSurface?.HasLr2FolderSurface != true)
+        {
+            return [.. (discoveryDirectories ?? [])];
+        }
+
+        return [.. (discoveryDirectories ?? [])
+            .Where(directory => !IsDirectoryInsideAnyDirectory(directory, preparedSurface.Lr2FolderScopeDirectories))
+            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
+    }
+
+    internal static List<string> CreatePruneDirectories(
+        IEnumerable<string> rootDirectories,
+        string normalCustomFolderOutputBaseDir,
+        string rootCustomFolderOutputBaseDir,
+        IEnumerable<string> builtinSourceDirectories,
+        bool includeAppManagedOutputDirectories = true)
+    {
+        var candidates = new List<string>();
+        candidates.AddRange(rootDirectories ?? []);
+        if (includeAppManagedOutputDirectories)
+        {
+            candidates.Add(normalCustomFolderOutputBaseDir);
+            candidates.Add(rootCustomFolderOutputBaseDir);
+        }
+        candidates.AddRange(builtinSourceDirectories ?? []);
+        if ((builtinSourceDirectories ?? []).Any())
+        {
+            candidates.Add(@"LR2files\CustomFolder");
+        }
+
+        return [.. candidates
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
+    }
+
+    internal static List<string> CreateBuiltinCustomFolderPruneDirectories()
+    {
+        return [@"LR2files\CustomFolder"];
+    }
+
+    internal static List<string> CreateBuiltinFolderSourceDirectories(string lr2RootPath)
+    {
+        if (string.IsNullOrWhiteSpace(lr2RootPath))
+        {
+            return [];
+        }
+
+        return [.. new[]
+            {
+                Path.Combine(lr2RootPath, "LR2files", "CustomFolder")
+            }
+            .Where(path => !string.IsNullOrWhiteSpace(path) && Directory.Exists(path))
+            .Select(Path.GetFullPath)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
+    }
+
+    private static bool IsPathInsideAnyDirectory(string path, IEnumerable<string> directories)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return false;
+        }
+
+        string directory = Lr2FolderPath.SafeGetDirectoryName(path);
+        if (string.IsNullOrWhiteSpace(directory))
+        {
+            return false;
+        }
+
+        string normalizedDirectory = Lr2FolderPath.NormalizeDirectoryPath(directory);
+        return !string.IsNullOrWhiteSpace(normalizedDirectory)
+            && IsDirectoryInsideAnyDirectory(normalizedDirectory, directories);
+    }
+
+    private static bool IsDirectoryInsideAnyDirectory(string directory, IEnumerable<string> directories)
+    {
+        string normalizedDirectory = Lr2FolderPath.NormalizeDirectoryPath(directory);
+        return !string.IsNullOrWhiteSpace(normalizedDirectory)
+            && (directories ?? []).Any(scope =>
+            {
+                string normalizedScope = Lr2FolderPath.NormalizeDirectoryPath(scope);
+                return !string.IsNullOrWhiteSpace(normalizedScope)
+                    && Lr2FolderPath.IsSameOrDescendant(normalizedDirectory, normalizedScope);
+            });
+    }
+}
