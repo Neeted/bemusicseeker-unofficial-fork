@@ -2172,6 +2172,72 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
+    public void QueueLr2FullGenerationDataSync_ParsesReadableSnapshotContentInsteadOfPreservingNullSongColumns()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        try
+        {
+            Settings.Default.OperationModeLR2DB = true;
+            Settings.Default.EnableLR2SongDbFullGeneration = true;
+            ResetLr2FolderDiscoverySettings();
+            string songDirectory = Path.Combine(scope.DirectoryPath, "ReadableSnapshot");
+            Directory.CreateDirectory(songDirectory);
+            string chartPath = Path.Combine(songDirectory, "chart.bms");
+            byte[] directiveBytes = Encoding.ASCII.GetBytes(
+                "#TITLE Parsed Readable Snapshot\r\n#ARTIST Parsed Artist\r\n#PLAYLEVEL 7\r\n#RANK 3\r\n#00118:01\r\n");
+            File.WriteAllBytes(chartPath, [.. directiveBytes, 0x82]);
+            ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
+            TestableBmsFile file = CreateSyncTestFile(chartPath, snapshot);
+            var library = new BMSLibrary(scope.SongDbPath)
+            {
+                SearchTargets = [],
+                BMSFiles = [file]
+            };
+            using (var setup = new LR2SongDBExtended(scope.SongDbPath))
+            {
+                setup.CreateTable<LR2SongDB.song>();
+                setup.Execute(
+                    "INSERT INTO song (hash, path, level, difficulty, mode, judge) VALUES (?, ?, NULL, NULL, NULL, NULL);",
+                    "dddddddddddddddddddddddddddddddd",
+                    chartPath);
+            }
+            library.StartupBackgroundTaskScheduler = delegate (string name, string reason, string dependency, Func<Task> work)
+            {
+                work().GetAwaiter().GetResult();
+                return true;
+            };
+
+            library.QueueLr2FullGenerationDataSync("test_readable_snapshot_song_parse");
+
+            using var verify = new LR2SongDBExtended(scope.SongDbPath);
+            Assert.AreEqual("Parsed Readable Snapshot", verify.ExecuteScalar<string>("SELECT title FROM song WHERE path = ?;", chartPath));
+            Assert.AreEqual("Parsed Artist", verify.ExecuteScalar<string>("SELECT artist FROM song WHERE path = ?;", chartPath));
+            Assert.AreEqual(7, verify.ExecuteScalar<int>("SELECT COALESCE(level, -999) FROM song WHERE path = ?;", chartPath));
+            Assert.AreEqual(2, verify.ExecuteScalar<int>("SELECT COALESCE(difficulty, -999) FROM song WHERE path = ?;", chartPath));
+            Assert.AreEqual(7, verify.ExecuteScalar<int>("SELECT COALESCE(mode, -999) FROM song WHERE path = ?;", chartPath));
+            Assert.AreEqual(3, verify.ExecuteScalar<int>("SELECT COALESCE(judge, -999) FROM song WHERE path = ?;", chartPath));
+        }
+        finally
+        {
+            ResetTouchedSettings();
+        }
+    }
+
+    [TestMethod]
+    public void ResolveSafeSyncParseEncoding_AllowsUnknownEncodingToUseParserDefault()
+    {
+        var detectionResult = new BMSFile.BmsEncodingDetectionResult(
+            "unknown",
+            BMSFile.EncodingDetectionOutcome.Unknown,
+            fastAscii: false,
+            decodedText: null);
+
+        string encodingName = InvokeResolveSafeSyncParseEncoding(detectionResult);
+
+        Assert.AreEqual("unknown", encodingName);
+    }
+
+    [TestMethod]
     public void QueueLr2FullGenerationDataSync_BuildsMissingChartInfoInsideSongRows()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
@@ -4373,6 +4439,13 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("HasLr2FullGenerationPreparedDataSurface", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.IsNotNull(methodInfo);
         return (bool)methodInfo.Invoke(library, []);
+    }
+
+    private static string InvokeResolveSafeSyncParseEncoding(BMSFile.BmsEncodingDetectionResult detectionResult)
+    {
+        MethodInfo methodInfo = typeof(Lr2FullGenerationSyncService).GetMethod("ResolveSafeSyncParseEncoding", BindingFlags.Static | BindingFlags.NonPublic);
+        Assert.IsNotNull(methodInfo);
+        return (string)methodInfo.Invoke(null, [detectionResult]);
     }
 
     private static Lr2FullGenerationPreparedDataSurface CreatePreparedLr2FolderSurface(string scopeDirectory, string filePath)

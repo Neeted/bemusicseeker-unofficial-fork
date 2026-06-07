@@ -2605,12 +2605,6 @@ internal static class Lr2FullGenerationSyncService
         {
             return null;
         }
-        if (detectionResult.Outcome == BMSFile.EncodingDetectionOutcome.Unknown
-            || detectionResult.Outcome == BMSFile.EncodingDetectionOutcome.Other)
-        {
-            return null;
-        }
-
         string encodingName = detectionResult.EncodingName;
         if (string.IsNullOrWhiteSpace(encodingName))
         {
