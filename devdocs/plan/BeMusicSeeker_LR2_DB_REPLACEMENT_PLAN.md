@@ -1222,10 +1222,10 @@ parse directive:
   `ChartScanResult` は `.txt` / `folderinfo.txt` entry metadata を保持し、merged scan result と normal folder sync /
   sync request へ渡す。
   - fixed native resource scan は、chart file mtime と、chart / audio / image / movie に加えて `.txt` / `folderinfo.txt`
-    query の file mtime を同じ bridge layout で返す。通常 file diff の chart file mtime 判定だけは、
-    metadata 欠落時に少数対象の live filesystem timestamp lookup を許可する。
-    LR2 full generation の `folder.date` / `.lr2folder.date` / `folderinfo.txt` / `.txt` 判定や
-    startup-scan diagnostic では live lookup に戻らない。
+    query の file mtime を同じ bridge layout で返す。LR2 full generation の generated row に使う
+    `song.date` / `folder.date` / `.lr2folder.date` / `folderinfo.txt` / `.txt` 判定や
+    startup-scan diagnostic では、metadata 欠落時に受け取り側で live lookup に戻らない。
+    欠けた metadata は scan surface / scoped producer 側の契約不足として扱う。
   - `.lr2folder` は grouped enumeration surface で列挙し、同じ `RootFileEnumerationEntry` shape で sync へ渡す。
   - managed fallback は列挙時に同じ metadata を持つ。native / fallback のどちらでも後追い全件 stat を行わない。
   - `song.date` が一致していて BMS 本体 MD5 が同じ場合、`.txt` 増減は targeted `song.txt` update だけ行い、
