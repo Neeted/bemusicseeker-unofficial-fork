@@ -867,7 +867,7 @@ public sealed class BmsPlaylistUpdateTests
                 && string.Equals(Path.GetExtension(row.path), ".lr2folder", StringComparison.OrdinalIgnoreCase)) >= 2);
             LR2SongDB.folder outputBaseRow = verify.Table<LR2SongDB.folder>().Single(row => row.path == Lr2FolderPath.ToFolderPath(outputBaseDir));
             Assert.AreEqual(1, outputBaseRow.type);
-            Assert.AreEqual(Lr2SongFolderParentNormalizer.ComputeDirectoryHash(bmsRoot), outputBaseRow.parent);
+            Assert.AreEqual(Lr2SongFolderParentNormalizer.RootParentHash, outputBaseRow.parent);
             string firstOutputDir = Path.Combine(outputBaseDir, "MissingOne");
             LR2SongDB.folder firstTableRow = verify.Table<LR2SongDB.folder>().Single(row => row.path == Lr2FolderPath.ToFolderPath(firstOutputDir));
             Assert.AreEqual(1, firstTableRow.type);

@@ -510,6 +510,52 @@ public sealed class Lr2FolderFileDbSyncServiceTests
     }
 
     [TestMethod]
+    public void Sync_GeneratesNormalOutputBaseAndTableDirectoryRows()
+    {
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            using var songDb = new LR2SongDBExtended(songDbPath);
+            songDb.CreateTable<LR2SongDB.folder>();
+            string bmsRoot = Path.Combine(Path.GetDirectoryName(songDbPath), "BMS");
+            string outputBase = Path.Combine(bmsRoot, "#BeMusicSeeker");
+            string tableDirectory = Path.Combine(outputBase, "Table");
+            Directory.CreateDirectory(tableDirectory);
+            string filePath = Path.Combine(tableDirectory, "0000.lr2folder");
+            DateTime timestamp = new(2026, 6, 10, 1, 2, 3, DateTimeKind.Utc);
+
+            Lr2FolderFileDbSyncResult result = Lr2FolderFileDbSyncService.Sync(songDb, new Lr2FolderFileDbSyncRequest
+            {
+                Items =
+                [
+                    new Lr2FolderFileSyncItem
+                    {
+                        FilePath = filePath,
+                        LastWriteTimeUtc = timestamp,
+                        Definition = Lr2FolderFileProjection.ParseDefinition(["#TITLE Level Folder"])
+                    }
+                ],
+                ScopeDirectories = [tableDirectory],
+                DirectoryRowScopeDirectories = [tableDirectory],
+                DirectoryRowGenerationScopeDirectories = [bmsRoot],
+                AllowPrune = true
+            });
+
+            Assert.AreEqual(3, result.UpsertedCount);
+            LR2SongDB.folder outputBaseRow = songDb.Table<LR2SongDB.folder>().Single(row => row.path == Lr2FolderPath.ToFolderPath(outputBase));
+            Assert.AreEqual(1, outputBaseRow.type);
+            Assert.AreEqual("#BeMusicSeeker", outputBaseRow.title);
+            Assert.AreEqual(Lr2SongFolderParentNormalizer.RootParentHash, outputBaseRow.parent);
+            LR2SongDB.folder tableRow = songDb.Table<LR2SongDB.folder>().Single(row => row.path == Lr2FolderPath.ToFolderPath(tableDirectory));
+            Assert.AreEqual(1, tableRow.type);
+            Assert.AreEqual("Table", tableRow.title);
+            Assert.AreEqual(Lr2SongFolderParentNormalizer.ComputeDirectoryHash(outputBase), tableRow.parent);
+            LR2SongDB.folder childRow = songDb.Table<LR2SongDB.folder>().Single(row => row.path == filePath);
+            Assert.AreEqual(2, childRow.type);
+            Assert.AreEqual(Lr2SongFolderParentNormalizer.ComputeDirectoryHash(tableDirectory), childRow.parent);
+        });
+    }
+
+    [TestMethod]
     public void Sync_PreserveExistingChildStillCreatesMissingParentDirectoryRow()
     {
         WithTemporarySongDb(delegate (string songDbPath)

@@ -2889,6 +2889,57 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
+    public void QueueLr2FullGenerationDataSync_GeneratesNormalCustomFolderOutputBaseParentRow()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        try
+        {
+            Settings.Default.OperationModeLR2DB = true;
+            Settings.Default.EnableLR2SongDbFullGeneration = true;
+            ResetLr2FolderDiscoverySettings();
+            string bmsRoot = Path.Combine(scope.DirectoryPath, "BMS");
+            string outputBase = Path.Combine(bmsRoot, "#BeMusicSeeker");
+            string tableDirectory = Path.Combine(outputBase, "Table");
+            Directory.CreateDirectory(tableDirectory);
+            string lr2FolderPath = Path.Combine(tableDirectory, "0000.lr2folder");
+            File.WriteAllText(lr2FolderPath, "#TITLE Normal Output", Encoding.GetEncoding("shift_jis"));
+            Settings.Default.LR2CustomFolderOutputBaseDir = outputBase;
+            var library = new BMSLibrary(scope.SongDbPath)
+            {
+                SearchTargets = [bmsRoot],
+                BMSFiles = []
+            };
+            library.StartupBackgroundTaskScheduler = delegate (string name, string reason, string dependency, Func<Task> work)
+            {
+                work().GetAwaiter().GetResult();
+                return true;
+            };
+
+            library.QueueLr2FullGenerationDataSync("test_normal_custom_folder_output_parent");
+
+            using var verify = new LR2SongDBExtended(scope.SongDbPath);
+            List<LR2SongDB.folder> rows = verify.Table<LR2SongDB.folder>().ToList();
+            string rowSummary = string.Join(" | ", rows.Select(row => $"{row.type}:{row.parent}:{row.path}").Take(20));
+            LR2SongDB.folder outputBaseRow = rows.SingleOrDefault(folder => folder.path == Lr2FolderPath.ToFolderPath(outputBase));
+            Assert.IsNotNull(outputBaseRow, rowSummary);
+            Assert.AreEqual(1, outputBaseRow.type);
+            Assert.AreEqual("#BeMusicSeeker", outputBaseRow.title);
+            Assert.AreEqual(Lr2SongFolderParentNormalizer.RootParentHash, outputBaseRow.parent);
+            LR2SongDB.folder tableRow = rows.Single(folder => folder.path == Lr2FolderPath.ToFolderPath(tableDirectory));
+            Assert.AreEqual(1, tableRow.type);
+            Assert.AreEqual("Table", tableRow.title);
+            Assert.AreEqual(Lr2SongFolderParentNormalizer.ComputeDirectoryHash(outputBase), tableRow.parent);
+            LR2SongDB.folder lr2Folder = rows.Single(folder => folder.path == lr2FolderPath);
+            Assert.AreEqual(2, lr2Folder.type);
+            Assert.AreEqual(Lr2SongFolderParentNormalizer.ComputeDirectoryHash(tableDirectory), lr2Folder.parent);
+        }
+        finally
+        {
+            ResetTouchedSettings();
+        }
+    }
+
+    [TestMethod]
     public void QueueLr2FullGenerationDataSync_GeneratesRootCustomFolderOutputParentRow()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();

@@ -5201,6 +5201,7 @@ completeFileEnumerationOnce,
             Lr2FolderFileEntries = fileCheckResult.Lr2ScanLr2FolderFileEntries,
             Lr2FolderFileDiscoveryComplete = fileCheckResult.Lr2ScanLr2FolderFileDiscoveryComplete,
             Lr2RootPath = Settings.Default.LR2RootPath,
+            Lr2NormalCustomFolderOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDir,
             Lr2RootCustomFolderOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDirRootType,
             Lr2BuiltinFolderSourceDirectories = builtinSourceDirectories
         };
@@ -5234,6 +5235,7 @@ completeFileEnumerationOnce,
             Lr2FolderFileEntries = candidates.EntriesByPath,
             Lr2FolderFileDiscoveryComplete = candidates.DiscoveryComplete,
             Lr2RootPath = Settings.Default.LR2RootPath,
+            Lr2NormalCustomFolderOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDir,
             Lr2RootCustomFolderOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDirRootType,
             Lr2BuiltinFolderSourceDirectories = builtinSourceDirectories
         };
@@ -5266,6 +5268,7 @@ completeFileEnumerationOnce,
                     Items = syncItems.Items,
                     ScopeDirectories = request.Lr2FolderPruneDirectories,
                     DirectoryRowScopeDirectories = Lr2FullGenerationSyncService.CreateLr2FolderDirectoryRowScopeDirectories(request),
+                    DirectoryRowGenerationScopeDirectories = Lr2FullGenerationSyncService.CreateLr2FolderDirectoryRowGenerationScopeDirectories(request),
                     ScopePaths = request.Lr2FolderFilePaths,
                     GeneratedAtUtc = DateTime.UtcNow,
                     AllowPrune = request.Lr2FolderFileDiscoveryComplete && !syncItems.HasReadFailures
@@ -5952,6 +5955,7 @@ completeFileEnumerationOnce,
                     Lr2FolderDiscoveryDirectories = input.Lr2FolderDiscoveryDirectories,
                     Lr2FolderPruneDirectories = input.Lr2FolderPruneDirectories,
                     Lr2RootPath = input.Lr2RootPath,
+                    Lr2NormalCustomFolderOutputBaseDir = input.Lr2NormalCustomFolderOutputBaseDir,
                     Lr2RootCustomFolderOutputBaseDir = input.Lr2RootCustomFolderOutputBaseDir,
                     Lr2BuiltinFolderSourceDirectories = input.Lr2BuiltinFolderSourceDirectories,
                     Lr2FolderFileDiscoveryComplete = input.Lr2FolderFileDiscoveryComplete,
@@ -6350,6 +6354,7 @@ completeFileEnumerationOnce,
             lr2FolderDiscoveryDirectories,
             lr2FolderPruneDirectories,
             lr2RootPath,
+            Settings.Default.LR2CustomFolderOutputBaseDir,
             lr2RootCustomFolderOutputBaseDir,
             lr2BuiltinFolderSourceDirectories,
             builtinCustomFolderSettings,
@@ -6395,6 +6400,7 @@ completeFileEnumerationOnce,
             return false;
         }
         if (!string.Equals(SafeFullPathOrOriginal(input.Lr2RootPath), SafeFullPathOrOriginal(Settings.Default.LR2RootPath), StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(SafeFullPathOrOriginal(input.Lr2NormalCustomFolderOutputBaseDir), SafeFullPathOrOriginal(Settings.Default.LR2CustomFolderOutputBaseDir), StringComparison.OrdinalIgnoreCase)
             || !string.Equals(SafeFullPathOrOriginal(input.Lr2RootCustomFolderOutputBaseDir), SafeFullPathOrOriginal(Settings.Default.LR2CustomFolderOutputBaseDirRootType), StringComparison.OrdinalIgnoreCase)
             || !ArePathSetsEqual(input.Lr2BuiltinFolderSourceDirectories, CreateLr2FullGenerationBuiltinFolderSourceDirectories()))
         {
@@ -6892,6 +6898,7 @@ completeFileEnumerationOnce,
         IReadOnlyList<string> lr2FolderDiscoveryDirectories,
         IReadOnlyList<string> lr2FolderPruneDirectories,
         string lr2RootPath,
+        string lr2NormalCustomFolderOutputBaseDir,
         string lr2RootCustomFolderOutputBaseDir,
         IReadOnlyList<string> lr2BuiltinFolderSourceDirectories,
         Lr2BuiltinCustomFolderSettings lr2BuiltinCustomFolderSettings,
@@ -6924,6 +6931,8 @@ completeFileEnumerationOnce,
         public IReadOnlyList<string> Lr2FolderPruneDirectories { get; } = lr2FolderPruneDirectories ?? [];
 
         public string Lr2RootPath { get; } = lr2RootPath;
+
+        public string Lr2NormalCustomFolderOutputBaseDir { get; } = lr2NormalCustomFolderOutputBaseDir;
 
         public string Lr2RootCustomFolderOutputBaseDir { get; } = lr2RootCustomFolderOutputBaseDir;
 

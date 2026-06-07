@@ -3260,17 +3260,15 @@ public partial class BMSPlaylist : NotificationObject
             string normalizedOutputDir = Lr2FolderPath.NormalizeDirectoryPath(outputDir);
             if (bmsTable?.is_root_folder != true)
             {
-                string containingBmsRoot = ResolveContainingBmsSearchRootForNormalCustomFolderOutput(normalizedOutputDir);
-                if (!string.IsNullOrWhiteSpace(containingBmsRoot))
+                string normalOutputBase = NormalizeDirectoryPathOrNull(Settings.Default.LR2CustomFolderOutputBaseDir);
+                if (!string.IsNullOrWhiteSpace(normalOutputBase)
+                    && Lr2FolderPath.IsSameOrDescendant(normalizedOutputDir, normalOutputBase))
                 {
-                    return [CreateCustomFolderDirectoryRowGenerationBoundary(containingBmsRoot)];
+                    return [CreateDirectoryRowGenerationBoundary(normalOutputBase)];
                 }
             }
 
-            string baseDirectory = Path.GetDirectoryName(normalizedOutputDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
-            return string.IsNullOrWhiteSpace(baseDirectory)
-                ? [normalizedOutputDir]
-                : [Lr2FolderPath.NormalizeDirectoryPath(baseDirectory)];
+            return [CreateDirectoryRowGenerationBoundary(normalizedOutputDir)];
         }
         catch (Exception ex) when (ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException)
         {
@@ -3278,15 +3276,15 @@ public partial class BMSPlaylist : NotificationObject
         }
     }
 
-    private static string CreateCustomFolderDirectoryRowGenerationBoundary(string bmsRoot)
+    private static string CreateDirectoryRowGenerationBoundary(string rootEquivalentDirectory)
     {
-        if (string.IsNullOrWhiteSpace(bmsRoot))
+        if (string.IsNullOrWhiteSpace(rootEquivalentDirectory))
         {
             return null;
         }
         try
         {
-            string normalizedRoot = Lr2FolderPath.NormalizeDirectoryPath(bmsRoot);
+            string normalizedRoot = Lr2FolderPath.NormalizeDirectoryPath(rootEquivalentDirectory);
             string parentDirectory = Path.GetDirectoryName(normalizedRoot.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
             return string.IsNullOrWhiteSpace(parentDirectory)
                 ? normalizedRoot
@@ -3294,36 +3292,8 @@ public partial class BMSPlaylist : NotificationObject
         }
         catch (Exception ex) when (ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException)
         {
-            return bmsRoot;
+            return rootEquivalentDirectory;
         }
-    }
-
-    private string ResolveContainingBmsSearchRootForNormalCustomFolderOutput(string outputDir)
-    {
-        if (string.IsNullOrWhiteSpace(outputDir))
-        {
-            return null;
-        }
-
-        string normalOutputBase = NormalizeDirectoryPathOrNull(Settings.Default.LR2CustomFolderOutputBaseDir);
-        List<string> searchRoots;
-        try
-        {
-            searchRoots = lr2config?.Invoke()?.GetBMSSearchDirectories() ?? [];
-        }
-        catch
-        {
-            searchRoots = [];
-        }
-
-        return searchRoots
-            .Select(NormalizeDirectoryPathOrNull)
-            .Where(root => !string.IsNullOrWhiteSpace(root))
-            .Where(root => Lr2FolderPath.IsSameOrDescendant(outputDir, root))
-            .Where(root => string.IsNullOrWhiteSpace(normalOutputBase)
-                || !Lr2FolderPath.IsSameOrDescendant(root, normalOutputBase))
-            .OrderByDescending(root => root.Length)
-            .FirstOrDefault();
     }
 
     private static string NormalizeDirectoryPathOrNull(string path)

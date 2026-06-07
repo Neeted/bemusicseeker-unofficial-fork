@@ -365,17 +365,18 @@ row が残ると、manual-only でも LR2 が不要な scan に入る。
   - 通常出力先 `LR2CustomFolderOutputBaseDir`
   - ルート出力先 `LR2CustomFolderOutputBaseDirRootType`
   - LR2 executable directory 配下の `LR2files\CustomFolder`
-- ルート出力先配下の `.lr2folder` 親 directory row も、LR2 root folder hierarchy の一部として
-  expected folder scope に含める。たとえば `D:\BMS\ROOT\...` に出力された playlist / table folder は、
-  `.lr2folder` file row だけでなく親 directory row も unknown root 扱いにしない。
-  ルート出力 playlist/table の directory row は `parent = ROOT` とし、その directory 配下に生成される
-  numbered `.lr2folder` row は containing directory の hash を `parent` にする。ルート出力 base 直下へ
-  直接置かれた standalone `.lr2folder` だけは LR2 root 直下 row として扱う。
-- 通常出力先が LR2 BMS search root 配下にある場合、通常出力先は独自 ROOT 境界ではなく OpenLR2 の
-  recursive directory scan と同じ通常 directory chain として扱う。たとえば
-  `D:\BMS\#BeMusicSeeker\<Table>\0000.lr2folder` は `D:\BMS\` を root にし、
-  `D:\BMS\#BeMusicSeeker\` と `D:\BMS\#BeMusicSeeker\<Table>\` の `type = 1`
-  parent row を作ったうえで、`.lr2folder` row の parent を containing directory hash にする。
+- 通常出力先配下の `.lr2folder` 親 directory row も、LR2 root folder hierarchy の一部として
+  expected folder scope に含める。通常出力先 `LR2CustomFolderOutputBaseDir` は他の通常 BMS root と
+  同じく `parent = ROOT` の `type = 1` directory row として扱い、その配下の playlist/table directory row は
+  通常出力先 directory row の子にする。たとえば
+  `D:\BMS\#BeMusicSeeker\<Table>\0000.lr2folder` は `D:\BMS\#BeMusicSeeker\` を root 相当境界にし、
+  `D:\BMS\#BeMusicSeeker\` を `parent = ROOT`、`D:\BMS\#BeMusicSeeker\<Table>\` を
+  `parent = hash(D:\BMS\#BeMusicSeeker\)` の `type = 1` row として作る。
+- ルート出力先配下の `.lr2folder` 親 directory row も expected folder scope に含める。
+  ルート出力先 `LR2CustomFolderOutputBaseDirRootType` は、それ自体ではなく、指定された playlist/table
+  directory それぞれを BMS root 相当として扱う。ルート出力 playlist/table の directory row は
+  `parent = ROOT` とし、その directory 配下に生成される numbered `.lr2folder` row は containing directory の
+  hash を `parent` にする。
 - LR2 built-in `LR2files\CustomFolder` のカテゴリ directory row
   (`RANDOM\`, `PLAYLEVEL\`, `CLEAR\`, `RANK\`, `INSANE01\`, `INSANE02\` など) も、
   対応 bitmask が有効な場合は expected scope に含める。
@@ -1264,9 +1265,10 @@ parse directive:
     通常 / root custom folder 出力先と built-in `LR2files\CustomFolder` については、同じ sync request の
     directory row generation scope から親 / カテゴリ directory row も生成する。prune 用の
     `DirectoryRowScopeDirectories` とは分け、playlist 単位の再出力で sibling playlist の directory row を
-    削除しない。通常出力先が BMS search root 配下にある場合は、BMS search root 自体も directory row
-    として生成される境界を使い、OpenLR2 と同じ parent chain を作る。prune 用 scope は引き続き出力
-    directory に限定し、sibling playlist や BMS root 全体へ広げない。
+    削除しない。通常出力先では `LR2CustomFolderOutputBaseDir` を root 相当境界にし、通常出力先 row を
+    `parent = ROOT`、playlist/table directory row をその子にする。root 出力では playlist/table directory
+    それぞれを root 相当境界にし、playlist/table directory row を `parent = ROOT` にする。
+    prune 用 scope は引き続き出力 directory に限定し、sibling playlist や custom folder 出力 base 全体へ広げない。
     同一親に複数 `.lr2folder` がある場合、親 row は一度だけ upsert 候補にし、generated path set で
     stale parent row pruning と重複 write を抑止する。
     `AllowPrune=false` では upsert のみ行い、`AllowPrune=true` でも scope 内の `.lr2folder` file path row だけを削除対象にする。
