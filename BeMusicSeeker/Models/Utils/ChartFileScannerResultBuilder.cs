@@ -29,10 +29,14 @@ internal static class ChartFileScannerResultBuilder
             AudioQueryHitCount = enumerationResult?.GetQueryHitCount(ChartDirectoryScanBuilder.AudioGroupName) ?? 0UL,
             ImageQueryHitCount = enumerationResult?.GetQueryHitCount(ChartDirectoryScanBuilder.ImageGroupName) ?? 0UL,
             MovieQueryHitCount = enumerationResult?.GetQueryHitCount(ChartDirectoryScanBuilder.MovieGroupName) ?? 0UL,
+            TextQueryHitCount = enumerationResult?.GetQueryHitCount(ChartDirectoryScanBuilder.TextGroupName) ?? 0UL,
+            DirectoryQueryHitCount = enumerationResult?.GetQueryHitCount(RootFileEnumerationService.DirectoriesGroupName) ?? 0UL,
             ChartQueryMs = enumerationResult?.GetQueryMs(ChartDirectoryScanBuilder.ChartGroupName) ?? 0L,
             AudioQueryMs = enumerationResult?.GetQueryMs(ChartDirectoryScanBuilder.AudioGroupName) ?? 0L,
             ImageQueryMs = enumerationResult?.GetQueryMs(ChartDirectoryScanBuilder.ImageGroupName) ?? 0L,
             MovieQueryMs = enumerationResult?.GetQueryMs(ChartDirectoryScanBuilder.MovieGroupName) ?? 0L,
+            TextQueryMs = enumerationResult?.GetQueryMs(ChartDirectoryScanBuilder.TextGroupName) ?? 0L,
+            DirectoryQueryMs = ResolveDirectoryQueryMs(enumerationResult),
             ChartDirectoryCount = (ulong)(scanResult.ChartDirectories?.Count ?? 0),
             AudioAssignedCount = (ulong)(enumerationResult?.GetPaths(ChartDirectoryScanBuilder.AudioGroupName)?.Count ?? 0),
             ImageAssignedCount = (ulong)(enumerationResult?.GetPaths(ChartDirectoryScanBuilder.ImageGroupName)?.Count ?? 0),
@@ -51,6 +55,19 @@ internal static class ChartFileScannerResultBuilder
     private static ulong CountHashEntries(Dictionary<string, uint[]> hashesByDirectory)
     {
         return (ulong)((hashesByDirectory ?? []).Values.Sum(hashes => hashes?.Length ?? 0));
+    }
+
+    private static long ResolveDirectoryQueryMs(RootFileEnumerationResult enumerationResult)
+    {
+        long queryMs = enumerationResult?.GetQueryMs(RootFileEnumerationService.DirectoriesGroupName) ?? 0L;
+        if (queryMs > 0L)
+        {
+            return queryMs;
+        }
+
+        return (enumerationResult?.GetQueryHitCount(RootFileEnumerationService.DirectoriesGroupName) ?? 0UL) > 0UL
+            ? enumerationResult?.EnumerationMs ?? 0L
+            : 0L;
     }
 
 }

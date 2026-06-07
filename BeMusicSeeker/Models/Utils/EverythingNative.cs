@@ -151,7 +151,7 @@ internal static class EverythingNative
 
     internal static string BuildDirectoriesQuery(string[] roots)
     {
-        string paths = "<" + string.Join("|", Array.ConvertAll(roots ?? [], root => "path:" + QuotePath(PathWithTrailingSeparator(root)))) + ">";
+        string paths = "<" + string.Join("|", Array.ConvertAll(roots ?? [], root => "path:" + QuotePath(PathWithoutTrailingSeparator(root)))) + ">";
         return "folder: " + paths;
     }
 
@@ -991,6 +991,22 @@ internal static class EverythingNative
             return path + Path.DirectorySeparatorChar;
         }
         return path;
+    }
+
+    private static string PathWithoutTrailingSeparator(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return path;
+        }
+        string root = Path.GetPathRoot(path);
+        string trimmed = path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        if (!string.IsNullOrWhiteSpace(root)
+            && string.Equals(trimmed, root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar), StringComparison.OrdinalIgnoreCase))
+        {
+            return root.TrimEnd(Path.AltDirectorySeparatorChar);
+        }
+        return trimmed;
     }
 
     private static string QuotePath(string path)

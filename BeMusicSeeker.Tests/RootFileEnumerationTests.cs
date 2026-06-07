@@ -92,6 +92,27 @@ public sealed class RootFileEnumerationTests
     }
 
     [TestMethod]
+    public void BuildDirectoriesQuery_UsesRootPathWithoutTrailingSeparator()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_RootEnumDirsQuery_" + Guid.NewGuid().ToString("N"));
+
+        string query = EverythingNative.BuildDirectoriesQuery([root + Path.DirectorySeparatorChar]);
+
+        StringAssert.Contains(query, "folder:");
+        StringAssert.Contains(query, "path:\"" + root.Replace("\"", "\"\"") + "\"");
+        Assert.IsFalse(query.Contains("path:\"" + (root + Path.DirectorySeparatorChar).Replace("\"", "\"\"") + "\""));
+    }
+
+    [TestMethod]
+    public void RootFileEnumerationService_ClassifiesBridgeContractFailures()
+    {
+        Assert.IsTrue(RootFileEnumerationService.IsBridgeContractFailure("bridge_grouped_enumeration_export_missing"));
+        Assert.IsTrue(RootFileEnumerationService.IsBridgeContractFailure("bridge_dll_not_found:D:\\app\\native\\EverythingBridge_x64.dll"));
+        Assert.IsFalse(RootFileEnumerationService.IsBridgeContractFailure("bridge_grouped_query_failed:2"));
+        Assert.IsFalse(RootFileEnumerationService.IsBridgeContractFailure("empty_results_with_roots"));
+    }
+
+    [TestMethod]
     public void FastEnumerator_ReturnsUnifiedMetadataSurfaceForTextLr2FolderAndDirectories()
     {
         string tempRoot = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_RootEnumUnified_" + Guid.NewGuid().ToString("N"));
@@ -130,6 +151,44 @@ public sealed class RootFileEnumerationTests
             Assert.AreEqual(ToUnixSeconds(directoryTimeUtc), directoryEntry.LastWriteTimeUnixSeconds);
             Assert.IsTrue(folderInfoEntry.FileSize > 0);
             Assert.IsTrue(lr2FolderEntry.FileSize > 0);
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot))
+            {
+                Directory.Delete(tempRoot, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void FastDirectoryFileScanner_ReturnsDirectorySurfaceWhenRequested()
+    {
+        string tempRoot = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_FastScannerDirs_" + Guid.NewGuid().ToString("N"));
+        string nestedDirectory = Path.Combine(tempRoot, "Pack", "Song");
+        string chartPath = Path.Combine(nestedDirectory, "chart.bms");
+        DateTime rootWriteTimeUtc = new(2026, 6, 7, 1, 0, 0, DateTimeKind.Utc);
+        DateTime nestedWriteTimeUtc = new(2026, 6, 7, 2, 0, 0, DateTimeKind.Utc);
+        Directory.CreateDirectory(nestedDirectory);
+        File.WriteAllText(chartPath, "#TITLE Test");
+        Directory.SetLastWriteTimeUtc(tempRoot, rootWriteTimeUtc);
+        Directory.SetLastWriteTimeUtc(nestedDirectory, nestedWriteTimeUtc);
+
+        try
+        {
+            ChartScanExecutionResult result = new FastDirectoryFileScanner().Scan(
+                [tempRoot],
+                ChartDirectoryScanBuilder.ChartExtensions,
+                includeTextSurface: true,
+                includeDirectorySurface: true);
+
+            Assert.IsTrue(result.Success);
+            Assert.IsTrue(result.DirectoryQueryHitCount >= 2UL);
+            Assert.AreEqual(result.NativeBridgeMs, result.DirectoryQueryMs);
+            Assert.IsTrue(result.Result.DirectoryEntriesByPath.TryGetValue(tempRoot, out RootFileEnumerationEntry rootEntry));
+            Assert.IsTrue(result.Result.DirectoryEntriesByPath.TryGetValue(nestedDirectory, out RootFileEnumerationEntry nestedEntry));
+            Assert.AreEqual(ToUnixSeconds(rootWriteTimeUtc), rootEntry.LastWriteTimeUnixSeconds);
+            Assert.AreEqual(ToUnixSeconds(nestedWriteTimeUtc), nestedEntry.LastWriteTimeUnixSeconds);
         }
         finally
         {

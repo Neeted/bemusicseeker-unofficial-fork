@@ -4499,11 +4499,20 @@ public class BMSLibrary : NotificationObject
     /// <summary>
     /// native bridge を優先し、Everything API が使えない場合は managed scan で chart files を走査します。
     /// </summary>
-    private ChartScanExecutionResult ExecuteChartScanWithManagedFallback(List<string> bmsDirectories, bool includeTextSurface, Action<string> reportScanner = null)
+    private ChartScanExecutionResult ExecuteChartScanWithManagedFallback(
+        List<string> bmsDirectories,
+        bool includeTextSurface,
+        bool includeDirectorySurface,
+        Action<string> reportScanner = null)
     {
         IChartFileScanner scanner = new EverythingFileScanner();
         reportScanner?.Invoke("Native");
-        ChartScanExecutionResult scanResult = scanner.Scan(bmsDirectories, ChartDirectoryScanBuilder.ChartExtensions, everythingScanLoggingEnabled, includeTextSurface);
+        ChartScanExecutionResult scanResult = scanner.Scan(
+            bmsDirectories,
+            ChartDirectoryScanBuilder.ChartExtensions,
+            everythingScanLoggingEnabled,
+            includeTextSurface,
+            includeDirectorySurface);
         if (scanResult.Success && scanResult.Result != null)
         {
             return scanResult;
@@ -4518,7 +4527,12 @@ public class BMSLibrary : NotificationObject
 
         LogEverythingScan("chart native file scan unavailable reason=" + nativeFailureReason + " fallback=managed");
         reportScanner?.Invoke("Fallback");
-        ChartScanExecutionResult fallbackResult = new FastDirectoryFileScanner().Scan(bmsDirectories, ChartDirectoryScanBuilder.ChartExtensions, everythingScanLoggingEnabled, includeTextSurface);
+        ChartScanExecutionResult fallbackResult = new FastDirectoryFileScanner().Scan(
+            bmsDirectories,
+            ChartDirectoryScanBuilder.ChartExtensions,
+            everythingScanLoggingEnabled,
+            includeTextSurface,
+            includeDirectorySurface);
         if (!fallbackResult.Success || fallbackResult.Result == null)
         {
             string fallbackFailureReason = fallbackResult?.ErrorReason ?? "unknown";
@@ -4534,17 +4548,22 @@ public class BMSLibrary : NotificationObject
         return options?.OperationModeLR2DB == true && options.EnableLR2SongDbFullGeneration;
     }
 
+    internal static bool ShouldIncludeLr2DirectorySurface(BmsLibraryOptionsSnapshot options)
+    {
+        return options?.OperationModeLR2DB == true && options.EnableLR2SongDbFullGeneration;
+    }
+
     private static bool IsNativeBridgeContractFailure(string reason)
     {
         if (string.IsNullOrWhiteSpace(reason))
         {
             return false;
         }
-        return reason.StartsWith("bridge_contract_mismatch:", StringComparison.OrdinalIgnoreCase)
-            || reason.StartsWith("bridge_header_size_mismatch:", StringComparison.OrdinalIgnoreCase)
-            || reason.StartsWith("bridge_fixed_scan_export_missing", StringComparison.OrdinalIgnoreCase)
-            || reason.StartsWith("bridge_dll_not_found:", StringComparison.OrdinalIgnoreCase)
-            || reason.StartsWith("bridge_dll_load_failed:", StringComparison.OrdinalIgnoreCase);
+        if (reason.StartsWith("directory_surface_failed:", StringComparison.OrdinalIgnoreCase))
+        {
+            return RootFileEnumerationService.IsBridgeContractFailure(reason.Substring("directory_surface_failed:".Length));
+        }
+        return RootFileEnumerationService.IsBridgeContractFailure(reason);
     }
 
     public void Initialize(List<Action> tasksContinuation, SemaphoreSlim semaphore = null, bool? reloadScoresOnly = null)
@@ -4605,6 +4624,7 @@ public class BMSLibrary : NotificationObject
                     ChartScanExecutionResult scanResult = ExecuteChartScanWithManagedFallback(
                         prefetchDirectories,
                         ShouldIncludeLr2TextSurface(options),
+                        ShouldIncludeLr2DirectorySurface(options),
                         scannerLabel => ReportLibraryInitializationProgress(
                             LibraryInitializationProgressStage.FileEnumeration,
                             scannerLabel,
@@ -5083,6 +5103,7 @@ public class BMSLibrary : NotificationObject
             () => ExecuteChartScanWithManagedFallback(
                 bmsDirectories,
                 ShouldIncludeLr2TextSurface(options),
+                ShouldIncludeLr2DirectorySurface(options),
                 scannerLabel =>
                 {
                     if (trackLibraryFileCheckProgress)
@@ -5401,6 +5422,7 @@ completeFileEnumerationOnce,
                 generation,
                 roots,
                 fileCheckResult.Lr2ScanNormalFolderDirectoryPaths,
+                fileCheckResult.Lr2ScanNormalFolderDirectoryEntries,
                 fileCheckResult.Lr2ScanFolderInfoFilePaths,
                 fileCheckResult.Lr2ScanFolderInfoFileEntries,
                 fileCheckResult.Lr2ScanTextFileDirectories,
@@ -5463,6 +5485,7 @@ completeFileEnumerationOnce,
                     generation,
                     snapshot.RootDirectories,
                     snapshot.NormalFolderDirectoryPaths,
+                    snapshot.NormalFolderDirectoryEntries,
                     snapshot.FolderInfoFilePaths,
                     snapshot.FolderInfoFileEntries,
                     snapshot.TextFileDirectories,
@@ -6564,10 +6587,15 @@ completeFileEnumerationOnce,
             : CreateLr2FullGenerationFolderInfoCandidates(roots, directoryMetadataTargets);
         folderInfoCandidatesStopwatch.Stop();
         var directoryEntriesStopwatch = Stopwatch.StartNew();
-        IReadOnlyDictionary<string, RootFileEnumerationEntry> directoryEntries = CreateLr2FullGenerationDirectoryEntries(
-            roots,
-            directoryMetadataTargets);
+        IReadOnlyDictionary<string, RootFileEnumerationEntry> directoryEntries = scanSurface != null
+            ? Lr2FolderDirectoryEnumerationService.CreateEntriesFromSurface(
+                scanSurface.NormalFolderDirectoryEntries,
+                directoryMetadataTargets)
+            : CreateLr2FullGenerationDirectoryEntriesFromGroupedScan(
+                roots,
+                directoryMetadataTargets);
         directoryEntriesStopwatch.Stop();
+        int missingDirectoryEntries = Math.Max(0, directoryMetadataTargets.Count - directoryEntries.Count);
         string lr2RootCustomFolderOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDirRootType;
         var textFileDirsStopwatch = Stopwatch.StartNew();
         IReadOnlyList<string> textFileDirectories = scanSurface?.TextFileDirectories
@@ -6585,6 +6613,7 @@ completeFileEnumerationOnce,
             + " scanSurfaceNormalFolderDirs=" + (scanSurface?.NormalFolderDirectoryPaths?.Count ?? 0)
             + " directoryTargets=" + directoryMetadataTargets.Count
             + " directoryEntries=" + directoryEntries.Count
+            + " missingDirectoryEntries=" + missingDirectoryEntries
             + " directoryEntriesMs=" + directoryEntriesStopwatch.ElapsedMilliseconds
             + " folderInfoCandidates=" + folderInfoCandidates.Paths.Count
             + " lr2FolderCandidates=" + lr2FolderFileCandidates.Paths.Count
@@ -6746,6 +6775,13 @@ completeFileEnumerationOnce,
         IEnumerable<string> targetDirectories)
     {
         return Lr2FolderDirectoryEnumerationService.CreateEntries(rootDirectories, targetDirectories);
+    }
+
+    private static IReadOnlyDictionary<string, RootFileEnumerationEntry> CreateLr2FullGenerationDirectoryEntriesFromGroupedScan(
+        IEnumerable<string> rootDirectories,
+        IEnumerable<string> targetDirectories)
+    {
+        return Lr2FolderDirectoryEnumerationService.CreateEntriesFromGroupedEnumeration(rootDirectories, targetDirectories);
     }
 
     private static Func<string, DateTime?> CreateLastWriteTimeResolver(
@@ -7310,6 +7346,7 @@ completeFileEnumerationOnce,
         int generation,
         IReadOnlyList<string> rootDirectories,
         IReadOnlyList<string> normalFolderDirectoryPaths,
+        IReadOnlyDictionary<string, RootFileEnumerationEntry> normalFolderDirectoryEntries,
         IReadOnlyList<string> folderInfoFilePaths,
         IReadOnlyDictionary<string, RootFileEnumerationEntry> folderInfoFileEntries,
         IReadOnlyList<string> textFileDirectories,
@@ -7326,6 +7363,9 @@ completeFileEnumerationOnce,
         public IReadOnlyList<string> RootDirectories { get; } = rootDirectories ?? [];
 
         public IReadOnlyList<string> NormalFolderDirectoryPaths { get; } = normalFolderDirectoryPaths ?? [];
+
+        public IReadOnlyDictionary<string, RootFileEnumerationEntry> NormalFolderDirectoryEntries { get; } =
+            normalFolderDirectoryEntries ?? new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
 
         public IReadOnlyList<string> FolderInfoFilePaths { get; } = folderInfoFilePaths ?? [];
 

@@ -15,6 +15,8 @@ public class ChartScanResult
 
     public HashSet<string> FolderInfoFilePaths { get; set; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
+    internal Dictionary<string, RootFileEnumerationEntry> DirectoryEntriesByPath { get; set; } = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
+
     internal Dictionary<string, RootFileEnumerationEntry> TextFileEntriesByPath { get; set; } = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
 
     internal Dictionary<string, RootFileEnumerationEntry> FolderInfoFileEntriesByPath { get; set; } = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);

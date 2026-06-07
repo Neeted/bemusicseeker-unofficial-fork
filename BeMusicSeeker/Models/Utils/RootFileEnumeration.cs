@@ -229,6 +229,10 @@ internal static class RootFileEnumerationService
         {
             return result;
         }
+        if (IsBridgeContractFailure(result.ErrorReason))
+        {
+            return result;
+        }
 
         RootFileEnumerationResult fallbackResult = new FastRootFileEnumerator().EnumerateFiles(rootDirectories, groupList, verboseLog);
         if (fallbackResult.Success && string.IsNullOrWhiteSpace(fallbackResult.ErrorReason))
@@ -236,6 +240,22 @@ internal static class RootFileEnumerationService
             fallbackResult.ErrorReason = result.ErrorReason ?? string.Empty;
         }
         return fallbackResult;
+    }
+
+    internal static bool IsBridgeContractFailure(string reason)
+    {
+        if (string.IsNullOrWhiteSpace(reason))
+        {
+            return false;
+        }
+
+        return reason.StartsWith("bridge_contract_mismatch:", StringComparison.OrdinalIgnoreCase)
+            || reason.StartsWith("bridge_header_size_mismatch:", StringComparison.OrdinalIgnoreCase)
+            || reason.StartsWith("bridge_fixed_scan_export_missing", StringComparison.OrdinalIgnoreCase)
+            || reason.StartsWith("bridge_source_root_scan_export_missing", StringComparison.OrdinalIgnoreCase)
+            || reason.StartsWith("bridge_grouped_enumeration_export_missing", StringComparison.OrdinalIgnoreCase)
+            || reason.StartsWith("bridge_dll_not_found:", StringComparison.OrdinalIgnoreCase)
+            || reason.StartsWith("bridge_dll_load_failed:", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool IsSameOrDescendant(string candidate, string root)

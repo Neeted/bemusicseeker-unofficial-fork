@@ -11,7 +11,12 @@ public class EverythingFileScanner : IChartFileScanner
 {
     private static readonly Logger logger = LogManager.GetLogger("InstallPerformance.EverythingScanner");
 
-    public ChartScanExecutionResult Scan(IEnumerable<string> rootDirectories, IEnumerable<string> chartExtensions, bool verboseLog = false, bool includeTextSurface = true)
+    public ChartScanExecutionResult Scan(
+        IEnumerable<string> rootDirectories,
+        IEnumerable<string> chartExtensions,
+        bool verboseLog = false,
+        bool includeTextSurface = true,
+        bool includeDirectorySurface = false)
     {
         List<string> requestedRoots = [.. (rootDirectories ?? [])
             .Where(p => !string.IsNullOrWhiteSpace(p))
@@ -49,9 +54,9 @@ public class EverythingFileScanner : IChartFileScanner
 
         var stopwatch = Stopwatch.StartNew();
         ChartScanExecutionResult result = EverythingNative.ExecuteScan(chartQuery, audioQuery, imageQuery, movieQuery, textQuery);
-        stopwatch.Stop();
         if (!result.Success)
         {
+            stopwatch.Stop();
             if (verboseLog)
             {
                 logger.Info("everything_scan failed reason={0}", result.ErrorReason ?? "unknown");
@@ -60,6 +65,7 @@ public class EverythingFileScanner : IChartFileScanner
         }
         if (result.Result == null || result.Result.ChartFilePaths.Count == 0)
         {
+            stopwatch.Stop();
             if (verboseLog)
             {
                 logger.Info("everything_scan failed reason=empty_results_with_roots nativeBridgeReason={0} nativeBridgeMs={1}",
@@ -72,6 +78,23 @@ public class EverythingFileScanner : IChartFileScanner
                 ErrorReason = "empty_results_with_roots:bridgeReason=" + (result.NativeBridgeReason ?? result.ErrorReason ?? "unknown") + ":bridgeMs=" + result.NativeBridgeMs
             };
         }
+        if (includeDirectorySurface && !AttachDirectorySurface(result, roots, verboseLog, out string directoryFailureReason))
+        {
+            stopwatch.Stop();
+            if (verboseLog)
+            {
+                logger.Info("everything_scan failed reason=directory_surface_failed detail={0}", directoryFailureReason ?? "unknown");
+            }
+            return new ChartScanExecutionResult
+            {
+                Success = false,
+                ErrorReason = "directory_surface_failed:" + (directoryFailureReason ?? "unknown"),
+                NativeBridgeUsed = result.NativeBridgeUsed,
+                NativeBridgeMs = result.NativeBridgeMs,
+                NativeBridgeReason = result.NativeBridgeReason
+            };
+        }
+        stopwatch.Stop();
         if (verboseLog)
         {
             logger.Info("everything_scan success charts={0} dirs={1} totalMs={2} nativeBridgeUsed={3} nativeBridgeMs={4} nativeBridgeReason={5} managedDecodeMs={6} managedMaterializeMs={7} bridgeRawBufferBytes={8} hashDirs={9} categoryResourceKeyHashEntries={10} chartQueryHits={11} audioQueryHits={12} imageQueryHits={13} movieQueryHits={14} textQueryHits={15} chartQueryMs={16} audioQueryMs={17} imageQueryMs={18} movieQueryMs={19} textQueryMs={20} chartSearchMs={21} chartReadMs={22} audioSearchMs={23} audioReadMs={24} imageSearchMs={25} imageReadMs={26} movieSearchMs={27} movieReadMs={28} textSearchMs={29} textReadMs={30} chartDirectoryCount={31} audioAssignedCount={32} imageAssignedCount={33} movieAssignedCount={34} textFileEntries={35} folderInfoHits={36} textFileDirs={37} audioResourceKeyHashCount={38} imageResourceKeyHashCount={39} movieResourceKeyHashCount={40} audioResourceDirCount={41} imageResourceDirCount={42} movieResourceDirCount={43} ownerCacheHitCount={44} ownerCacheMissCount={45} relativePrefixCacheHitCount={46} relativePrefixCacheMissCount={47} audioGroupMs={48} audioAssignMs={49} audioMergeMs={50} imageGroupMs={51} imageAssignMs={52} imageMergeMs={53} movieGroupMs={54} movieAssignMs={55} movieMergeMs={56} assignMs={57} dedupeMs={58} packMs={59} packReverseBuildMs={60} audioReverseBuildMs={61} imageReverseBuildMs={62} movieReverseBuildMs={63} packLayoutMs={64} packAllocMs={65} packWriteMs={66} reverseIndexBytes={67} chartSdkReadMs={68} chartCallbackMs={69} audioSdkReadMs={70} audioCallbackMs={71} imageSdkReadMs={72} imageCallbackMs={73} movieSdkReadMs={74} movieCallbackMs={75} textSdkReadMs={76} textCallbackMs={77} chartPathResizeCount={78} chartNameResizeCount={79} audioPathResizeCount={80} audioNameResizeCount={81} imagePathResizeCount={82} imageNameResizeCount={83} moviePathResizeCount={84} movieNameResizeCount={85} textPathResizeCount={86} textNameResizeCount={87}",
@@ -165,6 +188,47 @@ public class EverythingFileScanner : IChartFileScanner
                 result.TextNameResizeCount);
         }
         return result;
+    }
+
+    private static bool AttachDirectorySurface(
+        ChartScanExecutionResult result,
+        IReadOnlyList<string> roots,
+        bool verboseLog,
+        out string failureReason)
+    {
+        failureReason = null;
+        RootFileEnumerationResult directoryResult = RootFileEnumerationService.EnumerateFilesWithFallback(
+            roots,
+            [new RootFileEnumerationGroup(RootFileEnumerationService.DirectoriesGroupName, [], includeDirectories: true)],
+            verboseLog);
+        if (!directoryResult.Success)
+        {
+            failureReason = directoryResult.ErrorReason ?? "directory_enumeration_failed";
+            return false;
+        }
+
+        ChartDirectoryScanBuilder.AddDirectDirectoryEntries(
+            result.Result,
+            directoryResult.GetEntries(RootFileEnumerationService.DirectoriesGroupName));
+        result.DirectoryQueryHitCount = directoryResult.GetQueryHitCount(RootFileEnumerationService.DirectoriesGroupName);
+        result.DirectoryQueryMs = directoryResult.GetQueryMs(RootFileEnumerationService.DirectoriesGroupName);
+        if (result.DirectoryQueryMs <= 0)
+        {
+            result.DirectoryQueryMs = directoryResult.EnumerationMs;
+        }
+        result.NativeBridgeMs += directoryResult.EnumerationMs;
+
+        if (verboseLog)
+        {
+            logger.Info("everything_scan directory_surface backend={0} roots={1} directories={2} queryHits={3} queryMs={4} enumerationMs={5}",
+                directoryResult.BackendName ?? string.Empty,
+                roots?.Count ?? 0,
+                result.Result?.DirectoryEntriesByPath?.Count ?? 0,
+                result.DirectoryQueryHitCount,
+                result.DirectoryQueryMs,
+                directoryResult.EnumerationMs);
+        }
+        return true;
     }
 
 }

@@ -392,6 +392,9 @@ internal sealed class BmsLibraryInitializationService
             result.Lr2ScanNormalFolderDirectoryPaths = [.. Lr2NormalFolderDbSyncService.CreateDirectoryMetadataTargetsFromDirectories(
                 lr2NormalFolderSyncRootDirectories,
                 mergedScanResult.ChartDirectories ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase))];
+            result.Lr2ScanNormalFolderDirectoryEntries = Lr2FolderDirectoryEnumerationService.CreateEntriesFromSurface(
+                mergedScanResult.DirectoryEntriesByPath,
+                result.Lr2ScanNormalFolderDirectoryPaths);
             result.Lr2ScanFolderInfoFilePaths = [.. (mergedScanResult.FolderInfoFilePaths ?? [])
                 .Where(path => !string.IsNullOrWhiteSpace(path))
                 .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
@@ -680,6 +683,7 @@ internal sealed class BmsLibraryInitializationService
                 scannedPaths,
                 result.AddedFiles,
                 result.DeletedPaths),
+            result.Lr2ScanNormalFolderDirectoryEntries,
             mergedScanResult.FolderInfoFilePaths,
             mergedScanResult.FolderInfoFileEntriesByPath,
             result,
@@ -830,6 +834,7 @@ internal sealed class BmsLibraryInitializationService
         BmsLibraryOptionsSnapshot options,
         IEnumerable<string> rootDirectories,
         Lr2NormalFolderSyncScope syncInput,
+        IReadOnlyDictionary<string, RootFileEnumerationEntry> directoryEntrySurface,
         IEnumerable<string> folderInfoFilePaths,
         IReadOnlyDictionary<string, RootFileEnumerationEntry> folderInfoFileEntries,
         SongTableFileCheckResult result,
@@ -877,8 +882,8 @@ internal sealed class BmsLibraryInitializationService
             using LR2SongDBExtended songDb = dbGateway.OpenSongDb();
             IReadOnlyCollection<string> directoryMetadataTargets =
                 Lr2NormalFolderDbSyncService.CreateDirectoryMetadataTargets(roots, syncInput.ChartPaths);
-            IReadOnlyDictionary<string, RootFileEnumerationEntry> directoryEntries = CreateLr2NormalFolderDirectoryEntries(
-                roots,
+            IReadOnlyDictionary<string, RootFileEnumerationEntry> directoryEntries = Lr2FolderDirectoryEnumerationService.CreateEntriesFromSurface(
+                directoryEntrySurface,
                 directoryMetadataTargets);
             Lr2NormalFolderDbSyncResult syncResult = Lr2NormalFolderDbSyncService.Sync(songDb, new Lr2NormalFolderDbSyncRequest
             {
@@ -2731,6 +2736,7 @@ internal sealed class BmsLibraryInitializationService
             merged.ChartDirectories.UnionWith(scanResult.ChartDirectories ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase));
             merged.ChartDirectoriesWithTextFiles.UnionWith(scanResult.ChartDirectoriesWithTextFiles ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase));
             merged.FolderInfoFilePaths.UnionWith(scanResult.FolderInfoFilePaths ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+            MergeFileEntryDictionary(merged.DirectoryEntriesByPath, scanResult.DirectoryEntriesByPath);
             MergeFileEntryDictionary(merged.TextFileEntriesByPath, scanResult.TextFileEntriesByPath);
             MergeFileEntryDictionary(merged.FolderInfoFileEntriesByPath, scanResult.FolderInfoFileEntriesByPath);
             MergeHashDictionary(merged.AudioRelativePathHashesByChartDirectory, scanResult.AudioRelativePathHashesByChartDirectory);

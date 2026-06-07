@@ -40,6 +40,8 @@ public class ChartScanExecutionResult
 
     public ulong TextQueryHitCount { get; set; }
 
+    public ulong DirectoryQueryHitCount { get; set; }
+
     public long ChartQueryMs { get; set; }
 
     public long AudioQueryMs { get; set; }
@@ -49,6 +51,8 @@ public class ChartScanExecutionResult
     public long MovieQueryMs { get; set; }
 
     public long TextQueryMs { get; set; }
+
+    public long DirectoryQueryMs { get; set; }
 
     public long AssignMs { get; set; }
 

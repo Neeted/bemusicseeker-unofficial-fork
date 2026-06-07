@@ -48,6 +48,9 @@ internal sealed class SongTableFileCheckResult
 
     public IReadOnlyList<string> Lr2ScanNormalFolderDirectoryPaths { get; set; } = [];
 
+    public IReadOnlyDictionary<string, RootFileEnumerationEntry> Lr2ScanNormalFolderDirectoryEntries { get; set; } =
+        new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
+
     public IReadOnlyList<string> Lr2ScanTextFileDirectories { get; set; } = [];
 
     public IReadOnlyList<string> Lr2ScanLr2FolderDiscoveryDirectories { get; set; } = [];
@@ -289,6 +292,7 @@ internal sealed class SongTableFileCheckResult
         Lr2ScanFolderInfoFilePaths = [];
         Lr2ScanFolderInfoFileEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
         Lr2ScanNormalFolderDirectoryPaths = [];
+        Lr2ScanNormalFolderDirectoryEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
         Lr2ScanTextFileDirectories = [];
         Lr2ScanLr2FolderDiscoveryDirectories = [];
         Lr2ScanLr2FolderFilePaths = [];

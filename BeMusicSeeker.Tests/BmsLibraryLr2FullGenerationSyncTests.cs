@@ -1144,6 +1144,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             {
                 Lr2ScanSurfaceAvailable = true,
                 Lr2ScanNormalFolderDirectoryPaths = [rootDirectory],
+                Lr2ScanNormalFolderDirectoryEntries = CreateDirectoryEntryMap(rootDirectory),
                 Lr2ScanTextFileDirectories = [],
                 Lr2ScanLr2FolderDiscoveryDirectories = [rootDirectory],
                 Lr2ScanLr2FolderFilePaths = [],
@@ -1157,6 +1158,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             {
                 Lr2ScanSurfaceAvailable = true,
                 Lr2ScanNormalFolderDirectoryPaths = [rootDirectory],
+                Lr2ScanNormalFolderDirectoryEntries = CreateDirectoryEntryMap(rootDirectory),
                 Lr2ScanTextFileDirectories = []
             });
 
@@ -1202,6 +1204,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             {
                 Lr2ScanSurfaceAvailable = true,
                 Lr2ScanNormalFolderDirectoryPaths = [rootDirectory],
+                Lr2ScanNormalFolderDirectoryEntries = CreateDirectoryEntryMap(rootDirectory),
                 Lr2ScanFolderInfoFilePaths = [folderInfoPath],
                 Lr2ScanFolderInfoFileEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase)
                 {
@@ -1259,6 +1262,59 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             LR2SongDBExtended.lr2_full_generation_status status = verify.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
             Assert.IsNotNull(status);
             Assert.AreEqual("Completed", status.status);
+        }
+        finally
+        {
+            ResetTouchedSettings();
+        }
+    }
+
+    [TestMethod]
+    public void CreateLr2FullGenerationSyncInput_ReusesScanSurfaceDirectoryEntries()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        try
+        {
+            Settings.Default.OperationModeLR2DB = true;
+            Settings.Default.EnableLR2SongDbFullGeneration = true;
+            ResetLr2FolderDiscoverySettings();
+            string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
+            Directory.CreateDirectory(rootDirectory);
+            DateTime surfaceTimestamp = new(2026, 6, 7, 4, 0, 0, DateTimeKind.Utc);
+            DateTime liveTimestamp = new(2026, 6, 8, 4, 0, 0, DateTimeKind.Utc);
+            var library = new BMSLibrary(scope.SongDbPath)
+            {
+                SearchTargets = [rootDirectory],
+                BMSFiles = []
+            };
+            var options = new BmsLibraryOptionsSnapshot
+            {
+                OperationModeLR2DB = true,
+                EnableLR2SongDbFullGeneration = true
+            };
+
+            InvokeCaptureLr2FullGenerationScanSurface(library, options, [rootDirectory], new SongTableFileCheckResult
+            {
+                Lr2ScanSurfaceAvailable = true,
+                Lr2ScanNormalFolderDirectoryPaths = [rootDirectory],
+                Lr2ScanNormalFolderDirectoryEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase)
+                {
+                    [rootDirectory] = new RootFileEnumerationEntry(rootDirectory, surfaceTimestamp)
+                },
+                Lr2ScanTextFileDirectories = [],
+                Lr2ScanLr2FolderDiscoveryDirectories = [rootDirectory],
+                Lr2ScanLr2FolderFilePaths = [],
+                Lr2ScanLr2FolderFileEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase),
+                Lr2ScanLr2FolderFileDiscoveryComplete = true
+            });
+            Directory.SetLastWriteTimeUtc(rootDirectory, liveTimestamp);
+
+            object input = InvokeCreateLr2FullGenerationSyncInput(library);
+            IReadOnlyDictionary<string, RootFileEnumerationEntry> entries = GetInputEntryMap(input, "DirectoryEntries");
+
+            string rootKey = Lr2FolderPath.NormalizeDirectoryPath(rootDirectory);
+            Assert.IsTrue(entries.TryGetValue(rootKey, out RootFileEnumerationEntry entry));
+            Assert.AreEqual(surfaceTimestamp, entry.LastWriteTimeUtc);
         }
         finally
         {
@@ -1343,6 +1399,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             {
                 Lr2ScanSurfaceAvailable = true,
                 Lr2ScanNormalFolderDirectoryPaths = [rootDirectory],
+                Lr2ScanNormalFolderDirectoryEntries = CreateDirectoryEntryMap(rootDirectory),
                 Lr2ScanFolderInfoFilePaths = [],
                 Lr2ScanFolderInfoFileEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase),
                 Lr2ScanTextFileDirectories = [rootDirectory],
@@ -4373,6 +4430,13 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         PropertyInfo propertyInfo = input.GetType().GetProperty(propertyName, BindingFlags.Instance | BindingFlags.Public);
         Assert.IsNotNull(propertyInfo);
         return (bool)propertyInfo.GetValue(input);
+    }
+
+    private static IReadOnlyDictionary<string, RootFileEnumerationEntry> GetInputEntryMap(object input, string propertyName)
+    {
+        PropertyInfo propertyInfo = input.GetType().GetProperty(propertyName, BindingFlags.Instance | BindingFlags.Public);
+        Assert.IsNotNull(propertyInfo);
+        return (IReadOnlyDictionary<string, RootFileEnumerationEntry>)propertyInfo.GetValue(input);
     }
 
     private static int GetInputInt(object input, string propertyName)

@@ -968,6 +968,68 @@ public sealed class BmsLibraryInitializationServiceTests
     }
 
     [TestMethod]
+    public void ApplyFileScanDiff_UsesDirectoryMtimeFromScanSurfaceForLr2NormalFolders()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
+        {
+            string packDirectoryPath = Path.Combine(lr2RootPath, "Pack");
+            Directory.CreateDirectory(packDirectoryPath);
+            string bmsPath = Path.Combine(packDirectoryPath, "added.bms");
+            File.WriteAllText(bmsPath, CreateValidBmsText("Folder Surface Date"), Encoding.ASCII);
+            DateTime rootSurfaceTimestamp = new(2026, 6, 7, 1, 0, 0, DateTimeKind.Utc);
+            DateTime packSurfaceTimestamp = new(2026, 6, 7, 2, 0, 0, DateTimeKind.Utc);
+            DateTime liveTimestamp = new(2026, 6, 8, 1, 0, 0, DateTimeKind.Utc);
+
+            using (var songDbConnection = new LR2SongDBExtended(songDbPath))
+            {
+                songDbConnection.CreateTable<LR2SongDB.song>();
+                songDbConnection.CreateTable<LR2SongDB.folder>();
+            }
+
+            ChartScanResult scanResult = CreateScanResult(
+                [bmsPath],
+                new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
+                {
+                    { packDirectoryPath, Array.Empty<string>() }
+                });
+            scanResult.DirectoryEntriesByPath[Lr2FolderPath.NormalizeDirectoryPath(lr2RootPath)] =
+                new RootFileEnumerationEntry(lr2RootPath, rootSurfaceTimestamp);
+            scanResult.DirectoryEntriesByPath[Lr2FolderPath.NormalizeDirectoryPath(packDirectoryPath)] =
+                new RootFileEnumerationEntry(packDirectoryPath, packSurfaceTimestamp);
+            Directory.SetLastWriteTimeUtc(lr2RootPath, liveTimestamp);
+            Directory.SetLastWriteTimeUtc(packDirectoryPath, liveTimestamp);
+
+            var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
+            SongTableFileCheckResult result = service.ApplyFileScanDiff(
+                new BmsLibraryDbGateway(songDbPath),
+                new BmsLibraryOptionsSnapshot
+                {
+                    OperationModeLR2DB = true,
+                    EnableLR2SongDbFullGeneration = true
+                },
+                [],
+                new ChartScanExecutionResult
+                {
+                    Success = true,
+                    Result = scanResult
+                },
+                0L,
+                () => null,
+                null,
+                currentBmsonSongs: [],
+                lr2NormalFolderSyncRootDirectories: [lr2RootPath]);
+
+            Assert.IsTrue(result.Lr2NormalFolderSyncExecuted);
+            using var verify = new LR2SongDBExtended(songDbPath);
+            LR2SongDB.folder root = verify.Table<LR2SongDB.folder>().Single(row => row.path == ToFolderPath(lr2RootPath));
+            LR2SongDB.folder pack = verify.Table<LR2SongDB.folder>().Single(row => row.path == ToFolderPath(packDirectoryPath));
+            Assert.AreEqual(Lr2SongRowEnricher.ToLr2UnixSeconds(rootSurfaceTimestamp), root.date);
+            Assert.AreEqual(Lr2SongRowEnricher.ToLr2UnixSeconds(packSurfaceTimestamp), pack.date);
+        });
+    }
+
+    [TestMethod]
     public void ApplyFileScanDiff_SyncsLr2NormalFoldersOnlyForAffectedDeletedBmsScope()
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -1224,7 +1286,10 @@ public sealed class BmsLibraryInitializationServiceTests
                 new ChartScanExecutionResult
                 {
                     Success = true,
-                    Result = CreateScanResult([], new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase))
+                    Result = CreateScanResult(
+                        [],
+                        new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase),
+                        [lr2RootPath])
                 },
                 0L,
                 () => null,
@@ -4622,7 +4687,10 @@ public sealed class BmsLibraryInitializationServiceTests
         };
     }
 
-    private static ChartScanResult CreateScanResult(IEnumerable<string> chartPaths, IDictionary<string, IEnumerable<string>> resourcesByDirectory)
+    private static ChartScanResult CreateScanResult(
+        IEnumerable<string> chartPaths,
+        IDictionary<string, IEnumerable<string>> resourcesByDirectory,
+        IEnumerable<string>? directorySurfaceRoots = null)
     {
         var chartPathSet = new HashSet<string>(chartPaths ?? [], StringComparer.OrdinalIgnoreCase);
         var chartDirectories = new HashSet<string>(
@@ -4641,6 +4709,14 @@ public sealed class BmsLibraryInitializationServiceTests
             ChartFilePaths = chartPathSet,
             ChartDirectories = chartDirectories
         };
+        foreach (string directory in EnumerateExistingDirectorySurface(chartDirectories, directorySurfaceRoots))
+        {
+            RootFileEnumerationEntry entry = RootFileEnumerationEntry.FromDirectoryInfo(directory);
+            if (entry != null)
+            {
+                result.DirectoryEntriesByPath[Lr2FolderPath.NormalizeDirectoryPath(directory)] = entry;
+            }
+        }
         var cache = new DirectoryResourceLookupCache();
         foreach (string chartDirectory in chartDirectories)
         {
@@ -4657,6 +4733,46 @@ public sealed class BmsLibraryInitializationServiceTests
             if ((resourceFiles ?? []).Any(IsDirectTextFile))
             {
                 result.ChartDirectoriesWithTextFiles.Add(chartDirectory);
+            }
+        }
+        return result;
+    }
+
+    private static IEnumerable<string> EnumerateExistingDirectorySurface(
+        IEnumerable<string> directories,
+        IEnumerable<string>? roots)
+    {
+        var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (string root in roots ?? [])
+        {
+            string normalizedRoot = Lr2FolderPath.NormalizeDirectoryPath(root);
+            if (string.IsNullOrWhiteSpace(normalizedRoot) || !Directory.Exists(normalizedRoot))
+            {
+                continue;
+            }
+
+            result.Add(normalizedRoot);
+            foreach (string directory in Directory.EnumerateDirectories(normalizedRoot, "*", SearchOption.AllDirectories))
+            {
+                string normalized = Lr2FolderPath.NormalizeDirectoryPath(directory);
+                if (!string.IsNullOrWhiteSpace(normalized))
+                {
+                    result.Add(normalized);
+                }
+            }
+        }
+
+        foreach (string directory in directories ?? [])
+        {
+            string current = Lr2FolderPath.NormalizeDirectoryPath(directory);
+            while (!string.IsNullOrWhiteSpace(current) && Directory.Exists(current) && result.Add(current))
+            {
+                string parent = Lr2FolderPath.NormalizeDirectoryPath(Path.GetDirectoryName(current));
+                if (string.IsNullOrWhiteSpace(parent) || string.Equals(parent, current, StringComparison.OrdinalIgnoreCase))
+                {
+                    break;
+                }
+                current = parent;
             }
         }
         return result;

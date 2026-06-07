@@ -159,14 +159,17 @@ public sealed class ChartDirectoryScanBuilderTests
         string chartPath = Path.Combine(chartDirectory, "chart.bms");
         string readmePath = Path.Combine(chartDirectory, "readme.txt");
         string folderInfoPath = Path.Combine(chartDirectory, "folderinfo.txt");
+        string parentDirectory = tempRoot;
         DateTime chartTimestamp = new(2026, 1, 2, 3, 4, 5, DateTimeKind.Utc);
         DateTime readmeTimestamp = new(2026, 2, 3, 4, 5, 6, DateTimeKind.Utc);
         DateTime folderInfoTimestamp = new(2026, 3, 4, 5, 6, 7, DateTimeKind.Utc);
+        DateTime directoryTimestamp = new(2026, 4, 5, 6, 7, 8, DateTimeKind.Utc);
 
         var enumerationResult = new RootFileEnumerationResult { Success = true };
         enumerationResult.AddEntry(ChartDirectoryScanBuilder.ChartGroupName, new RootFileEnumerationEntry(chartPath, chartTimestamp, 789));
         enumerationResult.AddEntry(ChartDirectoryScanBuilder.TextGroupName, new RootFileEnumerationEntry(readmePath, readmeTimestamp, 123));
         enumerationResult.AddEntry(ChartDirectoryScanBuilder.TextGroupName, new RootFileEnumerationEntry(folderInfoPath, folderInfoTimestamp, 456));
+        enumerationResult.AddEntry(RootFileEnumerationService.DirectoriesGroupName, new RootFileEnumerationEntry(parentDirectory + Path.DirectorySeparatorChar, directoryTimestamp));
 
         ChartScanResult result = ChartDirectoryScanBuilder.BuildFromGroupedPaths(enumerationResult);
 
@@ -181,6 +184,8 @@ public sealed class ChartDirectoryScanBuilderTests
         Assert.IsTrue(result.FolderInfoFileEntriesByPath.TryGetValue(folderInfoPath, out RootFileEnumerationEntry folderInfoEntry));
         Assert.AreEqual(folderInfoTimestamp, folderInfoEntry.LastWriteTimeUtc);
         Assert.AreEqual((long?)456, folderInfoEntry.FileSize);
+        Assert.IsTrue(result.DirectoryEntriesByPath.TryGetValue(parentDirectory, out RootFileEnumerationEntry directoryEntry));
+        Assert.AreEqual(directoryTimestamp, directoryEntry.LastWriteTimeUtc);
     }
 
     [TestMethod]
@@ -199,6 +204,20 @@ public sealed class ChartDirectoryScanBuilderTests
         CollectionAssert.Contains(withoutText.Select(group => group.Name).ToList(), ChartDirectoryScanBuilder.AudioGroupName);
         CollectionAssert.Contains(withoutText.Select(group => group.Name).ToList(), ChartDirectoryScanBuilder.ImageGroupName);
         CollectionAssert.Contains(withoutText.Select(group => group.Name).ToList(), ChartDirectoryScanBuilder.MovieGroupName);
+    }
+
+    [TestMethod]
+    public void CreateEnumerationGroups_CanIncludeDirectoryMetadataGroup()
+    {
+        IReadOnlyList<RootFileEnumerationGroup> withoutDirectories = ChartDirectoryScanBuilder.CreateEnumerationGroups(
+            ChartDirectoryScanBuilder.ChartExtensions,
+            includeDirectoryMetadata: false);
+        IReadOnlyList<RootFileEnumerationGroup> withDirectories = ChartDirectoryScanBuilder.CreateEnumerationGroups(
+            ChartDirectoryScanBuilder.ChartExtensions,
+            includeDirectoryMetadata: true);
+
+        CollectionAssert.DoesNotContain(withoutDirectories.Select(group => group.Name).ToList(), RootFileEnumerationService.DirectoriesGroupName);
+        CollectionAssert.Contains(withDirectories.Select(group => group.Name).ToList(), RootFileEnumerationService.DirectoriesGroupName);
     }
 
     [TestMethod]
