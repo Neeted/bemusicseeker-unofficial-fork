@@ -590,6 +590,44 @@ public sealed class Lr2NormalFolderDbSyncServiceTests
         }
     }
 
+    [TestMethod]
+    public void DirectoryEnumeration_ResolvesLargeTargetSetDirectlyWithinRoots()
+    {
+        string tempDirectory = Path.Combine(Path.GetTempPath(), nameof(Lr2NormalFolderDbSyncServiceTests), Guid.NewGuid().ToString("N"));
+        try
+        {
+            string rootDirectory = Path.Combine(tempDirectory, "BMS");
+            string existingDirectory = Path.Combine(rootDirectory, "Existing");
+            string outsideDirectory = Path.Combine(tempDirectory, "Outside");
+            Directory.CreateDirectory(existingDirectory);
+            Directory.CreateDirectory(outsideDirectory);
+            DateTime timestamp = new(2026, 6, 10, 1, 2, 3, DateTimeKind.Utc);
+            DateTime outsideTimestamp = timestamp.AddMinutes(1);
+            Directory.SetLastWriteTimeUtc(existingDirectory, timestamp);
+            Directory.SetLastWriteTimeUtc(outsideDirectory, outsideTimestamp);
+            List<string> targets = [existingDirectory, outsideDirectory];
+            for (int index = 0; index < 600; index++)
+            {
+                targets.Add(Path.Combine(rootDirectory, "Missing" + index.ToString("D4")));
+            }
+
+            IReadOnlyDictionary<string, RootFileEnumerationEntry> entries =
+                Lr2FolderDirectoryEnumerationService.CreateEntries([rootDirectory], targets);
+
+            Assert.AreEqual(1, entries.Count);
+            Assert.IsTrue(entries.TryGetValue(Normalize(existingDirectory), out RootFileEnumerationEntry entry));
+            Assert.AreEqual(timestamp, entry.LastWriteTimeUtc);
+            Assert.IsFalse(entries.ContainsKey(Normalize(outsideDirectory)));
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
     private static string Normalize(string path)
     {
         string fullPath = Path.GetFullPath(path);
