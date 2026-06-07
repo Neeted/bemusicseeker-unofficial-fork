@@ -23,8 +23,7 @@ internal static class Lr2FolderInfoCandidateEnumerationService
 {
     internal static Lr2FolderInfoCandidateSnapshot CreateSnapshot(
         IEnumerable<string> rootDirectories,
-        IEnumerable<string> targetDirectories,
-        bool forceManagedEnumeration = false)
+        IEnumerable<string> targetDirectories)
     {
         HashSet<string> targetSet = new((targetDirectories ?? [])
             .Select(Lr2FolderPath.NormalizeDirectoryPath)
@@ -44,12 +43,10 @@ internal static class Lr2FolderInfoCandidateEnumerationService
         }
 
         RootFileEnumerationGroup[] groups = [new RootFileEnumerationGroup(ChartDirectoryScanBuilder.TextGroupName, ChartDirectoryScanBuilder.TextExtensions)];
-        RootFileEnumerationResult result = forceManagedEnumeration
-            ? new FastRootFileEnumerator().EnumerateFiles(roots, groups)
-            : RootFileEnumerationService.EnumerateFilesWithFallback(roots, groups);
+        RootFileEnumerationResult result = RootFileEnumerationService.EnumerateFilesWithFallback(roots, groups);
         if (!result.Success)
         {
-            return new Lr2FolderInfoCandidateSnapshot([], new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase), discoveryComplete: false);
+            throw new InvalidOperationException("folderinfo grouped enumeration failed: " + (result.ErrorReason ?? "unknown"));
         }
 
         var entriesByPath = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
@@ -65,39 +62,6 @@ internal static class Lr2FolderInfoCandidateEnumerationService
             if (!string.IsNullOrWhiteSpace(directoryPath) && targetSet.Contains(directoryPath))
             {
                 entriesByPath[path] = new RootFileEnumerationEntry(path, entry.LastWriteTimeUtc, entry.FileSize);
-            }
-        }
-
-        return new Lr2FolderInfoCandidateSnapshot(
-            [.. entriesByPath.Keys.OrderBy(path => path, StringComparer.OrdinalIgnoreCase)],
-            entriesByPath,
-            discoveryComplete: true);
-    }
-
-    internal static Lr2FolderInfoCandidateSnapshot CreateSnapshotFromTargetDirectories(
-        IEnumerable<string> rootDirectories,
-        IEnumerable<string> targetDirectories)
-    {
-        List<string> roots = [.. (rootDirectories ?? [])
-            .Select(Lr2FolderPath.NormalizeDirectoryPath)
-            .Where(path => !string.IsNullOrWhiteSpace(path))
-            .Distinct(StringComparer.OrdinalIgnoreCase)];
-        HashSet<string> targetSet = new((targetDirectories ?? [])
-            .Select(Lr2FolderPath.NormalizeDirectoryPath)
-            .Where(path => !string.IsNullOrWhiteSpace(path)
-                && roots.Any(root => Lr2FolderPath.IsSameOrDescendant(path, root))), StringComparer.OrdinalIgnoreCase);
-        if (roots.Count == 0 || targetSet.Count == 0)
-        {
-            return new Lr2FolderInfoCandidateSnapshot([], new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase), discoveryComplete: true);
-        }
-
-        var entriesByPath = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
-        foreach (string directoryPath in targetSet.OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
-        {
-            RootFileEnumerationEntry entry = CreateFolderInfoEntry(directoryPath);
-            if (entry != null)
-            {
-                entriesByPath[entry.Path] = entry;
             }
         }
 
@@ -188,19 +152,4 @@ internal static class Lr2FolderInfoCandidateEnumerationService
         }
     }
 
-    private static RootFileEnumerationEntry CreateFolderInfoEntry(string directoryPath)
-    {
-        try
-        {
-            string path = Path.Combine(directoryPath, "folderinfo.txt");
-            var fileInfo = new FileInfo(path);
-            return fileInfo.Exists
-                ? new RootFileEnumerationEntry(fileInfo.FullName, fileInfo.LastWriteTimeUtc, fileInfo.Length)
-                : null;
-        }
-        catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException)
-        {
-            return null;
-        }
-    }
 }

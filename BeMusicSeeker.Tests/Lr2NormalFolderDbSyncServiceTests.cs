@@ -523,7 +523,7 @@ public sealed class Lr2NormalFolderDbSyncServiceTests
     }
 
     [TestMethod]
-    public void DirectoryEnumeration_ResolvesSmallTargetSetDirectlyWithinRoots()
+    public void DirectoryEnumeration_ResolvesTargetSetFromGroupedEnumerationWithinRoots()
     {
         string tempDirectory = Path.Combine(Path.GetTempPath(), nameof(Lr2NormalFolderDbSyncServiceTests), Guid.NewGuid().ToString("N"));
         try
@@ -538,7 +538,7 @@ public sealed class Lr2NormalFolderDbSyncServiceTests
             Directory.SetLastWriteTimeUtc(rootDirectory, rootTimestamp);
             Directory.SetLastWriteTimeUtc(packDirectory, packTimestamp);
 
-            IReadOnlyDictionary<string, RootFileEnumerationEntry> entries = Lr2FolderDirectoryEnumerationService.CreateEntries(
+            IReadOnlyDictionary<string, RootFileEnumerationEntry> entries = Lr2FolderDirectoryEnumerationService.CreateEntriesFromGroupedEnumeration(
                 [rootDirectory],
                 [rootDirectory, packDirectory, outsideDirectory]);
 
@@ -559,39 +559,7 @@ public sealed class Lr2NormalFolderDbSyncServiceTests
     }
 
     [TestMethod]
-    public void DirectoryEnumeration_ResolvesLargeTargetSetDirectlyFromTargets()
-    {
-        string tempDirectory = Path.Combine(Path.GetTempPath(), nameof(Lr2NormalFolderDbSyncServiceTests), Guid.NewGuid().ToString("N"));
-        try
-        {
-            string existingDirectory = Path.Combine(tempDirectory, "Existing");
-            Directory.CreateDirectory(existingDirectory);
-            DateTime timestamp = new(2026, 6, 10, 1, 2, 3, DateTimeKind.Utc);
-            Directory.SetLastWriteTimeUtc(existingDirectory, timestamp);
-            List<string> targets = [existingDirectory];
-            for (int index = 0; index < 600; index++)
-            {
-                targets.Add(Path.Combine(tempDirectory, "Missing" + index.ToString("D4")));
-            }
-
-            IReadOnlyDictionary<string, RootFileEnumerationEntry> entries =
-                Lr2FolderDirectoryEnumerationService.CreateEntriesFromTargets(targets);
-
-            Assert.AreEqual(1, entries.Count);
-            Assert.IsTrue(entries.TryGetValue(Normalize(existingDirectory), out RootFileEnumerationEntry entry));
-            Assert.AreEqual(timestamp, entry.LastWriteTimeUtc);
-        }
-        finally
-        {
-            if (Directory.Exists(tempDirectory))
-            {
-                Directory.Delete(tempDirectory, recursive: true);
-            }
-        }
-    }
-
-    [TestMethod]
-    public void DirectoryEnumeration_ResolvesLargeTargetSetDirectlyWithinRoots()
+    public void DirectoryEnumeration_ResolvesLargeTargetSetFromGroupedEnumerationWithinRoots()
     {
         string tempDirectory = Path.Combine(Path.GetTempPath(), nameof(Lr2NormalFolderDbSyncServiceTests), Guid.NewGuid().ToString("N"));
         try
@@ -612,7 +580,7 @@ public sealed class Lr2NormalFolderDbSyncServiceTests
             }
 
             IReadOnlyDictionary<string, RootFileEnumerationEntry> entries =
-                Lr2FolderDirectoryEnumerationService.CreateEntries([rootDirectory], targets);
+                Lr2FolderDirectoryEnumerationService.CreateEntriesFromGroupedEnumeration([rootDirectory], targets);
 
             Assert.AreEqual(1, entries.Count);
             Assert.IsTrue(entries.TryGetValue(Normalize(existingDirectory), out RootFileEnumerationEntry entry));

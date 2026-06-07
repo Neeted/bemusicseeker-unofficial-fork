@@ -6732,9 +6732,41 @@ completeFileEnumerationOnce,
         IEnumerable<string> rootDirectories,
         IEnumerable<string> targetDirectories)
     {
-        return Lr2FolderInfoCandidateEnumerationService.CreateSnapshotFromTargetDirectories(
+        return Lr2FolderInfoCandidateEnumerationService.CreateSnapshot(
             rootDirectories,
             targetDirectories);
+    }
+
+    private static Lr2FolderInfoCandidateSnapshot CreateLr2OwnedMutationFolderInfoCandidates(
+        IEnumerable<string> targetDirectories)
+    {
+        IReadOnlyList<string> targets = NormalizeLr2DirectoryMetadataTargets(targetDirectories);
+        var entries = new List<RootFileEnumerationEntry>();
+        foreach (string targetDirectory in targets)
+        {
+            RootFileEnumerationEntry entry = CreateLr2OwnedMutationFolderInfoEntry(targetDirectory);
+            if (entry != null)
+            {
+                entries.Add(entry);
+            }
+        }
+
+        return Lr2FolderInfoCandidateEnumerationService.CreateSnapshotFromEntries(entries, targets);
+    }
+
+    private static RootFileEnumerationEntry CreateLr2OwnedMutationFolderInfoEntry(string directoryPath)
+    {
+        try
+        {
+            var fileInfo = new FileInfo(Path.Combine(directoryPath, "folderinfo.txt"));
+            return fileInfo.Exists
+                ? new RootFileEnumerationEntry(fileInfo.FullName, fileInfo.LastWriteTimeUtc, fileInfo.Length)
+                : null;
+        }
+        catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException || ex is SecurityException)
+        {
+            return null;
+        }
     }
 
     private Lr2BuiltinCustomFolderSettings CreateCurrentLr2BuiltinCustomFolderSettings(DateTime nowUtc)
@@ -6770,11 +6802,31 @@ completeFileEnumerationOnce,
         return config;
     }
 
-    private static IReadOnlyDictionary<string, RootFileEnumerationEntry> CreateLr2FullGenerationDirectoryEntries(
-        IEnumerable<string> rootDirectories,
+    private static IReadOnlyDictionary<string, RootFileEnumerationEntry> CreateLr2OwnedMutationDirectoryEntries(
         IEnumerable<string> targetDirectories)
     {
-        return Lr2FolderDirectoryEnumerationService.CreateEntries(rootDirectories, targetDirectories);
+        IReadOnlyList<string> targets = NormalizeLr2DirectoryMetadataTargets(targetDirectories);
+        var targetSet = new HashSet<string>(targets, StringComparer.OrdinalIgnoreCase);
+        var entries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
+        foreach (string targetDirectory in targets)
+        {
+            RootFileEnumerationEntry entry = RootFileEnumerationEntry.FromDirectoryInfo(targetDirectory);
+            string key = Lr2FolderPath.NormalizeDirectoryPath(entry?.Path);
+            if (!string.IsNullOrWhiteSpace(key) && targetSet.Contains(key))
+            {
+                entries[key] = new RootFileEnumerationEntry(key, entry.LastWriteTimeUtc, entry.FileSize);
+            }
+        }
+
+        return entries;
+    }
+
+    private static IReadOnlyList<string> NormalizeLr2DirectoryMetadataTargets(IEnumerable<string> targetDirectories)
+    {
+        return [.. (targetDirectories ?? [])
+            .Select(Lr2FolderPath.NormalizeDirectoryPath)
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)];
     }
 
     private static IReadOnlyDictionary<string, RootFileEnumerationEntry> CreateLr2FullGenerationDirectoryEntriesFromGroupedScan(
@@ -6840,10 +6892,8 @@ completeFileEnumerationOnce,
             }
 
             IReadOnlyCollection<string> directoryMetadataTargets = Lr2NormalFolderDbSyncService.CreateDirectoryMetadataTargets(roots, syncInput.ChartPaths);
-            Lr2FolderInfoCandidateSnapshot folderInfoCandidates = CreateLr2FullGenerationFolderInfoCandidates(roots, directoryMetadataTargets);
-            IReadOnlyDictionary<string, RootFileEnumerationEntry> directoryEntries = CreateLr2FullGenerationDirectoryEntries(
-                roots,
-                directoryMetadataTargets);
+            Lr2FolderInfoCandidateSnapshot folderInfoCandidates = CreateLr2OwnedMutationFolderInfoCandidates(directoryMetadataTargets);
+            IReadOnlyDictionary<string, RootFileEnumerationEntry> directoryEntries = CreateLr2OwnedMutationDirectoryEntries(directoryMetadataTargets);
             using LR2SongDBExtended songDb = dbGateway.OpenSongDb();
             Lr2NormalFolderDbSyncResult syncResult = Lr2NormalFolderDbSyncService.Sync(songDb, new Lr2NormalFolderDbSyncRequest
             {

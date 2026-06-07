@@ -929,13 +929,6 @@ internal sealed class BmsLibraryInitializationService
         }
     }
 
-    private static IReadOnlyDictionary<string, RootFileEnumerationEntry> CreateLr2NormalFolderDirectoryEntries(
-        IEnumerable<string> rootDirectories,
-        IEnumerable<string> targetDirectories)
-    {
-        return Lr2FolderDirectoryEnumerationService.CreateEntries(rootDirectories, targetDirectories);
-    }
-
     private static Func<string, DateTime?> CreateLastWriteTimeResolver(
         IReadOnlyDictionary<string, RootFileEnumerationEntry> entriesByPath)
     {

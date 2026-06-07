@@ -1419,7 +1419,7 @@ public sealed class BmsPlaylistUpdateTests
     {
         MethodInfo methodInfo = typeof(BMSPlaylist).GetMethod("SyncCustomFolderRows", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.IsNotNull(methodInfo);
-        methodInfo.Invoke(playlist, [outputDir, items, null]);
+        methodInfo.Invoke(playlist, [outputDir, items, null, null, null]);
     }
 
     private static int InvokeRepairMissingCustomFolderOutputsAfterHydration(BMSPlaylist playlist, string reason)

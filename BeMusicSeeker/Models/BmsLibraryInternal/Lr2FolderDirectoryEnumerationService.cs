@@ -7,35 +7,6 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 internal static class Lr2FolderDirectoryEnumerationService
 {
-    internal static IReadOnlyDictionary<string, RootFileEnumerationEntry> CreateEntries(
-        IEnumerable<string> rootDirectories,
-        IEnumerable<string> targetDirectories)
-    {
-        List<string> roots = [.. (rootDirectories ?? [])
-            .Select(Lr2FolderPath.NormalizeDirectoryPath)
-            .Where(path => !string.IsNullOrWhiteSpace(path))
-            .Distinct(StringComparer.OrdinalIgnoreCase)];
-        HashSet<string> targetSet = new((targetDirectories ?? [])
-            .Select(Lr2FolderPath.NormalizeDirectoryPath)
-            .Where(path => !string.IsNullOrWhiteSpace(path)
-                && roots.Any(root => Lr2FolderPath.IsSameOrDescendant(path, root))), StringComparer.OrdinalIgnoreCase);
-        if (roots.Count == 0 || targetSet.Count == 0)
-        {
-            return new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
-        }
-
-        return CreateEntriesFromTargetSet(targetSet);
-    }
-
-    internal static IReadOnlyDictionary<string, RootFileEnumerationEntry> CreateEntriesFromTargets(
-        IEnumerable<string> targetDirectories)
-    {
-        HashSet<string> targetSet = new((targetDirectories ?? [])
-            .Select(Lr2FolderPath.NormalizeDirectoryPath)
-            .Where(path => !string.IsNullOrWhiteSpace(path)), StringComparer.OrdinalIgnoreCase);
-        return CreateEntriesFromTargetSet(targetSet);
-    }
-
     internal static IReadOnlyDictionary<string, RootFileEnumerationEntry> CreateEntriesFromSurface(
         IReadOnlyDictionary<string, RootFileEnumerationEntry> sourceEntries,
         IEnumerable<string> targetDirectories)
@@ -92,27 +63,4 @@ internal static class Lr2FolderDirectoryEnumerationService
             : new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase), targetSet);
     }
 
-    private static IReadOnlyDictionary<string, RootFileEnumerationEntry> CreateEntriesFromTargetSet(
-        ISet<string> targetSet)
-    {
-        var entries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
-        foreach (string targetDirectory in targetSet)
-        {
-            AddEntryIfTarget(entries, targetSet, RootFileEnumerationEntry.FromDirectoryInfo(targetDirectory));
-        }
-        return entries;
-    }
-
-    private static void AddEntryIfTarget(
-        IDictionary<string, RootFileEnumerationEntry> entries,
-        ISet<string> targetSet,
-        RootFileEnumerationEntry entry)
-    {
-        string key = Lr2FolderPath.NormalizeDirectoryPath(entry?.Path);
-        if (string.IsNullOrWhiteSpace(key) || targetSet?.Contains(key) != true)
-        {
-            return;
-        }
-        entries[key] = new RootFileEnumerationEntry(key, entry.LastWriteTimeUtc, entry.FileSize);
-    }
 }

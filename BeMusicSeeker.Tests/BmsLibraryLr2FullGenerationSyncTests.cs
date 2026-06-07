@@ -4299,7 +4299,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
-    public void FolderInfoCandidateEnumerationFromTargetDirectories_UsesOnlyTargetDirectories()
+    public void FolderInfoCandidateEnumerationFromEntries_UsesOnlyTargetDirectories()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
@@ -4314,8 +4314,11 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         File.WriteAllText(unrelatedFolderInfoPath, "#TITLE Other");
         File.SetLastWriteTimeUtc(folderInfoPath, folderInfoTimestamp);
 
-        Lr2FolderInfoCandidateSnapshot snapshot = Lr2FolderInfoCandidateEnumerationService.CreateSnapshotFromTargetDirectories(
-            [rootDirectory],
+        Lr2FolderInfoCandidateSnapshot snapshot = Lr2FolderInfoCandidateEnumerationService.CreateSnapshotFromEntries(
+            [
+                new RootFileEnumerationEntry(folderInfoPath, folderInfoTimestamp),
+                new RootFileEnumerationEntry(unrelatedFolderInfoPath, folderInfoTimestamp)
+            ],
             [targetDirectory]);
 
         CollectionAssert.AreEqual(new[] { folderInfoPath }, snapshot.Paths.ToArray());

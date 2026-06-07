@@ -1033,7 +1033,7 @@ internal static class Lr2FullGenerationSyncService
             request?.FolderInfoFilePaths,
             request?.FolderInfoFileEntries?.Values,
             directoryTargets);
-        Lr2FolderInfoCandidateSnapshot builtinCandidates = Lr2FolderInfoCandidateEnumerationService.CreateSnapshotFromTargetDirectories(
+        Lr2FolderInfoCandidateSnapshot builtinCandidates = Lr2FolderInfoCandidateEnumerationService.CreateSnapshot(
             builtinFolderSourceDirectories,
             directoryTargets);
         Dictionary<string, RootFileEnumerationEntry> folderInfoEntriesByPath = MergeEnumerationEntries(
@@ -1041,7 +1041,7 @@ internal static class Lr2FullGenerationSyncService
             builtinCandidates.EntriesByPath);
         Dictionary<string, RootFileEnumerationEntry> directoryEntriesByPath = MergeEnumerationEntries(
             request?.DirectoryEntries,
-            Lr2FolderDirectoryEnumerationService.CreateEntries(directoryMetadataSourceDirectories, directoryTargets));
+            Lr2FolderDirectoryEnumerationService.CreateEntriesFromGroupedEnumeration(directoryMetadataSourceDirectories, directoryTargets));
 
         return Lr2FolderDirectoryMetadataBuilder.Build(new Lr2FolderDirectoryMetadataBuildRequest
         {
