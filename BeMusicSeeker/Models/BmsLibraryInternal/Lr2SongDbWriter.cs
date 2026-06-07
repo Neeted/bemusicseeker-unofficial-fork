@@ -13,11 +13,20 @@ internal readonly struct Lr2SongPruneResult(int deletedCount, int currentPathCou
     public int CurrentPathCount { get; } = currentPathCount;
 }
 
+internal readonly struct Lr2SongDifficultyNormalizationResult(int scannedCount, int updatedCount)
+{
+    public int ScannedCount { get; } = scannedCount;
+
+    public int UpdatedCount { get; } = updatedCount;
+}
+
 internal static class Lr2SongDbWriter
 {
     private const string TempCurrentSongPathTable = "lr2_full_generation_current_song_path";
 
     private const string TempDeletedSongHashTable = "lr2_full_generation_deleted_song_hash";
+
+    private const string TempDifficultyUpdateTable = "lr2_full_generation_difficulty_update";
 
     private const string TempGeneratedSongUpdateTable = "lr2_full_generation_generated_song_update";
 
@@ -235,6 +244,130 @@ internal static class Lr2SongDbWriter
             ClearTempTable(songDb, TempCurrentSongPathTable);
             songDb.Commit();
             return new Lr2SongPruneResult(deleted, sourcePaths.Length);
+        }
+        catch
+        {
+            songDb.RollbackTo(savepoint);
+            throw;
+        }
+    }
+
+    internal static Lr2SongDifficultyNormalizationResult NormalizeUndefinedSongDifficulties(LR2SongDBExtended songDb)
+    {
+        if (songDb == null)
+        {
+            throw new ArgumentNullException(nameof(songDb));
+        }
+
+        songDb.CreateTable<LR2SongDB.song>();
+        string songTable = SQLiteTable<LR2SongDB.song>.GetTableName();
+        List<SongDifficultyRow> rows = songDb.Query<SongDifficultyRow>(
+            "SELECT path, folder, mode, difficulty, karinotes "
+            + "FROM " + songTable + " "
+            + "WHERE path IS NOT NULL AND trim(path) <> '' "
+            + "ORDER BY folder, mode, karinotes;");
+        if (rows.Count == 0)
+        {
+            return new Lr2SongDifficultyNormalizationResult(0, 0);
+        }
+
+        var updates = new List<SongDifficultyUpdate>();
+        string currentFolder = null;
+        int? currentMode = null;
+        int difficulty = 0;
+        bool hasCurrentGroup = false;
+        foreach (SongDifficultyRow row in rows)
+        {
+            int rowMode = row.mode.GetValueOrDefault();
+            int rowDifficulty = row.difficulty.GetValueOrDefault();
+            if (rowDifficulty >= 0 && rowDifficulty <= 5)
+            {
+                if (!row.difficulty.HasValue)
+                {
+                    updates.Add(new SongDifficultyUpdate
+                    {
+                        path = row.path,
+                        difficulty = rowDifficulty
+                    });
+                }
+                currentFolder = row.folder;
+                currentMode = rowMode;
+                difficulty = rowDifficulty;
+                hasCurrentGroup = true;
+                continue;
+            }
+
+            if (hasCurrentGroup
+                && string.Equals(currentFolder, row.folder, StringComparison.Ordinal)
+                && currentMode == rowMode)
+            {
+                difficulty++;
+                if (difficulty == 5)
+                {
+                    difficulty = 4;
+                }
+                else if (difficulty < 0)
+                {
+                    difficulty = 2;
+                }
+                else if (difficulty > 5)
+                {
+                    difficulty = 5;
+                }
+            }
+            else
+            {
+                difficulty = 2;
+            }
+
+            updates.Add(new SongDifficultyUpdate
+            {
+                path = row.path,
+                difficulty = difficulty
+            });
+            currentFolder = row.folder;
+            currentMode = rowMode;
+            hasCurrentGroup = true;
+        }
+
+        if (updates.Count == 0)
+        {
+            return new Lr2SongDifficultyNormalizationResult(rows.Count, 0);
+        }
+
+        string savepoint = songDb.SaveTransactionPoint();
+        try
+        {
+            PrepareTempDifficultyUpdateTable(songDb);
+            const int chunkSize = 200;
+            for (int offset = 0; offset < updates.Count; offset += chunkSize)
+            {
+                List<SongDifficultyUpdate> chunk = updates.Skip(offset).Take(chunkSize).ToList();
+                string placeholders = string.Join(",", chunk.Select(_ => "(?,?)"));
+                var args = new List<object>(chunk.Count * 2);
+                foreach (SongDifficultyUpdate update in chunk)
+                {
+                    args.Add(update.path);
+                    args.Add(update.difficulty);
+                }
+                songDb.Execute(
+                    "INSERT OR REPLACE INTO temp." + TempDifficultyUpdateTable
+                    + " (path, difficulty) VALUES " + placeholders + ";",
+                    [.. args]);
+            }
+
+            string songPathColumn = SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.path);
+            string difficultyColumn = SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.difficulty);
+            int updated = songDb.Execute(
+                "UPDATE " + songTable
+                + " SET " + difficultyColumn + " = ("
+                + "SELECT u.difficulty FROM temp." + TempDifficultyUpdateTable + " u "
+                + "WHERE u.path = " + songTable + "." + songPathColumn + " COLLATE NOCASE) "
+                + "WHERE EXISTS (SELECT 1 FROM temp." + TempDifficultyUpdateTable + " u "
+                + "WHERE u.path = " + songTable + "." + songPathColumn + " COLLATE NOCASE);");
+            ClearTempTable(songDb, TempDifficultyUpdateTable);
+            songDb.Commit();
+            return new Lr2SongDifficultyNormalizationResult(rows.Count, updated);
         }
         catch
         {
@@ -587,6 +720,15 @@ internal static class Lr2SongDbWriter
             + "level INTEGER, difficulty INTEGER, maxbpm INTEGER, minbpm INTEGER, mode INTEGER, judge INTEGER, "
             + "longnote INTEGER, bga INTEGER, random INTEGER, date INTEGER, txt INTEGER, karinotes INTEGER, exlevel INTEGER);");
         ClearTempTable(songDb, TempGeneratedSongUpdateTable);
+    }
+
+    private static void PrepareTempDifficultyUpdateTable(LR2SongDBExtended songDb)
+    {
+        songDb.Execute(
+            "CREATE TEMP TABLE IF NOT EXISTS temp." + TempDifficultyUpdateTable + " ("
+            + "path TEXT PRIMARY KEY COLLATE NOCASE, "
+            + "difficulty INTEGER NOT NULL);");
+        ClearTempTable(songDb, TempDifficultyUpdateTable);
     }
 
     private static void AddGeneratedSongUpdateArgs(List<object> args, BMSFile song)
@@ -1067,5 +1209,25 @@ internal static class Lr2SongDbWriter
         public int? karinotes { get; set; }
 
         public int? exlevel { get; set; }
+    }
+
+    private sealed class SongDifficultyRow
+    {
+        public string path { get; set; }
+
+        public string folder { get; set; }
+
+        public int? mode { get; set; }
+
+        public int? difficulty { get; set; }
+
+        public int? karinotes { get; set; }
+    }
+
+    private sealed class SongDifficultyUpdate
+    {
+        public string path { get; set; }
+
+        public int difficulty { get; set; }
     }
 }
