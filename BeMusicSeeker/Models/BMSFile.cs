@@ -976,12 +976,14 @@ public class BMSFile : LR2SongDB.song
                     {
                         bMSFile.title = value;
                     }
+                    bMSFile.difficulty = InferLr2DifficultyFromText(value, GetCurrentLr2Difficulty(bMSFile));
                     break;
                 case BmsDirective.Genre:
                     if (string.IsNullOrWhiteSpace(bMSFile.genre))
                     {
                         bMSFile.genre = value;
                     }
+                    bMSFile.difficulty = InferLr2DifficultyFromText(value, GetCurrentLr2Difficulty(bMSFile));
                     break;
                 case BmsDirective.Artist:
                     if (string.IsNullOrWhiteSpace(bMSFile.artist))
@@ -1059,6 +1061,186 @@ public class BMSFile : LR2SongDB.song
         return bMSFile;
     }
 
+    private static int GetCurrentLr2Difficulty(BMSFile bMSFile)
+    {
+        return bMSFile?.difficulty ?? -1;
+    }
+
+    private static string TrimLr2HeaderValue(string value)
+    {
+        return (value ?? string.Empty).TrimEnd(' ', '\t', '\r', '\n');
+    }
+
+    private static int InferLr2DifficultyFromText(string value, int currentDifficulty)
+    {
+        string text = TrimLr2HeaderValue(value);
+        int difficulty = currentDifficulty;
+        if (EndsWithAsciiIgnoreCase(text, "HARD"))
+        {
+            difficulty = 2;
+        }
+        if (EndsWithAsciiIgnoreCase(text, "HYPER"))
+        {
+            difficulty = 3;
+        }
+        if (EndsWithAsciiIgnoreCase(text, "ANOTHER"))
+        {
+            difficulty = 4;
+        }
+        if (EndsWithAsciiIgnoreCase(text, "EASY"))
+        {
+            difficulty = 1;
+        }
+        if (EndsWithAsciiIgnoreCase(text, "EX"))
+        {
+            difficulty = 4;
+        }
+        if (EndsWithAsciiIgnoreCase(text, "MANIAC"))
+        {
+            difficulty = 4;
+        }
+        if (TrySplitLr2DifficultyToken(text, out _, out _, out int tokenDifficulty) && tokenDifficulty != 0)
+        {
+            difficulty = tokenDifficulty;
+        }
+        return difficulty;
+    }
+
+    private static bool TrySplitLr2DifficultyToken(string value, out string left, out string right, out int difficulty)
+    {
+        string text = TrimLr2HeaderValue(value);
+        if (TrySplitLr2DifficultyToken(text, "(", ")", out left, out right, out difficulty)
+            || TrySplitLr2DifficultyToken(text, "[", "]", out left, out right, out difficulty)
+            || TrySplitLr2DifficultyToken(text, "-", "-", out left, out right, out difficulty)
+            || TrySplitLr2DifficultyToken(text, "\"", "\"", out left, out right, out difficulty)
+            || TrySplitLr2DifficultyToken(text, "<", ">", out left, out right, out difficulty)
+            || TrySplitLr2DifficultyToken(text, "～", "～", out left, out right, out difficulty)
+            || TrySplitLr2DifficultyToken(text, "【", "】", out left, out right, out difficulty))
+        {
+            return true;
+        }
+
+        left = text;
+        right = string.Empty;
+        difficulty = 0;
+        return false;
+    }
+
+    private static bool TrySplitLr2DifficultyToken(
+        string value,
+        string tokenLeft,
+        string tokenRight,
+        out string left,
+        out string right,
+        out int difficulty)
+    {
+        left = string.Empty;
+        right = string.Empty;
+        difficulty = 0;
+        if (string.IsNullOrEmpty(value) || !value.EndsWith(tokenRight, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        int searchLength = value.Length - tokenRight.Length;
+        if (searchLength <= 0)
+        {
+            return false;
+        }
+        int position = value.LastIndexOf(tokenLeft, searchLength - 1, searchLength, StringComparison.Ordinal);
+        if (position < 1)
+        {
+            return false;
+        }
+
+        left = value.Substring(0, position).Trim(' ', '\t');
+        right = value.Substring(left.Length).Trim(' ', '\t');
+        if (!TryInferLr2DifficultyFromToken(right, out difficulty))
+        {
+            difficulty = 0;
+        }
+        return true;
+    }
+
+    private static bool TryInferLr2DifficultyFromToken(string value, out int difficulty)
+    {
+        string text = value ?? string.Empty;
+        if (IndexOfAsciiIgnoreCase(text, "BEG") > 0)
+        {
+            difficulty = 1;
+            return true;
+        }
+        if (IndexOfAsciiIgnoreCase(text, "HARD") > 0
+            || IndexOfAsciiIgnoreCase(text, "HYPE") > 0
+            || IndexOfAsciiIgnoreCase(text, "HD") > 0
+            || IndexOfAsciiIgnoreCase(text, "5H") > 0
+            || IndexOfAsciiIgnoreCase(text, "7H") > 0
+            || IndexOfAsciiIgnoreCase(text, "10H") > 0
+            || IndexOfAsciiIgnoreCase(text, "14H") > 0
+            || IndexOfAsciiIgnoreCase(text, "9H") > 0
+            || IndexOfAsciiIgnoreCase(text, "DIF") > 0)
+        {
+            difficulty = 3;
+            return true;
+        }
+        if (IndexOfAsciiIgnoreCase(text, "VERYHARD") > 0
+            || IndexOfAsciiIgnoreCase(text, "EX") > 0
+            || IndexOfAsciiIgnoreCase(text, "AN") > 0
+            || IndexOfAsciiIgnoreCase(text, "SHD") > 0
+            || IndexOfAsciiIgnoreCase(text, "5A") > 0
+            || IndexOfAsciiIgnoreCase(text, "7A") > 0
+            || IndexOfAsciiIgnoreCase(text, "10A") > 0
+            || IndexOfAsciiIgnoreCase(text, "14A") > 0
+            || IndexOfAsciiIgnoreCase(text, "9A") > 0
+            || IndexOfAsciiIgnoreCase(text, "ULT") > 0
+            || IndexOfAsciiIgnoreCase(text, "MANI") > 0
+            || IndexOfAsciiIgnoreCase(text, "LUNA") > 0
+            || IndexOfAsciiIgnoreCase(text, "AHO") > 0
+            || IndexOfAsciiIgnoreCase(text, "AFO") > 0
+            || IndexOfAsciiIgnoreCase(text, "ASDF") > 0
+            || IndexOfAsciiIgnoreCase(text, "HELL") > 0)
+        {
+            difficulty = 4;
+            return true;
+        }
+
+        difficulty = 0;
+        return false;
+    }
+
+    private static bool EndsWithAsciiIgnoreCase(string value, string suffix)
+    {
+        if (value == null || suffix == null || value.Length < suffix.Length)
+        {
+            return false;
+        }
+        int start = value.Length - suffix.Length;
+        for (int i = 0; i < suffix.Length; i++)
+        {
+            if (ToUpperAscii(value[start + i]) != suffix[i])
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static int IndexOfAsciiIgnoreCase(string value, string match)
+    {
+        if (string.IsNullOrEmpty(value) || string.IsNullOrEmpty(match) || match.Length > value.Length)
+        {
+            return -1;
+        }
+        for (int i = 0; i <= value.Length - match.Length; i++)
+        {
+            if (StartsWithAsciiIgnoreCase(value, i, match))
+            {
+                return i;
+            }
+        }
+        return -1;
+    }
+
     private enum BmsDirective
     {
         Unknown,
@@ -1124,10 +1306,23 @@ public class BMSFile : LR2SongDB.song
                 return false;
             }
         }
+        else if (IsLr2NumericDirective(directive))
+        {
+            if (index >= line.Length)
+            {
+                directive = BmsDirective.Unknown;
+                return false;
+            }
+            index++;
+        }
         else if (index >= line.Length || !char.IsWhiteSpace(line[index]))
         {
             directive = BmsDirective.Unknown;
             return false;
+        }
+        else
+        {
+            index++;
         }
         while (index < line.Length && char.IsWhiteSpace(line[index]))
         {
@@ -1135,6 +1330,14 @@ public class BMSFile : LR2SongDB.song
         }
         valueStart = index;
         return true;
+    }
+
+    private static bool IsLr2NumericDirective(BmsDirective directive)
+    {
+        return directive == BmsDirective.PlayLevel
+            || directive == BmsDirective.MaxTracks
+            || directive == BmsDirective.Difficulty
+            || directive == BmsDirective.Rank;
     }
 
     private static bool TryGetDirectiveFromToken(string line, int start, int length, out BmsDirective directive)

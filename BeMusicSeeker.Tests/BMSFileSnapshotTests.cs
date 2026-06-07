@@ -193,6 +193,160 @@ public sealed class BMSFileSnapshotTests
     }
 
     [TestMethod]
+    public void CreateBMSFileFromSnapshot_KeepsRawLr2DifficultyDirectiveValuesBeforeFinalization()
+    {
+        (string CaseName, string DifficultyLine, int ExpectedDifficulty)[] cases =
+        [
+            ("missing", "", -1),
+            ("zero", "#DIFFICULTY 0\r\n", 0),
+            ("equals-separator", "#DIFFICULTY=5\r\n", 5),
+            ("invalid", "#DIFFICULTY nope\r\n", 0),
+            ("out-of-range", "#DIFFICULTY 7\r\n", 7),
+            ("negative", "#DIFFICULTY -2\r\n", -2)
+        ];
+        foreach ((string caseName, string difficultyLine, int expectedDifficulty) in cases)
+        {
+            WithTempDirectory(delegate (string tempDirectory)
+            {
+                string filePath = Path.Combine(tempDirectory, caseName + ".bms");
+                File.WriteAllText(filePath,
+                    "#TITLE Raw Difficulty\r\n"
+                    + difficultyLine
+                    + "#00111:01\r\n",
+                    Encoding.GetEncoding("shift_jis"));
+
+                ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(filePath);
+                var actual = BMSFile.CreateBMSFileFromSnapshot(snapshot);
+
+                Assert.AreEqual(expectedDifficulty, actual.difficulty, caseName);
+            });
+        }
+    }
+
+    [TestMethod]
+    public void CreateBMSFileFromSnapshot_AcceptsLr2NumericDirectiveSeparators()
+    {
+        WithTempDirectory(delegate (string tempDirectory)
+        {
+            string filePath = Path.Combine(tempDirectory, "numeric-separators.bms");
+            File.WriteAllText(filePath,
+                "#TITLE Numeric Separators\r\n"
+                + "#PLAYLEVEL=12\r\n"
+                + "#DIFFICULTY=5\r\n"
+                + "#RANK=3\r\n"
+                + "#00111:01\r\n",
+                Encoding.GetEncoding("shift_jis"));
+
+            ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(filePath);
+            var actual = BMSFile.CreateBMSFileFromSnapshot(snapshot);
+
+            Assert.AreEqual(12, actual.level);
+            Assert.AreEqual(5, actual.difficulty);
+            Assert.AreEqual(3, actual.judge);
+        });
+    }
+
+    [TestMethod]
+    public void CreateBMSFileFromSnapshot_DoesNotInferDifficultyFromFilenamePrefix()
+    {
+        WithTempDirectory(delegate (string tempDirectory)
+        {
+            string filePath = Path.Combine(tempDirectory, "_a_filename_prefix.bms");
+            File.WriteAllText(filePath,
+                "#TITLE Filename Prefix\r\n"
+                + "#00111:01\r\n",
+                Encoding.GetEncoding("shift_jis"));
+
+            ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(filePath);
+            var actual = BMSFile.CreateBMSFileFromSnapshot(snapshot);
+
+            Assert.AreEqual(-1, actual.difficulty);
+        });
+    }
+
+    [TestMethod]
+    public void CreateBMSFileFromSnapshot_InfersLr2DifficultyFromTitleAndGenre()
+    {
+        WithTempDirectory(delegate (string tempDirectory)
+        {
+            string titleTokenPath = Path.Combine(tempDirectory, "title-token.bms");
+            File.WriteAllText(titleTokenPath,
+                "#TITLE Token Song [Hyper]\r\n"
+                + "#00111:01\r\n",
+                Encoding.GetEncoding("shift_jis"));
+
+            var titleToken = BMSFile.CreateBMSFileFromSnapshot(ChartFileContentReader.ReadSnapshot(titleTokenPath));
+
+            Assert.AreEqual("Token Song [Hyper]", titleToken.title);
+            Assert.IsTrue(string.IsNullOrWhiteSpace(titleToken.subtitle));
+            Assert.AreEqual(3, titleToken.difficulty);
+
+            string titleDashPath = Path.Combine(tempDirectory, "title-dash.bms");
+            File.WriteAllText(titleDashPath,
+                "#TITLE Dash Song -Hyper-\r\n"
+                + "#00111:01\r\n",
+                Encoding.GetEncoding("shift_jis"));
+
+            var titleDash = BMSFile.CreateBMSFileFromSnapshot(ChartFileContentReader.ReadSnapshot(titleDashPath));
+
+            Assert.AreEqual("Dash Song -Hyper-", titleDash.title);
+            Assert.IsTrue(string.IsNullOrWhiteSpace(titleDash.subtitle));
+            Assert.AreEqual(3, titleDash.difficulty);
+
+            string titleSuffixPath = Path.Combine(tempDirectory, "title-suffix.bms");
+            File.WriteAllText(titleSuffixPath,
+                "#TITLE Suffix Song Easy\r\n"
+                + "#00111:01\r\n",
+                Encoding.GetEncoding("shift_jis"));
+
+            var titleSuffix = BMSFile.CreateBMSFileFromSnapshot(ChartFileContentReader.ReadSnapshot(titleSuffixPath));
+
+            Assert.AreEqual("Suffix Song Easy", titleSuffix.title);
+            Assert.AreEqual(string.Empty, titleSuffix.subtitle);
+            Assert.AreEqual(1, titleSuffix.difficulty);
+
+            string genreTokenPath = Path.Combine(tempDirectory, "genre-token.bms");
+            File.WriteAllText(genreTokenPath,
+                "#GENRE Style <Another>\r\n"
+                + "#TITLE Genre Song\r\n"
+                + "#00111:01\r\n",
+                Encoding.GetEncoding("shift_jis"));
+
+            var genreToken = BMSFile.CreateBMSFileFromSnapshot(ChartFileContentReader.ReadSnapshot(genreTokenPath));
+
+            Assert.AreEqual("Style <Another>", genreToken.genre);
+            Assert.AreEqual("Genre Song", genreToken.title);
+            Assert.AreEqual(4, genreToken.difficulty);
+
+            string explicitAfterPath = Path.Combine(tempDirectory, "explicit-after-title.bms");
+            File.WriteAllText(explicitAfterPath,
+                "#TITLE Explicit Song [Hyper]\r\n"
+                + "#DIFFICULTY 5\r\n"
+                + "#00111:01\r\n",
+                Encoding.GetEncoding("shift_jis"));
+
+            var explicitAfter = BMSFile.CreateBMSFileFromSnapshot(ChartFileContentReader.ReadSnapshot(explicitAfterPath));
+
+            Assert.AreEqual("Explicit Song [Hyper]", explicitAfter.title);
+            Assert.IsTrue(string.IsNullOrWhiteSpace(explicitAfter.subtitle));
+            Assert.AreEqual(5, explicitAfter.difficulty);
+
+            string explicitSubtitlePath = Path.Combine(tempDirectory, "explicit-subtitle.bms");
+            File.WriteAllText(explicitSubtitlePath,
+                "#TITLE Manual Song [Hyper]\r\n"
+                + "#SUBTITLE [Manual]\r\n"
+                + "#00111:01\r\n",
+                Encoding.GetEncoding("shift_jis"));
+
+            var explicitSubtitle = BMSFile.CreateBMSFileFromSnapshot(ChartFileContentReader.ReadSnapshot(explicitSubtitlePath));
+
+            Assert.AreEqual("Manual Song [Hyper]", explicitSubtitle.title);
+            Assert.AreEqual("[Manual]", explicitSubtitle.subtitle);
+            Assert.AreEqual(3, explicitSubtitle.difficulty);
+        });
+    }
+
+    [TestMethod]
     public void CreateBMSFileFromSnapshot_PreservesRawResourceReferences()
     {
         WithTempDirectory(delegate (string tempDirectory)

@@ -835,7 +835,13 @@ scope:
   `stagefile` / `banner` / `backbmp` に加え、`level` / `difficulty` / `mode` / `judge`
   を担当する。ここで OpenLR2 に寄せた directive parse と未定義 default を行う。
   例として `#PLAYLEVEL` 未定義は `level=0`、`#RANK` 未定義は `judge=2` に正規化する。
-  `#DIFFICULTY` 未定義は `difficulty=-1` として読み、完全生成 / 再同期の finalization で
+  `difficulty` は `#DIFFICULTY` raw 値に加え、OpenLR2 `GetDifficulty` と同じく
+  `#TITLE` / `#GENRE` の末尾キーワードや括弧トークンから推定する。
+  これは `difficulty` 用の入力利用であり、`title` / `subtitle` / `genre` の保存値そのものは
+  従来の lightweight parser contract から無理に OpenLR2 寄せしない。
+  OpenLR2 source には filename prefix 由来の `difficulty` 推定ブロックが残っているが、
+  `meta->filepath` 代入前に実行されるため、現行 reference の実効 contract には含めない。
+  それでも未定義なら `difficulty=-1` として読み、完全生成 / 再同期の finalization で
   OpenLR2 `SetUndefinedDifficulty` 相当の `folder, mode, karinotes` 順 DB-wide 補完を行う。
   DB 由来の legacy `NULL difficulty` / `NULL mode` は、OpenLR2 の `sqlite3_column_int()` と同じ
   実効値 `0` として扱い、完全生成では cache 値として `difficulty=0` を materialize する。
@@ -1127,8 +1133,11 @@ parse directive:
 - `title`, `subtitle`, `genre`, `artist`, `subartist`, `stagefile`, `banner`, `backbmp`,
   `level`, `difficulty`, `mode`, `judge`:
   lightweight parser の値。lightweight parser を OpenLR2 に寄せ、`level` / `judge` / `mode` の
-  未定義 default もここで行う。`difficulty` は lightweight parser では `#DIFFICULTY` raw 相当を作り、
-  完全生成 / 再同期の prune 後に DB-wide finalization で OpenLR2 `SetUndefinedDifficulty` 相当に正規化する。
+  未定義 default もここで行う。`difficulty` は lightweight parser で `#DIFFICULTY` raw 値と
+  `#TITLE` / `#GENRE` 由来の OpenLR2 `GetDifficulty` 推定値を作り、完全生成 / 再同期の prune 後に
+  DB-wide finalization で OpenLR2 `SetUndefinedDifficulty` 相当に正規化する。`title` / `subtitle` /
+  `genre` の保存値は既存 contract を維持する。filename prefix 推定は OpenLR2 source 上も
+  `meta->filepath` 代入前で実効しないため、lightweight parser contract へ追加しない。
   legacy `NULL difficulty` は OpenLR2 の実効値 `0` として扱い、完全生成では `0` を materialize する。
   `judge` は LR2 `#RANK` raw 値で、`chart_info.judge` は使わない。
 - `maxbpm`, `minbpm`, `longnote`, `bga`, `random`, `karinotes`, `exlevel`:
@@ -1196,7 +1205,7 @@ parse directive:
 | Phase 2: `song` row merge / ownership | 主要実装済み | `Lr2SongDbWriter`、generated/user column 分離、runtime write failure の status marking、merge 時 user column preservation、copied `song.db` sync 時の user column preservation は自動テスト済み。 | 実 DB copy での総合確認を残す。 |
 | Phase 3: metadata-bearing scan surface / raw resource reference | 一部完了 | BMS parser / snapshot 側の raw resource reference、text group の targeted `song.txt` 更新、完全生成 ON 時だけの scan 条件、`RootFileEnumerationResult` の file / directory mtime entry、Everything fixed scan + grouped directory query / managed fallback の metadata surface は実装済み。chart file mtime は fixed native scan / managed fallback の両方から `ChartScanResult` に保持し、通常 file diff の `song.date` / `bmson_song.updated_at` 判定へ使う。`.txt` / `folderinfo.txt` は startup / file diff scan surface から sync input へ保持し、scan surface が無い full generation input では生成対象 directory の `target\folderinfo.txt` だけを metadata surface 化する。normal folder directory mtime は startup / file diff producer が root-wide directory group surface を作り、full generation input / normal folder sync は必要 target だけをその surface から読む。scan surface が無い full generation input は grouped Everything / managed fallback で directory surface を再取得し、target ごとの `DirectoryInfo` lookup へ落とさない。chart/resource search roots から app-managed custom folder output root / child explicit roots を除外する正規化は実装・テスト済みで、`bms_search_root_normalization` log から chart/resource root count と `.lr2folder` discovery root count を確認できる。playlist materialization / built-in scoped sync は生成した `.lr2folder` surface を返し、sync input は既存 scan surface から該当 producer-owned scope を差し替える。fallback metadata fixture は追加済み。 | `.lr2folder` broad discovery を startup / file diff scan surface の producer contract へ寄せる。scan surface が無い場合の外部 `.lr2folder` discovery は grouped Everything / managed fallback で再取得し、producer-owned 出力 directory は producer surface と合成する。directory mtime の実機 parity を確認する。 |
 | Phase 4: LR2 compatibility warning | 主要実装済み | `Lr2CompatibilityEvaluator`、maintenance 最小 fact、standalone mode での LR2 非対応パス tree 非表示は接続済み。 | warning 表示の実機確認と、copied DB での sync 表示確認を残す。 |
-| Phase 5: `song` row enricher | 主要実装済み | `song_rows` stage は `ChartFileSnapshot` から lightweight parser を再実行し、`Lr2SongRowEnricher` で `date` / `txt` / folder-parent CRC / user column preservation を適用する。missing / stale `chart_info` は同じ snapshot から worker が生成し、`chart_info.judge` を `song.judge` へ流用しない判断は維持する。lightweight parser の `#PLAYLEVEL` / `#DIFFICULTY` / `#RANK` / mode detection は OpenLR2 寄せ済みで、完全生成 / 再同期の prune 後に OpenLR2 `SetUndefinedDifficulty` 相当の DB-wide finalization を行う。 | 実 DB fixture で OpenLR2 生成 DB と `song` numeric columns を比較する。LR2IR / tag.db 由来の exlevel 上書きは対象外として維持する。 |
+| Phase 5: `song` row enricher | 主要実装済み | `song_rows` stage は `ChartFileSnapshot` から lightweight parser を再実行し、`Lr2SongRowEnricher` で `date` / `txt` / folder-parent CRC / user column preservation を適用する。missing / stale `chart_info` は同じ snapshot から worker が生成し、`chart_info.judge` を `song.judge` へ流用しない判断は維持する。lightweight parser の `#PLAYLEVEL` / `#DIFFICULTY` / `#TITLE` / `#GENRE` difficulty inference / `#RANK` / mode detection は OpenLR2 寄せ済みで、完全生成 / 再同期の prune 後に OpenLR2 `SetUndefinedDifficulty` 相当の DB-wide finalization を行う。 | 実 DB fixture で OpenLR2 生成 DB と `song` numeric columns を比較する。LR2IR / tag.db 由来の exlevel 上書きは対象外として維持する。 |
 | Phase 6: normal `folder` row generator | 主要実装済み | normal folder generator / scope planner / DB sync、mutation・file diff failure の incomplete marking、directory metadata surface 由来の `folder.date` resolver、`folderinfo.txt` entry metadata surface は接続済み。通常 file diff では BMS path 差分 scope だけを同期し、directory metadata は同じ scan surface から読む。完全生成 sync input は reusable scan surface があれば再利用し、無ければ grouped Everything / managed fallback の directory surface を再取得する。 | 実機で directory mtime / folder row freshness を確認する。 |
 | Phase 7: `.lr2folder` DB sync | 主要実装済み | playlist projection と `.lr2folder` / `folder` row sync の同一化、通常 discovery、built-in source の相対 path 化、root custom output / built-in category parent row 生成、`LR2files\Rival` の built-in discovery 非対象化、`LR2files\CustomFolder` の `<customfolder>` bitmask、built-in category parent row の `folderinfo.txt #TITLE` 反映、`newsong` dynamic row、`course1-3` の `type=6` は接続済み。 | 実 LR2 setup / built-in folder fixture で最終確認する。 |
 | Phase 8: status / sync UI | 主要実装済み | durable status、runtime progress、setting queue、cancel、mutation guard、startup blocker diagnostic / cleanup、queued 後 preflight stage (`chart_info_hydration` / `input_surface` / `compatibility_projection_index` / `chart_info_resolver_snapshot`) の runtime 表示は実装済み。 | 長時間 sync の UI 手動確認と failure/cancel 再起動確認を残す。 |
@@ -1257,6 +1266,11 @@ parse directive:
   - `level` / `difficulty` / `mode` / `judge` は lightweight parser の値を使う。
     OpenLR2 寄せの default 補正も lightweight parser 側で行い、完全生成 / 再同期では既存 DB の
     `NULL` や `chart_info` の overlapping value で上書きしない。
+    `difficulty` は `#DIFFICULTY` raw 値だけでなく、OpenLR2 `GetDifficulty` 相当の
+    `#TITLE` / `#GENRE` 末尾キーワード・括弧トークン推定も lightweight parser 側で行う。
+    ただしこれは numeric column のための推定で、`title` / `subtitle` / `genre` の保存値は
+    従来 contract のまま扱う。OpenLR2 の filename prefix 推定ブロックは `meta->filepath`
+    代入前に実行される無効ブロックなので、実効互換としては対象外にする。
     ただし `difficulty` の未定義 / 範囲外値は OpenLR2 と同じく row-local では決めず、
     stale song prune 後に `folder, mode, karinotes` 順の DB-wide finalization で補完する。
     legacy `difficulty NULL` は OpenLR2 読み出し時の実効値 `0` として扱い、full-generation cache には
