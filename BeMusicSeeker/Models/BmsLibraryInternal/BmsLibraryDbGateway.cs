@@ -48,6 +48,8 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
 {
     internal const string SongPathNocaseIndexName = "song_idx_path_nocase";
 
+    internal const string FolderPathNocaseIndexName = "folder_idx_path_nocase";
+
     internal const string MaintenancePathNocaseIndexName = "maintenance_idx_path_nocase";
 
     private const int ChartInfoLookupChunkSize = 500;
@@ -1621,6 +1623,17 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
         EnsureIndex(songDb, "parentidx", tableName, SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.parent));
         EnsureIndex(songDb, "song_idx_folder", tableName, SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.folder));
         EnsureNocaseIndex(songDb, SongPathNocaseIndexName, tableName, SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.path));
+    }
+
+    internal static void EnsureFolderLookupIndexes(LR2SongDBExtended songDb)
+    {
+        if (songDb == null)
+        {
+            throw new ArgumentNullException(nameof(songDb));
+        }
+        string folderTableName = SQLiteTable<LR2SongDB.folder>.GetTableName();
+        songDb.CreateTable<LR2SongDB.folder>();
+        EnsureNocaseIndex(songDb, FolderPathNocaseIndexName, folderTableName, SQLiteTable<LR2SongDB.folder>.GetColumnName(row => row.path));
     }
 
     internal static void EnsureMaintenanceSchema(LR2SongDBExtended songDb)

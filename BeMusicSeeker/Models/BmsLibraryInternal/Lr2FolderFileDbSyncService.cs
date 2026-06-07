@@ -47,6 +47,7 @@ internal sealed class Lr2FolderFileDbSyncRequest
 
 internal sealed class Lr2FolderFileDbSyncResult(
     int itemCount,
+    int existingReadCount,
     int generatedCount,
     int upsertedCount,
     int deletedCount,
@@ -56,6 +57,8 @@ internal sealed class Lr2FolderFileDbSyncResult(
     long elapsedMs)
 {
     public int ItemCount { get; } = itemCount;
+
+    public int ExistingReadCount { get; } = existingReadCount;
 
     public int GeneratedCount { get; } = generatedCount;
 
@@ -89,7 +92,7 @@ internal static class Lr2FolderFileDbSyncService
 
         request ??= new Lr2FolderFileDbSyncRequest();
         var stopwatch = Stopwatch.StartNew();
-        List<LR2SongDB.folder> existingRows = [.. songDb.Table<LR2SongDB.folder>()];
+        List<LR2SongDB.folder> existingRows = ReadExistingRows(songDb, request);
         Dictionary<string, LR2SongDB.folder> existingRowsByPath = CreateExistingRowMap(existingRows);
         var generatedPathsByKey = new Dictionary<string, string>(PathComparer);
         var generatedParentDirectoryKeys = new HashSet<string>(PathComparer);
@@ -213,6 +216,7 @@ internal static class Lr2FolderFileDbSyncService
         stopwatch.Stop();
         return new Lr2FolderFileDbSyncResult(
             itemCount,
+            existingRows.Count,
             generatedCount,
             writeResult.UpsertedCount,
             writeResult.DeletedCount,
@@ -220,6 +224,106 @@ internal static class Lr2FolderFileDbSyncService
             skippedUnsupportedPathCount,
             skippedMissingMetadataCount,
             stopwatch.ElapsedMilliseconds);
+    }
+
+    private static List<LR2SongDB.folder> ReadExistingRows(
+        LR2SongDBExtended songDb,
+        Lr2FolderFileDbSyncRequest request)
+    {
+        var rowsByPath = new Dictionary<string, LR2SongDB.folder>(StringComparer.Ordinal);
+        foreach (LR2SongDB.folder row in QueryExistingRowsByExactPaths(
+            songDb,
+            CreateExistingRowExactPathScope(request)))
+        {
+            AddExistingRow(rowsByPath, row);
+        }
+
+        if (request?.AllowPrune == true)
+        {
+            foreach (LR2SongDB.folder row in QueryExistingRowsByScopeDirectories(
+                songDb,
+                CreateExistingRowScopeDirectories(request)))
+            {
+                AddExistingRow(rowsByPath, row);
+            }
+        }
+
+        return [.. rowsByPath.Values];
+    }
+
+    private static IReadOnlyCollection<string> CreateExistingRowExactPathScope(Lr2FolderFileDbSyncRequest request)
+    {
+        var result = new HashSet<string>(StringComparer.Ordinal);
+        if (request == null)
+        {
+            return result;
+        }
+
+        DirectoryScopeMatcher directoryRowGenerationScopeMatcher =
+            DirectoryScopeMatcher.Create(request.DirectoryRowGenerationScopeDirectories?.Count > 0
+                ? request.DirectoryRowGenerationScopeDirectories
+                : request.DirectoryRowScopeDirectories);
+        foreach (Lr2FolderFileSyncItem item in request.Items ?? [])
+        {
+            AddExactFilePath(result, item?.DatabasePath);
+            AddExactFilePath(result, item?.FilePath);
+            string databasePath = NormalizeFilePath(item?.DatabasePath ?? item?.FilePath);
+            if (string.IsNullOrWhiteSpace(databasePath))
+            {
+                continue;
+            }
+
+            foreach (ParentDirectoryRowTarget parentTarget in CreateParentDirectoryRowTargets(
+                item,
+                databasePath,
+                directoryRowGenerationScopeMatcher))
+            {
+                if (TryCreateDirectoryRowPath(parentTarget.DatabaseDirectory, out string rowPath, out _)
+                    && !string.IsNullOrWhiteSpace(rowPath))
+                {
+                    result.Add(rowPath);
+                }
+            }
+        }
+
+        foreach (string path in request.ScopePaths ?? [])
+        {
+            AddExactFilePath(result, path);
+        }
+
+        return result;
+    }
+
+    private static IReadOnlyCollection<string> CreateExistingRowScopeDirectories(Lr2FolderFileDbSyncRequest request)
+    {
+        var result = new HashSet<string>(PathComparer);
+        foreach (string directory in request?.ScopeDirectories ?? [])
+        {
+            AddScopeDirectory(result, directory);
+        }
+        foreach (string directory in request?.DirectoryRowScopeDirectories ?? [])
+        {
+            AddScopeDirectory(result, directory);
+        }
+        return result;
+    }
+
+    private static void AddExactFilePath(ISet<string> result, string path)
+    {
+        string normalized = NormalizeFilePath(path);
+        if (!string.IsNullOrWhiteSpace(normalized))
+        {
+            result?.Add(normalized);
+        }
+    }
+
+    private static void AddScopeDirectory(ISet<string> result, string directory)
+    {
+        string normalized = NormalizeScopeDirectory(directory);
+        if (!string.IsNullOrWhiteSpace(normalized))
+        {
+            result?.Add(normalized);
+        }
     }
 
     private static void UpsertParentDirectoryRows(
@@ -275,6 +379,54 @@ internal static class Lr2FolderFileDbSyncService
             result.Add(path, row);
         }
         return result;
+    }
+
+    private static void AddExistingRow(IDictionary<string, LR2SongDB.folder> rowsByPath, LR2SongDB.folder row)
+    {
+        if (rowsByPath == null || string.IsNullOrWhiteSpace(row?.path))
+        {
+            return;
+        }
+
+        rowsByPath[row.path] = row;
+    }
+
+    private static IEnumerable<LR2SongDB.folder> QueryExistingRowsByExactPaths(
+        LR2SongDBExtended songDb,
+        IReadOnlyCollection<string> exactPaths)
+    {
+        if (songDb == null || exactPaths == null || exactPaths.Count == 0)
+        {
+            return [];
+        }
+
+        string[] paths = [.. exactPaths
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.Ordinal)];
+        return Lr2FolderExistingRowLookup.QueryExactPaths(songDb, paths);
+    }
+
+    private static IEnumerable<LR2SongDB.folder> QueryExistingRowsByScopeDirectories(
+        LR2SongDBExtended songDb,
+        IReadOnlyCollection<string> scopeDirectories)
+    {
+        if (songDb == null || scopeDirectories == null || scopeDirectories.Count == 0)
+        {
+            return [];
+        }
+
+        var scopePaths = new List<string>();
+        foreach (string scopeDirectory in scopeDirectories)
+        {
+            if (!TryCreateDirectoryRowPath(scopeDirectory, out string scopePath, out _)
+                || string.IsNullOrWhiteSpace(scopePath))
+            {
+                continue;
+            }
+
+            scopePaths.Add(scopePath);
+        }
+        return Lr2FolderExistingRowLookup.QueryPathPrefixScopes(songDb, scopePaths);
     }
 
     private static LR2SongDB.folder ResolveExistingRow(

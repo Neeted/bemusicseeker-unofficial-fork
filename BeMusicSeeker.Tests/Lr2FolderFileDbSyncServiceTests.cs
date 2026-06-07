@@ -91,6 +91,153 @@ public sealed class Lr2FolderFileDbSyncServiceTests
     }
 
     [TestMethod]
+    public void Sync_ReadsOnlyExactAndPruneScopeRows()
+    {
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            using var songDb = new LR2SongDBExtended(songDbPath);
+            songDb.CreateTable<LR2SongDB.folder>();
+            BmsLibraryDbGateway.EnsureFolderLookupIndexes(songDb);
+            string outputDirectory = Path.GetFullPath(@"D:\BMS\#BeMusicSeeker");
+            string currentPath = Path.Combine(outputDirectory, "0000.lr2folder");
+            string stalePath = Path.Combine(outputDirectory, "0001.lr2folder");
+            DateTime timestamp = new(2026, 6, 10, 1, 2, 3, DateTimeKind.Utc);
+            songDb.InsertOrReplace(new LR2SongDB.folder
+            {
+                path = currentPath,
+                title = "Old",
+                type = 2,
+                date = timestamp.ToUnixtime()
+            }, typeof(LR2SongDB.folder));
+            songDb.InsertOrReplace(new LR2SongDB.folder
+            {
+                path = stalePath,
+                title = "Stale",
+                type = 2
+            }, typeof(LR2SongDB.folder));
+            for (int index = 0; index < 25; index++)
+            {
+                songDb.InsertOrReplace(new LR2SongDB.folder
+                {
+                    path = Path.GetFullPath($@"D:\Other\Table{index:00}\0000.lr2folder"),
+                    title = "Out of scope",
+                    type = 2
+                }, typeof(LR2SongDB.folder));
+            }
+
+            Lr2FolderFileDbSyncResult result = Lr2FolderFileDbSyncService.Sync(songDb, new Lr2FolderFileDbSyncRequest
+            {
+                Items =
+                [
+                    new Lr2FolderFileSyncItem
+                    {
+                        FilePath = currentPath,
+                        LastWriteTimeUtc = timestamp,
+                        PreserveExistingRowOnly = true
+                    }
+                ],
+                ScopeDirectories = [outputDirectory],
+                ScopePaths = [currentPath],
+                AllowPrune = true
+            });
+
+            Assert.AreEqual(2, result.ExistingReadCount);
+            Assert.AreEqual(1, result.PreservedCount);
+            Assert.AreEqual(1, result.DeletedCount);
+            Assert.AreEqual(25, songDb.Table<LR2SongDB.folder>().ToList().Count(row => row.path.StartsWith(Path.GetFullPath(@"D:\Other"), StringComparison.OrdinalIgnoreCase)));
+        });
+    }
+
+    [TestMethod]
+    public void Sync_PruneDisabledReadsOnlyExactRows()
+    {
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            using var songDb = new LR2SongDBExtended(songDbPath);
+            songDb.CreateTable<LR2SongDB.folder>();
+            BmsLibraryDbGateway.EnsureFolderLookupIndexes(songDb);
+            string outputDirectory = Path.GetFullPath(@"D:\BMS\#BeMusicSeeker");
+            string currentPath = Path.Combine(outputDirectory, "0000.lr2folder");
+            string stalePath = Path.Combine(outputDirectory, "0001.lr2folder");
+            DateTime timestamp = new(2026, 6, 10, 1, 2, 3, DateTimeKind.Utc);
+            songDb.InsertOrReplace(new LR2SongDB.folder
+            {
+                path = currentPath,
+                title = "Old",
+                type = 2,
+                date = timestamp.ToUnixtime()
+            }, typeof(LR2SongDB.folder));
+            songDb.InsertOrReplace(new LR2SongDB.folder
+            {
+                path = stalePath,
+                title = "Stale",
+                type = 2
+            }, typeof(LR2SongDB.folder));
+
+            Lr2FolderFileDbSyncResult result = Lr2FolderFileDbSyncService.Sync(songDb, new Lr2FolderFileDbSyncRequest
+            {
+                Items =
+                [
+                    new Lr2FolderFileSyncItem
+                    {
+                        FilePath = currentPath,
+                        LastWriteTimeUtc = timestamp,
+                        PreserveExistingRowOnly = true
+                    }
+                ],
+                ScopeDirectories = [outputDirectory],
+                ScopePaths = [currentPath],
+                AllowPrune = false
+            });
+
+            Assert.AreEqual(1, result.ExistingReadCount);
+            Assert.AreEqual(1, result.PreservedCount);
+            Assert.AreEqual(0, result.DeletedCount);
+            Assert.AreEqual(1, songDb.Table<LR2SongDB.folder>().Count(row => row.path == stalePath));
+        });
+    }
+
+    [TestMethod]
+    public void EnsureFolderLookupIndexes_AddsFolderNocaseIndexForScopedSync()
+    {
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            using var songDb = new LR2SongDBExtended(songDbPath);
+            songDb.CreateTable<LR2SongDB.folder>();
+            string outputDirectory = Path.GetFullPath(@"D:\BMS\#BeMusicSeeker");
+            songDb.InsertOrReplace(new LR2SongDB.folder
+            {
+                path = Path.Combine(outputDirectory, "0000.lr2folder"),
+                title = "Current",
+                type = 2
+            }, typeof(LR2SongDB.folder));
+
+            BmsLibraryDbGateway.EnsureFolderLookupIndexes(songDb);
+
+            Assert.AreEqual(1L, songDb.ExecuteScalar<long>(
+                "SELECT COUNT(1) FROM sqlite_master WHERE type = 'index' AND name = ?;",
+                BmsLibraryDbGateway.FolderPathNocaseIndexName));
+            songDb.Execute("CREATE TEMP TABLE folder_exact_scope_for_test (path TEXT PRIMARY KEY COLLATE NOCASE);");
+            songDb.Execute(
+                "INSERT OR IGNORE INTO temp.folder_exact_scope_for_test (path) VALUES (?);",
+                Path.Combine(outputDirectory, "0000.lr2folder"));
+            AssertQueryUsesFolderNocaseIndex(
+                songDb,
+                "EXPLAIN QUERY PLAN SELECT f.*"
+                + " FROM temp.folder_exact_scope_for_test AS p"
+                + " CROSS JOIN folder AS f INDEXED BY " + BmsLibraryDbGateway.FolderPathNocaseIndexName
+                + " WHERE f.path = p.path COLLATE NOCASE;");
+            string prefix = outputDirectory + Path.DirectorySeparatorChar;
+            AssertQueryUsesFolderNocaseIndex(
+                songDb,
+                "EXPLAIN QUERY PLAN SELECT * FROM folder INDEXED BY " + BmsLibraryDbGateway.FolderPathNocaseIndexName
+                + " WHERE path COLLATE NOCASE >= ? AND path COLLATE NOCASE < ?;",
+                prefix,
+                prefix.Substring(0, prefix.Length - 1) + (char)(prefix[prefix.Length - 1] + 1));
+        });
+    }
+
+    [TestMethod]
     public void Sync_PreservesUnchangedRowsWithoutDefinitionParse()
     {
         WithTemporarySongDb(delegate (string songDbPath)
@@ -207,6 +354,7 @@ public sealed class Lr2FolderFileDbSyncServiceTests
 
             Assert.AreEqual(1, result.UpsertedCount);
             Assert.AreEqual(1, result.DeletedCount);
+            Assert.AreEqual(1, result.ExistingReadCount);
             Assert.AreEqual(0, songDb.Table<LR2SongDB.folder>().Count(row => row.path == driftPath));
             Assert.AreEqual(1, songDb.Table<LR2SongDB.folder>().Count(row => row.path == currentPath));
             Assert.AreEqual(12345, songDb.Table<LR2SongDB.folder>().Single(row => row.path == currentPath).adddate);
@@ -819,6 +967,21 @@ public sealed class Lr2FolderFileDbSyncServiceTests
         return path => normalizedDirectories.Contains(Lr2FolderPath.NormalizeDirectoryPath(path))
             ? new Lr2FolderDirectoryMetadata(timestamp)
             : null!;
+    }
+
+    private static void AssertQueryUsesFolderNocaseIndex(
+        LR2SongDBExtended songDb,
+        string explainSql,
+        params object[] args)
+    {
+        List<QueryPlanRow> planRows = songDb.Query<QueryPlanRow>(explainSql, args);
+        string detail = string.Join(" | ", planRows.Select(row => row.detail ?? string.Empty));
+        StringAssert.Contains(detail, BmsLibraryDbGateway.FolderPathNocaseIndexName);
+    }
+
+    private sealed class QueryPlanRow
+    {
+        public string detail { get; set; } = string.Empty;
     }
 
     private static void WithTemporarySongDb(Action<string> testAction)

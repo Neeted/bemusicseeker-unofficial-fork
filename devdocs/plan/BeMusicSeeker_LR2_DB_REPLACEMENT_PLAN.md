@@ -1646,6 +1646,9 @@ Everything / filesystem 広域再スキャンを始める入口ではない。su
      `BMSLibrary` 側の後付け attach は廃止し、scan completion 前に producer-owned surface を作る。
      directory mtime は scan surface 再利用と no-surface 時の grouped再取得まで接続済みであり、
      native bridge / managed fallback の実機 parity 確認を残す。
+   - 完了: startup / file diff 後の `.lr2folder` scoped sync は、unchanged row 判定用の existing row lookup と
+     prune 用の existing row read のどちらも candidate exact path / prune scope / parent directory scope に限定し、
+     completed steady-state の通常起動で `folder` table 全件 read に戻らない。
    - 残作業: 完全生成 completed 後の通常 file diff でも `.lr2folder` / `folderinfo.txt` / `.txt`
      surface の差分を検出し、該当 folder row / song.txt を scoped sync する。sync 初回だけで
      `.lr2folder` を見る設計にはしない。

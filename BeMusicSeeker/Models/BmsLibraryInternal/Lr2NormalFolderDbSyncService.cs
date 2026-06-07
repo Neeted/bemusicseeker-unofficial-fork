@@ -380,25 +380,8 @@ internal static class Lr2NormalFolderDbSyncService
             return [];
         }
 
-        string tableName = SQLiteTable<LR2SongDB.folder>.GetTableName();
-        string pathColumn = SQLiteTable<LR2SongDB.folder>.GetColumnName(row => row.path);
         string[] paths = [.. exactPaths.Where(path => !string.IsNullOrWhiteSpace(path)).Distinct(StringComparer.Ordinal)];
-        const int chunkSize = 500;
-        var rows = new List<LR2SongDB.folder>();
-        for (int offset = 0; offset < paths.Length; offset += chunkSize)
-        {
-            int count = Math.Min(chunkSize, paths.Length - offset);
-            string placeholders = string.Join(",", Enumerable.Repeat("?", count));
-            object[] args = new object[count];
-            for (int index = 0; index < count; index++)
-            {
-                args[index] = paths[offset + index];
-            }
-            rows.AddRange(songDb.Query<LR2SongDB.folder>(
-                "SELECT * FROM " + tableName + " WHERE " + pathColumn + " COLLATE NOCASE IN (" + placeholders + ");",
-                args));
-        }
-        return rows;
+        return Lr2FolderExistingRowLookup.QueryExactPaths(songDb, paths);
     }
 
     private static IEnumerable<LR2SongDB.folder> QueryExistingRowsByScopeDirectories(
@@ -410,9 +393,7 @@ internal static class Lr2NormalFolderDbSyncService
             return [];
         }
 
-        string tableName = SQLiteTable<LR2SongDB.folder>.GetTableName();
-        string pathColumn = SQLiteTable<LR2SongDB.folder>.GetColumnName(row => row.path);
-        var rowsByPath = new Dictionary<string, LR2SongDB.folder>(StringComparer.Ordinal);
+        var scopePaths = new List<string>();
         foreach (string scopeDirectory in scopeDirectories)
         {
             string scopePath = Lr2FolderPath.ToFolderPath(scopeDirectory);
@@ -421,23 +402,9 @@ internal static class Lr2NormalFolderDbSyncService
                 continue;
             }
 
-            foreach (LR2SongDB.folder row in songDb.Query<LR2SongDB.folder>(
-                "SELECT * FROM " + tableName + " WHERE " + pathColumn + " = ? COLLATE NOCASE OR " + pathColumn + " LIKE ? ESCAPE '\\';",
-                scopePath,
-                EscapeSqliteLikePattern(scopePath) + "%"))
-            {
-                AddExistingRow(rowsByPath, row);
-            }
+            scopePaths.Add(scopePath);
         }
-        return rowsByPath.Values;
-    }
-
-    private static string EscapeSqliteLikePattern(string value)
-    {
-        return (value ?? string.Empty)
-            .Replace("\\", "\\\\")
-            .Replace("%", "\\%")
-            .Replace("_", "\\_");
+        return Lr2FolderExistingRowLookup.QueryPathPrefixScopes(songDb, scopePaths);
     }
 
     private static List<string> NormalizeRootDirectories(IEnumerable<string> rootDirectories)
