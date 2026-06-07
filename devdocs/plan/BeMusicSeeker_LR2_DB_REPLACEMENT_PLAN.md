@@ -1640,10 +1640,13 @@ Everything / filesystem 広域再スキャンを始める入口ではない。su
      「どこが重いか」だけでなく、その処理自体が 200k 件級 hot path に入るべきかを確認する。
    - `maintenance` の LR2 compatibility facts は、chunk temp table から全 `maintenance` row へ
      correlated subquery を繰り返す形にしない。`path` indexed lookup と changed-only update /
-     missing-row insert に寄せ、同一値 row は update しない。
+     missing-row insert に寄せ、同一値 row は update しない。完了。
    - full sync の `song` generated column 更新も、実ファイル由来の一覧 cache へ収束させることを
      主目的にする。LR2 / user-owned column の維持は明示した列だけを snapshot して戻し、
-     generated columns については defensive merge を増やさない。
+     generated columns については defensive merge を増やさない。完了。
+   - 完了: `maintenance.path` / `song.path` の NOCASE lookup は schema ensure の index を contract にし、
+     full-generation hot path は chunk temp table 起点の indexed lookup へ寄せる。writer 内で
+     producer が持つべき値を再生成する fallback は増やさない。
    - 残作業: full sync では実ファイル由来の一覧へ収束させることを優先し、既存 `song.db` を守るための
      defensive merge を hot path に増やさない。保存する user columns / `adddate` / `favorite` / `tag`
      だけを明示的に snapshot し、generated columns は staging table から set-based に反映する。
@@ -1663,6 +1666,7 @@ Everything / filesystem 広域再スキャンを始める入口ではない。su
    - generated column の insert は multi-value insert、既存 row update は temp table update へ寄せる。完了。
    - `chart_digest_map` update / orphan cleanup は chunk 単位へ寄せる。完了。
    - LR2 compatibility facts の `maintenance` update / insert は chunk temp table へ寄せる。完了。
+   - full-generation 用 bulk song writer は `song_idx_path_nocase` を使い、chunk ごとの `song` 全表 scan を避ける。完了。
    - final song prune の current path temp table insert は multi-value chunk へ寄せる。完了。
    - 行単位 `UpsertChartDigest` / `DeleteChartDigestIfOrphaned` は full sync hot path から外し、
      単発 mutation API 専用に残す。完了。
@@ -1670,12 +1674,15 @@ Everything / filesystem 広域再スキャンを始める入口ではない。su
      「完了」扱いの bulk writer も再レビューする。設計レビューでは SQL の set-based 化だけでなく、
      temp table clear / index maintenance / transaction granularity / status update 頻度が
      200k 件で妥当かを必ず確認する。
-   - 次の実装 cycle の具体順:
-     1. `maintenance.path` / `song.path` / temp table の collation と index を確認し、必要な index を
-        schema ensure に寄せる。
-     2. LR2 compatibility facts writer を chunk-scoped indexed update + changed-only insert/update に変える。
-     3. まだ `songStageMs` が支配的なら、`song` generated rows の staging + set-based apply を
-        full-sync 専用 writer として再整理する。
+   - 次の確認 cycle の具体順:
+     1. 実機ログで `songStageMs` / `compatibilityStageMs` / `chartInfoStageMs` / `sqliteCommitMs` /
+        `statusCursorMs` を再確認し、支配的な stage が移ったかを見る。
+     2. まだ `songStageMs` が支配的なら、`EXPLAIN QUERY PLAN` と実 DB copy で generated row staging /
+        previous-hash collection / digest orphan cleanup のどこが支配的かを確認する。
+     3. まだ `compatibilityStageMs` が支配的なら、chunk match table population と changed-only predicate の
+        実 DB plan を確認する。
+     4. `sqliteCommitMs` / `statusCursorMs` が支配的なら、transaction 粒度と durable cursor 更新頻度を
+        別 cycle で見直す。
 7. final diagnostics / blocker 判定を prune-first に整理する。主要実装済み。
    - `song` / `folder` / `maintenance` は実ファイル由来の一覧 cache として current surface へ収束させる。
    - expected set 外 row / unknown root row は守らず prune する。
