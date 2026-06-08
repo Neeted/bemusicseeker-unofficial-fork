@@ -390,7 +390,8 @@ internal sealed class BmsLibraryInitializationService
         IEnumerable<string> lr2FolderDiscoveryRootDirectories = null,
         Lr2BuiltinCustomFolderSettings lr2BuiltinCustomFolderSettings = null,
         Lr2NormalFolderMtimeSnapshot normalFolderMtimeSnapshot = null,
-        Func<Lr2NormalFolderMtimeSnapshot> normalFolderMtimeSnapshotProvider = null)
+        Func<Lr2NormalFolderMtimeSnapshot> normalFolderMtimeSnapshotProvider = null,
+        Action<SongTableFileCheckResult> lr2ScanSurfacePrepared = null)
     {
         var result = new SongTableFileCheckResult();
         var stopwatchScan = Stopwatch.StartNew();
@@ -490,6 +491,7 @@ internal sealed class BmsLibraryInitializationService
             result.Lr2ScanTextFileDirectories = [.. (mergedScanResult.ChartDirectoriesWithTextFiles ?? [])
                 .Where(path => !string.IsNullOrWhiteSpace(path))
                 .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
+            lr2ScanSurfacePrepared?.Invoke(result);
         }
         result.DirectoryCount = result.NextDirectoryResourceLookupCache?.Count ?? 0;
 

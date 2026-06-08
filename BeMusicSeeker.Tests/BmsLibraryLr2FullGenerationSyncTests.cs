@@ -5459,7 +5459,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     {
         MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("ApplyLr2FolderFileDiffSync", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.IsNotNull(methodInfo);
-        methodInfo.Invoke(library, [options, rootDirectories, result, reason]);
+        methodInfo.Invoke(library, [options, rootDirectories, result, reason, null]);
     }
 
     private static void InvokeSetModeAndCommitToDb(BMSLibrary library, IEnumerable<BMSFile> files)

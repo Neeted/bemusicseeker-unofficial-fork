@@ -5157,6 +5157,23 @@ public class BMSLibrary : NotificationObject
 
         List<LR2SongDBExtended.chart_info> committedInlineChartInfoRows = [];
         List<ChartFile> currentInstallDestinationCharts = CreateCurrentInstallDestinationCleanupCharts();
+        Task<Lr2FolderFileDiffPreparationResult> lr2FolderFileDiffPreparationTask = null;
+        void StartLr2FolderFileDiffPreparation(SongTableFileCheckResult partialResult)
+        {
+            if (lr2FolderFileDiffPreparationTask != null)
+            {
+                return;
+            }
+            if (!CanPrepareLr2FolderFileDiff(options, partialResult))
+            {
+                return;
+            }
+
+            lr2FolderFileDiffPreparationTask = Task.Run(() =>
+                PrepareLr2FolderFileDiffSync(options, bmsDirectories, partialResult, reason))
+                .Logging("Lr2FolderFileDiffPrepare");
+        }
+
         SongTableFileCheckResult fileCheckResult = initializationService.ApplyFileScanDiff(
             dbGateway,
             options,
@@ -5215,8 +5232,9 @@ completeFileEnumerationOnce,
             bmsDirectories,
             lr2FolderDiscoveryRootDirectories: bmsDirectories,
             lr2BuiltinCustomFolderSettings: CreateCurrentLr2BuiltinCustomFolderSettings(DateTime.UtcNow),
-            normalFolderMtimeSnapshotProvider: resolveNormalFolderMtimeSnapshot);
-        ApplyLr2FolderFileDiffSync(options, bmsDirectories, fileCheckResult, reason);
+            normalFolderMtimeSnapshotProvider: resolveNormalFolderMtimeSnapshot,
+            lr2ScanSurfacePrepared: StartLr2FolderFileDiffPreparation);
+        ApplyLr2FolderFileDiffSync(options, bmsDirectories, fileCheckResult, reason, lr2FolderFileDiffPreparationTask);
         completeFileEnumerationOnce();
         ApplyLibraryFileScanStorageMutation(fileCheckResult, reason);
         if (committedInlineChartInfoRows.Count > 0)
@@ -5243,18 +5261,153 @@ completeFileEnumerationOnce,
         return fileCheckResult;
     }
 
+    private sealed class Lr2FolderFileDiffPreparationResult(
+        Lr2FullGenerationSyncRequest request,
+        IReadOnlyList<string> appManagedOutputDirectories,
+        int appManagedCandidateCount,
+        long rootsMs,
+        long builtinSourceMs,
+        long appManagedScopeMs,
+        long filterMs,
+        long parentSurfaceMs,
+        long extraTextRootsMs,
+        long textMetadataMs,
+        long totalElapsedMs)
+    {
+        public Lr2FullGenerationSyncRequest Request { get; } = request;
+
+        public IReadOnlyList<string> AppManagedOutputDirectories { get; } = appManagedOutputDirectories ?? [];
+
+        public int AppManagedCandidateCount { get; } = appManagedCandidateCount;
+
+        public long RootsMs { get; } = rootsMs;
+
+        public long BuiltinSourceMs { get; } = builtinSourceMs;
+
+        public long AppManagedScopeMs { get; } = appManagedScopeMs;
+
+        public long FilterMs { get; } = filterMs;
+
+        public long ParentSurfaceMs { get; } = parentSurfaceMs;
+
+        public long ExtraTextRootsMs { get; } = extraTextRootsMs;
+
+        public long TextMetadataMs { get; } = textMetadataMs;
+
+        public long TotalElapsedMs { get; } = totalElapsedMs;
+    }
+
     private void ApplyLr2FolderFileDiffSync(
+        BmsLibraryOptionsSnapshot options,
+        IReadOnlyList<string> rootDirectories,
+        SongTableFileCheckResult fileCheckResult,
+        string reason,
+        Task<Lr2FolderFileDiffPreparationResult> preparationTask = null)
+    {
+        if (!CanPrepareLr2FolderFileDiff(options, fileCheckResult))
+        {
+            return;
+        }
+
+        Lr2FolderFileDiffPreparationResult preparation = WaitForLr2FolderFileDiffPreparation(
+            preparationTask,
+            options,
+            rootDirectories,
+            fileCheckResult,
+            reason);
+        if (preparation?.Request == null)
+        {
+            return;
+        }
+
+        var stopwatchSurfaceApply = Stopwatch.StartNew();
+        ApplyLr2SyncRequestSurfaceToFileCheckResult(fileCheckResult, preparation.Request);
+        stopwatchSurfaceApply.Stop();
+        long surfaceApplyMs = stopwatchSurfaceApply.ElapsedMilliseconds;
+        bool allowPrune = ShouldPruneLr2FolderFileRowsDuringFileDiff(reason);
+        LogInstallPerformance("lr2folder_file_diff_prepare"
+            + " reason=" + (reason ?? "unknown")
+            + " rootsMs=" + preparation.RootsMs
+            + " builtinSourceMs=" + preparation.BuiltinSourceMs
+            + " appManagedScopeMs=" + preparation.AppManagedScopeMs
+            + " filterMs=" + preparation.FilterMs
+            + " parentSurfaceMs=" + preparation.ParentSurfaceMs
+            + " extraTextRootsMs=" + preparation.ExtraTextRootsMs
+            + " textMetadataMs=" + preparation.TextMetadataMs
+            + " surfaceApplyMs=" + surfaceApplyMs
+            + " totalMs=" + (preparation.TotalElapsedMs + surfaceApplyMs));
+        LogInstallPerformance("lr2folder_file_diff_filter"
+            + " reason=" + (reason ?? "unknown")
+            + " candidates=" + (fileCheckResult.Lr2ScanLr2FolderFilePaths?.Count ?? 0)
+            + " externalCandidates=" + preparation.Request.Lr2FolderFilePaths.Count
+            + " appManagedFiltered=" + preparation.AppManagedCandidateCount
+            + " appManagedScopeDirs=" + preparation.AppManagedOutputDirectories.Count
+            + " allowPruneRequested=" + allowPrune.ToString().ToLowerInvariant());
+        SyncLr2FolderFileRows(
+            options,
+            preparation.Request,
+            reason,
+            "lr2folder_file_diff_sync",
+            allowPrune,
+            preparation.AppManagedOutputDirectories,
+            scopeReadLr2FolderRowsOnly: true,
+            updateParentDirectoryRowsForPreservedItems: false);
+    }
+
+    private static bool CanPrepareLr2FolderFileDiff(
+        BmsLibraryOptionsSnapshot options,
+        SongTableFileCheckResult fileCheckResult)
+    {
+        return options?.OperationModeLR2DB == true
+            && options.EnableLR2SongDbFullGeneration
+            && fileCheckResult?.Lr2ScanSurfaceAvailable == true
+            && fileCheckResult.Lr2ScanLr2FolderDiscoveryDirectories?.Count > 0;
+    }
+
+    private Lr2FolderFileDiffPreparationResult WaitForLr2FolderFileDiffPreparation(
+        Task<Lr2FolderFileDiffPreparationResult> preparationTask,
         BmsLibraryOptionsSnapshot options,
         IReadOnlyList<string> rootDirectories,
         SongTableFileCheckResult fileCheckResult,
         string reason)
     {
-        if (options?.OperationModeLR2DB != true
-            || options.EnableLR2SongDbFullGeneration != true
-            || fileCheckResult?.Lr2ScanSurfaceAvailable != true
-            || fileCheckResult.Lr2ScanLr2FolderDiscoveryDirectories?.Count > 0 != true)
+        if (preparationTask == null)
         {
-            return;
+            return PrepareLr2FolderFileDiffSync(options, rootDirectories, fileCheckResult, reason);
+        }
+
+        var stopwatchWait = Stopwatch.StartNew();
+        try
+        {
+            Lr2FolderFileDiffPreparationResult result = preparationTask.GetAwaiter().GetResult();
+            stopwatchWait.Stop();
+            LogInstallPerformance("lr2folder_file_diff_prepare_wait"
+                + " reason=" + (reason ?? "unknown")
+                + " status=completed"
+                + " waitMs=" + stopwatchWait.ElapsedMilliseconds
+                + " preparedMs=" + (result?.TotalElapsedMs ?? 0L));
+            return result;
+        }
+        catch (Exception ex)
+        {
+            stopwatchWait.Stop();
+            LogInstallPerformanceWarn("lr2folder_file_diff_prepare_wait failed"
+                + " reason=" + (reason ?? "unknown")
+                + " waitMs=" + stopwatchWait.ElapsedMilliseconds
+                + " message=" + GetDisplayedExceptionMessage(ex).Replace(Environment.NewLine, " | "));
+            return PrepareLr2FolderFileDiffSync(options, rootDirectories, fileCheckResult, reason);
+        }
+    }
+
+    private Lr2FolderFileDiffPreparationResult PrepareLr2FolderFileDiffSync(
+        BmsLibraryOptionsSnapshot options,
+        IReadOnlyList<string> rootDirectories,
+        SongTableFileCheckResult fileCheckResult,
+        string reason)
+    {
+        if (!CanPrepareLr2FolderFileDiff(options, fileCheckResult))
+        {
+            return null;
         }
 
         var stopwatchPrepare = Stopwatch.StartNew();
@@ -5309,37 +5462,19 @@ completeFileEnumerationOnce,
             request.DirectoryEntries.Keys);
         long textMetadataMs = RestartElapsed(stopwatchStage);
         ApplyLr2TextMetadataCandidatesToRequest(request, textMetadataSnapshot, extraTextMetadataSourceDirectories);
-        ApplyLr2SyncRequestSurfaceToFileCheckResult(fileCheckResult, request);
-        long surfaceApplyMs = RestartElapsed(stopwatchStage);
-        bool allowPrune = ShouldPruneLr2FolderFileRowsDuringFileDiff(reason);
         stopwatchPrepare.Stop();
-        LogInstallPerformance("lr2folder_file_diff_prepare"
-            + " reason=" + (reason ?? "unknown")
-            + " rootsMs=" + rootsMs
-            + " builtinSourceMs=" + builtinSourceMs
-            + " appManagedScopeMs=" + appManagedScopeMs
-            + " filterMs=" + filterMs
-            + " parentSurfaceMs=" + parentSurfaceMs
-            + " extraTextRootsMs=" + extraTextRootsMs
-            + " textMetadataMs=" + textMetadataMs
-            + " surfaceApplyMs=" + surfaceApplyMs
-            + " totalMs=" + stopwatchPrepare.ElapsedMilliseconds);
-        LogInstallPerformance("lr2folder_file_diff_filter"
-            + " reason=" + (reason ?? "unknown")
-            + " candidates=" + (fileCheckResult.Lr2ScanLr2FolderFilePaths?.Count ?? 0)
-            + " externalCandidates=" + request.Lr2FolderFilePaths.Count
-            + " appManagedFiltered=" + appManagedCandidateCount
-            + " appManagedScopeDirs=" + appManagedOutputDirectories.Count
-            + " allowPruneRequested=" + allowPrune.ToString().ToLowerInvariant());
-        SyncLr2FolderFileRows(
-            options,
+        return new Lr2FolderFileDiffPreparationResult(
             request,
-            reason,
-            "lr2folder_file_diff_sync",
-            allowPrune,
             appManagedOutputDirectories,
-            scopeReadLr2FolderRowsOnly: true,
-            updateParentDirectoryRowsForPreservedItems: false);
+            appManagedCandidateCount,
+            rootsMs,
+            builtinSourceMs,
+            appManagedScopeMs,
+            filterMs,
+            parentSurfaceMs,
+            extraTextRootsMs,
+            textMetadataMs,
+            stopwatchPrepare.ElapsedMilliseconds);
     }
 
     private static long RestartElapsed(Stopwatch stopwatch)
