@@ -1894,6 +1894,9 @@ internal static class Lr2FullGenerationSyncService
         int chartInfoParseFailureSkippedCount = 0;
         int chartInfoRunCacheHitCount = 0;
         int compatibilityApplied = 0;
+        long totalReadTicks = 0L;
+        long totalDigestTicks = 0L;
+        long totalParseTicks = 0L;
         var generatedChartInfoBySha256 = new ConcurrentDictionary<string, LR2SongDBExtended.chart_info>(StringComparer.OrdinalIgnoreCase);
         var generatedChartInfoByMd5 = new ConcurrentDictionary<string, LR2SongDBExtended.chart_info>(StringComparer.OrdinalIgnoreCase);
         Func<BMSFile, LR2SongDBExtended.chart_info> baseChartInfoResolver =
@@ -1988,12 +1991,14 @@ internal static class Lr2FullGenerationSyncService
                 + " processedCursor=" + (baseProcessedCursor + offset));
             var rowsToWrite = new List<BMSFile>(chunk.Count);
             long chunkReadTicks = 0L;
+            long chunkDigestTicks = 0L;
             long chunkParseTicks = 0L;
             int chunkFallbackCount = 0;
             int chunkParseFailureCount = 0;
             foreach (SongRowSyncComputedItem item in chunk)
             {
                 chunkReadTicks += item.ReadElapsedTicks;
+                chunkDigestTicks += item.DigestElapsedTicks;
                 chunkParseTicks += item.ParseElapsedTicks;
                 BMSFile row = item.Row;
                 if (row == null || string.IsNullOrWhiteSpace(row.path))
@@ -2007,6 +2012,9 @@ internal static class Lr2FullGenerationSyncService
                 }
                 rowsToWrite.Add(row);
             }
+            totalReadTicks += chunkReadTicks;
+            totalDigestTicks += chunkDigestTicks;
+            totalParseTicks += chunkParseTicks;
 
             long chunkChartInfoTicks = 0L;
             long chunkCompatibilityTicks = 0L;
@@ -2108,6 +2116,7 @@ internal static class Lr2FullGenerationSyncService
                     + " offset=" + offset
                     + " count=" + chunk.Count
                     + " readMs=" + TicksToMilliseconds(chunkReadTicks)
+                    + " digestMs=" + TicksToMilliseconds(chunkDigestTicks)
                     + " parseMs=" + TicksToMilliseconds(chunkParseTicks)
                     + " chartInfoApplyMs=" + TicksToMilliseconds(chunkChartInfoTicks)
                     + " chartInfoGenerated=" + chunkChartInfoRows.Count
@@ -2331,6 +2340,9 @@ internal static class Lr2FullGenerationSyncService
             + " chartInfoParseFailureSkipped=" + chartInfoParseFailureSkippedCount
             + " chartInfoRunCacheHits=" + chartInfoRunCacheHitCount
             + " compatibilityApplied=" + compatibilityApplied
+            + " readMs=" + TicksToMilliseconds(totalReadTicks)
+            + " digestMs=" + TicksToMilliseconds(totalDigestTicks)
+            + " parseMs=" + TicksToMilliseconds(totalParseTicks)
             + " readerOutputWaitMs=" + TicksToMilliseconds(readerOutputWaitTicks)
             + " workerOutputWaitMs=" + TicksToMilliseconds(workerOutputWaitTicks)
             + " readQueueHighWatermark=" + readQueueHighWatermark
@@ -2503,9 +2515,9 @@ internal static class Lr2FullGenerationSyncService
         try
         {
             var stopwatch = Stopwatch.StartNew();
-            ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(existingSong.path);
+            ChartFileReadBuffer buffer = ChartFileContentReader.ReadBuffer(existingSong.path);
             stopwatch.Stop();
-            return new SongRowSyncReadCandidate(index, existingSong, snapshot, stopwatch.ElapsedTicks);
+            return new SongRowSyncReadCandidate(index, existingSong, buffer, stopwatch.ElapsedTicks);
         }
         catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException || ex is DecoderFallbackException)
         {
@@ -2521,8 +2533,10 @@ internal static class Lr2FullGenerationSyncService
         TimeSpan? chartInfoParseTimeout,
         ISet<string> currentChartInfoParseFailureMd5s)
     {
+        ChartFileSnapshot snapshot = CreateSyncSongRowSnapshot(candidate, out long digestTicks);
         BMSFile row = CreateSyncSongRow(
             candidate,
+            snapshot,
             textFileDirectories,
             out bool parsedFromSnapshot,
             out long parseTicks);
@@ -2540,12 +2554,13 @@ internal static class Lr2FullGenerationSyncService
             {
                 chartInfo = null;
             }
-            if (chartInfo == null && IsCurrentChartInfoParseFailure(row, candidate, currentChartInfoParseFailureMd5s))
+            if (chartInfo == null && IsCurrentChartInfoParseFailure(row, candidate, snapshot, currentChartInfoParseFailureMd5s))
             {
                 chartInfoParseFailureSkipped = true;
             }
             else if (chartInfo == null && TryBuildChartInfoFromSnapshot(
                 candidate,
+                snapshot,
                 chartInfoParseTimeout,
                 out generatedChartInfoRow,
                 out chartInfoParseFailureRow,
@@ -2574,6 +2589,7 @@ internal static class Lr2FullGenerationSyncService
             row,
             parsedFromSnapshot,
             candidate.ReadElapsedTicks,
+            digestTicks,
             parseTicks,
             chartInfoApplied,
             chartInfoTicks,
@@ -2585,9 +2601,34 @@ internal static class Lr2FullGenerationSyncService
             compatibilityTicks);
     }
 
+    private static ChartFileSnapshot CreateSyncSongRowSnapshot(
+        SongRowSyncReadCandidate candidate,
+        out long digestTicks)
+    {
+        digestTicks = 0L;
+        if (candidate?.Buffer == null)
+        {
+            return null;
+        }
+
+        try
+        {
+            var stopwatch = Stopwatch.StartNew();
+            ChartFileSnapshot snapshot = ChartFileContentReader.CreateSnapshot(candidate.Buffer);
+            stopwatch.Stop();
+            digestTicks = stopwatch.ElapsedTicks;
+            return snapshot;
+        }
+        catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException || ex is DecoderFallbackException)
+        {
+            return null;
+        }
+    }
+
     private static bool IsCurrentChartInfoParseFailure(
         BMSFile row,
         SongRowSyncReadCandidate candidate,
+        ChartFileSnapshot snapshot,
         ISet<string> currentChartInfoParseFailureMd5s)
     {
         if (currentChartInfoParseFailureMd5s == null || currentChartInfoParseFailureMd5s.Count == 0)
@@ -2597,14 +2638,15 @@ internal static class Lr2FullGenerationSyncService
 
         string md5 = !string.IsNullOrWhiteSpace(row?.hash)
             ? row.hash
-            : (!string.IsNullOrWhiteSpace(candidate?.Snapshot?.Md5)
-                ? candidate.Snapshot.Md5
+            : (!string.IsNullOrWhiteSpace(snapshot?.Md5)
+                ? snapshot.Md5
                 : candidate?.ExistingSong?.hash);
         return !string.IsNullOrWhiteSpace(md5) && currentChartInfoParseFailureMd5s.Contains(md5);
     }
 
     private static bool TryBuildChartInfoFromSnapshot(
         SongRowSyncReadCandidate candidate,
+        ChartFileSnapshot snapshot,
         TimeSpan? parseTimeout,
         out LR2SongDBExtended.chart_info row,
         out LR2SongDBExtended.chart_info_parse_failure parseFailureRow,
@@ -2613,7 +2655,6 @@ internal static class Lr2FullGenerationSyncService
         row = null;
         parseFailureRow = null;
         parseFailureDeleteMd5 = null;
-        ChartFileSnapshot snapshot = candidate?.Snapshot;
         if (snapshot == null || string.IsNullOrWhiteSpace(snapshot.Path))
         {
             return false;
@@ -2675,6 +2716,7 @@ internal static class Lr2FullGenerationSyncService
 
     private static BMSFile CreateSyncSongRow(
         SongRowSyncReadCandidate candidate,
+        ChartFileSnapshot snapshot,
         ISet<string> textFileDirectories,
         out bool parsedFromSnapshot,
         out long parseTicks)
@@ -2686,7 +2728,7 @@ internal static class Lr2FullGenerationSyncService
         {
             return null;
         }
-        if (candidate.Snapshot == null)
+        if (snapshot == null)
         {
             return CreateFallbackSyncSongRow(existingSong, textFileDirectories);
         }
@@ -2694,7 +2736,7 @@ internal static class Lr2FullGenerationSyncService
         try
         {
             var stopwatchParse = Stopwatch.StartNew();
-            BMSFile.BmsEncodingDetectionResult detectionResult = BMSFile.DetectEncodingOfBMSFileDetailed(candidate.Snapshot);
+            BMSFile.BmsEncodingDetectionResult detectionResult = BMSFile.DetectEncodingOfBMSFileDetailed(snapshot);
             string encodingName = ResolveSafeSyncParseEncoding(detectionResult);
             if (string.IsNullOrWhiteSpace(encodingName))
             {
@@ -2703,10 +2745,10 @@ internal static class Lr2FullGenerationSyncService
                 return CreateFallbackSyncSongRow(existingSong, textFileDirectories);
             }
 
-            BMSFile parsed = BMSFile.CreateBMSFileFromSnapshot(candidate.Snapshot, detectionResult);
+            BMSFile parsed = BMSFile.CreateBMSFileFromSnapshot(snapshot, detectionResult);
             Lr2SongRowEnricher.EnrichParsedSong(
                 parsed,
-                candidate.Snapshot,
+                snapshot,
                 ResolveTextGroupFlag(existingSong.path, textFileDirectories, existingSong.txt.GetValueOrDefault()),
                 existingSong);
             stopwatchParse.Stop();
@@ -3060,14 +3102,14 @@ internal static class Lr2FullGenerationSyncService
     private sealed class SongRowSyncReadCandidate(
         int index,
         BMSFile existingSong,
-        ChartFileSnapshot snapshot,
+        ChartFileReadBuffer buffer,
         long readElapsedTicks)
     {
         public int Index { get; } = index;
 
         public BMSFile ExistingSong { get; } = existingSong;
 
-        public ChartFileSnapshot Snapshot { get; } = snapshot;
+        public ChartFileReadBuffer Buffer { get; } = buffer;
 
         public long ReadElapsedTicks { get; } = readElapsedTicks;
     }
@@ -3077,6 +3119,7 @@ internal static class Lr2FullGenerationSyncService
         BMSFile row,
         bool parsedFromSnapshot,
         long readElapsedTicks,
+        long digestElapsedTicks,
         long parseElapsedTicks,
         bool chartInfoApplied,
         long chartInfoElapsedTicks,
@@ -3094,6 +3137,8 @@ internal static class Lr2FullGenerationSyncService
         public bool ParsedFromSnapshot { get; } = parsedFromSnapshot;
 
         public long ReadElapsedTicks { get; } = readElapsedTicks;
+
+        public long DigestElapsedTicks { get; } = digestElapsedTicks;
 
         public long ParseElapsedTicks { get; } = parseElapsedTicks;
 

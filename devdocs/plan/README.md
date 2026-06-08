@@ -8,6 +8,7 @@
 
 - `bmson/`: bmson 対応メジャーアップデートの計画と履歴。
 - `chart-file-read-consolidation-plan.md`: chart file read pipeline 整理の履歴。
+- `chart-file-read-pipeline-unification-plan.md`: 譜面 bytes read / hash / worker / writer pipeline 統一の次期計画。
 - `chart-info-metadata-bundle-import-plan.md`: metadata bundle import の設計履歴。
 - `chart-info-parse-failure-plan.md`: chart_info parse failure 扱いの設計履歴。
 - `empty-db-first-startup-optimization-plan.md`: 空 DB 初回起動最適化の履歴。

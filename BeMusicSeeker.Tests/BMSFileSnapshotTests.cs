@@ -51,6 +51,38 @@ public sealed class BMSFileSnapshotTests
     }
 
     [TestMethod]
+    public void CreateSnapshotFromReadBuffer_MatchesReadSnapshot()
+    {
+        WithTempDirectory(delegate (string tempDirectory)
+        {
+            string filePath = Path.Combine(tempDirectory, "chart.bms");
+            File.WriteAllText(filePath,
+                "#PLAYER 1\r\n"
+                + "#TITLE Buffered\r\n"
+                + "#ARTIST Reader\r\n"
+                + "#WAV01 keysound.wav\r\n"
+                + "#00111:01\r\n",
+                Encoding.GetEncoding("shift_jis"));
+            var lastWriteTimeUtc = new DateTime(2026, 6, 9, 1, 2, 3, DateTimeKind.Utc);
+            File.SetLastWriteTimeUtc(filePath, lastWriteTimeUtc);
+
+            ChartFileReadBuffer buffer = ChartFileContentReader.ReadBuffer(filePath);
+            ChartFileSnapshot fromBuffer = ChartFileContentReader.CreateSnapshot(buffer);
+            ChartFileSnapshot direct = ChartFileContentReader.ReadSnapshot(filePath);
+
+            Assert.AreEqual(direct.Path, buffer.Path);
+            Assert.AreEqual(direct.Length, buffer.Length);
+            Assert.AreEqual(direct.LastWriteTimeUtc, buffer.LastWriteTimeUtc);
+            Assert.AreEqual(direct.Path, fromBuffer.Path);
+            Assert.AreEqual(direct.Length, fromBuffer.Length);
+            Assert.AreEqual(direct.LastWriteTimeUtc, fromBuffer.LastWriteTimeUtc);
+            Assert.AreEqual(direct.Md5, fromBuffer.Md5);
+            Assert.AreEqual(direct.Sha256, fromBuffer.Sha256);
+            Assert.IsTrue(buffer.Bytes.SequenceEqual(fromBuffer.Bytes));
+        });
+    }
+
+    [TestMethod]
     public void CreateBMSFileFromSnapshot_MatchesFileApiForRepresentativeEncodings()
     {
         string[] encodings = ["shift_jis", "gb2312", "big5", "ks_c_5601-1987"];

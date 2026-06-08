@@ -9,6 +9,11 @@ internal static class ChartFileContentReader
 {
     public static ChartFileSnapshot ReadSnapshot(string path)
     {
+        return CreateSnapshot(ReadBuffer(path));
+    }
+
+    public static ChartFileReadBuffer ReadBuffer(string path)
+    {
         if (string.IsNullOrWhiteSpace(path))
         {
             throw new ArgumentNullException(nameof(path));
@@ -17,7 +22,17 @@ internal static class ChartFileContentReader
         string fullPath = Path.GetFullPath(path);
         byte[] bytes = File.ReadAllBytes(fullPath);
         DateTime lastWriteTimeUtc = File.GetLastWriteTimeUtc(fullPath);
-        return CreateSnapshot(fullPath, bytes, lastWriteTimeUtc);
+        return new ChartFileReadBuffer(fullPath, bytes, lastWriteTimeUtc);
+    }
+
+    internal static ChartFileSnapshot CreateSnapshot(ChartFileReadBuffer buffer)
+    {
+        if (buffer == null)
+        {
+            throw new ArgumentNullException(nameof(buffer));
+        }
+
+        return CreateSnapshot(buffer.Path, buffer.Bytes, buffer.LastWriteTimeUtc);
     }
 
     internal static ChartFileSnapshot CreateSnapshot(string path, byte[] bytes, DateTime lastWriteTimeUtc)
