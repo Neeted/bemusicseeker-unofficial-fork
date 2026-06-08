@@ -158,21 +158,33 @@ internal static class Lr2FolderFileDiscoveryService
         }
 
         var resultEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
-        foreach (RootFileEnumerationEntry entry in CreateEntrySurface(paths, entriesByPath).Values)
+        var seenPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (string path in paths ?? [])
         {
-            if (entry == null || string.IsNullOrWhiteSpace(entry.Path))
-            {
-                continue;
-            }
-
-            if (outputScopeMatcher.ContainsNormalizedFilePath(entry.Path))
-            {
-                excludedCount++;
-                continue;
-            }
-
-            resultEntries[entry.Path] = entry;
+            RootFileEnumerationEntry entry = entriesByPath != null
+                && entriesByPath.TryGetValue(path, out RootFileEnumerationEntry rawEntry)
+                    ? rawEntry
+                    : null;
+            AddFilteredEntry(
+                resultEntries,
+                seenPaths,
+                path,
+                entry,
+                outputScopeMatcher,
+                ref excludedCount);
         }
+
+        foreach (KeyValuePair<string, RootFileEnumerationEntry> pair in entriesByPath ?? new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase))
+        {
+            AddFilteredEntry(
+                resultEntries,
+                seenPaths,
+                pair.Key,
+                pair.Value,
+                outputScopeMatcher,
+                ref excludedCount);
+        }
+
 
         return new Lr2FolderFileCandidateSnapshot(
             [.. resultEntries.Keys.OrderBy(path => path, StringComparer.OrdinalIgnoreCase)],
@@ -237,6 +249,36 @@ internal static class Lr2FolderFileDiscoveryService
         }
 
         return result;
+    }
+
+    private static void AddFilteredEntry(
+        IDictionary<string, RootFileEnumerationEntry> result,
+        ISet<string> seenPaths,
+        string path,
+        RootFileEnumerationEntry entry,
+        Lr2DirectoryScopeMatcher excludedScopeMatcher,
+        ref int excludedCount)
+    {
+        if (result == null || seenPaths == null)
+        {
+            return;
+        }
+
+        string normalizedPath = SafeFullPathOrOriginal(!string.IsNullOrWhiteSpace(entry?.Path) ? entry.Path : path);
+        if (string.IsNullOrWhiteSpace(normalizedPath) || !seenPaths.Add(normalizedPath))
+        {
+            return;
+        }
+
+        if (excludedScopeMatcher?.ContainsNormalizedFilePath(normalizedPath) == true)
+        {
+            excludedCount++;
+            return;
+        }
+
+        result[normalizedPath] = entry == null
+            ? new RootFileEnumerationEntry(normalizedPath)
+            : new RootFileEnumerationEntry(normalizedPath, entry.LastWriteTimeUtc, entry.FileSize);
     }
 
     private static string SafeFullPathOrOriginal(string path)

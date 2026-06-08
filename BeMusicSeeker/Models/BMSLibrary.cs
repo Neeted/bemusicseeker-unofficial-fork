@@ -5288,7 +5288,7 @@ completeFileEnumerationOnce,
             Lr2FolderFileEntries = fileDiffCandidates.EntriesByPath,
             FolderInfoFilePaths = fileCheckResult.Lr2ScanFolderInfoFilePaths,
             FolderInfoFileEntries = fileCheckResult.Lr2ScanFolderInfoFileEntries,
-            DirectoryEntries = MergeLr2DirectoryEntrySurfaces(
+            DirectoryEntries = MergeMissingLr2DirectoryEntrySurface(
                 fileCheckResult.Lr2ScanDirectoryEntries,
                 fileCheckResult.Lr2ScanNormalFolderDirectoryEntries),
             Lr2FolderFileDiscoveryComplete = fileCheckResult.Lr2ScanLr2FolderFileDiscoveryComplete,
@@ -5524,7 +5524,7 @@ completeFileEnumerationOnce,
             request.Lr2FolderDiscoveryDirectories,
             parentDirectoryTargets);
         long entryMs = RestartElapsed(stopwatchStage);
-        request.DirectoryEntries = OverlayLr2DirectoryEntrySurface(
+        request.DirectoryEntries = MergeMissingLr2DirectoryEntrySurface(
             request.DirectoryEntries,
             parentDirectoryEntries);
         long overlayMs = RestartElapsed(stopwatchStage);
@@ -6921,7 +6921,7 @@ completeFileEnumerationOnce,
         IReadOnlyDictionary<string, RootFileEnumerationEntry> directoryEntries = scanSurface != null
             ? CreateLr2DirectoryEntriesFromSurfaceOrGroupedScan(
                 OverlayLr2DirectoryEntrySurface(
-                    MergeLr2DirectoryEntrySurfaces(scanSurface.DirectoryEntries, scanSurface.NormalFolderDirectoryEntries),
+                    MergeMissingLr2DirectoryEntrySurface(scanSurface.DirectoryEntries, scanSurface.NormalFolderDirectoryEntries),
                     preparedSurface.DirectoryEntries),
                 lr2FolderDiscoveryDirectories,
                 directoryEntryTargets)
@@ -7158,7 +7158,7 @@ completeFileEnumerationOnce,
             return;
         }
 
-        result.Lr2ScanDirectoryEntries = OverlayLr2DirectoryEntrySurface(
+        result.Lr2ScanDirectoryEntries = MergeMissingLr2DirectoryEntrySurface(
             result.Lr2ScanDirectoryEntries,
             directoryEntries);
     }
@@ -7809,6 +7809,51 @@ completeFileEnumerationOnce,
         var result = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
         AddDirectoryEntries(result, baseEntries, overwriteExisting: false);
         AddDirectoryEntries(result, overlayEntries, overwriteExisting: true);
+        return result;
+    }
+
+    private static IReadOnlyDictionary<string, RootFileEnumerationEntry> MergeMissingLr2DirectoryEntrySurface(
+        IReadOnlyDictionary<string, RootFileEnumerationEntry> baseEntries,
+        IReadOnlyDictionary<string, RootFileEnumerationEntry> additions)
+    {
+        if (additions == null || additions.Count == 0)
+        {
+            return baseEntries ?? new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        Dictionary<string, RootFileEnumerationEntry> result = null;
+        foreach (KeyValuePair<string, RootFileEnumerationEntry> pair in additions)
+        {
+            RootFileEnumerationEntry entry = pair.Value;
+            string path = Lr2FolderPath.NormalizeDirectoryPath(!string.IsNullOrWhiteSpace(entry?.Path) ? entry.Path : pair.Key);
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                continue;
+            }
+
+            RootFileEnumerationEntry next = entry == null
+                ? new RootFileEnumerationEntry(path)
+                : new RootFileEnumerationEntry(path, entry.LastWriteTimeUtc, entry.FileSize);
+            bool shouldApply = baseEntries == null
+                || !baseEntries.TryGetValue(path, out RootFileEnumerationEntry existing)
+                || existing.LastWriteTimeUtc == null && next.LastWriteTimeUtc != null;
+            if (!shouldApply)
+            {
+                continue;
+            }
+
+            result ??= CopyLr2DirectoryEntrySurface(baseEntries);
+            result[path] = next;
+        }
+
+        return result ?? baseEntries ?? new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static Dictionary<string, RootFileEnumerationEntry> CopyLr2DirectoryEntrySurface(
+        IReadOnlyDictionary<string, RootFileEnumerationEntry> entries)
+    {
+        var result = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
+        AddDirectoryEntries(result, entries, overwriteExisting: false);
         return result;
     }
 

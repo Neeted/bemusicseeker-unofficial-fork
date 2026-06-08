@@ -162,6 +162,36 @@ public sealed class Lr2FolderFileDiscoveryServiceTests
     }
 
     [TestMethod]
+    public void ExcludeAppManagedOutputCandidates_IncludesEntryOnlyExternalCandidates()
+    {
+        using TestDirectoryScope scope = TestDirectoryScope.Create();
+        string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
+        string outputBase = Path.Combine(rootDirectory, "#BeMusicSeekerOutput");
+        string managedDirectory = Path.Combine(outputBase, "Table");
+        string managedEntryOnlyPath = Path.Combine(managedDirectory, "managed.lr2folder");
+        string externalEntryOnlyPath = Path.Combine(rootDirectory, "External", "entry_only.lr2folder");
+        string listedPath = Path.Combine(rootDirectory, "Listed", "listed.lr2folder");
+        var entries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase)
+        {
+            [managedEntryOnlyPath] = new RootFileEnumerationEntry(managedEntryOnlyPath),
+            [externalEntryOnlyPath] = new RootFileEnumerationEntry(externalEntryOnlyPath)
+        };
+
+        Lr2FolderFileCandidateSnapshot filtered =
+            Lr2FolderFileDiscoveryService.ExcludeAppManagedOutputCandidates(
+                [listedPath],
+                entries,
+                [managedDirectory],
+                discoveryComplete: true,
+                out int excludedCount);
+
+        Assert.AreEqual(1, excludedCount);
+        CollectionAssert.Contains(filtered.Paths.ToList(), Path.GetFullPath(listedPath));
+        CollectionAssert.Contains(filtered.Paths.ToList(), Path.GetFullPath(externalEntryOnlyPath));
+        CollectionAssert.DoesNotContain(filtered.Paths.ToList(), Path.GetFullPath(managedEntryOnlyPath));
+    }
+
+    [TestMethod]
     public void CreatePruneDirectories_AddsRelativeBuiltinScopeOnlyWhenBuiltinSourceExists()
     {
         using TestDirectoryScope scope = TestDirectoryScope.Create();

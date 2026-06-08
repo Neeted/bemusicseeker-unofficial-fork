@@ -20,15 +20,42 @@ internal static class Lr2FolderDirectoryEnumerationService
         }
 
         var entries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
+        var missingTargets = new HashSet<string>(targetSet, StringComparer.OrdinalIgnoreCase);
+        foreach (string target in targetSet)
+        {
+            if (!sourceEntries.TryGetValue(target, out RootFileEnumerationEntry sourceEntry))
+            {
+                continue;
+            }
+
+            string key = Lr2FolderPath.NormalizeDirectoryPath(sourceEntry?.Path);
+            if (!string.Equals(key, target, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            entries[target] = new RootFileEnumerationEntry(target, sourceEntry.LastWriteTimeUtc, sourceEntry.FileSize);
+            missingTargets.Remove(target);
+        }
+        if (missingTargets.Count == 0)
+        {
+            return entries;
+        }
+
         foreach (RootFileEnumerationEntry sourceEntry in sourceEntries.Values)
         {
             string key = Lr2FolderPath.NormalizeDirectoryPath(sourceEntry?.Path);
-            if (string.IsNullOrWhiteSpace(key) || !targetSet.Contains(key))
+            if (string.IsNullOrWhiteSpace(key) || !missingTargets.Contains(key))
             {
                 continue;
             }
 
             entries[key] = new RootFileEnumerationEntry(key, sourceEntry.LastWriteTimeUtc, sourceEntry.FileSize);
+            missingTargets.Remove(key);
+            if (missingTargets.Count == 0)
+            {
+                break;
+            }
         }
         return entries;
     }
