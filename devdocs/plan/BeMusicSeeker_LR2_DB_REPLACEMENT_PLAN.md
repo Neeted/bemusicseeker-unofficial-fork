@@ -1731,10 +1731,21 @@ Everything / filesystem 広域再スキャンを始める入口ではない。su
      `existingRows=12094`、`preserved=1265`、`elapsedMs=871` まで下がった。旧ログでは
      app-managed 除外後でも `existingRows=45854`、`elapsedMs=2176` 程度だったため、normal folder row を
      prune scan で広く読む問題は解消済み。
-   - 一部完了: normal folder mtime diff は `folder` row 全列 materialize から `path` / `type` / `date`
-     projection へ縮小した。ただし 2026-06-08 の実機 Release 起動では `directories=33205` /
-     `elapsedMs=1576` で、まだ Everything 完了後の直列区間に残っている。次は startup generation 内で
-     song / folder hot path snapshot を共有するか、scan 待ち不要な DB read を Everything scan 裏へ前倒しする。
+   - 完了: normal folder mtime diff は `folder` row 全列 materialize から `path` / `type` / `date`
+     projection へ縮小し、さらに startup phase1 の catalog load 完了後に `type = 1` の prefix snapshot を
+     Everything scan 裏で前倒し取得する。`ApplyFileScanDiff` は snapshot task を file diff 開始時に待たず、
+     normal folder mtime 判定の直前でだけ resolver を呼ぶため、resource index build、current row indexing、
+     BMS / bmson target selection、parse / no-op commit 判定と DB snapshot read が重なる。
+     ログは `lr2_normal_folder_mtime_snapshot_prefetch`、`lr2_normal_folder_mtime_snapshot_prefetch_wait`、
+     `lr2_normal_folder_mtime_diff prefetched=true` で確認する。
+     2026-06-08 の実機 Release 起動では、snapshot prefetch は `existingRows=33250` / `elapsedMs=417`、
+     consume wait は `waitMs=0`、mtime diff は `directories=33205` / `prefetched=true` /
+     `elapsedMs=1455` だった。DB read の前倒しは効いているが、directory exact path set 作成と
+     33k rows の change-state 比較がまだ post-scan 直列区間に残っている。
+   - 次候補: file diff の current BMS / bmson row list、deleted row md5 queue、bmson `path` / `updated_at`
+     lookup は既に catalog load の結果を使っているが、処理単位ごとに map を再構築している。
+     scan 結果待ち不要な compact current-row snapshot を startup generation で共有し、Everything scan 完了後の
+     `diff_current_index_ms` / `diff_bms_target_ms` / `diff_bmson_target_ms` をさらに短くできるか実ログで確認する。
    - 完了: 完全生成 completed 後の通常 file diff でも `.txt` surface が有効な場合だけ
       `song.txt` flag を比較し、surface が無い完全生成 OFF / standalone 相当では既存 `txt` を保持する。
       manual full generation input で scan surface が無い場合は grouped text metadata surface から

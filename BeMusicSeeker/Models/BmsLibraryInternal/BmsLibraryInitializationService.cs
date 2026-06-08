@@ -16,6 +16,27 @@ using SQLite;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
+internal sealed class Lr2NormalFolderMtimeSnapshot(
+    IReadOnlyList<string> rootDirectories,
+    IReadOnlyDictionary<string, LR2SongDB.folder> existingRowsByPath,
+    bool readOnly,
+    long dbLockWaitMs,
+    long elapsedMs)
+{
+    public IReadOnlyList<string> RootDirectories { get; } = rootDirectories ?? [];
+
+    public IReadOnlyDictionary<string, LR2SongDB.folder> ExistingRowsByPath { get; } =
+        existingRowsByPath ?? new Dictionary<string, LR2SongDB.folder>(StringComparer.OrdinalIgnoreCase);
+
+    public int ExistingRowCount => ExistingRowsByPath.Count;
+
+    public bool ReadOnly { get; } = readOnly;
+
+    public long DbLockWaitMs { get; } = dbLockWaitMs;
+
+    public long ElapsedMs { get; } = elapsedMs;
+}
+
 /// <summary>
 /// Loads initialization phases against snapshot inputs owned by BMSLibrary.
 /// The facade must acquire the required locks before invoking phase methods.
@@ -300,6 +321,53 @@ internal sealed class BmsLibraryInitializationService
         return result;
     }
 
+    public Lr2NormalFolderMtimeSnapshot LoadNormalFolderMtimeSnapshot(
+        BmsLibraryDbGateway dbGateway,
+        BmsLibraryOptionsSnapshot options,
+        IEnumerable<string> rootDirectories,
+        Action<string> logInstallPerformance = null)
+    {
+        if (dbGateway == null
+            || options?.OperationModeLR2DB != true
+            || options.EnableLR2SongDbFullGeneration != true)
+        {
+            return null;
+        }
+
+        var stopwatch = Stopwatch.StartNew();
+        List<string> roots = NormalizeNormalFolderMtimeRoots(rootDirectories);
+        if (roots.Count == 0)
+        {
+            stopwatch.Stop();
+            return new Lr2NormalFolderMtimeSnapshot(
+                roots,
+                new Dictionary<string, LR2SongDB.folder>(StringComparer.OrdinalIgnoreCase),
+                readOnly: false,
+                dbLockWaitMs: 0L,
+                stopwatch.ElapsedMilliseconds);
+        }
+
+        using LR2SongDBExtended songDb = dbGateway.OpenSongDb();
+        IReadOnlyList<LR2SongDB.folder> rows = Lr2FolderExistingRowLookup.QueryNormalFolderMtimePathPrefixScopes(
+            songDb,
+            roots.Select(Lr2FolderPath.ToFolderPath));
+        Dictionary<string, LR2SongDB.folder> rowsByPath = CreateExistingNormalFolderRowMap(rows);
+        stopwatch.Stop();
+        var snapshot = new Lr2NormalFolderMtimeSnapshot(
+            roots,
+            rowsByPath,
+            songDb.IsReadOnlyConnection,
+            songDb.ProcessLockWaitMs,
+            stopwatch.ElapsedMilliseconds);
+        logInstallPerformance?.Invoke("lr2_normal_folder_mtime_snapshot_prefetch"
+            + " roots=" + snapshot.RootDirectories.Count
+            + " existingRows=" + snapshot.ExistingRowCount
+            + " readOnly=" + snapshot.ReadOnly.ToString().ToLowerInvariant()
+            + " dbLockWaitMs=" + snapshot.DbLockWaitMs
+            + " elapsedMs=" + snapshot.ElapsedMs);
+        return snapshot;
+    }
+
     public SongTableFileCheckResult ApplyFileScanDiff(
         BmsLibraryDbGateway dbGateway,
         BmsLibraryOptionsSnapshot options,
@@ -320,7 +388,9 @@ internal sealed class BmsLibraryInitializationService
         IEnumerable<ChartFile> currentInstallDestinationCharts = null,
         IEnumerable<string> lr2NormalFolderSyncRootDirectories = null,
         IEnumerable<string> lr2FolderDiscoveryRootDirectories = null,
-        Lr2BuiltinCustomFolderSettings lr2BuiltinCustomFolderSettings = null)
+        Lr2BuiltinCustomFolderSettings lr2BuiltinCustomFolderSettings = null,
+        Lr2NormalFolderMtimeSnapshot normalFolderMtimeSnapshot = null,
+        Func<Lr2NormalFolderMtimeSnapshot> normalFolderMtimeSnapshotProvider = null)
     {
         var result = new SongTableFileCheckResult();
         var stopwatchScan = Stopwatch.StartNew();
@@ -694,19 +764,22 @@ internal sealed class BmsLibraryInitializationService
                 result.InlineChartInfoParseFailureDeleteMd5s.Clear();
             }
         }
+        normalFolderMtimeSnapshot ??= normalFolderMtimeSnapshotProvider?.Invoke();
         Lr2NormalFolderMtimeDiffResult normalFolderMtimeDiff = CreateChangedNormalFolderDirectoryPaths(
             dbGateway,
             options,
             lr2NormalFolderSyncRootDirectories,
             result.Lr2ScanNormalFolderDirectoryPaths,
             result.DeletedPaths,
-            result.Lr2ScanNormalFolderDirectoryEntries);
+            result.Lr2ScanNormalFolderDirectoryEntries,
+            normalFolderMtimeSnapshot);
         if (normalFolderMtimeDiff != null)
         {
             logInstallPerformance?.Invoke("lr2_normal_folder_mtime_diff"
                 + " roots=" + normalFolderMtimeDiff.RootCount
                 + " directories=" + normalFolderMtimeDiff.DirectoryCount
                 + " existingRows=" + normalFolderMtimeDiff.ExistingRowCount
+                + " prefetched=" + normalFolderMtimeDiff.PrefetchedSnapshotUsed.ToString().ToLowerInvariant()
                 + " changed=" + normalFolderMtimeDiff.ChangedDirectoryPaths.Count
                 + " pruneScopes=" + normalFolderMtimeDiff.PruneScopeDirectoryPaths.Count
                 + " missingRows=" + normalFolderMtimeDiff.MissingRowCount
@@ -1009,7 +1082,8 @@ internal sealed class BmsLibraryInitializationService
         IEnumerable<string> rootDirectories,
         IEnumerable<string> currentNormalFolderDirectoryPaths,
         IEnumerable<string> deletedBmsPaths,
-        IReadOnlyDictionary<string, RootFileEnumerationEntry> currentDirectoryEntries)
+        IReadOnlyDictionary<string, RootFileEnumerationEntry> currentDirectoryEntries,
+        Lr2NormalFolderMtimeSnapshot prefetchedSnapshot = null)
     {
         if (dbGateway == null
             || options?.OperationModeLR2DB != true
@@ -1019,10 +1093,7 @@ internal sealed class BmsLibraryInitializationService
         }
 
         var stopwatch = Stopwatch.StartNew();
-        List<string> roots = [.. (rootDirectories ?? [])
-            .Select(Lr2FolderPath.NormalizeDirectoryPath)
-            .Where(path => !string.IsNullOrWhiteSpace(path))
-            .Distinct(StringComparer.OrdinalIgnoreCase)];
+        List<string> roots = NormalizeNormalFolderMtimeRoots(rootDirectories);
         List<string> directories = [.. (currentNormalFolderDirectoryPaths ?? [])
             .Select(Lr2FolderPath.NormalizeDirectoryPath)
             .Where(path => !string.IsNullOrWhiteSpace(path))
@@ -1044,6 +1115,7 @@ internal sealed class BmsLibraryInitializationService
                 existingRowCount: 0,
                 missingRowCount: 0,
                 missingMetadataCount: 0,
+                prefetchedSnapshotUsed: false,
                 changedDirectoryPaths: [],
                 pruneScopeDirectoryPaths: [],
                 stopwatch.ElapsedMilliseconds);
@@ -1054,9 +1126,10 @@ internal sealed class BmsLibraryInitializationService
             .Select(Lr2FolderPath.ToFolderPath)
             .Where(path => !string.IsNullOrWhiteSpace(path))
             .Distinct(StringComparer.Ordinal)];
-        using LR2SongDBExtended songDb = dbGateway.OpenSongDb();
-        Dictionary<string, LR2SongDB.folder> existingRowsByPath = CreateExistingNormalFolderRowMap(
-            Lr2FolderExistingRowLookup.QueryExactPathsForNormalFolderMtime(songDb, exactPaths));
+        bool prefetchedSnapshotUsed = CanUseNormalFolderMtimeSnapshot(prefetchedSnapshot, roots);
+        Dictionary<string, LR2SongDB.folder> existingRowsByPath = prefetchedSnapshotUsed
+            ? CreateExistingNormalFolderRowMap(prefetchedSnapshot, exactPaths)
+            : CreateExistingNormalFolderRowMapFromDb(dbGateway, exactPaths);
 
         var changed = new List<string>();
         var pruneScopes = new List<string>();
@@ -1118,9 +1191,65 @@ internal sealed class BmsLibraryInitializationService
             existingRowsByPath.Count,
             missingRowCount,
             missingMetadataCount,
+            prefetchedSnapshotUsed,
             [.. changed.Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(path => path, StringComparer.OrdinalIgnoreCase)],
             [.. pruneScopes.Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(path => path, StringComparer.OrdinalIgnoreCase)],
             stopwatch.ElapsedMilliseconds);
+    }
+
+    private static List<string> NormalizeNormalFolderMtimeRoots(IEnumerable<string> rootDirectories)
+    {
+        return [.. (rootDirectories ?? [])
+            .Select(Lr2FolderPath.NormalizeDirectoryPath)
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
+    }
+
+    private static Dictionary<string, LR2SongDB.folder> CreateExistingNormalFolderRowMapFromDb(
+        BmsLibraryDbGateway dbGateway,
+        IReadOnlyCollection<string> exactPaths)
+    {
+        using LR2SongDBExtended songDb = dbGateway.OpenSongDb();
+        return CreateExistingNormalFolderRowMap(
+            Lr2FolderExistingRowLookup.QueryExactPathsForNormalFolderMtime(songDb, exactPaths));
+    }
+
+    private static bool CanUseNormalFolderMtimeSnapshot(
+        Lr2NormalFolderMtimeSnapshot snapshot,
+        IReadOnlyCollection<string> roots)
+    {
+        if (snapshot?.ExistingRowsByPath == null || roots == null || roots.Count == 0)
+        {
+            return false;
+        }
+
+        return roots.All(root => snapshot.RootDirectories.Any(snapshotRoot =>
+            string.Equals(root, snapshotRoot, StringComparison.OrdinalIgnoreCase)));
+    }
+
+    private static Dictionary<string, LR2SongDB.folder> CreateExistingNormalFolderRowMap(
+        Lr2NormalFolderMtimeSnapshot snapshot,
+        IEnumerable<string> exactPaths)
+    {
+        var result = new Dictionary<string, LR2SongDB.folder>(StringComparer.OrdinalIgnoreCase);
+        if (snapshot?.ExistingRowsByPath == null)
+        {
+            return result;
+        }
+
+        foreach (string exactPath in exactPaths ?? [])
+        {
+            string key = Lr2FolderPath.ToFolderPath(exactPath);
+            if (!string.IsNullOrWhiteSpace(key)
+                && snapshot.ExistingRowsByPath.TryGetValue(key, out LR2SongDB.folder row)
+                && row != null
+                && !result.ContainsKey(key))
+            {
+                result[key] = row;
+            }
+        }
+        return result;
     }
 
     private static Lr2NormalFolderDirectoryChangeState ResolveNormalFolderDirectoryChangeState(
@@ -1185,6 +1314,7 @@ internal sealed class BmsLibraryInitializationService
         int existingRowCount,
         int missingRowCount,
         int missingMetadataCount,
+        bool prefetchedSnapshotUsed,
         IReadOnlyList<string> changedDirectoryPaths,
         IReadOnlyList<string> pruneScopeDirectoryPaths,
         long elapsedMs)
@@ -1198,6 +1328,8 @@ internal sealed class BmsLibraryInitializationService
         public int MissingRowCount { get; } = missingRowCount;
 
         public int MissingMetadataCount { get; } = missingMetadataCount;
+
+        public bool PrefetchedSnapshotUsed { get; } = prefetchedSnapshotUsed;
 
         public IReadOnlyList<string> ChangedDirectoryPaths { get; } = changedDirectoryPaths ?? [];
 
