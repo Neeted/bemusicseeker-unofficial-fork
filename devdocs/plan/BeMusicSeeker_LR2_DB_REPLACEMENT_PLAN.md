@@ -1753,6 +1753,9 @@ Everything / filesystem 広域再スキャンを始める入口ではない。su
    - 完了: `songStageMs` はさらに `songChanged` / `songUpdated` / `songInserted` と
      `songEnrichMs` / `songTempMs` / `songPreviousHashMs` / `songUpdateMs` / `songInsertMs` /
      `songDigestUpsertMs` / `songDigestCleanupMs` / `songTempCleanupMs` に分解して出す。
+   - 完了: full-generation song writer は `UpsertSongRows` の schema ensure を contract とし、
+     chunk ごとの `chart_digest_map` table creation / `song` / `bmson_song` existence probe を行わない。
+     単発 mutation API では schema probe を維持する。
    - `maintenance` の LR2 compatibility facts は、chunk temp table から全 `maintenance` row へ
      correlated subquery を繰り返す形にしない。`path` indexed lookup と changed-only update /
      missing-row insert に寄せ、同一値 row は update しない。完了。

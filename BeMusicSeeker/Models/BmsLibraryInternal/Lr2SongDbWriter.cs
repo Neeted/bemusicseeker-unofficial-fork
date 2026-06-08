@@ -234,12 +234,12 @@ internal static class Lr2SongDbWriter
         long insertStageMs = stageStopwatch.ElapsedMilliseconds;
 
         stageStopwatch.Restart();
-        UpsertChartDigests(songDb, rows);
+        UpsertChartDigests(songDb, rows, ensureTable: false);
         stageStopwatch.Stop();
         long digestUpsertStageMs = stageStopwatch.ElapsedMilliseconds;
 
         stageStopwatch.Restart();
-        DeleteOrphanedChartDigestsFromTemp(songDb, TempDeletedSongHashTable);
+        DeleteOrphanedChartDigestsFromTemp(songDb, TempDeletedSongHashTable, assumeLiveTablesExist: true);
         stageStopwatch.Stop();
         long digestCleanupStageMs = stageStopwatch.ElapsedMilliseconds;
 
@@ -762,7 +762,10 @@ internal static class Lr2SongDbWriter
             + songAlias + "." + sqlColumn + " IS NOT " + tempAlias + "." + sqlColumn + ")";
     }
 
-    private static void UpsertChartDigests(LR2SongDBExtended songDb, IEnumerable<BMSFile> songs)
+    private static void UpsertChartDigests(
+        LR2SongDBExtended songDb,
+        IEnumerable<BMSFile> songs,
+        bool ensureTable = true)
     {
         var digestsByMd5 = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (BMSFile song in songs ?? [])
@@ -781,7 +784,10 @@ internal static class Lr2SongDbWriter
         string digestTable = SQLiteTable<LR2SongDBExtended.chart_digest_map>.GetTableName();
         string digestMd5Column = SQLiteTable<LR2SongDBExtended.chart_digest_map>.GetColumnName(row => row.md5);
         string digestSha256Column = SQLiteTable<LR2SongDBExtended.chart_digest_map>.GetColumnName(row => row.sha256);
-        songDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
+        if (ensureTable)
+        {
+            songDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
+        }
 
         const int chunkSize = 400;
         List<KeyValuePair<string, string>> digests = [.. digestsByMd5];
@@ -837,7 +843,10 @@ internal static class Lr2SongDbWriter
         }
     }
 
-    private static void DeleteOrphanedChartDigestsFromTemp(LR2SongDBExtended songDb, string tempHashTableName)
+    private static void DeleteOrphanedChartDigestsFromTemp(
+        LR2SongDBExtended songDb,
+        string tempHashTableName,
+        bool assumeLiveTablesExist = false)
     {
         string digestTable = SQLiteTable<LR2SongDBExtended.chart_digest_map>.GetTableName();
         string digestMd5Column = SQLiteTable<LR2SongDBExtended.chart_digest_map>.GetColumnName(row => row.md5);
@@ -845,19 +854,19 @@ internal static class Lr2SongDbWriter
         string songHashColumn = SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.hash);
         string bmsonTable = SQLiteTable<LR2SongDBExtended.bmson_song>.GetTableName();
         string bmsonMd5Column = SQLiteTable<LR2SongDBExtended.bmson_song>.GetColumnName(row => row.md5);
-        if (!TableExists(songDb, digestTable))
+        if (!assumeLiveTablesExist && !TableExists(songDb, digestTable))
         {
             return;
         }
 
         var liveExistsClauses = new List<string>();
-        if (TableExists(songDb, songTable))
+        if (assumeLiveTablesExist || TableExists(songDb, songTable))
         {
             liveExistsClauses.Add(
                 "EXISTS (SELECT 1 FROM " + songTable + " s WHERE s." + songHashColumn
                 + " = " + digestTable + "." + digestMd5Column + ")");
         }
-        if (TableExists(songDb, bmsonTable))
+        if (assumeLiveTablesExist || TableExists(songDb, bmsonTable))
         {
             liveExistsClauses.Add(
                 "EXISTS (SELECT 1 FROM " + bmsonTable + " b WHERE b." + bmsonMd5Column

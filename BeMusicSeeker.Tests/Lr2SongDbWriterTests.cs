@@ -498,6 +498,7 @@ public sealed class Lr2SongDbWriterTests
 
     private static void PrepareFullGenerationSongWriterSchema(LR2SongDBExtended songDb)
     {
+        BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
         BmsLibraryDbGateway.EnsureSongLookupIndexes(songDb);
     }
 
