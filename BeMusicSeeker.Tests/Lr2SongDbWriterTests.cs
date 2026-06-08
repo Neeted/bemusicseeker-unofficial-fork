@@ -224,7 +224,6 @@ public sealed class Lr2SongDbWriterTests
         {
             using var songDb = new LR2SongDBExtended(songDbPath);
             PrepareFullGenerationSongWriterSchema(songDb);
-            songDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
             TestableBmsFile file = CreateSong(@"D:\BMS\Pack\unchanged-digest-write.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Title");
             file.SetSha256(Sha('1'));
             Assert.IsTrue(Lr2SongDbWriter.UpsertGeneratedSong(songDb, file));
@@ -272,7 +271,6 @@ public sealed class Lr2SongDbWriterTests
         {
             using var songDb = new LR2SongDBExtended(songDbPath);
             PrepareFullGenerationSongWriterSchema(songDb);
-            songDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
             TestableBmsFile file = CreateSong(@"D:\BMS\Pack\changed-digest-only.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Title");
             file.SetSha256(Sha('1'));
             Assert.IsTrue(Lr2SongDbWriter.UpsertGeneratedSong(songDb, file));
