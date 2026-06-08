@@ -1146,6 +1146,8 @@ public class BMSLibrary : NotificationObject
     private Lr2FullGenerationPreparedDataSurface lr2FullGenerationPreparedDataSurface =
         Lr2FullGenerationPreparedDataSurface.Empty;
 
+    private int lr2FullGenerationPreparedDataSurfaceAppliedScanGeneration;
+
     private int chartInfoHydrationRequestedVersion;
 
     private readonly object lockDeferredScoreHydration = new();
@@ -5500,6 +5502,7 @@ completeFileEnumerationOnce,
             {
                 previousGeneration = lr2FullGenerationScanSurfaceSnapshot?.Generation ?? 0;
                 lr2FullGenerationScanSurfaceSnapshot = null;
+                lr2FullGenerationPreparedDataSurfaceAppliedScanGeneration = 0;
             }
             LogInstallPerformance("lr2_full_generation_scan_surface skipped"
                 + " reason=missing_lr2folder_surface"
@@ -5531,6 +5534,7 @@ completeFileEnumerationOnce,
                 Volatile.Read(ref bmsStorageRowsVersion),
                 Volatile.Read(ref bmsonStorageRowsVersion));
             lr2FullGenerationScanSurfaceSnapshot = snapshot;
+            lr2FullGenerationPreparedDataSurfaceAppliedScanGeneration = 0;
         }
         LogInstallPerformance("lr2_full_generation_scan_surface captured"
             + " generation=" + snapshot.Generation
@@ -5567,6 +5571,7 @@ completeFileEnumerationOnce,
             lockWaitStopwatch.Stop();
             lockWaitMs = lockWaitStopwatch.ElapsedMilliseconds;
             lr2FullGenerationPreparedDataSurface = preparedSurface;
+            lr2FullGenerationPreparedDataSurfaceAppliedScanGeneration = 0;
             snapshot = lr2FullGenerationScanSurfaceSnapshot;
             if (snapshot == null)
             {
@@ -5646,6 +5651,7 @@ completeFileEnumerationOnce,
                         snapshot.BmsRowsVersion,
                         snapshot.BmsonRowsVersion);
                     lr2FullGenerationScanSurfaceSnapshot = snapshot;
+                    lr2FullGenerationPreparedDataSurfaceAppliedScanGeneration = generation;
                 }
             }
         }
@@ -5685,6 +5691,7 @@ completeFileEnumerationOnce,
         {
             hadSurface = lr2FullGenerationPreparedDataSurface?.HasPreparedDataSurface == true;
             lr2FullGenerationPreparedDataSurface = Lr2FullGenerationPreparedDataSurface.Empty;
+            lr2FullGenerationPreparedDataSurfaceAppliedScanGeneration = 0;
         }
         if (hadSurface)
         {
@@ -5692,13 +5699,16 @@ completeFileEnumerationOnce,
         }
     }
 
-    private Lr2FullGenerationPreparedDataSurface TakeLr2FullGenerationPreparedDataSurface()
+    private Lr2FullGenerationPreparedDataSurface TakeLr2FullGenerationPreparedDataSurface(
+        out int appliedScanSurfaceGeneration)
     {
         lock (lockLr2FullGenerationScanSurface)
         {
             Lr2FullGenerationPreparedDataSurface surface = lr2FullGenerationPreparedDataSurface
                 ?? Lr2FullGenerationPreparedDataSurface.Empty;
+            appliedScanSurfaceGeneration = lr2FullGenerationPreparedDataSurfaceAppliedScanGeneration;
             lr2FullGenerationPreparedDataSurface = Lr2FullGenerationPreparedDataSurface.Empty;
+            lr2FullGenerationPreparedDataSurfaceAppliedScanGeneration = 0;
             return surface;
         }
     }
@@ -6730,7 +6740,14 @@ completeFileEnumerationOnce,
             : Lr2NormalFolderDbSyncService.CreateDirectoryMetadataTargets(roots, chartPaths);
         directoryTargetsStopwatch.Stop();
 
-        Lr2FullGenerationPreparedDataSurface preparedSurface = TakeLr2FullGenerationPreparedDataSurface();
+        Lr2FullGenerationPreparedDataSurface pendingPreparedSurface =
+            TakeLr2FullGenerationPreparedDataSurface(out int preparedSurfaceAppliedScanGeneration);
+        bool preparedSurfaceAlreadyAppliedToScanSurface = scanSurface != null
+            && pendingPreparedSurface?.HasPreparedDataSurface == true
+            && preparedSurfaceAppliedScanGeneration == scanSurface.Generation;
+        Lr2FullGenerationPreparedDataSurface preparedSurface = preparedSurfaceAlreadyAppliedToScanSurface
+            ? Lr2FullGenerationPreparedDataSurface.Empty
+            : pendingPreparedSurface;
         bool hasPreparedSurface = preparedSurface?.HasPreparedDataSurface == true;
         bool hasPreparedLr2FolderSurface = preparedSurface?.HasLr2FolderSurface == true;
         bool reusedLr2FolderSurface = scanSurface?.Lr2FolderFileDiscoveryComplete == true;
@@ -6843,6 +6860,13 @@ completeFileEnumerationOnce,
             + " reusedLr2FolderSurface=" + reusedLr2FolderSurface.ToString().ToLowerInvariant()
             + " hasPreparedSurface=" + hasPreparedSurface.ToString().ToLowerInvariant()
             + " hasPreparedLr2FolderSurface=" + hasPreparedLr2FolderSurface.ToString().ToLowerInvariant()
+            + " preparedSurfaceAlreadyAppliedToScanSurface=" + preparedSurfaceAlreadyAppliedToScanSurface.ToString().ToLowerInvariant()
+            + " preparedSurfaceAppliedScanGeneration=" + preparedSurfaceAppliedScanGeneration
+            + " pendingPreparedScopeDirs=" + (pendingPreparedSurface?.Lr2FolderScopeDirectories?.Count ?? 0)
+            + " pendingPreparedLr2FolderCandidates=" + (pendingPreparedSurface?.Lr2FolderFilePaths?.Count ?? 0)
+            + " pendingPreparedDirectoryEntries=" + (pendingPreparedSurface?.DirectoryEntries?.Count ?? 0)
+            + " pendingPreparedFolderInfoCandidates=" + (pendingPreparedSurface?.FolderInfoFilePaths?.Count ?? 0)
+            + " pendingPreparedTextFileDirs=" + (pendingPreparedSurface?.TextFileDirectories?.Count ?? 0)
             + " preparedDirectoryEntries=" + (preparedSurface?.DirectoryEntries?.Count ?? 0)
             + " preparedFolderInfoCandidates=" + (preparedSurface?.FolderInfoFilePaths?.Count ?? 0)
             + " preparedTextFileDirs=" + (preparedSurface?.TextFileDirectories?.Count ?? 0)

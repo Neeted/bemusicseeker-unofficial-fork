@@ -1424,8 +1424,15 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                     File.WriteAllText(lr2FolderPath, "#TITLE Prepared Folder", Encoding.GetEncoding("shift_jis"));
                     return CreatePreparedLr2FolderSurface(outputBase, lr2FolderPath);
                 }));
+            int appliedScanSurfaceGeneration = GetPrivateIntField(
+                library,
+                "lr2FullGenerationPreparedDataSurfaceAppliedScanGeneration");
             object input = InvokeCreateLr2FullGenerationSyncInput(library);
-            Assert.IsTrue(GetInputInt(input, "ScanSurfaceGeneration") > 0);
+            Assert.IsTrue(appliedScanSurfaceGeneration > 0);
+            Assert.AreEqual(appliedScanSurfaceGeneration, GetInputInt(input, "ScanSurfaceGeneration"));
+            Assert.AreEqual(
+                0,
+                GetPrivateIntField(library, "lr2FullGenerationPreparedDataSurfaceAppliedScanGeneration"));
             CollectionAssert.Contains(GetInputStringList(input, "FolderInfoFilePaths").ToList(), folderInfoPath);
             CollectionAssert.Contains(GetInputStringList(input, "TextFileDirectories").ToList(), rootDirectory);
             CollectionAssert.Contains(GetInputStringList(input, "Lr2FolderDiscoveryDirectories").ToList(), outputBase);
@@ -1608,6 +1615,9 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                     return CreatePreparedLr2FolderSurface(outputBase, lr2FolderPath);
                 }));
             Assert.IsTrue(InvokeHasLr2FullGenerationPreparedDataSurface(library));
+            Assert.AreEqual(
+                0,
+                GetPrivateIntField(library, "lr2FullGenerationPreparedDataSurfaceAppliedScanGeneration"));
 
             object input = InvokeCreateLr2FullGenerationSyncInput(library);
 
@@ -1986,6 +1996,9 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                     File.WriteAllText(newLr2FolderPath, "#TITLE New Prepared Folder", Encoding.GetEncoding("shift_jis"));
                     return CreatePreparedLr2FolderSurface(newOutputBase, newLr2FolderPath);
                 }));
+            Assert.AreEqual(
+                0,
+                GetPrivateIntField(library, "lr2FullGenerationPreparedDataSurfaceAppliedScanGeneration"));
 
             object input = InvokeCreateLr2FullGenerationSyncInput(library);
             List<string> lr2FolderFilePaths = GetInputStringList(input, "Lr2FolderFilePaths").ToList();
@@ -5097,6 +5110,13 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         PropertyInfo propertyInfo = input.GetType().GetProperty(propertyName, BindingFlags.Instance | BindingFlags.Public);
         Assert.IsNotNull(propertyInfo);
         return (int)propertyInfo.GetValue(input);
+    }
+
+    private static int GetPrivateIntField(object target, string fieldName)
+    {
+        FieldInfo fieldInfo = target.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(fieldInfo);
+        return (int)fieldInfo.GetValue(target);
     }
 
     private static void InvokeCaptureLr2FullGenerationScanSurface(
