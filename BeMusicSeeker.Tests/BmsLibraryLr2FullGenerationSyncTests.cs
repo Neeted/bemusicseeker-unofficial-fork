@@ -271,8 +271,12 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             Directory.CreateDirectory(newDirectory);
             string oldPath = Path.Combine(oldDirectory, "chart.bms");
             string newPath = Path.Combine(newDirectory, "chart.bms");
+            string newFolderInfoPath = Path.Combine(newDirectory, "folderinfo.txt");
+            DateTime newDirectoryTimestamp = new(2026, 6, 11, 1, 2, 3, DateTimeKind.Utc);
             File.WriteAllText(oldPath, "#TITLE Moved\r\n#00111:01\r\n", Encoding.ASCII);
             File.WriteAllText(newPath, "#TITLE Moved\r\n#00111:01\r\n", Encoding.ASCII);
+            File.WriteAllText(newFolderInfoPath, "#TITLE Owned Mutation New", Encoding.GetEncoding("shift_jis"));
+            Directory.SetLastWriteTimeUtc(newDirectory, newDirectoryTimestamp);
             BMSFile file = CreateSyncTestFile(oldPath, ChartFileContentReader.ReadSnapshot(oldPath));
             using (var setup = new LR2SongDBExtended(scope.SongDbPath))
             {
@@ -302,7 +306,9 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             Assert.IsTrue(folders.Any(folder => folder.path == ToFolderPath(rootDirectory)));
             Assert.IsTrue(folders.Any(folder => folder.path == ToFolderPath(packDirectory)));
             Assert.IsFalse(folders.Any(folder => folder.path == ToFolderPath(oldDirectory)));
-            Assert.IsTrue(folders.Any(folder => folder.path == ToFolderPath(newDirectory)));
+            LR2SongDB.folder newFolder = folders.Single(folder => folder.path == ToFolderPath(newDirectory));
+            Assert.AreEqual("Owned Mutation New", newFolder.title);
+            Assert.AreEqual(Lr2SongRowEnricher.ToLr2UnixSeconds(newDirectoryTimestamp), newFolder.date);
             Assert.IsNull(verify.Find<LR2SongDB.song>(oldPath));
             Assert.IsNotNull(verify.Find<LR2SongDB.song>(newPath));
         }

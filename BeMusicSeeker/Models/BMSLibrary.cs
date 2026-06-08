@@ -7007,6 +7007,14 @@ completeFileEnumerationOnce,
         return Lr2FolderInfoCandidateEnumerationService.CreateSnapshotFromEntries(entries, targets);
     }
 
+    private static Lr2OwnedMutationDirectoryMetadataSurface CreateLr2OwnedMutationDirectoryMetadataSurface(
+        IEnumerable<string> targetDirectories)
+    {
+        return new Lr2OwnedMutationDirectoryMetadataSurface(
+            CreateLr2OwnedMutationFolderInfoCandidates(targetDirectories),
+            CreateLr2OwnedMutationDirectoryEntries(targetDirectories));
+    }
+
     private static RootFileEnumerationEntry CreateLr2OwnedMutationFolderInfoEntry(string directoryPath)
     {
         try
@@ -7072,6 +7080,17 @@ completeFileEnumerationOnce,
         }
 
         return entries;
+    }
+
+    private sealed class Lr2OwnedMutationDirectoryMetadataSurface(
+        Lr2FolderInfoCandidateSnapshot folderInfoCandidates,
+        IReadOnlyDictionary<string, RootFileEnumerationEntry> directoryEntries)
+    {
+        public Lr2FolderInfoCandidateSnapshot FolderInfoCandidates { get; } =
+            folderInfoCandidates ?? new Lr2FolderInfoCandidateSnapshot([], new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase), discoveryComplete: true);
+
+        public IReadOnlyDictionary<string, RootFileEnumerationEntry> DirectoryEntries { get; } =
+            directoryEntries ?? new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
     }
 
     private static IReadOnlyList<string> NormalizeLr2DirectoryMetadataTargets(IEnumerable<string> targetDirectories)
@@ -7292,16 +7311,15 @@ completeFileEnumerationOnce,
             }
 
             IReadOnlyCollection<string> directoryMetadataTargets = Lr2NormalFolderDbSyncService.CreateDirectoryMetadataTargets(roots, syncInput.ChartPaths);
-            Lr2FolderInfoCandidateSnapshot folderInfoCandidates = CreateLr2OwnedMutationFolderInfoCandidates(directoryMetadataTargets);
-            IReadOnlyDictionary<string, RootFileEnumerationEntry> directoryEntries = CreateLr2OwnedMutationDirectoryEntries(directoryMetadataTargets);
+            Lr2OwnedMutationDirectoryMetadataSurface metadataSurface = CreateLr2OwnedMutationDirectoryMetadataSurface(directoryMetadataTargets);
             using LR2SongDBExtended songDb = dbGateway.OpenSongDb();
             Lr2NormalFolderDbSyncResult syncResult = Lr2NormalFolderDbSyncService.Sync(songDb, new Lr2NormalFolderDbSyncRequest
             {
                 RootDirectories = roots,
                 ChartPaths = syncInput.ChartPaths,
-                FolderInfoFilePaths = folderInfoCandidates.Paths,
-                FolderInfoFileEntries = folderInfoCandidates.EntriesByPath,
-                DirectoryLastWriteTimeUtcResolver = CreateLastWriteTimeResolver(directoryEntries),
+                FolderInfoFilePaths = metadataSurface.FolderInfoCandidates.Paths,
+                FolderInfoFileEntries = metadataSurface.FolderInfoCandidates.EntriesByPath,
+                DirectoryLastWriteTimeUtcResolver = CreateLastWriteTimeResolver(metadataSurface.DirectoryEntries),
                 PruneScopeDirectories = syncInput.PruneScopeDirectories,
                 PruneExactDirectories = syncInput.PruneExactDirectories,
                 GeneratedAtUtc = DateTime.UtcNow,
