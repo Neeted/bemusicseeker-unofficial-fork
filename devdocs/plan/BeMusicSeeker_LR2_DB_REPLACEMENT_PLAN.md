@@ -455,6 +455,10 @@ row が残ると、manual-only でも LR2 が不要な scan に入る。
   expected set から消え、対応する `folder` row が削除される。
 - discovery で見つからなくなった `.lr2folder` row は削除する。実 `.lr2folder` ファイルは
   BeMusicSeeker から削除しない。
+- ただし startup file diff の hot path では、`.lr2folder` の current candidate upsert / date check だけを行い、
+  stale row prune 用の広域 prefix read は延期する。起動時は operable を優先し、明示リロード、
+  playlist materialization、built-in scoped sync、手動完全生成再同期、full generation workflow で
+  prune して収束させる。
 - 完全生成 ON では、current generation input から導けない既存 `folder` row は prune 対象にする。
   `unknown root` / `date = 0` / expected set 外 row / 列挙 metadata から解決できる mtime 不一致は、
   完了を妨げる永続状態として温存せず、生成 workflow 内で削除または上書きして収束させる。
@@ -1687,9 +1691,10 @@ Everything / filesystem 広域再スキャンを始める入口ではない。su
      `BMSLibrary` 側の後付け attach は廃止し、scan completion 前に producer-owned surface を作る。
      directory mtime は scan surface 再利用と no-surface 時の grouped再取得まで接続済みであり、
      native bridge / managed fallback の実機 parity 確認を残す。
-   - 完了: startup / file diff 後の `.lr2folder` scoped sync は、unchanged row 判定用の existing row lookup と
-     prune 用の existing row read のどちらも candidate exact path / prune scope / parent directory scope に限定し、
-     completed steady-state の通常起動で `folder` table 全件 read に戻らない。
+   - 完了: startup / file diff 後の `.lr2folder` scoped sync は、unchanged row 判定用の existing row lookup を
+     candidate exact path / parent directory scope に限定する。startup `initialize` では prune 用 prefix read を延期し、
+     completed steady-state の通常起動で 4 万 row 級の `folder` scope read を operable 前に行わない。
+     明示リロード / full generation workflow / 手動再同期では従来通り prune して収束させる。
    - 完了: 完全生成 completed 後の通常 file diff でも `.txt` surface が有効な場合だけ
       `song.txt` flag を比較し、surface が無い完全生成 OFF / standalone 相当では既存 `txt` を保持する。
       manual full generation input で scan surface が無い場合は grouped text metadata surface から
@@ -1738,13 +1743,16 @@ Everything / filesystem 広域再スキャンを始める入口ではない。su
      読み込み側の微調整ではなく writer contract を先に直す。
      1000 件 chunk ごとに `song` temp table upsert、`chart_digest_map`、LR2 compatibility facts、
      status cursor update を同一 hot transaction で繰り返す形は最終形ではない。
-   - 現ログでは `song_rows` chunk の `readMs` / `parseMs` が数秒以下である一方、
-     `commitMs` が数秒から数十秒へ膨らんでいる。この状態では file reader / parser pipeline の
-     微調整を先に行わず、DB writer の SQL 形状、index、changed-only 判定、transaction 粒度を
-     最優先で直す。
+   - 現ログでは resource scan は従来から重い支配項目であり、今回の悪化原因としては切り分ける。
+     `song_rows` では chunk wall time のうち `commitMs`、特に `songStageMs` がまだ無視できないため、
+     file reader / parser pipeline の微調整より先に DB writer の SQL 形状、index、changed-only 判定、
+     transaction 粒度を確認する。
    - writer 改善 cycle では `commitMs` とは別に `songStageMs` / `chartInfoStageMs` /
      `compatibilityStageMs` / `sqliteCommitMs` / post-commit `statusCursorMs` を出す。性能レビューでは
      「どこが重いか」だけでなく、その処理自体が 200k 件級 hot path に入るべきかを確認する。
+   - 完了: `songStageMs` はさらに `songChanged` / `songUpdated` / `songInserted` と
+     `songEnrichMs` / `songTempMs` / `songPreviousHashMs` / `songUpdateMs` / `songInsertMs` /
+     `songDigestUpsertMs` / `songDigestCleanupMs` / `songTempCleanupMs` に分解して出す。
    - `maintenance` の LR2 compatibility facts は、chunk temp table から全 `maintenance` row へ
      correlated subquery を繰り返す形にしない。`path` indexed lookup と changed-only update /
      missing-row insert に寄せ、同一値 row は update しない。完了。
@@ -1777,15 +1785,16 @@ Everything / filesystem 広域再スキャンを始める入口ではない。su
    - final song prune の current path temp table insert は multi-value chunk へ寄せる。完了。
    - 行単位 `UpsertChartDigest` / `DeleteChartDigestIfOrphaned` は full sync hot path から外し、
      単発 mutation API 専用に残す。完了。
-   - 残作業: 現ログで 1000 件あたり `commitMs` が数秒から数十秒へ膨らんでいるため、
+   - 残作業: 現ログで 1000 件あたり `songStageMs` が `commitMs` の大きな部分を占めているため、
      「完了」扱いの bulk writer も再レビューする。設計レビューでは SQL の set-based 化だけでなく、
-     temp table clear / index maintenance / transaction granularity / status update 頻度が
+     temp table clear / index maintenance / digest map update / transaction granularity / status update 頻度が
      200k 件で妥当かを必ず確認する。
    - 次の確認 cycle の具体順:
      1. 実機ログで `songStageMs` / `compatibilityStageMs` / `chartInfoStageMs` / `sqliteCommitMs` /
         `statusCursorMs` を再確認し、支配的な stage が移ったかを見る。
-     2. まだ `songStageMs` が支配的なら、`EXPLAIN QUERY PLAN` と実 DB copy で generated row staging /
-        previous-hash collection / digest orphan cleanup のどこが支配的かを確認する。
+     2. まだ `songStageMs` が支配的なら、分解済みログで generated row staging / existing row update /
+        missing insert / digest map upsert / digest orphan cleanup のどこが支配的かを確認する。
+        ログだけで不十分な場合に `EXPLAIN QUERY PLAN` と実 DB copy を使う。
      3. まだ `compatibilityStageMs` が支配的なら、chunk match table population と changed-only predicate の
         実 DB plan を確認する。
      4. `sqliteCommitMs` / `statusCursorMs` が支配的なら、transaction 粒度と durable cursor 更新頻度を

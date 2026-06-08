@@ -2046,12 +2046,13 @@ internal static class Lr2FullGenerationSyncService
             long compatibilityStageMs = 0L;
             long sqliteCommitMs = 0L;
             long statusCursorMs = 0L;
+            Lr2GeneratedSongWriteResult songWriteResult = default;
             Lr2CompatibilityFactsWriteResult compatibilityWriteResult = Lr2CompatibilityFactsWriteResult.Empty;
             songDb.BeginTransaction();
             try
             {
                 var stageStopwatch = Stopwatch.StartNew();
-                Lr2SongDbWriter.UpsertGeneratedSongsForFullGeneration(songDb, rowsToWrite);
+                songWriteResult = Lr2SongDbWriter.UpsertGeneratedSongsForFullGenerationWithResult(songDb, rowsToWrite);
                 stageStopwatch.Stop();
                 songStageMs = stageStopwatch.ElapsedMilliseconds;
 
@@ -2116,6 +2117,17 @@ internal static class Lr2FullGenerationSyncService
                     + " compatibilityBuildMs=" + TicksToMilliseconds(chunkCompatibilityTicks)
                     + " commitMs=" + stopwatchCommit.ElapsedMilliseconds
                     + " songStageMs=" + songStageMs
+                    + " songChanged=" + songWriteResult.ChangedCount
+                    + " songUpdated=" + songWriteResult.UpdatedCount
+                    + " songInserted=" + songWriteResult.InsertedCount
+                    + " songEnrichMs=" + songWriteResult.EnrichmentMs
+                    + " songTempMs=" + songWriteResult.TempStageMs
+                    + " songPreviousHashMs=" + songWriteResult.PreviousHashStageMs
+                    + " songUpdateMs=" + songWriteResult.UpdateStageMs
+                    + " songInsertMs=" + songWriteResult.InsertStageMs
+                    + " songDigestUpsertMs=" + songWriteResult.DigestUpsertStageMs
+                    + " songDigestCleanupMs=" + songWriteResult.DigestCleanupStageMs
+                    + " songTempCleanupMs=" + songWriteResult.TempCleanupStageMs
                     + " chartInfoStageMs=" + chartInfoStageMs
                     + " compatibilityStageMs=" + compatibilityStageMs
                     + " compatibilityUpdated=" + compatibilityWriteResult.UpdatedCount

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using BeMusicSeeker.Models.LR2;
 using SQLite;
@@ -11,6 +12,42 @@ internal readonly struct Lr2SongPruneResult(int deletedCount, int currentPathCou
     public int DeletedCount { get; } = deletedCount;
 
     public int CurrentPathCount { get; } = currentPathCount;
+}
+
+internal readonly struct Lr2GeneratedSongWriteResult(
+    int changedCount,
+    int updatedCount,
+    int insertedCount,
+    long enrichmentMs,
+    long tempStageMs,
+    long previousHashStageMs,
+    long updateStageMs,
+    long insertStageMs,
+    long digestUpsertStageMs,
+    long digestCleanupStageMs,
+    long tempCleanupStageMs)
+{
+    public int ChangedCount { get; } = changedCount;
+
+    public int UpdatedCount { get; } = updatedCount;
+
+    public int InsertedCount { get; } = insertedCount;
+
+    public long EnrichmentMs { get; } = enrichmentMs;
+
+    public long TempStageMs { get; } = tempStageMs;
+
+    public long PreviousHashStageMs { get; } = previousHashStageMs;
+
+    public long UpdateStageMs { get; } = updateStageMs;
+
+    public long InsertStageMs { get; } = insertStageMs;
+
+    public long DigestUpsertStageMs { get; } = digestUpsertStageMs;
+
+    public long DigestCleanupStageMs { get; } = digestCleanupStageMs;
+
+    public long TempCleanupStageMs { get; } = tempCleanupStageMs;
 }
 
 internal static class Lr2SongDbWriter
@@ -109,6 +146,13 @@ internal static class Lr2SongDbWriter
 
     internal static int UpsertGeneratedSongsForFullGeneration(LR2SongDBExtended songDb, IReadOnlyList<BMSFile> songs)
     {
+        return UpsertGeneratedSongsForFullGenerationWithResult(songDb, songs).ChangedCount;
+    }
+
+    internal static Lr2GeneratedSongWriteResult UpsertGeneratedSongsForFullGenerationWithResult(
+        LR2SongDBExtended songDb,
+        IReadOnlyList<BMSFile> songs)
+    {
         if (songDb == null)
         {
             throw new ArgumentNullException(nameof(songDb));
@@ -118,22 +162,33 @@ internal static class Lr2SongDbWriter
             .Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))];
         if (rows.Count == 0)
         {
-            return 0;
+            return new Lr2GeneratedSongWriteResult(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
         }
 
+        var stageStopwatch = Stopwatch.StartNew();
         foreach (BMSFile song in rows)
         {
             Lr2SongRowEnricher.EnrichGeneratedSong(song);
             ApplyGeneratedPersistenceDefaults(song, isNewRow: true);
         }
+        stageStopwatch.Stop();
+        long enrichmentMs = stageStopwatch.ElapsedMilliseconds;
 
+        stageStopwatch.Restart();
         PrepareTempGeneratedSongUpsertTable(songDb);
         BulkInsertGeneratedSongUpsertTempRows(songDb, rows);
+        stageStopwatch.Stop();
+        long tempStageMs = stageStopwatch.ElapsedMilliseconds;
+
+        stageStopwatch.Restart();
         PrepareTempHashTable(songDb, TempDeletedSongHashTable);
         InsertChangedPreviousHashesIntoTemp(songDb, TempGeneratedSongUpsertTable, TempDeletedSongHashTable);
+        stageStopwatch.Stop();
+        long previousHashStageMs = stageStopwatch.ElapsedMilliseconds;
 
         string songTable = SQLiteTable<LR2SongDB.song>.GetTableName();
         string songPathColumn = SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.path);
+        stageStopwatch.Restart();
         int updated = songDb.Execute(
             "UPDATE " + songTable
             + " SET "
@@ -170,13 +225,41 @@ internal static class Lr2SongDbWriter
             + " ON s." + songPathColumn + " = u.path COLLATE NOCASE "
             + "WHERE s." + songPathColumn + " COLLATE NOCASE IN (SELECT path FROM temp." + TempGeneratedSongUpsertTable + ") "
             + "AND " + BuildGeneratedColumnChangePredicate("s", "u") + ");");
+        stageStopwatch.Stop();
+        long updateStageMs = stageStopwatch.ElapsedMilliseconds;
 
+        stageStopwatch.Restart();
         int inserted = InsertMissingGeneratedSongsFromTemp(songDb, TempGeneratedSongUpsertTable);
+        stageStopwatch.Stop();
+        long insertStageMs = stageStopwatch.ElapsedMilliseconds;
+
+        stageStopwatch.Restart();
         UpsertChartDigests(songDb, rows);
+        stageStopwatch.Stop();
+        long digestUpsertStageMs = stageStopwatch.ElapsedMilliseconds;
+
+        stageStopwatch.Restart();
         DeleteOrphanedChartDigestsFromTemp(songDb, TempDeletedSongHashTable);
+        stageStopwatch.Stop();
+        long digestCleanupStageMs = stageStopwatch.ElapsedMilliseconds;
+
+        stageStopwatch.Restart();
         ClearTempTable(songDb, TempDeletedSongHashTable);
         ClearTempTable(songDb, TempGeneratedSongUpsertTable);
-        return updated + inserted;
+        stageStopwatch.Stop();
+        long tempCleanupStageMs = stageStopwatch.ElapsedMilliseconds;
+        return new Lr2GeneratedSongWriteResult(
+            updated + inserted,
+            updated,
+            inserted,
+            enrichmentMs,
+            tempStageMs,
+            previousHashStageMs,
+            updateStageMs,
+            insertStageMs,
+            digestUpsertStageMs,
+            digestCleanupStageMs,
+            tempCleanupStageMs);
     }
 
     internal static Lr2SongPruneResult DeleteSongsExceptCurrentPaths(
