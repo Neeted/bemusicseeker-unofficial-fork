@@ -1,15 +1,20 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 internal sealed class Lr2DirectoryScopeMatcher
 {
     private readonly HashSet<string> scopeDirectories;
+    private readonly string[] scopeDirectoryPrefixes;
 
     private Lr2DirectoryScopeMatcher(HashSet<string> scopeDirectories)
     {
         this.scopeDirectories = scopeDirectories ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        scopeDirectoryPrefixes = [.. this.scopeDirectories
+            .Select(Lr2FolderPath.ToFolderPath)
+            .Where(path => !string.IsNullOrWhiteSpace(path))];
     }
 
     internal static Lr2DirectoryScopeMatcher Create(IEnumerable<string> directories)
@@ -27,6 +32,8 @@ internal sealed class Lr2DirectoryScopeMatcher
         return new Lr2DirectoryScopeMatcher(scopeDirectories);
     }
 
+    internal bool IsEmpty => scopeDirectories.Count == 0;
+
     internal bool ContainsFilePath(string path)
     {
         if (string.IsNullOrWhiteSpace(path))
@@ -39,27 +46,38 @@ internal sealed class Lr2DirectoryScopeMatcher
 
     internal bool ContainsDirectory(string directory)
     {
+        return ContainsNormalizedDirectory(Lr2FolderPath.NormalizeDirectoryPath(directory));
+    }
+
+    internal bool ContainsNormalizedDirectory(string normalizedDirectory)
+    {
         if (scopeDirectories.Count == 0)
         {
             return false;
         }
 
-        string current = Lr2FolderPath.NormalizeDirectoryPath(directory);
-        while (!string.IsNullOrWhiteSpace(current))
+        if (string.IsNullOrWhiteSpace(normalizedDirectory))
         {
-            if (scopeDirectories.Contains(current))
+            return false;
+        }
+
+        if (scopeDirectories.Contains(normalizedDirectory))
+        {
+            return true;
+        }
+
+        string normalizedWithSeparator = Lr2FolderPath.ToFolderPath(normalizedDirectory);
+        if (string.IsNullOrWhiteSpace(normalizedWithSeparator))
+        {
+            return false;
+        }
+
+        foreach (string scopeDirectoryPrefix in scopeDirectoryPrefixes)
+        {
+            if (normalizedWithSeparator.StartsWith(scopeDirectoryPrefix, StringComparison.OrdinalIgnoreCase))
             {
                 return true;
             }
-
-            string parent = Lr2FolderPath.NormalizeDirectoryPath(Lr2FolderPath.SafeGetDirectoryName(current));
-            if (string.IsNullOrWhiteSpace(parent)
-                || string.Equals(parent, current, StringComparison.OrdinalIgnoreCase))
-            {
-                return false;
-            }
-
-            current = parent;
         }
 
         return false;
