@@ -79,6 +79,12 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
     private const string ChartInfoColumnList =
         "sha256, md5, charthash, level, difficulty, difficulty_defined, mainbpm, maxbpm, minbpm, length, mode, judge, bga, exlevel, feature, notes, n, ln, s, ls, total, total_defined, density, peakdensity, enddensity, distribution, speedchange, speedchange_count, lanenotes, parser_version, updated_at";
 
+    private const string ChartInfoHydrationRawSelectSql =
+        "SELECT " + ChartInfoColumnList + " FROM chart_info;";
+
+    private const string ChartInfoParseFailureHydrationRawSelectSql =
+        "SELECT md5, parser_version, failure_kind, parse_timeout_ms FROM chart_info_parse_failure;";
+
     internal const string AppSchemaVersionName = "app_schema";
 
     internal const int CurrentAppSchemaVersion = 1;
@@ -526,6 +532,20 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
         return int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out result);
     }
 
+    private static int? ParseNullableInt(string value)
+    {
+        return int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int result)
+            ? result
+            : null;
+    }
+
+    private static int ParseInt(string value)
+    {
+        return int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int result)
+            ? result
+            : 0;
+    }
+
     private static double? ParseNullableDouble(string value)
     {
         if (string.IsNullOrWhiteSpace(value))
@@ -817,6 +837,13 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
         using LR2SongDBExtended songDb = OpenSongDbReadOnly();
         result.ReadOnly = songDb.IsReadOnlyConnection;
         result.DbLockWaitMs = songDb.ProcessLockWaitMs;
+        if (UseRawChartInfoHydrationLoader())
+        {
+            LoadChartInfoHydrationDataRaw(songDb, parseTimeout, result);
+            return result;
+        }
+
+        result.MaterializeMode = "sqlite_net";
         var stopwatch = Stopwatch.StartNew();
         foreach (LR2SongDBExtended.chart_info item in songDb.Table<LR2SongDBExtended.chart_info>())
         {
@@ -842,6 +869,105 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
         result.DbReadMs = stopwatch.ElapsedMilliseconds;
         result.MaterializeMs = stopwatch.ElapsedMilliseconds;
         return result;
+    }
+
+    private static bool UseRawChartInfoHydrationLoader()
+    {
+        string mode = Environment.GetEnvironmentVariable("BMS_CHART_INFO_HYDRATION_LOAD_MODE");
+        return !string.Equals(mode, "sqlite_net", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static void LoadChartInfoHydrationDataRaw(
+        LR2SongDBExtended songDb,
+        TimeSpan parseTimeout,
+        ChartInfoHydrationLoadResult result)
+    {
+        result.MaterializeMode = "raw_string";
+        long objectTicks = 0L;
+        long stopwatchFrequency = Stopwatch.Frequency;
+        var stopwatch = Stopwatch.StartNew();
+        var chartInfoCommand = (LR2SongDBExtended.SQLiteCommandExtended)songDb.CreateCommand(ChartInfoHydrationRawSelectSql);
+        int rawRows = chartInfoCommand.ForEachRawValueAsString(delegate (string[] values)
+        {
+            long objectStart = Stopwatch.GetTimestamp();
+            LR2SongDBExtended.chart_info item = CreateChartInfoHydrationRow(values);
+            result.ChartInfoRows++;
+            if (item != null && !string.IsNullOrWhiteSpace(item.sha256))
+            {
+                result.ChartInfoBySha256[item.sha256] = item;
+                if (item.parser_version >= CurrentChartInfoParserVersion)
+                {
+                    result.CurrentChartInfoSha256s.Add(item.sha256);
+                }
+            }
+            objectTicks += Stopwatch.GetTimestamp() - objectStart;
+        });
+        var parseFailureCommand = (LR2SongDBExtended.SQLiteCommandExtended)songDb.CreateCommand(ChartInfoParseFailureHydrationRawSelectSql);
+        rawRows += parseFailureCommand.ForEachRawValueAsString(delegate (string[] values)
+        {
+            long objectStart = Stopwatch.GetTimestamp();
+            result.ParseFailureRows++;
+            string md5 = GetRawValue(values, 0);
+            int parserVersion = ParseInt(GetRawValue(values, 1));
+            string failureKind = GetRawValue(values, 2);
+            int? parseTimeoutMs = ParseNullableInt(GetRawValue(values, 3));
+            if (!string.IsNullOrWhiteSpace(md5)
+                && IsCurrentChartInfoParseFailure(parserVersion, failureKind, parseTimeoutMs, parseTimeout))
+            {
+                result.CurrentParseFailureMd5s.Add(md5);
+            }
+            objectTicks += Stopwatch.GetTimestamp() - objectStart;
+        });
+        stopwatch.Stop();
+        long totalMs = stopwatch.ElapsedMilliseconds;
+        result.RawRows = rawRows;
+        result.RawObjectMs = stopwatchFrequency > 0L ? objectTicks * 1000L / stopwatchFrequency : 0L;
+        result.RawReadMs = Math.Max(0L, totalMs - result.RawObjectMs);
+        result.DbReadMs = totalMs;
+        result.MaterializeMs = totalMs;
+    }
+
+    private static LR2SongDBExtended.chart_info CreateChartInfoHydrationRow(string[] values)
+    {
+        return new LR2SongDBExtended.chart_info
+        {
+            sha256 = GetRawValue(values, 0),
+            md5 = GetRawValue(values, 1),
+            charthash = GetRawValue(values, 2),
+            level = ParseNullableInt(GetRawValue(values, 3)),
+            difficulty = ParseNullableInt(GetRawValue(values, 4)),
+            difficulty_defined = ParseBoolean(GetRawValue(values, 5)),
+            mainbpm = ParseNullableDouble(GetRawValue(values, 6)),
+            maxbpm = ParseNullableDouble(GetRawValue(values, 7)),
+            minbpm = ParseNullableDouble(GetRawValue(values, 8)),
+            length = ParseNullableInt(GetRawValue(values, 9)),
+            mode = ParseNullableInt(GetRawValue(values, 10)),
+            judge = ParseNullableInt(GetRawValue(values, 11)),
+            bga = ParseNullableInt(GetRawValue(values, 12)),
+            exlevel = ParseNullableInt(GetRawValue(values, 13)),
+            feature = ParseInt(GetRawValue(values, 14)),
+            notes = ParseInt(GetRawValue(values, 15)),
+            n = ParseInt(GetRawValue(values, 16)),
+            ln = ParseInt(GetRawValue(values, 17)),
+            s = ParseInt(GetRawValue(values, 18)),
+            ls = ParseInt(GetRawValue(values, 19)),
+            total = ParseNullableDouble(GetRawValue(values, 20)),
+            total_defined = ParseBoolean(GetRawValue(values, 21)),
+            density = ParseNullableDouble(GetRawValue(values, 22)),
+            peakdensity = ParseNullableDouble(GetRawValue(values, 23)),
+            enddensity = ParseNullableDouble(GetRawValue(values, 24)),
+            distribution = GetRawValue(values, 25),
+            speedchange = GetRawValue(values, 26),
+            speedchange_count = ParseInt(GetRawValue(values, 27)),
+            lanenotes = GetRawValue(values, 28),
+            parser_version = ParseInt(GetRawValue(values, 29)),
+            updated_at = ParseNullableDateTime(GetRawValue(values, 30)) ?? default
+        };
+    }
+
+    private static string GetRawValue(string[] values, int index)
+    {
+        return values != null && index >= 0 && index < values.Length ? values[index] : null;
     }
 
     /// <summary>

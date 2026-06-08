@@ -3093,6 +3093,14 @@ public class BMSLibrary : NotificationObject
 
         public long DbMaterializeMs { get; set; }
 
+        public string DbMaterializeMode { get; set; }
+
+        public int DbRawRows { get; set; }
+
+        public long DbRawReadMs { get; set; }
+
+        public long DbRawObjectMs { get; set; }
+
         public bool DbReadOnly { get; set; }
 
         public long DbLockWaitMs { get; set; }
@@ -8520,8 +8528,12 @@ completeFileEnumerationOnce,
                 + " currentChartInfoOwners=" + result.CurrentChartInfoOwnerCount
                 + " currentParseFailureOwners=" + result.CurrentParseFailureOwnerCount
                 + " backfillCandidateOwners=" + result.BackfillCandidateOwnerCount
+                + " dbMode=" + (string.IsNullOrWhiteSpace(result.DbMaterializeMode) ? "unknown" : result.DbMaterializeMode)
                 + " dbLoadMs=" + result.DbLoadMs
                 + " dbMaterializeMs=" + result.DbMaterializeMs
+                + " rawRows=" + result.DbRawRows
+                + " rawReadMs=" + result.DbRawReadMs
+                + " rawObjectMs=" + result.DbRawObjectMs
                 + " readOnly=" + result.DbReadOnly.ToString().ToLowerInvariant()
                 + " dbLockWaitMs=" + result.DbLockWaitMs
                 + " parseFailureRows=" + result.ParseFailureRows
@@ -8592,6 +8604,10 @@ completeFileEnumerationOnce,
             currentParseFailureMd5s = loadResult.CurrentParseFailureMd5s;
             result.ParseFailureRows = loadResult.ParseFailureRows;
             result.ChartInfoRows = loadResult.ChartInfoRows;
+            result.DbMaterializeMode = loadResult.MaterializeMode;
+            result.DbRawRows = loadResult.RawRows;
+            result.DbRawReadMs = loadResult.RawReadMs;
+            result.DbRawObjectMs = loadResult.RawObjectMs;
             result.DbMaterializeMs = loadResult.MaterializeMs;
             result.DbLoadMs = loadResult.DbReadMs;
             result.DbReadOnly = loadResult.ReadOnly;

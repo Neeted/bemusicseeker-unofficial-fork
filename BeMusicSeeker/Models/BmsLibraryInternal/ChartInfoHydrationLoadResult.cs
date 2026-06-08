@@ -18,6 +18,14 @@ internal sealed class ChartInfoHydrationLoadResult
 
     public int ParseFailureRows { get; set; }
 
+    public string MaterializeMode { get; set; } = string.Empty;
+
+    public int RawRows { get; set; }
+
+    public long RawReadMs { get; set; }
+
+    public long RawObjectMs { get; set; }
+
     public long DbReadMs { get; set; }
 
     public long MaterializeMs { get; set; }

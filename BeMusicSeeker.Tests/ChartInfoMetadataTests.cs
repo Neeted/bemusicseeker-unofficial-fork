@@ -3037,6 +3037,77 @@ createTempDirectory);
     }
 
     [TestMethod]
+    [DoNotParallelize]
+    public void LoadChartInfoHydrationData_UsesRawProjectionAndPreservesCurrentness()
+    {
+        string previousMode = Environment.GetEnvironmentVariable("BMS_CHART_INFO_HYDRATION_LOAD_MODE");
+        Environment.SetEnvironmentVariable("BMS_CHART_INFO_HYDRATION_LOAD_MODE", null);
+        try
+        {
+            WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
+            {
+                var gateway = new BmsLibraryDbGateway(songDbPath);
+                string currentMd5 = new('a', 32);
+                string staleMd5 = new('b', 32);
+                string currentFailureMd5 = new('c', 32);
+                string staleFailureMd5 = new('d', 32);
+                string currentSha = new('1', 64);
+                string staleSha = new('2', 64);
+                string currentFailureSha = new('3', 64);
+                string staleFailureSha = new('4', 64);
+                LR2SongDBExtended.chart_info currentRow = CreateChartInfoRow(currentSha, currentMd5, BmsLibraryDbGateway.CurrentChartInfoParserVersion);
+                currentRow.level = null;
+                currentRow.difficulty = 3;
+                currentRow.difficulty_defined = false;
+                currentRow.mainbpm = 123.5;
+                currentRow.total = null;
+                currentRow.total_defined = true;
+                currentRow.density = 12.25;
+                currentRow.speedchange_count = 2;
+                currentRow.updated_at = new DateTime(2026, 1, 2, 3, 4, 5, DateTimeKind.Utc);
+                LR2SongDBExtended.chart_info staleRow = CreateChartInfoRow(staleSha, staleMd5, BmsLibraryDbGateway.CurrentChartInfoParserVersion - 1);
+                staleRow.charthash = new string('e', 64);
+                staleRow.distribution = "1,2,3";
+                staleRow.speedchange = "120.0,0.0;240.0,1.0";
+                staleRow.lanenotes = "1,2,3,4";
+
+                using (var songDb = new LR2SongDBExtended(songDbPath))
+                {
+                    BmsLibraryDbGateway.EnsureChartInfoSchema(songDb);
+                    songDb.InsertOrReplace(currentRow, typeof(LR2SongDBExtended.chart_info));
+                    songDb.InsertOrReplace(staleRow, typeof(LR2SongDBExtended.chart_info));
+                    songDb.InsertOrReplace(
+                        CreateChartInfoParseFailureRow(currentFailureMd5, currentFailureSha, Path.Combine(tempRootPath, "current-failure.bms"), BmsLibraryDbGateway.CurrentChartInfoParserVersion, "parse_failed", "InvalidDataException", "bad", null),
+                        typeof(LR2SongDBExtended.chart_info_parse_failure));
+                    songDb.InsertOrReplace(
+                        CreateChartInfoParseFailureRow(staleFailureMd5, staleFailureSha, Path.Combine(tempRootPath, "stale-timeout.bms"), BmsLibraryDbGateway.CurrentChartInfoParserVersion, "timeout", "ChartInfoParseTimeoutException", "old timeout", 500),
+                        typeof(LR2SongDBExtended.chart_info_parse_failure));
+                }
+
+                ChartInfoHydrationLoadResult result = gateway.LoadChartInfoHydrationData(TimeSpan.FromMilliseconds(1000));
+
+                Assert.AreEqual("raw_string", result.MaterializeMode);
+                Assert.AreEqual(2, result.ChartInfoRows);
+                Assert.AreEqual(2, result.ParseFailureRows);
+                Assert.AreEqual(4, result.RawRows);
+                Assert.AreEqual(2, result.ChartInfoBySha256.Count);
+                Assert.IsTrue(result.CurrentChartInfoSha256s.Contains(currentSha));
+                Assert.IsFalse(result.CurrentChartInfoSha256s.Contains(staleSha));
+                Assert.IsTrue(result.CurrentParseFailureMd5s.Contains(currentFailureMd5));
+                Assert.IsFalse(result.CurrentParseFailureMd5s.Contains(staleFailureMd5));
+                AssertChartInfoEquivalent(currentRow, result.ChartInfoBySha256[currentSha]);
+                AssertChartInfoEquivalent(staleRow, result.ChartInfoBySha256[staleSha]);
+                Assert.AreEqual(currentRow.updated_at, result.ChartInfoBySha256[currentSha].updated_at);
+                Assert.AreEqual(staleRow.updated_at, result.ChartInfoBySha256[staleSha].updated_at);
+            });
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("BMS_CHART_INFO_HYDRATION_LOAD_MODE", previousMode);
+        }
+    }
+
+    [TestMethod]
     public void GetChartInfoBackfillCandidateSummary_ClassifiesCurrentFailureAndStaleRows()
     {
         WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
