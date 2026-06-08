@@ -11,6 +11,7 @@ using System.Windows;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using ChartInfoExportTool;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -3020,6 +3021,94 @@ createTempDirectory);
 
     [TestMethod]
     [DoNotParallelize]
+    public void DeferredChartInfoHydration_UsesAllCurrentFastPathAndLazyLoadsDisplayIndex()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
+        {
+            string md5 = new('a', 32);
+            string sha = new('1', 64);
+            string chartPath = Path.Combine(tempRootPath, "current.bms");
+            var file = new TestableBmsFile
+            {
+                path = chartPath
+            };
+            file.SetHash(md5);
+            file.SetSha256(sha);
+            LR2SongDBExtended.chart_info row = CreateChartInfoRow(sha, md5, BmsLibraryDbGateway.CurrentChartInfoParserVersion);
+            row.speedchange = "120.0,0.0;240.0,1000.0";
+            row.lanenotes = "1,2,3,4";
+            using (var songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDB.song>();
+                BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
+                BmsLibraryDbGateway.EnsureChartInfoSchema(songDb);
+                InsertSongForSummary(songDb, chartPath, md5);
+                songDb.InsertOrReplace(CreateChartDigestRow(md5, sha), typeof(LR2SongDBExtended.chart_digest_map));
+                songDb.InsertOrReplace(row, typeof(LR2SongDBExtended.chart_info));
+            }
+            bool originalOperationMode = Settings.Default.OperationModeLR2DB;
+            bool originalFullGeneration = Settings.Default.EnableLR2SongDbFullGeneration;
+            try
+            {
+                Settings.Default.OperationModeLR2DB = true;
+                Settings.Default.EnableLR2SongDbFullGeneration = true;
+                var options = new BmsLibraryOptionsSnapshot
+                {
+                    OperationModeLR2DB = true,
+                    EnableLR2SongDbFullGeneration = true
+                };
+                string signature = Lr2FullGenerationSignatureBuilder.Build(options);
+                using (var songDb = new LR2SongDBExtended(songDbPath))
+                {
+                    Lr2FullGenerationStatusService.MarkCompleted(
+                        songDb,
+                        signature,
+                        runId: "unit-test",
+                        totalCount: 1,
+                        nowUtc: DateTime.UtcNow);
+                }
+                var library = new BMSLibrary(songDbPath, null, null, null, new RecordingDialogService())
+                {
+                    BMSFiles = [file]
+                };
+                InvokeCaptureChartInfoCompletedFullGenerationTrustFromFileDiff(
+                    library,
+                    options,
+                    new SongTableFileCheckResult(),
+                    "unit_test");
+
+                Assert.IsFalse(library.ChartInfoIndexHydrated);
+                Assert.AreEqual(0, library.ChartInfoIndexVersion);
+                Assert.IsNull(library.ResolveChartInfo(sha, md5));
+
+                InvokeDeferredChartInfoHydration(library, "unit_test", queueFullBackfillAfterHydration: true);
+
+                Assert.IsTrue(WaitForChartInfoHydration(library), "chart_info hydration did not complete.");
+                Assert.IsFalse(library.ChartInfoIndexHydrated, "all-current fast path should not pretend to have a full hydrated index.");
+                Assert.AreEqual(0, library.ChartInfoIndexVersion);
+                Assert.AreEqual(1, library.ChartInfoBackfillRequestedVersion);
+                Assert.AreEqual(1, library.ChartInfoBackfillCompletedVersion);
+                Assert.AreEqual(1, library.ChartInfoHydrationTotalCount);
+
+                LR2SongDBExtended.chart_info resolved = library.ResolveChartInfo(sha, md5);
+
+                Assert.IsNotNull(resolved);
+                Assert.AreEqual(sha, resolved.sha256);
+                Assert.IsFalse(library.ChartInfoIndexHydrated);
+                Assert.IsTrue(library.ChartInfoIndexVersion > 0);
+                AssertChartInfoDisplayProjectionEquivalent(row, resolved);
+            }
+            finally
+            {
+                Settings.Default.OperationModeLR2DB = originalOperationMode;
+                Settings.Default.EnableLR2SongDbFullGeneration = originalFullGeneration;
+            }
+        });
+    }
+
+    [TestMethod]
+    [DoNotParallelize]
     public void DeferredChartInfoHydration_SkipsFullBackfillWhenNoCandidates()
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -4281,6 +4370,17 @@ createTempDirectory);
         MethodInfo method = typeof(BMSLibrary).GetMethod("QueueDeferredChartInfoHydration", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.IsNotNull(method, "QueueDeferredChartInfoHydration method was not found.");
         method.Invoke(library, [reason, queueFullBackfillAfterHydration]);
+    }
+
+    private static void InvokeCaptureChartInfoCompletedFullGenerationTrustFromFileDiff(
+        BMSLibrary library,
+        BmsLibraryOptionsSnapshot options,
+        SongTableFileCheckResult result,
+        string reason)
+    {
+        MethodInfo method = typeof(BMSLibrary).GetMethod("CaptureChartInfoCompletedFullGenerationTrustFromFileDiff", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(method, "CaptureChartInfoCompletedFullGenerationTrustFromFileDiff method was not found.");
+        method.Invoke(library, [options, result, reason]);
     }
 
     private static bool WaitForChartInfoHydration(BMSLibrary library)

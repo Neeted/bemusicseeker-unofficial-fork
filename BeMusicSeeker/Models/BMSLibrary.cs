@@ -1076,6 +1076,8 @@ public class BMSLibrary : NotificationObject
 
     private bool chartInfoHydrationRunning;
 
+    private const long Lr2FullGenerationCompletedStatusImplicitChartInfoParseTimeoutMs = 60000L;
+
     private bool chartInfoHydrationPending;
 
     private string chartInfoHydrationPendingReason;
@@ -1084,9 +1086,13 @@ public class BMSLibrary : NotificationObject
 
     private readonly object lockChartInfoIndex = new();
 
+    private readonly object lockChartInfoLazyDisplayIndexLoad = new();
+
     private Dictionary<string, LR2SongDBExtended.chart_info> chartInfoIndexBySha256 = new(StringComparer.OrdinalIgnoreCase);
 
     private Dictionary<string, SortedDictionary<string, LR2SongDBExtended.chart_info>> chartInfoIndexByMd5 = new(StringComparer.OrdinalIgnoreCase);
+
+    private bool chartInfoDisplayIndexLoaded;
 
     private readonly object lockScoreSnapshot = new();
 
@@ -1295,6 +1301,8 @@ public class BMSLibrary : NotificationObject
     private string _ChartInfoBackfillCurrentPath = string.Empty;
 
     private ChartInfoHydrationAllCurrentSnapshot chartInfoHydrationAllCurrentSnapshot;
+
+    private ChartInfoCompletedFullGenerationTrustSnapshot chartInfoCompletedFullGenerationTrustSnapshot;
 
     private bool _Lr2FullGenerationSyncRunning;
 
@@ -3101,6 +3109,10 @@ public class BMSLibrary : NotificationObject
 
         public long DbRawObjectMs { get; set; }
 
+        public bool FastPath { get; set; }
+
+        public long CandidateSummaryMs { get; set; }
+
         public bool DbReadOnly { get; set; }
 
         public long DbLockWaitMs { get; set; }
@@ -3129,6 +3141,52 @@ public class BMSLibrary : NotificationObject
         public int CurrentChartInfoOwnerCount { get; set; }
 
         public int CurrentParseFailureOwnerCount { get; set; }
+
+        public int ParserVersion { get; set; }
+
+        public long ParseTimeoutMs { get; set; }
+    }
+
+    private sealed class ChartInfoOwnerVersionSnapshot
+    {
+        public int OwnedCollectionVersion { get; set; }
+
+        public int BmsRowsVersion { get; set; }
+
+        public int BmsonRowsVersion { get; set; }
+
+        public int BmsOwnerCount { get; set; }
+
+        public int BmsonOwnerCount { get; set; }
+
+        public int OwnerCount => BmsOwnerCount + BmsonOwnerCount;
+    }
+
+    private sealed class ChartInfoCompletedFullGenerationTrustSnapshot
+    {
+        public int OwnedCollectionVersion { get; set; }
+
+        public int BmsRowsVersion { get; set; }
+
+        public int BmsonRowsVersion { get; set; }
+
+        public int BmsOwnerCount { get; set; }
+
+        public int BmsonOwnerCount { get; set; }
+
+        public string Reason { get; set; }
+
+        public int OwnerCount => BmsOwnerCount + BmsonOwnerCount;
+
+        public bool IsCurrent(ChartInfoOwnerVersionSnapshot version)
+        {
+            return version != null
+                && OwnedCollectionVersion == version.OwnedCollectionVersion
+                && BmsRowsVersion == version.BmsRowsVersion
+                && BmsonRowsVersion == version.BmsonRowsVersion
+                && BmsOwnerCount == version.BmsOwnerCount
+                && BmsonOwnerCount == version.BmsonOwnerCount;
+        }
     }
 
     private sealed class ChartInfoIndexUpdateResult
@@ -5272,6 +5330,7 @@ completeFileEnumerationOnce,
         ApplyLr2FolderFileDiffSync(options, bmsDirectories, fileCheckResult, reason, lr2FolderFileDiffPreparationTask);
         completeFileEnumerationOnce();
         ApplyLibraryFileScanStorageMutation(fileCheckResult, reason);
+        CaptureChartInfoCompletedFullGenerationTrustFromFileDiff(options, fileCheckResult, reason);
         if (committedInlineChartInfoRows.Count > 0)
         {
             UpsertChartInfoIndexRows(committedInlineChartInfoRows, "file_diff_inline");
@@ -8504,7 +8563,7 @@ completeFileEnumerationOnce,
             ChartInfoHydrationResult result;
             try
             {
-                result = HydrateChartInfos(reason);
+                result = HydrateChartInfos(reason, allowAllCurrentFastPath: queueBackfillAfterHydration);
             }
             catch (Exception ex)
             {
@@ -8528,6 +8587,8 @@ completeFileEnumerationOnce,
                 + " currentChartInfoOwners=" + result.CurrentChartInfoOwnerCount
                 + " currentParseFailureOwners=" + result.CurrentParseFailureOwnerCount
                 + " backfillCandidateOwners=" + result.BackfillCandidateOwnerCount
+                + " fastPath=" + result.FastPath.ToString().ToLowerInvariant()
+                + " candidateSummaryMs=" + result.CandidateSummaryMs
                 + " dbMode=" + (string.IsNullOrWhiteSpace(result.DbMaterializeMode) ? "unknown" : result.DbMaterializeMode)
                 + " dbLoadMs=" + result.DbLoadMs
                 + " dbMaterializeMs=" + result.DbMaterializeMs
@@ -8586,11 +8647,15 @@ completeFileEnumerationOnce,
         }
     }
 
-    private ChartInfoHydrationResult HydrateChartInfos(string reason)
+    private ChartInfoHydrationResult HydrateChartInfos(string reason, bool allowAllCurrentFastPath = false)
     {
         var result = new ChartInfoHydrationResult();
         var totalStopwatch = Stopwatch.StartNew();
         LogInstallPerformance("chart_info_hydration start reason=" + (reason ?? "unknown"));
+        if (allowAllCurrentFastPath && TryCreateAllCurrentChartInfoHydrationResultFromCompletedFullGeneration(reason, totalStopwatch, out ChartInfoHydrationResult fastPathResult))
+        {
+            return fastPathResult;
+        }
 
         Dictionary<string, LR2SongDBExtended.chart_info> chartInfoMap;
         HashSet<string> currentChartInfoSha256s;
@@ -8676,6 +8741,233 @@ completeFileEnumerationOnce,
         return result;
     }
 
+    private bool TryCreateAllCurrentChartInfoHydrationResultFromCompletedFullGeneration(
+        string reason,
+        Stopwatch totalStopwatch,
+        out ChartInfoHydrationResult result)
+    {
+        result = null;
+        var stopwatch = Stopwatch.StartNew();
+        ChartInfoCompletedFullGenerationTrustSnapshot trustSnapshot = GetCurrentChartInfoCompletedFullGenerationTrustSnapshot();
+        if (trustSnapshot == null)
+        {
+            stopwatch.Stop();
+            LogInstallPerformance("chart_info_hydration_fast_path skipped reason=no_completed_generation_trust"
+                + " requestReason=" + (reason ?? "unknown")
+                + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
+            return false;
+        }
+
+        BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
+        if (options?.OperationModeLR2DB != true || options.EnableLR2SongDbFullGeneration != true)
+        {
+            stopwatch.Stop();
+            LogInstallPerformance("chart_info_hydration_fast_path skipped reason=full_generation_disabled"
+                + " requestReason=" + (reason ?? "unknown")
+                + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
+            return false;
+        }
+
+        long parseTimeoutMs = Math.Max(0L, (long)Math.Ceiling(chartInfoBuildService.CurrentParseTimeout.TotalMilliseconds));
+        if (parseTimeoutMs != Lr2FullGenerationCompletedStatusImplicitChartInfoParseTimeoutMs)
+        {
+            stopwatch.Stop();
+            LogInstallPerformance("chart_info_hydration_fast_path skipped reason=parse_timeout_not_represented_in_status"
+                + " requestReason=" + (reason ?? "unknown")
+                + " parseTimeoutMs=" + parseTimeoutMs
+                + " implicitStatusParseTimeoutMs=" + Lr2FullGenerationCompletedStatusImplicitChartInfoParseTimeoutMs
+                + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
+            return false;
+        }
+
+        string signature = Lr2FullGenerationSignatureBuilder.Build(options);
+        Lr2FullGenerationStatusSnapshot status;
+        try
+        {
+            using LR2SongDBExtended songDb = dbGateway.OpenSongDb();
+            status = Lr2FullGenerationStatusService.Evaluate(
+                songDb,
+                enabled: true,
+                signature,
+                DateTime.UtcNow);
+        }
+        catch (Exception ex)
+        {
+            stopwatch.Stop();
+            LogInstallPerformance("chart_info_hydration_fast_path skipped reason=status_failed"
+                + " requestReason=" + (reason ?? "unknown")
+                + " elapsedMs=" + stopwatch.ElapsedMilliseconds
+                + " message=" + ex.Message);
+            return false;
+        }
+
+        if (status == null || status.Status != Lr2FullGenerationStatusKind.Completed)
+        {
+            stopwatch.Stop();
+            LogInstallPerformance("chart_info_hydration_fast_path skipped reason=status_not_completed"
+                + " requestReason=" + (reason ?? "unknown")
+                + " status=" + (status?.Status.ToString() ?? "(null)")
+                + " storedStatus=" + (status?.StoredStatus?.ToString() ?? "(none)")
+                + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
+            return false;
+        }
+
+        stopwatch.Stop();
+        totalStopwatch.Stop();
+        result = new ChartInfoHydrationResult
+        {
+            Succeeded = true,
+            FastPath = true,
+            CandidateSummaryMs = stopwatch.ElapsedMilliseconds,
+            TotalRows = trustSnapshot.OwnerCount,
+            ChartInfoRows = 0,
+            OwnerCount = trustSnapshot.OwnerCount,
+            CurrentChartInfoOwnerCount = trustSnapshot.OwnerCount,
+            CurrentParseFailureOwnerCount = 0,
+            BackfillCandidateOwnerCount = 0,
+            LoadMs = stopwatch.ElapsedMilliseconds,
+            TotalMs = totalStopwatch.ElapsedMilliseconds
+        };
+        CaptureChartInfoHydrationAllCurrentSnapshot(
+            result,
+            trustSnapshot.OwnedCollectionVersion,
+            trustSnapshot.BmsRowsVersion,
+            trustSnapshot.BmsonRowsVersion);
+        LogInstallPerformance("chart_info_hydration_fast_path used"
+            + " source=completed_full_generation"
+            + " requestReason=" + (reason ?? "unknown")
+            + " trustReason=" + (trustSnapshot.Reason ?? "unknown")
+            + " owners=" + trustSnapshot.OwnerCount
+            + " status=" + status.Status
+            + " elapsedMs=" + result.TotalMs);
+        return true;
+    }
+
+    private ChartInfoOwnerVersionSnapshot CaptureChartInfoOwnerVersionSnapshot()
+    {
+        using (rwlockBMSFiles.GetReaderGuard())
+        {
+            return new ChartInfoOwnerVersionSnapshot
+            {
+                OwnedCollectionVersion = OwnedChartCollectionVersion,
+                BmsRowsVersion = Volatile.Read(ref bmsStorageRowsVersion),
+                BmsonRowsVersion = Volatile.Read(ref bmsonStorageRowsVersion),
+                BmsOwnerCount = _BMSFiles?.Count ?? 0,
+                BmsonOwnerCount = _BmsonSongs?.Count ?? 0
+            };
+        }
+    }
+
+    private void CaptureChartInfoCompletedFullGenerationTrustFromFileDiff(
+        BmsLibraryOptionsSnapshot options,
+        SongTableFileCheckResult fileCheckResult,
+        string reason)
+    {
+        if (!CanTrustCompletedFullGenerationForChartInfo(options, fileCheckResult))
+        {
+            ClearChartInfoCompletedFullGenerationTrustSnapshot("file_diff_changed_" + (reason ?? "unknown"));
+            return;
+        }
+
+        ChartInfoOwnerVersionSnapshot version = CaptureChartInfoOwnerVersionSnapshot();
+        var trustSnapshot = new ChartInfoCompletedFullGenerationTrustSnapshot
+        {
+            OwnedCollectionVersion = version.OwnedCollectionVersion,
+            BmsRowsVersion = version.BmsRowsVersion,
+            BmsonRowsVersion = version.BmsonRowsVersion,
+            BmsOwnerCount = version.BmsOwnerCount,
+            BmsonOwnerCount = version.BmsonOwnerCount,
+            Reason = reason ?? "unknown"
+        };
+        lock (lockChartInfoHydration)
+        {
+            chartInfoCompletedFullGenerationTrustSnapshot = trustSnapshot;
+        }
+        LogInstallPerformance("chart_info_full_generation_trust captured"
+            + " reason=" + (reason ?? "unknown")
+            + " ownerCount=" + trustSnapshot.OwnerCount
+            + " bmsOwners=" + trustSnapshot.BmsOwnerCount
+            + " bmsonOwners=" + trustSnapshot.BmsonOwnerCount
+            + " ownedCollectionVersion=" + trustSnapshot.OwnedCollectionVersion
+            + " bmsRowsVersion=" + trustSnapshot.BmsRowsVersion
+            + " bmsonRowsVersion=" + trustSnapshot.BmsonRowsVersion);
+    }
+
+    private static bool CanTrustCompletedFullGenerationForChartInfo(
+        BmsLibraryOptionsSnapshot options,
+        SongTableFileCheckResult fileCheckResult)
+    {
+        if (options?.OperationModeLR2DB != true
+            || options.EnableLR2SongDbFullGeneration != true
+            || fileCheckResult == null)
+        {
+            return false;
+        }
+
+        return fileCheckResult.BmsAddedTargetCount == 0
+            && fileCheckResult.BmsDeletedTargetCount == 0
+            && fileCheckResult.BmsMovedHashRelinkCount == 0
+            && fileCheckResult.BmsMovedHashRelinkAmbiguousCount == 0
+            && fileCheckResult.BmsonUpsertTargetCount == 0
+            && fileCheckResult.BmsonDeletedTargetCount == 0
+            && fileCheckResult.InlineChartInfoTargetCount == 0
+            && fileCheckResult.InlineChartInfoSuccessCount == 0
+            && fileCheckResult.InlineChartInfoParseFailedCount == 0
+            && fileCheckResult.InlineChartInfoFailurePersistedCount == 0
+            && fileCheckResult.InlineChartInfoFailureClearedCount == 0
+            && fileCheckResult.InlineChartInfoParseFailureRows.Count == 0
+            && fileCheckResult.InlineChartInfoParseFailureDeleteMd5s.Count == 0;
+    }
+
+    private ChartInfoCompletedFullGenerationTrustSnapshot GetCurrentChartInfoCompletedFullGenerationTrustSnapshot()
+    {
+        ChartInfoCompletedFullGenerationTrustSnapshot snapshot;
+        lock (lockChartInfoHydration)
+        {
+            snapshot = chartInfoCompletedFullGenerationTrustSnapshot;
+        }
+        ChartInfoOwnerVersionSnapshot currentVersion = CaptureChartInfoOwnerVersionSnapshot();
+        if (snapshot == null || !snapshot.IsCurrent(currentVersion))
+        {
+            return null;
+        }
+        return snapshot;
+    }
+
+    private void ClearChartInfoCompletedFullGenerationTrustSnapshot(string reason)
+    {
+        bool cleared = false;
+        lock (lockChartInfoHydration)
+        {
+            if (chartInfoCompletedFullGenerationTrustSnapshot != null)
+            {
+                chartInfoCompletedFullGenerationTrustSnapshot = null;
+                cleared = true;
+            }
+        }
+        if (cleared)
+        {
+            LogInstallPerformance("chart_info_full_generation_trust cleared reason=" + (reason ?? "unknown"));
+        }
+    }
+
+    private void ClearChartInfoHydrationAllCurrentSnapshot(string reason)
+    {
+        bool cleared = false;
+        lock (lockChartInfoHydration)
+        {
+            if (chartInfoHydrationAllCurrentSnapshot != null)
+            {
+                chartInfoHydrationAllCurrentSnapshot = null;
+                cleared = true;
+            }
+        }
+        if (cleared)
+        {
+            LogInstallPerformance("chart_info_hydration_all_current cleared reason=" + (reason ?? "unknown"));
+        }
+    }
+
     private void CaptureChartInfoHydrationAllCurrentSnapshot(
         ChartInfoHydrationResult result,
         int ownedCollectionVersion,
@@ -8695,7 +8987,9 @@ completeFileEnumerationOnce,
                 BmsonRowsVersion = bmsonRowsVersion,
                 OwnerCount = result.OwnerCount,
                 CurrentChartInfoOwnerCount = result.CurrentChartInfoOwnerCount,
-                CurrentParseFailureOwnerCount = result.CurrentParseFailureOwnerCount
+                CurrentParseFailureOwnerCount = result.CurrentParseFailureOwnerCount,
+                ParserVersion = BmsLibraryDbGateway.CurrentChartInfoParserVersion,
+                ParseTimeoutMs = Math.Max(0L, (long)Math.Ceiling(chartInfoBuildService.CurrentParseTimeout.TotalMilliseconds))
             };
         }
 
@@ -8715,7 +9009,9 @@ completeFileEnumerationOnce,
         if (snapshot == null
             || snapshot.OwnedCollectionVersion != OwnedChartCollectionVersion
             || snapshot.BmsRowsVersion != Volatile.Read(ref bmsStorageRowsVersion)
-            || snapshot.BmsonRowsVersion != Volatile.Read(ref bmsonStorageRowsVersion))
+            || snapshot.BmsonRowsVersion != Volatile.Read(ref bmsonStorageRowsVersion)
+            || snapshot.ParserVersion != BmsLibraryDbGateway.CurrentChartInfoParserVersion
+            || snapshot.ParseTimeoutMs != Math.Max(0L, (long)Math.Ceiling(chartInfoBuildService.CurrentParseTimeout.TotalMilliseconds)))
         {
             return null;
         }
@@ -8732,6 +9028,17 @@ completeFileEnumerationOnce,
 
     internal LR2SongDBExtended.chart_info ResolveChartInfo(string sha256, string md5)
     {
+        LR2SongDBExtended.chart_info resolved = ResolveChartInfoFromIndex(sha256, md5);
+        if (resolved != null || !ShouldLazyLoadChartInfoDisplayIndex())
+        {
+            return resolved;
+        }
+        EnsureChartInfoDisplayIndexLoadedForLazyResolve("resolve_chart_info");
+        return ResolveChartInfoFromIndex(sha256, md5);
+    }
+
+    private LR2SongDBExtended.chart_info ResolveChartInfoFromIndex(string sha256, string md5)
+    {
         lock (lockChartInfoIndex)
         {
             if (!string.IsNullOrWhiteSpace(sha256) && chartInfoIndexBySha256.TryGetValue(sha256, out LR2SongDBExtended.chart_info resolvedBySha256))
@@ -8744,6 +9051,66 @@ completeFileEnumerationOnce,
             }
         }
         return null;
+    }
+
+    private bool ShouldLazyLoadChartInfoDisplayIndex()
+    {
+        lock (lockChartInfoIndex)
+        {
+            if (_ChartInfoIndexHydrated || chartInfoDisplayIndexLoaded)
+            {
+                return false;
+            }
+        }
+        return CreateCurrentChartInfoHydrationAllCurrentResult() != null;
+    }
+
+    private void EnsureChartInfoDisplayIndexLoadedForLazyResolve(string reason)
+    {
+        if (!ShouldLazyLoadChartInfoDisplayIndex())
+        {
+            return;
+        }
+        lock (lockChartInfoLazyDisplayIndexLoad)
+        {
+            if (!ShouldLazyLoadChartInfoDisplayIndex())
+            {
+                return;
+            }
+            var stopwatch = Stopwatch.StartNew();
+            LogInstallPerformance("chart_info_lazy_display_index_load start reason=" + (reason ?? "unknown"));
+            try
+            {
+                ChartInfoHydrationLoadResult loadResult = dbGateway.LoadChartInfoHydrationData(chartInfoBuildService.CurrentParseTimeout);
+                ChartInfoIndexUpdateResult indexUpdateResult = UpsertChartInfoIndexRows(
+                    loadResult.ChartInfoBySha256.Values,
+                    "lazy_display_index",
+                    dispatchPresentation: false);
+                lock (lockChartInfoIndex)
+                {
+                    chartInfoDisplayIndexLoaded = true;
+                }
+                stopwatch.Stop();
+                LogInstallPerformance("chart_info_lazy_display_index_load done reason=" + (reason ?? "unknown")
+                    + " rows=" + loadResult.ChartInfoRows
+                    + " dbMode=" + (string.IsNullOrWhiteSpace(loadResult.MaterializeMode) ? "unknown" : loadResult.MaterializeMode)
+                    + " dbLoadMs=" + loadResult.DbReadMs
+                    + " rawRows=" + loadResult.RawRows
+                    + " rawReadMs=" + loadResult.RawReadMs
+                    + " rawObjectMs=" + loadResult.RawObjectMs
+                    + " indexVersion=" + indexUpdateResult.Version
+                    + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
+            }
+            catch (Exception ex)
+            {
+                stopwatch.Stop();
+                ClearChartInfoCompletedFullGenerationTrustSnapshot("lazy_display_index_load_failed");
+                ClearChartInfoHydrationAllCurrentSnapshot("lazy_display_index_load_failed");
+                LogInstallPerformanceWarn("chart_info_lazy_display_index_load failed reason=" + (reason ?? "unknown")
+                    + " elapsedMs=" + stopwatch.ElapsedMilliseconds
+                    + " message=" + GetDisplayedExceptionMessage(ex).Replace(Environment.NewLine, " | "));
+            }
+        }
     }
 
     private Func<BMSFile, LR2SongDBExtended.chart_info> CreateLr2FullGenerationChartInfoResolverSnapshot()
@@ -8897,6 +9264,7 @@ completeFileEnumerationOnce,
             chartInfoIndexByMd5 = byMd5;
             result.HydrationChanged = _ChartInfoIndexHydrated != hydrated;
             _ChartInfoIndexHydrated = hydrated;
+            chartInfoDisplayIndexLoaded = hydrated;
             _ChartInfoIndexVersion++;
             result.Version = _ChartInfoIndexVersion;
         }
@@ -9070,16 +9438,21 @@ completeFileEnumerationOnce,
     /// <param name="reason">ログに残す要求理由。</param>
     private void QueueChartInfoBackfill(string reason, bool processSynchronously = false, ChartInfoHydrationResult hydrationResult = null)
     {
+        ChartInfoHydrationResult currentAllCurrentResult = null;
         if (hydrationResult != null && hydrationResult.Succeeded && hydrationResult.OwnerCount > 0 && hydrationResult.BackfillCandidateOwnerCount <= 0)
+        {
+            currentAllCurrentResult = CreateCurrentChartInfoHydrationAllCurrentResult();
+        }
+        if (currentAllCurrentResult != null && currentAllCurrentResult.OwnerCount == hydrationResult.OwnerCount)
         {
             int skippedVersion = CompleteSkippedChartInfoBackfillRequestIfIdle();
             LogInstallPerformance("chart_info_backfill skipped reason=hydration_all_current"
                 + " version=" + skippedVersion
                 + " requestReason=" + (reason ?? "unknown")
-                + " ownerCount=" + hydrationResult.OwnerCount
-                + " currentChartInfo=" + hydrationResult.CurrentChartInfoOwnerCount
-                + " currentParseFailure=" + hydrationResult.CurrentParseFailureOwnerCount
-                + " candidates=" + hydrationResult.BackfillCandidateOwnerCount);
+                + " ownerCount=" + currentAllCurrentResult.OwnerCount
+                + " currentChartInfo=" + currentAllCurrentResult.CurrentChartInfoOwnerCount
+                + " currentParseFailure=" + currentAllCurrentResult.CurrentParseFailureOwnerCount
+                + " candidates=" + currentAllCurrentResult.BackfillCandidateOwnerCount);
             LogStartupMemoryCheckpoint("chart_info_backfill", "skipped");
             return;
         }
