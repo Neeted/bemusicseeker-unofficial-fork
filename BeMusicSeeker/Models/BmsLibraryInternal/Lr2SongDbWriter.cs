@@ -56,6 +56,8 @@ internal static class Lr2SongDbWriter
 
     private const string TempDeletedSongHashTable = "lr2_full_generation_deleted_song_hash";
 
+    private const string TempChartDigestUpsertTable = "lr2_full_generation_chart_digest_upsert";
+
     private const string TempGeneratedSongUpdateTable = "lr2_full_generation_generated_song_update";
 
     private const string TempGeneratedSongUpsertTable = "lr2_full_generation_generated_song_upsert";
@@ -350,6 +352,14 @@ internal static class Lr2SongDbWriter
     {
         songDb.Execute("CREATE TEMP TABLE IF NOT EXISTS temp." + tableName + " (md5 TEXT PRIMARY KEY);");
         ClearTempTable(songDb, tableName);
+    }
+
+    private static void PrepareTempChartDigestUpsertTable(LR2SongDBExtended songDb)
+    {
+        songDb.Execute(
+            "CREATE TEMP TABLE IF NOT EXISTS temp." + TempChartDigestUpsertTable
+            + " (md5 TEXT PRIMARY KEY, sha256 TEXT);");
+        ClearTempTable(songDb, TempChartDigestUpsertTable);
     }
 
     private static void ClearTempTable(LR2SongDBExtended songDb, string tableName)
@@ -770,11 +780,17 @@ internal static class Lr2SongDbWriter
         var digestsByMd5 = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (BMSFile song in songs ?? [])
         {
-            if (song == null || string.IsNullOrWhiteSpace(song.hash) || string.IsNullOrWhiteSpace(song.sha256))
+            if (song == null)
             {
                 continue;
             }
-            digestsByMd5[song.hash] = song.sha256;
+            string md5 = NormalizeHashForTemp(song.hash);
+            string sha256 = NormalizeSha256ForTemp(song.sha256);
+            if (string.IsNullOrWhiteSpace(md5) || string.IsNullOrWhiteSpace(sha256))
+            {
+                continue;
+            }
+            digestsByMd5[md5] = sha256;
         }
         if (digestsByMd5.Count == 0)
         {
@@ -789,6 +805,7 @@ internal static class Lr2SongDbWriter
             songDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
         }
 
+        PrepareTempChartDigestUpsertTable(songDb);
         const int chunkSize = 400;
         List<KeyValuePair<string, string>> digests = [.. digestsByMd5];
         for (int offset = 0; offset < digests.Count; offset += chunkSize)
@@ -802,10 +819,23 @@ internal static class Lr2SongDbWriter
                 args.Add(digest.Value);
             }
             songDb.Execute(
-                "INSERT OR REPLACE INTO " + digestTable + " ("
-                + digestMd5Column + ", " + digestSha256Column + ") VALUES " + placeholders + ";",
+                "INSERT OR REPLACE INTO temp." + TempChartDigestUpsertTable
+                + " (md5, sha256) VALUES " + placeholders + ";",
                 [.. args]);
         }
+        songDb.Execute(
+            "INSERT OR IGNORE INTO " + digestTable + " (" + digestMd5Column + ", " + digestSha256Column + ") "
+            + "SELECT md5, sha256 FROM temp." + TempChartDigestUpsertTable + ";");
+        songDb.Execute(
+            "UPDATE " + digestTable
+            + " SET " + digestSha256Column + " = (SELECT u.sha256 FROM temp." + TempChartDigestUpsertTable
+            + " u WHERE u.md5 = " + digestTable + "." + digestMd5Column + ") "
+            + "WHERE rowid IN (SELECT d.rowid FROM temp." + TempChartDigestUpsertTable
+            + " u JOIN " + digestTable + " d ON d." + digestMd5Column + " = u.md5 "
+            + "WHERE d." + digestSha256Column + " IS NOT u.sha256) "
+            + "AND " + digestSha256Column + " IS NOT (SELECT u.sha256 FROM temp." + TempChartDigestUpsertTable
+            + " u WHERE u.md5 = " + digestTable + "." + digestMd5Column + ");");
+        ClearTempTable(songDb, TempChartDigestUpsertTable);
     }
 
     private static void DeleteOrphanedChartDigests(LR2SongDBExtended songDb, IEnumerable<string> md5s)
@@ -880,6 +910,11 @@ internal static class Lr2SongDbWriter
     }
 
     private static string NormalizeHashForTemp(string hash)
+    {
+        return string.IsNullOrWhiteSpace(hash) ? null : hash.Trim().ToLowerInvariant();
+    }
+
+    private static string NormalizeSha256ForTemp(string hash)
     {
         return string.IsNullOrWhiteSpace(hash) ? null : hash.Trim().ToLowerInvariant();
     }

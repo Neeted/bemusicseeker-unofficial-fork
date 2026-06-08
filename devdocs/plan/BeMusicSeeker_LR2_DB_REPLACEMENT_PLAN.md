@@ -1756,6 +1756,8 @@ Everything / filesystem 広域再スキャンを始める入口ではない。su
    - 完了: full-generation song writer は `UpsertSongRows` の schema ensure を contract とし、
      chunk ごとの `chart_digest_map` table creation / `song` / `bmson_song` existence probe を行わない。
      単発 mutation API では schema probe を維持する。
+   - 完了: `chart_digest_map` は missing row を補修しつつ、同一 `md5` / `sha256` row には
+     `INSERT OR REPLACE` を行わない。sha256 が異なる row だけ update する。
    - `maintenance` の LR2 compatibility facts は、chunk temp table から全 `maintenance` row へ
      correlated subquery を繰り返す形にしない。`path` indexed lookup と changed-only update /
      missing-row insert に寄せ、同一値 row は update しない。完了。

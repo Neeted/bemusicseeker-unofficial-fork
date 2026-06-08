@@ -218,6 +218,31 @@ public sealed class Lr2SongDbWriterTests
     }
 
     [TestMethod]
+    public void UpsertGeneratedSongsForFullGeneration_SkipsUnchangedDigestMapRows()
+    {
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            using var songDb = new LR2SongDBExtended(songDbPath);
+            PrepareFullGenerationSongWriterSchema(songDb);
+            songDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
+            TestableBmsFile file = CreateSong(@"D:\BMS\Pack\unchanged-digest-write.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Title");
+            file.SetSha256(Sha('1'));
+            Assert.IsTrue(Lr2SongDbWriter.UpsertGeneratedSong(songDb, file));
+            songDb.Execute("CREATE TABLE digest_write_audit (op TEXT);");
+            songDb.Execute("CREATE TRIGGER digest_write_audit_insert AFTER INSERT ON chart_digest_map BEGIN INSERT INTO digest_write_audit (op) VALUES ('insert'); END;");
+            songDb.Execute("CREATE TRIGGER digest_write_audit_update AFTER UPDATE ON chart_digest_map BEGIN INSERT INTO digest_write_audit (op) VALUES ('update'); END;");
+
+            TestableBmsFile unchanged = CreateSong(file.path, file.hash, "Title");
+            unchanged.CopyGeneratedHashesFrom(file);
+            unchanged.SetSha256(file.sha256);
+            int written = Lr2SongDbWriter.UpsertGeneratedSongsForFullGeneration(songDb, [unchanged]);
+
+            Assert.AreEqual(0, written);
+            Assert.AreEqual(0, songDb.ExecuteScalar<int>("SELECT COUNT(*) FROM digest_write_audit;"));
+        });
+    }
+
+    [TestMethod]
     public void UpsertGeneratedSongsForFullGeneration_RepairsDigestForUnchangedGeneratedColumns()
     {
         WithTemporarySongDb(delegate (string songDbPath)
@@ -237,6 +262,35 @@ public sealed class Lr2SongDbWriterTests
 
             Assert.AreEqual(0, written);
             Assert.AreEqual(1, songDb.ExecuteScalar<int>("SELECT COUNT(*) FROM chart_digest_map WHERE md5 = ? AND sha256 = ?;", file.hash, file.sha256));
+        });
+    }
+
+    [TestMethod]
+    public void UpsertGeneratedSongsForFullGeneration_UpdatesChangedDigestWithoutSongWrite()
+    {
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            using var songDb = new LR2SongDBExtended(songDbPath);
+            PrepareFullGenerationSongWriterSchema(songDb);
+            songDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
+            TestableBmsFile file = CreateSong(@"D:\BMS\Pack\changed-digest-only.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Title");
+            file.SetSha256(Sha('1'));
+            Assert.IsTrue(Lr2SongDbWriter.UpsertGeneratedSong(songDb, file));
+            string staleSha = Sha('2');
+            songDb.Execute("UPDATE chart_digest_map SET sha256 = ? WHERE md5 = ?;", staleSha, file.hash);
+            songDb.Execute("CREATE TABLE digest_write_audit (op TEXT);");
+            songDb.Execute("CREATE TRIGGER digest_write_audit_insert AFTER INSERT ON chart_digest_map BEGIN INSERT INTO digest_write_audit (op) VALUES ('insert'); END;");
+            songDb.Execute("CREATE TRIGGER digest_write_audit_update AFTER UPDATE ON chart_digest_map BEGIN INSERT INTO digest_write_audit (op) VALUES ('update'); END;");
+
+            TestableBmsFile unchanged = CreateSong(file.path, file.hash, "Title");
+            unchanged.CopyGeneratedHashesFrom(file);
+            unchanged.SetSha256(file.sha256);
+            int written = Lr2SongDbWriter.UpsertGeneratedSongsForFullGeneration(songDb, [unchanged]);
+
+            Assert.AreEqual(0, written);
+            Assert.AreEqual(file.sha256, songDb.ExecuteScalar<string>("SELECT sha256 FROM chart_digest_map WHERE md5 = ?;", file.hash));
+            Assert.AreEqual(0, songDb.ExecuteScalar<int>("SELECT COUNT(*) FROM digest_write_audit WHERE op = 'insert';"));
+            Assert.AreEqual(1, songDb.ExecuteScalar<int>("SELECT COUNT(*) FROM digest_write_audit WHERE op = 'update';"));
         });
     }
 
