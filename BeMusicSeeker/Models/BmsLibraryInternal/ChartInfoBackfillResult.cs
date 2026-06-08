@@ -156,6 +156,11 @@ internal sealed class ChartInfoBackfillResult
     public int WorkerCount { get; set; }
 
     /// <summary>
+    /// ファイル読み取り reader 数です。
+    /// </summary>
+    public int ReaderCount { get; set; }
+
+    /// <summary>
     /// 読み取り済み byte[] queue の上限です。
     /// </summary>
     public int QueueCapacity { get; set; }

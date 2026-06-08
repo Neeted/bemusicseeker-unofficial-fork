@@ -39,7 +39,7 @@ internal sealed class ChartInfoBuildService
 
     /// <summary>
     /// テストや検証で reader、worker 数、chunk サイズ、timeout を固定できる backfill service を作成します。
-    /// 本番では file IO 競合を避けるため reader は呼び出し側から1本だけ使われます。
+    /// 本番では byte[] 読み取り reader と解析 worker を分けて動かします。
     /// </summary>
     /// <param name="readAllBytes">譜面ファイルを byte[] として読み取る関数。</param>
     /// <param name="workerCountOverride">解析 worker 数。null の場合は CPU 数から自動決定します。</param>
@@ -55,7 +55,7 @@ internal sealed class ChartInfoBuildService
 
     /// <summary>
     /// 不足または古い chart_info 行と、不足している BMS SHA-256 digest を構築します。
-    /// ファイル読み取りは単一 reader で行い、読み取った byte[] を worker が並列解析します。
+    /// ファイル読み取り reader は byte[] の取得だけを行い、hash 計算と chart_info 解析は worker 側で行います。
     /// </summary>
     /// <param name="dbGateway">song.db へのアクセス手段。</param>
     /// <param name="currentCharts">現在所持している譜面。</param>
@@ -213,7 +213,8 @@ internal sealed class ChartInfoBuildService
         targetBuildStopwatch.Stop();
         result.TargetCount = targets.Count;
         result.WorkerCount = ResolveWorkerCount();
-        result.QueueCapacity = Math.Max(1, result.WorkerCount * 2);
+        result.ReaderCount = ChartFileReadPipelinePolicy.ResolveReaderDegree(Environment.ProcessorCount, targets.Count);
+        result.QueueCapacity = ChartFileReadPipelinePolicy.ResolveReadQueueCapacity(result.WorkerCount, result.ReaderCount);
         reportProgress?.Invoke(result.TargetCount, 0, string.Empty);
         logInstallPerformance?.Invoke(BuildStartLogMessage(result, existingRowsLogValue, existingRowsSource, existingRowsStopwatch.ElapsedMilliseconds, targetBuildStopwatch.ElapsedMilliseconds, commitChunkSize, parseTimeout, mode));
         if (targets.Count == 0)
@@ -229,6 +230,8 @@ internal sealed class ChartInfoBuildService
         BlockingCollection<ChartInfoCommitChunk> commitChunks = [];
         long readTicks = 0L;
         long parseTicks = 0L;
+        long fileReadCount = 0L;
+        long fileReadBytes = 0L;
         int[] processedCount = new int[1];
 
         var commitWriter = Task.Run(delegate
@@ -276,27 +279,46 @@ internal sealed class ChartInfoBuildService
                 }
             }))];
 
+        int nextReadIndex = -1;
+        Task[] readers = [.. Enumerable.Range(0, result.ReaderCount)
+            .Select(_ => Task.Run(delegate
+            {
+                while (true)
+                {
+                    int targetIndex = Interlocked.Increment(ref nextReadIndex);
+                    if (targetIndex >= targets.Count)
+                    {
+                        break;
+                    }
+
+                    ChartInfoBuildTarget target = targets[targetIndex];
+                    try
+                    {
+                        reportProgress?.Invoke(result.TargetCount, Volatile.Read(ref processedCount[0]), target.Path);
+                        var readStopwatch = Stopwatch.StartNew();
+                        byte[] bytes = readAllBytes(target.Path);
+                        readStopwatch.Stop();
+                        Interlocked.Add(ref readTicks, readStopwatch.ElapsedTicks);
+                        Interlocked.Increment(ref fileReadCount);
+                        Interlocked.Add(ref fileReadBytes, bytes?.LongLength ?? 0L);
+                        queue.Add(new QueuedChartBytes(target, bytes));
+                    }
+                    catch (Exception ex)
+                    {
+                        logInstallPerformanceWarn?.Invoke(BuildReadFailureLogMessage(target, ex));
+                        itemResults.Add(ChartInfoBuildItemResult.CreateReadFailed(target));
+                    }
+                }
+            }))];
+
+        Exception readerException = null;
         try
         {
-            foreach (ChartInfoBuildTarget target in targets)
-            {
-                try
-                {
-                    reportProgress?.Invoke(result.TargetCount, Volatile.Read(ref processedCount[0]), target.Path);
-                    var readStopwatch = Stopwatch.StartNew();
-                    byte[] bytes = readAllBytes(target.Path);
-                    readStopwatch.Stop();
-                    Interlocked.Add(ref readTicks, readStopwatch.ElapsedTicks);
-                    result.FileReadCount++;
-                    result.FileReadBytes = SaturatingAdd(result.FileReadBytes, bytes?.LongLength ?? 0L);
-                    queue.Add(new QueuedChartBytes(target, bytes));
-                }
-                catch (Exception ex)
-                {
-                    logInstallPerformanceWarn?.Invoke(BuildReadFailureLogMessage(target, ex));
-                    itemResults.Add(ChartInfoBuildItemResult.CreateReadFailed(target));
-                }
-            }
+            Task.WaitAll(readers);
+        }
+        catch (Exception ex)
+        {
+            readerException = ex;
         }
         finally
         {
@@ -336,12 +358,18 @@ internal sealed class ChartInfoBuildService
         {
             throw workerException;
         }
+        if (readerException != null)
+        {
+            throw readerException;
+        }
         if (pipelineException != null)
         {
             throw pipelineException;
         }
 
         result.ProcessedCount = Volatile.Read(ref processedCount[0]);
+        result.FileReadCount = (int)Math.Min(int.MaxValue, Volatile.Read(ref fileReadCount));
+        result.FileReadBytes = Volatile.Read(ref fileReadBytes);
         result.ReadMs = TicksToMilliseconds(readTicks);
         result.ParseMs = TicksToMilliseconds(parseTicks);
         result.ComputeMs = result.ReadMs + result.ParseMs;
@@ -737,15 +765,6 @@ internal sealed class ChartInfoBuildService
         }
     }
 
-    private static long SaturatingAdd(long left, long right)
-    {
-        if (left >= long.MaxValue || right >= long.MaxValue || long.MaxValue - left < right)
-        {
-            return long.MaxValue;
-        }
-        return left + right;
-    }
-
     private static string BuildLogMessage(ChartInfoBackfillResult result)
     {
         return "chart_info_backfill total=" + result.TargetCount
@@ -765,6 +784,7 @@ internal sealed class ChartInfoBuildService
             + " fileReadCount=" + result.FileReadCount
             + " fileReadBytes=" + result.FileReadBytes
             + " workerCount=" + result.WorkerCount
+            + " readerCount=" + result.ReaderCount
             + " queueCapacity=" + result.QueueCapacity
             + " readMs=" + result.ReadMs
             + " parseMs=" + result.ParseMs
@@ -792,6 +812,7 @@ internal sealed class ChartInfoBuildService
             + " existingRowsLoadMs=" + existingRowsLoadMs
             + " targetBuildMs=" + targetBuildMs
             + " workerCount=" + result.WorkerCount
+            + " readerCount=" + result.ReaderCount
             + " queueCapacity=" + result.QueueCapacity
             + " chunkSize=" + commitChunkSize
             + " parserTimeoutMs=" + (long)parseTimeout.TotalMilliseconds

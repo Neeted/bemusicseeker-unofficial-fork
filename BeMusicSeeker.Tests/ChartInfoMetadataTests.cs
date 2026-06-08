@@ -3892,8 +3892,13 @@ createTempDirectory);
             Assert.AreEqual(5, result.DigestBackfilledCount);
             Assert.AreEqual(5, result.BackfilledCount);
             Assert.AreEqual(3, result.CommitChunks);
+            int expectedReaderCount = ChartFileReadPipelinePolicy.ResolveReaderDegree(Environment.ProcessorCount, result.TargetCount);
+            Assert.AreEqual(expectedReaderCount, result.ReaderCount);
+            Assert.AreEqual(ChartFileReadPipelinePolicy.ResolveReadQueueCapacity(result.WorkerCount, result.ReaderCount), result.QueueCapacity);
             Assert.AreEqual(3, logs.Count(message => message.StartsWith("INFO chart_info_backfill db_commit_chunk_done", StringComparison.Ordinal)));
-            Assert.IsTrue(logs.Any(message => message.StartsWith("INFO chart_info_backfill start", StringComparison.Ordinal)));
+            Assert.IsTrue(logs.Any(message => message.StartsWith("INFO chart_info_backfill start", StringComparison.Ordinal)
+                && message.Contains("readerCount=" + result.ReaderCount)
+                && message.Contains("queueCapacity=" + result.QueueCapacity)));
             Assert.IsTrue(logs.Any(message => message.StartsWith("INFO chart_info_backfill parse_done", StringComparison.Ordinal)));
             Assert.IsTrue(logs.Any(message => message.StartsWith("INFO chart_info_backfill slow_parse_top", StringComparison.Ordinal)));
             int parseDoneIndex = logs.FindIndex(message => message.StartsWith("INFO chart_info_backfill parse_done", StringComparison.Ordinal));

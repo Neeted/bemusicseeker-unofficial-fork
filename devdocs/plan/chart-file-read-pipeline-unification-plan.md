@@ -31,10 +31,10 @@
 
 | 処理 | 現状 reader | 現状 hash 計算 | worker / writer | 揃える方向 |
 | --- | --- | --- | --- | --- |
-| `ApplyFileScanDiff()` | 1 本 | `ChartFileContentReader.ReadSnapshot()` 内 | parser workers、post-parse worker、commit collector | reader を policy 化し、bytes read と hash / parse を分離する |
-| `ChartInfoBuildService` full backfill | 1 本 | worker の `ParseQueuedItem()` 内 | chart_info workers、result collector、commit writer | 既に hash は worker 側。reader を少数並列 policy へ寄せる |
+| `ApplyFileScanDiff()` | policy で 1 / 2 本 | parser worker の `CreateSnapshot(ReadBuffer)` 内 | parser workers、post-parse worker、commit collector | 完了。reader は bytes / metadata だけを読み、hash / parse は worker 側 |
+| `ChartInfoBuildService` full backfill | policy で 1 / 2 本 | worker の `ParseQueuedItem()` 内 | chart_info workers、result collector、commit writer | 完了。既存の test injection を保つため reader は `readAllBytes` delegate を使う |
 | manual maintenance rescan | 1 本 | `ChartFileContentReader.ReadSnapshot()` 内 | evaluator workers、single DB writer | reader を少数並列化し、hash は evaluator 側へ寄せる |
-| LR2 full generation `song_rows` | 1 または 2 本 | `ChartFileContentReader.ReadSnapshot()` 内 | parse/enrich workers、ordered single writer | 現在の reader 2 本許容を維持し、hash を worker 側へ移す |
+| LR2 full generation `song_rows` | policy で 1 / 2 本 | worker の `CreateSnapshot(ReadBuffer)` 内 | parse/enrich workers、ordered single writer | 完了。reader 2 本許容を維持し、hash は worker 側 |
 | package install inline | bounded workers | `ChartFileContentReader.ReadSnapshot()` 内 | install 後 inline chart_info | 大量処理ではないため優先度低。helper 移行の影響範囲として追従する |
 
 ## 目標形
@@ -88,6 +88,7 @@ target enumeration
 
 ### Phase 1: bytes-only read primitive の導入
 
+- Status: 完了。
 - `ChartFileReadBuffer` などの一時型を追加する。
   - `Path`
   - `Bytes`
@@ -100,6 +101,7 @@ target enumeration
 
 ### Phase 2: LR2 full generation `song_rows` を基準実装にする
 
+- Status: 完了。
 - 現在の readerDegree 1 / 2 policy は維持する。
 - reader task は `ReadBuffer(path)` だけを行う。
 - worker task が digest 計算、snapshot 作成、encoding detection、BMS lightweight parse、`chart_info` apply、LR2 compatibility facts build を行う。
@@ -109,6 +111,7 @@ target enumeration
 
 ### Phase 3: file diff pipeline を同じ vocabulary に寄せる
 
+- Status: 完了。
 - 空 DB / 大量差分で最も影響が大きいため、LR2 基準実装の次に扱う。
 - reader を policy に従って 1 / 2 本にできるようにする。
 - worker で digest 計算と lightweight parse を行う。
@@ -118,11 +121,12 @@ target enumeration
 
 ### Phase 4: chart_info full backfill を policy 化する
 
-- 現状は reader 1 本、hash は worker 側なので、責務分離は比較的近い。
-- `readAllBytes` 直呼びを `ReadBuffer` へ寄せる。
+- Status: 完了。既存テストの reader injection surface は保持し、reader degree と queue capacity を共通 policy へ寄せた。
+- hash は worker 側なので、責務分離は比較的近い。
+- `readAllBytes` delegate は維持し、reader task が bytes だけを読む。
 - worker で digest 計算と `ChartInfoParser.ParseBytesDetailed()` を行う。
 - existing row / parse failure による pre-read skip は維持する。
-- reader 1 / 2 の実機比較を行い、full backfill でも reader 2 を既定にするか判断する。
+- reader 1 / 2 の実機比較を行い、policy 条件を必要に応じて調整する。
 
 ### Phase 5: manual maintenance rescan を policy 化する
 

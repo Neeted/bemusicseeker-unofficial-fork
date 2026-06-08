@@ -6,10 +6,11 @@
 
 ## 基本方針
 
-- 新規コードで譜面 bytes が必要な場合は `ChartFileSnapshot` を使う。
-- `ChartFileSnapshot` は `ChartFileContentReader.ReadSnapshot(path)` で作る。
+- 新規コードで譜面 bytes と digest が必要な場合は `ChartFileSnapshot` を使う。
+- 大量処理では reader が `ChartFileContentReader.ReadBuffer(path)` で bytes と file metadata だけを読み、worker が `ChartFileContentReader.CreateSnapshot(buffer)` で digest 付き snapshot を作る。
+- path だけを持つ小さな処理や互換 API では `ChartFileContentReader.ReadSnapshot(path)` を使ってよい。
 - snapshot には `Path`, `Bytes`, `Length`, `LastWriteTimeUtc`, `Md5`, `Sha256` が入る。
-- 現行の `ReadSnapshot(path)` は bytes 読込と MD5 / SHA-256 計算を同じ呼び出し内で行う。次期整理では大量処理向けに bytes-only reader と worker 側 digest 計算へ分けるが、同じ bytes から digest を作り、hash のために同じ譜面を再 read しない方針は維持する。
+- `ReadSnapshot(path)` は互換入口として `ReadBuffer(path)` + `CreateSnapshot(buffer)` を行う。同じ bytes から digest を作り、hash のために同じ譜面を再 read しない方針は維持する。
 - snapshot bytes は処理中だけ保持し、DB や長期 model へ保存しない。
 - `ChartFileSnapshot` は bytes 読み取り結果であり、`ChartFile` domain/read model とは別責務である。`ChartFile` は storage row でも snapshot でもない。
 - lightweight parser と `chart_info` parser は統合しない。同じ bytes を使うが、役割は分ける。
@@ -125,9 +126,9 @@ LR2 `song.db` 完全生成の `song_rows` stage も、譜面 bytes を扱う大�
 ```text
 current owned BMS song rows
   -> bounded reader tasks (1 or 2)
-       ChartFileContentReader.ReadSnapshot(path)
-       current implementation reads bytes and computes MD5 / SHA-256 here
+       ChartFileContentReader.ReadBuffer(path)
   -> parallel workers
+       ChartFileContentReader.CreateSnapshot(buffer)
        encoding detection
        BMSFile.CreateBMSFileFromSnapshot(...)
        Lr2SongRowEnricher.EnrichParsedSong(...)
@@ -145,10 +146,9 @@ out-of-order commit で進めない。chunk size は transaction 範囲であり
 computed queue capacity と各譜面ファイルサイズに依存する。queue は件数上限で bytes を bounded にするための
 実用的な backpressure であり、巨大な個別譜面ファイルの byte[] size そのものを固定上限にするものではない。
 
-現行実装では対象が複数あり十分な CPU がある場合、`song_rows` reader は 2 本まで並列化される。これは
-`ReadSnapshot()` が read 後の MD5 / SHA-256 計算まで reader 側で抱えるため、reader 1 本で worker が
-飢餓しないようにするための保守的な上限である。次期 pipeline 統一では bytes 読込と hash 計算を分け、
-reader は bytes-only producer、worker が digest / parse を担当する形へ寄せる。
+現行実装では対象が複数あり十分な CPU がある場合、`song_rows` reader は 2 本まで並列化される。reader は
+bytes-only producer として動き、worker が MD5 / SHA-256 計算、snapshot 作成、parse / enrich を担当する。
+pipeline log では `readMs` と `digestMs` / `parseMs` を分けて確認できる。
 
 `song_rows` stage は `chart_info` full backfill 自体を再実装しない。current parser version の
 `chart_info` は `ChartInfoBuildService` 側で先に補完し、`song_rows` writer は chunk 内の対象 hash に対する
@@ -166,6 +166,8 @@ full backfill は、既存 DB 補完用の background 処理として残す。
 - metadata bundle で補完されなかった譜面。
 
 full backfill は path から bytes を read する reader pipeline を維持する。file diff / package install で inline 済みの譜面は、current `chart_info` により file read 前に skip される。
+
+`ChartInfoBuildService` の full backfill は `ChartFileReadPipelinePolicy` に従い、十分な CPU と複数 target がある場合は reader を 2 本まで並列化できる。reader は `readAllBytes` delegate で bytes だけを取得し、MD5 / SHA-256 計算、current parse failure 判定、`ChartInfoParser.ParseBytesDetailed(...)` は worker 側で行う。`chart_info_backfill start/done` log には `workerCount`、`readerCount`、`queueCapacity`、`fileReadCount`、`fileReadBytes`、`readMs`、`parseMs` が出る。
 
 full backfill は新規ファイル追加の後処理ではない。新規・更新ファイルの lightweight parse、chart_info、可能な範囲の maintenance は file diff / install の処理単位で完了させる。
 
