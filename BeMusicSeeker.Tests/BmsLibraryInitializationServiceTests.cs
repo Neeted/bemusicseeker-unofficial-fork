@@ -802,7 +802,8 @@ public sealed class BmsLibraryInitializationServiceTests
             Assert.IsTrue(result.FileDiffParseMs >= 0);
             Assert.IsTrue(result.SnapshotQueueHighWatermark > 0);
             Assert.AreEqual(2048, result.InlineChartInfoBatchSize);
-            Assert.AreEqual(2, result.ReadQueueCapacity);
+            Assert.AreEqual(ChartFileReadPipelinePolicy.ResolveReaderDegree(Environment.ProcessorCount, 2), result.FileDiffReaderDegree);
+            Assert.AreEqual(ChartFileReadPipelinePolicy.ResolveReadQueueCapacity(result.FileDiffParserDegree, result.FileDiffReaderDegree), result.ReadQueueCapacity);
             Assert.AreEqual(2048, result.ParsedQueueCapacity);
             Assert.AreEqual(1, result.PostParseQueueCapacity);
             Assert.AreEqual(0, result.CommitQueueCapacity);
@@ -816,8 +817,9 @@ public sealed class BmsLibraryInitializationServiceTests
             Assert.IsTrue(progress.All(item => item.Total == 2));
             Assert.IsTrue(logs.Any(message => message.Contains("bms_added_target_count=1")
                 && message.Contains("bmson_upsert_target_count=1")
+                && message.Contains("file_diff_reader_degree=" + result.FileDiffReaderDegree)
                 && message.Contains("file_diff_parser_degree=1")
-                && message.Contains("read_queue_capacity=2")
+                && message.Contains("read_queue_capacity=" + result.ReadQueueCapacity)
                 && message.Contains("parsed_queue_capacity=2048")
                 && message.Contains("post_parse_batch_count=1")
                 && message.Contains("inline_chart_info_target_count=2")

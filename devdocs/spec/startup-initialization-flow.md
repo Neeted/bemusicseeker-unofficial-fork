@@ -155,7 +155,7 @@ LR2 `song.db` 完全生成が有効な空 DB 初回構築では、file diff appl
 
 `chart_info` は所持譜面への metadata 付与用に一括で準備される session index / DB-backed index である。LR2 完全生成が有効な run では、開始時点で current parser version の `chart_info` resolver と current `chart_info_parse_failure` MD5 set を memory snapshot として準備し、worker はその resolver / set だけを lookup する。missing / stale `chart_info` は、完全生成前の別 chart_info 補完処理ではなく `song_rows` worker が同じ `ChartFileSnapshot` から作り、song row と同じ chunk transaction で保存する。current parse failure は再 parse せず skip する。`song_rows` chunk ごとに `chart_info` table へ SELECT することはしない。
 
-LR2 sync の `song_rows` pipeline は reader / worker / writer の責務を明確に分ける。reader は bounded producer として譜面 bytes と列挙 metadata を bounded queue へ流す。通常 file diff は単一 reader を既定とするが、full generation は全件 read と MD5 / SHA256 計算を伴うため、worker 飢餓を避ける目的で reader を少数並列にできる。worker は encoding detection、parse、`chart_info` apply、LR2 compatibility facts の作成までを同じ parse result から完了させる。writer は completed item の順序制御、bulk song write、bulk compatibility facts write、durable cursor update に専念する。writer chunk 内で `chart_info` apply や compatibility facts build のような CPU work を行わず、DB commit 前に pipeline を詰まらせない。
+LR2 sync の `song_rows` pipeline は reader / worker / writer の責務を明確に分ける。reader は bounded producer として譜面 bytes と列挙 metadata を bounded queue へ流す。通常 file diff と full generation は `ChartFileReadPipelinePolicy` に従い、十分な CPU と複数 target がある場合は reader を 2 本まで並列化できる。reader は bytes-only producer に寄せ、MD5 / SHA256 計算と snapshot 作成は worker 側で行う。worker は encoding detection、parse、`chart_info` apply、LR2 compatibility facts の作成までを同じ parse result から完了させる。writer は completed item の順序制御、bulk song write、bulk compatibility facts write、durable cursor update に専念する。writer chunk 内で `chart_info` apply や compatibility facts build のような CPU work を行わず、DB commit 前に pipeline を詰まらせない。
 
 | Log | 意味 |
 | --- | --- |
@@ -294,7 +294,7 @@ ReloadFileDiff
 
 差分が 0 件の場合は DB commit、chart_info hydration/backfill、installable maintenance を発生させない。
 
-差分がある場合、reader は 1 本、parser は `max(1, Environment.ProcessorCount - 1)` を既定とする。parser output queue は inline `chart_info` batch size 以上を確保し、既定 batch size は 2048 件、DB commit chunk size は 10000 件とする。inline maintenance は post-parse worker 内で bounded parallelism により実行し、`SongTableFileCheckResult` と DB chunk への反映は集約後に行う。
+差分がある場合、reader は `ChartFileReadPipelinePolicy` に従い 1 または 2 本、parser は `max(1, Environment.ProcessorCount - 1)` を既定とする。reader は `ReadBuffer()` で bytes と file metadata だけを読み、parser worker が digest 計算、snapshot 作成、lightweight parse を行う。parser output queue は inline `chart_info` batch size 以上を確保し、既定 batch size は 2048 件、DB commit chunk size は 10000 件とする。inline maintenance は post-parse worker 内で bounded parallelism により実行し、`SongTableFileCheckResult` と DB chunk への反映は集約後に行う。
 
 手動 `ReloadFileDiff` は、prefetch の有無、reason/progress/UI 更新、後段 playlist reference scheduling を除き、`Startup` の file diff と同じ `ApplyFileScanDiff()` 経路を使う。軽量 parse、inline `chart_info`、inline `maintenance`、snapshot 由来 encoding reload の意味論は起動時 file diff と揃える。
 

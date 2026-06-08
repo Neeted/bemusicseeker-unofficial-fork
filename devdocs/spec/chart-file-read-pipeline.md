@@ -34,7 +34,10 @@
 
 ```text
 changed path
-  -> ChartFileContentReader.ReadSnapshot(path)
+  -> bounded reader tasks
+       ChartFileContentReader.ReadBuffer(path)
+  -> parser workers
+       ChartFileContentReader.CreateSnapshot(buffer)
   -> lightweight parse
        BMSFile.CreateBMSFileFromSnapshot(...)
        BmsonSongParser.ParseSnapshot(...)
@@ -53,7 +56,7 @@ changed path
        session chart_info index for generated rows
 ```
 
-file diff の progress target は lightweight parse 対象数で、BMS 追加件数と bmson 追加・更新件数の合算。`chart_info` parse failure は `song` / `bmson_song` 登録を止めない。
+file diff の reader は `ChartFileReadPipelinePolicy` に従い、十分な CPU と複数 target がある場合は 2 本まで並列化する。reader は bytes と file metadata だけを bounded queue へ流し、MD5 / SHA-256 計算と snapshot 作成は parser worker 側で行う。file diff の progress target は lightweight parse 対象数で、BMS 追加件数と bmson 追加・更新件数の合算。`chart_info` parse failure は `song` / `bmson_song` 登録を止めない。
 
 current `chart_info` row が存在する場合、inline parser は詳細 parse を skip できる。この row は対象 model に適用してよいが、file diff の成果物として全件蓄積しない。session chart_info index の全量更新は `chart_info_hydration` が担当し、`file_diff_inline` で publish するのは新規生成または更新した row に限定する。
 
