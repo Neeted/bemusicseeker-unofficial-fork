@@ -1738,10 +1738,11 @@ Everything / filesystem 広域再スキャンを始める入口ではない。su
      BMS / bmson target selection、parse / no-op commit 判定と DB snapshot read が重なる。
      ログは `lr2_normal_folder_mtime_snapshot_prefetch`、`lr2_normal_folder_mtime_snapshot_prefetch_wait`、
      `lr2_normal_folder_mtime_diff prefetched=true` で確認する。
-     2026-06-08 の実機 Release 起動では、snapshot prefetch は `existingRows=33250` / `elapsedMs=417`、
+     2026-06-08 の実機 Release 起動では、snapshot prefetch は `existingRows=33250` / `elapsedMs=414`、
      consume wait は `waitMs=0`、mtime diff は `directories=33205` / `prefetched=true` /
-     `elapsedMs=1455` だった。DB read の前倒しは効いているが、directory exact path set 作成と
-     33k rows の change-state 比較がまだ post-scan 直列区間に残っている。
+     `candidateBuildMs=82` / `existingMapMs=45` / `compareMs=23` / `elapsedMs=167` まで短縮した。
+     旧実装では同条件で `elapsedMs=1455` 前後だったため、scan surface 由来の normalized directory set を
+     信用し、mtime diff 内の `Path.GetFullPath` 反復と重い root 判定を避ける効果が大きい。
    - 次候補: file diff の current BMS / bmson row list、deleted row md5 queue、bmson `path` / `updated_at`
      lookup は既に catalog load の結果を使っているが、処理単位ごとに map を再構築している。
      scan 結果待ち不要な compact current-row snapshot を startup generation で共有し、Everything scan 完了後の
