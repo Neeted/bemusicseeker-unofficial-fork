@@ -9796,7 +9796,7 @@ completeFileEnumerationOnce,
     {
         using (rwlockBMSFiles.GetReaderGuard())
         {
-            return CreateOwnedChartStorageOwnerViewUnsafe().Count;
+            return (BMSFiles?.Count ?? 0) + (BmsonSongs?.Count ?? 0);
         }
     }
 
