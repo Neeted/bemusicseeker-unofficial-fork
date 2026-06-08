@@ -89,39 +89,143 @@ public sealed class BmsLibraryInitializationServiceTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void LoadMaintenanceTable_LoadsMaintenanceMapAfterCatalogLoad()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
+        string previousMode = Environment.GetEnvironmentVariable("BMS_MAINTENANCE_TABLE_LOAD_MODE");
+        Environment.SetEnvironmentVariable("BMS_MAINTENANCE_TABLE_LOAD_MODE", null);
+        try
         {
-            string rootedChartPath = Path.Combine(lr2RootPath, "Songs", "chart.bms");
-            Directory.CreateDirectory(Path.GetDirectoryName(rootedChartPath));
-            File.WriteAllText(rootedChartPath, "#PLAYER 1");
-
-            using (var songDb = new LR2SongDBExtended(songDbPath))
+            WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
             {
-                songDb.CreateTable<LR2SongDB.song>();
-                songDb.CreateTable<LR2SongDBExtended.maintenance>();
-                songDb.InsertOrReplace(new BMSFileMaintenanceInfo
+                string rootedChartPath = Path.Combine(lr2RootPath, "Songs", "chart.bms");
+                Directory.CreateDirectory(Path.GetDirectoryName(rootedChartPath));
+                File.WriteAllText(rootedChartPath, "#PLAYER 1");
+
+                using (var songDb = new LR2SongDBExtended(songDbPath))
                 {
-                    path = rootedChartPath,
-                    hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                    encoding = "shift_jis"
-                }, typeof(LR2SongDBExtended.maintenance));
-            }
+                    songDb.CreateTable<LR2SongDB.song>();
+                    songDb.CreateTable<LR2SongDBExtended.maintenance>();
+                    songDb.InsertOrReplace(new BMSFileMaintenanceInfo
+                    {
+                        path = rootedChartPath,
+                        hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                        encoding = "shift_jis",
+                        is_encoding_fixed = true,
+                        wav_files_existing = 10,
+                        wav_files_defined = 12,
+                        bga_files_existing = 3,
+                        bga_files_defined = 4,
+                        movie_files_existing = 1,
+                        movie_files_defined = 2,
+                        is_stagefile_existing = true,
+                        is_stagefile_defined = true,
+                        is_banner_existing = false,
+                        is_banner_defined = true,
+                        is_backbmp_existing = true,
+                        is_backbmp_defined = false,
+                        is_files_warning_ignored = true,
+                        lr2_path_warning_flags = 11,
+                        lr2_chart_path_cp932_bytes = 22,
+                        lr2_folder_scan_cp932_bytes = 33,
+                        lr2_resource_warning_flags = 44,
+                        lr2_resource_max_raw_cp932_bytes = 55,
+                        lr2_resource_max_resolved_cp932_bytes = 66,
+                        lr2_resource_unsupported_count = 77
+                    }, typeof(LR2SongDBExtended.maintenance));
+                }
 
-            var service = new BmsLibraryInitializationService();
-            MaintenanceTableHydrationResult result = service.LoadMaintenanceTable(
-                new BmsLibraryDbGateway(songDbPath),
-                new BmsLibraryOptionsSnapshot());
+                var service = new BmsLibraryInitializationService();
+                MaintenanceTableHydrationResult result = service.LoadMaintenanceTable(
+                    new BmsLibraryDbGateway(songDbPath),
+                    new BmsLibraryOptionsSnapshot());
 
-            Assert.AreEqual(1L, result.MaintenanceTableCount);
-            Assert.AreEqual(1, result.MaintenanceMap.Count);
-            Assert.IsTrue(result.ReadOnly);
-            Assert.AreEqual(0L, result.DbLockWaitMs);
-            Assert.IsTrue(result.MaintenanceMap.TryGetValue(rootedChartPath, out BMSFileMaintenanceInfo info));
-            Assert.AreEqual("shift_jis", info.encoding);
-        });
+                Assert.AreEqual(1L, result.MaintenanceTableCount);
+                Assert.AreEqual("raw_string", result.MaintenanceMaterializeMode);
+                Assert.AreEqual(1, result.MaintenanceRawRows);
+                Assert.AreEqual(1, result.MaintenanceMap.Count);
+                Assert.IsTrue(result.ReadOnly);
+                Assert.AreEqual(0L, result.DbLockWaitMs);
+                Assert.IsTrue(result.MaintenanceMap.TryGetValue(rootedChartPath, out BMSFileMaintenanceInfo info));
+                Assert.AreEqual("shift_jis", info.encoding);
+                Assert.IsTrue(info.is_encoding_fixed);
+                Assert.AreEqual(10, info.wav_files_existing);
+                Assert.AreEqual(12, info.wav_files_defined);
+                Assert.AreEqual(3, info.bga_files_existing);
+                Assert.AreEqual(4, info.bga_files_defined);
+                Assert.AreEqual(1, info.movie_files_existing);
+                Assert.AreEqual(2, info.movie_files_defined);
+                Assert.AreEqual(true, info.is_stagefile_existing);
+                Assert.AreEqual(true, info.is_stagefile_defined);
+                Assert.AreEqual(false, info.is_banner_existing);
+                Assert.AreEqual(true, info.is_banner_defined);
+                Assert.AreEqual(true, info.is_backbmp_existing);
+                Assert.AreEqual(false, info.is_backbmp_defined);
+                Assert.IsTrue(info.is_files_warning_ignored);
+                Assert.AreEqual(11, info.lr2_path_warning_flags);
+                Assert.AreEqual(22, info.lr2_chart_path_cp932_bytes);
+                Assert.AreEqual(33, info.lr2_folder_scan_cp932_bytes);
+                Assert.AreEqual(44, info.lr2_resource_warning_flags);
+                Assert.AreEqual(55, info.lr2_resource_max_raw_cp932_bytes);
+                Assert.AreEqual(66, info.lr2_resource_max_resolved_cp932_bytes);
+                Assert.AreEqual(77, info.lr2_resource_unsupported_count);
+            });
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("BMS_MAINTENANCE_TABLE_LOAD_MODE", previousMode);
+        }
+    }
+
+    [TestMethod]
+    [DoNotParallelize]
+    public void LoadMaintenanceTable_CanUseSqliteNetFallback()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string previousMode = Environment.GetEnvironmentVariable("BMS_MAINTENANCE_TABLE_LOAD_MODE");
+        Environment.SetEnvironmentVariable("BMS_MAINTENANCE_TABLE_LOAD_MODE", "sqlite_net");
+        try
+        {
+            WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
+            {
+                string rootedChartPath = Path.Combine(lr2RootPath, "Songs", "chart.bms");
+                Directory.CreateDirectory(Path.GetDirectoryName(rootedChartPath));
+                File.WriteAllText(rootedChartPath, "#PLAYER 1");
+
+                using (var songDb = new LR2SongDBExtended(songDbPath))
+                {
+                    songDb.CreateTable<LR2SongDBExtended.maintenance>();
+                    songDb.InsertOrReplace(new BMSFileMaintenanceInfo
+                    {
+                        path = rootedChartPath,
+                        hash = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                        encoding = "utf-8",
+                        is_encoding_fixed = false,
+                        is_stagefile_existing = false,
+                        is_stagefile_defined = true
+                    }, typeof(LR2SongDBExtended.maintenance));
+                }
+
+                var service = new BmsLibraryInitializationService();
+                MaintenanceTableHydrationResult result = service.LoadMaintenanceTable(
+                    new BmsLibraryDbGateway(songDbPath),
+                    new BmsLibraryOptionsSnapshot());
+
+                Assert.AreEqual(1L, result.MaintenanceTableCount);
+                Assert.AreEqual("sqlite_net", result.MaintenanceMaterializeMode);
+                Assert.AreEqual(0, result.MaintenanceRawRows);
+                Assert.IsTrue(result.MaintenanceMap.TryGetValue(rootedChartPath, out BMSFileMaintenanceInfo info));
+                Assert.AreEqual("utf-8", info.encoding);
+                Assert.IsFalse(info.is_encoding_fixed);
+                Assert.AreEqual(false, info.is_stagefile_existing);
+                Assert.AreEqual(true, info.is_stagefile_defined);
+            });
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("BMS_MAINTENANCE_TABLE_LOAD_MODE", previousMode);
+        }
     }
 
     [TestMethod]

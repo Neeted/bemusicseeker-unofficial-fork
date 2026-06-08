@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -45,6 +46,9 @@ internal sealed class BmsLibraryInitializationService
 {
     private const string SongCatalogRawSelectSql =
         "SELECT hash, title, subtitle, artist, subartist, genre, tag, path, type, folder, stagefile, banner, backbmp, parent, level, difficulty, maxbpm, minbpm, mode, judge, longnote, bga, random, date, favorite, txt, karinotes, adddate, exlevel FROM song;";
+
+    private const string MaintenanceRawSelectSql =
+        "SELECT hash, path, encoding, is_encoding_fixed, wav_files_existing, wav_files_defined, bga_files_existing, bga_files_defined, movie_files_existing, movie_files_defined, is_stagefile_existing, is_stagefile_defined, is_banner_existing, is_banner_defined, is_backbmp_existing, is_backbmp_defined, is_files_warning_ignored, lr2_path_warning_flags, lr2_chart_path_cp932_bytes, lr2_folder_scan_cp932_bytes, lr2_resource_warning_flags, lr2_resource_max_raw_cp932_bytes, lr2_resource_max_resolved_cp932_bytes, lr2_resource_unsupported_count FROM maintenance;";
 
     private const int DefaultInlineChartInfoBatchSize = 2048;
 
@@ -293,11 +297,19 @@ internal sealed class BmsLibraryInitializationService
         var stopwatchMaintenanceMaterialize = Stopwatch.StartNew();
         if (result.MaintenanceTableCount > 0L)
         {
-            using (BMSFileMaintenanceInfo.SuppressPropertyChangedScope())
+            if (UseRawMaintenanceTableLoader())
             {
-                foreach (BMSFileMaintenanceInfo item in songDb.Table<BMSFileMaintenanceInfo>())
+                LoadMaintenanceTableRaw(songDb, maintenanceInfos, result);
+            }
+            else
+            {
+                result.MaintenanceMaterializeMode = "sqlite_net";
+                using (BMSFileMaintenanceInfo.SuppressPropertyChangedScope())
                 {
-                    maintenanceInfos.Add(item);
+                    foreach (BMSFileMaintenanceInfo item in songDb.Table<BMSFileMaintenanceInfo>())
+                    {
+                        maintenanceInfos.Add(item);
+                    }
                 }
             }
         }
@@ -319,6 +331,95 @@ internal sealed class BmsLibraryInitializationService
         totalStopwatch.Stop();
         result.TotalMs = totalStopwatch.ElapsedMilliseconds;
         return result;
+    }
+
+    private static bool UseRawMaintenanceTableLoader()
+    {
+        string mode = Environment.GetEnvironmentVariable("BMS_MAINTENANCE_TABLE_LOAD_MODE");
+        return !string.Equals(mode, "sqlite_net", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static void LoadMaintenanceTableRaw(
+        LR2SongDBExtended songDb,
+        List<BMSFileMaintenanceInfo> maintenanceInfos,
+        MaintenanceTableHydrationResult result)
+    {
+        result.MaintenanceMaterializeMode = "raw_string";
+        SQLiteCommand command = songDb.CreateCommand(MaintenanceRawSelectSql);
+        long objectTicks = 0L;
+        long stopwatchFrequency = Stopwatch.Frequency;
+        var totalStopwatch = Stopwatch.StartNew();
+        using (BMSFileMaintenanceInfo.SuppressPropertyChangedScope())
+        {
+            int rawRows = ((LR2SongDBExtended.SQLiteCommandExtended)command).ForEachRawValueAsString(delegate (string[] values)
+            {
+                long objectStart = Stopwatch.GetTimestamp();
+                maintenanceInfos.Add(CreateMaintenanceInfoFromRawValues(values));
+                objectTicks += Stopwatch.GetTimestamp() - objectStart;
+            });
+            result.MaintenanceRawRows = rawRows;
+        }
+        totalStopwatch.Stop();
+        long totalMs = totalStopwatch.ElapsedMilliseconds;
+        result.MaintenanceRawObjectMs = stopwatchFrequency > 0L ? objectTicks * 1000L / stopwatchFrequency : 0L;
+        result.MaintenanceRawReadMs = Math.Max(0L, totalMs - result.MaintenanceRawObjectMs);
+    }
+
+    private static BMSFileMaintenanceInfo CreateMaintenanceInfoFromRawValues(string[] values)
+    {
+        return new BMSFileMaintenanceInfo
+        {
+            hash = GetRawValue(values, 0),
+            path = GetRawValue(values, 1),
+            encoding = GetRawValue(values, 2),
+            is_encoding_fixed = ParseBoolean(GetRawValue(values, 3)),
+            wav_files_existing = ParseNullableInt(GetRawValue(values, 4)),
+            wav_files_defined = ParseNullableInt(GetRawValue(values, 5)),
+            bga_files_existing = ParseNullableInt(GetRawValue(values, 6)),
+            bga_files_defined = ParseNullableInt(GetRawValue(values, 7)),
+            movie_files_existing = ParseNullableInt(GetRawValue(values, 8)),
+            movie_files_defined = ParseNullableInt(GetRawValue(values, 9)),
+            is_stagefile_existing = ParseNullableBoolean(GetRawValue(values, 10)),
+            is_stagefile_defined = ParseNullableBoolean(GetRawValue(values, 11)),
+            is_banner_existing = ParseNullableBoolean(GetRawValue(values, 12)),
+            is_banner_defined = ParseNullableBoolean(GetRawValue(values, 13)),
+            is_backbmp_existing = ParseNullableBoolean(GetRawValue(values, 14)),
+            is_backbmp_defined = ParseNullableBoolean(GetRawValue(values, 15)),
+            is_files_warning_ignored = ParseBoolean(GetRawValue(values, 16)),
+            lr2_path_warning_flags = ParseNullableInt(GetRawValue(values, 17)),
+            lr2_chart_path_cp932_bytes = ParseNullableInt(GetRawValue(values, 18)),
+            lr2_folder_scan_cp932_bytes = ParseNullableInt(GetRawValue(values, 19)),
+            lr2_resource_warning_flags = ParseNullableInt(GetRawValue(values, 20)),
+            lr2_resource_max_raw_cp932_bytes = ParseNullableInt(GetRawValue(values, 21)),
+            lr2_resource_max_resolved_cp932_bytes = ParseNullableInt(GetRawValue(values, 22)),
+            lr2_resource_unsupported_count = ParseNullableInt(GetRawValue(values, 23))
+        };
+    }
+
+    private static string GetRawValue(string[] values, int index)
+    {
+        return index >= 0 && index < values.Length ? values[index] : null;
+    }
+
+    private static int? ParseNullableInt(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+        return int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsed) ? parsed : null;
+    }
+
+    private static bool ParseBoolean(string value)
+    {
+        return !string.IsNullOrWhiteSpace(value)
+            && (string.Equals(value, "1", StringComparison.Ordinal)
+                || string.Equals(value, "true", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool? ParseNullableBoolean(string value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? null : ParseBoolean(value);
     }
 
     public Lr2NormalFolderMtimeSnapshot LoadNormalFolderMtimeSnapshot(

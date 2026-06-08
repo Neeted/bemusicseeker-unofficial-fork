@@ -18,6 +18,14 @@ internal sealed class MaintenanceTableHydrationResult
 
     public long MaintenanceMapBuildMs { get; set; }
 
+    public string MaintenanceMaterializeMode { get; set; }
+
+    public int MaintenanceRawRows { get; set; }
+
+    public long MaintenanceRawReadMs { get; set; }
+
+    public long MaintenanceRawObjectMs { get; set; }
+
     public bool ReadOnly { get; set; }
 
     public long DbLockWaitMs { get; set; }

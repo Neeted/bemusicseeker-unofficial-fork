@@ -9911,6 +9911,10 @@ completeFileEnumerationOnce,
                     + " readMs=" + result.MaintenanceTableLoadMs
                     + " countMs=" + result.MaintenanceCountMs
                     + " materializeMs=" + result.MaintenanceMaterializeMs
+                    + " mode=" + (string.IsNullOrWhiteSpace(result.MaintenanceMaterializeMode) ? "unknown" : result.MaintenanceMaterializeMode)
+                    + " rawRows=" + result.MaintenanceRawRows
+                    + " rawReadMs=" + result.MaintenanceRawReadMs
+                    + " rawObjectMs=" + result.MaintenanceRawObjectMs
                     + " mapBuildMs=" + result.MaintenanceMapBuildMs
                     + " applyMs=" + result.MaintenanceApplyMs
                     + " attachMs=" + result.MaintenanceAttachMs
@@ -10124,7 +10128,7 @@ completeFileEnumerationOnce,
                     setModeMs = stopwatchSetMode.ElapsedMilliseconds;
 
                     var stopwatchSetHealth = Stopwatch.StartNew();
-                    maintenanceResult = setOwnedMaintenanceInfo("installable_maintenance_deferred") ?? new MaintenanceWorkflowResult();
+                    maintenanceResult = setInstallableMaintenanceInfo("installable_maintenance_deferred") ?? new MaintenanceWorkflowResult();
                     stopwatchSetHealth.Stop();
                     setHealthMs = stopwatchSetHealth.ElapsedMilliseconds;
                     IsWriteLockHeldInitializdBMSFilesHealthStatus = false;
@@ -14931,6 +14935,119 @@ completeFileEnumerationOnce,
                 resourceHealthMutationReason ?? reason,
                 out _);
         }
+    }
+
+    private MaintenanceWorkflowResult setInstallableMaintenanceInfo(
+        string reason,
+        Action<MaintenanceWorkflowProgress> progressReporter = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (!CanUseHydratedMaintenanceSnapshotForInstallableMaintenance())
+        {
+            return setOwnedMaintenanceInfo(
+                reason,
+                forceUpdate: false,
+                progressReporter: progressReporter,
+                cancellationToken: cancellationToken,
+                resourceHealthIndexUpdateMode: ResourceHealthIndexUpdateMode.FullOnUpdates,
+                resourceHealthMutationReason: reason);
+        }
+
+        using (rwlockBMSFiles.GetReaderGuard())
+        {
+            ResourceMaintenanceTargetSet maintenanceTargets = CreatePendingInstallableMaintenanceTargetSetUnsafe(reason);
+            return setMaintenanceInfoCoreLocked(
+                maintenanceTargets,
+                forceUpdate: false,
+                progressReporter,
+                cancellationToken,
+                ResourceHealthIndexUpdateMode.DeltaOnUpdates,
+                reason,
+                out _);
+        }
+    }
+
+    private bool CanUseHydratedMaintenanceSnapshotForInstallableMaintenance()
+    {
+        lock (lockDeferredMaintenanceHydration)
+        {
+            return MaintenanceHydrationRequestedVersion > 0
+                && MaintenanceHydrationCompletedVersion >= MaintenanceHydrationRequestedVersion
+                && !MaintenanceHydrationRunning;
+        }
+    }
+
+    private ResourceMaintenanceTargetSet CreatePendingInstallableMaintenanceTargetSetUnsafe(string reason)
+    {
+        var stopwatch = Stopwatch.StartNew();
+        OwnedChartStorageOwnerView ownerView = CreateOwnedChartStorageOwnerViewUnsafe();
+        List<ChartFile> targets = [];
+        int bmsMissingInfo = 0;
+        int bmsMissingEncoding = 0;
+        int bmsonMissingInfo = 0;
+        foreach (BMSFile file in ownerView.BmsFiles)
+        {
+            if (file == null)
+            {
+                continue;
+            }
+            BMSFileMaintenanceInfo maintenanceInfo = file.TryGetMaintenanceInfoWithoutCreating();
+            bool missingInfo = maintenanceInfo?.IsInformationChecked() != true;
+            bool missingEncoding = string.IsNullOrWhiteSpace(maintenanceInfo?.encoding);
+            if (!missingInfo && !missingEncoding)
+            {
+                continue;
+            }
+            ChartFile target = ChartFileProjection.FromBmsFile(
+                file,
+                includeWarningSnapshot: false,
+                includeResourceReferences: true,
+                includeScoreSnapshot: false);
+            if (target != null)
+            {
+                targets.Add(target);
+            }
+            if (missingInfo)
+            {
+                bmsMissingInfo++;
+            }
+            if (missingEncoding)
+            {
+                bmsMissingEncoding++;
+            }
+        }
+        foreach (LR2SongDBExtended.bmson_song song in ownerView.BmsonSongs)
+        {
+            if (song == null || string.IsNullOrWhiteSpace(song.path))
+            {
+                continue;
+            }
+            BMSFileMaintenanceInfo maintenanceInfo = song.MaintenanceInfo;
+            bool missingInfo = maintenanceInfo?.IsInformationChecked() != true;
+            if (!missingInfo)
+            {
+                continue;
+            }
+            ChartFile target = ChartFileProjection.FromBmsonSong(
+                song,
+                includeWarningSnapshot: false,
+                includeResourceReferences: true);
+            if (target != null)
+            {
+                targets.Add(target);
+            }
+            bmsonMissingInfo++;
+        }
+        stopwatch.Stop();
+        LogInstallPerformance("installable_maintenance_target build mode=hydrated_missing"
+            + " reason=" + (reason ?? "unknown")
+            + " ownerCount=" + ownerView.Count
+            + " targetCount=" + targets.Count
+            + " bmsMissingInfo=" + bmsMissingInfo
+            + " bmsMissingEncoding=" + bmsMissingEncoding
+            + " bmsonMissingInfo=" + bmsonMissingInfo
+            + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
+        return CreateResourceMaintenanceTargetSet(targets);
     }
 
     private MaintenanceWorkflowResult setMaintenanceInfoCoreLocked(
