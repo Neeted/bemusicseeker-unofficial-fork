@@ -2305,8 +2305,8 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             Assert.AreEqual("Parsed Title", verify.ExecuteScalar<string>("SELECT title FROM song WHERE path = ?;", chartPath));
             Assert.AreEqual("Parsed Artist", verify.ExecuteScalar<string>("SELECT artist FROM song WHERE path = ?;", chartPath));
             Assert.AreEqual(file.hash, verify.ExecuteScalar<string>("SELECT hash FROM song WHERE path = ?;", chartPath));
-            Assert.AreEqual(4, verify.ExecuteScalar<int>("SELECT level FROM song WHERE path = ?;", chartPath));
-            Assert.AreEqual(2, verify.ExecuteScalar<int>("SELECT difficulty FROM song WHERE path = ?;", chartPath));
+            Assert.AreEqual(9, verify.ExecuteScalar<int>("SELECT level FROM song WHERE path = ?;", chartPath));
+            Assert.AreEqual(3, verify.ExecuteScalar<int>("SELECT difficulty FROM song WHERE path = ?;", chartPath));
             Assert.AreEqual(180, verify.ExecuteScalar<int>("SELECT maxbpm FROM song WHERE path = ?;", chartPath));
             Assert.AreEqual(120, verify.ExecuteScalar<int>("SELECT minbpm FROM song WHERE path = ?;", chartPath));
             Assert.AreEqual(5, verify.ExecuteScalar<int>("SELECT mode FROM song WHERE path = ?;", chartPath));
@@ -2437,7 +2437,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
-    public void QueueLr2FullGenerationDataSync_NormalizesUndefinedDifficultyAfterPruningStaleRows()
+    public void QueueLr2FullGenerationDataSync_DefaultsDifficultyWithoutUsingStaleRowsAsAnchor()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         try
@@ -3842,7 +3842,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
 
         Assert.AreEqual(1, result.SongRowProcessedCount);
         Assert.AreEqual(1, result.SongRowChartInfoAppliedCount);
-        Assert.AreEqual(0, songDb.ExecuteScalar<int>("SELECT level FROM song WHERE path = ?;", chartPath));
+        Assert.AreEqual(13, songDb.ExecuteScalar<int>("SELECT level FROM song WHERE path = ?;", chartPath));
     }
 
     [TestMethod]
@@ -3875,7 +3875,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         });
 
         Assert.AreEqual(1, result.SongRowChartInfoAppliedCount);
-        Assert.AreEqual(0, songDb.ExecuteScalar<int>("SELECT level FROM song WHERE path = ?;", chartPath));
+        Assert.AreEqual(11, songDb.ExecuteScalar<int>("SELECT level FROM song WHERE path = ?;", chartPath));
     }
 
     [TestMethod]

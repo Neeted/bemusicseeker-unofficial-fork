@@ -503,12 +503,6 @@ internal static class Lr2FullGenerationSyncService
                     + " processedCursor=" + processedCount);
             }
 
-            Lr2SongDifficultyNormalizationResult difficultyResult = Lr2SongDbWriter.NormalizeUndefinedSongDifficulties(songDb);
-            LogSync(request, "lr2_full_generation_sync song_difficulty_normalized"
-                + " scanned=" + difficultyResult.ScannedCount
-                + " updated=" + difficultyResult.UpdatedCount
-                + " processedCursor=" + processedCount);
-
             diagnosticResult = DiagnoseStartupScanBlockers(
                 songDb,
                 roots,
@@ -2549,6 +2543,7 @@ internal static class Lr2FullGenerationSyncService
                 generatedChartInfoAvailable?.Invoke(generatedChartInfoRow);
             }
             chartInfoApplied = TryApplyChartInfoRow(row, chartInfo);
+            Lr2SongRowEnricher.ApplyLr2ChartMetadataDefaults(row);
             chartInfoTicks = Stopwatch.GetTimestamp() - chartInfoStart;
         }
 

@@ -96,7 +96,7 @@ public sealed class Lr2SongRowEnricherTests
     }
 
     [TestMethod]
-    public void EnrichFromChartInfo_AppliesDetailedColumnsWithoutOverwritingLightweightMetadata()
+    public void EnrichFromChartInfo_AppliesChartMetadataWithoutOverwritingLr2RuntimeMetadata()
     {
         var file = new TestableBmsFile
         {
@@ -123,8 +123,8 @@ public sealed class Lr2SongRowEnricherTests
 
         Lr2SongRowEnricher.EnrichFromChartInfo(file, chartInfo);
 
-        Assert.AreEqual(3, file.level);
-        Assert.AreEqual(-1, file.difficulty);
+        Assert.AreEqual(12, file.level);
+        Assert.AreEqual(4, file.difficulty);
         Assert.AreEqual(180, file.maxbpm);
         Assert.AreEqual(90, file.minbpm);
         Assert.AreEqual(5, file.mode);
@@ -218,6 +218,35 @@ public sealed class Lr2SongRowEnricherTests
         Lr2SongRowEnricher.EnrichFromChartInfo(file, chartInfo);
 
         Assert.AreEqual(0, file.exlevel);
+    }
+
+    [DataTestMethod]
+    [DataRow(null)]
+    [DataRow(-1)]
+    [DataRow(9)]
+    public void ApplyLr2ChartMetadataDefaults_DefaultsInvalidDifficultyToNormal(int? difficulty)
+    {
+        var file = new TestableBmsFile
+        {
+            difficulty = difficulty
+        };
+
+        Lr2SongRowEnricher.ApplyLr2ChartMetadataDefaults(file);
+
+        Assert.AreEqual(2, file.difficulty);
+    }
+
+    [TestMethod]
+    public void ApplyLr2ChartMetadataDefaults_KeepsValidDifficulty()
+    {
+        var file = new TestableBmsFile
+        {
+            difficulty = 4
+        };
+
+        Lr2SongRowEnricher.ApplyLr2ChartMetadataDefaults(file);
+
+        Assert.AreEqual(4, file.difficulty);
     }
 
     private sealed class TestableBmsFile : BMSFile

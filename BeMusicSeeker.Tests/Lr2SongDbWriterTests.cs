@@ -139,52 +139,6 @@ public sealed class Lr2SongDbWriterTests
     }
 
     [TestMethod]
-    public void NormalizeUndefinedSongDifficulties_FillsInvalidRowsUsingLr2FolderModeOrder()
-    {
-        WithTemporarySongDb(delegate (string songDbPath)
-        {
-            using var songDb = new LR2SongDBExtended(songDbPath);
-            songDb.CreateTable<LR2SongDB.song>();
-            InsertDifficultyRow(songDb, "a_null_anchor.bms", "A", 5, 10, null);
-            InsertDifficultyRow(songDb, "a_invalid_after_null.bms", "A", 5, 20, -1);
-            InsertDifficultyRow(songDb, "a_invalid_second.bms", "A", 5, 25, -1);
-            InsertDifficultyRow(songDb, "a_anchor_another.bms", "A", 5, 30, 4);
-            InsertDifficultyRow(songDb, "a_after_four.bms", "A", 5, 40, -1);
-            InsertDifficultyRow(songDb, "a_out_of_range.bms", "A", 5, 50, 9);
-            InsertDifficultyRow(songDb, "a_new_mode.bms", "A", 7, 10, -1);
-            InsertDifficultyRow(songDb, "b_anchor_zero.bms", "B", 5, 10, 0);
-            InsertDifficultyRow(songDb, "b_after_zero.bms", "B", 5, 20, -1);
-            InsertDifficultyRow(songDb, "b_anchor_insane.bms", "B", 5, 30, 5);
-            InsertDifficultyRow(songDb, "b_after_five.bms", "B", 5, 40, -1);
-            InsertDifficultyRow(songDb, "c_null_mode_anchor.bms", "C", null, 10, 1);
-            InsertDifficultyRow(songDb, "c_mode_zero_invalid.bms", "C", 0, 20, -1);
-
-            Lr2SongDifficultyNormalizationResult result = Lr2SongDbWriter.NormalizeUndefinedSongDifficulties(songDb);
-
-            Assert.AreEqual(13, result.ScannedCount);
-            Assert.AreEqual(9, result.UpdatedCount);
-            AssertDifficulty(songDb, "a_null_anchor.bms", 0);
-            AssertDifficulty(songDb, "a_invalid_after_null.bms", 1);
-            AssertDifficulty(songDb, "a_invalid_second.bms", 2);
-            AssertDifficulty(songDb, "a_anchor_another.bms", 4);
-            AssertDifficulty(songDb, "a_after_four.bms", 4);
-            AssertDifficulty(songDb, "a_out_of_range.bms", 4);
-            AssertDifficulty(songDb, "a_new_mode.bms", 2);
-            AssertDifficulty(songDb, "b_anchor_zero.bms", 0);
-            AssertDifficulty(songDb, "b_after_zero.bms", 1);
-            AssertDifficulty(songDb, "b_anchor_insane.bms", 5);
-            AssertDifficulty(songDb, "b_after_five.bms", 5);
-            AssertDifficulty(songDb, "c_null_mode_anchor.bms", 1);
-            AssertDifficulty(songDb, "c_mode_zero_invalid.bms", 2);
-
-            Lr2SongDifficultyNormalizationResult second = Lr2SongDbWriter.NormalizeUndefinedSongDifficulties(songDb);
-
-            Assert.AreEqual(13, second.ScannedCount);
-            Assert.AreEqual(0, second.UpdatedCount);
-        });
-    }
-
-    [TestMethod]
     public void UpsertGeneratedSongsForFullGeneration_PreservesUserColumnsWithoutExistingRowRead()
     {
         WithTemporarySongDb(delegate (string songDbPath)
@@ -517,28 +471,6 @@ public sealed class Lr2SongDbWriterTests
         file.SetArtistForTest("Artist");
         file.SetTextFlagForTest(0);
         return file;
-    }
-
-    private static void InsertDifficultyRow(
-        LR2SongDBExtended songDb,
-        string path,
-        string folder,
-        int? mode,
-        int karinotes,
-        int? difficulty)
-    {
-        songDb.Execute(
-            "INSERT INTO song (path, folder, mode, karinotes, difficulty) VALUES (?, ?, ?, ?, ?);",
-            path,
-            folder,
-            mode,
-            karinotes,
-            difficulty);
-    }
-
-    private static void AssertDifficulty(LR2SongDBExtended songDb, string path, int expected)
-    {
-        Assert.AreEqual(expected, songDb.ExecuteScalar<int>("SELECT difficulty FROM song WHERE path = ?;", path), path);
     }
 
     private static string Sha(char value)

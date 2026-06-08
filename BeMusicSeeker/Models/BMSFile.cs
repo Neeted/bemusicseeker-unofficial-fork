@@ -788,10 +788,13 @@ public class BMSFile : LR2SongDB.song
 
     internal void ApplyLr2ChartInfoDetailedColumns(LR2SongDBExtended.chart_info chartInfo)
     {
-        ApplyLr2ChartInfoColumns(chartInfo, includeLightweightMetadata: false);
+        ApplyLr2ChartInfoColumns(chartInfo, includeLightweightMetadata: false, includeChartMetadata: true);
     }
 
-    private void ApplyLr2ChartInfoColumns(LR2SongDBExtended.chart_info chartInfo, bool includeLightweightMetadata)
+    private void ApplyLr2ChartInfoColumns(
+        LR2SongDBExtended.chart_info chartInfo,
+        bool includeLightweightMetadata,
+        bool includeChartMetadata = false)
     {
         if (chartInfo == null)
         {
@@ -809,6 +812,11 @@ public class BMSFile : LR2SongDB.song
             level = chartInfo.level;
             difficulty = chartInfo.difficulty;
             mode = chartInfo.mode;
+        }
+        else if (includeChartMetadata)
+        {
+            level = chartInfo.level;
+            difficulty = chartInfo.difficulty;
         }
         maxbpm = ToLr2SongInteger(chartInfo.maxbpm);
         minbpm = ToLr2SongInteger(chartInfo.minbpm);

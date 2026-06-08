@@ -43,7 +43,26 @@ internal static class Lr2SongRowEnricher
 
     internal static void EnrichFromChartInfo(BMSFile song, LR2SongDBExtended.chart_info chartInfo)
     {
-        song?.ApplyLr2ChartInfoDetailedColumns(chartInfo);
+        if (song == null)
+        {
+            return;
+        }
+
+        song.ApplyLr2ChartInfoDetailedColumns(chartInfo);
+        ApplyLr2ChartMetadataDefaults(song);
+    }
+
+    internal static void ApplyLr2ChartMetadataDefaults(BMSFile song)
+    {
+        if (song == null)
+        {
+            return;
+        }
+
+        if (!song.difficulty.HasValue || song.difficulty.Value < 0 || song.difficulty.Value > 5)
+        {
+            song.difficulty = 2;
+        }
     }
 
     internal static int ToLr2UnixSeconds(DateTime utcTime)
