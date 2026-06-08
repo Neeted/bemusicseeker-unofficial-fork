@@ -950,6 +950,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                 {
                     [lr2FolderPath] = new RootFileEnumerationEntry(lr2FolderPath, timestamp)
                 },
+                Lr2ScanTextFileDirectories = [rootDirectory],
                 Lr2ScanLr2FolderFileDiscoveryComplete = true
             };
 
@@ -961,6 +962,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             LR2SongDB.folder lr2Folder = verify.Table<LR2SongDB.folder>().ToList().Single(row => row.path == lr2FolderPath);
             Assert.AreEqual("External Folder", lr2Folder.title);
             Assert.AreEqual(Lr2SongFolderParentNormalizer.ComputeDirectoryHash(tableDirectory), lr2Folder.parent);
+            CollectionAssert.Contains(fileCheckResult.Lr2ScanTextFileDirectories.ToList(), Lr2FolderPath.NormalizeDirectoryPath(rootDirectory));
         }
         finally
         {
