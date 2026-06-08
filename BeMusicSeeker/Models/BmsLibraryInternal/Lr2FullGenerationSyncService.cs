@@ -331,17 +331,15 @@ internal static class Lr2FullGenerationSyncService
         if (resumeCursor < normalFolderEndCursor && roots.Count > 0)
         {
             LogStage(request, "stage_start", "normal_folders", normalFolderTargetCount, normalFolderProcessedCount, normalFolderProcessedCount);
-            normalFolderResult = Lr2NormalFolderDbSyncService.Sync(songDb, new Lr2NormalFolderDbSyncRequest
-            {
-                RootDirectories = roots,
-                ChartPaths = chartPaths,
-                DirectoryPaths = normalFolderDirectoryPaths,
-                FolderInfoFilePaths = folderInfoFilePaths,
-                FolderInfoFileEntries = request.FolderInfoFileEntries,
-                DirectoryLastWriteTimeUtcResolver = CreateLastWriteTimeResolver(directoryEntries),
-                AllowPrune = true,
-                GeneratedAtUtc = request.StartedAtUtc
-            });
+            normalFolderResult = Lr2NormalFolderDbSyncService.Sync(
+                songDb,
+                CreateNormalFolderDbSyncRequest(
+                    request,
+                    roots,
+                    chartPaths,
+                    normalFolderDirectoryPaths,
+                    folderInfoFilePaths,
+                    directoryEntries));
             normalFolderProcessedCount = normalFolderTargetCount;
             LogStage(request, "stage_done", "normal_folders", normalFolderTargetCount, normalFolderProcessedCount, normalFolderProcessedCount);
         }
@@ -515,17 +513,15 @@ internal static class Lr2FullGenerationSyncService
             bool canResyncNormalFolders = normalFolderResult == null;
             if (diagnosticResult.MissingExpectedFolderRowCount > 0 && roots.Count > 0 && canResyncNormalFolders)
             {
-                Lr2NormalFolderDbSyncResult resyncResult = Lr2NormalFolderDbSyncService.Sync(songDb, new Lr2NormalFolderDbSyncRequest
-                {
-                    RootDirectories = roots,
-                    ChartPaths = chartPaths,
-                    DirectoryPaths = normalFolderDirectoryPaths,
-                    FolderInfoFilePaths = folderInfoFilePaths,
-                    FolderInfoFileEntries = request.FolderInfoFileEntries,
-                    DirectoryLastWriteTimeUtcResolver = CreateLastWriteTimeResolver(directoryEntries),
-                    AllowPrune = true,
-                    GeneratedAtUtc = request.StartedAtUtc
-                });
+                Lr2NormalFolderDbSyncResult resyncResult = Lr2NormalFolderDbSyncService.Sync(
+                    songDb,
+                    CreateNormalFolderDbSyncRequest(
+                        request,
+                        roots,
+                        chartPaths,
+                        normalFolderDirectoryPaths,
+                        folderInfoFilePaths,
+                        directoryEntries));
                 LogSync(request, "lr2_full_generation_sync startup_scan_blocker_resync"
                     + " stage=normal_folders"
                     + " missingExpectedFolderRows=" + diagnosticResult.MissingExpectedFolderRowCount
@@ -810,6 +806,29 @@ internal static class Lr2FullGenerationSyncService
         }
 
         return "\"" + value.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\r", " ").Replace("\n", " ") + "\"";
+    }
+
+    private static Lr2NormalFolderDbSyncRequest CreateNormalFolderDbSyncRequest(
+        Lr2FullGenerationSyncRequest request,
+        IReadOnlyCollection<string> roots,
+        IReadOnlyCollection<string> chartPaths,
+        IReadOnlyCollection<string> normalFolderDirectoryPaths,
+        IReadOnlyCollection<string> folderInfoFilePaths,
+        IReadOnlyDictionary<string, RootFileEnumerationEntry> directoryEntries)
+    {
+        return new Lr2NormalFolderDbSyncRequest
+        {
+            RootDirectories = roots,
+            ChartPaths = chartPaths,
+            DirectoryPaths = normalFolderDirectoryPaths,
+            FolderInfoFilePaths = folderInfoFilePaths,
+            FolderInfoFileEntries = request.FolderInfoFileEntries,
+            DirectoryLastWriteTimeUtcResolver = CreateLastWriteTimeResolver(directoryEntries),
+            PruneScopeDirectories = roots,
+            AllowPrune = true,
+            UseScopedExistingRows = true,
+            GeneratedAtUtc = request.StartedAtUtc
+        };
     }
 
     private static Lr2StartupScanDiagnosticResult DiagnoseStartupScanBlockers(

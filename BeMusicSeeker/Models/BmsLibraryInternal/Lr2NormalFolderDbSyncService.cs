@@ -314,16 +314,19 @@ internal static class Lr2NormalFolderDbSyncService
         }
 
         var rowsByPath = new Dictionary<string, LR2SongDB.folder>(StringComparer.Ordinal);
+        IReadOnlyCollection<string> normalizedPruneScopeDirectories = NormalizePruneScopeDirectories(request.PruneScopeDirectories, rootDirectories);
         foreach (LR2SongDB.folder row in QueryExistingRowsByExactPaths(
             songDb,
-            CreateExistingRowExactPathScope(directoryMetadataTargets, request.PruneExactDirectories)))
+            FilterExactPathsOutsidePruneScopes(
+                CreateExistingRowExactPathScope(directoryMetadataTargets, request.PruneExactDirectories),
+                normalizedPruneScopeDirectories)))
         {
             AddExistingRow(rowsByPath, row);
         }
 
         foreach (LR2SongDB.folder row in QueryExistingRowsByScopeDirectories(
             songDb,
-            NormalizePruneScopeDirectories(request.PruneScopeDirectories, rootDirectories)))
+            normalizedPruneScopeDirectories))
         {
             AddExistingRow(rowsByPath, row);
         }
@@ -345,6 +348,23 @@ internal static class Lr2NormalFolderDbSyncService
             AddFolderPath(result, directory);
         }
         return result;
+    }
+
+    private static IReadOnlyCollection<string> FilterExactPathsOutsidePruneScopes(
+        IEnumerable<string> exactPaths,
+        IReadOnlyCollection<string> pruneScopeDirectories)
+    {
+        if (exactPaths == null)
+        {
+            return [];
+        }
+
+        if (pruneScopeDirectories == null || pruneScopeDirectories.Count == 0)
+        {
+            return [.. exactPaths];
+        }
+
+        return [.. exactPaths.Where(path => !pruneScopeDirectories.Any(scope => Lr2FolderPath.IsSameOrDescendant(path, scope)))];
     }
 
     private static void AddFolderPath(ISet<string> result, string directory)
