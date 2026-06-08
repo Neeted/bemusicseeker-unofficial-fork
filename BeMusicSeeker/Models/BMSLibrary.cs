@@ -7576,10 +7576,11 @@ completeFileEnumerationOnce,
         IEnumerable<string> preparedScopeDirectories,
         out IReadOnlyDictionary<string, RootFileEnumerationEntry> mergedEntries)
     {
+        Lr2DirectoryScopeMatcher scopeMatcher = Lr2DirectoryScopeMatcher.Create(preparedScopeDirectories);
         var entriesByPath = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
         foreach (RootFileEnumerationEntry entry in CreateNormalizedFileEntries(basePaths, baseEntries))
         {
-            if (IsInsideAnyLr2PreparedScope(entry.Path, preparedScopeDirectories))
+            if (scopeMatcher.ContainsFilePath(entry.Path))
             {
                 continue;
             }
@@ -7599,10 +7600,11 @@ completeFileEnumerationOnce,
         IEnumerable<string> preparedDirectories,
         IEnumerable<string> preparedScopeDirectories)
     {
+        Lr2DirectoryScopeMatcher scopeMatcher = Lr2DirectoryScopeMatcher.Create(preparedScopeDirectories);
         var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (string directory in NormalizeLr2DirectoryMetadataTargets(baseDirectories))
         {
-            if (!IsInsideAnyLr2PreparedScope(directory, preparedScopeDirectories))
+            if (!scopeMatcher.ContainsDirectory(directory))
             {
                 result.Add(directory);
             }
@@ -7675,13 +7677,6 @@ completeFileEnumerationOnce,
                 ? new RootFileEnumerationEntry(path)
                 : new RootFileEnumerationEntry(path, entry.LastWriteTimeUtc, entry.FileSize);
         }
-    }
-
-    private static bool IsInsideAnyLr2PreparedScope(string path, IEnumerable<string> preparedScopeDirectories)
-    {
-        string normalizedPath = Lr2FolderPath.NormalizeDirectoryPath(path);
-        return !string.IsNullOrWhiteSpace(normalizedPath)
-            && (preparedScopeDirectories ?? []).Any(scope => Lr2FolderPath.IsSameOrDescendant(normalizedPath, scope));
     }
 
     private static IReadOnlyList<string> CreateLr2FolderDiscoveryDirectoriesForEnumeration(

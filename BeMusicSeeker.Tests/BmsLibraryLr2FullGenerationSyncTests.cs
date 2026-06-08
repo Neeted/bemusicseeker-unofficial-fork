@@ -1865,6 +1865,74 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
+    public void CreateLr2FullGenerationSyncInput_ReplacesOnlyPreparedScopeTextFileDirectories()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        try
+        {
+            Settings.Default.OperationModeLR2DB = true;
+            Settings.Default.EnableLR2SongDbFullGeneration = true;
+            ResetLr2FolderDiscoverySettings();
+            string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
+            string outputBase = Path.Combine(scope.DirectoryPath, "#BeMusicSeekerOutput");
+            string preparedDirectory = Path.Combine(outputBase, "Table");
+            string preparedPrefixSibling = Path.Combine(outputBase, "TableOther");
+            string stalePreparedChildDirectory = Path.Combine(preparedDirectory, "OldText");
+            string lr2FolderPath = Path.Combine(preparedDirectory, "0000.lr2folder");
+            Directory.CreateDirectory(rootDirectory);
+            Directory.CreateDirectory(preparedDirectory);
+            Directory.CreateDirectory(preparedPrefixSibling);
+            Directory.CreateDirectory(stalePreparedChildDirectory);
+            File.WriteAllText(lr2FolderPath, "#TITLE Prepared Folder", Encoding.GetEncoding("shift_jis"));
+            Settings.Default.LR2CustomFolderOutputBaseDir = outputBase;
+            var library = new BMSLibrary(scope.SongDbPath)
+            {
+                SearchTargets = [rootDirectory],
+                BMSFiles = []
+            };
+            var options = new BmsLibraryOptionsSnapshot
+            {
+                OperationModeLR2DB = true,
+                EnableLR2SongDbFullGeneration = true
+            };
+            InvokeCaptureLr2FullGenerationScanSurface(library, options, [rootDirectory], new SongTableFileCheckResult
+            {
+                Lr2ScanSurfaceAvailable = true,
+                Lr2ScanNormalFolderDirectoryPaths = [rootDirectory],
+                Lr2ScanDirectoryEntries = CreateDirectoryEntryMap(rootDirectory, preparedDirectory, preparedPrefixSibling, stalePreparedChildDirectory),
+                Lr2ScanNormalFolderDirectoryEntries = CreateDirectoryEntryMap(rootDirectory),
+                Lr2ScanFolderInfoFilePaths = [],
+                Lr2ScanFolderInfoFileEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase),
+                Lr2ScanTextFileDirectories = [rootDirectory, stalePreparedChildDirectory, preparedPrefixSibling],
+                Lr2ScanLr2FolderDiscoveryDirectories = [rootDirectory, outputBase],
+                Lr2ScanLr2FolderFilePaths = [Path.Combine(preparedDirectory, "stale.lr2folder")],
+                Lr2ScanLr2FolderFileEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase),
+                Lr2ScanLr2FolderFileDiscoveryComplete = true
+            });
+
+            Assert.IsTrue(library.TryRunLr2FullGenerationDataPreparation(
+                "test_prepare_text_dirs_scope_boundary",
+                () => CreatePreparedLr2FolderSurface(
+                    preparedDirectory,
+                    lr2FolderPath,
+                    CreateDirectoryEntryMap(preparedDirectory),
+                    textFileDirectories: [preparedDirectory])));
+
+            object input = InvokeCreateLr2FullGenerationSyncInput(library);
+            List<string> textFileDirectories = GetInputStringList(input, "TextFileDirectories").ToList();
+
+            CollectionAssert.Contains(textFileDirectories, Lr2FolderPath.NormalizeDirectoryPath(rootDirectory));
+            CollectionAssert.Contains(textFileDirectories, Lr2FolderPath.NormalizeDirectoryPath(preparedDirectory));
+            CollectionAssert.Contains(textFileDirectories, Lr2FolderPath.NormalizeDirectoryPath(preparedPrefixSibling));
+            CollectionAssert.DoesNotContain(textFileDirectories, Lr2FolderPath.NormalizeDirectoryPath(stalePreparedChildDirectory));
+        }
+        finally
+        {
+            ResetTouchedSettings();
+        }
+    }
+
+    [TestMethod]
     public void TryRunLr2FullGenerationDataPreparation_DoesNotPromoteOldScanSurfaceWhenLr2FolderRootsChanged()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();

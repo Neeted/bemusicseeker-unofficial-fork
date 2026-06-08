@@ -105,10 +105,11 @@ internal static class Lr2FolderFileDiscoveryService
                 discoveryComplete: true);
         }
 
+        Lr2DirectoryScopeMatcher scopeMatcher = Lr2DirectoryScopeMatcher.Create(preparedSurface.Lr2FolderScopeDirectories);
         var entriesByPath = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
         foreach (string path in baseCandidates?.Paths ?? [])
         {
-            if (string.IsNullOrWhiteSpace(path) || IsPathInsideAnyDirectory(path, preparedSurface.Lr2FolderScopeDirectories))
+            if (string.IsNullOrWhiteSpace(path) || scopeMatcher.ContainsFilePath(path))
             {
                 continue;
             }
@@ -147,8 +148,9 @@ internal static class Lr2FolderFileDiscoveryService
             return [.. (discoveryDirectories ?? [])];
         }
 
+        Lr2DirectoryScopeMatcher scopeMatcher = Lr2DirectoryScopeMatcher.Create(preparedSurface.Lr2FolderScopeDirectories);
         return [.. (discoveryDirectories ?? [])
-            .Where(directory => !IsDirectoryInsideAnyDirectory(directory, preparedSurface.Lr2FolderScopeDirectories))
+            .Where(directory => !scopeMatcher.ContainsDirectory(directory))
             .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
     }
 
@@ -200,33 +202,4 @@ internal static class Lr2FolderFileDiscoveryService
             .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
     }
 
-    private static bool IsPathInsideAnyDirectory(string path, IEnumerable<string> directories)
-    {
-        if (string.IsNullOrWhiteSpace(path))
-        {
-            return false;
-        }
-
-        string directory = Lr2FolderPath.SafeGetDirectoryName(path);
-        if (string.IsNullOrWhiteSpace(directory))
-        {
-            return false;
-        }
-
-        string normalizedDirectory = Lr2FolderPath.NormalizeDirectoryPath(directory);
-        return !string.IsNullOrWhiteSpace(normalizedDirectory)
-            && IsDirectoryInsideAnyDirectory(normalizedDirectory, directories);
-    }
-
-    private static bool IsDirectoryInsideAnyDirectory(string directory, IEnumerable<string> directories)
-    {
-        string normalizedDirectory = Lr2FolderPath.NormalizeDirectoryPath(directory);
-        return !string.IsNullOrWhiteSpace(normalizedDirectory)
-            && (directories ?? []).Any(scope =>
-            {
-                string normalizedScope = Lr2FolderPath.NormalizeDirectoryPath(scope);
-                return !string.IsNullOrWhiteSpace(normalizedScope)
-                    && Lr2FolderPath.IsSameOrDescendant(normalizedDirectory, normalizedScope);
-            });
-    }
 }

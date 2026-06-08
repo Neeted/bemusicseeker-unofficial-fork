@@ -66,6 +66,7 @@ public sealed class Lr2FolderFileDiscoveryServiceTests
         using TestDirectoryScope scope = TestDirectoryScope.Create();
         string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
         string outputBase = Path.Combine(scope.DirectoryPath, "Output");
+        string outputBasePrefixSibling = Path.Combine(scope.DirectoryPath, "OutputOther");
         string rootOutputBase = Path.Combine(scope.DirectoryPath, "RootOutput");
         var preparedSurface = new Lr2FullGenerationPreparedDataSurface(
             [outputBase],
@@ -74,12 +75,54 @@ public sealed class Lr2FolderFileDiscoveryServiceTests
             discoveryComplete: true);
 
         List<string> directories = Lr2FolderFileDiscoveryService.CreateDiscoveryDirectoriesForEnumeration(
-            [rootDirectory, outputBase, rootOutputBase],
+            [rootDirectory, outputBase, outputBasePrefixSibling, rootOutputBase],
             preparedSurface).ToList();
 
         CollectionAssert.Contains(directories, rootDirectory);
+        CollectionAssert.Contains(directories, outputBasePrefixSibling);
         CollectionAssert.Contains(directories, rootOutputBase);
         CollectionAssert.DoesNotContain(directories, outputBase);
+    }
+
+    [TestMethod]
+    public void MergeCandidateSurface_ReplacesOnlyPreparedScopeCandidates()
+    {
+        using TestDirectoryScope scope = TestDirectoryScope.Create();
+        string outputBase = Path.Combine(scope.DirectoryPath, "Output");
+        string preparedDirectory = Path.Combine(outputBase, "Table");
+        string preparedPrefixSibling = Path.Combine(outputBase, "TableOther");
+        string oldManagedPath = Path.Combine(preparedDirectory, "old.lr2folder");
+        string preparedPath = Path.Combine(preparedDirectory, "new.lr2folder");
+        string siblingPath = Path.Combine(preparedPrefixSibling, "keep.lr2folder");
+        string externalOutputPath = Path.Combine(outputBase, "external.lr2folder");
+        var baseEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase)
+        {
+            [oldManagedPath] = new RootFileEnumerationEntry(oldManagedPath),
+            [siblingPath] = new RootFileEnumerationEntry(siblingPath),
+            [externalOutputPath] = new RootFileEnumerationEntry(externalOutputPath)
+        };
+        var baseCandidates = new Lr2FolderFileCandidateSnapshot(
+            [oldManagedPath, siblingPath, externalOutputPath],
+            baseEntries,
+            discoveryComplete: true);
+        var preparedSurface = new Lr2FullGenerationPreparedDataSurface(
+            [preparedDirectory],
+            [preparedPath],
+            new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase)
+            {
+                [preparedPath] = new RootFileEnumerationEntry(preparedPath)
+            },
+            discoveryComplete: true);
+
+        Lr2FolderFileCandidateSnapshot merged = Lr2FolderFileDiscoveryService.MergeCandidateSurface(
+            baseCandidates,
+            preparedSurface);
+
+        CollectionAssert.Contains(merged.Paths.ToList(), preparedPath);
+        CollectionAssert.Contains(merged.Paths.ToList(), siblingPath);
+        CollectionAssert.Contains(merged.Paths.ToList(), externalOutputPath);
+        CollectionAssert.DoesNotContain(merged.Paths.ToList(), oldManagedPath);
+        Assert.IsTrue(merged.DiscoveryComplete);
     }
 
     [TestMethod]
