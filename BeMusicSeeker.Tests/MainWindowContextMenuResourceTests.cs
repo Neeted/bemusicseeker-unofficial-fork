@@ -2126,9 +2126,8 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(libraryCode, "resource_health_index_full_target_stale");
         Assert.IsFalse(applyMethod.Contains("foreach (BMSFile item in BMSFiles"));
         Assert.IsFalse(applyMethod.Contains("foreach (LR2SongDBExtended.bmson_song item in BmsonSongs"));
-        StringAssert.Contains(countMethod, "CreateOwnedChartStorageOwnerViewUnsafe().Count");
-        Assert.IsFalse(countMethod.Contains("(BMSFiles ?? [])"));
-        Assert.IsFalse(countMethod.Contains("(BmsonSongs ?? [])"));
+        StringAssert.Contains(countMethod, "(BMSFiles?.Count ?? 0) + (BmsonSongs?.Count ?? 0)");
+        Assert.IsFalse(countMethod.Contains("CreateOwnedChartStorageOwnerViewUnsafe().Count"));
         StringAssert.Contains(queueMethod, "snapshotCount = CreateOwnedChartStorageOwnerViewUnsafe().Count");
         Assert.IsFalse(queueMethod.Contains("bmsonSnapshotCount"));
     }

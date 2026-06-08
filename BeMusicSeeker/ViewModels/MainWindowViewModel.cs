@@ -8578,10 +8578,15 @@ public class MainWindowViewModel : ViewModel
     private static string GetStartupBackgroundTaskLane(string name)
     {
         if (string.Equals(name, "playlist_entries_hydration", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(name, "chart_info_hydration", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(name, "maintenance_hydration", StringComparison.OrdinalIgnoreCase))
+            || string.Equals(name, "chart_info_hydration", StringComparison.OrdinalIgnoreCase))
         {
             return "read_hydration";
+        }
+        if (string.Equals(name, "maintenance_hydration", StringComparison.OrdinalIgnoreCase))
+        {
+            // Startup completion waits for installable maintenance, which depends on maintenance hydration.
+            // Keep it off the playlist/chart read lane so it can overlap with independent post-operable reads.
+            return "maintenance_hydration";
         }
         if (string.Equals(name, "playlist_url_completion", StringComparison.OrdinalIgnoreCase)
             || string.Equals(name, "playlist_ref_apply", StringComparison.OrdinalIgnoreCase)
@@ -8607,7 +8612,7 @@ public class MainWindowViewModel : ViewModel
 
     private static int GetStartupBackgroundTaskTotalConcurrency()
     {
-        return 3;
+        return 4;
     }
 
     private void StartStartupBackgroundTaskScheduler()
@@ -20995,6 +21000,35 @@ public class MainWindowViewModel : ViewModel
     internal static bool ShouldStartStartupBackgroundTaskSchedulerAfterResetForTest(string operationKindName, bool operableReached)
     {
         return ShouldStartStartupBackgroundTaskSchedulerAfterReset(ParseStartupProgressOperationKindForTest(operationKindName), operableReached);
+    }
+
+    /// <summary>
+    /// 起動後バックグラウンドタスクの lane 割り当てをテストから検証します。
+    /// </summary>
+    /// <param name="taskName">検証対象のタスク名。</param>
+    /// <returns>タスクに割り当てられる scheduler lane。</returns>
+    internal static string GetStartupBackgroundTaskLaneForTest(string taskName)
+    {
+        return GetStartupBackgroundTaskLane(taskName);
+    }
+
+    /// <summary>
+    /// 起動後バックグラウンドタスクの lane 別同時実行数をテストから検証します。
+    /// </summary>
+    /// <param name="lane">検証対象の scheduler lane。</param>
+    /// <returns>指定 lane の同時実行上限。</returns>
+    internal static int GetStartupBackgroundTaskLaneConcurrencyForTest(string lane)
+    {
+        return GetStartupBackgroundTaskLaneConcurrency(lane);
+    }
+
+    /// <summary>
+    /// 起動後バックグラウンドタスク全体の同時実行数をテストから検証します。
+    /// </summary>
+    /// <returns>全体の同時実行上限。</returns>
+    internal static int GetStartupBackgroundTaskTotalConcurrencyForTest()
+    {
+        return GetStartupBackgroundTaskTotalConcurrency();
     }
 
     private static int CountStartupProgressPhases(StartupProgressPhase phases)

@@ -68,6 +68,18 @@ public sealed class MainWindowViewModelStartupProgressTests
     }
 
     [TestMethod]
+    public void StartupBackgroundScheduler_SeparatesMaintenanceHydrationFromReadHydrationLane()
+    {
+        Assert.AreEqual("read_hydration", MainWindowViewModel.GetStartupBackgroundTaskLaneForTest("playlist_entries_hydration"));
+        Assert.AreEqual("read_hydration", MainWindowViewModel.GetStartupBackgroundTaskLaneForTest("chart_info_hydration"));
+        Assert.AreEqual("maintenance_hydration", MainWindowViewModel.GetStartupBackgroundTaskLaneForTest("maintenance_hydration"));
+        Assert.AreEqual("default", MainWindowViewModel.GetStartupBackgroundTaskLaneForTest("playlist_library_index_prewarm"));
+        Assert.AreEqual(2, MainWindowViewModel.GetStartupBackgroundTaskLaneConcurrencyForTest("read_hydration"));
+        Assert.AreEqual(1, MainWindowViewModel.GetStartupBackgroundTaskLaneConcurrencyForTest("maintenance_hydration"));
+        Assert.AreEqual(4, MainWindowViewModel.GetStartupBackgroundTaskTotalConcurrencyForTest());
+    }
+
+    [TestMethod]
     public void StartupReadyUiMask_RequiresInstallTreeOnly()
     {
         Assert.IsFalse(MainWindowViewModel.IsStartupReadyUiMaskSatisfiedForTest(

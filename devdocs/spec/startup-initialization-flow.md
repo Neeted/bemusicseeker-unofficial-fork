@@ -173,12 +173,13 @@ startup background scheduler は `MainWindowViewModel.QueueStartupBackgroundTask
 
 | Lane | Task | 並列数 | Dependency |
 | --- | --- | --- | --- |
-| `read_hydration` | `playlist_entries_hydration`, `chart_info_hydration`, `maintenance_hydration` | 2 | なし |
+| `read_hydration` | `playlist_entries_hydration`, `chart_info_hydration` | 2 | なし |
+| `maintenance_hydration` | `maintenance_hydration` | 1 | なし |
 | `playlist_followup` | `playlist_url_completion`, `playlist_ref_apply`, `external_playlist_sync` | 1 | playlist entries 完了後、または task 内の ensure 後に進める |
 | `dependent_maintenance` | `installable_maintenance` | 1 | `chart_info_hydration,maintenance_hydration` |
 | `default` | その他の短い prewarm など | 1 | task ごと |
 
-全体 concurrency は 3。`startup_background_summary` は task ごとに lane と dependency を出す。
+全体 concurrency は 4。`maintenance_hydration` は `installable_maintenance` の依存であり、playlist / chart info の read hydration と直接の順序依存を持たないため専用 lane で並走させる。`startup_background_summary` は task ごとに lane と dependency を出す。
 
 `Startup` では scheduler は `startup_ready_operable` 到達まで開始しない。`ScoreOnly` / `ReloadTables` / `ReloadFileDiff` / `FullReinitialize` は既に UI operable 後の operation なので、operation 開始時の reset 後も scheduler を runnable に保つ。これは reload 中に `playlist_entries_hydration`、`external_playlist_sync`、`score_hydration_deferred`、`ranking_refresh_deferred` など operation ごとの background task を queue したまま止めないための仕様である。`ReloadTables` 自体は score/ranking を queue しない。
 
@@ -200,7 +201,7 @@ hydration 完了時の通常一覧反映は、full normal library かつ keyword
 
 manual 記載機能で使う derived index は、readiness tier を分けて扱う。`critical init` は `startup_ready_operable` までに必要な catalog / install tree の最小情報、`startup background` は `startup_background_summary` に含める hydration / playlist / maintenance task、`post-startup best-effort warmup` は readiness をブロックしない sort order / installed primary hash / real path directory view / install destination overlay / playlist summary owned hash など、`explicit on-demand` は duplicate group analysis のようにユーザー操作そのものが重い明示処理である。best-effort warmup は correctness の必須条件ではないため、ユーザー操作が先に来た場合は synchronous fallback を許容する。ただし cold path は `installed_primary_hash_lookup`、`installed_chart_lookup_index`、`owned_adjacent_index_warmup` などの log で見えるようにし、初回操作に隠れた full build が再発した場合に追跡できるようにする。playlist detail resolve index は playlist open readiness に直結するため `playlist_library_index_prewarm` として startup background に残し、cache / currentness は BMSLibrary 側の invalidation version、owned collection version、storage rows version で管理する。resolve snapshot 内の representative `LibraryChartRef` は immutable `ChartFile` snapshot を持ち、公開済み snapshot が後続の digest mutation で storage owner の途中状態を読むことはない。新規 build は chart_info / digest update window 中に publish せず、window 終了後に current snapshot を使う。real path directory view、install destination overlay、installed primary hash、playlist summary owned hash の warmup は `post_startup_warmup stage=owned_adjacent_index` として仮想 sort order prewarm より先に実行する。仮想 sort order prewarm は owned adjacent index warmup の完了後に続けるため、duplicate merge / folder 操作で必要な directory view、overlay snapshot、md5 count lookup を長い priority 1-3 sort prewarm の後ろに置かない。installed primary hash warmup は full installed directory lookup を作らないため、duplicate merge / installed 判定の cold md5 count build だけを先に潰す。playlist summary owned hash snapshot は invalidation version、owned collection version、storage rows version を持ち、warmup 中に owned collection mutation や storage row replacement が入った stale build result は publish せず作り直す。duplicate merge 後に duplicate view の refresh が必要な場合、`owned_collection_changed` 由来の `playlist_library_index_prewarm` は duplicate refresh 完了後へ回し、user-visible refresh と同じ owned collection lock を取り合わない。merge の remove-only source refresh は notification delta で通常一覧 row cache を prune し、user-visible refresh の前に全 owned storage owner view を取り直さない。これは起動直後の CPU / memory の山を増やさず、duplicate merge / folder / playlist summary 操作の cold owned adjacent index build と user-visible refresh の競合を減らすためである。
 
-直近ログでは、background tail の支配項は `chart_info_hydration` である。`playlist_entries_hydration` と `maintenance_hydration` は lane により並走するが、`chart_info_hydration` は full `chart_info` row load / materialize が重く、`startup_initialization_complete` までの最後の長い task になりやすい。次に短縮する場合は、task を expected phase から外すのではなく、`chart_info_hydration` の no-op skip / persistent hydrated index / projection 設計を見直す。
+直近ログでは、background tail の支配項は `chart_info_hydration` である。`playlist_entries_hydration` と `chart_info_hydration` は `read_hydration` lane で並走し、`maintenance_hydration` は専用 lane で同時に進める。`chart_info_hydration` は full `chart_info` row load / materialize が重く、`startup_initialization_complete` までの最後の長い task になりやすい。次に短縮する場合は、task を expected phase から外すのではなく、`chart_info_hydration` の no-op skip / persistent hydrated index / projection 設計を見直す。
 
 ## DB Access Policy
 
