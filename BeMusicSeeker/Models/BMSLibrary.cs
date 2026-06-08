@@ -5257,13 +5257,18 @@ completeFileEnumerationOnce,
             return;
         }
 
+        var stopwatchPrepare = Stopwatch.StartNew();
+        var stopwatchStage = Stopwatch.StartNew();
         List<string> roots = [.. (rootDirectories ?? [])
             .Where(path => !string.IsNullOrWhiteSpace(path))
             .Select(SafeFullPathOrOriginal)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
+        long rootsMs = RestartElapsed(stopwatchStage);
         List<string> builtinSourceDirectories = CreateLr2FullGenerationBuiltinFolderSourceDirectories();
+        long builtinSourceMs = RestartElapsed(stopwatchStage);
         IReadOnlyList<string> appManagedOutputDirectories = CreateLr2FullGenerationAppManagedOutputDirectories();
+        long appManagedScopeMs = RestartElapsed(stopwatchStage);
         Lr2FolderFileCandidateSnapshot fileDiffCandidates =
             Lr2FolderFileDiscoveryService.ExcludeAppManagedOutputCandidates(
                 fileCheckResult.Lr2ScanLr2FolderFilePaths,
@@ -5271,6 +5276,7 @@ completeFileEnumerationOnce,
                 appManagedOutputDirectories,
                 fileCheckResult.Lr2ScanLr2FolderFileDiscoveryComplete,
                 out int appManagedCandidateCount);
+        long filterMs = RestartElapsed(stopwatchStage);
         var request = new Lr2FullGenerationSyncRequest
         {
             RootDirectories = roots,
@@ -5292,16 +5298,32 @@ completeFileEnumerationOnce,
             Lr2BuiltinFolderSourceDirectories = builtinSourceDirectories
         };
         PrepareLr2FolderParentDirectoryEntrySurface(request);
+        long parentSurfaceMs = RestartElapsed(stopwatchStage);
         IReadOnlyList<string> extraTextMetadataSourceDirectories = CreateLr2TextMetadataSourceDirectoriesOutsideRoots(
             request.Lr2FolderDiscoveryDirectories,
             roots);
+        long extraTextRootsMs = RestartElapsed(stopwatchStage);
         Lr2TextMetadataCandidateSnapshot textMetadataSnapshot = CreateLr2PreparedTextMetadataCandidates(
             extraTextMetadataSourceDirectories,
             request.DirectoryEntries.Keys);
+        long textMetadataMs = RestartElapsed(stopwatchStage);
         ApplyLr2TextMetadataCandidatesToRequest(request, textMetadataSnapshot, extraTextMetadataSourceDirectories);
         ApplyLr2DirectoryEntriesToFileCheckResult(fileCheckResult, request.DirectoryEntries);
         ApplyLr2TextMetadataCandidatesToFileCheckResult(fileCheckResult, textMetadataSnapshot, extraTextMetadataSourceDirectories);
+        long surfaceApplyMs = RestartElapsed(stopwatchStage);
         bool allowPrune = ShouldPruneLr2FolderFileRowsDuringFileDiff(reason);
+        stopwatchPrepare.Stop();
+        LogInstallPerformance("lr2folder_file_diff_prepare"
+            + " reason=" + (reason ?? "unknown")
+            + " rootsMs=" + rootsMs
+            + " builtinSourceMs=" + builtinSourceMs
+            + " appManagedScopeMs=" + appManagedScopeMs
+            + " filterMs=" + filterMs
+            + " parentSurfaceMs=" + parentSurfaceMs
+            + " extraTextRootsMs=" + extraTextRootsMs
+            + " textMetadataMs=" + textMetadataMs
+            + " surfaceApplyMs=" + surfaceApplyMs
+            + " totalMs=" + stopwatchPrepare.ElapsedMilliseconds);
         LogInstallPerformance("lr2folder_file_diff_filter"
             + " reason=" + (reason ?? "unknown")
             + " candidates=" + (fileCheckResult.Lr2ScanLr2FolderFilePaths?.Count ?? 0)
@@ -5318,6 +5340,13 @@ completeFileEnumerationOnce,
             appManagedOutputDirectories,
             scopeReadLr2FolderRowsOnly: true,
             updateParentDirectoryRowsForPreservedItems: false);
+    }
+
+    private static long RestartElapsed(Stopwatch stopwatch)
+    {
+        long elapsedMs = stopwatch.ElapsedMilliseconds;
+        stopwatch.Restart();
+        return elapsedMs;
     }
 
     internal Lr2FullGenerationPreparedDataSurface SyncLr2BuiltinCustomFolderRows(string reason)
@@ -5475,23 +5504,37 @@ completeFileEnumerationOnce,
             return;
         }
 
+        var stopwatch = Stopwatch.StartNew();
+        var stopwatchStage = Stopwatch.StartNew();
         IReadOnlyCollection<string> parentDirectoryTargets = CreateLr2FolderPhysicalParentDirectoryMetadataTargets(
             (request.Lr2FolderFilePaths ?? []).Concat(request.Lr2FolderFileEntries?.Keys ?? []),
             request.RootDirectories,
             request.Lr2NormalCustomFolderOutputBaseDir,
             request.Lr2RootCustomFolderOutputBaseDir,
             request.Lr2BuiltinFolderSourceDirectories);
+        long targetMs = RestartElapsed(stopwatchStage);
         if (parentDirectoryTargets.Count == 0)
         {
+            LogInstallPerformance("lr2folder_parent_directory_surface targets=0 targetMs=" + targetMs + " totalMs=" + stopwatch.ElapsedMilliseconds);
             return;
         }
 
-        request.DirectoryEntries = MergeLr2DirectoryEntrySurfaces(
+        IReadOnlyDictionary<string, RootFileEnumerationEntry> parentDirectoryEntries = CreateLr2DirectoryEntriesFromSurfaceOrGroupedScan(
             request.DirectoryEntries,
-            CreateLr2DirectoryEntriesFromSurfaceOrGroupedScan(
-                request.DirectoryEntries,
-                request.Lr2FolderDiscoveryDirectories,
-                parentDirectoryTargets));
+            request.Lr2FolderDiscoveryDirectories,
+            parentDirectoryTargets);
+        long entryMs = RestartElapsed(stopwatchStage);
+        request.DirectoryEntries = OverlayLr2DirectoryEntrySurface(
+            request.DirectoryEntries,
+            parentDirectoryEntries);
+        long overlayMs = RestartElapsed(stopwatchStage);
+        LogInstallPerformance("lr2folder_parent_directory_surface"
+            + " targets=" + parentDirectoryTargets.Count
+            + " entries=" + (parentDirectoryEntries?.Count ?? 0)
+            + " targetMs=" + targetMs
+            + " entryMs=" + entryMs
+            + " overlayMs=" + overlayMs
+            + " totalMs=" + stopwatch.ElapsedMilliseconds);
     }
 
     private void CaptureLr2FullGenerationScanSurface(
@@ -7115,7 +7158,7 @@ completeFileEnumerationOnce,
             return;
         }
 
-        result.Lr2ScanDirectoryEntries = MergeLr2DirectoryEntrySurfaces(
+        result.Lr2ScanDirectoryEntries = OverlayLr2DirectoryEntrySurface(
             result.Lr2ScanDirectoryEntries,
             directoryEntries);
     }
@@ -7311,17 +7354,31 @@ completeFileEnumerationOnce,
             return [];
         }
 
+        var boundarySet = new HashSet<string>(boundaries, StringComparer.OrdinalIgnoreCase);
         var targets = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var visitedFilePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var visitedDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (string filePath in lr2FolderFilePaths ?? [])
         {
-            string directory = Lr2FolderPath.NormalizeDirectoryPath(Lr2FolderPath.SafeGetDirectoryName(filePath));
-            string boundary = FindNearestLr2DirectoryBoundary(directory, boundaries);
+            string normalizedFilePath = Lr2FolderPath.NormalizeDirectoryPath(filePath);
+            if (string.IsNullOrWhiteSpace(normalizedFilePath) || !visitedFilePaths.Add(normalizedFilePath))
+            {
+                continue;
+            }
+
+            string directory = Lr2FolderPath.SafeGetParentNormalizedDirectory(normalizedFilePath);
+            if (string.IsNullOrWhiteSpace(directory) || !visitedDirectories.Add(directory))
+            {
+                continue;
+            }
+
+            string boundary = FindNearestLr2DirectoryBoundary(directory, boundarySet);
             while (!string.IsNullOrWhiteSpace(directory)
                 && !string.IsNullOrWhiteSpace(boundary)
                 && !string.Equals(directory, boundary, StringComparison.OrdinalIgnoreCase))
             {
                 targets.Add(directory);
-                string parent = Lr2FolderPath.NormalizeDirectoryPath(Lr2FolderPath.SafeGetDirectoryName(directory));
+                string parent = Lr2FolderPath.SafeGetParentNormalizedDirectory(directory);
                 if (string.IsNullOrWhiteSpace(parent)
                     || string.Equals(parent, directory, StringComparison.OrdinalIgnoreCase))
                 {
@@ -7361,19 +7418,26 @@ completeFileEnumerationOnce,
             .ThenBy(path => path, StringComparer.OrdinalIgnoreCase)];
     }
 
-    private static string FindNearestLr2DirectoryBoundary(string directory, IEnumerable<string> boundaries)
+    private static string FindNearestLr2DirectoryBoundary(string normalizedDirectory, ISet<string> boundaries)
     {
-        string normalized = Lr2FolderPath.NormalizeDirectoryPath(directory);
-        if (string.IsNullOrWhiteSpace(normalized))
+        string current = normalizedDirectory;
+        while (!string.IsNullOrWhiteSpace(current))
         {
-            return null;
+            if (boundaries?.Contains(current) == true)
+            {
+                return current;
+            }
+
+            string parent = Lr2FolderPath.SafeGetParentNormalizedDirectory(current);
+            if (string.IsNullOrWhiteSpace(parent)
+                || string.Equals(parent, current, StringComparison.OrdinalIgnoreCase))
+            {
+                break;
+            }
+            current = parent;
         }
-        return (boundaries ?? [])
-            .Select(Lr2FolderPath.NormalizeDirectoryPath)
-            .Where(boundary => !string.IsNullOrWhiteSpace(boundary)
-                && Lr2FolderPath.IsSameOrDescendant(normalized, boundary))
-            .OrderByDescending(boundary => boundary.Length)
-            .FirstOrDefault();
+
+        return null;
     }
 
     private static IReadOnlyDictionary<string, RootFileEnumerationEntry> CreateLr2DirectoryEntriesFromSurfaceOrGroupedScan(

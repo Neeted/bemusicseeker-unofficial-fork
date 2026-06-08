@@ -165,7 +165,7 @@ internal static class Lr2FolderFileDiscoveryService
                 continue;
             }
 
-            if (outputScopeMatcher.ContainsFilePath(entry.Path))
+            if (outputScopeMatcher.ContainsNormalizedFilePath(entry.Path))
             {
                 excludedCount++;
                 continue;

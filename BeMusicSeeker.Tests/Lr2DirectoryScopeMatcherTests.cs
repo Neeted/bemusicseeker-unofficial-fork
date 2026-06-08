@@ -31,6 +31,17 @@ public sealed class Lr2DirectoryScopeMatcherTests
     }
 
     [TestMethod]
+    public void ContainsNormalizedFilePath_UsesParentDirectoryScope()
+    {
+        string root = Lr2FolderPath.NormalizeDirectoryPath(Path.Combine(Path.GetTempPath(), "BMS"));
+        string scopeDirectory = Lr2FolderPath.NormalizeDirectoryPath(Path.Combine(root, "Output"));
+        Lr2DirectoryScopeMatcher matcher = Lr2DirectoryScopeMatcher.Create([scopeDirectory]);
+
+        Assert.IsTrue(matcher.ContainsNormalizedFilePath(Path.Combine(scopeDirectory, "Playlist", "item.lr2folder")));
+        Assert.IsFalse(matcher.ContainsNormalizedFilePath(Path.Combine(root, "OutputOther", "item.lr2folder")));
+    }
+
+    [TestMethod]
     public void ContainsDirectory_MatchesDriveRootDescendant()
     {
         string root = Path.GetPathRoot(Path.GetTempPath());
