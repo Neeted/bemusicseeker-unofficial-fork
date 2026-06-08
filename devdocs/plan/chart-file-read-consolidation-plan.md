@@ -21,10 +21,10 @@ Phase 1-4 で、`ApplyFileScanDiff()` 内の BMS / bmson 追加・更新 parse �
 
 | 処理 | 対象 | 読み込み | 並列化 | 出力 |
 | --- | --- | --- | --- | --- |
-| `ApplyFileScanDiff()` BMS 追加 | 新規 `.bms/.bme/.bml/.pms` | `ChartFileContentReader.ReadSnapshot()` で bytes / MD5 / SHA-256 / 更新時刻を取得し、snapshot bytes から lightweight parse と inline chart_info parse | reader 1本 + bounded parser workers + collector | `song`, `chart_digest_map`, `chart_info`, `chart_info_parse_failure`, `BMSFile` |
-| `ApplyFileScanDiff()` bmson 追加/更新 | 新規・更新 `.bmson` | `ChartFileContentReader.ReadSnapshot()` で bytes / MD5 / SHA-256 / 更新時刻を取得し、snapshot bytes から JSON parse と inline chart_info parse | reader 1本 + bounded parser workers + collector | `bmson_song`, `chart_info`, `chart_info_parse_failure`, `BmsonSong` |
+| `ApplyFileScanDiff()` BMS 追加 | 新規 `.bms/.bme/.bml/.pms` | reader が `ChartFileContentReader.ReadBuffer()` で bytes / 更新時刻を取得し、worker が MD5 / SHA-256 / snapshot 作成、lightweight parse、inline chart_info parse を行う | policy reader 1/2 本 + bounded parser workers + collector | `song`, `chart_digest_map`, `chart_info`, `chart_info_parse_failure`, `BMSFile` |
+| `ApplyFileScanDiff()` bmson 追加/更新 | 新規・更新 `.bmson` | reader が `ChartFileContentReader.ReadBuffer()` で bytes / 更新時刻を取得し、worker が MD5 / SHA-256 / snapshot 作成、JSON parse、inline chart_info parse を行う | policy reader 1/2 本 + bounded parser workers + collector | `bmson_song`, `chart_info`, `chart_info_parse_failure`, `BmsonSong` |
 | package install inline | インストール等で追加された譜面 | 最終配置後 path を `ChartFileSnapshot` として 1 read し、inline chart_info parse | bounded workers | `chart_info`, `chart_digest_map`, `chart_info_parse_failure` |
-| `ChartInfoBuildService` full request | 既存DB補完、stale parser version 補完 | `File.ReadAllBytes` | reader 1本、bounded queue、worker 最大4本 | `chart_info`, `chart_digest_map`, `chart_info_parse_failure` |
+| `ChartInfoBuildService` full request | 既存DB補完、stale parser version 補完 | reader が `File.ReadAllBytes` delegate で bytes を取得し、worker が digest と chart_info を生成する | policy reader 1/2 本、bounded queue、worker 並列 | `chart_info`, `chart_digest_map`, `chart_info_parse_failure` |
 
 Phase 4 後は、追加・更新譜面を dedicated added backfill へ回す経路は削除済み。新規追加直後の二重 read は、通常の file diff / package install 経路では発生しない。
 
@@ -80,7 +80,7 @@ File scan
 | retention scope | 追加・更新譜面 1 件の parse 処理中のみ |
 | total cap | 原則不要。処理中の bounded parallelism が上限になる |
 | per file cap | Phase 3 では設けない。異常に大きい file への対策が必要なら別途追加 |
-| full backfill | snapshot handoff なし。従来の reader pipeline を維持 |
+| full backfill | snapshot handoff なし。`ChartInfoBuildService` は policy reader 1/2 本で bytes を読み、worker が digest と chart_info を生成する |
 | install package 追加 | 最終配置後 path を snapshot で read し、inline chart_info 化する |
 | current chart_info skip | model へ適用してよいが、file diff result / index delta へ全件蓄積しない |
 
@@ -185,7 +185,7 @@ file diff の PLINQ 無制限並列をやめ、chart_info と近い bounded 方�
   - `BMSFiles` / `BmsonSongs` の in-memory catalog 切り替え後に、新規生成または更新した inline row だけを `file_diff_inline` として反映する。
   - chunk ごとの大量 `PropertyChanged` と、catalog 切替前の row property 更新を避ける。
 - inline chart_info build は file diff collector 側で順次処理する。reader / parser worker と chart_info parser の入れ子並列を避けるため、ここでは PLINQ を使わない。
-- full backfill の reader pipeline は変更しない。
+- full backfill は targeted snapshot handoff にはしない。既存 DB 補完用の独立 pipeline として残しつつ、reader 数と queue capacity は共通 policy に従う。
 - current `chart_info` skip で得た既存 row は、file diff の生成物ではない。
   - 対象 model への適用は許容する。
   - `file_diff_inline` の session index delta として全件 publish しない。

@@ -130,7 +130,8 @@ metadata bundle import はこの fast path の前段で一度だけ試行する�
 
 ```text
 changed path
-  -> ChartFileSnapshot read
+  -> reader が ReadBuffer
+  -> parser worker が digest 計算 / snapshot 作成
   -> lightweight parse
   -> LR2 parent/folder normalize
   -> inline chart_info
@@ -406,6 +407,8 @@ BeMusicSeeker が `karinotes = 0` を入れる経路は、`setZeroNoteAndCommitT
 
 #### 旧課題
 
+この節は Phase 6 以前の問題記録であり、現行仕様では下の「現行仕様」に記載した `ReadBuffer` reader / worker snapshot 作成へ置き換え済みである。
+
 - `ApplyFileScanDiff()` は `addedPaths` / `addedOrUpdatedBmsonPaths` を 512 件 batch に分ける。
 - batch 内では `AsParallel()` で `ChartFileContentReader.ReadSnapshot()`、lightweight parse、inline `chart_info` parse を行う。
 - batch 結果は `SongTableFileCheckResult` の次の list に蓄積される。
@@ -422,8 +425,9 @@ BeMusicSeeker が `karinotes = 0` を入れる経路は、`setZeroNoteAndCommitT
 #### 現行仕様
 
 - file diff の lightweight parse は reader / parser workers / post-parse worker / DB writer の pipeline で行う。
-  - reader は 1 本で `ChartFileContentReader.ReadSnapshot()` を実行し、bounded queue に `ChartFileSnapshot` を流す。
-  - read queue capacity は `fileDiffParserDegree * 2`。
+  - reader は `ChartFileReadPipelinePolicy` に従って 1 / 2 本で動き、`ChartFileContentReader.ReadBuffer()` で bytes と file metadata だけを bounded queue に流す。
+  - parser worker が `ChartFileContentReader.CreateSnapshot(buffer)` で MD5 / SHA-256 を計算し、lightweight parse を行う。
+  - read queue capacity は `ChartFileReadPipelinePolicy.ResolveReadQueueCapacity(fileDiffParserDegree, readerDegree)`。
   - parser output queue capacity は `max(inlineChartInfoBatchSize, fileDiffParserDegree * 16)`。
   - parser worker degree は `max(1, Environment.ProcessorCount - 1)`。
   - worker は BMS / bmson lightweight parse を行い、collector は既定 2048 件単位で post-parse worker へ渡す。

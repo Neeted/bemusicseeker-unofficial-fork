@@ -247,7 +247,7 @@ background hydration 完了時の通常ライブラリ一覧更新は、起動�
 
 `maintenance` は通常、譜面導入時または明示 rescan 時に計算された snapshot として扱う。`BMSFile.maintenanceInfo` の lazy default は `MaintenanceInfoOrigin.Placeholder` であり、resource health の valid snapshot ではない。valid snapshot は DB 由来 `DbHydrated`、file diff / 導入 / 手動 rescan 由来 `Calculated` に限定する。
 
-不足 resource を後から追加した場合や、隣接 resource を削除した場合の再評価は通常起動では行わない。行右クリックの `ファイルスキャン > 再スキャン` は選択行、`ファイルスキャン > 全譜面を再スキャン` は owned BMS 全件 + installed bmson 全件を重い明示操作として再計算する。明示 rescan は file diff inline maintenance と同じ evaluator を使い、単一 reader が bounded queue へ流した `ChartFileSnapshot` を並列 evaluator が消費し、single DB writer が changed row だけを chunk commit する。進捗は BMS / bmson を分けず、全 target の processed / total として報告する。
+不足 resource を後から追加した場合や、隣接 resource を削除した場合の再評価は通常起動では行わない。行右クリックの `ファイルスキャン > 再スキャン` は選択行、`ファイルスキャン > 全譜面を再スキャン` は owned BMS 全件 + installed bmson 全件を重い明示操作として再計算する。明示 rescan は file diff inline maintenance と同じ evaluator を使い、`ChartFileReadPipelinePolicy` に従う reader が `ReadBuffer(path)` を bounded queue へ流し、並列 evaluator が digest / snapshot / maintenance evaluation を処理し、single DB writer が changed row だけを chunk commit する。進捗は BMS / bmson を分けず、全 target の processed / total として報告する。
 
 ## Ranking Refresh
 
@@ -283,8 +283,8 @@ ranking cache / `ir_data` は、LR2IR の local cache XML を hash 単位で読�
 ReloadFileDiff
   -> file enumeration / resource index build
   -> in-memory catalog との差分検出
-  -> added/updated charts の snapshot read
-  -> parser workers による lightweight parse
+  -> added/updated charts の ReadBuffer
+  -> parser workers による digest 計算 / snapshot 作成 / lightweight parse
   -> post-parse worker による inline chart_info / inline maintenance
   -> single DB writer による chunk commit
   -> deleted charts の unregister

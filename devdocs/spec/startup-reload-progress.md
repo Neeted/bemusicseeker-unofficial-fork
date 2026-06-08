@@ -118,7 +118,8 @@ metadata bundle import はリリース同梱または外部配布 metadata の�
 
 差分ファイルがある場合は、`LibraryFileDiffDone` が次を含む。
 
-- snapshot read。
+- reader による `ReadBuffer()`。
+- parser worker による digest 計算 / snapshot 作成。
 - lightweight parse。
 - LR2 parent/folder 正規化。
 - inline `chart_info` 解析または current skip 判定。

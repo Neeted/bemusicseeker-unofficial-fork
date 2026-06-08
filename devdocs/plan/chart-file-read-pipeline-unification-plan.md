@@ -138,10 +138,16 @@ target enumeration
 
 ### Phase 6: 旧 path-only / ad hoc pipeline の整理
 
+- Status: 継続監査。
 - 新規大量処理では `ReadBuffer` / worker digest / bounded queue を使うことを rule 化する。
 - `ChartInfoParser.Parse(path)`、`BMSFile.CreateBMSFileFromFile(...)`、`BmsonSongParser.Parse(path)` は互換 API として残す。
 - 新規コードで path-only API を使う場合は「二重 read にならないか」を review checklist に入れる。
 - spec の pipeline matrix を更新し、処理追加時の判断先を `chart-file-read-pipeline.md` に一本化する。
+
+残る確認候補:
+
+- `BackfillChartDigests()` / `RepairChartDigestMapConsistency()` は旧来の全件 path-based SHA-256 補完実装を持つが、現行起動では呼び出さない。復活させる場合は統一 pipeline へ寄せ、復活予定がなければ obsolete 化または削除する。
+- 非 forceUpdate の bmson maintenance missing resource refs 補完は、必要時に `BmsonSongParser.Parse(path)` へ落ちる。通常の明示 full rescan は snapshot pipeline 済みだが、古い DB で missing refs が大量にある場合は次の統一候補にする。
 
 ## テスト計画
 

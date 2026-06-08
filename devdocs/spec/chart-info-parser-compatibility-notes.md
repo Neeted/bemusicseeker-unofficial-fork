@@ -623,9 +623,9 @@ parse failure でも bytes から digest 計算できている場合:
 
 ## backfill / timeout / commit
 
-chart_info full backfill は「単一 file reader + in-memory parallel parse + chunk commit」。
+chart_info full backfill は「bounded file readers + in-memory parallel parse + chunk commit」。
 
-- file IO は reader 1 本。
+- file IO は `ChartFileReadPipelinePolicy` に従い、十分な CPU と複数 target がある場合は reader 2 本まで使う。
 - `byte[]` を bounded queue に積む。
 - worker は `byte[]` から digest と chart_info を生成する。
 - DB commit は writer 側で chunk 単位に行う。
