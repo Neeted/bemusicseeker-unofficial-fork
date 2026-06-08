@@ -65,6 +65,12 @@ internal sealed class SongTableFileCheckResult
 
     public bool Lr2ScanLr2FolderFileDiscoveryComplete { get; set; }
 
+    public bool Lr2ScanLr2FolderCandidatesAlreadyFiltered { get; set; }
+
+    public int Lr2ScanLr2FolderAppManagedFilteredCount { get; set; }
+
+    public int Lr2ScanLr2FolderAppManagedScopeDirectoryCount { get; set; }
+
     public int BmsPathCount { get; set; }
 
     public int DirectoryCount { get; set; }
@@ -302,5 +308,8 @@ internal sealed class SongTableFileCheckResult
         Lr2ScanLr2FolderFilePaths = [];
         Lr2ScanLr2FolderFileEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
         Lr2ScanLr2FolderFileDiscoveryComplete = false;
+        Lr2ScanLr2FolderCandidatesAlreadyFiltered = false;
+        Lr2ScanLr2FolderAppManagedFilteredCount = 0;
+        Lr2ScanLr2FolderAppManagedScopeDirectoryCount = 0;
     }
 }

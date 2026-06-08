@@ -1053,6 +1053,11 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
 
             InvokeApplyLr2FolderFileDiffSync(library, options, [rootDirectory], fileCheckResult, "initialize");
 
+            CollectionAssert.AreEqual(new[] { currentPath }, fileCheckResult.Lr2ScanLr2FolderFilePaths.ToArray());
+            Assert.IsTrue(fileCheckResult.Lr2ScanLr2FolderCandidatesAlreadyFiltered);
+            Assert.AreEqual(1, fileCheckResult.Lr2ScanLr2FolderAppManagedFilteredCount);
+            Assert.IsFalse(fileCheckResult.Lr2ScanLr2FolderFileEntries.ContainsKey(managedCurrentPath));
+
             using var verify = new LR2SongDBExtended(scope.SongDbPath);
             Assert.AreEqual(1, verify.Table<LR2SongDB.folder>().Count(row => row.path == currentPath));
             Assert.AreEqual(0, verify.Table<LR2SongDB.folder>().Count(row => row.path == stalePath));

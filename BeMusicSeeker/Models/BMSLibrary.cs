@@ -5347,8 +5347,10 @@ completeFileEnumerationOnce,
             return;
         }
 
+        int scanCandidateCount = fileCheckResult.Lr2ScanLr2FolderFilePaths?.Count ?? 0;
         var stopwatchSurfaceApply = Stopwatch.StartNew();
         ApplyLr2SyncRequestSurfaceToFileCheckResult(fileCheckResult, preparation.Request);
+        ApplyLr2FilteredFolderCandidateSurfaceToFileCheckResult(fileCheckResult, preparation);
         stopwatchSurfaceApply.Stop();
         long surfaceApplyMs = stopwatchSurfaceApply.ElapsedMilliseconds;
         bool allowPrune = ShouldPruneLr2FolderFileRowsDuringFileDiff(reason);
@@ -5365,7 +5367,7 @@ completeFileEnumerationOnce,
             + " totalMs=" + (preparation.TotalElapsedMs + surfaceApplyMs));
         LogInstallPerformance("lr2folder_file_diff_filter"
             + " reason=" + (reason ?? "unknown")
-            + " candidates=" + (fileCheckResult.Lr2ScanLr2FolderFilePaths?.Count ?? 0)
+            + " candidates=" + scanCandidateCount
             + " externalCandidates=" + preparation.Request.Lr2FolderFilePaths.Count
             + " appManagedFiltered=" + preparation.AppManagedCandidateCount
             + " appManagedScopeDirs=" + preparation.AppManagedOutputDirectories.Count
@@ -5739,14 +5741,29 @@ completeFileEnumerationOnce,
         }
 
         IReadOnlyList<string> lr2FolderDiscoveryDirectories = fileCheckResult.Lr2ScanLr2FolderDiscoveryDirectories ?? [];
-        IReadOnlyList<string> appManagedOutputDirectories = CreateLr2FullGenerationAppManagedOutputDirectories();
-        Lr2FolderFileCandidateSnapshot lr2FolderCandidates =
-            Lr2FolderFileDiscoveryService.ExcludeAppManagedOutputCandidates(
+        IReadOnlyList<string> appManagedOutputDirectories = [];
+        int appManagedCandidateCount = 0;
+        Lr2FolderFileCandidateSnapshot lr2FolderCandidates;
+        bool reusedFilteredLr2FolderCandidates = fileCheckResult.Lr2ScanLr2FolderCandidatesAlreadyFiltered;
+        if (reusedFilteredLr2FolderCandidates)
+        {
+            lr2FolderCandidates = new Lr2FolderFileCandidateSnapshot(
                 fileCheckResult.Lr2ScanLr2FolderFilePaths,
                 fileCheckResult.Lr2ScanLr2FolderFileEntries,
-                appManagedOutputDirectories,
-                fileCheckResult.Lr2ScanLr2FolderFileDiscoveryComplete,
-                out int appManagedCandidateCount);
+                fileCheckResult.Lr2ScanLr2FolderFileDiscoveryComplete);
+            appManagedCandidateCount = fileCheckResult.Lr2ScanLr2FolderAppManagedFilteredCount;
+        }
+        else
+        {
+            appManagedOutputDirectories = CreateLr2FullGenerationAppManagedOutputDirectories();
+            lr2FolderCandidates =
+                Lr2FolderFileDiscoveryService.ExcludeAppManagedOutputCandidates(
+                    fileCheckResult.Lr2ScanLr2FolderFilePaths,
+                    fileCheckResult.Lr2ScanLr2FolderFileEntries,
+                    appManagedOutputDirectories,
+                    fileCheckResult.Lr2ScanLr2FolderFileDiscoveryComplete,
+                    out appManagedCandidateCount);
+        }
         IReadOnlyList<string> lr2FolderFilePaths = lr2FolderCandidates.Paths;
         IReadOnlyDictionary<string, RootFileEnumerationEntry> lr2FolderFileEntries = lr2FolderCandidates.EntriesByPath;
         bool lr2FolderFileDiscoveryComplete = fileCheckResult.Lr2ScanLr2FolderFileDiscoveryComplete;
@@ -5799,8 +5816,11 @@ completeFileEnumerationOnce,
             + " folderInfoCandidates=" + snapshot.FolderInfoFilePaths.Count
             + " lr2FolderDiscoveryRoots=" + snapshot.Lr2FolderDiscoveryDirectories.Count
             + " lr2FolderCandidates=" + snapshot.Lr2FolderFilePaths.Count
+            + " reusedFilteredLr2FolderCandidates=" + reusedFilteredLr2FolderCandidates.ToString().ToLowerInvariant()
             + " appManagedFiltered=" + appManagedCandidateCount
-            + " appManagedScopeDirs=" + appManagedOutputDirectories.Count
+            + " appManagedScopeDirs=" + (reusedFilteredLr2FolderCandidates
+                ? fileCheckResult.Lr2ScanLr2FolderAppManagedScopeDirectoryCount
+                : appManagedOutputDirectories.Count)
             + " lr2FolderDiscoveryComplete=" + snapshot.Lr2FolderFileDiscoveryComplete.ToString().ToLowerInvariant()
             + " textFileDirs=" + snapshot.TextFileDirectories.Count
             + " ownedCollectionVersion=" + snapshot.OwnedCollectionVersion
@@ -7336,6 +7356,24 @@ completeFileEnumerationOnce,
         {
             result.Lr2ScanTextFileDirectories = ToReadOnlyList(request.TextFileDirectories);
         }
+    }
+
+    private static void ApplyLr2FilteredFolderCandidateSurfaceToFileCheckResult(
+        SongTableFileCheckResult result,
+        Lr2FolderFileDiffPreparationResult preparation)
+    {
+        if (result == null || preparation?.Request == null)
+        {
+            return;
+        }
+
+        result.Lr2ScanLr2FolderFilePaths = ToReadOnlyList(preparation.Request.Lr2FolderFilePaths);
+        result.Lr2ScanLr2FolderFileEntries = preparation.Request.Lr2FolderFileEntries
+            ?? new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
+        result.Lr2ScanLr2FolderFileDiscoveryComplete = preparation.Request.Lr2FolderFileDiscoveryComplete;
+        result.Lr2ScanLr2FolderCandidatesAlreadyFiltered = true;
+        result.Lr2ScanLr2FolderAppManagedFilteredCount = preparation.AppManagedCandidateCount;
+        result.Lr2ScanLr2FolderAppManagedScopeDirectoryCount = preparation.AppManagedOutputDirectories.Count;
     }
 
     private static IReadOnlyList<T> ToReadOnlyList<T>(IReadOnlyCollection<T> values)
