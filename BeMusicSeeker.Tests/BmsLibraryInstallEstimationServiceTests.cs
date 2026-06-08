@@ -1251,6 +1251,52 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     }
 
     [TestMethod]
+    public void PackageChartEntry_BmsStorageOwnerSetsDateFromInstalledFileMtime()
+    {
+        WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService _)
+        {
+            string destinationDirectory = Path.Combine(tempRoot, "Installed");
+            Directory.CreateDirectory(destinationDirectory);
+            string installedPath = Path.Combine(destinationDirectory, "chart.bms");
+            DateTime installedTimestamp = new(2026, 6, 9, 2, 30, 0, DateTimeKind.Utc);
+            File.WriteAllText(installedPath, "#PLAYER 1");
+            File.SetLastWriteTimeUtc(installedPath, installedTimestamp);
+            TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(tempRoot, "Pending", "chart.bms"));
+            PackageChartEntry entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(file));
+
+            entry.ApplyInstalledPath(installedPath);
+
+            int expectedDate = Lr2SongRowEnricher.ToLr2UnixSeconds(File.GetLastWriteTimeUtc(installedPath));
+            Assert.AreEqual(expectedDate, file.date);
+            Assert.AreEqual(expectedDate, entry.Chart.GetBmsStorageOwner()?.date);
+        });
+    }
+
+    [TestMethod]
+    public void PackageChartEntry_BmsStorageOwnerReplacesStaleDateOnInstalledPath()
+    {
+        WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService _)
+        {
+            string destinationDirectory = Path.Combine(tempRoot, "Installed");
+            Directory.CreateDirectory(destinationDirectory);
+            string installedPath = Path.Combine(destinationDirectory, "chart.bms");
+            DateTime installedTimestamp = new(2026, 6, 9, 3, 45, 0, DateTimeKind.Utc);
+            File.WriteAllText(installedPath, "#PLAYER 1");
+            File.SetLastWriteTimeUtc(installedPath, installedTimestamp);
+            TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(tempRoot, "Pending", "chart.bms"));
+            file.date = 12345;
+            file.adddate = 67890;
+            PackageChartEntry entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(file));
+
+            entry.ApplyInstalledPath(installedPath);
+
+            int expectedDate = Lr2SongRowEnricher.ToLr2UnixSeconds(File.GetLastWriteTimeUtc(installedPath));
+            Assert.AreEqual(expectedDate, file.date);
+            Assert.IsFalse(file.adddate.HasValue);
+        });
+    }
+
+    [TestMethod]
     public void PackageChartEntry_BmsStorageOwnerProjectsPackageWarningsWithoutHidingStorageWarnings()
     {
         TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Pending", "chart.bms"));

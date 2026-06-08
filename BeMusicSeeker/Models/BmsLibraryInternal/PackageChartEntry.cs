@@ -175,6 +175,7 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
         {
             bmsFile.path = installedPath;
             ClearInstalledBmsMetadata(bmsFile);
+            ApplyInstalledBmsDate(bmsFile);
             chart = ChartFileProjection.FromBmsFile(
                 bmsFile,
                 includeWarningSnapshot: true,
@@ -439,6 +440,23 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
             return [ChartWarning.Create(ChartWarningKind.InstallEstimationReinstallNotImproved, string.Format(Properties.Resources.Warning_InstallEstimationReinstallNotImproved, selectedCandidate.DirectoryPath))];
         }
         return [];
+    }
+
+    private static void ApplyInstalledBmsDate(BMSFile chartFile)
+    {
+        string path = chartFile?.path;
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+        {
+            return;
+        }
+        try
+        {
+            chartFile.date = Lr2SongRowEnricher.ToLr2UnixSeconds(File.GetLastWriteTimeUtc(path));
+        }
+        catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException)
+        {
+            chartFile.date = null;
+        }
     }
 
     private static void ClearInstalledBmsMetadata(BMSFile chartFile)
