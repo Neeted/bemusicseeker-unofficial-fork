@@ -3086,7 +3086,7 @@ createTempDirectory);
 
                 ChartInfoHydrationLoadResult result = gateway.LoadChartInfoHydrationData(TimeSpan.FromMilliseconds(1000));
 
-                Assert.AreEqual("raw_string", result.MaterializeMode);
+                Assert.AreEqual("raw_string_display", result.MaterializeMode);
                 Assert.AreEqual(2, result.ChartInfoRows);
                 Assert.AreEqual(2, result.ParseFailureRows);
                 Assert.AreEqual(4, result.RawRows);
@@ -3095,10 +3095,15 @@ createTempDirectory);
                 Assert.IsFalse(result.CurrentChartInfoSha256s.Contains(staleSha));
                 Assert.IsTrue(result.CurrentParseFailureMd5s.Contains(currentFailureMd5));
                 Assert.IsFalse(result.CurrentParseFailureMd5s.Contains(staleFailureMd5));
-                AssertChartInfoEquivalent(currentRow, result.ChartInfoBySha256[currentSha]);
-                AssertChartInfoEquivalent(staleRow, result.ChartInfoBySha256[staleSha]);
+                AssertChartInfoDisplayProjectionEquivalent(currentRow, result.ChartInfoBySha256[currentSha]);
+                AssertChartInfoDisplayProjectionEquivalent(staleRow, result.ChartInfoBySha256[staleSha]);
                 Assert.AreEqual(currentRow.updated_at, result.ChartInfoBySha256[currentSha].updated_at);
                 Assert.AreEqual(staleRow.updated_at, result.ChartInfoBySha256[staleSha].updated_at);
+
+                Dictionary<string, LR2SongDBExtended.chart_info> fullRows = gateway.LoadChartInfosBySha256([currentSha, staleSha]);
+
+                AssertChartInfoEquivalent(currentRow, fullRows[currentSha]);
+                AssertChartInfoEquivalent(staleRow, fullRows[staleSha]);
             });
         }
         finally
@@ -3986,6 +3991,40 @@ createTempDirectory);
         Assert.AreEqual(expected.speedchange_count, actual.speedchange_count);
         Assert.AreEqual(expected.lanenotes, actual.lanenotes);
         Assert.AreEqual(expected.parser_version, actual.parser_version);
+    }
+
+    private static void AssertChartInfoDisplayProjectionEquivalent(LR2SongDBExtended.chart_info expected, LR2SongDBExtended.chart_info actual)
+    {
+        Assert.AreEqual(expected.sha256, actual.sha256);
+        Assert.AreEqual(expected.md5, actual.md5);
+        Assert.AreEqual(expected.level, actual.level);
+        Assert.AreEqual(expected.difficulty, actual.difficulty);
+        Assert.AreEqual(expected.difficulty_defined, actual.difficulty_defined);
+        Assert.AreEqual(expected.mainbpm, actual.mainbpm);
+        Assert.AreEqual(expected.maxbpm, actual.maxbpm);
+        Assert.AreEqual(expected.minbpm, actual.minbpm);
+        Assert.AreEqual(expected.length, actual.length);
+        Assert.AreEqual(expected.mode, actual.mode);
+        Assert.AreEqual(expected.judge, actual.judge);
+        Assert.AreEqual(expected.bga, actual.bga);
+        Assert.AreEqual(expected.exlevel, actual.exlevel);
+        Assert.AreEqual(expected.feature, actual.feature);
+        Assert.AreEqual(expected.notes, actual.notes);
+        Assert.AreEqual(expected.n, actual.n);
+        Assert.AreEqual(expected.ln, actual.ln);
+        Assert.AreEqual(expected.s, actual.s);
+        Assert.AreEqual(expected.ls, actual.ls);
+        Assert.AreEqual(expected.total, actual.total);
+        Assert.AreEqual(expected.total_defined, actual.total_defined);
+        Assert.AreEqual(expected.density, actual.density);
+        Assert.AreEqual(expected.peakdensity, actual.peakdensity);
+        Assert.AreEqual(expected.enddensity, actual.enddensity);
+        Assert.AreEqual(expected.speedchange_count, actual.speedchange_count);
+        Assert.AreEqual(expected.parser_version, actual.parser_version);
+        Assert.IsNull(actual.charthash);
+        Assert.IsNull(actual.distribution);
+        Assert.IsNull(actual.speedchange);
+        Assert.IsNull(actual.lanenotes);
     }
 
     private static void AssertNullableDouble(double? expected, double? actual, string message)
