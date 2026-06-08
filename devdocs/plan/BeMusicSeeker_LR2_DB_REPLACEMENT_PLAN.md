@@ -455,10 +455,16 @@ row が残ると、manual-only でも LR2 が不要な scan に入る。
   expected set から消え、対応する `folder` row が削除される。
 - discovery で見つからなくなった `.lr2folder` row は削除する。実 `.lr2folder` ファイルは
   BeMusicSeeker から削除しない。
-- ただし startup file diff の hot path では、`.lr2folder` の current candidate upsert / date check だけを行い、
-  stale row prune 用の広域 prefix read は延期する。起動時は operable を優先し、明示リロード、
-  playlist materialization、built-in scoped sync、手動完全生成再同期、full generation workflow で
-  prune して収束させる。
+- startup file diff の `.lr2folder` sync は外部 discovery 分だけを対象にする。playlist header の
+  `Output_dir` / `is_root_folder` から決まる管理 table directory 配下は、物理 file が scan surface に
+  含まれていても current 候補から外し、親 BMS root / output base の prune scope に含まれても削除対象から
+  保護する。通常 custom folder 出力 base / root custom folder 出力 base そのものは外部 discovery scope として
+  残すため、base 直下や非管理 directory 配下の `.lr2folder` は外部ファイルとして扱う。外部 `.lr2folder` は
+  譜面 file diff と同じく、mtime が変われば読み直し、scan surface から消えた DB row は discovery complete
+  かつ read failure なしの scoped sync で prune する。
+- アプリ管理 playlist 出力の `.lr2folder` / `folder` row は playlist materialization が正本であり、
+  起動時の外部 `.lr2folder` discovery sync では検査・修復しない。物理欠損は playlist entries hydration 後の
+  batch materialization / single DB sync、明示手動再同期は playlist materialization stage で収束させる。
 - 完全生成 ON では、current generation input から導けない既存 `folder` row は prune 対象にする。
   `unknown root` / `date = 0` / expected set 外 row / 列挙 metadata から解決できる mtime 不一致は、
   完了を妨げる永続状態として温存せず、生成 workflow 内で削除または上書きして収束させる。
@@ -1691,10 +1697,12 @@ Everything / filesystem 広域再スキャンを始める入口ではない。su
      `BMSLibrary` 側の後付け attach は廃止し、scan completion 前に producer-owned surface を作る。
      directory mtime は scan surface 再利用と no-surface 時の grouped再取得まで接続済みであり、
      native bridge / managed fallback の実機 parity 確認を残す。
-   - 完了: startup / file diff 後の `.lr2folder` scoped sync は、unchanged row 判定用の existing row lookup を
-     candidate exact path / parent directory scope に限定する。startup `initialize` では prune 用 prefix read を延期し、
-     completed steady-state の通常起動で 4 万 row 級の `folder` scope read を operable 前に行わない。
-     明示リロード / full generation workflow / 手動再同期では従来通り prune して収束させる。
+   - 完了: startup / file diff 後の `.lr2folder` scoped sync は、playlist header 由来のアプリ管理
+     table directory 配下を current 候補から除外し、prune でも保護する。外部 `.lr2folder` は
+     candidate exact path と discovery prune scope だけを読み、`initialize` でも discovery complete /
+     read failure なしなら stale row を prune する。ログは `lr2folder_file_diff_filter` の `candidates` /
+     `externalCandidates` / `appManagedFiltered` と `lr2folder_file_diff_sync` の `pruneExcludedDirs`
+     で候補削減と保護 scope を確認できる。
    - 完了: 完全生成 completed 後の通常 file diff でも `.txt` surface が有効な場合だけ
       `song.txt` flag を比較し、surface が無い完全生成 OFF / standalone 相当では既存 `txt` を保持する。
       manual full generation input で scan surface が無い場合は grouped text metadata surface から

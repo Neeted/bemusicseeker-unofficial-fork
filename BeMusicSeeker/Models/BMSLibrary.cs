@@ -5211,13 +5211,23 @@ completeFileEnumerationOnce,
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
         List<string> builtinSourceDirectories = CreateLr2FullGenerationBuiltinFolderSourceDirectories();
+        IReadOnlyList<string> appManagedOutputDirectories = CreateLr2FullGenerationAppManagedOutputDirectories();
+        Lr2FolderFileCandidateSnapshot fileDiffCandidates =
+            Lr2FolderFileDiscoveryService.ExcludeAppManagedOutputCandidates(
+                fileCheckResult.Lr2ScanLr2FolderFilePaths,
+                fileCheckResult.Lr2ScanLr2FolderFileEntries,
+                appManagedOutputDirectories,
+                fileCheckResult.Lr2ScanLr2FolderFileDiscoveryComplete,
+                out int appManagedCandidateCount);
         var request = new Lr2FullGenerationSyncRequest
         {
             RootDirectories = roots,
             Lr2FolderDiscoveryDirectories = fileCheckResult.Lr2ScanLr2FolderDiscoveryDirectories,
-            Lr2FolderPruneDirectories = CreateLr2FullGenerationLr2FolderPruneDirectories(roots, builtinSourceDirectories),
-            Lr2FolderFilePaths = fileCheckResult.Lr2ScanLr2FolderFilePaths,
-            Lr2FolderFileEntries = fileCheckResult.Lr2ScanLr2FolderFileEntries,
+            Lr2FolderPruneDirectories = CreateLr2FullGenerationLr2FolderPruneDirectories(
+                roots,
+                builtinSourceDirectories),
+            Lr2FolderFilePaths = fileDiffCandidates.Paths,
+            Lr2FolderFileEntries = fileDiffCandidates.EntriesByPath,
             FolderInfoFilePaths = fileCheckResult.Lr2ScanFolderInfoFilePaths,
             FolderInfoFileEntries = fileCheckResult.Lr2ScanFolderInfoFileEntries,
             DirectoryEntries = MergeLr2DirectoryEntrySurfaces(
@@ -5240,7 +5250,20 @@ completeFileEnumerationOnce,
         ApplyLr2DirectoryEntriesToFileCheckResult(fileCheckResult, request.DirectoryEntries);
         ApplyLr2TextMetadataCandidatesToFileCheckResult(fileCheckResult, textMetadataSnapshot, extraTextMetadataSourceDirectories);
         bool allowPrune = ShouldPruneLr2FolderFileRowsDuringFileDiff(reason);
-        SyncLr2FolderFileRows(options, request, reason, "lr2folder_file_diff_sync", allowPrune);
+        LogInstallPerformance("lr2folder_file_diff_filter"
+            + " reason=" + (reason ?? "unknown")
+            + " candidates=" + (fileCheckResult.Lr2ScanLr2FolderFilePaths?.Count ?? 0)
+            + " externalCandidates=" + request.Lr2FolderFilePaths.Count
+            + " appManagedFiltered=" + appManagedCandidateCount
+            + " appManagedScopeDirs=" + appManagedOutputDirectories.Count
+            + " allowPruneRequested=" + allowPrune.ToString().ToLowerInvariant());
+        SyncLr2FolderFileRows(
+            options,
+            request,
+            reason,
+            "lr2folder_file_diff_sync",
+            allowPrune,
+            appManagedOutputDirectories);
     }
 
     internal Lr2FullGenerationPreparedDataSurface SyncLr2BuiltinCustomFolderRows(string reason)
@@ -5296,7 +5319,8 @@ completeFileEnumerationOnce,
         Lr2FullGenerationSyncRequest request,
         string reason,
         string logName,
-        bool allowPrune = true)
+        bool allowPrune = true,
+        IReadOnlyCollection<string> pruneExcludedDirectories = null)
     {
         var stopwatch = Stopwatch.StartNew();
         try
@@ -5327,6 +5351,7 @@ completeFileEnumerationOnce,
                     DirectoryRowScopeDirectories = Lr2FullGenerationSyncService.CreateLr2FolderDirectoryRowScopeDirectories(request),
                     DirectoryRowGenerationScopeDirectories = Lr2FullGenerationSyncService.CreateLr2FolderDirectoryRowGenerationScopeDirectories(request),
                     ScopePaths = request.Lr2FolderFilePaths,
+                    PruneExcludedDirectories = pruneExcludedDirectories ?? [],
                     DirectoryMetadataResolver = parentDirectoryMetadata.Resolve,
                     GeneratedAtUtc = DateTime.UtcNow,
                     AllowPrune = effectiveAllowPrune
@@ -5348,6 +5373,7 @@ completeFileEnumerationOnce,
                 + " readFailures=" + syncItems.HasReadFailures.ToString().ToLowerInvariant()
                 + " allowPrune=" + effectiveAllowPrune.ToString().ToLowerInvariant()
                 + " pruneDeferred=" + (!effectiveAllowPrune && allowPrune == false).ToString().ToLowerInvariant()
+                + " pruneExcludedDirs=" + (pruneExcludedDirectories?.Count ?? 0)
                 + " existingRows=" + syncResult.ExistingReadCount
                 + " generated=" + syncResult.GeneratedCount
                 + " preserved=" + syncResult.PreservedCount
@@ -5378,7 +5404,7 @@ completeFileEnumerationOnce,
 
     private static bool ShouldPruneLr2FolderFileRowsDuringFileDiff(string reason)
     {
-        return !string.Equals(reason, "initialize", StringComparison.OrdinalIgnoreCase);
+        return true;
     }
 
     private static void PrepareLr2FolderParentDirectoryEntrySurface(Lr2FullGenerationSyncRequest request)
@@ -5447,9 +5473,16 @@ completeFileEnumerationOnce,
         }
 
         IReadOnlyList<string> lr2FolderDiscoveryDirectories = fileCheckResult.Lr2ScanLr2FolderDiscoveryDirectories ?? [];
-        IReadOnlyList<string> lr2FolderFilePaths = fileCheckResult.Lr2ScanLr2FolderFilePaths ?? [];
-        IReadOnlyDictionary<string, RootFileEnumerationEntry> lr2FolderFileEntries =
-            fileCheckResult.Lr2ScanLr2FolderFileEntries ?? new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
+        IReadOnlyList<string> appManagedOutputDirectories = CreateLr2FullGenerationAppManagedOutputDirectories();
+        Lr2FolderFileCandidateSnapshot lr2FolderCandidates =
+            Lr2FolderFileDiscoveryService.ExcludeAppManagedOutputCandidates(
+                fileCheckResult.Lr2ScanLr2FolderFilePaths,
+                fileCheckResult.Lr2ScanLr2FolderFileEntries,
+                appManagedOutputDirectories,
+                fileCheckResult.Lr2ScanLr2FolderFileDiscoveryComplete,
+                out int appManagedCandidateCount);
+        IReadOnlyList<string> lr2FolderFilePaths = lr2FolderCandidates.Paths;
+        IReadOnlyDictionary<string, RootFileEnumerationEntry> lr2FolderFileEntries = lr2FolderCandidates.EntriesByPath;
         bool lr2FolderFileDiscoveryComplete = fileCheckResult.Lr2ScanLr2FolderFileDiscoveryComplete;
         if (lr2FolderDiscoveryDirectories.Count == 0)
         {
@@ -5500,6 +5533,8 @@ completeFileEnumerationOnce,
             + " folderInfoCandidates=" + snapshot.FolderInfoFilePaths.Count
             + " lr2FolderDiscoveryRoots=" + snapshot.Lr2FolderDiscoveryDirectories.Count
             + " lr2FolderCandidates=" + snapshot.Lr2FolderFilePaths.Count
+            + " appManagedFiltered=" + appManagedCandidateCount
+            + " appManagedScopeDirs=" + appManagedOutputDirectories.Count
             + " lr2FolderDiscoveryComplete=" + snapshot.Lr2FolderFileDiscoveryComplete.ToString().ToLowerInvariant()
             + " textFileDirs=" + snapshot.TextFileDirectories.Count
             + " ownedCollectionVersion=" + snapshot.OwnedCollectionVersion
@@ -7826,6 +7861,75 @@ completeFileEnumerationOnce,
             Settings.Default.LR2CustomFolderOutputBaseDirRootType,
             builtinSourceDirectories,
             includeAppManagedOutputDirectories);
+    }
+
+    private IReadOnlyList<string> CreateLr2FullGenerationAppManagedOutputDirectories()
+    {
+        var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            using LR2SongDBExtended songDb = dbGateway.OpenSongDbReadOnly();
+            string playlistTableName = SQLiteTable<LR2SongDBExtended.playlist>.GetTableName();
+            long playlistTableExists = songDb.ExecuteScalar<long>(
+                "SELECT COUNT(1) FROM sqlite_master WHERE type = 'table' AND name = ?;",
+                playlistTableName);
+            if (playlistTableExists == 0)
+            {
+                return [];
+            }
+
+            foreach (BMSTable table in songDb.Table<BMSTable>())
+            {
+                string outputDirectory = ResolveManagedPlaylistOutputDirectory(table);
+                if (!string.IsNullOrWhiteSpace(outputDirectory))
+                {
+                    result.Add(outputDirectory);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            LogInstallPerformanceWarn("lr2folder_app_managed_output_scope failed"
+                + " exception=" + ex.GetType().Name
+                + " message=" + GetDisplayedExceptionMessage(ex).Replace(Environment.NewLine, " | "));
+        }
+
+        return [.. result.OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
+    }
+
+    private static string ResolveManagedPlaylistOutputDirectory(BMSTable table)
+    {
+        if (table == null)
+        {
+            return null;
+        }
+
+        string outputDir;
+        try
+        {
+            outputDir = table.Output_dir;
+        }
+        catch (Exception ex) when (ex is ArgumentException || ex is InvalidOperationException || ex is NullReferenceException)
+        {
+            return null;
+        }
+
+        string outputBase = table.is_root_folder
+            ? Settings.Default.LR2CustomFolderOutputBaseDirRootType
+            : Settings.Default.LR2CustomFolderOutputBaseDir;
+        if (string.IsNullOrWhiteSpace(outputBase) || string.IsNullOrWhiteSpace(outputDir))
+        {
+            return null;
+        }
+
+        try
+        {
+            return SafeFullPathOrOriginal(Path.Combine(outputBase, outputDir));
+        }
+        catch (Exception ex) when (ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException)
+        {
+            return null;
+        }
     }
 
     private static List<string> CreateLr2BuiltinCustomFolderPruneDirectories()

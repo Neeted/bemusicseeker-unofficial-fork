@@ -126,6 +126,42 @@ public sealed class Lr2FolderFileDiscoveryServiceTests
     }
 
     [TestMethod]
+    public void ExcludeAppManagedOutputCandidates_RemovesNestedOutputFilesOnly()
+    {
+        using TestDirectoryScope scope = TestDirectoryScope.Create();
+        string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
+        string outputBase = Path.Combine(rootDirectory, "#BeMusicSeekerOutput");
+        string managedDirectory = Path.Combine(outputBase, "Table");
+        string managedPath = Path.Combine(managedDirectory, "managed.lr2folder");
+        string externalOutputPath = Path.Combine(outputBase, "external.lr2folder");
+        string externalPath = Path.Combine(rootDirectory, "External", "external.lr2folder");
+        string prefixSiblingPath = Path.Combine(rootDirectory, "#BeMusicSeekerOutputOther", "keep.lr2folder");
+        DateTime timestamp = new(2026, 6, 10, 1, 2, 3, DateTimeKind.Utc);
+        var entries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase)
+        {
+            [managedPath] = new RootFileEnumerationEntry(managedPath, timestamp),
+            [externalOutputPath] = new RootFileEnumerationEntry(externalOutputPath, timestamp),
+            [externalPath] = new RootFileEnumerationEntry(externalPath, timestamp),
+            [prefixSiblingPath] = new RootFileEnumerationEntry(prefixSiblingPath, timestamp)
+        };
+
+        Lr2FolderFileCandidateSnapshot filtered =
+            Lr2FolderFileDiscoveryService.ExcludeAppManagedOutputCandidates(
+                [managedPath, externalOutputPath, externalPath, prefixSiblingPath],
+                entries,
+                [managedDirectory],
+                discoveryComplete: true,
+                out int excludedCount);
+
+        Assert.AreEqual(1, excludedCount);
+        CollectionAssert.DoesNotContain(filtered.Paths.ToList(), Path.GetFullPath(managedPath));
+        CollectionAssert.Contains(filtered.Paths.ToList(), Path.GetFullPath(externalOutputPath));
+        CollectionAssert.Contains(filtered.Paths.ToList(), Path.GetFullPath(externalPath));
+        CollectionAssert.Contains(filtered.Paths.ToList(), Path.GetFullPath(prefixSiblingPath));
+        Assert.IsTrue(filtered.DiscoveryComplete);
+    }
+
+    [TestMethod]
     public void CreatePruneDirectories_AddsRelativeBuiltinScopeOnlyWhenBuiltinSourceExists()
     {
         using TestDirectoryScope scope = TestDirectoryScope.Create();

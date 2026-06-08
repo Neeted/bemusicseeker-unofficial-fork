@@ -49,13 +49,23 @@ internal static class Lr2FolderExistingRowLookup
         LR2SongDBExtended songDb,
         IEnumerable<string> folderPathPrefixes)
     {
+        return QueryPathPrefixScopes(songDb, folderPathPrefixes, []);
+    }
+
+    internal static IReadOnlyList<LR2SongDB.folder> QueryPathPrefixScopes(
+        LR2SongDBExtended songDb,
+        IEnumerable<string> folderPathPrefixes,
+        IEnumerable<string> excludedFolderPathPrefixes)
+    {
         if (songDb == null)
         {
             return [];
         }
 
-        List<string> prefixes = BuildLookupPaths(folderPathPrefixes);
-        if (prefixes.Count == 0)
+        List<PathPrefixRange> ranges = SubtractExcludedPrefixRanges(
+            CreatePrefixRanges(folderPathPrefixes),
+            CreatePrefixRanges(excludedFolderPathPrefixes));
+        if (ranges.Count == 0)
         {
             return [];
         }
@@ -64,19 +74,14 @@ internal static class Lr2FolderExistingRowLookup
         string folderTable = SQLiteTable<LR2SongDB.folder>.GetTableName();
         string pathColumn = SQLiteTable<LR2SongDB.folder>.GetColumnName(row => row.path);
         var rowsByPath = new Dictionary<string, LR2SongDB.folder>(StringComparer.Ordinal);
-        foreach (string prefix in prefixes)
+        foreach (PathPrefixRange range in ranges)
         {
-            if (!TryCreatePrefixUpperBound(prefix, out string upperBound))
-            {
-                continue;
-            }
-
             foreach (LR2SongDB.folder row in songDb.Query<LR2SongDB.folder>(
                 "SELECT * FROM " + folderTable + " INDEXED BY " + BmsLibraryDbGateway.FolderPathNocaseIndexName
                 + " WHERE " + pathColumn + " COLLATE NOCASE >= ?"
                 + " AND " + pathColumn + " COLLATE NOCASE < ?;",
-                prefix,
-                upperBound))
+                range.Lower,
+                range.Upper))
             {
                 if (!string.IsNullOrWhiteSpace(row?.path))
                 {
@@ -85,6 +90,115 @@ internal static class Lr2FolderExistingRowLookup
             }
         }
         return [.. rowsByPath.Values];
+    }
+
+    private static List<PathPrefixRange> CreatePrefixRanges(IEnumerable<string> folderPathPrefixes)
+    {
+        var ranges = new List<PathPrefixRange>();
+        foreach (string prefix in BuildLookupPaths(folderPathPrefixes))
+        {
+            if (!TryCreatePrefixUpperBound(prefix, out string upperBound)
+                || ComparePathBounds(prefix, upperBound) >= 0)
+            {
+                continue;
+            }
+
+            ranges.Add(new PathPrefixRange(prefix, upperBound));
+        }
+
+        return MergePrefixRanges(ranges);
+    }
+
+    private static List<PathPrefixRange> MergePrefixRanges(IEnumerable<PathPrefixRange> ranges)
+    {
+        List<PathPrefixRange> ordered = [.. (ranges ?? [])
+            .Where(range => !string.IsNullOrWhiteSpace(range.Lower)
+                && !string.IsNullOrWhiteSpace(range.Upper)
+                && ComparePathBounds(range.Lower, range.Upper) < 0)
+            .OrderBy(range => range.Lower, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(range => range.Upper, StringComparer.OrdinalIgnoreCase)];
+        var result = new List<PathPrefixRange>();
+        foreach (PathPrefixRange range in ordered)
+        {
+            if (result.Count == 0)
+            {
+                result.Add(range);
+                continue;
+            }
+
+            PathPrefixRange last = result[result.Count - 1];
+            if (ComparePathBounds(range.Lower, last.Upper) <= 0)
+            {
+                result[result.Count - 1] = new PathPrefixRange(
+                    last.Lower,
+                    ComparePathBounds(range.Upper, last.Upper) > 0 ? range.Upper : last.Upper);
+                continue;
+            }
+
+            result.Add(range);
+        }
+
+        return result;
+    }
+
+    private static List<PathPrefixRange> SubtractExcludedPrefixRanges(
+        IReadOnlyList<PathPrefixRange> includeRanges,
+        IReadOnlyList<PathPrefixRange> excludeRanges)
+    {
+        var segments = new List<PathPrefixRange>(includeRanges ?? []);
+        if (segments.Count == 0 || excludeRanges == null || excludeRanges.Count == 0)
+        {
+            return segments;
+        }
+
+        foreach (PathPrefixRange exclude in excludeRanges)
+        {
+            var next = new List<PathPrefixRange>();
+            foreach (PathPrefixRange segment in segments)
+            {
+                if (ComparePathBounds(exclude.Upper, segment.Lower) <= 0
+                    || ComparePathBounds(exclude.Lower, segment.Upper) >= 0)
+                {
+                    next.Add(segment);
+                    continue;
+                }
+
+                if (ComparePathBounds(segment.Lower, exclude.Lower) < 0)
+                {
+                    string leftUpper = ComparePathBounds(exclude.Lower, segment.Upper) < 0
+                        ? exclude.Lower
+                        : segment.Upper;
+                    if (ComparePathBounds(segment.Lower, leftUpper) < 0)
+                    {
+                        next.Add(new PathPrefixRange(segment.Lower, leftUpper));
+                    }
+                }
+
+                if (ComparePathBounds(exclude.Upper, segment.Upper) < 0)
+                {
+                    string rightLower = ComparePathBounds(exclude.Upper, segment.Lower) > 0
+                        ? exclude.Upper
+                        : segment.Lower;
+                    if (ComparePathBounds(rightLower, segment.Upper) < 0)
+                    {
+                        next.Add(new PathPrefixRange(rightLower, segment.Upper));
+                    }
+                }
+            }
+
+            segments = next;
+            if (segments.Count == 0)
+            {
+                break;
+            }
+        }
+
+        return MergePrefixRanges(segments);
+    }
+
+    private static int ComparePathBounds(string left, string right)
+    {
+        return StringComparer.OrdinalIgnoreCase.Compare(left, right);
     }
 
     private static List<string> BuildLookupPaths(IEnumerable<string> paths)
@@ -149,5 +263,12 @@ internal static class Lr2FolderExistingRowLookup
         }
 
         return false;
+    }
+
+    private readonly struct PathPrefixRange(string lower, string upper)
+    {
+        public string Lower { get; } = lower;
+
+        public string Upper { get; } = upper;
     }
 }

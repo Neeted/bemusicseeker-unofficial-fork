@@ -139,6 +139,47 @@ internal static class Lr2FolderFileDiscoveryService
             (baseCandidates?.DiscoveryComplete ?? false) && preparedSurface.Lr2FolderFileDiscoveryComplete);
     }
 
+    internal static Lr2FolderFileCandidateSnapshot ExcludeAppManagedOutputCandidates(
+        IEnumerable<string> paths,
+        IReadOnlyDictionary<string, RootFileEnumerationEntry> entriesByPath,
+        IEnumerable<string> appManagedOutputDirectories,
+        bool discoveryComplete,
+        out int excludedCount)
+    {
+        excludedCount = 0;
+        Lr2DirectoryScopeMatcher outputScopeMatcher = Lr2DirectoryScopeMatcher.Create(appManagedOutputDirectories);
+        if (outputScopeMatcher.IsEmpty)
+        {
+            Dictionary<string, RootFileEnumerationEntry> unchangedEntries = CreateEntrySurface(paths, entriesByPath);
+            return new Lr2FolderFileCandidateSnapshot(
+                [.. unchangedEntries.Keys.OrderBy(path => path, StringComparer.OrdinalIgnoreCase)],
+                unchangedEntries,
+                discoveryComplete);
+        }
+
+        var resultEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
+        foreach (RootFileEnumerationEntry entry in CreateEntrySurface(paths, entriesByPath).Values)
+        {
+            if (entry == null || string.IsNullOrWhiteSpace(entry.Path))
+            {
+                continue;
+            }
+
+            if (outputScopeMatcher.ContainsFilePath(entry.Path))
+            {
+                excludedCount++;
+                continue;
+            }
+
+            resultEntries[entry.Path] = entry;
+        }
+
+        return new Lr2FolderFileCandidateSnapshot(
+            [.. resultEntries.Keys.OrderBy(path => path, StringComparer.OrdinalIgnoreCase)],
+            resultEntries,
+            discoveryComplete);
+    }
+
     internal static IReadOnlyList<string> CreateDiscoveryDirectoriesForEnumeration(
         IEnumerable<string> discoveryDirectories,
         Lr2FullGenerationPreparedDataSurface preparedSurface)
@@ -152,6 +193,67 @@ internal static class Lr2FolderFileDiscoveryService
         return [.. (discoveryDirectories ?? [])
             .Where(directory => !scopeMatcher.ContainsDirectory(directory))
             .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
+    }
+
+    private static Dictionary<string, RootFileEnumerationEntry> CreateEntrySurface(
+        IEnumerable<string> paths,
+        IReadOnlyDictionary<string, RootFileEnumerationEntry> entriesByPath)
+    {
+        var result = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
+        foreach (string path in paths ?? [])
+        {
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                continue;
+            }
+
+            string normalizedPath = SafeFullPathOrOriginal(path);
+            if (string.IsNullOrWhiteSpace(normalizedPath))
+            {
+                continue;
+            }
+
+            RootFileEnumerationEntry entry = entriesByPath != null
+                && entriesByPath.TryGetValue(path, out RootFileEnumerationEntry rawEntry)
+                    ? rawEntry
+                    : null;
+            result[normalizedPath] = entry == null
+                ? new RootFileEnumerationEntry(normalizedPath)
+                : new RootFileEnumerationEntry(normalizedPath, entry.LastWriteTimeUtc, entry.FileSize);
+        }
+
+        foreach (KeyValuePair<string, RootFileEnumerationEntry> pair in entriesByPath ?? new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase))
+        {
+            string path = SafeFullPathOrOriginal(!string.IsNullOrWhiteSpace(pair.Value?.Path) ? pair.Value.Path : pair.Key);
+            if (string.IsNullOrWhiteSpace(path) || result.ContainsKey(path))
+            {
+                continue;
+            }
+
+            RootFileEnumerationEntry entry = pair.Value;
+            result[path] = entry == null
+                ? new RootFileEnumerationEntry(path)
+                : new RootFileEnumerationEntry(path, entry.LastWriteTimeUtc, entry.FileSize);
+        }
+
+        return result;
+    }
+
+    private static string SafeFullPathOrOriginal(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return null;
+        }
+
+        try
+        {
+            return Path.GetFullPath(path);
+        }
+        catch (Exception ex) when (ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException)
+        {
+            return path;
+        }
     }
 
     internal static List<string> CreatePruneDirectories(

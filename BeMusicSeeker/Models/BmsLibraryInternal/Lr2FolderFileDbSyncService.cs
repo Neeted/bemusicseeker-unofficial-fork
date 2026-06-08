@@ -38,6 +38,8 @@ internal sealed class Lr2FolderFileDbSyncRequest
 
     public IReadOnlyCollection<string> ScopePaths { get; set; } = [];
 
+    public IReadOnlyCollection<string> PruneExcludedDirectories { get; set; } = [];
+
     public Func<string, Lr2FolderDirectoryMetadata> DirectoryMetadataResolver { get; set; }
 
     public DateTime GeneratedAtUtc { get; set; } = DateTime.UtcNow;
@@ -203,7 +205,8 @@ internal static class Lr2FolderFileDbSyncService
                 generatedPathsByKey,
                 request.ScopeDirectories,
                 request.DirectoryRowScopeDirectories,
-                request.ScopePaths));
+                request.ScopePaths,
+                request.PruneExcludedDirectories));
         }
         deletePaths = [.. deletePaths
             .Where(path => !string.IsNullOrWhiteSpace(path))
@@ -242,7 +245,8 @@ internal static class Lr2FolderFileDbSyncService
         {
             foreach (LR2SongDB.folder row in QueryExistingRowsByScopeDirectories(
                 songDb,
-                CreateExistingRowScopeDirectories(request)))
+                CreateExistingRowScopeDirectories(request),
+                request.PruneExcludedDirectories))
             {
                 AddExistingRow(rowsByPath, row);
             }
@@ -408,7 +412,8 @@ internal static class Lr2FolderFileDbSyncService
 
     private static IEnumerable<LR2SongDB.folder> QueryExistingRowsByScopeDirectories(
         LR2SongDBExtended songDb,
-        IReadOnlyCollection<string> scopeDirectories)
+        IReadOnlyCollection<string> scopeDirectories,
+        IReadOnlyCollection<string> excludedScopeDirectories)
     {
         if (songDb == null || scopeDirectories == null || scopeDirectories.Count == 0)
         {
@@ -426,7 +431,18 @@ internal static class Lr2FolderFileDbSyncService
 
             scopePaths.Add(scopePath);
         }
-        return Lr2FolderExistingRowLookup.QueryPathPrefixScopes(songDb, scopePaths);
+        var excludedScopePaths = new List<string>();
+        foreach (string excludedScopeDirectory in excludedScopeDirectories ?? [])
+        {
+            if (!TryCreateDirectoryRowPath(excludedScopeDirectory, out string excludedScopePath, out _)
+                || string.IsNullOrWhiteSpace(excludedScopePath))
+            {
+                continue;
+            }
+
+            excludedScopePaths.Add(excludedScopePath);
+        }
+        return Lr2FolderExistingRowLookup.QueryPathPrefixScopes(songDb, scopePaths, excludedScopePaths);
     }
 
     private static LR2SongDB.folder ResolveExistingRow(
@@ -463,10 +479,12 @@ internal static class Lr2FolderFileDbSyncService
         IReadOnlyDictionary<string, string> generatedPathsByKey,
         IEnumerable<string> scopeDirectories,
         IEnumerable<string> directoryRowScopeDirectories,
-        IEnumerable<string> scopePaths)
+        IEnumerable<string> scopePaths,
+        IEnumerable<string> pruneExcludedDirectories)
     {
         DirectoryScopeMatcher scopeMatcher = DirectoryScopeMatcher.Create(scopeDirectories);
         DirectoryScopeMatcher directoryRowScopeMatcher = DirectoryScopeMatcher.Create(directoryRowScopeDirectories);
+        DirectoryScopeMatcher pruneExcludeMatcher = DirectoryScopeMatcher.Create(pruneExcludedDirectories);
         var explicitPaths = new HashSet<string>(
             (scopePaths ?? []).Select(NormalizeFilePath).Where(path => !string.IsNullOrWhiteSpace(path)),
             PathComparer);
@@ -476,6 +494,10 @@ internal static class Lr2FolderFileDbSyncService
         {
             string path = NormalizeFilePath(row?.path);
             if (string.IsNullOrWhiteSpace(path))
+            {
+                continue;
+            }
+            if (pruneExcludeMatcher.Contains(path))
             {
                 continue;
             }
