@@ -1617,7 +1617,27 @@ Everything / filesystem 広域再スキャンを始める入口ではない。su
 - 「こうなるかもしれない」だけで incomplete blocker を増やし、実ファイル由来の一覧 cache へ
   収束させる方針を弱める。
 
-1. 通常 file diff と LR2 full generation の重い folder sync を切り離す。完了。
+直近の通常起動短縮ターゲット:
+
+- 完全生成 completed / file diff 0 件に近い通常起動では、`everything_scan success` 後の
+  file diff / LR2 folder 周辺処理を数秒以内に収束させ、`startup_ready_operable elapsedMs` を
+  scan 完了から大きく離さない。まずはこの区間で 5 秒以上の短縮を狙う。
+  ここでいう operable は既存 startup readiness tier の境界であり、playlist entries hydration や
+  chart_info / maintenance hydration まで完了した全機能収束状態を意味しない。
+- resource index / reverse lookup surface は導入可能 readiness の正本なので、未完成のまま lazy 化して
+  `startup_ready_operable` だけを短く見せる方針は採らない。
+- これは background task を単に後ろへ隠す方針ではない。`startup_install_estimation_ready` /
+  `startup_ready_operable` と同時に `startup_initialization_complete` も観測し、後段 hydration の
+  no-op 性能は別途扱う。
+- DB 由来の現在状態は、実装単位ごとにばらばらに SELECT して準備しない。起動時 catalog load
+  または file diff 準備段階で、`song` / `folder` の hot path 用 compact snapshot を作り、
+  normal folder mtime diff、外部 `.lr2folder` diff、startup surface capture が共有する。
+  ただし「各 table 1 回の広い SELECT」が常に最速とは限らないため、実 DB では SQL projection /
+  predicate で絞る案と、アプリ内 map 共有案をログと `EXPLAIN QUERY PLAN` で比較する。
+- 共有 snapshot は correctness の正本ではなく、同一 startup generation の read-through view として扱う。
+  DB write が発生した場合は mutation delta で snapshot を更新するか、後続処理に stale として渡さない。
+
+1. 通常 file diff と LR2 full generation の重い folder sync を切り離す。主要実装済み、hot path 残あり。
    - `ReloadFileDiff` / startup file diff の「差分あり」は owned BMS / bmson の実ファイル差分だけを正本にする。
    - LR2 `folder` table の incomplete / stale / expected row 欠落を通常 file diff の差分扱いへ混ぜない。
    - startup file diff で LR2 normal folder sync を行う場合も、DB `folder.date` と current directory mtime の
@@ -1703,6 +1723,18 @@ Everything / filesystem 広域再スキャンを始める入口ではない。su
      read failure なしなら stale row を prune する。ログは `lr2folder_file_diff_filter` の `candidates` /
      `externalCandidates` / `appManagedFiltered` と `lr2folder_file_diff_sync` の `pruneExcludedDirs`
      で候補削減と保護 scope を確認できる。
+     起動時外部 `.lr2folder` diff は、汎用 sync service の既定意味論は残したまま軽量 option を使い、
+     prune prefix read を `.lr2folder` row に限定し、mtime 一致で preserved の child row は parent
+     directory row exact read / metadata build / upsert を行わない。app 管理 playlist output と built-in
+     special folder は、それぞれ playlist materialization / built-in scoped sync の責務に残す。
+     2026-06-08 の実機 Release 起動では、`lr2folder_file_diff_sync` が `externalCandidates=1265`、
+     `existingRows=12094`、`preserved=1265`、`elapsedMs=871` まで下がった。旧ログでは
+     app-managed 除外後でも `existingRows=45854`、`elapsedMs=2176` 程度だったため、normal folder row を
+     prune scan で広く読む問題は解消済み。
+   - 一部完了: normal folder mtime diff は `folder` row 全列 materialize から `path` / `type` / `date`
+     projection へ縮小した。ただし 2026-06-08 の実機 Release 起動では `directories=33205` /
+     `elapsedMs=1576` で、まだ Everything 完了後の直列区間に残っている。次は startup generation 内で
+     song / folder hot path snapshot を共有するか、scan 待ち不要な DB read を Everything scan 裏へ前倒しする。
    - 完了: 完全生成 completed 後の通常 file diff でも `.txt` surface が有効な場合だけ
       `song.txt` flag を比較し、surface が無い完全生成 OFF / standalone 相当では既存 `txt` を保持する。
       manual full generation input で scan surface が無い場合は grouped text metadata surface から

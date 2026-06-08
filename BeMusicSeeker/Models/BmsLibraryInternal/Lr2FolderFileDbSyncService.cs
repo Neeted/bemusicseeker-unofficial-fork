@@ -45,6 +45,10 @@ internal sealed class Lr2FolderFileDbSyncRequest
     public DateTime GeneratedAtUtc { get; set; } = DateTime.UtcNow;
 
     public bool AllowPrune { get; set; }
+
+    public bool ScopeReadLr2FolderRowsOnly { get; set; }
+
+    public bool UpdateParentDirectoryRowsForPreservedItems { get; set; } = true;
 }
 
 internal sealed class Lr2FolderFileDbSyncResult(
@@ -136,16 +140,19 @@ internal static class Lr2FolderFileDbSyncService
             {
                 preservedCount++;
                 generatedPathsByKey[databasePath] = databasePath;
-                UpsertParentDirectoryRows(
-                    item,
-                    databasePath,
-                    directoryRowGenerationScopeMatcher,
-                    existingRowsByPath,
-                    request.GeneratedAtUtc,
-                    request.DirectoryMetadataResolver,
-                    generatedPathsByKey,
-                    generatedParentDirectoryKeys,
-                    upsertRows);
+                if (request.UpdateParentDirectoryRowsForPreservedItems)
+                {
+                    UpsertParentDirectoryRows(
+                        item,
+                        databasePath,
+                        directoryRowGenerationScopeMatcher,
+                        existingRowsByPath,
+                        request.GeneratedAtUtc,
+                        request.DirectoryMetadataResolver,
+                        generatedPathsByKey,
+                        generatedParentDirectoryKeys,
+                        upsertRows);
+                }
                 continue;
             }
 
@@ -246,7 +253,8 @@ internal static class Lr2FolderFileDbSyncService
             foreach (LR2SongDB.folder row in QueryExistingRowsByScopeDirectories(
                 songDb,
                 CreateExistingRowScopeDirectories(request),
-                request.PruneExcludedDirectories))
+                request.PruneExcludedDirectories,
+                request.ScopeReadLr2FolderRowsOnly))
             {
                 AddExistingRow(rowsByPath, row);
             }
@@ -273,6 +281,10 @@ internal static class Lr2FolderFileDbSyncService
             AddExactFilePath(result, item?.FilePath);
             string databasePath = NormalizeFilePath(item?.DatabasePath ?? item?.FilePath);
             if (string.IsNullOrWhiteSpace(databasePath))
+            {
+                continue;
+            }
+            if (item.PreserveExistingRowOnly && !request.UpdateParentDirectoryRowsForPreservedItems)
             {
                 continue;
             }
@@ -413,7 +425,8 @@ internal static class Lr2FolderFileDbSyncService
     private static IEnumerable<LR2SongDB.folder> QueryExistingRowsByScopeDirectories(
         LR2SongDBExtended songDb,
         IReadOnlyCollection<string> scopeDirectories,
-        IReadOnlyCollection<string> excludedScopeDirectories)
+        IReadOnlyCollection<string> excludedScopeDirectories,
+        bool lr2FolderRowsOnly)
     {
         if (songDb == null || scopeDirectories == null || scopeDirectories.Count == 0)
         {
@@ -442,7 +455,9 @@ internal static class Lr2FolderFileDbSyncService
 
             excludedScopePaths.Add(excludedScopePath);
         }
-        return Lr2FolderExistingRowLookup.QueryPathPrefixScopes(songDb, scopePaths, excludedScopePaths);
+        return lr2FolderRowsOnly
+            ? Lr2FolderExistingRowLookup.QueryLr2FolderPathPrefixScopes(songDb, scopePaths, excludedScopePaths)
+            : Lr2FolderExistingRowLookup.QueryPathPrefixScopes(songDb, scopePaths, excludedScopePaths);
     }
 
     private static LR2SongDB.folder ResolveExistingRow(

@@ -15,6 +15,27 @@ internal static class Lr2FolderExistingRowLookup
         LR2SongDBExtended songDb,
         IEnumerable<string> exactPaths)
     {
+        return QueryExactPaths(songDb, exactPaths, "f.*");
+    }
+
+    internal static IReadOnlyList<LR2SongDB.folder> QueryExactPathsForNormalFolderMtime(
+        LR2SongDBExtended songDb,
+        IEnumerable<string> exactPaths)
+    {
+        string pathColumn = SQLiteTable<LR2SongDB.folder>.GetColumnName(row => row.path);
+        string typeColumn = SQLiteTable<LR2SongDB.folder>.GetColumnName(row => row.type);
+        string dateColumn = SQLiteTable<LR2SongDB.folder>.GetColumnName(row => row.date);
+        return QueryExactPaths(
+            songDb,
+            exactPaths,
+            "f." + pathColumn + ", f." + typeColumn + ", f." + dateColumn);
+    }
+
+    private static IReadOnlyList<LR2SongDB.folder> QueryExactPaths(
+        LR2SongDBExtended songDb,
+        IEnumerable<string> exactPaths,
+        string selectColumns)
+    {
         if (songDb == null)
         {
             return [];
@@ -34,7 +55,7 @@ internal static class Lr2FolderExistingRowLookup
             string folderTable = SQLiteTable<LR2SongDB.folder>.GetTableName();
             string pathColumn = SQLiteTable<LR2SongDB.folder>.GetColumnName(row => row.path);
             return songDb.Query<LR2SongDB.folder>(
-                "SELECT f.*"
+                "SELECT " + selectColumns
                 + " FROM temp." + TempExactPathTable + " AS p"
                 + " CROSS JOIN " + folderTable + " AS f INDEXED BY " + BmsLibraryDbGateway.FolderPathNocaseIndexName
                 + " WHERE f." + pathColumn + " = p." + TempPathColumn + " COLLATE NOCASE;");
@@ -43,6 +64,14 @@ internal static class Lr2FolderExistingRowLookup
         {
             ClearTempExactPathTable(songDb);
         }
+    }
+
+    internal static IReadOnlyList<LR2SongDB.folder> QueryLr2FolderPathPrefixScopes(
+        LR2SongDBExtended songDb,
+        IEnumerable<string> folderPathPrefixes,
+        IEnumerable<string> excludedFolderPathPrefixes)
+    {
+        return QueryPathPrefixScopes(songDb, folderPathPrefixes, excludedFolderPathPrefixes, lr2FolderRowsOnly: true);
     }
 
     internal static IReadOnlyList<LR2SongDB.folder> QueryPathPrefixScopes(
@@ -56,6 +85,15 @@ internal static class Lr2FolderExistingRowLookup
         LR2SongDBExtended songDb,
         IEnumerable<string> folderPathPrefixes,
         IEnumerable<string> excludedFolderPathPrefixes)
+    {
+        return QueryPathPrefixScopes(songDb, folderPathPrefixes, excludedFolderPathPrefixes, lr2FolderRowsOnly: false);
+    }
+
+    private static IReadOnlyList<LR2SongDB.folder> QueryPathPrefixScopes(
+        LR2SongDBExtended songDb,
+        IEnumerable<string> folderPathPrefixes,
+        IEnumerable<string> excludedFolderPathPrefixes,
+        bool lr2FolderRowsOnly)
     {
         if (songDb == null)
         {
@@ -73,13 +111,17 @@ internal static class Lr2FolderExistingRowLookup
         BmsLibraryDbGateway.EnsureFolderLookupIndexes(songDb);
         string folderTable = SQLiteTable<LR2SongDB.folder>.GetTableName();
         string pathColumn = SQLiteTable<LR2SongDB.folder>.GetColumnName(row => row.path);
+        string lr2FolderFilter = lr2FolderRowsOnly
+            ? " AND " + pathColumn + " LIKE '%.lr2folder' COLLATE NOCASE"
+            : string.Empty;
         var rowsByPath = new Dictionary<string, LR2SongDB.folder>(StringComparer.Ordinal);
         foreach (PathPrefixRange range in ranges)
         {
             foreach (LR2SongDB.folder row in songDb.Query<LR2SongDB.folder>(
                 "SELECT * FROM " + folderTable + " INDEXED BY " + BmsLibraryDbGateway.FolderPathNocaseIndexName
                 + " WHERE " + pathColumn + " COLLATE NOCASE >= ?"
-                + " AND " + pathColumn + " COLLATE NOCASE < ?;",
+                + " AND " + pathColumn + " COLLATE NOCASE < ?"
+                + lr2FolderFilter + ";",
                 range.Lower,
                 range.Upper))
             {

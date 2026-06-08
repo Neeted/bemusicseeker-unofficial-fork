@@ -1056,7 +1056,7 @@ internal sealed class BmsLibraryInitializationService
             .Distinct(StringComparer.Ordinal)];
         using LR2SongDBExtended songDb = dbGateway.OpenSongDb();
         Dictionary<string, LR2SongDB.folder> existingRowsByPath = CreateExistingNormalFolderRowMap(
-            Lr2FolderExistingRowLookup.QueryExactPaths(songDb, exactPaths));
+            Lr2FolderExistingRowLookup.QueryExactPathsForNormalFolderMtime(songDb, exactPaths));
 
         var changed = new List<string>();
         var pruneScopes = new List<string>();

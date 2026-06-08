@@ -5263,7 +5263,9 @@ completeFileEnumerationOnce,
             reason,
             "lr2folder_file_diff_sync",
             allowPrune,
-            appManagedOutputDirectories);
+            appManagedOutputDirectories,
+            scopeReadLr2FolderRowsOnly: true,
+            updateParentDirectoryRowsForPreservedItems: false);
     }
 
     internal Lr2FullGenerationPreparedDataSurface SyncLr2BuiltinCustomFolderRows(string reason)
@@ -5320,7 +5322,9 @@ completeFileEnumerationOnce,
         string reason,
         string logName,
         bool allowPrune = true,
-        IReadOnlyCollection<string> pruneExcludedDirectories = null)
+        IReadOnlyCollection<string> pruneExcludedDirectories = null,
+        bool scopeReadLr2FolderRowsOnly = false,
+        bool updateParentDirectoryRowsForPreservedItems = true)
     {
         var stopwatch = Stopwatch.StartNew();
         try
@@ -5335,8 +5339,11 @@ completeFileEnumerationOnce,
                     request,
                     request.Lr2FolderFileEntries,
                     path => existingRowsByPath.TryGetValue(path, out LR2SongDB.folder row) ? row : null);
+            IReadOnlyCollection<Lr2FolderFileSyncItem> parentDirectorySyncItems = updateParentDirectoryRowsForPreservedItems
+                ? syncItems.Items
+                : [.. syncItems.Items.Where(item => item != null && !item.PreserveExistingRowOnly)];
             Lr2FolderDirectoryMetadataSnapshot parentDirectoryMetadata =
-                Lr2FullGenerationSyncService.CreateLr2FolderParentDirectoryMetadataSnapshot(syncItems.Items, request);
+                Lr2FullGenerationSyncService.CreateLr2FolderParentDirectoryMetadataSnapshot(parentDirectorySyncItems, request);
             bool effectiveAllowPrune = allowPrune
                 && request.Lr2FolderFileDiscoveryComplete
                 && !syncItems.HasReadFailures;
@@ -5354,7 +5361,9 @@ completeFileEnumerationOnce,
                     PruneExcludedDirectories = pruneExcludedDirectories ?? [],
                     DirectoryMetadataResolver = parentDirectoryMetadata.Resolve,
                     GeneratedAtUtc = DateTime.UtcNow,
-                    AllowPrune = effectiveAllowPrune
+                    AllowPrune = effectiveAllowPrune,
+                    ScopeReadLr2FolderRowsOnly = scopeReadLr2FolderRowsOnly,
+                    UpdateParentDirectoryRowsForPreservedItems = updateParentDirectoryRowsForPreservedItems
                 });
                 songDb.Commit();
             }
