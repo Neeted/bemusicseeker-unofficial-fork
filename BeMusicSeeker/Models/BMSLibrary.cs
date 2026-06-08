@@ -4828,9 +4828,36 @@ public class BMSLibrary : NotificationObject
         {
             LogInstallPerformance("init_library_installable critical_ms=" + installableElapsedMs + " deferred_ms=0");
         }
-        GC.Collect();
-        NLogWrapper.DebuggerLogger?.Trace("owari: " + GC.GetTotalMemory(forceFullCollection: false));
+        QueuePostInitializeGarbageCollection(mode.ToString());
         LogInstallPerformance("init_library phase1_min_load_ms=" + initializeResult.Phase1MinLoadMs + " phase2_scan_maint_ms=" + initializeResult.Phase2ScanMaintMs + " phase3_install_maintenance_ms=" + initializeResult.Phase3InstallMaintenanceMs + " wait_continuation_ms=" + initializeResult.WaitContinuationMs + " wait_continuation_start_ms=" + initializeResult.WaitBeforeContinuationStartMs + " wait_continuation_signal_ms=" + initializeResult.WaitForContinuationSignalMs + " wait_continuation_tasks_ms=" + initializeResult.WaitForContinuationTasksMs + " total_ms=" + initializeResult.TotalMs + " set_maintenance_enabled=" + setMaintenanceInfo.ToString().ToLowerInvariant());
+    }
+
+    private void QueuePostInitializeGarbageCollection(string reason)
+    {
+        const int delayMs = 30000;
+        Task.Run(async delegate
+        {
+            try
+            {
+                await Task.Delay(delayMs).ConfigureAwait(false);
+                var stopwatch = Stopwatch.StartNew();
+                GC.Collect();
+                stopwatch.Stop();
+                long managedBytes = GC.GetTotalMemory(forceFullCollection: false);
+                NLogWrapper.DebuggerLogger?.Trace("owari: " + managedBytes);
+                LogInstallPerformance("post_initialize_gc done"
+                    + " reason=" + (reason ?? "unknown")
+                    + " delayMs=" + delayMs
+                    + " elapsedMs=" + stopwatch.ElapsedMilliseconds
+                    + " managedBytes=" + managedBytes);
+            }
+            catch (Exception ex)
+            {
+                LogInstallPerformanceWarn("post_initialize_gc failed"
+                    + " reason=" + (reason ?? "unknown")
+                    + " message=" + GetDisplayedExceptionMessage(ex).Replace(Environment.NewLine, " | "));
+            }
+        }).Logging("PostInitializeGarbageCollection");
     }
 
     private void TryImportChartInfoMetadataBundleAtStartup()
