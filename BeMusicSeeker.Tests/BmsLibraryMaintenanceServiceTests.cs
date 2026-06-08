@@ -2233,8 +2233,12 @@ public sealed class BmsLibraryMaintenanceServiceTests
 
             Assert.AreEqual(1, result.HealthDegree);
             Assert.AreEqual(1, result.HealthTargetCount);
+            Assert.AreEqual(ChartFileReadPipelinePolicy.ResolveReaderDegree(Environment.ProcessorCount, result.HealthTargetCount), result.ReaderDegree);
+            Assert.AreEqual(ChartFileReadPipelinePolicy.ResolveReadQueueCapacity(result.HealthDegree, result.ReaderDegree), result.ReadQueueCapacity);
+            Assert.AreEqual(2000, result.ComputedQueueCapacity);
             Assert.IsTrue(result.HealthMs >= 0);
             Assert.IsTrue(result.EncodingMs >= 0);
+            Assert.IsTrue(result.DigestMs >= 0);
         }
         finally
         {

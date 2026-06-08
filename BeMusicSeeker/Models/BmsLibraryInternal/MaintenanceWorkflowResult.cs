@@ -16,6 +16,12 @@ internal sealed class MaintenanceWorkflowResult
 
     public int HealthDegree { get; set; }
 
+    public int ReaderDegree { get; set; }
+
+    public int ReadQueueCapacity { get; set; }
+
+    public int ComputedQueueCapacity { get; set; }
+
     public int ForceTargetCount { get; set; }
 
     public int MissingInfoTargetCount { get; set; }
@@ -59,6 +65,8 @@ internal sealed class MaintenanceWorkflowResult
     public int ZeroNoteChangedCount { get; set; }
 
     public long ReadMs { get; set; }
+
+    public long DigestMs { get; set; }
 
     public long ComputeMs { get; set; }
 

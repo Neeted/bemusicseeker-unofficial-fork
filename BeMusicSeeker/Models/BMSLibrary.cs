@@ -15164,6 +15164,9 @@ completeFileEnumerationOnce,
                 + " bmsonResourceTargets=" + workflowResult.BmsonResourceTargetCount
                 + " healthTargetCount=" + workflowResult.HealthTargetCount
                 + " healthDegree=" + workflowResult.HealthDegree
+                + " readerDegree=" + workflowResult.ReaderDegree
+                + " readQueueCapacity=" + workflowResult.ReadQueueCapacity
+                + " computedQueueCapacity=" + workflowResult.ComputedQueueCapacity
                 + " forceTargets=" + workflowResult.ForceTargetCount
                 + " missingInfoTargets=" + workflowResult.MissingInfoTargetCount
                 + " missingEncodingTargets=" + workflowResult.MissingEncodingTargetCount
@@ -15184,6 +15187,7 @@ completeFileEnumerationOnce,
                 + " bmsonResourceRefsReused=" + workflowResult.BmsonResourceReferenceReusedCount
                 + " songReloaded=" + workflowResult.ReloadedSongCount
                 + " readMs=" + workflowResult.ReadMs
+                + " digestMs=" + workflowResult.DigestMs
                 + " computeMs=" + workflowResult.ComputeMs
                 + " commitMs=" + workflowResult.CommitMs
                 + " resourceHealthIndexMs=" + workflowResult.ResourceHealthIndexMs

@@ -33,7 +33,7 @@
 | --- | --- | --- | --- | --- |
 | `ApplyFileScanDiff()` | policy で 1 / 2 本 | parser worker の `CreateSnapshot(ReadBuffer)` 内 | parser workers、post-parse worker、commit collector | 完了。reader は bytes / metadata だけを読み、hash / parse は worker 側 |
 | `ChartInfoBuildService` full backfill | policy で 1 / 2 本 | worker の `ParseQueuedItem()` 内 | chart_info workers、result collector、commit writer | 完了。既存の test injection を保つため reader は `readAllBytes` delegate を使う |
-| manual maintenance rescan | 1 本 | `ChartFileContentReader.ReadSnapshot()` 内 | evaluator workers、single DB writer | reader を少数並列化し、hash は evaluator 側へ寄せる |
+| manual maintenance rescan | policy で 1 / 2 本 | evaluator の `CreateSnapshot(ReadBuffer)` 内 | evaluator workers、single DB writer | 完了。reader は bytes / metadata だけを読み、hash は evaluator 側 |
 | LR2 full generation `song_rows` | policy で 1 / 2 本 | worker の `CreateSnapshot(ReadBuffer)` 内 | parse/enrich workers、ordered single writer | 完了。reader 2 本許容を維持し、hash は worker 側 |
 | package install inline | bounded workers | `ChartFileContentReader.ReadSnapshot()` 内 | install 後 inline chart_info | 大量処理ではないため優先度低。helper 移行の影響範囲として追従する |
 
@@ -130,6 +130,7 @@ target enumeration
 
 ### Phase 5: manual maintenance rescan を policy 化する
 
+- Status: 完了。
 - reader は `ReadBuffer`、evaluator が digest / snapshot / resource health / encoding / bmson refs を処理する。
 - `warning-model.md` の「reader / parallel evaluator / single DB writer」方針は維持する。
 - hash が不要な maintenance path があれば、snapshot 作成を最小化できるか確認する。ただし初期実装では互換性優先で snapshot を作ってよい。

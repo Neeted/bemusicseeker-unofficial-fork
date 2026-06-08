@@ -115,7 +115,7 @@ package install は起動時 file diff と完全には同じではない。起�
 
 ## Manual Rescan / Encoding Fix
 
-行右クリックの `ファイルスキャン > 再スキャン` と `全譜面を再スキャン` は、resource health / encoding / bmson resource reference を再計算する明示的な重い操作である。この経路は file diff と同じく、reader が `ChartFileSnapshot` を bounded queue へ流し、parallel evaluator が snapshot bytes を消費し、single DB writer が changed row だけを chunk commit する。全件 bytes は保持せず、reader / evaluator / writer の queue capacity でメモリを制限する。resource health / encoding / bmson resource refs の evaluator は file diff inline maintenance と共有し、BMS / bmson を同じ target list と progress で扱う。
+行右クリックの `ファイルスキャン > 再スキャン` と `全譜面を再スキャン` は、resource health / encoding / bmson resource reference を再計算する明示的な重い操作である。この経路は file diff と同じく、reader が `ChartFileContentReader.ReadBuffer(path)` で bytes と file metadata だけを bounded queue へ流し、parallel evaluator が `CreateSnapshot(buffer)` で digest 付き snapshot を作ってから snapshot bytes を消費し、single DB writer が changed row だけを chunk commit する。全件 bytes は保持せず、reader / evaluator / writer の queue capacity でメモリを制限する。reader は `ChartFileReadPipelinePolicy` に従い、十分な CPU と複数 target がある場合は 2 本まで並列化できる。resource health / encoding / bmson resource refs の evaluator は file diff inline maintenance と共有し、BMS / bmson を同じ target list と progress で扱う。
 
 manual rescan は `chart_info` を作らない。既存 `chart_info` の不足や parser version 差分は `chart_info_hydration` / `chart_info_backfill` が担当する。manual encoding fix は snapshot bytes から metadata を読み直し、適用対象は file diff と同じ raw `title` / `subtitle` / `artist` / `subartist` / `genre` に限定する。再計算した `maintenance` row が既存 row と同一の場合、DB upsert は行わない。
 

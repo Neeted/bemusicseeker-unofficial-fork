@@ -57,7 +57,7 @@
 
 - `ResourceHealth` は保留パッケージなど導入前評価では category 単位で再構築します。導入成功時に category 単位で clear し、導入後の通常ライブラリ一覧と新規画面では `maintenanceInfo` / resource health index から表示時に投影します。これにより、保留時の「単体譜面なので WAV 0%」という warning が、導入後に WAV 100% へ更新された行へ残りません。
 - 導入後に不足 resource を追加した場合の再評価は、行右クリック `ファイルスキャン > 再スキャン` または `ファイルスキャン > 全譜面を再スキャン` で行います。通常起動の `maintenance_hydration` は DB snapshot attach であり、全譜面の resource 再検証は行いません。
-- `全譜面を再スキャン` は reader / parallel evaluator / single DB writer の bounded streaming pipeline で snapshot bytes を処理し、BMS / bmson を合算した processed / total で進捗を出す重い明示操作です。通常起動ログ評価では、未完了の manual rescan と `maintenance_hydration` を分けて扱います。再計算結果が既存 maintenance row と同一の譜面は DB upsert せず、resource health projection だけを現行 snapshot から更新します。
+- `全譜面を再スキャン` は reader / parallel evaluator / single DB writer の bounded streaming pipeline で譜面 bytes を処理し、BMS / bmson を合算した processed / total で進捗を出す重い明示操作です。reader は bytes と file metadata だけを読み、evaluator が digest / snapshot / resource health / encoding / bmson refs を処理します。通常起動ログ評価では、未完了の manual rescan と `maintenance_hydration` を分けて扱います。再計算結果が既存 maintenance row と同一の譜面は DB upsert せず、resource health projection だけを現行 snapshot から更新します。
 - `InstallEstimation` は導入先推定結果の適用、手動導入先確定、導入成功、推定状態クリアで category 単位に扱います。mixed package で既所持譜面から複数の導入先候補が見つかり、final evaluation 後も複数 viable 候補が残る場合は `InstalledDestinationAmbiguous` を付与し、候補一覧を tooltip に出します。resource path に親ディレクトリ参照 `..` を含む譜面は `UnsupportedResourcePath` を付与し、導入先推定を行いません。
 - `DuplicateChart` は kind 単位で set / clear します。
 - `ZeroNoteMismatch` は `chart_info.notes == 0` の BMS を正規表現で確認したとき、本文に可視ノート風記述がある場合に set し、`chart_info` が未生成または 0 notes ではなくなった場合は stale warning として clear します。

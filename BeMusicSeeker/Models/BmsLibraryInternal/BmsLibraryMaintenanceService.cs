@@ -741,15 +741,24 @@ internal sealed class BmsLibraryMaintenanceService
         result.BmsonResourceTargetCount = targets.Count(target => target.Kind == ChartFileKind.Bmson);
         result.HealthTargetCount = targets.Count;
         result.HealthDegree = maintenanceHealthDegree;
+        result.ReaderDegree = ChartFileReadPipelinePolicy.ResolveReaderDegree(Environment.ProcessorCount, targets.Count);
         result.ForceTargetCount = targets.Count;
         resourceLookupContext ??= new ResourceHealthLookupContext(null);
+        const int chunkSize = 1000;
+        int readQueueCapacity = ChartFileReadPipelinePolicy.ResolveReadQueueCapacity(maintenanceHealthDegree, result.ReaderDegree);
+        int computedQueueCapacity = chunkSize * 2;
+        result.ReadQueueCapacity = readQueueCapacity;
+        result.ComputedQueueCapacity = computedQueueCapacity;
         progressLogger?.Invoke("maintenance_target_summary total=" + targets.Count
             + " sourceCount=" + targets.Count
             + " force=" + result.ForceTargetCount
             + " missingInfo=0"
             + " missingEncoding=0"
             + " bmsonMissingFreshRefs=" + targets.Count(target => target.Kind == ChartFileKind.Bmson && !HasFreshCurrentBmsonResourceReferences(target.BmsonSong))
-            + " healthDegree=" + maintenanceHealthDegree);
+            + " healthDegree=" + maintenanceHealthDegree
+            + " readerDegree=" + result.ReaderDegree
+            + " readQueueCapacity=" + readQueueCapacity
+            + " computedQueueCapacity=" + computedQueueCapacity);
         if (targets.Count == 0)
         {
             stopwatch.Stop();
@@ -771,12 +780,10 @@ internal sealed class BmsLibraryMaintenanceService
             CurrentPath = targets[0].Path
         });
 
-        const int chunkSize = 1000;
-        int readQueueCapacity = chunkSize * 2;
-        int computedQueueCapacity = chunkSize * 2;
         using var readQueue = new BlockingCollection<MaintenanceWorkflowCandidate>(readQueueCapacity);
         using var computedQueue = new BlockingCollection<MaintenanceWorkflowComputedItem>(computedQueueCapacity);
         long readTicks = 0L;
+        long digestTicks = 0L;
         long computeTicks = 0L;
         long healthTicks = 0L;
         long encodingTicks = 0L;
@@ -805,6 +812,7 @@ internal sealed class BmsLibraryMaintenanceService
             var changedMaintenanceInfos = new List<BMSFileMaintenanceInfo>();
             var reloadedFiles = new List<BMSFile>();
             long chunkReadTicks = 0L;
+            long chunkDigestTicks = 0L;
             long chunkComputeTicks = 0L;
             long chunkHealthTicks = 0L;
             long chunkEncodingTicks = 0L;
@@ -821,6 +829,7 @@ internal sealed class BmsLibraryMaintenanceService
                     bmsonCount++;
                 }
                 chunkReadTicks += item.ReadElapsedTicks;
+                chunkDigestTicks += item.DigestElapsedTicks;
                 chunkComputeTicks += item.ComputeElapsedTicks;
                 MaintenanceEvaluationResult itemResult = item.Result;
                 if (itemResult == null)
@@ -878,6 +887,7 @@ internal sealed class BmsLibraryMaintenanceService
             commitStopwatch.Stop();
 
             readTicks += chunkReadTicks;
+            digestTicks += chunkDigestTicks;
             computeTicks += chunkComputeTicks;
             healthTicks += chunkHealthTicks;
             encodingTicks += chunkEncodingTicks;
@@ -903,6 +913,7 @@ internal sealed class BmsLibraryMaintenanceService
                 + " bmsonReparseFailed=" + bmsonReparseFailedInChunk
                 + " bmsonResourceRefsReused=" + bmsonResourceReferencesReusedInChunk
                 + " readMs=" + TicksToMilliseconds(chunkReadTicks)
+                + " digestMs=" + TicksToMilliseconds(chunkDigestTicks)
                 + " computeMs=" + TicksToMilliseconds(chunkComputeTicks)
                 + " commitMs=" + commitStopwatch.ElapsedMilliseconds
                 + " elapsedMs=" + chunkStopwatch.ElapsedMilliseconds);
@@ -915,43 +926,53 @@ internal sealed class BmsLibraryMaintenanceService
             });
         }
 
-        Task readerTask = Task.Run(delegate
-        {
-            try
+        int nextReadIndex = -1;
+        Task[] readerTasks = [.. Enumerable.Range(0, result.ReaderDegree)
+            .Select(_ => Task.Run(delegate
             {
-                foreach (MaintenanceWorkflowTarget target in targets)
+                try
                 {
-                    if (cancellationToken.IsCancellationRequested)
+                    while (Volatile.Read(ref writerFailed) == 0)
                     {
-                        result.Canceled = true;
-                        break;
-                    }
+                        if (cancellationToken.IsCancellationRequested)
+                        {
+                            result.Canceled = true;
+                            break;
+                        }
 
-                    readQueue.Add(ReadMaintenanceWorkflowCandidate(target, dialogService));
+                        int targetIndex = Interlocked.Increment(ref nextReadIndex);
+                        if (targetIndex >= targets.Count)
+                        {
+                            break;
+                        }
+
+                        readQueue.Add(ReadMaintenanceWorkflowCandidate(targets[targetIndex], dialogService), cancellationToken);
+                    }
                 }
-            }
-            catch (OperationCanceledException)
-            {
-                result.Canceled = true;
-            }
-            finally
-            {
-                readQueue.CompleteAdding();
-            }
-        });
+                catch (OperationCanceledException)
+                {
+                    result.Canceled = true;
+                }
+            }))];
+        Task readerCompletionTask = Task.WhenAll(readerTasks).ContinueWith(_ => readQueue.CompleteAdding());
 
         Task[] evaluatorTasks = [.. Enumerable.Range(0, maintenanceHealthDegree)
             .Select(_ => Task.Run(delegate
             {
                 foreach (MaintenanceWorkflowCandidate candidate in readQueue.GetConsumingEnumerable())
                 {
+                    long digestElapsedTicks = 0L;
                     long computeStart = Stopwatch.GetTimestamp();
                     MaintenanceEvaluationResult itemResult = null;
-                    if (candidate.Snapshot != null)
+                    ChartFileSnapshot snapshot = null;
+                    if (candidate.Buffer != null)
                     {
-                        itemResult = EvaluateMaintenanceTarget(candidate.Target, candidate.Snapshot, resourceLookupContext, forceUpdate: true);
+                        long digestStart = Stopwatch.GetTimestamp();
+                        snapshot = ChartFileContentReader.CreateSnapshot(candidate.Buffer);
+                        digestElapsedTicks = Stopwatch.GetTimestamp() - digestStart;
+                        itemResult = EvaluateMaintenanceTarget(candidate.Target, snapshot, resourceLookupContext, forceUpdate: true);
                     }
-                    long computeElapsedTicks = candidate.Snapshot == null
+                    long computeElapsedTicks = candidate.Buffer == null
                         ? 0L
                         : Stopwatch.GetTimestamp() - computeStart;
                     if (Volatile.Read(ref writerFailed) != 0)
@@ -960,7 +981,7 @@ internal sealed class BmsLibraryMaintenanceService
                     }
                     try
                     {
-                        computedQueue.Add(new MaintenanceWorkflowComputedItem(candidate.Target, itemResult, candidate.ReadElapsedTicks, computeElapsedTicks));
+                        computedQueue.Add(new MaintenanceWorkflowComputedItem(candidate.Target, itemResult, candidate.ReadElapsedTicks, digestElapsedTicks, computeElapsedTicks));
                     }
                     catch (InvalidOperationException) when (Volatile.Read(ref writerFailed) != 0)
                     {
@@ -1009,7 +1030,8 @@ internal sealed class BmsLibraryMaintenanceService
         Exception pipelineException = null;
         try
         {
-            readerTask.Wait();
+            Task.WaitAll(readerTasks);
+            readerCompletionTask.Wait();
         }
         catch (AggregateException ex)
         {
@@ -1039,6 +1061,7 @@ internal sealed class BmsLibraryMaintenanceService
 
         stopwatch.Stop();
         result.ReadMs = TicksToMilliseconds(readTicks);
+        result.DigestMs = TicksToMilliseconds(digestTicks);
         result.ComputeMs = TicksToMilliseconds(computeTicks);
         result.CommitMs = TicksToMilliseconds(commitTicks);
         result.HealthMs = TicksToMilliseconds(healthTicks);
@@ -1093,9 +1116,9 @@ internal sealed class BmsLibraryMaintenanceService
         var stopwatch = Stopwatch.StartNew();
         try
         {
-            ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(target.Path);
+            ChartFileReadBuffer buffer = ChartFileContentReader.ReadBuffer(target.Path);
             stopwatch.Stop();
-            return new MaintenanceWorkflowCandidate(target, snapshot, null, stopwatch.ElapsedTicks);
+            return new MaintenanceWorkflowCandidate(target, buffer, null, stopwatch.ElapsedTicks);
         }
         catch (Exception ex) when (IsMaintenanceRecoverable(ex))
         {
@@ -1862,6 +1885,9 @@ internal sealed class BmsLibraryMaintenanceService
         first.BmsonResourceTargetCount += second.BmsonResourceTargetCount;
         first.HealthTargetCount += second.HealthTargetCount;
         first.HealthDegree = Math.Max(first.HealthDegree, second.HealthDegree);
+        first.ReaderDegree = Math.Max(first.ReaderDegree, second.ReaderDegree);
+        first.ReadQueueCapacity = Math.Max(first.ReadQueueCapacity, second.ReadQueueCapacity);
+        first.ComputedQueueCapacity = Math.Max(first.ComputedQueueCapacity, second.ComputedQueueCapacity);
         first.ForceTargetCount += second.ForceTargetCount;
         first.MissingInfoTargetCount += second.MissingInfoTargetCount;
         first.MissingEncodingTargetCount += second.MissingEncodingTargetCount;
@@ -1884,6 +1910,7 @@ internal sealed class BmsLibraryMaintenanceService
         first.ReloadedSongCount += second.ReloadedSongCount;
         first.ZeroNoteChangedCount += second.ZeroNoteChangedCount;
         first.ReadMs += second.ReadMs;
+        first.DigestMs += second.DigestMs;
         first.ComputeMs += second.ComputeMs;
         first.CommitMs += second.CommitMs;
         first.WarningReapplyTargets += second.WarningReapplyTargets;
@@ -2016,13 +2043,13 @@ internal sealed class BmsLibraryMaintenanceService
 
     private sealed class MaintenanceWorkflowCandidate(
         MaintenanceWorkflowTarget target,
-        ChartFileSnapshot snapshot,
+        ChartFileReadBuffer buffer,
         Exception exception,
         long readElapsedTicks)
     {
         public MaintenanceWorkflowTarget Target { get; } = target;
 
-        public ChartFileSnapshot Snapshot { get; } = snapshot;
+        public ChartFileReadBuffer Buffer { get; } = buffer;
 
         public Exception Exception { get; } = exception;
 
@@ -2033,6 +2060,7 @@ internal sealed class BmsLibraryMaintenanceService
         MaintenanceWorkflowTarget target,
         MaintenanceEvaluationResult result,
         long readElapsedTicks,
+        long digestElapsedTicks,
         long computeElapsedTicks)
     {
         public MaintenanceWorkflowTarget Target { get; } = target;
@@ -2040,6 +2068,8 @@ internal sealed class BmsLibraryMaintenanceService
         public MaintenanceEvaluationResult Result { get; } = result;
 
         public long ReadElapsedTicks { get; } = readElapsedTicks;
+
+        public long DigestElapsedTicks { get; } = digestElapsedTicks;
 
         public long ComputeElapsedTicks { get; } = computeElapsedTicks;
     }
