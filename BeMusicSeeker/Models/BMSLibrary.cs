@@ -5291,7 +5291,8 @@ completeFileEnumerationOnce,
         {
             PrepareLr2FolderParentDirectoryEntrySurface(request);
             using LR2SongDBExtended songDb = dbGateway.OpenSongDb();
-            IReadOnlyDictionary<string, LR2SongDB.folder> existingRowsByPath = CreateExistingLr2FolderRowMap(songDb, request);
+            IReadOnlyDictionary<string, LR2SongDB.folder> existingRowsByPath =
+                Lr2FullGenerationSyncService.CreateExistingLr2FolderRowMap(songDb, request);
             Lr2FullGenerationSyncService.Lr2FolderFileSyncItemsResult syncItems =
                 Lr2FullGenerationSyncService.CreateLr2FolderFileSyncItems(
                     request.Lr2FolderFilePaths,
@@ -5383,72 +5384,6 @@ completeFileEnumerationOnce,
                 request.DirectoryEntries,
                 request.Lr2FolderDiscoveryDirectories,
                 parentDirectoryTargets));
-    }
-
-    private static IReadOnlyDictionary<string, LR2SongDB.folder> CreateExistingLr2FolderRowMap(
-        LR2SongDBExtended songDb,
-        Lr2FullGenerationSyncRequest request)
-    {
-        if (songDb == null)
-        {
-            return new Dictionary<string, LR2SongDB.folder>(StringComparer.OrdinalIgnoreCase);
-        }
-        string[] exactPaths = [.. CreateExistingLr2FolderExactPathScope(request)];
-        if (exactPaths.Length == 0)
-        {
-            return new Dictionary<string, LR2SongDB.folder>(StringComparer.Ordinal);
-        }
-
-        // Keep the pre-parse preservation map ordinal. A casing drift row must be parsed
-        // and rewritten so the later sync plan can delete the old key and insert the canonical one.
-        var rowsByPath = new Dictionary<string, LR2SongDB.folder>(StringComparer.Ordinal);
-        foreach (LR2SongDB.folder row in Lr2FolderExistingRowLookup.QueryExactPaths(songDb, exactPaths))
-        {
-            if (!string.IsNullOrWhiteSpace(row?.path)
-                && string.Equals(Path.GetExtension(row.path), ".lr2folder", StringComparison.OrdinalIgnoreCase)
-                && !rowsByPath.ContainsKey(row.path))
-            {
-                rowsByPath[row.path] = row;
-            }
-        }
-        return rowsByPath;
-    }
-
-    private static IReadOnlyCollection<string> CreateExistingLr2FolderExactPathScope(Lr2FullGenerationSyncRequest request)
-    {
-        var result = new HashSet<string>(StringComparer.Ordinal);
-        foreach (string filePath in request?.Lr2FolderFilePaths ?? [])
-        {
-            Lr2FolderFileSourceClassification classification = Lr2FolderFileSourceClassifier.Classify(new Lr2FolderFileSourceClassificationRequest
-            {
-                FilePath = filePath,
-                Lr2RootPath = request?.Lr2RootPath,
-                RootCustomFolderOutputBaseDir = request?.Lr2RootCustomFolderOutputBaseDir,
-                BuiltinSourceDirectories = request?.Lr2BuiltinFolderSourceDirectories
-            });
-            AddExistingLr2FolderExactPath(result, classification.DatabasePath);
-            AddExistingLr2FolderExactPath(result, filePath);
-        }
-        return result;
-    }
-
-    private static void AddExistingLr2FolderExactPath(ISet<string> result, string path)
-    {
-        if (result == null || string.IsNullOrWhiteSpace(path))
-        {
-            return;
-        }
-        try
-        {
-            string normalized = Lr2FolderFileProjection.NormalizeDatabasePath(path);
-            if (!string.IsNullOrWhiteSpace(normalized))
-            {
-                result.Add(normalized);
-            }
-        }
-        catch (Exception ex) when (ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException)
-        {
-        }
     }
 
     private void CaptureLr2FullGenerationScanSurface(

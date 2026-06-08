@@ -4805,6 +4805,93 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
+    public void SyncService_PreservesUnchangedLr2FolderRowBeforeDefinitionParse()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
+        Directory.CreateDirectory(rootDirectory);
+        string lr2FolderPath = Path.Combine(rootDirectory, "table.lr2folder");
+        File.WriteAllText(lr2FolderPath, "#TITLE Reparsed Title");
+        DateTime timestamp = new(2026, 6, 5, 1, 2, 3, DateTimeKind.Utc);
+        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        songDb.CreateTable<LR2SongDB.folder>();
+        songDb.InsertOrReplace(new LR2SongDB.folder
+        {
+            path = lr2FolderPath,
+            title = "Preserved Title",
+            type = 2,
+            parent = Lr2SongFolderParentNormalizer.ComputeDirectoryHash(rootDirectory),
+            date = Lr2SongRowEnricher.ToLr2UnixSeconds(timestamp),
+            adddate = 12345
+        }, typeof(LR2SongDB.folder));
+
+        Lr2FullGenerationSyncResult result = Lr2FullGenerationSyncService.Run(songDb, new Lr2FullGenerationSyncRequest
+        {
+            Signature = "lr2folder-preserve",
+            RunId = "lr2folder-preserve-run",
+            RootDirectories = [rootDirectory],
+            Lr2FolderDiscoveryDirectories = [rootDirectory],
+            Lr2FolderPruneDirectories = [rootDirectory],
+            Lr2FolderFilePaths = [lr2FolderPath],
+            Lr2FolderFileEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase)
+            {
+                [lr2FolderPath] = new RootFileEnumerationEntry(lr2FolderPath, timestamp)
+            },
+            Lr2FolderFileDiscoveryComplete = true,
+            StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc)
+        });
+
+        LR2SongDB.folder row = songDb.Table<LR2SongDB.folder>().Single(folder => folder.path == lr2FolderPath);
+        Assert.AreEqual(1, result.Lr2FolderFileSyncResult.PreservedCount);
+        Assert.AreEqual(0, result.Lr2FolderFileSyncResult.GeneratedCount);
+        Assert.AreEqual("Preserved Title", row.title);
+        Assert.AreEqual(12345, row.adddate);
+        Assert.AreEqual(Lr2FullGenerationSyncService.CompletedStage, result.FinalStage);
+    }
+
+    [TestMethod]
+    public void SyncService_PreservesEntriesOnlyLr2FolderRowBeforeDefinitionParse()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
+        Directory.CreateDirectory(rootDirectory);
+        string lr2FolderPath = Path.Combine(rootDirectory, "table.lr2folder");
+        File.WriteAllText(lr2FolderPath, "#TITLE Reparsed Entries Only");
+        DateTime timestamp = new(2026, 6, 5, 1, 2, 3, DateTimeKind.Utc);
+        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        songDb.CreateTable<LR2SongDB.folder>();
+        songDb.InsertOrReplace(new LR2SongDB.folder
+        {
+            path = lr2FolderPath,
+            title = "Preserved Entries Only",
+            type = 2,
+            parent = Lr2SongFolderParentNormalizer.ComputeDirectoryHash(rootDirectory),
+            date = Lr2SongRowEnricher.ToLr2UnixSeconds(timestamp)
+        }, typeof(LR2SongDB.folder));
+
+        Lr2FullGenerationSyncResult result = Lr2FullGenerationSyncService.Run(songDb, new Lr2FullGenerationSyncRequest
+        {
+            Signature = "lr2folder-entries-only-preserve",
+            RunId = "lr2folder-entries-only-preserve-run",
+            RootDirectories = [rootDirectory],
+            Lr2FolderDiscoveryDirectories = [rootDirectory],
+            Lr2FolderPruneDirectories = [rootDirectory],
+            Lr2FolderFileEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase)
+            {
+                [lr2FolderPath] = new RootFileEnumerationEntry(lr2FolderPath, timestamp)
+            },
+            Lr2FolderFileDiscoveryComplete = true,
+            StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc)
+        });
+
+        LR2SongDB.folder row = songDb.Table<LR2SongDB.folder>().Single(folder => folder.path == lr2FolderPath);
+        Assert.AreEqual(1, result.Lr2FolderFileSyncResult.PreservedCount);
+        Assert.AreEqual(0, result.Lr2FolderFileSyncResult.GeneratedCount);
+        Assert.AreEqual("Preserved Entries Only", row.title);
+        Assert.AreEqual(Lr2FullGenerationSyncService.CompletedStage, result.FinalStage);
+    }
+
+    [TestMethod]
     public void SyncService_UsesEnumeratedDirectoryTimestampForNormalFolderRow()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
