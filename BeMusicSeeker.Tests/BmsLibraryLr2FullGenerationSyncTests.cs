@@ -1445,6 +1445,66 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
+    public void CreateLr2FullGenerationSyncInput_ReusesScanSurfaceDirectoryEntriesForLr2FolderParents()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        try
+        {
+            Settings.Default.OperationModeLR2DB = true;
+            Settings.Default.EnableLR2SongDbFullGeneration = true;
+            ResetLr2FolderDiscoverySettings();
+            string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
+            string tableDirectory = Path.Combine(rootDirectory, "Table");
+            string lr2FolderPath = Path.Combine(tableDirectory, "select.lr2folder");
+            Directory.CreateDirectory(tableDirectory);
+            File.WriteAllText(lr2FolderPath, "#TITLE Table", Encoding.GetEncoding("shift_jis"));
+            DateTime surfaceTimestamp = new(2026, 6, 7, 4, 0, 0, DateTimeKind.Utc);
+            DateTime liveTimestamp = new(2026, 6, 8, 4, 0, 0, DateTimeKind.Utc);
+            var library = new BMSLibrary(scope.SongDbPath)
+            {
+                SearchTargets = [rootDirectory],
+                BMSFiles = []
+            };
+            var options = new BmsLibraryOptionsSnapshot
+            {
+                OperationModeLR2DB = true,
+                EnableLR2SongDbFullGeneration = true
+            };
+
+            InvokeCaptureLr2FullGenerationScanSurface(library, options, [rootDirectory], new SongTableFileCheckResult
+            {
+                Lr2ScanSurfaceAvailable = true,
+                Lr2ScanNormalFolderDirectoryPaths = [rootDirectory],
+                Lr2ScanDirectoryEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase)
+                {
+                    [tableDirectory] = new RootFileEnumerationEntry(tableDirectory, surfaceTimestamp)
+                },
+                Lr2ScanNormalFolderDirectoryEntries = CreateDirectoryEntryMap(rootDirectory),
+                Lr2ScanTextFileDirectories = [],
+                Lr2ScanLr2FolderDiscoveryDirectories = [rootDirectory],
+                Lr2ScanLr2FolderFilePaths = [lr2FolderPath],
+                Lr2ScanLr2FolderFileEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase)
+                {
+                    [lr2FolderPath] = new RootFileEnumerationEntry(lr2FolderPath, surfaceTimestamp)
+                },
+                Lr2ScanLr2FolderFileDiscoveryComplete = true
+            });
+            Directory.SetLastWriteTimeUtc(tableDirectory, liveTimestamp);
+
+            object input = InvokeCreateLr2FullGenerationSyncInput(library);
+            IReadOnlyDictionary<string, RootFileEnumerationEntry> entries = GetInputEntryMap(input, "DirectoryEntries");
+
+            string tableKey = Lr2FolderPath.NormalizeDirectoryPath(tableDirectory);
+            Assert.IsTrue(entries.TryGetValue(tableKey, out RootFileEnumerationEntry entry));
+            Assert.AreEqual(surfaceTimestamp, entry.LastWriteTimeUtc);
+        }
+        finally
+        {
+            ResetTouchedSettings();
+        }
+    }
+
+    [TestMethod]
     public void TryRunLr2FullGenerationDataPreparation_UsesPreparedSurfaceWithoutCapturedScanSurface()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
@@ -1678,9 +1738,11 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             Directory.CreateDirectory(unrelatedDirectory);
             string chartPath = Path.Combine(songDirectory, "chart.bms");
             string packFolderInfoPath = Path.Combine(packDirectory, "folderinfo.txt");
+            string songTextPath = Path.Combine(songDirectory, "readme.txt");
             string unrelatedFolderInfoPath = Path.Combine(unrelatedDirectory, "folderinfo.txt");
             File.WriteAllText(chartPath, "#TITLE Test");
             File.WriteAllText(packFolderInfoPath, "#TITLE Pack", Encoding.GetEncoding("shift_jis"));
+            File.WriteAllText(songTextPath, "notes", Encoding.UTF8);
             File.WriteAllText(unrelatedFolderInfoPath, "#TITLE Other", Encoding.GetEncoding("shift_jis"));
             var library = new BMSLibrary(scope.SongDbPath)
             {
@@ -1696,9 +1758,12 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
 
             object input = InvokeCreateLr2FullGenerationSyncInput(library);
             List<string> folderInfoFilePaths = GetInputStringList(input, "FolderInfoFilePaths").ToList();
+            List<string> textFileDirectories = GetInputStringList(input, "TextFileDirectories").ToList();
 
             CollectionAssert.Contains(folderInfoFilePaths, packFolderInfoPath);
             CollectionAssert.DoesNotContain(folderInfoFilePaths, unrelatedFolderInfoPath);
+            CollectionAssert.Contains(textFileDirectories, songDirectory);
+            CollectionAssert.DoesNotContain(textFileDirectories, unrelatedDirectory);
         }
         finally
         {
@@ -4398,6 +4463,34 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         Assert.IsTrue(snapshot.DiscoveryComplete);
         Assert.IsTrue(snapshot.EntriesByPath.TryGetValue(folderInfoPath, out RootFileEnumerationEntry entry));
         Assert.AreEqual(Lr2SongRowEnricher.ToLr2UnixSeconds(folderInfoTimestamp), entry.LastWriteTimeUnixSeconds);
+    }
+
+    [TestMethod]
+    public void TextMetadataCandidateEnumeration_ReturnsTargetFolderInfoAndTextDirectories()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
+        string chartDirectory = Path.Combine(rootDirectory, "Pack");
+        string unrelatedDirectory = Path.Combine(rootDirectory, "Other");
+        Directory.CreateDirectory(chartDirectory);
+        Directory.CreateDirectory(unrelatedDirectory);
+        string folderInfoPath = Path.Combine(chartDirectory, "folderinfo.txt");
+        string readmePath = Path.Combine(chartDirectory, "readme.txt");
+        string unrelatedTextPath = Path.Combine(unrelatedDirectory, "readme.txt");
+        DateTime folderInfoTimestamp = new(2026, 6, 5, 6, 0, 0, DateTimeKind.Utc);
+        File.WriteAllText(folderInfoPath, "#TITLE Pack");
+        File.WriteAllText(readmePath, "notes");
+        File.WriteAllText(unrelatedTextPath, "other");
+        File.SetLastWriteTimeUtc(folderInfoPath, folderInfoTimestamp);
+
+        Lr2TextMetadataCandidateSnapshot snapshot = Lr2FolderInfoCandidateEnumerationService.CreateTextMetadataSnapshot(
+            [rootDirectory],
+            [chartDirectory]);
+
+        CollectionAssert.AreEqual(new[] { folderInfoPath }, snapshot.FolderInfoCandidates.Paths.ToArray());
+        CollectionAssert.AreEqual(new[] { chartDirectory }, snapshot.TextFileDirectories.ToArray());
+        CollectionAssert.DoesNotContain(snapshot.TextFileDirectories.ToList(), unrelatedDirectory);
+        Assert.AreEqual(Lr2SongRowEnricher.ToLr2UnixSeconds(folderInfoTimestamp), snapshot.FolderInfoCandidates.EntriesByPath[folderInfoPath].LastWriteTimeUnixSeconds);
     }
 
     [TestMethod]

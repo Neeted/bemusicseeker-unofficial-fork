@@ -710,11 +710,98 @@ public sealed class Lr2FolderFileDbSyncServiceTests
                 new Lr2FullGenerationSyncRequest
                 {
                     Lr2BuiltinFolderSourceDirectories = [Path.Combine(lr2Root, "LR2files", "CustomFolder")],
-                    Lr2FolderPruneDirectories = [@"LR2files\CustomFolder"]
+                    Lr2FolderPruneDirectories = [@"LR2files\CustomFolder"],
+                    DirectoryEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        [randomDirectory] = RootFileEnumerationEntry.FromDirectoryInfo(randomDirectory)
+                    }
                 });
 
             Assert.IsTrue(snapshot.TryGetMetadata(randomDirectory, out Lr2FolderDirectoryMetadata metadata));
             Assert.AreEqual("Random Folder Info", metadata.FolderInfoTitle);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void CreateLr2FolderParentDirectoryMetadataSnapshot_UsesRequestDirectoryEntryTimestamp()
+    {
+        string tempDirectory = Path.Combine(Path.GetTempPath(), nameof(Lr2FolderFileDbSyncServiceTests), Guid.NewGuid().ToString("N"));
+        try
+        {
+            string rootDirectory = Path.Combine(tempDirectory, "BMS");
+            string tableDirectory = Path.Combine(rootDirectory, "Table");
+            Directory.CreateDirectory(tableDirectory);
+            string filePath = Path.Combine(tableDirectory, "select.lr2folder");
+            DateTime enumeratedTimestamp = new(2026, 6, 10, 1, 2, 3, DateTimeKind.Utc);
+            DateTime liveTimestamp = enumeratedTimestamp.AddMinutes(10);
+            Directory.SetLastWriteTimeUtc(tableDirectory, liveTimestamp);
+
+            Lr2FolderDirectoryMetadataSnapshot snapshot = Lr2FullGenerationSyncService.CreateLr2FolderParentDirectoryMetadataSnapshot(
+                [
+                    new Lr2FolderFileSyncItem
+                    {
+                        FilePath = filePath,
+                        LastWriteTimeUtc = enumeratedTimestamp,
+                        Definition = Lr2FolderFileProjection.ParseDefinition(["#TITLE Table"])
+                    }
+                ],
+                new Lr2FullGenerationSyncRequest
+                {
+                    RootDirectories = [rootDirectory],
+                    DirectoryEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        [tableDirectory] = new RootFileEnumerationEntry(tableDirectory, enumeratedTimestamp)
+                    }
+                });
+
+            Assert.IsTrue(snapshot.TryGetMetadata(tableDirectory, out Lr2FolderDirectoryMetadata metadata));
+            Assert.AreEqual(enumeratedTimestamp, metadata.LastWriteTimeUtc);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void CreateLr2FolderParentDirectoryMetadataSnapshot_DoesNotReadMissingDirectoryTimestamp()
+    {
+        string tempDirectory = Path.Combine(Path.GetTempPath(), nameof(Lr2FolderFileDbSyncServiceTests), Guid.NewGuid().ToString("N"));
+        try
+        {
+            string lr2Root = Path.Combine(tempDirectory, "LR2beta3");
+            string randomDirectory = Path.Combine(lr2Root, "LR2files", "CustomFolder", "RANDOM");
+            Directory.CreateDirectory(randomDirectory);
+            File.WriteAllText(Path.Combine(randomDirectory, "folderinfo.txt"), "#TITLE Random Folder Info", Encoding.GetEncoding("shift_jis"));
+            string filePath = Path.Combine(randomDirectory, "select.lr2folder");
+
+            Lr2FolderDirectoryMetadataSnapshot snapshot = Lr2FullGenerationSyncService.CreateLr2FolderParentDirectoryMetadataSnapshot(
+                [
+                    new Lr2FolderFileSyncItem
+                    {
+                        FilePath = filePath,
+                        DatabasePath = @"LR2files\CustomFolder\RANDOM\select.lr2folder",
+                        LastWriteTimeUtc = new DateTime(2026, 6, 10, 1, 2, 3, DateTimeKind.Utc),
+                        Definition = Lr2FolderFileProjection.ParseDefinition(["#TITLE Random"])
+                    }
+                ],
+                new Lr2FullGenerationSyncRequest
+                {
+                    Lr2BuiltinFolderSourceDirectories = [Path.Combine(lr2Root, "LR2files", "CustomFolder")],
+                    Lr2FolderPruneDirectories = [@"LR2files\CustomFolder"]
+                });
+
+            Assert.IsFalse(snapshot.TryGetMetadata(randomDirectory, out _));
         }
         finally
         {
@@ -754,6 +841,10 @@ public sealed class Lr2FolderFileDbSyncServiceTests
                 Lr2FolderFileEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase)
                 {
                     [lr2FolderPath] = new RootFileEnumerationEntry(lr2FolderPath, timestamp, null)
+                },
+                DirectoryEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase)
+                {
+                    [randomDirectory] = RootFileEnumerationEntry.FromDirectoryInfo(randomDirectory)
                 },
                 Lr2FolderDiscoveryDirectories = [builtinRoot],
                 Lr2FolderPruneDirectories = [@"LR2files\CustomFolder"],

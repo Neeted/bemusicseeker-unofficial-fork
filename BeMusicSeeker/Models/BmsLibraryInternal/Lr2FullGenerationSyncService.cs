@@ -1027,8 +1027,6 @@ internal static class Lr2FullGenerationSyncService
             items,
             CreateLr2FolderDirectoryRowGenerationScopeDirectories(request));
         IReadOnlyCollection<string> builtinFolderSourceDirectories = ResolveLr2BuiltinFolderSourceDirectories(request);
-        IReadOnlyCollection<string> directoryMetadataSourceDirectories =
-            ResolveLr2FolderDirectoryMetadataSourceDirectories(request, builtinFolderSourceDirectories);
         Lr2FolderInfoCandidateSnapshot surfaceCandidates = Lr2FolderInfoCandidateEnumerationService.CreateSnapshotFromSurface(
             request?.FolderInfoFilePaths,
             request?.FolderInfoFileEntries?.Values,
@@ -1039,9 +1037,9 @@ internal static class Lr2FullGenerationSyncService
         Dictionary<string, RootFileEnumerationEntry> folderInfoEntriesByPath = MergeEnumerationEntries(
             surfaceCandidates.EntriesByPath,
             builtinCandidates.EntriesByPath);
-        Dictionary<string, RootFileEnumerationEntry> directoryEntriesByPath = MergeEnumerationEntries(
+        Dictionary<string, RootFileEnumerationEntry> directoryEntriesByPath = CreateDirectoryMetadataEntries(
             request?.DirectoryEntries,
-            Lr2FolderDirectoryEnumerationService.CreateEntriesFromGroupedEnumeration(directoryMetadataSourceDirectories, directoryTargets));
+            directoryTargets);
 
         return Lr2FolderDirectoryMetadataBuilder.Build(new Lr2FolderDirectoryMetadataBuildRequest
         {
@@ -1069,14 +1067,49 @@ internal static class Lr2FullGenerationSyncService
         return [Path.Combine(lr2Root, "LR2files", "CustomFolder")];
     }
 
-    private static IReadOnlyCollection<string> ResolveLr2FolderDirectoryMetadataSourceDirectories(
-        Lr2FullGenerationSyncRequest request,
-        IEnumerable<string> builtinFolderSourceDirectories)
+    private static Dictionary<string, RootFileEnumerationEntry> CreateDirectoryMetadataEntries(
+        IReadOnlyDictionary<string, RootFileEnumerationEntry> requestEntries,
+        IEnumerable<string> directoryTargets)
     {
-        return [.. (request?.Lr2FolderDiscoveryDirectories ?? [])
-            .Concat(builtinFolderSourceDirectories ?? [])
-            .Where(path => !string.IsNullOrWhiteSpace(path))
-            .Distinct(StringComparer.OrdinalIgnoreCase)];
+        HashSet<string> targetSet = CreateDirectoryTargetSet(directoryTargets);
+        var result = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
+        AddDirectoryEntries(result, requestEntries, targetSet);
+        return result;
+    }
+
+    private static HashSet<string> CreateDirectoryTargetSet(IEnumerable<string> directoryTargets)
+    {
+        return new HashSet<string>((directoryTargets ?? [])
+            .Select(NormalizeDirectoryPathOrNull)
+            .Where(path => !string.IsNullOrWhiteSpace(path)), StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static void AddDirectoryEntries(
+        IDictionary<string, RootFileEnumerationEntry> result,
+        IReadOnlyDictionary<string, RootFileEnumerationEntry> sourceEntries,
+        ISet<string> targetSet)
+    {
+        if (result == null || sourceEntries == null || targetSet == null || targetSet.Count == 0)
+        {
+            return;
+        }
+
+        foreach (KeyValuePair<string, RootFileEnumerationEntry> pair in NormalizeEnumerationEntries(sourceEntries))
+        {
+            RootFileEnumerationEntry sourceEntry = pair.Value;
+            string path = !string.IsNullOrWhiteSpace(sourceEntry?.Path) ? sourceEntry.Path : pair.Key;
+            string key = NormalizeDirectoryPathOrNull(path);
+            if (string.IsNullOrWhiteSpace(key) || !targetSet.Contains(key))
+            {
+                continue;
+            }
+
+            if (!result.TryGetValue(key, out RootFileEnumerationEntry existing)
+                || existing.LastWriteTimeUtc == null && sourceEntry?.LastWriteTimeUtc != null)
+            {
+                result[key] = new RootFileEnumerationEntry(key, sourceEntry?.LastWriteTimeUtc, sourceEntry?.FileSize);
+            }
+        }
     }
 
     private static readonly Lr2FolderDirectoryMetadata DiagnosticExpectedFolderMetadata =

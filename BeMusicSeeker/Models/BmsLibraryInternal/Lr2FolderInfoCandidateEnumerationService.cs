@@ -19,9 +19,26 @@ internal sealed class Lr2FolderInfoCandidateSnapshot(
     public bool DiscoveryComplete { get; } = discoveryComplete;
 }
 
+internal sealed class Lr2TextMetadataCandidateSnapshot(
+    Lr2FolderInfoCandidateSnapshot folderInfoCandidates,
+    IReadOnlyList<string> textFileDirectories)
+{
+    public Lr2FolderInfoCandidateSnapshot FolderInfoCandidates { get; } =
+        folderInfoCandidates ?? new Lr2FolderInfoCandidateSnapshot([], new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase), discoveryComplete: true);
+
+    public IReadOnlyList<string> TextFileDirectories { get; } = textFileDirectories ?? [];
+}
+
 internal static class Lr2FolderInfoCandidateEnumerationService
 {
     internal static Lr2FolderInfoCandidateSnapshot CreateSnapshot(
+        IEnumerable<string> rootDirectories,
+        IEnumerable<string> targetDirectories)
+    {
+        return CreateTextMetadataSnapshot(rootDirectories, targetDirectories).FolderInfoCandidates;
+    }
+
+    internal static Lr2TextMetadataCandidateSnapshot CreateTextMetadataSnapshot(
         IEnumerable<string> rootDirectories,
         IEnumerable<string> targetDirectories)
     {
@@ -30,7 +47,7 @@ internal static class Lr2FolderInfoCandidateEnumerationService
             .Where(path => !string.IsNullOrWhiteSpace(path)), StringComparer.OrdinalIgnoreCase);
         if (targetSet.Count == 0)
         {
-            return new Lr2FolderInfoCandidateSnapshot([], new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase), discoveryComplete: true);
+            return CreateEmptyTextMetadataSnapshot();
         }
 
         List<string> roots = [.. (rootDirectories ?? [])
@@ -39,7 +56,7 @@ internal static class Lr2FolderInfoCandidateEnumerationService
             .Distinct(StringComparer.OrdinalIgnoreCase)];
         if (roots.Count == 0)
         {
-            return new Lr2FolderInfoCandidateSnapshot([], new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase), discoveryComplete: true);
+            return CreateEmptyTextMetadataSnapshot();
         }
 
         RootFileEnumerationGroup[] groups = [new RootFileEnumerationGroup(ChartDirectoryScanBuilder.TextGroupName, ChartDirectoryScanBuilder.TextExtensions)];
@@ -50,25 +67,31 @@ internal static class Lr2FolderInfoCandidateEnumerationService
         }
 
         var entriesByPath = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
+        var textFileDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (RootFileEnumerationEntry entry in result.GetEntries(ChartDirectoryScanBuilder.TextGroupName))
         {
-            string path = NormalizeFolderInfoPath(entry?.Path);
+            string path = NormalizeTextFilePath(entry?.Path);
             if (string.IsNullOrWhiteSpace(path))
             {
                 continue;
             }
 
             string directoryPath = Lr2FolderPath.NormalizeDirectoryPath(Path.GetDirectoryName(path));
-            if (!string.IsNullOrWhiteSpace(directoryPath) && targetSet.Contains(directoryPath))
+            if (string.IsNullOrWhiteSpace(directoryPath) || !targetSet.Contains(directoryPath))
+            {
+                continue;
+            }
+
+            textFileDirectories.Add(directoryPath);
+            if (IsFolderInfoPath(path))
             {
                 entriesByPath[path] = new RootFileEnumerationEntry(path, entry.LastWriteTimeUtc, entry.FileSize);
             }
         }
 
-        return new Lr2FolderInfoCandidateSnapshot(
-            [.. entriesByPath.Keys.OrderBy(path => path, StringComparer.OrdinalIgnoreCase)],
-            entriesByPath,
-            discoveryComplete: true);
+        return new Lr2TextMetadataCandidateSnapshot(
+            CreateFolderInfoSnapshot(entriesByPath, discoveryComplete: true),
+            [.. textFileDirectories.OrderBy(path => path, StringComparer.OrdinalIgnoreCase)]);
     }
 
     internal static Lr2FolderInfoCandidateSnapshot CreateSnapshotFromEntries(
@@ -136,8 +159,14 @@ internal static class Lr2FolderInfoCandidateEnumerationService
 
     private static string NormalizeFolderInfoPath(string path)
     {
+        string normalized = NormalizeTextFilePath(path);
+        return IsFolderInfoPath(normalized) ? normalized : null;
+    }
+
+    private static string NormalizeTextFilePath(string path)
+    {
         if (string.IsNullOrWhiteSpace(path)
-            || !string.Equals(Path.GetFileName(path), "folderinfo.txt", StringComparison.OrdinalIgnoreCase))
+            || !string.Equals(Path.GetExtension(path), ".txt", StringComparison.OrdinalIgnoreCase))
         {
             return null;
         }
@@ -150,6 +179,29 @@ internal static class Lr2FolderInfoCandidateEnumerationService
         {
             return null;
         }
+    }
+
+    private static bool IsFolderInfoPath(string path)
+    {
+        return !string.IsNullOrWhiteSpace(path)
+            && string.Equals(Path.GetFileName(path), "folderinfo.txt", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static Lr2FolderInfoCandidateSnapshot CreateFolderInfoSnapshot(
+        IReadOnlyDictionary<string, RootFileEnumerationEntry> entriesByPath,
+        bool discoveryComplete)
+    {
+        return new Lr2FolderInfoCandidateSnapshot(
+            [.. (entriesByPath?.Keys ?? []).OrderBy(path => path, StringComparer.OrdinalIgnoreCase)],
+            entriesByPath ?? new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase),
+            discoveryComplete);
+    }
+
+    private static Lr2TextMetadataCandidateSnapshot CreateEmptyTextMetadataSnapshot()
+    {
+        return new Lr2TextMetadataCandidateSnapshot(
+            new Lr2FolderInfoCandidateSnapshot([], new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase), discoveryComplete: true),
+            []);
     }
 
 }

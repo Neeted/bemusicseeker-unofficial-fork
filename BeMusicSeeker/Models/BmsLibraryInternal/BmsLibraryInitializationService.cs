@@ -405,8 +405,11 @@ internal sealed class BmsLibraryInitializationService
             result.Lr2ScanNormalFolderDirectoryPaths = [.. Lr2NormalFolderDbSyncService.CreateDirectoryMetadataTargetsFromDirectories(
                 lr2NormalFolderSyncRootDirectories,
                 mergedScanResult.ChartDirectories ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase))];
+            result.Lr2ScanDirectoryEntries = new Dictionary<string, RootFileEnumerationEntry>(
+                mergedScanResult.DirectoryEntriesByPath ?? new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase),
+                StringComparer.OrdinalIgnoreCase);
             result.Lr2ScanNormalFolderDirectoryEntries = Lr2FolderDirectoryEnumerationService.CreateEntriesFromSurface(
-                mergedScanResult.DirectoryEntriesByPath,
+                result.Lr2ScanDirectoryEntries,
                 result.Lr2ScanNormalFolderDirectoryPaths);
             result.Lr2ScanFolderInfoFilePaths = [.. (mergedScanResult.FolderInfoFilePaths ?? [])
                 .Where(path => !string.IsNullOrWhiteSpace(path))

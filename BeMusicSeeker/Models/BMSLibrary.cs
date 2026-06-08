@@ -5208,6 +5208,9 @@ completeFileEnumerationOnce,
             Lr2FolderFileEntries = fileCheckResult.Lr2ScanLr2FolderFileEntries,
             FolderInfoFilePaths = fileCheckResult.Lr2ScanFolderInfoFilePaths,
             FolderInfoFileEntries = fileCheckResult.Lr2ScanFolderInfoFileEntries,
+            DirectoryEntries = MergeLr2DirectoryEntrySurfaces(
+                fileCheckResult.Lr2ScanDirectoryEntries,
+                fileCheckResult.Lr2ScanNormalFolderDirectoryEntries),
             Lr2FolderFileDiscoveryComplete = fileCheckResult.Lr2ScanLr2FolderFileDiscoveryComplete,
             Lr2RootPath = Settings.Default.LR2RootPath,
             Lr2NormalCustomFolderOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDir,
@@ -5265,6 +5268,7 @@ completeFileEnumerationOnce,
         var stopwatch = Stopwatch.StartNew();
         try
         {
+            PrepareLr2FolderParentDirectoryEntrySurface(request);
             using LR2SongDBExtended songDb = dbGateway.OpenSongDb();
             IReadOnlyDictionary<string, LR2SongDB.folder> existingRowsByPath = CreateExistingLr2FolderRowMap(songDb, request);
             Lr2FullGenerationSyncService.Lr2FolderFileSyncItemsResult syncItems =
@@ -5332,6 +5336,32 @@ completeFileEnumerationOnce,
                 + " message=" + GetDisplayedExceptionMessage(ex).Replace(Environment.NewLine, " | "));
             return null;
         }
+    }
+
+    private static void PrepareLr2FolderParentDirectoryEntrySurface(Lr2FullGenerationSyncRequest request)
+    {
+        if (request == null)
+        {
+            return;
+        }
+
+        IReadOnlyCollection<string> parentDirectoryTargets = CreateLr2FolderPhysicalParentDirectoryMetadataTargets(
+            (request.Lr2FolderFilePaths ?? []).Concat(request.Lr2FolderFileEntries?.Keys ?? []),
+            request.RootDirectories,
+            request.Lr2NormalCustomFolderOutputBaseDir,
+            request.Lr2RootCustomFolderOutputBaseDir,
+            request.Lr2BuiltinFolderSourceDirectories);
+        if (parentDirectoryTargets.Count == 0)
+        {
+            return;
+        }
+
+        request.DirectoryEntries = MergeLr2DirectoryEntrySurfaces(
+            request.DirectoryEntries,
+            CreateLr2DirectoryEntriesFromSurfaceOrGroupedScan(
+                request.DirectoryEntries,
+                request.Lr2FolderDiscoveryDirectories,
+                parentDirectoryTargets));
     }
 
     private static IReadOnlyDictionary<string, LR2SongDB.folder> CreateExistingLr2FolderRowMap(
@@ -5469,6 +5499,7 @@ completeFileEnumerationOnce,
                 generation,
                 roots,
                 fileCheckResult.Lr2ScanNormalFolderDirectoryPaths,
+                fileCheckResult.Lr2ScanDirectoryEntries,
                 fileCheckResult.Lr2ScanNormalFolderDirectoryEntries,
                 fileCheckResult.Lr2ScanFolderInfoFilePaths,
                 fileCheckResult.Lr2ScanFolderInfoFileEntries,
@@ -5486,6 +5517,7 @@ completeFileEnumerationOnce,
             + " generation=" + snapshot.Generation
             + " roots=" + snapshot.RootDirectories.Count
             + " normalFolderDirs=" + snapshot.NormalFolderDirectoryPaths.Count
+            + " directorySurfaceEntries=" + snapshot.DirectoryEntries.Count
             + " folderInfoCandidates=" + snapshot.FolderInfoFilePaths.Count
             + " lr2FolderDiscoveryRoots=" + snapshot.Lr2FolderDiscoveryDirectories.Count
             + " lr2FolderCandidates=" + snapshot.Lr2FolderFilePaths.Count
@@ -5532,6 +5564,7 @@ completeFileEnumerationOnce,
                     generation,
                     snapshot.RootDirectories,
                     snapshot.NormalFolderDirectoryPaths,
+                    snapshot.DirectoryEntries,
                     snapshot.NormalFolderDirectoryEntries,
                     snapshot.FolderInfoFilePaths,
                     snapshot.FolderInfoFileEntries,
@@ -6578,6 +6611,8 @@ completeFileEnumerationOnce,
         var builtinSettingsStopwatch = Stopwatch.StartNew();
         Lr2BuiltinCustomFolderSettings builtinCustomFolderSettings = CreateLr2BuiltinCustomFolderSettings(songRows, nowUtc);
         List<string> lr2BuiltinFolderSourceDirectories = CreateLr2FullGenerationBuiltinFolderSourceDirectories();
+        string lr2NormalCustomFolderOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDir;
+        string lr2RootCustomFolderOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDirRootType;
         List<string> lr2FolderPruneDirectories = CreateLr2FullGenerationLr2FolderPruneDirectories(
             roots,
             lr2BuiltinFolderSourceDirectories);
@@ -6626,28 +6661,46 @@ completeFileEnumerationOnce,
             }
         }
         lr2FolderCandidatesStopwatch.Stop();
+        IReadOnlyCollection<string> lr2FolderParentDirectoryTargets = CreateLr2FolderPhysicalParentDirectoryMetadataTargets(
+            lr2FolderFileCandidates.Paths,
+            roots,
+            lr2NormalCustomFolderOutputBaseDir,
+            lr2RootCustomFolderOutputBaseDir,
+            lr2BuiltinFolderSourceDirectories);
+        IReadOnlyCollection<string> directoryEntryTargets = MergeLr2DirectoryMetadataTargets(
+            directoryMetadataTargets,
+            lr2FolderParentDirectoryTargets);
+        Lr2TextMetadataCandidateSnapshot textMetadataCandidates = null;
         var folderInfoCandidatesStopwatch = Stopwatch.StartNew();
-        Lr2FolderInfoCandidateSnapshot folderInfoCandidates = scanSurface != null
-            ? Lr2FolderInfoCandidateEnumerationService.CreateSnapshotFromSurface(
+        Lr2FolderInfoCandidateSnapshot folderInfoCandidates;
+        if (scanSurface != null)
+        {
+            folderInfoCandidates = Lr2FolderInfoCandidateEnumerationService.CreateSnapshotFromSurface(
                 scanSurface.FolderInfoFilePaths,
                 scanSurface.FolderInfoFileEntries.Values,
-                directoryMetadataTargets)
-            : CreateLr2FullGenerationFolderInfoCandidates(roots, directoryMetadataTargets);
+                directoryEntryTargets);
+        }
+        else
+        {
+            textMetadataCandidates = CreateLr2FullGenerationTextMetadataCandidates(lr2FolderDiscoveryDirectories, directoryEntryTargets);
+            folderInfoCandidates = textMetadataCandidates.FolderInfoCandidates;
+        }
         folderInfoCandidatesStopwatch.Stop();
         var directoryEntriesStopwatch = Stopwatch.StartNew();
         IReadOnlyDictionary<string, RootFileEnumerationEntry> directoryEntries = scanSurface != null
-            ? Lr2FolderDirectoryEnumerationService.CreateEntriesFromSurface(
-                scanSurface.NormalFolderDirectoryEntries,
-                directoryMetadataTargets)
+            ? CreateLr2DirectoryEntriesFromSurfaceOrGroupedScan(
+                MergeLr2DirectoryEntrySurfaces(scanSurface.DirectoryEntries, scanSurface.NormalFolderDirectoryEntries),
+                lr2FolderDiscoveryDirectories,
+                directoryEntryTargets)
             : CreateLr2FullGenerationDirectoryEntriesFromGroupedScan(
-                roots,
-                directoryMetadataTargets);
+                lr2FolderDiscoveryDirectories,
+                directoryEntryTargets);
         directoryEntriesStopwatch.Stop();
-        int missingDirectoryEntries = Math.Max(0, directoryMetadataTargets.Count - directoryEntries.Count);
-        string lr2RootCustomFolderOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDirRootType;
+        int missingDirectoryEntries = Math.Max(0, directoryEntryTargets.Count - directoryEntries.Count);
         var textFileDirsStopwatch = Stopwatch.StartNew();
         IReadOnlyList<string> textFileDirectories = scanSurface?.TextFileDirectories
-            ?? CreateLr2FullGenerationTextFileDirectories(chartPaths);
+            ?? textMetadataCandidates?.TextFileDirectories
+            ?? [];
         textFileDirsStopwatch.Stop();
         inputStopwatch.Stop();
         LogInstallPerformance("lr2_full_generation_input_surface"
@@ -6659,7 +6712,9 @@ completeFileEnumerationOnce,
             + " lr2BuiltinFolderSourceDirs=" + lr2BuiltinFolderSourceDirectories.Count
             + " lr2FolderPruneDirs=" + lr2FolderPruneDirectories.Count
             + " scanSurfaceNormalFolderDirs=" + (scanSurface?.NormalFolderDirectoryPaths?.Count ?? 0)
-            + " directoryTargets=" + directoryMetadataTargets.Count
+            + " normalDirectoryTargets=" + directoryMetadataTargets.Count
+            + " lr2FolderParentDirectoryTargets=" + lr2FolderParentDirectoryTargets.Count
+            + " directoryTargets=" + directoryEntryTargets.Count
             + " directoryEntries=" + directoryEntries.Count
             + " missingDirectoryEntries=" + missingDirectoryEntries
             + " directoryEntriesMs=" + directoryEntriesStopwatch.ElapsedMilliseconds
@@ -6688,7 +6743,7 @@ completeFileEnumerationOnce,
             lr2FolderDiscoveryDirectories,
             lr2FolderPruneDirectories,
             lr2RootPath,
-            Settings.Default.LR2CustomFolderOutputBaseDir,
+            lr2NormalCustomFolderOutputBaseDir,
             lr2RootCustomFolderOutputBaseDir,
             lr2BuiltinFolderSourceDirectories,
             builtinCustomFolderSettings,
@@ -6776,11 +6831,11 @@ completeFileEnumerationOnce,
         }
     }
 
-    private static Lr2FolderInfoCandidateSnapshot CreateLr2FullGenerationFolderInfoCandidates(
+    private static Lr2TextMetadataCandidateSnapshot CreateLr2FullGenerationTextMetadataCandidates(
         IEnumerable<string> rootDirectories,
         IEnumerable<string> targetDirectories)
     {
-        return Lr2FolderInfoCandidateEnumerationService.CreateSnapshot(
+        return Lr2FolderInfoCandidateEnumerationService.CreateTextMetadataSnapshot(
             rootDirectories,
             targetDirectories);
     }
@@ -6875,6 +6930,153 @@ completeFileEnumerationOnce,
             .Select(Lr2FolderPath.NormalizeDirectoryPath)
             .Where(path => !string.IsNullOrWhiteSpace(path))
             .Distinct(StringComparer.OrdinalIgnoreCase)];
+    }
+
+    private static IReadOnlyCollection<string> MergeLr2DirectoryMetadataTargets(params IEnumerable<string>[] targetSets)
+    {
+        var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (IEnumerable<string> targetSet in targetSets ?? [])
+        {
+            foreach (string target in NormalizeLr2DirectoryMetadataTargets(targetSet))
+            {
+                result.Add(target);
+            }
+        }
+        return [.. result.OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
+    }
+
+    private static IReadOnlyCollection<string> CreateLr2FolderPhysicalParentDirectoryMetadataTargets(
+        IEnumerable<string> lr2FolderFilePaths,
+        IEnumerable<string> rootDirectories,
+        string normalCustomFolderOutputBaseDir,
+        string rootCustomFolderOutputBaseDir,
+        IEnumerable<string> builtinSourceDirectories)
+    {
+        IReadOnlyList<string> boundaries = CreateLr2FolderPhysicalParentDirectoryBoundaries(
+            rootDirectories,
+            normalCustomFolderOutputBaseDir,
+            rootCustomFolderOutputBaseDir,
+            builtinSourceDirectories);
+        if (boundaries.Count == 0)
+        {
+            return [];
+        }
+
+        var targets = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (string filePath in lr2FolderFilePaths ?? [])
+        {
+            string directory = Lr2FolderPath.NormalizeDirectoryPath(Lr2FolderPath.SafeGetDirectoryName(filePath));
+            string boundary = FindNearestLr2DirectoryBoundary(directory, boundaries);
+            while (!string.IsNullOrWhiteSpace(directory)
+                && !string.IsNullOrWhiteSpace(boundary)
+                && !string.Equals(directory, boundary, StringComparison.OrdinalIgnoreCase))
+            {
+                targets.Add(directory);
+                string parent = Lr2FolderPath.NormalizeDirectoryPath(Lr2FolderPath.SafeGetDirectoryName(directory));
+                if (string.IsNullOrWhiteSpace(parent)
+                    || string.Equals(parent, directory, StringComparison.OrdinalIgnoreCase))
+                {
+                    break;
+                }
+                directory = parent;
+            }
+        }
+        return [.. targets.OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
+    }
+
+    private static IReadOnlyList<string> CreateLr2FolderPhysicalParentDirectoryBoundaries(
+        IEnumerable<string> rootDirectories,
+        string normalCustomFolderOutputBaseDir,
+        string rootCustomFolderOutputBaseDir,
+        IEnumerable<string> builtinSourceDirectories)
+    {
+        var boundaries = new List<string>();
+        boundaries.AddRange(rootDirectories ?? []);
+        string normalOutputBase = Lr2FolderPath.NormalizeDirectoryPath(normalCustomFolderOutputBaseDir);
+        if (!string.IsNullOrWhiteSpace(normalOutputBase))
+        {
+            string parent = Lr2FolderPath.NormalizeDirectoryPath(Lr2FolderPath.SafeGetDirectoryName(normalOutputBase));
+            boundaries.Add(string.IsNullOrWhiteSpace(parent) ? normalOutputBase : parent);
+        }
+        string rootOutputBase = Lr2FolderPath.NormalizeDirectoryPath(rootCustomFolderOutputBaseDir);
+        if (!string.IsNullOrWhiteSpace(rootOutputBase))
+        {
+            boundaries.Add(rootOutputBase);
+        }
+        boundaries.AddRange(builtinSourceDirectories ?? []);
+        return [.. boundaries
+            .Select(Lr2FolderPath.NormalizeDirectoryPath)
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderByDescending(path => path.Length)
+            .ThenBy(path => path, StringComparer.OrdinalIgnoreCase)];
+    }
+
+    private static string FindNearestLr2DirectoryBoundary(string directory, IEnumerable<string> boundaries)
+    {
+        string normalized = Lr2FolderPath.NormalizeDirectoryPath(directory);
+        if (string.IsNullOrWhiteSpace(normalized))
+        {
+            return null;
+        }
+        return (boundaries ?? [])
+            .Select(Lr2FolderPath.NormalizeDirectoryPath)
+            .Where(boundary => !string.IsNullOrWhiteSpace(boundary)
+                && Lr2FolderPath.IsSameOrDescendant(normalized, boundary))
+            .OrderByDescending(boundary => boundary.Length)
+            .FirstOrDefault();
+    }
+
+    private static IReadOnlyDictionary<string, RootFileEnumerationEntry> CreateLr2DirectoryEntriesFromSurfaceOrGroupedScan(
+        IReadOnlyDictionary<string, RootFileEnumerationEntry> sourceEntries,
+        IEnumerable<string> groupedSourceDirectories,
+        IEnumerable<string> targetDirectories)
+    {
+        IReadOnlyCollection<string> targets = NormalizeLr2DirectoryMetadataTargets(targetDirectories);
+        IReadOnlyDictionary<string, RootFileEnumerationEntry> entries =
+            Lr2FolderDirectoryEnumerationService.CreateEntriesFromSurface(sourceEntries, targets);
+        List<string> missingTargets = [.. targets
+            .Where(target => !entries.TryGetValue(target, out RootFileEnumerationEntry entry)
+                || entry.LastWriteTimeUtc == null)];
+        if (missingTargets.Count == 0)
+        {
+            return entries;
+        }
+
+        IReadOnlyCollection<string> groupedEntriesSourceDirectories = [.. (groupedSourceDirectories ?? [])
+            .Select(Lr2FolderPath.NormalizeDirectoryPath)
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)];
+        if (groupedEntriesSourceDirectories.Count == 0)
+        {
+            return entries;
+        }
+        IReadOnlyDictionary<string, RootFileEnumerationEntry> missingEntries =
+            CreateLr2FullGenerationDirectoryEntriesFromGroupedScan(groupedEntriesSourceDirectories, missingTargets);
+        return MergeLr2DirectoryEntrySurfaces(entries, missingEntries);
+    }
+
+    private static IReadOnlyDictionary<string, RootFileEnumerationEntry> MergeLr2DirectoryEntrySurfaces(
+        params IReadOnlyDictionary<string, RootFileEnumerationEntry>[] entrySets)
+    {
+        var result = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
+        foreach (IReadOnlyDictionary<string, RootFileEnumerationEntry> entries in entrySets ?? [])
+        {
+            foreach (RootFileEnumerationEntry entry in entries?.Values ?? [])
+            {
+                string key = Lr2FolderPath.NormalizeDirectoryPath(entry?.Path);
+                if (string.IsNullOrWhiteSpace(key))
+                {
+                    continue;
+                }
+                if (!result.TryGetValue(key, out RootFileEnumerationEntry existing)
+                    || existing.LastWriteTimeUtc == null && entry.LastWriteTimeUtc != null)
+                {
+                    result[key] = new RootFileEnumerationEntry(key, entry.LastWriteTimeUtc, entry.FileSize);
+                }
+            }
+        }
+        return result;
     }
 
     private static IReadOnlyDictionary<string, RootFileEnumerationEntry> CreateLr2FullGenerationDirectoryEntriesFromGroupedScan(
@@ -7160,11 +7362,6 @@ completeFileEnumerationOnce,
             + " message=" + displayedMessage);
     }
 
-    private static List<string> CreateLr2FullGenerationTextFileDirectories(IEnumerable<string> chartPaths)
-    {
-        return [.. Lr2TextGroupResolver.CreateTextFileDirectories(chartPaths)];
-    }
-
     private static List<string> CreateLr2FullGenerationLr2FolderDiscoveryDirectories(IEnumerable<string> rootDirectories)
     {
         return Lr2FolderFileDiscoveryService.CreateDiscoveryDirectories(
@@ -7300,6 +7497,7 @@ completeFileEnumerationOnce,
         int generation,
         IReadOnlyList<string> rootDirectories,
         IReadOnlyList<string> normalFolderDirectoryPaths,
+        IReadOnlyDictionary<string, RootFileEnumerationEntry> directoryEntries,
         IReadOnlyDictionary<string, RootFileEnumerationEntry> normalFolderDirectoryEntries,
         IReadOnlyList<string> folderInfoFilePaths,
         IReadOnlyDictionary<string, RootFileEnumerationEntry> folderInfoFileEntries,
@@ -7317,6 +7515,9 @@ completeFileEnumerationOnce,
         public IReadOnlyList<string> RootDirectories { get; } = rootDirectories ?? [];
 
         public IReadOnlyList<string> NormalFolderDirectoryPaths { get; } = normalFolderDirectoryPaths ?? [];
+
+        public IReadOnlyDictionary<string, RootFileEnumerationEntry> DirectoryEntries { get; } =
+            directoryEntries ?? new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
 
         public IReadOnlyDictionary<string, RootFileEnumerationEntry> NormalFolderDirectoryEntries { get; } =
             normalFolderDirectoryEntries ?? new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);

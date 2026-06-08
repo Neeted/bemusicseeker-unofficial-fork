@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 
@@ -15,24 +14,6 @@ internal static class Lr2TextGroupResolver
             return NormalizeFlag(fallback);
         }
         return HasDirectTextFile(directory) ? 1 : 0;
-    }
-
-    internal static IReadOnlyList<string> CreateTextFileDirectories(IEnumerable<string> chartPaths)
-    {
-        var directories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (string chartPath in chartPaths ?? [])
-        {
-            string directory = GetChartDirectory(chartPath);
-            if (string.IsNullOrWhiteSpace(directory))
-            {
-                continue;
-            }
-            if (HasDirectTextFile(directory))
-            {
-                directories.Add(directory);
-            }
-        }
-        return [.. directories.OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
     }
 
     private static string GetChartDirectory(string chartPath)
