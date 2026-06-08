@@ -2864,6 +2864,12 @@ public partial class BMSPlaylist : NotificationObject
             materialization.DirectoryRowGenerationScopeDirectories,
             materialization.DirectoryEntries);
         syncStopwatch.Stop();
+        var preparedSurfaceStopwatch = Stopwatch.StartNew();
+        Lr2FullGenerationPreparedDataSurface preparedDataSurface = Lr2FullGenerationPreparedDataSurface.FromSyncItems(
+            materialization.Lr2FolderSurfaceScopeDirectories,
+            materialization.SyncItems,
+            directoryEntries: materialization.DirectoryEntries);
+        preparedSurfaceStopwatch.Stop();
         stopwatch.Stop();
         LogPlaylistPerformance(operation + " done"
             + " reason=" + (reason ?? "unknown")
@@ -2879,16 +2885,14 @@ public partial class BMSPlaylist : NotificationObject
             + " projectionMs=" + projectionStopwatch.ElapsedMilliseconds
             + " materializeMs=" + materializeStopwatch.ElapsedMilliseconds
             + " syncMs=" + syncStopwatch.ElapsedMilliseconds
+            + " preparedSurfaceMs=" + preparedSurfaceStopwatch.ElapsedMilliseconds
             + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
         return new CustomFolderBatchOutputResult
         {
             ReOutputCount = reOutputCount,
             Materialization = materialization,
             SyncResult = syncResult,
-            PreparedDataSurface = Lr2FullGenerationPreparedDataSurface.FromSyncItems(
-                materialization.Lr2FolderSurfaceScopeDirectories,
-                materialization.SyncItems,
-                directoryEntries: materialization.DirectoryEntries),
+            PreparedDataSurface = preparedDataSurface,
             ElapsedMs = stopwatch.ElapsedMilliseconds
         };
     }

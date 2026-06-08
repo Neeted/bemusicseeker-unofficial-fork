@@ -68,6 +68,8 @@ public sealed class BmsPlaylistUpdateTests
             {
             }
             var playlist = new BMSPlaylist(songDbPath);
+            File.Delete(songDbPath);
+            Directory.CreateDirectory(songDbPath);
             string reportedOperation = string.Empty;
             Exception reportedException = new InvalidOperationException("not invoked");
             playlist.Lr2FolderSyncFailureReporter = (operation, ex) =>

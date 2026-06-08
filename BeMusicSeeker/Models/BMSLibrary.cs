@@ -5551,74 +5551,123 @@ completeFileEnumerationOnce,
         string reason,
         Lr2FullGenerationPreparedDataSurface preparedSurface)
     {
+        var applyStopwatch = Stopwatch.StartNew();
+        var lockWaitStopwatch = Stopwatch.StartNew();
+        long lockWaitMs = 0;
+        long discoveryRootsMs = 0;
+        long lr2FolderCandidatesMs = 0;
+        long folderInfoCandidatesMs = 0;
+        long directoryOverlayMs = 0;
+        long textFileDirsMs = 0;
+        string mergeResult = "unknown";
         preparedSurface ??= Lr2FullGenerationPreparedDataSurface.Empty;
         Lr2FullGenerationScanSurfaceSnapshot snapshot = null;
         lock (lockLr2FullGenerationScanSurface)
         {
+            lockWaitStopwatch.Stop();
+            lockWaitMs = lockWaitStopwatch.ElapsedMilliseconds;
             lr2FullGenerationPreparedDataSurface = preparedSurface;
             snapshot = lr2FullGenerationScanSurfaceSnapshot;
-            if (snapshot == null || !preparedSurface.HasPreparedDataSurface)
+            if (snapshot == null)
             {
+                mergeResult = "no_scan_surface";
                 snapshot = null;
             }
-            else if (!ArePathSetsEqual(
-                snapshot.Lr2FolderDiscoveryDirectories,
-                CreateLr2FullGenerationLr2FolderDiscoveryDirectories(snapshot.RootDirectories)))
+            else if (!preparedSurface.HasPreparedDataSurface)
             {
+                mergeResult = "no_prepared_surface";
                 snapshot = null;
             }
             else
             {
-                int generation = lr2FullGenerationScanSurfaceGeneration == int.MaxValue
-                    ? 1
-                    : lr2FullGenerationScanSurfaceGeneration + 1;
-                lr2FullGenerationScanSurfaceGeneration = generation;
-                Lr2FolderFileCandidateSnapshot candidates = MergeLr2FolderFileCandidateSurface(
-                    new Lr2FolderFileCandidateSnapshot(
-                        snapshot.Lr2FolderFilePaths,
-                        snapshot.Lr2FolderFileEntries,
-                        snapshot.Lr2FolderFileDiscoveryComplete),
-                    preparedSurface);
-                IReadOnlyList<string> mergedFolderInfoPaths = MergePreparedFileSurface(
-                    snapshot.FolderInfoFilePaths,
-                    snapshot.FolderInfoFileEntries,
-                    preparedSurface.FolderInfoFilePaths,
-                    preparedSurface.FolderInfoFileEntries,
-                    preparedSurface.Lr2FolderScopeDirectories,
-                    out IReadOnlyDictionary<string, RootFileEnumerationEntry> mergedFolderInfoEntries);
-                IReadOnlyList<string> mergedTextFileDirectories = MergePreparedDirectoryList(
-                    snapshot.TextFileDirectories,
-                    preparedSurface.TextFileDirectories,
-                    preparedSurface.Lr2FolderScopeDirectories);
-                snapshot = new Lr2FullGenerationScanSurfaceSnapshot(
-                    generation,
-                    snapshot.RootDirectories,
-                    snapshot.NormalFolderDirectoryPaths,
-                    OverlayLr2DirectoryEntrySurface(snapshot.DirectoryEntries, preparedSurface.DirectoryEntries),
-                    snapshot.NormalFolderDirectoryEntries,
-                    mergedFolderInfoPaths,
-                    mergedFolderInfoEntries,
-                    mergedTextFileDirectories,
+                var discoveryRootsStopwatch = Stopwatch.StartNew();
+                bool discoveryRootsCurrent = ArePathSetsEqual(
                     snapshot.Lr2FolderDiscoveryDirectories,
-                    candidates.Paths,
-                    candidates.EntriesByPath,
-                    candidates.DiscoveryComplete,
-                    snapshot.OwnedCollectionVersion,
-                    snapshot.BmsRowsVersion,
-                    snapshot.BmsonRowsVersion);
-                lr2FullGenerationScanSurfaceSnapshot = snapshot;
+                    CreateLr2FullGenerationLr2FolderDiscoveryDirectories(snapshot.RootDirectories));
+                discoveryRootsStopwatch.Stop();
+                discoveryRootsMs = discoveryRootsStopwatch.ElapsedMilliseconds;
+                if (!discoveryRootsCurrent)
+                {
+                    mergeResult = "lr2folder_roots_changed";
+                    snapshot = null;
+                }
+                else
+                {
+                    mergeResult = "merged";
+                    int generation = lr2FullGenerationScanSurfaceGeneration == int.MaxValue
+                        ? 1
+                        : lr2FullGenerationScanSurfaceGeneration + 1;
+                    lr2FullGenerationScanSurfaceGeneration = generation;
+                    var lr2FolderCandidatesStopwatch = Stopwatch.StartNew();
+                    Lr2FolderFileCandidateSnapshot candidates = MergeLr2FolderFileCandidateSurface(
+                        new Lr2FolderFileCandidateSnapshot(
+                            snapshot.Lr2FolderFilePaths,
+                            snapshot.Lr2FolderFileEntries,
+                            snapshot.Lr2FolderFileDiscoveryComplete),
+                        preparedSurface);
+                    lr2FolderCandidatesStopwatch.Stop();
+                    lr2FolderCandidatesMs = lr2FolderCandidatesStopwatch.ElapsedMilliseconds;
+                    var folderInfoCandidatesStopwatch = Stopwatch.StartNew();
+                    IReadOnlyList<string> mergedFolderInfoPaths = MergePreparedFileSurface(
+                        snapshot.FolderInfoFilePaths,
+                        snapshot.FolderInfoFileEntries,
+                        preparedSurface.FolderInfoFilePaths,
+                        preparedSurface.FolderInfoFileEntries,
+                        preparedSurface.Lr2FolderScopeDirectories,
+                        out IReadOnlyDictionary<string, RootFileEnumerationEntry> mergedFolderInfoEntries);
+                    folderInfoCandidatesStopwatch.Stop();
+                    folderInfoCandidatesMs = folderInfoCandidatesStopwatch.ElapsedMilliseconds;
+                    var textFileDirsStopwatch = Stopwatch.StartNew();
+                    IReadOnlyList<string> mergedTextFileDirectories = MergePreparedDirectoryList(
+                        snapshot.TextFileDirectories,
+                        preparedSurface.TextFileDirectories,
+                        preparedSurface.Lr2FolderScopeDirectories);
+                    textFileDirsStopwatch.Stop();
+                    textFileDirsMs = textFileDirsStopwatch.ElapsedMilliseconds;
+                    var directoryOverlayStopwatch = Stopwatch.StartNew();
+                    IReadOnlyDictionary<string, RootFileEnumerationEntry> directoryEntries =
+                        OverlayLr2DirectoryEntrySurface(snapshot.DirectoryEntries, preparedSurface.DirectoryEntries);
+                    directoryOverlayStopwatch.Stop();
+                    directoryOverlayMs = directoryOverlayStopwatch.ElapsedMilliseconds;
+                    snapshot = new Lr2FullGenerationScanSurfaceSnapshot(
+                        generation,
+                        snapshot.RootDirectories,
+                        snapshot.NormalFolderDirectoryPaths,
+                        directoryEntries,
+                        snapshot.NormalFolderDirectoryEntries,
+                        mergedFolderInfoPaths,
+                        mergedFolderInfoEntries,
+                        mergedTextFileDirectories,
+                        snapshot.Lr2FolderDiscoveryDirectories,
+                        candidates.Paths,
+                        candidates.EntriesByPath,
+                        candidates.DiscoveryComplete,
+                        snapshot.OwnedCollectionVersion,
+                        snapshot.BmsRowsVersion,
+                        snapshot.BmsonRowsVersion);
+                    lr2FullGenerationScanSurfaceSnapshot = snapshot;
+                }
             }
         }
+        applyStopwatch.Stop();
 
         LogInstallPerformance("lr2_full_generation_prepared_surface applied"
             + " reason=" + (reason ?? "unknown")
+            + " mergeResult=" + mergeResult
             + " scopeDirs=" + preparedSurface.Lr2FolderScopeDirectories.Count
             + " lr2FolderCandidates=" + preparedSurface.Lr2FolderFilePaths.Count
             + " directoryEntries=" + preparedSurface.DirectoryEntries.Count
             + " folderInfoCandidates=" + preparedSurface.FolderInfoFilePaths.Count
             + " textFileDirs=" + preparedSurface.TextFileDirectories.Count
             + " discoveryComplete=" + preparedSurface.Lr2FolderFileDiscoveryComplete.ToString().ToLowerInvariant()
-            + " mergedScanSurfaceGeneration=" + (snapshot?.Generation ?? 0));
+            + " mergedScanSurfaceGeneration=" + (snapshot?.Generation ?? 0)
+            + " lockWaitMs=" + lockWaitMs
+            + " discoveryRootsMs=" + discoveryRootsMs
+            + " lr2FolderCandidatesMs=" + lr2FolderCandidatesMs
+            + " folderInfoCandidatesMs=" + folderInfoCandidatesMs
+            + " textFileDirsMs=" + textFileDirsMs
+            + " directoryOverlayMs=" + directoryOverlayMs
+            + " elapsedMs=" + applyStopwatch.ElapsedMilliseconds);
     }
 
     private bool HasLr2FullGenerationPreparedDataSurface()
@@ -5792,15 +5841,30 @@ completeFileEnumerationOnce,
 
         if (prepareGeneratedData != null)
         {
+            var prepareStopwatch = Stopwatch.StartNew();
             try
             {
+                LogInstallPerformance("lr2_full_generation_sync prepare_start"
+                    + " reason=" + (reason ?? "unknown"));
                 Lr2FullGenerationPreparedDataSurface preparedSurface = prepareGeneratedData();
+                prepareStopwatch.Stop();
+                LogInstallPerformance("lr2_full_generation_sync prepare_done"
+                    + " reason=" + (reason ?? "unknown")
+                    + " scopeDirs=" + (preparedSurface?.Lr2FolderScopeDirectories?.Count ?? 0)
+                    + " lr2FolderCandidates=" + (preparedSurface?.Lr2FolderFilePaths?.Count ?? 0)
+                    + " directoryEntries=" + (preparedSurface?.DirectoryEntries?.Count ?? 0)
+                    + " folderInfoCandidates=" + (preparedSurface?.FolderInfoFilePaths?.Count ?? 0)
+                    + " textFileDirs=" + (preparedSurface?.TextFileDirectories?.Count ?? 0)
+                    + " discoveryComplete=" + (preparedSurface?.Lr2FolderFileDiscoveryComplete.ToString().ToLowerInvariant() ?? "true")
+                    + " elapsedMs=" + prepareStopwatch.ElapsedMilliseconds);
                 ApplyLr2FullGenerationPreparedDataSurface("prepare_generated_data", preparedSurface);
             }
             catch (Exception ex)
             {
+                prepareStopwatch.Stop();
                 ClearLr2FullGenerationPreparedDataSurface("prepare_failed");
                 LogInstallPerformance("lr2_full_generation_sync prepare_failed reason=" + (reason ?? "unknown")
+                    + " elapsedMs=" + prepareStopwatch.ElapsedMilliseconds
                     + " message=" + ex.Message);
                 if (prepareReserved)
                 {
