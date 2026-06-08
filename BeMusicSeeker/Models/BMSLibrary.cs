@@ -4683,7 +4683,16 @@ public class BMSLibrary : NotificationObject
                             chartScanPrefetchInfo = null;
                         }
                     }
-                    _initialize(songTblLoad: false, scoreTblrLoad: false, songTblFileCheck, setMainteInfo: false, updateIrScore: true, installTblCheck: false, chartScanPrefetchInfo, trackLibraryFileCheckProgress: true);
+                    _initialize(
+                        songTblLoad: false,
+                        scoreTblrLoad: false,
+                        songTblFileCheck,
+                        setMainteInfo: false,
+                        updateIrScore: true,
+                        installTblCheck: false,
+                        chartScanPrefetchInfo,
+                        trackLibraryFileCheckProgress: true,
+                        fileScanReason: isStartup ? "initialize" : "full_reinitialize");
                     if (!isScoreOnly)
                     {
                         startupInstallReadinessState.MarkDestinationResourceIndexReady();
@@ -4827,7 +4836,8 @@ public class BMSLibrary : NotificationObject
         bool installTblCheck = true,
         ChartScanPrefetchInfo chartScanPrefetchInfo = null,
         bool trackLibraryDatabaseProgress = false,
-        bool trackLibraryFileCheckProgress = false)
+        bool trackLibraryFileCheckProgress = false,
+        string fileScanReason = "initialize")
     {
         var stopwatchInitialize = Stopwatch.StartNew();
         long songTblLoadMs = 0L;
@@ -4845,7 +4855,7 @@ public class BMSLibrary : NotificationObject
         List<string> bMSDirectories = getBMSDirectories(out BmsSearchRootNormalizationSnapshot rootNormalization);
         if (logRootNormalizationForFileScan)
         {
-            LogBmsSearchRootNormalization("initialize", options, rootNormalization, bMSDirectories);
+            LogBmsSearchRootNormalization(fileScanReason, options, rootNormalization, bMSDirectories);
         }
         if (bMSDirectories.Count == 0)
         {
@@ -4957,7 +4967,7 @@ public class BMSLibrary : NotificationObject
         if (songTblFileCheck)
         {
             var stopwatchSongTblFileCheck = Stopwatch.StartNew();
-            ApplyLibraryFileScanDiff(options, bMSDirectories, chartScanPrefetchInfo, trackLibraryFileCheckProgress, "initialize");
+            ApplyLibraryFileScanDiff(options, bMSDirectories, chartScanPrefetchInfo, trackLibraryFileCheckProgress, fileScanReason);
             stopwatchSongTblFileCheck.Stop();
             songTblFileCheckMs = stopwatchSongTblFileCheck.ElapsedMilliseconds;
         }
@@ -5229,7 +5239,8 @@ completeFileEnumerationOnce,
         ApplyLr2TextMetadataCandidatesToRequest(request, textMetadataSnapshot, extraTextMetadataSourceDirectories);
         ApplyLr2DirectoryEntriesToFileCheckResult(fileCheckResult, request.DirectoryEntries);
         ApplyLr2TextMetadataCandidatesToFileCheckResult(fileCheckResult, textMetadataSnapshot, extraTextMetadataSourceDirectories);
-        SyncLr2FolderFileRows(options, request, reason, "lr2folder_file_diff_sync");
+        bool allowPrune = ShouldPruneLr2FolderFileRowsDuringFileDiff(reason);
+        SyncLr2FolderFileRows(options, request, reason, "lr2folder_file_diff_sync", allowPrune);
     }
 
     internal Lr2FullGenerationPreparedDataSurface SyncLr2BuiltinCustomFolderRows(string reason)
@@ -5284,7 +5295,8 @@ completeFileEnumerationOnce,
         BmsLibraryOptionsSnapshot options,
         Lr2FullGenerationSyncRequest request,
         string reason,
-        string logName)
+        string logName,
+        bool allowPrune = true)
     {
         var stopwatch = Stopwatch.StartNew();
         try
@@ -5301,6 +5313,9 @@ completeFileEnumerationOnce,
                     path => existingRowsByPath.TryGetValue(path, out LR2SongDB.folder row) ? row : null);
             Lr2FolderDirectoryMetadataSnapshot parentDirectoryMetadata =
                 Lr2FullGenerationSyncService.CreateLr2FolderParentDirectoryMetadataSnapshot(syncItems.Items, request);
+            bool effectiveAllowPrune = allowPrune
+                && request.Lr2FolderFileDiscoveryComplete
+                && !syncItems.HasReadFailures;
             string savepoint = songDb.SaveTransactionPoint();
             Lr2FolderFileDbSyncResult syncResult;
             try
@@ -5314,7 +5329,7 @@ completeFileEnumerationOnce,
                     ScopePaths = request.Lr2FolderFilePaths,
                     DirectoryMetadataResolver = parentDirectoryMetadata.Resolve,
                     GeneratedAtUtc = DateTime.UtcNow,
-                    AllowPrune = request.Lr2FolderFileDiscoveryComplete && !syncItems.HasReadFailures
+                    AllowPrune = effectiveAllowPrune
                 });
                 songDb.Commit();
             }
@@ -5331,7 +5346,8 @@ completeFileEnumerationOnce,
                 + " candidates=" + request.Lr2FolderFilePaths.Count
                 + " discoveryComplete=" + request.Lr2FolderFileDiscoveryComplete.ToString().ToLowerInvariant()
                 + " readFailures=" + syncItems.HasReadFailures.ToString().ToLowerInvariant()
-                + " allowPrune=" + (request.Lr2FolderFileDiscoveryComplete && !syncItems.HasReadFailures).ToString().ToLowerInvariant()
+                + " allowPrune=" + effectiveAllowPrune.ToString().ToLowerInvariant()
+                + " pruneDeferred=" + (!effectiveAllowPrune && allowPrune == false).ToString().ToLowerInvariant()
                 + " existingRows=" + syncResult.ExistingReadCount
                 + " generated=" + syncResult.GeneratedCount
                 + " preserved=" + syncResult.PreservedCount
@@ -5358,6 +5374,11 @@ completeFileEnumerationOnce,
                 + " message=" + GetDisplayedExceptionMessage(ex).Replace(Environment.NewLine, " | "));
             return null;
         }
+    }
+
+    private static bool ShouldPruneLr2FolderFileRowsDuringFileDiff(string reason)
+    {
+        return !string.Equals(reason, "initialize", StringComparison.OrdinalIgnoreCase);
     }
 
     private static void PrepareLr2FolderParentDirectoryEntrySurface(Lr2FullGenerationSyncRequest request)

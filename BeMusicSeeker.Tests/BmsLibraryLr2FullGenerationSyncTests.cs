@@ -969,6 +969,132 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
+    public void ApplyLr2FolderFileDiffSync_InitializeDefersPruneRowsInScope()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        try
+        {
+            Settings.Default.OperationModeLR2DB = true;
+            Settings.Default.EnableLR2SongDbFullGeneration = true;
+            ResetLr2FolderDiscoverySettings();
+            string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
+            string tableDirectory = Path.Combine(rootDirectory, "ExternalTable");
+            Directory.CreateDirectory(tableDirectory);
+            string currentPath = Path.Combine(tableDirectory, "current.lr2folder");
+            string stalePath = Path.Combine(tableDirectory, "stale.lr2folder");
+            DateTime timestamp = new(2026, 6, 10, 1, 2, 3, DateTimeKind.Utc);
+            File.WriteAllText(currentPath, "#TITLE Current", Encoding.GetEncoding("shift_jis"));
+            File.SetLastWriteTimeUtc(currentPath, timestamp);
+            using (var setup = new LR2SongDBExtended(scope.SongDbPath))
+            {
+                setup.CreateTable<LR2SongDB.folder>();
+                setup.InsertOrReplace(new LR2SongDB.folder
+                {
+                    path = stalePath,
+                    title = "Stale",
+                    type = 2,
+                    date = 1
+                }, typeof(LR2SongDB.folder));
+            }
+            var library = new BMSLibrary(scope.SongDbPath)
+            {
+                SearchTargets = [rootDirectory],
+                BMSFiles = []
+            };
+            var options = new BmsLibraryOptionsSnapshot
+            {
+                OperationModeLR2DB = true,
+                EnableLR2SongDbFullGeneration = true
+            };
+            var fileCheckResult = new SongTableFileCheckResult
+            {
+                Lr2ScanSurfaceAvailable = true,
+                Lr2ScanLr2FolderDiscoveryDirectories = [rootDirectory],
+                Lr2ScanLr2FolderFilePaths = [currentPath],
+                Lr2ScanLr2FolderFileEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase)
+                {
+                    [currentPath] = new RootFileEnumerationEntry(currentPath, timestamp)
+                },
+                Lr2ScanLr2FolderFileDiscoveryComplete = true
+            };
+
+            InvokeApplyLr2FolderFileDiffSync(library, options, [rootDirectory], fileCheckResult, "initialize");
+
+            using var verify = new LR2SongDBExtended(scope.SongDbPath);
+            Assert.AreEqual(1, verify.Table<LR2SongDB.folder>().Count(row => row.path == currentPath));
+            Assert.AreEqual(1, verify.Table<LR2SongDB.folder>().Count(row => row.path == stalePath));
+        }
+        finally
+        {
+            ResetTouchedSettings();
+        }
+    }
+
+    [DataTestMethod]
+    [DataRow("reload_file_diff")]
+    [DataRow("full_reinitialize")]
+    public void ApplyLr2FolderFileDiffSync_ExplicitFileDiffPrunesRowsInScope(string reason)
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        try
+        {
+            Settings.Default.OperationModeLR2DB = true;
+            Settings.Default.EnableLR2SongDbFullGeneration = true;
+            ResetLr2FolderDiscoverySettings();
+            string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
+            string tableDirectory = Path.Combine(rootDirectory, "ExternalTable");
+            Directory.CreateDirectory(tableDirectory);
+            string currentPath = Path.Combine(tableDirectory, "current.lr2folder");
+            string stalePath = Path.Combine(tableDirectory, "stale.lr2folder");
+            DateTime timestamp = new(2026, 6, 10, 1, 2, 3, DateTimeKind.Utc);
+            File.WriteAllText(currentPath, "#TITLE Current", Encoding.GetEncoding("shift_jis"));
+            File.SetLastWriteTimeUtc(currentPath, timestamp);
+            using (var setup = new LR2SongDBExtended(scope.SongDbPath))
+            {
+                setup.CreateTable<LR2SongDB.folder>();
+                setup.InsertOrReplace(new LR2SongDB.folder
+                {
+                    path = stalePath,
+                    title = "Stale",
+                    type = 2,
+                    date = 1
+                }, typeof(LR2SongDB.folder));
+            }
+            var library = new BMSLibrary(scope.SongDbPath)
+            {
+                SearchTargets = [rootDirectory],
+                BMSFiles = []
+            };
+            var options = new BmsLibraryOptionsSnapshot
+            {
+                OperationModeLR2DB = true,
+                EnableLR2SongDbFullGeneration = true
+            };
+            var fileCheckResult = new SongTableFileCheckResult
+            {
+                Lr2ScanSurfaceAvailable = true,
+                Lr2ScanLr2FolderDiscoveryDirectories = [rootDirectory],
+                Lr2ScanLr2FolderFilePaths = [currentPath],
+                Lr2ScanLr2FolderFileEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase)
+                {
+                    [currentPath] = new RootFileEnumerationEntry(currentPath, timestamp)
+                },
+                Lr2ScanLr2FolderFileDiscoveryComplete = true
+            };
+
+            InvokeApplyLr2FolderFileDiffSync(library, options, [rootDirectory], fileCheckResult, reason);
+
+            using var verify = new LR2SongDBExtended(scope.SongDbPath);
+            Assert.AreEqual(1, verify.Table<LR2SongDB.folder>().Count(row => row.path == currentPath));
+            Assert.AreEqual(0, verify.Table<LR2SongDB.folder>().Count(row => row.path == stalePath));
+        }
+        finally
+        {
+            ResetTouchedSettings();
+        }
+    }
+
+    [TestMethod]
     public void ApplyLr2FolderFileDiffSync_UsesScopedTextMetadataForBuiltinFolderInfoOutsideBmsRoot()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
