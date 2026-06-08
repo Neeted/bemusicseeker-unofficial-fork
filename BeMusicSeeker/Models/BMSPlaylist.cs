@@ -2887,7 +2887,8 @@ public partial class BMSPlaylist : NotificationObject
             SyncResult = syncResult,
             PreparedDataSurface = Lr2FullGenerationPreparedDataSurface.FromSyncItems(
                 materialization.Lr2FolderSurfaceScopeDirectories,
-                materialization.SyncItems),
+                materialization.SyncItems,
+                directoryEntries: materialization.DirectoryEntries),
             ElapsedMs = stopwatch.ElapsedMilliseconds
         };
     }

@@ -12,6 +12,10 @@ internal sealed class Lr2FullGenerationPreparedDataSurface
         [],
         [],
         new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase),
+        new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase),
+        [],
+        new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase),
+        [],
         discoveryComplete: true);
 
     public Lr2FullGenerationPreparedDataSurface(
@@ -19,10 +23,35 @@ internal sealed class Lr2FullGenerationPreparedDataSurface
         IEnumerable<string> lr2FolderFilePaths,
         IReadOnlyDictionary<string, RootFileEnumerationEntry> lr2FolderFileEntries,
         bool discoveryComplete)
+        : this(
+            lr2FolderScopeDirectories,
+            lr2FolderFilePaths,
+            lr2FolderFileEntries,
+            null,
+            null,
+            null,
+            null,
+            discoveryComplete)
+    {
+    }
+
+    public Lr2FullGenerationPreparedDataSurface(
+        IEnumerable<string> lr2FolderScopeDirectories,
+        IEnumerable<string> lr2FolderFilePaths,
+        IReadOnlyDictionary<string, RootFileEnumerationEntry> lr2FolderFileEntries,
+        IReadOnlyDictionary<string, RootFileEnumerationEntry> directoryEntries,
+        IEnumerable<string> folderInfoFilePaths,
+        IReadOnlyDictionary<string, RootFileEnumerationEntry> folderInfoFileEntries,
+        IEnumerable<string> textFileDirectories,
+        bool discoveryComplete)
     {
         Lr2FolderScopeDirectories = NormalizeDirectories(lr2FolderScopeDirectories);
         Lr2FolderFileEntries = NormalizeEntries(lr2FolderFilePaths, lr2FolderFileEntries);
         Lr2FolderFilePaths = [.. Lr2FolderFileEntries.Keys.OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
+        DirectoryEntries = NormalizeDirectoryEntries(directoryEntries);
+        FolderInfoFileEntries = NormalizeEntries(folderInfoFilePaths, folderInfoFileEntries);
+        FolderInfoFilePaths = [.. FolderInfoFileEntries.Keys.OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
+        TextFileDirectories = NormalizeDirectories(textFileDirectories);
         Lr2FolderFileDiscoveryComplete = discoveryComplete;
     }
 
@@ -32,6 +61,14 @@ internal sealed class Lr2FullGenerationPreparedDataSurface
 
     public IReadOnlyDictionary<string, RootFileEnumerationEntry> Lr2FolderFileEntries { get; }
 
+    public IReadOnlyDictionary<string, RootFileEnumerationEntry> DirectoryEntries { get; }
+
+    public IReadOnlyList<string> FolderInfoFilePaths { get; }
+
+    public IReadOnlyDictionary<string, RootFileEnumerationEntry> FolderInfoFileEntries { get; }
+
+    public IReadOnlyList<string> TextFileDirectories { get; }
+
     public bool Lr2FolderFileDiscoveryComplete { get; }
 
     public bool HasLr2FolderSurface =>
@@ -39,9 +76,19 @@ internal sealed class Lr2FullGenerationPreparedDataSurface
         || Lr2FolderFilePaths.Count > 0
         || !Lr2FolderFileDiscoveryComplete;
 
+    public bool HasPreparedDataSurface =>
+        HasLr2FolderSurface
+        || DirectoryEntries.Count > 0
+        || FolderInfoFilePaths.Count > 0
+        || TextFileDirectories.Count > 0;
+
     public static Lr2FullGenerationPreparedDataSurface FromSyncItems(
         IEnumerable<string> lr2FolderScopeDirectories,
         IEnumerable<Lr2FolderFileSyncItem> items,
+        IReadOnlyDictionary<string, RootFileEnumerationEntry> directoryEntries = null,
+        IEnumerable<string> folderInfoFilePaths = null,
+        IReadOnlyDictionary<string, RootFileEnumerationEntry> folderInfoFileEntries = null,
+        IEnumerable<string> textFileDirectories = null,
         bool discoveryComplete = true)
     {
         var entriesByPath = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
@@ -59,6 +106,10 @@ internal sealed class Lr2FullGenerationPreparedDataSurface
             lr2FolderScopeDirectories,
             entriesByPath.Keys,
             entriesByPath,
+            directoryEntries,
+            folderInfoFilePaths,
+            folderInfoFileEntries,
+            textFileDirectories,
             discoveryComplete);
     }
 
@@ -66,6 +117,9 @@ internal sealed class Lr2FullGenerationPreparedDataSurface
     {
         var scopeDirectories = new List<string>();
         var entriesByPath = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
+        var directoryEntriesByPath = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
+        var folderInfoEntriesByPath = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
+        var textFileDirectories = new List<string>();
         bool discoveryComplete = true;
         foreach (Lr2FullGenerationPreparedDataSurface surface in surfaces ?? [])
         {
@@ -87,12 +141,20 @@ internal sealed class Lr2FullGenerationPreparedDataSurface
                         ? entry
                         : new RootFileEnumerationEntry(path);
             }
+
+            MergeEntries(directoryEntriesByPath, surface.DirectoryEntries);
+            MergeEntries(folderInfoEntriesByPath, surface.FolderInfoFileEntries);
+            textFileDirectories.AddRange(surface.TextFileDirectories);
         }
 
         return new Lr2FullGenerationPreparedDataSurface(
             scopeDirectories,
             entriesByPath.Keys,
             entriesByPath,
+            directoryEntriesByPath,
+            folderInfoEntriesByPath.Keys,
+            folderInfoEntriesByPath,
+            textFileDirectories,
             discoveryComplete);
     }
 
@@ -145,6 +207,52 @@ internal sealed class Lr2FullGenerationPreparedDataSurface
                 : new RootFileEnumerationEntry(path, entry.LastWriteTimeUtc, entry.FileSize);
         }
         return result;
+    }
+
+    private static IReadOnlyDictionary<string, RootFileEnumerationEntry> NormalizeDirectoryEntries(
+        IReadOnlyDictionary<string, RootFileEnumerationEntry> entriesByPath)
+    {
+        var result = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
+        foreach (KeyValuePair<string, RootFileEnumerationEntry> pair in entriesByPath ?? new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase))
+        {
+            RootFileEnumerationEntry entry = pair.Value;
+            string path = NormalizeDirectoryPath(!string.IsNullOrWhiteSpace(entry?.Path) ? entry.Path : pair.Key);
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                continue;
+            }
+            result[path] = entry == null
+                ? new RootFileEnumerationEntry(path)
+                : new RootFileEnumerationEntry(path, entry.LastWriteTimeUtc, entry.FileSize);
+        }
+        return result;
+    }
+
+    private static void MergeEntries(
+        IDictionary<string, RootFileEnumerationEntry> result,
+        IReadOnlyDictionary<string, RootFileEnumerationEntry> entries)
+    {
+        if (result == null)
+        {
+            return;
+        }
+
+        foreach (KeyValuePair<string, RootFileEnumerationEntry> pair in entries ?? new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase))
+        {
+            string path = NormalizeFilePath(!string.IsNullOrWhiteSpace(pair.Value?.Path) ? pair.Value.Path : pair.Key);
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                continue;
+            }
+            RootFileEnumerationEntry entry = pair.Value;
+            if (!result.TryGetValue(path, out RootFileEnumerationEntry existing)
+                || existing.LastWriteTimeUtc == null && entry?.LastWriteTimeUtc != null)
+            {
+                result[path] = entry == null
+                    ? new RootFileEnumerationEntry(path)
+                    : new RootFileEnumerationEntry(path, entry.LastWriteTimeUtc, entry.FileSize);
+            }
+        }
     }
 
     private static string NormalizeFilePath(string path)

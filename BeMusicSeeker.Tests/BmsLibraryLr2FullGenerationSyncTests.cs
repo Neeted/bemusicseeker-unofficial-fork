@@ -882,16 +882,20 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             string randomDirectory = Path.Combine(lr2Root, "LR2files", "CustomFolder", "RANDOM");
             Directory.CreateDirectory(randomDirectory);
             Settings.Default.LR2RootPath = lr2Root;
-            File.WriteAllText(Path.Combine(randomDirectory, "folderinfo.txt"), "#TITLE Random Folder Info", Encoding.GetEncoding("shift_jis"));
+            string folderInfoPath = Path.Combine(randomDirectory, "folderinfo.txt");
+            File.WriteAllText(folderInfoPath, "#TITLE Random Folder Info", Encoding.GetEncoding("shift_jis"));
             File.WriteAllText(Path.Combine(randomDirectory, "random.lr2folder"), "#TITLE Random", Encoding.GetEncoding("shift_jis"));
             LR2Config config = CreateLr2Config(lr2Root, customFolderMask: 0x1, titleFlashHours: 24, Path.Combine(scope.DirectoryPath, "BMS"));
             var library = new BMSLibrary(scope.SongDbPath, () => config);
 
-            library.SyncLr2BuiltinCustomFolderRows("test_builtin_folderinfo");
+            Lr2FullGenerationPreparedDataSurface surface = library.SyncLr2BuiltinCustomFolderRows("test_builtin_folderinfo");
 
             using var verify = new LR2SongDBExtended(scope.SongDbPath);
             LR2SongDB.folder category = verify.Table<LR2SongDB.folder>().ToList().Single(folder => folder.path == @"LR2files\CustomFolder\RANDOM\");
             Assert.AreEqual("Random Folder Info", category.title);
+            CollectionAssert.Contains(surface.FolderInfoFilePaths.ToList(), folderInfoPath);
+            CollectionAssert.Contains(surface.TextFileDirectories.ToList(), Lr2FolderPath.NormalizeDirectoryPath(randomDirectory));
+            Assert.IsTrue(surface.DirectoryEntries.ContainsKey(Lr2FolderPath.NormalizeDirectoryPath(randomDirectory)));
         }
         finally
         {
@@ -1542,6 +1546,227 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             CollectionAssert.Contains(GetInputStringList(input, "Lr2FolderFilePaths").ToList(), lr2FolderPath);
             Assert.IsTrue(GetInputBool(input, "Lr2FolderFileDiscoveryComplete"));
             Assert.IsFalse(InvokeHasLr2FullGenerationPreparedDataSurface(library));
+        }
+        finally
+        {
+            ResetTouchedSettings();
+        }
+    }
+
+    [TestMethod]
+    public void TryRunLr2FullGenerationDataPreparation_UsesPreparedDirectoryEntries()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        try
+        {
+            Settings.Default.OperationModeLR2DB = true;
+            Settings.Default.EnableLR2SongDbFullGeneration = true;
+            ResetLr2FolderDiscoverySettings();
+            string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
+            string outputBase = Path.Combine(scope.DirectoryPath, "#BeMusicSeekerOutput");
+            string lr2FolderPath = Path.Combine(outputBase, "prepared.lr2folder");
+            Directory.CreateDirectory(rootDirectory);
+            Directory.CreateDirectory(outputBase);
+            File.WriteAllText(lr2FolderPath, "#TITLE Prepared Folder", Encoding.GetEncoding("shift_jis"));
+            Settings.Default.LR2CustomFolderOutputBaseDir = outputBase;
+            DateTime preparedTimestamp = new(2026, 6, 8, 1, 0, 0, DateTimeKind.Utc);
+            DateTime liveTimestamp = preparedTimestamp.AddHours(2);
+            var library = new BMSLibrary(scope.SongDbPath)
+            {
+                SearchTargets = [rootDirectory],
+                BMSFiles = []
+            };
+
+            Assert.IsTrue(library.TryRunLr2FullGenerationDataPreparation(
+                "test_prepare_lr2folder_directory_entries",
+                () => CreatePreparedLr2FolderSurface(
+                    outputBase,
+                    lr2FolderPath,
+                    new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        [outputBase] = new RootFileEnumerationEntry(outputBase, preparedTimestamp)
+                    })));
+            Directory.SetLastWriteTimeUtc(outputBase, liveTimestamp);
+
+            object input = InvokeCreateLr2FullGenerationSyncInput(library);
+            IReadOnlyDictionary<string, RootFileEnumerationEntry> entries = GetInputEntryMap(input, "DirectoryEntries");
+
+            string outputKey = Lr2FolderPath.NormalizeDirectoryPath(outputBase);
+            Assert.IsTrue(entries.TryGetValue(outputKey, out RootFileEnumerationEntry entry));
+            Assert.AreEqual(preparedTimestamp, entry.LastWriteTimeUtc);
+            Assert.IsFalse(InvokeHasLr2FullGenerationPreparedDataSurface(library));
+        }
+        finally
+        {
+            ResetTouchedSettings();
+        }
+    }
+
+    [TestMethod]
+    public void TryRunLr2FullGenerationDataPreparation_KeepsMetadataOnlySurface()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        try
+        {
+            Settings.Default.OperationModeLR2DB = true;
+            Settings.Default.EnableLR2SongDbFullGeneration = true;
+            ResetLr2FolderDiscoverySettings();
+            string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
+            Directory.CreateDirectory(rootDirectory);
+            DateTime preparedTimestamp = new(2026, 6, 8, 3, 0, 0, DateTimeKind.Utc);
+            var library = new BMSLibrary(scope.SongDbPath)
+            {
+                SearchTargets = [rootDirectory],
+                BMSFiles = []
+            };
+
+            Assert.IsTrue(library.TryRunLr2FullGenerationDataPreparation(
+                "test_prepare_metadata_only",
+                () => new Lr2FullGenerationPreparedDataSurface(
+                    [],
+                    [],
+                    new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase),
+                    new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        [rootDirectory] = new RootFileEnumerationEntry(rootDirectory, preparedTimestamp)
+                    },
+                    [],
+                    new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase),
+                    [],
+                    discoveryComplete: true)));
+            Assert.IsTrue(InvokeHasLr2FullGenerationPreparedDataSurface(library));
+
+            object input = InvokeCreateLr2FullGenerationSyncInput(library);
+            IReadOnlyDictionary<string, RootFileEnumerationEntry> entries = GetInputEntryMap(input, "DirectoryEntries");
+
+            string rootKey = Lr2FolderPath.NormalizeDirectoryPath(rootDirectory);
+            Assert.IsTrue(entries.TryGetValue(rootKey, out RootFileEnumerationEntry entry));
+            Assert.AreEqual(preparedTimestamp, entry.LastWriteTimeUtc);
+            Assert.IsFalse(InvokeHasLr2FullGenerationPreparedDataSurface(library));
+        }
+        finally
+        {
+            ResetTouchedSettings();
+        }
+    }
+
+    [TestMethod]
+    public void PreparedDataSurfaceMerge_KeepsMetadataSurfaces()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        string playlistDirectory = Path.Combine(scope.DirectoryPath, "Playlist");
+        string builtinDirectory = Path.Combine(scope.DirectoryPath, "LR2files", "CustomFolder", "RANDOM");
+        Directory.CreateDirectory(playlistDirectory);
+        Directory.CreateDirectory(builtinDirectory);
+        string playlistLr2FolderPath = Path.Combine(playlistDirectory, "0000.lr2folder");
+        string builtinFolderInfoPath = Path.Combine(builtinDirectory, "folderinfo.txt");
+        File.WriteAllText(playlistLr2FolderPath, "#TITLE Playlist", Encoding.GetEncoding("shift_jis"));
+        File.WriteAllText(builtinFolderInfoPath, "#TITLE Random", Encoding.GetEncoding("shift_jis"));
+        DateTime playlistTimestamp = new(2026, 6, 8, 1, 0, 0, DateTimeKind.Utc);
+        DateTime builtinTimestamp = new(2026, 6, 8, 2, 0, 0, DateTimeKind.Utc);
+
+        Lr2FullGenerationPreparedDataSurface merged = Lr2FullGenerationPreparedDataSurface.Merge(
+            CreatePreparedLr2FolderSurface(
+                playlistDirectory,
+                playlistLr2FolderPath,
+                new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase)
+                {
+                    [playlistDirectory] = new RootFileEnumerationEntry(playlistDirectory, playlistTimestamp)
+                }),
+            new Lr2FullGenerationPreparedDataSurface(
+                [builtinDirectory],
+                [],
+                new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase),
+                new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase)
+                {
+                    [builtinDirectory] = new RootFileEnumerationEntry(builtinDirectory, builtinTimestamp)
+                },
+                [builtinFolderInfoPath],
+                new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase)
+                {
+                    [builtinFolderInfoPath] = new RootFileEnumerationEntry(builtinFolderInfoPath, builtinTimestamp)
+                },
+                [builtinDirectory],
+                discoveryComplete: true));
+
+        CollectionAssert.Contains(merged.Lr2FolderFilePaths.ToList(), playlistLr2FolderPath);
+        Assert.IsTrue(merged.DirectoryEntries.ContainsKey(Lr2FolderPath.NormalizeDirectoryPath(playlistDirectory)));
+        Assert.IsTrue(merged.DirectoryEntries.ContainsKey(Lr2FolderPath.NormalizeDirectoryPath(builtinDirectory)));
+        CollectionAssert.Contains(merged.FolderInfoFilePaths.ToList(), builtinFolderInfoPath);
+        CollectionAssert.Contains(merged.TextFileDirectories.ToList(), Lr2FolderPath.NormalizeDirectoryPath(builtinDirectory));
+    }
+
+    [TestMethod]
+    public void TryRunLr2FullGenerationDataPreparation_OverlaysPreparedFolderInfoSurface()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        try
+        {
+            Settings.Default.OperationModeLR2DB = true;
+            Settings.Default.EnableLR2SongDbFullGeneration = true;
+            ResetLr2FolderDiscoverySettings();
+            string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
+            string outputBase = Path.Combine(scope.DirectoryPath, "#BeMusicSeekerOutput");
+            string lr2FolderPath = Path.Combine(outputBase, "prepared.lr2folder");
+            string folderInfoPath = Path.Combine(outputBase, "folderinfo.txt");
+            Directory.CreateDirectory(rootDirectory);
+            Directory.CreateDirectory(outputBase);
+            File.WriteAllText(lr2FolderPath, "#TITLE Prepared Folder", Encoding.GetEncoding("shift_jis"));
+            File.WriteAllText(folderInfoPath, "#TITLE Prepared Info", Encoding.GetEncoding("shift_jis"));
+            Settings.Default.LR2CustomFolderOutputBaseDir = outputBase;
+            DateTime oldTimestamp = new(2026, 6, 8, 1, 0, 0, DateTimeKind.Utc);
+            DateTime preparedTimestamp = oldTimestamp.AddHours(1);
+            var library = new BMSLibrary(scope.SongDbPath)
+            {
+                SearchTargets = [rootDirectory],
+                BMSFiles = []
+            };
+            var options = new BmsLibraryOptionsSnapshot
+            {
+                OperationModeLR2DB = true,
+                EnableLR2SongDbFullGeneration = true
+            };
+            InvokeCaptureLr2FullGenerationScanSurface(library, options, [rootDirectory], new SongTableFileCheckResult
+            {
+                Lr2ScanSurfaceAvailable = true,
+                Lr2ScanNormalFolderDirectoryPaths = [rootDirectory],
+                Lr2ScanDirectoryEntries = CreateDirectoryEntryMap(rootDirectory, outputBase),
+                Lr2ScanNormalFolderDirectoryEntries = CreateDirectoryEntryMap(rootDirectory),
+                Lr2ScanFolderInfoFilePaths = [folderInfoPath],
+                Lr2ScanFolderInfoFileEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase)
+                {
+                    [folderInfoPath] = new RootFileEnumerationEntry(folderInfoPath, oldTimestamp)
+                },
+                Lr2ScanTextFileDirectories = [],
+                Lr2ScanLr2FolderDiscoveryDirectories = [rootDirectory, outputBase],
+                Lr2ScanLr2FolderFilePaths = [lr2FolderPath],
+                Lr2ScanLr2FolderFileEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase)
+                {
+                    [lr2FolderPath] = new RootFileEnumerationEntry(lr2FolderPath, oldTimestamp)
+                },
+                Lr2ScanLr2FolderFileDiscoveryComplete = true
+            });
+
+            Assert.IsTrue(library.TryRunLr2FullGenerationDataPreparation(
+                "test_prepare_folderinfo_surface",
+                () => CreatePreparedLr2FolderSurface(
+                    outputBase,
+                    lr2FolderPath,
+                    CreateDirectoryEntryMap(outputBase),
+                    [folderInfoPath],
+                    new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        [folderInfoPath] = new RootFileEnumerationEntry(folderInfoPath, preparedTimestamp)
+                    },
+                    [outputBase])));
+
+            object input = InvokeCreateLr2FullGenerationSyncInput(library);
+            IReadOnlyDictionary<string, RootFileEnumerationEntry> entries = GetInputEntryMap(input, "FolderInfoFileEntries");
+            IReadOnlyCollection<string> textFileDirectories = GetInputStringList(input, "TextFileDirectories");
+
+            Assert.IsTrue(entries.TryGetValue(folderInfoPath, out RootFileEnumerationEntry entry));
+            Assert.AreEqual(preparedTimestamp, entry.LastWriteTimeUtc);
+            CollectionAssert.Contains(textFileDirectories.ToList(), Lr2FolderPath.NormalizeDirectoryPath(outputBase));
         }
         finally
         {
@@ -4666,7 +4891,13 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         return (string)methodInfo.Invoke(null, [detectionResult]);
     }
 
-    private static Lr2FullGenerationPreparedDataSurface CreatePreparedLr2FolderSurface(string scopeDirectory, string filePath)
+    private static Lr2FullGenerationPreparedDataSurface CreatePreparedLr2FolderSurface(
+        string scopeDirectory,
+        string filePath,
+        IReadOnlyDictionary<string, RootFileEnumerationEntry>? directoryEntries = null,
+        IEnumerable<string>? folderInfoFilePaths = null,
+        IReadOnlyDictionary<string, RootFileEnumerationEntry>? folderInfoFileEntries = null,
+        IEnumerable<string>? textFileDirectories = null)
     {
         return new Lr2FullGenerationPreparedDataSurface(
             [scopeDirectory],
@@ -4675,6 +4906,10 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             {
                 [filePath] = new RootFileEnumerationEntry(filePath, File.GetLastWriteTimeUtc(filePath))
             },
+            directoryEntries,
+            folderInfoFilePaths,
+            folderInfoFileEntries,
+            textFileDirectories,
             discoveryComplete: true);
     }
 
