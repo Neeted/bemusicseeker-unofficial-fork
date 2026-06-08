@@ -225,6 +225,27 @@ internal static class Lr2NormalFolderDbSyncService
         IEnumerable<string> rootDirectories,
         IEnumerable<string> chartDirectories)
     {
+        return CreateDirectoryMetadataTargetsFromDirectoriesCore(
+            rootDirectories,
+            chartDirectories,
+            pathsAlreadyNormalized: false);
+    }
+
+    internal static IReadOnlyCollection<string> CreateDirectoryMetadataTargetsFromNormalizedDirectories(
+        IEnumerable<string> rootDirectories,
+        IEnumerable<string> chartDirectories)
+    {
+        return CreateDirectoryMetadataTargetsFromDirectoriesCore(
+            rootDirectories,
+            chartDirectories,
+            pathsAlreadyNormalized: true);
+    }
+
+    private static IReadOnlyCollection<string> CreateDirectoryMetadataTargetsFromDirectoriesCore(
+        IEnumerable<string> rootDirectories,
+        IEnumerable<string> chartDirectories,
+        bool pathsAlreadyNormalized)
+    {
         List<string> roots = NormalizeRootDirectories(rootDirectories);
         List<string> rootsForMatching = [.. roots.OrderByDescending(root => root.Length)];
         var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -235,7 +256,9 @@ internal static class Lr2NormalFolderDbSyncService
 
         foreach (string chartDirectory in chartDirectories ?? [])
         {
-            string normalized = Lr2FolderPath.NormalizeDirectoryPath(chartDirectory);
+            string normalized = pathsAlreadyNormalized
+                ? chartDirectory
+                : Lr2FolderPath.NormalizeDirectoryPath(chartDirectory);
             if (string.IsNullOrWhiteSpace(normalized))
             {
                 continue;
@@ -452,14 +475,14 @@ internal static class Lr2NormalFolderDbSyncService
         var stack = new Stack<string>();
         string current = targetDirectory;
         while (!string.IsNullOrWhiteSpace(current)
-            && Lr2FolderPath.IsSameOrDescendant(current, root))
+            && Lr2FolderPath.IsSameOrDescendantNormalized(current, root))
         {
             stack.Push(current);
             if (string.Equals(current, root, StringComparison.OrdinalIgnoreCase))
             {
                 break;
             }
-            current = Lr2FolderPath.NormalizeDirectoryPath(Lr2FolderPath.SafeGetDirectoryName(current));
+            current = Lr2FolderPath.SafeGetParentNormalizedDirectory(current);
         }
 
         while (stack.Count > 0)
@@ -472,7 +495,7 @@ internal static class Lr2NormalFolderDbSyncService
     {
         foreach (string root in roots ?? [])
         {
-            if (Lr2FolderPath.IsSameOrDescendant(directory, root))
+            if (Lr2FolderPath.IsSameOrDescendantNormalized(directory, root))
             {
                 return root;
             }

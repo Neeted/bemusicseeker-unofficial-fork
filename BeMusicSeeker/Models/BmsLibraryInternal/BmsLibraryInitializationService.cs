@@ -472,7 +472,7 @@ internal sealed class BmsLibraryInitializationService
 
         if (bmsFileScanSucceeded)
         {
-            result.Lr2ScanNormalFolderDirectoryPaths = [.. Lr2NormalFolderDbSyncService.CreateDirectoryMetadataTargetsFromDirectories(
+            result.Lr2ScanNormalFolderDirectoryPaths = [.. Lr2NormalFolderDbSyncService.CreateDirectoryMetadataTargetsFromNormalizedDirectories(
                 lr2NormalFolderSyncRootDirectories,
                 mergedScanResult.ChartDirectories ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase))];
             result.Lr2ScanDirectoryEntries = new Dictionary<string, RootFileEnumerationEntry>(
@@ -1228,7 +1228,7 @@ internal sealed class BmsLibraryInitializationService
                 continue;
             }
 
-            string folderPath = ToFolderPathFromNormalizedDirectory(directory);
+            string folderPath = Lr2FolderPath.ToFolderPathFromNormalizedDirectory(directory);
             if (string.IsNullOrWhiteSpace(folderPath))
             {
                 continue;
@@ -1248,42 +1248,12 @@ internal sealed class BmsLibraryInitializationService
     {
         foreach (string root in roots ?? [])
         {
-            if (string.IsNullOrWhiteSpace(root))
-            {
-                continue;
-            }
-
-            if (string.Equals(directory, root, StringComparison.OrdinalIgnoreCase))
-            {
-                return true;
-            }
-
-            if (directory.Length > root.Length
-                && directory.StartsWith(root, StringComparison.OrdinalIgnoreCase)
-                && (IsDirectorySeparator(root[root.Length - 1])
-                    || IsDirectorySeparator(directory[root.Length])))
+            if (Lr2FolderPath.IsSameOrDescendantNormalized(directory, root))
             {
                 return true;
             }
         }
         return false;
-    }
-
-    private static string ToFolderPathFromNormalizedDirectory(string directory)
-    {
-        if (string.IsNullOrWhiteSpace(directory))
-        {
-            return null;
-        }
-
-        return IsDirectorySeparator(directory[directory.Length - 1])
-            ? directory
-            : directory + Path.DirectorySeparatorChar;
-    }
-
-    private static bool IsDirectorySeparator(char value)
-    {
-        return value == Path.DirectorySeparatorChar || value == Path.AltDirectorySeparatorChar;
     }
 
     private static List<string> NormalizeNormalFolderMtimeRoots(IEnumerable<string> rootDirectories)
@@ -1330,7 +1300,7 @@ internal sealed class BmsLibraryInitializationService
         foreach (string exactPath in exactPaths ?? [])
         {
             string key = !string.IsNullOrWhiteSpace(exactPath)
-                && IsDirectorySeparator(exactPath[exactPath.Length - 1])
+                && Lr2FolderPath.IsDirectorySeparator(exactPath[exactPath.Length - 1])
                     ? exactPath
                     : Lr2FolderPath.ToFolderPath(exactPath);
             if (!string.IsNullOrWhiteSpace(key)

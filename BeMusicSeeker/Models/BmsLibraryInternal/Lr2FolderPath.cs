@@ -30,7 +30,17 @@ internal static class Lr2FolderPath
             return null;
         }
 
-        return AppendDirectorySeparator(TrimTrailingSeparators(normalized));
+        return ToFolderPathFromNormalizedDirectory(normalized);
+    }
+
+    internal static string ToFolderPathFromNormalizedDirectory(string directory)
+    {
+        if (string.IsNullOrWhiteSpace(directory))
+        {
+            return null;
+        }
+
+        return AppendDirectorySeparator(TrimTrailingSeparators(directory));
     }
 
     internal static string SafeGetDirectoryName(string path)
@@ -52,21 +62,51 @@ internal static class Lr2FolderPath
 
     internal static bool IsSameOrDescendant(string path, string ancestor)
     {
+        string normalizedPath = NormalizeDirectoryPath(path);
+        string normalizedAncestor = NormalizeDirectoryPath(ancestor);
+        return IsSameOrDescendantNormalized(normalizedPath, normalizedAncestor);
+    }
+
+    internal static bool IsSameOrDescendantNormalized(string path, string ancestor)
+    {
         if (string.IsNullOrWhiteSpace(path) || string.IsNullOrWhiteSpace(ancestor))
         {
             return false;
         }
-
         if (string.Equals(path, ancestor, StringComparison.OrdinalIgnoreCase))
         {
             return true;
         }
 
-        string ancestorWithSeparator = ToFolderPath(ancestor);
-        string pathWithSeparator = ToFolderPath(path);
-        return !string.IsNullOrWhiteSpace(ancestorWithSeparator)
-            && !string.IsNullOrWhiteSpace(pathWithSeparator)
-            && pathWithSeparator.StartsWith(ancestorWithSeparator, StringComparison.OrdinalIgnoreCase);
+        return path.Length > ancestor.Length
+            && path.StartsWith(ancestor, StringComparison.OrdinalIgnoreCase)
+            && (IsDirectorySeparator(ancestor[ancestor.Length - 1])
+                || IsDirectorySeparator(path[ancestor.Length]));
+    }
+
+    internal static string SafeGetParentNormalizedDirectory(string normalizedDirectory)
+    {
+        if (string.IsNullOrWhiteSpace(normalizedDirectory))
+        {
+            return null;
+        }
+
+        try
+        {
+            string parent = Path.GetDirectoryName(TrimTrailingSeparators(normalizedDirectory));
+            return string.IsNullOrWhiteSpace(parent)
+                ? null
+                : TrimTrailingSeparators(parent);
+        }
+        catch (Exception ex) when (ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException)
+        {
+            return null;
+        }
+    }
+
+    internal static bool IsDirectorySeparator(char value)
+    {
+        return value == Path.DirectorySeparatorChar || value == Path.AltDirectorySeparatorChar;
     }
 
     private static string TrimTrailingSeparators(string path)

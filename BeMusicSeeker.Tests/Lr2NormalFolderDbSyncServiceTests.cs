@@ -485,6 +485,23 @@ public sealed class Lr2NormalFolderDbSyncServiceTests
     }
 
     [TestMethod]
+    public void CreateDirectoryMetadataTargetsFromNormalizedDirectories_IncludesRootsAndAncestors()
+    {
+        IReadOnlyCollection<string> targets = Lr2NormalFolderDbSyncService.CreateDirectoryMetadataTargetsFromNormalizedDirectories(
+            [@"D:\BMS"],
+            [Normalize(@"D:\BMS\Pack\Song"), Normalize(@"E:\Other")]);
+
+        CollectionAssert.AreEqual(
+            new[]
+            {
+                Normalize(@"D:\BMS"),
+                Normalize(@"D:\BMS\Pack"),
+                Normalize(@"D:\BMS\Pack\Song")
+            },
+            targets.ToArray());
+    }
+
+    [TestMethod]
     public void Sync_UsesProvidedDirectoryTargetsWithoutRewalkingChartPaths()
     {
         string tempDirectory = Path.Combine(Path.GetTempPath(), nameof(Lr2NormalFolderDbSyncServiceTests), Guid.NewGuid().ToString("N"));

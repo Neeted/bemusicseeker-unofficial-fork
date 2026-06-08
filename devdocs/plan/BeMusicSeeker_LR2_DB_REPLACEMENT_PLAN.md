@@ -1743,6 +1743,12 @@ Everything / filesystem 広域再スキャンを始める入口ではない。su
      `candidateBuildMs=82` / `existingMapMs=45` / `compareMs=23` / `elapsedMs=167` まで短縮した。
      旧実装では同条件で `elapsedMs=1455` 前後だったため、scan surface 由来の normalized directory set を
      信用し、mtime diff 内の `Path.GetFullPath` 反復と重い root 判定を避ける効果が大きい。
+     続けて normal folder directory metadata target 作成も normalized scan surface 用 overload へ切り替え、
+     ancestor walk 内の `Path.GetFullPath` 反復を避けた。2026-06-08 の実機 Release 起動では
+     `everything_scan success` から `startup_install_estimation_ready` までが約 4.5 秒、
+     `startup_ready_operable elapsedMs=26451`、`startup_initialization_complete elapsedMs=50123` になった。
+     残りの主候補は `diff_bms_target_ms` など file diff map/target loop と、外部 `.lr2folder` filter 開始前の
+     app-managed scope 準備 / `.lr2folder` sync 直列区間である。
    - 次候補: file diff の current BMS / bmson row list、deleted row md5 queue、bmson `path` / `updated_at`
      lookup は既に catalog load の結果を使っているが、処理単位ごとに map を再構築している。
      scan 結果待ち不要な compact current-row snapshot を startup generation で共有し、Everything scan 完了後の
