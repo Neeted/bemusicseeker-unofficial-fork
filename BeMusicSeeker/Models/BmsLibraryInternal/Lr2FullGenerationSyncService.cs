@@ -1026,17 +1026,12 @@ internal static class Lr2FullGenerationSyncService
         IReadOnlyCollection<string> directoryTargets = Lr2FolderFileDbSyncService.CreateParentDirectoryMetadataTargets(
             items,
             CreateLr2FolderDirectoryRowGenerationScopeDirectories(request));
-        IReadOnlyCollection<string> builtinFolderSourceDirectories = ResolveLr2BuiltinFolderSourceDirectories(request);
         Lr2FolderInfoCandidateSnapshot surfaceCandidates = Lr2FolderInfoCandidateEnumerationService.CreateSnapshotFromSurface(
             request?.FolderInfoFilePaths,
             request?.FolderInfoFileEntries?.Values,
             directoryTargets);
-        Lr2FolderInfoCandidateSnapshot builtinCandidates = Lr2FolderInfoCandidateEnumerationService.CreateSnapshot(
-            builtinFolderSourceDirectories,
-            directoryTargets);
         Dictionary<string, RootFileEnumerationEntry> folderInfoEntriesByPath = MergeEnumerationEntries(
-            surfaceCandidates.EntriesByPath,
-            builtinCandidates.EntriesByPath);
+            surfaceCandidates.EntriesByPath);
         Dictionary<string, RootFileEnumerationEntry> directoryEntriesByPath = CreateDirectoryMetadataEntries(
             request?.DirectoryEntries,
             directoryTargets);
@@ -1044,27 +1039,10 @@ internal static class Lr2FullGenerationSyncService
         return Lr2FolderDirectoryMetadataBuilder.Build(new Lr2FolderDirectoryMetadataBuildRequest
         {
             DirectoryPaths = directoryTargets,
-            FolderInfoFilePaths = [.. (surfaceCandidates.Paths ?? []).Concat(builtinCandidates.Paths ?? [])],
+            FolderInfoFilePaths = surfaceCandidates.Paths,
             FolderInfoFileEntries = folderInfoEntriesByPath,
             DirectoryLastWriteTimeUtcResolver = CreateLastWriteTimeResolver(directoryEntriesByPath)
         });
-    }
-
-    private static IReadOnlyCollection<string> ResolveLr2BuiltinFolderSourceDirectories(Lr2FullGenerationSyncRequest request)
-    {
-        List<string> sourceDirectories = [.. (request?.Lr2BuiltinFolderSourceDirectories ?? [])
-            .Where(path => !string.IsNullOrWhiteSpace(path))];
-        if (sourceDirectories.Count > 0)
-        {
-            return sourceDirectories;
-        }
-
-        string lr2Root = NormalizeDirectoryPathOrNull(request?.Lr2RootPath);
-        if (string.IsNullOrWhiteSpace(lr2Root))
-        {
-            return [];
-        }
-        return [Path.Combine(lr2Root, "LR2files", "CustomFolder")];
     }
 
     private static Dictionary<string, RootFileEnumerationEntry> CreateDirectoryMetadataEntries(

@@ -687,7 +687,7 @@ public sealed class Lr2FolderFileDbSyncServiceTests
     }
 
     [TestMethod]
-    public void CreateLr2FolderParentDirectoryMetadataSnapshot_ReadsBuiltinFolderInfo()
+    public void CreateLr2FolderParentDirectoryMetadataSnapshot_UsesRequestFolderInfoSurfaceForBuiltinFolderInfo()
     {
         string tempDirectory = Path.Combine(Path.GetTempPath(), nameof(Lr2FolderFileDbSyncServiceTests), Guid.NewGuid().ToString("N"));
         try
@@ -695,7 +695,9 @@ public sealed class Lr2FolderFileDbSyncServiceTests
             string lr2Root = Path.Combine(tempDirectory, "LR2beta3");
             string randomDirectory = Path.Combine(lr2Root, "LR2files", "CustomFolder", "RANDOM");
             Directory.CreateDirectory(randomDirectory);
-            File.WriteAllText(Path.Combine(randomDirectory, "folderinfo.txt"), "#TITLE Random Folder Info", Encoding.GetEncoding("shift_jis"));
+            string folderInfoPath = Path.Combine(randomDirectory, "folderinfo.txt");
+            DateTime timestamp = new(2026, 6, 10, 1, 2, 3, DateTimeKind.Utc);
+            File.WriteAllText(folderInfoPath, "#TITLE Random Folder Info", Encoding.GetEncoding("shift_jis"));
             string filePath = Path.Combine(randomDirectory, "select.lr2folder");
             Lr2FolderDirectoryMetadataSnapshot snapshot = Lr2FullGenerationSyncService.CreateLr2FolderParentDirectoryMetadataSnapshot(
                 [
@@ -703,17 +705,21 @@ public sealed class Lr2FolderFileDbSyncServiceTests
                     {
                         FilePath = filePath,
                         DatabasePath = @"LR2files\CustomFolder\RANDOM\select.lr2folder",
-                        LastWriteTimeUtc = new DateTime(2026, 6, 10, 1, 2, 3, DateTimeKind.Utc),
+                        LastWriteTimeUtc = timestamp,
                         Definition = Lr2FolderFileProjection.ParseDefinition(["#TITLE Random"])
                     }
                 ],
                 new Lr2FullGenerationSyncRequest
                 {
-                    Lr2BuiltinFolderSourceDirectories = [Path.Combine(lr2Root, "LR2files", "CustomFolder")],
                     Lr2FolderPruneDirectories = [@"LR2files\CustomFolder"],
+                    FolderInfoFilePaths = [folderInfoPath],
+                    FolderInfoFileEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        [folderInfoPath] = new RootFileEnumerationEntry(folderInfoPath, timestamp)
+                    },
                     DirectoryEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase)
                     {
-                        [randomDirectory] = RootFileEnumerationEntry.FromDirectoryInfo(randomDirectory)
+                        [randomDirectory] = new RootFileEnumerationEntry(randomDirectory, timestamp)
                     }
                 });
 
@@ -825,7 +831,8 @@ public sealed class Lr2FolderFileDbSyncServiceTests
             string builtinRoot = Path.Combine(lr2Root, "LR2files", "CustomFolder");
             string randomDirectory = Path.Combine(builtinRoot, "RANDOM");
             Directory.CreateDirectory(randomDirectory);
-            File.WriteAllText(Path.Combine(randomDirectory, "folderinfo.txt"), "#TITLE Random Folder Info", Encoding.GetEncoding("shift_jis"));
+            string folderInfoPath = Path.Combine(randomDirectory, "folderinfo.txt");
+            File.WriteAllText(folderInfoPath, "#TITLE Random Folder Info", Encoding.GetEncoding("shift_jis"));
             string lr2FolderPath = Path.Combine(randomDirectory, "select.lr2folder");
             File.WriteAllText(lr2FolderPath, "#TITLE Random", Encoding.GetEncoding("shift_jis"));
             DateTime timestamp = new(2026, 6, 10, 1, 2, 3, DateTimeKind.Utc);
@@ -845,6 +852,11 @@ public sealed class Lr2FolderFileDbSyncServiceTests
                 DirectoryEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase)
                 {
                     [randomDirectory] = RootFileEnumerationEntry.FromDirectoryInfo(randomDirectory)
+                },
+                FolderInfoFilePaths = [folderInfoPath],
+                FolderInfoFileEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase)
+                {
+                    [folderInfoPath] = new RootFileEnumerationEntry(folderInfoPath, timestamp, null)
                 },
                 Lr2FolderDiscoveryDirectories = [builtinRoot],
                 Lr2FolderPruneDirectories = [@"LR2files\CustomFolder"],

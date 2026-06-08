@@ -5217,6 +5217,16 @@ completeFileEnumerationOnce,
             Lr2RootCustomFolderOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDirRootType,
             Lr2BuiltinFolderSourceDirectories = builtinSourceDirectories
         };
+        PrepareLr2FolderParentDirectoryEntrySurface(request);
+        IReadOnlyList<string> extraTextMetadataSourceDirectories = CreateLr2TextMetadataSourceDirectoriesOutsideRoots(
+            request.Lr2FolderDiscoveryDirectories,
+            roots);
+        Lr2TextMetadataCandidateSnapshot textMetadataSnapshot = CreateLr2PreparedTextMetadataCandidates(
+            extraTextMetadataSourceDirectories,
+            request.DirectoryEntries.Keys);
+        ApplyLr2TextMetadataCandidatesToRequest(request, textMetadataSnapshot, extraTextMetadataSourceDirectories);
+        ApplyLr2DirectoryEntriesToFileCheckResult(fileCheckResult, request.DirectoryEntries);
+        ApplyLr2TextMetadataCandidatesToFileCheckResult(fileCheckResult, textMetadataSnapshot, extraTextMetadataSourceDirectories);
         SyncLr2FolderFileRows(options, request, reason, "lr2folder_file_diff_sync");
     }
 
@@ -5251,10 +5261,12 @@ completeFileEnumerationOnce,
             Lr2RootCustomFolderOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDirRootType,
             Lr2BuiltinFolderSourceDirectories = builtinSourceDirectories
         };
-        SyncLr2FolderFileRows(options, request, reason, "lr2_builtin_folder_scoped_sync");
+        PrepareLr2FolderParentDirectoryEntrySurface(request);
         Lr2TextMetadataCandidateSnapshot textMetadataSnapshot = CreateLr2PreparedTextMetadataCandidates(
             builtinSourceDirectories,
             request.DirectoryEntries.Keys);
+        ApplyLr2TextMetadataCandidatesToRequest(request, textMetadataSnapshot, builtinSourceDirectories);
+        SyncLr2FolderFileRows(options, request, reason, "lr2_builtin_folder_scoped_sync");
         return new Lr2FullGenerationPreparedDataSurface(
             builtinSourceDirectories,
             candidates.Paths,
@@ -6901,6 +6913,81 @@ completeFileEnumerationOnce,
         }
 
         return CreateLr2FullGenerationTextMetadataCandidates(rootDirectories, targetDirectories);
+    }
+
+    private static IReadOnlyList<string> CreateLr2TextMetadataSourceDirectoriesOutsideRoots(
+        IEnumerable<string> sourceDirectories,
+        IEnumerable<string> coveredRoots)
+    {
+        List<string> roots = [.. NormalizeLr2DirectoryMetadataTargets(coveredRoots)];
+        return [.. NormalizeLr2DirectoryMetadataTargets(sourceDirectories)
+            .Where(source => !roots.Any(root => Lr2FolderPath.IsSameOrDescendant(source, root)
+                || Lr2FolderPath.IsSameOrDescendant(root, source)))
+            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
+    }
+
+    private static void ApplyLr2DirectoryEntriesToFileCheckResult(
+        SongTableFileCheckResult result,
+        IReadOnlyDictionary<string, RootFileEnumerationEntry> directoryEntries)
+    {
+        if (result == null || directoryEntries == null || directoryEntries.Count == 0)
+        {
+            return;
+        }
+
+        result.Lr2ScanDirectoryEntries = MergeLr2DirectoryEntrySurfaces(
+            result.Lr2ScanDirectoryEntries,
+            directoryEntries);
+    }
+
+    private static void ApplyLr2TextMetadataCandidatesToRequest(
+        Lr2FullGenerationSyncRequest request,
+        Lr2TextMetadataCandidateSnapshot textMetadataSnapshot,
+        IEnumerable<string> metadataScopeDirectories)
+    {
+        if (request == null || textMetadataSnapshot == null)
+        {
+            return;
+        }
+
+        IReadOnlyList<string> folderInfoPaths = MergePreparedFileSurface(
+            request.FolderInfoFilePaths,
+            request.FolderInfoFileEntries,
+            textMetadataSnapshot.FolderInfoCandidates.Paths,
+            textMetadataSnapshot.FolderInfoCandidates.EntriesByPath,
+            metadataScopeDirectories,
+            out IReadOnlyDictionary<string, RootFileEnumerationEntry> folderInfoEntries);
+        request.FolderInfoFilePaths = folderInfoPaths;
+        request.FolderInfoFileEntries = folderInfoEntries;
+        request.TextFileDirectories = MergePreparedDirectoryList(
+            request.TextFileDirectories,
+            textMetadataSnapshot.TextFileDirectories,
+            metadataScopeDirectories);
+    }
+
+    private static void ApplyLr2TextMetadataCandidatesToFileCheckResult(
+        SongTableFileCheckResult result,
+        Lr2TextMetadataCandidateSnapshot textMetadataSnapshot,
+        IEnumerable<string> metadataScopeDirectories)
+    {
+        if (result == null || textMetadataSnapshot == null)
+        {
+            return;
+        }
+
+        IReadOnlyList<string> folderInfoPaths = MergePreparedFileSurface(
+            result.Lr2ScanFolderInfoFilePaths,
+            result.Lr2ScanFolderInfoFileEntries,
+            textMetadataSnapshot.FolderInfoCandidates.Paths,
+            textMetadataSnapshot.FolderInfoCandidates.EntriesByPath,
+            metadataScopeDirectories,
+            out IReadOnlyDictionary<string, RootFileEnumerationEntry> folderInfoEntries);
+        result.Lr2ScanFolderInfoFilePaths = folderInfoPaths;
+        result.Lr2ScanFolderInfoFileEntries = folderInfoEntries;
+        result.Lr2ScanTextFileDirectories = MergePreparedDirectoryList(
+            result.Lr2ScanTextFileDirectories,
+            textMetadataSnapshot.TextFileDirectories,
+            metadataScopeDirectories);
     }
 
     private static Lr2FolderInfoCandidateSnapshot CreateLr2OwnedMutationFolderInfoCandidates(

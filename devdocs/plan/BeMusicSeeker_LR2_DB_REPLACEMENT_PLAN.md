@@ -1396,8 +1396,10 @@ parse directive:
     親 / カテゴリ directory row の `title` と `date` は `Lr2FolderDirectoryMetadataSnapshot` を正本にし、
     `.lr2folder` sync service 側では `folderinfo.txt` を直接読まない。built-in `LR2files\CustomFolder`
     については、`.lr2folder` parent directory targets を grouped text / directory metadata surface で解決し、
-    既存の normal folder 用 `DirectoryEntries` と merge して同じ
+    その場の sync request と後続用 prepared surface の両方へ載せる。既存の normal folder 用 `DirectoryEntries` と merge して同じ
     resolver contract へ揃える。
+    startup / file diff の `.lr2folder` scoped sync では、BMS scan root で既に捕捉した `folderinfo.txt` surface を再列挙せず、
+    chart/resource scan root 外の discovery root だけを scoped text metadata producer に通して request と scan capture surface に合成する。
     `AllowPrune=false` では upsert のみ行い、`AllowPrune=true` でも scope 内の `.lr2folder` file path row だけを削除対象にする。
     normal directory row (`type = 1`) と scope 外 `.lr2folder` row は削除しない。
   - `.lr2folder` file path は CP932 非対応なら row 生成しない。mtime 欠落 row は missing metadata として skip し、
