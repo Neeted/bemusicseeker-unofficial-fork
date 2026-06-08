@@ -1883,7 +1883,7 @@ internal static class Lr2FullGenerationSyncService
             workerDegree,
             readerDegree,
             remainingTargetCount);
-        int readQueueCapacity = Math.Max(1, workerDegree * Math.Max(2, readerDegree * 2));
+        int readQueueCapacity = ChartFileReadPipelinePolicy.ResolveReadQueueCapacity(workerDegree, readerDegree);
         int computedQueueCapacity = Math.Max(songRowSyncChunkSize * 2, workerDegree * 32);
         int processed = 0;
         int parseFailureCount = 0;
@@ -2450,18 +2450,12 @@ internal static class Lr2FullGenerationSyncService
 
     private static int ResolveSongRowSyncWorkerDegree(int processorCount)
     {
-        int availableWorkerCount = Math.Max(1, processorCount - 1);
-        return Math.Max(1, Math.Min(availableWorkerCount, SongRowSyncMaxWorkerDegree));
+        return ChartFileReadPipelinePolicy.ResolveCpuWorkerDegree(processorCount, SongRowSyncMaxWorkerDegree);
     }
 
     private static int ResolveSongRowSyncReaderDegree(int processorCount, int remainingTargetCount)
     {
-        if (remainingTargetCount <= 1 || processorCount < 6)
-        {
-            return 1;
-        }
-
-        return 2;
+        return ChartFileReadPipelinePolicy.ResolveReaderDegree(processorCount, remainingTargetCount);
     }
 
     private static int ResolveSongRowSyncOrderingWindowCapacity(
