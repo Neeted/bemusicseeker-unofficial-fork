@@ -152,7 +152,7 @@ target enumeration
 
 ### Phase 7: progress reporting の統一
 
-- Status: 実装中。
+- Status: 完了。
 - file diff は lightweight parse / inline evaluate が進んだ件数を UI に出し、post-parse / commit の完了は breakdown log と完了処理で追う。
 - chart_info full backfill は parse / skip / read-failure result を worker progress として UI に出す。DB commit writer が後続であることは log 側で維持する。
 - manual maintenance rescan は evaluator 完了時点で UI progress を進め、chunk flush / DB upsert 完了件数は completed count として扱う。
