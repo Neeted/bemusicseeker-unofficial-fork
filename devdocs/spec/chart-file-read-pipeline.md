@@ -85,6 +85,8 @@ current `chart_info` row が存在する場合、inline parser は詳細 parse �
 
 `song_tbl_file_check_breakdown` の `inline_encoding_*` は、BMS の encoding 判定と非 Shift_JIS 確定時の metadata reload を表す。`inline_encoding_detect_count` は判定対象数、`inline_encoding_fast_ascii_count` は bytes 由来の fast ASCII 判定、`inline_encoding_shift_jis_count` / `inline_encoding_ks_c_5601_count` / `inline_encoding_utf8_count` などは判定結果、`inline_encoding_reload_count` / `inline_encoding_reload_wall_ms` は raw metadata reload の件数と wall clock を表す。
 
+現行の file diff DB commit chunk は transaction 範囲を分けるための単位であり、post-parse が作った chunk を最終的に flush する。chunk commit は `song_tbl_file_check db_commit_chunk_start/done` で見えるが、現行では read / parse / inline maintenance と重ねて進める streaming writer ではない。streaming writer 化は計画資料の Phase 9 で扱う。
+
 ### Resource Ref Lifetime
 
 `BMSFile.CreateBMSFileFromSnapshot()` は BMS metadata と同時に `WAVfiles` / `BGAfiles` を構築する。これは health 判定に必要だが、BMSFile 正本へ長期保持すると大量追加時に heap を大きく押し上げる。
@@ -168,6 +170,10 @@ pipeline log では `readMs` と `digestMs` / `parseMs` を分けて確認でき
 `chart_info` は `ChartInfoBuildService` 側で先に補完し、`song_rows` writer は chunk 内の対象 hash に対する
 current row を lookup して `song` numeric columns に反映する。LR2 compatibility facts は resource health /
 encoding row を置換せず、maintenance の LR2 列だけを targeted update する。
+
+現行の初回自動 LR2 full generation は、直前の file diff が大量の譜面を read / parse していても、`song_rows`
+stage を独立した pipeline として実行する。file diff の fresh 生成物を検証して `song_rows` を skip / 縮小する
+整理は、計画資料の Phase 8 で扱う。
 
 ## Full Backfill
 

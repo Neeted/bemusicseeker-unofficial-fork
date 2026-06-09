@@ -11,10 +11,12 @@
 
 導入可能を早くするために必要な background work を単に後回しへ隠すのではなく、`startup_install_estimation_ready` と `startup_initialization_complete` の両方を観測する。
 
-2026-05-09 時点では、通常起動と空 DB 初回構築を分けて読む。
+2026-06-09 時点では、通常起動と空 DB 初回構築 / 大量差分を分けて読む。
 
 - 通常起動 / 差分なしに近い起動では、導入可能 readiness は概ね 20 秒前後、UI 操作可能は 21 秒前後まで短縮済みである。この場合の background tail は `chart_info_hydration` が中心で、`startup_initialization_complete` は 39 秒前後まで短縮済みである。
-- 空 DB 初回構築では、`song` / `bmson_song` / `maintenance` / inline `chart_info` を新規構築するため、全 chart file bytes の read が支配的になる。`chart_digest_map` はこの file read の副産物として必要範囲が追加・更新される partial cache であり、app schema repair が全量補完するものではない。直近ログでは `parse_read_bytes_estimate=14067633086`、`startup_install_estimation_ready elapsedMs=401434`、`startup_ready_operable elapsedMs=463762`、`startup_initialization_complete elapsedMs=667710` である。同じ 14GB 級の単純 read benchmark が `453.572 sec` であるため、この環境では初回 song/maintenance table 構築の高速化は一旦完了扱いとし、以後は通常起動や background tail と分けて評価する。
+- 空 DB 初回構築や大量差分では、`song` / `bmson_song` / `maintenance` / inline `chart_info` を新規構築するため、全 chart file bytes の read と post-parse 評価が支配的になる。`chart_digest_map` はこの file read の副産物として必要範囲が追加・更新される partial cache であり、app schema repair が全量補完するものではない。
+- 2026-06-09 の空 DB / metadata bundle import ありの検証では、`parse_read_bytes_estimate=14140679183`、`startup_install_estimation_ready elapsedMs=915119`、`startup_ready_operable elapsedMs=974273`、`startup_initialization_complete elapsedMs=1069672` であった。このログでは `song_tbl_file_check_ms=913587` が critical path を支配し、さらに初回自動 LR2 full generation の `song_rows` が file diff 直後に再度全件 read / parse している。`startup_initialization_complete` には `ranking_refresh_deferred` の tail も含まれるため、file diff、LR2 full generation、ranking tail は分けて評価する。
+- 以前の 14GB 級単純 read benchmark との比較だけでは、現在の大量差分ボトルネックを説明しきれない。次の短縮対象は、read そのものだけでなく、file diff inline maintenance、DB commit chunk の前倒し、初回自動 LR2 full generation との重複回避として扱う。具体計画は `devdocs/plan/chart-file-read-pipeline-unification-plan.md` の Phase 8 以降を正本とする。
 
 ## Startup
 

@@ -78,6 +78,7 @@ BeMusicSeeker は譜面管理アプリなので、LR2 で完全に読めない�
   - 空 DB 初期構築では、file diff apply の `ChartFileSnapshot` / parser result から LR2 generated song columns、
     `chart_info` 由来 numeric columns、LR2 compatibility facts、text group flag を同時に作る。
     初期構築後に LR2 sync が同じ BMS chart を全件再読込する設計にはしない。
+    2026-06-09 時点の実装では、初回自動 LR2 full generation の `song_rows` が独立 pipeline として再 read / re-parse する余地が残っているため、`devdocs/plan/chart-file-read-pipeline-unification-plan.md` Phase 8 で file diff の fresh 生成物を検証して skip / 縮小する。
   - 完全生成設定を OFF から ON に変更した場合も、保存後に同じ background workflow を queue する。
   - BeMusicSeeker からの LR2 起動導線で sync 完了待ちや起動 block は行わない。
     LR2 が再走査する可能性は完全生成 status の警告として表示する。
