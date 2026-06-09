@@ -104,11 +104,11 @@ Startup / FullReinitialize では `chart_info_hydration` と `maintenance_hydrat
 | --- | --- | --- |
 | `LibraryDatabaseLoadDone` | `LoadSongTable()` 完了 | なし |
 | `LibraryFileEnumerationDone` | `ExecuteChartScanWithManagedFallback()` の native canonical resource index 取得、または Everything unavailable 時の managed resource index 取得 | なし |
-| `LibraryFileDiffDone` | `ApplyFileScanDiff()` 完了 | 追加 BMS + 追加/更新 bmson の parse 件数 |
+| `LibraryFileDiffDone` | `ApplyFileScanDiff()` 完了 | 追加 BMS + 追加/更新 bmson の post-parse prepared 件数 |
 
 Everything scan は DB 読み込みと並列 prefetch される場合がある。表示上は DB 読み込みを優先し、DB 完了後に file enumeration が未完了なら `ファイル列挙` を表示する。
 
-`ApplyFileScanDiff()` の parse 進捗は BMS と bmson を合算する。成功・失敗のどちらも processed に含める。
+`ApplyFileScanDiff()` の UI 進捗は BMS と bmson を合算し、parse 後処理で DB 投入用 data を作り終えた時点で processed に含める。成功・失敗のどちらも対象に含めるが、DB commit 完了は通常の進捗に含めない。
 
 差分ファイルがない場合は、file diff phase は DB と列挙結果の比較、および導入先推定用 index の公開だけで完了する。譜面本文 read は行わず、操作可能化を優先する。
 

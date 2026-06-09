@@ -52,8 +52,6 @@ internal sealed class BmsLibraryInitializationService
 
     private const int DefaultInlineChartInfoBatchSize = 2048;
 
-    private const int DefaultFileDiffParsedQueueCapacity = 10000;
-
     private const int DefaultFileDiffPostParseBatchSize = 256;
 
     private const int DefaultFileDiffCommitChunkSize = 10000;
@@ -1601,8 +1599,8 @@ internal sealed class BmsLibraryInitializationService
         int chartInfoBatchSize = Math.Max(1, result.InlineChartInfoBatchSize);
         int postParseBatchSize = DefaultFileDiffPostParseBatchSize;
         int readQueueCapacity = ChartFileReadPipelinePolicy.ResolveReadQueueCapacity(parserDegree, readerDegree);
-        int parsedQueueCapacity = Math.Max(DefaultFileDiffParsedQueueCapacity, parserDegree * 16);
-        int postParseQueueCapacity = Math.Max(DefaultFileDiffParsedQueueCapacity, parserDegree * 16);
+        int parsedQueueCapacity = ResolveFileDiffParsedQueueCapacity(parserDegree, postParseBatchSize);
+        int postParseQueueCapacity = ResolveFileDiffPostParseQueueCapacity(postParseWorkerDegree);
         int postParseResultQueueCapacity = Math.Max(postParseWorkerDegree * 2, postParseWorkerDegree + 1);
         bool streamCommitChunks = commitContext != null;
         int commitQueueCapacity = streamCommitChunks
@@ -1658,7 +1656,7 @@ internal sealed class BmsLibraryInitializationService
         long inlineBmsMaintenanceWallTicks = 0L;
         long inlineBmsonMaintenanceWallTicks = 0L;
         int postParseBatchCount = 0;
-        int workerProgressCount = parseProcessedCount;
+        int postParseProgressCount = parseProcessedCount;
         int snapshotQueueHighWatermark = 0;
         Exception postParseException = null;
         var pipelineException = new PipelineExceptionSignal();
@@ -1715,6 +1713,11 @@ internal sealed class BmsLibraryInitializationService
                     while (pendingPostParseResults.TryGetValue(nextPostParseSequence, out FileDiffPostParseResult current))
                     {
                         pendingPostParseResults.Remove(nextPostParseSequence);
+                        if (current.ProgressCount > 0)
+                        {
+                            int processed = Interlocked.Add(ref postParseProgressCount, current.ProgressCount);
+                            reportParseProgress?.Invoke(parseTargetCount, Math.Min(parseTargetCount, processed), current.ProgressPath);
+                        }
                         ApplyOrderedFileDiffPostParseResult(
                             current,
                             result,
@@ -1816,8 +1819,6 @@ internal sealed class BmsLibraryInitializationService
                 foreach (FileDiffReadCandidate readCandidate in readQueue.GetConsumingEnumerable())
                 {
                     FileDiffParsedCandidate parsedCandidate = ParseFileDiffCandidate(readCandidate, folderParentHashCache, ref digestTicks, ref bmsParseTicks, ref bmsonParseTicks);
-                    int processed = Interlocked.Increment(ref workerProgressCount);
-                    reportParseProgress?.Invoke(parseTargetCount, processed, parsedCandidate.Path);
                     AddWithWait(parsedQueue, parsedCandidate, ref parserOutputWaitTicks, pipelineException);
                 }
             }))];
@@ -1948,7 +1949,7 @@ internal sealed class BmsLibraryInitializationService
         {
             commitContext?.Flush();
         }
-        parseProcessedCount = Math.Max(parseProcessedCount, Volatile.Read(ref workerProgressCount));
+        parseProcessedCount = Math.Max(parseProcessedCount, Volatile.Read(ref postParseProgressCount));
 
         pipelineResult.ReadMs = TicksToMilliseconds(readTicks);
         pipelineResult.DigestMs = TicksToMilliseconds(digestTicks);
@@ -2201,6 +2202,8 @@ internal sealed class BmsLibraryInitializationService
         FileDiffPostParseBatchMetrics metrics = postResult.Metrics;
         metrics.BmsCount = bmsBatch?.Count ?? 0;
         metrics.BmsonCount = bmsonBatch?.Count ?? 0;
+        postResult.ProgressCount = metrics.BmsCount + metrics.BmsonCount;
+        postResult.ProgressPath = ResolvePostParseProgressPath(bmsBatch, bmsonBatch);
         var totalStopwatch = Stopwatch.StartNew();
         try
         {
@@ -2480,6 +2483,29 @@ internal sealed class BmsLibraryInitializationService
             && string.Equals(candidate.File.hash, candidate.ExistingFile.hash, StringComparison.OrdinalIgnoreCase);
     }
 
+    private static string ResolvePostParseProgressPath(
+        IReadOnlyList<InlineBmsParseCandidate> bmsBatch,
+        IReadOnlyList<InlineBmsonParseCandidate> bmsonBatch)
+    {
+        for (int i = (bmsonBatch?.Count ?? 0) - 1; i >= 0; i--)
+        {
+            string path = bmsonBatch[i]?.Path;
+            if (!string.IsNullOrWhiteSpace(path))
+            {
+                return path;
+            }
+        }
+        for (int i = (bmsBatch?.Count ?? 0) - 1; i >= 0; i--)
+        {
+            string path = bmsBatch[i]?.Path;
+            if (!string.IsNullOrWhiteSpace(path))
+            {
+                return path;
+            }
+        }
+        return string.Empty;
+    }
+
     private static void PrepareMovedBmsUserColumnRestores(
         FileDiffParsePipelineResult pipelineResult,
         Dictionary<string, Queue<BMSFile>> movedBmsSourcesByMd5,
@@ -2627,6 +2653,7 @@ internal sealed class BmsLibraryInitializationService
         finally
         {
             stopwatch.Stop();
+            file.ClearResourceReferenceCollections();
         }
         return new InlineMaintenanceItemResult(
             kind: FileDiffChartKind.Bms,
@@ -3763,6 +3790,10 @@ internal sealed class BmsLibraryInitializationService
 
         public FileDiffPostParseBatchMetrics Metrics { get; } = new FileDiffPostParseBatchMetrics();
 
+        public int ProgressCount { get; set; }
+
+        public string ProgressPath { get; set; } = string.Empty;
+
         public ChartInfoInlineBuildResult ChartInfoResult { get; } = new ChartInfoInlineBuildResult();
 
         public List<InlineMaintenanceItemResult> MaintenanceResults { get; } = [];
@@ -4096,6 +4127,19 @@ internal sealed class BmsLibraryInitializationService
     internal static int ResolveDefaultFileDiffParserDegree()
     {
         return Math.Max(1, Environment.ProcessorCount - 1);
+    }
+
+    internal static int ResolveFileDiffParsedQueueCapacity(int parserDegree, int postParseBatchSize)
+    {
+        int normalizedBatchSize = Math.Max(1, postParseBatchSize);
+        int normalizedParserDegree = Math.Max(1, parserDegree);
+        return Math.Max(normalizedBatchSize, normalizedParserDegree * normalizedBatchSize);
+    }
+
+    internal static int ResolveFileDiffPostParseQueueCapacity(int postParseWorkerDegree)
+    {
+        int normalizedWorkerDegree = Math.Max(1, postParseWorkerDegree);
+        return Math.Max(1, normalizedWorkerDegree * 2);
     }
 
     private int ResolveFileDiffParserDegree()

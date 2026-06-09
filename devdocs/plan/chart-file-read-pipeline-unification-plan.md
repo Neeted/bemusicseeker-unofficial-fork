@@ -37,9 +37,10 @@ LR2 full generation の freshness 判定も見直す。`song.db` 完全生成が
   - LR2 full generation のように input order が resume contract になる処理は ordered writer を維持する。
 - progress は stage ごとの意味を分ける。
   - reader progress は bytes 読込済み件数で、診断・activity 表示用に限定する。
-  - worker progress は hash / parse / evaluate 済み件数で、UI の逐次風表示の主材料にする。
+  - worker progress は hash / parse / evaluate 済み件数で、診断 log の主材料にする。
+  - file diff UI の `ProcessedCount` は post-parse prepared progress、つまり DB writer へ渡せる staging data を作り終えた件数として扱う。
   - writer progress は DB commit / runtime apply / durable cursor 更新済み件数で、完了判定や resume contract に使う。
-  - UI の `ProcessedCount` は原則 worker progress を表示してよいが、log / cursor / summary では writer progress と混同しない。
+  - DB commit 完了件数は 10000 件単位になりやすいため file diff UI の通常進捗には含めず、log / cursor / summary では writer progress と混同しない。
 - bytes は bounded queue 内だけで保持し、長期 model / result / DB へ保持しない。
 - current skip は file read 前に可能なら前倒しする。
   - 既に sha256 / parser version が分かっている target は、read しないで skip できるかを先に判定する。
@@ -103,7 +104,7 @@ target enumeration
 | read queue capacity | `workerDegree * max(2, readerDegree * 2)` を初期値にし、処理ごとの chunk size と memory risk で調整 |
 | computed queue capacity | writer chunk size または worker 数に比例させる |
 | logging | `readerDegree`, `workerDegree`, `readQueueCapacity`, `computedQueueCapacity`, `readMs`, `digestMs`, `parseMs`, `readerOutputWaitMs`, queue high watermark を可能な範囲で出す |
-| progress | UI は worker progress、完了判定 / durable cursor は writer progress を使う。reader progress は診断値として扱う |
+| progress | file diff UI は post-parse prepared progress、その他の evaluator 型 UI は worker progress、完了判定 / durable cursor は writer progress を使う。reader progress は診断値として扱う |
 
 実機確認では、reader 1 / 2 の差を同じ target set で比べる。SSD / NVMe では read 並列化が効く可能性があるが、小さい譜面ファイル大量 read では open / metadata / antivirus / OS cache / hash CPU の影響が混ざるため、上限は保守的に 2 から始める。
 
@@ -180,11 +181,11 @@ target enumeration
 ### Phase 7: progress reporting の統一
 
 - Status: 完了。
-- file diff は lightweight parse / inline evaluate が進んだ件数を UI に出し、post-parse / commit の完了は breakdown log と完了処理で追う。
+- file diff は lightweight parse 後の post-parse が DB 投入用 staging data を作り終えた件数を UI に出し、DB commit の完了は breakdown log と完了処理で追う。
 - chart_info full backfill は parse / skip / read-failure result を worker progress として UI に出す。DB commit writer が後続であることは log 側で維持する。
 - manual maintenance rescan は evaluator 完了時点で UI progress を進め、chunk flush / DB upsert 完了件数は completed count として扱う。
 - LR2 `song_rows` は durable cursor を writer progress のまま維持し、stage progress だけ worker progress で逐次表示する。resume 判定は引き続き commit 済み cursor だけを見る。
-- 既存 UI が単一の `ProcessedCount` しか持たない箇所では、表示用に worker progress を流す。永続状態や完了判定に使う変数名・log は writer progress と分ける。
+- 既存 UI が単一の `ProcessedCount` しか持たない箇所では、file diff は post-parse prepared progress、その他の evaluator 型処理は worker progress を流す。永続状態や完了判定に使う変数名・log は writer progress と分ける。
 
 残る確認候補:
 

@@ -805,8 +805,8 @@ public sealed class BmsLibraryInitializationServiceTests
             Assert.AreEqual(2048, result.InlineChartInfoBatchSize);
             Assert.AreEqual(ChartFileReadPipelinePolicy.ResolveReaderDegree(Environment.ProcessorCount, 2), result.FileDiffReaderDegree);
             Assert.AreEqual(ChartFileReadPipelinePolicy.ResolveReadQueueCapacity(result.FileDiffParserDegree, result.FileDiffReaderDegree), result.ReadQueueCapacity);
-            Assert.AreEqual(10000, result.ParsedQueueCapacity);
-            Assert.AreEqual(10000, result.PostParseQueueCapacity);
+            Assert.AreEqual(BmsLibraryInitializationService.ResolveFileDiffParsedQueueCapacity(result.FileDiffParserDegree, 256), result.ParsedQueueCapacity);
+            Assert.AreEqual(BmsLibraryInitializationService.ResolveFileDiffPostParseQueueCapacity(result.FileDiffPostParseWorkerDegree), result.PostParseQueueCapacity);
             Assert.AreEqual(1, result.CommitQueueCapacity);
             Assert.IsTrue(result.CommitStreamingEnabled);
             Assert.AreEqual("none", result.CommitStreamingBarrierReason);
@@ -826,7 +826,8 @@ public sealed class BmsLibraryInitializationServiceTests
                 && message.Contains("file_diff_parser_degree=1")
                 && message.Contains("file_diff_post_parse_worker_degree=1")
                 && message.Contains("read_queue_capacity=" + result.ReadQueueCapacity)
-                && message.Contains("parsed_queue_capacity=10000")
+                && message.Contains("parsed_queue_capacity=" + result.ParsedQueueCapacity)
+                && message.Contains("post_parse_queue_capacity=" + result.PostParseQueueCapacity)
                 && message.Contains("commit_queue_capacity=1")
                 && message.Contains("commit_streaming_enabled=true")
                 && message.Contains("commit_streaming_barrier=none")
@@ -909,8 +910,10 @@ public sealed class BmsLibraryInitializationServiceTests
             Assert.IsTrue(result.PostParseWallMs >= 0);
             Assert.IsTrue(result.CommitQueueWaitMs >= 0);
             int firstCommitIndex = events.FindIndex(item => item.Contains("db_commit_chunk_done chunk=1"));
+            int finalProgressIndex = events.FindIndex(item => item == "progress 120/120");
             Assert.IsTrue(firstCommitIndex >= 0, "first commit chunk log was not recorded.");
-            Assert.IsTrue(events.Any(item => item == "progress 120/120"), "final parse progress was not recorded.");
+            Assert.IsTrue(finalProgressIndex >= 0, "final parse progress was not recorded.");
+            Assert.IsTrue(finalProgressIndex < firstCommitIndex, "file diff progress should reach the post-parse prepared point before DB commit completion.");
             using var verify = new LR2SongDBExtended(songDbPath);
             Assert.AreEqual(120L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM song;"));
             Assert.AreEqual(120L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info;"));

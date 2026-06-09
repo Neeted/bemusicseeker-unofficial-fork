@@ -25,12 +25,13 @@
 | 種類 | 意味 | 用途 |
 | --- | --- | --- |
 | reader progress | bytes / file metadata を read した件数 | 診断 log、activity 表示 |
-| worker progress | digest / parse / evaluate が終わった件数 | UI の逐次風 progress |
+| worker progress | digest / parse / evaluate が終わった件数 | 診断 log |
+| post-parse prepared progress | parse 後処理が終わり、DB writer へ渡せる staging data ができた件数 | file diff UI の逐次 progress |
 | writer progress | DB commit、runtime apply、durable cursor 更新が終わった件数 | 完了判定、resume contract、summary log |
 
-UI が単一の `ProcessedCount` しか持たない処理では、操作感を優先して worker progress を表示してよい。ただし、LR2 full generation の `processed_cursor` のような durable cursor は writer progress でなければならない。writer progress より前に cursor を進めると、cancel / crash 後に未 commit row を処理済みとして skip する危険がある。
+UI が単一の `ProcessedCount` しか持たない file diff では、parse 完了ではなく post-parse prepared progress を表示する。これは「1 譜面について DB 投入用 staging data を作り終え、snapshot bytes を破棄できる状態」を表す。DB commit 完了は 10000 件単位の transaction 境界になりやすいため、通常の file diff UI 進捗には含めない。ただし、LR2 full generation の `processed_cursor` のような durable cursor は writer progress でなければならない。writer progress より前に cursor を進めると、cancel / crash 後に未 commit row を処理済みとして skip する危険がある。
 
-file diff、chart_info backfill、manual maintenance rescan、LR2 `song_rows` は、いずれも worker progress を小刻みに報告できるようにする。chunk commit や post-parse batch が重い場合でも UI が停止して見えないことを優先し、正確な commit 完了件数は別の log / cursor / result count で確認する。
+file diff、chart_info backfill、manual maintenance rescan、LR2 `song_rows` は、いずれも stage の意味を混同しない。file diff は post-parse prepared progress を小刻みに報告し、chunk commit が重い場合でも UI 上の処理済み数を commit 完了件数に縛らない。正確な commit 完了件数は別の log / cursor / result count で確認する。
 
 ## 正規 Entry Point
 
@@ -71,7 +72,7 @@ changed path
        session chart_info index for generated rows
 ```
 
-file diff の reader は `ChartFileReadPipelinePolicy` に従い、十分な CPU と複数 target がある場合は 2 本まで並列化する。reader は bytes と file metadata だけを bounded queue へ流し、MD5 / SHA-256 計算と snapshot 作成は parser worker 側で行う。file diff の progress target は lightweight parse 対象数で、BMS 追加件数と bmson 追加・更新件数の合算。`chart_info` parse failure は `song` / `bmson_song` 登録を止めない。
+file diff の reader は `ChartFileReadPipelinePolicy` に従い、十分な CPU と複数 target がある場合は 2 本まで並列化する。reader は bytes と file metadata だけを bounded queue へ流し、MD5 / SHA-256 計算と snapshot 作成は parser worker 側で行う。file diff の progress target は lightweight parse 対象数で、BMS 追加件数と bmson 追加・更新件数の合算。ただし progress の processed count は parser 完了ではなく、post-parse が DB writer へ渡せる staging data を作った時点で進める。`chart_info` parse failure は `song` / `bmson_song` 登録を止めない。
 
 file diff の `InlineChartInfoBatchSize` 既定値 2048 は current `chart_info` lookup / inline build helper の内部粒度であり、post-parse barrier や DB commit 単位ではない。bytes/read buffer は reader / parsed queue の件数上限で backpressure し、post-parse は snapshot を受け取った順に小さく流して、lightweight parse 後の bytes と resource refs を長く滞留させない。ただし post-parse を 1 件単位へ固定すると、single post-parse consumer 内の inline maintenance 並列評価が 1 item しか持てず、parser worker 側が詰まりやすい。現行は 旧 2048 barrier には戻さず、`DefaultFileDiffPostParseBatchSize=256` の micro-batch と parser と同数の post-parse worker を使い、snapshot bytes は maintenance row / chart_info staging へ畳み込んだら破棄する。
 
@@ -89,7 +90,7 @@ current `chart_info` row が存在する場合、inline parser は詳細 parse �
 
 `song_tbl_file_check_breakdown` の `inline_encoding_*` は、BMS の encoding 判定と非 Shift_JIS 確定時の metadata reload を表す。`inline_encoding_detect_count` は判定対象数、`inline_encoding_fast_ascii_count` は bytes 由来の fast ASCII 判定、`inline_encoding_shift_jis_count` / `inline_encoding_ks_c_5601_count` / `inline_encoding_utf8_count` などは判定結果、`inline_encoding_reload_count` / `inline_encoding_reload_wall_ms` は raw metadata reload の件数と wall clock を表す。
 
-file diff DB commit chunk は transaction 範囲を分けるための単位である。post-parse が作った staging chunk は bounded queue へ流し、DB writer context は受け取った staging chunk を `DbCommitChunkSize` 単位へ再分割して commit する。commit 中も post-parse 側が短時間の DB commit pause で止まり切らないよう、次段では post-parse -> commit aggregator の input queue と、commit aggregator -> DB writer の write queue を分ける。aggregator は bounded memory 内で 10000 mutation 程度の immutable DB chunk を組み、writer は chunk commit だけを担当する。DB が長期的な bottleneck の場合は backpressure するが、4-5 秒程度の commit 中も投入と集約を継続できる設計を目標にする。writer task が開いた writable `song.db` connection は chunk commit ごとに閉じ、delete / moved hash relink user column restore も必要なタイミングで開き直す。moved hash relink は、削除候補の user song columns を file diff 開始時に snapshot し、一意な destination が確定した場合だけ DB commit 後に `song_tbl_file_check user_column_restore_*` で復元する。
+file diff DB commit chunk は transaction 範囲を分けるための単位である。post-parse が作った staging chunk は bounded queue へ流し、DB writer context は受け取った staging chunk を `DbCommitChunkSize` 単位へ再分割して commit する。post-parse の完了時点で snapshot bytes は不要になるため、file diff UI 進捗は ordered collector がこの staging chunk を sequence 順に受け取った時点で進め、DB commit 完了は待たない。現行実装では ordered collector が commit context への投入まで担当するため、commit queue が詰まると短い待ちが残る。次段では post-parse -> commit aggregator の input queue と、commit aggregator -> DB writer の write queue を分ける。aggregator は bounded memory 内で 10000 mutation 程度の immutable DB chunk を組み、writer は chunk commit だけを担当する。DB が長期的な bottleneck の場合は backpressure するが、4-5 秒程度の commit 中も投入と集約を継続できる設計を目標にする。writer task が開いた writable `song.db` connection は chunk commit ごとに閉じ、delete / moved hash relink user column restore も必要なタイミングで開き直す。moved hash relink は、削除候補の user song columns を file diff 開始時に snapshot し、一意な destination が確定した場合だけ DB commit 後に `song_tbl_file_check user_column_restore_*` で復元する。
 
 file diff inline maintenance は、pipeline 共通の `ResourceHealthLookupContext` を使う。resource health の cache 解決結果は `(directory, resource kind, relative path hash)` 単位で共有され、同一 directory にある多数の BMS が同じ WAV/BGA/movie key を参照するケースで、重複した hash-set lookup を抑える。各 chart の `cacheHit` / `File.Exists` fallback counter は item-local scope で数え、並列評価中の他 chart の counter と混ざらない。`song_tbl_file_check_breakdown` の `inline_maintenance_shared_resource_cache_entries` は、この共有 cache に載った resource key 数を表す。
 
