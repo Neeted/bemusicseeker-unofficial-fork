@@ -1886,6 +1886,8 @@ internal static class Lr2FullGenerationSyncService
         int readQueueCapacity = ChartFileReadPipelinePolicy.ResolveReadQueueCapacity(workerDegree, readerDegree);
         int computedQueueCapacity = Math.Max(songRowSyncChunkSize * 2, workerDegree * 32);
         int processed = 0;
+        int evaluatedStageProcessedCount = safeStartIndex;
+        int committedProcessedCursor = baseProcessedCursor + safeStartIndex;
         int parseFailureCount = 0;
         int chartInfoAppliedCount = 0;
         int chartInfoGeneratedCount = 0;
@@ -1969,6 +1971,27 @@ internal static class Lr2FullGenerationSyncService
             baseProcessedCursor + safeStartIndex,
             totalCount,
             "song_rows");
+        long lastWorkerProgressTicks = Stopwatch.GetTimestamp();
+
+        void ReportSongRowsWorkerProgress(int stageProcessedCount, bool force = false)
+        {
+            if (!force)
+            {
+                long now = Stopwatch.GetTimestamp();
+                if (TicksToMilliseconds(now - lastWorkerProgressTicks) < 150)
+                {
+                    return;
+                }
+                lastWorkerProgressTicks = now;
+            }
+            ReportProgress(
+                request,
+                Volatile.Read(ref committedProcessedCursor),
+                totalCount,
+                "song_rows",
+                stageProcessedCount,
+                targetRows.Count);
+        }
 
         void FlushSongRowChunk(List<SongRowSyncComputedItem> chunk)
         {
@@ -2110,7 +2133,14 @@ internal static class Lr2FullGenerationSyncService
                     nowUtc: DateTime.UtcNow);
                 stageStopwatch.Stop();
                 statusCursorMs = stageStopwatch.ElapsedMilliseconds;
-                ReportProgress(request, processedCursor, totalCount, "song_rows", offset + chunk.Count, targetRows.Count);
+                Volatile.Write(ref committedProcessedCursor, processedCursor);
+                ReportProgress(
+                    request,
+                    processedCursor,
+                    totalCount,
+                    "song_rows",
+                    Math.Max(Volatile.Read(ref evaluatedStageProcessedCount), offset + chunk.Count),
+                    targetRows.Count);
                 LogSync(request, "lr2_full_generation_sync chunk_done"
                     + " stage=song_rows"
                     + " offset=" + offset
@@ -2240,6 +2270,8 @@ internal static class Lr2FullGenerationSyncService
                         CacheGeneratedChartInfo,
                         request?.ChartInfoParseTimeout,
                         request?.CurrentChartInfoParseFailureMd5s);
+                    int evaluatedStageProcessed = Interlocked.Increment(ref evaluatedStageProcessedCount);
+                    ReportSongRowsWorkerProgress(evaluatedStageProcessed);
                     try
                     {
                         AddWithWait(computedQueue, item, ref workerOutputWaitTicks, pipelineToken);

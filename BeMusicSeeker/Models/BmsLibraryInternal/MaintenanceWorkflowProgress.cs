@@ -2,7 +2,6 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 /// <summary>
 /// maintenance 再スキャンの進捗を UI とログへ渡すための軽量 snapshot です。
-/// section 単位でしか cancel しないため、処理済み件数も section 完了時に進みます。
 /// </summary>
 internal sealed class MaintenanceWorkflowProgress
 {
@@ -12,9 +11,19 @@ internal sealed class MaintenanceWorkflowProgress
     public int TotalCount { get; set; }
 
     /// <summary>
-    /// 処理済み対象数です。
+    /// UI に表示する処理済み対象数です。大量 pipeline では evaluator 完了件数を入れます。
     /// </summary>
     public int ProcessedCount { get; set; }
+
+    /// <summary>
+    /// digest / resource health / encoding などの evaluator が完了した件数です。
+    /// </summary>
+    public int EvaluatedCount { get; set; }
+
+    /// <summary>
+    /// DB 反映など writer 側まで完了した件数です。
+    /// </summary>
+    public int CompletedCount { get; set; }
 
     /// <summary>
     /// 現在処理中または直近で処理した譜面 path です。

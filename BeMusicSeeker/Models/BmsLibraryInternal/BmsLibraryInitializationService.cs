@@ -1609,6 +1609,7 @@ internal sealed class BmsLibraryInitializationService
         long inlineBmsMaintenanceWallTicks = 0L;
         long inlineBmsonMaintenanceWallTicks = 0L;
         int postParseBatchCount = 0;
+        int workerProgressCount = parseProcessedCount;
         int snapshotQueueHighWatermark = 0;
         Exception postParseException = null;
         var folderParentHashCache = new Lr2SongFolderParentNormalizer.Lr2FolderParentHashCache();
@@ -1711,6 +1712,8 @@ internal sealed class BmsLibraryInitializationService
                 foreach (FileDiffReadCandidate readCandidate in readQueue.GetConsumingEnumerable())
                 {
                     FileDiffParsedCandidate parsedCandidate = ParseFileDiffCandidate(readCandidate, folderParentHashCache, ref digestTicks, ref bmsParseTicks, ref bmsonParseTicks);
+                    int processed = Interlocked.Increment(ref workerProgressCount);
+                    reportParseProgress?.Invoke(parseTargetCount, processed, parsedCandidate.Path);
                     AddWithWait(parsedQueue, parsedCandidate, ref parserOutputWaitTicks);
                 }
             }))];
@@ -1722,8 +1725,6 @@ internal sealed class BmsLibraryInitializationService
             var bmsonBatch = new List<InlineBmsonParseCandidate>(batchSize);
             foreach (FileDiffParsedCandidate parsedCandidate in parsedQueue.GetConsumingEnumerable())
             {
-                int processed = Interlocked.Increment(ref parseProcessedCount);
-                reportParseProgress?.Invoke(parseTargetCount, processed, parsedCandidate.Path);
                 if (parsedCandidate.BmsCandidate != null)
                 {
                     bmsBatch.Add(parsedCandidate.BmsCandidate);
@@ -1762,6 +1763,7 @@ internal sealed class BmsLibraryInitializationService
             commitContext?.AddChunk(chunk);
         }
         commitContext?.Flush();
+        parseProcessedCount = Math.Max(parseProcessedCount, Volatile.Read(ref workerProgressCount));
 
         pipelineResult.ReadMs = TicksToMilliseconds(readTicks);
         pipelineResult.DigestMs = TicksToMilliseconds(digestTicks);

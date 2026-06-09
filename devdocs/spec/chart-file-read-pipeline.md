@@ -18,6 +18,20 @@
 - DB に既に存在する owner 由来の補助情報だけを background hydration/backfill へ回す。
 - BMS の `WAVfiles` / `BGAfiles` は譜面が要求するリソース参照集合であり、空DB初回起動では memory peak の大きな要因になり得る。新規 file diff 由来では、これらを長期 model field として保持せず、chunk 内で maintenance row へ畳み込んだら破棄する。
 
+## Progress Semantics
+
+大量 read pipeline の進捗は、どの stage で数えたかを混同しない。
+
+| 種類 | 意味 | 用途 |
+| --- | --- | --- |
+| reader progress | bytes / file metadata を read した件数 | 診断 log、activity 表示 |
+| worker progress | digest / parse / evaluate が終わった件数 | UI の逐次風 progress |
+| writer progress | DB commit、runtime apply、durable cursor 更新が終わった件数 | 完了判定、resume contract、summary log |
+
+UI が単一の `ProcessedCount` しか持たない処理では、操作感を優先して worker progress を表示してよい。ただし、LR2 full generation の `processed_cursor` のような durable cursor は writer progress でなければならない。writer progress より前に cursor を進めると、cancel / crash 後に未 commit row を処理済みとして skip する危険がある。
+
+file diff、chart_info backfill、manual maintenance rescan、LR2 `song_rows` は、いずれも worker progress を小刻みに報告できるようにする。chunk commit や post-parse batch が重い場合でも UI が停止して見えないことを優先し、正確な commit 完了件数は別の log / cursor / result count で確認する。
+
 ## 正規 Entry Point
 
 | 用途 | 正規 entry point | 備考 |

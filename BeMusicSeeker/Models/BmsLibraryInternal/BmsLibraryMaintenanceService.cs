@@ -791,6 +791,7 @@ internal sealed class BmsLibraryMaintenanceService
         long commitTicks = 0L;
         int chunkIndex = 0;
         int processedCount = 0;
+        int evaluatedCount = 0;
         int writerFailed = 0;
         Exception writerFailure = null;
 
@@ -920,7 +921,9 @@ internal sealed class BmsLibraryMaintenanceService
             progressReporter?.Invoke(new MaintenanceWorkflowProgress
             {
                 TotalCount = targets.Count,
-                ProcessedCount = processedCount,
+                ProcessedCount = Volatile.Read(ref evaluatedCount),
+                EvaluatedCount = Volatile.Read(ref evaluatedCount),
+                CompletedCount = processedCount,
                 CurrentPath = currentPath,
                 IsCanceled = result.Canceled
             });
@@ -981,6 +984,16 @@ internal sealed class BmsLibraryMaintenanceService
                     }
                     try
                     {
+                        int evaluated = Interlocked.Increment(ref evaluatedCount);
+                        progressReporter?.Invoke(new MaintenanceWorkflowProgress
+                        {
+                            TotalCount = targets.Count,
+                            ProcessedCount = evaluated,
+                            EvaluatedCount = evaluated,
+                            CompletedCount = Volatile.Read(ref processedCount),
+                            CurrentPath = candidate.Target.Path ?? string.Empty,
+                            IsCanceled = result.Canceled
+                        });
                         computedQueue.Add(new MaintenanceWorkflowComputedItem(candidate.Target, itemResult, candidate.ReadElapsedTicks, digestElapsedTicks, computeElapsedTicks));
                     }
                     catch (InvalidOperationException) when (Volatile.Read(ref writerFailed) != 0)
@@ -1072,7 +1085,9 @@ internal sealed class BmsLibraryMaintenanceService
         progressReporter?.Invoke(new MaintenanceWorkflowProgress
         {
             TotalCount = targets.Count,
-            ProcessedCount = processedCount,
+            ProcessedCount = Math.Max(Volatile.Read(ref evaluatedCount), processedCount),
+            EvaluatedCount = Volatile.Read(ref evaluatedCount),
+            CompletedCount = processedCount,
             CurrentPath = string.Empty,
             IsCompleted = !result.Canceled,
             IsCanceled = result.Canceled

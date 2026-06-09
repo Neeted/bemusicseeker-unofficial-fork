@@ -294,7 +294,6 @@ internal sealed class ChartInfoBuildService
                     ChartInfoBuildTarget target = targets[targetIndex];
                     try
                     {
-                        reportProgress?.Invoke(result.TargetCount, Volatile.Read(ref processedCount[0]), target.Path);
                         var readStopwatch = Stopwatch.StartNew();
                         byte[] bytes = readAllBytes(target.Path);
                         readStopwatch.Stop();
