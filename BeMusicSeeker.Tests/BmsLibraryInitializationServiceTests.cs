@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Windows;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
@@ -908,6 +909,69 @@ public sealed class BmsLibraryInitializationServiceTests
             Assert.IsTrue(events.Any(item => item == "progress 120/120"), "final parse progress was not recorded.");
             using var verify = new LR2SongDBExtended(songDbPath);
             Assert.AreEqual(120L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM song;"));
+        });
+    }
+
+    [TestMethod]
+    public void ApplyFileScanDiff_StreamingWriterFailureDoesNotBlockPipeline()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
+        {
+            string chartDirectoryPath = Path.Combine(lr2RootPath, "WriterFailure");
+            Directory.CreateDirectory(chartDirectoryPath);
+            List<string> paths = [];
+            for (int i = 0; i < 160; i++)
+            {
+                string path = Path.Combine(chartDirectoryPath, "added-" + i.ToString("D4") + ".bms");
+                File.WriteAllText(path, CreateValidBmsText("Writer Failure " + i.ToString("D4")), Encoding.ASCII);
+                paths.Add(path);
+            }
+
+            using (var songDbConnection = new LR2SongDBExtended(songDbPath))
+            {
+                songDbConnection.CreateTable<LR2SongDB.song>();
+            }
+
+            var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 2, inlineChartInfoBatchSizeOverride: 8, fileDiffCommitChunkSizeOverride: 8);
+            var injectedException = new InvalidOperationException("injected streaming writer failure");
+            Task<SongTableFileCheckResult> task = Task.Run(() => service.ApplyFileScanDiff(
+                new BmsLibraryDbGateway(songDbPath),
+                new BmsLibraryOptionsSnapshot(),
+                [],
+                new ChartScanExecutionResult
+                {
+                    Success = true,
+                    Result = CreateScanResult(
+                        paths,
+                        new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
+                        {
+                            { chartDirectoryPath, Array.Empty<string>() }
+                        })
+                },
+                0L,
+                () => null,
+                null,
+                logInstallPerformance: delegate (string message)
+                {
+                    if (message.Contains("song_tbl_file_check db_commit_chunk_start chunk=1"))
+                    {
+                        throw injectedException;
+                    }
+                }));
+
+            bool completed;
+            try
+            {
+                completed = task.Wait(TimeSpan.FromSeconds(10));
+            }
+            catch (AggregateException)
+            {
+                completed = true;
+            }
+            Assert.IsTrue(completed, "file diff pipeline did not complete after streaming writer failure.");
+            Assert.IsTrue(task.IsFaulted, "streaming writer failure should fault the pipeline.");
+            StringAssert.Contains(task.Exception.ToString(), injectedException.Message);
         });
     }
 

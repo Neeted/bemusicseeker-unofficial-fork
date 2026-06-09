@@ -2163,7 +2163,10 @@ public sealed class MainWindowContextMenuResourceTests
 
         StringAssert.Contains(initializationCode, "private const int DefaultInlineChartInfoBatchSize = 2048;");
         StringAssert.Contains(initializationCode, "var postParseQueue = new BlockingCollection<FileDiffParsedBatch>(postParseQueueCapacity);");
-        StringAssert.Contains(initializationCode, "BlockingCollection<FileScanDiffCommitChunk> commitQueue = [];");
+        StringAssert.Contains(initializationCode, "BlockingCollection<FileScanDiffCommitChunk> commitQueue = streamCommitChunks");
+        StringAssert.Contains(initializationCode, "commitContext.AddChunk(chunk);");
+        StringAssert.Contains(initializationCode, "commit_streaming_enabled=");
+        StringAssert.Contains(initializationCode, "inline_maintenance_shared_resource_cache_entries=");
         StringAssert.Contains(initializationCode, "BuildInlineBmsMaintenanceBatch(");
         StringAssert.Contains(initializationCode, "Task[] workerTasks = [.. Enumerable.Range(0, parserDegree)");
         StringAssert.Contains(initializationCode, "Parallel.For(0, candidates.Count");

@@ -11,7 +11,7 @@
 2026-06-09 の空 DB / 大量差分検証では、reader / worker の責務分離そのものは揃ってきた一方で、次の横断課題が残っていることが分かった。
 
 - 大量 file diff で全譜面を read / parse / maintenance 評価した直後に、初回自動 LR2 full generation の `song_rows` が同じ譜面を再 read / re-parse している。
-- file diff の DB commit chunk は分割されているが、現行では post-parse 完了後にまとめて flush されるため、DB 書き込みを前倒しできていない。
+- file diff の DB commit chunk は bounded queue と専用 writer task で streaming されるようになった。次は実機ログで read / parse / inline maintenance と DB write が重なっていること、失敗時に producer 側が停止することを確認する。
 - file diff inline maintenance と manual maintenance rescan は同じ性質の resource health / encoding 評価を持つため、個別最適化ではなく共通 evaluator / 共通計測として扱う必要がある。
 
 このため、この計画は狭義の read pipeline 統一だけでなく、大量譜面処理の reader / worker / writer / evaluator / follow-up の横断整理を扱う受け皿として継続する。
@@ -213,18 +213,18 @@ target enumeration
 ### Phase 9: file diff DB commit chunk の streaming writer 化
 
 - Status: 実装済み。`commitQueue` を bounded queue 化し、専用 writer task が `FileDiffStreamingCommitContext` を所有して `AddChunk()` / `Flush()` を実行する。post-parse worker は chunk を queue へ流すだけにし、`song_tbl_file_check db_commit_chunk_start/done` が read / parse / inline maintenance の進行中から出る設計にした。
-- writer task が開いた writable `song.db` connection は streaming flush 後に閉じる。後続の delete / moved hash relink user column restore は呼び出し元スレッドで connection を開き直すため、SQLite connection のスレッドまたぎを避ける。
+- writer task が開いた writable `song.db` connection は chunk commit ごとに閉じる。次 batch の `chart_info` lookup が read-only open できず writable fallback しても、writer が queue 待ち中に process lock を保持し続けない。
 - 目的は、DB writer を single writer のまま維持しつつ、post-parse が chunk を作った時点で DB commit を進め、終端の `db_commit_ms` tail と chunk 保持メモリを減らすこと。
 - 実装候補:
-  - 完了: post-parse chunk を streaming できる条件を `moved_hash_relink_candidates` の有無で診断し、現行 path では `streaming_writer_deferred` として log に残す。
+  - 完了: moved hash relink は backup / restore 方式へ切り替え、`commit_streaming_barrier=none` の通常 path で streaming writer を使えるようにした。
   - 知見: 旧実装では `FileScanDiffCommitChunk` を即 commit すると、moved hash relink が後から destination chunk へ delete / user column preservation を追加する契約を壊していた。backup / restore 方式へ切り替えることで、relink は chunk mutate ではなく final small write として扱う。
   - 採用: file diff 開始時に削除候補 BMS の user song columns (`favorite`, `adddate`, `tag` など) を path keyed snapshot として backup し、streaming commit 完了後に「同一 MD5 の新規 destination が一意に存在する」場合だけ後段 transaction で restore する。この場合、streaming chunk を後から mutate する必要がなくなり、moved hash relink は final small write として扱える。
   - restore 案の注意点: DB write が追加で 1 回増える。restore までの短時間は新 row の user columns が空になるため、runtime catalog / UI 公開は restore 後に行う。source / destination が 1 対 1 でない ambiguous case は現行同様 restore しない。restore 対象列は小さいが、`tag` の異常値や重複 MD5 の扱いは既存の ambiguous guard を維持する。
-  - 実装中: moved hash relink は destination `BMSFile` へ user columns を反映し、DB commit 後に同じ commit context で `song` row の user columns を restore する。delete / add / maintenance / chart_info の commit chunk は post-parse 後に immutable とし、streaming writer 化の前提を作る。
+  - 完了: moved hash relink は destination `BMSFile` へ user columns を反映し、DB commit 後に同じ commit context で `song` row の user columns を restore する。delete / add / maintenance / chart_info の commit chunk は post-parse 後に immutable とし、streaming writer 化の前提を作った。
   - 知見: 直接 streaming writer を試すと、writer が writable `song.db` connection / process lock を保持したまま queue 待ちし、次 batch の `ProcessInlineBmsChartInfo()` が `LoadChartInfosBySha256()` で同じ lock を取りに行く deadlock が起き得る。producer 側 lookup を read-only-first にし、writer は bounded queue 消費中だけ connection を使う。
   - 完了: current schema の `LoadChartInfosBySha256()` / `LoadChartInfosByMd5()` は read-only connection で lookup し、schema 未整備や read-only open 不可の場合だけ従来どおり writable + schema ensure へ fallback する。
   - 完了: `commitQueue` を bounded queue にし、専用 writer task が `FileDiffStreamingCommitContext` を所有して `AddChunk()` / `Flush()` を実行する。
-  - 継続: writer 失敗時の reader / parser / post-parse cancel propagation は、現行の task exception propagation からさらに明示的な cancellation へ整理する。
+  - 完了: writer 失敗時は `PipelineExceptionSignal` で post-parse 側の commit queue 投入を停止し、bounded queue 待ちで固まらないようにした。
   - delete / date-only / moved hash relink / inline chart_info publish の順序制約を現行動作から洗い出し、streaming 化してよい chunk と final barrier が必要な chunk を分ける。
   - runtime catalog swap は従来どおり file diff 全体の成功後に行う。DB chunk commit が先行しても、in-memory owner replacement と UI notification は途中公開しない。
   - inline `chart_info` index publish は chunk commit 後に限定する。ただし大量 current-skip row を publish しない既存方針は維持する。
@@ -246,7 +246,7 @@ target enumeration
   - 完了: file diff の batch slow log に `bmsMaintenanceMs`, `bmsonMaintenanceMs`, `healthMs`, `encodingMs`, `cacheHit`, `fileExistsFallback` を追加する。
   - 完了: manual rescan の `maintenance_rescan_chunk` に `healthMs`, `encodingMs`, `bmsonRefreshMs`, `cacheHit`, `fileExistsFallback` を追加する。
   - 完了: manual snapshot pipeline は item-local `ResourceHealthLookupContext` で評価し、親 context へ counter を合算する。これにより chunk log の cache / fallback は累積値の二重加算ではなく、file diff batch log と同じ粒度の評価結果になる。
-  - 完了: file diff inline maintenance の BMS / bmson evaluator は item-local context ではなく、pipeline 共通 context を受け取る。item result の `cacheHit` / `fileExistsFallback` は累積値ではなく呼び出し前後の差分として返す。
+  - 完了: file diff inline maintenance の BMS / bmson evaluator は pipeline 共通の resource existence cache を共有し、item result の `cacheHit` / `fileExistsFallback` は item-local counter scope から返す。
   - 完了: `song_tbl_file_check_breakdown` に `inline_maintenance_shared_resource_cache_entries` を追加し、共有 cache がどの程度形成されたかを次回起動ログで確認できるようにする。
   - 継続: manual rescan の `maintenance_rescan_chunk` と file diff の `song_tbl_file_check_batch_slow` で、read / digest / compute / health / encoding / commit の語彙をさらに揃える。
   - encoding slow item、resource ref count が極端に大きい chart、resource lookup cache hit count の増え方を path 付きで追跡できるようにする。

@@ -1635,6 +1635,7 @@ internal sealed class BmsLibraryInitializationService
         int workerProgressCount = parseProcessedCount;
         int snapshotQueueHighWatermark = 0;
         Exception postParseException = null;
+        var pipelineException = new PipelineExceptionSignal();
         var folderParentHashCache = new Lr2SongFolderParentNormalizer.Lr2FolderParentHashCache();
         var parsedCommitChunks = new List<FileScanDiffCommitChunk>();
 
@@ -1660,6 +1661,7 @@ internal sealed class BmsLibraryInitializationService
                         movedBmsSourcesByMd5,
                         commitContext?.ShouldPruneCommittedInlineRows == true,
                         commitQueue,
+                        pipelineException,
                         ref commitQueueWaitTicks);
                     batchStopwatch.Stop();
                     int batchNumber = Interlocked.Increment(ref postParseBatchCount);
@@ -1704,26 +1706,53 @@ internal sealed class BmsLibraryInitializationService
             }
             finally
             {
-                commitQueue.CompleteAdding();
+                try
+                {
+                    commitQueue.CompleteAdding();
+                }
+                catch (InvalidOperationException)
+                {
+                }
             }
         });
         var commitCollectorTask = Task.Run(delegate
         {
-            foreach (FileScanDiffCommitChunk chunk in commitQueue.GetConsumingEnumerable())
+            try
+            {
+                foreach (FileScanDiffCommitChunk chunk in commitQueue.GetConsumingEnumerable())
+                {
+                    if (streamCommitChunks)
+                    {
+                        commitContext.AddChunk(chunk);
+                    }
+                    else
+                    {
+                        parsedCommitChunks.Add(chunk);
+                    }
+                }
+                if (streamCommitChunks)
+                {
+                    commitContext.Flush();
+                }
+            }
+            catch (Exception ex)
+            {
+                pipelineException.Set(ex);
+                try
+                {
+                    commitQueue.CompleteAdding();
+                }
+                catch (InvalidOperationException)
+                {
+                }
+                throw;
+            }
+            finally
             {
                 if (streamCommitChunks)
                 {
-                    commitContext.AddChunk(chunk);
+                    commitContext.ReleaseSongDb();
                 }
-                else
-                {
-                    parsedCommitChunks.Add(chunk);
-                }
-            }
-            if (streamCommitChunks)
-            {
-                commitContext.Flush();
-                commitContext.ReleaseSongDb();
             }
         });
 
@@ -1740,7 +1769,7 @@ internal sealed class BmsLibraryInitializationService
                     }
 
                     FileDiffReadCandidate candidate = ReadFileDiffTarget(parseTargets[index], ref readTicks);
-                    AddWithWait(readQueue, candidate, ref readerOutputWaitTicks);
+                    AddWithWait(readQueue, candidate, ref readerOutputWaitTicks, pipelineException);
                     UpdateHighWatermark(ref snapshotQueueHighWatermark, readQueue.Count);
                 }
             }))];
@@ -1754,11 +1783,12 @@ internal sealed class BmsLibraryInitializationService
                     FileDiffParsedCandidate parsedCandidate = ParseFileDiffCandidate(readCandidate, folderParentHashCache, ref digestTicks, ref bmsParseTicks, ref bmsonParseTicks);
                     int processed = Interlocked.Increment(ref workerProgressCount);
                     reportParseProgress?.Invoke(parseTargetCount, processed, parsedCandidate.Path);
-                    AddWithWait(parsedQueue, parsedCandidate, ref parserOutputWaitTicks);
+                    AddWithWait(parsedQueue, parsedCandidate, ref parserOutputWaitTicks, pipelineException);
                 }
             }))];
         Task parserCompletionTask = Task.WhenAll(workerTasks).ContinueWith(_ => parsedQueue.CompleteAdding());
 
+        Exception pipelineFailure = null;
         try
         {
             var bmsBatch = new List<InlineBmsParseCandidate>(batchSize);
@@ -1775,7 +1805,7 @@ internal sealed class BmsLibraryInitializationService
                 }
                 if (bmsBatch.Count + bmsonBatch.Count >= batchSize)
                 {
-                    EnqueuePostParseBatch(postParseQueue, new FileDiffParsedBatch(bmsBatch, bmsonBatch), ref postParseQueueWaitTicks, ref postParseException);
+                    EnqueuePostParseBatch(postParseQueue, new FileDiffParsedBatch(bmsBatch, bmsonBatch), pipelineException, ref postParseQueueWaitTicks, ref postParseException);
                     bmsBatch = new List<InlineBmsParseCandidate>(batchSize);
                     bmsonBatch = new List<InlineBmsonParseCandidate>(batchSize);
                 }
@@ -1783,20 +1813,76 @@ internal sealed class BmsLibraryInitializationService
 
             if (bmsBatch.Count > 0 || bmsonBatch.Count > 0)
             {
-                EnqueuePostParseBatch(postParseQueue, new FileDiffParsedBatch(bmsBatch, bmsonBatch), ref postParseQueueWaitTicks, ref postParseException);
+                EnqueuePostParseBatch(postParseQueue, new FileDiffParsedBatch(bmsBatch, bmsonBatch), pipelineException, ref postParseQueueWaitTicks, ref postParseException);
             }
+        }
+        catch (Exception ex)
+        {
+            CapturePipelineException(ex, pipelineException, ref pipelineFailure);
         }
         finally
         {
-            postParseQueue.CompleteAdding();
+            CompleteAddingSilently(postParseQueue);
+            if (pipelineFailure != null)
+            {
+                CompleteAddingSilently(readQueue);
+                CompleteAddingSilently(parsedQueue);
+                CompleteAddingSilently(commitQueue);
+            }
         }
 
-        Task.WaitAll(readerTasks);
-        readerCompletionTask.Wait();
-        Task.WaitAll(workerTasks);
-        parserCompletionTask.Wait();
-        postParseTask.Wait();
-        commitCollectorTask.Wait();
+        try
+        {
+            Task.WaitAll(readerTasks);
+        }
+        catch (Exception ex)
+        {
+            CapturePipelineException(ex, pipelineException, ref pipelineFailure);
+        }
+        try
+        {
+            readerCompletionTask.Wait();
+        }
+        catch (Exception ex)
+        {
+            CapturePipelineException(ex, pipelineException, ref pipelineFailure);
+        }
+        try
+        {
+            Task.WaitAll(workerTasks);
+        }
+        catch (Exception ex)
+        {
+            CapturePipelineException(ex, pipelineException, ref pipelineFailure);
+        }
+        try
+        {
+            parserCompletionTask.Wait();
+        }
+        catch (Exception ex)
+        {
+            CapturePipelineException(ex, pipelineException, ref pipelineFailure);
+        }
+        try
+        {
+            postParseTask.Wait();
+        }
+        catch (Exception ex)
+        {
+            CapturePipelineException(ex, pipelineException, ref pipelineFailure);
+        }
+        try
+        {
+            commitCollectorTask.Wait();
+        }
+        catch (Exception ex)
+        {
+            CapturePipelineException(ex, pipelineException, ref pipelineFailure);
+        }
+        if (pipelineFailure != null)
+        {
+            throw new AggregateException(pipelineFailure);
+        }
         PrepareMovedBmsUserColumnRestores(
             pipelineResult,
             movedBmsSourcesByMd5,
@@ -2022,6 +2108,7 @@ internal sealed class BmsLibraryInitializationService
         Dictionary<string, Queue<BMSFile>> movedBmsSourcesByMd5,
         bool shouldPruneCommittedInlineRows,
         BlockingCollection<FileScanDiffCommitChunk> commitQueue,
+        PipelineExceptionSignal pipelineException,
         ref long commitQueueWaitTicks)
     {
         var metrics = new FileDiffPostParseBatchMetrics
@@ -2165,7 +2252,7 @@ internal sealed class BmsLibraryInitializationService
         }
         AddRemainingInlineRows([], ref commitChunk, chartInfoByMd5, appliedChartInfoByMd5, failureByMd5, failureDeletes, int.MaxValue);
         long beforeCommitQueueWaitTicks = Volatile.Read(ref commitQueueWaitTicks);
-        AddWithWait(commitQueue, commitChunk, ref commitQueueWaitTicks);
+        AddCommitChunkWithWait(commitQueue, commitChunk, pipelineException, ref commitQueueWaitTicks);
         metrics.CommitQueueWaitTicks = Math.Max(0L, Volatile.Read(ref commitQueueWaitTicks) - beforeCommitQueueWaitTicks);
         if (shouldPruneCommittedInlineRows)
         {
@@ -2256,7 +2343,7 @@ internal sealed class BmsLibraryInitializationService
             BMSFile file = candidate?.File;
             if (file != null)
             {
-                results[index] = BuildInlineBmsMaintenance(file, candidate.Snapshot, lookupContext);
+                results[index] = BuildInlineBmsMaintenance(file, candidate.Snapshot, CreateInlineResourceLookupScope(lookupContext));
             }
         });
         LogInlineMaintenanceWarnings(results, logInstallPerformanceWarn);
@@ -2279,11 +2366,16 @@ internal sealed class BmsLibraryInitializationService
             LR2SongDBExtended.bmson_song song = candidates[index]?.Song;
             if (song != null)
             {
-                results[index] = BuildInlineBmsonMaintenance(song, lookupContext);
+                results[index] = BuildInlineBmsonMaintenance(song, CreateInlineResourceLookupScope(lookupContext));
             }
         });
         LogInlineMaintenanceWarnings(results, logInstallPerformanceWarn);
         return results;
+    }
+
+    private static ResourceHealthLookupContext CreateInlineResourceLookupScope(ResourceHealthLookupContext lookupContext)
+    {
+        return lookupContext?.CreateCounterScope() ?? new ResourceHealthLookupContext(null);
     }
 
     private static InlineMaintenanceItemResult BuildInlineBmsMaintenance(
@@ -2514,27 +2606,120 @@ internal sealed class BmsLibraryInitializationService
         while (Interlocked.CompareExchange(ref maxTicks, value, observed) != observed);
     }
 
-    private static void AddWithWait<T>(BlockingCollection<T> queue, T item, ref long waitTicks)
+    private static void AddWithWait<T>(
+        BlockingCollection<T> queue,
+        T item,
+        ref long waitTicks,
+        PipelineExceptionSignal exceptionSignal = null)
     {
         if (queue == null)
         {
             return;
         }
         long start = Stopwatch.GetTimestamp();
-        queue.Add(item);
-        long elapsed = Stopwatch.GetTimestamp() - start;
-        if (elapsed > 0L)
+        while (true)
         {
-            Interlocked.Add(ref waitTicks, elapsed);
+            ThrowIfSignaled(exceptionSignal);
+            try
+            {
+                if (queue.TryAdd(item, 100))
+                {
+                    long elapsed = Stopwatch.GetTimestamp() - start;
+                    if (elapsed > 0L)
+                    {
+                        Interlocked.Add(ref waitTicks, elapsed);
+                    }
+                    return;
+                }
+            }
+            catch (InvalidOperationException)
+            {
+                ThrowIfSignaled(exceptionSignal);
+                throw;
+            }
+        }
+    }
+
+    private static void AddCommitChunkWithWait(
+        BlockingCollection<FileScanDiffCommitChunk> queue,
+        FileScanDiffCommitChunk chunk,
+        PipelineExceptionSignal writerException,
+        ref long waitTicks)
+    {
+        if (queue == null || chunk == null || !chunk.HasItems)
+        {
+            return;
+        }
+
+        long start = Stopwatch.GetTimestamp();
+        while (true)
+        {
+            ThrowIfSignaled(writerException);
+            try
+            {
+                if (queue.TryAdd(chunk, 100))
+                {
+                    long elapsed = Stopwatch.GetTimestamp() - start;
+                    if (elapsed > 0L)
+                    {
+                        Interlocked.Add(ref waitTicks, elapsed);
+                    }
+                    return;
+                }
+            }
+            catch (InvalidOperationException)
+            {
+                ThrowIfSignaled(writerException);
+                throw;
+            }
+        }
+    }
+
+    private static void ThrowIfSignaled(PipelineExceptionSignal exceptionSignal)
+    {
+        Exception exception = exceptionSignal?.Get();
+        if (exception != null)
+        {
+            throw new AggregateException(exception);
+        }
+    }
+
+    private static void CapturePipelineException(
+        Exception exception,
+        PipelineExceptionSignal exceptionSignal,
+        ref Exception pipelineFailure)
+    {
+        if (exception == null)
+        {
+            return;
+        }
+        pipelineFailure ??= exception;
+        exceptionSignal?.Set(exception);
+    }
+
+    private static void CompleteAddingSilently<T>(BlockingCollection<T> queue)
+    {
+        if (queue == null)
+        {
+            return;
+        }
+        try
+        {
+            queue.CompleteAdding();
+        }
+        catch (InvalidOperationException)
+        {
         }
     }
 
     private static void EnqueuePostParseBatch(
         BlockingCollection<FileDiffParsedBatch> queue,
         FileDiffParsedBatch batch,
+        PipelineExceptionSignal pipelineException,
         ref long waitTicks,
         ref Exception postParseException)
     {
+        ThrowIfSignaled(pipelineException);
         Exception capturedException = Volatile.Read(ref postParseException);
         if (capturedException != null)
         {
@@ -2542,11 +2727,29 @@ internal sealed class BmsLibraryInitializationService
         }
         try
         {
-            AddWithWait(queue, batch, ref waitTicks);
+            AddWithWait(queue, batch, ref waitTicks, pipelineException);
         }
         catch (InvalidOperationException) when (Volatile.Read(ref postParseException) != null)
         {
             throw new AggregateException(Volatile.Read(ref postParseException));
+        }
+    }
+
+    private sealed class PipelineExceptionSignal
+    {
+        private Exception exception;
+
+        public Exception Get()
+        {
+            return Volatile.Read(ref exception);
+        }
+
+        public void Set(Exception value)
+        {
+            if (value != null)
+            {
+                Interlocked.CompareExchange(ref exception, value, null);
+            }
         }
     }
 
@@ -2651,6 +2854,7 @@ internal sealed class BmsLibraryInitializationService
                     + " elapsedMs=" + restoreStopwatch.ElapsedMilliseconds
                     + " exception=" + ex.GetType().Name
                     + " message=" + QuoteLogValue(ex.Message));
+                ReleaseSongDb();
                 throw;
             }
             restoreStopwatch.Stop();
@@ -2661,6 +2865,7 @@ internal sealed class BmsLibraryInitializationService
                 + " chunk=" + chunkNumber
                 + " rows=" + rows.Count
                 + " elapsedMs=" + restoreStopwatch.ElapsedMilliseconds);
+            ReleaseSongDb();
         }
 
         public void Dispose()
@@ -2724,6 +2929,7 @@ internal sealed class BmsLibraryInitializationService
                     + " elapsedMs=" + chunkStopwatch.ElapsedMilliseconds
                     + " exception=" + ex.GetType().Name
                     + " message=" + QuoteLogValue(ex.Message));
+                ReleaseSongDb();
                 throw;
             }
             chunkStopwatch.Stop();
@@ -2747,6 +2953,7 @@ internal sealed class BmsLibraryInitializationService
                 result.InlineChartInfoIndexPublishedCount += chunk.ChartInfoRows.Count;
                 inlineChartInfoRowsCommitted(chunk.ChartInfoRows);
             }
+            ReleaseSongDb();
         }
 
         private void EnsureSongDb()
@@ -2754,10 +2961,11 @@ internal sealed class BmsLibraryInitializationService
             songDb ??= dbGateway.OpenSongDb();
             if (!pragmasApplied)
             {
-                result.Pragmas.AddRange(songDb.TryApplyReadOptimizedPragmas(options?.EnableReadOptimizedPragmas ?? false));
-                if (result.Pragmas.Count > 0)
+                List<string> pragmas = songDb.TryApplyReadOptimizedPragmas(options?.EnableReadOptimizedPragmas ?? false);
+                result.Pragmas.AddRange(pragmas);
+                if (pragmas.Count > 0)
                 {
-                    logInstallPerformance?.Invoke("db_read_pragmas scope=song_tbl_file_check " + string.Join(" ", result.Pragmas));
+                    logInstallPerformance?.Invoke("db_read_pragmas scope=song_tbl_file_check " + string.Join(" ", pragmas));
                 }
                 pragmasApplied = true;
             }

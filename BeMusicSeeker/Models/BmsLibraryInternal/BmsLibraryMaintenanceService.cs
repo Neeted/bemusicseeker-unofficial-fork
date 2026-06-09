@@ -1016,7 +1016,7 @@ internal sealed class BmsLibraryMaintenanceService
                         long digestStart = Stopwatch.GetTimestamp();
                         snapshot = ChartFileContentReader.CreateSnapshot(candidate.Buffer);
                         digestElapsedTicks = Stopwatch.GetTimestamp() - digestStart;
-                        var itemLookupContext = new ResourceHealthLookupContext(resourceLookupContext.DirectoryLookupCache);
+                        ResourceHealthLookupContext itemLookupContext = resourceLookupContext.CreateCounterScope();
                         itemResult = EvaluateMaintenanceTarget(candidate.Target, snapshot, itemLookupContext, forceUpdate: true);
                         resourceLookupContext.AddCounters(itemLookupContext);
                     }

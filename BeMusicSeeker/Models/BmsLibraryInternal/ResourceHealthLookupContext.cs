@@ -13,9 +13,9 @@ internal enum ResourceHealthFallbackKind
     Unknown
 }
 
-internal sealed class ResourceHealthLookupContext(DirectoryResourceLookupCache directoryLookupCache)
+internal sealed class ResourceHealthLookupContext
 {
-    private readonly ConcurrentDictionary<ResourceHealthCacheKey, bool> cacheResolvedResourceExistsByKey = new();
+    private readonly ConcurrentDictionary<ResourceHealthCacheKey, bool> cacheResolvedResourceExistsByKey;
 
     private long cacheHitCount;
 
@@ -31,7 +31,20 @@ internal sealed class ResourceHealthLookupContext(DirectoryResourceLookupCache d
 
     private long unknownFileExistsFallbackCount;
 
-    public DirectoryResourceLookupCache DirectoryLookupCache { get; } = directoryLookupCache;
+    public ResourceHealthLookupContext(DirectoryResourceLookupCache directoryLookupCache)
+        : this(directoryLookupCache, new ConcurrentDictionary<ResourceHealthCacheKey, bool>())
+    {
+    }
+
+    private ResourceHealthLookupContext(
+        DirectoryResourceLookupCache directoryLookupCache,
+        ConcurrentDictionary<ResourceHealthCacheKey, bool> cacheResolvedResourceExistsByKey)
+    {
+        DirectoryLookupCache = directoryLookupCache;
+        this.cacheResolvedResourceExistsByKey = cacheResolvedResourceExistsByKey ?? new ConcurrentDictionary<ResourceHealthCacheKey, bool>();
+    }
+
+    public DirectoryResourceLookupCache DirectoryLookupCache { get; }
 
     public int SharedResourceCacheEntryCount => cacheResolvedResourceExistsByKey.Count;
 
@@ -48,6 +61,11 @@ internal sealed class ResourceHealthLookupContext(DirectoryResourceLookupCache d
     public long OptionalImageFileExistsFallbackCount => Interlocked.Read(ref optionalImageFileExistsFallbackCount);
 
     public long UnknownFileExistsFallbackCount => Interlocked.Read(ref unknownFileExistsFallbackCount);
+
+    public ResourceHealthLookupContext CreateCounterScope()
+    {
+        return new ResourceHealthLookupContext(DirectoryLookupCache, cacheResolvedResourceExistsByKey);
+    }
 
     public DirectoryResourceLookupCache.Entry GetResourceEntryOrNull(string directoryPath)
     {
