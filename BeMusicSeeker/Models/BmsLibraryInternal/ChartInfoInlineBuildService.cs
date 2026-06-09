@@ -7,7 +7,11 @@ using BeMusicSeeker.Models.LR2;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
-internal sealed class ChartInfoInlineBuildService(ChartInfoBuildService chartInfoBuildService, int parserDegree, int? batchSizeOverride = null)
+internal sealed class ChartInfoInlineBuildService(
+    ChartInfoBuildService chartInfoBuildService,
+    int parserDegree,
+    int? batchSizeOverride = null,
+    IReadOnlyDictionary<string, LR2SongDBExtended.chart_info> currentRowsBySha256 = null)
 {
     // Shared inline chart_info builder for file diff and package install.
     // It consumes short-lived ChartFileSnapshot bytes and never keeps them in long-lived models.
@@ -18,6 +22,8 @@ internal sealed class ChartInfoInlineBuildService(ChartInfoBuildService chartInf
     private readonly int parserDegree = Math.Max(1, parserDegree);
 
     private readonly int batchSize = Math.Max(1, batchSizeOverride ?? DefaultBatchSize);
+
+    private readonly IReadOnlyDictionary<string, LR2SongDBExtended.chart_info> preloadedCurrentRowsBySha256 = currentRowsBySha256;
 
     public int BatchSize => batchSize;
 
@@ -160,18 +166,31 @@ internal sealed class ChartInfoInlineBuildService(ChartInfoBuildService chartInf
         total.ParseMs += source.ParseMs;
     }
 
-    private static Dictionary<string, LR2SongDBExtended.chart_info> LoadCurrentRows(BmsLibraryDbGateway dbGateway, IEnumerable<ChartFileSnapshot> snapshots)
+    private Dictionary<string, LR2SongDBExtended.chart_info> LoadCurrentRows(BmsLibraryDbGateway dbGateway, IEnumerable<ChartFileSnapshot> snapshots)
     {
-        if (dbGateway == null)
-        {
-            return new Dictionary<string, LR2SongDBExtended.chart_info>(StringComparer.OrdinalIgnoreCase);
-        }
         var sha256s = new HashSet<string>(
             (snapshots ?? [])
                 .Where(snapshot => snapshot != null && !string.IsNullOrWhiteSpace(snapshot.Sha256))
                 .Select(snapshot => snapshot.Sha256),
             StringComparer.OrdinalIgnoreCase);
-        return sha256s.Count == 0
+        if (sha256s.Count == 0)
+        {
+            return new Dictionary<string, LR2SongDBExtended.chart_info>(StringComparer.OrdinalIgnoreCase);
+        }
+        if (preloadedCurrentRowsBySha256 != null)
+        {
+            var rows = new Dictionary<string, LR2SongDBExtended.chart_info>(StringComparer.OrdinalIgnoreCase);
+            foreach (string sha256 in sha256s)
+            {
+                if (preloadedCurrentRowsBySha256.TryGetValue(sha256, out LR2SongDBExtended.chart_info row)
+                    && row != null)
+                {
+                    rows[sha256] = row;
+                }
+            }
+            return rows;
+        }
+        return dbGateway == null
             ? new Dictionary<string, LR2SongDBExtended.chart_info>(StringComparer.OrdinalIgnoreCase)
             : dbGateway.LoadChartInfosBySha256(sha256s);
     }

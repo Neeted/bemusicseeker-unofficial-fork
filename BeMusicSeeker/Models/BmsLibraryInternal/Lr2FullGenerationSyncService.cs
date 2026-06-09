@@ -1067,7 +1067,7 @@ internal static class Lr2FullGenerationSyncService
                 missingCurrentSongRowCount++;
                 continue;
             }
-            if (!row.Date.HasValue || row.Date.GetValueOrDefault() <= 0)
+            if (row.Date.HasValue && row.Date.GetValueOrDefault() == 0)
             {
                 dateMissingSongRowCount++;
                 if (dateMissingSongRowSamples.Count < 10)
@@ -1184,15 +1184,16 @@ internal static class Lr2FullGenerationSyncService
                 AddCleanupFolderRowPath(cleanupFolderRowPaths, row.Path);
             }
         }
+        HashSet<string> expectedPhysicalNormalFolderPaths = RemoveKnownRelativeLr2FolderDirectories(expectedNormalFolderPaths);
         IReadOnlyList<string> missingExpectedFolderRowSamples = GetMissingExpectedRows(
-            expectedNormalFolderPaths,
+            expectedPhysicalNormalFolderPaths,
             existingNormalFolderPaths,
             10);
         IReadOnlyList<string> missingExpectedLr2FolderRowSamples = GetMissingExpectedRows(
             expectedLr2FolderPaths,
             existingLr2FolderPaths,
             10);
-        int missingExpectedFolderRowCount = CountMissingExpectedRows(expectedNormalFolderPaths, existingNormalFolderPaths);
+        int missingExpectedFolderRowCount = CountMissingExpectedRows(expectedPhysicalNormalFolderPaths, existingNormalFolderPaths);
         int missingExpectedLr2FolderRowCount = CountMissingExpectedRows(expectedLr2FolderPaths, existingLr2FolderPaths);
 
         return new Lr2StartupScanDiagnosticResult(
@@ -1422,6 +1423,32 @@ internal static class Lr2FullGenerationSyncService
             }
         }
         return result;
+    }
+
+    private static HashSet<string> RemoveKnownRelativeLr2FolderDirectories(IEnumerable<string> paths)
+    {
+        var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (string path in paths ?? [])
+        {
+            if (!IsKnownRelativeLr2FolderDirectory(path))
+            {
+                result.Add(path);
+            }
+        }
+        return result;
+    }
+
+    private static bool IsKnownRelativeLr2FolderDirectory(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || Path.IsPathRooted(path))
+        {
+            return false;
+        }
+        string normalized = path.Trim()
+            .Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar)
+            .TrimEnd(Path.DirectorySeparatorChar);
+        return string.Equals(normalized, @"LR2files\CustomFolder", StringComparison.OrdinalIgnoreCase)
+            || normalized.StartsWith(@"LR2files\CustomFolder\", StringComparison.OrdinalIgnoreCase);
     }
 
     private static HashSet<string> CreateExpectedLr2FolderRowPaths(Lr2FullGenerationSyncRequest request)

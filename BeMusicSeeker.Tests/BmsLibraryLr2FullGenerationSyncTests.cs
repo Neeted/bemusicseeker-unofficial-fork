@@ -3259,6 +3259,84 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
+    public void SyncService_DoesNotTreatNegativeSongDateAsMissing()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        try
+        {
+            string rootDirectory = Path.Combine(scope.DirectoryPath, "KnownRoot");
+            string songDirectory = Path.Combine(rootDirectory, "Song");
+            Directory.CreateDirectory(songDirectory);
+            string chartPath = Path.Combine(songDirectory, "negative-date.bms");
+            File.WriteAllText(chartPath, "#TITLE Negative Date\r\n#BPM 120\r\n#00111:01\r\n", Encoding.ASCII);
+            TestableBmsFile file = CreateSyncTestFile(chartPath, ChartFileContentReader.ReadSnapshot(chartPath));
+            file.date = -1;
+            using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+            songDb.CreateTable<LR2SongDB.song>();
+            songDb.CreateTable<LR2SongDB.folder>();
+            songDb.InsertOrReplace(file.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
+
+            Lr2FullGenerationSyncResult result = Lr2FullGenerationSyncService.Run(songDb, new Lr2FullGenerationSyncRequest
+            {
+                Signature = "negative-song-date",
+                RunId = "negative-song-date",
+                RootDirectories = [rootDirectory],
+                ChartPaths = [chartPath],
+                SongRows = [file],
+                StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc)
+            });
+
+            Assert.AreEqual(Lr2FullGenerationSyncService.CompletedStage, result.FinalStage);
+            Assert.AreEqual(0, result.StartupScanDiagnosticResult.DateMissingSongRowCount);
+            LR2SongDBExtended.lr2_full_generation_status row = songDb.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
+            Assert.AreEqual("Completed", row.status);
+        }
+        finally
+        {
+            ResetTouchedSettings();
+        }
+    }
+
+    [TestMethod]
+    public void SyncService_DoesNotTreatNullSongDateAsMissing()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        try
+        {
+            string rootDirectory = Path.Combine(scope.DirectoryPath, "KnownRoot");
+            string songDirectory = Path.Combine(rootDirectory, "Song");
+            Directory.CreateDirectory(songDirectory);
+            string chartPath = Path.Combine(songDirectory, "null-date.bms");
+            File.WriteAllText(chartPath, "#TITLE Null Date\r\n#BPM 120\r\n#00111:01\r\n", Encoding.ASCII);
+            TestableBmsFile file = CreateSyncTestFile(chartPath, ChartFileContentReader.ReadSnapshot(chartPath));
+            file.date = null;
+            using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+            songDb.CreateTable<LR2SongDB.song>();
+            songDb.CreateTable<LR2SongDB.folder>();
+            songDb.InsertOrReplace(file.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
+
+            Lr2FullGenerationSyncResult result = Lr2FullGenerationSyncService.Run(songDb, new Lr2FullGenerationSyncRequest
+            {
+                Signature = "null-song-date",
+                RunId = "null-song-date",
+                RootDirectories = [rootDirectory],
+                ChartPaths = [chartPath],
+                SongRows = [file],
+                StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc)
+            });
+
+            Assert.AreEqual(Lr2FullGenerationSyncService.CompletedStage, result.FinalStage);
+            Assert.AreEqual(0, result.StartupScanDiagnosticResult.DateMissingSongRowCount);
+            LR2SongDBExtended.lr2_full_generation_status row = songDb.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
+            Assert.AreEqual("Completed", row.status);
+        }
+        finally
+        {
+            ResetTouchedSettings();
+        }
+    }
+
+    [TestMethod]
     public void SyncService_DeletesFolderDateMissingRowAndCompletes()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();

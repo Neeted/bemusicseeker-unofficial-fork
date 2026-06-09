@@ -14,6 +14,12 @@
 - file diff の DB commit chunk は bounded queue と専用 writer task で streaming されるようになった。次は実機ログで read / parse / inline maintenance と DB write が重なっていること、失敗時に producer 側が停止することを確認する。
 - file diff inline maintenance と manual maintenance rescan は同じ性質の resource health / encoding 評価を持つため、個別最適化ではなく共通 evaluator / 共通計測として扱う必要がある。
 
+同日の後続ログでは、2048 barrier を外したこと自体は正しい一方、post-parse を 1 件単位へ寄せたことで性能が悪化した。`post_parse_batch_count=210794`、`parser_output_wait_ms` の増大、`inline_maintenance_wall_ms` の長大化から、parser worker は並列でも single post-parse consumer が bottleneck になり、pipeline がそこで詰まっている。single consumer 内の maintenance 並列評価も 1 item では効かない。また `commit_streaming_barrier=none` でも、DB writer が 10000 件 chunk を 4-5 秒 commit している間に commit queue が詰まり、post-parse 側が `commitQueueMs` として待っている。現行の未コミット差分は機能的には破綻していないが、性能が戻り切っていない中間状態として扱い、この状態を最終 commit 境界にしない。
+
+LR2 full generation の freshness 判定も見直す。`song.db` 完全生成が有効な run では、file diff と LR2 full generation は同じ generated song row を作るべきであり、全 generated column / digest を DB projection で再比較する厳密 verifier は高コストな drift 診断へ下げる。自動 follow-up の skip gate は、同一 scan/input generation、file diff が今回 durably commit した BMS owner path coverage、inline maintenance / chart_info coverage、moved hash relink ambiguity なしを主条件にする。
+
+`missing_expected_folder` は通常 folder 欠落ではなく、LR2 built-in `.lr2folder` 親ディレクトリを normal folder 期待値へ混ぜたことが原因と見る。`LR2files\CustomFolder\INSANE01\` / `INSANE02\` のような built-in custom folder 親は `.lr2folder` file row の分類・同期対象であり、物理 normal folder row として期待しない。修正は推測で特殊名を除外するのではなく、LR2 folder parent/category directory expected set と normal folder expected set を分離し、built-in source classification が root custom output classification に負けないようにする。
+
 このため、この計画は狭義の read pipeline 統一だけでなく、大量譜面処理の reader / worker / writer / evaluator / follow-up の横断整理を扱う受け皿として継続する。
 
 ## 基本方針
@@ -134,11 +140,15 @@ target enumeration
 
 ### Phase 3: file diff pipeline を同じ vocabulary に寄せる
 
-- Status: 完了。
+- Status: 完了。reader / parser の責務分離に加え、post-parse も parser と同数の worker stage へ分離した。worker は batch-local `FileDiffPostParseResult` と commit staging chunk だけを作り、single collector が sequence 順に result counters、runtime apply list、moved hash relink tracking、commit queue 投入を集約する。
 - 空 DB / 大量差分で最も影響が大きいため、LR2 基準実装の次に扱う。
 - reader を policy に従って 1 / 2 本にできるようにする。
 - worker で digest 計算と lightweight parse を行う。
 - post-parse worker は current `chart_info` 判定、inline parse、inline maintenance row 作成に集中する。
+- 2026-06-09 追記: `InlineChartInfoBatchSize=2048` を post-parse barrier として使わない。とはいえ `DefaultFileDiffPostParseBatchSize=1` のような 1 item 固定では、post-parse 内の `Parallel.For` が並列性を失い、parser worker が output queue で待つ。現行は `DefaultFileDiffPostParseBatchSize=256` の micro-batch と parser と同数の post-parse worker を使い、snapshot bytes と resource refs は batch 内で maintenance row / chart_info staging へ畳み込んだら破棄する。
+- 完了: 旧 `FlushFileDiffParsedBatch()` の shared state mutation を、batch-local `FileDiffPostParseResult` / commit staging chunk の生成と、single collector による ordered aggregation へ分解した。parallel post-parse workers は `SongTableFileCheckResult`、runtime list、commit context を直接触らない。
+- 大量差分では schema current な read-only connection から current parser version の `chart_info` row を一括 snapshot として読み、per-batch DB lookup を避ける。DB commit は引き続き `DbCommitChunkSize` の transaction 単位として独立させる。
+- 完了: current snapshot を張らない中規模差分では、複数 post-parse batch が同じ実行内の先行 commit を current row として観測しないよう、post-parse worker に空 snapshot を渡して per-batch DB lookup を抑止する。小差分 1 batch では従来どおり current row lookup を許容する。
 - 差分少数では reader 1 本のままになるようにし、startup 差分 0 の hot path を重くしない。
 - `song_tbl_file_check_breakdown` には reader degree と digest time を追加する。
 
@@ -183,28 +193,29 @@ target enumeration
 
 ### Phase 8: 大量 file diff 後の自動 LR2 full generation 再読込回避
 
-- Status: 実装中。直前 file diff の鮮度 snapshot と DB projection verifier を導入し、初回自動 follow-up で `song_rows` が current と確認できる場合は stage を skip する。追加で、resumable partial sync ではなく、同じ起動サイクル内で file diff が新規挿入した `song` row を今回だけ処理対象から外す簡素な方針へ寄せる。
+- Status: 方針変更。直前 file diff の鮮度 snapshot と DB projection verifier は導入済みだが、完全生成有効時の自動 follow-up では DB projection strict verifier を必須 gate にしない。file diff が今回 durably commit した path coverage を主判定にし、strict verifier は drift 診断へ下げる。
 - 目的は、手動 full generation resync の重い再検証を変えることではなく、同じ起動サイクル内の大量 file diff 直後に自動実行される初回 LR2 full generation が、直前に read / parse 済みの譜面を全件再 read する状態を避けること。
 - 対象は「空 DB 初回」専用ではなく、大量差分で file diff が多数の `song` / `bmson_song` / `chart_digest_map` / `maintenance` / `chart_info` を fresh にしたケース全般とする。
-- まず実処理の差分を固定する。
-  - file diff が新規 / 更新 BMS から生成している `song` row、digest、inline `chart_info`、inline maintenance、LR2 compatibility facts 相当の有無を確認する。
-  - LR2 full generation `song_rows` writer が追加で必要としている generated song columns、`chart_info` numeric apply、LR2 compatibility facts、durable cursor / status contract を列挙する。
-  - file diff 後の DB projection だけで `song_rows` を current と判断できる条件を定義する。
+- 前提を固定する。
+  - LR2 `song.db` 完全生成設定が有効な run では、file diff と LR2 full generation は同じ generated song row を作る。`subtitle` / `subartist` などの差分が出る場合は、skip 判定を厳しくする理由ではなく、row generator / encoding canonicalization の drift として直す。
+  - path が DB に存在するだけでは不十分。今回の file diff が durably commit した BMS owner path であることを coverage として持つ。
+  - manual resync、force、signature mismatch、coverage 不足、file diff 失敗、moved hash relink ambiguity は従来どおり `song_rows` pipeline を実行する。
 - 実装候補:
-  - 完了: `ApplyFileScanDiff()` の結果から、大量差分の generated row 鮮度を表す summary を runtime snapshot として保持する。現時点では scan surface generation、BMS/BMSON owner version、BMS target coverage、inline maintenance coverage を照合する。
-  - 完了: LR2 full generation の `song_rows` 前に、直前 file diff summary と DB projection を照合し、`song` generated columns / `chart_digest_map` が current と確認できる場合は `song_rows` stage を skip して durable cursor を該当 stage 完了位置へ進める。
-  - 完了: skip 判定 log と summary log に `songRowSkipped` を追加する。
-  - 実装中: file diff で新規挿入された `song` row は今回の自動 follow-up `song_rows` から除外し、残りの `song` row だけを処理する。これは同じ起動サイクル内の一時的な skip とし、durable resume 対象にはしない。
+  - 完了: `ApplyFileScanDiff()` の結果から、大量差分の generated row 鮮度を表す runtime snapshot を保持する。現時点では scan surface generation、BMS/BMSON owner version、BMS target coverage、inline maintenance coverage を照合する。
+  - 変更: runtime snapshot に「今回 durably commit 済みの BMS owner path coverage」を追加し、全 current BMS owner path が coverage に含まれる場合は自動 follow-up の `song_rows` stage を丸ごと skip する。空 DB 初回では、file diff が全 BMS を追加 commit するため、この条件を満たす想定にする。
+  - 変更: DB projection strict verifier は `projection_drift` / `diagnostic` log として残し、`subtitle` / `subartist` などの mismatch を sample 出力する。ただし完全生成有効時の coverage gate が成立していれば、この mismatch だけで `song_rows` を全件再実行しない。
+  - 保留: coverage が部分的な通常大量差分では、今回 commit 済み path を自動 follow-up の `song_rows` 対象から一時的に除外し、残りだけを処理する縮小実行を検討する。これは durable resume 対象にはせず、次回起動では通常検証へ戻す。
   - 万一途中終了した場合、次回起動では前回 skip した row も含めて通常どおり再検証してよい。初回自動 full generation は一度だけの best-effort follow-up と扱い、途中再開のために skip target list を永続化しない。
   - skip できない場合は従来どおり `song_rows` pipeline を実行する。manual resync / force resync は安全側で従来動作を維持する。
 - log 方針:
-  - `lr2_full_generation_sync song_rows_skip` または同等の log に、reason、verifiedRows、targetRows、fileDiffGeneration、signature、dbProjectionMs を出す。
+  - `lr2_full_generation_sync song_rows_skip` または同等の log に、reason、coveredRows、targetRows、fileDiffGeneration、signature、coverageMs を出す。
+  - strict verifier を走らせた場合は `projection_drift` として verifiedRows、mismatchedRows、digest mismatch、sample columns を出し、skip gate とは分ける。
   - skip しなかった場合も、`song_rows_skip reason=...` でなぜ再読込が必要だったかを残す。
 - 完了条件:
-  - 完了: 大量 file diff 直後の初回自動 LR2 full generation で、DB projection が current と確認できた譜面は再 read / re-parse されない。
+  - 大量 file diff 直後の初回自動 LR2 full generation で、file diff の durable path coverage が成立した譜面は再 read / re-parse されない。
   - 完了: manual full generation resync、途中失敗 resume、signature mismatch、force 実行は従来の安全な full pipeline を維持する。
   - 完了: `startup_progress` / `Lr2FullGenerationStatusService` の durable cursor が、未 commit の処理を完了扱いにしない。
-  - 実装中: file diff 新規挿入 row を今回だけ `song_rows` 対象から外し、残りだけを処理する縮小実行を追加する。durable partial resume は要件外とし、次回起動時の重複処理は許容する。
+  - strict verifier 由来の `subtitle` / `subartist` drift は診断として出るが、coverage gate 成立時の自動 follow-up を性能回帰させない。
 - 追加診断:
   - 完了: `lr2_full_generation_sync song_rows_skip_detail` を追加し、`db_projection_not_current` の `missingRows` / `mismatchedRows` / digest mismatch が出た場合に、最大 10 件の path と不一致 column を出す。
   - 完了: `lr2_full_generation_sync startup_scan_diagnostics_detail` を追加し、`dateMissingSongRows` / `missingExpectedFolderRows` / `missingExpectedLr2FolderRows` が残った場合に、最大 10 件の path を出す。
@@ -212,7 +223,7 @@ target enumeration
 
 ### Phase 9: file diff DB commit chunk の streaming writer 化
 
-- Status: 実装済み。`commitQueue` を bounded queue 化し、専用 writer task が `FileDiffStreamingCommitContext` を所有して `AddChunk()` / `Flush()` を実行する。post-parse worker は chunk を queue へ流すだけにし、`song_tbl_file_check db_commit_chunk_start/done` が read / parse / inline maintenance の進行中から出る設計にした。
+- Status: 部分完了。`commitQueue` を bounded queue 化し、専用 writer task が `FileDiffStreamingCommitContext` を所有して `AddChunk()` / `Flush()` を実行する。post-parse staging chunk が 256 件など DB chunk より大きくなっても、writer context が `DbCommitChunkSize` 単位へ再分割して transaction 範囲を守る。残課題は、writer task が `CommitChunk()` 中は queue を消費しないため、4-5 秒の DB commit 中に post-parse 側が `commitQueueMs` で止まり得る点である。
 - writer task が開いた writable `song.db` connection は chunk commit ごとに閉じる。次 batch の `chart_info` lookup が read-only open できず writable fallback しても、writer が queue 待ち中に process lock を保持し続けない。
 - 目的は、DB writer を single writer のまま維持しつつ、post-parse が chunk を作った時点で DB commit を進め、終端の `db_commit_ms` tail と chunk 保持メモリを減らすこと。
 - 実装候補:
@@ -224,16 +235,21 @@ target enumeration
   - 知見: 直接 streaming writer を試すと、writer が writable `song.db` connection / process lock を保持したまま queue 待ちし、次 batch の `ProcessInlineBmsChartInfo()` が `LoadChartInfosBySha256()` で同じ lock を取りに行く deadlock が起き得る。producer 側 lookup を read-only-first にし、writer は bounded queue 消費中だけ connection を使う。
   - 完了: current schema の `LoadChartInfosBySha256()` / `LoadChartInfosByMd5()` は read-only connection で lookup し、schema 未整備や read-only open 不可の場合だけ従来どおり writable + schema ensure へ fallback する。
   - 完了: `commitQueue` を bounded queue にし、専用 writer task が `FileDiffStreamingCommitContext` を所有して `AddChunk()` / `Flush()` を実行する。
+  - 完了: post-parse staging chunk は writer context 側で `DbCommitChunkSize` 単位に再分割し、post-parse micro-batch size が DB transaction size を壊さないようにする。
   - 完了: writer 失敗時は `PipelineExceptionSignal` で post-parse 側の commit queue 投入を停止し、bounded queue 待ちで固まらないようにした。
+  - 変更: post-parse -> commit aggregator の input queue と、commit aggregator -> DB writer の write queue を分離する。aggregator は post-parse から staging chunk を受け取り続け、10000 mutation 程度の immutable DB chunk を組む。DB writer は write queue の chunk を commit するだけにし、commit 中も aggregator が input queue を消費できるようにする。
+  - 変更: input queue / write queue は bounded にし、1-2 commit chunk 程度を吸収できる容量から始める。DB が長期的に遅い場合は backpressure するが、短い commit pause で reader / parser / post-parse 全体が停止しないことを目標にする。
   - delete / date-only / moved hash relink / inline chart_info publish の順序制約を現行動作から洗い出し、streaming 化してよい chunk と final barrier が必要な chunk を分ける。
   - runtime catalog swap は従来どおり file diff 全体の成功後に行う。DB chunk commit が先行しても、in-memory owner replacement と UI notification は途中公開しない。
   - inline `chart_info` index publish は chunk commit 後に限定する。ただし大量 current-skip row を publish しない既存方針は維持する。
 - log 方針:
   - `commit_queue_capacity` を 0 ではなく実際の bounded capacity として出す。
+  - 二段化後は `commit_input_queue_capacity`、`db_write_queue_capacity`、`commit_aggregator_wait_ms`、`db_writer_wait_ms`、`post_parse_commit_input_wait_ms` を分ける。
   - `db_commit_chunk_start/done` が `song_tbl_file_check_batch_slow` と時間的に重なることを確認できるようにする。
   - writer wait / post-parse wait / commit wait を分離して、DB writer が詰まり始めた場合に分かるようにする。
 - 完了条件:
   - 大量差分時に DB commit chunk が post-parse 完了後だけでなく処理中から進む。
+  - DB commit chunk 中も post-parse が次の staging chunk を投入でき、`commitQueueMs` 相当の待ちが commit duration に張り付かない。
   - file diff の成功 / 失敗時の DB 一貫性、runtime apply、chart_info index publish が現行と同等である。
   - `db_commit_ms` 自体がゼロにならなくても、critical path tail と memory peak が下がる。
 
@@ -261,6 +277,23 @@ target enumeration
   - 大量差分で `inline_maintenance_wall_ms`、manual rescan で `computeMs` / `healthMs` / `encodingMs` の支配項が特定でき、同じ改善が両方に効く。
   - resource health の結果が変わらないことを、既存 warning / maintenance tests と追加 regression で確認する。
 
+### Phase 11: LR2 built-in folder parent directory の期待値分離
+
+- Status: 方針整理。`missing_expected_folder` は、LR2 built-in `.lr2folder` 親ディレクトリを normal folder row の期待値へ混ぜた診断ノイズとして扱う。`INSANE01` / `INSANE02` などの built-in custom folder parent は、`.lr2folder` file row / parent category row の surface であり、通常の BMS normal folder row と同じ期待値ではない。
+- 前提:
+  - `Lr2BuiltinCustomFolderSettings` が含める `LR2files\CustomFolder` 配下は、LR2 built-in custom folder source として扱う。
+  - `.lr2folder` parent/category directory は LR2 folder sync 側の生成・保持対象であり、BMS chart directory 由来の normal folder sync 対象ではない。
+  - root custom output が LR2 built-in custom folder root と重なる設定では、built-in source classification を優先するか、設定 validation で重複を明示的に扱う。
+- 実装候補:
+  - `CreateExpectedLr2FolderParentDirectoryRowPaths()` 由来の expected paths を normal folder expected set へ union しない。LR2 folder parent expected set と normal folder expected set を別々に持つ。
+  - `missingExpectedFolderRows` は chart directory / normal folder sync 由来だけを見る。`.lr2folder` parent 側の欠落は `missingExpectedLr2FolderRows` または LR2 folder sync diagnostic として出す。
+  - `Lr2FolderFileSourceClassifier` は built-in `LR2files\CustomFolder` source を root custom output より先に分類する。絶対 path になった built-in parent directory が relative built-in 除外に引っかからず `missing_expected_folder` へ落ちる状態を避ける。
+  - `RemoveKnownRelativeLr2FolderDirectories()` のような後段文字列除外に頼るのではなく、分類時点の source kind を diagnostic / expected set に渡す。
+- 完了条件:
+  - built-in custom folder parent directory が normal folder の `missing_expected_folder` として残らない。
+  - 実際に LR2 folder file row が欠けている場合は、`missingExpectedLr2FolderRows` または LR2 folder sync log に出る。
+  - root custom output と built-in custom folder root が重なる設定で、分類結果が安定し、特殊名の ad hoc exclude を増やさない。
+
 ## テスト計画
 
 - `ChartFileContentReader` の buffer / snapshot equivalence test。
@@ -269,7 +302,8 @@ target enumeration
 - chart_info backfill の current skip / parse failure skip / commit chunk regression。
 - maintenance rescan の changed-only upsert / bmson refs reuse regression。
 - Phase 8:
-  - 大量 file diff 後の自動 LR2 full generation が、verified current な `song_rows` を skip すること。
+  - 大量 file diff 後の自動 LR2 full generation が、durable path coverage の成立した `song_rows` を skip すること。
+  - strict projection verifier の mismatch は `projection_drift` 診断として残り、coverage gate 成立時の自動 follow-up を全件再実行しないこと。
   - signature mismatch / force / manual resync / failed resume では従来 pipeline へ落ちること。
   - skip 後の `Lr2FullGenerationStatusService` cursor / completed status が未 commit row を含まないこと。
 - Phase 9:
@@ -278,6 +312,10 @@ target enumeration
 - Phase 10:
   - file diff inline maintenance と manual rescan が同じ evaluator helper で同じ maintenance row / warning を作ること。
   - resource health cache / encoding slow log の追加で結果が変わらないこと。
+- Phase 11:
+  - built-in `LR2files\CustomFolder\INSANE01\` / `INSANE02\` parent が normal folder missing diagnostic に入らないこと。
+  - 通常 `.lr2folder` file row 欠落は LR2 folder diagnostic 側に出ること。
+  - root custom output と built-in custom folder root が重なる設定でも built-in source classification が安定すること。
 - 可能なら fake reader で reader degree と queue backpressure を確認する unit test を追加する。
 
 ## 実機確認

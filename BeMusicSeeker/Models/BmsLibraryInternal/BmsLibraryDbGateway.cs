@@ -834,6 +834,40 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
         return dictionary;
     }
 
+    /// <summary>
+    /// 現行 parser version の chart_info を read-only connection から sha256 keyed dictionary として読み込みます。
+    /// </summary>
+    /// <returns>schema が current でない、または read-only load に失敗した場合は null。</returns>
+    public Dictionary<string, LR2SongDBExtended.chart_info> TryLoadCurrentChartInfoMapReadOnly()
+    {
+        try
+        {
+            using LR2SongDBExtended songDb = OpenSongDbReadOnly();
+            if (!IsChartInfoSchemaCurrent(songDb))
+            {
+                return null;
+            }
+
+            var dictionary = new Dictionary<string, LR2SongDBExtended.chart_info>(StringComparer.OrdinalIgnoreCase);
+            string sql = "SELECT " + ChartInfoColumnList
+                + " FROM chart_info WHERE sha256 IS NOT NULL AND TRIM(sha256) <> '' AND parser_version >= "
+                + CurrentChartInfoParserVersion
+                + ";";
+            foreach (LR2SongDBExtended.chart_info item in songDb.Query<LR2SongDBExtended.chart_info>(sql))
+            {
+                if (item != null && !string.IsNullOrWhiteSpace(item.sha256))
+                {
+                    dictionary[item.sha256] = item;
+                }
+            }
+            return dictionary;
+        }
+        catch (SQLiteException)
+        {
+            return null;
+        }
+    }
+
     public ChartInfoHydrationLoadResult LoadChartInfoHydrationData(TimeSpan parseTimeout)
     {
         var result = new ChartInfoHydrationLoadResult();

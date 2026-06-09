@@ -73,6 +73,10 @@ changed path
 
 file diff の reader は `ChartFileReadPipelinePolicy` に従い、十分な CPU と複数 target がある場合は 2 本まで並列化する。reader は bytes と file metadata だけを bounded queue へ流し、MD5 / SHA-256 計算と snapshot 作成は parser worker 側で行う。file diff の progress target は lightweight parse 対象数で、BMS 追加件数と bmson 追加・更新件数の合算。`chart_info` parse failure は `song` / `bmson_song` 登録を止めない。
 
+file diff の `InlineChartInfoBatchSize` 既定値 2048 は current `chart_info` lookup / inline build helper の内部粒度であり、post-parse barrier や DB commit 単位ではない。bytes/read buffer は reader / parsed queue の件数上限で backpressure し、post-parse は snapshot を受け取った順に小さく流して、lightweight parse 後の bytes と resource refs を長く滞留させない。ただし post-parse を 1 件単位へ固定すると、single post-parse consumer 内の inline maintenance 並列評価が 1 item しか持てず、parser worker 側が詰まりやすい。現行は 旧 2048 barrier には戻さず、`DefaultFileDiffPostParseBatchSize=256` の micro-batch と parser と同数の post-parse worker を使い、snapshot bytes は maintenance row / chart_info staging へ畳み込んだら破棄する。
+
+post-parse は parser と同じく worker stage として並列化されている。並列 post-parse worker は `SongTableFileCheckResult`、`FileDiffParsePipelineResult`、runtime model、commit context を直接 mutate せず、batch-local な immutable result / commit staging chunk を返す。single collector は sequence 順にその結果を集約し、counter、moved hash relink tracking、runtime apply list、inline `chart_info` publish list、commit queue 投入を担当する。この分離により、chart_info apply や maintenance 評価は並列に進めつつ、DB commit と runtime state mutation の ordering / 一貫性は collector / writer 側へ閉じ込める。大量差分では schema current な read-only connection から current parser version の `chart_info` row だけを snapshot として読み、schema が current でない場合は従来の対象 sha256 lookup に戻す。257-2047 件程度の中規模差分で current snapshot を張らない場合は、post-parse worker に空 snapshot を渡して per-batch DB lookup を抑止し、同じ file diff 実行内の先行 commit を current row として観測する timing 依存を避ける。DB commit は別途 `DbCommitChunkSize` 既定 10000 件で transaction 範囲を切る。
+
 current `chart_info` row が存在する場合、inline parser は詳細 parse を skip できる。この row は対象 model に適用してよいが、file diff の成果物として全件蓄積しない。session chart_info index の全量更新は `chart_info_hydration` が担当し、`file_diff_inline` で publish するのは新規生成または更新した row に限定する。current row lookup は schema が current と確認できる場合 read-only connection を使い、producer 側が writable `song.db` process lock を取りに行かない。
 
 軽量 `ReloadFileDiff` では、現在の in-memory `BMSFiles` / `BmsonSongs` と scan result だけを比較する。DB 再読込、metadata bundle import、full `chart_info` hydration/backfill、installable maintenance deferred は行わない。DB 外部編集や互換修復まで拾う場合は `FullReinitialize` を使う。
@@ -85,11 +89,11 @@ current `chart_info` row が存在する場合、inline parser は詳細 parse �
 
 `song_tbl_file_check_breakdown` の `inline_encoding_*` は、BMS の encoding 判定と非 Shift_JIS 確定時の metadata reload を表す。`inline_encoding_detect_count` は判定対象数、`inline_encoding_fast_ascii_count` は bytes 由来の fast ASCII 判定、`inline_encoding_shift_jis_count` / `inline_encoding_ks_c_5601_count` / `inline_encoding_utf8_count` などは判定結果、`inline_encoding_reload_count` / `inline_encoding_reload_wall_ms` は raw metadata reload の件数と wall clock を表す。
 
-現行の file diff DB commit chunk は transaction 範囲を分けるための単位であり、post-parse が作った chunk は bounded `commitQueue` から専用 writer task へ渡される。chunk commit は `song_tbl_file_check db_commit_chunk_start/done` で見え、`commit_streaming_enabled=true` の場合は read / parse / inline maintenance と重なって進む。writer task が開いた writable `song.db` connection は chunk commit ごとに閉じ、delete / moved hash relink user column restore も必要なタイミングで開き直す。moved hash relink は、削除候補の user song columns を file diff 開始時に snapshot し、一意な destination が確定した場合だけ DB commit 後に `song_tbl_file_check user_column_restore_*` で復元する。
+file diff DB commit chunk は transaction 範囲を分けるための単位である。post-parse が作った staging chunk は bounded queue へ流し、DB writer context は受け取った staging chunk を `DbCommitChunkSize` 単位へ再分割して commit する。commit 中も post-parse 側が短時間の DB commit pause で止まり切らないよう、次段では post-parse -> commit aggregator の input queue と、commit aggregator -> DB writer の write queue を分ける。aggregator は bounded memory 内で 10000 mutation 程度の immutable DB chunk を組み、writer は chunk commit だけを担当する。DB が長期的な bottleneck の場合は backpressure するが、4-5 秒程度の commit 中も投入と集約を継続できる設計を目標にする。writer task が開いた writable `song.db` connection は chunk commit ごとに閉じ、delete / moved hash relink user column restore も必要なタイミングで開き直す。moved hash relink は、削除候補の user song columns を file diff 開始時に snapshot し、一意な destination が確定した場合だけ DB commit 後に `song_tbl_file_check user_column_restore_*` で復元する。
 
 file diff inline maintenance は、pipeline 共通の `ResourceHealthLookupContext` を使う。resource health の cache 解決結果は `(directory, resource kind, relative path hash)` 単位で共有され、同一 directory にある多数の BMS が同じ WAV/BGA/movie key を参照するケースで、重複した hash-set lookup を抑える。各 chart の `cacheHit` / `File.Exists` fallback counter は item-local scope で数え、並列評価中の他 chart の counter と混ざらない。`song_tbl_file_check_breakdown` の `inline_maintenance_shared_resource_cache_entries` は、この共有 cache に載った resource key 数を表す。
 
-大量 file diff 直後の自動 LR2 full generation では、同じ起動サイクル内で file diff が新規挿入した `song` row を一時的に `song_rows` 再読込対象から除外できる。この skip target は永続化せず、途中終了した場合は次回起動で通常どおり再検証してよい。
+LR2 `song.db` 完全生成が有効な大量 file diff 直後の自動 LR2 full generation では、file diff と LR2 full generation が同じ generated song row contract を共有する前提にする。直前 file diff が同一 scan/input generation で全 current BMS owner path を durably commit し、inline maintenance / chart_info coverage と moved hash relink ambiguity が問題ない場合は、`song_rows` stage を coverage-based に skip できる。全 column / digest を DB projection で再比較する strict verifier は drift 診断として残してよいが、完全生成有効時の自動 follow-up を止める必須 gate にはしない。skip target は永続化せず、途中終了した場合は次回起動で通常どおり再検証してよい。
 
 ### Resource Ref Lifetime
 
@@ -109,7 +113,7 @@ file diff inline maintenance は、pipeline 共通の `ResourceHealthLookupConte
 
 BMS の一覧用 metadata は軽量 parser がまず Shift_JIS 系の既定挙動で読む。maintenance 作成時に `SetEncodingInfoFromSnapshotDetailed()` で bytes 由来の encoding 判定を行い、ASCII fast path、Shift_JIS、KS_C_5601、UTF-8、unknown などを分類する。
 
-非 Shift_JIS が確定し、かつ `?` / unknown ではない場合だけ、同じ snapshot bytes を使って `title` / `subtitle` / `artist` / `subartist` / `genre` の raw metadata を再適用する。ここでは `#SUBTITLE` を title へ、`#SUBARTIST` を artist へ合成する setter 挙動に戻さない。manual/public 側の `ReloadBMSFileWithEncoding(...)` も同じ raw metadata 適用方針に揃える。
+非 Shift_JIS が確定し、かつ `?` / unknown ではない場合だけ、同じ snapshot bytes を使って `title` / `subtitle` / `artist` / `subartist` / `genre` の raw metadata を再適用する。ここでは `#SUBTITLE` を title へ、`#SUBARTIST` を artist へ合成する setter 挙動に戻さない。manual/public 側の `ReloadBMSFileWithEncoding(...)` も同じ raw metadata 適用方針に揃える。LR2 full generation と file diff は同じ metadata canonicalization を使う必要があり、uncertain encoding の扱い差で `subtitle` / `subartist` だけがずれる場合は projection skip の blocker ではなく generator drift として修正する。
 
 `maintenance.encoding` は UI metadata 補正と maintenance 表示のための情報であり、`chart_info` parser の decode 方針を変えない。`chart_info` は inline / full backfill とも beatoraja 互換の既定 decode を使い、maintenance の encoding 補正とは別の責務として扱う。
 
@@ -175,9 +179,8 @@ pipeline log では `readMs` と `digestMs` / `parseMs` を分けて確認でき
 current row を lookup して `song` numeric columns に反映する。LR2 compatibility facts は resource health /
 encoding row を置換せず、maintenance の LR2 列だけを targeted update する。
 
-現行の初回自動 LR2 full generation は、直前の file diff が大量の譜面を read / parse していても、`song_rows`
-stage を独立した pipeline として実行する。file diff の fresh 生成物を検証して `song_rows` を skip / 縮小する
-現在は、直前 file diff が十分な coverage を持ち、DB projection で `song` generated columns と `chart_digest_map` が current と確認できる場合に限り、初回自動 LR2 full generation の `song_rows` stage を skip する。manual resync、force、projection mismatch は従来どおり read pipeline を実行する。次段では、同じ起動サイクル内で file diff が新規挿入した `song` row を今回の自動 follow-up `song_rows` 対象から外し、残りだけを処理する。これは durable resume ではなく一時的な重複回避であり、途中終了した場合に次回起動で前回 skip した row を再処理してよい。
+初回自動 LR2 full generation は、直前の file diff が大量の譜面を read / parse している場合、`song_rows`
+stage を独立 pipeline として再実行する前に file diff の durable coverage を見る。LR2 `song.db` 完全生成が有効な run では、file diff と LR2 full generation が完全に同じ generated song row を作ることを契約にし、同一 scan/input generation、全 current BMS owner path の durable commit、inline maintenance / chart_info coverage、moved hash relink ambiguity なしを満たす場合は `song_rows` stage を skip する。DB projection による全 generated column / digest 比較は高コストな drift 診断に下げ、manual resync、force、signature mismatch、coverage 不足では従来どおり read pipeline を実行する。途中終了した場合に備え、coverage skip target は永続化しない。
 
 ## Full Backfill
 

@@ -805,11 +805,13 @@ public sealed class BmsLibraryInitializationServiceTests
             Assert.AreEqual(2048, result.InlineChartInfoBatchSize);
             Assert.AreEqual(ChartFileReadPipelinePolicy.ResolveReaderDegree(Environment.ProcessorCount, 2), result.FileDiffReaderDegree);
             Assert.AreEqual(ChartFileReadPipelinePolicy.ResolveReadQueueCapacity(result.FileDiffParserDegree, result.FileDiffReaderDegree), result.ReadQueueCapacity);
-            Assert.AreEqual(2048, result.ParsedQueueCapacity);
-            Assert.AreEqual(1, result.PostParseQueueCapacity);
+            Assert.AreEqual(10000, result.ParsedQueueCapacity);
+            Assert.AreEqual(10000, result.PostParseQueueCapacity);
             Assert.AreEqual(1, result.CommitQueueCapacity);
             Assert.IsTrue(result.CommitStreamingEnabled);
             Assert.AreEqual("none", result.CommitStreamingBarrierReason);
+            Assert.AreEqual(1, result.FileDiffPostParseWorkerDegree);
+            Assert.IsTrue(result.PostParseOutputWaitMs >= 0);
             Assert.AreEqual(1, result.PostParseBatchCount);
             Assert.AreEqual(1, result.InlineMaintenanceDegree);
             Assert.IsTrue(result.PostParseWallMs >= 0);
@@ -822,11 +824,13 @@ public sealed class BmsLibraryInitializationServiceTests
                 && message.Contains("bmson_upsert_target_count=1")
                 && message.Contains("file_diff_reader_degree=" + result.FileDiffReaderDegree)
                 && message.Contains("file_diff_parser_degree=1")
+                && message.Contains("file_diff_post_parse_worker_degree=1")
                 && message.Contains("read_queue_capacity=" + result.ReadQueueCapacity)
-                && message.Contains("parsed_queue_capacity=2048")
+                && message.Contains("parsed_queue_capacity=10000")
                 && message.Contains("commit_queue_capacity=1")
                 && message.Contains("commit_streaming_enabled=true")
                 && message.Contains("commit_streaming_barrier=none")
+                && message.Contains("post_parse_output_wait_ms=")
                 && message.Contains("post_parse_batch_count=1")
                 && message.Contains("inline_chart_info_target_count=2")
                 && message.Contains("inline_chart_info_batch_size=2048")
@@ -850,7 +854,7 @@ public sealed class BmsLibraryInitializationServiceTests
             for (int i = 0; i < 120; i++)
             {
                 string path = Path.Combine(chartDirectoryPath, "added-" + i.ToString("D4") + ".bms");
-                File.WriteAllText(path, "#PLAYER 1\r\n#TITLE Added " + i.ToString("D4") + "\r\n", Encoding.ASCII);
+                File.WriteAllText(path, CreateValidBmsText("Added " + i.ToString("D4")), Encoding.ASCII);
                 paths.Add(path);
             }
 
@@ -898,10 +902,10 @@ public sealed class BmsLibraryInitializationServiceTests
                 });
 
             Assert.AreEqual(120, result.AddedFiles.Count);
-            Assert.AreEqual(2, result.DbCommitChunks);
+            Assert.AreEqual((int)Math.Ceiling(paths.Count / 50.0), result.DbCommitChunks);
             Assert.AreEqual(50, result.DbCommitChunkSize);
             Assert.AreEqual(32, result.InlineChartInfoBatchSize);
-            Assert.IsTrue(result.PostParseBatchCount >= 3);
+            Assert.AreEqual(1, result.PostParseBatchCount);
             Assert.IsTrue(result.PostParseWallMs >= 0);
             Assert.IsTrue(result.CommitQueueWaitMs >= 0);
             int firstCommitIndex = events.FindIndex(item => item.Contains("db_commit_chunk_done chunk=1"));
@@ -909,6 +913,75 @@ public sealed class BmsLibraryInitializationServiceTests
             Assert.IsTrue(events.Any(item => item == "progress 120/120"), "final parse progress was not recorded.");
             using var verify = new LR2SongDBExtended(songDbPath);
             Assert.AreEqual(120L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM song;"));
+            Assert.AreEqual(120L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info;"));
+            Assert.AreEqual(120L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM maintenance;"));
+        });
+    }
+
+    [TestMethod]
+    public void ApplyFileScanDiff_AggregatesInlineRowsAcrossPostParseWorkers()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
+        {
+            string chartDirectoryPath = Path.Combine(lr2RootPath, "ParallelPostParse");
+            Directory.CreateDirectory(chartDirectoryPath);
+            const int count = 300;
+            List<string> paths = [];
+            for (int i = 0; i < count; i++)
+            {
+                string path = Path.Combine(chartDirectoryPath, "added-" + i.ToString("D4") + ".bms");
+                File.WriteAllText(path, CreateValidBmsText("Parallel PostParse " + i.ToString("D4")), Encoding.ASCII);
+                paths.Add(path);
+            }
+
+            using (var songDbConnection = new LR2SongDBExtended(songDbPath))
+            {
+                songDbConnection.CreateTable<LR2SongDB.song>();
+            }
+
+            ChartFileSnapshot firstSnapshot = ChartFileContentReader.ReadSnapshot(paths[0]);
+            var gateway = new BmsLibraryDbGateway(songDbPath);
+            gateway.UpsertChartInfos([CreateMinimalChartInfoRow(firstSnapshot.Sha256, firstSnapshot.Md5)]);
+            List<string> logs = [];
+            var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 2, inlineChartInfoBatchSizeOverride: 512, fileDiffCommitChunkSizeOverride: 50);
+            SongTableFileCheckResult result = service.ApplyFileScanDiff(
+                gateway,
+                new BmsLibraryOptionsSnapshot(),
+                [],
+                new ChartScanExecutionResult
+                {
+                    Success = true,
+                    Result = CreateScanResult(
+                        paths,
+                        new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
+                        {
+                            { chartDirectoryPath, Array.Empty<string>() }
+                        })
+                },
+                0L,
+                () => null,
+                null,
+                logInstallPerformance: logs.Add);
+
+            Assert.AreEqual(count, result.AddedFiles.Count);
+            Assert.AreEqual(2, result.FileDiffParserDegree);
+            Assert.AreEqual(2, result.FileDiffPostParseWorkerDegree);
+            Assert.AreEqual(2, result.PostParseBatchCount);
+            Assert.AreEqual((int)Math.Ceiling(count / 50.0), result.DbCommitChunks);
+            Assert.AreEqual(50, result.DbCommitChunkSize);
+            Assert.AreEqual(count, result.InlineChartInfoTargetCount);
+            Assert.AreEqual(0, result.InlineChartInfoCurrentSkippedCount);
+            Assert.AreEqual(count, result.InlineMaintenanceSuccessCount);
+            Assert.IsTrue(result.PostParseOutputWaitMs >= 0);
+            Assert.IsTrue(logs.Any(message => message.Contains("file_diff_chart_info_snapshot")
+                && message.Contains("status=suppressed")
+                && message.Contains("reason=multi_post_parse_without_snapshot")));
+
+            using var verify = new LR2SongDBExtended(songDbPath);
+            Assert.AreEqual(count, verify.ExecuteScalar<int>("SELECT COUNT(1) FROM song;"));
+            Assert.AreEqual(count, verify.ExecuteScalar<int>("SELECT COUNT(1) FROM chart_info;"));
+            Assert.AreEqual(count, verify.ExecuteScalar<int>("SELECT COUNT(1) FROM maintenance;"));
         });
     }
 
@@ -2633,15 +2706,15 @@ public sealed class BmsLibraryInitializationServiceTests
             Assert.AreEqual(1, result.InlineChartInfoTargetCount);
             Assert.AreEqual(1, result.InlineChartInfoSuccessCount);
             Assert.AreEqual(0, result.InlineChartInfoParseFailedCount);
-            Assert.AreEqual(1, result.InlineChartInfoRows.Count);
-            Assert.AreEqual(1, result.InlineChartInfoAppliedRows.Count);
-            Assert.AreEqual(result.AddedFiles[0].sha256, result.InlineChartInfoAppliedRows[0].sha256);
-            Assert.AreEqual(result.AddedFiles[0].hash, result.InlineChartInfoAppliedRows[0].md5);
+            Assert.AreEqual(0, result.InlineChartInfoRows.Count);
+            Assert.AreEqual(0, result.InlineChartInfoAppliedRows.Count);
 
             using var verify = new LR2SongDBExtended(songDbPath);
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM song;"));
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info WHERE sha256 = ? AND md5 = ?;", result.AddedFiles[0].sha256, result.AddedFiles[0].hash));
             Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info_parse_failure;"));
+            LR2SongDBExtended.chart_info chartInfoRow = verify.Query<LR2SongDBExtended.chart_info>("SELECT * FROM chart_info WHERE sha256 = ? AND md5 = ?;", result.AddedFiles[0].sha256, result.AddedFiles[0].hash).Single();
+            Assert.AreEqual(BmsLibraryDbGateway.CurrentChartInfoParserVersion, chartInfoRow.parser_version);
             LR2SongDB.song songRow = verify.Table<LR2SongDB.song>().Single();
             Assert.AreEqual(120, songRow.maxbpm);
             Assert.AreEqual(120, songRow.minbpm);
@@ -2696,12 +2769,14 @@ public sealed class BmsLibraryInitializationServiceTests
             Assert.AreEqual(1, result.InlineMaintenanceSuccessCount);
             Assert.AreEqual(0, result.InlineMaintenanceFailedCount);
             Assert.AreEqual(1, result.InlineMaintenanceBmsCount);
+            Assert.IsTrue(result.InlineBmsMaintenanceWallMs >= 0);
             Assert.IsNull(added.WAVfiles);
             Assert.IsNull(added.BGAfiles);
             Assert.AreEqual(1, added.maintenanceInfo.wav_files_defined);
             Assert.AreEqual(1, added.maintenanceInfo.wav_files_existing);
 
             using var verify = new LR2SongDBExtended(songDbPath);
+            Assert.AreEqual(result.InlineMaintenanceSuccessCount, verify.ExecuteScalar<int>("SELECT COUNT(1) FROM maintenance;"));
             LR2SongDBExtended.maintenance maintenance = verify.Query<LR2SongDBExtended.maintenance>("SELECT * FROM maintenance WHERE path = ?;", bmsPath).Single();
             Assert.AreEqual(added.hash, maintenance.hash);
             Assert.AreEqual(1, maintenance.wav_files_defined);
@@ -3164,6 +3239,8 @@ public sealed class BmsLibraryInitializationServiceTests
             Assert.AreEqual(0, result.InlineChartInfoAppliedRows.Count);
             Assert.AreEqual(1, callbackRows.Count);
             Assert.AreEqual(result.AddedFiles[0].sha256, callbackRows[0].sha256);
+            Assert.AreEqual(result.AddedFiles[0].hash, callbackRows[0].md5);
+            Assert.AreEqual(BmsLibraryDbGateway.CurrentChartInfoParserVersion, callbackRows[0].parser_version);
 
             using var verify = new LR2SongDBExtended(songDbPath);
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info WHERE sha256 = ? AND md5 = ?;", result.AddedFiles[0].sha256, result.AddedFiles[0].hash));
@@ -3321,10 +3398,15 @@ public sealed class BmsLibraryInitializationServiceTests
             Assert.AreEqual(1, result.InlineChartInfoCurrentSkippedCount);
             Assert.AreEqual(0, result.InlineChartInfoSuccessCount);
             Assert.AreEqual(0, result.InlineChartInfoRows.Count);
-            Assert.AreEqual(1, result.InlineChartInfoAppliedRows.Count);
-            Assert.AreEqual(result.AddedFiles[0].sha256, result.InlineChartInfoAppliedRows[0].sha256);
-            Assert.AreEqual(result.AddedFiles[0].hash, result.InlineChartInfoAppliedRows[0].md5);
-            Assert.AreEqual(7, result.InlineChartInfoAppliedRows[0].level);
+            Assert.AreEqual(0, result.InlineChartInfoAppliedRows.Count);
+
+            using var verify = new LR2SongDBExtended(songDbPath);
+            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info WHERE sha256 = ? AND md5 = ?;", result.AddedFiles[0].sha256, result.AddedFiles[0].hash));
+            LR2SongDB.song songRow = verify.Table<LR2SongDB.song>().Single();
+            Assert.AreEqual(7, songRow.level);
+            Assert.AreEqual(4, songRow.difficulty);
+            Assert.AreEqual(1, songRow.karinotes);
+            Assert.AreEqual(5, songRow.mode);
         });
     }
 
@@ -4219,6 +4301,7 @@ public sealed class BmsLibraryInitializationServiceTests
 
             CollectionAssert.Contains(result.DeletedPaths, oldPath);
             Assert.AreEqual(1, result.BmsMovedHashRelinkCount);
+            Assert.AreEqual(0, result.BmsMovedHashRelinkAmbiguousCount);
             Assert.AreEqual(1, result.AddedFiles.Count);
             Assert.AreEqual(1, result.NextFiles.Count);
             BMSFile moved = result.NextFiles[0];
@@ -4232,6 +4315,7 @@ public sealed class BmsLibraryInitializationServiceTests
             Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM song WHERE path = ?;", oldPath));
             LR2SongDB.song row = verify.Table<LR2SongDB.song>().Single();
             Assert.AreEqual(newPath, row.path);
+            Assert.AreEqual(oldParsed.hash, row.hash);
             Assert.AreEqual(3, row.favorite);
             Assert.AreEqual(34567, row.adddate);
             Assert.AreEqual("moved-tag", row.tag);

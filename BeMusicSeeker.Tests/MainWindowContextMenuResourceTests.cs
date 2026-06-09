@@ -2172,15 +2172,15 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(initializationCode, "Parallel.For(0, candidates.Count");
         StringAssert.Contains(initializationCode, "inline_maintenance_wall_ms=");
         StringAssert.Contains(initializationCode, "parser_output_wait_ms=");
-        StringAssert.Contains(initializationCode, "\" bms=\" + batchMetrics.BmsCount");
-        StringAssert.Contains(initializationCode, "\" bmson=\" + batchMetrics.BmsonCount");
+        StringAssert.Contains(initializationCode, "\" bms=\" + metrics.BmsCount");
+        StringAssert.Contains(initializationCode, "\" bmson=\" + metrics.BmsonCount");
 
         StringAssert.Contains(planDoc, "parser output queue capacity");
         StringAssert.Contains(planDoc, "2048");
         StringAssert.Contains(planDoc, "inline_maintenance_wall_ms");
         StringAssert.Contains(startupFlowDoc, "post-parse worker");
         StringAssert.Contains(startupFlowDoc, "single DB writer");
-        StringAssert.Contains(startupFlowDoc, "既定 batch size は 2048 件");
+        StringAssert.Contains(startupFlowDoc, "DefaultFileDiffPostParseBatchSize=256");
     }
 
     [TestMethod]

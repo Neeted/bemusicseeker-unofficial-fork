@@ -129,6 +129,8 @@ internal sealed class SongTableFileCheckResult
 
     public int FileDiffParserDegree { get; set; }
 
+    public int FileDiffPostParseWorkerDegree { get; set; }
+
     public int FileDiffReaderDegree { get; set; }
 
     public int ReadQueueCapacity { get; set; }
@@ -148,6 +150,8 @@ internal sealed class SongTableFileCheckResult
     public long ParserOutputWaitMs { get; set; }
 
     public long PostParseQueueWaitMs { get; set; }
+
+    public long PostParseOutputWaitMs { get; set; }
 
     public long CommitQueueWaitMs { get; set; }
 
