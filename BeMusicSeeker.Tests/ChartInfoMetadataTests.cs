@@ -7,6 +7,7 @@ using System.Linq;
 using System.Reflection;
 using System.Text;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Windows;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
@@ -784,6 +785,51 @@ createTempDirectory);
             Assert.AreEqual(1, byMd5.Count);
             Assert.AreEqual(firstSha, byMd5[md5].sha256);
             Assert.IsFalse(bySha256.ContainsKey(unrelatedSha));
+        });
+    }
+
+    [TestMethod]
+    [DoNotParallelize]
+    public void LoadChartInfosByHash_UsesReadOnlyCurrentSchemaWhileProcessLockHeld()
+    {
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
+        {
+            var gateway = new BmsLibraryDbGateway(songDbPath);
+            string md5 = new('a', 32);
+            string sha256 = new('1', 64);
+            gateway.UpsertChartInfos([CreateChartInfoRow(sha256, md5, BmsLibraryDbGateway.CurrentChartInfoParserVersion)]);
+
+            using var lockAcquired = new ManualResetEventSlim(false);
+            using var releaseLock = new ManualResetEventSlim(false);
+            Task lockHolder = Task.Run(delegate
+            {
+                Assert.IsTrue(LR2SongDBExtended.Lock(TimeSpan.FromSeconds(5)));
+                try
+                {
+                    lockAcquired.Set();
+                    Assert.IsTrue(releaseLock.Wait(TimeSpan.FromSeconds(5)));
+                }
+                finally
+                {
+                    LR2SongDBExtended.Unlock();
+                }
+            });
+
+            Assert.IsTrue(lockAcquired.Wait(TimeSpan.FromSeconds(5)));
+            Task<Dictionary<string, LR2SongDBExtended.chart_info>> lookupTask = Task.Run(() => gateway.LoadChartInfosBySha256([sha256]));
+            try
+            {
+                Assert.IsTrue(lookupTask.Wait(TimeSpan.FromSeconds(2)), "chart_info lookup should not wait for the writable process lock when schema is current.");
+            }
+            finally
+            {
+                releaseLock.Set();
+                lockHolder.Wait(TimeSpan.FromSeconds(5));
+            }
+
+            Dictionary<string, LR2SongDBExtended.chart_info> rows = lookupTask.Result;
+            Assert.AreEqual(1, rows.Count);
+            Assert.AreEqual(md5, rows[sha256].md5);
         });
     }
 

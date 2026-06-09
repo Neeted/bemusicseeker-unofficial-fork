@@ -2225,11 +2225,16 @@ public sealed class BmsLibraryMaintenanceServiceTests
                 songDb.CreateTable<LR2SongDB.song>();
             }
 
+            var lookupContext = new ResourceHealthLookupContext(null);
+            var logs = new List<string>();
+
             MaintenanceWorkflowResult result = service.UpdateMaintenanceInfo(
                 [ChartFileProjection.FromBmsFile(bmsFile)],
                 forceUpdate: true,
                 new BmsLibraryDbGateway(songDbPath),
-                null);
+                null,
+                lookupContext,
+                progressLogger: logs.Add);
 
             Assert.AreEqual(1, result.HealthDegree);
             Assert.AreEqual(1, result.HealthTargetCount);
@@ -2239,6 +2244,9 @@ public sealed class BmsLibraryMaintenanceServiceTests
             Assert.IsTrue(result.HealthMs >= 0);
             Assert.IsTrue(result.EncodingMs >= 0);
             Assert.IsTrue(result.DigestMs >= 0);
+            Assert.IsTrue(result.HealthFileExistsFallbackCount > 0);
+            Assert.AreEqual(result.HealthFileExistsFallbackCount, lookupContext.FileExistsFallbackCount);
+            Assert.IsTrue(logs.Any(log => log.Contains("maintenance_rescan_chunk") && log.Contains("cacheHit=") && log.Contains("fileExistsFallback=")));
         }
         finally
         {

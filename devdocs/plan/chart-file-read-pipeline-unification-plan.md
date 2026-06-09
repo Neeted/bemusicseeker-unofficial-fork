@@ -207,13 +207,14 @@ target enumeration
 
 ### Phase 9: file diff DB commit chunk の streaming writer 化
 
-- Status: 調査 / first slice 完了。moved hash relink が hard ordering barrier になるため、直接 streaming writer 化は deferred とし、まず `commit_streaming_enabled` / `commit_streaming_barrier` を breakdown log に追加した。
+- Status: 調査 / first slice 完了。moved hash relink が hard ordering barrier になるため、直接 streaming writer 化は deferred とし、まず `commit_streaming_enabled` / `commit_streaming_barrier` を breakdown log に追加した。さらに producer 側 inline `chart_info` lookup を read-only-first にして、将来の streaming writer が writable DB lock を chunk 間で離す設計に進める前提を整えた。
 - 現行 file diff は `FlushFileDiffParsedBatch()` が `FileScanDiffCommitChunk` を作るが、`commitCollectorTask` は chunk を `parsedCommitChunks` に蓄積し、post-parse 完了後に `commitContext.AddChunk()` / `Flush()` する。このため `db_commit_chunk_start` は全 read / parse / maintenance 後にまとまって出る。
 - 目的は、DB writer を single writer のまま維持しつつ、post-parse が chunk を作った時点で DB commit を進め、終端の `db_commit_ms` tail と chunk 保持メモリを減らすこと。
 - 実装候補:
   - 完了: post-parse chunk を streaming できる条件を `moved_hash_relink_candidates` の有無で診断し、現行 path では `streaming_writer_deferred` として log に残す。
   - 知見: `FileScanDiffCommitChunk` を即 commit すると、`ApplyMovedBmsUserColumnRelinks()` が後から destination chunk へ delete / user column preservation を追加する契約を壊す。relink 対象 chunk と非 relink chunk の分離、または relink 解決の前倒しが必要。
-  - 知見: 直接 streaming writer を試すと DB writer / post-parse の同期で hang する経路があったため、bounded writer は producer cancel / writer failure propagation を整理してから入れる。
+  - 知見: 直接 streaming writer を試すと、writer が writable `song.db` connection / process lock を保持したまま queue 待ちし、次 batch の `ProcessInlineBmsChartInfo()` が `LoadChartInfosBySha256()` で同じ lock を取りに行く deadlock が起き得る。bounded writer は writer が chunk 間で writable connection を保持しない設計、producer cancel、writer failure propagation を整理してから入れる。
+  - 完了: current schema の `LoadChartInfosBySha256()` / `LoadChartInfosByMd5()` は read-only connection で lookup し、schema 未整備や read-only open 不可の場合だけ従来どおり writable + schema ensure へ fallback する。
   - `commitQueue` を bounded queue にし、専用 writer task が `FileDiffStreamingCommitContext` を所有して `AddChunk()` / `Flush()` を実行する。
   - post-parse worker は commit chunk を queue へ流すだけにし、writer 失敗時は reader / parser / post-parse を cancel して例外を親へ伝播する。
   - delete / date-only / moved hash relink / inline chart_info publish の順序制約を現行動作から洗い出し、streaming 化してよい chunk と final barrier が必要な chunk を分ける。
@@ -230,12 +231,13 @@ target enumeration
 
 ### Phase 10: maintenance evaluator の共通化と resource health / encoding 軽量化
 
-- Status: first slice 完了。file diff batch slow log と manual maintenance rescan chunk log の語彙を寄せ、health / encoding / bmson refresh の内訳を比較しやすくした。
+- Status: first slice 完了。file diff batch slow log と manual maintenance rescan chunk log の語彙を寄せ、health / encoding / bmson refresh / resource lookup cache の内訳を比較しやすくした。
 - 対象は file diff inline maintenance だけではなく、manual `RescanAllOwnedChartMaintenance()` / selected maintenance rescan も含める。
 - 現行ログでは `maintenanceMs` が重く見えるが、これは DB `maintenance` table write ではなく、resource health、encoding 判定、bmson refs refresh、maintenance row construction を含む evaluator 時間である。DB write は file diff では `db_commit_ms`、manual rescan では `maintenance_rescan_chunk commitMs` として別に見る。
 - まず計測を揃える。
   - 完了: file diff の batch slow log に `bmsMaintenanceMs`, `bmsonMaintenanceMs`, `healthMs`, `encodingMs`, `cacheHit`, `fileExistsFallback` を追加する。
-  - 完了: manual rescan の `maintenance_rescan_chunk` に `healthMs`, `encodingMs`, `bmsonRefreshMs` を追加する。
+  - 完了: manual rescan の `maintenance_rescan_chunk` に `healthMs`, `encodingMs`, `bmsonRefreshMs`, `cacheHit`, `fileExistsFallback` を追加する。
+  - 完了: manual snapshot pipeline は item-local `ResourceHealthLookupContext` で評価し、親 context へ counter を合算する。これにより chunk log の cache / fallback は累積値の二重加算ではなく、file diff batch log と同じ粒度の評価結果になる。
   - 継続: manual rescan の `maintenance_rescan_chunk` と file diff の `song_tbl_file_check_batch_slow` で、read / digest / compute / health / encoding / commit の語彙をさらに揃える。
   - encoding slow item、resource ref count が極端に大きい chart、resource lookup cache hit count の増え方を path 付きで追跡できるようにする。
 - 実装候補:

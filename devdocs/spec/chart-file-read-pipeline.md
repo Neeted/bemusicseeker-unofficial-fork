@@ -73,7 +73,7 @@ changed path
 
 file diff の reader は `ChartFileReadPipelinePolicy` に従い、十分な CPU と複数 target がある場合は 2 本まで並列化する。reader は bytes と file metadata だけを bounded queue へ流し、MD5 / SHA-256 計算と snapshot 作成は parser worker 側で行う。file diff の progress target は lightweight parse 対象数で、BMS 追加件数と bmson 追加・更新件数の合算。`chart_info` parse failure は `song` / `bmson_song` 登録を止めない。
 
-current `chart_info` row が存在する場合、inline parser は詳細 parse を skip できる。この row は対象 model に適用してよいが、file diff の成果物として全件蓄積しない。session chart_info index の全量更新は `chart_info_hydration` が担当し、`file_diff_inline` で publish するのは新規生成または更新した row に限定する。
+current `chart_info` row が存在する場合、inline parser は詳細 parse を skip できる。この row は対象 model に適用してよいが、file diff の成果物として全件蓄積しない。session chart_info index の全量更新は `chart_info_hydration` が担当し、`file_diff_inline` で publish するのは新規生成または更新した row に限定する。current row lookup は schema が current と確認できる場合 read-only connection を使い、producer 側が writable `song.db` process lock を取りに行かない。
 
 軽量 `ReloadFileDiff` では、現在の in-memory `BMSFiles` / `BmsonSongs` と scan result だけを比較する。DB 再読込、metadata bundle import、full `chart_info` hydration/backfill、installable maintenance deferred は行わない。DB 外部編集や互換修復まで拾う場合は `FullReinitialize` を使う。
 
@@ -85,7 +85,7 @@ current `chart_info` row が存在する場合、inline parser は詳細 parse �
 
 `song_tbl_file_check_breakdown` の `inline_encoding_*` は、BMS の encoding 判定と非 Shift_JIS 確定時の metadata reload を表す。`inline_encoding_detect_count` は判定対象数、`inline_encoding_fast_ascii_count` は bytes 由来の fast ASCII 判定、`inline_encoding_shift_jis_count` / `inline_encoding_ks_c_5601_count` / `inline_encoding_utf8_count` などは判定結果、`inline_encoding_reload_count` / `inline_encoding_reload_wall_ms` は raw metadata reload の件数と wall clock を表す。
 
-現行の file diff DB commit chunk は transaction 範囲を分けるための単位であり、post-parse が作った chunk を最終的に flush する。chunk commit は `song_tbl_file_check db_commit_chunk_start/done` で見えるが、現行では read / parse / inline maintenance と重ねて進める streaming writer ではない。`song_tbl_file_check_breakdown` は `commit_streaming_enabled` と `commit_streaming_barrier` を出し、moved hash relink など streaming を阻む条件を診断する。streaming writer 化は計画資料の Phase 9 で扱う。
+現行の file diff DB commit chunk は transaction 範囲を分けるための単位であり、post-parse が作った chunk を最終的に flush する。chunk commit は `song_tbl_file_check db_commit_chunk_start/done` で見えるが、現行では read / parse / inline maintenance と重ねて進める streaming writer ではない。`song_tbl_file_check_breakdown` は `commit_streaming_enabled` と `commit_streaming_barrier` を出し、moved hash relink や writer lock boundary など streaming を阻む条件を診断する。streaming writer 化は計画資料の Phase 9 で扱う。
 
 ### Resource Ref Lifetime
 

@@ -61,6 +61,20 @@ internal sealed class ResourceHealthLookupContext(DirectoryResourceLookupCache d
         }
     }
 
+    public void AddCounters(ResourceHealthLookupContext source)
+    {
+        if (source == null)
+        {
+            return;
+        }
+        AddCacheHits(source.CacheHitCount);
+        AddFileExistsFallbacks(ResourceHealthFallbackKind.Audio, source.AudioFileExistsFallbackCount);
+        AddFileExistsFallbacks(ResourceHealthFallbackKind.Image, source.ImageFileExistsFallbackCount);
+        AddFileExistsFallbacks(ResourceHealthFallbackKind.Movie, source.MovieFileExistsFallbackCount);
+        AddFileExistsFallbacks(ResourceHealthFallbackKind.OptionalImage, source.OptionalImageFileExistsFallbackCount);
+        AddFileExistsFallbacks(ResourceHealthFallbackKind.Unknown, source.UnknownFileExistsFallbackCount);
+    }
+
     public void RecordFileExistsFallback()
     {
         RecordFileExistsFallback(ResourceHealthFallbackKind.Unknown);

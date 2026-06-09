@@ -983,9 +983,7 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
         {
             return result;
         }
-        using LR2SongDBExtended songDb = OpenSongDb();
-        EnsureChartInfoSchema(songDb);
-        foreach (LR2SongDBExtended.chart_info row in QueryChartInfosByColumn(songDb, "sha256", keys, orderBySha256: false))
+        foreach (LR2SongDBExtended.chart_info row in LoadChartInfoRowsByColumn("sha256", keys, orderBySha256: false))
         {
             if (row != null && !string.IsNullOrWhiteSpace(row.sha256))
             {
@@ -1032,9 +1030,7 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
         {
             return result;
         }
-        using LR2SongDBExtended songDb = OpenSongDb();
-        EnsureChartInfoSchema(songDb);
-        foreach (LR2SongDBExtended.chart_info row in QueryChartInfosByColumn(songDb, "md5", keys, orderBySha256: true))
+        foreach (LR2SongDBExtended.chart_info row in LoadChartInfoRowsByColumn("md5", keys, orderBySha256: true))
         {
             if (row != null && !string.IsNullOrWhiteSpace(row.md5) && !result.ContainsKey(row.md5))
             {
@@ -2428,6 +2424,38 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
             {
                 yield return row;
             }
+        }
+    }
+
+    private List<LR2SongDBExtended.chart_info> LoadChartInfoRowsByColumn(string columnName, IReadOnlyList<string> keys, bool orderBySha256)
+    {
+        if (TryLoadChartInfoRowsByColumnReadOnly(columnName, keys, orderBySha256, out List<LR2SongDBExtended.chart_info> rows))
+        {
+            return rows;
+        }
+
+        using LR2SongDBExtended songDb = OpenSongDb();
+        EnsureChartInfoSchema(songDb);
+        return [.. QueryChartInfosByColumn(songDb, columnName, keys, orderBySha256)];
+    }
+
+    private bool TryLoadChartInfoRowsByColumnReadOnly(string columnName, IReadOnlyList<string> keys, bool orderBySha256, out List<LR2SongDBExtended.chart_info> rows)
+    {
+        rows = [];
+        try
+        {
+            using LR2SongDBExtended songDb = OpenSongDbReadOnly();
+            if (!IsChartInfoSchemaCurrent(songDb))
+            {
+                return false;
+            }
+            rows = [.. QueryChartInfosByColumn(songDb, columnName, keys, orderBySha256)];
+            return true;
+        }
+        catch (SQLiteException)
+        {
+            rows = [];
+            return false;
         }
     }
 

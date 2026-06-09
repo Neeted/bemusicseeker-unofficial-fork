@@ -818,6 +818,8 @@ internal sealed class BmsLibraryMaintenanceService
             long chunkHealthTicks = 0L;
             long chunkEncodingTicks = 0L;
             long chunkBmsonRefreshTicks = 0L;
+            long chunkCacheHitCount = 0L;
+            long chunkFileExistsFallbackCount = 0L;
 
             foreach (MaintenanceWorkflowComputedItem item in chunk)
             {
@@ -840,6 +842,8 @@ internal sealed class BmsLibraryMaintenanceService
                 chunkHealthTicks += itemResult.HealthElapsedTicks;
                 chunkEncodingTicks += itemResult.EncodingElapsedTicks;
                 chunkBmsonRefreshTicks += itemResult.BmsonRefreshElapsedTicks;
+                chunkCacheHitCount += itemResult.CacheHitCount;
+                chunkFileExistsFallbackCount += itemResult.FileExistsFallbackCount;
                 if (itemResult.MaintenanceInfoChanged && itemResult.MaintenanceInfo?.IsInformationChecked() == true)
                 {
                     changedMaintenanceInfos.Add(itemResult.MaintenanceInfo);
@@ -919,6 +923,8 @@ internal sealed class BmsLibraryMaintenanceService
                 + " healthMs=" + TicksToMilliseconds(chunkHealthTicks)
                 + " encodingMs=" + TicksToMilliseconds(chunkEncodingTicks)
                 + " bmsonRefreshMs=" + TicksToMilliseconds(chunkBmsonRefreshTicks)
+                + " cacheHit=" + chunkCacheHitCount
+                + " fileExistsFallback=" + chunkFileExistsFallbackCount
                 + " commitMs=" + commitStopwatch.ElapsedMilliseconds
                 + " elapsedMs=" + chunkStopwatch.ElapsedMilliseconds);
             progressReporter?.Invoke(new MaintenanceWorkflowProgress
@@ -976,7 +982,9 @@ internal sealed class BmsLibraryMaintenanceService
                         long digestStart = Stopwatch.GetTimestamp();
                         snapshot = ChartFileContentReader.CreateSnapshot(candidate.Buffer);
                         digestElapsedTicks = Stopwatch.GetTimestamp() - digestStart;
-                        itemResult = EvaluateMaintenanceTarget(candidate.Target, snapshot, resourceLookupContext, forceUpdate: true);
+                        var itemLookupContext = new ResourceHealthLookupContext(resourceLookupContext.DirectoryLookupCache);
+                        itemResult = EvaluateMaintenanceTarget(candidate.Target, snapshot, itemLookupContext, forceUpdate: true);
+                        resourceLookupContext.AddCounters(itemLookupContext);
                     }
                     long computeElapsedTicks = candidate.Buffer == null
                         ? 0L
