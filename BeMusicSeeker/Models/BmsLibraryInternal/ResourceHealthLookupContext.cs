@@ -1,3 +1,5 @@
+using System;
+using System.Collections.Concurrent;
 using System.Threading;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
@@ -13,6 +15,8 @@ internal enum ResourceHealthFallbackKind
 
 internal sealed class ResourceHealthLookupContext(DirectoryResourceLookupCache directoryLookupCache)
 {
+    private readonly ConcurrentDictionary<ResourceHealthCacheKey, bool> cacheResolvedResourceExistsByKey = new();
+
     private long cacheHitCount;
 
     private long fileExistsFallbackCount;
@@ -28,6 +32,8 @@ internal sealed class ResourceHealthLookupContext(DirectoryResourceLookupCache d
     private long unknownFileExistsFallbackCount;
 
     public DirectoryResourceLookupCache DirectoryLookupCache { get; } = directoryLookupCache;
+
+    public int SharedResourceCacheEntryCount => cacheResolvedResourceExistsByKey.Count;
 
     public long CacheHitCount => Interlocked.Read(ref cacheHitCount);
 
@@ -46,6 +52,35 @@ internal sealed class ResourceHealthLookupContext(DirectoryResourceLookupCache d
     public DirectoryResourceLookupCache.Entry GetResourceEntryOrNull(string directoryPath)
     {
         return DirectoryLookupCache?.GetEntryOrNull(directoryPath);
+    }
+
+    public bool TryGetSharedResourceExists(
+        string directoryPath,
+        ChartResourceKind resourceKind,
+        uint relativePathHash,
+        out bool exists)
+    {
+        exists = false;
+        return relativePathHash != 0u
+            && cacheResolvedResourceExistsByKey.TryGetValue(
+                new ResourceHealthCacheKey(directoryPath, resourceKind, relativePathHash),
+                out exists);
+    }
+
+    public void SetSharedResourceExists(
+        string directoryPath,
+        ChartResourceKind resourceKind,
+        uint relativePathHash,
+        bool exists)
+    {
+        if (relativePathHash == 0u)
+        {
+            return;
+        }
+
+        cacheResolvedResourceExistsByKey.TryAdd(
+            new ResourceHealthCacheKey(directoryPath, resourceKind, relativePathHash),
+            exists);
     }
 
     public void RecordCacheHit()
@@ -136,6 +171,45 @@ internal sealed class ResourceHealthLookupContext(DirectoryResourceLookupCache d
             default:
                 Interlocked.Add(ref unknownFileExistsFallbackCount, count);
                 break;
+        }
+    }
+
+    private readonly struct ResourceHealthCacheKey : IEquatable<ResourceHealthCacheKey>
+    {
+        private readonly string directoryPath;
+
+        private readonly ChartResourceKind resourceKind;
+
+        private readonly uint relativePathHash;
+
+        public ResourceHealthCacheKey(string directoryPath, ChartResourceKind resourceKind, uint relativePathHash)
+        {
+            this.directoryPath = directoryPath ?? string.Empty;
+            this.resourceKind = resourceKind;
+            this.relativePathHash = relativePathHash;
+        }
+
+        public bool Equals(ResourceHealthCacheKey other)
+        {
+            return relativePathHash == other.relativePathHash
+                && resourceKind == other.resourceKind
+                && string.Equals(directoryPath, other.directoryPath, StringComparison.OrdinalIgnoreCase);
+        }
+
+        public override bool Equals(object obj)
+        {
+            return obj is ResourceHealthCacheKey other && Equals(other);
+        }
+
+        public override int GetHashCode()
+        {
+            unchecked
+            {
+                int hash = StringComparer.OrdinalIgnoreCase.GetHashCode(directoryPath);
+                hash = (hash * 397) ^ (int)resourceKind;
+                hash = (hash * 397) ^ (int)relativePathHash;
+                return hash;
+            }
         }
     }
 }

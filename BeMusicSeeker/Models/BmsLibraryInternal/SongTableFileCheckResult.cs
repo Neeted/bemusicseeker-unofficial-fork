@@ -235,6 +235,8 @@ internal sealed class SongTableFileCheckResult
 
     public long InlineMaintenanceFileExistsFallbackCount { get; set; }
 
+    public int InlineMaintenanceSharedResourceCacheEntries { get; set; }
+
     public long ParseReadBytesEstimate { get; set; }
 
     public long FileDiffReadMs { get; set; }

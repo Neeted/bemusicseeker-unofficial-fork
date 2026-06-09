@@ -336,8 +336,27 @@ internal sealed class BmsLibraryMaintenanceService
         int existingCount = 0;
         foreach (ChartResourceSnapshot.ResourceReference reference in references ?? [])
         {
+            if (lookupContext?.TryGetSharedResourceExists(
+                lookupDirectory,
+                resourceKind,
+                reference.RelativePathHash,
+                out bool sharedExistsInCache) == true)
+            {
+                lookupContext.RecordCacheHit();
+                if (sharedExistsInCache)
+                {
+                    existingCount++;
+                }
+                continue;
+            }
+
             if (TryResolveResourceReferenceFromCache(resourceEntry, reference, resourceKind, out bool existsInCache))
             {
+                lookupContext?.SetSharedResourceExists(
+                    lookupDirectory,
+                    resourceKind,
+                    reference.RelativePathHash,
+                    existsInCache);
                 lookupContext?.RecordCacheHit();
                 if (existsInCache)
                 {
@@ -368,8 +387,23 @@ internal sealed class BmsLibraryMaintenanceService
             normalizedPath,
             ChartResourceKeyHash.GetLookupHash(normalizedPath),
             ChartResourcePathNormalizer.HasDirectorySegments(normalizedPath));
+        if (lookupContext?.TryGetSharedResourceExists(
+            lookupDirectory,
+            ChartResourceKind.Image,
+            reference.RelativePathHash,
+            out bool sharedExistsInCache) == true)
+        {
+            lookupContext.RecordCacheHit();
+            return sharedExistsInCache;
+        }
+
         if (TryResolveResourceReferenceFromCache(resourceEntry, reference, ChartResourceKind.Image, out bool existsInCache))
         {
+            lookupContext?.SetSharedResourceExists(
+                lookupDirectory,
+                ChartResourceKind.Image,
+                reference.RelativePathHash,
+                existsInCache);
             lookupContext?.RecordCacheHit();
             return existsInCache;
         }
@@ -1174,11 +1208,27 @@ internal sealed class BmsLibraryMaintenanceService
         return EvaluateBmsMaintenance(file, snapshot, new ResourceHealthLookupContext(lookupCache), forceUpdate);
     }
 
+    internal static MaintenanceEvaluationResult EvaluateBmsMaintenanceForInline(
+        BMSFile file,
+        ChartFileSnapshot snapshot,
+        ResourceHealthLookupContext lookupContext,
+        bool forceUpdate = false)
+    {
+        return EvaluateBmsMaintenance(file, snapshot, lookupContext ?? new ResourceHealthLookupContext(null), forceUpdate);
+    }
+
     internal static MaintenanceEvaluationResult EvaluateBmsonMaintenanceForInline(
         LR2SongDBExtended.bmson_song song,
         DirectoryResourceLookupCache lookupCache)
     {
         return EvaluateBmsonMaintenance(song, null, new ResourceHealthLookupContext(lookupCache), forceUpdate: false);
+    }
+
+    internal static MaintenanceEvaluationResult EvaluateBmsonMaintenanceForInline(
+        LR2SongDBExtended.bmson_song song,
+        ResourceHealthLookupContext lookupContext)
+    {
+        return EvaluateBmsonMaintenance(song, null, lookupContext ?? new ResourceHealthLookupContext(null), forceUpdate: false);
     }
 
     private static MaintenanceEvaluationResult EvaluateBmsMaintenance(
@@ -1188,6 +1238,8 @@ internal sealed class BmsLibraryMaintenanceService
         bool forceUpdate)
     {
         var result = new MaintenanceEvaluationResult();
+        long cacheHitCountBefore = resourceLookupContext?.CacheHitCount ?? 0L;
+        long fileExistsFallbackCountBefore = resourceLookupContext?.FileExistsFallbackCount ?? 0L;
         if (!ChartFileKindResolver.IsBmsChartFile(file))
         {
             return result;
@@ -1249,8 +1301,8 @@ internal sealed class BmsLibraryMaintenanceService
 
         result.MaintenanceInfo = file.TryGetMaintenanceInfoWithoutCreating();
         result.MaintenanceInfoChanged = !MaintenanceRowsEquivalent(beforeInfo, result.MaintenanceInfo);
-        result.CacheHitCount = resourceLookupContext?.CacheHitCount ?? 0L;
-        result.FileExistsFallbackCount = resourceLookupContext?.FileExistsFallbackCount ?? 0L;
+        result.CacheHitCount = Math.Max(0L, (resourceLookupContext?.CacheHitCount ?? 0L) - cacheHitCountBefore);
+        result.FileExistsFallbackCount = Math.Max(0L, (resourceLookupContext?.FileExistsFallbackCount ?? 0L) - fileExistsFallbackCountBefore);
         return result;
     }
 
@@ -1261,6 +1313,8 @@ internal sealed class BmsLibraryMaintenanceService
         bool forceUpdate)
     {
         var result = new MaintenanceEvaluationResult();
+        long cacheHitCountBefore = resourceLookupContext?.CacheHitCount ?? 0L;
+        long fileExistsFallbackCountBefore = resourceLookupContext?.FileExistsFallbackCount ?? 0L;
         if (song == null || string.IsNullOrWhiteSpace(song.path))
         {
             return result;
@@ -1302,8 +1356,8 @@ internal sealed class BmsLibraryMaintenanceService
         song.MaintenanceInfo = afterInfo;
         result.MaintenanceInfo = afterInfo;
         result.MaintenanceInfoChanged = !MaintenanceRowsEquivalent(beforeInfo, afterInfo);
-        result.CacheHitCount = resourceLookupContext?.CacheHitCount ?? 0L;
-        result.FileExistsFallbackCount = resourceLookupContext?.FileExistsFallbackCount ?? 0L;
+        result.CacheHitCount = Math.Max(0L, (resourceLookupContext?.CacheHitCount ?? 0L) - cacheHitCountBefore);
+        result.FileExistsFallbackCount = Math.Max(0L, (resourceLookupContext?.FileExistsFallbackCount ?? 0L) - fileExistsFallbackCountBefore);
         return result;
     }
 

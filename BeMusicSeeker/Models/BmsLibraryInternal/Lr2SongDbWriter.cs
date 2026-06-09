@@ -62,7 +62,8 @@ internal readonly struct Lr2GeneratedSongCurrentnessResult(
     long projectionMs,
     long existingReadMs,
     long digestReadMs,
-    long elapsedMs)
+    long elapsedMs,
+    IReadOnlyList<string> diagnosticSamples)
 {
     public int TargetCount { get; } = targetCount;
 
@@ -87,6 +88,8 @@ internal readonly struct Lr2GeneratedSongCurrentnessResult(
     public long DigestReadMs { get; } = digestReadMs;
 
     public long ElapsedMs { get; } = elapsedMs;
+
+    public IReadOnlyList<string> DiagnosticSamples { get; } = diagnosticSamples ?? [];
 
     public bool IsCurrent => TargetCount == VerifiedCount
         && MissingCount == 0
@@ -212,13 +215,18 @@ internal static class Lr2SongDbWriter
         if (sourceRows.Count == 0)
         {
             stopwatch.Stop();
-            return new Lr2GeneratedSongCurrentnessResult(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, stopwatch.ElapsedMilliseconds);
+            return new Lr2GeneratedSongCurrentnessResult(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, stopwatch.ElapsedMilliseconds, []);
         }
 
         int duplicatePathCount = sourceRows.Count
             - sourceRows.Select(song => song.path).Distinct(StringComparer.OrdinalIgnoreCase).Count();
         if (duplicatePathCount > 0)
         {
+            IReadOnlyList<string> duplicateSamples = [.. sourceRows
+                .GroupBy(song => song.path, StringComparer.OrdinalIgnoreCase)
+                .Where(group => group.Count() > 1)
+                .Take(10)
+                .Select(group => "duplicate_path path=" + group.Key + " count=" + group.Count())];
             stopwatch.Stop();
             return new Lr2GeneratedSongCurrentnessResult(
                 sourceRows.Count,
@@ -232,7 +240,8 @@ internal static class Lr2SongDbWriter
                 0,
                 0,
                 0,
-                stopwatch.ElapsedMilliseconds);
+                stopwatch.ElapsedMilliseconds,
+                duplicateSamples);
         }
 
         var projectionStopwatch = Stopwatch.StartNew();
@@ -253,16 +262,21 @@ internal static class Lr2SongDbWriter
         int verifiedCount = 0;
         int missingCount = 0;
         int mismatchedCount = 0;
+        var diagnosticSamples = new List<string>(10);
         foreach (BMSFile expected in expectedRows)
         {
             if (!existingByPath.TryGetValue(expected.path, out GeneratedSongRow existing))
             {
                 missingCount++;
+                AddDiagnosticSample(diagnosticSamples, "missing_song path=" + expected.path);
                 continue;
             }
             if (!HasSameGeneratedColumns(expected, existing))
             {
                 mismatchedCount++;
+                AddDiagnosticSample(
+                    diagnosticSamples,
+                    "mismatched_song path=" + expected.path + " columns=" + DescribeGeneratedColumnMismatch(expected, existing));
                 continue;
             }
             verifiedCount++;
@@ -286,11 +300,13 @@ internal static class Lr2SongDbWriter
             if (!digestByMd5.TryGetValue(md5, out string sha256))
             {
                 digestMissingCount++;
+                AddDiagnosticSample(diagnosticSamples, "missing_digest md5=" + md5 + " path=" + expected.path);
                 continue;
             }
             if (!string.Equals(expected.sha256, sha256, StringComparison.OrdinalIgnoreCase))
             {
                 digestMismatchedCount++;
+                AddDiagnosticSample(diagnosticSamples, "mismatched_digest md5=" + md5 + " path=" + expected.path);
             }
         }
 
@@ -307,7 +323,8 @@ internal static class Lr2SongDbWriter
             projectionStopwatch.ElapsedMilliseconds,
             existingReadStopwatch.ElapsedMilliseconds,
             digestReadStopwatch.ElapsedMilliseconds,
-            stopwatch.ElapsedMilliseconds);
+            stopwatch.ElapsedMilliseconds,
+            diagnosticSamples);
     }
 
     internal static Lr2GeneratedSongWriteResult UpsertGeneratedSongsForFullGenerationWithResult(
@@ -1275,6 +1292,53 @@ internal static class Lr2SongDbWriter
             && (!expected.txt.HasValue || expected.txt == existing.txt)
             && expected.karinotes == existing.karinotes
             && expected.exlevel == existing.exlevel;
+    }
+
+    private static void AddDiagnosticSample(List<string> samples, string value)
+    {
+        if (samples != null && samples.Count < 10 && !string.IsNullOrWhiteSpace(value))
+        {
+            samples.Add(value);
+        }
+    }
+
+    private static string DescribeGeneratedColumnMismatch(BMSFile expected, GeneratedSongRow existing)
+    {
+        var names = new List<string>();
+        AddMismatchName(names, "hash", !string.Equals(expected.hash, existing.hash, StringComparison.Ordinal));
+        AddMismatchName(names, "title", !string.Equals(expected.title, existing.title, StringComparison.Ordinal));
+        AddMismatchName(names, "subtitle", !string.Equals(expected.subtitle, existing.subtitle, StringComparison.Ordinal));
+        AddMismatchName(names, "artist", !string.Equals(expected.artist, existing.artist, StringComparison.Ordinal));
+        AddMismatchName(names, "subartist", !string.Equals(expected.subartist, existing.subartist, StringComparison.Ordinal));
+        AddMismatchName(names, "genre", !string.Equals(expected.genre, existing.genre, StringComparison.Ordinal));
+        AddMismatchName(names, "type", expected.type != existing.type);
+        AddMismatchName(names, "folder", !string.Equals(expected.folder, existing.folder, StringComparison.Ordinal));
+        AddMismatchName(names, "stagefile", !string.Equals(expected.stagefile, existing.stagefile, StringComparison.Ordinal));
+        AddMismatchName(names, "banner", !string.Equals(expected.banner, existing.banner, StringComparison.Ordinal));
+        AddMismatchName(names, "backbmp", !string.Equals(expected.backbmp, existing.backbmp, StringComparison.Ordinal));
+        AddMismatchName(names, "parent", !string.Equals(expected.parent, existing.parent, StringComparison.Ordinal));
+        AddMismatchName(names, "level", expected.level != existing.level);
+        AddMismatchName(names, "difficulty", expected.difficulty != existing.difficulty);
+        AddMismatchName(names, "maxbpm", expected.maxbpm != existing.maxbpm);
+        AddMismatchName(names, "minbpm", expected.minbpm != existing.minbpm);
+        AddMismatchName(names, "mode", expected.mode != existing.mode);
+        AddMismatchName(names, "judge", expected.judge != existing.judge);
+        AddMismatchName(names, "longnote", expected.longnote != existing.longnote);
+        AddMismatchName(names, "bga", expected.bga != existing.bga);
+        AddMismatchName(names, "random", expected.random != existing.random);
+        AddMismatchName(names, "date", expected.date != existing.date);
+        AddMismatchName(names, "txt", expected.txt.HasValue && expected.txt != existing.txt);
+        AddMismatchName(names, "karinotes", expected.karinotes != existing.karinotes);
+        AddMismatchName(names, "exlevel", expected.exlevel != existing.exlevel);
+        return names.Count == 0 ? "unknown" : string.Join(",", names);
+    }
+
+    private static void AddMismatchName(List<string> names, string name, bool mismatched)
+    {
+        if (mismatched)
+        {
+            names.Add(name);
+        }
     }
 
     private static void UpdateGeneratedColumns(LR2SongDBExtended songDb, BMSFile song)

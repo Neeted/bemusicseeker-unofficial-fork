@@ -7546,7 +7546,8 @@ completeFileEnumerationOnce,
             ProjectionMs = currentness.ProjectionMs,
             ExistingReadMs = currentness.ExistingReadMs,
             DigestReadMs = currentness.DigestReadMs,
-            ElapsedMs = currentness.ElapsedMs
+            ElapsedMs = currentness.ElapsedMs,
+            DiagnosticSamples = currentness.DiagnosticSamples
         };
     }
 

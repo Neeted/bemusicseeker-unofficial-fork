@@ -159,6 +159,8 @@ internal sealed class Lr2FullGenerationSongRowsSkipVerificationResult
     public long DigestReadMs { get; set; }
 
     public long ElapsedMs { get; set; }
+
+    public IReadOnlyList<string> DiagnosticSamples { get; set; } = [];
 }
 
 internal sealed class Lr2StartupScanDiagnosticResult(
@@ -171,6 +173,9 @@ internal sealed class Lr2StartupScanDiagnosticResult(
     int dateMissingFolderRowCount,
     int dateStaleFolderRowCount,
     int unknownRootFolderRowCount,
+    IReadOnlyList<string> dateMissingSongRowSamples,
+    IReadOnlyList<string> missingExpectedFolderRowSamples,
+    IReadOnlyList<string> missingExpectedLr2FolderRowSamples,
     IReadOnlyList<string> cleanupFolderRowPaths,
     IReadOnlyList<Lr2StartupScanFolderDateUpdate> folderDateUpdates)
 {
@@ -191,6 +196,12 @@ internal sealed class Lr2StartupScanDiagnosticResult(
     public int DateStaleFolderRowCount { get; } = dateStaleFolderRowCount;
 
     public int UnknownRootFolderRowCount { get; } = unknownRootFolderRowCount;
+
+    public IReadOnlyList<string> DateMissingSongRowSamples { get; } = dateMissingSongRowSamples ?? [];
+
+    public IReadOnlyList<string> MissingExpectedFolderRowSamples { get; } = missingExpectedFolderRowSamples ?? [];
+
+    public IReadOnlyList<string> MissingExpectedLr2FolderRowSamples { get; } = missingExpectedLr2FolderRowSamples ?? [];
 
     public IReadOnlyList<string> CleanupFolderRowPaths { get; } = cleanupFolderRowPaths ?? [];
 
@@ -226,6 +237,22 @@ internal sealed class Lr2StartupScanDiagnosticResult(
             + " unknownRootFolderRows=" + UnknownRootFolderRowCount
             + " cleanupFolderRows=" + CleanupFolderRowCount
             + " folderDateUpdates=" + FolderDateUpdateCount;
+    }
+
+    public IEnumerable<string> EnumerateSampleLogDetails()
+    {
+        foreach (string path in DateMissingSongRowSamples)
+        {
+            yield return "kind=date_missing_song path=" + path;
+        }
+        foreach (string path in MissingExpectedFolderRowSamples)
+        {
+            yield return "kind=missing_expected_folder path=" + path;
+        }
+        foreach (string path in MissingExpectedLr2FolderRowSamples)
+        {
+            yield return "kind=missing_expected_lr2folder path=" + path;
+        }
     }
 }
 
@@ -676,6 +703,11 @@ internal static class Lr2FullGenerationSyncService
                     + " total=" + diagnosticResult.TotalBlockerCount
                     + " cleanupFolderRows=" + diagnosticResult.CleanupFolderRowCount
                     + " processedCursor=" + processedCount);
+                foreach (string detail in diagnosticResult.EnumerateSampleLogDetails())
+                {
+                    LogSync(request, "lr2_full_generation_sync startup_scan_diagnostics_detail"
+                        + " detail=" + QuoteLogValue(detail));
+                }
             }
             if (!IsSourceCurrent(request))
             {
@@ -815,6 +847,12 @@ internal static class Lr2FullGenerationSyncService
             + " existingReadMs=" + result.ExistingReadMs
             + " digestReadMs=" + result.DigestReadMs
             + " elapsedMs=" + result.ElapsedMs);
+        foreach (string sample in result.DiagnosticSamples ?? [])
+        {
+            LogSync(request, "lr2_full_generation_sync song_rows_skip_detail"
+                + " reason=" + (result.Reason ?? "unknown")
+                + " detail=" + QuoteLogValue(sample));
+        }
     }
 
     private static void ThrowIfCancellationRequested(
@@ -1021,6 +1059,7 @@ internal static class Lr2FullGenerationSyncService
         int noRootSetBlockerCount = 0;
         int missingCurrentSongRowCount = 0;
         int dateMissingSongRowCount = 0;
+        var dateMissingSongRowSamples = new List<string>(10);
         foreach (string currentPath in currentPaths)
         {
             if (!rowsByPath.TryGetValue(currentPath, out StartupDiagnosticSongRow row))
@@ -1031,6 +1070,10 @@ internal static class Lr2FullGenerationSyncService
             if (!row.Date.HasValue || row.Date.GetValueOrDefault() <= 0)
             {
                 dateMissingSongRowCount++;
+                if (dateMissingSongRowSamples.Count < 10)
+                {
+                    dateMissingSongRowSamples.Add(currentPath);
+                }
             }
         }
 
@@ -1141,12 +1184,16 @@ internal static class Lr2FullGenerationSyncService
                 AddCleanupFolderRowPath(cleanupFolderRowPaths, row.Path);
             }
         }
-        int missingExpectedFolderRowCount = CountMissingExpectedNormalFolderRows(
+        IReadOnlyList<string> missingExpectedFolderRowSamples = GetMissingExpectedRows(
             expectedNormalFolderPaths,
-            existingNormalFolderPaths);
-        int missingExpectedLr2FolderRowCount = CountMissingExpectedLr2FolderRows(
+            existingNormalFolderPaths,
+            10);
+        IReadOnlyList<string> missingExpectedLr2FolderRowSamples = GetMissingExpectedRows(
             expectedLr2FolderPaths,
-            existingLr2FolderPaths);
+            existingLr2FolderPaths,
+            10);
+        int missingExpectedFolderRowCount = CountMissingExpectedRows(expectedNormalFolderPaths, existingNormalFolderPaths);
+        int missingExpectedLr2FolderRowCount = CountMissingExpectedRows(expectedLr2FolderPaths, existingLr2FolderPaths);
 
         return new Lr2StartupScanDiagnosticResult(
             noRootSetBlockerCount,
@@ -1158,6 +1205,9 @@ internal static class Lr2FullGenerationSyncService
             dateMissingFolderRowCount,
             dateStaleFolderRowCount,
             unknownRootFolderRowCount,
+            dateMissingSongRowSamples,
+            missingExpectedFolderRowSamples,
+            missingExpectedLr2FolderRowSamples,
             [.. cleanupFolderRowPaths],
             [.. folderDateUpdates.Values]);
     }
@@ -1332,20 +1382,46 @@ internal static class Lr2FullGenerationSyncService
         return type == 0 || type == 2 || type == 3 || type == 4 || type == 6;
     }
 
-    private static int CountMissingExpectedNormalFolderRows(
-        IEnumerable<string> expectedNormalFolderPaths,
-        ISet<string> existingNormalFolderPaths)
+    private static int CountMissingExpectedRows(
+        IEnumerable<string> expectedPaths,
+        ISet<string> existingPaths)
     {
         int missing = 0;
-        foreach (string expectedPath in expectedNormalFolderPaths ?? [])
+        foreach (string expectedPath in expectedPaths ?? [])
         {
             if (!string.IsNullOrWhiteSpace(expectedPath)
-                && existingNormalFolderPaths?.Contains(expectedPath) != true)
+                && existingPaths?.Contains(expectedPath) != true)
             {
                 missing++;
             }
         }
         return missing;
+    }
+
+    private static IReadOnlyList<string> GetMissingExpectedRows(
+        IEnumerable<string> expectedPaths,
+        ISet<string> existingPaths,
+        int maxCount)
+    {
+        if (maxCount <= 0)
+        {
+            return [];
+        }
+
+        var result = new List<string>(maxCount);
+        foreach (string expectedPath in expectedPaths ?? [])
+        {
+            if (!string.IsNullOrWhiteSpace(expectedPath)
+                && existingPaths?.Contains(expectedPath) != true)
+            {
+                result.Add(expectedPath);
+                if (result.Count >= maxCount)
+                {
+                    break;
+                }
+            }
+        }
+        return result;
     }
 
     private static HashSet<string> CreateExpectedLr2FolderRowPaths(Lr2FullGenerationSyncRequest request)
@@ -1398,22 +1474,6 @@ internal static class Lr2FullGenerationSyncService
             .Where(path => !string.IsNullOrWhiteSpace(path))
             .Concat(NormalizeEnumerationEntries(request.Lr2FolderFileEntries).Keys)
             .Distinct(StringComparer.OrdinalIgnoreCase)];
-    }
-
-    private static int CountMissingExpectedLr2FolderRows(
-        IEnumerable<string> expectedLr2FolderPaths,
-        ISet<string> existingLr2FolderPaths)
-    {
-        int missing = 0;
-        foreach (string expectedPath in expectedLr2FolderPaths ?? [])
-        {
-            if (!string.IsNullOrWhiteSpace(expectedPath)
-                && existingLr2FolderPaths?.Contains(expectedPath) != true)
-            {
-                missing++;
-            }
-        }
-        return missing;
     }
 
     internal static Lr2StartupScanBlockerCleanupResult CleanupStartupScanBlockerFolderRows(

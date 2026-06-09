@@ -806,7 +806,9 @@ public sealed class BmsLibraryInitializationServiceTests
             Assert.AreEqual(ChartFileReadPipelinePolicy.ResolveReadQueueCapacity(result.FileDiffParserDegree, result.FileDiffReaderDegree), result.ReadQueueCapacity);
             Assert.AreEqual(2048, result.ParsedQueueCapacity);
             Assert.AreEqual(1, result.PostParseQueueCapacity);
-            Assert.AreEqual(0, result.CommitQueueCapacity);
+            Assert.AreEqual(1, result.CommitQueueCapacity);
+            Assert.IsTrue(result.CommitStreamingEnabled);
+            Assert.AreEqual("none", result.CommitStreamingBarrierReason);
             Assert.AreEqual(1, result.PostParseBatchCount);
             Assert.AreEqual(1, result.InlineMaintenanceDegree);
             Assert.IsTrue(result.PostParseWallMs >= 0);
@@ -821,6 +823,9 @@ public sealed class BmsLibraryInitializationServiceTests
                 && message.Contains("file_diff_parser_degree=1")
                 && message.Contains("read_queue_capacity=" + result.ReadQueueCapacity)
                 && message.Contains("parsed_queue_capacity=2048")
+                && message.Contains("commit_queue_capacity=1")
+                && message.Contains("commit_streaming_enabled=true")
+                && message.Contains("commit_streaming_barrier=none")
                 && message.Contains("post_parse_batch_count=1")
                 && message.Contains("inline_chart_info_target_count=2")
                 && message.Contains("inline_chart_info_batch_size=2048")
