@@ -507,6 +507,71 @@ public sealed class Lr2SongDbWriterTests
         });
     }
 
+    [TestMethod]
+    public void VerifyGeneratedSongsCurrent_ReturnsCurrentForCommittedRowsAndDigests()
+    {
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            using var songDb = new LR2SongDBExtended(songDbPath);
+            songDb.CreateTable<LR2SongDB.song>();
+            songDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
+            TestableBmsFile file = CreateSong(@"D:\BMS\Pack\chart.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Title");
+            file.SetSha256(Sha('1'));
+            Assert.IsTrue(Lr2SongDbWriter.UpsertGeneratedSong(songDb, file));
+
+            Lr2GeneratedSongCurrentnessResult result =
+                Lr2SongDbWriter.VerifyGeneratedSongsCurrent(songDb, [file]);
+
+            Assert.IsTrue(result.IsCurrent);
+            Assert.AreEqual(1, result.TargetCount);
+            Assert.AreEqual(1, result.VerifiedCount);
+            Assert.AreEqual(1, result.DigestCheckedCount);
+        });
+    }
+
+    [TestMethod]
+    public void VerifyGeneratedSongsCurrent_DetectsGeneratedColumnMismatch()
+    {
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            using var songDb = new LR2SongDBExtended(songDbPath);
+            songDb.CreateTable<LR2SongDB.song>();
+            songDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
+            TestableBmsFile file = CreateSong(@"D:\BMS\Pack\chart.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Old");
+            file.SetSha256(Sha('1'));
+            Assert.IsTrue(Lr2SongDbWriter.UpsertGeneratedSong(songDb, file));
+            TestableBmsFile expected = CreateSong(file.path, file.hash, "New");
+            expected.SetSha256(file.sha256);
+
+            Lr2GeneratedSongCurrentnessResult result =
+                Lr2SongDbWriter.VerifyGeneratedSongsCurrent(songDb, [expected]);
+
+            Assert.IsFalse(result.IsCurrent);
+            Assert.AreEqual(1, result.MismatchedCount);
+        });
+    }
+
+    [TestMethod]
+    public void VerifyGeneratedSongsCurrent_DetectsDigestMismatch()
+    {
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            using var songDb = new LR2SongDBExtended(songDbPath);
+            songDb.CreateTable<LR2SongDB.song>();
+            songDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
+            TestableBmsFile file = CreateSong(@"D:\BMS\Pack\chart.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Title");
+            file.SetSha256(Sha('1'));
+            Assert.IsTrue(Lr2SongDbWriter.UpsertGeneratedSong(songDb, file));
+            file.SetSha256(Sha('2'));
+
+            Lr2GeneratedSongCurrentnessResult result =
+                Lr2SongDbWriter.VerifyGeneratedSongsCurrent(songDb, [file]);
+
+            Assert.IsFalse(result.IsCurrent);
+            Assert.AreEqual(1, result.DigestMismatchedCount);
+        });
+    }
+
     private static TestableBmsFile CreateSong(string path, string hash, string title)
     {
         var file = new TestableBmsFile

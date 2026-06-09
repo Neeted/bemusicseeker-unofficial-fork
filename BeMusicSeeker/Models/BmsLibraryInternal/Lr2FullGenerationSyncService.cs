@@ -77,6 +77,8 @@ internal sealed class Lr2FullGenerationSyncRequest
 
     public Action<IReadOnlyList<BMSFileMaintenanceInfo>> Lr2CompatibilityFactsCommitted { get; set; }
 
+    public Func<LR2SongDBExtended, IReadOnlyList<BMSFile>, Lr2FullGenerationSongRowsSkipVerificationResult> SongRowsSkipVerifier { get; set; }
+
     public Action<string> LogInstallPerformance { get; set; }
 }
 
@@ -111,6 +113,8 @@ internal sealed class Lr2FullGenerationSyncResult
 
     public int SongRowProcessedCount { get; set; }
 
+    public int SongRowSkippedCount { get; set; }
+
     public int SongRowParseFailureCount { get; set; }
 
     public int SongRowChartInfoAppliedCount { get; set; }
@@ -120,6 +124,37 @@ internal sealed class Lr2FullGenerationSyncResult
     public int StaleSongRowPrunedCount { get; set; }
 
     public Lr2StartupScanDiagnosticResult StartupScanDiagnosticResult { get; set; }
+
+    public long ElapsedMs { get; set; }
+}
+
+internal sealed class Lr2FullGenerationSongRowsSkipVerificationResult
+{
+    public bool CanSkip { get; set; }
+
+    public string Reason { get; set; }
+
+    public int TargetRows { get; set; }
+
+    public int VerifiedRows { get; set; }
+
+    public int MissingRows { get; set; }
+
+    public int MismatchedRows { get; set; }
+
+    public int DuplicatePathRows { get; set; }
+
+    public int DigestCheckedRows { get; set; }
+
+    public int DigestMissingRows { get; set; }
+
+    public int DigestMismatchedRows { get; set; }
+
+    public long ProjectionMs { get; set; }
+
+    public long ExistingReadMs { get; set; }
+
+    public long DigestReadMs { get; set; }
 
     public long ElapsedMs { get; set; }
 }
@@ -422,7 +457,15 @@ internal static class Lr2FullGenerationSyncService
             ReportProgress(request, folderProcessedCount, totalCount, "lr2folder_files_completed", lr2FolderFileProcessedCount, lr2FolderFilePaths.Count);
         }
 
-        if (resumeCursor < songRowsEndCursor)
+        Lr2FullGenerationSongRowsSkipVerificationResult songRowsSkipVerification =
+            TryVerifySongRowsSkip(songDb, request, songRows, resumeCursor, lr2FolderEndCursor, songRowsEndCursor);
+        bool skipSongRows = songRowsSkipVerification?.CanSkip == true;
+        if (songRowsSkipVerification != null)
+        {
+            LogSongRowsSkipVerification(request, songRowsSkipVerification, skipSongRows, resumeCursor, lr2FolderEndCursor);
+        }
+
+        if (resumeCursor < songRowsEndCursor && !skipSongRows)
         {
             int songStageStart = Math.Max(0, resumeCursor - lr2FolderEndCursor);
             int songStageProcessedCursor = folderProcessedCount + songStageStart;
@@ -437,12 +480,35 @@ internal static class Lr2FullGenerationSyncService
                 nowUtc: DateTime.UtcNow);
             ReportProgress(request, songStageProcessedCursor, totalCount, "song_rows", songStageStart, songRows.Count);
         }
-        ThrowIfCancellationRequested(songDb, request, Math.Max(folderProcessedCount, resumeCursor), totalCount, "song_rows");
+        if (skipSongRows)
+        {
+            Lr2FullGenerationStatusService.UpdateCursor(
+                songDb,
+                request.Signature,
+                request.RunId,
+                processedCursor: songRowsEndCursor,
+                totalCount: totalCount,
+                stage: "song_rows_completed",
+                nowUtc: DateTime.UtcNow);
+            ReportProgress(request, songRowsEndCursor, totalCount, "song_rows_completed", songRows.Count, songRows.Count);
+        }
+        ThrowIfCancellationRequested(songDb, request, skipSongRows ? songRowsEndCursor : Math.Max(folderProcessedCount, resumeCursor), totalCount, "song_rows");
 
-        int songRowStartIndex = Math.Max(0, resumeCursor - lr2FolderEndCursor);
-        SongRowSyncResult songRowResult = resumeCursor >= songRowsEndCursor
-            ? new SongRowSyncResult(0, 0, 0, 0)
-            : UpsertSongRows(
+        int songRowStartIndex = skipSongRows
+            ? 0
+            : Math.Max(0, resumeCursor - lr2FolderEndCursor);
+        SongRowSyncResult songRowResult;
+        if (resumeCursor >= songRowsEndCursor)
+        {
+            songRowResult = new SongRowSyncResult(0, 0, 0, 0, 0);
+        }
+        else if (skipSongRows)
+        {
+            songRowResult = new SongRowSyncResult(0, songRows.Count, 0, 0, 0);
+        }
+        else
+        {
+            songRowResult = UpsertSongRows(
                 songDb,
                 songRows,
                 textFileDirectories,
@@ -452,12 +518,13 @@ internal static class Lr2FullGenerationSyncService
                 request.Signature,
                 request.RunId,
                 request);
-        int processedCount = resumeCursor >= songRowsEndCursor
+        }
+        int processedCount = resumeCursor >= songRowsEndCursor || skipSongRows
             ? songRowsEndCursor
             : lr2FolderEndCursor + songRowStartIndex + songRowResult.ProcessedCount;
         ThrowIfCancellationRequested(songDb, request, processedCount, totalCount, "song_rows_completed");
 
-        if (resumeCursor < songRowsEndCursor)
+        if (resumeCursor < songRowsEndCursor && !skipSongRows)
         {
             Lr2FullGenerationStatusService.UpdateCursor(
                 songDb,
@@ -469,6 +536,10 @@ internal static class Lr2FullGenerationSyncService
                 nowUtc: DateTime.UtcNow);
             ReportProgress(request, processedCount, totalCount, "song_rows_completed", songRowStartIndex + songRowResult.ProcessedCount, songRows.Count);
             LogStage(request, "stage_done", "song_rows", songRows.Count, songRowStartIndex + songRowResult.ProcessedCount, processedCount);
+        }
+        else if (skipSongRows)
+        {
+            LogStage(request, "stage_done", "song_rows", songRows.Count, songRows.Count, processedCount);
         }
 
         Lr2SongPruneResult songPruneResult = new(0, songRows.Count);
@@ -644,6 +715,7 @@ internal static class Lr2FullGenerationSyncService
             Lr2FolderFileSyncResult = lr2FolderFileResult,
             Lr2FolderFileProcessedCount = lr2FolderFileProcessedCount,
             SongRowProcessedCount = songRowResult.ProcessedCount,
+            SongRowSkippedCount = songRowResult.SkippedCount,
             SongRowParseFailureCount = songRowResult.ParseFailureCount,
             SongRowChartInfoAppliedCount = songRowResult.ChartInfoAppliedCount,
             SongRowLr2CompatibilityAppliedCount = songRowResult.Lr2CompatibilityAppliedCount,
@@ -667,6 +739,80 @@ internal static class Lr2FullGenerationSyncService
         {
             return false;
         }
+    }
+
+    private static Lr2FullGenerationSongRowsSkipVerificationResult TryVerifySongRowsSkip(
+        LR2SongDBExtended songDb,
+        Lr2FullGenerationSyncRequest request,
+        IReadOnlyList<BMSFile> songRows,
+        int resumeCursor,
+        int lr2FolderEndCursor,
+        int songRowsEndCursor)
+    {
+        if (request?.SongRowsSkipVerifier == null || resumeCursor >= songRowsEndCursor)
+        {
+            return null;
+        }
+        if (resumeCursor > lr2FolderEndCursor)
+        {
+            return new Lr2FullGenerationSongRowsSkipVerificationResult
+            {
+                CanSkip = false,
+                Reason = "partial_song_rows_resume",
+                TargetRows = songRows?.Count ?? 0
+            };
+        }
+
+        try
+        {
+            return request.SongRowsSkipVerifier(songDb, songRows ?? [])
+                ?? new Lr2FullGenerationSongRowsSkipVerificationResult
+                {
+                    CanSkip = false,
+                    Reason = "verifier_returned_null",
+                    TargetRows = songRows?.Count ?? 0
+                };
+        }
+        catch (Exception ex)
+        {
+            return new Lr2FullGenerationSongRowsSkipVerificationResult
+            {
+                CanSkip = false,
+                Reason = "verifier_failed_" + ex.GetType().Name,
+                TargetRows = songRows?.Count ?? 0
+            };
+        }
+    }
+
+    private static void LogSongRowsSkipVerification(
+        Lr2FullGenerationSyncRequest request,
+        Lr2FullGenerationSongRowsSkipVerificationResult result,
+        bool skipped,
+        int resumeCursor,
+        int lr2FolderEndCursor)
+    {
+        if (result == null)
+        {
+            return;
+        }
+
+        LogSync(request, "lr2_full_generation_sync song_rows_skip"
+            + " action=" + (skipped ? "skip" : "run")
+            + " reason=" + (result.Reason ?? "unknown")
+            + " resumeCursor=" + resumeCursor
+            + " lr2FolderEndCursor=" + lr2FolderEndCursor
+            + " targetRows=" + result.TargetRows
+            + " verifiedRows=" + result.VerifiedRows
+            + " missingRows=" + result.MissingRows
+            + " mismatchedRows=" + result.MismatchedRows
+            + " duplicatePathRows=" + result.DuplicatePathRows
+            + " digestCheckedRows=" + result.DigestCheckedRows
+            + " digestMissingRows=" + result.DigestMissingRows
+            + " digestMismatchedRows=" + result.DigestMismatchedRows
+            + " projectionMs=" + result.ProjectionMs
+            + " existingReadMs=" + result.ExistingReadMs
+            + " digestReadMs=" + result.DigestReadMs
+            + " elapsedMs=" + result.ElapsedMs);
     }
 
     private static void ThrowIfCancellationRequested(
@@ -1859,14 +2005,14 @@ internal static class Lr2FullGenerationSyncService
     {
         if (songRows == null || songRows.Count == 0)
         {
-            return new SongRowSyncResult(0, 0, 0, 0);
+            return new SongRowSyncResult(0, 0, 0, 0, 0);
         }
 
         List<BMSFile> targetRows = [.. songRows.Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))];
         int safeStartIndex = Math.Max(0, startIndex);
         if (targetRows.Count == 0 || safeStartIndex >= targetRows.Count)
         {
-            return new SongRowSyncResult(0, 0, 0, 0);
+            return new SongRowSyncResult(0, 0, 0, 0, 0);
         }
 
         BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
@@ -2380,7 +2526,7 @@ internal static class Lr2FullGenerationSyncService
             + " readQueueHighWatermark=" + readQueueHighWatermark
             + " computedQueueHighWatermark=" + computedQueueHighWatermark
             + " pendingItemsHighWatermark=" + pendingItemsHighWatermark);
-        return new SongRowSyncResult(processed, parseFailureCount, chartInfoAppliedCount, compatibilityApplied);
+        return new SongRowSyncResult(processed, 0, parseFailureCount, chartInfoAppliedCount, compatibilityApplied);
     }
 
     private static void ReportCommittedLr2CompatibilityFacts(
@@ -3187,11 +3333,14 @@ internal static class Lr2FullGenerationSyncService
 
     private sealed class SongRowSyncResult(
         int processedCount,
+        int skippedCount,
         int parseFailureCount,
         int chartInfoAppliedCount,
         int lr2CompatibilityAppliedCount)
     {
         public int ProcessedCount { get; } = processedCount;
+
+        public int SkippedCount { get; } = skippedCount;
 
         public int ParseFailureCount { get; } = parseFailureCount;
 

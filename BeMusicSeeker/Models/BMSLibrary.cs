@@ -1149,6 +1149,10 @@ public class BMSLibrary : NotificationObject
 
     private int lr2FullGenerationScanSurfaceGeneration;
 
+    private readonly object lockLr2FullGenerationFileDiffFreshness = new();
+
+    private Lr2FullGenerationFileDiffFreshnessSnapshot lr2FullGenerationFileDiffFreshnessSnapshot;
+
     private Lr2FullGenerationPreparedDataSurface lr2FullGenerationPreparedDataSurface =
         Lr2FullGenerationPreparedDataSurface.Empty;
 
@@ -5345,6 +5349,7 @@ completeFileEnumerationOnce,
         }
         ApplyLibraryMutationDelta(fileCheckResult.MutationDelta);
         CaptureLr2FullGenerationScanSurface(options, bmsDirectories, fileCheckResult);
+        CaptureLr2FullGenerationFileDiffFreshnessSnapshot(options, fileCheckResult, reason);
         MarkLr2FullGenerationIncompleteAfterFileDiffNormalFolderSyncFailure(options, fileCheckResult);
         if (trackLibraryFileCheckProgress)
         {
@@ -5893,6 +5898,134 @@ completeFileEnumerationOnce,
             + " ownedCollectionVersion=" + snapshot.OwnedCollectionVersion
             + " bmsRowsVersion=" + snapshot.BmsRowsVersion
             + " bmsonRowsVersion=" + snapshot.BmsonRowsVersion);
+    }
+
+    private void CaptureLr2FullGenerationFileDiffFreshnessSnapshot(
+        BmsLibraryOptionsSnapshot options,
+        SongTableFileCheckResult fileCheckResult,
+        string reason)
+    {
+        if (options?.OperationModeLR2DB != true
+            || options.EnableLR2SongDbFullGeneration != true
+            || fileCheckResult == null)
+        {
+            ClearLr2FullGenerationFileDiffFreshnessSnapshot("file_diff_unavailable_" + (reason ?? "unknown"));
+            return;
+        }
+
+        ChartInfoOwnerVersionSnapshot version = CaptureChartInfoOwnerVersionSnapshot();
+        Lr2FullGenerationScanSurfaceSnapshot scanSurface;
+        lock (lockLr2FullGenerationScanSurface)
+        {
+            scanSurface = lr2FullGenerationScanSurfaceSnapshot;
+        }
+        string missReason = null;
+        if (scanSurface == null
+            || scanSurface.OwnedCollectionVersion != version.OwnedCollectionVersion
+            || scanSurface.BmsRowsVersion != version.BmsRowsVersion
+            || scanSurface.BmsonRowsVersion != version.BmsonRowsVersion)
+        {
+            missReason = "scan_surface_not_current";
+        }
+        else if (!fileCheckResult.HasDbDiff)
+        {
+            missReason = "no_db_diff";
+        }
+        else if (version.BmsOwnerCount <= 0)
+        {
+            missReason = "no_bms_rows";
+        }
+        else if (fileCheckResult.BmsAddedTargetCount < version.BmsOwnerCount)
+        {
+            missReason = "insufficient_bms_target_coverage";
+        }
+        else if (fileCheckResult.InlineMaintenanceBmsCount < version.BmsOwnerCount)
+        {
+            missReason = "insufficient_bms_maintenance_coverage";
+        }
+        else if (fileCheckResult.InlineMaintenanceFailedCount > 0)
+        {
+            missReason = "inline_maintenance_failed";
+        }
+        else if (fileCheckResult.BmsMovedHashRelinkAmbiguousCount > 0)
+        {
+            missReason = "ambiguous_hash_relink";
+        }
+        else if (fileCheckResult.Lr2NormalFolderSyncFailed
+            || fileCheckResult.Lr2NormalFolderSkippedMissingMetadataCount > 0
+            || fileCheckResult.Lr2NormalFolderInfoReadFailureCount > 0)
+        {
+            missReason = "normal_folder_sync_unapplied";
+        }
+
+        if (missReason != null)
+        {
+            ClearLr2FullGenerationFileDiffFreshnessSnapshot(missReason + "_" + (reason ?? "unknown"));
+            LogInstallPerformance("lr2_full_generation_file_diff_freshness skipped"
+                + " reason=" + (reason ?? "unknown")
+                + " skipReason=" + missReason
+                + " bmsOwners=" + version.BmsOwnerCount
+                + " bmsonOwners=" + version.BmsonOwnerCount
+                + " bmsTargets=" + fileCheckResult.BmsAddedTargetCount
+                + " inlineMaintenanceBms=" + fileCheckResult.InlineMaintenanceBmsCount
+                + " inlineMaintenanceFailed=" + fileCheckResult.InlineMaintenanceFailedCount
+                + " scanSurfaceGeneration=" + (scanSurface?.Generation ?? 0));
+            return;
+        }
+
+        var snapshot = new Lr2FullGenerationFileDiffFreshnessSnapshot(
+            reason ?? "unknown",
+            scanSurface.Generation,
+            version.OwnedCollectionVersion,
+            version.BmsRowsVersion,
+            version.BmsonRowsVersion,
+            version.BmsOwnerCount,
+            version.BmsonOwnerCount,
+            fileCheckResult.BmsAddedTargetCount,
+            fileCheckResult.BmsDeletedTargetCount,
+            fileCheckResult.BmsDateOnlyUpdateCount,
+            fileCheckResult.BmsTextOnlyUpdateCount,
+            fileCheckResult.BmsMovedHashRelinkCount,
+            fileCheckResult.BmsMovedHashRelinkAmbiguousCount,
+            fileCheckResult.InlineChartInfoTargetCount,
+            fileCheckResult.InlineChartInfoSuccessCount,
+            fileCheckResult.InlineChartInfoCurrentSkippedCount,
+            fileCheckResult.InlineChartInfoParseFailedCount,
+            fileCheckResult.InlineMaintenanceTargetCount,
+            fileCheckResult.InlineMaintenanceBmsCount,
+            fileCheckResult.InlineMaintenanceBmsonCount,
+            fileCheckResult.InlineMaintenanceFailedCount);
+        lock (lockLr2FullGenerationFileDiffFreshness)
+        {
+            lr2FullGenerationFileDiffFreshnessSnapshot = snapshot;
+        }
+        LogInstallPerformance("lr2_full_generation_file_diff_freshness captured"
+            + " reason=" + snapshot.Reason
+            + " scanSurfaceGeneration=" + snapshot.ScanSurfaceGeneration
+            + " bmsOwners=" + snapshot.BmsOwnerCount
+            + " bmsonOwners=" + snapshot.BmsonOwnerCount
+            + " bmsTargets=" + snapshot.BmsTargetCount
+            + " bmsDeleted=" + snapshot.BmsDeletedCount
+            + " inlineChartInfoTargets=" + snapshot.InlineChartInfoTargetCount
+            + " inlineMaintenanceBms=" + snapshot.InlineMaintenanceBmsCount
+            + " inlineMaintenanceBmson=" + snapshot.InlineMaintenanceBmsonCount
+            + " ownedCollectionVersion=" + snapshot.OwnedCollectionVersion
+            + " bmsRowsVersion=" + snapshot.BmsRowsVersion
+            + " bmsonRowsVersion=" + snapshot.BmsonRowsVersion);
+    }
+
+    private void ClearLr2FullGenerationFileDiffFreshnessSnapshot(string reason)
+    {
+        bool cleared;
+        lock (lockLr2FullGenerationFileDiffFreshness)
+        {
+            cleared = lr2FullGenerationFileDiffFreshnessSnapshot != null;
+            lr2FullGenerationFileDiffFreshnessSnapshot = null;
+        }
+        if (cleared)
+        {
+            LogInstallPerformance("lr2_full_generation_file_diff_freshness cleared reason=" + (reason ?? "unknown"));
+        }
     }
 
     private void ApplyLr2FullGenerationPreparedDataSurface(
@@ -6729,6 +6862,12 @@ completeFileEnumerationOnce,
                             Interlocked.Add(ref projectedCompatibilityWarningCount, applied);
                         }
                     },
+                    SongRowsSkipVerifier = (songRowsSongDb, songRows) =>
+                        VerifyLr2FullGenerationSongRowsFreshFromFileDiff(
+                            songRowsSongDb,
+                            songRows,
+                            input,
+                            reason),
                     LogInstallPerformance = LogInstallPerformance
                 });
             }
@@ -6767,6 +6906,7 @@ completeFileEnumerationOnce,
                 + " lr2FolderSkippedMissingMetadata=" + (result.Lr2FolderFileSyncResult?.SkippedMissingMetadataCount ?? 0)
                 + " lr2FolderProcessed=" + result.Lr2FolderFileProcessedCount
                 + " songRowProcessed=" + result.SongRowProcessedCount
+                + " songRowSkipped=" + result.SongRowSkippedCount
                 + " songRowParseFailed=" + result.SongRowParseFailureCount
                 + " songRowChartInfoApplied=" + result.SongRowChartInfoAppliedCount
                 + " songRowLr2CompatibilityApplied=" + result.SongRowLr2CompatibilityAppliedCount
@@ -7329,6 +7469,100 @@ completeFileEnumerationOnce,
         }
 
         return true;
+    }
+
+    private Lr2FullGenerationSongRowsSkipVerificationResult VerifyLr2FullGenerationSongRowsFreshFromFileDiff(
+        LR2SongDBExtended songDb,
+        IReadOnlyList<BMSFile> songRows,
+        Lr2FullGenerationSyncInput input,
+        string reason)
+    {
+        int targetRows = songRows?.Count ?? 0;
+        if (!IsAutomaticLr2FullGenerationFileDiffFollowupReason(reason))
+        {
+            return CreateLr2FullGenerationSongRowsSkipResult(false, "not_automatic_file_diff_followup", targetRows);
+        }
+        if (songDb == null)
+        {
+            return CreateLr2FullGenerationSongRowsSkipResult(false, "song_db_unavailable", targetRows);
+        }
+        if (!IsLr2FullGenerationSyncInputCurrent(input))
+        {
+            return CreateLr2FullGenerationSongRowsSkipResult(false, "input_not_current", targetRows);
+        }
+
+        Lr2FullGenerationFileDiffFreshnessSnapshot snapshot;
+        lock (lockLr2FullGenerationFileDiffFreshness)
+        {
+            snapshot = lr2FullGenerationFileDiffFreshnessSnapshot;
+        }
+        if (snapshot == null)
+        {
+            return CreateLr2FullGenerationSongRowsSkipResult(false, "missing_file_diff_freshness_snapshot", targetRows);
+        }
+        if (input == null
+            || snapshot.ScanSurfaceGeneration != input.ScanSurfaceGeneration
+            || snapshot.OwnedCollectionVersion != input.OwnedChartCollectionVersion
+            || snapshot.BmsRowsVersion != input.BmsRowsVersion
+            || snapshot.BmsonRowsVersion != input.BmsonRowsVersion)
+        {
+            return CreateLr2FullGenerationSongRowsSkipResult(false, "file_diff_freshness_not_current", targetRows);
+        }
+        if (snapshot.BmsOwnerCount != targetRows)
+        {
+            return CreateLr2FullGenerationSongRowsSkipResult(false, "song_row_count_mismatch", targetRows);
+        }
+        if (snapshot.BmsTargetCount < snapshot.BmsOwnerCount)
+        {
+            return CreateLr2FullGenerationSongRowsSkipResult(false, "insufficient_bms_target_coverage", targetRows);
+        }
+        if (snapshot.InlineMaintenanceBmsCount < snapshot.BmsOwnerCount || snapshot.InlineMaintenanceFailedCount > 0)
+        {
+            return CreateLr2FullGenerationSongRowsSkipResult(false, "insufficient_maintenance_coverage", targetRows);
+        }
+        if (snapshot.BmsMovedHashRelinkAmbiguousCount > 0)
+        {
+            return CreateLr2FullGenerationSongRowsSkipResult(false, "ambiguous_hash_relink", targetRows);
+        }
+
+        Lr2GeneratedSongCurrentnessResult currentness =
+            Lr2SongDbWriter.VerifyGeneratedSongsCurrent(songDb, songRows);
+        return new Lr2FullGenerationSongRowsSkipVerificationResult
+        {
+            CanSkip = currentness.IsCurrent,
+            Reason = currentness.IsCurrent ? "file_diff_db_projection_current" : "db_projection_not_current",
+            TargetRows = currentness.TargetCount,
+            VerifiedRows = currentness.VerifiedCount,
+            MissingRows = currentness.MissingCount,
+            MismatchedRows = currentness.MismatchedCount,
+            DuplicatePathRows = currentness.DuplicatePathCount,
+            DigestCheckedRows = currentness.DigestCheckedCount,
+            DigestMissingRows = currentness.DigestMissingCount,
+            DigestMismatchedRows = currentness.DigestMismatchedCount,
+            ProjectionMs = currentness.ProjectionMs,
+            ExistingReadMs = currentness.ExistingReadMs,
+            DigestReadMs = currentness.DigestReadMs,
+            ElapsedMs = currentness.ElapsedMs
+        };
+    }
+
+    private static bool IsAutomaticLr2FullGenerationFileDiffFollowupReason(string reason)
+    {
+        return !string.IsNullOrWhiteSpace(reason)
+            && reason.StartsWith("post_startup_", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static Lr2FullGenerationSongRowsSkipVerificationResult CreateLr2FullGenerationSongRowsSkipResult(
+        bool canSkip,
+        string reason,
+        int targetRows)
+    {
+        return new Lr2FullGenerationSongRowsSkipVerificationResult
+        {
+            CanSkip = canSkip,
+            Reason = reason ?? "unknown",
+            TargetRows = Math.Max(0, targetRows)
+        };
     }
 
     private static bool ArePathSetsEqual(IEnumerable<string> first, IEnumerable<string> second)
@@ -8500,6 +8734,72 @@ completeFileEnumerationOnce,
         public int BmsRowsVersion { get; } = bmsRowsVersion;
 
         public int BmsonRowsVersion { get; } = bmsonRowsVersion;
+    }
+
+    private sealed class Lr2FullGenerationFileDiffFreshnessSnapshot(
+        string reason,
+        int scanSurfaceGeneration,
+        int ownedCollectionVersion,
+        int bmsRowsVersion,
+        int bmsonRowsVersion,
+        int bmsOwnerCount,
+        int bmsonOwnerCount,
+        int bmsTargetCount,
+        int bmsDeletedCount,
+        int bmsDateOnlyUpdateCount,
+        int bmsTextOnlyUpdateCount,
+        int bmsMovedHashRelinkCount,
+        int bmsMovedHashRelinkAmbiguousCount,
+        int inlineChartInfoTargetCount,
+        int inlineChartInfoSuccessCount,
+        int inlineChartInfoCurrentSkippedCount,
+        int inlineChartInfoParseFailedCount,
+        int inlineMaintenanceTargetCount,
+        int inlineMaintenanceBmsCount,
+        int inlineMaintenanceBmsonCount,
+        int inlineMaintenanceFailedCount)
+    {
+        public string Reason { get; } = reason ?? "unknown";
+
+        public int ScanSurfaceGeneration { get; } = scanSurfaceGeneration;
+
+        public int OwnedCollectionVersion { get; } = ownedCollectionVersion;
+
+        public int BmsRowsVersion { get; } = bmsRowsVersion;
+
+        public int BmsonRowsVersion { get; } = bmsonRowsVersion;
+
+        public int BmsOwnerCount { get; } = bmsOwnerCount;
+
+        public int BmsonOwnerCount { get; } = bmsonOwnerCount;
+
+        public int BmsTargetCount { get; } = bmsTargetCount;
+
+        public int BmsDeletedCount { get; } = bmsDeletedCount;
+
+        public int BmsDateOnlyUpdateCount { get; } = bmsDateOnlyUpdateCount;
+
+        public int BmsTextOnlyUpdateCount { get; } = bmsTextOnlyUpdateCount;
+
+        public int BmsMovedHashRelinkCount { get; } = bmsMovedHashRelinkCount;
+
+        public int BmsMovedHashRelinkAmbiguousCount { get; } = bmsMovedHashRelinkAmbiguousCount;
+
+        public int InlineChartInfoTargetCount { get; } = inlineChartInfoTargetCount;
+
+        public int InlineChartInfoSuccessCount { get; } = inlineChartInfoSuccessCount;
+
+        public int InlineChartInfoCurrentSkippedCount { get; } = inlineChartInfoCurrentSkippedCount;
+
+        public int InlineChartInfoParseFailedCount { get; } = inlineChartInfoParseFailedCount;
+
+        public int InlineMaintenanceTargetCount { get; } = inlineMaintenanceTargetCount;
+
+        public int InlineMaintenanceBmsCount { get; } = inlineMaintenanceBmsCount;
+
+        public int InlineMaintenanceBmsonCount { get; } = inlineMaintenanceBmsonCount;
+
+        public int InlineMaintenanceFailedCount { get; } = inlineMaintenanceFailedCount;
     }
 
     /// <summary>

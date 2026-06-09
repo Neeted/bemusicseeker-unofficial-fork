@@ -85,7 +85,7 @@ current `chart_info` row が存在する場合、inline parser は詳細 parse �
 
 `song_tbl_file_check_breakdown` の `inline_encoding_*` は、BMS の encoding 判定と非 Shift_JIS 確定時の metadata reload を表す。`inline_encoding_detect_count` は判定対象数、`inline_encoding_fast_ascii_count` は bytes 由来の fast ASCII 判定、`inline_encoding_shift_jis_count` / `inline_encoding_ks_c_5601_count` / `inline_encoding_utf8_count` などは判定結果、`inline_encoding_reload_count` / `inline_encoding_reload_wall_ms` は raw metadata reload の件数と wall clock を表す。
 
-現行の file diff DB commit chunk は transaction 範囲を分けるための単位であり、post-parse が作った chunk を最終的に flush する。chunk commit は `song_tbl_file_check db_commit_chunk_start/done` で見えるが、現行では read / parse / inline maintenance と重ねて進める streaming writer ではない。streaming writer 化は計画資料の Phase 9 で扱う。
+現行の file diff DB commit chunk は transaction 範囲を分けるための単位であり、post-parse が作った chunk を最終的に flush する。chunk commit は `song_tbl_file_check db_commit_chunk_start/done` で見えるが、現行では read / parse / inline maintenance と重ねて進める streaming writer ではない。`song_tbl_file_check_breakdown` は `commit_streaming_enabled` と `commit_streaming_barrier` を出し、moved hash relink など streaming を阻む条件を診断する。streaming writer 化は計画資料の Phase 9 で扱う。
 
 ### Resource Ref Lifetime
 
@@ -173,7 +173,7 @@ encoding row を置換せず、maintenance の LR2 列だけを targeted update 
 
 現行の初回自動 LR2 full generation は、直前の file diff が大量の譜面を read / parse していても、`song_rows`
 stage を独立した pipeline として実行する。file diff の fresh 生成物を検証して `song_rows` を skip / 縮小する
-整理は、計画資料の Phase 8 で扱う。
+現在は、直前 file diff が十分な coverage を持ち、DB projection で `song` generated columns と `chart_digest_map` が current と確認できる場合に限り、初回自動 LR2 full generation の `song_rows` stage を skip する。manual resync、force、途中 resume、projection mismatch は従来どおり read pipeline を実行する。部分 fresh target だけに縮小する整理は、計画資料の Phase 8 の残タスクとして扱う。
 
 ## Full Backfill
 

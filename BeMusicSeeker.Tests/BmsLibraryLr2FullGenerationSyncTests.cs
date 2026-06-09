@@ -3547,6 +3547,51 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
+    public void SyncService_SkipsSongRowsWhenVerifierConfirmsCurrent()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        string chartPath = Path.Combine(scope.DirectoryPath, "Current", "chart.bms");
+        var file = new TestableBmsFile
+        {
+            path = chartPath,
+            date = 123456
+        }.WithHashAndFavorite("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", favoriteValue: null);
+        file.ApplySha256("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+        file.SetTitleForTest("already current");
+        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        songDb.CreateTable<LR2SongDB.song>();
+        songDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
+        Assert.IsTrue(Lr2SongDbWriter.UpsertGeneratedSong(songDb, file));
+        var logs = new List<string>();
+
+        Lr2FullGenerationSyncResult result = Lr2FullGenerationSyncService.Run(songDb, new Lr2FullGenerationSyncRequest
+        {
+            Signature = "skip-song-rows",
+            RunId = "skip-song-rows",
+            SongRows = [file],
+            StartedAtUtc = new DateTime(2026, 6, 9, 0, 0, 0, DateTimeKind.Utc),
+            SongRowsSkipVerifier = (_, rows) => new Lr2FullGenerationSongRowsSkipVerificationResult
+            {
+                CanSkip = true,
+                Reason = "test_current",
+                TargetRows = rows.Count,
+                VerifiedRows = rows.Count
+            },
+            LogInstallPerformance = logs.Add
+        });
+
+        Assert.AreEqual(Lr2FullGenerationSyncService.CompletedStage, result.FinalStage);
+        Assert.AreEqual(0, result.SongRowProcessedCount);
+        Assert.AreEqual(1, result.SongRowSkippedCount);
+        Assert.AreEqual(result.TotalCount, result.ProcessedCount);
+        Assert.IsTrue(logs.Any(log => log.Contains("lr2_full_generation_sync song_rows_skip action=skip")));
+        Assert.IsFalse(logs.Any(log => log.Contains("pipeline_start stage=song_rows")));
+        LR2SongDBExtended.lr2_full_generation_status row = songDb.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
+        Assert.AreEqual("Completed", row.status);
+        Assert.AreEqual(row.total_count, row.processed_cursor);
+    }
+
+    [TestMethod]
     public void SyncService_ResumesFromCompletedNormalFolderBoundary()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();

@@ -50,6 +50,52 @@ internal readonly struct Lr2GeneratedSongWriteResult(
     public long TempCleanupStageMs { get; } = tempCleanupStageMs;
 }
 
+internal readonly struct Lr2GeneratedSongCurrentnessResult(
+    int targetCount,
+    int verifiedCount,
+    int missingCount,
+    int mismatchedCount,
+    int duplicatePathCount,
+    int digestCheckedCount,
+    int digestMissingCount,
+    int digestMismatchedCount,
+    long projectionMs,
+    long existingReadMs,
+    long digestReadMs,
+    long elapsedMs)
+{
+    public int TargetCount { get; } = targetCount;
+
+    public int VerifiedCount { get; } = verifiedCount;
+
+    public int MissingCount { get; } = missingCount;
+
+    public int MismatchedCount { get; } = mismatchedCount;
+
+    public int DuplicatePathCount { get; } = duplicatePathCount;
+
+    public int DigestCheckedCount { get; } = digestCheckedCount;
+
+    public int DigestMissingCount { get; } = digestMissingCount;
+
+    public int DigestMismatchedCount { get; } = digestMismatchedCount;
+
+    public long ProjectionMs { get; } = projectionMs;
+
+    public long ExistingReadMs { get; } = existingReadMs;
+
+    public long DigestReadMs { get; } = digestReadMs;
+
+    public long ElapsedMs { get; } = elapsedMs;
+
+    public bool IsCurrent => TargetCount == VerifiedCount
+        && MissingCount == 0
+        && MismatchedCount == 0
+        && DuplicatePathCount == 0
+        && DigestMissingCount == 0
+        && DigestMismatchedCount == 0;
+}
+
 internal static class Lr2SongDbWriter
 {
     private const string TempCurrentSongPathTable = "lr2_full_generation_current_song_path";
@@ -149,6 +195,119 @@ internal static class Lr2SongDbWriter
     internal static int UpsertGeneratedSongsForFullGeneration(LR2SongDBExtended songDb, IReadOnlyList<BMSFile> songs)
     {
         return UpsertGeneratedSongsForFullGenerationWithResult(songDb, songs).ChangedCount;
+    }
+
+    internal static Lr2GeneratedSongCurrentnessResult VerifyGeneratedSongsCurrent(
+        LR2SongDBExtended songDb,
+        IReadOnlyList<BMSFile> songs)
+    {
+        if (songDb == null)
+        {
+            throw new ArgumentNullException(nameof(songDb));
+        }
+
+        var stopwatch = Stopwatch.StartNew();
+        List<BMSFile> sourceRows = [.. (songs ?? [])
+            .Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))];
+        if (sourceRows.Count == 0)
+        {
+            stopwatch.Stop();
+            return new Lr2GeneratedSongCurrentnessResult(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, stopwatch.ElapsedMilliseconds);
+        }
+
+        int duplicatePathCount = sourceRows.Count
+            - sourceRows.Select(song => song.path).Distinct(StringComparer.OrdinalIgnoreCase).Count();
+        if (duplicatePathCount > 0)
+        {
+            stopwatch.Stop();
+            return new Lr2GeneratedSongCurrentnessResult(
+                sourceRows.Count,
+                0,
+                0,
+                0,
+                duplicatePathCount,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                stopwatch.ElapsedMilliseconds);
+        }
+
+        var projectionStopwatch = Stopwatch.StartNew();
+        List<BMSFile> expectedRows = new(sourceRows.Count);
+        foreach (BMSFile source in sourceRows)
+        {
+            BMSFile copy = source.CreateSongRowPersistenceCopy();
+            Lr2SongRowEnricher.EnrichGeneratedSong(copy);
+            ApplyGeneratedPersistenceDefaults(copy, isNewRow: false);
+            expectedRows.Add(copy);
+        }
+        projectionStopwatch.Stop();
+
+        var existingReadStopwatch = Stopwatch.StartNew();
+        Dictionary<string, GeneratedSongRow> existingByPath = FindSongsByPaths(songDb, expectedRows.Select(song => song.path));
+        existingReadStopwatch.Stop();
+
+        int verifiedCount = 0;
+        int missingCount = 0;
+        int mismatchedCount = 0;
+        foreach (BMSFile expected in expectedRows)
+        {
+            if (!existingByPath.TryGetValue(expected.path, out GeneratedSongRow existing))
+            {
+                missingCount++;
+                continue;
+            }
+            if (!HasSameGeneratedColumns(expected, existing))
+            {
+                mismatchedCount++;
+                continue;
+            }
+            verifiedCount++;
+        }
+
+        var digestReadStopwatch = Stopwatch.StartNew();
+        Dictionary<string, string> digestByMd5 = FindChartDigestSha256ByMd5(songDb, expectedRows.Select(song => song.hash));
+        digestReadStopwatch.Stop();
+
+        int digestCheckedCount = 0;
+        int digestMissingCount = 0;
+        int digestMismatchedCount = 0;
+        foreach (BMSFile expected in expectedRows)
+        {
+            if (string.IsNullOrWhiteSpace(expected.hash) || string.IsNullOrWhiteSpace(expected.sha256))
+            {
+                continue;
+            }
+            digestCheckedCount++;
+            string md5 = expected.hash.Trim().ToLowerInvariant();
+            if (!digestByMd5.TryGetValue(md5, out string sha256))
+            {
+                digestMissingCount++;
+                continue;
+            }
+            if (!string.Equals(expected.sha256, sha256, StringComparison.OrdinalIgnoreCase))
+            {
+                digestMismatchedCount++;
+            }
+        }
+
+        stopwatch.Stop();
+        return new Lr2GeneratedSongCurrentnessResult(
+            sourceRows.Count,
+            verifiedCount,
+            missingCount,
+            mismatchedCount,
+            duplicatePathCount,
+            digestCheckedCount,
+            digestMissingCount,
+            digestMismatchedCount,
+            projectionStopwatch.ElapsedMilliseconds,
+            existingReadStopwatch.ElapsedMilliseconds,
+            digestReadStopwatch.ElapsedMilliseconds,
+            stopwatch.ElapsedMilliseconds);
     }
 
     internal static Lr2GeneratedSongWriteResult UpsertGeneratedSongsForFullGenerationWithResult(
@@ -1043,12 +1202,44 @@ internal static class Lr2SongDbWriter
                 + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.exlevel) + " AS exlevel"
                 + " FROM " + SQLiteTable<LR2SongDB.song>.GetTableName()
                 + " WHERE " + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.path)
-                + " IN (" + placeholders + ");";
+                + " COLLATE NOCASE IN (" + placeholders + ");";
             foreach (GeneratedSongRow row in songDb.Query<GeneratedSongRow>(sql, [.. chunk.Cast<object>()]))
             {
                 if (!string.IsNullOrWhiteSpace(row?.path) && !result.ContainsKey(row.path))
                 {
                     result[row.path] = row;
+                }
+            }
+        }
+        return result;
+    }
+
+    private static Dictionary<string, string> FindChartDigestSha256ByMd5(LR2SongDBExtended songDb, IEnumerable<string> md5s)
+    {
+        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        List<string> normalizedMd5s = [.. (md5s ?? [])
+            .Where(md5 => !string.IsNullOrWhiteSpace(md5))
+            .Select(md5 => md5.Trim().ToLowerInvariant())
+            .Distinct(StringComparer.OrdinalIgnoreCase)];
+        if (normalizedMd5s.Count == 0)
+        {
+            return result;
+        }
+
+        songDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
+        const int chunkSize = 500;
+        for (int offset = 0; offset < normalizedMd5s.Count; offset += chunkSize)
+        {
+            List<string> chunk = normalizedMd5s.Skip(offset).Take(chunkSize).ToList();
+            string placeholders = string.Join(",", chunk.Select(_ => "?"));
+            string sql = "SELECT md5, sha256 FROM "
+                + SQLiteTable<LR2SongDBExtended.chart_digest_map>.GetTableName()
+                + " WHERE md5 IN (" + placeholders + ");";
+            foreach (LR2SongDBExtended.chart_digest_map row in songDb.Query<LR2SongDBExtended.chart_digest_map>(sql, [.. chunk.Cast<object>()]))
+            {
+                if (!string.IsNullOrWhiteSpace(row?.md5) && !result.ContainsKey(row.md5))
+                {
+                    result[row.md5] = row.sha256;
                 }
             }
         }

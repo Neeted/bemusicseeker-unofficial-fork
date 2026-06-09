@@ -183,7 +183,7 @@ target enumeration
 
 ### Phase 8: 大量 file diff 後の自動 LR2 full generation 再読込回避
 
-- Status: 未着手。
+- Status: 部分完了。直前 file diff の鮮度 snapshot と DB projection verifier を導入し、初回自動 follow-up で `song_rows` が current と確認できる場合は stage を skip する。
 - 目的は、手動 full generation resync の重い再検証を変えることではなく、同じ起動サイクル内の大量 file diff 直後に自動実行される初回 LR2 full generation が、直前に read / parse 済みの譜面を全件再 read する状態を避けること。
 - 対象は「空 DB 初回」専用ではなく、大量差分で file diff が多数の `song` / `bmson_song` / `chart_digest_map` / `maintenance` / `chart_info` を fresh にしたケース全般とする。
 - まず実処理の差分を固定する。
@@ -191,24 +191,29 @@ target enumeration
   - LR2 full generation `song_rows` writer が追加で必要としている generated song columns、`chart_info` numeric apply、LR2 compatibility facts、durable cursor / status contract を列挙する。
   - file diff 後の DB projection だけで `song_rows` を current と判断できる条件を定義する。
 - 実装候補:
-  - `ApplyFileScanDiff()` の結果に、大量差分の generated row 鮮度を表す summary を追加する。件数だけではなく、scan surface generation、generator signature、対象 root set、BMS/BMSON count、digest/current parser version、compatibility facts coverage を含める。
-  - LR2 full generation の preflight で、直前 file diff summary と DB projection を照合し、`song_rows` が current と確認できる場合は `song_rows` stage を skip して durable cursor を該当 stage 完了位置へ進める。
+  - 完了: `ApplyFileScanDiff()` の結果から、大量差分の generated row 鮮度を表す summary を runtime snapshot として保持する。現時点では scan surface generation、BMS/BMSON owner version、BMS target coverage、inline maintenance coverage を照合する。
+  - 完了: LR2 full generation の `song_rows` 前に、直前 file diff summary と DB projection を照合し、`song` generated columns / `chart_digest_map` が current と確認できる場合は `song_rows` stage を skip して durable cursor を該当 stage 完了位置へ進める。
+  - 完了: skip 判定 log と summary log に `songRowSkipped` を追加する。
   - 一部だけ fresh な場合は、全件再読込ではなく stale / missing な target だけを `song_rows` pipeline に流す。resume contract を壊さないため、対象縮小時の cursor semantics は別途明記する。
   - skip できない場合は従来どおり `song_rows` pipeline を実行する。manual resync / force resync は安全側で従来動作を維持する。
 - log 方針:
   - `lr2_full_generation_sync song_rows_skip` または同等の log に、reason、verifiedRows、targetRows、fileDiffGeneration、signature、dbProjectionMs を出す。
   - skip しなかった場合も、`song_rows_skip reason=...` でなぜ再読込が必要だったかを残す。
 - 完了条件:
-  - 大量 file diff 直後の初回自動 LR2 full generation で、file diff が fresh にした譜面は再 read / re-parse されない。
-  - manual full generation resync、途中失敗 resume、signature mismatch、force 実行は従来の安全な full pipeline を維持する。
-  - `startup_progress` / `Lr2FullGenerationStatusService` の durable cursor が、未 commit の処理を完了扱いにしない。
+  - 完了: 大量 file diff 直後の初回自動 LR2 full generation で、DB projection が current と確認できた譜面は再 read / re-parse されない。
+  - 完了: manual full generation resync、途中失敗 resume、signature mismatch、force 実行は従来の安全な full pipeline を維持する。
+  - 完了: `startup_progress` / `Lr2FullGenerationStatusService` の durable cursor が、未 commit の処理を完了扱いにしない。
+  - 未完了: 部分 fresh target の縮小実行は未実装。まずは current と証明できる full `song_rows` skip に限定する。
 
 ### Phase 9: file diff DB commit chunk の streaming writer 化
 
-- Status: 未着手。
+- Status: 調査 / first slice 完了。moved hash relink が hard ordering barrier になるため、直接 streaming writer 化は deferred とし、まず `commit_streaming_enabled` / `commit_streaming_barrier` を breakdown log に追加した。
 - 現行 file diff は `FlushFileDiffParsedBatch()` が `FileScanDiffCommitChunk` を作るが、`commitCollectorTask` は chunk を `parsedCommitChunks` に蓄積し、post-parse 完了後に `commitContext.AddChunk()` / `Flush()` する。このため `db_commit_chunk_start` は全 read / parse / maintenance 後にまとまって出る。
 - 目的は、DB writer を single writer のまま維持しつつ、post-parse が chunk を作った時点で DB commit を進め、終端の `db_commit_ms` tail と chunk 保持メモリを減らすこと。
 - 実装候補:
+  - 完了: post-parse chunk を streaming できる条件を `moved_hash_relink_candidates` の有無で診断し、現行 path では `streaming_writer_deferred` として log に残す。
+  - 知見: `FileScanDiffCommitChunk` を即 commit すると、`ApplyMovedBmsUserColumnRelinks()` が後から destination chunk へ delete / user column preservation を追加する契約を壊す。relink 対象 chunk と非 relink chunk の分離、または relink 解決の前倒しが必要。
+  - 知見: 直接 streaming writer を試すと DB writer / post-parse の同期で hang する経路があったため、bounded writer は producer cancel / writer failure propagation を整理してから入れる。
   - `commitQueue` を bounded queue にし、専用 writer task が `FileDiffStreamingCommitContext` を所有して `AddChunk()` / `Flush()` を実行する。
   - post-parse worker は commit chunk を queue へ流すだけにし、writer 失敗時は reader / parser / post-parse を cancel して例外を親へ伝播する。
   - delete / date-only / moved hash relink / inline chart_info publish の順序制約を現行動作から洗い出し、streaming 化してよい chunk と final barrier が必要な chunk を分ける。
@@ -225,12 +230,13 @@ target enumeration
 
 ### Phase 10: maintenance evaluator の共通化と resource health / encoding 軽量化
 
-- Status: 未着手。
+- Status: first slice 完了。file diff batch slow log と manual maintenance rescan chunk log の語彙を寄せ、health / encoding / bmson refresh の内訳を比較しやすくした。
 - 対象は file diff inline maintenance だけではなく、manual `RescanAllOwnedChartMaintenance()` / selected maintenance rescan も含める。
 - 現行ログでは `maintenanceMs` が重く見えるが、これは DB `maintenance` table write ではなく、resource health、encoding 判定、bmson refs refresh、maintenance row construction を含む evaluator 時間である。DB write は file diff では `db_commit_ms`、manual rescan では `maintenance_rescan_chunk commitMs` として別に見る。
 - まず計測を揃える。
-  - file diff の batch slow log に、可能なら health / encoding / bmson refresh / row construction を分ける。
-  - manual rescan の `maintenance_rescan_chunk` と file diff の `song_tbl_file_check_batch_slow` で、read / digest / compute / health / encoding / commit の語彙を揃える。
+  - 完了: file diff の batch slow log に `bmsMaintenanceMs`, `bmsonMaintenanceMs`, `healthMs`, `encodingMs`, `cacheHit`, `fileExistsFallback` を追加する。
+  - 完了: manual rescan の `maintenance_rescan_chunk` に `healthMs`, `encodingMs`, `bmsonRefreshMs` を追加する。
+  - 継続: manual rescan の `maintenance_rescan_chunk` と file diff の `song_tbl_file_check_batch_slow` で、read / digest / compute / health / encoding / commit の語彙をさらに揃える。
   - encoding slow item、resource ref count が極端に大きい chart、resource lookup cache hit count の増え方を path 付きで追跡できるようにする。
 - 実装候補:
   - file diff inline maintenance と manual rescan が同じ `MaintenanceEvaluationResult` / evaluator helper を通るように整理する。

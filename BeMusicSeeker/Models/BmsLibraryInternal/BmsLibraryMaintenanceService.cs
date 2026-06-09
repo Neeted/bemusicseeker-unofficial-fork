@@ -916,6 +916,9 @@ internal sealed class BmsLibraryMaintenanceService
                 + " readMs=" + TicksToMilliseconds(chunkReadTicks)
                 + " digestMs=" + TicksToMilliseconds(chunkDigestTicks)
                 + " computeMs=" + TicksToMilliseconds(chunkComputeTicks)
+                + " healthMs=" + TicksToMilliseconds(chunkHealthTicks)
+                + " encodingMs=" + TicksToMilliseconds(chunkEncodingTicks)
+                + " bmsonRefreshMs=" + TicksToMilliseconds(chunkBmsonRefreshTicks)
                 + " commitMs=" + commitStopwatch.ElapsedMilliseconds
                 + " elapsedMs=" + chunkStopwatch.ElapsedMilliseconds);
             progressReporter?.Invoke(new MaintenanceWorkflowProgress

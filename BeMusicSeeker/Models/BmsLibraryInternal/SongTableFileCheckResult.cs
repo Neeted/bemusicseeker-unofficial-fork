@@ -137,6 +137,10 @@ internal sealed class SongTableFileCheckResult
 
     public int CommitQueueCapacity { get; set; }
 
+    public bool CommitStreamingEnabled { get; set; }
+
+    public string CommitStreamingBarrierReason { get; set; }
+
     public long ReaderOutputWaitMs { get; set; }
 
     public long ParserOutputWaitMs { get; set; }
