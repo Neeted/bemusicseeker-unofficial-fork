@@ -52,7 +52,7 @@ internal sealed class BmsLibraryInitializationService
 
     private const int DefaultInlineChartInfoBatchSize = 2048;
 
-    private const int DefaultFileDiffPostParseBatchSize = 256;
+    private const int DefaultFileDiffPostParseBatchSize = 1;
 
     private const int DefaultFileDiffCommitChunkSize = 10000;
 
@@ -1608,14 +1608,13 @@ internal sealed class BmsLibraryInitializationService
             : 0;
         IReadOnlyDictionary<string, LR2SongDBExtended.chart_info> currentChartInfoRowsBySha256 =
             LoadFileDiffCurrentChartInfoRows(dbGateway, parseTargets.Count, chartInfoBatchSize, logInstallPerformance);
-        if (currentChartInfoRowsBySha256 == null && parseTargets.Count > postParseBatchSize)
+        if (currentChartInfoRowsBySha256 == null && parseTargets.Count > 1)
         {
             currentChartInfoRowsBySha256 = new Dictionary<string, LR2SongDBExtended.chart_info>(StringComparer.OrdinalIgnoreCase);
             logInstallPerformance?.Invoke("file_diff_chart_info_snapshot"
                 + " status=suppressed"
                 + " reason=multi_post_parse_without_snapshot"
                 + " parseTargets=" + parseTargets.Count
-                + " postParseBatchSize=" + postParseBatchSize
                 + " inlineChartInfoBatchSize=" + chartInfoBatchSize);
         }
         result.FileDiffReaderDegree = readerDegree;
@@ -1657,6 +1656,11 @@ internal sealed class BmsLibraryInitializationService
         long inlineBmsonMaintenanceWallTicks = 0L;
         int postParseBatchCount = 0;
         int postParseProgressCount = parseProcessedCount;
+        void ReportPostParsePreparedProgress(string path)
+        {
+            int processed = Interlocked.Increment(ref postParseProgressCount);
+            reportParseProgress?.Invoke(parseTargetCount, Math.Min(parseTargetCount, processed), path ?? string.Empty);
+        }
         int snapshotQueueHighWatermark = 0;
         Exception postParseException = null;
         var pipelineException = new PipelineExceptionSignal();
@@ -1683,7 +1687,8 @@ internal sealed class BmsLibraryInitializationService
                             logInstallPerformance,
                             logInstallPerformanceWarn,
                             inlineMaintenanceLookupContext,
-                            currentChartInfoRowsBySha256);
+                            currentChartInfoRowsBySha256,
+                            ReportPostParsePreparedProgress);
                         AddWithWait(postParseResultQueue, postParseResult, ref postParseOutputWaitTicks, pipelineException);
                     }
                 }
@@ -1713,11 +1718,6 @@ internal sealed class BmsLibraryInitializationService
                     while (pendingPostParseResults.TryGetValue(nextPostParseSequence, out FileDiffPostParseResult current))
                     {
                         pendingPostParseResults.Remove(nextPostParseSequence);
-                        if (current.ProgressCount > 0)
-                        {
-                            int processed = Interlocked.Add(ref postParseProgressCount, current.ProgressCount);
-                            reportParseProgress?.Invoke(parseTargetCount, Math.Min(parseTargetCount, processed), current.ProgressPath);
-                        }
                         ApplyOrderedFileDiffPostParseResult(
                             current,
                             result,
@@ -1981,7 +1981,7 @@ internal sealed class BmsLibraryInitializationService
         int inlineChartInfoBatchSize,
         Action<string> logInstallPerformance)
     {
-        if (dbGateway == null || parseTargetCount < Math.Max(1, inlineChartInfoBatchSize))
+        if (dbGateway == null || parseTargetCount <= 1)
         {
             return null;
         }
@@ -2196,14 +2196,13 @@ internal sealed class BmsLibraryInitializationService
         Action<string> logInstallPerformance,
         Action<string> logInstallPerformanceWarn,
         ResourceHealthLookupContext inlineMaintenanceLookupContext,
-        IReadOnlyDictionary<string, LR2SongDBExtended.chart_info> currentChartInfoRowsBySha256)
+        IReadOnlyDictionary<string, LR2SongDBExtended.chart_info> currentChartInfoRowsBySha256,
+        Action<string> reportPostParsePreparedProgress)
     {
         var postResult = new FileDiffPostParseResult(sequence);
         FileDiffPostParseBatchMetrics metrics = postResult.Metrics;
         metrics.BmsCount = bmsBatch?.Count ?? 0;
         metrics.BmsonCount = bmsonBatch?.Count ?? 0;
-        postResult.ProgressCount = metrics.BmsCount + metrics.BmsonCount;
-        postResult.ProgressPath = ResolvePostParseProgressPath(bmsBatch, bmsonBatch);
         var totalStopwatch = Stopwatch.StartNew();
         try
         {
@@ -2294,6 +2293,7 @@ internal sealed class BmsLibraryInitializationService
                             postResult.BmsTextOnlyUpdateCount++;
                         }
                         commitChunk.AddUpdatedBmsMetadata(candidate.File.path, date, textChanged ? textFlag : null);
+                        reportPostParsePreparedProgress?.Invoke(candidate.Path);
                     }
                 }
                 for (int i = 0; i < fullBmsBatch.Count; i++)
@@ -2319,6 +2319,11 @@ internal sealed class BmsLibraryInitializationService
                         }
                         commitChunk.AddAddedBmsFile(candidate.File);
                         AttachInlineChartInfoRows(commitChunk, candidate.File.hash, chartInfoByMd5, appliedChartInfoByMd5, failureByMd5, failureDeletes);
+                        reportPostParsePreparedProgress?.Invoke(candidate.Path);
+                    }
+                    else
+                    {
+                        reportPostParsePreparedProgress?.Invoke(candidate.Path);
                     }
                 }
                 bmsBatch.Clear();
@@ -2342,6 +2347,11 @@ internal sealed class BmsLibraryInitializationService
                         postResult.ParsedBmsonSongs.Add(candidate.Song);
                         commitChunk.AddUpsertBmsonSong(candidate.Song);
                         AttachInlineChartInfoRows(commitChunk, candidate.Song.md5, chartInfoByMd5, appliedChartInfoByMd5, failureByMd5, failureDeletes);
+                        reportPostParsePreparedProgress?.Invoke(candidate.Path);
+                    }
+                    else
+                    {
+                        reportPostParsePreparedProgress?.Invoke(candidate.Path);
                     }
                 }
                 bmsonBatch.Clear();
@@ -2481,29 +2491,6 @@ internal sealed class BmsLibraryInitializationService
             && candidate.ExistingFile != null
             && candidate.File.date.HasValue
             && string.Equals(candidate.File.hash, candidate.ExistingFile.hash, StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static string ResolvePostParseProgressPath(
-        IReadOnlyList<InlineBmsParseCandidate> bmsBatch,
-        IReadOnlyList<InlineBmsonParseCandidate> bmsonBatch)
-    {
-        for (int i = (bmsonBatch?.Count ?? 0) - 1; i >= 0; i--)
-        {
-            string path = bmsonBatch[i]?.Path;
-            if (!string.IsNullOrWhiteSpace(path))
-            {
-                return path;
-            }
-        }
-        for (int i = (bmsBatch?.Count ?? 0) - 1; i >= 0; i--)
-        {
-            string path = bmsBatch[i]?.Path;
-            if (!string.IsNullOrWhiteSpace(path))
-            {
-                return path;
-            }
-        }
-        return string.Empty;
     }
 
     private static void PrepareMovedBmsUserColumnRestores(
@@ -3789,10 +3776,6 @@ internal sealed class BmsLibraryInitializationService
         public int Sequence { get; } = sequence;
 
         public FileDiffPostParseBatchMetrics Metrics { get; } = new FileDiffPostParseBatchMetrics();
-
-        public int ProgressCount { get; set; }
-
-        public string ProgressPath { get; set; } = string.Empty;
 
         public ChartInfoInlineBuildResult ChartInfoResult { get; } = new ChartInfoInlineBuildResult();
 

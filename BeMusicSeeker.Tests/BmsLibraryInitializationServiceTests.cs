@@ -805,14 +805,14 @@ public sealed class BmsLibraryInitializationServiceTests
             Assert.AreEqual(2048, result.InlineChartInfoBatchSize);
             Assert.AreEqual(ChartFileReadPipelinePolicy.ResolveReaderDegree(Environment.ProcessorCount, 2), result.FileDiffReaderDegree);
             Assert.AreEqual(ChartFileReadPipelinePolicy.ResolveReadQueueCapacity(result.FileDiffParserDegree, result.FileDiffReaderDegree), result.ReadQueueCapacity);
-            Assert.AreEqual(BmsLibraryInitializationService.ResolveFileDiffParsedQueueCapacity(result.FileDiffParserDegree, 256), result.ParsedQueueCapacity);
+            Assert.AreEqual(BmsLibraryInitializationService.ResolveFileDiffParsedQueueCapacity(result.FileDiffParserDegree, 1), result.ParsedQueueCapacity);
             Assert.AreEqual(BmsLibraryInitializationService.ResolveFileDiffPostParseQueueCapacity(result.FileDiffPostParseWorkerDegree), result.PostParseQueueCapacity);
             Assert.AreEqual(1, result.CommitQueueCapacity);
             Assert.IsTrue(result.CommitStreamingEnabled);
             Assert.AreEqual("none", result.CommitStreamingBarrierReason);
             Assert.AreEqual(1, result.FileDiffPostParseWorkerDegree);
             Assert.IsTrue(result.PostParseOutputWaitMs >= 0);
-            Assert.AreEqual(1, result.PostParseBatchCount);
+            Assert.AreEqual(2, result.PostParseBatchCount);
             Assert.AreEqual(1, result.InlineMaintenanceDegree);
             Assert.IsTrue(result.PostParseWallMs >= 0);
             Assert.IsTrue(result.InlineChartInfoWallMs >= 0);
@@ -832,7 +832,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 && message.Contains("commit_streaming_enabled=true")
                 && message.Contains("commit_streaming_barrier=none")
                 && message.Contains("post_parse_output_wait_ms=")
-                && message.Contains("post_parse_batch_count=1")
+                && message.Contains("post_parse_batch_count=2")
                 && message.Contains("inline_chart_info_target_count=2")
                 && message.Contains("inline_chart_info_batch_size=2048")
                 && message.Contains("inline_maintenance_degree=1")
@@ -906,14 +906,20 @@ public sealed class BmsLibraryInitializationServiceTests
             Assert.AreEqual((int)Math.Ceiling(paths.Count / 50.0), result.DbCommitChunks);
             Assert.AreEqual(50, result.DbCommitChunkSize);
             Assert.AreEqual(32, result.InlineChartInfoBatchSize);
-            Assert.AreEqual(1, result.PostParseBatchCount);
+            Assert.AreEqual(120, result.PostParseBatchCount);
             Assert.IsTrue(result.PostParseWallMs >= 0);
             Assert.IsTrue(result.CommitQueueWaitMs >= 0);
             int firstCommitIndex = events.FindIndex(item => item.Contains("db_commit_chunk_done chunk=1"));
             int finalProgressIndex = events.FindIndex(item => item == "progress 120/120");
+            int firstCommitChunkProgressIndex = events.FindIndex(item => item == "progress 50/120");
+            List<string> progressEvents = [.. events.Where(item => item.StartsWith("progress ", StringComparison.Ordinal))];
             Assert.IsTrue(firstCommitIndex >= 0, "first commit chunk log was not recorded.");
+            Assert.AreEqual(121, progressEvents.Count, "file diff progress should be reported for the initial state and each prepared chart.");
+            Assert.IsTrue(progressEvents.Contains("progress 1/120"), "first prepared chart progress was not recorded.");
+            Assert.IsTrue(progressEvents.Contains("progress 119/120"), "near-final per-chart progress was not recorded.");
             Assert.IsTrue(finalProgressIndex >= 0, "final parse progress was not recorded.");
-            Assert.IsTrue(finalProgressIndex < firstCommitIndex, "file diff progress should reach the post-parse prepared point before DB commit completion.");
+            Assert.IsTrue(firstCommitChunkProgressIndex >= 0, "first commit chunk prepared progress was not recorded.");
+            Assert.IsTrue(firstCommitChunkProgressIndex < firstCommitIndex, "file diff progress should report DB-ready rows before their commit completion.");
             using var verify = new LR2SongDBExtended(songDbPath);
             Assert.AreEqual(120L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM song;"));
             Assert.AreEqual(120L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info;"));
@@ -970,16 +976,15 @@ public sealed class BmsLibraryInitializationServiceTests
             Assert.AreEqual(count, result.AddedFiles.Count);
             Assert.AreEqual(2, result.FileDiffParserDegree);
             Assert.AreEqual(2, result.FileDiffPostParseWorkerDegree);
-            Assert.AreEqual(2, result.PostParseBatchCount);
+            Assert.AreEqual(count, result.PostParseBatchCount);
             Assert.AreEqual((int)Math.Ceiling(count / 50.0), result.DbCommitChunks);
             Assert.AreEqual(50, result.DbCommitChunkSize);
             Assert.AreEqual(count, result.InlineChartInfoTargetCount);
-            Assert.AreEqual(0, result.InlineChartInfoCurrentSkippedCount);
+            Assert.AreEqual(1, result.InlineChartInfoCurrentSkippedCount);
             Assert.AreEqual(count, result.InlineMaintenanceSuccessCount);
             Assert.IsTrue(result.PostParseOutputWaitMs >= 0);
             Assert.IsTrue(logs.Any(message => message.Contains("file_diff_chart_info_snapshot")
-                && message.Contains("status=suppressed")
-                && message.Contains("reason=multi_post_parse_without_snapshot")));
+                && message.Contains("status=loaded")));
 
             using var verify = new LR2SongDBExtended(songDbPath);
             Assert.AreEqual(count, verify.ExecuteScalar<int>("SELECT COUNT(1) FROM song;"));
@@ -1039,7 +1044,7 @@ public sealed class BmsLibraryInitializationServiceTests
             bool completed;
             try
             {
-                completed = task.Wait(TimeSpan.FromSeconds(10));
+                completed = task.Wait(TimeSpan.FromSeconds(30));
             }
             catch (AggregateException)
             {

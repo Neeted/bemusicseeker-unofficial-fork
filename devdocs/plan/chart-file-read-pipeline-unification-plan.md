@@ -146,10 +146,10 @@ target enumeration
 - reader を policy に従って 1 / 2 本にできるようにする。
 - worker で digest 計算と lightweight parse を行う。
 - post-parse worker は current `chart_info` 判定、inline parse、inline maintenance row 作成に集中する。
-- 2026-06-09 追記: `InlineChartInfoBatchSize=2048` を post-parse barrier として使わない。とはいえ `DefaultFileDiffPostParseBatchSize=1` のような 1 item 固定では、post-parse 内の `Parallel.For` が並列性を失い、parser worker が output queue で待つ。現行は `DefaultFileDiffPostParseBatchSize=256` の micro-batch と parser と同数の post-parse worker を使い、snapshot bytes と resource refs は batch 内で maintenance row / chart_info staging へ畳み込んだら破棄する。
-- 完了: 旧 `FlushFileDiffParsedBatch()` の shared state mutation を、batch-local `FileDiffPostParseResult` / commit staging chunk の生成と、single collector による ordered aggregation へ分解した。parallel post-parse workers は `SongTableFileCheckResult`、runtime list、commit context を直接触らない。
-- 大量差分では schema current な read-only connection から current parser version の `chart_info` row を一括 snapshot として読み、per-batch DB lookup を避ける。DB commit は引き続き `DbCommitChunkSize` の transaction 単位として独立させる。
-- 完了: current snapshot を張らない中規模差分では、複数 post-parse batch が同じ実行内の先行 commit を current row として観測しないよう、post-parse worker に空 snapshot を渡して per-batch DB lookup を抑止する。小差分 1 batch では従来どおり current row lookup を許容する。
+- 2026-06-10 追記: `InlineChartInfoBatchSize=2048` を post-parse barrier として使わない。file reader が貯める bounded buffer と DB commit chunk 以外は 1 譜面ずつ流し、post-parse の並列性は micro-batch ではなく parser と同数の post-parse worker で確保する。snapshot bytes と resource refs は maintenance row / chart_info staging へ畳み込んだら破棄する。
+- 完了: 旧 `FlushFileDiffParsedBatch()` の shared state mutation を、item-local `FileDiffPostParseResult` / commit staging chunk の生成と、single collector による ordered aggregation へ分解した。parallel post-parse workers は `SongTableFileCheckResult`、runtime list、commit context を直接触らない。
+- 2 件以上の差分では schema current な read-only connection から current parser version の `chart_info` row を一括 snapshot として読み、per-item DB lookup を避ける。DB commit は引き続き `DbCommitChunkSize` の transaction 単位として独立させる。
+- 完了: current snapshot を張れない複数件差分では、同じ実行内の先行 commit を current row として観測しないよう、post-parse worker に空 snapshot を渡して fallback DB lookup を抑止する。1 件差分だけは従来どおり対象 row lookup を許容する。
 - 差分少数では reader 1 本のままになるようにし、startup 差分 0 の hot path を重くしない。
 - `song_tbl_file_check_breakdown` には reader degree と digest time を追加する。
 
@@ -236,7 +236,7 @@ target enumeration
   - 知見: 直接 streaming writer を試すと、writer が writable `song.db` connection / process lock を保持したまま queue 待ちし、次 batch の `ProcessInlineBmsChartInfo()` が `LoadChartInfosBySha256()` で同じ lock を取りに行く deadlock が起き得る。producer 側 lookup を read-only-first にし、writer は bounded queue 消費中だけ connection を使う。
   - 完了: current schema の `LoadChartInfosBySha256()` / `LoadChartInfosByMd5()` は read-only connection で lookup し、schema 未整備や read-only open 不可の場合だけ従来どおり writable + schema ensure へ fallback する。
   - 完了: `commitQueue` を bounded queue にし、専用 writer task が `FileDiffStreamingCommitContext` を所有して `AddChunk()` / `Flush()` を実行する。
-  - 完了: post-parse staging chunk は writer context 側で `DbCommitChunkSize` 単位に再分割し、post-parse micro-batch size が DB transaction size を壊さないようにする。
+  - 完了: post-parse staging item は writer context 側で `DbCommitChunkSize` 単位に集約し、1 譜面単位の post-parse と DB transaction size を分離する。
   - 完了: writer 失敗時は `PipelineExceptionSignal` で post-parse 側の commit queue 投入を停止し、bounded queue 待ちで固まらないようにした。
   - 変更: post-parse -> commit aggregator の input queue と、commit aggregator -> DB writer の write queue を分離する。aggregator は post-parse から staging chunk を受け取り続け、10000 mutation 程度の immutable DB chunk を組む。DB writer は write queue の chunk を commit するだけにし、commit 中も aggregator が input queue を消費できるようにする。
   - 変更: input queue / write queue は bounded にし、1-2 commit chunk 程度を吸収できる容量から始める。DB が長期的に遅い場合は backpressure するが、短い commit pause で reader / parser / post-parse 全体が停止しないことを目標にする。
