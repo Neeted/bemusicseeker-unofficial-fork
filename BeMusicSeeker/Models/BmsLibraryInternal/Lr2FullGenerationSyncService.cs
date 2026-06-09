@@ -77,6 +77,8 @@ internal sealed class Lr2FullGenerationSyncRequest
 
     public Action<IReadOnlyList<BMSFileMaintenanceInfo>> Lr2CompatibilityFactsCommitted { get; set; }
 
+    public ISet<string> TransientSongRowsSkipPaths { get; set; }
+
     public Func<LR2SongDBExtended, IReadOnlyList<BMSFile>, Lr2FullGenerationSongRowsSkipVerificationResult> SongRowsSkipVerifier { get; set; }
 
     public Action<string> LogInstallPerformance { get; set; }
@@ -2032,6 +2034,7 @@ internal static class Lr2FullGenerationSyncService
         int readQueueCapacity = ChartFileReadPipelinePolicy.ResolveReadQueueCapacity(workerDegree, readerDegree);
         int computedQueueCapacity = Math.Max(songRowSyncChunkSize * 2, workerDegree * 32);
         int processed = 0;
+        int transientSkipped = 0;
         int evaluatedStageProcessedCount = safeStartIndex;
         int committedProcessedCursor = baseProcessedCursor + safeStartIndex;
         int parseFailureCount = 0;
@@ -2099,10 +2102,15 @@ internal static class Lr2FullGenerationSyncService
         using var pipelineCancellationSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         CancellationToken pipelineToken = pipelineCancellationSource.Token;
         using var orderingWindow = new SemaphoreSlim(orderingWindowCapacity, orderingWindowCapacity);
+        ISet<string> transientSkipPaths = safeStartIndex == 0
+            ? request?.TransientSongRowsSkipPaths
+            : null;
+        int transientSkipPathCount = transientSkipPaths?.Count ?? 0;
         LogSync(request, "lr2_full_generation_sync pipeline_start"
             + " stage=song_rows"
             + " startIndex=" + safeStartIndex
             + " targetCount=" + targetRows.Count
+            + " transientSkipPaths=" + transientSkipPathCount
             + " chunkSize=" + songRowSyncChunkSize
             + " readerDegree=" + readerDegree
             + " workerDegree=" + workerDegree
@@ -2164,11 +2172,17 @@ internal static class Lr2FullGenerationSyncService
             long chunkParseTicks = 0L;
             int chunkFallbackCount = 0;
             int chunkParseFailureCount = 0;
+            int chunkTransientSkippedCount = 0;
             foreach (SongRowSyncComputedItem item in chunk)
             {
                 chunkReadTicks += item.ReadElapsedTicks;
                 chunkDigestTicks += item.DigestElapsedTicks;
                 chunkParseTicks += item.ParseElapsedTicks;
+                if (item.TransientSkipped)
+                {
+                    chunkTransientSkippedCount++;
+                    continue;
+                }
                 BMSFile row = item.Row;
                 if (row == null || string.IsNullOrWhiteSpace(row.path))
                 {
@@ -2266,6 +2280,7 @@ internal static class Lr2FullGenerationSyncService
                 compatibilityApplied += chunkCompatibilityInfos.Count;
                 parseFailureCount += chunkParseFailureCount;
                 chartInfoAppliedCount += chunkChartInfoAppliedCount;
+                transientSkipped += chunkTransientSkippedCount;
                 processed += chunk.Count;
                 int processedCursor = baseProcessedCursor + offset + chunk.Count;
                 stageStopwatch.Restart();
@@ -2321,6 +2336,7 @@ internal static class Lr2FullGenerationSyncService
                     + " statusCursorMs=" + statusCursorMs
                     + " fallbackCount=" + chunkFallbackCount
                     + " parseFailureCount=" + chunkParseFailureCount
+                    + " transientSkipped=" + chunkTransientSkippedCount
                     + " compatibilityApplied=" + chunkCompatibilityInfos.Count
                     + " processedCursor=" + processedCursor
                     + " managedBytes=" + GC.GetTotalMemory(false));
@@ -2373,7 +2389,9 @@ internal static class Lr2FullGenerationSyncService
                         }
 
                         cancellationToken.ThrowIfCancellationRequested();
-                        SongRowSyncReadCandidate candidate = ReadSyncSongRowCandidate(index, targetRows[index]);
+                        SongRowSyncReadCandidate candidate = ShouldTransientSkipSongRow(targetRows[index], transientSkipPaths)
+                            ? SongRowSyncReadCandidate.CreateTransientSkipped(index, targetRows[index])
+                            : ReadSyncSongRowCandidate(index, targetRows[index]);
                         AddWithWait(readQueue, candidate, ref readerOutputWaitTicks, pipelineToken);
                         windowSlotTransferred = true;
                         UpdateHighWatermark(ref readQueueHighWatermark, readQueue.Count);
@@ -2510,6 +2528,7 @@ internal static class Lr2FullGenerationSyncService
         LogSync(request, "lr2_full_generation_sync pipeline_done"
             + " stage=song_rows"
             + " processed=" + processed
+            + " transientSkipped=" + transientSkipped
             + " parseFailureCount=" + parseFailureCount
             + " chartInfoApplied=" + chartInfoAppliedCount
             + " chartInfoGenerated=" + chartInfoGeneratedCount
@@ -2526,7 +2545,7 @@ internal static class Lr2FullGenerationSyncService
             + " readQueueHighWatermark=" + readQueueHighWatermark
             + " computedQueueHighWatermark=" + computedQueueHighWatermark
             + " pendingItemsHighWatermark=" + pendingItemsHighWatermark);
-        return new SongRowSyncResult(processed, 0, parseFailureCount, chartInfoAppliedCount, compatibilityApplied);
+        return new SongRowSyncResult(processed, transientSkipped, parseFailureCount, chartInfoAppliedCount, compatibilityApplied);
     }
 
     private static void ReportCommittedLr2CompatibilityFacts(
@@ -2697,6 +2716,14 @@ internal static class Lr2FullGenerationSyncService
         }
     }
 
+    private static bool ShouldTransientSkipSongRow(BMSFile row, ISet<string> transientSkipPaths)
+    {
+        return row != null
+            && !string.IsNullOrWhiteSpace(row.path)
+            && transientSkipPaths != null
+            && transientSkipPaths.Contains(row.path);
+    }
+
     private static SongRowSyncComputedItem CreateSyncSongRowItem(
         SongRowSyncReadCandidate candidate,
         ISet<string> textFileDirectories,
@@ -2705,6 +2732,11 @@ internal static class Lr2FullGenerationSyncService
         TimeSpan? chartInfoParseTimeout,
         ISet<string> currentChartInfoParseFailureMd5s)
     {
+        if (candidate?.TransientSkipped == true)
+        {
+            return SongRowSyncComputedItem.CreateTransientSkipped(candidate.Index);
+        }
+
         ChartFileSnapshot snapshot = CreateSyncSongRowSnapshot(candidate, out long digestTicks);
         BMSFile row = CreateSyncSongRow(
             candidate,
@@ -3275,8 +3307,14 @@ internal static class Lr2FullGenerationSyncService
         int index,
         BMSFile existingSong,
         ChartFileReadBuffer buffer,
-        long readElapsedTicks)
+        long readElapsedTicks,
+        bool transientSkipped = false)
     {
+        public static SongRowSyncReadCandidate CreateTransientSkipped(int index, BMSFile existingSong)
+        {
+            return new SongRowSyncReadCandidate(index, existingSong, null, 0L, transientSkipped: true);
+        }
+
         public int Index { get; } = index;
 
         public BMSFile ExistingSong { get; } = existingSong;
@@ -3284,6 +3322,8 @@ internal static class Lr2FullGenerationSyncService
         public ChartFileReadBuffer Buffer { get; } = buffer;
 
         public long ReadElapsedTicks { get; } = readElapsedTicks;
+
+        public bool TransientSkipped { get; } = transientSkipped;
     }
 
     private sealed class SongRowSyncComputedItem(
@@ -3300,8 +3340,29 @@ internal static class Lr2FullGenerationSyncService
         string chartInfoParseFailureDeleteMd5,
         bool chartInfoParseFailureSkipped,
         BMSFileMaintenanceInfo lr2CompatibilityInfo,
-        long compatibilityElapsedTicks)
+        long compatibilityElapsedTicks,
+        bool transientSkipped = false)
     {
+        public static SongRowSyncComputedItem CreateTransientSkipped(int index)
+        {
+            return new SongRowSyncComputedItem(
+                index,
+                row: null,
+                parsedFromSnapshot: false,
+                readElapsedTicks: 0L,
+                digestElapsedTicks: 0L,
+                parseElapsedTicks: 0L,
+                chartInfoApplied: false,
+                chartInfoElapsedTicks: 0L,
+                generatedChartInfoRow: null,
+                chartInfoParseFailureRow: null,
+                chartInfoParseFailureDeleteMd5: null,
+                chartInfoParseFailureSkipped: false,
+                lr2CompatibilityInfo: null,
+                compatibilityElapsedTicks: 0L,
+                transientSkipped: true);
+        }
+
         public int Index { get; } = index;
 
         public BMSFile Row { get; } = row;
@@ -3329,6 +3390,8 @@ internal static class Lr2FullGenerationSyncService
         public BMSFileMaintenanceInfo Lr2CompatibilityInfo { get; } = lr2CompatibilityInfo;
 
         public long CompatibilityElapsedTicks { get; } = compatibilityElapsedTicks;
+
+        public bool TransientSkipped { get; } = transientSkipped;
     }
 
     private sealed class SongRowSyncResult(

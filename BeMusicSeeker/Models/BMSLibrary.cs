@@ -5935,25 +5935,25 @@ completeFileEnumerationOnce,
         {
             missReason = "no_bms_rows";
         }
-        else if (fileCheckResult.BmsAddedTargetCount < version.BmsOwnerCount)
+        bool canVerifyFullSongRows = fileCheckResult.BmsAddedTargetCount >= version.BmsOwnerCount
+            && fileCheckResult.InlineMaintenanceBmsCount >= version.BmsOwnerCount;
+        bool hasTransientNewInsertSkipRows = fileCheckResult.NewlyInsertedBmsPaths.Count > 0;
+        if (missReason == null && !canVerifyFullSongRows && !hasTransientNewInsertSkipRows)
         {
-            missReason = "insufficient_bms_target_coverage";
+            missReason = "no_fresh_song_rows";
         }
-        else if (fileCheckResult.InlineMaintenanceBmsCount < version.BmsOwnerCount)
-        {
-            missReason = "insufficient_bms_maintenance_coverage";
-        }
-        else if (fileCheckResult.InlineMaintenanceFailedCount > 0)
+        else if (missReason == null && fileCheckResult.InlineMaintenanceFailedCount > 0)
         {
             missReason = "inline_maintenance_failed";
         }
-        else if (fileCheckResult.BmsMovedHashRelinkAmbiguousCount > 0)
+        else if (missReason == null && fileCheckResult.BmsMovedHashRelinkAmbiguousCount > 0)
         {
             missReason = "ambiguous_hash_relink";
         }
-        else if (fileCheckResult.Lr2NormalFolderSyncFailed
+        else if (missReason == null
+            && (fileCheckResult.Lr2NormalFolderSyncFailed
             || fileCheckResult.Lr2NormalFolderSkippedMissingMetadataCount > 0
-            || fileCheckResult.Lr2NormalFolderInfoReadFailureCount > 0)
+            || fileCheckResult.Lr2NormalFolderInfoReadFailureCount > 0))
         {
             missReason = "normal_folder_sync_unapplied";
         }
@@ -5967,6 +5967,7 @@ completeFileEnumerationOnce,
                 + " bmsOwners=" + version.BmsOwnerCount
                 + " bmsonOwners=" + version.BmsonOwnerCount
                 + " bmsTargets=" + fileCheckResult.BmsAddedTargetCount
+                + " newInsertSkipRows=" + fileCheckResult.NewlyInsertedBmsPaths.Count
                 + " inlineMaintenanceBms=" + fileCheckResult.InlineMaintenanceBmsCount
                 + " inlineMaintenanceFailed=" + fileCheckResult.InlineMaintenanceFailedCount
                 + " scanSurfaceGeneration=" + (scanSurface?.Generation ?? 0));
@@ -5994,7 +5995,8 @@ completeFileEnumerationOnce,
             fileCheckResult.InlineMaintenanceTargetCount,
             fileCheckResult.InlineMaintenanceBmsCount,
             fileCheckResult.InlineMaintenanceBmsonCount,
-            fileCheckResult.InlineMaintenanceFailedCount);
+            fileCheckResult.InlineMaintenanceFailedCount,
+            fileCheckResult.NewlyInsertedBmsPaths);
         lock (lockLr2FullGenerationFileDiffFreshness)
         {
             lr2FullGenerationFileDiffFreshnessSnapshot = snapshot;
@@ -6005,6 +6007,7 @@ completeFileEnumerationOnce,
             + " bmsOwners=" + snapshot.BmsOwnerCount
             + " bmsonOwners=" + snapshot.BmsonOwnerCount
             + " bmsTargets=" + snapshot.BmsTargetCount
+            + " newInsertSkipRows=" + snapshot.TransientSongRowSkipPaths.Count
             + " bmsDeleted=" + snapshot.BmsDeletedCount
             + " inlineChartInfoTargets=" + snapshot.InlineChartInfoTargetCount
             + " inlineMaintenanceBms=" + snapshot.InlineMaintenanceBmsCount
@@ -6862,6 +6865,7 @@ completeFileEnumerationOnce,
                             Interlocked.Add(ref projectedCompatibilityWarningCount, applied);
                         }
                     },
+                    TransientSongRowsSkipPaths = GetLr2FullGenerationTransientSongRowsSkipPaths(input, reason),
                     SongRowsSkipVerifier = (songRowsSongDb, songRows) =>
                         VerifyLr2FullGenerationSongRowsFreshFromFileDiff(
                             songRowsSongDb,
@@ -7550,6 +7554,35 @@ completeFileEnumerationOnce,
     {
         return !string.IsNullOrWhiteSpace(reason)
             && reason.StartsWith("post_startup_", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private ISet<string> GetLr2FullGenerationTransientSongRowsSkipPaths(
+        Lr2FullGenerationSyncInput input,
+        string reason)
+    {
+        if (!IsAutomaticLr2FullGenerationFileDiffFollowupReason(reason)
+            || !IsLr2FullGenerationSyncInputCurrent(input))
+        {
+            return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        Lr2FullGenerationFileDiffFreshnessSnapshot snapshot;
+        lock (lockLr2FullGenerationFileDiffFreshness)
+        {
+            snapshot = lr2FullGenerationFileDiffFreshnessSnapshot;
+        }
+        if (snapshot == null
+            || input == null
+            || snapshot.ScanSurfaceGeneration != input.ScanSurfaceGeneration
+            || snapshot.OwnedCollectionVersion != input.OwnedChartCollectionVersion
+            || snapshot.BmsRowsVersion != input.BmsRowsVersion
+            || snapshot.BmsonRowsVersion != input.BmsonRowsVersion
+            || snapshot.InlineMaintenanceFailedCount > 0)
+        {
+            return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        return new HashSet<string>(snapshot.TransientSongRowSkipPaths, StringComparer.OrdinalIgnoreCase);
     }
 
     private static Lr2FullGenerationSongRowsSkipVerificationResult CreateLr2FullGenerationSongRowsSkipResult(
@@ -8757,7 +8790,8 @@ completeFileEnumerationOnce,
         int inlineMaintenanceTargetCount,
         int inlineMaintenanceBmsCount,
         int inlineMaintenanceBmsonCount,
-        int inlineMaintenanceFailedCount)
+        int inlineMaintenanceFailedCount,
+        IEnumerable<string> transientSongRowSkipPaths)
     {
         public string Reason { get; } = reason ?? "unknown";
 
@@ -8800,6 +8834,12 @@ completeFileEnumerationOnce,
         public int InlineMaintenanceBmsonCount { get; } = inlineMaintenanceBmsonCount;
 
         public int InlineMaintenanceFailedCount { get; } = inlineMaintenanceFailedCount;
+
+        public HashSet<string> TransientSongRowSkipPaths { get; } =
+            new HashSet<string>(
+                (transientSongRowSkipPaths ?? [])
+                    .Where(path => !string.IsNullOrWhiteSpace(path)),
+                StringComparer.OrdinalIgnoreCase);
     }
 
     /// <summary>

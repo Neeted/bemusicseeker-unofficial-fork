@@ -11,6 +11,8 @@ internal sealed class SongTableFileCheckResult
 
     public List<BMSFile> AddedFiles { get; } = [];
 
+    public HashSet<string> NewlyInsertedBmsPaths { get; } = new(StringComparer.OrdinalIgnoreCase);
+
     public List<LR2SongDBExtended.bmson_song> AddedBmsonSongs { get; } = [];
 
     public List<LR2SongDBExtended.chart_info> InlineChartInfoRows { get; } = [];
@@ -296,6 +298,7 @@ internal sealed class SongTableFileCheckResult
     public void ReleasePostApplyTransientBuffers()
     {
         AddedFiles.Clear();
+        NewlyInsertedBmsPaths.Clear();
         AddedBmsonSongs.Clear();
         InlineChartInfoRows.Clear();
         InlineChartInfoAppliedRows.Clear();

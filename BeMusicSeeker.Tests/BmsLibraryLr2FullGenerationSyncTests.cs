@@ -3592,6 +3592,53 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
+    public void SyncService_TransientSongRowSkipPathsSkipOnlyMatchingRows()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        string skippedPath = Path.Combine(scope.DirectoryPath, "Skipped", "already-inserted.bms");
+        string processDirectory = Path.Combine(scope.DirectoryPath, "Process");
+        Directory.CreateDirectory(processDirectory);
+        string processPath = Path.Combine(processDirectory, "process.bms");
+        File.WriteAllText(processPath, "#TITLE processed transient remainder\r\n", Encoding.ASCII);
+        ChartFileSnapshot processSnapshot = ChartFileContentReader.ReadSnapshot(processPath);
+        var skippedFile = new TestableBmsFile
+        {
+            path = skippedPath,
+            date = 123456
+        }.WithHashAndFavorite("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", favoriteValue: null);
+        skippedFile.ApplySha256("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+        TestableBmsFile processFile = CreateSyncTestFile(processPath, processSnapshot);
+        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        songDb.CreateTable<LR2SongDB.song>();
+        var logs = new List<string>();
+
+        Lr2FullGenerationSyncResult result = Lr2FullGenerationSyncService.Run(songDb, new Lr2FullGenerationSyncRequest
+        {
+            Signature = "transient-song-row-skip",
+            RunId = "transient-song-row-skip",
+            SongRows = [skippedFile, processFile],
+            TransientSongRowsSkipPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                skippedPath
+            },
+            StartedAtUtc = new DateTime(2026, 6, 9, 0, 0, 0, DateTimeKind.Utc),
+            LogInstallPerformance = logs.Add
+        });
+
+        Assert.AreEqual(Lr2FullGenerationSyncService.CompletedStage, result.FinalStage);
+        Assert.AreEqual(2, result.SongRowProcessedCount);
+        Assert.AreEqual(1, result.SongRowSkippedCount);
+        Assert.AreEqual(0L, songDb.ExecuteScalar<long>("SELECT COUNT(1) FROM song WHERE path = ?;", skippedPath));
+        Assert.AreEqual("processed transient remainder", songDb.ExecuteScalar<string>("SELECT title FROM song WHERE path = ?;", processPath));
+        Assert.IsTrue(logs.Any(log => log.Contains("pipeline_start stage=song_rows")
+            && log.Contains("transientSkipPaths=1")));
+        Assert.IsTrue(logs.Any(log => log.Contains("chunk_done stage=song_rows")
+            && log.Contains("transientSkipped=1")));
+        Assert.IsTrue(logs.Any(log => log.Contains("pipeline_done stage=song_rows")
+            && log.Contains("transientSkipped=1")));
+    }
+
+    [TestMethod]
     public void SyncService_ResumesFromCompletedNormalFolderBoundary()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();

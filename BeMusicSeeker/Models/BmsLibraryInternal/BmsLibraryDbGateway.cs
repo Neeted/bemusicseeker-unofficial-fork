@@ -655,7 +655,7 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
             oldPath).FirstOrDefault();
     }
 
-    private static void ApplySongUserColumns(LR2SongDBExtended songDb, string path, Lr2SongUserColumns userColumns)
+    internal static void ApplySongUserColumns(LR2SongDBExtended songDb, string path, Lr2SongUserColumns userColumns)
     {
         if (songDb == null || string.IsNullOrWhiteSpace(path) || userColumns == null)
         {

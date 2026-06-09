@@ -4166,9 +4166,8 @@ public sealed class BmsLibraryInitializationServiceTests
             Assert.AreEqual(3, row.favorite);
             Assert.AreEqual(34567, row.adddate);
             Assert.AreEqual("moved-tag", row.tag);
-            Assert.IsTrue(logs.Any(message => message.Contains("db_commit_chunk_done")
-                && message.Contains("deleted=1")
-                && message.Contains("added=1")));
+            Assert.IsTrue(logs.Any(message => message.Contains("user_column_restore_done")
+                && message.Contains("rows=1")));
         });
     }
 

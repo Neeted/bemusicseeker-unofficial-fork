@@ -183,7 +183,7 @@ target enumeration
 
 ### Phase 8: 大量 file diff 後の自動 LR2 full generation 再読込回避
 
-- Status: 部分完了。直前 file diff の鮮度 snapshot と DB projection verifier を導入し、初回自動 follow-up で `song_rows` が current と確認できる場合は stage を skip する。
+- Status: 実装中。直前 file diff の鮮度 snapshot と DB projection verifier を導入し、初回自動 follow-up で `song_rows` が current と確認できる場合は stage を skip する。追加で、resumable partial sync ではなく、同じ起動サイクル内で file diff が新規挿入した `song` row を今回だけ処理対象から外す簡素な方針へ寄せる。
 - 目的は、手動 full generation resync の重い再検証を変えることではなく、同じ起動サイクル内の大量 file diff 直後に自動実行される初回 LR2 full generation が、直前に read / parse 済みの譜面を全件再 read する状態を避けること。
 - 対象は「空 DB 初回」専用ではなく、大量差分で file diff が多数の `song` / `bmson_song` / `chart_digest_map` / `maintenance` / `chart_info` を fresh にしたケース全般とする。
 - まず実処理の差分を固定する。
@@ -194,7 +194,8 @@ target enumeration
   - 完了: `ApplyFileScanDiff()` の結果から、大量差分の generated row 鮮度を表す summary を runtime snapshot として保持する。現時点では scan surface generation、BMS/BMSON owner version、BMS target coverage、inline maintenance coverage を照合する。
   - 完了: LR2 full generation の `song_rows` 前に、直前 file diff summary と DB projection を照合し、`song` generated columns / `chart_digest_map` が current と確認できる場合は `song_rows` stage を skip して durable cursor を該当 stage 完了位置へ進める。
   - 完了: skip 判定 log と summary log に `songRowSkipped` を追加する。
-  - 一部だけ fresh な場合は、全件再読込ではなく stale / missing な target だけを `song_rows` pipeline に流す。resume contract を壊さないため、対象縮小時の cursor semantics は別途明記する。
+  - 実装中: file diff で新規挿入された `song` row は今回の自動 follow-up `song_rows` から除外し、残りの `song` row だけを処理する。これは同じ起動サイクル内の一時的な skip とし、durable resume 対象にはしない。
+  - 万一途中終了した場合、次回起動では前回 skip した row も含めて通常どおり再検証してよい。初回自動 full generation は一度だけの best-effort follow-up と扱い、途中再開のために skip target list を永続化しない。
   - skip できない場合は従来どおり `song_rows` pipeline を実行する。manual resync / force resync は安全側で従来動作を維持する。
 - log 方針:
   - `lr2_full_generation_sync song_rows_skip` または同等の log に、reason、verifiedRows、targetRows、fileDiffGeneration、signature、dbProjectionMs を出す。
@@ -203,16 +204,19 @@ target enumeration
   - 完了: 大量 file diff 直後の初回自動 LR2 full generation で、DB projection が current と確認できた譜面は再 read / re-parse されない。
   - 完了: manual full generation resync、途中失敗 resume、signature mismatch、force 実行は従来の安全な full pipeline を維持する。
   - 完了: `startup_progress` / `Lr2FullGenerationStatusService` の durable cursor が、未 commit の処理を完了扱いにしない。
-  - 未完了: 部分 fresh target の縮小実行は未実装。まずは current と証明できる full `song_rows` skip に限定する。
+  - 実装中: file diff 新規挿入 row を今回だけ `song_rows` 対象から外し、残りだけを処理する縮小実行を追加する。durable partial resume は要件外とし、次回起動時の重複処理は許容する。
 
 ### Phase 9: file diff DB commit chunk の streaming writer 化
 
-- Status: 調査 / first slice 完了。moved hash relink が hard ordering barrier になるため、直接 streaming writer 化は deferred とし、まず `commit_streaming_enabled` / `commit_streaming_barrier` を breakdown log に追加した。さらに producer 側 inline `chart_info` lookup を read-only-first にして、将来の streaming writer が writable DB lock を chunk 間で離す設計に進める前提を整えた。
+- Status: 実装中。moved hash relink が hard ordering barrier になるため、直接 streaming writer 化は deferred とし、まず `commit_streaming_enabled` / `commit_streaming_barrier` を breakdown log に追加した。さらに producer 側 inline `chart_info` lookup を read-only-first にして、将来の streaming writer が writable DB lock を chunk 間で離す設計に進める前提を整えた。次に moved hash relink を backup / restore 方式へ切り替え、post-parse chunk を後から mutate しない形へ寄せる。
 - 現行 file diff は `FlushFileDiffParsedBatch()` が `FileScanDiffCommitChunk` を作るが、`commitCollectorTask` は chunk を `parsedCommitChunks` に蓄積し、post-parse 完了後に `commitContext.AddChunk()` / `Flush()` する。このため `db_commit_chunk_start` は全 read / parse / maintenance 後にまとまって出る。
 - 目的は、DB writer を single writer のまま維持しつつ、post-parse が chunk を作った時点で DB commit を進め、終端の `db_commit_ms` tail と chunk 保持メモリを減らすこと。
 - 実装候補:
   - 完了: post-parse chunk を streaming できる条件を `moved_hash_relink_candidates` の有無で診断し、現行 path では `streaming_writer_deferred` として log に残す。
-  - 知見: `FileScanDiffCommitChunk` を即 commit すると、`ApplyMovedBmsUserColumnRelinks()` が後から destination chunk へ delete / user column preservation を追加する契約を壊す。relink 対象 chunk と非 relink chunk の分離、または relink 解決の前倒しが必要。
+  - 知見: 旧実装では `FileScanDiffCommitChunk` を即 commit すると、moved hash relink が後から destination chunk へ delete / user column preservation を追加する契約を壊していた。backup / restore 方式へ切り替えることで、relink は chunk mutate ではなく final small write として扱う。
+  - 採用: file diff 開始時に削除候補 BMS の user song columns (`favorite`, `adddate`, `tag` など) を path keyed snapshot として backup し、streaming commit 完了後に「同一 MD5 の新規 destination が一意に存在する」場合だけ後段 transaction で restore する。この場合、streaming chunk を後から mutate する必要がなくなり、moved hash relink は final small write として扱える。
+  - restore 案の注意点: DB write が追加で 1 回増える。restore までの短時間は新 row の user columns が空になるため、runtime catalog / UI 公開は restore 後に行う。source / destination が 1 対 1 でない ambiguous case は現行同様 restore しない。restore 対象列は小さいが、`tag` の異常値や重複 MD5 の扱いは既存の ambiguous guard を維持する。
+  - 実装中: moved hash relink は destination `BMSFile` へ user columns を反映し、DB commit 後に同じ commit context で `song` row の user columns を restore する。delete / add / maintenance / chart_info の commit chunk は post-parse 後に immutable とし、streaming writer 化の前提を作る。
   - 知見: 直接 streaming writer を試すと、writer が writable `song.db` connection / process lock を保持したまま queue 待ちし、次 batch の `ProcessInlineBmsChartInfo()` が `LoadChartInfosBySha256()` で同じ lock を取りに行く deadlock が起き得る。bounded writer は writer が chunk 間で writable connection を保持しない設計、producer cancel、writer failure propagation を整理してから入れる。
   - 完了: current schema の `LoadChartInfosBySha256()` / `LoadChartInfosByMd5()` は read-only connection で lookup し、schema 未整備や read-only open 不可の場合だけ従来どおり writable + schema ensure へ fallback する。
   - `commitQueue` を bounded queue にし、専用 writer task が `FileDiffStreamingCommitContext` を所有して `AddChunk()` / `Flush()` を実行する。
@@ -231,7 +235,7 @@ target enumeration
 
 ### Phase 10: maintenance evaluator の共通化と resource health / encoding 軽量化
 
-- Status: first slice 完了。file diff batch slow log と manual maintenance rescan chunk log の語彙を寄せ、health / encoding / bmson refresh / resource lookup cache の内訳を比較しやすくした。
+- Status: first slice 完了。file diff batch slow log と manual maintenance rescan chunk log の語彙を寄せ、health / encoding / bmson refresh / resource lookup cache の内訳を比較しやすくした。次の実装は、追加ログ確認後に未完了事項を進める。
 - 対象は file diff inline maintenance だけではなく、manual `RescanAllOwnedChartMaintenance()` / selected maintenance rescan も含める。
 - 現行ログでは `maintenanceMs` が重く見えるが、これは DB `maintenance` table write ではなく、resource health、encoding 判定、bmson refs refresh、maintenance row construction を含む evaluator 時間である。DB write は file diff では `db_commit_ms`、manual rescan では `maintenance_rescan_chunk commitMs` として別に見る。
 - まず計測を揃える。
