@@ -846,6 +846,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 && message.Contains("inline_chart_info_target_count=2")
                 && message.Contains("inline_chart_info_batch_size=2048")
                 && message.Contains("inline_maintenance_degree=1")
+                && message.Contains("inline_maintenance_resource_index_hit=")
                 && message.Contains("parse_read_bytes_estimate=" + expectedReadBytesEstimate)
                 && message.Contains("db_commit_apply_ms=")
                 && message.Contains("db_commit_bms_upsert_ms=")
@@ -3504,8 +3505,13 @@ public sealed class BmsLibraryInitializationServiceTests
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
-            int expectedDefault = Math.Max(1, Environment.ProcessorCount - 1);
+            int expectedDefault = BmsLibraryInitializationService.ResolveDefaultFileDiffParserDegree(Environment.ProcessorCount);
             Assert.AreEqual(expectedDefault, BmsLibraryInitializationService.ResolveDefaultFileDiffParserDegree());
+            Assert.AreEqual(1, BmsLibraryInitializationService.ResolveDefaultFileDiffParserDegree(1));
+            Assert.AreEqual(1, BmsLibraryInitializationService.ResolveDefaultFileDiffParserDegree(2));
+            Assert.AreEqual(2, BmsLibraryInitializationService.ResolveDefaultFileDiffParserDegree(4));
+            Assert.AreEqual(4, BmsLibraryInitializationService.ResolveDefaultFileDiffParserDegree(8));
+            Assert.AreEqual(8, BmsLibraryInitializationService.ResolveDefaultFileDiffParserDegree(16));
 
             Assert.AreEqual(expectedDefault, RunWithParserDegreeOverride(null, songDbPath).FileDiffParserDegree);
             Assert.AreEqual(1, RunWithParserDegreeOverride(0, songDbPath).FileDiffParserDegree);

@@ -2246,7 +2246,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             Assert.IsTrue(result.DigestMs >= 0);
             Assert.IsTrue(result.HealthFileExistsFallbackCount > 0);
             Assert.AreEqual(result.HealthFileExistsFallbackCount, lookupContext.FileExistsFallbackCount);
-            Assert.IsTrue(logs.Any(log => log.Contains("maintenance_rescan_chunk") && log.Contains("cacheHit=") && log.Contains("fileExistsFallback=")));
+            Assert.IsTrue(logs.Any(log => log.Contains("maintenance_rescan_chunk") && log.Contains("cacheHit=") && log.Contains("resourceIndexHit=") && log.Contains("fileExistsFallback=")));
         }
         finally
         {

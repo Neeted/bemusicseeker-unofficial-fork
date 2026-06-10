@@ -19,6 +19,8 @@ internal sealed class ResourceHealthLookupContext
 
     private long cacheHitCount;
 
+    private long resourceIndexHitCount;
+
     private long fileExistsFallbackCount;
 
     private long audioFileExistsFallbackCount;
@@ -49,6 +51,8 @@ internal sealed class ResourceHealthLookupContext
     public int SharedResourceCacheEntryCount => cacheResolvedResourceExistsByKey.Count;
 
     public long CacheHitCount => Interlocked.Read(ref cacheHitCount);
+
+    public long ResourceIndexHitCount => Interlocked.Read(ref resourceIndexHitCount);
 
     public long FileExistsFallbackCount => Interlocked.Read(ref fileExistsFallbackCount);
 
@@ -106,11 +110,25 @@ internal sealed class ResourceHealthLookupContext
         Interlocked.Increment(ref cacheHitCount);
     }
 
+    public void RecordResourceIndexHit()
+    {
+        Interlocked.Increment(ref cacheHitCount);
+        Interlocked.Increment(ref resourceIndexHitCount);
+    }
+
     public void AddCacheHits(long count)
     {
         if (count > 0L)
         {
             Interlocked.Add(ref cacheHitCount, count);
+        }
+    }
+
+    public void AddResourceIndexHits(long count)
+    {
+        if (count > 0L)
+        {
+            Interlocked.Add(ref resourceIndexHitCount, count);
         }
     }
 
@@ -121,6 +139,7 @@ internal sealed class ResourceHealthLookupContext
             return;
         }
         AddCacheHits(source.CacheHitCount);
+        AddResourceIndexHits(source.ResourceIndexHitCount);
         AddFileExistsFallbacks(ResourceHealthFallbackKind.Audio, source.AudioFileExistsFallbackCount);
         AddFileExistsFallbacks(ResourceHealthFallbackKind.Image, source.ImageFileExistsFallbackCount);
         AddFileExistsFallbacks(ResourceHealthFallbackKind.Movie, source.MovieFileExistsFallbackCount);

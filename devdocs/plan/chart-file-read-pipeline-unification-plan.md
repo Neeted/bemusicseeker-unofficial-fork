@@ -254,9 +254,13 @@ target enumeration
 
 ### Phase 10: maintenance evaluator の共通化と resource health / encoding 軽量化
 
-- Status: 実装中。file diff batch slow log と manual maintenance rescan chunk log の語彙を寄せたうえで、file diff inline maintenance は同一 `ResourceHealthLookupContext` を batch / pipeline 内で共有する。さらに `(directory, resource kind, relative path hash)` の resource existence 判定を共有 cache 化し、同一 directory に多数の譜面がある初回 scan で重複した hash lookup を減らす。
+- Status: 実装中。file diff batch slow log と manual maintenance rescan chunk log の語彙を寄せたうえで、file diff inline maintenance は同一 `ResourceHealthLookupContext` を batch / pipeline 内で共有する。2026-06-10 の空 DB 初回ログでは `inline_maintenance_wall_ms` / `inline_health_wall_ms` と `inline_maintenance_cache_hit=108M` が支配的だったため、resource existence は directory resource index を先に直接照合し、共有 dictionary は index が無い fallback 経路の補助へ戻す。directory に存在する resource file は同一 directory の譜面から共通に見えるが、譜面が要求する resource 集合、defined count、LR2 compatibility、path / hash / encoding は chart-specific なので、`maintenance` row 全体は再利用しない。
 - 対象は file diff inline maintenance だけではなく、manual `RescanAllOwnedChartMaintenance()` / selected maintenance rescan も含める。
 - 現行ログでは `maintenanceMs` が重く見えるが、これは DB `maintenance` table write ではなく、resource health、encoding 判定、bmson refs refresh、maintenance row construction を含む evaluator 時間である。DB write は file diff では `db_commit_ms`、manual rescan では `maintenance_rescan_chunk commitMs` として別に見る。
+- 2026-06-10 の並列度方針:
+  - 軽量 parser より post-parse / maintenance の方が重いログなので、既定 parser 数は CPU 数の半分程度へ下げ、post-parse worker は CPU 数を目安に確保する。
+  - CPU 数が異なる環境でも parser:post-parse の比率が効くように、固定値ではなく `ResolveDefaultFileDiffParserDegree(processorCount)` で決める。
+  - micro-batch は主改善策にしない。1 譜面ずつ bytes を処理すること自体は問題ではなく、batch を増やす場合は directory/resource signature reuse など実際の計算削減を伴うときだけ検討する。batch 内でさらに maintenance 並列化して post-parse worker と二重並列にしない。
 - まず計測を揃える。
   - 完了: file diff の batch slow log に `bmsMaintenanceMs`, `bmsonMaintenanceMs`, `healthMs`, `encodingMs`, `cacheHit`, `fileExistsFallback` を追加する。
   - 完了: manual rescan の `maintenance_rescan_chunk` に `healthMs`, `encodingMs`, `bmsonRefreshMs`, `cacheHit`, `fileExistsFallback` を追加する。
@@ -268,6 +272,7 @@ target enumeration
 - 実装候補:
   - file diff inline maintenance と manual rescan が同じ `MaintenanceEvaluationResult` / evaluator helper を通るように整理する。
   - 完了: `ResourceHealthLookupContext` の cache を処理単位で共有し、同一 directory / 同一 resource key の cache 解決結果を再利用する。
+  - 完了: directory resource index がある場合は sorted hash array を直接照合し、共有 dictionary lookup / lazy HashSet allocation を避ける。ログは `cacheHit` を File.Exists 回避総数、`resourceIndexHit` を directory index 直接照合数、`inline_maintenance_shared_resource_cache_entries` を fallback 共有 cache entry 数として分ける。
   - BMS の難易度差分に多い「同一 directory かつ類似 WAV/BGA 参照集合」を、resource ref signature でまとめて health 判定を再利用する。
   - encoding 判定は bytes 由来の現行方針を維持するが、BOM / fast ASCII / strict decode / metadata reload のどこが重いかを分け、非 Shift_JIS 確定時だけ raw metadata reload する方針を保つ。
   - bmson missing refs 補完で path-only parse へ落ちる経路が大量発生する古い DB ケースも、snapshot pipeline または共通 evaluator へ寄せる。
@@ -275,6 +280,15 @@ target enumeration
   - file diff と manual maintenance rescan の evaluator semantics と log が比較可能になる。
   - 大量差分で `inline_maintenance_wall_ms`、manual rescan で `computeMs` / `healthMs` / `encodingMs` の支配項が特定でき、同じ改善が両方に効く。
   - resource health の結果が変わらないことを、既存 warning / maintenance tests と追加 regression で確認する。
+
+### Phase 10b: file diff DB commit の集合化
+
+- Status: 検討中。2026-06-10 の空 DB 初回ログでは `db_commit_ms=126043`、内訳は `db_commit_bms_upsert_ms=69028`、`db_commit_maintenance_upsert_ms=47923`。最終的な `song.db` が同じなら方法は問わないため、row-by-row に残っている `maintenance` / `bmson_song` を temp table または bulk helper へ寄せる。
+- 方針:
+  - BMS `song` / `chart_digest_map` は既に `Lr2SongDbWriter.UpsertGeneratedSongs(...)` の bulk path を使っているため、まず `maintenance` と `bmson_song` を対象にする。
+  - `maintenance` は全列 upsert が必要。LR2 compatibility facts や resource health / encoding を落とさないよう、table schema から column list を作るか、既存 SQLite mapper の bulk insert / replace 能力を確認して使う。
+  - `bmson_song` は件数が少ないが、空 DB 初回では同じ transaction に乗るため row-by-row API 呼び出しを減らす候補にする。
+  - 変更後は chunk log の `maintenanceUpsertMs` / `bmsonUpsertMs` と DB 内容の同一性を regression で確認する。
 
 ### Phase 11: LR2 built-in folder parent directory の期待値分離
 

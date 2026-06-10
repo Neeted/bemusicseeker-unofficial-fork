@@ -249,6 +249,8 @@ internal sealed class SongTableFileCheckResult
 
     public long InlineMaintenanceCacheHitCount { get; set; }
 
+    public long InlineMaintenanceResourceIndexHitCount { get; set; }
+
     public long InlineMaintenanceFileExistsFallbackCount { get; set; }
 
     public int InlineMaintenanceSharedResourceCacheEntries { get; set; }

@@ -123,6 +123,21 @@ internal sealed class DirectoryResourceLookupCache
 
         public int MovieFileNameHashCount => movieRelativePathHashArray.Length;
 
+        public bool ContainsAudioRelativePathHash(uint hash)
+        {
+            return ContainsSortedHash(audioRelativePathHashArray, hash);
+        }
+
+        public bool ContainsImageRelativePathHash(uint hash)
+        {
+            return ContainsSortedHash(imageRelativePathHashArray, hash);
+        }
+
+        public bool ContainsMovieRelativePathHash(uint hash)
+        {
+            return ContainsSortedHash(movieRelativePathHashArray, hash);
+        }
+
         public Entry()
             : this([], [], [], [], [], [])
         {
@@ -221,6 +236,11 @@ internal sealed class DirectoryResourceLookupCache
         private static HashSet<uint> CreateHashSet(IEnumerable<uint> hashes)
         {
             return hashes == null ? [] : [.. hashes];
+        }
+
+        private static bool ContainsSortedHash(uint[] hashes, uint hash)
+        {
+            return hash != 0u && hashes != null && Array.BinarySearch(hashes, hash) >= 0;
         }
     }
 
