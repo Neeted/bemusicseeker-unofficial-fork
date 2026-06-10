@@ -194,7 +194,7 @@ target enumeration
 
 ### Phase 8: 大量 file diff 後の自動 LR2 full generation 再読込回避
 
-- Status: 方針変更。直前 file diff の鮮度 snapshot と DB projection verifier は導入済みだが、完全生成有効時の自動 follow-up では DB projection strict verifier を必須 gate にしない。file diff が今回 durably commit した path coverage を主判定にし、strict verifier は drift 診断へ下げる。
+- Status: 完了。直前 file diff の鮮度 snapshot は、完全生成有効時の自動 follow-up で DB projection strict verifier を走らせず、file diff が今回 durably commit した path coverage だけを `song_rows` skip gate にする。coverage が成立しない場合は安全側で従来の `song_rows` pipeline を実行する。
 - 目的は、手動 full generation resync の重い再検証を変えることではなく、同じ起動サイクル内の大量 file diff 直後に自動実行される初回 LR2 full generation が、直前に read / parse 済みの譜面を全件再 read する状態を避けること。
 - 対象は「空 DB 初回」専用ではなく、大量差分で file diff が多数の `song` / `bmson_song` / `chart_digest_map` / `maintenance` / `chart_info` を fresh にしたケース全般とする。
 - 前提を固定する。
@@ -204,24 +204,21 @@ target enumeration
 - 実装候補:
   - 完了: `ApplyFileScanDiff()` の結果から、大量差分の generated row 鮮度を表す runtime snapshot を保持する。現時点では scan surface generation、BMS/BMSON owner version、BMS target coverage、inline maintenance coverage を照合する。
   - 完了: runtime snapshot の `TransientSongRowSkipPaths` が全 current BMS owner path を覆う場合は、自動 follow-up の `song_rows` stage を丸ごと skip する。空 DB 初回では、file diff が全 BMS を追加 commit するため、この条件を満たす想定にする。
-  - 完了: DB projection strict verifier は coverage gate が成立しない場合の安全側 verifier とし、coverage gate 成立時には `subtitle` / `subartist` などの mismatch だけで `song_rows` を全件再実行しない。診断比較では generated string column の `NULL` と空文字を同一視する。
+  - 完了: 自動 follow-up では DB projection strict verifier を使わない。coverage gate が成立しない場合は `file_diff_transient_coverage_incomplete` として skip せず、通常の `song_rows` pipeline に任せる。
   - 完了: file diff と LR2 full generation の BMS row 生成は `Lr2SongRowEnricher.CreateParsedSongRowFromSnapshot(...)` を共有し、LR2 full generation 専用の別 parser 経路を持たない。
   - 保留: coverage が部分的な通常大量差分では、今回 commit 済み path を自動 follow-up の `song_rows` 対象から一時的に除外し、残りだけを処理する縮小実行を検討する。これは durable resume 対象にはせず、次回起動では通常検証へ戻す。
   - 万一途中終了した場合、次回起動では前回 skip した row も含めて通常どおり再検証してよい。初回自動 full generation は一度だけの best-effort follow-up と扱い、途中再開のために skip target list を永続化しない。
   - skip できない場合は従来どおり `song_rows` pipeline を実行する。manual resync / force resync は安全側で従来動作を維持する。
 - log 方針:
   - `lr2_full_generation_sync song_rows_skip` または同等の log に、reason、coveredRows、targetRows、fileDiffGeneration、signature、coverageMs を出す。
-  - strict verifier を走らせた場合は `projection_drift` として verifiedRows、mismatchedRows、digest mismatch、sample columns を出し、skip gate とは分ける。
   - skip しなかった場合も、`song_rows_skip reason=...` でなぜ再読込が必要だったかを残す。
 - 完了条件:
   - 大量 file diff 直後の初回自動 LR2 full generation で、file diff の durable path coverage が成立した譜面は再 read / re-parse されない。
   - 完了: manual full generation resync、途中失敗 resume、signature mismatch、force 実行は従来の安全な full pipeline を維持する。
   - 完了: `startup_progress` / `Lr2FullGenerationStatusService` の durable cursor が、未 commit の処理を完了扱いにしない。
-  - strict verifier 由来の `subtitle` / `subartist` drift は診断として出るが、coverage gate 成立時の自動 follow-up を性能回帰させない。
 - 追加診断:
-  - 完了: `lr2_full_generation_sync song_rows_skip_detail` を追加し、`db_projection_not_current` の `missingRows` / `mismatchedRows` / digest mismatch が出た場合に、最大 10 件の path と不一致 column を出す。
   - 完了: `lr2_full_generation_sync startup_scan_diagnostics_detail` を追加し、`dateMissingSongRows` / `missingExpectedFolderRows` / `missingExpectedLr2FolderRows` が残った場合に、最大 10 件の path を出す。
-  - 次回ログ確認: `song_rows_skip reason=db_projection_not_current mismatchedRows=...` に続く `song_rows_skip_detail` と、`startup_scan_diagnostics_remaining` に続く `startup_scan_diagnostics_detail` を見る。件数だけから推測する追加ログ分析フェーズは挟まない。
+  - 次回ログ確認: `song_rows_skip action=skip reason=file_diff_new_insert_projection_current` で `pipeline_start stage=song_rows` が出ないこと、または `song_rows_skip action=run reason=file_diff_transient_coverage_incomplete` で通常 pipeline に戻ることを見る。
 
 ### Phase 9: file diff DB commit chunk の streaming writer 化
 
@@ -281,16 +278,16 @@ target enumeration
 
 ### Phase 11: LR2 built-in folder parent directory の期待値分離
 
-- Status: 方針整理。`missing_expected_folder` は、LR2 built-in `.lr2folder` 親ディレクトリを normal folder row の期待値へ混ぜた診断ノイズとして扱う。`INSANE01` / `INSANE02` などの built-in custom folder parent は、`.lr2folder` file row / parent category row の surface であり、通常の BMS normal folder row と同じ期待値ではない。
+- Status: 完了。`missing_expected_folder` は、LR2 built-in `.lr2folder` 親ディレクトリを normal folder row の期待値へ混ぜた診断ノイズとして扱う。`INSANE01` / `INSANE02` などの built-in custom folder parent は、`.lr2folder` file row / parent category row の surface であり、通常の BMS normal folder row と同じ期待値ではない。
 - 前提:
   - `Lr2BuiltinCustomFolderSettings` が含める `LR2files\CustomFolder` 配下は、LR2 built-in custom folder source として扱う。
   - `.lr2folder` parent/category directory は LR2 folder sync 側の生成・保持対象であり、BMS chart directory 由来の normal folder sync 対象ではない。
   - root custom output が LR2 built-in custom folder root と重なる設定では、built-in source classification を優先するか、設定 validation で重複を明示的に扱う。
-- 実装候補:
-  - `CreateExpectedLr2FolderParentDirectoryRowPaths()` 由来の expected paths を normal folder expected set へ union しない。LR2 folder parent expected set と normal folder expected set を別々に持つ。
-  - `missingExpectedFolderRows` は chart directory / normal folder sync 由来だけを見る。`.lr2folder` parent 側の欠落は `missingExpectedLr2FolderRows` または LR2 folder sync diagnostic として出す。
-  - `Lr2FolderFileSourceClassifier` は built-in `LR2files\CustomFolder` source を root custom output より先に分類する。絶対 path になった built-in parent directory が relative built-in 除外に引っかからず `missing_expected_folder` へ落ちる状態を避ける。
-  - `RemoveKnownRelativeLr2FolderDirectories()` のような後段文字列除外に頼るのではなく、分類時点の source kind を diagnostic / expected set に渡す。
+- 実装:
+  - 完了: `CreateExpectedLr2FolderParentDirectoryRowPaths()` 由来の expected paths を normal folder expected set へ union しない。LR2 folder parent expected set と normal folder expected set を別々に持つ。
+  - 完了: `missingExpectedFolderRows` は chart directory / normal folder sync 由来だけを見る。`.lr2folder` parent 側の欠落は `missingExpectedLr2FolderRows` として扱う。
+  - 完了: `Lr2FolderFileSourceClassifier` は built-in `LR2files\CustomFolder` source を root custom output より先に分類する。絶対 path になった built-in parent directory が `missing_expected_folder` へ落ちる状態を避ける。
+  - 完了: `RemoveKnownRelativeLr2FolderDirectories()` のような後段文字列除外を削除し、expected set の分類で normal / LR2 folder を分ける。
 - 完了条件:
   - built-in custom folder parent directory が normal folder の `missing_expected_folder` として残らない。
   - 実際に LR2 folder file row が欠けている場合は、`missingExpectedLr2FolderRows` または LR2 folder sync log に出る。
@@ -305,7 +302,7 @@ target enumeration
 - maintenance rescan の changed-only upsert / bmson refs reuse regression。
 - Phase 8:
   - 大量 file diff 後の自動 LR2 full generation が、durable path coverage の成立した `song_rows` を skip すること。
-  - strict projection verifier の mismatch は `projection_drift` 診断として残り、coverage gate 成立時の自動 follow-up を全件再実行しないこと。
+  - coverage gate が成立しない場合は DB projection verifier へ逃げず、通常 `song_rows` pipeline を実行すること。
   - signature mismatch / force / manual resync / failed resume では従来 pipeline へ落ちること。
   - skip 後の `Lr2FullGenerationStatusService` cursor / completed status が未 commit row を含まないこと。
 - Phase 9:

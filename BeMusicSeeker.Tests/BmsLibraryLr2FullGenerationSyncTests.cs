@@ -5220,6 +5220,47 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
+    public void SyncService_DoesNotReportBuiltinLr2FolderParentAsMissingNormalFolder()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        string chartRoot = Path.Combine(scope.DirectoryPath, "BMS");
+        string lr2Root = Path.Combine(scope.DirectoryPath, "LR2");
+        string builtinRoot = Path.Combine(lr2Root, "LR2files", "CustomFolder");
+        string insaneDirectory = Path.Combine(builtinRoot, "INSANE02");
+        string lr2FolderPath = Path.Combine(insaneDirectory, "02.lr2folder");
+        Directory.CreateDirectory(chartRoot);
+        Directory.CreateDirectory(insaneDirectory);
+        File.WriteAllText(lr2FolderPath, "#TITLE INSANE02");
+        DateTime timestamp = new(2026, 6, 5, 1, 2, 3, DateTimeKind.Utc);
+        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        songDb.CreateTable<LR2SongDB.folder>();
+
+        Lr2FullGenerationSyncResult result = Lr2FullGenerationSyncService.Run(songDb, new Lr2FullGenerationSyncRequest
+        {
+            Signature = "builtin-lr2folder-parent-diagnostic",
+            RunId = "builtin-lr2folder-parent-diagnostic-run",
+            RootDirectories = [chartRoot],
+            DirectoryEntries = CreateDirectoryEntryMap(chartRoot, insaneDirectory),
+            Lr2RootPath = lr2Root,
+            Lr2BuiltinFolderSourceDirectories = [builtinRoot],
+            Lr2FolderDiscoveryDirectories = [builtinRoot],
+            Lr2FolderPruneDirectories = [@"LR2files\CustomFolder"],
+            Lr2FolderFilePaths = [lr2FolderPath],
+            Lr2FolderFileEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase)
+            {
+                [lr2FolderPath] = new RootFileEnumerationEntry(lr2FolderPath, timestamp)
+            },
+            Lr2FolderFileDiscoveryComplete = true,
+            StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc)
+        });
+
+        Assert.AreEqual(Lr2FullGenerationSyncService.CompletedStage, result.FinalStage);
+        Assert.AreEqual(0, result.StartupScanDiagnosticResult.MissingExpectedFolderRowCount);
+        Assert.AreEqual(0, result.StartupScanDiagnosticResult.MissingExpectedLr2FolderRowCount);
+        Assert.IsTrue(songDb.Table<LR2SongDB.folder>().Any(row => row.path == @"LR2files\CustomFolder\INSANE02\"));
+    }
+
+    [TestMethod]
     public void SyncService_PreservesUnchangedLr2FolderRowBeforeDefinitionParse()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();

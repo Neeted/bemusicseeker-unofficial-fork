@@ -23,6 +23,8 @@ internal sealed class Lr2FolderFileSourceClassification
     public int FolderType { get; set; } = 2;
 
     public string ParentHash { get; set; }
+
+    public bool IsBuiltinSource { get; set; }
 }
 
 internal static class Lr2FolderFileSourceClassifier
@@ -39,6 +41,11 @@ internal static class Lr2FolderFileSourceClassifier
             };
         }
 
+        if (TryClassifyBuiltinSource(filePath, request, out Lr2FolderFileSourceClassification builtinClassification))
+        {
+            return builtinClassification;
+        }
+
         if (IsUnderDirectory(filePath, request.RootCustomFolderOutputBaseDir))
         {
             return new Lr2FolderFileSourceClassification
@@ -48,11 +55,6 @@ internal static class Lr2FolderFileSourceClassifier
                     ? Lr2SongFolderParentNormalizer.RootParentHash
                     : null
             };
-        }
-
-        if (TryClassifyBuiltinSource(filePath, request, out Lr2FolderFileSourceClassification builtinClassification))
-        {
-            return builtinClassification;
         }
 
         return new Lr2FolderFileSourceClassification
@@ -76,7 +78,8 @@ internal static class Lr2FolderFileSourceClassifier
 
         foreach (string sourceDirectory in sourceDirectories)
         {
-            if (!IsUnderDirectory(filePath, sourceDirectory))
+            if (!IsBuiltinCustomFolderSourceDirectory(sourceDirectory, request.Lr2RootPath)
+                || !IsUnderDirectory(filePath, sourceDirectory))
             {
                 continue;
             }
@@ -88,7 +91,8 @@ internal static class Lr2FolderFileSourceClassifier
                 FolderType = Lr2BuiltinCustomFolderSettings.ResolveBuiltinFolderType(databasePath),
                 ParentHash = IsDirectChildFile(filePath, sourceDirectory)
                     ? Lr2SongFolderParentNormalizer.RootParentHash
-                    : null
+                    : null,
+                IsBuiltinSource = true
             };
             return true;
         }
@@ -106,6 +110,32 @@ internal static class Lr2FolderFileSourceClassifier
         [
             Path.Combine(root, "LR2files", "CustomFolder")
         ];
+    }
+
+    private static bool IsBuiltinCustomFolderSourceDirectory(string sourceDirectory, string lr2RootPath)
+    {
+        string directory = NormalizeDirectoryPathOrNull(sourceDirectory);
+        if (string.IsNullOrWhiteSpace(directory))
+        {
+            return false;
+        }
+
+        string root = NormalizeDirectoryPathOrNull(lr2RootPath);
+        if (!string.IsNullOrWhiteSpace(root))
+        {
+            string expected = NormalizeDirectoryPathOrNull(Path.Combine(root, "LR2files", "CustomFolder"));
+            if (!string.IsNullOrWhiteSpace(expected)
+                && string.Equals(directory, expected, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        string trimmed = directory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+            .Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar);
+        return trimmed.EndsWith(
+            Path.DirectorySeparatorChar + @"LR2files\CustomFolder",
+            StringComparison.OrdinalIgnoreCase);
     }
 
     private static string TryCreateLr2RootRelativePath(string filePath, string lr2RootPath)

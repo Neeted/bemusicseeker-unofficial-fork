@@ -7550,26 +7550,10 @@ completeFileEnumerationOnce,
             };
         }
 
-        Lr2GeneratedSongCurrentnessResult currentness =
-            Lr2SongDbWriter.VerifyGeneratedSongsCurrent(songDb, songRows);
-        return new Lr2FullGenerationSongRowsSkipVerificationResult
-        {
-            CanSkip = currentness.IsCurrent,
-            Reason = currentness.IsCurrent ? "file_diff_db_projection_current" : "db_projection_not_current",
-            TargetRows = currentness.TargetCount,
-            VerifiedRows = currentness.VerifiedCount,
-            MissingRows = currentness.MissingCount,
-            MismatchedRows = currentness.MismatchedCount,
-            DuplicatePathRows = currentness.DuplicatePathCount,
-            DigestCheckedRows = currentness.DigestCheckedCount,
-            DigestMissingRows = currentness.DigestMissingCount,
-            DigestMismatchedRows = currentness.DigestMismatchedCount,
-            ProjectionMs = currentness.ProjectionMs,
-            ExistingReadMs = currentness.ExistingReadMs,
-            DigestReadMs = currentness.DigestReadMs,
-            ElapsedMs = currentness.ElapsedMs,
-            DiagnosticSamples = currentness.DiagnosticSamples
-        };
+        return CreateLr2FullGenerationSongRowsSkipResult(
+            false,
+            "file_diff_transient_coverage_incomplete",
+            targetRows);
     }
 
     private static bool AreAllLr2FullGenerationSongRowsFreshNewInserts(

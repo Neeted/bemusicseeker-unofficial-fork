@@ -246,7 +246,7 @@ public sealed class Lr2FolderFileProjectionTests
     }
 
     [TestMethod]
-    public void SourceClassifier_PrefersRootCustomOutputOverOverlappingBuiltinSource()
+    public void SourceClassifier_PrefersOverlappingBuiltinSourceOverRootCustomOutput()
     {
         string lr2Root = Path.GetFullPath(@"D:\LR2beta3");
         string builtinRoot = Path.Combine(lr2Root, "LR2files", "CustomFolder");
@@ -261,9 +261,9 @@ public sealed class Lr2FolderFileProjectionTests
             BuiltinSourceDirectories = [builtinRoot]
         });
 
-        Assert.AreEqual(filePath, classification.DatabasePath);
+        Assert.AreEqual(@"LR2files\CustomFolder\BeMusicSeekerRoot\0000.lr2folder", classification.DatabasePath);
         Assert.AreEqual(2, classification.FolderType);
-        Assert.AreEqual(Lr2SongFolderParentNormalizer.RootParentHash, classification.ParentHash);
+        Assert.IsNull(classification.ParentHash);
     }
 
     [TestMethod]

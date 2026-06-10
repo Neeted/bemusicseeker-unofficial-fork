@@ -1098,8 +1098,15 @@ internal static class Lr2FullGenerationSyncService
             roots,
             request?.NormalFolderDirectoryPaths,
             currentPaths);
-        expectedNormalFolderPaths.UnionWith(CreateExpectedLr2FolderParentDirectoryRowPaths(request));
+        expectedNormalFolderPaths.UnionWith(CreateExpectedLr2FolderParentDirectoryRowPaths(
+            request,
+            includeBuiltinSources: false,
+            includeNonBuiltinSources: true));
         HashSet<string> expectedLr2FolderPaths = CreateExpectedLr2FolderRowPaths(request);
+        expectedLr2FolderPaths.UnionWith(CreateExpectedLr2FolderParentDirectoryRowPaths(
+            request,
+            includeBuiltinSources: true,
+            includeNonBuiltinSources: false));
         var existingNormalFolderPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var existingLr2FolderPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (StartupDiagnosticFolderRow row in songDb.Query<StartupDiagnosticFolderRow>(
@@ -1120,22 +1127,29 @@ internal static class Lr2FullGenerationSyncService
             bool isNormalFolderRow = row.Type.GetValueOrDefault() == 1;
             bool isLegacyDirectoryRow = !isLr2FolderFileRow
                 && (!row.Type.HasValue || row.Type.GetValueOrDefault() == 0);
+            string databaseFolderPath = Lr2FolderPath.ToFolderPath(row.Path);
             if (isNormalFolderRow)
             {
-                string normalFolderPath = Lr2FolderPath.ToFolderPath(row.Path);
-                if (!string.IsNullOrWhiteSpace(normalFolderPath))
+                if (!string.IsNullOrWhiteSpace(databaseFolderPath))
                 {
-                    existingNormalFolderPaths.Add(normalFolderPath);
+                    existingNormalFolderPaths.Add(databaseFolderPath);
                 }
             }
             if ((isNormalFolderRow || isLegacyDirectoryRow)
                 && IsUnderAnyRoot(diagnosticPath, roots)
-                && !expectedNormalFolderPaths.Contains(Lr2FolderPath.ToFolderPath(row.Path)))
+                && !expectedNormalFolderPaths.Contains(databaseFolderPath))
             {
                 AddCleanupFolderRowPath(cleanupFolderRowPaths, row.Path);
             }
 
-            bool isLr2FolderScopedRow = hasDiagnosticPath && (isLr2FolderFileRow || IsUnderAnyRoot(diagnosticPath, lr2FolderRoots));
+            bool isExpectedLr2FolderDirectoryRow = !isNormalFolderRow
+                && !isLr2FolderFileRow
+                && !string.IsNullOrWhiteSpace(databaseFolderPath)
+                && expectedLr2FolderPaths.Contains(databaseFolderPath);
+            bool isLr2FolderScopedRow = hasDiagnosticPath
+                && (isLr2FolderFileRow
+                    || isExpectedLr2FolderDirectoryRow
+                    || IsUnderAnyRoot(diagnosticPath, lr2FolderRoots));
 
             if (!row.Date.HasValue || row.Date.GetValueOrDefault() <= 0)
             {
@@ -1163,6 +1177,10 @@ internal static class Lr2FullGenerationSyncService
                     }
                 }
             }
+            else if (isExpectedLr2FolderDirectoryRow && IsExistingLr2FolderRowKind(row.Type))
+            {
+                existingLr2FolderPaths.Add(databaseFolderPath);
+            }
 
             if (row.Date.HasValue && row.Date.GetValueOrDefault() > 0)
             {
@@ -1184,16 +1202,15 @@ internal static class Lr2FullGenerationSyncService
                 AddCleanupFolderRowPath(cleanupFolderRowPaths, row.Path);
             }
         }
-        HashSet<string> expectedPhysicalNormalFolderPaths = RemoveKnownRelativeLr2FolderDirectories(expectedNormalFolderPaths);
         IReadOnlyList<string> missingExpectedFolderRowSamples = GetMissingExpectedRows(
-            expectedPhysicalNormalFolderPaths,
+            expectedNormalFolderPaths,
             existingNormalFolderPaths,
             10);
         IReadOnlyList<string> missingExpectedLr2FolderRowSamples = GetMissingExpectedRows(
             expectedLr2FolderPaths,
             existingLr2FolderPaths,
             10);
-        int missingExpectedFolderRowCount = CountMissingExpectedRows(expectedPhysicalNormalFolderPaths, existingNormalFolderPaths);
+        int missingExpectedFolderRowCount = CountMissingExpectedRows(expectedNormalFolderPaths, existingNormalFolderPaths);
         int missingExpectedLr2FolderRowCount = CountMissingExpectedRows(expectedLr2FolderPaths, existingLr2FolderPaths);
 
         return new Lr2StartupScanDiagnosticResult(
@@ -1317,7 +1334,10 @@ internal static class Lr2FullGenerationSyncService
     private static readonly Lr2FolderDirectoryMetadata DiagnosticExpectedFolderMetadata =
         new(new DateTime(2026, 1, 1, 0, 0, 1, DateTimeKind.Utc));
 
-    private static HashSet<string> CreateExpectedLr2FolderParentDirectoryRowPaths(Lr2FullGenerationSyncRequest request)
+    private static HashSet<string> CreateExpectedLr2FolderParentDirectoryRowPaths(
+        Lr2FullGenerationSyncRequest request,
+        bool includeBuiltinSources,
+        bool includeNonBuiltinSources)
     {
         var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         IReadOnlyCollection<string> lr2FolderFilePaths = CreateLr2FolderFilePathSurface(request);
@@ -1351,6 +1371,17 @@ internal static class Lr2FullGenerationSyncService
                 BuiltinSourceDirectories = request.Lr2BuiltinFolderSourceDirectories
             });
             if (classification.FolderType == 1)
+            {
+                continue;
+            }
+            if (classification.IsBuiltinSource)
+            {
+                if (!includeBuiltinSources)
+                {
+                    continue;
+                }
+            }
+            else if (!includeNonBuiltinSources)
             {
                 continue;
             }
@@ -1423,32 +1454,6 @@ internal static class Lr2FullGenerationSyncService
             }
         }
         return result;
-    }
-
-    private static HashSet<string> RemoveKnownRelativeLr2FolderDirectories(IEnumerable<string> paths)
-    {
-        var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (string path in paths ?? [])
-        {
-            if (!IsKnownRelativeLr2FolderDirectory(path))
-            {
-                result.Add(path);
-            }
-        }
-        return result;
-    }
-
-    private static bool IsKnownRelativeLr2FolderDirectory(string path)
-    {
-        if (string.IsNullOrWhiteSpace(path) || Path.IsPathRooted(path))
-        {
-            return false;
-        }
-        string normalized = path.Trim()
-            .Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar)
-            .TrimEnd(Path.DirectorySeparatorChar);
-        return string.Equals(normalized, @"LR2files\CustomFolder", StringComparison.OrdinalIgnoreCase)
-            || normalized.StartsWith(@"LR2files\CustomFolder\", StringComparison.OrdinalIgnoreCase);
     }
 
     private static HashSet<string> CreateExpectedLr2FolderRowPaths(Lr2FullGenerationSyncRequest request)
