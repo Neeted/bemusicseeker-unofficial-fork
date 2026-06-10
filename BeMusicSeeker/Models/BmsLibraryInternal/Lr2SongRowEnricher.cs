@@ -28,6 +28,24 @@ internal static class Lr2SongRowEnricher
         EnrichGeneratedSong(song, folderParentHashCache);
     }
 
+    internal static BMSFile CreateParsedSongRowFromSnapshot(
+        ChartFileSnapshot snapshot,
+        int textFlag,
+        BMSFile existingSong,
+        Lr2SongFolderParentNormalizer.Lr2FolderParentHashCache folderParentHashCache = null)
+    {
+        if (snapshot == null)
+        {
+            return null;
+        }
+
+        BMSFile.BmsEncodingDetectionResult detectionResult = BMSFile.DetectEncodingOfBMSFileDetailed(snapshot);
+        BMSFile song = BMSFile.CreateBMSFileFromSnapshot(snapshot, detectionResult);
+        song.RememberSnapshotEncodingDetectionResult(snapshot, detectionResult);
+        EnrichParsedSong(song, snapshot, textFlag, existingSong, folderParentHashCache);
+        return song;
+    }
+
     internal static void EnrichGeneratedSong(
         BMSFile song,
         Lr2SongFolderParentNormalizer.Lr2FolderParentHashCache folderParentHashCache = null)

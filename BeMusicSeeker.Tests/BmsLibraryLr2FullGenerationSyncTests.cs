@@ -3045,17 +3045,24 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
-    public void ResolveSafeSyncParseEncoding_AllowsUnknownEncodingToUseParserDefault()
+    public void SnapshotSongRowParser_AllowsUnknownEncodingToUseParserDefault()
     {
+        byte[] bytes = Encoding.ASCII.GetBytes("#TITLE unknown fallback\r\n");
+        var snapshot = new ChartFileSnapshot(
+            @"D:\BMS\Unknown\chart.bms",
+            bytes,
+            new DateTime(2026, 6, 10, 0, 0, 0, DateTimeKind.Utc),
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            new string('b', 64));
         var detectionResult = new BMSFile.BmsEncodingDetectionResult(
             "unknown",
             BMSFile.EncodingDetectionOutcome.Unknown,
             fastAscii: false,
             decodedText: null);
 
-        string encodingName = InvokeResolveSafeSyncParseEncoding(detectionResult);
+        BMSFile song = BMSFile.CreateBMSFileFromSnapshot(snapshot, detectionResult);
 
-        Assert.AreEqual("unknown", encodingName);
+        Assert.AreEqual("unknown fallback", song.title);
     }
 
     [TestMethod]
@@ -5548,13 +5555,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("HasLr2FullGenerationPreparedDataSurface", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.IsNotNull(methodInfo);
         return (bool)methodInfo.Invoke(library, []);
-    }
-
-    private static string InvokeResolveSafeSyncParseEncoding(BMSFile.BmsEncodingDetectionResult detectionResult)
-    {
-        MethodInfo methodInfo = typeof(Lr2FullGenerationSyncService).GetMethod("ResolveSafeSyncParseEncoding", BindingFlags.Static | BindingFlags.NonPublic);
-        Assert.IsNotNull(methodInfo);
-        return (string)methodInfo.Invoke(null, [detectionResult]);
     }
 
     private static Lr2FullGenerationPreparedDataSurface CreatePreparedLr2FolderSurface(

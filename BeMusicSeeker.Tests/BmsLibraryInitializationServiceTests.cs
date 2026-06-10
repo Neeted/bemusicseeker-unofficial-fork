@@ -808,10 +808,12 @@ public sealed class BmsLibraryInitializationServiceTests
             Assert.AreEqual(BmsLibraryInitializationService.ResolveFileDiffParsedQueueCapacity(result.FileDiffParserDegree, 1), result.ParsedQueueCapacity);
             Assert.AreEqual(BmsLibraryInitializationService.ResolveFileDiffPostParseQueueCapacity(result.FileDiffPostParseWorkerDegree), result.PostParseQueueCapacity);
             Assert.AreEqual(1, result.CommitQueueCapacity);
+            Assert.AreEqual(2, result.CommitWriterQueueCapacity);
             Assert.IsTrue(result.CommitStreamingEnabled);
             Assert.AreEqual("none", result.CommitStreamingBarrierReason);
             Assert.AreEqual(1, result.FileDiffPostParseWorkerDegree);
             Assert.IsTrue(result.PostParseOutputWaitMs >= 0);
+            Assert.IsTrue(result.CommitWriterQueueWaitMs >= 0);
             Assert.AreEqual(2, result.PostParseBatchCount);
             Assert.AreEqual(1, result.InlineMaintenanceDegree);
             Assert.IsTrue(result.PostParseWallMs >= 0);
@@ -829,9 +831,11 @@ public sealed class BmsLibraryInitializationServiceTests
                 && message.Contains("parsed_queue_capacity=" + result.ParsedQueueCapacity)
                 && message.Contains("post_parse_queue_capacity=" + result.PostParseQueueCapacity)
                 && message.Contains("commit_queue_capacity=1")
+                && message.Contains("commit_writer_queue_capacity=2")
                 && message.Contains("commit_streaming_enabled=true")
                 && message.Contains("commit_streaming_barrier=none")
                 && message.Contains("post_parse_output_wait_ms=")
+                && message.Contains("commit_writer_queue_wait_ms=")
                 && message.Contains("post_parse_batch_count=2")
                 && message.Contains("inline_chart_info_target_count=2")
                 && message.Contains("inline_chart_info_batch_size=2048")

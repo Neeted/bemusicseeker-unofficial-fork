@@ -530,6 +530,33 @@ public sealed class Lr2SongDbWriterTests
     }
 
     [TestMethod]
+    public void VerifyGeneratedSongsCurrent_TreatsNullDisplayStringsAsEmpty()
+    {
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            using var songDb = new LR2SongDBExtended(songDbPath);
+            songDb.CreateTable<LR2SongDB.song>();
+            songDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
+            PrepareFullGenerationSongWriterSchema(songDb);
+            TestableBmsFile file = CreateSong(@"D:\BMS\Pack\chart.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Title");
+            file.SetSha256(Sha('1'));
+            Assert.IsTrue(Lr2SongDbWriter.UpsertGeneratedSong(songDb, file));
+            songDb.Execute(
+                "UPDATE song SET subtitle = NULL, subartist = NULL, genre = NULL, stagefile = NULL, banner = NULL, backbmp = NULL WHERE path = ?;",
+                file.path);
+
+            Lr2GeneratedSongCurrentnessResult currentness =
+                Lr2SongDbWriter.VerifyGeneratedSongsCurrent(songDb, [file]);
+            Lr2GeneratedSongWriteResult writeResult =
+                Lr2SongDbWriter.UpsertGeneratedSongsForFullGenerationWithResult(songDb, [file]);
+
+            Assert.IsTrue(currentness.IsCurrent);
+            Assert.AreEqual(0, currentness.MismatchedCount);
+            Assert.AreEqual(0, writeResult.ChangedCount);
+        });
+    }
+
+    [TestMethod]
     public void VerifyGeneratedSongsCurrent_DetectsGeneratedColumnMismatch()
     {
         WithTemporarySongDb(delegate (string songDbPath)

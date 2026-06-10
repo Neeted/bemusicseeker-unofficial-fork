@@ -90,7 +90,7 @@ current `chart_info` row が存在する場合、inline parser は詳細 parse �
 
 `song_tbl_file_check_breakdown` の `inline_encoding_*` は、BMS の encoding 判定と非 Shift_JIS 確定時の metadata reload を表す。`inline_encoding_detect_count` は判定対象数、`inline_encoding_fast_ascii_count` は bytes 由来の fast ASCII 判定、`inline_encoding_shift_jis_count` / `inline_encoding_ks_c_5601_count` / `inline_encoding_utf8_count` などは判定結果、`inline_encoding_reload_count` / `inline_encoding_reload_wall_ms` は raw metadata reload の件数と wall clock を表す。
 
-file diff DB commit chunk は transaction 範囲を分けるための単位である。post-parse が作った staging chunk は bounded queue へ流し、DB writer context は受け取った staging chunk を `DbCommitChunkSize` 単位へ再分割して commit する。post-parse の完了時点で snapshot bytes は不要になるため、file diff UI 進捗は post-parse worker が 1 譜面分の staging data を作った時点で進め、DB commit 完了は待たない。現行実装では ordered collector が commit context への投入まで担当するため、commit queue が詰まると短い待ちが残る。次段では post-parse -> commit aggregator の input queue と、commit aggregator -> DB writer の write queue を分ける。aggregator は bounded memory 内で 10000 mutation 程度の immutable DB chunk を組み、writer は chunk commit だけを担当する。DB が長期的な bottleneck の場合は backpressure するが、4-5 秒程度の commit 中も投入と集約を継続できる設計を目標にする。writer task が開いた writable `song.db` connection は chunk commit ごとに閉じ、delete / moved hash relink user column restore も必要なタイミングで開き直す。moved hash relink は、削除候補の user song columns を file diff 開始時に snapshot し、一意な destination が確定した場合だけ DB commit 後に `song_tbl_file_check user_column_restore_*` で復元する。
+file diff DB commit chunk は transaction 範囲を分けるための単位である。post-parse が作った staging chunk は bounded input queue へ流し、commit aggregator が `DbCommitChunkSize` 単位の immutable DB chunk へ集約し、別の DB writer queue へ渡す。DB writer は chunk commit だけを担当する。post-parse の完了時点で snapshot bytes は不要になるため、file diff UI 進捗は post-parse worker が 1 譜面分の staging data を作った時点で進め、DB commit 完了は待たない。DB が長期的な bottleneck の場合は bounded queue で backpressure するが、4-5 秒程度の commit 中も aggregator は input queue を消費し続けられる。writer task が開いた writable `song.db` connection は chunk commit ごとに閉じ、delete / moved hash relink user column restore も必要なタイミングで開き直す。`song_tbl_file_check_breakdown` は post-parse -> aggregator 側の `commit_queue_wait_ms` と、aggregator -> DB writer 側の `commit_writer_queue_wait_ms` を分けて出す。moved hash relink は、削除候補の user song columns を file diff 開始時に snapshot し、一意な destination が確定した場合だけ DB commit 後に `song_tbl_file_check user_column_restore_*` で復元する。
 
 file diff inline maintenance は、pipeline 共通の `ResourceHealthLookupContext` を使う。resource health の cache 解決結果は `(directory, resource kind, relative path hash)` 単位で共有され、同一 directory にある多数の BMS が同じ WAV/BGA/movie key を参照するケースで、重複した hash-set lookup を抑える。各 chart の `cacheHit` / `File.Exists` fallback counter は item-local scope で数え、並列評価中の他 chart の counter と混ざらない。`song_tbl_file_check_breakdown` の `inline_maintenance_shared_resource_cache_entries` は、この共有 cache に載った resource key 数を表す。
 
@@ -154,9 +154,7 @@ current owned BMS song rows
        ChartFileContentReader.ReadBuffer(path)
   -> parallel workers
        ChartFileContentReader.CreateSnapshot(buffer)
-       encoding detection
-       BMSFile.CreateBMSFileFromSnapshot(...)
-       Lr2SongRowEnricher.EnrichParsedSong(...)
+       Lr2SongRowEnricher.CreateParsedSongRowFromSnapshot(...)
        recoverable failure は existing row copy fallback
   -> ordered single writer
        current chart_info apply
@@ -172,7 +170,7 @@ computed queue capacity と各譜面ファイルサイズに依存する。queue
 実用的な backpressure であり、巨大な個別譜面ファイルの byte[] size そのものを固定上限にするものではない。
 
 現行実装では対象が複数あり十分な CPU がある場合、`song_rows` reader は 2 本まで並列化される。reader は
-bytes-only producer として動き、worker が MD5 / SHA-256 計算、snapshot 作成、parse / enrich を担当する。
+bytes-only producer として動き、worker が MD5 / SHA-256 計算、snapshot 作成、parse / enrich を担当する。BMS row の生成は file diff と同じ `Lr2SongRowEnricher.CreateParsedSongRowFromSnapshot(...)` を通し、LR2 full generation 専用の別 parser 経路を持たない。
 pipeline log では `readMs` と `digestMs` / `parseMs` を分けて確認できる。
 
 `song_rows` stage は `chart_info` full backfill 自体を再実装しない。current parser version の

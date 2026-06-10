@@ -3027,18 +3027,7 @@ internal static class Lr2FullGenerationSyncService
         try
         {
             var stopwatchParse = Stopwatch.StartNew();
-            BMSFile.BmsEncodingDetectionResult detectionResult = BMSFile.DetectEncodingOfBMSFileDetailed(snapshot);
-            string encodingName = ResolveSafeSyncParseEncoding(detectionResult);
-            if (string.IsNullOrWhiteSpace(encodingName))
-            {
-                stopwatchParse.Stop();
-                parseTicks = stopwatchParse.ElapsedTicks;
-                return CreateFallbackSyncSongRow(existingSong, textFileDirectories);
-            }
-
-            BMSFile parsed = BMSFile.CreateBMSFileFromSnapshot(snapshot, detectionResult);
-            Lr2SongRowEnricher.EnrichParsedSong(
-                parsed,
+            BMSFile parsed = Lr2SongRowEnricher.CreateParsedSongRowFromSnapshot(
                 snapshot,
                 ResolveTextGroupFlag(existingSong.path, textFileDirectories, existingSong.txt.GetValueOrDefault()),
                 existingSong);
@@ -3063,20 +3052,6 @@ internal static class Lr2FullGenerationSyncService
         BMSFile copy = existingSong?.CreateSongRowPersistenceCopy();
         copy?.SetTextGroupFlag(ResolveTextGroupFlag(existingSong?.path, textFileDirectories, existingSong?.txt.GetValueOrDefault() ?? 0));
         return copy;
-    }
-
-    private static string ResolveSafeSyncParseEncoding(BMSFile.BmsEncodingDetectionResult detectionResult)
-    {
-        if (detectionResult == null)
-        {
-            return null;
-        }
-        string encodingName = detectionResult.EncodingName;
-        if (string.IsNullOrWhiteSpace(encodingName))
-        {
-            return null;
-        }
-        return encodingName.TrimEnd('?');
     }
 
     private static int ResolveTextGroupFlag(string path, ISet<string> textFileDirectories, int fallback)

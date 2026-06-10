@@ -288,6 +288,7 @@ ReloadFileDiff
   -> added/updated charts の ReadBuffer
   -> parser workers による digest 計算 / snapshot 作成 / lightweight parse
   -> post-parse worker による inline chart_info / inline maintenance
+  -> commit aggregator による transaction chunk 集約
   -> single DB writer による chunk commit
   -> deleted charts の unregister
   -> memory catalog / resource index swap
@@ -296,7 +297,7 @@ ReloadFileDiff
 
 差分が 0 件の場合は DB commit、chart_info hydration/backfill、installable maintenance を発生させない。
 
-差分がある場合、reader は `ChartFileReadPipelinePolicy` に従い 1 または 2 本、parser は `max(1, Environment.ProcessorCount - 1)` を既定とする。reader は `ReadBuffer()` で bytes と file metadata だけを読み、parser worker が digest 計算、snapshot 作成、lightweight parse を行う。`InlineChartInfoBatchSize` 2048 は current `chart_info` lookup / helper の内部粒度であり、post-parse barrier ではない。post-parse は `DefaultFileDiffPostParseBatchSize=256` の micro-batch を parser と同数の worker で処理し、worker は batch-local result / commit staging chunk だけを作る。single collector が sequence 順に `SongTableFileCheckResult`、runtime apply list、commit queue への反映を集約する。DB commit chunk size は transaction 範囲として 10000 件を既定とし、writer context が post-parse staging chunk を transaction size 単位へ再分割する。
+差分がある場合、reader は `ChartFileReadPipelinePolicy` に従い 1 または 2 本、parser は `max(1, Environment.ProcessorCount - 1)` を既定とする。reader は `ReadBuffer()` で bytes と file metadata だけを読み、parser worker が digest 計算、snapshot 作成、lightweight parse を行う。`InlineChartInfoBatchSize` 2048 は current `chart_info` lookup / helper の内部粒度であり、post-parse barrier ではない。post-parse は `DefaultFileDiffPostParseBatchSize=1` の逐次 item を parser と同数の worker で処理し、worker は item-local result / commit staging chunk だけを作る。single collector が sequence 順に `SongTableFileCheckResult`、runtime apply list、commit input queue への反映を集約する。commit aggregator は input queue を消費して DB commit chunk size 既定 10000 件の transaction chunk へ集約し、別の bounded DB writer queue へ渡す。single DB writer は writer queue の chunk commit だけを担当するため、短い DB commit 中も collector / aggregator は入力を消費できる。
 
 手動 `ReloadFileDiff` は、prefetch の有無、reason/progress/UI 更新、後段 playlist reference scheduling を除き、`Startup` の file diff と同じ `ApplyFileScanDiff()` 経路を使う。軽量 parse、inline `chart_info`、inline `maintenance`、snapshot 由来 encoding reload の意味論は起動時 file diff と揃える。
 

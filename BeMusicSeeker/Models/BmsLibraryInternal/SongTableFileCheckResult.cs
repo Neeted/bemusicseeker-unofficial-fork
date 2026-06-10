@@ -141,6 +141,8 @@ internal sealed class SongTableFileCheckResult
 
     public int CommitQueueCapacity { get; set; }
 
+    public int CommitWriterQueueCapacity { get; set; }
+
     public bool CommitStreamingEnabled { get; set; }
 
     public string CommitStreamingBarrierReason { get; set; }
@@ -154,6 +156,8 @@ internal sealed class SongTableFileCheckResult
     public long PostParseOutputWaitMs { get; set; }
 
     public long CommitQueueWaitMs { get; set; }
+
+    public long CommitWriterQueueWaitMs { get; set; }
 
     public int PostParseBatchCount { get; set; }
 

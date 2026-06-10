@@ -56,6 +56,8 @@ internal sealed class BmsLibraryInitializationService
 
     private const int DefaultFileDiffCommitChunkSize = 10000;
 
+    private const int DefaultFileDiffCommitWriterQueueCapacity = 2;
+
     private const int DefaultSlowFileDiffBatchLogThresholdMs = 2000;
 
     private readonly int? fileDiffParserDegreeOverride;
@@ -971,6 +973,7 @@ internal sealed class BmsLibraryInitializationService
             + " parsed_queue_capacity=" + result.ParsedQueueCapacity
             + " post_parse_queue_capacity=" + result.PostParseQueueCapacity
             + " commit_queue_capacity=" + result.CommitQueueCapacity
+            + " commit_writer_queue_capacity=" + result.CommitWriterQueueCapacity
             + " commit_streaming_enabled=" + result.CommitStreamingEnabled.ToString().ToLowerInvariant()
             + " commit_streaming_barrier=" + (result.CommitStreamingBarrierReason ?? string.Empty)
             + " reader_output_wait_ms=" + result.ReaderOutputWaitMs
@@ -978,6 +981,7 @@ internal sealed class BmsLibraryInitializationService
             + " post_parse_queue_wait_ms=" + result.PostParseQueueWaitMs
             + " post_parse_output_wait_ms=" + result.PostParseOutputWaitMs
             + " commit_queue_wait_ms=" + result.CommitQueueWaitMs
+            + " commit_writer_queue_wait_ms=" + result.CommitWriterQueueWaitMs
             + " post_parse_batch_count=" + result.PostParseBatchCount
             + " post_parse_wall_ms=" + result.PostParseWallMs
             + " post_parse_max_batch_ms=" + result.PostParseMaxBatchMs
@@ -2140,9 +2144,7 @@ internal sealed class BmsLibraryInitializationService
                 return FileDiffParsedCandidate.FromBms(InlineBmsParseCandidate.CreateFailure(candidate.Path, candidate.ExistingBmsFile, readException));
             }
             var stopwatch = Stopwatch.StartNew();
-            var file = BMSFile.CreateBMSFileFromSnapshot(snapshot);
-            Lr2SongRowEnricher.EnrichParsedSong(
-                file,
+            BMSFile file = Lr2SongRowEnricher.CreateParsedSongRowFromSnapshot(
                 snapshot,
                 candidate.TextFlag,
                 candidate.ExistingBmsFile,
@@ -2975,33 +2977,107 @@ internal sealed class BmsLibraryInitializationService
         }
     }
 
-    private sealed class FileDiffStreamingCommitContext(
-        BmsLibraryDbGateway dbGateway,
-        BmsLibraryOptionsSnapshot options,
-        SongTableFileCheckResult result,
-        Action<string> logInstallPerformance,
-        Action<string> logInstallPerformanceWarn,
-        Action<IReadOnlyList<LR2SongDBExtended.chart_info>> inlineChartInfoRowsCommitted) : IDisposable
+    private sealed class FileDiffCommitWriterItem : IDisposable
     {
-        private readonly BmsLibraryDbGateway dbGateway = dbGateway;
+        private readonly ManualResetEventSlim completion;
 
-        private readonly BmsLibraryOptionsSnapshot options = options;
+        private FileDiffCommitWriterItem(FileScanDiffCommitChunk chunk, bool isBarrier)
+        {
+            Chunk = chunk;
+            IsBarrier = isBarrier;
+            completion = isBarrier ? new ManualResetEventSlim(false) : null;
+        }
 
-        private readonly SongTableFileCheckResult result = result;
+        public FileScanDiffCommitChunk Chunk { get; }
 
-        private readonly Action<string> logInstallPerformance = logInstallPerformance;
+        public bool IsBarrier { get; }
 
-        private readonly Action<string> logInstallPerformanceWarn = logInstallPerformanceWarn;
+        public Exception Exception { get; private set; }
 
-        private readonly Action<IReadOnlyList<LR2SongDBExtended.chart_info>> inlineChartInfoRowsCommitted = inlineChartInfoRowsCommitted;
+        public static FileDiffCommitWriterItem CreateChunk(FileScanDiffCommitChunk chunk)
+        {
+            return new FileDiffCommitWriterItem(chunk, isBarrier: false);
+        }
 
-        private readonly int chunkSize = Math.Max(1, result?.DbCommitChunkSize ?? DefaultFileDiffCommitChunkSize);
+        public static FileDiffCommitWriterItem CreateBarrier()
+        {
+            return new FileDiffCommitWriterItem(null, isBarrier: true);
+        }
+
+        public bool Wait(int millisecondsTimeout)
+        {
+            return completion?.Wait(millisecondsTimeout) == true;
+        }
+
+        public void SignalComplete(Exception exception)
+        {
+            Exception = exception;
+            completion?.Set();
+        }
+
+        public void Dispose()
+        {
+            completion?.Dispose();
+        }
+    }
+
+    private sealed class FileDiffStreamingCommitContext : IDisposable
+    {
+        private readonly BmsLibraryDbGateway dbGateway;
+
+        private readonly BmsLibraryOptionsSnapshot options;
+
+        private readonly SongTableFileCheckResult result;
+
+        private readonly Action<string> logInstallPerformance;
+
+        private readonly Action<string> logInstallPerformanceWarn;
+
+        private readonly Action<IReadOnlyList<LR2SongDBExtended.chart_info>> inlineChartInfoRowsCommitted;
+
+        private readonly int chunkSize;
+
+        private readonly BlockingCollection<FileDiffCommitWriterItem> writerQueue;
+
+        private readonly Task writerTask;
+
+        private readonly PipelineExceptionSignal writerException = new();
 
         private FileScanDiffCommitChunk pendingChunk = new();
 
         private LR2SongDBExtended songDb;
 
         private bool pragmasApplied;
+
+        private bool writerQueueCompleted;
+
+        private bool writerWaitCompleted;
+
+        private long writerQueueWaitTicks;
+
+        public FileDiffStreamingCommitContext(
+            BmsLibraryDbGateway dbGateway,
+            BmsLibraryOptionsSnapshot options,
+            SongTableFileCheckResult result,
+            Action<string> logInstallPerformance,
+            Action<string> logInstallPerformanceWarn,
+            Action<IReadOnlyList<LR2SongDBExtended.chart_info>> inlineChartInfoRowsCommitted)
+        {
+            this.dbGateway = dbGateway;
+            this.options = options;
+            this.result = result;
+            this.logInstallPerformance = logInstallPerformance;
+            this.logInstallPerformanceWarn = logInstallPerformanceWarn;
+            this.inlineChartInfoRowsCommitted = inlineChartInfoRowsCommitted;
+            chunkSize = Math.Max(1, result?.DbCommitChunkSize ?? DefaultFileDiffCommitChunkSize);
+            int writerQueueCapacity = Math.Max(1, DefaultFileDiffCommitWriterQueueCapacity);
+            if (result != null)
+            {
+                result.CommitWriterQueueCapacity = writerQueueCapacity;
+            }
+            writerQueue = new BlockingCollection<FileDiffCommitWriterItem>(writerQueueCapacity);
+            writerTask = Task.Run(WriterLoop);
+        }
 
         public bool ShouldPruneCommittedInlineRows => inlineChartInfoRowsCommitted != null;
 
@@ -3088,9 +3164,9 @@ internal sealed class BmsLibraryInitializationService
         {
             if (pendingChunk.HasItems)
             {
-                CommitChunk(pendingChunk);
-                pendingChunk = new FileScanDiffCommitChunk();
+                EnqueuePendingChunk();
             }
+            WaitForWriterBarrier();
         }
 
         public void RestoreSongUserColumns(IEnumerable<KeyValuePair<string, Lr2SongUserColumns>> userColumnsByPath)
@@ -3149,7 +3225,22 @@ internal sealed class BmsLibraryInitializationService
 
         public void Dispose()
         {
-            ReleaseSongDb();
+            try
+            {
+                CompleteWriterQueue();
+                WaitWriterTask();
+            }
+            catch (Exception ex)
+            {
+                logInstallPerformanceWarn?.Invoke("song_tbl_file_check commit_writer_dispose_failed"
+                    + " exception=" + ex.GetType().Name
+                    + " message=" + QuoteLogValue(ex.Message));
+            }
+            finally
+            {
+                writerQueue?.Dispose();
+                ReleaseSongDb();
+            }
         }
 
         public void ReleaseSongDb()
@@ -3163,7 +3254,149 @@ internal sealed class BmsLibraryInitializationService
         {
             if (pendingChunk.MutationCount >= chunkSize)
             {
-                Flush();
+                EnqueuePendingChunk();
+            }
+        }
+
+        private void EnqueuePendingChunk()
+        {
+            if (!pendingChunk.HasItems)
+            {
+                return;
+            }
+            FileScanDiffCommitChunk chunk = pendingChunk;
+            pendingChunk = new FileScanDiffCommitChunk();
+            AddWriterItemWithWait(FileDiffCommitWriterItem.CreateChunk(chunk));
+        }
+
+        private void WaitForWriterBarrier()
+        {
+            ThrowIfWriterFailed();
+            using FileDiffCommitWriterItem barrier = FileDiffCommitWriterItem.CreateBarrier();
+            AddWriterItemWithWait(barrier);
+            while (!barrier.Wait(100))
+            {
+                ThrowIfWriterFailed();
+                if (writerTask.IsCompleted)
+                {
+                    WaitWriterTask();
+                    ThrowIfWriterFailed();
+                    throw new InvalidOperationException("File diff commit writer completed before the flush barrier.");
+                }
+            }
+            if (barrier.Exception != null)
+            {
+                throw new AggregateException(barrier.Exception);
+            }
+            ThrowIfWriterFailed();
+            if (result != null)
+            {
+                result.CommitWriterQueueWaitMs = TicksToMilliseconds(Interlocked.Read(ref writerQueueWaitTicks));
+            }
+        }
+
+        private void AddWriterItemWithWait(FileDiffCommitWriterItem item)
+        {
+            if (item == null)
+            {
+                return;
+            }
+
+            long start = Stopwatch.GetTimestamp();
+            while (true)
+            {
+                ThrowIfWriterFailed();
+                try
+                {
+                    if (writerQueue.TryAdd(item, 100))
+                    {
+                        long elapsed = Stopwatch.GetTimestamp() - start;
+                        if (elapsed > 0L)
+                        {
+                            Interlocked.Add(ref writerQueueWaitTicks, elapsed);
+                        }
+                        return;
+                    }
+                }
+                catch (InvalidOperationException)
+                {
+                    ThrowIfWriterFailed();
+                    throw;
+                }
+            }
+        }
+
+        private void WriterLoop()
+        {
+            try
+            {
+                foreach (FileDiffCommitWriterItem item in writerQueue.GetConsumingEnumerable())
+                {
+                    if (item == null)
+                    {
+                        continue;
+                    }
+                    if (item.IsBarrier)
+                    {
+                        item.SignalComplete(null);
+                        continue;
+                    }
+                    CommitChunk(item.Chunk);
+                }
+            }
+            catch (Exception ex)
+            {
+                writerException.Set(ex);
+                throw;
+            }
+            finally
+            {
+                ReleaseSongDb();
+            }
+        }
+
+        private void CompleteWriterQueue()
+        {
+            if (writerQueueCompleted)
+            {
+                return;
+            }
+            try
+            {
+                writerQueue.CompleteAdding();
+            }
+            catch (InvalidOperationException)
+            {
+            }
+            writerQueueCompleted = true;
+        }
+
+        private void WaitWriterTask()
+        {
+            if (writerWaitCompleted)
+            {
+                ThrowIfWriterFailed();
+                return;
+            }
+            try
+            {
+                writerTask.Wait();
+                writerWaitCompleted = true;
+            }
+            catch (AggregateException ex)
+            {
+                writerException.Set(ex.InnerException ?? ex);
+                throw;
+            }
+            ThrowIfWriterFailed();
+        }
+
+        private void ThrowIfWriterFailed()
+        {
+            Exception exception = writerException.Get();
+            if (exception != null)
+            {
+                throw new AggregateException(exception);
             }
         }
 

@@ -909,16 +909,16 @@ internal static class Lr2SongDbWriter
     {
         return "(" + string.Join(" OR ",
             BuildColumnChangedCondition(songAlias, tempAlias, nameof(LR2SongDB.song.hash)),
-            BuildColumnChangedCondition(songAlias, tempAlias, nameof(LR2SongDB.song.title)),
-            BuildColumnChangedCondition(songAlias, tempAlias, nameof(LR2SongDB.song.subtitle)),
-            BuildColumnChangedCondition(songAlias, tempAlias, nameof(LR2SongDB.song.artist)),
-            BuildColumnChangedCondition(songAlias, tempAlias, nameof(LR2SongDB.song.subartist)),
-            BuildColumnChangedCondition(songAlias, tempAlias, nameof(LR2SongDB.song.genre)),
+            BuildDisplayStringColumnChangedCondition(songAlias, tempAlias, nameof(LR2SongDB.song.title)),
+            BuildDisplayStringColumnChangedCondition(songAlias, tempAlias, nameof(LR2SongDB.song.subtitle)),
+            BuildDisplayStringColumnChangedCondition(songAlias, tempAlias, nameof(LR2SongDB.song.artist)),
+            BuildDisplayStringColumnChangedCondition(songAlias, tempAlias, nameof(LR2SongDB.song.subartist)),
+            BuildDisplayStringColumnChangedCondition(songAlias, tempAlias, nameof(LR2SongDB.song.genre)),
             BuildColumnChangedCondition(songAlias, tempAlias, nameof(LR2SongDB.song.type)),
             BuildColumnChangedCondition(songAlias, tempAlias, nameof(LR2SongDB.song.folder)),
-            BuildColumnChangedCondition(songAlias, tempAlias, nameof(LR2SongDB.song.stagefile)),
-            BuildColumnChangedCondition(songAlias, tempAlias, nameof(LR2SongDB.song.banner)),
-            BuildColumnChangedCondition(songAlias, tempAlias, nameof(LR2SongDB.song.backbmp)),
+            BuildDisplayStringColumnChangedCondition(songAlias, tempAlias, nameof(LR2SongDB.song.stagefile)),
+            BuildDisplayStringColumnChangedCondition(songAlias, tempAlias, nameof(LR2SongDB.song.banner)),
+            BuildDisplayStringColumnChangedCondition(songAlias, tempAlias, nameof(LR2SongDB.song.backbmp)),
             BuildColumnChangedCondition(songAlias, tempAlias, nameof(LR2SongDB.song.parent)),
             BuildColumnChangedCondition(songAlias, tempAlias, nameof(LR2SongDB.song.level)),
             BuildColumnChangedCondition(songAlias, tempAlias, nameof(LR2SongDB.song.difficulty)),
@@ -939,6 +939,12 @@ internal static class Lr2SongDbWriter
     {
         string sqlColumn = columnName;
         return songAlias + "." + sqlColumn + " IS NOT " + tempAlias + "." + sqlColumn;
+    }
+
+    private static string BuildDisplayStringColumnChangedCondition(string songAlias, string tempAlias, string columnName)
+    {
+        string sqlColumn = columnName;
+        return "COALESCE(" + songAlias + "." + sqlColumn + ", '') IS NOT COALESCE(" + tempAlias + "." + sqlColumn + ", '')";
     }
 
     private static string BuildTextColumnChangedCondition(string songAlias, string tempAlias)
@@ -1268,16 +1274,16 @@ internal static class Lr2SongDbWriter
         return expected != null
             && existing != null
             && string.Equals(expected.hash, existing.hash, StringComparison.Ordinal)
-            && string.Equals(expected.title, existing.title, StringComparison.Ordinal)
-            && string.Equals(expected.subtitle, existing.subtitle, StringComparison.Ordinal)
-            && string.Equals(expected.artist, existing.artist, StringComparison.Ordinal)
-            && string.Equals(expected.subartist, existing.subartist, StringComparison.Ordinal)
-            && string.Equals(expected.genre, existing.genre, StringComparison.Ordinal)
+            && HasSameGeneratedDisplayString(expected.title, existing.title)
+            && HasSameGeneratedDisplayString(expected.subtitle, existing.subtitle)
+            && HasSameGeneratedDisplayString(expected.artist, existing.artist)
+            && HasSameGeneratedDisplayString(expected.subartist, existing.subartist)
+            && HasSameGeneratedDisplayString(expected.genre, existing.genre)
             && expected.type == existing.type
             && string.Equals(expected.folder, existing.folder, StringComparison.Ordinal)
-            && string.Equals(expected.stagefile, existing.stagefile, StringComparison.Ordinal)
-            && string.Equals(expected.banner, existing.banner, StringComparison.Ordinal)
-            && string.Equals(expected.backbmp, existing.backbmp, StringComparison.Ordinal)
+            && HasSameGeneratedDisplayString(expected.stagefile, existing.stagefile)
+            && HasSameGeneratedDisplayString(expected.banner, existing.banner)
+            && HasSameGeneratedDisplayString(expected.backbmp, existing.backbmp)
             && string.Equals(expected.parent, existing.parent, StringComparison.Ordinal)
             && expected.level == existing.level
             && expected.difficulty == existing.difficulty
@@ -1294,6 +1300,11 @@ internal static class Lr2SongDbWriter
             && expected.exlevel == existing.exlevel;
     }
 
+    private static bool HasSameGeneratedDisplayString(string expected, string existing)
+    {
+        return string.Equals(expected ?? string.Empty, existing ?? string.Empty, StringComparison.Ordinal);
+    }
+
     private static void AddDiagnosticSample(List<string> samples, string value)
     {
         if (samples != null && samples.Count < 10 && !string.IsNullOrWhiteSpace(value))
@@ -1306,16 +1317,16 @@ internal static class Lr2SongDbWriter
     {
         var names = new List<string>();
         AddMismatchName(names, "hash", !string.Equals(expected.hash, existing.hash, StringComparison.Ordinal));
-        AddMismatchName(names, "title", !string.Equals(expected.title, existing.title, StringComparison.Ordinal));
-        AddMismatchName(names, "subtitle", !string.Equals(expected.subtitle, existing.subtitle, StringComparison.Ordinal));
-        AddMismatchName(names, "artist", !string.Equals(expected.artist, existing.artist, StringComparison.Ordinal));
-        AddMismatchName(names, "subartist", !string.Equals(expected.subartist, existing.subartist, StringComparison.Ordinal));
-        AddMismatchName(names, "genre", !string.Equals(expected.genre, existing.genre, StringComparison.Ordinal));
+        AddMismatchName(names, "title", !HasSameGeneratedDisplayString(expected.title, existing.title));
+        AddMismatchName(names, "subtitle", !HasSameGeneratedDisplayString(expected.subtitle, existing.subtitle));
+        AddMismatchName(names, "artist", !HasSameGeneratedDisplayString(expected.artist, existing.artist));
+        AddMismatchName(names, "subartist", !HasSameGeneratedDisplayString(expected.subartist, existing.subartist));
+        AddMismatchName(names, "genre", !HasSameGeneratedDisplayString(expected.genre, existing.genre));
         AddMismatchName(names, "type", expected.type != existing.type);
         AddMismatchName(names, "folder", !string.Equals(expected.folder, existing.folder, StringComparison.Ordinal));
-        AddMismatchName(names, "stagefile", !string.Equals(expected.stagefile, existing.stagefile, StringComparison.Ordinal));
-        AddMismatchName(names, "banner", !string.Equals(expected.banner, existing.banner, StringComparison.Ordinal));
-        AddMismatchName(names, "backbmp", !string.Equals(expected.backbmp, existing.backbmp, StringComparison.Ordinal));
+        AddMismatchName(names, "stagefile", !HasSameGeneratedDisplayString(expected.stagefile, existing.stagefile));
+        AddMismatchName(names, "banner", !HasSameGeneratedDisplayString(expected.banner, existing.banner));
+        AddMismatchName(names, "backbmp", !HasSameGeneratedDisplayString(expected.backbmp, existing.backbmp));
         AddMismatchName(names, "parent", !string.Equals(expected.parent, existing.parent, StringComparison.Ordinal));
         AddMismatchName(names, "level", expected.level != existing.level);
         AddMismatchName(names, "difficulty", expected.difficulty != existing.difficulty);

@@ -2164,8 +2164,10 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(initializationCode, "private const int DefaultInlineChartInfoBatchSize = 2048;");
         StringAssert.Contains(initializationCode, "var postParseQueue = new BlockingCollection<FileDiffParsedBatch>(postParseQueueCapacity);");
         StringAssert.Contains(initializationCode, "BlockingCollection<FileScanDiffCommitChunk> commitQueue = streamCommitChunks");
+        StringAssert.Contains(initializationCode, "BlockingCollection<FileDiffCommitWriterItem> writerQueue");
         StringAssert.Contains(initializationCode, "commitContext.AddChunk(chunk);");
         StringAssert.Contains(initializationCode, "commit_streaming_enabled=");
+        StringAssert.Contains(initializationCode, "commit_writer_queue_wait_ms=");
         StringAssert.Contains(initializationCode, "inline_maintenance_shared_resource_cache_entries=");
         StringAssert.Contains(initializationCode, "BuildInlineBmsMaintenanceBatch(");
         StringAssert.Contains(initializationCode, "Task[] workerTasks = [.. Enumerable.Range(0, parserDegree)");
@@ -2179,8 +2181,8 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(planDoc, "2048");
         StringAssert.Contains(planDoc, "inline_maintenance_wall_ms");
         StringAssert.Contains(startupFlowDoc, "post-parse worker");
-        StringAssert.Contains(startupFlowDoc, "single DB writer");
-        StringAssert.Contains(startupFlowDoc, "DefaultFileDiffPostParseBatchSize=256");
+        StringAssert.Contains(startupFlowDoc, "commit aggregator");
+        StringAssert.Contains(startupFlowDoc, "DefaultFileDiffPostParseBatchSize=1");
     }
 
     [TestMethod]

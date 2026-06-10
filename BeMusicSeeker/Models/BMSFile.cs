@@ -200,6 +200,14 @@ public class BMSFile : LR2SongDB.song
 
     private string _sha256;
 
+    private BmsEncodingDetectionResult snapshotEncodingDetectionResult;
+
+    private string snapshotEncodingDetectionPath;
+
+    private string snapshotEncodingDetectionMd5;
+
+    private string snapshotEncodingDetectionSha256;
+
     private readonly object lockObject = new();
 
     private PropertyChangedEventListener listenerForBMSScore;
@@ -614,9 +622,37 @@ public class BMSFile : LR2SongDB.song
         {
             throw new ArgumentNullException(nameof(snapshot));
         }
-        BmsEncodingDetectionResult detectionResult = DetectEncodingOfBMSFileDetailed(snapshot);
+        BmsEncodingDetectionResult detectionResult = TryGetSnapshotEncodingDetectionResult(snapshot)
+            ?? DetectEncodingOfBMSFileDetailed(snapshot);
         SetEncodingInfoFromDetection(detectionResult, mtInfo);
         return detectionResult;
+    }
+
+    internal void RememberSnapshotEncodingDetectionResult(
+        ChartFileSnapshot snapshot,
+        BmsEncodingDetectionResult detectionResult)
+    {
+        if (snapshot == null || detectionResult == null)
+        {
+            return;
+        }
+        snapshotEncodingDetectionResult = detectionResult;
+        snapshotEncodingDetectionPath = snapshot.Path;
+        snapshotEncodingDetectionMd5 = snapshot.Md5;
+        snapshotEncodingDetectionSha256 = snapshot.Sha256;
+    }
+
+    internal BmsEncodingDetectionResult TryGetSnapshotEncodingDetectionResult(ChartFileSnapshot snapshot)
+    {
+        if (snapshot == null
+            || snapshotEncodingDetectionResult == null
+            || !string.Equals(snapshotEncodingDetectionPath, snapshot.Path, StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(snapshotEncodingDetectionMd5, snapshot.Md5, StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(snapshotEncodingDetectionSha256, snapshot.Sha256, StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+        return snapshotEncodingDetectionResult;
     }
 
     private void SetEncodingInfoFromDetection(BmsEncodingDetectionResult detectionResult, BMSFileMaintenanceInfo mtInfo = null)

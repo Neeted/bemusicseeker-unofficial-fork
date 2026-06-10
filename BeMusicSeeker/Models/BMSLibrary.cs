@@ -7528,6 +7528,27 @@ completeFileEnumerationOnce,
         {
             return CreateLr2FullGenerationSongRowsSkipResult(false, "ambiguous_hash_relink", targetRows);
         }
+        if (AreAllLr2FullGenerationSongRowsFreshNewInserts(snapshot, songRows))
+        {
+            return new Lr2FullGenerationSongRowsSkipVerificationResult
+            {
+                CanSkip = true,
+                Reason = "file_diff_new_insert_projection_current",
+                TargetRows = targetRows,
+                VerifiedRows = targetRows,
+                MissingRows = 0,
+                MismatchedRows = 0,
+                DuplicatePathRows = 0,
+                DigestCheckedRows = 0,
+                DigestMissingRows = 0,
+                DigestMismatchedRows = 0,
+                ProjectionMs = 0,
+                ExistingReadMs = 0,
+                DigestReadMs = 0,
+                ElapsedMs = 0,
+                DiagnosticSamples = []
+            };
+        }
 
         Lr2GeneratedSongCurrentnessResult currentness =
             Lr2SongDbWriter.VerifyGeneratedSongsCurrent(songDb, songRows);
@@ -7549,6 +7570,32 @@ completeFileEnumerationOnce,
             ElapsedMs = currentness.ElapsedMs,
             DiagnosticSamples = currentness.DiagnosticSamples
         };
+    }
+
+    private static bool AreAllLr2FullGenerationSongRowsFreshNewInserts(
+        Lr2FullGenerationFileDiffFreshnessSnapshot snapshot,
+        IReadOnlyList<BMSFile> songRows)
+    {
+        int targetRows = songRows?.Count ?? 0;
+        if (targetRows <= 0
+            || snapshot?.TransientSongRowSkipPaths == null
+            || snapshot.TransientSongRowSkipPaths.Count < targetRows)
+        {
+            return false;
+        }
+
+        var seenPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (BMSFile row in songRows)
+        {
+            if (row == null
+                || string.IsNullOrWhiteSpace(row.path)
+                || !snapshot.TransientSongRowSkipPaths.Contains(row.path)
+                || !seenPaths.Add(row.path))
+            {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static bool IsAutomaticLr2FullGenerationFileDiffFollowupReason(string reason)

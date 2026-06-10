@@ -203,8 +203,9 @@ target enumeration
   - manual resync、force、signature mismatch、coverage 不足、file diff 失敗、moved hash relink ambiguity は従来どおり `song_rows` pipeline を実行する。
 - 実装候補:
   - 完了: `ApplyFileScanDiff()` の結果から、大量差分の generated row 鮮度を表す runtime snapshot を保持する。現時点では scan surface generation、BMS/BMSON owner version、BMS target coverage、inline maintenance coverage を照合する。
-  - 変更: runtime snapshot に「今回 durably commit 済みの BMS owner path coverage」を追加し、全 current BMS owner path が coverage に含まれる場合は自動 follow-up の `song_rows` stage を丸ごと skip する。空 DB 初回では、file diff が全 BMS を追加 commit するため、この条件を満たす想定にする。
-  - 変更: DB projection strict verifier は `projection_drift` / `diagnostic` log として残し、`subtitle` / `subartist` などの mismatch を sample 出力する。ただし完全生成有効時の coverage gate が成立していれば、この mismatch だけで `song_rows` を全件再実行しない。
+  - 完了: runtime snapshot の `TransientSongRowSkipPaths` が全 current BMS owner path を覆う場合は、自動 follow-up の `song_rows` stage を丸ごと skip する。空 DB 初回では、file diff が全 BMS を追加 commit するため、この条件を満たす想定にする。
+  - 完了: DB projection strict verifier は coverage gate が成立しない場合の安全側 verifier とし、coverage gate 成立時には `subtitle` / `subartist` などの mismatch だけで `song_rows` を全件再実行しない。診断比較では generated string column の `NULL` と空文字を同一視する。
+  - 完了: file diff と LR2 full generation の BMS row 生成は `Lr2SongRowEnricher.CreateParsedSongRowFromSnapshot(...)` を共有し、LR2 full generation 専用の別 parser 経路を持たない。
   - 保留: coverage が部分的な通常大量差分では、今回 commit 済み path を自動 follow-up の `song_rows` 対象から一時的に除外し、残りだけを処理する縮小実行を検討する。これは durable resume 対象にはせず、次回起動では通常検証へ戻す。
   - 万一途中終了した場合、次回起動では前回 skip した row も含めて通常どおり再検証してよい。初回自動 full generation は一度だけの best-effort follow-up と扱い、途中再開のために skip target list を永続化しない。
   - skip できない場合は従来どおり `song_rows` pipeline を実行する。manual resync / force resync は安全側で従来動作を維持する。
@@ -224,7 +225,7 @@ target enumeration
 
 ### Phase 9: file diff DB commit chunk の streaming writer 化
 
-- Status: 部分完了。`commitQueue` を bounded queue 化し、専用 writer task が `FileDiffStreamingCommitContext` を所有して `AddChunk()` / `Flush()` を実行する。post-parse staging chunk が 256 件など DB chunk より大きくなっても、writer context が `DbCommitChunkSize` 単位へ再分割して transaction 範囲を守る。残課題は、writer task が `CommitChunk()` 中は queue を消費しないため、4-5 秒の DB commit 中に post-parse 側が `commitQueueMs` で止まり得る点である。
+- Status: 完了。post-parse -> commit aggregator の input queue と、commit aggregator -> DB writer の write queue を分離した。`FileDiffStreamingCommitContext` は post-parse staging item を `DbCommitChunkSize` 単位の immutable DB chunk へ集約し、別 writer task が chunk commit だけを担当する。DB writer が `CommitChunk()` 中でも aggregator は input queue を消費できるため、短い DB commit pause がそのまま post-parse progress 停止へ伝搬しにくい。
 - writer task が開いた writable `song.db` connection は chunk commit ごとに閉じる。次 batch の `chart_info` lookup が read-only open できず writable fallback しても、writer が queue 待ち中に process lock を保持し続けない。
 - 目的は、DB writer を single writer のまま維持しつつ、post-parse が chunk を作った時点で DB commit を進め、終端の `db_commit_ms` tail と chunk 保持メモリを減らすこと。
 - 実装候補:
@@ -235,17 +236,17 @@ target enumeration
   - 完了: moved hash relink は destination `BMSFile` へ user columns を反映し、DB commit 後に同じ commit context で `song` row の user columns を restore する。delete / add / maintenance / chart_info の commit chunk は post-parse 後に immutable とし、streaming writer 化の前提を作った。
   - 知見: 直接 streaming writer を試すと、writer が writable `song.db` connection / process lock を保持したまま queue 待ちし、次 batch の `ProcessInlineBmsChartInfo()` が `LoadChartInfosBySha256()` で同じ lock を取りに行く deadlock が起き得る。producer 側 lookup を read-only-first にし、writer は bounded queue 消費中だけ connection を使う。
   - 完了: current schema の `LoadChartInfosBySha256()` / `LoadChartInfosByMd5()` は read-only connection で lookup し、schema 未整備や read-only open 不可の場合だけ従来どおり writable + schema ensure へ fallback する。
-  - 完了: `commitQueue` を bounded queue にし、専用 writer task が `FileDiffStreamingCommitContext` を所有して `AddChunk()` / `Flush()` を実行する。
+  - 完了: `commitQueue` を bounded input queue にし、`FileDiffStreamingCommitContext` が aggregator と DB writer queue を内包する。
   - 完了: post-parse staging item は writer context 側で `DbCommitChunkSize` 単位に集約し、1 譜面単位の post-parse と DB transaction size を分離する。
   - 完了: writer 失敗時は `PipelineExceptionSignal` で post-parse 側の commit queue 投入を停止し、bounded queue 待ちで固まらないようにした。
-  - 変更: post-parse -> commit aggregator の input queue と、commit aggregator -> DB writer の write queue を分離する。aggregator は post-parse から staging chunk を受け取り続け、10000 mutation 程度の immutable DB chunk を組む。DB writer は write queue の chunk を commit するだけにし、commit 中も aggregator が input queue を消費できるようにする。
-  - 変更: input queue / write queue は bounded にし、1-2 commit chunk 程度を吸収できる容量から始める。DB が長期的に遅い場合は backpressure するが、短い commit pause で reader / parser / post-parse 全体が停止しないことを目標にする。
+  - 完了: aggregator は post-parse から staging chunk を受け取り続け、10000 mutation 程度の immutable DB chunk を組む。DB writer は write queue の chunk を commit するだけにし、commit 中も aggregator が input queue を消費できるようにした。
+  - 完了: input queue / write queue は bounded にし、DB が長期的に遅い場合は backpressure するが、短い commit pause で reader / parser / post-parse 全体が停止しないことを目標にする。
   - delete / date-only / moved hash relink / inline chart_info publish の順序制約を現行動作から洗い出し、streaming 化してよい chunk と final barrier が必要な chunk を分ける。
   - runtime catalog swap は従来どおり file diff 全体の成功後に行う。DB chunk commit が先行しても、in-memory owner replacement と UI notification は途中公開しない。
   - inline `chart_info` index publish は chunk commit 後に限定する。ただし大量 current-skip row を publish しない既存方針は維持する。
 - log 方針:
   - `commit_queue_capacity` を 0 ではなく実際の bounded capacity として出す。
-  - 二段化後は `commit_input_queue_capacity`、`db_write_queue_capacity`、`commit_aggregator_wait_ms`、`db_writer_wait_ms`、`post_parse_commit_input_wait_ms` を分ける。
+  - 完了: `commit_writer_queue_capacity` と `commit_writer_queue_wait_ms` を追加し、post-parse -> aggregator 側の `commit_queue_wait_ms` と、aggregator -> DB writer 側の待ちを分ける。
   - `db_commit_chunk_start/done` が `song_tbl_file_check_batch_slow` と時間的に重なることを確認できるようにする。
   - writer wait / post-parse wait / commit wait を分離して、DB writer が詰まり始めた場合に分かるようにする。
 - 完了条件:
