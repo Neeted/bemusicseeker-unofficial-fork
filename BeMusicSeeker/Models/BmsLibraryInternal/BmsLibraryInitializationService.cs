@@ -4463,7 +4463,12 @@ internal sealed class BmsLibraryInitializationService
     {
         int normalizedProcessorCount = Math.Max(1, processorCount);
         int normalizedParserDegree = Math.Max(1, parserDegree);
-        return Math.Max(normalizedParserDegree, normalizedProcessorCount);
+        if (normalizedProcessorCount <= 2)
+        {
+            return normalizedParserDegree;
+        }
+        int targetPostParseDegree = normalizedParserDegree + Math.Max(1, normalizedParserDegree / 2);
+        return Math.Max(normalizedParserDegree, Math.Min(normalizedProcessorCount, targetPostParseDegree));
     }
 
     internal static int ResolveFileDiffParsedQueueCapacity(int parserDegree, int postParseBatchSize)

@@ -430,13 +430,12 @@ BeMusicSeeker が `karinotes = 0` を入れる経路は、`setZeroNoteAndCommitT
   - reader は `ChartFileReadPipelinePolicy` に従って 1 / 2 本で動き、`ChartFileContentReader.ReadBuffer()` で bytes と file metadata だけを bounded queue に流す。
   - parser worker が `ChartFileContentReader.CreateSnapshot(buffer)` で MD5 / SHA-256 を計算し、lightweight parse を行う。
   - read queue capacity は `ChartFileReadPipelinePolicy.ResolveReadQueueCapacity(fileDiffParserDegree, readerDegree)`。
-  - parser output queue capacity は `max(inlineChartInfoBatchSize, fileDiffParserDegree * 16)`。
-  - parser worker degree は `max(1, Environment.ProcessorCount - 1)`。
-  - worker は BMS / bmson lightweight parse を行い、collector は既定 2048 件単位で post-parse worker へ渡す。
-  - post-parse worker は inline `chart_info` current 判定 / 解析と inline maintenance row 作成を担当する。
-  - inline maintenance は batch 内で bounded parallelism にし、`SongTableFileCheckResult` への反映と DB chunk 生成は post-parse worker で集約する。
-  - DB writer は 1 本に固定する。SQLite read/write の競合を避けるため、inline `chart_info` current 判定が終わった chunk だけを順序通り保存する。
-  - snapshot bytes は collector の batch flush 後に破棄され、全件分を保持しない。
+  - parser output queue capacity と post-parse queue capacity は parser / post-parse degree に比例する bounded capacity とし、`InlineChartInfoBatchSize` 2048 を post-parse barrier として使わない。
+  - parser worker degree は CPU 数の半分程度、post-parse worker degree は parser の約 1.5 倍かつ CPU 数以下を既定にする。
+  - worker は BMS / bmson lightweight parse を行い、post-parse worker は 1 譜面単位で inline `chart_info` current 判定 / 解析と inline maintenance row 作成を担当する。
+  - `SongTableFileCheckResult` への反映と DB commit staging chunk 生成は item-local result を single collector が sequence 順に集約する。
+  - DB writer は 1 本に固定し、commit aggregator が既定 10000 件単位の immutable DB chunk にまとめて bounded writer queue へ渡す。
+  - snapshot bytes は post-parse staging へ畳み込んだ後に破棄され、全件分を保持しない。
 - progress callback は parsed candidate の collector 到達ごとに 1 件単位で呼ぶ。
   - UI 側の `ReportLibraryInitializationProgress()` は 150ms throttle を持つため、1 件ごとに通知しても UI 更新は過剰になりにくい。
   - sub label は従来通り `ファイル差分確認 [processed/total] fileName` とする。

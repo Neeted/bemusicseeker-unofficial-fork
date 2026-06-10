@@ -100,7 +100,7 @@ target enumeration
 | --- | --- |
 | reader degree | `targetCount <= 1` なら 1。`processorCount >= 6` かつ大量 target なら 2。それ以外は 1 |
 | max reader degree | 2 |
-| worker degree | CPU work の内容ごとに決める。単一 heavy worker stage は既存上限を尊重しつつ `Environment.ProcessorCount - 1` を基本にし、file diff のように lightweight parse と post-parse を分ける場合は parser を CPU 数の半分程度、post-parse を CPU 数程度に寄せる |
+| worker degree | CPU work の内容ごとに決める。単一 heavy worker stage は既存上限を尊重しつつ `Environment.ProcessorCount - 1` を基本にし、file diff のように lightweight parse と post-parse を分ける場合は parser を CPU 数の半分程度、post-parse を parser の約 1.5 倍かつ CPU 数以下に寄せる |
 | read queue capacity | `workerDegree * max(2, readerDegree * 2)` を初期値にし、処理ごとの chunk size と memory risk で調整 |
 | computed queue capacity | writer chunk size または worker 数に比例させる |
 | logging | `readerDegree`, `workerDegree`, `readQueueCapacity`, `computedQueueCapacity`, `readMs`, `digestMs`, `parseMs`, `readerOutputWaitMs`, queue high watermark を可能な範囲で出す |
@@ -146,7 +146,7 @@ target enumeration
 - reader を policy に従って 1 / 2 本にできるようにする。
 - worker で digest 計算と lightweight parse を行う。
 - post-parse worker は current `chart_info` 判定、inline parse、inline maintenance row 作成に集中する。
-- 2026-06-10 追記: `InlineChartInfoBatchSize=2048` を post-parse barrier として使わない。file reader が貯める bounded buffer と DB commit chunk 以外は 1 譜面ずつ流し、post-parse の並列性は micro-batch ではなく独立した post-parse worker stage で確保する。軽量 parser より post-parse / maintenance が重い環境では、parser 数を CPU 数の半分程度、post-parse worker を CPU 数程度へ寄せる。snapshot bytes と resource refs は maintenance row / chart_info staging へ畳み込んだら破棄する。
+- 2026-06-10 追記: `InlineChartInfoBatchSize=2048` を post-parse barrier として使わない。file reader が貯める bounded buffer と DB commit chunk 以外は 1 譜面ずつ流し、post-parse の並列性は micro-batch ではなく独立した post-parse worker stage で確保する。軽量 parser より post-parse / maintenance が重い環境では、parser 数を CPU 数の半分程度、post-parse worker を parser の約 1.5 倍かつ CPU 数以下へ寄せる。snapshot bytes と resource refs は maintenance row / chart_info staging へ畳み込んだら破棄する。
 - 2026-06-10 判断: lightweight parse / post-parse / inline `chart_info` を 1 つの worker に統合する案は採用しない。1 譜面から `song` / `maintenance` / `chart_info` が最大 1 行ずつ出るように見えても、current `chart_info` reuse、parse failure、runtime mutation、ordered commit、chunk writer、progress の意味が異なるため、stage を分けたまま post-parse unit を 1 譜面単位にする。
 - 完了: 旧 `FlushFileDiffParsedBatch()` の shared state mutation を、item-local `FileDiffPostParseResult` / commit staging chunk の生成と、single collector による ordered aggregation へ分解した。parallel post-parse workers は `SongTableFileCheckResult`、runtime list、commit context を直接触らない。
 - 2 件以上の差分では schema current な read-only connection から current parser version の `chart_info` row を一括 snapshot として読み、per-item DB lookup を避ける。DB commit は引き続き `DbCommitChunkSize` の transaction 単位として独立させる。
@@ -259,8 +259,8 @@ target enumeration
 - 対象は file diff inline maintenance だけではなく、manual `RescanAllOwnedChartMaintenance()` / selected maintenance rescan も含める。
 - 現行ログでは `maintenanceMs` が重く見えるが、これは DB `maintenance` table write ではなく、resource health、encoding 判定、bmson refs refresh、maintenance row construction を含む evaluator 時間である。DB write は file diff では `db_commit_ms`、manual rescan では `maintenance_rescan_chunk commitMs` として別に見る。
 - 2026-06-10 の並列度方針:
-  - 軽量 parser より post-parse / maintenance の方が重いログなので、既定 parser 数は CPU 数の半分程度へ下げ、post-parse worker は CPU 数を目安に確保する。
-  - CPU 数が異なる環境でも parser:post-parse の比率が効くように、固定値ではなく `ResolveDefaultFileDiffParserDegree(processorCount)` で決める。
+  - 軽量 parser より post-parse / maintenance の方が重いログなので、既定 parser 数は CPU 数の半分程度へ下げ、post-parse worker は parser の約 1.5 倍を目安に CPU 数を超えない範囲で確保する。8 CPU では parser 4 / post-parse 6 を既定の目安にする。
+  - CPU 数が異なる環境でも parser:post-parse の比率が効くように、固定値ではなく `ResolveDefaultFileDiffParserDegree(processorCount)` と `ResolveDefaultFileDiffPostParseWorkerDegree(processorCount, parserDegree)` で決める。
   - micro-batch は主改善策にしない。1 譜面ずつ bytes を処理すること自体は問題ではなく、batch を増やす場合は directory/resource signature reuse など実際の計算削減を伴うときだけ検討する。batch 内でさらに maintenance 並列化して post-parse worker と二重並列にしない。
 - まず計測を揃える。
   - 完了: file diff の batch slow log に `bmsMaintenanceMs`, `bmsonMaintenanceMs`, `healthMs`, `encodingMs`, `cacheHit`, `fileExistsFallback` を追加する。
