@@ -225,6 +225,48 @@ public sealed class BmsLibraryMaintenanceServiceTests
     }
 
     [TestMethod]
+    public void EvaluateBmsMaintenanceForInline_UsesAlreadyAppliedResourceReferences()
+    {
+        string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectoryPath);
+        string chartPath = Path.Combine(tempDirectoryPath, "chart.bms");
+        try
+        {
+            File.WriteAllText(chartPath, "#TITLE test\r\n#WAV01 missing.wav\r\n", Encoding.ASCII);
+            File.WriteAllText(Path.Combine(tempDirectoryPath, "hit.wav"), string.Empty);
+            ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
+            BMSFile file = BMSFile.CreateBMSFileFromSnapshot(snapshot);
+            file.ReplaceResourceReferences(
+                stagefile: null,
+                banner: null,
+                backbmp: null,
+                wavFiles: ["hit"],
+                bgaFiles: []);
+            var lookupCache = new DirectoryResourceLookupCache();
+            lookupCache.AddDir(tempDirectoryPath, ["hit.wav"]);
+            var lookupContext = new ResourceHealthLookupContext(lookupCache);
+
+            BmsLibraryMaintenanceService.MaintenanceEvaluationResult result =
+                BmsLibraryMaintenanceService.EvaluateBmsMaintenanceForInline(
+                    file,
+                    snapshot,
+                    lookupContext,
+                    forceUpdate: true,
+                    componentReferencesAlreadyApplied: true);
+
+            Assert.AreEqual(1, result.MaintenanceInfo.wav_files_defined);
+            Assert.AreEqual(1, result.MaintenanceInfo.wav_files_existing);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectoryPath))
+            {
+                Directory.Delete(tempDirectoryPath, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
     public void PendingBmsonEncodingOnlyMaintenance_IsPlaceholder()
     {
         var song = new LR2SongDBExtended.bmson_song

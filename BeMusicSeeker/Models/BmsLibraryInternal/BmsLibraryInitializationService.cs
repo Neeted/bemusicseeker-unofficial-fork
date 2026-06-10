@@ -2648,7 +2648,11 @@ internal sealed class BmsLibraryInitializationService
         try
         {
             BmsLibraryMaintenanceService.MaintenanceEvaluationResult maintenanceResult =
-                BmsLibraryMaintenanceService.EvaluateBmsMaintenanceForInline(file, snapshot, lookupContext);
+                BmsLibraryMaintenanceService.EvaluateBmsMaintenanceForInline(
+                    file,
+                    snapshot,
+                    lookupContext,
+                    componentReferencesAlreadyApplied: true);
             healthMs = TicksToMilliseconds(maintenanceResult.HealthElapsedTicks);
             encodingMs = TicksToMilliseconds(maintenanceResult.EncodingElapsedTicks);
             encodingReloadMs = TicksToMilliseconds(maintenanceResult.EncodingReloadElapsedTicks);

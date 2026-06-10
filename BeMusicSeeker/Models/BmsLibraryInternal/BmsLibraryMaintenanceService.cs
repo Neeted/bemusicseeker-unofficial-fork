@@ -1301,16 +1301,27 @@ internal sealed class BmsLibraryMaintenanceService
         DirectoryResourceLookupCache lookupCache,
         bool forceUpdate = false)
     {
-        return EvaluateBmsMaintenance(file, snapshot, new ResourceHealthLookupContext(lookupCache), forceUpdate);
+        return EvaluateBmsMaintenance(
+            file,
+            snapshot,
+            new ResourceHealthLookupContext(lookupCache),
+            forceUpdate,
+            componentReferencesAlreadyApplied: false);
     }
 
     internal static MaintenanceEvaluationResult EvaluateBmsMaintenanceForInline(
         BMSFile file,
         ChartFileSnapshot snapshot,
         ResourceHealthLookupContext lookupContext,
-        bool forceUpdate = false)
+        bool forceUpdate = false,
+        bool componentReferencesAlreadyApplied = false)
     {
-        return EvaluateBmsMaintenance(file, snapshot, lookupContext ?? new ResourceHealthLookupContext(null), forceUpdate);
+        return EvaluateBmsMaintenance(
+            file,
+            snapshot,
+            lookupContext ?? new ResourceHealthLookupContext(null),
+            forceUpdate,
+            componentReferencesAlreadyApplied);
     }
 
     internal static MaintenanceEvaluationResult EvaluateBmsonMaintenanceForInline(
@@ -1331,7 +1342,8 @@ internal sealed class BmsLibraryMaintenanceService
         BMSFile file,
         ChartFileSnapshot snapshot,
         ResourceHealthLookupContext resourceLookupContext,
-        bool forceUpdate)
+        bool forceUpdate,
+        bool componentReferencesAlreadyApplied = false)
     {
         var result = new MaintenanceEvaluationResult();
         long cacheHitCountBefore = resourceLookupContext?.CacheHitCount ?? 0L;
@@ -1345,7 +1357,7 @@ internal sealed class BmsLibraryMaintenanceService
 
         BMSFileMaintenanceInfo beforeInfo = CloneMaintenanceInfo(file.TryGetMaintenanceInfoWithoutCreating());
         var beforeSnapshot = MaintenanceSnapshot.FromFile(file);
-        if (snapshot != null)
+        if (snapshot != null && (!componentReferencesAlreadyApplied || !HasLoadedResourceReferenceCollections(file)))
         {
             BMSFile parsed = BMSFile.CreateBMSFileFromSnapshot(snapshot);
             file.ApplyComponentFilesFromParsedSnapshot(parsed);
@@ -1404,6 +1416,11 @@ internal sealed class BmsLibraryMaintenanceService
         result.ResourceHealthSetCacheHitCount = Math.Max(0L, (resourceLookupContext?.ResourceHealthSetCacheHitCount ?? 0L) - resourceHealthSetCacheHitCountBefore);
         result.FileExistsFallbackCount = Math.Max(0L, (resourceLookupContext?.FileExistsFallbackCount ?? 0L) - fileExistsFallbackCountBefore);
         return result;
+    }
+
+    private static bool HasLoadedResourceReferenceCollections(BMSFile file)
+    {
+        return file?.WAVfiles != null && file.BGAfiles != null;
     }
 
     private static MaintenanceEvaluationResult EvaluateBmsonMaintenance(
