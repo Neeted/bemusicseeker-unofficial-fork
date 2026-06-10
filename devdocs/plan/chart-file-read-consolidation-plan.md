@@ -139,10 +139,10 @@ file diff の PLINQ 無制限並列をやめ、chart_info と近い bounded 方�
 ### 完了済み内容
 
 - `ApplyFileScanDiff()` の parser 並列数を内部設定化した。
-  - default: `max(1, Environment.ProcessorCount - 1)`
-  - test override 可能
+  - current default: parser は CPU 数の半分程度、post-parse worker は CPU 数程度
+  - test override は parser/post-parse を同数に固定して再現性を優先する
 - BMS / bmson は同じ degree を使う。
-- `SongTableFileCheckResult` と `song_tbl_file_check_breakdown` log に `file_diff_parser_degree` を出す。
+- `SongTableFileCheckResult` と `song_tbl_file_check_breakdown` log に `file_diff_parser_degree` / `file_diff_post_parse_worker_degree` を出す。
 
 ### 完了条件
 

@@ -3517,6 +3517,11 @@ public sealed class BmsLibraryInitializationServiceTests
             Assert.AreEqual(2, BmsLibraryInitializationService.ResolveDefaultFileDiffParserDegree(4));
             Assert.AreEqual(4, BmsLibraryInitializationService.ResolveDefaultFileDiffParserDegree(8));
             Assert.AreEqual(8, BmsLibraryInitializationService.ResolveDefaultFileDiffParserDegree(16));
+            Assert.AreEqual(1, BmsLibraryInitializationService.ResolveDefaultFileDiffPostParseWorkerDegree(1, 1));
+            Assert.AreEqual(4, BmsLibraryInitializationService.ResolveDefaultFileDiffPostParseWorkerDegree(4, 2));
+            Assert.AreEqual(8, BmsLibraryInitializationService.ResolveDefaultFileDiffPostParseWorkerDegree(8, 4));
+            Assert.AreEqual(16, BmsLibraryInitializationService.ResolveDefaultFileDiffPostParseWorkerDegree(16, 8));
+            Assert.AreEqual(12, BmsLibraryInitializationService.ResolveDefaultFileDiffPostParseWorkerDegree(8, 12));
 
             Assert.AreEqual(expectedDefault, RunWithParserDegreeOverride(null, songDbPath).FileDiffParserDegree);
             Assert.AreEqual(1, RunWithParserDegreeOverride(0, songDbPath).FileDiffParserDegree);

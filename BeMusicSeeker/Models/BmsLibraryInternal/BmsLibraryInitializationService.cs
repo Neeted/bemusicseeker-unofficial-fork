@@ -4455,6 +4455,13 @@ internal sealed class BmsLibraryInitializationService
         return Math.Max(2, Math.Min(normalizedProcessorCount - 2, (normalizedProcessorCount + 1) / 2));
     }
 
+    internal static int ResolveDefaultFileDiffPostParseWorkerDegree(int processorCount, int parserDegree)
+    {
+        int normalizedProcessorCount = Math.Max(1, processorCount);
+        int normalizedParserDegree = Math.Max(1, parserDegree);
+        return Math.Max(normalizedParserDegree, normalizedProcessorCount);
+    }
+
     internal static int ResolveFileDiffParsedQueueCapacity(int parserDegree, int postParseBatchSize)
     {
         int normalizedBatchSize = Math.Max(1, postParseBatchSize);
@@ -4484,7 +4491,7 @@ internal sealed class BmsLibraryInitializationService
         {
             return normalizedParserDegree;
         }
-        return Math.Max(normalizedParserDegree, Environment.ProcessorCount);
+        return ResolveDefaultFileDiffPostParseWorkerDegree(Environment.ProcessorCount, normalizedParserDegree);
     }
 
     private int ResolveInlineChartInfoBatchSize()
