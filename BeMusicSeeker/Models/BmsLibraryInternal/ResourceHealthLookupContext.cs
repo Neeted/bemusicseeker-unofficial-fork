@@ -17,9 +17,13 @@ internal sealed class ResourceHealthLookupContext
 {
     private readonly ConcurrentDictionary<ResourceHealthCacheKey, bool> cacheResolvedResourceExistsByKey;
 
+    private readonly ConcurrentDictionary<ResourceHealthSetCacheKey, ResourceHealthCounts> resourceHealthCountsByKey;
+
     private long cacheHitCount;
 
     private long resourceIndexHitCount;
+
+    private long resourceHealthSetCacheHitCount;
 
     private long fileExistsFallbackCount;
 
@@ -34,25 +38,34 @@ internal sealed class ResourceHealthLookupContext
     private long unknownFileExistsFallbackCount;
 
     public ResourceHealthLookupContext(DirectoryResourceLookupCache directoryLookupCache)
-        : this(directoryLookupCache, new ConcurrentDictionary<ResourceHealthCacheKey, bool>())
+        : this(
+            directoryLookupCache,
+            new ConcurrentDictionary<ResourceHealthCacheKey, bool>(),
+            new ConcurrentDictionary<ResourceHealthSetCacheKey, ResourceHealthCounts>())
     {
     }
 
     private ResourceHealthLookupContext(
         DirectoryResourceLookupCache directoryLookupCache,
-        ConcurrentDictionary<ResourceHealthCacheKey, bool> cacheResolvedResourceExistsByKey)
+        ConcurrentDictionary<ResourceHealthCacheKey, bool> cacheResolvedResourceExistsByKey,
+        ConcurrentDictionary<ResourceHealthSetCacheKey, ResourceHealthCounts> resourceHealthCountsByKey)
     {
         DirectoryLookupCache = directoryLookupCache;
         this.cacheResolvedResourceExistsByKey = cacheResolvedResourceExistsByKey ?? new ConcurrentDictionary<ResourceHealthCacheKey, bool>();
+        this.resourceHealthCountsByKey = resourceHealthCountsByKey ?? new ConcurrentDictionary<ResourceHealthSetCacheKey, ResourceHealthCounts>();
     }
 
     public DirectoryResourceLookupCache DirectoryLookupCache { get; }
 
     public int SharedResourceCacheEntryCount => cacheResolvedResourceExistsByKey.Count;
 
+    public int ResourceHealthSetCacheEntryCount => resourceHealthCountsByKey.Count;
+
     public long CacheHitCount => Interlocked.Read(ref cacheHitCount);
 
     public long ResourceIndexHitCount => Interlocked.Read(ref resourceIndexHitCount);
+
+    public long ResourceHealthSetCacheHitCount => Interlocked.Read(ref resourceHealthSetCacheHitCount);
 
     public long FileExistsFallbackCount => Interlocked.Read(ref fileExistsFallbackCount);
 
@@ -68,7 +81,7 @@ internal sealed class ResourceHealthLookupContext
 
     public ResourceHealthLookupContext CreateCounterScope()
     {
-        return new ResourceHealthLookupContext(DirectoryLookupCache, cacheResolvedResourceExistsByKey);
+        return new ResourceHealthLookupContext(DirectoryLookupCache, cacheResolvedResourceExistsByKey, resourceHealthCountsByKey);
     }
 
     public DirectoryResourceLookupCache.Entry GetResourceEntryOrNull(string directoryPath)
@@ -105,6 +118,30 @@ internal sealed class ResourceHealthLookupContext
             exists);
     }
 
+    public bool TryGetResourceHealthCounts(string directoryPath, string resourceSetSignature, out ResourceHealthCounts counts)
+    {
+        bool found = resourceHealthCountsByKey.TryGetValue(
+            new ResourceHealthSetCacheKey(directoryPath, resourceSetSignature),
+            out counts);
+        if (found)
+        {
+            Interlocked.Increment(ref resourceHealthSetCacheHitCount);
+        }
+        return found;
+    }
+
+    public void SetResourceHealthCounts(string directoryPath, string resourceSetSignature, ResourceHealthCounts counts)
+    {
+        if (string.IsNullOrWhiteSpace(resourceSetSignature))
+        {
+            return;
+        }
+
+        resourceHealthCountsByKey.TryAdd(
+            new ResourceHealthSetCacheKey(directoryPath, resourceSetSignature),
+            counts);
+    }
+
     public void RecordCacheHit()
     {
         Interlocked.Increment(ref cacheHitCount);
@@ -132,6 +169,14 @@ internal sealed class ResourceHealthLookupContext
         }
     }
 
+    public void AddResourceHealthSetCacheHits(long count)
+    {
+        if (count > 0L)
+        {
+            Interlocked.Add(ref resourceHealthSetCacheHitCount, count);
+        }
+    }
+
     public void AddCounters(ResourceHealthLookupContext source)
     {
         if (source == null)
@@ -140,6 +185,7 @@ internal sealed class ResourceHealthLookupContext
         }
         AddCacheHits(source.CacheHitCount);
         AddResourceIndexHits(source.ResourceIndexHitCount);
+        AddResourceHealthSetCacheHits(source.ResourceHealthSetCacheHitCount);
         AddFileExistsFallbacks(ResourceHealthFallbackKind.Audio, source.AudioFileExistsFallbackCount);
         AddFileExistsFallbacks(ResourceHealthFallbackKind.Image, source.ImageFileExistsFallbackCount);
         AddFileExistsFallbacks(ResourceHealthFallbackKind.Movie, source.MovieFileExistsFallbackCount);
@@ -208,6 +254,79 @@ internal sealed class ResourceHealthLookupContext
             default:
                 Interlocked.Add(ref unknownFileExistsFallbackCount, count);
                 break;
+        }
+    }
+
+    internal readonly struct ResourceHealthCounts(
+        int audioDefined,
+        int audioExisting,
+        int visualDefined,
+        int visualExisting,
+        int movieDefined,
+        int movieExisting,
+        bool stagefileDefined,
+        bool stagefileExisting,
+        bool backbmpDefined,
+        bool backbmpExisting,
+        bool bannerDefined,
+        bool bannerExisting)
+    {
+        public int AudioDefined { get; } = audioDefined;
+
+        public int AudioExisting { get; } = audioExisting;
+
+        public int VisualDefined { get; } = visualDefined;
+
+        public int VisualExisting { get; } = visualExisting;
+
+        public int MovieDefined { get; } = movieDefined;
+
+        public int MovieExisting { get; } = movieExisting;
+
+        public bool StagefileDefined { get; } = stagefileDefined;
+
+        public bool StagefileExisting { get; } = stagefileExisting;
+
+        public bool BackbmpDefined { get; } = backbmpDefined;
+
+        public bool BackbmpExisting { get; } = backbmpExisting;
+
+        public bool BannerDefined { get; } = bannerDefined;
+
+        public bool BannerExisting { get; } = bannerExisting;
+    }
+
+    private readonly struct ResourceHealthSetCacheKey : IEquatable<ResourceHealthSetCacheKey>
+    {
+        private readonly string directoryPath;
+
+        private readonly string resourceSetSignature;
+
+        public ResourceHealthSetCacheKey(string directoryPath, string resourceSetSignature)
+        {
+            this.directoryPath = directoryPath ?? string.Empty;
+            this.resourceSetSignature = resourceSetSignature ?? string.Empty;
+        }
+
+        public bool Equals(ResourceHealthSetCacheKey other)
+        {
+            return string.Equals(directoryPath, other.directoryPath, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(resourceSetSignature, other.resourceSetSignature, StringComparison.Ordinal);
+        }
+
+        public override bool Equals(object obj)
+        {
+            return obj is ResourceHealthSetCacheKey other && Equals(other);
+        }
+
+        public override int GetHashCode()
+        {
+            unchecked
+            {
+                int hash = StringComparer.OrdinalIgnoreCase.GetHashCode(directoryPath);
+                hash = (hash * 397) ^ StringComparer.Ordinal.GetHashCode(resourceSetSignature);
+                return hash;
+            }
         }
     }
 

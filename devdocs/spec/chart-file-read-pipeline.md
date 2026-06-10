@@ -74,11 +74,13 @@ changed path
 
 file diff の reader は `ChartFileReadPipelinePolicy` に従い、十分な CPU と複数 target がある場合は 2 本まで並列化する。reader は bytes と file metadata だけを bounded queue へ流し、MD5 / SHA-256 計算と snapshot 作成は parser worker 側で行う。file diff の progress target は lightweight parse 対象数で、BMS 追加件数と bmson 追加・更新件数の合算。ただし progress の processed count は parser 完了ではなく、post-parse が DB writer へ渡せる staging data を作った時点で進める。`chart_info` parse failure は `song` / `bmson_song` 登録を止めない。
 
-file diff の `InlineChartInfoBatchSize` 既定値 2048 は current `chart_info` lookup / inline build helper の内部粒度であり、post-parse barrier や DB commit 単位ではない。bytes/read buffer は reader / parsed queue の件数上限で backpressure し、post-parse は snapshot を受け取った worker が 1 譜面ずつ流して、lightweight parse 後の bytes と resource refs を長く滞留させない。post-parse の並列性は micro-batch ではなく post-parse worker stage で確保する。既定 parser 数は CPU 数の半分程度に抑え、post-parse worker は CPU 数を上限の目安にすることで、軽量 parse より重い maintenance / chart_info apply 側へ計算量を寄せる。明示 override がある場合は検証・再現性を優先してその値を尊重する。snapshot bytes は maintenance row / chart_info staging へ畳み込んだら破棄する。
+file diff の `InlineChartInfoBatchSize` 既定値 2048 は current `chart_info` lookup / inline build helper の内部粒度であり、post-parse barrier や DB commit 単位ではない。bytes/read buffer は reader / parsed queue の件数上限で backpressure し、post-parse は snapshot を受け取った worker が 1 譜面ずつ流して、lightweight parse 後の bytes と resource refs を長く滞留させない。post-parse の並列性は micro-batch ではなく post-parse worker stage で確保する。既定 parser 数は CPU 数の半分程度に抑え、post-parse worker は CPU 数を上限の目安にすることで、軽量 parse より重い maintenance / chart_info apply 側へ計算量を寄せる。`inline_maintenance_degree` は post-parse item 内の内側並列度であり、post-parse worker 数とは別物である。明示 override がある場合は検証・再現性を優先してその値を尊重する。snapshot bytes は maintenance row / chart_info staging へ畳み込んだら破棄する。
 
 post-parse は parser と同じく worker stage として並列化されている。並列 post-parse worker は `SongTableFileCheckResult`、`FileDiffParsePipelineResult`、runtime model、commit context を直接 mutate せず、item-local な immutable result / commit staging chunk を返す。single collector は sequence 順にその結果を集約し、counter、moved hash relink tracking、runtime apply list、inline `chart_info` publish list、commit queue 投入を担当する。この分離により、chart_info apply や maintenance 評価は並列に進めつつ、DB commit と runtime state mutation の ordering / 一貫性は collector / writer 側へ閉じ込める。2 件以上の差分では schema current な read-only connection から current parser version の `chart_info` row だけを snapshot として読み、schema が current でない場合は post-parse worker に空 snapshot を渡して fallback DB lookup を抑止する。これにより、同じ file diff 実行内の先行 commit を current row として観測する timing 依存を避ける。DB commit は別途 `DbCommitChunkSize` 既定 10000 件で transaction 範囲を切る。
 
 current `chart_info` row が存在する場合、inline parser は詳細 parse を skip できる。この row は対象 model に適用してよいが、file diff の成果物として全件蓄積しない。session chart_info index の全量更新は `chart_info_hydration` が担当し、`file_diff_inline` で publish するのは新規生成または更新した row に限定する。current row lookup は schema が current と確認できる場合 read-only connection を使い、producer 側が writable `song.db` process lock を取りに行かない。
+
+lightweight parse、post-parse、inline `chart_info` parse は 1 つの worker に統合しない。1 譜面から `song` / `maintenance` / `chart_info` が最大 1 行ずつ出るとしても、current `chart_info` reuse、parse failure、runtime mutation、ordered commit、writer progress の契約が異なるため、file-to-row の軽量 parse と commit-ready staging を作る post-parse は別 stage とする。
 
 軽量 `ReloadFileDiff` では、現在の in-memory `BMSFiles` / `BmsonSongs` と scan result だけを比較する。DB 再読込、metadata bundle import、full `chart_info` hydration/backfill、installable maintenance deferred は行わない。DB 外部編集や互換修復まで拾う場合は `FullReinitialize` を使う。
 
@@ -113,6 +115,8 @@ LR2 `song.db` 完全生成が有効な大量 file diff 直後の自動 LR2 full 
 ### Encoding / Raw Metadata
 
 BMS の一覧用 metadata は軽量 parser がまず Shift_JIS 系の既定挙動で読む。maintenance 作成時に `SetEncodingInfoFromSnapshotDetailed()` で bytes 由来の encoding 判定を行い、ASCII fast path、Shift_JIS、KS_C_5601、UTF-8、unknown などを分類する。
+
+inline maintenance の resource health は、同一 directory かつ同一 required resource set の existence count だけを共有してよい。共有してよいのは WAV/BGA/movie と stagefile/backbmp/banner の存在 count に限定し、`maintenance` row 全体、encoding、hash、path、LR2 compatibility facts、warning ignored state は譜面ごとに作る。stagefile/backbmp/banner は同じ画像集合でも役割ごとに warning 表示されるため、resource-set cache key でも役割を区別する。
 
 非 Shift_JIS が確定し、かつ `?` / unknown ではない場合だけ、同じ snapshot bytes を使って `title` / `subtitle` / `artist` / `subartist` / `genre` の raw metadata を再適用する。ここでは `#SUBTITLE` を title へ、`#SUBARTIST` を artist へ合成する setter 挙動に戻さない。manual/public 側の `ReloadBMSFileWithEncoding(...)` も同じ raw metadata 適用方針に揃える。LR2 full generation と file diff は同じ metadata canonicalization を使う必要があり、uncertain encoding の扱い差で `subtitle` / `subartist` だけがずれる場合は projection skip の blocker ではなく generator drift として修正する。
 

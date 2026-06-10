@@ -293,6 +293,50 @@ public sealed class BmsLibraryMaintenanceServiceTests
     }
 
     [TestMethod]
+    public void BuildResourceHealthMaintenanceInfo_ResourceSetCacheKeepsOptionalImageRolesDistinct()
+    {
+        string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectoryPath);
+        try
+        {
+            var cache = new DirectoryResourceLookupCache();
+            cache.AddDir(
+                tempDirectoryPath,
+                [],
+                [ChartResourceKeyHash.GetLookupHash("stage")],
+                []);
+            var lookupContext = new ResourceHealthLookupContext(cache);
+            ChartFile first = CreateProjectionOnlyBmsChart(
+                Path.Combine(tempDirectoryPath, "first.bms"),
+                md5: "11111111111111111111111111111111",
+                stagefile: "stage.png",
+                banner: "missing.png");
+            ChartFile second = CreateProjectionOnlyBmsChart(
+                Path.Combine(tempDirectoryPath, "second.bms"),
+                md5: "22222222222222222222222222222222",
+                stagefile: "missing.png",
+                banner: "stage.png");
+
+            BMSFileMaintenanceInfo firstInfo = BmsLibraryMaintenanceService.BuildResourceHealthMaintenanceInfo(first, lookupContext);
+            BMSFileMaintenanceInfo secondInfo = BmsLibraryMaintenanceService.BuildResourceHealthMaintenanceInfo(second, lookupContext);
+
+            Assert.AreEqual(true, firstInfo.is_stagefile_defined);
+            Assert.AreEqual(true, firstInfo.is_stagefile_existing);
+            Assert.AreEqual(true, firstInfo.is_banner_defined);
+            Assert.AreEqual(false, firstInfo.is_banner_existing);
+            Assert.AreEqual(true, secondInfo.is_stagefile_defined);
+            Assert.AreEqual(false, secondInfo.is_stagefile_existing);
+            Assert.AreEqual(true, secondInfo.is_banner_defined);
+            Assert.AreEqual(true, secondInfo.is_banner_existing);
+            Assert.AreEqual(2, lookupContext.ResourceHealthSetCacheEntryCount);
+        }
+        finally
+        {
+            Directory.Delete(tempDirectoryPath, recursive: true);
+        }
+    }
+
+    [TestMethod]
     public void SetChartResourceWarningsIgnored_ChartBmsonPlaceholderAttachesMaintenanceInfoToSourceSong()
     {
         var service = new BmsLibraryMaintenanceService();
@@ -2662,6 +2706,35 @@ public sealed class BmsLibraryMaintenanceServiceTests
                 Directory.Delete(tempDirectoryPath, recursive: true);
             }
         }
+    }
+
+    private static ChartFile CreateProjectionOnlyBmsChart(
+        string path,
+        string md5,
+        string stagefile = "",
+        string backbmp = "",
+        string banner = "")
+    {
+        return new ChartFile(
+            kind: ChartFileKind.Bms,
+            path: path,
+            md5: md5,
+            sha256: new string('a', 64),
+            title: "Title",
+            rawTitle: "Title",
+            artist: "Artist",
+            genre: string.Empty,
+            folder: Path.GetFileName(Path.GetDirectoryName(path)),
+            tag: string.Empty,
+            levelText: string.Empty,
+            level: null,
+            mode: null,
+            chartInfo: null,
+            bmsFile: null,
+            bmsonSong: null,
+            stagefile: stagefile,
+            backbmp: backbmp,
+            banner: banner);
     }
 
     private static TestableBmsFile CreateFile(string hash)

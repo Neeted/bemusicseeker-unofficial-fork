@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Security;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -129,54 +130,23 @@ internal sealed class BmsLibraryMaintenanceService
             is_encoding_fixed = false
         };
 
-        maintenanceInfo.wav_files_defined = resources.AudioReferenceCount;
-        if (maintenanceInfo.wav_files_defined > 0)
+        string resourceSetSignature = BuildResourceHealthSetSignature(chart, resources);
+        if (lookupContext?.TryGetResourceHealthCounts(
+            chartDirectory,
+            resourceSetSignature,
+            out ResourceHealthLookupContext.ResourceHealthCounts cachedCounts) == true)
         {
-            maintenanceInfo.wav_files_existing = CountExistingResourceReferences(
+            ApplyResourceHealthCounts(maintenanceInfo, cachedCounts);
+        }
+        else
+        {
+            ResourceHealthLookupContext.ResourceHealthCounts counts = ComputeResourceHealthCounts(
+                chart,
                 chartDirectory,
-                resources.AudioReferences,
-                ChartResourceExtensions.AudioExtensions,
-                ChartResourceKind.Audio,
+                resources,
                 lookupContext);
-        }
-        maintenanceInfo.bga_files_defined = resources.VisualReferenceCount;
-        if (maintenanceInfo.bga_files_defined > 0)
-        {
-            maintenanceInfo.bga_files_existing = CountExistingResourceReferences(
-                chartDirectory,
-                resources.VisualReferences,
-                ChartResourceExtensions.ImageExtensions,
-                ChartResourceKind.Image,
-                lookupContext);
-        }
-        maintenanceInfo.movie_files_defined = resources.MovieReferenceCount;
-        if (maintenanceInfo.movie_files_defined > 0)
-        {
-            maintenanceInfo.movie_files_existing = CountExistingResourceReferences(
-                chartDirectory,
-                resources.MovieReferences,
-                ChartResourceExtensions.MovieExtensions,
-                ChartResourceKind.Movie,
-                lookupContext);
-        }
-
-        string stagefile = chart.Stagefile;
-        string backbmp = chart.Backbmp;
-        string banner = chart.Banner;
-        maintenanceInfo.is_stagefile_defined = !string.IsNullOrWhiteSpace(stagefile);
-        if (maintenanceInfo.is_stagefile_defined == true)
-        {
-            maintenanceInfo.is_stagefile_existing = ExistsOptionalImageResource(chartDirectory, stagefile, lookupContext);
-        }
-        maintenanceInfo.is_backbmp_defined = !string.IsNullOrWhiteSpace(backbmp);
-        if (maintenanceInfo.is_backbmp_defined == true)
-        {
-            maintenanceInfo.is_backbmp_existing = ExistsOptionalImageResource(chartDirectory, backbmp, lookupContext);
-        }
-        maintenanceInfo.is_banner_defined = !string.IsNullOrWhiteSpace(banner);
-        if (maintenanceInfo.is_banner_defined == true)
-        {
-            maintenanceInfo.is_banner_existing = ExistsOptionalImageResource(chartDirectory, banner, lookupContext);
+            ApplyResourceHealthCounts(maintenanceInfo, counts);
+            lookupContext?.SetResourceHealthCounts(chartDirectory, resourceSetSignature, counts);
         }
         if (forceUpdate)
         {
@@ -185,6 +155,144 @@ internal sealed class BmsLibraryMaintenanceService
         ApplyLr2CompatibilityFacts(chart, resources, maintenanceInfo);
 
         return maintenanceInfo;
+    }
+
+    private static ResourceHealthLookupContext.ResourceHealthCounts ComputeResourceHealthCounts(
+        ChartFile chart,
+        string chartDirectory,
+        ChartResourceSnapshot resources,
+        ResourceHealthLookupContext lookupContext)
+    {
+        int audioDefined = resources.AudioReferenceCount;
+        int audioExisting = audioDefined > 0
+            ? CountExistingResourceReferences(
+                chartDirectory,
+                resources.AudioReferences,
+                ChartResourceExtensions.AudioExtensions,
+                ChartResourceKind.Audio,
+                lookupContext)
+            : 0;
+        int visualDefined = resources.VisualReferenceCount;
+        int visualExisting = visualDefined > 0
+            ? CountExistingResourceReferences(
+                chartDirectory,
+                resources.VisualReferences,
+                ChartResourceExtensions.ImageExtensions,
+                ChartResourceKind.Image,
+                lookupContext)
+            : 0;
+        int movieDefined = resources.MovieReferenceCount;
+        int movieExisting = movieDefined > 0
+            ? CountExistingResourceReferences(
+                chartDirectory,
+                resources.MovieReferences,
+                ChartResourceExtensions.MovieExtensions,
+                ChartResourceKind.Movie,
+                lookupContext)
+            : 0;
+        string stagefile = chart.Stagefile;
+        bool stagefileDefined = !string.IsNullOrWhiteSpace(stagefile);
+        bool stagefileExisting = stagefileDefined && ExistsOptionalImageResource(chartDirectory, stagefile, lookupContext);
+        string backbmp = chart.Backbmp;
+        bool backbmpDefined = !string.IsNullOrWhiteSpace(backbmp);
+        bool backbmpExisting = backbmpDefined && ExistsOptionalImageResource(chartDirectory, backbmp, lookupContext);
+        string banner = chart.Banner;
+        bool bannerDefined = !string.IsNullOrWhiteSpace(banner);
+        bool bannerExisting = bannerDefined && ExistsOptionalImageResource(chartDirectory, banner, lookupContext);
+        return new ResourceHealthLookupContext.ResourceHealthCounts(
+            audioDefined,
+            audioExisting,
+            visualDefined,
+            visualExisting,
+            movieDefined,
+            movieExisting,
+            stagefileDefined,
+            stagefileExisting,
+            backbmpDefined,
+            backbmpExisting,
+            bannerDefined,
+            bannerExisting);
+    }
+
+    private static void ApplyResourceHealthCounts(
+        BMSFileMaintenanceInfo maintenanceInfo,
+        ResourceHealthLookupContext.ResourceHealthCounts counts)
+    {
+        maintenanceInfo.wav_files_defined = counts.AudioDefined;
+        if (counts.AudioDefined > 0)
+        {
+            maintenanceInfo.wav_files_existing = counts.AudioExisting;
+        }
+        maintenanceInfo.bga_files_defined = counts.VisualDefined;
+        if (counts.VisualDefined > 0)
+        {
+            maintenanceInfo.bga_files_existing = counts.VisualExisting;
+        }
+        maintenanceInfo.movie_files_defined = counts.MovieDefined;
+        if (counts.MovieDefined > 0)
+        {
+            maintenanceInfo.movie_files_existing = counts.MovieExisting;
+        }
+        maintenanceInfo.is_stagefile_defined = counts.StagefileDefined;
+        if (counts.StagefileDefined)
+        {
+            maintenanceInfo.is_stagefile_existing = counts.StagefileExisting;
+        }
+        maintenanceInfo.is_backbmp_defined = counts.BackbmpDefined;
+        if (counts.BackbmpDefined)
+        {
+            maintenanceInfo.is_backbmp_existing = counts.BackbmpExisting;
+        }
+        maintenanceInfo.is_banner_defined = counts.BannerDefined;
+        if (counts.BannerDefined)
+        {
+            maintenanceInfo.is_banner_existing = counts.BannerExisting;
+        }
+    }
+
+    private static string BuildResourceHealthSetSignature(ChartFile chart, ChartResourceSnapshot resources)
+    {
+        if (resources == null)
+        {
+            return string.Empty;
+        }
+
+        var builder = new StringBuilder();
+        AppendResourceSignatureSection(builder, 'A', resources.AudioReferences);
+        AppendResourceSignatureSection(builder, 'I', resources.VisualReferences);
+        AppendResourceSignatureSection(builder, 'M', resources.MovieReferences);
+        AppendOptionalImageSignatureSection(builder, 'S', chart?.Stagefile);
+        AppendOptionalImageSignatureSection(builder, 'B', chart?.Backbmp);
+        AppendOptionalImageSignatureSection(builder, 'R', chart?.Banner);
+        return builder.ToString();
+    }
+
+    private static void AppendResourceSignatureSection(
+        StringBuilder builder,
+        char section,
+        IEnumerable<ChartResourceSnapshot.ResourceReference> references)
+    {
+        builder.Append(section).Append(':');
+        foreach (string path in (references ?? [])
+            .Select(reference => reference.NormalizedPath ?? string.Empty)
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
+        {
+            builder.Append(path.Length).Append('#').Append(path).Append(';');
+        }
+        builder.Append('|');
+    }
+
+    private static void AppendOptionalImageSignatureSection(StringBuilder builder, char section, string reference)
+    {
+        builder.Append(section).Append(':');
+        string path = ChartResourcePathNormalizer.NormalizeResourceKeyForLookup(reference);
+        if (!string.IsNullOrWhiteSpace(path))
+        {
+            builder.Append(path.Length).Append('#').Append(path).Append(';');
+        }
+        builder.Append('|');
     }
 
     private static void ApplyLr2CompatibilityFacts(
@@ -1228,6 +1336,7 @@ internal sealed class BmsLibraryMaintenanceService
         var result = new MaintenanceEvaluationResult();
         long cacheHitCountBefore = resourceLookupContext?.CacheHitCount ?? 0L;
         long resourceIndexHitCountBefore = resourceLookupContext?.ResourceIndexHitCount ?? 0L;
+        long resourceHealthSetCacheHitCountBefore = resourceLookupContext?.ResourceHealthSetCacheHitCount ?? 0L;
         long fileExistsFallbackCountBefore = resourceLookupContext?.FileExistsFallbackCount ?? 0L;
         if (!ChartFileKindResolver.IsBmsChartFile(file))
         {
@@ -1292,6 +1401,7 @@ internal sealed class BmsLibraryMaintenanceService
         result.MaintenanceInfoChanged = !MaintenanceRowsEquivalent(beforeInfo, result.MaintenanceInfo);
         result.CacheHitCount = Math.Max(0L, (resourceLookupContext?.CacheHitCount ?? 0L) - cacheHitCountBefore);
         result.ResourceIndexHitCount = Math.Max(0L, (resourceLookupContext?.ResourceIndexHitCount ?? 0L) - resourceIndexHitCountBefore);
+        result.ResourceHealthSetCacheHitCount = Math.Max(0L, (resourceLookupContext?.ResourceHealthSetCacheHitCount ?? 0L) - resourceHealthSetCacheHitCountBefore);
         result.FileExistsFallbackCount = Math.Max(0L, (resourceLookupContext?.FileExistsFallbackCount ?? 0L) - fileExistsFallbackCountBefore);
         return result;
     }
@@ -1305,6 +1415,7 @@ internal sealed class BmsLibraryMaintenanceService
         var result = new MaintenanceEvaluationResult();
         long cacheHitCountBefore = resourceLookupContext?.CacheHitCount ?? 0L;
         long resourceIndexHitCountBefore = resourceLookupContext?.ResourceIndexHitCount ?? 0L;
+        long resourceHealthSetCacheHitCountBefore = resourceLookupContext?.ResourceHealthSetCacheHitCount ?? 0L;
         long fileExistsFallbackCountBefore = resourceLookupContext?.FileExistsFallbackCount ?? 0L;
         if (song == null || string.IsNullOrWhiteSpace(song.path))
         {
@@ -1349,6 +1460,7 @@ internal sealed class BmsLibraryMaintenanceService
         result.MaintenanceInfoChanged = !MaintenanceRowsEquivalent(beforeInfo, afterInfo);
         result.CacheHitCount = Math.Max(0L, (resourceLookupContext?.CacheHitCount ?? 0L) - cacheHitCountBefore);
         result.ResourceIndexHitCount = Math.Max(0L, (resourceLookupContext?.ResourceIndexHitCount ?? 0L) - resourceIndexHitCountBefore);
+        result.ResourceHealthSetCacheHitCount = Math.Max(0L, (resourceLookupContext?.ResourceHealthSetCacheHitCount ?? 0L) - resourceHealthSetCacheHitCountBefore);
         result.FileExistsFallbackCount = Math.Max(0L, (resourceLookupContext?.FileExistsFallbackCount ?? 0L) - fileExistsFallbackCountBefore);
         return result;
     }
@@ -2169,6 +2281,8 @@ internal sealed class BmsLibraryMaintenanceService
         public long CacheHitCount { get; set; }
 
         public long ResourceIndexHitCount { get; set; }
+
+        public long ResourceHealthSetCacheHitCount { get; set; }
 
         public long FileExistsFallbackCount { get; set; }
 

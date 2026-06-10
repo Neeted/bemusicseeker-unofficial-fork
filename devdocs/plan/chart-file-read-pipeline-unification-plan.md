@@ -141,12 +141,13 @@ target enumeration
 
 ### Phase 3: file diff pipeline を同じ vocabulary に寄せる
 
-- Status: 完了。reader / parser の責務分離に加え、post-parse も parser と同数の worker stage へ分離した。worker は batch-local `FileDiffPostParseResult` と commit staging chunk だけを作り、single collector が sequence 順に result counters、runtime apply list、moved hash relink tracking、commit queue 投入を集約する。
+- Status: 完了。reader / parser の責務分離に加え、post-parse も独立した worker stage へ分離した。worker は batch-local `FileDiffPostParseResult` と commit staging chunk だけを作り、single collector が sequence 順に result counters、runtime apply list、moved hash relink tracking、commit queue 投入を集約する。
 - 空 DB / 大量差分で最も影響が大きいため、LR2 基準実装の次に扱う。
 - reader を policy に従って 1 / 2 本にできるようにする。
 - worker で digest 計算と lightweight parse を行う。
 - post-parse worker は current `chart_info` 判定、inline parse、inline maintenance row 作成に集中する。
-- 2026-06-10 追記: `InlineChartInfoBatchSize=2048` を post-parse barrier として使わない。file reader が貯める bounded buffer と DB commit chunk 以外は 1 譜面ずつ流し、post-parse の並列性は micro-batch ではなく parser と同数の post-parse worker で確保する。snapshot bytes と resource refs は maintenance row / chart_info staging へ畳み込んだら破棄する。
+- 2026-06-10 追記: `InlineChartInfoBatchSize=2048` を post-parse barrier として使わない。file reader が貯める bounded buffer と DB commit chunk 以外は 1 譜面ずつ流し、post-parse の並列性は micro-batch ではなく独立した post-parse worker stage で確保する。軽量 parser より post-parse / maintenance が重い環境では、parser 数を CPU 数の半分程度、post-parse worker を CPU 数程度へ寄せる。snapshot bytes と resource refs は maintenance row / chart_info staging へ畳み込んだら破棄する。
+- 2026-06-10 判断: lightweight parse / post-parse / inline `chart_info` を 1 つの worker に統合する案は採用しない。1 譜面から `song` / `maintenance` / `chart_info` が最大 1 行ずつ出るように見えても、current `chart_info` reuse、parse failure、runtime mutation、ordered commit、chunk writer、progress の意味が異なるため、stage を分けたまま post-parse unit を 1 譜面単位にする。
 - 完了: 旧 `FlushFileDiffParsedBatch()` の shared state mutation を、item-local `FileDiffPostParseResult` / commit staging chunk の生成と、single collector による ordered aggregation へ分解した。parallel post-parse workers は `SongTableFileCheckResult`、runtime list、commit context を直接触らない。
 - 2 件以上の差分では schema current な read-only connection から current parser version の `chart_info` row を一括 snapshot として読み、per-item DB lookup を避ける。DB commit は引き続き `DbCommitChunkSize` の transaction 単位として独立させる。
 - 完了: current snapshot を張れない複数件差分では、同じ実行内の先行 commit を current row として観測しないよう、post-parse worker に空 snapshot を渡して fallback DB lookup を抑止する。1 件差分だけは従来どおり対象 row lookup を許容する。
@@ -273,7 +274,7 @@ target enumeration
   - file diff inline maintenance と manual rescan が同じ `MaintenanceEvaluationResult` / evaluator helper を通るように整理する。
   - 完了: `ResourceHealthLookupContext` の cache を処理単位で共有し、同一 directory / 同一 resource key の cache 解決結果を再利用する。
   - 完了: directory resource index がある場合は sorted hash array を直接照合し、共有 dictionary lookup / lazy HashSet allocation を避ける。ログは `cacheHit` を File.Exists 回避総数、`resourceIndexHit` を directory index 直接照合数、`inline_maintenance_shared_resource_cache_entries` を fallback 共有 cache entry 数として分ける。
-  - BMS の難易度差分に多い「同一 directory かつ類似 WAV/BGA 参照集合」を、resource ref signature でまとめて health 判定を再利用する。
+  - 完了: BMS の難易度差分に多い「同一 directory かつ同一 WAV/BGA/movie 参照集合、同一 stagefile/backbmp/banner 参照」を、resource ref signature でまとめて existence count だけ再利用する。`maintenance` row 全体は再利用せず、encoding、hash、path、LR2 compatibility facts、ignore flag は従来どおり譜面ごとに作る。ログには `inline_maintenance_resource_set_cache_hit` と `inline_maintenance_resource_set_cache_entries` を出す。
   - encoding 判定は bytes 由来の現行方針を維持するが、BOM / fast ASCII / strict decode / metadata reload のどこが重いかを分け、非 Shift_JIS 確定時だけ raw metadata reload する方針を保つ。
   - bmson missing refs 補完で path-only parse へ落ちる経路が大量発生する古い DB ケースも、snapshot pipeline または共通 evaluator へ寄せる。
 - 完了条件:

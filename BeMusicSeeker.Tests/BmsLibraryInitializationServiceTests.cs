@@ -849,6 +849,8 @@ public sealed class BmsLibraryInitializationServiceTests
                 && message.Contains("inline_chart_info_batch_size=2048")
                 && message.Contains("inline_maintenance_degree=1")
                 && message.Contains("inline_maintenance_resource_index_hit=")
+                && message.Contains("inline_maintenance_resource_set_cache_hit=")
+                && message.Contains("inline_maintenance_resource_set_cache_entries=")
                 && message.Contains("parse_read_bytes_estimate=" + expectedReadBytesEstimate)
                 && message.Contains("db_commit_apply_ms=")
                 && message.Contains("db_commit_bms_upsert_ms=")
@@ -1001,11 +1003,12 @@ public sealed class BmsLibraryInitializationServiceTests
             Assert.AreEqual(2, result.FileDiffParserDegree);
             Assert.AreEqual(2, result.FileDiffPostParseWorkerDegree);
             Assert.AreEqual(count, result.PostParseBatchCount);
-            Assert.AreEqual((int)Math.Ceiling(count / 50.0), result.DbCommitChunks);
+            Assert.AreEqual((int)Math.Ceiling(count / 50.0), result.DbCommitChunks, "unexpected DB commit chunk count: " + result.DbCommitChunks);
             Assert.AreEqual(50, result.DbCommitChunkSize);
             Assert.AreEqual(count, result.InlineChartInfoTargetCount);
             Assert.AreEqual(1, result.InlineChartInfoCurrentSkippedCount);
             Assert.AreEqual(count, result.InlineMaintenanceSuccessCount);
+            Assert.AreEqual(1, result.InlineMaintenanceResourceSetCacheEntries);
             Assert.IsTrue(result.PostParseOutputWaitMs >= 0);
             Assert.IsTrue(logs.Any(message => message.Contains("file_diff_chart_info_snapshot")
                 && message.Contains("status=loaded")));
