@@ -799,6 +799,12 @@ public sealed class BmsLibraryInitializationServiceTests
             Assert.AreEqual(1, result.DbCommitChunks);
             Assert.AreEqual(10000, result.DbCommitChunkSize);
             Assert.IsTrue(result.DbCommitMaxChunkMs >= 0);
+            Assert.IsTrue(result.DbCommitApplyMs >= 0);
+            Assert.IsTrue(result.DbCommitBmsUpsertMs >= 0);
+            Assert.IsTrue(result.DbCommitMaintenanceUpsertMs >= 0);
+            Assert.IsTrue(result.DbCommitChartInfoMs >= 0);
+            Assert.IsTrue(result.DbCommitSqliteCommitMs >= 0);
+            Assert.AreEqual(1, result.DbCommitBmsChangedCount);
             Assert.IsTrue(result.FileDiffReadMs >= 0);
             Assert.IsTrue(result.FileDiffParseMs >= 0);
             Assert.IsTrue(result.SnapshotQueueHighWatermark > 0);
@@ -841,9 +847,19 @@ public sealed class BmsLibraryInitializationServiceTests
                 && message.Contains("inline_chart_info_batch_size=2048")
                 && message.Contains("inline_maintenance_degree=1")
                 && message.Contains("parse_read_bytes_estimate=" + expectedReadBytesEstimate)
+                && message.Contains("db_commit_apply_ms=")
+                && message.Contains("db_commit_bms_upsert_ms=")
+                && message.Contains("db_commit_maintenance_upsert_ms=")
+                && message.Contains("db_commit_sqlite_commit_ms=")
                 && message.Contains("db_commit_chunks=1")
                 && message.Contains("db_commit_chunk_size=10000")));
-            Assert.IsTrue(logs.Any(message => message.Contains("song_tbl_file_check db_commit_chunk_done chunk=1")));
+            Assert.IsTrue(logs.Any(message => message.Contains("song_tbl_file_check db_commit_chunk_done chunk=1")
+                && message.Contains("applyMs=")
+                && message.Contains("bmsUpsertMs=")
+                && message.Contains("bmsChanged=1")
+                && message.Contains("maintenanceUpsertMs=")
+                && message.Contains("chartInfoMs=")
+                && message.Contains("sqliteCommitMs=")));
         });
     }
 
@@ -907,6 +923,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 });
 
             Assert.AreEqual(120, result.AddedFiles.Count);
+            Assert.AreEqual(120, result.DbCommitBmsChangedCount);
             Assert.AreEqual((int)Math.Ceiling(paths.Count / 50.0), result.DbCommitChunks);
             Assert.AreEqual(50, result.DbCommitChunkSize);
             Assert.AreEqual(32, result.InlineChartInfoBatchSize);

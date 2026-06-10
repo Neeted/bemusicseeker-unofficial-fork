@@ -256,22 +256,48 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
         });
     }
 
-    internal static void CommitFileScanDiffChunk(LR2SongDBExtended songDb, FileScanDiffCommitChunk chunk)
+    internal static void PrepareFileScanDiffCommitSchema(LR2SongDBExtended songDb)
     {
         if (songDb == null)
         {
             throw new ArgumentNullException(nameof(songDb));
-        }
-        if (chunk == null || !chunk.HasItems)
-        {
-            return;
         }
 
         EnsureBmsonSchema(songDb);
         EnsureChartInfoSchema(songDb);
         EnsureSongLookupIndexes(songDb);
         EnsureMaintenanceSchema(songDb);
+    }
+
+    internal static FileScanDiffCommitMetrics CommitFileScanDiffChunk(
+        LR2SongDBExtended songDb,
+        FileScanDiffCommitChunk chunk,
+        bool ensureSchema = true)
+    {
+        if (songDb == null)
+        {
+            throw new ArgumentNullException(nameof(songDb));
+        }
+        var metrics = new FileScanDiffCommitMetrics();
+        if (chunk == null || !chunk.HasItems)
+        {
+            return metrics;
+        }
+
+        var stopwatch = Stopwatch.StartNew();
+        if (ensureSchema)
+        {
+            PrepareFileScanDiffCommitSchema(songDb);
+        }
+        stopwatch.Stop();
+        metrics.SchemaMs = stopwatch.ElapsedMilliseconds;
+
+        stopwatch.Restart();
         BulkDeleteBmsPaths(songDb, chunk.DeletedBmsPaths);
+        stopwatch.Stop();
+        metrics.BmsDeleteMs = stopwatch.ElapsedMilliseconds;
+
+        stopwatch.Restart();
         foreach (BmsDateOnlyUpdate updatedDate in chunk.UpdatedBmsDates)
         {
             if (updatedDate != null && !string.IsNullOrWhiteSpace(updatedDate.Path))
@@ -279,15 +305,20 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
                 Lr2SongDbWriter.UpdateMetadata(songDb, updatedDate.Path, updatedDate.Date, updatedDate.TextFlag);
             }
         }
-        foreach (BMSFile addedFile in chunk.AddedBmsFiles)
-        {
-            if (addedFile == null)
-            {
-                continue;
-            }
-            Lr2SongDbWriter.UpsertGeneratedSong(songDb, addedFile);
-        }
+        stopwatch.Stop();
+        metrics.BmsDateUpdateMs = stopwatch.ElapsedMilliseconds;
+
+        stopwatch.Restart();
+        metrics.BmsChangedCount = Lr2SongDbWriter.UpsertGeneratedSongs(songDb, chunk.AddedBmsFiles);
+        stopwatch.Stop();
+        metrics.BmsUpsertMs = stopwatch.ElapsedMilliseconds;
+
+        stopwatch.Restart();
         BulkDeleteBmsonPaths(songDb, chunk.DeletedBmsonPaths);
+        stopwatch.Stop();
+        metrics.BmsonDeleteMs = stopwatch.ElapsedMilliseconds;
+
+        stopwatch.Restart();
         foreach (LR2SongDBExtended.bmson_song addedBmsonSong in chunk.UpsertBmsonSongs)
         {
             if (addedBmsonSong != null)
@@ -295,6 +326,10 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
                 songDb.InsertOrReplace(addedBmsonSong, typeof(LR2SongDBExtended.bmson_song));
             }
         }
+        stopwatch.Stop();
+        metrics.BmsonUpsertMs = stopwatch.ElapsedMilliseconds;
+
+        stopwatch.Restart();
         foreach (BMSFileMaintenanceInfo maintenanceInfo in chunk.MaintenanceInfoRows)
         {
             if (maintenanceInfo != null && !string.IsNullOrWhiteSpace(maintenanceInfo.path))
@@ -302,12 +337,19 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
                 songDb.InsertOrReplace(maintenanceInfo, typeof(LR2SongDBExtended.maintenance));
             }
         }
+        stopwatch.Stop();
+        metrics.MaintenanceUpsertMs = stopwatch.ElapsedMilliseconds;
+
+        stopwatch.Restart();
         UpsertChartInfoBackfillChunk(
             songDb,
             [],
             chunk.ChartInfoRows,
             chunk.ParseFailureRows,
             chunk.ParseFailureDeleteMd5s);
+        stopwatch.Stop();
+        metrics.ChartInfoMs = stopwatch.ElapsedMilliseconds;
+        return metrics;
     }
 
     public void DeleteSongsAndMaintenance(IEnumerable<BMSFile> bmsFiles)

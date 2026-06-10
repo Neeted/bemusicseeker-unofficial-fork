@@ -139,9 +139,15 @@ internal sealed class SongTableFileCheckResult
 
     public int PostParseQueueCapacity { get; set; }
 
+    public int PostParseResultQueueCapacity { get; set; }
+
+    public int PostParseBatchSize { get; set; }
+
     public int CommitQueueCapacity { get; set; }
 
     public int CommitWriterQueueCapacity { get; set; }
+
+    public int CommitWriterQueueHighWatermark { get; set; }
 
     public bool CommitStreamingEnabled { get; set; }
 
@@ -158,6 +164,8 @@ internal sealed class SongTableFileCheckResult
     public long CommitQueueWaitMs { get; set; }
 
     public long CommitWriterQueueWaitMs { get; set; }
+
+    public long DbCommitFirstChunkStartMs { get; set; }
 
     public int PostParseBatchCount { get; set; }
 
@@ -260,6 +268,28 @@ internal sealed class SongTableFileCheckResult
     public long ApplyMs { get; set; }
 
     public long DbCommitMs { get; set; }
+
+    public long DbCommitApplyMs { get; set; }
+
+    public long DbCommitSchemaMs { get; set; }
+
+    public long DbCommitBmsDeleteMs { get; set; }
+
+    public long DbCommitBmsDateUpdateMs { get; set; }
+
+    public long DbCommitBmsUpsertMs { get; set; }
+
+    public int DbCommitBmsChangedCount { get; set; }
+
+    public long DbCommitBmsonDeleteMs { get; set; }
+
+    public long DbCommitBmsonUpsertMs { get; set; }
+
+    public long DbCommitMaintenanceUpsertMs { get; set; }
+
+    public long DbCommitChartInfoMs { get; set; }
+
+    public long DbCommitSqliteCommitMs { get; set; }
 
     public int DbCommitChunkSize { get; set; }
 

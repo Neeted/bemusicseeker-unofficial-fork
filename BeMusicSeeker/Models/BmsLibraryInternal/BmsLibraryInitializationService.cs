@@ -972,8 +972,11 @@ internal sealed class BmsLibraryInitializationService
             + " read_queue_capacity=" + result.ReadQueueCapacity
             + " parsed_queue_capacity=" + result.ParsedQueueCapacity
             + " post_parse_queue_capacity=" + result.PostParseQueueCapacity
+            + " post_parse_result_queue_capacity=" + result.PostParseResultQueueCapacity
+            + " post_parse_batch_size=" + result.PostParseBatchSize
             + " commit_queue_capacity=" + result.CommitQueueCapacity
             + " commit_writer_queue_capacity=" + result.CommitWriterQueueCapacity
+            + " commit_writer_queue_high_watermark=" + result.CommitWriterQueueHighWatermark
             + " commit_streaming_enabled=" + result.CommitStreamingEnabled.ToString().ToLowerInvariant()
             + " commit_streaming_barrier=" + (result.CommitStreamingBarrierReason ?? string.Empty)
             + " reader_output_wait_ms=" + result.ReaderOutputWaitMs
@@ -982,6 +985,7 @@ internal sealed class BmsLibraryInitializationService
             + " post_parse_output_wait_ms=" + result.PostParseOutputWaitMs
             + " commit_queue_wait_ms=" + result.CommitQueueWaitMs
             + " commit_writer_queue_wait_ms=" + result.CommitWriterQueueWaitMs
+            + " db_commit_first_chunk_start_ms=" + result.DbCommitFirstChunkStartMs
             + " post_parse_batch_count=" + result.PostParseBatchCount
             + " post_parse_wall_ms=" + result.PostParseWallMs
             + " post_parse_max_batch_ms=" + result.PostParseMaxBatchMs
@@ -1033,6 +1037,17 @@ internal sealed class BmsLibraryInitializationService
             + " parse_read_bytes_estimate=" + result.ParseReadBytesEstimate
             + " apply_ms=" + result.ApplyMs
             + " db_commit_ms=" + result.DbCommitMs
+            + " db_commit_apply_ms=" + result.DbCommitApplyMs
+            + " db_commit_schema_ms=" + result.DbCommitSchemaMs
+            + " db_commit_bms_delete_ms=" + result.DbCommitBmsDeleteMs
+            + " db_commit_bms_date_update_ms=" + result.DbCommitBmsDateUpdateMs
+            + " db_commit_bms_upsert_ms=" + result.DbCommitBmsUpsertMs
+            + " db_commit_bms_changed=" + result.DbCommitBmsChangedCount
+            + " db_commit_bmson_delete_ms=" + result.DbCommitBmsonDeleteMs
+            + " db_commit_bmson_upsert_ms=" + result.DbCommitBmsonUpsertMs
+            + " db_commit_maintenance_upsert_ms=" + result.DbCommitMaintenanceUpsertMs
+            + " db_commit_chart_info_ms=" + result.DbCommitChartInfoMs
+            + " db_commit_sqlite_commit_ms=" + result.DbCommitSqliteCommitMs
             + " db_commit_chunks=" + result.DbCommitChunks
             + " db_commit_chunk_size=" + result.DbCommitChunkSize
             + " db_commit_max_chunk_ms=" + result.DbCommitMaxChunkMs
@@ -1598,7 +1613,7 @@ internal sealed class BmsLibraryInitializationService
 
         List<FileDiffParseTarget> parseTargets = [.. EnumerateFileDiffTargets(bmsTargets, bmsonPaths)];
         int parserDegree = Math.Max(1, result.FileDiffParserDegree);
-        int postParseWorkerDegree = parserDegree;
+        int postParseWorkerDegree = ResolveFileDiffPostParseWorkerDegree(parserDegree);
         int readerDegree = ChartFileReadPipelinePolicy.ResolveReaderDegree(Environment.ProcessorCount, parseTargets.Count);
         int chartInfoBatchSize = Math.Max(1, result.InlineChartInfoBatchSize);
         int postParseBatchSize = DefaultFileDiffPostParseBatchSize;
@@ -1626,6 +1641,8 @@ internal sealed class BmsLibraryInitializationService
         result.ReadQueueCapacity = readQueueCapacity;
         result.ParsedQueueCapacity = parsedQueueCapacity;
         result.PostParseQueueCapacity = postParseQueueCapacity;
+        result.PostParseResultQueueCapacity = postParseResultQueueCapacity;
+        result.PostParseBatchSize = postParseBatchSize;
         result.CommitQueueCapacity = commitQueueCapacity;
         result.CommitStreamingEnabled = streamCommitChunks;
         result.CommitStreamingBarrierReason = streamCommitChunks
@@ -1633,7 +1650,7 @@ internal sealed class BmsLibraryInitializationService
             : commitContext == null
                 ? "no_commit_context"
                 : "no_commit_context";
-        result.InlineMaintenanceDegree = parserDegree;
+        result.InlineMaintenanceDegree = postParseWorkerDegree;
         var readQueue = new BlockingCollection<FileDiffReadCandidate>(readQueueCapacity);
         var parsedQueue = new BlockingCollection<FileDiffParsedCandidate>(parsedQueueCapacity);
         var postParseQueue = new BlockingCollection<FileDiffParsedBatch>(postParseQueueCapacity);
@@ -3041,6 +3058,8 @@ internal sealed class BmsLibraryInitializationService
 
         private readonly Task writerTask;
 
+        private readonly Stopwatch lifetimeStopwatch = Stopwatch.StartNew();
+
         private readonly PipelineExceptionSignal writerException = new();
 
         private FileScanDiffCommitChunk pendingChunk = new();
@@ -3054,6 +3073,8 @@ internal sealed class BmsLibraryInitializationService
         private bool writerWaitCompleted;
 
         private long writerQueueWaitTicks;
+
+        private int writerQueueHighWatermark;
 
         public FileDiffStreamingCommitContext(
             BmsLibraryDbGateway dbGateway,
@@ -3310,6 +3331,13 @@ internal sealed class BmsLibraryInitializationService
                 {
                     if (writerQueue.TryAdd(item, 100))
                     {
+                        UpdateHighWatermark(ref writerQueueHighWatermark, writerQueue.Count);
+                        if (result != null)
+                        {
+                            result.CommitWriterQueueHighWatermark = Math.Max(
+                                result.CommitWriterQueueHighWatermark,
+                                Volatile.Read(ref writerQueueHighWatermark));
+                        }
                         long elapsed = Stopwatch.GetTimestamp() - start;
                         if (elapsed > 0L)
                         {
@@ -3477,6 +3505,10 @@ internal sealed class BmsLibraryInitializationService
             }
             EnsureSongDb();
             int chunkNumber = result.DbCommitChunks + 1;
+            if (chunkNumber == 1 && result.DbCommitFirstChunkStartMs <= 0L)
+            {
+                result.DbCommitFirstChunkStartMs = lifetimeStopwatch.ElapsedMilliseconds;
+            }
             logInstallPerformance?.Invoke("song_tbl_file_check db_commit_chunk_start chunk=" + chunkNumber
                 + " deleted=" + chunk.DeletedBmsPaths.Count
                 + " added=" + chunk.AddedBmsFiles.Count
@@ -3491,10 +3523,15 @@ internal sealed class BmsLibraryInitializationService
                 + " mutations=" + chunk.MutationCount);
             string savepoint = songDb.SaveTransactionPoint();
             var chunkStopwatch = Stopwatch.StartNew();
+            var metrics = new FileScanDiffCommitMetrics();
+            long sqliteCommitMs = 0L;
             try
             {
-                BmsLibraryDbGateway.CommitFileScanDiffChunk(songDb, chunk);
+                metrics = BmsLibraryDbGateway.CommitFileScanDiffChunk(songDb, chunk);
+                var commitStopwatch = Stopwatch.StartNew();
                 songDb.Commit();
+                commitStopwatch.Stop();
+                sqliteCommitMs = commitStopwatch.ElapsedMilliseconds;
             }
             catch (Exception ex)
             {
@@ -3517,8 +3554,30 @@ internal sealed class BmsLibraryInitializationService
             result.DbCommitChunks++;
             result.DbCommitMaxChunkMs = Math.Max(result.DbCommitMaxChunkMs, chunkStopwatch.ElapsedMilliseconds);
             result.DbCommitMs += chunkStopwatch.ElapsedMilliseconds;
+            result.DbCommitApplyMs += metrics.ApplyMs;
+            result.DbCommitSchemaMs += metrics.SchemaMs;
+            result.DbCommitBmsDeleteMs += metrics.BmsDeleteMs;
+            result.DbCommitBmsDateUpdateMs += metrics.BmsDateUpdateMs;
+            result.DbCommitBmsUpsertMs += metrics.BmsUpsertMs;
+            result.DbCommitBmsChangedCount += metrics.BmsChangedCount;
+            result.DbCommitBmsonDeleteMs += metrics.BmsonDeleteMs;
+            result.DbCommitBmsonUpsertMs += metrics.BmsonUpsertMs;
+            result.DbCommitMaintenanceUpsertMs += metrics.MaintenanceUpsertMs;
+            result.DbCommitChartInfoMs += metrics.ChartInfoMs;
+            result.DbCommitSqliteCommitMs += sqliteCommitMs;
             logInstallPerformance?.Invoke("song_tbl_file_check db_commit_chunk_done chunk=" + chunkNumber
                 + " elapsedMs=" + chunkStopwatch.ElapsedMilliseconds
+                + " applyMs=" + metrics.ApplyMs
+                + " schemaMs=" + metrics.SchemaMs
+                + " bmsDeleteMs=" + metrics.BmsDeleteMs
+                + " bmsDateUpdateMs=" + metrics.BmsDateUpdateMs
+                + " bmsUpsertMs=" + metrics.BmsUpsertMs
+                + " bmsChanged=" + metrics.BmsChangedCount
+                + " bmsonDeleteMs=" + metrics.BmsonDeleteMs
+                + " bmsonUpsertMs=" + metrics.BmsonUpsertMs
+                + " maintenanceUpsertMs=" + metrics.MaintenanceUpsertMs
+                + " chartInfoMs=" + metrics.ChartInfoMs
+                + " sqliteCommitMs=" + sqliteCommitMs
                 + " deleted=" + chunk.DeletedBmsPaths.Count
                 + " added=" + chunk.AddedBmsFiles.Count
                 + " bmsDateOnly=" + chunk.UpdatedBmsDates.Count
@@ -4349,7 +4408,7 @@ internal sealed class BmsLibraryInitializationService
     {
         int normalizedBatchSize = Math.Max(1, postParseBatchSize);
         int normalizedParserDegree = Math.Max(1, parserDegree);
-        return Math.Max(normalizedBatchSize, normalizedParserDegree * normalizedBatchSize);
+        return Math.Max(normalizedBatchSize, normalizedParserDegree * normalizedBatchSize * 2);
     }
 
     internal static int ResolveFileDiffPostParseQueueCapacity(int postParseWorkerDegree)
@@ -4365,6 +4424,16 @@ internal sealed class BmsLibraryInitializationService
             return Math.Max(1, fileDiffParserDegreeOverride.Value);
         }
         return ResolveDefaultFileDiffParserDegree();
+    }
+
+    private int ResolveFileDiffPostParseWorkerDegree(int parserDegree)
+    {
+        int normalizedParserDegree = Math.Max(1, parserDegree);
+        if (fileDiffParserDegreeOverride.HasValue)
+        {
+            return normalizedParserDegree;
+        }
+        return Math.Max(normalizedParserDegree, Environment.ProcessorCount);
     }
 
     private int ResolveInlineChartInfoBatchSize()
