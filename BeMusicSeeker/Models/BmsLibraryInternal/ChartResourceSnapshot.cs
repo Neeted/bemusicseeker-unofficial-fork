@@ -322,7 +322,34 @@ internal sealed class ChartResourceSnapshot
 
     private void AddReference(ChartResourceReference reference)
     {
-        AddReference(reference.Kind, reference.NormalizedPath, reference.RawPath);
+        string normalizedPath = StripLookupExtension(reference.NormalizedPath);
+        if (string.IsNullOrWhiteSpace(normalizedPath))
+        {
+            AddUnsupportedReferenceIfNeeded(reference.Kind, reference.RawPath);
+            return;
+        }
+        var resourceReference = new ResourceReference(
+            normalizedPath,
+            ChartResourceKeyHash.GetLookupHash(normalizedPath),
+            IsNormalizedPathAware(normalizedPath),
+            reference.RawPath,
+            reference.Kind);
+        resourceReferences.Add(resourceReference);
+        switch (reference.Kind)
+        {
+            case ChartResourceKind.Audio:
+                AddResourceKey(AudioRelativePaths, AudioRelativePathHashes, AudioPathAwareRelativePaths, AudioPathAwareRelativePathHashes, audioReferences, resourceReference);
+                break;
+            case ChartResourceKind.Image:
+                AddResourceKey(VisualRelativePaths, VisualRelativePathHashes, VisualPathAwareRelativePaths, VisualPathAwareRelativePathHashes, visualReferences, resourceReference);
+                break;
+            case ChartResourceKind.Movie:
+                AddResourceKey(MovieRelativePaths, MovieRelativePathHashes, MoviePathAwareRelativePaths, MoviePathAwareRelativePathHashes, movieReferences, resourceReference);
+                break;
+            default:
+                AddUnsupportedReferenceIfNeeded(reference.Kind, reference.RawPath);
+                break;
+        }
     }
 
     private void AddReference(ChartResourceKind kind, string path, string rawPath)
