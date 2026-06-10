@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -559,6 +560,66 @@ public sealed class AppSchemaPreflightServiceTests
             Assert.AreEqual(12, row.lr2_resource_max_raw_cp932_bytes);
             Assert.AreEqual(40, row.lr2_resource_max_resolved_cp932_bytes);
             Assert.AreEqual(2, row.lr2_resource_unsupported_count);
+        }
+        finally
+        {
+            DeleteTempSongDbDirectory(tempDbPath);
+        }
+    }
+
+    [TestMethod]
+    public void CommitFileScanDiffChunk_BulkUpsertsMaintenanceRowsWithNocaseLastWriteWins()
+    {
+        string tempDbPath = CreateEmptySongDbPath();
+        try
+        {
+            var chunk = new FileScanDiffCommitChunk();
+            chunk.AddMaintenanceInfoRow(new BMSFileMaintenanceInfo
+            {
+                path = @"D:\BMS\Pack\Song\Chart.bms",
+                hash = "11111111111111111111111111111111",
+                encoding = "shift_jis",
+                wav_files_defined = 1,
+                wav_files_existing = 0,
+                is_stagefile_defined = true,
+                is_stagefile_existing = false,
+                is_files_warning_ignored = false
+            }, countMutation: true);
+            chunk.AddMaintenanceInfoRow(new BMSFileMaintenanceInfo
+            {
+                path = @"D:\BMS\Pack\Song\chart.bms",
+                hash = "22222222222222222222222222222222",
+                encoding = "utf-8",
+                wav_files_defined = 2,
+                wav_files_existing = 2,
+                is_stagefile_defined = true,
+                is_stagefile_existing = true,
+                is_files_warning_ignored = true,
+                lr2_path_warning_flags = 4,
+                lr2_chart_path_cp932_bytes = 120,
+                lr2_resource_unsupported_count = 3
+            }, countMutation: true);
+
+            using (var db = new LR2SongDBExtended(tempDbPath))
+            {
+                BmsLibraryDbGateway.CommitFileScanDiffChunk(db, chunk);
+            }
+
+            using var verify = new LR2SongDBExtended(tempDbPath);
+            List<BMSFileMaintenanceInfo> rows = [.. verify.Table<BMSFileMaintenanceInfo>()];
+            Assert.AreEqual(1, rows.Count);
+            BMSFileMaintenanceInfo row = rows[0];
+            Assert.AreEqual(@"D:\BMS\Pack\Song\chart.bms", row.path);
+            Assert.AreEqual("22222222222222222222222222222222", row.hash);
+            Assert.AreEqual("utf-8", row.encoding);
+            Assert.AreEqual(2, row.wav_files_defined);
+            Assert.AreEqual(2, row.wav_files_existing);
+            Assert.AreEqual(true, row.is_stagefile_defined);
+            Assert.AreEqual(true, row.is_stagefile_existing);
+            Assert.IsTrue(row.is_files_warning_ignored);
+            Assert.AreEqual(4, row.lr2_path_warning_flags);
+            Assert.AreEqual(120, row.lr2_chart_path_cp932_bytes);
+            Assert.AreEqual(3, row.lr2_resource_unsupported_count);
         }
         finally
         {

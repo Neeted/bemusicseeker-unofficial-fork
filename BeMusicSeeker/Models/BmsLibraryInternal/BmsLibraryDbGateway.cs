@@ -76,6 +76,8 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
 
     private const string TempDeletedBmsonPathTable = "file_scan_deleted_bmson_path";
 
+    private const string TempFileScanMaintenanceUpsertTable = "file_scan_maintenance_upsert";
+
     private const string ChartInfoColumnList =
         "sha256, md5, charthash, level, difficulty, difficulty_defined, mainbpm, maxbpm, minbpm, length, mode, judge, bga, exlevel, feature, notes, n, ln, s, ls, total, total_defined, density, peakdensity, enddensity, distribution, speedchange, speedchange_count, lanenotes, parser_version, updated_at";
 
@@ -330,13 +332,7 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
         metrics.BmsonUpsertMs = stopwatch.ElapsedMilliseconds;
 
         stopwatch.Restart();
-        foreach (BMSFileMaintenanceInfo maintenanceInfo in chunk.MaintenanceInfoRows)
-        {
-            if (maintenanceInfo != null && !string.IsNullOrWhiteSpace(maintenanceInfo.path))
-            {
-                songDb.InsertOrReplace(maintenanceInfo, typeof(LR2SongDBExtended.maintenance));
-            }
-        }
+        BulkUpsertMaintenanceInfos(songDb, chunk.MaintenanceInfoRows);
         stopwatch.Stop();
         metrics.MaintenanceUpsertMs = stopwatch.ElapsedMilliseconds;
 
@@ -460,10 +456,7 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
         ExecuteSongDbTransaction(delegate (LR2SongDBExtended songDb)
         {
             EnsureMaintenanceSchema(songDb);
-            foreach (BMSFileMaintenanceInfo entry in entries)
-            {
-                songDb.InsertOrReplace(entry, typeof(LR2SongDBExtended.maintenance));
-            }
+            BulkUpsertMaintenanceInfos(songDb, entries);
         });
     }
 
@@ -2054,6 +2047,161 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
             + " WHERE " + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.path)
             + " = " + BMSPlaylist.SqlQuoteForTest(path)
             + " LIMIT 1;");
+    }
+
+    private static void BulkUpsertMaintenanceInfos(LR2SongDBExtended songDb, IEnumerable<BMSFileMaintenanceInfo> maintenanceInfos)
+    {
+        List<BMSFileMaintenanceInfo> rows = [.. (maintenanceInfos ?? [])
+            .Where(row => row != null && !string.IsNullOrWhiteSpace(row.path))];
+        if (rows.Count == 0)
+        {
+            return;
+        }
+
+        PrepareTempMaintenanceUpsertTable(songDb);
+        BulkInsertMaintenanceTempRows(songDb, rows);
+        UpsertMaintenanceRowsFromTemp(songDb);
+        ClearTempLookupTable(songDb, TempFileScanMaintenanceUpsertTable);
+    }
+
+    private static void PrepareTempMaintenanceUpsertTable(LR2SongDBExtended songDb)
+    {
+        songDb.Execute(
+            "CREATE TEMP TABLE IF NOT EXISTS temp." + TempFileScanMaintenanceUpsertTable + " ("
+            + "hash TEXT, "
+            + "path TEXT PRIMARY KEY COLLATE NOCASE, "
+            + "encoding TEXT, "
+            + "is_encoding_fixed INTEGER, "
+            + "wav_files_existing INTEGER, "
+            + "wav_files_defined INTEGER, "
+            + "bga_files_existing INTEGER, "
+            + "bga_files_defined INTEGER, "
+            + "movie_files_existing INTEGER, "
+            + "movie_files_defined INTEGER, "
+            + "is_stagefile_existing INTEGER, "
+            + "is_stagefile_defined INTEGER, "
+            + "is_banner_existing INTEGER, "
+            + "is_banner_defined INTEGER, "
+            + "is_backbmp_existing INTEGER, "
+            + "is_backbmp_defined INTEGER, "
+            + "is_files_warning_ignored INTEGER, "
+            + "lr2_path_warning_flags INTEGER, "
+            + "lr2_chart_path_cp932_bytes INTEGER, "
+            + "lr2_folder_scan_cp932_bytes INTEGER, "
+            + "lr2_resource_warning_flags INTEGER, "
+            + "lr2_resource_max_raw_cp932_bytes INTEGER, "
+            + "lr2_resource_max_resolved_cp932_bytes INTEGER, "
+            + "lr2_resource_unsupported_count INTEGER);");
+        ClearTempLookupTable(songDb, TempFileScanMaintenanceUpsertTable);
+    }
+
+    private static void BulkInsertMaintenanceTempRows(LR2SongDBExtended songDb, IReadOnlyList<BMSFileMaintenanceInfo> rows)
+    {
+        string[] columns = GetMaintenanceColumnNames();
+        int columnCount = columns.Length;
+        const int chunkSize = 30;
+        for (int offset = 0; offset < rows.Count; offset += chunkSize)
+        {
+            List<BMSFileMaintenanceInfo> chunk = rows.Skip(offset).Take(chunkSize).ToList();
+            string rowPlaceholders = "(" + string.Join(",", Enumerable.Repeat("?", columnCount)) + ")";
+            string placeholders = string.Join(",", chunk.Select(_ => rowPlaceholders));
+            var args = new List<object>(chunk.Count * columnCount);
+            foreach (BMSFileMaintenanceInfo row in chunk)
+            {
+                AddMaintenanceInsertArgs(args, row);
+            }
+            songDb.Execute(
+                "INSERT OR REPLACE INTO temp." + TempFileScanMaintenanceUpsertTable
+                + " (" + string.Join(",", columns) + ") VALUES " + placeholders + ";",
+                [.. args]);
+        }
+    }
+
+    private static void UpsertMaintenanceRowsFromTemp(LR2SongDBExtended songDb)
+    {
+        string tableName = SQLiteTable<LR2SongDBExtended.maintenance>.GetTableName();
+        string tempName = "temp." + TempFileScanMaintenanceUpsertTable;
+        string[] columns = GetMaintenanceColumnNames();
+        string pathColumn = SQLiteTable<LR2SongDBExtended.maintenance>.GetColumnName(row => row.path);
+        string setClause = string.Join(", ", columns
+            .Where(column => !string.Equals(column, pathColumn, StringComparison.Ordinal))
+            .Select(column => column + " = (SELECT t." + column + " FROM " + tempName + " t WHERE t.path = " + tableName + "." + pathColumn + " COLLATE NOCASE)"));
+        songDb.Execute(
+            "UPDATE " + tableName
+            + " SET " + setClause
+            + " WHERE EXISTS (SELECT 1 FROM " + tempName + " t WHERE t.path = "
+            + tableName + "." + pathColumn + " COLLATE NOCASE);");
+        songDb.Execute(
+            "INSERT INTO " + tableName
+            + " (" + string.Join(",", columns) + ") "
+            + "SELECT " + string.Join(",", columns.Select(column => "t." + column)) + " "
+            + "FROM " + tempName + " t "
+            + "WHERE NOT EXISTS (SELECT 1 FROM " + tableName + " m INDEXED BY " + MaintenancePathNocaseIndexName
+            + " WHERE m." + pathColumn + " = t.path COLLATE NOCASE);");
+    }
+
+    private static string[] GetMaintenanceColumnNames()
+    {
+        return
+        [
+            SQLiteTable<LR2SongDBExtended.maintenance>.GetColumnName(row => row.hash),
+            SQLiteTable<LR2SongDBExtended.maintenance>.GetColumnName(row => row.path),
+            SQLiteTable<LR2SongDBExtended.maintenance>.GetColumnName(row => row.encoding),
+            SQLiteTable<LR2SongDBExtended.maintenance>.GetColumnName(row => row.is_encoding_fixed),
+            SQLiteTable<LR2SongDBExtended.maintenance>.GetColumnName(row => row.wav_files_existing),
+            SQLiteTable<LR2SongDBExtended.maintenance>.GetColumnName(row => row.wav_files_defined),
+            SQLiteTable<LR2SongDBExtended.maintenance>.GetColumnName(row => row.bga_files_existing),
+            SQLiteTable<LR2SongDBExtended.maintenance>.GetColumnName(row => row.bga_files_defined),
+            SQLiteTable<LR2SongDBExtended.maintenance>.GetColumnName(row => row.movie_files_existing),
+            SQLiteTable<LR2SongDBExtended.maintenance>.GetColumnName(row => row.movie_files_defined),
+            SQLiteTable<LR2SongDBExtended.maintenance>.GetColumnName(row => row.is_stagefile_existing),
+            SQLiteTable<LR2SongDBExtended.maintenance>.GetColumnName(row => row.is_stagefile_defined),
+            SQLiteTable<LR2SongDBExtended.maintenance>.GetColumnName(row => row.is_banner_existing),
+            SQLiteTable<LR2SongDBExtended.maintenance>.GetColumnName(row => row.is_banner_defined),
+            SQLiteTable<LR2SongDBExtended.maintenance>.GetColumnName(row => row.is_backbmp_existing),
+            SQLiteTable<LR2SongDBExtended.maintenance>.GetColumnName(row => row.is_backbmp_defined),
+            SQLiteTable<LR2SongDBExtended.maintenance>.GetColumnName(row => row.is_files_warning_ignored),
+            SQLiteTable<LR2SongDBExtended.maintenance>.GetColumnName(row => row.lr2_path_warning_flags),
+            SQLiteTable<LR2SongDBExtended.maintenance>.GetColumnName(row => row.lr2_chart_path_cp932_bytes),
+            SQLiteTable<LR2SongDBExtended.maintenance>.GetColumnName(row => row.lr2_folder_scan_cp932_bytes),
+            SQLiteTable<LR2SongDBExtended.maintenance>.GetColumnName(row => row.lr2_resource_warning_flags),
+            SQLiteTable<LR2SongDBExtended.maintenance>.GetColumnName(row => row.lr2_resource_max_raw_cp932_bytes),
+            SQLiteTable<LR2SongDBExtended.maintenance>.GetColumnName(row => row.lr2_resource_max_resolved_cp932_bytes),
+            SQLiteTable<LR2SongDBExtended.maintenance>.GetColumnName(row => row.lr2_resource_unsupported_count)
+        ];
+    }
+
+    private static void AddMaintenanceInsertArgs(List<object> args, BMSFileMaintenanceInfo row)
+    {
+        args.Add(row.hash);
+        args.Add(row.path);
+        args.Add(row.encoding);
+        args.Add(row.is_encoding_fixed ? 1 : 0);
+        args.Add(row.wav_files_existing);
+        args.Add(row.wav_files_defined);
+        args.Add(row.bga_files_existing);
+        args.Add(row.bga_files_defined);
+        args.Add(row.movie_files_existing);
+        args.Add(row.movie_files_defined);
+        args.Add(ToNullableInteger(row.is_stagefile_existing));
+        args.Add(ToNullableInteger(row.is_stagefile_defined));
+        args.Add(ToNullableInteger(row.is_banner_existing));
+        args.Add(ToNullableInteger(row.is_banner_defined));
+        args.Add(ToNullableInteger(row.is_backbmp_existing));
+        args.Add(ToNullableInteger(row.is_backbmp_defined));
+        args.Add(row.is_files_warning_ignored ? 1 : 0);
+        args.Add(row.lr2_path_warning_flags);
+        args.Add(row.lr2_chart_path_cp932_bytes);
+        args.Add(row.lr2_folder_scan_cp932_bytes);
+        args.Add(row.lr2_resource_warning_flags);
+        args.Add(row.lr2_resource_max_raw_cp932_bytes);
+        args.Add(row.lr2_resource_max_resolved_cp932_bytes);
+        args.Add(row.lr2_resource_unsupported_count);
+    }
+
+    private static int? ToNullableInteger(bool? value)
+    {
+        return value.HasValue ? (value.Value ? 1 : 0) : null;
     }
 
     private static void BulkDeleteBmsPaths(LR2SongDBExtended songDb, IEnumerable<string> paths)

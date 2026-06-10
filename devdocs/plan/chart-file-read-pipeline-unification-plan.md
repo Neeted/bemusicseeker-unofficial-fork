@@ -284,10 +284,10 @@ target enumeration
 
 ### Phase 10b: file diff DB commit の集合化
 
-- Status: 検討中。2026-06-10 の空 DB 初回ログでは `db_commit_ms=126043`、内訳は `db_commit_bms_upsert_ms=69028`、`db_commit_maintenance_upsert_ms=47923`。最終的な `song.db` が同じなら方法は問わないため、row-by-row に残っている `maintenance` / `bmson_song` を temp table または bulk helper へ寄せる。
+- Status: 一部完了。2026-06-10 の空 DB 初回ログでは `db_commit_ms=126043`、内訳は `db_commit_bms_upsert_ms=69028`、`db_commit_maintenance_upsert_ms=47923`。最終的な `song.db` が同じなら方法は問わないため、row-by-row に残っている `maintenance` / `bmson_song` を temp table または bulk helper へ寄せる。
 - 方針:
   - BMS `song` / `chart_digest_map` は既に `Lr2SongDbWriter.UpsertGeneratedSongs(...)` の bulk path を使っているため、まず `maintenance` と `bmson_song` を対象にする。
-  - `maintenance` は全列 upsert が必要。LR2 compatibility facts や resource health / encoding を落とさないよう、table schema から column list を作るか、既存 SQLite mapper の bulk insert / replace 能力を確認して使う。
+  - 完了: `maintenance` は temp table に全列を bulk insert し、実 table へ NOCASE path identity で既存 row update + missing row insert を行う。temp table の `path TEXT PRIMARY KEY COLLATE NOCASE` により、同一 chunk 内の重複 path は last-write-wins とする。
   - `bmson_song` は件数が少ないが、空 DB 初回では同じ transaction に乗るため row-by-row API 呼び出しを減らす候補にする。
   - 変更後は chunk log の `maintenanceUpsertMs` / `bmsonUpsertMs` と DB 内容の同一性を regression で確認する。
 
