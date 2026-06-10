@@ -741,7 +741,8 @@ public sealed class BmsLibraryInitializationServiceTests
             Directory.CreateDirectory(chartDirectoryPath);
             string bmsPath = Path.Combine(chartDirectoryPath, "added.bms");
             string bmsonPath = Path.Combine(chartDirectoryPath, "added.bmson");
-            File.WriteAllText(bmsPath, "#PLAYER 1\r\n#TITLE Added\r\n");
+            File.WriteAllText(bmsPath, CreateValidBmsText("Added"), Encoding.ASCII);
+            File.WriteAllText(Path.Combine(chartDirectoryPath, "sound.wav"), string.Empty, Encoding.ASCII);
             File.WriteAllText(bmsonPath, CreateBmsonJson("Added", "", "", "Artist", "Genre", 7, "beat-7k"));
 
             using (var songDbConnection = new LR2SongDBExtended(songDbPath))
@@ -767,7 +768,7 @@ public sealed class BmsLibraryInitializationServiceTests
                         [bmsPath, bmsonPath],
                         new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
                         {
-                            { chartDirectoryPath, Array.Empty<string>() }
+                            { chartDirectoryPath, ["sound.wav"] }
                         })
                 },
                 0L,
@@ -825,6 +826,7 @@ public sealed class BmsLibraryInitializationServiceTests
             Assert.IsTrue(result.PostParseWallMs >= 0);
             Assert.IsTrue(result.InlineChartInfoWallMs >= 0);
             Assert.IsTrue(result.InlineMaintenanceWallMs >= 0);
+            Assert.IsTrue(result.InlineMaintenanceResourceIndexHitCount > 0);
             Assert.IsTrue(progress.Any(item => item.Total == 2 && item.Processed == 0));
             Assert.IsTrue(progress.Any(item => item.Total == 2 && item.Processed == 2));
             Assert.IsTrue(progress.All(item => item.Total == 2));

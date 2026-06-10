@@ -783,7 +783,6 @@ internal sealed class BmsLibraryInitializationService
         result.FileDiffDigestMs = pipelineResult.DigestMs;
         result.FileDiffParseMs = pipelineResult.BmsParseMs + pipelineResult.BmsonParseMs;
         result.SnapshotQueueHighWatermark = pipelineResult.SnapshotQueueHighWatermark;
-        result.InlineMaintenanceResourceIndexHitCount = inlineMaintenanceLookupContext.ResourceIndexHitCount;
         result.InlineMaintenanceSharedResourceCacheEntries = inlineMaintenanceLookupContext.SharedResourceCacheEntryCount;
         result.AddedFiles.AddRange(pipelineResult.AddedFiles);
         foreach (string path in pipelineResult.NewlyInsertedBmsPaths)
