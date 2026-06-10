@@ -258,9 +258,9 @@ internal sealed class BmsLibraryMaintenanceService
         }
 
         var builder = new StringBuilder();
-        AppendResourceSignatureSection(builder, 'A', resources.AudioReferences);
-        AppendResourceSignatureSection(builder, 'I', resources.VisualReferences);
-        AppendResourceSignatureSection(builder, 'M', resources.MovieReferences);
+        AppendResourceSignatureSection(builder, 'A', resources.AudioRelativePaths);
+        AppendResourceSignatureSection(builder, 'I', resources.VisualRelativePaths);
+        AppendResourceSignatureSection(builder, 'M', resources.MovieRelativePaths);
         AppendOptionalImageSignatureSection(builder, 'S', chart?.Stagefile);
         AppendOptionalImageSignatureSection(builder, 'B', chart?.Backbmp);
         AppendOptionalImageSignatureSection(builder, 'R', chart?.Banner);
@@ -270,13 +270,11 @@ internal sealed class BmsLibraryMaintenanceService
     private static void AppendResourceSignatureSection(
         StringBuilder builder,
         char section,
-        IEnumerable<ChartResourceSnapshot.ResourceReference> references)
+        IEnumerable<string> references)
     {
         builder.Append(section).Append(':');
         foreach (string path in (references ?? [])
-            .Select(reference => reference.NormalizedPath ?? string.Empty)
             .Where(path => !string.IsNullOrWhiteSpace(path))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
         {
             builder.Append(path.Length).Append('#').Append(path).Append(';');
