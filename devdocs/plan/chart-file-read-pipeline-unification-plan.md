@@ -100,7 +100,7 @@ target enumeration
 | --- | --- |
 | reader degree | `targetCount <= 1` なら 1。`processorCount >= 6` かつ大量 target なら 2。それ以外は 1 |
 | max reader degree | 2 |
-| worker degree | CPU work の内容ごとに既存上限を尊重しつつ、`Environment.ProcessorCount - 1` を基本にする |
+| worker degree | CPU work の内容ごとに決める。単一 heavy worker stage は既存上限を尊重しつつ `Environment.ProcessorCount - 1` を基本にし、file diff のように lightweight parse と post-parse を分ける場合は parser を CPU 数の半分程度、post-parse を CPU 数程度に寄せる |
 | read queue capacity | `workerDegree * max(2, readerDegree * 2)` を初期値にし、処理ごとの chunk size と memory risk で調整 |
 | computed queue capacity | writer chunk size または worker 数に比例させる |
 | logging | `readerDegree`, `workerDegree`, `readQueueCapacity`, `computedQueueCapacity`, `readMs`, `digestMs`, `parseMs`, `readerOutputWaitMs`, queue high watermark を可能な範囲で出す |
