@@ -5,7 +5,6 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Security;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -130,7 +129,7 @@ internal sealed class BmsLibraryMaintenanceService
             is_encoding_fixed = false
         };
 
-        string resourceSetSignature = BuildResourceHealthSetSignature(chart, resources);
+        ResourceHealthLookupContext.ResourceHealthSetSignature resourceSetSignature = BuildResourceHealthSetSignature(chart, resources);
         if (lookupContext?.TryGetResourceHealthCounts(
             chartDirectory,
             resourceSetSignature,
@@ -163,42 +162,73 @@ internal sealed class BmsLibraryMaintenanceService
         ChartResourceSnapshot resources,
         ResourceHealthLookupContext lookupContext)
     {
+        string lookupDirectory = NormalizeLookupDirectory(chartDirectory);
+        DirectoryResourceLookupCache.Entry resourceEntry = lookupContext?.GetResourceEntryOrNull(lookupDirectory);
+        var counters = new ResourceHealthLookupCounters();
         int audioDefined = resources.AudioReferenceCount;
         int audioExisting = audioDefined > 0
             ? CountExistingResourceReferences(
                 chartDirectory,
+                lookupDirectory,
+                resourceEntry,
                 resources.AudioReferences,
                 ChartResourceExtensions.AudioExtensions,
                 ChartResourceKind.Audio,
-                lookupContext)
+                lookupContext,
+                ref counters)
             : 0;
         int visualDefined = resources.VisualReferenceCount;
         int visualExisting = visualDefined > 0
             ? CountExistingResourceReferences(
                 chartDirectory,
+                lookupDirectory,
+                resourceEntry,
                 resources.VisualReferences,
                 ChartResourceExtensions.ImageExtensions,
                 ChartResourceKind.Image,
-                lookupContext)
+                lookupContext,
+                ref counters)
             : 0;
         int movieDefined = resources.MovieReferenceCount;
         int movieExisting = movieDefined > 0
             ? CountExistingResourceReferences(
                 chartDirectory,
+                lookupDirectory,
+                resourceEntry,
                 resources.MovieReferences,
                 ChartResourceExtensions.MovieExtensions,
                 ChartResourceKind.Movie,
-                lookupContext)
+                lookupContext,
+                ref counters)
             : 0;
         string stagefile = chart.Stagefile;
         bool stagefileDefined = !string.IsNullOrWhiteSpace(stagefile);
-        bool stagefileExisting = stagefileDefined && ExistsOptionalImageResource(chartDirectory, stagefile, lookupContext);
+        bool stagefileExisting = stagefileDefined && ExistsOptionalImageResource(
+            chartDirectory,
+            lookupDirectory,
+            resourceEntry,
+            NormalizeOptionalImageResourceKey(stagefile),
+            lookupContext,
+            ref counters);
         string backbmp = chart.Backbmp;
         bool backbmpDefined = !string.IsNullOrWhiteSpace(backbmp);
-        bool backbmpExisting = backbmpDefined && ExistsOptionalImageResource(chartDirectory, backbmp, lookupContext);
+        bool backbmpExisting = backbmpDefined && ExistsOptionalImageResource(
+            chartDirectory,
+            lookupDirectory,
+            resourceEntry,
+            NormalizeOptionalImageResourceKey(backbmp),
+            lookupContext,
+            ref counters);
         string banner = chart.Banner;
         bool bannerDefined = !string.IsNullOrWhiteSpace(banner);
-        bool bannerExisting = bannerDefined && ExistsOptionalImageResource(chartDirectory, banner, lookupContext);
+        bool bannerExisting = bannerDefined && ExistsOptionalImageResource(
+            chartDirectory,
+            lookupDirectory,
+            resourceEntry,
+            NormalizeOptionalImageResourceKey(banner),
+            lookupContext,
+            ref counters);
+        counters.Flush(lookupContext);
         return new ResourceHealthLookupContext.ResourceHealthCounts(
             audioDefined,
             audioExisting,
@@ -250,47 +280,23 @@ internal sealed class BmsLibraryMaintenanceService
         }
     }
 
-    private static string BuildResourceHealthSetSignature(ChartFile chart, ChartResourceSnapshot resources)
+    private static ResourceHealthLookupContext.ResourceHealthSetSignature BuildResourceHealthSetSignature(ChartFile chart, ChartResourceSnapshot resources)
     {
-        if (resources == null)
-        {
-            return string.Empty;
-        }
-
-        var builder = new StringBuilder();
-        AppendResourceSignatureSection(builder, 'A', resources.AudioRelativePaths);
-        AppendResourceSignatureSection(builder, 'I', resources.VisualRelativePaths);
-        AppendResourceSignatureSection(builder, 'M', resources.MovieRelativePaths);
-        AppendOptionalImageSignatureSection(builder, 'S', chart?.Stagefile);
-        AppendOptionalImageSignatureSection(builder, 'B', chart?.Backbmp);
-        AppendOptionalImageSignatureSection(builder, 'R', chart?.Banner);
-        return builder.ToString();
+        string stagefile = NormalizeOptionalImageResourceKey(chart?.Stagefile);
+        string backbmp = NormalizeOptionalImageResourceKey(chart?.Backbmp);
+        string banner = NormalizeOptionalImageResourceKey(chart?.Banner);
+        return new ResourceHealthLookupContext.ResourceHealthSetSignature(
+            resources?.AudioRelativePaths,
+            resources?.VisualRelativePaths,
+            resources?.MovieRelativePaths,
+            stagefile,
+            backbmp,
+            banner);
     }
 
-    private static void AppendResourceSignatureSection(
-        StringBuilder builder,
-        char section,
-        IEnumerable<string> references)
+    private static string NormalizeOptionalImageResourceKey(string reference)
     {
-        builder.Append(section).Append(':');
-        foreach (string path in (references ?? [])
-            .Where(path => !string.IsNullOrWhiteSpace(path))
-            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
-        {
-            builder.Append(path.Length).Append('#').Append(path).Append(';');
-        }
-        builder.Append('|');
-    }
-
-    private static void AppendOptionalImageSignatureSection(StringBuilder builder, char section, string reference)
-    {
-        builder.Append(section).Append(':');
-        string path = ChartResourcePathNormalizer.NormalizeResourceKeyForLookup(reference);
-        if (!string.IsNullOrWhiteSpace(path))
-        {
-            builder.Append(path.Length).Append('#').Append(path).Append(';');
-        }
-        builder.Append('|');
+        return ChartResourcePathNormalizer.NormalizeResourceKeyForLookup(reference);
     }
 
     private static void ApplyLr2CompatibilityFacts(
@@ -430,21 +436,86 @@ internal sealed class BmsLibraryMaintenanceService
         return warnings;
     }
 
+    private struct ResourceHealthLookupCounters
+    {
+        private long cacheHits;
+
+        private long resourceIndexHits;
+
+        private long audioFileExistsFallbacks;
+
+        private long imageFileExistsFallbacks;
+
+        private long movieFileExistsFallbacks;
+
+        private long optionalImageFileExistsFallbacks;
+
+        private long unknownFileExistsFallbacks;
+
+        public void RecordCacheHit()
+        {
+            cacheHits++;
+        }
+
+        public void RecordResourceIndexHit()
+        {
+            resourceIndexHits++;
+        }
+
+        public void RecordFileExistsFallback(ResourceHealthFallbackKind kind)
+        {
+            switch (kind)
+            {
+                case ResourceHealthFallbackKind.Audio:
+                    audioFileExistsFallbacks++;
+                    break;
+                case ResourceHealthFallbackKind.Image:
+                    imageFileExistsFallbacks++;
+                    break;
+                case ResourceHealthFallbackKind.Movie:
+                    movieFileExistsFallbacks++;
+                    break;
+                case ResourceHealthFallbackKind.OptionalImage:
+                    optionalImageFileExistsFallbacks++;
+                    break;
+                default:
+                    unknownFileExistsFallbacks++;
+                    break;
+            }
+        }
+
+        public void Flush(ResourceHealthLookupContext lookupContext)
+        {
+            if (lookupContext == null)
+            {
+                return;
+            }
+            lookupContext.AddCacheHits(cacheHits + resourceIndexHits);
+            lookupContext.AddResourceIndexHits(resourceIndexHits);
+            lookupContext.AddFileExistsFallbacks(ResourceHealthFallbackKind.Audio, audioFileExistsFallbacks);
+            lookupContext.AddFileExistsFallbacks(ResourceHealthFallbackKind.Image, imageFileExistsFallbacks);
+            lookupContext.AddFileExistsFallbacks(ResourceHealthFallbackKind.Movie, movieFileExistsFallbacks);
+            lookupContext.AddFileExistsFallbacks(ResourceHealthFallbackKind.OptionalImage, optionalImageFileExistsFallbacks);
+            lookupContext.AddFileExistsFallbacks(ResourceHealthFallbackKind.Unknown, unknownFileExistsFallbacks);
+        }
+    }
+
     private static int CountExistingResourceReferences(
         string chartDirectory,
+        string lookupDirectory,
+        DirectoryResourceLookupCache.Entry resourceEntry,
         IEnumerable<ChartResourceSnapshot.ResourceReference> references,
         IEnumerable<string> extensions,
         ChartResourceKind resourceKind,
-        ResourceHealthLookupContext lookupContext)
+        ResourceHealthLookupContext lookupContext,
+        ref ResourceHealthLookupCounters counters)
     {
-        string lookupDirectory = NormalizeLookupDirectory(chartDirectory);
-        DirectoryResourceLookupCache.Entry resourceEntry = lookupContext?.GetResourceEntryOrNull(lookupDirectory);
         int existingCount = 0;
         foreach (ChartResourceSnapshot.ResourceReference reference in references ?? [])
         {
             if (TryResolveResourceReferenceFromCache(resourceEntry, reference, resourceKind, out bool existsInCache))
             {
-                lookupContext?.RecordResourceIndexHit();
+                counters.RecordResourceIndexHit();
                 if (existsInCache)
                 {
                     existingCount++;
@@ -458,7 +529,7 @@ internal sealed class BmsLibraryMaintenanceService
                 reference.RelativePathHash,
                 out bool sharedExistsInCache) == true)
             {
-                lookupContext.RecordCacheHit();
+                counters.RecordCacheHit();
                 if (sharedExistsInCache)
                 {
                     existingCount++;
@@ -466,7 +537,7 @@ internal sealed class BmsLibraryMaintenanceService
                 continue;
             }
 
-            lookupContext?.RecordFileExistsFallback(GetFallbackKind(resourceKind));
+            counters.RecordFileExistsFallback(GetFallbackKind(resourceKind));
             if (ExistsWithCompatibleExtensions(chartDirectory, reference.NormalizedPath, extensions))
             {
                 existingCount++;
@@ -475,22 +546,25 @@ internal sealed class BmsLibraryMaintenanceService
         return existingCount;
     }
 
-    private static bool ExistsOptionalImageResource(string chartDirectory, string file, ResourceHealthLookupContext lookupContext)
+    private static bool ExistsOptionalImageResource(
+        string chartDirectory,
+        string lookupDirectory,
+        DirectoryResourceLookupCache.Entry resourceEntry,
+        string normalizedPath,
+        ResourceHealthLookupContext lookupContext,
+        ref ResourceHealthLookupCounters counters)
     {
-        string normalizedPath = ChartResourcePathNormalizer.NormalizeResourceKeyForLookup(file);
         if (string.IsNullOrWhiteSpace(normalizedPath))
         {
             return false;
         }
-        string lookupDirectory = NormalizeLookupDirectory(chartDirectory);
-        DirectoryResourceLookupCache.Entry resourceEntry = lookupContext?.GetResourceEntryOrNull(lookupDirectory);
         var reference = new ChartResourceSnapshot.ResourceReference(
             normalizedPath,
             ChartResourceKeyHash.GetLookupHash(normalizedPath),
             ChartResourcePathNormalizer.HasDirectorySegments(normalizedPath));
         if (TryResolveResourceReferenceFromCache(resourceEntry, reference, ChartResourceKind.Image, out bool existsInCache))
         {
-            lookupContext?.RecordResourceIndexHit();
+            counters.RecordResourceIndexHit();
             return existsInCache;
         }
 
@@ -500,11 +574,11 @@ internal sealed class BmsLibraryMaintenanceService
             reference.RelativePathHash,
             out bool sharedExistsInCache) == true)
         {
-            lookupContext.RecordCacheHit();
+            counters.RecordCacheHit();
             return sharedExistsInCache;
         }
 
-        lookupContext?.RecordFileExistsFallback(ResourceHealthFallbackKind.OptionalImage);
+        counters.RecordFileExistsFallback(ResourceHealthFallbackKind.OptionalImage);
         return ExistsWithCompatibleExtensions(chartDirectory, normalizedPath, ChartResourceExtensions.ImageExtensions);
     }
 

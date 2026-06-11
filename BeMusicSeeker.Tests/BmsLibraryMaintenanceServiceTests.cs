@@ -379,6 +379,43 @@ public sealed class BmsLibraryMaintenanceServiceTests
     }
 
     [TestMethod]
+    public void BuildResourceHealthMaintenanceInfo_ResourceSetCacheDoesNotMergeHashCollisions()
+    {
+        string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectoryPath);
+        try
+        {
+            const string ExistingResource = "res_xf2a7hbc7_";
+            const string MissingResource = "res_0ltou99kgv";
+            Assert.AreEqual(ChartResourceKeyHash.GetLookupHash(ExistingResource), ChartResourceKeyHash.GetLookupHash(MissingResource));
+            File.WriteAllText(Path.Combine(tempDirectoryPath, ExistingResource + ".wav"), string.Empty);
+
+            var lookupContext = new ResourceHealthLookupContext(null);
+            ChartFile first = CreateProjectionOnlyBmsChart(
+                Path.Combine(tempDirectoryPath, "first.bms"),
+                md5: "11111111111111111111111111111111",
+                audioResourcePaths: [ExistingResource + ".wav"]);
+            ChartFile second = CreateProjectionOnlyBmsChart(
+                Path.Combine(tempDirectoryPath, "second.bms"),
+                md5: "22222222222222222222222222222222",
+                audioResourcePaths: [ExistingResource + ".wav", MissingResource + ".wav"]);
+
+            BMSFileMaintenanceInfo firstInfo = BmsLibraryMaintenanceService.BuildResourceHealthMaintenanceInfo(first, lookupContext);
+            BMSFileMaintenanceInfo secondInfo = BmsLibraryMaintenanceService.BuildResourceHealthMaintenanceInfo(second, lookupContext);
+
+            Assert.AreEqual(1, firstInfo.wav_files_defined);
+            Assert.AreEqual(1, firstInfo.wav_files_existing);
+            Assert.AreEqual(2, secondInfo.wav_files_defined);
+            Assert.AreEqual(1, secondInfo.wav_files_existing);
+            Assert.AreEqual(2, lookupContext.ResourceHealthSetCacheEntryCount);
+        }
+        finally
+        {
+            Directory.Delete(tempDirectoryPath, recursive: true);
+        }
+    }
+
+    [TestMethod]
     public void SetChartResourceWarningsIgnored_ChartBmsonPlaceholderAttachesMaintenanceInfoToSourceSong()
     {
         var service = new BmsLibraryMaintenanceService();
@@ -2765,7 +2802,9 @@ public sealed class BmsLibraryMaintenanceServiceTests
         string md5,
         string stagefile = "",
         string backbmp = "",
-        string banner = "")
+        string banner = "",
+        IReadOnlyList<string>? audioResourcePaths = null,
+        IReadOnlyList<string>? visualResourcePaths = null)
     {
         return new ChartFile(
             kind: ChartFileKind.Bms,
@@ -2784,6 +2823,8 @@ public sealed class BmsLibraryMaintenanceServiceTests
             chartInfo: null,
             bmsFile: null,
             bmsonSong: null,
+            audioResourcePaths: audioResourcePaths,
+            visualResourcePaths: visualResourcePaths,
             stagefile: stagefile,
             backbmp: backbmp,
             banner: banner);

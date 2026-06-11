@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
@@ -118,7 +120,7 @@ internal sealed class ResourceHealthLookupContext
             exists);
     }
 
-    public bool TryGetResourceHealthCounts(string directoryPath, string resourceSetSignature, out ResourceHealthCounts counts)
+    public bool TryGetResourceHealthCounts(string directoryPath, ResourceHealthSetSignature resourceSetSignature, out ResourceHealthCounts counts)
     {
         bool found = resourceHealthCountsByKey.TryGetValue(
             new ResourceHealthSetCacheKey(directoryPath, resourceSetSignature),
@@ -130,13 +132,8 @@ internal sealed class ResourceHealthLookupContext
         return found;
     }
 
-    public void SetResourceHealthCounts(string directoryPath, string resourceSetSignature, ResourceHealthCounts counts)
+    public void SetResourceHealthCounts(string directoryPath, ResourceHealthSetSignature resourceSetSignature, ResourceHealthCounts counts)
     {
-        if (string.IsNullOrWhiteSpace(resourceSetSignature))
-        {
-            return;
-        }
-
         resourceHealthCountsByKey.TryAdd(
             new ResourceHealthSetCacheKey(directoryPath, resourceSetSignature),
             counts);
@@ -296,22 +293,170 @@ internal sealed class ResourceHealthLookupContext
         public bool BannerExisting { get; } = bannerExisting;
     }
 
+    internal readonly struct ResourceHealthSetSignature : IEquatable<ResourceHealthSetSignature>
+    {
+        private static readonly StringComparer PathComparer = StringComparer.OrdinalIgnoreCase;
+
+        private readonly string[] audioPaths;
+
+        private readonly string[] imagePaths;
+
+        private readonly string[] moviePaths;
+
+        private readonly string stagefilePath;
+
+        private readonly string backbmpPath;
+
+        private readonly string bannerPath;
+
+        private readonly int hashCode;
+
+        public ResourceHealthSetSignature(
+            IEnumerable<string> audioPaths,
+            IEnumerable<string> imagePaths,
+            IEnumerable<string> moviePaths,
+            string stagefilePath,
+            string backbmpPath,
+            string bannerPath)
+        {
+            this.audioPaths = MaterializeSortedPaths(audioPaths);
+            this.imagePaths = MaterializeSortedPaths(imagePaths);
+            this.moviePaths = MaterializeSortedPaths(moviePaths);
+            this.stagefilePath = stagefilePath ?? string.Empty;
+            this.backbmpPath = backbmpPath ?? string.Empty;
+            this.bannerPath = bannerPath ?? string.Empty;
+            hashCode = ComputeHashCode(
+                this.audioPaths,
+                this.imagePaths,
+                this.moviePaths,
+                this.stagefilePath,
+                this.backbmpPath,
+                this.bannerPath);
+        }
+
+        public bool Equals(ResourceHealthSetSignature other)
+        {
+            return PathComparer.Equals(stagefilePath ?? string.Empty, other.stagefilePath ?? string.Empty)
+                && PathComparer.Equals(backbmpPath ?? string.Empty, other.backbmpPath ?? string.Empty)
+                && PathComparer.Equals(bannerPath ?? string.Empty, other.bannerPath ?? string.Empty)
+                && PathsEqual(audioPaths, other.audioPaths)
+                && PathsEqual(imagePaths, other.imagePaths)
+                && PathsEqual(moviePaths, other.moviePaths);
+        }
+
+        public override bool Equals(object obj)
+        {
+            return obj is ResourceHealthSetSignature other && Equals(other);
+        }
+
+        public override int GetHashCode()
+        {
+            return hashCode;
+        }
+
+        private static string[] MaterializeSortedPaths(IEnumerable<string> paths)
+        {
+            if (paths == null)
+            {
+                return [];
+            }
+            List<string> pathList = [];
+            foreach (string path in paths)
+            {
+                if (!string.IsNullOrWhiteSpace(path))
+                {
+                    pathList.Add(path);
+                }
+            }
+            if (pathList.Count == 0)
+            {
+                return [];
+            }
+            string[] pathArray = [.. pathList.Distinct(PathComparer)];
+            if (pathArray.Length > 1)
+            {
+                Array.Sort(pathArray, PathComparer);
+            }
+            return pathArray;
+        }
+
+        private static bool PathsEqual(string[] left, string[] right)
+        {
+            left ??= [];
+            right ??= [];
+            if (left.Length != right.Length)
+            {
+                return false;
+            }
+            for (int i = 0; i < left.Length; i++)
+            {
+                if (!PathComparer.Equals(left[i], right[i]))
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        private static int ComputeHashCode(
+            string[] audioPaths,
+            string[] imagePaths,
+            string[] moviePaths,
+            string stagefilePath,
+            string backbmpPath,
+            string bannerPath)
+        {
+            unchecked
+            {
+                int hash = 0;
+                hash = CombinePaths(hash, audioPaths);
+                hash = CombinePaths(hash, imagePaths);
+                hash = CombinePaths(hash, moviePaths);
+                hash = CombinePath(hash, stagefilePath);
+                hash = CombinePath(hash, backbmpPath);
+                hash = CombinePath(hash, bannerPath);
+                return hash;
+            }
+        }
+
+        private static int CombinePaths(int hash, string[] paths)
+        {
+            unchecked
+            {
+                hash = (hash * 397) ^ (paths?.Length ?? 0);
+                foreach (string path in paths ?? [])
+                {
+                    hash = CombinePath(hash, path);
+                }
+                return hash;
+            }
+        }
+
+        private static int CombinePath(int hash, string path)
+        {
+            unchecked
+            {
+                return (hash * 397) ^ (string.IsNullOrEmpty(path) ? 0 : PathComparer.GetHashCode(path));
+            }
+        }
+    }
+
     private readonly struct ResourceHealthSetCacheKey : IEquatable<ResourceHealthSetCacheKey>
     {
         private readonly string directoryPath;
 
-        private readonly string resourceSetSignature;
+        private readonly ResourceHealthSetSignature resourceSetSignature;
 
-        public ResourceHealthSetCacheKey(string directoryPath, string resourceSetSignature)
+        public ResourceHealthSetCacheKey(string directoryPath, ResourceHealthSetSignature resourceSetSignature)
         {
             this.directoryPath = directoryPath ?? string.Empty;
-            this.resourceSetSignature = resourceSetSignature ?? string.Empty;
+            this.resourceSetSignature = resourceSetSignature;
         }
 
         public bool Equals(ResourceHealthSetCacheKey other)
         {
             return string.Equals(directoryPath, other.directoryPath, StringComparison.OrdinalIgnoreCase)
-                && string.Equals(resourceSetSignature, other.resourceSetSignature, StringComparison.Ordinal);
+                && resourceSetSignature.Equals(other.resourceSetSignature);
         }
 
         public override bool Equals(object obj)
@@ -324,7 +469,7 @@ internal sealed class ResourceHealthLookupContext
             unchecked
             {
                 int hash = StringComparer.OrdinalIgnoreCase.GetHashCode(directoryPath);
-                hash = (hash * 397) ^ StringComparer.Ordinal.GetHashCode(resourceSetSignature);
+                hash = (hash * 397) ^ resourceSetSignature.GetHashCode();
                 return hash;
             }
         }
