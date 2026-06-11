@@ -206,7 +206,7 @@
   "Warning_ChartInfoParseFailure": "元数据解析失败。{0}: {1}",
   "Warning_Lr2PathEncodingUnsupported": "谱面路径包含无法用 Shift_JIS 表示的字符，因此无法计算 LR2 的 folder/parent ID。请重命名或移动到 Shift_JIS 兼容路径。",
   "Warning_Lr2PathTooLong": "谱面路径可能超过 LR2 的路径长度限制。请移动到更短的路径。",
-  "Warning_Lr2ResourcePathUnsupported": "谱面包含 LR2 可能无法处理的资源路径。请使用 Shift_JIS 兼容的资源名，并避免父目录引用。",
+  "Warning_Lr2ResourcePathUnsupported": "谱面包含 LR2 可能无法处理的资源路径。请使用 Shift_JIS / CP932 兼容的资源名和路径。",
   "Warning_Lr2ResourcePathTooLong": "谱面包含可能超过 LR2 路径长度限制的资源路径。请缩短资源名或文件夹路径。",
   "Msg_conversion_stopped": "已中止转换",
   "Pending": "已保留",

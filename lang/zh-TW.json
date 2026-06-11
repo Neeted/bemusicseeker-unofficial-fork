@@ -206,7 +206,7 @@
   "Warning_ChartInfoParseFailure": "中繼資料解析失敗。{0}: {1}",
   "Warning_Lr2PathEncodingUnsupported": "譜面路徑包含無法以 Shift_JIS 表示的字元，因此無法計算 LR2 的 folder/parent ID。請重新命名或移動到 Shift_JIS 相容路徑。",
   "Warning_Lr2PathTooLong": "譜面路徑可能超過 LR2 的路徑長度限制。請移動到較短的路徑。",
-  "Warning_Lr2ResourcePathUnsupported": "譜面包含 LR2 可能無法處理的資源路徑。請使用 Shift_JIS 相容的資源名稱，並避免父目錄參照。",
+  "Warning_Lr2ResourcePathUnsupported": "譜面包含 LR2 可能無法處理的資源路徑。請使用 Shift_JIS / CP932 相容的資源名稱與路徑。",
   "Warning_Lr2ResourcePathTooLong": "譜面包含可能超過 LR2 路徑長度限制的資源路徑。請縮短資源名稱或資料夾路徑。",
   "Msg_conversion_stopped": "轉換已中止",
   "Pending": "已保留",

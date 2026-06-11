@@ -206,7 +206,7 @@
   "Warning_ChartInfoParseFailure": "Echec de l'analyse des metadonnees. {0}: {1}",
   "Warning_Lr2PathEncodingUnsupported": "Le chemin de cette chart contient des caracteres non encodables en Shift_JIS. Les identifiants folder/parent LR2 ne peuvent pas etre calcules. Renommez ou deplacez la chart vers un chemin compatible Shift_JIS.",
   "Warning_Lr2PathTooLong": "Le chemin de cette chart peut depasser la limite de longueur de chemin de LR2. Deplacez-la vers un chemin plus court.",
-  "Warning_Lr2ResourcePathUnsupported": "Cette chart contient des chemins de ressources que LR2 peut ne pas gerer. Utilisez des noms compatibles Shift_JIS et evitez les references au dossier parent.",
+  "Warning_Lr2ResourcePathUnsupported": "Cette chart contient des chemins de ressources que LR2 peut ne pas gerer. Utilisez des noms et chemins de ressource compatibles Shift_JIS / CP932.",
   "Warning_Lr2ResourcePathTooLong": "Cette chart contient des chemins de ressources pouvant depasser la limite de longueur de chemin de LR2. Raccourcissez le nom de ressource ou le chemin du dossier.",
   "Msg_conversion_stopped": "Convertion interrompute",
   "Pending": "En attente",

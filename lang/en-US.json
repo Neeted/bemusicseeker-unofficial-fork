@@ -206,7 +206,7 @@
   "Warning_ChartInfoParseFailure": "Metadata parsing failed. {0}: {1}",
   "Warning_Lr2PathEncodingUnsupported": "This chart path contains characters that cannot be encoded as Shift_JIS, so LR2 folder/parent IDs cannot be computed. Rename or move the chart to a Shift_JIS compatible path.",
   "Warning_Lr2PathTooLong": "This chart path may exceed LR2's path length limit. Move it to a shorter path.",
-  "Warning_Lr2ResourcePathUnsupported": "This chart contains resource paths that LR2 may not handle. Use Shift_JIS compatible resource names and avoid parent-directory references.",
+  "Warning_Lr2ResourcePathUnsupported": "This chart contains resource paths that LR2 may not handle. Use Shift_JIS / CP932 compatible resource names and paths.",
   "Warning_Lr2ResourcePathTooLong": "This chart contains resource paths that may exceed LR2's path length limit. Shorten the resource name or folder path.",
   "Msg_conversion_stopped": "Conversion is stopped",
   "Pending": "Pending",

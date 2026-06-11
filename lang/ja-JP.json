@@ -214,7 +214,7 @@
   "Warning_ChartInfoParseFailure": "メタデータ解析に失敗しました。{0}: {1}",
   "Warning_Lr2PathEncodingUnsupported": "譜面パスに Shift_JIS で表現できない文字が含まれているため、LR2 の folder/parent ID を計算できません。Shift_JIS 互換のパスへリネームまたは移動してください。",
   "Warning_Lr2PathTooLong": "譜面パスが LR2 のパス長制限を超える可能性があります。短いパスへ移動してください。",
-  "Warning_Lr2ResourcePathUnsupported": "LR2 で扱えない可能性があるリソースパスが含まれています。Shift_JIS 互換のリソース名にするか、親ディレクトリ参照を使わない配置にしてください。",
+  "Warning_Lr2ResourcePathUnsupported": "LR2 で扱えない可能性があるリソースパスが含まれています。Shift_JIS / CP932 で表現できるリソース名・パスにしてください。",
   "Warning_Lr2ResourcePathTooLong": "LR2 のパス長制限を超える可能性があるリソースパスが含まれています。リソース名または配置パスを短くしてください。",
   "Msg_conversion_stopped": "変換を中断しました",
   "Pending": "保留",

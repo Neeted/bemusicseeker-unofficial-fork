@@ -23,8 +23,7 @@ internal enum Lr2ResourceWarningFlags
     RawPathEncodingUnsupported = 1,
     RawPathTooLong = 2,
     ResolvedPathEncodingUnsupported = 4,
-    ResolvedPathTooLong = 8,
-    ParentTraversalUnsupported = 16
+    ResolvedPathTooLong = 8
 }
 
 internal readonly struct Lr2ChartPathEvaluation(
@@ -162,13 +161,18 @@ internal static class Lr2CompatibilityEvaluator
                 ref maxResolvedBytes);
         }
 
-        int unsupportedCount = snapshot.UnsupportedResourceReferenceCount;
-        if (unsupportedCount > 0)
+        foreach (Lr2ResourcePathReference reference in EnumerateParentTraversalResourcePaths(snapshot.UnsupportedResourceReferences))
         {
-            flags |= Lr2ResourceWarningFlags.ParentTraversalUnsupported;
+            ApplyResourcePathEvaluation(
+                context,
+                reference.RawPath,
+                reference.NormalizedPath,
+                ref flags,
+                ref maxRawBytes,
+                ref maxResolvedBytes);
         }
 
-        return new Lr2ResourceReferenceEvaluation(flags, maxRawBytes, maxResolvedBytes, unsupportedCount);
+        return new Lr2ResourceReferenceEvaluation(flags, maxRawBytes, maxResolvedBytes, unsupportedCount: 0);
     }
 
     internal static Lr2ResourceReferenceEvaluation EvaluateBmsResourceReferences(
@@ -195,14 +199,18 @@ internal static class Lr2CompatibilityEvaluator
                 ref maxResolvedBytes);
         }
 
-        int unsupportedCount = file.UnsupportedResourceReferences?
-            .Count(reference => reference.Reason == ChartResourcePathNormalizationStatus.ParentTraversalUnsupported) ?? 0;
-        if (unsupportedCount > 0)
+        foreach (Lr2ResourcePathReference reference in EnumerateParentTraversalResourcePaths(file.UnsupportedResourceReferences))
         {
-            flags |= Lr2ResourceWarningFlags.ParentTraversalUnsupported;
+            ApplyResourcePathEvaluation(
+                context,
+                reference.RawPath,
+                reference.NormalizedPath,
+                ref flags,
+                ref maxRawBytes,
+                ref maxResolvedBytes);
         }
 
-        return new Lr2ResourceReferenceEvaluation(flags, maxRawBytes, maxResolvedBytes, unsupportedCount);
+        return new Lr2ResourceReferenceEvaluation(flags, maxRawBytes, maxResolvedBytes, unsupportedCount: 0);
     }
 
     internal static bool TryGetCp932ByteCount(string value, out int byteCount)
@@ -276,6 +284,19 @@ internal static class Lr2CompatibilityEvaluator
         if (!string.IsNullOrWhiteSpace(file.stagefile))
         {
             yield return new Lr2ResourcePathReference(file.stagefile, null);
+        }
+    }
+
+    private static IEnumerable<Lr2ResourcePathReference> EnumerateParentTraversalResourcePaths(IEnumerable<UnsupportedChartResourceReference> references)
+    {
+        foreach (UnsupportedChartResourceReference reference in references ?? [])
+        {
+            if (reference.Reason != ChartResourcePathNormalizationStatus.ParentTraversalUnsupported
+                || string.IsNullOrWhiteSpace(reference.RawPath))
+            {
+                continue;
+            }
+            yield return new Lr2ResourcePathReference(reference.RawPath, reference.RawPath);
         }
     }
 

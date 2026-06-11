@@ -18,8 +18,7 @@ internal static class Lr2CompatibilityWarningProjection
 
     private const Lr2ResourceWarningFlags ResourceUnsupportedFlags =
         Lr2ResourceWarningFlags.RawPathEncodingUnsupported
-        | Lr2ResourceWarningFlags.ResolvedPathEncodingUnsupported
-        | Lr2ResourceWarningFlags.ParentTraversalUnsupported;
+        | Lr2ResourceWarningFlags.ResolvedPathEncodingUnsupported;
 
     private const Lr2ResourceWarningFlags ResourceLengthFlags =
         Lr2ResourceWarningFlags.RawPathTooLong

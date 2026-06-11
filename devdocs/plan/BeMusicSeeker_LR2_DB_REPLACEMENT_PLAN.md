@@ -842,6 +842,7 @@ scope:
 - CP932 非対応 BMS path が warning になる。
 - BMS path byte length boundary が warning になる。
 - resource raw path / resolved path の CP932 非対応と byte length boundary が warning になる。
+- resource path の親ディレクトリ参照は LR2 非対応理由にせず、OpenLR2 が受け取る相対 path として byte length / CP932 判定に含める。
 - bmson は warning 対象にならない。
 - maintenance の最小 fact から `warning-model.md` 準拠の digest / tooltip が組み立てられる。
 

@@ -1750,7 +1750,7 @@ maintenance の再スキャンや chart_info の全譜面補完は行いませ�
     <value>譜面パスが LR2 のパス長制限を超える可能性があります。短いパスへ移動してください。</value>
   </data>
   <data name="Warning_Lr2ResourcePathUnsupported" xml:space="preserve">
-    <value>LR2 で扱えない可能性があるリソースパスが含まれています。Shift_JIS 互換のリソース名にするか、親ディレクトリ参照を使わない配置にしてください。</value>
+    <value>LR2 で扱えない可能性があるリソースパスが含まれています。Shift_JIS / CP932 で表現できるリソース名・パスにしてください。</value>
   </data>
   <data name="Warning_Lr2ResourcePathTooLong" xml:space="preserve">
     <value>LR2 のパス長制限を超える可能性があるリソースパスが含まれています。リソース名または配置パスを短くしてください。</value>
