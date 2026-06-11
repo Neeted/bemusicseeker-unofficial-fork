@@ -139,6 +139,8 @@ database / executable path が有効に解決できる状態を指す。
   `D:\github-clone\OpenLR2\LR2\LR2_songmanage.cpp:2526`
 - `AssignCRC32`:
   `D:\github-clone\OpenLR2\LR2\En_fileutil.cpp:625`
+- `GetUnixtimeFromFiletime` / `GetFileUnixtime`:
+  `D:\github-clone\OpenLR2\LR2\En_fileutil.cpp:190`
 
 OpenLR2 の重要な挙動:
 
@@ -149,6 +151,11 @@ OpenLR2 の重要な挙動:
 - `song.adddate` は登録・更新時刻の Unix 秒。
 - `folder.date` はディレクトリまたは `.lr2folder` ファイルの最終更新時刻の Unix 秒。
 - `folder.adddate` は登録・更新時刻の Unix 秒。
+- Windows では `FindFirstFile` / `WIN32_FIND_DATA.ftLastWriteTime` の `FILETIME` を
+  `(filetime - 116444736000000000) / 10000000` で UTC Unix 秒へ変換する。ローカル時刻として
+  再解釈しない。
+- BeMusicSeeker の `LastWriteTimeUtc -> Unix 秒` 変換はこの OpenLR2 現行実装と同じ意味にする。
+  旧 DB との差分を埋めるために local time 変換や別の fallback date を導入しない。
 - `song.folder` は chart directory path + trailing slash + NUL の LR2 CRC32。
 - `song.parent` は parent directory path + trailing slash + NUL の LR2 CRC32。
 - root folder の `parent` は `AssignCRC32("ROOT")`。
@@ -276,6 +283,11 @@ SELECT path,date FROM folder WHERE parent = ROOT OR date = 0
 - LR2 `song` row を生成する BMS では、`song.path` と `song.date` を変更検出の正本にする。
 - `Startup`、`ReloadFileDiff`、search root 変更後 reload、manual rescan のいずれでも、
   既存 path の `song.date` と実 BMS mtime の mismatch を update target として扱う。
+- ただし完全生成 status が未完了、または旧 schema repair 直後で maintenance 互換列が未移行の DB では、
+  旧 LR2 由来の `song.date` mismatch を通常 file diff の全件 update target にしない。この状態の
+  既存 path row は移行対象であり、file diff は新規・削除・移動など owned file identity の差分だけを扱う。
+  既存 `song` / `maintenance` row の OpenLR2 互換 generated columns への収束は、後段 full generation sync の
+  `song_rows` / compatibility projection で行う。
 - DB row の `path` と現 file path、`song.date` と現 file mtime の Unix 秒が一致する場合は更新なし。
 - `path` または `song.date` が変わった場合は `ChartFileSnapshot` を読み、MD5 を比較する。
 - `path` / `song.date` が変わり MD5 も変わった場合:
@@ -1206,6 +1218,13 @@ parse directive:
 - BMS 変更検出は完全生成の前提条件。path added/deleted だけでは不十分。
 - 通常差分検出は LR2 `song.path` / `song.date` を正本にする。mtime preserved copy や
   同秒更新は完全には検出できないため、force rescan を残す。
+- 旧 LR2 DB の `song.date` は OpenLR2 現行実装の UTC FILETIME Unix 秒と一致しない場合がある。
+  この差分は通常の mtime change ではなく migration freshness として扱う。完全生成未完了状態で
+  file diff が全既存 path を read / parse する実装にはしない。
+- maintenance 互換列が欠けていた旧 schema では、schema repair 後も互換列の値は未移行である。
+  この状態で後段 full generation が `insufficient_maintenance_coverage` になること自体は妥当だが、
+  その前段の file diff が既存全 path を date-only として読みに行かないよう、migration state を
+  file diff の target 判定へ渡す。
 - Everything と managed fallback の結果は意味的に揃える。片方だけ text group や metadata
   を返す状態にしない。
 - text group だけでなく、directory mtime、`folderinfo.txt`、`.lr2folder` の existence /

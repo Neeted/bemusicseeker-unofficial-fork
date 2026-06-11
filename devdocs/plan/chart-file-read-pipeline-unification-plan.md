@@ -196,11 +196,13 @@ target enumeration
 ### Phase 8: 大量 file diff 後の自動 LR2 full generation 再読込回避
 
 - Status: 完了。直前 file diff の鮮度 snapshot は、完全生成有効時の自動 follow-up で DB projection strict verifier を走らせず、file diff が今回 durably commit した path coverage だけを `song_rows` skip gate にする。coverage が成立しない場合は安全側で従来の `song_rows` pipeline を実行する。
-- 2026-06-11 追記: 旧 DB / 完全生成 OFF 由来の DB では、`bms_date_only_update_count` がほぼ全件規模で発生する場合がある。これは実ファイル変更だけでは説明しにくく、LR2 / OpenLR2 が `song.date` / `folder.date` に保存する Unix 秒と、BeMusicSeeker が `LastWriteTimeUtc` から生成する Unix 秒のタイムゾーン規約がずれている可能性を先に疑う。
-  - 現行 BMS `song.date` は `Lr2SongRowEnricher.ToLr2UnixSeconds(snapshot.LastWriteTimeUtc)` で生成する。一方、`folder.date` 系には `DateTimeExt.ToUnixtime()` 経由の箇所も残っており、LR2 互換日時変換 primitive が一本化されていない。
-  - 大量 date-only を file diff の通常差分として扱う前に、実 LR2 / OpenLR2 生成済み row を sample し、`db.date`、file mtime の UTC Unix 秒、local-time 由来 Unix 秒、2 秒丸め差分を比較する診断 log を追加する。差分がほぼ一定のタイムゾーン offset に集中する場合は `lr2_date_timezone_mismatch` として扱う。
-  - タイムゾーン由来と判定できる date mismatch は、実ファイル変更ではなく LR2 date normalization migration として扱う。file diff で全件 read / parse せず、必要なら targeted date update または後段 full generation migration へ渡す。
-  - `song.date`、normal `folder.date`、`.lr2folder.date`、比較用の current date 生成を、LR2 / OpenLR2 fixture で固定した `Lr2DateTimeCompatibility` 相当の helper に集約する。
+- 2026-06-11 追記: 旧 DB / 完全生成 OFF 由来の DB では、`bms_date_only_update_count` がほぼ全件規模で発生する場合がある。これは通常の実ファイル変更として扱わず、旧 LR2 DB から OpenLR2 互換 generated row へ移行する状態として分離する。
+  - OpenLR2 現行実装は `GetUnixtimeFromFiletime(FILETIME)` で Windows `FILETIME` から UTC Unix 秒を作り、`song.date` / `folder.date` へ保存する。BeMusicSeeker の `song.date` 生成もこの意味に寄せる。
+  - 提供された旧 DB (`D:\LR2beta3\LR2files\Database\song old.db`) の `song.date` は、現在の実ファイル mtime から作る UTC Unix 秒とほぼ全件一致しない。差分は一定の 9 時間 offset に集中せず、数時間から 1 日以上まで散るため、file diff の通常 date-only 更新ではなく旧形式移行として扱う。
+  - 本番アプリに実験用の診断 log や意味を変える fallback は入れない。互換仕様は OpenLR2 の `GetUnixtimeFromFiletime` / `GetFileUnixtime` と旧 DB fixture のオフライン確認で固定し、固定後の helper / tests に反映する。
+  - 完全生成 status が未完了、または maintenance 互換列が未移行の DB では、file diff は既存 path の legacy `song.date` mismatch だけで全件 read / parse しない。新規・削除・移動など owned file identity の差分だけを通常 file diff で処理し、既存 row の OpenLR2 互換 date / maintenance 列への移行は後段 full generation sync の責務にする。
+  - 最新ログでは `bms_new_insert_path_count=1235` に対して `bms_date_only_update_count=208516`、後段 full generation は `song_rows_skip action=run reason=insufficient_maintenance_coverage` だった。旧 DB 移行時は、この大量 date-only を file diff の fresh coverage として扱わず、maintenance 互換列の移行完了を full generation status 側で記録する。
+  - `song.date`、normal `folder.date`、`.lr2folder.date`、比較用の current date 生成を、OpenLR2 fixture で固定した `Lr2DateTimeCompatibility` 相当の helper に集約する。
 - 目的は、手動 full generation resync の重い再検証を変えることではなく、同じ起動サイクル内の大量 file diff 直後に自動実行される初回 LR2 full generation が、直前に read / parse 済みの譜面を全件再 read する状態を避けること。
 - 対象は「空 DB 初回」専用ではなく、大量差分で file diff が多数の `song` / `bmson_song` / `chart_digest_map` / `maintenance` / `chart_info` を fresh にしたケース全般とする。
 - 前提を固定する。
