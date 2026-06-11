@@ -37,7 +37,7 @@ public sealed class BmsPlaylistUpdateTests
             {
                 guardInvoked = true;
                 Assert.AreEqual("playlist_lr2folder_sync", operation);
-                throw new InvalidOperationException(Resources.Warn_Lr2FullGenerationSyncRunning);
+                throw new InvalidOperationException(Resources.Warn_Lr2SongDbSyncRunning);
             };
 
             TargetInvocationException exception = Assert.ThrowsException<TargetInvocationException>(() =>
@@ -45,7 +45,7 @@ public sealed class BmsPlaylistUpdateTests
 
             Assert.IsTrue(guardInvoked);
             Assert.IsInstanceOfType(exception.InnerException, typeof(InvalidOperationException));
-            Assert.AreEqual(Resources.Warn_Lr2FullGenerationSyncRunning, exception.InnerException.Message);
+            Assert.AreEqual(Resources.Warn_Lr2SongDbSyncRunning, exception.InnerException.Message);
         }
         finally
         {
@@ -963,7 +963,7 @@ public sealed class BmsPlaylistUpdateTests
 
     [TestMethod]
     [TestCategory("Playlist")]
-    public void FullGenerationCustomFolderPreparation_DoesNotReadCurrentExistingManagedFile()
+    public void Lr2SongDbSyncCustomFolderPreparation_DoesNotReadCurrentExistingManagedFile()
     {
         bool previousOperationModeLr2Db = Settings.Default.OperationModeLR2DB;
         string previousOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDir;
@@ -1008,8 +1008,8 @@ public sealed class BmsPlaylistUpdateTests
             Assert.IsTrue(File.Exists(outputFile));
 
             using var locked = new FileStream(outputFile, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
-            Lr2FullGenerationPreparedDataSurface surface =
-                playlist.ReOutputAllCustomFoldersForLr2FullGenerationDataSync("test_locked_current");
+            Lr2SongDbSyncPreparedDataSurface surface =
+                playlist.ReOutputAllCustomFoldersForLr2SongDbSync("test_locked_current");
 
             CollectionAssert.Contains(surface.Lr2FolderFilePaths.ToList(), outputFile);
         }
@@ -1110,7 +1110,7 @@ public sealed class BmsPlaylistUpdateTests
 
     [TestMethod]
     [TestCategory("Playlist")]
-    public void FullGenerationCustomFolderPreparation_PreservesUnmanagedFileInOutputDirectory()
+    public void Lr2SongDbSyncCustomFolderPreparation_PreservesUnmanagedFileInOutputDirectory()
     {
         bool previousOperationModeLr2Db = Settings.Default.OperationModeLR2DB;
         string previousOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDir;
@@ -1172,8 +1172,8 @@ public sealed class BmsPlaylistUpdateTests
                 });
             }
 
-            Lr2FullGenerationPreparedDataSurface surface =
-                playlist.ReOutputAllCustomFoldersForLr2FullGenerationDataSync("test_external_colocated");
+            Lr2SongDbSyncPreparedDataSurface surface =
+                playlist.ReOutputAllCustomFoldersForLr2SongDbSync("test_external_colocated");
 
             Assert.IsTrue(File.Exists(externalFile));
             CollectionAssert.Contains(surface.Lr2FolderFilePaths.ToList(), expectedFile);

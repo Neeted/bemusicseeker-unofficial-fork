@@ -1,6 +1,6 @@
 # 初回空DB起動の軽量化とメンテナンス表示整合計画
 
-> Note: この資料は、空 DB 初回起動における表示整合と inline maintenance 前倒しを整理した履歴資料である。2026-06-09 以降の大量差分性能課題、特に LR2 full generation との再読込重複、file diff commit streaming、maintenance evaluator 共通化は `devdocs/plan/chart-file-read-pipeline-unification-plan.md` の Phase 8 以降を正本にする。
+> Note: この資料は、空 DB 初回起動における表示整合と inline maintenance 前倒しを整理した履歴資料である。2026-06-09 以降の大量差分性能課題、特に LR2 song.db sync との再読込重複、file diff commit streaming、maintenance evaluator 共通化は `devdocs/plan/chart-file-read-pipeline-unification-plan.md` の Phase 8 以降を正本にする。
 
 ## 概要
 

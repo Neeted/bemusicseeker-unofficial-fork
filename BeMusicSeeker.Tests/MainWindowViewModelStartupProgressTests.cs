@@ -319,7 +319,7 @@ public sealed class MainWindowViewModelStartupProgressTests
             "skip:ChartInfoHydrationDone",
             "skip:ChartInfoBackfillDone",
             "skip:ChartDigestBackfillDone",
-            "skip:Lr2FullGenerationSyncDone",
+            "skip:Lr2SongDbSyncDone",
             "skip:PlaylistReferenceApplied",
             "skip:ScoreHydrationDone",
             "skip:RankingRefreshDone",
@@ -332,7 +332,7 @@ public sealed class MainWindowViewModelStartupProgressTests
     }
 
     [TestMethod]
-    public void StartupProgress_Lr2FullGenerationSyncUsesDedicatedSubLabel()
+    public void StartupProgress_Lr2SongDbSyncUsesDedicatedSubLabel()
     {
         MainWindowViewModel.StartupProgressTestResult result = MainWindowViewModel.ReduceStartupProgressForTest(
             "Startup",
@@ -352,18 +352,18 @@ public sealed class MainWindowViewModelStartupProgressTests
             "skip:RankingRefreshDone",
             "skip:MaintenanceDeferredDone",
             "skip:InstallableMaintenanceDeferredDone",
-            "request:Lr2FullGenerationSyncDone",
-            "lr2full:432464|243780|song_rows|209684|209000");
+            "request:Lr2SongDbSyncDone",
+            "lr2songdbsync:432464|243780|song_rows|209684|209000");
 
         Assert.AreEqual(Resources.Statusbar_progress_operable_background, result.Label);
-        Assert.AreEqual("[209000/209684] " + Resources.Statusbar_progress_phase_lr2_full_generation + " song rows", result.SubLabel);
+        Assert.AreEqual("[209000/209684] " + Resources.Statusbar_progress_phase_lr2_song_db_sync + " song rows", result.SubLabel);
         Assert.AreEqual(209000.0, result.ProgressValue);
         Assert.AreEqual(209684.0, result.ProgressMaximum);
         Assert.IsFalse(result.IsCompleted);
     }
 
     [TestMethod]
-    public void StartupProgress_Lr2FullGenerationFailureKeepsProgressFailed()
+    public void StartupProgress_Lr2SongDbSyncFailureKeepsProgressFailed()
     {
         MainWindowViewModel.StartupProgressTestResult result = MainWindowViewModel.ReduceStartupProgressForTest(
             "Startup",
@@ -383,8 +383,8 @@ public sealed class MainWindowViewModelStartupProgressTests
             "skip:RankingRefreshDone",
             "skip:MaintenanceDeferredDone",
             "skip:InstallableMaintenanceDeferredDone",
-            "request:Lr2FullGenerationSyncDone",
-            "lr2full:0|0|startup_scan_blockers",
+            "request:Lr2SongDbSyncDone",
+            "lr2songdbsync:0|0|startup_scan_blockers",
             "fail:startup scan blockers");
 
         Assert.AreEqual(Resources.Statusbar_progress_failed, result.Label);
@@ -394,38 +394,38 @@ public sealed class MainWindowViewModelStartupProgressTests
     }
 
     [TestMethod]
-    public void Lr2FullGenerationWarningStatus_IsVisibleWhenStartupProgressFailed()
+    public void Lr2SongDbSyncWarningStatus_IsVisibleWhenStartupProgressFailed()
     {
-        Assert.IsFalse(MainWindowViewModel.ShouldShowLr2FullGenerationStatusForTest(
+        Assert.IsFalse(MainWindowViewModel.ShouldShowLr2SongDbSyncStatusForTest(
             hasWarningStatus: true,
             startupProgressActive: true,
             startupProgressFailed: false));
-        Assert.IsTrue(MainWindowViewModel.ShouldShowLr2FullGenerationStatusForTest(
+        Assert.IsTrue(MainWindowViewModel.ShouldShowLr2SongDbSyncStatusForTest(
             hasWarningStatus: true,
             startupProgressActive: true,
             startupProgressFailed: true));
-        Assert.IsTrue(MainWindowViewModel.ShouldShowLr2FullGenerationStatusForTest(
+        Assert.IsTrue(MainWindowViewModel.ShouldShowLr2SongDbSyncStatusForTest(
             hasWarningStatus: true,
             startupProgressActive: false,
             startupProgressFailed: false));
-        Assert.IsTrue(MainWindowViewModel.ShouldShowLr2FullGenerationStatusForTest(
+        Assert.IsTrue(MainWindowViewModel.ShouldShowLr2SongDbSyncStatusForTest(
             hasWarningStatus: true,
             startupProgressActive: true,
             startupProgressFailed: false,
-            startupProgressTracksLr2FullGeneration: false));
-        Assert.IsFalse(MainWindowViewModel.ShouldShowLr2FullGenerationStatusForTest(
+            startupProgressTracksLr2SongDbSync: false));
+        Assert.IsFalse(MainWindowViewModel.ShouldShowLr2SongDbSyncStatusForTest(
             hasWarningStatus: false,
             startupProgressActive: true,
             startupProgressFailed: true));
     }
 
     [TestMethod]
-    public void StartupProgress_Lr2FullGenerationRequestAfterSkip_DoesNotMoveBackToPending()
+    public void StartupProgress_Lr2SongDbSyncRequestAfterSkip_DoesNotMoveBackToPending()
     {
         MainWindowViewModel.StartupProgressTestResult result = MainWindowViewModel.ReduceStartupProgressForTest(
             "Startup",
-            "skip:Lr2FullGenerationSyncDone",
-            "request:Lr2FullGenerationSyncDone");
+            "skip:Lr2SongDbSyncDone",
+            "request:Lr2SongDbSyncDone");
 
         Assert.AreEqual(18, result.ExpectedCount);
         Assert.AreEqual(2, result.CompletedCount);
@@ -540,6 +540,6 @@ public sealed class MainWindowViewModelStartupProgressTests
     {
         Assert.AreEqual("操作可能(バックグラウンド更新中)", Resources.Statusbar_progress_operable_background);
         Assert.AreEqual("譜面メタデータ反映", Resources.Statusbar_progress_phase_chart_info_load);
-        Assert.AreEqual("LR2 song.db 同期", Resources.Statusbar_progress_phase_lr2_full_generation);
+        Assert.AreEqual("LR2 song.db 同期", Resources.Statusbar_progress_phase_lr2_song_db_sync);
     }
 }

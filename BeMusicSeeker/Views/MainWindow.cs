@@ -6307,19 +6307,19 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         (base.DataContext as MainWindowViewModel)?.CancelMaintenanceRescan();
     }
 
-    private void retryLr2FullGenerationSyncClick(object sender, RoutedEventArgs e)
+    private void retryLr2SongDbSyncClick(object sender, RoutedEventArgs e)
     {
-        (base.DataContext as MainWindowViewModel)?.RetryLr2FullGenerationSync();
+        (base.DataContext as MainWindowViewModel)?.RetryLr2SongDbSync();
     }
 
-    private void cancelLr2FullGenerationSyncClick(object sender, RoutedEventArgs e)
+    private void cancelLr2SongDbSyncClick(object sender, RoutedEventArgs e)
     {
-        (base.DataContext as MainWindowViewModel)?.CancelLr2FullGenerationSync();
+        (base.DataContext as MainWindowViewModel)?.CancelLr2SongDbSync();
     }
 
-    private void cleanupLr2FullGenerationStartupScanBlockersClick(object sender, RoutedEventArgs e)
+    private void cleanupLr2SongDbSyncStartupScanBlockersClick(object sender, RoutedEventArgs e)
     {
-        (base.DataContext as MainWindowViewModel)?.CleanupLr2FullGenerationStartupScanBlockersAndRetry();
+        (base.DataContext as MainWindowViewModel)?.CleanupLr2SongDbSyncStartupScanBlockersAndRetry();
     }
 
     private async void tableContextMenuItemSearchLinkSubmenuClick(object sender, RoutedEventArgs e)

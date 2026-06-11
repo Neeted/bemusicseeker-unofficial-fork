@@ -3,7 +3,7 @@ using BeMusicSeeker.Models.LR2;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
-internal enum Lr2FullGenerationStatusKind
+internal enum Lr2SongDbSyncStatusKind
 {
     NotNeeded,
     Needed,
@@ -14,11 +14,11 @@ internal enum Lr2FullGenerationStatusKind
     Incomplete
 }
 
-internal sealed class Lr2FullGenerationStatusSnapshot
+internal sealed class Lr2SongDbSyncStatusSnapshot
 {
-    public Lr2FullGenerationStatusKind Status { get; set; }
+    public Lr2SongDbSyncStatusKind Status { get; set; }
 
-    public Lr2FullGenerationStatusKind? StoredStatus { get; set; }
+    public Lr2SongDbSyncStatusKind? StoredStatus { get; set; }
 
     public string Signature { get; set; }
 
@@ -40,13 +40,13 @@ internal sealed class Lr2FullGenerationStatusSnapshot
 
     public DateTime? CompletedAt { get; set; }
 
-    public bool IsNeeded => Status == Lr2FullGenerationStatusKind.Needed;
+    public bool IsNeeded => Status == Lr2SongDbSyncStatusKind.Needed;
 
     public bool IsResumeCandidate { get; set; }
 
-    internal Lr2FullGenerationStatusSnapshot Clone()
+    internal Lr2SongDbSyncStatusSnapshot Clone()
     {
-        return new Lr2FullGenerationStatusSnapshot
+        return new Lr2SongDbSyncStatusSnapshot
         {
             Status = Status,
             StoredStatus = StoredStatus,
@@ -65,7 +65,7 @@ internal sealed class Lr2FullGenerationStatusSnapshot
     }
 }
 
-internal sealed class Lr2FullGenerationResumeCandidate
+internal sealed class Lr2SongDbSyncResumeCandidate
 {
     public int ProcessedCursor { get; set; }
 
@@ -73,14 +73,14 @@ internal sealed class Lr2FullGenerationResumeCandidate
 
     public string Stage { get; set; }
 
-    public Lr2FullGenerationStatusKind StoredStatus { get; set; }
+    public Lr2SongDbSyncStatusKind StoredStatus { get; set; }
 }
 
-internal static class Lr2FullGenerationStatusService
+internal static class Lr2SongDbSyncStatusService
 {
     internal const string DefaultStatusName = "default";
 
-    internal static Lr2FullGenerationStatusSnapshot Evaluate(
+    internal static Lr2SongDbSyncStatusSnapshot Evaluate(
         LR2SongDBExtended songDb,
         bool enabled,
         string signature,
@@ -91,43 +91,43 @@ internal static class Lr2FullGenerationStatusService
             throw new ArgumentNullException(nameof(songDb));
         }
 
-        BmsLibraryDbGateway.EnsureLr2FullGenerationStatusSchema(songDb);
+        BmsLibraryDbGateway.EnsureLr2SongDbSyncStatusSchema(songDb);
         if (!enabled)
         {
             return CreateSnapshot(
-                Lr2FullGenerationStatusKind.NotNeeded,
+                Lr2SongDbSyncStatusKind.NotNeeded,
                 storedStatus: null,
                 row: LoadRow(songDb),
                 signature,
                 nowUtc);
         }
 
-        LR2SongDBExtended.lr2_full_generation_status row = LoadRow(songDb);
+        LR2SongDBExtended.lr2_song_db_sync_status row = LoadRow(songDb);
         if (row == null)
         {
             return CreateSnapshot(
-                Lr2FullGenerationStatusKind.Needed,
+                Lr2SongDbSyncStatusKind.Needed,
                 storedStatus: null,
                 row: null,
                 signature,
                 nowUtc);
         }
 
-        Lr2FullGenerationStatusKind storedStatus = ParseStatus(row.status);
+        Lr2SongDbSyncStatusKind storedStatus = ParseStatus(row.status);
         if (!string.Equals(row.signature ?? string.Empty, signature ?? string.Empty, StringComparison.Ordinal))
         {
             return CreateSnapshot(
-                Lr2FullGenerationStatusKind.Needed,
+                Lr2SongDbSyncStatusKind.Needed,
                 storedStatus,
                 row,
                 signature,
                 nowUtc);
         }
 
-        if (storedStatus == Lr2FullGenerationStatusKind.Completed)
+        if (storedStatus == Lr2SongDbSyncStatusKind.Completed)
         {
             return CreateSnapshot(
-                Lr2FullGenerationStatusKind.Completed,
+                Lr2SongDbSyncStatusKind.Completed,
                 storedStatus,
                 row,
                 signature,
@@ -135,7 +135,7 @@ internal static class Lr2FullGenerationStatusService
         }
 
         return CreateSnapshot(
-            Lr2FullGenerationStatusKind.Needed,
+            Lr2SongDbSyncStatusKind.Needed,
             storedStatus,
             row,
             signature,
@@ -143,7 +143,7 @@ internal static class Lr2FullGenerationStatusService
             isResumeCandidate: IsResumableStoredStatus(storedStatus) && row.processed_cursor.GetValueOrDefault() > 0);
     }
 
-    internal static Lr2FullGenerationStatusSnapshot MarkRunning(
+    internal static Lr2SongDbSyncStatusSnapshot MarkRunning(
         LR2SongDBExtended songDb,
         string signature,
         string runId,
@@ -154,7 +154,7 @@ internal static class Lr2FullGenerationStatusService
     {
         return Upsert(
             songDb,
-            Lr2FullGenerationStatusKind.Running,
+            Lr2SongDbSyncStatusKind.Running,
             signature,
             runId,
             processedCursor: processedCursor.GetValueOrDefault(0),
@@ -169,7 +169,7 @@ internal static class Lr2FullGenerationStatusService
         LR2SongDBExtended songDb,
         string signature,
         int totalCount,
-        out Lr2FullGenerationResumeCandidate candidate)
+        out Lr2SongDbSyncResumeCandidate candidate)
     {
         candidate = null;
         if (songDb == null)
@@ -177,14 +177,14 @@ internal static class Lr2FullGenerationStatusService
             throw new ArgumentNullException(nameof(songDb));
         }
 
-        BmsLibraryDbGateway.EnsureLr2FullGenerationStatusSchema(songDb);
-        LR2SongDBExtended.lr2_full_generation_status row = LoadRow(songDb);
+        BmsLibraryDbGateway.EnsureLr2SongDbSyncStatusSchema(songDb);
+        LR2SongDBExtended.lr2_song_db_sync_status row = LoadRow(songDb);
         if (row == null)
         {
             return false;
         }
 
-        Lr2FullGenerationStatusKind storedStatus = ParseStatus(row.status);
+        Lr2SongDbSyncStatusKind storedStatus = ParseStatus(row.status);
         if (!IsResumableStoredStatus(storedStatus))
         {
             return false;
@@ -203,7 +203,7 @@ internal static class Lr2FullGenerationStatusService
             return false;
         }
 
-        candidate = new Lr2FullGenerationResumeCandidate
+        candidate = new Lr2SongDbSyncResumeCandidate
         {
             ProcessedCursor = Math.Min(processedCursor, Math.Max(0, totalCount)),
             TotalCount = row.total_count,
@@ -213,7 +213,7 @@ internal static class Lr2FullGenerationStatusService
         return true;
     }
 
-    internal static Lr2FullGenerationStatusSnapshot UpdateCursor(
+    internal static Lr2SongDbSyncStatusSnapshot UpdateCursor(
         LR2SongDBExtended songDb,
         string signature,
         string runId,
@@ -224,7 +224,7 @@ internal static class Lr2FullGenerationStatusService
     {
         return Upsert(
             songDb,
-            Lr2FullGenerationStatusKind.Running,
+            Lr2SongDbSyncStatusKind.Running,
             signature,
             runId,
             Math.Max(0, processedCursor),
@@ -235,7 +235,7 @@ internal static class Lr2FullGenerationStatusService
             nowUtc);
     }
 
-    internal static Lr2FullGenerationStatusSnapshot MarkCompleted(
+    internal static Lr2SongDbSyncStatusSnapshot MarkCompleted(
         LR2SongDBExtended songDb,
         string signature,
         string runId,
@@ -244,7 +244,7 @@ internal static class Lr2FullGenerationStatusService
     {
         return Upsert(
             songDb,
-            Lr2FullGenerationStatusKind.Completed,
+            Lr2SongDbSyncStatusKind.Completed,
             signature,
             runId,
             totalCount,
@@ -255,7 +255,7 @@ internal static class Lr2FullGenerationStatusService
             nowUtc);
     }
 
-    internal static Lr2FullGenerationStatusSnapshot MarkFailed(
+    internal static Lr2SongDbSyncStatusSnapshot MarkFailed(
         LR2SongDBExtended songDb,
         string signature,
         string runId,
@@ -270,8 +270,8 @@ internal static class Lr2FullGenerationStatusService
             throw new ArgumentNullException(nameof(songDb));
         }
 
-        BmsLibraryDbGateway.EnsureLr2FullGenerationStatusSchema(songDb);
-        LR2SongDBExtended.lr2_full_generation_status existing = LoadRow(songDb);
+        BmsLibraryDbGateway.EnsureLr2SongDbSyncStatusSchema(songDb);
+        LR2SongDBExtended.lr2_song_db_sync_status existing = LoadRow(songDb);
         if (existing != null
             && string.Equals(existing.signature ?? string.Empty, signature ?? string.Empty, StringComparison.Ordinal)
             && string.Equals(existing.run_id ?? string.Empty, runId ?? string.Empty, StringComparison.Ordinal))
@@ -279,10 +279,10 @@ internal static class Lr2FullGenerationStatusService
             processedCursor ??= existing.processed_cursor;
             totalCount ??= existing.total_count;
         }
-        return Upsert(songDb, Lr2FullGenerationStatusKind.Failed, signature, runId, processedCursor, totalCount, stage, error, completedAt: null, nowUtc);
+        return Upsert(songDb, Lr2SongDbSyncStatusKind.Failed, signature, runId, processedCursor, totalCount, stage, error, completedAt: null, nowUtc);
     }
 
-    internal static Lr2FullGenerationStatusSnapshot MarkCancelled(
+    internal static Lr2SongDbSyncStatusSnapshot MarkCancelled(
         LR2SongDBExtended songDb,
         string signature,
         string runId,
@@ -291,10 +291,10 @@ internal static class Lr2FullGenerationStatusService
         string stage,
         DateTime nowUtc)
     {
-        return Upsert(songDb, Lr2FullGenerationStatusKind.Cancelled, signature, runId, processedCursor, totalCount, stage, lastError: null, completedAt: null, nowUtc);
+        return Upsert(songDb, Lr2SongDbSyncStatusKind.Cancelled, signature, runId, processedCursor, totalCount, stage, lastError: null, completedAt: null, nowUtc);
     }
 
-    internal static Lr2FullGenerationStatusSnapshot MarkIncomplete(
+    internal static Lr2SongDbSyncStatusSnapshot MarkIncomplete(
         LR2SongDBExtended songDb,
         string signature,
         string runId,
@@ -304,12 +304,12 @@ internal static class Lr2FullGenerationStatusService
         string detail,
         DateTime nowUtc)
     {
-        return Upsert(songDb, Lr2FullGenerationStatusKind.Incomplete, signature, runId, processedCursor, totalCount, stage, detail, completedAt: null, nowUtc);
+        return Upsert(songDb, Lr2SongDbSyncStatusKind.Incomplete, signature, runId, processedCursor, totalCount, stage, detail, completedAt: null, nowUtc);
     }
 
-    private static Lr2FullGenerationStatusSnapshot Upsert(
+    private static Lr2SongDbSyncStatusSnapshot Upsert(
         LR2SongDBExtended songDb,
-        Lr2FullGenerationStatusKind status,
+        Lr2SongDbSyncStatusKind status,
         string signature,
         string runId,
         int? processedCursor,
@@ -324,8 +324,8 @@ internal static class Lr2FullGenerationStatusService
             throw new ArgumentNullException(nameof(songDb));
         }
 
-        BmsLibraryDbGateway.EnsureLr2FullGenerationStatusSchema(songDb);
-        var row = new LR2SongDBExtended.lr2_full_generation_status
+        BmsLibraryDbGateway.EnsureLr2SongDbSyncStatusSchema(songDb);
+        var row = new LR2SongDBExtended.lr2_song_db_sync_status
         {
             name = DefaultStatusName,
             status = FormatStatus(status),
@@ -338,24 +338,24 @@ internal static class Lr2FullGenerationStatusService
             updated_at = NormalizeUtc(nowUtc),
             completed_at = completedAt.HasValue ? NormalizeUtc(completedAt.Value) : null
         };
-        songDb.InsertOrReplace(row, typeof(LR2SongDBExtended.lr2_full_generation_status));
+        songDb.InsertOrReplace(row, typeof(LR2SongDBExtended.lr2_song_db_sync_status));
         return CreateSnapshot(status, status, row, signature, nowUtc);
     }
 
-    private static LR2SongDBExtended.lr2_full_generation_status LoadRow(LR2SongDBExtended songDb)
+    private static LR2SongDBExtended.lr2_song_db_sync_status LoadRow(LR2SongDBExtended songDb)
     {
-        return songDb.Find<LR2SongDBExtended.lr2_full_generation_status>(DefaultStatusName);
+        return songDb.Find<LR2SongDBExtended.lr2_song_db_sync_status>(DefaultStatusName);
     }
 
-    private static Lr2FullGenerationStatusSnapshot CreateSnapshot(
-        Lr2FullGenerationStatusKind status,
-        Lr2FullGenerationStatusKind? storedStatus,
-        LR2SongDBExtended.lr2_full_generation_status row,
+    private static Lr2SongDbSyncStatusSnapshot CreateSnapshot(
+        Lr2SongDbSyncStatusKind status,
+        Lr2SongDbSyncStatusKind? storedStatus,
+        LR2SongDBExtended.lr2_song_db_sync_status row,
         string signature,
         DateTime nowUtc,
         bool isResumeCandidate = false)
     {
-        return new Lr2FullGenerationStatusSnapshot
+        return new Lr2SongDbSyncStatusSnapshot
         {
             Status = status,
             StoredStatus = storedStatus,
@@ -371,22 +371,22 @@ internal static class Lr2FullGenerationStatusService
         };
     }
 
-    private static bool IsResumableStoredStatus(Lr2FullGenerationStatusKind status)
+    private static bool IsResumableStoredStatus(Lr2SongDbSyncStatusKind status)
     {
-        return status == Lr2FullGenerationStatusKind.Running
-            || status == Lr2FullGenerationStatusKind.Failed
-            || status == Lr2FullGenerationStatusKind.Cancelled
-            || status == Lr2FullGenerationStatusKind.Incomplete;
+        return status == Lr2SongDbSyncStatusKind.Running
+            || status == Lr2SongDbSyncStatusKind.Failed
+            || status == Lr2SongDbSyncStatusKind.Cancelled
+            || status == Lr2SongDbSyncStatusKind.Incomplete;
     }
 
-    private static Lr2FullGenerationStatusKind ParseStatus(string status)
+    private static Lr2SongDbSyncStatusKind ParseStatus(string status)
     {
-        return Enum.TryParse(status ?? string.Empty, ignoreCase: true, out Lr2FullGenerationStatusKind parsed)
+        return Enum.TryParse(status ?? string.Empty, ignoreCase: true, out Lr2SongDbSyncStatusKind parsed)
             ? parsed
-            : Lr2FullGenerationStatusKind.Needed;
+            : Lr2SongDbSyncStatusKind.Needed;
     }
 
-    private static string FormatStatus(Lr2FullGenerationStatusKind status)
+    private static string FormatStatus(Lr2SongDbSyncStatusKind status)
     {
         return status.ToString();
     }

@@ -3,9 +3,9 @@ using BeMusicSeeker.Models.BmsLibraryInternal;
 
 namespace BeMusicSeeker.ViewModels;
 
-internal sealed class Lr2FullGenerationRuntimeStatus
+internal sealed class Lr2SongDbSyncRuntimeStatus
 {
-    internal Lr2FullGenerationStatusKind Kind { get; set; }
+    internal Lr2SongDbSyncStatusKind Kind { get; set; }
 
     internal string StatusText { get; set; } = string.Empty;
 

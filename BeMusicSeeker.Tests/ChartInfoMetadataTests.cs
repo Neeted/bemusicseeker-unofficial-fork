@@ -3101,10 +3101,10 @@ createTempDirectory);
                 {
                     OperationModeLR2DB = true,
                 };
-                string signature = Lr2FullGenerationSignatureBuilder.Build(options);
+                string signature = Lr2SongDbSyncSignatureBuilder.Build(options);
                 using (var songDb = new LR2SongDBExtended(songDbPath))
                 {
-                    Lr2FullGenerationStatusService.MarkCompleted(
+                    Lr2SongDbSyncStatusService.MarkCompleted(
                         songDb,
                         signature,
                         runId: "unit-test",
@@ -3115,7 +3115,7 @@ createTempDirectory);
                 {
                     BMSFiles = [file]
                 };
-                InvokeCaptureChartInfoCompletedFullGenerationTrustFromFileDiff(
+                InvokeCaptureChartInfoCompletedLr2SongDbSyncTrustFromFileDiff(
                     library,
                     options,
                     new SongTableFileCheckResult(),
@@ -4419,14 +4419,14 @@ createTempDirectory);
         method.Invoke(library, [reason, queueFullBackfillAfterHydration]);
     }
 
-    private static void InvokeCaptureChartInfoCompletedFullGenerationTrustFromFileDiff(
+    private static void InvokeCaptureChartInfoCompletedLr2SongDbSyncTrustFromFileDiff(
         BMSLibrary library,
         BmsLibraryOptionsSnapshot options,
         SongTableFileCheckResult result,
         string reason)
     {
-        MethodInfo method = typeof(BMSLibrary).GetMethod("CaptureChartInfoCompletedFullGenerationTrustFromFileDiff", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.IsNotNull(method, "CaptureChartInfoCompletedFullGenerationTrustFromFileDiff method was not found.");
+        MethodInfo method = typeof(BMSLibrary).GetMethod("CaptureChartInfoCompletedLr2SongDbSyncTrustFromFileDiff", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(method, "CaptureChartInfoCompletedLr2SongDbSyncTrustFromFileDiff method was not found.");
         method.Invoke(library, [options, result, reason]);
     }
 

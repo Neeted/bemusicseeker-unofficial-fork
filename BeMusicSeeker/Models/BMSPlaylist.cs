@@ -2694,28 +2694,28 @@ public partial class BMSPlaylist : NotificationObject
         }
     }
 
-    internal Lr2FullGenerationPreparedDataSurface ReOutputAllCustomFoldersForLr2FullGenerationDataSync(string reason)
+    internal Lr2SongDbSyncPreparedDataSurface ReOutputAllCustomFoldersForLr2SongDbSync(string reason)
     {
-        return ReOutputAllCustomFoldersForLr2FullGenerationDataSync(reason, null);
+        return ReOutputAllCustomFoldersForLr2SongDbSync(reason, null);
     }
 
-    internal Lr2FullGenerationPreparedDataSurface ReOutputAllCustomFoldersForLr2FullGenerationDataSync(string reason, Action<int, int, string> progressCallback)
+    internal Lr2SongDbSyncPreparedDataSurface ReOutputAllCustomFoldersForLr2SongDbSync(string reason, Action<int, int, string> progressCallback)
     {
-        return ReOutputAllCustomFoldersForLr2FullGenerationDataSyncCoreAsync(reason, yieldBetweenTables: false, progressCallback)
+        return ReOutputAllCustomFoldersForLr2SongDbSyncCoreAsync(reason, yieldBetweenTables: false, progressCallback)
             .GetAwaiter()
             .GetResult();
     }
 
-    internal Task<Lr2FullGenerationPreparedDataSurface> ReOutputAllCustomFoldersForLr2FullGenerationDataSyncAsync(string reason, Action<int, int, string> progressCallback = null)
+    internal Task<Lr2SongDbSyncPreparedDataSurface> ReOutputAllCustomFoldersForLr2SongDbSyncAsync(string reason, Action<int, int, string> progressCallback = null)
     {
-        return ReOutputAllCustomFoldersForLr2FullGenerationDataSyncCoreAsync(reason, yieldBetweenTables: true, progressCallback);
+        return ReOutputAllCustomFoldersForLr2SongDbSyncCoreAsync(reason, yieldBetweenTables: true, progressCallback);
     }
 
-    private async Task<Lr2FullGenerationPreparedDataSurface> ReOutputAllCustomFoldersForLr2FullGenerationDataSyncCoreAsync(string reason, bool yieldBetweenTables, Action<int, int, string> progressCallback = null)
+    private async Task<Lr2SongDbSyncPreparedDataSurface> ReOutputAllCustomFoldersForLr2SongDbSyncCoreAsync(string reason, bool yieldBetweenTables, Action<int, int, string> progressCallback = null)
     {
         if (!Settings.Default.OperationModeLR2DB)
         {
-            return Lr2FullGenerationPreparedDataSurface.Empty;
+            return Lr2SongDbSyncPreparedDataSurface.Empty;
         }
         List<BMSTable> tablesSnapshot;
         using (rwlockBMSTables.GetReaderGuard())
@@ -2727,10 +2727,10 @@ public partial class BMSPlaylist : NotificationObject
         CustomFolderBatchOutputResult result = await ReOutputCustomFoldersForTablesCoreAsync(
             tablesSnapshot,
             reason,
-            "playlist_lr2_full_generation_data_resync",
+            "playlist_lr2_song_db_sync_data_resync",
             yieldBetweenTables,
             progressCallback);
-        return result.PreparedDataSurface ?? Lr2FullGenerationPreparedDataSurface.Empty;
+        return result.PreparedDataSurface ?? Lr2SongDbSyncPreparedDataSurface.Empty;
     }
 
     private int RepairMissingCustomFolderOutputsAfterHydration(string reason)
@@ -3103,7 +3103,7 @@ public partial class BMSPlaylist : NotificationObject
             CustomFolderOutputProjection projection = plan?.Projection;
             if (projection == null)
             {
-                EnsurePlaylistEntriesLoaded(table, "ReOutputAllCustomFoldersForLr2FullGenerationDataSync");
+                EnsurePlaylistEntriesLoaded(table, "ReOutputAllCustomFoldersForLr2SongDbSync");
                 using (table.ReaderWriterLock.GetReaderGuard())
                 {
                     projection = CreateCustomFolderOutputProjection(table);
@@ -3132,7 +3132,7 @@ public partial class BMSPlaylist : NotificationObject
             materialization.DirectoryEntries);
         syncStopwatch.Stop();
         var preparedSurfaceStopwatch = Stopwatch.StartNew();
-        Lr2FullGenerationPreparedDataSurface preparedDataSurface = Lr2FullGenerationPreparedDataSurface.FromSyncItems(
+        Lr2SongDbSyncPreparedDataSurface preparedDataSurface = Lr2SongDbSyncPreparedDataSurface.FromSyncItems(
             materialization.Lr2FolderSurfaceScopeDirectories,
             materialization.SyncItems,
             directoryEntries: materialization.DirectoryEntries,
@@ -3174,7 +3174,7 @@ public partial class BMSPlaylist : NotificationObject
 
         public Lr2FolderFileDbSyncResult SyncResult { get; set; }
 
-        public Lr2FullGenerationPreparedDataSurface PreparedDataSurface { get; set; }
+        public Lr2SongDbSyncPreparedDataSurface PreparedDataSurface { get; set; }
 
         public long ElapsedMs { get; set; }
     }

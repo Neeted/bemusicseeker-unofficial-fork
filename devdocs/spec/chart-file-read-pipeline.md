@@ -29,7 +29,7 @@
 | post-parse prepared progress | parse 後処理が終わり、DB writer へ渡せる staging data ができた件数 | file diff UI の逐次 progress |
 | writer progress | DB commit、runtime apply、durable cursor 更新が終わった件数 | 完了判定、resume contract、summary log |
 
-UI が単一の `ProcessedCount` しか持たない file diff では、parse 完了ではなく post-parse prepared progress を表示する。これは「1 譜面について DB 投入用 staging data を作り終え、snapshot bytes を破棄できる状態」を表す。DB commit 完了は 10000 件単位の transaction 境界になりやすいため、通常の file diff UI 進捗には含めない。ただし、LR2 full generation の `processed_cursor` のような durable cursor は writer progress でなければならない。writer progress より前に cursor を進めると、cancel / crash 後に未 commit row を処理済みとして skip する危険がある。
+UI が単一の `ProcessedCount` しか持たない file diff では、parse 完了ではなく post-parse prepared progress を表示する。これは「1 譜面について DB 投入用 staging data を作り終え、snapshot bytes を破棄できる状態」を表す。DB commit 完了は 10000 件単位の transaction 境界になりやすいため、通常の file diff UI 進捗には含めない。ただし、LR2 song.db sync の `processed_cursor` のような durable cursor は writer progress でなければならない。writer progress より前に cursor を進めると、cancel / crash 後に未 commit row を処理済みとして skip する危険がある。
 
 file diff、chart_info backfill、manual maintenance rescan、LR2 `song_rows` は、いずれも stage の意味を混同しない。file diff は post-parse prepared progress を小刻みに報告し、chunk commit が重い場合でも UI 上の処理済み数を commit 完了件数に縛らない。正確な commit 完了件数は別の log / cursor / result count で確認する。
 
@@ -96,7 +96,7 @@ file diff DB commit chunk は transaction 範囲を分けるための単位で�
 
 file diff inline maintenance は、pipeline 共通の `ResourceHealthLookupContext` を使う。resource health はまず directory resource index を見る。index に directory entry がある場合、その directory に存在する audio / image / movie resource hash set を正本として直接照合し、`(directory, resource kind, relative path hash)` の共有 dictionary は経由しない。これは「directory に存在する resource file は同じ directory 内の譜面から見えるが、譜面が実際に要求する resource 集合は譜面ごとに異なる」という前提を保ち、chart-specific な defined count / LR2 compatibility / path / hash / encoding は各譜面 row として作り直す。共有 dictionary は index が使えない fallback 経路の補助に限定する。各 chart の `cacheHit` / `resourceIndexHit` / `File.Exists` fallback counter は item-local scope で数え、並列評価中の他 chart の counter と混ざらない。`cacheHit` は File.Exists を避けた解決総数、`resourceIndexHit` はそのうち directory index 直接照合で解決した数を表す。`song_tbl_file_check_breakdown` の `inline_maintenance_shared_resource_cache_entries` は、fallback 共有 cache に載った resource key 数を表す。
 
-LR2 `song.db` 完全生成が有効な大量 file diff 直後の自動 LR2 full generation では、file diff と LR2 full generation が同じ generated song row contract を共有する前提にする。直前 file diff が同一 scan/input generation で全 current BMS owner path を durably commit し、inline maintenance / chart_info coverage と moved hash relink ambiguity が問題ない場合は、`song_rows` stage を coverage-based に skip できる。全 column / digest を DB projection で再比較する strict verifier は drift 診断として残してよいが、完全生成有効時の自動 follow-up を止める必須 gate にはしない。skip target は永続化せず、途中終了した場合は次回起動で通常どおり再検証してよい。
+LR2 `song.db` 同期が有効な大量 file diff 直後の自動 LR2 song.db sync では、file diff と LR2 song.db sync が同じ generated song row contract を共有する前提にする。直前 file diff が同一 scan/input generation で全 current BMS owner path を durably commit し、inline maintenance / chart_info coverage と moved hash relink ambiguity が問題ない場合は、`song_rows` stage を coverage-based に skip できる。全 column / digest を DB projection で再比較する strict verifier は drift 診断として残してよいが、song.db 同期有効時の自動 follow-up を止める必須 gate にはしない。skip target は永続化せず、途中終了した場合は次回起動で通常どおり再検証してよい。
 
 ### Resource Ref Lifetime
 
@@ -118,7 +118,7 @@ BMS の一覧用 metadata と resource references は軽量 parser がまず Shi
 
 inline maintenance の resource health は、同一 directory かつ同一 required resource set の existence count だけを共有してよい。共有してよいのは WAV/BGA/movie と stagefile/backbmp/banner の存在 count に限定し、`maintenance` row 全体、encoding、hash、path、LR2 compatibility facts、warning ignored state は譜面ごとに作る。stagefile/backbmp/banner は同じ画像集合でも役割ごとに warning 表示されるため、resource-set cache key でも役割を区別する。
 
-非 Shift_JIS が確定し、かつ `?` / unknown ではない場合だけ、同じ snapshot bytes を使って `title` / `subtitle` / `artist` / `subartist` / `genre` の raw metadata を再適用する。resource references、`stagefile`、`banner`、`backbmp` は OpenLR2 が BMS 本文を CP932 として読む前提に合わせ、encoding 判定後も BOM 自動判定をしない CP932 decode 由来の値を正本にする。ここでは `#SUBTITLE` を title へ、`#SUBARTIST` を artist へ合成する setter 挙動に戻さない。manual/public 側の `ReloadBMSFileWithEncoding(...)` も同じ raw metadata 適用方針に揃える。LR2 full generation と file diff は同じ metadata canonicalization を使う必要があり、uncertain encoding の扱い差で `subtitle` / `subartist` だけがずれる場合は projection skip の blocker ではなく generator drift として修正する。
+非 Shift_JIS が確定し、かつ `?` / unknown ではない場合だけ、同じ snapshot bytes を使って `title` / `subtitle` / `artist` / `subartist` / `genre` の raw metadata を再適用する。resource references、`stagefile`、`banner`、`backbmp` は OpenLR2 が BMS 本文を CP932 として読む前提に合わせ、encoding 判定後も BOM 自動判定をしない CP932 decode 由来の値を正本にする。ここでは `#SUBTITLE` を title へ、`#SUBARTIST` を artist へ合成する setter 挙動に戻さない。manual/public 側の `ReloadBMSFileWithEncoding(...)` も同じ raw metadata 適用方針に揃える。LR2 song.db sync と file diff は同じ metadata canonicalization を使う必要があり、uncertain encoding の扱い差で `subtitle` / `subartist` だけがずれる場合は projection skip の blocker ではなく generator drift として修正する。
 
 `maintenance.encoding` は UI metadata 補正と maintenance 表示のための情報であり、`chart_info` parser の decode 方針を変えない。`chart_info` は inline / full backfill とも beatoraja 互換の既定 decode を使い、maintenance の encoding 補正とは別の責務として扱う。
 
@@ -148,9 +148,9 @@ package install は起動時 file diff と完全には同じではない。起�
 
 manual rescan は `chart_info` を作らない。既存 `chart_info` の不足や parser version 差分は `chart_info_hydration` / `chart_info_backfill` が担当する。manual encoding fix は snapshot bytes から metadata を読み直し、適用対象は file diff と同じ raw `title` / `subtitle` / `artist` / `subartist` / `genre` に限定する。再計算した `maintenance` row が既存 row と同一の場合、DB upsert は行わない。
 
-## LR2 Full Generation Song Rows
+## LR2 Song.db Sync Song Rows
 
-LR2 `song.db` 完全生成の `song_rows` stage も、譜面 bytes を扱う大量処理として bounded pipeline を使う。
+LR2 `song.db` 同期の `song_rows` stage も、譜面 bytes を扱う大量処理として bounded pipeline を使う。
 
 ```text
 current owned BMS song rows
@@ -174,7 +174,7 @@ computed queue capacity と各譜面ファイルサイズに依存する。queue
 実用的な backpressure であり、巨大な個別譜面ファイルの byte[] size そのものを固定上限にするものではない。
 
 現行実装では対象が複数あり十分な CPU がある場合、`song_rows` reader は 2 本まで並列化される。reader は
-bytes-only producer として動き、worker が MD5 / SHA-256 計算、snapshot 作成、parse / enrich を担当する。BMS row の生成は file diff と同じ `Lr2SongRowEnricher.CreateParsedSongRowFromSnapshot(...)` を通し、LR2 full generation 専用の別 parser 経路を持たない。
+bytes-only producer として動き、worker が MD5 / SHA-256 計算、snapshot 作成、parse / enrich を担当する。BMS row の生成は file diff と同じ `Lr2SongRowEnricher.CreateParsedSongRowFromSnapshot(...)` を通し、LR2 song.db sync 専用の別 parser 経路を持たない。
 pipeline log では `readMs` と `digestMs` / `parseMs` を分けて確認できる。
 
 `song_rows` stage は `chart_info` full backfill 自体を再実装しない。current parser version の
@@ -182,8 +182,8 @@ pipeline log では `readMs` と `digestMs` / `parseMs` を分けて確認でき
 current row を lookup して `song` numeric columns に反映する。LR2 compatibility facts は resource health /
 encoding row を置換せず、maintenance の LR2 列だけを targeted update する。
 
-初回自動 LR2 full generation は、直前の file diff が大量の譜面を read / parse している場合、`song_rows`
-stage を独立 pipeline として再実行する前に file diff の durable coverage を見る。LR2 `song.db` 完全生成が有効な run では、file diff と LR2 full generation が完全に同じ generated song row を作ることを契約にし、同一 scan/input generation、全 current BMS owner path の durable commit、inline maintenance / chart_info coverage、moved hash relink ambiguity なしを満たす場合は `song_rows` stage を skip する。DB projection による全 generated column / digest 比較は高コストな drift 診断に下げ、manual resync、force、signature mismatch、coverage 不足では従来どおり read pipeline を実行する。途中終了した場合に備え、coverage skip target は永続化しない。
+初回自動 LR2 song.db sync は、直前の file diff が大量の譜面を read / parse している場合、`song_rows`
+stage を独立 pipeline として再実行する前に file diff の durable coverage を見る。LR2 `song.db` 同期が有効な run では、file diff と LR2 song.db sync が完全に同じ generated song row を作ることを契約にし、同一 scan/input generation、全 current BMS owner path の durable commit、inline maintenance / chart_info coverage、moved hash relink ambiguity なしを満たす場合は `song_rows` stage を skip する。DB projection による全 generated column / digest 比較は高コストな drift 診断に下げ、manual resync、force、signature mismatch、coverage 不足では従来どおり read pipeline を実行する。途中終了した場合に備え、coverage skip target は永続化しない。
 
 ## Full Backfill
 

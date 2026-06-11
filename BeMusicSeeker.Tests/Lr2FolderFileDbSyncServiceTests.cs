@@ -876,7 +876,7 @@ public sealed class Lr2FolderFileDbSyncServiceTests
             DateTime timestamp = new(2026, 6, 10, 1, 2, 3, DateTimeKind.Utc);
             File.WriteAllText(folderInfoPath, "#TITLE Random Folder Info", Encoding.GetEncoding("shift_jis"));
             string filePath = Path.Combine(randomDirectory, "select.lr2folder");
-            Lr2FolderDirectoryMetadataSnapshot snapshot = Lr2FullGenerationSyncService.CreateLr2FolderParentDirectoryMetadataSnapshot(
+            Lr2FolderDirectoryMetadataSnapshot snapshot = Lr2SongDbSyncService.CreateLr2FolderParentDirectoryMetadataSnapshot(
                 [
                     new Lr2FolderFileSyncItem
                     {
@@ -886,7 +886,7 @@ public sealed class Lr2FolderFileDbSyncServiceTests
                         Definition = Lr2FolderFileProjection.ParseDefinition(["#TITLE Random"])
                     }
                 ],
-                new Lr2FullGenerationSyncRequest
+                new Lr2SongDbSyncRequest
                 {
                     Lr2FolderPruneDirectories = [@"LR2files\CustomFolder"],
                     FolderInfoFilePaths = [folderInfoPath],
@@ -926,7 +926,7 @@ public sealed class Lr2FolderFileDbSyncServiceTests
             DateTime liveTimestamp = enumeratedTimestamp.AddMinutes(10);
             Directory.SetLastWriteTimeUtc(tableDirectory, liveTimestamp);
 
-            Lr2FolderDirectoryMetadataSnapshot snapshot = Lr2FullGenerationSyncService.CreateLr2FolderParentDirectoryMetadataSnapshot(
+            Lr2FolderDirectoryMetadataSnapshot snapshot = Lr2SongDbSyncService.CreateLr2FolderParentDirectoryMetadataSnapshot(
                 [
                     new Lr2FolderFileSyncItem
                     {
@@ -935,7 +935,7 @@ public sealed class Lr2FolderFileDbSyncServiceTests
                         Definition = Lr2FolderFileProjection.ParseDefinition(["#TITLE Table"])
                     }
                 ],
-                new Lr2FullGenerationSyncRequest
+                new Lr2SongDbSyncRequest
                 {
                     RootDirectories = [rootDirectory],
                     DirectoryEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase)
@@ -968,7 +968,7 @@ public sealed class Lr2FolderFileDbSyncServiceTests
             File.WriteAllText(Path.Combine(randomDirectory, "folderinfo.txt"), "#TITLE Random Folder Info", Encoding.GetEncoding("shift_jis"));
             string filePath = Path.Combine(randomDirectory, "select.lr2folder");
 
-            Lr2FolderDirectoryMetadataSnapshot snapshot = Lr2FullGenerationSyncService.CreateLr2FolderParentDirectoryMetadataSnapshot(
+            Lr2FolderDirectoryMetadataSnapshot snapshot = Lr2SongDbSyncService.CreateLr2FolderParentDirectoryMetadataSnapshot(
                 [
                     new Lr2FolderFileSyncItem
                     {
@@ -978,7 +978,7 @@ public sealed class Lr2FolderFileDbSyncServiceTests
                         Definition = Lr2FolderFileProjection.ParseDefinition(["#TITLE Random"])
                     }
                 ],
-                new Lr2FullGenerationSyncRequest
+                new Lr2SongDbSyncRequest
                 {
                     Lr2BuiltinFolderSourceDirectories = [Path.Combine(lr2Root, "LR2files", "CustomFolder")],
                     Lr2FolderPruneDirectories = [@"LR2files\CustomFolder"]
@@ -996,7 +996,7 @@ public sealed class Lr2FolderFileDbSyncServiceTests
     }
 
     [TestMethod]
-    public void FullGenerationRun_UsesBuiltinFolderInfoForCategoryRow()
+    public void Lr2SongDbSyncRun_UsesBuiltinFolderInfoForCategoryRow()
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
@@ -1014,7 +1014,7 @@ public sealed class Lr2FolderFileDbSyncServiceTests
             File.WriteAllText(lr2FolderPath, "#TITLE Random", Encoding.GetEncoding("shift_jis"));
             DateTime timestamp = new(2026, 6, 10, 1, 2, 3, DateTimeKind.Utc);
 
-            Lr2FullGenerationSyncService.Run(songDb, new Lr2FullGenerationSyncRequest
+            Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
             {
                 Signature = "test",
                 RunId = "run",

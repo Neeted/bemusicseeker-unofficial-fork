@@ -17,7 +17,7 @@ namespace BeMusicSeeker.Tests;
 
 [TestClass]
 [DoNotParallelize]
-public sealed class BmsLibraryLr2FullGenerationSyncTests
+public sealed class BmsLibraryLr2SongDbSyncTests
 {
     [TestMethod]
     public void ShouldIncludeLr2TextSurface_OnlyWhenLr2ModeEnabled()
@@ -115,7 +115,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
-    public void ApplyInstalledChartStorageTargets_SyncsNormalFolderRowsWhenFullGenerationEnabled()
+    public void ApplyInstalledChartStorageTargets_SyncsNormalFolderRowsWhenLr2SongDbSyncEnabled()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         try
@@ -192,7 +192,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
-    public void ApplyLibraryMutationDelta_PrunesNormalFolderRowsForRemovedBmsWhenFullGenerationEnabled()
+    public void ApplyLibraryMutationDelta_PrunesNormalFolderRowsForRemovedBmsWhenLr2SongDbSyncEnabled()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         try
@@ -245,7 +245,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
-    public void ApplyLibraryMutationDelta_MovesNormalFolderRowsForMovedBmsWhenFullGenerationEnabled()
+    public void ApplyLibraryMutationDelta_MovesNormalFolderRowsForMovedBmsWhenLr2SongDbSyncEnabled()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         try
@@ -308,7 +308,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
-    public void ApplyInstalledChartStorageTargets_BlocksWhileFullGenerationSyncIsRunning()
+    public void ApplyInstalledChartStorageTargets_BlocksWhileLr2SongDbSyncIsRunning()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         try
@@ -327,12 +327,12 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                 SearchTargets = [rootDirectory],
                 BMSFiles = []
             };
-            InvokeBeginLr2FullGenerationSyncRequest(library);
+            InvokeBeginLr2SongDbSyncRequest(library);
 
             TargetInvocationException exception = Assert.ThrowsException<TargetInvocationException>(
                 () => InvokeApplyInstalledChartStorageTargets(library, ChartStorageTargetSet.FromRows([file], []), "test_blocked_add"));
             Assert.IsInstanceOfType(exception.InnerException, typeof(InvalidOperationException));
-            Assert.AreEqual(Resources.Warn_Lr2FullGenerationSyncRunning, exception.InnerException.Message);
+            Assert.AreEqual(Resources.Warn_Lr2SongDbSyncRunning, exception.InnerException.Message);
         }
         finally
         {
@@ -364,12 +364,12 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                 SearchTargets = [rootDirectory],
                 BMSFiles = []
             };
-            InvokeBeginLr2FullGenerationSyncRequest(library);
+            InvokeBeginLr2SongDbSyncRequest(library);
 
             TargetInvocationException exception = Assert.ThrowsException<TargetInvocationException>(
                 () => InvokeApplyInstalledChartStorageTargets(library, ChartStorageTargetSet.FromRows([file], []), "test_running_add"));
             Assert.IsInstanceOfType(exception.InnerException, typeof(InvalidOperationException));
-            Assert.AreEqual(Resources.Warn_Lr2FullGenerationSyncRunning, exception.InnerException.Message);
+            Assert.AreEqual(Resources.Warn_Lr2SongDbSyncRunning, exception.InnerException.Message);
         }
         finally
         {
@@ -378,7 +378,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
-    public void SetModeAndCommitToDb_BlocksWhileFullGenerationSyncIsRunning()
+    public void SetModeAndCommitToDb_BlocksWhileLr2SongDbSyncIsRunning()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         try
@@ -389,12 +389,12 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             {
                 BMSFiles = []
             };
-            InvokeBeginLr2FullGenerationSyncRequest(library);
+            InvokeBeginLr2SongDbSyncRequest(library);
 
             TargetInvocationException exception = Assert.ThrowsException<TargetInvocationException>(
                 () => InvokeSetModeAndCommitToDb(library, []));
             Assert.IsInstanceOfType(exception.InnerException, typeof(InvalidOperationException));
-            Assert.AreEqual(Resources.Warn_Lr2FullGenerationSyncRunning, exception.InnerException.Message);
+            Assert.AreEqual(Resources.Warn_Lr2SongDbSyncRunning, exception.InnerException.Message);
         }
         finally
         {
@@ -403,7 +403,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
-    public void QueueLr2FullGenerationDataSync_DoesNotQueueWhenLr2ModeDisabled()
+    public void QueueLr2SongDbSync_DoesNotQueueWhenLr2ModeDisabled()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         try
@@ -418,15 +418,15 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                 return true;
             };
 
-            Lr2FullGenerationStatusSnapshot snapshot = library.QueueLr2FullGenerationDataSync("test_l2_mode_disabled");
+            Lr2SongDbSyncStatusSnapshot snapshot = library.QueueLr2SongDbSync("test_l2_mode_disabled");
 
-            Assert.AreEqual(Lr2FullGenerationStatusKind.NotNeeded, snapshot.Status);
-            Assert.AreEqual(1, library.Lr2FullGenerationStatusVersion);
-            Assert.AreEqual(Lr2FullGenerationStatusKind.NotNeeded, library.GetLr2FullGenerationStatusSnapshot().Status);
+            Assert.AreEqual(Lr2SongDbSyncStatusKind.NotNeeded, snapshot.Status);
+            Assert.AreEqual(1, library.Lr2SongDbSyncStatusVersion);
+            Assert.AreEqual(Lr2SongDbSyncStatusKind.NotNeeded, library.GetLr2SongDbSyncStatusSnapshot().Status);
             Assert.IsFalse(queued);
-            Assert.AreEqual(0, library.Lr2FullGenerationSyncRequestedVersion);
-            Assert.AreEqual(0, library.Lr2FullGenerationSyncCompletedVersion);
-            Assert.IsFalse(library.Lr2FullGenerationSyncRunning);
+            Assert.AreEqual(0, library.Lr2SongDbSyncRequestedVersion);
+            Assert.AreEqual(0, library.Lr2SongDbSyncCompletedVersion);
+            Assert.IsFalse(library.Lr2SongDbSyncRunning);
         }
         finally
         {
@@ -435,7 +435,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
-    public void FileDiffNormalFolderSyncFailureMarksFullGenerationIncomplete()
+    public void FileDiffNormalFolderSyncFailureMarksLr2SongDbSyncIncomplete()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         try
@@ -450,7 +450,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             };
             using (var setup = new LR2SongDBExtended(scope.SongDbPath))
             {
-                Lr2FullGenerationStatusService.MarkCompleted(
+                Lr2SongDbSyncStatusService.MarkCompleted(
                     setup,
                     signature: "previous",
                     runId: "completed",
@@ -467,16 +467,16 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                 Lr2NormalFolderSyncFailureReason = "db locked"
             };
 
-            InvokeMarkLr2FullGenerationIncompleteAfterFileDiffNormalFolderSyncFailure(library, options, result);
+            InvokeMarkLr2SongDbSyncIncompleteAfterFileDiffNormalFolderSyncFailure(library, options, result);
 
             using var verify = new LR2SongDBExtended(scope.SongDbPath);
-            LR2SongDBExtended.lr2_full_generation_status row = verify.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
+            LR2SongDBExtended.lr2_song_db_sync_status row = verify.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
             Assert.IsNotNull(row);
-            Assert.AreEqual(Lr2FullGenerationStatusKind.Incomplete.ToString(), row.status);
+            Assert.AreEqual(Lr2SongDbSyncStatusKind.Incomplete.ToString(), row.status);
             Assert.AreEqual("lr2_normal_folder_file_diff_sync_failed", row.stage);
             StringAssert.Contains(row.last_error, "db locked");
-            Lr2FullGenerationStatusSnapshot snapshot = library.GetLr2FullGenerationStatusSnapshot();
-            Assert.AreEqual(Lr2FullGenerationStatusKind.Incomplete, snapshot.Status);
+            Lr2SongDbSyncStatusSnapshot snapshot = library.GetLr2SongDbSyncStatusSnapshot();
+            Assert.AreEqual(Lr2SongDbSyncStatusKind.Incomplete, snapshot.Status);
             Assert.AreEqual("lr2_normal_folder_file_diff_sync_failed", snapshot.Stage);
         }
         finally
@@ -486,7 +486,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
-    public void MutationNormalFolderSyncFailureMarksFullGenerationIncomplete()
+    public void MutationNormalFolderSyncFailureMarksLr2SongDbSyncIncomplete()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         try
@@ -501,7 +501,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             };
             using (var setup = new LR2SongDBExtended(scope.SongDbPath))
             {
-                Lr2FullGenerationStatusService.MarkCompleted(
+                Lr2SongDbSyncStatusService.MarkCompleted(
                     setup,
                     signature: "previous",
                     runId: "completed",
@@ -513,7 +513,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                 OperationModeLR2DB = true,
             };
 
-            InvokeMarkLr2FullGenerationIncompleteAfterNormalFolderSyncFailure(
+            InvokeMarkLr2SongDbSyncIncompleteAfterNormalFolderSyncFailure(
                 library,
                 options,
                 stage: "lr2_normal_folder_mutation_sync_failed",
@@ -521,13 +521,13 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                 logReason: "lr2_normal_folder_mutation_sync_failed");
 
             using var verify = new LR2SongDBExtended(scope.SongDbPath);
-            LR2SongDBExtended.lr2_full_generation_status row = verify.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
+            LR2SongDBExtended.lr2_song_db_sync_status row = verify.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
             Assert.IsNotNull(row);
-            Assert.AreEqual(Lr2FullGenerationStatusKind.Incomplete.ToString(), row.status);
+            Assert.AreEqual(Lr2SongDbSyncStatusKind.Incomplete.ToString(), row.status);
             Assert.AreEqual("lr2_normal_folder_mutation_sync_failed", row.stage);
             StringAssert.Contains(row.last_error, "db locked");
-            Lr2FullGenerationStatusSnapshot snapshot = library.GetLr2FullGenerationStatusSnapshot();
-            Assert.AreEqual(Lr2FullGenerationStatusKind.Incomplete, snapshot.Status);
+            Lr2SongDbSyncStatusSnapshot snapshot = library.GetLr2SongDbSyncStatusSnapshot();
+            Assert.AreEqual(Lr2SongDbSyncStatusKind.Incomplete, snapshot.Status);
             Assert.AreEqual("lr2_normal_folder_mutation_sync_failed", snapshot.Stage);
         }
         finally
@@ -537,7 +537,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
-    public void SongDbWriteFailureMarksFullGenerationIncomplete()
+    public void SongDbWriteFailureMarksLr2SongDbSyncIncomplete()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         try
@@ -552,7 +552,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             };
             using (var setup = new LR2SongDBExtended(scope.SongDbPath))
             {
-                Lr2FullGenerationStatusService.MarkCompleted(
+                Lr2SongDbSyncStatusService.MarkCompleted(
                     setup,
                     signature: "previous",
                     runId: "completed",
@@ -564,7 +564,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                 OperationModeLR2DB = true,
             };
 
-            InvokeMarkLr2FullGenerationIncompleteAfterSongDbWriteFailure(
+            InvokeMarkLr2SongDbSyncIncompleteAfterSongDbWriteFailure(
                 library,
                 options,
                 stage: "lr2_song_db_test_write_failed",
@@ -572,13 +572,13 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                 logReason: "lr2_song_db_test_write_failed");
 
             using var verify = new LR2SongDBExtended(scope.SongDbPath);
-            LR2SongDBExtended.lr2_full_generation_status row = verify.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
+            LR2SongDBExtended.lr2_song_db_sync_status row = verify.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
             Assert.IsNotNull(row);
-            Assert.AreEqual(Lr2FullGenerationStatusKind.Incomplete.ToString(), row.status);
+            Assert.AreEqual(Lr2SongDbSyncStatusKind.Incomplete.ToString(), row.status);
             Assert.AreEqual("lr2_song_db_test_write_failed", row.stage);
             StringAssert.Contains(row.last_error, "db locked");
-            Lr2FullGenerationStatusSnapshot snapshot = library.GetLr2FullGenerationStatusSnapshot();
-            Assert.AreEqual(Lr2FullGenerationStatusKind.Incomplete, snapshot.Status);
+            Lr2SongDbSyncStatusSnapshot snapshot = library.GetLr2SongDbSyncStatusSnapshot();
+            Assert.AreEqual(Lr2SongDbSyncStatusKind.Incomplete, snapshot.Status);
             Assert.AreEqual("lr2_song_db_test_write_failed", snapshot.Stage);
         }
         finally
@@ -588,7 +588,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
-    public void FileDiffSongDbWriteFailureMarksFullGenerationIncomplete()
+    public void FileDiffSongDbWriteFailureMarksLr2SongDbSyncIncomplete()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         try
@@ -603,7 +603,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             };
             using (var setup = new LR2SongDBExtended(scope.SongDbPath))
             {
-                Lr2FullGenerationStatusService.MarkCompleted(
+                Lr2SongDbSyncStatusService.MarkCompleted(
                     setup,
                     signature: "previous",
                     runId: "completed",
@@ -615,20 +615,20 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                 OperationModeLR2DB = true,
             };
 
-            InvokeMarkLr2FullGenerationIncompleteAfterFileDiffSongDbWriteFailure(
+            InvokeMarkLr2SongDbSyncIncompleteAfterFileDiffSongDbWriteFailure(
                 library,
                 options,
                 new InvalidOperationException("db locked"),
                 "reload_file_diff");
 
             using var verify = new LR2SongDBExtended(scope.SongDbPath);
-            LR2SongDBExtended.lr2_full_generation_status row = verify.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
+            LR2SongDBExtended.lr2_song_db_sync_status row = verify.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
             Assert.IsNotNull(row);
-            Assert.AreEqual(Lr2FullGenerationStatusKind.Incomplete.ToString(), row.status);
+            Assert.AreEqual(Lr2SongDbSyncStatusKind.Incomplete.ToString(), row.status);
             Assert.AreEqual("lr2_song_db_file_diff_write_failed", row.stage);
             StringAssert.Contains(row.last_error, "db locked");
-            Lr2FullGenerationStatusSnapshot snapshot = library.GetLr2FullGenerationStatusSnapshot();
-            Assert.AreEqual(Lr2FullGenerationStatusKind.Incomplete, snapshot.Status);
+            Lr2SongDbSyncStatusSnapshot snapshot = library.GetLr2SongDbSyncStatusSnapshot();
+            Assert.AreEqual(Lr2SongDbSyncStatusKind.Incomplete, snapshot.Status);
             Assert.AreEqual("lr2_song_db_file_diff_write_failed", snapshot.Stage);
         }
         finally
@@ -638,7 +638,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
-    public void MaintenanceSongDbWriteFailureMarksFullGenerationIncomplete()
+    public void MaintenanceSongDbWriteFailureMarksLr2SongDbSyncIncomplete()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         try
@@ -653,7 +653,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             };
             using (var setup = new LR2SongDBExtended(scope.SongDbPath))
             {
-                Lr2FullGenerationStatusService.MarkCompleted(
+                Lr2SongDbSyncStatusService.MarkCompleted(
                     setup,
                     signature: "previous",
                     runId: "completed",
@@ -661,19 +661,19 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                     nowUtc: DateTime.UtcNow);
             }
 
-            InvokeMarkLr2FullGenerationIncompleteAfterMaintenanceSongDbWriteFailure(
+            InvokeMarkLr2SongDbSyncIncompleteAfterMaintenanceSongDbWriteFailure(
                 library,
                 new InvalidOperationException("db locked"),
                 "manual_rescan_all_owned");
 
             using var verify = new LR2SongDBExtended(scope.SongDbPath);
-            LR2SongDBExtended.lr2_full_generation_status row = verify.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
+            LR2SongDBExtended.lr2_song_db_sync_status row = verify.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
             Assert.IsNotNull(row);
-            Assert.AreEqual(Lr2FullGenerationStatusKind.Incomplete.ToString(), row.status);
+            Assert.AreEqual(Lr2SongDbSyncStatusKind.Incomplete.ToString(), row.status);
             Assert.AreEqual("lr2_song_db_maintenance_write_failed", row.stage);
             StringAssert.Contains(row.last_error, "db locked");
-            Lr2FullGenerationStatusSnapshot snapshot = library.GetLr2FullGenerationStatusSnapshot();
-            Assert.AreEqual(Lr2FullGenerationStatusKind.Incomplete, snapshot.Status);
+            Lr2SongDbSyncStatusSnapshot snapshot = library.GetLr2SongDbSyncStatusSnapshot();
+            Assert.AreEqual(Lr2SongDbSyncStatusKind.Incomplete, snapshot.Status);
             Assert.AreEqual("lr2_song_db_maintenance_write_failed", snapshot.Stage);
         }
         finally
@@ -683,7 +683,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
-    public void QueueLr2FullGenerationDataSync_DoesNotQueueAgainWhileRunning()
+    public void QueueLr2SongDbSync_DoesNotQueueAgainWhileRunning()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         try
@@ -702,15 +702,15 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                 queued = true;
                 return true;
             };
-            InvokeBeginLr2FullGenerationSyncRequest(library);
+            InvokeBeginLr2SongDbSyncRequest(library);
 
-            Lr2FullGenerationStatusSnapshot snapshot = library.QueueLr2FullGenerationDataSync("test_running");
+            Lr2SongDbSyncStatusSnapshot snapshot = library.QueueLr2SongDbSync("test_running");
 
-            Assert.AreEqual(Lr2FullGenerationStatusKind.Running, snapshot.Status);
-            Assert.AreEqual(Lr2FullGenerationStatusKind.Running, library.GetLr2FullGenerationStatusSnapshot().Status);
+            Assert.AreEqual(Lr2SongDbSyncStatusKind.Running, snapshot.Status);
+            Assert.AreEqual(Lr2SongDbSyncStatusKind.Running, library.GetLr2SongDbSyncStatusSnapshot().Status);
             Assert.IsFalse(queued);
-            Assert.AreEqual(1, library.Lr2FullGenerationSyncRequestedVersion);
-            Assert.IsTrue(library.Lr2FullGenerationSyncRunning);
+            Assert.AreEqual(1, library.Lr2SongDbSyncRequestedVersion);
+            Assert.IsTrue(library.Lr2SongDbSyncRunning);
         }
         finally
         {
@@ -719,7 +719,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
-    public void QueueLr2FullGenerationDataSync_DoesNotStartFromIncompleteWhenDisallowed()
+    public void QueueLr2SongDbSync_DoesNotStartFromIncompleteWhenDisallowed()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         try
@@ -729,9 +729,9 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             var library = new BMSLibrary(scope.SongDbPath);
             using (var setup = new LR2SongDBExtended(scope.SongDbPath))
             {
-                Lr2FullGenerationStatusService.MarkIncomplete(
+                Lr2SongDbSyncStatusService.MarkIncomplete(
                     setup,
-                    Lr2FullGenerationSignatureBuilder.Build(new BmsLibraryOptionsSnapshot
+                    Lr2SongDbSyncSignatureBuilder.Build(new BmsLibraryOptionsSnapshot
                     {
                         OperationModeLR2DB = true,
                     }),
@@ -749,15 +749,15 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                 return true;
             };
 
-            Lr2FullGenerationStatusSnapshot snapshot = library.QueueLr2FullGenerationDataSync(
+            Lr2SongDbSyncStatusSnapshot snapshot = library.QueueLr2SongDbSync(
                 "test_settings_scoped_failure",
                 force: false,
                 allowIncompleteToQueue: false);
 
-            Assert.AreEqual(Lr2FullGenerationStatusKind.Incomplete, snapshot.StoredStatus);
+            Assert.AreEqual(Lr2SongDbSyncStatusKind.Incomplete, snapshot.StoredStatus);
             Assert.IsFalse(queued);
-            Assert.AreEqual(0, library.Lr2FullGenerationSyncRequestedVersion);
-            Assert.IsFalse(library.Lr2FullGenerationSyncRunning);
+            Assert.AreEqual(0, library.Lr2SongDbSyncRequestedVersion);
+            Assert.IsFalse(library.Lr2SongDbSyncRunning);
         }
         finally
         {
@@ -766,7 +766,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
-    public void QueueLr2FullGenerationDataSync_RunsPrepareBeforeMarkingSyncRunning()
+    public void QueueLr2SongDbSync_RunsPrepareBeforeMarkingSyncRunning()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         try
@@ -785,21 +785,21 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             };
             bool prepareCalled = false;
 
-            Lr2FullGenerationStatusSnapshot snapshot = library.QueueLr2FullGenerationDataSync(
+            Lr2SongDbSyncStatusSnapshot snapshot = library.QueueLr2SongDbSync(
                 "test_prepare_order",
                 force: false,
                 () =>
                 {
                     prepareCalled = true;
-                    Assert.IsFalse(library.Lr2FullGenerationSyncRunning);
-                    Assert.AreEqual(0, library.Lr2FullGenerationSyncRequestedVersion);
-                    return Lr2FullGenerationPreparedDataSurface.Empty;
+                    Assert.IsFalse(library.Lr2SongDbSyncRunning);
+                    Assert.AreEqual(0, library.Lr2SongDbSyncRequestedVersion);
+                    return Lr2SongDbSyncPreparedDataSurface.Empty;
                 });
 
             Assert.IsTrue(prepareCalled);
-            Assert.AreEqual(Lr2FullGenerationStatusKind.Needed, snapshot.Status);
-            Assert.AreEqual(1, library.Lr2FullGenerationSyncRequestedVersion);
-            Assert.IsTrue(library.Lr2FullGenerationSyncRunning);
+            Assert.AreEqual(Lr2SongDbSyncStatusKind.Needed, snapshot.Status);
+            Assert.AreEqual(1, library.Lr2SongDbSyncRequestedVersion);
+            Assert.IsTrue(library.Lr2SongDbSyncRunning);
         }
         finally
         {
@@ -864,7 +864,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             LR2Config config = CreateLr2Config(lr2Root, customFolderMask: 0x1, titleFlashHours: 24, Path.Combine(scope.DirectoryPath, "BMS"));
             var library = new BMSLibrary(scope.SongDbPath, () => config);
 
-            Lr2FullGenerationPreparedDataSurface surface = library.SyncLr2BuiltinCustomFolderRows("test_builtin_folderinfo");
+            Lr2SongDbSyncPreparedDataSurface surface = library.SyncLr2BuiltinCustomFolderRows("test_builtin_folderinfo");
 
             using var verify = new LR2SongDBExtended(scope.SongDbPath);
             LR2SongDB.folder category = verify.Table<LR2SongDB.folder>().ToList().Single(folder => folder.path == @"LR2files\CustomFolder\RANDOM\");
@@ -1255,7 +1255,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
-    public void TryBeginLr2FullGenerationSyncRequest_DoesNotAdvanceVersionWhenAlreadyRunning()
+    public void TryBeginLr2SongDbSyncRequest_DoesNotAdvanceVersionWhenAlreadyRunning()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         try
@@ -1264,12 +1264,12 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             ResetLr2FolderDiscoverySettings();
             var library = new BMSLibrary(scope.SongDbPath);
 
-            Assert.IsTrue(InvokeTryBeginLr2FullGenerationSyncRequest(library, out int firstVersion));
+            Assert.IsTrue(InvokeTryBeginLr2SongDbSyncRequest(library, out int firstVersion));
             Assert.AreEqual(1, firstVersion);
-            Assert.IsFalse(InvokeTryBeginLr2FullGenerationSyncRequest(library, out int secondVersion));
+            Assert.IsFalse(InvokeTryBeginLr2SongDbSyncRequest(library, out int secondVersion));
             Assert.AreEqual(firstVersion, secondVersion);
-            Assert.AreEqual(1, library.Lr2FullGenerationSyncRequestedVersion);
-            Assert.IsTrue(library.Lr2FullGenerationSyncRunning);
+            Assert.AreEqual(1, library.Lr2SongDbSyncRequestedVersion);
+            Assert.IsTrue(library.Lr2SongDbSyncRunning);
         }
         finally
         {
@@ -1278,7 +1278,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
-    public void IsLr2FullGenerationSyncInputCurrent_UsesSnapshotSurfaceAndDetectsRootChange()
+    public void IsLr2SongDbSyncInputCurrent_UsesSnapshotSurfaceAndDetectsRootChange()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         try
@@ -1293,19 +1293,19 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                 BMSFiles = []
             };
 
-            object input = InvokeCreateLr2FullGenerationSyncInput(library);
+            object input = InvokeCreateLr2SongDbSyncInput(library);
 
-            Assert.IsTrue(InvokeIsLr2FullGenerationSyncInputCurrent(library, input));
+            Assert.IsTrue(InvokeIsLr2SongDbSyncInputCurrent(library, input));
             File.WriteAllText(Path.Combine(rootDirectory, "folderinfo.txt"), "#TITLE Root Title");
             File.WriteAllText(Path.Combine(rootDirectory, "custom.lr2folder"), "#TITLE Custom");
             File.WriteAllText(Path.Combine(rootDirectory, "readme.txt"), "text group");
-            Assert.IsTrue(InvokeIsLr2FullGenerationSyncInputCurrent(library, input));
+            Assert.IsTrue(InvokeIsLr2SongDbSyncInputCurrent(library, input));
 
             string otherRootDirectory = Path.Combine(scope.DirectoryPath, "OtherBMS");
             Directory.CreateDirectory(otherRootDirectory);
             library.SearchTargets = [otherRootDirectory];
 
-            Assert.IsFalse(InvokeIsLr2FullGenerationSyncInputCurrent(library, input));
+            Assert.IsFalse(InvokeIsLr2SongDbSyncInputCurrent(library, input));
         }
         finally
         {
@@ -1314,7 +1314,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
-    public void IsLr2FullGenerationSyncInputCurrent_DetectsNewerScanSurface()
+    public void IsLr2SongDbSyncInputCurrent_DetectsNewerScanSurface()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         try
@@ -1334,7 +1334,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             {
                 OperationModeLR2DB = true,
             };
-            InvokeCaptureLr2FullGenerationScanSurface(library, options, [rootDirectory], new SongTableFileCheckResult
+            InvokeCaptureLr2SongDbSyncScanSurface(library, options, [rootDirectory], new SongTableFileCheckResult
             {
                 Lr2ScanSurfaceAvailable = true,
                 Lr2ScanFolderInfoFilePaths = [folderInfoPath],
@@ -1348,11 +1348,11 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                 Lr2ScanLr2FolderFileEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase),
                 Lr2ScanLr2FolderFileDiscoveryComplete = true
             });
-            object input = InvokeCreateLr2FullGenerationSyncInput(library);
+            object input = InvokeCreateLr2SongDbSyncInput(library);
 
-            Assert.IsTrue(InvokeIsLr2FullGenerationSyncInputCurrent(library, input));
+            Assert.IsTrue(InvokeIsLr2SongDbSyncInputCurrent(library, input));
 
-            InvokeCaptureLr2FullGenerationScanSurface(library, options, [rootDirectory], new SongTableFileCheckResult
+            InvokeCaptureLr2SongDbSyncScanSurface(library, options, [rootDirectory], new SongTableFileCheckResult
             {
                 Lr2ScanSurfaceAvailable = true,
                 Lr2ScanFolderInfoFilePaths = [folderInfoPath],
@@ -1367,7 +1367,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                 Lr2ScanLr2FolderFileDiscoveryComplete = true
             });
 
-            Assert.IsFalse(InvokeIsLr2FullGenerationSyncInputCurrent(library, input));
+            Assert.IsFalse(InvokeIsLr2SongDbSyncInputCurrent(library, input));
         }
         finally
         {
@@ -1376,7 +1376,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
-    public void CaptureLr2FullGenerationScanSurface_SkipsWhenLr2FolderSurfaceMissing()
+    public void CaptureLr2SongDbSyncScanSurface_SkipsWhenLr2FolderSurfaceMissing()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         try
@@ -1394,7 +1394,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             {
                 OperationModeLR2DB = true,
             };
-            InvokeCaptureLr2FullGenerationScanSurface(library, options, [rootDirectory], new SongTableFileCheckResult
+            InvokeCaptureLr2SongDbSyncScanSurface(library, options, [rootDirectory], new SongTableFileCheckResult
             {
                 Lr2ScanSurfaceAvailable = true,
                 Lr2ScanNormalFolderDirectoryPaths = [rootDirectory],
@@ -1405,10 +1405,10 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                 Lr2ScanLr2FolderFileEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase),
                 Lr2ScanLr2FolderFileDiscoveryComplete = true
             });
-            object capturedInput = InvokeCreateLr2FullGenerationSyncInput(library);
+            object capturedInput = InvokeCreateLr2SongDbSyncInput(library);
             Assert.IsTrue(GetInputInt(capturedInput, "ScanSurfaceGeneration") > 0);
 
-            InvokeCaptureLr2FullGenerationScanSurface(library, options, [rootDirectory], new SongTableFileCheckResult
+            InvokeCaptureLr2SongDbSyncScanSurface(library, options, [rootDirectory], new SongTableFileCheckResult
             {
                 Lr2ScanSurfaceAvailable = true,
                 Lr2ScanNormalFolderDirectoryPaths = [rootDirectory],
@@ -1416,10 +1416,10 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                 Lr2ScanTextFileDirectories = []
             });
 
-            object input = InvokeCreateLr2FullGenerationSyncInput(library);
+            object input = InvokeCreateLr2SongDbSyncInput(library);
 
             Assert.AreEqual(0, GetInputInt(input, "ScanSurfaceGeneration"));
-            Assert.IsFalse(InvokeIsLr2FullGenerationSyncInputCurrent(library, capturedInput));
+            Assert.IsFalse(InvokeIsLr2SongDbSyncInputCurrent(library, capturedInput));
         }
         finally
         {
@@ -1428,7 +1428,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
-    public void CaptureLr2FullGenerationScanSurface_PreservesPreviousSurfaceWhenNormalFolderSyncUnapplied()
+    public void CaptureLr2SongDbSyncScanSurface_PreservesPreviousSurfaceWhenNormalFolderSyncUnapplied()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         try
@@ -1449,7 +1449,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             };
             DateTime previousTimestamp = new(2026, 6, 8, 1, 0, 0, DateTimeKind.Utc);
             DateTime failedTimestamp = new(2026, 6, 8, 1, 5, 0, DateTimeKind.Utc);
-            InvokeCaptureLr2FullGenerationScanSurface(library, options, [rootDirectory], new SongTableFileCheckResult
+            InvokeCaptureLr2SongDbSyncScanSurface(library, options, [rootDirectory], new SongTableFileCheckResult
             {
                 Lr2ScanSurfaceAvailable = true,
                 Lr2ScanNormalFolderDirectoryPaths = [rootDirectory],
@@ -1465,10 +1465,10 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                 Lr2ScanLr2FolderFileEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase),
                 Lr2ScanLr2FolderFileDiscoveryComplete = true
             });
-            object previousInput = InvokeCreateLr2FullGenerationSyncInput(library);
+            object previousInput = InvokeCreateLr2SongDbSyncInput(library);
             int previousGeneration = GetInputInt(previousInput, "ScanSurfaceGeneration");
 
-            InvokeCaptureLr2FullGenerationScanSurface(library, options, [rootDirectory], new SongTableFileCheckResult
+            InvokeCaptureLr2SongDbSyncScanSurface(library, options, [rootDirectory], new SongTableFileCheckResult
             {
                 Lr2ScanSurfaceAvailable = true,
                 Lr2NormalFolderSyncFailed = true,
@@ -1487,13 +1487,13 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                 Lr2ScanLr2FolderFileDiscoveryComplete = true
             });
 
-            object inputAfterFailure = InvokeCreateLr2FullGenerationSyncInput(library);
+            object inputAfterFailure = InvokeCreateLr2SongDbSyncInput(library);
             Assert.AreEqual(previousGeneration, GetInputInt(inputAfterFailure, "ScanSurfaceGeneration"));
             IReadOnlyDictionary<string, RootFileEnumerationEntry> entries = GetInputEntryMap(inputAfterFailure, "FolderInfoFileEntries");
             Assert.IsTrue(entries.TryGetValue(folderInfoPath, out RootFileEnumerationEntry entry));
             Assert.AreEqual(previousTimestamp, entry.LastWriteTimeUtc);
 
-            InvokeCaptureLr2FullGenerationScanSurface(library, options, [rootDirectory], new SongTableFileCheckResult
+            InvokeCaptureLr2SongDbSyncScanSurface(library, options, [rootDirectory], new SongTableFileCheckResult
             {
                 Lr2ScanSurfaceAvailable = true,
                 Lr2NormalFolderSkippedMissingMetadataCount = 1,
@@ -1511,13 +1511,13 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                 Lr2ScanLr2FolderFileDiscoveryComplete = true
             });
 
-            object inputAfterMissingMetadata = InvokeCreateLr2FullGenerationSyncInput(library);
+            object inputAfterMissingMetadata = InvokeCreateLr2SongDbSyncInput(library);
             Assert.AreEqual(previousGeneration, GetInputInt(inputAfterMissingMetadata, "ScanSurfaceGeneration"));
             entries = GetInputEntryMap(inputAfterMissingMetadata, "FolderInfoFileEntries");
             Assert.IsTrue(entries.TryGetValue(folderInfoPath, out entry));
             Assert.AreEqual(previousTimestamp, entry.LastWriteTimeUtc);
 
-            InvokeCaptureLr2FullGenerationScanSurface(library, options, [rootDirectory], new SongTableFileCheckResult
+            InvokeCaptureLr2SongDbSyncScanSurface(library, options, [rootDirectory], new SongTableFileCheckResult
             {
                 Lr2ScanSurfaceAvailable = true,
                 Lr2NormalFolderInfoReadFailureCount = 1,
@@ -1535,7 +1535,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                 Lr2ScanLr2FolderFileDiscoveryComplete = true
             });
 
-            object inputAfterFolderInfoReadFailure = InvokeCreateLr2FullGenerationSyncInput(library);
+            object inputAfterFolderInfoReadFailure = InvokeCreateLr2SongDbSyncInput(library);
             Assert.AreEqual(previousGeneration, GetInputInt(inputAfterFolderInfoReadFailure, "ScanSurfaceGeneration"));
             entries = GetInputEntryMap(inputAfterFolderInfoReadFailure, "FolderInfoFileEntries");
             Assert.IsTrue(entries.TryGetValue(folderInfoPath, out entry));
@@ -1548,7 +1548,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
-    public void QueueLr2FullGenerationDataSync_MergesPreparedLr2FolderSurfaceAfterPreparedOutput()
+    public void QueueLr2SongDbSync_MergesPreparedLr2FolderSurfaceAfterPreparedOutput()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         try
@@ -1572,7 +1572,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             {
                 OperationModeLR2DB = true,
             };
-            InvokeCaptureLr2FullGenerationScanSurface(library, options, [rootDirectory], new SongTableFileCheckResult
+            InvokeCaptureLr2SongDbSyncScanSurface(library, options, [rootDirectory], new SongTableFileCheckResult
             {
                 Lr2ScanSurfaceAvailable = true,
                 Lr2ScanNormalFolderDirectoryPaths = [rootDirectory],
@@ -1592,7 +1592,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                 Lr2ScanLr2FolderFileDiscoveryComplete = true
             });
 
-            Assert.IsTrue(library.TryRunLr2FullGenerationDataPreparation(
+            Assert.IsTrue(library.TryRunLr2SongDbSyncDataPreparation(
                 "test_prepare_lr2folder_surface",
                 () =>
                 {
@@ -1602,13 +1602,13 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                 }));
             int appliedScanSurfaceGeneration = GetPrivateIntField(
                 library,
-                "lr2FullGenerationPreparedDataSurfaceAppliedScanGeneration");
-            object input = InvokeCreateLr2FullGenerationSyncInput(library);
+                "lr2SongDbSyncPreparedDataSurfaceAppliedScanGeneration");
+            object input = InvokeCreateLr2SongDbSyncInput(library);
             Assert.IsTrue(appliedScanSurfaceGeneration > 0);
             Assert.AreEqual(appliedScanSurfaceGeneration, GetInputInt(input, "ScanSurfaceGeneration"));
             Assert.AreEqual(
                 0,
-                GetPrivateIntField(library, "lr2FullGenerationPreparedDataSurfaceAppliedScanGeneration"));
+                GetPrivateIntField(library, "lr2SongDbSyncPreparedDataSurfaceAppliedScanGeneration"));
             CollectionAssert.Contains(GetInputStringList(input, "FolderInfoFilePaths").ToList(), folderInfoPath);
             CollectionAssert.Contains(GetInputStringList(input, "TextFileDirectories").ToList(), rootDirectory);
             CollectionAssert.Contains(GetInputStringList(input, "Lr2FolderDiscoveryDirectories").ToList(), outputBase);
@@ -1622,7 +1622,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                 return true;
             };
 
-            library.QueueLr2FullGenerationDataSync(
+            library.QueueLr2SongDbSync(
                 "test_prepare_lr2folder_surface",
                 force: true,
                 prepareGeneratedData: () =>
@@ -1638,7 +1638,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             Assert.AreEqual("Prepared Folder", lr2Folder.title);
             Assert.AreEqual(Lr2SongFolderParentNormalizer.ComputeDirectoryHash(outputBase), lr2Folder.parent);
             Assert.AreEqual(0, verify.Table<LR2SongDB.folder>().Count(row => row.path == lr2FolderPath && row.title == "stale"));
-            LR2SongDBExtended.lr2_full_generation_status status = verify.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
+            LR2SongDBExtended.lr2_song_db_sync_status status = verify.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
             Assert.IsNotNull(status);
             Assert.AreEqual("Completed", status.status);
         }
@@ -1649,7 +1649,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
-    public void CreateLr2FullGenerationSyncInput_ReusesScanSurfaceDirectoryEntries()
+    public void CreateLr2SongDbSyncInput_ReusesScanSurfaceDirectoryEntries()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         try
@@ -1670,7 +1670,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                 OperationModeLR2DB = true,
             };
 
-            InvokeCaptureLr2FullGenerationScanSurface(library, options, [rootDirectory], new SongTableFileCheckResult
+            InvokeCaptureLr2SongDbSyncScanSurface(library, options, [rootDirectory], new SongTableFileCheckResult
             {
                 Lr2ScanSurfaceAvailable = true,
                 Lr2ScanNormalFolderDirectoryPaths = [rootDirectory],
@@ -1686,7 +1686,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             });
             Directory.SetLastWriteTimeUtc(rootDirectory, liveTimestamp);
 
-            object input = InvokeCreateLr2FullGenerationSyncInput(library);
+            object input = InvokeCreateLr2SongDbSyncInput(library);
             IReadOnlyDictionary<string, RootFileEnumerationEntry> entries = GetInputEntryMap(input, "DirectoryEntries");
 
             string rootKey = Lr2FolderPath.NormalizeDirectoryPath(rootDirectory);
@@ -1700,7 +1700,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
-    public void CreateLr2FullGenerationSyncInput_ReusesScanSurfaceDirectoryEntriesForLr2FolderParents()
+    public void CreateLr2SongDbSyncInput_ReusesScanSurfaceDirectoryEntriesForLr2FolderParents()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         try
@@ -1724,7 +1724,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                 OperationModeLR2DB = true,
             };
 
-            InvokeCaptureLr2FullGenerationScanSurface(library, options, [rootDirectory], new SongTableFileCheckResult
+            InvokeCaptureLr2SongDbSyncScanSurface(library, options, [rootDirectory], new SongTableFileCheckResult
             {
                 Lr2ScanSurfaceAvailable = true,
                 Lr2ScanNormalFolderDirectoryPaths = [rootDirectory],
@@ -1744,7 +1744,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             });
             Directory.SetLastWriteTimeUtc(tableDirectory, liveTimestamp);
 
-            object input = InvokeCreateLr2FullGenerationSyncInput(library);
+            object input = InvokeCreateLr2SongDbSyncInput(library);
             IReadOnlyDictionary<string, RootFileEnumerationEntry> entries = GetInputEntryMap(input, "DirectoryEntries");
 
             string tableKey = Lr2FolderPath.NormalizeDirectoryPath(tableDirectory);
@@ -1758,7 +1758,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
-    public void TryRunLr2FullGenerationDataPreparation_UsesPreparedSurfaceWithoutCapturedScanSurface()
+    public void TryRunLr2SongDbSyncDataPreparation_UsesPreparedSurfaceWithoutCapturedScanSurface()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         try
@@ -1776,8 +1776,8 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                 BMSFiles = []
             };
 
-            Assert.IsFalse(InvokeHasLr2FullGenerationPreparedDataSurface(library));
-            Assert.IsTrue(library.TryRunLr2FullGenerationDataPreparation(
+            Assert.IsFalse(InvokeHasLr2SongDbSyncPreparedDataSurface(library));
+            Assert.IsTrue(library.TryRunLr2SongDbSyncDataPreparation(
                 "test_prepare_lr2folder_without_scan_surface",
                 () =>
                 {
@@ -1785,18 +1785,18 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                     File.WriteAllText(lr2FolderPath, "#TITLE Prepared Folder", Encoding.GetEncoding("shift_jis"));
                     return CreatePreparedLr2FolderSurface(outputBase, lr2FolderPath);
                 }));
-            Assert.IsTrue(InvokeHasLr2FullGenerationPreparedDataSurface(library));
+            Assert.IsTrue(InvokeHasLr2SongDbSyncPreparedDataSurface(library));
             Assert.AreEqual(
                 0,
-                GetPrivateIntField(library, "lr2FullGenerationPreparedDataSurfaceAppliedScanGeneration"));
+                GetPrivateIntField(library, "lr2SongDbSyncPreparedDataSurfaceAppliedScanGeneration"));
 
-            object input = InvokeCreateLr2FullGenerationSyncInput(library);
+            object input = InvokeCreateLr2SongDbSyncInput(library);
 
             Assert.AreEqual(0, GetInputInt(input, "ScanSurfaceGeneration"));
             CollectionAssert.Contains(GetInputStringList(input, "Lr2FolderDiscoveryDirectories").ToList(), outputBase);
             CollectionAssert.Contains(GetInputStringList(input, "Lr2FolderFilePaths").ToList(), lr2FolderPath);
             Assert.IsTrue(GetInputBool(input, "Lr2FolderFileDiscoveryComplete"));
-            Assert.IsFalse(InvokeHasLr2FullGenerationPreparedDataSurface(library));
+            Assert.IsFalse(InvokeHasLr2SongDbSyncPreparedDataSurface(library));
         }
         finally
         {
@@ -1805,7 +1805,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
-    public void TryRunLr2FullGenerationDataPreparation_UsesPreparedDirectoryEntries()
+    public void TryRunLr2SongDbSyncDataPreparation_UsesPreparedDirectoryEntries()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         try
@@ -1827,7 +1827,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                 BMSFiles = []
             };
 
-            Assert.IsTrue(library.TryRunLr2FullGenerationDataPreparation(
+            Assert.IsTrue(library.TryRunLr2SongDbSyncDataPreparation(
                 "test_prepare_lr2folder_directory_entries",
                 () => CreatePreparedLr2FolderSurface(
                     outputBase,
@@ -1838,13 +1838,13 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                     })));
             Directory.SetLastWriteTimeUtc(outputBase, liveTimestamp);
 
-            object input = InvokeCreateLr2FullGenerationSyncInput(library);
+            object input = InvokeCreateLr2SongDbSyncInput(library);
             IReadOnlyDictionary<string, RootFileEnumerationEntry> entries = GetInputEntryMap(input, "DirectoryEntries");
 
             string outputKey = Lr2FolderPath.NormalizeDirectoryPath(outputBase);
             Assert.IsTrue(entries.TryGetValue(outputKey, out RootFileEnumerationEntry entry));
             Assert.AreEqual(preparedTimestamp, entry.LastWriteTimeUtc);
-            Assert.IsFalse(InvokeHasLr2FullGenerationPreparedDataSurface(library));
+            Assert.IsFalse(InvokeHasLr2SongDbSyncPreparedDataSurface(library));
         }
         finally
         {
@@ -1853,7 +1853,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
-    public void TryRunLr2FullGenerationDataPreparation_KeepsMetadataOnlySurface()
+    public void TryRunLr2SongDbSyncDataPreparation_KeepsMetadataOnlySurface()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         try
@@ -1869,9 +1869,9 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                 BMSFiles = []
             };
 
-            Assert.IsTrue(library.TryRunLr2FullGenerationDataPreparation(
+            Assert.IsTrue(library.TryRunLr2SongDbSyncDataPreparation(
                 "test_prepare_metadata_only",
-                () => new Lr2FullGenerationPreparedDataSurface(
+                () => new Lr2SongDbSyncPreparedDataSurface(
                     [],
                     [],
                     new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase),
@@ -1883,15 +1883,15 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                     new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase),
                     [],
                     discoveryComplete: true)));
-            Assert.IsTrue(InvokeHasLr2FullGenerationPreparedDataSurface(library));
+            Assert.IsTrue(InvokeHasLr2SongDbSyncPreparedDataSurface(library));
 
-            object input = InvokeCreateLr2FullGenerationSyncInput(library);
+            object input = InvokeCreateLr2SongDbSyncInput(library);
             IReadOnlyDictionary<string, RootFileEnumerationEntry> entries = GetInputEntryMap(input, "DirectoryEntries");
 
             string rootKey = Lr2FolderPath.NormalizeDirectoryPath(rootDirectory);
             Assert.IsTrue(entries.TryGetValue(rootKey, out RootFileEnumerationEntry entry));
             Assert.AreEqual(preparedTimestamp, entry.LastWriteTimeUtc);
-            Assert.IsFalse(InvokeHasLr2FullGenerationPreparedDataSurface(library));
+            Assert.IsFalse(InvokeHasLr2SongDbSyncPreparedDataSurface(library));
         }
         finally
         {
@@ -1914,7 +1914,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         DateTime playlistTimestamp = new(2026, 6, 8, 1, 0, 0, DateTimeKind.Utc);
         DateTime builtinTimestamp = new(2026, 6, 8, 2, 0, 0, DateTimeKind.Utc);
 
-        Lr2FullGenerationPreparedDataSurface merged = Lr2FullGenerationPreparedDataSurface.Merge(
+        Lr2SongDbSyncPreparedDataSurface merged = Lr2SongDbSyncPreparedDataSurface.Merge(
             CreatePreparedLr2FolderSurface(
                 playlistDirectory,
                 playlistLr2FolderPath,
@@ -1922,7 +1922,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                 {
                     [playlistDirectory] = new RootFileEnumerationEntry(playlistDirectory, playlistTimestamp)
                 }),
-            new Lr2FullGenerationPreparedDataSurface(
+            new Lr2SongDbSyncPreparedDataSurface(
                 [builtinDirectory],
                 [],
                 new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase),
@@ -1966,7 +1966,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
-    public void TryRunLr2FullGenerationDataPreparation_OverlaysPreparedFolderInfoSurface()
+    public void TryRunLr2SongDbSyncDataPreparation_OverlaysPreparedFolderInfoSurface()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         try
@@ -1993,7 +1993,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             {
                 OperationModeLR2DB = true,
             };
-            InvokeCaptureLr2FullGenerationScanSurface(library, options, [rootDirectory], new SongTableFileCheckResult
+            InvokeCaptureLr2SongDbSyncScanSurface(library, options, [rootDirectory], new SongTableFileCheckResult
             {
                 Lr2ScanSurfaceAvailable = true,
                 Lr2ScanNormalFolderDirectoryPaths = [rootDirectory],
@@ -2014,7 +2014,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                 Lr2ScanLr2FolderFileDiscoveryComplete = true
             });
 
-            Assert.IsTrue(library.TryRunLr2FullGenerationDataPreparation(
+            Assert.IsTrue(library.TryRunLr2SongDbSyncDataPreparation(
                 "test_prepare_folderinfo_surface",
                 () => CreatePreparedLr2FolderSurface(
                     outputBase,
@@ -2027,7 +2027,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                     },
                     [outputBase])));
 
-            object input = InvokeCreateLr2FullGenerationSyncInput(library);
+            object input = InvokeCreateLr2SongDbSyncInput(library);
             IReadOnlyDictionary<string, RootFileEnumerationEntry> entries = GetInputEntryMap(input, "FolderInfoFileEntries");
             IReadOnlyCollection<string> textFileDirectories = GetInputStringList(input, "TextFileDirectories");
 
@@ -2042,7 +2042,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
-    public void CreateLr2FullGenerationSyncInput_ReplacesOnlyPreparedScopeTextFileDirectories()
+    public void CreateLr2SongDbSyncInput_ReplacesOnlyPreparedScopeTextFileDirectories()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         try
@@ -2070,7 +2070,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             {
                 OperationModeLR2DB = true,
             };
-            InvokeCaptureLr2FullGenerationScanSurface(library, options, [rootDirectory], new SongTableFileCheckResult
+            InvokeCaptureLr2SongDbSyncScanSurface(library, options, [rootDirectory], new SongTableFileCheckResult
             {
                 Lr2ScanSurfaceAvailable = true,
                 Lr2ScanNormalFolderDirectoryPaths = [rootDirectory],
@@ -2085,7 +2085,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                 Lr2ScanLr2FolderFileDiscoveryComplete = true
             });
 
-            Assert.IsTrue(library.TryRunLr2FullGenerationDataPreparation(
+            Assert.IsTrue(library.TryRunLr2SongDbSyncDataPreparation(
                 "test_prepare_text_dirs_scope_boundary",
                 () => CreatePreparedLr2FolderSurface(
                     preparedDirectory,
@@ -2093,7 +2093,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                     CreateDirectoryEntryMap(preparedDirectory),
                     textFileDirectories: [preparedDirectory])));
 
-            object input = InvokeCreateLr2FullGenerationSyncInput(library);
+            object input = InvokeCreateLr2SongDbSyncInput(library);
             List<string> textFileDirectories = GetInputStringList(input, "TextFileDirectories").ToList();
 
             CollectionAssert.Contains(textFileDirectories, Lr2FolderPath.NormalizeDirectoryPath(rootDirectory));
@@ -2108,7 +2108,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
-    public void TryRunLr2FullGenerationDataPreparation_DoesNotPromoteOldScanSurfaceWhenLr2FolderRootsChanged()
+    public void TryRunLr2SongDbSyncDataPreparation_DoesNotPromoteOldScanSurfaceWhenLr2FolderRootsChanged()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         try
@@ -2133,7 +2133,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             {
                 OperationModeLR2DB = true,
             };
-            InvokeCaptureLr2FullGenerationScanSurface(library, options, [rootDirectory], new SongTableFileCheckResult
+            InvokeCaptureLr2SongDbSyncScanSurface(library, options, [rootDirectory], new SongTableFileCheckResult
             {
                 Lr2ScanSurfaceAvailable = true,
                 Lr2ScanNormalFolderDirectoryPaths = [rootDirectory],
@@ -2151,7 +2151,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             });
 
             Settings.Default.LR2CustomFolderOutputBaseDir = newOutputBase;
-            Assert.IsTrue(library.TryRunLr2FullGenerationDataPreparation(
+            Assert.IsTrue(library.TryRunLr2SongDbSyncDataPreparation(
                 "test_prepare_lr2folder_roots_changed",
                 () =>
                 {
@@ -2161,9 +2161,9 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                 }));
             Assert.AreEqual(
                 0,
-                GetPrivateIntField(library, "lr2FullGenerationPreparedDataSurfaceAppliedScanGeneration"));
+                GetPrivateIntField(library, "lr2SongDbSyncPreparedDataSurfaceAppliedScanGeneration"));
 
-            object input = InvokeCreateLr2FullGenerationSyncInput(library);
+            object input = InvokeCreateLr2SongDbSyncInput(library);
             List<string> lr2FolderFilePaths = GetInputStringList(input, "Lr2FolderFilePaths").ToList();
 
             Assert.AreEqual(0, GetInputInt(input, "ScanSurfaceGeneration"));
@@ -2177,7 +2177,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
-    public void CreateLr2FullGenerationSyncInput_KeepsExternalLr2FolderInOutputBaseOutsidePreparedScope()
+    public void CreateLr2SongDbSyncInput_KeepsExternalLr2FolderInOutputBaseOutsidePreparedScope()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         try
@@ -2199,7 +2199,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                 BMSFiles = []
             };
 
-            Assert.IsTrue(library.TryRunLr2FullGenerationDataPreparation(
+            Assert.IsTrue(library.TryRunLr2SongDbSyncDataPreparation(
                 "test_prepare_keeps_external_output_base_lr2folder",
                 () =>
                 {
@@ -2207,7 +2207,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                     return CreatePreparedLr2FolderSurface(appOutputDir, preparedLr2FolderPath);
                 }));
 
-            object input = InvokeCreateLr2FullGenerationSyncInput(library);
+            object input = InvokeCreateLr2SongDbSyncInput(library);
             List<string> lr2FolderFilePaths = GetInputStringList(input, "Lr2FolderFilePaths").ToList();
 
             CollectionAssert.Contains(lr2FolderFilePaths, preparedLr2FolderPath);
@@ -2221,7 +2221,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
-    public void CaptureLr2FullGenerationScanSurface_ExcludesManagedOutputCandidates()
+    public void CaptureLr2SongDbSyncScanSurface_ExcludesManagedOutputCandidates()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         try
@@ -2259,7 +2259,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             };
             DateTime timestamp = new(2026, 6, 10, 1, 2, 3, DateTimeKind.Utc);
 
-            InvokeCaptureLr2FullGenerationScanSurface(library, options, [rootDirectory], new SongTableFileCheckResult
+            InvokeCaptureLr2SongDbSyncScanSurface(library, options, [rootDirectory], new SongTableFileCheckResult
             {
                 Lr2ScanSurfaceAvailable = true,
                 Lr2ScanNormalFolderDirectoryPaths = [rootDirectory],
@@ -2277,7 +2277,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                 Lr2ScanLr2FolderFileDiscoveryComplete = true
             });
 
-            object input = InvokeCreateLr2FullGenerationSyncInput(library);
+            object input = InvokeCreateLr2SongDbSyncInput(library);
             List<string> lr2FolderFilePaths = GetInputStringList(input, "Lr2FolderFilePaths").ToList();
 
             CollectionAssert.DoesNotContain(lr2FolderFilePaths, managedPath);
@@ -2290,7 +2290,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
-    public void CreateLr2FullGenerationAppManagedOutputScope_CountsExpectedPlaylistOutputs()
+    public void CreateLr2SongDbSyncAppManagedOutputScope_CountsExpectedPlaylistOutputs()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         try
@@ -2369,7 +2369,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                 BMSFiles = []
             };
 
-            object outputScope = InvokeCreateLr2FullGenerationAppManagedOutputScope(library);
+            object outputScope = InvokeCreateLr2SongDbSyncAppManagedOutputScope(library);
             List<string> directories = GetInputStringList(outputScope, "Directories").ToList();
             List<string> filePaths = GetInputStringList(outputScope, "FilePaths").ToList();
             List<string> pruneExcludedPaths = GetInputStringList(outputScope, "PruneExcludedPaths").ToList();
@@ -2390,7 +2390,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
-    public void QueueLr2FullGenerationDataSync_ClearsPreparedSurfaceWhenFollowupQueueIsCurrentNoop()
+    public void QueueLr2SongDbSync_ClearsPreparedSurfaceWhenFollowupQueueIsCurrentNoop()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         try
@@ -2414,31 +2414,31 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             };
             using (var setup = new LR2SongDBExtended(scope.SongDbPath))
             {
-                Lr2FullGenerationStatusService.MarkCompleted(
+                Lr2SongDbSyncStatusService.MarkCompleted(
                     setup,
-                    Lr2FullGenerationSignatureBuilder.Build(options),
+                    Lr2SongDbSyncSignatureBuilder.Build(options),
                     runId: "already_current",
                     totalCount: 0,
                     nowUtc: DateTime.UtcNow);
             }
 
-            Assert.IsTrue(library.TryRunLr2FullGenerationDataPreparation(
+            Assert.IsTrue(library.TryRunLr2SongDbSyncDataPreparation(
                 "test_prepare_then_noop_queue",
                 () =>
                 {
                     File.WriteAllText(lr2FolderPath, "#TITLE Prepared Folder", Encoding.GetEncoding("shift_jis"));
                     return CreatePreparedLr2FolderSurface(outputBase, lr2FolderPath);
                 }));
-            Assert.IsTrue(InvokeHasLr2FullGenerationPreparedDataSurface(library));
+            Assert.IsTrue(InvokeHasLr2SongDbSyncPreparedDataSurface(library));
 
-            Lr2FullGenerationStatusSnapshot snapshot = library.QueueLr2FullGenerationDataSync(
+            Lr2SongDbSyncStatusSnapshot snapshot = library.QueueLr2SongDbSync(
                 "test_prepare_then_noop_queue",
                 force: false,
                 allowIncompleteToQueue: false);
 
-            Assert.AreEqual(Lr2FullGenerationStatusKind.Completed, snapshot.Status);
-            Assert.IsFalse(InvokeHasLr2FullGenerationPreparedDataSurface(library));
-            Assert.AreEqual(0, library.Lr2FullGenerationSyncRequestedVersion);
+            Assert.AreEqual(Lr2SongDbSyncStatusKind.Completed, snapshot.Status);
+            Assert.IsFalse(InvokeHasLr2SongDbSyncPreparedDataSurface(library));
+            Assert.AreEqual(0, library.Lr2SongDbSyncRequestedVersion);
         }
         finally
         {
@@ -2447,7 +2447,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
-    public void CreateLr2FullGenerationSyncInputWithoutScanSurface_UsesTargetFolderInfoOnly()
+    public void CreateLr2SongDbSyncInputWithoutScanSurface_UsesTargetFolderInfoOnly()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         try
@@ -2480,7 +2480,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                 ]
             };
 
-            object input = InvokeCreateLr2FullGenerationSyncInput(library);
+            object input = InvokeCreateLr2SongDbSyncInput(library);
             List<string> folderInfoFilePaths = GetInputStringList(input, "FolderInfoFilePaths").ToList();
             List<string> textFileDirectories = GetInputStringList(input, "TextFileDirectories").ToList();
 
@@ -2496,7 +2496,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
-    public void CreateLr2FullGenerationSyncInputWithoutScanSurface_ExcludesManagedOutputExactFiles()
+    public void CreateLr2SongDbSyncInputWithoutScanSurface_ExcludesManagedOutputExactFiles()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         try
@@ -2539,7 +2539,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                 BMSFiles = []
             };
 
-            object input = InvokeCreateLr2FullGenerationSyncInput(library);
+            object input = InvokeCreateLr2SongDbSyncInput(library);
             List<string> lr2FolderFilePaths = GetInputStringList(input, "Lr2FolderFilePaths").ToList();
             List<string> pruneExcludedPaths = GetInputStringList(input, "Lr2FolderPruneExcludedPaths").ToList();
 
@@ -2555,7 +2555,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
-    public void CreateLr2FullGenerationSyncInputWithoutScanSurface_KeepsPreparedManagedOutputExactFiles()
+    public void CreateLr2SongDbSyncInputWithoutScanSurface_KeepsPreparedManagedOutputExactFiles()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         try
@@ -2597,11 +2597,11 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                 SearchTargets = [rootDirectory],
                 BMSFiles = []
             };
-            Assert.IsTrue(library.TryRunLr2FullGenerationDataPreparation(
+            Assert.IsTrue(library.TryRunLr2SongDbSyncDataPreparation(
                 "test_prepared_managed_output",
                 () => CreatePreparedLr2FolderSurface(string.Empty, managedPath)));
 
-            object input = InvokeCreateLr2FullGenerationSyncInput(library);
+            object input = InvokeCreateLr2SongDbSyncInput(library);
             List<string> lr2FolderFilePaths = GetInputStringList(input, "Lr2FolderFilePaths").ToList();
 
             CollectionAssert.Contains(lr2FolderFilePaths, managedPath);
@@ -2615,7 +2615,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
-    public void CreateLr2FullGenerationSyncInputWithoutScanSurface_SkipsPhysicalLr2FoldersWhenManagedScopeIncomplete()
+    public void CreateLr2SongDbSyncInputWithoutScanSurface_SkipsPhysicalLr2FoldersWhenManagedScopeIncomplete()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         try
@@ -2639,7 +2639,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                 BMSFiles = []
             };
 
-            object input = InvokeCreateLr2FullGenerationSyncInput(library);
+            object input = InvokeCreateLr2SongDbSyncInput(library);
             List<string> lr2FolderFilePaths = GetInputStringList(input, "Lr2FolderFilePaths").ToList();
 
             CollectionAssert.DoesNotContain(lr2FolderFilePaths, lr2FolderPath);
@@ -2652,7 +2652,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
-    public void CreateLr2FullGenerationSyncInput_SkipsScanSurfaceLr2FoldersWhenManagedScopeIncomplete()
+    public void CreateLr2SongDbSyncInput_SkipsScanSurfaceLr2FoldersWhenManagedScopeIncomplete()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         try
@@ -2680,7 +2680,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                 OperationModeLR2DB = true,
             };
             DateTime timestamp = new(2026, 6, 10, 1, 2, 3, DateTimeKind.Utc);
-            InvokeCaptureLr2FullGenerationScanSurface(library, options, [rootDirectory], new SongTableFileCheckResult
+            InvokeCaptureLr2SongDbSyncScanSurface(library, options, [rootDirectory], new SongTableFileCheckResult
             {
                 Lr2ScanSurfaceAvailable = true,
                 Lr2ScanNormalFolderDirectoryPaths = [rootDirectory],
@@ -2697,7 +2697,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                 Lr2ScanLr2FolderFileDiscoveryComplete = true
             });
 
-            object input = InvokeCreateLr2FullGenerationSyncInput(library);
+            object input = InvokeCreateLr2SongDbSyncInput(library);
             List<string> lr2FolderFilePaths = GetInputStringList(input, "Lr2FolderFilePaths").ToList();
 
             CollectionAssert.DoesNotContain(lr2FolderFilePaths, lr2FolderPath);
@@ -2710,7 +2710,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
-    public void QueueLr2FullGenerationDataSync_RunsFullGenerationSyncAndMarksCompletedWhenClean()
+    public void QueueLr2SongDbSync_RunsLr2SongDbSyncAndMarksCompletedWhenClean()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         try
@@ -2789,9 +2789,9 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             var observedStages = new List<string>();
             library.PropertyChanged += (sender, args) =>
             {
-                if (string.Equals(args.PropertyName, nameof(BMSLibrary.Lr2FullGenerationSyncStage), StringComparison.Ordinal))
+                if (string.Equals(args.PropertyName, nameof(BMSLibrary.Lr2SongDbSyncStage), StringComparison.Ordinal))
                 {
-                    observedStages.Add(library.Lr2FullGenerationSyncStage);
+                    observedStages.Add(library.Lr2SongDbSyncStage);
                 }
             };
             library.StartupBackgroundTaskScheduler = delegate (string name, string reason, string dependency, Func<Task> work)
@@ -2802,21 +2802,21 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                 return true;
             };
 
-            Lr2FullGenerationStatusSnapshot snapshot = library.QueueLr2FullGenerationDataSync("test_enabled");
+            Lr2SongDbSyncStatusSnapshot snapshot = library.QueueLr2SongDbSync("test_enabled");
 
-            Assert.AreEqual(Lr2FullGenerationStatusKind.Needed, snapshot.Status);
-            Assert.AreEqual("lr2_full_generation_sync", queuedName);
+            Assert.AreEqual(Lr2SongDbSyncStatusKind.Needed, snapshot.Status);
+            Assert.AreEqual("lr2_song_db_sync", queuedName);
             Assert.AreEqual("test_enabled", queuedReason);
             CollectionAssert.Contains(observedStages, "chart_info_hydration");
             CollectionAssert.Contains(observedStages, "input_surface");
             CollectionAssert.Contains(observedStages, "compatibility_projection_index");
             CollectionAssert.Contains(observedStages, "chart_info_resolver_snapshot");
             using var verify = new LR2SongDBExtended(scope.SongDbPath);
-            LR2SongDBExtended.lr2_full_generation_status row = verify.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
+            LR2SongDBExtended.lr2_song_db_sync_status row = verify.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
             Assert.IsNotNull(row);
             Assert.AreEqual("Completed", row.status);
             Assert.AreEqual(string.Empty, row.last_error);
-            Assert.AreEqual(Lr2FullGenerationSyncService.CompletedStage, row.stage);
+            Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, row.stage);
             Assert.AreEqual(row.total_count, row.processed_cursor);
             Assert.IsTrue(row.total_count > 0);
             Assert.IsNotNull(row.completed_at);
@@ -2860,13 +2860,13 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             Assert.AreEqual("keep-tag", verify.ExecuteScalar<string>("SELECT tag FROM song WHERE path = ?;", chartPath));
             Assert.AreEqual("00000000", file.folder);
             Assert.AreEqual("11111111", file.parent);
-            Assert.AreEqual(1, library.Lr2FullGenerationSyncRequestedVersion);
-            Assert.AreEqual(1, library.Lr2FullGenerationSyncCompletedVersion);
-            Assert.IsFalse(library.Lr2FullGenerationSyncRunning);
-            Assert.AreEqual(row.total_count.GetValueOrDefault(), library.Lr2FullGenerationSyncTotalCount);
-            Assert.AreEqual(row.processed_cursor.GetValueOrDefault(), library.Lr2FullGenerationSyncProcessedCount);
-            Assert.AreEqual(Lr2FullGenerationSyncService.CompletedStage, library.Lr2FullGenerationSyncStage);
-            Assert.AreEqual(Lr2FullGenerationStatusKind.Completed, library.GetLr2FullGenerationStatusSnapshot().Status);
+            Assert.AreEqual(1, library.Lr2SongDbSyncRequestedVersion);
+            Assert.AreEqual(1, library.Lr2SongDbSyncCompletedVersion);
+            Assert.IsFalse(library.Lr2SongDbSyncRunning);
+            Assert.AreEqual(row.total_count.GetValueOrDefault(), library.Lr2SongDbSyncTotalCount);
+            Assert.AreEqual(row.processed_cursor.GetValueOrDefault(), library.Lr2SongDbSyncProcessedCount);
+            Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, library.Lr2SongDbSyncStage);
+            Assert.AreEqual(Lr2SongDbSyncStatusKind.Completed, library.GetLr2SongDbSyncStatusSnapshot().Status);
         }
         finally
         {
@@ -2875,7 +2875,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
-    public void QueueLr2FullGenerationDataSync_PreflightCancelMarksDurableCancelledStatus()
+    public void QueueLr2SongDbSync_PreflightCancelMarksDurableCancelledStatus()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         try
@@ -2893,10 +2893,10 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             library.PropertyChanged += (sender, args) =>
             {
                 if (!cancelRequested
-                    && string.Equals(args.PropertyName, nameof(BMSLibrary.Lr2FullGenerationSyncStage), StringComparison.Ordinal)
-                    && string.Equals(library.Lr2FullGenerationSyncStage, "chart_info_hydration", StringComparison.Ordinal))
+                    && string.Equals(args.PropertyName, nameof(BMSLibrary.Lr2SongDbSyncStage), StringComparison.Ordinal)
+                    && string.Equals(library.Lr2SongDbSyncStage, "chart_info_hydration", StringComparison.Ordinal))
                 {
-                    cancelRequested = library.CancelLr2FullGenerationSync("test_preflight_cancel");
+                    cancelRequested = library.CancelLr2SongDbSync("test_preflight_cancel");
                 }
             };
             library.StartupBackgroundTaskScheduler = delegate (string name, string reason, string dependency, Func<Task> work)
@@ -2905,11 +2905,11 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                 return true;
             };
 
-            library.QueueLr2FullGenerationDataSync("test_preflight_cancel", force: true);
+            library.QueueLr2SongDbSync("test_preflight_cancel", force: true);
 
             Assert.IsTrue(cancelRequested);
             using var verify = new LR2SongDBExtended(scope.SongDbPath);
-            LR2SongDBExtended.lr2_full_generation_status row = verify.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
+            LR2SongDBExtended.lr2_song_db_sync_status row = verify.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
             Assert.IsNotNull(row);
             Assert.AreEqual("Cancelled", row.status);
             Assert.AreEqual("chart_info_hydration", row.stage);
@@ -2923,7 +2923,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
-    public void QueueLr2FullGenerationDataSync_ServiceCancelKeepsDurableProgress()
+    public void QueueLr2SongDbSync_ServiceCancelKeepsDurableProgress()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         try
@@ -2946,10 +2946,10 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             library.PropertyChanged += (sender, args) =>
             {
                 if (!cancelRequested
-                    && string.Equals(args.PropertyName, nameof(BMSLibrary.Lr2FullGenerationSyncStage), StringComparison.Ordinal)
-                    && string.Equals(library.Lr2FullGenerationSyncStage, "normal_folders", StringComparison.Ordinal))
+                    && string.Equals(args.PropertyName, nameof(BMSLibrary.Lr2SongDbSyncStage), StringComparison.Ordinal)
+                    && string.Equals(library.Lr2SongDbSyncStage, "normal_folders", StringComparison.Ordinal))
                 {
-                    cancelRequested = library.CancelLr2FullGenerationSync("test_service_cancel");
+                    cancelRequested = library.CancelLr2SongDbSync("test_service_cancel");
                 }
             };
             library.StartupBackgroundTaskScheduler = delegate (string name, string reason, string dependency, Func<Task> work)
@@ -2958,11 +2958,11 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                 return true;
             };
 
-            library.QueueLr2FullGenerationDataSync("test_service_cancel", force: true);
+            library.QueueLr2SongDbSync("test_service_cancel", force: true);
 
             Assert.IsTrue(cancelRequested);
             using var verify = new LR2SongDBExtended(scope.SongDbPath);
-            LR2SongDBExtended.lr2_full_generation_status row = verify.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
+            LR2SongDBExtended.lr2_song_db_sync_status row = verify.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
             Assert.IsNotNull(row);
             Assert.AreEqual("Cancelled", row.status);
             Assert.AreEqual("normal_folders", row.stage);
@@ -2976,7 +2976,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
-    public void QueueLr2FullGenerationDataSync_DefaultsDifficultyWithoutUsingStaleRowsAsAnchor()
+    public void QueueLr2SongDbSync_DefaultsDifficultyWithoutUsingStaleRowsAsAnchor()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         try
@@ -3012,13 +3012,13 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                 return true;
             };
 
-            library.QueueLr2FullGenerationDataSync("test_difficulty_normalization");
+            library.QueueLr2SongDbSync("test_difficulty_normalization");
 
             using var verify = new LR2SongDBExtended(scope.SongDbPath);
             Assert.AreEqual(1, verify.ExecuteScalar<int>("SELECT COUNT(*) FROM song WHERE path = ?;", chartPath));
             Assert.AreEqual(0, verify.ExecuteScalar<int>("SELECT COUNT(*) FROM song WHERE path LIKE '%stale.bms';"));
             Assert.AreEqual(2, verify.ExecuteScalar<int>("SELECT difficulty FROM song WHERE path = ?;", chartPath));
-            LR2SongDBExtended.lr2_full_generation_status row = verify.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
+            LR2SongDBExtended.lr2_song_db_sync_status row = verify.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
             Assert.AreEqual("Completed", row.status);
         }
         finally
@@ -3028,7 +3028,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
-    public void QueueLr2FullGenerationDataSync_DoesNotQueueSecondSyncWhenCompletedStatusIsCurrent()
+    public void QueueLr2SongDbSync_DoesNotQueueSecondSyncWhenCompletedStatusIsCurrent()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         try
@@ -3060,23 +3060,23 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                 return true;
             };
 
-            Lr2FullGenerationStatusSnapshot first = library.QueueLr2FullGenerationDataSync("test_first");
-            int requestedVersionAfterFirst = library.Lr2FullGenerationSyncRequestedVersion;
-            int completedVersionAfterFirst = library.Lr2FullGenerationSyncCompletedVersion;
-            int statusVersionAfterFirst = library.Lr2FullGenerationStatusVersion;
-            Lr2FullGenerationStatusSnapshot second = library.QueueLr2FullGenerationDataSync("test_second");
+            Lr2SongDbSyncStatusSnapshot first = library.QueueLr2SongDbSync("test_first");
+            int requestedVersionAfterFirst = library.Lr2SongDbSyncRequestedVersion;
+            int completedVersionAfterFirst = library.Lr2SongDbSyncCompletedVersion;
+            int statusVersionAfterFirst = library.Lr2SongDbSyncStatusVersion;
+            Lr2SongDbSyncStatusSnapshot second = library.QueueLr2SongDbSync("test_second");
 
-            Assert.AreEqual(Lr2FullGenerationStatusKind.Needed, first.Status);
-            Assert.AreEqual(Lr2FullGenerationStatusKind.Completed, second.Status);
+            Assert.AreEqual(Lr2SongDbSyncStatusKind.Needed, first.Status);
+            Assert.AreEqual(Lr2SongDbSyncStatusKind.Completed, second.Status);
             Assert.AreEqual(1, scheduledCount);
-            Assert.AreEqual(requestedVersionAfterFirst, library.Lr2FullGenerationSyncRequestedVersion);
-            Assert.AreEqual(completedVersionAfterFirst, library.Lr2FullGenerationSyncCompletedVersion);
-            Assert.AreEqual(statusVersionAfterFirst + 1, library.Lr2FullGenerationStatusVersion);
-            Assert.IsFalse(library.Lr2FullGenerationSyncRunning);
+            Assert.AreEqual(requestedVersionAfterFirst, library.Lr2SongDbSyncRequestedVersion);
+            Assert.AreEqual(completedVersionAfterFirst, library.Lr2SongDbSyncCompletedVersion);
+            Assert.AreEqual(statusVersionAfterFirst + 1, library.Lr2SongDbSyncStatusVersion);
+            Assert.IsFalse(library.Lr2SongDbSyncRunning);
             using var verify = new LR2SongDBExtended(scope.SongDbPath);
-            LR2SongDBExtended.lr2_full_generation_status row = verify.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
+            LR2SongDBExtended.lr2_song_db_sync_status row = verify.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
             Assert.AreEqual("Completed", row.status);
-            Assert.AreEqual(Lr2FullGenerationSyncService.CompletedStage, row.stage);
+            Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, row.stage);
         }
         finally
         {
@@ -3085,7 +3085,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
-    public void QueueLr2FullGenerationDataSync_DoesNotQueueWhenCompletedCopiedSongDbIsCurrent()
+    public void QueueLr2SongDbSync_DoesNotQueueWhenCompletedCopiedSongDbIsCurrent()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         try
@@ -3112,7 +3112,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                 return true;
             };
 
-            Lr2FullGenerationStatusSnapshot first = firstLibrary.QueueLr2FullGenerationDataSync("test_first_for_copy");
+            Lr2SongDbSyncStatusSnapshot first = firstLibrary.QueueLr2SongDbSync("test_first_for_copy");
             string copiedDirectory = Path.Combine(scope.DirectoryPath, "Copied");
             Directory.CreateDirectory(copiedDirectory);
             string copiedSongDbPath = Path.Combine(copiedDirectory, "song.db");
@@ -3130,18 +3130,18 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                 return true;
             };
 
-            Lr2FullGenerationStatusSnapshot second = copiedLibrary.QueueLr2FullGenerationDataSync("test_copied_song_db");
+            Lr2SongDbSyncStatusSnapshot second = copiedLibrary.QueueLr2SongDbSync("test_copied_song_db");
 
-            Assert.AreEqual(Lr2FullGenerationStatusKind.Needed, first.Status);
+            Assert.AreEqual(Lr2SongDbSyncStatusKind.Needed, first.Status);
             Assert.AreEqual(1, firstScheduledCount);
-            Assert.AreEqual(Lr2FullGenerationStatusKind.Completed, second.Status);
+            Assert.AreEqual(Lr2SongDbSyncStatusKind.Completed, second.Status);
             Assert.AreEqual(0, copiedScheduledCount);
-            Assert.AreEqual(0, copiedLibrary.Lr2FullGenerationSyncRequestedVersion);
-            Assert.AreEqual(0, copiedLibrary.Lr2FullGenerationSyncCompletedVersion);
+            Assert.AreEqual(0, copiedLibrary.Lr2SongDbSyncRequestedVersion);
+            Assert.AreEqual(0, copiedLibrary.Lr2SongDbSyncCompletedVersion);
             using var verify = new LR2SongDBExtended(copiedSongDbPath);
-            LR2SongDBExtended.lr2_full_generation_status row = verify.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
+            LR2SongDBExtended.lr2_song_db_sync_status row = verify.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
             Assert.AreEqual("Completed", row.status);
-            Assert.AreEqual(Lr2FullGenerationSyncService.CompletedStage, row.stage);
+            Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, row.stage);
         }
         finally
         {
@@ -3181,7 +3181,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         using var copiedDb = new LR2SongDBExtended(copiedSongDbPath);
         copiedDb.CreateTable<LR2SongDB.folder>();
 
-        Lr2FullGenerationSyncResult result = Lr2FullGenerationSyncService.Run(copiedDb, new Lr2FullGenerationSyncRequest
+        Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(copiedDb, new Lr2SongDbSyncRequest
         {
             Signature = "copied-user-columns",
             RunId = "copied-user-columns-run",
@@ -3191,7 +3191,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc)
         });
 
-        Assert.AreEqual(Lr2FullGenerationSyncService.CompletedStage, result.FinalStage);
+        Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, result.FinalStage);
         Assert.AreEqual("Copied User Columns", copiedDb.ExecuteScalar<string>("SELECT title FROM song WHERE path = ?;", chartPath));
         Assert.AreEqual(chartSnapshot.Md5, copiedDb.ExecuteScalar<string>("SELECT hash FROM song WHERE path = ?;", chartPath));
         Assert.AreEqual(5, copiedDb.ExecuteScalar<int>("SELECT favorite FROM song WHERE path = ?;", chartPath));
@@ -3200,7 +3200,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
-    public void QueueLr2FullGenerationDataSync_WithNoRootsCompletesEmptyGeneration()
+    public void QueueLr2SongDbSync_WithNoRootsCompletesEmptyGeneration()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         try
@@ -3217,23 +3217,23 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                 return true;
             };
 
-            library.QueueLr2FullGenerationDataSync("test_no_roots");
+            library.QueueLr2SongDbSync("test_no_roots");
 
             using var verify = new LR2SongDBExtended(scope.SongDbPath);
-            LR2SongDBExtended.lr2_full_generation_status row = verify.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
+            LR2SongDBExtended.lr2_song_db_sync_status row = verify.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
             Assert.IsNotNull(row);
             Assert.AreEqual("Completed", row.status);
             Assert.AreEqual(string.Empty, row.last_error);
             Assert.AreEqual(0, row.processed_cursor);
             Assert.AreEqual(0, row.total_count);
-            Assert.AreEqual(Lr2FullGenerationSyncService.CompletedStage, row.stage);
+            Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, row.stage);
             Assert.AreEqual(0, verify.Table<LR2SongDB.folder>().ToList().Count);
-            Assert.AreEqual(1, library.Lr2FullGenerationSyncRequestedVersion);
-            Assert.AreEqual(1, library.Lr2FullGenerationSyncCompletedVersion);
-            Assert.AreEqual(0, library.Lr2FullGenerationSyncFailedVersion);
-            Assert.IsFalse(library.Lr2FullGenerationSyncRunning);
-            Assert.AreEqual(string.Empty, library.Lr2FullGenerationSyncFailureMessage);
-            Assert.AreEqual(Lr2FullGenerationStatusKind.Completed, library.GetLr2FullGenerationStatusSnapshot().Status);
+            Assert.AreEqual(1, library.Lr2SongDbSyncRequestedVersion);
+            Assert.AreEqual(1, library.Lr2SongDbSyncCompletedVersion);
+            Assert.AreEqual(0, library.Lr2SongDbSyncFailedVersion);
+            Assert.IsFalse(library.Lr2SongDbSyncRunning);
+            Assert.AreEqual(string.Empty, library.Lr2SongDbSyncFailureMessage);
+            Assert.AreEqual(Lr2SongDbSyncStatusKind.Completed, library.GetLr2SongDbSyncStatusSnapshot().Status);
         }
         finally
         {
@@ -3242,7 +3242,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
-    public void QueueLr2FullGenerationDataSync_WithNoRootsStillSyncsSongRows()
+    public void QueueLr2SongDbSync_WithNoRootsStillSyncsSongRows()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         try
@@ -3269,16 +3269,16 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                 return true;
             };
 
-            library.QueueLr2FullGenerationDataSync("test_no_roots_with_song");
+            library.QueueLr2SongDbSync("test_no_roots_with_song");
 
             using var verify = new LR2SongDBExtended(scope.SongDbPath);
-            LR2SongDBExtended.lr2_full_generation_status row = verify.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
+            LR2SongDBExtended.lr2_song_db_sync_status row = verify.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
             Assert.IsNotNull(row);
             Assert.AreEqual("Completed", row.status);
             Assert.AreEqual(string.Empty, row.last_error);
             Assert.AreEqual(1, row.processed_cursor);
             Assert.AreEqual(1, row.total_count);
-            Assert.AreEqual(Lr2FullGenerationSyncService.CompletedStage, row.stage);
+            Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, row.stage);
             Assert.AreEqual(0, verify.Table<LR2SongDB.folder>().ToList().Count);
             Assert.AreEqual(Lr2SongFolderParentNormalizer.ComputeDirectoryHash(songDirectory), verify.ExecuteScalar<string>("SELECT folder FROM song WHERE path = ?;", chartPath));
         }
@@ -3289,7 +3289,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
-    public void QueueLr2FullGenerationDataSync_ParsesReadableSnapshotContentInsteadOfPreservingNullSongColumns()
+    public void QueueLr2SongDbSync_ParsesReadableSnapshotContentInsteadOfPreservingNullSongColumns()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         try
@@ -3323,7 +3323,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                 return true;
             };
 
-            library.QueueLr2FullGenerationDataSync("test_readable_snapshot_song_parse");
+            library.QueueLr2SongDbSync("test_readable_snapshot_song_parse");
 
             using var verify = new LR2SongDBExtended(scope.SongDbPath);
             Assert.AreEqual("Parsed Readable Snapshot", verify.ExecuteScalar<string>("SELECT title FROM song WHERE path = ?;", chartPath));
@@ -3361,7 +3361,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
-    public void QueueLr2FullGenerationDataSync_BuildsMissingChartInfoInsideSongRows()
+    public void QueueLr2SongDbSync_BuildsMissingChartInfoInsideSongRows()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         try
@@ -3391,7 +3391,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                 return true;
             };
 
-            library.QueueLr2FullGenerationDataSync("test_chart_info_build");
+            library.QueueLr2SongDbSync("test_chart_info_build");
 
             using var verify = new LR2SongDBExtended(scope.SongDbPath);
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info WHERE sha256 = ? AND md5 = ?;", snapshot.Sha256, snapshot.Md5));
@@ -3408,7 +3408,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
-    public void QueueLr2FullGenerationDataSync_RebuildsStaleChartInfoInsideSongRows()
+    public void QueueLr2SongDbSync_RebuildsStaleChartInfoInsideSongRows()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         try
@@ -3440,7 +3440,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                 return true;
             };
 
-            library.QueueLr2FullGenerationDataSync("test_stale_chart_info_build");
+            library.QueueLr2SongDbSync("test_stale_chart_info_build");
 
             using var verify = new LR2SongDBExtended(scope.SongDbPath);
             LR2SongDBExtended.chart_info chartInfo = verify.Query<LR2SongDBExtended.chart_info>("SELECT * FROM chart_info WHERE sha256 = ?;", snapshot.Sha256).Single();
@@ -3474,7 +3474,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         using var songDb = new LR2SongDBExtended(scope.SongDbPath);
         songDb.CreateTable<LR2SongDB.song>();
 
-        Lr2FullGenerationSyncResult result = Lr2FullGenerationSyncService.Run(songDb, new Lr2FullGenerationSyncRequest
+        Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
             Signature = "missing-song",
             RunId = "missing-song",
@@ -3511,7 +3511,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             date = 1
         }, typeof(LR2SongDB.folder));
 
-        Lr2FullGenerationSyncResult result = Lr2FullGenerationSyncService.Run(songDb, new Lr2FullGenerationSyncRequest
+        Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
             Signature = "unknown-root-folder",
             RunId = "unknown-root-folder",
@@ -3519,10 +3519,10 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc)
         });
 
-        Assert.AreEqual(Lr2FullGenerationSyncService.CompletedStage, result.FinalStage);
+        Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, result.FinalStage);
         Assert.AreEqual(0, result.StartupScanDiagnosticResult.UnknownRootFolderRowCount);
         Assert.AreEqual(0, songDb.Table<LR2SongDB.folder>().ToList().Count(folder => folder.path == ToFolderPath(outsideDirectory)));
-        LR2SongDBExtended.lr2_full_generation_status row = songDb.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
+        LR2SongDBExtended.lr2_song_db_sync_status row = songDb.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
         Assert.AreEqual("Completed", row.status);
     }
 
@@ -3541,7 +3541,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         songDb.CreateTable<LR2SongDB.song>();
         songDb.CreateTable<LR2SongDB.folder>();
 
-        Lr2FullGenerationSyncResult result = Lr2FullGenerationSyncService.Run(songDb, new Lr2FullGenerationSyncRequest
+        Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
             Signature = "unknown-root-current-song",
             RunId = "unknown-root-current-song",
@@ -3550,11 +3550,11 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc)
         });
 
-        Assert.AreEqual(Lr2FullGenerationSyncService.CompletedStage, result.FinalStage);
+        Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, result.FinalStage);
         Assert.IsNull(result.IncompleteReason);
         Assert.AreEqual(1, result.StartupScanDiagnosticResult.UnknownRootSongRowCount);
         Assert.IsNotNull(songDb.Find<LR2SongDB.song>(chartPath));
-        LR2SongDBExtended.lr2_full_generation_status row = songDb.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
+        LR2SongDBExtended.lr2_song_db_sync_status row = songDb.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
         Assert.AreEqual("Completed", row.status);
     }
 
@@ -3576,7 +3576,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             songDb.CreateTable<LR2SongDB.folder>();
             songDb.InsertOrReplace(file.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
 
-            Lr2FullGenerationSyncResult result = Lr2FullGenerationSyncService.Run(songDb, new Lr2FullGenerationSyncRequest
+            Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
             {
                 Signature = "negative-song-date",
                 RunId = "negative-song-date",
@@ -3586,9 +3586,9 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                 StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc)
             });
 
-            Assert.AreEqual(Lr2FullGenerationSyncService.CompletedStage, result.FinalStage);
+            Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, result.FinalStage);
             Assert.AreEqual(0, result.StartupScanDiagnosticResult.DateMissingSongRowCount);
-            LR2SongDBExtended.lr2_full_generation_status row = songDb.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
+            LR2SongDBExtended.lr2_song_db_sync_status row = songDb.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
             Assert.AreEqual("Completed", row.status);
         }
         finally
@@ -3615,7 +3615,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             songDb.CreateTable<LR2SongDB.folder>();
             songDb.InsertOrReplace(file.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
 
-            Lr2FullGenerationSyncResult result = Lr2FullGenerationSyncService.Run(songDb, new Lr2FullGenerationSyncRequest
+            Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
             {
                 Signature = "null-song-date",
                 RunId = "null-song-date",
@@ -3625,9 +3625,9 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                 StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc)
             });
 
-            Assert.AreEqual(Lr2FullGenerationSyncService.CompletedStage, result.FinalStage);
+            Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, result.FinalStage);
             Assert.AreEqual(0, result.StartupScanDiagnosticResult.DateMissingSongRowCount);
-            LR2SongDBExtended.lr2_full_generation_status row = songDb.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
+            LR2SongDBExtended.lr2_song_db_sync_status row = songDb.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
             Assert.AreEqual("Completed", row.status);
         }
         finally
@@ -3653,7 +3653,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             date = 0
         }, typeof(LR2SongDB.folder));
 
-        Lr2FullGenerationSyncResult result = Lr2FullGenerationSyncService.Run(songDb, new Lr2FullGenerationSyncRequest
+        Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
             Signature = "folder-date-missing",
             RunId = "folder-date-missing",
@@ -3661,10 +3661,10 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc)
         });
 
-        Assert.AreEqual(Lr2FullGenerationSyncService.CompletedStage, result.FinalStage);
+        Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, result.FinalStage);
         Assert.AreEqual(0, result.StartupScanDiagnosticResult.DateMissingFolderRowCount);
         Assert.AreEqual(0, songDb.Table<LR2SongDB.folder>().Count(folder => folder.path == lr2FolderPath));
-        LR2SongDBExtended.lr2_full_generation_status row = songDb.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
+        LR2SongDBExtended.lr2_song_db_sync_status row = songDb.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
         Assert.AreEqual("Completed", row.status);
     }
 
@@ -3696,7 +3696,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             date = Lr2SongRowEnricher.ToLr2UnixSeconds(lr2FolderTime.AddMinutes(-1))
         }, typeof(LR2SongDB.folder));
         const string signature = "folder-date-stale";
-        Lr2FullGenerationStatusService.MarkIncomplete(
+        Lr2SongDbSyncStatusService.MarkIncomplete(
             songDb,
             signature,
             "previous-run",
@@ -3706,7 +3706,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             detail: "interrupted",
             nowUtc: new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc));
 
-        Lr2FullGenerationSyncResult result = Lr2FullGenerationSyncService.Run(songDb, new Lr2FullGenerationSyncRequest
+        Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
             Signature = signature,
             RunId = "folder-date-stale-run",
@@ -3721,9 +3721,9 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             StartedAtUtc = new DateTime(2026, 6, 5, 0, 1, 0, DateTimeKind.Utc)
         });
 
-        Assert.AreEqual(Lr2FullGenerationSyncService.CompletedStage, result.FinalStage);
+        Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, result.FinalStage);
         Assert.AreEqual(0, result.StartupScanDiagnosticResult.DateStaleFolderRowCount);
-        LR2SongDBExtended.lr2_full_generation_status row = songDb.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
+        LR2SongDBExtended.lr2_song_db_sync_status row = songDb.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
         Assert.AreEqual("Completed", row.status);
         Assert.AreEqual(Lr2SongRowEnricher.ToLr2UnixSeconds(rootTime), songDb.ExecuteScalar<int>("SELECT date FROM folder WHERE path = ?;", ToFolderPath(rootDirectory)));
         Assert.AreEqual(Lr2SongRowEnricher.ToLr2UnixSeconds(lr2FolderTime), songDb.ExecuteScalar<int>("SELECT date FROM folder WHERE path = ?;", lr2FolderPath));
@@ -3748,7 +3748,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             date = Lr2SongRowEnricher.ToLr2UnixSeconds(legacyTime.AddMinutes(-1))
         }, typeof(LR2SongDB.folder));
 
-        Lr2FullGenerationSyncResult result = Lr2FullGenerationSyncService.Run(songDb, new Lr2FullGenerationSyncRequest
+        Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
             Signature = "legacy-folder-date-stale",
             RunId = "legacy-folder-date-stale-run",
@@ -3756,9 +3756,9 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             StartedAtUtc = new DateTime(2026, 6, 5, 0, 1, 0, DateTimeKind.Utc)
         });
 
-        Assert.AreEqual(Lr2FullGenerationSyncService.CompletedStage, result.FinalStage);
+        Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, result.FinalStage);
         Assert.AreEqual(0, result.StartupScanDiagnosticResult.DateStaleFolderRowCount);
-        LR2SongDBExtended.lr2_full_generation_status row = songDb.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
+        LR2SongDBExtended.lr2_song_db_sync_status row = songDb.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
         Assert.AreEqual("Completed", row.status);
         string legacyFolderPath = ToFolderPath(legacyDirectory);
         Assert.AreEqual(0, songDb.Table<LR2SongDB.folder>().ToList().Count(folder => folder.path == legacyFolderPath));
@@ -3789,7 +3789,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             date = 1
         }, typeof(LR2SongDB.folder));
 
-        Lr2FullGenerationSyncResult result = Lr2FullGenerationSyncService.Run(songDb, new Lr2FullGenerationSyncRequest
+        Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
             Signature = "lr2folder-prune-excluded-paths",
             RunId = "lr2folder-prune-excluded-paths-run",
@@ -3801,7 +3801,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             StartedAtUtc = new DateTime(2026, 6, 5, 0, 1, 0, DateTimeKind.Utc)
         });
 
-        Assert.AreEqual(Lr2FullGenerationSyncService.CompletedStage, result.FinalStage);
+        Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, result.FinalStage);
         Assert.AreEqual(1, songDb.Table<LR2SongDB.folder>().ToList().Count(folder => folder.path == managedPath));
         Assert.AreEqual(0, songDb.Table<LR2SongDB.folder>().ToList().Count(folder => folder.path == staleExternalPath));
     }
@@ -3825,7 +3825,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             date = Lr2SongRowEnricher.ToLr2UnixSeconds(currentTime.AddHours(-1))
         }, typeof(LR2SongDB.folder));
 
-        Lr2FullGenerationSyncResult result = Lr2FullGenerationSyncService.Run(songDb, new Lr2FullGenerationSyncRequest
+        Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
             Signature = "lr2folder-prune-excluded-date-stale",
             RunId = "lr2folder-prune-excluded-date-stale-run",
@@ -3841,7 +3841,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             StartedAtUtc = new DateTime(2026, 6, 5, 0, 1, 0, DateTimeKind.Utc)
         });
 
-        Assert.AreEqual(Lr2FullGenerationSyncService.CompletedStage, result.FinalStage);
+        Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, result.FinalStage);
         Assert.AreEqual(1, result.StartupScanDiagnosticResult.DateStaleFolderRowCount);
         Assert.AreEqual(0, result.StartupScanDiagnosticResult.FolderDateUpdateCount);
         LR2SongDB.folder managedRow = songDb.Table<LR2SongDB.folder>().ToList().Single(folder => folder.path == managedPath);
@@ -3865,7 +3865,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             date = 1
         }, typeof(LR2SongDB.folder));
 
-        Lr2FullGenerationSyncResult result = Lr2FullGenerationSyncService.Run(songDb, new Lr2FullGenerationSyncRequest
+        Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
             Signature = "lr2folder-discovery-incomplete-preserve",
             RunId = "lr2folder-discovery-incomplete-preserve-run",
@@ -3876,7 +3876,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             StartedAtUtc = new DateTime(2026, 6, 5, 0, 1, 0, DateTimeKind.Utc)
         });
 
-        Assert.AreEqual(Lr2FullGenerationSyncService.CompletedStage, result.FinalStage);
+        Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, result.FinalStage);
         Assert.AreEqual(1, songDb.Table<LR2SongDB.folder>().ToList().Count(folder => folder.path == lr2FolderPath));
         Assert.AreEqual(0, result.StartupScanDiagnosticResult.CleanupFolderRowCount);
     }
@@ -3900,7 +3900,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             date = 1
         }, typeof(LR2SongDB.folder));
 
-        Lr2FullGenerationSyncResult result = Lr2FullGenerationSyncService.Run(songDb, new Lr2FullGenerationSyncRequest
+        Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
             Signature = "lr2folder-directory-discovery-incomplete-preserve",
             RunId = "lr2folder-directory-discovery-incomplete-preserve-run",
@@ -3911,7 +3911,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             StartedAtUtc = new DateTime(2026, 6, 5, 0, 1, 0, DateTimeKind.Utc)
         });
 
-        Assert.AreEqual(Lr2FullGenerationSyncService.CompletedStage, result.FinalStage);
+        Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, result.FinalStage);
         Assert.AreEqual(1, songDb.Table<LR2SongDB.folder>().ToList().Count(folder => folder.path == outputDirectoryRowPath));
         Assert.AreEqual(0, result.StartupScanDiagnosticResult.CleanupFolderRowCount);
     }
@@ -3940,7 +3940,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             date = 1
         }, typeof(LR2SongDB.folder));
         const string signature = "folder-target-missing";
-        Lr2FullGenerationStatusService.MarkIncomplete(
+        Lr2SongDbSyncStatusService.MarkIncomplete(
             songDb,
             signature,
             "previous-run",
@@ -3950,7 +3950,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             detail: "interrupted",
             nowUtc: new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc));
 
-        Lr2FullGenerationSyncResult result = Lr2FullGenerationSyncService.Run(songDb, new Lr2FullGenerationSyncRequest
+        Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
             Signature = signature,
             RunId = "folder-target-missing-run",
@@ -3961,7 +3961,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             StartedAtUtc = new DateTime(2026, 6, 5, 0, 1, 0, DateTimeKind.Utc)
         });
 
-        Assert.AreEqual(Lr2FullGenerationSyncService.CompletedStage, result.FinalStage);
+        Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, result.FinalStage);
         Assert.AreEqual(0, result.StartupScanDiagnosticResult.DateStaleFolderRowCount);
         Assert.IsTrue(result.StartupScanDiagnosticResult.IsClean);
         string missingFolderPath = ToFolderPath(missingDirectory);
@@ -3970,7 +3970,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         Assert.AreEqual(0, folderRows.Count(folder => folder.path == missingFolderPath));
         Assert.AreEqual(0, folderRows.Count(folder => folder.path == missingLr2FolderPath));
         Assert.AreEqual(1, folderRows.Count(folder => folder.path == rootFolderPath));
-        LR2SongDBExtended.lr2_full_generation_status row = songDb.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
+        LR2SongDBExtended.lr2_song_db_sync_status row = songDb.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
         Assert.AreEqual("Completed", row.status);
     }
 
@@ -4021,7 +4021,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             date = 1
         }, typeof(LR2SongDB.folder));
 
-        Lr2StartupScanBlockerCleanupResult result = Lr2FullGenerationSyncService.CleanupStartupScanBlockerFolderRows(
+        Lr2StartupScanBlockerCleanupResult result = Lr2SongDbSyncService.CleanupStartupScanBlockerFolderRows(
             songDb,
             [rootDirectory],
             [rootDirectory],
@@ -4056,7 +4056,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             date = 1
         }.WithHashAndFavorite("dddddddddddddddddddddddddddddddd", favoriteValue: null), typeof(LR2SongDB.song));
 
-        Lr2FullGenerationSyncResult result = Lr2FullGenerationSyncService.Run(songDb, new Lr2FullGenerationSyncRequest
+        Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
             Signature = "source-stale",
             RunId = "source-stale",
@@ -4067,12 +4067,12 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             IsSourceCurrent = () => false
         });
 
-        Assert.AreEqual(Lr2FullGenerationSyncService.SourceStaleStage, result.FinalStage);
-        Assert.AreEqual(Lr2FullGenerationSyncService.SourceStaleReason, result.IncompleteReason);
-        LR2SongDBExtended.lr2_full_generation_status row = songDb.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
+        Assert.AreEqual(Lr2SongDbSyncService.SourceStaleStage, result.FinalStage);
+        Assert.AreEqual(Lr2SongDbSyncService.SourceStaleReason, result.IncompleteReason);
+        LR2SongDBExtended.lr2_song_db_sync_status row = songDb.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
         Assert.AreEqual("Incomplete", row.status);
-        Assert.AreEqual(Lr2FullGenerationSyncService.SourceStaleStage, row.stage);
-        StringAssert.Contains(row.last_error, Lr2FullGenerationSyncService.SourceStaleReason);
+        Assert.AreEqual(Lr2SongDbSyncService.SourceStaleStage, row.stage);
+        StringAssert.Contains(row.last_error, Lr2SongDbSyncService.SourceStaleReason);
         Assert.IsNotNull(songDb.Find<LR2SongDB.song>(stalePath));
     }
 
@@ -4094,13 +4094,13 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         Assert.IsTrue(Lr2SongDbWriter.UpsertGeneratedSong(songDb, file));
         var logs = new List<string>();
 
-        Lr2FullGenerationSyncResult result = Lr2FullGenerationSyncService.Run(songDb, new Lr2FullGenerationSyncRequest
+        Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
             Signature = "skip-song-rows",
             RunId = "skip-song-rows",
             SongRows = [file],
             StartedAtUtc = new DateTime(2026, 6, 9, 0, 0, 0, DateTimeKind.Utc),
-            SongRowsSkipVerifier = (_, rows) => new Lr2FullGenerationSongRowsSkipVerificationResult
+            SongRowsSkipVerifier = (_, rows) => new Lr2SongDbSyncSongRowsSkipVerificationResult
             {
                 CanSkip = true,
                 Reason = "test_current",
@@ -4110,13 +4110,13 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             LogInstallPerformance = logs.Add
         });
 
-        Assert.AreEqual(Lr2FullGenerationSyncService.CompletedStage, result.FinalStage);
+        Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, result.FinalStage);
         Assert.AreEqual(0, result.SongRowProcessedCount);
         Assert.AreEqual(1, result.SongRowSkippedCount);
         Assert.AreEqual(result.TotalCount, result.ProcessedCount);
-        Assert.IsTrue(logs.Any(log => log.Contains("lr2_full_generation_sync song_rows_skip action=skip")));
+        Assert.IsTrue(logs.Any(log => log.Contains("lr2_song_db_sync song_rows_skip action=skip")));
         Assert.IsFalse(logs.Any(log => log.Contains("pipeline_start stage=song_rows")));
-        LR2SongDBExtended.lr2_full_generation_status row = songDb.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
+        LR2SongDBExtended.lr2_song_db_sync_status row = songDb.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
         Assert.AreEqual("Completed", row.status);
         Assert.AreEqual(row.total_count, row.processed_cursor);
     }
@@ -4142,7 +4142,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         songDb.CreateTable<LR2SongDB.song>();
         var logs = new List<string>();
 
-        Lr2FullGenerationSyncResult result = Lr2FullGenerationSyncService.Run(songDb, new Lr2FullGenerationSyncRequest
+        Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
             Signature = "transient-song-row-skip",
             RunId = "transient-song-row-skip",
@@ -4155,7 +4155,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             LogInstallPerformance = logs.Add
         });
 
-        Assert.AreEqual(Lr2FullGenerationSyncService.CompletedStage, result.FinalStage);
+        Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, result.FinalStage);
         Assert.AreEqual(2, result.SongRowProcessedCount);
         Assert.AreEqual(1, result.SongRowSkippedCount);
         Assert.AreEqual(0L, songDb.ExecuteScalar<long>("SELECT COUNT(1) FROM song WHERE path = ?;", skippedPath));
@@ -4183,7 +4183,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         songDb.CreateTable<LR2SongDB.song>();
         songDb.CreateTable<LR2SongDB.folder>();
         const string signature = "resume-normal-complete";
-        Lr2FullGenerationStatusService.MarkIncomplete(
+        Lr2SongDbSyncStatusService.MarkIncomplete(
             songDb,
             signature,
             "previous-run",
@@ -4195,7 +4195,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         InsertNormalFolderRow(songDb, rootDirectory, Lr2SongFolderParentNormalizer.RootParentHash);
         InsertNormalFolderRow(songDb, songDirectory, Lr2SongFolderParentNormalizer.ComputeDirectoryHash(rootDirectory));
 
-        Lr2FullGenerationSyncResult result = Lr2FullGenerationSyncService.Run(songDb, new Lr2FullGenerationSyncRequest
+        Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
             Signature = signature,
             RunId = "resume-run",
@@ -4205,11 +4205,11 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             StartedAtUtc = new DateTime(2026, 6, 5, 0, 1, 0, DateTimeKind.Utc)
         });
 
-        Assert.AreEqual(Lr2FullGenerationSyncService.CompletedStage, result.FinalStage);
+        Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, result.FinalStage);
         Assert.IsNull(result.NormalFolderSyncResult);
         Assert.AreEqual(2, songDb.Table<LR2SongDB.folder>().Count());
         Assert.AreEqual("resume song", songDb.ExecuteScalar<string>("SELECT title FROM song WHERE path = ?;", chartPath));
-        LR2SongDBExtended.lr2_full_generation_status row = songDb.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
+        LR2SongDBExtended.lr2_song_db_sync_status row = songDb.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
         Assert.AreEqual("Completed", row.status);
         Assert.AreEqual(row.total_count, row.processed_cursor);
     }
@@ -4229,7 +4229,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         songDb.CreateTable<LR2SongDB.song>();
         songDb.CreateTable<LR2SongDB.folder>();
         const string signature = "resume-normal-missing-folder";
-        Lr2FullGenerationStatusService.MarkIncomplete(
+        Lr2SongDbSyncStatusService.MarkIncomplete(
             songDb,
             signature,
             "previous-run",
@@ -4239,7 +4239,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             detail: "interrupted",
             nowUtc: new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc));
 
-        Lr2FullGenerationSyncResult result = Lr2FullGenerationSyncService.Run(songDb, new Lr2FullGenerationSyncRequest
+        Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
             Signature = signature,
             RunId = "resume-missing-folder-run",
@@ -4250,14 +4250,14 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             StartedAtUtc = new DateTime(2026, 6, 5, 0, 1, 0, DateTimeKind.Utc)
         });
 
-        Assert.AreEqual(Lr2FullGenerationSyncService.CompletedStage, result.FinalStage);
+        Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, result.FinalStage);
         Assert.AreEqual(0, result.StartupScanDiagnosticResult.MissingExpectedFolderRowCount);
         string rootFolderPath = ToFolderPath(rootDirectory);
         string songFolderPath = ToFolderPath(songDirectory);
         List<LR2SongDB.folder> folderRows = songDb.Table<LR2SongDB.folder>().ToList();
         Assert.AreEqual(1, folderRows.Count(folder => folder.path == rootFolderPath));
         Assert.AreEqual(1, folderRows.Count(folder => folder.path == songFolderPath));
-        LR2SongDBExtended.lr2_full_generation_status row = songDb.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
+        LR2SongDBExtended.lr2_song_db_sync_status row = songDb.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
         Assert.AreEqual("Completed", row.status);
     }
 
@@ -4281,7 +4281,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             date = Lr2SongRowEnricher.ToLr2UnixSeconds(File.GetLastWriteTimeUtc(lr2FolderPath))
         }, typeof(LR2SongDB.folder));
         const string signature = "resume-lr2folder-missing-row";
-        Lr2FullGenerationStatusService.MarkIncomplete(
+        Lr2SongDbSyncStatusService.MarkIncomplete(
             songDb,
             signature,
             "previous-run",
@@ -4291,7 +4291,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             detail: "interrupted",
             nowUtc: new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc));
 
-        Lr2FullGenerationSyncResult result = Lr2FullGenerationSyncService.Run(songDb, new Lr2FullGenerationSyncRequest
+        Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
             Signature = signature,
             RunId = "resume-missing-lr2folder-row-run",
@@ -4302,13 +4302,13 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             StartedAtUtc = new DateTime(2026, 6, 5, 0, 1, 0, DateTimeKind.Utc)
         });
 
-        Assert.AreEqual(Lr2FullGenerationSyncService.CompletedStage, result.FinalStage);
+        Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, result.FinalStage);
         Assert.AreEqual(0, result.StartupScanDiagnosticResult.MissingExpectedLr2FolderRowCount);
         LR2SongDB.folder folderRow = songDb.Find<LR2SongDB.folder>(lr2FolderPath);
         Assert.IsNotNull(folderRow);
         Assert.AreEqual(2, folderRow.type);
         Assert.AreEqual("table", folderRow.title);
-        LR2SongDBExtended.lr2_full_generation_status row = songDb.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
+        LR2SongDBExtended.lr2_song_db_sync_status row = songDb.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
         Assert.AreEqual("Completed", row.status);
     }
 
@@ -4324,7 +4324,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         songDb.CreateTable<LR2SongDB.folder>();
         InsertNormalFolderRow(songDb, rootDirectory, Lr2SongFolderParentNormalizer.RootParentHash);
         const string signature = "resume-lr2folder-missing-metadata";
-        Lr2FullGenerationStatusService.MarkIncomplete(
+        Lr2SongDbSyncStatusService.MarkIncomplete(
             songDb,
             signature,
             "previous-run",
@@ -4334,7 +4334,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             detail: "interrupted",
             nowUtc: new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc));
 
-        Lr2FullGenerationSyncResult result = Lr2FullGenerationSyncService.Run(songDb, new Lr2FullGenerationSyncRequest
+        Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
             Signature = signature,
             RunId = "resume-missing-metadata-lr2folder-run",
@@ -4344,9 +4344,9 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             StartedAtUtc = new DateTime(2026, 6, 5, 0, 1, 0, DateTimeKind.Utc)
         });
 
-        Assert.AreEqual(Lr2FullGenerationSyncService.CompletedStage, result.FinalStage);
+        Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, result.FinalStage);
         Assert.AreEqual(0, result.StartupScanDiagnosticResult.MissingExpectedLr2FolderRowCount);
-        LR2SongDBExtended.lr2_full_generation_status row = songDb.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
+        LR2SongDBExtended.lr2_song_db_sync_status row = songDb.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
         Assert.AreEqual("Completed", row.status);
     }
 
@@ -4365,7 +4365,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         songDb.CreateTable<LR2SongDB.song>();
         songDb.CreateTable<LR2SongDB.folder>();
         const string signature = "resume-total-mismatch";
-        Lr2FullGenerationStatusService.MarkIncomplete(
+        Lr2SongDbSyncStatusService.MarkIncomplete(
             songDb,
             signature,
             "previous-run",
@@ -4375,7 +4375,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             detail: "old total",
             nowUtc: new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc));
 
-        Lr2FullGenerationSyncResult result = Lr2FullGenerationSyncService.Run(songDb, new Lr2FullGenerationSyncRequest
+        Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
             Signature = signature,
             RunId = "restart-run",
@@ -4386,10 +4386,10 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             StartedAtUtc = new DateTime(2026, 6, 5, 0, 1, 0, DateTimeKind.Utc)
         });
 
-        Assert.AreEqual(Lr2FullGenerationSyncService.CompletedStage, result.FinalStage);
+        Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, result.FinalStage);
         Assert.IsNotNull(result.NormalFolderSyncResult);
         Assert.IsTrue(songDb.Table<LR2SongDB.folder>().Any());
-        LR2SongDBExtended.lr2_full_generation_status row = songDb.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
+        LR2SongDBExtended.lr2_song_db_sync_status row = songDb.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
         Assert.AreEqual("Completed", row.status);
         Assert.AreEqual(3, row.total_count);
     }
@@ -4420,7 +4420,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         existingFirstRow.SetTitleForTest("first stale");
         songDb.InsertOrReplace(existingFirstRow, typeof(LR2SongDB.song));
         const string signature = "resume-song-row";
-        Lr2FullGenerationStatusService.MarkIncomplete(
+        Lr2SongDbSyncStatusService.MarkIncomplete(
             songDb,
             signature,
             "previous-run",
@@ -4432,7 +4432,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         InsertNormalFolderRow(songDb, rootDirectory, Lr2SongFolderParentNormalizer.RootParentHash);
         InsertNormalFolderRow(songDb, songDirectory, Lr2SongFolderParentNormalizer.ComputeDirectoryHash(rootDirectory));
 
-        Lr2FullGenerationSyncResult result = Lr2FullGenerationSyncService.Run(songDb, new Lr2FullGenerationSyncRequest
+        Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
             Signature = signature,
             RunId = "resume-run",
@@ -4442,11 +4442,11 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             StartedAtUtc = new DateTime(2026, 6, 5, 0, 1, 0, DateTimeKind.Utc)
         });
 
-        Assert.AreEqual(Lr2FullGenerationSyncService.CompletedStage, result.FinalStage);
+        Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, result.FinalStage);
         Assert.AreEqual(1, result.SongRowProcessedCount);
         Assert.AreEqual("first stale", songDb.ExecuteScalar<string>("SELECT title FROM song WHERE path = ?;", firstPath));
         Assert.AreEqual("second updated", songDb.ExecuteScalar<string>("SELECT title FROM song WHERE path = ?;", secondPath));
-        LR2SongDBExtended.lr2_full_generation_status row = songDb.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
+        LR2SongDBExtended.lr2_song_db_sync_status row = songDb.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
         Assert.AreEqual("Completed", row.status);
         Assert.AreEqual(4, row.processed_cursor);
     }
@@ -4484,7 +4484,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             sha256 = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
         }, typeof(LR2SongDBExtended.chart_digest_map));
 
-        Lr2FullGenerationSyncResult result = Lr2FullGenerationSyncService.Run(songDb, new Lr2FullGenerationSyncRequest
+        Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
             Signature = "prune-stale-song-row",
             RunId = "prune-stale-song-row-run",
@@ -4494,14 +4494,14 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc)
         });
 
-        Assert.AreEqual(Lr2FullGenerationSyncService.CompletedStage, result.FinalStage);
+        Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, result.FinalStage);
         Assert.AreEqual(1, result.StaleSongRowPrunedCount);
         Assert.AreEqual(0, result.StartupScanDiagnosticResult.UnknownRootSongRowCount);
         Assert.IsNotNull(songDb.Find<LR2SongDB.song>(currentPath));
         Assert.IsNull(songDb.Find<LR2SongDB.song>(stalePath));
         Assert.AreEqual(0, songDb.ExecuteScalar<int>("SELECT COUNT(*) FROM maintenance WHERE path = ?;", stalePath));
         Assert.AreEqual(0, songDb.ExecuteScalar<int>("SELECT COUNT(*) FROM chart_digest_map WHERE md5 = ?;", staleHash));
-        LR2SongDBExtended.lr2_full_generation_status row = songDb.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
+        LR2SongDBExtended.lr2_song_db_sync_status row = songDb.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
         Assert.AreEqual("Completed", row.status);
     }
 
@@ -4527,7 +4527,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             + " WHEN NEW.path = '" + EscapeSqlLiteral(secondPath) + "'"
             + " BEGIN SELECT RAISE(ABORT, 'fail_second_song_insert'); END;");
 
-        Assert.ThrowsException<SQLite.SQLiteException>(() => Lr2FullGenerationSyncService.Run(songDb, new Lr2FullGenerationSyncRequest
+        Assert.ThrowsException<SQLite.SQLiteException>(() => Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
             Signature = signature,
             RunId = "rollback-fail-run",
@@ -4537,14 +4537,14 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc)
         }));
         Assert.AreEqual(0, songDb.Table<LR2SongDB.song>().Count());
-        LR2SongDBExtended.lr2_full_generation_status failed = songDb.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
+        LR2SongDBExtended.lr2_song_db_sync_status failed = songDb.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
         Assert.AreEqual("Failed", failed.status);
         Assert.AreEqual("song_rows", failed.stage);
         Assert.AreEqual(2, failed.processed_cursor);
         Assert.AreEqual(4, failed.total_count);
 
         songDb.Execute("DROP TRIGGER fail_second_song_insert;");
-        Lr2FullGenerationSyncResult retry = Lr2FullGenerationSyncService.Run(songDb, new Lr2FullGenerationSyncRequest
+        Lr2SongDbSyncResult retry = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
             Signature = signature,
             RunId = "rollback-retry-run",
@@ -4554,11 +4554,11 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             StartedAtUtc = new DateTime(2026, 6, 5, 0, 1, 0, DateTimeKind.Utc)
         });
 
-        Assert.AreEqual(Lr2FullGenerationSyncService.CompletedStage, retry.FinalStage);
+        Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, retry.FinalStage);
         Assert.AreEqual(2, retry.SongRowProcessedCount);
         Assert.AreEqual("first rollback", songDb.ExecuteScalar<string>("SELECT title FROM song WHERE path = ?;", firstPath));
         Assert.AreEqual("second rollback", songDb.ExecuteScalar<string>("SELECT title FROM song WHERE path = ?;", secondPath));
-        LR2SongDBExtended.lr2_full_generation_status completed = songDb.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
+        LR2SongDBExtended.lr2_song_db_sync_status completed = songDb.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
         Assert.AreEqual("Completed", completed.status);
         Assert.AreEqual(4, completed.processed_cursor);
     }
@@ -4582,7 +4582,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         using var songDb = new LR2SongDBExtended(scope.SongDbPath);
         songDb.CreateTable<LR2SongDB.song>();
 
-        Lr2FullGenerationSyncResult result = Lr2FullGenerationSyncService.Run(songDb, new Lr2FullGenerationSyncRequest
+        Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
             Signature = "utf8-song",
             RunId = "utf8-song",
@@ -4622,7 +4622,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         songDb.InsertOrReplace(CreateChartInfo(staleSnapshot.Sha256, staleSnapshot.Md5, level: 9, parserVersion: BmsLibraryDbGateway.CurrentChartInfoParserVersion - 1), typeof(LR2SongDBExtended.chart_info));
         songDb.InsertOrReplace(CreateChartInfo(mismatchSnapshot.Sha256, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", level: 11), typeof(LR2SongDBExtended.chart_info));
 
-        Lr2FullGenerationSyncResult result = Lr2FullGenerationSyncService.Run(songDb, new Lr2FullGenerationSyncRequest
+        Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
             Signature = "chart-info-current",
             RunId = "chart-info-current",
@@ -4654,7 +4654,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         bool chartInfoCallbackCalled = false;
         bool parseFailureCallbackCalled = false;
 
-        Lr2FullGenerationSyncResult result = Lr2FullGenerationSyncService.Run(songDb, new Lr2FullGenerationSyncRequest
+        Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
             Signature = "chart-info-failure-skip",
             RunId = "chart-info-failure-skip",
@@ -4688,7 +4688,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         using var songDb = new LR2SongDBExtended(scope.SongDbPath);
         songDb.CreateTable<LR2SongDB.song>();
 
-        Lr2FullGenerationSyncResult result = Lr2FullGenerationSyncService.Run(songDb, new Lr2FullGenerationSyncRequest
+        Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
             Signature = "chart-info-resolver",
             RunId = "chart-info-resolver",
@@ -4721,7 +4721,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         songDb.InsertOrReplace(CreateChartInfo(new string('2', 64), snapshot.Md5, level: 22), typeof(LR2SongDBExtended.chart_info));
         songDb.InsertOrReplace(CreateChartInfo(new string('1', 64), snapshot.Md5, level: 11), typeof(LR2SongDBExtended.chart_info));
 
-        Lr2FullGenerationSyncResult result = Lr2FullGenerationSyncService.Run(songDb, new Lr2FullGenerationSyncRequest
+        Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
             Signature = "chart-info-md5",
             RunId = "chart-info-md5",
@@ -4751,7 +4751,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         using var songDb = new LR2SongDBExtended(scope.SongDbPath);
         songDb.CreateTable<LR2SongDB.song>();
 
-        Lr2FullGenerationSyncResult result = Lr2FullGenerationSyncService.Run(songDb, new Lr2FullGenerationSyncRequest
+        Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
             Signature = "chart-info-stale-resolver",
             RunId = "chart-info-stale-resolver",
@@ -4775,16 +4775,16 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         using var cancellation = new CancellationTokenSource();
         cancellation.Cancel();
 
-        Assert.ThrowsException<OperationCanceledException>(() => Lr2FullGenerationSyncService.Run(songDb, new Lr2FullGenerationSyncRequest
+        Assert.ThrowsException<OperationCanceledException>(() => Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
             Signature = "sig_cancel",
             RunId = "run_cancel",
             CancellationToken = cancellation.Token
         }));
 
-        LR2SongDBExtended.lr2_full_generation_status row = songDb.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
+        LR2SongDBExtended.lr2_song_db_sync_status row = songDb.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
         Assert.IsNotNull(row);
-        Assert.AreEqual(Lr2FullGenerationStatusKind.Cancelled.ToString(), row.status);
+        Assert.AreEqual(Lr2SongDbSyncStatusKind.Cancelled.ToString(), row.status);
         Assert.AreEqual("final_validation", row.stage);
         Assert.AreEqual(0, row.processed_cursor);
         Assert.AreEqual(0, row.total_count);
@@ -4805,9 +4805,9 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         songDb.CreateTable<LR2SongDB.folder>();
         using var cancellation = new CancellationTokenSource();
         const string signature = "cancel-resume-after-folder";
-        var progressEvents = new List<Lr2FullGenerationSyncProgress>();
+        var progressEvents = new List<Lr2SongDbSyncProgress>();
 
-        Assert.ThrowsException<OperationCanceledException>(() => Lr2FullGenerationSyncService.Run(songDb, new Lr2FullGenerationSyncRequest
+        Assert.ThrowsException<OperationCanceledException>(() => Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
             Signature = signature,
             RunId = "cancel-run",
@@ -4830,20 +4830,20 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             }
         }));
 
-        LR2SongDBExtended.lr2_full_generation_status cancelled = songDb.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
+        LR2SongDBExtended.lr2_song_db_sync_status cancelled = songDb.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
         Assert.AreEqual("Cancelled", cancelled.status);
         Assert.AreEqual("song_rows", cancelled.stage);
         Assert.AreEqual(2, cancelled.processed_cursor);
         Assert.AreEqual(3, cancelled.total_count);
         Assert.AreEqual(2, songDb.Table<LR2SongDB.folder>().Count());
         Assert.AreEqual(0, songDb.Table<LR2SongDB.song>().Count());
-        Lr2FullGenerationSyncProgress songRowsProgress = progressEvents.First(progress => progress.Stage == "song_rows" && progress.StageTotalCount > 0);
+        Lr2SongDbSyncProgress songRowsProgress = progressEvents.First(progress => progress.Stage == "song_rows" && progress.StageTotalCount > 0);
         Assert.AreEqual(2, songRowsProgress.ProcessedCursor);
         Assert.AreEqual(3, songRowsProgress.TotalCount);
         Assert.AreEqual(0, songRowsProgress.StageProcessedCount);
         Assert.AreEqual(1, songRowsProgress.StageTotalCount);
 
-        Lr2FullGenerationSyncResult resumed = Lr2FullGenerationSyncService.Run(songDb, new Lr2FullGenerationSyncRequest
+        Lr2SongDbSyncResult resumed = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
             Signature = signature,
             RunId = "resume-after-cancel-run",
@@ -4854,11 +4854,11 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             StartedAtUtc = new DateTime(2026, 6, 5, 0, 1, 0, DateTimeKind.Utc)
         });
 
-        Assert.AreEqual(Lr2FullGenerationSyncService.CompletedStage, resumed.FinalStage);
+        Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, resumed.FinalStage);
         Assert.IsNull(resumed.NormalFolderSyncResult);
         Assert.AreEqual(1, resumed.SongRowProcessedCount);
         Assert.AreEqual("cancel resume", songDb.ExecuteScalar<string>("SELECT title FROM song WHERE path = ?;", chartPath));
-        LR2SongDBExtended.lr2_full_generation_status completed = songDb.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
+        LR2SongDBExtended.lr2_song_db_sync_status completed = songDb.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
         Assert.AreEqual("Completed", completed.status);
         Assert.AreEqual(3, completed.processed_cursor);
         Assert.AreEqual(3, completed.total_count);
@@ -4886,7 +4886,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         }, typeof(LR2SongDBExtended.maintenance));
 
         var committedCompatibilityFacts = new List<BMSFileMaintenanceInfo>();
-        Lr2FullGenerationSyncResult result = Lr2FullGenerationSyncService.Run(songDb, new Lr2FullGenerationSyncRequest
+        Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
             Signature = "lr2-compatibility",
             RunId = "lr2-compatibility",
@@ -4925,7 +4925,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         }, typeof(LR2SongDBExtended.maintenance));
 
-        Lr2FullGenerationSyncResult result = Lr2FullGenerationSyncService.Run(songDb, new Lr2FullGenerationSyncRequest
+        Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
             Signature = "lr2-compatibility-nocase",
             RunId = "lr2-compatibility-nocase",
@@ -4943,7 +4943,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
-    public void QueueLr2FullGenerationDataSync_ProjectsLr2CompatibilityWarningsToLiveRows()
+    public void QueueLr2SongDbSync_ProjectsLr2CompatibilityWarningsToLiveRows()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         using TestDatabaseScope scope = TestDatabaseScope.Create();
@@ -4974,7 +4974,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                 return true;
             };
 
-            library.QueueLr2FullGenerationDataSync("test_live_lr2_compatibility");
+            library.QueueLr2SongDbSync("test_live_lr2_compatibility");
 
             Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.Lr2ResourcePathTooLong));
             Assert.AreEqual(99, file.maintenanceInfo.wav_files_defined);
@@ -4989,7 +4989,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
-    public void QueueLr2FullGenerationDataSync_DiscoversLr2FolderWithoutCharts()
+    public void QueueLr2SongDbSync_DiscoversLr2FolderWithoutCharts()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         try
@@ -5028,13 +5028,13 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                 return true;
             };
 
-            library.QueueLr2FullGenerationDataSync("test_lr2folder_only");
+            library.QueueLr2SongDbSync("test_lr2folder_only");
 
             using var verify = new LR2SongDBExtended(scope.SongDbPath);
-            LR2SongDBExtended.lr2_full_generation_status row = verify.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
+            LR2SongDBExtended.lr2_song_db_sync_status row = verify.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
             Assert.IsNotNull(row);
             Assert.AreEqual("Completed", row.status);
-            Assert.AreEqual(Lr2FullGenerationSyncService.CompletedStage, row.stage);
+            Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, row.stage);
             Assert.AreEqual(row.total_count, row.processed_cursor);
             LR2SongDB.folder lr2Folder = verify.Table<LR2SongDB.folder>().ToList().Single(folder => folder.path == lr2FolderPath);
             Assert.AreEqual(2, lr2Folder.type);
@@ -5051,7 +5051,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
-    public void QueueLr2FullGenerationDataSync_DiscoversLr2FolderFromCustomFolderOutputBase()
+    public void QueueLr2SongDbSync_DiscoversLr2FolderFromCustomFolderOutputBase()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         try
@@ -5085,7 +5085,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                 return true;
             };
 
-            library.QueueLr2FullGenerationDataSync("test_custom_folder_output_base");
+            library.QueueLr2SongDbSync("test_custom_folder_output_base");
 
             using var verify = new LR2SongDBExtended(scope.SongDbPath);
             LR2SongDB.folder lr2Folder = verify.Table<LR2SongDB.folder>().ToList().Single(folder => folder.path == lr2FolderPath);
@@ -5100,7 +5100,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
-    public void QueueLr2FullGenerationDataSync_DiscoversRootCustomFolderOutputAsRootRow()
+    public void QueueLr2SongDbSync_DiscoversRootCustomFolderOutputAsRootRow()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         try
@@ -5123,7 +5123,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                 return true;
             };
 
-            library.QueueLr2FullGenerationDataSync("test_root_custom_folder_output_base");
+            library.QueueLr2SongDbSync("test_root_custom_folder_output_base");
 
             using var verify = new LR2SongDBExtended(scope.SongDbPath);
             LR2SongDB.folder lr2Folder = verify.Table<LR2SongDB.folder>().ToList().Single(folder => folder.path == lr2FolderPath);
@@ -5138,7 +5138,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
-    public void QueueLr2FullGenerationDataSync_GeneratesNormalCustomFolderOutputBaseParentRow()
+    public void QueueLr2SongDbSync_GeneratesNormalCustomFolderOutputBaseParentRow()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         try
@@ -5163,7 +5163,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                 return true;
             };
 
-            library.QueueLr2FullGenerationDataSync("test_normal_custom_folder_output_parent");
+            library.QueueLr2SongDbSync("test_normal_custom_folder_output_parent");
 
             using var verify = new LR2SongDBExtended(scope.SongDbPath);
             List<LR2SongDB.folder> rows = verify.Table<LR2SongDB.folder>().ToList();
@@ -5188,7 +5188,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
-    public void QueueLr2FullGenerationDataSync_GeneratesRootCustomFolderOutputParentRow()
+    public void QueueLr2SongDbSync_GeneratesRootCustomFolderOutputParentRow()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         try
@@ -5214,7 +5214,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                 return true;
             };
 
-            library.QueueLr2FullGenerationDataSync("test_root_custom_folder_output_parent");
+            library.QueueLr2SongDbSync("test_root_custom_folder_output_parent");
 
             using var verify = new LR2SongDBExtended(scope.SongDbPath);
             LR2SongDB.folder parentRow = verify.Table<LR2SongDB.folder>().ToList().Single(folder => folder.path == Lr2FolderPath.ToFolderPath(tableDirectory));
@@ -5225,7 +5225,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             LR2SongDB.folder lr2Folder = verify.Table<LR2SongDB.folder>().ToList().Single(folder => folder.path == lr2FolderPath);
             Assert.AreEqual(2, lr2Folder.type);
             Assert.AreEqual(Lr2SongFolderParentNormalizer.ComputeDirectoryHash(tableDirectory), lr2Folder.parent);
-            LR2SongDBExtended.lr2_full_generation_status status = verify.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
+            LR2SongDBExtended.lr2_song_db_sync_status status = verify.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
             Assert.IsNotNull(status);
             Assert.AreEqual("Completed", status.status);
         }
@@ -5236,7 +5236,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
-    public void QueueLr2FullGenerationDataSync_DiscoversEnabledLr2BuiltinCustomFolderAsRelativeRootRow()
+    public void QueueLr2SongDbSync_DiscoversEnabledLr2BuiltinCustomFolderAsRelativeRootRow()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         try
@@ -5263,17 +5263,17 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                 return true;
             };
 
-            library.QueueLr2FullGenerationDataSync("test_lr2_builtin_custom_folder");
+            library.QueueLr2SongDbSync("test_lr2_builtin_custom_folder");
 
             using var verify = new LR2SongDBExtended(scope.SongDbPath);
             LR2SongDB.folder lr2Folder = verify.Table<LR2SongDB.folder>().ToList().Single(folder => folder.path == @"LR2files\CustomFolder\favorite.lr2folder");
             Assert.AreEqual(2, lr2Folder.type);
             Assert.AreEqual("Favorite", lr2Folder.title);
             Assert.AreEqual(Lr2SongFolderParentNormalizer.RootParentHash, lr2Folder.parent);
-            LR2SongDBExtended.lr2_full_generation_status status = verify.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
+            LR2SongDBExtended.lr2_song_db_sync_status status = verify.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
             Assert.IsNotNull(status);
             Assert.AreEqual("Completed", status.status);
-            Assert.AreEqual(Lr2FullGenerationSyncService.CompletedStage, status.stage);
+            Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, status.stage);
         }
         finally
         {
@@ -5282,7 +5282,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
-    public void QueueLr2FullGenerationDataSync_GeneratesBuiltinCustomFolderCategoryRow()
+    public void QueueLr2SongDbSync_GeneratesBuiltinCustomFolderCategoryRow()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         try
@@ -5312,7 +5312,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                 return true;
             };
 
-            library.QueueLr2FullGenerationDataSync("test_builtin_custom_folder_category");
+            library.QueueLr2SongDbSync("test_builtin_custom_folder_category");
 
             using var verify = new LR2SongDBExtended(scope.SongDbPath);
             LR2SongDB.folder category = verify.Table<LR2SongDB.folder>().ToList().Single(folder => folder.path == @"LR2files\CustomFolder\RANDOM\");
@@ -5328,7 +5328,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             LR2SongDB.folder lr2Folder = verify.Table<LR2SongDB.folder>().ToList().Single(folder => folder.path == @"LR2files\CustomFolder\RANDOM\Sub\random.lr2folder");
             Assert.AreEqual(2, lr2Folder.type);
             Assert.AreEqual(Lr2SongFolderParentNormalizer.ComputeDirectoryHash(@"LR2files\CustomFolder\RANDOM\Sub"), lr2Folder.parent);
-            LR2SongDBExtended.lr2_full_generation_status status = verify.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
+            LR2SongDBExtended.lr2_song_db_sync_status status = verify.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
             Assert.IsNotNull(status);
             Assert.AreEqual("Completed", status.status);
         }
@@ -5339,7 +5339,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
-    public void QueueLr2FullGenerationDataSync_SkipsDisabledLr2BuiltinCustomFolder()
+    public void QueueLr2SongDbSync_SkipsDisabledLr2BuiltinCustomFolder()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         try
@@ -5384,12 +5384,12 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                 return true;
             };
 
-            library.QueueLr2FullGenerationDataSync("test_lr2_builtin_custom_folder_disabled");
+            library.QueueLr2SongDbSync("test_lr2_builtin_custom_folder_disabled");
 
             using var verify = new LR2SongDBExtended(scope.SongDbPath);
             Assert.IsFalse(verify.Table<LR2SongDB.folder>().Any(folder => folder.path == @"LR2files\CustomFolder\RANDOM\"));
             Assert.IsFalse(verify.Table<LR2SongDB.folder>().Any(folder => folder.path == @"LR2files\CustomFolder\favorite.lr2folder"));
-            LR2SongDBExtended.lr2_full_generation_status status = verify.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
+            LR2SongDBExtended.lr2_song_db_sync_status status = verify.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
             Assert.IsNotNull(status);
             Assert.AreEqual("Completed", status.status);
         }
@@ -5400,7 +5400,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
-    public void QueueLr2FullGenerationDataSync_DiscoversBuiltinCourseFolderAsTypeSixRegardlessOfCustomFolderMask()
+    public void QueueLr2SongDbSync_DiscoversBuiltinCourseFolderAsTypeSixRegardlessOfCustomFolderMask()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         try
@@ -5427,7 +5427,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                 return true;
             };
 
-            library.QueueLr2FullGenerationDataSync("test_lr2_builtin_course_folder");
+            library.QueueLr2SongDbSync("test_lr2_builtin_course_folder");
 
             using var verify = new LR2SongDBExtended(scope.SongDbPath);
             LR2SongDB.folder lr2Folder = verify.Table<LR2SongDB.folder>().ToList().Single(folder => folder.path == @"LR2files\CustomFolder\course1.lr2folder");
@@ -5442,7 +5442,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
-    public void QueueLr2FullGenerationDataSync_DiscoversBuiltinNewSongFolderOnlyWhenRecentSongExists()
+    public void QueueLr2SongDbSync_DiscoversBuiltinNewSongFolderOnlyWhenRecentSongExists()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         try
@@ -5475,7 +5475,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                 return true;
             };
 
-            library.QueueLr2FullGenerationDataSync("test_lr2_builtin_newsong_folder");
+            library.QueueLr2SongDbSync("test_lr2_builtin_newsong_folder");
 
             using var verify = new LR2SongDBExtended(scope.SongDbPath);
             LR2SongDB.folder lr2Folder = verify.Table<LR2SongDB.folder>().ToList().Single(folder => folder.path == @"LR2files\CustomFolder\newsong.lr2folder");
@@ -5490,7 +5490,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
-    public void QueueLr2FullGenerationDataSync_DoesNotDiscoverBuiltinLr2RivalFolder()
+    public void QueueLr2SongDbSync_DoesNotDiscoverBuiltinLr2RivalFolder()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         try
@@ -5516,16 +5516,16 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                 return true;
             };
 
-            library.QueueLr2FullGenerationDataSync("test_lr2_builtin_rival_folder");
+            library.QueueLr2SongDbSync("test_lr2_builtin_rival_folder");
 
             using var verify = new LR2SongDBExtended(scope.SongDbPath);
             List<LR2SongDB.folder> folders = [.. verify.Table<LR2SongDB.folder>()];
             Assert.IsFalse(folders.Any(folder => folder.path == @"LR2files\Rival\rival.lr2folder"));
             Assert.IsFalse(folders.Any(folder => string.Equals(folder.path, lr2FolderPath, StringComparison.OrdinalIgnoreCase)));
-            LR2SongDBExtended.lr2_full_generation_status status = verify.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
+            LR2SongDBExtended.lr2_song_db_sync_status status = verify.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
             Assert.IsNotNull(status);
             Assert.AreEqual("Completed", status.status);
-            Assert.AreEqual(Lr2FullGenerationSyncService.CompletedStage, status.stage);
+            Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, status.stage);
         }
         finally
         {
@@ -5534,7 +5534,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
-    public void QueueLr2FullGenerationDataSync_DiscoversRivalFolderFromNormalScanRootAsExternalFolder()
+    public void QueueLr2SongDbSync_DiscoversRivalFolderFromNormalScanRootAsExternalFolder()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         try
@@ -5557,7 +5557,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                 return true;
             };
 
-            library.QueueLr2FullGenerationDataSync("test_external_rival_folder");
+            library.QueueLr2SongDbSync("test_external_rival_folder");
 
             using var verify = new LR2SongDBExtended(scope.SongDbPath);
             LR2SongDB.folder lr2Folder = verify.Table<LR2SongDB.folder>().ToList().Single(folder => folder.path == lr2FolderPath);
@@ -5566,10 +5566,10 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             Assert.AreEqual(
                 Lr2SongFolderParentNormalizer.ComputeDirectoryHash(rivalDirectory),
                 lr2Folder.parent);
-            LR2SongDBExtended.lr2_full_generation_status status = verify.Find<LR2SongDBExtended.lr2_full_generation_status>(Lr2FullGenerationStatusService.DefaultStatusName);
+            LR2SongDBExtended.lr2_song_db_sync_status status = verify.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
             Assert.IsNotNull(status);
             Assert.AreEqual("Completed", status.status);
-            Assert.AreEqual(Lr2FullGenerationSyncService.CompletedStage, status.stage);
+            Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, status.stage);
         }
         finally
         {
@@ -5594,7 +5594,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             date = 1
         }, typeof(LR2SongDB.folder));
 
-        Lr2FullGenerationSyncResult result = Lr2FullGenerationSyncService.Run(songDb, new Lr2FullGenerationSyncRequest
+        Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
             Signature = "test",
             RunId = "run",
@@ -5610,7 +5610,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         Assert.AreEqual(1, result.Lr2FolderFileSyncResult.ItemCount);
         Assert.AreEqual(0, result.Lr2FolderFileSyncResult.DeletedCount);
         Assert.AreEqual(0, songDb.Table<LR2SongDB.folder>().ToList().Count(folder => folder.path == missingPath));
-        Assert.AreEqual(Lr2FullGenerationSyncService.CompletedStage, result.FinalStage);
+        Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, result.FinalStage);
         Assert.IsTrue(result.StartupScanDiagnosticResult.IsClean);
     }
 
@@ -5628,7 +5628,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         using var songDb = new LR2SongDBExtended(scope.SongDbPath);
         songDb.CreateTable<LR2SongDB.folder>();
 
-        Lr2FullGenerationSyncResult result = Lr2FullGenerationSyncService.Run(songDb, new Lr2FullGenerationSyncRequest
+        Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
             Signature = "lr2folder-enumerated-time",
             RunId = "lr2folder-enumerated-time-run",
@@ -5647,7 +5647,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         LR2SongDB.folder row = songDb.Table<LR2SongDB.folder>().Single(folder => folder.path == lr2FolderPath);
         Assert.AreEqual(Lr2SongRowEnricher.ToLr2UnixSeconds(enumeratedTimestamp), row.date);
         Assert.AreEqual(1, result.Lr2FolderFileSyncResult.GeneratedCount);
-        Assert.AreEqual(Lr2FullGenerationSyncService.CompletedStage, result.FinalStage);
+        Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, result.FinalStage);
         Assert.AreEqual(0, result.StartupScanDiagnosticResult.DateStaleFolderRowCount);
     }
 
@@ -5667,7 +5667,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         using var songDb = new LR2SongDBExtended(scope.SongDbPath);
         songDb.CreateTable<LR2SongDB.folder>();
 
-        Lr2FullGenerationSyncResult result = Lr2FullGenerationSyncService.Run(songDb, new Lr2FullGenerationSyncRequest
+        Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
             Signature = "builtin-lr2folder-parent-diagnostic",
             RunId = "builtin-lr2folder-parent-diagnostic-run",
@@ -5686,7 +5686,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc)
         });
 
-        Assert.AreEqual(Lr2FullGenerationSyncService.CompletedStage, result.FinalStage);
+        Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, result.FinalStage);
         Assert.AreEqual(0, result.StartupScanDiagnosticResult.MissingExpectedFolderRowCount);
         Assert.AreEqual(0, result.StartupScanDiagnosticResult.MissingExpectedLr2FolderRowCount);
         Assert.IsTrue(songDb.Table<LR2SongDB.folder>().Any(row => row.path == @"LR2files\CustomFolder\INSANE02\"));
@@ -5713,7 +5713,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             adddate = 12345
         }, typeof(LR2SongDB.folder));
 
-        Lr2FullGenerationSyncResult result = Lr2FullGenerationSyncService.Run(songDb, new Lr2FullGenerationSyncRequest
+        Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
             Signature = "lr2folder-preserve",
             RunId = "lr2folder-preserve-run",
@@ -5734,7 +5734,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         Assert.AreEqual(0, result.Lr2FolderFileSyncResult.GeneratedCount);
         Assert.AreEqual("Preserved Title", row.title);
         Assert.AreEqual(12345, row.adddate);
-        Assert.AreEqual(Lr2FullGenerationSyncService.CompletedStage, result.FinalStage);
+        Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, result.FinalStage);
     }
 
     [TestMethod]
@@ -5757,7 +5757,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             date = Lr2SongRowEnricher.ToLr2UnixSeconds(timestamp)
         }, typeof(LR2SongDB.folder));
 
-        Lr2FullGenerationSyncResult result = Lr2FullGenerationSyncService.Run(songDb, new Lr2FullGenerationSyncRequest
+        Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
             Signature = "lr2folder-entries-only-preserve",
             RunId = "lr2folder-entries-only-preserve-run",
@@ -5776,7 +5776,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         Assert.AreEqual(1, result.Lr2FolderFileSyncResult.PreservedCount);
         Assert.AreEqual(0, result.Lr2FolderFileSyncResult.GeneratedCount);
         Assert.AreEqual("Preserved Entries Only", row.title);
-        Assert.AreEqual(Lr2FullGenerationSyncService.CompletedStage, result.FinalStage);
+        Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, result.FinalStage);
     }
 
     [TestMethod]
@@ -5791,7 +5791,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         using var songDb = new LR2SongDBExtended(scope.SongDbPath);
         songDb.CreateTable<LR2SongDB.folder>();
 
-        Lr2FullGenerationSyncResult result = Lr2FullGenerationSyncService.Run(songDb, new Lr2FullGenerationSyncRequest
+        Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
             Signature = "directory-enumerated-time",
             RunId = "directory-enumerated-time-run",
@@ -5806,7 +5806,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         LR2SongDB.folder row = songDb.Table<LR2SongDB.folder>().Single(folder => folder.path == ToFolderPath(rootDirectory));
         Assert.AreEqual(Lr2SongRowEnricher.ToLr2UnixSeconds(enumeratedTimestamp), row.date);
         Assert.AreEqual(1, result.NormalFolderSyncResult.GeneratedCount);
-        Assert.AreEqual(Lr2FullGenerationSyncService.CompletedStage, result.FinalStage);
+        Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, result.FinalStage);
         Assert.AreEqual(0, result.StartupScanDiagnosticResult.DateStaleFolderRowCount);
     }
 
@@ -5946,7 +5946,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
 
         public static TestDatabaseScope Create()
         {
-            string directoryPath = Path.Combine(Path.GetTempPath(), nameof(BmsLibraryLr2FullGenerationSyncTests), Guid.NewGuid().ToString("N"));
+            string directoryPath = Path.Combine(Path.GetTempPath(), nameof(BmsLibraryLr2SongDbSyncTests), Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(directoryPath);
             return new TestDatabaseScope(directoryPath);
         }
@@ -5993,15 +5993,15 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         methodInfo.Invoke(library, [delta]);
     }
 
-    private static void InvokeBeginLr2FullGenerationSyncRequest(BMSLibrary library)
+    private static void InvokeBeginLr2SongDbSyncRequest(BMSLibrary library)
     {
-        bool started = InvokeTryBeginLr2FullGenerationSyncRequest(library, out _);
+        bool started = InvokeTryBeginLr2SongDbSyncRequest(library, out _);
         Assert.IsTrue(started);
     }
 
-    private static bool InvokeTryBeginLr2FullGenerationSyncRequest(BMSLibrary library, out int requestVersion)
+    private static bool InvokeTryBeginLr2SongDbSyncRequest(BMSLibrary library, out int requestVersion)
     {
-        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("TryBeginLr2FullGenerationSyncRequest", BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("TryBeginLr2SongDbSyncRequest", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.IsNotNull(methodInfo);
         object[] arguments = [0];
         bool started = (bool)methodInfo.Invoke(library, arguments);
@@ -6009,35 +6009,35 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         return started;
     }
 
-    private static object InvokeCreateLr2FullGenerationSyncInput(BMSLibrary library)
+    private static object InvokeCreateLr2SongDbSyncInput(BMSLibrary library)
     {
-        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("CreateLr2FullGenerationSyncInput", BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("CreateLr2SongDbSyncInput", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.IsNotNull(methodInfo);
         return methodInfo.Invoke(library, []);
     }
 
-    private static object InvokeCreateLr2FullGenerationAppManagedOutputScope(BMSLibrary library)
+    private static object InvokeCreateLr2SongDbSyncAppManagedOutputScope(BMSLibrary library)
     {
-        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("CreateLr2FullGenerationAppManagedOutputScope", BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("CreateLr2SongDbSyncAppManagedOutputScope", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.IsNotNull(methodInfo);
         return methodInfo.Invoke(library, []);
     }
 
-    private static bool InvokeIsLr2FullGenerationSyncInputCurrent(BMSLibrary library, object input)
+    private static bool InvokeIsLr2SongDbSyncInputCurrent(BMSLibrary library, object input)
     {
-        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("IsLr2FullGenerationSyncInputCurrent", BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("IsLr2SongDbSyncInputCurrent", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.IsNotNull(methodInfo);
         return (bool)methodInfo.Invoke(library, [input]);
     }
 
-    private static bool InvokeHasLr2FullGenerationPreparedDataSurface(BMSLibrary library)
+    private static bool InvokeHasLr2SongDbSyncPreparedDataSurface(BMSLibrary library)
     {
-        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("HasLr2FullGenerationPreparedDataSurface", BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("HasLr2SongDbSyncPreparedDataSurface", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.IsNotNull(methodInfo);
         return (bool)methodInfo.Invoke(library, []);
     }
 
-    private static Lr2FullGenerationPreparedDataSurface CreatePreparedLr2FolderSurface(
+    private static Lr2SongDbSyncPreparedDataSurface CreatePreparedLr2FolderSurface(
         string scopeDirectory,
         string filePath,
         IReadOnlyDictionary<string, RootFileEnumerationEntry>? directoryEntries = null,
@@ -6045,7 +6045,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         IReadOnlyDictionary<string, RootFileEnumerationEntry>? folderInfoFileEntries = null,
         IEnumerable<string>? textFileDirectories = null)
     {
-        return new Lr2FullGenerationPreparedDataSurface(
+        return new Lr2SongDbSyncPreparedDataSurface(
             [scopeDirectory],
             [filePath],
             new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase)
@@ -6094,13 +6094,13 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         return (int)fieldInfo.GetValue(target);
     }
 
-    private static void InvokeCaptureLr2FullGenerationScanSurface(
+    private static void InvokeCaptureLr2SongDbSyncScanSurface(
         BMSLibrary library,
         BmsLibraryOptionsSnapshot options,
         IEnumerable<string> rootDirectories,
         SongTableFileCheckResult result)
     {
-        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("CaptureLr2FullGenerationScanSurface", BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("CaptureLr2SongDbSyncScanSurface", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.IsNotNull(methodInfo);
         methodInfo.Invoke(library, [options, rootDirectories, result]);
     }
@@ -6124,57 +6124,57 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         methodInfo.Invoke(library, [files, false]);
     }
 
-    private static void InvokeMarkLr2FullGenerationIncompleteAfterFileDiffNormalFolderSyncFailure(
+    private static void InvokeMarkLr2SongDbSyncIncompleteAfterFileDiffNormalFolderSyncFailure(
         BMSLibrary library,
         BmsLibraryOptionsSnapshot options,
         SongTableFileCheckResult result)
     {
-        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("MarkLr2FullGenerationIncompleteAfterFileDiffNormalFolderSyncFailure", BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("MarkLr2SongDbSyncIncompleteAfterFileDiffNormalFolderSyncFailure", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.IsNotNull(methodInfo);
         methodInfo.Invoke(library, [options, result]);
     }
 
-    private static void InvokeMarkLr2FullGenerationIncompleteAfterNormalFolderSyncFailure(
+    private static void InvokeMarkLr2SongDbSyncIncompleteAfterNormalFolderSyncFailure(
         BMSLibrary library,
         BmsLibraryOptionsSnapshot options,
         string stage,
         string detail,
         string logReason)
     {
-        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("MarkLr2FullGenerationIncompleteAfterNormalFolderSyncFailure", BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("MarkLr2SongDbSyncIncompleteAfterNormalFolderSyncFailure", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.IsNotNull(methodInfo);
         methodInfo.Invoke(library, [options, stage, detail, logReason]);
     }
 
-    private static void InvokeMarkLr2FullGenerationIncompleteAfterSongDbWriteFailure(
+    private static void InvokeMarkLr2SongDbSyncIncompleteAfterSongDbWriteFailure(
         BMSLibrary library,
         BmsLibraryOptionsSnapshot options,
         string stage,
         string detail,
         string logReason)
     {
-        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("MarkLr2FullGenerationIncompleteAfterSongDbWriteFailure", BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("MarkLr2SongDbSyncIncompleteAfterSongDbWriteFailure", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.IsNotNull(methodInfo);
         methodInfo.Invoke(library, [options, stage, detail, logReason]);
     }
 
-    private static void InvokeMarkLr2FullGenerationIncompleteAfterFileDiffSongDbWriteFailure(
+    private static void InvokeMarkLr2SongDbSyncIncompleteAfterFileDiffSongDbWriteFailure(
         BMSLibrary library,
         BmsLibraryOptionsSnapshot options,
         Exception exception,
         string reason)
     {
-        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("MarkLr2FullGenerationIncompleteAfterFileDiffSongDbWriteFailure", BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("MarkLr2SongDbSyncIncompleteAfterFileDiffSongDbWriteFailure", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.IsNotNull(methodInfo);
         methodInfo.Invoke(library, [options, exception, reason]);
     }
 
-    private static void InvokeMarkLr2FullGenerationIncompleteAfterMaintenanceSongDbWriteFailure(
+    private static void InvokeMarkLr2SongDbSyncIncompleteAfterMaintenanceSongDbWriteFailure(
         BMSLibrary library,
         Exception exception,
         string reason)
     {
-        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("MarkLr2FullGenerationIncompleteAfterMaintenanceSongDbWriteFailure", BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("MarkLr2SongDbSyncIncompleteAfterMaintenanceSongDbWriteFailure", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.IsNotNull(methodInfo);
         methodInfo.Invoke(library, [exception, reason]);
     }

@@ -309,13 +309,13 @@ public sealed class Lr2FolderFileProjectionTests
         {
             File.WriteAllText(filePath, "#TITLE Table Child");
             File.SetLastWriteTimeUtc(filePath, lastWriteTimeUtc);
-            var request = new Lr2FullGenerationSyncRequest
+            var request = new Lr2SongDbSyncRequest
             {
                 Lr2RootCustomFolderOutputBaseDir = rootOutput
             };
 
-            Lr2FullGenerationSyncService.Lr2FolderFileSyncItemsResult result =
-                Lr2FullGenerationSyncService.CreateLr2FolderFileSyncItems(
+            Lr2SongDbSyncService.Lr2FolderFileSyncItemsResult result =
+                Lr2SongDbSyncService.CreateLr2FolderFileSyncItems(
                     [filePath],
                     request,
                     existingRowResolver: path => new LR2SongDB.folder

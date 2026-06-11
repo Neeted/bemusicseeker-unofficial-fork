@@ -139,12 +139,12 @@ public sealed class Lr2SongDbWriterTests
     }
 
     [TestMethod]
-    public void UpsertGeneratedSongsForFullGeneration_PreservesUserColumnsWithoutExistingRowRead()
+    public void UpsertGeneratedSongsForLr2SongDbSync_PreservesUserColumnsWithoutExistingRowRead()
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
             using var songDb = new LR2SongDBExtended(songDbPath);
-            PrepareFullGenerationSongWriterSchema(songDb);
+            PrepareLr2SongDbSyncSongWriterSchema(songDb);
             songDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
             TestableBmsFile existing = CreateSong(@"D:\BMS\Pack\existing.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Old");
             existing.SetUserColumns(favoriteValue: 7, addDateValue: 12345, tagValue: "keep");
@@ -152,7 +152,7 @@ public sealed class Lr2SongDbWriterTests
             TestableBmsFile updated = CreateSong(existing.path, existing.hash, "New");
             TestableBmsFile added = CreateSong(@"D:\BMS\Pack\added.bms", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "Added");
 
-            int written = Lr2SongDbWriter.UpsertGeneratedSongsForFullGeneration(songDb, [updated, added]);
+            int written = Lr2SongDbWriter.UpsertGeneratedSongsForLr2SongDbSync(songDb, [updated, added]);
 
             Assert.AreEqual(2, written);
             Assert.AreEqual(2, songDb.Table<LR2SongDB.song>().Count());
@@ -168,19 +168,19 @@ public sealed class Lr2SongDbWriterTests
     }
 
     [TestMethod]
-    public void UpsertGeneratedSongsForFullGeneration_UpdatesExistingPathNocaseWithoutDuplicate()
+    public void UpsertGeneratedSongsForLr2SongDbSync_UpdatesExistingPathNocaseWithoutDuplicate()
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
             using var songDb = new LR2SongDBExtended(songDbPath);
-            PrepareFullGenerationSongWriterSchema(songDb);
+            PrepareLr2SongDbSyncSongWriterSchema(songDb);
             songDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
             TestableBmsFile existing = CreateSong(@"D:\BMS\Pack\CHART.BMS", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Old");
             existing.SetUserColumns(favoriteValue: 7, addDateValue: 12345, tagValue: "keep");
             Assert.IsTrue(Lr2SongDbWriter.UpsertGeneratedSong(songDb, existing));
             TestableBmsFile updated = CreateSong(@"D:\BMS\Pack\chart.bms", existing.hash, "New");
 
-            int written = Lr2SongDbWriter.UpsertGeneratedSongsForFullGeneration(songDb, [updated]);
+            int written = Lr2SongDbWriter.UpsertGeneratedSongsForLr2SongDbSync(songDb, [updated]);
 
             Assert.AreEqual(1, written);
             Assert.AreEqual(
@@ -195,12 +195,12 @@ public sealed class Lr2SongDbWriterTests
     }
 
     [TestMethod]
-    public void UpsertGeneratedSongsForFullGeneration_SkipsUnchangedGeneratedColumns()
+    public void UpsertGeneratedSongsForLr2SongDbSync_SkipsUnchangedGeneratedColumns()
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
             using var songDb = new LR2SongDBExtended(songDbPath);
-            PrepareFullGenerationSongWriterSchema(songDb);
+            PrepareLr2SongDbSyncSongWriterSchema(songDb);
             songDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
             TestableBmsFile file = CreateSong(@"D:\BMS\Pack\unchanged.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Title");
             file.SetSha256(Sha('1'));
@@ -209,7 +209,7 @@ public sealed class Lr2SongDbWriterTests
             TestableBmsFile unchanged = CreateSong(file.path, file.hash, "Title");
             unchanged.CopyGeneratedHashesFrom(file);
             unchanged.SetSha256(file.sha256);
-            int written = Lr2SongDbWriter.UpsertGeneratedSongsForFullGeneration(songDb, [unchanged]);
+            int written = Lr2SongDbWriter.UpsertGeneratedSongsForLr2SongDbSync(songDb, [unchanged]);
 
             Assert.AreEqual(0, written);
             Assert.AreEqual(1, songDb.Table<LR2SongDB.song>().Count());
@@ -218,12 +218,12 @@ public sealed class Lr2SongDbWriterTests
     }
 
     [TestMethod]
-    public void UpsertGeneratedSongsForFullGeneration_SkipsUnchangedDigestMapRows()
+    public void UpsertGeneratedSongsForLr2SongDbSync_SkipsUnchangedDigestMapRows()
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
             using var songDb = new LR2SongDBExtended(songDbPath);
-            PrepareFullGenerationSongWriterSchema(songDb);
+            PrepareLr2SongDbSyncSongWriterSchema(songDb);
             TestableBmsFile file = CreateSong(@"D:\BMS\Pack\unchanged-digest-write.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Title");
             file.SetSha256(Sha('1'));
             Assert.IsTrue(Lr2SongDbWriter.UpsertGeneratedSong(songDb, file));
@@ -234,7 +234,7 @@ public sealed class Lr2SongDbWriterTests
             TestableBmsFile unchanged = CreateSong(file.path, file.hash, "Title");
             unchanged.CopyGeneratedHashesFrom(file);
             unchanged.SetSha256(file.sha256);
-            int written = Lr2SongDbWriter.UpsertGeneratedSongsForFullGeneration(songDb, [unchanged]);
+            int written = Lr2SongDbWriter.UpsertGeneratedSongsForLr2SongDbSync(songDb, [unchanged]);
 
             Assert.AreEqual(0, written);
             Assert.AreEqual(0, songDb.ExecuteScalar<int>("SELECT COUNT(*) FROM digest_write_audit;"));
@@ -242,12 +242,12 @@ public sealed class Lr2SongDbWriterTests
     }
 
     [TestMethod]
-    public void UpsertGeneratedSongsForFullGeneration_RepairsDigestForUnchangedGeneratedColumns()
+    public void UpsertGeneratedSongsForLr2SongDbSync_RepairsDigestForUnchangedGeneratedColumns()
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
             using var songDb = new LR2SongDBExtended(songDbPath);
-            PrepareFullGenerationSongWriterSchema(songDb);
+            PrepareLr2SongDbSyncSongWriterSchema(songDb);
             songDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
             TestableBmsFile file = CreateSong(@"D:\BMS\Pack\unchanged-digest.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Title");
             file.SetSha256(Sha('1'));
@@ -257,7 +257,7 @@ public sealed class Lr2SongDbWriterTests
             TestableBmsFile unchanged = CreateSong(file.path, file.hash, "Title");
             unchanged.CopyGeneratedHashesFrom(file);
             unchanged.SetSha256(file.sha256);
-            int written = Lr2SongDbWriter.UpsertGeneratedSongsForFullGeneration(songDb, [unchanged]);
+            int written = Lr2SongDbWriter.UpsertGeneratedSongsForLr2SongDbSync(songDb, [unchanged]);
 
             Assert.AreEqual(0, written);
             Assert.AreEqual(1, songDb.ExecuteScalar<int>("SELECT COUNT(*) FROM chart_digest_map WHERE md5 = ? AND sha256 = ?;", file.hash, file.sha256));
@@ -265,12 +265,12 @@ public sealed class Lr2SongDbWriterTests
     }
 
     [TestMethod]
-    public void UpsertGeneratedSongsForFullGeneration_UpdatesChangedDigestWithoutSongWrite()
+    public void UpsertGeneratedSongsForLr2SongDbSync_UpdatesChangedDigestWithoutSongWrite()
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
             using var songDb = new LR2SongDBExtended(songDbPath);
-            PrepareFullGenerationSongWriterSchema(songDb);
+            PrepareLr2SongDbSyncSongWriterSchema(songDb);
             TestableBmsFile file = CreateSong(@"D:\BMS\Pack\changed-digest-only.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Title");
             file.SetSha256(Sha('1'));
             Assert.IsTrue(Lr2SongDbWriter.UpsertGeneratedSong(songDb, file));
@@ -283,7 +283,7 @@ public sealed class Lr2SongDbWriterTests
             TestableBmsFile unchanged = CreateSong(file.path, file.hash, "Title");
             unchanged.CopyGeneratedHashesFrom(file);
             unchanged.SetSha256(file.sha256);
-            int written = Lr2SongDbWriter.UpsertGeneratedSongsForFullGeneration(songDb, [unchanged]);
+            int written = Lr2SongDbWriter.UpsertGeneratedSongsForLr2SongDbSync(songDb, [unchanged]);
 
             Assert.AreEqual(0, written);
             Assert.AreEqual(file.sha256, songDb.ExecuteScalar<string>("SELECT sha256 FROM chart_digest_map WHERE md5 = ?;", file.hash));
@@ -293,12 +293,12 @@ public sealed class Lr2SongDbWriterTests
     }
 
     [TestMethod]
-    public void UpsertGeneratedSongsForFullGeneration_NormalizesExistingUppercaseHash()
+    public void UpsertGeneratedSongsForLr2SongDbSync_NormalizesExistingUppercaseHash()
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
             using var songDb = new LR2SongDBExtended(songDbPath);
-            PrepareFullGenerationSongWriterSchema(songDb);
+            PrepareLr2SongDbSyncSongWriterSchema(songDb);
             songDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
             TestableBmsFile file = CreateSong(@"D:\BMS\Pack\uppercase.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Title");
             Assert.IsTrue(Lr2SongDbWriter.UpsertGeneratedSong(songDb, file));
@@ -307,7 +307,7 @@ public sealed class Lr2SongDbWriterTests
                 "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
                 file.path);
 
-            int written = Lr2SongDbWriter.UpsertGeneratedSongsForFullGeneration(songDb, [file]);
+            int written = Lr2SongDbWriter.UpsertGeneratedSongsForLr2SongDbSync(songDb, [file]);
 
             Assert.AreEqual(1, written);
             Assert.AreEqual("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", songDb.ExecuteScalar<string>("SELECT hash FROM song WHERE path = ?;", file.path));
@@ -315,12 +315,12 @@ public sealed class Lr2SongDbWriterTests
     }
 
     [TestMethod]
-    public void UpsertGeneratedSongsForFullGeneration_UpsertsDigestRowsAndRemovesOrphanedPreviousHash()
+    public void UpsertGeneratedSongsForLr2SongDbSync_UpsertsDigestRowsAndRemovesOrphanedPreviousHash()
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
             using var songDb = new LR2SongDBExtended(songDbPath);
-            PrepareFullGenerationSongWriterSchema(songDb);
+            PrepareLr2SongDbSyncSongWriterSchema(songDb);
             songDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
             string oldHash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
             string newHash = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
@@ -332,7 +332,7 @@ public sealed class Lr2SongDbWriterTests
 
             TestableBmsFile updated = CreateSong(existing.path, newHash, "New");
             updated.SetSha256(newSha);
-            int written = Lr2SongDbWriter.UpsertGeneratedSongsForFullGeneration(songDb, [updated]);
+            int written = Lr2SongDbWriter.UpsertGeneratedSongsForLr2SongDbSync(songDb, [updated]);
 
             Assert.AreEqual(1, written);
             Assert.AreEqual(0, songDb.ExecuteScalar<int>("SELECT COUNT(*) FROM chart_digest_map WHERE md5 = ?;", oldHash));
@@ -341,12 +341,12 @@ public sealed class Lr2SongDbWriterTests
     }
 
     [TestMethod]
-    public void UpsertGeneratedSongsForFullGeneration_KeepsPreviousDigestWhenBmsonStillReferencesHash()
+    public void UpsertGeneratedSongsForLr2SongDbSync_KeepsPreviousDigestWhenBmsonStillReferencesHash()
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
             using var songDb = new LR2SongDBExtended(songDbPath);
-            PrepareFullGenerationSongWriterSchema(songDb);
+            PrepareLr2SongDbSyncSongWriterSchema(songDb);
             songDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
             songDb.CreateTable<LR2SongDBExtended.bmson_song>();
             string oldHash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -367,7 +367,7 @@ public sealed class Lr2SongDbWriterTests
 
             TestableBmsFile updated = CreateSong(existing.path, newHash, "New");
             updated.SetSha256(newSha);
-            int written = Lr2SongDbWriter.UpsertGeneratedSongsForFullGeneration(songDb, [updated]);
+            int written = Lr2SongDbWriter.UpsertGeneratedSongsForLr2SongDbSync(songDb, [updated]);
 
             Assert.AreEqual(1, written);
             Assert.AreEqual(1, songDb.ExecuteScalar<int>("SELECT COUNT(*) FROM chart_digest_map WHERE md5 = ? AND sha256 = ?;", oldHash, oldSha));
@@ -376,12 +376,12 @@ public sealed class Lr2SongDbWriterTests
     }
 
     [TestMethod]
-    public void UpsertGeneratedSongsForFullGeneration_TreatsNullTextFlagAsUnchanged()
+    public void UpsertGeneratedSongsForLr2SongDbSync_TreatsNullTextFlagAsUnchanged()
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
             using var songDb = new LR2SongDBExtended(songDbPath);
-            PrepareFullGenerationSongWriterSchema(songDb);
+            PrepareLr2SongDbSyncSongWriterSchema(songDb);
             songDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
             TestableBmsFile file = CreateSong(@"D:\BMS\Pack\chart.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Title");
             file.SetTextFlagForTest(1);
@@ -390,7 +390,7 @@ public sealed class Lr2SongDbWriterTests
             TestableBmsFile withoutTextFlag = CreateSong(file.path, file.hash, "Title");
             withoutTextFlag.CopyGeneratedHashesFrom(file);
             withoutTextFlag.SetTextFlagForTest(null);
-            int written = Lr2SongDbWriter.UpsertGeneratedSongsForFullGeneration(songDb, [withoutTextFlag]);
+            int written = Lr2SongDbWriter.UpsertGeneratedSongsForLr2SongDbSync(songDb, [withoutTextFlag]);
 
             Assert.AreEqual(0, written);
             Assert.AreEqual(1, songDb.Table<LR2SongDB.song>().Single().txt);
@@ -398,12 +398,12 @@ public sealed class Lr2SongDbWriterTests
     }
 
     [TestMethod]
-    public void UpsertGeneratedSongsForFullGeneration_PreservesExistingAddDate()
+    public void UpsertGeneratedSongsForLr2SongDbSync_PreservesExistingAddDate()
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
             using var songDb = new LR2SongDBExtended(songDbPath);
-            PrepareFullGenerationSongWriterSchema(songDb);
+            PrepareLr2SongDbSyncSongWriterSchema(songDb);
             songDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
             TestableBmsFile file = CreateSong(@"D:\BMS\Pack\chart.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Old");
             file.adddate = 98765;
@@ -411,7 +411,7 @@ public sealed class Lr2SongDbWriterTests
 
             TestableBmsFile updated = CreateSong(file.path, file.hash, "New");
             updated.adddate = null;
-            int written = Lr2SongDbWriter.UpsertGeneratedSongsForFullGeneration(songDb, [updated]);
+            int written = Lr2SongDbWriter.UpsertGeneratedSongsForLr2SongDbSync(songDb, [updated]);
 
             Assert.AreEqual(1, written);
             LR2SongDB.song row = songDb.Table<LR2SongDB.song>().Single();
@@ -537,7 +537,7 @@ public sealed class Lr2SongDbWriterTests
             using var songDb = new LR2SongDBExtended(songDbPath);
             songDb.CreateTable<LR2SongDB.song>();
             songDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
-            PrepareFullGenerationSongWriterSchema(songDb);
+            PrepareLr2SongDbSyncSongWriterSchema(songDb);
             TestableBmsFile file = CreateSong(@"D:\BMS\Pack\chart.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Title");
             file.SetSha256(Sha('1'));
             Assert.IsTrue(Lr2SongDbWriter.UpsertGeneratedSong(songDb, file));
@@ -548,7 +548,7 @@ public sealed class Lr2SongDbWriterTests
             Lr2GeneratedSongCurrentnessResult currentness =
                 Lr2SongDbWriter.VerifyGeneratedSongsCurrent(songDb, [file]);
             Lr2GeneratedSongWriteResult writeResult =
-                Lr2SongDbWriter.UpsertGeneratedSongsForFullGenerationWithResult(songDb, [file]);
+                Lr2SongDbWriter.UpsertGeneratedSongsForLr2SongDbSyncWithResult(songDb, [file]);
 
             Assert.IsTrue(currentness.IsCurrent);
             Assert.AreEqual(0, currentness.MismatchedCount);
@@ -640,7 +640,7 @@ public sealed class Lr2SongDbWriterTests
         }
     }
 
-    private static void PrepareFullGenerationSongWriterSchema(LR2SongDBExtended songDb)
+    private static void PrepareLr2SongDbSyncSongWriterSchema(LR2SongDBExtended songDb)
     {
         BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
         BmsLibraryDbGateway.EnsureSongLookupIndexes(songDb);

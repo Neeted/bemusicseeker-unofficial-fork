@@ -319,15 +319,15 @@ public sealed class MainWindowContextMenuResourceTests
 
         StringAssert.Contains(generalTab, "Path=Resources.Operation_Mode");
         StringAssert.Contains(generalTab, "Path=Resources.Language");
-        StringAssert.Contains(generalTab, "Path=Resources.Lr2_full_generation_data_resync");
-        Assert.IsFalse(generalTab.Contains("Path=Resources.Enable_lr2_song_db_full_generation"));
-        Assert.IsFalse(resources.Contains("name=\"Enable_lr2_song_db_full_generation\""));
-        Assert.IsFalse(resourceCode.Contains("Enable_lr2_song_db_full_generation"));
-        Assert.IsFalse(settingsCode.Contains("public bool EnableLR2SongDbFullGeneration"));
+        StringAssert.Contains(generalTab, "Path=Resources.Lr2_song_db_sync_data_resync");
+        Assert.IsFalse(generalTab.Contains("Path=Resources.Enable_lr2_song_db_sync"));
+        Assert.IsFalse(resources.Contains("name=\"Enable_lr2_song_db_sync\""));
+        Assert.IsFalse(resourceCode.Contains("Enable_lr2_song_db_sync"));
+        Assert.IsFalse(settingsCode.Contains("public bool EnableLR2SongDbSync"));
         foreach (string languageFile in Directory.GetFiles(Path.Combine(FindRepositoryRoot(), "lang"), "*.json"))
         {
             string languageJson = File.ReadAllText(languageFile);
-            Assert.IsFalse(languageJson.Contains("\"Enable_lr2_song_db_full_generation\""));
+            Assert.IsFalse(languageJson.Contains("\"Enable_lr2_song_db_sync\""));
         }
         StringAssert.Contains(generalTab, "Path=Resources.Beatoraja_integration");
         Assert.IsTrue(generalTab.IndexOf("Path=Resources.Language", StringComparison.Ordinal) < generalTab.IndexOf("Path=Resources.Operation_Mode", StringComparison.Ordinal));
@@ -734,7 +734,7 @@ public sealed class MainWindowContextMenuResourceTests
             "public class PlaylistPropertyDialogViewModel");
 
         StringAssert.Contains(backupSavedSettings, "tempStandaloneBmsRootPaths = SerializeStandaloneBmsRootPaths(StandaloneBmsRootPathList);");
-        Assert.IsFalse(backupSavedSettings.Contains("tempEnableLR2SongDbFullGeneration"));
+        Assert.IsFalse(backupSavedSettings.Contains("tempEnableLR2SongDbSync"));
         Assert.IsFalse(viewModelCode.Contains("tempValidation"));
         Assert.IsFalse(restartDecision.Contains("CheckValidation()"));
         StringAssert.Contains(restartDecision, "scoreSourceChanged");
@@ -769,11 +769,11 @@ public sealed class MainWindowContextMenuResourceTests
             "public async void ReinitializeLibrary()");
         string manualResyncClickHandler = ExtractBetween(
             settingDialogCode,
-            "private async void resyncLr2FullGenerationDataButtonClicked",
+            "private async void resyncLr2SongDbSyncDataButtonClicked",
             "private async void detailTabItemBackupButtonClicked");
         string manualResyncPlaylistMethod = ExtractBetween(
             playlistCode,
-            "private async Task<Lr2FullGenerationPreparedDataSurface> ReOutputAllCustomFoldersForLr2FullGenerationDataSyncCoreAsync",
+            "private async Task<Lr2SongDbSyncPreparedDataSurface> ReOutputAllCustomFoldersForLr2SongDbSyncCoreAsync",
             "private sealed class CustomFolderOutputProjection");
 
         StringAssert.Contains(runtimeSync, "ownerViewModel.files.SearchTargets = [.. lr2config.GetBMSSearchDirectories()];");
@@ -781,18 +781,18 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(rootAdd, "ApplyRuntimeSearchRootsForCurrentMode();");
         Assert.IsTrue(rootAdd.IndexOf("ApplyRuntimeSearchRootsForCurrentMode();", StringComparison.Ordinal) < rootAdd.IndexOf("ownerViewModel.ReloadFileDiff();", StringComparison.Ordinal));
         StringAssert.Contains(saveCore, "ApplyRuntimeSearchRootsForCurrentMode();");
-        StringAssert.Contains(viewModelCode, "SyncLr2FullGenerationFolderDataAfterSettingsChange(\"SettingDialog.SaveSettings\")");
-        StringAssert.Contains(viewModelCode, "private Lr2FullGenerationPreparedDataSurface ReOutputAllCustomFoldersForLr2GeneratedDataSync(string reason)");
-        StringAssert.Contains(viewModelCode, "tables?.ReOutputAllCustomFoldersForLr2FullGenerationDataSync(");
-        StringAssert.Contains(viewModelCode, "files?.SyncLr2BuiltinCustomFolderRows(reason) ?? Lr2FullGenerationPreparedDataSurface.Empty;");
-        StringAssert.Contains(viewModelCode, "Lr2FullGenerationPreparedDataSurface.Merge(playlistSurface, builtinSurface);");
-        StringAssert.Contains(viewModelCode, "files?.QueueLr2FullGenerationDataSync(reason, force: false, allowIncompleteToQueue: false);");
-        StringAssert.Contains(viewModelCode, "public async Task RequestLr2FullGenerationDataSyncAsync(string reason, bool force)");
-        StringAssert.Contains(viewModelCode, "files?.QueueLr2FullGenerationDataSync(");
+        StringAssert.Contains(viewModelCode, "SyncLr2SongDbSyncFolderDataAfterSettingsChange(\"SettingDialog.SaveSettings\")");
+        StringAssert.Contains(viewModelCode, "private Lr2SongDbSyncPreparedDataSurface ReOutputAllCustomFoldersForLr2GeneratedDataSync(string reason)");
+        StringAssert.Contains(viewModelCode, "tables?.ReOutputAllCustomFoldersForLr2SongDbSync(");
+        StringAssert.Contains(viewModelCode, "files?.SyncLr2BuiltinCustomFolderRows(reason) ?? Lr2SongDbSyncPreparedDataSurface.Empty;");
+        StringAssert.Contains(viewModelCode, "Lr2SongDbSyncPreparedDataSurface.Merge(playlistSurface, builtinSurface);");
+        StringAssert.Contains(viewModelCode, "files?.QueueLr2SongDbSync(reason, force: false, allowIncompleteToQueue: false);");
+        StringAssert.Contains(viewModelCode, "public async Task RequestLr2SongDbSyncAsync(string reason, bool force)");
+        StringAssert.Contains(viewModelCode, "files?.QueueLr2SongDbSync(");
         StringAssert.Contains(viewModelCode, "() => ReOutputAllCustomFoldersForLr2GeneratedDataSync(reason)");
-        StringAssert.Contains(viewModelCode, "files?.TryRunLr2FullGenerationDataPreparation(");
-        StringAssert.Contains(viewModelCode, "files?.PublishLr2FullGenerationExternalStageProgress(");
-        StringAssert.Contains(settingDialogCode, "await viewModel.RequestLr2FullGenerationDataSyncAsync(\"setting_dialog_manual_resync\", force: true);");
+        StringAssert.Contains(viewModelCode, "files?.TryRunLr2SongDbSyncDataPreparation(");
+        StringAssert.Contains(viewModelCode, "files?.PublishLr2SongDbSyncExternalStageProgress(");
+        StringAssert.Contains(settingDialogCode, "await viewModel.RequestLr2SongDbSyncAsync(\"setting_dialog_manual_resync\", force: true);");
         StringAssert.Contains(manualResyncClickHandler, "settingDialog.Visibility = Visibility.Hidden;");
         StringAssert.Contains(manualResyncClickHandler, "await Dispatcher.Yield(DispatcherPriority.Background);");
         StringAssert.Contains(playlistCode, "RepairMissingCustomFolderOutputsAfterHydration(reason)");
@@ -806,23 +806,23 @@ public sealed class MainWindowContextMenuResourceTests
             "Manual LR2 generated-data sync must batch app-managed custom folder projection instead of running per-table physical reoutput and DB sync.");
         Assert.IsTrue(
             viewModelCode.IndexOf("() => ReOutputAllCustomFoldersForLr2GeneratedDataSync(reason)", StringComparison.Ordinal)
-            < viewModelCode.IndexOf("files?.QueueLr2FullGenerationDataSync(reason, force: false, allowIncompleteToQueue: false);", StringComparison.Ordinal),
+            < viewModelCode.IndexOf("files?.QueueLr2SongDbSync(reason, force: false, allowIncompleteToQueue: false);", StringComparison.Ordinal),
             "LR2 generated-data preparation must stay behind the LR2 preparation/queue gate instead of running as an unguarded pre-step.");
         Assert.IsFalse(
             manualResyncClickHandler.IndexOf("settingDialogRootGrid.IsEnabled = false;", StringComparison.Ordinal) >= 0,
             "Manual LR2 generated-data sync must not disable the entire settings dialog while playlist projection is running.");
         StringAssert.Contains(postSaveSteps, "tempOperationModeLR2DB != Settings.Default.OperationModeLR2DB");
-        Assert.IsFalse(postSaveSteps.Contains("tempEnableLR2SongDbFullGeneration"));
+        Assert.IsFalse(postSaveSteps.Contains("tempEnableLR2SongDbSync"));
         StringAssert.Contains(postSaveSteps, "tempLR2RootPath, Settings.Default.LR2RootPath");
         StringAssert.Contains(postSaveSteps, "tempLR2CustomFolderOutputDir, Settings.Default.LR2CustomFolderOutputBaseDir");
         StringAssert.Contains(postSaveSteps, "tempLR2CustomFolderAsRootOutputDir, Settings.Default.LR2CustomFolderOutputBaseDirRootType");
-        StringAssert.Contains(reloadFileDiff, "files.QueueLr2FullGenerationDataSync(");
+        StringAssert.Contains(reloadFileDiff, "files.QueueLr2SongDbSync(");
         StringAssert.Contains(reloadFileDiff, "prepareGeneratedData: () => ReOutputAllCustomFoldersForLr2GeneratedDataSync(\"ReloadFileDiff\")");
         StringAssert.Contains(viewModelCode, "prepareGeneratedData: () => ReOutputAllCustomFoldersForLr2GeneratedDataSync(\"status_bar_cleanup_retry\")");
         Assert.IsTrue(
             reloadFileDiff.IndexOf("files.ReloadFileDiff();", StringComparison.Ordinal)
-            < reloadFileDiff.IndexOf("files.QueueLr2FullGenerationDataSync(", StringComparison.Ordinal),
-            "LR2 full generation status should be evaluated after file diff has applied root/source changes.");
+            < reloadFileDiff.IndexOf("files.QueueLr2SongDbSync(", StringComparison.Ordinal),
+            "LR2 song.db sync status should be evaluated after file diff has applied root/source changes.");
     }
 
     [TestMethod]
@@ -1052,7 +1052,7 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
-    public void Lr2SongDbRuntimeWritesUseFullGenerationStatusBoundary()
+    public void Lr2SongDbRuntimeWritesUseLr2SongDbSyncStatusBoundary()
     {
         string libraryCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "BMSLibrary.cs"));
         string[] lines = libraryCode.Split(["\r\n", "\n"], StringSplitOptions.None);
@@ -1940,7 +1940,7 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(
             settingDialogXaml.IndexOf("qc:Binding '$P0", StringComparison.Ordinal) >= 0,
             "SettingDialog is loaded during MainWindow startup; multi-parameter QuickConverter bindings can fail during BAML load.");
-        StringAssert.Contains(settingDialogXaml, "Lr2_full_generation_data_resync");
+        StringAssert.Contains(settingDialogXaml, "Lr2_song_db_sync_data_resync");
         StringAssert.Contains(settingDialogXaml, "IsEnabled=\"{Binding IsChecked, ElementName=radioButtonUseLR2}\"");
         Assert.IsFalse(settingDialogXaml.Contains("checkBoxEnableLr2SongDbFullGeneration"));
     }

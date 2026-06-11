@@ -496,7 +496,7 @@ internal sealed class BmsLibraryInitializationService
         Lr2NormalFolderMtimeSnapshot normalFolderMtimeSnapshot = null,
         Func<Lr2NormalFolderMtimeSnapshot> normalFolderMtimeSnapshotProvider = null,
         Action<SongTableFileCheckResult> lr2ScanSurfacePrepared = null,
-        bool protectExistingBmsRowsFromLr2FullGenerationMigration = false)
+        bool protectExistingBmsRowsFromLr2SongDbSyncMigration = false)
     {
         var result = new SongTableFileCheckResult();
         var stopwatchScan = Stopwatch.StartNew();
@@ -694,7 +694,7 @@ internal sealed class BmsLibraryInitializationService
                 textGroupSurfaceAvailable,
                 chartFileEntriesByPath,
                 result,
-                protectExistingBmsRowsFromLr2FullGenerationMigration);
+                protectExistingBmsRowsFromLr2SongDbSyncMigration);
             if (target != null)
             {
                 bmsParseTargets.Add(target);
@@ -2053,7 +2053,7 @@ internal sealed class BmsLibraryInitializationService
         bool textGroupSurfaceAvailable,
         IReadOnlyDictionary<string, RootFileEnumerationEntry> chartFileEntriesByPath,
         SongTableFileCheckResult result,
-        bool protectExistingBmsRowsFromLr2FullGenerationMigration)
+        bool protectExistingBmsRowsFromLr2SongDbSyncMigration)
     {
         if (string.IsNullOrWhiteSpace(path))
         {
@@ -2066,7 +2066,7 @@ internal sealed class BmsLibraryInitializationService
                 : null;
             return new FileDiffParseTarget(FileDiffChartKind.Bms, path, null, scannedTextFlag.GetValueOrDefault());
         }
-        if (protectExistingBmsRowsFromLr2FullGenerationMigration)
+        if (protectExistingBmsRowsFromLr2SongDbSyncMigration)
         {
             result.BmsLegacyExistingProtectedCount++;
             return null;

@@ -6,9 +6,9 @@ using BeMusicSeeker.Models.Utils;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
-internal sealed class Lr2FullGenerationPreparedDataSurface
+internal sealed class Lr2SongDbSyncPreparedDataSurface
 {
-    public static Lr2FullGenerationPreparedDataSurface Empty { get; } = new(
+    public static Lr2SongDbSyncPreparedDataSurface Empty { get; } = new(
         [],
         [],
         new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase),
@@ -18,7 +18,7 @@ internal sealed class Lr2FullGenerationPreparedDataSurface
         [],
         discoveryComplete: true);
 
-    public Lr2FullGenerationPreparedDataSurface(
+    public Lr2SongDbSyncPreparedDataSurface(
         IEnumerable<string> lr2FolderScopeDirectories,
         IEnumerable<string> lr2FolderFilePaths,
         IReadOnlyDictionary<string, RootFileEnumerationEntry> lr2FolderFileEntries,
@@ -35,7 +35,7 @@ internal sealed class Lr2FullGenerationPreparedDataSurface
     {
     }
 
-    public Lr2FullGenerationPreparedDataSurface(
+    public Lr2SongDbSyncPreparedDataSurface(
         IEnumerable<string> lr2FolderScopeDirectories,
         IEnumerable<string> lr2FolderFilePaths,
         IReadOnlyDictionary<string, RootFileEnumerationEntry> lr2FolderFileEntries,
@@ -82,7 +82,7 @@ internal sealed class Lr2FullGenerationPreparedDataSurface
         || FolderInfoFilePaths.Count > 0
         || TextFileDirectories.Count > 0;
 
-    public static Lr2FullGenerationPreparedDataSurface FromSyncItems(
+    public static Lr2SongDbSyncPreparedDataSurface FromSyncItems(
         IEnumerable<string> lr2FolderScopeDirectories,
         IEnumerable<Lr2FolderFileSyncItem> items,
         IReadOnlyDictionary<string, RootFileEnumerationEntry> directoryEntries = null,
@@ -102,7 +102,7 @@ internal sealed class Lr2FullGenerationPreparedDataSurface
             entriesByPath[path] = new RootFileEnumerationEntry(path, item.LastWriteTimeUtc);
         }
 
-        return new Lr2FullGenerationPreparedDataSurface(
+        return new Lr2SongDbSyncPreparedDataSurface(
             lr2FolderScopeDirectories,
             entriesByPath.Keys,
             entriesByPath,
@@ -113,7 +113,7 @@ internal sealed class Lr2FullGenerationPreparedDataSurface
             discoveryComplete);
     }
 
-    public static Lr2FullGenerationPreparedDataSurface Merge(params Lr2FullGenerationPreparedDataSurface[] surfaces)
+    public static Lr2SongDbSyncPreparedDataSurface Merge(params Lr2SongDbSyncPreparedDataSurface[] surfaces)
     {
         var scopeDirectories = new List<string>();
         var entriesByPath = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
@@ -121,7 +121,7 @@ internal sealed class Lr2FullGenerationPreparedDataSurface
         var folderInfoEntriesByPath = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
         var textFileDirectories = new List<string>();
         bool discoveryComplete = true;
-        foreach (Lr2FullGenerationPreparedDataSurface surface in surfaces ?? [])
+        foreach (Lr2SongDbSyncPreparedDataSurface surface in surfaces ?? [])
         {
             if (surface == null)
             {
@@ -147,7 +147,7 @@ internal sealed class Lr2FullGenerationPreparedDataSurface
             textFileDirectories.AddRange(surface.TextFileDirectories);
         }
 
-        return new Lr2FullGenerationPreparedDataSurface(
+        return new Lr2SongDbSyncPreparedDataSurface(
             scopeDirectories,
             entriesByPath.Keys,
             entriesByPath,

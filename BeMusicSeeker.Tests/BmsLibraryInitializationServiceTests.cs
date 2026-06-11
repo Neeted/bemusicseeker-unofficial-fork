@@ -4247,7 +4247,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 0L,
                 () => null,
                 null,
-                protectExistingBmsRowsFromLr2FullGenerationMigration: true);
+                protectExistingBmsRowsFromLr2SongDbSyncMigration: true);
 
             Assert.AreEqual(0, result.BmsAddedTargetCount);
             Assert.AreEqual(1, result.BmsLegacyExistingProtectedCount);
@@ -4322,7 +4322,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 0L,
                 () => null,
                 null,
-                protectExistingBmsRowsFromLr2FullGenerationMigration: true);
+                protectExistingBmsRowsFromLr2SongDbSyncMigration: true);
 
             Assert.AreEqual(0, result.BmsAddedTargetCount);
             Assert.AreEqual(1, result.BmsLegacyExistingProtectedCount);
@@ -4650,7 +4650,7 @@ public sealed class BmsLibraryInitializationServiceTests
     }
 
     [TestMethod]
-    public void ApplyFileScanDiff_NewBmsSetsTxtFromDirectTextGroupOnlyWhenFullGenerationEnabled()
+    public void ApplyFileScanDiff_NewBmsSetsTxtFromDirectTextGroupOnlyWhenLr2SongDbSyncEnabled()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
@@ -4703,7 +4703,7 @@ public sealed class BmsLibraryInitializationServiceTests
     }
 
     [TestMethod]
-    public void ApplyFileScanDiff_ExistingBmsTextGroupChangeUpdatesTxtOnlyWhenFullGenerationEnabled()
+    public void ApplyFileScanDiff_ExistingBmsTextGroupChangeUpdatesTxtOnlyWhenLr2SongDbSyncEnabled()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)

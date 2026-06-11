@@ -1863,13 +1863,13 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
             ]);
     }
 
-    internal static void EnsureLr2FullGenerationStatusSchema(LR2SongDBExtended songDb)
+    internal static void EnsureLr2SongDbSyncStatusSchema(LR2SongDBExtended songDb)
     {
         if (songDb == null)
         {
             throw new ArgumentNullException(nameof(songDb));
         }
-        songDb.CreateTable<LR2SongDBExtended.lr2_full_generation_status>();
+        songDb.CreateTable<LR2SongDBExtended.lr2_song_db_sync_status>();
     }
 
     /// <summary>
@@ -1957,7 +1957,7 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
         EnsureChartInfoSchema(songDb);
         EnsureIrDataSchema(songDb);
         EnsureSongLookupIndexes(songDb);
-        EnsureLr2FullGenerationStatusSchema(songDb);
+        EnsureLr2SongDbSyncStatusSchema(songDb);
         if (stampVersion)
         {
             SetCurrentAppSchemaVersion(songDb);

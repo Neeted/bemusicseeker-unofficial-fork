@@ -23,8 +23,8 @@ public sealed class Lr2BuiltinCustomFolderRealFixtureTests
         IReadOnlyList<string> lr2FolderFiles = scope.GetLr2FolderFiles();
         Assert.AreEqual(91, lr2FolderFiles.Count);
 
-        Lr2FullGenerationSyncService.Lr2FolderFileSyncItemsResult result =
-            Lr2FullGenerationSyncService.CreateLr2FolderFileSyncItems(
+        Lr2SongDbSyncService.Lr2FolderFileSyncItemsResult result =
+            Lr2SongDbSyncService.CreateLr2FolderFileSyncItems(
                 lr2FolderFiles,
                 scope.CreateRequest(),
                 scope.CreateEntries(lr2FolderFiles));
@@ -76,14 +76,14 @@ public sealed class Lr2BuiltinCustomFolderRealFixtureTests
         IReadOnlyList<string> folderInfoFiles = scope.GetFolderInfoFiles();
         IReadOnlyList<string> directories = scope.GetDirectories();
 
-        Lr2FullGenerationSyncService.Lr2FolderFileSyncItemsResult syncItems =
-            Lr2FullGenerationSyncService.CreateLr2FolderFileSyncItems(
+        Lr2SongDbSyncService.Lr2FolderFileSyncItemsResult syncItems =
+            Lr2SongDbSyncService.CreateLr2FolderFileSyncItems(
                 lr2FolderFiles,
                 scope.CreateRequest(),
                 scope.CreateEntries(lr2FolderFiles));
 
         Lr2FolderDirectoryMetadataSnapshot metadataSnapshot =
-            Lr2FullGenerationSyncService.CreateLr2FolderParentDirectoryMetadataSnapshot(
+            Lr2SongDbSyncService.CreateLr2FolderParentDirectoryMetadataSnapshot(
                 syncItems.Items,
                 scope.CreateRequest(folderInfoFiles, directories));
 
@@ -195,11 +195,11 @@ public sealed class Lr2BuiltinCustomFolderRealFixtureTests
                 .ToList();
         }
 
-        public Lr2FullGenerationSyncRequest CreateRequest(
+        public Lr2SongDbSyncRequest CreateRequest(
             IReadOnlyList<string>? folderInfoFiles = null,
             IReadOnlyList<string>? directories = null)
         {
-            return new Lr2FullGenerationSyncRequest
+            return new Lr2SongDbSyncRequest
             {
                 Lr2RootPath = Lr2RootPath,
                 Lr2BuiltinFolderSourceDirectories = [BuiltinRootPath],

@@ -220,14 +220,14 @@ target enumeration
   - 万一途中終了した場合、次回起動では前回 skip した row も含めて通常どおり再検証してよい。初回自動 LR2 `song.db` sync は一度だけの best-effort follow-up と扱い、途中再開のために skip target list を永続化しない。
   - skip できない場合は従来どおり `song_rows` pipeline を実行する。manual resync / force resync は安全側で従来動作を維持する。
 - log 方針:
-  - `lr2_full_generation_sync song_rows_skip` または同等の log に、reason、coveredRows、targetRows、fileDiffGeneration、signature、coverageMs を出す。
+  - `lr2_song_db_sync song_rows_skip` または同等の log に、reason、coveredRows、targetRows、fileDiffGeneration、signature、coverageMs を出す。
   - skip しなかった場合も、`song_rows_skip reason=...` でなぜ再読込が必要だったかを残す。
 - 完了条件:
   - 大量 file diff 直後の初回自動 LR2 `song.db` sync で、file diff の durable path coverage が成立した譜面は再 read / re-parse されない。
   - 完了: manual LR2 `song.db` resync、途中失敗 resume、signature mismatch、force 実行は従来の安全な full pipeline を維持する。
-  - 完了: `startup_progress` / `Lr2FullGenerationStatusService` の durable cursor が、未 commit の処理を完了扱いにしない。
+  - 完了: `startup_progress` / `Lr2SongDbSyncStatusService` の durable cursor が、未 commit の処理を完了扱いにしない。
 - 追加診断:
-  - 完了: `lr2_full_generation_sync startup_scan_diagnostics_detail` を追加し、`dateMissingSongRows` / `missingExpectedFolderRows` / `missingExpectedLr2FolderRows` が残った場合に、最大 10 件の path を出す。
+  - 完了: `lr2_song_db_sync startup_scan_diagnostics_detail` を追加し、`dateMissingSongRows` / `missingExpectedFolderRows` / `missingExpectedLr2FolderRows` が残った場合に、最大 10 件の path を出す。
   - 次回ログ確認: `song_rows_skip action=skip reason=file_diff_new_insert_projection_current` で `pipeline_start stage=song_rows` が出ないこと、または `song_rows_skip action=run reason=file_diff_transient_coverage_incomplete` で通常 pipeline に戻ることを見る。
 
 ### Phase 9: file diff DB commit chunk の streaming writer 化
@@ -328,7 +328,7 @@ target enumeration
   - 大量 file diff 後の自動 LR2 song.db sync が、durable path coverage の成立した `song_rows` を skip すること。
   - coverage gate が成立しない場合は DB projection verifier へ逃げず、通常 `song_rows` pipeline を実行すること。
   - signature mismatch / force / manual resync / failed resume では従来 pipeline へ落ちること。
-  - skip 後の `Lr2FullGenerationStatusService` cursor / completed status が未 commit row を含まないこと。
+  - skip 後の `Lr2SongDbSyncStatusService` cursor / completed status が未 commit row を含まないこと。
 - Phase 9:
   - streaming writer で DB chunk が post-parse 中に commit され、失敗時に reader / parser / post-parse が停止すること。
   - delete、add/update、maintenance、chart_info、parse failure、moved hash relink の commit 結果が現行と一致すること。
@@ -347,11 +347,11 @@ target enumeration
 
 | 対象 | 見る log |
 | --- | --- |
-| LR2 song.db manual resync | `lr2_full_generation_sync pipeline_start/done`, read / digest / parse / commit |
+| LR2 song.db manual resync | `lr2_song_db_sync pipeline_start/done`, read / digest / parse / commit |
 | 空 DB 初回相当 file diff | `song_tbl_file_check_breakdown`, `parse_read_bytes_estimate`, read / digest / parse / inline maintenance |
 | chart_info full backfill | `chart_info_backfill start/done`, fileReadBytes, read / parse |
 | manual maintenance full rescan | `maintenance_rescan_chunk`, `maintenance_update checked` |
-| 大量 file diff 後の自動 LR2 song.db sync | `lr2_full_generation_sync song_rows_skip`, `pipeline_start stage=song_rows` が出ない / 対象縮小されること |
+| 大量 file diff 後の自動 LR2 song.db sync | `lr2_song_db_sync song_rows_skip`, `pipeline_start stage=song_rows` が出ない / 対象縮小されること |
 | file diff streaming commit | `song_tbl_file_check_batch_slow` と `song_tbl_file_check db_commit_chunk_start/done` の時間的重なり、`commitQueueWaitMs` |
 | maintenance evaluator 軽量化 | `inline_maintenance_wall_ms`, `inline_health_wall_ms`, `inline_encoding_wall_ms`, `maintenance_rescan_chunk computeMs/commitMs` |
 

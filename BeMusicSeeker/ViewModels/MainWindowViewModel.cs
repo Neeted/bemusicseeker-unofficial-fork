@@ -3593,14 +3593,14 @@ public class MainWindowViewModel : ViewModel
             {
                 ownerViewModel.tables.SchedulePlaylistUrlCompletionRefresh("SettingDialog.SaveSettings");
             }
-            bool lr2FullGenerationInputChanged =
+            bool lr2SongDbSyncInputChanged =
                 tempOperationModeLR2DB != Settings.Default.OperationModeLR2DB
                 || !string.Equals(tempLR2RootPath, Settings.Default.LR2RootPath, StringComparison.OrdinalIgnoreCase)
                 || !string.Equals(tempLR2CustomFolderOutputDir, Settings.Default.LR2CustomFolderOutputBaseDir, StringComparison.OrdinalIgnoreCase)
                 || !string.Equals(tempLR2CustomFolderAsRootOutputDir, Settings.Default.LR2CustomFolderOutputBaseDirRootType, StringComparison.OrdinalIgnoreCase);
-            if (Settings.Default.OperationModeLR2DB && lr2FullGenerationInputChanged)
+            if (Settings.Default.OperationModeLR2DB && lr2SongDbSyncInputChanged)
             {
-                ownerViewModel.SyncLr2FullGenerationFolderDataAfterSettingsChange("SettingDialog.SaveSettings");
+                ownerViewModel.SyncLr2SongDbSyncFolderDataAfterSettingsChange("SettingDialog.SaveSettings");
             }
             if (tempEnableBeatorajaBmtOutput != Settings.Default.EnableBeatorajaBmtOutput
                 || tempKeepBeatorajaBmtFilesWhenOutputDisabled != Settings.Default.KeepBeatorajaBmtFilesWhenOutputDisabled
@@ -5280,7 +5280,7 @@ public class MainWindowViewModel : ViewModel
         LibraryFileEnumerationDone = 16384,
         LibraryFileDiffDone = 32768,
         InstallableMaintenanceDeferredDone = 65536,
-        Lr2FullGenerationSyncDone = 131072
+        Lr2SongDbSyncDone = 131072
     }
 
     /// <summary>
@@ -5329,7 +5329,7 @@ public class MainWindowViewModel : ViewModel
 
         internal int ChartInfoHydrationBaselineCompletedVersion;
 
-        internal int Lr2FullGenerationSyncBaselineCompletedVersion;
+        internal int Lr2SongDbSyncBaselineCompletedVersion;
 
         internal int PlaylistEntriesHydrationBaselineCompletedVersion;
 
@@ -5355,7 +5355,7 @@ public class MainWindowViewModel : ViewModel
 
         internal int RequiredChartInfoHydrationCompletedVersion;
 
-        internal int RequiredLr2FullGenerationSyncCompletedVersion;
+        internal int RequiredLr2SongDbSyncCompletedVersion;
 
         internal int ChartDigestBackfillTotalCount;
 
@@ -5373,15 +5373,15 @@ public class MainWindowViewModel : ViewModel
 
         internal int ChartInfoHydrationAppliedCount;
 
-        internal int Lr2FullGenerationSyncTotalCount;
+        internal int Lr2SongDbSyncTotalCount;
 
-        internal int Lr2FullGenerationSyncProcessedCount;
+        internal int Lr2SongDbSyncProcessedCount;
 
-        internal string Lr2FullGenerationSyncStage = string.Empty;
+        internal string Lr2SongDbSyncStage = string.Empty;
 
-        internal int Lr2FullGenerationSyncStageProcessedCount;
+        internal int Lr2SongDbSyncStageProcessedCount;
 
-        internal int Lr2FullGenerationSyncStageTotalCount;
+        internal int Lr2SongDbSyncStageTotalCount;
 
         internal BMSLibrary.LibraryInitializationProgressStage LibraryInitializationProgressStage;
 
@@ -6137,27 +6137,27 @@ public class MainWindowViewModel : ViewModel
 
     private double _StartupProgressMaximum;
 
-    private Lr2FullGenerationRuntimeStatus latestLr2FullGenerationStatus = Lr2FullGenerationStatusMapper.CreateNone();
+    private Lr2SongDbSyncRuntimeStatus latestLr2SongDbSyncStatus = Lr2SongDbSyncStatusMapper.CreateNone();
 
-    private bool _IsLr2FullGenerationStatusActive;
+    private bool _IsLr2SongDbSyncStatusActive;
 
-    private string _Lr2FullGenerationStatusLabel = string.Empty;
+    private string _Lr2SongDbSyncStatusLabel = string.Empty;
 
-    private string _Lr2FullGenerationStatusSubLabel = string.Empty;
+    private string _Lr2SongDbSyncStatusSubLabel = string.Empty;
 
-    private string _Lr2FullGenerationStatusToolTip = string.Empty;
+    private string _Lr2SongDbSyncStatusToolTip = string.Empty;
 
-    private double _Lr2FullGenerationStatusProgressValue;
+    private double _Lr2SongDbSyncStatusProgressValue;
 
-    private double _Lr2FullGenerationStatusProgressMaximum = 1.0;
+    private double _Lr2SongDbSyncStatusProgressMaximum = 1.0;
 
-    private bool _IsLr2FullGenerationStatusProgressVisible;
+    private bool _IsLr2SongDbSyncStatusProgressVisible;
 
-    private bool _IsLr2FullGenerationRetryVisible;
+    private bool _IsLr2SongDbSyncRetryVisible;
 
-    private bool _IsLr2FullGenerationCancelVisible;
+    private bool _IsLr2SongDbSyncCancelVisible;
 
-    private bool _IsLr2FullGenerationCleanupVisible;
+    private bool _IsLr2SongDbSyncCleanupVisible;
 
     private bool _IsPlaylistTreeExpanded = true;
 
@@ -8543,7 +8543,7 @@ public class MainWindowViewModel : ViewModel
         {
             return 60;
         }
-        if (string.Equals(name, "lr2_full_generation_sync", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(name, "lr2_song_db_sync", StringComparison.OrdinalIgnoreCase))
         {
             return 90;
         }
@@ -12035,10 +12035,10 @@ public class MainWindowViewModel : ViewModel
         string fullGenerationReason = "post_startup_" + (reason ?? string.Empty);
         Task.Run(delegate
         {
-            files?.QueueLr2FullGenerationDataSync(
+            files?.QueueLr2SongDbSync(
                 fullGenerationReason,
                 prepareGeneratedData: () => ReOutputAllCustomFoldersForLr2GeneratedDataSync(fullGenerationReason));
-        }).Logging("PostStartupLr2FullGenerationDataSync");
+        }).Logging("PostStartupLr2SongDbSync");
         if (IsVirtualNormalLibraryOrderPrewarmRunning())
         {
             LogMainViewBuild("post_startup_warmup queued reason=" + (reason ?? string.Empty)
@@ -14038,7 +14038,7 @@ public class MainWindowViewModel : ViewModel
                 _IsStartupProgressActive = value;
                 RaisePropertyChanged("IsStartupProgressActive");
                 RaisePropertyChanged("IsLibraryOperationInProgress");
-                RecomputeLr2FullGenerationStatusPresentation();
+                RecomputeLr2SongDbSyncStatusPresentation();
             }
         }
     }
@@ -14121,167 +14121,167 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
-    public bool IsLr2FullGenerationStatusActive
+    public bool IsLr2SongDbSyncStatusActive
     {
         get
         {
-            return _IsLr2FullGenerationStatusActive;
+            return _IsLr2SongDbSyncStatusActive;
         }
         private set
         {
-            if (_IsLr2FullGenerationStatusActive != value)
+            if (_IsLr2SongDbSyncStatusActive != value)
             {
-                _IsLr2FullGenerationStatusActive = value;
-                RaisePropertyChanged("IsLr2FullGenerationStatusActive");
+                _IsLr2SongDbSyncStatusActive = value;
+                RaisePropertyChanged("IsLr2SongDbSyncStatusActive");
             }
         }
     }
 
     public bool IsLr2CompatibilityTreeVisible => Settings.Default.OperationModeLR2DB;
 
-    public string Lr2FullGenerationStatusLabel
+    public string Lr2SongDbSyncStatusLabel
     {
         get
         {
-            return _Lr2FullGenerationStatusLabel;
+            return _Lr2SongDbSyncStatusLabel;
         }
         private set
         {
             value ??= string.Empty;
-            if (_Lr2FullGenerationStatusLabel != value)
+            if (_Lr2SongDbSyncStatusLabel != value)
             {
-                _Lr2FullGenerationStatusLabel = value;
-                RaisePropertyChanged("Lr2FullGenerationStatusLabel");
+                _Lr2SongDbSyncStatusLabel = value;
+                RaisePropertyChanged("Lr2SongDbSyncStatusLabel");
             }
         }
     }
 
-    public string Lr2FullGenerationStatusSubLabel
+    public string Lr2SongDbSyncStatusSubLabel
     {
         get
         {
-            return _Lr2FullGenerationStatusSubLabel;
+            return _Lr2SongDbSyncStatusSubLabel;
         }
         private set
         {
             value ??= string.Empty;
-            if (_Lr2FullGenerationStatusSubLabel != value)
+            if (_Lr2SongDbSyncStatusSubLabel != value)
             {
-                _Lr2FullGenerationStatusSubLabel = value;
-                RaisePropertyChanged("Lr2FullGenerationStatusSubLabel");
+                _Lr2SongDbSyncStatusSubLabel = value;
+                RaisePropertyChanged("Lr2SongDbSyncStatusSubLabel");
             }
         }
     }
 
-    public string Lr2FullGenerationStatusToolTip
+    public string Lr2SongDbSyncStatusToolTip
     {
         get
         {
-            return _Lr2FullGenerationStatusToolTip;
+            return _Lr2SongDbSyncStatusToolTip;
         }
         private set
         {
             value ??= string.Empty;
-            if (_Lr2FullGenerationStatusToolTip != value)
+            if (_Lr2SongDbSyncStatusToolTip != value)
             {
-                _Lr2FullGenerationStatusToolTip = value;
-                RaisePropertyChanged("Lr2FullGenerationStatusToolTip");
+                _Lr2SongDbSyncStatusToolTip = value;
+                RaisePropertyChanged("Lr2SongDbSyncStatusToolTip");
             }
         }
     }
 
-    public double Lr2FullGenerationStatusProgressValue
+    public double Lr2SongDbSyncStatusProgressValue
     {
         get
         {
-            return _Lr2FullGenerationStatusProgressValue;
+            return _Lr2SongDbSyncStatusProgressValue;
         }
         private set
         {
-            if (_Lr2FullGenerationStatusProgressValue != value)
+            if (_Lr2SongDbSyncStatusProgressValue != value)
             {
-                _Lr2FullGenerationStatusProgressValue = value;
-                RaisePropertyChanged("Lr2FullGenerationStatusProgressValue");
+                _Lr2SongDbSyncStatusProgressValue = value;
+                RaisePropertyChanged("Lr2SongDbSyncStatusProgressValue");
             }
         }
     }
 
-    public double Lr2FullGenerationStatusProgressMaximum
+    public double Lr2SongDbSyncStatusProgressMaximum
     {
         get
         {
-            return _Lr2FullGenerationStatusProgressMaximum;
+            return _Lr2SongDbSyncStatusProgressMaximum;
         }
         private set
         {
-            if (_Lr2FullGenerationStatusProgressMaximum != value)
+            if (_Lr2SongDbSyncStatusProgressMaximum != value)
             {
-                _Lr2FullGenerationStatusProgressMaximum = value;
-                RaisePropertyChanged("Lr2FullGenerationStatusProgressMaximum");
+                _Lr2SongDbSyncStatusProgressMaximum = value;
+                RaisePropertyChanged("Lr2SongDbSyncStatusProgressMaximum");
             }
         }
     }
 
-    public bool IsLr2FullGenerationStatusProgressVisible
+    public bool IsLr2SongDbSyncStatusProgressVisible
     {
         get
         {
-            return _IsLr2FullGenerationStatusProgressVisible;
+            return _IsLr2SongDbSyncStatusProgressVisible;
         }
         private set
         {
-            if (_IsLr2FullGenerationStatusProgressVisible != value)
+            if (_IsLr2SongDbSyncStatusProgressVisible != value)
             {
-                _IsLr2FullGenerationStatusProgressVisible = value;
-                RaisePropertyChanged("IsLr2FullGenerationStatusProgressVisible");
+                _IsLr2SongDbSyncStatusProgressVisible = value;
+                RaisePropertyChanged("IsLr2SongDbSyncStatusProgressVisible");
             }
         }
     }
 
-    public bool IsLr2FullGenerationRetryVisible
+    public bool IsLr2SongDbSyncRetryVisible
     {
         get
         {
-            return _IsLr2FullGenerationRetryVisible;
+            return _IsLr2SongDbSyncRetryVisible;
         }
         set
         {
-            if (_IsLr2FullGenerationRetryVisible != value)
+            if (_IsLr2SongDbSyncRetryVisible != value)
             {
-                _IsLr2FullGenerationRetryVisible = value;
-                RaisePropertyChanged("IsLr2FullGenerationRetryVisible");
+                _IsLr2SongDbSyncRetryVisible = value;
+                RaisePropertyChanged("IsLr2SongDbSyncRetryVisible");
             }
         }
     }
 
-    public bool IsLr2FullGenerationCancelVisible
+    public bool IsLr2SongDbSyncCancelVisible
     {
         get
         {
-            return _IsLr2FullGenerationCancelVisible;
+            return _IsLr2SongDbSyncCancelVisible;
         }
         set
         {
-            if (_IsLr2FullGenerationCancelVisible != value)
+            if (_IsLr2SongDbSyncCancelVisible != value)
             {
-                _IsLr2FullGenerationCancelVisible = value;
-                RaisePropertyChanged("IsLr2FullGenerationCancelVisible");
+                _IsLr2SongDbSyncCancelVisible = value;
+                RaisePropertyChanged("IsLr2SongDbSyncCancelVisible");
             }
         }
     }
 
-    public bool IsLr2FullGenerationCleanupVisible
+    public bool IsLr2SongDbSyncCleanupVisible
     {
         get
         {
-            return _IsLr2FullGenerationCleanupVisible;
+            return _IsLr2SongDbSyncCleanupVisible;
         }
         set
         {
-            if (_IsLr2FullGenerationCleanupVisible != value)
+            if (_IsLr2SongDbSyncCleanupVisible != value)
             {
-                _IsLr2FullGenerationCleanupVisible = value;
-                RaisePropertyChanged("IsLr2FullGenerationCleanupVisible");
+                _IsLr2SongDbSyncCleanupVisible = value;
+                RaisePropertyChanged("IsLr2SongDbSyncCleanupVisible");
             }
         }
     }
@@ -15298,7 +15298,7 @@ public class MainWindowViewModel : ViewModel
             {
                 LogInitStage("file_diff_reload_call", "ReloadFileDiff");
                 files.ReloadFileDiff();
-                files.QueueLr2FullGenerationDataSync(
+                files.QueueLr2SongDbSync(
                     "ReloadFileDiff",
                     prepareGeneratedData: () => ReOutputAllCustomFoldersForLr2GeneratedDataSync("ReloadFileDiff"));
             }).Logging("ReloadFileDiff");
@@ -15386,7 +15386,7 @@ public class MainWindowViewModel : ViewModel
             StartupProgressPhase.ChartInfoHydrationDone,
             StartupProgressPhase.ChartInfoBackfillDone,
             StartupProgressPhase.ChartDigestBackfillDone,
-            StartupProgressPhase.Lr2FullGenerationSyncDone,
+            StartupProgressPhase.Lr2SongDbSyncDone,
             StartupProgressPhase.ScoreHydrationDone,
             StartupProgressPhase.RankingRefreshDone,
             StartupProgressPhase.MaintenanceDeferredDone,
@@ -15594,8 +15594,8 @@ public class MainWindowViewModel : ViewModel
                 libraryProfile.Lr2ScoreDbPath,
                 () => files.GetBMSScores(),
                 () => files.CreateBeatorajaBmtSongHashResolver());
-            tables.Lr2FolderSyncMutationGuard = operation => files.ThrowIfLr2FullGenerationMutationBlockedForPlaylist(operation);
-            tables.Lr2FolderSyncFailureReporter = (operation, ex) => files.MarkLr2FullGenerationIncompleteAfterPlaylistLr2FolderSyncFailure(ex, operation);
+            tables.Lr2FolderSyncMutationGuard = operation => files.ThrowIfLr2SongDbSyncMutationBlockedForPlaylist(operation);
+            tables.Lr2FolderSyncFailureReporter = (operation, ex) => files.MarkLr2SongDbSyncIncompleteAfterPlaylistLr2FolderSyncFailure(ex, operation);
             files.StartupBackgroundTaskScheduler = QueueStartupBackgroundTask;
             files.StartupBackgroundTaskReporter = RecordStartupBackgroundTaskCompleted;
             tables.StartupBackgroundTaskScheduler = QueueStartupBackgroundTask;
@@ -15801,41 +15801,41 @@ public class MainWindowViewModel : ViewModel
         {
             UpdateStartupProgressChartInfoHydrationStatus(files.ChartInfoHydrationTotalCount, files.ChartInfoHydrationAppliedCount);
         });
-        listenerForBMSLibrary.RegisterHandler(() => files.Lr2FullGenerationSyncRequestedVersion, delegate
+        listenerForBMSLibrary.RegisterHandler(() => files.Lr2SongDbSyncRequestedVersion, delegate
         {
-            TrackStartupProgressLr2FullGenerationSyncRequested(files.Lr2FullGenerationSyncRequestedVersion);
+            TrackStartupProgressLr2SongDbSyncRequested(files.Lr2SongDbSyncRequestedVersion);
         });
-        listenerForBMSLibrary.RegisterHandler(() => files.Lr2FullGenerationSyncCompletedVersion, delegate
+        listenerForBMSLibrary.RegisterHandler(() => files.Lr2SongDbSyncCompletedVersion, delegate
         {
-            TryCompleteStartupProgressLr2FullGenerationSync(files.Lr2FullGenerationSyncCompletedVersion);
+            TryCompleteStartupProgressLr2SongDbSync(files.Lr2SongDbSyncCompletedVersion);
         });
-        listenerForBMSLibrary.RegisterHandler(() => files.Lr2FullGenerationSyncFailedVersion, delegate
+        listenerForBMSLibrary.RegisterHandler(() => files.Lr2SongDbSyncFailedVersion, delegate
         {
-            TryFailStartupProgressLr2FullGenerationSync(files.Lr2FullGenerationSyncFailedVersion, files.Lr2FullGenerationSyncFailureMessage);
+            TryFailStartupProgressLr2SongDbSync(files.Lr2SongDbSyncFailedVersion, files.Lr2SongDbSyncFailureMessage);
         });
-        listenerForBMSLibrary.RegisterHandler(() => files.Lr2FullGenerationStatusVersion, delegate
+        listenerForBMSLibrary.RegisterHandler(() => files.Lr2SongDbSyncStatusVersion, delegate
         {
-            UpdateLr2FullGenerationRuntimeStatus(files.GetLr2FullGenerationStatusSnapshot());
+            UpdateLr2SongDbSyncRuntimeStatus(files.GetLr2SongDbSyncStatusSnapshot());
         });
-        listenerForBMSLibrary.RegisterHandler(() => files.Lr2FullGenerationSyncTotalCount, delegate
+        listenerForBMSLibrary.RegisterHandler(() => files.Lr2SongDbSyncTotalCount, delegate
         {
-            UpdateStartupProgressLr2FullGenerationSyncStatus(files.Lr2FullGenerationSyncTotalCount, files.Lr2FullGenerationSyncProcessedCount, files.Lr2FullGenerationSyncStage, files.Lr2FullGenerationSyncStageProcessedCount, files.Lr2FullGenerationSyncStageTotalCount);
+            UpdateStartupProgressLr2SongDbSyncStatus(files.Lr2SongDbSyncTotalCount, files.Lr2SongDbSyncProcessedCount, files.Lr2SongDbSyncStage, files.Lr2SongDbSyncStageProcessedCount, files.Lr2SongDbSyncStageTotalCount);
         });
-        listenerForBMSLibrary.RegisterHandler(() => files.Lr2FullGenerationSyncProcessedCount, delegate
+        listenerForBMSLibrary.RegisterHandler(() => files.Lr2SongDbSyncProcessedCount, delegate
         {
-            UpdateStartupProgressLr2FullGenerationSyncStatus(files.Lr2FullGenerationSyncTotalCount, files.Lr2FullGenerationSyncProcessedCount, files.Lr2FullGenerationSyncStage, files.Lr2FullGenerationSyncStageProcessedCount, files.Lr2FullGenerationSyncStageTotalCount);
+            UpdateStartupProgressLr2SongDbSyncStatus(files.Lr2SongDbSyncTotalCount, files.Lr2SongDbSyncProcessedCount, files.Lr2SongDbSyncStage, files.Lr2SongDbSyncStageProcessedCount, files.Lr2SongDbSyncStageTotalCount);
         });
-        listenerForBMSLibrary.RegisterHandler(() => files.Lr2FullGenerationSyncStage, delegate
+        listenerForBMSLibrary.RegisterHandler(() => files.Lr2SongDbSyncStage, delegate
         {
-            UpdateStartupProgressLr2FullGenerationSyncStatus(files.Lr2FullGenerationSyncTotalCount, files.Lr2FullGenerationSyncProcessedCount, files.Lr2FullGenerationSyncStage, files.Lr2FullGenerationSyncStageProcessedCount, files.Lr2FullGenerationSyncStageTotalCount);
+            UpdateStartupProgressLr2SongDbSyncStatus(files.Lr2SongDbSyncTotalCount, files.Lr2SongDbSyncProcessedCount, files.Lr2SongDbSyncStage, files.Lr2SongDbSyncStageProcessedCount, files.Lr2SongDbSyncStageTotalCount);
         });
-        listenerForBMSLibrary.RegisterHandler(() => files.Lr2FullGenerationSyncStageProcessedCount, delegate
+        listenerForBMSLibrary.RegisterHandler(() => files.Lr2SongDbSyncStageProcessedCount, delegate
         {
-            UpdateStartupProgressLr2FullGenerationSyncStatus(files.Lr2FullGenerationSyncTotalCount, files.Lr2FullGenerationSyncProcessedCount, files.Lr2FullGenerationSyncStage, files.Lr2FullGenerationSyncStageProcessedCount, files.Lr2FullGenerationSyncStageTotalCount);
+            UpdateStartupProgressLr2SongDbSyncStatus(files.Lr2SongDbSyncTotalCount, files.Lr2SongDbSyncProcessedCount, files.Lr2SongDbSyncStage, files.Lr2SongDbSyncStageProcessedCount, files.Lr2SongDbSyncStageTotalCount);
         });
-        listenerForBMSLibrary.RegisterHandler(() => files.Lr2FullGenerationSyncStageTotalCount, delegate
+        listenerForBMSLibrary.RegisterHandler(() => files.Lr2SongDbSyncStageTotalCount, delegate
         {
-            UpdateStartupProgressLr2FullGenerationSyncStatus(files.Lr2FullGenerationSyncTotalCount, files.Lr2FullGenerationSyncProcessedCount, files.Lr2FullGenerationSyncStage, files.Lr2FullGenerationSyncStageProcessedCount, files.Lr2FullGenerationSyncStageTotalCount);
+            UpdateStartupProgressLr2SongDbSyncStatus(files.Lr2SongDbSyncTotalCount, files.Lr2SongDbSyncProcessedCount, files.Lr2SongDbSyncStage, files.Lr2SongDbSyncStageProcessedCount, files.Lr2SongDbSyncStageTotalCount);
         });
         listenerForBMSLibrary.RegisterHandler(() => files.DuplicateChartGroups, delegate
         {
@@ -16120,7 +16120,7 @@ public class MainWindowViewModel : ViewModel
             StartupProgressPhase.ChartInfoHydrationDone,
             StartupProgressPhase.ChartInfoBackfillDone,
             StartupProgressPhase.ChartDigestBackfillDone,
-            StartupProgressPhase.Lr2FullGenerationSyncDone,
+            StartupProgressPhase.Lr2SongDbSyncDone,
             StartupProgressPhase.ExternalPlaylistSyncDone,
             StartupProgressPhase.PlaylistReferenceApplied,
             StartupProgressPhase.ScoreHydrationDone,
@@ -19197,7 +19197,7 @@ public class MainWindowViewModel : ViewModel
             ChartDigestBackfillBaselineCompletedVersion = files?.ChartDigestBackfillCompletedVersion ?? 0,
             ChartInfoBackfillBaselineCompletedVersion = files?.ChartInfoBackfillCompletedVersion ?? 0,
             ChartInfoHydrationBaselineCompletedVersion = files?.ChartInfoHydrationCompletedVersion ?? 0,
-            Lr2FullGenerationSyncBaselineCompletedVersion = files?.Lr2FullGenerationSyncCompletedVersion ?? 0,
+            Lr2SongDbSyncBaselineCompletedVersion = files?.Lr2SongDbSyncCompletedVersion ?? 0,
             PlaylistEntriesHydrationBaselineCompletedVersion = tables?.PlaylistEntriesHydrationCompletedVersion ?? 0,
             LibraryDatabaseLoadBaselineCompletedVersion = files?.LibraryDatabaseLoadCompletedVersion ?? 0,
             LibraryFileEnumerationBaselineCompletedVersion = files?.LibraryFileEnumerationCompletedVersion ?? 0,
@@ -19619,22 +19619,22 @@ public class MainWindowViewModel : ViewModel
             state => state.RequiredChartInfoBackfillCompletedVersion = Math.Max(state.RequiredChartInfoBackfillCompletedVersion, expectedBackfillVersion));
     }
 
-    private void TrackStartupProgressLr2FullGenerationSyncRequested(int requestedVersion)
+    private void TrackStartupProgressLr2SongDbSyncRequested(int requestedVersion)
     {
         bool shouldTrack;
         lock (startupProgressLock)
         {
-            shouldTrack = startupProgressState.IsActive && requestedVersion > startupProgressState.Lr2FullGenerationSyncBaselineCompletedVersion;
+            shouldTrack = startupProgressState.IsActive && requestedVersion > startupProgressState.Lr2SongDbSyncBaselineCompletedVersion;
         }
         if (!shouldTrack)
         {
             return;
         }
         TryTrackStartupProgressPhaseRequest(
-            StartupProgressPhase.Lr2FullGenerationSyncDone,
+            StartupProgressPhase.Lr2SongDbSyncDone,
             requestedVersion,
-            "lr2_full_generation_sync",
-            state => state.RequiredLr2FullGenerationSyncCompletedVersion = Math.Max(state.RequiredLr2FullGenerationSyncCompletedVersion, requestedVersion));
+            "lr2_song_db_sync",
+            state => state.RequiredLr2SongDbSyncCompletedVersion = Math.Max(state.RequiredLr2SongDbSyncCompletedVersion, requestedVersion));
     }
 
     private void TrackStartupProgressPlaylistEntriesHydrationRequested(int requestedVersion)
@@ -19721,7 +19721,7 @@ public class MainWindowViewModel : ViewModel
         RecomputeStartupProgressPresentation();
     }
 
-    private void UpdateStartupProgressLr2FullGenerationSyncStatus(
+    private void UpdateStartupProgressLr2SongDbSyncStatus(
         int totalCount,
         int processedCount,
         string stage,
@@ -19730,15 +19730,15 @@ public class MainWindowViewModel : ViewModel
     {
         lock (startupProgressLock)
         {
-            if (!startupProgressState.IsActive || !CanCompleteStartupProgressPhase(startupProgressState, StartupProgressPhase.Lr2FullGenerationSyncDone))
+            if (!startupProgressState.IsActive || !CanCompleteStartupProgressPhase(startupProgressState, StartupProgressPhase.Lr2SongDbSyncDone))
             {
                 return;
             }
-            startupProgressState.Lr2FullGenerationSyncTotalCount = totalCount;
-            startupProgressState.Lr2FullGenerationSyncProcessedCount = processedCount;
-            startupProgressState.Lr2FullGenerationSyncStage = stage ?? string.Empty;
-            startupProgressState.Lr2FullGenerationSyncStageProcessedCount = Math.Max(0, stageProcessedCount);
-            startupProgressState.Lr2FullGenerationSyncStageTotalCount = Math.Max(0, stageTotalCount);
+            startupProgressState.Lr2SongDbSyncTotalCount = totalCount;
+            startupProgressState.Lr2SongDbSyncProcessedCount = processedCount;
+            startupProgressState.Lr2SongDbSyncStage = stage ?? string.Empty;
+            startupProgressState.Lr2SongDbSyncStageProcessedCount = Math.Max(0, stageProcessedCount);
+            startupProgressState.Lr2SongDbSyncStageTotalCount = Math.Max(0, stageTotalCount);
         }
         RecomputeStartupProgressPresentation();
     }
@@ -19845,34 +19845,34 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
-    private void TryCompleteStartupProgressLr2FullGenerationSync(int completedVersion)
+    private void TryCompleteStartupProgressLr2SongDbSync(int completedVersion)
     {
         bool shouldComplete = false;
         lock (startupProgressLock)
         {
-            if (!startupProgressState.IsActive || !CanCompleteStartupProgressPhase(startupProgressState, StartupProgressPhase.Lr2FullGenerationSyncDone))
+            if (!startupProgressState.IsActive || !CanCompleteStartupProgressPhase(startupProgressState, StartupProgressPhase.Lr2SongDbSyncDone))
             {
                 return;
             }
-            shouldComplete = completedVersion >= startupProgressState.RequiredLr2FullGenerationSyncCompletedVersion;
+            shouldComplete = completedVersion >= startupProgressState.RequiredLr2SongDbSyncCompletedVersion;
         }
         if (shouldComplete)
         {
-            MarkStartupProgressPhaseCompleted(StartupProgressPhase.Lr2FullGenerationSyncDone);
+            MarkStartupProgressPhaseCompleted(StartupProgressPhase.Lr2SongDbSyncDone);
         }
     }
 
-    private void TryFailStartupProgressLr2FullGenerationSync(int failedVersion, string message)
+    private void TryFailStartupProgressLr2SongDbSync(int failedVersion, string message)
     {
         bool shouldFail = false;
         lock (startupProgressLock)
         {
-            if (!startupProgressState.IsActive || !CanCompleteStartupProgressPhase(startupProgressState, StartupProgressPhase.Lr2FullGenerationSyncDone))
+            if (!startupProgressState.IsActive || !CanCompleteStartupProgressPhase(startupProgressState, StartupProgressPhase.Lr2SongDbSyncDone))
             {
                 return;
             }
-            shouldFail = failedVersion >= startupProgressState.RequiredLr2FullGenerationSyncCompletedVersion
-                && failedVersion > startupProgressState.Lr2FullGenerationSyncBaselineCompletedVersion;
+            shouldFail = failedVersion >= startupProgressState.RequiredLr2SongDbSyncCompletedVersion
+                && failedVersion > startupProgressState.Lr2SongDbSyncBaselineCompletedVersion;
             if (shouldFail)
             {
                 startupProgressState.IsFailed = true;
@@ -19888,62 +19888,62 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
-    private void UpdateLr2FullGenerationRuntimeStatus(Lr2FullGenerationStatusSnapshot snapshot)
+    private void UpdateLr2SongDbSyncRuntimeStatus(Lr2SongDbSyncStatusSnapshot snapshot)
     {
-        latestLr2FullGenerationStatus = Lr2FullGenerationStatusMapper.Create(snapshot, DateTime.Now);
-        RecomputeLr2FullGenerationStatusPresentation();
+        latestLr2SongDbSyncStatus = Lr2SongDbSyncStatusMapper.Create(snapshot, DateTime.Now);
+        RecomputeLr2SongDbSyncStatusPresentation();
     }
 
-    private void RecomputeLr2FullGenerationStatusPresentation()
+    private void RecomputeLr2SongDbSyncStatusPresentation()
     {
-        Lr2FullGenerationRuntimeStatus status = latestLr2FullGenerationStatus ?? Lr2FullGenerationStatusMapper.CreateNone();
-        bool isActive = ShouldShowLr2FullGenerationStatus(status.HasWarningStatus, IsStartupProgressBlockingLr2FullGenerationStatus());
-        IsLr2FullGenerationStatusActive = isActive;
-        Lr2FullGenerationStatusLabel = isActive ? status.StatusText : string.Empty;
-        Lr2FullGenerationStatusSubLabel = isActive ? status.ProgressText : string.Empty;
-        Lr2FullGenerationStatusToolTip = isActive ? status.Detail : string.Empty;
-        Lr2FullGenerationStatusProgressValue = isActive ? status.ProgressValue : 0.0;
-        Lr2FullGenerationStatusProgressMaximum = isActive ? status.ProgressMaximum : 1.0;
-        IsLr2FullGenerationStatusProgressVisible = isActive && status.HasProgress;
-        IsLr2FullGenerationRetryVisible = isActive && status.CanRetry;
-        IsLr2FullGenerationCancelVisible = isActive && status.CanCancel;
-        IsLr2FullGenerationCleanupVisible = isActive && status.CanCleanupStartupScanBlockers;
+        Lr2SongDbSyncRuntimeStatus status = latestLr2SongDbSyncStatus ?? Lr2SongDbSyncStatusMapper.CreateNone();
+        bool isActive = ShouldShowLr2SongDbSyncStatus(status.HasWarningStatus, IsStartupProgressBlockingLr2SongDbSyncStatus());
+        IsLr2SongDbSyncStatusActive = isActive;
+        Lr2SongDbSyncStatusLabel = isActive ? status.StatusText : string.Empty;
+        Lr2SongDbSyncStatusSubLabel = isActive ? status.ProgressText : string.Empty;
+        Lr2SongDbSyncStatusToolTip = isActive ? status.Detail : string.Empty;
+        Lr2SongDbSyncStatusProgressValue = isActive ? status.ProgressValue : 0.0;
+        Lr2SongDbSyncStatusProgressMaximum = isActive ? status.ProgressMaximum : 1.0;
+        IsLr2SongDbSyncStatusProgressVisible = isActive && status.HasProgress;
+        IsLr2SongDbSyncRetryVisible = isActive && status.CanRetry;
+        IsLr2SongDbSyncCancelVisible = isActive && status.CanCancel;
+        IsLr2SongDbSyncCleanupVisible = isActive && status.CanCleanupStartupScanBlockers;
     }
 
-    private bool IsStartupProgressBlockingLr2FullGenerationStatus()
+    private bool IsStartupProgressBlockingLr2SongDbSyncStatus()
     {
         lock (startupProgressLock)
         {
-            return IsStartupProgressBlockingLr2FullGenerationStatus(
+            return IsStartupProgressBlockingLr2SongDbSyncStatus(
                 startupProgressState.IsActive,
                 startupProgressState.IsFailed,
-                CanCompleteStartupProgressPhase(startupProgressState, StartupProgressPhase.Lr2FullGenerationSyncDone));
+                CanCompleteStartupProgressPhase(startupProgressState, StartupProgressPhase.Lr2SongDbSyncDone));
         }
     }
 
-    private static bool IsStartupProgressBlockingLr2FullGenerationStatus(bool startupProgressActive, bool startupProgressFailed, bool startupProgressTracksLr2FullGeneration)
+    private static bool IsStartupProgressBlockingLr2SongDbSyncStatus(bool startupProgressActive, bool startupProgressFailed, bool startupProgressTracksLr2SongDbSync)
     {
-        return startupProgressActive && !startupProgressFailed && startupProgressTracksLr2FullGeneration;
+        return startupProgressActive && !startupProgressFailed && startupProgressTracksLr2SongDbSync;
     }
 
-    private static bool ShouldShowLr2FullGenerationStatus(bool hasWarningStatus, bool startupProgressBlocksLr2Status)
+    private static bool ShouldShowLr2SongDbSyncStatus(bool hasWarningStatus, bool startupProgressBlocksLr2Status)
     {
         return hasWarningStatus && !startupProgressBlocksLr2Status;
     }
 
-    internal static bool ShouldShowLr2FullGenerationStatusForTest(bool hasWarningStatus, bool startupProgressActive, bool startupProgressFailed, bool startupProgressTracksLr2FullGeneration = true)
+    internal static bool ShouldShowLr2SongDbSyncStatusForTest(bool hasWarningStatus, bool startupProgressActive, bool startupProgressFailed, bool startupProgressTracksLr2SongDbSync = true)
     {
-        return ShouldShowLr2FullGenerationStatus(
+        return ShouldShowLr2SongDbSyncStatus(
             hasWarningStatus,
-            IsStartupProgressBlockingLr2FullGenerationStatus(startupProgressActive, startupProgressFailed, startupProgressTracksLr2FullGeneration));
+            IsStartupProgressBlockingLr2SongDbSyncStatus(startupProgressActive, startupProgressFailed, startupProgressTracksLr2SongDbSync));
     }
 
-    public void RetryLr2FullGenerationSync()
+    public void RetryLr2SongDbSync()
     {
-        RequestLr2FullGenerationDataSync("status_bar_retry", force: false);
+        RequestLr2SongDbSync("status_bar_retry", force: false);
     }
 
-    public void RequestLr2FullGenerationDataSync(string reason, bool force)
+    public void RequestLr2SongDbSync(string reason, bool force)
     {
         if (!Settings.Default.OperationModeLR2DB)
         {
@@ -19951,14 +19951,14 @@ public class MainWindowViewModel : ViewModel
         }
         Task.Run(delegate
         {
-            files?.QueueLr2FullGenerationDataSync(
+            files?.QueueLr2SongDbSync(
                 reason,
                 force,
                 () => ReOutputAllCustomFoldersForLr2GeneratedDataSync(reason));
-        }).Logging("RequestLr2FullGenerationDataSync");
+        }).Logging("RequestLr2SongDbSync");
     }
 
-    public async Task RequestLr2FullGenerationDataSyncAsync(string reason, bool force)
+    public async Task RequestLr2SongDbSyncAsync(string reason, bool force)
     {
         if (!Settings.Default.OperationModeLR2DB)
         {
@@ -19967,7 +19967,7 @@ public class MainWindowViewModel : ViewModel
 
         await Task.Run(async delegate
         {
-            files?.QueueLr2FullGenerationDataSync(
+            files?.QueueLr2SongDbSync(
                 reason,
                 force,
                 () => ReOutputAllCustomFoldersForLr2GeneratedDataSync(reason));
@@ -19975,7 +19975,7 @@ public class MainWindowViewModel : ViewModel
         }).ConfigureAwait(false);
     }
 
-    public void SyncLr2FullGenerationFolderDataAfterSettingsChange(string reason)
+    public void SyncLr2SongDbSyncFolderDataAfterSettingsChange(string reason)
     {
         if (!Settings.Default.OperationModeLR2DB)
         {
@@ -19984,37 +19984,37 @@ public class MainWindowViewModel : ViewModel
 
         Task.Run(delegate
         {
-            files?.TryRunLr2FullGenerationDataPreparation(
+            files?.TryRunLr2SongDbSyncDataPreparation(
                 reason,
                 () =>
                 {
-                    Lr2FullGenerationPreparedDataSurface playlistSurface = ReOutputAllCustomFoldersForLr2GeneratedDataSync(reason);
-                    Lr2FullGenerationPreparedDataSurface builtinSurface =
-                        files?.SyncLr2BuiltinCustomFolderRows(reason) ?? Lr2FullGenerationPreparedDataSurface.Empty;
-                    return Lr2FullGenerationPreparedDataSurface.Merge(playlistSurface, builtinSurface);
+                    Lr2SongDbSyncPreparedDataSurface playlistSurface = ReOutputAllCustomFoldersForLr2GeneratedDataSync(reason);
+                    Lr2SongDbSyncPreparedDataSurface builtinSurface =
+                        files?.SyncLr2BuiltinCustomFolderRows(reason) ?? Lr2SongDbSyncPreparedDataSurface.Empty;
+                    return Lr2SongDbSyncPreparedDataSurface.Merge(playlistSurface, builtinSurface);
                 });
-            files?.QueueLr2FullGenerationDataSync(reason, force: false, allowIncompleteToQueue: false);
-        }).Logging("SyncLr2FullGenerationFolderDataAfterSettingsChange");
+            files?.QueueLr2SongDbSync(reason, force: false, allowIncompleteToQueue: false);
+        }).Logging("SyncLr2SongDbSyncFolderDataAfterSettingsChange");
     }
 
-    private Lr2FullGenerationPreparedDataSurface ReOutputAllCustomFoldersForLr2GeneratedDataSync(string reason)
+    private Lr2SongDbSyncPreparedDataSurface ReOutputAllCustomFoldersForLr2GeneratedDataSync(string reason)
     {
-        return tables?.ReOutputAllCustomFoldersForLr2FullGenerationDataSync(
+        return tables?.ReOutputAllCustomFoldersForLr2SongDbSync(
             reason,
-            (processed, total, tableName) => files?.PublishLr2FullGenerationExternalStageProgress(
+            (processed, total, tableName) => files?.PublishLr2SongDbSyncExternalStageProgress(
                 "playlist_materialization",
                 processed,
                 total,
                 tableName))
-            ?? Lr2FullGenerationPreparedDataSurface.Empty;
+            ?? Lr2SongDbSyncPreparedDataSurface.Empty;
     }
 
-    public void CancelLr2FullGenerationSync()
+    public void CancelLr2SongDbSync()
     {
-        files?.CancelLr2FullGenerationSync("status_bar_cancel");
+        files?.CancelLr2SongDbSync("status_bar_cancel");
     }
 
-    public void CleanupLr2FullGenerationStartupScanBlockersAndRetry()
+    public void CleanupLr2SongDbSyncStartupScanBlockersAndRetry()
     {
         if (files == null)
         {
@@ -20022,7 +20022,7 @@ public class MainWindowViewModel : ViewModel
         }
 
         var confirmationMessage = new ConfirmationMessage(
-            BeMusicSeeker.Properties.Resources.Msg_confirm_lr2_full_generation_startup_scan_blocker_cleanup,
+            BeMusicSeeker.Properties.Resources.Msg_confirm_lr2_song_db_sync_startup_scan_blocker_cleanup,
             BeMusicSeeker.Properties.Resources.Warning,
             MessageBoxImage.Exclamation,
             MessageBoxButton.OKCancel,
@@ -20035,13 +20035,13 @@ public class MainWindowViewModel : ViewModel
 
         try
         {
-            files.CleanupLr2FullGenerationStartupScanBlockerFolderRows("status_bar_cleanup");
+            files.CleanupLr2SongDbSyncStartupScanBlockerFolderRows("status_bar_cleanup");
             Task.Run(delegate
             {
-                files.QueueLr2FullGenerationDataSync(
+                files.QueueLr2SongDbSync(
                     "status_bar_cleanup_retry",
                     prepareGeneratedData: () => ReOutputAllCustomFoldersForLr2GeneratedDataSync("status_bar_cleanup_retry"));
-            }).Logging("Lr2FullGenerationStartupScanBlockerCleanupRetry");
+            }).Logging("Lr2SongDbSyncStartupScanBlockerCleanupRetry");
         }
         catch (Exception ex)
         {
@@ -20564,19 +20564,19 @@ public class MainWindowViewModel : ViewModel
             string fileName = string.IsNullOrWhiteSpace(state.ChartDigestBackfillCurrentPath) ? string.Empty : Path.GetFileName(state.ChartDigestBackfillCurrentPath);
             return FormatStartupProgressCountLabel(BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_chart_info, state.ChartDigestBackfillProcessedCount, state.ChartDigestBackfillTotalCount, fileName);
         }
-        if (!IsStartupProgressPhaseCompletedOrNotExpected(state, StartupProgressPhase.Lr2FullGenerationSyncDone))
+        if (!IsStartupProgressPhaseCompletedOrNotExpected(state, StartupProgressPhase.Lr2SongDbSyncDone))
         {
-            int displayedProcessedCount = state.Lr2FullGenerationSyncStageTotalCount > 0
-                ? state.Lr2FullGenerationSyncStageProcessedCount
-                : state.Lr2FullGenerationSyncProcessedCount;
-            int displayedTotalCount = state.Lr2FullGenerationSyncStageTotalCount > 0
-                ? state.Lr2FullGenerationSyncStageTotalCount
-                : state.Lr2FullGenerationSyncTotalCount;
+            int displayedProcessedCount = state.Lr2SongDbSyncStageTotalCount > 0
+                ? state.Lr2SongDbSyncStageProcessedCount
+                : state.Lr2SongDbSyncProcessedCount;
+            int displayedTotalCount = state.Lr2SongDbSyncStageTotalCount > 0
+                ? state.Lr2SongDbSyncStageTotalCount
+                : state.Lr2SongDbSyncTotalCount;
             return FormatStartupProgressCountLabel(
-                BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_lr2_full_generation,
+                BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_lr2_song_db_sync,
                 displayedProcessedCount,
                 displayedTotalCount,
-                FormatLr2FullGenerationSyncStageLabel(state.Lr2FullGenerationSyncStage));
+                FormatLr2SongDbSyncStageLabel(state.Lr2SongDbSyncStage));
         }
         if (!IsStartupProgressPhaseCompletedOrNotExpected(state, StartupProgressPhase.PlaylistReferenceApplied) || !IsStartupProgressPhaseCompletedOrNotExpected(state, StartupProgressPhase.ExternalPlaylistSyncDone))
         {
@@ -20601,7 +20601,7 @@ public class MainWindowViewModel : ViewModel
         return BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_background;
     }
 
-    private static string FormatLr2FullGenerationSyncStageLabel(string stage)
+    private static string FormatLr2SongDbSyncStageLabel(string stage)
     {
         return string.IsNullOrWhiteSpace(stage)
             ? string.Empty
@@ -20615,14 +20615,14 @@ public class MainWindowViewModel : ViewModel
         if (state == null
             || !state.IsActive
             || state.IsFailed
-            || !CanCompleteStartupProgressPhase(state, StartupProgressPhase.Lr2FullGenerationSyncDone)
-            || state.Lr2FullGenerationSyncStageTotalCount <= 0)
+            || !CanCompleteStartupProgressPhase(state, StartupProgressPhase.Lr2SongDbSyncDone)
+            || state.Lr2SongDbSyncStageTotalCount <= 0)
         {
             return false;
         }
 
-        maximum = Math.Max(1.0, state.Lr2FullGenerationSyncStageTotalCount);
-        value = Math.Max(0.0, Math.Min(maximum, state.Lr2FullGenerationSyncStageProcessedCount));
+        maximum = Math.Max(1.0, state.Lr2SongDbSyncStageTotalCount);
+        value = Math.Max(0.0, Math.Min(maximum, state.Lr2SongDbSyncStageProcessedCount));
         return true;
     }
 
@@ -20716,7 +20716,7 @@ public class MainWindowViewModel : ViewModel
         CountExpectedStartupProgressPhase(state, StartupProgressPhase.ChartDigestBackfillDone, ref count);
         CountExpectedStartupProgressPhase(state, StartupProgressPhase.ChartInfoHydrationDone, ref count);
         CountExpectedStartupProgressPhase(state, StartupProgressPhase.ChartInfoBackfillDone, ref count);
-        CountExpectedStartupProgressPhase(state, StartupProgressPhase.Lr2FullGenerationSyncDone, ref count);
+        CountExpectedStartupProgressPhase(state, StartupProgressPhase.Lr2SongDbSyncDone, ref count);
         CountExpectedStartupProgressPhase(state, StartupProgressPhase.ScoreHydrationDone, ref count);
         CountExpectedStartupProgressPhase(state, StartupProgressPhase.RankingRefreshDone, ref count);
         return count;
@@ -20742,7 +20742,7 @@ public class MainWindowViewModel : ViewModel
                                 | StartupProgressPhase.ChartDigestBackfillDone
                                 | StartupProgressPhase.ChartInfoBackfillDone
                                 | StartupProgressPhase.ChartInfoHydrationDone
-                                | StartupProgressPhase.Lr2FullGenerationSyncDone
+                                | StartupProgressPhase.Lr2SongDbSyncDone
                                 | StartupProgressPhase.PlaylistEntriesHydrationDone,
             StartupProgressOperationKind.FullReinitialize => StartupProgressPhase.CoreInitializeStarted
                                 | StartupProgressPhase.LibraryDatabaseLoadDone
@@ -20757,7 +20757,7 @@ public class MainWindowViewModel : ViewModel
                                 | StartupProgressPhase.ChartDigestBackfillDone
                                 | StartupProgressPhase.ChartInfoBackfillDone
                                 | StartupProgressPhase.ChartInfoHydrationDone
-                                | StartupProgressPhase.Lr2FullGenerationSyncDone
+                                | StartupProgressPhase.Lr2SongDbSyncDone
                                 | StartupProgressPhase.PlaylistEntriesHydrationDone,
             StartupProgressOperationKind.ReloadFileDiff => StartupProgressPhase.CoreInitializeStarted
                                 | StartupProgressPhase.LibraryFileEnumerationDone
@@ -20796,7 +20796,7 @@ public class MainWindowViewModel : ViewModel
         CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.ChartDigestBackfillDone, ref count);
         CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.ChartInfoHydrationDone, ref count);
         CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.ChartInfoBackfillDone, ref count);
-        CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.Lr2FullGenerationSyncDone, ref count);
+        CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.Lr2SongDbSyncDone, ref count);
         CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.ScoreHydrationDone, ref count);
         CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.RankingRefreshDone, ref count);
         return count;
@@ -20912,28 +20912,28 @@ public class MainWindowViewModel : ViewModel
                     state.ChartInfoHydrationAppliedCount = int.Parse(statusParts[1], CultureInfo.InvariantCulture);
                 }
             }
-            else if (string.Equals(verb, "lr2full", StringComparison.OrdinalIgnoreCase))
+            else if (string.Equals(verb, "lr2songdbsync", StringComparison.OrdinalIgnoreCase))
             {
                 string[] statusParts = parts[1].Split('|');
                 if (statusParts.Length > 0)
                 {
-                    state.Lr2FullGenerationSyncTotalCount = int.Parse(statusParts[0], CultureInfo.InvariantCulture);
+                    state.Lr2SongDbSyncTotalCount = int.Parse(statusParts[0], CultureInfo.InvariantCulture);
                 }
                 if (statusParts.Length > 1)
                 {
-                    state.Lr2FullGenerationSyncProcessedCount = int.Parse(statusParts[1], CultureInfo.InvariantCulture);
+                    state.Lr2SongDbSyncProcessedCount = int.Parse(statusParts[1], CultureInfo.InvariantCulture);
                 }
                 if (statusParts.Length > 2)
                 {
-                    state.Lr2FullGenerationSyncStage = statusParts[2];
+                    state.Lr2SongDbSyncStage = statusParts[2];
                 }
                 if (statusParts.Length > 3)
                 {
-                    state.Lr2FullGenerationSyncStageTotalCount = int.Parse(statusParts[3], CultureInfo.InvariantCulture);
+                    state.Lr2SongDbSyncStageTotalCount = int.Parse(statusParts[3], CultureInfo.InvariantCulture);
                 }
                 if (statusParts.Length > 4)
                 {
-                    state.Lr2FullGenerationSyncStageProcessedCount = int.Parse(statusParts[4], CultureInfo.InvariantCulture);
+                    state.Lr2SongDbSyncStageProcessedCount = int.Parse(statusParts[4], CultureInfo.InvariantCulture);
                 }
             }
             else
@@ -21037,7 +21037,7 @@ public class MainWindowViewModel : ViewModel
         CountStartupProgressPhase(phases, StartupProgressPhase.ChartDigestBackfillDone, ref count);
         CountStartupProgressPhase(phases, StartupProgressPhase.ChartInfoHydrationDone, ref count);
         CountStartupProgressPhase(phases, StartupProgressPhase.ChartInfoBackfillDone, ref count);
-        CountStartupProgressPhase(phases, StartupProgressPhase.Lr2FullGenerationSyncDone, ref count);
+        CountStartupProgressPhase(phases, StartupProgressPhase.Lr2SongDbSyncDone, ref count);
         CountStartupProgressPhase(phases, StartupProgressPhase.ScoreHydrationDone, ref count);
         CountStartupProgressPhase(phases, StartupProgressPhase.RankingRefreshDone, ref count);
         return count;

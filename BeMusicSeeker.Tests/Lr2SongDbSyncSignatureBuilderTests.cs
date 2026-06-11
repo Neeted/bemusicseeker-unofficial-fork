@@ -4,7 +4,7 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 namespace BeMusicSeeker.Tests;
 
 [TestClass]
-public sealed class Lr2FullGenerationSignatureBuilderTests
+public sealed class Lr2SongDbSyncSignatureBuilderTests
 {
     [TestMethod]
     public void Build_DoesNotIncludeRuntimeRootSet()
@@ -14,8 +14,8 @@ public sealed class Lr2FullGenerationSignatureBuilderTests
             OperationModeLR2DB = true,
         };
 
-        string first = Lr2FullGenerationSignatureBuilder.Build(options);
-        string second = Lr2FullGenerationSignatureBuilder.Build(options);
+        string first = Lr2SongDbSyncSignatureBuilder.Build(options);
+        string second = Lr2SongDbSyncSignatureBuilder.Build(options);
 
         Assert.AreEqual(first, second);
         Assert.IsFalse(first.Contains("|roots="));
@@ -29,8 +29,8 @@ public sealed class Lr2FullGenerationSignatureBuilderTests
             OperationModeLR2DB = true,
         };
 
-        string first = Lr2FullGenerationSignatureBuilder.Build(options);
-        string second = Lr2FullGenerationSignatureBuilder.Build(options);
+        string first = Lr2SongDbSyncSignatureBuilder.Build(options);
+        string second = Lr2SongDbSyncSignatureBuilder.Build(options);
 
         Assert.AreEqual(first, second);
     }
@@ -43,8 +43,8 @@ public sealed class Lr2FullGenerationSignatureBuilderTests
             OperationModeLR2DB = true,
         };
 
-        string first = Lr2FullGenerationSignatureBuilder.Build(options);
-        string second = Lr2FullGenerationSignatureBuilder.Build(options);
+        string first = Lr2SongDbSyncSignatureBuilder.Build(options);
+        string second = Lr2SongDbSyncSignatureBuilder.Build(options);
 
         Assert.AreEqual(first, second);
         Assert.IsFalse(first.Contains("|lr2folderRoots="));
@@ -58,7 +58,7 @@ public sealed class Lr2FullGenerationSignatureBuilderTests
             OperationModeLR2DB = true,
         };
 
-        string signature = Lr2FullGenerationSignatureBuilder.Build(options);
+        string signature = Lr2SongDbSyncSignatureBuilder.Build(options);
 
         Assert.IsFalse(signature.Contains("lr2CustomFolderMask"));
         Assert.IsFalse(signature.Contains("lr2TitleFlashHours"));
@@ -73,7 +73,7 @@ public sealed class Lr2FullGenerationSignatureBuilderTests
             OperationModeLR2DB = true,
         };
 
-        string signature = Lr2FullGenerationSignatureBuilder.Build(options);
+        string signature = Lr2SongDbSyncSignatureBuilder.Build(options);
 
         StringAssert.Contains(signature, "|appSchema=");
         StringAssert.Contains(signature, "|chartInfoSchema=");

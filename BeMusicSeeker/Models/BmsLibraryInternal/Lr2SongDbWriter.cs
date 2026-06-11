@@ -101,15 +101,15 @@ internal readonly struct Lr2GeneratedSongCurrentnessResult(
 
 internal static class Lr2SongDbWriter
 {
-    private const string TempCurrentSongPathTable = "lr2_full_generation_current_song_path";
+    private const string TempCurrentSongPathTable = "lr2_song_db_sync_current_song_path";
 
-    private const string TempDeletedSongHashTable = "lr2_full_generation_deleted_song_hash";
+    private const string TempDeletedSongHashTable = "lr2_song_db_sync_deleted_song_hash";
 
-    private const string TempChartDigestUpsertTable = "lr2_full_generation_chart_digest_upsert";
+    private const string TempChartDigestUpsertTable = "lr2_song_db_sync_chart_digest_upsert";
 
-    private const string TempGeneratedSongUpdateTable = "lr2_full_generation_generated_song_update";
+    private const string TempGeneratedSongUpdateTable = "lr2_song_db_sync_generated_song_update";
 
-    private const string TempGeneratedSongUpsertTable = "lr2_full_generation_generated_song_upsert";
+    private const string TempGeneratedSongUpsertTable = "lr2_song_db_sync_generated_song_upsert";
 
     internal static bool UpsertGeneratedSong(LR2SongDBExtended songDb, BMSFile song)
     {
@@ -195,9 +195,9 @@ internal static class Lr2SongDbWriter
         return changedCount;
     }
 
-    internal static int UpsertGeneratedSongsForFullGeneration(LR2SongDBExtended songDb, IReadOnlyList<BMSFile> songs)
+    internal static int UpsertGeneratedSongsForLr2SongDbSync(LR2SongDBExtended songDb, IReadOnlyList<BMSFile> songs)
     {
-        return UpsertGeneratedSongsForFullGenerationWithResult(songDb, songs).ChangedCount;
+        return UpsertGeneratedSongsForLr2SongDbSyncWithResult(songDb, songs).ChangedCount;
     }
 
     internal static Lr2GeneratedSongCurrentnessResult VerifyGeneratedSongsCurrent(
@@ -327,7 +327,7 @@ internal static class Lr2SongDbWriter
             diagnosticSamples);
     }
 
-    internal static Lr2GeneratedSongWriteResult UpsertGeneratedSongsForFullGenerationWithResult(
+    internal static Lr2GeneratedSongWriteResult UpsertGeneratedSongsForLr2SongDbSyncWithResult(
         LR2SongDBExtended songDb,
         IReadOnlyList<BMSFile> songs)
     {

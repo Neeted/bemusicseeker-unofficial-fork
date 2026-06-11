@@ -383,29 +383,29 @@ public class Resources
 
     public static string Statusbar_progress_phase_background => ResourceManager.GetString("Statusbar_progress_phase_background", resourceCulture);
 
-    public static string Statusbar_progress_phase_lr2_full_generation => ResourceManager.GetString("Statusbar_progress_phase_lr2_full_generation", resourceCulture);
+    public static string Statusbar_progress_phase_lr2_song_db_sync => ResourceManager.GetString("Statusbar_progress_phase_lr2_song_db_sync", resourceCulture);
 
-    public static string Lr2_full_generation_status_needed => ResourceManager.GetString("Lr2_full_generation_status_needed", resourceCulture);
+    public static string Lr2_song_db_sync_status_needed => ResourceManager.GetString("Lr2_song_db_sync_status_needed", resourceCulture);
 
-    public static string Lr2_full_generation_status_running => ResourceManager.GetString("Lr2_full_generation_status_running", resourceCulture);
+    public static string Lr2_song_db_sync_status_running => ResourceManager.GetString("Lr2_song_db_sync_status_running", resourceCulture);
 
-    public static string Lr2_full_generation_status_completed => ResourceManager.GetString("Lr2_full_generation_status_completed", resourceCulture);
+    public static string Lr2_song_db_sync_status_completed => ResourceManager.GetString("Lr2_song_db_sync_status_completed", resourceCulture);
 
-    public static string Lr2_full_generation_status_failed => ResourceManager.GetString("Lr2_full_generation_status_failed", resourceCulture);
+    public static string Lr2_song_db_sync_status_failed => ResourceManager.GetString("Lr2_song_db_sync_status_failed", resourceCulture);
 
-    public static string Lr2_full_generation_status_incomplete => ResourceManager.GetString("Lr2_full_generation_status_incomplete", resourceCulture);
+    public static string Lr2_song_db_sync_status_incomplete => ResourceManager.GetString("Lr2_song_db_sync_status_incomplete", resourceCulture);
 
-    public static string Lr2_full_generation_retry => ResourceManager.GetString("Lr2_full_generation_retry", resourceCulture);
+    public static string Lr2_song_db_sync_retry => ResourceManager.GetString("Lr2_song_db_sync_retry", resourceCulture);
 
-    public static string Lr2_full_generation_data_resync => ResourceManager.GetString("Lr2_full_generation_data_resync", resourceCulture);
+    public static string Lr2_song_db_sync_data_resync => ResourceManager.GetString("Lr2_song_db_sync_data_resync", resourceCulture);
 
-    public static string Lr2_full_generation_data_resync_tooltip => ResourceManager.GetString("Lr2_full_generation_data_resync_tooltip", resourceCulture);
+    public static string Lr2_song_db_sync_data_resync_tooltip => ResourceManager.GetString("Lr2_song_db_sync_data_resync_tooltip", resourceCulture);
 
-    public static string Msg_confirm_lr2_full_generation_data_resync => ResourceManager.GetString("Msg_confirm_lr2_full_generation_data_resync", resourceCulture);
+    public static string Msg_confirm_lr2_song_db_sync_data_resync => ResourceManager.GetString("Msg_confirm_lr2_song_db_sync_data_resync", resourceCulture);
 
-    public static string Lr2_full_generation_cleanup_startup_scan_blockers => ResourceManager.GetString("Lr2_full_generation_cleanup_startup_scan_blockers", resourceCulture);
+    public static string Lr2_song_db_sync_cleanup_startup_scan_blockers => ResourceManager.GetString("Lr2_song_db_sync_cleanup_startup_scan_blockers", resourceCulture);
 
-    public static string Msg_confirm_lr2_full_generation_startup_scan_blocker_cleanup => ResourceManager.GetString("Msg_confirm_lr2_full_generation_startup_scan_blocker_cleanup", resourceCulture);
+    public static string Msg_confirm_lr2_song_db_sync_startup_scan_blocker_cleanup => ResourceManager.GetString("Msg_confirm_lr2_song_db_sync_startup_scan_blocker_cleanup", resourceCulture);
 
     public static string Install => ResourceManager.GetString("Install", resourceCulture);
 
@@ -1274,7 +1274,7 @@ public class Resources
 
     public static string Warn_RenameDestAlreadyExists => ResourceManager.GetString("Warn_RenameDestAlreadyExists", resourceCulture);
 
-    public static string Warn_Lr2FullGenerationSyncRunning => ResourceManager.GetString("Warn_Lr2FullGenerationSyncRunning", resourceCulture);
+    public static string Warn_Lr2SongDbSyncRunning => ResourceManager.GetString("Warn_Lr2SongDbSyncRunning", resourceCulture);
 
     public static string Warn_no_pending_installed_only_packages => ResourceManager.GetString("Warn_no_pending_installed_only_packages", resourceCulture);
 

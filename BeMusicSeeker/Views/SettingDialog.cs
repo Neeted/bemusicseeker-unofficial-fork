@@ -141,7 +141,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
         }
     }
 
-    private async void resyncLr2FullGenerationDataButtonClicked(object sender, RoutedEventArgs e)
+    private async void resyncLr2SongDbSyncDataButtonClicked(object sender, RoutedEventArgs e)
     {
         if (base.DataContext is not MainWindowViewModel viewModel)
         {
@@ -154,7 +154,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
         }
         if (DispatcherMessageBox.Show(
             Window.GetWindow(this),
-            BeMusicSeeker.Properties.Resources.Msg_confirm_lr2_full_generation_data_resync,
+            BeMusicSeeker.Properties.Resources.Msg_confirm_lr2_song_db_sync_data_resync,
             BeMusicSeeker.Properties.Resources.Confirm,
             MessageBoxButton.OKCancel,
             MessageBoxImage.Question,
@@ -171,7 +171,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
         }
         try
         {
-            await viewModel.RequestLr2FullGenerationDataSyncAsync("setting_dialog_manual_resync", force: true);
+            await viewModel.RequestLr2SongDbSyncAsync("setting_dialog_manual_resync", force: true);
         }
         catch (Exception ex)
         {

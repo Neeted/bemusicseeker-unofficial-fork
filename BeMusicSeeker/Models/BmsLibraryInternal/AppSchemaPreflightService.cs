@@ -194,7 +194,7 @@ internal sealed class AppSchemaPreflightService
             || TableExists(db, SQLiteTable<LR2SongDBExtended.chart_info>.GetTableName())
             || TableExists(db, SQLiteTable<LR2SongDBExtended.chart_info_parse_failure>.GetTableName())
             || TableExists(db, SQLiteTable<LR2SongDBExtended.chart_info_import_history>.GetTableName())
-            || TableExists(db, SQLiteTable<LR2SongDBExtended.lr2_full_generation_status>.GetTableName())
+            || TableExists(db, SQLiteTable<LR2SongDBExtended.lr2_song_db_sync_status>.GetTableName())
             || TableExists(db, SQLiteTable<LR2SongDBExtended.ir_data>.GetTableName());
     }
 

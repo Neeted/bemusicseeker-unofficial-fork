@@ -12,7 +12,7 @@ using BeMusicSeeker.Models.Utils;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
-internal sealed class Lr2FullGenerationSyncRequest
+internal sealed class Lr2SongDbSyncRequest
 {
     public string Signature { get; set; }
 
@@ -75,18 +75,18 @@ internal sealed class Lr2FullGenerationSyncRequest
 
     public Func<bool> IsSourceCurrent { get; set; }
 
-    public Action<Lr2FullGenerationSyncProgress> ProgressReporter { get; set; }
+    public Action<Lr2SongDbSyncProgress> ProgressReporter { get; set; }
 
     public Action<IReadOnlyList<BMSFileMaintenanceInfo>> Lr2CompatibilityFactsCommitted { get; set; }
 
     public ISet<string> TransientSongRowsSkipPaths { get; set; }
 
-    public Func<LR2SongDBExtended, IReadOnlyList<BMSFile>, Lr2FullGenerationSongRowsSkipVerificationResult> SongRowsSkipVerifier { get; set; }
+    public Func<LR2SongDBExtended, IReadOnlyList<BMSFile>, Lr2SongDbSyncSongRowsSkipVerificationResult> SongRowsSkipVerifier { get; set; }
 
     public Action<string> LogInstallPerformance { get; set; }
 }
 
-internal sealed class Lr2FullGenerationSyncProgress
+internal sealed class Lr2SongDbSyncProgress
 {
     public int ProcessedCursor { get; set; }
 
@@ -99,7 +99,7 @@ internal sealed class Lr2FullGenerationSyncProgress
     public int StageTotalCount { get; set; }
 }
 
-internal sealed class Lr2FullGenerationSyncResult
+internal sealed class Lr2SongDbSyncResult
 {
     public int TotalCount { get; set; }
 
@@ -132,7 +132,7 @@ internal sealed class Lr2FullGenerationSyncResult
     public long ElapsedMs { get; set; }
 }
 
-internal sealed class Lr2FullGenerationSongRowsSkipVerificationResult
+internal sealed class Lr2SongDbSyncSongRowsSkipVerificationResult
 {
     public bool CanSkip { get; set; }
 
@@ -286,13 +286,13 @@ internal sealed class Lr2StartupScanBlockerCleanupResult(
     public bool HasRemainingBlockers => DiagnosticAfter?.IsClean != true;
 }
 
-internal static class Lr2FullGenerationSyncService
+internal static class Lr2SongDbSyncService
 {
     private const int SongRowSyncMaxWorkerDegree = 6;
 
-    private const string TempLr2CompatibilityMaintenanceTable = "lr2_full_generation_compatibility_maintenance";
+    private const string TempLr2CompatibilityMaintenanceTable = "lr2_song_db_sync_compatibility_maintenance";
 
-    private const string TempLr2CompatibilityMaintenanceMatchTable = "lr2_full_generation_compatibility_maintenance_match";
+    private const string TempLr2CompatibilityMaintenanceMatchTable = "lr2_song_db_sync_compatibility_maintenance_match";
 
     private const int MaxPersistedChartInfoParseFailureMessageLength = 1024;
 
@@ -306,16 +306,16 @@ internal static class Lr2FullGenerationSyncService
 
     internal const string SourceStaleReason = "source_stale_detected";
 
-    internal static Lr2FullGenerationSyncResult Run(
+    internal static Lr2SongDbSyncResult Run(
         LR2SongDBExtended songDb,
-        Lr2FullGenerationSyncRequest request)
+        Lr2SongDbSyncRequest request)
     {
         if (songDb == null)
         {
             throw new ArgumentNullException(nameof(songDb));
         }
 
-        request ??= new Lr2FullGenerationSyncRequest();
+        request ??= new Lr2SongDbSyncRequest();
         var stopwatch = Stopwatch.StartNew();
         List<string> roots = [.. (request.RootDirectories ?? [])
             .Where(path => !string.IsNullOrWhiteSpace(path))
@@ -359,7 +359,7 @@ internal static class Lr2FullGenerationSyncService
         int lr2FolderEndCursor = normalFolderEndCursor + lr2FolderFilePaths.Count;
         int songRowsEndCursor = totalCount;
         int resumeCursor = 0;
-        if (Lr2FullGenerationStatusService.TryCreateResumeCandidate(songDb, request.Signature, totalCount, out Lr2FullGenerationResumeCandidate resumeCandidate))
+        if (Lr2SongDbSyncStatusService.TryCreateResumeCandidate(songDb, request.Signature, totalCount, out Lr2SongDbSyncResumeCandidate resumeCandidate))
         {
             resumeCursor = NormalizeResumeCursor(
                 resumeCandidate.ProcessedCursor,
@@ -369,7 +369,7 @@ internal static class Lr2FullGenerationSyncService
         }
         string initialStage = ResolveInitialStage(resumeCursor, normalFolderEndCursor, lr2FolderEndCursor, songRowsEndCursor);
 
-        Lr2FullGenerationStatusService.MarkRunning(
+        Lr2SongDbSyncStatusService.MarkRunning(
             songDb,
             request.Signature,
             request.RunId,
@@ -377,7 +377,7 @@ internal static class Lr2FullGenerationSyncService
             stage: initialStage,
             nowUtc: request.StartedAtUtc,
             processedCursor: resumeCursor);
-        LogSync(request, "lr2_full_generation_sync input_summary"
+        LogSync(request, "lr2_song_db_sync input_summary"
             + " roots=" + roots.Count
             + " charts=" + chartPaths.Count
             + " normalFolderDirs=" + normalFolderDirectoryPaths.Count
@@ -413,7 +413,7 @@ internal static class Lr2FullGenerationSyncService
 
         if (resumeCursor < normalFolderEndCursor)
         {
-            Lr2FullGenerationStatusService.UpdateCursor(
+            Lr2SongDbSyncStatusService.UpdateCursor(
                 songDb,
                 request.Signature,
                 request.RunId,
@@ -427,7 +427,7 @@ internal static class Lr2FullGenerationSyncService
         if (resumeCursor < lr2FolderEndCursor)
         {
             LogStage(request, "stage_start", "lr2folder_files", lr2FolderFilePaths.Count, 0, normalFolderProcessedCount);
-            Lr2FullGenerationStatusService.UpdateCursor(
+            Lr2SongDbSyncStatusService.UpdateCursor(
                 songDb,
                 request.Signature,
                 request.RunId,
@@ -478,7 +478,7 @@ internal static class Lr2FullGenerationSyncService
 
         if (resumeCursor < lr2FolderEndCursor)
         {
-            Lr2FullGenerationStatusService.UpdateCursor(
+            Lr2SongDbSyncStatusService.UpdateCursor(
                 songDb,
                 request.Signature,
                 request.RunId,
@@ -489,7 +489,7 @@ internal static class Lr2FullGenerationSyncService
             ReportProgress(request, folderProcessedCount, totalCount, "lr2folder_files_completed", lr2FolderFileProcessedCount, lr2FolderFilePaths.Count);
         }
 
-        Lr2FullGenerationSongRowsSkipVerificationResult songRowsSkipVerification =
+        Lr2SongDbSyncSongRowsSkipVerificationResult songRowsSkipVerification =
             TryVerifySongRowsSkip(songDb, request, songRows, resumeCursor, lr2FolderEndCursor, songRowsEndCursor);
         bool skipSongRows = songRowsSkipVerification?.CanSkip == true;
         if (songRowsSkipVerification != null)
@@ -502,7 +502,7 @@ internal static class Lr2FullGenerationSyncService
             int songStageStart = Math.Max(0, resumeCursor - lr2FolderEndCursor);
             int songStageProcessedCursor = folderProcessedCount + songStageStart;
             LogStage(request, "stage_start", "song_rows", songRows.Count, songStageStart, songStageProcessedCursor);
-            Lr2FullGenerationStatusService.UpdateCursor(
+            Lr2SongDbSyncStatusService.UpdateCursor(
                 songDb,
                 request.Signature,
                 request.RunId,
@@ -514,7 +514,7 @@ internal static class Lr2FullGenerationSyncService
         }
         if (skipSongRows)
         {
-            Lr2FullGenerationStatusService.UpdateCursor(
+            Lr2SongDbSyncStatusService.UpdateCursor(
                 songDb,
                 request.Signature,
                 request.RunId,
@@ -558,7 +558,7 @@ internal static class Lr2FullGenerationSyncService
 
         if (resumeCursor < songRowsEndCursor && !skipSongRows)
         {
-            Lr2FullGenerationStatusService.UpdateCursor(
+            Lr2SongDbSyncStatusService.UpdateCursor(
                 songDb,
                 request.Signature,
                 request.RunId,
@@ -580,7 +580,7 @@ internal static class Lr2FullGenerationSyncService
         string incompleteReason;
         if (!IsSourceCurrent(request))
         {
-            Lr2FullGenerationStatusService.MarkIncomplete(
+            Lr2SongDbSyncStatusService.MarkIncomplete(
                 songDb,
                 request.Signature,
                 request.RunId,
@@ -600,7 +600,7 @@ internal static class Lr2FullGenerationSyncService
                 songRows.Select(row => row?.path));
             if (songPruneResult.DeletedCount > 0)
             {
-                LogSync(request, "lr2_full_generation_sync song_row_prune"
+                LogSync(request, "lr2_song_db_sync song_row_prune"
                     + " currentPaths=" + songPruneResult.CurrentPathCount
                     + " deleted=" + songPruneResult.DeletedCount
                     + " processedCursor=" + processedCount);
@@ -625,7 +625,7 @@ internal static class Lr2FullGenerationSyncService
                         normalFolderDirectoryPaths,
                         folderInfoFilePaths,
                         directoryEntries));
-                LogSync(request, "lr2_full_generation_sync startup_scan_blocker_resync"
+                LogSync(request, "lr2_song_db_sync startup_scan_blocker_resync"
                     + " stage=normal_folders"
                     + " missingExpectedFolderRows=" + diagnosticResult.MissingExpectedFolderRowCount
                     + " generated=" + resyncResult.GeneratedCount
@@ -667,7 +667,7 @@ internal static class Lr2FullGenerationSyncService
                         && !syncItems.HasReadFailures,
                     GeneratedAtUtc = request.StartedAtUtc
                 });
-                LogSync(request, "lr2_full_generation_sync startup_scan_blocker_resync"
+                LogSync(request, "lr2_song_db_sync startup_scan_blocker_resync"
                     + " stage=lr2folder_files"
                     + " missingExpectedLr2FolderRows=" + diagnosticResult.MissingExpectedLr2FolderRowCount
                     + " items=" + resyncResult.ItemCount
@@ -688,7 +688,7 @@ internal static class Lr2FullGenerationSyncService
             if (diagnosticResult.CleanupFolderRowCount > 0 || diagnosticResult.FolderDateUpdateCount > 0)
             {
                 Lr2StartupScanFolderRepairResult repairResult = ApplyStartupScanFolderRepairs(songDb, diagnosticResult);
-                LogSync(request, "lr2_full_generation_sync startup_scan_blocker_cleanup"
+                LogSync(request, "lr2_song_db_sync startup_scan_blocker_cleanup"
                     + " before=" + diagnosticResult.TotalBlockerCount
                     + " deletedFolderRows=" + repairResult.DeletedCount
                     + " updatedFolderDates=" + repairResult.UpdatedDateCount
@@ -705,19 +705,19 @@ internal static class Lr2FullGenerationSyncService
             }
             if (!diagnosticResult.IsClean)
             {
-                LogSync(request, "lr2_full_generation_sync startup_scan_diagnostics_remaining " + diagnosticResult.ToLogDetail()
+                LogSync(request, "lr2_song_db_sync startup_scan_diagnostics_remaining " + diagnosticResult.ToLogDetail()
                     + " total=" + diagnosticResult.TotalBlockerCount
                     + " cleanupFolderRows=" + diagnosticResult.CleanupFolderRowCount
                     + " processedCursor=" + processedCount);
                 foreach (string detail in diagnosticResult.EnumerateSampleLogDetails())
                 {
-                    LogSync(request, "lr2_full_generation_sync startup_scan_diagnostics_detail"
+                    LogSync(request, "lr2_song_db_sync startup_scan_diagnostics_detail"
                         + " detail=" + QuoteLogValue(detail));
                 }
             }
             if (!IsSourceCurrent(request))
             {
-                Lr2FullGenerationStatusService.MarkIncomplete(
+                Lr2SongDbSyncStatusService.MarkIncomplete(
                     songDb,
                     request.Signature,
                     request.RunId,
@@ -732,7 +732,7 @@ internal static class Lr2FullGenerationSyncService
             }
             else
             {
-                Lr2FullGenerationStatusService.MarkCompleted(
+                Lr2SongDbSyncStatusService.MarkCompleted(
                     songDb,
                     request.Signature,
                     request.RunId,
@@ -745,7 +745,7 @@ internal static class Lr2FullGenerationSyncService
         }
 
         stopwatch.Stop();
-        return new Lr2FullGenerationSyncResult
+        return new Lr2SongDbSyncResult
         {
             TotalCount = totalCount,
             ProcessedCount = processedCount,
@@ -765,7 +765,7 @@ internal static class Lr2FullGenerationSyncService
         };
     }
 
-    private static bool IsSourceCurrent(Lr2FullGenerationSyncRequest request)
+    private static bool IsSourceCurrent(Lr2SongDbSyncRequest request)
     {
         if (request?.IsSourceCurrent == null)
         {
@@ -781,9 +781,9 @@ internal static class Lr2FullGenerationSyncService
         }
     }
 
-    private static Lr2FullGenerationSongRowsSkipVerificationResult TryVerifySongRowsSkip(
+    private static Lr2SongDbSyncSongRowsSkipVerificationResult TryVerifySongRowsSkip(
         LR2SongDBExtended songDb,
-        Lr2FullGenerationSyncRequest request,
+        Lr2SongDbSyncRequest request,
         IReadOnlyList<BMSFile> songRows,
         int resumeCursor,
         int lr2FolderEndCursor,
@@ -795,7 +795,7 @@ internal static class Lr2FullGenerationSyncService
         }
         if (resumeCursor > lr2FolderEndCursor)
         {
-            return new Lr2FullGenerationSongRowsSkipVerificationResult
+            return new Lr2SongDbSyncSongRowsSkipVerificationResult
             {
                 CanSkip = false,
                 Reason = "partial_song_rows_resume",
@@ -806,7 +806,7 @@ internal static class Lr2FullGenerationSyncService
         try
         {
             return request.SongRowsSkipVerifier(songDb, songRows ?? [])
-                ?? new Lr2FullGenerationSongRowsSkipVerificationResult
+                ?? new Lr2SongDbSyncSongRowsSkipVerificationResult
                 {
                     CanSkip = false,
                     Reason = "verifier_returned_null",
@@ -815,7 +815,7 @@ internal static class Lr2FullGenerationSyncService
         }
         catch (Exception ex)
         {
-            return new Lr2FullGenerationSongRowsSkipVerificationResult
+            return new Lr2SongDbSyncSongRowsSkipVerificationResult
             {
                 CanSkip = false,
                 Reason = "verifier_failed_" + ex.GetType().Name,
@@ -825,8 +825,8 @@ internal static class Lr2FullGenerationSyncService
     }
 
     private static void LogSongRowsSkipVerification(
-        Lr2FullGenerationSyncRequest request,
-        Lr2FullGenerationSongRowsSkipVerificationResult result,
+        Lr2SongDbSyncRequest request,
+        Lr2SongDbSyncSongRowsSkipVerificationResult result,
         bool skipped,
         int resumeCursor,
         int lr2FolderEndCursor)
@@ -836,7 +836,7 @@ internal static class Lr2FullGenerationSyncService
             return;
         }
 
-        LogSync(request, "lr2_full_generation_sync song_rows_skip"
+        LogSync(request, "lr2_song_db_sync song_rows_skip"
             + " action=" + (skipped ? "skip" : "run")
             + " reason=" + (result.Reason ?? "unknown")
             + " resumeCursor=" + resumeCursor
@@ -855,7 +855,7 @@ internal static class Lr2FullGenerationSyncService
             + " elapsedMs=" + result.ElapsedMs);
         foreach (string sample in result.DiagnosticSamples ?? [])
         {
-            LogSync(request, "lr2_full_generation_sync song_rows_skip_detail"
+            LogSync(request, "lr2_song_db_sync song_rows_skip_detail"
                 + " reason=" + (result.Reason ?? "unknown")
                 + " detail=" + QuoteLogValue(sample));
         }
@@ -863,7 +863,7 @@ internal static class Lr2FullGenerationSyncService
 
     private static void ThrowIfCancellationRequested(
         LR2SongDBExtended songDb,
-        Lr2FullGenerationSyncRequest request,
+        Lr2SongDbSyncRequest request,
         int processedCursor,
         int totalCount,
         string stage)
@@ -873,7 +873,7 @@ internal static class Lr2FullGenerationSyncService
             return;
         }
 
-        Lr2FullGenerationStatusService.MarkCancelled(
+        Lr2SongDbSyncStatusService.MarkCancelled(
             songDb,
             request.Signature,
             request.RunId,
@@ -945,7 +945,7 @@ internal static class Lr2FullGenerationSyncService
     }
 
     private static void ReportProgress(
-        Lr2FullGenerationSyncRequest request,
+        Lr2SongDbSyncRequest request,
         int processedCount,
         int totalCount,
         string stage,
@@ -954,7 +954,7 @@ internal static class Lr2FullGenerationSyncService
     {
         try
         {
-            request?.ProgressReporter?.Invoke(new Lr2FullGenerationSyncProgress
+            request?.ProgressReporter?.Invoke(new Lr2SongDbSyncProgress
             {
                 ProcessedCursor = Math.Max(0, processedCount),
                 TotalCount = Math.Max(0, totalCount),
@@ -970,21 +970,21 @@ internal static class Lr2FullGenerationSyncService
     }
 
     private static void LogStage(
-        Lr2FullGenerationSyncRequest request,
+        Lr2SongDbSyncRequest request,
         string action,
         string stage,
         int totalCount,
         int processedCount,
         int processedCursor)
     {
-        LogSync(request, "lr2_full_generation_sync " + action
+        LogSync(request, "lr2_song_db_sync " + action
             + " stage=" + (stage ?? string.Empty)
             + " processed=" + Math.Max(0, processedCount)
             + " total=" + Math.Max(0, totalCount)
             + " processedCursor=" + Math.Max(0, processedCursor));
     }
 
-    private static void LogSync(Lr2FullGenerationSyncRequest request, string message)
+    private static void LogSync(Lr2SongDbSyncRequest request, string message)
     {
         try
         {
@@ -1007,7 +1007,7 @@ internal static class Lr2FullGenerationSyncService
     }
 
     private static Lr2NormalFolderDbSyncRequest CreateNormalFolderDbSyncRequest(
-        Lr2FullGenerationSyncRequest request,
+        Lr2SongDbSyncRequest request,
         IReadOnlyCollection<string> roots,
         IReadOnlyCollection<string> chartPaths,
         IReadOnlyCollection<string> normalFolderDirectoryPaths,
@@ -1035,7 +1035,7 @@ internal static class Lr2FullGenerationSyncService
         IReadOnlyCollection<string> lr2FolderDiscoveryDirectories,
         IReadOnlyCollection<BMSFile> currentSongRows,
         string lr2RootPath,
-        Lr2FullGenerationSyncRequest request = null)
+        Lr2SongDbSyncRequest request = null)
     {
         songDb.CreateTable<LR2SongDB.song>();
         songDb.CreateTable<LR2SongDB.folder>();
@@ -1301,7 +1301,7 @@ internal static class Lr2FullGenerationSyncService
 
     internal static Lr2FolderDirectoryMetadataSnapshot CreateLr2FolderParentDirectoryMetadataSnapshot(
         IReadOnlyCollection<Lr2FolderFileSyncItem> items,
-        Lr2FullGenerationSyncRequest request)
+        Lr2SongDbSyncRequest request)
     {
         IReadOnlyCollection<string> directoryTargets = Lr2FolderFileDbSyncService.CreateParentDirectoryMetadataTargets(
             items,
@@ -1374,7 +1374,7 @@ internal static class Lr2FullGenerationSyncService
         new(new DateTime(2026, 1, 1, 0, 0, 1, DateTimeKind.Utc));
 
     private static HashSet<string> CreateExpectedLr2FolderParentDirectoryRowPaths(
-        Lr2FullGenerationSyncRequest request,
+        Lr2SongDbSyncRequest request,
         bool includeBuiltinSources,
         bool includeNonBuiltinSources)
     {
@@ -1495,7 +1495,7 @@ internal static class Lr2FullGenerationSyncService
         return result;
     }
 
-    private static HashSet<string> CreateExpectedLr2FolderRowPaths(Lr2FullGenerationSyncRequest request)
+    private static HashSet<string> CreateExpectedLr2FolderRowPaths(Lr2SongDbSyncRequest request)
     {
         var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         IReadOnlyCollection<string> lr2FolderFilePaths = CreateLr2FolderFilePathSurface(request);
@@ -1534,7 +1534,7 @@ internal static class Lr2FullGenerationSyncService
         return result;
     }
 
-    private static IReadOnlyCollection<string> CreateLr2FolderFilePathSurface(Lr2FullGenerationSyncRequest request)
+    private static IReadOnlyCollection<string> CreateLr2FolderFilePathSurface(Lr2SongDbSyncRequest request)
     {
         if (request == null)
         {
@@ -1547,7 +1547,7 @@ internal static class Lr2FullGenerationSyncService
             .Distinct(StringComparer.OrdinalIgnoreCase)];
     }
 
-    private static HashSet<string> CreateLr2FolderPruneExcludedPathSet(Lr2FullGenerationSyncRequest request)
+    private static HashSet<string> CreateLr2FolderPruneExcludedPathSet(Lr2SongDbSyncRequest request)
     {
         return new HashSet<string>((request?.Lr2FolderPruneExcludedPaths ?? [])
             .Select(path => Lr2FolderFileProjection.NormalizeDatabasePath(path))
@@ -1636,7 +1636,7 @@ internal static class Lr2FullGenerationSyncService
         bool isLr2FolderFileRow,
         string rowPath,
         string diagnosticPath,
-        Lr2FullGenerationSyncRequest request,
+        Lr2SongDbSyncRequest request,
         out int date)
     {
         date = 0;
@@ -1680,7 +1680,7 @@ internal static class Lr2FullGenerationSyncService
         bool isLr2FolderFileRow,
         string rowPath,
         string diagnosticPath,
-        Lr2FullGenerationSyncRequest request,
+        Lr2SongDbSyncRequest request,
         out DateTime? lastWriteTimeUtc)
     {
         lastWriteTimeUtc = null;
@@ -1806,7 +1806,7 @@ internal static class Lr2FullGenerationSyncService
 
     internal static Lr2FolderFileSyncItemsResult CreateLr2FolderFileSyncItems(
         IEnumerable<string> filePaths,
-        Lr2FullGenerationSyncRequest request,
+        Lr2SongDbSyncRequest request,
         IReadOnlyDictionary<string, RootFileEnumerationEntry> entriesByPath = null,
         Func<string, LR2SongDB.folder> existingRowResolver = null)
     {
@@ -1832,7 +1832,7 @@ internal static class Lr2FullGenerationSyncService
 
     internal static IReadOnlyDictionary<string, LR2SongDB.folder> CreateExistingLr2FolderRowMap(
         LR2SongDBExtended songDb,
-        Lr2FullGenerationSyncRequest request,
+        Lr2SongDbSyncRequest request,
         IEnumerable<string> filePaths = null)
     {
         if (songDb == null)
@@ -1861,7 +1861,7 @@ internal static class Lr2FullGenerationSyncService
     }
 
     private static IReadOnlyCollection<string> CreateExistingLr2FolderExactPathScope(
-        Lr2FullGenerationSyncRequest request,
+        Lr2SongDbSyncRequest request,
         IEnumerable<string> filePaths)
     {
         var result = new HashSet<string>(StringComparer.Ordinal);
@@ -1900,7 +1900,7 @@ internal static class Lr2FullGenerationSyncService
         }
     }
 
-    internal static IReadOnlyCollection<string> CreateLr2FolderDirectoryRowScopeDirectories(Lr2FullGenerationSyncRequest request)
+    internal static IReadOnlyCollection<string> CreateLr2FolderDirectoryRowScopeDirectories(Lr2SongDbSyncRequest request)
     {
         var candidates = new List<string>();
         HashSet<string> excludedAbsoluteDirectories = [.. (request?.RootDirectories ?? [])
@@ -1931,7 +1931,7 @@ internal static class Lr2FullGenerationSyncService
             .Distinct(StringComparer.OrdinalIgnoreCase)];
     }
 
-    internal static IReadOnlyCollection<string> CreateLr2FolderDirectoryRowGenerationScopeDirectories(Lr2FullGenerationSyncRequest request)
+    internal static IReadOnlyCollection<string> CreateLr2FolderDirectoryRowGenerationScopeDirectories(Lr2SongDbSyncRequest request)
     {
         var candidates = new List<string>();
         candidates.AddRange(request?.RootDirectories ?? []);
@@ -1982,7 +1982,7 @@ internal static class Lr2FullGenerationSyncService
 
     private static Lr2FolderFileSyncItem CreateLr2FolderFileSyncItem(
         string filePath,
-        Lr2FullGenerationSyncRequest request,
+        Lr2SongDbSyncRequest request,
         RootFileEnumerationEntry enumerationEntry = null,
         Func<string, LR2SongDB.folder> existingRowResolver = null)
     {
@@ -2141,7 +2141,7 @@ internal static class Lr2FullGenerationSyncService
         int totalCount,
         string signature,
         string runId,
-        Lr2FullGenerationSyncRequest request)
+        Lr2SongDbSyncRequest request)
     {
         if (songRows == null || songRows.Count == 0)
         {
@@ -2244,7 +2244,7 @@ internal static class Lr2FullGenerationSyncService
             ? request?.TransientSongRowsSkipPaths
             : null;
         int transientSkipPathCount = transientSkipPaths?.Count ?? 0;
-        LogSync(request, "lr2_full_generation_sync pipeline_start"
+        LogSync(request, "lr2_song_db_sync pipeline_start"
             + " stage=song_rows"
             + " startIndex=" + safeStartIndex
             + " targetCount=" + targetRows.Count
@@ -2299,7 +2299,7 @@ internal static class Lr2FullGenerationSyncService
                 baseProcessedCursor + offset,
                 totalCount,
                 "song_rows");
-            LogSync(request, "lr2_full_generation_sync chunk_start"
+            LogSync(request, "lr2_song_db_sync chunk_start"
                 + " stage=song_rows"
                 + " offset=" + offset
                 + " count=" + chunk.Count
@@ -2381,7 +2381,7 @@ internal static class Lr2FullGenerationSyncService
             try
             {
                 var stageStopwatch = Stopwatch.StartNew();
-                songWriteResult = Lr2SongDbWriter.UpsertGeneratedSongsForFullGenerationWithResult(songDb, rowsToWrite);
+                songWriteResult = Lr2SongDbWriter.UpsertGeneratedSongsForLr2SongDbSyncWithResult(songDb, rowsToWrite);
                 stageStopwatch.Stop();
                 songStageMs = stageStopwatch.ElapsedMilliseconds;
 
@@ -2422,7 +2422,7 @@ internal static class Lr2FullGenerationSyncService
                 processed += chunk.Count;
                 int processedCursor = baseProcessedCursor + offset + chunk.Count;
                 stageStopwatch.Restart();
-                Lr2FullGenerationStatusService.UpdateCursor(
+                Lr2SongDbSyncStatusService.UpdateCursor(
                     songDb,
                     signature,
                     runId,
@@ -2440,7 +2440,7 @@ internal static class Lr2FullGenerationSyncService
                     "song_rows",
                     Math.Max(Volatile.Read(ref evaluatedStageProcessedCount), offset + chunk.Count),
                     targetRows.Count);
-                LogSync(request, "lr2_full_generation_sync chunk_done"
+                LogSync(request, "lr2_song_db_sync chunk_done"
                     + " stage=song_rows"
                     + " offset=" + offset
                     + " count=" + chunk.Count
@@ -2483,7 +2483,7 @@ internal static class Lr2FullGenerationSyncService
             {
                 stopwatchCommit.Stop();
                 Exception rollbackException = TryRollbackSongRowChunk(songDb);
-                Lr2FullGenerationStatusService.MarkFailed(
+                Lr2SongDbSyncStatusService.MarkFailed(
                     songDb,
                     signature,
                     runId,
@@ -2651,7 +2651,7 @@ internal static class Lr2FullGenerationSyncService
                     totalCount,
                     "song_rows");
             }
-            Lr2FullGenerationStatusService.MarkFailed(
+            Lr2SongDbSyncStatusService.MarkFailed(
                 songDb,
                 signature,
                 runId,
@@ -2663,7 +2663,7 @@ internal static class Lr2FullGenerationSyncService
             throw pipelineException;
         }
 
-        LogSync(request, "lr2_full_generation_sync pipeline_done"
+        LogSync(request, "lr2_song_db_sync pipeline_done"
             + " stage=song_rows"
             + " processed=" + processed
             + " transientSkipped=" + transientSkipped
@@ -2687,7 +2687,7 @@ internal static class Lr2FullGenerationSyncService
     }
 
     private static void ReportCommittedLr2CompatibilityFacts(
-        Lr2FullGenerationSyncRequest request,
+        Lr2SongDbSyncRequest request,
         IReadOnlyList<BMSFileMaintenanceInfo> compatibilityInfos)
     {
         if (request?.Lr2CompatibilityFactsCommitted == null
@@ -2703,14 +2703,14 @@ internal static class Lr2FullGenerationSyncService
         }
         catch (Exception ex)
         {
-            LogSync(request, "lr2_full_generation_sync compatibility_projection_callback_failed"
+            LogSync(request, "lr2_song_db_sync compatibility_projection_callback_failed"
                 + " count=" + compatibilityInfos.Count
                 + " reason=" + QuoteLogValue(ex.Message ?? ex.GetType().Name));
         }
     }
 
     private static void ReportCommittedChartInfoRows(
-        Lr2FullGenerationSyncRequest request,
+        Lr2SongDbSyncRequest request,
         IReadOnlyList<LR2SongDBExtended.chart_info> chartInfoRows)
     {
         if (request?.ChartInfoRowsCommitted == null
@@ -2726,14 +2726,14 @@ internal static class Lr2FullGenerationSyncService
         }
         catch (Exception ex)
         {
-            LogSync(request, "lr2_full_generation_sync chart_info_callback_failed"
+            LogSync(request, "lr2_song_db_sync chart_info_callback_failed"
                 + " count=" + chartInfoRows.Count
                 + " reason=" + QuoteLogValue(ex.Message ?? ex.GetType().Name));
         }
     }
 
     private static void ReportCommittedChartInfoParseFailures(
-        Lr2FullGenerationSyncRequest request,
+        Lr2SongDbSyncRequest request,
         int persistedCount,
         int clearedCount)
     {
@@ -2749,7 +2749,7 @@ internal static class Lr2FullGenerationSyncService
         }
         catch (Exception ex)
         {
-            LogSync(request, "lr2_full_generation_sync chart_info_failure_callback_failed"
+            LogSync(request, "lr2_song_db_sync chart_info_failure_callback_failed"
                 + " persisted=" + persistedCount
                 + " cleared=" + clearedCount
                 + " reason=" + QuoteLogValue(ex.Message ?? ex.GetType().Name));

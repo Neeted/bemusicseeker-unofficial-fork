@@ -68,7 +68,7 @@ public sealed class Lr2FolderFileDiscoveryServiceTests
         string outputBase = Path.Combine(scope.DirectoryPath, "Output");
         string outputBasePrefixSibling = Path.Combine(scope.DirectoryPath, "OutputOther");
         string rootOutputBase = Path.Combine(scope.DirectoryPath, "RootOutput");
-        var preparedSurface = new Lr2FullGenerationPreparedDataSurface(
+        var preparedSurface = new Lr2SongDbSyncPreparedDataSurface(
             [outputBase],
             [],
             new Dictionary<string, RootFileEnumerationEntry>(System.StringComparer.OrdinalIgnoreCase),
@@ -105,7 +105,7 @@ public sealed class Lr2FolderFileDiscoveryServiceTests
             [oldManagedPath, siblingPath, externalOutputPath],
             baseEntries,
             discoveryComplete: true);
-        var preparedSurface = new Lr2FullGenerationPreparedDataSurface(
+        var preparedSurface = new Lr2SongDbSyncPreparedDataSurface(
             [preparedDirectory],
             [preparedPath],
             new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase)

@@ -3,9 +3,9 @@ using System.Globalization;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
-internal static class Lr2FullGenerationSignatureBuilder
+internal static class Lr2SongDbSyncSignatureBuilder
 {
-    private const string Version = "lr2_full_generation_v2";
+    private const string Version = "lr2_song_db_sync_v2";
     private const int SongFolderGeneratorVersion = 1;
     private const int Lr2FolderFileParserVersion = 1;
     private const int Lr2CompatibilityFactsVersion = 1;

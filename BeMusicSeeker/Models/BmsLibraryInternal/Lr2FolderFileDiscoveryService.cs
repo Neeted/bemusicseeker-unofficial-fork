@@ -95,7 +95,7 @@ internal static class Lr2FolderFileDiscoveryService
 
     internal static Lr2FolderFileCandidateSnapshot MergeCandidateSurface(
         Lr2FolderFileCandidateSnapshot baseCandidates,
-        Lr2FullGenerationPreparedDataSurface preparedSurface)
+        Lr2SongDbSyncPreparedDataSurface preparedSurface)
     {
         if (preparedSurface?.HasLr2FolderSurface != true)
         {
@@ -201,7 +201,7 @@ internal static class Lr2FolderFileDiscoveryService
 
     internal static IReadOnlyList<string> CreateDiscoveryDirectoriesForEnumeration(
         IEnumerable<string> discoveryDirectories,
-        Lr2FullGenerationPreparedDataSurface preparedSurface)
+        Lr2SongDbSyncPreparedDataSurface preparedSurface)
     {
         if (preparedSurface?.HasLr2FolderSurface != true)
         {
