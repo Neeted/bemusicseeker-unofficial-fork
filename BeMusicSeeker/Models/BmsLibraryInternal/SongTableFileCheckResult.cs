@@ -145,8 +145,6 @@ internal sealed class SongTableFileCheckResult
 
     public int PostParseResultQueueCapacity { get; set; }
 
-    public int PostParseBatchSize { get; set; }
-
     public int CommitQueueCapacity { get; set; }
 
     public int CommitWriterQueueCapacity { get; set; }
@@ -171,11 +169,11 @@ internal sealed class SongTableFileCheckResult
 
     public long DbCommitFirstChunkStartMs { get; set; }
 
-    public int PostParseBatchCount { get; set; }
+    public int PostParseWorkItemCount { get; set; }
 
     public long PostParseWallMs { get; set; }
 
-    public long PostParseMaxBatchMs { get; set; }
+    public long PostParseMaxItemMs { get; set; }
 
     public long BmsParseMs { get; set; }
 

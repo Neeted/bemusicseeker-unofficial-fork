@@ -812,7 +812,7 @@ public sealed class BmsLibraryInitializationServiceTests
             Assert.AreEqual(2048, result.InlineChartInfoBatchSize);
             Assert.AreEqual(ChartFileReadPipelinePolicy.ResolveReaderDegree(Environment.ProcessorCount, 2), result.FileDiffReaderDegree);
             Assert.AreEqual(ChartFileReadPipelinePolicy.ResolveReadQueueCapacity(result.FileDiffParserDegree, result.FileDiffReaderDegree), result.ReadQueueCapacity);
-            Assert.AreEqual(BmsLibraryInitializationService.ResolveFileDiffParsedQueueCapacity(result.FileDiffParserDegree, 1), result.ParsedQueueCapacity);
+            Assert.AreEqual(BmsLibraryInitializationService.ResolveFileDiffParsedQueueCapacity(result.FileDiffParserDegree), result.ParsedQueueCapacity);
             Assert.AreEqual(BmsLibraryInitializationService.ResolveFileDiffPostParseQueueCapacity(result.FileDiffPostParseWorkerDegree), result.PostParseQueueCapacity);
             Assert.AreEqual(1, result.CommitQueueCapacity);
             Assert.AreEqual(2, result.CommitWriterQueueCapacity);
@@ -821,7 +821,7 @@ public sealed class BmsLibraryInitializationServiceTests
             Assert.AreEqual(1, result.FileDiffPostParseWorkerDegree);
             Assert.IsTrue(result.PostParseOutputWaitMs >= 0);
             Assert.IsTrue(result.CommitWriterQueueWaitMs >= 0);
-            Assert.AreEqual(2, result.PostParseBatchCount);
+            Assert.AreEqual(2, result.PostParseWorkItemCount);
             Assert.AreEqual(1, result.InlineMaintenanceDegree);
             Assert.IsTrue(result.PostParseWallMs >= 0);
             Assert.IsTrue(result.InlineChartInfoWallMs >= 0);
@@ -844,7 +844,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 && message.Contains("commit_streaming_barrier=none")
                 && message.Contains("post_parse_output_wait_ms=")
                 && message.Contains("commit_writer_queue_wait_ms=")
-                && message.Contains("post_parse_batch_count=2")
+                && message.Contains("post_parse_work_item_count=2")
                 && message.Contains("inline_chart_info_target_count=2")
                 && message.Contains("inline_chart_info_batch_size=2048")
                 && message.Contains("inline_maintenance_degree=1")
@@ -932,7 +932,7 @@ public sealed class BmsLibraryInitializationServiceTests
             Assert.AreEqual((int)Math.Ceiling(paths.Count / 50.0), result.DbCommitChunks);
             Assert.AreEqual(50, result.DbCommitChunkSize);
             Assert.AreEqual(32, result.InlineChartInfoBatchSize);
-            Assert.AreEqual(120, result.PostParseBatchCount);
+            Assert.AreEqual(120, result.PostParseWorkItemCount);
             Assert.IsTrue(result.PostParseWallMs >= 0);
             Assert.IsTrue(result.CommitQueueWaitMs >= 0);
             int firstCommitIndex = events.FindIndex(item => item.Contains("db_commit_chunk_done chunk=1"));
@@ -1002,7 +1002,7 @@ public sealed class BmsLibraryInitializationServiceTests
             Assert.AreEqual(count, result.AddedFiles.Count);
             Assert.AreEqual(2, result.FileDiffParserDegree);
             Assert.AreEqual(2, result.FileDiffPostParseWorkerDegree);
-            Assert.AreEqual(count, result.PostParseBatchCount);
+            Assert.AreEqual(count, result.PostParseWorkItemCount);
             Assert.AreEqual((int)Math.Ceiling(count / 50.0), result.DbCommitChunks, "unexpected DB commit chunk count: " + result.DbCommitChunks);
             Assert.AreEqual(50, result.DbCommitChunkSize);
             Assert.AreEqual(count, result.InlineChartInfoTargetCount);

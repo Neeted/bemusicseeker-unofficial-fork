@@ -14,7 +14,7 @@
 - file diff の DB commit chunk は bounded queue と専用 writer task で streaming されるようになった。次は実機ログで read / parse / inline maintenance と DB write が重なっていること、失敗時に producer 側が停止することを確認する。
 - file diff inline maintenance と manual maintenance rescan は同じ性質の resource health / encoding 評価を持つため、個別最適化ではなく共通 evaluator / 共通計測として扱う必要がある。
 
-同日の後続ログでは、2048 barrier を外したこと自体は正しい一方、post-parse を 1 件単位へ寄せたことで性能が悪化した。`post_parse_batch_count=210794`、`parser_output_wait_ms` の増大、`inline_maintenance_wall_ms` の長大化から、parser worker は並列でも single post-parse consumer が bottleneck になり、pipeline がそこで詰まっている。single consumer 内の maintenance 並列評価も 1 item では効かない。また `commit_streaming_barrier=none` でも、DB writer が 10000 件 chunk を 4-5 秒 commit している間に commit queue が詰まり、post-parse 側が `commitQueueMs` として待っている。現行の未コミット差分は機能的には破綻していないが、性能が戻り切っていない中間状態として扱い、この状態を最終 commit 境界にしない。
+同日の後続ログでは、2048 barrier を外したこと自体は正しい一方、post-parse を 1 件単位へ寄せたことで性能が悪化した。`post_parse_work_item_count=210794`、`parser_output_wait_ms` の増大、`inline_maintenance_wall_ms` の長大化から、parser worker は並列でも single post-parse consumer が bottleneck になり、pipeline がそこで詰まっている。single consumer 内の maintenance 並列評価も 1 item では効かない。また `commit_streaming_barrier=none` でも、DB writer が 10000 件 chunk を 4-5 秒 commit している間に commit queue が詰まり、post-parse 側が `commitQueueMs` として待っている。現行の未コミット差分は機能的には破綻していないが、性能が戻り切っていない中間状態として扱い、この状態を最終 commit 境界にしない。
 
 LR2 `song.db` sync の freshness 判定も見直す。LR2 連携 mode の run では、file diff と LR2 `song.db` sync は同じ generated song row を作るべきであり、全 generated column / digest を DB projection で再比較する厳密 verifier は高コストな drift 診断へ下げる。自動 follow-up の skip gate は、同一 scan/input generation、file diff が今回 durably commit した BMS owner path coverage、inline maintenance / chart_info coverage、moved hash relink ambiguity なしを主条件にする。
 
@@ -141,14 +141,14 @@ target enumeration
 
 ### Phase 3: file diff pipeline を同じ vocabulary に寄せる
 
-- Status: 完了。reader / parser の責務分離に加え、post-parse も独立した worker stage へ分離した。worker は batch-local `FileDiffPostParseResult` と commit staging chunk だけを作り、single collector が sequence 順に result counters、runtime apply list、moved hash relink tracking、commit queue 投入を集約する。
+- Status: 完了。reader / parser の責務分離に加え、post-parse も独立した worker stage へ分離した。worker は item-local `FileDiffPostParseResult` と commit staging chunk だけを作り、single collector が sequence 順に result counters、runtime apply list、moved hash relink tracking、commit queue 投入を集約する。
 - 空 DB / 大量差分で最も影響が大きいため、LR2 基準実装の次に扱う。
 - reader を policy に従って 1 / 2 本にできるようにする。
 - worker で digest 計算と lightweight parse を行う。
 - post-parse worker は current `chart_info` 判定、inline parse、inline maintenance row 作成に集中する。
 - 2026-06-10 追記: `InlineChartInfoBatchSize=2048` を post-parse barrier として使わない。file reader が貯める bounded buffer と DB commit chunk 以外は 1 譜面ずつ流し、post-parse の並列性は micro-batch ではなく独立した post-parse worker stage で確保する。軽量 parser より post-parse / maintenance が重い環境では、parser 数を CPU 数の半分程度、post-parse worker を parser の約 1.5 倍かつ CPU 数以下へ寄せる。snapshot bytes と resource refs は maintenance row / chart_info staging へ畳み込んだら破棄する。
 - 2026-06-10 判断: lightweight parse / post-parse / inline `chart_info` を 1 つの worker に統合する案は採用しない。1 譜面から `song` / `maintenance` / `chart_info` が最大 1 行ずつ出るように見えても、current `chart_info` reuse、parse failure、runtime mutation、ordered commit、chunk writer、progress の意味が異なるため、stage を分けたまま post-parse unit を 1 譜面単位にする。
-- 完了: 旧 `FlushFileDiffParsedBatch()` の shared state mutation を、item-local `FileDiffPostParseResult` / commit staging chunk の生成と、single collector による ordered aggregation へ分解した。parallel post-parse workers は `SongTableFileCheckResult`、runtime list、commit context を直接触らない。
+- 完了: 旧 parsed batch flush の shared state mutation を、item-local `FileDiffPostParseResult` / commit staging chunk の生成と、single collector による ordered aggregation へ分解した。parallel post-parse workers は `SongTableFileCheckResult`、runtime list、commit context を直接触らない。
 - 2 件以上の差分では schema current な read-only connection から current parser version の `chart_info` row を一括 snapshot として読み、per-item DB lookup を避ける。DB commit は引き続き `DbCommitChunkSize` の transaction 単位として独立させる。
 - 完了: current snapshot を張れない複数件差分では、同じ実行内の先行 commit を current row として観測しないよう、post-parse worker に空 snapshot を渡して fallback DB lookup を抑止する。1 件差分だけは従来どおり対象 row lookup を許容する。
 - 差分少数では reader 1 本のままになるようにし、startup 差分 0 の hot path を重くしない。
@@ -254,7 +254,7 @@ target enumeration
 - log 方針:
   - `commit_queue_capacity` を 0 ではなく実際の bounded capacity として出す。
   - 完了: `commit_writer_queue_capacity` と `commit_writer_queue_wait_ms` を追加し、post-parse -> aggregator 側の `commit_queue_wait_ms` と、aggregator -> DB writer 側の待ちを分ける。
-  - `db_commit_chunk_start/done` が `song_tbl_file_check_batch_slow` と時間的に重なることを確認できるようにする。
+  - `db_commit_chunk_start/done` が `song_tbl_file_check_post_parse_item_slow` と時間的に重なることを確認できるようにする。
   - writer wait / post-parse wait / commit wait を分離して、DB writer が詰まり始めた場合に分かるようにする。
 - 完了条件:
   - 大量差分時に DB commit chunk が post-parse 完了後だけでなく処理中から進む。
@@ -264,7 +264,7 @@ target enumeration
 
 ### Phase 10: maintenance evaluator の共通化と resource health / encoding 軽量化
 
-- Status: 実装中。file diff batch slow log と manual maintenance rescan chunk log の語彙を寄せたうえで、file diff inline maintenance は同一 `ResourceHealthLookupContext` を batch / pipeline 内で共有する。2026-06-10 の空 DB 初回ログでは `inline_maintenance_wall_ms` / `inline_health_wall_ms` と `inline_maintenance_cache_hit=108M` が支配的だったため、resource existence は directory resource index を先に直接照合し、共有 dictionary は index が無い fallback 経路の補助へ戻す。directory に存在する resource file は同一 directory の譜面から共通に見えるが、譜面が要求する resource 集合、defined count、LR2 compatibility、path / hash / encoding は chart-specific なので、`maintenance` row 全体は再利用しない。
+- Status: 実装中。file diff post-parse item slow log と manual maintenance rescan chunk log の語彙を寄せたうえで、file diff inline maintenance は同一 `ResourceHealthLookupContext` を pipeline 内で共有する。2026-06-10 の空 DB 初回ログでは `inline_maintenance_wall_ms` / `inline_health_wall_ms` と `inline_maintenance_cache_hit=108M` が支配的だったため、resource existence は directory resource index を先に直接照合し、共有 dictionary は index が無い fallback 経路の補助へ戻す。directory に存在する resource file は同一 directory の譜面から共通に見えるが、譜面が要求する resource 集合、defined count、LR2 compatibility、path / hash / encoding は chart-specific なので、`maintenance` row 全体は再利用しない。
 - 対象は file diff inline maintenance だけではなく、manual `RescanAllOwnedChartMaintenance()` / selected maintenance rescan も含める。
 - 現行ログでは `maintenanceMs` が重く見えるが、これは DB `maintenance` table write ではなく、resource health、encoding 判定、bmson refs refresh、maintenance row construction を含む evaluator 時間である。DB write は file diff では `db_commit_ms`、manual rescan では `maintenance_rescan_chunk commitMs` として別に見る。
 - 2026-06-10 の並列度方針:
@@ -272,12 +272,12 @@ target enumeration
   - CPU 数が異なる環境でも parser:post-parse の比率が効くように、固定値ではなく `ResolveDefaultFileDiffParserDegree(processorCount)` と `ResolveDefaultFileDiffPostParseWorkerDegree(processorCount, parserDegree)` で決める。
   - micro-batch は主改善策にしない。1 譜面ずつ bytes を処理すること自体は問題ではなく、batch を増やす場合は directory/resource signature reuse など実際の計算削減を伴うときだけ検討する。batch 内でさらに maintenance 並列化して post-parse worker と二重並列にしない。
 - まず計測を揃える。
-  - 完了: file diff の batch slow log に `bmsMaintenanceMs`, `bmsonMaintenanceMs`, `healthMs`, `encodingMs`, `cacheHit`, `fileExistsFallback` を追加する。
+  - 完了: file diff の post-parse item slow log に `bmsMaintenanceMs`, `bmsonMaintenanceMs`, `healthMs`, `encodingMs`, `cacheHit`, `fileExistsFallback` を追加する。
   - 完了: manual rescan の `maintenance_rescan_chunk` に `healthMs`, `encodingMs`, `bmsonRefreshMs`, `cacheHit`, `fileExistsFallback` を追加する。
   - 完了: manual snapshot pipeline は item-local `ResourceHealthLookupContext` で評価し、親 context へ counter を合算する。これにより chunk log の cache / fallback は累積値の二重加算ではなく、file diff batch log と同じ粒度の評価結果になる。
   - 完了: file diff inline maintenance の BMS / bmson evaluator は pipeline 共通の resource existence cache を共有し、item result の `cacheHit` / `fileExistsFallback` は item-local counter scope から返す。
   - 完了: `song_tbl_file_check_breakdown` に `inline_maintenance_shared_resource_cache_entries` を追加し、共有 cache がどの程度形成されたかを次回起動ログで確認できるようにする。
-  - 継続: manual rescan の `maintenance_rescan_chunk` と file diff の `song_tbl_file_check_batch_slow` で、read / digest / compute / health / encoding / commit の語彙をさらに揃える。
+  - 継続: manual rescan の `maintenance_rescan_chunk` と file diff の `song_tbl_file_check_post_parse_item_slow` で、read / digest / compute / health / encoding / commit の語彙をさらに揃える。
   - encoding slow item、resource ref count が極端に大きい chart、resource lookup cache hit count の増え方を path 付きで追跡できるようにする。
 - 実装候補:
   - file diff inline maintenance と manual rescan が同じ `MaintenanceEvaluationResult` / evaluator helper を通るように整理する。
@@ -352,7 +352,7 @@ target enumeration
 | chart_info full backfill | `chart_info_backfill start/done`, fileReadBytes, read / parse |
 | manual maintenance full rescan | `maintenance_rescan_chunk`, `maintenance_update checked` |
 | 大量 file diff 後の自動 LR2 song.db sync | `lr2_song_db_sync song_rows_skip`, `pipeline_start stage=song_rows` が出ない / 対象縮小されること |
-| file diff streaming commit | `song_tbl_file_check_batch_slow` と `song_tbl_file_check db_commit_chunk_start/done` の時間的重なり、`commitQueueWaitMs` |
+| file diff streaming commit | `song_tbl_file_check_post_parse_item_slow` と `song_tbl_file_check db_commit_chunk_start/done` の時間的重なり、`commitQueueWaitMs` |
 | maintenance evaluator 軽量化 | `inline_maintenance_wall_ms`, `inline_health_wall_ms`, `inline_encoding_wall_ms`, `maintenance_rescan_chunk computeMs/commitMs` |
 
 reader 2 が常に速いとは限らない。特に HDD / network share / antivirus 影響が大きい環境では悪化し得るため、policy は実測後に調整する。

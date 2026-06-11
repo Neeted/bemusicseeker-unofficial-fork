@@ -52,13 +52,11 @@ internal sealed class BmsLibraryInitializationService
 
     private const int DefaultInlineChartInfoBatchSize = 2048;
 
-    private const int DefaultFileDiffPostParseBatchSize = 1;
-
     private const int DefaultFileDiffCommitChunkSize = 10000;
 
     private const int DefaultFileDiffCommitWriterQueueCapacity = 2;
 
-    private const int DefaultSlowFileDiffBatchLogThresholdMs = 2000;
+    private const int DefaultSlowFileDiffPostParseItemLogThresholdMs = 2000;
 
     private readonly int? fileDiffParserDegreeOverride;
 
@@ -975,7 +973,6 @@ internal sealed class BmsLibraryInitializationService
             + " parsed_queue_capacity=" + result.ParsedQueueCapacity
             + " post_parse_queue_capacity=" + result.PostParseQueueCapacity
             + " post_parse_result_queue_capacity=" + result.PostParseResultQueueCapacity
-            + " post_parse_batch_size=" + result.PostParseBatchSize
             + " commit_queue_capacity=" + result.CommitQueueCapacity
             + " commit_writer_queue_capacity=" + result.CommitWriterQueueCapacity
             + " commit_writer_queue_high_watermark=" + result.CommitWriterQueueHighWatermark
@@ -988,9 +985,9 @@ internal sealed class BmsLibraryInitializationService
             + " commit_queue_wait_ms=" + result.CommitQueueWaitMs
             + " commit_writer_queue_wait_ms=" + result.CommitWriterQueueWaitMs
             + " db_commit_first_chunk_start_ms=" + result.DbCommitFirstChunkStartMs
-            + " post_parse_batch_count=" + result.PostParseBatchCount
+            + " post_parse_work_item_count=" + result.PostParseWorkItemCount
             + " post_parse_wall_ms=" + result.PostParseWallMs
-            + " post_parse_max_batch_ms=" + result.PostParseMaxBatchMs
+            + " post_parse_max_item_ms=" + result.PostParseMaxItemMs
             + " newfile_parse_ms=" + result.NewFileParseMs
             + " bms_parse_ms=" + result.BmsParseMs
             + " bmson_parse_ms=" + result.BmsonParseMs
@@ -1618,9 +1615,8 @@ internal sealed class BmsLibraryInitializationService
         int postParseWorkerDegree = ResolveFileDiffPostParseWorkerDegree(parserDegree);
         int readerDegree = ChartFileReadPipelinePolicy.ResolveReaderDegree(Environment.ProcessorCount, parseTargets.Count);
         int chartInfoBatchSize = Math.Max(1, result.InlineChartInfoBatchSize);
-        int postParseBatchSize = DefaultFileDiffPostParseBatchSize;
         int readQueueCapacity = ChartFileReadPipelinePolicy.ResolveReadQueueCapacity(parserDegree, readerDegree);
-        int parsedQueueCapacity = ResolveFileDiffParsedQueueCapacity(parserDegree, postParseBatchSize);
+        int parsedQueueCapacity = ResolveFileDiffParsedQueueCapacity(parserDegree);
         int postParseQueueCapacity = ResolveFileDiffPostParseQueueCapacity(postParseWorkerDegree);
         int postParseResultQueueCapacity = Math.Max(postParseWorkerDegree * 2, postParseWorkerDegree + 1);
         bool streamCommitChunks = commitContext != null;
@@ -1644,7 +1640,6 @@ internal sealed class BmsLibraryInitializationService
         result.ParsedQueueCapacity = parsedQueueCapacity;
         result.PostParseQueueCapacity = postParseQueueCapacity;
         result.PostParseResultQueueCapacity = postParseResultQueueCapacity;
-        result.PostParseBatchSize = postParseBatchSize;
         result.CommitQueueCapacity = commitQueueCapacity;
         result.CommitStreamingEnabled = streamCommitChunks;
         result.CommitStreamingBarrierReason = streamCommitChunks
@@ -1655,7 +1650,7 @@ internal sealed class BmsLibraryInitializationService
         result.InlineMaintenanceDegree = 1;
         var readQueue = new BlockingCollection<FileDiffReadCandidate>(readQueueCapacity);
         var parsedQueue = new BlockingCollection<FileDiffParsedCandidate>(parsedQueueCapacity);
-        var postParseQueue = new BlockingCollection<FileDiffParsedBatch>(postParseQueueCapacity);
+        var postParseQueue = new BlockingCollection<FileDiffPostParseWorkItem>(postParseQueueCapacity);
         var postParseResultQueue = new BlockingCollection<FileDiffPostParseResult>(postParseResultQueueCapacity);
         BlockingCollection<FileScanDiffCommitChunk> commitQueue = streamCommitChunks
             ? new BlockingCollection<FileScanDiffCommitChunk>(commitQueueCapacity)
@@ -1672,12 +1667,12 @@ internal sealed class BmsLibraryInitializationService
         long postParseTicks = 0L;
         long postParseWallStartTimestamp = 0L;
         long postParseWallEndTimestamp = 0L;
-        long postParseMaxBatchTicks = 0L;
+        long postParseMaxItemTicks = 0L;
         long inlineChartInfoWallTicks = 0L;
         long inlineMaintenanceWallTicks = 0L;
         long inlineBmsMaintenanceWallTicks = 0L;
         long inlineBmsonMaintenanceWallTicks = 0L;
-        int postParseBatchCount = 0;
+        int postParseWorkItemCount = 0;
         int postParseProgressCount = parseProcessedCount;
         void ReportPostParsePreparedProgress(string path)
         {
@@ -1695,13 +1690,12 @@ internal sealed class BmsLibraryInitializationService
             {
                 try
                 {
-                    foreach (FileDiffParsedBatch batch in postParseQueue.GetConsumingEnumerable())
+                    foreach (FileDiffPostParseWorkItem workItem in postParseQueue.GetConsumingEnumerable())
                     {
                         Interlocked.CompareExchange(ref postParseWallStartTimestamp, Stopwatch.GetTimestamp(), 0L);
                         FileDiffPostParseResult postParseResult = BuildFileDiffPostParseResult(
-                            batch.Sequence,
-                            batch.BmsCandidates,
-                            batch.BmsonCandidates,
+                            workItem.Sequence,
+                            workItem.ParsedCandidate,
                             dbGateway,
                             currentChartInfoParseFailures,
                             parserDegree,
@@ -1751,9 +1745,9 @@ internal sealed class BmsLibraryInitializationService
                             commitQueue,
                             pipelineException,
                             ref commitQueueWaitTicks,
-                            ref postParseBatchCount,
+                            ref postParseWorkItemCount,
                             ref postParseTicks,
-                            ref postParseMaxBatchTicks,
+                            ref postParseMaxItemTicks,
                             ref inlineChartInfoWallTicks,
                             ref inlineMaintenanceWallTicks,
                             ref inlineBmsMaintenanceWallTicks,
@@ -1850,30 +1844,15 @@ internal sealed class BmsLibraryInitializationService
         Exception pipelineFailure = null;
         try
         {
-            var bmsBatch = new List<InlineBmsParseCandidate>(postParseBatchSize);
-            var bmsonBatch = new List<InlineBmsonParseCandidate>(postParseBatchSize);
-            int postParseBatchSequence = 0;
+            int postParseWorkItemSequence = 0;
             foreach (FileDiffParsedCandidate parsedCandidate in parsedQueue.GetConsumingEnumerable())
             {
-                if (parsedCandidate.BmsCandidate != null)
-                {
-                    bmsBatch.Add(parsedCandidate.BmsCandidate);
-                }
-                if (parsedCandidate.BmsonCandidate != null)
-                {
-                    bmsonBatch.Add(parsedCandidate.BmsonCandidate);
-                }
-                if (bmsBatch.Count + bmsonBatch.Count >= postParseBatchSize)
-                {
-                    EnqueuePostParseBatch(postParseQueue, new FileDiffParsedBatch(postParseBatchSequence++, bmsBatch, bmsonBatch), pipelineException, ref postParseQueueWaitTicks, ref postParseException);
-                    bmsBatch = new List<InlineBmsParseCandidate>(postParseBatchSize);
-                    bmsonBatch = new List<InlineBmsonParseCandidate>(postParseBatchSize);
-                }
-            }
-
-            if (bmsBatch.Count > 0 || bmsonBatch.Count > 0)
-            {
-                EnqueuePostParseBatch(postParseQueue, new FileDiffParsedBatch(postParseBatchSequence++, bmsBatch, bmsonBatch), pipelineException, ref postParseQueueWaitTicks, ref postParseException);
+                EnqueuePostParseWorkItem(
+                    postParseQueue,
+                    new FileDiffPostParseWorkItem(postParseWorkItemSequence++, parsedCandidate),
+                    pipelineException,
+                    ref postParseQueueWaitTicks,
+                    ref postParseException);
             }
         }
         catch (Exception ex)
@@ -1984,13 +1963,13 @@ internal sealed class BmsLibraryInitializationService
         result.PostParseQueueWaitMs = TicksToMilliseconds(postParseQueueWaitTicks);
         result.PostParseOutputWaitMs = TicksToMilliseconds(postParseOutputWaitTicks);
         result.CommitQueueWaitMs = TicksToMilliseconds(commitQueueWaitTicks);
-        result.PostParseBatchCount = postParseBatchCount;
+        result.PostParseWorkItemCount = postParseWorkItemCount;
         long postParseWallStart = Interlocked.Read(ref postParseWallStartTimestamp);
         long postParseWallEnd = Interlocked.Read(ref postParseWallEndTimestamp);
         result.PostParseWallMs = postParseWallStart > 0L && postParseWallEnd >= postParseWallStart
             ? TicksToMilliseconds(postParseWallEnd - postParseWallStart)
             : 0L;
-        result.PostParseMaxBatchMs = TicksToMilliseconds(postParseMaxBatchTicks);
+        result.PostParseMaxItemMs = TicksToMilliseconds(postParseMaxItemTicks);
         result.InlineChartInfoWallMs = TicksToMilliseconds(inlineChartInfoWallTicks);
         result.InlineMaintenanceWallMs = TicksToMilliseconds(inlineMaintenanceWallTicks);
         result.InlineBmsMaintenanceWallMs = TicksToMilliseconds(inlineBmsMaintenanceWallTicks);
@@ -2218,8 +2197,7 @@ internal sealed class BmsLibraryInitializationService
 
     private FileDiffPostParseResult BuildFileDiffPostParseResult(
         int sequence,
-        List<InlineBmsParseCandidate> bmsBatch,
-        List<InlineBmsonParseCandidate> bmsonBatch,
+        FileDiffParsedCandidate parsedCandidate,
         BmsLibraryDbGateway dbGateway,
         IDictionary<string, LR2SongDBExtended.chart_info_parse_failure> currentChartInfoParseFailures,
         int chartInfoParserDegree,
@@ -2232,20 +2210,28 @@ internal sealed class BmsLibraryInitializationService
         Action<string> reportPostParsePreparedProgress)
     {
         var postResult = new FileDiffPostParseResult(sequence);
-        FileDiffPostParseBatchMetrics metrics = postResult.Metrics;
-        metrics.BmsCount = bmsBatch?.Count ?? 0;
-        metrics.BmsonCount = bmsonBatch?.Count ?? 0;
+        FileDiffPostParseItemMetrics metrics = postResult.Metrics;
+        InlineBmsParseCandidate bmsCandidate = parsedCandidate?.BmsCandidate;
+        InlineBmsonParseCandidate bmsonCandidate = parsedCandidate?.BmsonCandidate;
+        metrics.BmsCount = bmsCandidate != null ? 1 : 0;
+        metrics.BmsonCount = bmsonCandidate != null ? 1 : 0;
         var totalStopwatch = Stopwatch.StartNew();
         try
         {
-            if ((bmsBatch == null || bmsBatch.Count == 0) && (bmsonBatch == null || bmsonBatch.Count == 0))
+            if (bmsCandidate == null && bmsonCandidate == null)
             {
                 return postResult;
             }
 
-            List<InlineBmsParseCandidate> fullBmsBatch = bmsBatch == null
+            List<InlineBmsParseCandidate> bmsItems = bmsCandidate == null
                 ? []
-                : [.. bmsBatch.Where(candidate => !IsBmsDateOnlyCandidate(candidate))];
+                : [bmsCandidate];
+            List<InlineBmsParseCandidate> fullBmsBatch = bmsItems.Count == 0
+                ? []
+                : [.. bmsItems.Where(candidate => !IsBmsDateOnlyCandidate(candidate))];
+            List<InlineBmsonParseCandidate> bmsonItems = bmsonCandidate == null
+                ? []
+                : [bmsonCandidate];
             var chartInfoStopwatch = Stopwatch.StartNew();
             ChartInfoInlineBuildResult bmsChartInfoResult = BuildInlineBmsChartInfo(
                 fullBmsBatch,
@@ -2257,7 +2243,7 @@ internal sealed class BmsLibraryInitializationService
                 logInstallPerformance,
                 logInstallPerformanceWarn);
             ChartInfoInlineBuildResult bmsonChartInfoResult = BuildInlineBmsonChartInfo(
-                bmsonBatch,
+                bmsonItems,
                 dbGateway,
                 currentChartInfoParseFailures,
                 chartInfoParserDegree,
@@ -2286,7 +2272,7 @@ internal sealed class BmsLibraryInitializationService
             bmsMaintenanceStopwatch.Stop();
             var bmsonMaintenanceStopwatch = Stopwatch.StartNew();
             InlineMaintenanceItemResult[] bmsonMaintenanceResults = BuildInlineBmsonMaintenanceBatch(
-                bmsonBatch,
+                bmsonItems,
                 inlineMaintenanceLookupContext,
                 inlineMaintenanceDegree,
                 logInstallPerformanceWarn);
@@ -2305,9 +2291,9 @@ internal sealed class BmsLibraryInitializationService
             metrics.ResourceIndexHitCount = SumInlineMaintenanceResourceIndexHitCount(bmsMaintenanceResults) + SumInlineMaintenanceResourceIndexHitCount(bmsonMaintenanceResults);
             metrics.FileExistsFallbackCount = SumInlineMaintenanceFileExistsFallbackCount(bmsMaintenanceResults) + SumInlineMaintenanceFileExistsFallbackCount(bmsonMaintenanceResults);
 
-            if (bmsBatch != null && bmsBatch.Count > 0)
+            if (bmsItems.Count > 0)
             {
-                foreach (InlineBmsParseCandidate candidate in bmsBatch)
+                foreach (InlineBmsParseCandidate candidate in bmsItems)
                 {
                     if (IsBmsDateOnlyCandidate(candidate))
                     {
@@ -2359,13 +2345,12 @@ internal sealed class BmsLibraryInitializationService
                         reportPostParsePreparedProgress?.Invoke(candidate.Path);
                     }
                 }
-                bmsBatch.Clear();
             }
-            if (bmsonBatch != null && bmsonBatch.Count > 0)
+            if (bmsonItems.Count > 0)
             {
-                for (int i = 0; i < bmsonBatch.Count; i++)
+                for (int i = 0; i < bmsonItems.Count; i++)
                 {
-                    InlineBmsonParseCandidate candidate = bmsonBatch[i];
+                    InlineBmsonParseCandidate candidate = bmsonItems[i];
                     if (candidate.Exception != null)
                     {
                         postResult.BmsonParseFailures.Add(candidate);
@@ -2387,7 +2372,6 @@ internal sealed class BmsLibraryInitializationService
                         reportPostParsePreparedProgress?.Invoke(candidate.Path);
                     }
                 }
-                bmsonBatch.Clear();
             }
             AddRemainingInlineRows([], ref commitChunk, chartInfoByMd5, appliedChartInfoByMd5, failureByMd5, failureDeletes, int.MaxValue);
             return postResult;
@@ -2409,9 +2393,9 @@ internal sealed class BmsLibraryInitializationService
         BlockingCollection<FileScanDiffCommitChunk> commitQueue,
         PipelineExceptionSignal pipelineException,
         ref long commitQueueWaitTicks,
-        ref int postParseBatchCount,
+        ref int postParseWorkItemCount,
         ref long postParseTicks,
-        ref long postParseMaxBatchTicks,
+        ref long postParseMaxItemTicks,
         ref long inlineChartInfoWallTicks,
         ref long inlineMaintenanceWallTicks,
         ref long inlineBmsMaintenanceWallTicks,
@@ -2433,21 +2417,21 @@ internal sealed class BmsLibraryInitializationService
             pipelineException,
             ref commitQueueWaitTicks);
         long commitWaitAfter = Interlocked.Read(ref commitQueueWaitTicks);
-        FileDiffPostParseBatchMetrics metrics = postResult.Metrics;
+        FileDiffPostParseItemMetrics metrics = postResult.Metrics;
         metrics.CommitQueueWaitTicks = Math.Max(0L, commitWaitAfter - commitWaitBefore);
-        postParseBatchCount++;
+        postParseWorkItemCount++;
         postParseTicks += metrics.TotalTicks;
-        UpdateMaxTicks(ref postParseMaxBatchTicks, metrics.TotalTicks);
+        UpdateMaxTicks(ref postParseMaxItemTicks, metrics.TotalTicks);
         inlineChartInfoWallTicks += metrics.ChartInfoTicks;
         inlineMaintenanceWallTicks += metrics.MaintenanceTicks;
         inlineBmsMaintenanceWallTicks += metrics.BmsMaintenanceTicks;
         inlineBmsonMaintenanceWallTicks += metrics.BmsonMaintenanceTicks;
 
         long totalMs = TicksToMilliseconds(metrics.TotalTicks);
-        if (totalMs >= DefaultSlowFileDiffBatchLogThresholdMs)
+        if (totalMs >= DefaultSlowFileDiffPostParseItemLogThresholdMs)
         {
-            logInstallPerformance?.Invoke("song_tbl_file_check_batch_slow"
-                + " batch=" + postParseBatchCount
+            logInstallPerformance?.Invoke("song_tbl_file_check_post_parse_item_slow"
+                + " item=" + postParseWorkItemCount
                 + " sequence=" + postResult.Sequence
                 + " totalMs=" + totalMs
                 + " chartInfoMs=" + TicksToMilliseconds(metrics.ChartInfoTicks)
@@ -2991,9 +2975,9 @@ internal sealed class BmsLibraryInitializationService
         }
     }
 
-    private static void EnqueuePostParseBatch(
-        BlockingCollection<FileDiffParsedBatch> queue,
-        FileDiffParsedBatch batch,
+    private static void EnqueuePostParseWorkItem(
+        BlockingCollection<FileDiffPostParseWorkItem> queue,
+        FileDiffPostParseWorkItem workItem,
         PipelineExceptionSignal pipelineException,
         ref long waitTicks,
         ref Exception postParseException)
@@ -3006,7 +2990,7 @@ internal sealed class BmsLibraryInitializationService
         }
         try
         {
-            AddWithWait(queue, batch, ref waitTicks, pipelineException);
+            AddWithWait(queue, workItem, ref waitTicks, pipelineException);
         }
         catch (InvalidOperationException) when (Volatile.Read(ref postParseException) != null)
         {
@@ -4092,20 +4076,18 @@ internal sealed class BmsLibraryInitializationService
         }
     }
 
-    private sealed class FileDiffParsedBatch(int sequence, List<BmsLibraryInitializationService.InlineBmsParseCandidate> bmsCandidates, List<BmsLibraryInitializationService.InlineBmsonParseCandidate> bmsonCandidates)
+    private sealed class FileDiffPostParseWorkItem(int sequence, FileDiffParsedCandidate parsedCandidate)
     {
         public int Sequence { get; } = sequence;
 
-        public List<InlineBmsParseCandidate> BmsCandidates { get; } = bmsCandidates ?? [];
-
-        public List<InlineBmsonParseCandidate> BmsonCandidates { get; } = bmsonCandidates ?? [];
+        public FileDiffParsedCandidate ParsedCandidate { get; } = parsedCandidate;
     }
 
     private sealed class FileDiffPostParseResult(int sequence)
     {
         public int Sequence { get; } = sequence;
 
-        public FileDiffPostParseBatchMetrics Metrics { get; } = new FileDiffPostParseBatchMetrics();
+        public FileDiffPostParseItemMetrics Metrics { get; } = new FileDiffPostParseItemMetrics();
 
         public ChartInfoInlineBuildResult ChartInfoResult { get; } = new ChartInfoInlineBuildResult();
 
@@ -4142,7 +4124,7 @@ internal sealed class BmsLibraryInitializationService
         }
     }
 
-    private sealed class FileDiffPostParseBatchMetrics
+    private sealed class FileDiffPostParseItemMetrics
     {
         public int BmsCount { get; set; }
 
@@ -4480,11 +4462,10 @@ internal sealed class BmsLibraryInitializationService
         return Math.Max(normalizedParserDegree, Math.Min(normalizedProcessorCount, targetPostParseDegree));
     }
 
-    internal static int ResolveFileDiffParsedQueueCapacity(int parserDegree, int postParseBatchSize)
+    internal static int ResolveFileDiffParsedQueueCapacity(int parserDegree)
     {
-        int normalizedBatchSize = Math.Max(1, postParseBatchSize);
         int normalizedParserDegree = Math.Max(1, parserDegree);
-        return Math.Max(normalizedBatchSize, normalizedParserDegree * normalizedBatchSize * 2);
+        return Math.Max(1, normalizedParserDegree * 2);
     }
 
     internal static int ResolveFileDiffPostParseQueueCapacity(int postParseWorkerDegree)

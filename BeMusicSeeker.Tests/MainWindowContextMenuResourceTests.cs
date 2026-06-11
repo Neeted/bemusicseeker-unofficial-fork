@@ -2156,7 +2156,7 @@ public sealed class MainWindowContextMenuResourceTests
         string startupFlowDoc = File.ReadAllText(Path.Combine(root, "devdocs", "spec", "startup-initialization-flow.md"));
 
         StringAssert.Contains(initializationCode, "private const int DefaultInlineChartInfoBatchSize = 2048;");
-        StringAssert.Contains(initializationCode, "var postParseQueue = new BlockingCollection<FileDiffParsedBatch>(postParseQueueCapacity);");
+        StringAssert.Contains(initializationCode, "var postParseQueue = new BlockingCollection<FileDiffPostParseWorkItem>(postParseQueueCapacity);");
         StringAssert.Contains(initializationCode, "BlockingCollection<FileScanDiffCommitChunk> commitQueue = streamCommitChunks");
         StringAssert.Contains(initializationCode, "BlockingCollection<FileDiffCommitWriterItem> writerQueue");
         StringAssert.Contains(initializationCode, "commitContext.AddChunk(chunk);");
@@ -2176,7 +2176,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(planDoc, "inline_maintenance_wall_ms");
         StringAssert.Contains(startupFlowDoc, "post-parse worker");
         StringAssert.Contains(startupFlowDoc, "commit aggregator");
-        StringAssert.Contains(startupFlowDoc, "DefaultFileDiffPostParseBatchSize=1");
+        StringAssert.Contains(startupFlowDoc, "post-parse work item は parsed candidate 1 件");
     }
 
     [TestMethod]

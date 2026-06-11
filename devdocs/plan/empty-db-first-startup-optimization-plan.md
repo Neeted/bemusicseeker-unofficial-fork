@@ -460,9 +460,9 @@ BeMusicSeeker が `karinotes = 0` を入れる経路は、`setZeroNoteAndCommitT
   - `FileDiffParseMs`
   - `ReadQueueCapacity`
   - `ParsedQueueCapacity`
-  - `PostParseBatchCount`
+  - `PostParseWorkItemCount`
   - `PostParseWallMs`
-  - `PostParseMaxBatchMs`
+  - `PostParseMaxItemMs`
   - `ReaderOutputWaitMs`
   - `ParserOutputWaitMs`
   - `InlineChartInfoWallMs`
@@ -479,7 +479,7 @@ Phase 6 では byte cap は入れていない。件数ベースの bounded paral
 - `reader_output_wait_ms`
 - `parser_output_wait_ms`
 - `post_parse_wall_ms`
-- `post_parse_max_batch_ms`
+- `post_parse_max_item_ms`
 - `inline_chart_info_wall_ms`
 - `inline_maintenance_wall_ms`
 - `snapshot_queue_high_watermark`
@@ -754,7 +754,7 @@ Phase 9 は Phase 8 後の単なる高速化ではなく、Phase 7.7 の memory 
 - file diff pipeline で lightweight parse が成功した譜面について、同じ commit chunk 内で maintenance row を作る。
 - lightweight parse と inline maintenance の間に post-parse worker を置き、parser worker が 512 件ごとの同期 flush で止まらないようにする。
   - inline `chart_info` batch size の既定は 2048 件とする。
-  - parser output queue は batch size 以上にし、post-parse worker の処理中も parser が次の譜面を進められる余地を持つ。
+  - parser output queue は parser degree に応じた bounded capacity とし、post-parse worker の処理中も parser が次の譜面を進められる余地を持つ。
 - BMS は `CreateBMSFileFromSnapshot()` で `WAVfiles` / `BGAfiles` を持っているため、health 計算に再読込は不要。
   - この集合は BMSFile 正本の長期 field として残すのではなく、chunk 内で maintenance row へ畳み込む一時入力として扱う。
   - maintenance row 作成後は `WAVfiles` / `BGAfiles` / `localWAVfilesNameHashArray` / `localBGAfilesNameHashArray` / nonlocal list などを破棄する。
@@ -799,7 +799,7 @@ Phase 9 は Phase 8 後の単なる高速化ではなく、Phase 7.7 の memory 
 - file diff pipeline 化後、進捗 callback が 1 件単位で呼ばれ、UI 表示は throttle されつつ `[processed/total]` が滑らかに進むこと。
 - file diff の DB 永続化が既定 10000 件前後の chunk に分割され、chunk 保存後に inline `chart_info` row / failure row / commit staging が破棄されること。
 - file diff の inline `chart_info` batch size 既定が 2048 件で、override 時は指定値へ正規化されること。
-- file diff の parser output queue capacity が batch size 以上になり、`parser_output_wait_ms`, `post_parse_wall_ms`, `post_parse_max_batch_ms` が summary log に出ること。
+- file diff の parser output queue capacity が parser degree に応じた bounded queue になり、`parser_output_wait_ms`, `post_parse_wall_ms`, `post_parse_max_item_ms` が summary log に出ること。
 - inline maintenance が bounded parallelism で実行され、`inline_maintenance_degree`, `inline_maintenance_wall_ms`, cache hit / fallback counter が summary log に出ること。
 - file diff chunk commit 中に例外が発生した場合、失敗 chunk の transaction だけ rollback され、既に commit 済みの chunk と in-memory catalog の整合性が保たれること。
 - full `chart_info` backfill の事前候補判定で candidate 0 の場合、backfill request が queue されず `chart_info_backfill skipped reason=no_candidates` が出ること。
