@@ -84,7 +84,7 @@ score / chart_info / maintenance / warning hydration が現在の full normal li
 | 画面 / filter | `viewUpdateMode` | 設定オブジェクト | `CustomTableColumnSettings.ViewKind` |
 | --- | --- | --- | --- |
 | 通常ライブラリ / フォルダ | `FolderFilterSelected` | `Settings.Default.StandardCustomTableColumnSettings` | `STANDARD` |
-| LR2非対応パス | `UnregisteredFilterSelected` | `Settings.Default.UnregisteredCustomTableColumnSettings` | `UNREGISTERED` |
+| LR2互換性警告 | `UnregisteredFilterSelected` | `Settings.Default.UnregisteredCustomTableColumnSettings` | `UNREGISTERED` |
 | プレイリスト詳細 / 未所持フィルタ | `PlaylistFilterSelected`, `PlaylistNotOwnedFilterSelected` | `Settings.Default.PlaylistCustomTableColumnSettings` | `PLAYLIST` |
 | ゼロノート | `ZeroNoteFilterSelected` | `Settings.Default.ZeroNoteCustomTableColumnSettings` | `ZERO_NOTE` |
 | 譜面メタデータ解析失敗 | `ChartInfoParseErrorFilterSelected` | `Settings.Default.ChartInfoParseErrorCustomTableColumnSettings` | `CHART_INFO_PARSE_ERROR` |
@@ -137,11 +137,11 @@ score / chart_info / maintenance / warning hydration が現在の full normal li
 | 29 | ChartEndDensity | `END` | 40 |
 | 30 | PlaylistSymbols | `PLAYLIST` | 70 |
 
-### LR2非対応パス
+### LR2互換性警告
 
 `UNREGISTERED`
 
-LR2非対応パス画面は、通常ライブラリよりも警告内容の確認を優先するため、`Warning` を初期表示に含める。
+LR2互換性警告画面は、通常ライブラリよりも警告内容の確認を優先するため、`Warning` を初期表示に含める。
 
 | Order | Column | Header | Width |
 | ---: | --- | --- | ---: |

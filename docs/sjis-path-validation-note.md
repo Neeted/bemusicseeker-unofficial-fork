@@ -1,10 +1,10 @@
-# LR2 非対応パス warning
+# LR2 互換性警告 warning
 
 ## 概要
 - LR2 の `song.folder` / `song.parent` は Shift_JIS 文字列を前提にした CRC で計算される。
 - パスに Shift_JIS で表現できない文字が含まれる譜面は、LR2 用の folder/parent ID を計算できない。
 - LR2 は古い path 長制限にも影響されるため、譜面 path や resource path が長すぎる場合も warning として表示する。
-- 現在は当該レコードを削除せず、`Lr2Compatibility` warning を付けて `LR2非対応パス` 画面に表示する。
+- 現在は当該レコードを削除せず、`Lr2Compatibility` warning を付けて `LR2互換性警告` 画面に表示する。
 
 ## 観測ログ（抜粋）
 - `song_tbl_load_detail ... deletedSongs=24 ...`
@@ -30,11 +30,11 @@
   - `song` 行は削除しない。
   - 譜面 path が Shift_JIS 非対応で `folder` / `parent` CRC を計算できない場合は、`folder` / `parent` を空のままにする。
   - `Lr2PathEncodingUnsupported` / `Lr2PathTooLong` / `Lr2ResourcePathUnsupported` / `Lr2ResourcePathTooLong` warning を maintenance facts から付ける。
-  - `LR2非対応パス` 画面に表示する。
+  - `LR2互換性警告` 画面に表示する。
 - relative path 補正では、絶対 path 化と CRC 計算が両方成功した場合だけ `song.path` を更新する。Shift_JIS 非対応時は中途半端な path 更新を残さない。
 
 ## 今後の改善候補
-- `LR2非対応パス` 画面で、パス・ファイル名・推奨対応（改名/移動）をより分かりやすく表示する。
+- `LR2互換性警告` 画面で、パス・ファイル名・推奨対応（改名/移動）をより分かりやすく表示する。
 - `song_tbl_load_detail` に削除理由内訳（例: `hash_empty`, `normalize_exception`）を出力し、原因を即判別可能にする。
 
 ## 補足

@@ -200,9 +200,9 @@ target enumeration
   - OpenLR2 現行実装は `GetUnixtimeFromFiletime(FILETIME)` で Windows `FILETIME` から UTC Unix 秒を作り、`song.date` / `folder.date` へ保存する。BeMusicSeeker の `song.date` 生成もこの意味に寄せる。
   - 提供された旧 DB (`D:\LR2beta3\LR2files\Database\song old.db`) の `song.date` は、現在の実ファイル mtime から作る UTC Unix 秒とほぼ全件一致しない。差分は一定の 9 時間 offset に集中せず、数時間から 1 日以上まで散るため、file diff の通常 date-only 更新ではなく旧形式移行として扱う。
   - 本番アプリに実験用の診断 log や意味を変える fallback は入れない。互換仕様は OpenLR2 の `GetUnixtimeFromFiletime` / `GetFileUnixtime` と旧 DB fixture のオフライン確認で固定し、固定後の helper / tests に反映する。
-  - 完全生成 status が未完了、または maintenance 互換列が未移行の DB では、file diff は既存 BMS path の generated metadata refresh を行わない。`song.date`、`song.txt`、`maintenance` 互換列、chart_info 由来の projection などは後段 full generation sync の責務にし、保護中の file diff は新規・削除・移動など owned file identity の差分だけを通常処理する。
+  - 完全生成 status が current `Completed` + matching signature でない DB では、file diff は既存 BMS path の全量 generated metadata refresh を行わない。`song.date`、`song.txt`、`maintenance` 互換列、chart_info 由来の projection などは後段 full generation sync の責務にし、file diff は新規・削除・移動など owned file identity の差分だけを通常処理する。maintenance nullable column から未移行状態を推測する追加検査は持たない。
   - この保護中の既存 BMS path は、完全生成 OFF / standalone 相当として扱う。つまり text surface や mtime mismatch があっても既存 row を read / parse して更新せず、完全生成が必要な run で `song_rows` / compatibility projection がまとめて移行する。
-  - 最新ログでは `bms_new_insert_path_count=1235` に対して `bms_date_only_update_count=208516`、後段 full generation は `song_rows_skip action=run reason=insufficient_maintenance_coverage` だった。旧 DB 移行時は、この大量 generated metadata refresh を file diff の fresh coverage として扱わず、maintenance 互換列を含む移行完了を full generation status 側で記録する。
+  - 最新ログでは `bms_new_insert_path_count=1235` に対して `bms_date_only_update_count=208516`、後段 full generation は全量 `song_rows` 実行になっていた。旧 DB 移行時は、この大量 generated metadata refresh を file diff の fresh coverage として扱わず、full generation の durable status + signature を移行完了の正本にする。
   - `song.date`、normal `folder.date`、`.lr2folder.date`、比較用の current date 生成を、OpenLR2 fixture で固定した `Lr2DateTimeCompatibility` 相当の helper に集約する。
 - 目的は、手動 full generation resync の重い再検証を変えることではなく、同じ起動サイクル内の大量 file diff 直後に自動実行される初回 LR2 full generation が、直前に read / parse 済みの譜面を全件再 read する状態を避けること。
 - 対象は「空 DB 初回」専用ではなく、大量差分で file diff が多数の `song` / `bmson_song` / `chart_digest_map` / `maintenance` / `chart_info` を fresh にしたケース全般とする。
@@ -215,7 +215,7 @@ target enumeration
   - 完了: runtime snapshot の `TransientSongRowSkipPaths` が全 current BMS owner path を覆う場合は、自動 follow-up の `song_rows` stage を丸ごと skip する。空 DB 初回では、file diff が全 BMS を追加 commit するため、この条件を満たす想定にする。
   - 完了: 自動 follow-up では DB projection strict verifier を使わない。coverage gate が成立しない場合は `file_diff_transient_coverage_incomplete` として skip せず、通常の `song_rows` pipeline に任せる。
   - 完了: file diff と LR2 full generation の BMS row 生成は `Lr2SongRowEnricher.CreateParsedSongRowFromSnapshot(...)` を共有し、LR2 full generation 専用の別 parser 経路を持たない。
-  - 完了: 旧 DB / 未移行 DB 保護中は、既存 BMS path を file diff target にしない。`BmsLegacyExistingProtectedCount` は移行保護で target 化しなかった既存 path 数として扱い、fresh coverage には含めない。
+  - 完了: full generation status が current `Completed` + matching signature でない間は、既存 BMS path を generated metadata refresh の file diff target にしない。`BmsLegacyExistingProtectedCount` は target 化しなかった既存 path 数として扱い、fresh coverage には含めない。
   - 保留: coverage が部分的な通常大量差分では、今回 commit 済み path を自動 follow-up の `song_rows` 対象から一時的に除外し、残りだけを処理する縮小実行を検討する。これは durable resume 対象にはせず、次回起動では通常検証へ戻す。
   - 万一途中終了した場合、次回起動では前回 skip した row も含めて通常どおり再検証してよい。初回自動 full generation は一度だけの best-effort follow-up と扱い、途中再開のために skip target list を永続化しない。
   - skip できない場合は従来どおり `song_rows` pipeline を実行する。manual resync / force resync は安全側で従来動作を維持する。

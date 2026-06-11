@@ -945,7 +945,7 @@ LR2IRにスコアやクリアが自動送信されるわけではありません
 「ルートフォルダ出力先」にはプレイリストのプロパティで「ルートフォルダにする」を有効にしたものが出力されます。選曲画面のルートに表示されるのでクイックアクセスが可能です。</value>
   </data>
   <data name="Unregistered_in_lr2_db" xml:space="preserve">
-    <value>LR2非対応パス</value>
+    <value>LR2互換性警告</value>
   </data>
   <data name="PlaylistProp_sortkey" xml:space="preserve">
     <value>ソートキー: </value>
@@ -1394,10 +1394,10 @@ maintenance の再スキャンや chart_info の全譜面補完は行いませ�
 続行しますか?</value>
   </data>
   <data name="Lr2_full_generation_cleanup_startup_scan_blockers" xml:space="preserve">
-    <value>LR2 folder DB行を削除して再試行</value>
+    <value>LR2 folder 行を整理して再試行</value>
   </data>
   <data name="Msg_confirm_lr2_full_generation_startup_scan_blocker_cleanup" xml:space="preserve">
-    <value>LR2 song.db 完全生成の完了を妨げている古い folder 行を削除してから再試行します。
+    <value>LR2 folder テーブルの診断対象行を整理してから再試行します。
 削除するのは診断対象になった LR2 folder テーブル行のみで、譜面ファイルや .lr2folder ファイルは削除しません。
 
 続行しますか?</value>

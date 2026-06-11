@@ -6,7 +6,7 @@
 
 空に近い `song.db` で初回起動すると、ファイルスキャンで大量の譜面が一括追加される。このとき、現在は次の問題が同時に出やすい。
 
-- `LR2データベース未登録` が初回だけ大量表示され、再起動後は 0 件になる。
+- 旧 `LR2データベース未登録`（現 `LR2互換性警告`）が初回だけ大量表示され、再起動後は 0 件になる。
 - `ゼロノート検索` が初回だけ大量表示され、再起動後は少数に落ち着く。
 - `installable_maintenance_deferred` が進捗ゲージに含まれず、操作可能表示後も長時間重い background 処理が続く。
 - 初回 health 計算で `maintenance` 未作成の全譜面を対象にするため、resource health / bmson 再パース / warning 適用が重い。
@@ -51,7 +51,7 @@ installable_maintenance_deferred done ... maintenanceChecked=0 healthMs=0 ... se
 
 このログから、初回の health/maintenance コストは `installable_maintenance_deferred` から `LibraryFileDiffDone` の内側へ移動したと読める。これは初回と再起動後の表示整合性を優先する設計として想定どおりである。今後の高速化対象は、deferred health ではなく `inline_maintenance_ms` と file diff parse 全体になる。
 
-この時点で `LR2非対応パス` / `ゼロノート検索` / `解析エラー` / `構成ファイルフルスキャン` の件数は初回と再起動後で大きく揺れにくくなった。一方で、性能面では次が残っている。
+この時点で `LR2互換性警告` / `ゼロノート検索` / `解析エラー` / `構成ファイルフルスキャン` の件数は初回と再起動後で大きく揺れにくくなった。一方で、性能面では次が残っている。
 
 - 初回 file diff の BMS lightweight parse が約22分で、操作可能化までの支配要因になっている。
 - file diff は 512 件ごとに parse しているが、DB 永続化は最後に全件まとめて行うため、`AddedFiles` / `NextFiles` / inline `chart_info` row などの staging が長時間・大量に残る。
@@ -209,11 +209,11 @@ background task は「現在の file diff で直接扱っていない DB 由来�
 - 新規・更新ファイルの inline maintenance も、実装後は `LibraryFileDiffDone` または専用 sublabel の内側で扱う。
 - `InstallableMaintenanceDeferredDone` は DB 由来の missing/stale maintenance 補完を表す。新規ファイル由来の大量 maintenance 作成をここへ押し出さない。
 
-## LR2データベース未登録
+## LR2互換性警告
 
 ### 現状
 
-`LR2データベース未登録` は、実際には `song` テーブル未登録ではなく、`ChartFilesUnregistered => BMS storage row の parent が空` の譜面を表示している。
+旧 `LR2データベース未登録` / `LR2非対応パス` 画面は、実際には `song` テーブル未登録ではなく、`ChartFilesUnregistered => BMS storage row の parent が空` の譜面を表示していた。
 
 初回空DBでは、file diff で追加された `BMSFile` が `folder` / `parent` 未設定のまま `song` へ insert される。そのため初回だけ大量に表示される。再起動後は `LoadSongTable()` の正規化で `folder` / `parent` CRC が補正されるため、0 件になる。
 
@@ -226,7 +226,7 @@ background task は「現在の file diff で直接扱っていない DB 由来�
 - Shift_JIS 非対応パスでは削除しない。
   - `folder` / `parent` は空のままにする。
   - structured warning を付ける。
-  - `LR2データベース未登録` は「パスに Shift_JIS 非対応文字が含まれるため LR2 が解釈可能な parent を設定できない譜面」を示す画面へ意味を寄せる。
+  - 旧 `LR2データベース未登録` は「パスに Shift_JIS 非対応文字が含まれるため LR2 が解釈可能な parent を設定できない譜面」を示す画面へ意味を寄せる。
 - 既存 `song` の正規化時も、Shift_JIS 非対応による削除ではなく warning 付与にする。
 
 ### Warning 案
@@ -239,7 +239,7 @@ warning は DB 永続化しない。起動時・file diff 追加時の判定で�
 
 ### 期待効果
 
-- 初回空DBで `LR2データベース未登録` が全件表示される問題を解消できる。
+- 初回空DBで旧 `LR2データベース未登録` が全件表示される問題を解消できる。
 - Shift_JIS 非対応パスの削除→再追加往復を止められる。
 - 未登録画面の意味が、実際にユーザー対応が必要な LR2 互換問題へ絞られる。
 
@@ -348,7 +348,7 @@ BeMusicSeeker が `karinotes = 0` を入れる経路は、`setZeroNoteAndCommitT
 - file diff 追加時に `folder` / `parent` を設定してから DB insert する。
 - `UpsertSongs()` 前にも同じ補正を行い、package install などの保存経路も保護する。
 - Shift_JIS 非対応 path では削除せず、`parent = null` と `Lr2PathEncodingUnsupported` warning にする。
-- `LR2データベース未登録` の表示名を `LR2非対応パス` に変更し、画面の意味を Shift_JIS 非対応 path の可視化へ寄せた。
+- 旧 `LR2データベース未登録` の表示名を `LR2互換性警告` に変更し、画面の意味を LR2 互換性 warning の可視化へ寄せた。
 
 ### Phase 2: zero-note source of truth 移行
 
