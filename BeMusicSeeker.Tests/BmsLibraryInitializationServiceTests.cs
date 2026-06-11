@@ -3229,49 +3229,6 @@ public sealed class BmsLibraryInitializationServiceTests
     }
 
     [TestMethod]
-    public void HasIncompleteLr2CompatibilityMaintenanceFacts_DetectsUnmigratedBmsRows()
-    {
-        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
-        {
-            string bmsPath = Path.Combine(lr2RootPath, "CompatFacts", "ROW.BMS");
-            string maintenancePath = Path.Combine(lr2RootPath, "CompatFacts", "row.bms");
-            using var songDb = new LR2SongDBExtended(songDbPath);
-            Assert.IsFalse(BmsLibraryDbGateway.HasIncompleteLr2CompatibilityMaintenanceFacts(songDb));
-
-            songDb.CreateTable<LR2SongDB.song>();
-            var existingFile = new TestableBmsFile
-            {
-                path = bmsPath
-            };
-            existingFile.SetHash(new string('a', 32));
-            songDb.InsertOrReplace(existingFile, typeof(LR2SongDB.song));
-            Assert.IsTrue(BmsLibraryDbGateway.HasIncompleteLr2CompatibilityMaintenanceFacts(songDb));
-
-            BmsLibraryDbGateway.EnsureMaintenanceSchema(songDb);
-            Assert.IsTrue(BmsLibraryDbGateway.HasIncompleteLr2CompatibilityMaintenanceFacts(songDb));
-
-            songDb.InsertOrReplace(new LR2SongDBExtended.maintenance
-            {
-                path = maintenancePath,
-                hash = existingFile.hash,
-                lr2_path_warning_flags = 0,
-                lr2_chart_path_cp932_bytes = 10,
-                lr2_folder_scan_cp932_bytes = 20,
-                lr2_resource_warning_flags = 0,
-                lr2_resource_max_raw_cp932_bytes = 30,
-                lr2_resource_max_resolved_cp932_bytes = 40,
-                lr2_resource_unsupported_count = 0
-            }, typeof(LR2SongDBExtended.maintenance));
-            Assert.IsFalse(BmsLibraryDbGateway.HasIncompleteLr2CompatibilityMaintenanceFacts(songDb));
-
-            songDb.Execute(
-                "UPDATE maintenance SET lr2_resource_unsupported_count = NULL WHERE path = ?;",
-                maintenancePath);
-            Assert.IsTrue(BmsLibraryDbGateway.HasIncompleteLr2CompatibilityMaintenanceFacts(songDb));
-        });
-    }
-
-    [TestMethod]
     public void ApplyFileScanDiff_AddsBmsPublishesGeneratedInlineChartInfoToCallback()
     {
         TestResourceInitializer.EnsureJapaneseResources();

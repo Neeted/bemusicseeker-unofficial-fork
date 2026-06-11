@@ -406,6 +406,11 @@ public class BMSFile : LR2SongDB.song
         _warnings?.RemoveCategory(category);
     }
 
+    internal bool HasWarningCategory(ChartWarningCategory category)
+    {
+        return _warnings?.ContainsCategory(category) == true;
+    }
+
     internal void ClearWarning(ChartWarningKind kind)
     {
         _warnings?.Remove(kind);

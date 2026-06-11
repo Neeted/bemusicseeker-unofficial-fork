@@ -1447,7 +1447,7 @@ public class BMSLibrary : NotificationObject
     }
 
     internal IEnumerable<ChartFile> ChartFilesUnregistered => CreateBmsChartSubsetSnapshot(
-        BMSFiles.Where(f => string.IsNullOrWhiteSpace(f.parent)));
+        BMSFiles.Where(file => file?.HasWarningCategory(ChartWarningCategory.Lr2Compatibility) == true));
 
     internal int NormalLibraryRefreshNotificationVersion => Volatile.Read(ref latestNormalLibraryRefreshNotificationVersion);
 
@@ -5367,11 +5367,6 @@ completeFileEnumerationOnce,
         if (options?.OperationModeLR2DB != true)
         {
             return false;
-        }
-
-        if (dbGateway.HasIncompleteLr2CompatibilityMaintenanceFacts())
-        {
-            return true;
         }
 
         if (options.EnableLR2SongDbFullGeneration != true)

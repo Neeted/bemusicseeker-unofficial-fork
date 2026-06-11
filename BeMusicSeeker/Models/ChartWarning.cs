@@ -347,6 +347,16 @@ internal sealed class ChartWarningCollection
     }
 
     /// <summary>
+    /// 指定カテゴリの構造化 warning が存在するかどうかを返します。
+    /// </summary>
+    /// <param name="category">確認するカテゴリ。</param>
+    /// <returns>存在する場合は true。</returns>
+    internal bool ContainsCategory(ChartWarningCategory category)
+    {
+        return structuredWarnings.Values.Any(warning => warning.Category == category);
+    }
+
+    /// <summary>
     /// 現在保持している構造化 warning を列挙します。
     /// </summary>
     /// <returns>構造化 warning の snapshot。</returns>

@@ -85,6 +85,6 @@ public sealed class Lr2FullGenerationSignatureBuilderTests
         StringAssert.Contains(signature, "|chartInfoParser=");
         StringAssert.Contains(signature, "|songFolderGenerator=");
         StringAssert.Contains(signature, "|lr2FolderFileParser=");
-        StringAssert.Contains(signature, "|lr2CompatibilityFacts=");
+        StringAssert.Contains(signature, "|lr2CompatibilityFacts=1");
     }
 }

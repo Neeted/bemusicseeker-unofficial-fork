@@ -1449,7 +1449,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     }
 
     [TestMethod]
-    public void ChartFileSubsets_ProjectGarbledAndUnregisteredBmsRows()
+    public void ChartFileSubsets_ProjectGarbledAndLr2CompatibilityWarningRows()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
@@ -1472,12 +1472,22 @@ public sealed class BmsLibraryMaintenanceServiceTests
                 encoding = "gb2312",
                 is_encoding_fixed = true
             }, suppressPropertyChanged: true);
-            TestableBmsFile unregistered = CreateFile("cccccccccccccccccccccccccccccccc");
-            unregistered.path = @"C:\Library\unregistered.bms";
-            unregistered.parent = "";
-            unregistered.SetMaintenanceInfo(new BMSFileMaintenanceInfo(unregistered)
+            TestableBmsFile lr2Warning = CreateFile("cccccccccccccccccccccccccccccccc");
+            lr2Warning.path = @"C:\Library\lr2-warning.bms";
+            lr2Warning.parent = @"C:\Library";
+            lr2Warning.SetMaintenanceInfo(new BMSFileMaintenanceInfo(lr2Warning)
             {
-                hash = unregistered.hash,
+                hash = lr2Warning.hash,
+                encoding = "shift_jis",
+                is_encoding_fixed = false
+            }, suppressPropertyChanged: true);
+            lr2Warning.SetWarning(ChartWarningKind.Lr2ResourcePathTooLong, "resource path is too long for LR2");
+            TestableBmsFile parentBlankWithoutWarning = CreateFile("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
+            parentBlankWithoutWarning.path = @"C:\Library\parent-blank.bms";
+            parentBlankWithoutWarning.parent = "";
+            parentBlankWithoutWarning.SetMaintenanceInfo(new BMSFileMaintenanceInfo(parentBlankWithoutWarning)
+            {
+                hash = parentBlankWithoutWarning.hash,
                 encoding = "shift_jis",
                 is_encoding_fixed = false
             }, suppressPropertyChanged: true);
@@ -1491,7 +1501,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
                 is_encoding_fixed = false
             }, suppressPropertyChanged: true);
             var library = new BMSLibrary(songDbPath);
-            SetPrivateField(library, "_BMSFiles", new List<BMSFile> { garbled, fixedGarbled, unregistered, registered });
+            SetPrivateField(library, "_BMSFiles", new List<BMSFile> { garbled, fixedGarbled, lr2Warning, parentBlankWithoutWarning, registered });
             SetPrivateField(library, "_BmsonSongs", new List<LR2SongDBExtended.bmson_song>());
 
             List<ChartFile> garbledCharts = [.. library.ChartFilesGarbled];
@@ -1500,10 +1510,10 @@ public sealed class BmsLibraryMaintenanceServiceTests
 
             CollectionAssert.AreEqual(new[] { garbled.path }, garbledCharts.Select(chart => chart.Path).ToArray());
             CollectionAssert.AreEqual(new[] { fixedGarbled.path }, fixedCharts.Select(chart => chart.Path).ToArray());
-            CollectionAssert.AreEqual(new[] { unregistered.path }, unregisteredCharts.Select(chart => chart.Path).ToArray());
+            CollectionAssert.AreEqual(new[] { lr2Warning.path }, unregisteredCharts.Select(chart => chart.Path).ToArray());
             Assert.AreSame(garbled, garbledCharts[0].GetBmsStorageOwner());
             Assert.AreSame(fixedGarbled, fixedCharts[0].GetBmsStorageOwner());
-            Assert.AreSame(unregistered, unregisteredCharts[0].GetBmsStorageOwner());
+            Assert.AreSame(lr2Warning, unregisteredCharts[0].GetBmsStorageOwner());
         });
     }
 
