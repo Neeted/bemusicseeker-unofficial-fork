@@ -1,4 +1,5 @@
 BeMusicSeeker.Tests/TestData/chart_info_real/charts/** -text -diff
+BeMusicSeeker.Tests/TestData/lr2_builtin_custom_folder_real/** -text -diff
 
 *.bms binary
 *.bme binary

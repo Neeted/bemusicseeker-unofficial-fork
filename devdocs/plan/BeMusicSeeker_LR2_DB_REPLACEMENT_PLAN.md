@@ -1248,7 +1248,7 @@ parse directive:
 
 | Phase | 状態 | 実装済み / 現行決定 | 残作業 / 注意 |
 | --- | --- | --- | --- |
-| Phase 0: Golden fixture と contract 固定 | 一部完了 | `LR2CRC32` / ROOT sentinel / CP932 boundary の contract、OpenLR2 source classifier の推測抑止、`exlevel` contract、manual-only scan blocker、copied `song.db` の current completed no-op はテスト化済み。 | `folderinfo.txt` / `.lr2folder` など、実 DB 由来の golden fixture を追加する。 |
+| Phase 0: Golden fixture と contract 固定 | 一部完了 | `LR2CRC32` / ROOT sentinel / CP932 boundary の contract、OpenLR2 source classifier の推測抑止、`exlevel` contract、manual-only scan blocker、copied `song.db` の current completed no-op はテスト化済み。`D:\LR2beta3\LR2files\CustomFolder` 由来の built-in CustomFolder 物理 fixture は追加済み。 | app 生成ではない LR2 / OpenLR2 生成 `song.db` が無いため、実 DB 期待 row との golden 比較は保留。追加で可能なのは、外部 `.lr2folder` / 通常 BMS directory `folderinfo.txt` の実物 file tree が入手できた場合の fixture 化。 |
 | Phase 1: BMS 変更検出 | 主要実装済み | `song.path` / `song.date` / hash を使う変更検出、same MD5 の targeted update、runtime reload の再評価 queue は接続済み。 | 大規模 root 変更・mtime preserved copy の手動検証を残す。 |
 | Phase 2: `song` row merge / ownership | 主要実装済み | `Lr2SongDbWriter`、generated/user column 分離、runtime write failure の status marking、merge 時 user column preservation、copied `song.db` sync 時の user column preservation は自動テスト済み。 | 実 DB copy での総合確認を残す。 |
 | Phase 3: metadata-bearing scan surface / raw resource reference | 主要実装済み | BMS parser / snapshot 側の raw resource reference、text group の targeted `song.txt` 更新、`RootFileEnumerationResult` の file / directory mtime entry、Everything fixed scan + grouped directory query / managed fallback の metadata surface は実装済み。chart file mtime は fixed native scan / managed fallback の両方から `ChartScanResult` に保持し、通常 file diff の `song.date` / `bmson_song.updated_at` 判定へ使う。`.txt` / `folderinfo.txt` / `.lr2folder` / directory metadata surface は startup / file diff scan surface から sync input へ保持する。scan surface の gate は `OperationModeLR2DB` へ整理済み。 | 実機ログで、スタンドアロンでは LR2 専用 surface を作らないこと、LR2 連携では `.txt` / `.lr2folder` / `folderinfo.txt` / directory mtime が必要範囲で保持されることを確認する。 |
@@ -1932,8 +1932,33 @@ Everything / filesystem 広域再スキャンを始める入口ではない。su
    - song row chunk failure では chunk transaction が rollback され、durable `Failed` cursor から再実行できることは unit/integration-shaped test で固定済み。
    - 実機ログで `processed_cursor` / `stage` / `Completed` / `Incomplete` の遷移が想定どおりか確認する。
 12. Phase 0 の残 fixture を追加する。
-   - `folderinfo.txt`、`.lr2folder` の実 DB 由来 fixture を追加する。これは fixture 入手後の contract 補強であり、
+   - 完了: `D:\LR2beta3\LR2files\CustomFolder` の実物 file tree を
+     `BeMusicSeeker.Tests\TestData\lr2_builtin_custom_folder_real` に fixture 化し、mtime manifest から file /
+     directory timestamp を再適用する regression test を追加した。これは built-in `.lr2folder` / `folderinfo.txt`
+     の物理入力 contract を固定するもので、app 生成 `song.db` を期待 DB として使う自己検証ではない。
+   - `folderinfo.txt` / `.lr2folder` の実 DB 由来 fixture を追加する。これは fixture 入手後の contract 補強であり、
      現行 synthetic fixture と既存 unit / integration-shaped test が production 実装の前提を固定している。
+   - app 生成ではない LR2 / OpenLR2 生成 `song.db` が入手できるまでは、期待 `folder` row DB/CSV との比較は行わない。
+     現状の app 生成 `song.db` を golden として使うと自己検証になるため、実 DB row 比較は保留する。
+   - 追加 fixture は「DB row だけ」ではなく、物理 file tree、mtime manifest、期待 `folder` row DB/CSV をセットにする。
+     比較対象列は少なくとも `folder.path` / `type` / `title` / `subtitle` / `category` / `info_a` / `info_b` /
+     `command` / `banner` / `parent` / `date` / `max` / `adddate` とする。
+   - `folderinfo.txt` fixture では、通常 BMS directory の `#TITLE`、`folderinfo.txt` なし fallback、
+     CP932 日本語 title、空または重複 `#TITLE`、built-in `LR2files\CustomFolder\<category>\folderinfo.txt` を含める。
+     `folder.title` と、`folder.date` が `folderinfo.txt` file mtime ではなく対象 directory mtime 由来になることを確認する。
+   - `.lr2folder` fixture では、absolute path の外部 `.lr2folder`、BeMusicSeeker 出力相当、
+     LR2 root 相対の built-in `favorite` / `ignore` / `newsong` / `course1-3`、nested `INSANE01` / `INSANE02`
+     または `RANDOM` 相当を含める。`path` の absolute / relative 表現、`parent` CRC、`type`、`date`、
+     `adddate`、`max`、`command` を確認する。
+   - 完了: built-in `LR2files\CustomFolder\<category>\` は、実物 file tree の nested `.lr2folder` と
+     `folderinfo.txt` から category directory row を生成し、`folder.date` は `folderinfo.txt` file mtime ではなく
+     category directory mtime 由来になることを固定した。
+   - `LR2files\Rival\*.lr2folder` の type 4 row は、built-in discovery 対象外として「生成しない」確認用に切り出す。
+     Rival 以外の type 4 root special が実 DB にある場合は、別ケースとして `path` / `type` / `title` / `parent` /
+     `command` / `max` を固定する。
+   - 同じ fixture に対応する BMS の `song.path` / `date` / `folder` / `parent` / `mode` / `judge` / `level` /
+     `difficulty` / `txt` / `exlevel` / `favorite` / `adddate` / `tag` を 3-5 件同梱し、
+     LR2 起動時 scan 抑止に効く `song` / `folder` の実 DB 断面として比較する。
 13. LR2 manual-only 起動での最終確認を行う。
    - LR2 song.db sync 後、未変更 root で LR2 / OpenLR2 が再帰 scan に入らないことを確認する。
    - LR2 起動そのもののブロッキングや排他はこの計画の対象外として扱う。

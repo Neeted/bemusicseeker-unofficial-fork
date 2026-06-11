@@ -1,0 +1,7 @@
+#COMMAND playcount != 0 ORDER BY playcount DESC
+#MAXTRACKS 100
+#CATEGORY カスタムフォルダ
+#TITLE TOP 100
+#INFORMATION_A 選曲回数トップ100を表示します。
+#INFORMATION_B 
+

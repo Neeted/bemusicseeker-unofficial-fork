@@ -1,0 +1,7 @@
+#COMMAND level>=0 AND mode=9
+#MAXTRACKS 1
+#CATEGORY カスタムフォルダ
+#TITLE 9KEYS
+#INFORMATION_A PMSからランダムで一曲選びます。
+#INFORMATION_B 
+

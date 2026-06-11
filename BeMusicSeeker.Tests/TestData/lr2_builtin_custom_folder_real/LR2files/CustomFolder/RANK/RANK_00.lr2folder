@@ -1,0 +1,7 @@
+#COMMAND rank >= 8
+#MAXTRACKS 0
+#CATEGORY プレイランク別フォルダ
+#TITLE AAA
+#INFORMATION_A ランクAAAを取得した曲を表示します
+#INFORMATION_B 
+

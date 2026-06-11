@@ -1,0 +1,7 @@
+#COMMAND clear ISNULL
+#MAXTRACKS 0
+#CATEGORY クリア状態別フォルダ
+#TITLE NOT PLAYED
+#INFORMATION_A まだプレイしていない曲を表示します
+#INFORMATION_B 
+

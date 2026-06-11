@@ -63,6 +63,9 @@
     <None Update="TestData\chart_info_edge_cases\charts\**\*">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+    <None Update="TestData\lr2_builtin_custom_folder_real\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
     <None Include="..\libs\SevenZipExtractor.dll">
       <Link>libs\SevenZipExtractor.dll</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
