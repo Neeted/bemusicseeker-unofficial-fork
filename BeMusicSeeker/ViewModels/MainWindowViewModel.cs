@@ -12057,7 +12057,13 @@ public class MainWindowViewModel : ViewModel
 
     private void SchedulePostStartupBestEffortWarmups(string reason)
     {
-        files?.QueueLr2FullGenerationDataSync("post_startup_" + (reason ?? string.Empty));
+        string fullGenerationReason = "post_startup_" + (reason ?? string.Empty);
+        Task.Run(delegate
+        {
+            files?.QueueLr2FullGenerationDataSync(
+                fullGenerationReason,
+                prepareGeneratedData: () => ReOutputAllCustomFoldersForLr2GeneratedDataSync(fullGenerationReason));
+        }).Logging("PostStartupLr2FullGenerationDataSync");
         if (IsVirtualNormalLibraryOrderPrewarmRunning())
         {
             LogMainViewBuild("post_startup_warmup queued reason=" + (reason ?? string.Empty)
@@ -15317,8 +15323,10 @@ public class MainWindowViewModel : ViewModel
             {
                 LogInitStage("file_diff_reload_call", "ReloadFileDiff");
                 files.ReloadFileDiff();
+                files.QueueLr2FullGenerationDataSync(
+                    "ReloadFileDiff",
+                    prepareGeneratedData: () => ReOutputAllCustomFoldersForLr2GeneratedDataSync("ReloadFileDiff"));
             }).Logging("ReloadFileDiff");
-            files.QueueLr2FullGenerationDataSync("ReloadFileDiff");
             LogInitStage("file_diff_reload_done", "ReloadFileDiff");
             scheduleDeferredPlaylistRef = true;
             if (!TrySuppress(UiRefreshChannel.LibraryFolderTree))
@@ -20053,7 +20061,12 @@ public class MainWindowViewModel : ViewModel
         try
         {
             files.CleanupLr2FullGenerationStartupScanBlockerFolderRows("status_bar_cleanup");
-            files.QueueLr2FullGenerationDataSync("status_bar_cleanup_retry");
+            Task.Run(delegate
+            {
+                files.QueueLr2FullGenerationDataSync(
+                    "status_bar_cleanup_retry",
+                    prepareGeneratedData: () => ReOutputAllCustomFoldersForLr2GeneratedDataSync("status_bar_cleanup_retry"));
+            }).Logging("Lr2FullGenerationStartupScanBlockerCleanupRetry");
         }
         catch (Exception ex)
         {

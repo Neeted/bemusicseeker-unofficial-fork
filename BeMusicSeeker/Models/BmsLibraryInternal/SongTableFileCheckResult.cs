@@ -73,6 +73,8 @@ internal sealed class SongTableFileCheckResult
 
     public int Lr2ScanLr2FolderAppManagedScopeDirectoryCount { get; set; }
 
+    public int Lr2ScanLr2FolderAppManagedExactFileCount { get; set; }
+
     public int BmsPathCount { get; set; }
 
     public int DirectoryCount { get; set; }
@@ -370,5 +372,6 @@ internal sealed class SongTableFileCheckResult
         Lr2ScanLr2FolderCandidatesAlreadyFiltered = false;
         Lr2ScanLr2FolderAppManagedFilteredCount = 0;
         Lr2ScanLr2FolderAppManagedScopeDirectoryCount = 0;
+        Lr2ScanLr2FolderAppManagedExactFileCount = 0;
     }
 }

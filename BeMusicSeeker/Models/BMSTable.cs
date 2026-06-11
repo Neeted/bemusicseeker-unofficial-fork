@@ -649,7 +649,9 @@ public class BMSTable : LR2SongDBExtended.playlist
         List<string> folderList = [.. (from e in entries
                                    where !e.is_removed
                                    select e.folder).Distinct()];
-        IEnumerable<string> enumerable = Folder_order.Where(f => folderList.Contains(f));
+        IEnumerable<string> enumerable = (Folder_order ?? [])
+            .Where(f => folderList.Contains(f))
+            .Distinct(StringComparer.Ordinal);
         List<string> list = [.. folderList.Except(enumerable)];
         using (var comparer = new NaturalComparer<string>())
         {

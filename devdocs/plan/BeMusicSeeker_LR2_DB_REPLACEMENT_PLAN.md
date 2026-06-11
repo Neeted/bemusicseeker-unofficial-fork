@@ -468,16 +468,20 @@ row が残ると、manual-only でも LR2 が不要な scan に入る。
   expected set から消え、対応する `folder` row が削除される。
 - discovery で見つからなくなった `.lr2folder` row は削除する。実 `.lr2folder` ファイルは
   BeMusicSeeker から削除しない。
-- startup file diff の `.lr2folder` sync は外部 discovery 分だけを対象にする。playlist header の
-  `Output_dir` / `is_root_folder` から決まる管理 table directory 配下は、物理 file が scan surface に
-  含まれていても current 候補から外し、親 BMS root / output base の prune scope に含まれても削除対象から
-  保護する。通常 custom folder 出力 base / root custom folder 出力 base そのものは外部 discovery scope として
-  残すため、base 直下や非管理 directory 配下の `.lr2folder` は外部ファイルとして扱う。外部 `.lr2folder` は
-  譜面 file diff と同じく、mtime が変われば読み直し、scan surface から消えた DB row は discovery complete
-  かつ read failure なしの scoped sync で prune する。
+- startup file diff の `.lr2folder` sync は外部 discovery 分だけを対象にする。playlist header と
+  `playlist_entry` から導ける numbered `.lr2folder` exact path は、物理 file が scan surface に
+  含まれていても current 候補から外し、親 BMS root / output base の prune scope に含まれても exact path で
+  削除対象から保護する。通常 custom folder 出力 base / root custom folder 出力 base そのものは外部 discovery
+  scope として残すため、base 直下や管理 playlist 由来ではない同 directory 配下の `.lr2folder` は外部ファイル
+  として扱う。外部 `.lr2folder` は譜面 file diff と同じく、mtime が変われば読み直し、scan surface から
+  消えた DB row は discovery complete かつ read failure なしの scoped sync で prune する。
 - アプリ管理 playlist 出力の `.lr2folder` / `folder` row は playlist materialization が正本であり、
-  起動時の外部 `.lr2folder` discovery sync では検査・修復しない。物理欠損は playlist entries hydration 後の
-  batch materialization / single DB sync、明示手動再同期は playlist materialization stage で収束させる。
+  起動時の外部 `.lr2folder` discovery sync では検査・修復しない。物理欠損、`folder` 投影欠落、
+  `folder.date` と実 `.lr2folder` mtime の不一致は playlist entries hydration 後の batch materialization /
+  single DB sync、明示手動再同期は playlist materialization stage で収束させる。
+  アプリ管理 `.lr2folder` は既存 file 本文を読み直して差分判定せず、`playlist` / `playlist_entry` 正本から
+  expected file を出力し、実 file mtime を `folder.date` へ反映する。本文読み取りが必要なのは管理外
+  `.lr2folder` discovery だけに限定する。
 - 完全生成 ON では、current generation input から導けない既存 `folder` row は prune 対象にする。
   `unknown root` / `date = 0` / expected set 外 row / 列挙 metadata から解決できる mtime 不一致は、
   完了を妨げる永続状態として温存せず、生成 workflow 内で削除または上書きして収束させる。
@@ -1744,12 +1748,14 @@ Everything / filesystem 広域再スキャンを始める入口ではない。su
      `BMSLibrary` 側の後付け attach は廃止し、scan completion 前に producer-owned surface を作る。
      directory mtime は scan surface 再利用と no-surface 時の grouped再取得まで接続済みであり、
      native bridge / managed fallback の実機 parity 確認を残す。
-   - 完了: startup / file diff 後の `.lr2folder` scoped sync は、playlist header 由来のアプリ管理
-     table directory 配下を current 候補から除外し、prune でも保護する。外部 `.lr2folder` は
-     candidate exact path と discovery prune scope だけを読み、`initialize` でも discovery complete /
+   - 完了: startup / file diff 後の `.lr2folder` scoped sync は、playlist header と `playlist_entry`
+     集計から導ける numbered `.lr2folder` exact path だけを current 候補から除外し、DB 上の
+     `folder.path` 表現も exact path で prune 保護する。同じ出力 directory 配下でも正本に存在しない
+     `.lr2folder` は外部 discovery 候補として残す。外部 `.lr2folder` は candidate exact path と
+     discovery prune scope だけを読み、`initialize` でも discovery complete /
      read failure なしなら stale row を prune する。ログは `lr2folder_file_diff_filter` の `candidates` /
-     `externalCandidates` / `appManagedFiltered` と `lr2folder_file_diff_sync` の `pruneExcludedDirs`
-     で候補削減と保護 scope を確認できる。
+     `externalCandidates` / `appManagedFiltered` / `appManagedExactFiles` と `lr2folder_file_diff_sync` の
+     `pruneExcludedPaths` で候補削減と保護範囲を確認できる。
      起動時外部 `.lr2folder` diff は、汎用 sync service の既定意味論は残したまま軽量 option を使い、
      prune prefix read を `.lr2folder` row に限定し、mtime 一致で preserved の child row は parent
      directory row exact read / metadata build / upsert を行わない。app 管理 playlist output と built-in
@@ -1991,7 +1997,8 @@ Everything / filesystem 広域再スキャンを始める入口ではない。su
   アプリ管理 playlist 出力は `.lr2folder` 実ファイルの有無だけを見ず、`playlist` / `playlist_entry` 正本から
   `.lr2folder` file と `folder` row を同じ projection で再 materialize する。
   手動再同期は playlist materialization stage を先に進め、その stage では全対象 playlist の期待 projection を
-  batch 化し、物理 `.lr2folder` は差分だけ書き換え、LR2 `folder` row は単発 batch sync にまとめる。
+  batch 化し、物理 `.lr2folder` は本文を読み返さず、欠損または DB 投影/mtime 不一致の対象だけを書き換え、
+  LR2 `folder` row は単発 batch sync にまとめる。
   table ごとに既存出力を削除して LR2 `folder` table を全読みする処理を繰り返さない。開始、table 単位 projection、
   batch materialization / sync 完了を performance log と status bar に出す。設定画面全体を同期的に無効化して
   queue 前の長時間処理を隠さない。

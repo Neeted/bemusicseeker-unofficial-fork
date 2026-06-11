@@ -142,13 +142,13 @@ internal static class Lr2FolderFileDiscoveryService
     internal static Lr2FolderFileCandidateSnapshot ExcludeAppManagedOutputCandidates(
         IEnumerable<string> paths,
         IReadOnlyDictionary<string, RootFileEnumerationEntry> entriesByPath,
-        IEnumerable<string> appManagedOutputDirectories,
+        IEnumerable<string> appManagedOutputFilePaths,
         bool discoveryComplete,
         out int excludedCount)
     {
         excludedCount = 0;
-        Lr2DirectoryScopeMatcher outputScopeMatcher = Lr2DirectoryScopeMatcher.Create(appManagedOutputDirectories);
-        if (outputScopeMatcher.IsEmpty)
+        HashSet<string> excludedFilePaths = CreateNormalizedPathSet(appManagedOutputFilePaths);
+        if (excludedFilePaths.Count == 0)
         {
             Dictionary<string, RootFileEnumerationEntry> unchangedEntries = CreateEntrySurface(paths, entriesByPath);
             return new Lr2FolderFileCandidateSnapshot(
@@ -170,7 +170,7 @@ internal static class Lr2FolderFileDiscoveryService
                 seenPaths,
                 path,
                 entry,
-                outputScopeMatcher,
+                excludedFilePaths,
                 ref excludedCount);
         }
 
@@ -181,7 +181,7 @@ internal static class Lr2FolderFileDiscoveryService
                 seenPaths,
                 pair.Key,
                 pair.Value,
-                outputScopeMatcher,
+                excludedFilePaths,
                 ref excludedCount);
         }
 
@@ -190,6 +190,13 @@ internal static class Lr2FolderFileDiscoveryService
             [.. resultEntries.Keys.OrderBy(path => path, StringComparer.OrdinalIgnoreCase)],
             resultEntries,
             discoveryComplete);
+    }
+
+    private static HashSet<string> CreateNormalizedPathSet(IEnumerable<string> paths)
+    {
+        return new HashSet<string>((paths ?? [])
+            .Select(SafeFullPathOrOriginal)
+            .Where(path => !string.IsNullOrWhiteSpace(path)), StringComparer.OrdinalIgnoreCase);
     }
 
     internal static IReadOnlyList<string> CreateDiscoveryDirectoriesForEnumeration(
@@ -256,7 +263,7 @@ internal static class Lr2FolderFileDiscoveryService
         ISet<string> seenPaths,
         string path,
         RootFileEnumerationEntry entry,
-        Lr2DirectoryScopeMatcher excludedScopeMatcher,
+        ISet<string> excludedFilePaths,
         ref int excludedCount)
     {
         if (result == null || seenPaths == null)
@@ -270,7 +277,7 @@ internal static class Lr2FolderFileDiscoveryService
             return;
         }
 
-        if (excludedScopeMatcher?.ContainsNormalizedFilePath(normalizedPath) == true)
+        if (excludedFilePaths?.Contains(normalizedPath) == true)
         {
             excludedCount++;
             return;

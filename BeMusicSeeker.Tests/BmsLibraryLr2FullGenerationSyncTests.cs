@@ -989,8 +989,8 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             Settings.Default.LR2CustomFolderOutputBaseDir = outputBase;
             string currentPath = Path.Combine(tableDirectory, "current.lr2folder");
             string stalePath = Path.Combine(tableDirectory, "stale.lr2folder");
-            string managedCurrentPath = Path.Combine(managedDirectory, "managed.lr2folder");
-            string managedStalePath = Path.Combine(managedDirectory, "stale.lr2folder");
+            string managedCurrentPath = Path.Combine(managedDirectory, "0000.lr2folder");
+            string managedStalePath = Path.Combine(managedDirectory, "stale_external.lr2folder");
             DateTime timestamp = new(2026, 6, 10, 1, 2, 3, DateTimeKind.Utc);
             File.WriteAllText(currentPath, "#TITLE Current", Encoding.GetEncoding("shift_jis"));
             File.WriteAllText(managedCurrentPath, "#TITLE Managed Physical", Encoding.GetEncoding("shift_jis"));
@@ -1056,6 +1056,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             CollectionAssert.AreEqual(new[] { currentPath }, fileCheckResult.Lr2ScanLr2FolderFilePaths.ToArray());
             Assert.IsTrue(fileCheckResult.Lr2ScanLr2FolderCandidatesAlreadyFiltered);
             Assert.AreEqual(1, fileCheckResult.Lr2ScanLr2FolderAppManagedFilteredCount);
+            Assert.IsTrue(fileCheckResult.Lr2ScanLr2FolderAppManagedExactFileCount > 0);
             Assert.IsFalse(fileCheckResult.Lr2ScanLr2FolderFileEntries.ContainsKey(managedCurrentPath));
 
             using var verify = new LR2SongDBExtended(scope.SongDbPath);
@@ -1063,7 +1064,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             Assert.AreEqual(0, verify.Table<LR2SongDB.folder>().Count(row => row.path == stalePath));
             LR2SongDB.folder managedCurrent = verify.Table<LR2SongDB.folder>().Single(row => row.path == managedCurrentPath);
             Assert.AreEqual("Managed Existing", managedCurrent.title);
-            Assert.AreEqual(1, verify.Table<LR2SongDB.folder>().Count(row => row.path == managedStalePath));
+            Assert.AreEqual(0, verify.Table<LR2SongDB.folder>().Count(row => row.path == managedStalePath));
         }
         finally
         {
@@ -1128,6 +1129,65 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             using var verify = new LR2SongDBExtended(scope.SongDbPath);
             Assert.AreEqual(1, verify.Table<LR2SongDB.folder>().Count(row => row.path == currentPath));
             Assert.AreEqual(0, verify.Table<LR2SongDB.folder>().Count(row => row.path == stalePath));
+        }
+        finally
+        {
+            ResetTouchedSettings();
+        }
+    }
+
+    [TestMethod]
+    public void ApplyLr2FolderFileDiffSync_SkipsPhysicalLr2FoldersWhenManagedScopeIncomplete()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        try
+        {
+            Settings.Default.OperationModeLR2DB = true;
+            Settings.Default.EnableLR2SongDbFullGeneration = true;
+            ResetLr2FolderDiscoverySettings();
+            string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
+            string outputBase = Path.Combine(rootDirectory, "#BeMusicSeekerOutput");
+            string outputDirectory = Path.Combine(outputBase, "ManagedTable");
+            string lr2FolderPath = Path.Combine(outputDirectory, "0000.lr2folder");
+            Directory.CreateDirectory(outputDirectory);
+            File.WriteAllText(lr2FolderPath, "#TITLE Should Not Read", Encoding.GetEncoding("shift_jis"));
+            Settings.Default.LR2CustomFolderOutputBaseDir = outputBase;
+            using (var setup = new LR2SongDBExtended(scope.SongDbPath))
+            {
+                setup.CreateTable<LR2SongDBExtended.playlist>();
+            }
+            var library = new BMSLibrary(scope.SongDbPath)
+            {
+                SearchTargets = [rootDirectory],
+                BMSFiles = []
+            };
+            var options = new BmsLibraryOptionsSnapshot
+            {
+                OperationModeLR2DB = true,
+                EnableLR2SongDbFullGeneration = true
+            };
+            var fileCheckResult = new SongTableFileCheckResult
+            {
+                Lr2ScanSurfaceAvailable = true,
+                Lr2ScanNormalFolderDirectoryPaths = [rootDirectory],
+                Lr2ScanNormalFolderDirectoryEntries = CreateDirectoryEntryMap(rootDirectory),
+                Lr2ScanFolderInfoFilePaths = [],
+                Lr2ScanFolderInfoFileEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase),
+                Lr2ScanTextFileDirectories = [rootDirectory],
+                Lr2ScanLr2FolderDiscoveryDirectories = [rootDirectory, outputBase],
+                Lr2ScanLr2FolderFilePaths = [lr2FolderPath],
+                Lr2ScanLr2FolderFileEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase)
+                {
+                    [lr2FolderPath] = new RootFileEnumerationEntry(lr2FolderPath, new DateTime(2026, 6, 10, 1, 2, 3, DateTimeKind.Utc))
+                },
+                Lr2ScanLr2FolderFileDiscoveryComplete = true
+            };
+
+            InvokeApplyLr2FolderFileDiffSync(library, options, [rootDirectory], fileCheckResult, "initialize");
+
+            Assert.IsTrue(fileCheckResult.Lr2ScanLr2FolderCandidatesAlreadyFiltered);
+            Assert.AreEqual(0, fileCheckResult.Lr2ScanLr2FolderFilePaths.Count);
+            Assert.IsFalse(fileCheckResult.Lr2ScanLr2FolderFileDiscoveryComplete);
         }
         finally
         {
@@ -2297,6 +2357,107 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
+    public void CreateLr2FullGenerationAppManagedOutputScope_CountsExpectedPlaylistOutputs()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        try
+        {
+            Settings.Default.OperationModeLR2DB = true;
+            Settings.Default.EnableLR2SongDbFullGeneration = true;
+            Settings.Default.EnableDownloadLr2IrScoreAndDetectUnsent = true;
+            ResetLr2FolderDiscoverySettings();
+            BMSPlaylist.EnsureSchema(scope.SongDbPath);
+            string outputBase = Path.Combine(scope.DirectoryPath, "Output");
+            Settings.Default.LR2CustomFolderOutputBaseDir = outputBase;
+            using (var setup = new LR2SongDBExtended(scope.SongDbPath))
+            {
+                setup.InsertOrReplace(new BMSTable
+                {
+                    playlist_id = 9201,
+                    name = "CountParity",
+                    symbol = "CP",
+                    Output_dir = "CountParity",
+                    ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
+                        & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder
+                        & ~LR2SongDBExtended.playlist.CustomFolderType.LevelFolder
+                        & ~LR2SongDBExtended.playlist.CustomFolderType.OtherFolder
+                }, typeof(LR2SongDBExtended.playlist));
+                setup.Execute(
+                    "INSERT INTO playlist_entry (playlist_id, md5, title, folder, level, is_removed) VALUES (?, ?, ?, ?, ?, ?);",
+                    9201,
+                    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "Active A",
+                    "Folder A",
+                    1.2,
+                    0);
+                setup.Execute(
+                    "INSERT INTO playlist_entry (playlist_id, md5, title, folder, level, is_removed) VALUES (?, ?, ?, ?, ?, ?);",
+                    9201,
+                    "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                    "Active B",
+                    "Folder B",
+                    null,
+                    0);
+                setup.Execute(
+                    "INSERT INTO playlist_entry (playlist_id, md5, title, folder, level, is_removed) VALUES (?, ?, ?, ?, ?, ?);",
+                    9201,
+                    "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                    "Active Null Folder",
+                    null,
+                    null,
+                    0);
+                setup.Execute(
+                    "INSERT INTO playlist_entry (playlist_id, md5, title, folder, level, is_removed) VALUES (?, ?, ?, ?, ?, ?);",
+                    9201,
+                    "ffffffffffffffffffffffffffffffff",
+                    "Active Empty Folder",
+                    string.Empty,
+                    null,
+                    0);
+                setup.Execute(
+                    "INSERT INTO playlist_entry (playlist_id, md5, title, folder, level, is_removed) VALUES (?, ?, ?, ?, ?, ?);",
+                    9201,
+                    "cccccccccccccccccccccccccccccccc",
+                    "Removed Level",
+                    "Removed Folder",
+                    12.0,
+                    1);
+                setup.Execute(
+                    "INSERT INTO playlist_entry (playlist_id, md5, title, folder, level, is_removed) VALUES (?, ?, ?, ?, ?, ?);",
+                    9201,
+                    "dddddddddddddddddddddddddddddddd",
+                    "Removed Null",
+                    "Removed Null Folder",
+                    null,
+                    1);
+            }
+            var library = new BMSLibrary(scope.SongDbPath)
+            {
+                SearchTargets = [scope.DirectoryPath],
+                BMSFiles = []
+            };
+
+            object outputScope = InvokeCreateLr2FullGenerationAppManagedOutputScope(library);
+            List<string> directories = GetInputStringList(outputScope, "Directories").ToList();
+            List<string> filePaths = GetInputStringList(outputScope, "FilePaths").ToList();
+            List<string> pruneExcludedPaths = GetInputStringList(outputScope, "PruneExcludedPaths").ToList();
+
+            string outputDirectory = Path.Combine(outputBase, "CountParity");
+            CollectionAssert.Contains(directories, outputDirectory);
+            Assert.AreEqual(10, filePaths.Count);
+            CollectionAssert.Contains(filePaths, Path.Combine(outputDirectory, "0000.lr2folder"));
+            CollectionAssert.Contains(filePaths, Path.Combine(outputDirectory, "0009.lr2folder"));
+            CollectionAssert.DoesNotContain(filePaths, Path.Combine(outputDirectory, "0010.lr2folder"));
+            CollectionAssert.Contains(pruneExcludedPaths, Path.Combine(outputDirectory, "0009.lr2folder"));
+            Assert.IsTrue(GetInputBool(outputScope, "IsComplete"));
+        }
+        finally
+        {
+            ResetTouchedSettings();
+        }
+    }
+
+    [TestMethod]
     public void QueueLr2FullGenerationDataSync_ClearsPreparedSurfaceWhenFollowupQueueIsCurrentNoop()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
@@ -2398,6 +2559,225 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             CollectionAssert.DoesNotContain(folderInfoFilePaths, unrelatedFolderInfoPath);
             CollectionAssert.Contains(textFileDirectories, songDirectory);
             CollectionAssert.DoesNotContain(textFileDirectories, unrelatedDirectory);
+        }
+        finally
+        {
+            ResetTouchedSettings();
+        }
+    }
+
+    [TestMethod]
+    public void CreateLr2FullGenerationSyncInputWithoutScanSurface_ExcludesManagedOutputExactFiles()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        try
+        {
+            Settings.Default.OperationModeLR2DB = true;
+            Settings.Default.EnableLR2SongDbFullGeneration = true;
+            Settings.Default.EnableDownloadLr2IrScoreAndDetectUnsent = true;
+            ResetLr2FolderDiscoverySettings();
+            BMSPlaylist.EnsureSchema(scope.SongDbPath);
+            string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
+            string outputBase = Path.Combine(rootDirectory, "#BeMusicSeekerOutput");
+            string outputDirectory = Path.Combine(outputBase, "ManagedTable");
+            string managedPath = Path.Combine(outputDirectory, "0000.lr2folder");
+            string externalPath = Path.Combine(outputDirectory, "external.lr2folder");
+            Directory.CreateDirectory(outputDirectory);
+            File.WriteAllText(managedPath, "#TITLE Managed", Encoding.GetEncoding("shift_jis"));
+            File.WriteAllText(externalPath, "#TITLE External", Encoding.GetEncoding("shift_jis"));
+            Settings.Default.LR2CustomFolderOutputBaseDir = outputBase;
+            using (var setup = new LR2SongDBExtended(scope.SongDbPath))
+            {
+                setup.InsertOrReplace(new BMSTable
+                {
+                    playlist_id = 9301,
+                    name = "ManagedTable",
+                    symbol = "MT",
+                    Output_dir = "ManagedTable",
+                    ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
+                        & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder
+                }, typeof(LR2SongDBExtended.playlist));
+                setup.Execute(
+                    "INSERT INTO playlist_entry (playlist_id, md5, title, folder, is_removed) VALUES (?, ?, ?, ?, ?);",
+                    9301,
+                    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "Active",
+                    "Folder A",
+                    0);
+            }
+            var library = new BMSLibrary(scope.SongDbPath)
+            {
+                SearchTargets = [rootDirectory],
+                BMSFiles = []
+            };
+
+            object input = InvokeCreateLr2FullGenerationSyncInput(library);
+            List<string> lr2FolderFilePaths = GetInputStringList(input, "Lr2FolderFilePaths").ToList();
+            List<string> pruneExcludedPaths = GetInputStringList(input, "Lr2FolderPruneExcludedPaths").ToList();
+
+            CollectionAssert.DoesNotContain(lr2FolderFilePaths, managedPath);
+            CollectionAssert.Contains(lr2FolderFilePaths, externalPath);
+            CollectionAssert.Contains(pruneExcludedPaths, managedPath);
+            Assert.IsTrue(GetInputBool(input, "Lr2FolderFileDiscoveryComplete"));
+        }
+        finally
+        {
+            ResetTouchedSettings();
+        }
+    }
+
+    [TestMethod]
+    public void CreateLr2FullGenerationSyncInputWithoutScanSurface_KeepsPreparedManagedOutputExactFiles()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        try
+        {
+            Settings.Default.OperationModeLR2DB = true;
+            Settings.Default.EnableLR2SongDbFullGeneration = true;
+            Settings.Default.EnableDownloadLr2IrScoreAndDetectUnsent = true;
+            ResetLr2FolderDiscoverySettings();
+            BMSPlaylist.EnsureSchema(scope.SongDbPath);
+            string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
+            string outputBase = Path.Combine(rootDirectory, "#BeMusicSeekerOutput");
+            string outputDirectory = Path.Combine(outputBase, "ManagedTable");
+            string managedPath = Path.Combine(outputDirectory, "0000.lr2folder");
+            string externalPath = Path.Combine(outputDirectory, "external.lr2folder");
+            Directory.CreateDirectory(outputDirectory);
+            File.WriteAllText(managedPath, "#TITLE Managed", Encoding.GetEncoding("shift_jis"));
+            File.WriteAllText(externalPath, "#TITLE External", Encoding.GetEncoding("shift_jis"));
+            Settings.Default.LR2CustomFolderOutputBaseDir = outputBase;
+            using (var setup = new LR2SongDBExtended(scope.SongDbPath))
+            {
+                setup.InsertOrReplace(new BMSTable
+                {
+                    playlist_id = 9302,
+                    name = "ManagedTable",
+                    symbol = "MT",
+                    Output_dir = "ManagedTable",
+                    ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
+                        & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder
+                }, typeof(LR2SongDBExtended.playlist));
+                setup.Execute(
+                    "INSERT INTO playlist_entry (playlist_id, md5, title, folder, is_removed) VALUES (?, ?, ?, ?, ?);",
+                    9302,
+                    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "Active",
+                    "Folder A",
+                    0);
+            }
+            var library = new BMSLibrary(scope.SongDbPath)
+            {
+                SearchTargets = [rootDirectory],
+                BMSFiles = []
+            };
+            Assert.IsTrue(library.TryRunLr2FullGenerationDataPreparation(
+                "test_prepared_managed_output",
+                () => CreatePreparedLr2FolderSurface(string.Empty, managedPath)));
+
+            object input = InvokeCreateLr2FullGenerationSyncInput(library);
+            List<string> lr2FolderFilePaths = GetInputStringList(input, "Lr2FolderFilePaths").ToList();
+
+            CollectionAssert.Contains(lr2FolderFilePaths, managedPath);
+            CollectionAssert.Contains(lr2FolderFilePaths, externalPath);
+            Assert.IsTrue(GetInputBool(input, "Lr2FolderFileDiscoveryComplete"));
+        }
+        finally
+        {
+            ResetTouchedSettings();
+        }
+    }
+
+    [TestMethod]
+    public void CreateLr2FullGenerationSyncInputWithoutScanSurface_SkipsPhysicalLr2FoldersWhenManagedScopeIncomplete()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        try
+        {
+            Settings.Default.OperationModeLR2DB = true;
+            Settings.Default.EnableLR2SongDbFullGeneration = true;
+            ResetLr2FolderDiscoverySettings();
+            string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
+            string outputBase = Path.Combine(rootDirectory, "#BeMusicSeekerOutput");
+            string outputDirectory = Path.Combine(outputBase, "ManagedTable");
+            string lr2FolderPath = Path.Combine(outputDirectory, "0000.lr2folder");
+            Directory.CreateDirectory(outputDirectory);
+            File.WriteAllText(lr2FolderPath, "#TITLE Should Not Read", Encoding.GetEncoding("shift_jis"));
+            Settings.Default.LR2CustomFolderOutputBaseDir = outputBase;
+            using (var setup = new LR2SongDBExtended(scope.SongDbPath))
+            {
+                setup.CreateTable<LR2SongDBExtended.playlist>();
+            }
+            var library = new BMSLibrary(scope.SongDbPath)
+            {
+                SearchTargets = [rootDirectory],
+                BMSFiles = []
+            };
+
+            object input = InvokeCreateLr2FullGenerationSyncInput(library);
+            List<string> lr2FolderFilePaths = GetInputStringList(input, "Lr2FolderFilePaths").ToList();
+
+            CollectionAssert.DoesNotContain(lr2FolderFilePaths, lr2FolderPath);
+            Assert.IsFalse(GetInputBool(input, "Lr2FolderFileDiscoveryComplete"));
+        }
+        finally
+        {
+            ResetTouchedSettings();
+        }
+    }
+
+    [TestMethod]
+    public void CreateLr2FullGenerationSyncInput_SkipsScanSurfaceLr2FoldersWhenManagedScopeIncomplete()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        try
+        {
+            Settings.Default.OperationModeLR2DB = true;
+            Settings.Default.EnableLR2SongDbFullGeneration = true;
+            ResetLr2FolderDiscoverySettings();
+            string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
+            string outputBase = Path.Combine(rootDirectory, "#BeMusicSeekerOutput");
+            string outputDirectory = Path.Combine(outputBase, "ManagedTable");
+            string lr2FolderPath = Path.Combine(outputDirectory, "0000.lr2folder");
+            Directory.CreateDirectory(outputDirectory);
+            File.WriteAllText(lr2FolderPath, "#TITLE Should Not Read", Encoding.GetEncoding("shift_jis"));
+            Settings.Default.LR2CustomFolderOutputBaseDir = outputBase;
+            using (var setup = new LR2SongDBExtended(scope.SongDbPath))
+            {
+                setup.CreateTable<LR2SongDBExtended.playlist>();
+            }
+            var library = new BMSLibrary(scope.SongDbPath)
+            {
+                SearchTargets = [rootDirectory],
+                BMSFiles = []
+            };
+            var options = new BmsLibraryOptionsSnapshot
+            {
+                OperationModeLR2DB = true,
+                EnableLR2SongDbFullGeneration = true
+            };
+            DateTime timestamp = new(2026, 6, 10, 1, 2, 3, DateTimeKind.Utc);
+            InvokeCaptureLr2FullGenerationScanSurface(library, options, [rootDirectory], new SongTableFileCheckResult
+            {
+                Lr2ScanSurfaceAvailable = true,
+                Lr2ScanNormalFolderDirectoryPaths = [rootDirectory],
+                Lr2ScanNormalFolderDirectoryEntries = CreateDirectoryEntryMap(rootDirectory),
+                Lr2ScanFolderInfoFilePaths = [],
+                Lr2ScanFolderInfoFileEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase),
+                Lr2ScanTextFileDirectories = [rootDirectory],
+                Lr2ScanLr2FolderDiscoveryDirectories = [rootDirectory, outputBase],
+                Lr2ScanLr2FolderFilePaths = [lr2FolderPath],
+                Lr2ScanLr2FolderFileEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase)
+                {
+                    [lr2FolderPath] = new RootFileEnumerationEntry(lr2FolderPath, timestamp)
+                },
+                Lr2ScanLr2FolderFileDiscoveryComplete = true
+            });
+
+            object input = InvokeCreateLr2FullGenerationSyncInput(library);
+            List<string> lr2FolderFilePaths = GetInputStringList(input, "Lr2FolderFilePaths").ToList();
+
+            CollectionAssert.DoesNotContain(lr2FolderFilePaths, lr2FolderPath);
+            Assert.IsFalse(GetInputBool(input, "Lr2FolderFileDiscoveryComplete"));
         }
         finally
         {
@@ -3469,6 +3849,158 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         Assert.AreEqual("Completed", row.status);
         string legacyFolderPath = ToFolderPath(legacyDirectory);
         Assert.AreEqual(0, songDb.Table<LR2SongDB.folder>().ToList().Count(folder => folder.path == legacyFolderPath));
+    }
+
+    [TestMethod]
+    public void SyncService_Lr2FolderPruneExcludedPathsProtectsManagedOutputRows()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
+        string outputDirectory = Path.Combine(rootDirectory, "#BeMusicSeekerOutput", "ManagedTable");
+        Directory.CreateDirectory(outputDirectory);
+        string managedPath = Path.Combine(outputDirectory, "0000.lr2folder");
+        string staleExternalPath = Path.Combine(outputDirectory, "stale.lr2folder");
+        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        songDb.CreateTable<LR2SongDB.song>();
+        songDb.CreateTable<LR2SongDB.folder>();
+        songDb.InsertOrReplace(new LR2SongDB.folder
+        {
+            path = managedPath,
+            type = 1,
+            date = 1
+        }, typeof(LR2SongDB.folder));
+        songDb.InsertOrReplace(new LR2SongDB.folder
+        {
+            path = staleExternalPath,
+            type = 2,
+            date = 1
+        }, typeof(LR2SongDB.folder));
+
+        Lr2FullGenerationSyncResult result = Lr2FullGenerationSyncService.Run(songDb, new Lr2FullGenerationSyncRequest
+        {
+            Signature = "lr2folder-prune-excluded-paths",
+            RunId = "lr2folder-prune-excluded-paths-run",
+            RootDirectories = [rootDirectory],
+            Lr2FolderDiscoveryDirectories = [rootDirectory],
+            Lr2FolderPruneDirectories = [rootDirectory],
+            Lr2FolderPruneExcludedPaths = [managedPath],
+            Lr2FolderFileDiscoveryComplete = true,
+            StartedAtUtc = new DateTime(2026, 6, 5, 0, 1, 0, DateTimeKind.Utc)
+        });
+
+        Assert.AreEqual(Lr2FullGenerationSyncService.CompletedStage, result.FinalStage);
+        Assert.AreEqual(1, songDb.Table<LR2SongDB.folder>().ToList().Count(folder => folder.path == managedPath));
+        Assert.AreEqual(0, songDb.Table<LR2SongDB.folder>().ToList().Count(folder => folder.path == staleExternalPath));
+    }
+
+    [TestMethod]
+    public void SyncService_PruneExcludedLr2FolderDateStaleRemainsDiagnosticOnly()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
+        string outputDirectory = Path.Combine(rootDirectory, "#BeMusicSeekerOutput", "ManagedTable");
+        Directory.CreateDirectory(outputDirectory);
+        string managedPath = Path.Combine(outputDirectory, "0000.lr2folder");
+        DateTime currentTime = new(2026, 6, 5, 2, 0, 0, DateTimeKind.Utc);
+        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        songDb.CreateTable<LR2SongDB.song>();
+        songDb.CreateTable<LR2SongDB.folder>();
+        songDb.InsertOrReplace(new LR2SongDB.folder
+        {
+            path = managedPath,
+            type = 2,
+            date = Lr2SongRowEnricher.ToLr2UnixSeconds(currentTime.AddHours(-1))
+        }, typeof(LR2SongDB.folder));
+
+        Lr2FullGenerationSyncResult result = Lr2FullGenerationSyncService.Run(songDb, new Lr2FullGenerationSyncRequest
+        {
+            Signature = "lr2folder-prune-excluded-date-stale",
+            RunId = "lr2folder-prune-excluded-date-stale-run",
+            RootDirectories = [rootDirectory],
+            Lr2FolderDiscoveryDirectories = [rootDirectory],
+            Lr2FolderPruneDirectories = [rootDirectory],
+            Lr2FolderPruneExcludedPaths = [managedPath],
+            Lr2FolderFileEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase)
+            {
+                [managedPath] = new RootFileEnumerationEntry(managedPath, currentTime)
+            },
+            Lr2FolderFileDiscoveryComplete = true,
+            StartedAtUtc = new DateTime(2026, 6, 5, 0, 1, 0, DateTimeKind.Utc)
+        });
+
+        Assert.AreEqual(Lr2FullGenerationSyncService.CompletedStage, result.FinalStage);
+        Assert.AreEqual(1, result.StartupScanDiagnosticResult.DateStaleFolderRowCount);
+        Assert.AreEqual(0, result.StartupScanDiagnosticResult.FolderDateUpdateCount);
+        LR2SongDB.folder managedRow = songDb.Table<LR2SongDB.folder>().ToList().Single(folder => folder.path == managedPath);
+        Assert.AreEqual(Lr2SongRowEnricher.ToLr2UnixSeconds(currentTime.AddHours(-1)), managedRow.date);
+    }
+
+    [TestMethod]
+    public void SyncService_IncompleteLr2FolderDiscoveryDoesNotCleanupExistingLr2FolderRows()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
+        string lr2FolderPath = Path.Combine(rootDirectory, "existing.lr2folder");
+        Directory.CreateDirectory(rootDirectory);
+        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        songDb.CreateTable<LR2SongDB.song>();
+        songDb.CreateTable<LR2SongDB.folder>();
+        songDb.InsertOrReplace(new LR2SongDB.folder
+        {
+            path = lr2FolderPath,
+            type = 2,
+            date = 1
+        }, typeof(LR2SongDB.folder));
+
+        Lr2FullGenerationSyncResult result = Lr2FullGenerationSyncService.Run(songDb, new Lr2FullGenerationSyncRequest
+        {
+            Signature = "lr2folder-discovery-incomplete-preserve",
+            RunId = "lr2folder-discovery-incomplete-preserve-run",
+            RootDirectories = [rootDirectory],
+            Lr2FolderDiscoveryDirectories = [rootDirectory],
+            Lr2FolderPruneDirectories = [rootDirectory],
+            Lr2FolderFileDiscoveryComplete = false,
+            StartedAtUtc = new DateTime(2026, 6, 5, 0, 1, 0, DateTimeKind.Utc)
+        });
+
+        Assert.AreEqual(Lr2FullGenerationSyncService.CompletedStage, result.FinalStage);
+        Assert.AreEqual(1, songDb.Table<LR2SongDB.folder>().ToList().Count(folder => folder.path == lr2FolderPath));
+        Assert.AreEqual(0, result.StartupScanDiagnosticResult.CleanupFolderRowCount);
+    }
+
+    [TestMethod]
+    public void SyncService_IncompleteLr2FolderDiscoveryDoesNotCleanupDirectoryRowsInLr2FolderScope()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
+        string outputBase = Path.Combine(rootDirectory, "#BeMusicSeekerOutput");
+        string outputDirectory = Path.Combine(outputBase, "ManagedTable");
+        Directory.CreateDirectory(outputDirectory);
+        string outputDirectoryRowPath = ToFolderPath(outputDirectory);
+        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        songDb.CreateTable<LR2SongDB.song>();
+        songDb.CreateTable<LR2SongDB.folder>();
+        songDb.InsertOrReplace(new LR2SongDB.folder
+        {
+            path = outputDirectoryRowPath,
+            type = 1,
+            date = 1
+        }, typeof(LR2SongDB.folder));
+
+        Lr2FullGenerationSyncResult result = Lr2FullGenerationSyncService.Run(songDb, new Lr2FullGenerationSyncRequest
+        {
+            Signature = "lr2folder-directory-discovery-incomplete-preserve",
+            RunId = "lr2folder-directory-discovery-incomplete-preserve-run",
+            RootDirectories = [rootDirectory],
+            Lr2FolderDiscoveryDirectories = [outputBase],
+            Lr2FolderPruneDirectories = [outputBase],
+            Lr2FolderFileDiscoveryComplete = false,
+            StartedAtUtc = new DateTime(2026, 6, 5, 0, 1, 0, DateTimeKind.Utc)
+        });
+
+        Assert.AreEqual(Lr2FullGenerationSyncService.CompletedStage, result.FinalStage);
+        Assert.AreEqual(1, songDb.Table<LR2SongDB.folder>().ToList().Count(folder => folder.path == outputDirectoryRowPath));
+        Assert.AreEqual(0, result.StartupScanDiagnosticResult.CleanupFolderRowCount);
     }
 
     [TestMethod]
@@ -5580,6 +6112,13 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     private static object InvokeCreateLr2FullGenerationSyncInput(BMSLibrary library)
     {
         MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("CreateLr2FullGenerationSyncInput", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(methodInfo);
+        return methodInfo.Invoke(library, []);
+    }
+
+    private static object InvokeCreateLr2FullGenerationAppManagedOutputScope(BMSLibrary library)
+    {
+        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("CreateLr2FullGenerationAppManagedOutputScope", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.IsNotNull(methodInfo);
         return methodInfo.Invoke(library, []);
     }

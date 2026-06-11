@@ -40,6 +40,8 @@ internal sealed class Lr2FolderFileDbSyncRequest
 
     public IReadOnlyCollection<string> PruneExcludedDirectories { get; set; } = [];
 
+    public IReadOnlyCollection<string> PruneExcludedPaths { get; set; } = [];
+
     public Func<string, Lr2FolderDirectoryMetadata> DirectoryMetadataResolver { get; set; }
 
     public DateTime GeneratedAtUtc { get; set; } = DateTime.UtcNow;
@@ -213,7 +215,8 @@ internal static class Lr2FolderFileDbSyncService
                 request.ScopeDirectories,
                 request.DirectoryRowScopeDirectories,
                 request.ScopePaths,
-                request.PruneExcludedDirectories));
+                request.PruneExcludedDirectories,
+                request.PruneExcludedPaths));
         }
         deletePaths = [.. deletePaths
             .Where(path => !string.IsNullOrWhiteSpace(path))
@@ -495,11 +498,15 @@ internal static class Lr2FolderFileDbSyncService
         IEnumerable<string> scopeDirectories,
         IEnumerable<string> directoryRowScopeDirectories,
         IEnumerable<string> scopePaths,
-        IEnumerable<string> pruneExcludedDirectories)
+        IEnumerable<string> pruneExcludedDirectories,
+        IEnumerable<string> pruneExcludedPaths)
     {
         DirectoryScopeMatcher scopeMatcher = DirectoryScopeMatcher.Create(scopeDirectories);
         DirectoryScopeMatcher directoryRowScopeMatcher = DirectoryScopeMatcher.Create(directoryRowScopeDirectories);
         DirectoryScopeMatcher pruneExcludeMatcher = DirectoryScopeMatcher.Create(pruneExcludedDirectories);
+        HashSet<string> pruneExcludedPathSet = new((pruneExcludedPaths ?? [])
+            .Select(NormalizeFilePath)
+            .Where(path => !string.IsNullOrWhiteSpace(path)), PathComparer);
         var explicitPaths = new HashSet<string>(
             (scopePaths ?? []).Select(NormalizeFilePath).Where(path => !string.IsNullOrWhiteSpace(path)),
             PathComparer);
@@ -513,6 +520,10 @@ internal static class Lr2FolderFileDbSyncService
                 continue;
             }
             if (pruneExcludeMatcher.Contains(path))
+            {
+                continue;
+            }
+            if (pruneExcludedPathSet.Contains(path))
             {
                 continue;
             }

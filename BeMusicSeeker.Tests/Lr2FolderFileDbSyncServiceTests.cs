@@ -91,6 +91,43 @@ public sealed class Lr2FolderFileDbSyncServiceTests
     }
 
     [TestMethod]
+    public void Sync_PruneExcludedPathsProtectsRelativeLr2FolderRows()
+    {
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            using var songDb = new LR2SongDBExtended(songDbPath);
+            songDb.CreateTable<LR2SongDB.folder>();
+            string protectedPath = @"LR2files\CustomFolder\ManagedRoot\0000.lr2folder";
+            string stalePath = @"LR2files\CustomFolder\ManagedRoot\stale.lr2folder";
+            songDb.InsertOrReplace(new LR2SongDB.folder
+            {
+                path = protectedPath,
+                title = "Managed",
+                type = 2
+            }, typeof(LR2SongDB.folder));
+            songDb.InsertOrReplace(new LR2SongDB.folder
+            {
+                path = stalePath,
+                title = "Stale",
+                type = 2
+            }, typeof(LR2SongDB.folder));
+
+            Lr2FolderFileDbSyncResult result = Lr2FolderFileDbSyncService.Sync(songDb, new Lr2FolderFileDbSyncRequest
+            {
+                Items = [],
+                ScopeDirectories = [@"LR2files\CustomFolder"],
+                PruneExcludedPaths = [protectedPath],
+                AllowPrune = true,
+                ScopeReadLr2FolderRowsOnly = true
+            });
+
+            Assert.AreEqual(1, result.DeletedCount);
+            Assert.AreEqual(1, songDb.Table<LR2SongDB.folder>().Count(row => row.path == protectedPath));
+            Assert.AreEqual(0, songDb.Table<LR2SongDB.folder>().Count(row => row.path == stalePath));
+        });
+    }
+
+    [TestMethod]
     public void Sync_ReadsOnlyExactAndPruneScopeRows()
     {
         WithTemporarySongDb(delegate (string songDbPath)

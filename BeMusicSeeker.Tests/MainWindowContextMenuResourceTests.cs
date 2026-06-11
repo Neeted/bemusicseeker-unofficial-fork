@@ -824,10 +824,12 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(postSaveSteps, "tempLR2RootPath, Settings.Default.LR2RootPath");
         StringAssert.Contains(postSaveSteps, "tempLR2CustomFolderOutputDir, Settings.Default.LR2CustomFolderOutputBaseDir");
         StringAssert.Contains(postSaveSteps, "tempLR2CustomFolderAsRootOutputDir, Settings.Default.LR2CustomFolderOutputBaseDirRootType");
-        StringAssert.Contains(reloadFileDiff, "QueueLr2FullGenerationDataSync(\"ReloadFileDiff\")");
+        StringAssert.Contains(reloadFileDiff, "files.QueueLr2FullGenerationDataSync(");
+        StringAssert.Contains(reloadFileDiff, "prepareGeneratedData: () => ReOutputAllCustomFoldersForLr2GeneratedDataSync(\"ReloadFileDiff\")");
+        StringAssert.Contains(viewModelCode, "prepareGeneratedData: () => ReOutputAllCustomFoldersForLr2GeneratedDataSync(\"status_bar_cleanup_retry\")");
         Assert.IsTrue(
             reloadFileDiff.IndexOf("files.ReloadFileDiff();", StringComparison.Ordinal)
-            < reloadFileDiff.IndexOf("QueueLr2FullGenerationDataSync(\"ReloadFileDiff\")", StringComparison.Ordinal),
+            < reloadFileDiff.IndexOf("files.QueueLr2FullGenerationDataSync(", StringComparison.Ordinal),
             "LR2 full generation status should be evaluated after file diff has applied root/source changes.");
     }
 

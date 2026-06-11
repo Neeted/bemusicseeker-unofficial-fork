@@ -126,7 +126,7 @@ public sealed class Lr2FolderFileDiscoveryServiceTests
     }
 
     [TestMethod]
-    public void ExcludeAppManagedOutputCandidates_RemovesNestedOutputFilesOnly()
+    public void ExcludeAppManagedOutputCandidates_RemovesExactManagedOutputFilesOnly()
     {
         using TestDirectoryScope scope = TestDirectoryScope.Create();
         string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
@@ -149,7 +149,7 @@ public sealed class Lr2FolderFileDiscoveryServiceTests
             Lr2FolderFileDiscoveryService.ExcludeAppManagedOutputCandidates(
                 [managedPath, externalOutputPath, externalPath, prefixSiblingPath],
                 entries,
-                [managedDirectory],
+                [managedPath],
                 discoveryComplete: true,
                 out int excludedCount);
 
@@ -181,7 +181,7 @@ public sealed class Lr2FolderFileDiscoveryServiceTests
             Lr2FolderFileDiscoveryService.ExcludeAppManagedOutputCandidates(
                 [listedPath],
                 entries,
-                [managedDirectory],
+                [managedEntryOnlyPath],
                 discoveryComplete: true,
                 out int excludedCount);
 

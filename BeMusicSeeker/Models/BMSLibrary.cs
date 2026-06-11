@@ -5392,6 +5392,8 @@ completeFileEnumerationOnce,
     private sealed class Lr2FolderFileDiffPreparationResult(
         Lr2FullGenerationSyncRequest request,
         IReadOnlyList<string> appManagedOutputDirectories,
+        IReadOnlyList<string> appManagedOutputFilePaths,
+        IReadOnlyList<string> appManagedPruneExcludedPaths,
         int appManagedCandidateCount,
         long rootsMs,
         long builtinSourceMs,
@@ -5405,6 +5407,10 @@ completeFileEnumerationOnce,
         public Lr2FullGenerationSyncRequest Request { get; } = request;
 
         public IReadOnlyList<string> AppManagedOutputDirectories { get; } = appManagedOutputDirectories ?? [];
+
+        public IReadOnlyList<string> AppManagedOutputFilePaths { get; } = appManagedOutputFilePaths ?? [];
+
+        public IReadOnlyList<string> AppManagedPruneExcludedPaths { get; } = appManagedPruneExcludedPaths ?? [];
 
         public int AppManagedCandidateCount { get; } = appManagedCandidateCount;
 
@@ -5472,6 +5478,8 @@ completeFileEnumerationOnce,
             + " externalCandidates=" + preparation.Request.Lr2FolderFilePaths.Count
             + " appManagedFiltered=" + preparation.AppManagedCandidateCount
             + " appManagedScopeDirs=" + preparation.AppManagedOutputDirectories.Count
+            + " appManagedExactFiles=" + preparation.AppManagedOutputFilePaths.Count
+            + " appManagedPruneExcludedPaths=" + preparation.AppManagedPruneExcludedPaths.Count
             + " allowPruneRequested=" + allowPrune.ToString().ToLowerInvariant());
         SyncLr2FolderFileRows(
             options,
@@ -5479,7 +5487,7 @@ completeFileEnumerationOnce,
             reason,
             "lr2folder_file_diff_sync",
             allowPrune,
-            preparation.AppManagedOutputDirectories,
+            pruneExcludedPaths: preparation.AppManagedPruneExcludedPaths,
             scopeReadLr2FolderRowsOnly: true,
             updateParentDirectoryRowsForPreservedItems: false);
     }
@@ -5550,15 +5558,24 @@ completeFileEnumerationOnce,
         long rootsMs = RestartElapsed(stopwatchStage);
         List<string> builtinSourceDirectories = CreateLr2FullGenerationBuiltinFolderSourceDirectories();
         long builtinSourceMs = RestartElapsed(stopwatchStage);
-        IReadOnlyList<string> appManagedOutputDirectories = CreateLr2FullGenerationAppManagedOutputDirectories();
+        Lr2FullGenerationAppManagedOutputScope appManagedOutputScope = CreateLr2FullGenerationAppManagedOutputScope();
         long appManagedScopeMs = RestartElapsed(stopwatchStage);
-        Lr2FolderFileCandidateSnapshot fileDiffCandidates =
-            Lr2FolderFileDiscoveryService.ExcludeAppManagedOutputCandidates(
+        Lr2FolderFileCandidateSnapshot fileDiffCandidates;
+        int appManagedCandidateCount;
+        if (!appManagedOutputScope.IsComplete)
+        {
+            fileDiffCandidates = CreateIncompleteLr2FolderCandidateSnapshot();
+            appManagedCandidateCount = 0;
+        }
+        else
+        {
+            fileDiffCandidates = Lr2FolderFileDiscoveryService.ExcludeAppManagedOutputCandidates(
                 fileCheckResult.Lr2ScanLr2FolderFilePaths,
                 fileCheckResult.Lr2ScanLr2FolderFileEntries,
-                appManagedOutputDirectories,
+                appManagedOutputScope.FilePaths,
                 fileCheckResult.Lr2ScanLr2FolderFileDiscoveryComplete,
-                out int appManagedCandidateCount);
+                out appManagedCandidateCount);
+        }
         long filterMs = RestartElapsed(stopwatchStage);
         var request = new Lr2FullGenerationSyncRequest
         {
@@ -5575,7 +5592,7 @@ completeFileEnumerationOnce,
             DirectoryEntries = MergeMissingLr2DirectoryEntrySurface(
                 fileCheckResult.Lr2ScanDirectoryEntries,
                 fileCheckResult.Lr2ScanNormalFolderDirectoryEntries),
-            Lr2FolderFileDiscoveryComplete = fileCheckResult.Lr2ScanLr2FolderFileDiscoveryComplete,
+            Lr2FolderFileDiscoveryComplete = fileDiffCandidates.DiscoveryComplete,
             Lr2RootPath = Settings.Default.LR2RootPath,
             Lr2NormalCustomFolderOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDir,
             Lr2RootCustomFolderOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDirRootType,
@@ -5595,7 +5612,9 @@ completeFileEnumerationOnce,
         stopwatchPrepare.Stop();
         return new Lr2FolderFileDiffPreparationResult(
             request,
-            appManagedOutputDirectories,
+            appManagedOutputScope.Directories,
+            appManagedOutputScope.FilePaths,
+            appManagedOutputScope.PruneExcludedPaths,
             appManagedCandidateCount,
             rootsMs,
             builtinSourceMs,
@@ -5669,6 +5688,7 @@ completeFileEnumerationOnce,
         string logName,
         bool allowPrune = true,
         IReadOnlyCollection<string> pruneExcludedDirectories = null,
+        IReadOnlyCollection<string> pruneExcludedPaths = null,
         bool scopeReadLr2FolderRowsOnly = false,
         bool updateParentDirectoryRowsForPreservedItems = true)
     {
@@ -5705,6 +5725,7 @@ completeFileEnumerationOnce,
                     DirectoryRowGenerationScopeDirectories = Lr2FullGenerationSyncService.CreateLr2FolderDirectoryRowGenerationScopeDirectories(request),
                     ScopePaths = request.Lr2FolderFilePaths,
                     PruneExcludedDirectories = pruneExcludedDirectories ?? [],
+                    PruneExcludedPaths = pruneExcludedPaths ?? [],
                     DirectoryMetadataResolver = parentDirectoryMetadata.Resolve,
                     GeneratedAtUtc = DateTime.UtcNow,
                     AllowPrune = effectiveAllowPrune,
@@ -5729,6 +5750,7 @@ completeFileEnumerationOnce,
                 + " allowPrune=" + effectiveAllowPrune.ToString().ToLowerInvariant()
                 + " pruneDeferred=" + (!effectiveAllowPrune && allowPrune == false).ToString().ToLowerInvariant()
                 + " pruneExcludedDirs=" + (pruneExcludedDirectories?.Count ?? 0)
+                + " pruneExcludedPaths=" + (pruneExcludedPaths?.Count ?? 0)
                 + " existingRows=" + syncResult.ExistingReadCount
                 + " generated=" + syncResult.GeneratedCount
                 + " preserved=" + syncResult.PreservedCount
@@ -5843,6 +5865,7 @@ completeFileEnumerationOnce,
 
         IReadOnlyList<string> lr2FolderDiscoveryDirectories = fileCheckResult.Lr2ScanLr2FolderDiscoveryDirectories ?? [];
         IReadOnlyList<string> appManagedOutputDirectories = [];
+        IReadOnlyList<string> appManagedOutputFilePaths = [];
         int appManagedCandidateCount = 0;
         Lr2FolderFileCandidateSnapshot lr2FolderCandidates;
         bool reusedFilteredLr2FolderCandidates = fileCheckResult.Lr2ScanLr2FolderCandidatesAlreadyFiltered;
@@ -5856,18 +5879,27 @@ completeFileEnumerationOnce,
         }
         else
         {
-            appManagedOutputDirectories = CreateLr2FullGenerationAppManagedOutputDirectories();
-            lr2FolderCandidates =
-                Lr2FolderFileDiscoveryService.ExcludeAppManagedOutputCandidates(
+            Lr2FullGenerationAppManagedOutputScope appManagedOutputScope = CreateLr2FullGenerationAppManagedOutputScope();
+            appManagedOutputDirectories = appManagedOutputScope.Directories;
+            appManagedOutputFilePaths = appManagedOutputScope.FilePaths;
+            if (!appManagedOutputScope.IsComplete)
+            {
+                lr2FolderCandidates = CreateIncompleteLr2FolderCandidateSnapshot();
+                appManagedCandidateCount = 0;
+            }
+            else
+            {
+                lr2FolderCandidates = Lr2FolderFileDiscoveryService.ExcludeAppManagedOutputCandidates(
                     fileCheckResult.Lr2ScanLr2FolderFilePaths,
                     fileCheckResult.Lr2ScanLr2FolderFileEntries,
-                    appManagedOutputDirectories,
+                    appManagedOutputFilePaths,
                     fileCheckResult.Lr2ScanLr2FolderFileDiscoveryComplete,
                     out appManagedCandidateCount);
+            }
         }
         IReadOnlyList<string> lr2FolderFilePaths = lr2FolderCandidates.Paths;
         IReadOnlyDictionary<string, RootFileEnumerationEntry> lr2FolderFileEntries = lr2FolderCandidates.EntriesByPath;
-        bool lr2FolderFileDiscoveryComplete = fileCheckResult.Lr2ScanLr2FolderFileDiscoveryComplete;
+        bool lr2FolderFileDiscoveryComplete = lr2FolderCandidates.DiscoveryComplete;
         if (lr2FolderDiscoveryDirectories.Count == 0)
         {
             int previousGeneration = 0;
@@ -5922,6 +5954,9 @@ completeFileEnumerationOnce,
             + " appManagedScopeDirs=" + (reusedFilteredLr2FolderCandidates
                 ? fileCheckResult.Lr2ScanLr2FolderAppManagedScopeDirectoryCount
                 : appManagedOutputDirectories.Count)
+            + " appManagedExactFiles=" + (reusedFilteredLr2FolderCandidates
+                ? fileCheckResult.Lr2ScanLr2FolderAppManagedExactFileCount
+                : appManagedOutputFilePaths.Count)
             + " lr2FolderDiscoveryComplete=" + snapshot.Lr2FolderFileDiscoveryComplete.ToString().ToLowerInvariant()
             + " textFileDirs=" + snapshot.TextFileDirectories.Count
             + " ownedCollectionVersion=" + snapshot.OwnedCollectionVersion
@@ -6849,6 +6884,7 @@ completeFileEnumerationOnce,
                     Lr2FolderFileEntries = input.Lr2FolderFileEntries,
                     Lr2FolderDiscoveryDirectories = input.Lr2FolderDiscoveryDirectories,
                     Lr2FolderPruneDirectories = input.Lr2FolderPruneDirectories,
+                    Lr2FolderPruneExcludedPaths = input.Lr2FolderPruneExcludedPaths,
                     Lr2RootPath = input.Lr2RootPath,
                     Lr2NormalCustomFolderOutputBaseDir = input.Lr2NormalCustomFolderOutputBaseDir,
                     Lr2RootCustomFolderOutputBaseDir = input.Lr2RootCustomFolderOutputBaseDir,
@@ -7271,29 +7307,75 @@ completeFileEnumerationOnce,
         string lr2FolderCandidatesSource;
         var lr2FolderCandidatesStopwatch = Stopwatch.StartNew();
         Lr2FolderFileCandidateSnapshot lr2FolderFileCandidates;
+        int enumeratedAppManagedCandidateCount = 0;
+        int enumeratedAppManagedExactFileCount = 0;
+        Lr2FullGenerationAppManagedOutputScope appManagedOutputScope = CreateLr2FullGenerationAppManagedOutputScope();
+        enumeratedAppManagedExactFileCount = appManagedOutputScope.FilePaths.Count;
         if (scanSurface != null)
         {
-            lr2FolderCandidatesSource = hasPreparedLr2FolderSurface
-                ? "scan_surface_prepared_merge"
-                : "scan_surface_direct";
-            lr2FolderFileCandidates = new Lr2FolderFileCandidateSnapshot(
-                scanSurface.Lr2FolderFilePaths,
-                scanSurface.Lr2FolderFileEntries,
-                scanSurface.Lr2FolderFileDiscoveryComplete);
-            if (hasPreparedLr2FolderSurface)
+            if (!appManagedOutputScope.IsComplete)
             {
-                lr2FolderFileCandidates = MergeLr2FolderFileCandidateSurface(lr2FolderFileCandidates, preparedSurface);
+                lr2FolderCandidatesSource = hasPreparedLr2FolderSurface
+                    ? "scan_surface_prepared_only_app_managed_incomplete"
+                    : "scan_surface_app_managed_incomplete";
+                lr2FolderFileCandidates = CreateIncompleteLr2FolderCandidateSnapshot();
+                if (hasPreparedLr2FolderSurface)
+                {
+                    lr2FolderFileCandidates = MergeLr2FolderFileCandidateSurface(lr2FolderFileCandidates, preparedSurface);
+                }
+            }
+            else
+            {
+                lr2FolderCandidatesSource = hasPreparedLr2FolderSurface
+                    ? "scan_surface_prepared_merge"
+                    : "scan_surface_direct";
+                lr2FolderFileCandidates = new Lr2FolderFileCandidateSnapshot(
+                    scanSurface.Lr2FolderFilePaths,
+                    scanSurface.Lr2FolderFileEntries,
+                    scanSurface.Lr2FolderFileDiscoveryComplete);
+                if (hasPreparedLr2FolderSurface)
+                {
+                    lr2FolderFileCandidates = MergeLr2FolderFileCandidateSurface(lr2FolderFileCandidates, preparedSurface);
+                }
+                if (preparedSurface?.Lr2FolderFileDiscoveryComplete == false)
+                {
+                    lr2FolderFileCandidates = new Lr2FolderFileCandidateSnapshot(
+                        lr2FolderFileCandidates.Paths,
+                        lr2FolderFileCandidates.EntriesByPath,
+                        discoveryComplete: false);
+                }
             }
         }
         else
         {
-            lr2FolderCandidatesSource = hasPreparedLr2FolderSurface
-                ? "enumeration_prepared_merge"
-                : "enumeration";
-            lr2FolderFileCandidates = CreateLr2FullGenerationLr2FolderFileCandidates(
-                CreateLr2FolderDiscoveryDirectoriesForEnumeration(lr2FolderDiscoveryDirectories, preparedSurface),
-                lr2RootPath,
-                builtinCustomFolderSettings);
+            if (!appManagedOutputScope.IsComplete)
+            {
+                lr2FolderCandidatesSource = hasPreparedLr2FolderSurface
+                    ? "enumeration_prepared_only_app_managed_incomplete"
+                    : "enumeration_app_managed_incomplete";
+                lr2FolderFileCandidates = CreateIncompleteLr2FolderCandidateSnapshot();
+            }
+            else
+            {
+                lr2FolderCandidatesSource = hasPreparedLr2FolderSurface
+                    ? "enumeration_prepared_merge"
+                    : "enumeration";
+                lr2FolderFileCandidates = CreateLr2FullGenerationLr2FolderFileCandidates(
+                    CreateLr2FolderDiscoveryDirectoriesForEnumeration(lr2FolderDiscoveryDirectories, preparedSurface),
+                    lr2RootPath,
+                    builtinCustomFolderSettings);
+                lr2FolderFileCandidates =
+                    Lr2FolderFileDiscoveryService.ExcludeAppManagedOutputCandidates(
+                        lr2FolderFileCandidates.Paths,
+                        lr2FolderFileCandidates.EntriesByPath,
+                        appManagedOutputScope.FilePaths,
+                        lr2FolderFileCandidates.DiscoveryComplete,
+                        out enumeratedAppManagedCandidateCount);
+                if (enumeratedAppManagedCandidateCount > 0)
+                {
+                    lr2FolderCandidatesSource += "_app_managed_filtered";
+                }
+            }
             if (hasPreparedLr2FolderSurface)
             {
                 lr2FolderFileCandidates = MergeLr2FolderFileCandidateSurface(lr2FolderFileCandidates, preparedSurface);
@@ -7412,6 +7494,8 @@ completeFileEnumerationOnce,
             + " directoryEntriesMs=" + directoryEntriesStopwatch.ElapsedMilliseconds
             + " folderInfoCandidates=" + folderInfoCandidates.Paths.Count
             + " lr2FolderCandidates=" + lr2FolderFileCandidates.Paths.Count
+            + " enumeratedAppManagedFiltered=" + enumeratedAppManagedCandidateCount
+            + " enumeratedAppManagedExactFiles=" + enumeratedAppManagedExactFileCount
             + " reusedLr2FolderSurface=" + reusedLr2FolderSurface.ToString().ToLowerInvariant()
             + " hasPreparedSurface=" + hasPreparedSurface.ToString().ToLowerInvariant()
             + " hasPreparedLr2FolderSurface=" + hasPreparedLr2FolderSurface.ToString().ToLowerInvariant()
@@ -7447,6 +7531,7 @@ completeFileEnumerationOnce,
             directoryEntries,
             lr2FolderDiscoveryDirectories,
             lr2FolderPruneDirectories,
+            appManagedOutputScope.PruneExcludedPaths,
             lr2RootPath,
             lr2NormalCustomFolderOutputBaseDir,
             lr2RootCustomFolderOutputBaseDir,
@@ -7769,6 +7854,7 @@ completeFileEnumerationOnce,
         result.Lr2ScanLr2FolderCandidatesAlreadyFiltered = true;
         result.Lr2ScanLr2FolderAppManagedFilteredCount = preparation.AppManagedCandidateCount;
         result.Lr2ScanLr2FolderAppManagedScopeDirectoryCount = preparation.AppManagedOutputDirectories.Count;
+        result.Lr2ScanLr2FolderAppManagedExactFileCount = preparation.AppManagedOutputFilePaths.Count;
     }
 
     private static IReadOnlyList<T> ToReadOnlyList<T>(IReadOnlyCollection<T> values)
@@ -8395,6 +8481,14 @@ completeFileEnumerationOnce,
         return Lr2FolderFileDiscoveryService.MergeCandidateSurface(baseCandidates, preparedSurface);
     }
 
+    private static Lr2FolderFileCandidateSnapshot CreateIncompleteLr2FolderCandidateSnapshot()
+    {
+        return new Lr2FolderFileCandidateSnapshot(
+            [],
+            new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase),
+            discoveryComplete: false);
+    }
+
     private static IReadOnlyDictionary<string, RootFileEnumerationEntry> OverlayLr2DirectoryEntrySurface(
         IReadOnlyDictionary<string, RootFileEnumerationEntry> baseEntries,
         IReadOnlyDictionary<string, RootFileEnumerationEntry> overlayEntries)
@@ -8628,7 +8722,30 @@ completeFileEnumerationOnce,
 
     private IReadOnlyList<string> CreateLr2FullGenerationAppManagedOutputDirectories()
     {
-        var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        return CreateLr2FullGenerationAppManagedOutputScope().Directories;
+    }
+
+    private sealed class Lr2FullGenerationAppManagedOutputScope(
+        IReadOnlyList<string> directories,
+        IReadOnlyList<string> filePaths,
+        IReadOnlyList<string> pruneExcludedPaths,
+        bool isComplete)
+    {
+        public IReadOnlyList<string> Directories { get; } = directories ?? [];
+
+        public IReadOnlyList<string> FilePaths { get; } = filePaths ?? [];
+
+        public IReadOnlyList<string> PruneExcludedPaths { get; } = pruneExcludedPaths ?? [];
+
+        public bool IsComplete { get; } = isComplete;
+    }
+
+    private Lr2FullGenerationAppManagedOutputScope CreateLr2FullGenerationAppManagedOutputScope()
+    {
+        var directories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var filePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var pruneExcludedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        bool isComplete = true;
         try
         {
             using LR2SongDBExtended songDb = dbGateway.OpenSongDbReadOnly();
@@ -8638,26 +8755,214 @@ completeFileEnumerationOnce,
                 playlistTableName);
             if (playlistTableExists == 0)
             {
-                return [];
+                return new Lr2FullGenerationAppManagedOutputScope([], [], [], isComplete: true);
             }
 
+            Lr2FullGenerationAppManagedOutputCounts outputCounts =
+                CreateLr2FullGenerationAppManagedOutputCounts(songDb);
             foreach (BMSTable table in songDb.Table<BMSTable>())
             {
                 string outputDirectory = ResolveManagedPlaylistOutputDirectory(table);
                 if (!string.IsNullOrWhiteSpace(outputDirectory))
                 {
-                    result.Add(outputDirectory);
+                    directories.Add(outputDirectory);
+                    int outputFileCount = CountManagedCustomFolderOutputFiles(table, outputCounts);
+                    for (int index = 0; index < outputFileCount; index++)
+                    {
+                        string filePath = SafeFullPathOrOriginal(Path.Combine(outputDirectory, $"{index:D4}.lr2folder"));
+                        filePaths.Add(filePath);
+                        AddManagedPlaylistPruneExcludedPaths(table, filePath, pruneExcludedPaths);
+                    }
                 }
             }
         }
         catch (Exception ex)
         {
+            isComplete = false;
             LogInstallPerformanceWarn("lr2folder_app_managed_output_scope failed"
                 + " exception=" + ex.GetType().Name
                 + " message=" + GetDisplayedExceptionMessage(ex).Replace(Environment.NewLine, " | "));
         }
 
-        return [.. result.OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
+        return new Lr2FullGenerationAppManagedOutputScope(
+            [.. directories.OrderBy(path => path, StringComparer.OrdinalIgnoreCase)],
+            [.. filePaths.Where(path => !string.IsNullOrWhiteSpace(path)).OrderBy(path => path, StringComparer.OrdinalIgnoreCase)],
+            [.. pruneExcludedPaths.Where(path => !string.IsNullOrWhiteSpace(path)).OrderBy(path => path, StringComparer.OrdinalIgnoreCase)],
+            isComplete);
+    }
+
+    private static void AddManagedPlaylistPruneExcludedPaths(
+        BMSTable table,
+        string filePath,
+        ISet<string> pruneExcludedPaths)
+    {
+        if (string.IsNullOrWhiteSpace(filePath) || pruneExcludedPaths == null)
+        {
+            return;
+        }
+
+        pruneExcludedPaths.Add(filePath);
+        string databasePath = ResolveManagedPlaylistOutputDatabasePath(table, filePath);
+        if (!string.IsNullOrWhiteSpace(databasePath))
+        {
+            pruneExcludedPaths.Add(databasePath);
+        }
+    }
+
+    private static string ResolveManagedPlaylistOutputDatabasePath(BMSTable table, string filePath)
+    {
+        if (string.IsNullOrWhiteSpace(filePath))
+        {
+            return null;
+        }
+
+        if (table?.is_root_folder != true)
+        {
+            return Lr2FolderFileProjection.NormalizeDatabasePath(filePath);
+        }
+
+        try
+        {
+            Lr2FolderFileSourceClassification classification = Lr2FolderFileSourceClassifier.Classify(new Lr2FolderFileSourceClassificationRequest
+            {
+                FilePath = filePath,
+                Lr2RootPath = Settings.Default.LR2RootPath,
+                RootCustomFolderOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDirRootType
+            });
+            return Lr2FolderFileProjection.NormalizeDatabasePath(classification.DatabasePath ?? filePath);
+        }
+        catch (Exception ex) when (ex is ArgumentException || ex is InvalidOperationException || ex is NotSupportedException || ex is PathTooLongException)
+        {
+            return Lr2FolderFileProjection.NormalizeDatabasePath(filePath);
+        }
+    }
+
+    private sealed class Lr2FullGenerationAppManagedOutputCounts(
+        IReadOnlyDictionary<int, int> userFolderCounts,
+        IReadOnlyDictionary<int, int> levelFolderCounts,
+        ISet<int> nullLevelPlaylistIds)
+    {
+        public IReadOnlyDictionary<int, int> UserFolderCounts { get; } =
+            userFolderCounts ?? new Dictionary<int, int>();
+
+        public IReadOnlyDictionary<int, int> LevelFolderCounts { get; } =
+            levelFolderCounts ?? new Dictionary<int, int>();
+
+        public ISet<int> NullLevelPlaylistIds { get; } =
+            nullLevelPlaylistIds ?? new HashSet<int>();
+    }
+
+    private sealed class PlaylistCountRow
+    {
+        public int PlaylistId { get; set; }
+
+        public int Count { get; set; }
+    }
+
+    private sealed class PlaylistIdRow
+    {
+        public int PlaylistId { get; set; }
+    }
+
+    private static Lr2FullGenerationAppManagedOutputCounts CreateLr2FullGenerationAppManagedOutputCounts(LR2SongDBExtended songDb)
+    {
+        if (songDb == null)
+        {
+            return new Lr2FullGenerationAppManagedOutputCounts(
+                new Dictionary<int, int>(),
+                new Dictionary<int, int>(),
+                new HashSet<int>());
+        }
+
+        string tableName = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetTableName();
+        string playlistIdColumn = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(row => row.playlist_id);
+        string folderColumn = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(row => row.folder);
+        string normalizedFolderExpression = "COALESCE(" + folderColumn + ", '')";
+        string removedColumn = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(row => row.is_removed);
+        string levelColumn = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(row => row.level);
+        string levelBucketExpression = "CASE WHEN " + levelColumn + " >= 0 OR CAST(" + levelColumn + " AS INTEGER) = " + levelColumn
+            + " THEN CAST(" + levelColumn + " AS INTEGER) ELSE CAST(" + levelColumn + " - 1.0 AS INTEGER) END";
+
+        Dictionary<int, int> userFolderCounts = songDb.Query<PlaylistCountRow>(
+            "SELECT " + playlistIdColumn + " AS PlaylistId, COUNT(1) AS Count"
+            + " FROM (SELECT " + playlistIdColumn + ", " + normalizedFolderExpression + " AS FolderKey"
+            + " FROM " + tableName
+            + " WHERE " + removedColumn + " = 0"
+            + " GROUP BY " + playlistIdColumn + ", FolderKey)"
+            + " GROUP BY " + playlistIdColumn + ";")
+            .ToDictionary(row => row.PlaylistId, row => row.Count);
+
+        Dictionary<int, int> levelFolderCounts = songDb.Query<PlaylistCountRow>(
+            "SELECT " + playlistIdColumn + " AS PlaylistId, COUNT(1) AS Count"
+            + " FROM (SELECT " + playlistIdColumn + ", " + levelBucketExpression + " AS LevelBucket"
+            + " FROM " + tableName
+            + " WHERE " + levelColumn + " IS NOT NULL"
+            + " GROUP BY " + playlistIdColumn + ", LevelBucket)"
+            + " GROUP BY " + playlistIdColumn + ";")
+            .ToDictionary(row => row.PlaylistId, row => row.Count);
+
+        HashSet<int> nullLevelPlaylistIds = [.. songDb.Query<PlaylistIdRow>(
+            "SELECT " + playlistIdColumn + " AS PlaylistId"
+            + " FROM " + tableName
+            + " WHERE " + levelColumn + " IS NULL"
+            + " GROUP BY " + playlistIdColumn + ";")
+            .Select(row => row.PlaylistId)];
+
+        return new Lr2FullGenerationAppManagedOutputCounts(
+            userFolderCounts,
+            levelFolderCounts,
+            nullLevelPlaylistIds);
+    }
+
+    private static int CountManagedCustomFolderOutputFiles(
+        BMSTable table,
+        Lr2FullGenerationAppManagedOutputCounts outputCounts)
+    {
+        if (table?.playlist_id == null)
+        {
+            return 0;
+        }
+
+        int playlistId = table.playlist_id.Value;
+        int count = 0;
+        LR2SongDBExtended.playlist.CustomFolderType ignored = table.ignore_folder_output;
+        if ((ignored & LR2SongDBExtended.playlist.CustomFolderType.UserFolder) == 0)
+        {
+            count += outputCounts?.UserFolderCounts.TryGetValue(playlistId, out int userFolderCount) == true
+                ? userFolderCount
+                : 0;
+        }
+        if ((ignored & LR2SongDBExtended.playlist.CustomFolderType.LevelFolder) == 0)
+        {
+            count += outputCounts?.LevelFolderCounts.TryGetValue(playlistId, out int levelFolderCount) == true
+                ? levelFolderCount
+                : 0;
+            if (outputCounts?.NullLevelPlaylistIds.Contains(playlistId) == true)
+            {
+                count++;
+            }
+        }
+        if ((ignored & LR2SongDBExtended.playlist.CustomFolderType.AlphabetFolder) == 0)
+        {
+            count += 7;
+        }
+        if ((ignored & LR2SongDBExtended.playlist.CustomFolderType.ClearFolder) == 0)
+        {
+            count += 8;
+        }
+        if ((ignored & LR2SongDBExtended.playlist.CustomFolderType.DJLevelFolder) == 0)
+        {
+            count += 9;
+        }
+        if ((ignored & LR2SongDBExtended.playlist.CustomFolderType.CategoryAllFolder) == 0)
+        {
+            count += 5;
+        }
+        if ((ignored & LR2SongDBExtended.playlist.CustomFolderType.OtherFolder) == 0)
+        {
+            count += Settings.Default.EnableDownloadLr2IrScoreAndDetectUnsent ? 4 : 3;
+        }
+        return count;
     }
 
     private static string ResolveManagedPlaylistOutputDirectory(BMSTable table)
@@ -8714,6 +9019,7 @@ completeFileEnumerationOnce,
         IReadOnlyDictionary<string, RootFileEnumerationEntry> directoryEntries,
         IReadOnlyList<string> lr2FolderDiscoveryDirectories,
         IReadOnlyList<string> lr2FolderPruneDirectories,
+        IReadOnlyList<string> lr2FolderPruneExcludedPaths,
         string lr2RootPath,
         string lr2NormalCustomFolderOutputBaseDir,
         string lr2RootCustomFolderOutputBaseDir,
@@ -8746,6 +9052,8 @@ completeFileEnumerationOnce,
         public IReadOnlyList<string> Lr2FolderDiscoveryDirectories { get; } = lr2FolderDiscoveryDirectories ?? [];
 
         public IReadOnlyList<string> Lr2FolderPruneDirectories { get; } = lr2FolderPruneDirectories ?? [];
+
+        public IReadOnlyList<string> Lr2FolderPruneExcludedPaths { get; } = lr2FolderPruneExcludedPaths ?? [];
 
         public string Lr2RootPath { get; } = lr2RootPath;
 
