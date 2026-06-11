@@ -20,22 +20,15 @@ namespace BeMusicSeeker.Tests;
 public sealed class BmsLibraryLr2FullGenerationSyncTests
 {
     [TestMethod]
-    public void ShouldIncludeLr2TextSurface_OnlyWhenLr2FullGenerationEnabled()
+    public void ShouldIncludeLr2TextSurface_OnlyWhenLr2ModeEnabled()
     {
         Assert.IsTrue(BMSLibrary.ShouldIncludeLr2TextSurface(new BmsLibraryOptionsSnapshot
         {
             OperationModeLR2DB = true,
-            EnableLR2SongDbFullGeneration = true
-        }));
-        Assert.IsFalse(BMSLibrary.ShouldIncludeLr2TextSurface(new BmsLibraryOptionsSnapshot
-        {
-            OperationModeLR2DB = true,
-            EnableLR2SongDbFullGeneration = false
         }));
         Assert.IsFalse(BMSLibrary.ShouldIncludeLr2TextSurface(new BmsLibraryOptionsSnapshot
         {
             OperationModeLR2DB = false,
-            EnableLR2SongDbFullGeneration = true
         }));
         Assert.IsFalse(BMSLibrary.ShouldIncludeLr2TextSurface(null));
     }
@@ -128,7 +121,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         try
         {
             Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.EnableLR2SongDbFullGeneration = true;
             ResetLr2FolderDiscoverySettings();
             string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
             string packDirectory = Path.Combine(rootDirectory, "Pack");
@@ -164,13 +156,12 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
-    public void ApplyInstalledChartStorageTargets_DoesNotSyncNormalFolderRowsWhenFullGenerationDisabled()
+    public void ApplyInstalledChartStorageTargets_DoesNotSyncNormalFolderRowsWhenLr2ModeDisabled()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         try
         {
-            Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.EnableLR2SongDbFullGeneration = false;
+            Settings.Default.OperationModeLR2DB = false;
             ResetLr2FolderDiscoverySettings();
             string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
             string songDirectory = Path.Combine(rootDirectory, "Pack", "Song");
@@ -207,7 +198,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         try
         {
             Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.EnableLR2SongDbFullGeneration = true;
             ResetLr2FolderDiscoverySettings();
             string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
             string packDirectory = Path.Combine(rootDirectory, "Pack");
@@ -261,7 +251,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         try
         {
             Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.EnableLR2SongDbFullGeneration = true;
             ResetLr2FolderDiscoverySettings();
             string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
             string packDirectory = Path.Combine(rootDirectory, "Pack");
@@ -325,7 +314,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         try
         {
             Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.EnableLR2SongDbFullGeneration = true;
             ResetLr2FolderDiscoverySettings();
             string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
             string songDirectory = Path.Combine(rootDirectory, "Pack", "Song");
@@ -353,13 +341,12 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
-    public void ApplyInstalledChartStorageTargets_BlocksRunningSyncEvenWhenFeatureIsDisabled()
+    public void ApplyInstalledChartStorageTargets_BlocksRunningSyncWhenAlreadyMarkedRunning()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         try
         {
             Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.EnableLR2SongDbFullGeneration = false;
             ResetLr2FolderDiscoverySettings();
             string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
             string songDirectory = Path.Combine(rootDirectory, "Pack", "Song");
@@ -380,7 +367,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             InvokeBeginLr2FullGenerationSyncRequest(library);
 
             TargetInvocationException exception = Assert.ThrowsException<TargetInvocationException>(
-                () => InvokeApplyInstalledChartStorageTargets(library, ChartStorageTargetSet.FromRows([file], []), "test_disabled_running_add"));
+                () => InvokeApplyInstalledChartStorageTargets(library, ChartStorageTargetSet.FromRows([file], []), "test_running_add"));
             Assert.IsInstanceOfType(exception.InnerException, typeof(InvalidOperationException));
             Assert.AreEqual(Resources.Warn_Lr2FullGenerationSyncRunning, exception.InnerException.Message);
         }
@@ -397,7 +384,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         try
         {
             Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.EnableLR2SongDbFullGeneration = true;
             ResetLr2FolderDiscoverySettings();
             var library = new BMSLibrary(scope.SongDbPath)
             {
@@ -417,13 +403,12 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     }
 
     [TestMethod]
-    public void QueueLr2FullGenerationDataSync_DoesNotQueueWhenFeatureIsDisabled()
+    public void QueueLr2FullGenerationDataSync_DoesNotQueueWhenLr2ModeDisabled()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         try
         {
-            Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.EnableLR2SongDbFullGeneration = false;
+            Settings.Default.OperationModeLR2DB = false;
             ResetLr2FolderDiscoverySettings();
             var library = new BMSLibrary(scope.SongDbPath);
             bool queued = false;
@@ -433,7 +418,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                 return true;
             };
 
-            Lr2FullGenerationStatusSnapshot snapshot = library.QueueLr2FullGenerationDataSync("test_disabled");
+            Lr2FullGenerationStatusSnapshot snapshot = library.QueueLr2FullGenerationDataSync("test_l2_mode_disabled");
 
             Assert.AreEqual(Lr2FullGenerationStatusKind.NotNeeded, snapshot.Status);
             Assert.AreEqual(1, library.Lr2FullGenerationStatusVersion);
@@ -456,7 +441,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         try
         {
             Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.EnableLR2SongDbFullGeneration = true;
             ResetLr2FolderDiscoverySettings();
             string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
             Directory.CreateDirectory(rootDirectory);
@@ -476,7 +460,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             var options = new BmsLibraryOptionsSnapshot
             {
                 OperationModeLR2DB = true,
-                EnableLR2SongDbFullGeneration = true
             };
             var result = new SongTableFileCheckResult
             {
@@ -509,7 +492,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         try
         {
             Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.EnableLR2SongDbFullGeneration = true;
             ResetLr2FolderDiscoverySettings();
             string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
             Directory.CreateDirectory(rootDirectory);
@@ -529,7 +511,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             var options = new BmsLibraryOptionsSnapshot
             {
                 OperationModeLR2DB = true,
-                EnableLR2SongDbFullGeneration = true
             };
 
             InvokeMarkLr2FullGenerationIncompleteAfterNormalFolderSyncFailure(
@@ -562,7 +543,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         try
         {
             Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.EnableLR2SongDbFullGeneration = true;
             ResetLr2FolderDiscoverySettings();
             string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
             Directory.CreateDirectory(rootDirectory);
@@ -582,7 +562,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             var options = new BmsLibraryOptionsSnapshot
             {
                 OperationModeLR2DB = true,
-                EnableLR2SongDbFullGeneration = true
             };
 
             InvokeMarkLr2FullGenerationIncompleteAfterSongDbWriteFailure(
@@ -615,7 +594,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         try
         {
             Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.EnableLR2SongDbFullGeneration = true;
             ResetLr2FolderDiscoverySettings();
             string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
             Directory.CreateDirectory(rootDirectory);
@@ -635,7 +613,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             var options = new BmsLibraryOptionsSnapshot
             {
                 OperationModeLR2DB = true,
-                EnableLR2SongDbFullGeneration = true
             };
 
             InvokeMarkLr2FullGenerationIncompleteAfterFileDiffSongDbWriteFailure(
@@ -667,7 +644,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         try
         {
             Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.EnableLR2SongDbFullGeneration = true;
             ResetLr2FolderDiscoverySettings();
             string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
             Directory.CreateDirectory(rootDirectory);
@@ -713,7 +689,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         try
         {
             Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.EnableLR2SongDbFullGeneration = true;
             ResetLr2FolderDiscoverySettings();
             string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
             Directory.CreateDirectory(rootDirectory);
@@ -750,7 +725,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         try
         {
             Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.EnableLR2SongDbFullGeneration = true;
             ResetLr2FolderDiscoverySettings();
             var library = new BMSLibrary(scope.SongDbPath);
             using (var setup = new LR2SongDBExtended(scope.SongDbPath))
@@ -760,7 +734,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
                     Lr2FullGenerationSignatureBuilder.Build(new BmsLibraryOptionsSnapshot
                     {
                         OperationModeLR2DB = true,
-                        EnableLR2SongDbFullGeneration = true
                     }),
                     "scoped-folder-sync",
                     processedCursor: null,
@@ -799,7 +772,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         try
         {
             Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.EnableLR2SongDbFullGeneration = true;
             ResetLr2FolderDiscoverySettings();
             string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
             Directory.CreateDirectory(rootDirectory);
@@ -842,7 +814,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         try
         {
             Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.EnableLR2SongDbFullGeneration = true;
             ResetLr2FolderDiscoverySettings();
             string lr2Root = Path.Combine(scope.DirectoryPath, "LR2beta3");
             string builtinRoot = Path.Combine(lr2Root, "LR2files", "CustomFolder");
@@ -882,7 +853,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         try
         {
             Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.EnableLR2SongDbFullGeneration = true;
             ResetLr2FolderDiscoverySettings();
             string lr2Root = Path.Combine(scope.DirectoryPath, "LR2beta3");
             string randomDirectory = Path.Combine(lr2Root, "LR2files", "CustomFolder", "RANDOM");
@@ -916,7 +886,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         try
         {
             Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.EnableLR2SongDbFullGeneration = true;
             ResetLr2FolderDiscoverySettings();
             string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
             string tableDirectory = Path.Combine(rootDirectory, "ExternalTable");
@@ -934,7 +903,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             var options = new BmsLibraryOptionsSnapshot
             {
                 OperationModeLR2DB = true,
-                EnableLR2SongDbFullGeneration = true
             };
             var fileCheckResult = new SongTableFileCheckResult
             {
@@ -977,7 +945,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         try
         {
             Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.EnableLR2SongDbFullGeneration = true;
             ResetLr2FolderDiscoverySettings();
             BMSPlaylist.EnsureSchema(scope.SongDbPath);
             string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
@@ -1036,7 +1003,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             var options = new BmsLibraryOptionsSnapshot
             {
                 OperationModeLR2DB = true,
-                EnableLR2SongDbFullGeneration = true
             };
             var fileCheckResult = new SongTableFileCheckResult
             {
@@ -1081,7 +1047,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         try
         {
             Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.EnableLR2SongDbFullGeneration = true;
             ResetLr2FolderDiscoverySettings();
             string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
             string tableDirectory = Path.Combine(rootDirectory, "ExternalTable");
@@ -1110,7 +1075,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             var options = new BmsLibraryOptionsSnapshot
             {
                 OperationModeLR2DB = true,
-                EnableLR2SongDbFullGeneration = true
             };
             var fileCheckResult = new SongTableFileCheckResult
             {
@@ -1143,7 +1107,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         try
         {
             Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.EnableLR2SongDbFullGeneration = true;
             ResetLr2FolderDiscoverySettings();
             string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
             string outputBase = Path.Combine(rootDirectory, "#BeMusicSeekerOutput");
@@ -1164,7 +1127,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             var options = new BmsLibraryOptionsSnapshot
             {
                 OperationModeLR2DB = true,
-                EnableLR2SongDbFullGeneration = true
             };
             var fileCheckResult = new SongTableFileCheckResult
             {
@@ -1202,7 +1164,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         try
         {
             Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.EnableLR2SongDbFullGeneration = true;
             ResetLr2FolderDiscoverySettings();
             string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
             Directory.CreateDirectory(rootDirectory);
@@ -1226,7 +1187,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             var options = new BmsLibraryOptionsSnapshot
             {
                 OperationModeLR2DB = true,
-                EnableLR2SongDbFullGeneration = true
             };
             var fileCheckResult = new SongTableFileCheckResult
             {
@@ -1266,7 +1226,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         try
         {
             Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.EnableLR2SongDbFullGeneration = true;
             ResetLr2FolderDiscoverySettings();
             Settings.Default.LR2RootPath = Path.Combine(scope.DirectoryPath, "MissingLR2");
             const string staleBuiltinPath = @"LR2files\CustomFolder\favorite.lr2folder";
@@ -1302,7 +1261,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         try
         {
             Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.EnableLR2SongDbFullGeneration = true;
             ResetLr2FolderDiscoverySettings();
             var library = new BMSLibrary(scope.SongDbPath);
 
@@ -1326,7 +1284,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         try
         {
             Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.EnableLR2SongDbFullGeneration = true;
             ResetLr2FolderDiscoverySettings();
             string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
             Directory.CreateDirectory(rootDirectory);
@@ -1363,7 +1320,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         try
         {
             Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.EnableLR2SongDbFullGeneration = true;
             ResetLr2FolderDiscoverySettings();
             string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
             string chartDirectory = Path.Combine(rootDirectory, "Pack");
@@ -1377,7 +1333,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             var options = new BmsLibraryOptionsSnapshot
             {
                 OperationModeLR2DB = true,
-                EnableLR2SongDbFullGeneration = true
             };
             InvokeCaptureLr2FullGenerationScanSurface(library, options, [rootDirectory], new SongTableFileCheckResult
             {
@@ -1427,7 +1382,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         try
         {
             Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.EnableLR2SongDbFullGeneration = true;
             ResetLr2FolderDiscoverySettings();
             string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
             Directory.CreateDirectory(rootDirectory);
@@ -1439,7 +1393,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             var options = new BmsLibraryOptionsSnapshot
             {
                 OperationModeLR2DB = true,
-                EnableLR2SongDbFullGeneration = true
             };
             InvokeCaptureLr2FullGenerationScanSurface(library, options, [rootDirectory], new SongTableFileCheckResult
             {
@@ -1481,7 +1434,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         try
         {
             Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.EnableLR2SongDbFullGeneration = true;
             ResetLr2FolderDiscoverySettings();
             string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
             Directory.CreateDirectory(rootDirectory);
@@ -1494,7 +1446,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             var options = new BmsLibraryOptionsSnapshot
             {
                 OperationModeLR2DB = true,
-                EnableLR2SongDbFullGeneration = true
             };
             DateTime previousTimestamp = new(2026, 6, 8, 1, 0, 0, DateTimeKind.Utc);
             DateTime failedTimestamp = new(2026, 6, 8, 1, 5, 0, DateTimeKind.Utc);
@@ -1603,7 +1554,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         try
         {
             Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.EnableLR2SongDbFullGeneration = true;
             ResetLr2FolderDiscoverySettings();
             string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
             string outputBase = Path.Combine(scope.DirectoryPath, "#BeMusicSeekerOutput");
@@ -1621,7 +1571,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             var options = new BmsLibraryOptionsSnapshot
             {
                 OperationModeLR2DB = true,
-                EnableLR2SongDbFullGeneration = true
             };
             InvokeCaptureLr2FullGenerationScanSurface(library, options, [rootDirectory], new SongTableFileCheckResult
             {
@@ -1706,7 +1655,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         try
         {
             Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.EnableLR2SongDbFullGeneration = true;
             ResetLr2FolderDiscoverySettings();
             string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
             Directory.CreateDirectory(rootDirectory);
@@ -1720,7 +1668,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             var options = new BmsLibraryOptionsSnapshot
             {
                 OperationModeLR2DB = true,
-                EnableLR2SongDbFullGeneration = true
             };
 
             InvokeCaptureLr2FullGenerationScanSurface(library, options, [rootDirectory], new SongTableFileCheckResult
@@ -1759,7 +1706,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         try
         {
             Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.EnableLR2SongDbFullGeneration = true;
             ResetLr2FolderDiscoverySettings();
             string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
             string tableDirectory = Path.Combine(rootDirectory, "Table");
@@ -1776,7 +1722,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             var options = new BmsLibraryOptionsSnapshot
             {
                 OperationModeLR2DB = true,
-                EnableLR2SongDbFullGeneration = true
             };
 
             InvokeCaptureLr2FullGenerationScanSurface(library, options, [rootDirectory], new SongTableFileCheckResult
@@ -1819,7 +1764,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         try
         {
             Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.EnableLR2SongDbFullGeneration = true;
             ResetLr2FolderDiscoverySettings();
             string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
             string outputBase = Path.Combine(scope.DirectoryPath, "#BeMusicSeekerOutput");
@@ -1867,7 +1811,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         try
         {
             Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.EnableLR2SongDbFullGeneration = true;
             ResetLr2FolderDiscoverySettings();
             string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
             string outputBase = Path.Combine(scope.DirectoryPath, "#BeMusicSeekerOutput");
@@ -1916,7 +1859,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         try
         {
             Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.EnableLR2SongDbFullGeneration = true;
             ResetLr2FolderDiscoverySettings();
             string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
             Directory.CreateDirectory(rootDirectory);
@@ -2030,7 +1972,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         try
         {
             Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.EnableLR2SongDbFullGeneration = true;
             ResetLr2FolderDiscoverySettings();
             string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
             string outputBase = Path.Combine(scope.DirectoryPath, "#BeMusicSeekerOutput");
@@ -2051,7 +1992,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             var options = new BmsLibraryOptionsSnapshot
             {
                 OperationModeLR2DB = true,
-                EnableLR2SongDbFullGeneration = true
             };
             InvokeCaptureLr2FullGenerationScanSurface(library, options, [rootDirectory], new SongTableFileCheckResult
             {
@@ -2108,7 +2048,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         try
         {
             Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.EnableLR2SongDbFullGeneration = true;
             ResetLr2FolderDiscoverySettings();
             string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
             string outputBase = Path.Combine(scope.DirectoryPath, "#BeMusicSeekerOutput");
@@ -2130,7 +2069,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             var options = new BmsLibraryOptionsSnapshot
             {
                 OperationModeLR2DB = true,
-                EnableLR2SongDbFullGeneration = true
             };
             InvokeCaptureLr2FullGenerationScanSurface(library, options, [rootDirectory], new SongTableFileCheckResult
             {
@@ -2176,7 +2114,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         try
         {
             Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.EnableLR2SongDbFullGeneration = true;
             ResetLr2FolderDiscoverySettings();
             string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
             string oldOutputBase = Path.Combine(scope.DirectoryPath, "OldOutput");
@@ -2195,7 +2132,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             var options = new BmsLibraryOptionsSnapshot
             {
                 OperationModeLR2DB = true,
-                EnableLR2SongDbFullGeneration = true
             };
             InvokeCaptureLr2FullGenerationScanSurface(library, options, [rootDirectory], new SongTableFileCheckResult
             {
@@ -2247,7 +2183,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         try
         {
             Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.EnableLR2SongDbFullGeneration = true;
             ResetLr2FolderDiscoverySettings();
             string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
             string outputBase = Path.Combine(scope.DirectoryPath, "Output");
@@ -2292,7 +2227,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         try
         {
             Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.EnableLR2SongDbFullGeneration = true;
             ResetLr2FolderDiscoverySettings();
             BMSPlaylist.EnsureSchema(scope.SongDbPath);
             string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
@@ -2322,7 +2256,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             var options = new BmsLibraryOptionsSnapshot
             {
                 OperationModeLR2DB = true,
-                EnableLR2SongDbFullGeneration = true
             };
             DateTime timestamp = new(2026, 6, 10, 1, 2, 3, DateTimeKind.Utc);
 
@@ -2363,7 +2296,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         try
         {
             Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.EnableLR2SongDbFullGeneration = true;
             Settings.Default.EnableDownloadLr2IrScoreAndDetectUnsent = true;
             ResetLr2FolderDiscoverySettings();
             BMSPlaylist.EnsureSchema(scope.SongDbPath);
@@ -2464,7 +2396,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         try
         {
             Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.EnableLR2SongDbFullGeneration = true;
             ResetLr2FolderDiscoverySettings();
             string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
             string outputBase = Path.Combine(scope.DirectoryPath, "Output");
@@ -2480,7 +2411,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             var options = new BmsLibraryOptionsSnapshot
             {
                 OperationModeLR2DB = true,
-                EnableLR2SongDbFullGeneration = true
             };
             using (var setup = new LR2SongDBExtended(scope.SongDbPath))
             {
@@ -2523,7 +2453,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         try
         {
             Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.EnableLR2SongDbFullGeneration = true;
             ResetLr2FolderDiscoverySettings();
             string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
             string packDirectory = Path.Combine(rootDirectory, "Pack");
@@ -2573,7 +2502,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         try
         {
             Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.EnableLR2SongDbFullGeneration = true;
             Settings.Default.EnableDownloadLr2IrScoreAndDetectUnsent = true;
             ResetLr2FolderDiscoverySettings();
             BMSPlaylist.EnsureSchema(scope.SongDbPath);
@@ -2633,7 +2561,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         try
         {
             Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.EnableLR2SongDbFullGeneration = true;
             Settings.Default.EnableDownloadLr2IrScoreAndDetectUnsent = true;
             ResetLr2FolderDiscoverySettings();
             BMSPlaylist.EnsureSchema(scope.SongDbPath);
@@ -2694,7 +2621,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         try
         {
             Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.EnableLR2SongDbFullGeneration = true;
             ResetLr2FolderDiscoverySettings();
             string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
             string outputBase = Path.Combine(rootDirectory, "#BeMusicSeekerOutput");
@@ -2732,7 +2658,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         try
         {
             Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.EnableLR2SongDbFullGeneration = true;
             ResetLr2FolderDiscoverySettings();
             string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
             string outputBase = Path.Combine(rootDirectory, "#BeMusicSeekerOutput");
@@ -2753,7 +2678,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             var options = new BmsLibraryOptionsSnapshot
             {
                 OperationModeLR2DB = true,
-                EnableLR2SongDbFullGeneration = true
             };
             DateTime timestamp = new(2026, 6, 10, 1, 2, 3, DateTimeKind.Utc);
             InvokeCaptureLr2FullGenerationScanSurface(library, options, [rootDirectory], new SongTableFileCheckResult
@@ -2792,7 +2716,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         try
         {
             Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.EnableLR2SongDbFullGeneration = true;
             ResetLr2FolderDiscoverySettings();
             string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
             string packDirectory = Path.Combine(rootDirectory, "Pack");
@@ -2958,7 +2881,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         try
         {
             Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.EnableLR2SongDbFullGeneration = true;
             ResetLr2FolderDiscoverySettings();
             string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
             Directory.CreateDirectory(rootDirectory);
@@ -3007,7 +2929,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         try
         {
             Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.EnableLR2SongDbFullGeneration = true;
             ResetLr2FolderDiscoverySettings();
             string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
             string songDirectory = Path.Combine(rootDirectory, "Song");
@@ -3061,7 +2982,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         try
         {
             Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.EnableLR2SongDbFullGeneration = true;
             ResetLr2FolderDiscoverySettings();
             string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
             string songDirectory = Path.Combine(rootDirectory, "Song");
@@ -3114,7 +3034,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         try
         {
             Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.EnableLR2SongDbFullGeneration = true;
             ResetLr2FolderDiscoverySettings();
             string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
             string songDirectory = Path.Combine(rootDirectory, "Song");
@@ -3172,7 +3091,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         try
         {
             Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.EnableLR2SongDbFullGeneration = true;
             ResetLr2FolderDiscoverySettings();
             string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
             string songDirectory = Path.Combine(rootDirectory, "Song");
@@ -3288,7 +3206,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         try
         {
             Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.EnableLR2SongDbFullGeneration = true;
             ResetLr2FolderDiscoverySettings();
             var library = new BMSLibrary(scope.SongDbPath)
             {
@@ -3331,7 +3248,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         try
         {
             Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.EnableLR2SongDbFullGeneration = true;
             ResetLr2FolderDiscoverySettings();
             string songDirectory = Path.Combine(scope.DirectoryPath, "Loose");
             Directory.CreateDirectory(songDirectory);
@@ -3379,7 +3295,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         try
         {
             Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.EnableLR2SongDbFullGeneration = true;
             ResetLr2FolderDiscoverySettings();
             string songDirectory = Path.Combine(scope.DirectoryPath, "ReadableSnapshot");
             Directory.CreateDirectory(songDirectory);
@@ -3452,7 +3367,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         try
         {
             Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.EnableLR2SongDbFullGeneration = true;
             ResetLr2FolderDiscoverySettings();
             string songDirectory = Path.Combine(scope.DirectoryPath, "ChartInfoBuild");
             Directory.CreateDirectory(songDirectory);
@@ -3500,7 +3414,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         try
         {
             Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.EnableLR2SongDbFullGeneration = true;
             ResetLr2FolderDiscoverySettings();
             string songDirectory = Path.Combine(scope.DirectoryPath, "StaleChartInfoBuild");
             Directory.CreateDirectory(songDirectory);
@@ -5037,7 +4950,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         try
         {
             Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.EnableLR2SongDbFullGeneration = true;
             ResetLr2FolderDiscoverySettings();
             string songDirectory = Path.Combine(scope.DirectoryPath, "LiveLr2Compatibility");
             Directory.CreateDirectory(songDirectory);
@@ -5083,7 +4995,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         try
         {
             Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.EnableLR2SongDbFullGeneration = true;
             ResetLr2FolderDiscoverySettings();
             string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
             string nestedDirectory = Path.Combine(rootDirectory, "Custom");
@@ -5146,7 +5057,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         try
         {
             Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.EnableLR2SongDbFullGeneration = true;
             ResetLr2FolderDiscoverySettings();
             string outputBase = Path.Combine(scope.DirectoryPath, "CustomOutput");
             Directory.CreateDirectory(outputBase);
@@ -5196,7 +5106,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         try
         {
             Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.EnableLR2SongDbFullGeneration = true;
             ResetLr2FolderDiscoverySettings();
             string outputBase = Path.Combine(scope.DirectoryPath, "RootCustomOutput");
             Directory.CreateDirectory(outputBase);
@@ -5235,7 +5144,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         try
         {
             Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.EnableLR2SongDbFullGeneration = true;
             ResetLr2FolderDiscoverySettings();
             string bmsRoot = Path.Combine(scope.DirectoryPath, "BMS");
             string outputBase = Path.Combine(bmsRoot, "#BeMusicSeeker");
@@ -5286,7 +5194,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         try
         {
             Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.EnableLR2SongDbFullGeneration = true;
             ResetLr2FolderDiscoverySettings();
             string bmsRoot = Path.Combine(scope.DirectoryPath, "BMS");
             Directory.CreateDirectory(bmsRoot);
@@ -5335,7 +5242,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         try
         {
             Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.EnableLR2SongDbFullGeneration = true;
             ResetLr2FolderDiscoverySettings();
             string bmsRoot = Path.Combine(scope.DirectoryPath, "BMS");
             Directory.CreateDirectory(bmsRoot);
@@ -5382,7 +5288,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         try
         {
             Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.EnableLR2SongDbFullGeneration = true;
             ResetLr2FolderDiscoverySettings();
             string bmsRoot = Path.Combine(scope.DirectoryPath, "BMS");
             Directory.CreateDirectory(bmsRoot);
@@ -5440,7 +5345,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         try
         {
             Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.EnableLR2SongDbFullGeneration = true;
             ResetLr2FolderDiscoverySettings();
             string bmsRoot = Path.Combine(scope.DirectoryPath, "BMS");
             Directory.CreateDirectory(bmsRoot);
@@ -5502,7 +5406,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         try
         {
             Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.EnableLR2SongDbFullGeneration = true;
             ResetLr2FolderDiscoverySettings();
             string bmsRoot = Path.Combine(scope.DirectoryPath, "BMS");
             Directory.CreateDirectory(bmsRoot);
@@ -5545,7 +5448,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         try
         {
             Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.EnableLR2SongDbFullGeneration = true;
             ResetLr2FolderDiscoverySettings();
             string bmsRoot = Path.Combine(scope.DirectoryPath, "BMS");
             string packDirectory = Path.Combine(bmsRoot, "Pack");
@@ -5594,7 +5496,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         try
         {
             Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.EnableLR2SongDbFullGeneration = true;
             ResetLr2FolderDiscoverySettings();
             string bmsRoot = Path.Combine(scope.DirectoryPath, "BMS");
             Directory.CreateDirectory(bmsRoot);
@@ -5639,7 +5540,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         try
         {
             Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.EnableLR2SongDbFullGeneration = true;
             ResetLr2FolderDiscoverySettings();
             string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
             string rivalDirectory = Path.Combine(rootDirectory, "__RIVAL__");
@@ -6322,7 +6222,6 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
     private static void ResetTouchedSettings()
     {
         Settings.Default.OperationModeLR2DB = true;
-        Settings.Default.EnableLR2SongDbFullGeneration = false;
         ResetLr2FolderDiscoverySettings();
     }
 

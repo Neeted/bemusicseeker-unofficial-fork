@@ -1216,7 +1216,6 @@ public sealed class BmsLibraryInitializationServiceTests
                 new BmsLibraryOptionsSnapshot
                 {
                     OperationModeLR2DB = true,
-                    EnableLR2SongDbFullGeneration = true
                 },
                 [],
                 new ChartScanExecutionResult
@@ -1311,7 +1310,6 @@ public sealed class BmsLibraryInitializationServiceTests
                 new BmsLibraryOptionsSnapshot
                 {
                     OperationModeLR2DB = true,
-                    EnableLR2SongDbFullGeneration = true
                 },
                 [currentFile],
                 new ChartScanExecutionResult
@@ -1399,7 +1397,6 @@ public sealed class BmsLibraryInitializationServiceTests
                 new BmsLibraryOptionsSnapshot
                 {
                     OperationModeLR2DB = true,
-                    EnableLR2SongDbFullGeneration = true
                 },
                 [currentFile],
                 new ChartScanExecutionResult
@@ -1471,7 +1468,6 @@ public sealed class BmsLibraryInitializationServiceTests
                 new BmsLibraryOptionsSnapshot
                 {
                     OperationModeLR2DB = true,
-                    EnableLR2SongDbFullGeneration = true
                 },
                 [lr2RootPath],
                 logs.Add);
@@ -1550,7 +1546,6 @@ public sealed class BmsLibraryInitializationServiceTests
                 new BmsLibraryOptionsSnapshot
                 {
                     OperationModeLR2DB = true,
-                    EnableLR2SongDbFullGeneration = true
                 },
                 [lr2RootPath]);
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
@@ -1558,7 +1553,6 @@ public sealed class BmsLibraryInitializationServiceTests
                 new BmsLibraryOptionsSnapshot
                 {
                     OperationModeLR2DB = true,
-                    EnableLR2SongDbFullGeneration = true
                 },
                 [currentFile],
                 new ChartScanExecutionResult
@@ -1643,7 +1637,6 @@ public sealed class BmsLibraryInitializationServiceTests
                 new BmsLibraryOptionsSnapshot
                 {
                     OperationModeLR2DB = true,
-                    EnableLR2SongDbFullGeneration = true
                 },
                 [currentFile],
                 new ChartScanExecutionResult
@@ -1722,7 +1715,6 @@ public sealed class BmsLibraryInitializationServiceTests
                 new BmsLibraryOptionsSnapshot
                 {
                     OperationModeLR2DB = true,
-                    EnableLR2SongDbFullGeneration = true
                 },
                 [currentFile],
                 new ChartScanExecutionResult
@@ -1784,7 +1776,6 @@ public sealed class BmsLibraryInitializationServiceTests
                 new BmsLibraryOptionsSnapshot
                 {
                     OperationModeLR2DB = true,
-                    EnableLR2SongDbFullGeneration = true
                 },
                 [],
                 new ChartScanExecutionResult
@@ -1846,7 +1837,6 @@ public sealed class BmsLibraryInitializationServiceTests
                 new BmsLibraryOptionsSnapshot
                 {
                     OperationModeLR2DB = true,
-                    EnableLR2SongDbFullGeneration = true,
                     LR2RootPath = lr2RootPath,
                     LR2CustomFolderOutputBaseDir = normalOutputBasePath,
                     LR2CustomFolderOutputBaseDirRootType = rootOutputBasePath
@@ -1962,7 +1952,6 @@ public sealed class BmsLibraryInitializationServiceTests
                 new BmsLibraryOptionsSnapshot
                 {
                     OperationModeLR2DB = true,
-                    EnableLR2SongDbFullGeneration = true
                 },
                 [keepFile, removedFile],
                 new ChartScanExecutionResult
@@ -2063,7 +2052,6 @@ public sealed class BmsLibraryInitializationServiceTests
                 new BmsLibraryOptionsSnapshot
                 {
                     OperationModeLR2DB = true,
-                    EnableLR2SongDbFullGeneration = true
                 },
                 [keepFile, removedFile],
                 new ChartScanExecutionResult
@@ -2147,7 +2135,6 @@ public sealed class BmsLibraryInitializationServiceTests
                 new BmsLibraryOptionsSnapshot
                 {
                     OperationModeLR2DB = true,
-                    EnableLR2SongDbFullGeneration = true
                 },
                 [removedFile],
                 new ChartScanExecutionResult
@@ -2235,7 +2222,6 @@ public sealed class BmsLibraryInitializationServiceTests
                 new BmsLibraryOptionsSnapshot
                 {
                     OperationModeLR2DB = true,
-                    EnableLR2SongDbFullGeneration = true
                 },
                 [keepFile, removedFile],
                 new ChartScanExecutionResult
@@ -2266,7 +2252,7 @@ public sealed class BmsLibraryInitializationServiceTests
     }
 
     [TestMethod]
-    public void ApplyFileScanDiff_DoesNotSyncLr2NormalFoldersWhenFullGenerationDisabled()
+    public void ApplyFileScanDiff_DoesNotSyncStaleLr2NormalFoldersOutsideLr2Mode()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
@@ -2293,8 +2279,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 new BmsLibraryDbGateway(songDbPath),
                 new BmsLibraryOptionsSnapshot
                 {
-                    OperationModeLR2DB = true,
-                    EnableLR2SongDbFullGeneration = false
+                    OperationModeLR2DB = false,
                 },
                 [],
                 new ChartScanExecutionResult
@@ -2343,7 +2328,6 @@ public sealed class BmsLibraryInitializationServiceTests
                 new BmsLibraryOptionsSnapshot
                 {
                     OperationModeLR2DB = false,
-                    EnableLR2SongDbFullGeneration = true
                 },
                 [],
                 new ChartScanExecutionResult
@@ -2398,7 +2382,6 @@ public sealed class BmsLibraryInitializationServiceTests
                 new BmsLibraryOptionsSnapshot
                 {
                     OperationModeLR2DB = true,
-                    EnableLR2SongDbFullGeneration = true
                 },
                 [],
                 new ChartScanExecutionResult
@@ -2479,7 +2462,6 @@ public sealed class BmsLibraryInitializationServiceTests
                 new BmsLibraryOptionsSnapshot
                 {
                     OperationModeLR2DB = true,
-                    EnableLR2SongDbFullGeneration = true
                 },
                 [currentFile],
                 new ChartScanExecutionResult
@@ -2563,7 +2545,6 @@ public sealed class BmsLibraryInitializationServiceTests
                 new BmsLibraryOptionsSnapshot
                 {
                     OperationModeLR2DB = true,
-                    EnableLR2SongDbFullGeneration = true
                 },
                 [currentFile],
                 new ChartScanExecutionResult
@@ -4326,7 +4307,6 @@ public sealed class BmsLibraryInitializationServiceTests
                 new BmsLibraryOptionsSnapshot
                 {
                     OperationModeLR2DB = true,
-                    EnableLR2SongDbFullGeneration = true
                 },
                 [existingFile],
                 new ChartScanExecutionResult
@@ -4695,7 +4675,6 @@ public sealed class BmsLibraryInitializationServiceTests
                 new BmsLibraryOptionsSnapshot
                 {
                     OperationModeLR2DB = true,
-                    EnableLR2SongDbFullGeneration = true
                 },
                 [],
                 new ChartScanExecutionResult
@@ -4759,7 +4738,6 @@ public sealed class BmsLibraryInitializationServiceTests
                 new BmsLibraryOptionsSnapshot
                 {
                     OperationModeLR2DB = true,
-                    EnableLR2SongDbFullGeneration = true
                 },
                 [existingFile],
                 new ChartScanExecutionResult
@@ -4796,7 +4774,7 @@ public sealed class BmsLibraryInitializationServiceTests
     }
 
     [TestMethod]
-    public void ApplyFileScanDiff_DoesNotResetTxtWhenTextSurfaceIsDisabled()
+    public void ApplyFileScanDiff_DoesNotResetTxtOutsideLr2Mode()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
@@ -4826,8 +4804,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 new BmsLibraryDbGateway(songDbPath),
                 new BmsLibraryOptionsSnapshot
                 {
-                    OperationModeLR2DB = true,
-                    EnableLR2SongDbFullGeneration = false
+                    OperationModeLR2DB = false,
                 },
                 [existingFile],
                 new ChartScanExecutionResult

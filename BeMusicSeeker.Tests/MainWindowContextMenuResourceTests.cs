@@ -319,23 +319,15 @@ public sealed class MainWindowContextMenuResourceTests
 
         StringAssert.Contains(generalTab, "Path=Resources.Operation_Mode");
         StringAssert.Contains(generalTab, "Path=Resources.Language");
-        StringAssert.Contains(generalTab, "Path=Resources.Enable_lr2_song_db_full_generation");
-        string lr2FullGenerationCheckbox = ExtractBetween(
-            generalTab,
-            "Path=Resources.Enable_lr2_song_db_full_generation",
-            "<DockPanel LastChildFill=\"False\">");
-        Assert.IsFalse(lr2FullGenerationCheckbox.Contains("Visibility=\"Collapsed\""));
-        StringAssert.Contains(resources, "name=\"Enable_lr2_song_db_full_generation\"");
-        StringAssert.Contains(resourceCode, "Enable_lr2_song_db_full_generation");
-        int lr2FullGenerationPropertyIndex = settingsCode.IndexOf("public bool EnableLR2SongDbFullGeneration", StringComparison.Ordinal);
-        Assert.IsTrue(lr2FullGenerationPropertyIndex > 0);
-        string lr2FullGenerationSettingPrefix = settingsCode.Substring(Math.Max(0, lr2FullGenerationPropertyIndex - 160), Math.Min(160, lr2FullGenerationPropertyIndex));
-        StringAssert.Contains(lr2FullGenerationSettingPrefix, "[DefaultSettingValue(\"True\")]");
-        Assert.IsFalse(lr2FullGenerationSettingPrefix.Contains("[DefaultSettingValue(\"False\")]"));
+        StringAssert.Contains(generalTab, "Path=Resources.Lr2_full_generation_data_resync");
+        Assert.IsFalse(generalTab.Contains("Path=Resources.Enable_lr2_song_db_full_generation"));
+        Assert.IsFalse(resources.Contains("name=\"Enable_lr2_song_db_full_generation\""));
+        Assert.IsFalse(resourceCode.Contains("Enable_lr2_song_db_full_generation"));
+        Assert.IsFalse(settingsCode.Contains("public bool EnableLR2SongDbFullGeneration"));
         foreach (string languageFile in Directory.GetFiles(Path.Combine(FindRepositoryRoot(), "lang"), "*.json"))
         {
             string languageJson = File.ReadAllText(languageFile);
-            StringAssert.Contains(languageJson, "\"Enable_lr2_song_db_full_generation\"");
+            Assert.IsFalse(languageJson.Contains("\"Enable_lr2_song_db_full_generation\""));
         }
         StringAssert.Contains(generalTab, "Path=Resources.Beatoraja_integration");
         Assert.IsTrue(generalTab.IndexOf("Path=Resources.Language", StringComparison.Ordinal) < generalTab.IndexOf("Path=Resources.Operation_Mode", StringComparison.Ordinal));
@@ -742,7 +734,7 @@ public sealed class MainWindowContextMenuResourceTests
             "public class PlaylistPropertyDialogViewModel");
 
         StringAssert.Contains(backupSavedSettings, "tempStandaloneBmsRootPaths = SerializeStandaloneBmsRootPaths(StandaloneBmsRootPathList);");
-        StringAssert.Contains(backupSavedSettings, "tempEnableLR2SongDbFullGeneration = Settings.Default.EnableLR2SongDbFullGeneration;");
+        Assert.IsFalse(backupSavedSettings.Contains("tempEnableLR2SongDbFullGeneration"));
         Assert.IsFalse(viewModelCode.Contains("tempValidation"));
         Assert.IsFalse(restartDecision.Contains("CheckValidation()"));
         StringAssert.Contains(restartDecision, "scoreSourceChanged");
@@ -820,7 +812,7 @@ public sealed class MainWindowContextMenuResourceTests
             manualResyncClickHandler.IndexOf("settingDialogRootGrid.IsEnabled = false;", StringComparison.Ordinal) >= 0,
             "Manual LR2 generated-data sync must not disable the entire settings dialog while playlist projection is running.");
         StringAssert.Contains(postSaveSteps, "tempOperationModeLR2DB != Settings.Default.OperationModeLR2DB");
-        StringAssert.Contains(postSaveSteps, "tempEnableLR2SongDbFullGeneration != Settings.Default.EnableLR2SongDbFullGeneration");
+        Assert.IsFalse(postSaveSteps.Contains("tempEnableLR2SongDbFullGeneration"));
         StringAssert.Contains(postSaveSteps, "tempLR2RootPath, Settings.Default.LR2RootPath");
         StringAssert.Contains(postSaveSteps, "tempLR2CustomFolderOutputDir, Settings.Default.LR2CustomFolderOutputBaseDir");
         StringAssert.Contains(postSaveSteps, "tempLR2CustomFolderAsRootOutputDir, Settings.Default.LR2CustomFolderOutputBaseDirRootType");
@@ -1950,7 +1942,7 @@ public sealed class MainWindowContextMenuResourceTests
             "SettingDialog is loaded during MainWindow startup; multi-parameter QuickConverter bindings can fail during BAML load.");
         StringAssert.Contains(settingDialogXaml, "Lr2_full_generation_data_resync");
         StringAssert.Contains(settingDialogXaml, "IsEnabled=\"{Binding IsChecked, ElementName=radioButtonUseLR2}\"");
-        StringAssert.Contains(settingDialogXaml, "IsEnabled=\"{Binding IsChecked, ElementName=checkBoxEnableLr2SongDbFullGeneration}\"");
+        Assert.IsFalse(settingDialogXaml.Contains("checkBoxEnableLr2SongDbFullGeneration"));
     }
 
     [TestMethod]

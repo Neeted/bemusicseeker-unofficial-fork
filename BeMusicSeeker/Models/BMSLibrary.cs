@@ -4617,12 +4617,12 @@ public class BMSLibrary : NotificationObject
 
     internal static bool ShouldIncludeLr2TextSurface(BmsLibraryOptionsSnapshot options)
     {
-        return options?.OperationModeLR2DB == true && options.EnableLR2SongDbFullGeneration;
+        return options?.OperationModeLR2DB == true;
     }
 
     internal static bool ShouldIncludeLr2DirectorySurface(BmsLibraryOptionsSnapshot options)
     {
-        return options?.OperationModeLR2DB == true && options.EnableLR2SongDbFullGeneration;
+        return options?.OperationModeLR2DB == true;
     }
 
     private static bool IsNativeBridgeContractFailure(string reason)
@@ -4740,7 +4740,6 @@ public class BMSLibrary : NotificationObject
                         }
                         if (songTblFileCheck
                             && options?.OperationModeLR2DB == true
-                            && options.EnableLR2SongDbFullGeneration
                             && fileCheckPrefetchDirectories?.Count > 0)
                         {
                             normalFolderMtimeSnapshotTask = Task.Run(() =>
@@ -5369,11 +5368,6 @@ completeFileEnumerationOnce,
             return false;
         }
 
-        if (options.EnableLR2SongDbFullGeneration != true)
-        {
-            return false;
-        }
-
         string signature = Lr2FullGenerationSignatureBuilder.Build(options);
         using LR2SongDBExtended songDb = dbGateway.OpenSongDb();
         Lr2FullGenerationStatusSnapshot status = Lr2FullGenerationStatusService.Evaluate(
@@ -5492,7 +5486,6 @@ completeFileEnumerationOnce,
         SongTableFileCheckResult fileCheckResult)
     {
         return options?.OperationModeLR2DB == true
-            && options.EnableLR2SongDbFullGeneration
             && fileCheckResult?.Lr2ScanSurfaceAvailable == true
             && fileCheckResult.Lr2ScanLr2FolderDiscoveryDirectories?.Count > 0;
     }
@@ -5631,7 +5624,7 @@ completeFileEnumerationOnce,
     internal Lr2FullGenerationPreparedDataSurface SyncLr2BuiltinCustomFolderRows(string reason)
     {
         BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
-        if (options?.OperationModeLR2DB != true || options.EnableLR2SongDbFullGeneration != true)
+        if (options?.OperationModeLR2DB != true)
         {
             return Lr2FullGenerationPreparedDataSurface.Empty;
         }
@@ -5825,7 +5818,6 @@ completeFileEnumerationOnce,
         SongTableFileCheckResult fileCheckResult)
     {
         if (options?.OperationModeLR2DB != true
-            || options.EnableLR2SongDbFullGeneration != true
             || fileCheckResult?.Lr2ScanSurfaceAvailable != true)
         {
             return;
@@ -5965,7 +5957,6 @@ completeFileEnumerationOnce,
         string reason)
     {
         if (options?.OperationModeLR2DB != true
-            || options.EnableLR2SongDbFullGeneration != true
             || fileCheckResult == null)
         {
             ClearLr2FullGenerationFileDiffFreshnessSnapshot("file_diff_unavailable_" + (reason ?? "unknown"));
@@ -6335,7 +6326,7 @@ completeFileEnumerationOnce,
         bool allowIncompleteToQueue = true)
     {
         BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
-        bool enabled = options.OperationModeLR2DB && options.EnableLR2SongDbFullGeneration;
+        bool enabled = options.OperationModeLR2DB;
         string signature = Lr2FullGenerationSignatureBuilder.Build(options);
         Lr2FullGenerationStatusSnapshot status;
         using (LR2SongDBExtended songDb = dbGateway.OpenSongDb())
@@ -6482,7 +6473,7 @@ completeFileEnumerationOnce,
         }
 
         BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
-        bool enabled = options.OperationModeLR2DB && options.EnableLR2SongDbFullGeneration;
+        bool enabled = options.OperationModeLR2DB;
         if (!enabled)
         {
             return false;
@@ -6529,7 +6520,7 @@ completeFileEnumerationOnce,
         }
 
         BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
-        bool enabled = options.OperationModeLR2DB && options.EnableLR2SongDbFullGeneration;
+        bool enabled = options.OperationModeLR2DB;
         if (!enabled)
         {
             return null;
@@ -6563,7 +6554,7 @@ completeFileEnumerationOnce,
     internal void PublishLr2FullGenerationExternalStageProgress(string stage, int processedCount, int totalCount, string detail = null)
     {
         BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
-        bool enabled = options.OperationModeLR2DB && options.EnableLR2SongDbFullGeneration;
+        bool enabled = options.OperationModeLR2DB;
         if (!enabled)
         {
             return;
@@ -8199,7 +8190,7 @@ completeFileEnumerationOnce,
         }
 
         BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
-        if (options?.OperationModeLR2DB != true || options.EnableLR2SongDbFullGeneration != true)
+        if (options?.OperationModeLR2DB != true)
         {
             return;
         }
@@ -8375,7 +8366,7 @@ completeFileEnumerationOnce,
         string detail,
         string logReason)
     {
-        if (options?.OperationModeLR2DB != true || options.EnableLR2SongDbFullGeneration != true)
+        if (options?.OperationModeLR2DB != true)
         {
             return;
         }
@@ -9463,10 +9454,10 @@ completeFileEnumerationOnce,
         }
 
         BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
-        if (options?.OperationModeLR2DB != true || options.EnableLR2SongDbFullGeneration != true)
+        if (options?.OperationModeLR2DB != true)
         {
             stopwatch.Stop();
-            LogInstallPerformance("chart_info_hydration_fast_path skipped reason=full_generation_disabled"
+            LogInstallPerformance("chart_info_hydration_fast_path skipped reason=lr2_mode_disabled"
                 + " requestReason=" + (reason ?? "unknown")
                 + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
             return false;
@@ -9602,7 +9593,6 @@ completeFileEnumerationOnce,
         SongTableFileCheckResult fileCheckResult)
     {
         if (options?.OperationModeLR2DB != true
-            || options.EnableLR2SongDbFullGeneration != true
             || fileCheckResult == null)
         {
             return false;
@@ -11569,7 +11559,6 @@ completeFileEnumerationOnce,
             RootCount = roots?.Count ?? 0
         };
         int lr2FolderDiscoveryRootCount = options?.OperationModeLR2DB == true
-            && options.EnableLR2SongDbFullGeneration
                 ? CreateLr2FullGenerationLr2FolderDiscoveryDirectories(roots ?? []).Count
                 : 0;
         LogInstallPerformance("bms_search_root_normalization"

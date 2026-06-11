@@ -19,7 +19,6 @@ internal static class Lr2FullGenerationSignatureBuilder
             + "|songFolderGenerator=" + SongFolderGeneratorVersion.ToString(CultureInfo.InvariantCulture)
             + "|lr2FolderFileParser=" + Lr2FolderFileParserVersion.ToString(CultureInfo.InvariantCulture)
             + "|lr2CompatibilityFacts=" + Lr2CompatibilityFactsVersion.ToString(CultureInfo.InvariantCulture)
-            + "|operationModeLR2DB=" + ((options?.OperationModeLR2DB ?? false) ? "1" : "0")
-            + "|fullGeneration=" + ((options?.EnableLR2SongDbFullGeneration ?? false) ? "1" : "0");
+            + "|operationModeLR2DB=" + ((options?.OperationModeLR2DB ?? false) ? "1" : "0");
     }
 }

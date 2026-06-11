@@ -3094,15 +3094,12 @@ createTempDirectory);
                 songDb.InsertOrReplace(row, typeof(LR2SongDBExtended.chart_info));
             }
             bool originalOperationMode = Settings.Default.OperationModeLR2DB;
-            bool originalFullGeneration = Settings.Default.EnableLR2SongDbFullGeneration;
             try
             {
                 Settings.Default.OperationModeLR2DB = true;
-                Settings.Default.EnableLR2SongDbFullGeneration = true;
                 var options = new BmsLibraryOptionsSnapshot
                 {
                     OperationModeLR2DB = true,
-                    EnableLR2SongDbFullGeneration = true
                 };
                 string signature = Lr2FullGenerationSignatureBuilder.Build(options);
                 using (var songDb = new LR2SongDBExtended(songDbPath))
@@ -3148,7 +3145,6 @@ createTempDirectory);
             finally
             {
                 Settings.Default.OperationModeLR2DB = originalOperationMode;
-                Settings.Default.EnableLR2SongDbFullGeneration = originalFullGeneration;
             }
         });
     }

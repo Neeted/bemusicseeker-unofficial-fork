@@ -6,8 +6,6 @@ internal sealed class BmsLibraryOptionsSnapshot
 {
     public bool OperationModeLR2DB { get; set; }
 
-    public bool EnableLR2SongDbFullGeneration { get; set; }
-
     public string LR2RootPath { get; set; }
 
     public string LR2CustomFolderOutputBaseDir { get; set; }
@@ -49,7 +47,6 @@ internal sealed class BmsLibraryOptionsSnapshot
         return new BmsLibraryOptionsSnapshot
         {
             OperationModeLR2DB = Settings.Default.OperationModeLR2DB,
-            EnableLR2SongDbFullGeneration = Settings.Default.EnableLR2SongDbFullGeneration,
             LR2RootPath = Settings.Default.LR2RootPath,
             LR2CustomFolderOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDir,
             LR2CustomFolderOutputBaseDirRootType = Settings.Default.LR2CustomFolderOutputBaseDirRootType,

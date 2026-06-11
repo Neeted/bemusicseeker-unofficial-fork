@@ -540,6 +540,6 @@ public sealed class MainWindowViewModelStartupProgressTests
     {
         Assert.AreEqual("操作可能(バックグラウンド更新中)", Resources.Statusbar_progress_operable_background);
         Assert.AreEqual("譜面メタデータ反映", Resources.Statusbar_progress_phase_chart_info_load);
-        Assert.AreEqual("LR2 song.db 完全生成", Resources.Statusbar_progress_phase_lr2_full_generation);
+        Assert.AreEqual("LR2 song.db 同期", Resources.Statusbar_progress_phase_lr2_full_generation);
     }
 }

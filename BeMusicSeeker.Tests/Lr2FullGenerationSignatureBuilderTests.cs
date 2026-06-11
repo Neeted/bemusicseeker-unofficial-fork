@@ -12,7 +12,6 @@ public sealed class Lr2FullGenerationSignatureBuilderTests
         var options = new BmsLibraryOptionsSnapshot
         {
             OperationModeLR2DB = true,
-            EnableLR2SongDbFullGeneration = true
         };
 
         string first = Lr2FullGenerationSignatureBuilder.Build(options);
@@ -28,7 +27,6 @@ public sealed class Lr2FullGenerationSignatureBuilderTests
         var options = new BmsLibraryOptionsSnapshot
         {
             OperationModeLR2DB = true,
-            EnableLR2SongDbFullGeneration = true
         };
 
         string first = Lr2FullGenerationSignatureBuilder.Build(options);
@@ -43,7 +41,6 @@ public sealed class Lr2FullGenerationSignatureBuilderTests
         var options = new BmsLibraryOptionsSnapshot
         {
             OperationModeLR2DB = true,
-            EnableLR2SongDbFullGeneration = true
         };
 
         string first = Lr2FullGenerationSignatureBuilder.Build(options);
@@ -59,7 +56,6 @@ public sealed class Lr2FullGenerationSignatureBuilderTests
         var options = new BmsLibraryOptionsSnapshot
         {
             OperationModeLR2DB = true,
-            EnableLR2SongDbFullGeneration = true
         };
 
         string signature = Lr2FullGenerationSignatureBuilder.Build(options);
@@ -75,7 +71,6 @@ public sealed class Lr2FullGenerationSignatureBuilderTests
         var options = new BmsLibraryOptionsSnapshot
         {
             OperationModeLR2DB = true,
-            EnableLR2SongDbFullGeneration = true
         };
 
         string signature = Lr2FullGenerationSignatureBuilder.Build(options);

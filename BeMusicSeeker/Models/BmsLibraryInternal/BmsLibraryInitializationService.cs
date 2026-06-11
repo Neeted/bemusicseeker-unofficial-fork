@@ -433,8 +433,7 @@ internal sealed class BmsLibraryInitializationService
         Action<string> logInstallPerformance = null)
     {
         if (dbGateway == null
-            || options?.OperationModeLR2DB != true
-            || options.EnableLR2SongDbFullGeneration != true)
+            || options?.OperationModeLR2DB != true)
         {
             return null;
         }
@@ -673,7 +672,6 @@ internal sealed class BmsLibraryInitializationService
 
         HashSet<string> textFileDirectories = mergedScanResult.ChartDirectoriesWithTextFiles ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         bool textGroupSurfaceAvailable = options?.OperationModeLR2DB == true
-            && options.EnableLR2SongDbFullGeneration == true
             && bmsFileScanSucceeded;
         IReadOnlyDictionary<string, RootFileEnumerationEntry> chartFileEntriesByPath =
             mergedScanResult.ChartFileEntriesByPath ?? new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
@@ -1099,8 +1097,7 @@ internal sealed class BmsLibraryInitializationService
         Action<string> logEverythingScan)
     {
         if (result == null
-            || options?.OperationModeLR2DB != true
-            || options.EnableLR2SongDbFullGeneration != true)
+            || options?.OperationModeLR2DB != true)
         {
             return;
         }
@@ -1137,8 +1134,7 @@ internal sealed class BmsLibraryInitializationService
     {
         if (dbGateway == null
             || result == null
-            || options?.OperationModeLR2DB != true
-            || options.EnableLR2SongDbFullGeneration != true)
+            || options?.OperationModeLR2DB != true)
         {
             return;
         }
@@ -1236,8 +1232,7 @@ internal sealed class BmsLibraryInitializationService
         Lr2NormalFolderMtimeSnapshot prefetchedSnapshot = null)
     {
         if (dbGateway == null
-            || options?.OperationModeLR2DB != true
-            || options.EnableLR2SongDbFullGeneration != true)
+            || options?.OperationModeLR2DB != true)
         {
             return null;
         }
