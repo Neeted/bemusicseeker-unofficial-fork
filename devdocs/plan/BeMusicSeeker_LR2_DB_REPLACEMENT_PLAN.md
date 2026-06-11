@@ -1136,7 +1136,7 @@ parse directive:
 - `song_rows` は reader が `ChartFileSnapshot` を bounded queue に流し、parallel workers が
   BMS row build / `chart_info` memory resolver apply / LR2 compatibility facts を同じ parse result から作り、
   single writer が chunk transaction と durable cursor 更新を行う。
-  LR2 compatibility facts は parsed BMS row の raw resource references から直接評価し、
+  LR2 compatibility facts は BOM 自動判定なしの CP932 decode 由来 parsed BMS row の raw resource references から直接評価し、
   `ChartFileProjection` / `ChartResourceSnapshot` への再投影を hot path に置かない。
   commit 成功後だけ cursor を進め、cancel / failure は chunk 境界で再開できるようにする。
 - `chart_info` は run 開始時に current row index / session index として一括準備する。
@@ -1476,7 +1476,7 @@ parse directive:
   mtime / owner identity だけを軽量 target として持ち、current owned `BMSFile` の persistence 用 copy を
   全件 materialize しない。少数の bounded reader が `ChartFileSnapshot` を bounded queue に流し、parallel workers が
   snapshot から BMS row、LR2 generated columns、LR2 compatibility facts を一度で作る。LR2 compatibility facts は
-  parsed BMS row の raw resource references から直接評価し、BMS row を `ChartFile` / `ChartResourceSnapshot`
+  BOM 自動判定なしの CP932 decode 由来 parsed BMS row の raw resource references から直接評価し、BMS row を `ChartFile` / `ChartResourceSnapshot`
   へ再投影しない。parse/read 失敗時は既存 generated row を破壊しないための
   non-destructive skip / preserve に留め、`chart_info` numeric、mtime、`folder.date`、prune 成功の
   代替正本にはしない。skip / preserve 件数を log / status に残す。
@@ -1822,7 +1822,7 @@ Everything / filesystem 広域再スキャンを始める入口ではない。su
      full generation では worker 飢餓を避けるため最大 2 本まで使う。read queue capacity を超えて全件 bytes を保持しない。
    - 完了: workers が parse / chart_info apply / LR2 compatibility facts を同じ parse result から作り、
      `BMSFile` と `BMSFileMaintenanceInfo` を含む「DB に書ける completed item」を出力する。
-   - 完了: LR2 compatibility facts は parsed BMS row の raw resource references から直接評価し、
+   - 完了: LR2 compatibility facts は BOM 自動判定なしの CP932 decode 由来 parsed BMS row の raw resource references から直接評価し、
      `ChartFileProjection` / `ChartResourceSnapshot` を hot path から外す。
    - 完了: writer は順序制御、bulk song write、bulk compatibility facts write、durable cursor update に専念する。
    - 完了: full-generation 用 bulk song writer は既存 row の generated columns が unchanged の場合、

@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Text;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
@@ -40,6 +41,48 @@ public sealed class Lr2SongRowEnricherTests
             Assert.AreEqual("keep-tag", parsed.tag);
             Assert.AreEqual(Lr2SongFolderParentNormalizer.ComputeDirectoryHash(tempDirectoryPath), parsed.folder);
             Assert.IsFalse(string.IsNullOrWhiteSpace(parsed.parent));
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectoryPath))
+            {
+                Directory.Delete(tempDirectoryPath, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void CreateParsedSongRowFromSnapshot_AppliesDetectedMetadataButKeepsShiftJisResourceReferences()
+    {
+        string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_Lr2SongRowEnricher_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectoryPath);
+        string chartPath = Path.Combine(tempDirectoryPath, "korean-resource.bms");
+        try
+        {
+            const string title = "\uacaf";
+            const string artist = "\uac00\ub098";
+            const string resourceName = "\uac00.wav";
+            File.WriteAllText(
+                chartPath,
+                "#TITLE " + title + "\r\n#ARTIST " + artist + "\r\n#WAV01 " + resourceName + "\r\n",
+                Encoding.GetEncoding("ks_c_5601-1987"));
+            ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
+            BMSFile shiftJisParsed = BMSFile.CreateBMSFileFromSnapshot(snapshot);
+
+            BMSFile parsed = Lr2SongRowEnricher.CreateParsedSongRowFromSnapshot(
+                snapshot,
+                textFlag: 0,
+                existingSong: null);
+
+            Assert.AreEqual(title, parsed.title);
+            Assert.AreEqual(artist, parsed.artist);
+            Assert.AreEqual(
+                shiftJisParsed.ResourceReferences.Single().RawPath,
+                parsed.ResourceReferences.Single().RawPath);
+            CollectionAssert.AreEqual(
+                shiftJisParsed.WAVfiles.OrderBy(path => path, StringComparer.Ordinal).ToArray(),
+                parsed.WAVfiles.OrderBy(path => path, StringComparer.Ordinal).ToArray());
+            Assert.AreNotEqual(resourceName, parsed.ResourceReferences.Single().RawPath);
         }
         finally
         {

@@ -114,11 +114,11 @@ LR2 `song.db` 完全生成が有効な大量 file diff 直後の自動 LR2 full 
 
 ### Encoding / Raw Metadata
 
-BMS の一覧用 metadata は軽量 parser がまず Shift_JIS 系の既定挙動で読む。maintenance 作成時に `SetEncodingInfoFromSnapshotDetailed()` で bytes 由来の encoding 判定を行い、ASCII fast path、Shift_JIS、KS_C_5601、UTF-8、unknown などを分類する。
+BMS の一覧用 metadata と resource references は軽量 parser がまず Shift_JIS / CP932 系の既定挙動で読む。maintenance 作成時に `SetEncodingInfoFromSnapshotDetailed()` で bytes 由来の encoding 判定を行い、ASCII fast path、Shift_JIS、KS_C_5601、UTF-8、unknown などを分類する。
 
 inline maintenance の resource health は、同一 directory かつ同一 required resource set の existence count だけを共有してよい。共有してよいのは WAV/BGA/movie と stagefile/backbmp/banner の存在 count に限定し、`maintenance` row 全体、encoding、hash、path、LR2 compatibility facts、warning ignored state は譜面ごとに作る。stagefile/backbmp/banner は同じ画像集合でも役割ごとに warning 表示されるため、resource-set cache key でも役割を区別する。
 
-非 Shift_JIS が確定し、かつ `?` / unknown ではない場合だけ、同じ snapshot bytes を使って `title` / `subtitle` / `artist` / `subartist` / `genre` の raw metadata を再適用する。ここでは `#SUBTITLE` を title へ、`#SUBARTIST` を artist へ合成する setter 挙動に戻さない。manual/public 側の `ReloadBMSFileWithEncoding(...)` も同じ raw metadata 適用方針に揃える。LR2 full generation と file diff は同じ metadata canonicalization を使う必要があり、uncertain encoding の扱い差で `subtitle` / `subartist` だけがずれる場合は projection skip の blocker ではなく generator drift として修正する。
+非 Shift_JIS が確定し、かつ `?` / unknown ではない場合だけ、同じ snapshot bytes を使って `title` / `subtitle` / `artist` / `subartist` / `genre` の raw metadata を再適用する。resource references、`stagefile`、`banner`、`backbmp` は OpenLR2 が BMS 本文を CP932 として読む前提に合わせ、encoding 判定後も BOM 自動判定をしない CP932 decode 由来の値を正本にする。ここでは `#SUBTITLE` を title へ、`#SUBARTIST` を artist へ合成する setter 挙動に戻さない。manual/public 側の `ReloadBMSFileWithEncoding(...)` も同じ raw metadata 適用方針に揃える。LR2 full generation と file diff は同じ metadata canonicalization を使う必要があり、uncertain encoding の扱い差で `subtitle` / `subartist` だけがずれる場合は projection skip の blocker ではなく generator drift として修正する。
 
 `maintenance.encoding` は UI metadata 補正と maintenance 表示のための情報であり、`chart_info` parser の decode 方針を変えない。`chart_info` は inline / full backfill とも beatoraja 互換の既定 decode を使い、maintenance の encoding 補正とは別の責務として扱う。
 

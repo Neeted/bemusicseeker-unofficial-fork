@@ -711,9 +711,8 @@ public class BMSFile : LR2SongDB.song
     /// </summary>
     internal static BMSFile CreateBMSFileFromFile(string filePath, string codepageName = "shift_jis")
     {
-        IEnumerable<string> enumerable = File.ReadLines(filePath, Encoding.GetEncoding(codepageName));
         return CreateBMSFileFromLines(
-            enumerable,
+            ReadFileLines(filePath, codepageName),
             filePath,
             () => getMD5Hash(filePath),
             () => GetSHA256Hash(filePath));
@@ -726,8 +725,9 @@ public class BMSFile : LR2SongDB.song
             throw new ArgumentNullException(nameof(snapshot));
         }
         var encoding = Encoding.GetEncoding(codepageName);
+        bool detectEncodingFromByteOrderMarks = !IsShiftJisEncodingName(codepageName);
         return CreateBMSFileFromLines(
-            ReadSnapshotLines(snapshot, encoding),
+            ReadSnapshotLines(snapshot, encoding, detectEncodingFromByteOrderMarks),
             snapshot.Path,
             () => snapshot.Md5,
             () => snapshot.Sha256);
@@ -746,14 +746,9 @@ public class BMSFile : LR2SongDB.song
             return CreateBMSFileFromSnapshot(snapshot);
         }
 
-        IEnumerable<string> lines = detectionResult.DecodedText != null
-            ? ReadTextLines(detectionResult.DecodedText)
-            : ReadSnapshotLines(snapshot, Encoding.GetEncoding(NormalizeSnapshotEncodingName(detectionResult.EncodingName)));
-        return CreateBMSFileFromLines(
-            lines,
-            snapshot.Path,
-            () => snapshot.Md5,
-            () => snapshot.Sha256);
+        BMSFile file = CreateBMSFileFromSnapshot(snapshot);
+        ApplyDetectedBmsMetadata(file, snapshot, detectionResult);
+        return file;
     }
 
     internal void PreserveUserSongColumnsFrom(BMSFile existing)
@@ -894,35 +889,15 @@ public class BMSFile : LR2SongDB.song
         return (feature & longNoteFlags) != 0;
     }
 
-    private static IEnumerable<string> ReadSnapshotLines(ChartFileSnapshot snapshot, Encoding encoding)
+    private static IEnumerable<string> ReadSnapshotLines(ChartFileSnapshot snapshot, Encoding encoding, bool detectEncodingFromByteOrderMarks)
     {
         using var stream = new MemoryStream(snapshot.Bytes, writable: false);
-        using var reader = new StreamReader(stream, encoding, detectEncodingFromByteOrderMarks: true);
+        using var reader = new StreamReader(stream, encoding, detectEncodingFromByteOrderMarks);
         string line;
         while ((line = reader.ReadLine()) != null)
         {
             yield return line;
         }
-    }
-
-    private static IEnumerable<string> ReadTextLines(string text)
-    {
-        using var reader = new StringReader(text ?? string.Empty);
-        string line;
-        while ((line = reader.ReadLine()) != null)
-        {
-            yield return line;
-        }
-    }
-
-    private static string NormalizeSnapshotEncodingName(string codepageName)
-    {
-        if (string.IsNullOrWhiteSpace(codepageName)
-            || string.Equals(codepageName, "unknown", StringComparison.OrdinalIgnoreCase))
-        {
-            return "shift_jis";
-        }
-        return codepageName.TrimEnd('?');
     }
 
     private static BMSFile CreateBMSFileFromLines(
@@ -1662,7 +1637,7 @@ public class BMSFile : LR2SongDB.song
 
     internal static void SetBMSComponentFilesFromBMSFile(BMSFile bmsFile, string codepageName = "shift_jis")
     {
-        IEnumerable<string> enumerable = File.ReadLines(bmsFile.path, Encoding.GetEncoding(codepageName));
+        IEnumerable<string> enumerable = ReadFileLines(bmsFile.path, codepageName);
         var hashSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var hashSet2 = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var resourceReferences = new List<ChartResourceReference>();
@@ -1858,6 +1833,46 @@ public class BMSFile : LR2SongDB.song
         ApplyDecodedBmsMetadata(bmsFile, decodedText, codepageName);
     }
 
+    private static void ApplyDetectedBmsMetadata(
+        BMSFile bmsFile,
+        ChartFileSnapshot snapshot,
+        BmsEncodingDetectionResult detectionResult)
+    {
+        if (bmsFile == null || snapshot == null || detectionResult == null)
+        {
+            return;
+        }
+        if (!ShouldApplyDetectedMetadataEncoding(detectionResult.EncodingName))
+        {
+            return;
+        }
+        string codepageName = NormalizeReloadEncodingName(detectionResult.EncodingName);
+        string decodedText = detectionResult.DecodedText ?? DecodeBytes(snapshot.Bytes, Encoding.GetEncoding(codepageName));
+        ApplyDecodedBmsMetadata(bmsFile, decodedText, codepageName);
+    }
+
+    internal static bool ShouldApplyDetectedMetadataEncoding(string encodingName)
+    {
+        return !string.IsNullOrWhiteSpace(encodingName)
+            && !IsShiftJisEncodingName(encodingName)
+            && !encodingName.EndsWith("?", StringComparison.Ordinal)
+            && !string.Equals(encodingName, "unknown", StringComparison.OrdinalIgnoreCase);
+    }
+
+    internal static bool IsShiftJisEncodingName(string encodingName)
+    {
+        if (string.IsNullOrWhiteSpace(encodingName))
+        {
+            return false;
+        }
+        string normalized = encodingName.TrimEnd('?');
+        return string.Equals(normalized, "shift_jis", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(normalized, "shift-jis", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(normalized, "sjis", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(normalized, "cp932", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(normalized, "windows-31j", StringComparison.OrdinalIgnoreCase);
+    }
+
     private static string NormalizeReloadEncodingName(string codepageName)
     {
         if (string.Equals(codepageName, "unknown", StringComparison.OrdinalIgnoreCase))
@@ -1885,11 +1900,29 @@ public class BMSFile : LR2SongDB.song
 
     private static void ApplyBmsMetadataFromDecodedText(BMSFile bmsFile, string decodedText)
     {
-        string title = null;
-        string subtitle = null;
-        string artist = null;
-        string subartist = null;
-        string genre = null;
+        BmsDecodedMetadata metadata = ReadBmsMetadataFromDecodedText(decodedText);
+        ApplyBmsMetadata(bmsFile, metadata);
+    }
+
+    internal static bool WouldBmsMetadataChangeWithEncoding(BMSFile bmsFile, string codepageName)
+    {
+        if (bmsFile == null || string.IsNullOrWhiteSpace(bmsFile.path) || !File.Exists(bmsFile.path))
+        {
+            return false;
+        }
+        codepageName = NormalizeReloadEncodingName(codepageName);
+        string decodedText = DecodeBytes(File.ReadAllBytes(bmsFile.path), Encoding.GetEncoding(codepageName));
+        BmsDecodedMetadata metadata = ReadBmsMetadataFromDecodedText(decodedText);
+        return !MetadataEquals(bmsFile._title, metadata.Title)
+            || !MetadataEquals(bmsFile._subtitle, metadata.Subtitle)
+            || !MetadataEquals(bmsFile._artist, metadata.Artist)
+            || !MetadataEquals(bmsFile._subartist, metadata.SubArtist)
+            || !MetadataEquals(bmsFile.genre, metadata.Genre);
+    }
+
+    private static BmsDecodedMetadata ReadBmsMetadataFromDecodedText(string decodedText)
+    {
+        var metadata = new BmsDecodedMetadata();
         using (var reader = new StringReader(decodedText ?? string.Empty))
         {
             string line;
@@ -1903,42 +1936,47 @@ public class BMSFile : LR2SongDB.song
                 switch (directive)
                 {
                     case BmsDirective.Title:
-                        if (string.IsNullOrWhiteSpace(title))
+                        if (string.IsNullOrWhiteSpace(metadata.Title))
                         {
-                            title = value;
+                            metadata.Title = value;
                         }
                         break;
                     case BmsDirective.SubTitle:
-                        if (string.IsNullOrWhiteSpace(subtitle))
+                        if (string.IsNullOrWhiteSpace(metadata.Subtitle))
                         {
-                            subtitle = value;
+                            metadata.Subtitle = value;
                         }
                         break;
                     case BmsDirective.Artist:
-                        if (string.IsNullOrWhiteSpace(artist))
+                        if (string.IsNullOrWhiteSpace(metadata.Artist))
                         {
-                            artist = value;
+                            metadata.Artist = value;
                         }
                         break;
                     case BmsDirective.SubArtist:
-                        if (string.IsNullOrWhiteSpace(subartist))
+                        if (string.IsNullOrWhiteSpace(metadata.SubArtist))
                         {
-                            subartist = value;
+                            metadata.SubArtist = value;
                         }
                         break;
                     case BmsDirective.Genre:
-                        if (string.IsNullOrWhiteSpace(genre))
+                        if (string.IsNullOrWhiteSpace(metadata.Genre))
                         {
-                            genre = value;
+                            metadata.Genre = value;
                         }
                         break;
                 }
             }
         }
-        bool titleChanged = !string.Equals(bmsFile._title, title, StringComparison.Ordinal)
-            || !string.Equals(bmsFile._subtitle, subtitle, StringComparison.Ordinal);
-        bmsFile._title = title;
-        bmsFile._subtitle = subtitle;
+        return metadata;
+    }
+
+    private static void ApplyBmsMetadata(BMSFile bmsFile, BmsDecodedMetadata metadata)
+    {
+        bool titleChanged = !string.Equals(bmsFile._title, metadata.Title, StringComparison.Ordinal)
+            || !string.Equals(bmsFile._subtitle, metadata.Subtitle, StringComparison.Ordinal);
+        bmsFile._title = metadata.Title;
+        bmsFile._subtitle = metadata.Subtitle;
         bmsFile._cachedComposedTitle = null;
         bmsFile._cachedComposedTitleSource = null;
         bmsFile._cachedComposedSubtitleSource = null;
@@ -1947,15 +1985,29 @@ public class BMSFile : LR2SongDB.song
             bmsFile.RaisePropertyChanged("Title");
         }
 
-        bool artistChanged = !string.Equals(bmsFile._artist, artist, StringComparison.Ordinal)
-            || !string.Equals(bmsFile._subartist, subartist, StringComparison.Ordinal);
-        bmsFile._artist = artist;
-        bmsFile._subartist = subartist;
+        bool artistChanged = !string.Equals(bmsFile._artist, metadata.Artist, StringComparison.Ordinal)
+            || !string.Equals(bmsFile._subartist, metadata.SubArtist, StringComparison.Ordinal);
+        bmsFile._artist = metadata.Artist;
+        bmsFile._subartist = metadata.SubArtist;
         if (artistChanged)
         {
             bmsFile.RaisePropertyChanged("Artist");
         }
-        bmsFile.genre = genre;
+        bmsFile.genre = metadata.Genre;
+    }
+
+    private static bool MetadataEquals(string left, string right)
+    {
+        return string.Equals(left ?? string.Empty, right ?? string.Empty, StringComparison.Ordinal);
+    }
+
+    private sealed class BmsDecodedMetadata
+    {
+        public string Title { get; set; }
+        public string Subtitle { get; set; }
+        public string Artist { get; set; }
+        public string SubArtist { get; set; }
+        public string Genre { get; set; }
     }
 
     internal static string DetectEncodingOfBMSFile(BMSFile bmsInfo)
@@ -2197,6 +2249,19 @@ public class BMSFile : LR2SongDB.song
 
     internal static bool IsZeroNoteBMSFile(string filePath)
     {
-        return !File.ReadLines(filePath, Encoding.GetEncoding("shift_jis")).Any(line => visibleObjectChRegex.IsMatch(line));
+        return !ReadFileLines(filePath, "shift_jis").Any(line => visibleObjectChRegex.IsMatch(line));
+    }
+
+    private static IEnumerable<string> ReadFileLines(string filePath, string codepageName)
+    {
+        Encoding encoding = Encoding.GetEncoding(codepageName);
+        bool detectEncodingFromByteOrderMarks = !IsShiftJisEncodingName(codepageName);
+        using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+        using var reader = new StreamReader(stream, encoding, detectEncodingFromByteOrderMarks);
+        string line;
+        while ((line = reader.ReadLine()) != null)
+        {
+            yield return line;
+        }
     }
 }

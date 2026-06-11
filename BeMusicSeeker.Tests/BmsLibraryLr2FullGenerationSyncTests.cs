@@ -4958,7 +4958,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         string songDirectory = Path.Combine(scope.DirectoryPath, "Lr2Compatibility");
         Directory.CreateDirectory(songDirectory);
         string chartPath = Path.Combine(songDirectory, "chart.bms");
-        File.WriteAllText(chartPath, "#TITLE lr2 compatibility\r\n#WAV01 emoji😀.wav\r\n", new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+        WriteBasicBms(chartPath, "lr2 compatibility", CreateLr2TooLongResourcePath());
         ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
         TestableBmsFile file = CreateSyncTestFile(chartPath, snapshot);
         using var songDb = new LR2SongDBExtended(scope.SongDbPath);
@@ -4989,7 +4989,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         Assert.AreEqual(99, songDb.ExecuteScalar<int>("SELECT wav_files_defined FROM maintenance WHERE path = ?;", chartPath));
         Assert.AreEqual(88, songDb.ExecuteScalar<int>("SELECT wav_files_existing FROM maintenance WHERE path = ?;", chartPath));
         int flags = songDb.ExecuteScalar<int>("SELECT lr2_resource_warning_flags FROM maintenance WHERE path = ?;", chartPath);
-        Assert.IsTrue((flags & (int)Lr2ResourceWarningFlags.RawPathEncodingUnsupported) != 0);
+        Assert.IsTrue((flags & (int)Lr2ResourceWarningFlags.RawPathTooLong) != 0);
     }
 
     [TestMethod]
@@ -4999,7 +4999,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         string songDirectory = Path.Combine(scope.DirectoryPath, "Lr2CompatibilityNocase");
         Directory.CreateDirectory(songDirectory);
         string chartPath = Path.Combine(songDirectory, "chart.bms");
-        File.WriteAllText(chartPath, "#TITLE lr2 compatibility nocase\r\n#WAV01 emoji😀.wav\r\n", new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+        WriteBasicBms(chartPath, "lr2 compatibility nocase", CreateLr2TooLongResourcePath());
         ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
         TestableBmsFile file = CreateSyncTestFile(chartPath, snapshot);
         string existingPath = Path.Combine(songDirectory, "CHART.BMS");
@@ -5026,7 +5026,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             songDb.ExecuteScalar<int>("SELECT COUNT(*) FROM maintenance WHERE path = ? COLLATE NOCASE;", chartPath));
         Assert.AreEqual(file.hash, songDb.ExecuteScalar<string>("SELECT hash FROM maintenance WHERE path = ?;", existingPath));
         int flags = songDb.ExecuteScalar<int>("SELECT lr2_resource_warning_flags FROM maintenance WHERE path = ?;", existingPath);
-        Assert.IsTrue((flags & (int)Lr2ResourceWarningFlags.RawPathEncodingUnsupported) != 0);
+        Assert.IsTrue((flags & (int)Lr2ResourceWarningFlags.RawPathTooLong) != 0);
     }
 
     [TestMethod]
@@ -5042,7 +5042,7 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
             string songDirectory = Path.Combine(scope.DirectoryPath, "LiveLr2Compatibility");
             Directory.CreateDirectory(songDirectory);
             string chartPath = Path.Combine(songDirectory, "chart.bms");
-            File.WriteAllText(chartPath, "#TITLE live lr2 compatibility\r\n#WAV01 emoji😀.wav\r\n", new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+            WriteBasicBms(chartPath, "live lr2 compatibility", CreateLr2TooLongResourcePath());
             ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
             TestableBmsFile file = CreateSyncTestFile(chartPath, snapshot);
             file.SetMaintenanceInfo(new BMSFileMaintenanceInfo(file)
@@ -5064,11 +5064,11 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
 
             library.QueueLr2FullGenerationDataSync("test_live_lr2_compatibility");
 
-            Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.Lr2ResourcePathUnsupported));
+            Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.Lr2ResourcePathTooLong));
             Assert.AreEqual(99, file.maintenanceInfo.wav_files_defined);
             Assert.AreEqual(88, file.maintenanceInfo.wav_files_existing);
             int flags = file.maintenanceInfo.lr2_resource_warning_flags.GetValueOrDefault();
-            Assert.IsTrue((flags & (int)Lr2ResourceWarningFlags.RawPathEncodingUnsupported) != 0);
+            Assert.IsTrue((flags & (int)Lr2ResourceWarningFlags.RawPathTooLong) != 0);
         }
         finally
         {
@@ -6364,6 +6364,19 @@ public sealed class BmsLibraryLr2FullGenerationSyncTests
         file.SetHash(snapshot.Md5);
         file.ApplySha256(snapshot.Sha256);
         return file;
+    }
+
+    private static void WriteBasicBms(string chartPath, string title, string resourcePath = "sound.wav")
+    {
+        File.WriteAllText(
+            chartPath,
+            "#TITLE " + title + "\r\n#WAV01 " + resourcePath + "\r\n",
+            new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+    }
+
+    private static string CreateLr2TooLongResourcePath()
+    {
+        return new string('a', 270) + ".wav";
     }
 
     private static string EscapeSqlLiteral(string value)

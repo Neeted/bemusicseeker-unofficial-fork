@@ -572,7 +572,7 @@ internal sealed class BmsLibraryMaintenanceService
                 BMSFileMaintenanceInfo info = file?.HasValidMaintenanceInfoSnapshot == true ? file.TryGetMaintenanceInfoWithoutCreating() : null;
                 return !string.IsNullOrWhiteSpace(info?.encoding)
                     && isInFixedList == info.is_encoding_fixed
-                    && !info.encoding.StartsWith("shift_jis");
+                    && !BMSFile.IsShiftJisEncodingName(info.encoding);
             })];
     }
 
@@ -673,16 +673,7 @@ internal sealed class BmsLibraryMaintenanceService
 
     private static bool ShouldReloadMetadata(BMSFile currentFile, string encoding)
     {
-        if (currentFile == null || string.IsNullOrWhiteSpace(currentFile.path) || !File.Exists(currentFile.path))
-        {
-            return false;
-        }
-        var reloadedFile = BMSFile.CreateBMSFileFromFile(currentFile.path, encoding);
-        return !string.Equals(currentFile.title ?? string.Empty, reloadedFile.title ?? string.Empty, StringComparison.Ordinal)
-            || !string.Equals(currentFile.subtitle ?? string.Empty, reloadedFile.subtitle ?? string.Empty, StringComparison.Ordinal)
-            || !string.Equals(currentFile.artist ?? string.Empty, reloadedFile.artist ?? string.Empty, StringComparison.Ordinal)
-            || !string.Equals(currentFile.subartist ?? string.Empty, reloadedFile.subartist ?? string.Empty, StringComparison.Ordinal)
-            || !string.Equals(currentFile.genre ?? string.Empty, reloadedFile.genre ?? string.Empty, StringComparison.Ordinal);
+        return BMSFile.WouldBmsMetadataChangeWithEncoding(currentFile, encoding);
     }
 
     public ZeroNoteRecheckResult RecheckZeroNoteWarnings(
@@ -1374,7 +1365,7 @@ internal sealed class BmsLibraryMaintenanceService
                 : file.SetEncodingInfoFromSnapshotDetailed(ChartFileContentReader.ReadSnapshot(file.path));
             result.EncodingDetectionResult = detectionResult;
             result.EncodingElapsedTicks += Stopwatch.GetTimestamp() - encodingStart;
-            if (ShouldReloadBmsForFixedEncoding(file.maintenanceInfo?.encoding))
+            if (BMSFile.ShouldApplyDetectedMetadataEncoding(file.maintenanceInfo?.encoding))
             {
                 long reloadStart = Stopwatch.GetTimestamp();
                 if (snapshot != null)
@@ -1478,14 +1469,6 @@ internal sealed class BmsLibraryMaintenanceService
         result.ResourceHealthSetCacheHitCount = Math.Max(0L, (resourceLookupContext?.ResourceHealthSetCacheHitCount ?? 0L) - resourceHealthSetCacheHitCountBefore);
         result.FileExistsFallbackCount = Math.Max(0L, (resourceLookupContext?.FileExistsFallbackCount ?? 0L) - fileExistsFallbackCountBefore);
         return result;
-    }
-
-    private static bool ShouldReloadBmsForFixedEncoding(string encoding)
-    {
-        return !string.IsNullOrWhiteSpace(encoding)
-            && !encoding.StartsWith("shift_jis", StringComparison.OrdinalIgnoreCase)
-            && !encoding.EndsWith("?", StringComparison.Ordinal)
-            && !string.Equals(encoding, "unknown", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool MaintenanceRowsEquivalent(BMSFileMaintenanceInfo left, BMSFileMaintenanceInfo right)
@@ -1710,7 +1693,7 @@ internal sealed class BmsLibraryMaintenanceService
                         file.SetEncosingInfo();
                         AddElapsedTicks(ref encodingTicks, encodingStart);
                     }
-                    if (!string.IsNullOrWhiteSpace(file.maintenanceInfo.encoding) && !file.maintenanceInfo.encoding.StartsWith("shift_jis") && !file.maintenanceInfo.encoding.EndsWith("?") && file.maintenanceInfo.encoding != "unknown")
+                    if (BMSFile.ShouldApplyDetectedMetadataEncoding(file.maintenanceInfo.encoding))
                     {
                         long encodingStart = Stopwatch.GetTimestamp();
                         BMSFile.ReloadBMSFileWithEncoding(file, file.maintenanceInfo.encoding);

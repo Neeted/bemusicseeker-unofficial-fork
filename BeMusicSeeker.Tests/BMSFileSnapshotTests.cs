@@ -125,6 +125,125 @@ public sealed class BMSFileSnapshotTests
     }
 
     [TestMethod]
+    public void CreateBMSFileFromSnapshot_WithDetectedEncodingKeepsResourceReferencesShiftJis()
+    {
+        WithTempDirectory(delegate (string tempDirectory)
+        {
+            string filePath = Path.Combine(tempDirectory, "korean-resource.bms");
+            const string title = "\uacaf";
+            const string artist = "\uac00\ub098";
+            const string resourceName = "\uac00.wav";
+            const string imageName = "\uac00.png";
+            File.WriteAllText(
+                filePath,
+                "#PLAYER 1\r\n#TITLE " + title + "\r\n#ARTIST " + artist + "\r\n#WAV01 " + resourceName + "\r\n#STAGEFILE " + imageName + "\r\n#BANNER " + imageName + "\r\n#BACKBMP " + imageName + "\r\n",
+                Encoding.GetEncoding("ks_c_5601-1987"));
+            ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(filePath);
+            BMSFile shiftJisParsed = BMSFile.CreateBMSFileFromSnapshot(snapshot);
+            BMSFile.BmsEncodingDetectionResult detectionResult = BMSFile.DetectEncodingOfBMSFileDetailed(snapshot);
+
+            BMSFile actual = BMSFile.CreateBMSFileFromSnapshot(snapshot, detectionResult);
+
+            Assert.AreEqual("ks_c_5601-1987", detectionResult.EncodingName);
+            Assert.AreEqual(title, actual.title);
+            Assert.AreEqual(artist, actual.artist);
+            Assert.AreEqual(
+                shiftJisParsed.ResourceReferences.Single().RawPath,
+                actual.ResourceReferences.Single().RawPath);
+            Assert.AreEqual(
+                shiftJisParsed.ResourceReferences.Single().NormalizedPath,
+                actual.ResourceReferences.Single().NormalizedPath);
+            CollectionAssert.AreEqual(
+                shiftJisParsed.WAVfiles.OrderBy(path => path, StringComparer.Ordinal).ToArray(),
+                actual.WAVfiles.OrderBy(path => path, StringComparer.Ordinal).ToArray());
+            Assert.AreEqual(shiftJisParsed.stagefile, actual.stagefile);
+            Assert.AreEqual(shiftJisParsed.banner, actual.banner);
+            Assert.AreEqual(shiftJisParsed.backbmp, actual.backbmp);
+            Assert.AreNotEqual(resourceName, actual.ResourceReferences.Single().RawPath);
+            Assert.AreNotEqual(imageName, actual.stagefile);
+        });
+    }
+
+    [TestMethod]
+    public void CreateBMSFileFromSnapshot_WithDetectedUtf8BomKeepsResourceReferencesShiftJis()
+    {
+        WithTempDirectory(delegate (string tempDirectory)
+        {
+            string filePath = Path.Combine(tempDirectory, "utf8-bom-resource.bms");
+            const string title = "\u3042 UTF-8";
+            const string resourceName = "\u3042.wav";
+            File.WriteAllText(
+                filePath,
+                "#PLAYER 1\r\n#TITLE " + title + "\r\n#WAV01 " + resourceName + "\r\n",
+                new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
+            ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(filePath);
+            BMSFile shiftJisParsed = BMSFile.CreateBMSFileFromSnapshot(snapshot);
+            var detectionResult = new BMSFile.BmsEncodingDetectionResult(
+                "utf-8",
+                BMSFile.EncodingDetectionOutcome.Utf8,
+                fastAscii: false,
+                decodedText: File.ReadAllText(filePath, Encoding.UTF8));
+
+            BMSFile actual = BMSFile.CreateBMSFileFromSnapshot(snapshot, detectionResult);
+
+            Assert.AreEqual(title, actual.title);
+            Assert.AreEqual(
+                shiftJisParsed.ResourceReferences.Single().RawPath,
+                actual.ResourceReferences.Single().RawPath);
+            Assert.AreNotEqual(resourceName, actual.ResourceReferences.Single().RawPath);
+        });
+    }
+
+    [TestMethod]
+    public void CreateBMSFileFromFile_WithUtf8BomKeepsResourceReferencesShiftJis()
+    {
+        WithTempDirectory(delegate (string tempDirectory)
+        {
+            string filePath = Path.Combine(tempDirectory, "utf8-bom-file-api-resource.bms");
+            const string resourceName = "\u3042.wav";
+            File.WriteAllText(
+                filePath,
+                "#PLAYER 1\r\n#TITLE UTF-8 BOM\r\n#WAV01 " + resourceName + "\r\n",
+                new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
+            ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(filePath);
+            BMSFile shiftJisSnapshotParsed = BMSFile.CreateBMSFileFromSnapshot(snapshot);
+
+            BMSFile actual = BMSFile.CreateBMSFileFromFile(filePath);
+
+            Assert.AreEqual(
+                shiftJisSnapshotParsed.ResourceReferences.Single().RawPath,
+                actual.ResourceReferences.Single().RawPath);
+            Assert.AreNotEqual(resourceName, actual.ResourceReferences.Single().RawPath);
+        });
+    }
+
+    [TestMethod]
+    public void SetBMSComponentFilesFromBMSFile_WithUtf8BomKeepsResourceReferencesShiftJis()
+    {
+        WithTempDirectory(delegate (string tempDirectory)
+        {
+            string filePath = Path.Combine(tempDirectory, "utf8-bom-components-resource.bms");
+            const string resourceName = "\u3042.wav";
+            File.WriteAllText(
+                filePath,
+                "#PLAYER 1\r\n#TITLE UTF-8 BOM\r\n#WAV01 " + resourceName + "\r\n",
+                new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
+            ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(filePath);
+            BMSFile shiftJisSnapshotParsed = BMSFile.CreateBMSFileFromSnapshot(snapshot);
+            BMSFile actual = BMSFile.CreateBMSFileFromSnapshot(snapshot);
+            actual.ClearResourceReferenceCollections();
+            actual.WAVfiles = [];
+
+            BMSFile.SetBMSComponentFilesFromBMSFile(actual);
+
+            Assert.AreEqual(
+                shiftJisSnapshotParsed.ResourceReferences.Single().RawPath,
+                actual.ResourceReferences.Single().RawPath);
+            Assert.AreNotEqual(resourceName, actual.ResourceReferences.Single().RawPath);
+        });
+    }
+
+    [TestMethod]
     public void CreateBMSFileFromSnapshot_DetectsModeChannelsLikeFileApi()
     {
         (string FileName, string ChannelLine, int ExpectedMode)[] cases =
