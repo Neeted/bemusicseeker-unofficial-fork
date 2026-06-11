@@ -115,6 +115,8 @@ internal sealed class SongTableFileCheckResult
 
     public int BmsTextOnlyUpdateCount { get; set; }
 
+    public int BmsLegacyExistingProtectedCount { get; set; }
+
     public int BmsMovedHashRelinkCount { get; set; }
 
     public int BmsMovedHashRelinkAmbiguousCount { get; set; }

@@ -496,7 +496,8 @@ internal sealed class BmsLibraryInitializationService
         Lr2BuiltinCustomFolderSettings lr2BuiltinCustomFolderSettings = null,
         Lr2NormalFolderMtimeSnapshot normalFolderMtimeSnapshot = null,
         Func<Lr2NormalFolderMtimeSnapshot> normalFolderMtimeSnapshotProvider = null,
-        Action<SongTableFileCheckResult> lr2ScanSurfacePrepared = null)
+        Action<SongTableFileCheckResult> lr2ScanSurfacePrepared = null,
+        bool protectExistingBmsRowsFromLr2FullGenerationMigration = false)
     {
         var result = new SongTableFileCheckResult();
         var stopwatchScan = Stopwatch.StartNew();
@@ -694,7 +695,8 @@ internal sealed class BmsLibraryInitializationService
                 textFileDirectories,
                 textGroupSurfaceAvailable,
                 chartFileEntriesByPath,
-                result);
+                result,
+                protectExistingBmsRowsFromLr2FullGenerationMigration);
             if (target != null)
             {
                 bmsParseTargets.Add(target);
@@ -962,6 +964,7 @@ internal sealed class BmsLibraryInitializationService
             + " bms_moved_hash_relink_ambiguous_count=" + result.BmsMovedHashRelinkAmbiguousCount
             + " bms_added_target_count=" + result.BmsAddedTargetCount
             + " bms_new_insert_path_count=" + result.NewlyInsertedBmsPaths.Count
+            + " bms_legacy_existing_protected_count=" + result.BmsLegacyExistingProtectedCount
             + " bmson_deleted_count=" + result.DeletedBmsonPaths.Count
             + " bmson_upsert_count=" + result.AddedBmsonSongs.Count
             + " bmson_upsert_target_count=" + result.BmsonUpsertTargetCount
@@ -2054,19 +2057,28 @@ internal sealed class BmsLibraryInitializationService
         ISet<string> textFileDirectories,
         bool textGroupSurfaceAvailable,
         IReadOnlyDictionary<string, RootFileEnumerationEntry> chartFileEntriesByPath,
-        SongTableFileCheckResult result)
+        SongTableFileCheckResult result,
+        bool protectExistingBmsRowsFromLr2FullGenerationMigration)
     {
         if (string.IsNullOrWhiteSpace(path))
         {
             return null;
         }
-        int? scannedTextFlag = textGroupSurfaceAvailable
-            ? ResolveTextGroupFlag(path, textFileDirectories)
-            : null;
         if (currentBmsByPath == null || !currentBmsByPath.TryGetValue(path, out BMSFile existing))
         {
+            int? scannedTextFlag = textGroupSurfaceAvailable
+                ? ResolveTextGroupFlag(path, textFileDirectories)
+                : null;
             return new FileDiffParseTarget(FileDiffChartKind.Bms, path, null, scannedTextFlag.GetValueOrDefault());
         }
+        if (protectExistingBmsRowsFromLr2FullGenerationMigration)
+        {
+            result.BmsLegacyExistingProtectedCount++;
+            return null;
+        }
+        int? existingTextFlag = textGroupSurfaceAvailable
+            ? ResolveTextGroupFlag(path, textFileDirectories)
+            : null;
         DateTime lastWriteTimeUtc = ResolveScannedChartLastWriteTimeUtc(
             path,
             chartFileEntriesByPath,
@@ -2077,12 +2089,14 @@ internal sealed class BmsLibraryInitializationService
             return null;
         }
         int currentDate = Lr2SongRowEnricher.ToLr2UnixSeconds(lastWriteTimeUtc);
-        int targetTextFlag = scannedTextFlag ?? existing.txt.GetValueOrDefault();
-        bool textChanged = scannedTextFlag.HasValue
-            && existing.txt.GetValueOrDefault() != scannedTextFlag.Value;
-        return existing.date == currentDate && !textChanged
-            ? null
-            : new FileDiffParseTarget(FileDiffChartKind.Bms, path, existing, targetTextFlag);
+        int targetTextFlag = existingTextFlag ?? existing.txt.GetValueOrDefault();
+        bool textChanged = existingTextFlag.HasValue
+            && existing.txt.GetValueOrDefault() != existingTextFlag.Value;
+        if (existing.date == currentDate && !textChanged)
+        {
+            return null;
+        }
+        return new FileDiffParseTarget(FileDiffChartKind.Bms, path, existing, targetTextFlag);
     }
 
     private static DateTime ResolveScannedChartLastWriteTimeUtc(

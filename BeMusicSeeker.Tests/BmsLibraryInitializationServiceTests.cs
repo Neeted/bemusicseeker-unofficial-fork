@@ -3229,6 +3229,49 @@ public sealed class BmsLibraryInitializationServiceTests
     }
 
     [TestMethod]
+    public void HasIncompleteLr2CompatibilityMaintenanceFacts_DetectsUnmigratedBmsRows()
+    {
+        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
+        {
+            string bmsPath = Path.Combine(lr2RootPath, "CompatFacts", "ROW.BMS");
+            string maintenancePath = Path.Combine(lr2RootPath, "CompatFacts", "row.bms");
+            using var songDb = new LR2SongDBExtended(songDbPath);
+            Assert.IsFalse(BmsLibraryDbGateway.HasIncompleteLr2CompatibilityMaintenanceFacts(songDb));
+
+            songDb.CreateTable<LR2SongDB.song>();
+            var existingFile = new TestableBmsFile
+            {
+                path = bmsPath
+            };
+            existingFile.SetHash(new string('a', 32));
+            songDb.InsertOrReplace(existingFile, typeof(LR2SongDB.song));
+            Assert.IsTrue(BmsLibraryDbGateway.HasIncompleteLr2CompatibilityMaintenanceFacts(songDb));
+
+            BmsLibraryDbGateway.EnsureMaintenanceSchema(songDb);
+            Assert.IsTrue(BmsLibraryDbGateway.HasIncompleteLr2CompatibilityMaintenanceFacts(songDb));
+
+            songDb.InsertOrReplace(new LR2SongDBExtended.maintenance
+            {
+                path = maintenancePath,
+                hash = existingFile.hash,
+                lr2_path_warning_flags = 0,
+                lr2_chart_path_cp932_bytes = 10,
+                lr2_folder_scan_cp932_bytes = 20,
+                lr2_resource_warning_flags = 0,
+                lr2_resource_max_raw_cp932_bytes = 30,
+                lr2_resource_max_resolved_cp932_bytes = 40,
+                lr2_resource_unsupported_count = 0
+            }, typeof(LR2SongDBExtended.maintenance));
+            Assert.IsFalse(BmsLibraryDbGateway.HasIncompleteLr2CompatibilityMaintenanceFacts(songDb));
+
+            songDb.Execute(
+                "UPDATE maintenance SET lr2_resource_unsupported_count = NULL WHERE path = ?;",
+                maintenancePath);
+            Assert.IsTrue(BmsLibraryDbGateway.HasIncompleteLr2CompatibilityMaintenanceFacts(songDb));
+        });
+    }
+
+    [TestMethod]
     public void ApplyFileScanDiff_AddsBmsPublishesGeneratedInlineChartInfoToCallback()
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -4213,6 +4256,153 @@ public sealed class BmsLibraryInitializationServiceTests
             using var verify = new LR2SongDBExtended(songDbPath);
             LR2SongDB.song row = verify.Table<LR2SongDB.song>().Single();
             Assert.AreEqual(ToUnixSeconds(newTimestamp), row.date);
+            Assert.AreEqual(12345, row.adddate);
+            Assert.AreEqual("keep", row.tag);
+        });
+    }
+
+    [TestMethod]
+    public void ApplyFileScanDiff_ProtectedLegacyMigrationSkipsExistingBmsMetadataRefresh()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
+        {
+            string bmsPath = Path.Combine(lr2RootPath, "Updated", "legacy-date.bms");
+            Directory.CreateDirectory(Path.GetDirectoryName(bmsPath));
+            File.WriteAllText(bmsPath, CreateValidBmsText("Legacy Date"), Encoding.ASCII);
+            var oldTimestamp = new DateTime(2026, 5, 1, 1, 0, 0, DateTimeKind.Utc);
+            var newTimestamp = new DateTime(2026, 5, 2, 1, 0, 0, DateTimeKind.Utc);
+            File.SetLastWriteTimeUtc(bmsPath, oldTimestamp);
+            var existingFile = new TestableBmsFile
+            {
+                path = bmsPath,
+                date = ToUnixSeconds(oldTimestamp),
+                adddate = 12345,
+                tag = "keep"
+            };
+            existingFile.SetHash(BMSFile.CreateBMSFileFromFile(bmsPath).hash);
+            existingFile.SetFavorite(1);
+            File.SetLastWriteTimeUtc(bmsPath, newTimestamp);
+
+            using (var songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDB.song>();
+                BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
+                songDb.InsertOrReplace(existingFile, typeof(LR2SongDB.song));
+            }
+
+            var service = new BmsLibraryInitializationService();
+            SongTableFileCheckResult result = service.ApplyFileScanDiff(
+                new BmsLibraryDbGateway(songDbPath),
+                new BmsLibraryOptionsSnapshot(),
+                [existingFile],
+                new ChartScanExecutionResult
+                {
+                    Success = true,
+                    Result = CreateScanResult(
+                        [bmsPath],
+                        new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
+                        {
+                            { Path.GetDirectoryName(bmsPath), Array.Empty<string>() }
+                        })
+                },
+                0L,
+                () => null,
+                null,
+                protectExistingBmsRowsFromLr2FullGenerationMigration: true);
+
+            Assert.AreEqual(0, result.BmsAddedTargetCount);
+            Assert.AreEqual(1, result.BmsLegacyExistingProtectedCount);
+            Assert.AreEqual(0, result.BmsDateOnlyUpdateCount);
+            Assert.AreEqual(0, result.AddedFiles.Count);
+            Assert.AreEqual(1, result.NextFiles.Count);
+            Assert.AreSame(existingFile, result.NextFiles[0]);
+            Assert.AreEqual(ToUnixSeconds(oldTimestamp), existingFile.date);
+            Assert.AreEqual(12345, existingFile.adddate);
+            Assert.AreEqual("keep", existingFile.tag);
+            Assert.IsFalse(result.HasDbDiff);
+
+            using var verify = new LR2SongDBExtended(songDbPath);
+            LR2SongDB.song row = verify.Table<LR2SongDB.song>().Single();
+            Assert.AreEqual(ToUnixSeconds(oldTimestamp), row.date);
+            Assert.AreEqual(12345, row.adddate);
+            Assert.AreEqual("keep", row.tag);
+        });
+    }
+
+    [TestMethod]
+    public void ApplyFileScanDiff_ProtectedLegacyMigrationSkipsExistingBmsTextRefresh()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
+        {
+            string chartDirectory = Path.Combine(lr2RootPath, "LegacyMigrationText");
+            Directory.CreateDirectory(chartDirectory);
+            string bmsPath = Path.Combine(chartDirectory, "legacy-date-text.bms");
+            File.WriteAllText(bmsPath, CreateValidBmsText("Legacy Date Text"), Encoding.ASCII);
+            var oldTimestamp = new DateTime(2026, 5, 1, 1, 0, 0, DateTimeKind.Utc);
+            var newTimestamp = new DateTime(2026, 5, 2, 1, 0, 0, DateTimeKind.Utc);
+            File.SetLastWriteTimeUtc(bmsPath, oldTimestamp);
+            BMSFile parsed = BMSFile.CreateBMSFileFromFile(bmsPath);
+            var existingFile = new TestableBmsFile
+            {
+                path = bmsPath,
+                date = ToUnixSeconds(oldTimestamp),
+                adddate = 12345,
+                tag = "keep"
+            };
+            existingFile.SetHash(parsed.hash);
+            existingFile.SetFavorite(1);
+            existingFile.SetTextGroupFlagForTest(0);
+            File.SetLastWriteTimeUtc(bmsPath, newTimestamp);
+
+            using (var songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDB.song>();
+                BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
+                songDb.InsertOrReplace(existingFile, typeof(LR2SongDB.song));
+            }
+
+            var service = new BmsLibraryInitializationService();
+            SongTableFileCheckResult result = service.ApplyFileScanDiff(
+                new BmsLibraryDbGateway(songDbPath),
+                new BmsLibraryOptionsSnapshot
+                {
+                    OperationModeLR2DB = true,
+                    EnableLR2SongDbFullGeneration = true
+                },
+                [existingFile],
+                new ChartScanExecutionResult
+                {
+                    Success = true,
+                    Result = CreateScanResult(
+                        [bmsPath],
+                        new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
+                        {
+                            { chartDirectory, ["readme.txt"] }
+                        })
+                },
+                0L,
+                () => null,
+                null,
+                protectExistingBmsRowsFromLr2FullGenerationMigration: true);
+
+            Assert.AreEqual(0, result.BmsAddedTargetCount);
+            Assert.AreEqual(1, result.BmsLegacyExistingProtectedCount);
+            Assert.AreEqual(0, result.BmsDateOnlyUpdateCount);
+            Assert.AreEqual(0, result.BmsTextOnlyUpdateCount);
+            Assert.AreEqual(0, result.AddedFiles.Count);
+            Assert.AreSame(existingFile, result.NextFiles.Single());
+            Assert.AreEqual(ToUnixSeconds(oldTimestamp), existingFile.date);
+            Assert.AreEqual(0, existingFile.txt);
+            Assert.AreEqual(12345, existingFile.adddate);
+            Assert.AreEqual("keep", existingFile.tag);
+            Assert.IsFalse(result.HasDbDiff);
+
+            using var verify = new LR2SongDBExtended(songDbPath);
+            LR2SongDB.song row = verify.Table<LR2SongDB.song>().Single();
+            Assert.AreEqual(ToUnixSeconds(oldTimestamp), row.date);
+            Assert.AreEqual(0, row.txt);
             Assert.AreEqual(12345, row.adddate);
             Assert.AreEqual("keep", row.tag);
         });

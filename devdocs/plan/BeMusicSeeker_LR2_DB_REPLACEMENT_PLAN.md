@@ -284,10 +284,10 @@ SELECT path,date FROM folder WHERE parent = ROOT OR date = 0
 - `Startup`、`ReloadFileDiff`、search root 変更後 reload、manual rescan のいずれでも、
   既存 path の `song.date` と実 BMS mtime の mismatch を update target として扱う。
 - ただし完全生成 status が未完了、または旧 schema repair 直後で maintenance 互換列が未移行の DB では、
-  旧 LR2 由来の `song.date` mismatch を通常 file diff の全件 update target にしない。この状態の
+  既存 BMS path row の generated metadata refresh を通常 file diff の全件 update target にしない。この状態の
   既存 path row は移行対象であり、file diff は新規・削除・移動など owned file identity の差分だけを扱う。
-  既存 `song` / `maintenance` row の OpenLR2 互換 generated columns への収束は、後段 full generation sync の
-  `song_rows` / compatibility projection で行う。
+  `song.date`、`song.txt`、`maintenance` 互換列、chart_info 由来 projection などの OpenLR2 互換 generated columns
+  への収束は、後段 full generation sync の `song_rows` / compatibility projection で行う。
 - DB row の `path` と現 file path、`song.date` と現 file mtime の Unix 秒が一致する場合は更新なし。
 - `path` または `song.date` が変わった場合は `ChartFileSnapshot` を読み、MD5 を比較する。
 - `path` / `song.date` が変わり MD5 も変わった場合:
@@ -716,9 +716,12 @@ projection に従って実行時に組み立てる。詳細な具体例を toolt
 実装:
 
 - DB row の `song.path` と実 path、`song.date` と実 BMS mtime の Unix 秒が一致する場合は unchanged。
-- `song.path` または `song.date` が変わった場合だけ `ChartFileSnapshot` を読み、MD5 を比較する。
-- `Startup` / `ReloadFileDiff` / search root 変更後 reload では、既存 path の mtime mismatch を
+- 通常状態では、`song.path` または `song.date` が変わった場合だけ `ChartFileSnapshot` を読み、MD5 を比較する。
+- 通常状態の `Startup` / `ReloadFileDiff` / search root 変更後 reload では、既存 path の mtime mismatch を
   update target set に含める。
+- 旧 DB / 未移行 DB 保護中は、既存 BMS path を完全生成 OFF / standalone 相当として扱い、`song.date` /
+  `song.txt` / `maintenance` / chart_info projection などの generated metadata refresh を file diff target にしない。
+  新規・削除・移動は通常どおり file diff で扱い、既存 row の移行は後段 full generation sync へ任せる。
 - MD5 が同じなら `song.date` のみ更新する。
 - MD5 が違うなら再parseする。
 - deleted path と added path の MD5 が同じ場合は move/relink として維持列を引き継ぐ。
@@ -726,8 +729,9 @@ projection に従って実行時に組み立てる。詳細な具体例を toolt
 テスト:
 
 - `song.path` + `song.date` 一致は parse しない。
-- `song.date` changed + MD5 same は `song.date` のみ更新する。
-- `song.date` changed + MD5 changed は BMS row / chart_info / maintenance を更新する。
+- 通常状態では、`song.date` changed + MD5 same は `song.date` のみ更新する。
+- 通常状態では、`song.date` changed + MD5 changed は BMS row / chart_info / maintenance を更新する。
+- 旧 DB / 未移行 DB 保護中は、既存 BMS path の date / text group 差分では `song` row を更新しない。
 - `Startup` / `ReloadFileDiff` / search root 変更後 reload の全経路で既存 path の mtime mismatch を検出する。
 - path move + MD5 same で `favorite` / `adddate` / `tag` が維持される。
 - bmson の現行更新検出と矛盾しない。
@@ -1218,13 +1222,14 @@ parse directive:
 - BMS 変更検出は完全生成の前提条件。path added/deleted だけでは不十分。
 - 通常差分検出は LR2 `song.path` / `song.date` を正本にする。mtime preserved copy や
   同秒更新は完全には検出できないため、force rescan を残す。
-- 旧 LR2 DB の `song.date` は OpenLR2 現行実装の UTC FILETIME Unix 秒と一致しない場合がある。
-  この差分は通常の mtime change ではなく migration freshness として扱う。完全生成未完了状態で
-  file diff が全既存 path を read / parse する実装にはしない。
+- 旧 LR2 DB の `song.date` や `song.txt`、maintenance 互換列は OpenLR2 現行実装の generated metadata と
+  一致しない場合がある。この差分は通常の mtime / text group change ではなく migration freshness として扱う。
+  完全生成未完了状態で file diff が全既存 path を read / parse して generated metadata を更新する実装にはしない。
 - maintenance 互換列が欠けていた旧 schema では、schema repair 後も互換列の値は未移行である。
   この状態で後段 full generation が `insufficient_maintenance_coverage` になること自体は妥当だが、
-  その前段の file diff が既存全 path を date-only として読みに行かないよう、migration state を
-  file diff の target 判定へ渡す。
+  その前段の file diff が既存全 path を generated metadata refresh として読みに行かないよう、migration state を
+  file diff の target 判定へ渡す。保護中の既存 path は完全生成 OFF / standalone 相当として扱い、後段 full generation
+  が有効な run でまとめて移行する。
 - Everything と managed fallback の結果は意味的に揃える。片方だけ text group や metadata
   を返す状態にしない。
 - text group だけでなく、directory mtime、`folderinfo.txt`、`.lr2folder` の existence /
@@ -1267,7 +1272,9 @@ parse directive:
   - `folderinfo.txt` / `.lr2folder` は synthetic fixture で主要 contract を固定済みで、残りは実 DB 由来 fixture として追加する。
   - LR2 root sentinel は `LR2CRC32("ROOT")` ではなく `LR2CRC32("ROOT\0") = e2977170` として扱う。
 - Phase 1: BMS 変更検出は主要経路へ接続済み。残りの検証では以下を固定する。
-  - まず file diff で既存 BMS の `song.date` / mtime mismatch を parse target に入れる。
+  - 通常状態では、file diff で既存 BMS の `song.date` / mtime mismatch を parse target に入れる。
+    ただし旧 DB / 未移行 DB 保護中は既存 path の generated metadata refresh を後段 full generation へ任せ、
+    file diff target には入れない。
   - MD5 が同じ場合は `song.date` の targeted update だけ行い、chart_info / maintenance は再生成しない。
   - MD5 が変わる場合は parsed row へ差し替え、`favorite` / `adddate` / `tag` は既存 row から維持する。
   - 削除された path と新規 path が同じ MD5 で一意に対応する場合だけ、LR2 user columns を新規 row へ継承する。
@@ -1775,6 +1782,8 @@ Everything / filesystem 広域再スキャンを始める入口ではない。su
      `diff_current_index_ms` / `diff_bms_target_ms` / `diff_bmson_target_ms` をさらに短くできるか実ログで確認する。
    - 完了: 完全生成 completed 後の通常 file diff でも `.txt` surface が有効な場合だけ
       `song.txt` flag を比較し、surface が無い完全生成 OFF / standalone 相当では既存 `txt` を保持する。
+      旧 DB / 未移行 DB 保護中の既存 BMS path も standalone 相当として扱い、text-only refresh は file diff では
+      行わず、full generation の `song_rows` stage へ任せる。
       manual full generation input で scan surface が無い場合は grouped text metadata surface から
       `TextFileDirectories` を作り、譜面数比例の per-directory `.txt` lookup を行わない。
    - 完了: `folderinfo.txt` は directory mtime 差分に従って scoped normal folder sync で読み、単独 file mtime diff では

@@ -5255,6 +5255,7 @@ public class BMSLibrary : NotificationObject
         List<LR2SongDBExtended.chart_info> committedInlineChartInfoRows = [];
         List<ChartFile> currentInstallDestinationCharts = CreateCurrentInstallDestinationCleanupCharts();
         Task<Lr2FolderFileDiffPreparationResult> lr2FolderFileDiffPreparationTask = null;
+        bool protectExistingBmsRowsFromLr2FullGenerationMigration = ShouldProtectExistingBmsRowsFromLr2FullGenerationMigration(options);
         void StartLr2FolderFileDiffPreparation(SongTableFileCheckResult partialResult)
         {
             if (lr2FolderFileDiffPreparationTask != null)
@@ -5330,7 +5331,8 @@ completeFileEnumerationOnce,
             lr2FolderDiscoveryRootDirectories: bmsDirectories,
             lr2BuiltinCustomFolderSettings: CreateCurrentLr2BuiltinCustomFolderSettings(DateTime.UtcNow),
             normalFolderMtimeSnapshotProvider: resolveNormalFolderMtimeSnapshot,
-            lr2ScanSurfacePrepared: StartLr2FolderFileDiffPreparation);
+            lr2ScanSurfacePrepared: StartLr2FolderFileDiffPreparation,
+            protectExistingBmsRowsFromLr2FullGenerationMigration: protectExistingBmsRowsFromLr2FullGenerationMigration);
         ApplyLr2FolderFileDiffSync(options, bmsDirectories, fileCheckResult, reason, lr2FolderFileDiffPreparationTask);
         completeFileEnumerationOnce();
         ApplyLibraryFileScanStorageMutation(fileCheckResult, reason);
@@ -5358,6 +5360,33 @@ completeFileEnumerationOnce,
         fileCheckResult.ReleasePostApplyTransientBuffers();
         LogStartupMemoryCheckpoint("file_diff", "after_release");
         return fileCheckResult;
+    }
+
+    private bool ShouldProtectExistingBmsRowsFromLr2FullGenerationMigration(BmsLibraryOptionsSnapshot options)
+    {
+        if (options?.OperationModeLR2DB != true)
+        {
+            return false;
+        }
+
+        if (dbGateway.HasIncompleteLr2CompatibilityMaintenanceFacts())
+        {
+            return true;
+        }
+
+        if (options.EnableLR2SongDbFullGeneration != true)
+        {
+            return false;
+        }
+
+        string signature = Lr2FullGenerationSignatureBuilder.Build(options);
+        using LR2SongDBExtended songDb = dbGateway.OpenSongDb();
+        Lr2FullGenerationStatusSnapshot status = Lr2FullGenerationStatusService.Evaluate(
+            songDb,
+            enabled: true,
+            signature,
+            DateTime.UtcNow);
+        return status == null || status.Status != Lr2FullGenerationStatusKind.Completed;
     }
 
     private sealed class Lr2FolderFileDiffPreparationResult(
