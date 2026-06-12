@@ -19571,6 +19571,9 @@ completeFileEnumerationOnce,
     {
         List<FolderAutoRenamePlan> planList = [.. (plans ?? []).Where(plan => plan != null)];
         bool hasActionablePlan = false;
+        LibraryMutationDelta batchMutation = new LibraryMutationDelta();
+        InstallDestinationOverlayChartRefSnapshot installDestinationOverlayCharts = CreateInstallDestinationOverlayChartRefSnapshotUnsafe();
+        HashSet<string> movedSourceDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         if (planList.Any(plan => !string.IsNullOrWhiteSpace(plan.SourceDirectory) && Path.GetPathRoot(plan.SourceDirectory).Equals(plan.SourceDirectory, StringComparison.OrdinalIgnoreCase)))
         {
             dialogService.Show(Resources.Warn_DriveRootBmsSkipped, Resources.MessageBoxTitle_Confirm, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
@@ -19587,9 +19590,98 @@ completeFileEnumerationOnce,
                 continue;
             }
             hasActionablePlan = true;
-            RenameChartFolder(plan.SourceDirectory, Path.GetFileName(plan.DestinationDirectory), false, renameRootFolder: true);
+            ApplyAutoRenamePlanToBatch(plan, batchMutation, installDestinationOverlayCharts, movedSourceDirectories);
+        }
+        if (HasLibraryMutationDeltaChanges(batchMutation))
+        {
+            ApplyLibraryMutationDeltaWithPerformanceContext(batchMutation, "auto_rename_folders");
         }
         return hasActionablePlan;
+    }
+
+    private void ApplyAutoRenamePlanToBatch(
+        FolderAutoRenamePlan plan,
+        LibraryMutationDelta batchMutation,
+        InstallDestinationOverlayChartRefSnapshot installDestinationOverlayCharts,
+        HashSet<string> movedSourceDirectories)
+    {
+        string srcDir = plan.SourceDirectory;
+        string newName = Path.GetFileName(plan.DestinationDirectory);
+        BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
+        if (options.UseOnlyShiftJISChars)
+        {
+            newName = newName.ToSjisSchemeString();
+        }
+        newName = newName.RemoveInvalidFileNameChars();
+        if (string.IsNullOrWhiteSpace(newName) || Path.GetPathRoot(srcDir).Equals(srcDir, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+        if (movedSourceDirectories.Contains(srcDir))
+        {
+            return;
+        }
+        if (!Directory.Exists(srcDir))
+        {
+            dialogService.Show(string.Format(Resources.Warn_RenameFolderNotExists, srcDir), Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
+            return;
+        }
+
+        string dstDir = Path.Combine(Path.GetDirectoryName(srcDir), newName);
+        LibraryMutationDelta delta = libraryFileOperationsService.BuildFolderMoveDelta(
+            srcDir,
+            dstDir,
+            CreateOwnedRealPathChartRefsUnsafe(srcDir),
+            installDestinationOverlayCharts,
+            ChartPackagesPending,
+            ChartPackagesInstalled,
+            unregister: false,
+            notifyStorageRowPathChanges: false);
+        if (!TryMoveLibraryChartFolder(srcDir, dstDir))
+        {
+            return;
+        }
+        movedSourceDirectories.Add(srcDir);
+        AppendLibraryMutationDelta(batchMutation, delta);
+    }
+
+    private static void AppendLibraryMutationDelta(LibraryMutationDelta target, LibraryMutationDelta source)
+    {
+        if (target == null || source == null)
+        {
+            return;
+        }
+        target.ChartRemoveRequests.AddRange(source.ChartRemoveRequests);
+        target.ChartPathChanges.AddRange(source.ChartPathChanges);
+        target.FolderPathChanges.AddRange(source.FolderPathChanges);
+        target.UpdatedInstallDestinations.AddRange(source.UpdatedInstallDestinations);
+        target.UpdatedInstalledPackagePaths.AddRange(source.UpdatedInstalledPackagePaths);
+        target.Failures.AddRange(source.Failures);
+        target.NotifyStorageRowPathChanges |= source.NotifyStorageRowPathChanges;
+        target.RaiseInstalledPackagesChanged |= source.RaiseInstalledPackagesChanged;
+        target.InvalidateInstalledDirectoryIndex |= source.InvalidateInstalledDirectoryIndex;
+        target.InvalidateParentFolderCache |= source.InvalidateParentFolderCache;
+        target.ClearDuplicatedCache |= source.ClearDuplicatedCache;
+        target.RenamedCount += source.RenamedCount;
+        target.DuplicateDeletedCount += source.DuplicateDeletedCount;
+        target.SkippedCount += source.SkippedCount;
+        target.TotalMs += source.TotalMs;
+    }
+
+    private static bool HasLibraryMutationDeltaChanges(LibraryMutationDelta delta)
+    {
+        return delta != null
+            && (delta.ChartRemoveRequests.Count > 0
+                || delta.ChartPathChanges.Count > 0
+                || delta.FolderPathChanges.Count > 0
+                || delta.UpdatedInstallDestinations.Count > 0
+                || delta.UpdatedInstalledPackagePaths.Count > 0
+                || delta.Failures.Count > 0
+                || delta.NotifyStorageRowPathChanges
+                || delta.RaiseInstalledPackagesChanged
+                || delta.InvalidateInstalledDirectoryIndex
+                || delta.InvalidateParentFolderCache
+                || delta.ClearDuplicatedCache);
     }
 
     private List<ChartFile> CreateDirectLibraryChartSnapshotsInFolders(IReadOnlyCollection<string> folderPaths)
@@ -19696,23 +19788,8 @@ completeFileEnumerationOnce,
 
     private void MoveLibraryChartFolderInternal(string srcDir, string dstDir, bool? unregister, bool notifyStorageRowPathChanges)
     {
-        if (srcDir.Equals(dstDir, StringComparison.OrdinalIgnoreCase))
+        if (!TryMoveLibraryChartFolder(srcDir, dstDir))
         {
-            return;
-        }
-        if (File.Exists(dstDir) || Directory.Exists(dstDir))
-        {
-            dialogService.Show(string.Format(Resources.Warn_MoveDestAlreadyExists, srcDir, dstDir), Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
-            return;
-        }
-        try
-        {
-            DirectoryResourceLookupCache.ReverseLookupMutationResult reverseLookupMutation = libraryFileOperationsService.MoveFolderAndUpdateReferences(srcDir, dstDir, directoryResourceLookupCache, fileMutationService, recursiveDirectoryTreeFileMutationOptions);
-            LogReverseLookupMutationAndQueueWarmupIfNeeded("move_folder", reverseLookupMutation);
-        }
-        catch (Exception moveException)
-        {
-            dialogService.Show(string.Format(Resources.Error_FolderMoveFailed, srcDir, dstDir, GetDisplayedExceptionMessage(moveException)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
             return;
         }
         if (unregister != false && unregister != true)
@@ -19729,6 +19806,30 @@ completeFileEnumerationOnce,
             unregister == true,
             notifyStorageRowPathChanges: notifyStorageRowPathChanges);
         ApplyLibraryMutationDelta(delta);
+    }
+
+    private bool TryMoveLibraryChartFolder(string srcDir, string dstDir)
+    {
+        if (srcDir.Equals(dstDir, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+        if (File.Exists(dstDir) || Directory.Exists(dstDir))
+        {
+            dialogService.Show(string.Format(Resources.Warn_MoveDestAlreadyExists, srcDir, dstDir), Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
+            return false;
+        }
+        try
+        {
+            DirectoryResourceLookupCache.ReverseLookupMutationResult reverseLookupMutation = libraryFileOperationsService.MoveFolderAndUpdateReferences(srcDir, dstDir, directoryResourceLookupCache, fileMutationService, recursiveDirectoryTreeFileMutationOptions);
+            LogReverseLookupMutationAndQueueWarmupIfNeeded("move_folder", reverseLookupMutation);
+            return true;
+        }
+        catch (Exception moveException)
+        {
+            dialogService.Show(string.Format(Resources.Error_FolderMoveFailed, srcDir, dstDir, GetDisplayedExceptionMessage(moveException)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+            return false;
+        }
     }
 
     private InstallDestinationOverlayChartRefSnapshot CreateInstallDestinationOverlayChartRefSnapshotUnsafe()
