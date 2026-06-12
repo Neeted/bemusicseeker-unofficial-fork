@@ -967,6 +967,9 @@
                 <DataTrigger Binding="{Binding IsMaintenanceRescanProgressActive}" Value="True">
                   <Setter Property="Visibility" Value="Visible" />
                 </DataTrigger>
+                <DataTrigger Binding="{Binding IsFolderAutoRenameProgressActive}" Value="True">
+                  <Setter Property="Visibility" Value="Visible" />
+                </DataTrigger>
                 <DataTrigger Binding="{Binding IsLr2SongDbSyncStatusActive}" Value="True">
                   <Setter Property="Visibility" Value="Visible" />
                 </DataTrigger>
@@ -1010,6 +1013,14 @@
               <Setter Property="Visibility" Value="Collapsed" />
               <Style.Triggers>
                 <DataTrigger Binding="{Binding IsMaintenanceRescanProgressActive}" Value="True">
+                  <Setter Property="Visibility" Value="Visible" />
+                </DataTrigger>
+              </Style.Triggers>
+            </Style>
+            <Style x:Key="styleFolderAutoRenameStatusBarItem" TargetType="{x:Type StatusBarItem}">
+              <Setter Property="Visibility" Value="Collapsed" />
+              <Style.Triggers>
+                <DataTrigger Binding="{Binding IsFolderAutoRenameProgressActive}" Value="True">
                   <Setter Property="Visibility" Value="Visible" />
                 </DataTrigger>
               </Style.Triggers>
@@ -1140,6 +1151,24 @@
           </StatusBarItem>
           <StatusBarItem Style="{StaticResource styleMaintenanceRescanStatusBarItem}">
             <Button Style="{StaticResource styleMaintenanceRescanCancelButton}" MinWidth="70" Padding="8,1" IsEnabled="{Binding MaintenanceRescanCanCancel}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Cancel, Mode=OneWay}" Click="cancelMaintenanceRescanClick" />
+          </StatusBarItem>
+          <StatusBarItem Style="{StaticResource styleFolderAutoRenameStatusBarItem}">
+            <Separator />
+          </StatusBarItem>
+          <StatusBarItem Style="{StaticResource styleFolderAutoRenameStatusBarItem}">
+            <TextBlock Text="{Binding FolderAutoRenameProgressLabel}" />
+          </StatusBarItem>
+          <StatusBarItem Style="{StaticResource styleFolderAutoRenameStatusBarItem}">
+            <Separator />
+          </StatusBarItem>
+          <StatusBarItem Style="{StaticResource styleFolderAutoRenameStatusBarItem}">
+            <TextBlock Width="200" TextTrimming="CharacterEllipsis" Text="{Binding FolderAutoRenameProgressSubLabel}" ToolTip="{Binding FolderAutoRenameProgressSubLabel}" />
+          </StatusBarItem>
+          <StatusBarItem Style="{StaticResource styleFolderAutoRenameStatusBarItem}">
+            <Separator />
+          </StatusBarItem>
+          <StatusBarItem Style="{StaticResource styleFolderAutoRenameStatusBarItem}">
+            <ProgressBar Width="160" Height="14" Minimum="0" Maximum="{Binding FolderAutoRenameProgressMaximum, Mode=OneWay}" Value="{Binding FolderAutoRenameProgressValue, Mode=OneWay}" />
           </StatusBarItem>
           <StatusBarItem Style="{StaticResource styleLr2SongDbSyncStatusBarItem}">
             <TextBlock Text="{Binding Lr2SongDbSyncStatusLabel}" Foreground="{DynamicResource App.WarningTextBrush}" />

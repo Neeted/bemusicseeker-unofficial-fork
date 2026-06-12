@@ -122,6 +122,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 secondFile.SetTitle("Second Title");
                 secondFile.SetArtist("Second Artist");
                 SetLibraryFilesWithoutNotification(library, [firstFile, secondFile]);
+                List<(int Total, int Processed, string Path)> progress = [];
                 int refreshCount = 0;
                 library.PropertyChanged += delegate (object _, System.ComponentModel.PropertyChangedEventArgs args)
                 {
@@ -135,11 +136,14 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 library.AutoRenameChartFolders([
                     ChartFileProjection.FromBmsFile(firstFile),
                     ChartFileProjection.FromBmsFile(secondFile)
-                ]);
+                ], progressReporter: (total, processed, path) => progress.Add((total, processed, path)));
                 NormalLibraryRefreshNotificationBatch batch = library.GetNormalLibraryRefreshNotificationsAfter(handledNotificationVersion);
 
                 Assert.AreEqual(1, Volatile.Read(ref refreshCount));
                 Assert.IsFalse(batch.NotifiesStorageRows);
+                CollectionAssert.AreEqual(new[] { 0, 1, 2 }, progress.Select(item => item.Processed).ToArray());
+                Assert.IsTrue(progress.All(item => item.Total == 2));
+                CollectionAssert.AreEqual(new[] { string.Empty, firstDirectoryPath, secondDirectoryPath }, progress.Select(item => item.Path).ToArray());
                 Assert.AreEqual(Path.Combine(libraryRootPath, "[First Artist] First Title", "first.bms"), firstFile.path);
                 Assert.AreEqual(Path.Combine(libraryRootPath, "[Second Artist] Second Title", "second.bms"), secondFile.path);
                 Assert.IsFalse(Directory.Exists(firstDirectoryPath));
@@ -225,6 +229,50 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 Assert.IsTrue(Directory.Exists(firstExistingDestinationPath));
                 Assert.IsFalse(Directory.Exists(secondDirectoryPath));
                 Assert.IsTrue(Directory.Exists(secondDestinationPath));
+            }
+            finally
+            {
+                if (Directory.Exists(tempRootPath))
+                {
+                    Directory.Delete(tempRootPath, recursive: true);
+                }
+            }
+        });
+    }
+
+    [TestMethod]
+    public void AutoRenameChartFolders_ContinuesWhenProgressReporterThrows()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_AutoRenameProgressFailure_" + Guid.NewGuid().ToString("N"));
+            string libraryRootPath = Path.Combine(tempRootPath, "LibraryRoot");
+            string sourceDirectoryPath = Path.Combine(libraryRootPath, "Source");
+            string chartPath = Path.Combine(sourceDirectoryPath, "chart.bms");
+            Directory.CreateDirectory(sourceDirectoryPath);
+            File.WriteAllText(chartPath, "#PLAYER 1");
+            try
+            {
+                var library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
+                {
+                    SearchTargets = [libraryRootPath]
+                };
+                var file = new TestableBmsFile
+                {
+                    path = chartPath
+                };
+                file.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+                file.SetTitle("Title");
+                file.SetArtist("Artist");
+                SetLibraryFilesWithoutNotification(library, [file]);
+
+                library.AutoRenameChartFolders(
+                    [ChartFileProjection.FromBmsFile(file)],
+                    progressReporter: delegate { throw new InvalidOperationException("progress failure"); });
+
+                Assert.AreEqual(Path.Combine(libraryRootPath, "[Artist] Title", "chart.bms"), file.path);
+                Assert.IsFalse(Directory.Exists(sourceDirectoryPath));
             }
             finally
             {
@@ -1504,7 +1552,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     {
         MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("ApplyAutoRenamePlans", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.IsNotNull(methodInfo);
-        return (bool)methodInfo.Invoke(library, [plans]);
+        return (bool)methodInfo.Invoke(library, [plans, null]);
     }
 
     private static void InvokeApplyInstalledChartStorageTargets(BMSLibrary library, ChartStorageTargetSet targets, string reason)

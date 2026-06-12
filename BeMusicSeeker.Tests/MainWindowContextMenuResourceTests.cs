@@ -927,7 +927,7 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(autoRenameClick.Contains("GetSelectedBmsChartFiles(ChartOperationCapabilities.None)"));
         StringAssert.Contains(contextMenuOpening, "hasBmsSelection || hasBmsonSelection");
         StringAssert.Contains(autoRenameAll, "files?.HasAutoRenameAllChartFolderTargets(parentDir) != true");
-        StringAssert.Contains(autoRenameAll, "files?.AutoRenameAllChartFolders(parentDir) == true");
+        StringAssert.Contains(autoRenameAll, "files?.AutoRenameAllChartFolders(parentDir, UpdateFolderAutoRenameProgressStatus) == true");
         Assert.IsFalse(autoRenameAll.Contains("IEnumerable<BeMusicSeeker.Models.BMSFile> enumerable = BMSFiles;"));
         StringAssert.Contains(autoRenameAllModel, "CreateOwnedRealPathChartDirectoriesUnsafe(parentDir)");
         StringAssert.Contains(autoRenameAllModel, "BuildAutoRenamePlansForSourceFolders");

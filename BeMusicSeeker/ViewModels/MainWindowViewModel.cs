@@ -6095,6 +6095,16 @@ public class MainWindowViewModel : ViewModel
 
     private bool _MaintenanceRescanCanCancel;
 
+    private bool _IsFolderAutoRenameProgressActive;
+
+    private string _FolderAutoRenameProgressLabel = string.Empty;
+
+    private string _FolderAutoRenameProgressSubLabel = string.Empty;
+
+    private double _FolderAutoRenameProgressValue;
+
+    private double _FolderAutoRenameProgressMaximum = 1.0;
+
     private readonly object playlistSyncProgressLock = new();
 
     private int playlistSyncProgressActiveOperationCount;
@@ -13940,6 +13950,89 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
+    public bool IsFolderAutoRenameProgressActive
+    {
+        get
+        {
+            return _IsFolderAutoRenameProgressActive;
+        }
+        private set
+        {
+            if (_IsFolderAutoRenameProgressActive != value)
+            {
+                _IsFolderAutoRenameProgressActive = value;
+                RaisePropertyChanged("IsFolderAutoRenameProgressActive");
+            }
+        }
+    }
+
+    public string FolderAutoRenameProgressLabel
+    {
+        get
+        {
+            return _FolderAutoRenameProgressLabel;
+        }
+        private set
+        {
+            string normalized = value ?? string.Empty;
+            if (_FolderAutoRenameProgressLabel != normalized)
+            {
+                _FolderAutoRenameProgressLabel = normalized;
+                RaisePropertyChanged("FolderAutoRenameProgressLabel");
+            }
+        }
+    }
+
+    public string FolderAutoRenameProgressSubLabel
+    {
+        get
+        {
+            return _FolderAutoRenameProgressSubLabel;
+        }
+        private set
+        {
+            string normalized = value ?? string.Empty;
+            if (_FolderAutoRenameProgressSubLabel != normalized)
+            {
+                _FolderAutoRenameProgressSubLabel = normalized;
+                RaisePropertyChanged("FolderAutoRenameProgressSubLabel");
+            }
+        }
+    }
+
+    public double FolderAutoRenameProgressValue
+    {
+        get
+        {
+            return _FolderAutoRenameProgressValue;
+        }
+        private set
+        {
+            if (_FolderAutoRenameProgressValue != value)
+            {
+                _FolderAutoRenameProgressValue = value;
+                RaisePropertyChanged("FolderAutoRenameProgressValue");
+            }
+        }
+    }
+
+    public double FolderAutoRenameProgressMaximum
+    {
+        get
+        {
+            return _FolderAutoRenameProgressMaximum;
+        }
+        private set
+        {
+            double normalized = Math.Max(1.0, value);
+            if (_FolderAutoRenameProgressMaximum != normalized)
+            {
+                _FolderAutoRenameProgressMaximum = normalized;
+                RaisePropertyChanged("FolderAutoRenameProgressMaximum");
+            }
+        }
+    }
+
     public bool IsPlaylistSyncProgressActive
     {
         get
@@ -18507,6 +18600,63 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
+    private void BeginFolderAutoRenameProgress()
+    {
+        Action reflect = delegate
+        {
+            IsFolderAutoRenameProgressActive = true;
+            FolderAutoRenameProgressMaximum = 1.0;
+            FolderAutoRenameProgressValue = 0.0;
+            FolderAutoRenameProgressLabel = BeMusicSeeker.Properties.Resources.Rename_folder_auto;
+            FolderAutoRenameProgressSubLabel = string.Empty;
+        };
+        DispatchFolderAutoRenameProgressUpdate(reflect);
+    }
+
+    private void UpdateFolderAutoRenameProgressStatus(int totalCount, int processedCount, string currentPath)
+    {
+        Action reflect = delegate
+        {
+            int total = Math.Max(totalCount, 1);
+            int processed = Math.Max(0, Math.Min(processedCount, total));
+            IsFolderAutoRenameProgressActive = true;
+            FolderAutoRenameProgressMaximum = total;
+            FolderAutoRenameProgressValue = processed;
+            FolderAutoRenameProgressLabel = BeMusicSeeker.Properties.Resources.Rename_folder_auto + " " + processed + "/" + total;
+            FolderAutoRenameProgressSubLabel = currentPath ?? string.Empty;
+        };
+        DispatchFolderAutoRenameProgressUpdate(reflect);
+    }
+
+    private void FinishFolderAutoRenameProgress()
+    {
+        Action reflect = delegate
+        {
+            FolderAutoRenameProgressLabel = string.Empty;
+            FolderAutoRenameProgressSubLabel = string.Empty;
+            FolderAutoRenameProgressValue = 0.0;
+            FolderAutoRenameProgressMaximum = 1.0;
+            IsFolderAutoRenameProgressActive = false;
+        };
+        DispatchFolderAutoRenameProgressUpdate(reflect);
+    }
+
+    private static void DispatchFolderAutoRenameProgressUpdate(Action reflect)
+    {
+        if (reflect == null)
+        {
+            return;
+        }
+        if (DispatcherHelper.UIDispatcher == null || DispatcherHelper.UIDispatcher.CheckAccess())
+        {
+            reflect();
+        }
+        else
+        {
+            DispatcherHelper.UIDispatcher.BeginInvoke(reflect, DispatcherPriority.Background);
+        }
+    }
+
     private void RefreshResourceHealthViewsAfterMaintenanceChanged()
     {
         RefreshResourceHealthViewsAfterMaintenanceChanged("maintenance_hydration_completed", "maintenance_changed");
@@ -22890,17 +23040,30 @@ public class MainWindowViewModel : ViewModel
 
     public void AutoRenameAllChartFolders(string parentDir = null)
     {
+        bool progressStarted = false;
         lock (lockCopyFile)
         {
             if (files?.HasAutoRenameAllChartFolderTargets(parentDir) != true)
             {
                 return;
             }
-            PlayEndBMSFile(closeProcess: true);
-            if (files?.AutoRenameAllChartFolders(parentDir) == true)
+            BeginFolderAutoRenameProgress();
+            progressStarted = true;
+            try
             {
-                ApplyLatestNormalLibraryRefreshNotification();
-                InvalidateNormalLibrarySortKeysAfterPathMutation(hasBmsPathMutation: true, hasBmsonPathMutation: true);
+                PlayEndBMSFile(closeProcess: true);
+                if (files?.AutoRenameAllChartFolders(parentDir, UpdateFolderAutoRenameProgressStatus) == true)
+                {
+                    ApplyLatestNormalLibraryRefreshNotification();
+                    InvalidateNormalLibrarySortKeysAfterPathMutation(hasBmsPathMutation: true, hasBmsonPathMutation: true);
+                }
+            }
+            finally
+            {
+                if (progressStarted)
+                {
+                    FinishFolderAutoRenameProgress();
+                }
             }
         }
     }
@@ -22914,10 +23077,18 @@ public class MainWindowViewModel : ViewModel
         }
         lock (lockCopyFile)
         {
-            stopPlayingChartFiles(charts);
-            files.AutoRenameChartFolders(charts);
-            ApplyLatestNormalLibraryRefreshNotification();
-            InvalidateNormalLibrarySortKeysAfterPathMutation(hasBmsPathMutation: true, hasBmsonPathMutation: true);
+            BeginFolderAutoRenameProgress();
+            try
+            {
+                stopPlayingChartFiles(charts);
+                files.AutoRenameChartFolders(charts, progressReporter: UpdateFolderAutoRenameProgressStatus);
+                ApplyLatestNormalLibraryRefreshNotification();
+                InvalidateNormalLibrarySortKeysAfterPathMutation(hasBmsPathMutation: true, hasBmsonPathMutation: true);
+            }
+            finally
+            {
+                FinishFolderAutoRenameProgress();
+            }
         }
     }
 
