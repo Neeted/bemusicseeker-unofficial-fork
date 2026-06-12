@@ -72,12 +72,13 @@ internal sealed class BmsLibraryStateApplier(
 
         List<BmsSongPathReplacement> bmsPathReplacements = [];
         List<BmsonSongPathReplacement> bmsonPathReplacements = [];
+        var folderParentHashCache = new Lr2SongFolderParentNormalizer.Lr2FolderParentHashCache();
         foreach (LibraryChartPathChange chartPathChange in delta.ChartPathChanges)
         {
             BMSFile bmsFile = chartPathChange?.GetBmsStorageOwner();
             if (bmsFile != null)
             {
-                bmsPathReplacements.Add(CreateBmsSongPathReplacement(bmsFile, chartPathChange.NewPath, chartPathChange.OldPath));
+                bmsPathReplacements.Add(CreateBmsSongPathReplacement(bmsFile, chartPathChange.NewPath, chartPathChange.OldPath, folderParentHashCache));
             }
             else
             {
@@ -102,7 +103,7 @@ internal sealed class BmsLibraryStateApplier(
             BMSFile bmsFile = chartPathChange?.GetBmsStorageOwner();
             if (bmsFile != null)
             {
-                ApplyBmsFilePathInMemory(bmsFile, chartPathChange.NewPath, chartPathChange.OldPath);
+                ApplyBmsFilePathInMemory(bmsFile, chartPathChange.NewPath, chartPathChange.OldPath, folderParentHashCache);
             }
             else
             {
@@ -154,7 +155,11 @@ internal sealed class BmsLibraryStateApplier(
         return result;
     }
 
-    private static BmsSongPathReplacement CreateBmsSongPathReplacement(BMSFile bmsFile, string newPath, string oldPath = null)
+    private static BmsSongPathReplacement CreateBmsSongPathReplacement(
+        BMSFile bmsFile,
+        string newPath,
+        string oldPath,
+        Lr2SongFolderParentNormalizer.Lr2FolderParentHashCache folderParentHashCache)
     {
         ValidateBmsFilePathChange(bmsFile, newPath, oldPath);
         BMSFile copy = bmsFile.CreateSongRowPersistenceCopy();
@@ -162,7 +167,7 @@ internal sealed class BmsLibraryStateApplier(
         copy.SetTextGroupFlag(Lr2TextGroupResolver.ResolveFlag(newPath, bmsFile.txt.GetValueOrDefault()));
         copy.folder = null;
         copy.parent = null;
-        Lr2SongRowEnricher.EnrichGeneratedSong(copy);
+        Lr2SongRowEnricher.EnrichGeneratedSong(copy, folderParentHashCache);
         BMSFileMaintenanceInfo maintenanceInfo = bmsFile.HasValidMaintenanceInfoSnapshot
             ? bmsFile.TryGetMaintenanceInfoWithoutCreating()?.CreatePersistenceCopy(newPath, bmsFile.hash)
             : null;
@@ -189,13 +194,17 @@ internal sealed class BmsLibraryStateApplier(
         };
     }
 
-    private static void ApplyBmsFilePathInMemory(BMSFile bmsFile, string newPath, string oldPath = null)
+    private static void ApplyBmsFilePathInMemory(
+        BMSFile bmsFile,
+        string newPath,
+        string oldPath,
+        Lr2SongFolderParentNormalizer.Lr2FolderParentHashCache folderParentHashCache)
     {
         bmsFile.path = newPath;
         bmsFile.SetTextGroupFlag(Lr2TextGroupResolver.ResolveFlag(newPath, bmsFile.txt.GetValueOrDefault()));
         bmsFile.folder = null;
         bmsFile.parent = null;
-        Lr2SongRowEnricher.EnrichGeneratedSong(bmsFile);
+        Lr2SongRowEnricher.EnrichGeneratedSong(bmsFile, folderParentHashCache);
     }
 
     private static void ApplyBmsonSongPathInMemory(LR2SongDBExtended.bmson_song bmsonSong, string newPath, string oldPath = null)

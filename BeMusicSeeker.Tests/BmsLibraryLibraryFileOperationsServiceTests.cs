@@ -237,7 +237,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
         lookupCache.AddDir(secondSource, [secondHash], [], []);
         lookupCache.EnsureAudioRelativeDirectoriesByHashes([firstHash, firstNestedHash, secondHash]);
 
-        DirectoryResourceLookupCache.ReverseLookupMutationResult result = service.UpdateMovedFolderReferences(
+        MovedFolderReferenceUpdateResult updateResult = service.UpdateMovedFolderReferences(
         [
             new LibraryFolderPathChange
             {
@@ -251,8 +251,12 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             }
         ],
         lookupCache);
+        DirectoryResourceLookupCache.ReverseLookupMutationResult result = updateResult.MutationResult;
 
         Assert.IsTrue(result.Changed);
+        Assert.AreEqual(2, updateResult.MoveCount);
+        Assert.AreEqual(3, updateResult.LookupKeyCount);
+        Assert.AreEqual(3, updateResult.MatchedKeyCount);
         Assert.AreEqual(3, result.ReplacedDirectoryCount);
         CollectionAssert.AreEquivalent(new[] { firstDestination }, lookupCache.GetDirectoriesByAudioRelativeHash(firstHash).ToArray());
         CollectionAssert.AreEquivalent(new[] { firstNestedDestination }, lookupCache.GetDirectoriesByAudioRelativeHash(firstNestedHash).ToArray());

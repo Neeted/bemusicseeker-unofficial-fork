@@ -532,6 +532,95 @@ internal sealed class DirectoryResourceLookupCache
         return result;
     }
 
+    internal ReverseLookupMutationResult ReplaceDirsWithResult(IEnumerable<KeyValuePair<string, string>> pathReplacements)
+    {
+        List<KeyValuePair<string, string>> replacements = [.. (pathReplacements ?? [])
+            .Where(pair => !string.IsNullOrWhiteSpace(pair.Key)
+                && !string.IsNullOrWhiteSpace(pair.Value)
+                && !string.Equals(pair.Key, pair.Value, StringComparison.OrdinalIgnoreCase))
+            .GroupBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.Last())];
+        if (replacements.Count == 0)
+        {
+            return ReverseLookupMutationResult.Empty;
+        }
+
+        Dictionary<string, string> replacementsByOldPath = replacements.ToDictionary(
+            pair => pair.Key,
+            pair => pair.Value,
+            StringComparer.OrdinalIgnoreCase);
+        int replacedDirectoryCount = 0;
+        int overwrittenDirectoryCount = 0;
+        bool hasExternalOverwrite = false;
+        var entriesToMove = new List<Tuple<string, string, Entry>>();
+        lock (lockEntries)
+        {
+            foreach (KeyValuePair<string, string> replacement in replacements)
+            {
+                if (!entries.TryGetValue(replacement.Key, out Entry entry))
+                {
+                    continue;
+                }
+                entriesToMove.Add(Tuple.Create(replacement.Key, replacement.Value, entry));
+            }
+            foreach (Tuple<string, string, Entry> entryToMove in entriesToMove)
+            {
+                entries.Remove(entryToMove.Item1);
+            }
+            foreach (Tuple<string, string, Entry> entryToMove in entriesToMove)
+            {
+                if (entries.ContainsKey(entryToMove.Item2))
+                {
+                    overwrittenDirectoryCount++;
+                    hasExternalOverwrite = true;
+                }
+                entries[entryToMove.Item2] = entryToMove.Item3;
+                replacedDirectoryCount++;
+            }
+        }
+        if (replacedDirectoryCount == 0)
+        {
+            return ReverseLookupMutationResult.Empty;
+        }
+
+        if (hasExternalOverwrite)
+        {
+            bool wasFullReverseLookupBuilt = IsFullReverseLookupBuilt;
+            InvalidateLazyReverseLookupCache();
+            return new ReverseLookupMutationResult(
+                changed: true,
+                addedDirectoryCount: overwrittenDirectoryCount,
+                removedDirectoryCount: overwrittenDirectoryCount,
+                replacedDirectoryCount: replacedDirectoryCount,
+                updatedHashCount: 0,
+                cancelledWarmup: false,
+                maintainedFullReverseLookup: false,
+                requiresDeferredWarmup: wasFullReverseLookupBuilt);
+        }
+
+        int updatedHashCount = 0;
+        bool maintainedFullReverseLookup;
+        bool requiresDeferredWarmup;
+        lock (lockLazyDirectoriesByHash)
+        {
+            updatedHashCount += RewriteCachedDirectoryPaths(audioDirectoriesByRelativeHash, replacementsByOldPath);
+            updatedHashCount += RewriteCachedDirectoryPaths(imageDirectoriesByRelativeHash, replacementsByOldPath);
+            updatedHashCount += RewriteCachedDirectoryPaths(movieDirectoriesByRelativeHash, replacementsByOldPath);
+            maintainedFullReverseLookup = isFullReverseLookupBuilt;
+            requiresDeferredWarmup = false;
+        }
+
+        return new ReverseLookupMutationResult(
+            changed: true,
+            addedDirectoryCount: overwrittenDirectoryCount,
+            removedDirectoryCount: overwrittenDirectoryCount,
+            replacedDirectoryCount: replacedDirectoryCount,
+            updatedHashCount: updatedHashCount,
+            cancelledWarmup: false,
+            maintainedFullReverseLookup: maintainedFullReverseLookup,
+            requiresDeferredWarmup: requiresDeferredWarmup);
+    }
+
     public IReadOnlyCollection<string> GetDirectoriesByAudioRelativeHash(uint relativePathHash)
     {
         if (relativePathHash == 0u)
@@ -769,6 +858,49 @@ internal sealed class DirectoryResourceLookupCache
                 continue;
             }
             directoriesByTargetHash[hash] = nextDirectories;
+            updatedHashCount++;
+        }
+        return updatedHashCount;
+    }
+
+    private static int RewriteCachedDirectoryPaths(Dictionary<uint, string[]> directoriesByTargetHash, IReadOnlyDictionary<string, string> replacementsByOldPath)
+    {
+        if (directoriesByTargetHash == null || directoriesByTargetHash.Count == 0 || replacementsByOldPath == null || replacementsByOldPath.Count == 0)
+        {
+            return 0;
+        }
+
+        int updatedHashCount = 0;
+        foreach (uint hash in directoriesByTargetHash.Keys.ToArray())
+        {
+            string[] directories = directoriesByTargetHash[hash];
+            if (directories == null || directories.Length == 0)
+            {
+                continue;
+            }
+
+            bool changed = false;
+            string[] nextDirectories = new string[directories.Length];
+            for (int i = 0; i < directories.Length; i++)
+            {
+                string directory = directories[i];
+                if (!string.IsNullOrWhiteSpace(directory)
+                    && replacementsByOldPath.TryGetValue(directory, out string replacement))
+                {
+                    nextDirectories[i] = replacement;
+                    changed = true;
+                }
+                else
+                {
+                    nextDirectories[i] = directory;
+                }
+            }
+            if (!changed)
+            {
+                continue;
+            }
+
+            directoriesByTargetHash[hash] = [.. nextDirectories.Distinct(StringComparer.OrdinalIgnoreCase)];
             updatedHashCount++;
         }
         return updatedHashCount;

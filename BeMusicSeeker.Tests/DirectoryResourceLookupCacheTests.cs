@@ -83,6 +83,73 @@ public sealed class DirectoryResourceLookupCacheTests
     }
 
     [TestMethod]
+    public void ReplaceDirsWithResult_AfterFullCategoryReverseLookup_RewritesDirectoryPathsInBulk()
+    {
+        DirectoryResourceLookupCache cache = CreateNativeCanonicalCache();
+
+        DirectoryResourceLookupCache.ReverseLookupMutationResult mutation = cache.ReplaceDirsWithResult(
+        [
+            new KeyValuePair<string, string>("C:\\Songs\\A", "C:\\Renamed\\A"),
+            new KeyValuePair<string, string>("C:\\Songs\\B", "C:\\Renamed\\B")
+        ]);
+
+        Assert.IsTrue(mutation.Changed);
+        Assert.IsTrue(mutation.MaintainedFullReverseLookup);
+        Assert.IsFalse(mutation.RequiresDeferredWarmup);
+        Assert.AreEqual(2, mutation.ReplacedDirectoryCount);
+        CollectionAssert.AreEquivalent(new[] { "C:\\Renamed\\A" }, cache.GetDirectoriesByAudioRelativeHash(1u).ToArray());
+        CollectionAssert.AreEquivalent(new[] { "C:\\Renamed\\A", "C:\\Renamed\\B" }, cache.GetDirectoriesByAudioRelativeHash(2u).ToArray());
+        CollectionAssert.AreEquivalent(new[] { "C:\\Renamed\\B" }, cache.GetDirectoriesByAudioRelativeHash(3u).ToArray());
+        Assert.IsNull(cache.GetEntryOrNull("C:\\Songs\\A"));
+        Assert.IsNull(cache.GetEntryOrNull("C:\\Songs\\B"));
+        Assert.IsNotNull(cache.GetEntryOrNull("C:\\Renamed\\A"));
+        Assert.IsNotNull(cache.GetEntryOrNull("C:\\Renamed\\B"));
+    }
+
+    [TestMethod]
+    public void ReplaceDirsWithResult_MovesExistingDestinationAwayBeforeApplyingReplacement()
+    {
+        var cache = new DirectoryResourceLookupCache();
+        cache.AddDir("C:\\Songs\\A", [1u], [], []);
+        cache.AddDir("C:\\Songs\\B", [2u], [], []);
+        cache.EnsureAudioRelativeDirectoriesByHashes([1u, 2u]);
+
+        DirectoryResourceLookupCache.ReverseLookupMutationResult mutation = cache.ReplaceDirsWithResult(
+        [
+            new KeyValuePair<string, string>("C:\\Songs\\A", "C:\\Songs\\B"),
+            new KeyValuePair<string, string>("C:\\Songs\\B", "C:\\Songs\\C")
+        ]);
+
+        Assert.IsTrue(mutation.Changed);
+        Assert.AreEqual(2, mutation.ReplacedDirectoryCount);
+        CollectionAssert.AreEquivalent(new[] { "C:\\Songs\\B" }, cache.GetDirectoriesByAudioRelativeHash(1u).ToArray());
+        CollectionAssert.AreEquivalent(new[] { "C:\\Songs\\C" }, cache.GetDirectoriesByAudioRelativeHash(2u).ToArray());
+        Assert.IsNotNull(cache.GetEntryOrNull("C:\\Songs\\B"));
+        Assert.IsNotNull(cache.GetEntryOrNull("C:\\Songs\\C"));
+    }
+
+    [TestMethod]
+    public void ReplaceDirsWithResult_ExternalOverwriteInvalidatesCachedReverseLookup()
+    {
+        DirectoryResourceLookupCache cache = CreateNativeCanonicalCache();
+
+        DirectoryResourceLookupCache.ReverseLookupMutationResult mutation = cache.ReplaceDirsWithResult(
+        [
+            new KeyValuePair<string, string>("C:\\Songs\\A", "C:\\Songs\\B")
+        ]);
+
+        Assert.IsTrue(mutation.Changed);
+        Assert.IsFalse(mutation.MaintainedFullReverseLookup);
+        Assert.IsTrue(mutation.RequiresDeferredWarmup);
+        Assert.IsFalse(cache.IsFullReverseLookupBuilt);
+        CollectionAssert.AreEquivalent(new[] { "C:\\Songs\\B" }, cache.GetDirectoriesByAudioRelativeHash(1u).ToArray());
+        CollectionAssert.AreEquivalent(new[] { "C:\\Songs\\B" }, cache.GetDirectoriesByAudioRelativeHash(2u).ToArray());
+        CollectionAssert.AreEquivalent(Array.Empty<string>(), cache.GetDirectoriesByAudioRelativeHash(3u).ToArray());
+        Assert.IsNull(cache.GetEntryOrNull("C:\\Songs\\A"));
+        Assert.IsNotNull(cache.GetEntryOrNull("C:\\Songs\\B"));
+    }
+
+    [TestMethod]
     public void RelativeReverseLookup_AddRemoveReplace_DoesNotLeaveStaleDirectories()
     {
         string dirA = @"C:\Songs\A";
