@@ -257,8 +257,7 @@ public sealed class BmsLibraryStateApplierTests
                     {
                         path = oldBmsonPath,
                         hash = "cccccccccccccccccccccccccccccccc",
-                        wav_files_existing = 3,
-                        lr2_resource_unsupported_count = 4
+                        wav_files_existing = 3
                     }
                 };
                 using (var songDb = new LR2SongDBExtended(songDbPath))
@@ -347,7 +346,6 @@ public sealed class BmsLibraryStateApplierTests
                 Assert.AreEqual(1, verifySongDb.ExecuteScalar<int>("SELECT COUNT(1) FROM chart_digest_map WHERE md5 = ? AND sha256 = ?;", firstFile.hash, firstFile.sha256));
                 Assert.AreEqual(newDirectoryPath, verifySongDb.ExecuteScalar<string>("SELECT folder FROM bmson_song WHERE path = ?;", newBmsonPath));
                 Assert.AreEqual(3, verifySongDb.ExecuteScalar<int>("SELECT wav_files_existing FROM maintenance WHERE path = ?;", newBmsonPath));
-                Assert.AreEqual(4, verifySongDb.ExecuteScalar<int>("SELECT lr2_resource_unsupported_count FROM maintenance WHERE path = ?;", newBmsonPath));
                 LR2SongDB.folder movedFolder = verifySongDb.Table<LR2SongDB.folder>().Single(folder => folder.path == newDirectoryPath.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar);
                 Assert.AreEqual("NewFolder", movedFolder.title);
                 Assert.AreEqual("keep-subtitle", movedFolder.subtitle);

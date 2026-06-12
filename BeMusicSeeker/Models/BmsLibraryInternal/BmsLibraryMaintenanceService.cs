@@ -316,7 +316,6 @@ internal sealed class BmsLibraryMaintenanceService
         maintenanceInfo.lr2_resource_warning_flags = (int)resourceEvaluation.WarningFlags;
         maintenanceInfo.lr2_resource_max_raw_cp932_bytes = resourceEvaluation.MaxRawCp932Bytes;
         maintenanceInfo.lr2_resource_max_resolved_cp932_bytes = resourceEvaluation.MaxResolvedCp932Bytes;
-        maintenanceInfo.lr2_resource_unsupported_count = resourceEvaluation.UnsupportedCount;
     }
 
     internal static BMSFileMaintenanceInfo BuildBmsResourceHealthMaintenanceInfo(
@@ -412,7 +411,6 @@ internal sealed class BmsLibraryMaintenanceService
             targetInfo.lr2_resource_warning_flags = computedInfo.lr2_resource_warning_flags;
             targetInfo.lr2_resource_max_raw_cp932_bytes = computedInfo.lr2_resource_max_raw_cp932_bytes;
             targetInfo.lr2_resource_max_resolved_cp932_bytes = computedInfo.lr2_resource_max_resolved_cp932_bytes;
-            targetInfo.lr2_resource_unsupported_count = computedInfo.lr2_resource_unsupported_count;
             targetInfo.encoding = encoding;
             targetInfo.is_encoding_fixed = isEncodingFixed;
             targetInfo.is_files_warning_ignored = forceUpdate ? false : isFilesWarningIgnored;
@@ -1573,8 +1571,7 @@ internal sealed class BmsLibraryMaintenanceService
             && left.lr2_folder_scan_cp932_bytes == right.lr2_folder_scan_cp932_bytes
             && left.lr2_resource_warning_flags == right.lr2_resource_warning_flags
             && left.lr2_resource_max_raw_cp932_bytes == right.lr2_resource_max_raw_cp932_bytes
-            && left.lr2_resource_max_resolved_cp932_bytes == right.lr2_resource_max_resolved_cp932_bytes
-            && left.lr2_resource_unsupported_count == right.lr2_resource_unsupported_count;
+            && left.lr2_resource_max_resolved_cp932_bytes == right.lr2_resource_max_resolved_cp932_bytes;
     }
 
     private static BMSFileMaintenanceInfo CloneMaintenanceInfo(BMSFileMaintenanceInfo source)
@@ -1607,8 +1604,7 @@ internal sealed class BmsLibraryMaintenanceService
             lr2_folder_scan_cp932_bytes = source.lr2_folder_scan_cp932_bytes,
             lr2_resource_warning_flags = source.lr2_resource_warning_flags,
             lr2_resource_max_raw_cp932_bytes = source.lr2_resource_max_raw_cp932_bytes,
-            lr2_resource_max_resolved_cp932_bytes = source.lr2_resource_max_resolved_cp932_bytes,
-            lr2_resource_unsupported_count = source.lr2_resource_unsupported_count
+            lr2_resource_max_resolved_cp932_bytes = source.lr2_resource_max_resolved_cp932_bytes
         };
     }
 

@@ -726,11 +726,13 @@ public class BMSFile : LR2SongDB.song
         }
         var encoding = Encoding.GetEncoding(codepageName);
         bool detectEncodingFromByteOrderMarks = !IsShiftJisEncodingName(codepageName);
-        return CreateBMSFileFromLines(
+        BMSFile file = CreateBMSFileFromLines(
             ReadSnapshotLines(snapshot, encoding, detectEncodingFromByteOrderMarks),
             snapshot.Path,
             () => snapshot.Md5,
             () => snapshot.Sha256);
+        ApplyLr2Cp932ResourceDecodeWarning(file, snapshot);
+        return file;
     }
 
     internal static BMSFile CreateBMSFileFromSnapshot(
@@ -1849,6 +1851,235 @@ public class BMSFile : LR2SongDB.song
         string codepageName = NormalizeReloadEncodingName(detectionResult.EncodingName);
         string decodedText = detectionResult.DecodedText ?? DecodeBytes(snapshot.Bytes, Encoding.GetEncoding(codepageName));
         ApplyDecodedBmsMetadata(bmsFile, decodedText, codepageName);
+    }
+
+    private static void ApplyLr2Cp932ResourceDecodeWarning(
+        BMSFile bmsFile,
+        ChartFileSnapshot snapshot)
+    {
+        // LR2 interprets resource definition values as CP932 even when display
+        // metadata is corrected with another detected encoding.
+        if (bmsFile == null
+            || snapshot?.Bytes == null)
+        {
+            return;
+        }
+        if (!HasCp932DecodeUnsupportedResourceValue(snapshot.Bytes, out ChartResourceKind kind))
+        {
+            return;
+        }
+        bmsFile.UnsupportedResourceReferences ??= [];
+        if (bmsFile.UnsupportedResourceReferences.Any(reference => reference.Reason == ChartResourcePathNormalizationStatus.Cp932DecodeUnsupported))
+        {
+            return;
+        }
+        bmsFile.UnsupportedResourceReferences.Add(new UnsupportedChartResourceReference(
+            kind,
+            string.Empty,
+            ChartResourcePathNormalizationStatus.Cp932DecodeUnsupported));
+    }
+
+    private static bool HasCp932DecodeUnsupportedResourceValue(byte[] bytes, out ChartResourceKind kind)
+    {
+        kind = ChartResourceKind.Unknown;
+        if (bytes == null || bytes.Length == 0)
+        {
+            return false;
+        }
+
+        int lineStart = 0;
+        while (lineStart < bytes.Length)
+        {
+            int lineEnd = lineStart;
+            while (lineEnd < bytes.Length && bytes[lineEnd] != '\r' && bytes[lineEnd] != '\n')
+            {
+                lineEnd++;
+            }
+            if (TryGetBmsResourceDirectiveValue(bytes, lineStart, lineEnd, out ChartResourceKind resourceKind, out int valueStart, out int valueLength)
+                && !CanDecodeCp932(bytes, valueStart, valueLength))
+            {
+                kind = resourceKind;
+                return true;
+            }
+            if (lineEnd >= bytes.Length)
+            {
+                break;
+            }
+            lineStart = lineEnd + 1;
+            if (bytes[lineEnd] == '\r' && lineStart < bytes.Length && bytes[lineStart] == '\n')
+            {
+                lineStart++;
+            }
+        }
+        return false;
+    }
+
+    private static bool TryGetBmsResourceDirectiveValue(
+        byte[] bytes,
+        int lineStart,
+        int lineEnd,
+        out ChartResourceKind kind,
+        out int valueStart,
+        out int valueLength)
+    {
+        kind = ChartResourceKind.Unknown;
+        valueStart = -1;
+        valueLength = 0;
+        if (bytes == null || lineStart < 0 || lineStart >= lineEnd || lineEnd > bytes.Length)
+        {
+            return false;
+        }
+
+        int index = lineStart;
+        if (index == 0 && lineEnd - index >= 3 && bytes[index] == 0xEF && bytes[index + 1] == 0xBB && bytes[index + 2] == 0xBF)
+        {
+            index += 3;
+        }
+        while (index < lineEnd && IsAsciiWhitespace(bytes[index]))
+        {
+            index++;
+        }
+        if (index >= lineEnd || bytes[index] != '#')
+        {
+            return false;
+        }
+        index++;
+        int tokenStart = index;
+        while (index < lineEnd && IsAsciiAlphaNumericByte(bytes[index]))
+        {
+            index++;
+        }
+        int tokenLength = index - tokenStart;
+        if (!TryGetResourceDirectiveKind(bytes, tokenStart, tokenLength, out kind))
+        {
+            return false;
+        }
+        if (index >= lineEnd || !IsAsciiWhitespace(bytes[index]))
+        {
+            return false;
+        }
+        index++;
+        while (index < lineEnd && IsAsciiWhitespace(bytes[index]))
+        {
+            index++;
+        }
+
+        int valueEnd = lineEnd;
+        while (valueEnd > index && IsAsciiWhitespace(bytes[valueEnd - 1]))
+        {
+            valueEnd--;
+        }
+        valueStart = index;
+        valueLength = Math.Max(0, valueEnd - index);
+        return true;
+    }
+
+    private static bool TryGetResourceDirectiveKind(byte[] bytes, int start, int length, out ChartResourceKind kind)
+    {
+        kind = ChartResourceKind.Unknown;
+        if (bytes == null || start < 0 || start + length > bytes.Length)
+        {
+            return false;
+        }
+        if (length == 5 && StartsWithAsciiIgnoreCase(bytes, start, "WAV") && IsBase36Byte(bytes[start + 3]) && IsBase36Byte(bytes[start + 4]))
+        {
+            kind = ChartResourceKind.Audio;
+            return true;
+        }
+        if (length == 5 && StartsWithAsciiIgnoreCase(bytes, start, "BMP") && IsBase36Byte(bytes[start + 3]) && IsBase36Byte(bytes[start + 4]))
+        {
+            kind = ChartResourceKind.Unknown;
+            return true;
+        }
+        switch (length)
+        {
+            case 6:
+                if (EqualsAsciiIgnoreCase(bytes, start, "BANNER"))
+                {
+                    kind = ChartResourceKind.Image;
+                    return true;
+                }
+                break;
+            case 7:
+                if (EqualsAsciiIgnoreCase(bytes, start, "BACKBMP"))
+                {
+                    kind = ChartResourceKind.Image;
+                    return true;
+                }
+                break;
+            case 9:
+                if (EqualsAsciiIgnoreCase(bytes, start, "STAGEFILE"))
+                {
+                    kind = ChartResourceKind.Image;
+                    return true;
+                }
+                break;
+        }
+        return false;
+    }
+
+    private static bool CanDecodeCp932(byte[] bytes, int start, int length)
+    {
+        if (bytes == null || start < 0 || length < 0 || start + length > bytes.Length)
+        {
+            return true;
+        }
+        try
+        {
+            sjisEnc.GetString(bytes, start, length);
+            return true;
+        }
+        catch (DecoderFallbackException)
+        {
+            return false;
+        }
+    }
+
+    private static bool StartsWithAsciiIgnoreCase(byte[] value, int start, string prefix)
+    {
+        if (value == null || prefix == null || start < 0 || start + prefix.Length > value.Length)
+        {
+            return false;
+        }
+        for (int i = 0; i < prefix.Length; i++)
+        {
+            if (ToUpperAscii((char)value[start + i]) != prefix[i])
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static bool EqualsAsciiIgnoreCase(byte[] value, int start, string expected)
+    {
+        return start >= 0
+            && expected != null
+            && value != null
+            && start + expected.Length <= value.Length
+            && StartsWithAsciiIgnoreCase(value, start, expected);
+    }
+
+    private static bool IsAsciiAlphaNumericByte(byte value)
+    {
+        return (value >= '0' && value <= '9')
+            || (value >= 'A' && value <= 'Z')
+            || (value >= 'a' && value <= 'z');
+    }
+
+    private static bool IsBase36Byte(byte value)
+    {
+        return IsAsciiAlphaNumericByte(value);
+    }
+
+    private static bool IsAsciiWhitespace(byte value)
+    {
+        return value == ' '
+            || value == '\t'
+            || value == '\r'
+            || value == '\n'
+            || value == '\f'
+            || value == '\v';
     }
 
     internal static bool ShouldApplyDetectedMetadataEncoding(string encodingName)

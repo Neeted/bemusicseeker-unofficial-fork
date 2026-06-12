@@ -3,6 +3,7 @@ using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using System;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -147,7 +148,6 @@ public sealed class Lr2CompatibilityGoldenTests
 
         Lr2ResourceReferenceEvaluation evaluation = Lr2CompatibilityEvaluator.EvaluateResourceReferences(file.path, snapshot);
 
-        Assert.AreEqual(0, evaluation.UnsupportedCount);
         Assert.AreEqual(Lr2ResourceWarningFlags.None, evaluation.WarningFlags);
         Assert.AreEqual(StrictShiftJisByteCount(parentTraversalPath), evaluation.MaxRawCp932Bytes);
         Assert.AreEqual(ExpectedLr2ResourcePathByteCount(chartPath, parentTraversalPath), evaluation.MaxResolvedCp932Bytes);
@@ -170,7 +170,6 @@ public sealed class Lr2CompatibilityGoldenTests
 
         Lr2ResourceReferenceEvaluation evaluation = Lr2CompatibilityEvaluator.EvaluateResourceReferences(file.path, snapshot);
 
-        Assert.AreEqual(0, evaluation.UnsupportedCount);
         Assert.IsFalse(evaluation.WarningFlags.HasFlag(Lr2ResourceWarningFlags.RawPathTooLong));
         Assert.IsTrue(evaluation.WarningFlags.HasFlag(Lr2ResourceWarningFlags.ResolvedPathTooLong));
         Assert.AreEqual(ExpectedLr2ResourcePathByteCount(chartPath, parentTraversalPath), evaluation.MaxResolvedCp932Bytes);
@@ -186,10 +185,33 @@ public sealed class Lr2CompatibilityGoldenTests
 
         Lr2ResourceReferenceEvaluation evaluation = Lr2CompatibilityEvaluator.EvaluateResourceReferences(file.path, snapshot);
 
-        Assert.AreEqual(0, evaluation.UnsupportedCount);
         Assert.IsTrue(evaluation.WarningFlags.HasFlag(Lr2ResourceWarningFlags.RawPathEncodingUnsupported));
         Assert.IsTrue(evaluation.WarningFlags.HasFlag(Lr2ResourceWarningFlags.ResolvedPathEncodingUnsupported));
         Assert.IsNull(evaluation.MaxRawCp932Bytes);
+    }
+
+    [TestMethod]
+    public void EvaluatorFlagsCp932DecodeUnsupportedResourceAndContinuesLengthEvaluation()
+    {
+        string longRawPath = new string('a', 260) + ".wav";
+        byte[] bytes = Encoding.UTF8.GetBytes("#WAV01 sound😀.wav\r\n#WAV02 " + longRawPath + "\r\n");
+        var snapshot = new ChartFileSnapshot(
+            @"D:\BMS\Pack\Song\chart.bms",
+            bytes,
+            DateTime.UtcNow,
+            "0123456789abcdef0123456789abcdef",
+            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef");
+        BMSFile.BmsEncodingDetectionResult detectionResult = BMSFile.DetectEncodingOfBMSFileDetailed(snapshot);
+        BMSFile file = BMSFile.CreateBMSFileFromSnapshot(snapshot, detectionResult);
+        ChartResourceSnapshot resources = ChartResourceSnapshot.Create(CreateChart(file));
+
+        Lr2ResourceReferenceEvaluation evaluation = Lr2CompatibilityEvaluator.EvaluateResourceReferences(file.path, resources);
+
+        Assert.IsTrue(file.UnsupportedResourceReferences.Any(reference => reference.Reason == ChartResourcePathNormalizationStatus.Cp932DecodeUnsupported));
+        Assert.IsTrue(evaluation.WarningFlags.HasFlag(Lr2ResourceWarningFlags.RawPathEncodingUnsupported));
+        Assert.IsTrue(evaluation.WarningFlags.HasFlag(Lr2ResourceWarningFlags.ResolvedPathEncodingUnsupported));
+        Assert.IsTrue(evaluation.WarningFlags.HasFlag(Lr2ResourceWarningFlags.RawPathTooLong));
+        Assert.AreEqual(StrictShiftJisByteCount(longRawPath), evaluation.MaxRawCp932Bytes);
     }
 
     [TestMethod]

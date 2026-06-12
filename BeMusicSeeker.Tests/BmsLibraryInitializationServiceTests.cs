@@ -132,8 +132,7 @@ public sealed class BmsLibraryInitializationServiceTests
                         lr2_folder_scan_cp932_bytes = 33,
                         lr2_resource_warning_flags = 44,
                         lr2_resource_max_raw_cp932_bytes = 55,
-                        lr2_resource_max_resolved_cp932_bytes = 66,
-                        lr2_resource_unsupported_count = 77
+                        lr2_resource_max_resolved_cp932_bytes = 66
                     }, typeof(LR2SongDBExtended.maintenance));
                 }
 
@@ -170,7 +169,6 @@ public sealed class BmsLibraryInitializationServiceTests
                 Assert.AreEqual(44, info.lr2_resource_warning_flags);
                 Assert.AreEqual(55, info.lr2_resource_max_raw_cp932_bytes);
                 Assert.AreEqual(66, info.lr2_resource_max_resolved_cp932_bytes);
-                Assert.AreEqual(77, info.lr2_resource_unsupported_count);
             });
         }
         finally

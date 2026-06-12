@@ -48,7 +48,7 @@ internal sealed class BmsLibraryInitializationService
         "SELECT hash, title, subtitle, artist, subartist, genre, tag, path, type, folder, stagefile, banner, backbmp, parent, level, difficulty, maxbpm, minbpm, mode, judge, longnote, bga, random, date, favorite, txt, karinotes, adddate, exlevel FROM song;";
 
     private const string MaintenanceRawSelectSql =
-        "SELECT hash, path, encoding, is_encoding_fixed, wav_files_existing, wav_files_defined, bga_files_existing, bga_files_defined, movie_files_existing, movie_files_defined, is_stagefile_existing, is_stagefile_defined, is_banner_existing, is_banner_defined, is_backbmp_existing, is_backbmp_defined, is_files_warning_ignored, lr2_path_warning_flags, lr2_chart_path_cp932_bytes, lr2_folder_scan_cp932_bytes, lr2_resource_warning_flags, lr2_resource_max_raw_cp932_bytes, lr2_resource_max_resolved_cp932_bytes, lr2_resource_unsupported_count FROM maintenance;";
+        "SELECT hash, path, encoding, is_encoding_fixed, wav_files_existing, wav_files_defined, bga_files_existing, bga_files_defined, movie_files_existing, movie_files_defined, is_stagefile_existing, is_stagefile_defined, is_banner_existing, is_banner_defined, is_backbmp_existing, is_backbmp_defined, is_files_warning_ignored, lr2_path_warning_flags, lr2_chart_path_cp932_bytes, lr2_folder_scan_cp932_bytes, lr2_resource_warning_flags, lr2_resource_max_raw_cp932_bytes, lr2_resource_max_resolved_cp932_bytes FROM maintenance;";
 
     private const int DefaultInlineChartInfoBatchSize = 2048;
 
@@ -393,8 +393,7 @@ internal sealed class BmsLibraryInitializationService
             lr2_folder_scan_cp932_bytes = ParseNullableInt(GetRawValue(values, 19)),
             lr2_resource_warning_flags = ParseNullableInt(GetRawValue(values, 20)),
             lr2_resource_max_raw_cp932_bytes = ParseNullableInt(GetRawValue(values, 21)),
-            lr2_resource_max_resolved_cp932_bytes = ParseNullableInt(GetRawValue(values, 22)),
-            lr2_resource_unsupported_count = ParseNullableInt(GetRawValue(values, 23))
+            lr2_resource_max_resolved_cp932_bytes = ParseNullableInt(GetRawValue(values, 22))
         };
     }
 

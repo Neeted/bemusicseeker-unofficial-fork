@@ -512,7 +512,6 @@ public sealed class AppSchemaPreflightServiceTests
             CollectionAssert.Contains(columns, "lr2_resource_warning_flags");
             CollectionAssert.Contains(columns, "lr2_resource_max_raw_cp932_bytes");
             CollectionAssert.Contains(columns, "lr2_resource_max_resolved_cp932_bytes");
-            CollectionAssert.Contains(columns, "lr2_resource_unsupported_count");
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM maintenance WHERE path = 'D:\\BMS\\chart.bms';"));
             Assert.AreEqual(
                 1L,
@@ -545,8 +544,7 @@ public sealed class AppSchemaPreflightServiceTests
                 lr2_folder_scan_cp932_bytes = 18,
                 lr2_resource_warning_flags = 3,
                 lr2_resource_max_raw_cp932_bytes = 12,
-                lr2_resource_max_resolved_cp932_bytes = 40,
-                lr2_resource_unsupported_count = 2
+                lr2_resource_max_resolved_cp932_bytes = 40
             };
 
             new BmsLibraryDbGateway(tempDbPath).UpsertMaintenanceInfos([info]);
@@ -559,7 +557,6 @@ public sealed class AppSchemaPreflightServiceTests
             Assert.AreEqual(3, row.lr2_resource_warning_flags);
             Assert.AreEqual(12, row.lr2_resource_max_raw_cp932_bytes);
             Assert.AreEqual(40, row.lr2_resource_max_resolved_cp932_bytes);
-            Assert.AreEqual(2, row.lr2_resource_unsupported_count);
         }
         finally
         {
@@ -596,8 +593,7 @@ public sealed class AppSchemaPreflightServiceTests
                 is_stagefile_existing = true,
                 is_files_warning_ignored = true,
                 lr2_path_warning_flags = 4,
-                lr2_chart_path_cp932_bytes = 120,
-                lr2_resource_unsupported_count = 3
+                lr2_chart_path_cp932_bytes = 120
             }, countMutation: true);
 
             using (var db = new LR2SongDBExtended(tempDbPath))
@@ -619,7 +615,6 @@ public sealed class AppSchemaPreflightServiceTests
             Assert.IsTrue(row.is_files_warning_ignored);
             Assert.AreEqual(4, row.lr2_path_warning_flags);
             Assert.AreEqual(120, row.lr2_chart_path_cp932_bytes);
-            Assert.AreEqual(3, row.lr2_resource_unsupported_count);
         }
         finally
         {

@@ -18,7 +18,8 @@ internal enum ChartResourcePathNormalizationStatus
     Empty,
     InvalidPath,
     RootedOrAbsolute,
-    ParentTraversalUnsupported
+    ParentTraversalUnsupported,
+    Cp932DecodeUnsupported
 }
 
 internal readonly struct ChartResourcePathNormalizationResult(

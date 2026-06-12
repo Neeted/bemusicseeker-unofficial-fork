@@ -93,8 +93,6 @@ public sealed class LR2SongDBExtended : LR2SongDB
         public int? lr2_resource_max_raw_cp932_bytes { get; set; }
 
         public int? lr2_resource_max_resolved_cp932_bytes { get; set; }
-
-        public int? lr2_resource_unsupported_count { get; set; }
     }
 
     [Table("playlist")]

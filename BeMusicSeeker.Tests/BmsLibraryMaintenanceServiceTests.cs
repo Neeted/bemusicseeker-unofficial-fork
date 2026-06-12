@@ -114,7 +114,6 @@ public sealed class BmsLibraryMaintenanceServiceTests
             lr2_chart_path_cp932_bytes = null,
             lr2_folder_scan_cp932_bytes = 300,
             lr2_resource_warning_flags = (int)(Lr2ResourceWarningFlags.RawPathEncodingUnsupported | Lr2ResourceWarningFlags.ResolvedPathTooLong),
-            lr2_resource_unsupported_count = 0,
             lr2_resource_max_resolved_cp932_bytes = 300
         };
 
@@ -138,8 +137,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             hash = file.hash,
             lr2_path_warning_flags = (int)Lr2PathWarningFlags.None,
             lr2_chart_path_cp932_bytes = 20,
-            lr2_resource_warning_flags = (int)Lr2ResourceWarningFlags.None,
-            lr2_resource_unsupported_count = 0
+            lr2_resource_warning_flags = (int)Lr2ResourceWarningFlags.None
         };
 
         file.SetMaintenanceInfo(info, suppressPropertyChanged: true, origin: MaintenanceInfoOrigin.Calculated);
@@ -784,8 +782,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             hash = file.hash,
             lr2_path_warning_flags = (int)Lr2PathWarningFlags.PathTooLong,
             lr2_chart_path_cp932_bytes = 300,
-            lr2_resource_warning_flags = (int)Lr2ResourceWarningFlags.RawPathEncodingUnsupported,
-            lr2_resource_unsupported_count = 0
+            lr2_resource_warning_flags = (int)Lr2ResourceWarningFlags.RawPathEncodingUnsupported
         }, suppressPropertyChanged: true);
         ChartFile chart = ChartFileProjection.FromBmsFile(file);
 

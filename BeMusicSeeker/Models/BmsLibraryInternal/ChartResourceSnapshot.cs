@@ -405,7 +405,7 @@ internal sealed class ChartResourceSnapshot
         string path,
         ChartResourcePathNormalizationStatus status = ChartResourcePathNormalizationStatus.ParentTraversalUnsupported)
     {
-        if (status != ChartResourcePathNormalizationStatus.ParentTraversalUnsupported)
+        if (!ShouldPreserveUnsupportedReference(status))
         {
             return;
         }
@@ -419,11 +419,17 @@ internal sealed class ChartResourceSnapshot
     {
         foreach (UnsupportedChartResourceReference reference in references ?? [])
         {
-            if (reference.Reason == ChartResourcePathNormalizationStatus.ParentTraversalUnsupported)
+            if (ShouldPreserveUnsupportedReference(reference.Reason))
             {
                 unsupportedResourceReferences.Add(reference);
             }
         }
+    }
+
+    private static bool ShouldPreserveUnsupportedReference(ChartResourcePathNormalizationStatus status)
+    {
+        return status == ChartResourcePathNormalizationStatus.ParentTraversalUnsupported
+            || status == ChartResourcePathNormalizationStatus.Cp932DecodeUnsupported;
     }
 
     private static void AddResourceKey(ISet<string> relativePaths, ISet<uint> relativePathHashes, ISet<string> pathAwareRelativePaths, ISet<uint> pathAwareRelativePathHashes, ICollection<ResourceReference> references, ResourceReference reference)

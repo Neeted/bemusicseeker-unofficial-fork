@@ -404,8 +404,7 @@ public class BMSFileMaintenanceInfo : LR2SongDBExtended.maintenance
             lr2_folder_scan_cp932_bytes = lr2_folder_scan_cp932_bytes,
             lr2_resource_warning_flags = lr2_resource_warning_flags,
             lr2_resource_max_raw_cp932_bytes = lr2_resource_max_raw_cp932_bytes,
-            lr2_resource_max_resolved_cp932_bytes = lr2_resource_max_resolved_cp932_bytes,
-            lr2_resource_unsupported_count = lr2_resource_unsupported_count
+            lr2_resource_max_resolved_cp932_bytes = lr2_resource_max_resolved_cp932_bytes
         };
     }
 
@@ -422,7 +421,6 @@ public class BMSFileMaintenanceInfo : LR2SongDBExtended.maintenance
         lr2_resource_warning_flags = source.lr2_resource_warning_flags;
         lr2_resource_max_raw_cp932_bytes = source.lr2_resource_max_raw_cp932_bytes;
         lr2_resource_max_resolved_cp932_bytes = source.lr2_resource_max_resolved_cp932_bytes;
-        lr2_resource_unsupported_count = source.lr2_resource_unsupported_count;
     }
 
     internal bool HasSameLr2CompatibilityFacts(BMSFileMaintenanceInfo source)
@@ -437,7 +435,6 @@ public class BMSFileMaintenanceInfo : LR2SongDBExtended.maintenance
             && lr2_folder_scan_cp932_bytes == source.lr2_folder_scan_cp932_bytes
             && lr2_resource_warning_flags == source.lr2_resource_warning_flags
             && lr2_resource_max_raw_cp932_bytes == source.lr2_resource_max_raw_cp932_bytes
-            && lr2_resource_max_resolved_cp932_bytes == source.lr2_resource_max_resolved_cp932_bytes
-            && lr2_resource_unsupported_count == source.lr2_resource_unsupported_count;
+            && lr2_resource_max_resolved_cp932_bytes == source.lr2_resource_max_resolved_cp932_bytes;
     }
 }

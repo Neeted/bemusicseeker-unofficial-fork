@@ -668,7 +668,6 @@ file size / high precision mtime の独自 freshness 列は追加しない。
 - `lr2_resource_warning_flags INTEGER NULL`
 - `lr2_resource_max_raw_cp932_bytes INTEGER NULL`
 - `lr2_resource_max_resolved_cp932_bytes INTEGER NULL`
-- `lr2_resource_unsupported_count INTEGER NULL`
 
 schema migration:
 

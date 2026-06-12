@@ -1999,7 +1999,6 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
         EnsureColumn(songDb, tableName, columns, "lr2_resource_warning_flags", "INTEGER NULL");
         EnsureColumn(songDb, tableName, columns, "lr2_resource_max_raw_cp932_bytes", "INTEGER NULL");
         EnsureColumn(songDb, tableName, columns, "lr2_resource_max_resolved_cp932_bytes", "INTEGER NULL");
-        EnsureColumn(songDb, tableName, columns, "lr2_resource_unsupported_count", "INTEGER NULL");
         EnsureNocaseIndex(songDb, MaintenancePathNocaseIndexName, tableName, SQLiteTable<LR2SongDBExtended.maintenance>.GetColumnName(row => row.path));
     }
 
@@ -2248,8 +2247,7 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
             + "lr2_folder_scan_cp932_bytes INTEGER, "
             + "lr2_resource_warning_flags INTEGER, "
             + "lr2_resource_max_raw_cp932_bytes INTEGER, "
-            + "lr2_resource_max_resolved_cp932_bytes INTEGER, "
-            + "lr2_resource_unsupported_count INTEGER);");
+            + "lr2_resource_max_resolved_cp932_bytes INTEGER);");
         ClearTempLookupTable(songDb, TempFileScanMaintenanceUpsertTable);
     }
 
@@ -2324,8 +2322,7 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
             SQLiteTable<LR2SongDBExtended.maintenance>.GetColumnName(row => row.lr2_folder_scan_cp932_bytes),
             SQLiteTable<LR2SongDBExtended.maintenance>.GetColumnName(row => row.lr2_resource_warning_flags),
             SQLiteTable<LR2SongDBExtended.maintenance>.GetColumnName(row => row.lr2_resource_max_raw_cp932_bytes),
-            SQLiteTable<LR2SongDBExtended.maintenance>.GetColumnName(row => row.lr2_resource_max_resolved_cp932_bytes),
-            SQLiteTable<LR2SongDBExtended.maintenance>.GetColumnName(row => row.lr2_resource_unsupported_count)
+            SQLiteTable<LR2SongDBExtended.maintenance>.GetColumnName(row => row.lr2_resource_max_resolved_cp932_bytes)
         ];
     }
 
@@ -2354,7 +2351,6 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
         args.Add(row.lr2_resource_warning_flags);
         args.Add(row.lr2_resource_max_raw_cp932_bytes);
         args.Add(row.lr2_resource_max_resolved_cp932_bytes);
-        args.Add(row.lr2_resource_unsupported_count);
     }
 
     private static int? ToNullableInteger(bool? value)

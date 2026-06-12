@@ -71,7 +71,6 @@ internal static class Lr2CompatibilityWarningProjection
                 || maintenanceInfo.lr2_folder_scan_cp932_bytes.HasValue
                 || maintenanceInfo.lr2_resource_warning_flags.HasValue
                 || maintenanceInfo.lr2_resource_max_raw_cp932_bytes.HasValue
-                || maintenanceInfo.lr2_resource_max_resolved_cp932_bytes.HasValue
-                || maintenanceInfo.lr2_resource_unsupported_count.HasValue);
+                || maintenanceInfo.lr2_resource_max_resolved_cp932_bytes.HasValue);
     }
 }
