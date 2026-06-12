@@ -378,6 +378,37 @@ public class BMSFileMaintenanceInfo : LR2SongDBExtended.maintenance
         is_encoding_fixed = false;
     }
 
+    internal BMSFileMaintenanceInfo CreatePersistenceCopy(string nextPath = null, string nextHash = null)
+    {
+        return new BMSFileMaintenanceInfo
+        {
+            hash = nextHash ?? hash,
+            path = nextPath ?? path,
+            encoding = encoding,
+            is_encoding_fixed = is_encoding_fixed,
+            wav_files_existing = wav_files_existing,
+            wav_files_defined = wav_files_defined,
+            bga_files_existing = bga_files_existing,
+            bga_files_defined = bga_files_defined,
+            movie_files_existing = movie_files_existing,
+            movie_files_defined = movie_files_defined,
+            is_stagefile_existing = is_stagefile_existing,
+            is_stagefile_defined = is_stagefile_defined,
+            is_banner_existing = is_banner_existing,
+            is_banner_defined = is_banner_defined,
+            is_backbmp_existing = is_backbmp_existing,
+            is_backbmp_defined = is_backbmp_defined,
+            is_files_warning_ignored = is_files_warning_ignored,
+            lr2_path_warning_flags = lr2_path_warning_flags,
+            lr2_chart_path_cp932_bytes = lr2_chart_path_cp932_bytes,
+            lr2_folder_scan_cp932_bytes = lr2_folder_scan_cp932_bytes,
+            lr2_resource_warning_flags = lr2_resource_warning_flags,
+            lr2_resource_max_raw_cp932_bytes = lr2_resource_max_raw_cp932_bytes,
+            lr2_resource_max_resolved_cp932_bytes = lr2_resource_max_resolved_cp932_bytes,
+            lr2_resource_unsupported_count = lr2_resource_unsupported_count
+        };
+    }
+
     internal void ApplyLr2CompatibilityFactsFrom(BMSFileMaintenanceInfo source)
     {
         if (source == null)

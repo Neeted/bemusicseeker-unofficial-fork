@@ -20170,6 +20170,11 @@ completeFileEnumerationOnce,
         long publishNotificationMs = 0;
         long unregisterStorageRowsMs = 0;
         long stateApplyMs = 0;
+        long stateFolderDbMs = 0;
+        long statePathMemoryApplyMs = 0;
+        long stateBmsPathDbMs = 0;
+        long stateBmsonPathDbMs = 0;
+        long statePackageApplyMs = 0;
         long ownedCollectionApplyMs = 0;
         long resourceHealthDisposeMs = 0;
         long lr2NormalFolderSyncMs = 0;
@@ -20198,8 +20203,13 @@ completeFileEnumerationOnce,
                     unregisterStorageRowsMs = StopPerformanceStepStopwatch(unregisterStorageRowsStopwatch);
 
                     Stopwatch stateApplyStopwatch = StartPerformanceStepStopwatch(collectPerformanceLog);
-                    stateApplier.ApplyLibraryMutationDelta(delta, mutationResult.StorageMutation.RemoveRequests);
+                    BmsLibraryStateApplyResult stateApplyResult = stateApplier.ApplyLibraryMutationDelta(delta, mutationResult.StorageMutation.RemoveRequests);
                     stateApplyMs = StopPerformanceStepStopwatch(stateApplyStopwatch);
+                    stateFolderDbMs = stateApplyResult?.FolderDbMs ?? 0;
+                    statePathMemoryApplyMs = stateApplyResult?.PathMemoryApplyMs ?? 0;
+                    stateBmsPathDbMs = stateApplyResult?.BmsPathDbMs ?? 0;
+                    stateBmsonPathDbMs = stateApplyResult?.BmsonPathDbMs ?? 0;
+                    statePackageApplyMs = stateApplyResult?.PackageApplyMs ?? 0;
 
                     Stopwatch ownedCollectionApplyStopwatch = StartPerformanceStepStopwatch(collectPerformanceLog);
                     ApplyOwnedChartCollectionMutation(mutationResult.StorageMutation, storageRowsVersion);
@@ -20279,6 +20289,11 @@ completeFileEnumerationOnce,
                 + " publishNotificationMs=" + publishNotificationMs
                 + " unregisterStorageRowsMs=" + unregisterStorageRowsMs
                 + " stateApplyMs=" + stateApplyMs
+                + " stateFolderDbMs=" + stateFolderDbMs
+                + " statePathMemoryApplyMs=" + statePathMemoryApplyMs
+                + " stateBmsPathDbMs=" + stateBmsPathDbMs
+                + " stateBmsonPathDbMs=" + stateBmsonPathDbMs
+                + " statePackageApplyMs=" + statePackageApplyMs
                 + " ownedCollectionApplyMs=" + ownedCollectionApplyMs
                 + " resourceHealthDisposeMs=" + resourceHealthDisposeMs
                 + " lr2NormalFolderSyncMs=" + lr2NormalFolderSyncMs

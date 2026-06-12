@@ -90,6 +90,35 @@ internal sealed class LibraryFolderPathChange
     public string OldFolderPath { get; set; }
 }
 
+internal sealed class BmsSongPathReplacement
+{
+    public BMSFile Song { get; set; }
+
+    public string OldPath { get; set; }
+
+    public BMSFileMaintenanceInfo MaintenanceInfo { get; set; }
+}
+
+internal sealed class BmsonSongPathReplacement
+{
+    public LR2SongDBExtended.bmson_song Song { get; set; }
+
+    public string OldPath { get; set; }
+}
+
+internal sealed class BmsLibraryStateApplyResult
+{
+    public long FolderDbMs { get; set; }
+
+    public long PathMemoryApplyMs { get; set; }
+
+    public long BmsPathDbMs { get; set; }
+
+    public long BmsonPathDbMs { get; set; }
+
+    public long PackageApplyMs { get; set; }
+}
+
 internal sealed class LibraryInstallDestinationChange
 {
     public ChartFile Chart { get; set; }

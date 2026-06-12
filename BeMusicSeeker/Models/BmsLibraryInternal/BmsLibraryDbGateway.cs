@@ -673,6 +673,62 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
         });
     }
 
+    public BmsLibraryStateApplyResult ReplaceLibraryMutationRows(
+        IEnumerable<LibraryFolderPathChange> folderPathChanges,
+        IEnumerable<BmsSongPathReplacement> bmsPathReplacements,
+        IEnumerable<BmsonSongPathReplacement> bmsonPathReplacements)
+    {
+        List<LibraryFolderPathChange> folderRows = [.. (folderPathChanges ?? [])
+            .Where(change => !string.IsNullOrWhiteSpace(change?.OldFolderPath)
+                && !string.IsNullOrWhiteSpace(change.NewFolderPath))
+            .GroupBy(change => NormalizeFolderRecordPath(change.OldFolderPath), StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.Last())];
+        List<BmsSongPathReplacement> bmsRows = [.. (bmsPathReplacements ?? [])
+            .Where(replacement => replacement?.Song != null
+                && !string.IsNullOrWhiteSpace(replacement.Song.path)
+                && !string.IsNullOrWhiteSpace(replacement.OldPath))
+            .GroupBy(replacement => replacement.OldPath, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.Last())];
+        List<BmsonSongPathReplacement> bmsonRows = [.. (bmsonPathReplacements ?? [])
+            .Where(replacement => replacement?.Song != null
+                && !string.IsNullOrWhiteSpace(replacement.Song.path)
+                && !string.IsNullOrWhiteSpace(replacement.OldPath))
+            .GroupBy(replacement => replacement.OldPath, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.Last())];
+        var result = new BmsLibraryStateApplyResult();
+        if (folderRows.Count == 0 && bmsRows.Count == 0 && bmsonRows.Count == 0)
+        {
+            return result;
+        }
+        foreach (LibraryFolderPathChange row in folderRows)
+        {
+            if (!Directory.Exists(row.NewFolderPath))
+            {
+                throw new DirectoryNotFoundException(string.Format(Resources.Error_RenameDestDirNotFound, row.NewFolderPath));
+            }
+        }
+
+        ExecuteSongDbTransaction(delegate (LR2SongDBExtended songDb)
+        {
+            EnsureBmsonSchema(songDb);
+            Stopwatch stopwatch = Stopwatch.StartNew();
+            ReplaceFolderRecords(songDb, folderRows);
+            stopwatch.Stop();
+            result.FolderDbMs = stopwatch.ElapsedMilliseconds;
+
+            stopwatch.Restart();
+            ReplaceBmsSongPathsWithMaintenance(songDb, bmsRows);
+            stopwatch.Stop();
+            result.BmsPathDbMs = stopwatch.ElapsedMilliseconds;
+
+            stopwatch.Restart();
+            ReplaceBmsonSongPaths(songDb, bmsonRows);
+            stopwatch.Stop();
+            result.BmsonPathDbMs = stopwatch.ElapsedMilliseconds;
+        });
+        return result;
+    }
+
     private static Lr2SongUserColumns ReadSongUserColumns(LR2SongDBExtended songDb, string oldPath)
     {
         if (songDb == null || string.IsNullOrWhiteSpace(oldPath))
@@ -1628,6 +1684,108 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
         {
             return false;
         }
+    }
+
+    private static string NormalizeFolderRecordPath(string path)
+    {
+        return path?.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+    }
+
+    private static void ReplaceBmsSongPathsWithMaintenance(LR2SongDBExtended songDb, IReadOnlyCollection<BmsSongPathReplacement> rows)
+    {
+        if (songDb == null || rows == null || rows.Count == 0)
+        {
+            return;
+        }
+
+        var userColumnsByOldPath = new Dictionary<string, Lr2SongUserColumns>(StringComparer.OrdinalIgnoreCase);
+        foreach (BmsSongPathReplacement replacement in rows)
+        {
+            Lr2SongUserColumns userColumns = ReadSongUserColumns(songDb, replacement.OldPath);
+            if (userColumns != null)
+            {
+                userColumnsByOldPath[replacement.OldPath] = userColumns;
+            }
+            songDb.Delete<LR2SongDB.song>(replacement.OldPath);
+            songDb.Delete<LR2SongDBExtended.maintenance>(replacement.OldPath);
+        }
+
+        foreach (BmsSongPathReplacement replacement in rows)
+        {
+            if (replacement.MaintenanceInfo != null)
+            {
+                songDb.InsertOrReplace(replacement.MaintenanceInfo, typeof(LR2SongDBExtended.maintenance));
+            }
+        }
+
+        Lr2SongDbWriter.UpsertGeneratedSongs(songDb, [.. rows.Select(replacement => replacement.Song)]);
+        foreach (BmsSongPathReplacement replacement in rows)
+        {
+            if (userColumnsByOldPath.TryGetValue(replacement.OldPath, out Lr2SongUserColumns userColumns))
+            {
+                ApplySongUserColumns(songDb, replacement.Song.path, userColumns);
+            }
+        }
+    }
+
+    private static void ReplaceBmsonSongPaths(LR2SongDBExtended songDb, IReadOnlyCollection<BmsonSongPathReplacement> rows)
+    {
+        if (songDb == null || rows == null || rows.Count == 0)
+        {
+            return;
+        }
+
+        bool hasMaintenanceTable = TableExists(songDb, SQLiteTable<LR2SongDBExtended.maintenance>.GetTableName());
+        foreach (BmsonSongPathReplacement replacement in rows)
+        {
+            songDb.Delete<LR2SongDBExtended.bmson_song>(replacement.OldPath);
+            if (hasMaintenanceTable)
+            {
+                songDb.Delete<LR2SongDBExtended.maintenance>(replacement.OldPath);
+            }
+        }
+
+        foreach (LR2SongDBExtended.bmson_song song in rows.Select(replacement => replacement.Song))
+        {
+            songDb.InsertOrReplace(song, typeof(LR2SongDBExtended.bmson_song));
+            if (hasMaintenanceTable && song.MaintenanceInfo != null)
+            {
+                song.MaintenanceInfo.NormalizeForBmson(song.path, song.md5);
+                songDb.InsertOrReplace(song.MaintenanceInfo, typeof(LR2SongDBExtended.maintenance));
+            }
+        }
+    }
+
+    private static int ReplaceFolderRecords(LR2SongDBExtended songDb, IReadOnlyCollection<LibraryFolderPathChange> rows)
+    {
+        if (songDb == null || rows == null || rows.Count == 0)
+        {
+            return 0;
+        }
+
+        int replaced = 0;
+        Dictionary<string, LibraryFolderPathChange> changesByOldPath = rows.ToDictionary(
+            change => NormalizeFolderRecordPath(change.OldFolderPath),
+            change => change,
+            StringComparer.OrdinalIgnoreCase);
+        foreach (LR2SongDB.folder folder in songDb.Table<LR2SongDB.folder>().ToList())
+        {
+            if (folder == null || !changesByOldPath.TryGetValue(folder.path, out LibraryFolderPathChange change))
+            {
+                continue;
+            }
+            replaced++;
+            songDb.Delete<LR2SongDB.folder>(folder.path);
+            folder.title = Path.GetFileName(change.NewFolderPath);
+            folder.path = NormalizeFolderRecordPath(change.NewFolderPath);
+            if (folder.parent != Lr2SongFolderParentNormalizer.RootParentHash)
+            {
+                string directoryName = Path.GetDirectoryName(change.NewFolderPath.TrimEnd(Path.DirectorySeparatorChar));
+                folder.parent = Lr2SongFolderParentNormalizer.ComputeDirectoryHash(directoryName);
+            }
+            songDb.InsertOrReplace(folder, typeof(LR2SongDB.folder));
+        }
+        return replaced;
     }
 
     public List<LR2IRData> LoadIrData(int lr2Id)
