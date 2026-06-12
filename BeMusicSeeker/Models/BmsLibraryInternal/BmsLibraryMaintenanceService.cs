@@ -310,12 +310,7 @@ internal sealed class BmsLibraryMaintenanceService
         }
         Lr2ChartPathEvaluation pathEvaluation = Lr2CompatibilityEvaluator.EvaluateChartPath(chart.Path);
         Lr2ResourceReferenceEvaluation resourceEvaluation = Lr2CompatibilityEvaluator.EvaluateResourceReferences(chart.Path, resources);
-        maintenanceInfo.lr2_path_warning_flags = (int)pathEvaluation.WarningFlags;
-        maintenanceInfo.lr2_chart_path_cp932_bytes = pathEvaluation.ChartPathCp932Bytes;
-        maintenanceInfo.lr2_folder_scan_cp932_bytes = pathEvaluation.FolderScanPathCp932Bytes;
-        maintenanceInfo.lr2_resource_warning_flags = (int)resourceEvaluation.WarningFlags;
-        maintenanceInfo.lr2_resource_max_raw_cp932_bytes = resourceEvaluation.MaxRawCp932Bytes;
-        maintenanceInfo.lr2_resource_max_resolved_cp932_bytes = resourceEvaluation.MaxResolvedCp932Bytes;
+        maintenanceInfo.ApplyLr2CompatibilityEvaluation(pathEvaluation, resourceEvaluation);
     }
 
     internal static BMSFileMaintenanceInfo BuildBmsResourceHealthMaintenanceInfo(
@@ -405,12 +400,9 @@ internal sealed class BmsLibraryMaintenanceService
             targetInfo.is_banner_existing = computedInfo.is_banner_existing;
             targetInfo.is_backbmp_defined = computedInfo.is_backbmp_defined;
             targetInfo.is_backbmp_existing = computedInfo.is_backbmp_existing;
-            targetInfo.lr2_path_warning_flags = computedInfo.lr2_path_warning_flags;
-            targetInfo.lr2_chart_path_cp932_bytes = computedInfo.lr2_chart_path_cp932_bytes;
-            targetInfo.lr2_folder_scan_cp932_bytes = computedInfo.lr2_folder_scan_cp932_bytes;
-            targetInfo.lr2_resource_warning_flags = computedInfo.lr2_resource_warning_flags;
-            targetInfo.lr2_resource_max_raw_cp932_bytes = computedInfo.lr2_resource_max_raw_cp932_bytes;
-            targetInfo.lr2_resource_max_resolved_cp932_bytes = computedInfo.lr2_resource_max_resolved_cp932_bytes;
+            targetInfo.lr2_warning_flags = computedInfo.lr2_warning_flags;
+            targetInfo.lr2_resource_max_relative_cp932_bytes = computedInfo.lr2_resource_max_relative_cp932_bytes;
+            targetInfo.lr2_resource_has_parent_traversal = computedInfo.lr2_resource_has_parent_traversal;
             targetInfo.encoding = encoding;
             targetInfo.is_encoding_fixed = isEncodingFixed;
             targetInfo.is_files_warning_ignored = forceUpdate ? false : isFilesWarningIgnored;
@@ -1566,12 +1558,9 @@ internal sealed class BmsLibraryMaintenanceService
             && left.is_backbmp_existing == right.is_backbmp_existing
             && left.is_backbmp_defined == right.is_backbmp_defined
             && left.is_files_warning_ignored == right.is_files_warning_ignored
-            && left.lr2_path_warning_flags == right.lr2_path_warning_flags
-            && left.lr2_chart_path_cp932_bytes == right.lr2_chart_path_cp932_bytes
-            && left.lr2_folder_scan_cp932_bytes == right.lr2_folder_scan_cp932_bytes
-            && left.lr2_resource_warning_flags == right.lr2_resource_warning_flags
-            && left.lr2_resource_max_raw_cp932_bytes == right.lr2_resource_max_raw_cp932_bytes
-            && left.lr2_resource_max_resolved_cp932_bytes == right.lr2_resource_max_resolved_cp932_bytes;
+            && left.lr2_warning_flags == right.lr2_warning_flags
+            && left.lr2_resource_max_relative_cp932_bytes == right.lr2_resource_max_relative_cp932_bytes
+            && left.lr2_resource_has_parent_traversal == right.lr2_resource_has_parent_traversal;
     }
 
     private static BMSFileMaintenanceInfo CloneMaintenanceInfo(BMSFileMaintenanceInfo source)
@@ -1599,12 +1588,9 @@ internal sealed class BmsLibraryMaintenanceService
             is_backbmp_existing = source.is_backbmp_existing,
             is_backbmp_defined = source.is_backbmp_defined,
             is_files_warning_ignored = source.is_files_warning_ignored,
-            lr2_path_warning_flags = source.lr2_path_warning_flags,
-            lr2_chart_path_cp932_bytes = source.lr2_chart_path_cp932_bytes,
-            lr2_folder_scan_cp932_bytes = source.lr2_folder_scan_cp932_bytes,
-            lr2_resource_warning_flags = source.lr2_resource_warning_flags,
-            lr2_resource_max_raw_cp932_bytes = source.lr2_resource_max_raw_cp932_bytes,
-            lr2_resource_max_resolved_cp932_bytes = source.lr2_resource_max_resolved_cp932_bytes
+            lr2_warning_flags = source.lr2_warning_flags,
+            lr2_resource_max_relative_cp932_bytes = source.lr2_resource_max_relative_cp932_bytes,
+            lr2_resource_has_parent_traversal = source.lr2_resource_has_parent_traversal
         };
     }
 

@@ -539,8 +539,7 @@ LR2 compatibility warning は BMS のみを対象にする。bmson は対象外�
 評価対象:
 
 - BMS chart file path
-- BMS chart directory の `folder\*.*` scan path
-- BMS resource reference の resolved path
+- BMS resource reference の resource name / LR2 が参照する resource full path
 - BMS root folder / ancestor folder / playlist output `.lr2folder` / discovered `.lr2folder`
 - shared `maintenance` table の LR2 columns は bmson row では `NULL` / ignored とし、
   projection 側でも chart kind gate を置く。
@@ -553,7 +552,7 @@ LR2 compatibility warning は BMS のみを対象にする。bmson は対象外�
   - warning digest / tooltip / `LR2互換性警告` membership は `warning-model.md` の structured warning
     projection に従って組み立てる。
   - membership は `song.parent IS NULL` ではなく、`ChartWarningCategory.Lr2Compatibility` の structured warning
-    を持つ chart とする。`Lr2PathEncodingUnsupported` だけでなく、resource raw/resolved path や length の
+    を持つ chart とする。`Lr2PathEncodingUnsupported` だけでなく、resource name の CP932 非対応や LR2 resource path length の
     LR2 互換性 warning も同じ画面で扱う。
   - 将来 ignore UI / ignore list を追加する場合は、別計画で永続 state を追加する。
 
@@ -575,7 +574,7 @@ LR2 起動導線の block は行わない。
   workflow 内で削除または上書きできるものは修復してから完了する。
 - 保存済み `Completed` の判定では、`song` / `folder` / `maintenance` row を再走査して未移行状態を推測しない。
   `HasIncompleteLr2CompatibilityMaintenanceFacts` のような nullable fact の穴埋め検査は LR2 song.db 同期の status 判定に使わない。
-  CP932 byte count 系の `NULL` は、CP932 非対応または測定対象なしを表す正当な fact であり、未評価の marker ではない。
+  LR2 compatibility fact の `NULL` は、CP932 非対応、resource reference なし、または測定対象なしを表す正当な値であり、未評価の marker ではない。
 - startup-scan diagnostic は、実装確認や同一 run 内での修復候補のログとして扱う。保存済み `Completed` を覆す
   追加の移行判定や、次回起動時の full sync 要否判定には使わない。
 - `Needed` / `Running` / `Incomplete` / `Failed` / `Cancelled` は LR2 song.db 同期 status に warning を出す。
@@ -633,12 +632,10 @@ LR2 起動導線の block は行わない。
 統合後の役割:
 
 - `EvaluateChartPath(path)`
-  - CP932 encode 可否、chart path byte length、`folder\*.*` scan path byte length、
-    `folder` CRC、`parent` CRC を返す。
-- `EvaluateFolderPath(path)`
-  - root / ancestor / `.lr2folder` path の CP932 encode 可否と scan path byte length を返す。
+  - CP932 encode 可否、chart path byte length、`folder` CRC、`parent` CRC を返す。
 - `EvaluateResourceReferences(chartPath, rawResourceReferenceSnapshot)`
-  - resource reference の CP932 encode 可否、resolved path byte length、正規化不能件数を返す。
+  - resource name の CP932 encode 可否、LR2 が参照する resource full path の byte length、
+    parent traversal の有無、resource relative path の最大 byte length を返す。
 - `ApplyToSong(BMSFile, evaluation)`
   - `song.folder` / `song.parent` を設定し、`ChartWarningKind` を更新する。
 
@@ -648,7 +645,6 @@ LR2 起動導線の block は行わない。
 - raw directive kind
 - raw path
 - normalized path with extension
-- resolved absolute path
 - normalization status
 - parent traversal / unsupported state
 
@@ -662,21 +658,27 @@ file size / high precision mtime の独自 freshness 列は追加しない。
 
 推奨列:
 
-- `lr2_path_warning_flags INTEGER NULL`
-- `lr2_chart_path_cp932_bytes INTEGER NULL`
-- `lr2_folder_scan_cp932_bytes INTEGER NULL`
-- `lr2_resource_warning_flags INTEGER NULL`
-- `lr2_resource_max_raw_cp932_bytes INTEGER NULL`
-- `lr2_resource_max_resolved_cp932_bytes INTEGER NULL`
+- `lr2_warning_flags INTEGER NULL`
+  - bit 0: `Lr2PathEncodingUnsupported`
+  - bit 1: `Lr2PathTooLong`
+  - bit 2: `Lr2ResourcePathUnsupported`
+  - bit 3: `Lr2ResourcePathTooLong`
+- `lr2_resource_max_relative_cp932_bytes INTEGER NULL`
+- `lr2_resource_has_parent_traversal INTEGER NULL` (`BOOL` surface)
 
 schema migration:
 
-- 既存 table を drop / rebuild しない。
-- `PRAGMA table_info(maintenance)` で既存列を確認し、足りない列を
+- LR2 song.db 生成は未リリース機能なので、旧 LR2 compatibility 列との互換変換は持たない。
+- `PRAGMA table_info(maintenance)` で current 列を確認し、足りない列を
   `ALTER TABLE maintenance ADD COLUMN ...` で追加する。
-- app schema version / preflight に組み込む。
+- app schema version / preflight に current 列を組み込む。
 - maintenance hydrate / write は `EnsureMaintenanceSchemaVNext` 相当の schema ensure より前に実行しない。
-- `BMSFileMaintenanceInfo`、`MaintenanceRowsEquivalent`、`CloneMaintenanceInfo` に新列を追加する。
+- `BMSFileMaintenanceInfo`、`MaintenanceRowsEquivalent`、`CloneMaintenanceInfo` に current 列を追加する。
+
+`lr2_resource_max_relative_cp932_bytes` は親ディレクトリ参照が無い譜面の relocation 最適化用 fact とする。
+譜面の配置先が変わった場合、`lr2_resource_has_parent_traversal == false` なら譜面ディレクトリの CP932 byte length と
+この最大値だけで `Lr2ResourcePathTooLong` を再評価する。`lr2_resource_has_parent_traversal == true` の場合だけ
+譜面を再パースし、移動後の相対参照で warning flags と fact を再生成する。
 
 保存するものは警告テキストや全 resource reference の完全リストではなく、警告 kind を判定する
 最小 fact に限定する。表示文言、digest、tooltip は `warning-model.md` の structured warning
@@ -794,7 +796,7 @@ text group:
 
 raw resource reference:
 
-- BMS parse pass で raw directive と resolved path を保持する。
+- BMS parse pass で raw directive、normalized path with extension、parent traversal / unsupported state を保持する。
 - `ChartResourceSnapshot` の lookup key とは別投影にする。
 
 性能条件:
@@ -812,7 +814,7 @@ raw resource reference:
 - chart directory 直下の `.txt` のみ `song.txt=1`。
 - BMS file mtime が `song.date` に入り、mtime mismatch が update target になる。
 - `.lr2folder` file mtime と directory mtime が folder row / startup-scan diagnostic に反映される。
-- raw resource path の CP932 length が拡張子付きで評価される。
+- resource relative path の CP932 length が拡張子付きで評価される。
 
 ### Phase 4: LR2 compatibility evaluator と maintenance projection を追加する
 
@@ -837,8 +839,8 @@ scope:
 
 - CP932 非対応 BMS path が warning になる。
 - BMS path byte length boundary が warning になる。
-- resource raw path / resolved path の CP932 非対応と byte length boundary が warning になる。
-- resource path の親ディレクトリ参照は LR2 非対応理由にせず、OpenLR2 が受け取る相対 path として byte length / CP932 判定に含める。
+- resource name の CP932 非対応と、LR2 が参照する resource full path の byte length boundary が warning になる。
+- resource path の親ディレクトリ参照は LR2 非対応理由にせず、parent traversal fact として保持し、移動時だけ再パース対象にする。
 - bmson は warning 対象にならない。
 - maintenance の最小 fact から `warning-model.md` 準拠の digest / tooltip が組み立てられる。
 
@@ -1130,8 +1132,8 @@ parse directive:
 - `song_rows` は reader が `ChartFileSnapshot` を bounded queue に流し、parallel workers が
   BMS row build / `chart_info` memory resolver apply / LR2 compatibility facts を同じ parse result から作り、
   single writer が chunk transaction と durable cursor 更新を行う。
-  LR2 compatibility facts は BOM 自動判定なしの CP932 decode 由来 parsed BMS row の raw resource references から直接評価し、
-  `ChartFileProjection` / `ChartResourceSnapshot` への再投影を hot path に置かない。
+  LR2 compatibility facts は BOM 自動判定なしの CP932 decode 由来 parsed BMS row の raw resource references /
+  unsupported resource references から直接評価し、`ChartFileProjection` / `ChartResourceSnapshot` への再投影を hot path に置かない。
   commit 成功後だけ cursor を進め、cancel / failure は chunk 境界で再開できるようにする。
 - `chart_info` は run 開始時に current row index / session index として一括準備する。
   `song_rows` chunk ごとに `chart_info` table を SELECT しない。
@@ -1226,8 +1228,13 @@ parse directive:
 - LR2 song.db 同期は未リリース機能であり、旧 LR2 DB / 未移行 maintenance を特別扱いする互換移行モードは持たない。
   生成済みかどうかは durable `Completed` + signature で判断し、row nullable column の NULL や旧 schema 由来の
   欠落から追加の未移行状態を推測しない。
-- `maintenance` の LR2 byte count fact は nullable である。CP932 非対応、resource reference なし、測定対象なしを
-  `NULL` で表すため、`NULL` を未評価 marker として扱う検査を file diff / status 判定へ入れない。
+- `maintenance` の LR2 fact は nullable である。CP932 非対応、resource reference なし、測定対象なしを
+  `NULL` で表す場合があるため、`NULL` を未評価 marker として扱う検査を file diff / status 判定へ入れない。
+- `lr2_warning_flags` を warning の正本にし、byte count は relocation 時の軽量再評価に必要な
+  `lr2_resource_max_relative_cp932_bytes` だけ保存する。chart full path や resolved resource full path の byte count は
+  保存せず、path 変更時にその場で再評価する。
+- `lr2_resource_has_parent_traversal` が false の譜面は再パースせず、譜面ディレクトリ byte length と
+  `lr2_resource_max_relative_cp932_bytes` で `Lr2ResourcePathTooLong` を更新する。true の譜面だけ再パースする。
 - Everything と managed fallback の結果は意味的に揃える。片方だけ text group や metadata
   を返す状態にしない。
 - text group だけでなく、directory mtime、`folderinfo.txt`、`.lr2folder` の existence /
@@ -1304,7 +1311,9 @@ parse directive:
   - optional image (`stagefile` / `banner` / `backbmp`) は既存 snapshot field から扱い、`#WAV` / `#BMP` raw reference collection へは混ぜない。
 - Phase 4: compatibility evaluator と maintenance projection は実装済み。
   - まず `Lr2CompatibilityEvaluator` を fact-only service として導入し、schema / warning projection には接続しない。
-  - path CRC は `Lr2SongFolderParentNormalizer` の既存 contract を再利用し、CP932 byte length と resource raw/resolved path fact だけを追加する。
+  - path CRC は `Lr2SongFolderParentNormalizer` の既存 contract を再利用し、warning は単一の
+    `lr2_warning_flags` に集約する。
+  - resource fact は `lr2_resource_max_relative_cp932_bytes` と `lr2_resource_has_parent_traversal` に限定する。
   - legacy path length boundary は NUL 終端を除いた CP932 259 bytes を上限として扱う。
   - warning projection は `ResourceHealthWarningProjection` へ混ぜず、maintenance facts が評価済みの BMS row だけ
     `BMSFile.Warnings` の `Lr2Compatibility` category として差し替える。未評価 row は placeholder attach だけで既存 warning を消さない。
@@ -1470,8 +1479,8 @@ parse directive:
   mtime / owner identity だけを軽量 target として持ち、current owned `BMSFile` の persistence 用 copy を
   全件 materialize しない。少数の bounded reader が `ChartFileSnapshot` を bounded queue に流し、parallel workers が
   snapshot から BMS row、LR2 generated columns、LR2 compatibility facts を一度で作る。LR2 compatibility facts は
-  BOM 自動判定なしの CP932 decode 由来 parsed BMS row の raw resource references から直接評価し、BMS row を `ChartFile` / `ChartResourceSnapshot`
-  へ再投影しない。parse/read 失敗時は既存 generated row を破壊しないための
+  BOM 自動判定なしの CP932 decode 由来 parsed BMS row の raw resource references / unsupported resource references から直接評価し、
+  resource health 用 lookup key へ再正規化しない。parse/read 失敗時は既存 generated row を破壊しないための
   non-destructive skip / preserve に留め、`chart_info` numeric、mtime、`folder.date`、prune 成功の
   代替正本にはしない。skip / preserve 件数を log / status に残す。
   current `chart_info` parser version の `chart_info` row は run 開始時に一括 resolver として準備し、
@@ -1816,7 +1825,8 @@ Everything / filesystem 広域再スキャンを始める入口ではない。su
       LR2 song.db sync では worker 飢餓を避けるため最大 2 本まで使う。read queue capacity を超えて全件 bytes を保持しない。
    - 完了: workers が parse / chart_info apply / LR2 compatibility facts を同じ parse result から作り、
      `BMSFile` と `BMSFileMaintenanceInfo` を含む「DB に書ける completed item」を出力する。
-   - 完了: LR2 compatibility facts は BOM 自動判定なしの CP932 decode 由来 parsed BMS row の raw resource references から直接評価し、
+   - 完了: LR2 compatibility facts は BOM 自動判定なしの CP932 decode 由来 parsed BMS row の raw resource references /
+     unsupported resource references から直接評価し、`lr2_warning_flags` と軽量 resource fact を作る。
      `ChartFileProjection` / `ChartResourceSnapshot` を hot path から外す。
    - 完了: writer は順序制御、bulk song write、bulk compatibility facts write、durable cursor update に専念する。
    - 完了: LR2 song.db sync 用 bulk song writer は既存 row の generated columns が unchanged の場合、

@@ -655,15 +655,23 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
         {
             throw new ArgumentNullException(nameof(oldPath));
         }
+        BMSFileMaintenanceInfo maintenanceInfo = bmsFile.HasValidMaintenanceInfoSnapshot
+            ? bmsFile.TryGetMaintenanceInfoWithoutCreating()
+            : null;
+        Lr2CompatibilityEvaluator.RefreshRelocatedMaintenanceFacts(
+            maintenanceInfo,
+            bmsFile.path,
+            () => ChartFileContentReader.ReadSnapshot(bmsFile.path));
+        if (maintenanceInfo != null)
+        {
+            bmsFile.SetMaintenanceInfo(maintenanceInfo, suppressPropertyChanged: true, origin: MaintenanceInfoOrigin.Calculated);
+        }
         ExecuteSongDbTransaction(delegate (LR2SongDBExtended songDb)
         {
             EnsureBmsonSchema(songDb);
             Lr2SongUserColumns userColumns = ReadSongUserColumns(songDb, oldPath);
             songDb.Delete<LR2SongDB.song>(oldPath);
             songDb.Delete<LR2SongDBExtended.maintenance>(oldPath);
-            BMSFileMaintenanceInfo maintenanceInfo = bmsFile.HasValidMaintenanceInfoSnapshot
-                ? bmsFile.TryGetMaintenanceInfoWithoutCreating()
-                : null;
             if (maintenanceInfo != null)
             {
                 songDb.InsertOrReplace(maintenanceInfo, typeof(LR2SongDBExtended.maintenance));
@@ -1993,12 +2001,9 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
         string tableName = SQLiteTable<LR2SongDBExtended.maintenance>.GetTableName();
         songDb.CreateTable<LR2SongDBExtended.maintenance>();
         HashSet<string> columns = GetTableColumns(songDb, null, tableName);
-        EnsureColumn(songDb, tableName, columns, "lr2_path_warning_flags", "INTEGER NULL");
-        EnsureColumn(songDb, tableName, columns, "lr2_chart_path_cp932_bytes", "INTEGER NULL");
-        EnsureColumn(songDb, tableName, columns, "lr2_folder_scan_cp932_bytes", "INTEGER NULL");
-        EnsureColumn(songDb, tableName, columns, "lr2_resource_warning_flags", "INTEGER NULL");
-        EnsureColumn(songDb, tableName, columns, "lr2_resource_max_raw_cp932_bytes", "INTEGER NULL");
-        EnsureColumn(songDb, tableName, columns, "lr2_resource_max_resolved_cp932_bytes", "INTEGER NULL");
+        EnsureColumn(songDb, tableName, columns, "lr2_warning_flags", "INTEGER NULL");
+        EnsureColumn(songDb, tableName, columns, "lr2_resource_max_relative_cp932_bytes", "INTEGER NULL");
+        EnsureColumn(songDb, tableName, columns, "lr2_resource_has_parent_traversal", "INTEGER NULL");
         EnsureNocaseIndex(songDb, MaintenancePathNocaseIndexName, tableName, SQLiteTable<LR2SongDBExtended.maintenance>.GetColumnName(row => row.path));
     }
 
@@ -2242,12 +2247,9 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
             + "is_backbmp_existing INTEGER, "
             + "is_backbmp_defined INTEGER, "
             + "is_files_warning_ignored INTEGER, "
-            + "lr2_path_warning_flags INTEGER, "
-            + "lr2_chart_path_cp932_bytes INTEGER, "
-            + "lr2_folder_scan_cp932_bytes INTEGER, "
-            + "lr2_resource_warning_flags INTEGER, "
-            + "lr2_resource_max_raw_cp932_bytes INTEGER, "
-            + "lr2_resource_max_resolved_cp932_bytes INTEGER);");
+            + "lr2_warning_flags INTEGER, "
+            + "lr2_resource_max_relative_cp932_bytes INTEGER, "
+            + "lr2_resource_has_parent_traversal INTEGER);");
         ClearTempLookupTable(songDb, TempFileScanMaintenanceUpsertTable);
     }
 
@@ -2317,12 +2319,9 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
             SQLiteTable<LR2SongDBExtended.maintenance>.GetColumnName(row => row.is_backbmp_existing),
             SQLiteTable<LR2SongDBExtended.maintenance>.GetColumnName(row => row.is_backbmp_defined),
             SQLiteTable<LR2SongDBExtended.maintenance>.GetColumnName(row => row.is_files_warning_ignored),
-            SQLiteTable<LR2SongDBExtended.maintenance>.GetColumnName(row => row.lr2_path_warning_flags),
-            SQLiteTable<LR2SongDBExtended.maintenance>.GetColumnName(row => row.lr2_chart_path_cp932_bytes),
-            SQLiteTable<LR2SongDBExtended.maintenance>.GetColumnName(row => row.lr2_folder_scan_cp932_bytes),
-            SQLiteTable<LR2SongDBExtended.maintenance>.GetColumnName(row => row.lr2_resource_warning_flags),
-            SQLiteTable<LR2SongDBExtended.maintenance>.GetColumnName(row => row.lr2_resource_max_raw_cp932_bytes),
-            SQLiteTable<LR2SongDBExtended.maintenance>.GetColumnName(row => row.lr2_resource_max_resolved_cp932_bytes)
+            SQLiteTable<LR2SongDBExtended.maintenance>.GetColumnName(row => row.lr2_warning_flags),
+            SQLiteTable<LR2SongDBExtended.maintenance>.GetColumnName(row => row.lr2_resource_max_relative_cp932_bytes),
+            SQLiteTable<LR2SongDBExtended.maintenance>.GetColumnName(row => row.lr2_resource_has_parent_traversal)
         ];
     }
 
@@ -2345,12 +2344,9 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
         args.Add(ToNullableInteger(row.is_backbmp_existing));
         args.Add(ToNullableInteger(row.is_backbmp_defined));
         args.Add(row.is_files_warning_ignored ? 1 : 0);
-        args.Add(row.lr2_path_warning_flags);
-        args.Add(row.lr2_chart_path_cp932_bytes);
-        args.Add(row.lr2_folder_scan_cp932_bytes);
-        args.Add(row.lr2_resource_warning_flags);
-        args.Add(row.lr2_resource_max_raw_cp932_bytes);
-        args.Add(row.lr2_resource_max_resolved_cp932_bytes);
+        args.Add(row.lr2_warning_flags);
+        args.Add(row.lr2_resource_max_relative_cp932_bytes);
+        args.Add(ToNullableInteger(row.lr2_resource_has_parent_traversal));
     }
 
     private static int? ToNullableInteger(bool? value)

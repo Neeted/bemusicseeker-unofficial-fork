@@ -127,12 +127,9 @@ public sealed class BmsLibraryInitializationServiceTests
                         is_backbmp_existing = true,
                         is_backbmp_defined = false,
                         is_files_warning_ignored = true,
-                        lr2_path_warning_flags = 11,
-                        lr2_chart_path_cp932_bytes = 22,
-                        lr2_folder_scan_cp932_bytes = 33,
-                        lr2_resource_warning_flags = 44,
-                        lr2_resource_max_raw_cp932_bytes = 55,
-                        lr2_resource_max_resolved_cp932_bytes = 66
+                        lr2_warning_flags = 11,
+                        lr2_resource_max_relative_cp932_bytes = 55,
+                        lr2_resource_has_parent_traversal = true
                     }, typeof(LR2SongDBExtended.maintenance));
                 }
 
@@ -163,12 +160,9 @@ public sealed class BmsLibraryInitializationServiceTests
                 Assert.AreEqual(true, info.is_backbmp_existing);
                 Assert.AreEqual(false, info.is_backbmp_defined);
                 Assert.IsTrue(info.is_files_warning_ignored);
-                Assert.AreEqual(11, info.lr2_path_warning_flags);
-                Assert.AreEqual(22, info.lr2_chart_path_cp932_bytes);
-                Assert.AreEqual(33, info.lr2_folder_scan_cp932_bytes);
-                Assert.AreEqual(44, info.lr2_resource_warning_flags);
-                Assert.AreEqual(55, info.lr2_resource_max_raw_cp932_bytes);
-                Assert.AreEqual(66, info.lr2_resource_max_resolved_cp932_bytes);
+                Assert.AreEqual(11, info.lr2_warning_flags);
+                Assert.AreEqual(55, info.lr2_resource_max_relative_cp932_bytes);
+                Assert.AreEqual(true, info.lr2_resource_has_parent_traversal);
             });
         }
         finally

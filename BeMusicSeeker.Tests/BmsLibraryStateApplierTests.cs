@@ -237,7 +237,7 @@ public sealed class BmsLibraryStateApplierTests
                 {
                     wav_files_existing = 7,
                     wav_files_defined = 9,
-                    lr2_path_warning_flags = 11
+                    lr2_warning_flags = 11
                 }, suppressPropertyChanged: true, origin: MaintenanceInfoOrigin.DbHydrated);
                 var secondFile = new TestableBmsFile
                 {
@@ -489,6 +489,138 @@ public sealed class BmsLibraryStateApplierTests
                 Assert.AreEqual(1L, verifySongDb.ExecuteScalar<long>("SELECT COUNT(1) FROM song WHERE path = ?;", newChartPath));
                 Assert.IsTrue(string.IsNullOrWhiteSpace(verifySongDb.ExecuteScalar<string>("SELECT folder FROM song WHERE path = ?;", newChartPath)));
                 Assert.IsTrue(string.IsNullOrWhiteSpace(verifySongDb.ExecuteScalar<string>("SELECT parent FROM song WHERE path = ?;", newChartPath)));
+            }
+            finally
+            {
+                if (Directory.Exists(tempRootPath))
+                {
+                    Directory.Delete(tempRootPath, recursive: true);
+                }
+            }
+        });
+    }
+
+    [TestMethod]
+    public void ApplyLibraryMutationDelta_ReevaluatesLr2CompatibilityFactsWithoutParentTraversal()
+    {
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_StateApplier_" + Guid.NewGuid().ToString("N"));
+            string oldDirectoryPath = Path.Combine(tempRootPath, "Old");
+            string newDirectoryPath = Path.Combine(tempRootPath, "New");
+            Directory.CreateDirectory(oldDirectoryPath);
+            Directory.CreateDirectory(newDirectoryPath);
+            string oldChartPath = Path.Combine(oldDirectoryPath, "chart.bms");
+            string newChartPath = Path.Combine(newDirectoryPath, "chart.bms");
+            File.WriteAllText(newChartPath, "#PLAYER 1");
+            try
+            {
+                var movedFile = new TestableBmsFile { path = newChartPath };
+                movedFile.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+                movedFile.SetMaintenanceInfo(new BMSFileMaintenanceInfo(movedFile)
+                {
+                    hash = movedFile.hash,
+                    path = oldChartPath,
+                    lr2_warning_flags = (int)Lr2CompatibilityWarningFlags.None,
+                    lr2_resource_max_relative_cp932_bytes = 240,
+                    lr2_resource_has_parent_traversal = false
+                }, suppressPropertyChanged: true, origin: MaintenanceInfoOrigin.DbHydrated);
+                using (var songDb = new LR2SongDBExtended(songDbPath))
+                {
+                    songDb.CreateTable<LR2SongDB.song>();
+                    songDb.CreateTable<LR2SongDBExtended.maintenance>();
+                    BMSFile oldSongRow = movedFile.CreateSongRowPersistenceCopy();
+                    oldSongRow.path = oldChartPath;
+                    songDb.InsertOrReplace(oldSongRow, typeof(LR2SongDB.song));
+                }
+
+                DispatcherCollection<ChartPackage> pendingPackages = CreatePackageCollection([]);
+                DispatcherCollection<ChartPackage> installedPackages = CreatePackageCollection([]);
+                var callbacks = new TrackingCallbacks();
+                BmsLibraryStateApplier applier = CreateStateApplier(songDbPath, callbacks, () => pendingPackages, packages => pendingPackages = packages, () => installedPackages, packages => installedPackages = packages);
+                var delta = new LibraryMutationDelta();
+                delta.ChartPathChanges.Add(new LibraryChartPathChange
+                {
+                    Chart = ChartFileProjection.FromBmsFile(movedFile),
+                    OldPath = oldChartPath,
+                    NewPath = newChartPath
+                });
+
+                applier.ApplyLibraryMutationDelta(delta);
+
+                int flags = movedFile.maintenanceInfo.lr2_warning_flags.GetValueOrDefault();
+                Assert.IsTrue((flags & (int)Lr2CompatibilityWarningFlags.ResourcePathTooLong) != 0);
+                Assert.IsFalse(movedFile.maintenanceInfo.lr2_resource_has_parent_traversal.GetValueOrDefault());
+                using var verifySongDb = new LR2SongDBExtended(songDbPath);
+                int persistedFlags = verifySongDb.ExecuteScalar<int>("SELECT lr2_warning_flags FROM maintenance WHERE path = ?;", newChartPath);
+                Assert.IsTrue((persistedFlags & (int)Lr2CompatibilityWarningFlags.ResourcePathTooLong) != 0);
+            }
+            finally
+            {
+                if (Directory.Exists(tempRootPath))
+                {
+                    Directory.Delete(tempRootPath, recursive: true);
+                }
+            }
+        });
+    }
+
+    [TestMethod]
+    public void ApplyLibraryMutationDelta_ReparsesLr2CompatibilityFactsWithParentTraversal()
+    {
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_StateApplier_" + Guid.NewGuid().ToString("N"));
+            string oldDirectoryPath = Path.Combine(tempRootPath, "Old");
+            string newDirectoryPath = Path.Combine(tempRootPath, "New");
+            Directory.CreateDirectory(oldDirectoryPath);
+            Directory.CreateDirectory(newDirectoryPath);
+            string oldChartPath = Path.Combine(oldDirectoryPath, "chart.bms");
+            string newChartPath = Path.Combine(newDirectoryPath, "chart.bms");
+            string parentResourcePath = @"..\Shared\" + new string('a', 240) + ".wav";
+            File.WriteAllText(newChartPath, "#PLAYER 1\r\n#WAV01 " + parentResourcePath + "\r\n");
+            try
+            {
+                var movedFile = new TestableBmsFile { path = newChartPath };
+                movedFile.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+                movedFile.SetMaintenanceInfo(new BMSFileMaintenanceInfo(movedFile)
+                {
+                    hash = movedFile.hash,
+                    path = oldChartPath,
+                    lr2_warning_flags = (int)Lr2CompatibilityWarningFlags.None,
+                    lr2_resource_max_relative_cp932_bytes = 1,
+                    lr2_resource_has_parent_traversal = true
+                }, suppressPropertyChanged: true, origin: MaintenanceInfoOrigin.DbHydrated);
+                using (var songDb = new LR2SongDBExtended(songDbPath))
+                {
+                    songDb.CreateTable<LR2SongDB.song>();
+                    songDb.CreateTable<LR2SongDBExtended.maintenance>();
+                    BMSFile oldSongRow = movedFile.CreateSongRowPersistenceCopy();
+                    oldSongRow.path = oldChartPath;
+                    songDb.InsertOrReplace(oldSongRow, typeof(LR2SongDB.song));
+                }
+
+                DispatcherCollection<ChartPackage> pendingPackages = CreatePackageCollection([]);
+                DispatcherCollection<ChartPackage> installedPackages = CreatePackageCollection([]);
+                var callbacks = new TrackingCallbacks();
+                BmsLibraryStateApplier applier = CreateStateApplier(songDbPath, callbacks, () => pendingPackages, packages => pendingPackages = packages, () => installedPackages, packages => installedPackages = packages);
+                var delta = new LibraryMutationDelta();
+                delta.ChartPathChanges.Add(new LibraryChartPathChange
+                {
+                    Chart = ChartFileProjection.FromBmsFile(movedFile),
+                    OldPath = oldChartPath,
+                    NewPath = newChartPath
+                });
+
+                applier.ApplyLibraryMutationDelta(delta);
+
+                int flags = movedFile.maintenanceInfo.lr2_warning_flags.GetValueOrDefault();
+                Assert.IsTrue((flags & (int)Lr2CompatibilityWarningFlags.ResourcePathTooLong) != 0);
+                Assert.IsTrue(movedFile.maintenanceInfo.lr2_resource_has_parent_traversal.GetValueOrDefault());
+                Assert.IsTrue(movedFile.maintenanceInfo.lr2_resource_max_relative_cp932_bytes > 1);
+                using var verifySongDb = new LR2SongDBExtended(songDbPath);
+                int persistedFlags = verifySongDb.ExecuteScalar<int>("SELECT lr2_warning_flags FROM maintenance WHERE path = ?;", newChartPath);
+                Assert.IsTrue((persistedFlags & (int)Lr2CompatibilityWarningFlags.ResourcePathTooLong) != 0);
             }
             finally
             {

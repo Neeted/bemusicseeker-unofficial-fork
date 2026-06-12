@@ -82,17 +82,11 @@ public sealed class LR2SongDBExtended : LR2SongDB
 
         public bool is_files_warning_ignored { get; set; }
 
-        public int? lr2_path_warning_flags { get; set; }
+        public int? lr2_warning_flags { get; set; }
 
-        public int? lr2_chart_path_cp932_bytes { get; set; }
+        public int? lr2_resource_max_relative_cp932_bytes { get; set; }
 
-        public int? lr2_folder_scan_cp932_bytes { get; set; }
-
-        public int? lr2_resource_warning_flags { get; set; }
-
-        public int? lr2_resource_max_raw_cp932_bytes { get; set; }
-
-        public int? lr2_resource_max_resolved_cp932_bytes { get; set; }
+        public bool? lr2_resource_has_parent_traversal { get; set; }
     }
 
     [Table("playlist")]

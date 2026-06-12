@@ -76,11 +76,10 @@ public sealed class BmsLibraryMaintenanceServiceTests
 
         BMSFileMaintenanceInfo bmsInfo = BmsLibraryMaintenanceService.BuildResourceHealthMaintenanceInfo(bmsChart);
 
-        Assert.AreEqual((int)Lr2PathWarningFlags.None, bmsInfo.lr2_path_warning_flags);
-        Assert.AreEqual((int)Lr2ResourceWarningFlags.None, bmsInfo.lr2_resource_warning_flags);
+        Assert.AreEqual((int)Lr2CompatibilityWarningFlags.None, bmsInfo.lr2_warning_flags);
         Assert.AreEqual(Lr2SongFolderParentNormalizer.ComputeDirectoryHash(@"D:\BMS\Pack\Song"), Lr2CompatibilityEvaluator.EvaluateChartPath(bms.path).FolderHash);
-        Assert.AreEqual(Encoding.GetEncoding("shift_jis").GetByteCount(bms.path), bmsInfo.lr2_chart_path_cp932_bytes);
-        Assert.AreEqual(Encoding.GetEncoding("shift_jis").GetByteCount("sound.wav"), bmsInfo.lr2_resource_max_raw_cp932_bytes);
+        Assert.AreEqual(Encoding.GetEncoding("shift_jis").GetByteCount("sound.wav"), bmsInfo.lr2_resource_max_relative_cp932_bytes);
+        Assert.AreEqual(false, bmsInfo.lr2_resource_has_parent_traversal);
 
         var bmson = new LR2SongDBExtended.bmson_song
         {
@@ -96,10 +95,26 @@ public sealed class BmsLibraryMaintenanceServiceTests
 
         BMSFileMaintenanceInfo bmsonInfo = BmsLibraryMaintenanceService.BuildResourceHealthMaintenanceInfo(bmsonChart);
 
-        Assert.IsNull(bmsonInfo.lr2_path_warning_flags);
-        Assert.IsNull(bmsonInfo.lr2_chart_path_cp932_bytes);
-        Assert.IsNull(bmsonInfo.lr2_resource_warning_flags);
-        Assert.IsNull(bmsonInfo.lr2_resource_max_raw_cp932_bytes);
+        Assert.IsNull(bmsonInfo.lr2_warning_flags);
+        Assert.IsNull(bmsonInfo.lr2_resource_max_relative_cp932_bytes);
+        Assert.IsNull(bmsonInfo.lr2_resource_has_parent_traversal);
+    }
+
+    [TestMethod]
+    public void NormalizeForBmsonClearsLr2CompatibilityFacts()
+    {
+        var info = new BMSFileMaintenanceInfo
+        {
+            lr2_warning_flags = 15,
+            lr2_resource_max_relative_cp932_bytes = 120,
+            lr2_resource_has_parent_traversal = true
+        };
+
+        info.NormalizeForBmson(@"D:\BMS\Pack\Song\chart.bmson", "fedcba9876543210fedcba9876543210");
+
+        Assert.IsNull(info.lr2_warning_flags);
+        Assert.IsNull(info.lr2_resource_max_relative_cp932_bytes);
+        Assert.IsNull(info.lr2_resource_has_parent_traversal);
     }
 
     [TestMethod]
@@ -110,11 +125,10 @@ public sealed class BmsLibraryMaintenanceServiceTests
         var info = new BMSFileMaintenanceInfo(file)
         {
             hash = file.hash,
-            lr2_path_warning_flags = (int)(Lr2PathWarningFlags.PathEncodingUnsupported | Lr2PathWarningFlags.FolderScanPathTooLong),
-            lr2_chart_path_cp932_bytes = null,
-            lr2_folder_scan_cp932_bytes = 300,
-            lr2_resource_warning_flags = (int)(Lr2ResourceWarningFlags.RawPathEncodingUnsupported | Lr2ResourceWarningFlags.ResolvedPathTooLong),
-            lr2_resource_max_resolved_cp932_bytes = 300
+            lr2_warning_flags = (int)(Lr2CompatibilityWarningFlags.PathEncodingUnsupported
+                | Lr2CompatibilityWarningFlags.PathTooLong
+                | Lr2CompatibilityWarningFlags.ResourcePathEncodingUnsupported
+                | Lr2CompatibilityWarningFlags.ResourcePathTooLong)
         };
 
         file.SetMaintenanceInfo(info, suppressPropertyChanged: true, origin: MaintenanceInfoOrigin.DbHydrated);
@@ -135,9 +149,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
         var info = new BMSFileMaintenanceInfo(file)
         {
             hash = file.hash,
-            lr2_path_warning_flags = (int)Lr2PathWarningFlags.None,
-            lr2_chart_path_cp932_bytes = 20,
-            lr2_resource_warning_flags = (int)Lr2ResourceWarningFlags.None
+            lr2_warning_flags = (int)Lr2CompatibilityWarningFlags.None
         };
 
         file.SetMaintenanceInfo(info, suppressPropertyChanged: true, origin: MaintenanceInfoOrigin.Calculated);
@@ -780,9 +792,8 @@ public sealed class BmsLibraryMaintenanceServiceTests
         file.SetMaintenanceInfo(new BMSFileMaintenanceInfo(file)
         {
             hash = file.hash,
-            lr2_path_warning_flags = (int)Lr2PathWarningFlags.PathTooLong,
-            lr2_chart_path_cp932_bytes = 300,
-            lr2_resource_warning_flags = (int)Lr2ResourceWarningFlags.RawPathEncodingUnsupported
+            lr2_warning_flags = (int)(Lr2CompatibilityWarningFlags.PathTooLong
+                | Lr2CompatibilityWarningFlags.ResourcePathEncodingUnsupported)
         }, suppressPropertyChanged: true);
         ChartFile chart = ChartFileProjection.FromBmsFile(file);
 

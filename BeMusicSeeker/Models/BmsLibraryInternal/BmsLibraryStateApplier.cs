@@ -171,6 +171,7 @@ internal sealed class BmsLibraryStateApplier(
         BMSFileMaintenanceInfo maintenanceInfo = bmsFile.HasValidMaintenanceInfoSnapshot
             ? bmsFile.TryGetMaintenanceInfoWithoutCreating()?.CreatePersistenceCopy(newPath, bmsFile.hash)
             : null;
+        RefreshRelocatedBmsMaintenanceInfo(maintenanceInfo, newPath);
         return new BmsSongPathReplacement
         {
             Song = copy,
@@ -205,6 +206,7 @@ internal sealed class BmsLibraryStateApplier(
         bmsFile.folder = null;
         bmsFile.parent = null;
         Lr2SongRowEnricher.EnrichGeneratedSong(bmsFile, folderParentHashCache);
+        RefreshRelocatedBmsMaintenanceInfo(bmsFile, newPath);
     }
 
     private static void ApplyBmsonSongPathInMemory(LR2SongDBExtended.bmson_song bmsonSong, string newPath, string oldPath = null)
@@ -212,6 +214,28 @@ internal sealed class BmsLibraryStateApplier(
         bmsonSong.path = newPath;
         bmsonSong.folder = Path.GetDirectoryName(newPath) ?? string.Empty;
         bmsonSong.MaintenanceInfo?.NormalizeForBmson(bmsonSong.path, bmsonSong.md5);
+    }
+
+    private static void RefreshRelocatedBmsMaintenanceInfo(BMSFile bmsFile, string newPath)
+    {
+        if (bmsFile?.HasValidMaintenanceInfoSnapshot != true)
+        {
+            return;
+        }
+        BMSFileMaintenanceInfo maintenanceInfo = bmsFile.TryGetMaintenanceInfoWithoutCreating();
+        RefreshRelocatedBmsMaintenanceInfo(maintenanceInfo, newPath);
+        if (maintenanceInfo != null)
+        {
+            bmsFile.SetMaintenanceInfo(maintenanceInfo, suppressPropertyChanged: true, origin: MaintenanceInfoOrigin.Calculated);
+        }
+    }
+
+    private static void RefreshRelocatedBmsMaintenanceInfo(BMSFileMaintenanceInfo maintenanceInfo, string newPath)
+    {
+        Lr2CompatibilityEvaluator.RefreshRelocatedMaintenanceFacts(
+            maintenanceInfo,
+            newPath,
+            () => ChartFileContentReader.ReadSnapshot(newPath));
     }
 
     private static void ValidateBmsFilePathChange(BMSFile bmsFile, string newPath, string oldPath = null)

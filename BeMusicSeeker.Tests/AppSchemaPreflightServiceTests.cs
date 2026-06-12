@@ -506,12 +506,9 @@ public sealed class AppSchemaPreflightServiceTests
 
             using var verify = new LR2SongDBExtended(tempDbPath);
             string[] columns = [.. verify.Query<ColumnNameRow>("PRAGMA table_info(maintenance);").Select(row => row.name)];
-            CollectionAssert.Contains(columns, "lr2_path_warning_flags");
-            CollectionAssert.Contains(columns, "lr2_chart_path_cp932_bytes");
-            CollectionAssert.Contains(columns, "lr2_folder_scan_cp932_bytes");
-            CollectionAssert.Contains(columns, "lr2_resource_warning_flags");
-            CollectionAssert.Contains(columns, "lr2_resource_max_raw_cp932_bytes");
-            CollectionAssert.Contains(columns, "lr2_resource_max_resolved_cp932_bytes");
+            CollectionAssert.Contains(columns, "lr2_warning_flags");
+            CollectionAssert.Contains(columns, "lr2_resource_max_relative_cp932_bytes");
+            CollectionAssert.Contains(columns, "lr2_resource_has_parent_traversal");
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM maintenance WHERE path = 'D:\\BMS\\chart.bms';"));
             Assert.AreEqual(
                 1L,
@@ -539,24 +536,18 @@ public sealed class AppSchemaPreflightServiceTests
             {
                 path = @"D:\BMS\chart.bms",
                 hash = "0123456789abcdef0123456789abcdef",
-                lr2_path_warning_flags = 1,
-                lr2_chart_path_cp932_bytes = 20,
-                lr2_folder_scan_cp932_bytes = 18,
-                lr2_resource_warning_flags = 3,
-                lr2_resource_max_raw_cp932_bytes = 12,
-                lr2_resource_max_resolved_cp932_bytes = 40
+                lr2_warning_flags = 5,
+                lr2_resource_max_relative_cp932_bytes = 12,
+                lr2_resource_has_parent_traversal = true
             };
 
             new BmsLibraryDbGateway(tempDbPath).UpsertMaintenanceInfos([info]);
 
             using var verify = new LR2SongDBExtended(tempDbPath);
             BMSFileMaintenanceInfo row = verify.Table<BMSFileMaintenanceInfo>().Single(item => item.path == info.path);
-            Assert.AreEqual(1, row.lr2_path_warning_flags);
-            Assert.AreEqual(20, row.lr2_chart_path_cp932_bytes);
-            Assert.AreEqual(18, row.lr2_folder_scan_cp932_bytes);
-            Assert.AreEqual(3, row.lr2_resource_warning_flags);
-            Assert.AreEqual(12, row.lr2_resource_max_raw_cp932_bytes);
-            Assert.AreEqual(40, row.lr2_resource_max_resolved_cp932_bytes);
+            Assert.AreEqual(5, row.lr2_warning_flags);
+            Assert.AreEqual(12, row.lr2_resource_max_relative_cp932_bytes);
+            Assert.AreEqual(true, row.lr2_resource_has_parent_traversal);
         }
         finally
         {
@@ -592,8 +583,8 @@ public sealed class AppSchemaPreflightServiceTests
                 is_stagefile_defined = true,
                 is_stagefile_existing = true,
                 is_files_warning_ignored = true,
-                lr2_path_warning_flags = 4,
-                lr2_chart_path_cp932_bytes = 120
+                lr2_warning_flags = 4,
+                lr2_resource_max_relative_cp932_bytes = 120
             }, countMutation: true);
 
             using (var db = new LR2SongDBExtended(tempDbPath))
@@ -613,8 +604,8 @@ public sealed class AppSchemaPreflightServiceTests
             Assert.AreEqual(true, row.is_stagefile_defined);
             Assert.AreEqual(true, row.is_stagefile_existing);
             Assert.IsTrue(row.is_files_warning_ignored);
-            Assert.AreEqual(4, row.lr2_path_warning_flags);
-            Assert.AreEqual(120, row.lr2_chart_path_cp932_bytes);
+            Assert.AreEqual(4, row.lr2_warning_flags);
+            Assert.AreEqual(120, row.lr2_resource_max_relative_cp932_bytes);
         }
         finally
         {

@@ -4901,8 +4901,8 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         Assert.AreEqual(file.hash, songDb.ExecuteScalar<string>("SELECT hash FROM maintenance WHERE path = ?;", chartPath));
         Assert.AreEqual(99, songDb.ExecuteScalar<int>("SELECT wav_files_defined FROM maintenance WHERE path = ?;", chartPath));
         Assert.AreEqual(88, songDb.ExecuteScalar<int>("SELECT wav_files_existing FROM maintenance WHERE path = ?;", chartPath));
-        int flags = songDb.ExecuteScalar<int>("SELECT lr2_resource_warning_flags FROM maintenance WHERE path = ?;", chartPath);
-        Assert.IsTrue((flags & (int)Lr2ResourceWarningFlags.RawPathTooLong) != 0);
+        int flags = songDb.ExecuteScalar<int>("SELECT lr2_warning_flags FROM maintenance WHERE path = ?;", chartPath);
+        Assert.IsTrue((flags & (int)Lr2CompatibilityWarningFlags.ResourcePathTooLong) != 0);
     }
 
     [TestMethod]
@@ -4938,8 +4938,52 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             1,
             songDb.ExecuteScalar<int>("SELECT COUNT(*) FROM maintenance WHERE path = ? COLLATE NOCASE;", chartPath));
         Assert.AreEqual(file.hash, songDb.ExecuteScalar<string>("SELECT hash FROM maintenance WHERE path = ?;", existingPath));
-        int flags = songDb.ExecuteScalar<int>("SELECT lr2_resource_warning_flags FROM maintenance WHERE path = ?;", existingPath);
-        Assert.IsTrue((flags & (int)Lr2ResourceWarningFlags.RawPathTooLong) != 0);
+        int flags = songDb.ExecuteScalar<int>("SELECT lr2_warning_flags FROM maintenance WHERE path = ?;", existingPath);
+        Assert.IsTrue((flags & (int)Lr2CompatibilityWarningFlags.ResourcePathTooLong) != 0);
+    }
+
+    [TestMethod]
+    public void SyncService_PreservesLr2CompatibilityFactsWhenSongRowFallsBackWithoutSnapshot()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        string chartPath = Path.Combine(scope.DirectoryPath, "Missing", "chart.bms");
+        var file = new TestableBmsFile
+        {
+            path = chartPath,
+            date = 123456
+        }.WithHashAndFavorite("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", favoriteValue: null);
+        file.SetTitleForTest("fallback row");
+        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        songDb.CreateTable<LR2SongDB.song>();
+        BmsLibraryDbGateway.EnsureMaintenanceSchema(songDb);
+        int existingFlags = (int)(Lr2CompatibilityWarningFlags.ResourcePathEncodingUnsupported
+            | Lr2CompatibilityWarningFlags.ResourcePathTooLong);
+        songDb.InsertOrReplace(new BMSFileMaintenanceInfo
+        {
+            path = chartPath,
+            hash = file.hash,
+            wav_files_defined = 7,
+            wav_files_existing = 6,
+            lr2_warning_flags = existingFlags,
+            lr2_resource_max_relative_cp932_bytes = 120,
+            lr2_resource_has_parent_traversal = true
+        }, typeof(LR2SongDBExtended.maintenance));
+
+        Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
+        {
+            Signature = "lr2-compatibility-fallback-preserve",
+            RunId = "lr2-compatibility-fallback-preserve",
+            SongRows = [file],
+            StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc)
+        });
+
+        Assert.AreEqual(1, result.SongRowParseFailureCount);
+        Assert.AreEqual(0, result.SongRowLr2CompatibilityAppliedCount);
+        Assert.AreEqual(existingFlags, songDb.ExecuteScalar<int>("SELECT lr2_warning_flags FROM maintenance WHERE path = ?;", chartPath));
+        Assert.AreEqual(120, songDb.ExecuteScalar<int>("SELECT lr2_resource_max_relative_cp932_bytes FROM maintenance WHERE path = ?;", chartPath));
+        Assert.AreEqual(1, songDb.ExecuteScalar<int>("SELECT lr2_resource_has_parent_traversal FROM maintenance WHERE path = ?;", chartPath));
+        Assert.AreEqual(7, songDb.ExecuteScalar<int>("SELECT wav_files_defined FROM maintenance WHERE path = ?;", chartPath));
+        Assert.AreEqual(6, songDb.ExecuteScalar<int>("SELECT wav_files_existing FROM maintenance WHERE path = ?;", chartPath));
     }
 
     [TestMethod]
@@ -4979,8 +5023,8 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.Lr2ResourcePathTooLong));
             Assert.AreEqual(99, file.maintenanceInfo.wav_files_defined);
             Assert.AreEqual(88, file.maintenanceInfo.wav_files_existing);
-            int flags = file.maintenanceInfo.lr2_resource_warning_flags.GetValueOrDefault();
-            Assert.IsTrue((flags & (int)Lr2ResourceWarningFlags.RawPathTooLong) != 0);
+            int flags = file.maintenanceInfo.lr2_warning_flags.GetValueOrDefault();
+            Assert.IsTrue((flags & (int)Lr2CompatibilityWarningFlags.ResourcePathTooLong) != 0);
         }
         finally
         {

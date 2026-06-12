@@ -7,61 +7,45 @@ using System.Text;
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 [Flags]
-internal enum Lr2PathWarningFlags
+internal enum Lr2CompatibilityWarningFlags
 {
     None = 0,
     PathEncodingUnsupported = 1,
     PathTooLong = 2,
-    FolderScanPathEncodingUnsupported = 4,
-    FolderScanPathTooLong = 8
-}
-
-[Flags]
-internal enum Lr2ResourceWarningFlags
-{
-    None = 0,
-    RawPathEncodingUnsupported = 1,
-    RawPathTooLong = 2,
-    ResolvedPathEncodingUnsupported = 4,
-    ResolvedPathTooLong = 8
+    ResourcePathEncodingUnsupported = 4,
+    ResourcePathTooLong = 8
 }
 
 internal readonly struct Lr2ChartPathEvaluation(
-    Lr2PathWarningFlags warningFlags,
-    int? chartPathCp932Bytes,
-    int? folderScanPathCp932Bytes,
+    Lr2CompatibilityWarningFlags warningFlags,
     string folderHash,
     string parentHash)
 {
-    public Lr2PathWarningFlags WarningFlags { get; } = warningFlags;
-
-    public int? ChartPathCp932Bytes { get; } = chartPathCp932Bytes;
-
-    public int? FolderScanPathCp932Bytes { get; } = folderScanPathCp932Bytes;
+    public Lr2CompatibilityWarningFlags WarningFlags { get; } = warningFlags;
 
     public string FolderHash { get; } = folderHash;
 
     public string ParentHash { get; } = parentHash;
 
-    public bool HasWarning => WarningFlags != Lr2PathWarningFlags.None;
+    public bool HasWarning => WarningFlags != Lr2CompatibilityWarningFlags.None;
 
     public bool CanComputeFolderParent => !string.IsNullOrWhiteSpace(FolderHash)
         && !string.IsNullOrWhiteSpace(ParentHash)
-        && !WarningFlags.HasFlag(Lr2PathWarningFlags.PathEncodingUnsupported);
+        && !WarningFlags.HasFlag(Lr2CompatibilityWarningFlags.PathEncodingUnsupported);
 }
 
 internal readonly struct Lr2ResourceReferenceEvaluation(
-    Lr2ResourceWarningFlags warningFlags,
-    int? maxRawCp932Bytes,
-    int? maxResolvedCp932Bytes)
+    Lr2CompatibilityWarningFlags warningFlags,
+    int? maxRelativeCp932Bytes,
+    bool hasParentTraversal)
 {
-    public Lr2ResourceWarningFlags WarningFlags { get; } = warningFlags;
+    public Lr2CompatibilityWarningFlags WarningFlags { get; } = warningFlags;
 
-    public int? MaxRawCp932Bytes { get; } = maxRawCp932Bytes;
+    public int? MaxRelativeCp932Bytes { get; } = maxRelativeCp932Bytes;
 
-    public int? MaxResolvedCp932Bytes { get; } = maxResolvedCp932Bytes;
+    public bool HasParentTraversal { get; } = hasParentTraversal;
 
-    public bool HasWarning => WarningFlags != Lr2ResourceWarningFlags.None;
+    public bool HasWarning => WarningFlags != Lr2CompatibilityWarningFlags.None;
 }
 
 internal readonly struct Lr2ResourcePathEvaluationContext(
@@ -95,40 +79,27 @@ internal static class Lr2CompatibilityEvaluator
 
     internal static Lr2ChartPathEvaluation EvaluateChartPath(string chartPath)
     {
-        Lr2PathWarningFlags flags = Lr2PathWarningFlags.None;
+        Lr2CompatibilityWarningFlags flags = Lr2CompatibilityWarningFlags.None;
         int? chartPathBytes = TryGetCp932ByteCount(chartPath, out int pathBytes)
             ? pathBytes
             : null;
         if (chartPathBytes == null)
         {
-            flags |= Lr2PathWarningFlags.PathEncodingUnsupported;
+            flags |= Lr2CompatibilityWarningFlags.PathEncodingUnsupported;
         }
         else if (chartPathBytes.Value > MaxLegacyPathBytes)
         {
-            flags |= Lr2PathWarningFlags.PathTooLong;
-        }
-
-        string folderScanPath = CreateFolderScanPath(chartPath);
-        int? folderScanBytes = TryGetCp932ByteCount(folderScanPath, out int scanBytes)
-            ? scanBytes
-            : null;
-        if (folderScanBytes == null)
-        {
-            flags |= Lr2PathWarningFlags.FolderScanPathEncodingUnsupported;
-        }
-        else if (folderScanBytes.Value > MaxLegacyPathBytes)
-        {
-            flags |= Lr2PathWarningFlags.FolderScanPathTooLong;
+            flags |= Lr2CompatibilityWarningFlags.PathTooLong;
         }
 
         string folder = null;
         string parent = null;
-        if (!flags.HasFlag(Lr2PathWarningFlags.PathEncodingUnsupported))
+        if (!flags.HasFlag(Lr2CompatibilityWarningFlags.PathEncodingUnsupported))
         {
             TryComputeExpectedHashes(chartPath, out folder, out parent);
         }
 
-        return new Lr2ChartPathEvaluation(flags, chartPathBytes, folderScanBytes, folder, parent);
+        return new Lr2ChartPathEvaluation(flags, folder, parent);
     }
 
     internal static Lr2ResourceReferenceEvaluation EvaluateResourceReferences(
@@ -137,12 +108,12 @@ internal static class Lr2CompatibilityEvaluator
     {
         if (snapshot == null)
         {
-            return new Lr2ResourceReferenceEvaluation(Lr2ResourceWarningFlags.None, null, null);
+            return new Lr2ResourceReferenceEvaluation(Lr2CompatibilityWarningFlags.None, null, hasParentTraversal: false);
         }
 
-        Lr2ResourceWarningFlags flags = Lr2ResourceWarningFlags.None;
-        int? maxRawBytes = null;
-        int? maxResolvedBytes = null;
+        Lr2CompatibilityWarningFlags flags = Lr2CompatibilityWarningFlags.None;
+        int? maxRelativeBytes = null;
+        bool hasParentTraversal = false;
         Lr2ResourcePathEvaluationContext context = CreateResourcePathEvaluationContext(chartPath);
         foreach (ChartResourceSnapshot.ResourceReference reference in snapshot.ResourceReferences)
         {
@@ -154,8 +125,8 @@ internal static class Lr2CompatibilityEvaluator
                 rawPath,
                 null,
                 ref flags,
-                ref maxRawBytes,
-                ref maxResolvedBytes);
+                ref maxRelativeBytes,
+                ref hasParentTraversal);
         }
 
         foreach (UnsupportedChartResourceReference unsupportedReference in snapshot.UnsupportedResourceReferences ?? [])
@@ -164,11 +135,11 @@ internal static class Lr2CompatibilityEvaluator
                 unsupportedReference,
                 context,
                 ref flags,
-                ref maxRawBytes,
-                ref maxResolvedBytes);
+                ref maxRelativeBytes,
+                ref hasParentTraversal);
         }
 
-        return new Lr2ResourceReferenceEvaluation(flags, maxRawBytes, maxResolvedBytes);
+        return new Lr2ResourceReferenceEvaluation(flags, maxRelativeBytes, hasParentTraversal);
     }
 
     internal static Lr2ResourceReferenceEvaluation EvaluateBmsResourceReferences(
@@ -177,12 +148,12 @@ internal static class Lr2CompatibilityEvaluator
     {
         if (file == null)
         {
-            return new Lr2ResourceReferenceEvaluation(Lr2ResourceWarningFlags.None, null, null);
+            return new Lr2ResourceReferenceEvaluation(Lr2CompatibilityWarningFlags.None, null, hasParentTraversal: false);
         }
 
-        Lr2ResourceWarningFlags flags = Lr2ResourceWarningFlags.None;
-        int? maxRawBytes = null;
-        int? maxResolvedBytes = null;
+        Lr2CompatibilityWarningFlags flags = Lr2CompatibilityWarningFlags.None;
+        int? maxRelativeBytes = null;
+        bool hasParentTraversal = false;
         Lr2ResourcePathEvaluationContext context = CreateResourcePathEvaluationContext(chartPath);
         foreach (Lr2ResourcePathReference reference in EnumerateBmsSupportedResourcePaths(file))
         {
@@ -191,8 +162,8 @@ internal static class Lr2CompatibilityEvaluator
                 reference.RawPath,
                 reference.NormalizedPath,
                 ref flags,
-                ref maxRawBytes,
-                ref maxResolvedBytes);
+                ref maxRelativeBytes,
+                ref hasParentTraversal);
         }
 
         foreach (UnsupportedChartResourceReference unsupportedReference in file.UnsupportedResourceReferences ?? [])
@@ -201,11 +172,90 @@ internal static class Lr2CompatibilityEvaluator
                 unsupportedReference,
                 context,
                 ref flags,
-                ref maxRawBytes,
-                ref maxResolvedBytes);
+                ref maxRelativeBytes,
+                ref hasParentTraversal);
         }
 
-        return new Lr2ResourceReferenceEvaluation(flags, maxRawBytes, maxResolvedBytes);
+        return new Lr2ResourceReferenceEvaluation(flags, maxRelativeBytes, hasParentTraversal);
+    }
+
+    internal static Lr2ResourceReferenceEvaluation ReevaluateResourceReferencesForRelocatedPath(
+        string chartPath,
+        int? maxRelativeCp932Bytes,
+        Lr2CompatibilityWarningFlags previousFlags)
+    {
+        Lr2CompatibilityWarningFlags flags = previousFlags & Lr2CompatibilityWarningFlags.ResourcePathEncodingUnsupported;
+        Lr2ResourcePathEvaluationContext context = CreateResourcePathEvaluationContext(chartPath);
+        if (maxRelativeCp932Bytes.HasValue
+            && TryGetResolvedResourcePathCp932ByteCount(context, maxRelativeCp932Bytes.Value, out int resolvedBytes)
+            && resolvedBytes > MaxLegacyPathBytes)
+        {
+            flags |= Lr2CompatibilityWarningFlags.ResourcePathTooLong;
+        }
+
+        return new Lr2ResourceReferenceEvaluation(flags, maxRelativeCp932Bytes, hasParentTraversal: false);
+    }
+
+    internal static void RefreshRelocatedMaintenanceFacts(
+        BMSFileMaintenanceInfo maintenanceInfo,
+        string chartPath,
+        Func<ChartFileSnapshot> snapshotProvider = null)
+    {
+        if (maintenanceInfo == null
+            || (!maintenanceInfo.lr2_warning_flags.HasValue
+                && !maintenanceInfo.lr2_resource_max_relative_cp932_bytes.HasValue
+                && !maintenanceInfo.lr2_resource_has_parent_traversal.HasValue))
+        {
+            return;
+        }
+
+        Lr2ChartPathEvaluation pathEvaluation = EvaluateChartPath(chartPath);
+        Lr2ResourceReferenceEvaluation resourceEvaluation;
+        if (maintenanceInfo.lr2_resource_has_parent_traversal == true)
+        {
+            var previousFlags = (Lr2CompatibilityWarningFlags)(maintenanceInfo.lr2_warning_flags ?? 0);
+            if (snapshotProvider == null
+                || !TryEvaluateRelocatedParentTraversalResourceReferences(chartPath, snapshotProvider, out resourceEvaluation))
+            {
+                resourceEvaluation = new Lr2ResourceReferenceEvaluation(
+                    previousFlags & (Lr2CompatibilityWarningFlags.ResourcePathEncodingUnsupported | Lr2CompatibilityWarningFlags.ResourcePathTooLong),
+                    maintenanceInfo.lr2_resource_max_relative_cp932_bytes,
+                    hasParentTraversal: true);
+            }
+        }
+        else
+        {
+            var previousFlags = (Lr2CompatibilityWarningFlags)(maintenanceInfo.lr2_warning_flags ?? 0);
+            resourceEvaluation = ReevaluateResourceReferencesForRelocatedPath(
+                chartPath,
+                maintenanceInfo.lr2_resource_max_relative_cp932_bytes,
+                previousFlags);
+        }
+
+        maintenanceInfo.ApplyLr2CompatibilityEvaluation(pathEvaluation, resourceEvaluation);
+    }
+
+    private static bool TryEvaluateRelocatedParentTraversalResourceReferences(
+        string chartPath,
+        Func<ChartFileSnapshot> snapshotProvider,
+        out Lr2ResourceReferenceEvaluation evaluation)
+    {
+        evaluation = default;
+        try
+        {
+            ChartFileSnapshot snapshot = snapshotProvider();
+            BMSFile parsed = BMSFile.CreateBMSFileFromSnapshot(snapshot);
+            evaluation = EvaluateBmsResourceReferences(chartPath, parsed);
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException
+            || ex is UnauthorizedAccessException
+            || ex is ArgumentException
+            || ex is NotSupportedException
+            || ex is PathTooLongException)
+        {
+            return false;
+        }
     }
 
     internal static bool TryGetCp932ByteCount(string value, out int byteCount)
@@ -285,26 +335,26 @@ internal static class Lr2CompatibilityEvaluator
     private static void ApplyUnsupportedResourceReferenceEvaluation(
         UnsupportedChartResourceReference reference,
         Lr2ResourcePathEvaluationContext context,
-        ref Lr2ResourceWarningFlags flags,
-        ref int? maxRawBytes,
-        ref int? maxResolvedBytes)
+        ref Lr2CompatibilityWarningFlags flags,
+        ref int? maxRelativeBytes,
+        ref bool hasParentTraversal)
     {
         if (reference.Reason == ChartResourcePathNormalizationStatus.Cp932DecodeUnsupported)
         {
-            flags |= Lr2ResourceWarningFlags.RawPathEncodingUnsupported
-                | Lr2ResourceWarningFlags.ResolvedPathEncodingUnsupported;
+            flags |= Lr2CompatibilityWarningFlags.ResourcePathEncodingUnsupported;
             return;
         }
         if (reference.Reason == ChartResourcePathNormalizationStatus.ParentTraversalUnsupported
             && !string.IsNullOrWhiteSpace(reference.RawPath))
         {
+            hasParentTraversal = true;
             ApplyResourcePathEvaluation(
                 context,
                 reference.RawPath,
                 reference.RawPath,
                 ref flags,
-                ref maxRawBytes,
-                ref maxResolvedBytes);
+                ref maxRelativeBytes,
+                ref hasParentTraversal);
         }
     }
 
@@ -331,44 +381,66 @@ internal static class Lr2CompatibilityEvaluator
         Lr2ResourcePathEvaluationContext context,
         string rawPath,
         string normalizedPath,
-        ref Lr2ResourceWarningFlags flags,
-        ref int? maxRawBytes,
-        ref int? maxResolvedBytes)
+        ref Lr2CompatibilityWarningFlags flags,
+        ref int? maxRelativeBytes,
+        ref bool hasParentTraversal)
     {
-        int? rawByteCount = null;
-        if (TryGetCp932ByteCount(rawPath, out int rawBytes))
+        hasParentTraversal |= HasParentTraversalSegment(rawPath)
+            || HasParentTraversalSegment(normalizedPath);
+        if (!TryGetCp932ByteCount(rawPath, out _))
         {
-            rawByteCount = rawBytes;
-            maxRawBytes = Math.Max(maxRawBytes.GetValueOrDefault(), rawBytes);
-            if (rawBytes > MaxLegacyPathBytes)
-            {
-                flags |= Lr2ResourceWarningFlags.RawPathTooLong;
-            }
-        }
-        else
-        {
-            flags |= Lr2ResourceWarningFlags.RawPathEncodingUnsupported;
+            flags |= Lr2CompatibilityWarningFlags.ResourcePathEncodingUnsupported;
+            return;
         }
 
-        if (TryGetResolvedResourcePathCp932ByteCount(context, rawPath, normalizedPath, rawByteCount, out int resolvedBytes))
+        if (!TryGetResourceRelativePathCp932ByteCount(rawPath, normalizedPath, out int relativeBytes))
         {
-            maxResolvedBytes = Math.Max(maxResolvedBytes.GetValueOrDefault(), resolvedBytes);
-            if (resolvedBytes > MaxLegacyPathBytes)
+            return;
+        }
+
+        maxRelativeBytes = Math.Max(maxRelativeBytes.GetValueOrDefault(), relativeBytes);
+        if (TryGetResolvedResourcePathCp932ByteCount(context, relativeBytes, out int resolvedBytes)
+            && resolvedBytes > MaxLegacyPathBytes)
+        {
+            flags |= Lr2CompatibilityWarningFlags.ResourcePathTooLong;
+        }
+    }
+
+    private static bool TryGetResourceRelativePathCp932ByteCount(
+        string rawPath,
+        string normalizedPath,
+        out int byteCount)
+    {
+        string relativePath = normalizedPath;
+        if (string.IsNullOrWhiteSpace(relativePath)
+            && !TryNormalizeRelativeResourcePathForByteCount(rawPath, out relativePath))
+        {
+            relativePath = rawPath;
+        }
+        return TryGetCp932ByteCount(relativePath, out byteCount);
+    }
+
+    private static bool HasParentTraversalSegment(string rawPath)
+    {
+        if (string.IsNullOrWhiteSpace(rawPath))
+        {
+            return false;
+        }
+
+        string normalized = rawPath.Trim().Replace('/', Path.DirectorySeparatorChar).Replace('\\', Path.DirectorySeparatorChar);
+        foreach (string segment in normalized.Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar], StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (segment == "..")
             {
-                flags |= Lr2ResourceWarningFlags.ResolvedPathTooLong;
+                return true;
             }
         }
-        else
-        {
-            flags |= Lr2ResourceWarningFlags.ResolvedPathEncodingUnsupported;
-        }
+        return false;
     }
 
     private static bool TryGetResolvedResourcePathCp932ByteCount(
         Lr2ResourcePathEvaluationContext context,
-        string rawPath,
-        string normalizedPath,
-        int? rawCp932Bytes,
+        int relativeBytes,
         out int byteCount)
     {
         byteCount = 0;
@@ -378,27 +450,9 @@ internal static class Lr2CompatibilityEvaluator
         }
         if (!context.ChartDirectoryCp932Bytes.HasValue)
         {
-            return TryGetCp932ByteCount(rawPath, out byteCount);
+            byteCount = relativeBytes;
+            return true;
         }
-        string relativePath = normalizedPath;
-        if (string.IsNullOrWhiteSpace(relativePath)
-            && !TryNormalizeRelativeResourcePathForByteCount(rawPath, out relativePath))
-        {
-            return TryGetCp932ByteCount(rawPath, out byteCount);
-        }
-        int relativeBytes;
-        if (rawCp932Bytes.HasValue && string.Equals(relativePath, rawPath, StringComparison.Ordinal))
-        {
-            relativeBytes = rawCp932Bytes.Value;
-        }
-        else if (!TryGetCp932ByteCount(relativePath, out relativeBytes))
-        {
-            return false;
-        }
-
-        // LR2 receives a filesystem path here. For chart-relative resources this is
-        // equivalent to "<chart directory>\<relative resource path>" and avoids
-        // allocating/normalizing a full path per resource definition.
         byteCount = context.ChartDirectoryCp932Bytes.Value + 1 + relativeBytes;
         return true;
     }
@@ -458,21 +512,6 @@ internal static class Lr2CompatibilityEvaluator
         }
         relativePath = string.Join(Path.DirectorySeparatorChar.ToString(), segments);
         return true;
-    }
-
-    private static string CreateFolderScanPath(string chartPath)
-    {
-        try
-        {
-            string directory = Path.GetDirectoryName(chartPath ?? string.Empty);
-            return string.IsNullOrWhiteSpace(directory)
-                ? "*.*"
-                : Path.Combine(directory, "*.*");
-        }
-        catch (Exception ex) when (ex is ArgumentException || ex is PathTooLongException)
-        {
-            return chartPath ?? string.Empty;
-        }
     }
 
     private static bool TryComputeExpectedHashes(string chartPath, out string folder, out string parent)
