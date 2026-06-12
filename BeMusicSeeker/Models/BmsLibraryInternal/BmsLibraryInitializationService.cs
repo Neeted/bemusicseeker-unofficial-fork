@@ -4677,7 +4677,7 @@ internal sealed class BmsLibraryInitializationService
 
         var result = new ScoreTableLoadResult
         {
-            EnableDownloadLr2IrScoreAndDetectUnsent = options?.EnableDownloadLr2IrScoreAndDetectUnsent ?? true
+            EnableDownloadLr2IrScoreAndDetectUnsent = options?.EnableDownloadLr2IrScoreAndDetectUnsent ?? false
         };
         if (IsBeatorajaScoreDbEnabled(options))
         {

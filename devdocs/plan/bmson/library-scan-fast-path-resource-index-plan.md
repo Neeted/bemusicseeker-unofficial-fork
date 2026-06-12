@@ -840,7 +840,7 @@ Phase 8H の playlist projection は `projection=startup_entries`, `rows=556649`
 
 Phase 8I の ranking は `ranking_cache_refresh done elapsedMs=2828`, `irDataDbReadMs=242`, `dbRows=17708`, `xmlCheckMs=232`, `reloadTargets=99`, `upsertRows=0` で、cache refresh は軽い。一方 `ranking_refresh_deferred` は `irScoreMs=8156`, `irScoreXmlFetchMs=821`, `irScoreXmlParseMs=403`, `irScoreDbReplaceMs=6617`, `irScoreMergeMs=312`, `cacheMs=2838`, `elapsedMs=11004` で、支配要因は `ir_score` table replace である。`ir_score` は主に `SCORE_UNSENT` 付与と LR2 custom folder の `UNSENT SONGS` 条件生成に使う。ランキング表示 / ranking cache は `ir_data` 側であり、`ir_score` とは別系統である。
 
-Phase 8K では `LR2IRのスコアをDLしIR未送信を検出する` 設定を追加する。既定は有効。無効時は LR2IR player score XML fetch、`ir_score` DB 更新、`ir_score` 由来の未送信検出を完全に使わない。既存 `ir_score` table は削除しないが、無効時の `SCORE_UNSENT` 付与や `UNSENT SONGS` 生成には使わない。
+Phase 8K では `LR2IRのスコアをDLしIR未送信を検出する` 設定を追加する。既定は無効。無効時は LR2IR player score XML fetch、`ir_score` DB 更新、`ir_score` 由来の未送信検出を完全に使わない。既存 `ir_score` table は削除しないが、無効時の `SCORE_UNSENT` 付与や `UNSENT SONGS` 生成には使わない。
 
 Phase 8K では player score XML の normalized score digest による no-op 判定も追加する。`ir_score_refresh_metadata` には LR2ID ごとの normalized score digest だけを保存し、digest が同じなら DB replace を skip して既存 `ir_score` rows を in-memory 反映に使う。digest が変わった場合だけ `ir_score` table replace を実行する。LR2IR player score XML の `lastupdate` はプレイヤーの最終スコア更新ではなく譜面 hash 側の更新時刻として揺れるため、normalized score digest から除外する。`ir_score.lastupdate` は未送信判定や表示の正本には使わず、表示用 ranking update は `ir_data` / ranking cache 側の `rankingLastupdate` を使う。
 

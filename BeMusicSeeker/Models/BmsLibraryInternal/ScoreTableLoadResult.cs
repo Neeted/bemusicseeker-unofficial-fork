@@ -22,7 +22,7 @@ internal sealed class ScoreTableLoadResult
 
     public int LR2Id { get; set; }
 
-    public bool EnableDownloadLr2IrScoreAndDetectUnsent { get; set; } = true;
+    public bool EnableDownloadLr2IrScoreAndDetectUnsent { get; set; }
 
     public bool ReadOnly { get; set; }
 
