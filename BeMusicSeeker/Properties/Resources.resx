@@ -636,7 +636,7 @@ LR2をプレイヤーとして使用すると再生できない場合があり�
     <value>予期しないエラーが発生しました。</value>
   </data>
   <data name="Open_lr2ir" xml:space="preserve">
-    <value>LR2 IRを開く</value>
+    <value>BMS-IRを開く</value>
   </data>
   <data name="Open_minir" xml:space="preserve">
     <value>MinIRを開く</value>

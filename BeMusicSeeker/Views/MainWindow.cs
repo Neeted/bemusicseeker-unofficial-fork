@@ -5531,17 +5531,13 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         OpenInstallDestinationInExplorer(installDir);
     }
 
-    private string _getLR2IRrankingPageURL(string md5_or_bmsid)
+    private static string GetBmsIrSongUrl(string md5)
     {
-        if (Regex.IsMatch(md5_or_bmsid, "^[A-F0-9]{32}$", RegexOptions.IgnoreCase))
+        if (string.IsNullOrWhiteSpace(md5) || !Regex.IsMatch(md5.Trim(), "^[A-F0-9]{32}$", RegexOptions.IgnoreCase))
         {
-            return "http://www.dream-pro.info/~lavalse/LR2IR/search.cgi?mode=ranking&bmsmd5=" + md5_or_bmsid;
+            return null;
         }
-        if (Regex.IsMatch(md5_or_bmsid, "^\\d+$"))
-        {
-            return "http://www.dream-pro.info/~lavalse/LR2IR/search.cgi?mode=ranking&bmsid=" + md5_or_bmsid;
-        }
-        return null;
+        return "https://bms-ir.org/new/song?songmd5=" + md5.Trim() + "&view=both";
     }
 
     private static string GetMochaSongUrl(string sha256)
@@ -5602,21 +5598,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        string rowHash = target.Chart.Md5;
-        string text;
-        if (!string.IsNullOrWhiteSpace(rowHash))
-        {
-            text = _getLR2IRrankingPageURL(rowHash);
-        }
-        else
-        {
-            string lr2BmsId = GridRowResolver.GetLr2BmsId(row);
-            if (string.IsNullOrWhiteSpace(lr2BmsId))
-            {
-                return;
-            }
-            text = _getLR2IRrankingPageURL(lr2BmsId);
-        }
+        string text = GetBmsIrSongUrl(target.Chart.Md5);
         if (text != null)
         {
             Process.Start(text);

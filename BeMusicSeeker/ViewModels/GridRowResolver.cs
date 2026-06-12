@@ -11,6 +11,7 @@ namespace BeMusicSeeker.ViewModels;
 /// </summary>
 internal static class GridRowResolver
 {
+    private static readonly Regex Md5HashRegex = new("^[a-f0-9]{32}$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static readonly Regex Sha256HashRegex = new("^[a-f0-9]{64}$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     /// <summary>
@@ -284,7 +285,7 @@ internal static class GridRowResolver
         }
         if (isBms)
         {
-            if (hasMd5 || !string.IsNullOrWhiteSpace(playlistEntry?.lr2_bmsid))
+            if (IsValidMd5(chart.Md5))
             {
                 capabilities |= ChartOperationCapabilities.UseLr2Ir;
             }
@@ -322,6 +323,11 @@ internal static class GridRowResolver
     private static bool IsValidSha256(string value)
     {
         return !string.IsNullOrWhiteSpace(value) && Sha256HashRegex.IsMatch(value.Trim());
+    }
+
+    private static bool IsValidMd5(string value)
+    {
+        return !string.IsNullOrWhiteSpace(value) && Md5HashRegex.IsMatch(value.Trim());
     }
 
     private static string FirstNonEmpty(params string[] values)

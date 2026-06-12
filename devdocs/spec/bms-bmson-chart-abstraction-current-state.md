@@ -235,7 +235,7 @@ library mutation へ渡す `LibraryChartRef` は `ChartOperationTarget.ToLibrary
 | `OpenRepositoryBySha256` | Yes | Yes | chart / chart_info に有効な sha256 があれば可。 |
 | `OpenPlaylistUrls` | Yes | Yes | playlist row に URL / URL diff があれば可。 |
 | `RunResourceHealthCheck` | Yes | Yes | path があり missing でなければ可。 |
-| `UseLr2Ir` | Yes | No | BMS かつ md5 または LR2BMSID がある場合。 |
+| `UseLr2Ir` | Yes | No | BMS かつ有効な md5 がある場合。BMS-IR へのリンクに使い、LR2BMSID fallback は使わない。 |
 | `UseScoreViewer` | Yes | No | BMS かつ md5 がある場合。 |
 | `UpdateRanking` | Yes | No | BMS かつ md5 がある場合。 |
 | `RunBmsEncodingCheck` | Yes | No | BMS かつ missing でない場合。 |

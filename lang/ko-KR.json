@@ -219,7 +219,7 @@
   "Device_setting_desc2": "* 재생 볼륨은 Windows 소리 설정(볼륨 믹서)을 따릅니다",
   "Device_setting_desc1": "* 버퍼 크기는 재생 안정성과 정밀도의 절충값입니다(0: 자동)",
   "Msg_error_unexpected": "예기치 않은 오류가 발생했습니다.",
-  "Open_lr2ir": "LR2IR에서 열기",
+  "Open_lr2ir": "BMS-IR에서 열기",
   "Open_minir": "Open MinIR",
   "Open_mocha": "Open Mocha",
   "Sampling_rate": "샘플링 속도",

@@ -219,7 +219,7 @@
   "Device_setting_desc2": "* 播放音量取决于 Windows 系统的音量合成器",
   "Device_setting_desc1": "* 缓冲区大小是播放稳定性和精度的权衡 (0 为自动)",
   "Msg_error_unexpected": "发生了意外错误。",
-  "Open_lr2ir": "用 LR2IR 打开",
+  "Open_lr2ir": "用 BMS-IR 打开",
   "Open_minir": "Open MinIR",
   "Open_mocha": "Open Mocha",
   "Sampling_rate": "采样率",

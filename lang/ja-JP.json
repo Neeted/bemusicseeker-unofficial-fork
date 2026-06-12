@@ -227,7 +227,7 @@
   "Device_setting_desc2": "※最終的に出力される音量はWindowsの音量設定に依存します",
   "Device_setting_desc1": "※バッファサイズを大きくすると再生が安定しますが発音精度は悪くなります (0：自動)",
   "Msg_error_unexpected": "予期しないエラーが発生しました。",
-  "Open_lr2ir": "LR2 IRを開く",
+  "Open_lr2ir": "BMS-IRを開く",
   "Open_minir": "MinIRを開く",
   "Open_mocha": "Mochaを開く",
   "Sampling_rate": "サンプリングレート",

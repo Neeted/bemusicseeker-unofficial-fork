@@ -219,7 +219,7 @@
   "Device_setting_desc2": "* The playback volume depends on Windows' sound setting",
   "Device_setting_desc1": "* The buffer size is a trade-off between playback stability and precision (0: auto)",
   "Msg_error_unexpected": "An unexpected error occurred.",
-  "Open_lr2ir": "Open in LR2IR",
+  "Open_lr2ir": "Open in BMS-IR",
   "Open_minir": "Open MinIR",
   "Open_mocha": "Open Mocha",
   "Sampling_rate": "Sampling rate",

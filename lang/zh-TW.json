@@ -219,7 +219,7 @@
   "Device_setting_desc2": "* 播放音量取決於 Windows 系統的音量混音程式",
   "Device_setting_desc1": "* 緩衝區大小是播放穩定性和精確度的權衡 (0 為自動)",
   "Msg_error_unexpected": "發生了未預期的錯誤。",
-  "Open_lr2ir": "用 LR2IR 開啟",
+  "Open_lr2ir": "用 BMS-IR 開啟",
   "Open_minir": "Open MinIR",
   "Open_mocha": "Open Mocha",
   "Sampling_rate": "取樣率",
