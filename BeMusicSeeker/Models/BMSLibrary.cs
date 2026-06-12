@@ -8194,6 +8194,10 @@ completeFileEnumerationOnce,
         {
             return;
         }
+        if (!HasLr2NormalFolderRelevantStorageMutation(mutation))
+        {
+            return;
+        }
 
         var stopwatch = Stopwatch.StartNew();
         List<string> roots = [];
@@ -8211,7 +8215,7 @@ completeFileEnumerationOnce,
                 mutation.AddedBmsFiles,
                 mutation.PathChanges,
                 mutation.RemoveRequests,
-                _BMSFiles);
+                CreateLr2NormalFolderCurrentBmsLookupUnsafe());
             if (syncInput.ChartPaths.Count == 0
                 && syncInput.PruneScopeDirectories.Count == 0
                 && syncInput.PruneExactDirectories.Count == 0)
@@ -8226,6 +8230,7 @@ completeFileEnumerationOnce,
             {
                 RootDirectories = roots,
                 ChartPaths = syncInput.ChartPaths,
+                DirectoryPaths = directoryMetadataTargets,
                 FolderInfoFilePaths = metadataSurface.FolderInfoCandidates.Paths,
                 FolderInfoFileEntries = metadataSurface.FolderInfoCandidates.EntriesByPath,
                 DirectoryLastWriteTimeUtcResolver = CreateLastWriteTimeResolver(metadataSurface.DirectoryEntries),
@@ -8239,6 +8244,7 @@ completeFileEnumerationOnce,
             LogInstallPerformance("lr2_normal_folder_mutation_sync done"
                 + " reason=" + (reason ?? "unknown")
                 + " paths=" + syncInput.ChartPaths.Count
+                + " directoryPaths=" + directoryMetadataTargets.Count
                 + " pruneScopes=" + syncInput.PruneScopeDirectories.Count
                 + " exactPrunes=" + syncInput.PruneExactDirectories.Count
                 + " roots=" + roots.Count
@@ -8276,6 +8282,40 @@ completeFileEnumerationOnce,
                 + " exception=" + ex.GetType().Name
                 + " message=" + GetDisplayedExceptionMessage(ex).Replace(Environment.NewLine, " | "));
         }
+    }
+
+    private static bool HasLr2NormalFolderRelevantStorageMutation(OwnedChartCollectionStorageMutation mutation)
+    {
+        return mutation != null
+            && (mutation.AddedBmsFiles.Count > 0
+                || mutation.PathChanges.Any(pathChange => pathChange?.GetBmsStorageOwner() != null)
+                || mutation.RemoveRequests.Any(removeRequest => removeRequest?.Kind == ChartFileKind.Bms));
+    }
+
+    private Lr2NormalFolderCurrentBmsLookup CreateLr2NormalFolderCurrentBmsLookupUnsafe()
+    {
+        LibraryChartRefIndexSnapshot snapshot = null;
+
+        LibraryChartRefIndexSnapshot GetSnapshot()
+        {
+            if (snapshot != null)
+            {
+                return snapshot;
+            }
+
+            EnsureOwnedChartCollectionBuiltUnsafe();
+            lock (lockOwnedChartCollection)
+            {
+                snapshot = ownedChartCollectionInitialized
+                    ? ownedChartCollection.CreateLibraryChartRefIndexSnapshot()
+                    : LibraryChartRefIndexSnapshot.Empty;
+            }
+            return snapshot;
+        }
+
+        return new Lr2NormalFolderCurrentBmsLookup(
+            directoryPath => GetSnapshot().CountBmsChartRefsUnderRealPath(directoryPath) > 0,
+            directoryPath => GetSnapshot().GetBmsChartPathsUnderRealPath(directoryPath));
     }
 
     private void MarkLr2SongDbSyncIncompleteAfterFileDiffNormalFolderSyncFailure(

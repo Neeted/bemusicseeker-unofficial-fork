@@ -23,6 +23,26 @@ internal sealed class Lr2NormalFolderSyncScope(
     public IReadOnlyList<string> PruneExactDirectories { get; } = pruneExactDirectories ?? [];
 }
 
+internal sealed class Lr2NormalFolderCurrentBmsLookup(
+    Func<string, bool> hasBmsChartUnderDirectory,
+    Func<string, IReadOnlyList<string>> getBmsChartPathsUnderDirectory)
+{
+    internal static Lr2NormalFolderCurrentBmsLookup Empty { get; } = new(_ => false, _ => []);
+
+    internal bool HasBmsChartUnderDirectory(string directoryPath)
+    {
+        return !string.IsNullOrWhiteSpace(directoryPath)
+            && hasBmsChartUnderDirectory?.Invoke(directoryPath) == true;
+    }
+
+    internal IReadOnlyList<string> GetBmsChartPathsUnderDirectory(string directoryPath)
+    {
+        return string.IsNullOrWhiteSpace(directoryPath)
+            ? []
+            : getBmsChartPathsUnderDirectory?.Invoke(directoryPath) ?? [];
+    }
+}
+
 internal static class Lr2NormalFolderSyncScopeBuilder
 {
     internal static Lr2NormalFolderSyncScope CreateForFileDiff(
@@ -67,7 +87,7 @@ internal static class Lr2NormalFolderSyncScopeBuilder
         IEnumerable<BMSFile> addedBmsFiles,
         IEnumerable<LibraryChartPathChange> pathChanges,
         IEnumerable<OwnedChartRemoveRequest> removeRequests,
-        IEnumerable<BMSFile> currentBmsFiles)
+        Lr2NormalFolderCurrentBmsLookup currentBmsLookup)
     {
         List<string> roots = NormalizeRoots(rootDirectories);
         if (roots.Count == 0)
@@ -79,14 +99,9 @@ internal static class Lr2NormalFolderSyncScopeBuilder
         var directoryPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var pruneScopeDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var pruneExactDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        currentBmsLookup ??= Lr2NormalFolderCurrentBmsLookup.Empty;
         List<LibraryChartPathChange> pathChangeList = [.. pathChanges ?? []];
         List<OwnedChartRemoveRequest> removeRequestList = [.. removeRequests ?? []];
-        List<string> currentBmsPaths = [.. (currentBmsFiles ?? []).Select(file => file?.path)];
-        bool needsEmptyAncestorCheck = pathChangeList.Any(pathChange => pathChange?.GetBmsStorageOwner() != null)
-            || removeRequestList.Any(removeRequest => removeRequest?.Kind == ChartFileKind.Bms);
-        HashSet<string> currentAncestorDirectories = needsEmptyAncestorCheck
-            ? CreateCurrentAncestorDirectorySet(currentBmsPaths, roots)
-            : [];
         foreach (BMSFile file in addedBmsFiles ?? [])
         {
             AddIfUnderAnyRoot(chartPaths, file?.path, roots);
@@ -102,7 +117,7 @@ internal static class Lr2NormalFolderSyncScopeBuilder
             AddIfUnderAnyRoot(chartPaths, pathChange.NewPath, roots);
             AddChartDirectoryScopeIfUnderAnyRoot(pruneScopeDirectories, pathChange.OldPath, roots);
             AddChartDirectoryScopeIfUnderAnyRoot(pruneScopeDirectories, pathChange.NewPath, roots);
-            AddEmptyAncestorExactScopesIfUnderAnyRoot(pruneExactDirectories, pathChange.OldPath, roots, currentAncestorDirectories);
+            AddEmptyAncestorExactScopesIfUnderAnyRoot(pruneExactDirectories, pathChange.OldPath, roots, currentBmsLookup);
         }
 
         foreach (OwnedChartRemoveRequest removeRequest in removeRequestList)
@@ -113,12 +128,12 @@ internal static class Lr2NormalFolderSyncScopeBuilder
             }
 
             AddChartDirectoryScopeIfUnderAnyRoot(pruneScopeDirectories, removeRequest.Path, roots);
-            AddEmptyAncestorExactScopesIfUnderAnyRoot(pruneExactDirectories, removeRequest.Path, roots, currentAncestorDirectories);
+            AddEmptyAncestorExactScopesIfUnderAnyRoot(pruneExactDirectories, removeRequest.Path, roots, currentBmsLookup);
         }
 
         AddCurrentPathsUnderPruneScopes(
             chartPaths,
-            currentBmsPaths,
+            currentBmsLookup,
             pruneScopeDirectories);
         return CreateResult(chartPaths, directoryPaths, pruneScopeDirectories, pruneExactDirectories);
     }
@@ -142,6 +157,26 @@ internal static class Lr2NormalFolderSyncScopeBuilder
             [.. (directoryPaths ?? []).OrderBy(path => path, StringComparer.OrdinalIgnoreCase)],
             [.. (pruneScopeDirectories ?? []).OrderBy(path => path, StringComparer.OrdinalIgnoreCase)],
             [.. (pruneExactDirectories ?? []).OrderBy(path => path, StringComparer.OrdinalIgnoreCase)]);
+    }
+
+    private static void AddCurrentPathsUnderPruneScopes(
+        HashSet<string> result,
+        Lr2NormalFolderCurrentBmsLookup currentBmsLookup,
+        IReadOnlyCollection<string> pruneScopeDirectories)
+    {
+        if (pruneScopeDirectories == null || pruneScopeDirectories.Count == 0)
+        {
+            return;
+        }
+
+        var pruneScopeSet = new HashSet<string>(pruneScopeDirectories, StringComparer.OrdinalIgnoreCase);
+        foreach (string pruneScopeDirectory in pruneScopeDirectories)
+        {
+            foreach (string path in currentBmsLookup?.GetBmsChartPathsUnderDirectory(pruneScopeDirectory) ?? [])
+            {
+                AddIfUnderAnyPruneScope(result, path, pruneScopeSet);
+            }
+        }
     }
 
     private static void AddCurrentPathsUnderPruneScopes(
@@ -237,7 +272,7 @@ internal static class Lr2NormalFolderSyncScopeBuilder
         HashSet<string> result,
         string chartPath,
         IReadOnlyCollection<string> rootDirectories,
-        ISet<string> currentAncestorDirectories)
+        Lr2NormalFolderCurrentBmsLookup currentBmsLookup)
     {
         if (result == null || string.IsNullOrWhiteSpace(chartPath) || rootDirectories == null || rootDirectories.Count == 0)
         {
@@ -245,14 +280,14 @@ internal static class Lr2NormalFolderSyncScopeBuilder
         }
 
         string directoryPath = Lr2FolderPath.NormalizeDirectoryPath(Lr2FolderPath.SafeGetDirectoryName(chartPath));
-        AddEmptyAncestorExactScopesForDirectoryIfUnderAnyRoot(result, directoryPath, rootDirectories, currentAncestorDirectories);
+        AddEmptyAncestorExactScopesForDirectoryIfUnderAnyRoot(result, directoryPath, rootDirectories, currentBmsLookup);
     }
 
     private static void AddEmptyAncestorExactScopesForDirectoryIfUnderAnyRoot(
         HashSet<string> result,
         string directoryPath,
         IReadOnlyCollection<string> rootDirectories,
-        ISet<string> currentAncestorDirectories)
+        Lr2NormalFolderCurrentBmsLookup currentBmsLookup)
     {
         if (result == null || string.IsNullOrWhiteSpace(directoryPath) || rootDirectories == null || rootDirectories.Count == 0)
         {
@@ -278,7 +313,7 @@ internal static class Lr2NormalFolderSyncScopeBuilder
         while (!string.IsNullOrWhiteSpace(current)
             && Lr2FolderPath.IsSameOrDescendant(current, rootDirectory))
         {
-            if (currentAncestorDirectories?.Contains(current) != true)
+            if (currentBmsLookup?.HasBmsChartUnderDirectory(current) != true)
             {
                 result.Add(current);
             }
@@ -288,6 +323,20 @@ internal static class Lr2NormalFolderSyncScopeBuilder
             }
             current = Lr2FolderPath.NormalizeDirectoryPath(Lr2FolderPath.SafeGetDirectoryName(current));
         }
+    }
+
+    private static void AddEmptyAncestorExactScopesForDirectoryIfUnderAnyRoot(
+        HashSet<string> result,
+        string directoryPath,
+        IReadOnlyCollection<string> rootDirectories,
+        ISet<string> currentAncestorDirectories)
+    {
+        Lr2NormalFolderCurrentBmsLookup lookup = currentAncestorDirectories == null
+            ? Lr2NormalFolderCurrentBmsLookup.Empty
+            : new Lr2NormalFolderCurrentBmsLookup(
+                directory => currentAncestorDirectories.Contains(Lr2FolderPath.NormalizeDirectoryPath(directory)),
+                _ => []);
+        AddEmptyAncestorExactScopesForDirectoryIfUnderAnyRoot(result, directoryPath, rootDirectories, lookup);
     }
 
     private static HashSet<string> CreateCurrentAncestorDirectorySet(IEnumerable<string> chartPaths, IReadOnlyCollection<string> rootDirectories)

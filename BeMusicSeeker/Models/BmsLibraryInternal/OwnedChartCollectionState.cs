@@ -417,6 +417,16 @@ internal sealed class OwnedChartCollectionState
         return CreateLibraryChartRefIndexSnapshot().CountChartRefsUnderRealPath(directoryPath, null);
     }
 
+    internal int CountBmsChartRefsUnderRealPath(string directoryPath)
+    {
+        return CreateLibraryChartRefIndexSnapshot().CountBmsChartRefsUnderRealPath(directoryPath);
+    }
+
+    internal List<string> CreateBmsChartPathsUnderRealPath(string directoryPath)
+    {
+        return CreateLibraryChartRefIndexSnapshot().GetBmsChartPathsUnderRealPath(directoryPath);
+    }
+
     internal List<string> CreateChartDirectoriesUnderRealPath(string directoryPath)
     {
         IEnumerable<LibraryChartRef> refs = string.IsNullOrWhiteSpace(directoryPath)

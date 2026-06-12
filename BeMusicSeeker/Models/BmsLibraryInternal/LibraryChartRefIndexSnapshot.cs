@@ -24,6 +24,7 @@ internal sealed class LibraryChartRefIndexSnapshot : ILibraryChartCanonicalLooku
     private readonly Dictionary<string, List<LibraryChartRef>> directRefsByDirectory;
     private readonly List<string> sortedDirectDirectories;
     private readonly Dictionary<string, int> subtreeCountsByDirectory;
+    private readonly Dictionary<string, int> bmsSubtreeCountsByDirectory;
 
     private LibraryChartRefIndexSnapshot(
         Dictionary<BMSFile, LibraryChartRef> bmsByReference,
@@ -33,7 +34,8 @@ internal sealed class LibraryChartRefIndexSnapshot : ILibraryChartCanonicalLooku
         Dictionary<string, List<LibraryChartRef>> refsByPath,
         Dictionary<string, List<LibraryChartRef>> directRefsByDirectory,
         List<string> sortedDirectDirectories,
-        Dictionary<string, int> subtreeCountsByDirectory)
+        Dictionary<string, int> subtreeCountsByDirectory,
+        Dictionary<string, int> bmsSubtreeCountsByDirectory)
     {
         this.bmsByReference = bmsByReference;
         this.bmsonByReference = bmsonByReference;
@@ -43,6 +45,7 @@ internal sealed class LibraryChartRefIndexSnapshot : ILibraryChartCanonicalLooku
         this.directRefsByDirectory = directRefsByDirectory;
         this.sortedDirectDirectories = sortedDirectDirectories;
         this.subtreeCountsByDirectory = subtreeCountsByDirectory;
+        this.bmsSubtreeCountsByDirectory = bmsSubtreeCountsByDirectory;
     }
 
     internal static LibraryChartRefIndexSnapshot Empty => FromLibraryChartRefs([]);
@@ -83,6 +86,7 @@ internal sealed class LibraryChartRefIndexSnapshot : ILibraryChartCanonicalLooku
         var refsByPath = new Dictionary<string, List<LibraryChartRef>>(StringComparer.OrdinalIgnoreCase);
         var directRefsByDirectory = new Dictionary<string, List<LibraryChartRef>>(StringComparer.OrdinalIgnoreCase);
         var subtreeCountsByDirectory = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var bmsSubtreeCountsByDirectory = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
         foreach (LibraryChartRef chart in (charts ?? []).Where(chart => chart != null))
         {
@@ -114,6 +118,10 @@ internal sealed class LibraryChartRefIndexSnapshot : ILibraryChartCanonicalLooku
             foreach (string ancestor in EnumerateDirectoryAndAncestors(directoryKey))
             {
                 Increment(subtreeCountsByDirectory, ancestor);
+                if (IsBmsChartRef(chart))
+                {
+                    Increment(bmsSubtreeCountsByDirectory, ancestor);
+                }
             }
         }
 
@@ -126,7 +134,8 @@ internal sealed class LibraryChartRefIndexSnapshot : ILibraryChartCanonicalLooku
             refsByPath,
             directRefsByDirectory,
             sortedDirectDirectories,
-            subtreeCountsByDirectory);
+            subtreeCountsByDirectory,
+            bmsSubtreeCountsByDirectory);
     }
 
     internal void RemoveCharts(IEnumerable<ChartFile> charts)
@@ -244,6 +253,23 @@ internal sealed class LibraryChartRefIndexSnapshot : ILibraryChartCanonicalLooku
         }
 
         return [.. EnumerateChartRefsUnderDirectoryKey(folderKey).Where(HasCurrentPath)];
+    }
+
+    internal List<string> GetBmsChartPathsUnderRealPath(string folderPath)
+    {
+        string folderKey = CreateDirectoryKey(folderPath);
+        if (string.IsNullOrWhiteSpace(folderKey)
+            || !bmsSubtreeCountsByDirectory.ContainsKey(folderKey))
+        {
+            return [];
+        }
+
+        return [.. EnumerateChartRefsUnderDirectoryKey(folderKey)
+            .Where(IsBmsChartRef)
+            .Where(HasCurrentPath)
+            .Select(chart => chart.Path)
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)];
     }
 
     private IEnumerable<LibraryChartRef> EnumerateChartRefsUnderDirectoryKey(string folderKey)
@@ -365,6 +391,15 @@ internal sealed class LibraryChartRefIndexSnapshot : ILibraryChartCanonicalLooku
         return count;
     }
 
+    internal int CountBmsChartRefsUnderRealPath(string folderPath)
+    {
+        string folderKey = CreateDirectoryKey(folderPath);
+        return !string.IsNullOrWhiteSpace(folderKey)
+            && bmsSubtreeCountsByDirectory.TryGetValue(folderKey, out int count)
+                ? count
+                : 0;
+    }
+
     int ILibraryChartCanonicalLookup.CountChartRefsUnderRealPath(string folderPath, ISet<string> excludedPaths)
     {
         return CountChartRefsUnderRealPath(folderPath, excludedPaths);
@@ -413,6 +448,10 @@ internal sealed class LibraryChartRefIndexSnapshot : ILibraryChartCanonicalLooku
         foreach (string ancestor in EnumerateDirectoryAndAncestors(directoryKey))
         {
             Increment(subtreeCountsByDirectory, ancestor);
+            if (IsBmsChartRef(chart))
+            {
+                Increment(bmsSubtreeCountsByDirectory, ancestor);
+            }
         }
     }
 
@@ -452,6 +491,10 @@ internal sealed class LibraryChartRefIndexSnapshot : ILibraryChartCanonicalLooku
         foreach (string ancestor in EnumerateDirectoryAndAncestors(directoryKey))
         {
             Decrement(subtreeCountsByDirectory, ancestor, removedFromDirectory);
+            if (chart.GetBmsStorageOwner() != null || chart.Kind == ChartFileKind.Bms)
+            {
+                Decrement(bmsSubtreeCountsByDirectory, ancestor, removedFromDirectory);
+            }
         }
         return true;
     }
@@ -709,6 +752,9 @@ internal sealed class LibraryChartRefIndexSnapshot : ILibraryChartCanonicalLooku
             ? !string.IsNullOrWhiteSpace(bmsonSong.path)
             : !string.IsNullOrWhiteSpace(chart.Path);
     }
+
+    private static bool IsBmsChartRef(LibraryChartRef chart)
+        => chart?.Kind == LibraryChartKind.Bms;
 
     private static void AddOwnerReference(
         LibraryChartRef chart,
