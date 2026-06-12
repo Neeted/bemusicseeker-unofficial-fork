@@ -4,13 +4,15 @@
 
 .DESCRIPTION
     1. クリーンビルド後、dist\ にリリース用 zip パッケージを作成
-    2. -IncludeMetadata 指定時は chart_info metadata 同梱 zip も追加作成
-    3. パッケージおよび公開対象ファイルを公開リポジトリへコピー
+    2. Markdown 資料を HTML に変換して同梱
+    3. -IncludeMetadata 指定時は chart_info metadata 同梱 zip も追加作成
+    4. パッケージおよび公開対象ファイルを公開リポジトリへコピー
 #>
 param(
     [switch]$SkipBuild,
     [switch]$PackageOnly,
     [switch]$SyncOnly,
+    [switch]$SkipDocHtml,
     [switch]$IncludeMetadata,
     [string]$MetadataSource = "artifacts\chart-info-metadata\latest\chart-info-metadata.7z",
     [string]$MetadataPackageSuffix = "-with-metadata"
@@ -66,6 +68,28 @@ function Resolve-MetadataSource {
     }
 }
 
+function Build-DocHtml($targetStagingDir) {
+    if ($SkipDocHtml) {
+        Write-Host "  HTML docs 生成をスキップしました" -ForegroundColor Yellow
+        return
+    }
+
+    Write-Host "  HTML docs を生成中..."
+    Push-Location $devRoot
+    try {
+        $generatedDocs = @(uv run scripts\build-doc-html.py --source-root $devRoot --output-root $targetStagingDir)
+        $exitCode = $LASTEXITCODE
+        foreach ($doc in $generatedDocs) {
+            Write-Host "    $doc"
+        }
+        if ($exitCode -ne 0) { throw "HTML docs の生成に失敗しました" }
+    }
+    finally {
+        Pop-Location
+    }
+    Write-Host "  HTML docs 生成完了" -ForegroundColor Green
+}
+
 function Copy-AppFilesToStaging($targetStagingDir) {
     if (Test-Path $targetStagingDir) { Remove-Item $targetStagingDir -Recurse -Force }
     New-Item -ItemType Directory -Path $targetStagingDir -Force | Out-Null
@@ -89,6 +113,12 @@ function Copy-AppFilesToStaging($targetStagingDir) {
 
     # third_party
     Copy-Item (Join-Path $devRoot "third_party") (Join-Path $targetStagingDir "third_party") -Recurse
+
+    # docs source files and image assets
+    Copy-Item (Join-Path $devRoot "docs") (Join-Path $targetStagingDir "docs") -Recurse
+
+    # Markdown docs converted to HTML.
+    Build-DocHtml $targetStagingDir
 }
 
 function New-ZipPackage($version, $packageSuffix, $metadataInfo) {
@@ -162,7 +192,7 @@ function New-ReleasePackage {
 }
 
 # ========== ステップ 2: 公開リポジトリへコピー ==========
-function Sync-PublicRepo {
+function Sync-PublicRepo($releasePackagePaths) {
     Write-Host ""
     Write-Host "=== ステップ 2: 公開リポジトリへコピー ===" -ForegroundColor Cyan
 
@@ -178,9 +208,16 @@ function Sync-PublicRepo {
     # dist\ の zip をコピー (古い zip は削除しない、追加のみ)
     $pubDist = Join-Path $pubRoot "dist"
     if (-not (Test-Path $pubDist)) { New-Item -ItemType Directory -Path $pubDist -Force | Out-Null }
-    Get-ChildItem (Join-Path $distDir "*.zip") | ForEach-Object {
-        Copy-Item $_.FullName $pubDist -Force
-        Write-Host "  コピー: dist\$($_.Name)"
+    $releaseAssets = @()
+    if ($releasePackagePaths -ne $null -and $releasePackagePaths.Count -gt 0) {
+        $releaseAssets = @($releasePackagePaths | ForEach-Object { Get-Item $_ })
+    }
+    else {
+        $releaseAssets = @(Get-ChildItem (Join-Path $distDir "*.zip") -File)
+    }
+    foreach ($asset in $releaseAssets) {
+        Copy-Item $asset.FullName $pubDist -Force
+        Write-Host "  コピー: dist\$($asset.Name)"
     }
 
     # ディレクトリのミラーリング
@@ -202,11 +239,12 @@ function Sync-PublicRepo {
 }
 
 # ========== メイン ==========
+$releasePackagePaths = @()
 if (-not $SyncOnly) {
-    New-ReleasePackage
+    $releasePackagePaths = @(New-ReleasePackage)
 }
 if (-not $PackageOnly) {
-    Sync-PublicRepo
+    Sync-PublicRepo $releasePackagePaths
 }
 
 Write-Host ""
