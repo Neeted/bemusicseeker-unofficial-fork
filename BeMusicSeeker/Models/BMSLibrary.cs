@@ -19504,7 +19504,8 @@ completeFileEnumerationOnce,
                         rootFolders,
                         renameRootFolder,
                         CreateDirectLibraryChartSnapshotsInFolders,
-                        CreateChartFolderPathFromCharts);
+                        CreateChartFolderPathFromCharts,
+                        NormalizeAutoRenameFolderName);
                     ApplyAutoRenamePlans(plans, progressReporter);
                 }
             }
@@ -19558,7 +19559,8 @@ completeFileEnumerationOnce,
             rootFolders,
             renameRootFolder: false,
             CreateDirectLibraryChartSnapshotsInFolders,
-            CreateChartFolderPathFromCharts);
+            CreateChartFolderPathFromCharts,
+            NormalizeAutoRenameFolderName);
     }
 
     private static bool HasActionableAutoRenamePlan(IEnumerable<FolderAutoRenamePlan> plans)
@@ -19572,6 +19574,7 @@ completeFileEnumerationOnce,
         List<FolderAutoRenamePlan> planList = [.. (plans ?? []).Where(plan => plan != null)];
         bool hasActionablePlan = false;
         LibraryMutationDelta batchMutation = new LibraryMutationDelta();
+        List<LibraryFolderPathChange> movedFolders = [];
         InstallDestinationOverlayChartRefSnapshot installDestinationOverlayCharts = CreateInstallDestinationOverlayChartRefSnapshotUnsafe();
         HashSet<string> movedSourceDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         int progressTotal = CountAutoRenameProgressPlans(planList);
@@ -19581,35 +19584,38 @@ completeFileEnumerationOnce,
         {
             dialogService.Show(Resources.Warn_DriveRootBmsSkipped, Resources.MessageBoxTitle_Confirm, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
         }
-        foreach (FolderAutoRenamePlan plan in planList)
+        try
         {
-            bool reportProgress = IsAutoRenameProgressPlan(plan);
-            try
+            foreach (FolderAutoRenamePlan plan in planList)
             {
-                if (plan.FailureException != null)
+                bool reportProgress = IsAutoRenameProgressPlan(plan);
+                try
                 {
-                    dialogService.Show(string.Format(Resources.Error_RenameFailed, plan.SourceDirectory, plan.FailureException.Message), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
-                    continue;
+                    if (plan.FailureException != null)
+                    {
+                        dialogService.Show(string.Format(Resources.Error_RenameFailed, plan.SourceDirectory, plan.FailureException.Message), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+                        continue;
+                    }
+                    if (string.IsNullOrWhiteSpace(plan.DestinationDirectory) || string.IsNullOrWhiteSpace(plan.SourceDirectory))
+                    {
+                        continue;
+                    }
+                    hasActionablePlan = true;
+                    ApplyAutoRenamePlanToBatch(plan, batchMutation, movedFolders, installDestinationOverlayCharts, movedSourceDirectories);
                 }
-                if (string.IsNullOrWhiteSpace(plan.DestinationDirectory) || string.IsNullOrWhiteSpace(plan.SourceDirectory))
+                finally
                 {
-                    continue;
-                }
-                hasActionablePlan = true;
-                ApplyAutoRenamePlanToBatch(plan, batchMutation, installDestinationOverlayCharts, movedSourceDirectories);
-            }
-            finally
-            {
-                if (reportProgress)
-                {
-                    progressProcessed = Math.Min(progressProcessed + 1, progressTotal);
-                    ReportAutoRenameProgress(progressReporter, progressTotal, progressProcessed, plan.SourceDirectory);
+                    if (reportProgress)
+                    {
+                        progressProcessed = Math.Min(progressProcessed + 1, progressTotal);
+                        ReportAutoRenameProgress(progressReporter, progressTotal, progressProcessed, plan.SourceDirectory);
+                    }
                 }
             }
         }
-        if (HasLibraryMutationDeltaChanges(batchMutation))
+        finally
         {
-            ApplyLibraryMutationDeltaWithPerformanceContext(batchMutation, "auto_rename_folders");
+            ApplyAutoRenameBatchChanges(batchMutation, movedFolders);
         }
         return hasActionablePlan;
     }
@@ -19645,17 +19651,12 @@ completeFileEnumerationOnce,
     private void ApplyAutoRenamePlanToBatch(
         FolderAutoRenamePlan plan,
         LibraryMutationDelta batchMutation,
+        List<LibraryFolderPathChange> movedFolders,
         InstallDestinationOverlayChartRefSnapshot installDestinationOverlayCharts,
         HashSet<string> movedSourceDirectories)
     {
         string srcDir = plan.SourceDirectory;
-        string newName = Path.GetFileName(plan.DestinationDirectory);
-        BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
-        if (options.UseOnlyShiftJISChars)
-        {
-            newName = newName.ToSjisSchemeString();
-        }
-        newName = newName.RemoveInvalidFileNameChars();
+        string newName = NormalizeAutoRenameFolderName(Path.GetFileName(plan.DestinationDirectory));
         if (string.IsNullOrWhiteSpace(newName) || Path.GetPathRoot(srcDir).Equals(srcDir, StringComparison.OrdinalIgnoreCase))
         {
             return;
@@ -19680,12 +19681,47 @@ completeFileEnumerationOnce,
             ChartPackagesInstalled,
             unregister: false,
             notifyStorageRowPathChanges: false);
-        if (!TryMoveLibraryChartFolder(srcDir, dstDir))
+        if (!TryMoveLibraryChartFolderFileOnly(srcDir, dstDir))
         {
             return;
         }
         movedSourceDirectories.Add(srcDir);
+        movedFolders?.Add(new LibraryFolderPathChange
+        {
+            OldFolderPath = srcDir,
+            NewFolderPath = dstDir
+        });
         AppendLibraryMutationDelta(batchMutation, delta);
+    }
+
+    private void ApplyAutoRenameBatchChanges(LibraryMutationDelta batchMutation, List<LibraryFolderPathChange> movedFolders)
+    {
+        try
+        {
+            if (movedFolders?.Count > 0)
+            {
+                DirectoryResourceLookupCache.ReverseLookupMutationResult reverseLookupMutation = libraryFileOperationsService.UpdateMovedFolderReferences(movedFolders, directoryResourceLookupCache);
+                LogReverseLookupMutationAndQueueWarmupIfNeeded("auto_rename_folders", reverseLookupMutation);
+            }
+        }
+        finally
+        {
+            if (HasLibraryMutationDeltaChanges(batchMutation))
+            {
+                ApplyLibraryMutationDeltaWithPerformanceContext(batchMutation, "auto_rename_folders");
+            }
+        }
+    }
+
+    private string NormalizeAutoRenameFolderName(string folderName)
+    {
+        folderName = folderName ?? string.Empty;
+        BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
+        if (options.UseOnlyShiftJISChars)
+        {
+            folderName = folderName.ToSjisSchemeString();
+        }
+        return folderName.RemoveInvalidFileNameChars();
     }
 
     private static void AppendLibraryMutationDelta(LibraryMutationDelta target, LibraryMutationDelta source)
@@ -19752,17 +19788,12 @@ completeFileEnumerationOnce,
         {
             return;
         }
-        BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
         if (!renameRootFolder && getBMSDirectories().Contains(srcDir, StringComparer.OrdinalIgnoreCase))
         {
             dialogService.Show(string.Format(Resources.Warn_CannotRenameRootFolder, srcDir), Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
             return;
         }
-        if (options.UseOnlyShiftJISChars)
-        {
-            newName = newName.ToSjisSchemeString();
-        }
-        newName = newName.RemoveInvalidFileNameChars();
+        newName = NormalizeAutoRenameFolderName(newName);
         if (string.IsNullOrWhiteSpace(newName) || Path.GetPathRoot(srcDir).Equals(srcDir, StringComparison.OrdinalIgnoreCase))
         {
             return;
@@ -19866,6 +19897,29 @@ completeFileEnumerationOnce,
         {
             DirectoryResourceLookupCache.ReverseLookupMutationResult reverseLookupMutation = libraryFileOperationsService.MoveFolderAndUpdateReferences(srcDir, dstDir, directoryResourceLookupCache, fileMutationService, recursiveDirectoryTreeFileMutationOptions);
             LogReverseLookupMutationAndQueueWarmupIfNeeded("move_folder", reverseLookupMutation);
+            return true;
+        }
+        catch (Exception moveException)
+        {
+            dialogService.Show(string.Format(Resources.Error_FolderMoveFailed, srcDir, dstDir, GetDisplayedExceptionMessage(moveException)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+            return false;
+        }
+    }
+
+    private bool TryMoveLibraryChartFolderFileOnly(string srcDir, string dstDir)
+    {
+        if (srcDir.Equals(dstDir, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+        if (File.Exists(dstDir) || Directory.Exists(dstDir))
+        {
+            dialogService.Show(string.Format(Resources.Warn_MoveDestAlreadyExists, srcDir, dstDir), Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
+            return false;
+        }
+        try
+        {
+            libraryFileOperationsService.MoveFolder(srcDir, dstDir, fileMutationService, recursiveDirectoryTreeFileMutationOptions);
             return true;
         }
         catch (Exception moveException)

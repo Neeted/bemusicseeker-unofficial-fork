@@ -160,6 +160,68 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     }
 
     [TestMethod]
+    public void AutoRenameChartFolders_ResolvesBatchDestinationCollisionsWithSuffix()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_AutoRenameCollision_" + Guid.NewGuid().ToString("N"));
+            string libraryRootPath = Path.Combine(tempRootPath, "LibraryRoot");
+            string firstDirectoryPath = Path.Combine(libraryRootPath, "FirstSource");
+            string secondDirectoryPath = Path.Combine(libraryRootPath, "SecondSource");
+            string firstChartPath = Path.Combine(firstDirectoryPath, "first.bms");
+            string secondChartPath = Path.Combine(secondDirectoryPath, "second.bms");
+            Directory.CreateDirectory(firstDirectoryPath);
+            Directory.CreateDirectory(secondDirectoryPath);
+            File.WriteAllText(firstChartPath, "#PLAYER 1");
+            File.WriteAllText(secondChartPath, "#PLAYER 1");
+            try
+            {
+                var library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
+                {
+                    SearchTargets = [libraryRootPath]
+                };
+                var firstFile = new TestableBmsFile
+                {
+                    path = firstChartPath
+                };
+                firstFile.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+                firstFile.SetTitle("Same Title");
+                firstFile.SetArtist("Same Artist");
+                var secondFile = new TestableBmsFile
+                {
+                    path = secondChartPath
+                };
+                secondFile.SetHash("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+                secondFile.SetTitle("Same Title");
+                secondFile.SetArtist("Same Artist");
+                SetLibraryFilesWithoutNotification(library, [firstFile, secondFile]);
+
+                library.AutoRenameChartFolders([
+                    ChartFileProjection.FromBmsFile(firstFile),
+                    ChartFileProjection.FromBmsFile(secondFile)
+                ]);
+
+                string firstDestinationPath = Path.Combine(libraryRootPath, "[Same Artist] Same Title");
+                string secondDestinationPath = Path.Combine(libraryRootPath, "[Same Artist] Same Title (2)");
+                Assert.AreEqual(Path.Combine(firstDestinationPath, "first.bms"), firstFile.path);
+                Assert.AreEqual(Path.Combine(secondDestinationPath, "second.bms"), secondFile.path);
+                Assert.IsFalse(Directory.Exists(firstDirectoryPath));
+                Assert.IsFalse(Directory.Exists(secondDirectoryPath));
+                Assert.IsTrue(Directory.Exists(firstDestinationPath));
+                Assert.IsTrue(Directory.Exists(secondDestinationPath));
+            }
+            finally
+            {
+                if (Directory.Exists(tempRootPath))
+                {
+                    Directory.Delete(tempRootPath, recursive: true);
+                }
+            }
+        });
+    }
+
+    [TestMethod]
     public void ApplyAutoRenamePlans_BatchesSuccessfulMovesWhenOnePlanFails()
     {
         TestResourceInitializer.EnsureJapaneseResources();

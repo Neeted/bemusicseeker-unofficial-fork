@@ -71,6 +71,44 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         return mutationResult;
     }
 
+    public void MoveFolder(
+        string srcDir,
+        string dstDir,
+        IFileMutationService fileMutationService,
+        FileMutationOptions recursiveDirectoryTreeFileMutationOptions)
+    {
+        fileMutationService.MoveDirectory(srcDir, dstDir, overwrite: false, recursiveDirectoryTreeFileMutationOptions);
+    }
+
+    public DirectoryResourceLookupCache.ReverseLookupMutationResult UpdateMovedFolderReferences(
+        IEnumerable<LibraryFolderPathChange> movedFolders,
+        DirectoryResourceLookupCache directoryLookupCache)
+    {
+        List<LibraryFolderPathChange> moves = [.. (movedFolders ?? [])
+            .Where(move => !string.IsNullOrWhiteSpace(move?.OldFolderPath)
+                && !string.IsNullOrWhiteSpace(move.NewFolderPath)
+                && !move.OldFolderPath.Equals(move.NewFolderPath, StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(move => move.OldFolderPath.Length)];
+        if (moves.Count == 0 || directoryLookupCache == null)
+        {
+            return DirectoryResourceLookupCache.ReverseLookupMutationResult.Empty;
+        }
+
+        DirectoryResourceLookupCache.ReverseLookupMutationResult mutationResult = DirectoryResourceLookupCache.ReverseLookupMutationResult.Empty;
+        foreach (string item in (directoryLookupCache.Keys ?? []).ToList())
+        {
+            LibraryFolderPathChange move = moves.FirstOrDefault(candidate => IsSameOrDescendantPath(item, candidate.OldFolderPath));
+            if (move == null)
+            {
+                continue;
+            }
+
+            string newKey = item.ReplaceFromStart(move.OldFolderPath, move.NewFolderPath, isIgnoreCase: true);
+            mutationResult = mutationResult.Combine(directoryLookupCache.ReplaceDirWithResult(item, newKey));
+        }
+        return mutationResult;
+    }
+
     public LibraryRemovalResult DeleteLibraryCharts(
         IEnumerable<LibraryChartRef> charts,
         ILibraryChartCanonicalLookup libraryChartLookup,
@@ -410,7 +448,8 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         IEnumerable<string> rootFolders,
         bool renameRootFolder,
         Func<IReadOnlyCollection<string>, IReadOnlyList<ChartFile>> createDirectChildSnapshot,
-        Func<IEnumerable<ChartFile>, string, string, string> createFolderPath)
+        Func<IEnumerable<ChartFile>, string, string, string> createFolderPath,
+        Func<string, string> normalizeFolderName = null)
     {
         List<string> sourceFolders = [.. (from d in (selectedCharts ?? []).Where(chart => chart != null).Select(chart => DirectoryExt.GetDirectoryNameSimple(chart.Path)).Distinct(StringComparer.OrdinalIgnoreCase)
                                       orderby d.Length
@@ -420,7 +459,8 @@ internal sealed class BmsLibraryLibraryFileOperationsService
             rootFolders,
             renameRootFolder,
             createDirectChildSnapshot,
-            createFolderPath);
+            createFolderPath,
+            normalizeFolderName);
     }
 
     public List<FolderAutoRenamePlan> BuildAutoRenamePlansForSourceFolders(
@@ -428,7 +468,8 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         IEnumerable<string> rootFolders,
         bool renameRootFolder,
         Func<IReadOnlyCollection<string>, IReadOnlyList<ChartFile>> createDirectChildSnapshot,
-        Func<IEnumerable<ChartFile>, string, string, string> createFolderPath)
+        Func<IEnumerable<ChartFile>, string, string, string> createFolderPath,
+        Func<string, string> normalizeFolderName = null)
     {
         List<string> normalizedSourceFolders = [.. (from d in (sourceFolders ?? [])
                                                 where !string.IsNullOrWhiteSpace(d)
@@ -448,6 +489,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
             ? []
             : createDirectChildSnapshot?.Invoke(targetFolders) ?? [];
         Dictionary<string, List<ChartFile>> directChildrenByDirectory = CreateDirectChildrenByDirectory(directChildSnapshot);
+        var reservedDestinationFolders = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         List<FolderAutoRenamePlan> plans = [];
         foreach (string folder in targetFolders)
         {
@@ -471,14 +513,11 @@ internal sealed class BmsLibraryLibraryFileOperationsService
                 string requestedPath = createFolderPath?.Invoke(directChildren, DirectoryExt.GetDirectoryNameSimple(folder), longestFileName);
                 if (!string.IsNullOrWhiteSpace(requestedPath) && !folder.Equals(requestedPath, StringComparison.OrdinalIgnoreCase))
                 {
-                    int suffix = 1;
-                    string candidate = requestedPath;
-                    while (File.Exists(candidate) || Directory.Exists(candidate))
-                    {
-                        suffix++;
-                        candidate = requestedPath + " (" + suffix + ")";
-                    }
-                    plan.DestinationDirectory = candidate;
+                    plan.DestinationDirectory = ResolveAutoRenameDestinationDirectory(
+                        folder,
+                        requestedPath,
+                        reservedDestinationFolders,
+                        normalizeFolderName);
                 }
             }
             catch (Exception ex)
@@ -541,6 +580,80 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         }
 
         return false;
+    }
+
+    private static string ResolveAutoRenameDestinationDirectory(
+        string sourceFolder,
+        string requestedPath,
+        ISet<string> reservedDestinationFolders,
+        Func<string, string> normalizeFolderName)
+    {
+        string sourceParent = Path.GetDirectoryName(sourceFolder);
+        string requestedName = GetLastPathSegment(requestedPath);
+        string candidateName = normalizeFolderName?.Invoke(requestedName) ?? requestedName;
+        if (string.IsNullOrWhiteSpace(sourceParent) || string.IsNullOrWhiteSpace(candidateName))
+        {
+            return null;
+        }
+
+        string basePath = Path.Combine(sourceParent, candidateName);
+        if (basePath.Equals(sourceFolder, StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        int suffix = 1;
+        string candidate = basePath;
+        while (IsAutoRenameDestinationUnavailable(candidate, sourceFolder, reservedDestinationFolders))
+        {
+            suffix++;
+            candidate = basePath + " (" + suffix + ")";
+        }
+        reservedDestinationFolders?.Add(candidate);
+        return candidate;
+    }
+
+    private static bool IsAutoRenameDestinationUnavailable(
+        string candidate,
+        string sourceFolder,
+        ISet<string> reservedDestinationFolders)
+    {
+        if (string.IsNullOrWhiteSpace(candidate))
+        {
+            return true;
+        }
+        if (candidate.Equals(sourceFolder, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+        return reservedDestinationFolders?.Contains(candidate) == true
+            || File.Exists(candidate)
+            || Directory.Exists(candidate);
+    }
+
+    private static string GetLastPathSegment(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return path;
+        }
+
+        string trimmedPath = path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        int lastSeparatorIndex = Math.Max(
+            trimmedPath.LastIndexOf(Path.DirectorySeparatorChar),
+            trimmedPath.LastIndexOf(Path.AltDirectorySeparatorChar));
+        return lastSeparatorIndex >= 0
+            ? trimmedPath.Substring(lastSeparatorIndex + 1)
+            : trimmedPath;
+    }
+
+    private static bool IsSameOrDescendantPath(string path, string ancestorPath)
+    {
+        if (string.IsNullOrWhiteSpace(path) || string.IsNullOrWhiteSpace(ancestorPath))
+        {
+            return false;
+        }
+        return (path + Path.DirectorySeparatorChar).StartsWith(ancestorPath + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
     }
 
     private static string GetParentDirectory(string path)

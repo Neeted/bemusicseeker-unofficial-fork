@@ -219,6 +219,53 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
     }
 
     [TestMethod]
+    public void UpdateMovedFolderReferences_RewritesMultipleMovedFoldersInOnePass()
+    {
+        var service = new BmsLibraryLibraryFileOperationsService();
+        var lookupCache = new DirectoryResourceLookupCache();
+        string firstSource = "C:\\Lib\\First";
+        string firstNestedSource = "C:\\Lib\\First\\Nested";
+        string secondSource = "C:\\Lib\\Second";
+        string firstDestination = "C:\\Lib\\RenamedFirst";
+        string firstNestedDestination = "C:\\Lib\\RenamedFirst\\Nested";
+        string secondDestination = "C:\\Lib\\RenamedSecond";
+        uint firstHash = ChartResourceKeyHash.GetLookupHash("first.wav");
+        uint firstNestedHash = ChartResourceKeyHash.GetLookupHash("nested.wav");
+        uint secondHash = ChartResourceKeyHash.GetLookupHash("second.wav");
+        lookupCache.AddDir(firstSource, [firstHash], [], []);
+        lookupCache.AddDir(firstNestedSource, [firstNestedHash], [], []);
+        lookupCache.AddDir(secondSource, [secondHash], [], []);
+        lookupCache.EnsureAudioRelativeDirectoriesByHashes([firstHash, firstNestedHash, secondHash]);
+
+        DirectoryResourceLookupCache.ReverseLookupMutationResult result = service.UpdateMovedFolderReferences(
+        [
+            new LibraryFolderPathChange
+            {
+                OldFolderPath = firstSource,
+                NewFolderPath = firstDestination
+            },
+            new LibraryFolderPathChange
+            {
+                OldFolderPath = secondSource,
+                NewFolderPath = secondDestination
+            }
+        ],
+        lookupCache);
+
+        Assert.IsTrue(result.Changed);
+        Assert.AreEqual(3, result.ReplacedDirectoryCount);
+        CollectionAssert.AreEquivalent(new[] { firstDestination }, lookupCache.GetDirectoriesByAudioRelativeHash(firstHash).ToArray());
+        CollectionAssert.AreEquivalent(new[] { firstNestedDestination }, lookupCache.GetDirectoriesByAudioRelativeHash(firstNestedHash).ToArray());
+        CollectionAssert.AreEquivalent(new[] { secondDestination }, lookupCache.GetDirectoriesByAudioRelativeHash(secondHash).ToArray());
+        Assert.IsNull(lookupCache.GetEntryOrNull(firstSource));
+        Assert.IsNull(lookupCache.GetEntryOrNull(firstNestedSource));
+        Assert.IsNull(lookupCache.GetEntryOrNull(secondSource));
+        Assert.IsNotNull(lookupCache.GetEntryOrNull(firstDestination));
+        Assert.IsNotNull(lookupCache.GetEntryOrNull(firstNestedDestination));
+        Assert.IsNotNull(lookupCache.GetEntryOrNull(secondDestination));
+    }
+
+    [TestMethod]
     public void BuildFolderMoveDelta_UsesChartSnapshotInstallDestinationForBmsonLibraryRef()
     {
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
@@ -848,6 +895,52 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
 
             Assert.AreEqual(1, plans.Count(plan => !string.IsNullOrWhiteSpace(plan.DestinationDirectory)));
             Assert.AreEqual(Path.Combine(rootPath, "Renamed (2)"), plans.Single(plan => !string.IsNullOrWhiteSpace(plan.DestinationDirectory)).DestinationDirectory);
+        });
+    }
+
+    [TestMethod]
+    public void BuildAutoRenamePlans_ReservesDestinationsAfterFolderNameNormalization()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            var service = new BmsLibraryLibraryFileOperationsService();
+            string rootPath = Path.Combine(tempDirectoryPath, "Songs");
+            string firstSourcePath = Path.Combine(rootPath, "FirstSource");
+            string secondSourcePath = Path.Combine(rootPath, "SecondSource");
+            string existingDestinationPath = Path.Combine(rootPath, "SameName");
+            Directory.CreateDirectory(firstSourcePath);
+            Directory.CreateDirectory(secondSourcePath);
+            Directory.CreateDirectory(existingDestinationPath);
+            string firstChartPath = Path.Combine(firstSourcePath, "first.bms");
+            string secondChartPath = Path.Combine(secondSourcePath, "second.bms");
+            File.WriteAllText(firstChartPath, "#PLAYER 1");
+            File.WriteAllText(secondChartPath, "#PLAYER 1");
+            TestableBmsFile firstFile = CreateFile(firstChartPath);
+            TestableBmsFile secondFile = CreateFile(secondChartPath);
+            firstFile.SetTitleForTest("First");
+            secondFile.SetTitleForTest("Second");
+            ChartFile firstChart = ChartFileProjection.FromBmsFile(firstFile);
+            ChartFile secondChart = ChartFileProjection.FromBmsFile(secondFile);
+
+            List<FolderAutoRenamePlan> plans = service.BuildAutoRenamePlans(
+                [firstChart, secondChart],
+                [],
+                renameRootFolder: true,
+                folders =>
+                {
+                    CollectionAssert.AreEqual(new[] { firstSourcePath, secondSourcePath }, folders.ToArray());
+                    return [firstChart, secondChart];
+                },
+                (children, parentDir, _) => Path.Combine(parentDir, children.First().Title == "First" ? "Same:Name" : "SameName"),
+                name => name.Replace(":", string.Empty));
+
+            CollectionAssert.AreEqual(
+                new[]
+                {
+                    Path.Combine(rootPath, "SameName (2)"),
+                    Path.Combine(rootPath, "SameName (3)")
+                },
+                plans.Select(plan => plan.DestinationDirectory).ToArray());
         });
     }
 
