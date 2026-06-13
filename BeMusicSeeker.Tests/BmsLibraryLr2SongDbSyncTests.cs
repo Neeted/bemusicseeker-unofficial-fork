@@ -939,6 +939,84 @@ public sealed class BmsLibraryLr2SongDbSyncTests
     }
 
     [TestMethod]
+    public void ApplyLr2FolderFileDiffSync_RepairsMissingParentRowForPreservedExternalLr2Folder()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        try
+        {
+            Settings.Default.OperationModeLR2DB = true;
+            ResetLr2FolderDiscoverySettings();
+            string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
+            string categoryDirectory = Path.Combine(rootDirectory, "#minbp");
+            string tableDirectory = Path.Combine(categoryDirectory, "InsaneTable");
+            Directory.CreateDirectory(tableDirectory);
+            string lr2FolderPath = Path.Combine(tableDirectory, "0000.lr2folder");
+            DateTime timestamp = new(2026, 6, 10, 1, 2, 3, DateTimeKind.Utc);
+            File.WriteAllText(lr2FolderPath, "#TITLE Should Not Be Reparsed", Encoding.GetEncoding("shift_jis"));
+            File.SetLastWriteTimeUtc(lr2FolderPath, timestamp);
+            using (var setup = new LR2SongDBExtended(scope.SongDbPath))
+            {
+                setup.CreateTable<LR2SongDB.folder>();
+                setup.InsertOrReplace(new LR2SongDB.folder
+                {
+                    path = Lr2FolderPath.ToFolderPath(categoryDirectory),
+                    title = "#minbp",
+                    type = 1,
+                    parent = Lr2SongFolderParentNormalizer.RootParentHash,
+                    date = Lr2SongRowEnricher.ToLr2UnixSeconds(timestamp),
+                    adddate = 12345
+                }, typeof(LR2SongDB.folder));
+                setup.InsertOrReplace(new LR2SongDB.folder
+                {
+                    path = lr2FolderPath,
+                    title = "Preserved External Folder",
+                    type = 2,
+                    parent = Lr2SongFolderParentNormalizer.ComputeDirectoryHash(tableDirectory),
+                    date = Lr2SongRowEnricher.ToLr2UnixSeconds(timestamp),
+                    adddate = 23456
+                }, typeof(LR2SongDB.folder));
+            }
+            var library = new BMSLibrary(scope.SongDbPath)
+            {
+                SearchTargets = [rootDirectory],
+                BMSFiles = []
+            };
+            var options = new BmsLibraryOptionsSnapshot
+            {
+                OperationModeLR2DB = true,
+            };
+            var fileCheckResult = new SongTableFileCheckResult
+            {
+                Lr2ScanSurfaceAvailable = true,
+                Lr2ScanLr2FolderDiscoveryDirectories = [rootDirectory],
+                Lr2ScanLr2FolderFilePaths = [lr2FolderPath],
+                Lr2ScanLr2FolderFileEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase)
+                {
+                    [lr2FolderPath] = new RootFileEnumerationEntry(lr2FolderPath, timestamp)
+                },
+                Lr2ScanLr2FolderFileDiscoveryComplete = true
+            };
+
+            InvokeApplyLr2FolderFileDiffSync(library, options, [rootDirectory], fileCheckResult, "test_lr2folder_file_diff_preserved_parent_repair");
+
+            using var verify = new LR2SongDBExtended(scope.SongDbPath);
+            List<LR2SongDB.folder> rows = verify.Table<LR2SongDB.folder>().ToList();
+            LR2SongDB.folder tableRow = rows.Single(row => row.path == Lr2FolderPath.ToFolderPath(tableDirectory));
+            Assert.AreEqual(1, tableRow.type);
+            Assert.AreEqual("InsaneTable", tableRow.title);
+            Assert.AreEqual(Lr2SongFolderParentNormalizer.ComputeDirectoryHash(categoryDirectory), tableRow.parent);
+            LR2SongDB.folder lr2Folder = rows.Single(row => row.path == lr2FolderPath);
+            Assert.AreEqual("Preserved External Folder", lr2Folder.title);
+            Assert.AreEqual(23456, lr2Folder.adddate);
+            Assert.AreEqual(Lr2SongFolderParentNormalizer.ComputeDirectoryHash(tableDirectory), lr2Folder.parent);
+        }
+        finally
+        {
+            ResetTouchedSettings();
+        }
+    }
+
+    [TestMethod]
     public void ApplyLr2FolderFileDiffSync_InitializePrunesExternalRowsAndProtectsManagedOutputRows()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();

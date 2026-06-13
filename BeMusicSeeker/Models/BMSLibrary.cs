@@ -5477,8 +5477,7 @@ completeFileEnumerationOnce,
             "lr2folder_file_diff_sync",
             allowPrune,
             pruneExcludedPaths: preparation.AppManagedPruneExcludedPaths,
-            scopeReadLr2FolderRowsOnly: true,
-            updateParentDirectoryRowsForPreservedItems: false);
+            scopeReadLr2FolderRowsOnly: true);
     }
 
     private static bool CanPrepareLr2FolderFileDiff(

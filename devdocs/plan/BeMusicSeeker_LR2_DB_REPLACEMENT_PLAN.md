@@ -403,9 +403,12 @@ row が残ると、manual-only でも LR2 が不要な scan に入る。
 - `.lr2folder` row は discovery source を分類するが、所有権として永続化しない。
   - `playlist_output_lr2folder`: BeMusicSeeker がプレイリスト出力として生成する `.lr2folder`。
     実ファイルは既存の出力設定・出力 directory convention で管理する。
-  - `discovered_lr2folder`: LR2 BMS root、BeMusicSeeker custom folder 出力 base、
-    LR2 built-in custom folder source (`LR2files\CustomFolder`) から discovery した `.lr2folder`。
-  - DB row はどちらも現在の discovery result から生成する派生 cache とし、消えた file の row は
+  - `discovered_lr2folder`: LR2 BMS root、または custom folder 出力 base で見つかった
+    アプリ管理外の `.lr2folder`。通常出力先 / ルート出力先が discovery root に含まれていても、
+    current playlist output exact path に一致しないものだけを外部 discovery として扱う。
+  - `builtin_lr2folder`: LR2 executable directory 配下の `LR2files\CustomFolder` から discovery し、
+    LR2 root 相対 path と `<customfolder>` bitmask / special folder rule で同期する `.lr2folder`。
+  - DB row は現在の discovery result から生成する派生 cache とし、消えた file の row は
     generation scope 内の path prune で削除する。実 `.lr2folder` ファイルは discovery では削除しない。
   - `playlist_output_lr2folder` は物理 file discovery の偶然の結果ではなく、playlist 正本からの
     materialization result を正本にする。playlist materialization 後に LR2 song.db sync を実行する場合は、
@@ -971,8 +974,12 @@ scope:
 対象:
 
 - `playlist_output_lr2folder`: BeMusicSeeker が出力する `.lr2folder`。
-- `discovered_lr2folder`: LR2 BMS root / custom folder 出力 base / LR2 built-in custom folder source
-  (`LR2files\CustomFolder`) から discovery した `.lr2folder`。
+- `discovered_lr2folder`: LR2 BMS root、または custom folder 出力 base から discovery した
+  アプリ管理外の `.lr2folder`。通常出力先 / ルート出力先配下でも、playlist output exact path として
+  分類されない file は外部 discovery として扱う。
+- `builtin_lr2folder`: LR2 executable directory 配下の `LR2files\CustomFolder` から discovery した
+  LR2 built-in custom folder source。DB path は LR2 root 相対にし、通常の外部 `.lr2folder` と
+  source boundary / prune scope を分ける。
 - discovery root には LR2 BMS search root、通常出力先 `LR2CustomFolderOutputBaseDir`、
   ルート出力先 `LR2CustomFolderOutputBaseDirRootType`、LR2 executable directory 配下の
   `LR2files\CustomFolder` を含める。
@@ -987,7 +994,7 @@ scope:
     `folder` row を更新する領域であり、BeMusicSeeker から全件 discovery / prune しない。
   - 通常の LR2 BMS search root や custom folder 出力 base の中で見つかる `__RIVAL__` `.lr2folder` は、
     built-in Rival ではなく外部 `discovered_lr2folder` として処理する。
-- playlist output / discovered / built-in は query では絞らず、discovery result と current output path set の
+- playlist output / external discovered / built-in は query では絞らず、discovery result と current output path set の
   照合で分類する。
 - BeMusicSeeker 管理の `playlist_output_lr2folder` では、`.lr2folder` 実ファイルを正本にしない。
   - `playlist` / `playlist_entry` / `playlist_course` とプレイリスト出力設定を正本にする。
@@ -1214,8 +1221,10 @@ parse directive:
 
 - `normal_folder`: LR2 root / ancestor / chart directory から生成した row。
 - `playlist_output_lr2folder`: BeMusicSeeker が出力した `.lr2folder` から生成した row。
-- `discovered_lr2folder`: LR2 BMS root / custom folder 出力 base / LR2 built-in custom folder source で
-  discovery した `.lr2folder` から生成した row。
+- `discovered_lr2folder`: LR2 BMS root / custom folder 出力 base で discovery した
+  アプリ管理外 `.lr2folder` から生成した row。
+- `builtin_lr2folder`: LR2 executable directory 配下の `LR2files\CustomFolder` で discovery した
+  built-in custom folder source から生成した row。
   実ファイルは管理せず、DB row だけを current discovery result の派生 cache として生成する。
 - `max`: `#MAXTRACKS` または `#PLAYLEVEL`。なければ `0`。
 - `adddate`: 新規 row は現在時刻。既存 row は維持。
@@ -1757,9 +1766,11 @@ Everything / filesystem 広域再スキャンを始める入口ではない。su
      `externalCandidates` / `appManagedFiltered` / `appManagedExactFiles` と `lr2folder_file_diff_sync` の
      `pruneExcludedPaths` で候補削減と保護範囲を確認できる。
      起動時外部 `.lr2folder` diff は、汎用 sync service の既定意味論は残したまま軽量 option を使い、
-     prune prefix read を `.lr2folder` row に限定し、mtime 一致で preserved の child row は parent
-     directory row exact read / metadata build / upsert を行わない。app 管理 playlist output と built-in
-     special folder は、それぞれ playlist materialization / built-in scoped sync の責務に残す。
+     prune prefix read を `.lr2folder` row に限定する。ただし mtime 一致で preserved になる child row でも、
+     LR2 選曲階層に必要な parent directory row は exact read / metadata build / upsert の対象に残す。
+     child `.lr2folder` 本文 parse は省略しても、欠けている parent directory row は current surface へ
+     収束させる。app 管理 playlist output と built-in special folder は、それぞれ playlist materialization /
+     built-in scoped sync の責務に残す。
      2026-06-08 の実機 Release 起動では、`lr2folder_file_diff_sync` が `externalCandidates=1265`、
      `existingRows=12094`、`preserved=1265`、`elapsedMs=871` まで下がった。旧ログでは
      app-managed 除外後でも `existingRows=45854`、`elapsedMs=2176` 程度だったため、normal folder row を
