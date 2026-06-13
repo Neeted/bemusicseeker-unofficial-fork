@@ -58,6 +58,30 @@ EXTERNAL_SCHEMES = {
     "file",
 }
 
+SITE_DESCRIPTIONS = {
+    "ja": (
+        "BMSライブラリ管理・譜面導入・プレイリスト管理を支援する BeMusicSeeker の非公式フォークです。"
+        "高速化、bmson対応、スタンドアローンモード、LR2連携などを改善しています。"
+    ),
+    "en": (
+        "An unofficial BeMusicSeeker fork for managing BMS libraries, installing charts, and maintaining playlists, "
+        "with performance improvements, bmson support, standalone mode, and LR2 integration updates."
+    ),
+}
+
+TWITTER_DESCRIPTIONS = {
+    "ja": "BMSライブラリ管理・譜面導入・プレイリスト管理を支援する BeMusicSeeker の非公式フォークです。",
+    "en": "An unofficial BeMusicSeeker fork for BMS library management, chart installation, and playlist maintenance.",
+}
+
+SITE_OGP_IMAGE = "img/ogp-card.ja.png"
+SITE_OGP_IMAGE_WIDTH = 1200
+SITE_OGP_IMAGE_HEIGHT = 630
+SITE_OGP_IMAGE_ALT = (
+    "BeMusicSeeker Unofficial Fork - BMSライブラリ管理を、もっと軽快に。"
+    "Releases から最新版を入手。"
+)
+
 CSS = r"""
 :root {
   color-scheme: light;
@@ -781,18 +805,59 @@ def build_sidebar(
 """
 
 
+def join_site_url(site_url: str, output_doc: PurePosixPath) -> str:
+    return f"{site_url.rstrip('/')}/{output_doc.as_posix()}"
+
+
+def build_site_meta(title: str, lang: str, output_doc: PurePosixPath, site_url: str | None) -> str:
+    if not site_url:
+        return ""
+
+    page_url = join_site_url(site_url, output_doc)
+    image_url = f"{site_url.rstrip('/')}/{SITE_OGP_IMAGE}"
+    description = SITE_DESCRIPTIONS.get(lang, SITE_DESCRIPTIONS["en"])
+    twitter_description = TWITTER_DESCRIPTIONS.get(lang, TWITTER_DESCRIPTIONS["en"])
+    escaped_title = html.escape(title, quote=True)
+    escaped_description = html.escape(description, quote=True)
+    escaped_twitter_description = html.escape(twitter_description, quote=True)
+    escaped_page_url = html.escape(page_url, quote=True)
+    escaped_image_url = html.escape(image_url, quote=True)
+    escaped_image_alt = html.escape(SITE_OGP_IMAGE_ALT, quote=True)
+
+    return f"""
+  <meta name="description" content="{escaped_description}">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="BeMusicSeeker Unofficial Fork">
+  <meta property="og:title" content="{escaped_title}">
+  <meta property="og:description" content="{escaped_description}">
+  <meta property="og:image" content="{escaped_image_url}">
+  <meta property="og:image:width" content="{SITE_OGP_IMAGE_WIDTH}">
+  <meta property="og:image:height" content="{SITE_OGP_IMAGE_HEIGHT}">
+  <meta property="og:image:alt" content="{escaped_image_alt}">
+  <meta property="og:url" content="{escaped_page_url}">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="{escaped_title}">
+  <meta name="twitter:description" content="{escaped_twitter_description}">
+  <meta name="twitter:image" content="{escaped_image_url}">
+  <meta name="twitter:image:alt" content="{escaped_image_alt}">"""
+
+
 def wrap_html(
     body_html: str,
     title: str,
     lang: str,
     sidebar_html: str,
+    output_doc: PurePosixPath,
+    site_url: str | None,
 ) -> str:
     escaped_title = html.escape(title)
+    site_meta = build_site_meta(title, lang, output_doc, site_url)
     return f"""<!doctype html>
 <html lang="{html.escape(lang, quote=True)}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+{site_meta}
   <title>{escaped_title}</title>
   <style>
 {CSS}
@@ -887,6 +952,7 @@ def build_html_docs(
     copy_docs: bool,
     skip_link_check: bool,
     site_mode: bool,
+    site_url: str | None,
 ) -> list[PurePosixPath]:
     source_root = source_root.resolve()
     output_root = output_root.resolve()
@@ -936,7 +1002,7 @@ def build_html_docs(
             nav_labels_by_output,
             headings_by_output[output_doc],
         )
-        page_html = wrap_html(body_html, title, current_doc.lang, sidebar)
+        page_html = wrap_html(body_html, title, current_doc.lang, sidebar, output_doc, site_url)
 
         output_file = output_root / Path(to_posix(output_doc))
         output_file.parent.mkdir(parents=True, exist_ok=True)
@@ -968,6 +1034,10 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         action="store_true",
         help="Generate GitHub Pages style paths: README files become index*.html and docs/*.md are written at the output root.",
     )
+    parser.add_argument(
+        "--site-url",
+        help="Absolute public site root used for OGP/Twitter card metadata. Intended for use with --site.",
+    )
     parser.add_argument("--skip-link-check", action="store_true", help="Skip validation of generated local links.")
     return parser.parse_args(argv)
 
@@ -976,6 +1046,9 @@ def main(argv: list[str]) -> int:
     args = parse_args(argv)
     if args.site and args.copy_docs:
         print("error: --site cannot be combined with --copy-docs", file=sys.stderr)
+        return 2
+    if args.site_url and not args.site:
+        print("error: --site-url requires --site", file=sys.stderr)
         return 2
 
     documents = tuple(args.documents) if args.documents else DEFAULT_DOCUMENTS
@@ -987,6 +1060,7 @@ def main(argv: list[str]) -> int:
             copy_docs=args.copy_docs,
             skip_link_check=args.skip_link_check,
             site_mode=args.site,
+            site_url=args.site_url.rstrip("/") if args.site_url else None,
         )
     except Exception as exc:
         print(f"error: {exc}", file=sys.stderr)

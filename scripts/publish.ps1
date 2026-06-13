@@ -15,7 +15,8 @@ param(
     [switch]$SkipDocHtml,
     [switch]$IncludeMetadata,
     [string]$MetadataSource = "artifacts\chart-info-metadata\latest\chart-info-metadata.7z",
-    [string]$MetadataPackageSuffix = "-with-metadata"
+    [string]$MetadataPackageSuffix = "-with-metadata",
+    [string]$PublicSiteUrl = "https://neeted.github.io/bemusicseeker-unofficial-fork"
 )
 
 $ErrorActionPreference = "Stop"
@@ -99,7 +100,7 @@ function Build-PublicDocSite($targetDocsDir) {
     Write-Host "  Pages HTML docs を生成中..."
     Push-Location $devRoot
     try {
-        $generatedDocs = @(uv run scripts\build-doc-html.py --source-root $devRoot --output-root $targetDocsDir --site)
+        $generatedDocs = @(uv run scripts\build-doc-html.py --source-root $devRoot --output-root $targetDocsDir --site --site-url $PublicSiteUrl)
         $exitCode = $LASTEXITCODE
         foreach ($doc in $generatedDocs) {
             Write-Host "    docs\$doc"
