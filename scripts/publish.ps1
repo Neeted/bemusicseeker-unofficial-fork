@@ -90,6 +90,30 @@ function Build-DocHtml($targetStagingDir) {
     Write-Host "  HTML docs 生成完了" -ForegroundColor Green
 }
 
+function Build-PublicDocSite($targetDocsDir) {
+    if ($SkipDocHtml) {
+        Write-Host "  Pages HTML docs 生成をスキップしました" -ForegroundColor Yellow
+        return
+    }
+
+    Write-Host "  Pages HTML docs を生成中..."
+    Push-Location $devRoot
+    try {
+        $generatedDocs = @(uv run scripts\build-doc-html.py --source-root $devRoot --output-root $targetDocsDir --site)
+        $exitCode = $LASTEXITCODE
+        foreach ($doc in $generatedDocs) {
+            Write-Host "    docs\$doc"
+        }
+        if ($exitCode -ne 0) { throw "Pages HTML docs の生成に失敗しました" }
+    }
+    finally {
+        Pop-Location
+    }
+
+    New-Item -ItemType File -Path (Join-Path $targetDocsDir ".nojekyll") -Force | Out-Null
+    Write-Host "  Pages HTML docs 生成完了" -ForegroundColor Green
+}
+
 function Copy-AppFilesToStaging($targetStagingDir) {
     if (Test-Path $targetStagingDir) { Remove-Item $targetStagingDir -Recurse -Force }
     New-Item -ItemType Directory -Path $targetStagingDir -Force | Out-Null
@@ -222,6 +246,7 @@ function Sync-PublicRepo($releasePackagePaths) {
 
     # ディレクトリのミラーリング
     Mirror-Directory "docs"
+    Build-PublicDocSite (Join-Path $pubRoot "docs")
     Mirror-Directory "third_party"
     Mirror-Directory "scripts"
     Mirror-Directory "lang"

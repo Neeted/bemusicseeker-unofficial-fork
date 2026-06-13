@@ -452,6 +452,16 @@ def html_path_for(markdown_path: PurePosixPath) -> PurePosixPath:
     return markdown_path.with_name(name)
 
 
+def site_html_path_for(markdown_path: PurePosixPath) -> PurePosixPath:
+    if markdown_path.name == "README.md":
+        return PurePosixPath("index.html")
+    if markdown_path.name == "README.ja.md":
+        return PurePosixPath("index.ja.html")
+    if markdown_path.parts and markdown_path.parts[0] == "docs":
+        return html_path_for(PurePosixPath(*markdown_path.parts[1:]))
+    return html_path_for(markdown_path)
+
+
 def relative_url(from_html: PurePosixPath, to_html: PurePosixPath) -> str:
     rel = posixpath.relpath(to_html.as_posix(), start=from_html.parent.as_posix() or ".")
     return "." if rel == "." else rel
@@ -537,6 +547,12 @@ def resolve_doc_link_target(
     return relative_candidate
 
 
+def output_resource_path(source_resource: PurePosixPath, site_mode: bool) -> PurePosixPath:
+    if site_mode and source_resource.parts and source_resource.parts[0] == "docs":
+        return PurePosixPath(*source_resource.parts[1:])
+    return source_resource
+
+
 def rewrite_links(
     soup: BeautifulSoup,
     source_doc: PurePosixPath,
@@ -563,6 +579,31 @@ def rewrite_links(
         target_output = doc_map[target_source]
         new_path = relative_url(output_doc, target_output)
         anchor["href"] = urlunsplit(("", "", new_path, parsed.query, parsed.fragment))
+
+
+def rewrite_images(
+    soup: BeautifulSoup,
+    source_doc: PurePosixPath,
+    output_doc: PurePosixPath,
+    site_mode: bool,
+) -> None:
+    for image in soup.find_all("img", src=True):
+        src = image["src"]
+        if not src or is_external_href(src):
+            continue
+
+        parsed = urlsplit(src)
+        if not parsed.path:
+            continue
+
+        raw_path = unquote(parsed.path).replace("\\", "/")
+        if raw_path.startswith("/"):
+            continue
+
+        source_resource = normalize_doc_path(source_doc.parent / PurePosixPath(raw_path))
+        output_resource = output_resource_path(source_resource, site_mode)
+        new_path = relative_url(output_doc, output_resource)
+        image["src"] = urlunsplit(("", "", new_path, parsed.query, parsed.fragment))
 
 
 def wrap_tables(soup: BeautifulSoup) -> None:
@@ -845,6 +886,7 @@ def build_html_docs(
     documents: tuple[str, ...],
     copy_docs: bool,
     skip_link_check: bool,
+    site_mode: bool,
 ) -> list[PurePosixPath]:
     source_root = source_root.resolve()
     output_root = output_root.resolve()
@@ -854,7 +896,8 @@ def build_html_docs(
         copy_docs_tree(source_root, output_root)
 
     source_docs = [normalize_doc_path(doc) for doc in documents]
-    doc_map = {source_doc: html_path_for(source_doc) for source_doc in source_docs}
+    path_builder = site_html_path_for if site_mode else html_path_for
+    doc_map = {source_doc: path_builder(source_doc) for source_doc in source_docs}
     doc_defs_by_source = build_document_definitions(source_docs)
 
     rendered: dict[PurePosixPath, BeautifulSoup] = {}
@@ -871,6 +914,7 @@ def build_html_docs(
         soup = BeautifulSoup(body, "html.parser")
         output_doc = doc_map[source_doc]
         rewrite_links(soup, source_doc, output_doc, doc_map)
+        rewrite_images(soup, source_doc, output_doc, site_mode)
         remove_language_badges(soup)
         wrap_tables(soup)
         rendered[source_doc] = soup
@@ -919,12 +963,21 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         help="Markdown document to convert, relative to source root. Can be passed multiple times.",
     )
     parser.add_argument("--copy-docs", action="store_true", help="Copy the docs directory into the output root first.")
+    parser.add_argument(
+        "--site",
+        action="store_true",
+        help="Generate GitHub Pages style paths: README files become index*.html and docs/*.md are written at the output root.",
+    )
     parser.add_argument("--skip-link-check", action="store_true", help="Skip validation of generated local links.")
     return parser.parse_args(argv)
 
 
 def main(argv: list[str]) -> int:
     args = parse_args(argv)
+    if args.site and args.copy_docs:
+        print("error: --site cannot be combined with --copy-docs", file=sys.stderr)
+        return 2
+
     documents = tuple(args.documents) if args.documents else DEFAULT_DOCUMENTS
     try:
         outputs = build_html_docs(
@@ -933,6 +986,7 @@ def main(argv: list[str]) -> int:
             documents=documents,
             copy_docs=args.copy_docs,
             skip_link_check=args.skip_link_check,
+            site_mode=args.site,
         )
     except Exception as exc:
         print(f"error: {exc}", file=sys.stderr)
