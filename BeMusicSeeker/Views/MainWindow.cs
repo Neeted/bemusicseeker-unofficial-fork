@@ -5786,7 +5786,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         if (downloadedPaths.Count > 0)
         {
-            installChartPackages(downloadedPaths);
+            viewModel?.EnqueueDroppedInstallPaths(downloadedPaths);
             newlyInstalledTreeViewItem.IsExpanded = true;
         }
         string resultMessage = string.Format(

@@ -1867,6 +1867,8 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(bulkMethod, "DropInstallQueueCanCancel: true");
         StringAssert.Contains(bulkMethod, "Warn_SelectedPlaylistUrlDownloadBlockedByInstallQueue");
         StringAssert.Contains(bulkMethod, "browserFallbackCount++");
+        StringAssert.Contains(bulkMethod, "viewModel?.EnqueueDroppedInstallPaths(downloadedPaths)");
+        Assert.IsFalse(bulkMethod.Contains("installChartPackages(downloadedPaths)"));
         Assert.IsFalse(bulkMethod.Contains("Process.Start"));
         StringAssert.Contains(dropHandler, "Warn_DropInstallBlockedByPlaylistUrlDownload");
         StringAssert.Contains(dropHandler, "playlistUrlBulkDownloadRunning");
