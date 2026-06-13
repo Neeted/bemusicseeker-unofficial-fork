@@ -4,6 +4,9 @@
 OpenLR2 の調査結果と BeMusicSeeker 側の現状を前提に、LR2 の起動時ファイル走査を
 BeMusicSeeker 側の `song.db` 生成で代替する方針をまとめます。
 
+現行仕様の正本は [../spec/lr2-song-db-generation.md](../spec/lr2-song-db-generation.md) です。
+この資料は実装計画と履歴確認用として残します。
+
 ## 参照元
 
 - OpenLR2 ローカルクローン:

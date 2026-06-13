@@ -12,9 +12,11 @@
    - 起動、導入可能 readiness、startup background scheduler。
 3. [data-and-indexes.md](data-and-indexes.md)
    - catalog、resource index、chart-relative key、DB table。
-4. [install-estimation-current-logic.md](install-estimation-current-logic.md)
+4. [lr2-song-db-generation.md](lr2-song-db-generation.md)
+   - LR2 連携モードの `song.db` 生成、`song` / `folder`、`.lr2folder`、自動更新設定。
+5. [install-estimation-current-logic.md](install-estimation-current-logic.md)
    - 導入先推定の現行仕様。
-5. [workflows.md](workflows.md)
+6. [workflows.md](workflows.md)
    - リロード、導入、再インストールなどの主要処理フロー。
 
 ## 機能別仕様
@@ -23,6 +25,7 @@
 - [chart-info-parser-compatibility-notes.md](chart-info-parser-compatibility-notes.md)
 - [startup-reload-progress.md](startup-reload-progress.md)
 - [settings-change-impact-and-startup-operations.md](settings-change-impact-and-startup-operations.md)
+- [lr2-song-db-generation.md](lr2-song-db-generation.md)
 - [playlist-data-and-export-flow.md](playlist-data-and-export-flow.md)
 - [bms-bmson-chart-abstraction-current-state.md](bms-bmson-chart-abstraction-current-state.md)
 - [warning-model.md](warning-model.md)
