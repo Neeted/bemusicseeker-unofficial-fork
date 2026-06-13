@@ -96,7 +96,8 @@ public sealed class CustomTableColumnSettingsTests
             "Mode",
             "Folder",
             "Path",
-            "PlaylistSymbols");
+            "PlaylistSymbols",
+            "CharcterEncoding");
     }
 
     [TestMethod]

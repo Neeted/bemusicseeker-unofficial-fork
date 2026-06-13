@@ -1075,7 +1075,8 @@ public class CustomTableColumnSettings : NotificationObject
                     Mode,
                     Folder,
                     Path,
-                    PlaylistSymbols);
+                    PlaylistSymbols,
+                    CharcterEncoding);
                 break;
             case ViewKind.ZERO_NOTE:
                 ApplyVisibleColumnOrder(

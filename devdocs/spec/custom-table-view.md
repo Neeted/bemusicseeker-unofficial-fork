@@ -154,6 +154,7 @@ LR2互換性警告画面は、通常ライブラリよりも警告内容の確�
 | 7 | Folder | `FOLDER` | 140 |
 | 8 | Path | `PATH` | 250 |
 | 9 | PlaylistSymbols | `PLAYLIST` | 70 |
+| 10 | CharcterEncoding | `ENCODING` | 130 |
 
 ### プレイリスト詳細
 
