@@ -1884,6 +1884,9 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsTrue(MainWindow.IsBrowserFallbackDownloadUriForTest(new Uri("https://example.invalid/index.htm")));
         Assert.IsTrue(MainWindow.IsBrowserFallbackDownloadUriForTest(new Uri("https://example.invalid/index.html")));
         Assert.IsFalse(MainWindow.IsBrowserFallbackDownloadUriForTest(new Uri("https://example.invalid/package.zip")));
+        Assert.IsFalse(MainWindow.IsBrowserFallbackDownloadUriForTest(new Uri("https://manbow.nothing.sh/event/event.cgi?action=More_def&num=1&event=1")));
+        Assert.IsFalse(MainWindow.IsBrowserFallbackDownloadUriForTest(new Uri("https://venue.bmssearch.net/event/1/1")));
+        Assert.IsFalse(MainWindow.IsBrowserFallbackDownloadUriForTest(new Uri("https://bmssearch.net/bmses/1")));
     }
 
     [TestMethod]
@@ -1923,6 +1926,38 @@ public sealed class MainWindowContextMenuResourceTests
             <a id="downloadButton" href="https://download123.mediafire.com/abc/package.zip">Download</a>
             </body></html>
             """;
+        const string manbowHtml = """
+            <html><body>
+            <Th>DownLoadAddress</Th><td><a href="https://example.invalid/body.zip">Download</a></td>
+            </body></html>
+            """;
+        const string venueHtml = """
+            <html><body>
+            <a href="https://example.invalid/readme.html">info</a>
+            <a href="https://drive.google.com/file/d/abc123/view?usp=sharing">Download</a>
+            </body></html>
+            """;
+        const string bmsSearchHtml = """
+            <html><body>
+            <a href="/help.html">help</a>
+            <a href="/archives/package.lzh">archive</a>
+            </body></html>
+            """;
+        const string bmsSearchNextHtml = """
+            <html><body>
+            <script>self.__next_f.push([1,"7:{\"title\":\"\uD83D\uDE00\",\"downloads\":[{\"url\":\"https://anonymous.bms.ms/data/body.zip\",\"description\":\"\"}],\"relatedLinks\":[]}"])</script>
+            </body></html>
+            """;
+        const string venueNextHtml = """
+            <html><body>
+            <script>self.__next_f.push([1,"2c:{\"description\":\"3.5型\",\"downloadURL\":\"https://anonymous.bms.ms/data/itsfree_battle.7z\",\"type\":\"CORE\"}"])</script>
+            </body></html>
+            """;
+        const string venueMediaFireHtml = """
+            <html><body>
+            <a href="https://www.mediafire.com/file/abc/package.zip/file">Download</a>
+            </body></html>
+            """;
         const string googleDriveUnsafeActionHtml = """
             <html><body>
             <form id="download-form" method="get" action="file:///C:/secret.zip">
@@ -1935,6 +1970,26 @@ public sealed class MainWindowContextMenuResourceTests
             <a id="downloadButton" href="https://evilmediafire.com/abc/package.zip">Download</a>
             </body></html>
             """;
+        const string manbowUnsafeSchemeHtml = """
+            <html><body>
+            <Th>DownLoadAddress</Th><td><a href="file:///C:/secret.zip">Download</a></td>
+            </body></html>
+            """;
+        const string venueUnsafeHostHtml = """
+            <html><body>
+            <a href="https://evil.example.invalid/index.html">not a direct archive</a>
+            </body></html>
+            """;
+        const string venueSourcePageOnlyHtml = """
+            <html><body>
+            <a href="https://bmssearch.net/bmses/2uLp8a8bJYLmrx">BMS SEARCH page</a>
+            </body></html>
+            """;
+        const string venueGoogleDriveFolderOnlyHtml = """
+            <html><body>
+            <a href="https://drive.google.com/drive/folders/folder123">Google Drive folder</a>
+            </body></html>
+            """;
 
         Assert.AreEqual(
             "https://drive.usercontent.google.com/download?id=abc123&confirm=token",
@@ -1942,9 +1997,31 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.AreEqual(
             "https://download123.mediafire.com/abc/package.zip",
             MainWindow.ResolveSharedDownloadPageUriForTest(new Uri("https://www.mediafire.com/file/abc/package.zip/file"), mediaFireHtml).ToString());
+        Assert.AreEqual(
+            "https://example.invalid/body.zip",
+            MainWindow.ResolveSharedDownloadPageUriForTest(new Uri("https://manbow.nothing.sh/event/event.cgi?action=More_def&num=1&event=1"), manbowHtml).ToString());
+        Assert.AreEqual(
+            "https://drive.usercontent.google.com/download?id=abc123&export=download",
+            MainWindow.ResolveSharedDownloadPageUriForTest(new Uri("https://venue.bmssearch.net/event/1/1"), venueHtml).ToString());
+        Assert.AreEqual(
+            "https://bmssearch.net/archives/package.lzh",
+            MainWindow.ResolveSharedDownloadPageUriForTest(new Uri("https://bmssearch.net/bmses/1"), bmsSearchHtml).ToString());
+        Assert.AreEqual(
+            "https://anonymous.bms.ms/data/body.zip",
+            MainWindow.ResolveSharedDownloadPageUriForTest(new Uri("https://bmssearch.net/bmses/2uLp8a8bJYLmrx"), bmsSearchNextHtml).ToString());
+        Assert.AreEqual(
+            "https://anonymous.bms.ms/data/itsfree_battle.7z",
+            MainWindow.ResolveSharedDownloadPageUriForTest(new Uri("https://venue.bmssearch.net/freebattle/30"), venueNextHtml).ToString());
+        Assert.AreEqual(
+            "https://www.mediafire.com/file/abc/package.zip/file",
+            MainWindow.ResolveSharedDownloadPageUriForTest(new Uri("https://venue.bmssearch.net/freebattle/30"), venueMediaFireHtml).ToString());
         Assert.IsNull(MainWindow.ResolveSharedDownloadPageUriForTest(new Uri("https://drive.usercontent.google.com/download?id=abc123&export=download"), googleDriveUnsafeActionHtml));
         Assert.IsNull(MainWindow.ResolveSharedDownloadPageUriForTest(new Uri("https://www.mediafire.com/file/abc/package.zip/file"), mediaFireUnsafeHostHtml));
         Assert.IsNull(MainWindow.ResolveSharedDownloadPageUriForTest(new Uri("https://evilmediafire.com/file/abc/package.zip/file"), mediaFireHtml));
+        Assert.IsNull(MainWindow.ResolveSharedDownloadPageUriForTest(new Uri("https://manbow.nothing.sh/event/event.cgi?action=More_def&num=1&event=1"), manbowUnsafeSchemeHtml));
+        Assert.IsNull(MainWindow.ResolveSharedDownloadPageUriForTest(new Uri("https://venue.bmssearch.net/event/1/1"), venueUnsafeHostHtml));
+        Assert.IsNull(MainWindow.ResolveSharedDownloadPageUriForTest(new Uri("https://venue.bmssearch.net/freebattle/30"), venueSourcePageOnlyHtml));
+        Assert.IsNull(MainWindow.ResolveSharedDownloadPageUriForTest(new Uri("https://venue.bmssearch.net/freebattle/30"), venueGoogleDriveFolderOnlyHtml));
     }
 
     [TestMethod]
