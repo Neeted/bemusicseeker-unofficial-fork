@@ -217,7 +217,7 @@ background task は「現在の file diff で直接扱っていない DB 由来�
 
 初回空DBでは、file diff で追加された `BMSFile` が `folder` / `parent` 未設定のまま `song` へ insert される。そのため初回だけ大量に表示される。再起動後は `LoadSongTable()` の正規化で `folder` / `parent` CRC が補正されるため、0 件になる。
 
-また、`docs/sjis-path-validation-note.md` の通り、`folder` / `parent` CRC は Shift_JIS で計算する。パスに Shift_JIS 非対応文字が含まれると現在は例外経由で削除対象になり、直後の file diff で再追加される往復更新が起きる。
+また、`docs/manual.ja.md#lr2互換性警告` の通り、`folder` / `parent` CRC は Shift_JIS で計算する。パスに Shift_JIS 非対応文字が含まれると現在は例外経由で削除対象になり、直後の file diff で再追加される往復更新が起きる。
 
 ### 修正方針
 
@@ -789,7 +789,7 @@ Phase 9 は Phase 8 後の単なる高速化ではなく、Phase 7.7 の memory 
 
 - 空DB初回起動相当で、file diff 追加直後の `ChartFilesUnregistered` が Shift_JIS 非対応 path のみになること。
 - Shift_JIS 非対応 path の既存 `song` が削除されず、warning 付きで残ること。
-- `docs/sjis-path-validation-note.md` の削除→再追加往復が発生しないこと。
+- `docs/manual.ja.md#lr2互換性警告` に該当する Shift_JIS 非対応 path の削除→再追加往復が発生しないこと。
 - `ChartFilesZeroNote` が `karinotes` ではなく `chart_info.notes == 0` を見ること。
 - `setZeroNoteAndCommitToDB()` 廃止後、`song.karinotes` がアプリ起動・リロード・インストールで変更されないこと。
 - `RecheckZeroNoteWarnings()` が `chart_info.notes == 0` 譜面を対象に、正規表現上の可視ノート風記述を warning 化すること。

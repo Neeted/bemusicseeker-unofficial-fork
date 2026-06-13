@@ -32,7 +32,7 @@
 4. **使い方・ログ**
     - 基本操作は [ユーザーマニュアル](docs/manual.ja.md) を参照してください。
     - 譜面導入や保留パッケージの操作は [インストール / 保留パッケージ](docs/manual.ja.md#インストール--保留パッケージ) を参照してください。
-    - キーワード検索の詳しい構文は [キーワード検索構文ガイド](docs/keyword-search-syntax-guide.md) を参照してください。
+    - キーワード検索の詳しい構文は [キーワード検索構文ガイド](docs/keyword-search-syntax-guide.ja.md) を参照してください。
     - `LaunchWithInfoLog.bat` から起動すると、通常より詳しいログが `application.log` と `install-performance.log` に出力されます。ログの見方は [ログレベル INFO ガイド](docs/log-level-info-guide.md) を参照してください。
 
 ## 変更概要

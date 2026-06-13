@@ -1,6 +1,7 @@
 # BeMusicSeeker Unofficial Fork ユーザーマニュアル v2.0
 
-[![Japanese](https://img.shields.io/badge/lang-Japanese-blue.svg)](docs\manual.ja.md)
+[![Japanese](https://img.shields.io/badge/lang-Japanese-blue.svg)](manual.ja.md)
+[![English](https://img.shields.io/badge/lang-English-red.svg)](manual.md)
 
 ![BeMusicSeeker](img/header.jpg)
 
@@ -308,7 +309,7 @@ BeMusicSeeker の起動処理は段階的に進みます。
 
 ライブラリ一覧では、登録済み譜面を検索・再生・整理できます。
 
-**強力な検索構文を備えています。 [キーワード検索構文ガイド](keyword-search-syntax-guide.md) を参照してください。**
+**強力な検索構文を備えています。 [キーワード検索構文ガイド](keyword-search-syntax-guide.ja.md) を参照してください。**
 `title:`、`artist:`、`playlist:`、`rate:` などの field 指定や、除外検索、OR、正規表現、数値範囲検索を使えます。`TOTAL`、`DIFFICULTY` などのカラムで背景色が付いているセルは未定義だったことを表しています。`total:undef` などで検索可能です。
 
 ![ライブラリ検索例](img/一覧_ライブラリ_検索例.PNG)
@@ -453,7 +454,7 @@ playlist:"Satellite Sub"
 ```
 
 検索欄には field 補完、プレイリスト名補完、検索履歴があります。  
-詳しい構文は [キーワード検索構文ガイド](keyword-search-syntax-guide.md) を参照してください。
+詳しい構文は [キーワード検索構文ガイド](keyword-search-syntax-guide.ja.md) を参照してください。
 
 ## 再生・録音
 
@@ -804,11 +805,11 @@ LR2 連携モードでは、ステータスバーの `LR2 song.db 同期` 状態
 
 ### 検索構文が分からない
 
-[キーワード検索構文ガイド](keyword-search-syntax-guide.md) を参照してください。`title:`、`artist:`、`playlist:`、`rate:` などの field 指定や、除外検索、OR、正規表現、数値範囲検索を使えます。
+[キーワード検索構文ガイド](keyword-search-syntax-guide.ja.md) を参照してください。`title:`、`artist:`、`playlist:`、`rate:` などの field 指定や、除外検索、OR、正規表現、数値範囲検索を使えます。
 
 ## 参考資料
 
-- [キーワード検索構文ガイド](keyword-search-syntax-guide.md)
+- [キーワード検索構文ガイド](keyword-search-syntax-guide.ja.md)
 - [BeMusicSeeker ログ（実行記録）の見方ガイド](log-level-info-guide.md)
 - [従来版 BeMusicSeeker 公開記事](https://tumblr.ribbit.xyz/post/129562866015/bemusicseeker-%E6%AD%A3%E5%BC%8F%E7%89%88%E3%82%92%E5%85%AC%E9%96%8B%E3%81%97%E3%81%BE%E3%81%97%E3%81%9F-v034)
 - [従来版 BeMusicSeeker マニュアル](https://tumblr.ribbit.xyz/post/129562878360/bemusicseeker-%E3%83%9E%E3%83%8B%E3%83%A5%E3%82%A2%E3%83%AB-v030-%E5%AF%BE%E5%BF%9C%E7%89%88)

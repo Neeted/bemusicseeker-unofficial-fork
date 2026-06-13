@@ -16,6 +16,7 @@ import posixpath
 import re
 import shutil
 import sys
+from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from urllib.parse import unquote, urlsplit, urlunsplit
 
@@ -23,23 +24,30 @@ import markdown
 from bs4 import BeautifulSoup
 
 
-DEFAULT_DOCUMENTS = (
-    "README.ja.md",
-    "README.md",
-    "docs/manual.ja.md",
-    "docs/keyword-search-syntax-guide.md",
-    "docs/log-level-info-guide.md",
-    "docs/sjis-path-validation-note.md",
+@dataclass(frozen=True)
+class Document:
+    key: str
+    lang: str
+    source: str
+    nav_label: str
+
+
+DOCUMENTS = (
+    Document("readme", "ja", "README.ja.md", "README"),
+    Document("readme", "en", "README.md", "README"),
+    Document("manual", "ja", "docs/manual.ja.md", "ユーザーマニュアル"),
+    Document("manual", "en", "docs/manual.md", "User Manual"),
+    Document("search", "ja", "docs/keyword-search-syntax-guide.ja.md", "キーワード検索構文ガイド"),
+    Document("search", "en", "docs/keyword-search-syntax-guide.md", "Keyword Search Syntax Guide"),
+    Document("logs", "ja", "docs/log-level-info-guide.md", "ログレベル INFO ガイド"),
 )
 
-NAV_LABELS = {
-    "README.ja.md": "README (日本語)",
-    "README.md": "README (English)",
-    "docs/manual.ja.md": "ユーザーマニュアル",
-    "docs/keyword-search-syntax-guide.md": "キーワード検索構文ガイド",
-    "docs/log-level-info-guide.md": "ログレベル INFO ガイド",
-    "docs/sjis-path-validation-note.md": "Shift_JIS パス注意",
+LANGUAGE_LABELS = {
+    "ja": "日本語",
+    "en": "English",
 }
+
+DEFAULT_DOCUMENTS = tuple(document.source for document in DOCUMENTS)
 
 EXTERNAL_SCHEMES = {
     "http",
@@ -114,8 +122,14 @@ a:hover {
   background: var(--content-bg);
 }
 
-.doc-nav-title {
-  margin: 0 0 10px;
+.sidebar-section + .sidebar-section {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.sidebar-title {
+  margin: 0 0 8px;
   color: var(--muted);
   font-size: 12px;
   font-weight: 700;
@@ -123,25 +137,103 @@ a:hover {
   text-transform: uppercase;
 }
 
-.doc-nav a {
+.doc-nav a,
+.toc-tree a {
   display: block;
-  margin: 4px 0;
-  padding: 7px 9px;
+  padding: 5px 8px;
   border-radius: 6px;
   color: var(--text);
-  line-height: 1.42;
+  line-height: 1.38;
   text-decoration: none;
 }
 
-.doc-nav a:hover {
+.doc-nav a:hover,
+.toc-tree a:hover {
   background: #eef5f4;
   color: var(--accent-strong);
 }
 
-.doc-nav a[aria-current="page"] {
+.doc-nav a[aria-current="page"],
+.language-menu a[aria-current="true"],
+.toc-tree a[aria-current="true"] {
   background: #dff0ed;
   color: var(--accent-strong);
   font-weight: 700;
+}
+
+.language-menu {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.language-menu a {
+  border: 1px solid var(--border);
+}
+
+.language-menu a[aria-current="true"] {
+  border-color: #b7ded8;
+}
+
+.document-list a + a {
+  margin-top: 4px;
+}
+
+.toc-tree {
+  max-height: calc(100vh - 280px);
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.toc-tree ul {
+  margin: 0;
+  padding-left: 0;
+  list-style: none;
+}
+
+.toc-tree li {
+  margin: 1px 0;
+}
+
+.toc-tree ul ul {
+  margin-left: 12px;
+  padding-left: 10px;
+  border-left: 1px solid var(--border-soft);
+}
+
+.toc-tree details {
+  margin: 1px 0;
+}
+
+.toc-tree summary {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 28px;
+  padding: 2px 4px;
+  border-radius: 6px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.toc-tree summary:hover {
+  background: #eef5f4;
+}
+
+.toc-tree summary::marker {
+  color: var(--muted);
+}
+
+.toc-tree summary a {
+  flex: 1;
+  min-width: 0;
+  padding: 3px 4px;
+}
+
+.toc-tree .toc-level-3 a,
+.toc-tree .toc-level-4 a {
+  color: #2f6883;
+  font-size: 14px;
 }
 
 .doc-content {
@@ -301,10 +393,40 @@ hr {
   .doc-nav {
     position: static;
     margin-bottom: 18px;
+    padding: 12px;
+  }
+
+  .sidebar-section + .sidebar-section {
+    margin-top: 12px;
+    padding-top: 12px;
+  }
+
+  .doc-nav a,
+  .toc-tree a {
+    padding: 4px 6px;
+  }
+
+  .language-menu a {
+    flex: 1 1 calc(50% - 3px);
+    text-align: center;
+  }
+
+  .document-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 4px;
+  }
+
+  .document-list a + a {
+    margin-top: 0;
   }
 
   .doc-content {
     padding: 28px 22px 36px;
+  }
+
+  .toc-tree {
+    max-height: 220px;
   }
 
   h1 {
@@ -384,8 +506,19 @@ def extract_title(soup: BeautifulSoup, fallback: str) -> str:
     return fallback
 
 
-def language_for(source_doc: PurePosixPath) -> str:
-    return "en" if source_doc.as_posix() == "README.md" else "ja"
+def language_for_source(source_doc: PurePosixPath) -> str:
+    return "en" if not source_doc.name.endswith(".ja.md") else "ja"
+
+
+def build_document_definitions(source_docs: list[PurePosixPath]) -> dict[PurePosixPath, Document]:
+    known = {normalize_doc_path(document.source): document for document in DOCUMENTS}
+    definitions: dict[PurePosixPath, Document] = {}
+    for source_doc in source_docs:
+        definitions[source_doc] = known.get(
+            source_doc,
+            Document(source_doc.as_posix(), language_for_source(source_doc), source_doc.as_posix(), source_doc.name),
+        )
+    return definitions
 
 
 def resolve_doc_link_target(
@@ -439,12 +572,131 @@ def wrap_tables(soup: BeautifulSoup) -> None:
         table.wrap(wrapper)
 
 
-def build_nav(
+def remove_language_badges(soup: BeautifulSoup) -> None:
+    for image in list(soup.find_all("img")):
+        if "img.shields.io/badge/lang-" not in (image.get("src") or ""):
+            continue
+        parent = image.parent
+        if parent and parent.name == "a":
+            parent.decompose()
+        else:
+            image.decompose()
+    for paragraph in list(soup.find_all("p")):
+        if paragraph.get_text(strip=True):
+            continue
+        if paragraph.find(["img", "picture", "video", "iframe", "object", "embed"]):
+            continue
+        if paragraph.find(True):
+            continue
+        paragraph.decompose()
+
+
+def extract_headings(soup: BeautifulSoup) -> list[dict[str, str | int]]:
+    headings: list[dict[str, str | int]] = []
+    for heading in soup.find_all(["h1", "h2", "h3", "h4"]):
+        heading_id = heading.get("id")
+        text = heading.get_text(" ", strip=True)
+        if not heading_id or not text:
+            continue
+        if text in {"目次", "Table of Contents"}:
+            continue
+        headings.append(
+            {
+                "level": int(heading.name[1]),
+                "id": str(heading_id),
+                "text": text,
+            }
+        )
+    return headings
+
+
+def build_toc_tree(headings: list[dict[str, str | int]]) -> list[dict[str, object]]:
+    root: list[dict[str, object]] = []
+    stack: list[tuple[int, list[dict[str, object]]]] = [(0, root)]
+    for heading in headings:
+        level = int(heading["level"])
+        node: dict[str, object] = {
+            "level": level,
+            "id": heading["id"],
+            "text": heading["text"],
+            "children": [],
+        }
+        while stack and stack[-1][0] >= level:
+            stack.pop()
+        stack[-1][1].append(node)
+        stack.append((level, node["children"]))  # type: ignore[arg-type]
+    return root
+
+
+def render_toc_nodes(nodes: list[dict[str, object]]) -> str:
+    if not nodes:
+        return ""
+    items: list[str] = []
+    for node in nodes:
+        level = int(node["level"])
+        href = "#" + html.escape(str(node["id"]), quote=True)
+        label = html.escape(str(node["text"]))
+        children = node["children"]  # type: ignore[assignment]
+        child_html = render_toc_nodes(children) if children else ""
+        if child_html:
+            items.append(
+                f'<li class="toc-level-{level}"><details open>'
+                f'<summary><a href="{href}">{label}</a></summary>{child_html}</details></li>'
+            )
+        else:
+            items.append(f'<li class="toc-level-{level}"><a href="{href}">{label}</a></li>')
+    return "<ul>\n" + "\n".join(items) + "\n</ul>"
+
+
+def build_language_menu(
+    current_doc: Document,
     current_output: PurePosixPath,
-    titles_by_output: dict[PurePosixPath, str],
+    doc_map: dict[PurePosixPath, PurePosixPath],
+    doc_defs_by_source: dict[PurePosixPath, Document],
+) -> str:
+    alternates = [
+        (source_doc, document)
+        for source_doc, document in doc_defs_by_source.items()
+        if document.key == current_doc.key
+    ]
+    alternates.sort(key=lambda item: list(LANGUAGE_LABELS).index(item[1].lang) if item[1].lang in LANGUAGE_LABELS else 99)
+    links: list[str] = []
+    for source_doc, document in alternates:
+        output_doc = doc_map[source_doc]
+        href = html.escape(relative_url(current_output, output_doc), quote=True)
+        label = html.escape(LANGUAGE_LABELS.get(document.lang, document.lang))
+        current = ' aria-current="true"' if document.lang == current_doc.lang else ""
+        links.append(f'<a href="{href}"{current}>{label}</a>')
+    return "\n".join(links)
+
+
+def build_document_links(
+    current_doc: Document,
+    current_output: PurePosixPath,
+    doc_map: dict[PurePosixPath, PurePosixPath],
+    doc_defs_by_source: dict[PurePosixPath, Document],
+    nav_labels_by_output: dict[PurePosixPath, str],
 ) -> str:
     links: list[str] = []
-    for output_path, title in titles_by_output.items():
+    linked_sources: set[PurePosixPath] = set()
+    for document in DOCUMENTS:
+        if document.lang != current_doc.lang:
+            continue
+        source_doc = normalize_doc_path(document.source)
+        if source_doc not in doc_map:
+            continue
+        output_path = doc_map[source_doc]
+        title = nav_labels_by_output[output_path]
+        href = html.escape(relative_url(current_output, output_path), quote=True)
+        label = html.escape(title)
+        current = ' aria-current="page"' if output_path == current_output else ""
+        links.append(f'<a href="{href}"{current}>{label}</a>')
+        linked_sources.add(source_doc)
+    for source_doc, document in doc_defs_by_source.items():
+        if source_doc in linked_sources or document.lang != current_doc.lang:
+            continue
+        output_path = doc_map[source_doc]
+        title = nav_labels_by_output[output_path]
         href = html.escape(relative_url(current_output, output_path), quote=True)
         label = html.escape(title)
         current = ' aria-current="page"' if output_path == current_output else ""
@@ -452,15 +704,49 @@ def build_nav(
     return "\n".join(links)
 
 
+def build_sidebar(
+    current_doc: Document,
+    current_output: PurePosixPath,
+    doc_map: dict[PurePosixPath, PurePosixPath],
+    doc_defs_by_source: dict[PurePosixPath, Document],
+    nav_labels_by_output: dict[PurePosixPath, str],
+    headings: list[dict[str, str | int]],
+) -> str:
+    language_menu = build_language_menu(current_doc, current_output, doc_map, doc_defs_by_source)
+    document_links = build_document_links(current_doc, current_output, doc_map, doc_defs_by_source, nav_labels_by_output)
+    toc = render_toc_nodes(build_toc_tree(headings))
+    toc_section = ""
+    if toc:
+        toc_section = f"""
+      <section class="sidebar-section">
+        <p class="sidebar-title">On This Page</p>
+        <div class="toc-tree">
+{toc}
+        </div>
+      </section>"""
+    return f"""
+      <section class="sidebar-section">
+        <p class="sidebar-title">Language</p>
+        <div class="language-menu">
+{language_menu}
+        </div>
+      </section>
+      <section class="sidebar-section">
+        <p class="sidebar-title">Documents</p>
+        <div class="document-list">
+{document_links}
+        </div>
+      </section>{toc_section}
+"""
+
+
 def wrap_html(
     body_html: str,
     title: str,
     lang: str,
-    current_output: PurePosixPath,
-    titles_by_output: dict[PurePosixPath, str],
+    sidebar_html: str,
 ) -> str:
     escaped_title = html.escape(title)
-    nav = build_nav(current_output, titles_by_output)
     return f"""<!doctype html>
 <html lang="{html.escape(lang, quote=True)}">
 <head>
@@ -474,8 +760,7 @@ def wrap_html(
 <body>
   <div class="page-shell">
     <nav class="doc-nav" aria-label="Documents">
-      <p class="doc-nav-title">Documents</p>
-{nav}
+{sidebar_html}
     </nav>
     <main class="doc-content">
 {body_html}
@@ -549,6 +834,8 @@ def copy_docs_tree(source_root: Path, output_root: Path) -> None:
         raise FileNotFoundError(f"docs directory was not found: {source_docs}")
     if source_docs.resolve() == target_docs.resolve():
         return
+    if target_docs.exists():
+        shutil.rmtree(target_docs)
     shutil.copytree(source_docs, target_docs, dirs_exist_ok=True)
 
 
@@ -568,9 +855,12 @@ def build_html_docs(
 
     source_docs = [normalize_doc_path(doc) for doc in documents]
     doc_map = {source_doc: html_path_for(source_doc) for source_doc in source_docs}
+    doc_defs_by_source = build_document_definitions(source_docs)
 
     rendered: dict[PurePosixPath, BeautifulSoup] = {}
     titles_by_output: dict[PurePosixPath, str] = {}
+    nav_labels_by_output: dict[PurePosixPath, str] = {}
+    headings_by_output: dict[PurePosixPath, list[dict[str, str | int]]] = {}
 
     for source_doc in source_docs:
         source_file = source_root / Path(to_posix(source_doc))
@@ -581,16 +871,28 @@ def build_html_docs(
         soup = BeautifulSoup(body, "html.parser")
         output_doc = doc_map[source_doc]
         rewrite_links(soup, source_doc, output_doc, doc_map)
+        remove_language_badges(soup)
         wrap_tables(soup)
         rendered[source_doc] = soup
-        titles_by_output[output_doc] = NAV_LABELS.get(source_doc.as_posix(), extract_title(soup, source_doc.name))
+        titles_by_output[output_doc] = extract_title(soup, source_doc.name)
+        nav_labels_by_output[output_doc] = doc_defs_by_source[source_doc].nav_label
+        headings_by_output[output_doc] = extract_headings(soup)
 
     generated_outputs: list[PurePosixPath] = []
     for source_doc in source_docs:
         output_doc = doc_map[source_doc]
         body_html = str(rendered[source_doc])
         title = titles_by_output[output_doc]
-        page_html = wrap_html(body_html, title, language_for(source_doc), output_doc, titles_by_output)
+        current_doc = doc_defs_by_source[source_doc]
+        sidebar = build_sidebar(
+            current_doc,
+            output_doc,
+            doc_map,
+            doc_defs_by_source,
+            nav_labels_by_output,
+            headings_by_output[output_doc],
+        )
+        page_html = wrap_html(body_html, title, current_doc.lang, sidebar)
 
         output_file = output_root / Path(to_posix(output_doc))
         output_file.parent.mkdir(parents=True, exist_ok=True)

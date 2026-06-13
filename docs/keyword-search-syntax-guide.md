@@ -1,60 +1,62 @@
-# キーワード検索構文ガイド
+# Keyword Search Syntax Guide
 
-BeMusicSeeker の検索ボックスでは、単語検索に加えて、複数語 AND、カラム指定、フレーズ検索、除外条件、OR、正規表現を利用できます。
+[![Japanese](https://img.shields.io/badge/lang-Japanese-blue.svg)](keyword-search-syntax-guide.ja.md)
+[![English](https://img.shields.io/badge/lang-English-red.svg)](keyword-search-syntax-guide.md)
 
-この構文は主に以下の検索欄で利用できます。
+The BeMusicSeeker search boxes support simple word search as well as multi-word AND, field-qualified search, phrase search, exclusions, OR, regular expressions, and numeric ranges.
 
-- メインの譜面一覧
-- プレイリスト詳細
-- プレイリスト一覧
+This syntax is mainly available in:
+
+- the main chart list
+- playlist detail
+- playlist list
 
 ---
 
-## 入力支援
+## Input Assistance
 
-検索ボックスには、カラム指定検索を入力しやすくする field 補完と、過去の検索を呼び出す検索履歴があります。
+Search boxes provide field-name completion and search history.
 
-### field 補完
+### Field Completion
 
-検索欄で field 名を入力し始めると、利用できる field が候補として表示されます。
+When you start typing a field name, available fields are shown as candidates.
 
 ```text
 tit
 ```
 
-上の例では `title:` を候補として選べます。
+In this example, `title:` can be selected.
 
-除外条件でも補完できます。
+Completion also works for exclusions.
 
 ```text
 -ar
 ```
 
-上の例では `-artist:` を候補として選べます。
+In this example, `-artist:` can be selected.
 
-候補の操作は以下の通りです。
+Candidate controls:
 
-| 操作 | 挙動 |
+| Operation | Behavior |
 | :--- | :--- |
-| `↑` / `↓` | 候補を選択 |
-| `Enter` / `Tab` | 選択中の候補を確定 |
-| `Esc` | 候補を閉じる |
-| `Ctrl+Space` | 候補を表示 |
-| マウスクリック | 候補を確定 |
+| `↑` / `↓` | Select candidate |
+| `Enter` / `Tab` | Confirm selected candidate |
+| `Esc` | Close candidates |
+| `Ctrl+Space` | Show candidates |
+| Mouse click | Confirm candidate |
 
-field 補完は field 名だけを補完します。
-`title:alpha` のように `:` の後に検索語を入力している場合、field 補完は表示されません。
+Field completion only completes field names. If you already typed a search term after `:`, such as `title:alpha`, field completion is not shown.
 
-### `playlist:` / `ref:` / `table:` のプレイリスト名補完
+### Playlist Name Completion for `playlist:` / `ref:` / `table:`
 
-メイン譜面一覧とプレイリスト詳細では、`playlist:` / `ref:` / `table:` の検索語を入力すると、導入済みプレイリスト名が候補として表示されます。
+In the main chart list and playlist detail, entering `playlist:`, `ref:`, or `table:` shows installed playlist names as candidates.
 
 ```text
 playlist:Sat
 ```
 
-上の例では `Satellite Sub` のようなプレイリスト名を候補として選べます。
-候補を確定すると、スペース、引用符、バックスラッシュ、`|` を含む名前だけが自動的にダブルクォートで囲まれます。
+This can select a playlist name such as `Satellite Sub`.
+When confirmed, names containing spaces, quotes, backslashes, or `|` are automatically wrapped in double quotes.
 
 ```text
 playlist:"Satellite Sub"
@@ -62,66 +64,64 @@ ref:GENOSIDE
 table:GENOSIDE
 ```
 
-### 検索履歴
+### Search History
 
-検索欄が空の状態でフォーカスしたとき、または `↓` を押したときに検索履歴が表示されます。
-履歴を選ぶと、検索欄全体がその検索文字列に置き換わります。
+When the search box is empty and focused, or when you press `↓`, search history is shown.
+Selecting a history item replaces the whole search box text.
 
-履歴は以下のタイミングで保存されます。
+History is saved when:
 
-- `Enter` を押したとき
-- 検索欄からフォーカスが外れたとき
-- 履歴候補を選択したとき
+- you press `Enter`
+- the search box loses focus
+- you select a history candidate
 
-履歴は通常の検索欄とプレイリスト一覧の検索欄で別々に保存されます。
-保存件数はそれぞれ最大 20 件で、同じ検索文字列は重複せず、最後に使ったものが先頭に移動します。
+History is stored separately for normal search boxes and the playlist-list search box. Each keeps up to 20 unique entries, with the most recently used entry first.
 
 ---
 
-## 基本検索
+## Basic Search
 
-検索語を入力すると、対象カラムのどこかにその文字列を含む行が表示されます。
-大文字・小文字は区別しません。
+Typing a word shows rows whose target columns contain that string. Matching is case-insensitive.
 
 ```text
 alpha
 ```
 
-複数の語をスペース区切りで入力した場合は、すべての語に一致する行だけが表示されます。
+Multiple space-separated words are treated as AND search.
 
 ```text
 alpha artist
 ```
 
-上の例は `alpha` と `artist` の両方に一致する行を表示します。
+This shows rows that match both `alpha` and `artist`.
 
 ---
 
-## 検索対象カラム
+## Target Columns
 
-### メイン譜面一覧
+### Main Chart List
 
-通常検索では、以下が検索対象です。
+Normal search targets:
 
 - TITLE
 - ARTIST
 - GENRE
 - TAG
 - PATH
-- PLAYLIST 列の表示記号
+- PLAYLIST column display symbols
 - MD5
 - SHA256
 
-### プレイリスト詳細
+### Playlist Detail
 
-通常検索では、メイン譜面一覧の対象に加えて、以下も検索対象です。
+Playlist detail targets the main-list columns plus:
 
 - memo
 - comment
 
-### プレイリスト一覧
+### Playlist List
 
-通常検索では、以下が検索対象です。
+Playlist-list search targets:
 
 - playlist id
 - name
@@ -129,9 +129,9 @@ alpha artist
 
 ---
 
-## カラム指定検索
+## Field-Qualified Search
 
-`field:keyword` の形で、検索対象を特定のカラムに限定できます。
+Use `field:keyword` to restrict a search term to a specific column.
 
 ```text
 title:alpha
@@ -139,59 +139,58 @@ artist:xi
 sha256:abcdef
 ```
 
-`A:` から `Z:` / `a:` から `z:` で始まる token は Windows のドライブレターを含むパスとして扱い、field 指定にはしません。
-そのため、フルパスや drive-relative path は引用符なしでそのまま検索できます。
+Tokens starting with `A:` through `Z:` or `a:` through `z:` are treated as Windows drive paths, not fields. Full paths and drive-relative paths can therefore be searched without quotes.
 
 ```text
 D:\BMS\
 D:
 ```
 
-複数指定した場合は AND 検索です。
+Multiple field terms are ANDed.
 
 ```text
 title:alpha artist:xi
 ```
 
-### メイン譜面一覧・プレイリスト詳細で使える field
+### Fields for Main Chart List and Playlist Detail
 
-| field | 対象 |
+| field | Target |
 | :--- | :--- |
 | `title` | TITLE |
 | `artist` | ARTIST |
 | `genre` | GENRE |
 | `tag` | TAG |
 | `path` | PATH |
-| `playlist` / `ref` / `table` | 参照プレイリスト名。PLAYLIST 列の短い表示記号ではなく、ツールチップに表示されるフルのプレイリスト名を検索対象にします |
+| `playlist` / `ref` / `table` | Referenced playlist name. Searches the full tooltip name, not the short PLAYLIST column symbol |
 | `md5` / `hash` | MD5 |
 | `sha256` | SHA256 |
 | `level` | `chart_info.level` |
-| `difficulty` | `chart_info.difficulty`。`beginner`, `normal`, `hyper`, `another`, `insane` も指定可 |
+| `difficulty` | `chart_info.difficulty`. Also accepts `beginner`, `normal`, `hyper`, `another`, `insane` |
 | `mainbpm` | `chart_info.mainbpm` |
 | `maxbpm` | `chart_info.maxbpm` |
 | `minbpm` | `chart_info.minbpm` |
-| `duration` / `length` | 演奏時間。秒単位で指定 |
-| `judge` / `judge%` / `judgepct` | 判定幅倍率。`judge` は `veryhard`, `hard`, `normal`, `easy`, `veryeasy` も指定可 |
+| `duration` / `length` | Play length in seconds |
+| `judge` / `judge%` / `judgepct` | Judge width multiplier. `judge` also accepts `veryhard`, `hard`, `normal`, `easy`, `veryeasy` |
 | `feature` | `ln`, `mine`, `random`, `lnmode`, `cn`, `hcn`, `stop`, `scroll` |
-| `notes` | 総ノーツ数 |
-| `long` / `ln` | ロングノーツ数 |
-| `scratch` | 通常スクラッチ + ロングスクラッチ |
-| `total` | TOTAL 有効値 |
+| `notes` | Total notes |
+| `long` / `ln` | Long notes |
+| `scratch` | Normal scratch + long scratch |
+| `total` | Effective TOTAL |
 | `tn` / `t/n` | `total / notes` |
-| `density` | 平均密度 |
-| `peak` / `peakdensity` | 1 秒窓の最大密度 |
-| `end` / `enddensity` | 終盤密度 |
-| `soflan` | 変速回数 |
-| `clear` | CLEAR。`NP`, `F`, `AE`, `LAE`, `EC`, `NC`, `HC`, `EXH`, `FC`, `PF`, `MAX` または表示名で指定可 |
-| `rank` / `djlevel` / `dj` | DJ LEVEL。`F`, `E`, `D`, `C`, `B`, `A`, `AA`, `AAA`, `MAX` を指定可 |
-| `rate` | RATE。`rateDouble` の値で、`0.95` が 95% を表す |
+| `density` | Average density |
+| `peak` / `peakdensity` | Maximum 1-second-window density |
+| `end` / `enddensity` | Ending density |
+| `soflan` | Speed-change count |
+| `clear` | CLEAR. Accepts `NP`, `F`, `AE`, `LAE`, `EC`, `NC`, `HC`, `EXH`, `FC`, `PF`, `MAX`, or display names |
+| `rank` / `djlevel` / `dj` | DJ LEVEL. Accepts `F`, `E`, `D`, `C`, `B`, `A`, `AA`, `AAA`, `MAX` |
+| `rate` | RATE. Uses `rateDouble`; `0.95` means 95% |
 | `score` | SCORE |
 | `combo` | COMBO |
 | `bp` | BP |
-| `memo` | memo。プレイリスト詳細のみ |
-| `comment` | comment。プレイリスト詳細のみ |
+| `memo` | memo. Playlist detail only |
+| `comment` | comment. Playlist detail only |
 
-数値 field は範囲指定と比較演算を利用できます。
+Numeric fields support ranges and comparisons.
 
 ```text
 level:10..12
@@ -202,7 +201,7 @@ rate:0.95..
 bp:0..10
 ```
 
-`defined` / `undefined` も利用できます。`undefined` は `undef` / `null` とも書けます。`chart_info` が未構築の場合や、`level` が NULL の場合、`difficulty_defined=false` / `total_defined=false` の場合は `undefined` に一致します。数値のスコア系 field ではスコア未取得などで値がない場合に `undefined` に一致します。`rank` は DJ LEVEL が空の場合に `undefined` に一致します。`clear` は `NO SONG` / `NO PLAY` も CLEAR 種別として扱うため、常に `defined` に一致します。
+`defined` / `undefined` are also available. `undefined` can be written as `undef` or `null`.
 
 ```text
 total:undefined
@@ -214,217 +213,145 @@ score:defined
 rank:undefined
 ```
 
-`clear` は CLEAR 種別の完全一致です。表示名に加えて、以下の短縮表現を利用できます。
+`clear` is an exact match for clear type. Short forms are available.
 
-| 入力 | 対象 |
+| Input | Target |
 | :--- | :--- |
-| `NP` | NO PLAY |
-| `F` | FAILED |
-| `AE` | ASSIST |
-| `LAE` | L-ASSIST |
-| `EC` | EASY CLEAR |
-| `NC` | CLEAR |
-| `HC` | HARD CLEAR |
-| `EXH` | EX HARD |
-| `FC` | FULL COMBO |
-| `PF` | PERFECT |
-| `MAX` | MAX |
+| `np` | NO PLAY |
+| `f` | FAILED |
+| `ae` | ASSIST EASY |
+| `lae` | LIGHT ASSIST EASY |
+| `ec` | EASY CLEAR |
+| `nc` | NORMAL CLEAR |
+| `hc` | HARD CLEAR |
+| `exh` | EX HARD CLEAR |
+| `fc` | FULL COMBO |
+| `pf` | PERFECT |
+| `max` | MAX |
 
-### プレイリスト一覧で使える field
+### Fields for Playlist List
 
-| field | 対象 |
+| field | Target |
 | :--- | :--- |
-| `id` | playlist id |
-| `name` | name |
-| `symbol` | symbol |
+| `id` / `playlistid` | playlist id |
+| `name` | playlist name |
+| `symbol` | playlist symbol |
 
 ---
 
-## フレーズ検索
+## Phrase Search
 
-スペースを含む文字列を 1 つの検索語として扱いたい場合は、ダブルクォートで囲みます。
-
-```text
-"alpha title"
-title:"alpha title"
-```
-
-未閉じのクォートは、入力末尾までをフレーズとして扱います。
+Use double quotes when a term contains spaces.
 
 ```text
-"alpha title
+title:"Blue Sky"
+playlist:"Satellite Sub"
+"long phrase"
 ```
 
-上の例は `"alpha title"` とほぼ同じ意味になります。
+Quoted phrases are treated as a single token.
 
-### クォート内のエスケープ
+### Escapes in Quotes
 
-クォート内では、以下だけが特別にエスケープされます。
+Inside quotes, use backslash escapes.
 
-| 入力 | 意味 |
+| Input | Meaning |
 | :--- | :--- |
-| `\"` | `"` |
-| `\\` | `\` |
+| `\"` | double quote |
+| `\\` | backslash |
 
-例:
+---
+
+## Exclusion Search
+
+Prefix a token with `-` to exclude matches.
 
 ```text
-title:"alpha \"quoted\""
+alpha -beta
+-artist:xi
+-feature:random
+```
+
+This is useful for removing a title, artist, feature, playlist, or score condition from the result.
+
+---
+
+## OR Search
+
+Use `|` between tokens to express OR.
+
+```text
+title:alpha|title:beta
+artist:xi|artist:削除
+clear:fc|clear:pf
+```
+
+OR can be combined with other AND terms.
+
+```text
+level:10..12 clear:fc|clear:pf -feature:random
+```
+
+### OR Cautions
+
+OR has lower priority than token parsing. Quote values that contain spaces or `|`.
+
+```text
+playlist:"A | B"
 ```
 
 ---
 
-## 除外検索
+## Regular Expression Search
 
-検索語の先頭に `-` を付けると、その条件に一致する行を除外します。
-
-```text
-alpha -artist:beta
-```
-
-上の例は、`alpha` に一致し、かつ ARTIST に `beta` を含まない行を表示します。
-
-field 指定やフレーズ検索、正規表現とも組み合わせられます。
+Use regex syntax when a field supports it.
 
 ```text
--title:"old version"
--path:backup
--title:re:^test
+title:/^alpha/
+artist:/xi|削除/
+path:/\\BMS\\/
 ```
 
-`foo-bar` のように先頭以外にある `-` は通常の文字として扱います。
+Regular expressions are case-insensitive unless the implementation explicitly treats them otherwise.
+
+### Regex Timeout
+
+Regular expressions have a timeout. If a pattern is too expensive, the app treats it as a failed match rather than freezing the UI.
 
 ---
 
-## OR 検索
+## Invalid Syntax
 
-1 つの検索語の中で `|` を使うと OR 検索になります。
+Invalid tokens are treated conservatively. The app tries not to crash or freeze on malformed input.
 
-```text
-alpha|beta
-```
-
-上の例は、`alpha` または `beta` に一致する行を表示します。
-
-field 指定と組み合わせた場合、OR はその field の中だけで評価されます。
+Examples of invalid or ambiguous input:
 
 ```text
-title:alpha|beta
-title:"alpha title"|beta
-```
-
-上の例は、TITLE に `alpha` または `beta` が含まれる行を表示します。
-
-### OR の注意点
-
-`title:alpha|artist:beta` のような「カラムをまたいだ OR」は扱いません。
-この場合、`artist:beta` は TITLE 内で探す文字列として扱われます。
-
-空の候補は無視されます。
-
-```text
-alpha|
-|alpha
-alpha||beta
-```
-
-すべての候補が空の場合は不正な条件として扱われ、何にも一致しません。
-
----
-
-## 正規表現検索
-
-`re:pattern` で正規表現検索ができます。
-
-```text
-re:^alpha
-```
-
-field 指定と組み合わせる場合は、`field:re:pattern` と書きます。
-
-```text
-title:re:^alpha
-path:re:\\BMS\\.*\\.bms$
-```
-
-除外条件としても使えます。
-
-```text
--title:re:^test
-```
-
-正規表現は大文字・小文字を区別せず、カルチャ非依存で評価されます。
-
-### 正規表現のタイムアウト
-
-正規表現には暴走対策として、1 条件あたり 100ms のタイムアウトがあります。
-非常に重い正規表現は途中で打ち切られ、その条件は一致しなかったものとして扱われます。
-
----
-
-## 不正な構文の扱い
-
-不正な条件は、エラー表示を出さずに「一致しない条件」として扱われます。
-そのため、AND 検索の中に不正な条件が含まれると、結果が 0 件になることがあります。
-
-不正扱いになる例:
-
-```text
-unknown:alpha
 title:
--
-|
-title:re:[
+level:abc
+notes:10..abc
+title:"unterminated
 ```
 
-| 例 | 理由 |
-| :--- | :--- |
-| `unknown:alpha` | 未知の field |
-| `title:` | field 指定の検索語が空 |
-| `-` | 除外条件の中身が空 |
-| `\|` | OR の候補がすべて空 |
-| `title:re:[` | 正規表現として不正 |
-
-`:alpha` のように field 名が空の場合は、field 指定ではなく通常の検索語として扱われます。
-つまり、文字列 `:alpha` を含む行を探します。
+If a search does not behave as expected, simplify it first and then add conditions back one by one.
 
 ---
 
-## よく使う例
-
-TITLE と ARTIST の両方で絞り込む:
+## Common Examples
 
 ```text
-title:alpha artist:xi
-```
-
-MD5 または SHA256 の一部で探す:
-
-```text
-md5:abcdef
-sha256:123456
-```
-
-プレイリスト詳細で memo を検索する:
-
-```text
-memo:"favorite chart"
-```
-
-バックアップフォルダを除外する:
-
-```text
--path:backup
-```
-
-TITLE が `alpha` で始まる譜面を探す:
-
-```text
-title:re:^alpha
-```
-
-TITLE に `alpha` または `beta` を含み、ARTIST に `test` を含まない譜面を探す:
-
-```text
-title:alpha|beta -artist:test
+title:alpha
+artist:xi
+level:10..12
+notes:>=2000
+duration:<120
+feature:ln
+-feature:random
+clear:fc|clear:pf
+rate:0.95..
+bp:0..10
+playlist:"Satellite Sub"
+sha256:abcdef
+total:undefined
+rank:undefined
 ```
