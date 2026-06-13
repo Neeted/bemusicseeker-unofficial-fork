@@ -300,6 +300,11 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
         metrics.BmsDeleteMs = stopwatch.ElapsedMilliseconds;
 
         stopwatch.Restart();
+        ApplyBmsPathCaseUpdates(songDb, chunk.BmsPathCaseUpdates);
+        stopwatch.Stop();
+        metrics.BmsPathCaseUpdateMs = stopwatch.ElapsedMilliseconds;
+
+        stopwatch.Restart();
         foreach (BmsDateOnlyUpdate updatedDate in chunk.UpdatedBmsDates)
         {
             if (updatedDate != null && !string.IsNullOrWhiteSpace(updatedDate.Path))
@@ -319,6 +324,11 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
         BulkDeleteBmsonPaths(songDb, chunk.DeletedBmsonPaths);
         stopwatch.Stop();
         metrics.BmsonDeleteMs = stopwatch.ElapsedMilliseconds;
+
+        stopwatch.Restart();
+        ApplyBmsonPathCaseUpdates(songDb, chunk.BmsonPathCaseUpdates);
+        stopwatch.Stop();
+        metrics.BmsonPathCaseUpdateMs = stopwatch.ElapsedMilliseconds;
 
         stopwatch.Restart();
         foreach (LR2SongDBExtended.bmson_song addedBmsonSong in chunk.UpsertBmsonSongs)
@@ -2352,6 +2362,99 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
     private static int? ToNullableInteger(bool? value)
     {
         return value.HasValue ? (value.Value ? 1 : 0) : null;
+    }
+
+    private static void ApplyBmsPathCaseUpdates(LR2SongDBExtended songDb, IEnumerable<BmsPathCaseUpdate> updates)
+    {
+        List<BmsPathCaseUpdate> rows = [.. (updates ?? [])
+            .Where(update => update != null && IsCaseOnlyPathChange(update.OldPath, update.NewPath))
+            .GroupBy(update => update.OldPath, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.Last())];
+        if (rows.Count == 0)
+        {
+            return;
+        }
+
+        string songTable = SQLiteTable<LR2SongDB.song>.GetTableName();
+        string songPathColumn = SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.path);
+        string songFolderColumn = SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.folder);
+        string songParentColumn = SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.parent);
+        string maintenanceTable = SQLiteTable<LR2SongDBExtended.maintenance>.GetTableName();
+        string maintenancePathColumn = SQLiteTable<LR2SongDBExtended.maintenance>.GetColumnName(row => row.path);
+        bool hasMaintenanceTable = TableExists(songDb, maintenanceTable);
+        foreach (BmsPathCaseUpdate update in rows)
+        {
+            if (hasMaintenanceTable)
+            {
+                songDb.Execute(
+                    "UPDATE " + maintenanceTable
+                    + " SET " + maintenancePathColumn + " = ?"
+                    + " WHERE " + maintenancePathColumn + " = ? COLLATE NOCASE"
+                    + " AND " + maintenancePathColumn + " IS NOT ?;",
+                    update.NewPath,
+                    update.OldPath,
+                    update.NewPath);
+            }
+            songDb.Execute(
+                "UPDATE " + songTable
+                + " SET " + songPathColumn + " = ?, "
+                + songFolderColumn + " = ?, "
+                + songParentColumn + " = ?"
+                + " WHERE " + songPathColumn + " = ?;",
+                update.NewPath,
+                update.Folder,
+                update.Parent,
+                update.OldPath);
+        }
+    }
+
+    private static void ApplyBmsonPathCaseUpdates(LR2SongDBExtended songDb, IEnumerable<BmsonPathCaseUpdate> updates)
+    {
+        List<BmsonPathCaseUpdate> rows = [.. (updates ?? [])
+            .Where(update => update != null && IsCaseOnlyPathChange(update.OldPath, update.NewPath))
+            .GroupBy(update => update.OldPath, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.Last())];
+        if (rows.Count == 0)
+        {
+            return;
+        }
+
+        string bmsonTable = SQLiteTable<LR2SongDBExtended.bmson_song>.GetTableName();
+        string bmsonPathColumn = SQLiteTable<LR2SongDBExtended.bmson_song>.GetColumnName(row => row.path);
+        string bmsonFolderColumn = SQLiteTable<LR2SongDBExtended.bmson_song>.GetColumnName(row => row.folder);
+        string maintenanceTable = SQLiteTable<LR2SongDBExtended.maintenance>.GetTableName();
+        string maintenancePathColumn = SQLiteTable<LR2SongDBExtended.maintenance>.GetColumnName(row => row.path);
+        bool hasMaintenanceTable = TableExists(songDb, maintenanceTable);
+        foreach (BmsonPathCaseUpdate update in rows)
+        {
+            if (hasMaintenanceTable)
+            {
+                songDb.Execute(
+                    "UPDATE " + maintenanceTable
+                    + " SET " + maintenancePathColumn + " = ?"
+                    + " WHERE " + maintenancePathColumn + " = ? COLLATE NOCASE"
+                    + " AND " + maintenancePathColumn + " IS NOT ?;",
+                    update.NewPath,
+                    update.OldPath,
+                    update.NewPath);
+            }
+            songDb.Execute(
+                "UPDATE " + bmsonTable
+                + " SET " + bmsonPathColumn + " = ?, "
+                + bmsonFolderColumn + " = ?"
+                + " WHERE " + bmsonPathColumn + " = ?;",
+                update.NewPath,
+                update.Folder ?? string.Empty,
+                update.OldPath);
+        }
+    }
+
+    private static bool IsCaseOnlyPathChange(string oldPath, string newPath)
+    {
+        return !string.IsNullOrWhiteSpace(oldPath)
+            && !string.IsNullOrWhiteSpace(newPath)
+            && !string.Equals(oldPath, newPath, StringComparison.Ordinal)
+            && string.Equals(oldPath, newPath, StringComparison.OrdinalIgnoreCase);
     }
 
     private static void BulkDeleteBmsPaths(LR2SongDBExtended songDb, IEnumerable<string> paths)

@@ -63,6 +63,9 @@ BeMusicSeeker が管理する現在の BMS chart path が期待集合です。
 期待集合に含まれない stale `song` row は同期中に削除され、関連する app-owned maintenance / chart digest 情報も整理されます。
 
 `song.path` は原則として実 chart path です。
+既存 row と file system 探索結果が case-insensitive には一致するが ordinal では一致しない場合は、探索結果の path 表記を正とし、`song.path`、`bmson_song.path`、関連 `maintenance.path` をその表記へ更新します。
+この更新は case-only rename や旧 DB 由来の path 表記差を収束させるための key 更新であり、NOCASE 一致だけを current とは見なしません。
+`song.folder` / `song.parent` は path 表記に依存する LR2 CRC32 なので、BMS の path 表記を更新するときは同じ入力から再計算した値へ更新します。
 LR2 互換 path として扱えない BMS も、BeMusicSeeker の管理対象 BMS である限り `song` row からは削除しません。
 その場合は `song.folder` / `song.parent` を `NULL` にし、LR2 互換性警告として扱います。
 

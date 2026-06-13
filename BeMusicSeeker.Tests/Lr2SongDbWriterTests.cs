@@ -78,6 +78,41 @@ public sealed class Lr2SongDbWriterTests
     }
 
     [TestMethod]
+    public void UpsertGeneratedSongs_CanonicalizesCaseOnlyPathAndMaintenance()
+    {
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            using var songDb = new LR2SongDBExtended(songDbPath);
+            songDb.CreateTable<LR2SongDB.song>();
+            songDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
+            songDb.CreateTable<LR2SongDBExtended.maintenance>();
+            TestableBmsFile existing = CreateSong(@"D:\BMS\Pack\CHART.BMS", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Title");
+            existing.SetUserColumns(favoriteValue: 7, addDateValue: 12345, tagValue: "keep");
+            Assert.IsTrue(Lr2SongDbWriter.UpsertGeneratedSong(songDb, existing));
+            songDb.InsertOrReplace(new BMSFileMaintenanceInfo
+            {
+                path = existing.path,
+                hash = existing.hash,
+                encoding = "shift_jis"
+            }, typeof(LR2SongDBExtended.maintenance));
+            TestableBmsFile updated = CreateSong(@"D:\BMS\Pack\chart.bms", existing.hash, "Title");
+
+            int changed = Lr2SongDbWriter.UpsertGeneratedSongs(songDb, [updated]);
+
+            Assert.AreEqual(1, changed);
+            Assert.AreEqual(1, songDb.Table<LR2SongDB.song>().Count());
+            LR2SongDB.song updatedRow = songDb.Find<LR2SongDB.song>(updated.path);
+            Assert.IsNotNull(updatedRow);
+            Assert.AreEqual(updated.path, updatedRow.path);
+            Assert.AreEqual(7, updatedRow.favorite);
+            Assert.AreEqual(12345, updatedRow.adddate);
+            Assert.AreEqual("keep", updatedRow.tag);
+            Assert.AreEqual(1, songDb.ExecuteScalar<int>("SELECT COUNT(*) FROM maintenance WHERE path = ?;", updated.path));
+            Assert.AreEqual(0, songDb.ExecuteScalar<int>("SELECT COUNT(*) FROM maintenance WHERE path = ?;", existing.path));
+        });
+    }
+
+    [TestMethod]
     public void UpsertGeneratedSongs_UpsertsDigestRowsAndRemovesOrphanedPreviousHash()
     {
         WithTemporarySongDb(delegate (string songDbPath)
@@ -175,10 +210,17 @@ public sealed class Lr2SongDbWriterTests
             using var songDb = new LR2SongDBExtended(songDbPath);
             PrepareLr2SongDbSyncSongWriterSchema(songDb);
             songDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
-            TestableBmsFile existing = CreateSong(@"D:\BMS\Pack\CHART.BMS", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Old");
+            songDb.CreateTable<LR2SongDBExtended.maintenance>();
+            TestableBmsFile existing = CreateSong(@"D:\BMS\Pack\CHART.BMS", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Title");
             existing.SetUserColumns(favoriteValue: 7, addDateValue: 12345, tagValue: "keep");
             Assert.IsTrue(Lr2SongDbWriter.UpsertGeneratedSong(songDb, existing));
-            TestableBmsFile updated = CreateSong(@"D:\BMS\Pack\chart.bms", existing.hash, "New");
+            songDb.InsertOrReplace(new BMSFileMaintenanceInfo
+            {
+                path = existing.path,
+                hash = existing.hash,
+                encoding = "shift_jis"
+            }, typeof(LR2SongDBExtended.maintenance));
+            TestableBmsFile updated = CreateSong(@"D:\BMS\Pack\chart.bms", existing.hash, "Title");
 
             int written = Lr2SongDbWriter.UpsertGeneratedSongsForLr2SongDbSync(songDb, [updated]);
 
@@ -186,11 +228,16 @@ public sealed class Lr2SongDbWriterTests
             Assert.AreEqual(
                 1,
                 songDb.ExecuteScalar<int>("SELECT COUNT(*) FROM song WHERE path = ? COLLATE NOCASE;", updated.path));
-            LR2SongDB.song updatedRow = songDb.Find<LR2SongDB.song>(existing.path);
-            Assert.AreEqual("New", updatedRow.title);
+            LR2SongDB.song updatedRow = songDb.Find<LR2SongDB.song>(updated.path);
+            Assert.IsNotNull(updatedRow);
+            Assert.AreEqual(updated.path, updatedRow.path);
+            Assert.AreEqual("Title", updatedRow.title);
             Assert.AreEqual(7, updatedRow.favorite);
             Assert.AreEqual(12345, updatedRow.adddate);
             Assert.AreEqual("keep", updatedRow.tag);
+            Assert.AreEqual(0, songDb.ExecuteScalar<int>("SELECT COUNT(*) FROM song WHERE path = ?;", existing.path));
+            Assert.AreEqual(1, songDb.ExecuteScalar<int>("SELECT COUNT(*) FROM maintenance WHERE path = ?;", updated.path));
+            Assert.AreEqual(0, songDb.ExecuteScalar<int>("SELECT COUNT(*) FROM maintenance WHERE path = ?;", existing.path));
         });
     }
 
@@ -575,6 +622,29 @@ public sealed class Lr2SongDbWriterTests
 
             Assert.IsFalse(result.IsCurrent);
             Assert.AreEqual(1, result.MismatchedCount);
+        });
+    }
+
+    [TestMethod]
+    public void VerifyGeneratedSongsCurrent_DetectsCaseOnlyPathMismatch()
+    {
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            using var songDb = new LR2SongDBExtended(songDbPath);
+            songDb.CreateTable<LR2SongDB.song>();
+            songDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
+            TestableBmsFile existing = CreateSong(@"D:\BMS\Pack\CHART.BMS", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Title");
+            existing.SetSha256(Sha('1'));
+            Assert.IsTrue(Lr2SongDbWriter.UpsertGeneratedSong(songDb, existing));
+            TestableBmsFile expected = CreateSong(@"D:\BMS\Pack\chart.bms", existing.hash, "Title");
+            expected.SetSha256(existing.sha256);
+
+            Lr2GeneratedSongCurrentnessResult result =
+                Lr2SongDbWriter.VerifyGeneratedSongsCurrent(songDb, [expected]);
+
+            Assert.IsFalse(result.IsCurrent);
+            Assert.AreEqual(1, result.MismatchedCount);
+            Assert.IsTrue(result.DiagnosticSamples.Any(sample => sample.Contains("path")));
         });
     }
 

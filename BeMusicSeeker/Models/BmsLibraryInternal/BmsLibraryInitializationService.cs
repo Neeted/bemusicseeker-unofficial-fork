@@ -698,6 +698,7 @@ internal sealed class BmsLibraryInitializationService
         result.DiffBmsTargetMs = stopwatchBmsTargets.ElapsedMilliseconds;
 
         List<string> addedOrUpdatedBmsonPaths = [];
+        List<BmsonPathCaseUpdate> bmsonPathCaseUpdates = [];
         var stopwatchBmsonTargets = Stopwatch.StartNew();
         foreach (string path in scannedBmsonPaths)
         {
@@ -705,6 +706,16 @@ internal sealed class BmsLibraryInitializationService
             {
                 addedOrUpdatedBmsonPaths.Add(path);
                 continue;
+            }
+
+            string existingPath = existing.path;
+            if (IsCaseOnlyPathChange(existingPath, path))
+            {
+                string folder = Path.GetDirectoryName(path) ?? string.Empty;
+                bmsonPathCaseUpdates.Add(new BmsonPathCaseUpdate(existingPath, path, folder));
+                existing.path = path;
+                existing.folder = folder;
+                result.BmsonPathCaseUpdateCount++;
             }
 
             DateTime lastWriteTimeUtc = ResolveScannedChartLastWriteTimeUtc(
@@ -752,6 +763,15 @@ internal sealed class BmsLibraryInitializationService
             logInstallPerformance,
             logInstallPerformanceWarn,
             inlineChartInfoRowsCommitted);
+        if (bmsonPathCaseUpdates.Count > 0)
+        {
+            var pathCaseChunk = new FileScanDiffCommitChunk();
+            foreach (BmsonPathCaseUpdate update in bmsonPathCaseUpdates)
+            {
+                pathCaseChunk.AddBmsonPathCaseUpdate(update.OldPath, update.NewPath, update.Folder);
+            }
+            commitContext.AddChunk(pathCaseChunk);
+        }
         FileDiffParsePipelineResult pipelineResult = RunFileDiffParsePipeline(
             bmsParseTargets,
             addedOrUpdatedBmsonPaths,
@@ -787,6 +807,7 @@ internal sealed class BmsLibraryInitializationService
         result.AddedBmsonSongs.AddRange(pipelineResult.ParsedBmsonSongs);
         result.BmsDateOnlyUpdateCount = pipelineResult.BmsDateOnlyUpdateCount;
         result.BmsTextOnlyUpdateCount = pipelineResult.BmsTextOnlyUpdateCount;
+        result.BmsPathCaseUpdateCount = pipelineResult.BmsPathCaseUpdateCount;
         result.BmsMovedHashRelinkCount = pipelineResult.BmsMovedHashRelinkCount;
         result.BmsMovedHashRelinkAmbiguousCount = pipelineResult.BmsMovedHashRelinkAmbiguousCount;
         foreach (string deletedPath in result.DeletedPaths)
@@ -859,8 +880,10 @@ internal sealed class BmsLibraryInitializationService
             || result.AddedFiles.Count > 0
             || result.BmsDateOnlyUpdateCount > 0
             || result.BmsTextOnlyUpdateCount > 0
+            || result.BmsPathCaseUpdateCount > 0
             || result.DeletedBmsonPaths.Count > 0
-            || result.AddedBmsonSongs.Count > 0;
+            || result.AddedBmsonSongs.Count > 0
+            || result.BmsonPathCaseUpdateCount > 0;
 
         if (result.HasDbDiff)
         {
@@ -952,6 +975,7 @@ internal sealed class BmsLibraryInitializationService
             + " added_count=" + result.AddedFiles.Count
             + " bms_date_only_update_count=" + result.BmsDateOnlyUpdateCount
             + " bms_text_only_update_count=" + result.BmsTextOnlyUpdateCount
+            + " bms_path_case_update_count=" + result.BmsPathCaseUpdateCount
             + " bms_moved_hash_relink_count=" + result.BmsMovedHashRelinkCount
             + " bms_moved_hash_relink_ambiguous_count=" + result.BmsMovedHashRelinkAmbiguousCount
             + " bms_added_target_count=" + result.BmsAddedTargetCount
@@ -959,6 +983,7 @@ internal sealed class BmsLibraryInitializationService
             + " bms_legacy_existing_protected_count=" + result.BmsLegacyExistingProtectedCount
             + " bmson_deleted_count=" + result.DeletedBmsonPaths.Count
             + " bmson_upsert_count=" + result.AddedBmsonSongs.Count
+            + " bmson_path_case_update_count=" + result.BmsonPathCaseUpdateCount
             + " bmson_upsert_target_count=" + result.BmsonUpsertTargetCount
             + " bms_mtime_fallback_count=" + result.BmsMtimeFallbackCount
             + " bmson_mtime_fallback_count=" + result.BmsonMtimeFallbackCount
@@ -1038,10 +1063,12 @@ internal sealed class BmsLibraryInitializationService
             + " db_commit_apply_ms=" + result.DbCommitApplyMs
             + " db_commit_schema_ms=" + result.DbCommitSchemaMs
             + " db_commit_bms_delete_ms=" + result.DbCommitBmsDeleteMs
+            + " db_commit_bms_path_case_update_ms=" + result.DbCommitBmsPathCaseUpdateMs
             + " db_commit_bms_date_update_ms=" + result.DbCommitBmsDateUpdateMs
             + " db_commit_bms_upsert_ms=" + result.DbCommitBmsUpsertMs
             + " db_commit_bms_changed=" + result.DbCommitBmsChangedCount
             + " db_commit_bmson_delete_ms=" + result.DbCommitBmsonDeleteMs
+            + " db_commit_bmson_path_case_update_ms=" + result.DbCommitBmsonPathCaseUpdateMs
             + " db_commit_bmson_upsert_ms=" + result.DbCommitBmsonUpsertMs
             + " db_commit_maintenance_upsert_ms=" + result.DbCommitMaintenanceUpsertMs
             + " db_commit_chart_info_ms=" + result.DbCommitChartInfoMs
@@ -2046,6 +2073,7 @@ internal sealed class BmsLibraryInitializationService
             result.BmsLegacyExistingProtectedCount++;
             return null;
         }
+        bool pathCaseChanged = IsCaseOnlyPathChange(existing.path, path);
         int? existingTextFlag = textGroupSurfaceAvailable
             ? ResolveTextGroupFlag(path, textFileDirectories)
             : null;
@@ -2062,11 +2090,19 @@ internal sealed class BmsLibraryInitializationService
         int targetTextFlag = existingTextFlag ?? existing.txt.GetValueOrDefault();
         bool textChanged = existingTextFlag.HasValue
             && existing.txt.GetValueOrDefault() != existingTextFlag.Value;
-        if (existing.date == currentDate && !textChanged)
+        if (existing.date == currentDate && !textChanged && !pathCaseChanged)
         {
             return null;
         }
         return new FileDiffParseTarget(FileDiffChartKind.Bms, path, existing, targetTextFlag);
+    }
+
+    private static bool IsCaseOnlyPathChange(string oldPath, string newPath)
+    {
+        return !string.IsNullOrWhiteSpace(oldPath)
+            && !string.IsNullOrWhiteSpace(newPath)
+            && !string.Equals(oldPath, newPath, StringComparison.Ordinal)
+            && string.Equals(oldPath, newPath, StringComparison.OrdinalIgnoreCase);
     }
 
     private static DateTime ResolveScannedChartLastWriteTimeUtc(
@@ -2297,6 +2333,15 @@ internal sealed class BmsLibraryInitializationService
                         int textFlag = candidate.File.txt.GetValueOrDefault();
                         bool dateChanged = candidate.ExistingFile.date != date;
                         bool textChanged = candidate.ExistingFile.txt.GetValueOrDefault() != textFlag;
+                        bool pathCaseChanged = IsCaseOnlyPathChange(candidate.ExistingFile.path, candidate.File.path);
+                        if (pathCaseChanged)
+                        {
+                            commitChunk.AddBmsPathCaseUpdate(candidate.ExistingFile.path, candidate.File.path, candidate.File.folder, candidate.File.parent);
+                            candidate.ExistingFile.path = candidate.File.path;
+                            candidate.ExistingFile.folder = candidate.File.folder;
+                            candidate.ExistingFile.parent = candidate.File.parent;
+                            postResult.BmsPathCaseUpdateCount++;
+                        }
                         candidate.ExistingFile.date = date;
                         candidate.ExistingFile.SetTextGroupFlag(textFlag);
                         if (dateChanged)
@@ -2307,7 +2352,10 @@ internal sealed class BmsLibraryInitializationService
                         {
                             postResult.BmsTextOnlyUpdateCount++;
                         }
-                        commitChunk.AddUpdatedBmsMetadata(candidate.File.path, date, textChanged ? textFlag : null);
+                        if (dateChanged || textChanged)
+                        {
+                            commitChunk.AddUpdatedBmsMetadata(candidate.File.path, date, textChanged ? textFlag : null);
+                        }
                         reportPostParsePreparedProgress?.Invoke(candidate.Path);
                     }
                 }
@@ -2328,6 +2376,11 @@ internal sealed class BmsLibraryInitializationService
                         Lr2SongRowEnricher.EnrichFromChartInfo(candidate.File, ResolveAppliedChartInfo(candidate, appliedChartInfoByPath));
                         postResult.SuccessfullyReplacedBmsPaths.Add(candidate.Path);
                         postResult.AddedFiles.Add(candidate.File);
+                        if (IsCaseOnlyPathChange(candidate.ExistingFile?.path, candidate.File.path))
+                        {
+                            commitChunk.AddBmsPathCaseUpdate(candidate.ExistingFile.path, candidate.File.path, candidate.File.folder, candidate.File.parent);
+                            postResult.BmsPathCaseUpdateCount++;
+                        }
                         if (candidate.ExistingFile == null && !string.IsNullOrWhiteSpace(candidate.File.path))
                         {
                             postResult.NewlyInsertedBmsPaths.Add(candidate.File.path);
@@ -2481,6 +2534,7 @@ internal sealed class BmsLibraryInitializationService
 
         pipelineResult.BmsDateOnlyUpdateCount += postResult.BmsDateOnlyUpdateCount;
         pipelineResult.BmsTextOnlyUpdateCount += postResult.BmsTextOnlyUpdateCount;
+        pipelineResult.BmsPathCaseUpdateCount += postResult.BmsPathCaseUpdateCount;
         pipelineResult.AddedFiles.AddRange(postResult.AddedFiles);
         foreach (string path in postResult.NewlyInsertedBmsPaths)
         {
@@ -3154,6 +3208,14 @@ internal sealed class BmsLibraryInitializationService
                 pendingChunk.AddDeletedBmsPath(path);
                 FlushIfNeeded();
             }
+            foreach (BmsPathCaseUpdate update in chunk.BmsPathCaseUpdates)
+            {
+                if (update != null)
+                {
+                    pendingChunk.AddBmsPathCaseUpdate(update.OldPath, update.NewPath, update.Folder, update.Parent);
+                    FlushIfNeeded();
+                }
+            }
             foreach (BMSFile file in chunk.AddedBmsFiles)
             {
                 pendingChunk.AddAddedBmsFile(file);
@@ -3179,6 +3241,14 @@ internal sealed class BmsLibraryInitializationService
             {
                 pendingChunk.AddDeletedBmsonPath(path);
                 FlushIfNeeded();
+            }
+            foreach (BmsonPathCaseUpdate update in chunk.BmsonPathCaseUpdates)
+            {
+                if (update != null)
+                {
+                    pendingChunk.AddBmsonPathCaseUpdate(update.OldPath, update.NewPath, update.Folder);
+                    FlushIfNeeded();
+                }
             }
             foreach (LR2SongDBExtended.bmson_song song in chunk.UpsertBmsonSongs)
             {
@@ -3529,9 +3599,11 @@ internal sealed class BmsLibraryInitializationService
             }
             logInstallPerformance?.Invoke("song_tbl_file_check db_commit_chunk_start chunk=" + chunkNumber
                 + " deleted=" + chunk.DeletedBmsPaths.Count
+                + " bmsPathCaseUpdates=" + chunk.BmsPathCaseUpdates.Count
                 + " added=" + chunk.AddedBmsFiles.Count
                 + " bmsDateOnly=" + chunk.UpdatedBmsDates.Count
                 + " bmsonDeleted=" + chunk.DeletedBmsonPaths.Count
+                + " bmsonPathCaseUpdates=" + chunk.BmsonPathCaseUpdates.Count
                 + " bmsonUpsert=" + chunk.UpsertBmsonSongs.Count
                 + " maintenance=" + chunk.MaintenanceInfoRows.Count
                 + " chartInfo=" + chunk.ChartInfoRows.Count
@@ -3575,10 +3647,12 @@ internal sealed class BmsLibraryInitializationService
             result.DbCommitApplyMs += metrics.ApplyMs;
             result.DbCommitSchemaMs += metrics.SchemaMs;
             result.DbCommitBmsDeleteMs += metrics.BmsDeleteMs;
+            result.DbCommitBmsPathCaseUpdateMs += metrics.BmsPathCaseUpdateMs;
             result.DbCommitBmsDateUpdateMs += metrics.BmsDateUpdateMs;
             result.DbCommitBmsUpsertMs += metrics.BmsUpsertMs;
             result.DbCommitBmsChangedCount += metrics.BmsChangedCount;
             result.DbCommitBmsonDeleteMs += metrics.BmsonDeleteMs;
+            result.DbCommitBmsonPathCaseUpdateMs += metrics.BmsonPathCaseUpdateMs;
             result.DbCommitBmsonUpsertMs += metrics.BmsonUpsertMs;
             result.DbCommitMaintenanceUpsertMs += metrics.MaintenanceUpsertMs;
             result.DbCommitChartInfoMs += metrics.ChartInfoMs;
@@ -3588,18 +3662,22 @@ internal sealed class BmsLibraryInitializationService
                 + " applyMs=" + metrics.ApplyMs
                 + " schemaMs=" + metrics.SchemaMs
                 + " bmsDeleteMs=" + metrics.BmsDeleteMs
+                + " bmsPathCaseUpdateMs=" + metrics.BmsPathCaseUpdateMs
                 + " bmsDateUpdateMs=" + metrics.BmsDateUpdateMs
                 + " bmsUpsertMs=" + metrics.BmsUpsertMs
                 + " bmsChanged=" + metrics.BmsChangedCount
                 + " bmsonDeleteMs=" + metrics.BmsonDeleteMs
+                + " bmsonPathCaseUpdateMs=" + metrics.BmsonPathCaseUpdateMs
                 + " bmsonUpsertMs=" + metrics.BmsonUpsertMs
                 + " maintenanceUpsertMs=" + metrics.MaintenanceUpsertMs
                 + " chartInfoMs=" + metrics.ChartInfoMs
                 + " sqliteCommitMs=" + sqliteCommitMs
                 + " deleted=" + chunk.DeletedBmsPaths.Count
+                + " bmsPathCaseUpdates=" + chunk.BmsPathCaseUpdates.Count
                 + " added=" + chunk.AddedBmsFiles.Count
                 + " bmsDateOnly=" + chunk.UpdatedBmsDates.Count
                 + " bmsonDeleted=" + chunk.DeletedBmsonPaths.Count
+                + " bmsonPathCaseUpdates=" + chunk.BmsonPathCaseUpdates.Count
                 + " bmsonUpsert=" + chunk.UpsertBmsonSongs.Count
                 + " maintenance=" + chunk.MaintenanceInfoRows.Count
                 + " chartInfo=" + chunk.ChartInfoRows.Count
@@ -4105,6 +4183,8 @@ internal sealed class BmsLibraryInitializationService
 
         public int BmsTextOnlyUpdateCount { get; set; }
 
+        public int BmsPathCaseUpdateCount { get; set; }
+
         public List<BmsRelinkDestinationCandidate> BmsRelinkDestinationCandidates { get; } = [];
 
         public List<LR2SongDBExtended.bmson_song> ParsedBmsonSongs { get; } = [];
@@ -4164,6 +4244,8 @@ internal sealed class BmsLibraryInitializationService
         public int BmsDateOnlyUpdateCount { get; set; }
 
         public int BmsTextOnlyUpdateCount { get; set; }
+
+        public int BmsPathCaseUpdateCount { get; set; }
 
         public int BmsMovedHashRelinkCount { get; set; }
 
