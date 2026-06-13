@@ -42,6 +42,12 @@
   <data name="Open_Url" xml:space="preserve">
     <value>本体URLを開く</value>
   </data>
+  <data name="Import_Selected_Url" xml:space="preserve">
+    <value>選択中の本体URLを取り込む</value>
+  </data>
+  <data name="Import_Selected_Url_diff" xml:space="preserve">
+    <value>選択中の差分URLを取り込む</value>
+  </data>
   <data name="Remove_ignore" xml:space="preserve">
     <value>無視リストから削除</value>
   </data>
@@ -1252,6 +1258,9 @@ BMSファイルが重複しないようにマージします。
   <data name="Pending_estimate_queue_label_format" xml:space="preserve">
     <value>保留推定: {0}/{1}件 (待機 {2} バッチ)</value>
   </data>
+  <data name="Playlist_url_download_progress_label_format" xml:space="preserve">
+    <value>URL取り込み: {0}/{1}件</value>
+  </data>
   <data name="Pending_estimate_queue_startup_display_name" xml:space="preserve">
     <value>起動時の保留</value>
   </data>
@@ -1872,6 +1881,24 @@ maintenance の再スキャンや chart_info の全譜面補完は行いませ�
   </data>
   <data name="Confirm_NormalInstallTitle" xml:space="preserve">
     <value>通常インストール機能の通知</value>
+  </data>
+  <data name="Confirm_SelectedPlaylistUrlDownload" xml:space="preserve">
+    <value>{1} の対象 URL {0} 件をダウンロードし、対応ファイルのみ導入処理へ渡します。
+ブラウザで開く必要がある URL は開かずにスキップします。
+
+続行しますか？</value>
+  </data>
+  <data name="Msg_SelectedPlaylistUrlDownloadResult" xml:space="preserve">
+    <value>プレイリスト URL 取り込み結果
+
+対象: {0}
+導入対象: {1}
+スキップ(ブラウザ): {2}
+スキップ(サイズ上限): {3}
+失敗: {4}</value>
+  </data>
+  <data name="Warn_SelectedPlaylistUrlDownloadNoTargets" xml:space="preserve">
+    <value>選択範囲に対象 URL がありません。</value>
   </data>
   <data name="Warn_PendingPackageNotFound" xml:space="preserve">
     <value>選択した譜面が保留パッケージに見つかりませんでした。</value>

@@ -6128,6 +6128,14 @@ public class MainWindowViewModel : ViewModel
 
     private InstallEstimationProgressSnapshot latestInstallEstimationProgress = new();
 
+    private bool playlistUrlDownloadStatusActive;
+
+    private int playlistUrlDownloadTotalCount;
+
+    private int playlistUrlDownloadCompletedCount;
+
+    private string playlistUrlDownloadCurrentDisplayName = string.Empty;
+
     private bool _IsInstallPipelineStatusActive;
 
     private string _InstallPipelineLabel = string.Empty;
@@ -19239,8 +19247,41 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
+    internal void UpdatePlaylistUrlDownloadStatus(bool isActive, int totalCount, int completedCount, string currentDisplayName)
+    {
+        Action reflect = delegate
+        {
+            playlistUrlDownloadStatusActive = isActive;
+            playlistUrlDownloadTotalCount = isActive ? Math.Max(0, totalCount) : 0;
+            playlistUrlDownloadCompletedCount = isActive ? Math.Max(0, completedCount) : 0;
+            playlistUrlDownloadCurrentDisplayName = isActive ? (currentDisplayName ?? string.Empty) : string.Empty;
+            RefreshInstallPipelineStatus();
+        };
+        if (DispatcherHelper.UIDispatcher == null || DispatcherHelper.UIDispatcher.CheckAccess())
+        {
+            reflect();
+        }
+        else
+        {
+            DispatcherHelper.UIDispatcher.BeginInvoke(reflect);
+        }
+    }
+
     private void RefreshInstallPipelineStatus()
     {
+        if (playlistUrlDownloadStatusActive)
+        {
+            IsInstallPipelineStatusActive = true;
+            InstallPipelineLabel = string.Format(
+                BeMusicSeeker.Properties.Resources.Playlist_url_download_progress_label_format,
+                Math.Max(0, playlistUrlDownloadCompletedCount),
+                Math.Max(0, playlistUrlDownloadTotalCount));
+            InstallPipelineSubLabel = playlistUrlDownloadCurrentDisplayName ?? string.Empty;
+            InstallPipelineMaximum = Math.Max(1, playlistUrlDownloadTotalCount);
+            InstallPipelineValue = Math.Max(0, playlistUrlDownloadCompletedCount);
+            InstallPipelineCanCancel = false;
+            return;
+        }
         bool dropActive = latestDropInstallQueueStatus != null && latestDropInstallQueueStatus.IsActive;
         bool pendingQueueActive = latestPendingEstimateQueueStatus != null && latestPendingEstimateQueueStatus.IsActive;
         bool estimateActive = latestInstallEstimationProgress != null && latestInstallEstimationProgress.IsActive;

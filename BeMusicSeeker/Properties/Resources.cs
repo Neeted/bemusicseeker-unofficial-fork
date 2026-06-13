@@ -313,6 +313,8 @@ public class Resources
 
     public static string Pending_estimate_queue_label_format => ResourceManager.GetString("Pending_estimate_queue_label_format", resourceCulture);
 
+    public static string Playlist_url_download_progress_label_format => ResourceManager.GetString("Playlist_url_download_progress_label_format", resourceCulture);
+
     public static string Pending_estimate_queue_startup_display_name => ResourceManager.GetString("Pending_estimate_queue_startup_display_name", resourceCulture);
 
     public static string Playlist_sync_progress_label_format => ResourceManager.GetString("Playlist_sync_progress_label_format", resourceCulture);
@@ -655,6 +657,10 @@ public class Resources
     public static string Open_page => ResourceManager.GetString("Open_page", resourceCulture);
 
     public static string Open_Url => ResourceManager.GetString("Open_Url", resourceCulture);
+
+    public static string Import_Selected_Url => ResourceManager.GetString("Import_Selected_Url", resourceCulture);
+
+    public static string Import_Selected_Url_diff => ResourceManager.GetString("Import_Selected_Url_diff", resourceCulture);
 
     public static string Open_Url_diff => ResourceManager.GetString("Open_Url_diff", resourceCulture);
 
@@ -1228,6 +1234,15 @@ public class Resources
 
 
     public static string Confirm_NormalInstallTitle => ResourceManager.GetString("Confirm_NormalInstallTitle", resourceCulture);
+
+
+    public static string Confirm_SelectedPlaylistUrlDownload => ResourceManager.GetString("Confirm_SelectedPlaylistUrlDownload", resourceCulture);
+
+
+    public static string Msg_SelectedPlaylistUrlDownloadResult => ResourceManager.GetString("Msg_SelectedPlaylistUrlDownloadResult", resourceCulture);
+
+
+    public static string Warn_SelectedPlaylistUrlDownloadNoTargets => ResourceManager.GetString("Warn_SelectedPlaylistUrlDownloadNoTargets", resourceCulture);
 
 
     public static string Warn_PendingPackageNotFound => ResourceManager.GetString("Warn_PendingPackageNotFound", resourceCulture);

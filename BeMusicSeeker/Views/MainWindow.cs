@@ -87,7 +87,17 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         BlockedBySizeLimit
     }
 
+    internal enum PlaylistUrlDownloadResultKind
+    {
+        Downloaded,
+        BrowserFallback,
+        BlockedBySizeLimit,
+        Failed
+    }
+
     private static readonly string[] DownloadAndInstallArchiveExtensions = [".zip", ".7z", ".rar", ".lzh"];
+
+    private bool playlistUrlBulkDownloadRunning;
 
     private TreeSelectionSection _currentTreeSelectionSection = TreeSelectionSection.None;
 
@@ -1786,6 +1796,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         return null;
     }
+
     private async Task OpenUrlFromRowAsync(object row, bool isDiffUrl, string blockReason, MouseButtonEventArgs mouseEventArgs = null)
     {
         if (ShouldBlockStartupUiInteraction(blockReason))
@@ -1796,30 +1807,36 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             }
             return;
         }
+        await OpenSinglePlaylistUrlAsync(row, isDiffUrl);
+    }
+
+    private async Task OpenSinglePlaylistUrlAsync(object row, bool isDiffUrl)
+    {
         Uri url = isDiffUrl ? GridRowResolver.GetUrlDiff(row) : GridRowResolver.GetUrl(row);
+        if (url == null || !url.IsAbsoluteUri)
+        {
+            return;
+        }
+        await OpenSinglePlaylistUrlAsync(url);
+    }
+
+    private async Task OpenSinglePlaylistUrlAsync(Uri url)
+    {
         if (url == null || !url.IsAbsoluteUri)
         {
             return;
         }
         if (!Settings.Default.SkipInitFileCheck && Settings.Default.AutoInstall)
         {
-            try
+            PlaylistUrlDownloadResult downloadResult = await DownloadPlaylistUrlCandidateAsync(url);
+            switch (downloadResult.Kind)
             {
-                string urlText = url.ToString();
-                if (!urlText.EndsWith("/") && !urlText.EndsWith(".htm") && !urlText.EndsWith(".html"))
-                {
-                    switch (await downloadAndInstall(url))
-                    {
-                        case DownloadAndInstallResult.Installed:
-                            newlyInstalledTreeViewItem.IsExpanded = true;
-                            return;
-                        case DownloadAndInstallResult.BlockedBySizeLimit:
-                            return;
-                    }
-                }
-            }
-            catch
-            {
+                case PlaylistUrlDownloadResultKind.Downloaded when !string.IsNullOrWhiteSpace(downloadResult.FilePath) && File.Exists(downloadResult.FilePath):
+                    installChartPackages([downloadResult.FilePath]);
+                    newlyInstalledTreeViewItem.IsExpanded = true;
+                    return;
+                case PlaylistUrlDownloadResultKind.BlockedBySizeLimit:
+                    return;
             }
         }
         Process.Start(url.ToString());
@@ -4942,33 +4959,25 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                     break;
             }
         }
+        List<object> effectivePlaylistUrlRows = GetEffectiveContextMenuRows(row);
+        bool isBulkPlaylistUrlContext = effectivePlaylistUrlRows.Count > 1;
         if (isPlaylistRow)
         {
             if (menuItem != null)
             {
-                if (rowUrl != null && rowUrl.IsAbsoluteUri)
-                {
-                    menuItem.Visibility = Visibility.Visible;
-                    menuItem.IsEnabled = true;
-                }
-                else
-                {
-                    menuItem.Visibility = Visibility.Visible;
-                    menuItem.IsEnabled = false;
-                }
+                menuItem.Header = isBulkPlaylistUrlContext ? BeMusicSeeker.Properties.Resources.Import_Selected_Url : BeMusicSeeker.Properties.Resources.Open_Url;
+                menuItem.Visibility = Visibility.Visible;
+                menuItem.IsEnabled = !playlistUrlBulkDownloadRunning && (isBulkPlaylistUrlContext
+                    ? BuildPlaylistUrlTargets(effectivePlaylistUrlRows, isDiffUrl: false).Count > 0
+                    : rowUrl != null && rowUrl.IsAbsoluteUri);
             }
             if (menuItem2 != null)
             {
-                if (rowUrlDiff != null && rowUrlDiff.IsAbsoluteUri)
-                {
-                    menuItem2.Visibility = Visibility.Visible;
-                    menuItem2.IsEnabled = true;
-                }
-                else
-                {
-                    menuItem2.Visibility = Visibility.Visible;
-                    menuItem2.IsEnabled = false;
-                }
+                menuItem2.Header = isBulkPlaylistUrlContext ? BeMusicSeeker.Properties.Resources.Import_Selected_Url_diff : BeMusicSeeker.Properties.Resources.Open_Url_diff;
+                menuItem2.Visibility = Visibility.Visible;
+                menuItem2.IsEnabled = !playlistUrlBulkDownloadRunning && (isBulkPlaylistUrlContext
+                    ? BuildPlaylistUrlTargets(effectivePlaylistUrlRows, isDiffUrl: true).Count > 0
+                    : rowUrlDiff != null && rowUrlDiff.IsAbsoluteUri);
             }
             if (menuItem5 != null)
             {
@@ -5361,6 +5370,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         bool canOpenScoreViewer = rowTarget?.HasCapability(ChartOperationCapabilities.UseScoreViewer) == true;
         bool canUpdateRanking = rowTarget?.HasCapability(ChartOperationCapabilities.UpdateRanking) == true && base.DataContext is MainWindowViewModel viewModel && viewModel.LR2ID != 0;
         bool canOpenLr2Ir = rowTarget?.HasCapability(ChartOperationCapabilities.UseLr2Ir) == true;
+        List<object> effectivePlaylistUrlRows = GetEffectiveContextMenuRows(row);
+        bool isBulkPlaylistUrlContext = effectivePlaylistUrlRows.Count > 1;
         foreach (Control item in (IEnumerable)contextMenu.Items)
         {
             switch (item.Name)
@@ -5375,12 +5386,24 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                     item.IsEnabled = canOpenRepository;
                     break;
                 case "tableContextMenuItemOpenURL":
+                    if (item is MenuItem openUrlMenuItem)
+                    {
+                        openUrlMenuItem.Header = isBulkPlaylistUrlContext ? BeMusicSeeker.Properties.Resources.Import_Selected_Url : BeMusicSeeker.Properties.Resources.Open_Url;
+                    }
                     item.Visibility = Visibility.Visible;
-                    item.IsEnabled = rowUrl != null && rowUrl.IsAbsoluteUri;
+                    item.IsEnabled = !playlistUrlBulkDownloadRunning && (isBulkPlaylistUrlContext
+                        ? BuildPlaylistUrlTargets(effectivePlaylistUrlRows, isDiffUrl: false).Count > 0
+                        : rowUrl != null && rowUrl.IsAbsoluteUri);
                     break;
                 case "tableContextMenuItemOpenURLdiff":
+                    if (item is MenuItem openUrlDiffMenuItem)
+                    {
+                        openUrlDiffMenuItem.Header = isBulkPlaylistUrlContext ? BeMusicSeeker.Properties.Resources.Import_Selected_Url_diff : BeMusicSeeker.Properties.Resources.Open_Url_diff;
+                    }
                     item.Visibility = Visibility.Visible;
-                    item.IsEnabled = rowUrlDiff != null && rowUrlDiff.IsAbsoluteUri;
+                    item.IsEnabled = !playlistUrlBulkDownloadRunning && (isBulkPlaylistUrlContext
+                        ? BuildPlaylistUrlTargets(effectivePlaylistUrlRows, isDiffUrl: true).Count > 0
+                        : rowUrlDiff != null && rowUrlDiff.IsAbsoluteUri);
                     break;
                 case "tableContextMenuItemOpenVideo":
                 case "tableContextMenuItemSearchLink":
@@ -5621,28 +5644,151 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
-    private void tableContextMenuItemOpenURLClick(object sender, RoutedEventArgs e)
+    private async void tableContextMenuItemOpenURLClick(object sender, RoutedEventArgs e)
     {
-        if (TryGetContextMenuRow(e.Source, out object item))
-        {
-            Uri url = GridRowResolver.GetUrl(item);
-            if (url != null && url.IsAbsoluteUri)
-            {
-                Process.Start(url.ToString());
-            }
-        }
+        e.Handled = true;
+        await OpenPlaylistUrlFromContextMenuAsync(e.Source, isDiffUrl: false, "datagrid_context_menu_open_url").Logging("tableContextMenuItemOpenURLClick");
     }
 
-    private void tableContextMenuItemOpenURLdiffClick(object sender, RoutedEventArgs e)
+    private async void tableContextMenuItemOpenURLdiffClick(object sender, RoutedEventArgs e)
     {
-        if (TryGetContextMenuRow(e.Source, out object item))
+        e.Handled = true;
+        await OpenPlaylistUrlFromContextMenuAsync(e.Source, isDiffUrl: true, "datagrid_context_menu_open_url_diff").Logging("tableContextMenuItemOpenURLdiffClick");
+    }
+
+    private async Task OpenPlaylistUrlFromContextMenuAsync(object source, bool isDiffUrl, string blockReason)
+    {
+        if (ShouldBlockStartupUiInteraction(blockReason))
         {
-            Uri urlDiff = GridRowResolver.GetUrlDiff(item);
-            if (urlDiff != null && urlDiff.IsAbsoluteUri)
+            return;
+        }
+        if (!TryGetContextMenuRow(source, out object contextRow))
+        {
+            return;
+        }
+        List<object> rows = GetEffectiveContextMenuRows(contextRow);
+        if (rows.Count <= 1)
+        {
+            await OpenSinglePlaylistUrlAsync(contextRow, isDiffUrl);
+            return;
+        }
+        await DownloadSelectedPlaylistUrlsAsync(rows, isDiffUrl);
+    }
+
+    private List<object> GetEffectiveContextMenuRows(object contextRow)
+    {
+        if (contextRow == null)
+        {
+            return [];
+        }
+        List<object> selectedRows = GetSelectedGridRowsSnapshot();
+        if (selectedRows.Any(row => ReferenceEquals(row, contextRow)))
+        {
+            return selectedRows;
+        }
+        return [contextRow];
+    }
+
+    internal static List<Uri> BuildPlaylistUrlTargetsForTest(IEnumerable<object> rows, bool isDiffUrl)
+    {
+        return BuildPlaylistUrlTargets(rows, isDiffUrl);
+    }
+
+    private static List<Uri> BuildPlaylistUrlTargets(IEnumerable<object> rows, bool isDiffUrl)
+    {
+        var targets = new List<Uri>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (object row in rows ?? [])
+        {
+            Uri url = isDiffUrl ? GridRowResolver.GetUrlDiff(row) : GridRowResolver.GetUrl(row);
+            if (url == null || !url.IsAbsoluteUri)
             {
-                Process.Start(urlDiff.ToString());
+                continue;
+            }
+            string key = url.ToString();
+            if (seen.Add(key))
+            {
+                targets.Add(url);
             }
         }
+        return targets;
+    }
+
+    private async Task DownloadSelectedPlaylistUrlsAsync(IEnumerable<object> rows, bool isDiffUrl)
+    {
+        if (playlistUrlBulkDownloadRunning)
+        {
+            return;
+        }
+        List<Uri> targets = BuildPlaylistUrlTargets(rows, isDiffUrl);
+        if (targets.Count == 0)
+        {
+            DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Warn_SelectedPlaylistUrlDownloadNoTargets, BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
+            return;
+        }
+        string confirmationMessage = string.Format(
+            BeMusicSeeker.Properties.Resources.Confirm_SelectedPlaylistUrlDownload,
+            targets.Count,
+            isDiffUrl ? BeMusicSeeker.Properties.Resources.Diff_URL : BeMusicSeeker.Properties.Resources.Original_URL);
+        if (DispatcherMessageBox.Show(Window.GetWindow(this), confirmationMessage, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) == MessageBoxResult.Cancel)
+        {
+            return;
+        }
+        var downloadedPaths = new List<string>();
+        int browserFallbackCount = 0;
+        int blockedBySizeLimitCount = 0;
+        int failedCount = 0;
+        var viewModel = base.DataContext as MainWindowViewModel;
+        playlistUrlBulkDownloadRunning = true;
+        try
+        {
+            for (int i = 0; i < targets.Count; i++)
+            {
+                Uri target = targets[i];
+                viewModel?.UpdatePlaylistUrlDownloadStatus(true, targets.Count, i, target.ToString());
+                PlaylistUrlDownloadResult result = await DownloadPlaylistUrlCandidateAsync(target);
+                switch (result.Kind)
+                {
+                    case PlaylistUrlDownloadResultKind.Downloaded when !string.IsNullOrWhiteSpace(result.FilePath) && File.Exists(result.FilePath):
+                        downloadedPaths.Add(result.FilePath);
+                        break;
+                    case PlaylistUrlDownloadResultKind.BlockedBySizeLimit:
+                        blockedBySizeLimitCount++;
+                        break;
+                    case PlaylistUrlDownloadResultKind.Failed:
+                        failedCount++;
+                        break;
+                    default:
+                        browserFallbackCount++;
+                        break;
+                }
+                viewModel?.UpdatePlaylistUrlDownloadStatus(true, targets.Count, i + 1, target.ToString());
+            }
+        }
+        finally
+        {
+            playlistUrlBulkDownloadRunning = false;
+            viewModel?.UpdatePlaylistUrlDownloadStatus(false, 0, 0, string.Empty);
+        }
+        if (downloadedPaths.Count > 0)
+        {
+            installChartPackages(downloadedPaths);
+            newlyInstalledTreeViewItem.IsExpanded = true;
+        }
+        string resultMessage = string.Format(
+            BeMusicSeeker.Properties.Resources.Msg_SelectedPlaylistUrlDownloadResult,
+            targets.Count,
+            downloadedPaths.Count,
+            browserFallbackCount,
+            blockedBySizeLimitCount,
+            failedCount);
+        DispatcherMessageBox.Show(
+            Window.GetWindow(this),
+            resultMessage,
+            BeMusicSeeker.Properties.Resources.Information,
+            MessageBoxButton.OK,
+            downloadedPaths.Count > 0 ? MessageBoxImage.Asterisk : MessageBoxImage.Exclamation,
+            MessageBoxResult.OK);
     }
 
     private void tableContextMenuItemOpenDocumentFileClick(object sender, RoutedEventArgs e)
@@ -6066,10 +6212,58 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     /// <returns>ダウンロード試行結果。</returns>
     private async Task<DownloadAndInstallResult> downloadAndInstall(Uri uri)
     {
+        PlaylistUrlDownloadResult result = await DownloadPlaylistUrlCandidateAsync(uri);
+        if (result.Kind == PlaylistUrlDownloadResultKind.Downloaded && !string.IsNullOrWhiteSpace(result.FilePath) && File.Exists(result.FilePath))
+        {
+            installChartPackages([result.FilePath]);
+            return DownloadAndInstallResult.Installed;
+        }
+        return result.Kind == PlaylistUrlDownloadResultKind.BlockedBySizeLimit
+            ? DownloadAndInstallResult.BlockedBySizeLimit
+            : DownloadAndInstallResult.OpenInBrowser;
+    }
+
+    private sealed class PlaylistUrlDownloadResult
+    {
+        private PlaylistUrlDownloadResult(PlaylistUrlDownloadResultKind kind, string filePath = null)
+        {
+            Kind = kind;
+            FilePath = filePath ?? string.Empty;
+        }
+
+        internal PlaylistUrlDownloadResultKind Kind { get; }
+
+        internal string FilePath { get; }
+
+        internal static PlaylistUrlDownloadResult Downloaded(string filePath)
+        {
+            return new PlaylistUrlDownloadResult(PlaylistUrlDownloadResultKind.Downloaded, filePath);
+        }
+
+        internal static PlaylistUrlDownloadResult BrowserFallback()
+        {
+            return new PlaylistUrlDownloadResult(PlaylistUrlDownloadResultKind.BrowserFallback);
+        }
+
+        internal static PlaylistUrlDownloadResult BlockedBySizeLimit()
+        {
+            return new PlaylistUrlDownloadResult(PlaylistUrlDownloadResultKind.BlockedBySizeLimit);
+        }
+
+        internal static PlaylistUrlDownloadResult Failed()
+        {
+            return new PlaylistUrlDownloadResult(PlaylistUrlDownloadResultKind.Failed);
+        }
+    }
+
+    private async Task<PlaylistUrlDownloadResult> DownloadPlaylistUrlCandidateAsync(Uri uri)
+    {
+        if (uri == null || !uri.IsAbsoluteUri || IsBrowserFallbackDownloadUri(uri))
+        {
+            return PlaylistUrlDownloadResult.BrowserFallback();
+        }
         string tempDirectory = TempDirectoryPublisher.Get();
-        string filePath = string.Empty;
-        DownloadAndInstallResult result = DownloadAndInstallResult.OpenInBrowser;
-        await Task.Run(delegate
+        return await Task.Run(delegate
         {
             try
             {
@@ -6079,38 +6273,47 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 {
                     if (response.ContentLength.Value == 0L)
                     {
-                        return;
+                        return PlaylistUrlDownloadResult.BrowserFallback();
                     }
                     if (response.ContentLength.Value > DownloadAndInstallSizeLimitBytes)
                     {
-                        result = DownloadAndInstallResult.BlockedBySizeLimit;
-                        return;
+                        return PlaylistUrlDownloadResult.BlockedBySizeLimit();
                     }
                 }
                 string fileName = ResolveDownloadedArchiveFileName(normalizedUri, response);
                 if (!IsDownloadAndInstallCandidateFileName(fileName))
                 {
-                    return;
+                    return PlaylistUrlDownloadResult.BrowserFallback();
                 }
-                filePath = Path.Combine(tempDirectory, fileName);
+                string filePath = Path.Combine(tempDirectory, fileName);
                 if (!TryCopyStreamToFileWithLimit(response.ResponseStream, filePath, DownloadAndInstallSizeLimitBytes))
                 {
-                    result = DownloadAndInstallResult.BlockedBySizeLimit;
-                    filePath = string.Empty;
-                    return;
+                    return PlaylistUrlDownloadResult.BlockedBySizeLimit();
                 }
-                result = DownloadAndInstallResult.Installed;
+                return PlaylistUrlDownloadResult.Downloaded(filePath);
             }
             catch
             {
+                return PlaylistUrlDownloadResult.Failed();
             }
         });
-        if (!string.IsNullOrWhiteSpace(filePath) && File.Exists(filePath))
+    }
+
+    internal static bool IsBrowserFallbackDownloadUriForTest(Uri uri)
+    {
+        return IsBrowserFallbackDownloadUri(uri);
+    }
+
+    private static bool IsBrowserFallbackDownloadUri(Uri uri)
+    {
+        if (uri == null || !uri.IsAbsoluteUri)
         {
-            installChartPackages([filePath]);
-            return DownloadAndInstallResult.Installed;
+            return true;
         }
-        return result;
+        string urlText = uri.ToString();
+        return urlText.EndsWith("/", StringComparison.OrdinalIgnoreCase)
+            || urlText.EndsWith(".htm", StringComparison.OrdinalIgnoreCase)
+            || urlText.EndsWith(".html", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool IsDownloadAndInstallCandidateFileName(string fileName)

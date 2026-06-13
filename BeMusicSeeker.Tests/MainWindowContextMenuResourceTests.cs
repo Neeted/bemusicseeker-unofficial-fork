@@ -4,6 +4,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.Serialization;
 using System.Text.RegularExpressions;
 using System.Windows;
 using System.Xml.Linq;
@@ -1824,6 +1825,56 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
+    public void PlaylistUrlTargets_UseRequestedColumnAndDeduplicateExactUrls()
+    {
+        PlaylistDetailRow first = CreatePlaylistUrlRow("https://example.invalid/package.zip", "https://example.invalid/diff-a.zip");
+        PlaylistDetailRow duplicateMain = CreatePlaylistUrlRow("https://example.invalid/package.zip", "https://example.invalid/diff-b.zip");
+
+        List<Uri> mainTargets = MainWindow.BuildPlaylistUrlTargetsForTest([first, duplicateMain, new object()], isDiffUrl: false);
+        List<Uri> diffTargets = MainWindow.BuildPlaylistUrlTargetsForTest([first, duplicateMain], isDiffUrl: true);
+
+        Assert.AreEqual(1, mainTargets.Count);
+        Assert.AreEqual("https://example.invalid/package.zip", mainTargets[0].ToString());
+        Assert.AreEqual(2, diffTargets.Count);
+        Assert.AreEqual("https://example.invalid/diff-a.zip", diffTargets[0].ToString());
+        Assert.AreEqual("https://example.invalid/diff-b.zip", diffTargets[1].ToString());
+    }
+
+    [TestMethod]
+    public void PlaylistUrlBulkImport_UsesSharedHandlerAndSuppressesBrowserFallback()
+    {
+        string root = FindRepositoryRoot();
+        string mainWindowCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow.cs"));
+        string openUrlHandler = ExtractBetween(mainWindowCode, "private async void tableContextMenuItemOpenURLClick", "private async void tableContextMenuItemOpenURLdiffClick");
+        string openUrlDiffHandler = ExtractBetween(mainWindowCode, "private async void tableContextMenuItemOpenURLdiffClick", "private async Task OpenPlaylistUrlFromContextMenuAsync");
+        string selectionHelper = ExtractBetween(mainWindowCode, "private List<object> GetEffectiveContextMenuRows", "internal static List<Uri> BuildPlaylistUrlTargetsForTest");
+        string bulkMethod = ExtractBetween(mainWindowCode, "private async Task DownloadSelectedPlaylistUrlsAsync", "private void tableContextMenuItemOpenDocumentFileClick");
+        string refreshStatus = ExtractBetween(
+            File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs")),
+            "private void RefreshInstallPipelineStatus()",
+            "private void BeginPlaylistSyncProgressOperation()");
+
+        StringAssert.Contains(openUrlHandler, "OpenPlaylistUrlFromContextMenuAsync(e.Source, isDiffUrl: false");
+        StringAssert.Contains(openUrlDiffHandler, "OpenPlaylistUrlFromContextMenuAsync(e.Source, isDiffUrl: true");
+        Assert.IsFalse(openUrlHandler.Contains("Process.Start"));
+        Assert.IsFalse(openUrlDiffHandler.Contains("Process.Start"));
+        StringAssert.Contains(selectionHelper, "GetSelectedGridRowsSnapshot");
+        StringAssert.Contains(bulkMethod, "BuildPlaylistUrlTargets(rows, isDiffUrl)");
+        StringAssert.Contains(bulkMethod, "browserFallbackCount++");
+        Assert.IsFalse(bulkMethod.Contains("Process.Start"));
+        Assert.IsTrue(refreshStatus.IndexOf("playlistUrlDownloadStatusActive", StringComparison.Ordinal) < refreshStatus.IndexOf("bool dropActive", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public void PlaylistUrlDownload_BrowserFallbackRecognizesPageUrls()
+    {
+        Assert.IsTrue(MainWindow.IsBrowserFallbackDownloadUriForTest(new Uri("https://example.invalid/folder/")));
+        Assert.IsTrue(MainWindow.IsBrowserFallbackDownloadUriForTest(new Uri("https://example.invalid/index.htm")));
+        Assert.IsTrue(MainWindow.IsBrowserFallbackDownloadUriForTest(new Uri("https://example.invalid/index.html")));
+        Assert.IsFalse(MainWindow.IsBrowserFallbackDownloadUriForTest(new Uri("https://example.invalid/package.zip")));
+    }
+
+    [TestMethod]
     public void UserSettingDefaults_AppConfigAndSettingsCodeStayInSync()
     {
         string root = FindRepositoryRoot();
@@ -2216,6 +2267,21 @@ public sealed class MainWindowContextMenuResourceTests
             directory = directory.Parent;
         }
         throw new DirectoryNotFoundException("Repository root was not found.");
+    }
+
+    private static PlaylistDetailRow CreatePlaylistUrlRow(string url, string diffUrl)
+    {
+        var row = (PlaylistDetailRow)FormatterServices.GetUninitializedObject(typeof(PlaylistDetailRow));
+        SetPrivateField(row, "url", string.IsNullOrWhiteSpace(url) ? null : new Uri(url));
+        SetPrivateField(row, "urlDiff", string.IsNullOrWhiteSpace(diffUrl) ? null : new Uri(diffUrl));
+        return row;
+    }
+
+    private static void SetPrivateField(object target, string fieldName, object? value)
+    {
+        FieldInfo field = target.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(field, fieldName);
+        field.SetValue(target, value);
     }
 
     private static ChartOperationTarget CreateContextMenuTarget(ChartFileKind kind, ChartOperationCapabilities capabilities)
