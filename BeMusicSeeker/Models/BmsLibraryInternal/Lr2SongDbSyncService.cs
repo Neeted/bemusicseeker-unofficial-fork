@@ -1934,7 +1934,10 @@ internal static class Lr2SongDbSyncService
     internal static IReadOnlyCollection<string> CreateLr2FolderDirectoryRowGenerationScopeDirectories(Lr2SongDbSyncRequest request)
     {
         var candidates = new List<string>();
-        candidates.AddRange(request?.RootDirectories ?? []);
+        foreach (string rootDirectory in request?.RootDirectories ?? [])
+        {
+            candidates.Add(CreateDirectoryRowGenerationBoundary(rootDirectory));
+        }
 
         string normalOutputBase = NormalizeDirectoryPathOrNull(request?.Lr2NormalCustomFolderOutputBaseDir);
         if (!string.IsNullOrWhiteSpace(normalOutputBase))

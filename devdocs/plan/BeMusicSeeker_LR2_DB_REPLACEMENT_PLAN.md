@@ -425,6 +425,11 @@ row が残ると、manual-only でも LR2 が不要な scan に入る。
   - 通常出力先 `LR2CustomFolderOutputBaseDir`
   - ルート出力先 `LR2CustomFolderOutputBaseDirRootType`
   - LR2 executable directory 配下の `LR2files\CustomFolder`
+- LR2 BMS search root から自然 discovery した外部 `.lr2folder` の親 directory row は、LR2 BMS search root
+  階層に従う。search root 自身の directory row だけを `parent = ROOT` とし、search root 配下の
+  directory row は親 directory hash を `parent` にする。たとえば `D:\BMS\#minbp順\` が
+  jukebox root の場合、`D:\BMS\#minbp順\[★] 発狂難易度表\` は
+  `parent = hash(D:\BMS\#minbp順\)` であり、`parent = ROOT` にはしない。
 - 通常出力先配下の `.lr2folder` 親 directory row も、LR2 root folder hierarchy の一部として
   expected folder scope に含める。通常出力先 `LR2CustomFolderOutputBaseDir` は他の通常 BMS root と
   同じく `parent = ROOT` の `type = 1` directory row として扱い、その配下の playlist/table directory row は
@@ -1444,9 +1449,12 @@ parse directive:
     通常 / root custom folder 出力先と built-in `LR2files\CustomFolder` については、同じ sync request の
     directory row generation scope から親 / カテゴリ directory row も生成する。prune 用の
     `DirectoryRowScopeDirectories` とは分け、playlist 単位の再出力で sibling playlist の directory row を
-    削除しない。通常出力先では `LR2CustomFolderOutputBaseDir` を root 相当境界にし、通常出力先 row を
-    `parent = ROOT`、playlist/table directory row をその子にする。root 出力では playlist/table directory
-    それぞれを root 相当境界にし、playlist/table directory row を `parent = ROOT` にする。
+    削除しない。LR2 BMS search root 由来の外部 `.lr2folder` では、search root 自身だけを
+    `parent = ROOT` にし、配下の directory row は親 directory hash にするため、directory row generation
+    boundary は search root の親 directory に置く。通常出力先では `LR2CustomFolderOutputBaseDir` を
+    root 相当境界にし、通常出力先 row を `parent = ROOT`、playlist/table directory row をその子にする。
+    app-managed root 出力では playlist/table directory それぞれを root 相当境界にし、playlist/table
+    directory row を `parent = ROOT` にする。
     prune 用 scope は引き続き出力 directory に限定し、sibling playlist や custom folder 出力 base 全体へ広げない。
     同一親に複数 `.lr2folder` がある場合、親 row は一度だけ upsert 候補にし、generated path set で
     stale parent row pruning と重複 write を抑止する。
@@ -2003,6 +2011,9 @@ Everything / filesystem 広域再スキャンを始める入口ではない。su
   ルートフォルダ出力 (`is_root_folder`) では playlist workflow 側でも `Lr2FolderFileSourceClassifier` を通し、
   playlist/table directory row を `ROOT` 親に置き、generated `.lr2folder` row の parent はその containing
   directory hash に揃える。ルート出力 base 直下の standalone `.lr2folder` だけは `ROOT` 親にする。
+  この root 出力 semantics は app-managed playlist output の projection に限定し、LR2 BMS search root 配下で
+  自然 discovery した外部 `.lr2folder` の directory row には適用しない。外部 `.lr2folder` は jukebox root
+  からの通常階層を保つ。
   playlist entry の行単位編集保存も、LR2 連携モードで出力先が設定されている場合は owning table の `.lr2folder` projection を再出力し、
   `folder` row を同じ scope で pruning する。`is_root_folder` の一括変更は旧出力先 directory を変更前に捕捉し、
   commit と同じ operation 内で旧 directory row を prune してから新出力先を生成する。

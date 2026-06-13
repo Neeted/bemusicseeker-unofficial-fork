@@ -962,7 +962,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                     path = Lr2FolderPath.ToFolderPath(categoryDirectory),
                     title = "#minbp",
                     type = 1,
-                    parent = Lr2SongFolderParentNormalizer.RootParentHash,
+                    parent = Lr2SongFolderParentNormalizer.ComputeDirectoryHash(rootDirectory),
                     date = Lr2SongRowEnricher.ToLr2UnixSeconds(timestamp),
                     adddate = 12345
                 }, typeof(LR2SongDB.folder));
@@ -1001,6 +1001,12 @@ public sealed class BmsLibraryLr2SongDbSyncTests
 
             using var verify = new LR2SongDBExtended(scope.SongDbPath);
             List<LR2SongDB.folder> rows = verify.Table<LR2SongDB.folder>().ToList();
+            LR2SongDB.folder rootRow = rows.Single(row => row.path == Lr2FolderPath.ToFolderPath(rootDirectory));
+            Assert.AreEqual(1, rootRow.type);
+            Assert.AreEqual(Lr2SongFolderParentNormalizer.RootParentHash, rootRow.parent);
+            LR2SongDB.folder categoryRow = rows.Single(row => row.path == Lr2FolderPath.ToFolderPath(categoryDirectory));
+            Assert.AreEqual(1, categoryRow.type);
+            Assert.AreEqual(Lr2SongFolderParentNormalizer.ComputeDirectoryHash(rootDirectory), categoryRow.parent);
             LR2SongDB.folder tableRow = rows.Single(row => row.path == Lr2FolderPath.ToFolderPath(tableDirectory));
             Assert.AreEqual(1, tableRow.type);
             Assert.AreEqual("InsaneTable", tableRow.title);
@@ -1008,6 +1014,66 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             LR2SongDB.folder lr2Folder = rows.Single(row => row.path == lr2FolderPath);
             Assert.AreEqual("Preserved External Folder", lr2Folder.title);
             Assert.AreEqual(23456, lr2Folder.adddate);
+            Assert.AreEqual(Lr2SongFolderParentNormalizer.ComputeDirectoryHash(tableDirectory), lr2Folder.parent);
+        }
+        finally
+        {
+            ResetTouchedSettings();
+        }
+    }
+
+    [TestMethod]
+    public void ApplyLr2FolderFileDiffSync_GeneratesSearchRootChildParentRowUnderSearchRoot()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        try
+        {
+            Settings.Default.OperationModeLR2DB = true;
+            ResetLr2FolderDiscoverySettings();
+            string bmsContainerDirectory = Path.Combine(scope.DirectoryPath, "BMS");
+            string searchRootDirectory = Path.Combine(bmsContainerDirectory, "#minbp");
+            string tableDirectory = Path.Combine(searchRootDirectory, "InsaneTable");
+            Directory.CreateDirectory(tableDirectory);
+            string lr2FolderPath = Path.Combine(tableDirectory, "0000.lr2folder");
+            DateTime timestamp = new(2026, 6, 10, 1, 2, 3, DateTimeKind.Utc);
+            File.WriteAllText(lr2FolderPath, "#TITLE External Folder", Encoding.GetEncoding("shift_jis"));
+            File.SetLastWriteTimeUtc(lr2FolderPath, timestamp);
+            var library = new BMSLibrary(scope.SongDbPath)
+            {
+                SearchTargets = [searchRootDirectory],
+                BMSFiles = []
+            };
+            var options = new BmsLibraryOptionsSnapshot
+            {
+                OperationModeLR2DB = true,
+            };
+            var fileCheckResult = new SongTableFileCheckResult
+            {
+                Lr2ScanSurfaceAvailable = true,
+                Lr2ScanLr2FolderDiscoveryDirectories = [searchRootDirectory],
+                Lr2ScanLr2FolderFilePaths = [lr2FolderPath],
+                Lr2ScanLr2FolderFileEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase)
+                {
+                    [lr2FolderPath] = new RootFileEnumerationEntry(lr2FolderPath, timestamp)
+                },
+                Lr2ScanLr2FolderFileDiscoveryComplete = true
+            };
+
+            InvokeApplyLr2FolderFileDiffSync(library, options, [searchRootDirectory], fileCheckResult, "test_lr2folder_file_diff_search_root_child_parent");
+
+            using var verify = new LR2SongDBExtended(scope.SongDbPath);
+            List<LR2SongDB.folder> rows = verify.Table<LR2SongDB.folder>().ToList();
+            LR2SongDB.folder searchRootRow = rows.Single(row => row.path == Lr2FolderPath.ToFolderPath(searchRootDirectory));
+            Assert.AreEqual(1, searchRootRow.type);
+            Assert.AreEqual("#minbp", searchRootRow.title);
+            Assert.AreEqual(Lr2SongFolderParentNormalizer.RootParentHash, searchRootRow.parent);
+            LR2SongDB.folder tableRow = rows.Single(row => row.path == Lr2FolderPath.ToFolderPath(tableDirectory));
+            Assert.AreEqual(1, tableRow.type);
+            Assert.AreEqual("InsaneTable", tableRow.title);
+            Assert.AreEqual(Lr2SongFolderParentNormalizer.ComputeDirectoryHash(searchRootDirectory), tableRow.parent);
+            LR2SongDB.folder lr2Folder = rows.Single(row => row.path == lr2FolderPath);
+            Assert.AreEqual(2, lr2Folder.type);
+            Assert.AreEqual("External Folder", lr2Folder.title);
             Assert.AreEqual(Lr2SongFolderParentNormalizer.ComputeDirectoryHash(tableDirectory), lr2Folder.parent);
         }
         finally

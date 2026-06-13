@@ -8061,12 +8061,14 @@ completeFileEnumerationOnce,
         IEnumerable<string> builtinSourceDirectories)
     {
         var boundaries = new List<string>();
-        boundaries.AddRange(rootDirectories ?? []);
+        foreach (string rootDirectory in rootDirectories ?? [])
+        {
+            boundaries.Add(CreateLr2FolderPhysicalParentDirectoryBoundary(rootDirectory));
+        }
         string normalOutputBase = Lr2FolderPath.NormalizeDirectoryPath(normalCustomFolderOutputBaseDir);
         if (!string.IsNullOrWhiteSpace(normalOutputBase))
         {
-            string parent = Lr2FolderPath.NormalizeDirectoryPath(Lr2FolderPath.SafeGetDirectoryName(normalOutputBase));
-            boundaries.Add(string.IsNullOrWhiteSpace(parent) ? normalOutputBase : parent);
+            boundaries.Add(CreateLr2FolderPhysicalParentDirectoryBoundary(normalOutputBase));
         }
         string rootOutputBase = Lr2FolderPath.NormalizeDirectoryPath(rootCustomFolderOutputBaseDir);
         if (!string.IsNullOrWhiteSpace(rootOutputBase))
@@ -8080,6 +8082,18 @@ completeFileEnumerationOnce,
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderByDescending(path => path.Length)
             .ThenBy(path => path, StringComparer.OrdinalIgnoreCase)];
+    }
+
+    private static string CreateLr2FolderPhysicalParentDirectoryBoundary(string rootEquivalentDirectory)
+    {
+        string normalizedRoot = Lr2FolderPath.NormalizeDirectoryPath(rootEquivalentDirectory);
+        if (string.IsNullOrWhiteSpace(normalizedRoot))
+        {
+            return null;
+        }
+
+        string parent = Lr2FolderPath.NormalizeDirectoryPath(Lr2FolderPath.SafeGetDirectoryName(normalizedRoot));
+        return string.IsNullOrWhiteSpace(parent) ? normalizedRoot : parent;
     }
 
     private static string FindNearestLr2DirectoryBoundary(string normalizedDirectory, ISet<string> boundaries)
