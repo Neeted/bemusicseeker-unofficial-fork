@@ -564,6 +564,7 @@
   "Msg_SelectedPlaylistUrlDownloadResult": "播放清單 URL 匯入結果\n\n目標: {0}\n安裝目標: {1}\n略過(瀏覽器): {2}\n略過(大小上限): {3}\n失敗: {4}",
   "Warn_SelectedPlaylistUrlDownloadNoTargets": "選取範圍中沒有目標 URL。",
   "Warn_SelectedPlaylistUrlDownloadBlockedByInstallQueue": "有可取消的安裝處理正在執行，因此無法開始 URL 匯入。\n請在安裝處理完成或取消後再執行。",
+  "Warn_DropInstallBlockedByPlaylistUrlDownload": "URL 匯入正在執行，因此無法開始拖放安裝。\n請在 URL 匯入完成後再執行。",
   "Warn_PendingPackageNotFound": "在待處理的安裝包中未找到所選譜面。",
   "Warn_InvalidInstallPath": "安裝目標路徑無效。\n{0}\n\n{1}",
   "Warn_InstallDirNotFound": "找不到安裝目標資料夾。\n{0}",

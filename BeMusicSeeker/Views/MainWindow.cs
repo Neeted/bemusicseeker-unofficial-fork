@@ -410,6 +410,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     /// </summary>
     private void Window_Drop(object sender, DragEventArgs e)
     {
+        if (playlistUrlBulkDownloadRunning)
+        {
+            DispatcherMessageBox.Show(this, BeMusicSeeker.Properties.Resources.Warn_DropInstallBlockedByPlaylistUrlDownload, BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
+            return;
+        }
         if (e.Data.GetData(DataFormats.FileDrop) is string[] filePaths)
         {
             var viewModel = base.DataContext as MainWindowViewModel;
@@ -427,7 +432,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     /// </summary>
     private void Window_DragOver(object sender, DragEventArgs e)
     {
-        if (e.Data.GetDataPresent(DataFormats.FileDrop, autoConvert: true))
+        if (playlistUrlBulkDownloadRunning)
+        {
+            e.Effects = DragDropEffects.None;
+        }
+        else if (e.Data.GetDataPresent(DataFormats.FileDrop, autoConvert: true))
         {
             e.Effects = DragDropEffects.Copy;
         }

@@ -564,6 +564,7 @@
   "Msg_SelectedPlaylistUrlDownloadResult": "プレイリスト URL 取り込み結果\n\n対象: {0}\n導入対象: {1}\nスキップ(ブラウザ): {2}\nスキップ(サイズ上限): {3}\n失敗: {4}",
   "Warn_SelectedPlaylistUrlDownloadNoTargets": "選択範囲に対象 URL がありません。",
   "Warn_SelectedPlaylistUrlDownloadBlockedByInstallQueue": "キャンセル可能な導入処理が実行中のため、URL 取り込みを開始できません。\n導入処理の完了後、またはキャンセル後に再実行してください。",
+  "Warn_DropInstallBlockedByPlaylistUrlDownload": "URL 取り込みが実行中のため、ドラッグ＆ドロップ導入を開始できません。\nURL 取り込みの完了後に再実行してください。",
   "Warn_PendingPackageNotFound": "選択した譜面が保留パッケージに見つかりませんでした。",
   "Warn_InvalidInstallPath": "インストール先のパスが不正です。\n{0}\n\n{1}",
   "Warn_InstallDirNotFound": "インストール先のフォルダが見つかりません。\n{0}",

@@ -564,6 +564,7 @@
   "Msg_SelectedPlaylistUrlDownloadResult": "플레이리스트 URL 가져오기 결과\n\n대상: {0}\n설치 대상: {1}\n건너뜀(브라우저): {2}\n건너뜀(크기 제한): {3}\n실패: {4}",
   "Warn_SelectedPlaylistUrlDownloadNoTargets": "선택 범위에 대상 URL이 없습니다.",
   "Warn_SelectedPlaylistUrlDownloadBlockedByInstallQueue": "취소 가능한 설치 처리가 실행 중이므로 URL 가져오기를 시작할 수 없습니다.\n설치 처리가 완료되거나 취소된 후 다시 실행해 주세요.",
+  "Warn_DropInstallBlockedByPlaylistUrlDownload": "URL 가져오기가 실행 중이므로 드래그 앤 드롭 설치를 시작할 수 없습니다.\nURL 가져오기가 완료된 후 다시 실행해 주세요.",
   "Warn_PendingPackageNotFound": "선택한 채보가 보류 중인 패키지에서 찾을 수 없습니다.",
   "Warn_InvalidInstallPath": "설치 대상 경로가 잘못되었습니다.\n{0}\n\n{1}",
   "Warn_InstallDirNotFound": "설치 대상 폴더를 찾을 수 없습니다.\n{0}",

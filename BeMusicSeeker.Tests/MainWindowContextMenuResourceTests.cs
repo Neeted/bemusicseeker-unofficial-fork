@@ -1847,6 +1847,8 @@ public sealed class MainWindowContextMenuResourceTests
         string mainWindowCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow.cs"));
         string openUrlHandler = ExtractBetween(mainWindowCode, "private async void tableContextMenuItemOpenURLClick", "private async void tableContextMenuItemOpenURLdiffClick");
         string openUrlDiffHandler = ExtractBetween(mainWindowCode, "private async void tableContextMenuItemOpenURLdiffClick", "private async Task OpenPlaylistUrlFromContextMenuAsync");
+        string dropHandler = ExtractBetween(mainWindowCode, "private void Window_Drop", "private void Window_DragOver");
+        string dragOverHandler = ExtractBetween(mainWindowCode, "private void Window_DragOver", "private void Window_MouseLeftButtonDown");
         string selectionHelper = ExtractBetween(mainWindowCode, "private List<object> GetEffectiveContextMenuRows", "internal static List<Uri> BuildPlaylistUrlTargetsForTest");
         string bulkMethod = ExtractBetween(mainWindowCode, "private async Task DownloadSelectedPlaylistUrlsAsync", "private void tableContextMenuItemOpenDocumentFileClick");
         string refreshStatus = ExtractBetween(
@@ -1864,6 +1866,10 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(bulkMethod, "Warn_SelectedPlaylistUrlDownloadBlockedByInstallQueue");
         StringAssert.Contains(bulkMethod, "browserFallbackCount++");
         Assert.IsFalse(bulkMethod.Contains("Process.Start"));
+        StringAssert.Contains(dropHandler, "Warn_DropInstallBlockedByPlaylistUrlDownload");
+        StringAssert.Contains(dropHandler, "playlistUrlBulkDownloadRunning");
+        StringAssert.Contains(dragOverHandler, "DragDropEffects.None");
+        StringAssert.Contains(dragOverHandler, "playlistUrlBulkDownloadRunning");
         Assert.IsTrue(refreshStatus.IndexOf("playlistUrlDownloadStatusActive", StringComparison.Ordinal) < refreshStatus.IndexOf("bool dropActive", StringComparison.Ordinal));
     }
 

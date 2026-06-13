@@ -564,6 +564,7 @@
   "Msg_SelectedPlaylistUrlDownloadResult": "播放列表 URL 导入结果\n\n目标: {0}\n安装目标: {1}\n跳过(浏览器): {2}\n跳过(大小上限): {3}\n失败: {4}",
   "Warn_SelectedPlaylistUrlDownloadNoTargets": "选择范围中没有目标 URL。",
   "Warn_SelectedPlaylistUrlDownloadBlockedByInstallQueue": "由于正在运行可取消的安装处理，无法开始 URL 导入。\n请在安装处理完成或取消后重新执行。",
+  "Warn_DropInstallBlockedByPlaylistUrlDownload": "由于 URL 导入正在运行，无法开始拖放安装。\n请在 URL 导入完成后重新执行。",
   "Warn_PendingPackageNotFound": "在待处理的安装包中未找到所选谱面。",
   "Warn_InvalidInstallPath": "安装目标路径无效。\n{0}\n\n{1}",
   "Warn_InstallDirNotFound": "未找到安装目标文件夹。\n{0}",
