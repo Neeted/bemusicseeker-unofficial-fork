@@ -493,6 +493,7 @@ The `STATUS` column shows the result of external playlist sync performed after s
 Playlist detail lists the charts included in the selected playlist. You can check owned and unowned charts; unowned charts are displayed as `[NO SONG]`.
 
 The `URL1` / `URL2` columns can open main URLs and diff URLs. Even when URLs are not included in the playlist itself, if URL completion is enabled, they may be completed at runtime from external mappings.
+When clicking a `URL1` / `URL2` column attempts automatic install, progress is shown in the status bar even for a single URL.
 
 For a single row, running `Open main URL` / `Open diff URL` from the context menu always opens the URL in the browser regardless of the setting value.
 

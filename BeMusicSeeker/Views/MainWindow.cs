@@ -1843,7 +1843,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         if (!Settings.Default.SkipInitFileCheck && Settings.Default.AutoInstall)
         {
-            PlaylistUrlDownloadResult downloadResult = await DownloadPlaylistUrlCandidateAsync(url);
+            PlaylistUrlDownloadResult downloadResult = playlistUrlBulkDownloadRunning
+                ? await DownloadPlaylistUrlCandidateAsync(url)
+                : await DownloadSinglePlaylistUrlCandidateWithStatusAsync(url);
             switch (downloadResult.Kind)
             {
                 case PlaylistUrlDownloadResultKind.Downloaded when !string.IsNullOrWhiteSpace(downloadResult.FilePath) && File.Exists(downloadResult.FilePath):
@@ -1856,6 +1858,24 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         Process.Start(url.ToString());
     }
+
+    private async Task<PlaylistUrlDownloadResult> DownloadSinglePlaylistUrlCandidateWithStatusAsync(Uri url)
+    {
+        var viewModel = base.DataContext as MainWindowViewModel;
+        string displayName = url?.ToString() ?? string.Empty;
+        viewModel?.UpdatePlaylistUrlDownloadStatus(true, 1, 0, displayName);
+        try
+        {
+            PlaylistUrlDownloadResult result = await DownloadPlaylistUrlCandidateAsync(url);
+            viewModel?.UpdatePlaylistUrlDownloadStatus(true, 1, 1, displayName);
+            return result;
+        }
+        finally
+        {
+            viewModel?.UpdatePlaylistUrlDownloadStatus(false, 0, 0, string.Empty);
+        }
+    }
+
     private void playlistRootSelect(object sender, RoutedEventArgs e)
     {
         e.Handled = true;

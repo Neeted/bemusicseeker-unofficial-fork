@@ -1847,6 +1847,8 @@ public sealed class MainWindowContextMenuResourceTests
     {
         string root = FindRepositoryRoot();
         string mainWindowCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow.cs"));
+        string singleUrlMethod = ExtractBetween(mainWindowCode, "private async Task OpenSinglePlaylistUrlAsync(Uri url)", "private async Task<PlaylistUrlDownloadResult> DownloadSinglePlaylistUrlCandidateWithStatusAsync");
+        string singleUrlStatusMethod = ExtractBetween(mainWindowCode, "private async Task<PlaylistUrlDownloadResult> DownloadSinglePlaylistUrlCandidateWithStatusAsync", "private void playlistRootSelect");
         string openUrlHandler = ExtractBetween(mainWindowCode, "private async void tableContextMenuItemOpenURLClick", "private async void tableContextMenuItemOpenURLdiffClick");
         string openUrlDiffHandler = ExtractBetween(mainWindowCode, "private async void tableContextMenuItemOpenURLdiffClick", "private async Task OpenPlaylistUrlFromContextMenuAsync");
         string contextMenuMethod = ExtractBetween(mainWindowCode, "private async Task OpenPlaylistUrlFromContextMenuAsync", "private List<object> GetEffectiveContextMenuRows");
@@ -1866,6 +1868,11 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(contextMenuMethod, "OpenPlaylistUrlInBrowser(contextRow, isDiffUrl)");
         StringAssert.Contains(contextMenuMethod, "DownloadSelectedPlaylistUrlsAsync(rows, isDiffUrl)");
         Assert.IsFalse(contextMenuMethod.Contains("OpenSinglePlaylistUrlAsync(contextRow, isDiffUrl)"));
+        StringAssert.Contains(singleUrlMethod, "DownloadSinglePlaylistUrlCandidateWithStatusAsync(url)");
+        StringAssert.Contains(singleUrlMethod, "playlistUrlBulkDownloadRunning");
+        StringAssert.Contains(singleUrlStatusMethod, "UpdatePlaylistUrlDownloadStatus(true, 1, 0");
+        StringAssert.Contains(singleUrlStatusMethod, "UpdatePlaylistUrlDownloadStatus(true, 1, 1");
+        StringAssert.Contains(singleUrlStatusMethod, "UpdatePlaylistUrlDownloadStatus(false, 0, 0");
         StringAssert.Contains(selectionHelper, "GetSelectedGridRowsSnapshot");
         StringAssert.Contains(bulkMethod, "BuildPlaylistUrlTargets(rows, isDiffUrl)");
         StringAssert.Contains(bulkMethod, "DropInstallQueueCanCancel: true");
