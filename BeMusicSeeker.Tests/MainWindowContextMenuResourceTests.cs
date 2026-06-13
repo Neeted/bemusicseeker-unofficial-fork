@@ -1887,6 +1887,67 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
+    public void PlaylistUrlDownload_NormalizesCloudStorageShareUrls()
+    {
+        Assert.AreEqual(
+            "https://drive.usercontent.google.com/download?id=abc123&export=download",
+            MainWindow.NormalizeDownloadUriForTest(new Uri("https://drive.google.com/file/d/abc123/view?usp=sharing")).ToString());
+        Assert.AreEqual(
+            "https://drive.usercontent.google.com/download?id=abc123&export=download",
+            MainWindow.NormalizeDownloadUriForTest(new Uri("https://drive.google.com/open?id=abc123&usp=sharing")).ToString());
+        Assert.AreEqual(
+            "https://drive.usercontent.google.com/download?id=abc123&export=download",
+            MainWindow.NormalizeDownloadUriForTest(new Uri("https://docs.google.com/uc?export=download&id=abc123")).ToString());
+        Assert.AreEqual(
+            "https://www.dropbox.com/scl/fi/token/package.zip?rlkey=key&dl=1",
+            MainWindow.NormalizeDownloadUriForTest(new Uri("https://www.dropbox.com/scl/fi/token/package.zip?rlkey=key&dl=0")).ToString());
+        Assert.AreEqual(
+            "https://notdropbox.com/scl/fi/token/package.zip?dl=0",
+            MainWindow.NormalizeDownloadUriForTest(new Uri("https://notdropbox.com/scl/fi/token/package.zip?dl=0")).ToString());
+    }
+
+    [TestMethod]
+    public void PlaylistUrlDownload_ResolvesKnownSharedDownloadPages()
+    {
+        const string googleDriveWarningHtml = """
+            <html><body>
+            <form id="download-form" method="get" action="/download">
+              <input type="hidden" name="id" value="abc123">
+              <input type="hidden" name="confirm" value="token">
+              <input type="submit" name="submit" value="download">
+            </form>
+            </body></html>
+            """;
+        const string mediaFireHtml = """
+            <html><body>
+            <a id="downloadButton" href="https://download123.mediafire.com/abc/package.zip">Download</a>
+            </body></html>
+            """;
+        const string googleDriveUnsafeActionHtml = """
+            <html><body>
+            <form id="download-form" method="get" action="file:///C:/secret.zip">
+              <input type="hidden" name="id" value="abc123">
+            </form>
+            </body></html>
+            """;
+        const string mediaFireUnsafeHostHtml = """
+            <html><body>
+            <a id="downloadButton" href="https://evilmediafire.com/abc/package.zip">Download</a>
+            </body></html>
+            """;
+
+        Assert.AreEqual(
+            "https://drive.usercontent.google.com/download?id=abc123&confirm=token",
+            MainWindow.ResolveSharedDownloadPageUriForTest(new Uri("https://drive.usercontent.google.com/download?id=abc123&export=download"), googleDriveWarningHtml).ToString());
+        Assert.AreEqual(
+            "https://download123.mediafire.com/abc/package.zip",
+            MainWindow.ResolveSharedDownloadPageUriForTest(new Uri("https://www.mediafire.com/file/abc/package.zip/file"), mediaFireHtml).ToString());
+        Assert.IsNull(MainWindow.ResolveSharedDownloadPageUriForTest(new Uri("https://drive.usercontent.google.com/download?id=abc123&export=download"), googleDriveUnsafeActionHtml));
+        Assert.IsNull(MainWindow.ResolveSharedDownloadPageUriForTest(new Uri("https://www.mediafire.com/file/abc/package.zip/file"), mediaFireUnsafeHostHtml));
+        Assert.IsNull(MainWindow.ResolveSharedDownloadPageUriForTest(new Uri("https://evilmediafire.com/file/abc/package.zip/file"), mediaFireHtml));
+    }
+
+    [TestMethod]
     public void UserSettingDefaults_AppConfigAndSettingsCodeStayInSync()
     {
         string root = FindRepositoryRoot();

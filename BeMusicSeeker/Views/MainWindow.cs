@@ -6,6 +6,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Net;
 using System.Net.Http.Headers;
 using System.Reflection;
 using System.Runtime.InteropServices;
@@ -58,6 +59,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     private static readonly AppHttpClient updateCheckHttpClient = AppHttpClient.Create(5000);
 
     private const long DownloadAndInstallSizeLimitBytes = 536870912L;
+
+    private const int SharedDownloadPageResolverMaxBytes = 2097152;
 
     private static readonly MethodInfo playlistTreeBringIndexIntoViewMethod = typeof(System.Windows.Controls.VirtualizingStackPanel).GetMethod("BringIndexIntoView", BindingFlags.Instance | BindingFlags.NonPublic) ?? typeof(System.Windows.Controls.VirtualizingPanel).GetMethod("BringIndexIntoView", BindingFlags.Instance | BindingFlags.NonPublic);
 
@@ -122,6 +125,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     private static readonly Regex gdriveRegex = new("https?://drive\\.google\\.com/(file/d/|open\\?id=)([^/]*)(.*)?$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     private static readonly Regex odriveRegex = new("https?://onedrive\\.live\\.com/redir\\?(.*)?$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    private static readonly Regex htmlAttributeRegex = new("(?<name>[A-Za-z_:][-A-Za-z0-9_:.]*)\\s*=\\s*(?:\"(?<double>[^\"]*)\"|'(?<single>[^']*)'|(?<bare>[^\\s\"'=<>`]+))", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     private readonly Storyboard treeViewItemInstantStoryBoardPlaylistTable = new();
 
@@ -6272,7 +6277,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private async Task<PlaylistUrlDownloadResult> DownloadPlaylistUrlCandidateAsync(Uri uri)
     {
-        if (uri == null || !uri.IsAbsoluteUri || IsBrowserFallbackDownloadUri(uri))
+        if (uri == null || !uri.IsAbsoluteUri)
+        {
+            return PlaylistUrlDownloadResult.BrowserFallback();
+        }
+        Uri normalizedUri = NormalizeDownloadUri(uri);
+        if (IsBrowserFallbackDownloadUri(normalizedUri))
         {
             return PlaylistUrlDownloadResult.BrowserFallback();
         }
@@ -6281,30 +6291,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             try
             {
-                Uri normalizedUri = NormalizeDownloadUri(uri);
                 using AppHttpResponse response = AppHttpClient.Shared.OpenRead(normalizedUri);
-                if (response.ContentLength.HasValue)
-                {
-                    if (response.ContentLength.Value == 0L)
-                    {
-                        return PlaylistUrlDownloadResult.BrowserFallback();
-                    }
-                    if (response.ContentLength.Value > DownloadAndInstallSizeLimitBytes)
-                    {
-                        return PlaylistUrlDownloadResult.BlockedBySizeLimit();
-                    }
-                }
-                string fileName = ResolveDownloadedArchiveFileName(normalizedUri, response);
-                if (!IsDownloadAndInstallCandidateFileName(fileName))
-                {
-                    return PlaylistUrlDownloadResult.BrowserFallback();
-                }
-                string filePath = Path.Combine(tempDirectory, fileName);
-                if (!TryCopyStreamToFileWithLimit(response.ResponseStream, filePath, DownloadAndInstallSizeLimitBytes))
-                {
-                    return PlaylistUrlDownloadResult.BlockedBySizeLimit();
-                }
-                return PlaylistUrlDownloadResult.Downloaded(filePath);
+                return DownloadPlaylistUrlResponseCandidate(normalizedUri, response, tempDirectory, allowSharedPageResolution: true);
             }
             catch
             {
@@ -6313,9 +6301,66 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         });
     }
 
+    private static PlaylistUrlDownloadResult DownloadPlaylistUrlResponseCandidate(Uri requestedUri, AppHttpResponse response, string tempDirectory, bool allowSharedPageResolution)
+    {
+        if (response.ContentLength.HasValue)
+        {
+            if (response.ContentLength.Value == 0L)
+            {
+                return PlaylistUrlDownloadResult.BrowserFallback();
+            }
+            if (response.ContentLength.Value > DownloadAndInstallSizeLimitBytes)
+            {
+                return PlaylistUrlDownloadResult.BlockedBySizeLimit();
+            }
+        }
+        string fileName = ResolveDownloadedArchiveFileName(requestedUri, response);
+        if (!IsDownloadAndInstallCandidateFileName(fileName))
+        {
+            if (allowSharedPageResolution && TryResolveSharedDownloadPageUri(requestedUri, response, out Uri resolvedUri))
+            {
+                using AppHttpResponse resolvedResponse = AppHttpClient.Shared.OpenRead(resolvedUri);
+                return DownloadPlaylistUrlResponseCandidate(resolvedUri, resolvedResponse, tempDirectory, allowSharedPageResolution: false);
+            }
+            return PlaylistUrlDownloadResult.BrowserFallback();
+        }
+        string filePath = Path.Combine(tempDirectory, fileName);
+        if (!TryCopyStreamToFileWithLimit(response.ResponseStream, filePath, DownloadAndInstallSizeLimitBytes))
+        {
+            return PlaylistUrlDownloadResult.BlockedBySizeLimit();
+        }
+        return PlaylistUrlDownloadResult.Downloaded(filePath);
+    }
+
+    /// <summary>
+    /// URL をブラウザフォールバック扱いにするかどうかをテストから確認します。
+    /// </summary>
+    /// <param name="uri">判定対象の URL。</param>
+    /// <returns>ブラウザで開くべき URL の場合は <see langword="true"/>。</returns>
     internal static bool IsBrowserFallbackDownloadUriForTest(Uri uri)
     {
         return IsBrowserFallbackDownloadUri(uri);
+    }
+
+    /// <summary>
+    /// プレイリスト URL の共有サービス向け正規化結果をテストから確認します。
+    /// </summary>
+    /// <param name="uri">正規化対象の URL。</param>
+    /// <returns>正規化後の URL。正規化できない場合は元の URL。</returns>
+    internal static Uri NormalizeDownloadUriForTest(Uri uri)
+    {
+        return NormalizeDownloadUri(uri);
+    }
+
+    /// <summary>
+    /// 共有ページ HTML から直接ダウンロード URL を解決する処理をテストから確認します。
+    /// </summary>
+    /// <param name="pageUri">共有ページの URL。</param>
+    /// <param name="html">共有ページの HTML。</param>
+    /// <returns>解決できた直接ダウンロード URL。解決できない場合は <see langword="null"/>。</returns>
+    internal static Uri ResolveSharedDownloadPageUriForTest(Uri pageUri, string html)
+    {
+        return ResolveSharedDownloadPageUri(pageUri, html);
     }
 
     private static bool IsBrowserFallbackDownloadUri(Uri uri)
@@ -6349,10 +6394,63 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return input;
         }
-        string text = dropBoxRegex.Replace(input, "https://dl.dropboxusercontent.com/$1/$2.$3");
-        text = gdriveRegex.Replace(text, "https://docs.google.com/uc?export=download&id=$2");
+        string text = NormalizeDropboxDownloadUrlString(input);
+        text = NormalizeGoogleDriveDownloadUrlString(text);
         text = odriveRegex.Replace(text, "https://onedrive.live.com/download?$1");
         return text;
+    }
+
+    private static string NormalizeDropboxDownloadUrlString(string input)
+    {
+        string text = dropBoxRegex.Replace(input, "https://dl.dropboxusercontent.com/$1/$2.$3");
+        if (!string.Equals(text, input, StringComparison.Ordinal))
+        {
+            return text;
+        }
+        if (!Uri.TryCreate(input, UriKind.Absolute, out Uri uri))
+        {
+            return input;
+        }
+        string host = uri.Host ?? string.Empty;
+        if (!IsExactHostOrSubdomain(host, "dropbox.com")
+            || !uri.AbsolutePath.StartsWith("/scl/fi/", StringComparison.OrdinalIgnoreCase))
+        {
+            return input;
+        }
+        return SetUriQueryParameter(uri, "dl", "1").ToString();
+    }
+
+    private static string NormalizeGoogleDriveDownloadUrlString(string input)
+    {
+        if (!Uri.TryCreate(input, UriKind.Absolute, out Uri uri))
+        {
+            return gdriveRegex.Replace(input, "https://drive.usercontent.google.com/download?id=$2&export=download");
+        }
+        string host = uri.Host ?? string.Empty;
+        if (host.Equals("drive.google.com", StringComparison.OrdinalIgnoreCase))
+        {
+            string fileId = ExtractGoogleDriveFileId(uri);
+            if (!string.IsNullOrWhiteSpace(fileId))
+            {
+                return BuildGoogleDriveDownloadUri(fileId).ToString();
+            }
+        }
+        if (host.Equals("docs.google.com", StringComparison.OrdinalIgnoreCase)
+            && uri.AbsolutePath.Equals("/uc", StringComparison.OrdinalIgnoreCase))
+        {
+            string fileId = GetQueryParameter(uri, "id");
+            if (!string.IsNullOrWhiteSpace(fileId))
+            {
+                return BuildGoogleDriveDownloadUri(fileId).ToString();
+            }
+        }
+        if (host.Equals("drive.usercontent.google.com", StringComparison.OrdinalIgnoreCase)
+            && uri.AbsolutePath.Equals("/download", StringComparison.OrdinalIgnoreCase)
+            && !string.IsNullOrWhiteSpace(GetQueryParameter(uri, "id")))
+        {
+            return SetUriQueryParameter(uri, "export", "download").ToString();
+        }
+        return input;
     }
 
     private static Uri NormalizeDownloadUri(Uri uri)
@@ -6369,6 +6467,318 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return uri;
         }
+    }
+
+    private static Uri BuildGoogleDriveDownloadUri(string fileId)
+    {
+        var builder = new UriBuilder("https://drive.usercontent.google.com/download");
+        builder.Query = "id=" + Uri.EscapeDataString(fileId) + "&export=download";
+        return builder.Uri;
+    }
+
+    private static string ExtractGoogleDriveFileId(Uri uri)
+    {
+        string[] segments = uri.AbsolutePath.Split(['/'], StringSplitOptions.RemoveEmptyEntries);
+        for (int i = 0; i + 2 < segments.Length; i++)
+        {
+            if (segments[i].Equals("file", StringComparison.OrdinalIgnoreCase)
+                && segments[i + 1].Equals("d", StringComparison.OrdinalIgnoreCase))
+            {
+                return Uri.UnescapeDataString(segments[i + 2]);
+            }
+        }
+        string fileId = GetQueryParameter(uri, "id");
+        return string.IsNullOrWhiteSpace(fileId) ? null : fileId;
+    }
+
+    private static bool TryResolveSharedDownloadPageUri(Uri requestedUri, AppHttpResponse response, out Uri resolvedUri)
+    {
+        resolvedUri = null;
+        if (!IsSharedDownloadPageResolutionCandidate(requestedUri) && !IsSharedDownloadPageResolutionCandidate(response?.ResponseUri))
+        {
+            return false;
+        }
+        if (response?.ContentLength > SharedDownloadPageResolverMaxBytes)
+        {
+            return false;
+        }
+        if (!TryReadTextWithLimit(response?.ResponseStream, response?.ContentHeaders?.ContentType?.CharSet, SharedDownloadPageResolverMaxBytes, out string html))
+        {
+            return false;
+        }
+        resolvedUri = ResolveSharedDownloadPageUri(response.ResponseUri ?? requestedUri, html);
+        return resolvedUri != null && resolvedUri.IsAbsoluteUri && !IsSameUriWithoutFragment(resolvedUri, requestedUri);
+    }
+
+    private static bool IsHttpOrHttps(Uri uri)
+    {
+        return uri != null && (uri.Scheme.Equals(Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase) || uri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool IsExactHostOrSubdomain(string host, string rootDomain)
+    {
+        if (string.IsNullOrWhiteSpace(host) || string.IsNullOrWhiteSpace(rootDomain))
+        {
+            return false;
+        }
+        return host.Equals(rootDomain, StringComparison.OrdinalIgnoreCase)
+            || host.EndsWith("." + rootDomain, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsSharedDownloadPageResolutionCandidate(Uri uri)
+    {
+        if (uri == null || !uri.IsAbsoluteUri || !IsHttpOrHttps(uri))
+        {
+            return false;
+        }
+        string host = uri.Host ?? string.Empty;
+        return host.Equals("drive.google.com", StringComparison.OrdinalIgnoreCase)
+            || host.Equals("drive.usercontent.google.com", StringComparison.OrdinalIgnoreCase)
+            || host.Equals("www.mediafire.com", StringComparison.OrdinalIgnoreCase)
+            || IsExactHostOrSubdomain(host, "mediafire.com");
+    }
+
+    private static Uri ResolveSharedDownloadPageUri(Uri pageUri, string html)
+    {
+        if (pageUri == null || string.IsNullOrWhiteSpace(html))
+        {
+            return null;
+        }
+        if (TryResolveGoogleDriveWarningPageUri(pageUri, html, out Uri googleDriveUri))
+        {
+            return googleDriveUri;
+        }
+        if (TryResolveMediaFireDownloadUri(pageUri, html, out Uri mediaFireUri))
+        {
+            return mediaFireUri;
+        }
+        return null;
+    }
+
+    private static bool TryResolveGoogleDriveWarningPageUri(Uri pageUri, string html, out Uri resolvedUri)
+    {
+        resolvedUri = null;
+        if (!IsGoogleDriveHost(pageUri))
+        {
+            return false;
+        }
+        Match formMatch = Regex.Match(html, "<form\\b(?=[^>]*\\bid\\s*=\\s*[\"']download-form[\"'])[^>]*>(?<body>.*?)</form>", RegexOptions.IgnoreCase | RegexOptions.Singleline);
+        if (!formMatch.Success)
+        {
+            return false;
+        }
+        Dictionary<string, string> formAttributes = ParseHtmlAttributes(formMatch.Value);
+        if (formAttributes.TryGetValue("method", out string method) && !string.Equals(method, "get", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+        if (!formAttributes.TryGetValue("action", out string action) || string.IsNullOrWhiteSpace(action))
+        {
+            action = pageUri.ToString();
+        }
+        if (!Uri.TryCreate(pageUri, action, out Uri actionUri))
+        {
+            return false;
+        }
+        if (!IsHttpOrHttps(actionUri) || !IsGoogleDriveHost(actionUri))
+        {
+            return false;
+        }
+        var queryParameters = ParseQueryParameters(actionUri.Query);
+        foreach (Match inputMatch in Regex.Matches(formMatch.Groups["body"].Value, "<input\\b[^>]*>", RegexOptions.IgnoreCase | RegexOptions.Singleline))
+        {
+            string inputTag = inputMatch.Value;
+            Dictionary<string, string> inputAttributes = ParseHtmlAttributes(inputTag);
+            if (!inputAttributes.TryGetValue("name", out string name) || string.IsNullOrWhiteSpace(name))
+            {
+                continue;
+            }
+            string type = inputAttributes.TryGetValue("type", out string inputType) ? inputType : string.Empty;
+            if (type.Equals("submit", StringComparison.OrdinalIgnoreCase)
+                || type.Equals("button", StringComparison.OrdinalIgnoreCase)
+                || Regex.IsMatch(inputTag, "\\sdisabled(?:\\s|=|>|/)", RegexOptions.IgnoreCase))
+            {
+                continue;
+            }
+            SetQueryParameter(queryParameters, name, inputAttributes.TryGetValue("value", out string value) ? value : string.Empty);
+        }
+        resolvedUri = BuildUriWithQuery(actionUri, queryParameters);
+        return true;
+    }
+
+    private static bool TryResolveMediaFireDownloadUri(Uri pageUri, string html, out Uri resolvedUri)
+    {
+        resolvedUri = null;
+        if (pageUri == null || !IsHttpOrHttps(pageUri) || !IsExactHostOrSubdomain(pageUri.Host, "mediafire.com"))
+        {
+            return false;
+        }
+        foreach (Match anchorMatch in Regex.Matches(html, "<a\\b[^>]*>", RegexOptions.IgnoreCase | RegexOptions.Singleline))
+        {
+            Dictionary<string, string> attributes = ParseHtmlAttributes(anchorMatch.Value);
+            if (!attributes.TryGetValue("href", out string href) || string.IsNullOrWhiteSpace(href))
+            {
+                continue;
+            }
+            attributes.TryGetValue("id", out string id);
+            attributes.TryGetValue("class", out string className);
+            if (!string.Equals(id, "downloadButton", StringComparison.OrdinalIgnoreCase)
+                && !(className?.IndexOf("popsok", StringComparison.OrdinalIgnoreCase) >= 0))
+            {
+                continue;
+            }
+            if (Uri.TryCreate(pageUri, WebUtility.HtmlDecode(href), out Uri candidate)
+                && IsHttpOrHttps(candidate)
+                && IsExactHostOrSubdomain(candidate.Host, "mediafire.com"))
+            {
+                resolvedUri = candidate;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static bool IsGoogleDriveHost(Uri uri)
+    {
+        if (uri == null)
+        {
+            return false;
+        }
+        string host = uri.Host ?? string.Empty;
+        return host.Equals("drive.google.com", StringComparison.OrdinalIgnoreCase)
+            || host.Equals("drive.usercontent.google.com", StringComparison.OrdinalIgnoreCase)
+            || host.Equals("docs.google.com", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static Dictionary<string, string> ParseHtmlAttributes(string tag)
+    {
+        var attributes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (string.IsNullOrWhiteSpace(tag))
+        {
+            return attributes;
+        }
+        foreach (Match match in htmlAttributeRegex.Matches(tag))
+        {
+            string name = match.Groups["name"].Value;
+            string value = match.Groups["double"].Success
+                ? match.Groups["double"].Value
+                : match.Groups["single"].Success
+                    ? match.Groups["single"].Value
+                    : match.Groups["bare"].Value;
+            if (!string.IsNullOrWhiteSpace(name))
+            {
+                attributes[name] = WebUtility.HtmlDecode(value ?? string.Empty);
+            }
+        }
+        return attributes;
+    }
+
+    private static bool TryReadTextWithLimit(Stream source, string charSet, int maxBytes, out string text)
+    {
+        text = null;
+        if (source == null || maxBytes <= 0)
+        {
+            return false;
+        }
+        byte[] buffer = new byte[8192];
+        using var memoryStream = new MemoryStream();
+        int count;
+        while ((count = source.Read(buffer, 0, Math.Min(buffer.Length, maxBytes + 1 - (int)memoryStream.Length))) > 0)
+        {
+            memoryStream.Write(buffer, 0, count);
+            if (memoryStream.Length > maxBytes)
+            {
+                return false;
+            }
+        }
+        try
+        {
+            Encoding encoding = string.IsNullOrWhiteSpace(charSet) ? Encoding.UTF8 : Encoding.GetEncoding(charSet.Trim('"'));
+            text = encoding.GetString(memoryStream.ToArray());
+            return true;
+        }
+        catch
+        {
+            text = Encoding.UTF8.GetString(memoryStream.ToArray());
+            return true;
+        }
+    }
+
+    private static string GetQueryParameter(Uri uri, string name)
+    {
+        if (uri == null || string.IsNullOrWhiteSpace(name))
+        {
+            return null;
+        }
+        foreach (KeyValuePair<string, string> parameter in ParseQueryParameters(uri.Query))
+        {
+            if (string.Equals(parameter.Key, name, StringComparison.OrdinalIgnoreCase))
+            {
+                return parameter.Value;
+            }
+        }
+        return null;
+    }
+
+    private static Uri SetUriQueryParameter(Uri uri, string name, string value)
+    {
+        var parameters = ParseQueryParameters(uri?.Query);
+        SetQueryParameter(parameters, name, value);
+        return BuildUriWithQuery(uri, parameters);
+    }
+
+    private static List<KeyValuePair<string, string>> ParseQueryParameters(string query)
+    {
+        var parameters = new List<KeyValuePair<string, string>>();
+        string trimmedQuery = (query ?? string.Empty).TrimStart('?');
+        if (string.IsNullOrWhiteSpace(trimmedQuery))
+        {
+            return parameters;
+        }
+        foreach (string part in trimmedQuery.Split('&'))
+        {
+            if (string.IsNullOrEmpty(part))
+            {
+                continue;
+            }
+            int separatorIndex = part.IndexOf('=');
+            string key = separatorIndex >= 0 ? part.Substring(0, separatorIndex) : part;
+            string value = separatorIndex >= 0 ? part.Substring(separatorIndex + 1) : string.Empty;
+            parameters.Add(new KeyValuePair<string, string>(Uri.UnescapeDataString(key.Replace("+", " ")), Uri.UnescapeDataString(value.Replace("+", " "))));
+        }
+        return parameters;
+    }
+
+    private static void SetQueryParameter(List<KeyValuePair<string, string>> parameters, string name, string value)
+    {
+        if (parameters == null || string.IsNullOrWhiteSpace(name))
+        {
+            return;
+        }
+        parameters.RemoveAll(parameter => string.Equals(parameter.Key, name, StringComparison.OrdinalIgnoreCase));
+        parameters.Add(new KeyValuePair<string, string>(name, value ?? string.Empty));
+    }
+
+    private static Uri BuildUriWithQuery(Uri uri, IEnumerable<KeyValuePair<string, string>> parameters)
+    {
+        if (uri == null)
+        {
+            return null;
+        }
+        var builder = new UriBuilder(uri);
+        builder.Query = string.Join("&", (parameters ?? []).Select(parameter => Uri.EscapeDataString(parameter.Key ?? string.Empty) + "=" + Uri.EscapeDataString(parameter.Value ?? string.Empty)));
+        return builder.Uri;
+    }
+
+    private static bool IsSameUriWithoutFragment(Uri first, Uri second)
+    {
+        if (first == null || second == null)
+        {
+            return false;
+        }
+        var firstBuilder = new UriBuilder(first) { Fragment = string.Empty };
+        var secondBuilder = new UriBuilder(second) { Fragment = string.Empty };
+        return string.Equals(firstBuilder.Uri.ToString(), secondBuilder.Uri.ToString(), StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool TryCopyStreamToFileWithLimit(Stream source, string destinationPath, long maxBytes)
