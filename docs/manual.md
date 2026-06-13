@@ -494,6 +494,12 @@ Playlist detail lists the charts included in the selected playlist. You can chec
 
 The `URL1` / `URL2` columns can open main URLs and diff URLs. Even when URLs are not included in the playlist itself, if URL completion is enabled, they may be completed at runtime from external mappings.
 
+For a single row, running `Open main URL` / `Open diff URL` from the context menu always opens the URL in the browser regardless of the setting value.
+
+When multiple rows are selected, right-click and run `Import selected main URLs` / `Import selected diff URLs`. After confirmation, BeMusicSeeker takes `URL1` or `URL2` from the selected rows, removes exact duplicate URLs, downloads them in order, and passes only successfully retrieved supported files to the install queue. This bulk import tries automatic install regardless of the setting value; URLs that need to open in a browser are skipped without opening them. Progress is shown in the status bar, and the result dialog summarizes downloaded, skipped, size-blocked, and failed counts.
+
+Automatic install paths such as bulk import support direct links and some distribution/share pages where the download URL can be extracted, such as Google Drive, Dropbox, MediaFire, manbow `DownLoadAddress`, `venue.bmssearch.net`, and `bmssearch.net/bmses`. Google Drive folder shares, MEGA, AXFC, pages requiring login or CAPTCHA, and pages that require JavaScript interaction are not automatically resolved. The single-row context menu opens them in the browser; bulk import skips them.
+
 Right-clicking the playlist body in the playlist tree lets you run the following operations:
 
 - `Reload`: Re-fetches the target playlist. A single-playlist reload targets the selected playlist regardless of its external sync flag.

@@ -5684,10 +5684,20 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         List<object> rows = GetEffectiveContextMenuRows(contextRow);
         if (rows.Count <= 1)
         {
-            await OpenSinglePlaylistUrlAsync(contextRow, isDiffUrl);
+            OpenPlaylistUrlInBrowser(contextRow, isDiffUrl);
             return;
         }
         await DownloadSelectedPlaylistUrlsAsync(rows, isDiffUrl);
+    }
+
+    private static void OpenPlaylistUrlInBrowser(object row, bool isDiffUrl)
+    {
+        Uri url = isDiffUrl ? GridRowResolver.GetUrlDiff(row) : GridRowResolver.GetUrl(row);
+        if (url == null || !url.IsAbsoluteUri)
+        {
+            return;
+        }
+        Process.Start(url.ToString());
     }
 
     private List<object> GetEffectiveContextMenuRows(object contextRow)

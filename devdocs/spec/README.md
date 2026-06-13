@@ -16,7 +16,9 @@
    - LR2 連携モードの `song.db` 生成、`song` / `folder`、`.lr2folder`、自動更新設定。
 5. [install-estimation-current-logic.md](install-estimation-current-logic.md)
    - 導入先推定の現行仕様。
-6. [workflows.md](workflows.md)
+6. [playlist-url-download-resolution.md](playlist-url-download-resolution.md)
+   - プレイリスト `URL1` / `URL2` の自動ダウンロード解決、一括取り込み、対応サイト。
+7. [workflows.md](workflows.md)
    - リロード、導入、再インストールなどの主要処理フロー。
 
 ## 機能別仕様
@@ -27,6 +29,7 @@
 - [settings-change-impact-and-startup-operations.md](settings-change-impact-and-startup-operations.md)
 - [lr2-song-db-generation.md](lr2-song-db-generation.md)
 - [playlist-data-and-export-flow.md](playlist-data-and-export-flow.md)
+- [playlist-url-download-resolution.md](playlist-url-download-resolution.md)
 - [bms-bmson-chart-abstraction-current-state.md](bms-bmson-chart-abstraction-current-state.md)
 - [warning-model.md](warning-model.md)
 - [duplicate-file-check.md](duplicate-file-check.md)

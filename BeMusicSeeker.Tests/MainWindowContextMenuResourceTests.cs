@@ -1849,6 +1849,7 @@ public sealed class MainWindowContextMenuResourceTests
         string mainWindowCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow.cs"));
         string openUrlHandler = ExtractBetween(mainWindowCode, "private async void tableContextMenuItemOpenURLClick", "private async void tableContextMenuItemOpenURLdiffClick");
         string openUrlDiffHandler = ExtractBetween(mainWindowCode, "private async void tableContextMenuItemOpenURLdiffClick", "private async Task OpenPlaylistUrlFromContextMenuAsync");
+        string contextMenuMethod = ExtractBetween(mainWindowCode, "private async Task OpenPlaylistUrlFromContextMenuAsync", "private List<object> GetEffectiveContextMenuRows");
         string dropHandler = ExtractBetween(mainWindowCode, "private void Window_Drop", "private void Window_DragOver");
         string dragOverHandler = ExtractBetween(mainWindowCode, "private void Window_DragOver", "private void Window_MouseLeftButtonDown");
         string selectionHelper = ExtractBetween(mainWindowCode, "private List<object> GetEffectiveContextMenuRows", "internal static List<Uri> BuildPlaylistUrlTargetsForTest");
@@ -1862,6 +1863,9 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(openUrlDiffHandler, "OpenPlaylistUrlFromContextMenuAsync(e.Source, isDiffUrl: true");
         Assert.IsFalse(openUrlHandler.Contains("Process.Start"));
         Assert.IsFalse(openUrlDiffHandler.Contains("Process.Start"));
+        StringAssert.Contains(contextMenuMethod, "OpenPlaylistUrlInBrowser(contextRow, isDiffUrl)");
+        StringAssert.Contains(contextMenuMethod, "DownloadSelectedPlaylistUrlsAsync(rows, isDiffUrl)");
+        Assert.IsFalse(contextMenuMethod.Contains("OpenSinglePlaylistUrlAsync(contextRow, isDiffUrl)"));
         StringAssert.Contains(selectionHelper, "GetSelectedGridRowsSnapshot");
         StringAssert.Contains(bulkMethod, "BuildPlaylistUrlTargets(rows, isDiffUrl)");
         StringAssert.Contains(bulkMethod, "DropInstallQueueCanCancel: true");
