@@ -384,7 +384,8 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(xaml, "Path=Resources.Standalone_BMSDirectories");
         StringAssert.Contains(xaml, "Path=Resources.Add_BMSDirectory");
         StringAssert.Contains(xaml, "Path=Resources.Remove_BMSDirectory");
-        StringAssert.Contains(xaml, "ItemsSource=\"{Binding settingDialog.StandaloneBmsRootPathList}\"");
+        StringAssert.Contains(xaml, "ItemsSource=\"{Binding settingDialog.AvailableBMSDirectories}\"");
+        StringAssert.Contains(xaml, "SelectedItem=\"{Binding settingDialog.SelectedBmsSearchRootPath, Mode=TwoWay}\"");
         StringAssert.Contains(xaml, "Command=\"{Binding settingDialog.RemoveDirCommand}\"");
         Assert.IsFalse(xaml.Contains("ToolTip=\"未実装\""));
         StringAssert.Contains(viewModelCode, "Settings.Default.StandaloneBmsRootPaths");
@@ -645,11 +646,12 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(initialSaveMethod, "SaveSettingsCore(runPostSaveActions: false)");
         StringAssert.Contains(initialSaveMethod, "backupSavedSettings();");
         Assert.IsFalse(initialSaveMethod.Contains("necessaryStepsAfterSaved"));
-        StringAssert.Contains(saveCore, "if (lr2SearchRootsChanged && lr2config != null)");
+        StringAssert.Contains(saveCore, "lr2ConfigNeedsSave = lr2config.EnsureDatabaseAutoReloadManualOnly();");
+        StringAssert.Contains(saveCore, "if ((lr2SearchRootsChanged || lr2ConfigNeedsSave) && lr2config != null)");
         Assert.IsTrue(
-            saveCore.IndexOf("if (lr2SearchRootsChanged && lr2config != null)", StringComparison.Ordinal)
+            saveCore.IndexOf("if ((lr2SearchRootsChanged || lr2ConfigNeedsSave) && lr2config != null)", StringComparison.Ordinal)
             < saveCore.IndexOf("if (runPostSaveActions)", StringComparison.Ordinal),
-            "LR2 config persistence must not be hidden behind runtime post-save actions.");
+            "LR2 config persistence, including autoreload normalization, must not be hidden behind runtime post-save actions.");
         StringAssert.Contains(restartSaveMethod, "Settings.Default.Reload();");
         StringAssert.Contains(restartSaveMethod, "Settings.Default.OperationModeLR2DB = operationMode;");
         StringAssert.Contains(restartSaveMethod, "Settings.Default.Save();");
@@ -847,7 +849,7 @@ public sealed class MainWindowContextMenuResourceTests
         string addStandalone = ExtractBetween(
             viewModelCode,
             "private void AddStandaloneBmsRootPath",
-            "private void AddBMSDirectoryToLR2Config");
+            "private void AddBMSDirectoriesToLR2Config");
         string basePath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
         string firstRoot = Path.Combine(basePath, "RootA");
         string secondRoot = Path.Combine(basePath, "RootB");
@@ -1939,10 +1941,11 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(dialogActionCode, "ShowDialog(Window.GetWindow(AssociatedObject))");
         StringAssert.Contains(dialogActionCode, "message.Response = [.. dialog.FileNames];");
 
-        StringAssert.Contains(settingDialogXaml, "Click=\"buttonAddStandaloneBmsRootPathsClicked\"");
+        StringAssert.Contains(settingDialogXaml, "Click=\"buttonAddBmsSearchRootPathsClicked\"");
         StringAssert.Contains(settingDialogCode, "Multiselect = true");
         StringAssert.Contains(settingDialogCode, "IsFolderPicker = true");
         StringAssert.Contains(settingDialogCode, "dialog.FileNames");
+        StringAssert.Contains(viewModelCode, "private void AddBmsSearchRootPaths(IEnumerable<string> paths, string messageKey, bool saveImmediately)");
         StringAssert.Contains(viewModelCode, "public void AddStandaloneBmsRootPaths(IEnumerable<string> paths)");
         StringAssert.Contains(viewModelCode, "NormalizeStandaloneBmsRootPaths(paths ?? [])");
 
