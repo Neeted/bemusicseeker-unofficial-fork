@@ -5726,6 +5726,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Warn_SelectedPlaylistUrlDownloadNoTargets, BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
             return;
         }
+        if (base.DataContext is MainWindowViewModel { DropInstallQueueCanCancel: true })
+        {
+            DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Warn_SelectedPlaylistUrlDownloadBlockedByInstallQueue, BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
+            return;
+        }
         string confirmationMessage = string.Format(
             BeMusicSeeker.Properties.Resources.Confirm_SelectedPlaylistUrlDownload,
             targets.Count,

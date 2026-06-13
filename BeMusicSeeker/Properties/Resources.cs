@@ -1245,6 +1245,9 @@ public class Resources
     public static string Warn_SelectedPlaylistUrlDownloadNoTargets => ResourceManager.GetString("Warn_SelectedPlaylistUrlDownloadNoTargets", resourceCulture);
 
 
+    public static string Warn_SelectedPlaylistUrlDownloadBlockedByInstallQueue => ResourceManager.GetString("Warn_SelectedPlaylistUrlDownloadBlockedByInstallQueue", resourceCulture);
+
+
     public static string Warn_PendingPackageNotFound => ResourceManager.GetString("Warn_PendingPackageNotFound", resourceCulture);
 
 

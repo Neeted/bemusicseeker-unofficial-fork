@@ -1860,6 +1860,8 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(openUrlDiffHandler.Contains("Process.Start"));
         StringAssert.Contains(selectionHelper, "GetSelectedGridRowsSnapshot");
         StringAssert.Contains(bulkMethod, "BuildPlaylistUrlTargets(rows, isDiffUrl)");
+        StringAssert.Contains(bulkMethod, "DropInstallQueueCanCancel: true");
+        StringAssert.Contains(bulkMethod, "Warn_SelectedPlaylistUrlDownloadBlockedByInstallQueue");
         StringAssert.Contains(bulkMethod, "browserFallbackCount++");
         Assert.IsFalse(bulkMethod.Contains("Process.Start"));
         Assert.IsTrue(refreshStatus.IndexOf("playlistUrlDownloadStatusActive", StringComparison.Ordinal) < refreshStatus.IndexOf("bool dropActive", StringComparison.Ordinal));

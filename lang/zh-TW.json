@@ -563,6 +563,7 @@
   "Confirm_SelectedPlaylistUrlDownload": "Download {0} target URL(s) for {1}, and pass only supported files to install processing.\nURLs that need to open in a browser will be skipped without opening them.\n\nContinue?",
   "Msg_SelectedPlaylistUrlDownloadResult": "Playlist URL import result\n\nTargets: {0}\nInstall targets: {1}\nSkipped (browser): {2}\nSkipped (size limit): {3}\nFailed: {4}",
   "Warn_SelectedPlaylistUrlDownloadNoTargets": "The selection does not contain target URLs.",
+  "Warn_SelectedPlaylistUrlDownloadBlockedByInstallQueue": "URL import cannot start while a cancelable install operation is running.\nRun it again after the install operation finishes or is canceled.",
   "Warn_PendingPackageNotFound": "在待處理的安裝包中未找到所選譜面。",
   "Warn_InvalidInstallPath": "安裝目標路徑無效。\n{0}\n\n{1}",
   "Warn_InstallDirNotFound": "找不到安裝目標資料夾。\n{0}",
