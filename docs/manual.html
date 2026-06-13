@@ -1,0 +1,1164 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  <meta name="description" content="An unofficial BeMusicSeeker fork for managing BMS libraries, installing charts, and maintaining playlists, with performance improvements, bmson support, standalone mode, and LR2 integration updates.">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="BeMusicSeeker Unofficial Fork">
+  <meta property="og:title" content="BeMusicSeeker Unofficial Fork User Manual v2.0">
+  <meta property="og:description" content="An unofficial BeMusicSeeker fork for managing BMS libraries, installing charts, and maintaining playlists, with performance improvements, bmson support, standalone mode, and LR2 integration updates.">
+  <meta property="og:image" content="https://neeted.github.io/bemusicseeker-unofficial-fork/img/header.jpg">
+  <meta property="og:url" content="https://neeted.github.io/bemusicseeker-unofficial-fork/manual.html">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="BeMusicSeeker Unofficial Fork User Manual v2.0">
+  <meta name="twitter:description" content="An unofficial BeMusicSeeker fork for BMS library management, chart installation, and playlist maintenance.">
+  <meta name="twitter:image" content="https://neeted.github.io/bemusicseeker-unofficial-fork/img/header.jpg">
+  <title>BeMusicSeeker Unofficial Fork User Manual v2.0</title>
+  <style>
+
+:root {
+  color-scheme: light;
+  --page-bg: #f5f7fa;
+  --content-bg: #ffffff;
+  --text: #242933;
+  --muted: #657083;
+  --border: #d9e0e8;
+  --border-soft: #e9edf2;
+  --accent: #0f766e;
+  --accent-strong: #0b5f59;
+  --code-bg: #f3f5f7;
+  --pre-bg: #17202e;
+  --pre-text: #edf2f7;
+  --table-head: #f0f5f5;
+  --shadow: 0 18px 38px rgba(31, 41, 55, 0.10);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-padding-top: 24px;
+}
+
+body {
+  margin: 0;
+  background: var(--page-bg);
+  color: var(--text);
+  font-family: "Segoe UI", "Meiryo", "Yu Gothic UI", system-ui, sans-serif;
+  font-size: 16px;
+  line-height: 1.72;
+}
+
+a {
+  color: var(--accent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.16em;
+}
+
+a:hover {
+  color: var(--accent-strong);
+}
+
+.page-shell {
+  display: grid;
+  grid-template-columns: minmax(200px, 260px) minmax(0, 920px);
+  gap: 28px;
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 32px 24px;
+}
+
+.doc-nav {
+  align-self: start;
+  position: sticky;
+  top: 24px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--content-bg);
+}
+
+.sidebar-section + .sidebar-section {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.sidebar-title {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.doc-nav a,
+.toc-tree a {
+  display: block;
+  padding: 5px 8px;
+  border-radius: 6px;
+  color: var(--text);
+  line-height: 1.38;
+  text-decoration: none;
+}
+
+.doc-nav a:hover,
+.toc-tree a:hover {
+  background: #eef5f4;
+  color: var(--accent-strong);
+}
+
+.doc-nav a[aria-current="page"],
+.language-menu a[aria-current="true"],
+.toc-tree a[aria-current="true"] {
+  background: #dff0ed;
+  color: var(--accent-strong);
+  font-weight: 700;
+}
+
+.language-menu {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.language-menu a {
+  border: 1px solid var(--border);
+}
+
+.language-menu a[aria-current="true"] {
+  border-color: #b7ded8;
+}
+
+.document-list a + a {
+  margin-top: 4px;
+}
+
+.toc-tree {
+  max-height: calc(100vh - 280px);
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.toc-tree ul {
+  margin: 0;
+  padding-left: 0;
+  list-style: none;
+}
+
+.toc-tree li {
+  margin: 1px 0;
+}
+
+.toc-tree ul ul {
+  margin-left: 12px;
+  padding-left: 10px;
+  border-left: 1px solid var(--border-soft);
+}
+
+.toc-tree details {
+  margin: 1px 0;
+}
+
+.toc-tree summary {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 28px;
+  padding: 2px 4px;
+  border-radius: 6px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.toc-tree summary:hover {
+  background: #eef5f4;
+}
+
+.toc-tree summary::marker {
+  color: var(--muted);
+}
+
+.toc-tree summary a {
+  flex: 1;
+  min-width: 0;
+  padding: 3px 4px;
+}
+
+.toc-tree .toc-level-3 a,
+.toc-tree .toc-level-4 a {
+  color: #2f6883;
+  font-size: 14px;
+}
+
+.doc-content {
+  min-width: 0;
+  padding: 44px 54px 56px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--content-bg);
+  box-shadow: var(--shadow);
+}
+
+h1,
+h2,
+h3,
+h4 {
+  line-height: 1.32;
+}
+
+h1 {
+  margin: 0 0 22px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--border);
+  font-size: 2.0rem;
+}
+
+h2 {
+  margin-top: 44px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-soft);
+  font-size: 1.45rem;
+}
+
+h3 {
+  margin-top: 32px;
+  font-size: 1.18rem;
+}
+
+h4 {
+  margin-top: 26px;
+  font-size: 1.05rem;
+}
+
+p,
+ul,
+ol,
+table,
+pre,
+blockquote {
+  margin-top: 0;
+  margin-bottom: 18px;
+}
+
+ul,
+ol {
+  padding-left: 1.55em;
+}
+
+li + li {
+  margin-top: 4px;
+}
+
+blockquote {
+  padding: 12px 16px;
+  border-left: 4px solid var(--accent);
+  background: #f4faf8;
+  color: #3b4656;
+}
+
+code {
+  padding: 0.12em 0.34em;
+  border-radius: 4px;
+  background: var(--code-bg);
+  font-family: "Cascadia Mono", "Consolas", monospace;
+  font-size: 0.92em;
+  overflow-wrap: anywhere;
+}
+
+pre {
+  overflow-x: auto;
+  padding: 16px 18px;
+  border-radius: 8px;
+  background: var(--pre-bg);
+  color: var(--pre-text);
+}
+
+pre code {
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  font-size: 0.93em;
+}
+
+.table-scroll {
+  width: 100%;
+  overflow-x: auto;
+  margin-bottom: 18px;
+}
+
+table {
+  width: 100%;
+  min-width: 560px;
+  margin-bottom: 0;
+  border-collapse: collapse;
+  border-spacing: 0;
+}
+
+th,
+td {
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  vertical-align: top;
+}
+
+th {
+  background: var(--table-head);
+  font-weight: 700;
+}
+
+tr:nth-child(even) td {
+  background: #fbfcfd;
+}
+
+img {
+  max-width: 100%;
+  height: auto;
+}
+
+.doc-content > p > img,
+.doc-content > p > a > img {
+  display: inline-block;
+}
+
+.doc-content p:has(> img:only-child),
+.doc-content p:has(> a > img:only-child) {
+  margin: 24px 0;
+}
+
+.doc-content p:has(> img:only-child) img,
+.doc-content p:has(> a > img:only-child) img {
+  display: block;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 32px 0;
+}
+
+@media (max-width: 900px) {
+  .page-shell {
+    display: block;
+    padding: 18px;
+  }
+
+  .doc-nav {
+    position: static;
+    margin-bottom: 18px;
+    padding: 12px;
+  }
+
+  .sidebar-section + .sidebar-section {
+    margin-top: 12px;
+    padding-top: 12px;
+  }
+
+  .doc-nav a,
+  .toc-tree a {
+    padding: 4px 6px;
+  }
+
+  .language-menu a {
+    flex: 1 1 calc(50% - 3px);
+    text-align: center;
+  }
+
+  .document-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 4px;
+  }
+
+  .document-list a + a {
+    margin-top: 0;
+  }
+
+  .doc-content {
+    padding: 28px 22px 36px;
+  }
+
+  .toc-tree {
+    max-height: 220px;
+  }
+
+  h1 {
+    font-size: 1.7rem;
+  }
+}
+
+  </style>
+</head>
+<body>
+  <div class="page-shell">
+    <nav class="doc-nav" aria-label="Documents">
+
+      <section class="sidebar-section">
+        <p class="sidebar-title">Language</p>
+        <div class="language-menu">
+<a href="manual.ja.html">日本語</a>
+<a href="manual.html" aria-current="true">English</a>
+        </div>
+      </section>
+      <section class="sidebar-section">
+        <p class="sidebar-title">Documents</p>
+        <div class="document-list">
+<a href="index.html">README</a>
+<a href="manual.html" aria-current="page">User Manual</a>
+<a href="keyword-search-syntax-guide.html">Keyword Search Syntax Guide</a>
+        </div>
+      </section>
+      <section class="sidebar-section">
+        <p class="sidebar-title">On This Page</p>
+        <div class="toc-tree">
+<ul>
+<li class="toc-level-1"><details open><summary><a href="#bemusicseeker-unofficial-fork-user-manual-v20">BeMusicSeeker Unofficial Fork User Manual v2.0</a></summary><ul>
+<li class="toc-level-2"><details open><summary><a href="#introduction">Introduction</a></summary><ul>
+<li class="toc-level-3"><a href="#caution">Caution</a></li>
+</ul></details></li>
+<li class="toc-level-2"><details open><summary><a href="#initial-setup">Initial Setup</a></summary><ul>
+<li class="toc-level-3"><a href="#very-strongly-recommended-effectively-required-everything-15-alpha-x64">Very Strongly Recommended, Effectively Required: Everything 1.5 Alpha x64</a></li>
+<li class="toc-level-3"><a href="#migrating-existing-settings">Migrating Existing Settings</a></li>
+<li class="toc-level-3"><a href="#first-launch">First Launch</a></li>
+<li class="toc-level-3"><details open><summary><a href="#operating-mode">Operating Mode</a></summary><ul>
+<li class="toc-level-4"><a href="#standalone-not-linked-with-lr2">Standalone, Not Linked with LR2</a></li>
+<li class="toc-level-4"><a href="#linked-with-lr2">Linked with LR2</a></li>
+</ul></details></li>
+<li class="toc-level-3"><a href="#first-scan">First Scan</a></li>
+</ul></details></li>
+<li class="toc-level-2"><details open><summary><a href="#settings-dialog">Settings Dialog</a></summary><ul>
+<li class="toc-level-3"><details open><summary><a href="#general">General</a></summary><ul>
+<li class="toc-level-4"><a href="#standalone">Standalone</a></li>
+<li class="toc-level-4"><a href="#linked-with-lr2_1">Linked with LR2</a></li>
+<li class="toc-level-4"><a href="#beatoraja-integration">beatoraja Integration</a></li>
+</ul></details></li>
+<li class="toc-level-3"><a href="#appearance">Appearance</a></li>
+<li class="toc-level-3"><a href="#playback">Playback</a></li>
+<li class="toc-level-3"><a href="#device">Device</a></li>
+<li class="toc-level-3"><a href="#recording">Recording</a></li>
+<li class="toc-level-3"><a href="#playlist-settings">Playlist Settings</a></li>
+<li class="toc-level-3"><a href="#install">Install</a></li>
+<li class="toc-level-3"><a href="#backup">Backup</a></li>
+<li class="toc-level-3"><details open><summary><a href="#advanced">Advanced</a></summary><ul>
+<li class="toc-level-4"><a href="#advanced-tab-options">Advanced Tab Options</a></li>
+<li class="toc-level-4"><a href="#smart-overwrite">Smart Overwrite</a></li>
+</ul></details></li>
+</ul></details></li>
+<li class="toc-level-2"><details open><summary><a href="#startup--reload--progress-display">Startup / Reload / Progress Display</a></summary><ul>
+<li class="toc-level-3"><a href="#library-reload">Library Reload</a></li>
+<li class="toc-level-3"><a href="#re-run-initialization">Re-run Initialization</a></li>
+<li class="toc-level-3"><a href="#playlist-reload">Playlist Reload</a></li>
+</ul></details></li>
+<li class="toc-level-2"><a href="#screen-layout">Screen Layout</a></li>
+<li class="toc-level-2"><details open><summary><a href="#library-list">Library List</a></summary><ul>
+<li class="toc-level-3"><a href="#copy-operations">Copy Operations</a></li>
+<li class="toc-level-3"><details open><summary><a href="#context-menu">Context Menu</a></summary><ul>
+<li class="toc-level-4"><a href="#rename-to-invalid-extension">Rename to Invalid Extension</a></li>
+</ul></details></li>
+<li class="toc-level-3"><a href="#tree-context-menu">Tree Context Menu</a></li>
+<li class="toc-level-3"><a href="#other-popup-menus">Other Popup Menus</a></li>
+</ul></details></li>
+<li class="toc-level-2"><a href="#search">Search</a></li>
+<li class="toc-level-2"><a href="#playback--recording">Playback / Recording</a></li>
+<li class="toc-level-2"><details open><summary><a href="#playlists">Playlists</a></summary><ul>
+<li class="toc-level-3"><a href="#playlist-summary">Playlist Summary</a></li>
+<li class="toc-level-3"><a href="#playlist-detail">Playlist Detail</a></li>
+<li class="toc-level-3"><a href="#import-external-playlist">Import External Playlist</a></li>
+<li class="toc-level-3"><a href="#playlist-properties">Playlist Properties</a></li>
+<li class="toc-level-3"><a href="#custom-folder-output">Custom Folder Output</a></li>
+<li class="toc-level-3"><a href="#url1url2-completion">URL1/URL2 Completion</a></li>
+</ul></details></li>
+<li class="toc-level-2"><details open><summary><a href="#install--pending-packages">Install / Pending Packages</a></summary><ul>
+<li class="toc-level-3"><a href="#new">New</a></li>
+<li class="toc-level-3"><a href="#pending">Pending</a></li>
+<li class="toc-level-3"><a href="#install-destination-and-merge-destination-estimation">Install-Destination and Merge-Destination Estimation</a></li>
+<li class="toc-level-3"><a href="#advanced-features">Advanced Features</a></li>
+</ul></details></li>
+<li class="toc-level-2"><details open><summary><a href="#maintenance">Maintenance</a></summary><ul>
+<li class="toc-level-3"><a href="#lr2-compatibility-warnings">LR2 Compatibility Warnings</a></li>
+<li class="toc-level-3"><a href="#zero-note-search">Zero-Note Search</a></li>
+<li class="toc-level-3"><a href="#parse-errors">Parse Errors</a></li>
+<li class="toc-level-3"><a href="#garbled-text-check">Garbled Text Check</a></li>
+<li class="toc-level-3"><details open><summary><a href="#duplicate-file-check">Duplicate File Check</a></summary><ul>
+<li class="toc-level-4"><a href="#merge-duplicate-folders">Merge Duplicate Folders</a></li>
+<li class="toc-level-4"><a href="#continuous-cleanup-with-ctrl--g">Continuous Cleanup with Ctrl + G</a></li>
+<li class="toc-level-4"><a href="#cautions">Cautions</a></li>
+</ul></details></li>
+<li class="toc-level-3"><a href="#full-resource-scan">Full Resource Scan</a></li>
+</ul></details></li>
+<li class="toc-level-2"><a href="#backup--uninstall">Backup / Uninstall</a></li>
+<li class="toc-level-2"><details open><summary><a href="#logs-and-troubleshooting">Logs and Troubleshooting</a></summary><ul>
+<li class="toc-level-3"><a href="#startup-or-initialization-is-slow">Startup or Initialization Is Slow</a></li>
+<li class="toc-level-3"><a href="#playlist-status-fails">Playlist STATUS Fails</a></li>
+<li class="toc-level-3"><a href="#lr2-cannot-select-a-chart">LR2 Cannot Select a Chart</a></li>
+<li class="toc-level-3"><a href="#search-syntax-is-unclear">Search Syntax Is Unclear</a></li>
+</ul></details></li>
+<li class="toc-level-2"><a href="#references">References</a></li>
+</ul></details></li>
+</ul>
+        </div>
+      </section>
+
+    </nav>
+    <main class="doc-content">
+<h1 id="bemusicseeker-unofficial-fork-user-manual-v20">BeMusicSeeker Unofficial Fork User Manual v2.0</h1>
+
+<p><img alt="BeMusicSeeker" src="img/header.jpg"/></p>
+<p>This document is the English user manual for BeMusicSeeker Unofficial Fork.
+It summarizes the features, behavior, and cautions added or changed in this fork while inheriting the basic usage of the traditional BeMusicSeeker.</p>
+<h2 id="table-of-contents">Table of Contents</h2>
+<ul>
+<li><a href="#introduction">Introduction</a></li>
+<li><a href="#initial-setup">Initial Setup</a></li>
+<li><a href="#settings-dialog">Settings Dialog</a></li>
+<li><a href="#startup--reload--progress-display">Startup / Reload / Progress Display</a></li>
+<li><a href="#screen-layout">Screen Layout</a></li>
+<li><a href="#library-list">Library List</a></li>
+<li><a href="#search">Search</a></li>
+<li><a href="#playback--recording">Playback / Recording</a></li>
+<li><a href="#playlists">Playlists</a></li>
+<li><a href="#install--pending-packages">Install / Pending Packages</a></li>
+<li><a href="#maintenance">Maintenance</a></li>
+<li><a href="#backup--uninstall">Backup / Uninstall</a></li>
+<li><a href="#logs-and-troubleshooting">Logs and Troubleshooting</a></li>
+<li><a href="#references">References</a></li>
+</ul>
+<h2 id="introduction">Introduction</h2>
+<p>BeMusicSeeker is an integrated management tool that helps manage, search, play, install, maintain, and organize playlists for BMS files.</p>
+<p>In addition to the basic features of the traditional version, this fork includes improvements such as the following.</p>
+<ul>
+<li>Faster initialization, reload, and list display for large libraries</li>
+<li>Fast file enumeration and resource index creation using <code>Everything 1.5 Alpha x64</code></li>
+<li>Faster install-destination estimation, estimated-destination install, and duplicate folder merging</li>
+<li>bmson management support, though playback is not supported</li>
+<li>Standalone mode that does not depend on LR2</li>
+<li>Enhanced LR2 integration, including <code>song.db</code> generation and synchronization</li>
+<li>Portable application packaging</li>
+<li>Playlist summary, external sync <code>STATUS</code>, URL1/URL2 completion, single/range reload</li>
+<li>Enhanced pending install screen, smart overwrite, and zero-note chart cleanup</li>
+<li>Maintenance screens such as LR2 compatibility warnings, parse errors, and duplicate file check</li>
+<li>Structured and more informative <code>WARNING</code> display</li>
+<li>Multilingual support and dark theme support</li>
+<li>beatoraja integration, including score loading and difficulty table updates</li>
+</ul>
+<h3 id="caution">Caution</h3>
+<p>Depending on the settings, BeMusicSeeker may move or delete LR2 <code>song.db</code>, <code>config.xml</code>, custom folder output destinations, and actual BMS files.
+Before performing large cleanup operations, installs, deletions, duplicate merges, or uninstall operations, backing up LR2-related files and BMS folders is recommended. <strong>If you are dealing with <code>song.db</code> corruption, using this application's backup feature should help avoid rebuilding everything from scratch.</strong></p>
+<h2 id="initial-setup">Initial Setup</h2>
+<p>BeMusicSeeker Unofficial Fork is a portable application that does not require installation. Download the latest version from the release page, extract it to any folder, and start it. Do not run it directly from the ZIP file; always extract it to a writable folder first.</p>
+<p>The application creates files such as <code>config/user.config</code> and <code>data/song.db</code> near the executable. If you place it under <code>Program Files</code>, in a read-only folder, or in a location where sync conflicts are likely, saving settings or creating the standalone DB may fail. When updating, keep <code>config</code> and <code>data</code> and overwrite the main application files with the new version.</p>
+<h3 id="very-strongly-recommended-effectively-required-everything-15-alpha-x64">Very Strongly Recommended, Effectively Required: Everything 1.5 Alpha x64</h3>
+<p>If possible, install <code>Everything 1.5 Alpha x64</code> first.</p>
+<p>During initialization, BeMusicSeeker enumerates a large number of BMS chart files, audio files, images, videos, and related resources. When Everything is available, file enumeration and resource index creation can be accelerated. The application can run without it, but first scans and reloads may take a long time for large libraries.</p>
+<p>Start BeMusicSeeker after Everything has finished indexing your BMS-related folders and can search them.</p>
+<h3 id="migrating-existing-settings">Migrating Existing Settings</h3>
+<p>In an environment where the traditional BeMusicSeeker is already installed, existing settings are copied automatically on first launch. The destination is <code>config/user.config</code> under the folder where this application is placed. The original BeMusicSeeker settings file is not modified.</p>
+<h3 id="first-launch">First Launch</h3>
+<p>On first launch, an initial setup dialog with language selection is shown.</p>
+<p><img alt="Initial setup" src="img/初回設定.PNG"/></p>
+<p>Choose a language, proceed to the settings dialog, and configure the operating mode and required items. The first scan of BMS files does not start until the required items are filled in and <code>OK</code> is pressed.</p>
+<h3 id="operating-mode">Operating Mode</h3>
+<p>BeMusicSeeker has two major operating modes.</p>
+<h4 id="standalone-not-linked-with-lr2">Standalone, Not Linked with LR2</h4>
+<p>This mode does not use LR2 <code>song.db</code>; it manages the library with <code>data/song.db</code> under the application directory.</p>
+<p>Main required settings:</p>
+<ul>
+<li><code>General</code> tab: BMS directory</li>
+<li><code>Install</code> tab: new install destination</li>
+</ul>
+<p>LR2 scores, LR2 custom folder output, and some LR2IR-related features are not used. Use this mode when you want BeMusicSeeker alone to organize, search, install, and maintain BMS files.</p>
+<h4 id="linked-with-lr2">Linked with LR2</h4>
+<p>This mode uses LR2 <code>config.xml</code>, <code>song.db</code>, and <code>score.db</code> to integrate with LR2 owned charts, scores, and custom folder output.</p>
+<p>Main required settings:</p>
+<ul>
+<li><code>General</code> tab: LR2 directory, <code>song.db</code>, <code>config.xml</code></li>
+<li><code>Playlist</code> tab: normal custom folder output destination, root folder output destination</li>
+<li><code>Install</code> tab: new install destination</li>
+</ul>
+<p>Use this mode when you want to manage the same library as LR2 in BeMusicSeeker.</p>
+<p>In LR2 linked mode, tables and indexes for BeMusicSeeker may be added to <code>song.db</code> during initial setup or future updates. Before pressing <code>OK</code> in the settings dialog to start the first scan, it is safer to back up LR2-related files such as <code>song.db</code>, <code>config.xml</code>, and score DBs.</p>
+<p>In LR2 linked mode, BeMusicSeeker writes owned BMS <code>song</code> / <code>folder</code> information to LR2 <code>song.db</code> and keeps LR2's own recursive scan at startup from occurring as much as possible. On first setup or after settings changes, missing existing rows are backfilled. Progress is shown in the startup progress display or status bar. After completion, differential updates are applied along with normal library updates such as install, delete, merge, and extension changes. bmson files are not written to LR2 <code>song</code> / <code>folder</code>; they are handled as BeMusicSeeker-side management information.</p>
+<p>While LR2 <code>song.db</code> synchronization is running, operations that simultaneously change owned charts and LR2 <code>song.db</code> may temporarily stop. If the status bar shows a failure or incomplete state, press <code>Retry</code>. If necessary, use <code>Resynchronize LR2 song.db Data</code> in the settings dialog to regenerate <code>song</code> / <code>folder</code> using owned charts and playlists as the source of truth.</p>
+<h3 id="first-scan">First Scan</h3>
+<p>After settings are complete, the first scan starts. The first scan checks all chart files, registers them in the DB, and creates the basic data required for install estimation and maintenance information.
+Depending on library size, disk speed, and Everything availability, this may take several minutes or longer.</p>
+<p>Once the first build is complete, later launches mainly use differential updates. If you move the entire BMS folder tree significantly, or rebuild the DB from an empty state, the heavy processing will run again.</p>
+<blockquote>
+<p>As a reference, in my environment with about 210,000 charts, the first DB build took about 11 minutes. On later launches, it took about 20 seconds until differential installation became available and about 40 seconds until the full library list could be displayed. With an SSD environment, even a reasonably old PC should be able to build at around this speed.</p>
+</blockquote>
+<h2 id="settings-dialog">Settings Dialog</h2>
+<p>The settings dialog is saved when <code>OK</code> is pressed. Depending on the changed settings, the result may be immediate application, score-only reload, library reload, reinitialization, or a restart request.</p>
+<h3 id="general">General</h3>
+<p><img alt="Settings General" src="img/設定_一般.PNG"/></p>
+<p>In the <code>General</code> tab, configure language, operating mode, BMS directory, LR2 directory, <code>song.db</code>, <code>config.xml</code>, <code>beatoraja directory</code>, and related settings.</p>
+<p>In both standalone mode and LR2 linked mode, register the root folders where charts should be searched as BMS directories. In LR2 linked mode, also configure the LR2 directory and DB / XML paths.</p>
+<h4 id="standalone">Standalone</h4>
+<p>This mode allows the application alone to manage BMS even if you do not have LR2 itself.
+The locations configured as BMS directories become the targets for chart search.
+A DB for managing owned BMS is created at <code>data\song.db</code>. The saved contents are almost the same as in LR2 linked mode, but custom folder output and LR2-specific data required for song selection in LR2 are not recorded. Because of this, when LR2 is not being used, the processing load is slightly reduced.</p>
+<h4 id="linked-with-lr2_1">Linked with LR2</h4>
+<p>This is the integration mode that has existed since the traditional BeMusicSeeker.</p>
+<p>In LR2 linked mode, BeMusicSeeker generates and differentially updates the <code>song</code> / <code>folder</code> information required in LR2 <code>song.db</code>. It is recommended to add and remove BMS directories from BeMusicSeeker's <code>General</code> tab and not from the <code>JUKEBOX</code> tab in LR2 SETUP.</p>
+<p>When the initial settings are saved and when starting in LR2 linked mode, BeMusicSeeker sets <code>&lt;autoreload&gt;</code> in LR2 <code>config.xml</code> to <code>0</code>, changing LR2 SETUP's "database auto update" to "manual only". This assumes that BeMusicSeeker manages <code>song.db</code>, and avoids extra scans caused by LR2's own automatic update and avoids adding corrupted DB rows for paths that cannot be represented in Shift_JIS.</p>
+<p>However, even charts that cause errors during LR2 scanning or playback are still saved in the <code>song</code> table so they can be managed by this application. Please understand that even if such charts appear on the song selection screen, problems may occur when playback starts. Some known LR2 compatibility risks can be checked in the <code>LR2 Compatibility Warnings</code> screen.</p>
+<p>The <code>Resynchronize LR2 song.db Data</code> button regenerates the <code>folder</code> and <code>song</code> tables. Even if the DB becomes incomplete for some reason, this re-parses and regenerates it from owned charts and playlists.</p>
+<h4 id="beatoraja-integration">beatoraja Integration</h4>
+<p>For beatoraja, this application supports some integration such as score DB loading and difficulty table cache output, but it is not a tool for managing beatoraja as a whole. <strong>If you want to update the beatoraja DB quickly, please use <a href="https://github.com/Neeted/songdata-updater">songdata-updater</a>.</strong></p>
+<p>In beatoraja integration, specify the beatoraja directory. The application reads <code>tablepath</code> and <code>playerpath</code> from <code>config_sys.json</code> directly under that directory, and score loading uses the selected player's <code>score.db</code>.</p>
+<p>When <code>.bmt output (difficulty table loading compatibility process)</code> is enabled, all BeMusicSeeker playlists are output under the <code>tablepath</code> in <code>config_sys.json</code> as <code>.bmt</code> caches that beatoraja can load. This is a compatibility process for environments where beatoraja's level aggregation processing is heavy and difficulty table loading is delayed. External sync tables use the original difficulty table URL, and local playlists use <code>bemusicseeker://playlist/{playlist_id}</code> to determine the <code>.bmt</code> save name. A <code>.bemusicseeker-bmt-manifest</code> for BeMusicSeeker management is created directly under the output destination. During cleanup after settings changes or re-output, only the <code>.bmt</code> files recorded in this manifest are deletion targets.</p>
+<p><code>.bmt hash output</code> lets you choose how <code>md5</code> / <code>sha256</code> are output for folder songs. <code>Original</code> outputs only the hashes saved in the playlist as-is. <code>Complete md5/sha256 as much as possible</code> fills in missing hashes when they can be resolved safely from owned charts or chart metadata. <code>Prefer sha256 only as much as possible</code> outputs only sha256 without md5 for charts where sha256 can be output, but leaves md5 for charts where sha256 cannot be resolved. The default is <code>Original</code>. Hashes for dan course entries use the original difficulty table data as-is and are not targets for this completion.</p>
+<p>When <code>Register .bmt URLs in config_sys.json (stabilizes ordering on the song selection screen)</code> is enabled, BeMusicSeeker-managed <code>.bmt</code> URLs are registered in <code>tableURL</code> in <code>config_sys.json</code>. Non-managed <code>tableURL</code> entries keep their existing order, and BeMusicSeeker-managed entries are appended after them sorted by playlist name.</p>
+<h3 id="appearance">Appearance</h3>
+<p><img alt="Settings Appearance" src="img/設定_外観.PNG"/></p>
+<p>Change settings related to themes and display. Appearance changes generally do not require rebuilding the library.</p>
+<h3 id="playback">Playback</h3>
+<p><img alt="Settings Playback" src="img/設定_再生.PNG"/></p>
+<p>Select the player used to play charts. The built-in player is for simple audio-only preview playback. When using external players such as uBMplay, BMIIDXView2015, or LR2, specify the executable path.</p>
+<p>Even in standalone mode, you can specify LR2body as the playback application. This is separate from whether the application integrates with the LR2 DB.</p>
+<h3 id="device">Device</h3>
+<p><img alt="Settings Device" src="img/設定_デバイス.PNG"/></p>
+<p>Configure playback driver, output device, sample rate, format, buffer size, volume, and related settings. If there is no sound, latency is large, or audio cuts out, check the settings in this tab.</p>
+<h3 id="recording">Recording</h3>
+<p><img alt="Settings Recording" src="img/設定_録音.PNG"/></p>
+<p>Configure recording format, quality, sample rate, output filename format, encoder location, and related settings. When using external encoders, specify the folder containing the corresponding executable files such as <code>lame.exe</code> or <code>oggenc2.exe</code>.</p>
+<h3 id="playlist-settings">Playlist Settings</h3>
+<p><img alt="Settings Playlist" src="img/設定_プレイリスト.PNG"/></p>
+<p>Change custom folder output destinations, difficulty table list acquisition URI, MD5-URL mapping TSV acquisition URI, and URL1/URL2 completion settings.</p>
+<p><code>Normal output destination</code> is where ordinary custom folders corresponding to playlists are output.
+<code>Root folder output destination</code> is where playlists whose properties have <code>Make root folder</code> enabled are output. These appear at the root of the song selection screen, so frequently used tables can be accessed quickly.</p>
+<p>For URL completion, see <a href="#url1url2-completion">URL1/URL2 Completion</a>.</p>
+<h3 id="install">Install</h3>
+<p><img alt="Settings Install" src="img/設定_インストール.PNG"/></p>
+<p>Configure the new install destination and the naming format used when creating new folders.
+In either operating mode, the install destination must be selected from inside a registered BMS directory.</p>
+<h3 id="backup">Backup</h3>
+<p><img alt="Settings Backup" src="img/設定_バックアップ.PNG"/></p>
+<p>Configure playlist backup / restore, LR2-related file backup, generation count, and related settings. Before updates with compatibility concerns or large cleanup operations, taking a backup is recommended.</p>
+<h3 id="advanced">Advanced</h3>
+<p><img alt="Settings Advanced" src="img/設定_詳細.PNG"/></p>
+<p>Change advanced settings such as confirmation messages, initialization, LR2 integration, and install assistance.</p>
+<p>Skipping the startup file check makes startup lighter, but it does not enumerate BMS roots or build the resource index used for install-destination estimation. To estimate destinations for pending packages, manually run library <code>Reload</code> or <code>Re-run Initialization</code>.
+Some install-related settings affect real file operations, such as deleting source packages or smart overwrite. Check their contents before changing them.</p>
+<h4 id="advanced-tab-options">Advanced Tab Options</h4>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Group</th>
+<th>Setting</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Message Display</td>
+<td>Show confirmation message when registering with chart viewer</td>
+<td>ON</td>
+<td>Shows a confirmation before chart viewer registration operations.</td>
+</tr>
+<tr>
+<td>Message Display</td>
+<td>Show confirmation message for differential install</td>
+<td>ON</td>
+<td>Shows a confirmation before operations that insert files into existing folders, such as differential install to an estimated destination.</td>
+</tr>
+<tr>
+<td>Message Display</td>
+<td>Show recommend update message</td>
+<td>ON</td>
+<td>Shows a notification when recommendation information is updated.</td>
+</tr>
+<tr>
+<td>Initialization</td>
+<td>Do not scan BMS files and configuration files on startup</td>
+<td>OFF</td>
+<td>Skips file difference checking and resource index construction on startup. The library list saved in the DB is loaded, but destination estimation for pending packages may not be possible until library <code>Reload</code> or <code>Re-run Initialization</code> is run manually because the required index is missing.</td>
+</tr>
+<tr>
+<td>Initialization</td>
+<td>Do not check playlist updates on startup</td>
+<td>OFF</td>
+<td>Skips external playlist update checks on startup. Reload playlists manually if needed.</td>
+</tr>
+<tr>
+<td>Initialization</td>
+<td>Set initial startup selection to Install &gt; Pending</td>
+<td>ON</td>
+<td>Opens the pending package screen as the initial view after startup. Intended for users who want to prioritize new installs and pending cleanup.</td>
+</tr>
+<tr>
+<td>Initialization</td>
+<td>Enable song.db access optimization PRAGMA</td>
+<td>ON</td>
+<td>Sets read-oriented SQLite PRAGMA when reading the DB to speed up startup and reload. Normally leave this ON.</td>
+</tr>
+<tr>
+<td>LR2 Integration</td>
+<td>Do not estimate offline score rankings</td>
+<td>OFF</td>
+<td>Skips offline score rank estimation using LR2IR ranking cache XML. Turning this ON makes processing lighter, but ranks for unsent scores are not estimated.</td>
+</tr>
+<tr>
+<td>LR2 Integration</td>
+<td>Download LR2IR scores and detect unsent IR scores</td>
+<td>OFF</td>
+<td>Retrieves LR2IR score information and detects unsent state from differences with local scores.</td>
+</tr>
+<tr>
+<td>Install</td>
+<td>Automatically try to install after download execution</td>
+<td>OFF</td>
+<td>If possible, proceeds directly to install processing for packages downloaded from URLs. <strong>Turning this ON is convenient</strong>, but for files that cannot proceed directly to install, such as multi-layer archives, there are caveats such as the package not being added to the pending screen. For that reason, the default is OFF.</td>
+</tr>
+<tr>
+<td>Install</td>
+<td>Add to pending even when judged new, without automatic install</td>
+<td>OFF</td>
+<td>Even if enough resources are present for a new work, do not install automatically; always make it possible to confirm it in the pending list.</td>
+</tr>
+<tr>
+<td>Install</td>
+<td>Use Everything when estimating pending packages</td>
+<td>OFF</td>
+<td>Uses Everything for source-side resource enumeration during install-destination estimation for pending packages. This may speed up large pending folders. For normal differential installs, OFF is likely faster.</td>
+</tr>
+<tr>
+<td>Install</td>
+<td>Set the first candidate as install destination when highly matched even with multiple candidates</td>
+<td>OFF</td>
+<td>Even when there are multiple install-destination candidates, sets the top candidate as <code>INSTL DST</code> if it can be judged to have a sufficiently high match. When OFF, ambiguous cases leave a WARNING and candidate list. <strong>This is intended to be turned ON in environments with many duplicate BMS folders, such as when using difficulty table packages.</strong></td>
+</tr>
+<tr>
+<td>Install</td>
+<td>During normal install, delete the source package even if already-owned charts remain</td>
+<td>OFF</td>
+<td>After normal install, deletes the source package even if leftovers such as already-owned charts remain in the source. This is hard to undo, so OFF is usually recommended. It is intended for quickly cleaning up source folders when installing differential packages mixed with already-owned charts.</td>
+</tr>
+<tr>
+<td>Install</td>
+<td>During differential install, compare update time and size to optimize overwriting bundled files</td>
+<td>ON</td>
+<td>Enables <a href="#smart-overwrite">Smart Overwrite</a>.</td>
+</tr>
+<tr>
+<td>Install</td>
+<td>During smart overwrite, keep <em>.bmx/</em>.pmx/*.txt without overwriting by auto-numbering</td>
+<td>OFF</td>
+<td>In <a href="#smart-overwrite">Smart Overwrite</a>, protected extensions are not overwritten and are kept with sequentially numbered names.</td>
+</tr>
+</tbody>
+</table></div>
+<h4 id="smart-overwrite">Smart Overwrite</h4>
+<p>Smart overwrite is a feature that adjusts collisions for bundled components other than the chart files themselves, such as audio, BGA, videos, images, and readme files, when moving files into an existing folder during differential install or merge. It is enabled by default.</p>
+<p><strong>In short, this feature is intended to prevent adjusted files from being overwritten by older audio or BGA files from before the adjustment.</strong></p>
+<p>With normal overwrite behavior, if a same-name file exists at the destination, it is overwritten by the source-side file. When smart overwrite is enabled, BeMusicSeeker compares the source and destination file size and update time, then processes them as follows. For update time comparison, differences of roughly up to 2 seconds are treated as the same time.</p>
+<ul>
+<li>If there is no same-name file at the destination, the file is moved as-is.</li>
+<li>If size and update time are almost the same, the files are treated as identical; the source-side file is deleted and the existing destination file is kept.</li>
+<li>If the source-side file is newer, the destination is overwritten by the source-side file.</li>
+<li>If the destination is newer, or judged equivalent or better, the destination is kept and the source-side file is deleted.</li>
+</ul>
+<p>When <code>During smart overwrite, keep *.bmx/*.pmx/*.txt without overwriting by auto-numbering</code> is enabled, even if <code>.bmx</code>, <code>.pmx</code>, or <code>.txt</code> would be overwritten by smart overwrite, the existing destination file is kept and the source-side file is saved using an available sequential name such as <code>name(1).txt</code>. If a file with identical contents already exists among the sequential-name candidates, the duplicate is not increased and the source-side file is deleted. If the contents differ, or hash comparison is not possible, the file is moved to an available sequential name.</p>
+<p>NOTE: Chart files themselves, such as BMS / PMS / bmson files, are not overwritten on same-name collision; they are installed with adjusted names such as <code>chart_.bms</code>. This is BeMusicSeeker behavior unrelated to the smart overwrite setting.</p>
+<p>This setting is used by processes that move bundled files into existing folders, such as install to an estimated destination, resource overwrite for packages that contain only already-owned charts, and duplicate folder merge. When installing an unowned new work into a new folder as a whole, same-name file collisions are rare in the first place, so smart overwrite has limited effect.</p>
+<h2 id="startup--reload--progress-display">Startup / Reload / Progress Display</h2>
+<p>BeMusicSeeker startup proceeds in stages.</p>
+<ol>
+<li>Check settings and the DB</li>
+<li>Enumerate BMS files</li>
+<li>Check differences against the DB</li>
+<li>Apply additions, removals, and updates</li>
+<li>Prepare install-destination estimation and resource indexes</li>
+<li>Move into a state where the screen can be displayed</li>
+<li>Run background processing for playlists, scores, chart metadata, maintenance information, and so on</li>
+</ol>
+<p>The status bar shows progress for initialization, file-difference checks, playlist sync, install-destination estimation, and related work.</p>
+<p><img alt="Progress display" src="img/進捗表示.PNG"/></p>
+<h3 id="library-reload">Library Reload</h3>
+<p><code>Reload</code> from the library context menu reflects additions, removals, and updates in your owned files. It does not rebuild the entire DB or reload scores.</p>
+<p>Use it in cases such as these:</p>
+<ul>
+<li>You added files to a BMS folder</li>
+<li>You deleted files from a BMS folder</li>
+<li>You added or removed BMS root folders</li>
+<li>You moved or renamed a BMS folder outside the app</li>
+</ul>
+<h3 id="re-run-initialization">Re-run Initialization</h3>
+<p><code>Re-run Initialization</code> is heavier than an ordinary reload. Use it when you edited the DB with an external tool, or when you want to rebuild a large part of the app state. "Initialization" here means the initialization process performed each time the app starts; it is not a term meaning library reconstruction.</p>
+<h3 id="playlist-reload">Playlist Reload</h3>
+<p>Reloading playlists re-fetches external difficulty tables and playlist definitions.</p>
+<p>Reloading the playlist tree root targets playlists for which external sync is enabled.
+Reloading an individual playlist, or reloading from a selection in the summary, targets the selected playlists regardless of their external sync flag.</p>
+<p>Reload failures are summarized in the playlist summary <code>STATUS</code> column and in the log.</p>
+<h2 id="screen-layout">Screen Layout</h2>
+<p>The main screen consists of the left sidebar and the list area on the right.</p>
+<p>The left sidebar contains trees for the library, playlists, install, maintenance, and so on. The list on the right displays the chart list, playlist detail, playlist summary, pending packages, or maintenance results depending on the selected screen.</p>
+<p>Column widths, shown/hidden state, and display order are saved per screen. You can change visible columns from the header context menu. Column order and width can be adjusted by dragging with the mouse.</p>
+<h2 id="library-list">Library List</h2>
+<p>In the library list, you can search, play, and organize registered charts.</p>
+<p><strong>It has a powerful search syntax. See the <a href="keyword-search-syntax-guide.html">Keyword Search Syntax Guide</a>.</strong>
+You can use field specifiers such as <code>title:</code>, <code>artist:</code>, <code>playlist:</code>, and <code>rate:</code>, as well as exclusion search, OR, regular expressions, and numeric range searches. Cells with background colors in columns such as <code>TOTAL</code> and <code>DIFFICULTY</code> indicate that the value was undefined. They can be searched with terms such as <code>total:undef</code>.</p>
+<p><img alt="Library search example" src="img/一覧_ライブラリ_検索例.PNG"/></p>
+<p>Click a column header to sort. Many columns can be displayed, including <code>TITLE</code>, <code>ARTIST</code>, <code>PATH</code>, <code>LEVEL</code>, and <code>CLEAR</code>. Column visibility and order can be changed from the header context menu.</p>
+<h3 id="copy-operations">Copy Operations</h3>
+<p>In lists such as the library, playlist detail, and install / pending views, you can copy displayed content from the keyboard.</p>
+<ul>
+<li><code>Ctrl + C</code>: Copies the display value of the currently focused cell. For some columns, such as URL columns, the actual URL that will be opened is copied instead of the shortened on-screen display.</li>
+<li><code>Ctrl + Shift + C</code>: Copies the selected rows in TSV format. When multiple rows are selected, the selected rows are copied together as tab-delimited text. This is useful when pasting into a spreadsheet or text editor for inspection.</li>
+</ul>
+<h3 id="context-menu">Context Menu</h3>
+<p><img alt="Library context menu" src="img/一覧_ライブラリ_コンテキストメニュー.PNG"/></p>
+<p>Right-clicking a chart row or playlist row opens operations for the selected row. The items shown vary depending on the current screen and selected row type, such as the normal library, playlist detail, unowned charts, pending, new, or maintenance screens.</p>
+<p>Open / external pages:</p>
+<ul>
+<li><code>Open BMS-IR</code>: Opens the BMS-IR page for the target chart by MD5. This is not shown for rows without an MD5.</li>
+<li><code>Open Mocha</code>: Opens the corresponding Mocha page.</li>
+<li><code>Open MinIR</code>: Opens the corresponding MinIR page.</li>
+<li><code>Open main URL</code> / <code>Open diff URL</code>: Opens the main URL / diff URL obtained from a playlist or URL completion.</li>
+<li><code>Open in Explorer</code>: Opens the folder containing the chart file in Explorer.</li>
+<li><code>Open install destination</code>: Opens the folder recorded as <code>INSTL DST</code> or as the install destination.</li>
+<li><code>Open with association</code>: Opens the chart file using the OS file association.</li>
+<li><code>Open text file</code>: Opens document candidates such as readme files in the same folder from a submenu.</li>
+<li><code>Open video</code>: Opens video candidates associated with the chart, such as YouTube / Niconico. However, these candidates depend on LR2IR cache information from <code>http://www.ribbit.xyz</code>. Since that site is currently unavailable, <strong>this feature effectively does not work.</strong></li>
+<li><code>Search downloads</code>: Opens download-source candidates gathered from playlist URLs, completed URLs, URLs in comments, and similar sources. This is not a general web search feature; it gathers URL candidates associated with playlist rows. LR2IR cache information and auxiliary retrieval from Ribbit depend on <code>http://www.ribbit.xyz</code>, so those candidates cannot be obtained when the site is unavailable. On the other hand, playlist URL1 / URL2, URLs in comments, MD5-URL mapping TSV data, and URL completion derived from Stella Uploader (Full) remain usable.</li>
+<li><code>Open in chart viewer</code>: Registers or displays the chart in the chart viewer.</li>
+</ul>
+<p>Score / ranking:</p>
+<ul>
+<li><code>Update ranking data</code>: Updates the ranking cache / IR data for the target chart. However, this feature depends on LR2IR cache information from <code>http://www.ribbit.xyz</code>. Since that site is currently unavailable, <strong>this feature effectively does not work.</strong></li>
+</ul>
+<p>Character encoding / file scan:</p>
+<ul>
+<li><code>Fix character encoding</code>: Specifies the character encoding from options such as Japanese Shift_JIS, UTF-8, Korean KS_C_5601, Simplified Chinese GB2312, and Traditional Chinese Big5. <code>Mark as fixed</code> treats the current estimated result as confirmed.</li>
+<li><code>File scan</code>: Re-scans the selected chart and resets chart health information that can be checked in places such as the full resource scan screen. <code>Re-scan all charts</code> targets all charts in the library. <code>Add to ignore list</code> / <code>Remove from ignore list</code> are settings used to exclude or include charts in displays such as the full resource scan.</li>
+</ul>
+<p>Install / install destination:</p>
+<ul>
+<li><code>Install</code> -&gt; <code>Estimate install destination</code>: Estimates the install destination for pending charts.</li>
+<li><code>Install</code> -&gt; <code>Estimate merge destination</code>: Performs estimation for packages that contain only already-owned charts, or for resource-focused merging, without adding bundled resources to the evaluation.</li>
+<li><code>Install</code> -&gt; <code>Install to estimated destination</code>: Installs to <code>INSTL DST</code>.</li>
+<li><code>Install</code> -&gt; <code>Install ignoring warnings</code>: Treats the package as an ordinary new install without using the estimated destination.</li>
+<li><code>Install</code> -&gt; <code>Clear install destination</code>: Clears <code>INSTL DST</code>, estimated-destination display, estimation warnings, and candidates.</li>
+<li><code>Fix installed location</code>: Re-estimates the <code>instl_dst</code> of an installed chart, then updates the record with <code>Reinstall to estimated destination</code>. <code>Clear reinstall destination</code> clears the candidates.</li>
+</ul>
+<p>File organization:</p>
+<ul>
+<li><code>Move</code>: Moves chart files to candidate root folders in the library.</li>
+<li><code>Remove entry</code>: In playlist detail, removes the selected row from the playlist.</li>
+<li><code>Delete file</code>: Lets you choose <code>Rename to invalid extension (*.bmx/pmx)</code> or <code>Move to Recycle Bin</code>.</li>
+<li><code>Auto rename folder</code>: Renames the selected chart's folder according to the folder-name format in settings.</li>
+<li><code>Convert to audio file</code>: Outputs the chart playback result as an audio file according to the recording settings in the settings dialog.</li>
+</ul>
+<p>When you run <code>Delete file</code> -&gt; <code>Move to Recycle Bin</code> in the normal library, if deleting the selected chart would leave no charts in the target folder, you may be asked to confirm moving the entire folder to the Recycle Bin. In that case, bundled files other than charts will also be moved. Check the target path in the confirmation dialog before executing.</p>
+<p>Screen-specific:</p>
+<ul>
+<li><code>Remove from list</code>: Removes the target from the new / pending / installed package display. Distinguish this from operations that delete actual files.</li>
+<li><code>Remove metadata parse failure record</code>: Shown on the parse errors screen. Deletes the saved parse failure record and returns the item to the set of files to be parsed again.</li>
+</ul>
+<p>In playlist detail for unowned charts, file operations and install operations are not shown. Only operations for playlist rows are shown, such as <code>Open BMS-IR</code>, <code>Open Mocha</code>, <code>Open MinIR</code>, <code>Open main URL</code>, <code>Open diff URL</code>, <code>Open video</code>, <code>Search downloads</code>, <code>Open in chart viewer</code>, <code>Update ranking data</code>, and <code>Remove entry</code>. <code>Open BMS-IR</code> is shown only for rows that have an MD5.</p>
+<p>Operations that modify actual files are implemented with behavior close to Windows Explorer so that they are less likely to fail because of read-only attributes and similar conditions. However, deletion and overwrite operations may not be reversible, so check the target before executing them.</p>
+<h4 id="rename-to-invalid-extension">Rename to Invalid Extension</h4>
+<p><code>Rename to invalid extension (*.bmx/pmx)</code> changes the extension of selected BMS / PMS-family charts to an extension that LR2 and similar players normally do not read as a chart. BMS-family extensions are changed to <code>.bmx</code>, and PMS-family extensions are changed to <code>.pmx</code>. This is mainly used when you want to remove 0-note charts or files mistakenly registered as charts from the library.</p>
+<p>If the destination filename is available, the file is renamed as-is. If the destination already exists, conflicts are resolved as follows:</p>
+<ul>
+<li>If a file with identical content already exists at the destination <code>.bmx</code> / <code>.pmx</code>, or at a numbered candidate such as <code>name(1).bmx</code>, the same file is not duplicated; instead, the original <code>.bms</code> / <code>.pms</code> side is deleted as a duplicate.</li>
+<li><strong>If the destination or numbered candidates exist but their contents differ, the file is renamed to an available numbered name.</strong></li>
+<li>If a directory with the same name exists at the destination, that name is also avoided and numbered candidates are searched.</li>
+</ul>
+<p>File-content MD5 is used to determine whether contents are identical.</p>
+<p>When run from the normal library, charts that were renamed or deleted as duplicates are removed from the list. When run from the pending list, processed charts are also excluded from the pending package.</p>
+<h3 id="tree-context-menu">Tree Context Menu</h3>
+<p>The left sidebar tree also has context menus depending on location.</p>
+<p>Library:</p>
+<ul>
+<li>Library root: You can run <code>Reload</code>, <code>Re-run Initialization</code>, and <code>Add root folder</code>.</li>
+<li>Library folder: You can run <code>Reload</code>, <code>Re-run Initialization</code>, <code>Open in Explorer</code>, <code>Unregister root folder</code>, and <code>Bulk rename folders</code>.</li>
+<li><code>Bulk rename folders</code> may take quite a long time depending on the size of the root folder, so <strong>normally it is recommended to narrow candidates with search and then run it from the context menu for the selected range.</strong></li>
+</ul>
+<p>Playlists:</p>
+<ul>
+<li>Playlist root: You can run <code>Create new</code>, <code>Import</code>, and <code>Reload</code>. Import options include specifying a URL, loading from a difficulty table list, importing the Overjoy BMS difficulty estimation table, recommend tables, and so on.</li>
+<li>Playlist body: You can run <code>Reload</code>, <code>Open page</code>, <code>Clear lamp (external site)</code>, <code>Overwrite levels</code>, <code>Create folder</code>, <code>Export</code>, <code>Delete playlist</code>, and <code>Properties</code>. For details on each item, see <a href="#playlist-detail">Playlist Detail</a>.</li>
+<li>Folder in playlist: You can run <code>Delete</code> and <code>Rename</code>.</li>
+<li>Playlist summary row: You can run <code>Reload</code>, <code>Open page</code>, <code>Properties</code>, and <code>Delete playlist</code>. Reloading multiple selected rows in the summary targets the selected playlists regardless of their external sync flag.</li>
+</ul>
+<p>Install:</p>
+<ul>
+<li><code>New</code> root: <code>Clear all</code> empties the new package display.</li>
+<li><code>Pending</code> root: You can run <code>Clear all</code> and <code>Advanced features</code>. For advanced features, see <a href="#advanced-features">Advanced Features</a>.</li>
+<li>Pending package: You can run <code>Open in Explorer</code>, <code>Open install destination</code>, the <code>Install</code> submenu, and <code>Remove from list</code>. The <code>Install</code> submenu contains <code>Estimate install destination</code>, <code>Estimate merge destination</code>, <code>Install to estimated destination</code>, <code>Install ignoring warnings</code>, and <code>Clear install destination</code>.</li>
+<li>Installed package: You can run <code>Open in Explorer</code> and <code>Remove from list</code>.</li>
+</ul>
+<p>Maintenance:</p>
+<ul>
+<li><code>Zero-note search</code>: You can run <code>Check zero-note notation</code>.</li>
+<li>Folder under <code>Duplicate file check</code>: You can run <code>Open in Explorer</code> and <code>Merge destination</code>. For duplicate folder merge, see <a href="#merge-duplicate-folders">Merge Duplicate Folders</a>.</li>
+</ul>
+<p>From the column-header context menu, you can toggle visible columns or reset column settings to their defaults. The playlist summary also has its own column display menu.</p>
+<h3 id="other-popup-menus">Other Popup Menus</h3>
+<p>Some menus are opened from buttons at the top of the screen rather than by right-clicking.</p>
+<ul>
+<li>Playback control menu: Controls high-speed changes, player information / effect screen display, 1P/2P switching, volume, <code>REPEAT</code>, <code>FOLDER SKIP</code>, and <code>SINGLE PLAY</code>. Available items vary depending on the configured BMS player.</li>
+<li>Mode filter: Switches display targets for <code>5KEYS</code>, <code>7KEYS</code>, <code>9KEYS</code>, <code>10KEYS</code>, and <code>14KEYS</code>.</li>
+<li>Playlist summary ownership filter: Switches between <code>All</code>, <code>OWNED=100%</code>, and <code>OWNED&lt;100%</code>.</li>
+</ul>
+<h2 id="search">Search</h2>
+<p>Enter text in the search box at the upper right to filter the list.</p>
+<p>Normal search is case-insensitive, and multiple words are treated as an AND search.</p>
+<div class="highlight"><pre><span></span><code>alpha artist
+</code></pre></div>
+<p>For more precise searching, use field specifiers.</p>
+<div class="highlight"><pre><span></span><code>title:Satellite
+artist:xi
+level:12
+rate:&gt;=80
+playlist:"Satellite Sub"
+</code></pre></div>
+<p>The search field provides field completion, playlist-name completion, and search history.
+For detailed syntax, see the <a href="keyword-search-syntax-guide.html">Keyword Search Syntax Guide</a>.</p>
+<h2 id="playback--recording">Playback / Recording</h2>
+<p>You can play a chart by double-clicking it in a list or pressing Enter. Select the player to use on the <code>Playback</code> tab in the settings dialog.</p>
+<p>The built-in player is for simple audio-only preview playback. When using an external player, specify the corresponding executable file.</p>
+<p>bmson is treated as a chart file in the library, but it is currently not supported for playback in the built-in player or for <code>Convert to audio file</code>. It also cannot be passed to a configured external player by the normal playback operation. If you want to play bmson, open it from an external app that supports bmson, for example by using <code>Open with association</code>.</p>
+<p>Recording is configured on the <code>Recording</code> tab in the settings dialog, where you set the save format, quality, sample rate, filename format, and encoder location. It is safer to confirm the recording destination and encoding format in advance using a short chart.</p>
+<h2 id="playlists">Playlists</h2>
+<p>In BeMusicSeeker, installed difficulty tables and custom playlists can be managed as <code>playlists</code>. Playlists have a summary view for listing overall ownership status and a detail view for checking individual charts.</p>
+<h3 id="playlist-summary">Playlist Summary</h3>
+<p><img alt="Playlist summary" src="img/一覧_プレイリストサマリー.PNG"/></p>
+<p>The playlist summary lists each playlist's chart count, owned count, unowned count, ownership rate, and external sync status.</p>
+<p>From the search field at the upper right, you can switch the ownership filter between <code>All</code>, <code>OWNED=100%</code>, and <code>OWNED&lt;100%</code>.</p>
+<p>When you find a table whose number of unowned charts has increased, <strong>double-click the row to move to that playlist's detail view.</strong></p>
+<p>The <code>STATUS</code> column shows the result of external playlist sync performed after startup or during reload. Broken links, header retrieval failures, data retrieval failures, and similar issues can be checked here. Details are shown in the tooltip.</p>
+<h3 id="playlist-detail">Playlist Detail</h3>
+<p><img alt="Playlist detail" src="img/一覧_プレイリスト詳細.PNG"/></p>
+<p>Playlist detail lists the charts included in the selected playlist. You can check owned and unowned charts; unowned charts are displayed as <code>[NO SONG]</code>.</p>
+<p>The <code>URL1</code> / <code>URL2</code> columns can open main URLs and diff URLs. Even when URLs are not included in the playlist itself, if URL completion is enabled, they may be completed at runtime from external mappings.</p>
+<p>Right-clicking the playlist body in the playlist tree lets you run the following operations:</p>
+<ul>
+<li><code>Reload</code>: Re-fetches the target playlist. A single-playlist reload targets the selected playlist regardless of its external sync flag.</li>
+<li><code>Open page</code>: Opens the playlist page URI in a browser.</li>
+<li><code>Clear lamp (external site)</code>: Passes the LR2ID and playlist page URI to an external CLEAR LAMP site and opens it. <strong>However, because the external site is currently unavailable, an internal lamp viewer is being considered instead.</strong></li>
+<li><code>Overwrite levels</code>: Uses the levels registered in this playlist to overwrite the levels of the same charts in the local library. A confirmation dialog is shown before execution. This cannot be run for some special tables, such as recommend tables. This operation affects saved values in the song table, not actual files. <strong>Depending on your play skin it may have a use, but personally I do not recommend using it.</strong></li>
+<li><code>Create folder</code>: Adds a manually managed folder to a playlist that is not externally synced.</li>
+<li><code>Export</code>: Saves the playlist as two files, <code>header.json</code> and <code>data.json</code>. The save location for each file is specified with a file selection dialog.</li>
+<li><code>Delete playlist</code>: Removes the target playlist from BeMusicSeeker management. A confirmation dialog is shown before execution.</li>
+<li><code>Properties</code>: Edits the playlist name, display symbol, external sync, URI, folder output, and related settings.</li>
+</ul>
+<p>In playlists that are not externally synced, chart rows can be added by dragging and dropping them from a list onto the playlist body or a folder. Dragging rows within playlist detail to another folder moves them between folders inside the same playlist. When dropping onto the root of a folder-type playlist, the folder is selected based on the contents of existing folders and MD5 information for the same songs, and a new folder is created if necessary.</p>
+<h3 id="import-external-playlist">Import External Playlist</h3>
+<p><img alt="Playlist import menu" src="img/プレイリストインポート_ツリーコンテキストメニュー.PNG"/></p>
+<p>Right-click the playlist tree root and use <code>Import</code> to add external playlists. You can choose from registered external table lists or specify a URI to load.</p>
+<p>The default difficulty table list retrieval URI is managed by <a href="https://darksabun.club/table/tablelist.html">DARKSABUN</a>.</p>
+<p><img alt="Playlist import URL specification" src="img/プレイリストインポート_URLを指定して読み込む.PNG"/></p>
+<p>Import menus such as external table lists and recommend tables <strong>do not close when you click a single item, so you can select and import multiple tables in sequence.</strong></p>
+<p>In <code>Load by specifying URL</code>, you can enter destination URIs across multiple lines. If you paste multiple difficulty table URLs at once, each line is treated as a load target.</p>
+<p>Externally synced playlists can be updated by re-fetching the original difficulty table. After importing, check the sync result in the playlist summary <code>STATUS</code> column.</p>
+<h3 id="playlist-properties">Playlist Properties</h3>
+<p>Right-click a playlist and open <code>Properties</code> to view and edit the playlist name, display symbol, external sync settings, page URI, header URI, and data URI.</p>
+<p>Properties such as the playlist name and folder settings are saved in the in-app DB even in standalone mode. Only in LR2 linked mode is LR2 custom folder output also updated after saving.</p>
+<p><img alt="Playlist properties general" src="img/プレイリストプロパティ_一般.PNG"/></p>
+<p>On the <code>Folder</code> tab, you can set the sort key and ascending / descending order for items inside folders, as well as the order of folders. For externally synced playlists, editing items that conflict with the sync source is restricted.</p>
+<p><img alt="Playlist properties folder" src="img/プレイリストプロパティ_フォルダ.PNG"/></p>
+<p>On the <code>Custom Folder</code> tab, you can set the output folder types and output names.</p>
+<p><img alt="Playlist properties custom folder" src="img/プレイリストプロパティ_カスタムフォルダ.PNG"/></p>
+<h3 id="custom-folder-output">Custom Folder Output</h3>
+<p>In LR2 linked mode, playlists can be output as LR2 custom folders.</p>
+<p>Specify the normal output destination and root folder output destination on the <code>Playlist</code> tab in the settings dialog.
+From playlist <code>Properties</code>, configure the output name, <code>Make root folder</code>, and the folder types to output.</p>
+<p>Do not place important data in the output destinations, and specify different locations for the normal output destination and root folder output destination. During output, <code>.lr2folder</code> files under the output destination are rewritten, so if you specify the same location as LR2 custom folders you manage manually or data from another app, they may be unintentionally deleted. It is recommended to prepare an empty folder dedicated to BeMusicSeeker.</p>
+<p>Main folder types that can be output:</p>
+<ul>
+<li>User-defined</li>
+<li>Level</li>
+<li>Alphabet</li>
+<li>Clear</li>
+<li>DJ level</li>
+<li>Category ALL</li>
+<li>Other</li>
+</ul>
+<p><strong>My personal recommendation is to enable only User-defined and Other.</strong></p>
+<p>Playlists made into root folders are displayed at the root of LR2's song selection screen. This is useful when you want quick access to frequently used tables.</p>
+<blockquote>
+<p>Although I do have some interest in expanding this feature, <a href="https://github.com/Anyoji-bms/LR2FolderGenerator-v1.0.1">a custom folder output tool</a> already exists, and these days I also think that if you tell various AI tools what kind of custom folder you want together with the DB schema, you may be able to generate something better suited to each person's preferences. Since <code>chart_info</code> contains various metadata, <code>chart_digest_map</code> contains BMS MD5/SHA256 mappings, and <code>playlist_entry</code> has an added SHA256 column, I think many kinds of folders can be made with some ingenuity.</p>
+</blockquote>
+<h3 id="url1url2-completion">URL1/URL2 Completion</h3>
+<p>When playlist <code>URL1</code> / <code>URL2</code> are empty, URLs can be completed from external TSV files or Stella Uploader-derived information based on MD5.</p>
+<p>Completed results are first treated as runtime display information. Only when row edits are saved in a local playlist are the completed values also saved to the playlist. Editing restrictions for externally synced playlists are preserved.</p>
+<p>On the <code>Playlist</code> tab in the settings dialog, you can configure the following:</p>
+<ul>
+<li>Try completion when playlist URL1/URL2 are empty</li>
+<li>Also overwrite non-empty URL1/URL2 using the completion feature</li>
+<li>MD5-URL mapping TSV retrieval URI</li>
+<li>Complete URL1/URL2 using Stella Uploader (Full) data</li>
+</ul>
+<p>The TSV URI can specify either HTTP/HTTPS or a local TSV file path. If the same MD5 has multiple completion sources, the TSV takes priority. Priority is judged per MD5, so if the TSV has a row for the same MD5, values from Stella Uploader (Full) are not used to fill in missing values even if URL1 or URL2 is empty on the TSV side.</p>
+<h2 id="install--pending-packages">Install / Pending Packages</h2>
+<p>When you add BMS folders or archives to BeMusicSeeker, uninstalled songs and differential charts appear under <code>New</code> / <code>Pending</code> in the <code>Install</code> tree.</p>
+<p><strong>The basic workflow is as follows.</strong></p>
+<ol>
+<li>Drag and drop a BMS work, differential chart, or a folder / archive containing them onto the window.</li>
+<li>Items that appear to be new unowned works and have enough bundled resources are normally installed to the <code>New install destination</code> configured in the settings dialog. If <code>Always add new packages to pending even when judged as new</code> is enabled in Advanced settings, they remain in Pending even when judged as new.</li>
+<li>Items with few resources that appear to be differential charts for existing works are added to <code>Pending</code>, and install-destination estimation is performed.</li>
+<li>Check <code>WARNING</code>, <code>TITLE</code>, <code>ARTIST</code>, <code>INSTL DST TITLE</code>, <code>INSTL DST ARTIST</code>, and related columns. If necessary, manually enter <code>INSTL DST</code> or choose it from the suggested candidates.</li>
+<li>Select rows that look correct, then run <code>Install</code> -&gt; <code>Install to estimated destination</code> from the context menu.</li>
+</ol>
+<p>Installation does more than simply copy files from the source package to the destination. For folder packages, charts and bundled files may be moved into the destination, and the original folder may be deleted after processing. If you want to keep the original distributed package unchanged, make a separate copy beforehand.</p>
+<p><strong>You can select multiple rows in the <code>Pending</code> and <code>New</code> lists.</strong></p>
+<ul>
+<li>Click one row to select it.</li>
+<li><code>Ctrl + Click</code> adds or removes individual rows.</li>
+<li><code>Shift + Click</code> selects a range.</li>
+<li><code>Ctrl + A</code> selects all rows.</li>
+<li>With the keyboard, <code>Shift + ↑ / ↓</code> extends the selection range.</li>
+</ul>
+<p><strong>Context-menu operations such as install, estimation, and deletion generally apply to all selected rows. Batch installation of hundreds or more charts is supported.</strong></p>
+<h3 id="new">New</h3>
+<p><code>New</code> shows packages immediately after installation. Temporary warnings shown before installation are re-evaluated according to the post-installation state.
+For example, a differential chart by itself is typically added to <code>Pending</code> with <code>WAV 0%</code>, but after successful installation it appears under <code>New</code> with <code>WAV 100%</code>.</p>
+<p><img alt="Install New" src="img/一覧_インストール_新規.PNG"/></p>
+<h3 id="pending">Pending</h3>
+<p><img alt="Install Pending" src="img/一覧_インストール_保留.PNG"/></p>
+<p><code>Pending</code> shows packages that have not yet been installed. Use this view to confirm estimated destinations, manually specify install destinations, install packages, remove rows from the list, or move files to the Recycle Bin.</p>
+<p><code>Remove from list</code> only removes the pending row from the display. To delete the actual files, use <code>Delete file</code> -&gt; <code>Move to Recycle Bin</code> from the context menu. For pending packages, even when the option to delete the whole folder is enabled, the whole package folder is moved to the Recycle Bin only when every chart row in that package is included in the current selection. When multiple rows are selected, the same policy is applied to the whole selection, and no per-folder confirmation is shown. Check the target carefully before running the operation.</p>
+<p>For charts added to Pending, BeMusicSeeker estimates the install destination using owned-chart hashes, folder structure, WAV / BGA / video / image resources referenced by the chart, bundled resources, title / artist, and similar information. The main result columns are:</p>
+<ul>
+<li><code>INSTL DST</code>: Candidate directory where the package will actually be installed.</li>
+<li><code>INSTL DST TITLE</code>: Title of an existing representative chart in the estimated destination directory.</li>
+<li><code>INSTL DST ARTIST</code>: Artist of an existing representative chart in the estimated destination directory.</li>
+<li><code>WARNING</code>: Cautions such as ambiguous destination, low confidence, or missing resources.</li>
+</ul>
+<p>Estimation asks: "Which existing directory would satisfy this differential chart's referenced resources best if the chart were placed there?" Audio-resource matches are weighted especially heavily, and images / videos are also compared by category. Resources with different relative paths, such as <code>sound/foo.wav</code> and <code>foo.wav</code>, are treated as different resources.</p>
+<p>In cases such as the following, BeMusicSeeker may avoid automatically fixing <code>INSTL DST</code> and instead show a warning:</p>
+<ul>
+<li>Multiple strong candidates exist, and resource match score alone cannot decide one destination.</li>
+<li>Already-owned charts inside the package exist in multiple installed locations.</li>
+<li>Resources match reasonably well, but TITLE / ARTIST similarity is low.</li>
+<li>Startup file-difference checking was skipped, so the resource index required for estimation is unavailable.</li>
+</ul>
+<p>When multiple candidates exist, click the <code>INSTL DST</code> cell and enter edit mode to show candidates as suggestions. Choosing a candidate sets that directory as <code>INSTL DST</code>. Even after choosing a candidate, ambiguity warnings may remain. This preserves the ability to reselect another candidate later.</p>
+<p><code>INSTL DST</code> can also be entered manually. You can enter either the full path of an owned chart file, or the directory containing owned chart files. If you enter a full chart-file path, it is normalized to the directory containing that chart. Nonexistent paths, and directories not recognized as existing chart directories in the library, cannot be specified.</p>
+<h3 id="install-destination-and-merge-destination-estimation">Install-Destination and Merge-Destination Estimation</h3>
+<p>The <code>Install</code> context menu contains several similarly named estimation operations.</p>
+<p><code>Estimate install destination</code> is for ordinary differential-chart installation. Resources bundled in the pending package are counted as resources that will become available after installation, and BeMusicSeeker looks for the destination that works best when combined with the existing directory. Usually, use this operation. <strong>In other words, bundled additional audio files are also considered.</strong></p>
+<p><code>Estimate merge destination</code> is for pending packages that contain only already-owned charts, or for cases where you want to move only resources into an existing folder. It does not add bundled resources inside the pending package to the evaluation; it searches for a merge destination using only resources already present in the existing library. Existing <code>INSTL DST</code> values are overwritten. A confirmation dialog is shown before execution.</p>
+<p><code>Install to estimated destination</code> installs pending packages whose <code>INSTL DST</code> is set into that estimated destination. Processing is grouped by destination, and file moves, <code>song.db</code> updates, maintenance information, chart metadata, and resource state are updated. Same-name collisions among bundled files are handled according to <a href="#smart-overwrite">Smart Overwrite</a> in the settings dialog.</p>
+<p><code>Install ignoring warnings</code> ignores the estimated destination and treats the package as an ordinary new installation. <strong>A typical use case is when the package shows something like <code>WAV 97%</code>, but that is known to be the original distribution state of the work.</strong></p>
+<p><code>Clear install destination</code> clears <code>INSTL DST</code>, estimated-destination title / artist, install-destination-estimation warnings, and candidate suggestions for the selected rows. Use it when you want to redo estimation.</p>
+<h3 id="advanced-features">Advanced Features</h3>
+<p><img alt="Install Pending Advanced Features" src="img/一覧_インストール_保留_高度な機能.PNG"/></p>
+<p>The pending tree provides advanced cleanup features.</p>
+<p><code>Delete packages that contain only already-owned charts without using the Recycle Bin</code> targets pending packages where every contained chart can be identified as already owned. Folder packages are deleted as folders, single-file packages are deleted as files, and the rows are removed from the pending list. Because this bypasses the Recycle Bin, mistakes cannot be undone.</p>
+<p><code>Overwrite only resources for packages that contain only already-owned charts</code> is for cases where you already own the charts themselves, but want to update bundled resources such as audio files or BGA files. BeMusicSeeker resolves the destination from the hashes of already-owned charts, and processes only packages whose destination can be determined uniquely. Packages are skipped when destinations are split across multiple folders, the destination cannot be determined, there are no resources to overwrite, or similar conditions occur. Same-name file collisions follow the <a href="#smart-overwrite">Smart Overwrite</a> setting. After processing, a summary shows success counts, skip reasons, and failure counts.</p>
+<p><code>Rename zero-note charts to invalid extensions (*.bmx/pmx)</code> reads pending chart files from disk and batch-processes only charts judged to have 0 notes. BMS-family extensions are renamed to <code>.bmx</code>, and PMS-family extensions are renamed to <code>.pmx</code>, then removed from the pending list. Files already ending in <code>.bmx</code> / <code>.pmx</code>, unsupported extensions, and charts that are not 0-note charts are skipped. Duplicate deletion or automatic numbering when the destination filename collides follows the same behavior as <a href="#rename-to-invalid-extension">Rename to invalid extension</a> in the library context menu.</p>
+<p>These operations include destructive actions. Especially for permanent deletion and resource overwrite, check the target package and destination before executing.</p>
+<h2 id="maintenance">Maintenance</h2>
+<p><code>Maintenance</code> contains dedicated views for checking library state.</p>
+<h3 id="lr2-compatibility-warnings">LR2 Compatibility Warnings</h3>
+<p><img alt="LR2 Compatibility Warnings" src="img/一覧_LR2互換性警告.PNG"/></p>
+<p><code>LR2 Compatibility Warnings</code> lists charts that may cause problems during song selection or playback in LR2. LR2 assumes CP932 / Shift_JIS filenames and old path-length limits in many parts of its processing, so BeMusicSeeker checks both the chart-file path itself and resource definitions inside BMS files, such as audio, image, and video references.</p>
+<ul>
+<li>LR2 path incompatible: The full chart-file path contains characters that cannot be represented in CP932 / Shift_JIS. LR2 <code>folder</code> / <code>parent</code> information cannot be created safely, and LR2 may be unable to select the chart.</li>
+<li>LR2 path too long: The full chart-file path may exceed LR2's old path-length limits. Consider using shallower folder nesting or shorter folder / file names.</li>
+<li>LR2 resource incompatible: Resource definitions inside the BMS file, such as <code>#WAV</code>, <code>#BMP</code>, and <code>#BGA</code>, contain strings that LR2 cannot handle as CP932 / Shift_JIS filenames. Even if the chart itself can be selected, audio or BGA resources may fail to load correctly.</li>
+<li>LR2 resource path too long: The actual resource path LR2 would reference, formed by combining the chart folder and resource definition, may be too long. Consider moving the chart folder to a shorter location or shortening resource folder / file names.</li>
+</ul>
+<p>A resource definition containing a parent-directory reference such as <code>..</code> is not treated as LR2-incompatible by itself. However, if the actual referenced path including the placement location becomes too long, it is subject to <code>LR2 resource path too long</code>.</p>
+<p>BeMusicSeeker does not delete these charts; it only visualizes them as warnings. LR2 may still fail to select or play them. If necessary, rename chart files, resource files, or parent folders to CP932 / Shift_JIS-compatible names and shorter paths.</p>
+<h3 id="zero-note-search">Zero-Note Search</h3>
+<p><img alt="Zero-Note Search" src="img/一覧_ゼロノート検索.PNG"/></p>
+<p>This view checks charts whose metadata says <code>0 notes</code>.</p>
+<p>Here, <code>0 notes</code> means charts where chart-metadata parsing produced <code>notes == 0</code>. Metadata parsing is aligned with beatoraja / jbms-parser-style interpretation, but it does not brute-force and compare every possible branch produced by <code>#RANDOM</code> / <code>#IF</code> and similar constructs. Therefore, charts whose notes appear only under certain conditional branches may not perfectly match actual player behavior.</p>
+<p><code>Check zero-note notation</code> reloads chart files whose metadata says <code>0 notes</code> and checks, using regular expressions, whether the body contains visible-note-like notation. It targets lines for normal-note channels and LN-related channels where an object other than <code>00</code> is written. This is a lightweight maintenance check, not a full chart-syntax interpreter. Invalid LN pairs, notation inside unreachable <code>#RANDOM</code> branches, or notation that may be invalid in an actual player can still be reported as "metadata says 0 notes, but the body appears to contain notes" if they look like visible-note lines.</p>
+<p>In other words, <code>Zero-Note Search</code> does not prove that a chart is truly empty. It is a view for finding charts parsed as <code>0 notes</code> that may deserve manual confirmation.</p>
+<p>Charts that cannot be played in LR2 due to parse errors or similar issues may still be playable in other players or chart viewers.</p>
+<h3 id="parse-errors">Parse Errors</h3>
+<p><img alt="Chart Metadata Parse Failure" src="img/一覧_解析エラー.PNG"/></p>
+<p>This view checks charts whose metadata parsing failed.
+Parse failures are shown as WARNINGs and are treated as a parse-error inspection view, rather than directly rewriting the original rows in the normal list.</p>
+<p>When you right-click a chart in the parse-error view, you can run <code>Remove chart-info parse failure record</code>. This does not ignore the parse failure itself. It deletes the saved failure record so that the chart becomes a target for metadata parsing again next time.</p>
+<p>Normally, you do not need to use this. Use it only when you can reasonably judge that the chart file itself is probably not the problem, such as when parsing timed out under high disk or CPU load, or when an external factor caused a temporary read failure. If reparsing produces the same error again after removal, it is natural to treat it as a parse failure caused by the chart contents or parser limitations.</p>
+<h3 id="garbled-text-check">Garbled Text Check</h3>
+<p><img alt="Garbled Text Check" src="img/一覧_文字化けチェック.PNG"/></p>
+<p>This view checks charts with character-encoding estimation issues. Manual correction lets you choose from candidates such as Japanese, Korean, and Chinese encodings.</p>
+<h3 id="duplicate-file-check">Duplicate File Check</h3>
+<p><img alt="Duplicate File Check" src="img/一覧_重複ファイルチェック.PNG"/></p>
+<p>This view finds files that can be judged as the same chart and lets you inspect duplicate charts together. Both BMS-family files and bmson are treated as chart files, and files whose chart-identification hashes such as MD5 or SHA-256 match are displayed as duplicate candidates.</p>
+<p>Duplicate charts receive the <code>Duplicate chart</code> WARNING, and rows are highlighted in the list. Selecting <code>Duplicate File Check</code> in the left tree shows all duplicate candidates; selecting a group under it shows that group; selecting a folder below that shows only matching charts inside that folder.</p>
+<p>Duplicate groups are built by connecting folders that contain charts with the same hash. For example, if <code>A</code> and <code>B</code> contain the same chart, and <code>B</code> and <code>C</code> contain another identical chart, <code>A / B / C</code> are treated as one cleanup target. This lets you inspect packages that are partially duplicated across multiple folders.</p>
+<h4 id="merge-duplicate-folders">Merge Duplicate Folders</h4>
+<p>In the duplicate-file-check tree, select the folder you want to merge away, in other words <strong>the folder you want to remove</strong>, then choose the destination folder from <code>Merge destination</code> in the context menu. Charts and bundled resources in the selected folder are moved into the destination. From the folder context menu, you can also open the target folder in Explorer. Before execution, a confirmation dialog shows the source path and merge-destination path.</p>
+<p>If bmson files exist under the target folder, they are also treated as charts. If the destination already contains a chart with the same hash, that chart file is not moved, so the duplication is resolved. If only the chart filename collides, the file is moved with a changed filename, so charts with different hashes are not lost.</p>
+<p>For bundled resources, when the destination already contains a same-name file, overwrite, skip, or automatic numbering is performed according to <a href="#smart-overwrite">Smart Overwrite</a> in the settings dialog. As the confirmation dialog also notes, when resources with different quality or formats such as <code>ogg</code> and <code>wav</code> are mixed, check which one you want to keep before running the merge.</p>
+<p>The source folder is deleted after moving if it becomes empty, or if all remaining files are "chart files that can already be judged as owned." If something unexpected remains, such as non-chart files, unreadable charts, charts with unknown hashes, or charts with unowned hashes, deleting the source folder is skipped.</p>
+<h4 id="continuous-cleanup-with-ctrl--g">Continuous Cleanup with <code>Ctrl + G</code></h4>
+<p>When a folder item is selected, pressing <code>Ctrl + G</code> works as a duplicate-cleanup shortcut.</p>
+<ul>
+<li>If there are exactly two duplicate folders, the selected folder is merged into the other folder.</li>
+<li>If there are three or more duplicate folders, the destination is not chosen automatically; instead, the <code>Merge destination</code> context menu is opened. Check the candidates and choose the destination.</li>
+<li>If there is only one duplicate folder, BeMusicSeeker treats it as a case where multiple charts with the same hash exist inside the same folder, and performs duplicate-hash cleanup.</li>
+</ul>
+<p>For duplicate-hash cleanup inside the same folder, one file is kept for each hash and the rest are moved to the Recycle Bin. The file to keep is chosen by preferring older modified timestamps, and if timestamps are equal, shorter filenames. Before execution, a confirmation dialog shows the number of files to be moved to the Recycle Bin.</p>
+<p>After a merge or duplicate-hash cleanup finishes, focus automatically moves to the next duplicate group that should be checked in the tree. Using <code>Ctrl + G</code> while checking from top to bottom lets you organize many duplicates with relatively few operations.</p>
+<h4 id="cautions">Cautions</h4>
+<ul>
+<li><strong>Run <code>Ctrl + G</code> on the folder you want to merge or delete, not on the folder you want to keep.</strong></li>
+<li>When there are three or more candidates, BeMusicSeeker does not auto-merge in order to avoid unintended moves; you must choose a candidate.</li>
+<li>If files are temporarily locked by another application, antivirus software, a search indexer, or similar, moving or deleting can fail. If it fails, close the target file and run the operation again.</li>
+<li>Duplicate display is cached. It is recalculated when the library changes through deletion, moving, merging, reload, and similar operations.</li>
+</ul>
+<h3 id="full-resource-scan">Full Resource Scan</h3>
+<p><img alt="Full Resource Scan" src="img/一覧_構成ファイルフルスキャン.PNG"/></p>
+<p>This view checks missing WAV, BGA, video, image, and similar resources.
+<code>Rescan all charts</code> is an explicit heavy operation. Ordinary startup does not revalidate resources for all charts. If you add missing resources after installation, update the state by rescanning the relevant row or rescanning all charts.</p>
+<h2 id="backup--uninstall">Backup / Uninstall</h2>
+<p>From the <code>Backup</code> tab in the settings dialog, you can back up / restore playlists. <code>LR2 backup and optimization</code> configures the destination, targets, schedule, and generation count, and automatically creates backups on startup when conditions are met. After a successful backup, <code>song.db</code> and score DBs are also optimized using <code>VACUUM</code> / <code>REINDEX</code>. Simply configuring the setting does not immediately back up LR2-related files on the spot, so if you need a backup before a large update or uninstall, also make a manual copy.</p>
+<p>In LR2 linked mode, BeMusicSeeker may add application tables and indexes to LR2's <code>song.db</code>. <code>Remove BeMusicSeeker-related data from LR2 database</code> deletes these BeMusicSeeker-managed data. This operation assumes you will exit the application afterward.</p>
+<p>Before uninstalling or making a large update, it is safer to back up the following:</p>
+<ul>
+<li>LR2 <code>song.db</code></li>
+<li>LR2 <code>config.xml</code></li>
+<li>LR2 score DB</li>
+<li>BeMusicSeeker <code>config/user.config</code></li>
+<li>BeMusicSeeker <code>data/song.db</code> in standalone mode</li>
+<li>BMS root folders</li>
+</ul>
+<h2 id="logs-and-troubleshooting">Logs and Troubleshooting</h2>
+<p>To collect more detailed logs than usual, start the app with <code>LaunchWithInfoLog.bat</code>. Initialization, DB loading, file scanning, playlist synchronization, and similar information are written to <code>application.log</code> and <code>install-performance.log</code>.</p>
+<p>For how to read logs, see <a href="log-level-info-guide.html">BeMusicSeeker INFO Log Guide</a>.</p>
+<blockquote>
+<p>Sorry, but in practice this guide may not be very helpful. Log-output policy has changed during development, so the guide is not sufficient as an explanation of the latest implementation. If behavior is clearly wrong, please start with INFO-level logging enabled and send me the log; it will help with bug fixes.</p>
+</blockquote>
+<h3 id="startup-or-initialization-is-slow">Startup or Initialization Is Slow</h3>
+<ul>
+<li>Check whether Everything 1.5 Alpha x64 is installed.</li>
+<li>Check whether your BMS folders are searchable from Everything.</li>
+<li>First-time construction, an empty DB, or large changes to BMS root folders take longer than usual.</li>
+<li>Looking at <code>everything_scan</code>, <code>song_tbl_file_check</code>, <code>playlist_*</code>, and similar entries in <code>install-performance.log</code> can show where time is being spent.</li>
+<li>Even if Everything integration fails, BeMusicSeeker may fall back to ordinary file enumeration without showing a warning dialog. If it is slower than expected, check <code>everything_scan</code>, <code>nativeBridgeUsed</code>, <code>fallback</code>, <code>managed</code>, and similar records in <code>install-performance.log</code>.</li>
+</ul>
+<h3 id="playlist-status-fails">Playlist <code>STATUS</code> Fails</h3>
+<p>The external difficulty-table URL may be returning 404, 403, timeout, or similar errors. Check the tooltip for <code>STATUS</code> in the playlist summary, or <code>playlist_reload_target_failed</code> in <code>application.log</code>.</p>
+<p>If the external site is temporarily failing, wait and reload later. If the URL has changed, you need to update the URI in playlist properties.</p>
+<h3 id="lr2-cannot-select-a-chart">LR2 Cannot Select a Chart</h3>
+<p>Check whether the chart appears in <code>LR2 Compatibility Warnings</code>. Charts containing chart paths or resource definitions that cannot be represented in CP932 / Shift_JIS, or overly long chart paths / resource reference paths, may fail selection or playback in LR2.</p>
+<p>In LR2 linked mode, also check the <code>LR2 song.db sync</code> state in the status bar. If incomplete or failed work remains, LR2 may be reading an old <code>song.db</code>. Press <code>Retry</code> and let synchronization finish before starting LR2.</p>
+<p>Running <code>Resynchronize LR2 song.db data</code> from the settings dialog is also an effective option.</p>
+<h3 id="search-syntax-is-unclear">Search Syntax Is Unclear</h3>
+<p>See the <a href="keyword-search-syntax-guide.html">Keyword Search Syntax Guide</a>. It explains field-qualified searches such as <code>title:</code>, <code>artist:</code>, <code>playlist:</code>, and <code>rate:</code>, as well as exclusion search, OR, regular expressions, and numeric range search.</p>
+<h2 id="references">References</h2>
+<ul>
+<li><a href="keyword-search-syntax-guide.html">Keyword Search Syntax Guide</a></li>
+<li><a href="log-level-info-guide.html">BeMusicSeeker INFO Log Guide</a></li>
+<li><a href="https://tumblr.ribbit.xyz/post/129562866015/bemusicseeker-%E6%AD%A3%E5%BC%8F%E7%89%88%E3%82%92%E5%85%AC%E9%96%8B%E3%81%97%E3%81%BE%E3%81%97%E3%81%9F-v034">Original BeMusicSeeker Release Article</a></li>
+<li><a href="https://tumblr.ribbit.xyz/post/129562878360/bemusicseeker-%E3%83%9E%E3%83%8B%E3%83%A5%E3%82%A2%E3%83%AB-v030-%E5%AF%BE%E5%BF%9C%E7%89%88">Original BeMusicSeeker Manual</a></li>
+</ul>
+    </main>
+  </div>
+</body>
+</html>

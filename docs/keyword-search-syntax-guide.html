@@ -1,0 +1,974 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  <meta name="description" content="An unofficial BeMusicSeeker fork for managing BMS libraries, installing charts, and maintaining playlists, with performance improvements, bmson support, standalone mode, and LR2 integration updates.">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="BeMusicSeeker Unofficial Fork">
+  <meta property="og:title" content="Keyword Search Syntax Guide">
+  <meta property="og:description" content="An unofficial BeMusicSeeker fork for managing BMS libraries, installing charts, and maintaining playlists, with performance improvements, bmson support, standalone mode, and LR2 integration updates.">
+  <meta property="og:image" content="https://neeted.github.io/bemusicseeker-unofficial-fork/img/header.jpg">
+  <meta property="og:url" content="https://neeted.github.io/bemusicseeker-unofficial-fork/keyword-search-syntax-guide.html">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Keyword Search Syntax Guide">
+  <meta name="twitter:description" content="An unofficial BeMusicSeeker fork for BMS library management, chart installation, and playlist maintenance.">
+  <meta name="twitter:image" content="https://neeted.github.io/bemusicseeker-unofficial-fork/img/header.jpg">
+  <title>Keyword Search Syntax Guide</title>
+  <style>
+
+:root {
+  color-scheme: light;
+  --page-bg: #f5f7fa;
+  --content-bg: #ffffff;
+  --text: #242933;
+  --muted: #657083;
+  --border: #d9e0e8;
+  --border-soft: #e9edf2;
+  --accent: #0f766e;
+  --accent-strong: #0b5f59;
+  --code-bg: #f3f5f7;
+  --pre-bg: #17202e;
+  --pre-text: #edf2f7;
+  --table-head: #f0f5f5;
+  --shadow: 0 18px 38px rgba(31, 41, 55, 0.10);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-padding-top: 24px;
+}
+
+body {
+  margin: 0;
+  background: var(--page-bg);
+  color: var(--text);
+  font-family: "Segoe UI", "Meiryo", "Yu Gothic UI", system-ui, sans-serif;
+  font-size: 16px;
+  line-height: 1.72;
+}
+
+a {
+  color: var(--accent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.16em;
+}
+
+a:hover {
+  color: var(--accent-strong);
+}
+
+.page-shell {
+  display: grid;
+  grid-template-columns: minmax(200px, 260px) minmax(0, 920px);
+  gap: 28px;
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 32px 24px;
+}
+
+.doc-nav {
+  align-self: start;
+  position: sticky;
+  top: 24px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--content-bg);
+}
+
+.sidebar-section + .sidebar-section {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.sidebar-title {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.doc-nav a,
+.toc-tree a {
+  display: block;
+  padding: 5px 8px;
+  border-radius: 6px;
+  color: var(--text);
+  line-height: 1.38;
+  text-decoration: none;
+}
+
+.doc-nav a:hover,
+.toc-tree a:hover {
+  background: #eef5f4;
+  color: var(--accent-strong);
+}
+
+.doc-nav a[aria-current="page"],
+.language-menu a[aria-current="true"],
+.toc-tree a[aria-current="true"] {
+  background: #dff0ed;
+  color: var(--accent-strong);
+  font-weight: 700;
+}
+
+.language-menu {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.language-menu a {
+  border: 1px solid var(--border);
+}
+
+.language-menu a[aria-current="true"] {
+  border-color: #b7ded8;
+}
+
+.document-list a + a {
+  margin-top: 4px;
+}
+
+.toc-tree {
+  max-height: calc(100vh - 280px);
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.toc-tree ul {
+  margin: 0;
+  padding-left: 0;
+  list-style: none;
+}
+
+.toc-tree li {
+  margin: 1px 0;
+}
+
+.toc-tree ul ul {
+  margin-left: 12px;
+  padding-left: 10px;
+  border-left: 1px solid var(--border-soft);
+}
+
+.toc-tree details {
+  margin: 1px 0;
+}
+
+.toc-tree summary {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 28px;
+  padding: 2px 4px;
+  border-radius: 6px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.toc-tree summary:hover {
+  background: #eef5f4;
+}
+
+.toc-tree summary::marker {
+  color: var(--muted);
+}
+
+.toc-tree summary a {
+  flex: 1;
+  min-width: 0;
+  padding: 3px 4px;
+}
+
+.toc-tree .toc-level-3 a,
+.toc-tree .toc-level-4 a {
+  color: #2f6883;
+  font-size: 14px;
+}
+
+.doc-content {
+  min-width: 0;
+  padding: 44px 54px 56px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--content-bg);
+  box-shadow: var(--shadow);
+}
+
+h1,
+h2,
+h3,
+h4 {
+  line-height: 1.32;
+}
+
+h1 {
+  margin: 0 0 22px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--border);
+  font-size: 2.0rem;
+}
+
+h2 {
+  margin-top: 44px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-soft);
+  font-size: 1.45rem;
+}
+
+h3 {
+  margin-top: 32px;
+  font-size: 1.18rem;
+}
+
+h4 {
+  margin-top: 26px;
+  font-size: 1.05rem;
+}
+
+p,
+ul,
+ol,
+table,
+pre,
+blockquote {
+  margin-top: 0;
+  margin-bottom: 18px;
+}
+
+ul,
+ol {
+  padding-left: 1.55em;
+}
+
+li + li {
+  margin-top: 4px;
+}
+
+blockquote {
+  padding: 12px 16px;
+  border-left: 4px solid var(--accent);
+  background: #f4faf8;
+  color: #3b4656;
+}
+
+code {
+  padding: 0.12em 0.34em;
+  border-radius: 4px;
+  background: var(--code-bg);
+  font-family: "Cascadia Mono", "Consolas", monospace;
+  font-size: 0.92em;
+  overflow-wrap: anywhere;
+}
+
+pre {
+  overflow-x: auto;
+  padding: 16px 18px;
+  border-radius: 8px;
+  background: var(--pre-bg);
+  color: var(--pre-text);
+}
+
+pre code {
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  font-size: 0.93em;
+}
+
+.table-scroll {
+  width: 100%;
+  overflow-x: auto;
+  margin-bottom: 18px;
+}
+
+table {
+  width: 100%;
+  min-width: 560px;
+  margin-bottom: 0;
+  border-collapse: collapse;
+  border-spacing: 0;
+}
+
+th,
+td {
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  vertical-align: top;
+}
+
+th {
+  background: var(--table-head);
+  font-weight: 700;
+}
+
+tr:nth-child(even) td {
+  background: #fbfcfd;
+}
+
+img {
+  max-width: 100%;
+  height: auto;
+}
+
+.doc-content > p > img,
+.doc-content > p > a > img {
+  display: inline-block;
+}
+
+.doc-content p:has(> img:only-child),
+.doc-content p:has(> a > img:only-child) {
+  margin: 24px 0;
+}
+
+.doc-content p:has(> img:only-child) img,
+.doc-content p:has(> a > img:only-child) img {
+  display: block;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 32px 0;
+}
+
+@media (max-width: 900px) {
+  .page-shell {
+    display: block;
+    padding: 18px;
+  }
+
+  .doc-nav {
+    position: static;
+    margin-bottom: 18px;
+    padding: 12px;
+  }
+
+  .sidebar-section + .sidebar-section {
+    margin-top: 12px;
+    padding-top: 12px;
+  }
+
+  .doc-nav a,
+  .toc-tree a {
+    padding: 4px 6px;
+  }
+
+  .language-menu a {
+    flex: 1 1 calc(50% - 3px);
+    text-align: center;
+  }
+
+  .document-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 4px;
+  }
+
+  .document-list a + a {
+    margin-top: 0;
+  }
+
+  .doc-content {
+    padding: 28px 22px 36px;
+  }
+
+  .toc-tree {
+    max-height: 220px;
+  }
+
+  h1 {
+    font-size: 1.7rem;
+  }
+}
+
+  </style>
+</head>
+<body>
+  <div class="page-shell">
+    <nav class="doc-nav" aria-label="Documents">
+
+      <section class="sidebar-section">
+        <p class="sidebar-title">Language</p>
+        <div class="language-menu">
+<a href="keyword-search-syntax-guide.ja.html">日本語</a>
+<a href="keyword-search-syntax-guide.html" aria-current="true">English</a>
+        </div>
+      </section>
+      <section class="sidebar-section">
+        <p class="sidebar-title">Documents</p>
+        <div class="document-list">
+<a href="index.html">README</a>
+<a href="manual.html">User Manual</a>
+<a href="keyword-search-syntax-guide.html" aria-current="page">Keyword Search Syntax Guide</a>
+        </div>
+      </section>
+      <section class="sidebar-section">
+        <p class="sidebar-title">On This Page</p>
+        <div class="toc-tree">
+<ul>
+<li class="toc-level-1"><details open><summary><a href="#keyword-search-syntax-guide">Keyword Search Syntax Guide</a></summary><ul>
+<li class="toc-level-2"><details open><summary><a href="#input-assistance">Input Assistance</a></summary><ul>
+<li class="toc-level-3"><a href="#field-completion">Field Completion</a></li>
+<li class="toc-level-3"><a href="#playlist-name-completion-for-playlist--ref--table">Playlist Name Completion for playlist: / ref: / table:</a></li>
+<li class="toc-level-3"><a href="#search-history">Search History</a></li>
+</ul></details></li>
+<li class="toc-level-2"><a href="#basic-search">Basic Search</a></li>
+<li class="toc-level-2"><details open><summary><a href="#target-columns">Target Columns</a></summary><ul>
+<li class="toc-level-3"><a href="#main-chart-list">Main Chart List</a></li>
+<li class="toc-level-3"><a href="#playlist-detail">Playlist Detail</a></li>
+<li class="toc-level-3"><a href="#playlist-list">Playlist List</a></li>
+</ul></details></li>
+<li class="toc-level-2"><details open><summary><a href="#field-qualified-search">Field-Qualified Search</a></summary><ul>
+<li class="toc-level-3"><a href="#fields-available-in-the-main-chart-list-and-playlist-detail">Fields Available in the Main Chart List and Playlist Detail</a></li>
+<li class="toc-level-3"><a href="#fields-available-in-the-playlist-list">Fields Available in the Playlist List</a></li>
+</ul></details></li>
+<li class="toc-level-2"><details open><summary><a href="#phrase-search">Phrase Search</a></summary><ul>
+<li class="toc-level-3"><a href="#escapes-in-quotes">Escapes in Quotes</a></li>
+</ul></details></li>
+<li class="toc-level-2"><a href="#exclusion-search">Exclusion Search</a></li>
+<li class="toc-level-2"><details open><summary><a href="#or-search">OR Search</a></summary><ul>
+<li class="toc-level-3"><a href="#or-cautions">OR Cautions</a></li>
+</ul></details></li>
+<li class="toc-level-2"><details open><summary><a href="#regular-expression-search">Regular Expression Search</a></summary><ul>
+<li class="toc-level-3"><a href="#regular-expression-timeout">Regular Expression Timeout</a></li>
+</ul></details></li>
+<li class="toc-level-2"><a href="#invalid-syntax-handling">Invalid Syntax Handling</a></li>
+<li class="toc-level-2"><a href="#common-examples">Common Examples</a></li>
+</ul></details></li>
+</ul>
+        </div>
+      </section>
+
+    </nav>
+    <main class="doc-content">
+<h1 id="keyword-search-syntax-guide">Keyword Search Syntax Guide</h1>
+
+<p>BeMusicSeeker search boxes support regular word search, multi-word AND search, field-qualified search, phrase search, exclusion conditions, OR, and regular expressions.</p>
+<p>This syntax is mainly available in the following search boxes:</p>
+<ul>
+<li>Main chart list</li>
+<li>Playlist detail</li>
+<li>Playlist list</li>
+</ul>
+<hr/>
+<h2 id="input-assistance">Input Assistance</h2>
+<p>Search boxes provide field completion for easier field-qualified search input, and search history for recalling previous searches.</p>
+<h3 id="field-completion">Field Completion</h3>
+<p>When you start typing a field name in a search box, available fields are shown as candidates.</p>
+<div class="highlight"><pre><span></span><code>tit
+</code></pre></div>
+<p>In the example above, you can select <code>title:</code> as a candidate.</p>
+<p>Completion also works for exclusion conditions.</p>
+<div class="highlight"><pre><span></span><code>-ar
+</code></pre></div>
+<p>In the example above, you can select <code>-artist:</code> as a candidate.</p>
+<p>Candidate controls are as follows.</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th style="text-align: left;">Operation</th>
+<th style="text-align: left;">Behavior</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>↑</code> / <code>↓</code></td>
+<td style="text-align: left;">Select a candidate</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>Enter</code> / <code>Tab</code></td>
+<td style="text-align: left;">Confirm the selected candidate</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>Esc</code></td>
+<td style="text-align: left;">Close candidates</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>Ctrl+Space</code></td>
+<td style="text-align: left;">Show candidates</td>
+</tr>
+<tr>
+<td style="text-align: left;">Mouse click</td>
+<td style="text-align: left;">Confirm a candidate</td>
+</tr>
+</tbody>
+</table></div>
+<p>Field completion completes only field names.
+If you have already typed a search word after <code>:</code>, such as <code>title:alpha</code>, field completion is not shown.</p>
+<h3 id="playlist-name-completion-for-playlist--ref--table">Playlist Name Completion for <code>playlist:</code> / <code>ref:</code> / <code>table:</code></h3>
+<p>In the main chart list and playlist detail, entering a search term for <code>playlist:</code>, <code>ref:</code>, or <code>table:</code> shows installed playlist names as candidates.</p>
+<div class="highlight"><pre><span></span><code>playlist:Sat
+</code></pre></div>
+<p>In the example above, you can select a playlist name such as <code>Satellite Sub</code>.
+When a candidate is confirmed, only names that contain spaces, quotes, backslashes, or <code>|</code> are automatically wrapped in double quotes.</p>
+<div class="highlight"><pre><span></span><code>playlist:"Satellite Sub"
+ref:GENOSIDE
+table:GENOSIDE
+</code></pre></div>
+<h3 id="search-history">Search History</h3>
+<p>Search history is shown when the search box is empty and focused, or when you press <code>↓</code>.
+Selecting a history item replaces the entire search box with that search string.</p>
+<p>History is saved at the following times:</p>
+<ul>
+<li>When you press <code>Enter</code></li>
+<li>When focus leaves the search box</li>
+<li>When you select a history candidate</li>
+</ul>
+<p>History is stored separately for normal search boxes and the playlist-list search box.
+Each history keeps up to 20 entries. Duplicate search strings are not stored; when the same string is used again, it moves to the top.</p>
+<hr/>
+<h2 id="basic-search">Basic Search</h2>
+<p>Typing a search word shows rows where any target column contains that string.
+Matching is case-insensitive.</p>
+<div class="highlight"><pre><span></span><code>alpha
+</code></pre></div>
+<p>When multiple words are separated by spaces, only rows matching all words are shown.</p>
+<div class="highlight"><pre><span></span><code>alpha artist
+</code></pre></div>
+<p>The example above shows rows that match both <code>alpha</code> and <code>artist</code>.</p>
+<hr/>
+<h2 id="target-columns">Target Columns</h2>
+<h3 id="main-chart-list">Main Chart List</h3>
+<p>Normal search targets the following columns:</p>
+<ul>
+<li>TITLE</li>
+<li>ARTIST</li>
+<li>GENRE</li>
+<li>TAG</li>
+<li>PATH</li>
+<li>Display symbols in the PLAYLIST column</li>
+<li>MD5</li>
+<li>SHA256</li>
+</ul>
+<h3 id="playlist-detail">Playlist Detail</h3>
+<p>Normal search targets the same columns as the main chart list, plus:</p>
+<ul>
+<li>memo</li>
+<li>comment</li>
+</ul>
+<h3 id="playlist-list">Playlist List</h3>
+<p>Normal search targets:</p>
+<ul>
+<li>playlist id</li>
+<li>name</li>
+<li>symbol</li>
+</ul>
+<hr/>
+<h2 id="field-qualified-search">Field-Qualified Search</h2>
+<p>Use <code>field:keyword</code> to restrict the search target to a specific column.</p>
+<div class="highlight"><pre><span></span><code>title:alpha
+artist:xi
+sha256:abcdef
+</code></pre></div>
+<p>Tokens beginning with <code>A:</code> through <code>Z:</code> or <code>a:</code> through <code>z:</code> are treated as Windows paths containing drive letters, not as field-qualified terms.
+This means full paths and drive-relative paths can be searched as-is without quotes.</p>
+<div class="highlight"><pre><span></span><code>D:\BMS\
+D:
+</code></pre></div>
+<p>Multiple field-qualified terms are combined with AND.</p>
+<div class="highlight"><pre><span></span><code>title:alpha artist:xi
+</code></pre></div>
+<h3 id="fields-available-in-the-main-chart-list-and-playlist-detail">Fields Available in the Main Chart List and Playlist Detail</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th style="text-align: left;">field</th>
+<th style="text-align: left;">Target</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>title</code></td>
+<td style="text-align: left;">TITLE</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>artist</code></td>
+<td style="text-align: left;">ARTIST</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>genre</code></td>
+<td style="text-align: left;">GENRE</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>tag</code></td>
+<td style="text-align: left;">TAG</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>path</code></td>
+<td style="text-align: left;">PATH</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>playlist</code> / <code>ref</code> / <code>table</code></td>
+<td style="text-align: left;">Referenced playlist name. Searches the full playlist name shown in the tooltip, not the short display symbol in the PLAYLIST column</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>md5</code> / <code>hash</code></td>
+<td style="text-align: left;">MD5</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>sha256</code></td>
+<td style="text-align: left;">SHA256</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>level</code></td>
+<td style="text-align: left;"><code>chart_info.level</code></td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>difficulty</code></td>
+<td style="text-align: left;"><code>chart_info.difficulty</code>. <code>beginner</code>, <code>normal</code>, <code>hyper</code>, <code>another</code>, and <code>insane</code> can also be specified</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>mainbpm</code></td>
+<td style="text-align: left;"><code>chart_info.mainbpm</code></td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>maxbpm</code></td>
+<td style="text-align: left;"><code>chart_info.maxbpm</code></td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>minbpm</code></td>
+<td style="text-align: left;"><code>chart_info.minbpm</code></td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>duration</code> / <code>length</code></td>
+<td style="text-align: left;">Play duration, specified in seconds</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>judge</code> / <code>judge%</code> / <code>judgepct</code></td>
+<td style="text-align: left;">Judge width multiplier. <code>judge</code> also accepts <code>veryhard</code>, <code>hard</code>, <code>normal</code>, <code>easy</code>, and <code>veryeasy</code></td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>feature</code></td>
+<td style="text-align: left;"><code>ln</code>, <code>mine</code>, <code>random</code>, <code>lnmode</code>, <code>cn</code>, <code>hcn</code>, <code>stop</code>, <code>scroll</code></td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>notes</code></td>
+<td style="text-align: left;">Total notes</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>long</code> / <code>ln</code></td>
+<td style="text-align: left;">Long-note count</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>scratch</code></td>
+<td style="text-align: left;">Normal scratch + long scratch</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>total</code></td>
+<td style="text-align: left;">Effective TOTAL value</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>tn</code> / <code>t/n</code></td>
+<td style="text-align: left;"><code>total / notes</code></td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>density</code></td>
+<td style="text-align: left;">Average density</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>peak</code> / <code>peakdensity</code></td>
+<td style="text-align: left;">Maximum density in a 1-second window</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>end</code> / <code>enddensity</code></td>
+<td style="text-align: left;">Ending density</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>soflan</code></td>
+<td style="text-align: left;">Number of speed changes</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>clear</code></td>
+<td style="text-align: left;">CLEAR. Accepts <code>NP</code>, <code>F</code>, <code>AE</code>, <code>LAE</code>, <code>EC</code>, <code>NC</code>, <code>HC</code>, <code>EXH</code>, <code>FC</code>, <code>PF</code>, <code>MAX</code>, or display names</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>rank</code> / <code>djlevel</code> / <code>dj</code></td>
+<td style="text-align: left;">DJ LEVEL. Accepts <code>F</code>, <code>E</code>, <code>D</code>, <code>C</code>, <code>B</code>, <code>A</code>, <code>AA</code>, <code>AAA</code>, <code>MAX</code></td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>rate</code></td>
+<td style="text-align: left;">RATE. This is the <code>rateDouble</code> value, so <code>0.95</code> means 95%</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>score</code></td>
+<td style="text-align: left;">SCORE</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>combo</code></td>
+<td style="text-align: left;">COMBO</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>bp</code></td>
+<td style="text-align: left;">BP</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>memo</code></td>
+<td style="text-align: left;">memo. Playlist detail only</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>comment</code></td>
+<td style="text-align: left;">comment. Playlist detail only</td>
+</tr>
+</tbody>
+</table></div>
+<p>Numeric fields support ranges and comparison operators.</p>
+<div class="highlight"><pre><span></span><code>level:10..12
+notes:&gt;=2000
+duration:&lt;120
+tn:2.0..
+rate:0.95..
+bp:0..10
+</code></pre></div>
+<p><code>defined</code> / <code>undefined</code> are also available. <code>undefined</code> can also be written as <code>undef</code> or <code>null</code>.
+When <code>chart_info</code> has not been built, when <code>level</code> is NULL, or when <code>difficulty_defined=false</code> / <code>total_defined=false</code>, the value matches <code>undefined</code>.
+For numeric score-related fields, missing values such as scores that have not been acquired match <code>undefined</code>.
+<code>rank</code> matches <code>undefined</code> when DJ LEVEL is empty.
+<code>clear</code> always matches <code>defined</code> because <code>NO SONG</code> and <code>NO PLAY</code> are also treated as CLEAR types.</p>
+<div class="highlight"><pre><span></span><code>total:undefined
+total:undef
+total:null
+difficulty:defined
+-feature:random
+score:defined
+rank:undefined
+</code></pre></div>
+<p><code>clear</code> is an exact match against the CLEAR type.
+In addition to display names, the following abbreviations can be used.</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th style="text-align: left;">Input</th>
+<th style="text-align: left;">Target</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>NP</code></td>
+<td style="text-align: left;">NO PLAY</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>F</code></td>
+<td style="text-align: left;">FAILED</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>AE</code></td>
+<td style="text-align: left;">ASSIST</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>LAE</code></td>
+<td style="text-align: left;">L-ASSIST</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>EC</code></td>
+<td style="text-align: left;">EASY CLEAR</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>NC</code></td>
+<td style="text-align: left;">CLEAR</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>HC</code></td>
+<td style="text-align: left;">HARD CLEAR</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>EXH</code></td>
+<td style="text-align: left;">EX HARD</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>FC</code></td>
+<td style="text-align: left;">FULL COMBO</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>PF</code></td>
+<td style="text-align: left;">PERFECT</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>MAX</code></td>
+<td style="text-align: left;">MAX</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="fields-available-in-the-playlist-list">Fields Available in the Playlist List</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th style="text-align: left;">field</th>
+<th style="text-align: left;">Target</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>id</code></td>
+<td style="text-align: left;">playlist id</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>name</code></td>
+<td style="text-align: left;">name</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>symbol</code></td>
+<td style="text-align: left;">symbol</td>
+</tr>
+</tbody>
+</table></div>
+<hr/>
+<h2 id="phrase-search">Phrase Search</h2>
+<p>To treat a string containing spaces as a single search word, wrap it in double quotes.</p>
+<div class="highlight"><pre><span></span><code>"alpha title"
+title:"alpha title"
+</code></pre></div>
+<p>An unclosed quote is treated as a phrase through the end of the input.</p>
+<div class="highlight"><pre><span></span><code>"alpha title
+</code></pre></div>
+<p>The example above is almost equivalent to <code>"alpha title"</code>.</p>
+<h3 id="escapes-in-quotes">Escapes in Quotes</h3>
+<p>Inside quotes, only the following sequences are specially escaped.</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th style="text-align: left;">Input</th>
+<th style="text-align: left;">Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>\"</code></td>
+<td style="text-align: left;"><code>"</code></td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>\\</code></td>
+<td style="text-align: left;"><code>\</code></td>
+</tr>
+</tbody>
+</table></div>
+<p>Example:</p>
+<div class="highlight"><pre><span></span><code>title:"alpha \"quoted\""
+</code></pre></div>
+<hr/>
+<h2 id="exclusion-search">Exclusion Search</h2>
+<p>Prefix a search word with <code>-</code> to exclude rows that match that condition.</p>
+<div class="highlight"><pre><span></span><code>alpha -artist:beta
+</code></pre></div>
+<p>The example above shows rows that match <code>alpha</code> and do not contain <code>beta</code> in ARTIST.</p>
+<p>Exclusion can be combined with field-qualified search, phrase search, and regular expressions.</p>
+<div class="highlight"><pre><span></span><code>-title:"old version"
+-path:backup
+-title:re:^test
+</code></pre></div>
+<p>A <code>-</code> that appears anywhere other than the start, such as in <code>foo-bar</code>, is treated as a normal character.</p>
+<hr/>
+<h2 id="or-search">OR Search</h2>
+<p>Use <code>|</code> inside a single search word for OR search.</p>
+<div class="highlight"><pre><span></span><code>alpha|beta
+</code></pre></div>
+<p>The example above shows rows that match either <code>alpha</code> or <code>beta</code>.</p>
+<p>When combined with a field qualifier, OR is evaluated only within that field.</p>
+<div class="highlight"><pre><span></span><code>title:alpha|beta
+title:"alpha title"|beta
+</code></pre></div>
+<p>The examples above show rows whose TITLE contains <code>alpha</code> or <code>beta</code>.</p>
+<h3 id="or-cautions">OR Cautions</h3>
+<p>Cross-column OR such as <code>title:alpha|artist:beta</code> is not supported.
+In that case, <code>artist:beta</code> is treated as a string to search for inside TITLE.</p>
+<p>Empty alternatives are ignored.</p>
+<div class="highlight"><pre><span></span><code>alpha|
+|alpha
+alpha||beta
+</code></pre></div>
+<p>If all alternatives are empty, the condition is treated as invalid and matches nothing.</p>
+<hr/>
+<h2 id="regular-expression-search">Regular Expression Search</h2>
+<p>Use <code>re:pattern</code> for regular expression search.</p>
+<div class="highlight"><pre><span></span><code>re:^alpha
+</code></pre></div>
+<p>When combining it with a field qualifier, write <code>field:re:pattern</code>.</p>
+<div class="highlight"><pre><span></span><code>title:re:^alpha
+path:re:\\BMS\\.*\\.bms$
+</code></pre></div>
+<p>It can also be used as an exclusion condition.</p>
+<div class="highlight"><pre><span></span><code>-title:re:^test
+</code></pre></div>
+<p>Regular expressions are evaluated case-insensitively and culture-independently.</p>
+<h3 id="regular-expression-timeout">Regular Expression Timeout</h3>
+<p>Regular expressions have a 100 ms timeout per condition as protection against runaway patterns.
+Very expensive regular expressions are stopped partway through and treated as not matching that condition.</p>
+<hr/>
+<h2 id="invalid-syntax-handling">Invalid Syntax Handling</h2>
+<p>Invalid conditions do not show an error. They are treated as "conditions that do not match".
+Therefore, if an AND search contains an invalid condition, the result may become 0 rows.</p>
+<p>Examples treated as invalid:</p>
+<div class="highlight"><pre><span></span><code>unknown:alpha
+title:
+-
+|
+title:re:[
+</code></pre></div>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th style="text-align: left;">Example</th>
+<th style="text-align: left;">Reason</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>unknown:alpha</code></td>
+<td style="text-align: left;">Unknown field</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>title:</code></td>
+<td style="text-align: left;">The search word for the field qualifier is empty</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">The exclusion condition body is empty</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>\|</code></td>
+<td style="text-align: left;">All OR alternatives are empty</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>title:re:[</code></td>
+<td style="text-align: left;">Invalid as a regular expression</td>
+</tr>
+</tbody>
+</table></div>
+<p>If the field name is empty, as in <code>:alpha</code>, it is treated as a normal search word rather than a field qualifier.
+In other words, it searches for rows containing the string <code>:alpha</code>.</p>
+<hr/>
+<h2 id="common-examples">Common Examples</h2>
+<p>Filter by both TITLE and ARTIST:</p>
+<div class="highlight"><pre><span></span><code>title:alpha artist:xi
+</code></pre></div>
+<p>Search by part of an MD5 or SHA256:</p>
+<div class="highlight"><pre><span></span><code>md5:abcdef
+sha256:123456
+</code></pre></div>
+<p>Search memo in playlist detail:</p>
+<div class="highlight"><pre><span></span><code>memo:"favorite chart"
+</code></pre></div>
+<p>Exclude backup folders:</p>
+<div class="highlight"><pre><span></span><code>-path:backup
+</code></pre></div>
+<p>Search for charts whose TITLE starts with <code>alpha</code>:</p>
+<div class="highlight"><pre><span></span><code>title:re:^alpha
+</code></pre></div>
+<p>Search for charts whose TITLE contains <code>alpha</code> or <code>beta</code>, and whose ARTIST does not contain <code>test</code>:</p>
+<div class="highlight"><pre><span></span><code>title:alpha|beta -artist:test
+</code></pre></div>
+    </main>
+  </div>
+</body>
+</html>

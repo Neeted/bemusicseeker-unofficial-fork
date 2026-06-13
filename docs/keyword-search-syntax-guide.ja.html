@@ -1,0 +1,970 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  <meta name="description" content="BMSライブラリ管理・譜面導入・プレイリスト管理を支援する BeMusicSeeker の非公式フォークです。高速化、bmson対応、スタンドアローンモード、LR2連携などを改善しています。">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="BeMusicSeeker Unofficial Fork">
+  <meta property="og:title" content="キーワード検索構文ガイド">
+  <meta property="og:description" content="BMSライブラリ管理・譜面導入・プレイリスト管理を支援する BeMusicSeeker の非公式フォークです。高速化、bmson対応、スタンドアローンモード、LR2連携などを改善しています。">
+  <meta property="og:image" content="https://neeted.github.io/bemusicseeker-unofficial-fork/img/header.jpg">
+  <meta property="og:url" content="https://neeted.github.io/bemusicseeker-unofficial-fork/keyword-search-syntax-guide.ja.html">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="キーワード検索構文ガイド">
+  <meta name="twitter:description" content="BMSライブラリ管理・譜面導入・プレイリスト管理を支援する BeMusicSeeker の非公式フォークです。">
+  <meta name="twitter:image" content="https://neeted.github.io/bemusicseeker-unofficial-fork/img/header.jpg">
+  <title>キーワード検索構文ガイド</title>
+  <style>
+
+:root {
+  color-scheme: light;
+  --page-bg: #f5f7fa;
+  --content-bg: #ffffff;
+  --text: #242933;
+  --muted: #657083;
+  --border: #d9e0e8;
+  --border-soft: #e9edf2;
+  --accent: #0f766e;
+  --accent-strong: #0b5f59;
+  --code-bg: #f3f5f7;
+  --pre-bg: #17202e;
+  --pre-text: #edf2f7;
+  --table-head: #f0f5f5;
+  --shadow: 0 18px 38px rgba(31, 41, 55, 0.10);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-padding-top: 24px;
+}
+
+body {
+  margin: 0;
+  background: var(--page-bg);
+  color: var(--text);
+  font-family: "Segoe UI", "Meiryo", "Yu Gothic UI", system-ui, sans-serif;
+  font-size: 16px;
+  line-height: 1.72;
+}
+
+a {
+  color: var(--accent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.16em;
+}
+
+a:hover {
+  color: var(--accent-strong);
+}
+
+.page-shell {
+  display: grid;
+  grid-template-columns: minmax(200px, 260px) minmax(0, 920px);
+  gap: 28px;
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 32px 24px;
+}
+
+.doc-nav {
+  align-self: start;
+  position: sticky;
+  top: 24px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--content-bg);
+}
+
+.sidebar-section + .sidebar-section {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.sidebar-title {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.doc-nav a,
+.toc-tree a {
+  display: block;
+  padding: 5px 8px;
+  border-radius: 6px;
+  color: var(--text);
+  line-height: 1.38;
+  text-decoration: none;
+}
+
+.doc-nav a:hover,
+.toc-tree a:hover {
+  background: #eef5f4;
+  color: var(--accent-strong);
+}
+
+.doc-nav a[aria-current="page"],
+.language-menu a[aria-current="true"],
+.toc-tree a[aria-current="true"] {
+  background: #dff0ed;
+  color: var(--accent-strong);
+  font-weight: 700;
+}
+
+.language-menu {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.language-menu a {
+  border: 1px solid var(--border);
+}
+
+.language-menu a[aria-current="true"] {
+  border-color: #b7ded8;
+}
+
+.document-list a + a {
+  margin-top: 4px;
+}
+
+.toc-tree {
+  max-height: calc(100vh - 280px);
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.toc-tree ul {
+  margin: 0;
+  padding-left: 0;
+  list-style: none;
+}
+
+.toc-tree li {
+  margin: 1px 0;
+}
+
+.toc-tree ul ul {
+  margin-left: 12px;
+  padding-left: 10px;
+  border-left: 1px solid var(--border-soft);
+}
+
+.toc-tree details {
+  margin: 1px 0;
+}
+
+.toc-tree summary {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 28px;
+  padding: 2px 4px;
+  border-radius: 6px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.toc-tree summary:hover {
+  background: #eef5f4;
+}
+
+.toc-tree summary::marker {
+  color: var(--muted);
+}
+
+.toc-tree summary a {
+  flex: 1;
+  min-width: 0;
+  padding: 3px 4px;
+}
+
+.toc-tree .toc-level-3 a,
+.toc-tree .toc-level-4 a {
+  color: #2f6883;
+  font-size: 14px;
+}
+
+.doc-content {
+  min-width: 0;
+  padding: 44px 54px 56px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--content-bg);
+  box-shadow: var(--shadow);
+}
+
+h1,
+h2,
+h3,
+h4 {
+  line-height: 1.32;
+}
+
+h1 {
+  margin: 0 0 22px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--border);
+  font-size: 2.0rem;
+}
+
+h2 {
+  margin-top: 44px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-soft);
+  font-size: 1.45rem;
+}
+
+h3 {
+  margin-top: 32px;
+  font-size: 1.18rem;
+}
+
+h4 {
+  margin-top: 26px;
+  font-size: 1.05rem;
+}
+
+p,
+ul,
+ol,
+table,
+pre,
+blockquote {
+  margin-top: 0;
+  margin-bottom: 18px;
+}
+
+ul,
+ol {
+  padding-left: 1.55em;
+}
+
+li + li {
+  margin-top: 4px;
+}
+
+blockquote {
+  padding: 12px 16px;
+  border-left: 4px solid var(--accent);
+  background: #f4faf8;
+  color: #3b4656;
+}
+
+code {
+  padding: 0.12em 0.34em;
+  border-radius: 4px;
+  background: var(--code-bg);
+  font-family: "Cascadia Mono", "Consolas", monospace;
+  font-size: 0.92em;
+  overflow-wrap: anywhere;
+}
+
+pre {
+  overflow-x: auto;
+  padding: 16px 18px;
+  border-radius: 8px;
+  background: var(--pre-bg);
+  color: var(--pre-text);
+}
+
+pre code {
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  font-size: 0.93em;
+}
+
+.table-scroll {
+  width: 100%;
+  overflow-x: auto;
+  margin-bottom: 18px;
+}
+
+table {
+  width: 100%;
+  min-width: 560px;
+  margin-bottom: 0;
+  border-collapse: collapse;
+  border-spacing: 0;
+}
+
+th,
+td {
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  vertical-align: top;
+}
+
+th {
+  background: var(--table-head);
+  font-weight: 700;
+}
+
+tr:nth-child(even) td {
+  background: #fbfcfd;
+}
+
+img {
+  max-width: 100%;
+  height: auto;
+}
+
+.doc-content > p > img,
+.doc-content > p > a > img {
+  display: inline-block;
+}
+
+.doc-content p:has(> img:only-child),
+.doc-content p:has(> a > img:only-child) {
+  margin: 24px 0;
+}
+
+.doc-content p:has(> img:only-child) img,
+.doc-content p:has(> a > img:only-child) img {
+  display: block;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 32px 0;
+}
+
+@media (max-width: 900px) {
+  .page-shell {
+    display: block;
+    padding: 18px;
+  }
+
+  .doc-nav {
+    position: static;
+    margin-bottom: 18px;
+    padding: 12px;
+  }
+
+  .sidebar-section + .sidebar-section {
+    margin-top: 12px;
+    padding-top: 12px;
+  }
+
+  .doc-nav a,
+  .toc-tree a {
+    padding: 4px 6px;
+  }
+
+  .language-menu a {
+    flex: 1 1 calc(50% - 3px);
+    text-align: center;
+  }
+
+  .document-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 4px;
+  }
+
+  .document-list a + a {
+    margin-top: 0;
+  }
+
+  .doc-content {
+    padding: 28px 22px 36px;
+  }
+
+  .toc-tree {
+    max-height: 220px;
+  }
+
+  h1 {
+    font-size: 1.7rem;
+  }
+}
+
+  </style>
+</head>
+<body>
+  <div class="page-shell">
+    <nav class="doc-nav" aria-label="Documents">
+
+      <section class="sidebar-section">
+        <p class="sidebar-title">Language</p>
+        <div class="language-menu">
+<a href="keyword-search-syntax-guide.ja.html" aria-current="true">日本語</a>
+<a href="keyword-search-syntax-guide.html">English</a>
+        </div>
+      </section>
+      <section class="sidebar-section">
+        <p class="sidebar-title">Documents</p>
+        <div class="document-list">
+<a href="index.ja.html">README</a>
+<a href="manual.ja.html">ユーザーマニュアル</a>
+<a href="keyword-search-syntax-guide.ja.html" aria-current="page">キーワード検索構文ガイド</a>
+<a href="log-level-info-guide.html">ログレベル INFO ガイド</a>
+        </div>
+      </section>
+      <section class="sidebar-section">
+        <p class="sidebar-title">On This Page</p>
+        <div class="toc-tree">
+<ul>
+<li class="toc-level-1"><details open><summary><a href="#キーワード検索構文ガイド">キーワード検索構文ガイド</a></summary><ul>
+<li class="toc-level-2"><details open><summary><a href="#入力支援">入力支援</a></summary><ul>
+<li class="toc-level-3"><a href="#field-補完">field 補完</a></li>
+<li class="toc-level-3"><a href="#playlist--ref--table-のプレイリスト名補完">playlist: / ref: / table: のプレイリスト名補完</a></li>
+<li class="toc-level-3"><a href="#検索履歴">検索履歴</a></li>
+</ul></details></li>
+<li class="toc-level-2"><a href="#基本検索">基本検索</a></li>
+<li class="toc-level-2"><details open><summary><a href="#検索対象カラム">検索対象カラム</a></summary><ul>
+<li class="toc-level-3"><a href="#メイン譜面一覧">メイン譜面一覧</a></li>
+<li class="toc-level-3"><a href="#プレイリスト詳細">プレイリスト詳細</a></li>
+<li class="toc-level-3"><a href="#プレイリスト一覧">プレイリスト一覧</a></li>
+</ul></details></li>
+<li class="toc-level-2"><details open><summary><a href="#カラム指定検索">カラム指定検索</a></summary><ul>
+<li class="toc-level-3"><a href="#メイン譜面一覧プレイリスト詳細で使える-field">メイン譜面一覧・プレイリスト詳細で使える field</a></li>
+<li class="toc-level-3"><a href="#プレイリスト一覧で使える-field">プレイリスト一覧で使える field</a></li>
+</ul></details></li>
+<li class="toc-level-2"><details open><summary><a href="#フレーズ検索">フレーズ検索</a></summary><ul>
+<li class="toc-level-3"><a href="#クォート内のエスケープ">クォート内のエスケープ</a></li>
+</ul></details></li>
+<li class="toc-level-2"><a href="#除外検索">除外検索</a></li>
+<li class="toc-level-2"><details open><summary><a href="#or-検索">OR 検索</a></summary><ul>
+<li class="toc-level-3"><a href="#or-の注意点">OR の注意点</a></li>
+</ul></details></li>
+<li class="toc-level-2"><details open><summary><a href="#正規表現検索">正規表現検索</a></summary><ul>
+<li class="toc-level-3"><a href="#正規表現のタイムアウト">正規表現のタイムアウト</a></li>
+</ul></details></li>
+<li class="toc-level-2"><a href="#不正な構文の扱い">不正な構文の扱い</a></li>
+<li class="toc-level-2"><a href="#よく使う例">よく使う例</a></li>
+</ul></details></li>
+</ul>
+        </div>
+      </section>
+
+    </nav>
+    <main class="doc-content">
+<h1 id="キーワード検索構文ガイド">キーワード検索構文ガイド</h1>
+
+<p>BeMusicSeeker の検索ボックスでは、単語検索に加えて、複数語 AND、カラム指定、フレーズ検索、除外条件、OR、正規表現を利用できます。</p>
+<p>この構文は主に以下の検索欄で利用できます。</p>
+<ul>
+<li>メインの譜面一覧</li>
+<li>プレイリスト詳細</li>
+<li>プレイリスト一覧</li>
+</ul>
+<hr/>
+<h2 id="入力支援">入力支援</h2>
+<p>検索ボックスには、カラム指定検索を入力しやすくする field 補完と、過去の検索を呼び出す検索履歴があります。</p>
+<h3 id="field-補完">field 補完</h3>
+<p>検索欄で field 名を入力し始めると、利用できる field が候補として表示されます。</p>
+<div class="highlight"><pre><span></span><code>tit
+</code></pre></div>
+<p>上の例では <code>title:</code> を候補として選べます。</p>
+<p>除外条件でも補完できます。</p>
+<div class="highlight"><pre><span></span><code>-ar
+</code></pre></div>
+<p>上の例では <code>-artist:</code> を候補として選べます。</p>
+<p>候補の操作は以下の通りです。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th style="text-align: left;">操作</th>
+<th style="text-align: left;">挙動</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>↑</code> / <code>↓</code></td>
+<td style="text-align: left;">候補を選択</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>Enter</code> / <code>Tab</code></td>
+<td style="text-align: left;">選択中の候補を確定</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>Esc</code></td>
+<td style="text-align: left;">候補を閉じる</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>Ctrl+Space</code></td>
+<td style="text-align: left;">候補を表示</td>
+</tr>
+<tr>
+<td style="text-align: left;">マウスクリック</td>
+<td style="text-align: left;">候補を確定</td>
+</tr>
+</tbody>
+</table></div>
+<p>field 補完は field 名だけを補完します。
+<code>title:alpha</code> のように <code>:</code> の後に検索語を入力している場合、field 補完は表示されません。</p>
+<h3 id="playlist--ref--table-のプレイリスト名補完"><code>playlist:</code> / <code>ref:</code> / <code>table:</code> のプレイリスト名補完</h3>
+<p>メイン譜面一覧とプレイリスト詳細では、<code>playlist:</code> / <code>ref:</code> / <code>table:</code> の検索語を入力すると、導入済みプレイリスト名が候補として表示されます。</p>
+<div class="highlight"><pre><span></span><code>playlist:Sat
+</code></pre></div>
+<p>上の例では <code>Satellite Sub</code> のようなプレイリスト名を候補として選べます。
+候補を確定すると、スペース、引用符、バックスラッシュ、<code>|</code> を含む名前だけが自動的にダブルクォートで囲まれます。</p>
+<div class="highlight"><pre><span></span><code>playlist:"Satellite Sub"
+ref:GENOSIDE
+table:GENOSIDE
+</code></pre></div>
+<h3 id="検索履歴">検索履歴</h3>
+<p>検索欄が空の状態でフォーカスしたとき、または <code>↓</code> を押したときに検索履歴が表示されます。
+履歴を選ぶと、検索欄全体がその検索文字列に置き換わります。</p>
+<p>履歴は以下のタイミングで保存されます。</p>
+<ul>
+<li><code>Enter</code> を押したとき</li>
+<li>検索欄からフォーカスが外れたとき</li>
+<li>履歴候補を選択したとき</li>
+</ul>
+<p>履歴は通常の検索欄とプレイリスト一覧の検索欄で別々に保存されます。
+保存件数はそれぞれ最大 20 件で、同じ検索文字列は重複せず、最後に使ったものが先頭に移動します。</p>
+<hr/>
+<h2 id="基本検索">基本検索</h2>
+<p>検索語を入力すると、対象カラムのどこかにその文字列を含む行が表示されます。
+大文字・小文字は区別しません。</p>
+<div class="highlight"><pre><span></span><code>alpha
+</code></pre></div>
+<p>複数の語をスペース区切りで入力した場合は、すべての語に一致する行だけが表示されます。</p>
+<div class="highlight"><pre><span></span><code>alpha artist
+</code></pre></div>
+<p>上の例は <code>alpha</code> と <code>artist</code> の両方に一致する行を表示します。</p>
+<hr/>
+<h2 id="検索対象カラム">検索対象カラム</h2>
+<h3 id="メイン譜面一覧">メイン譜面一覧</h3>
+<p>通常検索では、以下が検索対象です。</p>
+<ul>
+<li>TITLE</li>
+<li>ARTIST</li>
+<li>GENRE</li>
+<li>TAG</li>
+<li>PATH</li>
+<li>PLAYLIST 列の表示記号</li>
+<li>MD5</li>
+<li>SHA256</li>
+</ul>
+<h3 id="プレイリスト詳細">プレイリスト詳細</h3>
+<p>通常検索では、メイン譜面一覧の対象に加えて、以下も検索対象です。</p>
+<ul>
+<li>memo</li>
+<li>comment</li>
+</ul>
+<h3 id="プレイリスト一覧">プレイリスト一覧</h3>
+<p>通常検索では、以下が検索対象です。</p>
+<ul>
+<li>playlist id</li>
+<li>name</li>
+<li>symbol</li>
+</ul>
+<hr/>
+<h2 id="カラム指定検索">カラム指定検索</h2>
+<p><code>field:keyword</code> の形で、検索対象を特定のカラムに限定できます。</p>
+<div class="highlight"><pre><span></span><code>title:alpha
+artist:xi
+sha256:abcdef
+</code></pre></div>
+<p><code>A:</code> から <code>Z:</code> / <code>a:</code> から <code>z:</code> で始まる token は Windows のドライブレターを含むパスとして扱い、field 指定にはしません。
+そのため、フルパスや drive-relative path は引用符なしでそのまま検索できます。</p>
+<div class="highlight"><pre><span></span><code>D:\BMS\
+D:
+</code></pre></div>
+<p>複数指定した場合は AND 検索です。</p>
+<div class="highlight"><pre><span></span><code>title:alpha artist:xi
+</code></pre></div>
+<h3 id="メイン譜面一覧プレイリスト詳細で使える-field">メイン譜面一覧・プレイリスト詳細で使える field</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th style="text-align: left;">field</th>
+<th style="text-align: left;">対象</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>title</code></td>
+<td style="text-align: left;">TITLE</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>artist</code></td>
+<td style="text-align: left;">ARTIST</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>genre</code></td>
+<td style="text-align: left;">GENRE</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>tag</code></td>
+<td style="text-align: left;">TAG</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>path</code></td>
+<td style="text-align: left;">PATH</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>playlist</code> / <code>ref</code> / <code>table</code></td>
+<td style="text-align: left;">参照プレイリスト名。PLAYLIST 列の短い表示記号ではなく、ツールチップに表示されるフルのプレイリスト名を検索対象にします</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>md5</code> / <code>hash</code></td>
+<td style="text-align: left;">MD5</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>sha256</code></td>
+<td style="text-align: left;">SHA256</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>level</code></td>
+<td style="text-align: left;"><code>chart_info.level</code></td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>difficulty</code></td>
+<td style="text-align: left;"><code>chart_info.difficulty</code>。<code>beginner</code>, <code>normal</code>, <code>hyper</code>, <code>another</code>, <code>insane</code> も指定可</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>mainbpm</code></td>
+<td style="text-align: left;"><code>chart_info.mainbpm</code></td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>maxbpm</code></td>
+<td style="text-align: left;"><code>chart_info.maxbpm</code></td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>minbpm</code></td>
+<td style="text-align: left;"><code>chart_info.minbpm</code></td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>duration</code> / <code>length</code></td>
+<td style="text-align: left;">演奏時間。秒単位で指定</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>judge</code> / <code>judge%</code> / <code>judgepct</code></td>
+<td style="text-align: left;">判定幅倍率。<code>judge</code> は <code>veryhard</code>, <code>hard</code>, <code>normal</code>, <code>easy</code>, <code>veryeasy</code> も指定可</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>feature</code></td>
+<td style="text-align: left;"><code>ln</code>, <code>mine</code>, <code>random</code>, <code>lnmode</code>, <code>cn</code>, <code>hcn</code>, <code>stop</code>, <code>scroll</code></td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>notes</code></td>
+<td style="text-align: left;">総ノーツ数</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>long</code> / <code>ln</code></td>
+<td style="text-align: left;">ロングノーツ数</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>scratch</code></td>
+<td style="text-align: left;">通常スクラッチ + ロングスクラッチ</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>total</code></td>
+<td style="text-align: left;">TOTAL 有効値</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>tn</code> / <code>t/n</code></td>
+<td style="text-align: left;"><code>total / notes</code></td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>density</code></td>
+<td style="text-align: left;">平均密度</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>peak</code> / <code>peakdensity</code></td>
+<td style="text-align: left;">1 秒窓の最大密度</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>end</code> / <code>enddensity</code></td>
+<td style="text-align: left;">終盤密度</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>soflan</code></td>
+<td style="text-align: left;">変速回数</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>clear</code></td>
+<td style="text-align: left;">CLEAR。<code>NP</code>, <code>F</code>, <code>AE</code>, <code>LAE</code>, <code>EC</code>, <code>NC</code>, <code>HC</code>, <code>EXH</code>, <code>FC</code>, <code>PF</code>, <code>MAX</code> または表示名で指定可</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>rank</code> / <code>djlevel</code> / <code>dj</code></td>
+<td style="text-align: left;">DJ LEVEL。<code>F</code>, <code>E</code>, <code>D</code>, <code>C</code>, <code>B</code>, <code>A</code>, <code>AA</code>, <code>AAA</code>, <code>MAX</code> を指定可</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>rate</code></td>
+<td style="text-align: left;">RATE。<code>rateDouble</code> の値で、<code>0.95</code> が 95% を表す</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>score</code></td>
+<td style="text-align: left;">SCORE</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>combo</code></td>
+<td style="text-align: left;">COMBO</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>bp</code></td>
+<td style="text-align: left;">BP</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>memo</code></td>
+<td style="text-align: left;">memo。プレイリスト詳細のみ</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>comment</code></td>
+<td style="text-align: left;">comment。プレイリスト詳細のみ</td>
+</tr>
+</tbody>
+</table></div>
+<p>数値 field は範囲指定と比較演算を利用できます。</p>
+<div class="highlight"><pre><span></span><code>level:10..12
+notes:&gt;=2000
+duration:&lt;120
+tn:2.0..
+rate:0.95..
+bp:0..10
+</code></pre></div>
+<p><code>defined</code> / <code>undefined</code> も利用できます。<code>undefined</code> は <code>undef</code> / <code>null</code> とも書けます。<code>chart_info</code> が未構築の場合や、<code>level</code> が NULL の場合、<code>difficulty_defined=false</code> / <code>total_defined=false</code> の場合は <code>undefined</code> に一致します。数値のスコア系 field ではスコア未取得などで値がない場合に <code>undefined</code> に一致します。<code>rank</code> は DJ LEVEL が空の場合に <code>undefined</code> に一致します。<code>clear</code> は <code>NO SONG</code> / <code>NO PLAY</code> も CLEAR 種別として扱うため、常に <code>defined</code> に一致します。</p>
+<div class="highlight"><pre><span></span><code>total:undefined
+total:undef
+total:null
+difficulty:defined
+-feature:random
+score:defined
+rank:undefined
+</code></pre></div>
+<p><code>clear</code> は CLEAR 種別の完全一致です。表示名に加えて、以下の短縮表現を利用できます。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th style="text-align: left;">入力</th>
+<th style="text-align: left;">対象</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>NP</code></td>
+<td style="text-align: left;">NO PLAY</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>F</code></td>
+<td style="text-align: left;">FAILED</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>AE</code></td>
+<td style="text-align: left;">ASSIST</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>LAE</code></td>
+<td style="text-align: left;">L-ASSIST</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>EC</code></td>
+<td style="text-align: left;">EASY CLEAR</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>NC</code></td>
+<td style="text-align: left;">CLEAR</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>HC</code></td>
+<td style="text-align: left;">HARD CLEAR</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>EXH</code></td>
+<td style="text-align: left;">EX HARD</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>FC</code></td>
+<td style="text-align: left;">FULL COMBO</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>PF</code></td>
+<td style="text-align: left;">PERFECT</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>MAX</code></td>
+<td style="text-align: left;">MAX</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="プレイリスト一覧で使える-field">プレイリスト一覧で使える field</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th style="text-align: left;">field</th>
+<th style="text-align: left;">対象</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>id</code></td>
+<td style="text-align: left;">playlist id</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>name</code></td>
+<td style="text-align: left;">name</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>symbol</code></td>
+<td style="text-align: left;">symbol</td>
+</tr>
+</tbody>
+</table></div>
+<hr/>
+<h2 id="フレーズ検索">フレーズ検索</h2>
+<p>スペースを含む文字列を 1 つの検索語として扱いたい場合は、ダブルクォートで囲みます。</p>
+<div class="highlight"><pre><span></span><code>"alpha title"
+title:"alpha title"
+</code></pre></div>
+<p>未閉じのクォートは、入力末尾までをフレーズとして扱います。</p>
+<div class="highlight"><pre><span></span><code>"alpha title
+</code></pre></div>
+<p>上の例は <code>"alpha title"</code> とほぼ同じ意味になります。</p>
+<h3 id="クォート内のエスケープ">クォート内のエスケープ</h3>
+<p>クォート内では、以下だけが特別にエスケープされます。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th style="text-align: left;">入力</th>
+<th style="text-align: left;">意味</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>\"</code></td>
+<td style="text-align: left;"><code>"</code></td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>\\</code></td>
+<td style="text-align: left;"><code>\</code></td>
+</tr>
+</tbody>
+</table></div>
+<p>例:</p>
+<div class="highlight"><pre><span></span><code>title:"alpha \"quoted\""
+</code></pre></div>
+<hr/>
+<h2 id="除外検索">除外検索</h2>
+<p>検索語の先頭に <code>-</code> を付けると、その条件に一致する行を除外します。</p>
+<div class="highlight"><pre><span></span><code>alpha -artist:beta
+</code></pre></div>
+<p>上の例は、<code>alpha</code> に一致し、かつ ARTIST に <code>beta</code> を含まない行を表示します。</p>
+<p>field 指定やフレーズ検索、正規表現とも組み合わせられます。</p>
+<div class="highlight"><pre><span></span><code>-title:"old version"
+-path:backup
+-title:re:^test
+</code></pre></div>
+<p><code>foo-bar</code> のように先頭以外にある <code>-</code> は通常の文字として扱います。</p>
+<hr/>
+<h2 id="or-検索">OR 検索</h2>
+<p>1 つの検索語の中で <code>|</code> を使うと OR 検索になります。</p>
+<div class="highlight"><pre><span></span><code>alpha|beta
+</code></pre></div>
+<p>上の例は、<code>alpha</code> または <code>beta</code> に一致する行を表示します。</p>
+<p>field 指定と組み合わせた場合、OR はその field の中だけで評価されます。</p>
+<div class="highlight"><pre><span></span><code>title:alpha|beta
+title:"alpha title"|beta
+</code></pre></div>
+<p>上の例は、TITLE に <code>alpha</code> または <code>beta</code> が含まれる行を表示します。</p>
+<h3 id="or-の注意点">OR の注意点</h3>
+<p><code>title:alpha|artist:beta</code> のような「カラムをまたいだ OR」は扱いません。
+この場合、<code>artist:beta</code> は TITLE 内で探す文字列として扱われます。</p>
+<p>空の候補は無視されます。</p>
+<div class="highlight"><pre><span></span><code>alpha|
+|alpha
+alpha||beta
+</code></pre></div>
+<p>すべての候補が空の場合は不正な条件として扱われ、何にも一致しません。</p>
+<hr/>
+<h2 id="正規表現検索">正規表現検索</h2>
+<p><code>re:pattern</code> で正規表現検索ができます。</p>
+<div class="highlight"><pre><span></span><code>re:^alpha
+</code></pre></div>
+<p>field 指定と組み合わせる場合は、<code>field:re:pattern</code> と書きます。</p>
+<div class="highlight"><pre><span></span><code>title:re:^alpha
+path:re:\\BMS\\.*\\.bms$
+</code></pre></div>
+<p>除外条件としても使えます。</p>
+<div class="highlight"><pre><span></span><code>-title:re:^test
+</code></pre></div>
+<p>正規表現は大文字・小文字を区別せず、カルチャ非依存で評価されます。</p>
+<h3 id="正規表現のタイムアウト">正規表現のタイムアウト</h3>
+<p>正規表現には暴走対策として、1 条件あたり 100ms のタイムアウトがあります。
+非常に重い正規表現は途中で打ち切られ、その条件は一致しなかったものとして扱われます。</p>
+<hr/>
+<h2 id="不正な構文の扱い">不正な構文の扱い</h2>
+<p>不正な条件は、エラー表示を出さずに「一致しない条件」として扱われます。
+そのため、AND 検索の中に不正な条件が含まれると、結果が 0 件になることがあります。</p>
+<p>不正扱いになる例:</p>
+<div class="highlight"><pre><span></span><code>unknown:alpha
+title:
+-
+|
+title:re:[
+</code></pre></div>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th style="text-align: left;">例</th>
+<th style="text-align: left;">理由</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>unknown:alpha</code></td>
+<td style="text-align: left;">未知の field</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>title:</code></td>
+<td style="text-align: left;">field 指定の検索語が空</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>-</code></td>
+<td style="text-align: left;">除外条件の中身が空</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>\|</code></td>
+<td style="text-align: left;">OR の候補がすべて空</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>title:re:[</code></td>
+<td style="text-align: left;">正規表現として不正</td>
+</tr>
+</tbody>
+</table></div>
+<p><code>:alpha</code> のように field 名が空の場合は、field 指定ではなく通常の検索語として扱われます。
+つまり、文字列 <code>:alpha</code> を含む行を探します。</p>
+<hr/>
+<h2 id="よく使う例">よく使う例</h2>
+<p>TITLE と ARTIST の両方で絞り込む:</p>
+<div class="highlight"><pre><span></span><code>title:alpha artist:xi
+</code></pre></div>
+<p>MD5 または SHA256 の一部で探す:</p>
+<div class="highlight"><pre><span></span><code>md5:abcdef
+sha256:123456
+</code></pre></div>
+<p>プレイリスト詳細で memo を検索する:</p>
+<div class="highlight"><pre><span></span><code>memo:"favorite chart"
+</code></pre></div>
+<p>バックアップフォルダを除外する:</p>
+<div class="highlight"><pre><span></span><code>-path:backup
+</code></pre></div>
+<p>TITLE が <code>alpha</code> で始まる譜面を探す:</p>
+<div class="highlight"><pre><span></span><code>title:re:^alpha
+</code></pre></div>
+<p>TITLE に <code>alpha</code> または <code>beta</code> を含み、ARTIST に <code>test</code> を含まない譜面を探す:</p>
+<div class="highlight"><pre><span></span><code>title:alpha|beta -artist:test
+</code></pre></div>
+    </main>
+  </div>
+</body>
+</html>

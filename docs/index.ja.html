@@ -1,0 +1,547 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  <meta name="description" content="BMSライブラリ管理・譜面導入・プレイリスト管理を支援する BeMusicSeeker の非公式フォークです。高速化、bmson対応、スタンドアローンモード、LR2連携などを改善しています。">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="BeMusicSeeker Unofficial Fork">
+  <meta property="og:title" content="BeMusicSeeker Unofficial Fork">
+  <meta property="og:description" content="BMSライブラリ管理・譜面導入・プレイリスト管理を支援する BeMusicSeeker の非公式フォークです。高速化、bmson対応、スタンドアローンモード、LR2連携などを改善しています。">
+  <meta property="og:image" content="https://neeted.github.io/bemusicseeker-unofficial-fork/img/header.jpg">
+  <meta property="og:url" content="https://neeted.github.io/bemusicseeker-unofficial-fork/index.ja.html">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="BeMusicSeeker Unofficial Fork">
+  <meta name="twitter:description" content="BMSライブラリ管理・譜面導入・プレイリスト管理を支援する BeMusicSeeker の非公式フォークです。">
+  <meta name="twitter:image" content="https://neeted.github.io/bemusicseeker-unofficial-fork/img/header.jpg">
+  <title>BeMusicSeeker Unofficial Fork</title>
+  <style>
+
+:root {
+  color-scheme: light;
+  --page-bg: #f5f7fa;
+  --content-bg: #ffffff;
+  --text: #242933;
+  --muted: #657083;
+  --border: #d9e0e8;
+  --border-soft: #e9edf2;
+  --accent: #0f766e;
+  --accent-strong: #0b5f59;
+  --code-bg: #f3f5f7;
+  --pre-bg: #17202e;
+  --pre-text: #edf2f7;
+  --table-head: #f0f5f5;
+  --shadow: 0 18px 38px rgba(31, 41, 55, 0.10);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-padding-top: 24px;
+}
+
+body {
+  margin: 0;
+  background: var(--page-bg);
+  color: var(--text);
+  font-family: "Segoe UI", "Meiryo", "Yu Gothic UI", system-ui, sans-serif;
+  font-size: 16px;
+  line-height: 1.72;
+}
+
+a {
+  color: var(--accent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.16em;
+}
+
+a:hover {
+  color: var(--accent-strong);
+}
+
+.page-shell {
+  display: grid;
+  grid-template-columns: minmax(200px, 260px) minmax(0, 920px);
+  gap: 28px;
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 32px 24px;
+}
+
+.doc-nav {
+  align-self: start;
+  position: sticky;
+  top: 24px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--content-bg);
+}
+
+.sidebar-section + .sidebar-section {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.sidebar-title {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.doc-nav a,
+.toc-tree a {
+  display: block;
+  padding: 5px 8px;
+  border-radius: 6px;
+  color: var(--text);
+  line-height: 1.38;
+  text-decoration: none;
+}
+
+.doc-nav a:hover,
+.toc-tree a:hover {
+  background: #eef5f4;
+  color: var(--accent-strong);
+}
+
+.doc-nav a[aria-current="page"],
+.language-menu a[aria-current="true"],
+.toc-tree a[aria-current="true"] {
+  background: #dff0ed;
+  color: var(--accent-strong);
+  font-weight: 700;
+}
+
+.language-menu {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.language-menu a {
+  border: 1px solid var(--border);
+}
+
+.language-menu a[aria-current="true"] {
+  border-color: #b7ded8;
+}
+
+.document-list a + a {
+  margin-top: 4px;
+}
+
+.toc-tree {
+  max-height: calc(100vh - 280px);
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.toc-tree ul {
+  margin: 0;
+  padding-left: 0;
+  list-style: none;
+}
+
+.toc-tree li {
+  margin: 1px 0;
+}
+
+.toc-tree ul ul {
+  margin-left: 12px;
+  padding-left: 10px;
+  border-left: 1px solid var(--border-soft);
+}
+
+.toc-tree details {
+  margin: 1px 0;
+}
+
+.toc-tree summary {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 28px;
+  padding: 2px 4px;
+  border-radius: 6px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.toc-tree summary:hover {
+  background: #eef5f4;
+}
+
+.toc-tree summary::marker {
+  color: var(--muted);
+}
+
+.toc-tree summary a {
+  flex: 1;
+  min-width: 0;
+  padding: 3px 4px;
+}
+
+.toc-tree .toc-level-3 a,
+.toc-tree .toc-level-4 a {
+  color: #2f6883;
+  font-size: 14px;
+}
+
+.doc-content {
+  min-width: 0;
+  padding: 44px 54px 56px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--content-bg);
+  box-shadow: var(--shadow);
+}
+
+h1,
+h2,
+h3,
+h4 {
+  line-height: 1.32;
+}
+
+h1 {
+  margin: 0 0 22px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--border);
+  font-size: 2.0rem;
+}
+
+h2 {
+  margin-top: 44px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-soft);
+  font-size: 1.45rem;
+}
+
+h3 {
+  margin-top: 32px;
+  font-size: 1.18rem;
+}
+
+h4 {
+  margin-top: 26px;
+  font-size: 1.05rem;
+}
+
+p,
+ul,
+ol,
+table,
+pre,
+blockquote {
+  margin-top: 0;
+  margin-bottom: 18px;
+}
+
+ul,
+ol {
+  padding-left: 1.55em;
+}
+
+li + li {
+  margin-top: 4px;
+}
+
+blockquote {
+  padding: 12px 16px;
+  border-left: 4px solid var(--accent);
+  background: #f4faf8;
+  color: #3b4656;
+}
+
+code {
+  padding: 0.12em 0.34em;
+  border-radius: 4px;
+  background: var(--code-bg);
+  font-family: "Cascadia Mono", "Consolas", monospace;
+  font-size: 0.92em;
+  overflow-wrap: anywhere;
+}
+
+pre {
+  overflow-x: auto;
+  padding: 16px 18px;
+  border-radius: 8px;
+  background: var(--pre-bg);
+  color: var(--pre-text);
+}
+
+pre code {
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  font-size: 0.93em;
+}
+
+.table-scroll {
+  width: 100%;
+  overflow-x: auto;
+  margin-bottom: 18px;
+}
+
+table {
+  width: 100%;
+  min-width: 560px;
+  margin-bottom: 0;
+  border-collapse: collapse;
+  border-spacing: 0;
+}
+
+th,
+td {
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  vertical-align: top;
+}
+
+th {
+  background: var(--table-head);
+  font-weight: 700;
+}
+
+tr:nth-child(even) td {
+  background: #fbfcfd;
+}
+
+img {
+  max-width: 100%;
+  height: auto;
+}
+
+.doc-content > p > img,
+.doc-content > p > a > img {
+  display: inline-block;
+}
+
+.doc-content p:has(> img:only-child),
+.doc-content p:has(> a > img:only-child) {
+  margin: 24px 0;
+}
+
+.doc-content p:has(> img:only-child) img,
+.doc-content p:has(> a > img:only-child) img {
+  display: block;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 32px 0;
+}
+
+@media (max-width: 900px) {
+  .page-shell {
+    display: block;
+    padding: 18px;
+  }
+
+  .doc-nav {
+    position: static;
+    margin-bottom: 18px;
+    padding: 12px;
+  }
+
+  .sidebar-section + .sidebar-section {
+    margin-top: 12px;
+    padding-top: 12px;
+  }
+
+  .doc-nav a,
+  .toc-tree a {
+    padding: 4px 6px;
+  }
+
+  .language-menu a {
+    flex: 1 1 calc(50% - 3px);
+    text-align: center;
+  }
+
+  .document-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 4px;
+  }
+
+  .document-list a + a {
+    margin-top: 0;
+  }
+
+  .doc-content {
+    padding: 28px 22px 36px;
+  }
+
+  .toc-tree {
+    max-height: 220px;
+  }
+
+  h1 {
+    font-size: 1.7rem;
+  }
+}
+
+  </style>
+</head>
+<body>
+  <div class="page-shell">
+    <nav class="doc-nav" aria-label="Documents">
+
+      <section class="sidebar-section">
+        <p class="sidebar-title">Language</p>
+        <div class="language-menu">
+<a href="index.ja.html" aria-current="true">日本語</a>
+<a href="index.html">English</a>
+        </div>
+      </section>
+      <section class="sidebar-section">
+        <p class="sidebar-title">Documents</p>
+        <div class="document-list">
+<a href="index.ja.html" aria-current="page">README</a>
+<a href="manual.ja.html">ユーザーマニュアル</a>
+<a href="keyword-search-syntax-guide.ja.html">キーワード検索構文ガイド</a>
+<a href="log-level-info-guide.html">ログレベル INFO ガイド</a>
+        </div>
+      </section>
+      <section class="sidebar-section">
+        <p class="sidebar-title">On This Page</p>
+        <div class="toc-tree">
+<ul>
+<li class="toc-level-1"><details open><summary><a href="#bemusicseeker-unofficial-fork">BeMusicSeeker Unofficial Fork</a></summary><ul>
+<li class="toc-level-2"><a href="#概要">概要</a></li>
+<li class="toc-level-2"><a href="#導入手順">導入手順</a></li>
+<li class="toc-level-2"><details open><summary><a href="#変更概要">変更概要</a></summary><ul>
+<li class="toc-level-3"><a href="#目玉の改善">目玉の改善</a></li>
+<li class="toc-level-3"><a href="#その他の主な改善">その他の主な改善</a></li>
+</ul></details></li>
+<li class="toc-level-2"><a href="#todo">TODO</a></li>
+<li class="toc-level-2"><details open><summary><a href="#ライセンスの適用範囲">ライセンスの適用範囲</a></summary><ul>
+<li class="toc-level-3"><a href="#bassに関する重要事項">BASSに関する重要事項</a></li>
+</ul></details></li>
+</ul></details></li>
+</ul>
+        </div>
+      </section>
+
+    </nav>
+    <main class="doc-content">
+<h1 id="bemusicseeker-unofficial-fork">BeMusicSeeker Unofficial Fork</h1>
+<p>
+
+<img alt="header" src="img/header.jpg"/></p>
+<h2 id="概要">概要</h2>
+<p>本プロジェクトは、<code>Sayaka / 黒皇帝</code> 氏の <a href="https://github.com/SayakaIsBaka/BeMusicSeeker-installer">BeMusicSeeker-installer</a> に同梱されている <code>BeMusicSeeker.exe</code> を <code>ILSpy</code> でデコンパイルし、改修・再構築を行った非公式版です。</p>
+<p>オリジナルバイナリの作者である <a href="https://x.com/rib_2_bit"><code>@rib_2_bit</code></a> 氏から直接の許諾を得たうえでのフォークではありませんが、元バイナリが MIT License の下で公開されていることに基づき、派生版の作成および公開は問題ないと判断しています。</p>
+<p><strong>【重要】本リポジトリについて</strong>
+オリジナルのソースコードは非公開のままだったと認識しており、本プロジェクトにおいても、デコンパイルによって得られたソースコードそのものは（大部分を）リポジトリに含めていません。
+本リポジトリは事実上、<strong>「改修済みリリースパッケージ（バイナリ）の配布」</strong> と <strong>「新規に追加・作成した一部のスクリプトや差分コードの公開」</strong> を目的としたリポジトリとして運用されます。</p>
+<h2 id="導入手順">導入手順</h2>
+<p>詳しい初回設定、動作モード、画面ごとの使い方は <a href="manual.ja.html">ユーザーマニュアル</a> を参照してください。</p>
+<ol>
+<li><strong><a href="https://www.voidtools.com/everything-1.5a/">Everything 1.5 Alpha (x64)</a> の導入を推奨</strong><ul>
+<li>未導入でも動作しますが、大規模ライブラリでは起動・リロード・インストール推定の速度差が大きくなります。</li>
+<li>導入後は、BMS 関連ファイルが存在するディレクトリのインデックス作成が完了し、Everything 上で検索できる状態にしてから BeMusicSeeker を起動してください。</li>
+</ul>
+</li>
+<li><strong>リリース版のダウンロード</strong><ul>
+<li><a href="https://github.com/Neeted/bemusicseeker-unofficial-fork/releases">Releases</a> ページから最新版をダウンロードしてください。</li>
+<li>ZIP のまま実行せず、書き込み可能な任意のディレクトリへ展開してください。インストール作業は不要なポータブルアプリとして動作します。</li>
+</ul>
+</li>
+<li><strong>初回起動と設定</strong><ul>
+<li>初回起動時は言語選択と設定画面が表示されます。動作モード、BMS ディレクトリ、LR2 連携に必要な <code>song.db</code> / <code>config.xml</code> などを設定してください。</li>
+<li>初回設定の流れは <a href="manual.ja.html#初期セットアップ">初期セットアップ</a>、設定項目の意味は <a href="manual.ja.html#設定画面">設定画面</a> を参照してください。</li>
+<li>従来版 BeMusicSeeker がインストール済みの環境では、設定を自動的に引き継ぎます。引き継がれた設定は配置先の <code>.\config\user.config</code> に保存されるため、元の BeMusicSeeker 本体には影響しません。</li>
+<li>LR2 連携モードで使う場合は、初回スキャン前に <code>song.db</code>、<code>config.xml</code>、score DB などのバックアップを取ることをおすすめします。</li>
+</ul>
+</li>
+<li><strong>使い方・ログ</strong><ul>
+<li>基本操作は <a href="manual.ja.html">ユーザーマニュアル</a> を参照してください。</li>
+<li>譜面導入や保留パッケージの操作は <a href="manual.ja.html#インストール--保留パッケージ">インストール / 保留パッケージ</a> を参照してください。</li>
+<li>キーワード検索の詳しい構文は <a href="keyword-search-syntax-guide.ja.html">キーワード検索構文ガイド</a> を参照してください。</li>
+<li><code>LaunchWithInfoLog.bat</code> から起動すると、通常より詳しいログが <code>application.log</code> と <code>install-performance.log</code> に出力されます。ログの見方は <a href="log-level-info-guide.html">ログレベル INFO ガイド</a> を参照してください。</li>
+</ul>
+</li>
+</ol>
+<h2 id="変更概要">変更概要</h2>
+<p>ここでは代表的な改善点だけを紹介します。詳しい使い方と注意点は <a href="manual.ja.html">ユーザーマニュアル</a> を参照してください。</p>
+<p><strong>※ BMS 関連のデータベースや実ファイルを削除/移動する機能を含みます。導入・利用は自己責任でお願いします。</strong></p>
+<h3 id="目玉の改善">目玉の改善</h3>
+<ul>
+<li><strong>起動・リロード・譜面導入の高速化</strong></li>
+<li><code>Everything 1.5 Alpha x64</code> を利用した高速ファイル列挙と、初期化・差分確認・DB 更新処理の見直しを行っています。</li>
+<li>導入先推定、保留パッケージ処理、重複ファイルチェック、プレイリスト表示など、大規模ライブラリで重くなりやすい処理を中心に改善しています。</li>
+<li>一覧表示は独自テーブル表示へ整理し、列設定、ソート、ツールチップ、プレイリストサマリーなどを大規模環境でも扱いやすくしています。</li>
+<li><strong>bmson 対応</strong></li>
+<li>bmson を BMS / PMS と同じく譜面ファイルとしてライブラリ、インストール、重複チェック、プレイリスト表示などで扱えるようにしています。</li>
+<li>ただし、現時点では内蔵プレイヤーでの再生や音声ファイル変換には対応していません。詳細は <a href="manual.ja.html#再生録音">マニュアルの再生・録音</a> を参照してください。</li>
+</ul>
+<h3 id="その他の主な改善">その他の主な改善</h3>
+<ul>
+<li><strong>スタンドアローンモード</strong></li>
+<li>LR2 の <code>song.db</code> を使わず、アプリ配下の <code>data/song.db</code> でライブラリを管理できます。</li>
+<li><strong>ポータブルアプリ化</strong></li>
+<li>設定は配置先の <code>config/user.config</code> に保存され、従来版 BeMusicSeeker の設定は初回起動時に自動コピーされます。</li>
+<li><strong>インストール / 保留パッケージ機能の強化</strong></li>
+<li>差分導入先推定、手動導入先指定、マージ先推定、スマート上書き、既所持パッケージ整理、ゼロノート譜面の無効拡張子化などを追加・改善しています。</li>
+<li><strong>プレイリスト機能の強化</strong></li>
+<li>プレイリストサマリー、外部同期 STATUS、単体 / 範囲リロード、URL1/URL2 補完まわりを整理しています。</li>
+<li>beatoraja の <code>table</code> フォルダへ全プレイリストの <code>.bmt</code> 難易度表キャッシュを出力できます。beatoraja 側の level 集約処理が重い環境で、BeMusicSeeker 側の集約済みデータを使わせるための互換処理です。</li>
+<li><strong>メンテナンス機能の強化</strong></li>
+<li>LR2互換性警告、ゼロノート検索、解析エラー、構成ファイルフルスキャン、重複ファイルチェックなど、状態確認用の画面を拡充しています。</li>
+<li><strong>UI・ログ・多言語対応</strong></li>
+<li>テーマ対応、設定ダイアログ整理、ステータスバー進捗表示、ログ出力、多言語リソース管理を改善しています。</li>
+</ul>
+<h2 id="todo">TODO</h2>
+<p>現状で思いついたアイデアのメモです。思いついた順で、優先度は混在しています。対応済みになったものは随時この一覧から外します。</p>
+<ol>
+<li>BMS Score Viewer の未登録譜面確認画面<ul>
+<li>（5MB超などのアップロード制限で送れなかった）未登録md5を自前でローカルDBに持つべきか？ そうしないと未登録画面のリストから延々と消えない問題がある。</li>
+<li>基本的には <a href="https://github.com/Neeted/bms-score-uploader">bms-score-uploader</a> のアプローチを踏襲すれば良さそう。</li>
+</ul>
+</li>
+<li>LR2IRからライバルデータをダウンロードし、データベース化・配置する機能</li>
+<li>クリアランプビューア機能</li>
+<li>コース内容の表示、および順番編集機能</li>
+<li>ハードコードされているURL群のうち、リンク切れとなっているものの代替<ul>
+<li>LR2IRキャッシュ系はデータの用意や更新が大変なため、理想的には「プロキシサーバを用意し、最終更新から24時間経過していた場合のみLR2IR本体へフェッチしにいく」といった仕組みが良いかもしれない。</li>
+</ul>
+</li>
+<li>Everything 1.5a 連携失敗時の警告ダイアログの表示</li>
+<li>カスタムフォルダ出力機能の継続確認<ul>
+<li>重要なコア機能なので、仕様整理と回帰確認を継続しておく必要がある。</li>
+</ul>
+</li>
+<li><code>.wav</code> と <code>.ogg</code> が重複して存在している場合にどちらかに寄せる機能</li>
+</ol>
+<h2 id="ライセンスの適用範囲">ライセンスの適用範囲</h2>
+<p>本リポジトリにて新規作成、および公開されているファーストパーティのソースコード（各種スクリプトなど）には、元バイナリに準じて <strong>MIT License</strong> が適用されます。</p>
+<ul>
+<li><strong>新規作成コード（公開スクリプト等）</strong>: MIT License (<a href="LICENSE"><code>LICENSE</code></a> を参照)</li>
+<li><strong>サードパーティ製バイナリ・フォント・SDK等</strong>: 本リリースパッケージに含まれるその他の外部コンポーネントは、それぞれの提供元が定めるライセンスおよび利用規約に従います。</li>
+<li>条項が競合する場合、そのコンポーネントについては提供元のライセンス・注意情報が優先されます。</li>
+</ul>
+<p><strong>監査台帳とサードパーティ条項の詳細について：</strong></p>
+<ul>
+<li><a href="ThirdPartyNotices.ja.txt"><code>ThirdPartyNotices.ja.txt</code></a>: 各依存コンポーネントごとの注意事項や法的リスク状態のリスト</li>
+<li><a href="third_party/licenses/"><code>third_party/licenses/</code></a>: 同梱されている、プロプライエタリなコンポーネントやフォント等の利用許諾条項の原文ファイル</li>
+</ul>
+<h3 id="bassに関する重要事項">BASSに関する重要事項</h3>
+<p>本プロジェクトのリリースパッケージには、MITライセンスの適用範囲外となる <code>BASS</code> 関連のオーディオコンポーネントが含まれています。
+これらのバイナリ群はオープンソースではなく、商用利用を行う場合には提供元（un4seen等）からの適切な商用ライセンスの取得が義務付けられています。非商用かつ個人利用の範囲であればフリーウェアとして許可される場合がありますが、利用の際は常にネイティブ版BASSおよび <code>Bass.Net</code> ラッパーの公式ライセンス条項を遵守してください。</p>
+    </main>
+  </div>
+</body>
+</html>

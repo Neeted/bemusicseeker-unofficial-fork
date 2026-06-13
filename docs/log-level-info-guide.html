@@ -1,0 +1,703 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  <meta name="description" content="BMSライブラリ管理・譜面導入・プレイリスト管理を支援する BeMusicSeeker の非公式フォークです。高速化、bmson対応、スタンドアローンモード、LR2連携などを改善しています。">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="BeMusicSeeker Unofficial Fork">
+  <meta property="og:title" content="BeMusicSeeker ログ（実行記録）の見方ガイド">
+  <meta property="og:description" content="BMSライブラリ管理・譜面導入・プレイリスト管理を支援する BeMusicSeeker の非公式フォークです。高速化、bmson対応、スタンドアローンモード、LR2連携などを改善しています。">
+  <meta property="og:image" content="https://neeted.github.io/bemusicseeker-unofficial-fork/img/header.jpg">
+  <meta property="og:url" content="https://neeted.github.io/bemusicseeker-unofficial-fork/log-level-info-guide.html">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="BeMusicSeeker ログ（実行記録）の見方ガイド">
+  <meta name="twitter:description" content="BMSライブラリ管理・譜面導入・プレイリスト管理を支援する BeMusicSeeker の非公式フォークです。">
+  <meta name="twitter:image" content="https://neeted.github.io/bemusicseeker-unofficial-fork/img/header.jpg">
+  <title>BeMusicSeeker ログ（実行記録）の見方ガイド</title>
+  <style>
+
+:root {
+  color-scheme: light;
+  --page-bg: #f5f7fa;
+  --content-bg: #ffffff;
+  --text: #242933;
+  --muted: #657083;
+  --border: #d9e0e8;
+  --border-soft: #e9edf2;
+  --accent: #0f766e;
+  --accent-strong: #0b5f59;
+  --code-bg: #f3f5f7;
+  --pre-bg: #17202e;
+  --pre-text: #edf2f7;
+  --table-head: #f0f5f5;
+  --shadow: 0 18px 38px rgba(31, 41, 55, 0.10);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-padding-top: 24px;
+}
+
+body {
+  margin: 0;
+  background: var(--page-bg);
+  color: var(--text);
+  font-family: "Segoe UI", "Meiryo", "Yu Gothic UI", system-ui, sans-serif;
+  font-size: 16px;
+  line-height: 1.72;
+}
+
+a {
+  color: var(--accent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.16em;
+}
+
+a:hover {
+  color: var(--accent-strong);
+}
+
+.page-shell {
+  display: grid;
+  grid-template-columns: minmax(200px, 260px) minmax(0, 920px);
+  gap: 28px;
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 32px 24px;
+}
+
+.doc-nav {
+  align-self: start;
+  position: sticky;
+  top: 24px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--content-bg);
+}
+
+.sidebar-section + .sidebar-section {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.sidebar-title {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.doc-nav a,
+.toc-tree a {
+  display: block;
+  padding: 5px 8px;
+  border-radius: 6px;
+  color: var(--text);
+  line-height: 1.38;
+  text-decoration: none;
+}
+
+.doc-nav a:hover,
+.toc-tree a:hover {
+  background: #eef5f4;
+  color: var(--accent-strong);
+}
+
+.doc-nav a[aria-current="page"],
+.language-menu a[aria-current="true"],
+.toc-tree a[aria-current="true"] {
+  background: #dff0ed;
+  color: var(--accent-strong);
+  font-weight: 700;
+}
+
+.language-menu {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.language-menu a {
+  border: 1px solid var(--border);
+}
+
+.language-menu a[aria-current="true"] {
+  border-color: #b7ded8;
+}
+
+.document-list a + a {
+  margin-top: 4px;
+}
+
+.toc-tree {
+  max-height: calc(100vh - 280px);
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.toc-tree ul {
+  margin: 0;
+  padding-left: 0;
+  list-style: none;
+}
+
+.toc-tree li {
+  margin: 1px 0;
+}
+
+.toc-tree ul ul {
+  margin-left: 12px;
+  padding-left: 10px;
+  border-left: 1px solid var(--border-soft);
+}
+
+.toc-tree details {
+  margin: 1px 0;
+}
+
+.toc-tree summary {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 28px;
+  padding: 2px 4px;
+  border-radius: 6px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.toc-tree summary:hover {
+  background: #eef5f4;
+}
+
+.toc-tree summary::marker {
+  color: var(--muted);
+}
+
+.toc-tree summary a {
+  flex: 1;
+  min-width: 0;
+  padding: 3px 4px;
+}
+
+.toc-tree .toc-level-3 a,
+.toc-tree .toc-level-4 a {
+  color: #2f6883;
+  font-size: 14px;
+}
+
+.doc-content {
+  min-width: 0;
+  padding: 44px 54px 56px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--content-bg);
+  box-shadow: var(--shadow);
+}
+
+h1,
+h2,
+h3,
+h4 {
+  line-height: 1.32;
+}
+
+h1 {
+  margin: 0 0 22px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--border);
+  font-size: 2.0rem;
+}
+
+h2 {
+  margin-top: 44px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-soft);
+  font-size: 1.45rem;
+}
+
+h3 {
+  margin-top: 32px;
+  font-size: 1.18rem;
+}
+
+h4 {
+  margin-top: 26px;
+  font-size: 1.05rem;
+}
+
+p,
+ul,
+ol,
+table,
+pre,
+blockquote {
+  margin-top: 0;
+  margin-bottom: 18px;
+}
+
+ul,
+ol {
+  padding-left: 1.55em;
+}
+
+li + li {
+  margin-top: 4px;
+}
+
+blockquote {
+  padding: 12px 16px;
+  border-left: 4px solid var(--accent);
+  background: #f4faf8;
+  color: #3b4656;
+}
+
+code {
+  padding: 0.12em 0.34em;
+  border-radius: 4px;
+  background: var(--code-bg);
+  font-family: "Cascadia Mono", "Consolas", monospace;
+  font-size: 0.92em;
+  overflow-wrap: anywhere;
+}
+
+pre {
+  overflow-x: auto;
+  padding: 16px 18px;
+  border-radius: 8px;
+  background: var(--pre-bg);
+  color: var(--pre-text);
+}
+
+pre code {
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  font-size: 0.93em;
+}
+
+.table-scroll {
+  width: 100%;
+  overflow-x: auto;
+  margin-bottom: 18px;
+}
+
+table {
+  width: 100%;
+  min-width: 560px;
+  margin-bottom: 0;
+  border-collapse: collapse;
+  border-spacing: 0;
+}
+
+th,
+td {
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  vertical-align: top;
+}
+
+th {
+  background: var(--table-head);
+  font-weight: 700;
+}
+
+tr:nth-child(even) td {
+  background: #fbfcfd;
+}
+
+img {
+  max-width: 100%;
+  height: auto;
+}
+
+.doc-content > p > img,
+.doc-content > p > a > img {
+  display: inline-block;
+}
+
+.doc-content p:has(> img:only-child),
+.doc-content p:has(> a > img:only-child) {
+  margin: 24px 0;
+}
+
+.doc-content p:has(> img:only-child) img,
+.doc-content p:has(> a > img:only-child) img {
+  display: block;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 32px 0;
+}
+
+@media (max-width: 900px) {
+  .page-shell {
+    display: block;
+    padding: 18px;
+  }
+
+  .doc-nav {
+    position: static;
+    margin-bottom: 18px;
+    padding: 12px;
+  }
+
+  .sidebar-section + .sidebar-section {
+    margin-top: 12px;
+    padding-top: 12px;
+  }
+
+  .doc-nav a,
+  .toc-tree a {
+    padding: 4px 6px;
+  }
+
+  .language-menu a {
+    flex: 1 1 calc(50% - 3px);
+    text-align: center;
+  }
+
+  .document-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 4px;
+  }
+
+  .document-list a + a {
+    margin-top: 0;
+  }
+
+  .doc-content {
+    padding: 28px 22px 36px;
+  }
+
+  .toc-tree {
+    max-height: 220px;
+  }
+
+  h1 {
+    font-size: 1.7rem;
+  }
+}
+
+  </style>
+</head>
+<body>
+  <div class="page-shell">
+    <nav class="doc-nav" aria-label="Documents">
+
+      <section class="sidebar-section">
+        <p class="sidebar-title">Language</p>
+        <div class="language-menu">
+<a href="log-level-info-guide.html" aria-current="true">日本語</a>
+        </div>
+      </section>
+      <section class="sidebar-section">
+        <p class="sidebar-title">Documents</p>
+        <div class="document-list">
+<a href="index.ja.html">README</a>
+<a href="manual.ja.html">ユーザーマニュアル</a>
+<a href="keyword-search-syntax-guide.ja.html">キーワード検索構文ガイド</a>
+<a href="log-level-info-guide.html" aria-current="page">ログレベル INFO ガイド</a>
+        </div>
+      </section>
+      <section class="sidebar-section">
+        <p class="sidebar-title">On This Page</p>
+        <div class="toc-tree">
+<ul>
+<li class="toc-level-1"><details open><summary><a href="#bemusicseeker-ログ実行記録の見方ガイド">BeMusicSeeker ログ（実行記録）の見方ガイド</a></summary><ul>
+<li class="toc-level-2"><a href="#汎用的なキーワード">汎用的なキーワード</a></li>
+<li class="toc-level-2"><details open><summary><a href="#1-everything-連携ファイルスキャン関連">1. Everything 連携・ファイルスキャン関連</a></summary><ul>
+<li class="toc-level-3"><a href="#everythingスキャンのログ例">Everythingスキャンのログ例</a></li>
+<li class="toc-level-3"><a href="#スキャンログの項目解説">スキャンログの項目解説</a></li>
+</ul></details></li>
+<li class="toc-level-2"><details open><summary><a href="#2-楽曲データベース-sqlite-読み込み関連">2. 楽曲データベース (SQLite) 読み込み関連</a></summary><ul>
+<li class="toc-level-3"><a href="#db読み込みのログ例">DB読み込みのログ例</a></li>
+<li class="toc-level-3"><a href="#dbロードログの項目解説">DBロードログの項目解説</a></li>
+</ul></details></li>
+<li class="toc-level-2"><details open><summary><a href="#3-アプリケーション初期化の進行度合い">3. アプリケーション初期化の進行度合い</a></summary><ul>
+<li class="toc-level-3"><a href="#初期化フェーズのログ例">初期化フェーズのログ例</a></li>
+<li class="toc-level-3"><a href="#初期化ログの項目解説">初期化ログの項目解説</a></li>
+</ul></details></li>
+<li class="toc-level-2"><details open><summary><a href="#4-ui更新抑制状況-ui_suppress-関連">4. UI更新抑制状況 ( ui_suppress ) 関連</a></summary><ul>
+<li class="toc-level-3"><a href="#ui_suppress-のログ例">ui_suppress のログ例</a></li>
+<li class="toc-level-3"><a href="#ui_suppress-の項目解説">ui_suppress の項目解説</a></li>
+</ul></details></li>
+<li class="toc-level-2"><details open><summary><a href="#5-warn--error-ログの主な出力内容">5. [WARN] / [ERROR] ログの主な出力内容</a></summary><ul>
+<li class="toc-level-3"><a href="#ネットワーク通信関連-ribbitnetgzipwebclient">ネットワーク・通信関連 ( Ribbit.Net.GZipWebClient )</a></li>
+<li class="toc-level-3"><a href="#オーディオ再生エンジン関連-ribbitmediabassaudioplayer">オーディオ・再生エンジン関連 ( Ribbit.Media.BassAudioPlayer )</a></li>
+<li class="toc-level-3"><a href="#bms譜面の構文解析パーサー関連-ribbitbmsbmsfile">BMS譜面の構文解析（パーサー）関連 ( Ribbit.BMS.BMSFile )</a></li>
+</ul></details></li>
+</ul></details></li>
+</ul>
+        </div>
+      </section>
+
+    </nav>
+    <main class="doc-content">
+<h1 id="bemusicseeker-ログ実行記録の見方ガイド">BeMusicSeeker ログ（実行記録）の見方ガイド</h1>
+<p>BeMusicSeeker を <code>--log-level=Info</code> などのオプションを付けて起動した際、あるいは <code>install-performance.log</code> 等に出力されるログには、<strong>初期化やデータベース読み込みのパフォーマンス計測値（INFO）</strong> や、<strong>不正な譜面データのパース結果（WARN/ERROR）</strong> などが記録されます。</p>
+<p>ここでは、ログによく出現するキーワードや各項目の意味について解説します。</p>
+<hr/>
+<h2 id="汎用的なキーワード">汎用的なキーワード</h2>
+<ul>
+<li><strong><code>start</code></strong></li>
+<li>何らかの重い処理（検索、初期化、データベースの読み込み等）が開始されたタイミングを示します。</li>
+<li>
+<p>プロファイリングを行う際、この <code>start</code> のログ出力時刻から、完了を示すログが出力されるまでの「経過時間」を追うことで、どの処理がボトルネックになっているかを大まかに特定できます。</p>
+</li>
+<li>
+<p><strong><code>〇〇Ms</code> (Milliseconds)</strong></p>
+</li>
+<li>その処理に要した時間（ミリ秒）を表します。（例: <code>1000Ms</code> = 1秒）</li>
+</ul>
+<hr/>
+<h2 id="1-everything-連携ファイルスキャン関連">1. Everything 連携・ファイルスキャン関連</h2>
+<p>Everything を利用して BMS ファイルや関連リソースを高速検索・列挙する処理のログです。</p>
+<h3 id="everythingスキャンのログ例">Everythingスキャンのログ例</h3>
+<div class="highlight"><pre><span></span><code>[INFO] everything_scan start roots=1 ext=bme;bms...
+[INFO] everything_scan success bms=15000 dirs=4000 totalMs=215 ... connectMs=10 bmsQueryMs=45 ...
+</code></pre></div>
+<h3 id="スキャンログの項目解説">スキャンログの項目解説</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th style="text-align: left;">パラメータ名</th>
+<th style="text-align: left;">意味 / 何の時間か</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><strong><code>totalMs</code></strong></td>
+<td style="text-align: left;">Everything スキャン処理全体にかかった総時間（ミリ秒）</td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong><code>nativeBridgeUsed</code></strong></td>
+<td style="text-align: left;">IPC（プロセス間通信）の高速化に特製のネイティブC++ブリッジを利用したか (<code>true</code>/<code>false</code>)</td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong><code>nativeBridgeMs</code></strong></td>
+<td style="text-align: left;">ブリッジ処理を通してEverythingと通信した時間</td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong><code>connectMs</code></strong></td>
+<td style="text-align: left;">Everything サービスへの接続確立に要した時間</td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong><code>bmsQueryMs</code></strong></td>
+<td style="text-align: left;">BMS譜面本体（<code>*.bms</code> など）の検索クエリをIPC送信するのにかかった時間</td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong><code>bmsSearchMs</code></strong></td>
+<td style="text-align: left;">Everything 側でBMS譜面の検索処理そのものにかかった時間</td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong><code>bmsReadMs</code></strong></td>
+<td style="text-align: left;">BMS譜面の検索結果をEverythingからアプリケーション側へ読み取るのにかかった時間</td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong><code>bmsHits</code></strong></td>
+<td style="text-align: left;">見つかったBMS譜面の件数</td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong><code>siblingQueryMs</code><br/><code>siblingSearchMs</code><br/><code>siblingReadMs</code><br/><code>siblingHits</code></strong></td>
+<td style="text-align: left;">BMSと同じ階層にある「関連リソース（音源、BGA映像、画像など）」の検索クエリ送信、検索処理、読み取り時間、および見つかった件数</td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong><code>buildResultMs</code></strong></td>
+<td style="text-align: left;">C#側で見つかった全パスのメモリリストを構築し、内部データ化するのにかかった時間</td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong><code>hashBuildMs</code></strong></td>
+<td style="text-align: left;">高速なファイル検索（スマート上書きやハッシュ探索等）のために、ディレクトリごとのハッシュテーブルを構築する時間</td>
+</tr>
+</tbody>
+</table></div>
+<hr/>
+<h2 id="2-楽曲データベース-sqlite-読み込み関連">2. 楽曲データベース (SQLite) 読み込み関連</h2>
+<p>LR2 の <code>song.db</code> および独自のメンテナンス情報の読み込みを行う処理のログです。
+数万〜十数万件の譜面を持つ環境において、ここの時間が起動速度に直結します。</p>
+<h3 id="db読み込みのログ例">DB読み込みのログ例</h3>
+<div class="highlight"><pre><span></span><code>[INFO] song_tbl_load_io song_read_ms=8460 song_count_ms=8 song_materialize_ms=8451 song_count=196713 maintenance_read_ms=3007 ... db_write_ms=0
+</code></pre></div>
+<h3 id="dbロードログの項目解説">DBロードログの項目解説</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th style="text-align: left;">パラメータ名</th>
+<th style="text-align: left;">意味 / 何の時間か</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><strong><code>song_read_ms</code></strong></td>
+<td style="text-align: left;"><code>song.db</code> の BMS楽曲テーブルからデータを読み込む処理にかかった総時間</td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong><code>song_count_ms</code></strong></td>
+<td style="text-align: left;">読み込む前に「何件あるか」をDBから取得（Count）するのに要した時間</td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong><code>song_materialize_ms</code></strong></td>
+<td style="text-align: left;">DBから読み込んだ生のデータ行を、C# の <code>song</code> オブジェクト群に変換（マテリアライズ）してメモリ上に乗せる作業にかかった時間</td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong><code>song_count</code></strong></td>
+<td style="text-align: left;">DBから読み込んだ総譜面数</td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong><code>maintenance_read_ms</code></strong></td>
+<td style="text-align: left;">独自のメンテナンス・追加管理データ（ハッシュや導入状態など）を読み込む時間</td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong><code>maintenance_materialize_ms</code></strong></td>
+<td style="text-align: left;">メンテナンスデータを C# のオブジェクトに変換する時間</td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong><code>maintenance_count</code></strong></td>
+<td style="text-align: left;">読み込んだメンテナンスデータの総数</td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong><code>folder_read_ms</code></strong></td>
+<td style="text-align: left;">各譜面が格納されている「フォルダ（パス）」情報をDBから読み込む時間</td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong><code>db_write_required</code></strong></td>
+<td style="text-align: left;">読み込み時にパスの不整合などが見つかり、DBへの書き込み修正（Update）が必要と判定されたか (<code>true</code>/<code>false</code>)</td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong><code>db_write_ms</code></strong></td>
+<td style="text-align: left;">（上記が <code>true</code> の場合）DBへの保存書き込みに要した時間</td>
+</tr>
+</tbody>
+</table></div>
+<hr/>
+<h2 id="3-アプリケーション初期化の進行度合い">3. アプリケーション初期化の進行度合い</h2>
+<h3 id="初期化フェーズのログ例">初期化フェーズのログ例</h3>
+<div class="highlight"><pre><span></span><code>[INFO] init_stage start scope=ReloadFiles
+[INFO] init_stage CheckDb scope=Initialize
+</code></pre></div>
+<h3 id="初期化ログの項目解説">初期化ログの項目解説</h3>
+<ul>
+<li><strong><code>init_stage</code></strong></li>
+<li>アプリケーション起動時の各フェーズ処理状況を示します。</li>
+<li><strong><code>scope</code></strong>: 現在実行中の大枠の処理名（例: <code>Initialize</code> = 全体初期化, <code>ReloadFiles</code> = 難易度表等の再読み込みタスク）</li>
+<li>前述の通り、「<code>start</code>」という記載がある場合は「あるステップの初期化処理を開始した」タイミングを表します。ここで処理が詰まっている場合、次のログが出るまでの時間差が大きくなります。</li>
+</ul>
+<hr/>
+<h2 id="4-ui更新抑制状況-ui_suppress-関連">4. UI更新抑制状況 (<code>ui_suppress</code>) 関連</h2>
+<p>大量のデータを処理する際、画面の描画更新（UIフリーズや無駄なレンダリング）を抑えて処理速度を向上させるための内部機能のログです。</p>
+<h3 id="ui_suppress-のログ例"><code>ui_suppress</code> のログ例</h3>
+<div class="highlight"><pre><span></span><code>[INFO] ui_suppress begin depth=1 mask=All suppressed=All
+[INFO] ui_suppress pending depth=1 channel=LibraryFolderTree pending=LibraryFolderTree
+[INFO] ui_suppress flush_install_tree_ms=... flush_total_ms=45 deferred_library_folder_tree=True
+[INFO] ui_suppress end depth=0 flush=All
+</code></pre></div>
+<h3 id="ui_suppress-の項目解説"><code>ui_suppress</code> の項目解説</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th style="text-align: left;">パラメータ名 / メッセージ</th>
+<th style="text-align: left;">意味 / 何の時間か</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><strong><code>begin</code> / <code>end</code></strong></td>
+<td style="text-align: left;">UI更新の抑制を開始 (<code>begin</code>) したタイミングと、解除 (<code>end</code>) したタイミングを示します。</td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong><code>depth</code></strong></td>
+<td style="text-align: left;">抑制のネスト（重なり）の深さです。<code>depth=1</code> 以上でUI更新が止まり、<code>depth=0</code> に戻った時点で溜まっていた更新が一斉に放たれます。</td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong><code>mask</code> / <code>suppressed</code></strong></td>
+<td style="text-align: left;">どの画面要素の更新を止めるかの対象範囲（<code>LibraryFolderTree</code>, <code>LibraryMainView</code> など）です。</td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong><code>pending</code></strong></td>
+<td style="text-align: left;">UI抑制期間中に、裏側で「更新要求」が発生し、保留（Pending）状態になった画面要素のリストです。</td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong><code>flush_total_ms</code></strong></td>
+<td style="text-align: left;">UI抑制が解除（<code>end</code>）され、保留されていた画面更新（Flush）を実際に描画するのに一気に処理した総時間（ミリ秒）です。各画面ごとの内訳 (<code>flush_..._ms</code>) も出力されます。</td>
+</tr>
+</tbody>
+</table></div>
+<hr/>
+<h2 id="5-warn--error-ログの主な出力内容">5. <code>[WARN]</code> / <code>[ERROR]</code> ログの主な出力内容</h2>
+<p>エラー（<code>ERROR</code>）や警告（<code>WARN</code>）レベルのログには、単なるスタックトレースだけでなく、問題解決に役立つ具体的なコンテキスト（ファイル名や行番号など）が付与される場合があります。代表的なものは以下の通りです。</p>
+<h3 id="ネットワーク通信関連-ribbitnetgzipwebclient">ネットワーク・通信関連 (<code>Ribbit.Net.GZipWebClient</code>)</h3>
+<div class="highlight"><pre><span></span><code>[WARN] http_request_failed method=GET url=... statusCode=403 status=Forbidden webStatus=ProtocolError
+</code></pre></div>
+<ul>
+<li><strong><code>method</code> / <code>url</code> / <code>statusCode</code> / <code>status</code> / <code>webStatus</code></strong></li>
+<li>難易度表などのダウンロードに失敗した際の詳細なHTTPレスポンス状況が出力されます。<code>statusCode=403</code> などが出た場合は、アクセス拒否（User-Agent弾きや非公開化）が原因であると特定できます。</li>
+</ul>
+<h3 id="オーディオ再生エンジン関連-ribbitmediabassaudioplayer">オーディオ・再生エンジン関連 (<code>Ribbit.Media.BassAudioPlayer</code>)</h3>
+<div class="highlight"><pre><span></span><code>[WARN] Initialize WASAPI(EX) driver failed: ...
+[WARN] BASS_Mixer_StreamAddChannel failed: BASS_ERROR_FILEOPEN : C:\BMS\song\audio.wav
+[ERROR] Ogg Decode failed: ...
+</code></pre></div>
+<ul>
+<li>音声再生ライブラリ（BASS）の内部エラーです。</li>
+<li><strong><code>Initialize ... driver failed</code></strong>: オーディオデバイス（ASIO, WASAPI, DirectSound）の初期化失敗。設定画面のオーディオ出力設定とPCの環境が合っていない可能性があります。</li>
+<li><strong><code>BASS_... failed: [Error Code] : [FileName]</code></strong>: 特定の音声ファイル（WAVやOGGなど）の読み込みや再生に失敗した場合。ファイルが破損しているか、BASSが対応していないフォーマットの可能性があります。</li>
+</ul>
+<h3 id="bms譜面の構文解析パーサー関連-ribbitbmsbmsfile">BMS譜面の構文解析（パーサー）関連 (<code>Ribbit.BMS.BMSFile</code>)</h3>
+<p>BMSの構文解釈時、記述ルールから外れた不正な譜面を検出した際に数多くの警告が出力されます。譜面制作者や、譜面の仕様バグを調べる際に非常に有用です。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th style="text-align: left;">ログの出力例 / メッセージ</th>
+<th style="text-align: left;">原因・意味</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>Invalid #RANDOM range l:10 #RANDOM 0</code></td>
+<td style="text-align: left;"><code>#RANDOM</code> などの制御文で、指定された値（パラメータ）が不正、または範囲外である（行番号 <code>l:xx</code> 付きで出力されます）。他に <code>#BPM</code>, <code>#TOTAL</code>, <code>#PLAYLEVEL</code> などでも発生します。</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>Duplicate note is moved to BGM, Mes:xx Pos:xx Ch:xx Idx:xx</code><br/><code>Duplicate note is removed, ...</code></td>
+<td style="text-align: left;">全く同じタイミング・同じレーンに複数のノーツが重複して配置されている不正な状態。BGMレーンへ移動させるか、削除してパースを続行したことを示します。小節(<code>Mes</code>), 位置(<code>Pos</code>), チャンネル(<code>Ch</code>) が記載されます。</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>LN start note is merged and moved to BGM...</code><br/><code>Isolated LN end note is removed...</code></td>
+<td style="text-align: left;">ロングノーツ（LN）の終点がない、あるいは始点がない不正な配置（孤立LN）を検出して自動修正したことを示します。</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>NO NOTE EXISTS</code></td>
+<td style="text-align: left;">譜面内にノーツが1つも存在しません（0ノーツ譜面）。</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>#BPM is not defined, set BPM=130</code></td>
+<td style="text-align: left;">初期BPMが定義されていなかったため、デフォルトの130が適用されました。</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>#BPMxx not found.</code></td>
+<td style="text-align: left;">途中でBPM変更ノーツ（<code>#BPMxx</code>）が置かれていますが、対応するBPM定義が存在しません。</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>[ERROR] Arithmetic exception occuered on a fraction multiplying.</code></td>
+<td style="text-align: left;">拍子の計算などにおいて、0除算などの算術エラー（仕様外の極端な拍子変更など）が発生しました。</td>
+</tr>
+</tbody>
+</table></div>
+    </main>
+  </div>
+</body>
+</html>

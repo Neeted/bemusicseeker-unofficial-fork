@@ -1,0 +1,1165 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  <meta name="description" content="BMSライブラリ管理・譜面導入・プレイリスト管理を支援する BeMusicSeeker の非公式フォークです。高速化、bmson対応、スタンドアローンモード、LR2連携などを改善しています。">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="BeMusicSeeker Unofficial Fork">
+  <meta property="og:title" content="BeMusicSeeker Unofficial Fork ユーザーマニュアル v2.0">
+  <meta property="og:description" content="BMSライブラリ管理・譜面導入・プレイリスト管理を支援する BeMusicSeeker の非公式フォークです。高速化、bmson対応、スタンドアローンモード、LR2連携などを改善しています。">
+  <meta property="og:image" content="https://neeted.github.io/bemusicseeker-unofficial-fork/img/header.jpg">
+  <meta property="og:url" content="https://neeted.github.io/bemusicseeker-unofficial-fork/manual.ja.html">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="BeMusicSeeker Unofficial Fork ユーザーマニュアル v2.0">
+  <meta name="twitter:description" content="BMSライブラリ管理・譜面導入・プレイリスト管理を支援する BeMusicSeeker の非公式フォークです。">
+  <meta name="twitter:image" content="https://neeted.github.io/bemusicseeker-unofficial-fork/img/header.jpg">
+  <title>BeMusicSeeker Unofficial Fork ユーザーマニュアル v2.0</title>
+  <style>
+
+:root {
+  color-scheme: light;
+  --page-bg: #f5f7fa;
+  --content-bg: #ffffff;
+  --text: #242933;
+  --muted: #657083;
+  --border: #d9e0e8;
+  --border-soft: #e9edf2;
+  --accent: #0f766e;
+  --accent-strong: #0b5f59;
+  --code-bg: #f3f5f7;
+  --pre-bg: #17202e;
+  --pre-text: #edf2f7;
+  --table-head: #f0f5f5;
+  --shadow: 0 18px 38px rgba(31, 41, 55, 0.10);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-padding-top: 24px;
+}
+
+body {
+  margin: 0;
+  background: var(--page-bg);
+  color: var(--text);
+  font-family: "Segoe UI", "Meiryo", "Yu Gothic UI", system-ui, sans-serif;
+  font-size: 16px;
+  line-height: 1.72;
+}
+
+a {
+  color: var(--accent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.16em;
+}
+
+a:hover {
+  color: var(--accent-strong);
+}
+
+.page-shell {
+  display: grid;
+  grid-template-columns: minmax(200px, 260px) minmax(0, 920px);
+  gap: 28px;
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 32px 24px;
+}
+
+.doc-nav {
+  align-self: start;
+  position: sticky;
+  top: 24px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--content-bg);
+}
+
+.sidebar-section + .sidebar-section {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.sidebar-title {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.doc-nav a,
+.toc-tree a {
+  display: block;
+  padding: 5px 8px;
+  border-radius: 6px;
+  color: var(--text);
+  line-height: 1.38;
+  text-decoration: none;
+}
+
+.doc-nav a:hover,
+.toc-tree a:hover {
+  background: #eef5f4;
+  color: var(--accent-strong);
+}
+
+.doc-nav a[aria-current="page"],
+.language-menu a[aria-current="true"],
+.toc-tree a[aria-current="true"] {
+  background: #dff0ed;
+  color: var(--accent-strong);
+  font-weight: 700;
+}
+
+.language-menu {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.language-menu a {
+  border: 1px solid var(--border);
+}
+
+.language-menu a[aria-current="true"] {
+  border-color: #b7ded8;
+}
+
+.document-list a + a {
+  margin-top: 4px;
+}
+
+.toc-tree {
+  max-height: calc(100vh - 280px);
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.toc-tree ul {
+  margin: 0;
+  padding-left: 0;
+  list-style: none;
+}
+
+.toc-tree li {
+  margin: 1px 0;
+}
+
+.toc-tree ul ul {
+  margin-left: 12px;
+  padding-left: 10px;
+  border-left: 1px solid var(--border-soft);
+}
+
+.toc-tree details {
+  margin: 1px 0;
+}
+
+.toc-tree summary {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 28px;
+  padding: 2px 4px;
+  border-radius: 6px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.toc-tree summary:hover {
+  background: #eef5f4;
+}
+
+.toc-tree summary::marker {
+  color: var(--muted);
+}
+
+.toc-tree summary a {
+  flex: 1;
+  min-width: 0;
+  padding: 3px 4px;
+}
+
+.toc-tree .toc-level-3 a,
+.toc-tree .toc-level-4 a {
+  color: #2f6883;
+  font-size: 14px;
+}
+
+.doc-content {
+  min-width: 0;
+  padding: 44px 54px 56px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--content-bg);
+  box-shadow: var(--shadow);
+}
+
+h1,
+h2,
+h3,
+h4 {
+  line-height: 1.32;
+}
+
+h1 {
+  margin: 0 0 22px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--border);
+  font-size: 2.0rem;
+}
+
+h2 {
+  margin-top: 44px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-soft);
+  font-size: 1.45rem;
+}
+
+h3 {
+  margin-top: 32px;
+  font-size: 1.18rem;
+}
+
+h4 {
+  margin-top: 26px;
+  font-size: 1.05rem;
+}
+
+p,
+ul,
+ol,
+table,
+pre,
+blockquote {
+  margin-top: 0;
+  margin-bottom: 18px;
+}
+
+ul,
+ol {
+  padding-left: 1.55em;
+}
+
+li + li {
+  margin-top: 4px;
+}
+
+blockquote {
+  padding: 12px 16px;
+  border-left: 4px solid var(--accent);
+  background: #f4faf8;
+  color: #3b4656;
+}
+
+code {
+  padding: 0.12em 0.34em;
+  border-radius: 4px;
+  background: var(--code-bg);
+  font-family: "Cascadia Mono", "Consolas", monospace;
+  font-size: 0.92em;
+  overflow-wrap: anywhere;
+}
+
+pre {
+  overflow-x: auto;
+  padding: 16px 18px;
+  border-radius: 8px;
+  background: var(--pre-bg);
+  color: var(--pre-text);
+}
+
+pre code {
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  font-size: 0.93em;
+}
+
+.table-scroll {
+  width: 100%;
+  overflow-x: auto;
+  margin-bottom: 18px;
+}
+
+table {
+  width: 100%;
+  min-width: 560px;
+  margin-bottom: 0;
+  border-collapse: collapse;
+  border-spacing: 0;
+}
+
+th,
+td {
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  vertical-align: top;
+}
+
+th {
+  background: var(--table-head);
+  font-weight: 700;
+}
+
+tr:nth-child(even) td {
+  background: #fbfcfd;
+}
+
+img {
+  max-width: 100%;
+  height: auto;
+}
+
+.doc-content > p > img,
+.doc-content > p > a > img {
+  display: inline-block;
+}
+
+.doc-content p:has(> img:only-child),
+.doc-content p:has(> a > img:only-child) {
+  margin: 24px 0;
+}
+
+.doc-content p:has(> img:only-child) img,
+.doc-content p:has(> a > img:only-child) img {
+  display: block;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 32px 0;
+}
+
+@media (max-width: 900px) {
+  .page-shell {
+    display: block;
+    padding: 18px;
+  }
+
+  .doc-nav {
+    position: static;
+    margin-bottom: 18px;
+    padding: 12px;
+  }
+
+  .sidebar-section + .sidebar-section {
+    margin-top: 12px;
+    padding-top: 12px;
+  }
+
+  .doc-nav a,
+  .toc-tree a {
+    padding: 4px 6px;
+  }
+
+  .language-menu a {
+    flex: 1 1 calc(50% - 3px);
+    text-align: center;
+  }
+
+  .document-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 4px;
+  }
+
+  .document-list a + a {
+    margin-top: 0;
+  }
+
+  .doc-content {
+    padding: 28px 22px 36px;
+  }
+
+  .toc-tree {
+    max-height: 220px;
+  }
+
+  h1 {
+    font-size: 1.7rem;
+  }
+}
+
+  </style>
+</head>
+<body>
+  <div class="page-shell">
+    <nav class="doc-nav" aria-label="Documents">
+
+      <section class="sidebar-section">
+        <p class="sidebar-title">Language</p>
+        <div class="language-menu">
+<a href="manual.ja.html" aria-current="true">日本語</a>
+<a href="manual.html">English</a>
+        </div>
+      </section>
+      <section class="sidebar-section">
+        <p class="sidebar-title">Documents</p>
+        <div class="document-list">
+<a href="index.ja.html">README</a>
+<a href="manual.ja.html" aria-current="page">ユーザーマニュアル</a>
+<a href="keyword-search-syntax-guide.ja.html">キーワード検索構文ガイド</a>
+<a href="log-level-info-guide.html">ログレベル INFO ガイド</a>
+        </div>
+      </section>
+      <section class="sidebar-section">
+        <p class="sidebar-title">On This Page</p>
+        <div class="toc-tree">
+<ul>
+<li class="toc-level-1"><details open><summary><a href="#bemusicseeker-unofficial-fork-ユーザーマニュアル-v20">BeMusicSeeker Unofficial Fork ユーザーマニュアル v2.0</a></summary><ul>
+<li class="toc-level-2"><details open><summary><a href="#はじめに">はじめに</a></summary><ul>
+<li class="toc-level-3"><a href="#注意">注意</a></li>
+</ul></details></li>
+<li class="toc-level-2"><details open><summary><a href="#初期セットアップ">初期セットアップ</a></summary><ul>
+<li class="toc-level-3"><a href="#非常に強く推奨事実上必須-everything-15-alpha-x64">非常に強く推奨、事実上必須: Everything 1.5 Alpha x64</a></li>
+<li class="toc-level-3"><a href="#既存設定の引き継ぎ">既存設定の引き継ぎ</a></li>
+<li class="toc-level-3"><a href="#初回起動">初回起動</a></li>
+<li class="toc-level-3"><details open><summary><a href="#動作モード">動作モード</a></summary><ul>
+<li class="toc-level-4"><a href="#スタンドアローンlr2と連携しない">スタンドアローン(LR2と連携しない)</a></li>
+<li class="toc-level-4"><a href="#lr2と連携する">LR2と連携する</a></li>
+</ul></details></li>
+<li class="toc-level-3"><a href="#初回スキャン">初回スキャン</a></li>
+</ul></details></li>
+<li class="toc-level-2"><details open><summary><a href="#設定画面">設定画面</a></summary><ul>
+<li class="toc-level-3"><details open><summary><a href="#一般">一般</a></summary><ul>
+<li class="toc-level-4"><a href="#スタンドアローン">スタンドアローン</a></li>
+<li class="toc-level-4"><a href="#lr2と連携する_1">LR2と連携する</a></li>
+<li class="toc-level-4"><a href="#beatoraja連携">beatoraja連携</a></li>
+</ul></details></li>
+<li class="toc-level-3"><a href="#外観">外観</a></li>
+<li class="toc-level-3"><a href="#再生">再生</a></li>
+<li class="toc-level-3"><a href="#デバイス">デバイス</a></li>
+<li class="toc-level-3"><a href="#録音">録音</a></li>
+<li class="toc-level-3"><a href="#プレイリスト設定">プレイリスト設定</a></li>
+<li class="toc-level-3"><a href="#インストール">インストール</a></li>
+<li class="toc-level-3"><a href="#バックアップ">バックアップ</a></li>
+<li class="toc-level-3"><details open><summary><a href="#詳細">詳細</a></summary><ul>
+<li class="toc-level-4"><a href="#詳細タブの各設定">詳細タブの各設定</a></li>
+<li class="toc-level-4"><a href="#スマート上書き">スマート上書き</a></li>
+</ul></details></li>
+</ul></details></li>
+<li class="toc-level-2"><details open><summary><a href="#起動リロード進捗表示">起動・リロード・進捗表示</a></summary><ul>
+<li class="toc-level-3"><a href="#ライブラリのリロード">ライブラリのリロード</a></li>
+<li class="toc-level-3"><a href="#初期化再実行">初期化再実行</a></li>
+<li class="toc-level-3"><a href="#プレイリストのリロード">プレイリストのリロード</a></li>
+</ul></details></li>
+<li class="toc-level-2"><a href="#画面構成">画面構成</a></li>
+<li class="toc-level-2"><details open><summary><a href="#ライブラリ一覧">ライブラリ一覧</a></summary><ul>
+<li class="toc-level-3"><a href="#一覧のコピー操作">一覧のコピー操作</a></li>
+<li class="toc-level-3"><details open><summary><a href="#一覧の右クリックメニュー">一覧の右クリックメニュー</a></summary><ul>
+<li class="toc-level-4"><a href="#無効な拡張子に変更">無効な拡張子に変更</a></li>
+</ul></details></li>
+<li class="toc-level-3"><a href="#ツリーの右クリックメニュー">ツリーの右クリックメニュー</a></li>
+<li class="toc-level-3"><a href="#その他のポップアップメニュー">その他のポップアップメニュー</a></li>
+</ul></details></li>
+<li class="toc-level-2"><a href="#検索">検索</a></li>
+<li class="toc-level-2"><a href="#再生録音">再生・録音</a></li>
+<li class="toc-level-2"><details open><summary><a href="#プレイリスト">プレイリスト</a></summary><ul>
+<li class="toc-level-3"><a href="#プレイリストサマリー">プレイリストサマリー</a></li>
+<li class="toc-level-3"><a href="#プレイリスト詳細">プレイリスト詳細</a></li>
+<li class="toc-level-3"><a href="#外部プレイリストのインポート">外部プレイリストのインポート</a></li>
+<li class="toc-level-3"><a href="#プレイリストのプロパティ">プレイリストのプロパティ</a></li>
+<li class="toc-level-3"><a href="#カスタムフォルダ出力">カスタムフォルダ出力</a></li>
+<li class="toc-level-3"><a href="#url1url2-補完">URL1/URL2 補完</a></li>
+</ul></details></li>
+<li class="toc-level-2"><details open><summary><a href="#インストール--保留パッケージ">インストール / 保留パッケージ</a></summary><ul>
+<li class="toc-level-3"><a href="#新規">新規</a></li>
+<li class="toc-level-3"><a href="#保留">保留</a></li>
+<li class="toc-level-3"><a href="#導入先推定とマージ先推定">導入先推定とマージ先推定</a></li>
+<li class="toc-level-3"><a href="#高度な機能">高度な機能</a></li>
+</ul></details></li>
+<li class="toc-level-2"><details open><summary><a href="#メンテナンス">メンテナンス</a></summary><ul>
+<li class="toc-level-3"><a href="#lr2互換性警告">LR2互換性警告</a></li>
+<li class="toc-level-3"><a href="#ゼロノート検索">ゼロノート検索</a></li>
+<li class="toc-level-3"><a href="#解析エラー">解析エラー</a></li>
+<li class="toc-level-3"><a href="#文字化けチェック">文字化けチェック</a></li>
+<li class="toc-level-3"><details open><summary><a href="#重複ファイルチェック">重複ファイルチェック</a></summary><ul>
+<li class="toc-level-4"><a href="#重複フォルダをマージする">重複フォルダをマージする</a></li>
+<li class="toc-level-4"><a href="#ctrl--g-で連続整理する">Ctrl + G で連続整理する</a></li>
+<li class="toc-level-4"><a href="#注意点">注意点</a></li>
+</ul></details></li>
+<li class="toc-level-3"><a href="#構成ファイルフルスキャン">構成ファイルフルスキャン</a></li>
+</ul></details></li>
+<li class="toc-level-2"><a href="#バックアップアンインストール">バックアップ・アンインストール</a></li>
+<li class="toc-level-2"><details open><summary><a href="#ログとトラブルシューティング">ログとトラブルシューティング</a></summary><ul>
+<li class="toc-level-3"><a href="#起動や初期化が遅い">起動や初期化が遅い</a></li>
+<li class="toc-level-3"><a href="#プレイリストの-status-が失敗になる">プレイリストの STATUS が失敗になる</a></li>
+<li class="toc-level-3"><a href="#lr2-で選曲できない譜面がある">LR2 で選曲できない譜面がある</a></li>
+<li class="toc-level-3"><a href="#検索構文が分からない">検索構文が分からない</a></li>
+</ul></details></li>
+<li class="toc-level-2"><a href="#参考資料">参考資料</a></li>
+</ul></details></li>
+</ul>
+        </div>
+      </section>
+
+    </nav>
+    <main class="doc-content">
+<h1 id="bemusicseeker-unofficial-fork-ユーザーマニュアル-v20">BeMusicSeeker Unofficial Fork ユーザーマニュアル v2.0</h1>
+
+<p><img alt="BeMusicSeeker" src="img/header.jpg"/></p>
+<p>この文書は BeMusicSeeker Unofficial Fork の日本語マニュアルです。<br/>
+従来版 BeMusicSeeker の基本的な使い方を引き継ぎつつ、この Fork 版で追加・変更された機能、処理の意味、注意点をまとめています。</p>
+<h2 id="目次">目次</h2>
+<ul>
+<li><a href="#はじめに">はじめに</a></li>
+<li><a href="#初期セットアップ">初期セットアップ</a></li>
+<li><a href="#設定画面">設定画面</a></li>
+<li><a href="#起動リロード進捗表示">起動・リロード・進捗表示</a></li>
+<li><a href="#画面構成">画面構成</a></li>
+<li><a href="#ライブラリ一覧">ライブラリ一覧</a></li>
+<li><a href="#検索">検索</a></li>
+<li><a href="#再生録音">再生・録音</a></li>
+<li><a href="#プレイリスト">プレイリスト</a></li>
+<li><a href="#インストール--保留パッケージ">インストール / 保留パッケージ</a></li>
+<li><a href="#メンテナンス">メンテナンス</a></li>
+<li><a href="#バックアップアンインストール">バックアップ・アンインストール</a></li>
+<li><a href="#ログとトラブルシューティング">ログとトラブルシューティング</a></li>
+<li><a href="#参考資料">参考資料</a></li>
+</ul>
+<h2 id="はじめに">はじめに</h2>
+<p>BeMusicSeeker は、BMS ファイルの管理、検索、再生、インストール、プレイリスト管理、メンテナンスを支援する統合管理ツールです。</p>
+<p>この Fork 版では、従来版の基本機能に加えて、以下のような改善が入っています。</p>
+<ul>
+<li>大規模ライブラリ向けの初期化・リロード・一覧表示高速化</li>
+<li><code>Everything 1.5 Alpha x64</code> を利用した高速ファイル列挙とリソース索引作成</li>
+<li>導入先推定、推定先インストール、重複フォルダマージの高速化</li>
+<li>bmson 管理対応(再生は未対応)</li>
+<li>LR2に依存しないスタンドアローンモード</li>
+<li>LR2連携の強化(song.dbの生成・同期)</li>
+<li>ポータブルアプリ化</li>
+<li>プレイリストサマリー、外部同期 STATUS、URL1/URL2 補完、単体 / 範囲リロード</li>
+<li>インストール保留画面の強化、スマート上書き、ゼロノート譜面整理</li>
+<li>LR2互換性警告、解析エラー、重複ファイルチェックなどのメンテナンス画面</li>
+<li>構造化され情報が強化された WARNING 表示</li>
+<li>多言語対応とダークテーマ対応</li>
+<li>beatoraja連携(スコア読み込み・難易度表更新)</li>
+</ul>
+<h3 id="注意">注意</h3>
+<p>BeMusicSeeker は、設定によっては LR2 の <code>song.db</code>、<code>config.xml</code>、カスタムフォルダ出力先、BMS 実ファイルを移動/削除します。<br/>
+大きな整理、インストール、削除、重複マージ、アンインストールを行う前には、LR2 関連ファイルと BMS フォルダのバックアップを取ることをおすすめします。<strong>song.db破損への対応であれば本アプリのバックアップ機能を使用していればゼロからの再構築は避けられるはずです。</strong></p>
+<h2 id="初期セットアップ">初期セットアップ</h2>
+<p>BeMusicSeeker Unofficial Fork はインストール不要のポータブルアプリです。リリースページから最新版をダウンロードし、任意のフォルダへ展開して起動します。ZIP のまま実行せず、必ず書き込み可能なフォルダへ展開してください。</p>
+<p>アプリは実行ファイルの近くに <code>config/user.config</code> や <code>data/song.db</code> などを作成します。<code>Program Files</code>、読み取り専用フォルダ、同期中に競合しやすい場所へ置くと、設定保存やスタンドアローン DB 作成に失敗する場合があります。更新時は <code>config</code> と <code>data</code> を残したまま、本体ファイルを新しい版で上書きしてください。</p>
+<h3 id="非常に強く推奨事実上必須-everything-15-alpha-x64">非常に強く推奨、事実上必須: Everything 1.5 Alpha x64</h3>
+<p>可能であれば、先に <code>Everything 1.5 Alpha x64</code> を導入してください。</p>
+<p>BeMusicSeeker は初期化時に BMS 譜面、音源、画像、動画などを大量に列挙します。Everything が利用可能な場合、ファイル列挙とリソース索引作成を高速化できます。未導入でも動作しますが、大規模なライブラリでは初回スキャンやリロードに時間がかかります。</p>
+<p>Everything 側で BMS 関連フォルダのインデックス作成が完了し、検索できる状態になってから BeMusicSeeker を起動してください。</p>
+<h3 id="既存設定の引き継ぎ">既存設定の引き継ぎ</h3>
+<p>従来版 BeMusicSeeker がインストール済みの環境では、初回起動時に既存の設定が自動コピーされます。コピー先はアプリ配置先の <code>config/user.config</code> です。元の BeMusicSeeker の設定ファイルは変更されません。</p>
+<h3 id="初回起動">初回起動</h3>
+<p>初回起動時は、言語選択付きの初回設定ダイアログが表示されます。</p>
+<p><img alt="初回設定" src="img/初回設定.PNG"/></p>
+<p>言語を選んで設定画面へ進み、動作モードと必須項目を設定します。必須項目を入力して <code>OK</code> を押すまで、BMS ファイルの初回スキャンは開始されません。</p>
+<h3 id="動作モード">動作モード</h3>
+<p>BeMusicSeeker には大きく 2 つの動作モードがあります。</p>
+<h4 id="スタンドアローンlr2と連携しない">スタンドアローン(LR2と連携しない)</h4>
+<p>LR2 の <code>song.db</code> を使わず、アプリ配下の <code>data/song.db</code> でライブラリを管理します。</p>
+<p>主に必要な設定:</p>
+<ul>
+<li><code>一般</code> タブ: BMS ディレクトリ</li>
+<li><code>インストール</code> タブ: 新規インストール先</li>
+</ul>
+<p>LR2 のスコア、LR2 用カスタムフォルダ出力、LR2IR 関連の一部機能は使いません。BMS ファイルの整理、検索、インストール、メンテナンスを BeMusicSeeker 側だけで行いたい場合に使います。</p>
+<h4 id="lr2と連携する">LR2と連携する</h4>
+<p>LR2 の <code>config.xml</code> / <code>song.db</code> / <code>score.db</code> を使って、LR2 の所持譜面、スコア、カスタムフォルダ出力と連携します。</p>
+<p>主に必要な設定:</p>
+<ul>
+<li><code>一般</code> タブ: LR2 ディレクトリ、<code>song.db</code>、<code>config.xml</code></li>
+<li><code>プレイリスト</code> タブ: カスタムフォルダ通常出力先、ルートフォルダ出力先</li>
+<li><code>インストール</code> タブ: 新規インストール先</li>
+</ul>
+<p>LR2 と同じライブラリを BeMusicSeeker で管理したい場合はこちらを使います。</p>
+<p>LR2 連携モードでは、初回準備や今後の更新で <code>song.db</code> に BeMusicSeeker 用のテーブルや index が追加される場合があります。設定画面で <code>OK</code> を押して初回スキャンを始める前に、<code>song.db</code>、<code>config.xml</code>、score DB など LR2 関連ファイルをバックアップしておくと安心です。</p>
+<p>LR2 連携モードでは、BeMusicSeeker は所持 BMS の <code>song</code> / <code>folder</code> 情報を LR2 の <code>song.db</code> に書き込み、LR2 側の起動時再帰スキャンをできるだけ発生させない状態を維持します。初回や設定変更後は不足している既存 row を backfill します。進捗は起動時進捗またはステータスバーに表示され、完了後は通常のインストール、削除、マージ、拡張子変更などのライブラリ更新に合わせて差分更新されます。bmson は LR2 の <code>song</code> / <code>folder</code> には書き込まず、BeMusicSeeker 側の管理情報として扱います。</p>
+<p>LR2 <code>song.db</code> の同期中は、所持譜面と LR2 <code>song.db</code> を同時に変更する操作が一時的に止まる場合があります。ステータスバーに失敗や未完了が表示された場合は、<code>再試行</code> を押してください。必要に応じて設定画面の <code>LR2 song.db データを再同期</code> から、所持譜面とプレイリストを正本として <code>song</code> / <code>folder</code> を再生成できます。</p>
+<h3 id="初回スキャン">初回スキャン</h3>
+<p>設定完了後、初回スキャンが始まります。初回は全譜面ファイルを確認し、DB へ登録し、インストール推定やメンテナンス情報に必要な基礎データを作成します。<br/>
+ライブラリ規模、ディスク速度、Everything の利用状況によって、数分からそれ以上かかる場合があります。</p>
+<p>初回構築が完了すると、次回以降は差分更新中心になります。BMS フォルダ全体を大きく移動した場合や、DB を空から作り直した場合は、再び重い処理になります。</p>
+<blockquote>
+<p>参考までに私の環境では約21万譜面の規模で初回DB構築が11分程度でした。2回目以降の起動では、差分導入可能までが20秒程度、ライブラリ一覧の完全な表示が可能になるまでが40秒程度でした。SSD環境であればそれなりに古いPCでもこの程度の速度で構築可能です。</p>
+</blockquote>
+<h2 id="設定画面">設定画面</h2>
+<p>設定画面は <code>OK</code> を押すと保存されます。設定内容によって、即時反映、スコアのみ再読み込み、ライブラリリロード、再初期化、再起動要求のいずれかになります。</p>
+<h3 id="一般">一般</h3>
+<p><img alt="設定 一般" src="img/設定_一般.PNG"/></p>
+<p><code>一般</code> タブでは、言語、動作モード、BMS ディレクトリ、LR2 ディレクトリ、<code>song.db</code>、<code>config.xml</code>、<code>beatoraja ディレクトリ</code> などを設定します。</p>
+<p>スタンドアローンモード、LR2 連携モードのどちらでも、BMS ディレクトリに譜面を探すルートフォルダを登録します。LR2 連携モードでは、あわせて LR2 ディレクトリと DB / XML パスも設定します。</p>
+<h4 id="スタンドアローン">スタンドアローン</h4>
+<p>LR2 本体を所持していない場合でも本アプリ単独で BMS の管理が行えるモードです。
+BMS ディレクトリに設定した場所が譜面を探す対象となります。
+<code>data\song.db</code> に所持 BMS 管理用の DB が作成されます。保存される内容は LR2 連携モード時とほとんど変わりませんが、カスタムフォルダの出力や LR2 での選曲時に必要な固有のデータの記録などは行われないため LR2 を使用していない場合は僅かに処理の負荷が下がります。</p>
+<h4 id="lr2と連携する_1">LR2と連携する</h4>
+<p>従来の BeMusicSeeker からある連携モードです。</p>
+<p>LR2 連携モードでは、BeMusicSeeker が LR2 <code>song.db</code> に必要な <code>song</code> / <code>folder</code> 情報を生成・差分更新します。BMS ディレクトリの追加・削除は BeMusicSeeker の <code>一般</code> タブで行い、LR2 SETUP の <code>JUKEBOX</code> タブでは変更しない運用を推奨します。</p>
+<p>初回設定保存時および LR2 連携モードでの起動時には、LR2 <code>config.xml</code> の <code>&lt;autoreload&gt;</code> を <code>0</code> に設定し、LR2 SETUP の「データベース自動更新」を「手動のみ」にします。これは BeMusicSeeker が <code>song.db</code> を管理する前提で、LR2 自身の自動更新による追加スキャンや、Shift_JIS で表現できないパスが崩れた DB 行の追加を避けるためです。</p>
+<p>ただし、LR2 でのスキャン時や再生時にエラーとなる譜面でも、本アプリでの管理対象譜面とするために song テーブルに保存された状態となります。このような譜面は選曲画面に表示されていたとしても、再生を開始した場合に不具合が生じる可能性もあるのでご了承ください。既知の LR2 互換性リスクの一部は <code>LR2互換性警告</code> 画面で確認できます。</p>
+<p><code>LR2 song.db データを再同期</code> ボタンは folder, song テーブルを再生成するものです。何らかの理由で DB が不完全な状態になってしまった場合でも、所持譜面とプレイリストから再解析・再生成を行います。</p>
+<h4 id="beatoraja連携">beatoraja連携</h4>
+<p>beatoraja については、スコア DB の読み込みや難易度表キャッシュ出力など一部連携に対応していますが、beatoraja 全体を管理するためのツールではありません。<strong>beatoraja のDB更新を高速に行いたい場合は <a href="https://github.com/Neeted/songdata-updater">songdata-updater</a> をご利用ください。</strong></p>
+<p>beatoraja 連携では beatoraja ディレクトリを指定します。直下の <code>config_sys.json</code> から <code>tablepath</code> と <code>playerpath</code> を読み取り、スコア読み込みでは選択したプレイヤーフォルダの <code>score.db</code> を使います。</p>
+<p><code>.bmtを出力する(難易度表読み込み互換処理)</code> を有効にすると、BeMusicSeeker の全プレイリストを beatoraja が読み込める <code>.bmt</code> キャッシュとして <code>config_sys.json</code> の <code>tablepath</code> 配下へ出力します。これは beatoraja 側の level 集約処理が重く、難易度表読み込みで遅延する環境向けの互換処理です。外部同期表は元の難易度表 URL、ローカルプレイリストは <code>bemusicseeker://playlist/{playlist_id}</code> を使って <code>.bmt</code> の保存名を決めます。出力先直下には BeMusicSeeker 管理用の <code>.bemusicseeker-bmt-manifest</code> が作られ、設定変更や再出力時の cleanup では、この manifest に記録された <code>.bmt</code> だけを削除対象にします。</p>
+<p><code>.bmt hash 出力</code> では、folder song の <code>md5</code> / <code>sha256</code> の出し方を選べます。<code>オリジナル</code> はプレイリストに保存されている hash だけをそのまま出力します。<code>md5/sha256をできるだけ補完</code> は、所持譜面や譜面メタデータから安全に解決できる場合に不足している hash を補完します。<code>できるだけsha256のみ</code> は、sha256 を出せる譜面では md5 を出さず sha256 のみに寄せますが、sha256 を解決できない譜面は md5 のまま残します。既定値は <code>オリジナル</code> です。段位コースの hash は元の難易度表データをそのまま使い、この補完対象にはなりません。</p>
+<p><code>config_sys.jsonに.bmtのURLを登録する(選曲画面での並びが安定します)</code> が有効な場合、BeMusicSeeker 管理の <code>.bmt</code> URL を <code>config_sys.json</code> の <code>tableURL</code> へ登録します。管理外の <code>tableURL</code> は既存順を維持し、BeMusicSeeker 管理分はプレイリスト名順で後ろに並びます。</p>
+<h3 id="外観">外観</h3>
+<p><img alt="設定 外観" src="img/設定_外観.PNG"/></p>
+<p>テーマや表示に関わる設定を変更します。外観変更は基本的にライブラリ再構築を必要としません。</p>
+<h3 id="再生">再生</h3>
+<p><img alt="設定 再生" src="img/設定_再生.PNG"/></p>
+<p>譜面を再生するプレイヤーを選択します。内蔵プレイヤーは音声のみの簡易再生用です。uBMplay、BMIIDXView2015、LR2 など外部プレイヤーを使う場合は、実行ファイルのパスを指定します。</p>
+<p>スタンドアローンモードでも、再生用アプリとして LR2body を指定できます。これは LR2 の DB と連携するかどうかとは別の設定です。</p>
+<h3 id="デバイス">デバイス</h3>
+<p><img alt="設定 デバイス" src="img/設定_デバイス.PNG"/></p>
+<p>再生ドライバ、出力デバイス、サンプルレート、フォーマット、バッファサイズ、音量などを設定します。音が出ない、遅延が大きい、音切れする場合は、このタブの設定を確認してください。</p>
+<h3 id="録音">録音</h3>
+<p><img alt="設定 録音" src="img/設定_録音.PNG"/></p>
+<p>録音形式、品質、サンプルレート、出力ファイル名書式、エンコーダの場所などを設定します。外部エンコーダを使う場合は、<code>lame.exe</code>、<code>oggenc2.exe</code> など対応する実行ファイルを含むフォルダを指定します。</p>
+<h3 id="プレイリスト設定">プレイリスト設定</h3>
+<p><img alt="設定 プレイリスト" src="img/設定_プレイリスト.PNG"/></p>
+<p>カスタムフォルダ出力先、難易度表リスト取得 URI、MD5-URL マッピング TSV 取得 URI、URL1/URL2 補完設定を変更します。</p>
+<p><code>通常出力先</code> には、プレイリストに対応する通常のカスタムフォルダが出力されます。<br/>
+<code>ルートフォルダ出力先</code> には、プレイリストのプロパティで <code>ルートフォルダにする</code> を有効にしたものが出力されます。選曲画面のルートに表示されるため、よく使う表へ素早くアクセスできます。</p>
+<p>URL 補完については <a href="#url1url2-補完">URL1/URL2 補完</a> を参照してください。</p>
+<h3 id="インストール">インストール</h3>
+<p><img alt="設定 インストール" src="img/設定_インストール.PNG"/></p>
+<p>新規インストール先と、新規フォルダ作成時の命名形式を設定します。<br/>
+どちらの動作モードでも、登録済み BMS ディレクトリ内からインストール先を選ぶ必要があります。</p>
+<h3 id="バックアップ">バックアップ</h3>
+<p><img alt="設定 バックアップ" src="img/設定_バックアップ.PNG"/></p>
+<p>プレイリストのバックアップ / 復元、LR2 関連ファイルのバックアップ、世代数などを設定します。互換性に不安がある更新や大きな整理を行う前は、バックアップを取っておくことをおすすめします。</p>
+<h3 id="詳細">詳細</h3>
+<p><img alt="設定 詳細" src="img/設定_詳細.PNG"/></p>
+<p>確認メッセージ、初期化、LR2 連携、インストール補助などの詳細設定を変更します。</p>
+<p>起動時のファイルチェックを省略すると起動は軽くなりますが、BMS ルートの列挙と導入先推定に使うリソース索引を作りません。保留パッケージの導入先推定を行うには、手動でライブラリの <code>リロード</code> または <code>初期化再実行</code> を実行してください。<br/>
+インストール関連の設定には、元パッケージ削除やスマート上書きなど実ファイル操作に影響するものがあります。内容を確認してから変更してください。</p>
+<h4 id="詳細タブの各設定">詳細タブの各設定</h4>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>グループ</th>
+<th>設定</th>
+<th>既定値</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>メッセージ表示</td>
+<td>譜面ビューアへの登録時に確認メッセージを表示する</td>
+<td>ON</td>
+<td>譜面ビューア登録操作の前に確認を表示します。</td>
+</tr>
+<tr>
+<td>メッセージ表示</td>
+<td>差分インストールの確認メッセージを表示する</td>
+<td>ON</td>
+<td>推定先への差分インストールなど、既存フォルダへ入れる操作の前に確認を表示します。</td>
+</tr>
+<tr>
+<td>メッセージ表示</td>
+<td>リコメンドの更新メッセージを表示する</td>
+<td>ON</td>
+<td>リコメンド情報更新時の通知を表示します。</td>
+</tr>
+<tr>
+<td>初期化</td>
+<td>起動時にBMSファイルと構成ファイルのスキャンを行わない</td>
+<td>OFF</td>
+<td>起動時のファイル差分確認とリソース索引構築を省略します。DB に保存済みのライブラリ一覧は読み込みますが、手動でライブラリの <code>リロード</code> または <code>初期化再実行</code> を行うまで、保留パッケージの導入先推定に必要な索引がないため推定できない場合があります。</td>
+</tr>
+<tr>
+<td>初期化</td>
+<td>起動時にプレイリストの更新チェックを行わない</td>
+<td>OFF</td>
+<td>起動時の外部プレイリスト更新確認を省略します。必要な場合は手動でプレイリストをリロードしてください。</td>
+</tr>
+<tr>
+<td>初期化</td>
+<td>起動時の初期選択を インストール &gt; 保留 にする</td>
+<td>ON</td>
+<td>起動後の初期表示を保留パッケージ画面にします。新規導入や保留整理を優先したい場合向けです。</td>
+</tr>
+<tr>
+<td>初期化</td>
+<td>song.dbアクセス最適化PRAGMAを有効にする</td>
+<td>ON</td>
+<td>DB 読み込み時に読み取り向けの SQLite PRAGMA を設定し、起動やリロードを高速化します。通常は ON のままにします。</td>
+</tr>
+<tr>
+<td>LR2連携</td>
+<td>オフラインスコアのランキング推定を行わない</td>
+<td>OFF</td>
+<td>LR2IR の ranking cache XML を使ったオフラインスコア順位推定を省略します。ON にすると処理は軽くなりますが、未送信スコアの順位推定は行われません。</td>
+</tr>
+<tr>
+<td>LR2連携</td>
+<td>LR2IRのスコアをDLしIR未送信を検出する</td>
+<td>OFF</td>
+<td>LR2IR のスコア情報を取得し、ローカルスコアとの差分から未送信状態を検出します。</td>
+</tr>
+<tr>
+<td>インストール</td>
+<td>ダウンロード実行後に自動的にインストールを試みる</td>
+<td>OFF</td>
+<td>URL からダウンロードしたパッケージを、可能であればそのままインストール処理へ進めます。<strong>ON にすると便利</strong>ですが、多重圧縮などでそのままでは導入に進めない形式のファイルの場合は保留画面に追加されないといった留意事項があるので規定値は OFF にしています。</td>
+</tr>
+<tr>
+<td>インストール</td>
+<td>新規判定でも自動インストールせず保留に追加する</td>
+<td>OFF</td>
+<td>新規作品として十分なリソースが揃っていても自動導入せず、必ず保留一覧で確認できるようにします。</td>
+</tr>
+<tr>
+<td>インストール</td>
+<td>保留パッケージの推定時に Everything を使用する</td>
+<td>OFF</td>
+<td>保留パッケージの導入先推定で、source 側リソース列挙に Everything を使います。大きな保留フォルダでは高速化する場合があります。通常の差分導入時は OFF の方が高速に動作すると思われます。</td>
+</tr>
+<tr>
+<td>インストール</td>
+<td>複数候補でも高一致なら第1候補を導入先に設定する</td>
+<td>OFF</td>
+<td>複数の導入先候補がある場合でも、十分に一致度が高いと判断できる場合は最上位候補を <code>INSTL DST</code> に設定します。OFF では曖昧な場合に WARNING と候補リストを残します。<strong>難易度表パッケージの利用などで重複BMSが多い環境で ON にする想定</strong>です。</td>
+</tr>
+<tr>
+<td>インストール</td>
+<td>通常インストール時、既所持譜面が残っていても元パッケージを削除する</td>
+<td>OFF</td>
+<td>通常インストール後、source に既所持譜面などの残り物があっても元パッケージを削除します。取り消しにくい操作なので、通常は OFF を推奨します。既所持譜面交じりの差分パッケージを導入する際に source フォルダを迅速にクリーンアップするという用途を想定しています。</td>
+</tr>
+<tr>
+<td>インストール</td>
+<td>差分導入時に更新日時とサイズを比較して同梱ファイルの上書きを最適化する</td>
+<td>ON</td>
+<td><a href="#スマート上書き">スマート上書き</a> を有効にします。</td>
+</tr>
+<tr>
+<td>インストール</td>
+<td>スマート上書き時、<em>.bmx/</em>.pmx/*.txt は上書きせず自動採番で保持する</td>
+<td>OFF</td>
+<td><a href="#スマート上書き">スマート上書き</a> で保護対象拡張子を上書きせず、連番名で残します。</td>
+</tr>
+</tbody>
+</table></div>
+<h4 id="スマート上書き">スマート上書き</h4>
+<p>スマート上書きは、差分導入やマージで既存フォルダへファイルを移動するとき、譜面ファイル本体以外の同梱コンポーネント、つまり音源、BGA、動画、画像、readme などの衝突を調整する機能です。既定では有効です。</p>
+<p><strong>端的に言えば調整前の古い音源やBGAで上書きすることを防ぐ目的の機能です。</strong></p>
+<p>通常の上書きでは、同名ファイルが導入先にある場合、source 側ファイルで上書きします。スマート上書きが有効な場合は、source と導入先のファイルサイズ、更新日時を比較し、次のように処理します。更新日時の比較には、おおむね 2 秒までの差を同一時刻として扱う許容があります。</p>
+<ul>
+<li>導入先に同名ファイルがない場合は、そのまま移動します。</li>
+<li>サイズと更新日時がほぼ同じ場合は同一ファイルとみなし、source 側を削除して導入先の既存ファイルを残します。</li>
+<li>source 側の方が新しい場合は、導入先を source 側で上書きします。</li>
+<li>導入先の方が新しい、または同等以上と判断した場合は、導入先を残して source 側を削除します。</li>
+</ul>
+<p><code>スマート上書き時、*.bmx/*.pmx/*.txt は上書きせず自動採番で保持する</code> を有効にすると、<code>.bmx</code>、<code>.pmx</code>、<code>.txt</code> はスマート上書きで上書き対象になった場合でも、導入先の既存ファイルを残し、source 側を <code>name(1).txt</code> のような空き連番名で保存します。連番候補に同一内容のファイルが既にある場合は、同じファイルを増やさず source 側を削除します。内容が異なる場合、または hash 比較ができない場合は、空いている連番名へ移動します。</p>
+<p>NOTE: BMS / PMS / bmson などの譜面ファイル本体は、同名衝突時に上書きせず、<code>chart_.bms</code> のように名前をずらして導入します。これはスマート上書き設定とは関係のない本アプリでの挙動です。</p>
+<p>この設定は、推定先へのインストール、既所持譜面のみパッケージのリソース上書き、重複フォルダのマージなど、既存フォルダへ同梱ファイルを移動する処理で使われます。未所持の新規作品を新しいフォルダへ丸ごと導入する場合は、そもそも同名ファイル衝突が少ないため、スマート上書きの影響は限定的です。</p>
+<h2 id="起動リロード進捗表示">起動・リロード・進捗表示</h2>
+<p>BeMusicSeeker の起動処理は段階的に進みます。</p>
+<ol>
+<li>設定と DB の確認</li>
+<li>BMS ファイル列挙</li>
+<li>DB との差分確認</li>
+<li>追加・削除・更新の反映</li>
+<li>インストール推定やリソース索引の準備</li>
+<li>画面表示可能状態への移行</li>
+<li>プレイリスト、スコア、譜面メタデータ、メンテナンス情報などのバックグラウンド処理</li>
+</ol>
+<p>ステータスバーには、初期化、ファイル差分確認、プレイリスト同期、導入先推定などの進捗が表示されます。</p>
+<p><img alt="進捗表示" src="img/進捗表示.PNG"/></p>
+<h3 id="ライブラリのリロード">ライブラリのリロード</h3>
+<p>ライブラリ右クリックの <code>リロード</code> は、所持ファイルの追加・削除・更新を反映する操作です。DB 全体の作り直しやスコア再読み込みではありません。</p>
+<p>以下のような場合に使います。</p>
+<ul>
+<li>BMS フォルダへファイルを追加した</li>
+<li>BMS フォルダからファイルを削除した</li>
+<li>BMS ルートフォルダを増減させた</li>
+<li>外部で BMS フォルダを移動・改名した</li>
+</ul>
+<h3 id="初期化再実行">初期化再実行</h3>
+<p><code>初期化再実行</code> は通常のリロードより重い操作です。外部ツールで DB を編集した場合や、状態を大きく作り直したい場合に使います。ここでの初期化とはアプリ起動毎の初期化処理のことでありライブラリの再構築を指す用語ではありません。</p>
+<h3 id="プレイリストのリロード">プレイリストのリロード</h3>
+<p>プレイリストのリロードは、外部難易度表やプレイリスト定義を再取得する操作です。</p>
+<p>プレイリストツリールートのリロードは、外部同期が有効なプレイリストを対象にします。<br/>
+プレイリスト単体やサマリー選択範囲からのリロードは、選択したプレイリストを外部同期フラグに関係なく対象にします。</p>
+<p>リロード失敗は、プレイリストサマリーの <code>STATUS</code> とログに集約されます。</p>
+<h2 id="画面構成">画面構成</h2>
+<p>主画面は、左サイドバーと右側の一覧で構成されています。</p>
+<p>左サイドバーには、ライブラリ、プレイリスト、インストール、メンテナンスなどのツリーがあります。右側の一覧は、選択した画面に応じて譜面一覧、プレイリスト詳細、プレイリストサマリー、保留パッケージ、メンテナンス結果を表示します。</p>
+<p>列幅、表示/非表示、表示順は画面ごとに保存されます。ヘッダー右クリックから列表示を変更できます。列順や列幅はマウスドラッグで調整できます。</p>
+<h2 id="ライブラリ一覧">ライブラリ一覧</h2>
+<p>ライブラリ一覧では、登録済み譜面を検索・再生・整理できます。</p>
+<p><strong>強力な検索構文を備えています。 <a href="keyword-search-syntax-guide.ja.html">キーワード検索構文ガイド</a> を参照してください。</strong>
+<code>title:</code>、<code>artist:</code>、<code>playlist:</code>、<code>rate:</code> などの field 指定や、除外検索、OR、正規表現、数値範囲検索を使えます。<code>TOTAL</code>、<code>DIFFICULTY</code> などのカラムで背景色が付いているセルは未定義だったことを表しています。<code>total:undef</code> などで検索可能です。</p>
+<p><img alt="ライブラリ検索例" src="img/一覧_ライブラリ_検索例.PNG"/></p>
+<p>列ヘッダーをクリックするとソートできます。<code>TITLE</code>、<code>ARTIST</code>、<code>PATH</code>、<code>LEVEL</code>、<code>CLEAR</code> など、多くの列を表示できます。列の表示や順番はヘッダー右クリックメニューから変更できます。</p>
+<h3 id="一覧のコピー操作">一覧のコピー操作</h3>
+<p>ライブラリ、プレイリスト詳細、インストール / 保留などの一覧では、キーボードで表示内容をコピーできます。</p>
+<ul>
+<li><code>Ctrl + C</code>: 現在フォーカスされているセルの表示値をコピーします。URL 列など一部の列では、画面上の短い表示ではなく実際に開く URL がコピーされます。</li>
+<li><code>Ctrl + Shift + C</code>: 選択中の行を TSV 形式でコピーします。複数行を選択している場合は、選択行がまとめてタブ区切りテキストになります。表計算ソフトやテキストエディタへ貼り付けて確認するときに使えます。</li>
+</ul>
+<h3 id="一覧の右クリックメニュー">一覧の右クリックメニュー</h3>
+<p><img alt="ライブラリ コンテキストメニュー" src="img/一覧_ライブラリ_コンテキストメニュー.PNG"/></p>
+<p>譜面行やプレイリスト行を右クリックすると、選択中の行に対する操作を呼び出せます。表示される項目は、通常ライブラリ、プレイリスト詳細、未所持譜面、保留、新規、メンテナンス画面など、現在の画面と選択行の種類によって変わります。</p>
+<p>開く / 外部ページ:</p>
+<ul>
+<li><code>BMS-IRを開く</code>: 対象譜面の BMS-IR ページを MD5 で開きます。MD5 がない行では表示されません。</li>
+<li><code>Mochaを開く</code>: 対応する Mocha ページを開きます。</li>
+<li><code>MinIRを開く</code>: 対応する MinIR ページを開きます。</li>
+<li><code>本体URLを開く</code> / <code>差分URLを開く</code>: プレイリスト由来または URL 補完で得られた本体 URL / 差分 URL を開きます。</li>
+<li><code>エクスプローラで開く</code>: 譜面ファイルのあるフォルダを Explorer で開きます。</li>
+<li><code>インストール先を開く</code>: <code>INSTL DST</code> やインストール先として記録されているフォルダを開きます。</li>
+<li><code>関連付けで開く</code>: 譜面ファイルを OS の関連付けで開きます。</li>
+<li><code>テキストファイルを開く</code>: 同じフォルダ内の readme などの文書候補をサブメニューから開きます。</li>
+<li><code>動画を開く</code>: YouTube / ニコニコ動画など、譜面に紐づく動画候補を開きます。ただし、この候補は <code>http://www.ribbit.xyz</code> の LR2IR キャッシュ情報に依存しています。現時点では同サイトが利用できないため、<strong>この機能は実質的に動作しません。</strong></li>
+<li><code>入手先を検索</code>: プレイリスト URL、補完 URL、コメント中の URL などからダウンロード元候補を開きます。一般的な Web 検索を行う機能ではなく、プレイリスト行に紐づく URL 候補を集める機能です。LR2IR キャッシュ情報や Ribbit 側の補助取得は <code>http://www.ribbit.xyz</code> に依存するため、同サイトが利用できない場合はその分の候補は取得できません。一方で、プレイリスト自体の URL1 / URL2、コメント内 URL、MD5-URL マッピング TSV、Stella Uploader (Full) 由来の URL 補完などは引き続き利用できます。</li>
+<li><code>譜面ビューアで開く</code>: 譜面ビューアへ登録または表示します。</li>
+</ul>
+<p>スコア / ranking:</p>
+<ul>
+<li><code>ランキングデータの更新</code>: 対象譜面の ranking cache / IR データを更新します。ただし、この機能は <code>http://www.ribbit.xyz</code> の LR2IR キャッシュ情報に依存しています。現時点では同サイトが利用できないため、<strong>この機能は実質的に動作しません。</strong></li>
+</ul>
+<p>文字コード / ファイルスキャン:</p>
+<ul>
+<li><code>文字化けを修正</code>: 日本語 Shift_JIS、UTF-8、韓国語 KS_C_5601、簡体字 GB2312、繁体字 Big5 などから文字コードを指定します。<code>修正済みにする</code> は、現在の推定結果を確認済みとして扱います。</li>
+<li><code>ファイルスキャン</code>: 選択譜面を再スキャンし構成ファイルフルスキャン画面などで確認できる譜面の健康度を再設定します。<code>全譜面を再スキャン</code> はライブラリ内の譜面全体を対象にします。<code>無視リストに追加</code> / <code>無視リストから削除</code> は、構成ファイルフルスキャンなどの表示対象から外すための設定です。</li>
+</ul>
+<p>インストール / 導入先:</p>
+<ul>
+<li><code>インストール</code> → <code>インストール先を推定</code>: 保留譜面の導入先を推定します。</li>
+<li><code>インストール</code> → <code>マージ先を推定</code>: 既所持譜面のみパッケージやリソース寄せ向けに、同梱リソースを評価へ足さない推定を行います。</li>
+<li><code>インストール</code> → <code>推定先にインストール</code>: <code>INSTL DST</code> に導入します。</li>
+<li><code>インストール</code> → <code>警告を無視してインストール</code>: 推定先を使わず通常の新規インストールとして扱います。</li>
+<li><code>インストール</code> → <code>インストール先をクリア</code>: <code>INSTL DST</code>、推定先表示、推定 warning、候補を消します。</li>
+<li><code>インストール先を修正</code>: 導入済み譜面の <code>instl_dst</code> を再推定し、<code>推定先に再インストール</code> で記録を更新します。<code>再インストール先をクリア</code> で候補を消します。</li>
+</ul>
+<p>ファイル整理:</p>
+<ul>
+<li><code>移動</code>: ライブラリ内のルートフォルダ候補へ譜面ファイルを移動します。</li>
+<li><code>エントリー削除</code>: プレイリスト詳細で、選択行をプレイリストから外します。</li>
+<li><code>ファイル削除</code>: <code>無効な拡張子に変更(*.bmx/pmx)</code> または <code>ごみ箱へ移動</code> を選べます。</li>
+<li><code>フォルダの自動リネーム</code>: 選択譜面のフォルダ名を設定のフォルダ名書式に合わせて変更します。</li>
+<li><code>音声ファイルに変換</code>: 設定画面の録音設定に従い、譜面再生結果を音声ファイルとして出力します。</li>
+</ul>
+<p>通常ライブラリで <code>ファイル削除</code> → <code>ごみ箱へ移動</code> を実行すると、選択譜面を削除した結果として対象フォルダ内に譜面が残らない場合、フォルダごとごみ箱へ移動する確認が出ることがあります。この場合、譜面以外の同梱ファイルも一緒に移動対象になります。確認ダイアログの対象パスを見てから実行してください。</p>
+<p>画面固有:</p>
+<ul>
+<li><code>一覧から削除</code>: 新規 / 保留 / 導入済みパッケージ表示から対象を取り除きます。実ファイル削除を伴う操作とは区別してください。</li>
+<li><code>メタデータ解析失敗記録を除去</code>: 解析エラー画面で表示され、保存済みの解析失敗記録を削除して再パース対象に戻します。</li>
+</ul>
+<p>未所持譜面のプレイリスト詳細では、ファイル操作やインストール操作は表示されず、<code>BMS-IRを開く</code> / <code>Mochaを開く</code> / <code>MinIRを開く</code> / <code>本体URLを開く</code> / <code>差分URLを開く</code> / <code>動画を開く</code> / <code>入手先を検索</code> / <code>譜面ビューアで開く</code> / <code>ランキングデータの更新</code> / <code>エントリー削除</code> など、プレイリスト行に対する操作だけが表示されます。<code>BMS-IRを開く</code> は MD5 がある行でのみ表示されます。</p>
+<p>実ファイルを変更する操作は、読み取り専用属性などで失敗しにくいよう Windows Explorer に近い挙動へ寄せています。ただし、削除や上書きは元に戻せない場合があるため、対象を確認してから実行してください。</p>
+<h4 id="無効な拡張子に変更">無効な拡張子に変更</h4>
+<p><code>無効な拡張子に変更(*.bmx/pmx)</code> は、選択した BMS / PMS 系譜面の拡張子を LR2 などが通常譜面として読まない拡張子へ変更する機能です。BMS 系拡張子は <code>.bmx</code>、PMS 系拡張子は <code>.pmx</code> へ変更します。主に、0 notes 譜面、誤って譜面として登録されたファイルをライブラリから外したい場合に使います。</p>
+<p>変更先のファイル名が空いている場合は、そのままリネームします。変更先が既に存在する場合は、次のように衝突を解決します。</p>
+<ul>
+<li>変更先の <code>.bmx</code> / <code>.pmx</code>、または <code>名前(1).bmx</code> のような連番候補に同一内容のファイルが既にある場合は、同じファイルを増やさず、元の <code>.bms</code> / <code>.pms</code> 側を重複として削除します。</li>
+<li><strong>変更先や連番候補が存在しても内容が異なる場合は、空いている連番名へリネームします。</strong></li>
+<li>変更先に同名ディレクトリがある場合も、その名前は避けて連番候補を探します。</li>
+</ul>
+<p>同一内容の判定にはファイル内容の MD5 を使います。</p>
+<p>通常ライブラリ上で実行した場合、リネームまたは重複削除された譜面は一覧から外れます。保留一覧上で実行した場合も、処理された譜面は保留パッケージから除外されます。</p>
+<h3 id="ツリーの右クリックメニュー">ツリーの右クリックメニュー</h3>
+<p>左サイドバーのツリーにも、場所ごとに右クリックメニューがあります。</p>
+<p>ライブラリ:</p>
+<ul>
+<li>ライブラリルート: <code>リロード</code>、<code>初期化再実行</code>、<code>ルートフォルダを追加</code> を実行できます。</li>
+<li>ライブラリフォルダ: <code>リロード</code>、<code>初期化再実行</code>、<code>エクスプローラで開く</code>、<code>ルートフォルダの登録解除</code>、<code>フォルダの一括リネーム</code> を実行できます。</li>
+<li><code>フォルダの一括リネーム</code> はルートフォルダの規模によってはかなり時間が掛かると思われるので<strong>通常は検索で候補を絞り選択範囲に対しての右クリックメニューから実行することをおすすめします。</strong></li>
+</ul>
+<p>プレイリスト:</p>
+<ul>
+<li>プレイリストルート: <code>新規作成</code>、<code>インポート</code>、<code>リロード</code> を実行できます。インポートには、URL 指定、難易度表リストからの読み込み、発狂 BMS 難度推定表、リコメンド表などがあります。</li>
+<li>プレイリスト本体: <code>リロード</code>、<code>ページを開く</code>、<code>クリアランプ (外部サイト)</code>、<code>レベルを上書き</code>、<code>フォルダの新規作成</code>、<code>エクスポート</code>、<code>プレイリストの削除</code>、<code>プロパティ</code> を実行できます。各項目の詳細は <a href="#プレイリスト詳細">プレイリスト詳細</a> を参照してください。</li>
+<li>プレイリスト内フォルダ: <code>削除</code>、<code>名前の変更</code> を実行できます。</li>
+<li>プレイリストサマリー行: <code>リロード</code>、<code>ページを開く</code>、<code>プロパティ</code>、<code>プレイリストの削除</code> を実行できます。サマリーで複数行を選んだリロードは、選択したプレイリストを外部同期フラグに関係なく対象にします。</li>
+</ul>
+<p>インストール:</p>
+<ul>
+<li><code>新規</code> ルート: <code>全てクリア</code> で新規パッケージ表示を空にします。</li>
+<li><code>保留</code> ルート: <code>全てクリア</code> と <code>高度な機能</code> を実行できます。高度な機能については <a href="#高度な機能">高度な機能</a> を参照してください。</li>
+<li>保留パッケージ: <code>エクスプローラで開く</code>、<code>インストール先を開く</code>、<code>インストール</code> サブメニュー、<code>一覧から削除</code> を実行できます。<code>インストール</code> サブメニューには、<code>インストール先を推定</code>、<code>マージ先を推定</code>、<code>推定先にインストール</code>、<code>警告を無視してインストール</code>、<code>インストール先をクリア</code> があります。</li>
+<li>導入済みパッケージ: <code>エクスプローラで開く</code>、<code>一覧から削除</code> を実行できます。</li>
+</ul>
+<p>メンテナンス:</p>
+<ul>
+<li><code>ゼロノート検索</code>: <code>ゼロノート記述確認</code> を実行できます。</li>
+<li><code>重複ファイルチェック</code> のフォルダ: <code>エクスプローラで開く</code>、<code>マージ先</code> を実行できます。重複フォルダマージについては <a href="#重複フォルダをマージする">重複フォルダをマージする</a> を参照してください。</li>
+</ul>
+<p>列ヘッダーの右クリックメニューでは、表示する列を切り替えたり、列設定を初期値へ戻したりできます。プレイリストサマリーにも専用の列表示メニューがあります。</p>
+<h3 id="その他のポップアップメニュー">その他のポップアップメニュー</h3>
+<p>右クリックではありませんが、画面上部のボタンから開くメニューもあります。</p>
+<ul>
+<li>再生コントロールのメニュー: ハイスピード変更、プレイヤー情報 / エフェクト画面表示、1P/2P 切り替え、音量、<code>REPEAT</code>、<code>FOLDER SKIP</code>、<code>SINGLE PLAY</code> を操作できます。利用できる項目は、設定している BMS プレイヤーによって変わります。</li>
+<li>モードフィルタ: <code>5KEYS</code>、<code>7KEYS</code>、<code>9KEYS</code>、<code>10KEYS</code>、<code>14KEYS</code> の表示対象を切り替えます。</li>
+<li>プレイリストサマリーの所持率フィルタ: <code>All</code>、<code>OWNED=100%</code>、<code>OWNED&lt;100%</code> を切り替えます。</li>
+</ul>
+<h2 id="検索">検索</h2>
+<p>右上の検索ボックスに文字を入力すると、一覧を絞り込めます。</p>
+<p>通常検索では、大文字・小文字を区別せず、複数語は AND 検索になります。</p>
+<div class="highlight"><pre><span></span><code>alpha artist
+</code></pre></div>
+<p>より細かく探す場合は、field 指定を使います。</p>
+<div class="highlight"><pre><span></span><code>title:Satellite
+artist:xi
+level:12
+rate:&gt;=80
+playlist:"Satellite Sub"
+</code></pre></div>
+<p>検索欄には field 補完、プレイリスト名補完、検索履歴があります。<br/>
+詳しい構文は <a href="keyword-search-syntax-guide.ja.html">キーワード検索構文ガイド</a> を参照してください。</p>
+<h2 id="再生録音">再生・録音</h2>
+<p>一覧で譜面をダブルクリック、または Enter を押すと再生できます。使用するプレイヤーは設定画面の <code>再生</code> タブで選択します。</p>
+<p>内蔵プレイヤーは音声のみの簡易再生用です。外部プレイヤーを使う場合は、対応する実行ファイルを指定してください。</p>
+<p>bmson はライブラリ上では譜面ファイルとして扱われますが、現時点では内蔵プレイヤーでの再生と <code>音声ファイルに変換</code> には対応していません。通常の再生操作で設定済み外部プレイヤーへ渡すこともできません。bmson を再生したい場合は、<code>関連付けで開く</code> などで、bmson に対応した外部アプリから開いてください。</p>
+<p>録音は設定画面の <code>録音</code> タブで、保存形式、品質、サンプルレート、ファイル名書式、エンコーダの場所を設定します。録音の保存先やエンコード形式は、事前に短い譜面で確認しておくと安全です。</p>
+<h2 id="プレイリスト">プレイリスト</h2>
+<p>BeMusicSeeker では、導入済みの難易度表や独自プレイリストを <code>プレイリスト</code> として管理できます。プレイリストには、全体の所持状況を一覧するサマリー表示と、各譜面を確認する詳細表示があります。</p>
+<h3 id="プレイリストサマリー">プレイリストサマリー</h3>
+<p><img alt="プレイリストサマリー" src="img/一覧_プレイリストサマリー.PNG"/></p>
+<p>プレイリストサマリーでは、各プレイリストの譜面数、所持数、未所持数、所持率、外部同期の状態を一覧できます。</p>
+<p>右上の検索欄から、所持率フィルタ: <code>All</code>、<code>OWNED=100%</code>、<code>OWNED&lt;100%</code> を切り替えることができます。</p>
+<p>未所持譜面が増えた表を見つけたら、<strong>行をダブルクリックすると対象のプレイリスト詳細へ移動できます。</strong></p>
+<p><code>STATUS</code> 列には、起動後またはリロード時に行われた外部プレイリスト同期の結果が表示されます。リンク切れ、ヘッダ取得失敗、データ取得失敗などはここで確認できます。詳細はツールチップに表示されます。</p>
+<h3 id="プレイリスト詳細">プレイリスト詳細</h3>
+<p><img alt="プレイリスト詳細" src="img/一覧_プレイリスト詳細.PNG"/></p>
+<p>プレイリスト詳細では、選択したプレイリストに含まれる譜面を一覧できます。所持済み譜面と未所持譜面を確認でき、未所持譜面は <code>[NO SONG]</code> として表示されます。</p>
+<p><code>URL1</code> / <code>URL2</code> 列から本体 URL や差分 URL を開けます。URL がプレイリスト自体に含まれていない場合でも、URL 補完が有効であれば、外部マッピングから実行時に補完されることがあります。</p>
+<p>プレイリストツリーでプレイリスト本体を右クリックすると、次の操作を実行できます。</p>
+<ul>
+<li><code>リロード</code>: 対象プレイリストを再取得します。単体リロードでは、外部同期フラグに関係なく選択したプレイリストが対象になります。</li>
+<li><code>ページを開く</code>: プレイリストのページ URI をブラウザで開きます。</li>
+<li><code>クリアランプ (外部サイト)</code>: LR2ID とプレイリストのページ URI を外部 CLEAR LAMP サイトに渡して開きます。<strong>ただし現時点では外部サイトが利用できない状態のため、内部ランプビューアを作成する方向で検討中です。</strong></li>
+<li><code>レベルを上書き</code>: このプレイリストに登録されている譜面のレベルを使い、ローカルライブラリ側の同一譜面のレベルを上書きします。実行前に確認ダイアログが表示されます。リコメンド表など一部の特殊表では実行できません。実ファイルではなく song テーブルの保存値に対する操作です。<strong>プレイスキンによっては使い道があるかも知れませんが個人的には使用をおすすめしません。</strong></li>
+<li><code>フォルダの新規作成</code>: 外部同期ではないプレイリストに、手動管理用のフォルダを追加します。</li>
+<li><code>エクスポート</code>: プレイリストを <code>header.json</code> と <code>data.json</code> の 2 ファイルとして保存します。保存先はそれぞれファイル選択ダイアログで指定します。</li>
+<li><code>プレイリストの削除</code>: 対象プレイリストを BeMusicSeeker の管理対象から削除します。実行前に確認ダイアログが表示されます。</li>
+<li><code>プロパティ</code>: プレイリスト名、表示記号、外部同期、URI、フォルダ出力などを編集します。</li>
+</ul>
+<p>外部同期ではないプレイリストでは、一覧からプレイリスト本体またはフォルダへ譜面行をドラッグアンドドロップして追加できます。プレイリスト詳細内の行を別フォルダへドラッグすると、同じプレイリスト内でフォルダ間移動できます。フォルダ型のプレイリストにルートへドロップした場合は、既存フォルダの内容や同じ曲の MD5 情報を参考にしてフォルダが選ばれ、必要に応じて新しいフォルダが作成されます。</p>
+<h3 id="外部プレイリストのインポート">外部プレイリストのインポート</h3>
+<p><img alt="プレイリストインポート メニュー" src="img/プレイリストインポート_ツリーコンテキストメニュー.PNG"/></p>
+<p>プレイリストツリーのルートを右クリックし、<code>インポート</code> から外部プレイリストを追加できます。登録済みの外部表リストから選ぶほか、URI を指定して読み込むこともできます。</p>
+<p>既定の難易度表リスト取得URIは <a href="https://darksabun.club/table/tablelist.html">DARKSABUN</a> が管理しているものです。</p>
+<p><img alt="プレイリストインポート URL指定" src="img/プレイリストインポート_URLを指定して読み込む.PNG"/></p>
+<p>外部表リストやリコメンド表などのインポートメニューは、<strong>項目を 1 つクリックしてもメニューが閉じないため、複数の表を続けて選択してインポートできます。</strong></p>
+<p><code>URLを指定して読み込む</code> では、読み込み先 URI を複数行で入力できます。複数の難易度表 URL をまとめて貼り付けると、行ごとに読み込み対象として扱われます。</p>
+<p>外部同期プレイリストは、元の難易度表を再取得して更新できます。インポート後はプレイリストサマリーの <code>STATUS</code> 列で同期結果を確認してください。</p>
+<h3 id="プレイリストのプロパティ">プレイリストのプロパティ</h3>
+<p>プレイリストを右クリックして <code>プロパティ</code> を開くと、プレイリスト名、表示記号、外部同期設定、ページ URI、ヘッダ URI、データ URI を確認・編集できます。</p>
+<p>プレイリスト名やフォルダ設定などのプロパティは、スタンドアローンモードでもアプリ内 DB に保存されます。LR2 連携モードでのみ、保存後に LR2 用カスタムフォルダ出力も更新されます。</p>
+<p><img alt="プレイリストプロパティ 一般" src="img/プレイリストプロパティ_一般.PNG"/></p>
+<p><code>フォルダ</code> タブでは、フォルダ内ソートのキーと昇順 / 降順、フォルダの並び順を設定できます。外部同期プレイリストでは、同期元と衝突する項目の編集が制限されます。</p>
+<p><img alt="プレイリストプロパティ フォルダ" src="img/プレイリストプロパティ_フォルダ.PNG"/></p>
+<p><code>カスタムフォルダ</code> タブでは、出力するフォルダ種別や出力名を設定できます。</p>
+<p><img alt="プレイリストプロパティ カスタムフォルダ" src="img/プレイリストプロパティ_カスタムフォルダ.PNG"/></p>
+<h3 id="カスタムフォルダ出力">カスタムフォルダ出力</h3>
+<p>LR2 連携モードでは、プレイリストを LR2 のカスタムフォルダとして出力できます。</p>
+<p>設定画面の <code>プレイリスト</code> タブで通常出力先とルートフォルダ出力先を指定します。<br/>
+プレイリストの <code>プロパティ</code> から、出力名、<code>ルートフォルダにする</code>、出力するフォルダ種別を設定します。</p>
+<p>出力先には重要なデータを置かず、通常出力先とルートフォルダ出力先は別の場所を指定してください。出力時は出力先配下の <code>.lr2folder</code> を書き直すため、手作業で管理している LR2 カスタムフォルダや他アプリのデータと同じ場所を指定すると、意図せず消える可能性があります。BeMusicSeeker 専用の空フォルダを用意することをおすすめします。</p>
+<p>出力できる主なフォルダ種別:</p>
+<ul>
+<li>ユーザー定義</li>
+<li>レベル</li>
+<li>アルファベット</li>
+<li>クリア</li>
+<li>DJ レベル</li>
+<li>カテゴリ ALL</li>
+<li>その他</li>
+</ul>
+<p><strong>個人的なおすすめは、ユーザ定義とその他だけチェックを入れた状態です。</strong></p>
+<p>ルートフォルダにしたプレイリストは LR2 の選曲画面ルートに表示されます。よく使う表へ素早くアクセスしたい場合に便利です。</p>
+<blockquote>
+<p>機能を充実させようという考えはあるものの <a href="https://github.com/Anyoji-bms/LR2FolderGenerator-v1.0.1">カスタムフォルダ出力ツール</a> も存在しますし、今日では各種AIにこんなカスタムフォルダが欲しいという要望をDBのスキーマとともに伝えた方が各自の好みのものが生成できるのでは？という考えもあります。<code>chart_info</code> には各種メタデータ、<code>chart_digest_map</code> には BMS の MD5/SHA256 のマッピング、<code>playlist_entry</code> には SHA256 カラムを追加しているという状況なので工夫次第で色々なフォルダが作れると思います。</p>
+</blockquote>
+<h3 id="url1url2-補完">URL1/URL2 補完</h3>
+<p>プレイリストの <code>URL1</code> / <code>URL2</code> が空の場合、MD5 をもとに外部 TSV や Stella Uploader 由来の情報から URL を補完できます。</p>
+<p>補完結果はまず実行中の表示情報として扱われます。ローカルプレイリストで行編集を保存した場合のみ、補完値もプレイリストに保存されます。外部同期プレイリストの編集制限は維持されます。</p>
+<p>設定画面の <code>プレイリスト</code> タブで、以下を設定できます。</p>
+<ul>
+<li>プレイリストの URL1/URL2 が空の場合補完を試みる</li>
+<li>空ではない URL1/URL2 も補完機能で上書きする</li>
+<li>MD5-URL マッピング TSV 取得 URI</li>
+<li>Stella Uploader (Full) のデータで URL1/URL2 を補完する</li>
+</ul>
+<p>TSV URI には HTTP/HTTPS のほか、ローカル TSV ファイルパスも指定できます。同じ MD5 に複数の補完元がある場合、TSV が優先されます。優先は MD5 単位で判定されるため、TSV に同じ MD5 の行がある場合は、TSV 側の URL1 または URL2 が空でも Stella Uploader (Full) 側の値では補いません。</p>
+<h2 id="インストール--保留パッケージ">インストール / 保留パッケージ</h2>
+<p>BMS フォルダやアーカイブを BeMusicSeeker に追加すると、未導入の譜面や差分は <code>インストール</code> ツリーの <code>新規</code> / <code>保留</code> に表示されます。</p>
+<p><strong>基本的な流れは次の通りです。</strong></p>
+<ol>
+<li>BMS 作品、差分譜面、またはそれらを含むフォルダ / アーカイブを画面へドラッグアンドドロップします。</li>
+<li>未所持の新規作品としてリソースが十分に揃っているものは、設定画面の <code>新規インストール先</code> へ通常インストールされます。詳細設定で <code>新規判定でも自動インストールせず保留に追加する</code> を有効にしている場合は、新規判定でも保留に残ります。</li>
+<li>リソースが少なく、既存作品に追加する差分譜面と判断されたものは <code>保留</code> に入り、導入先推定が行われます。</li>
+<li><code>WARNING</code>、<code>TITLE</code>、<code>ARTIST</code>、<code>INSTL DST TITLE</code>、<code>INSTL DST ARTIST</code> などを確認します。必要なら <code>INSTL DST</code> を手動入力、候補から選択します。</li>
+<li>問題ない行を選択し、右クリックメニューの <code>インストール</code> → <code>推定先にインストール</code> を実行します。</li>
+</ol>
+<p>インストール処理は、元パッケージから導入先へファイルをコピーするだけではありません。フォルダパッケージでは、譜面や同梱ファイルを導入先へ移動し、処理後に元フォルダを削除する場合があります。元の配布物をそのまま残したい場合は、事前に別の場所へ控えを作ってください。</p>
+<p><strong><code>保留</code> や <code>新規</code> の一覧では複数行を選択できます。</strong></p>
+<ul>
+<li>1 行クリックで単一選択</li>
+<li><code>Ctrl + クリック</code> で個別に追加 / 解除</li>
+<li><code>Shift + クリック</code> で範囲選択</li>
+<li><code>Ctrl + A</code> で全選択</li>
+<li>キーボードでは <code>Shift + ↑ / ↓</code> で選択範囲を伸ばせます</li>
+</ul>
+<p><strong>右クリックメニューのインストール、推定、削除などは、基本的に選択中の複数行を対象にします。数百譜面以上の一括導入を行うことも可能です。</strong></p>
+<h3 id="新規">新規</h3>
+<p><code>新規</code> には、導入直後のパッケージが表示されます。導入前の一時 WARNING は、導入後の状態に合わせて再評価されます。
+例えば、差分単体なら <code>WAV 0%</code> という状態で <code>保留</code> に追加されますが、インストール後は <code>新規</code> で <code>WAV 100%</code> になるというのが典型的な導入成功例です。</p>
+<p><img alt="インストール 新規" src="img/一覧_インストール_新規.PNG"/></p>
+<h3 id="保留">保留</h3>
+<p><img alt="インストール 保留" src="img/一覧_インストール_保留.PNG"/></p>
+<p><code>保留</code> には、まだ導入前のパッケージが表示されます。推定された導入先の確認、手動導入先指定、インストール、一覧から削除、ごみ箱へ移動などを行います。</p>
+<p><code>一覧から削除</code> は表示上の保留行を取り除く操作です。実ファイルを消したい場合は右クリックメニューの <code>ファイル削除</code> → <code>ごみ箱へ移動</code> を使います。保留パッケージでは、フォルダごと削除するチェックが有効な場合でも、そのパッケージ内の譜面行がすべて選択対象に含まれているときだけ、パッケージフォルダ全体がごみ箱へ移動されます。複数行選択時は選択範囲すべてに同じ方針が適用され、対象フォルダごとの個別確認は出ないため、対象をよく確認してください。</p>
+<p>保留に入った譜面は、既所持譜面の hash、フォルダ構成、譜面が参照している WAV / BGA / 動画 / 画像、同梱リソース、タイトル / アーティストなどを使って導入先を推定します。推定結果は主に次の列に表示されます。</p>
+<ul>
+<li><code>INSTL DST</code>: 実際に導入する候補ディレクトリ。</li>
+<li><code>INSTL DST TITLE</code>: 推定先ディレクトリを代表する既存譜面のタイトル。</li>
+<li><code>INSTL DST ARTIST</code>: 推定先ディレクトリを代表する既存譜面のアーティスト。</li>
+<li><code>WARNING</code>: 推定先が曖昧、低信頼、リソース不足などの注意。</li>
+</ul>
+<p>推定は、「その差分譜面をどの既存ディレクトリに入れると参照リソースが最も揃うか」を見ます。特に音声リソースの一致を重く見て、画像や動画もカテゴリ別に照合します。<code>sound/foo.wav</code> と <code>foo.wav</code> のように相対パスが違うリソースは別物として扱います。</p>
+<p>次のような場合は、自動で <code>INSTL DST</code> を確定せず、WARNING を出すことがあります。</p>
+<ul>
+<li>有力な候補が複数あり、リソース一致度だけでは一意に決められない。</li>
+<li>パッケージ内の既所持譜面が複数の配置先に存在する。</li>
+<li>リソースはそこそこ一致するが、TITLE / ARTIST の一致度が低い。</li>
+<li>起動時のファイル差分確認を省略しており、推定に必要なリソース index がない。</li>
+</ul>
+<p>候補が複数ある場合は、<code>INSTL DST</code> セルをクリックして編集状態にすると、候補がサジェストとして表示されます。候補から選ぶと、そのディレクトリが <code>INSTL DST</code> に設定されます。候補を選んだ場合、曖昧さを示す WARNING は残ることがあります。これは別の候補を後で再選択する余地を残すためです。</p>
+<p><code>INSTL DST</code> は手動入力もできます。入力できるのは、所持譜面のフルパスそのもの、または所持譜面が配置されているディレクトリです。フルパスを入力した場合は、その譜面が入っているディレクトリに正規化されます。存在しないパスや、ライブラリ上の既存譜面ディレクトリとして認識されていない場所は指定できません。</p>
+<h3 id="導入先推定とマージ先推定">導入先推定とマージ先推定</h3>
+<p>右クリックメニューの <code>インストール</code> には、似た名前の推定機能が複数あります。</p>
+<p><code>インストール先を推定</code> は、通常の差分導入向けです。保留パッケージに同梱されているリソースも「導入後に使えるもの」として数え、既存ディレクトリとの組み合わせで最も成立しやすい導入先を探します。通常はこの機能を使います。<strong>つまり同梱の追加音源も考慮されるということです。</strong></p>
+<p><code>マージ先を推定</code> は、既所持譜面だけの保留パッケージや、リソースだけを既存フォルダへ寄せたいケース向けです。保留パッケージ内の同梱リソースを評価に足さず、既存ライブラリ側のリソースだけで成立する統合先を探します。推定済みの <code>INSTL DST</code> は上書きされます。実行前に確認ダイアログが出ます。</p>
+<p><code>推定先にインストール</code> は、<code>INSTL DST</code> が設定されている保留パッケージを、その推定先へ導入します。導入先ごとにまとめて処理し、ファイル移動、song.db への反映、メンテナンス情報、譜面メタデータ、リソース状態を更新します。同梱ファイルの同名衝突は、設定画面の <a href="#スマート上書き">スマート上書き</a> に従って処理されます。</p>
+<p><code>警告を無視してインストール</code> は、推定先を使わず、通常の新規インストールとして扱います。<strong>典型的には <code>WAV 97%</code> だが作品の配布状態が元々こうだったという場合に使うことが多いです。</strong></p>
+<p><code>インストール先をクリア</code> は、選択行の <code>INSTL DST</code>、推定先タイトル / アーティスト、導入先推定 WARNING、候補サジェストを消します。推定をやり直したい場合に使います。</p>
+<h3 id="高度な機能">高度な機能</h3>
+<p><img alt="インストール 保留 高度な機能" src="img/一覧_インストール_保留_高度な機能.PNG"/></p>
+<p>保留ツリーには、整理用の高度な機能があります。</p>
+<p><code>既所持譜面のみのパッケージをごみ箱を経由せずに削除</code> は、保留中のうち、含まれる譜面がすべて既所持と判断できるパッケージだけを対象にします。フォルダパッケージはフォルダごと、単体ファイルはファイルそのものを直接削除し、保留一覧からも取り除きます。ごみ箱を経由しないため、誤って実行すると戻せません。</p>
+<p><code>既所持譜面のみのパッケージをリソースのみ上書きする</code> は、譜面自体は既に持っているが、音源や BGA などの同梱リソースだけ更新したい場合の機能です。既所持譜面の hash から導入先を解決し、導入先が一意に決まるパッケージだけを処理します。導入先が複数に分かれる、導入先が分からない、上書き対象のリソースがない、などの場合はスキップされます。同名ファイル衝突時の扱いは <a href="#スマート上書き">スマート上書き</a> の設定に従います。処理後に成功数、スキップ理由、失敗数のサマリーが表示されます。</p>
+<p><code>ゼロノート譜面を無効な拡張子に変更(*.bmx/pmx)</code> は、保留中の譜面を実ファイルで確認し、0 notes と判定される譜面だけをまとめて対象にする一括処理です。BMS 系拡張子は <code>.bmx</code>、PMS 系拡張子は <code>.pmx</code> へ変更し、保留一覧から除外します。<code>.bmx</code> / <code>.pmx</code> 自体や対象外拡張子、0 notes ではない譜面はスキップされます。変更先ファイル名が衝突した場合の重複削除や自動採番は、ライブラリ右クリックメニューの <a href="#無効な拡張子に変更">無効な拡張子に変更</a> と同じです。</p>
+<p>これらは破壊的な操作を含みます。特に完全削除やリソース上書きは、対象パッケージと導入先を確認してから実行してください。</p>
+<h2 id="メンテナンス">メンテナンス</h2>
+<p><code>メンテナンス</code> には、ライブラリの状態確認に使う専用ビューがあります。</p>
+<h3 id="lr2互換性警告">LR2互換性警告</h3>
+<p><img alt="LR2互換性警告" src="img/一覧_LR2互換性警告.PNG"/></p>
+<p><code>LR2互換性警告</code> には、LR2 側で選曲や再生に支障が出る可能性がある譜面が表示されます。LR2 は多くの処理で CP932(Shift_JIS) のファイル名と古いパス長制限を前提にしているため、BeMusicSeeker では譜面ファイル本体のパスと、BMS 内で参照される音源・画像・動画などのリソース定義を確認しています。</p>
+<ul>
+<li>LR2パス非対応: 譜面ファイルのフルパスに CP932(Shift_JIS) で表現できない文字が含まれています。LR2 用の <code>folder</code> / <code>parent</code> 情報を安全に作れず、LR2 側で選曲できない可能性があります。</li>
+<li>LR2パス長超過: 譜面ファイルのフルパスが LR2 の古いパス長制限を超える可能性があります。フォルダ階層を浅くする、フォルダ名やファイル名を短くする、といった対応を検討してください。</li>
+<li>LR2リソース非対応: BMS 内のリソース定義(<code>#WAV</code>、<code>#BMP</code>、<code>#BGA</code> など)に、LR2 が CP932(Shift_JIS) のファイル名として扱えない文字列が含まれています。譜面自体を選曲できても、音源や BGA が正しく読み込まれない可能性があります。</li>
+<li>LR2リソースパス長超過: 譜面の配置フォルダとリソース定義を組み合わせた、LR2 が実際に参照するリソースパスが長すぎる可能性があります。譜面フォルダを短い場所へ移動する、リソースのフォルダ名やファイル名を短くする、といった対応を検討してください。</li>
+</ul>
+<p>リソース定義に <code>..</code> を含む親ディレクトリ参照がある場合でも、それだけで LR2 非対応とは扱いません。ただし、配置先を含めた実際の参照パスが長くなる場合は <code>LR2リソースパス長超過</code> の対象になります。</p>
+<p>BeMusicSeeker 上では該当譜面を削除せず warning として可視化しますが、LR2 側では選曲や再生に失敗する可能性があります。必要に応じて、譜面ファイル、リソースファイル、配置先フォルダを CP932(Shift_JIS) 互換の文字と短いパスへ変更してください。</p>
+<h3 id="ゼロノート検索">ゼロノート検索</h3>
+<p><img alt="ゼロノート検索" src="img/一覧_ゼロノート検索.PNG"/></p>
+<p>メタデータ上 <code>0 notes</code> と判定された譜面を確認します。</p>
+<p>ここでいう <code>0 notes</code> は、譜面メタデータ解析で得られた <code>notes == 0</code> の譜面です。メタデータ解析は beatoraja / jbms-parser 準拠の解釈に寄せていますが、<code>#RANDOM</code> / <code>#IF</code> などによって分岐する全パターンを総当たりして照合しているわけではありません。そのため、条件分岐によって特定パターンだけノートが出る譜面などは、実際のプレイヤー上の挙動と完全には一致しない場合があります。</p>
+<p><code>ゼロノート記述確認</code> は、メタデータ上 <code>0 notes</code> の譜面ファイルを実ファイルから読み直し、本文に可視ノート風の記述があるかを正規表現ベースで確認します。対象になるのは、通常ノート系チャンネルや LN 系チャンネルに、<code>00</code> 以外のオブジェクトが書かれている行です。このチェックは軽量な保守用判定であり、譜面構文を完全に解釈するものではありません。不正な LN ペア、到達不能な <code>#RANDOM</code> 分岐内の記述、プレイヤー上では無効になる可能性がある記述でも、可視ノート風の行として見つかれば「メタデータは 0 notes だが本文にはノートらしき記述がある」として warning 表示します。</p>
+<p>つまり、<code>ゼロノート検索</code> は「本当に空譜面か」を断定する画面ではなく、<code>0 notes</code> と解析された譜面のうち、念のため確認した方がよいものを見つけるための画面です。</p>
+<p>LR2 ではパースエラーなどで再生できなくても、他プレイヤーや譜面ビューアでは再生できる譜面が該当する場合があります。</p>
+<h3 id="解析エラー">解析エラー</h3>
+<p><img alt="譜面メタデータ解析失敗" src="img/一覧_解析エラー.PNG"/></p>
+<p>譜面メタデータ解析に失敗した譜面を確認します。<br/>
+解析失敗は WARNING として表示され、通常一覧の元行を直接変更するのではなく、解析エラー確認用の表示として扱われます。</p>
+<p>解析エラー画面で譜面を右クリックすると、<code>メタデータ解析失敗記録を除去</code> を実行できます。これは解析失敗そのものを無視する操作ではなく、保存されている失敗記録を消して、次回の譜面メタデータ解析で再パース対象に戻すための操作です。</p>
+<p>通常は使う必要はありません。ディスク負荷や CPU 負荷が高い状態でタイムアウトした、外部要因で一時的に読み込みに失敗した、など「譜面ファイル自体の問題ではなさそう」と判断できる場合に使用してください。除去後も再パースで同じエラーになる場合は、譜面内容や parser 側の制約による解析失敗として扱うのが自然です。</p>
+<h3 id="文字化けチェック">文字化けチェック</h3>
+<p><img alt="文字化けチェック" src="img/一覧_文字化けチェック.PNG"/></p>
+<p>文字コード推定に問題がある譜面を確認します。手動修正では、日本語、韓国語、中国語などの候補から選べます。</p>
+<h3 id="重複ファイルチェック">重複ファイルチェック</h3>
+<p><img alt="重複ファイルチェック" src="img/一覧_重複ファイルチェック.PNG"/></p>
+<p>同一譜面と判断できるファイルを探し、重複している譜面をまとめて確認する画面です。BMS 系ファイルだけでなく bmson も譜面ファイルとして扱い、MD5 または SHA-256 などの譜面識別用 hash が一致するものを重複候補として表示します。</p>
+<p>重複している譜面には <code>重複譜面</code> の WARNING が付き、一覧では行がハイライトされます。左ツリーの <code>重複ファイルチェック</code> を選ぶと重複候補全体、配下のグループを選ぶとそのグループ、さらにフォルダを選ぶとそのフォルダ内の該当譜面だけを一覧に表示できます。</p>
+<p>重複グループは、同じ hash を持つ譜面が入っているフォルダ同士をつなげて作られます。たとえば <code>A</code> と <code>B</code> に同じ譜面があり、さらに <code>B</code> と <code>C</code> に別の同一譜面がある場合、<code>A / B / C</code> は一つの整理対象として扱われます。これにより、複数フォルダにまたがって少しずつ重複しているパッケージもまとめて確認できます。</p>
+<h4 id="重複フォルダをマージする">重複フォルダをマージする</h4>
+<p>重複ファイルチェックツリーで、統合したい側、つまり<strong>消したい側のフォルダを選び</strong>、右クリックメニューの <code>マージ先</code> から移動先フォルダを選ぶと、選択フォルダ内の譜面と同梱リソースを移動先へまとめます。フォルダの右クリックメニューからは、対象フォルダを Explorer で開くこともできます。実行前には、対象パスとマージ先パスを表示した確認ダイアログが出ます。</p>
+<p>bmson も対象フォルダ配下にあれば譜面として扱われます。移動先に同じ hash の譜面がすでにある場合、その譜面ファイルは移動しないので重複が解消されます。譜面ファイル名だけが衝突する場合は、ファイル名をずらして移動するので hash の違う譜面が消失することはありません。</p>
+<p>同梱リソース類は、移動先に同名ファイルがある場合、設定画面の <a href="#スマート上書き">スマート上書き</a> に従って上書き、スキップ、自動採番されます。確認ダイアログにもある通り、<code>ogg</code> と <code>wav</code> のように音質や形式が違うリソースが混在している場合は、どちらを残したいかを確認してから実行してください。</p>
+<p>移動元フォルダは、移動後に空になった場合、または残っているファイルがすべて「すでに所持済みと判断できる譜面ファイル」だけの場合に削除されます。何らかの想定外で、非譜面ファイル、読み込めない譜面、hash 不明の譜面、未所持 hash の譜面が残っている場合は、移動元フォルダの削除をスキップします。</p>
+<h4 id="ctrl--g-で連続整理する"><code>Ctrl + G</code> で連続整理する</h4>
+<p>フォルダ項目を選択した状態で <code>Ctrl + G</code> を押すと、重複整理用のショートカットとして動作します。</p>
+<ul>
+<li>重複フォルダが 2 件だけの場合は、選択中フォルダをもう一方のフォルダへマージします。</li>
+<li>重複フォルダが 3 件以上ある場合は、統合先を自動決定せず、右クリックメニューの <code>マージ先</code> を開いた状態にします。候補を確認して移動先を選んでください。</li>
+<li>重複フォルダが 1 件だけの場合は、同じフォルダ内に同一 hash の譜面が複数ある状態として扱い、重複 hash の整理を行います。</li>
+</ul>
+<p>同一フォルダ内の重複 hash 整理では、hash ごとに 1 件だけ残し、残りをごみ箱へ移動します。残すファイルは、更新日時が古いものを優先し、同じ日時ならファイル名が短いものを優先します。実行前には、ごみ箱へ移動する件数を表示した確認ダイアログが出ます。</p>
+<p>マージや重複 hash 整理が終わると、ツリー内の次に確認すべき重複グループへ自動的にフォーカスを移します。上から順番に確認しながら <code>Ctrl + G</code> を使うと、大量の重複を比較的少ない操作で整理できます。</p>
+<h4 id="注意点">注意点</h4>
+<ul>
+<li><strong><code>Ctrl + G</code> は、残したいフォルダではなく、統合したい、または削除したい側のフォルダに対して実行します。</strong></li>
+<li>3 件以上の候補がある場合は、意図しない移動を避けるため自動マージせず、必ず候補選択を挟みます。</li>
+<li>ファイルが他アプリ、アンチウイルス、検索インデックスなどに一時的にロックされていると、移動や削除に失敗することがあります。失敗した場合は対象ファイルを閉じてから再実行してください。</li>
+<li>重複表示はキャッシュされます。削除、移動、マージ、リロードなどでライブラリが変わると再計算されます。</li>
+</ul>
+<h3 id="構成ファイルフルスキャン">構成ファイルフルスキャン</h3>
+<p><img alt="構成ファイルフルスキャン" src="img/一覧_構成ファイルフルスキャン.PNG"/></p>
+<p>WAV、BGA、動画、画像などの不足を確認します。<br/>
+<code>全譜面を再スキャン</code> は重い明示操作です。通常起動では全譜面のリソース再検証は行いません。導入後に不足リソースを追加した場合は、該当行の再スキャンまたは全譜面再スキャンで状態を更新します。</p>
+<h2 id="バックアップアンインストール">バックアップ・アンインストール</h2>
+<p>設定画面の <code>バックアップ</code> タブから、プレイリストのバックアップ / 復元を実行できます。<code>LR2のバックアップと最適化</code> は、保存先、対象、スケジュール、世代数を設定し、条件を満たした起動時に自動取得されます。バックアップ成功後には <code>song.db</code> やスコア DB の <code>VACUUM</code> / <code>REINDEX</code> による最適化も行われます。設定しただけでその場ですぐ LR2 関連ファイルがバックアップされるわけではないため、大きな更新やアンインストール前に必要な場合は、手動でも控えを作ってください。</p>
+<p>LR2 連携モードでは、BeMusicSeeker が LR2 の <code>song.db</code> にアプリ用テーブルや索引を追加する場合があります。<code>BeMusicSeeker関連データをLR2データベースから削除</code> は、これらの BeMusicSeeker 管理データを削除するための機能です。実行後はアプリを終了する前提の操作です。</p>
+<p>アンインストールや大きな更新を行う前は、以下をバックアップしておくと安全です。</p>
+<ul>
+<li>LR2 <code>song.db</code></li>
+<li>LR2 <code>config.xml</code></li>
+<li>LR2 スコア DB</li>
+<li>BeMusicSeeker <code>config/user.config</code></li>
+<li>スタンドアローンモードの BeMusicSeeker <code>data/song.db</code></li>
+<li>BMS ルートフォルダ</li>
+</ul>
+<h2 id="ログとトラブルシューティング">ログとトラブルシューティング</h2>
+<p>通常より詳しいログを取りたい場合は、<code>LaunchWithInfoLog.bat</code> から起動してください。<code>application.log</code> と <code>install-performance.log</code> に初期化、DB 読み込み、ファイルスキャン、プレイリスト同期などの情報が出力されます。</p>
+<p>ログの読み方は <a href="log-level-info-guide.html">BeMusicSeeker ログ（実行記録）の見方ガイド</a> を参照してください。</p>
+<blockquote>
+<p>申し訳ありませんが、実際のところガイドを見てもあまり参考にはならないかも知れません。開発中にログの出力方針は随時変わっているのでガイドの内容は最新の実装に対する説明としては不十分です。明らかに挙動がおかしい場合にINFOレベルのログを出すようにして、ログを私に送り付けて頂ければ不具合修正の役に立ちます。</p>
+</blockquote>
+<h3 id="起動や初期化が遅い">起動や初期化が遅い</h3>
+<ul>
+<li>Everything 1.5 Alpha x64 が導入されているか確認してください。</li>
+<li>Everything 側で BMS フォルダが検索できるか確認してください。</li>
+<li>初回構築、DB 空状態、BMS ルートフォルダの大規模変更では、通常より時間がかかります。</li>
+<li><code>install-performance.log</code> の <code>everything_scan</code>、<code>song_tbl_file_check</code>、<code>playlist_*</code> などを見ると、どこに時間がかかっているか分かります。</li>
+<li>Everything 連携に失敗しても、警告ダイアログが出ずに通常のファイル列挙へ fallback する場合があります。想定より遅い場合は、<code>install-performance.log</code> の <code>everything_scan</code>、<code>nativeBridgeUsed</code>、<code>fallback</code>、<code>managed</code> などの記録を確認してください。</li>
+</ul>
+<h3 id="プレイリストの-status-が失敗になる">プレイリストの STATUS が失敗になる</h3>
+<p>外部難易度表の URL が 404、403、タイムアウトなどを返している場合があります。プレイリストサマリーの <code>STATUS</code> のツールチップ、または <code>application.log</code> の <code>playlist_reload_target_failed</code> を確認してください。</p>
+<p>外部サイト側の一時的な問題であれば、時間を置いてリロードしてください。URL が変更されている場合は、プレイリストのプロパティで URI を修正する必要があります。</p>
+<h3 id="lr2-で選曲できない譜面がある">LR2 で選曲できない譜面がある</h3>
+<p><code>LR2互換性警告</code> に表示されていないか確認してください。CP932(Shift_JIS) で表現できない譜面パスやリソース定義、長すぎる譜面パスやリソース参照パスを含む譜面は、LR2 側で選曲または再生できない可能性があります。</p>
+<p>LR2 連携モードでは、ステータスバーの <code>LR2 song.db 同期</code> 状態も確認してください。未完了や失敗が残っていると、LR2 側が古い <code>song.db</code> を読んでいる可能性があります。<code>再試行</code> で完了させてから LR2 を起動してください。</p>
+<p>または、設定画面の <code>LR2 song.db データを再同期</code> を実行することも有効な手段です。</p>
+<h3 id="検索構文が分からない">検索構文が分からない</h3>
+<p><a href="keyword-search-syntax-guide.ja.html">キーワード検索構文ガイド</a> を参照してください。<code>title:</code>、<code>artist:</code>、<code>playlist:</code>、<code>rate:</code> などの field 指定や、除外検索、OR、正規表現、数値範囲検索を使えます。</p>
+<h2 id="参考資料">参考資料</h2>
+<ul>
+<li><a href="keyword-search-syntax-guide.ja.html">キーワード検索構文ガイド</a></li>
+<li><a href="log-level-info-guide.html">BeMusicSeeker ログ（実行記録）の見方ガイド</a></li>
+<li><a href="https://tumblr.ribbit.xyz/post/129562866015/bemusicseeker-%E6%AD%A3%E5%BC%8F%E7%89%88%E3%82%92%E5%85%AC%E9%96%8B%E3%81%97%E3%81%BE%E3%81%97%E3%81%9F-v034">従来版 BeMusicSeeker 公開記事</a></li>
+<li><a href="https://tumblr.ribbit.xyz/post/129562878360/bemusicseeker-%E3%83%9E%E3%83%8B%E3%83%A5%E3%82%A2%E3%83%AB-v030-%E5%AF%BE%E5%BF%9C%E7%89%88">従来版 BeMusicSeeker マニュアル</a></li>
+</ul>
+    </main>
+  </div>
+</body>
+</html>
