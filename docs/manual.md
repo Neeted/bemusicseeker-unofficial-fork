@@ -62,6 +62,10 @@ LR2 scores, LR2 custom folder output, and some LR2IR/ranking-related features ar
 
 LR2 linked mode uses LR2's `song.db`, `config.xml`, and score DB. Use this mode when you want BeMusicSeeker to cooperate with your existing LR2 library.
 
+Add and remove BMS search roots from BeMusicSeeker's General tab. In LR2 linked mode, avoid changing LR2's JUKEBOX tab directly; BeMusicSeeker treats those roots as part of the LR2 integration settings it manages.
+
+When you save the initial LR2 linked setup and when the app starts in LR2 linked mode, BeMusicSeeker sets `<autoreload>0</autoreload>` in LR2's `config.xml`. This changes LR2's database auto update setting to manual-only. The app manages `song.db` itself, so this prevents LR2's own automatic scan from rewriting generated rows or adding corrupted rows for paths that LR2 cannot represent in Shift_JIS.
+
 Before the first scan, back up LR2 databases and settings. The fork tries to keep updates safe, but it still handles real files and databases.
 
 ### First Scan
@@ -82,7 +86,9 @@ Configure BMS search directories. The application database is stored under the a
 
 #### LR2 Linked
 
-Configure LR2's `song.db`, `config.xml`, and score DB paths. Use this mode only after backing up LR2-related files.
+Configure BMS search directories and LR2's `song.db`, `config.xml`, and score DB paths. Use this mode only after backing up LR2-related files.
+
+LR2 linked mode also keeps LR2's database auto update setting at manual-only by writing `<autoreload>0</autoreload>` to `config.xml` on setup save and startup.
 
 #### beatoraja Integration
 

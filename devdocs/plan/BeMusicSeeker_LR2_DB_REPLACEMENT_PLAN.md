@@ -587,9 +587,12 @@ LR2 起動導線の block は行わない。
   追加の移行判定や、次回起動時の full sync 要否判定には使わない。
 - `Needed` / `Running` / `Incomplete` / `Failed` / `Cancelled` は LR2 song.db 同期 status に warning を出す。
 - 廃止済みの `EnableLR2SongDbSync` 設定値は、新規 warning や移行判定に使わない。
-- LR2 側の DB 自動更新設定はこの計画の実装対象にしない。
-  - BeMusicSeeker 側から LR2 config を自動変更しない。
-  - manual-only 運用はユーザー向け docs の推奨として扱い、status / schema / sync の判定条件には含めない。
+- LR2 連携モードの初回設定保存時および起動時は、LR2 config の `<autoreload>` を `0` に補正する。
+  - BeMusicSeeker が LR2 `song.db` を生成・差分更新する前提で、LR2 側の自動スキャンによる DB 変異を避ける。
+  - manual-only 運用は status / schema / sync の判定条件には含めない。
+- BMS root の追加・削除は BeMusicSeeker 側の共通 root 管理 UI を正とし、LR2 SETUP の JUKEBOX タブでの直接変更は推奨しない。
+  - root 追加 UI では `Directory.EnumerateFiles(..., AllDirectories)` による事前 probe を行わない。
+  - root set 変更後は、追加 root 単体の同期ではなく既存の file diff / library reload 経路へ寄せる。
 - LR2 が起動中の場合の DB write 競合を検出する。
   - SQLite busy timeout / file lock / transaction 失敗時の扱いをログに出す。
 - LR2 song.db 同期 status は durable に保存する。
@@ -1084,8 +1087,10 @@ parse directive:
 - startup-scan diagnostic は、workflow が upsert / prune した後の実装確認ログと同一 run 内の修復候補に限定する。
   保存済み `Completed` の再評価や次回起動時の full sync 要否判定には使わない。
 - 設定値が欠落または不正な場合は既定値へ正規化する。設定値 warning は出さない。
-- LR2 config の auto update 設定検出や変更は行わない。manual-only 運用の推奨は docs に記載し、
-  LR2 song.db sync status には含めない。
+- LR2 config の auto update 設定は、LR2 連携モードの初回設定保存時および起動時に `<autoreload>0</autoreload>` へ補正する。
+  この設定値は LR2 song.db sync status には含めない。
+- 設定ダイアログやライブラリツリーからの BMS root 追加では、追加時点で再帰ファイル列挙を行わない。
+  root set 変更として記録し、OK 後または即時反映時に通常の高速列挙基盤を使う reload へ委譲する。
 - sync のためだけの自動 backup は作らない。
 - write は per-chunk transaction とし、chunk commit 成功後に processed cursor / run id / status を durable に更新する。
 - chunk 失敗時はその chunk の transaction を rollback し、status を `Failed` にする。

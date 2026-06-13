@@ -156,24 +156,24 @@
                 <GroupBox Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Operation_Mode, Mode=OneWay}">
                   <StackPanel>
                     <RadioButton Name="radioButtonNotUseLR2" Height="20" GroupName="Operation Mode" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Not_use_LR2DB, Mode=OneWay}" IsChecked="{Binding settingDialog.OperationModeLR2DB, Converter={qc:QuickConverter '!$P', ConvertBack='!$value'}}" />
-                    <Grid Margin="10,0,0,4" IsEnabled="{Binding IsChecked, ElementName=radioButtonNotUseLR2}">
+                    <RadioButton Name="radioButtonUseLR2" Height="20" GroupName="Operation Mode" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Use_LR2_DB, Mode=OneWay}" IsChecked="{Binding settingDialog.OperationModeLR2DB}" />
+                    <DockPanel Margin="16,0,0,4" LastChildFill="False" IsEnabled="{Binding IsChecked, ElementName=radioButtonUseLR2}">
+                      <Button Width="190" Height="24" DockPanel.Dock="Left" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Lr2_song_db_sync_data_resync, Mode=OneWay}" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Lr2_song_db_sync_data_resync_tooltip, Mode=OneWay}" Click="resyncLr2SongDbSyncDataButtonClicked" />
+                    </DockPanel>
+                    <Grid Margin="10,0,0,4" IsEnabled="{Binding settingDialog.IsBmsSearchRootEditorEnabled}">
                       <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
                       </Grid.RowDefinitions>
                       <DockPanel Grid.Row="0" LastChildFill="False">
-                        <Button Width="75" DockPanel.Dock="Right" Height="24" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Add_BMSDirectory, Mode=OneWay}" Click="buttonAddStandaloneBmsRootPathsClicked" />
+                        <Button Width="75" DockPanel.Dock="Right" Height="24" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Add_BMSDirectory, Mode=OneWay}" Click="buttonAddBmsSearchRootPathsClicked" />
                         <Label Height="28" HorizontalContentAlignment="Right" DockPanel.Dock="Right" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Standalone_BMSDirectories, Mode=OneWay}" />
                       </DockPanel>
                       <DockPanel Grid.Row="1" LastChildFill="True">
-                        <Button Width="75" DockPanel.Dock="Right" Height="24" Margin="4,0,0,0" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Remove_BMSDirectory, Mode=OneWay}" Command="{Binding settingDialog.RemoveDirCommand}" CommandParameter="{Binding settingDialog.SelectedStandaloneBmsRootPath}" />
-                        <ListBox Height="58" ItemsSource="{Binding settingDialog.StandaloneBmsRootPathList}" SelectedItem="{Binding settingDialog.SelectedStandaloneBmsRootPath, Mode=TwoWay}" />
+                        <Button Width="75" DockPanel.Dock="Right" Height="24" Margin="4,0,0,0" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Remove_BMSDirectory, Mode=OneWay}" Command="{Binding settingDialog.RemoveDirCommand}" CommandParameter="{Binding settingDialog.SelectedBmsSearchRootPath}" />
+                        <ListBox Height="58" AllowDrop="True" Drop="bmsSearchRootPathListBoxDrop" PreviewDragEnter="bmsSearchRootPathListBoxDragOver" PreviewDragOver="bmsSearchRootPathListBoxDragOver" ItemsSource="{Binding settingDialog.AvailableBMSDirectories}" SelectedItem="{Binding settingDialog.SelectedBmsSearchRootPath, Mode=TwoWay}" />
                       </DockPanel>
                     </Grid>
-                    <RadioButton Name="radioButtonUseLR2" Height="20" GroupName="Operation Mode" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Use_LR2_DB, Mode=OneWay}" IsChecked="{Binding settingDialog.OperationModeLR2DB}" />
-                    <DockPanel Margin="16,0,0,4" LastChildFill="False" IsEnabled="{Binding IsChecked, ElementName=radioButtonUseLR2}">
-                      <Button Width="190" Height="24" DockPanel.Dock="Left" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Lr2_song_db_sync_data_resync, Mode=OneWay}" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Lr2_song_db_sync_data_resync_tooltip, Mode=OneWay}" Click="resyncLr2SongDbSyncDataButtonClicked" />
-                    </DockPanel>
                     <DockPanel LastChildFill="False">
                       <Button Width="75" DockPanel.Dock="Right" Height="24" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Browse, Mode=OneWay}">
                         <i:Interaction.Triggers>

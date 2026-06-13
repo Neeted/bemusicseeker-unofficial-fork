@@ -720,6 +720,8 @@ public class MainWindowViewModel : ViewModel
 
         private string selectedStandaloneBmsRootPath;
 
+        private string selectedLR2ConfigBmsDirectory;
+
         private string tempLanguage;
 
         private string tempLanguageDisplayName;
@@ -762,6 +764,8 @@ public class MainWindowViewModel : ViewModel
             RaisePropertyChanged(() => IsOperationModeChanged);
             RaisePropertyChanged(() => CanUseLr2Features);
             RaisePropertyChanged(() => AvailableBMSDirectories);
+            RaisePropertyChanged(() => SelectedBmsSearchRootPath);
+            RaisePropertyChanged(() => IsBmsSearchRootEditorEnabled);
             RaisePropertyChanged(() => BMSInstallDir);
             RaiseValidationStateChanged();
         }
@@ -925,9 +929,43 @@ public class MainWindowViewModel : ViewModel
                 {
                     selectedStandaloneBmsRootPath = value;
                     RaisePropertyChanged(() => SelectedStandaloneBmsRootPath);
+                    RaisePropertyChanged(() => SelectedBmsSearchRootPath);
                 }
             }
         }
+
+        public string SelectedBmsSearchRootPath
+        {
+            get
+            {
+                if (!OperationModeLR2DB)
+                {
+                    return SelectedStandaloneBmsRootPath;
+                }
+                List<string> lr2Directories = LR2ConfigBMSDirectories;
+                if (!lr2Directories.Contains(selectedLR2ConfigBmsDirectory, StringComparer.OrdinalIgnoreCase))
+                {
+                    selectedLR2ConfigBmsDirectory = lr2Directories.FirstOrDefault();
+                }
+                return selectedLR2ConfigBmsDirectory;
+            }
+            set
+            {
+                if (!OperationModeLR2DB)
+                {
+                    SelectedStandaloneBmsRootPath = value;
+                    RaisePropertyChanged(() => SelectedBmsSearchRootPath);
+                    return;
+                }
+                if (!string.Equals(selectedLR2ConfigBmsDirectory, value, StringComparison.Ordinal))
+                {
+                    selectedLR2ConfigBmsDirectory = value;
+                    RaisePropertyChanged(() => SelectedBmsSearchRootPath);
+                }
+            }
+        }
+
+        public bool IsBmsSearchRootEditorEnabled => !OperationModeLR2DB || lr2config != null;
 
         public string LR2SongDBPath
         {
@@ -986,6 +1024,8 @@ public class MainWindowViewModel : ViewModel
                 RaisePropertyChanged("LR2ConfigXmlPath");
                 RaisePropertyChanged(() => LR2bodyPath);
                 RaisePropertyChanged(() => AvailableBMSDirectories);
+                RaisePropertyChanged(() => SelectedBmsSearchRootPath);
+                RaisePropertyChanged(() => IsBmsSearchRootEditorEnabled);
                 RaisePropertyChanged(() => BMSInstallDir);
                 RaiseValidationStateChanged();
             }
@@ -2777,6 +2817,7 @@ public class MainWindowViewModel : ViewModel
             SelectedStandaloneBmsRootPath = StandaloneBmsRootPathList.FirstOrDefault();
             RaisePropertyChanged(() => StandaloneBmsRootPathList);
             RaisePropertyChanged(() => AvailableBMSDirectories);
+            RaisePropertyChanged(() => SelectedBmsSearchRootPath);
             RaiseValidationStateChanged();
         }
 
@@ -3045,8 +3086,9 @@ public class MainWindowViewModel : ViewModel
             {
                 ownerViewModel.Messenger.Raise(new ConfirmationMessage(ex.Message, "エラー", MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
             }
-            catch
+            catch (Exception ex)
             {
+                ownerViewModel.Messenger.Raise(new ConfirmationMessage(ex.Message, "エラー", MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
             }
         }
 
@@ -3075,34 +3117,14 @@ public class MainWindowViewModel : ViewModel
                 return;
             }
             _ = parameter.Response;
-            if (Settings.Default.OperationModeLR2DB)
-            {
-                AddBMSDirectoryToLR2Config(parameter, saveImmediately: true);
-                if (isSearchRootsChanged)
-                {
-                    ApplyRuntimeSearchRootsForCurrentMode();
-                    if (isBMSDirectoryAdded)
-                    {
-                        ownerViewModel.ReloadFileDiff();
-                    }
-                    else
-                    {
-                        ownerViewModel.NotifyBmsParentFolderListChanged();
-                    }
-                    isSearchRootsChanged = false;
-                    isBMSDirectoryAdded = false;
-                }
-                else
-                {
-                    ownerViewModel.NotifyBmsParentFolderListChanged();
-                }
-                return;
-            }
-            AddStandaloneBmsRootPath(parameter);
+            AddBmsSearchRootPaths([parameter.Response], parameter.MessageKey, saveImmediately: true);
             if (isSearchRootsChanged)
             {
-                PersistStandaloneBmsRootPathsToSettings();
-                Settings.Default.Save();
+                if (!Settings.Default.OperationModeLR2DB)
+                {
+                    PersistStandaloneBmsRootPathsToSettings();
+                    Settings.Default.Save();
+                }
                 ApplyRuntimeSearchRootsForCurrentMode();
                 if (isBMSDirectoryAdded)
                 {
@@ -3123,12 +3145,11 @@ public class MainWindowViewModel : ViewModel
 
         private void AddBMSDirectoryToSearchRoots(FolderSelectionMessage parameter)
         {
-            if (OperationModeLR2DB)
+            if (parameter?.Response == null)
             {
-                AddBMSDirectoryToLR2Config(parameter, saveImmediately: false);
                 return;
             }
-            AddStandaloneBmsRootPath(parameter);
+            AddBmsSearchRootPaths([parameter.Response], parameter.MessageKey, saveImmediately: false);
         }
 
         private void AddStandaloneBmsRootPath(FolderSelectionMessage parameter)
@@ -3138,6 +3159,21 @@ public class MainWindowViewModel : ViewModel
                 return;
             }
             AddStandaloneBmsRootPathsCore([parameter.Response], parameter.MessageKey);
+        }
+
+        public void AddBmsSearchRootPaths(IEnumerable<string> paths)
+        {
+            AddBmsSearchRootPaths(paths, null, saveImmediately: false);
+        }
+
+        private void AddBmsSearchRootPaths(IEnumerable<string> paths, string messageKey, bool saveImmediately)
+        {
+            if (OperationModeLR2DB)
+            {
+                AddBMSDirectoriesToLR2Config(paths, messageKey, saveImmediately);
+                return;
+            }
+            AddStandaloneBmsRootPathsCore(paths, messageKey);
         }
 
         public void AddStandaloneBmsRootPaths(IEnumerable<string> paths)
@@ -3176,6 +3212,7 @@ public class MainWindowViewModel : ViewModel
                 isBMSDirectoryAdded = isSearchRootsChanged;
                 RaisePropertyChanged(() => StandaloneBmsRootPathList);
                 RaisePropertyChanged(() => AvailableBMSDirectories);
+                RaisePropertyChanged(() => SelectedBmsSearchRootPath);
                 RaiseValidationStateChanged();
             }
             catch (Exception ex)
@@ -3184,29 +3221,37 @@ public class MainWindowViewModel : ViewModel
             }
         }
 
-        private void AddBMSDirectoryToLR2Config(FolderSelectionMessage parameter, bool saveImmediately)
+        private void AddBMSDirectoriesToLR2Config(IEnumerable<string> paths, string messageKey, bool saveImmediately)
         {
-            if (lr2config == null || parameter.Response == null)
+            if (lr2config == null)
             {
                 return;
             }
-            string response = parameter.Response;
             try
             {
-                if (!response.IsSjisSchemeString())
+                List<string> requestedPaths = [.. NormalizeStandaloneBmsRootPaths(paths ?? [])];
+                string requestedPath = requestedPaths.FirstOrDefault();
+                if (string.IsNullOrWhiteSpace(requestedPath))
                 {
-                    throw new ArgumentException("パスにユニコード文字が含まれているためLR2で認識できません");
+                    return;
                 }
-                lr2config.AddBMSSearchDirectories([response]);
+                List<string> nonSjisPaths = [.. requestedPaths.Where(path => !path.IsSjisSchemeString())];
+                if (nonSjisPaths.Count > 0)
+                {
+                    throw new ArgumentException("パスにユニコード文字が含まれているためLR2で認識できません" + Environment.NewLine + string.Join(Environment.NewLine, nonSjisPaths));
+                }
+                lr2config.AddBMSSearchDirectories(requestedPaths);
                 isSearchRootsChanged = true;
-                isBMSDirectoryAdded = Directory.EnumerateFiles(response, "*", System.IO.SearchOption.AllDirectories).Any(path => BeMusicSeeker.Models.ChartFileKindResolver.BmsExtensions.Any(ext => path.EndsWith(ext, StringComparison.OrdinalIgnoreCase)));
+                isBMSDirectoryAdded = true;
+                selectedLR2ConfigBmsDirectory = requestedPath;
                 RaisePropertyChanged(() => LR2ConfigBMSDirectories);
                 RaisePropertyChanged(() => AvailableBMSDirectories);
+                RaisePropertyChanged(() => SelectedBmsSearchRootPath);
                 RaiseValidationStateChanged();
-                if (!string.IsNullOrWhiteSpace(parameter.MessageKey))
+                if (!string.IsNullOrWhiteSpace(messageKey))
                 {
-                    string name = parameter.MessageKey.Substring(parameter.MessageKey.LastIndexOf('.') + 1);
-                    GetType().GetProperty(name).GetSetMethod().Invoke(this, [response]);
+                    string name = messageKey.Substring(messageKey.LastIndexOf('.') + 1);
+                    GetType().GetProperty(name).GetSetMethod().Invoke(this, [requestedPath]);
                 }
                 if (saveImmediately)
                 {
@@ -3217,8 +3262,9 @@ public class MainWindowViewModel : ViewModel
             {
                 ownerViewModel.Messenger.Raise(new ConfirmationMessage(ex.Message, "エラー", MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
             }
-            catch
+            catch (Exception ex)
             {
+                ownerViewModel.Messenger.Raise(new ConfirmationMessage(ex.Message, "エラー", MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
             }
         }
 
@@ -3310,6 +3356,7 @@ public class MainWindowViewModel : ViewModel
                 isBMSDirectoryRemoved = isSearchRootsChanged;
                 RaisePropertyChanged(() => StandaloneBmsRootPathList);
                 RaisePropertyChanged(() => AvailableBMSDirectories);
+                RaisePropertyChanged(() => SelectedBmsSearchRootPath);
                 RaisePropertyChanged(() => BMSInstallDir);
                 RaiseValidationStateChanged();
             }
@@ -3342,12 +3389,17 @@ public class MainWindowViewModel : ViewModel
                 if (lr2config.RemoveBMSSearchDirectories([dir]))
                 {
                     isSearchRootsChanged = true;
+                    if (string.Equals(selectedLR2ConfigBmsDirectory, dir, StringComparison.OrdinalIgnoreCase))
+                    {
+                        selectedLR2ConfigBmsDirectory = LR2ConfigBMSDirectories.FirstOrDefault();
+                    }
                     if (saveImmediately)
                     {
                         lr2config.Save();
                     }
                     RaisePropertyChanged(() => LR2ConfigBMSDirectories);
                     RaisePropertyChanged(() => AvailableBMSDirectories);
+                    RaisePropertyChanged(() => SelectedBmsSearchRootPath);
                     RaisePropertyChanged(() => BMSInstallDir);
                     RaiseValidationStateChanged();
                     if (ownerViewModel.files?.HasOwnedChartUnderRealPath(dir) == true)
@@ -3774,7 +3826,12 @@ public class MainWindowViewModel : ViewModel
                 RefreshBeatorajaDerivedSettings();
                 Settings.Default.OperationModeLR2DB = operationModeLR2DB;
                 Settings.Default.Save();
-                if (lr2SearchRootsChanged && lr2config != null)
+                bool lr2ConfigNeedsSave = false;
+                if (operationModeLR2DB && lr2config != null)
+                {
+                    lr2ConfigNeedsSave = lr2config.EnsureDatabaseAutoReloadManualOnly();
+                }
+                if ((lr2SearchRootsChanged || lr2ConfigNeedsSave) && lr2config != null)
                 {
                     lr2config.Save();
                 }
@@ -3903,6 +3960,8 @@ public class MainWindowViewModel : ViewModel
             RaisePropertyChanged(() => StandaloneBmsRootPathList);
             RaisePropertyChanged(() => SelectedStandaloneBmsRootPath);
             RaisePropertyChanged(() => AvailableBMSDirectories);
+            RaisePropertyChanged(() => SelectedBmsSearchRootPath);
+            RaisePropertyChanged(() => IsBmsSearchRootEditorEnabled);
             RaisePropertyChanged(() => LR2SongDBPath);
             RaisePropertyChanged(() => LR2ConfigXmlPath);
             RaisePropertyChanged(() => UseBeatorajaScoreDb);
@@ -15587,6 +15646,7 @@ public class MainWindowViewModel : ViewModel
         if (Settings.Default.OperationModeLR2DB)
         {
             lr2config ??= new LR2Config(Settings.Default.LR2ConfigXmlPath);
+            EnsureLR2DatabaseAutoReloadManualOnlyForStartup();
             string playerId = lr2config.GetPlayerId();
             string scoreDbPath = Settings.Default.LR2RootPath + "\\LR2files\\Database\\Score\\" + playerId + ".db";
             if (playerId == null || !File.Exists(scoreDbPath))
@@ -15617,6 +15677,18 @@ public class MainWindowViewModel : ViewModel
             canOutputLr2Folders: false,
             canUseLr2Backup: false,
             canUseLr2IrScore: false);
+    }
+
+    private void EnsureLR2DatabaseAutoReloadManualOnlyForStartup()
+    {
+        if (!Settings.Default.OperationModeLR2DB || lr2config == null)
+        {
+            return;
+        }
+        if (lr2config.EnsureDatabaseAutoReloadManualOnly())
+        {
+            lr2config.Save();
+        }
     }
 
     private LR2Config CreateLR2PlayerConfig()

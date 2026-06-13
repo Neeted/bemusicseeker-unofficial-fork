@@ -28,7 +28,7 @@
 
 | Tab | UI | Dialog | Kind | Target | Filter | Default FileName | Default Extension | Default Extension Source | Selection Result |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 一般 | スタンドアローン BMS ディレクトリ追加 | `CommonOpenFileDialog` direct | Folder, multi-select | BMS root directories | N/A | N/A | N/A | N/A | `StandaloneBmsRootPathList` |
+| 一般 | BMS ディレクトリ追加 | `CommonOpenFileDialog` direct / list drop | Folder, multi-select | BMS root directories | N/A | N/A | N/A | N/A | standalone: `StandaloneBmsRootPathList`, LR2 linked: LR2 `config.xml` jukebox paths |
 | 一般 | LR2 ディレクトリ参照 | `FolderSelectionMessage` | Folder | LR2 root directory | N/A | N/A | N/A | N/A | `settingDialog.LR2RootPath` |
 | 一般 | `song.db` 参照 | `OpeningFileSelectionMessage` | File open | LR2 song DB (`*.db`) | `song.db (*.db)`, all files | `song.db` | `db` | Computed from FileName | `settingDialog.LR2SongDBPath` |
 | 一般 | `config.xml` 参照 | `OpeningFileSelectionMessage` | File open | LR2 `config.xml` / `config.xmh` | `config.xm?`, all files | `config.xml` | `xml` | Computed from FileName | `settingDialog.LR2ConfigXmlPath` |

@@ -11,6 +11,8 @@ namespace BeMusicSeeker.Models.LR2;
 
 public class LR2Config : XDocument
 {
+    public const int DatabaseAutoReloadManualOnly = 0;
+
     private readonly ReaderWriterLockSlim rwlock = new();
 
     private string _configPath;
@@ -63,6 +65,32 @@ public class LR2Config : XDocument
         return GetSystemIntValue("titleflash", 24);
     }
 
+    public int GetDatabaseAutoReloadMode()
+    {
+        return GetSystemIntValue("autoreload", DatabaseAutoReloadManualOnly);
+    }
+
+    public bool EnsureDatabaseAutoReloadManualOnly()
+    {
+        using (new WriterGuard(rwlock))
+        {
+            XElement system = GetOrCreateSystemElement();
+            XElement autoreload = system.Element("autoreload");
+            string manualOnlyValue = DatabaseAutoReloadManualOnly.ToString();
+            if (autoreload == null)
+            {
+                system.Add(new XElement("autoreload", manualOnlyValue));
+                return true;
+            }
+            if (autoreload.Value == manualOnlyValue)
+            {
+                return false;
+            }
+            autoreload.SetValue(manualOnlyValue);
+            return true;
+        }
+    }
+
     private int GetSystemIntValue(string name, int defaultValue)
     {
         using (new ReaderGuard(rwlock))
@@ -72,6 +100,18 @@ public class LR2Config : XDocument
                 ? parsed
                 : defaultValue;
         }
+    }
+
+    private XElement GetOrCreateSystemElement()
+    {
+        XElement config = Element("config") ?? throw new InvalidOperationException("LR2 config.xml の config セクションが見つかりません。");
+        XElement system = config.Element("system");
+        if (system == null)
+        {
+            system = new XElement("system");
+            config.AddFirst(system);
+        }
+        return system;
     }
 
     public List<string> GetBMSSearchDirectories()
@@ -146,7 +186,7 @@ public class LR2Config : XDocument
     public void AddBMSSearchDirectories(IEnumerable<string> dirs)
     {
         dirs ??= [];
-        dirs = dirs.Where(d => Directory.Exists(d));
+        dirs = [.. dirs.Where(d => Directory.Exists(d)).Select(d => d.TrimEnd('\\')).Distinct(StringComparer.OrdinalIgnoreCase)];
         if (dirs.Any(d => !Directory.Exists(d)))
         {
             throw new ArgumentException("指定されたディレクトリの一部または全てが存在しません。");
@@ -159,7 +199,8 @@ public class LR2Config : XDocument
         List<string> dirsInXML = GetBMSSearchDirectories();
         using (new WriterGuard(rwlock))
         {
-            if (dirs.Any(dnew => dirsInXML.Any(dold => (dold + "\\").StartsWith(dnew + "\\", StringComparison.OrdinalIgnoreCase) || (dnew + "\\").StartsWith(dold + "\\", StringComparison.OrdinalIgnoreCase) || (dold + "\\").Equals(dnew + "\\", StringComparison.OrdinalIgnoreCase))))
+            if (dirs.Any(dnew => dirsInXML.Any(dold => IsSameOrNestedDirectory(dnew, dold)))
+                || dirs.Any(dnew => dirs.Any(dother => !dnew.Equals(dother, StringComparison.OrdinalIgnoreCase) && IsSameOrNestedDirectory(dnew, dother))))
             {
                 throw new ArgumentException("登録済みディレクトリまたはその親・子ディレクトリは追加できません。");
             }
@@ -168,6 +209,13 @@ public class LR2Config : XDocument
                 Value = d.TrimEnd('\\') + "\\"
             }));
         }
+    }
+
+    private static bool IsSameOrNestedDirectory(string left, string right)
+    {
+        return (left + "\\").StartsWith(right + "\\", StringComparison.OrdinalIgnoreCase)
+            || (right + "\\").StartsWith(left + "\\", StringComparison.OrdinalIgnoreCase)
+            || (left + "\\").Equals(right + "\\", StringComparison.OrdinalIgnoreCase);
     }
 
     public bool RemoveBMSSearchDirectories(IEnumerable<string> dirs = null)

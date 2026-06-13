@@ -1,5 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
+using System.Linq;
 using System.Reflection;
 using System.Threading.Tasks;
 using System.Windows;
@@ -298,7 +301,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
         }
     }
 
-    private void buttonAddStandaloneBmsRootPathsClicked(object sender, RoutedEventArgs e)
+    private void buttonAddBmsSearchRootPathsClicked(object sender, RoutedEventArgs e)
     {
         if (!(base.DataContext is MainWindowViewModel { settingDialog: { } settingDialogViewModel }))
         {
@@ -311,11 +314,40 @@ public partial class SettingDialog : UserControl, IComponentConnector
             EnsurePathExists = true,
             Multiselect = true
         };
-        CommonOpenFileDialogInteractionMessageAction.SetInitialDirectory(dialog, settingDialogViewModel.SelectedStandaloneBmsRootPath);
+        CommonOpenFileDialogInteractionMessageAction.SetInitialDirectory(dialog, settingDialogViewModel.SelectedBmsSearchRootPath);
         if (dialog.ShowDialog(Window.GetWindow(this)) == CommonFileDialogResult.Ok)
         {
-            settingDialogViewModel.AddStandaloneBmsRootPaths(dialog.FileNames);
+            settingDialogViewModel.AddBmsSearchRootPaths(dialog.FileNames);
         }
+    }
+
+    private void bmsSearchRootPathListBoxDragOver(object sender, DragEventArgs e)
+    {
+        e.Effects = TryGetDroppedDirectories(e, out _) ? DragDropEffects.Copy : DragDropEffects.None;
+        e.Handled = true;
+    }
+
+    private void bmsSearchRootPathListBoxDrop(object sender, DragEventArgs e)
+    {
+        if (TryGetDroppedDirectories(e, out List<string> directories)
+            && base.DataContext is MainWindowViewModel { settingDialog: { } settingDialogViewModel })
+        {
+            settingDialogViewModel.AddBmsSearchRootPaths(directories);
+        }
+        e.Handled = true;
+    }
+
+    private static bool TryGetDroppedDirectories(DragEventArgs e, out List<string> directories)
+    {
+        directories = [];
+        if (!e.Data.GetDataPresent(DataFormats.FileDrop, autoConvert: true)
+            || e.Data.GetData(DataFormats.FileDrop, autoConvert: true) is not string[] paths
+            || paths.Length == 0)
+        {
+            return false;
+        }
+        directories = [.. paths.Where(Directory.Exists)];
+        return directories.Count == paths.Length;
     }
 
     private async void buttonPlayerTestClick(object sender, RoutedEventArgs e)
