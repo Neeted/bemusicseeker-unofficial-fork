@@ -192,7 +192,7 @@ function New-ReleasePackage {
     if (-not $SkipBuild) {
         Write-Host "  ビルド中..."
         Push-Location $devRoot
-        dotnet build -c Release BeMusicSeeker.csproj
+        dotnet build -c Release BeMusicSeeker.csproj | Out-Host
         if ($LASTEXITCODE -ne 0) { throw "ビルドに失敗しました" }
         Pop-Location
         Write-Host "  ビルド完了" -ForegroundColor Green
