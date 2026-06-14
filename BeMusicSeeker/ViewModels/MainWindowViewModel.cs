@@ -779,7 +779,7 @@ public class MainWindowViewModel : ViewModel
                 MessageBoxImage.Question,
                 MessageBoxButton.OKCancel,
                 "ConfirmationDialog");
-            ownerViewModel.Messenger.Raise(confirmationMessage);
+            ownerViewModel.RaiseInteractionMessageOnUiThread(confirmationMessage);
             if (confirmationMessage.Response != true)
             {
                 SetOperationModeSelection(operationModeLR2DB);
@@ -1401,7 +1401,7 @@ public class MainWindowViewModel : ViewModel
                     }
                     else
                     {
-                        ownerViewModel.Messenger.Raise(new ConfirmationMessage("既に親ディレクトリが登録されています。", "エラー", MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
+                        ownerViewModel.RaiseInteractionMessageOnUiThread(new ConfirmationMessage("既に親ディレクトリが登録されています。", "エラー", MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
                     }
                     RaisePropertyChanged("LR2CustomFolderAsRootOutputDir");
                     RaisePropertyChanged(() => LR2ConfigBMSDirectories);
@@ -1430,7 +1430,7 @@ public class MainWindowViewModel : ViewModel
                     }
                     else
                     {
-                        ownerViewModel.Messenger.Raise(new ConfirmationMessage("難易度表リスト取得URIが正しくありません。", "エラー", MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
+                        ownerViewModel.RaiseInteractionMessageOnUiThread(new ConfirmationMessage("難易度表リスト取得URIが正しくありません。", "エラー", MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
                     }
                     RaisePropertyChanged("TableListURL");
                     RaiseValidationStateChanged();
@@ -1510,7 +1510,7 @@ public class MainWindowViewModel : ViewModel
                 }
                 else
                 {
-                    ownerViewModel.Messenger.Raise(new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Error_InvalidPlaylistMd5UrlMappingTsvUri, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
+                    ownerViewModel.RaiseInteractionMessageOnUiThread(new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Error_InvalidPlaylistMd5UrlMappingTsvUri, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
                 }
                 RaisePropertyChanged("PlaylistMd5UrlMappingTsvUri");
                 RaiseValidationStateChanged();
@@ -1831,7 +1831,7 @@ public class MainWindowViewModel : ViewModel
                 if (value)
                 {
                     var confirmationMessage = new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Msg_confirm_skip_init_file_check, BeMusicSeeker.Properties.Resources.Warning, MessageBoxImage.Exclamation, MessageBoxButton.OKCancel, "ConfirmationDialog");
-                    ownerViewModel.Messenger.Raise(confirmationMessage);
+                    ownerViewModel.RaiseInteractionMessageOnUiThread(confirmationMessage);
                     if (confirmationMessage.Response != true)
                     {
                         return;
@@ -1857,7 +1857,7 @@ public class MainWindowViewModel : ViewModel
                 if (value)
                 {
                     var confirmationMessage = new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Msg_confirm_skip_init_playlist_load, BeMusicSeeker.Properties.Resources.Warning, MessageBoxImage.Exclamation, MessageBoxButton.OKCancel, "ConfirmationDialog");
-                    ownerViewModel.Messenger.Raise(confirmationMessage);
+                    ownerViewModel.RaiseInteractionMessageOnUiThread(confirmationMessage);
                     if (confirmationMessage.Response != true)
                     {
                         return;
@@ -1915,7 +1915,7 @@ public class MainWindowViewModel : ViewModel
                 if (value)
                 {
                     var confirmationMessage = new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Msg_confirm_skip_offline_score_ranking_estimation, BeMusicSeeker.Properties.Resources.Warning, MessageBoxImage.Exclamation, MessageBoxButton.OKCancel, "ConfirmationDialog");
-                    ownerViewModel.Messenger.Raise(confirmationMessage);
+                    ownerViewModel.RaiseInteractionMessageOnUiThread(confirmationMessage);
                     if (confirmationMessage.Response != true)
                     {
                         return;
@@ -2106,7 +2106,7 @@ public class MainWindowViewModel : ViewModel
                     else
                     {
                         Settings.Default.FolderNameFormat = defaultFolderNameFormat;
-                        ownerViewModel.Messenger.Raise(new ConfirmationMessage("リネーム書式には「%ARTIST%」または「%TITLE%」を含めて下さい", "警告", MessageBoxImage.Exclamation, MessageBoxButton.OK, "ConfirmationDialog"));
+                        ownerViewModel.RaiseInteractionMessageOnUiThread(new ConfirmationMessage("リネーム書式には「%ARTIST%」または「%TITLE%」を含めて下さい", "警告", MessageBoxImage.Exclamation, MessageBoxButton.OK, "ConfirmationDialog"));
                     }
                     RaisePropertyChanged("FolderNameFormat");
                     RaiseValidationStateChanged();
@@ -2126,7 +2126,7 @@ public class MainWindowViewModel : ViewModel
                 {
                     if (!value)
                     {
-                        ownerViewModel.Messenger.Raise(new ConfirmationMessage("チェックを外すと、LR2が正常に起動しなかったり" + Environment.NewLine + "作成されたフォルダが認識できなくなる場合があります", "警告", MessageBoxImage.Exclamation, MessageBoxButton.OK, "ConfirmationDialog"));
+                        ownerViewModel.RaiseInteractionMessageOnUiThread(new ConfirmationMessage("チェックを外すと、LR2が正常に起動しなかったり" + Environment.NewLine + "作成されたフォルダが認識できなくなる場合があります", "警告", MessageBoxImage.Exclamation, MessageBoxButton.OK, "ConfirmationDialog"));
                     }
                     Settings.Default.UseOnlyShiftJISChars = value;
                     RaisePropertyChanged("UseOnlyShiftJISChars");
@@ -2216,7 +2216,7 @@ public class MainWindowViewModel : ViewModel
                     }
                     else
                     {
-                        ownerViewModel.Messenger.Raise(new ConfirmationMessage("エンコード実行ファイル: " + ((EncoderType)value).GetEncoderFileName() + " が見つかりませんでした" + Environment.NewLine + "検索フォルダを正しく指定して下さい", "警告", MessageBoxImage.Exclamation, MessageBoxButton.OK, "ConfirmationDialog"));
+                        ownerViewModel.RaiseInteractionMessageOnUiThread(new ConfirmationMessage("エンコード実行ファイル: " + ((EncoderType)value).GetEncoderFileName() + " が見つかりませんでした" + Environment.NewLine + "検索フォルダを正しく指定して下さい", "警告", MessageBoxImage.Exclamation, MessageBoxButton.OK, "ConfirmationDialog"));
                     }
                     RaisePropertyChanged("EncoderIndex");
                 }
@@ -3085,11 +3085,11 @@ public class MainWindowViewModel : ViewModel
             }
             catch (ArgumentException ex)
             {
-                ownerViewModel.Messenger.Raise(new ConfirmationMessage(ex.Message, "エラー", MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
+                ownerViewModel.RaiseInteractionMessageOnUiThread(new ConfirmationMessage(ex.Message, "エラー", MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
             }
             catch (Exception ex)
             {
-                ownerViewModel.Messenger.Raise(new ConfirmationMessage(ex.Message, "エラー", MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
+                ownerViewModel.RaiseInteractionMessageOnUiThread(new ConfirmationMessage(ex.Message, "エラー", MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
             }
         }
 
@@ -3218,7 +3218,7 @@ public class MainWindowViewModel : ViewModel
             }
             catch (Exception ex)
             {
-                ownerViewModel.Messenger.Raise(new ConfirmationMessage(ex.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
+                ownerViewModel.RaiseInteractionMessageOnUiThread(new ConfirmationMessage(ex.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
             }
         }
 
@@ -3261,11 +3261,11 @@ public class MainWindowViewModel : ViewModel
             }
             catch (ArgumentException ex)
             {
-                ownerViewModel.Messenger.Raise(new ConfirmationMessage(ex.Message, "エラー", MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
+                ownerViewModel.RaiseInteractionMessageOnUiThread(new ConfirmationMessage(ex.Message, "エラー", MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
             }
             catch (Exception ex)
             {
-                ownerViewModel.Messenger.Raise(new ConfirmationMessage(ex.Message, "エラー", MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
+                ownerViewModel.RaiseInteractionMessageOnUiThread(new ConfirmationMessage(ex.Message, "エラー", MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
             }
         }
 
@@ -3363,7 +3363,7 @@ public class MainWindowViewModel : ViewModel
             }
             catch (Exception ex)
             {
-                ownerViewModel.Messenger.Raise(new ConfirmationMessage(ex.Message, "エラー", MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
+                ownerViewModel.RaiseInteractionMessageOnUiThread(new ConfirmationMessage(ex.Message, "エラー", MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
             }
         }
 
@@ -3411,7 +3411,7 @@ public class MainWindowViewModel : ViewModel
             }
             catch (Exception ex)
             {
-                ownerViewModel.Messenger.Raise(new ConfirmationMessage(ex.Message, "エラー", MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
+                ownerViewModel.RaiseInteractionMessageOnUiThread(new ConfirmationMessage(ex.Message, "エラー", MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
             }
         }
 
@@ -3599,25 +3599,25 @@ public class MainWindowViewModel : ViewModel
             {
                 ownerViewModel.PlayEndBMSFile(closeProcess: true);
                 ownerViewModel.bmsPlayer = new InternalBMSAutoPlayerSoundOnly();
-                ownerViewModel.Messenger.Raise(new InteractionMessage("InitializationSuccess"));
+                ownerViewModel.RaiseInteractionMessageOnUiThread(new InteractionMessage("InitializationSuccess"));
             }
             else if (Settings.Default.UsePlayeruBMplay && tempUsePlayeruBMplay != Settings.Default.UsePlayeruBMplay)
             {
                 ownerViewModel.PlayEndBMSFile(closeProcess: true);
                 ownerViewModel.bmsPlayer = new uBMplay(uBMplayPath);
-                ownerViewModel.Messenger.Raise(new InteractionMessage("InitializationSuccess"));
+                ownerViewModel.RaiseInteractionMessageOnUiThread(new InteractionMessage("InitializationSuccess"));
             }
             else if (Settings.Default.UsePlayerLR2body && tempUsePlayerLR2body != Settings.Default.UsePlayerLR2body)
             {
                 ownerViewModel.PlayEndBMSFile(closeProcess: true);
                 ownerViewModel.bmsPlayer = new LR2body(LR2bodyPath, new LR2Config(Settings.Default.LR2ConfigXmlPath));
-                ownerViewModel.Messenger.Raise(new InteractionMessage("InitializationSuccess"));
+                ownerViewModel.RaiseInteractionMessageOnUiThread(new InteractionMessage("InitializationSuccess"));
             }
             else if (Settings.Default.UsePlayerBMIIDXView && tempUsePlayerBMIIDXView != Settings.Default.UsePlayerBMIIDXView)
             {
                 ownerViewModel.PlayEndBMSFile(closeProcess: true);
                 ownerViewModel.bmsPlayer = new BMIIDXView2015(BMIIDXViewPath);
-                ownerViewModel.Messenger.Raise(new InteractionMessage("InitializationSuccess"));
+                ownerViewModel.RaiseInteractionMessageOnUiThread(new InteractionMessage("InitializationSuccess"));
             }
             if (((Func<bool>)delegate
             {
@@ -3640,7 +3640,7 @@ public class MainWindowViewModel : ViewModel
             }
             if (Settings.Default.OperationModeLR2DB && Settings.Default.IsLR2BackupEnabled && tempIsLR2BackupEnabled != Settings.Default.IsLR2BackupEnabled)
             {
-                ownerViewModel.Messenger.Raise(new ConfirmationMessage("LR2設定ファイルバックアップ機能は" + Environment.NewLine + "次回起動時から有効になります", "確認", MessageBoxImage.Asterisk, MessageBoxButton.OK, "ConfirmationDialog"));
+                ownerViewModel.RaiseInteractionMessageOnUiThread(new ConfirmationMessage("LR2設定ファイルバックアップ機能は" + Environment.NewLine + "次回起動時から有効になります", "確認", MessageBoxImage.Asterisk, MessageBoxButton.OK, "ConfirmationDialog"));
             }
             if (tempEnablePlaylistUrlCompletion != Settings.Default.EnablePlaylistUrlCompletion || tempOverwritePlaylistUrlsWithCompletion != Settings.Default.OverwritePlaylistUrlsWithCompletion || tempEnableStellaFullPlaylistUrlCompletion != Settings.Default.EnableStellaFullPlaylistUrlCompletion || !string.Equals(tempPlaylistMd5UrlMappingTsvUri, Settings.Default.PlaylistMd5UrlMappingTsvUri, StringComparison.Ordinal))
             {
@@ -4300,7 +4300,7 @@ public class MainWindowViewModel : ViewModel
                     RaisePropertyChanged(() => output_dir);
                     if (Settings.Default.OperationModeLR2DB && !IsOutputDirValid())
                     {
-                        ownerViewModel.Messenger.Raise(new ConfirmationMessage("出力先フォルダ名が空もしくは重複しています。" + Environment.NewLine + "プレイリスト名または出力先フォルダ名を変更して下さい。", "エラー", MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
+                        ownerViewModel.RaiseInteractionMessageOnUiThread(new ConfirmationMessage("出力先フォルダ名が空もしくは重複しています。" + Environment.NewLine + "プレイリスト名または出力先フォルダ名を変更して下さい。", "エラー", MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
                     }
                 }
             }
@@ -4347,7 +4347,7 @@ public class MainWindowViewModel : ViewModel
                     }
                     else
                     {
-                        ownerViewModel.Messenger.Raise(new ConfirmationMessage("入力されたページURIが正しくありません。" + Environment.NewLine + "絶対URIを入力して下さい。", "エラー", MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
+                        ownerViewModel.RaiseInteractionMessageOnUiThread(new ConfirmationMessage("入力されたページURIが正しくありません。" + Environment.NewLine + "絶対URIを入力して下さい。", "エラー", MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
                     }
                     RaisePropertyChanged("Page_url");
                 }
@@ -4374,7 +4374,7 @@ public class MainWindowViewModel : ViewModel
                     }
                     else
                     {
-                        ownerViewModel.Messenger.Raise(new ConfirmationMessage("入力されたヘッダURIが正しくありません。", "エラー", MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
+                        ownerViewModel.RaiseInteractionMessageOnUiThread(new ConfirmationMessage("入力されたヘッダURIが正しくありません。", "エラー", MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
                     }
                     RaisePropertyChanged("Header_url");
                 }
@@ -4401,7 +4401,7 @@ public class MainWindowViewModel : ViewModel
                     }
                     else
                     {
-                        ownerViewModel.Messenger.Raise(new ConfirmationMessage("入力されたデータURIが正しくありません。", "エラー", MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
+                        ownerViewModel.RaiseInteractionMessageOnUiThread(new ConfirmationMessage("入力されたデータURIが正しくありません。", "エラー", MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
                     }
                     RaisePropertyChanged("Data_url");
                 }
@@ -4423,12 +4423,12 @@ public class MainWindowViewModel : ViewModel
                 if (!IsExternal_syncValid(value))
                 {
                     value = false;
-                    ownerViewModel.Messenger.Raise(new ConfirmationMessage("ページURIまたはヘッダURIが正しくありません。", "エラー", MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
+                    ownerViewModel.RaiseInteractionMessageOnUiThread(new ConfirmationMessage("ページURIまたはヘッダURIが正しくありません。", "エラー", MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
                 }
                 if (!_is_external_sync && value)
                 {
                     var confirmationMessage = new ConfirmationMessage("同期モードに設定するとローカルの変更が失われます。" + Environment.NewLine + "よろしいですか？", "警告", MessageBoxImage.Exclamation, MessageBoxButton.OKCancel, "ConfirmationDialog");
-                    ownerViewModel.Messenger.Raise(confirmationMessage);
+                    ownerViewModel.RaiseInteractionMessageOnUiThread(confirmationMessage);
                     if (!confirmationMessage.Response.HasValue || !confirmationMessage.Response.Value)
                     {
                         RaisePropertyChanged("is_external_sync");
@@ -4438,7 +4438,7 @@ public class MainWindowViewModel : ViewModel
                 else if (_is_external_sync && !value)
                 {
                     var confirmationMessage2 = new ConfirmationMessage("同期モードを解除するとリモートの変更が反映されなくなります。" + Environment.NewLine + "よろしいですか？", "警告", MessageBoxImage.Exclamation, MessageBoxButton.OKCancel, "ConfirmationDialog");
-                    ownerViewModel.Messenger.Raise(confirmationMessage2);
+                    ownerViewModel.RaiseInteractionMessageOnUiThread(confirmationMessage2);
                     if (!confirmationMessage2.Response.HasValue || !confirmationMessage2.Response.Value)
                     {
                         RaisePropertyChanged("is_external_sync");
@@ -4487,7 +4487,7 @@ public class MainWindowViewModel : ViewModel
                     }
                     else
                     {
-                        ownerViewModel.Messenger.Raise(new ConfirmationMessage("出力先フォルダ名が空もしくは重複しています。" + Environment.NewLine + "入力した値を確認して下さい。", "エラー", MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
+                        ownerViewModel.RaiseInteractionMessageOnUiThread(new ConfirmationMessage("出力先フォルダ名が空もしくは重複しています。" + Environment.NewLine + "入力した値を確認して下さい。", "エラー", MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
                     }
                 }
                 else if (string.IsNullOrWhiteSpace(value) || value == name.Trim().ToSjisSchemeString().RemoveInvalidFileNameChars())
@@ -8891,7 +8891,7 @@ public class MainWindowViewModel : ViewModel
             return false;
         }
         virtualView.ForEachRealizedRow(row => row.RefreshDisplayForDataDependency(dependency));
-        base.Messenger.Raise(new InteractionMessage("RefreshMainTableDisplay"));
+        RaiseInteractionMessageOnUiThread(new InteractionMessage("RefreshMainTableDisplay"));
         return true;
     }
 
@@ -11242,7 +11242,7 @@ public class MainWindowViewModel : ViewModel
         if (!ReferenceEquals(ChartRowsView, nextRowsView))
         {
             long prepareStartMs = viewBuildStopwatch.ElapsedMilliseconds;
-            base.Messenger.Raise(new InteractionMessage("PrepareMainTableSwap"));
+            RaiseInteractionMessageOnUiThread(new InteractionMessage("PrepareMainTableSwap"));
             prepareSwapMs = viewBuildStopwatch.ElapsedMilliseconds - prepareStartMs;
         }
         long columnSettingStartMs = viewBuildStopwatch.ElapsedMilliseconds;
@@ -11421,7 +11421,7 @@ public class MainWindowViewModel : ViewModel
         if (!ReferenceEquals(ChartRowsView, nextRowsView))
         {
             long prepareStartMs = viewBuildStopwatch.ElapsedMilliseconds;
-            base.Messenger.Raise(new InteractionMessage("PrepareMainTableSwap"));
+            RaiseInteractionMessageOnUiThread(new InteractionMessage("PrepareMainTableSwap"));
             prepareSwapMs = viewBuildStopwatch.ElapsedMilliseconds - prepareStartMs;
         }
         long columnSettingStartMs = viewBuildStopwatch.ElapsedMilliseconds;
@@ -15363,6 +15363,46 @@ public class MainWindowViewModel : ViewModel
         dropInstallQueueProcessor = new DropInstallQueueProcessor(ProcessDroppedInstallBatch, UpdateDropInstallQueueStatus, HandleDroppedInstallBatchException);
     }
 
+    internal void RaiseInteractionMessageOnUiThread(InteractionMessage message)
+    {
+        if (message == null)
+        {
+            return;
+        }
+
+        void RaiseMessage()
+        {
+            base.Messenger.Raise(message);
+        }
+
+        Dispatcher dispatcher = System.Windows.Application.Current?.Dispatcher;
+        if (dispatcher == null || dispatcher.CheckAccess())
+        {
+            RaiseMessage();
+            return;
+        }
+
+        if (dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
+        {
+            LogInteractionMessageSkippedOnShutdown(message);
+            return;
+        }
+
+        try
+        {
+            dispatcher.Invoke(DispatcherPriority.Normal, (Action)RaiseMessage);
+        }
+        catch (InvalidOperationException) when (dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
+        {
+            LogInteractionMessageSkippedOnShutdown(message);
+        }
+    }
+
+    private static void LogInteractionMessageSkippedOnShutdown(InteractionMessage message)
+    {
+        NLogWrapper.FileLogger?.Warn("interaction_message skipped reason=dispatcher_shutdown key=" + (message?.MessageKey ?? string.Empty));
+    }
+
     /// <summary>
     /// データベース側からプレイリスト情報 (BMSTable) を再読み込みし、コレクションを更新します。<br/>
     /// バックグラウンドで初期化を行い、更新完了後に外部同期などを再スケジュールします。
@@ -15617,7 +15657,7 @@ public class MainWindowViewModel : ViewModel
         {
             LogInitStage("app_schema_preflight_prompt_show", "Initialize");
             var confirmationMessage = new ConfirmationMessage(BuildAppSchemaRepairWarningMessage(preflightResult), BeMusicSeeker.Properties.Resources.AppSchemaRepairWarningTitle, MessageBoxImage.Exclamation, MessageBoxButton.OKCancel, "ConfirmationDialog");
-            base.Messenger.Raise(confirmationMessage);
+            RaiseInteractionMessageOnUiThread(confirmationMessage);
             LogInitStage("app_schema_preflight_prompt_close", "Initialize");
             if (confirmationMessage.Response != true)
             {
@@ -15742,7 +15782,7 @@ public class MainWindowViewModel : ViewModel
             {
                 _semaphore.Release();
                 SetStartupUiInteractionBlocked(false);
-                base.Messenger.Raise(new InteractionMessage("InitialSetupLanguageDialog"));
+                RaiseInteractionMessageOnUiThread(new InteractionMessage("InitialSetupLanguageDialog"));
                 return;
             }
             else
@@ -15751,7 +15791,7 @@ public class MainWindowViewModel : ViewModel
             }
             _semaphore.Release();
             SetStartupUiInteractionBlocked(false);
-            base.Messenger.Raise(new InteractionMessage("InitializationException"));
+            RaiseInteractionMessageOnUiThread(new InteractionMessage("InitializationException"));
             return;
         }
         try
@@ -15771,7 +15811,7 @@ public class MainWindowViewModel : ViewModel
             currentClassLogger.Error(ex, text2 + " - " + Environment.NewLine + ex.ToString(), null);
             _semaphore.Release();
             SetStartupUiInteractionBlocked(false);
-            base.Messenger.Raise(new InteractionMessage("InitializationException"));
+            RaiseInteractionMessageOnUiThread(new InteractionMessage("InitializationException"));
             return;
         }
         long operationToken;
@@ -15818,7 +15858,7 @@ public class MainWindowViewModel : ViewModel
             currentClassLogger.Error(ex, text3 + " - " + Environment.NewLine + ex.ToString(), null);
             _semaphore.Release();
             SetStartupUiInteractionBlocked(false);
-            base.Messenger.Raise(new InteractionMessage("InitializationException"));
+            RaiseInteractionMessageOnUiThread(new InteractionMessage("InitializationException"));
             return;
         }
         ColumnsSettingsChartRowsView = Settings.Default.StandardCustomTableColumnSettings;
@@ -16153,7 +16193,7 @@ public class MainWindowViewModel : ViewModel
         {
             RaisePropertyChanged(() => IsPlaylistUpdating);
         });
-        base.Messenger.Raise(new InteractionMessage("InitializationSuccess"));
+        RaiseInteractionMessageOnUiThread(new InteractionMessage("InitializationSuccess"));
         if (Settings.Default.OperationModeLR2DB && Settings.Default.IsLR2BackupEnabled)
         {
             Backup.Target lR2BackupTarget = Settings.Default.LR2BackupTarget;
@@ -16192,7 +16232,7 @@ public class MainWindowViewModel : ViewModel
                     }
                     catch (Exception ex2)
                     {
-                        base.Messenger.Raise(new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Msg_failed_backups + Environment.NewLine + ex2.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
+                        RaiseInteractionMessageOnUiThread(new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Msg_failed_backups + Environment.NewLine + ex2.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
                     }
                     if (flag)
                     {
@@ -16280,7 +16320,7 @@ public class MainWindowViewModel : ViewModel
             currentClassLogger.Error(ex, text4 + " - " + Environment.NewLine + ex.ToString(), null);
             _semaphore.Release();
             SetStartupUiInteractionBlocked(false);
-            base.Messenger.Raise(new InteractionMessage("InitializationException"));
+            RaiseInteractionMessageOnUiThread(new InteractionMessage("InitializationException"));
             return;
         }
         finally
@@ -16412,7 +16452,7 @@ public class MainWindowViewModel : ViewModel
         bool flag = LR2ScoreDBExtended.Lock(new TimeSpan(0, 1, 0));
         if (!num || !flag)
         {
-            base.Messenger.Raise(new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Msg_error_close_timeout, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
+            RaiseInteractionMessageOnUiThread(new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Msg_error_close_timeout, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
         }
         TempDirectoryPublisher.RemoveAll();
     }
@@ -16449,7 +16489,7 @@ public class MainWindowViewModel : ViewModel
         }
         NowPlayingBMS = bmsFile;
         SelectedIndexChartRowsView = indexChartRowsView;
-        base.Messenger.Raise(new InteractionMessage("CallbackPlayStartBMSfile"));
+        RaiseInteractionMessageOnUiThread(new InteractionMessage("CallbackPlayStartBMSfile"));
         playbackChart ??= ChartFileProjection.FromBmsFile(
             bmsFile,
             includeResourceReferences: false);
@@ -16462,7 +16502,7 @@ public class MainWindowViewModel : ViewModel
                 if (Settings.Default.UsePlayerLR2body && Settings.Default.OperationModeLR2DB)
                 {
                     var confirmationMessage = new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Msg_warn_play_temp_install, BeMusicSeeker.Properties.Resources.Warning, MessageBoxImage.Exclamation, MessageBoxButton.YesNo, "ConfirmationDialog");
-                    base.Messenger.Raise(confirmationMessage);
+                    RaiseInteractionMessageOnUiThread(confirmationMessage);
                     if (confirmationMessage.Response == false)
                     {
                         return;
@@ -16520,7 +16560,7 @@ public class MainWindowViewModel : ViewModel
                     }
                     catch (Exception ex)
                     {
-                        base.Messenger.Raise(new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Msg_failed_play + Environment.NewLine + ex.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
+                        RaiseInteractionMessageOnUiThread(new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Msg_failed_play + Environment.NewLine + ex.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
                         PlayEndBMSFile();
                         return;
                     }
@@ -16560,12 +16600,12 @@ public class MainWindowViewModel : ViewModel
             }
             catch (Exception ex2)
             {
-                base.Messenger.Raise(new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Msg_failed_play + Environment.NewLine + ex2.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
+                RaiseInteractionMessageOnUiThread(new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Msg_failed_play + Environment.NewLine + ex2.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
                 PlayEndBMSFile();
                 return;
             }
         }
-        base.Messenger.Raise(new InteractionMessage("CallbackPlayStartedBMSfile"));
+        RaiseInteractionMessageOnUiThread(new InteractionMessage("CallbackPlayStartedBMSfile"));
     }
 
     /// <summary>
@@ -17364,7 +17404,7 @@ public class MainWindowViewModel : ViewModel
             List<PlaylistDetailSourceRow> previousSourceRows = ReplacePlaylistSourceRows(sourceRows, bmsTable, folderName, filterType, request.Identity);
             sourceRows = null;
             SelectedIndexChartRowsView = -1;
-            base.Messenger.Raise(new InteractionMessage("PrepareMainTableSwap"));
+            RaiseInteractionMessageOnUiThread(new InteractionMessage("PrepareMainTableSwap"));
             stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
             loadColumnSetting(ResolvePlaylistColumnSettingMode(filterType));
             long columnStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
@@ -17423,7 +17463,7 @@ public class MainWindowViewModel : ViewModel
             return true;
         }
         SelectedIndexChartRowsView = -1;
-        base.Messenger.Raise(new InteractionMessage("PrepareMainTableSwap"));
+        RaiseInteractionMessageOnUiThread(new InteractionMessage("PrepareMainTableSwap"));
         long stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
         loadColumnSetting(ResolvePlaylistColumnSettingMode(request.Identity.FilterType));
         long columnStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
@@ -17841,7 +17881,7 @@ public class MainWindowViewModel : ViewModel
         if (!ReferenceEquals(ChartRowsView, nextRowsView))
         {
             long prepareStartMs = viewBuildStopwatch.ElapsedMilliseconds;
-            base.Messenger.Raise(new InteractionMessage("PrepareMainTableSwap"));
+            RaiseInteractionMessageOnUiThread(new InteractionMessage("PrepareMainTableSwap"));
             prepareSwapMs = viewBuildStopwatch.ElapsedMilliseconds - prepareStartMs;
         }
         long columnSettingStartMs = viewBuildStopwatch.ElapsedMilliseconds;
@@ -19115,7 +19155,7 @@ public class MainWindowViewModel : ViewModel
             }
             catch (FileNotFoundException ex)
             {
-                base.Messenger.Raise(new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Msg_failed_installation + Environment.NewLine + ex.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
+                RaiseInteractionMessageOnUiThread(new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Msg_failed_installation + Environment.NewLine + ex.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
                 onEachCompleted?.Invoke(obj: false);
                 return;
             }
@@ -19172,7 +19212,7 @@ public class MainWindowViewModel : ViewModel
         }
         Action action = delegate
         {
-            base.Messenger.Raise(new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Msg_failed_installation + Environment.NewLine + ex.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
+            RaiseInteractionMessageOnUiThread(new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Msg_failed_installation + Environment.NewLine + ex.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
         };
         if (System.Windows.Application.Current?.Dispatcher == null || System.Windows.Application.Current.Dispatcher.CheckAccess())
         {
@@ -20309,7 +20349,7 @@ public class MainWindowViewModel : ViewModel
             MessageBoxImage.Exclamation,
             MessageBoxButton.OKCancel,
             "ConfirmationDialog");
-        base.Messenger.Raise(confirmationMessage);
+        RaiseInteractionMessageOnUiThread(confirmationMessage);
         if (confirmationMessage.Response != true)
         {
             return;
@@ -20327,7 +20367,7 @@ public class MainWindowViewModel : ViewModel
         }
         catch (Exception ex)
         {
-            base.Messenger.Raise(new ConfirmationMessage(
+            RaiseInteractionMessageOnUiThread(new ConfirmationMessage(
                 BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + ex.Message,
                 BeMusicSeeker.Properties.Resources.Error,
                 MessageBoxImage.Hand,
@@ -22364,7 +22404,7 @@ public class MainWindowViewModel : ViewModel
         {
             message = message + Environment.NewLine + ex.Message;
         }
-        base.Messenger.Raise(new ConfirmationMessage(message, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
+        RaiseInteractionMessageOnUiThread(new ConfirmationMessage(message, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
     }
 
     internal void EnqueueExternalPlaylistBMSTableImport(Uri uri)
@@ -22486,7 +22526,7 @@ public class MainWindowViewModel : ViewModel
             summary.FailedCount);
         AppendImportOutcomeSamples(message, BeMusicSeeker.Properties.Resources.Playlist_import_result_skipped_header, summary.SkippedDuplicateNameOutcomes);
         AppendImportOutcomeSamples(message, BeMusicSeeker.Properties.Resources.Playlist_import_result_failed_header, summary.FailedOutcomes);
-        base.Messenger.Raise(new ConfirmationMessage(
+        RaiseInteractionMessageOnUiThread(new ConfirmationMessage(
             message.ToString(),
             BeMusicSeeker.Properties.Resources.Playlist_import_result_title,
             summary.FailedCount > 0 ? MessageBoxImage.Exclamation : MessageBoxImage.Information,
@@ -22600,7 +22640,7 @@ public class MainWindowViewModel : ViewModel
     {
         if (bmsTable.is_external_sync)
         {
-            base.Messenger.Raise(new ConfirmationMessage("プレイリストが外部同期モードになっているため" + Environment.NewLine + "フォルダ名を変更することは出来ません。", "エラー", MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
+            RaiseInteractionMessageOnUiThread(new ConfirmationMessage("プレイリストが外部同期モードになっているため" + Environment.NewLine + "フォルダ名を変更することは出来ません。", "エラー", MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
         }
         else
         {
@@ -22612,7 +22652,7 @@ public class MainWindowViewModel : ViewModel
     {
         if (bmsTable.is_external_sync)
         {
-            base.Messenger.Raise(new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Msg_failed_remove_playlist_folder, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
+            RaiseInteractionMessageOnUiThread(new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Msg_failed_remove_playlist_folder, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
         }
         else
         {
@@ -22624,7 +22664,7 @@ public class MainWindowViewModel : ViewModel
     {
         if (bmsTable.is_external_sync)
         {
-            base.Messenger.Raise(new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Msg_failed_create_playlist_folder, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
+            RaiseInteractionMessageOnUiThread(new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Msg_failed_create_playlist_folder, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
         }
         else
         {
@@ -22664,7 +22704,7 @@ public class MainWindowViewModel : ViewModel
         }
         catch
         {
-            base.Messenger.Raise(new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Msg_failed_save_playlist, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
+            RaiseInteractionMessageOnUiThread(new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Msg_failed_save_playlist, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
         }
         finally
         {
@@ -22684,7 +22724,7 @@ public class MainWindowViewModel : ViewModel
         }
         if (bmsTable.is_external_sync)
         {
-            base.Messenger.Raise(new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Msg_failed_add_playlist_entry, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
+            RaiseInteractionMessageOnUiThread(new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Msg_failed_add_playlist_entry, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
             return;
         }
         tables.EnsurePlaylistEntriesLoaded(bmsTable, "MainWindowViewModel.AddChartRowsToFolderBMSTable");
@@ -22787,7 +22827,7 @@ public class MainWindowViewModel : ViewModel
     {
         if (bmsTable.is_external_sync)
         {
-            base.Messenger.Raise(new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Msg_failed_remove_playlist_entry, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
+            RaiseInteractionMessageOnUiThread(new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Msg_failed_remove_playlist_entry, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
             return;
         }
         tables.RemoveEntriesBMSTable(bmsEntries, bmsTable);
@@ -22888,18 +22928,18 @@ public class MainWindowViewModel : ViewModel
         }
         if (BMSTables.Count() == 0)
         {
-            base.Messenger.Raise(new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Msg_warn_playlist_backup, BeMusicSeeker.Properties.Resources.Warning, MessageBoxImage.Exclamation, MessageBoxButton.OK, "ConfirmationDialog"));
+            RaiseInteractionMessageOnUiThread(new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Msg_warn_playlist_backup, BeMusicSeeker.Properties.Resources.Warning, MessageBoxImage.Exclamation, MessageBoxButton.OK, "ConfirmationDialog"));
             return;
         }
         try
         {
             string playlistDump = tables.GetPlaylistDump();
             File.WriteAllText(fileName, playlistDump);
-            base.Messenger.Raise(new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Msg_success_playlist_backup, BeMusicSeeker.Properties.Resources.Success, MessageBoxImage.Asterisk, MessageBoxButton.OK, "ConfirmationDialog"));
+            RaiseInteractionMessageOnUiThread(new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Msg_success_playlist_backup, BeMusicSeeker.Properties.Resources.Success, MessageBoxImage.Asterisk, MessageBoxButton.OK, "ConfirmationDialog"));
         }
         catch (Exception ex)
         {
-            base.Messenger.Raise(new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Msg_failed_playlist_backup + Environment.NewLine + Environment.NewLine + ex.Message, BeMusicSeeker.Properties.Resources.Failure, MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
+            RaiseInteractionMessageOnUiThread(new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Msg_failed_playlist_backup + Environment.NewLine + Environment.NewLine + ex.Message, BeMusicSeeker.Properties.Resources.Failure, MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
         }
     }
 
@@ -22921,11 +22961,11 @@ public class MainWindowViewModel : ViewModel
                 tables.LoadPlaylistDump(lines);
                 tables.ReloadTables();
                 tables.QueueBeatorajaBmtExportAll("RestoreBMSTables");
-                base.Messenger.Raise(new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Msg_success_playlist_restore, BeMusicSeeker.Properties.Resources.Success, MessageBoxImage.Asterisk, MessageBoxButton.OK, "ConfirmationDialog"));
+                RaiseInteractionMessageOnUiThread(new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Msg_success_playlist_restore, BeMusicSeeker.Properties.Resources.Success, MessageBoxImage.Asterisk, MessageBoxButton.OK, "ConfirmationDialog"));
             }
             catch (Exception ex)
             {
-                base.Messenger.Raise(new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Msg_failed_playlist_restore + Environment.NewLine + Environment.NewLine + ex.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
+                RaiseInteractionMessageOnUiThread(new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Msg_failed_playlist_restore + Environment.NewLine + Environment.NewLine + ex.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
             }
         }
         if (System.Windows.Application.Current.Dispatcher.CheckAccess())
@@ -23640,7 +23680,7 @@ public class MainWindowViewModel : ViewModel
                 MessageBoxImage.Asterisk,
                 MessageBoxButton.YesNo,
                 "ConfirmationDialog");
-            base.Messenger.Raise(confirmationMessage);
+            RaiseInteractionMessageOnUiThread(confirmationMessage);
             if (confirmationMessage.Response != true)
             {
                 return null;
@@ -23678,7 +23718,7 @@ public class MainWindowViewModel : ViewModel
                         MessageBoxImage.Asterisk,
                         MessageBoxButton.YesNo,
                         "ConfirmationDialog");
-                    base.Messenger.Raise(uploadConfirmMessage);
+                    RaiseInteractionMessageOnUiThread(uploadConfirmMessage);
                     if (uploadConfirmMessage.Response == true)
                     {
                         userConfirmedMultiRegister = true;
@@ -23706,7 +23746,7 @@ public class MainWindowViewModel : ViewModel
         }
         if (userConfirmedMultiRegister && !string.IsNullOrWhiteSpace(resultViewUrl))
         {
-            base.Messenger.Raise(new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Msg_success_register_chart, BeMusicSeeker.Properties.Resources.Information, MessageBoxImage.Asterisk, MessageBoxButton.OK, "ConfirmationDialog"));
+            RaiseInteractionMessageOnUiThread(new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Msg_success_register_chart, BeMusicSeeker.Properties.Resources.Information, MessageBoxImage.Asterisk, MessageBoxButton.OK, "ConfirmationDialog"));
         }
         return resultViewUrl;
     }

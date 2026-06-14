@@ -558,9 +558,9 @@ public sealed class MainWindowContextMenuResourceTests
             "if (Settings.Default.OperationModeLR2DB && !await EnsureAppSchemaRepairApprovedForStartupAsync())");
 
         Assert.IsFalse(validationFailure.Contains("DispatcherMessageBox.Show(BeMusicSeeker.Properties.Resources.Msg_init_settings,"));
-        StringAssert.Contains(validationFailure, "base.Messenger.Raise(new InteractionMessage(\"InitialSetupLanguageDialog\"));");
+        StringAssert.Contains(validationFailure, "RaiseInteractionMessageOnUiThread(new InteractionMessage(\"InitialSetupLanguageDialog\"));");
         StringAssert.Contains(validationFailure, "DispatcherMessageBox.Show(BeMusicSeeker.Properties.Resources.Msg_init_settings_check");
-        StringAssert.Contains(validationFailure, "base.Messenger.Raise(new InteractionMessage(\"InitializationException\"));");
+        StringAssert.Contains(validationFailure, "RaiseInteractionMessageOnUiThread(new InteractionMessage(\"InitializationException\"));");
         Assert.IsTrue(validationFailure.IndexOf("InitialSetupLanguageDialog", StringComparison.Ordinal) < validationFailure.IndexOf("Msg_init_settings_check", StringComparison.Ordinal));
 
         StringAssert.Contains(mainWindow, "MessageKey=\"InitialSetupLanguageDialog\"");
@@ -572,6 +572,21 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(initialDialog, "Resources.InitialSetupLanguageDialogTitle");
         StringAssert.Contains(initialDialog, "Resources.InitialSetupLanguageDialogContinue");
         StringAssert.Contains(initialDialogCode, "settingDialog.Visibility = Visibility.Visible;");
+    }
+
+    [TestMethod]
+    public void MainWindowViewModel_RaisesMessagesThroughUiThreadHelper()
+    {
+        string root = FindRepositoryRoot();
+        string viewModelCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string mainWindowCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow.cs"));
+        string helperBody = ExtractMethodBody(viewModelCode, "internal void RaiseInteractionMessageOnUiThread(InteractionMessage message)");
+
+        StringAssert.Contains(helperBody, "base.Messenger.Raise(message);");
+        StringAssert.Contains(helperBody, "dispatcher.Invoke(DispatcherPriority.Normal");
+        Assert.AreEqual(1, CountOccurrences(viewModelCode, "base.Messenger.Raise("));
+        Assert.IsFalse(viewModelCode.Contains("ownerViewModel.Messenger.Raise("));
+        Assert.IsFalse(mainWindowCode.Contains(".Messenger.Raise("));
     }
 
     [TestMethod]
@@ -615,7 +630,7 @@ public sealed class MainWindowContextMenuResourceTests
             gatewayCode,
             "internal static void RepairAppOwnedSchema(LR2SongDBExtended songDb)",
             "internal static void EnsureAppOwnedSchema(LR2SongDBExtended songDb)");
-        StringAssert.Contains(appSchemaStartupPreflight, "base.Messenger.Raise(confirmationMessage);");
+        StringAssert.Contains(appSchemaStartupPreflight, "RaiseInteractionMessageOnUiThread(confirmationMessage);");
         StringAssert.Contains(appSchemaStartupPreflight, "await Task.Run(delegate");
         StringAssert.Contains(appSchemaStartupPreflight, "ApplyAppSchemaRepairForStartupOrThrow(appSchemaPreflightService, preflightResult);");
         Assert.IsFalse(repairAppOwnedSchema.Contains("RepairChartDigestMapConsistency"));

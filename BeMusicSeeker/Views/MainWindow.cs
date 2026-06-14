@@ -2656,7 +2656,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
         var confirmationMessage = new ConfirmationMessage((!flag) ? ("同期モードを解除するとリモートの変更が反映されなくなります。" + Environment.NewLine + "よろしいですか？") : ("同期モードに設定するとローカルの変更が失われます。" + Environment.NewLine + "よろしいですか？"), "警告", MessageBoxImage.Exclamation, MessageBoxButton.OKCancel, "ConfirmationDialog");
-        (base.DataContext as MainWindowViewModel)?.Messenger.Raise(confirmationMessage);
+        (base.DataContext as MainWindowViewModel)?.RaiseInteractionMessageOnUiThread(confirmationMessage);
         if (!confirmationMessage.Response.HasValue || !confirmationMessage.Response.Value)
         {
             checkBox.IsChecked = !flag;
@@ -2680,7 +2680,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
         var confirmationMessage = new ConfirmationMessage((!flag) ? ("同期モードを解除するとリモートの変更が反映されなくなります。" + Environment.NewLine + "よろしいですか？") : ("同期モードに設定するとローカルの変更が失われます。" + Environment.NewLine + "よろしいですか？"), "警告", MessageBoxImage.Exclamation, MessageBoxButton.OKCancel, "ConfirmationDialog");
-        (base.DataContext as MainWindowViewModel)?.Messenger.Raise(confirmationMessage);
+        (base.DataContext as MainWindowViewModel)?.RaiseInteractionMessageOnUiThread(confirmationMessage);
         if (!confirmationMessage.Response.HasValue || !confirmationMessage.Response.Value)
         {
             customTablePlaylistSummary?.RefreshDisplay();
