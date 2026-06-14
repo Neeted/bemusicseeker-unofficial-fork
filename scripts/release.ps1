@@ -49,17 +49,11 @@ try {
     $tag = "v$version"
     Write-Host "  対象バージョン: $tag"
 
-    # パッケージの確認
-    $requiredZipName = "bemusicseeker-unofficial-fork-${tag}.zip"
-    $requiredZipPath = Join-Path "dist" $requiredZipName
-    if (-not (Test-Path $requiredZipPath)) {
-        throw "リリース用パッケージが見つかりません: $requiredZipPath `n事前に publish.ps1 を実行してパッケージを作成してください。"
-    }
-
+    # パッケージの確認。通常版 / metadata 同梱版など、対象バージョンの zip が 1 件以上あればよい。
     $zipPattern = "bemusicseeker-unofficial-fork-${tag}*.zip"
     $releaseAssets = @(Get-ChildItem -Path "dist" -Filter $zipPattern -File | Sort-Object Name)
     if ($releaseAssets.Count -eq 0) {
-        throw "リリース用パッケージが見つかりません: dist\$zipPattern"
+        throw "リリース用パッケージが見つかりません: dist\$zipPattern `n事前に publish.ps1 を実行してパッケージを作成してください。"
     }
 
     Write-Host "  パッケージ確認 OK:"
