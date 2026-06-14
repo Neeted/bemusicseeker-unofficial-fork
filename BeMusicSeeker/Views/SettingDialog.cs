@@ -150,9 +150,12 @@ public partial class SettingDialog : UserControl, IComponentConnector
         {
             return;
         }
-        if (viewModel.IsLibraryOperationInProgress)
+        if (!viewModel.CanRequestLr2SongDbSyncDataResync)
         {
-            DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_settings_apply_blocked_during_initialization, BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation);
+            if (viewModel.IsLibraryOperationInProgress)
+            {
+                DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_settings_apply_blocked_during_initialization, BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation);
+            }
             return;
         }
         if (DispatcherMessageBox.Show(
@@ -167,11 +170,6 @@ public partial class SettingDialog : UserControl, IComponentConnector
         }
         settingDialog.Visibility = Visibility.Hidden;
         await Dispatcher.Yield(DispatcherPriority.Background);
-        Control control = sender as Control;
-        if (control != null)
-        {
-            control.IsEnabled = false;
-        }
         try
         {
             await viewModel.RequestLr2SongDbSyncAsync("setting_dialog_manual_resync", force: true);
@@ -179,13 +177,6 @@ public partial class SettingDialog : UserControl, IComponentConnector
         catch (Exception ex)
         {
             DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + Environment.NewLine + ex.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxButton.OK, MessageBoxImage.Hand);
-        }
-        finally
-        {
-            if (control != null)
-            {
-                control.ClearValue(UIElement.IsEnabledProperty);
-            }
         }
     }
 

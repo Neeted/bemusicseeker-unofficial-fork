@@ -768,6 +768,7 @@ public class MainWindowViewModel : ViewModel
             RaisePropertyChanged(() => IsBmsSearchRootEditorEnabled);
             RaisePropertyChanged(() => BMSInstallDir);
             RaiseValidationStateChanged();
+            ownerViewModel.RaiseLr2SongDbSyncDataResyncAvailabilityChanged();
         }
 
         private void ConfirmAndRestartForOperationModeChange(bool value)
@@ -3955,6 +3956,7 @@ public class MainWindowViewModel : ViewModel
             RefreshStandaloneBmsRootPathsFromSettings();
             RaisePropertyChanged(() => OperationModeLR2DB);
             RaisePropertyChanged(() => CanUseLr2Features);
+            ownerViewModel.RaiseLr2SongDbSyncDataResyncAvailabilityChanged();
             RaisePropertyChanged(() => LR2RootPath);
             RaisePropertyChanged(() => BMSRootPath);
             RaisePropertyChanged(() => StandaloneBmsRootPathList);
@@ -5815,6 +5817,20 @@ public class MainWindowViewModel : ViewModel
     private bool hasActiveLibraryProfile;
 
     public bool HasActiveLibraryProfile => hasActiveLibraryProfile;
+
+    /// <summary>
+    /// 設定画面から LR2 `song` / `folder` 派生データの手動再同期を要求できる状態かどうかを返します。
+    /// この再同期は現在の所持譜面とプレイリストを入力にするため、初回設定中のように
+    /// ライブラリプロファイルがまだ成立していない間は許可しません。
+    /// </summary>
+    public bool CanRequestLr2SongDbSyncDataResync => HasActiveLibraryProfile
+        && settingDialog?.OperationModeLR2DB == true
+        && !IsLibraryOperationInProgress;
+
+    private void RaiseLr2SongDbSyncDataResyncAvailabilityChanged()
+    {
+        RaisePropertyChanged(() => CanRequestLr2SongDbSyncDataResync);
+    }
 
     private bool bmsonMigrationApprovedForSession;
 
@@ -13568,6 +13584,7 @@ public class MainWindowViewModel : ViewModel
         _IsStartupUiInteractionBlocked = value;
         RaisePropertyChanged("IsStartupUiInteractionBlocked");
         RaisePropertyChanged("IsLibraryOperationInProgress");
+        RaiseLr2SongDbSyncDataResyncAvailabilityChanged();
     }
 
     public bool IsLibraryOperationInProgress
@@ -14198,6 +14215,7 @@ public class MainWindowViewModel : ViewModel
                 _IsStartupProgressActive = value;
                 RaisePropertyChanged("IsStartupProgressActive");
                 RaisePropertyChanged("IsLibraryOperationInProgress");
+                RaiseLr2SongDbSyncDataResyncAvailabilityChanged();
                 RecomputeLr2SongDbSyncStatusPresentation();
             }
         }
@@ -16279,6 +16297,7 @@ public class MainWindowViewModel : ViewModel
         hasActiveLibraryProfile = true;
         RaisePropertyChanged(() => IsInitializationCompleted);
         RaisePropertyChanged(() => HasActiveLibraryProfile);
+        RaiseLr2SongDbSyncDataResyncAvailabilityChanged();
         SchedulePlaylistLibraryIndexPrewarm(GetPlaylistLibraryIndexVersion(), "initialize_completed");
         _semaphore.Release();
         LogInitStage("deferred_playlist_ref_waiting_for_playlist_entries_hydration", "Initialize");

@@ -750,6 +750,7 @@ public sealed class MainWindowContextMenuResourceTests
     {
         string viewModelCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
         string settingDialogCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "SettingDialog.cs"));
+        string settingDialogXaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "SettingDialog.xaml"));
         string playlistCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "BMSPlaylist.cs"));
         string runtimeSync = ExtractBetween(
             viewModelCode,
@@ -795,6 +796,13 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(viewModelCode, "() => ReOutputAllCustomFoldersForLr2GeneratedDataSync(reason)");
         StringAssert.Contains(viewModelCode, "files?.TryRunLr2SongDbSyncDataPreparation(");
         StringAssert.Contains(viewModelCode, "files?.PublishLr2SongDbSyncExternalStageProgress(");
+        StringAssert.Contains(viewModelCode, "public bool CanRequestLr2SongDbSyncDataResync => HasActiveLibraryProfile");
+        StringAssert.Contains(viewModelCode, "&& settingDialog?.OperationModeLR2DB == true");
+        StringAssert.Contains(viewModelCode, "&& !IsLibraryOperationInProgress;");
+        StringAssert.Contains(settingDialogXaml, "<Grid Margin=\"0,0,0,4\" IsEnabled=\"{Binding IsChecked, ElementName=radioButtonUseLR2}\">");
+        StringAssert.Contains(settingDialogXaml, "HorizontalAlignment=\"Center\"");
+        StringAssert.Contains(settingDialogXaml, "IsEnabled=\"{Binding CanRequestLr2SongDbSyncDataResync, Mode=OneWay}\"");
+        StringAssert.Contains(manualResyncClickHandler, "if (!viewModel.CanRequestLr2SongDbSyncDataResync)");
         StringAssert.Contains(settingDialogCode, "await viewModel.RequestLr2SongDbSyncAsync(\"setting_dialog_manual_resync\", force: true);");
         StringAssert.Contains(manualResyncClickHandler, "settingDialog.Visibility = Visibility.Hidden;");
         StringAssert.Contains(manualResyncClickHandler, "await Dispatcher.Yield(DispatcherPriority.Background);");
@@ -814,6 +822,14 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(
             manualResyncClickHandler.IndexOf("settingDialogRootGrid.IsEnabled = false;", StringComparison.Ordinal) >= 0,
             "Manual LR2 generated-data sync must not disable the entire settings dialog while playlist projection is running.");
+        Assert.IsFalse(
+            manualResyncClickHandler.IndexOf("ClearValue(UIElement.IsEnabledProperty)", StringComparison.Ordinal) >= 0
+            || manualResyncClickHandler.IndexOf(".IsEnabled = false", StringComparison.Ordinal) >= 0,
+            "Manual LR2 generated-data sync must not overwrite the button IsEnabled binding.");
+        Assert.IsTrue(
+            manualResyncClickHandler.IndexOf("if (!viewModel.CanRequestLr2SongDbSyncDataResync)", StringComparison.Ordinal)
+            < manualResyncClickHandler.IndexOf("Msg_confirm_lr2_song_db_sync_data_resync", StringComparison.Ordinal),
+            "Manual LR2 generated-data sync must reject invalid profile/operation state before showing the destructive confirmation.");
         StringAssert.Contains(postSaveSteps, "tempOperationModeLR2DB != Settings.Default.OperationModeLR2DB");
         Assert.IsFalse(postSaveSteps.Contains("tempEnableLR2SongDbSync"));
         StringAssert.Contains(postSaveSteps, "tempLR2RootPath, Settings.Default.LR2RootPath");
