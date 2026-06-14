@@ -638,6 +638,8 @@ public class MainWindowViewModel : ViewModel
 
         private bool tempEstimateOfflineScoreRanking;
 
+        private bool tempUpdateLr2IrRankingCacheOnStartup;
+
         private bool tempEnableDownloadLr2IrScoreAndDetectUnsent;
 
         private bool tempEnableAutoInstall;
@@ -1834,6 +1836,7 @@ public class MainWindowViewModel : ViewModel
                     ownerViewModel.RaiseInteractionMessageOnUiThread(confirmationMessage);
                     if (confirmationMessage.Response != true)
                     {
+                        RaisePropertyChanged("EstimateOfflineScoreRanking");
                         return;
                     }
                 }
@@ -1860,6 +1863,7 @@ public class MainWindowViewModel : ViewModel
                     ownerViewModel.RaiseInteractionMessageOnUiThread(confirmationMessage);
                     if (confirmationMessage.Response != true)
                     {
+                        RaisePropertyChanged("UpdateLr2IrRankingCacheOnStartup");
                         return;
                     }
                 }
@@ -1939,6 +1943,32 @@ public class MainWindowViewModel : ViewModel
                     Settings.Default.EnableDownloadLr2IrScoreAndDetectUnsent = value;
                     RaisePropertyChanged("EnableDownloadLr2IrScoreAndDetectUnsent");
                 }
+            }
+        }
+
+        public bool UpdateLr2IrRankingCacheOnStartup
+        {
+            get
+            {
+                return Settings.Default.UpdateLr2IrRankingCacheOnStartup;
+            }
+            set
+            {
+                if (Settings.Default.UpdateLr2IrRankingCacheOnStartup == value)
+                {
+                    return;
+                }
+                if (value)
+                {
+                    var confirmationMessage = new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Msg_confirm_enable_lr2ir_ranking_cache_startup_update, BeMusicSeeker.Properties.Resources.Warning, MessageBoxImage.Exclamation, MessageBoxButton.OKCancel, "ConfirmationDialog");
+                    ownerViewModel.RaiseInteractionMessageOnUiThread(confirmationMessage);
+                    if (confirmationMessage.Response != true)
+                    {
+                        return;
+                    }
+                }
+                Settings.Default.UpdateLr2IrRankingCacheOnStartup = value;
+                RaisePropertyChanged("UpdateLr2IrRankingCacheOnStartup");
             }
         }
 
@@ -3527,6 +3557,7 @@ public class MainWindowViewModel : ViewModel
             tempStartupSelectInstallPending = Settings.Default.StartupSelectInstallPending;
             tempEnableReadOptimizedPragmas = Settings.Default.EnableReadOptimizedPragmas;
             tempEstimateOfflineScoreRanking = Settings.Default.EstimateOfflineScoreRanking;
+            tempUpdateLr2IrRankingCacheOnStartup = Settings.Default.UpdateLr2IrRankingCacheOnStartup;
             tempEnableDownloadLr2IrScoreAndDetectUnsent = Settings.Default.EnableDownloadLr2IrScoreAndDetectUnsent;
             tempEnableAutoInstall = Settings.Default.AutoInstall;
             tempKeepInstallablePackagesPending = Settings.Default.KeepInstallablePackagesPending;
@@ -3909,6 +3940,7 @@ public class MainWindowViewModel : ViewModel
             Settings.Default.StartupSelectInstallPending = tempStartupSelectInstallPending;
             Settings.Default.EnableReadOptimizedPragmas = tempEnableReadOptimizedPragmas;
             Settings.Default.EstimateOfflineScoreRanking = tempEstimateOfflineScoreRanking;
+            Settings.Default.UpdateLr2IrRankingCacheOnStartup = tempUpdateLr2IrRankingCacheOnStartup;
             Settings.Default.EnableDownloadLr2IrScoreAndDetectUnsent = tempEnableDownloadLr2IrScoreAndDetectUnsent;
             Settings.Default.AutoInstall = tempEnableAutoInstall;
             Settings.Default.KeepInstallablePackagesPending = tempKeepInstallablePackagesPending;
@@ -4011,6 +4043,7 @@ public class MainWindowViewModel : ViewModel
             RaisePropertyChanged(() => StartupSelectInstallPending);
             RaisePropertyChanged(() => EnableReadOptimizedPragmas);
             RaisePropertyChanged(() => EstimateOfflineScoreRanking);
+            RaisePropertyChanged(() => UpdateLr2IrRankingCacheOnStartup);
             RaisePropertyChanged(() => EnableDownloadLr2IrScoreAndDetectUnsent);
             RaisePropertyChanged(() => EnableAutoInstall);
             RaisePropertyChanged(() => KeepInstallablePackagesPending);

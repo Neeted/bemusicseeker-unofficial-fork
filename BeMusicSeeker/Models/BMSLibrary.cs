@@ -5130,7 +5130,10 @@ public class BMSLibrary : NotificationObject
         {
             QueueDeferredScoreHydration("initialize_update_ir_score");
         }
-        if (updateIrScore && activeScoreSource == ActiveScoreSource.Lr2 && lr2ScoreDBPath != null)
+        if (updateIrScore
+            && activeScoreSource == ActiveScoreSource.Lr2
+            && lr2ScoreDBPath != null
+            && (options.EnableDownloadLr2IrScoreAndDetectUnsent || options.UpdateLr2IrRankingCacheOnStartup))
         {
             QueueDeferredRankingRefresh("initialize_update_ir_score");
         }
@@ -11621,10 +11624,17 @@ completeFileEnumerationOnce,
         {
             throw new OperationCanceledException();
         }
-        var cacheStopwatch = Stopwatch.StartNew();
-        setRankingScore();
-        cacheStopwatch.Stop();
-        result.CacheMs = cacheStopwatch.ElapsedMilliseconds;
+        if (optionsSnapshot.UpdateLr2IrRankingCacheOnStartup)
+        {
+            var cacheStopwatch = Stopwatch.StartNew();
+            setRankingScore();
+            cacheStopwatch.Stop();
+            result.CacheMs = cacheStopwatch.ElapsedMilliseconds;
+        }
+        else
+        {
+            LogInstallPerformance("ranking_cache_refresh skipped reason=disabled");
+        }
         return result;
     }
 

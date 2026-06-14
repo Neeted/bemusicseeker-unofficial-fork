@@ -258,9 +258,9 @@ background hydration 完了時の通常ライブラリ一覧更新は、起動�
 | 系統 | DB table | 用途 | 設定 |
 | --- | --- | --- | --- |
 | player score XML / `ir_score` | `ir_score`, `ir_score_refresh_metadata` | `SCORE_UNSENT` と LR2 custom folder `UNSENT SONGS` | `LR2IRのスコアをDLしIR未送信を検出する` |
-| ranking cache / `ir_data` | `ir_data` | ranking 表示、offline score ranking estimation | `EstimateOfflineScoreRanking` など |
+| ranking cache / `ir_data` | `ir_data` | ranking 表示、offline score ranking estimation | `UpdateLr2IrRankingCacheOnStartup`, `EstimateOfflineScoreRanking` |
 
-`LR2IRのスコアをDLしIR未送信を検出する` が false の場合、player score XML fetch、`ir_score` DB 更新、`ir_score` 由来の未送信検出を使わない。`ir_data` / ranking cache は維持する。
+`LR2IRのスコアをDLしIR未送信を検出する` が false の場合、player score XML fetch、`ir_score` DB 更新、`ir_score` 由来の未送信検出を使わない。`起動時にLR2IRランキングキャッシュを更新する` が false の場合、起動時 deferred refresh では local ranking cache XML の scan / reload / `ir_data` upsert を行わない。両方 false の場合、起動時の `ranking_refresh_deferred` 自体を queue しない。
 
 `ir_score_prefetch` は LR2ID 確定直後に player score XML fetch、XML parse、normalized score digest 計算までを先行する。`ranking_refresh_deferred` は current な prefetch result を consume し、metadata read、既存 `ir_score` read、replace / metadata upsert、memory merge を行う。LR2IR player score XML の `lastupdate` は譜面 hash 側の LR2IR 更新時刻として変わる可能性があるため、normalized digest では無視する。
 
@@ -273,7 +273,7 @@ ranking cache / `ir_data` は、LR2IR の local cache XML を hash 単位で読�
 - rank は `count(score > targetScore) + 1` として算出する。対象 `LR2ID` がない場合は従来同様 `NO_PLAY` / `rank=-1` の synthetic row を作る。
 - `lastupdate` は XML 末尾の date parse を優先し、空 / 不正 / NUL tail の場合は cache file last write time に fallback する。
 - parser が失敗した XML は skip する。旧 full parser fallback は使わず、`xmlFallbackLoads` は互換 metric として残る。
-- `EstimateOfflineScoreRanking=true` で local score が IR row より高い場合だけ、offline ranking estimation 用に compact rank calculator を on-demand load する。startup refresh で reload 済みの hash は同じ lookup を使うため、同じ refresh 内では再読込しない。
+- `EstimateOfflineScoreRanking=true` で local score が IR row より高い場合だけ、offline ranking estimation 用に compact rank calculator を on-demand load する。startup refresh で reload 済みの hash は同じ lookup を使うため、同じ refresh 内では再読込しない。`UpdateLr2IrRankingCacheOnStartup=false` の場合は起動時 refresh が走らないため、起動後に自動で推定結果は更新されない。
 
 初回構築では `ir_data` が対象 `LR2ID` で空の場合、dedupe 済み rows を 1 transaction の bulk insert で書き込む。既存 row がある場合や guard に失敗した場合は通常の hash 単位 upsert に fallback する。`ir_data` table schema は互換維持のため unique 制約を追加しないが、lookup / delete guard 用に非 unique 複合 index `ir_data_idx_lr2id_hash(lr2id, hash)` を持つ。
 

@@ -1817,6 +1817,7 @@ public sealed class MainWindowContextMenuResourceTests
             Resources.Details_test_notscan,
             Resources.Details_test_notcheck_playlists,
             Resources.Details_test_startup_select_install_pending,
+            Resources.Details_update_lr2ir_ranking_cache_on_startup,
             Resources.Details_estimate_offline_score_ranking,
             Resources.Details_test_download_and_install,
             Resources.Details_test_keep_installable_pending,
@@ -1833,6 +1834,7 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.AreEqual(0, CountOccurrences(viewModel, "本機能はテスト実装中です"));
         StringAssert.Contains(viewModel, "Resources.Msg_confirm_skip_init_file_check");
         StringAssert.Contains(viewModel, "Resources.Msg_confirm_skip_init_playlist_load");
+        StringAssert.Contains(viewModel, "Resources.Msg_confirm_enable_lr2ir_ranking_cache_startup_update");
         StringAssert.Contains(viewModel, "Resources.Msg_confirm_enable_offline_score_ranking_estimation");
     }
 
@@ -2093,6 +2095,8 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.AreEqual(Settings.DefaultTableListUrl, appConfigDefaults["TableListURL"]);
         Assert.AreEqual("False", settingsDefaults["EstimateOfflineScoreRanking"]);
         Assert.AreEqual("False", appConfigDefaults["EstimateOfflineScoreRanking"]);
+        Assert.AreEqual("False", settingsDefaults["UpdateLr2IrRankingCacheOnStartup"]);
+        Assert.AreEqual("False", appConfigDefaults["UpdateLr2IrRankingCacheOnStartup"]);
         Assert.IsFalse(settingsDefaults.ContainsKey("SkipEstimateOfflineScoreRanking"));
         Assert.IsFalse(appConfigDefaults.ContainsKey("SkipEstimateOfflineScoreRanking"));
         StringAssert.Contains(settingsCode, "internal const string LegacyTableListUrl = \"http://www.ribbit.xyz/bms/tables/table_info.json\";");
@@ -2106,6 +2110,25 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(legacyMigratorCode, "Settings.DefaultTableListUrl");
         StringAssert.Contains(legacyMigratorCode, "NormalizeMigratedConfig");
         Assert.IsFalse(appCode.Contains("MigrateApplicationSettings"));
+    }
+
+    [TestMethod]
+    public void StartupRankingRefresh_IsQueuedOnlyWhenIrScoreOrRankingCacheStartupUpdateIsEnabled()
+    {
+        string root = FindRepositoryRoot();
+        string libraryCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BMSLibrary.cs"));
+        string initializeTail = ExtractBetween(
+            libraryCode,
+            "if (updateIrScore && activeScoreSource != ActiveScoreSource.None)",
+            "if (installTblCheck)");
+        string deferredRun = ExtractBetween(
+            libraryCode,
+            "private RankingRefreshRunResult RunDeferredRankingRefresh(int requestVersion)",
+            "private bool IsDeferredRankingRefreshRequestSuperseded");
+
+        StringAssert.Contains(initializeTail, "options.EnableDownloadLr2IrScoreAndDetectUnsent || options.UpdateLr2IrRankingCacheOnStartup");
+        StringAssert.Contains(deferredRun, "if (optionsSnapshot.UpdateLr2IrRankingCacheOnStartup)");
+        StringAssert.Contains(deferredRun, "ranking_cache_refresh skipped reason=disabled");
     }
 
     [TestMethod]

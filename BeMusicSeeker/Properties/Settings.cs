@@ -1072,6 +1072,21 @@ internal sealed class Settings : ApplicationSettingsBase
     [UserScopedSetting]
     [DebuggerNonUserCode]
     [DefaultSettingValue("False")]
+    public bool UpdateLr2IrRankingCacheOnStartup
+    {
+        get
+        {
+            return (bool)this["UpdateLr2IrRankingCacheOnStartup"];
+        }
+        set
+        {
+            this["UpdateLr2IrRankingCacheOnStartup"] = value;
+        }
+    }
+
+    [UserScopedSetting]
+    [DebuggerNonUserCode]
+    [DefaultSettingValue("False")]
     public bool EnableDownloadLr2IrScoreAndDetectUnsent
     {
         get

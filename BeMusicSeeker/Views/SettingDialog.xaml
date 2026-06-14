@@ -747,6 +747,7 @@
                 </GroupBox>
                 <GroupBox Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_lr2_integration_settings, Mode=OneWay}">
                   <StackPanel>
+                    <CheckBox Style="{StaticResource styleWrappingSettingCheckBox}" IsChecked="{Binding settingDialog.UpdateLr2IrRankingCacheOnStartup}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_update_lr2ir_ranking_cache_on_startup, Mode=OneWay}" />
                     <CheckBox Style="{StaticResource styleWrappingSettingCheckBox}" IsChecked="{Binding settingDialog.EstimateOfflineScoreRanking}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_estimate_offline_score_ranking, Mode=OneWay}" />
                     <CheckBox Style="{StaticResource styleWrappingSettingCheckBox}" IsChecked="{Binding settingDialog.EnableDownloadLr2IrScoreAndDetectUnsent}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_download_lr2ir_score_and_detect_unsent, Mode=OneWay}" />
                   </StackPanel>

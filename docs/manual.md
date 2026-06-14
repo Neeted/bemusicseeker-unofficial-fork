@@ -233,7 +233,8 @@ Some install-related settings affect real file operations, such as deleting sour
 | Initialization | Do not check playlist updates on startup | OFF | Skips external playlist update checks on startup. Reload playlists manually if needed. |
 | Initialization | Set initial startup selection to Install > Pending | ON | Opens the pending package screen as the initial view after startup. Intended for users who want to prioritize new installs and pending cleanup. |
 | Initialization | Enable song.db access optimization PRAGMA | ON | Sets read-oriented SQLite PRAGMA when reading the DB to speed up startup and reload. Normally leave this ON. |
-| LR2 Integration | Estimate offline score rankings | OFF | Estimates ranks for unsent scores using LR2IR ranking cache XML. Turning this ON makes processing after startup heavier, but ranks for unsent scores are estimated and shown. |
+| LR2 Integration | Update LR2IR ranking cache on startup | OFF | Reads LR2IR ranking cache XML after startup and updates display data such as `RANKING`, `RANK UPDATE`, `T-SCORE`, and `ΔMAX`. This may be heavy during the first build or after changing LR2ID, so enable it only when needed. |
+| LR2 Integration | Estimate offline score rankings | OFF | Estimates ranks for charts whose local score is higher than the LR2IR score when LR2IR ranking cache data is applied. To apply this during startup, also enable `Update LR2IR ranking cache on startup`. |
 | LR2 Integration | Download LR2IR scores and detect unsent IR scores | OFF | Retrieves LR2IR score information and detects unsent state from differences with local scores. |
 | Install | Automatically try to install after download execution | OFF | If possible, proceeds directly to install processing for packages downloaded from URLs. **Turning this ON is convenient**, but for files that cannot proceed directly to install, such as multi-layer archives, there are caveats such as the package not being added to the pending screen. For that reason, the default is OFF. When importing URLs from multiple selected playlist-detail rows, supported downloadable files are passed to install processing regardless of this setting. |
 | Install | Add to pending even when judged new, without automatic install | OFF | Even if enough resources are present for a new work, do not install automatically; always make it possible to confirm it in the pending list. |
@@ -350,7 +351,7 @@ Open / external pages:
 
 Score / ranking:
 
-- `Update ranking data`: Updates the ranking cache / IR data for the target chart. However, this feature depends on LR2IR cache information from `http://www.ribbit.xyz`. Since that site is currently unavailable, **this feature effectively does not work.**
+- `Update ranking data`: Updates the ranking cache / IR data for the target chart. Even when `Update LR2IR ranking cache on startup` is OFF, this manual action still attempts to update ranking data for the selected chart. However, this feature depends on LR2IR cache information from `http://www.ribbit.xyz`. Since that site is currently unavailable, **this feature effectively does not work.**
 
 Character encoding / file scan:
 

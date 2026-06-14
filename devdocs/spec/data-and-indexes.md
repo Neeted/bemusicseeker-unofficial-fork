@@ -96,6 +96,7 @@ LR2 ranking 系は 2 table に分かれる。
 - `ir_data`
   - LR2IR local ranking cache XML 由来。
   - ranking 表示と offline score ranking estimation に使う。
+  - 起動時の ranking cache refresh は `UpdateLr2IrRankingCacheOnStartup=true` の場合だけ行う。false の場合、起動時には local ranking cache XML の scan / reload / `ir_data` upsert を行わない。
   - XML reload は hash cache file の mtime / tail `lastupdate` で判定する。
   - startup refresh、manual download、`LR2IRCache` wrapper は同じ ranking cache XML parser を使う。
   - refresh path は full ranking list materialize を避け、valid `<score>` rows を 1 pass summary parse する。`id`、`clear`、`notes`、`combo`、`pg`、`gr`、`minbp` は 0 以上の整数だけを valid とし、不正 row は集計対象から外す。

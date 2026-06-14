@@ -26,6 +26,8 @@ internal sealed class BmsLibraryOptionsSnapshot
 
     public bool EstimateOfflineScoreRanking { get; set; }
 
+    public bool UpdateLr2IrRankingCacheOnStartup { get; set; }
+
     public bool EnableDownloadLr2IrScoreAndDetectUnsent { get; set; }
 
     public bool UseBeatorajaScoreDb { get; set; }
@@ -57,6 +59,7 @@ internal sealed class BmsLibraryOptionsSnapshot
             UseEverythingForPendingPackageSourceScan = Settings.Default.UseEverythingForPendingPackageSourceScan,
             AutoApplyAmbiguousInstallDestination = Settings.Default.AutoApplyAmbiguousInstallDestination,
             EstimateOfflineScoreRanking = Settings.Default.EstimateOfflineScoreRanking,
+            UpdateLr2IrRankingCacheOnStartup = Settings.Default.UpdateLr2IrRankingCacheOnStartup,
             EnableDownloadLr2IrScoreAndDetectUnsent = Settings.Default.EnableDownloadLr2IrScoreAndDetectUnsent,
             UseBeatorajaScoreDb = Settings.Default.UseBeatorajaScoreDb,
             BeatorajaScoreDbPath = BeatorajaConfigService.IsBeatorajaRootPathValid(Settings.Default.BeatorajaRootPath)

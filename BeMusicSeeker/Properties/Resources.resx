@@ -78,6 +78,9 @@
   <data name="Details_download_lr2ir_score_and_detect_unsent" xml:space="preserve">
     <value>LR2IRのスコアをDLしIR未送信を検出する</value>
   </data>
+  <data name="Details_update_lr2ir_ranking_cache_on_startup" xml:space="preserve">
+    <value>起動時にLR2IRランキングキャッシュを更新する</value>
+  </data>
   <data name="Details_test_delete_pending_source_after_install" xml:space="preserve">
     <value>通常インストール時、既所持譜面が残っていても元パッケージを削除する</value>
   </data>
@@ -100,9 +103,16 @@
 再起動後に変更が反映されます</value>
   </data>
   <data name="Msg_confirm_enable_offline_score_ranking_estimation" xml:space="preserve">
-    <value>起動後に未送信スコアのランキング推定を行います
-起動後のCPU/DISK使用率が上昇する可能性がありますが、
-スコア未送信楽曲のランキングを推定表示します
+    <value>LR2IRランキングキャッシュ更新時に、未送信スコアのランキング推定を行います
+ローカルスコアがLR2IR上のスコアより高い譜面では、
+追加でランキングキャッシュXMLを読む場合があります
+
+再起動後に変更が反映されます</value>
+  </data>
+  <data name="Msg_confirm_enable_lr2ir_ranking_cache_startup_update" xml:space="preserve">
+    <value>起動後にLR2IRランキングキャッシュを更新します
+RANKING/RANK UPDATE/T-SCORE/ΔMAXの表示を更新できますが、
+初回構築やLR2ID変更後はCPU/DISK使用率が大きく上昇する可能性があります
 
 再起動後に変更が反映されます</value>
   </data>
