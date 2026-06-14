@@ -129,6 +129,7 @@ The settings dialog is saved when `OK` is pressed. Depending on the changed sett
 In the `General` tab, configure language, operating mode, BMS directory, LR2 directory, `song.db`, `config.xml`, `beatoraja directory`, and related settings.
 
 In both standalone mode and LR2 linked mode, register the root folders where charts should be searched as BMS directories. In LR2 linked mode, also configure the LR2 directory and DB / XML paths.
+BMS directories can be added with the `Add` button, or by dragging folders onto the list.
 
 #### Standalone
 
@@ -155,6 +156,8 @@ For beatoraja, this application supports some integration such as score DB loadi
 In beatoraja integration, specify the beatoraja directory. The application reads `tablepath` and `playerpath` from `config_sys.json` directly under that directory, and score loading uses the selected player's `score.db`.
 
 When `.bmt output (difficulty table loading compatibility process)` is enabled, all BeMusicSeeker playlists are output under the `tablepath` in `config_sys.json` as `.bmt` caches that beatoraja can load. This is a compatibility process for environments where beatoraja's level aggregation processing is heavy and difficulty table loading is delayed. External sync tables use the original difficulty table URL, and local playlists use `bemusicseeker://playlist/{playlist_id}` to determine the `.bmt` save name. A `.bemusicseeker-bmt-manifest` for BeMusicSeeker management is created directly under the output destination. During cleanup after settings changes or re-output, only the `.bmt` files recorded in this manifest are deletion targets.
+
+When `Keep existing .bmt files when output is disabled` is enabled and `.bmt` output is turned off, BeMusicSeeker leaves previously output `.bmt` files and the registered beatoraja URLs in place, and only stops automatic re-output from then on. Use this when you want beatoraja to keep loading the existing `.bmt` files, or when you want to pause regeneration temporarily. If this setting is disabled and `.bmt` output is turned off, the `.bmt` files managed by the manifest and the BeMusicSeeker-managed `tableURL` entries become cleanup targets.
 
 `.bmt hash output` lets you choose how `md5` / `sha256` are output for folder songs. `Original` outputs only the hashes saved in the playlist as-is. `Complete md5/sha256 as much as possible` fills in missing hashes when they can be resolved safely from owned charts or chart metadata. `Prefer sha256 only as much as possible` outputs only sha256 without md5 for charts where sha256 can be output, but leaves md5 for charts where sha256 cannot be resolved. The default is `Original`. Hashes for dan course entries use the original difficulty table data as-is and are not targets for this completion.
 
@@ -230,9 +233,10 @@ Some install-related settings affect real file operations, such as deleting sour
 | Initialization | Do not check playlist updates on startup | OFF | Skips external playlist update checks on startup. Reload playlists manually if needed. |
 | Initialization | Set initial startup selection to Install > Pending | ON | Opens the pending package screen as the initial view after startup. Intended for users who want to prioritize new installs and pending cleanup. |
 | Initialization | Enable song.db access optimization PRAGMA | ON | Sets read-oriented SQLite PRAGMA when reading the DB to speed up startup and reload. Normally leave this ON. |
-| LR2 Integration | Do not estimate offline score rankings | OFF | Skips offline score rank estimation using LR2IR ranking cache XML. Turning this ON makes processing lighter, but ranks for unsent scores are not estimated. |
+| LR2 Integration | Update LR2IR ranking cache on startup | OFF | Reads LR2IR ranking cache XML after startup and updates display data such as `RANKING`, `RANK UPDATE`, `T-SCORE`, and `ΔMAX`. This may be heavy during the first build or after changing LR2ID, so enable it only when needed. |
+| LR2 Integration | Estimate offline score rankings | OFF | Estimates ranks for charts whose local score is higher than the LR2IR score when LR2IR ranking cache data is applied. To apply this during startup, also enable `Update LR2IR ranking cache on startup`. |
 | LR2 Integration | Download LR2IR scores and detect unsent IR scores | OFF | Retrieves LR2IR score information and detects unsent state from differences with local scores. |
-| Install | Automatically try to install after download execution | OFF | If possible, proceeds directly to install processing for packages downloaded from URLs. **Turning this ON is convenient**, but for files that cannot proceed directly to install, such as multi-layer archives, there are caveats such as the package not being added to the pending screen. For that reason, the default is OFF. |
+| Install | Automatically try to install after download execution | OFF | If possible, proceeds directly to install processing for packages downloaded from URLs. **Turning this ON is convenient**, but for files that cannot proceed directly to install, such as multi-layer archives, there are caveats such as the package not being added to the pending screen. For that reason, the default is OFF. When importing URLs from multiple selected playlist-detail rows, supported downloadable files are passed to install processing regardless of this setting. |
 | Install | Add to pending even when judged new, without automatic install | OFF | Even if enough resources are present for a new work, do not install automatically; always make it possible to confirm it in the pending list. |
 | Install | Use Everything when estimating pending packages | OFF | Uses Everything for source-side resource enumeration during install-destination estimation for pending packages. This may speed up large pending folders. For normal differential installs, OFF is likely faster. |
 | Install | Set the first candidate as install destination when highly matched even with multiple candidates | OFF | Even when there are multiple install-destination candidates, sets the top candidate as `INSTL DST` if it can be judged to have a sufficiently high match. When OFF, ambiguous cases leave a WARNING and candidate list. **This is intended to be turned ON in environments with many duplicate BMS folders, such as when using difficulty table packages.** |
@@ -336,7 +340,7 @@ Open / external pages:
 - `Open BMS-IR`: Opens the BMS-IR page for the target chart by MD5. This is not shown for rows without an MD5.
 - `Open Mocha`: Opens the corresponding Mocha page.
 - `Open MinIR`: Opens the corresponding MinIR page.
-- `Open main URL` / `Open diff URL`: Opens the main URL / diff URL obtained from a playlist or URL completion.
+- `Open main URL` / `Open diff URL`: Opens the main URL / diff URL obtained from a playlist or URL completion. When multiple rows are selected, these actions are shown as `Import selected main URLs` / `Import selected diff URLs`; after confirmation, only URLs that can be downloaded as supported files are passed to install processing. URLs that need to open in a browser are skipped without opening them, and progress is shown in the status bar.
 - `Open in Explorer`: Opens the folder containing the chart file in Explorer.
 - `Open install destination`: Opens the folder recorded as `INSTL DST` or as the install destination.
 - `Open with association`: Opens the chart file using the OS file association.
@@ -347,7 +351,7 @@ Open / external pages:
 
 Score / ranking:
 
-- `Update ranking data`: Updates the ranking cache / IR data for the target chart. However, this feature depends on LR2IR cache information from `http://www.ribbit.xyz`. Since that site is currently unavailable, **this feature effectively does not work.**
+- `Update ranking data`: Updates the ranking cache / IR data for the target chart. Even when `Update LR2IR ranking cache on startup` is OFF, this manual action still attempts to update ranking data for the selected chart. However, this feature depends on LR2IR cache information from `http://www.ribbit.xyz`. Since that site is currently unavailable, **this feature effectively does not work.**
 
 Character encoding / file scan:
 
@@ -491,6 +495,13 @@ The `STATUS` column shows the result of external playlist sync performed after s
 Playlist detail lists the charts included in the selected playlist. You can check owned and unowned charts; unowned charts are displayed as `[NO SONG]`.
 
 The `URL1` / `URL2` columns can open main URLs and diff URLs. Even when URLs are not included in the playlist itself, if URL completion is enabled, they may be completed at runtime from external mappings.
+When clicking a `URL1` / `URL2` column attempts automatic install, progress is shown in the status bar even for a single URL.
+
+For a single row, running `Open main URL` / `Open diff URL` from the context menu always opens the URL in the browser regardless of the setting value.
+
+When multiple rows are selected, right-click and run `Import selected main URLs` / `Import selected diff URLs`. After confirmation, BeMusicSeeker takes `URL1` or `URL2` from the selected rows, removes exact duplicate URLs, downloads them in order, and passes only successfully retrieved supported files to the install queue. This bulk import tries automatic install regardless of the setting value; URLs that need to open in a browser are skipped without opening them. Progress is shown in the status bar, and the result dialog summarizes downloaded, skipped, size-blocked, and failed counts.
+
+Automatic install paths such as bulk import support direct links and some distribution/share pages where the download URL can be extracted, such as Google Drive, Dropbox, MediaFire, manbow `DownLoadAddress`, `venue.bmssearch.net`, and `bmssearch.net/bmses`. Google Drive folder shares, MEGA, AXFC, pages requiring login or CAPTCHA, and pages that require JavaScript interaction are not automatically resolved. The single-row context menu opens them in the browser; bulk import skips them.
 
 Right-clicking the playlist body in the playlist tree lets you run the following operations:
 
@@ -789,7 +800,7 @@ For how to read logs, see [BeMusicSeeker INFO Log Guide](log-level-info-guide.md
 - Check whether your BMS folders are searchable from Everything.
 - First-time construction, an empty DB, or large changes to BMS root folders take longer than usual.
 - Looking at `everything_scan`, `song_tbl_file_check`, `playlist_*`, and similar entries in `install-performance.log` can show where time is being spent.
-- Even if Everything integration fails, BeMusicSeeker may fall back to ordinary file enumeration without showing a warning dialog. If it is slower than expected, check `everything_scan`, `nativeBridgeUsed`, `fallback`, `managed`, and similar records in `install-performance.log`.
+- If Everything integration fails and BeMusicSeeker switches to ordinary file enumeration, a warning dialog is shown. If it is slower than expected, check `everything_scan`, `nativeBridgeUsed`, `fallback`, `managed`, and similar records in `install-performance.log`.
 
 ### Playlist `STATUS` Fails
 

@@ -1,6 +1,6 @@
 BeMusicSeeker Third-Party Notices
 
-Last updated: 2026-02-22
+Last updated: 2026-04-21
 Scope: Third-party files referenced by BeMusicSeeker.csproj and distributed in bin/Release/net472,
        vendor/native/{x86,x64}, native/, and resources/.
 
@@ -54,6 +54,7 @@ Source: https://www.7-zip.org/
 License Text: third_party/licenses/03-LGPL-2.1.txt, third_party/licenses/03-7zip-unRAR-restriction.txt
 Redistribution Notes:
 - Distributed as separate DLL (dynamic linking).
+- Repository x86/x64 binary SHA256 values were verified against the build/x86 and build/x64 7z.dll files bundled in SevenZipExtractor 1.0.19.
 - Keep LGPL text and unRAR restriction notice with distribution.
 
 ================================================================================
@@ -61,12 +62,12 @@ Redistribution Notes:
 ================================================================================
 Status: GREEN
 Component: SevenZipExtractor.dll
-Copyright: SevenZipExtractor contributors
+Copyright: Alexander Selishchev and contributors
 License: MIT
-Source: https://www.nuget.org/packages/SevenZipExtractor/1.0.12
+Source: https://www.nuget.org/packages/SevenZipExtractor/1.0.19
 License Text: third_party/licenses/04-SevenZipExtractor-MIT.txt
 Redistribution Notes:
-- Repository binary SHA256 matches NuGet 1.0.12 lib/net45 artifact.
+- Repository binary SHA256 matches NuGet 1.0.19 lib/net45 artifact.
 - Keep MIT text with distribution.
 
 ================================================================================

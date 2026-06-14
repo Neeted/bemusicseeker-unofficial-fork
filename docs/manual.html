@@ -601,7 +601,8 @@ Depending on library size, disk speed, and Everything availability, this may tak
 <h3 id="general">General</h3>
 <p><img alt="Settings General" src="img/設定_一般.PNG"/></p>
 <p>In the <code>General</code> tab, configure language, operating mode, BMS directory, LR2 directory, <code>song.db</code>, <code>config.xml</code>, <code>beatoraja directory</code>, and related settings.</p>
-<p>In both standalone mode and LR2 linked mode, register the root folders where charts should be searched as BMS directories. In LR2 linked mode, also configure the LR2 directory and DB / XML paths.</p>
+<p>In both standalone mode and LR2 linked mode, register the root folders where charts should be searched as BMS directories. In LR2 linked mode, also configure the LR2 directory and DB / XML paths.
+BMS directories can be added with the <code>Add</code> button, or by dragging folders onto the list.</p>
 <h4 id="standalone">Standalone</h4>
 <p>This mode allows the application alone to manage BMS even if you do not have LR2 itself.
 The locations configured as BMS directories become the targets for chart search.
@@ -616,6 +617,7 @@ A DB for managing owned BMS is created at <code>data\song.db</code>. The saved c
 <p>For beatoraja, this application supports some integration such as score DB loading and difficulty table cache output, but it is not a tool for managing beatoraja as a whole. <strong>If you want to update the beatoraja DB quickly, please use <a href="https://github.com/Neeted/songdata-updater">songdata-updater</a>.</strong></p>
 <p>In beatoraja integration, specify the beatoraja directory. The application reads <code>tablepath</code> and <code>playerpath</code> from <code>config_sys.json</code> directly under that directory, and score loading uses the selected player's <code>score.db</code>.</p>
 <p>When <code>.bmt output (difficulty table loading compatibility process)</code> is enabled, all BeMusicSeeker playlists are output under the <code>tablepath</code> in <code>config_sys.json</code> as <code>.bmt</code> caches that beatoraja can load. This is a compatibility process for environments where beatoraja's level aggregation processing is heavy and difficulty table loading is delayed. External sync tables use the original difficulty table URL, and local playlists use <code>bemusicseeker://playlist/{playlist_id}</code> to determine the <code>.bmt</code> save name. A <code>.bemusicseeker-bmt-manifest</code> for BeMusicSeeker management is created directly under the output destination. During cleanup after settings changes or re-output, only the <code>.bmt</code> files recorded in this manifest are deletion targets.</p>
+<p>When <code>Keep existing .bmt files when output is disabled</code> is enabled and <code>.bmt</code> output is turned off, BeMusicSeeker leaves previously output <code>.bmt</code> files and the registered beatoraja URLs in place, and only stops automatic re-output from then on. Use this when you want beatoraja to keep loading the existing <code>.bmt</code> files, or when you want to pause regeneration temporarily. If this setting is disabled and <code>.bmt</code> output is turned off, the <code>.bmt</code> files managed by the manifest and the BeMusicSeeker-managed <code>tableURL</code> entries become cleanup targets.</p>
 <p><code>.bmt hash output</code> lets you choose how <code>md5</code> / <code>sha256</code> are output for folder songs. <code>Original</code> outputs only the hashes saved in the playlist as-is. <code>Complete md5/sha256 as much as possible</code> fills in missing hashes when they can be resolved safely from owned charts or chart metadata. <code>Prefer sha256 only as much as possible</code> outputs only sha256 without md5 for charts where sha256 can be output, but leaves md5 for charts where sha256 cannot be resolved. The default is <code>Original</code>. Hashes for dan course entries use the original difficulty table data as-is and are not targets for this completion.</p>
 <p>When <code>Register .bmt URLs in config_sys.json (stabilizes ordering on the song selection screen)</code> is enabled, BeMusicSeeker-managed <code>.bmt</code> URLs are registered in <code>tableURL</code> in <code>config_sys.json</code>. Non-managed <code>tableURL</code> entries keep their existing order, and BeMusicSeeker-managed entries are appended after them sorted by playlist name.</p>
 <h3 id="appearance">Appearance</h3>
@@ -704,9 +706,15 @@ Some install-related settings affect real file operations, such as deleting sour
 </tr>
 <tr>
 <td>LR2 Integration</td>
-<td>Do not estimate offline score rankings</td>
+<td>Update LR2IR ranking cache on startup</td>
 <td>OFF</td>
-<td>Skips offline score rank estimation using LR2IR ranking cache XML. Turning this ON makes processing lighter, but ranks for unsent scores are not estimated.</td>
+<td>Reads LR2IR ranking cache XML after startup and updates display data such as <code>RANKING</code>, <code>RANK UPDATE</code>, <code>T-SCORE</code>, and <code>ΔMAX</code>. This may be heavy during the first build or after changing LR2ID, so enable it only when needed.</td>
+</tr>
+<tr>
+<td>LR2 Integration</td>
+<td>Estimate offline score rankings</td>
+<td>OFF</td>
+<td>Estimates ranks for charts whose local score is higher than the LR2IR score when LR2IR ranking cache data is applied. To apply this during startup, also enable <code>Update LR2IR ranking cache on startup</code>.</td>
 </tr>
 <tr>
 <td>LR2 Integration</td>
@@ -718,7 +726,7 @@ Some install-related settings affect real file operations, such as deleting sour
 <td>Install</td>
 <td>Automatically try to install after download execution</td>
 <td>OFF</td>
-<td>If possible, proceeds directly to install processing for packages downloaded from URLs. <strong>Turning this ON is convenient</strong>, but for files that cannot proceed directly to install, such as multi-layer archives, there are caveats such as the package not being added to the pending screen. For that reason, the default is OFF.</td>
+<td>If possible, proceeds directly to install processing for packages downloaded from URLs. <strong>Turning this ON is convenient</strong>, but for files that cannot proceed directly to install, such as multi-layer archives, there are caveats such as the package not being added to the pending screen. For that reason, the default is OFF. When importing URLs from multiple selected playlist-detail rows, supported downloadable files are passed to install processing regardless of this setting.</td>
 </tr>
 <tr>
 <td>Install</td>
@@ -824,7 +832,7 @@ You can use field specifiers such as <code>title:</code>, <code>artist:</code>, 
 <li><code>Open BMS-IR</code>: Opens the BMS-IR page for the target chart by MD5. This is not shown for rows without an MD5.</li>
 <li><code>Open Mocha</code>: Opens the corresponding Mocha page.</li>
 <li><code>Open MinIR</code>: Opens the corresponding MinIR page.</li>
-<li><code>Open main URL</code> / <code>Open diff URL</code>: Opens the main URL / diff URL obtained from a playlist or URL completion.</li>
+<li><code>Open main URL</code> / <code>Open diff URL</code>: Opens the main URL / diff URL obtained from a playlist or URL completion. When multiple rows are selected, these actions are shown as <code>Import selected main URLs</code> / <code>Import selected diff URLs</code>; after confirmation, only URLs that can be downloaded as supported files are passed to install processing. URLs that need to open in a browser are skipped without opening them, and progress is shown in the status bar.</li>
 <li><code>Open in Explorer</code>: Opens the folder containing the chart file in Explorer.</li>
 <li><code>Open install destination</code>: Opens the folder recorded as <code>INSTL DST</code> or as the install destination.</li>
 <li><code>Open with association</code>: Opens the chart file using the OS file association.</li>
@@ -835,7 +843,7 @@ You can use field specifiers such as <code>title:</code>, <code>artist:</code>, 
 </ul>
 <p>Score / ranking:</p>
 <ul>
-<li><code>Update ranking data</code>: Updates the ranking cache / IR data for the target chart. However, this feature depends on LR2IR cache information from <code>http://www.ribbit.xyz</code>. Since that site is currently unavailable, <strong>this feature effectively does not work.</strong></li>
+<li><code>Update ranking data</code>: Updates the ranking cache / IR data for the target chart. Even when <code>Update LR2IR ranking cache on startup</code> is OFF, this manual action still attempts to update ranking data for the selected chart. However, this feature depends on LR2IR cache information from <code>http://www.ribbit.xyz</code>. Since that site is currently unavailable, <strong>this feature effectively does not work.</strong></li>
 </ul>
 <p>Character encoding / file scan:</p>
 <ul>
@@ -942,7 +950,11 @@ For detailed syntax, see the <a href="keyword-search-syntax-guide.html">Keyword 
 <h3 id="playlist-detail">Playlist Detail</h3>
 <p><img alt="Playlist detail" src="img/一覧_プレイリスト詳細.PNG"/></p>
 <p>Playlist detail lists the charts included in the selected playlist. You can check owned and unowned charts; unowned charts are displayed as <code>[NO SONG]</code>.</p>
-<p>The <code>URL1</code> / <code>URL2</code> columns can open main URLs and diff URLs. Even when URLs are not included in the playlist itself, if URL completion is enabled, they may be completed at runtime from external mappings.</p>
+<p>The <code>URL1</code> / <code>URL2</code> columns can open main URLs and diff URLs. Even when URLs are not included in the playlist itself, if URL completion is enabled, they may be completed at runtime from external mappings.
+When clicking a <code>URL1</code> / <code>URL2</code> column attempts automatic install, progress is shown in the status bar even for a single URL.</p>
+<p>For a single row, running <code>Open main URL</code> / <code>Open diff URL</code> from the context menu always opens the URL in the browser regardless of the setting value.</p>
+<p>When multiple rows are selected, right-click and run <code>Import selected main URLs</code> / <code>Import selected diff URLs</code>. After confirmation, BeMusicSeeker takes <code>URL1</code> or <code>URL2</code> from the selected rows, removes exact duplicate URLs, downloads them in order, and passes only successfully retrieved supported files to the install queue. This bulk import tries automatic install regardless of the setting value; URLs that need to open in a browser are skipped without opening them. Progress is shown in the status bar, and the result dialog summarizes downloaded, skipped, size-blocked, and failed counts.</p>
+<p>Automatic install paths such as bulk import support direct links and some distribution/share pages where the download URL can be extracted, such as Google Drive, Dropbox, MediaFire, manbow <code>DownLoadAddress</code>, <code>venue.bmssearch.net</code>, and <code>bmssearch.net/bmses</code>. Google Drive folder shares, MEGA, AXFC, pages requiring login or CAPTCHA, and pages that require JavaScript interaction are not automatically resolved. The single-row context menu opens them in the browser; bulk import skips them.</p>
 <p>Right-clicking the playlist body in the playlist tree lets you run the following operations:</p>
 <ul>
 <li><code>Reload</code>: Re-fetches the target playlist. A single-playlist reload targets the selected playlist regardless of its external sync flag.</li>
@@ -1144,7 +1156,7 @@ Parse failures are shown as WARNINGs and are treated as a parse-error inspection
 <li>Check whether your BMS folders are searchable from Everything.</li>
 <li>First-time construction, an empty DB, or large changes to BMS root folders take longer than usual.</li>
 <li>Looking at <code>everything_scan</code>, <code>song_tbl_file_check</code>, <code>playlist_*</code>, and similar entries in <code>install-performance.log</code> can show where time is being spent.</li>
-<li>Even if Everything integration fails, BeMusicSeeker may fall back to ordinary file enumeration without showing a warning dialog. If it is slower than expected, check <code>everything_scan</code>, <code>nativeBridgeUsed</code>, <code>fallback</code>, <code>managed</code>, and similar records in <code>install-performance.log</code>.</li>
+<li>If Everything integration fails and BeMusicSeeker switches to ordinary file enumeration, a warning dialog is shown. If it is slower than expected, check <code>everything_scan</code>, <code>nativeBridgeUsed</code>, <code>fallback</code>, <code>managed</code>, and similar records in <code>install-performance.log</code>.</li>
 </ul>
 <h3 id="playlist-status-fails">Playlist <code>STATUS</code> Fails</h3>
 <p>The external difficulty-table URL may be returning 404, 403, timeout, or similar errors. Check the tooltip for <code>STATUS</code> in the playlist summary, or <code>playlist_reload_target_failed</code> in <code>application.log</code>.</p>

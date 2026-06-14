@@ -9,7 +9,7 @@
     4. リリース用 zip パッケージの存在確認
     5. 未コミットの変更があればコミット
     6. タグ（vX.X.X.X）の作成と Push
-    7. GitHub CLI (gh) を用いてリリースを作成
+    7. GitHub CLI (gh) を用いてリリースを作成または asset を補完
 #>
 $ErrorActionPreference = "Stop"
 
@@ -49,13 +49,17 @@ try {
     $tag = "v$version"
     Write-Host "  対象バージョン: $tag"
 
-    # パッケージの確認
-    $zipName = "bemusicseeker-unofficial-fork-${tag}.zip"
-    $zipPath = Join-Path "dist" $zipName
-    if (-not (Test-Path $zipPath)) {
-        throw "リリース用パッケージが見つかりません: $zipPath `n事前に publish.ps1 を実行してパッケージを作成してください。"
+    # パッケージの確認。通常版 / metadata 同梱版など、対象バージョンの zip が 1 件以上あればよい。
+    $zipPattern = "bemusicseeker-unofficial-fork-${tag}*.zip"
+    $releaseAssets = @(Get-ChildItem -Path "dist" -Filter $zipPattern -File | Sort-Object Name)
+    if ($releaseAssets.Count -eq 0) {
+        throw "リリース用パッケージが見つかりません: dist\$zipPattern `n事前に publish.ps1 を実行してパッケージを作成してください。"
     }
-    Write-Host "  パッケージ確認 OK: $zipPath" -ForegroundColor Green
+
+    Write-Host "  パッケージ確認 OK:"
+    foreach ($asset in $releaseAssets) {
+        Write-Host "    dist\$($asset.Name)"
+    }
 
 
     Write-Host "`n=== ステップ 2: コミットとタグの作成 ===" -ForegroundColor Cyan
@@ -103,12 +107,17 @@ try {
         $releaseExists = $true
     }
 
+    $assetPaths = @($releaseAssets | ForEach-Object { $_.FullName })
     if ($releaseExists) {
-        Write-Host "  リリース $tag はすでに存在します（作成をスキップ）" -ForegroundColor Yellow
+        Write-Host "  リリース $tag はすでに存在します。asset を補完アップロードします..."
+        gh release upload $tag @assetPaths --clobber
+        if ($LASTEXITCODE -ne 0) { throw "GitHub リリース asset のアップロードに失敗しました。" }
+        Write-Host "  asset アップロード完了" -ForegroundColor Green
     }
     else {
         Write-Host "  GitHub リリースを作成します..."
-        gh release create $tag $zipPath --title $tag --generate-notes
+        gh release create $tag @assetPaths --title $tag --generate-notes
+        if ($LASTEXITCODE -ne 0) { throw "GitHub リリースの作成に失敗しました。" }
         Write-Host "  リリース作成完了" -ForegroundColor Green
     }
 
