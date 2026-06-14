@@ -8,6 +8,10 @@ public class ChartScanExecutionResult
 
     public ChartScanResult Result { get; set; }
 
+    public bool FallbackUsed { get; set; }
+
+    public string FallbackReason { get; set; }
+
     internal LibraryResourceIndex ResourceIndex { get; set; }
 
     public long BuildResultMs { get; set; }

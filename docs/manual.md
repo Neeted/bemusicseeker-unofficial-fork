@@ -799,7 +799,7 @@ For how to read logs, see [BeMusicSeeker INFO Log Guide](log-level-info-guide.md
 - Check whether your BMS folders are searchable from Everything.
 - First-time construction, an empty DB, or large changes to BMS root folders take longer than usual.
 - Looking at `everything_scan`, `song_tbl_file_check`, `playlist_*`, and similar entries in `install-performance.log` can show where time is being spent.
-- Even if Everything integration fails, BeMusicSeeker may fall back to ordinary file enumeration without showing a warning dialog. If it is slower than expected, check `everything_scan`, `nativeBridgeUsed`, `fallback`, `managed`, and similar records in `install-performance.log`.
+- If Everything integration fails and BeMusicSeeker switches to ordinary file enumeration, a warning dialog is shown. If it is slower than expected, check `everything_scan`, `nativeBridgeUsed`, `fallback`, `managed`, and similar records in `install-performance.log`.
 
 ### Playlist `STATUS` Fails
 

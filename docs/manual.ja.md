@@ -799,7 +799,7 @@ LR2 連携モードでは、BeMusicSeeker が LR2 の `song.db` にアプリ用�
 - Everything 側で BMS フォルダが検索できるか確認してください。
 - 初回構築、DB 空状態、BMS ルートフォルダの大規模変更では、通常より時間がかかります。
 - `install-performance.log` の `everything_scan`、`song_tbl_file_check`、`playlist_*` などを見ると、どこに時間がかかっているか分かります。
-- Everything 連携に失敗しても、警告ダイアログが出ずに通常のファイル列挙へ fallback する場合があります。想定より遅い場合は、`install-performance.log` の `everything_scan`、`nativeBridgeUsed`、`fallback`、`managed` などの記録を確認してください。
+- Everything 連携に失敗して通常のファイル列挙へ fallback する際は、警告ダイアログが表示されます。想定より遅い場合は、`install-performance.log` の `everything_scan`、`nativeBridgeUsed`、`fallback`、`managed` などの記録を確認してください。
 
 ### プレイリストの STATUS が失敗になる
 

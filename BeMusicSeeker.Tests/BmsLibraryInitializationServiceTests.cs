@@ -667,6 +667,47 @@ public sealed class BmsLibraryInitializationServiceTests
     }
 
     [TestMethod]
+    public void ApplyFileScanDiff_ReportsEverythingFallbackMetadata()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
+        {
+            using (var songDbConnection = new LR2SongDBExtended(songDbPath))
+            {
+                songDbConnection.CreateTable<LR2SongDB.song>();
+            }
+
+            const string fallbackReason = "empty_results_with_roots";
+            var dialogService = new RecordingDialogService();
+            List<string> logs = [];
+            var service = new BmsLibraryInitializationService();
+
+            SongTableFileCheckResult result = service.ApplyFileScanDiff(
+                new BmsLibraryDbGateway(songDbPath),
+                new BmsLibraryOptionsSnapshot(),
+                [],
+                new ChartScanExecutionResult
+                {
+                    Success = true,
+                    FallbackUsed = true,
+                    FallbackReason = fallbackReason,
+                    Result = CreateScanResult([], new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase))
+                },
+                0L,
+                () => null,
+                dialogService,
+                logInstallPerformance: logs.Add,
+                logEverythingScan: logs.Add,
+                currentBmsonSongs: []);
+
+            Assert.IsTrue(result.ScanFallbackUsed);
+            Assert.AreEqual(fallbackReason, result.ScanFallbackReason);
+            Assert.AreEqual(0, dialogService.Calls.Count);
+            Assert.IsTrue(logs.Any(message => message.Contains("fallback_used=true") || message.Contains("fallback=true")));
+        });
+    }
+
+    [TestMethod]
     public void ApplyFileScanDiff_ClearsStaleBmsonInstallDestination()
     {
         TestResourceInitializer.EnsureJapaneseResources();

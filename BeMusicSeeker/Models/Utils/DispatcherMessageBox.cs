@@ -9,7 +9,7 @@ internal static class DispatcherMessageBox
 {
     public static MessageBoxResult Show(string messageBoxText, string caption, MessageBoxButton button, MessageBoxImage icon, MessageBoxResult defaultResult = MessageBoxResult.Cancel, MessageBoxOptions options = MessageBoxOptions.None)
     {
-        return Show(Application.Current?.MainWindow, messageBoxText, caption, button, icon, defaultResult, options);
+        return Show(null, messageBoxText, caption, button, icon, defaultResult, options);
     }
 
     public static MessageBoxResult Show(Window owner, string messageBoxText, string caption, MessageBoxButton button, MessageBoxImage icon, MessageBoxResult defaultResult = MessageBoxResult.Cancel, MessageBoxOptions options = MessageBoxOptions.None)
@@ -22,12 +22,12 @@ internal static class DispatcherMessageBox
             }
             if (Application.Current.Dispatcher.CheckAccess())
             {
-                return ThemedMessageBox.Show(owner ?? Application.Current.MainWindow, messageBoxText, caption, button, icon, defaultResult, options);
+                return ThemedMessageBox.Show(ResolveOwner(owner), messageBoxText, caption, button, icon, defaultResult, options);
             }
             MessageBoxResult result = MessageBoxResult.None;
             Application.Current.Dispatcher.Invoke(DispatcherPriority.Background, (Action)delegate
             {
-                result = ThemedMessageBox.Show(owner ?? Application.Current.MainWindow, messageBoxText, caption, button, icon, defaultResult, options);
+                result = ThemedMessageBox.Show(ResolveOwner(owner), messageBoxText, caption, button, icon, defaultResult, options);
             });
             return result;
         }
@@ -39,5 +39,10 @@ internal static class DispatcherMessageBox
         {
             return MessageBox.Show(messageBoxText, caption, button, icon, defaultResult, options);
         }
+    }
+
+    private static Window ResolveOwner(Window owner)
+    {
+        return owner ?? Application.Current?.MainWindow;
     }
 }

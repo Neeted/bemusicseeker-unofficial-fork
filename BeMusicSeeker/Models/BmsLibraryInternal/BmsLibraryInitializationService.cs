@@ -510,6 +510,8 @@ internal sealed class BmsLibraryInitializationService
             return result;
         }
         bool bmsFileScanSucceeded = scanResult.Success;
+        result.ScanFallbackUsed = scanResult.FallbackUsed;
+        result.ScanFallbackReason = scanResult.FallbackReason ?? string.Empty;
         if (bmsFileScanSucceeded)
         {
             result.Lr2ScanSurfaceAvailable = true;
@@ -957,6 +959,8 @@ internal sealed class BmsLibraryInitializationService
             "song_tbl_file_check_breakdown scan_ms=" + result.ScanElapsedMs
             + " native_bridge_ms=" + result.NativeBridgeMs
             + " native_bridge_reason=" + (string.IsNullOrWhiteSpace(result.NativeBridgeReason) ? string.Empty : result.NativeBridgeReason)
+            + " fallback_used=" + result.ScanFallbackUsed.ToString().ToLowerInvariant()
+            + " fallback_reason=" + (string.IsNullOrWhiteSpace(result.ScanFallbackReason) ? string.Empty : result.ScanFallbackReason)
             + " managed_decode_ms=" + result.ManagedDecodeMs
             + " managed_materialize_ms=" + result.ManagedMaterializeMs
             + " bridge_raw_buffer_bytes=" + result.BridgeRawBufferBytes
@@ -1103,6 +1107,8 @@ internal sealed class BmsLibraryInitializationService
             + " resourceIndexBuildMs=" + result.ResourceIndexBuildMs
             + " resourceIndexLookupMs=" + result.ResourceLookupCacheMs
             + " bridgeReason=" + (string.IsNullOrWhiteSpace(result.NativeBridgeReason) ? string.Empty : result.NativeBridgeReason)
+            + " fallback=" + result.ScanFallbackUsed.ToString().ToLowerInvariant()
+            + " fallbackReason=" + (string.IsNullOrWhiteSpace(result.ScanFallbackReason) ? string.Empty : result.ScanFallbackReason)
             + " bmsPaths=" + result.BmsPathCount
             + " dirs=" + result.DirectoryCount
             + " prefetched=" + result.PrefetchedScanUsed.ToString().ToLowerInvariant());

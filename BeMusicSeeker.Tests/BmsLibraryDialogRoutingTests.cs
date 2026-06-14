@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Windows;
 using System.Windows.Threading;
 using BeMusicSeeker.Models;
@@ -63,6 +64,49 @@ public sealed class BmsLibraryDialogRoutingTests
         });
     }
 
+    [TestMethod]
+    public void ShowEverythingFallbackWarning_UsesDialogService()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            const string fallbackReason = "empty_results_with_roots";
+            var dialogService = new RecordingDialogService();
+            var library = new BMSLibrary(songDbPath, null!, null, null!, dialogService);
+
+            library.ShowEverythingFallbackWarning(fallbackReason);
+
+            Assert.AreEqual(1, dialogService.Calls.Count);
+            Assert.AreEqual(Properties.Resources.MessageBoxTitle_Warning, dialogService.Calls[0].Caption);
+            Assert.AreEqual(MessageBoxButton.OK, dialogService.Calls[0].Button);
+            Assert.AreEqual(MessageBoxImage.Exclamation, dialogService.Calls[0].Icon);
+            Assert.AreEqual(MessageBoxResult.OK, dialogService.Calls[0].DefaultResult);
+            StringAssert.Contains(dialogService.Calls[0].Message, "Everything");
+            StringAssert.Contains(dialogService.Calls[0].Message, fallbackReason);
+        });
+    }
+
+    [TestMethod]
+    public void QueueEverythingFallbackWarning_CoalescesDuplicateRequests()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            const string fallbackReason = "bridge_scan_failed:4";
+            var dialogService = new RecordingDialogService();
+            var library = new BMSLibrary(songDbPath, null!, null, null!, dialogService);
+
+            Assert.IsTrue(library.QueueEverythingFallbackWarning(fallbackReason));
+            Assert.IsFalse(library.QueueEverythingFallbackWarning("second_reason"));
+            Assert.IsTrue(SpinWait.SpinUntil(() => dialogService.CallCount == 1, TimeSpan.FromSeconds(5)));
+
+            DialogCall call = dialogService.GetCall(0);
+            Assert.AreEqual(Properties.Resources.MessageBoxTitle_Warning, call.Caption);
+            StringAssert.Contains(call.Message, fallbackReason);
+            Assert.IsFalse(call.Message.Contains("second_reason"));
+        });
+    }
+
     private static DispatcherCollection<ChartPackage> CreatePackageCollection(IEnumerable<ChartPackage> packages)
     {
         return new DispatcherCollection<ChartPackage>(new ObservableCollection<ChartPackage>([.. (packages ?? [])]), Dispatcher.CurrentDispatcher);
@@ -89,20 +133,44 @@ public sealed class BmsLibraryDialogRoutingTests
 
     private sealed class RecordingDialogService : IBmsLibraryDialogService
     {
+        private readonly object lockObject = new();
+
         public List<DialogCall> Calls { get; } = [];
 
         public MessageBoxResult ResultToReturn { get; set; } = MessageBoxResult.OK;
 
+        public int CallCount
+        {
+            get
+            {
+                lock (lockObject)
+                {
+                    return Calls.Count;
+                }
+            }
+        }
+
+        public DialogCall GetCall(int index)
+        {
+            lock (lockObject)
+            {
+                return Calls[index];
+            }
+        }
+
         public MessageBoxResult Show(string messageBoxText, string caption, MessageBoxButton button, MessageBoxImage icon, MessageBoxResult defaultResult = MessageBoxResult.None)
         {
-            Calls.Add(new DialogCall
+            lock (lockObject)
             {
-                Message = messageBoxText,
-                Caption = caption,
-                Button = button,
-                Icon = icon,
-                DefaultResult = defaultResult
-            });
+                Calls.Add(new DialogCall
+                {
+                    Message = messageBoxText,
+                    Caption = caption,
+                    Button = button,
+                    Icon = icon,
+                    DefaultResult = defaultResult
+                });
+            }
             return ResultToReturn;
         }
     }

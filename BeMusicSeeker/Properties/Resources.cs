@@ -1297,6 +1297,8 @@ public class Resources
 
     public static string Warn_Lr2SongDbSyncRunning => ResourceManager.GetString("Warn_Lr2SongDbSyncRunning", resourceCulture);
 
+    public static string Warn_EverythingFallbackScanUsed => ResourceManager.GetString("Warn_EverythingFallbackScanUsed", resourceCulture);
+
     public static string Warn_no_pending_installed_only_packages => ResourceManager.GetString("Warn_no_pending_installed_only_packages", resourceCulture);
 
     public static string Warn_no_pending_charts => ResourceManager.GetString("Warn_no_pending_charts", resourceCulture);

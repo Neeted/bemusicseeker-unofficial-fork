@@ -41,6 +41,10 @@ internal sealed class SongTableFileCheckResult
 
     public bool PrefetchedScanUsed { get; set; }
 
+    public bool ScanFallbackUsed { get; set; }
+
+    public string ScanFallbackReason { get; set; } = string.Empty;
+
     public bool Lr2ScanSurfaceAvailable { get; set; }
 
     public IReadOnlyList<string> Lr2ScanFolderInfoFilePaths { get; set; } = [];

@@ -2918,6 +2918,8 @@ public class BMSLibrary : NotificationObject
 
     private readonly IBmsLibraryDialogService dialogService;
 
+    private int everythingFallbackWarningQueued;
+
     private readonly BmsLibraryDbGateway dbGateway;
 
     private readonly BmsLibraryDuplicateService duplicateService = new();
@@ -4598,6 +4600,7 @@ public class BMSLibrary : NotificationObject
         }
 
         LogEverythingScan("chart native file scan unavailable reason=" + nativeFailureReason + " fallback=managed");
+        QueueEverythingFallbackWarning(nativeFailureReason);
         reportScanner?.Invoke("Fallback");
         ChartScanExecutionResult fallbackResult = new FastDirectoryFileScanner().Scan(
             bmsDirectories,
@@ -4611,6 +4614,8 @@ public class BMSLibrary : NotificationObject
             LogEverythingScan("chart fallback file scan failed nativeReason=" + nativeFailureReason + " fallbackReason=" + fallbackFailureReason);
             throw new InvalidOperationException("chart fallback file scan failed: " + fallbackFailureReason + " (native: " + nativeFailureReason + ")");
         }
+        fallbackResult.FallbackUsed = true;
+        fallbackResult.FallbackReason = nativeFailureReason;
         LogEverythingScan("chart fallback file scan succeeded nativeReason=" + nativeFailureReason + " charts=" + fallbackResult.Result.ChartFilePaths.Count + " dirs=" + fallbackResult.Result.ChartDirectories.Count);
         return fallbackResult;
     }
@@ -4680,6 +4685,7 @@ public class BMSLibrary : NotificationObject
         {
             return;
         }
+        ResetEverythingFallbackWarningQueue();
         bool songTblLoad = !isScoreOnly;
         bool songTblFileCheck = mode == LibraryInitializeMode.FullReinitialize || (isStartup && !options.SkipInitFileCheck);
         bool setMaintenanceInfo = !isScoreOnly;
@@ -5160,6 +5166,7 @@ public class BMSLibrary : NotificationObject
         }
         BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
         List<string> bmsDirectories = getBMSDirectories(out BmsSearchRootNormalizationSnapshot rootNormalization);
+        ResetEverythingFallbackWarningQueue();
         var stopwatch = Stopwatch.StartNew();
         LogBmsSearchRootNormalization("reload_file_diff", options, rootNormalization, bmsDirectories);
         LogInstallPerformance("library_file_diff_reload start directories=" + bmsDirectories.Count);
@@ -5184,6 +5191,77 @@ public class BMSLibrary : NotificationObject
             LogInstallPerformance("library_file_diff_reload failed elapsedMs=" + stopwatch.ElapsedMilliseconds + " message=" + ex.Message);
             MarkLr2SongDbSyncIncompleteAfterFileDiffSongDbWriteFailure(options, ex, "reload_file_diff");
             throw;
+        }
+    }
+
+    internal void ShowEverythingFallbackWarning(string fallbackReason)
+    {
+        string reason = string.IsNullOrWhiteSpace(fallbackReason) ? "unknown" : fallbackReason;
+        dialogService.Show(
+            string.Format(Resources.Warn_EverythingFallbackScanUsed, reason),
+            Resources.MessageBoxTitle_Warning,
+            MessageBoxButton.OK,
+            MessageBoxImage.Exclamation,
+            MessageBoxResult.OK);
+    }
+
+    internal bool QueueEverythingFallbackWarning(string fallbackReason)
+    {
+        if (Interlocked.Exchange(ref everythingFallbackWarningQueued, 1) != 0)
+        {
+            LogEverythingScan("everything fallback warning skipped reason=already_queued fallbackReason=" + (fallbackReason ?? string.Empty));
+            return false;
+        }
+
+        if (TryQueueEverythingFallbackWarningOnDispatcher(fallbackReason))
+        {
+            return true;
+        }
+
+        LogEverythingScan("everything fallback warning queued target=thread_pool fallbackReason=" + (fallbackReason ?? string.Empty));
+        Task.Run(() => ShowEverythingFallbackWarningSafely(fallbackReason)).Logging("EverythingFallbackWarningDialog");
+        return true;
+    }
+
+    private void ResetEverythingFallbackWarningQueue()
+    {
+        Interlocked.Exchange(ref everythingFallbackWarningQueued, 0);
+    }
+
+    private bool TryQueueEverythingFallbackWarningOnDispatcher(string fallbackReason)
+    {
+        Dispatcher dispatcher = Application.Current?.Dispatcher;
+        if (dispatcher == null || dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
+        {
+            return false;
+        }
+
+        try
+        {
+            LogEverythingScan("everything fallback warning queued target=ui_dispatcher fallbackReason=" + (fallbackReason ?? string.Empty));
+            dispatcher.BeginInvoke(DispatcherPriority.Normal, (Action)delegate
+            {
+                ShowEverythingFallbackWarningSafely(fallbackReason);
+            });
+        }
+        catch (Exception ex)
+        {
+            LogEverythingScan("everything fallback warning queue_failed target=ui_dispatcher fallbackReason=" + (fallbackReason ?? string.Empty) + " message=" + ex.Message);
+            return false;
+        }
+        return true;
+    }
+
+    private void ShowEverythingFallbackWarningSafely(string fallbackReason)
+    {
+        try
+        {
+            ShowEverythingFallbackWarning(fallbackReason);
+            LogEverythingScan("everything fallback warning shown fallbackReason=" + (fallbackReason ?? string.Empty));
+        }
+        catch (Exception ex)
+        {
+            LogEverythingScan("everything fallback warning failed fallbackReason=" + (fallbackReason ?? string.Empty) + " message=" + ex.Message);
         }
     }
 

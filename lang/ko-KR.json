@@ -60,6 +60,7 @@
   "Lr2_song_db_sync_data_resync_tooltip": "현재 보유 보면과 플레이리스트에서 LR2의 song / folder 데이터를 다시 동기화합니다. maintenance 재스캔이나 chart_info 전체 보완은 아닙니다.",
   "Lr2_song_db_sync_cleanup_startup_scan_blockers": "LR2 folder 행 정리 후 다시 시도",
   "Msg_confirm_lr2_song_db_sync_startup_scan_blocker_cleanup": "진단 대상인 LR2 folder 테이블 행을 정리한 뒤 다시 시도합니다.\n삭제되는 것은 진단 대상인 LR2 folder 테이블 행뿐이며, 채보 파일이나 .lr2folder 파일은 삭제하지 않습니다.\n\n계속하시겠습니까?",
+  "Warn_EverythingFallbackScanUsed": "Everything 연동에 실패했기 때문에 일반 파일 열거로 전환합니다.\n대규모 라이브러리에서는 초기화나 리로드에 시간이 걸릴 수 있습니다.\n\nEverything 1.5 Alpha x64가 실행 중인지, BMS 폴더의 인덱스 생성이 완료되었는지, Everything에서 검색 가능한 상태인지 확인해 주세요.\n\n상세: {0}",
   "Msg_failed_remove_playlist_entry": "재생 목록에서 채보를 제거하지 못했습니다.\n해당 재생 목록이 외부 동기화 모드로 설정되어 있습니다.",
   "Record_setting_encoder_dir": "실행 파일 경로: ",
   "Estimate_reinstall_loc": "재설치 위치 추정",
