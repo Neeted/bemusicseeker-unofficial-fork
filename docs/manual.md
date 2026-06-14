@@ -129,6 +129,7 @@ The settings dialog is saved when `OK` is pressed. Depending on the changed sett
 In the `General` tab, configure language, operating mode, BMS directory, LR2 directory, `song.db`, `config.xml`, `beatoraja directory`, and related settings.
 
 In both standalone mode and LR2 linked mode, register the root folders where charts should be searched as BMS directories. In LR2 linked mode, also configure the LR2 directory and DB / XML paths.
+BMS directories can be added with the `Add` button, or by dragging folders onto the list.
 
 #### Standalone
 
