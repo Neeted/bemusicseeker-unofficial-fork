@@ -14977,7 +14977,7 @@ completeFileEnumerationOnce,
             {
                 bmsFilesSnapshot = ((BMSFiles == null) ? new List<BMSFile>() : [.. BMSFiles.Where(f => f != null)]);
             }
-            irService.ApplyIrDataToScoresAndFiles(data, cache, lr2ScoreDBPath, BMSScores, bmsFilesSnapshot, options.SkipEstimateOfflineScoreRanking);
+            irService.ApplyIrDataToScoresAndFiles(data, cache, lr2ScoreDBPath, BMSScores, bmsFilesSnapshot, options.EstimateOfflineScoreRanking);
         }
         RefreshScoreSnapshotFromCurrentScores("apply_ir_data");
     }
@@ -15063,7 +15063,7 @@ completeFileEnumerationOnce,
             {
                 using (rwlockBMSFiles.GetReaderGuard())
                 {
-                    result = irService.ApplyPreparedRankingScoresRefreshPlanForLibrary(preparedPlan, lr2ScoreDBPath, BMSScores, BMSFiles, options.SkipEstimateOfflineScoreRanking);
+                    result = irService.ApplyPreparedRankingScoresRefreshPlanForLibrary(preparedPlan, lr2ScoreDBPath, BMSScores, BMSFiles, options.EstimateOfflineScoreRanking);
                 }
             }
         }
@@ -15133,7 +15133,7 @@ completeFileEnumerationOnce,
             {
                 using (rwlockBMSFiles.GetReaderGuard())
                 {
-                    failed = irService.DownloadIRData(LR2ID, cacheInfo, irCacheDirPath, dbGateway, irClient, rankingDataUrl, BMSScores, BMSFiles, options.SkipEstimateOfflineScoreRanking);
+                    failed = irService.DownloadIRData(LR2ID, cacheInfo, irCacheDirPath, dbGateway, irClient, rankingDataUrl, BMSScores, BMSFiles, options.EstimateOfflineScoreRanking);
                 }
             }
         }

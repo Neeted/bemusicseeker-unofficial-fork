@@ -636,7 +636,7 @@ public class MainWindowViewModel : ViewModel
 
         private bool tempEnableReadOptimizedPragmas;
 
-        private bool tempSkipEstimateOfflineScoreRanking;
+        private bool tempEstimateOfflineScoreRanking;
 
         private bool tempEnableDownloadLr2IrScoreAndDetectUnsent;
 
@@ -1900,29 +1900,29 @@ public class MainWindowViewModel : ViewModel
             }
         }
 
-        public bool SkipEstimateOfflineScoreRanking
+        public bool EstimateOfflineScoreRanking
         {
             get
             {
-                return Settings.Default.SkipEstimateOfflineScoreRanking;
+                return Settings.Default.EstimateOfflineScoreRanking;
             }
             set
             {
-                if (Settings.Default.SkipEstimateOfflineScoreRanking == value)
+                if (Settings.Default.EstimateOfflineScoreRanking == value)
                 {
                     return;
                 }
                 if (value)
                 {
-                    var confirmationMessage = new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Msg_confirm_skip_offline_score_ranking_estimation, BeMusicSeeker.Properties.Resources.Warning, MessageBoxImage.Exclamation, MessageBoxButton.OKCancel, "ConfirmationDialog");
+                    var confirmationMessage = new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Msg_confirm_enable_offline_score_ranking_estimation, BeMusicSeeker.Properties.Resources.Warning, MessageBoxImage.Exclamation, MessageBoxButton.OKCancel, "ConfirmationDialog");
                     ownerViewModel.RaiseInteractionMessageOnUiThread(confirmationMessage);
                     if (confirmationMessage.Response != true)
                     {
                         return;
                     }
                 }
-                Settings.Default.SkipEstimateOfflineScoreRanking = value;
-                RaisePropertyChanged("SkipEstimateOfflineScoreRanking");
+                Settings.Default.EstimateOfflineScoreRanking = value;
+                RaisePropertyChanged("EstimateOfflineScoreRanking");
             }
         }
 
@@ -3526,7 +3526,7 @@ public class MainWindowViewModel : ViewModel
             tempSkipInitPlaylistLoad = Settings.Default.SkipInitPlaylistLoad;
             tempStartupSelectInstallPending = Settings.Default.StartupSelectInstallPending;
             tempEnableReadOptimizedPragmas = Settings.Default.EnableReadOptimizedPragmas;
-            tempSkipEstimateOfflineScoreRanking = Settings.Default.SkipEstimateOfflineScoreRanking;
+            tempEstimateOfflineScoreRanking = Settings.Default.EstimateOfflineScoreRanking;
             tempEnableDownloadLr2IrScoreAndDetectUnsent = Settings.Default.EnableDownloadLr2IrScoreAndDetectUnsent;
             tempEnableAutoInstall = Settings.Default.AutoInstall;
             tempKeepInstallablePackagesPending = Settings.Default.KeepInstallablePackagesPending;
@@ -3908,7 +3908,7 @@ public class MainWindowViewModel : ViewModel
             Settings.Default.SkipInitPlaylistLoad = tempSkipInitPlaylistLoad;
             Settings.Default.StartupSelectInstallPending = tempStartupSelectInstallPending;
             Settings.Default.EnableReadOptimizedPragmas = tempEnableReadOptimizedPragmas;
-            Settings.Default.SkipEstimateOfflineScoreRanking = tempSkipEstimateOfflineScoreRanking;
+            Settings.Default.EstimateOfflineScoreRanking = tempEstimateOfflineScoreRanking;
             Settings.Default.EnableDownloadLr2IrScoreAndDetectUnsent = tempEnableDownloadLr2IrScoreAndDetectUnsent;
             Settings.Default.AutoInstall = tempEnableAutoInstall;
             Settings.Default.KeepInstallablePackagesPending = tempKeepInstallablePackagesPending;
@@ -4010,7 +4010,7 @@ public class MainWindowViewModel : ViewModel
             RaisePropertyChanged(() => SkipInitPlaylistLoad);
             RaisePropertyChanged(() => StartupSelectInstallPending);
             RaisePropertyChanged(() => EnableReadOptimizedPragmas);
-            RaisePropertyChanged(() => SkipEstimateOfflineScoreRanking);
+            RaisePropertyChanged(() => EstimateOfflineScoreRanking);
             RaisePropertyChanged(() => EnableDownloadLr2IrScoreAndDetectUnsent);
             RaisePropertyChanged(() => EnableAutoInstall);
             RaisePropertyChanged(() => KeepInstallablePackagesPending);

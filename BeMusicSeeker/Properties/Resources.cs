@@ -148,7 +148,7 @@ public class Resources
 
     public static string Details_auto_apply_ambiguous_install_destination => ResourceManager.GetString("Details_auto_apply_ambiguous_install_destination", resourceCulture);
 
-    public static string Details_test_notcalc_offrank => ResourceManager.GetString("Details_test_notcalc_offrank", resourceCulture);
+    public static string Details_estimate_offline_score_ranking => ResourceManager.GetString("Details_estimate_offline_score_ranking", resourceCulture);
 
     public static string Details_download_lr2ir_score_and_detect_unsent => ResourceManager.GetString("Details_download_lr2ir_score_and_detect_unsent", resourceCulture);
 
@@ -173,7 +173,7 @@ public class Resources
 
     public static string Msg_confirm_skip_init_playlist_load => ResourceManager.GetString("Msg_confirm_skip_init_playlist_load", resourceCulture);
 
-    public static string Msg_confirm_skip_offline_score_ranking_estimation => ResourceManager.GetString("Msg_confirm_skip_offline_score_ranking_estimation", resourceCulture);
+    public static string Msg_confirm_enable_offline_score_ranking_estimation => ResourceManager.GetString("Msg_confirm_enable_offline_score_ranking_estimation", resourceCulture);
 
     public static string Device => ResourceManager.GetString("Device", resourceCulture);
 

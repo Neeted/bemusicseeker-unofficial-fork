@@ -342,7 +342,7 @@ public sealed class BmsLibraryIrServiceTests
         List<BMSScore> scores = [];
         TestableBmsFile file = CreateFile(hash);
 
-        IrCacheRefreshResult result = service.RefreshRankingScoresFromCache(123, env.ScoreDbPath, gateway, scores, [file], skipEstimateOfflineScoreRanking: true);
+        IrCacheRefreshResult result = service.RefreshRankingScoresFromCache(123, env.ScoreDbPath, gateway, scores, [file], estimateOfflineScoreRanking: false);
 
         Assert.AreEqual(1, result.CacheFilesScanned);
         Assert.AreEqual(0, result.CacheFilesReloaded);
@@ -394,7 +394,7 @@ public sealed class BmsLibraryIrServiceTests
         List<BMSScore> scores = [];
         TestableBmsFile file = CreateFile(hash);
 
-        IrCacheRefreshResult result = service.RefreshRankingScoresFromCache(123, env.ScoreDbPath, gateway, scores, [file], skipEstimateOfflineScoreRanking: true);
+        IrCacheRefreshResult result = service.RefreshRankingScoresFromCache(123, env.ScoreDbPath, gateway, scores, [file], estimateOfflineScoreRanking: false);
 
         Assert.AreEqual(1, result.CacheFilesScanned);
         Assert.AreEqual(1, result.CacheFilesReloaded);
@@ -582,7 +582,7 @@ public sealed class BmsLibraryIrServiceTests
         env.WriteCacheXml("27272727272727272727272727272727", cacheUpdate, cacheUpdate, lr2Id: 123, pg: 600, gr: 100);
         BmsLibraryDbGateway gateway = env.CreateGateway();
 
-        IrCacheRefreshResult result = service.RefreshRankingScoresFromCache(123, env.ScoreDbPath, gateway, [], [], skipEstimateOfflineScoreRanking: true);
+        IrCacheRefreshResult result = service.RefreshRankingScoresFromCache(123, env.ScoreDbPath, gateway, [], [], estimateOfflineScoreRanking: false);
 
         Assert.AreEqual(2, result.CacheFilesReloaded);
         Assert.AreEqual(2, result.IrDataUpsertCount);
@@ -608,8 +608,8 @@ public sealed class BmsLibraryIrServiceTests
         envDegree2.WriteCacheXml(hashes[0], cacheUpdate, cacheUpdate, lr2Id: 123, pg: 700, gr: 100);
         envDegree2.WriteCacheXml(hashes[1], cacheUpdate, cacheUpdate, lr2Id: 123, pg: 600, gr: 100);
 
-        IrCacheRefreshResult resultDegree1 = new BmsLibraryIrService(1).RefreshRankingScoresFromCache(123, envDegree1.ScoreDbPath, envDegree1.CreateGateway(), [], [], skipEstimateOfflineScoreRanking: true);
-        IrCacheRefreshResult resultDegree2 = new BmsLibraryIrService(2).RefreshRankingScoresFromCache(123, envDegree2.ScoreDbPath, envDegree2.CreateGateway(), [], [], skipEstimateOfflineScoreRanking: true);
+        IrCacheRefreshResult resultDegree1 = new BmsLibraryIrService(1).RefreshRankingScoresFromCache(123, envDegree1.ScoreDbPath, envDegree1.CreateGateway(), [], [], estimateOfflineScoreRanking: false);
+        IrCacheRefreshResult resultDegree2 = new BmsLibraryIrService(2).RefreshRankingScoresFromCache(123, envDegree2.ScoreDbPath, envDegree2.CreateGateway(), [], [], estimateOfflineScoreRanking: false);
 
         List<LR2IRData> rowsDegree1 = [.. envDegree1.CreateGateway().LoadIrData(123).OrderBy(row => row.hash)];
         List<LR2IRData> rowsDegree2 = [.. envDegree2.CreateGateway().LoadIrData(123).OrderBy(row => row.hash)];
@@ -647,7 +647,7 @@ public sealed class BmsLibraryIrServiceTests
             }
         ]);
 
-        IrCacheRefreshResult result = service.RefreshRankingScoresFromCache(123, env.ScoreDbPath, gateway, [], [], skipEstimateOfflineScoreRanking: true);
+        IrCacheRefreshResult result = service.RefreshRankingScoresFromCache(123, env.ScoreDbPath, gateway, [], [], estimateOfflineScoreRanking: false);
 
         Assert.AreEqual(1, result.CacheFilesReloaded);
         Assert.AreEqual(1, result.IrDataUpsertCount);
@@ -719,7 +719,7 @@ public sealed class BmsLibraryIrServiceTests
             great = 0
         };
 
-        IrCacheRefreshResult result = service.RefreshRankingScoresFromCache(123, env.ScoreDbPath, gateway, [score], [], skipEstimateOfflineScoreRanking: false);
+        IrCacheRefreshResult result = service.RefreshRankingScoresFromCache(123, env.ScoreDbPath, gateway, [score], [], estimateOfflineScoreRanking: true);
 
         Assert.AreEqual(1, result.CacheFilesReloaded);
         Assert.AreEqual(0, result.OfflineEstimateXmlLoadCount);
@@ -756,7 +756,7 @@ public sealed class BmsLibraryIrServiceTests
             great = 0
         };
 
-        IrCacheRefreshResult result = service.RefreshRankingScoresFromCache(123, env.ScoreDbPath, gateway, [score], [], skipEstimateOfflineScoreRanking: false);
+        IrCacheRefreshResult result = service.RefreshRankingScoresFromCache(123, env.ScoreDbPath, gateway, [score], [], estimateOfflineScoreRanking: true);
 
         Assert.AreEqual(0, result.CacheFilesReloaded);
         Assert.AreEqual(1, result.OfflineEstimateXmlLoadCount);
@@ -764,7 +764,7 @@ public sealed class BmsLibraryIrServiceTests
     }
 
     [TestMethod]
-    public void RefreshRankingScoresFromCache_SkipOfflineEstimateAvoidsXmlLoadForHigherLocalScore()
+    public void RefreshRankingScoresFromCache_EstimateDisabledAvoidsXmlLoadForHigherLocalScore()
     {
         using var env = TempIrEnvironment.Create();
         var service = new BmsLibraryIrService();
@@ -798,7 +798,7 @@ public sealed class BmsLibraryIrServiceTests
             great = 0
         };
 
-        IrCacheRefreshResult result = service.RefreshRankingScoresFromCache(123, env.ScoreDbPath, gateway, [score], [], skipEstimateOfflineScoreRanking: true);
+        IrCacheRefreshResult result = service.RefreshRankingScoresFromCache(123, env.ScoreDbPath, gateway, [score], [], estimateOfflineScoreRanking: false);
 
         Assert.AreEqual(0, result.CacheFilesReloaded);
         Assert.AreEqual(0, result.OfflineEstimateXmlLoadCount);
@@ -837,7 +837,7 @@ public sealed class BmsLibraryIrServiceTests
             new Uri("https://example.invalid/ranking"),
             scores,
             [file],
-            skipEstimateOfflineScoreRanking: false);
+            estimateOfflineScoreRanking: true);
 
         Assert.AreEqual(0, failed.Count);
         Assert.AreEqual(1, scores.Count);

@@ -20,17 +20,19 @@ public sealed class PortableSettingsMigrationTests
             ("PublishVersion", "1.0.0"),
             ("StartupExpandPlaylistTree", "True"),
             ("UseFastSortInDataGridExperimental", "True"),
+            ("SkipEstimateOfflineScoreRanking", "True"),
             ("StandardCustomTableColumnSettings", "current"),
             ("UnknownFutureSetting", "keep"));
 
         int removed = PortableSettingsProvider.RemoveObsoleteSettings(section);
 
-        Assert.AreEqual(5, removed);
+        Assert.AreEqual(6, removed);
         Assert.IsNull(FindSetting(section, "StandardColumnsSettings"));
         Assert.IsNull(FindSetting(section, "BmsonColumnSettingsMigrationVersion"));
         Assert.IsNull(FindSetting(section, "PublishVersion"));
         Assert.IsNull(FindSetting(section, "StartupExpandPlaylistTree"));
         Assert.IsNull(FindSetting(section, "UseFastSortInDataGridExperimental"));
+        Assert.IsNull(FindSetting(section, "SkipEstimateOfflineScoreRanking"));
         Assert.IsNotNull(FindSetting(section, "StandardCustomTableColumnSettings"));
         Assert.IsNotNull(FindSetting(section, "UnknownFutureSetting"));
     }
@@ -42,15 +44,17 @@ public sealed class PortableSettingsMigrationTests
             ("TableListURL", Settings.LegacyTableListUrl),
             ("StandardColumnsSettings", "old"),
             ("InstallColumnsSettings", "old"),
+            ("SkipEstimateOfflineScoreRanking", "True"),
             ("StandardCustomTableColumnSettings", "current"));
 
         int normalized = LegacyUserConfigMigrator.NormalizeMigratedConfig(doc);
         XElement section = GetSettingsSection(doc);
 
-        Assert.AreEqual(3, normalized);
+        Assert.AreEqual(4, normalized);
         Assert.AreEqual(Settings.DefaultTableListUrl, GetSettingValue(section, "TableListURL"));
         Assert.IsNull(FindSetting(section, "StandardColumnsSettings"));
         Assert.IsNull(FindSetting(section, "InstallColumnsSettings"));
+        Assert.IsNull(FindSetting(section, "SkipEstimateOfflineScoreRanking"));
         Assert.IsNotNull(FindSetting(section, "StandardCustomTableColumnSettings"));
     }
 

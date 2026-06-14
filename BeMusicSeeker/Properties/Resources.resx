@@ -99,10 +99,10 @@
 
 再起動後に変更が反映されます</value>
   </data>
-  <data name="Msg_confirm_skip_offline_score_ranking_estimation" xml:space="preserve">
-    <value>起動後に未送信スコアのランキング推定を行いません
-起動後のCPU/DISK使用率が低下しますが、
-スコア未送信楽曲のランキングが表示されなくなります
+  <data name="Msg_confirm_enable_offline_score_ranking_estimation" xml:space="preserve">
+    <value>起動後に未送信スコアのランキング推定を行います
+起動後のCPU/DISK使用率が上昇する可能性がありますが、
+スコア未送信楽曲のランキングを推定表示します
 
 再起動後に変更が反映されます</value>
   </data>
@@ -1052,8 +1052,8 @@ LR2IRにスコアやクリアが自動送信されるわけではありません
   <data name="Movie_playback_exbrowser" xml:space="preserve">
     <value>YouTube・ニコニコ動画の再生に外部ブラウザを使用する</value>
   </data>
-  <data name="Details_test_notcalc_offrank" xml:space="preserve">
-    <value>オフラインスコアのランキング推定を行わない</value>
+  <data name="Details_estimate_offline_score_ranking" xml:space="preserve">
+    <value>オフラインスコアのランキング推定を行う</value>
   </data>
   <data name="Playback" xml:space="preserve">
     <value>再生</value>

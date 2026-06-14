@@ -99,7 +99,7 @@ LR2 ranking 系は 2 table に分かれる。
   - XML reload は hash cache file の mtime / tail `lastupdate` で判定する。
   - startup refresh、manual download、`LR2IRCache` wrapper は同じ ranking cache XML parser を使う。
   - refresh path は full ranking list materialize を避け、valid `<score>` rows を 1 pass summary parse する。`id`、`clear`、`notes`、`combo`、`pg`、`gr`、`minbp` は 0 以上の整数だけを valid とし、不正 row は集計対象から外す。
-  - offline score ranking estimation は、必要時だけ同じ parser の compact rank calculator を on-demand load する。startup refresh で reload 済みの hash はその lookup を再利用する。
+  - `EstimateOfflineScoreRanking=true` の場合、offline score ranking estimation は必要時だけ同じ parser の compact rank calculator を on-demand load する。startup refresh で reload 済みの hash はその lookup を再利用する。
   - 初回構築では対象 LR2ID の既存 row が DB 上も 0 件であることを transaction 内で確認し、dedupe 済み rows を bulk insert する。incremental 更新は従来通り `(hash, lr2id)` 単位の delete + insert upsert を使う。
   - schema 互換のため unique 制約は持たない。index は既存 `ir_data_idx(lr2id)` に加え、非 unique `ir_data_idx_lr2id_hash(lr2id, hash)` を持つ。
 

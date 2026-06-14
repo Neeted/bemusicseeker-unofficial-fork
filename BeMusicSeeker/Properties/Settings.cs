@@ -1057,15 +1057,15 @@ internal sealed class Settings : ApplicationSettingsBase
     [UserScopedSetting]
     [DebuggerNonUserCode]
     [DefaultSettingValue("False")]
-    public bool SkipEstimateOfflineScoreRanking
+    public bool EstimateOfflineScoreRanking
     {
         get
         {
-            return (bool)this["SkipEstimateOfflineScoreRanking"];
+            return (bool)this["EstimateOfflineScoreRanking"];
         }
         set
         {
-            this["SkipEstimateOfflineScoreRanking"] = value;
+            this["EstimateOfflineScoreRanking"] = value;
         }
     }
 

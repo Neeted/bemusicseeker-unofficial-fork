@@ -1817,7 +1817,7 @@ public sealed class MainWindowContextMenuResourceTests
             Resources.Details_test_notscan,
             Resources.Details_test_notcheck_playlists,
             Resources.Details_test_startup_select_install_pending,
-            Resources.Details_test_notcalc_offrank,
+            Resources.Details_estimate_offline_score_ranking,
             Resources.Details_test_download_and_install,
             Resources.Details_test_keep_installable_pending,
             Resources.Details_test_delete_pending_source_after_install,
@@ -1833,7 +1833,7 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.AreEqual(0, CountOccurrences(viewModel, "本機能はテスト実装中です"));
         StringAssert.Contains(viewModel, "Resources.Msg_confirm_skip_init_file_check");
         StringAssert.Contains(viewModel, "Resources.Msg_confirm_skip_init_playlist_load");
-        StringAssert.Contains(viewModel, "Resources.Msg_confirm_skip_offline_score_ranking_estimation");
+        StringAssert.Contains(viewModel, "Resources.Msg_confirm_enable_offline_score_ranking_estimation");
     }
 
     [TestMethod]
@@ -2091,6 +2091,10 @@ public sealed class MainWindowContextMenuResourceTests
 
         Assert.AreEqual(Settings.DefaultTableListUrl, settingsDefaults["TableListURL"]);
         Assert.AreEqual(Settings.DefaultTableListUrl, appConfigDefaults["TableListURL"]);
+        Assert.AreEqual("False", settingsDefaults["EstimateOfflineScoreRanking"]);
+        Assert.AreEqual("False", appConfigDefaults["EstimateOfflineScoreRanking"]);
+        Assert.IsFalse(settingsDefaults.ContainsKey("SkipEstimateOfflineScoreRanking"));
+        Assert.IsFalse(appConfigDefaults.ContainsKey("SkipEstimateOfflineScoreRanking"));
         StringAssert.Contains(settingsCode, "internal const string LegacyTableListUrl = \"http://www.ribbit.xyz/bms/tables/table_info.json\";");
         StringAssert.Contains(settingsCode, "[DefaultSettingValue(DefaultTableListUrl)]");
 

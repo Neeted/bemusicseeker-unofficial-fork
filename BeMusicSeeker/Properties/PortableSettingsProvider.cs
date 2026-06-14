@@ -30,7 +30,8 @@ public sealed class PortableSettingsProvider : SettingsProvider, IApplicationSet
         "UseFastSortInMainViewExperimental",
         "UseFastSortInDataGridExperimental",
         "UseDataGridColumnVirtualizationExperimental",
-        "UseCustomTableView"
+        "UseCustomTableView",
+        "SkipEstimateOfflineScoreRanking"
     };
 
     public override void Initialize(string name, NameValueCollection config)
