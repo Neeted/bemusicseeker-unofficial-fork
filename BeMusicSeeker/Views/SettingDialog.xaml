@@ -796,6 +796,20 @@
                       </FrameworkContentElement.Resources>
                       <List>
                         <ListItem>
+                          <Paragraph FontWeight="Bold">2.0.0.0:</Paragraph>
+                          <List MarkerStyle="Box">
+                            <ListItem>
+                              <Paragraph>bmson 管理対応に伴い、譜面読み込み・ライブラリ管理・各種一覧表示を大きく見直し</Paragraph>
+                            </ListItem>
+                            <ListItem>
+                              <Paragraph>BMS / PMS / bmson を譜面ファイルとして共通に扱うための内部データ構造と初期化処理を更新</Paragraph>
+                            </ListItem>
+                            <ListItem>
+                              <Paragraph>bmson 対応に合わせて重複チェック、ファイルスキャン、インストール関連処理を拡張</Paragraph>
+                            </ListItem>
+                          </List>
+                        </ListItem>
+                        <ListItem>
                           <Paragraph FontWeight="Bold">1.2.1.0:</Paragraph>
                           <List MarkerStyle="Box">
                             <ListItem>
