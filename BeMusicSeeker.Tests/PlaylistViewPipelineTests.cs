@@ -9,6 +9,7 @@ using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
+using Codeplex.Data;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
@@ -2340,6 +2341,52 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsTrue(MainWindowViewModel.ShouldPreservePlaylistEntryForRootFolderDrop(missingSourceRow));
         Assert.AreEqual(ChartFileKind.Bmson, MainWindowViewModel.ResolvePlaylistDropChart(ownedBmsonSourceRow).Kind);
         Assert.IsNull(MainWindowViewModel.ResolvePlaylistDropChart(missingSourceRow));
+    }
+
+    [TestMethod]
+    public void PlaylistDropCandidatePolicy_RejectsPlaylistSummaryRows()
+    {
+        var summaryRow = new PlaylistSummaryRow
+        {
+            Name = "Summary",
+            TableRef = new BMSTable()
+        };
+
+        Assert.IsFalse(MainWindowViewModel.IsPlaylistDropCandidateRow(summaryRow));
+        Assert.IsFalse(MainWindowViewModel.ArePlaylistDropCandidateRows([summaryRow]));
+    }
+
+    [TestMethod]
+    public void PlaylistDropCandidatePolicy_AcceptsChartAndPlaylistDetailRows()
+    {
+        var bms = new TestableBmsFile();
+        bms.ApplySnapshot("abababababababababababababababab", "Owned Bms", 7);
+        LibraryChartRow libraryRow = LibraryChartRow.FromBmsFile(bms);
+        PlaylistDetailRow playlistRow = new PlaylistDetailSourceRow(new TestablePlaylistEntry(bms), ChartFileProjection.FromBmsFile(bms)).CreateViewRow();
+
+        Assert.IsTrue(MainWindowViewModel.IsPlaylistDropCandidateRow(libraryRow));
+        Assert.IsTrue(MainWindowViewModel.IsPlaylistDropCandidateRow(playlistRow));
+        Assert.IsTrue(MainWindowViewModel.ArePlaylistDropCandidateRows([libraryRow, playlistRow]));
+        Assert.IsFalse(MainWindowViewModel.ArePlaylistDropCandidateRows([libraryRow, new PlaylistSummaryRow()]));
+    }
+
+    [TestMethod]
+    public void AddBMSTableEntriesToFolder_EmptyInputDoesNotTouchPlaylist()
+    {
+        DateTime lastUpdate = new(2026, 6, 15, 12, 0, 0, DateTimeKind.Local);
+        var table = new BMSTable
+        {
+            last_update = lastUpdate,
+            entries = [new BMSTableEntry(DynamicJson.Parse("{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Existing\",\"level\":\"A\"}"))]
+        };
+        int entriesRevision = table.PlaylistEntriesRevision;
+        List<BMSTableEntry> entriesBefore = [.. table.entries];
+
+        table.AddBMSTableEntriesToFolder([], "New Folder");
+
+        Assert.AreEqual(lastUpdate, table.last_update);
+        Assert.AreEqual(entriesRevision, table.PlaylistEntriesRevision);
+        CollectionAssert.AreEqual(entriesBefore, table.entries.ToList());
     }
 
     [TestMethod]

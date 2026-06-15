@@ -7897,14 +7897,20 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     private void playlistTableDrop(object sender, DragEventArgs e)
     {
         e.Handled = true;
+        e.Effects = DragDropEffects.None;
         treeViewItemInstantStoryBoardPlaylistTable.Stop(this);
         treeViewItemInstantStoryBoardPlaylistTable.Children.Clear();
         var viewModel = base.DataContext as MainWindowViewModel;
+        if (!CustomTableDataTransfer.TryGetSelectedRows(e.Data, out List<object> selectedRows)
+            || !MainWindowViewModel.ArePlaylistDropCandidateRows(selectedRows))
+        {
+            return;
+        }
         if (sender is not TreeViewItem treeViewItem)
         {
             return;
         }
-        if (treeViewItem.DataContext is not BMSTable table || table.is_external_sync)
+        if (viewModel == null || treeViewItem.DataContext is not BMSTable table || table.is_external_sync)
         {
             return;
         }
@@ -7914,14 +7920,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
         treeViewItem2.Background = Brushes.Transparent;
-        if (!CustomTableDataTransfer.TryGetSelectedRows(e.Data, out List<object> selectedRows))
-        {
-            return;
-        }
-        if (selectedRows == null || selectedRows.Count == 0)
-        {
-            return;
-        }
         string folderName;
         if (!TryGetPlaylistFolderNode(treeViewItem2.DataContext, out PlaylistFolderNode folderNode))
         {
@@ -7935,6 +7933,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             }
             folderName = folderNode.FolderName;
         }
+        e.Effects = DragDropEffects.Copy;
         Task.Run(delegate
         {
             viewModel.AddChartRowsToFolderBMSTable(selectedRows, table, folderName);
@@ -7943,21 +7942,36 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void playlistTableDragOver(object sender, DragEventArgs e)
     {
-        if (sender is TreeViewItem { DataContext: BMSTable { is_external_sync: false } })
+        if (!CustomTableDataTransfer.TryGetSelectedRows(e.Data, out List<object> selectedRows))
         {
-            _ = base.DataContext;
-            TreeViewItem treeViewItem2 = WPFUtil.FindVisualParent<TreeViewItem>((FrameworkElement)e.OriginalSource);
-            if (treeViewItem2 != null && (!TryGetPlaylistFolderNode(treeViewItem2.DataContext, out PlaylistFolderNode folderNode) || !folderNode.IsSpecial))
-            {
-                e.Effects = DragDropEffects.Copy;
-                e.Handled = true;
-            }
+            return;
+        }
+        e.Effects = DragDropEffects.None;
+        e.Handled = true;
+        if (!MainWindowViewModel.ArePlaylistDropCandidateRows(selectedRows)
+            || sender is not TreeViewItem { DataContext: BMSTable { is_external_sync: false } })
+        {
+            return;
+        }
+        TreeViewItem treeViewItem2 = WPFUtil.FindVisualParent<TreeViewItem>((FrameworkElement)e.OriginalSource);
+        if (treeViewItem2 != null && (!TryGetPlaylistFolderNode(treeViewItem2.DataContext, out PlaylistFolderNode folderNode) || !folderNode.IsSpecial))
+        {
+            e.Effects = DragDropEffects.Copy;
         }
     }
 
     private void playlistTableDragEnter(object sender, DragEventArgs e)
     {
+        if (!CustomTableDataTransfer.TryGetSelectedRows(e.Data, out List<object> selectedRows))
+        {
+            return;
+        }
+        e.Effects = DragDropEffects.None;
         e.Handled = true;
+        if (!MainWindowViewModel.ArePlaylistDropCandidateRows(selectedRows))
+        {
+            return;
+        }
         if (sender is not TreeViewItem tviTable)
         {
             return;
@@ -7969,6 +7983,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         if (!bMSTable.is_external_sync && (!TryGetPlaylistFolderNode(treeViewItem.DataContext, out PlaylistFolderNode folderNode) || !folderNode.IsSpecial))
         {
+            e.Effects = DragDropEffects.Copy;
             treeViewItem.Background = SystemColors.HighlightBrush;
         }
         if (!TryGetPlaylistFolderNode(treeViewItem.DataContext, out _))

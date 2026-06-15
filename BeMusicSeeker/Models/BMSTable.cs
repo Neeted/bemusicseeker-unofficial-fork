@@ -912,18 +912,32 @@ public class BMSTable : LR2SongDBExtended.playlist
         return text;
     }
 
+    /// <summary>
+    /// 指定した playlist entry をフォルダへ追加し、実際に追加があった場合だけ playlist の更新情報を進めます。
+    /// </summary>
+    /// <param name="bmsEntries">追加する playlist entry 群。</param>
+    /// <param name="folderName">追加先フォルダ名。</param>
+    /// <exception cref="ArgumentNullException"><paramref name="bmsEntries"/> が <see langword="null"/> の場合。</exception>
     public void AddBMSTableEntriesToFolder(IEnumerable<BMSTableEntry> bmsEntries, string folderName = "")
     {
-        bool flag = !GetExistingFolderNameSet().Contains(folderName);
-        List<BMSTableEntry> list = [.. bmsEntries];
-        foreach (BMSTableEntry item in list)
+        if (bmsEntries == null)
         {
-            item.folder = folderName;
-            item.parent = this;
+            throw new ArgumentNullException(nameof(bmsEntries));
         }
-        _entries = rebuildFolder(folderName, entries.Concat(list));
+        List<BMSTableEntry> entriesToAdd = [.. bmsEntries];
+        if (entriesToAdd.Count == 0)
+        {
+            return;
+        }
+        bool shouldRebuildFolderState = !GetExistingFolderNameSet().Contains(folderName);
+        foreach (BMSTableEntry entryToAdd in entriesToAdd)
+        {
+            entryToAdd.folder = folderName;
+            entryToAdd.parent = this;
+        }
+        _entries = rebuildFolder(folderName, entries.Concat(entriesToAdd));
         base.last_update = DateTime.Now;
-        if (flag)
+        if (shouldRebuildFolderState)
         {
             RebuildFolderState();
         }

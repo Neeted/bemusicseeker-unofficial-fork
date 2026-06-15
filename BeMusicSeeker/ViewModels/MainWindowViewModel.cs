@@ -22760,12 +22760,16 @@ public class MainWindowViewModel : ViewModel
             RaiseInteractionMessageOnUiThread(new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Msg_failed_add_playlist_entry, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
             return;
         }
-        tables.EnsurePlaylistEntriesLoaded(bmsTable, "MainWindowViewModel.AddChartRowsToFolderBMSTable");
         List<object> sourceRows = [.. rows.Where(row => row != null)];
         if (sourceRows.Count == 0)
         {
             return;
         }
+        if (!ArePlaylistDropCandidateRows(sourceRows))
+        {
+            return;
+        }
+        tables.EnsurePlaylistEntriesLoaded(bmsTable, "MainWindowViewModel.AddChartRowsToFolderBMSTable");
         if (sourceRows.All(GridRowResolver.IsPlaylistRow))
         {
             List<BMSTableEntry> list = [.. sourceRows.Select(GridRowResolver.GetPlaylistEntry).Where(entry => entry != null && entry.parent == bmsTable)];
@@ -22827,6 +22831,30 @@ public class MainWindowViewModel : ViewModel
         tables.FreeReaderLockBMSTables();
         RefreshChartRowsViewForPlaylist(bmsTable);
         InvalidateNormalLibrarySortKeys(NormalLibraryReferenceTablesChangedReason);
+    }
+
+    /// <summary>
+    /// playlist tree への drop で、すべての行を playlist entry 追加へ変換できるかどうかを返します。
+    /// summary 行など、見た目は同じ CustomTableView の行でも playlist entry として解釈できない payload を拒否するための境界です。
+    /// </summary>
+    /// <param name="rows">CustomTableView の drag payload から取り出した行群。</param>
+    /// <returns>1 行以上あり、すべて playlist entry 追加へ変換できる場合は <see langword="true"/>。</returns>
+    internal static bool ArePlaylistDropCandidateRows(IEnumerable<object> rows)
+    {
+        List<object> candidateRows = rows?.Where(row => row != null).ToList() ?? [];
+        return candidateRows.Count > 0 && candidateRows.All(IsPlaylistDropCandidateRow);
+    }
+
+    /// <summary>
+    /// 指定行が playlist tree への drop で追加対象になり得るかどうかを返します。
+    /// owned chart は chart から再構築し、missing playlist row は既存 entry を複製する既存仕様に合わせます。
+    /// </summary>
+    /// <param name="row">CustomTableView の行オブジェクト。</param>
+    /// <returns>playlist entry または解決済み chart として追加できる場合は <see langword="true"/>。</returns>
+    internal static bool IsPlaylistDropCandidateRow(object row)
+    {
+        return GridRowResolver.GetPlaylistEntry(row) != null
+            || ResolvePlaylistDropChart(row) != null;
     }
 
     /// <summary>
