@@ -19,7 +19,7 @@ public sealed class AppSchemaPreflightServiceTests
     [TestCategory("Playlist")]
     public void Inspect_LegacyPlaylistEntrySchema_RequiresWarningWithoutMutatingDatabase()
     {
-        string tempDbPath = CreateTempSongDbPath();
+        string tempDbPath = CreateEmptySongDbPath();
         try
         {
             using (var db = new LR2SongDBExtended(tempDbPath))
@@ -621,16 +621,6 @@ public sealed class AppSchemaPreflightServiceTests
         using (var _ = new LR2SongDBExtended(tempDbPath))
         {
         }
-        return tempDbPath;
-    }
-
-    private static string CreateTempSongDbPath()
-    {
-        string tempDirectory = Path.Combine(Path.GetTempPath(), "AppSchemaPreflightServiceTests", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tempDirectory);
-        string sourceSongDbPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "TestData", "song_snapshot", "song.db");
-        string tempDbPath = Path.Combine(tempDirectory, "song.db");
-        File.Copy(sourceSongDbPath, tempDbPath, overwrite: true);
         return tempDbPath;
     }
 

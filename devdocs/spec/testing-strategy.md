@@ -11,7 +11,6 @@
 - parser や sort engine のように参照実装互換が重要な領域では、通常テスト用の軽量 smoke と、明示実行する full 検証を分ける。
 - 性能検証は、機能検証の pass/fail ではなく、変更前後の比較や退行調査のための明示的な測定として扱う。
 - 大容量 fixture を使うテストは、テスト名、`TestCategory`、環境変数 guard のいずれかから opt-in であることが分かるようにする。
-- 既存テストには巨大 DB を使う通常検証がまだ残っている。これは当面の例外であり、新規追加時の標準にはしない。
 
 ## テスト分類
 
@@ -36,11 +35,11 @@ dotnet test BeMusicSeeker-decomp.sln /p:Configuration=Release
 通常検証に入れないもの:
 
 - 実譜面を数百から数千件 parse する全件互換検証。
-- `song_snapshot/song.db` のような巨大 DB を大量にコピーする検証。
+- 巨大 `song.db` のような大容量 DB を大量にコピーする検証。
 - 処理時間や比率の比較を目的にした性能測定。
 - 失敗時の意味が「機能不具合」ではなく「互換精度の棚卸し」や「性能傾向の変化」になる検証。
 
-現状では `song_snapshot/song.db` を使う playlist / schema 系の通常テストが残っている。これらは機能検証としての意味があるため単純に skip せず、小さい合成 DB へ置き換える対象として扱う。
+playlist / schema 系の通常テストでは、必要な schema と row だけを持つ小さい合成 DB を使う。
 
 ### Parser 互換検証
 
@@ -96,8 +95,7 @@ Parser を変更した場合の推奨:
 
 - `TestCategory("LargeFixture")` を付ける。
 - 通常検証では小さい合成 DB を優先する。
-- `song_snapshot/song.db` のような巨大 DB は、互換性確認や性能調査のための opt-in fixture として扱う。
-- 既存の `song_snapshot/song.db` 使用テストは段階的な整理対象であり、機能検証を失わないよう小さい DB 化してから通常実行から外す。
+- 巨大 `song.db` が必要な場合は、通常検証とは別の opt-in fixture として扱う。
 
 注意:
 
@@ -111,16 +109,9 @@ Parser を変更した場合の推奨:
 
 - 最適化の効果確認、退行調査、実装方式の比較を行う。
 
-実行:
-
-```powershell
-$env:BMS_TEST_PERFORMANCE = "1"
-dotnet test BeMusicSeeker-decomp.sln /p:Configuration=Release --filter "TestCategory=Performance"
-```
-
 扱い:
 
-- 通常検証には含めない。
+- 通常検証には含めない。追加する場合は `Performance` カテゴリと、そのテスト専用の環境変数 guard を付ける。
 - 環境差で揺れるため、原則として厳密な時間閾値で通常テストを失敗させない。
 - 測定結果は `TestContext.WriteLine`、`Trace.WriteLine`、または専用ログへ出し、変更前後の比較に使う。
 
@@ -134,7 +125,7 @@ dotnet test BeMusicSeeker-decomp.sln /p:Configuration=Release --filter "TestCate
 | Production diff full | `ProductionDiffFull` | skip / inconclusive | `BMS_TEST_PRODUCTION_DIFF_FULL=1` |
 | Parser slow 互換 | `ParserCompatibilitySlow` | skip / inconclusive | `BMS_TEST_CHART_INFO_SLOW=1` |
 | 大容量 fixture | `LargeFixture` | 原則 skip / inconclusive | テストごとの環境変数 |
-| 性能検証 | `Performance` | skip / inconclusive | `BMS_TEST_PERFORMANCE=1` |
+| 性能検証 | `Performance` | 原則 skip / inconclusive | テストごとの環境変数 |
 
 `Compatibility` は「互換性を検証する」という意味であり、重いとは限らない。重い互換検証には `ParserCompatibilityFull`、`ProductionDiffFull`、`ParserCompatibilitySlow`、`LargeFixture` を追加する。
 
@@ -150,7 +141,6 @@ dotnet test BeMusicSeeker-decomp.sln /p:Configuration=Release --filter "TestCate
 
 詳細は [BeMusicSeeker.Tests/TestData/README.md](../../BeMusicSeeker.Tests/TestData/README.md) を参照する。
 
-- `song_snapshot/song.db`: 大規模 LR2 song DB snapshot。
 - `chart_info_real`: BMS 実譜面互換 sample。
 - `chart_info_bmson_real`: BMSON 実譜面互換 sample。
 - `chart_info_edge_cases`: 巨大 timeline などの edge case。
@@ -158,7 +148,7 @@ dotnet test BeMusicSeeker-decomp.sln /p:Configuration=Release --filter "TestCate
 
 ## 整理の優先順位
 
-1. `Performance`、`ParserCompatibilityFull`、`ProductionDiffFull`、`ParserCompatibilitySlow` などの重い検証を通常テストから外す。
-2. `song_snapshot/song.db` を使う playlist / DB 系テストを、小さい合成 DB に置き換えられるものから置き換える。
+1. `ParserCompatibilityFull`、`ProductionDiffFull`、`ParserCompatibilitySlow` などの重い検証を通常テストから外す。
+2. playlist / DB 系テストでは、小さい合成 DB を使う。
 3. `BeMusicSeeker.Tests.csproj` の大容量 fixture コピーを見直し、通常 build/test の output を肥大化させない。
 4. parser 変更時に実行すべき full 検証コマンドを PR / release 確認手順へ明記する。

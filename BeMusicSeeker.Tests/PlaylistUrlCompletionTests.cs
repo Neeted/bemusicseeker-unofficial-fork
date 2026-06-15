@@ -561,16 +561,6 @@ public sealed class PlaylistUrlCompletionTests
         db.InsertOrReplace(table, typeof(LR2SongDBExtended.playlist));
     }
 
-    private static string CreateTempSongDbPath()
-    {
-        string tempDirectory = Path.Combine(Path.GetTempPath(), "PlaylistUrlCompletionTests", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tempDirectory);
-        string sourceSongDbPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "TestData", "song_snapshot", "song.db");
-        string tempDbPath = Path.Combine(tempDirectory, "song.db");
-        File.Copy(sourceSongDbPath, tempDbPath, overwrite: true);
-        return tempDbPath;
-    }
-
     private static string CreateEmptySongDbPath()
     {
         string tempDirectory = Path.Combine(Path.GetTempPath(), "PlaylistUrlCompletionTests", Guid.NewGuid().ToString("N"));

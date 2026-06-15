@@ -99,48 +99,72 @@ public sealed class BmsPlaylistUpdateTests
     [TestCategory("Playlist")]
     public void UpdateBmsTablesInternal_CallbackFailureDoesNotAbortUpdate()
     {
-        string songDbPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "TestData", "song_snapshot", "song.db");
-        var playlist = new BMSPlaylist(songDbPath)
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
         {
-            BMSTables = new DispatcherCollection<BMSTable>(new ObservableCollection<BMSTable>(new[] { new BMSTable() }), Dispatcher.CurrentDispatcher)
-        };
-        bool callbackInvoked = false;
-
-        List<BMSTable> updated = playlist.UpdateBMSTablesInternal(reloadExtPlaylist: false, updateCallbackActions:
-        [
-            delegate
+            string songDbPath = CreateTempSongDbPath(tempDirectory);
+            var playlist = new BMSPlaylist(songDbPath)
             {
-                callbackInvoked = true;
-                throw new InvalidOperationException("callback failure");
-            }
-        ], syncResultCallback: null);
+                BMSTables = new DispatcherCollection<BMSTable>(new ObservableCollection<BMSTable>(new[] { new BMSTable() }), Dispatcher.CurrentDispatcher)
+            };
+            bool callbackInvoked = false;
 
-        Assert.IsTrue(callbackInvoked);
-        Assert.AreEqual(0, updated.Count);
+            List<BMSTable> updated = playlist.UpdateBMSTablesInternal(reloadExtPlaylist: false, updateCallbackActions:
+            [
+                delegate
+                {
+                    callbackInvoked = true;
+                    throw new InvalidOperationException("callback failure");
+                }
+            ], syncResultCallback: null);
+
+            Assert.IsTrue(callbackInvoked);
+            Assert.AreEqual(0, updated.Count);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
     }
 
     [TestMethod]
     [TestCategory("Playlist")]
     public async Task UpdateBmsTablesInternalAsync_CallbackFailureDoesNotAbortUpdate()
     {
-        string songDbPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "TestData", "song_snapshot", "song.db");
-        var playlist = new BMSPlaylist(songDbPath)
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
         {
-            BMSTables = new DispatcherCollection<BMSTable>(new ObservableCollection<BMSTable>(new[] { new BMSTable() }), Dispatcher.CurrentDispatcher)
-        };
-        bool callbackInvoked = false;
-
-        List<BMSTable> updated = await playlist.UpdateBMSTablesInternalAsync(reloadExtPlaylist: false, updateCallbackActions:
-        [
-            delegate
+            string songDbPath = CreateTempSongDbPath(tempDirectory);
+            var playlist = new BMSPlaylist(songDbPath)
             {
-                callbackInvoked = true;
-                throw new InvalidOperationException("callback failure");
-            }
-        ], syncResultCallback: null);
+                BMSTables = new DispatcherCollection<BMSTable>(new ObservableCollection<BMSTable>(new[] { new BMSTable() }), Dispatcher.CurrentDispatcher)
+            };
+            bool callbackInvoked = false;
 
-        Assert.IsTrue(callbackInvoked);
-        Assert.AreEqual(0, updated.Count);
+            List<BMSTable> updated = await playlist.UpdateBMSTablesInternalAsync(reloadExtPlaylist: false, updateCallbackActions:
+            [
+                delegate
+                {
+                    callbackInvoked = true;
+                    throw new InvalidOperationException("callback failure");
+                }
+            ], syncResultCallback: null);
+
+            Assert.IsTrue(callbackInvoked);
+            Assert.AreEqual(0, updated.Count);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
     }
 
     [TestMethod]
@@ -1692,9 +1716,12 @@ public sealed class BmsPlaylistUpdateTests
 
     private static string CreateTempSongDbPath(string tempDirectory)
     {
-        string sourceSongDbPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "TestData", "song_snapshot", "song.db");
         string tempSongDbPath = Path.Combine(tempDirectory, "song.db");
-        File.Copy(sourceSongDbPath, tempSongDbPath, overwrite: true);
+        using (var db = new LR2SongDBExtended(tempSongDbPath))
+        {
+            db.CreateTable<LR2SongDB.song>();
+            db.CreateTable<LR2SongDB.folder>();
+        }
         return tempSongDbPath;
     }
 

@@ -358,17 +358,17 @@ Phase F-2 では、広範囲 rename ではなく chart 共通操作の入口を�
 Phase F-3 に進む前に、DataGrid sort engine を整理する。
 
 - 通常一覧は Phase E 以降 `LibraryChartRowSortEngine` が正本なので、`UseFastSortInDataGridExperimental` は `LibraryChartRowSortEngine` 側で解釈する
-- 挙動は旧 BMSFile 一覧 sort と互換にし、fast sort 有効時は文字列列を `StringComparer.OrdinalIgnoreCase` ベース、無効時は legacy natural sort ベースにする
+- 挙動は現行 UI 仕様を正本にし、通常一覧の文字列列は `StringComparer.OrdinalIgnoreCase` ベース、playlist detail で必要な箇所だけ legacy natural sort ベースにする
 - typed sort が必要な列、例えば `Chart*` の数値キー、`rateDouble`、date / bool / numeric property、LEVEL mixed double は設定に関係なく typed sort を使う
 - `Folder` など、従来 playlist detail で legacy natural 固定だった列は互換性を優先し、通常一覧 / playlist detail それぞれの既存 profile を明示する
-- `BMSFileSortEngine` は test-only helper 化していたため削除済み。互換・性能確認は `BmsSortCompatibilityTests` から直接 `LibraryChartRowSortEngine` を検証する
+- `BMSFileSortEngine` は test-only helper 化後に削除済み。現行 sort 仕様は `LibraryChartRowSortEngineTests` から直接 `LibraryChartRowSortEngine` を検証する
 - sort log の `sortEngine=fast|legacy` と実際の `sortProfile` が矛盾しないよう、`library_chart_*` profile 名も fast / legacy / typed の区別が分かる名前に揃える
 
 整理後の境界:
 
 - 通常一覧の実行経路は `LibraryChartRowSortEngine.SortForMainView(..., useLegacySortForDataGrid, ...)` のみ
 - 旧 `BMSFileSortEngine.UseLegacySortForDataGrid` は廃止し、通常一覧の切り替えは `LibraryChartRowSortEngine.SortForMainView(..., useLegacySortForDataGrid, ...)` の引数で表す
-- 旧 `BMSFile` sort 互換検証は、production helper を残さず test-local legacy baseline と `LibraryChartRowSortEngine` の比較に寄せる
+- 旧 `BMSFile` sort との厳密一致や旧実装との性能比較は現在の要件に含めず、現行 UI 仕様を小さい合成データで検証する
 
 Phase F-3 は「広範囲 rename」ではなく、低リスクな内部境界の chart 名化を進める。現行実装では F-3 の実装候補とテスト補強は完了しており、この範囲での BMS / bmson chart 抽象化はいったん完了扱いにする。
 
@@ -377,7 +377,7 @@ F-3 で進める候補 / 進捗:
 - `BMSFilesFolderView` / `BMSFilesKeywordFilterView` / `BMSFilesModeFilterView` は `ChartRowsFolderView` / `ChartRowsKeywordFilterView` / `ChartRowsModeFilterView` へ移行済み。public binding の `BMSFilesView` / `SelectedIndexBMSFilesView` / `ColumnsSettingsBMSFilesView` / `UseAsyncBMSFilesViewBinding` も `ChartRowsView` / `SelectedIndexChartRowsView` / `ColumnsSettingsChartRowsView` / `UseAsyncChartRowsViewBinding` へ移行済み
 - `SetBMSFilesView()` は private helper だったため `SetChartRowsView()` へ移行済み。production 参照のない旧名 shim は残さない
 - 旧 grid selection helper 群は実コードから削除済み。handler は chart 共通なら `GetSelectedChartTargets`、BMS 専用なら `GetSelectedBmsChartFiles` に寄せる。既存 model API が `BMSFile` adapter を要求する場合も UI handler では adapter list を作らず、ViewModel 側の snapshot / target 解決境界で扱う
-- `BMSFileSortEngine` は通常一覧の実行経路から外れており、production 参照がなくなったため削除済み。`BmsSortCompatibilityTests` は `LibraryChartRowSortEngine` ベースへ移植済み
+- `BMSFileSortEngine` は通常一覧の実行経路から外れており、production 参照がなくなったため削除済み。`LibraryChartRowSortEngineTests` は小さい合成データで `LibraryChartRowSortEngine` の現行仕様を検証する
 - subset view の仮想 filter / sort cache / test helper は `VirtualChartSubset*` へ移行し、BMS / bmson を含む chart row subset として扱う。ログ検索互換のため、既存 performance log scope は当面 `bms_file_subset` のまま維持する
 - 所持 bmson row の adapter 共有は `BmsonChartAdapterProvider` / `sharedBmsonChartAdaptersByKey` へ寄せる。`CompatibilityBmsFile` property は legacy `BMSFile` API 互換境界として残す
 - `ChartListSourceRow` の identity 系 getter は warning なしの `ChartFile` snapshot を読む。`ChartInfo` は hydration 後の attach を反映するため storage owner から読み、warning / install destination のように adapter の mutable state が必要な表示は、都度 `ChartFileProjection` で現在 snapshot を作る。これに合わせて `ChartFile` は title / artist / genre / folder / path / mode / level / tag / hash を domain read model として持つ

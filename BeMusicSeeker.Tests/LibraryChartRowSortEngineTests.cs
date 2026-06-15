@@ -1,11 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
-using System.Diagnostics;
 using System.Globalization;
-using System.IO;
 using System.Linq;
-using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
 using BeMusicSeeker.Models;
@@ -14,159 +11,15 @@ using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using Ribbit.Util;
-using SQLite;
 
 namespace BeMusicSeeker.Tests;
 
 /// <summary>
-/// ソート最適化後の並び順が従来ロジックと一致することを検証します。
+/// Library chart rows use the current sort profiles expected by the main and playlist views.
 /// </summary>
 [TestClass]
-public sealed class BmsSortCompatibilityTests
+public sealed class LibraryChartRowSortEngineTests
 {
-    private const int SampleSongCount = 20000;
-    private const int PerfWarmupCount = 1;
-    private const int PerfMeasureCount = 3;
-
-    private static readonly string TestSongDbRelativePath = Path.Combine("TestData", "song_snapshot", "song.db");
-
-    public TestContext? TestContext { get; set; }
-
-    /// <summary>
-    /// 代表カラムの昇順/降順で従来ロジックとの完全一致を検証します。
-    /// </summary>
-    [TestMethod]
-    [TestCategory("Compatibility")]
-    [Microsoft.VisualStudio.TestTools.UnitTesting.Ignore("Manual compatibility check. Excluded from default build/test pass criteria.")]
-    [DoNotParallelize]
-    public void SortOrder_ShouldMatchLegacyImplementation_ForRepresentativeColumns()
-    {
-        string testSongDbFullPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, TestSongDbRelativePath);
-        Assert.IsTrue(File.Exists(testSongDbFullPath), "Test song.db not found: " + testSongDbFullPath);
-
-        List<LibraryChartRow> sourceRows = LoadLibraryRowsFromSongDb(testSongDbFullPath, SampleSongCount);
-        Assert.IsTrue(sourceRows.Count > 0, "No song rows loaded from test song.db.");
-
-        CultureInfo previousCurrentCulture = CultureInfo.CurrentCulture;
-        CultureInfo previousCurrentUICulture = CultureInfo.CurrentUICulture;
-        try
-        {
-            var stableCulture = CultureInfo.GetCultureInfo("ja-JP");
-            CultureInfo.CurrentCulture = stableCulture;
-            CultureInfo.CurrentUICulture = stableCulture;
-
-            List<(string columnName, ListSortDirection direction)> sortCases =
-            [
-                (nameof(LibraryChartRow.Title), ListSortDirection.Ascending),
-                (nameof(LibraryChartRow.Title), ListSortDirection.Descending),
-                (nameof(LibraryChartRow.Artist), ListSortDirection.Ascending),
-                (nameof(LibraryChartRow.path), ListSortDirection.Ascending),
-                (nameof(LibraryChartRow.Folder), ListSortDirection.Ascending),
-                (nameof(LibraryChartRow.Level), ListSortDirection.Ascending),
-                (nameof(LibraryChartRow.mode), ListSortDirection.Ascending),
-                (nameof(LibraryChartRow.genre), ListSortDirection.Descending)
-            ];
-
-            foreach ((string columnName, ListSortDirection direction) in sortCases)
-            {
-                var sortParameters = new MainWindowViewModel.cSortParameters
-                {
-                    ColumnsName = columnName,
-                    Direction = direction
-                };
-
-                List<LibraryChartRow> legacyResult = SortByLegacyImplementation(sourceRows, sortParameters);
-                List<LibraryChartRow> optimizedResult = LibraryChartRowSortEngine.SortForMainView(sourceRows, sortParameters, isPlaylistDetailView: false, useLegacySortForDataGrid: false, out _);
-
-                Assert.AreEqual(legacyResult.Count, optimizedResult.Count, $"Row count mismatch for {columnName}/{direction}");
-
-                string legacyDigest = ComputeDigest(legacyResult);
-                string optimizedDigest = ComputeDigest(optimizedResult);
-                if (!string.Equals(legacyDigest, optimizedDigest, StringComparison.Ordinal))
-                {
-                    int mismatchIndex = FindFirstMismatchIndex(legacyResult, optimizedResult);
-                    string legacyRow = (mismatchIndex >= 0 && mismatchIndex < legacyResult.Count) ? (legacyResult[mismatchIndex]?.path ?? string.Empty) : "(n/a)";
-                    string optimizedRow = (mismatchIndex >= 0 && mismatchIndex < optimizedResult.Count) ? (optimizedResult[mismatchIndex]?.path ?? string.Empty) : "(n/a)";
-                    Assert.Fail($"Sort order mismatch for {columnName}/{direction} at index={mismatchIndex} legacy={legacyRow} optimized={optimizedRow}");
-                }
-            }
-        }
-        finally
-        {
-            CultureInfo.CurrentCulture = previousCurrentCulture;
-            CultureInfo.CurrentUICulture = previousCurrentUICulture;
-        }
-    }
-
-    /// <summary>
-    /// 旧実装と最適化実装のソート処理時間を比較出力します（参考計測）。
-    /// </summary>
-    [TestMethod]
-    [TestCategory("Performance")]
-    [TestCategory("LargeFixture")]
-    [DoNotParallelize]
-    public void SortPerformance_ReportLegacyVsOptimized_ForRepresentativeColumns()
-    {
-        TestOptIn.RequireEnvironmentFlag(
-            TestOptIn.PerformanceEnvironmentVariable,
-            "the sort performance comparison");
-
-        string testSongDbFullPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, TestSongDbRelativePath);
-        Assert.IsTrue(File.Exists(testSongDbFullPath), "Test song.db not found: " + testSongDbFullPath);
-
-        List<LibraryChartRow> sourceRows = LoadLibraryRowsFromSongDb(testSongDbFullPath, SampleSongCount);
-        Assert.IsTrue(sourceRows.Count > 0, "No song rows loaded from test song.db.");
-
-        List<(string columnName, ListSortDirection direction)> sortCases =
-        [
-            (nameof(LibraryChartRow.Level), ListSortDirection.Descending),
-            (nameof(LibraryChartRow.path), ListSortDirection.Ascending),
-            (nameof(LibraryChartRow.totalnotes), ListSortDirection.Descending),
-            (nameof(LibraryChartRow.mode), ListSortDirection.Ascending),
-            (nameof(LibraryChartRow.rate), ListSortDirection.Descending),
-            (nameof(LibraryChartRow.scoreDifficulty), ListSortDirection.Descending),
-            (nameof(LibraryChartRow.rankingLastupdate), ListSortDirection.Descending)
-        ];
-
-        foreach ((string columnName, ListSortDirection direction) in sortCases)
-        {
-            var sortParameters = new MainWindowViewModel.cSortParameters
-            {
-                ColumnsName = columnName,
-                Direction = direction
-            };
-
-            for (int warmup = 0; warmup < PerfWarmupCount; warmup++)
-            {
-                _ = SortByLegacyImplementation(sourceRows, sortParameters);
-                _ = LibraryChartRowSortEngine.SortForMainView(sourceRows, sortParameters, isPlaylistDetailView: false, useLegacySortForDataGrid: false, out _);
-            }
-
-            var legacyMs = new List<long>(PerfMeasureCount);
-            var optimizedMs = new List<long>(PerfMeasureCount);
-            for (int i = 0; i < PerfMeasureCount; i++)
-            {
-                var swLegacy = Stopwatch.StartNew();
-                _ = SortByLegacyImplementation(sourceRows, sortParameters);
-                swLegacy.Stop();
-                legacyMs.Add(swLegacy.ElapsedMilliseconds);
-
-                var swOptimized = Stopwatch.StartNew();
-                _ = LibraryChartRowSortEngine.SortForMainView(sourceRows, sortParameters, isPlaylistDetailView: false, useLegacySortForDataGrid: false, out string sortProfile);
-                swOptimized.Stop();
-                optimizedMs.Add(swOptimized.ElapsedMilliseconds);
-
-                TestContext?.WriteLine($"sort_perf_iter column={columnName} direction={direction} iter={i + 1} legacyMs={swLegacy.ElapsedMilliseconds} optimizedMs={swOptimized.ElapsedMilliseconds} sortProfile={sortProfile} rows={sourceRows.Count}");
-            }
-
-            long legacyMedian = Median(legacyMs);
-            long optimizedMedian = Median(optimizedMs);
-            double ratio = legacyMedian == 0 ? 0.0 : (double)optimizedMedian / legacyMedian;
-            TestContext?.WriteLine($"sort_perf_summary column={columnName} direction={direction} rows={sourceRows.Count} legacyMedianMs={legacyMedian} optimizedMedianMs={optimizedMedian} ratio={ratio:F3}");
-        }
-    }
-
     /// <summary>
     /// 通常一覧の LEVEL 列は文字列順ではなく数値順で並ぶことを検証します。
     /// </summary>
@@ -952,149 +805,6 @@ public sealed class BmsSortCompatibilityTests
         Assert.AreEqual(5, ClearTypeStorageConverter.ToLr2Value(ClearType.MAX));
     }
 
-    /// <summary>
-    /// song.db からソート検証に必要な行を読み込みます。
-    /// </summary>
-    /// <param name="songDbPath">song.db の絶対パス。</param>
-    /// <param name="limit">読み込み上限件数。</param>
-    /// <returns>検証対象の BMS 行。</returns>
-    private static List<BMSFile> LoadRowsFromSongDb(string songDbPath, int limit)
-    {
-        using var connection = new SQLiteConnection(songDbPath, SQLiteOpenFlags.ReadOnly);
-        string sql = "SELECT path, hash, title, subtitle, artist, subartist, genre, tag, level, mode, karinotes FROM song WHERE path IS NOT NULL ORDER BY path LIMIT ?";
-        List<SongSnapshotRow> rows = connection.Query<SongSnapshotRow>(sql, limit);
-        var result = new List<BMSFile>(rows.Count);
-        for (int index = 0; index < rows.Count; index++)
-        {
-            SongSnapshotRow row = rows[index];
-            if (string.IsNullOrWhiteSpace(row.path))
-            {
-                continue;
-            }
-            var bmsFile = new TestableBmsFile();
-            bmsFile.ApplySnapshot(row);
-            result.Add(bmsFile);
-        }
-        return result;
-    }
-
-    private static List<LibraryChartRow> LoadLibraryRowsFromSongDb(string songDbPath, int limit)
-    {
-        List<BMSFile> bmsRows = LoadRowsFromSongDb(songDbPath, limit);
-        var result = new List<LibraryChartRow>(bmsRows.Count);
-        for (int index = 0; index < bmsRows.Count; index++)
-        {
-            var row = LibraryChartRow.FromBmsFile(bmsRows[index]);
-            if (row != null)
-            {
-                result.Add(row);
-            }
-        }
-        return result;
-    }
-
-    /// <summary>
-    /// 最適化前の実装と同等のソートをテスト側で再現します。
-    /// </summary>
-    /// <param name="source">ソート対象。</param>
-    /// <param name="sortParameters">ソート条件。</param>
-    /// <returns>ソート済みリスト。</returns>
-    private static List<LibraryChartRow> SortByLegacyImplementation(IEnumerable<LibraryChartRow> source, MainWindowViewModel.cSortParameters sortParameters)
-    {
-        IEnumerable<LibraryChartRow> safeSource = source ?? [];
-        string? columnName = sortParameters?.ColumnsName;
-        ListSortDirection direction = sortParameters?.Direction ?? ListSortDirection.Ascending;
-        if (string.IsNullOrWhiteSpace(columnName))
-        {
-            columnName = nameof(LibraryChartRow.Title);
-        }
-        if (string.Equals(columnName, nameof(LibraryChartRow.rank), StringComparison.Ordinal))
-        {
-            columnName = nameof(LibraryChartRow.rateDouble);
-        }
-        PropertyInfo? property = typeof(LibraryChartRow).GetProperty(columnName);
-        string keySelector(LibraryChartRow row)
-        {
-            if (row == null || property == null)
-            {
-                return string.Empty;
-            }
-            object value = property.GetValue(row);
-            if (value == null)
-            {
-                return string.Empty;
-            }
-            if (property.PropertyType.IsEnum)
-            {
-                return ((int)value).ToString();
-            }
-            return value.ToString() ?? string.Empty;
-        }
-        if (direction == ListSortDirection.Ascending)
-        {
-            return [.. safeSource.OrderBy(keySelector, new LegacyNaturalComparer<string>()).ThenBy(row => row?.Title ?? string.Empty, new LegacyNaturalComparer<string>())];
-        }
-        return [.. safeSource.OrderByDescending(keySelector, new LegacyNaturalComparer<string>(isWhiteSpacePrior: true)).ThenBy(row => row?.Title ?? string.Empty, new LegacyNaturalComparer<string>())];
-    }
-
-    /// <summary>
-    /// ソート結果比較用の SHA-256 ダイジェストを作成します。
-    /// </summary>
-    /// <param name="rows">ソート結果。</param>
-    /// <returns>比較用ダイジェスト。</returns>
-    private static string ComputeDigest(IEnumerable<LibraryChartRow> rows)
-    {
-        var builder = new StringBuilder();
-        foreach (LibraryChartRow row in rows)
-        {
-            builder.Append(row?.path ?? string.Empty).Append('\t').Append(row?.hash ?? string.Empty).Append('\n');
-        }
-        byte[] bytes = Encoding.UTF8.GetBytes(builder.ToString());
-        byte[] hash;
-        using (var sha256 = SHA256.Create())
-        {
-            hash = sha256.ComputeHash(bytes);
-        }
-        return Convert.ToBase64String(hash);
-    }
-
-    /// <summary>
-    /// 中央値を返します。
-    /// </summary>
-    /// <param name="values">計測値。</param>
-    /// <returns>中央値。</returns>
-    private static long Median(List<long> values)
-    {
-        if (values == null || values.Count == 0)
-        {
-            return 0L;
-        }
-        List<long> sorted = [.. values.OrderBy(v => v)];
-        return sorted[sorted.Count / 2];
-    }
-
-    /// <summary>
-    /// 2つの並び順の最初の差分インデックスを返します。
-    /// </summary>
-    private static int FindFirstMismatchIndex(List<LibraryChartRow> left, List<LibraryChartRow> right)
-    {
-        int count = Math.Min(left.Count, right.Count);
-        for (int i = 0; i < count; i++)
-        {
-            LibraryChartRow l = left[i] ?? throw new InvalidOperationException("Left row is null at index " + i);
-            LibraryChartRow r = right[i] ?? throw new InvalidOperationException("Right row is null at index " + i);
-            if (!string.Equals(l.path, r.path, StringComparison.Ordinal) || !string.Equals(l.hash, r.hash, StringComparison.Ordinal))
-            {
-                return i;
-            }
-        }
-        if (left.Count != right.Count)
-        {
-            return count;
-        }
-        return -1;
-    }
-
     private static void AssertTypedSort(string columnName, IReadOnlyList<LibraryChartRow> source, string[] expectedPaths)
     {
         var sortParameters = new MainWindowViewModel.cSortParameters
@@ -1219,7 +929,6 @@ public sealed class BmsSortCompatibilityTests
         return BitConverter.ToString(hash).Replace("-", string.Empty).ToLowerInvariant();
     }
 
-    [Table("song")]
     private sealed class SongSnapshotRow
     {
         public string? path { get; set; }

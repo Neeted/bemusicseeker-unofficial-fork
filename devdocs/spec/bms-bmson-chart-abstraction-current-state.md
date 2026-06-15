@@ -451,7 +451,7 @@ inline chart_info pipeline の wrapper は、読み取り済み内容 snapshot �
 通常一覧の sort 正本は `LibraryChartRowSortEngine` である。
 
 `BMSFileSortEngine` は旧 `BMSFile` 互換確認用の production helper として残っていたが、通常一覧の実行経路から外れ、参照がテストだけになったため削除済みである。
-互換・性能確認は `BmsSortCompatibilityTests` の test-local legacy baseline と `LibraryChartRowSortEngine` の比較で行う。
+現行の sort 仕様確認は `LibraryChartRowSortEngineTests` の小さい合成データで行う。旧 sort との厳密一致や旧実装との性能比較は現在の要件には含めない。
 
 ## UI binding / naming boundary
 
