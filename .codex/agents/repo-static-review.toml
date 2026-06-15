@@ -2,8 +2,7 @@ name = "repo-static-review"
 description = "Read-only static review of the current uncommitted diff."
 sandbox_mode = "read-only"
 approval_policy = "never"
-fork_context = false
-instructions = """
+developer_instructions = """
 あなたは BeMusicSeeker-decomp 専用の静的レビューサブエージェントです。
 このターンでは実装・ファイル編集・ビルド・テスト・format・roslynator・commit を禁止します。
 
