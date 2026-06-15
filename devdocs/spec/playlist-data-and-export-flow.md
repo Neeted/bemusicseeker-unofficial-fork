@@ -34,8 +34,12 @@
 | `output_dir` / `is_root_folder` / `ignore_folder_output` | LR2 custom folder 出力設定。 |
 | `folder_order` / `folder_sort_key` / `folder_sort_ascending` | folder 順序と並び替え設定。 |
 | `is_external_sync` | 外部同期表かどうか。 |
+| `bmt_sort` | beatoraja `.bmt` URL 登録順。1 始まりの一意な整数として正規化する。 |
+| `is_bmt_output` | beatoraja `.bmt` 出力対象かどうか。既定値は true。 |
 
 `course_sha256` は保存しない。course は header JSON 由来なので、course の外部更新は `header_sha256` の変化で検知する。DB 内の `playlist_course` 改ざん検知は現時点の要件に含めない。
+
+既存 DB で `bmt_sort` / `is_bmt_output` が無い場合は column を追加するだけで特殊な移行 table rebuild は行わない。`is_bmt_output` は旧 dump 復元や fresh schema の互換性のため DB 上は NULL を許容し、アプリ正規化で NULL を true へ収束させる。`bmt_sort` は欠損・重複・0 以下の値を含め、既存の有効値を優先しつつ playlist name / `playlist_id` で tie-break して 1 始まりの連番へ正規化する。既存 playlist を外部同期で更新する場合は `bmt_sort` / `is_bmt_output` を維持し、新規 playlist は現在の最大 `bmt_sort` + 1 を割り当て、`is_bmt_output = true` で作る。
 
 ### `playlist_entry`
 
@@ -138,6 +142,16 @@ beatoraja `.bmt` 出力は LR2 linked profile に依存しない。設定 `Enabl
 
 beatoraja score 読み込みも同じ beatoraja ディレクトリを起点にする。プレイヤー一覧は `config_sys.json` の `playerpath` 配下のフォルダから作り、選択した `BeatorajaPlayerId` の `score.db` を `BeatorajaScoreDbPath` の派生値として使う。
 
+### 出力対象と順序
+
+`.bmt` 出力対象は `playlist.is_bmt_output = true` の playlist に限定する。`is_bmt_output = false` の playlist は全出力時の active set に含めず、manifest cleanup により既存の managed `.bmt` と BeMusicSeeker 管理 `tableURL` から削除される。これは個別 playlist の出力対象制御であり、`KeepBeatorajaBmtFilesWhenOutputDisabled` の「全体設定を OFF にした時に既存出力を残す」挙動とは混ぜない。
+
+全出力時の projection 順と `config_sys.json` へ登録する BeMusicSeeker 管理 URL の順序は `bmt_sort` 昇順を正本にする。同値や欠損が残っている場合は name / `playlist_id` で tie-break するが、DB 読み込み時に連番へ正規化されることを前提にする。
+
+プレイリストサマリーでは `BMT SORT` と `BMT OUTPUT` を表示する。`BMT SORT` 昇順表示中のみ、サマリー行の drag & drop で順序を変更できる。降順表示や他列 sort 中の drag reorder は受け付けない。フィルター中の drag reorder は非表示行を現在の相対位置に保持し、可視行のアンカーに対して選択行だけを挿入する。画面外への大きな移動は、行 context menu の「現在の並びをBMT SORTに反映」「BMT SORTの先頭へ」「BMT SORTの末尾へ」で補完する。
+
+`BMT SORT` だけを変更した場合は `.bmt` 本体を書き直さず、専用の URL 同期経路で `config_sys.json` の `tableURL` のみを更新する。`BMT OUTPUT` を変更した場合は managed `.bmt` の作成・削除が必要なため全出力系を使う。
+
 ### 出力形式
 
 `.bmt` は gzip 圧縮した UTF-8 JSON で、beatoraja の `TableData` 相当を出力する。
@@ -160,7 +174,7 @@ course constraints は header source の `grade_mirror` などから beatoraja e
 
 ### 出力契機
 
-- 起動時と `ReloadTables` 時は、playlist entries hydration と deferred external sync が収束した後に全 playlist を active profile / DB の投影として全出力し、manifest 管理下で active set に含まれない `.bmt` を削除する。外部同期を行わない初期読み込みでは hydration 後に同じ全出力を行う。playlist が 0 件の場合も managed `.bmt` は空集合へ収束させる。
+- 起動時と `ReloadTables` 時は、playlist entries hydration と deferred external sync が収束した後に `is_bmt_output = true` の playlist を active profile / DB の投影として全出力し、manifest 管理下で active set に含まれない `.bmt` を削除する。外部同期を行わない初期読み込みでは hydration 後に同じ全出力を行う。playlist が 0 件、または出力対象 playlist が 0 件の場合も managed `.bmt` は空集合へ収束させる。
 - 外部同期では header/data hash の known change と initialization のどちらでも `.bmt` 再出力対象になる。手動再同期後は、対象 playlist が非出力状態になった場合の旧 managed `.bmt` も削除できるように全体投影を出力する。
 - ローカル編集で `playlist` / `playlist_entry` を保存した場合、または `CommitBMSTableEntry` を通る場合は対象 playlist を再出力する。
 - プレイリストプロパティ保存後は対象 playlist を再出力する。
@@ -186,4 +200,4 @@ manifest は BeMusicSeeker が管理した `.bmt` と playlist ID から最後�
 
 beatoraja 選曲画面の難易度表表示順は `config_sys.json` の `tableURL` 配列順が優先される。配列にない `.bmt` は beatoraja の `tablepath` ディレクトリ列挙順に依存するため、BeMusicSeeker 管理 `.bmt` の順序安定化には `tableURL` 同期を使う。
 
-同期時は、既存 `tableURL` のうち BeMusicSeeker 管理外の URL を既存順のまま先頭側に残す。manifest に記録された前回 BeMusicSeeker 管理 URL は削除し、今回出力できた managed URL を playlist name 昇順で末尾に追加する。`RegisterBeatorajaBmtUrls` が OFF の場合は、前回管理 URL を `tableURL` から外す。
+同期時は、既存 `tableURL` のうち BeMusicSeeker 管理外の URL を既存順のまま先頭側に残す。manifest に記録された前回 BeMusicSeeker 管理 URL は削除し、今回出力できた managed URL を playlist の `bmt_sort` 昇順で末尾に追加する。manifest entry が現在の playlist snapshot に見つからない場合は、既知 playlist の後ろへ name / playlist identity 順で並べる。`RegisterBeatorajaBmtUrls` が OFF の場合は、前回管理 URL を `tableURL` から外す。

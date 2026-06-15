@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -2371,6 +2372,54 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
+    public void PlaylistSummaryBmtSortDrop_FilteredRowsPreservesHiddenRows()
+    {
+        List<BMSTable> fullOrder = CreateBmtSortTables(1, 2, 3, 4, 5);
+        PlaylistSummaryRow[] visibleRows =
+        [
+            CreatePlaylistSummaryRow(fullOrder[0]),
+            CreatePlaylistSummaryRow(fullOrder[3]),
+            CreatePlaylistSummaryRow(fullOrder[4])
+        ];
+        PlaylistSummaryRow[] draggedRows = [visibleRows[2]];
+
+        List<BMSTable> result = MainWindowViewModel.BuildBmtSortOrderByVisibleDrop(fullOrder, visibleRows, draggedRows, visibleInsertIndex: 1);
+
+        CollectionAssert.AreEqual(new[] { 1, 5, 2, 3, 4 }, result.Select(table => table.playlist_id.GetValueOrDefault()).ToArray());
+    }
+
+    [TestMethod]
+    public void PlaylistSummaryBmtSortApplyCurrentOrder_ReplacesOnlyVisibleSlots()
+    {
+        List<BMSTable> fullOrder = CreateBmtSortTables(1, 2, 3, 4, 5);
+        PlaylistSummaryRow[] visibleRows =
+        [
+            CreatePlaylistSummaryRow(fullOrder[4]),
+            CreatePlaylistSummaryRow(fullOrder[0]),
+            CreatePlaylistSummaryRow(fullOrder[3])
+        ];
+
+        List<BMSTable> result = MainWindowViewModel.BuildBmtSortOrderByReplacingVisibleSlots(fullOrder, visibleRows);
+
+        CollectionAssert.AreEqual(new[] { 5, 2, 3, 1, 4 }, result.Select(table => table.playlist_id.GetValueOrDefault()).ToArray());
+    }
+
+    [TestMethod]
+    public void PlaylistSummaryBmtSortMoveToBottom_KeepsSelectionOrder()
+    {
+        List<BMSTable> fullOrder = CreateBmtSortTables(1, 2, 3, 4, 5);
+        PlaylistSummaryRow[] selectedRows =
+        [
+            CreatePlaylistSummaryRow(fullOrder[1]),
+            CreatePlaylistSummaryRow(fullOrder[3])
+        ];
+
+        List<BMSTable> result = MainWindowViewModel.BuildBmtSortOrderByMovingRows(fullOrder, selectedRows, insertAtTop: false);
+
+        CollectionAssert.AreEqual(new[] { 1, 3, 5, 2, 4 }, result.Select(table => table.playlist_id.GetValueOrDefault()).ToArray());
+    }
+
+    [TestMethod]
     public void AddBMSTableEntriesToFolder_EmptyInputDoesNotTouchPlaylist()
     {
         DateTime lastUpdate = new(2026, 6, 15, 12, 0, 0, DateTimeKind.Local);
@@ -3529,6 +3578,28 @@ public sealed class PlaylistViewPipelineTests
                     .Where(row => row != null)
                     .FirstOrDefault(row => !string.IsNullOrWhiteSpace(chart.Md5) && string.Equals(row.md5, chart.Md5, StringComparison.OrdinalIgnoreCase))
                 ?? null!;
+        };
+    }
+
+    private static List<BMSTable> CreateBmtSortTables(params int[] playlistIds)
+    {
+        return [.. playlistIds.Select(id => new BMSTable
+        {
+            playlist_id = id,
+            bmt_sort = id,
+            name = "Playlist " + id.ToString(CultureInfo.InvariantCulture)
+        })];
+    }
+
+    private static PlaylistSummaryRow CreatePlaylistSummaryRow(BMSTable table)
+    {
+        return new PlaylistSummaryRow
+        {
+            PlaylistId = table.playlist_id,
+            Name = table.name,
+            BmtSort = table.bmt_sort ?? int.MaxValue,
+            IsBmtOutput = table.is_bmt_output != false,
+            TableRef = table
         };
     }
 

@@ -89,6 +89,10 @@ public class PlaylistSummaryColumnSettings : NotificationObject
 
     private ColumnLayout _IsRootFolder = new();
 
+    private ColumnLayout _BmtSort = new();
+
+    private ColumnLayout _IsBmtOutput = new();
+
     public ColumnLayout PlaylistId
     {
         get
@@ -245,6 +249,32 @@ public class PlaylistSummaryColumnSettings : NotificationObject
         }
     }
 
+    public ColumnLayout BmtSort
+    {
+        get
+        {
+            return _BmtSort;
+        }
+        set
+        {
+            _BmtSort = value;
+            RaisePropertyChanged("BmtSort");
+        }
+    }
+
+    public ColumnLayout IsBmtOutput
+    {
+        get
+        {
+            return _IsBmtOutput;
+        }
+        set
+        {
+            _IsBmtOutput = value;
+            RaisePropertyChanged("IsBmtOutput");
+        }
+    }
+
     public PlaylistSummaryColumnSettings()
     {
         PlaylistId.Width = 60;
@@ -259,6 +289,8 @@ public class PlaylistSummaryColumnSettings : NotificationObject
         IsExternalSync.Width = 70;
         Status.Width = 90;
         IsRootFolder.Width = 70;
+        BmtSort.Width = 80;
+        IsBmtOutput.Width = 95;
         int num = 0;
         PlaylistId.DisplayIndex = num++;
         Name.DisplayIndex = num++;
@@ -272,6 +304,8 @@ public class PlaylistSummaryColumnSettings : NotificationObject
         IsExternalSync.DisplayIndex = num++;
         Status.DisplayIndex = num++;
         IsRootFolder.DisplayIndex = num++;
+        BmtSort.DisplayIndex = num++;
+        IsBmtOutput.DisplayIndex = num++;
     }
 
     public void EnsureCompatibility()
@@ -289,6 +323,8 @@ public class PlaylistSummaryColumnSettings : NotificationObject
         IsExternalSync ??= new ColumnLayout();
         Status ??= new ColumnLayout();
         IsRootFolder ??= new ColumnLayout();
+        BmtSort ??= new ColumnLayout();
+        IsBmtOutput ??= new ColumnLayout();
         ApplyDefaultLayout(PlaylistId, 60, 0);
         ApplyDefaultLayout(Name, 220, 1);
         ApplyDefaultLayout(Symbol, 70, 2);
@@ -301,6 +337,8 @@ public class PlaylistSummaryColumnSettings : NotificationObject
         ApplyDefaultLayout(IsExternalSync, 70, 9);
         ApplyDefaultLayout(Status, 90, 10);
         ApplyDefaultLayout(IsRootFolder, 70, 11);
+        ApplyDefaultLayout(BmtSort, 80, 12);
+        ApplyDefaultLayout(IsBmtOutput, 95, 13);
         if (flag && IsRootFolder.DisplayIndex <= 10)
         {
             IsRootFolder.DisplayIndex = 11;

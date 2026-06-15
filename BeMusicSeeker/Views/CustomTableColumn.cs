@@ -402,7 +402,9 @@ internal static class CustomTableColumnFactory
             new CustomTableColumn("Link", "LINK", settings.Link, 8, null, TextAlignment.Center, row => GetPlaylistSummaryLinkText(row), tooltipSelector: GetPlaylistSummaryLinkTooltip, cellKind: CustomTableCellKind.ActionText, editTextSelector: GetPlaylistSummaryLinkTooltip),
             new CustomTableColumn("IsExternalSync", "SYNC", settings.IsExternalSync, 9, nameof(PlaylistSummaryRow.IsExternalSync), TextAlignment.Center, row => string.Empty, checkedSelector: row => GetNullableBool(row, nameof(PlaylistSummaryRow.IsExternalSync)), cellKind: CustomTableCellKind.CheckBox, autoTrimTooltip: false),
             new CustomTableColumn("Status", Resources.Playlist_summary_status_header, settings.Status, 10, nameof(PlaylistSummaryRow.StatusSortOrder), TextAlignment.Center, row => GetString(row, nameof(PlaylistSummaryRow.Status)), tooltipSelector: row => GetString(row, nameof(PlaylistSummaryRow.StatusDetail))),
-            new CustomTableColumn("IsRootFolder", "ROOT", settings.IsRootFolder, 11, nameof(PlaylistSummaryRow.IsRootFolder), TextAlignment.Center, row => string.Empty, checkedSelector: row => GetNullableBool(row, nameof(PlaylistSummaryRow.IsRootFolder)), cellKind: CustomTableCellKind.CheckBox, autoTrimTooltip: false)
+            new CustomTableColumn("IsRootFolder", "ROOT", settings.IsRootFolder, 11, nameof(PlaylistSummaryRow.IsRootFolder), TextAlignment.Center, row => string.Empty, checkedSelector: row => GetNullableBool(row, nameof(PlaylistSummaryRow.IsRootFolder)), cellKind: CustomTableCellKind.CheckBox, autoTrimTooltip: false),
+            new CustomTableColumn("BmtSort", "BMT SORT", settings.BmtSort, 12, nameof(PlaylistSummaryRow.BmtSort), TextAlignment.Right, row => GetString(row, nameof(PlaylistSummaryRow.BmtSort)), autoTrimTooltip: false),
+            new CustomTableColumn("IsBmtOutput", "BMT OUTPUT", settings.IsBmtOutput, 13, nameof(PlaylistSummaryRow.IsBmtOutput), TextAlignment.Center, row => string.Empty, checkedSelector: row => GetNullableBool(row, nameof(PlaylistSummaryRow.IsBmtOutput)), cellKind: CustomTableCellKind.CheckBox, autoTrimTooltip: false)
         ];
     }
 

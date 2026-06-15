@@ -200,6 +200,10 @@ public sealed class LR2SongDBExtended : LR2SongDB
         public string output_dir { get; protected set; }
 
         public bool is_root_folder { get; set; }
+
+        public int? bmt_sort { get; set; }
+
+        public bool? is_bmt_output { get; set; }
     }
 
     [Table("playlist_course")]

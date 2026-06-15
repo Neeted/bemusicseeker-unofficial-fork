@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.LR2;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -90,10 +91,39 @@ public sealed class PlaylistSchemaMigrationTests
             StringAssert.Contains(playlistSql, "tag");
             StringAssert.Contains(playlistSql, "header_sha256");
             StringAssert.Contains(playlistSql, "data_sha256");
+            StringAssert.Contains(playlistSql, "bmt_sort");
+            StringAssert.Contains(playlistSql, "is_bmt_output");
             string courseSql = verify.ExecuteScalar<string>("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'playlist_course';");
             StringAssert.Contains(courseSql, "course_json");
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'index' AND name = 'playlist_course_idx_id';"));
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'index' AND name = 'playlist_course_idx_uniq';"));
+        }
+        finally
+        {
+            DeleteTempSongDbDirectory(tempDbPath);
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public void LoadPlaylistDump_RestoresLegacyDumpWithoutBmtColumns()
+    {
+        string tempDbPath = CreateEmptySongDbPath();
+        try
+        {
+            var playlist = new BMSPlaylist(tempDbPath);
+            string separator = "\v" + Environment.NewLine;
+            string legacyPlaylistDump =
+                "INSERT INTO playlist (playlist_id, name, symbol, folder_order, folder_sort_key, folder_sort_ascending, entry_type, page_url, header_url, data_url, compat_prefix, last_update, org_name, org_symbol, ignore_folder_output, is_external_sync, output_dir, is_root_folder) "
+                + "VALUES (1, 'Legacy', 'lg', '', 0, 1, 0, NULL, NULL, NULL, NULL, 638857728000000000, NULL, NULL, 0, 0, NULL, 0);";
+            string dump = string.Join(separator, [legacyPlaylistDump, string.Empty, string.Empty]);
+
+            playlist.LoadPlaylistDump(dump);
+
+            using var verify = new LR2SongDBExtended(tempDbPath);
+            BMSTable restored = verify.Table<BMSTable>().Single();
+            Assert.AreEqual(1, restored.bmt_sort);
+            Assert.AreEqual(true, restored.is_bmt_output);
         }
         finally
         {

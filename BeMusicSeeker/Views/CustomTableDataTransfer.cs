@@ -6,17 +6,26 @@ using System.Windows;
 
 namespace BeMusicSeeker.Views;
 
+public enum CustomTableRowDragKind
+{
+    GenericSelectedRows,
+    PlaylistDropCandidateRows,
+    PlaylistSummaryRows
+}
+
 internal static class CustomTableDataTransfer
 {
     internal const string SelectedRowsDataFormat = "BeMusicSeeker.CustomTable.SelectedRows";
     internal const string LegacySelectedRowsDataFormat = "System.Windows.Controls.SelectedItemCollection";
+    internal const string RowDragKindDataFormat = "BeMusicSeeker.CustomTable.RowDragKind";
 
-    internal static DataObject CreateSelectedRowsDataObject(IReadOnlyList<object> selectedRows)
+    internal static DataObject CreateSelectedRowsDataObject(IReadOnlyList<object> selectedRows, CustomTableRowDragKind rowDragKind = CustomTableRowDragKind.GenericSelectedRows)
     {
         List<object> rows = selectedRows?.Where(row => row != null).ToList() ?? [];
         var dataObject = new DataObject();
         dataObject.SetData(SelectedRowsDataFormat, rows);
         dataObject.SetData(LegacySelectedRowsDataFormat, rows);
+        dataObject.SetData(RowDragKindDataFormat, rowDragKind.ToString());
         return dataObject;
     }
 
@@ -34,6 +43,36 @@ internal static class CustomTableDataTransfer
         }
         selectedRows = [.. selectedRows.Where(row => row != null)];
         return selectedRows.Count > 0;
+    }
+
+    internal static bool HasRowDragKind(IDataObject dataObject, CustomTableRowDragKind expectedKind)
+    {
+        return TryGetRowDragKind(dataObject, out CustomTableRowDragKind actualKind) && actualKind == expectedKind;
+    }
+
+    internal static bool TryGetRowDragKind(IDataObject dataObject, out CustomTableRowDragKind rowDragKind)
+    {
+        rowDragKind = CustomTableRowDragKind.GenericSelectedRows;
+        if (dataObject == null || !dataObject.GetDataPresent(RowDragKindDataFormat))
+        {
+            return false;
+        }
+        try
+        {
+            object value = dataObject.GetData(RowDragKindDataFormat);
+            if (value is CustomTableRowDragKind typedKind)
+            {
+                rowDragKind = typedKind;
+                return true;
+            }
+            return value is string text
+                && Enum.TryParse(text, ignoreCase: false, out rowDragKind)
+                && Enum.IsDefined(typeof(CustomTableRowDragKind), rowDragKind);
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     internal static string BuildTsv(IReadOnlyList<object> rows, IReadOnlyList<CustomTableColumn> columns)

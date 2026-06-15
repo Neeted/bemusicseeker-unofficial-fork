@@ -121,6 +121,12 @@ public sealed class CustomTableView : Grid
         typeof(CustomTableView),
         new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender, OnSortStateChanged));
 
+    public static readonly DependencyProperty RowDragKindProperty = DependencyProperty.Register(
+        nameof(RowDragKind),
+        typeof(CustomTableRowDragKind),
+        typeof(CustomTableView),
+        new FrameworkPropertyMetadata(CustomTableRowDragKind.GenericSelectedRows));
+
     public static readonly DependencyProperty ScoreFontFamilyProperty = DependencyProperty.Register(
         nameof(ScoreFontFamily),
         typeof(FontFamily),
@@ -424,6 +430,12 @@ public sealed class CustomTableView : Grid
     {
         get => (ListSortDirection?)GetValue(SortDirectionProperty);
         set => SetValue(SortDirectionProperty, value);
+    }
+
+    public CustomTableRowDragKind RowDragKind
+    {
+        get => (CustomTableRowDragKind)GetValue(RowDragKindProperty);
+        set => SetValue(RowDragKindProperty, value);
     }
 
     public FontFamily ScoreFontFamily
@@ -1458,7 +1470,7 @@ public sealed class CustomTableView : Grid
         {
             return;
         }
-        DataObject dataObject = CustomTableDataTransfer.CreateSelectedRowsDataObject(rows);
+        DataObject dataObject = CustomTableDataTransfer.CreateSelectedRowsDataObject(rows, RowDragKind);
         CloseCellToolTip();
         rowDragAdorner = new DragAdorner(this, CreateRowDragGhost(rows.Count), new Vector(12d, 12d))
         {

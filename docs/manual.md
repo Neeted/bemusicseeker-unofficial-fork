@@ -155,13 +155,13 @@ For beatoraja, this application supports some integration such as score DB loadi
 
 In beatoraja integration, specify the beatoraja directory. The application reads `tablepath` and `playerpath` from `config_sys.json` directly under that directory, and score loading uses the selected player's `score.db`.
 
-When `.bmt output (difficulty table loading compatibility process)` is enabled, all BeMusicSeeker playlists are output under the `tablepath` in `config_sys.json` as `.bmt` caches that beatoraja can load. This is a compatibility process for environments where beatoraja's level aggregation processing is heavy and difficulty table loading is delayed. External sync tables use the original difficulty table URL, and local playlists use `bemusicseeker://playlist/{playlist_id}` to determine the `.bmt` save name. A `.bemusicseeker-bmt-manifest` for BeMusicSeeker management is created directly under the output destination. During cleanup after settings changes or re-output, only the `.bmt` files recorded in this manifest are deletion targets.
+When `.bmt output (difficulty table loading compatibility process)` is enabled, playlists whose `BMT OUTPUT` column is enabled in the playlist summary are output under the `tablepath` in `config_sys.json` as `.bmt` caches that beatoraja can load. This is a compatibility process for environments where beatoraja's level aggregation processing is heavy and difficulty table loading is delayed. External sync tables use the original difficulty table URL, and local playlists use `bemusicseeker://playlist/{playlist_id}` to determine the `.bmt` save name. A `.bemusicseeker-bmt-manifest` for BeMusicSeeker management is created directly under the output destination. During cleanup after settings changes or re-output, only the `.bmt` files recorded in this manifest are deletion targets. A playlist whose `BMT OUTPUT` is disabled has its managed `.bmt` removed on the next output.
 
 When `Keep existing .bmt files when output is disabled` is enabled and `.bmt` output is turned off, BeMusicSeeker leaves previously output `.bmt` files and the registered beatoraja URLs in place, and only stops automatic re-output from then on. Use this when you want beatoraja to keep loading the existing `.bmt` files, or when you want to pause regeneration temporarily. If this setting is disabled and `.bmt` output is turned off, the `.bmt` files managed by the manifest and the BeMusicSeeker-managed `tableURL` entries become cleanup targets.
 
 `.bmt hash output` lets you choose how `md5` / `sha256` are output for folder songs. `Original` outputs only the hashes saved in the playlist as-is. `Complete md5/sha256 as much as possible` fills in missing hashes when they can be resolved safely from owned charts or chart metadata. `Prefer sha256 only as much as possible` outputs only sha256 without md5 for charts where sha256 can be output, but leaves md5 for charts where sha256 cannot be resolved. The default is `Original`. Hashes for dan course entries use the original difficulty table data as-is and are not targets for this completion.
 
-When `Register .bmt URLs in config_sys.json (stabilizes ordering on the song selection screen)` is enabled, BeMusicSeeker-managed `.bmt` URLs are registered in `tableURL` in `config_sys.json`. Non-managed `tableURL` entries keep their existing order, and BeMusicSeeker-managed entries are appended after them sorted by playlist name.
+When `Register .bmt URLs in config_sys.json (stabilizes ordering on the song selection screen)` is enabled, BeMusicSeeker-managed `.bmt` URLs are registered in `tableURL` in `config_sys.json`. Non-managed `tableURL` entries keep their existing order, and BeMusicSeeker-managed entries are appended after them in the playlist summary `BMT SORT` order.
 
 ### Appearance
 
@@ -415,7 +415,7 @@ Playlists:
 - Playlist root: You can run `Create new`, `Import`, and `Reload`. Import options include specifying a URL, loading from a difficulty table list, importing the Overjoy BMS difficulty estimation table, recommend tables, and so on.
 - Playlist body: You can run `Reload`, `Open page`, `Clear lamp (external site)`, `Overwrite levels`, `Create folder`, `Export`, `Delete playlist`, and `Properties`. For details on each item, see [Playlist Detail](#playlist-detail).
 - Folder in playlist: You can run `Delete` and `Rename`.
-- Playlist summary row: You can run `Reload`, `Open page`, `Properties`, and `Delete playlist`. Reloading multiple selected rows in the summary targets the selected playlists regardless of their external sync flag.
+- Playlist summary row: You can run `Reload`, `Open page`, `Apply current order to BMT SORT`, `Move to top of BMT SORT`, `Move to bottom of BMT SORT`, `Properties`, and `Delete playlist`. Reloading multiple selected rows in the summary targets the selected playlists regardless of their external sync flag.
 
 Install:
 
@@ -480,13 +480,17 @@ In BeMusicSeeker, installed difficulty tables and custom playlists can be manage
 
 ![Playlist summary](img/一覧_プレイリストサマリー.PNG)
 
-The playlist summary lists each playlist's chart count, owned count, unowned count, ownership rate, and external sync status.
+The playlist summary lists each playlist's chart count, owned count, unowned count, ownership rate, external sync status, and beatoraja `.bmt` output settings.
 
 From the search field at the upper right, you can switch the ownership filter between `All`, `OWNED=100%`, and `OWNED<100%`.
 
 When you find a table whose number of unowned charts has increased, **double-click the row to move to that playlist's detail view.**
 
 The `STATUS` column shows the result of external playlist sync performed after startup or during reload. Broken links, header retrieval failures, data retrieval failures, and similar issues can be checked here. Details are shown in the tooltip.
+
+`BMT SORT` controls the order of BeMusicSeeker-managed `.bmt` URLs registered in `config_sys.json` `tableURL`. When the summary is sorted by `BMT SORT` ascending, rows can be reordered by drag and drop. If filters are active, hidden rows keep their relative positions. Drag reorder is disabled for descending `BMT SORT` and for other sort columns. The row context menu also provides `Apply current order to BMT SORT`, `Move to top of BMT SORT`, and `Move to bottom of BMT SORT`.
+
+`BMT OUTPUT` controls whether that playlist is included in `.bmt` output. Disabling it removes that playlist's managed `.bmt` and BeMusicSeeker-managed `tableURL` entry on the next output.
 
 ### Playlist Detail
 

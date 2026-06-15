@@ -311,6 +311,8 @@ LR2互換性警告画面は、通常ライブラリよりも警告内容の確�
 | 10 | IsExternalSync | `SYNC` | 70 |
 | 11 | Status | `STATUS` | 90 |
 | 12 | IsRootFolder | `ROOT` | 70 |
+| 13 | BmtSort | `BMT SORT` | 80 |
+| 14 | IsBmtOutput | `BMT OUTPUT` | 95 |
 
 `Status` のヘッダーは `Resources.Playlist_summary_status_header` 由来である。
 
@@ -402,6 +404,8 @@ LR2互換性警告画面は、通常ライブラリよりも警告内容の確�
 - `Symbol`
 - `IsExternalSync`
 - `IsRootFolder`
+- `BmtSort`
+- `IsBmtOutput`
 
 ## カラム定義の意味
 
@@ -465,6 +469,19 @@ LR2互換性警告画面は、通常ライブラリよりも警告内容の確�
 
 `Status` 列は固定アイコン列であり、リサイズ不可、並べ替え不可である。
 
+### 行 Drag & Drop
+
+`CustomTableView` が選択行 drag を開始するときは、`CustomTableDataTransfer` の `SelectedRowsDataFormat` に選択行 snapshot を入れ、同時に `RowDragKindDataFormat` に画面種別を入れる。
+
+| Control | `RowDragKind` | 主な受け手 |
+| --- | --- | --- |
+| `customTableView` | `PlaylistDropCandidateRows` | プレイリストツリーへの譜面追加 |
+| `customTablePlaylistSummary` | `PlaylistSummaryRows` | プレイリストサマリー内の `BMT SORT` 並べ替え |
+
+プレイリストツリーへの drop は `PlaylistDropCandidateRows` だけを受け付ける。行オブジェクトが playlist drop candidate に見えるかどうかだけでは判定しない。これにより、プレイリストサマリーなど別画面の行 drag がツリーの譜面追加処理へ流れ込まない。
+
+プレイリストサマリー内の row drop は `BMT SORT` 昇順表示中だけ有効で、降順や他列 sort 中は `DragDropEffects.None` とする。UI 側は可視行と挿入位置だけを ViewModel に渡し、ViewModel が全 playlist の `bmt_sort` snapshot を使って非表示行を保持した順序を作る。
+
 ### セル編集
 
 編集可能な列は `EditPropertyName` を持つ。現在の主な編集対象:
@@ -491,6 +508,7 @@ LR2互換性警告画面は、通常ライブラリよりも警告内容の確�
 - プレイリストサマリー `Link`: playlist link を開く。
 - プレイリストサマリー `SYNC`: 外部同期の ON/OFF。
 - プレイリストサマリー `ROOT`: root folder 出力の ON/OFF。
+- プレイリストサマリー `BMT OUTPUT`: `.bmt` 出力対象の ON/OFF。
 
 ## 描画と性能計測
 

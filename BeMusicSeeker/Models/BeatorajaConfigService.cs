@@ -12,6 +12,8 @@ internal static class BeatorajaConfigService
 {
     internal const string ConfigFileName = "config_sys.json";
 
+    private static readonly object ConfigWriteLock = new();
+
     internal static bool IsBeatorajaRootPathValid(string rootPath)
     {
         return !string.IsNullOrWhiteSpace(rootPath)
@@ -74,37 +76,48 @@ internal static class BeatorajaConfigService
             && File.Exists(scoreDbPath);
     }
 
-    internal static void SyncTableUrls(string rootPath, IEnumerable<string> currentManagedUrls, IEnumerable<string> previousManagedUrls)
+    internal static void SyncTableUrls(string rootPath, IEnumerable<string> currentManagedUrls, IEnumerable<string> previousManagedUrls, Func<bool> shouldProceed = null)
     {
         if (!IsBeatorajaRootPathValid(rootPath))
         {
             return;
         }
-        string configPath = GetConfigPath(rootPath);
-        var config = JObject.Parse(File.ReadAllText(configPath, Encoding.UTF8));
-        var managedUrlSet = new HashSet<string>(StringComparer.Ordinal);
-        foreach (string url in (previousManagedUrls ?? []).Concat(currentManagedUrls ?? []))
+        lock (ConfigWriteLock)
         {
-            if (!string.IsNullOrWhiteSpace(url))
+            if (shouldProceed?.Invoke() == false)
             {
-                managedUrlSet.Add(url);
+                return;
             }
+            string configPath = GetConfigPath(rootPath);
+            var config = JObject.Parse(File.ReadAllText(configPath, Encoding.UTF8));
+            var managedUrlSet = new HashSet<string>(StringComparer.Ordinal);
+            foreach (string url in (previousManagedUrls ?? []).Concat(currentManagedUrls ?? []))
+            {
+                if (!string.IsNullOrWhiteSpace(url))
+                {
+                    managedUrlSet.Add(url);
+                }
+            }
+            List<string> existingUrls = [.. (config["tableURL"] as JArray ?? [])
+                .Select(token => token.Type == JTokenType.String ? token.Value<string>() : null)
+                .Where(url => !string.IsNullOrWhiteSpace(url))
+                .Where(url => !managedUrlSet.Contains(url))
+                .Distinct(StringComparer.Ordinal)];
+            List<string> appendedUrls = [.. (currentManagedUrls ?? [])
+                .Where(url => !string.IsNullOrWhiteSpace(url))
+                .Distinct(StringComparer.Ordinal)];
+            var tableUrl = new JArray(existingUrls.Concat(appendedUrls));
+            if (JToken.DeepEquals(config["tableURL"], tableUrl))
+            {
+                return;
+            }
+            if (shouldProceed?.Invoke() == false)
+            {
+                return;
+            }
+            config["tableURL"] = tableUrl;
+            WriteConfigAtomic(configPath, config);
         }
-        List<string> existingUrls = [.. (config["tableURL"] as JArray ?? [])
-            .Select(token => token.Type == JTokenType.String ? token.Value<string>() : null)
-            .Where(url => !string.IsNullOrWhiteSpace(url))
-            .Where(url => !managedUrlSet.Contains(url))
-            .Distinct(StringComparer.Ordinal)];
-        List<string> appendedUrls = [.. (currentManagedUrls ?? [])
-            .Where(url => !string.IsNullOrWhiteSpace(url))
-            .Distinct(StringComparer.Ordinal)];
-        var tableUrl = new JArray(existingUrls.Concat(appendedUrls));
-        if (JToken.DeepEquals(config["tableURL"], tableUrl))
-        {
-            return;
-        }
-        config["tableURL"] = tableUrl;
-        WriteConfigAtomic(configPath, config);
     }
 
     private static bool TryReadConfig(string rootPath, out JObject config)

@@ -390,6 +390,7 @@ public class BMSTable : LR2SongDBExtended.playlist
         _entries = [];
         base.is_external_sync = false;
         base.is_root_folder = false;
+        base.is_bmt_output = true;
         Folder_order = [];
         base.folder_sort_key = CustomFolderSortType.NONE;
         base.folder_sort_ascending = true;

@@ -985,6 +985,12 @@ public class Resources
 
     public static string Playlist_summary_status_header => ResourceManager.GetString("Playlist_summary_status_header", resourceCulture);
 
+    public static string Playlist_summary_apply_current_order_to_bmt_sort => ResourceManager.GetString("Playlist_summary_apply_current_order_to_bmt_sort", resourceCulture);
+
+    public static string Playlist_summary_move_to_bmt_sort_top => ResourceManager.GetString("Playlist_summary_move_to_bmt_sort_top", resourceCulture);
+
+    public static string Playlist_summary_move_to_bmt_sort_bottom => ResourceManager.GetString("Playlist_summary_move_to_bmt_sort_bottom", resourceCulture);
+
     public static string Playlist_sync_status_none => ResourceManager.GetString("Playlist_sync_status_none", resourceCulture);
 
     public static string Playlist_sync_status_ok => ResourceManager.GetString("Playlist_sync_status_ok", resourceCulture);

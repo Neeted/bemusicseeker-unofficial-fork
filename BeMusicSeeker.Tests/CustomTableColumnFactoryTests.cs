@@ -217,7 +217,9 @@ public sealed class CustomTableColumnFactoryTests
                 "Link",
                 "IsExternalSync",
                 "Status",
-                "IsRootFolder"
+                "IsRootFolder",
+                "BmtSort",
+                "IsBmtOutput"
             },
             ids);
     }
@@ -257,9 +259,12 @@ public sealed class CustomTableColumnFactoryTests
         Assert.AreEqual(nameof(PlaylistSummaryRow.IsExternalSync), columns["IsExternalSync"].SortMemberPath);
         Assert.AreEqual(nameof(PlaylistSummaryRow.StatusSortOrder), columns["Status"].SortMemberPath);
         Assert.AreEqual(nameof(PlaylistSummaryRow.IsRootFolder), columns["IsRootFolder"].SortMemberPath);
+        Assert.AreEqual(nameof(PlaylistSummaryRow.BmtSort), columns["BmtSort"].SortMemberPath);
+        Assert.AreEqual(nameof(PlaylistSummaryRow.IsBmtOutput), columns["IsBmtOutput"].SortMemberPath);
         Assert.AreEqual(CustomTableCellKind.ActionText, columns["Link"].CellKind);
         Assert.AreEqual(CustomTableCellKind.CheckBox, columns["IsExternalSync"].CellKind);
         Assert.AreEqual(CustomTableCellKind.CheckBox, columns["IsRootFolder"].CellKind);
+        Assert.AreEqual(CustomTableCellKind.CheckBox, columns["IsBmtOutput"].CellKind);
     }
 
     [TestMethod]
@@ -312,6 +317,8 @@ public sealed class CustomTableColumnFactoryTests
         Assert.IsFalse(columns["Symbol"].AutoTrimTooltip);
         Assert.IsFalse(columns["IsExternalSync"].AutoTrimTooltip);
         Assert.IsFalse(columns["IsRootFolder"].AutoTrimTooltip);
+        Assert.IsFalse(columns["BmtSort"].AutoTrimTooltip);
+        Assert.IsFalse(columns["IsBmtOutput"].AutoTrimTooltip);
         Assert.IsTrue(columns["Name"].AutoTrimTooltip);
         Assert.IsTrue(columns["Link"].AutoTrimTooltip);
     }

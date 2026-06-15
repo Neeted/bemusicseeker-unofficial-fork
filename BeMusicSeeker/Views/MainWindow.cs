@@ -660,6 +660,96 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }).Logging("customTablePlaylistSummary_SortRequested");
     }
 
+    private void customTablePlaylistSummary_PreviewDragOver(object sender, DragEventArgs e)
+    {
+        if (!IsPlaylistSummaryBmtSortDropAllowed(e, out _, out _))
+        {
+            if (CustomTableDataTransfer.HasRowDragKind(e.Data, CustomTableRowDragKind.PlaylistSummaryRows))
+            {
+                e.Effects = DragDropEffects.None;
+                e.Handled = true;
+            }
+            return;
+        }
+        e.Effects = DragDropEffects.Move;
+        e.Handled = true;
+    }
+
+    private async void customTablePlaylistSummary_Drop(object sender, DragEventArgs e)
+    {
+        e.Effects = DragDropEffects.None;
+        if (!IsPlaylistSummaryBmtSortDropAllowed(e, out List<PlaylistSummaryRow> draggedRows, out int visibleInsertIndex))
+        {
+            if (CustomTableDataTransfer.HasRowDragKind(e.Data, CustomTableRowDragKind.PlaylistSummaryRows))
+            {
+                e.Handled = true;
+            }
+            return;
+        }
+        e.Handled = true;
+        List<PlaylistSummaryRow> visibleRows = GetVisiblePlaylistSummaryRowsSnapshot();
+        if (base.DataContext is MainWindowViewModel viewModel)
+        {
+            await Task.Run(delegate
+            {
+                viewModel.DropPlaylistSummaryRowsToBmtSort(visibleRows, draggedRows, visibleInsertIndex);
+            }).Logging("customTablePlaylistSummary_Drop");
+        }
+        e.Effects = DragDropEffects.Move;
+    }
+
+    private bool IsPlaylistSummaryBmtSortDropAllowed(DragEventArgs e, out List<PlaylistSummaryRow> draggedRows, out int visibleInsertIndex)
+    {
+        draggedRows = [];
+        visibleInsertIndex = -1;
+        if (e?.Data == null
+            || !CustomTableDataTransfer.HasRowDragKind(e.Data, CustomTableRowDragKind.PlaylistSummaryRows)
+            || base.DataContext is not MainWindowViewModel viewModel
+            || !viewModel.IsPlaylistSummarySortedByBmtSortAscending()
+            || !CustomTableDataTransfer.TryGetSelectedRows(e.Data, out List<object> selectedRows))
+        {
+            return false;
+        }
+        draggedRows = [.. selectedRows.OfType<PlaylistSummaryRow>().Where(row => row?.TableRef != null)];
+        if (draggedRows.Count == 0)
+        {
+            return false;
+        }
+        visibleInsertIndex = ResolvePlaylistSummaryVisibleInsertIndex(e);
+        return visibleInsertIndex >= 0;
+    }
+
+    private int ResolvePlaylistSummaryVisibleInsertIndex(DragEventArgs e)
+    {
+        IList rows = customTablePlaylistSummary?.ItemsSource;
+        if (rows == null)
+        {
+            return -1;
+        }
+        if (rows.Count == 0)
+        {
+            return 0;
+        }
+        Point point = e.GetPosition(customTablePlaylistSummary);
+        CustomTableHitTestResult hit = customTablePlaylistSummary.HitTestTable(point);
+        if (hit.Kind == CustomTableHitKind.Header)
+        {
+            return 0;
+        }
+        if (hit.Kind != CustomTableHitKind.Cell)
+        {
+            return rows.Count;
+        }
+        bool insertAfterTarget = point.Y >= hit.CellRect.Top + (hit.CellRect.Height / 2d);
+        return Math.Max(0, Math.Min(rows.Count, hit.RowIndex + (insertAfterTarget ? 1 : 0)));
+    }
+
+    private List<PlaylistSummaryRow> GetVisiblePlaylistSummaryRowsSnapshot()
+    {
+        return [.. (customTablePlaylistSummary?.ItemsSource?.OfType<PlaylistSummaryRow>() ?? Enumerable.Empty<PlaylistSummaryRow>())
+            .Where(row => row != null)];
+    }
+
     private void customTableView_SelectionChanged(object sender, CustomTableSelectionChangedEventArgs e)
     {
         if (base.DataContext is MainWindowViewModel { NowPlayingBMS: null } viewModel)
@@ -860,6 +950,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 break;
             case "IsRootFolder":
                 await ApplyPlaylistSummaryRootFromCustomTableAsync(playlistSummaryRow, !(playlistSummaryRow.IsRootFolder)).Logging("customTablePlaylistSummary_CellActionRequested_Root");
+                break;
+            case "IsBmtOutput":
+                await ApplyPlaylistSummaryBmtOutputFromCustomTableAsync(playlistSummaryRow, !(playlistSummaryRow.IsBmtOutput)).Logging("customTablePlaylistSummary_CellActionRequested_BmtOutput");
                 break;
         }
     }
@@ -2733,6 +2826,22 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
+    private async Task ApplyPlaylistSummaryBmtOutputFromCustomTableAsync(PlaylistSummaryRow playlistSummaryRow, bool flag)
+    {
+        List<PlaylistSummaryRow> selectedPlaylistSummaryRows = getSelectedPlaylistSummaryRows(playlistSummaryRow);
+        if (selectedPlaylistSummaryRows.Count == 0)
+        {
+            return;
+        }
+        if (base.DataContext is MainWindowViewModel viewModel)
+        {
+            await Task.Run(delegate
+            {
+                viewModel.ApplyPlaylistSummaryBmtOutput(selectedPlaylistSummaryRows, flag);
+            });
+        }
+    }
+
     private async void playlistSummaryContextMenuResyncClick(object sender, RoutedEventArgs e)
     {
         PlaylistSummaryRow playlistSummaryRow = resolvePlaylistSummaryRowFromSender(sender);
@@ -2760,6 +2869,47 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             {
             }
         }
+    }
+
+    private async void playlistSummaryContextMenuApplyCurrentOrderToBmtSortClick(object sender, RoutedEventArgs e)
+    {
+        List<PlaylistSummaryRow> visibleRows = GetVisiblePlaylistSummaryRowsSnapshot();
+        if (visibleRows.Count == 0 || base.DataContext is not MainWindowViewModel viewModel)
+        {
+            return;
+        }
+        await Task.Run(delegate
+        {
+            viewModel.ApplyCurrentPlaylistSummaryOrderToBmtSort(visibleRows);
+        }).Logging("playlistSummaryContextMenuApplyCurrentOrderToBmtSortClick");
+    }
+
+    private async void playlistSummaryContextMenuMoveToBmtSortTopClick(object sender, RoutedEventArgs e)
+    {
+        PlaylistSummaryRow playlistSummaryRow = resolvePlaylistSummaryRowFromSender(sender);
+        List<PlaylistSummaryRow> selectedPlaylistSummaryRows = getSelectedPlaylistSummaryRows(playlistSummaryRow);
+        if (selectedPlaylistSummaryRows.Count == 0 || base.DataContext is not MainWindowViewModel viewModel)
+        {
+            return;
+        }
+        await Task.Run(delegate
+        {
+            viewModel.MovePlaylistSummaryRowsToBmtSortTop(selectedPlaylistSummaryRows);
+        }).Logging("playlistSummaryContextMenuMoveToBmtSortTopClick");
+    }
+
+    private async void playlistSummaryContextMenuMoveToBmtSortBottomClick(object sender, RoutedEventArgs e)
+    {
+        PlaylistSummaryRow playlistSummaryRow = resolvePlaylistSummaryRowFromSender(sender);
+        List<PlaylistSummaryRow> selectedPlaylistSummaryRows = getSelectedPlaylistSummaryRows(playlistSummaryRow);
+        if (selectedPlaylistSummaryRows.Count == 0 || base.DataContext is not MainWindowViewModel viewModel)
+        {
+            return;
+        }
+        await Task.Run(delegate
+        {
+            viewModel.MovePlaylistSummaryRowsToBmtSortBottom(selectedPlaylistSummaryRows);
+        }).Logging("playlistSummaryContextMenuMoveToBmtSortBottomClick");
     }
 
     private void playlistSummaryContextMenuOpenPropertyClick(object sender, RoutedEventArgs e)
@@ -7901,7 +8051,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         treeViewItemInstantStoryBoardPlaylistTable.Stop(this);
         treeViewItemInstantStoryBoardPlaylistTable.Children.Clear();
         var viewModel = base.DataContext as MainWindowViewModel;
-        if (!CustomTableDataTransfer.TryGetSelectedRows(e.Data, out List<object> selectedRows)
+        if (!IsPlaylistDropCandidateDrag(e.Data, out List<object> selectedRows)
             || !MainWindowViewModel.ArePlaylistDropCandidateRows(selectedRows))
         {
             return;
@@ -7942,7 +8092,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void playlistTableDragOver(object sender, DragEventArgs e)
     {
-        if (!CustomTableDataTransfer.TryGetSelectedRows(e.Data, out List<object> selectedRows))
+        if (!IsPlaylistDropCandidateDrag(e.Data, out List<object> selectedRows))
         {
             return;
         }
@@ -7962,7 +8112,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void playlistTableDragEnter(object sender, DragEventArgs e)
     {
-        if (!CustomTableDataTransfer.TryGetSelectedRows(e.Data, out List<object> selectedRows))
+        if (!IsPlaylistDropCandidateDrag(e.Data, out List<object> selectedRows))
         {
             return;
         }
@@ -8000,6 +8150,13 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             treeViewItemInstantStoryBoardPlaylistTable.Children.Add(booleanAnimationUsingKeyFrames);
             treeViewItemInstantStoryBoardPlaylistTable.Begin(this, isControllable: true);
         }
+    }
+
+    private static bool IsPlaylistDropCandidateDrag(IDataObject dataObject, out List<object> selectedRows)
+    {
+        selectedRows = null;
+        return CustomTableDataTransfer.HasRowDragKind(dataObject, CustomTableRowDragKind.PlaylistDropCandidateRows)
+            && CustomTableDataTransfer.TryGetSelectedRows(dataObject, out selectedRows);
     }
 
     private void playlistTableDragLeave(object sender, DragEventArgs e)

@@ -36,5 +36,9 @@ public class PlaylistSummaryRow
 
     public bool IsRootFolder { get; set; }
 
+    public int BmtSort { get; set; }
+
+    public bool IsBmtOutput { get; set; }
+
     public BMSTable TableRef { get; set; }
 }

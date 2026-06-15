@@ -1578,6 +1578,15 @@ maintenance の再スキャンや chart_info の全譜面補完は行いませ�
   <data name="Playlist_summary_status_header" xml:space="preserve">
     <value>STATUS</value>
   </data>
+  <data name="Playlist_summary_apply_current_order_to_bmt_sort" xml:space="preserve">
+    <value>現在の並びをBMT SORTに反映</value>
+  </data>
+  <data name="Playlist_summary_move_to_bmt_sort_top" xml:space="preserve">
+    <value>BMT SORTの先頭へ</value>
+  </data>
+  <data name="Playlist_summary_move_to_bmt_sort_bottom" xml:space="preserve">
+    <value>BMT SORTの末尾へ</value>
+  </data>
   <data name="Playlist_sync_status_none" xml:space="preserve">
     <value>-</value>
   </data>

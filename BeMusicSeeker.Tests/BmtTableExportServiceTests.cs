@@ -21,6 +21,42 @@ public sealed class BmtTableExportServiceTests
     private const string Md5B = "22222222222222222222222222222222";
 
     [TestMethod]
+    public void BuildBeatorajaManagedTableUrlsForConfigSync_OrdersByPlaylistBmtSort()
+    {
+        var managedTables = new[]
+        {
+            new BmtTableExportService.ManagedTableUrlEntry { PlaylistIdentity = "2", Name = "Beta", Url = "file:///beta.bmt" },
+            new BmtTableExportService.ManagedTableUrlEntry { PlaylistIdentity = "1", Name = "Alpha", Url = "file:///alpha.bmt" },
+            new BmtTableExportService.ManagedTableUrlEntry { PlaylistIdentity = "old", Name = "Old", Url = "file:///old.bmt" }
+        };
+        var sortKeys = new Dictionary<string, BMSPlaylist.BeatorajaBmtTableUrlSortKey>(StringComparer.Ordinal)
+        {
+            ["1"] = new BMSPlaylist.BeatorajaBmtTableUrlSortKey { Sort = 2, Name = "Alpha", PlaylistId = 1 },
+            ["2"] = new BMSPlaylist.BeatorajaBmtTableUrlSortKey { Sort = 1, Name = "Beta", PlaylistId = 2 }
+        };
+
+        List<string> result = BMSPlaylist.BuildBeatorajaManagedTableUrlsForConfigSync(managedTables, sortKeys);
+
+        CollectionAssert.AreEqual(new[] { "file:///beta.bmt", "file:///alpha.bmt", "file:///old.bmt" }, result);
+    }
+
+    [TestMethod]
+    public void NormalizeBeatorajaBmtSortOrder_AssignsStableSequentialOrder()
+    {
+        var alpha = new BMSTable { playlist_id = 1, name = "Alpha", bmt_sort = 1 };
+        var bravo = new BMSTable { playlist_id = 2, name = "Bravo", bmt_sort = null };
+        var charlie = new BMSTable { playlist_id = 3, name = "Charlie", bmt_sort = 1 };
+        var tables = new[] { bravo, charlie, alpha };
+
+        int changedCount = BMSPlaylist.NormalizeBeatorajaBmtSortOrder(tables);
+
+        Assert.AreEqual(2, changedCount);
+        Assert.AreEqual(1, alpha.bmt_sort);
+        Assert.AreEqual(2, charlie.bmt_sort);
+        Assert.AreEqual(3, bravo.bmt_sort);
+    }
+
+    [TestMethod]
     [TestCategory("Playlist")]
     public void ExportTable_ExternalTableWritesBeatorajaBmtShape()
     {

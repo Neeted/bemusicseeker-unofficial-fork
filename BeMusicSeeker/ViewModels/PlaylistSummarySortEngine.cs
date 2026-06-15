@@ -64,6 +64,12 @@ internal static class PlaylistSummarySortEngine
             case nameof(PlaylistSummaryRow.IsRootFolder):
                 sortProfile = "playlist_summary_numeric_bool";
                 return SortByTypedKey(safeSource, row => row?.IsRootFolder ?? false, direction, useLegacyStringSort);
+            case nameof(PlaylistSummaryRow.BmtSort):
+                sortProfile = "playlist_summary_numeric_int32";
+                return SortByTypedKey(safeSource, row => row?.BmtSort ?? int.MaxValue, direction, useLegacyStringSort);
+            case nameof(PlaylistSummaryRow.IsBmtOutput):
+                sortProfile = "playlist_summary_numeric_bool";
+                return SortByTypedKey(safeSource, row => row?.IsBmtOutput ?? false, direction, useLegacyStringSort);
             default:
                 sortProfile = useLegacyStringSort ? "playlist_summary_legacy_string_fallback" : "playlist_summary_string_fast_fallback";
                 return SortByString(safeSource, row => row?.Name ?? string.Empty, direction, useLegacyStringSort);
