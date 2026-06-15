@@ -1809,9 +1809,6 @@ internal sealed class BmsLibraryPackageInstallService
             {
                 List<PackageChartEntry> packageEntries = package.ChartEntries;
                 result.AddedEntries.AddRange(packageEntries);
-                result.AddedCharts.AddRange(packageEntries
-                    .Select(entry => entry?.Chart)
-                    .Where(chart => chart != null));
                 if (existingHashes is IMutablePrimaryHashLookup mutableExistingHashes)
                 {
                     foreach (PackageChartEntry entry in packageEntries)
@@ -1841,6 +1838,9 @@ internal sealed class BmsLibraryPackageInstallService
         {
             addedEntry.ClearPostInstallState();
         }
+        result.AddedCharts.AddRange(result.AddedEntries
+            .Select(entry => entry?.Chart)
+            .Where(chart => chart != null));
 
         var songDbStopwatch = Stopwatch.StartNew();
         upsertStorageRows?.Invoke(result);

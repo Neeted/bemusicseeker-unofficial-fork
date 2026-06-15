@@ -266,7 +266,7 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
         ClearWarningsByCategory(ChartWarningCategory.InstallEstimation);
         ClearWarningsByCategory(ChartWarningCategory.ResourceHealth);
         ClearResourceHealthProjection();
-        ReplacePendingInstallDestination(Chart.InstallDestination, Chart.InstallDestinationTitle, Chart.InstallDestinationArtist, [], forceProjection: true);
+        ReplacePendingInstallDestination(null, string.Empty, string.Empty, [], forceProjection: true);
     }
 
     internal void ClearStructuredWarnings()

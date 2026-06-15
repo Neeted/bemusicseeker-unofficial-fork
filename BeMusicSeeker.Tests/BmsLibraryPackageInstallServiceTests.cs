@@ -1412,22 +1412,39 @@ public sealed class BmsLibraryPackageInstallServiceTests
         PackageChartEntry entry = package.ChartEntries.Single();
         entry.SetWarning(ChartWarningKind.InstallEstimationAmbiguous, installWarning);
         entry.SetWarning(ChartWarningKind.ResourceWavMissing, "pending resource warning");
-        entry.RestoreInstallDestinationState(new PackageChartInstallDestinationState(null, string.Empty, string.Empty, ["C:\\Installed\\A", "C:\\Installed\\B"]));
+        entry.RestoreInstallDestinationState(new PackageChartInstallDestinationState("C:\\Installed\\A", "Pending Destination", "Pending Artist", ["C:\\Installed\\A", "C:\\Installed\\B"]));
         package.path = "C:\\Pending\\Pkg1";
         package.delete_parent = false;
         List<BMSFile> songUpserts = [];
         List<BMSFile> maintenanceTargets = [];
         List<BMSFile> scoreTargets = [];
         List<BMSFile> applyTargets = [];
+        List<ChartFile> callbackCharts = [];
 
         PackageInstallExecutionResult result = service.InstallPackages(
             [package],
             "C:\\Installed",
             (_, _, _, _, _) => true,
-            result => songUpserts.AddRange(GetAddedBmsFiles(result)),
-            result => maintenanceTargets.AddRange(GetAddedBmsFiles(result)),
-            result => scoreTargets.AddRange(GetAddedBmsFiles(result)),
-            result => applyTargets.AddRange(GetAddedBmsFiles(result)));
+            result =>
+            {
+                callbackCharts.AddRange(result.AddedCharts);
+                songUpserts.AddRange(GetAddedBmsFiles(result));
+            },
+            result =>
+            {
+                callbackCharts.AddRange(result.AddedCharts);
+                maintenanceTargets.AddRange(GetAddedBmsFiles(result));
+            },
+            result =>
+            {
+                callbackCharts.AddRange(result.AddedCharts);
+                scoreTargets.AddRange(GetAddedBmsFiles(result));
+            },
+            result =>
+            {
+                callbackCharts.AddRange(result.AddedCharts);
+                applyTargets.AddRange(GetAddedBmsFiles(result));
+            });
 
         Assert.AreEqual(1, result.AddedCharts.Count);
         Assert.AreEqual(1, GetAddedBmsFiles(result).Count);
@@ -1438,7 +1455,18 @@ public sealed class BmsLibraryPackageInstallServiceTests
         CollectionAssert.AreEqual(new[] { file }, scoreTargets);
         CollectionAssert.AreEqual(new[] { file }, applyTargets);
         Assert.IsFalse(ChartWarningTestHelpers.ContainsLowConfidenceInstallEstimationWarning(entry));
+        Assert.AreEqual(string.Empty, entry.Chart.InstallDestination);
+        Assert.AreEqual(string.Empty, entry.Chart.InstallDestinationTitle);
+        Assert.AreEqual(string.Empty, entry.Chart.InstallDestinationArtist);
         Assert.AreEqual(0, entry.Chart.InstallDestinationSuggestions.Count);
+        Assert.AreEqual(string.Empty, result.AddedCharts[0].InstallDestination);
+        Assert.AreEqual(string.Empty, result.AddedCharts[0].InstallDestinationTitle);
+        Assert.AreEqual(string.Empty, result.AddedCharts[0].InstallDestinationArtist);
+        Assert.AreEqual(4, callbackCharts.Count);
+        Assert.IsTrue(callbackCharts.All(chart => string.IsNullOrWhiteSpace(chart.InstallDestination)));
+        Assert.IsTrue(callbackCharts.All(chart => string.IsNullOrWhiteSpace(chart.InstallDestinationTitle)));
+        Assert.IsTrue(callbackCharts.All(chart => string.IsNullOrWhiteSpace(chart.InstallDestinationArtist)));
+        Assert.IsTrue(callbackCharts.All(chart => chart.InstallDestinationSuggestions.Count == 0));
         Assert.IsFalse(ChartWarningTestHelpers.BuildTooltipText(entry).Contains(Resources.Warning_InstallEstimationAmbiguousPrefix));
         Assert.IsFalse(entry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
         Assert.AreEqual(string.Empty, ChartWarningTestHelpers.BuildDigestText(entry));
@@ -1825,6 +1853,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 sha256 = new string('d', 64)
             };
             PackageChartEntry bmsonEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(bmsonSong));
+            bmsonEntry.ApplyInstallDestination(destinationDirectoryPath, "Pending Bmson", "Pending Artist");
             ChartPackage package = ChartPackage.FromChartEntries([bmsonEntry]);
             package.path = sourceDirectoryPath;
             List<LR2SongDBExtended.bmson_song> storageRows = [];
@@ -1869,6 +1898,12 @@ public sealed class BmsLibraryPackageInstallServiceTests
             CollectionAssert.AreEqual(new[] { bmsonSong }, maintenanceTargets);
             CollectionAssert.AreEqual(new[] { bmsonSong }, applyTargets);
             Assert.AreEqual(destinationBmsonPath, bmsonSong.path);
+            Assert.AreEqual(string.Empty, result.AddedEntries[0].Chart.InstallDestination);
+            Assert.AreEqual(string.Empty, result.AddedEntries[0].Chart.InstallDestinationTitle);
+            Assert.AreEqual(string.Empty, result.AddedEntries[0].Chart.InstallDestinationArtist);
+            Assert.AreEqual(string.Empty, result.AddedCharts[0].InstallDestination);
+            Assert.AreEqual(string.Empty, result.AddedCharts[0].InstallDestinationTitle);
+            Assert.AreEqual(string.Empty, result.AddedCharts[0].InstallDestinationArtist);
             Assert.IsNull(bmsonEntry.GetBmsOwnerForTest());
             Assert.IsNull(result.AddedEntries[0].GetBmsOwnerForTest());
         });
