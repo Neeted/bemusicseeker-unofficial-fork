@@ -1944,8 +1944,14 @@ createTempDirectory);
 
     [TestMethod]
     [TestCategory("Compatibility")]
+    [TestCategory("ParserCompatibilityFull")]
+    [TestCategory("LargeFixture")]
     public void ParseRealBeatorajaCompatibilitySample_ReducesKnownDiffs()
     {
+        TestOptIn.RequireEnvironmentFlag(
+            TestOptIn.ChartInfoFullEnvironmentVariable,
+            "the full BMS chart_info parser compatibility fixture");
+
         string fixtureRootPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "TestData", "chart_info_real");
         string expectedDbPath = Path.Combine(fixtureRootPath, "expected.db");
         Assert.IsTrue(File.Exists(expectedDbPath), "chart_info_real expected.db fixture is missing.");
@@ -2024,8 +2030,14 @@ createTempDirectory);
 
     [TestMethod]
     [TestCategory("Compatibility")]
+    [TestCategory("ParserCompatibilityFull")]
+    [TestCategory("LargeFixture")]
     public void ParseRealBmsonBeatorajaCompatibility_AllFixturesMatch()
     {
+        TestOptIn.RequireEnvironmentFlag(
+            TestOptIn.ChartInfoFullEnvironmentVariable,
+            "the full BMSON chart_info parser compatibility fixture");
+
         string fixtureRootPath = Path.Combine(FindRepoRoot(), "BeMusicSeeker.Tests", "TestData", "chart_info_bmson_real");
         string expectedDbPath = Path.Combine(fixtureRootPath, "expected.db");
         Assert.IsTrue(File.Exists(expectedDbPath), "chart_info_bmson_real expected.db fixture is missing.");
@@ -2080,6 +2092,8 @@ createTempDirectory);
 
     [TestMethod]
     [TestCategory("Compatibility")]
+    [TestCategory("ProductionDiffFull")]
+    [TestCategory("LargeFixture")]
     public void ParseProductionDiffFixture_AllNonTimeoutRowsMatchBeatoraja()
     {
         if (!string.Equals(Environment.GetEnvironmentVariable("BMS_TEST_PRODUCTION_DIFF_FULL"), "1", StringComparison.Ordinal))
@@ -2163,6 +2177,8 @@ createTempDirectory);
 
     [TestMethod]
     [TestCategory("Compatibility")]
+    [TestCategory("ParserCompatibilitySlow")]
+    [TestCategory("LargeFixture")]
     public void ParseProductionDiffFixture_KnownTimeoutRows_PerformanceAndExpectedValues()
     {
         if (!string.Equals(Environment.GetEnvironmentVariable("BMS_TEST_CHART_INFO_SLOW"), "1", StringComparison.Ordinal))
@@ -2436,8 +2452,14 @@ createTempDirectory);
 
     [TestMethod]
     [TestCategory("Compatibility")]
+    [TestCategory("ParserCompatibilityFull")]
+    [TestCategory("LargeFixture")]
     public void ParseRealEdgeCases_LongTimelineReferenceChartsMatchBeatoraja()
     {
+        TestOptIn.RequireEnvironmentFlag(
+            TestOptIn.ChartInfoFullEnvironmentVariable,
+            "the full chart_info long-timeline edge-case fixture");
+
         string fixtureRootPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "TestData", "chart_info_edge_cases");
         string expectedDbPath = Path.Combine(fixtureRootPath, "expected.db");
         Assert.IsTrue(File.Exists(expectedDbPath), "chart_info_edge_cases expected.db fixture is missing.");

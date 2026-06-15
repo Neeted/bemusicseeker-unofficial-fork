@@ -104,9 +104,14 @@ public sealed class BmsSortCompatibilityTests
     /// </summary>
     [TestMethod]
     [TestCategory("Performance")]
+    [TestCategory("LargeFixture")]
     [DoNotParallelize]
     public void SortPerformance_ReportLegacyVsOptimized_ForRepresentativeColumns()
     {
+        TestOptIn.RequireEnvironmentFlag(
+            TestOptIn.PerformanceEnvironmentVariable,
+            "the sort performance comparison");
+
         string testSongDbFullPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, TestSongDbRelativePath);
         Assert.IsTrue(File.Exists(testSongDbFullPath), "Test song.db not found: " + testSongDbFullPath);
 
