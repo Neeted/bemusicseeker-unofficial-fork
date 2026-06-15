@@ -16787,6 +16787,7 @@ completeFileEnumerationOnce,
                             CreateKnownChartDirectorySnapshotUnsafe(),
                             ContainsInstalledChartUnsafe,
                             dupRateThreshInOnePkg,
+                            CreateInstalledChartKeySnapshotExcludingChartsUnsafe([], "auto_install_prepare", 0L),
                             token);
                         List<ChartPackage> discoveredPackages = [.. workflow.DiscoveredPackages];
                         LogInstallPerformance("auto_install_prepare discovered=" + discoveredPackages.Count + " autoInstall=" + workflow.AutoInstallCandidates.Count + " pendingAdd=" + workflow.PendingPackagesToAdd.Count + " pendingRemove=" + workflow.PendingPackagesToRemove.Count + " discoveryMs=" + workflow.DiscoveryMs + " installedCheckMs=" + workflow.InstalledCheckMs + " warningClassifyMs=" + workflow.WarningClassificationMs + " classificationMs=" + workflow.ClassificationMs + " totalMs=" + workflow.TotalMs);

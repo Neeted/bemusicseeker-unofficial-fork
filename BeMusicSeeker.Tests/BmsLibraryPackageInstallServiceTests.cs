@@ -1286,6 +1286,131 @@ public sealed class BmsLibraryPackageInstallServiceTests
     }
 
     [TestMethod]
+    public void ApplyAutoInstallWorkflow_KeepsLaterDuplicateInstallablePackagePendingAfterSuccess()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string firstPackageDirectoryPath = Path.Combine(tempDirectoryPath, "FirstPkg");
+            string secondPackageDirectoryPath = Path.Combine(tempDirectoryPath, "SecondPkg");
+            Directory.CreateDirectory(firstPackageDirectoryPath);
+            Directory.CreateDirectory(secondPackageDirectoryPath);
+            string chartContent = "#PLAYER 1\r\n#TITLE Duplicate\r\n#WAVAA sound.wav\r\n#00111:AA\r\n";
+            File.WriteAllText(Path.Combine(firstPackageDirectoryPath, "chart.bms"), chartContent);
+            File.WriteAllText(Path.Combine(firstPackageDirectoryPath, "sound.wav"), "audio");
+            File.WriteAllText(Path.Combine(secondPackageDirectoryPath, "chart.bms"), chartContent);
+            File.WriteAllText(Path.Combine(secondPackageDirectoryPath, "sound.wav"), "audio");
+
+            var service = new BmsLibraryPackageInstallService();
+            AutoInstallWorkflowResult result = service.PrepareAutoInstallWorkflow(
+                [firstPackageDirectoryPath, secondPackageDirectoryPath],
+                [],
+                [],
+                _ => false,
+                0.6);
+
+            Assert.AreEqual(2, result.DiscoveredPackages.Count);
+            Assert.AreEqual(2, result.AutoInstallCandidates.Count);
+            Assert.AreEqual(0, result.PendingPackagesToAdd.Count);
+
+            AutoInstallApplyResult applyResult = service.ApplyAutoInstallWorkflow(
+                result,
+                keepInstallablePackagesPending: false,
+                canAutoInstallImmediately: true,
+                packages => []);
+
+            Assert.AreEqual(1, applyResult.AutoInstalledPackages.Count);
+            Assert.AreEqual(1, applyResult.PendingPackagesToAdd.Count);
+            PackageChartEntry pendingEntry = applyResult.PendingPackagesToAdd[0].ChartEntries.Single();
+            Assert.IsTrue(pendingEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.AlreadyInstalled));
+            Assert.AreEqual("[1] " + BeMusicSeeker.Properties.Resources.WarningDigest_AlreadyInstalled, ChartWarningTestHelpers.BuildDigestText(pendingEntry));
+        });
+    }
+
+    [TestMethod]
+    public void ApplyAutoInstallWorkflow_DoesNotMarkDuplicatePendingWhenPredecessorFails()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        BMSFile firstFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "C:\\Pending\\First\\chart.bms");
+        BMSFile secondFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "C:\\Pending\\Second\\chart.bms");
+        ChartPackage firstPackage = ChartPackageTestExtensions.CreatePackage([firstFile]);
+        ChartPackage secondPackage = ChartPackageTestExtensions.CreatePackage([secondFile]);
+        var workflow = new AutoInstallWorkflowResult();
+        workflow.AutoInstallCandidates.Add(firstPackage);
+        workflow.AutoInstallCandidates.Add(secondPackage);
+        var service = new BmsLibraryPackageInstallService();
+
+        AutoInstallApplyResult result = service.ApplyAutoInstallWorkflow(
+            workflow,
+            keepInstallablePackagesPending: false,
+            canAutoInstallImmediately: true,
+            packages => [firstPackage]);
+
+        CollectionAssert.AreEqual(new[] { firstPackage, secondPackage }, result.PendingPackagesToAdd);
+        Assert.AreEqual(0, result.AutoInstalledPackages.Count);
+        Assert.IsFalse(secondPackage.ChartEntries.Single().Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.AlreadyInstalled));
+    }
+
+    [TestMethod]
+    public void ApplyAutoInstallWorkflow_DoesNotWarnPartialDuplicateWhenDuplicatePredecessorFails()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        BMSFile firstAFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "C:\\Pending\\First\\a.bms");
+        BMSFile mixedAFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "C:\\Pending\\Mixed\\a.bms");
+        BMSFile mixedBFile = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "C:\\Pending\\Mixed\\b.bms");
+        BMSFile thirdBFile = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "C:\\Pending\\Third\\b.bms");
+        ChartPackage firstPackage = ChartPackageTestExtensions.CreatePackage([firstAFile]);
+        ChartPackage mixedPackage = ChartPackageTestExtensions.CreatePackage([mixedAFile, mixedBFile]);
+        ChartPackage thirdPackage = ChartPackageTestExtensions.CreatePackage([thirdBFile]);
+        var workflow = new AutoInstallWorkflowResult();
+        workflow.AutoInstallCandidates.Add(firstPackage);
+        workflow.AutoInstallCandidates.Add(mixedPackage);
+        workflow.AutoInstallCandidates.Add(thirdPackage);
+        var service = new BmsLibraryPackageInstallService();
+
+        AutoInstallApplyResult result = service.ApplyAutoInstallWorkflow(
+            workflow,
+            keepInstallablePackagesPending: false,
+            canAutoInstallImmediately: true,
+            packages => [firstPackage]);
+
+        CollectionAssert.AreEqual(new[] { firstPackage, mixedPackage }, result.PendingPackagesToAdd);
+        CollectionAssert.AreEqual(new[] { thirdPackage }, result.AutoInstalledPackages);
+        Assert.IsFalse(mixedPackage.ChartEntries.Any(entry => entry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.AlreadyInstalled)));
+    }
+
+    [TestMethod]
+    public void ApplyAutoInstallWorkflow_WarnsOnlyDuplicateReasonEntriesForPartialDuplicate()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        BMSFile firstAFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "C:\\Pending\\First\\a.bms");
+        BMSFile mixedAFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "C:\\Pending\\Mixed\\a.bms");
+        BMSFile mixedBFile = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "C:\\Pending\\Mixed\\b.bms");
+        BMSFile thirdBFile = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "C:\\Pending\\Third\\b.bms");
+        ChartPackage firstPackage = ChartPackageTestExtensions.CreatePackage([firstAFile]);
+        ChartPackage mixedPackage = ChartPackageTestExtensions.CreatePackage([mixedAFile, mixedBFile]);
+        ChartPackage thirdPackage = ChartPackageTestExtensions.CreatePackage([thirdBFile]);
+        var workflow = new AutoInstallWorkflowResult();
+        workflow.AutoInstallCandidates.Add(firstPackage);
+        workflow.AutoInstallCandidates.Add(mixedPackage);
+        workflow.AutoInstallCandidates.Add(thirdPackage);
+        var service = new BmsLibraryPackageInstallService();
+
+        AutoInstallApplyResult result = service.ApplyAutoInstallWorkflow(
+            workflow,
+            keepInstallablePackagesPending: false,
+            canAutoInstallImmediately: true,
+            packages => []);
+
+        CollectionAssert.AreEqual(new[] { mixedPackage }, result.PendingPackagesToAdd);
+        CollectionAssert.AreEqual(new[] { firstPackage, thirdPackage }, result.AutoInstalledPackages);
+        PackageChartEntry mixedAEntry = mixedPackage.ChartEntries.Single(entry => entry.Chart.Path.EndsWith("\\a.bms", StringComparison.OrdinalIgnoreCase));
+        PackageChartEntry mixedBEntry = mixedPackage.ChartEntries.Single(entry => entry.Chart.Path.EndsWith("\\b.bms", StringComparison.OrdinalIgnoreCase));
+        Assert.IsTrue(mixedAEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.AlreadyInstalled));
+        Assert.IsFalse(mixedBEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.AlreadyInstalled));
+    }
+
+    [TestMethod]
     [DoNotParallelize]
     public void PrepareAutoInstallWorkflow_DoesNotPrebuildSourceSurfaceForDiscoveredPackages()
     {

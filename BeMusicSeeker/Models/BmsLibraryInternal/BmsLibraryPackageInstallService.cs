@@ -1203,6 +1203,7 @@ internal sealed class BmsLibraryPackageInstallService
         IEnumerable<string> knownChartDirectories,
         Func<ChartFile, bool> isInstalledChart,
         double dupRateThreshInOnePkg,
+        IPrimaryHashLookup installedChartLookup = null,
         CancellationToken token = default)
     {
         var result = new AutoInstallWorkflowResult();
@@ -1309,12 +1310,16 @@ internal sealed class BmsLibraryPackageInstallService
         var classificationStopwatch = Stopwatch.StartNew();
         var installedCheckStopwatch = Stopwatch.StartNew();
         Dictionary<ChartPackage, bool> pendingByPackage = [];
+        IPrimaryHashLookup installedHashes = installedChartLookup ?? EmptyPrimaryHashLookup.Instance;
         foreach (ChartPackage pkg in discoveredPackages)
         {
             bool hasInstalledChart = false;
             foreach (PackageChartEntry entry in pkg.ChartEntries)
             {
-                if (isInstalledChart != null && isInstalledChart(entry?.Chart))
+                ChartFile chart = entry?.Chart;
+                string lookupKey = ChartLookupKey.GetPrimaryHash(chart);
+                if ((!string.IsNullOrWhiteSpace(lookupKey) && installedHashes.ContainsPrimaryHash(lookupKey))
+                    || (isInstalledChart != null && isInstalledChart(chart)))
                 {
                     ApplyAlreadyInstalledWarning([entry]);
                     hasInstalledChart = true;
@@ -1411,11 +1416,21 @@ internal sealed class BmsLibraryPackageInstallService
             }
             if (!keepInstallablePackagesPending && canAutoInstallImmediately)
             {
-                List<ChartPackage> failedPackages = installPackages?.Invoke(workflow.AutoInstallCandidates) ?? [];
+                AutoInstallCandidateBatchClassification autoInstallClassification = ClassifyAutoInstallCandidateBatch(workflow.AutoInstallCandidates);
+                List<ChartPackage> failedPackages = installPackages?.Invoke(autoInstallClassification.InstallCandidates) ?? [];
                 var failedSet = new HashSet<ChartPackage>(failedPackages);
                 result.AutoInstallFailures.AddRange(failedPackages.Where(pkg => pkg != null));
-                result.AutoInstalledPackages.AddRange(workflow.AutoInstallCandidates.Where(pkg => pkg != null && !failedSet.Contains(pkg)));
-                pendingPackagesToAdd = [.. pendingPackagesToAdd, .. failedPackages];
+                List<ChartPackage> succeededPackages = [.. autoInstallClassification.InstallCandidates.Where(pkg => pkg != null && !failedSet.Contains(pkg))];
+                result.AutoInstalledPackages.AddRange(succeededPackages);
+                IPrimaryHashLookup succeededHashes = CreatePackagePrimaryHashLookup(succeededPackages);
+                foreach (AutoInstallDuplicateCandidate duplicateCandidate in autoInstallClassification.DuplicateCandidates)
+                {
+                    ApplyAlreadyInstalledWarning(GetEntriesMatchedByPrimaryHashes(
+                        duplicateCandidate.Package?.ChartEntries,
+                        succeededHashes,
+                        duplicateCandidate.DuplicatePrimaryHashes));
+                }
+                pendingPackagesToAdd = [.. pendingPackagesToAdd, .. failedPackages, .. autoInstallClassification.DuplicateCandidates.Select(candidate => candidate.Package).Where(pkg => pkg != null)];
             }
             else
             {
@@ -1525,30 +1540,13 @@ internal sealed class BmsLibraryPackageInstallService
                 plan.DeferredManualHoldCount++;
                 continue;
             }
-            List<PackageChartEntry> installedInLibraryEntries = [];
-            List<PackageChartEntry> installTargetPackageEntries = [];
-            List<PackageChartEntry> duplicateInBatchEntries = [];
-            foreach (PackageChartEntry packageEntry in packageEntries)
-            {
-                string lookupKey = ChartLookupKey.GetPrimaryHash(packageEntry.Chart);
-                if (string.IsNullOrWhiteSpace(lookupKey))
-                {
-                    installTargetPackageEntries.Add(packageEntry);
-                }
-                else if (installedHashes.ContainsPrimaryHash(lookupKey))
-                {
-                    installedInLibraryEntries.Add(packageEntry);
-                }
-                else if (reservedHashes.ContainsPrimaryHash(lookupKey))
-                {
-                    duplicateInBatchEntries.Add(packageEntry);
-                }
-                else
-                {
-                    reservedHashes.AddPrimaryHash(lookupKey);
-                    installTargetPackageEntries.Add(packageEntry);
-                }
-            }
+            PackageInstallEntryClassification installClassification = ClassifyPackageInstallEntries(
+                packageEntries,
+                installedHashes,
+                reservedHashes);
+            List<PackageChartEntry> installedInLibraryEntries = installClassification.InstalledInLibraryEntries;
+            List<PackageChartEntry> installTargetPackageEntries = installClassification.InstallTargetEntries;
+            List<PackageChartEntry> duplicateInBatchEntries = installClassification.DuplicateInBatchEntries;
             ApplyAlreadyInstalledWarning(installedInLibraryEntries);
             ApplyAlreadyInstalledWarning(duplicateInBatchEntries);
             List<PackageChartEntry> installWorkPackageEntries = installTargetPackageEntries;
@@ -2386,6 +2384,29 @@ internal sealed class BmsLibraryPackageInstallService
         }
     }
 
+    private sealed class PackageInstallEntryClassification
+    {
+        internal List<PackageChartEntry> InstalledInLibraryEntries { get; } = [];
+
+        internal List<PackageChartEntry> DuplicateInBatchEntries { get; } = [];
+
+        internal List<PackageChartEntry> InstallTargetEntries { get; } = [];
+    }
+
+    private sealed class AutoInstallCandidateBatchClassification
+    {
+        internal List<ChartPackage> InstallCandidates { get; } = [];
+
+        internal List<AutoInstallDuplicateCandidate> DuplicateCandidates { get; } = [];
+    }
+
+    private sealed class AutoInstallDuplicateCandidate
+    {
+        internal ChartPackage Package { get; set; }
+
+        internal HashSet<string> DuplicatePrimaryHashes { get; } = new(StringComparer.OrdinalIgnoreCase);
+    }
+
     private static List<string> GetPackageChartPaths(IEnumerable<PackageChartEntry> entries)
     {
         return [.. (entries ?? [])
@@ -2400,6 +2421,109 @@ internal sealed class BmsLibraryPackageInstallService
         {
             entry?.ClearWarningsByCategory(ChartWarningCategory.InstalledState);
             entry?.SetWarning(ChartWarningKind.AlreadyInstalled, Properties.Resources.Warning_AlreadyInstalled);
+        }
+    }
+
+    private static PackageInstallEntryClassification ClassifyPackageInstallEntries(
+        IEnumerable<PackageChartEntry> entries,
+        IPrimaryHashLookup installedHashes,
+        IMutablePrimaryHashLookup reservedHashes,
+        Func<ChartFile, bool> isInstalledChart = null)
+    {
+        installedHashes ??= EmptyPrimaryHashLookup.Instance;
+        reservedHashes ??= new PrimaryHashGuardLookup(installedHashes);
+        var result = new PackageInstallEntryClassification();
+        foreach (PackageChartEntry entry in entries ?? [])
+        {
+            ChartFile chart = entry?.Chart;
+            string lookupKey = ChartLookupKey.GetPrimaryHash(chart);
+            bool hasLookupKey = !string.IsNullOrWhiteSpace(lookupKey);
+            if ((hasLookupKey && installedHashes.ContainsPrimaryHash(lookupKey))
+                || (isInstalledChart != null && isInstalledChart(chart)))
+            {
+                result.InstalledInLibraryEntries.Add(entry);
+                continue;
+            }
+            if (hasLookupKey && reservedHashes.ContainsPrimaryHash(lookupKey))
+            {
+                result.DuplicateInBatchEntries.Add(entry);
+                continue;
+            }
+            if (hasLookupKey)
+            {
+                reservedHashes.AddPrimaryHash(lookupKey);
+            }
+            result.InstallTargetEntries.Add(entry);
+        }
+        return result;
+    }
+
+    private static AutoInstallCandidateBatchClassification ClassifyAutoInstallCandidateBatch(IEnumerable<ChartPackage> packages)
+    {
+        var result = new AutoInstallCandidateBatchClassification();
+        var reservedHashes = new PrimaryHashGuardLookup(EmptyPrimaryHashLookup.Instance);
+        foreach (ChartPackage package in (packages ?? []).Where(pkg => pkg != null))
+        {
+            var duplicateHashes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            List<string> packageHashes = [.. (package.ChartEntries ?? [])
+                .Select(entry => ChartLookupKey.GetPrimaryHash(entry?.Chart))
+                .Where(hash => !string.IsNullOrWhiteSpace(hash))
+                .Distinct(StringComparer.OrdinalIgnoreCase)];
+            foreach (string hash in packageHashes)
+            {
+                if (reservedHashes.ContainsPrimaryHash(hash))
+                {
+                    duplicateHashes.Add(hash);
+                }
+            }
+            if (duplicateHashes.Count > 0)
+            {
+                var duplicateCandidate = new AutoInstallDuplicateCandidate
+                {
+                    Package = package,
+                };
+                duplicateCandidate.DuplicatePrimaryHashes.UnionWith(duplicateHashes);
+                result.DuplicateCandidates.Add(duplicateCandidate);
+                continue;
+            }
+            result.InstallCandidates.Add(package);
+            foreach (string hash in packageHashes)
+            {
+                reservedHashes.AddPrimaryHash(hash);
+            }
+        }
+        return result;
+    }
+
+    private static IPrimaryHashLookup CreatePackagePrimaryHashLookup(IEnumerable<ChartPackage> packages)
+    {
+        var result = new PrimaryHashGuardLookup(EmptyPrimaryHashLookup.Instance);
+        foreach (PackageChartEntry entry in (packages ?? []).Where(pkg => pkg != null).SelectMany(pkg => pkg.ChartEntries))
+        {
+            string lookupKey = ChartLookupKey.GetPrimaryHash(entry?.Chart);
+            if (!string.IsNullOrWhiteSpace(lookupKey))
+            {
+                result.AddPrimaryHash(lookupKey);
+            }
+        }
+        return result;
+    }
+
+    private static IEnumerable<PackageChartEntry> GetEntriesMatchedByPrimaryHashes(
+        IEnumerable<PackageChartEntry> entries,
+        IPrimaryHashLookup lookup,
+        ISet<string> allowedPrimaryHashes = null)
+    {
+        lookup ??= EmptyPrimaryHashLookup.Instance;
+        foreach (PackageChartEntry entry in entries ?? [])
+        {
+            string lookupKey = ChartLookupKey.GetPrimaryHash(entry?.Chart);
+            if (!string.IsNullOrWhiteSpace(lookupKey)
+                && (allowedPrimaryHashes == null || allowedPrimaryHashes.Contains(lookupKey))
+                && lookup.ContainsPrimaryHash(lookupKey))
+            {
+                yield return entry;
+            }
         }
     }
 
