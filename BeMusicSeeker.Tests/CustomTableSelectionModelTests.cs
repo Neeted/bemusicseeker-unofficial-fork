@@ -1,3 +1,4 @@
+using System;
 using System.Linq;
 using BeMusicSeeker.Views;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -120,6 +121,43 @@ public sealed class CustomTableSelectionModelTests
         CollectionAssert.AreEqual(new[] { 0, 1, 2, 3 }, model.SelectedIndices.ToArray());
         Assert.AreEqual(0, model.CurrentIndex);
         Assert.AreEqual(0, model.AnchorIndex);
+    }
+
+    [TestMethod]
+    public void SelectIndices_SelectsDistinctValidIndicesAndUsesCurrent()
+    {
+        CustomTableSelectionModel model = CreateModel(6);
+
+        model.SelectIndices(new[] { 4, 1, 4, -1, 9 }, 4);
+
+        CollectionAssert.AreEqual(new[] { 1, 4 }, model.SelectedIndices.ToArray());
+        Assert.AreEqual(4, model.CurrentIndex);
+        Assert.AreEqual(4, model.AnchorIndex);
+    }
+
+    [TestMethod]
+    public void SelectIndices_FallsBackToFirstSelectedIndexWhenCurrentIsNotSelected()
+    {
+        CustomTableSelectionModel model = CreateModel(6);
+
+        model.SelectIndices(new[] { 3, 1 }, 4);
+
+        CollectionAssert.AreEqual(new[] { 1, 3 }, model.SelectedIndices.ToArray());
+        Assert.AreEqual(1, model.CurrentIndex);
+        Assert.AreEqual(1, model.AnchorIndex);
+    }
+
+    [TestMethod]
+    public void SelectIndices_ClearsSelectionWhenNoValidIndexExists()
+    {
+        CustomTableSelectionModel model = CreateModel(2);
+        model.SelectSingle(1);
+
+        model.SelectIndices(new[] { -1, 2 }, -1);
+
+        CollectionAssert.AreEqual(Array.Empty<int>(), model.SelectedIndices.ToArray());
+        Assert.AreEqual(-1, model.CurrentIndex);
+        Assert.AreEqual(-1, model.AnchorIndex);
     }
 
     [TestMethod]

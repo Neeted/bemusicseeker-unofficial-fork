@@ -171,6 +171,7 @@ public sealed class CustomTableView : Grid
     private CustomTableHitTestResult rowDragStartHit;
     private int pendingSingleSelectionOnMouseUpRowIndex = -1;
     private DragAdorner rowDragAdorner;
+    private int rowDropPreviewInsertIndex = -1;
     private Point? headerDragStartPoint;
     private CustomTableHitTestResult pendingHeaderHit;
     private bool isReorderingColumn;
@@ -472,6 +473,10 @@ public sealed class CustomTableView : Grid
     internal bool IsColumnReorderPreviewActive => isReorderingColumn && !double.IsNaN(reorderPreviewInsertX);
 
     internal double ColumnReorderPreviewInsertX => reorderPreviewInsertX;
+
+    internal bool IsRowDropInsertPreviewActive => rowDropPreviewInsertIndex >= 0;
+
+    internal int RowDropPreviewInsertIndex => rowDropPreviewInsertIndex;
 
     internal bool IsItemsSourceSwapPending => suppressColumnRedrawUntilItemsSourceChanged;
 
@@ -906,6 +911,62 @@ public sealed class CustomTableView : Grid
             RaiseSelectionChanged();
             RequestRedraw("selection");
         }
+    }
+
+    public void SelectRowsByPredicate(Func<object, bool> rowPredicate, Func<object, bool> currentRowPredicate = null)
+    {
+        IList rows = ItemsSource;
+        if (rows == null || rows.Count == 0 || rowPredicate == null)
+        {
+            ClearSelection();
+            return;
+        }
+        List<int> selectedIndices = [];
+        int currentIndex = -1;
+        for (int i = 0; i < rows.Count; i++)
+        {
+            object row = rows[i];
+            if (row == null || !rowPredicate(row))
+            {
+                continue;
+            }
+            selectedIndices.Add(i);
+            if (currentIndex < 0 && currentRowPredicate?.Invoke(row) == true)
+            {
+                currentIndex = i;
+            }
+        }
+        selectionModel.SetItemCount(RowCount);
+        bool changed = selectionModel.SelectIndices(selectedIndices, currentIndex);
+        UpdateSelectedIndexFromSelectionModel();
+        EnsureRowVisible(selectionModel.CurrentIndex);
+        EnsureCurrentCellForCurrentRow();
+        if (changed)
+        {
+            RaiseSelectionChanged();
+        }
+        RequestRedraw("selection");
+    }
+
+    public void SetRowDropInsertPreview(int insertIndex)
+    {
+        int safeInsertIndex = Math.Max(0, Math.Min(RowCount, insertIndex));
+        if (rowDropPreviewInsertIndex == safeInsertIndex)
+        {
+            return;
+        }
+        rowDropPreviewInsertIndex = safeInsertIndex;
+        RequestRedraw("row_drop_insert");
+    }
+
+    public void ClearRowDropInsertPreview()
+    {
+        if (rowDropPreviewInsertIndex < 0)
+        {
+            return;
+        }
+        rowDropPreviewInsertIndex = -1;
+        RequestRedraw("row_drop_insert");
     }
 
     public void RefreshDisplay()
@@ -1470,7 +1531,7 @@ public sealed class CustomTableView : Grid
         {
             return;
         }
-        DataObject dataObject = CustomTableDataTransfer.CreateSelectedRowsDataObject(rows, RowDragKind);
+        DataObject dataObject = CustomTableDataTransfer.CreateSelectedRowsDataObject(rows, RowDragKind, rowDragStartHit.Row);
         CloseCellToolTip();
         rowDragAdorner = new DragAdorner(this, CreateRowDragGhost(rows.Count), new Vector(12d, 12d))
         {
@@ -2367,6 +2428,7 @@ internal sealed class CustomTableSurface : FrameworkElement
             return;
         }
         int visibleRowCount = DrawRows(drawingContext, layout, width, height);
+        DrawRowDropInsertPreview(drawingContext, width, height);
         renderStopwatch.Stop();
         owner.NotifySurfaceRendered(
             visibleRowCount,
@@ -2465,6 +2527,36 @@ internal sealed class CustomTableSurface : FrameworkElement
             drawnRows++;
         }
         return drawnRows;
+    }
+
+    private void DrawRowDropInsertPreview(DrawingContext drawingContext, double width, double height)
+    {
+        if (!owner.IsRowDropInsertPreviewActive || width <= 0d || height <= owner.HeaderHeight)
+        {
+            return;
+        }
+        IList rows = owner.ItemsSource;
+        int rowCount = rows?.Count ?? 0;
+        int insertIndex = Math.Max(0, Math.Min(rowCount, owner.RowDropPreviewInsertIndex));
+        int firstRowIndex = owner.FirstVisibleRowIndex;
+        int visibleCapacity = owner.CalculateDrawableRowCapacity();
+        int lastVisibleExclusive = Math.Min(rowCount, firstRowIndex + visibleCapacity);
+        double rowHeight = Math.Max(1d, owner.RowHeight);
+        double y;
+        if (insertIndex <= firstRowIndex)
+        {
+            y = owner.HeaderHeight;
+        }
+        else if (insertIndex >= lastVisibleExclusive)
+        {
+            y = owner.HeaderHeight + Math.Max(0, lastVisibleExclusive - firstRowIndex) * rowHeight;
+        }
+        else
+        {
+            y = owner.HeaderHeight + (insertIndex - firstRowIndex) * rowHeight;
+        }
+        y = Math.Max(owner.HeaderHeight, Math.Min(height, y));
+        drawingContext.DrawLine(CustomTablePalette.Current.ColumnReorderInsert, new Point(0d, y), new Point(width, y));
     }
 
     private void DrawRowCells(DrawingContext drawingContext, CustomTableColumnLayoutSnapshot layout, int rowIndex, object row, double width, double y, double rowHeight)

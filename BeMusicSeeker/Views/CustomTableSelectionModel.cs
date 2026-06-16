@@ -98,6 +98,25 @@ internal sealed class CustomTableSelectionModel
         return changed;
     }
 
+    internal bool SelectIndices(IEnumerable<int> indices, int currentIndex)
+    {
+        var nextIndices = new SortedSet<int>((indices ?? []).Where(IsValidIndex));
+        if (nextIndices.Count == 0)
+        {
+            return Clear();
+        }
+        int nextCurrentIndex = nextIndices.Contains(currentIndex) ? currentIndex : nextIndices.First();
+        bool changed = !selectedIndices.SetEquals(nextIndices) || CurrentIndex != nextCurrentIndex || AnchorIndex != nextCurrentIndex;
+        selectedIndices.Clear();
+        foreach (int index in nextIndices)
+        {
+            selectedIndices.Add(index);
+        }
+        CurrentIndex = nextCurrentIndex;
+        AnchorIndex = nextCurrentIndex;
+        return changed;
+    }
+
     internal bool MoveCurrent(int delta)
     {
         int nextIndex = GetMovedIndex(delta);

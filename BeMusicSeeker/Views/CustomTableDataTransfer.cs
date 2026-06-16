@@ -18,14 +18,19 @@ internal static class CustomTableDataTransfer
     internal const string SelectedRowsDataFormat = "BeMusicSeeker.CustomTable.SelectedRows";
     internal const string LegacySelectedRowsDataFormat = "System.Windows.Controls.SelectedItemCollection";
     internal const string RowDragKindDataFormat = "BeMusicSeeker.CustomTable.RowDragKind";
+    internal const string PrimaryRowDataFormat = "BeMusicSeeker.CustomTable.PrimaryRow";
 
-    internal static DataObject CreateSelectedRowsDataObject(IReadOnlyList<object> selectedRows, CustomTableRowDragKind rowDragKind = CustomTableRowDragKind.GenericSelectedRows)
+    internal static DataObject CreateSelectedRowsDataObject(IReadOnlyList<object> selectedRows, CustomTableRowDragKind rowDragKind = CustomTableRowDragKind.GenericSelectedRows, object primaryRow = null)
     {
         List<object> rows = selectedRows?.Where(row => row != null).ToList() ?? [];
         var dataObject = new DataObject();
         dataObject.SetData(SelectedRowsDataFormat, rows);
         dataObject.SetData(LegacySelectedRowsDataFormat, rows);
         dataObject.SetData(RowDragKindDataFormat, rowDragKind.ToString());
+        if (primaryRow != null)
+        {
+            dataObject.SetData(PrimaryRowDataFormat, primaryRow);
+        }
         return dataObject;
     }
 
@@ -43,6 +48,24 @@ internal static class CustomTableDataTransfer
         }
         selectedRows = [.. selectedRows.Where(row => row != null)];
         return selectedRows.Count > 0;
+    }
+
+    internal static bool TryGetPrimaryRow(IDataObject dataObject, out object primaryRow)
+    {
+        primaryRow = null;
+        if (dataObject == null || !dataObject.GetDataPresent(PrimaryRowDataFormat))
+        {
+            return false;
+        }
+        try
+        {
+            primaryRow = dataObject.GetData(PrimaryRowDataFormat);
+            return primaryRow != null;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     internal static bool HasRowDragKind(IDataObject dataObject, CustomTableRowDragKind expectedKind)

@@ -145,6 +145,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private PropertyChangedEventHandler _startupInitialSelectionReadyHandler;
 
+    private HashSet<int> pendingPlaylistSummarySelectionPlaylistIds;
+    private int? pendingPlaylistSummaryCurrentPlaylistId;
+    private long pendingPlaylistSummarySelectionMinDataGeneration;
+    private long lastPlaylistSummaryAppliedDataGeneration;
+
     private BitmapSource panelImage
     {
         get
@@ -209,6 +214,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         ApplySavedTreeViewWidth();
         AddHandler(UIElement.PreviewMouseDownEvent, new MouseButtonEventHandler(keywordSearchWindowPreviewMouseDown), true);
         Deactivated += MainWindow_Deactivated;
+        if (base.DataContext is MainWindowViewModel viewModel)
+        {
+            viewModel.PlaylistSummaryViewApplied += MainWindowViewModel_PlaylistSummaryViewApplied;
+        }
 
         // Add handler that catches already-handled TreeViewItem.Selected events to synchronize TreeView exclusivity
         gridTreePane.AddHandler(TreeViewItem.SelectedEvent, new RoutedEventHandler(gridTreePane_TreeViewItemSelected), true);
@@ -527,6 +536,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             viewModel.PropertyChanged -= _startupInitialSelectionReadyHandler;
             _startupInitialSelectionReadyHandler = null;
         }
+        if (viewModel != null)
+        {
+            viewModel.PlaylistSummaryViewApplied -= MainWindowViewModel_PlaylistSummaryViewApplied;
+        }
         viewModel?.SetStartupUiInteractionBlocked(false);
         calcelAllContextMenuTasks();
         CloseContextMenuIfOpen(_lastOpenedContextMenu);
@@ -662,8 +675,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void customTablePlaylistSummary_PreviewDragOver(object sender, DragEventArgs e)
     {
-        if (!IsPlaylistSummaryBmtSortDropAllowed(e, out _, out _))
+        if (!IsPlaylistSummaryBmtSortDropAllowed(e, out _, out _, out int visibleInsertIndex))
         {
+            ClearPlaylistSummaryBmtSortDropPreview();
             if (CustomTableDataTransfer.HasRowDragKind(e.Data, CustomTableRowDragKind.PlaylistSummaryRows))
             {
                 e.Effects = DragDropEffects.None;
@@ -671,6 +685,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             }
             return;
         }
+        customTablePlaylistSummary?.SetRowDropInsertPreview(visibleInsertIndex);
         e.Effects = DragDropEffects.Move;
         e.Handled = true;
     }
@@ -678,29 +693,132 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     private async void customTablePlaylistSummary_Drop(object sender, DragEventArgs e)
     {
         e.Effects = DragDropEffects.None;
-        if (!IsPlaylistSummaryBmtSortDropAllowed(e, out List<PlaylistSummaryRow> draggedRows, out int visibleInsertIndex))
+        try
         {
-            if (CustomTableDataTransfer.HasRowDragKind(e.Data, CustomTableRowDragKind.PlaylistSummaryRows))
+            if (!IsPlaylistSummaryBmtSortDropAllowed(e, out List<PlaylistSummaryRow> draggedRows, out PlaylistSummaryRow primaryDraggedRow, out int visibleInsertIndex))
             {
-                e.Handled = true;
+                if (CustomTableDataTransfer.HasRowDragKind(e.Data, CustomTableRowDragKind.PlaylistSummaryRows))
+                {
+                    e.Handled = true;
+                }
+                return;
             }
-            return;
-        }
-        e.Handled = true;
-        List<PlaylistSummaryRow> visibleRows = GetVisiblePlaylistSummaryRowsSnapshot();
-        if (base.DataContext is MainWindowViewModel viewModel)
-        {
-            await Task.Run(delegate
+            e.Handled = true;
+            List<PlaylistSummaryRow> visibleRows = GetVisiblePlaylistSummaryRowsSnapshot();
+            List<int> draggedPlaylistIds = GetPlaylistSummaryRowIds(draggedRows);
+            int? currentPlaylistId = primaryDraggedRow?.PlaylistId ?? draggedRows.FirstOrDefault(row => row?.PlaylistId != null)?.PlaylistId;
+            if (base.DataContext is MainWindowViewModel viewModel)
             {
-                viewModel.DropPlaylistSummaryRowsToBmtSort(visibleRows, draggedRows, visibleInsertIndex);
-            }).Logging("customTablePlaylistSummary_Drop");
+                QueuePlaylistSummarySelectionRestoreAfterApply(draggedPlaylistIds, currentPlaylistId);
+                long dataRebuildGeneration = 0L;
+                await Task.Run(delegate
+                {
+                    dataRebuildGeneration = viewModel.DropPlaylistSummaryRowsToBmtSort(visibleRows, draggedRows, visibleInsertIndex);
+                }).Logging("customTablePlaylistSummary_Drop");
+                if (dataRebuildGeneration <= 0L)
+                {
+                    ClearPendingPlaylistSummarySelectionRestore();
+                }
+                else
+                {
+                    pendingPlaylistSummarySelectionMinDataGeneration = dataRebuildGeneration;
+                    ApplyPendingPlaylistSummarySelectionRestore();
+                }
+            }
+            e.Effects = DragDropEffects.Move;
         }
-        e.Effects = DragDropEffects.Move;
+        catch
+        {
+            ClearPendingPlaylistSummarySelectionRestore();
+            throw;
+        }
+        finally
+        {
+            ClearPlaylistSummaryBmtSortDropPreview();
+        }
     }
 
-    private bool IsPlaylistSummaryBmtSortDropAllowed(DragEventArgs e, out List<PlaylistSummaryRow> draggedRows, out int visibleInsertIndex)
+    private void customTablePlaylistSummary_PreviewDragLeave(object sender, DragEventArgs e)
+    {
+        if (CustomTableDataTransfer.HasRowDragKind(e.Data, CustomTableRowDragKind.PlaylistSummaryRows))
+        {
+            ClearPlaylistSummaryBmtSortDropPreview();
+        }
+    }
+
+    private void ClearPlaylistSummaryBmtSortDropPreview()
+    {
+        customTablePlaylistSummary?.ClearRowDropInsertPreview();
+    }
+
+    private void QueuePlaylistSummarySelectionRestoreAfterApply(IReadOnlyCollection<int> draggedPlaylistIds, int? currentPlaylistId)
+    {
+        if (draggedPlaylistIds == null || draggedPlaylistIds.Count == 0)
+        {
+            return;
+        }
+        pendingPlaylistSummarySelectionPlaylistIds = new HashSet<int>(draggedPlaylistIds);
+        pendingPlaylistSummaryCurrentPlaylistId = currentPlaylistId;
+        pendingPlaylistSummarySelectionMinDataGeneration = long.MaxValue;
+    }
+
+    private void ClearPendingPlaylistSummarySelectionRestore()
+    {
+        pendingPlaylistSummarySelectionPlaylistIds = null;
+        pendingPlaylistSummaryCurrentPlaylistId = null;
+        pendingPlaylistSummarySelectionMinDataGeneration = 0L;
+    }
+
+    private void MainWindowViewModel_PlaylistSummaryViewApplied(object sender, MainWindowViewModel.PlaylistSummaryViewAppliedEventArgs e)
+    {
+        if (e?.DataRebuildGeneration > 0L)
+        {
+            lastPlaylistSummaryAppliedDataGeneration = e.DataRebuildGeneration;
+        }
+        if (!Dispatcher.CheckAccess())
+        {
+            Dispatcher.BeginInvoke(new Action(ApplyPendingPlaylistSummarySelectionRestore), DispatcherPriority.Background);
+            return;
+        }
+        ApplyPendingPlaylistSummarySelectionRestore();
+    }
+
+    private void ApplyPendingPlaylistSummarySelectionRestore()
+    {
+        if (customTablePlaylistSummary == null || pendingPlaylistSummarySelectionPlaylistIds == null || pendingPlaylistSummarySelectionPlaylistIds.Count == 0)
+        {
+            ClearPendingPlaylistSummarySelectionRestore();
+            return;
+        }
+        if (pendingPlaylistSummarySelectionMinDataGeneration <= 0L
+            || lastPlaylistSummaryAppliedDataGeneration < pendingPlaylistSummarySelectionMinDataGeneration)
+        {
+            return;
+        }
+        HashSet<int> playlistIdSet = pendingPlaylistSummarySelectionPlaylistIds;
+        int? currentPlaylistId = pendingPlaylistSummaryCurrentPlaylistId;
+        ClearPendingPlaylistSummarySelectionRestore();
+        customTablePlaylistSummary.SelectRowsByPredicate(
+            row => row is PlaylistSummaryRow playlistSummaryRow
+                && playlistSummaryRow.PlaylistId.HasValue
+                && playlistIdSet.Contains(playlistSummaryRow.PlaylistId.Value),
+            row => currentPlaylistId.HasValue
+                && row is PlaylistSummaryRow playlistSummaryRow
+                && playlistSummaryRow.PlaylistId == currentPlaylistId);
+    }
+
+    private static List<int> GetPlaylistSummaryRowIds(IEnumerable<PlaylistSummaryRow> rows)
+    {
+        return [.. (rows ?? [])
+            .Where(row => row?.PlaylistId != null)
+            .Select(row => row.PlaylistId.Value)
+            .Distinct()];
+    }
+
+    private bool IsPlaylistSummaryBmtSortDropAllowed(DragEventArgs e, out List<PlaylistSummaryRow> draggedRows, out PlaylistSummaryRow primaryDraggedRow, out int visibleInsertIndex)
     {
         draggedRows = [];
+        primaryDraggedRow = null;
         visibleInsertIndex = -1;
         if (e?.Data == null
             || !CustomTableDataTransfer.HasRowDragKind(e.Data, CustomTableRowDragKind.PlaylistSummaryRows)
@@ -710,11 +828,18 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return false;
         }
-        draggedRows = [.. selectedRows.OfType<PlaylistSummaryRow>().Where(row => row?.TableRef != null)];
+        draggedRows = [.. selectedRows.OfType<PlaylistSummaryRow>().Where(row => row?.TableRef != null && row.PlaylistId.HasValue)];
         if (draggedRows.Count == 0)
         {
             return false;
         }
+        if (CustomTableDataTransfer.TryGetPrimaryRow(e.Data, out object primaryRow)
+            && primaryRow is PlaylistSummaryRow primaryPlaylistSummaryRow
+            && draggedRows.Contains(primaryPlaylistSummaryRow))
+        {
+            primaryDraggedRow = primaryPlaylistSummaryRow;
+        }
+        primaryDraggedRow ??= draggedRows.FirstOrDefault();
         visibleInsertIndex = ResolvePlaylistSummaryVisibleInsertIndex(e);
         return visibleInsertIndex >= 0;
     }
@@ -738,10 +863,42 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         if (hit.Kind != CustomTableHitKind.Cell)
         {
-            return rows.Count;
+            if (customTablePlaylistSummary == null || point.X < 0d || point.X >= customTablePlaylistSummary.SurfaceWidth)
+            {
+                return -1;
+            }
+            return ResolvePlaylistSummaryVisibleInsertIndexFromPointY(point.Y, rows.Count);
         }
         bool insertAfterTarget = point.Y >= hit.CellRect.Top + (hit.CellRect.Height / 2d);
         return Math.Max(0, Math.Min(rows.Count, hit.RowIndex + (insertAfterTarget ? 1 : 0)));
+    }
+
+    private int ResolvePlaylistSummaryVisibleInsertIndexFromPointY(double y, int rowCount)
+    {
+        if (customTablePlaylistSummary == null || rowCount <= 0)
+        {
+            return 0;
+        }
+        if (y < customTablePlaylistSummary.HeaderHeight)
+        {
+            return 0;
+        }
+        int firstVisibleRowIndex = customTablePlaylistSummary.FirstVisibleRowIndex;
+        int drawableRowCapacity = customTablePlaylistSummary.CalculateDrawableRowCapacity();
+        int lastVisibleRowExclusive = Math.Min(rowCount, firstVisibleRowIndex + drawableRowCapacity);
+        double rowHeight = Math.Max(1d, customTablePlaylistSummary.RowHeight);
+        int rowIndex = firstVisibleRowIndex + (int)Math.Floor((y - customTablePlaylistSummary.HeaderHeight) / rowHeight);
+        if (rowIndex < firstVisibleRowIndex)
+        {
+            return firstVisibleRowIndex;
+        }
+        if (rowIndex >= lastVisibleRowExclusive)
+        {
+            return rowCount;
+        }
+        double rowTop = customTablePlaylistSummary.HeaderHeight + (rowIndex - firstVisibleRowIndex) * rowHeight;
+        bool insertAfterTarget = y >= rowTop + rowHeight / 2d;
+        return Math.Max(0, Math.Min(rowCount, rowIndex + (insertAfterTarget ? 1 : 0)));
     }
 
     private List<PlaylistSummaryRow> GetVisiblePlaylistSummaryRowsSnapshot()

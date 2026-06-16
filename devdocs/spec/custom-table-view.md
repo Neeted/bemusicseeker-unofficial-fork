@@ -471,7 +471,7 @@ LR2互換性警告画面は、通常ライブラリよりも警告内容の確�
 
 ### 行 Drag & Drop
 
-`CustomTableView` が選択行 drag を開始するときは、`CustomTableDataTransfer` の `SelectedRowsDataFormat` に選択行 snapshot を入れ、同時に `RowDragKindDataFormat` に画面種別を入れる。
+`CustomTableView` が選択行 drag を開始するときは、`CustomTableDataTransfer` の `SelectedRowsDataFormat` に選択行 snapshot を入れ、同時に `RowDragKindDataFormat` に画面種別を入れる。複数選択時にドラッグ開始行を復元できるよう、`PrimaryRowDataFormat` には drag start row を入れる。
 
 | Control | `RowDragKind` | 主な受け手 |
 | --- | --- | --- |
@@ -480,7 +480,7 @@ LR2互換性警告画面は、通常ライブラリよりも警告内容の確�
 
 プレイリストツリーへの drop は `PlaylistDropCandidateRows` だけを受け付ける。行オブジェクトが playlist drop candidate に見えるかどうかだけでは判定しない。これにより、プレイリストサマリーなど別画面の行 drag がツリーの譜面追加処理へ流れ込まない。
 
-プレイリストサマリー内の row drop は `BMT SORT` 昇順表示中だけ有効で、降順や他列 sort 中は `DragDropEffects.None` とする。UI 側は可視行と挿入位置だけを ViewModel に渡し、ViewModel が全 playlist の `bmt_sort` snapshot を使って非表示行を保持した順序を作る。
+プレイリストサマリー内の row drop は `BMT SORT` 昇順表示中だけ有効で、降順や他列 sort 中は `DragDropEffects.None` とする。UI 側は可視行と挿入位置だけを ViewModel に渡し、ViewModel が全 playlist の `bmt_sort` snapshot を使って非表示行を保持した順序を作る。許可された row drop 中は `CustomTableView` が挿入位置を水平の太線で描画する。drop 後は index ではなく playlist id でドラッグ対象行を再選択し、再構築後の並びへ選択を追従させる。
 
 ### セル編集
 

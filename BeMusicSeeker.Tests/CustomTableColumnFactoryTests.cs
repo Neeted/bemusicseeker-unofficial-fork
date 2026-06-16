@@ -876,10 +876,13 @@ public sealed class CustomTableColumnFactoryTests
     {
         object[] rows = [new(), new()];
 
-        DataObject dataObject = CustomTableDataTransfer.CreateSelectedRowsDataObject(rows);
+        DataObject dataObject = CustomTableDataTransfer.CreateSelectedRowsDataObject(rows, CustomTableRowDragKind.PlaylistSummaryRows, rows[1]);
 
         Assert.IsTrue(dataObject.GetDataPresent(CustomTableDataTransfer.SelectedRowsDataFormat));
         Assert.IsTrue(dataObject.GetDataPresent(CustomTableDataTransfer.LegacySelectedRowsDataFormat));
+        Assert.IsTrue(CustomTableDataTransfer.HasRowDragKind(dataObject, CustomTableRowDragKind.PlaylistSummaryRows));
+        Assert.IsTrue(CustomTableDataTransfer.TryGetPrimaryRow(dataObject, out object primaryRow));
+        Assert.AreSame(rows[1], primaryRow);
         Assert.IsTrue(CustomTableDataTransfer.TryGetSelectedRows(dataObject, out System.Collections.Generic.List<object>? resolvedRows));
         Assert.AreEqual(2, resolvedRows.Count);
     }
