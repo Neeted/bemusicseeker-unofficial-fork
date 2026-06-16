@@ -130,6 +130,35 @@ LR2 custom folder 出力は LR2 linked profile の機能であり、standalone p
 
 出力先は `LR2CustomFolderOutputBaseDir` または root 用の `LR2CustomFolderOutputBaseDirRootType` と、playlist の `output_dir` から決まる。`ignore_folder_output` により level/user/alphabet/clear などの folder 種別を除外できる。
 
+プレイリストプロパティのカスタムフォルダタブにある「フォルダ名」は、実効値として `BMSTable.Output_dir` を操作する。入力値は trim 後に Shift-JIS 互換文字列へ丸める。空、または playlist name を同じ規則で丸めた値と同じ場合、DB の `playlist.output_dir` は NULL にし、実効出力フォルダ名は playlist name 由来の値に戻す。`is_root_folder = false` の場合は `LR2CustomFolderOutputBaseDir\Output_dir`、`is_root_folder = true` の場合は `LR2CustomFolderOutputBaseDirRootType\Output_dir` を出力 directory にする。UI の「ルートフォルダにする」は `is_root_folder`、出力フォルダ種別のチェック群は `ignore_folder_output` の反転として扱う。DB には「出力する種別」ではなく「出力しない種別」の bit flag が保存される。
+
+出力 directory には `0000.lr2folder` からの連番ファイルを Shift-JIS で作る。各ファイルは少なくとも `#COMMAND`、`#MAXTRACKS`、`#CATEGORY`、`#TITLE`、`#INFORMATION_A`、`#INFORMATION_B` を持つ。BeMusicSeeker 生成ファイルでは `#CATEGORY` は playlist name、`#TITLE` はフォルダ表示名である。連番の順序は `UserFolder`、`LevelFolder`、`AlphabetFolder`、`ClearFolder`、`DJLevelFolder`、`CategoryAllFolder`、`OtherFolder` の順で、`ignore_folder_output` に含まれる種別は生成しない。
+
+生成するフォルダ種別は次の通り。
+
+| 種別 | 生成内容 | 主な command 条件 |
+| --- | --- | --- |
+| UserFolder | `folder_list` の各フォルダ。空 folder 名は playlist name を title にする。 | `playlist_entry.folder = {folder}` かつ `is_removed = 0`。 |
+| LevelFolder | `playlist_entry.level` を floor した整数別の `LEVEL n` と、NULL 用の `LEVEL ???`。 | `playlist_entry.level` / `is_removed`。 |
+| AlphabetFolder | `A.B.C.D.` から `U.V.W.X.Y.Z.` までの 6 区間と `OTHERS`。 | `UPPER(playlist_entry.title)` の範囲。 |
+| ClearFolder | `PERFECT ATTACK CLEAR`、`FULL COMBO CLEAR`、`HARD CLEAR`、`CLEAR`、`EASY CLEAR`、`ASSIST CLEAR`、`FAILED`、`NO PLAY`。 | `score.clear`、`score.rank`、`score.op_history`。 |
+| DJLevelFolder | `DJ LEVEL AAA` から `DJ LEVEL F` と `NO SCORE`。 | `score.rank`。 |
+| CategoryAllFolder | `ALL LONG NOTES` と judge 種別別 folder。 | `song.longnote`、`song.judge`。 |
+| OtherFolder | `MY BEST`、`NEW SONGS`、`REMOVED SONGS`。LR2IR score 取得と未送信検知が有効な場合は `UNSENT SONGS` も出す。 | `score.playcount`、`playlist_entry.adddate`、`playlist_entry.is_removed`、必要に応じて `ir_score` と `score` の一致条件。 |
+
+`playlist.entry_type = File` の playlist では、基本条件は `song.hash in (SELECT md5 FROM playlist_entry WHERE playlist_id = ... AND is_removed = 0 ...)` になる。`entry_type = Folder` の playlist では、基本条件は `song.folder in (SELECT folder FROM song WHERE hash in (...))` になり、playlist entry の譜面 hash から LR2 `song.folder` 単位に広げる。どちらの場合も command は LR2 / OpenLR2 が `SELECT * FROM song LEFT JOIN score ON song.hash = score.hash WHERE {folder.command}` として評価できる WHERE 句断片である。OpenLR2 の実装では、`.lr2folder` の `#COMMAND` または `#TAG` が `folder.command` に入り、選曲画面でカスタムフォルダを開いたときにこの command が song/score join の WHERE 条件として使われる。
+
+現在の command が主に参照する SQL table は次の通り。
+
+| Table | 用途 |
+| --- | --- |
+| `song` | LR2 が認識した譜面本体。`hash`、`folder`、`title`、`artist`、`level`、`judge`、`longnote`、`adddate` などを参照できる。 |
+| `score` | LR2 score DB 由来の score row。`hash` で `song` と LEFT JOIN され、`clear`、`rank`、`rate`、`minbp`、`playcount`、`op_history` などを参照できる。 |
+| `playlist_entry` | BeMusicSeeker app-owned table。playlist の所属譜面、user folder、難易度、追加日、削除状態を command 側で参照する。 |
+| `ir_score` | BeMusicSeeker が LR2IR score を取得している場合の app-owned table。`UNSENT SONGS` 判定で `score` と照合する。 |
+
+出力後は `.lr2folder` file と同じ projection から LR2 `folder` table row も同期する。LR2 `folder` table は `title`、`subtitle`、`category`、`info_a`、`info_b`、`command`、`path`、`type`、`banner`、`parent`、`date`、`max`、`adddate` を持つ。BeMusicSeeker 生成 `.lr2folder` row は通常 `type = 2`、通常 directory row は `type = 1` である。`path` は file path または directory path、`parent` は親 directory path の LR2 CRC32 hash で、LR2 root 直下に置く row は固定 root parent hash `e2977170` を使う。`date` は対象 file / directory の mtime、`adddate` は既存 row があれば維持し、無ければ生成時刻を使う。
+
 LR2 linked profile では、custom folder 出力は `.lr2folder` 実ファイルだけでなく LR2 `folder` table row も同じ projection から同期する。通常出力では `LR2CustomFolderOutputBaseDir` を通常の BMS root 相当として扱い、この出力先 directory row を LR2 root 直下に置く。各 playlist/table directory row は通常出力先 directory row の子にし、numbered `.lr2folder` row は playlist/table directory row の子にする。root 出力では、指定された playlist/table directory それぞれを BMS root 相当として扱い、その directory row を LR2 root 直下に置く。配下の level/user/alphabet などの `.lr2folder` row は playlist/table directory row の子にする。通常出力先全体を飛ばして playlist/table directory row を LR2 root 直下へ置いたり、配下 row を LR2 root 直下へ flatten したりしない。この root 出力 semantics は BeMusicSeeker 管理 playlist の projection に限定する。LR2 BMS search root 配下で自然 discovery した外部 `.lr2folder` は、search root 自身だけを LR2 root 直下に置き、配下 directory row は親 directory hash を `parent` にする。
 
 アプリ管理 playlist の custom folder は `playlist` / `playlist_entry` / `playlist_course` と出力設定が正本であり、出力済み `.lr2folder` ファイルの存在だけを正本にしない。出力先変更、root 出力切替、entry/folder 編集、明示的な LR2 song.db 同期データ再同期では、playlist 正本から `.lr2folder` file と LR2 `folder` row を再 materialize する。起動時に物理 `.lr2folder` が欠落している場合も、欠落 table をまとめて batch materialization に流し、LR2 `folder` row は単発 sync で収束させる。手動再同期の playlist materialization は、全対象 playlist の期待 `.lr2folder` projection を作り、物理ファイルは差分だけ書き換え、LR2 `folder` row は batch sync として 1 回で収束させる。table ごとに既存出力を削除して DB sync を繰り返さない。stage 開始、table 単位 projection、batch materialization / sync 完了を performance log と status bar に出し、設定画面全体を同期的に無効化して隠れた長時間処理にしない。外部ツールが作った `.lr2folder` は LR2 song.db 同期側の discovery result として扱う。LR2 song.db 同期が playlist materialization 後に実行される場合は、materialization 前に捕捉した startup scan surface を再利用せず、新しい `.lr2folder` file surface を使う。
