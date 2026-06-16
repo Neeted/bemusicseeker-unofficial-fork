@@ -3688,7 +3688,6 @@ public class MainWindowViewModel : ViewModel
             }
             if (tempEnableBeatorajaBmtOutput != Settings.Default.EnableBeatorajaBmtOutput
                 || tempKeepBeatorajaBmtFilesWhenOutputDisabled != Settings.Default.KeepBeatorajaBmtFilesWhenOutputDisabled
-                || !string.Equals(tempBeatorajaBmtHashOutputMode, BeatorajaBmtHashOutputMode, StringComparison.Ordinal)
                 || tempRegisterBeatorajaBmtUrls != Settings.Default.RegisterBeatorajaBmtUrls
                 || !string.Equals(tempBeatorajaRootPath, Settings.Default.BeatorajaRootPath, StringComparison.OrdinalIgnoreCase)
                 || !string.Equals(tempBeatorajaBmtTablePath, Settings.Default.BeatorajaBmtTablePath, StringComparison.OrdinalIgnoreCase))
@@ -22219,7 +22218,7 @@ public class MainWindowViewModel : ViewModel
             table.is_bmt_output = isBmtOutput;
         }
         tables.CommitBMSTableHeadersToDB(changedTables);
-        tables.QueueBeatorajaBmtExportAll("playlist_summary_bmt_output_changed");
+        tables.QueueBeatorajaBmtExportForTables(changedTables, "playlist_summary_bmt_output_changed");
         RefreshPlaylistSummaryIfVisible("playlist_summary_bmt_output_changed", invalidateTableCountCache: false);
     }
 

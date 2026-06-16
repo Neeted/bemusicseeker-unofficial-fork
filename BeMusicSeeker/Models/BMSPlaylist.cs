@@ -293,6 +293,8 @@ public partial class BMSPlaylist : NotificationObject
 
     private long beatorajaBmtUrlSyncGeneration;
 
+    private int beatorajaBmtFullExportActiveCount;
+
     private long beatorajaBmtExportProgressOperationSeed;
 
     internal Func<string, string, string, Func<Task>, bool> StartupBackgroundTaskScheduler { get; set; }
@@ -1021,30 +1023,19 @@ public partial class BMSPlaylist : NotificationObject
         Interlocked.Increment(ref beatorajaBmtUrlSyncGeneration);
         async Task work()
         {
-            await Task.Yield();
-            if (!IsCurrentBeatorajaBmtFullExportGeneration(fullExportGeneration))
+            Interlocked.Increment(ref beatorajaBmtFullExportActiveCount);
+            try
             {
-                return;
-            }
-            var totalStopwatch = Stopwatch.StartNew();
-            long progressOperationId = Interlocked.Increment(ref beatorajaBmtExportProgressOperationSeed);
-            if (!string.IsNullOrWhiteSpace(cleanupTablePath)
-                && (!enabled || !string.Equals(cleanupTablePath, outputPath, StringComparison.OrdinalIgnoreCase))
-                && (enabled || !keepFilesWhenDisabled))
-            {
-                lock (beatorajaBmtFileMutationLock)
+                await Task.Yield();
+                if (!IsCurrentBeatorajaBmtFullExportGeneration(fullExportGeneration))
                 {
-                    if (!IsCurrentBeatorajaBmtFullExportGeneration(fullExportGeneration))
-                    {
-                        return;
-                    }
-                    SyncBeatorajaManagedTableUrls(cleanupTablePath, BmtTableExportService.ReadManagedTableUrls(cleanupTablePath), []);
-                    BmtTableExportService.CleanupManagedFiles(cleanupTablePath);
+                    return;
                 }
-            }
-            if (!enabled)
-            {
-                if (!keepFilesWhenDisabled)
+                var totalStopwatch = Stopwatch.StartNew();
+                long progressOperationId = Interlocked.Increment(ref beatorajaBmtExportProgressOperationSeed);
+                if (!string.IsNullOrWhiteSpace(cleanupTablePath)
+                    && (!enabled || !string.Equals(cleanupTablePath, outputPath, StringComparison.OrdinalIgnoreCase))
+                    && (enabled || !keepFilesWhenDisabled))
                 {
                     lock (beatorajaBmtFileMutationLock)
                     {
@@ -1052,86 +1043,111 @@ public partial class BMSPlaylist : NotificationObject
                         {
                             return;
                         }
-                        SyncBeatorajaManagedTableUrls(outputPath, BmtTableExportService.ReadManagedTableUrls(outputPath), []);
+                        SyncBeatorajaManagedTableUrls(cleanupTablePath, BmtTableExportService.ReadManagedTableUrls(cleanupTablePath), []);
+                        BmtTableExportService.CleanupManagedFiles(cleanupTablePath);
                     }
                 }
-                totalStopwatch.Stop();
-                LogPlaylistPerformance("beatoraja_bmt_export_all skipped reason=" + FormatTextForLog(reason)
-                    + " enabled=false"
-                    + " keepFiles=" + keepFilesWhenDisabled
-                    + " elapsedMs=" + totalStopwatch.ElapsedMilliseconds);
-                return;
-            }
-            List<BMSTable> tablesSnapshot;
-            var snapshotStopwatch = Stopwatch.StartNew();
-            using (rwlockBMSTables.GetReaderGuard())
-            {
-                tablesSnapshot = BMSTables?.Where(table => table != null).ToList() ?? [];
-            }
-            snapshotStopwatch.Stop();
-            bool progressStarted = false;
-            try
-            {
-                List<BMSTable> outputTablesSnapshot = [.. tablesSnapshot.Where(IsBeatorajaBmtOutputTarget).OrderBy(table => GetBeatorajaBmtSortOrTail(table.bmt_sort)).ThenBy(table => table.name ?? string.Empty, StringComparer.CurrentCultureIgnoreCase).ThenBy(table => table.playlist_id ?? int.MaxValue)];
-                int projectionTotal = Math.Max(outputTablesSnapshot.Count, 1);
-                ReportBeatorajaBmtExportProgress(progressOperationId, true, projectionTotal, 0, string.Empty);
-                progressStarted = true;
-                var resolverStopwatch = Stopwatch.StartNew();
-                BeatorajaBmtHashOutputMode hashOutputMode = GetBeatorajaBmtHashOutputMode();
-                Func<BmtSongHashResolveRequest, Tuple<string, string>> hashResolverFunc = hashOutputMode == BeatorajaBmtHashOutputMode.Original
-                    ? null
-                    : beatorajaBmtSongHashResolverFactory?.Invoke();
-                resolverStopwatch.Stop();
-                var projectionStopwatch = Stopwatch.StartNew();
-                List<Tuple<string, JObject>> tableDataSet = BuildBeatorajaBmtTableDataSetSnapshot(
-                    outputTablesSnapshot,
-                    reason,
-                    hashOutputMode,
-                    hashResolverFunc,
-                    delegate (int completed, int total, string tableName)
-                    {
-                        ReportBeatorajaBmtExportProgress(progressOperationId, true, Math.Max(total, 1), completed, tableName);
-                });
-                projectionStopwatch.Stop();
-                var exportStopwatch = Stopwatch.StartNew();
-                int exportProgressTotal = outputTablesSnapshot.Count + tableDataSet.Count;
-                BmtTableExportService.ExportResult exportResult;
-                lock (beatorajaBmtFileMutationLock)
+                if (!enabled)
                 {
-                    if (!IsCurrentBeatorajaBmtFullExportGeneration(fullExportGeneration))
+                    if (!keepFilesWhenDisabled)
                     {
-                        return;
+                        lock (beatorajaBmtFileMutationLock)
+                        {
+                            if (!IsCurrentBeatorajaBmtFullExportGeneration(fullExportGeneration))
+                            {
+                                return;
+                            }
+                            SyncBeatorajaManagedTableUrls(outputPath, BmtTableExportService.ReadManagedTableUrls(outputPath), []);
+                        }
                     }
-                    exportResult = BmtTableExportService.ExportTableDataSet(outputPath, tableDataSet, cleanupStaleManagedFiles: true, delegate (int completed, int total, string tableName)
-                    {
-                        ReportBeatorajaBmtExportProgress(progressOperationId, true, Math.Max(exportProgressTotal, 1), outputTablesSnapshot.Count + completed, tableName);
-                    });
-                    var urlSyncStopwatch = Stopwatch.StartNew();
-                    SyncBeatorajaManagedTableUrls(outputPath, exportResult.PreviousManagedTables, exportResult.CurrentManagedTables);
-                    urlSyncStopwatch.Stop();
-                    exportStopwatch.Stop();
                     totalStopwatch.Stop();
-                    LogPlaylistPerformance("beatoraja_bmt_export_all completed reason=" + FormatTextForLog(reason)
-                        + " tableCount=" + tablesSnapshot.Count
-                        + " enabledOutputCount=" + outputTablesSnapshot.Count
-                        + " outputCount=" + tableDataSet.Count
-                        + " written=" + exportResult.WrittenCount
-                        + " skipped=" + exportResult.SkippedWriteCount
-                        + " removed=" + exportResult.RemovedCount
-                        + " snapshotMs=" + snapshotStopwatch.ElapsedMilliseconds
-                        + " resolverMs=" + resolverStopwatch.ElapsedMilliseconds
-                        + " projectionMs=" + projectionStopwatch.ElapsedMilliseconds
-                        + " exportMs=" + exportStopwatch.ElapsedMilliseconds
-                        + " urlSyncMs=" + urlSyncStopwatch.ElapsedMilliseconds
+                    LogPlaylistPerformance("beatoraja_bmt_export_all skipped reason=" + FormatTextForLog(reason)
+                        + " enabled=false"
+                        + " keepFiles=" + keepFilesWhenDisabled
                         + " elapsedMs=" + totalStopwatch.ElapsedMilliseconds);
+                    return;
+                }
+                List<BMSTable> tablesSnapshot;
+                var snapshotStopwatch = Stopwatch.StartNew();
+                using (rwlockBMSTables.GetReaderGuard())
+                {
+                    tablesSnapshot = BMSTables?.Where(table => table != null).ToList() ?? [];
+                }
+                snapshotStopwatch.Stop();
+                bool progressStarted = false;
+                try
+                {
+                    List<BMSTable> outputTablesSnapshot = [.. tablesSnapshot.Where(IsBeatorajaBmtOutputTarget).OrderBy(table => GetBeatorajaBmtSortOrTail(table.bmt_sort)).ThenBy(table => table.name ?? string.Empty, StringComparer.CurrentCultureIgnoreCase).ThenBy(table => table.playlist_id ?? int.MaxValue)];
+                    List<Tuple<BMSTable, BmtTableExportService.PlaylistExportMetadata>> outputTargets = [.. outputTablesSnapshot
+                        .Select(table => Tuple.Create(table, BmtTableExportService.CreatePlaylistExportMetadata(table)))];
+                    BmtTableExportService.ExportPlan exportPlan = BmtTableExportService.CreateExportPlan(outputPath, outputTargets.Select(target => target.Item2), cleanupStaleManagedFiles: true);
+                    List<BMSTable> projectionTablesSnapshot = [.. outputTargets
+                        .Where(target => exportPlan.RequiresProjection(target.Item2))
+                        .Select(target => target.Item1)];
+                    int projectionTotal = Math.Max(projectionTablesSnapshot.Count, 1);
+                    ReportBeatorajaBmtExportProgress(progressOperationId, true, projectionTotal, 0, string.Empty);
+                    progressStarted = true;
+                    var resolverStopwatch = Stopwatch.StartNew();
+                    BeatorajaBmtHashOutputMode hashOutputMode = GetBeatorajaBmtHashOutputMode();
+                    Func<BmtSongHashResolveRequest, Tuple<string, string>> hashResolverFunc = projectionTablesSnapshot.Count == 0 || hashOutputMode == BeatorajaBmtHashOutputMode.Original
+                        ? null
+                        : beatorajaBmtSongHashResolverFactory?.Invoke();
+                    resolverStopwatch.Stop();
+                    var projectionStopwatch = Stopwatch.StartNew();
+                    List<Tuple<string, JObject>> tableDataSet = BuildBeatorajaBmtTableDataSetSnapshot(
+                        projectionTablesSnapshot,
+                        reason,
+                        hashOutputMode,
+                        hashResolverFunc,
+                        delegate (int completed, int total, string tableName)
+                        {
+                            ReportBeatorajaBmtExportProgress(progressOperationId, true, Math.Max(total, 1), completed, tableName);
+                    });
+                    projectionStopwatch.Stop();
+                    var exportStopwatch = Stopwatch.StartNew();
+                    int exportProgressTotal = projectionTablesSnapshot.Count + tableDataSet.Count;
+                    BmtTableExportService.ExportResult exportResult;
+                    lock (beatorajaBmtFileMutationLock)
+                    {
+                        if (!IsCurrentBeatorajaBmtFullExportGeneration(fullExportGeneration))
+                        {
+                            return;
+                        }
+                        exportResult = BmtTableExportService.ExportTableDataSet(outputPath, tableDataSet, exportPlan, delegate (int completed, int total, string tableName)
+                        {
+                            ReportBeatorajaBmtExportProgress(progressOperationId, true, Math.Max(exportProgressTotal, 1), projectionTablesSnapshot.Count + completed, tableName);
+                        });
+                        var urlSyncStopwatch = Stopwatch.StartNew();
+                        SyncBeatorajaManagedTableUrls(outputPath, exportResult.PreviousManagedTables, exportResult.CurrentManagedTables);
+                        urlSyncStopwatch.Stop();
+                        exportStopwatch.Stop();
+                        totalStopwatch.Stop();
+                        LogPlaylistPerformance("beatoraja_bmt_export_all completed reason=" + FormatTextForLog(reason)
+                            + " tableCount=" + tablesSnapshot.Count
+                            + " enabledOutputCount=" + outputTablesSnapshot.Count
+                            + " outputCount=" + tableDataSet.Count
+                            + " written=" + exportResult.WrittenCount
+                            + " skipped=" + exportResult.SkippedWriteCount
+                            + " removed=" + exportResult.RemovedCount
+                            + " snapshotMs=" + snapshotStopwatch.ElapsedMilliseconds
+                            + " resolverMs=" + resolverStopwatch.ElapsedMilliseconds
+                            + " projectionMs=" + projectionStopwatch.ElapsedMilliseconds
+                            + " exportMs=" + exportStopwatch.ElapsedMilliseconds
+                            + " urlSyncMs=" + urlSyncStopwatch.ElapsedMilliseconds
+                            + " elapsedMs=" + totalStopwatch.ElapsedMilliseconds);
+                    }
+                }
+                finally
+                {
+                    if (progressStarted)
+                    {
+                        ReportBeatorajaBmtExportProgress(progressOperationId, false, 0, 0, string.Empty);
+                    }
                 }
             }
             finally
             {
-                if (progressStarted)
-                {
-                    ReportBeatorajaBmtExportProgress(progressOperationId, false, 0, 0, string.Empty);
-                }
+                Interlocked.Decrement(ref beatorajaBmtFullExportActiveCount);
             }
         }
         if (StartupBackgroundTaskScheduler != null && StartupBackgroundTaskScheduler("beatoraja_bmt_export_all", reason ?? "queue", null, work))
@@ -1146,9 +1162,74 @@ public partial class BMSPlaylist : NotificationObject
         return generation == Interlocked.Read(ref beatorajaBmtFullExportGeneration);
     }
 
+    private bool IsBeatorajaBmtFullExportActive()
+    {
+        return Volatile.Read(ref beatorajaBmtFullExportActiveCount) > 0;
+    }
+
     internal void QueueBeatorajaBmtExportForTable(BMSTable table, string reason)
     {
         QueueBeatorajaBmtExport(table, reason);
+    }
+
+    internal void QueueBeatorajaBmtExportForTables(IEnumerable<BMSTable> tables, string reason)
+    {
+        if (!IsBeatorajaBmtOutputEnabled())
+        {
+            return;
+        }
+        List<int> playlistIds = [.. (tables ?? [])
+            .Where(table => table?.playlist_id.HasValue == true)
+            .Select(table => table.playlist_id.Value)
+            .Distinct()];
+        if (playlistIds.Count == 0)
+        {
+            return;
+        }
+        Interlocked.Increment(ref beatorajaBmtUrlSyncGeneration);
+        lock (beatorajaBmtExportQueueLock)
+        {
+            foreach (int playlistId in playlistIds)
+            {
+                pendingBeatorajaBmtExportPlaylistIds.Add(playlistId);
+            }
+        }
+        ScheduleBeatorajaBmtExportQueue(reason);
+    }
+
+    internal void QueueBeatorajaBmtRemoveForTable(BMSTable table, string reason)
+    {
+        if (!IsBeatorajaBmtOutputEnabled() || table?.playlist_id.HasValue != true)
+        {
+            return;
+        }
+        string tablePath = GetBeatorajaBmtTablePath();
+        int playlistId = table.playlist_id.Value;
+        Interlocked.Increment(ref beatorajaBmtUrlSyncGeneration);
+        string playlistIdentity = playlistId.ToString(CultureInfo.InvariantCulture);
+        async Task work()
+        {
+            await Task.Yield();
+            while (IsBeatorajaBmtFullExportActive())
+            {
+                await Task.Delay(250);
+            }
+            lock (beatorajaBmtFileMutationLock)
+            {
+                if (!IsBeatorajaBmtOutputEnabled()
+                    || !string.Equals(tablePath, GetBeatorajaBmtTablePath(), StringComparison.OrdinalIgnoreCase)
+                    || FindBMSTableByPlaylistId(playlistId) != null)
+                {
+                    return;
+                }
+                BmtTableExportService.ExportResult exportResult = BmtTableExportService.RemoveManagedPlaylist(tablePath, playlistIdentity);
+                SyncBeatorajaManagedTableUrls(tablePath, exportResult.PreviousManagedTables, exportResult.CurrentManagedTables);
+                LogPlaylistPerformance("beatoraja_bmt_remove completed reason=" + FormatTextForLog(reason)
+                    + " playlistId=" + playlistIdentity
+                    + " removed=" + exportResult.RemovedCount);
+            }
+        }
+        Task.Run(work).Logging("QueueBeatorajaBmtRemove");
     }
 
     /// <summary>
@@ -1187,6 +1268,7 @@ public partial class BMSPlaylist : NotificationObject
         {
             return;
         }
+        Interlocked.Increment(ref beatorajaBmtUrlSyncGeneration);
         lock (beatorajaBmtExportQueueLock)
         {
             pendingBeatorajaBmtExportPlaylistIds.Add(table.playlist_id.Value);
@@ -1205,6 +1287,11 @@ public partial class BMSPlaylist : NotificationObject
             await Task.Yield();
             try
             {
+                if (IsBeatorajaBmtFullExportActive())
+                {
+                    await Task.Delay(250);
+                    return;
+                }
                 ProcessBeatorajaBmtExportQueue(reason);
             }
             finally
@@ -1244,29 +1331,60 @@ public partial class BMSPlaylist : NotificationObject
             }
             foreach (int playlistId in playlistIds)
             {
-                BMSTable table;
-                using (rwlockBMSTables.GetReaderGuard())
-                {
-                    table = BMSTables?.FirstOrDefault(candidate => candidate != null && candidate.playlist_id == playlistId);
-                }
+                BMSTable table = FindBMSTableByPlaylistId(playlistId);
                 string tablePath = GetBeatorajaBmtTablePath();
+                BmtTableExportService.PlaylistExportMetadata exportMetadata = BmtTableExportService.CreatePlaylistExportMetadata(table);
                 JObject tableData = BuildBeatorajaBmtTableDataSnapshot(table, reason);
                 lock (beatorajaBmtFileMutationLock)
                 {
-                    List<BmtTableExportService.ManagedTableUrlEntry> previousManagedTables = BmtTableExportService.ReadManagedTableUrls(tablePath);
-                    if (tableData != null && IsBeatorajaBmtOutputTarget(table))
+                    if (!IsBeatorajaBmtOutputEnabled()
+                        || !string.Equals(tablePath, GetBeatorajaBmtTablePath(), StringComparison.OrdinalIgnoreCase))
                     {
-                        BmtTableExportService.ExportTableData(tablePath, tableData, GetBeatorajaBmtPlaylistIdentity(table));
+                        continue;
+                    }
+                    BMSTable currentTable = FindBMSTableByPlaylistId(playlistId);
+                    BmtTableExportService.PlaylistExportMetadata currentMetadata = BmtTableExportService.CreatePlaylistExportMetadata(currentTable);
+                    bool preparedSnapshotIsCurrent = AreSameBeatorajaBmtExportMetadata(exportMetadata, currentMetadata);
+                    List<BmtTableExportService.ManagedTableUrlEntry> previousManagedTables = BmtTableExportService.ReadManagedTableUrls(tablePath);
+                    if (tableData != null && IsBeatorajaBmtOutputTarget(currentTable) && preparedSnapshotIsCurrent)
+                    {
+                        BmtTableExportService.ExportTableData(tablePath, tableData, currentMetadata);
                         SyncBeatorajaManagedTableUrls(tablePath, previousManagedTables, BmtTableExportService.ReadManagedTableUrls(tablePath));
+                    }
+                    else if (currentTable == null || !IsBeatorajaBmtOutputTarget(currentTable) || (tableData == null && preparedSnapshotIsCurrent))
+                    {
+                        BmtTableExportService.ExportResult exportResult = BmtTableExportService.RemoveManagedPlaylist(tablePath, playlistId.ToString(CultureInfo.InvariantCulture));
+                        SyncBeatorajaManagedTableUrls(tablePath, exportResult.PreviousManagedTables, exportResult.CurrentManagedTables);
                     }
                     else
                     {
-                        BmtTableExportService.ExportResult exportResult = BmtTableExportService.RemoveManagedPlaylist(tablePath, playlistId.ToString(CultureInfo.InvariantCulture));
-                        SyncBeatorajaManagedTableUrls(GetBeatorajaBmtTablePath(), exportResult.PreviousManagedTables, exportResult.CurrentManagedTables);
+                        QueueBeatorajaBmtExport(currentTable, reason ?? "stale_snapshot_retry");
                     }
                 }
             }
         }
+    }
+
+    private BMSTable FindBMSTableByPlaylistId(int playlistId)
+    {
+        using (rwlockBMSTables.GetReaderGuard())
+        {
+            return BMSTables?.FirstOrDefault(candidate => candidate != null && candidate.playlist_id == playlistId);
+        }
+    }
+
+    private static bool AreSameBeatorajaBmtExportMetadata(BmtTableExportService.PlaylistExportMetadata left, BmtTableExportService.PlaylistExportMetadata right)
+    {
+        return left != null
+            && right != null
+            && string.Equals(left.PlaylistIdentity, right.PlaylistIdentity, StringComparison.Ordinal)
+            && string.Equals(left.Url, right.Url, StringComparison.Ordinal)
+            && string.Equals(left.FileName, right.FileName, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(left.Name, right.Name, StringComparison.Ordinal)
+            && string.Equals(left.HeaderSha256, right.HeaderSha256, StringComparison.Ordinal)
+            && string.Equals(left.DataSha256, right.DataSha256, StringComparison.Ordinal)
+            && left.LastUpdateTicks == right.LastUpdateTicks
+            && string.Equals(left.ProjectionInputSha256, right.ProjectionInputSha256, StringComparison.Ordinal);
     }
 
     private string GetBeatorajaBmtTablePath()
@@ -4576,15 +4694,20 @@ public partial class BMSPlaylist : NotificationObject
     /// <param name="bmsTable">削除対象のプレイリスト。</param>
     public void RemoveBMSTable(BMSTable bmsTable)
     {
+        bool removed = false;
         using (rwlockBMSTables.GetWriterGuard())
         {
             if (BMSTables.Contains(bmsTable))
             {
                 BMSTables.RemoveExt(bmsTable);
                 deleteBMSTable(bmsTable);
+                removed = true;
             }
         }
-        QueueBeatorajaBmtExportAll("RemoveBMSTable");
+        if (removed)
+        {
+            QueueBeatorajaBmtRemoveForTable(bmsTable, "RemoveBMSTable");
+        }
     }
 
     /// <summary>
@@ -5635,12 +5758,24 @@ public partial class BMSPlaylist : NotificationObject
             entry.MaterializeEffectiveUrlsIntoPersistedValues();
         }
         entry.NormalizeForPlaylistPersistence();
+        if (owningTable != null)
+        {
+            using (owningTable.ReaderWriterLock.GetWriterGuard())
+            {
+                owningTable.last_update = GetNextPlaylistLastUpdate(owningTable.last_update);
+            }
+        }
         try
         {
             using var lR2SongDBExtended = new LR2SongDBExtended(lr2SongDBPath);
             lR2SongDBExtended.BeginTransaction();
             lR2SongDBExtended.Execute("DELETE FROM " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetTableName() + " WHERE " + BuildPlaylistEntryReplacementPredicate(entry) + ";");
             lR2SongDBExtended.InsertOrReplace(entry, typeof(LR2SongDBExtended.playlist_entry));
+            if (owningTable != null)
+            {
+                lR2SongDBExtended.InsertOrReplace(owningTable, typeof(LR2SongDBExtended.playlist));
+                ReplacePersistedCourses(lR2SongDBExtended, owningTable);
+            }
             lR2SongDBExtended.Commit();
         }
         catch
@@ -5662,6 +5797,11 @@ public partial class BMSPlaylist : NotificationObject
             }
             QueueBeatorajaBmtExport(owningTable, "CommitBMSTableEntry");
         }
+    }
+
+    private static DateTime GetNextPlaylistLastUpdate(DateTime currentLastUpdate)
+    {
+        return BMSTable.GetNextLastUpdate(currentLastUpdate);
     }
 
     /// <summary>

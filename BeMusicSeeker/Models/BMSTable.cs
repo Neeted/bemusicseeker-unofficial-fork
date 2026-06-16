@@ -324,6 +324,17 @@ public class BMSTable : LR2SongDBExtended.playlist
         PlaylistEntriesRevision++;
     }
 
+    internal static DateTime GetNextLastUpdate(DateTime currentLastUpdate)
+    {
+        DateTime now = DateTime.Now;
+        return now > currentLastUpdate ? now : currentLastUpdate.AddTicks(1);
+    }
+
+    private void TouchLastUpdate()
+    {
+        base.last_update = GetNextLastUpdate(base.last_update);
+    }
+
     public string Output_dir
     {
         get
@@ -879,7 +890,7 @@ public class BMSTable : LR2SongDBExtended.playlist
         {
             Folder_order = [.. Folder_order.Select(f => (!(f == folderNameBefore)) ? f : folderNameAfter).Distinct()];
         }
-        base.last_update = DateTime.Now;
+        TouchLastUpdate();
         TouchPlaylistEntriesRevision();
     }
 
@@ -907,7 +918,7 @@ public class BMSTable : LR2SongDBExtended.playlist
         bMSTableEntry.parent = this;
         bMSTableEntry.folder = text;
         _entries.Add(bMSTableEntry);
-        base.last_update = DateTime.Now;
+        TouchLastUpdate();
         RebuildFolderState();
         TouchPlaylistEntriesRevision();
         return text;
@@ -937,7 +948,7 @@ public class BMSTable : LR2SongDBExtended.playlist
             entryToAdd.parent = this;
         }
         _entries = rebuildFolder(folderName, entries.Concat(entriesToAdd));
-        base.last_update = DateTime.Now;
+        TouchLastUpdate();
         if (shouldRebuildFolderState)
         {
             RebuildFolderState();
@@ -966,7 +977,7 @@ public class BMSTable : LR2SongDBExtended.playlist
         {
             RebuildFolderState();
         }
-        base.last_update = DateTime.Now;
+        TouchLastUpdate();
         TouchPlaylistEntriesRevision();
     }
 

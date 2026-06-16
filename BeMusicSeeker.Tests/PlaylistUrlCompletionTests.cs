@@ -318,6 +318,8 @@ public sealed class PlaylistUrlCompletionTests
             BMSPlaylist.EnsureSchema(tempDbPath);
             var playlist = new BMSPlaylist(tempDbPath);
             BMSTable table = CreateTable(4001, "LocalTable");
+            var oldLastUpdate = DateTime.Now.AddDays(1);
+            table.last_update = oldLastUpdate;
             BMSTableEntry entry = CreateEntry("ffffffffffffffffffffffffffffffff", "LocalSong");
             table.entries = [entry];
             InsertPlaylistHeader(tempDbPath, table);
@@ -333,6 +335,9 @@ public sealed class PlaylistUrlCompletionTests
             Assert.IsNull(entry.RuntimeUrlDiffCompletion);
             Assert.AreEqual(new Uri("https://example.com/runtime"), storedEntry.Url);
             Assert.AreEqual(new Uri("https://example.com/runtime-diff"), storedEntry.Url_diff);
+            BMSTable storedTable = db.Table<BMSTable>().Single(row => row.playlist_id == table.playlist_id);
+            Assert.IsTrue(table.last_update > oldLastUpdate);
+            Assert.AreEqual(table.last_update, storedTable.last_update);
         }
         finally
         {

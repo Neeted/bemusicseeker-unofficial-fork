@@ -150,7 +150,7 @@ beatoraja score 読み込みも同じ beatoraja ディレクトリを起点に�
 
 プレイリストサマリーでは `BMT SORT` と `BMT OUTPUT` を表示する。`BMT SORT` 昇順表示中のみ、サマリー行の drag & drop で順序を変更できる。降順表示や他列 sort 中の drag reorder は受け付けない。フィルター中の drag reorder は非表示行を現在の相対位置に保持し、可視行のアンカーに対して選択行だけを挿入する。画面外への大きな移動は、行 context menu の「現在の並びをBMT SORTに反映」「BMT SORTの先頭へ」「BMT SORTの末尾へ」で補完する。
 
-`BMT SORT` だけを変更した場合は `.bmt` 本体を書き直さず、専用の URL 同期経路で `config_sys.json` の `tableURL` のみを更新する。`BMT OUTPUT` を変更した場合は managed `.bmt` の作成・削除が必要なため全出力系を使う。
+`BMT SORT` だけを変更した場合は `.bmt` 本体を書き直さず、専用の URL 同期経路で `config_sys.json` の `tableURL` のみを更新する。`BMT OUTPUT` を変更した場合は、変更された playlist だけを個別出力または個別削除の対象にする。
 
 ### 出力形式
 
@@ -179,18 +179,21 @@ course constraints は header source の `grade_mirror` などから beatoraja e
 - ローカル編集で `playlist` / `playlist_entry` を保存した場合、または `CommitBMSTableEntry` を通る場合は対象 playlist を再出力する。
 - プレイリストプロパティ保存後は対象 playlist を再出力する。
 - `.bmt` 設定の有効状態または table path が変わった場合は全 playlist を再出力する。旧 path がある場合は manifest cleanup する。ただし `KeepBeatorajaBmtFilesWhenOutputDisabled` が ON の状態で `.bmt` 出力を無効化した場合は、managed `.bmt` / manifest / `tableURL` を削除せず、最後に出力した状態をそのまま残す。
-- プレイリスト削除と backup restore 後は全出力系を使い、manifest cleanup により不要な managed `.bmt` を削除する。
+- `.bmt hash output` の mode だけを変更した場合は、元 playlist の変化ではないため即時の全再出力 trigger にしない。次に元 playlist が再出力対象になった時点で、その時の mode を使って projection する。
+- プレイリスト削除時は対象 playlist の managed `.bmt` と BeMusicSeeker 管理 `tableURL` だけを削除する。backup restore 後は全出力系を使い、manifest cleanup により不要な managed `.bmt` を削除する。
 - `RegisterBeatorajaBmtUrls` が ON の場合、`.bmt` 出力後に `config_sys.json` の `tableURL` も同期する。
 
-全 playlist の `.bmt` 出力中は、ステータスバーに `.bmt` 出力の件数進捗と処理中 playlist 名を表示する。進捗は table data projection と gzip 書き込みの両方を含む。
+全 playlist の `.bmt` 出力中は、ステータスバーに `.bmt` 出力の件数進捗と処理中 playlist 名を表示する。進捗は manifest 判定で未変更と判断されなかった playlist の table data projection と gzip 書き込みを含む。
 
 ### Managed Cleanup
 
 出力先直下に `.bemusicseeker-bmt-manifest` を置く。拡張子 `.json` は付けない。
 
-manifest は BeMusicSeeker が管理した `.bmt` と playlist ID から最後に出力した `.bmt` file / URL / playlist name / content hash への対応を記録する。cleanup は manifest に記録された `.bmt` だけを削除対象にし、管理外の `.bmt` は削除しない。起動・`ReloadTables`・playlist 削除・restore・設定変更の全出力では、manifest を現在の active playlist set の投影として扱い、別 DB / 別 profile 由来で現在存在しない managed `.bmt` も削除する。
+manifest は BeMusicSeeker が管理した `.bmt` と playlist ID から、最後に出力した `.bmt` file / URL / playlist name / `header_sha256` / `data_sha256` / `last_update` ticks / `.bmt` 投影入力 fingerprint / `.bmt` file mtime / `.bmt` file size への対応を記録する。cleanup は manifest に記録された `.bmt` だけを削除対象にし、管理外の `.bmt` は削除しない。起動・`ReloadTables`・restore・設定変更の全出力では、manifest を現在の active playlist set の投影として扱い、別 DB / 別 profile 由来で現在存在しない managed `.bmt` も削除する。
 
-出力対象 playlist の content hash が manifest と一致し、対応する `.bmt` ファイルが存在する場合は、gzip ファイルの再書き込みを省略する。manifest は active set に合わせて更新し、cleanup と `tableURL` 同期の正本として使い続ける。
+manifest schema v2 では、出力対象 playlist の URL / file name / playlist name / `header_sha256` / `data_sha256` / `last_update` ticks / 投影入力 fingerprint と、実 `.bmt` file の mtime / size が manifest と一致する場合、table data projection と gzip ファイル書き込みを省略する。投影入力 fingerprint には、`.bmt` 出力に効く tag 解決結果、外部同期扱い、compatible prefix、folder order、course JSON を含める。`.bmt hash output` の resolver 結果だけが変わった場合は、元 playlist の変化ではないため、この no-op 判定の invalidation 要因にしない。manifest は active set に合わせて更新し、cleanup と `tableURL` 同期の正本として使い続ける。
+
+旧 manifest に含まれる `contentHash` は no-op 判定には使わない。旧 manifest の `files` と playlist URL は cleanup / `tableURL` 差し替えの所有情報としてだけ読み、新形式での出力後に schema v2 manifest へ自然に置き換える。
 
 同じ playlist ID の `.bmt` URL が変わり、ファイル名が変わった場合は、manifest に残る旧ファイルを削除してから新ファイルを管理対象にする。
 

@@ -138,6 +138,39 @@ public sealed class BMSTableLoadTests
     }
 
     [TestMethod]
+    public void PlaylistStructureMutations_AdvanceLastUpdateMonotonically()
+    {
+        var table = new BMSTable
+        {
+            entries =
+            [
+                CreateEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Alpha")
+            ],
+            Folder_order = ["Alpha"]
+        };
+        var future = DateTime.Now.AddDays(1);
+
+        table.last_update = future;
+        table.CreateNewFolder("Beta");
+        Assert.IsTrue(table.last_update > future);
+
+        future = DateTime.Now.AddDays(2);
+        table.last_update = future;
+        table.RenameFolder("Alpha", "Gamma");
+        Assert.IsTrue(table.last_update > future);
+
+        future = DateTime.Now.AddDays(3);
+        table.last_update = future;
+        table.AddBMSTableEntriesToFolder([CreateEntry("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "Delta")], "Gamma");
+        Assert.IsTrue(table.last_update > future);
+
+        future = DateTime.Now.AddDays(4);
+        table.last_update = future;
+        table.RemoveBMSTableEntries([table.entries.First(entry => entry.md5 == "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")]);
+        Assert.IsTrue(table.last_update > future);
+    }
+
+    [TestMethod]
     public void RewriteCompatibleFolderPrefix_PrefixesExternalFoldersWhenOldPrefixIsEmpty()
     {
         var table = new BMSTable

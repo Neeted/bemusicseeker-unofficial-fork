@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
-using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models.LR2;
@@ -36,6 +35,10 @@ internal static class BmtTableExportService
 
     private const int MaxParallelExportDegree = 4;
 
+    private const int ManifestSchemaVersion = 2;
+
+    private const int BmtExporterVersion = 1;
+
     internal static BeatorajaBmtHashOutputMode NormalizeHashOutputMode(string value)
     {
         return Enum.TryParse(value, ignoreCase: true, out BeatorajaBmtHashOutputMode mode)
@@ -44,8 +47,12 @@ internal static class BmtTableExportService
             : BeatorajaBmtHashOutputMode.Original;
     }
 
-    private sealed class ManifestState
+    internal sealed class ManifestState
     {
+        public int SchemaVersion { get; set; }
+
+        public int ExporterVersion { get; set; }
+
         public HashSet<string> Files { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         public Dictionary<string, ManifestPlaylistEntry> Playlists { get; } = new Dictionary<string, ManifestPlaylistEntry>(StringComparer.Ordinal);
@@ -60,12 +67,78 @@ internal static class BmtTableExportService
         public string Url { get; set; }
 
         public string Name { get; set; }
-
-        public string ContentHash { get; set; }
     }
 
-    private sealed class ManifestPlaylistEntry : ManagedTableUrlEntry
+    internal sealed class ManifestPlaylistEntry : ManagedTableUrlEntry
     {
+        public string HeaderSha256 { get; set; }
+
+        public string DataSha256 { get; set; }
+
+        public long LastUpdateTicks { get; set; }
+
+        public string ProjectionInputSha256 { get; set; }
+
+        public long BmtLastWriteTimeUtcTicks { get; set; }
+
+        public long BmtLength { get; set; }
+    }
+
+    internal sealed class PlaylistExportMetadata
+    {
+        public string PlaylistIdentity { get; set; }
+
+        public string Url { get; set; }
+
+        public string FileName { get; set; }
+
+        public string Name { get; set; }
+
+        public string HeaderSha256 { get; set; }
+
+        public string DataSha256 { get; set; }
+
+        public long LastUpdateTicks { get; set; }
+
+        public string ProjectionInputSha256 { get; set; }
+    }
+
+    internal sealed class ExportPlan
+    {
+        private readonly HashSet<string> projectionPlaylistIdentities = new(StringComparer.Ordinal);
+
+        internal ExportPlan(ManifestState previousManifest, bool cleanupStaleManagedFiles)
+        {
+            PreviousManifest = previousManifest ?? new ManifestState();
+            CleanupStaleManagedFiles = cleanupStaleManagedFiles;
+        }
+
+        internal ManifestState PreviousManifest { get; }
+
+        internal bool CleanupStaleManagedFiles { get; }
+
+        internal HashSet<string> CurrentFiles { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        internal Dictionary<string, ManifestPlaylistEntry> CurrentPlaylists { get; } = new(StringComparer.Ordinal);
+
+        internal Dictionary<string, PlaylistExportMetadata> MetadataByPlaylistIdentity { get; } = new(StringComparer.Ordinal);
+
+        internal int SkippedWriteCount { get; set; }
+
+        public bool RequiresProjection(PlaylistExportMetadata metadata)
+        {
+            return metadata != null
+                && !string.IsNullOrWhiteSpace(metadata.PlaylistIdentity)
+                && projectionPlaylistIdentities.Contains(metadata.PlaylistIdentity);
+        }
+
+        internal void AddProjectionTarget(PlaylistExportMetadata metadata)
+        {
+            if (!string.IsNullOrWhiteSpace(metadata?.PlaylistIdentity))
+            {
+                projectionPlaylistIdentities.Add(metadata.PlaylistIdentity);
+            }
+        }
     }
 
     private sealed class TableDataExportWorkItem
@@ -85,11 +158,16 @@ internal static class BmtTableExportService
     {
         public TableDataExportWorkItem Item { get; set; }
 
-        public string ContentHash { get; set; }
+        public BmtFileState FileState { get; set; }
 
         public bool WroteFile { get; set; }
+    }
 
-        public bool SkippedWrite { get; set; }
+    private sealed class BmtFileState
+    {
+        public long LastWriteTimeUtcTicks { get; set; }
+
+        public long Length { get; set; }
     }
 
     internal sealed class TableDataProjectionSnapshot
@@ -193,17 +271,71 @@ internal static class BmtTableExportService
             return new ExportResult();
         }
         Directory.CreateDirectory(tablePath);
-        ManifestState previousManifest;
-        lock (ManifestLock)
+        List<Tuple<string, JObject>> tableDataList = [.. tableDataSet ?? []];
+        ExportPlan exportPlan = CreateExportPlan(tablePath, CreateExportMetadataFromTableDataSet(tableDataList), cleanupStaleManagedFiles);
+        List<Tuple<string, JObject>> projectionDataList = [.. tableDataList.Where(item =>
         {
-            previousManifest = ReadManifest(tablePath);
+            if (string.IsNullOrWhiteSpace(item?.Item1))
+            {
+                return true;
+            }
+            return exportPlan.RequiresProjection(ResolveExportMetadata(item.Item1, item.Item2, exportPlan));
+        })];
+        return ExportTableDataSet(tablePath, projectionDataList, exportPlan, progressReporter);
+    }
+
+    internal static ExportPlan CreateExportPlan(string tablePath, IEnumerable<PlaylistExportMetadata> metadataSet, bool cleanupStaleManagedFiles)
+    {
+        ManifestState previousManifest;
+        if (string.IsNullOrWhiteSpace(tablePath))
+        {
+            previousManifest = new ManifestState();
         }
-        List<ManagedTableUrlEntry> previousManagedTables = [.. previousManifest.Playlists.Values.Select(CloneManagedTableUrlEntry)];
-        var result = new ExportResult();
-        var exportedFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var playlists = new Dictionary<string, ManifestPlaylistEntry>(StringComparer.Ordinal);
+        else
+        {
+            Directory.CreateDirectory(tablePath);
+            lock (ManifestLock)
+            {
+                previousManifest = ReadManifest(tablePath);
+            }
+        }
+        var plan = new ExportPlan(previousManifest, cleanupStaleManagedFiles);
+        foreach (PlaylistExportMetadata metadata in (metadataSet ?? []).Where(metadata => metadata != null))
+        {
+            if (!string.IsNullOrWhiteSpace(metadata.PlaylistIdentity))
+            {
+                plan.MetadataByPlaylistIdentity[metadata.PlaylistIdentity] = metadata;
+            }
+            if (ShouldSkipProjection(tablePath, previousManifest, metadata, out ManifestPlaylistEntry previousEntry))
+            {
+                plan.CurrentFiles.Add(metadata.FileName);
+                plan.CurrentPlaylists[metadata.PlaylistIdentity] = previousEntry;
+                plan.SkippedWriteCount++;
+            }
+            else
+            {
+                plan.AddProjectionTarget(metadata);
+            }
+        }
+        return plan;
+    }
+
+    internal static ExportResult ExportTableDataSet(string tablePath, IEnumerable<Tuple<string, JObject>> tableDataSet, ExportPlan exportPlan, Action<int, int, string> progressReporter)
+    {
+        if (string.IsNullOrWhiteSpace(tablePath))
+        {
+            return new ExportResult();
+        }
+        Directory.CreateDirectory(tablePath);
+        exportPlan ??= CreateExportPlan(tablePath, CreateExportMetadataFromTableDataSet(tableDataSet), cleanupStaleManagedFiles: true);
+        var result = new ExportResult
+        {
+            SkippedWriteCount = exportPlan.SkippedWriteCount
+        };
+        var exportedFiles = new HashSet<string>(exportPlan.CurrentFiles, StringComparer.OrdinalIgnoreCase);
+        var playlists = new Dictionary<string, ManifestPlaylistEntry>(exportPlan.CurrentPlaylists, StringComparer.Ordinal);
         List<TableDataExportWorkItem> items = CreateExportWorkItems(tableDataSet);
-        TableDataExportWorkResult[] workResults = ExportPreparedTableDataSet(tablePath, previousManifest, items, progressReporter);
+        TableDataExportWorkResult[] workResults = ExportPreparedTableDataSet(tablePath, items, progressReporter);
         foreach (TableDataExportWorkResult workResult in workResults)
         {
             if (workResult?.Item == null || string.IsNullOrWhiteSpace(workResult.Item.FileName))
@@ -213,28 +345,71 @@ internal static class BmtTableExportService
             exportedFiles.Add(workResult.Item.FileName);
             if (!string.IsNullOrWhiteSpace(workResult.Item.PlaylistIdentity))
             {
+                PlaylistExportMetadata metadata = ResolveExportMetadata(workResult.Item.PlaylistIdentity, workResult.Item.TableData, exportPlan);
                 playlists[workResult.Item.PlaylistIdentity] = CreateManifestPlaylistEntry(
-                    workResult.Item.PlaylistIdentity,
+                    metadata,
                     workResult.Item.FileName,
-                    workResult.Item.TableData,
-                    workResult.ContentHash);
+                    workResult.FileState);
             }
             if (workResult.WroteFile)
             {
                 result.WrittenCount++;
             }
-            else if (workResult.SkippedWrite)
-            {
-                result.SkippedWriteCount++;
-            }
         }
-        ExportResult manifestResult = UpdateManifest(tablePath, exportedFiles, playlists, cleanupStaleManagedFiles);
+        ExportResult manifestResult = UpdateManifest(tablePath, exportedFiles, playlists, exportPlan.CleanupStaleManagedFiles);
         result.PreviousManagedTables.Clear();
-        result.PreviousManagedTables.AddRange(previousManagedTables);
+        result.PreviousManagedTables.AddRange(manifestResult.PreviousManagedTables);
         result.CurrentManagedTables.Clear();
         result.CurrentManagedTables.AddRange(manifestResult.CurrentManagedTables);
         result.RemovedCount = manifestResult.RemovedCount;
         return result;
+    }
+
+    private static IEnumerable<PlaylistExportMetadata> CreateExportMetadataFromTableDataSet(IEnumerable<Tuple<string, JObject>> tableDataSet)
+    {
+        foreach (Tuple<string, JObject> item in tableDataSet ?? [])
+        {
+            PlaylistExportMetadata metadata = CreateExportMetadata(item?.Item1, item?.Item2);
+            if (metadata != null)
+            {
+                yield return metadata;
+            }
+        }
+    }
+
+    private static PlaylistExportMetadata CreateExportMetadata(string playlistIdentity, JObject tableData)
+    {
+        if (string.IsNullOrWhiteSpace(playlistIdentity) || tableData == null)
+        {
+            return null;
+        }
+        string url = tableData.Value<string>("url");
+        return new PlaylistExportMetadata
+        {
+            PlaylistIdentity = playlistIdentity,
+            Url = url,
+            FileName = GetOutputFileName(url),
+            Name = tableData.Value<string>("name") ?? string.Empty
+        };
+    }
+
+    private static PlaylistExportMetadata ResolveExportMetadata(string playlistIdentity, JObject tableData, ExportPlan exportPlan)
+    {
+        if (!string.IsNullOrWhiteSpace(playlistIdentity)
+            && exportPlan?.MetadataByPlaylistIdentity.TryGetValue(playlistIdentity, out PlaylistExportMetadata metadata) == true)
+        {
+            return metadata;
+        }
+        return CreateExportMetadata(playlistIdentity, tableData);
+    }
+
+    private static PlaylistExportMetadata ResolveExportMetadata(PlaylistExportMetadata metadata, JObject tableData)
+    {
+        if (metadata != null)
+        {
+            return metadata;
+        }
+        return CreateExportMetadata(null, tableData);
     }
 
     private static List<TableDataExportWorkItem> CreateExportWorkItems(IEnumerable<Tuple<string, JObject>> tableDataSet)
@@ -257,7 +432,6 @@ internal static class BmtTableExportService
 
     private static TableDataExportWorkResult[] ExportPreparedTableDataSet(
         string tablePath,
-        ManifestState previousManifest,
         List<TableDataExportWorkItem> items,
         Action<int, int, string> progressReporter)
     {
@@ -269,7 +443,7 @@ internal static class BmtTableExportService
         int parallelDegree = ResolveParallelExportDegree(items);
         if (parallelDegree <= 1)
         {
-            ExportPreparedTableDataSetSequential(tablePath, previousManifest, items, workResults, progressReporter);
+            ExportPreparedTableDataSetSequential(tablePath, items, workResults, progressReporter);
             return workResults;
         }
         int processedCount = 0;
@@ -279,7 +453,7 @@ internal static class BmtTableExportService
             new ParallelOptions { MaxDegreeOfParallelism = parallelDegree },
             item =>
             {
-                TableDataExportWorkResult workResult = ExportPreparedTableDataItem(tablePath, previousManifest, item);
+                TableDataExportWorkResult workResult = ExportPreparedTableDataItem(tablePath, item);
                 workResults[item.Index] = workResult;
                 lock (progressLock)
                 {
@@ -292,7 +466,6 @@ internal static class BmtTableExportService
 
     private static void ExportPreparedTableDataSetSequential(
         string tablePath,
-        ManifestState previousManifest,
         List<TableDataExportWorkItem> items,
         TableDataExportWorkResult[] workResults,
         Action<int, int, string> progressReporter)
@@ -300,13 +473,13 @@ internal static class BmtTableExportService
         int processedCount = 0;
         foreach (TableDataExportWorkItem item in items)
         {
-            workResults[item.Index] = ExportPreparedTableDataItem(tablePath, previousManifest, item);
+            workResults[item.Index] = ExportPreparedTableDataItem(tablePath, item);
             processedCount++;
             progressReporter?.Invoke(processedCount, items.Count, item.TableName);
         }
     }
 
-    private static TableDataExportWorkResult ExportPreparedTableDataItem(string tablePath, ManifestState previousManifest, TableDataExportWorkItem item)
+    private static TableDataExportWorkResult ExportPreparedTableDataItem(string tablePath, TableDataExportWorkItem item)
     {
         var result = new TableDataExportWorkResult
         {
@@ -316,13 +489,7 @@ internal static class BmtTableExportService
         {
             return result;
         }
-        result.ContentHash = ComputeContentHash(item.TableData);
-        if (ShouldSkipWrite(tablePath, previousManifest, item.PlaylistIdentity, item.FileName, result.ContentHash))
-        {
-            result.SkippedWrite = true;
-            return result;
-        }
-        WriteTableDataFile(tablePath, item.TableData, item.FileName);
+        result.FileState = WriteTableDataFile(tablePath, item.TableData, item.FileName);
         result.WroteFile = true;
         return result;
     }
@@ -369,10 +536,16 @@ internal static class BmtTableExportService
 
     internal static string ExportTableData(string tablePath, JObject tableData)
     {
-        return ExportTableData(tablePath, tableData, null);
+        return ExportTableData(tablePath, tableData, (PlaylistExportMetadata)null);
     }
 
     internal static string ExportTableData(string tablePath, JObject tableData, string playlistIdentity)
+    {
+        PlaylistExportMetadata metadata = CreateExportMetadata(playlistIdentity, tableData);
+        return ExportTableData(tablePath, tableData, metadata);
+    }
+
+    internal static string ExportTableData(string tablePath, JObject tableData, PlaylistExportMetadata metadata)
     {
         if (string.IsNullOrWhiteSpace(tablePath) || tableData == null)
         {
@@ -384,17 +557,8 @@ internal static class BmtTableExportService
             return null;
         }
         Directory.CreateDirectory(tablePath);
-        string contentHash = ComputeContentHash(tableData);
-        bool skipWrite;
-        lock (ManifestLock)
-        {
-            skipWrite = ShouldSkipWrite(tablePath, ReadManifest(tablePath), playlistIdentity, fileName, contentHash);
-        }
-        if (!skipWrite)
-        {
-            WriteTableDataFile(tablePath, tableData, fileName);
-        }
-        AddManagedFile(tablePath, fileName, playlistIdentity, tableData, contentHash);
+        BmtFileState fileState = WriteTableDataFile(tablePath, tableData, fileName);
+        AddManagedFile(tablePath, fileName, ResolveExportMetadata(metadata, tableData), fileState);
         return fileName;
     }
 
@@ -427,9 +591,13 @@ internal static class BmtTableExportService
             result.PreviousManagedTables.AddRange(manifest.Playlists.Values.Select(CloneManagedTableUrlEntry));
             if (manifest.Playlists.TryGetValue(playlistIdentity, out ManifestPlaylistEntry oldEntry))
             {
-                manifest.Files.Remove(oldEntry.FileName);
-                TryDeleteFile(Path.Combine(tablePath, oldEntry.FileName));
                 manifest.Playlists.Remove(playlistIdentity);
+                if (!IsManagedFileReferenced(manifest.Playlists, oldEntry.FileName))
+                {
+                    manifest.Files.Remove(oldEntry.FileName);
+                    TryDeleteFile(Path.Combine(tablePath, oldEntry.FileName));
+                    result.RemovedCount++;
+                }
                 WriteManifest(tablePath, manifest.Files, manifest.Playlists);
             }
             result.CurrentManagedTables.AddRange(manifest.Playlists.Values.Select(CloneManagedTableUrlEntry));
@@ -447,6 +615,45 @@ internal static class BmtTableExportService
         {
             return [.. ReadManifest(tablePath).Playlists.Values.Select(CloneManagedTableUrlEntry)];
         }
+    }
+
+    internal static PlaylistExportMetadata CreatePlaylistExportMetadata(BMSTable table)
+    {
+        if (table == null || !table.playlist_id.HasValue)
+        {
+            return null;
+        }
+        string url = ResolveTableUrl(table);
+        return new PlaylistExportMetadata
+        {
+            PlaylistIdentity = table.playlist_id.Value.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            Url = url,
+            FileName = GetOutputFileName(url),
+            Name = table.name ?? string.Empty,
+            HeaderSha256 = table.header_sha256 ?? string.Empty,
+            DataSha256 = table.data_sha256 ?? string.Empty,
+            LastUpdateTicks = table.last_update.Ticks,
+            ProjectionInputSha256 = BuildProjectionInputSha256(table)
+        };
+    }
+
+    private static string BuildProjectionInputSha256(BMSTable table)
+    {
+        if (table == null)
+        {
+            return string.Empty;
+        }
+        var projectionInput = new JObject
+        {
+            ["tag"] = ResolveTag(table) ?? string.Empty,
+            ["isExternalSync"] = table.is_external_sync,
+            ["compatiblePrefix"] = table.compat_prefix ?? string.Empty,
+            ["folderOrder"] = new JArray(table.Folder_order ?? []),
+            ["courses"] = new JArray((table.Courses ?? [])
+                .Select(course => course?.course_json)
+                .Where(courseJson => !string.IsNullOrWhiteSpace(courseJson)))
+        };
+        return BMSTable.ComputeSha256Hex(projectionInput.ToString(Formatting.None));
     }
 
     internal static JObject BuildTableData(BMSTable table)
@@ -979,10 +1186,15 @@ internal static class BmtTableExportService
     private static string GetOutputFileName(JObject tableData)
     {
         string url = tableData?.Value<string>("url");
+        return GetOutputFileName(url);
+    }
+
+    private static string GetOutputFileName(string url)
+    {
         return string.IsNullOrWhiteSpace(url) ? null : BMSTable.ComputeSha256Hex(url) + ".bmt";
     }
 
-    private static void WriteTableDataFile(string tablePath, JObject tableData, string fileName)
+    private static BmtFileState WriteTableDataFile(string tablePath, JObject tableData, string fileName)
     {
         string outputPath = Path.Combine(tablePath, fileName);
         string tempPath = outputPath + "." + Guid.NewGuid().ToString("N") + ".tmp";
@@ -995,6 +1207,7 @@ internal static class BmtTableExportService
                 writer.Write(tableData.ToString(Formatting.Indented));
             }
             ReplaceFile(tempPath, outputPath);
+            return ReadBmtFileState(outputPath);
         }
         finally
         {
@@ -1002,47 +1215,96 @@ internal static class BmtTableExportService
         }
     }
 
-    private static bool ShouldSkipWrite(string tablePath, ManifestState previousManifest, string playlistIdentity, string fileName, string contentHash)
+    private static bool ShouldSkipProjection(string tablePath, ManifestState previousManifest, PlaylistExportMetadata metadata, out ManifestPlaylistEntry previousEntry)
     {
-        return !string.IsNullOrWhiteSpace(playlistIdentity)
-            && !string.IsNullOrWhiteSpace(fileName)
-            && !string.IsNullOrWhiteSpace(contentHash)
-            && previousManifest?.Playlists.TryGetValue(playlistIdentity, out ManifestPlaylistEntry previousEntry) == true
-            && string.Equals(previousEntry.FileName, fileName, StringComparison.OrdinalIgnoreCase)
-            && string.Equals(previousEntry.ContentHash, contentHash, StringComparison.Ordinal)
-            && File.Exists(Path.Combine(tablePath, fileName));
-    }
-
-    private static string ComputeContentHash(JObject tableData)
-    {
-        if (tableData == null)
+        previousEntry = null;
+        if (string.IsNullOrWhiteSpace(tablePath)
+            || metadata == null
+            || string.IsNullOrWhiteSpace(metadata.PlaylistIdentity)
+            || string.IsNullOrWhiteSpace(metadata.FileName)
+            || !HasReliableNoOpMetadata(metadata)
+            || previousManifest?.SchemaVersion != ManifestSchemaVersion
+            || previousManifest.ExporterVersion != BmtExporterVersion
+            || previousManifest.Playlists.TryGetValue(metadata.PlaylistIdentity, out previousEntry) != true
+            || !IsManifestEntryMatch(previousEntry, metadata))
         {
-            return string.Empty;
+            return false;
         }
-        byte[] bytes = Encoding.UTF8.GetBytes(tableData.ToString(Formatting.None));
-        using SHA256 sha256 = SHA256.Create();
-        return BitConverter.ToString(sha256.ComputeHash(bytes)).Replace("-", string.Empty).ToLowerInvariant();
+        string outputPath = Path.Combine(tablePath, metadata.FileName);
+        BmtFileState fileState = ReadBmtFileState(outputPath);
+        return fileState != null
+            && previousEntry.BmtLength == fileState.Length
+            && previousEntry.BmtLastWriteTimeUtcTicks == fileState.LastWriteTimeUtcTicks;
     }
 
-    private static void AddManagedFile(string tablePath, string fileName, string playlistIdentity, JObject tableData, string contentHash)
+    private static bool HasReliableNoOpMetadata(PlaylistExportMetadata metadata)
+    {
+        return metadata != null
+            && !string.IsNullOrWhiteSpace(metadata.ProjectionInputSha256)
+            && (metadata.LastUpdateTicks > 0
+                || !string.IsNullOrWhiteSpace(metadata.HeaderSha256)
+                || !string.IsNullOrWhiteSpace(metadata.DataSha256));
+    }
+
+    private static bool IsManifestEntryMatch(ManifestPlaylistEntry entry, PlaylistExportMetadata metadata)
+    {
+        return entry != null
+            && metadata != null
+            && string.Equals(entry.FileName, metadata.FileName, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(entry.Url, metadata.Url ?? string.Empty, StringComparison.Ordinal)
+            && string.Equals(entry.Name, metadata.Name ?? string.Empty, StringComparison.Ordinal)
+            && string.Equals(entry.HeaderSha256, metadata.HeaderSha256 ?? string.Empty, StringComparison.Ordinal)
+            && string.Equals(entry.DataSha256, metadata.DataSha256 ?? string.Empty, StringComparison.Ordinal)
+            && entry.LastUpdateTicks == metadata.LastUpdateTicks
+            && string.Equals(entry.ProjectionInputSha256, metadata.ProjectionInputSha256 ?? string.Empty, StringComparison.Ordinal);
+    }
+
+    private static void AddManagedFile(string tablePath, string fileName, PlaylistExportMetadata metadata, BmtFileState fileState)
     {
         lock (ManifestLock)
         {
             ManifestState manifest = ReadManifest(tablePath);
-            if (!string.IsNullOrWhiteSpace(playlistIdentity)
-                && manifest.Playlists.TryGetValue(playlistIdentity, out ManifestPlaylistEntry oldEntry)
+            if (!string.IsNullOrWhiteSpace(metadata?.PlaylistIdentity)
+                && manifest.Playlists.TryGetValue(metadata.PlaylistIdentity, out ManifestPlaylistEntry oldEntry)
                 && !string.Equals(oldEntry.FileName, fileName, StringComparison.OrdinalIgnoreCase))
             {
-                manifest.Files.Remove(oldEntry.FileName);
-                TryDeleteFile(Path.Combine(tablePath, oldEntry.FileName));
+                bool oldFileStillReferenced = manifest.Playlists
+                    .Where(item => !string.Equals(item.Key, metadata.PlaylistIdentity, StringComparison.Ordinal))
+                    .Any(item => string.Equals(item.Value?.FileName, oldEntry.FileName, StringComparison.OrdinalIgnoreCase));
+                if (!oldFileStillReferenced)
+                {
+                    manifest.Files.Remove(oldEntry.FileName);
+                    TryDeleteFile(Path.Combine(tablePath, oldEntry.FileName));
+                }
             }
             manifest.Files.Add(fileName);
-            if (!string.IsNullOrWhiteSpace(playlistIdentity))
+            if (!string.IsNullOrWhiteSpace(metadata?.PlaylistIdentity))
             {
-                manifest.Playlists[playlistIdentity] = CreateManifestPlaylistEntry(playlistIdentity, fileName, tableData, contentHash);
+                manifest.Playlists[metadata.PlaylistIdentity] = CreateManifestPlaylistEntry(metadata, fileName, fileState);
             }
             WriteManifest(tablePath, manifest.Files, manifest.Playlists);
         }
+    }
+
+    private static bool IsManagedFileReferenced(IDictionary<string, ManifestPlaylistEntry> playlists, string fileName)
+    {
+        return !string.IsNullOrWhiteSpace(fileName)
+            && (playlists ?? new Dictionary<string, ManifestPlaylistEntry>(StringComparer.Ordinal)).Values
+                .Any(entry => string.Equals(entry?.FileName, fileName, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static BmtFileState ReadBmtFileState(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+        {
+            return null;
+        }
+        var fileInfo = new FileInfo(path);
+        return new BmtFileState
+        {
+            LastWriteTimeUtcTicks = fileInfo.LastWriteTimeUtc.Ticks,
+            Length = fileInfo.Length
+        };
     }
 
     private static ManifestState ReadManifest(string tablePath)
@@ -1056,6 +1318,8 @@ internal static class BmtTableExportService
         try
         {
             var manifest = JObject.Parse(File.ReadAllText(manifestPath, Encoding.UTF8));
+            state.SchemaVersion = manifest.Value<int?>("schemaVersion") ?? 0;
+            state.ExporterVersion = manifest.Value<int?>("exporterVersion") ?? 0;
             foreach (JToken item in manifest["files"] as JArray ?? [])
             {
                 string fileName = Path.GetFileName(item.ToString());
@@ -1079,7 +1343,12 @@ internal static class BmtTableExportService
                             FileName = fileName,
                             Url = url,
                             Name = value.Value<string>("name") ?? string.Empty,
-                            ContentHash = value.Value<string>("contentHash") ?? string.Empty
+                            HeaderSha256 = value.Value<string>("headerSha256") ?? string.Empty,
+                            DataSha256 = value.Value<string>("dataSha256") ?? string.Empty,
+                            LastUpdateTicks = value.Value<long?>("lastUpdateTicks") ?? 0L,
+                            ProjectionInputSha256 = value.Value<string>("projectionInputSha256") ?? string.Empty,
+                            BmtLastWriteTimeUtcTicks = value.Value<long?>("bmtLastWriteTimeUtcTicks") ?? 0L,
+                            BmtLength = value.Value<long?>("bmtLength") ?? 0L
                         };
                         state.Files.Add(fileName);
                     }
@@ -1101,6 +1370,8 @@ internal static class BmtTableExportService
     {
         var manifest = new JObject
         {
+            ["schemaVersion"] = ManifestSchemaVersion,
+            ["exporterVersion"] = BmtExporterVersion,
             ["files"] = new JArray((fileNames ?? []).Where(fileName => !string.IsNullOrWhiteSpace(fileName)).OrderBy(fileName => fileName, StringComparer.OrdinalIgnoreCase))
         };
         if (playlists != null && playlists.Count > 0)
@@ -1115,7 +1386,12 @@ internal static class BmtTableExportService
                         ["file"] = item.Value.FileName,
                         ["url"] = item.Value.Url,
                         ["name"] = item.Value.Name ?? string.Empty,
-                        ["contentHash"] = item.Value.ContentHash ?? string.Empty
+                        ["headerSha256"] = item.Value.HeaderSha256 ?? string.Empty,
+                        ["dataSha256"] = item.Value.DataSha256 ?? string.Empty,
+                        ["lastUpdateTicks"] = item.Value.LastUpdateTicks,
+                        ["projectionInputSha256"] = item.Value.ProjectionInputSha256 ?? string.Empty,
+                        ["bmtLastWriteTimeUtcTicks"] = item.Value.BmtLastWriteTimeUtcTicks,
+                        ["bmtLength"] = item.Value.BmtLength
                     };
                 }
             }
@@ -1124,15 +1400,20 @@ internal static class BmtTableExportService
         File.WriteAllText(Path.Combine(tablePath, ManifestFileName), manifest.ToString(Formatting.Indented), new UTF8Encoding(false));
     }
 
-    private static ManifestPlaylistEntry CreateManifestPlaylistEntry(string playlistIdentity, string fileName, JObject tableData, string contentHash)
+    private static ManifestPlaylistEntry CreateManifestPlaylistEntry(PlaylistExportMetadata metadata, string fileName, BmtFileState fileState)
     {
         return new ManifestPlaylistEntry
         {
-            PlaylistIdentity = playlistIdentity,
+            PlaylistIdentity = metadata?.PlaylistIdentity,
             FileName = fileName,
-            Url = tableData?.Value<string>("url") ?? string.Empty,
-            Name = tableData?.Value<string>("name") ?? string.Empty,
-            ContentHash = contentHash ?? string.Empty
+            Url = metadata?.Url ?? string.Empty,
+            Name = metadata?.Name ?? string.Empty,
+            HeaderSha256 = metadata?.HeaderSha256 ?? string.Empty,
+            DataSha256 = metadata?.DataSha256 ?? string.Empty,
+            LastUpdateTicks = metadata?.LastUpdateTicks ?? 0L,
+            ProjectionInputSha256 = metadata?.ProjectionInputSha256 ?? string.Empty,
+            BmtLastWriteTimeUtcTicks = fileState?.LastWriteTimeUtcTicks ?? 0L,
+            BmtLength = fileState?.Length ?? 0L
         };
     }
 
@@ -1143,8 +1424,7 @@ internal static class BmtTableExportService
             PlaylistIdentity = entry?.PlaylistIdentity,
             FileName = entry?.FileName,
             Url = entry?.Url,
-            Name = entry?.Name,
-            ContentHash = entry?.ContentHash
+            Name = entry?.Name
         };
     }
 
