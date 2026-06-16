@@ -1182,7 +1182,7 @@ BMSファイルが重複しないようにマージします。
     <value>カテゴリALL</value>
   </data>
   <data name="PlaylistProp_ftype_etc" xml:space="preserve">
-    <value>その他 (マイベスト・新規追加・スコア未送信・削除曲)</value>
+    <value>その他(マイベスト・新規・未送信)</value>
   </data>
   <data name="Player_uBMplay_desc" xml:space="preserve">
     <value>※Win8/10では別ウィンドウでの再生となります</value>
@@ -1459,6 +1459,18 @@ maintenance の再スキャンや chart_info の全譜面補完は行いませ�
   </data>
   <data name="PlaylistProp_ftype_level" xml:space="preserve">
     <value>レベル</value>
+  </data>
+  <data name="PlaylistProp_ftype_random" xml:space="preserve">
+    <value>ランダム</value>
+  </data>
+  <data name="PlaylistProp_ftype_bpm_sort" xml:space="preserve">
+    <value>BPM順</value>
+  </data>
+  <data name="PlaylistProp_ftype_bp_sort" xml:space="preserve">
+    <value>BP順</value>
+  </data>
+  <data name="PlaylistProp_ftype_play_count_sort" xml:space="preserve">
+    <value>プレイ回数順</value>
   </data>
   <data name="PlaylistProp_entrytype" xml:space="preserve">
     <value>エントリー単位: </value>

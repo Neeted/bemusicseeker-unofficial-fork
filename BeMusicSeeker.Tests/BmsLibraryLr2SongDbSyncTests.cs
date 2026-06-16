@@ -2520,11 +2520,69 @@ public sealed class BmsLibraryLr2SongDbSyncTests
 
             string outputDirectory = Path.Combine(outputBase, "CountParity");
             CollectionAssert.Contains(directories, outputDirectory);
-            Assert.AreEqual(10, filePaths.Count);
+            Assert.AreEqual(11, filePaths.Count);
             CollectionAssert.Contains(filePaths, Path.Combine(outputDirectory, "0000.lr2folder"));
-            CollectionAssert.Contains(filePaths, Path.Combine(outputDirectory, "0009.lr2folder"));
-            CollectionAssert.DoesNotContain(filePaths, Path.Combine(outputDirectory, "0010.lr2folder"));
-            CollectionAssert.Contains(pruneExcludedPaths, Path.Combine(outputDirectory, "0009.lr2folder"));
+            CollectionAssert.Contains(filePaths, Path.Combine(outputDirectory, "0010.lr2folder"));
+            CollectionAssert.DoesNotContain(filePaths, Path.Combine(outputDirectory, "0011.lr2folder"));
+            CollectionAssert.Contains(pruneExcludedPaths, Path.Combine(outputDirectory, "0010.lr2folder"));
+            Assert.IsTrue(GetInputBool(outputScope, "IsComplete"));
+        }
+        finally
+        {
+            ResetTouchedSettings();
+        }
+    }
+
+    [TestMethod]
+    public void CreateLr2SongDbSyncAppManagedOutputScope_ProtectsExpectedHierarchyDirectoryRows()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        try
+        {
+            Settings.Default.OperationModeLR2DB = true;
+            ResetLr2FolderDiscoverySettings();
+            BMSPlaylist.EnsureSchema(scope.SongDbPath);
+            string bmsRoot = Path.Combine(scope.DirectoryPath, "BMS");
+            string outputBase = Path.Combine(bmsRoot, "#BeMusicSeeker");
+            Settings.Default.LR2CustomFolderOutputBaseDir = outputBase;
+            using (var setup = new LR2SongDBExtended(scope.SongDbPath))
+            {
+                setup.InsertOrReplace(new BMSTable
+                {
+                    playlist_id = 9202,
+                    name = "ManagedHierarchy",
+                    symbol = "MH",
+                    Output_dir = "ManagedHierarchy",
+                    ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
+                        & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder
+                        & ~LR2SongDBExtended.playlist.CustomFolderType.ClearFolder
+                }, typeof(LR2SongDBExtended.playlist));
+                setup.Execute(
+                    "INSERT INTO playlist_entry (playlist_id, md5, title, folder, level, is_removed) VALUES (?, ?, ?, ?, ?, ?);",
+                    9202,
+                    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "Active A",
+                    "st0",
+                    1.0,
+                    0);
+            }
+            var library = new BMSLibrary(scope.SongDbPath)
+            {
+                SearchTargets = [bmsRoot],
+                BMSFiles = []
+            };
+
+            object outputScope = InvokeCreateLr2SongDbSyncAppManagedOutputScope(library);
+            List<string> pruneExcludedPaths = GetInputStringList(outputScope, "PruneExcludedPaths").ToList();
+
+            string outputDirectory = Path.Combine(outputBase, "ManagedHierarchy");
+            string clearDirectory = Path.Combine(outputDirectory, "CLEAR FOLDER");
+            string noPlayDirectory = Path.Combine(clearDirectory, "0 NO PLAY");
+            CollectionAssert.Contains(pruneExcludedPaths, Lr2FolderPath.ToFolderPath(outputBase));
+            CollectionAssert.Contains(pruneExcludedPaths, Lr2FolderPath.ToFolderPath(outputDirectory));
+            CollectionAssert.Contains(pruneExcludedPaths, Lr2FolderPath.ToFolderPath(clearDirectory));
+            CollectionAssert.Contains(pruneExcludedPaths, Lr2FolderPath.ToFolderPath(noPlayDirectory));
+            CollectionAssert.Contains(pruneExcludedPaths, Path.Combine(noPlayDirectory, "0000.lr2folder"));
             Assert.IsTrue(GetInputBool(outputScope, "IsComplete"));
         }
         finally
@@ -2640,7 +2698,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
     }
 
     [TestMethod]
-    public void CreateLr2SongDbSyncInputWithoutScanSurface_ExcludesManagedOutputExactFiles()
+    public void CreateLr2SongDbSyncInputWithoutScanSurface_ExcludesManagedOutputDirectoryFiles()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         try
@@ -2688,7 +2746,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             List<string> pruneExcludedPaths = GetInputStringList(input, "Lr2FolderPruneExcludedPaths").ToList();
 
             CollectionAssert.DoesNotContain(lr2FolderFilePaths, managedPath);
-            CollectionAssert.Contains(lr2FolderFilePaths, externalPath);
+            CollectionAssert.DoesNotContain(lr2FolderFilePaths, externalPath);
             CollectionAssert.Contains(pruneExcludedPaths, managedPath);
             Assert.IsTrue(GetInputBool(input, "Lr2FolderFileDiscoveryComplete"));
         }
@@ -2699,7 +2757,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
     }
 
     [TestMethod]
-    public void CreateLr2SongDbSyncInputWithoutScanSurface_KeepsPreparedManagedOutputExactFiles()
+    public void CreateLr2SongDbSyncInputWithoutScanSurface_KeepsPreparedManagedOutputExactFilesAndExcludesManagedDirectoryExtras()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         try
@@ -2749,7 +2807,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             List<string> lr2FolderFilePaths = GetInputStringList(input, "Lr2FolderFilePaths").ToList();
 
             CollectionAssert.Contains(lr2FolderFilePaths, managedPath);
-            CollectionAssert.Contains(lr2FolderFilePaths, externalPath);
+            CollectionAssert.DoesNotContain(lr2FolderFilePaths, externalPath);
             Assert.IsTrue(GetInputBool(input, "Lr2FolderFileDiscoveryComplete"));
         }
         finally

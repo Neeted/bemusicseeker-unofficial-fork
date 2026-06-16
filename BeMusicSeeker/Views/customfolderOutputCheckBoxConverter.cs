@@ -14,8 +14,8 @@ internal class customfolderOutputCheckBoxConverter : IValueConverter
         var customFolderType = (LR2SongDBExtended.playlist.CustomFolderType)value;
         string value2 = parameter as string;
         var customFolderType2 = (LR2SongDBExtended.playlist.CustomFolderType)Enum.Parse(typeof(LR2SongDBExtended.playlist.CustomFolderType), value2);
-        flags = customFolderType;
-        return (customFolderType & customFolderType2) != customFolderType2;
+        flags = LR2SongDBExtended.playlist.NormalizeCustomFolderOutputMask(customFolderType);
+        return LR2SongDBExtended.playlist.IsCustomFolderTypeEnabled(customFolderType, customFolderType2);
     }
 
     public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)

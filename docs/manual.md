@@ -559,7 +559,7 @@ In LR2 linked mode, playlists can be output as LR2 custom folders.
 Specify the normal output destination and root folder output destination on the `Playlist` tab in the settings dialog.
 From playlist `Properties`, configure the output name, `Make root folder`, and the folder types to output.
 
-Do not place important data in the output destinations, and specify different locations for the normal output destination and root folder output destination. During output, `.lr2folder` files under the output destination are rewritten, so if you specify the same location as LR2 custom folders you manage manually or data from another app, they may be unintentionally deleted. It is recommended to prepare an empty folder dedicated to BeMusicSeeker.
+Do not place important data in the output destinations, and specify different locations for the normal output destination and root folder output destination. During output, `.lr2folder` files under each playlist output folder are treated as BeMusicSeeker-managed files and stale ones are deleted. Other folders directly under the normal/root output destination are not touched, but manually managed LR2 custom folders placed inside a playlist output folder may be deleted. It is recommended to prepare an empty folder dedicated to BeMusicSeeker.
 
 Main folder types that can be output:
 
@@ -570,8 +570,12 @@ Main folder types that can be output:
 - DJ level
 - Category ALL
 - Other
+- Random
+- BPM sort
+- BP sort
+- Play count sort
 
-**My personal recommendation is to enable only User-defined and Other.**
+User-defined output creates an `ALL` `.lr2folder` for the whole playlist plus `.lr2folder` files for each playlist folder. Clear and DJ level output create subfolders by status, each containing `ALL` and per-folder `.lr2folder` files. Enabling Random adds `#MAXTRACKS 1` RANDOM variants for User-defined, Level, Clear, and DJ level output. In each output location, normal folders are written first and RANDOM folders are grouped after them. Clear status folders are named from `0 NO PLAY` through `7 P.A` so LR2's TITLE sort keeps the intended status order. BPM sort uses `chart_info.mainbpm`, BP sort uses `score.minbp`, and Play count sort uses `score.playcount`.
 
 Playlists made into root folders are displayed at the root of LR2's song selection screen. This is useful when you want quick access to frequently used tables.
 

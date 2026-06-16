@@ -144,11 +144,13 @@ internal static class Lr2FolderFileDiscoveryService
         IReadOnlyDictionary<string, RootFileEnumerationEntry> entriesByPath,
         IEnumerable<string> appManagedOutputFilePaths,
         bool discoveryComplete,
-        out int excludedCount)
+        out int excludedCount,
+        IEnumerable<string> appManagedOutputDirectories = null)
     {
         excludedCount = 0;
         HashSet<string> excludedFilePaths = CreateNormalizedPathSet(appManagedOutputFilePaths);
-        if (excludedFilePaths.Count == 0)
+        Lr2DirectoryScopeMatcher excludedDirectoryMatcher = Lr2DirectoryScopeMatcher.Create(appManagedOutputDirectories);
+        if (excludedFilePaths.Count == 0 && excludedDirectoryMatcher.IsEmpty)
         {
             Dictionary<string, RootFileEnumerationEntry> unchangedEntries = CreateEntrySurface(paths, entriesByPath);
             return new Lr2FolderFileCandidateSnapshot(
@@ -171,6 +173,7 @@ internal static class Lr2FolderFileDiscoveryService
                 path,
                 entry,
                 excludedFilePaths,
+                excludedDirectoryMatcher,
                 ref excludedCount);
         }
 
@@ -182,6 +185,7 @@ internal static class Lr2FolderFileDiscoveryService
                 pair.Key,
                 pair.Value,
                 excludedFilePaths,
+                excludedDirectoryMatcher,
                 ref excludedCount);
         }
 
@@ -264,6 +268,7 @@ internal static class Lr2FolderFileDiscoveryService
         string path,
         RootFileEnumerationEntry entry,
         ISet<string> excludedFilePaths,
+        Lr2DirectoryScopeMatcher excludedDirectoryMatcher,
         ref int excludedCount)
     {
         if (result == null || seenPaths == null)
@@ -277,7 +282,8 @@ internal static class Lr2FolderFileDiscoveryService
             return;
         }
 
-        if (excludedFilePaths?.Contains(normalizedPath) == true)
+        if (excludedFilePaths?.Contains(normalizedPath) == true
+            || excludedDirectoryMatcher?.ContainsFilePath(normalizedPath) == true)
         {
             excludedCount++;
             return;

@@ -736,6 +736,10 @@ public class Resources
 
     public static string PlaylistProp_ftype_alphabet => ResourceManager.GetString("PlaylistProp_ftype_alphabet", resourceCulture);
 
+    public static string PlaylistProp_ftype_bp_sort => ResourceManager.GetString("PlaylistProp_ftype_bp_sort", resourceCulture);
+
+    public static string PlaylistProp_ftype_bpm_sort => ResourceManager.GetString("PlaylistProp_ftype_bpm_sort", resourceCulture);
+
     public static string PlaylistProp_ftype_clear => ResourceManager.GetString("PlaylistProp_ftype_clear", resourceCulture);
 
     public static string PlaylistProp_ftype_desc => ResourceManager.GetString("PlaylistProp_ftype_desc", resourceCulture);
@@ -745,6 +749,10 @@ public class Resources
     public static string PlaylistProp_ftype_etc => ResourceManager.GetString("PlaylistProp_ftype_etc", resourceCulture);
 
     public static string PlaylistProp_ftype_level => ResourceManager.GetString("PlaylistProp_ftype_level", resourceCulture);
+
+    public static string PlaylistProp_ftype_play_count_sort => ResourceManager.GetString("PlaylistProp_ftype_play_count_sort", resourceCulture);
+
+    public static string PlaylistProp_ftype_random => ResourceManager.GetString("PlaylistProp_ftype_random", resourceCulture);
 
     public static string PlaylistProp_ftype_user => ResourceManager.GetString("PlaylistProp_ftype_user", resourceCulture);
 

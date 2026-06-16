@@ -103,7 +103,31 @@ public sealed class LR2SongDBExtended : LR2SongDB
             DJLevelFolder = 0x10,
             CategoryAllFolder = 0x20,
             OtherFolder = 0x40,
-            AllFolders = 0x7F
+            RandomFolder = 0x80,
+            BpmSortFolder = 0x100,
+            BpSortFolder = 0x200,
+            PlayCountSortFolder = 0x400,
+            AllFolders = 0x7FF
+        }
+
+        public const CustomFolderType LegacyAllFolders = CustomFolderType.UserFolder
+            | CustomFolderType.LevelFolder
+            | CustomFolderType.AlphabetFolder
+            | CustomFolderType.ClearFolder
+            | CustomFolderType.DJLevelFolder
+            | CustomFolderType.CategoryAllFolder
+            | CustomFolderType.OtherFolder;
+
+        public static CustomFolderType NormalizeCustomFolderOutputMask(CustomFolderType ignoreFolderOutput)
+        {
+            return ignoreFolderOutput == LegacyAllFolders
+                ? CustomFolderType.AllFolders
+                : ignoreFolderOutput;
+        }
+
+        public static bool IsCustomFolderTypeEnabled(CustomFolderType ignoreFolderOutput, CustomFolderType type)
+        {
+            return (NormalizeCustomFolderOutputMask(ignoreFolderOutput) & type) == 0;
         }
 
         public enum CustomFolderSortType

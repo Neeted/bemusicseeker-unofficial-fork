@@ -126,13 +126,14 @@ public sealed class Lr2FolderFileDiscoveryServiceTests
     }
 
     [TestMethod]
-    public void ExcludeAppManagedOutputCandidates_RemovesExactManagedOutputFilesOnly()
+    public void ExcludeAppManagedOutputCandidates_RemovesManagedOutputDirectoryFilesOnly()
     {
         using TestDirectoryScope scope = TestDirectoryScope.Create();
         string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
         string outputBase = Path.Combine(rootDirectory, "#BeMusicSeekerOutput");
         string managedDirectory = Path.Combine(outputBase, "Table");
         string managedPath = Path.Combine(managedDirectory, "managed.lr2folder");
+        string managedExtraPath = Path.Combine(managedDirectory, "extra.lr2folder");
         string externalOutputPath = Path.Combine(outputBase, "external.lr2folder");
         string externalPath = Path.Combine(rootDirectory, "External", "external.lr2folder");
         string prefixSiblingPath = Path.Combine(rootDirectory, "#BeMusicSeekerOutputOther", "keep.lr2folder");
@@ -140,6 +141,7 @@ public sealed class Lr2FolderFileDiscoveryServiceTests
         var entries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase)
         {
             [managedPath] = new RootFileEnumerationEntry(managedPath, timestamp),
+            [managedExtraPath] = new RootFileEnumerationEntry(managedExtraPath, timestamp),
             [externalOutputPath] = new RootFileEnumerationEntry(externalOutputPath, timestamp),
             [externalPath] = new RootFileEnumerationEntry(externalPath, timestamp),
             [prefixSiblingPath] = new RootFileEnumerationEntry(prefixSiblingPath, timestamp)
@@ -147,14 +149,16 @@ public sealed class Lr2FolderFileDiscoveryServiceTests
 
         Lr2FolderFileCandidateSnapshot filtered =
             Lr2FolderFileDiscoveryService.ExcludeAppManagedOutputCandidates(
-                [managedPath, externalOutputPath, externalPath, prefixSiblingPath],
+                [managedPath, managedExtraPath, externalOutputPath, externalPath, prefixSiblingPath],
                 entries,
                 [managedPath],
                 discoveryComplete: true,
-                out int excludedCount);
+                excludedCount: out int excludedCount,
+                appManagedOutputDirectories: [managedDirectory]);
 
-        Assert.AreEqual(1, excludedCount);
+        Assert.AreEqual(2, excludedCount);
         CollectionAssert.DoesNotContain(filtered.Paths.ToList(), Path.GetFullPath(managedPath));
+        CollectionAssert.DoesNotContain(filtered.Paths.ToList(), Path.GetFullPath(managedExtraPath));
         CollectionAssert.Contains(filtered.Paths.ToList(), Path.GetFullPath(externalOutputPath));
         CollectionAssert.Contains(filtered.Paths.ToList(), Path.GetFullPath(externalPath));
         CollectionAssert.Contains(filtered.Paths.ToList(), Path.GetFullPath(prefixSiblingPath));
@@ -183,7 +187,8 @@ public sealed class Lr2FolderFileDiscoveryServiceTests
                 entries,
                 [managedEntryOnlyPath],
                 discoveryComplete: true,
-                out int excludedCount);
+                excludedCount: out int excludedCount,
+                appManagedOutputDirectories: [managedDirectory]);
 
         Assert.AreEqual(1, excludedCount);
         CollectionAssert.Contains(filtered.Paths.ToList(), Path.GetFullPath(listedPath));

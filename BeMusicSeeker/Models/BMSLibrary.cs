@@ -5642,7 +5642,8 @@ completeFileEnumerationOnce,
                 fileCheckResult.Lr2ScanLr2FolderFileEntries,
                 appManagedOutputScope.FilePaths,
                 fileCheckResult.Lr2ScanLr2FolderFileDiscoveryComplete,
-                out appManagedCandidateCount);
+                out appManagedCandidateCount,
+                appManagedOutputScope.Directories);
         }
         long filterMs = RestartElapsed(stopwatchStage);
         var request = new Lr2SongDbSyncRequest
@@ -5961,7 +5962,8 @@ completeFileEnumerationOnce,
                     fileCheckResult.Lr2ScanLr2FolderFileEntries,
                     appManagedOutputFilePaths,
                     fileCheckResult.Lr2ScanLr2FolderFileDiscoveryComplete,
-                    out appManagedCandidateCount);
+                    out appManagedCandidateCount,
+                    appManagedOutputScope.Directories);
             }
         }
         IReadOnlyList<string> lr2FolderFilePaths = lr2FolderCandidates.Paths;
@@ -7436,7 +7438,8 @@ completeFileEnumerationOnce,
                         lr2FolderFileCandidates.EntriesByPath,
                         appManagedOutputScope.FilePaths,
                         lr2FolderFileCandidates.DiscoveryComplete,
-                        out enumeratedAppManagedCandidateCount);
+                        out enumeratedAppManagedCandidateCount,
+                        appManagedOutputScope.Directories);
                 if (enumeratedAppManagedCandidateCount > 0)
                 {
                     lr2FolderCandidatesSource += "_app_managed_filtered";
@@ -8886,12 +8889,16 @@ completeFileEnumerationOnce,
                 if (!string.IsNullOrWhiteSpace(outputDirectory))
                 {
                     directories.Add(outputDirectory);
-                    int outputFileCount = CountManagedCustomFolderOutputFiles(table, outputCounts);
-                    for (int index = 0; index < outputFileCount; index++)
+                    IReadOnlyList<string> relativePaths = CreateManagedCustomFolderOutputRelativeFilePaths(table, outputCounts);
+                    foreach (string relativePath in relativePaths)
                     {
-                        string filePath = SafeFullPathOrOriginal(Path.Combine(outputDirectory, $"{index:D4}.lr2folder"));
+                        string filePath = SafeFullPathOrOriginal(Path.Combine(outputDirectory, relativePath));
                         filePaths.Add(filePath);
                         AddManagedPlaylistPruneExcludedPaths(table, filePath, pruneExcludedPaths);
+                    }
+                    foreach (string rowPath in CreateManagedCustomFolderOutputParentDirectoryRowPaths(table, outputDirectory, relativePaths))
+                    {
+                        AddManagedPlaylistPruneExcludedPaths(table, rowPath, pruneExcludedPaths);
                     }
                 }
             }
@@ -8927,6 +8934,73 @@ completeFileEnumerationOnce,
         {
             pruneExcludedPaths.Add(databasePath);
         }
+    }
+
+    private static IReadOnlyList<string> CreateManagedCustomFolderOutputParentDirectoryRowPaths(
+        BMSTable table,
+        string outputDirectory,
+        IEnumerable<string> relativeFilePaths)
+    {
+        string normalizedOutputDirectory = Lr2FolderPath.NormalizeDirectoryPath(outputDirectory);
+        string generationBoundary = CreateManagedCustomFolderDirectoryRowGenerationBoundary(table, normalizedOutputDirectory);
+        if (string.IsNullOrWhiteSpace(normalizedOutputDirectory)
+            || string.IsNullOrWhiteSpace(generationBoundary))
+        {
+            return [];
+        }
+
+        var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (string relativeFilePath in relativeFilePaths ?? [])
+        {
+            if (string.IsNullOrWhiteSpace(relativeFilePath))
+            {
+                continue;
+            }
+
+            string filePath = SafeFullPathOrOriginal(Path.Combine(normalizedOutputDirectory, relativeFilePath));
+            string directory = Lr2FolderPath.SafeGetParentNormalizedDirectory(Lr2FolderPath.NormalizeDirectoryPath(filePath));
+            while (!string.IsNullOrWhiteSpace(directory)
+                && Lr2FolderPath.IsSameOrDescendantNormalized(directory, generationBoundary)
+                && !string.Equals(directory, generationBoundary, StringComparison.OrdinalIgnoreCase))
+            {
+                string rowPath = Lr2FolderPath.ToFolderPathFromNormalizedDirectory(directory);
+                if (!string.IsNullOrWhiteSpace(rowPath))
+                {
+                    result.Add(rowPath);
+                }
+
+                string parent = Lr2FolderPath.SafeGetParentNormalizedDirectory(directory);
+                if (string.IsNullOrWhiteSpace(parent)
+                    || string.Equals(parent, directory, StringComparison.OrdinalIgnoreCase))
+                {
+                    break;
+                }
+                directory = parent;
+            }
+        }
+
+        return [.. result.OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
+    }
+
+    private static string CreateManagedCustomFolderDirectoryRowGenerationBoundary(BMSTable table, string outputDirectory)
+    {
+        string normalizedOutputDirectory = Lr2FolderPath.NormalizeDirectoryPath(outputDirectory);
+        if (string.IsNullOrWhiteSpace(normalizedOutputDirectory))
+        {
+            return null;
+        }
+
+        if (table?.is_root_folder != true)
+        {
+            string normalOutputBase = Lr2FolderPath.NormalizeDirectoryPath(Settings.Default.LR2CustomFolderOutputBaseDir);
+            if (!string.IsNullOrWhiteSpace(normalOutputBase)
+                && Lr2FolderPath.IsSameOrDescendantNormalized(normalizedOutputDirectory, normalOutputBase))
+            {
+                return CreateLr2FolderPhysicalParentDirectoryBoundary(normalOutputBase);
+            }
+        }
+
+        return CreateLr2FolderPhysicalParentDirectoryBoundary(normalizedOutputDirectory);
     }
 
     private static string ResolveManagedPlaylistOutputDatabasePath(BMSTable table, string filePath)
@@ -9034,55 +9108,118 @@ completeFileEnumerationOnce,
             nullLevelPlaylistIds);
     }
 
-    private static int CountManagedCustomFolderOutputFiles(
+    private static IReadOnlyList<string> CreateManagedCustomFolderOutputRelativeFilePaths(
         BMSTable table,
         Lr2SongDbSyncAppManagedOutputCounts outputCounts)
     {
         if (table?.playlist_id == null)
         {
-            return 0;
+            return [];
         }
 
         int playlistId = table.playlist_id.Value;
-        int count = 0;
-        LR2SongDBExtended.playlist.CustomFolderType ignored = table.ignore_folder_output;
-        if ((ignored & LR2SongDBExtended.playlist.CustomFolderType.UserFolder) == 0)
+        LR2SongDBExtended.playlist.CustomFolderType ignored =
+            LR2SongDBExtended.playlist.NormalizeCustomFolderOutputMask(table.ignore_folder_output);
+        bool outputRandom = IsManagedCustomFolderTypeEnabled(ignored, LR2SongDBExtended.playlist.CustomFolderType.RandomFolder);
+        int folderScopeCount = 1 + (outputCounts?.UserFolderCounts.TryGetValue(playlistId, out int userFolderCount) == true
+            ? userFolderCount
+            : 0);
+        var result = new List<string>();
+        int rootFileCount = 0;
+        if (IsManagedCustomFolderTypeEnabled(ignored, LR2SongDBExtended.playlist.CustomFolderType.UserFolder))
         {
-            count += outputCounts?.UserFolderCounts.TryGetValue(playlistId, out int userFolderCount) == true
-                ? userFolderCount
-                : 0;
+            rootFileCount += folderScopeCount;
+            if (outputRandom)
+            {
+                rootFileCount += folderScopeCount;
+            }
         }
-        if ((ignored & LR2SongDBExtended.playlist.CustomFolderType.LevelFolder) == 0)
+        if (IsManagedCustomFolderTypeEnabled(ignored, LR2SongDBExtended.playlist.CustomFolderType.LevelFolder))
         {
-            count += outputCounts?.LevelFolderCounts.TryGetValue(playlistId, out int levelFolderCount) == true
-                ? levelFolderCount
+            int levelFolderCount = outputCounts?.LevelFolderCounts.TryGetValue(playlistId, out int countedLevelFolderCount) == true
+                ? countedLevelFolderCount
                 : 0;
             if (outputCounts?.NullLevelPlaylistIds.Contains(playlistId) == true)
             {
-                count++;
+                levelFolderCount++;
+            }
+            rootFileCount += levelFolderCount;
+            if (outputRandom)
+            {
+                rootFileCount += levelFolderCount;
             }
         }
-        if ((ignored & LR2SongDBExtended.playlist.CustomFolderType.AlphabetFolder) == 0)
+        if (IsManagedCustomFolderTypeEnabled(ignored, LR2SongDBExtended.playlist.CustomFolderType.AlphabetFolder))
         {
-            count += 7;
+            rootFileCount += 7;
         }
-        if ((ignored & LR2SongDBExtended.playlist.CustomFolderType.ClearFolder) == 0)
+        if (IsManagedCustomFolderTypeEnabled(ignored, LR2SongDBExtended.playlist.CustomFolderType.CategoryAllFolder))
         {
-            count += 8;
+            rootFileCount += 5;
         }
-        if ((ignored & LR2SongDBExtended.playlist.CustomFolderType.DJLevelFolder) == 0)
+        if (IsManagedCustomFolderTypeEnabled(ignored, LR2SongDBExtended.playlist.CustomFolderType.OtherFolder))
         {
-            count += 9;
+            rootFileCount += Settings.Default.EnableDownloadLr2IrScoreAndDetectUnsent ? 4 : 3;
         }
-        if ((ignored & LR2SongDBExtended.playlist.CustomFolderType.CategoryAllFolder) == 0)
+        AddManagedCustomFolderSequentialRelativePaths(result, string.Empty, rootFileCount);
+        if (IsManagedCustomFolderTypeEnabled(ignored, LR2SongDBExtended.playlist.CustomFolderType.ClearFolder))
         {
-            count += 5;
+            foreach (string clearDirectory in new[] { "0 NO PLAY", "1 FAILED", "2 ASSIST", "3 EASY", "4 CLEAR", "5 HARD", "6 FC", "7 P.A" })
+            {
+                AddManagedCustomFolderSequentialRelativePaths(
+                    result,
+                    Path.Combine("CLEAR FOLDER", clearDirectory),
+                    folderScopeCount * (outputRandom ? 2 : 1));
+            }
         }
-        if ((ignored & LR2SongDBExtended.playlist.CustomFolderType.OtherFolder) == 0)
+        if (IsManagedCustomFolderTypeEnabled(ignored, LR2SongDBExtended.playlist.CustomFolderType.DJLevelFolder))
         {
-            count += Settings.Default.EnableDownloadLr2IrScoreAndDetectUnsent ? 4 : 3;
+            foreach (string djLevelDirectory in new[] { "AAA", "AA", "A", "UNDER A" })
+            {
+                AddManagedCustomFolderSequentialRelativePaths(
+                    result,
+                    Path.Combine("DJ LEVEL", djLevelDirectory),
+                    folderScopeCount * (outputRandom ? 2 : 1));
+            }
         }
-        return count;
+        if (IsManagedCustomFolderTypeEnabled(ignored, LR2SongDBExtended.playlist.CustomFolderType.BpmSortFolder))
+        {
+            AddManagedCustomFolderSequentialRelativePaths(result, "BPM SORT", folderScopeCount);
+        }
+        if (IsManagedCustomFolderTypeEnabled(ignored, LR2SongDBExtended.playlist.CustomFolderType.BpSortFolder))
+        {
+            AddManagedCustomFolderSequentialRelativePaths(result, "BP SORT", folderScopeCount);
+        }
+        if (IsManagedCustomFolderTypeEnabled(ignored, LR2SongDBExtended.playlist.CustomFolderType.PlayCountSortFolder))
+        {
+            AddManagedCustomFolderSequentialRelativePaths(result, "PLAY COUNT SORT", folderScopeCount);
+        }
+        return result;
+    }
+
+    private static bool IsManagedCustomFolderTypeEnabled(
+        LR2SongDBExtended.playlist.CustomFolderType ignored,
+        LR2SongDBExtended.playlist.CustomFolderType type)
+    {
+        return LR2SongDBExtended.playlist.IsCustomFolderTypeEnabled(ignored, type);
+    }
+
+    private static void AddManagedCustomFolderSequentialRelativePaths(
+        IList<string> result,
+        string relativeDirectory,
+        int count)
+    {
+        if (result == null || count <= 0)
+        {
+            return;
+        }
+
+        for (int index = 0; index < count; index++)
+        {
+            result.Add(string.IsNullOrWhiteSpace(relativeDirectory)
+                ? $"{index:D4}.lr2folder"
+                : Path.Combine(relativeDirectory, $"{index:D4}.lr2folder"));
+        }
     }
 
     private static string ResolveManagedPlaylistOutputDirectory(BMSTable table)
