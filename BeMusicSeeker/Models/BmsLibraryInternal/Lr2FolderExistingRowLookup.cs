@@ -10,6 +10,7 @@ internal static class Lr2FolderExistingRowLookup
     private const string TempExactPathTable = "lr2_folder_existing_path_scope";
     private const string TempPathColumn = "path";
     private const int TempInsertChunkSize = 400;
+    private static readonly IComparer<string> PathBoundComparer = new SQLiteNoCasePathComparer();
 
     internal static IReadOnlyList<LR2SongDB.folder> QueryExactPaths(
         LR2SongDBExtended songDb,
@@ -208,8 +209,8 @@ internal static class Lr2FolderExistingRowLookup
             .Where(range => !string.IsNullOrWhiteSpace(range.Lower)
                 && !string.IsNullOrWhiteSpace(range.Upper)
                 && ComparePathBounds(range.Lower, range.Upper) < 0)
-            .OrderBy(range => range.Lower, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(range => range.Upper, StringComparer.OrdinalIgnoreCase)];
+            .OrderBy(range => range.Lower, PathBoundComparer)
+            .ThenBy(range => range.Upper, PathBoundComparer)];
         var result = new List<PathPrefixRange>();
         foreach (PathPrefixRange range in ordered)
         {
@@ -296,7 +297,7 @@ internal static class Lr2FolderExistingRowLookup
 
     private static int ComparePathBounds(string left, string right)
     {
-        return StringComparer.OrdinalIgnoreCase.Compare(left, right);
+        return PathBoundComparer.Compare(left, right);
     }
 
     private static List<string> BuildLookupPaths(IEnumerable<string> paths)
@@ -304,7 +305,7 @@ internal static class Lr2FolderExistingRowLookup
         return [.. (paths ?? [])
             .Where(path => !string.IsNullOrWhiteSpace(path))
             .Distinct(StringComparer.Ordinal)
-            .OrderBy(path => path, StringComparer.Ordinal)];
+            .OrderBy(path => path, PathBoundComparer)];
     }
 
     private static void PrepareTempExactPathTable(LR2SongDBExtended songDb)
@@ -368,5 +369,48 @@ internal static class Lr2FolderExistingRowLookup
         public string Lower { get; } = lower;
 
         public string Upper { get; } = upper;
+    }
+
+    private sealed class SQLiteNoCasePathComparer : IComparer<string>
+    {
+        public int Compare(string x, string y)
+        {
+            if (ReferenceEquals(x, y))
+            {
+                return 0;
+            }
+            if (x == null)
+            {
+                return -1;
+            }
+            if (y == null)
+            {
+                return 1;
+            }
+
+            int length = Math.Min(x.Length, y.Length);
+            for (int index = 0; index < length; index++)
+            {
+                char left = FoldAsciiUpper(x[index]);
+                char right = FoldAsciiUpper(y[index]);
+                if (left != right)
+                {
+                    return left < right ? -1 : 1;
+                }
+            }
+
+            if (x.Length == y.Length)
+            {
+                return 0;
+            }
+            return x.Length < y.Length ? -1 : 1;
+        }
+
+        private static char FoldAsciiUpper(char value)
+        {
+            return value >= 'A' && value <= 'Z'
+                ? (char)(value + ('a' - 'A'))
+                : value;
+        }
     }
 }

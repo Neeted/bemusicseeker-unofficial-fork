@@ -167,6 +167,120 @@ public sealed class Lr2FolderFileDbSyncServiceTests
     }
 
     [TestMethod]
+    public void Sync_PruneExcludedDirectoriesKeepUnmanagedOutputSiblingsInScope()
+    {
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            using var songDb = new LR2SongDBExtended(songDbPath);
+            songDb.CreateTable<LR2SongDB.folder>();
+            string outputBase = Path.Combine(Path.GetDirectoryName(songDbPath), "Output");
+            string managedDirectory = Path.Combine(outputBase, "ManagedTable");
+            string unmanagedDirectory = Path.Combine(outputBase, "ExternalTable");
+            Directory.CreateDirectory(managedDirectory);
+            Directory.CreateDirectory(unmanagedDirectory);
+            string managedCurrentPath = Path.Combine(managedDirectory, "Current.lr2folder");
+            string managedStalePath = Path.Combine(managedDirectory, "Stale.lr2folder");
+            string unmanagedCurrentPath = Path.Combine(unmanagedDirectory, "Current.lr2folder");
+            string unmanagedStalePath = Path.Combine(unmanagedDirectory, "Stale.lr2folder");
+            songDb.InsertOrReplace(new LR2SongDB.folder { path = managedCurrentPath, title = "Managed Current", type = 2 }, typeof(LR2SongDB.folder));
+            songDb.InsertOrReplace(new LR2SongDB.folder { path = managedStalePath, title = "Managed Stale", type = 2 }, typeof(LR2SongDB.folder));
+            songDb.InsertOrReplace(new LR2SongDB.folder { path = unmanagedCurrentPath, title = "External Current", type = 2 }, typeof(LR2SongDB.folder));
+            songDb.InsertOrReplace(new LR2SongDB.folder { path = unmanagedStalePath, title = "External Stale", type = 2 }, typeof(LR2SongDB.folder));
+
+            Lr2FolderFileDbSyncResult result = Lr2FolderFileDbSyncService.Sync(songDb, new Lr2FolderFileDbSyncRequest
+            {
+                Items =
+                [
+                    new Lr2FolderFileSyncItem
+                    {
+                        FilePath = unmanagedCurrentPath,
+                        PreserveExistingRowOnly = true
+                    }
+                ],
+                ScopeDirectories = [outputBase],
+                ScopePaths = [unmanagedCurrentPath],
+                PruneExcludedDirectories = [managedDirectory],
+                AllowPrune = true,
+                ScopeReadLr2FolderRowsOnly = true
+            });
+
+            Assert.AreEqual(2, result.ExistingReadCount);
+            Assert.AreEqual(1, result.ExistingExactReadCount);
+            Assert.AreEqual(2, result.ExistingScopeReadCount);
+            Assert.AreEqual(1, result.PreservedCount);
+            Assert.AreEqual(1, result.DeletedCount);
+            Assert.IsTrue(songDb.Table<LR2SongDB.folder>().Any(row => row.path == managedCurrentPath));
+            Assert.IsTrue(songDb.Table<LR2SongDB.folder>().Any(row => row.path == managedStalePath));
+            Assert.IsTrue(songDb.Table<LR2SongDB.folder>().Any(row => row.path == unmanagedCurrentPath));
+            Assert.IsFalse(songDb.Table<LR2SongDB.folder>().Any(row => row.path == unmanagedStalePath));
+        });
+    }
+
+    [TestMethod]
+    public void Sync_PruneExcludedDirectoriesUseSQLiteNoCaseOrderingForUnicodeSiblings()
+    {
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            using var songDb = new LR2SongDBExtended(songDbPath);
+            songDb.CreateTable<LR2SongDB.folder>();
+            string outputBase = Path.Combine(Path.GetDirectoryName(songDbPath), "Output");
+            string managedJapaneseDirectory = Path.Combine(outputBase, "管理表");
+            string unmanagedJapaneseDirectory = Path.Combine(outputBase, "管理表外");
+            string managedFullwidthDirectory = Path.Combine(outputBase, "Ａ表");
+            string unmanagedFullwidthDirectory = Path.Combine(outputBase, "Ａ表外");
+            string managedAccentDirectory = Path.Combine(outputBase, "Éclair");
+            string unmanagedAccentDirectory = Path.Combine(outputBase, "Éclair外");
+            string[] managedDirectories = [managedJapaneseDirectory, managedFullwidthDirectory, managedAccentDirectory];
+            string[] unmanagedDirectories = [unmanagedJapaneseDirectory, unmanagedFullwidthDirectory, unmanagedAccentDirectory];
+            foreach (string directory in managedDirectories.Concat(unmanagedDirectories))
+            {
+                Directory.CreateDirectory(directory);
+            }
+
+            foreach (string directory in managedDirectories)
+            {
+                songDb.InsertOrReplace(new LR2SongDB.folder
+                {
+                    path = Path.Combine(directory, "Managed.lr2folder"),
+                    title = "Managed",
+                    type = 2
+                }, typeof(LR2SongDB.folder));
+            }
+            foreach (string directory in unmanagedDirectories)
+            {
+                songDb.InsertOrReplace(new LR2SongDB.folder
+                {
+                    path = Path.Combine(directory, "External.lr2folder"),
+                    title = "External",
+                    type = 2
+                }, typeof(LR2SongDB.folder));
+            }
+
+            Lr2FolderFileDbSyncResult result = Lr2FolderFileDbSyncService.Sync(songDb, new Lr2FolderFileDbSyncRequest
+            {
+                Items = [],
+                ScopeDirectories = [outputBase],
+                PruneExcludedDirectories = managedDirectories,
+                AllowPrune = true,
+                ScopeReadLr2FolderRowsOnly = true
+            });
+
+            Assert.AreEqual(3, result.ExistingReadCount);
+            Assert.AreEqual(0, result.ExistingExactReadCount);
+            Assert.AreEqual(3, result.ExistingScopeReadCount);
+            Assert.AreEqual(3, result.DeletedCount);
+            foreach (string directory in managedDirectories)
+            {
+                Assert.IsTrue(songDb.Table<LR2SongDB.folder>().Any(row => row.path == Path.Combine(directory, "Managed.lr2folder")));
+            }
+            foreach (string directory in unmanagedDirectories)
+            {
+                Assert.IsFalse(songDb.Table<LR2SongDB.folder>().Any(row => row.path == Path.Combine(directory, "External.lr2folder")));
+            }
+        });
+    }
+
+    [TestMethod]
     public void Sync_ReadsOnlyExactAndPruneScopeRows()
     {
         WithTemporarySongDb(delegate (string songDbPath)

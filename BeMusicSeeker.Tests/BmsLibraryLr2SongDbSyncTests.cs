@@ -2913,9 +2913,13 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             string outputDirectory = Path.Combine(outputBase, "ManagedTable");
             string managedPath = Path.Combine(outputDirectory, "0000.lr2folder");
             string externalPath = Path.Combine(outputDirectory, "external.lr2folder");
+            string unmanagedSiblingDirectory = Path.Combine(outputBase, "ExternalTable");
+            string unmanagedSiblingPath = Path.Combine(unmanagedSiblingDirectory, "external.lr2folder");
             Directory.CreateDirectory(outputDirectory);
+            Directory.CreateDirectory(unmanagedSiblingDirectory);
             File.WriteAllText(managedPath, "#TITLE Managed", Encoding.GetEncoding("shift_jis"));
             File.WriteAllText(externalPath, "#TITLE External", Encoding.GetEncoding("shift_jis"));
+            File.WriteAllText(unmanagedSiblingPath, "#TITLE External Sibling", Encoding.GetEncoding("shift_jis"));
             Settings.Default.LR2CustomFolderOutputBaseDir = outputBase;
             using (var setup = new LR2SongDBExtended(scope.SongDbPath))
             {
@@ -2944,11 +2948,16 @@ public sealed class BmsLibraryLr2SongDbSyncTests
 
             object input = InvokeCreateLr2SongDbSyncInput(library);
             List<string> lr2FolderFilePaths = GetInputStringList(input, "Lr2FolderFilePaths").ToList();
+            List<string> pruneDirectories = GetInputStringList(input, "Lr2FolderPruneDirectories").ToList();
             List<string> pruneExcludedDirectories = GetInputStringList(input, "Lr2FolderPruneExcludedDirectories").ToList();
 
             CollectionAssert.DoesNotContain(lr2FolderFilePaths, managedPath);
             CollectionAssert.DoesNotContain(lr2FolderFilePaths, externalPath);
+            CollectionAssert.Contains(lr2FolderFilePaths, unmanagedSiblingPath);
+            CollectionAssert.Contains(pruneDirectories, outputBase);
             CollectionAssert.Contains(pruneExcludedDirectories, outputDirectory);
+            CollectionAssert.DoesNotContain(pruneExcludedDirectories, outputBase);
+            CollectionAssert.DoesNotContain(pruneExcludedDirectories, unmanagedSiblingDirectory);
             Assert.IsTrue(GetInputBool(input, "Lr2FolderFileDiscoveryComplete"));
         }
         finally
