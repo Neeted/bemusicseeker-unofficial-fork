@@ -46,7 +46,8 @@ internal static class Lr2FolderFileDiscoveryService
         IEnumerable<string> rootDirectories,
         string lr2RootPath,
         Lr2BuiltinCustomFolderSettings builtinCustomFolderSettings,
-        Action<string> logScan)
+        Action<string> logScan,
+        IEnumerable<string> excludedDirectories = null)
     {
         List<string> roots = [.. (rootDirectories ?? [])
             .Where(path => !string.IsNullOrWhiteSpace(path) && Directory.Exists(path))
@@ -58,7 +59,13 @@ internal static class Lr2FolderFileDiscoveryService
             return new Lr2FolderFileCandidateSnapshot([], new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase), discoveryComplete: true);
         }
 
-        RootFileEnumerationGroup[] groups = [new RootFileEnumerationGroup(Lr2FolderFileEnumerationGroupName, [".lr2folder"])];
+        IReadOnlyList<string> excludedDirectoryList = [.. (excludedDirectories ?? [])
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Select(SafeFullPathOrOriginal)
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
+        RootFileEnumerationGroup[] groups = [new RootFileEnumerationGroup(Lr2FolderFileEnumerationGroupName, [".lr2folder"], excludedDirectories: excludedDirectoryList)];
         RootFileEnumerationResult result = RootFileEnumerationService.EnumerateFilesWithFallback(roots, groups);
         if (!result.Success)
         {
@@ -87,6 +94,7 @@ internal static class Lr2FolderFileDiscoveryService
             + " rawEntries=" + rawEntries.Count
             + " includedEntries=" + includedEntries.Count
             + " dedupedEntries=" + entriesByPath.Count
+            + " excludedDirs=" + excludedDirectoryList.Count
             + " filteredEntries=" + (rawEntries.Count - includedEntries.Count));
         return new Lr2FolderFileCandidateSnapshot([.. entriesByPath.Keys
             .Where(path => !string.IsNullOrWhiteSpace(path))

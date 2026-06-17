@@ -490,7 +490,8 @@ internal sealed class BmsLibraryInitializationService
         Lr2NormalFolderMtimeSnapshot normalFolderMtimeSnapshot = null,
         Func<Lr2NormalFolderMtimeSnapshot> normalFolderMtimeSnapshotProvider = null,
         Action<SongTableFileCheckResult> lr2ScanSurfacePrepared = null,
-        bool protectExistingBmsRowsFromLr2SongDbSyncMigration = false)
+        bool protectExistingBmsRowsFromLr2SongDbSyncMigration = false,
+        IEnumerable<string> lr2FolderExcludedDirectories = null)
     {
         var result = new SongTableFileCheckResult();
         var stopwatchScan = Stopwatch.StartNew();
@@ -520,6 +521,7 @@ internal sealed class BmsLibraryInitializationService
                 options,
                 lr2FolderDiscoveryRootDirectories,
                 lr2BuiltinCustomFolderSettings,
+                lr2FolderExcludedDirectories,
                 logEverythingScan);
         }
         stopwatchScan.Stop();
@@ -1120,6 +1122,7 @@ internal sealed class BmsLibraryInitializationService
         BmsLibraryOptionsSnapshot options,
         IEnumerable<string> rootDirectories,
         Lr2BuiltinCustomFolderSettings builtinCustomFolderSettings,
+        IEnumerable<string> excludedDirectories,
         Action<string> logEverythingScan)
     {
         if (result == null
@@ -1137,12 +1140,21 @@ internal sealed class BmsLibraryInitializationService
             lr2FolderDiscoveryDirectories,
             options.LR2RootPath,
             builtinCustomFolderSettings ?? new Lr2BuiltinCustomFolderSettings(0, 24, false),
-            logEverythingScan);
+            logEverythingScan,
+            excludedDirectories);
 
         result.Lr2ScanLr2FolderDiscoveryDirectories = lr2FolderDiscoveryDirectories;
         result.Lr2ScanLr2FolderFilePaths = candidates.Paths;
         result.Lr2ScanLr2FolderFileEntries = candidates.EntriesByPath;
         result.Lr2ScanLr2FolderFileDiscoveryComplete = candidates.DiscoveryComplete;
+        IReadOnlyList<string> excludedDirectoryList = [.. (excludedDirectories ?? [])
+            .Where(directory => !string.IsNullOrWhiteSpace(directory))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(directory => directory, StringComparer.OrdinalIgnoreCase)];
+        int excludedDirectoryCount = excludedDirectoryList.Count;
+        result.Lr2ScanLr2FolderCandidatesAlreadyFiltered = excludedDirectoryCount > 0;
+        result.Lr2ScanLr2FolderAppManagedScopeDirectoryCount = excludedDirectoryCount;
+        result.Lr2ScanLr2FolderAppManagedScopeDirectories = excludedDirectoryList;
     }
 
     private static void SyncLr2NormalFoldersIfEnabled(

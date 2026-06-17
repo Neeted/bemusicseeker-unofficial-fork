@@ -35,6 +35,7 @@ internal sealed class FastRootFileEnumerator : IRootFileEnumerator
             var allFiles = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
             if (needsFileEntries)
             {
+                string[] sharedExcludedDirectories = ResolveSharedExcludedDirectories(groupList.Where(group => !group.IncludeDirectories));
                 bool includeAllFiles = groupList.Any(group => group.IncludeAllFiles);
                 string[] fileExtensions = includeAllFiles
                     ? null
@@ -45,7 +46,7 @@ internal sealed class FastRootFileEnumerator : IRootFileEnumerator
                         .Distinct(StringComparer.OrdinalIgnoreCase)];
                 foreach (RootFileEnumerationEntry entry in roots
                     .AsParallel()
-                    .SelectMany(root => EnumerateAllFilesForRoot(root, fileExtensions))
+                    .SelectMany(root => EnumerateAllFilesForRoot(root, fileExtensions, sharedExcludedDirectories))
                     .Where(entry => entry != null && !string.IsNullOrWhiteSpace(entry.Path)))
                 {
                     allFiles[entry.Path] = entry;
@@ -55,9 +56,10 @@ internal sealed class FastRootFileEnumerator : IRootFileEnumerator
             var allDirectories = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
             if (needsDirectoryEntries)
             {
+                string[] sharedExcludedDirectories = ResolveSharedExcludedDirectories(groupList.Where(group => group.IncludeDirectories));
                 foreach (RootFileEnumerationEntry entry in roots
                     .AsParallel()
-                    .SelectMany(EnumerateAllDirectoriesForRoot)
+                    .SelectMany(root => EnumerateAllDirectoriesForRoot(root, sharedExcludedDirectories))
                     .Where(entry => entry != null && !string.IsNullOrWhiteSpace(entry.Path)))
                 {
                     allDirectories[entry.Path] = entry;
@@ -71,7 +73,8 @@ internal sealed class FastRootFileEnumerator : IRootFileEnumerator
                 string extension = Path.GetExtension(absolutePath ?? string.Empty);
                 foreach (RootFileEnumerationGroup group in groupList)
                 {
-                    if (group.IncludeAllFiles || (!string.IsNullOrWhiteSpace(extension) && group.Extensions.Contains(extension, StringComparer.OrdinalIgnoreCase)))
+                    if ((group.IncludeAllFiles || (!string.IsNullOrWhiteSpace(extension) && group.Extensions.Contains(extension, StringComparer.OrdinalIgnoreCase)))
+                        && !IsExcludedByGroup(absolutePath, group))
                     {
                         result.AddEntry(group.Name, entry);
                     }
@@ -81,7 +84,7 @@ internal sealed class FastRootFileEnumerator : IRootFileEnumerator
             {
                 foreach (RootFileEnumerationGroup group in groupList)
                 {
-                    if (group.IncludeDirectories)
+                    if (group.IncludeDirectories && !IsExcludedByGroup(entry.Path, group))
                     {
                         result.AddEntry(group.Name, entry);
                     }
@@ -114,8 +117,13 @@ internal sealed class FastRootFileEnumerator : IRootFileEnumerator
         return RootFileEnumerationService.NormalizeExecutionRoots(rootDirectories);
     }
 
-    private static IEnumerable<RootFileEnumerationEntry> EnumerateAllFilesForRoot(string root, string[] extensions)
+    private static IEnumerable<RootFileEnumerationEntry> EnumerateAllFilesForRoot(string root, string[] extensions, string[] excludedDirectories)
     {
+        if (excludedDirectories?.Length > 0)
+        {
+            return EnumerateFilesSkippingExcluded(root, extensions, excludedDirectories);
+        }
+
         List<RootFileEnumerationEntry> fastEntries = [];
         try
         {
@@ -150,9 +158,14 @@ internal sealed class FastRootFileEnumerator : IRootFileEnumerator
         }
     }
 
-    private static IEnumerable<RootFileEnumerationEntry> EnumerateAllDirectoriesForRoot(string root)
+    private static IEnumerable<RootFileEnumerationEntry> EnumerateAllDirectoriesForRoot(string root, string[] excludedDirectories)
     {
         var entries = new List<RootFileEnumerationEntry>();
+        if (excludedDirectories?.Length > 0 && IsExcludedPath(root, excludedDirectories))
+        {
+            return entries;
+        }
+
         RootFileEnumerationEntry rootEntry = RootFileEnumerationEntry.FromDirectoryInfo(root);
         if (rootEntry != null)
         {
@@ -161,7 +174,9 @@ internal sealed class FastRootFileEnumerator : IRootFileEnumerator
 
         try
         {
-            entries.AddRange(Directory.EnumerateDirectories(root, "*", SearchOption.AllDirectories)
+            entries.AddRange((excludedDirectories?.Length > 0
+                    ? EnumerateDirectoriesSkippingExcluded(root, excludedDirectories)
+                    : Directory.EnumerateDirectories(root, "*", SearchOption.AllDirectories))
                 .Where(path => !string.IsNullOrWhiteSpace(path))
                 .Select(Path.GetFullPath)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -172,6 +187,171 @@ internal sealed class FastRootFileEnumerator : IRootFileEnumerator
         {
         }
         return entries;
+    }
+
+    private static IEnumerable<RootFileEnumerationEntry> EnumerateFilesSkippingExcluded(
+        string root,
+        string[] extensions,
+        string[] excludedDirectories)
+    {
+        foreach (string directory in EnumerateDirectoriesForTraversal(root, excludedDirectories, includeRoot: true))
+        {
+            IEnumerable<string> files;
+            try
+            {
+                files = Directory.EnumerateFiles(directory, "*", SearchOption.TopDirectoryOnly);
+            }
+            catch
+            {
+                continue;
+            }
+
+            foreach (string path in files)
+            {
+                if (!string.IsNullOrWhiteSpace(path)
+                    && (extensions == null || extensions.Length == 0 || extensions.Contains(Path.GetExtension(path), StringComparer.OrdinalIgnoreCase)))
+                {
+                    RootFileEnumerationEntry entry = CreateEntryFromFileInfo(Path.GetFullPath(path));
+                    if (entry != null)
+                    {
+                        yield return entry;
+                    }
+                }
+            }
+        }
+    }
+
+    private static IEnumerable<string> EnumerateDirectoriesSkippingExcluded(string root, string[] excludedDirectories)
+    {
+        return EnumerateDirectoriesForTraversal(root, excludedDirectories, includeRoot: false);
+    }
+
+    private static IEnumerable<string> EnumerateDirectoriesForTraversal(
+        string root,
+        string[] excludedDirectories,
+        bool includeRoot)
+    {
+        string normalizedRoot = SafeNormalizeDirectory(root);
+        if (string.IsNullOrWhiteSpace(normalizedRoot))
+        {
+            yield break;
+        }
+        if (IsExcludedPath(normalizedRoot, excludedDirectories))
+        {
+            yield break;
+        }
+        if (includeRoot)
+        {
+            yield return normalizedRoot;
+        }
+
+        var stack = new Stack<string>();
+        stack.Push(normalizedRoot);
+        while (stack.Count > 0)
+        {
+            string current = stack.Pop();
+            IEnumerable<string> children;
+            try
+            {
+                children = Directory.EnumerateDirectories(current, "*", SearchOption.TopDirectoryOnly);
+            }
+            catch
+            {
+                continue;
+            }
+
+            foreach (string child in children)
+            {
+                string normalizedChild = SafeNormalizeDirectory(child);
+                if (string.IsNullOrWhiteSpace(normalizedChild)
+                    || IsExcludedPath(normalizedChild, excludedDirectories))
+                {
+                    continue;
+                }
+
+                yield return normalizedChild;
+                stack.Push(normalizedChild);
+            }
+        }
+    }
+
+    private static string[] ResolveSharedExcludedDirectories(IEnumerable<RootFileEnumerationGroup> groups)
+    {
+        List<RootFileEnumerationGroup> groupList = [.. (groups ?? []).Where(group => group != null)];
+        if (groupList.Count == 0)
+        {
+            return [];
+        }
+
+        string[] first = groupList[0].ExcludedDirectories ?? [];
+        var firstSet = new HashSet<string>(first, StringComparer.OrdinalIgnoreCase);
+        foreach (RootFileEnumerationGroup group in groupList.Skip(1))
+        {
+            if (!firstSet.SetEquals(group.ExcludedDirectories ?? []))
+            {
+                return [];
+            }
+        }
+        return [.. firstSet.OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
+    }
+
+    private static bool IsExcludedByGroup(string path, RootFileEnumerationGroup group)
+    {
+        return group?.ExcludedDirectories?.Length > 0
+            && IsExcludedPath(path, group.ExcludedDirectories);
+    }
+
+    private static bool IsExcludedPath(string path, IEnumerable<string> excludedDirectories)
+    {
+        string normalizedPath = SafeNormalizeDirectory(path);
+        if (string.IsNullOrWhiteSpace(normalizedPath))
+        {
+            return false;
+        }
+
+        foreach (string excludedDirectory in excludedDirectories ?? [])
+        {
+            if (IsSameOrDescendant(normalizedPath, excludedDirectory))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static string SafeNormalizeDirectory(string path)
+    {
+        try
+        {
+            return string.IsNullOrWhiteSpace(path)
+                ? null
+                : Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static bool IsSameOrDescendant(string candidate, string root)
+    {
+        string normalizedCandidate = SafeNormalizeDirectory(candidate);
+        string normalizedRoot = SafeNormalizeDirectory(root);
+        if (string.IsNullOrWhiteSpace(normalizedCandidate) || string.IsNullOrWhiteSpace(normalizedRoot))
+        {
+            return false;
+        }
+        if (string.Equals(normalizedCandidate, normalizedRoot, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return normalizedCandidate.Length > normalizedRoot.Length
+            && normalizedCandidate.StartsWith(normalizedRoot, StringComparison.OrdinalIgnoreCase)
+            && (normalizedRoot.EndsWith(Path.DirectorySeparatorChar.ToString(), StringComparison.Ordinal)
+                || normalizedRoot.EndsWith(Path.AltDirectorySeparatorChar.ToString(), StringComparison.Ordinal)
+                || normalizedCandidate[normalizedRoot.Length] == Path.DirectorySeparatorChar
+                || normalizedCandidate[normalizedRoot.Length] == Path.AltDirectorySeparatorChar);
     }
 
     private static RootFileEnumerationEntry CreateEntryFromFileInfo(string path)

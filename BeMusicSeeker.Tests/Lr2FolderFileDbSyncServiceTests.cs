@@ -128,6 +128,45 @@ public sealed class Lr2FolderFileDbSyncServiceTests
     }
 
     [TestMethod]
+    public void Sync_PruneExcludedDirectoriesAreNotReadOrDeletedFromBroadScope()
+    {
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            using var songDb = new LR2SongDBExtended(songDbPath);
+            songDb.CreateTable<LR2SongDB.folder>();
+            string root = Path.Combine(Path.GetDirectoryName(songDbPath), "ROOT");
+            string externalDirectory = Path.Combine(root, "External");
+            string managedDirectory = Path.Combine(root, "Table");
+            string managedPrefixSiblingDirectory = Path.Combine(root, "TableOther");
+            Directory.CreateDirectory(externalDirectory);
+            Directory.CreateDirectory(managedDirectory);
+            Directory.CreateDirectory(managedPrefixSiblingDirectory);
+            string externalPath = Path.Combine(externalDirectory, "External.lr2folder");
+            string managedPath = Path.Combine(managedDirectory, "Managed.lr2folder");
+            string siblingPath = Path.Combine(managedPrefixSiblingDirectory, "Sibling.lr2folder");
+            songDb.InsertOrReplace(new LR2SongDB.folder { path = externalPath, title = "External", type = 2 }, typeof(LR2SongDB.folder));
+            songDb.InsertOrReplace(new LR2SongDB.folder { path = managedPath, title = "Managed", type = 2 }, typeof(LR2SongDB.folder));
+            songDb.InsertOrReplace(new LR2SongDB.folder { path = siblingPath, title = "Sibling", type = 2 }, typeof(LR2SongDB.folder));
+
+            Lr2FolderFileDbSyncResult result = Lr2FolderFileDbSyncService.Sync(songDb, new Lr2FolderFileDbSyncRequest
+            {
+                ScopeDirectories = [root],
+                PruneExcludedDirectories = [managedDirectory],
+                AllowPrune = true,
+                ScopeReadLr2FolderRowsOnly = true
+            });
+
+            Assert.AreEqual(2, result.ExistingReadCount);
+            Assert.AreEqual(0, result.ExistingExactReadCount);
+            Assert.AreEqual(2, result.ExistingScopeReadCount);
+            Assert.AreEqual(2, result.DeletedCount);
+            Assert.IsFalse(songDb.Table<LR2SongDB.folder>().Any(row => row.path == externalPath));
+            Assert.IsTrue(songDb.Table<LR2SongDB.folder>().Any(row => row.path == managedPath));
+            Assert.IsFalse(songDb.Table<LR2SongDB.folder>().Any(row => row.path == siblingPath));
+        });
+    }
+
+    [TestMethod]
     public void Sync_ReadsOnlyExactAndPruneScopeRows()
     {
         WithTemporarySongDb(delegate (string songDbPath)

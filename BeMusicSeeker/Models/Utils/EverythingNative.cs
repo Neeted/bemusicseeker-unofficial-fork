@@ -138,21 +138,48 @@ internal static class EverythingNative
 
     internal static string BuildFilesQuery(string[] roots, string[] extensions)
     {
+        return BuildFilesQuery(roots, extensions, []);
+    }
+
+    internal static string BuildFilesQuery(string[] roots, string[] extensions, string[] excludedDirectories)
+    {
         string ext = string.Join(";", extensions ?? []);
         string paths = "<" + string.Join("|", Array.ConvertAll(roots ?? [], root => "path:" + QuotePath(PathWithTrailingSeparator(root)))) + ">";
-        return "file: " + paths + " <ext:" + ext + ">";
+        string excludes = BuildExcludedDirectoryQuery(excludedDirectories);
+        return "file: " + paths + excludes + " <ext:" + ext + ">";
     }
 
     internal static string BuildAllFilesQuery(string[] roots)
     {
+        return BuildAllFilesQuery(roots, []);
+    }
+
+    internal static string BuildAllFilesQuery(string[] roots, string[] excludedDirectories)
+    {
         string paths = "<" + string.Join("|", Array.ConvertAll(roots ?? [], root => "path:" + QuotePath(PathWithTrailingSeparator(root)))) + ">";
-        return "file: " + paths;
+        return "file: " + paths + BuildExcludedDirectoryQuery(excludedDirectories);
     }
 
     internal static string BuildDirectoriesQuery(string[] roots)
     {
+        return BuildDirectoriesQuery(roots, []);
+    }
+
+    internal static string BuildDirectoriesQuery(string[] roots, string[] excludedDirectories)
+    {
         string paths = "<" + string.Join("|", Array.ConvertAll(roots ?? [], root => "path:" + QuotePath(PathWithoutTrailingSeparator(root)))) + ">";
-        return "folder: " + paths;
+        return "folder: " + paths + BuildExcludedDirectoryQuery(excludedDirectories, trailingSeparator: false);
+    }
+
+    private static string BuildExcludedDirectoryQuery(string[] excludedDirectories, bool trailingSeparator = true)
+    {
+        string[] exclusions = [.. (excludedDirectories ?? [])
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Select(path => trailingSeparator ? PathWithTrailingSeparator(path) : PathWithoutTrailingSeparator(path))
+            .Select(path => "path:" + QuotePath(path))];
+        return exclusions.Length == 0
+            ? string.Empty
+            : " !" + "<" + string.Join("|", exclusions) + ">";
     }
 
     internal static bool TryScanSourceRoots(IReadOnlyList<string> rootDirectories, out BridgeSourceRootScanResult result, out string reason)

@@ -50,10 +50,10 @@ internal sealed class EverythingRootFileEnumerator : IRootFileEnumerator
                 uint groupId = GetStableGroupId(group.Name);
                 groupNamesById[groupId] = group.Name;
                 string query = group.IncludeDirectories
-                    ? EverythingNative.BuildDirectoriesQuery([.. roots])
+                    ? EverythingNative.BuildDirectoriesQuery([.. roots], group.ExcludedDirectories)
                     : group.IncludeAllFiles
-                    ? EverythingNative.BuildAllFilesQuery([.. roots])
-                    : EverythingNative.BuildFilesQuery([.. roots], Array.ConvertAll(group.Extensions, extension => extension.TrimStart('.')));
+                    ? EverythingNative.BuildAllFilesQuery([.. roots], group.ExcludedDirectories)
+                    : EverythingNative.BuildFilesQuery([.. roots], Array.ConvertAll(group.Extensions, extension => extension.TrimStart('.')), group.ExcludedDirectories);
                 groupedQueries.Add(new EverythingNative.BridgeGroupedQuery(groupId, query));
             }
 

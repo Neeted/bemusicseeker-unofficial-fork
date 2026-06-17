@@ -1942,6 +1942,7 @@ public sealed class BmsPlaylistUpdateTests
                 db.Execute("DELETE FROM folder WHERE path = ?;", Lr2FolderPath.ToFolderPath(clearDir));
                 db.Execute("DELETE FROM folder WHERE path = ?;", Lr2FolderPath.ToFolderPath(noPlayDir));
             }
+            Directory.SetLastWriteTimeUtc(noPlayDir, noPlayTimestamp.AddMinutes(1));
 
             int repairedCount = InvokeRepairMissingCustomFolderOutputsAfterHydration(playlist, "test_directory_rows_missing");
 
@@ -2027,6 +2028,7 @@ public sealed class BmsPlaylistUpdateTests
                     adddate = noPlayTimestamp.ToUnixtime()
                 });
             }
+            Directory.SetLastWriteTimeUtc(clearDir, noPlayTimestamp.AddMinutes(1));
 
             int repairedCount = InvokeRepairMissingCustomFolderOutputsAfterHydration(playlist, "test_stale_directory_rows");
 
@@ -2550,6 +2552,8 @@ public sealed class BmsPlaylistUpdateTests
                     adddate = staleTimestamp.ToUnixtime()
                 });
             }
+            Directory.SetLastWriteTimeUtc(parentOutputDir, staleTimestamp.AddMinutes(1));
+            Directory.SetLastWriteTimeUtc(childOutputDir, staleTimestamp.AddMinutes(1));
 
             int repairedCount = InvokeRepairMissingCustomFolderOutputsAfterHydration(playlist, "test_batch_nested_stale");
 

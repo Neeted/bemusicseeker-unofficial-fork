@@ -36,7 +36,6 @@ namespace BeMusicSeeker.Models;
 /// </summary>
 public partial class BMSPlaylist : NotificationObject
 {
-    private const int CustomFolderOutputStatusGeneratorVersion = 2;
     private const string CustomFolderOutputLr2FolderEnumerationGroupName = "lr2folder";
 
     internal sealed class ComparablePlaylistEntryRow
@@ -1925,7 +1924,7 @@ public partial class BMSPlaylist : NotificationObject
 
     private static void EnsureCustomFolderOutputStatusTable(LR2SongDBExtended db)
     {
-        db.Execute(
+        const string createSql =
             "CREATE TABLE IF NOT EXISTS playlist_custom_folder_output_status ("
             + "playlist_id INTEGER PRIMARY KEY,"
             + "output_directory TEXT NOT NULL,"
@@ -1938,13 +1937,45 @@ public partial class BMSPlaylist : NotificationObject
             + "header_sha256 TEXT NULL,"
             + "data_sha256 TEXT NULL,"
             + "last_update_ticks INTEGER NOT NULL,"
-            + "generator_version INTEGER NOT NULL,"
-            + "expected_file_count INTEGER NOT NULL,"
-            + "folder_row_count INTEGER NOT NULL DEFAULT -1,"
-            + "completed_at_utc_ticks INTEGER NOT NULL"
-            + ");");
-        EnsureColumn(db, "playlist_custom_folder_output_status", "folder_row_count", "INTEGER NOT NULL DEFAULT -1");
-        db.Execute("CREATE INDEX IF NOT EXISTS idx_playlist_custom_folder_output_status_generator ON playlist_custom_folder_output_status(generator_version);");
+            + "physical_mtime_signature TEXT NOT NULL"
+            + ");";
+        db.Execute(createSql);
+        if (!IsCustomFolderOutputStatusSchemaCurrent(db))
+        {
+            db.Execute("DROP TABLE IF EXISTS playlist_custom_folder_output_status;");
+            db.Execute(createSql);
+        }
+    }
+
+    private static bool IsCustomFolderOutputStatusSchemaCurrent(LR2SongDBExtended db)
+    {
+        string[] expectedColumns =
+        [
+            "playlist_id",
+            "output_directory",
+            "is_root_folder",
+            "ignore_folder_output",
+            "entry_type",
+            "folder_sort_key",
+            "folder_sort_ascending",
+            "enable_unsent",
+            "header_sha256",
+            "data_sha256",
+            "last_update_ticks",
+            "physical_mtime_signature"
+        ];
+        try
+        {
+            string[] actualColumns = [.. db.Query<CustomFolderOutputStatusColumnRow>(
+                "PRAGMA table_info(playlist_custom_folder_output_status);")
+                .Select(row => row?.name)
+                .Where(name => !string.IsNullOrWhiteSpace(name))];
+            return actualColumns.SequenceEqual(expectedColumns, StringComparer.OrdinalIgnoreCase);
+        }
+        catch (Exception ex) when (ex is SQLiteException || ex is InvalidOperationException)
+        {
+            return false;
+        }
     }
 
     private static void EnsurePlaylistMetadataColumns(LR2SongDBExtended db)
@@ -3387,8 +3418,17 @@ public partial class BMSPlaylist : NotificationObject
 
     private List<CustomFolderOutputPlan> CreateCustomFolderOutputRepairPlans(IReadOnlyList<BMSTable> tablesSnapshot, string reason)
     {
-        var projectionStopwatch = Stopwatch.StartNew();
-        var projections = new List<CustomFolderOutputProjection>();
+        var statusStopwatch = Stopwatch.StartNew();
+        Dictionary<int, CustomFolderOutputStatusRow> statusRows = ReadCustomFolderOutputStatusRows();
+        statusStopwatch.Stop();
+        LogPlaylistPerformance("playlist_custom_folder_output_repair status_read_done"
+            + " reason=" + (reason ?? "unknown")
+            + " tableCount=" + (tablesSnapshot?.Count ?? 0)
+            + " statusRowCount=" + statusRows.Count
+            + " elapsedMs=" + statusStopwatch.ElapsedMilliseconds);
+
+        var candidateStopwatch = Stopwatch.StartNew();
+        var candidates = new List<CustomFolderOutputRepairCandidate>();
         foreach (BMSTable table in tablesSnapshot ?? [])
         {
             if (table == null || string.IsNullOrWhiteSpace(table.Output_dir))
@@ -3398,10 +3438,136 @@ public partial class BMSPlaylist : NotificationObject
 
             try
             {
-                EnsurePlaylistEntriesLoaded(table, "CustomFolderOutputRepairPlan");
-                using (table.ReaderWriterLock.GetReaderGuard())
+                string outputDirectory = GetCustomFolderOutputDirectory(table);
+                if (string.IsNullOrWhiteSpace(outputDirectory))
                 {
-                    projections.Add(CreateCustomFolderOutputLayoutProjection(table));
+                    continue;
+                }
+
+                candidates.Add(new CustomFolderOutputRepairCandidate
+                {
+                    Table = table,
+                    OutputDirectory = outputDirectory
+                });
+            }
+            catch (Exception ex) when (ex is ArgumentNullException || ex is ArgumentException || ex is InvalidOperationException || ex is NotSupportedException || ex is PathTooLongException)
+            {
+                continue;
+            }
+        }
+        candidateStopwatch.Stop();
+        LogPlaylistPerformance("playlist_custom_folder_output_repair candidate_done"
+            + " reason=" + (reason ?? "unknown")
+            + " tableCount=" + (tablesSnapshot?.Count ?? 0)
+            + " candidateCount=" + candidates.Count
+            + " elapsedMs=" + candidateStopwatch.ElapsedMilliseconds);
+
+        var filterStopwatch = Stopwatch.StartNew();
+        var pendingCandidates = new List<CustomFolderOutputRepairCandidate>();
+        var physicalCheckCandidates = new List<CustomFolderOutputRepairCandidate>();
+        var physicalCheckStatuses = new Dictionary<int, CustomFolderOutputStatusRow>();
+        int configCurrentCount = 0;
+        foreach (CustomFolderOutputRepairCandidate candidate in candidates)
+        {
+            int? playlistId = candidate?.Table?.playlist_id;
+            if (playlistId.HasValue
+                && statusRows.TryGetValue(playlistId.Value, out CustomFolderOutputStatusRow status)
+                && IsCustomFolderOutputStatusConfigCurrent(candidate.Table, candidate.OutputDirectory, status))
+            {
+                configCurrentCount++;
+                physicalCheckCandidates.Add(candidate);
+                physicalCheckStatuses[playlistId.Value] = status;
+                continue;
+            }
+
+            pendingCandidates.Add(candidate);
+        }
+        filterStopwatch.Stop();
+        LogPlaylistPerformance("playlist_custom_folder_output_repair status_config_filter_done"
+            + " reason=" + (reason ?? "unknown")
+            + " candidateCount=" + candidates.Count
+            + " statusRowCount=" + statusRows.Count
+            + " configCurrentCount=" + configCurrentCount
+            + " physicalCheckCount=" + physicalCheckCandidates.Count
+            + " pendingCount=" + pendingCandidates.Count
+            + " elapsedMs=" + filterStopwatch.ElapsedMilliseconds);
+
+        CustomFolderOutputPhysicalSurface physicalSurface = new(
+            new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase),
+            discoveryComplete: false);
+        if (pendingCandidates.Count > 0 || physicalCheckCandidates.Count > 0)
+        {
+            IEnumerable<string> physicalSurfaceDirectories = pendingCandidates.Count > 0
+                ? candidates.Select(candidate => candidate.OutputDirectory)
+                : physicalCheckCandidates.Select(candidate => candidate.OutputDirectory);
+            physicalSurface = ResolveCustomFolderOutputPhysicalSurface(
+                physicalSurfaceDirectories,
+                reason);
+        }
+
+        CustomFolderOutputPhysicalMtimeSignatureIndex physicalSignatureIndex = CustomFolderOutputPhysicalMtimeSignatureIndex.Incomplete;
+        int currentStatusCount = 0;
+        if (physicalCheckCandidates.Count > 0)
+        {
+            var signatureStopwatch = Stopwatch.StartNew();
+            physicalSignatureIndex =
+                CreateCustomFolderPhysicalMtimeSignatureIndex(
+                    physicalCheckCandidates.Select(candidate => candidate.OutputDirectory),
+                    physicalSurface,
+                    candidates.Select(candidate => candidate.OutputDirectory));
+            signatureStopwatch.Stop();
+            LogPlaylistPerformance("playlist_custom_folder_output_repair physical_signature_done"
+                + " reason=" + (reason ?? "unknown")
+                + " candidateCount=" + physicalCheckCandidates.Count
+                + " signatureCount=" + physicalSignatureIndex.SignatureCount
+                + " physicalEntryCount=" + (physicalSurface?.FileEntries.Count ?? 0)
+                + " discoveryComplete=" + physicalSignatureIndex.DiscoveryComplete.ToString().ToLowerInvariant()
+                + " elapsedMs=" + signatureStopwatch.ElapsedMilliseconds);
+        }
+        else
+        {
+            LogPlaylistPerformance("playlist_custom_folder_output_repair physical_signature_skipped"
+                + " reason=" + (reason ?? "unknown")
+                + " candidateCount=0");
+        }
+
+        filterStopwatch.Restart();
+        foreach (CustomFolderOutputRepairCandidate candidate in physicalCheckCandidates)
+        {
+            int? playlistId = candidate?.Table?.playlist_id;
+            if (playlistId.HasValue
+                && physicalCheckStatuses.TryGetValue(playlistId.Value, out CustomFolderOutputStatusRow status)
+                && IsCustomFolderOutputStatusPhysicalCurrent(candidate.OutputDirectory, status, physicalSignatureIndex))
+            {
+                currentStatusCount++;
+                continue;
+            }
+
+            pendingCandidates.Add(candidate);
+        }
+        filterStopwatch.Stop();
+        LogPlaylistPerformance("playlist_custom_folder_output_repair status_filter_done"
+            + " reason=" + (reason ?? "unknown")
+            + " candidateCount=" + candidates.Count
+            + " statusRowCount=" + statusRows.Count
+            + " currentStatusCount=" + currentStatusCount
+            + " pendingCount=" + pendingCandidates.Count
+            + " elapsedMs=" + filterStopwatch.ElapsedMilliseconds);
+        if (pendingCandidates.Count == 0)
+        {
+            return [];
+        }
+
+        var projectionStopwatch = Stopwatch.StartNew();
+        var pendingProjections = new List<CustomFolderOutputProjection>();
+        foreach (CustomFolderOutputRepairCandidate candidate in pendingCandidates)
+        {
+            try
+            {
+                EnsurePlaylistEntriesLoaded(candidate.Table, "CustomFolderOutputRepairPlan");
+                using (candidate.Table.ReaderWriterLock.GetReaderGuard())
+                {
+                    pendingProjections.Add(CreateCustomFolderOutputLayoutProjection(candidate.Table, candidate.OutputDirectory));
                 }
             }
             catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException || ex is SQLiteException)
@@ -3412,40 +3578,10 @@ public partial class BMSPlaylist : NotificationObject
         projectionStopwatch.Stop();
         LogPlaylistPerformance("playlist_custom_folder_output_repair projection_done"
             + " reason=" + (reason ?? "unknown")
-            + " tableCount=" + (tablesSnapshot?.Count ?? 0)
-            + " projectionCount=" + projections.Count
+            + " pendingCandidateCount=" + pendingCandidates.Count
+            + " projectionCount=" + pendingProjections.Count
+            + " skippedBeforeProjectionCount=" + (candidates.Count - pendingCandidates.Count)
             + " elapsedMs=" + projectionStopwatch.ElapsedMilliseconds);
-
-        AssignCustomFolderProtectedOutputDirectories(projections);
-        CustomFolderOutputPhysicalSurface physicalSurface = ResolveCustomFolderOutputPhysicalSurface(projections, reason);
-        var statusStopwatch = Stopwatch.StartNew();
-        Dictionary<int, CustomFolderOutputStatusRow> statusRows = ReadCustomFolderOutputStatusRows();
-        long currentFolderRowCount = ReadCustomFolderRowCount();
-        var pendingProjections = new List<CustomFolderOutputProjection>();
-        int currentStatusCount = 0;
-        foreach (CustomFolderOutputProjection projection in projections)
-        {
-            int? playlistId = projection?.Table?.playlist_id;
-            if (playlistId.HasValue
-                && statusRows.TryGetValue(playlistId.Value, out CustomFolderOutputStatusRow status)
-                && IsCustomFolderOutputStatusCurrent(projection, status, currentFolderRowCount)
-                && AreCustomFolderOutputPhysicalFilesPresent(projection, physicalSurface))
-            {
-                currentStatusCount++;
-                continue;
-            }
-
-            pendingProjections.Add(projection);
-        }
-        statusStopwatch.Stop();
-        LogPlaylistPerformance("playlist_custom_folder_output_repair status_filter_done"
-            + " reason=" + (reason ?? "unknown")
-            + " projectionCount=" + projections.Count
-            + " statusRowCount=" + statusRows.Count
-            + " folderRowCount=" + currentFolderRowCount
-            + " currentStatusCount=" + currentStatusCount
-            + " pendingCount=" + pendingProjections.Count
-            + " elapsedMs=" + statusStopwatch.ElapsedMilliseconds);
         if (pendingProjections.Count == 0)
         {
             return [];
@@ -3516,9 +3652,12 @@ public partial class BMSPlaylist : NotificationObject
                 Projection = fullProjection
             });
         }
-        if (plans.Count == 0)
+        if (verifiedCurrentProjections.Count > 0)
         {
-            PersistCustomFolderOutputStatuses(verifiedCurrentProjections);
+            PersistCustomFolderOutputStatuses(
+                verifiedCurrentProjections,
+                physicalSurface,
+                candidates.Select(candidate => candidate.OutputDirectory));
         }
         targetSelectionStopwatch.Stop();
         LogPlaylistPerformance("playlist_custom_folder_output_repair target_selection_done"
@@ -3610,22 +3749,8 @@ public partial class BMSPlaylist : NotificationObject
             return [];
         }
 
-        List<Lr2FolderFileSyncItem> items = [.. (projection.Files ?? [])
-            .Where(file => !string.IsNullOrWhiteSpace(file?.FilePath))
-            .Select(file =>
-            {
-                var item = new Lr2FolderFileSyncItem
-                {
-                    FilePath = file.FilePath,
-                    DatabasePath = file.DatabasePath
-                };
-                ApplyCustomFolderSourceClassification(item, projection.Table);
-                return item;
-            })];
-        IReadOnlyCollection<string> directoryRowGenerationScopes =
-            CreateCustomFolderDirectoryRowGenerationScopes(projection.OutputDirectory, projection.Table);
         IReadOnlyCollection<string> directoryTargets =
-            Lr2FolderFileDbSyncService.CreateParentDirectoryMetadataTargets(items, directoryRowGenerationScopes);
+            CreateCustomFolderExpectedDirectoryMetadataTargets(projection);
         var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (string directory in directoryTargets)
         {
@@ -3858,6 +3983,17 @@ public partial class BMSPlaylist : NotificationObject
         IReadOnlyCollection<CustomFolderOutputProjection> projections,
         string reason)
     {
+        return ResolveCustomFolderOutputPhysicalSurface(
+            (projections ?? [])
+                .Select(projection => projection?.OutputDirectory)
+                .Where(directory => !string.IsNullOrWhiteSpace(directory)),
+            reason);
+    }
+
+    private CustomFolderOutputPhysicalSurface ResolveCustomFolderOutputPhysicalSurface(
+        IEnumerable<string> outputDirectories,
+        string reason)
+    {
         var stopwatch = Stopwatch.StartNew();
         CustomFolderOutputPhysicalSurface providedSurface = null;
         try
@@ -3884,7 +4020,7 @@ public partial class BMSPlaylist : NotificationObject
         }
 
         CustomFolderOutputPhysicalSurface enumeratedSurface =
-            CreateCustomFolderOutputPhysicalSurfaceFromGroupedEnumeration(projections, reason);
+            CreateCustomFolderOutputPhysicalSurfaceFromGroupedEnumeration(outputDirectories, reason);
         stopwatch.Stop();
         LogPlaylistPerformance("playlist_custom_folder_output_repair physical_surface_resolved"
             + " reason=" + (reason ?? "unknown")
@@ -3899,8 +4035,16 @@ public partial class BMSPlaylist : NotificationObject
         IEnumerable<CustomFolderOutputProjection> projections,
         string reason)
     {
-        List<string> roots = [.. (projections ?? [])
-            .Select(projection => projection?.OutputDirectory)
+        return CreateCustomFolderOutputPhysicalSurfaceFromGroupedEnumeration(
+            (projections ?? []).Select(projection => projection?.OutputDirectory),
+            reason);
+    }
+
+    private static CustomFolderOutputPhysicalSurface CreateCustomFolderOutputPhysicalSurfaceFromGroupedEnumeration(
+        IEnumerable<string> outputDirectories,
+        string reason)
+    {
+        List<string> roots = [.. (outputDirectories ?? [])
             .Where(directory => !string.IsNullOrWhiteSpace(directory))
             .Distinct(StringComparer.OrdinalIgnoreCase)];
         if (roots.Count == 0)
@@ -3933,28 +4077,112 @@ public partial class BMSPlaylist : NotificationObject
                 discoveryComplete: false);
     }
 
-    private static bool AreCustomFolderOutputPhysicalFilesPresent(
-        CustomFolderOutputProjection projection,
-        CustomFolderOutputPhysicalSurface physicalSurface)
+    private static CustomFolderOutputPhysicalMtimeSignatureIndex CreateCustomFolderPhysicalMtimeSignatureIndex(
+        IEnumerable<string> outputDirectories,
+        CustomFolderOutputPhysicalSurface physicalSurface,
+        IEnumerable<string> ownerBoundaryDirectories = null)
     {
-        if (projection == null || physicalSurface?.DiscoveryComplete != true)
+        if (physicalSurface?.DiscoveryComplete != true)
         {
-            return false;
+            return CustomFolderOutputPhysicalMtimeSignatureIndex.Incomplete;
         }
 
-        foreach (CustomFolderOutputFileProjection file in projection.Files ?? [])
+        var builders = new Dictionary<string, CustomFolderOutputPhysicalMtimeSignatureBuilder>(StringComparer.OrdinalIgnoreCase);
+        foreach (string outputDirectory in outputDirectories ?? [])
         {
-            if (file == null || string.IsNullOrWhiteSpace(file.FilePath))
+            string normalizedDirectory = Lr2FolderPath.NormalizeDirectoryPath(outputDirectory);
+            if (!string.IsNullOrWhiteSpace(normalizedDirectory) && !builders.ContainsKey(normalizedDirectory))
+            {
+                builders[normalizedDirectory] = new CustomFolderOutputPhysicalMtimeSignatureBuilder(normalizedDirectory);
+            }
+        }
+        if (builders.Count == 0)
+        {
+            return new CustomFolderOutputPhysicalMtimeSignatureIndex(
+                new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),
+                discoveryComplete: true);
+        }
+
+        IEnumerable<string> ownerDirectories = ownerBoundaryDirectories ?? builders.Keys;
+        var ownerResolver = new CustomFolderOutputOwnerResolver(ownerDirectories);
+        foreach (RootFileEnumerationEntry entry in (physicalSurface.FileEntries?.Values ?? [])
+            .Where(entry => entry != null && !string.IsNullOrWhiteSpace(entry.Path))
+            .OrderBy(entry => entry.Path, StringComparer.OrdinalIgnoreCase))
+        {
+            string normalizedFile = CustomFolderOutputPhysicalSurface.NormalizeFilePath(entry.Path);
+            if (string.IsNullOrWhiteSpace(normalizedFile)
+                || !ownerResolver.TryFindOwner(normalizedFile, out string ownerDirectory)
+                || !builders.TryGetValue(ownerDirectory, out CustomFolderOutputPhysicalMtimeSignatureBuilder builder))
             {
                 continue;
             }
 
-            if (physicalSurface.Resolve(file.FilePath)?.LastWriteTimeUtc == null)
+            builder.AddFile(normalizedFile, entry.LastWriteTimeUtc);
+        }
+
+        var signatures = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (CustomFolderOutputPhysicalMtimeSignatureBuilder builder in builders.Values)
+        {
+            if (builder.TryBuild(out string signature))
             {
-                return false;
+                signatures[builder.OutputDirectory] = signature;
             }
         }
-        return true;
+
+        return new CustomFolderOutputPhysicalMtimeSignatureIndex(signatures, discoveryComplete: true);
+    }
+
+    private static bool TryCreateCustomFolderPhysicalMtimeSignature(
+        string outputDirectory,
+        CustomFolderOutputPhysicalSurface physicalSurface,
+        out string signature)
+    {
+        CustomFolderOutputPhysicalMtimeSignatureIndex index = CreateCustomFolderPhysicalMtimeSignatureIndex(
+            [outputDirectory],
+            physicalSurface);
+        return index.TryGetSignature(outputDirectory, out signature);
+    }
+
+    private static IReadOnlyCollection<string> CreateCustomFolderExpectedDirectoryMetadataTargets(
+        CustomFolderOutputProjection projection)
+    {
+        if (projection == null || string.IsNullOrWhiteSpace(projection.OutputDirectory))
+        {
+            return [];
+        }
+
+        IReadOnlyCollection<string> directoryRowGenerationScopes =
+            CreateCustomFolderDirectoryRowGenerationScopes(projection.OutputDirectory, projection.Table);
+        return Lr2FolderFileDbSyncService.CreateParentDirectoryMetadataTargets(
+            CreateCustomFolderFileSyncItemsForMetadata(projection),
+            directoryRowGenerationScopes);
+    }
+
+    private static List<Lr2FolderFileSyncItem> CreateCustomFolderFileSyncItemsForMetadata(
+        CustomFolderOutputProjection projection)
+    {
+        return [.. (projection?.Files ?? [])
+            .Where(file => !string.IsNullOrWhiteSpace(file?.FilePath))
+            .Select(file =>
+            {
+                var item = new Lr2FolderFileSyncItem
+                {
+                    FilePath = file.FilePath,
+                    DatabasePath = file.DatabasePath
+                };
+                ApplyCustomFolderSourceClassification(item, projection.Table);
+                return item;
+            })];
+    }
+
+    private static CustomFolderOutputPhysicalSurface CreateCustomFolderOutputPhysicalSurfaceFromSyncItems(
+        IEnumerable<Lr2FolderFileSyncItem> syncItems)
+    {
+        return CustomFolderOutputPhysicalSurface.FromEntries(
+            (syncItems ?? [])
+                .Where(item => !string.IsNullOrWhiteSpace(item?.FilePath))
+                .Select(item => new RootFileEnumerationEntry(item.FilePath, item.LastWriteTimeUtc)),
+            discoveryComplete: true);
     }
 
     private static bool MarkCustomFolderOutputLayoutRepairTargets(
@@ -3972,11 +4200,21 @@ public partial class BMSPlaylist : NotificationObject
         bool needsRepair = false;
         if (rowLookupSucceeded)
         {
-            foreach (string rowPath in CreateCustomFolderExpectedDirectoryRowLookupPaths(projection))
+            foreach (string directory in CreateCustomFolderExpectedDirectoryMetadataTargets(projection))
             {
+                string rowPath = Lr2FolderPath.ToFolderPath(directory);
+                rowPath = ResolveCustomFolderDatabasePath(projection.Table, rowPath ?? directory);
                 string normalizedRowPath = NormalizeCustomFolderRowPath(rowPath);
-                if (!string.IsNullOrWhiteSpace(normalizedRowPath)
-                    && rowsByPath?.ContainsKey(normalizedRowPath) != true)
+                if (string.IsNullOrWhiteSpace(normalizedRowPath)
+                    || rowsByPath?.TryGetValue(normalizedRowPath, out LR2SongDB.folder directoryRow) != true)
+                {
+                    needsRepair = true;
+                    break;
+                }
+
+                RootFileEnumerationEntry directoryEntry = RootFileEnumerationEntry.FromDirectoryInfo(directory);
+                if (directoryEntry?.LastWriteTimeUtc == null
+                    || directoryRow.date != directoryEntry.LastWriteTimeUtc.Value.ToUnixtime())
                 {
                     needsRepair = true;
                     break;
@@ -4411,7 +4649,9 @@ public partial class BMSPlaylist : NotificationObject
         progressCallback?.Invoke(progressTotalCount, progressTotalCount, Resources.Custom_folder_db_sync_progress_single_label);
 
         var statusStopwatch = Stopwatch.StartNew();
-        PersistCustomFolderOutputStatuses(projections);
+        PersistCustomFolderOutputStatuses(
+            projections,
+            CreateCustomFolderOutputPhysicalSurfaceFromSyncItems(materialization.SyncItems));
         statusStopwatch.Stop();
         LogPlaylistPerformance(operation + " status_persist_done"
             + " reason=" + (reason ?? "unknown")
@@ -4514,11 +4754,12 @@ public partial class BMSPlaylist : NotificationObject
 
         public long LastUpdateTicks { get; set; }
 
-        public int GeneratorVersion { get; set; }
+        public string PhysicalMtimeSignature { get; set; }
+    }
 
-        public int ExpectedFileCount { get; set; }
-
-        public long FolderRowCount { get; set; }
+    private sealed class CustomFolderOutputStatusColumnRow
+    {
+        public string name { get; set; }
     }
 
     private sealed class CustomFolderOutputProjection
@@ -4536,6 +4777,195 @@ public partial class BMSPlaylist : NotificationObject
         public HashSet<string> ForceWriteFilePaths { get; } = new(StringComparer.OrdinalIgnoreCase);
 
         public CustomFolderOutputPhysicalSurface PhysicalSurface { get; set; }
+    }
+
+    private sealed class CustomFolderOutputRepairCandidate
+    {
+        public BMSTable Table { get; set; }
+
+        public string OutputDirectory { get; set; }
+    }
+
+    private sealed class CustomFolderOutputPhysicalMtimeSignatureIndex(
+        IReadOnlyDictionary<string, string> signatures,
+        bool discoveryComplete)
+    {
+        public static CustomFolderOutputPhysicalMtimeSignatureIndex Incomplete { get; } = new(
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),
+            discoveryComplete: false);
+
+        private IReadOnlyDictionary<string, string> Signatures { get; } =
+            signatures ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        public bool DiscoveryComplete { get; } = discoveryComplete;
+
+        public int SignatureCount => Signatures.Count;
+
+        public bool TryGetSignature(string outputDirectory, out string signature)
+        {
+            signature = null;
+            string normalizedDirectory = Lr2FolderPath.NormalizeDirectoryPath(outputDirectory);
+            return DiscoveryComplete
+                && !string.IsNullOrWhiteSpace(normalizedDirectory)
+                && Signatures.TryGetValue(normalizedDirectory, out signature);
+        }
+    }
+
+    private sealed class CustomFolderOutputOwnerResolver
+    {
+        private const string NoOwner = "";
+
+        private readonly HashSet<string> outputDirectories;
+
+        private readonly Dictionary<string, string> ownerByDirectory = new(StringComparer.OrdinalIgnoreCase);
+
+        public CustomFolderOutputOwnerResolver(IEnumerable<string> outputDirectories)
+        {
+            this.outputDirectories = new HashSet<string>(
+                (outputDirectories ?? [])
+                    .Select(Lr2FolderPath.NormalizeDirectoryPath)
+                    .Where(directory => !string.IsNullOrWhiteSpace(directory)),
+                StringComparer.OrdinalIgnoreCase);
+        }
+
+        public bool TryFindOwner(string filePath, out string ownerDirectory)
+        {
+            ownerDirectory = null;
+            string directory = Lr2FolderPath.NormalizeDirectoryPath(Lr2FolderPath.SafeGetDirectoryName(filePath));
+            if (string.IsNullOrWhiteSpace(directory) || outputDirectories.Count == 0)
+            {
+                return false;
+            }
+
+            if (ownerByDirectory.TryGetValue(directory, out string cachedOwner))
+            {
+                ownerDirectory = string.Equals(cachedOwner, NoOwner, StringComparison.Ordinal)
+                    ? null
+                    : cachedOwner;
+                return ownerDirectory != null;
+            }
+
+            var visitedDirectories = new List<string>();
+            string current = directory;
+            string resolvedOwner = null;
+            while (!string.IsNullOrWhiteSpace(current))
+            {
+                if (ownerByDirectory.TryGetValue(current, out cachedOwner))
+                {
+                    resolvedOwner = string.Equals(cachedOwner, NoOwner, StringComparison.Ordinal)
+                        ? null
+                        : cachedOwner;
+                    break;
+                }
+
+                visitedDirectories.Add(current);
+                if (outputDirectories.Contains(current))
+                {
+                    resolvedOwner = current;
+                    break;
+                }
+
+                string parent = Lr2FolderPath.SafeGetParentNormalizedDirectory(current);
+                if (string.IsNullOrWhiteSpace(parent)
+                    || string.Equals(parent, current, StringComparison.OrdinalIgnoreCase))
+                {
+                    break;
+                }
+
+                current = parent;
+            }
+
+            string cacheValue = resolvedOwner ?? NoOwner;
+            foreach (string visitedDirectory in visitedDirectories)
+            {
+                ownerByDirectory[visitedDirectory] = cacheValue;
+            }
+
+            ownerDirectory = resolvedOwner;
+            return ownerDirectory != null;
+        }
+    }
+
+    private sealed class CustomFolderOutputPhysicalMtimeSignatureBuilder(string outputDirectory)
+    {
+        private readonly StringBuilder builder = new();
+
+        private readonly HashSet<string> parentDirectories = new(StringComparer.OrdinalIgnoreCase);
+
+        public string OutputDirectory { get; } = outputDirectory;
+
+        public void AddFile(string filePath, DateTime? lastWriteTimeUtc)
+        {
+            string normalizedFile = CustomFolderOutputPhysicalSurface.NormalizeFilePath(filePath);
+            if (string.IsNullOrWhiteSpace(normalizedFile))
+            {
+                return;
+            }
+
+            builder
+                .Append("F\t")
+                .Append(normalizedFile)
+                .Append('\t')
+                .Append(lastWriteTimeUtc?.Ticks.ToString(CultureInfo.InvariantCulture) ?? "missing")
+                .Append('\n');
+            string parent = Lr2FolderPath.NormalizeDirectoryPath(Lr2FolderPath.SafeGetDirectoryName(normalizedFile));
+            while (!string.IsNullOrWhiteSpace(parent))
+            {
+                parentDirectories.Add(parent);
+                if (string.Equals(parent, OutputDirectory, StringComparison.OrdinalIgnoreCase))
+                {
+                    break;
+                }
+
+                string next = Lr2FolderPath.SafeGetParentNormalizedDirectory(parent);
+                if (string.IsNullOrWhiteSpace(next)
+                    || string.Equals(next, parent, StringComparison.OrdinalIgnoreCase))
+                {
+                    break;
+                }
+                parent = next;
+            }
+        }
+
+        public bool TryBuild(out string signature)
+        {
+            signature = null;
+            string normalizedOutputDirectory = Lr2FolderPath.NormalizeDirectoryPath(OutputDirectory);
+            if (string.IsNullOrWhiteSpace(normalizedOutputDirectory))
+            {
+                return false;
+            }
+
+            AppendDirectoryLine(builder, "O", normalizedOutputDirectory);
+            foreach (string directory in parentDirectories.OrderBy(directory => directory, StringComparer.OrdinalIgnoreCase))
+            {
+                if (!string.Equals(directory, normalizedOutputDirectory, StringComparison.OrdinalIgnoreCase))
+                {
+                    AppendDirectoryLine(builder, "D", directory);
+                }
+            }
+
+            signature = BMSTable.ComputeSha256Hex(builder.ToString());
+            return true;
+        }
+
+        private static void AppendDirectoryLine(StringBuilder builder, string kind, string directory)
+        {
+            RootFileEnumerationEntry entry = RootFileEnumerationEntry.FromDirectoryInfo(directory);
+            string normalizedDirectory = Lr2FolderPath.NormalizeDirectoryPath(entry?.Path ?? directory);
+            if (string.IsNullOrWhiteSpace(normalizedDirectory))
+            {
+                return;
+            }
+
+            builder
+                .Append(kind)
+                .Append('\t')
+                .Append(normalizedDirectory)
+                .Append('\t')
+                .Append(entry?.LastWriteTimeUtc?.Ticks.ToString(CultureInfo.InvariantCulture) ?? "missing")
+                .Append('\n');
+        }
     }
 
     private sealed class CustomFolderOutputFileProjection
@@ -4577,9 +5007,7 @@ public partial class BMSPlaylist : NotificationObject
                 + "header_sha256 AS HeaderSha256,"
                 + "data_sha256 AS DataSha256,"
                 + "last_update_ticks AS LastUpdateTicks,"
-                + "generator_version AS GeneratorVersion,"
-                + "expected_file_count AS ExpectedFileCount,"
-                + "folder_row_count AS FolderRowCount "
+                + "physical_mtime_signature AS PhysicalMtimeSignature "
                 + "FROM playlist_custom_folder_output_status;")
                 .Where(row => row != null)
                 .GroupBy(row => row.PlaylistId)
@@ -4594,7 +5022,10 @@ public partial class BMSPlaylist : NotificationObject
         }
     }
 
-    private void PersistCustomFolderOutputStatuses(IEnumerable<CustomFolderOutputProjection> projections)
+    private void PersistCustomFolderOutputStatuses(
+        IEnumerable<CustomFolderOutputProjection> projections,
+        CustomFolderOutputPhysicalSurface physicalSurface = null,
+        IEnumerable<string> ownerBoundaryDirectories = null)
     {
         if (string.IsNullOrWhiteSpace(lr2SongDBPath))
         {
@@ -4615,15 +5046,23 @@ public partial class BMSPlaylist : NotificationObject
             string savepoint = db.SaveTransactionPoint();
             try
             {
-                long completedAtUtcTicks = DateTime.UtcNow.Ticks;
-                long folderRowCount = ReadCustomFolderRowCount(db);
+                CustomFolderOutputPhysicalMtimeSignatureIndex physicalSignatureIndex =
+                    CreateCustomFolderPhysicalMtimeSignatureIndex(
+                        projectionList.Select(projection => projection.OutputDirectory),
+                        physicalSurface ?? projectionList.FirstOrDefault(projection => projection.PhysicalSurface != null)?.PhysicalSurface,
+                        ownerBoundaryDirectories);
                 foreach (CustomFolderOutputProjection projection in projectionList)
                 {
                     BMSTable table = projection.Table;
+                    if (physicalSignatureIndex.TryGetSignature(projection.OutputDirectory, out string physicalMtimeSignature) != true)
+                    {
+                        continue;
+                    }
+
                     db.Execute(
                         "INSERT OR REPLACE INTO playlist_custom_folder_output_status ("
-                        + "playlist_id, output_directory, is_root_folder, ignore_folder_output, entry_type, folder_sort_key, folder_sort_ascending, enable_unsent, header_sha256, data_sha256, last_update_ticks, generator_version, expected_file_count, folder_row_count, completed_at_utc_ticks"
-                        + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);",
+                        + "playlist_id, output_directory, is_root_folder, ignore_folder_output, entry_type, folder_sort_key, folder_sort_ascending, enable_unsent, header_sha256, data_sha256, last_update_ticks, physical_mtime_signature"
+                        + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);",
                         table.playlist_id.Value,
                         NormalizeCustomFolderStatusPath(projection.OutputDirectory),
                         table.is_root_folder ? 1 : 0,
@@ -4635,10 +5074,7 @@ public partial class BMSPlaylist : NotificationObject
                         table.header_sha256 ?? string.Empty,
                         table.data_sha256 ?? string.Empty,
                         table.last_update.Ticks,
-                        CustomFolderOutputStatusGeneratorVersion,
-                        projection.Files?.Count ?? 0,
-                        folderRowCount,
-                        completedAtUtcTicks);
+                        physicalMtimeSignature);
                 }
                 db.Commit();
             }
@@ -4654,39 +5090,6 @@ public partial class BMSPlaylist : NotificationObject
                 + " projectionCount=" + projectionList.Count
                 + " exception=" + QuoteLogValue(ex.GetType().Name)
                 + " message=" + QuoteLogValue(ex.Message));
-        }
-    }
-
-    private long ReadCustomFolderRowCount()
-    {
-        if (string.IsNullOrWhiteSpace(lr2SongDBPath))
-        {
-            return -1L;
-        }
-
-        try
-        {
-            using var db = new LR2SongDBExtended(lr2SongDBPath);
-            return ReadCustomFolderRowCount(db);
-        }
-        catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException || ex is SQLiteException)
-        {
-            LogPlaylistPerformance("playlist_custom_folder_output_status folder_row_count_failed"
-                + " exception=" + QuoteLogValue(ex.GetType().Name)
-                + " message=" + QuoteLogValue(ex.Message));
-            return -1L;
-        }
-    }
-
-    private static long ReadCustomFolderRowCount(LR2SongDBExtended db)
-    {
-        try
-        {
-            return db?.ExecuteScalar<long>("SELECT COUNT(1) FROM folder;") ?? -1L;
-        }
-        catch (Exception ex) when (ex is SQLiteException || ex is InvalidOperationException)
-        {
-            return -1L;
         }
     }
 
@@ -4714,20 +5117,18 @@ public partial class BMSPlaylist : NotificationObject
         }
     }
 
-    private static bool IsCustomFolderOutputStatusCurrent(
-        CustomFolderOutputProjection projection,
-        CustomFolderOutputStatusRow status,
-        long currentFolderRowCount)
+    private static bool IsCustomFolderOutputStatusConfigCurrent(
+        BMSTable table,
+        string outputDirectory,
+        CustomFolderOutputStatusRow status)
     {
-        BMSTable table = projection?.Table;
         if (table?.playlist_id == null || status == null)
         {
             return false;
         }
 
         return status.PlaylistId == table.playlist_id.Value
-            && status.GeneratorVersion == CustomFolderOutputStatusGeneratorVersion
-            && string.Equals(status.OutputDirectory, NormalizeCustomFolderStatusPath(projection.OutputDirectory), StringComparison.OrdinalIgnoreCase)
+            && string.Equals(status.OutputDirectory, NormalizeCustomFolderStatusPath(outputDirectory), StringComparison.OrdinalIgnoreCase)
             && status.IsRootFolder == (table.is_root_folder ? 1 : 0)
             && status.IgnoreFolderOutput == (int)LR2SongDBExtended.playlist.NormalizeCustomFolderOutputMask(table.ignore_folder_output)
             && status.EntryType == (int)table.entry_type
@@ -4736,10 +5137,21 @@ public partial class BMSPlaylist : NotificationObject
             && status.EnableUnsent == (Settings.Default.EnableDownloadLr2IrScoreAndDetectUnsent ? 1 : 0)
             && string.Equals(status.HeaderSha256 ?? string.Empty, table.header_sha256 ?? string.Empty, StringComparison.Ordinal)
             && string.Equals(status.DataSha256 ?? string.Empty, table.data_sha256 ?? string.Empty, StringComparison.Ordinal)
-            && status.LastUpdateTicks == table.last_update.Ticks
-            && status.ExpectedFileCount == (projection.Files?.Count ?? 0)
-            && currentFolderRowCount >= 0
-            && status.FolderRowCount == currentFolderRowCount;
+            && status.LastUpdateTicks == table.last_update.Ticks;
+    }
+
+    private static bool IsCustomFolderOutputStatusPhysicalCurrent(
+        string outputDirectory,
+        CustomFolderOutputStatusRow status,
+        CustomFolderOutputPhysicalMtimeSignatureIndex physicalSignatureIndex)
+    {
+        if (status == null
+            || physicalSignatureIndex?.TryGetSignature(outputDirectory, out string physicalMtimeSignature) != true)
+        {
+            return false;
+        }
+
+        return string.Equals(status.PhysicalMtimeSignature ?? string.Empty, physicalMtimeSignature, StringComparison.Ordinal);
     }
 
     private static string NormalizeCustomFolderStatusPath(string path)
@@ -5466,7 +5878,9 @@ public partial class BMSPlaylist : NotificationObject
                 materialization.PruneScopePaths,
                 materialization.PruneExcludedDirectories,
                 materialization.EmptyOutputDirectories);
-            PersistCustomFolderOutputStatuses([projection]);
+            PersistCustomFolderOutputStatuses(
+                [projection],
+                CreateCustomFolderOutputPhysicalSurfaceFromSyncItems(materialization.SyncItems));
             if (Directory.Exists(outputDir)
                 && !Directory.EnumerateFileSystemEntries(outputDir).Any())
             {
@@ -5875,6 +6289,9 @@ public partial class BMSPlaylist : NotificationObject
         LogPlaylistPerformance(operation + " done"
             + " scopeCount=" + scopeCount
             + " itemCount=" + itemCount
+            + " existingRows=" + result.ExistingReadCount
+            + " existingExactRows=" + result.ExistingExactReadCount
+            + " existingScopeRows=" + result.ExistingScopeReadCount
             + " generated=" + result.GeneratedCount
             + " upserted=" + result.UpsertedCount
             + " deleted=" + result.DeletedCount

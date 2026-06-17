@@ -71,7 +71,8 @@ internal sealed class RootFileEnumerationGroup(
     string name,
     IEnumerable<string> extensions,
     bool includeAllFiles = false,
-    bool includeDirectories = false)
+    bool includeDirectories = false,
+    IEnumerable<string> excludedDirectories = null)
 {
     public string Name { get; } = name ?? string.Empty;
 
@@ -83,6 +84,22 @@ internal sealed class RootFileEnumerationGroup(
     public bool IncludeAllFiles { get; } = includeAllFiles;
 
     public bool IncludeDirectories { get; } = includeDirectories;
+
+    public string[] ExcludedDirectories { get; } = [.. (excludedDirectories ?? [])
+            .Where(directory => !string.IsNullOrWhiteSpace(directory))
+            .Select(directory =>
+            {
+                try
+                {
+                    return Path.GetFullPath(directory).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                }
+                catch (Exception ex) when (ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException)
+                {
+                    return null;
+                }
+            })
+            .Where(directory => !string.IsNullOrWhiteSpace(directory))
+            .Distinct(StringComparer.OrdinalIgnoreCase)];
 }
 
 internal sealed class RootFileEnumerationResult

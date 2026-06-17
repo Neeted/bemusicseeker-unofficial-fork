@@ -77,6 +77,8 @@ internal sealed class SongTableFileCheckResult
 
     public int Lr2ScanLr2FolderAppManagedScopeDirectoryCount { get; set; }
 
+    public IReadOnlyList<string> Lr2ScanLr2FolderAppManagedScopeDirectories { get; set; } = [];
+
     public int Lr2ScanLr2FolderAppManagedExactFileCount { get; set; }
 
     public IReadOnlyList<string> Lr2ScanAppManagedCustomFolderOutputFilePaths { get; set; } = [];
@@ -389,6 +391,7 @@ internal sealed class SongTableFileCheckResult
         Lr2ScanLr2FolderCandidatesAlreadyFiltered = false;
         Lr2ScanLr2FolderAppManagedFilteredCount = 0;
         Lr2ScanLr2FolderAppManagedScopeDirectoryCount = 0;
+        Lr2ScanLr2FolderAppManagedScopeDirectories = [];
         Lr2ScanLr2FolderAppManagedExactFileCount = 0;
         Lr2ScanAppManagedCustomFolderOutputFilePaths = [];
         Lr2ScanAppManagedCustomFolderOutputFileEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);

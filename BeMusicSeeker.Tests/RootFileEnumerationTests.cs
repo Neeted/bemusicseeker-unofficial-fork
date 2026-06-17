@@ -104,6 +104,77 @@ public sealed class RootFileEnumerationTests
     }
 
     [TestMethod]
+    public void BuildFilesQuery_IncludesExcludedDirectoriesWithTrailingSeparator()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_RootEnumFilesQuery_" + Guid.NewGuid().ToString("N"));
+        string excluded = Path.Combine(root, "Output", "Table");
+
+        string query = EverythingNative.BuildFilesQuery([root], ["lr2folder"], [excluded]);
+
+        StringAssert.Contains(query, "file:");
+        StringAssert.Contains(query, "!<path:\"" + (excluded + Path.DirectorySeparatorChar).Replace("\"", "\"\"") + "\">");
+    }
+
+    [TestMethod]
+    public void FastEnumerator_ExcludesConfiguredSubtreeAndKeepsPrefixSibling()
+    {
+        string tempRoot = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_RootEnumExclude_" + Guid.NewGuid().ToString("N"));
+        string excludedDirectory = Path.Combine(tempRoot, "Output", "Table");
+        string prefixSiblingDirectory = Path.Combine(tempRoot, "Output", "TableOther");
+        string externalPath = Path.Combine(tempRoot, "External.lr2folder");
+        string excludedPath = Path.Combine(excludedDirectory, "Managed.lr2folder");
+        string siblingPath = Path.Combine(prefixSiblingDirectory, "Sibling.lr2folder");
+        Directory.CreateDirectory(excludedDirectory);
+        Directory.CreateDirectory(prefixSiblingDirectory);
+        File.WriteAllText(externalPath, "#TITLE External");
+        File.WriteAllText(excludedPath, "#TITLE Managed");
+        File.WriteAllText(siblingPath, "#TITLE Sibling");
+
+        try
+        {
+            RootFileEnumerationResult result = new FastRootFileEnumerator().EnumerateFiles(
+                [tempRoot],
+                [new RootFileEnumerationGroup("lr2folder", [".lr2folder"], excludedDirectories: [excludedDirectory])]);
+
+            Assert.IsTrue(result.Success);
+            CollectionAssert.Contains(result.GetPaths("lr2folder").ToList(), externalPath);
+            CollectionAssert.Contains(result.GetPaths("lr2folder").ToList(), siblingPath);
+            CollectionAssert.DoesNotContain(result.GetPaths("lr2folder").ToList(), excludedPath);
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot))
+            {
+                Directory.Delete(tempRoot, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void FastEnumerator_ExcludedRootReturnsNoDirectoryEntries()
+    {
+        string tempRoot = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_RootEnumExcludeRoot_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(Path.Combine(tempRoot, "Nested"));
+
+        try
+        {
+            RootFileEnumerationResult result = new FastRootFileEnumerator().EnumerateFiles(
+                [tempRoot],
+                [new RootFileEnumerationGroup(RootFileEnumerationService.DirectoriesGroupName, [], includeDirectories: true, excludedDirectories: [tempRoot])]);
+
+            Assert.IsTrue(result.Success);
+            Assert.AreEqual(0, result.GetPaths(RootFileEnumerationService.DirectoriesGroupName).Count);
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot))
+            {
+                Directory.Delete(tempRoot, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
     public void RootFileEnumerationService_ClassifiesBridgeContractFailures()
     {
         Assert.IsTrue(RootFileEnumerationService.IsBridgeContractFailure("bridge_grouped_enumeration_export_missing"));

@@ -152,9 +152,10 @@ internal static class Lr2FolderExistingRowLookup
             return [];
         }
 
+        List<PathPrefixRange> excludedRanges = CreatePrefixRanges(excludedFolderPathPrefixes);
         List<PathPrefixRange> ranges = SubtractExcludedPrefixRanges(
             CreatePrefixRanges(folderPathPrefixes),
-            CreatePrefixRanges(excludedFolderPathPrefixes));
+            excludedRanges);
         if (ranges.Count == 0)
         {
             return [];
@@ -237,55 +238,60 @@ internal static class Lr2FolderExistingRowLookup
         IReadOnlyList<PathPrefixRange> includeRanges,
         IReadOnlyList<PathPrefixRange> excludeRanges)
     {
-        var segments = new List<PathPrefixRange>(includeRanges ?? []);
-        if (segments.Count == 0 || excludeRanges == null || excludeRanges.Count == 0)
+        if (includeRanges == null || includeRanges.Count == 0)
         {
-            return segments;
+            return [];
         }
 
-        foreach (PathPrefixRange exclude in excludeRanges)
+        if (excludeRanges == null || excludeRanges.Count == 0)
         {
-            var next = new List<PathPrefixRange>();
-            foreach (PathPrefixRange segment in segments)
+            return [.. includeRanges];
+        }
+
+        var result = new List<PathPrefixRange>();
+        int excludeIndex = 0;
+        foreach (PathPrefixRange include in includeRanges)
+        {
+            while (excludeIndex < excludeRanges.Count
+                && ComparePathBounds(excludeRanges[excludeIndex].Upper, include.Lower) <= 0)
             {
-                if (ComparePathBounds(exclude.Upper, segment.Lower) <= 0
-                    || ComparePathBounds(exclude.Lower, segment.Upper) >= 0)
+                excludeIndex++;
+            }
+
+            string nextLower = include.Lower;
+            for (int index = excludeIndex; index < excludeRanges.Count; index++)
+            {
+                PathPrefixRange exclude = excludeRanges[index];
+                if (ComparePathBounds(exclude.Lower, include.Upper) >= 0)
                 {
-                    next.Add(segment);
-                    continue;
+                    break;
                 }
 
-                if (ComparePathBounds(segment.Lower, exclude.Lower) < 0)
+                if (ComparePathBounds(nextLower, exclude.Lower) < 0)
                 {
-                    string leftUpper = ComparePathBounds(exclude.Lower, segment.Upper) < 0
-                        ? exclude.Lower
-                        : segment.Upper;
-                    if (ComparePathBounds(segment.Lower, leftUpper) < 0)
-                    {
-                        next.Add(new PathPrefixRange(segment.Lower, leftUpper));
-                    }
+                    result.Add(new PathPrefixRange(
+                        nextLower,
+                        ComparePathBounds(exclude.Lower, include.Upper) < 0 ? exclude.Lower : include.Upper));
                 }
 
-                if (ComparePathBounds(exclude.Upper, segment.Upper) < 0)
+                if (ComparePathBounds(exclude.Upper, nextLower) > 0)
                 {
-                    string rightLower = ComparePathBounds(exclude.Upper, segment.Lower) > 0
-                        ? exclude.Upper
-                        : segment.Lower;
-                    if (ComparePathBounds(rightLower, segment.Upper) < 0)
-                    {
-                        next.Add(new PathPrefixRange(rightLower, segment.Upper));
-                    }
+                    nextLower = exclude.Upper;
+                }
+
+                if (ComparePathBounds(nextLower, include.Upper) >= 0)
+                {
+                    break;
                 }
             }
 
-            segments = next;
-            if (segments.Count == 0)
+            if (ComparePathBounds(nextLower, include.Upper) < 0)
             {
-                break;
+                result.Add(new PathPrefixRange(nextLower, include.Upper));
             }
         }
 
-        return MergePrefixRanges(segments);
+        return result;
     }
 
     private static int ComparePathBounds(string left, string right)

@@ -41,6 +41,8 @@ internal sealed class Lr2SongDbSyncRequest
 
     public IReadOnlyCollection<string> Lr2FolderPruneDirectories { get; set; } = [];
 
+    public IReadOnlyCollection<string> Lr2FolderPruneExcludedDirectories { get; set; } = [];
+
     public IReadOnlyCollection<string> Lr2FolderPruneExcludedPaths { get; set; } = [];
 
     public string Lr2RootPath { get; set; }
@@ -424,6 +426,39 @@ internal static class Lr2SongDbSyncService
             ReportProgress(request, normalFolderProcessedCount, totalCount, "normal_folders_completed", normalFolderTargetCount, normalFolderTargetCount);
         }
 
+        if (!IsSourceCurrent(request))
+        {
+            Lr2SongDbSyncStatusService.MarkIncomplete(
+                songDb,
+                request.Signature,
+                request.RunId,
+                processedCursor: normalFolderProcessedCount,
+                totalCount,
+                stage: SourceStaleStage,
+                detail: SourceStaleReason,
+                nowUtc: DateTime.UtcNow);
+            ReportProgress(request, normalFolderProcessedCount, totalCount, SourceStaleStage, 0, 0);
+            stopwatch.Stop();
+            return new Lr2SongDbSyncResult
+            {
+                TotalCount = totalCount,
+                ProcessedCount = normalFolderProcessedCount,
+                FinalStage = SourceStaleStage,
+                IncompleteReason = SourceStaleReason,
+                NormalFolderSyncResult = normalFolderResult,
+                Lr2FolderFileSyncResult = null,
+                Lr2FolderFileProcessedCount = 0,
+                SongRowProcessedCount = 0,
+                SongRowSkippedCount = 0,
+                SongRowParseFailureCount = 0,
+                SongRowChartInfoAppliedCount = 0,
+                SongRowLr2CompatibilityAppliedCount = 0,
+                StaleSongRowPrunedCount = 0,
+                StartupScanDiagnosticResult = null,
+                ElapsedMs = stopwatch.ElapsedMilliseconds
+            };
+        }
+
         if (resumeCursor < lr2FolderEndCursor)
         {
             LogStage(request, "stage_start", "lr2folder_files", lr2FolderFilePaths.Count, 0, normalFolderProcessedCount);
@@ -460,6 +495,7 @@ internal static class Lr2SongDbSyncService
                 ScopeDirectories = lr2FolderPruneDirectories,
                 DirectoryRowScopeDirectories = CreateLr2FolderDirectoryRowScopeDirectories(request),
                 DirectoryRowGenerationScopeDirectories = CreateLr2FolderDirectoryRowGenerationScopeDirectories(request),
+                PruneExcludedDirectories = request.Lr2FolderPruneExcludedDirectories,
                 PruneExcludedPaths = request.Lr2FolderPruneExcludedPaths,
                 DirectoryMetadataResolver = lr2FolderParentDirectoryMetadata.Resolve,
                 AllowPrune = lr2FolderPruneDirectories.Count > 0
@@ -661,6 +697,7 @@ internal static class Lr2SongDbSyncService
                     DirectoryRowScopeDirectories = CreateLr2FolderDirectoryRowScopeDirectories(request),
                     DirectoryRowGenerationScopeDirectories = CreateLr2FolderDirectoryRowGenerationScopeDirectories(request),
                     DirectoryMetadataResolver = lr2FolderParentDirectoryMetadata.Resolve,
+                    PruneExcludedDirectories = request.Lr2FolderPruneExcludedDirectories,
                     PruneExcludedPaths = request.Lr2FolderPruneExcludedPaths,
                     AllowPrune = lr2FolderPruneDirectories.Count > 0
                         && request.Lr2FolderFileDiscoveryComplete
@@ -1114,6 +1151,8 @@ internal static class Lr2SongDbSyncService
             includeBuiltinSources: true,
             includeNonBuiltinSources: false));
         HashSet<string> pruneExcludedLr2FolderPaths = CreateLr2FolderPruneExcludedPathSet(request);
+        Lr2DirectoryScopeMatcher pruneExcludedLr2FolderDirectoryMatcher =
+            Lr2DirectoryScopeMatcher.Create(request?.Lr2FolderPruneExcludedDirectories);
         bool allowLr2FolderDiagnosticRepair = request == null || request.Lr2FolderFileDiscoveryComplete;
         Lr2DirectoryScopeMatcher incompleteLr2FolderDirectoryRowScopeMatcher = allowLr2FolderDiagnosticRepair
             ? Lr2DirectoryScopeMatcher.Create([])
@@ -1144,12 +1183,17 @@ internal static class Lr2SongDbSyncService
                 : null;
             bool isPruneExcludedLr2FolderRow = !string.IsNullOrWhiteSpace(databaseLr2FolderPath)
                 && pruneExcludedLr2FolderPaths.Contains(databaseLr2FolderPath);
+            bool isPruneExcludedLr2FolderDirectoryRow = hasDiagnosticPath
+                && (isLr2FolderFileRow
+                    ? pruneExcludedLr2FolderDirectoryMatcher.ContainsFilePath(diagnosticPath)
+                    : pruneExcludedLr2FolderDirectoryMatcher.ContainsDirectory(diagnosticPath));
             bool isExistingLr2FolderKind = IsExistingLr2FolderRowKind(row.Type);
             bool isUnderLr2FolderRoot = hasDiagnosticPath && IsUnderAnyRoot(diagnosticPath, lr2FolderRoots);
             bool isInIncompleteLr2FolderDirectoryRowScope = !allowLr2FolderDiagnosticRepair
                 && hasDiagnosticPath
                 && incompleteLr2FolderDirectoryRowScopeMatcher.ContainsDirectory(diagnosticPath);
             bool suppressLr2FolderRepair = isPruneExcludedLr2FolderRow
+                || isPruneExcludedLr2FolderDirectoryRow
                 || !allowLr2FolderDiagnosticRepair
                     && (isLr2FolderFileRow
                         || isExistingLr2FolderKind && isUnderLr2FolderRoot
