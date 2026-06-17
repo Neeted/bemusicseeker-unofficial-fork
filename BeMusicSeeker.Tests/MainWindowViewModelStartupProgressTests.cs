@@ -73,9 +73,11 @@ public sealed class MainWindowViewModelStartupProgressTests
         Assert.AreEqual("read_hydration", MainWindowViewModel.GetStartupBackgroundTaskLaneForTest("playlist_entries_hydration"));
         Assert.AreEqual("read_hydration", MainWindowViewModel.GetStartupBackgroundTaskLaneForTest("chart_info_hydration"));
         Assert.AreEqual("maintenance_hydration", MainWindowViewModel.GetStartupBackgroundTaskLaneForTest("maintenance_hydration"));
+        Assert.AreEqual("dependent_maintenance", MainWindowViewModel.GetStartupBackgroundTaskLaneForTest("playlist_custom_folder_output_repair"));
         Assert.AreEqual("default", MainWindowViewModel.GetStartupBackgroundTaskLaneForTest("playlist_library_index_prewarm"));
         Assert.AreEqual(2, MainWindowViewModel.GetStartupBackgroundTaskLaneConcurrencyForTest("read_hydration"));
         Assert.AreEqual(1, MainWindowViewModel.GetStartupBackgroundTaskLaneConcurrencyForTest("maintenance_hydration"));
+        Assert.AreEqual(1, MainWindowViewModel.GetStartupBackgroundTaskLaneConcurrencyForTest("dependent_maintenance"));
         Assert.AreEqual(4, MainWindowViewModel.GetStartupBackgroundTaskTotalConcurrencyForTest());
     }
 

@@ -12,15 +12,16 @@ internal class windowsFormsHostVisibilitiesConverter : IMultiValueConverter
     {
         try
         {
-            if (values.Take(4).Cast<Visibility>().Any(v => v == Visibility.Visible))
+            int contentStateIndex = values.Length - 3;
+            if (values.Take(contentStateIndex).Cast<Visibility>().Any(v => v == Visibility.Visible))
             {
                 return Visibility.Collapsed;
             }
-            if (!(bool)values[4])
+            if (!(bool)values[contentStateIndex])
             {
                 return Visibility.Collapsed;
             }
-            if (values[5] == null)
+            if (values[contentStateIndex + 1] == null)
             {
                 return Visibility.Collapsed;
             }

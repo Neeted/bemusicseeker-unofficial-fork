@@ -3069,6 +3069,21 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }).Logging("playlistSummaryContextMenuMoveToBmtSortBottomClick");
     }
 
+    private void playlistSummaryContextMenuOpenBulkEditClick(object sender, RoutedEventArgs e)
+    {
+        PlaylistSummaryRow playlistSummaryRow = resolvePlaylistSummaryRowFromSender(sender);
+        List<PlaylistSummaryRow> selectedPlaylistSummaryRows = [.. getSelectedPlaylistSummaryRows(playlistSummaryRow).Where(row => row?.TableRef != null)];
+        if (selectedPlaylistSummaryRows.Count == 0)
+        {
+            return;
+        }
+        if (base.DataContext is MainWindowViewModel mainWindowViewModel && !mainWindowViewModel.IsWriteLockHeldBMSTablesInitializeMin && !mainWindowViewModel.IsWriteLockHeldBMSTables && !mainWindowViewModel.IsWriteLockHeldAnyBMSTable)
+        {
+            mainWindowViewModel.playlistSummaryBulkEditDialog = new MainWindowViewModel.PlaylistSummaryBulkEditDialogViewModel(mainWindowViewModel, selectedPlaylistSummaryRows);
+            playlistSummaryBulkEditDialog.Visibility = Visibility.Visible;
+        }
+    }
+
     private void playlistSummaryContextMenuOpenPropertyClick(object sender, RoutedEventArgs e)
     {
         PlaylistSummaryRow playlistSummaryRow = resolvePlaylistSummaryRowFromSender(sender);

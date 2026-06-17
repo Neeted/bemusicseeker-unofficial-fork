@@ -31,6 +31,20 @@ internal static class Lr2FolderExistingRowLookup
             "f." + pathColumn + ", f." + typeColumn + ", f." + dateColumn);
     }
 
+    internal static IReadOnlyList<LR2SongDB.folder> QueryExactPathsForCustomFolderLayout(
+        LR2SongDBExtended songDb,
+        IEnumerable<string> exactPaths)
+    {
+        string pathColumn = SQLiteTable<LR2SongDB.folder>.GetColumnName(row => row.path);
+        string typeColumn = SQLiteTable<LR2SongDB.folder>.GetColumnName(row => row.type);
+        string dateColumn = SQLiteTable<LR2SongDB.folder>.GetColumnName(row => row.date);
+        string parentColumn = SQLiteTable<LR2SongDB.folder>.GetColumnName(row => row.parent);
+        return QueryExactPaths(
+            songDb,
+            exactPaths,
+            "f." + pathColumn + ", f." + typeColumn + ", f." + dateColumn + ", f." + parentColumn);
+    }
+
     private static IReadOnlyList<LR2SongDB.folder> QueryExactPaths(
         LR2SongDBExtended songDb,
         IEnumerable<string> exactPaths,
@@ -108,6 +122,22 @@ internal static class Lr2FolderExistingRowLookup
         IEnumerable<string> excludedFolderPathPrefixes)
     {
         return QueryPathPrefixScopes(songDb, folderPathPrefixes, excludedFolderPathPrefixes, selectColumns: "*", additionalFilter: string.Empty);
+    }
+
+    internal static IReadOnlyList<LR2SongDB.folder> QueryCustomFolderLayoutPathPrefixScopes(
+        LR2SongDBExtended songDb,
+        IEnumerable<string> folderPathPrefixes)
+    {
+        string pathColumn = SQLiteTable<LR2SongDB.folder>.GetColumnName(row => row.path);
+        string typeColumn = SQLiteTable<LR2SongDB.folder>.GetColumnName(row => row.type);
+        string dateColumn = SQLiteTable<LR2SongDB.folder>.GetColumnName(row => row.date);
+        string parentColumn = SQLiteTable<LR2SongDB.folder>.GetColumnName(row => row.parent);
+        return QueryPathPrefixScopes(
+            songDb,
+            folderPathPrefixes,
+            [],
+            pathColumn + ", " + typeColumn + ", " + dateColumn + ", " + parentColumn,
+            string.Empty);
     }
 
     private static IReadOnlyList<LR2SongDB.folder> QueryPathPrefixScopes(

@@ -8881,7 +8881,7 @@ completeFileEnumerationOnce,
                 return new Lr2SongDbSyncAppManagedOutputScope([], [], [], isComplete: true);
             }
 
-            Lr2SongDbSyncAppManagedOutputCounts outputCounts =
+            Lr2ManagedCustomFolderOutputCounts outputCounts =
                 CreateLr2SongDbSyncAppManagedOutputCounts(songDb);
             foreach (BMSTable table in songDb.Table<BMSTable>())
             {
@@ -9031,21 +9031,6 @@ completeFileEnumerationOnce,
         }
     }
 
-    private sealed class Lr2SongDbSyncAppManagedOutputCounts(
-        IReadOnlyDictionary<int, int> userFolderCounts,
-        IReadOnlyDictionary<int, int> levelFolderCounts,
-        ISet<int> nullLevelPlaylistIds)
-    {
-        public IReadOnlyDictionary<int, int> UserFolderCounts { get; } =
-            userFolderCounts ?? new Dictionary<int, int>();
-
-        public IReadOnlyDictionary<int, int> LevelFolderCounts { get; } =
-            levelFolderCounts ?? new Dictionary<int, int>();
-
-        public ISet<int> NullLevelPlaylistIds { get; } =
-            nullLevelPlaylistIds ?? new HashSet<int>();
-    }
-
     private sealed class PlaylistCountRow
     {
         public int PlaylistId { get; set; }
@@ -9058,14 +9043,11 @@ completeFileEnumerationOnce,
         public int PlaylistId { get; set; }
     }
 
-    private static Lr2SongDbSyncAppManagedOutputCounts CreateLr2SongDbSyncAppManagedOutputCounts(LR2SongDBExtended songDb)
+    private static Lr2ManagedCustomFolderOutputCounts CreateLr2SongDbSyncAppManagedOutputCounts(LR2SongDBExtended songDb)
     {
         if (songDb == null)
         {
-            return new Lr2SongDbSyncAppManagedOutputCounts(
-                new Dictionary<int, int>(),
-                new Dictionary<int, int>(),
-                new HashSet<int>());
+            return Lr2ManagedCustomFolderOutputCounts.Empty;
         }
 
         string tableName = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetTableName();
@@ -9102,7 +9084,7 @@ completeFileEnumerationOnce,
             + " GROUP BY " + playlistIdColumn + ";")
             .Select(row => row.PlaylistId)];
 
-        return new Lr2SongDbSyncAppManagedOutputCounts(
+        return new Lr2ManagedCustomFolderOutputCounts(
             userFolderCounts,
             levelFolderCounts,
             nullLevelPlaylistIds);
@@ -9110,116 +9092,12 @@ completeFileEnumerationOnce,
 
     private static IReadOnlyList<string> CreateManagedCustomFolderOutputRelativeFilePaths(
         BMSTable table,
-        Lr2SongDbSyncAppManagedOutputCounts outputCounts)
+        Lr2ManagedCustomFolderOutputCounts outputCounts)
     {
-        if (table?.playlist_id == null)
-        {
-            return [];
-        }
-
-        int playlistId = table.playlist_id.Value;
-        LR2SongDBExtended.playlist.CustomFolderType ignored =
-            LR2SongDBExtended.playlist.NormalizeCustomFolderOutputMask(table.ignore_folder_output);
-        bool outputRandom = IsManagedCustomFolderTypeEnabled(ignored, LR2SongDBExtended.playlist.CustomFolderType.RandomFolder);
-        int folderScopeCount = 1 + (outputCounts?.UserFolderCounts.TryGetValue(playlistId, out int userFolderCount) == true
-            ? userFolderCount
-            : 0);
-        var result = new List<string>();
-        int rootFileCount = 0;
-        if (IsManagedCustomFolderTypeEnabled(ignored, LR2SongDBExtended.playlist.CustomFolderType.UserFolder))
-        {
-            rootFileCount += folderScopeCount;
-            if (outputRandom)
-            {
-                rootFileCount += folderScopeCount;
-            }
-        }
-        if (IsManagedCustomFolderTypeEnabled(ignored, LR2SongDBExtended.playlist.CustomFolderType.LevelFolder))
-        {
-            int levelFolderCount = outputCounts?.LevelFolderCounts.TryGetValue(playlistId, out int countedLevelFolderCount) == true
-                ? countedLevelFolderCount
-                : 0;
-            if (outputCounts?.NullLevelPlaylistIds.Contains(playlistId) == true)
-            {
-                levelFolderCount++;
-            }
-            rootFileCount += levelFolderCount;
-            if (outputRandom)
-            {
-                rootFileCount += levelFolderCount;
-            }
-        }
-        if (IsManagedCustomFolderTypeEnabled(ignored, LR2SongDBExtended.playlist.CustomFolderType.AlphabetFolder))
-        {
-            rootFileCount += 7;
-        }
-        if (IsManagedCustomFolderTypeEnabled(ignored, LR2SongDBExtended.playlist.CustomFolderType.CategoryAllFolder))
-        {
-            rootFileCount += 5;
-        }
-        if (IsManagedCustomFolderTypeEnabled(ignored, LR2SongDBExtended.playlist.CustomFolderType.OtherFolder))
-        {
-            rootFileCount += Settings.Default.EnableDownloadLr2IrScoreAndDetectUnsent ? 4 : 3;
-        }
-        AddManagedCustomFolderSequentialRelativePaths(result, string.Empty, rootFileCount);
-        if (IsManagedCustomFolderTypeEnabled(ignored, LR2SongDBExtended.playlist.CustomFolderType.ClearFolder))
-        {
-            foreach (string clearDirectory in new[] { "0 NO PLAY", "1 FAILED", "2 ASSIST", "3 EASY", "4 CLEAR", "5 HARD", "6 FC", "7 P.A" })
-            {
-                AddManagedCustomFolderSequentialRelativePaths(
-                    result,
-                    Path.Combine("CLEAR FOLDER", clearDirectory),
-                    folderScopeCount * (outputRandom ? 2 : 1));
-            }
-        }
-        if (IsManagedCustomFolderTypeEnabled(ignored, LR2SongDBExtended.playlist.CustomFolderType.DJLevelFolder))
-        {
-            foreach (string djLevelDirectory in new[] { "AAA", "AA", "A", "UNDER A" })
-            {
-                AddManagedCustomFolderSequentialRelativePaths(
-                    result,
-                    Path.Combine("DJ LEVEL", djLevelDirectory),
-                    folderScopeCount * (outputRandom ? 2 : 1));
-            }
-        }
-        if (IsManagedCustomFolderTypeEnabled(ignored, LR2SongDBExtended.playlist.CustomFolderType.BpmSortFolder))
-        {
-            AddManagedCustomFolderSequentialRelativePaths(result, "BPM SORT", folderScopeCount);
-        }
-        if (IsManagedCustomFolderTypeEnabled(ignored, LR2SongDBExtended.playlist.CustomFolderType.BpSortFolder))
-        {
-            AddManagedCustomFolderSequentialRelativePaths(result, "BP SORT", folderScopeCount);
-        }
-        if (IsManagedCustomFolderTypeEnabled(ignored, LR2SongDBExtended.playlist.CustomFolderType.PlayCountSortFolder))
-        {
-            AddManagedCustomFolderSequentialRelativePaths(result, "PLAY COUNT SORT", folderScopeCount);
-        }
-        return result;
-    }
-
-    private static bool IsManagedCustomFolderTypeEnabled(
-        LR2SongDBExtended.playlist.CustomFolderType ignored,
-        LR2SongDBExtended.playlist.CustomFolderType type)
-    {
-        return LR2SongDBExtended.playlist.IsCustomFolderTypeEnabled(ignored, type);
-    }
-
-    private static void AddManagedCustomFolderSequentialRelativePaths(
-        IList<string> result,
-        string relativeDirectory,
-        int count)
-    {
-        if (result == null || count <= 0)
-        {
-            return;
-        }
-
-        for (int index = 0; index < count; index++)
-        {
-            result.Add(string.IsNullOrWhiteSpace(relativeDirectory)
-                ? $"{index:D4}.lr2folder"
-                : Path.Combine(relativeDirectory, $"{index:D4}.lr2folder"));
-        }
+        return Lr2ManagedCustomFolderOutputLayout.CreateRelativeFilePaths(
+            table,
+            outputCounts,
+            Settings.Default.EnableDownloadLr2IrScoreAndDetectUnsent);
     }
 
     private static string ResolveManagedPlaylistOutputDirectory(BMSTable table)

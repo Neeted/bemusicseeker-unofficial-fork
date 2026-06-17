@@ -415,7 +415,7 @@ Playlists:
 - Playlist root: You can run `Create new`, `Import`, and `Reload`. Import options include specifying a URL, loading from a difficulty table list, importing the Overjoy BMS difficulty estimation table, recommend tables, and so on.
 - Playlist body: You can run `Reload`, `Open page`, `Clear lamp (external site)`, `Overwrite levels`, `Create folder`, `Export`, `Delete playlist`, and `Properties`. For details on each item, see [Playlist Detail](#playlist-detail).
 - Folder in playlist: You can run `Delete` and `Rename`.
-- Playlist summary row: You can run `Reload`, `Open page`, `Apply current order to BMT SORT`, `Move to top of BMT SORT`, `Move to bottom of BMT SORT`, `Properties`, and `Delete playlist`. Reloading multiple selected rows in the summary targets the selected playlists regardless of their external sync flag.
+- Playlist summary row: You can run `Reload`, `Open page`, `Apply current order to BMT SORT`, `Move to top of BMT SORT`, `Move to bottom of BMT SORT`, `Bulk edit...`, `Properties`, and `Delete playlist`. Reloading multiple selected rows in the summary targets the selected playlists regardless of their external sync flag.
 
 Install:
 
@@ -492,6 +492,8 @@ The `STATUS` column shows the result of external playlist sync performed after s
 
 `BMT OUTPUT` controls whether that playlist is included in `.bmt` output. Disabling it removes that playlist's managed `.bmt` and BeMusicSeeker-managed `tableURL` entry on the next output.
 
+Select multiple rows and open `Bulk edit...` from the context menu to apply custom folder output types, root folder, external sync, and `.bmt` output to the selected rows. The dialog has no global OK; only the `Apply to selected rows` button in each section changes that section. For custom folder output types, checked means output, unchecked means no output, and indeterminate means no change. Bulk custom folder output changes show progress in the status bar and do not regenerate `.bmt` files. When external sync is turned on, playlists with insufficient URL information remain off without a warning dialog.
+
 ### Playlist Detail
 
 ![Playlist detail](img/一覧_プレイリスト詳細.PNG)
@@ -557,7 +559,7 @@ On the `Custom Folder` tab, you can set the output folder types and output names
 In LR2 linked mode, playlists can be output as LR2 custom folders.
 
 Specify the normal output destination and root folder output destination on the `Playlist` tab in the settings dialog.
-From playlist `Properties`, configure the output name, `Make root folder`, and the folder types to output.
+From playlist `Properties`, configure the output name, `Make root folder`, and the folder types to output. To apply folder output types or `Make root folder` to multiple playlists, use `Bulk edit...` from the playlist summary.
 
 Do not place important data in the output destinations, and specify different locations for the normal output destination and root folder output destination. During output, `.lr2folder` files under each playlist output folder are treated as BeMusicSeeker-managed files and stale ones are deleted. Other folders directly under the normal/root output destination are not touched, but manually managed LR2 custom folders placed inside a playlist output folder may be deleted. It is recommended to prepare an empty folder dedicated to BeMusicSeeker.
 

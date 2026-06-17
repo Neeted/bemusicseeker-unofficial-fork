@@ -94,6 +94,8 @@ public class Resources
 
     public static string Cancel => ResourceManager.GetString("Cancel", resourceCulture);
 
+    public static string Close => ResourceManager.GetString("Close", resourceCulture);
+
     public static string Cancel_root_folder => ResourceManager.GetString("Cancel_root_folder", resourceCulture);
 
     public static string Change_stage_file => ResourceManager.GetString("Change_stage_file", resourceCulture);
@@ -328,6 +330,10 @@ public class Resources
     public static string Beatoraja_bmt_export_progress_label_format => ResourceManager.GetString("Beatoraja_bmt_export_progress_label_format", resourceCulture);
 
     public static string Beatoraja_bmt_export_progress_single_label => ResourceManager.GetString("Beatoraja_bmt_export_progress_single_label", resourceCulture);
+
+    public static string Custom_folder_output_progress_label_format => ResourceManager.GetString("Custom_folder_output_progress_label_format", resourceCulture);
+
+    public static string Custom_folder_output_progress_single_label => ResourceManager.GetString("Custom_folder_output_progress_single_label", resourceCulture);
 
     public static string Playlist_import_progress_label_format => ResourceManager.GetString("Playlist_import_progress_label_format", resourceCulture);
 
@@ -998,6 +1004,32 @@ public class Resources
     public static string Playlist_summary_move_to_bmt_sort_top => ResourceManager.GetString("Playlist_summary_move_to_bmt_sort_top", resourceCulture);
 
     public static string Playlist_summary_move_to_bmt_sort_bottom => ResourceManager.GetString("Playlist_summary_move_to_bmt_sort_bottom", resourceCulture);
+
+    public static string Playlist_summary_bulk_edit => ResourceManager.GetString("Playlist_summary_bulk_edit", resourceCulture);
+
+    public static string Playlist_summary_bulk_target_count => ResourceManager.GetString("Playlist_summary_bulk_target_count", resourceCulture);
+
+    public static string Playlist_summary_bulk_custom_folder_output => ResourceManager.GetString("Playlist_summary_bulk_custom_folder_output", resourceCulture);
+
+    public static string Playlist_summary_bulk_root_folder => ResourceManager.GetString("Playlist_summary_bulk_root_folder", resourceCulture);
+
+    public static string Playlist_summary_bulk_external_sync => ResourceManager.GetString("Playlist_summary_bulk_external_sync", resourceCulture);
+
+    public static string Playlist_summary_bulk_bmt_output => ResourceManager.GetString("Playlist_summary_bulk_bmt_output", resourceCulture);
+
+    public static string Playlist_summary_bulk_apply_custom_folder_output => ResourceManager.GetString("Playlist_summary_bulk_apply_custom_folder_output", resourceCulture);
+
+    public static string Playlist_summary_bulk_apply_root_folder => ResourceManager.GetString("Playlist_summary_bulk_apply_root_folder", resourceCulture);
+
+    public static string Playlist_summary_bulk_apply_external_sync => ResourceManager.GetString("Playlist_summary_bulk_apply_external_sync", resourceCulture);
+
+    public static string Playlist_summary_bulk_apply_bmt_output => ResourceManager.GetString("Playlist_summary_bulk_apply_bmt_output", resourceCulture);
+
+    public static string Playlist_summary_bulk_no_change => ResourceManager.GetString("Playlist_summary_bulk_no_change", resourceCulture);
+
+    public static string Playlist_summary_bulk_on => ResourceManager.GetString("Playlist_summary_bulk_on", resourceCulture);
+
+    public static string Playlist_summary_bulk_off => ResourceManager.GetString("Playlist_summary_bulk_off", resourceCulture);
 
     public static string Playlist_sync_status_none => ResourceManager.GetString("Playlist_sync_status_none", resourceCulture);
 

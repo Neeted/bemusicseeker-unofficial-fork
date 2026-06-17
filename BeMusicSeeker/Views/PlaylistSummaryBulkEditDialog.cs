@@ -1,0 +1,100 @@
+using System;
+using System.Threading.Tasks;
+using System.Windows;
+using System.Windows.Controls;
+using BeMusicSeeker.Models.Utils;
+using BeMusicSeeker.ViewModels;
+using Livet.Messaging;
+
+namespace BeMusicSeeker.Views;
+
+public partial class PlaylistSummaryBulkEditDialog : UserControl
+{
+    public PlaylistSummaryBulkEditDialog()
+    {
+        InitializeComponent();
+    }
+
+    private void CloseDialog(object sender, RoutedEventArgs e)
+    {
+        if (base.DataContext is MainWindowViewModel mainWindowViewModel)
+        {
+            mainWindowViewModel.playlistSummaryBulkEditDialog = null;
+        }
+        playlistSummaryBulkEditDialog.Visibility = Visibility.Hidden;
+    }
+
+    private async void ApplyCustomFolderOutput(object sender, RoutedEventArgs e)
+    {
+        await RunApplyAsync(
+            viewModel => viewModel.ApplyCustomFolderOutputTypes(),
+            viewModel => viewModel.ReloadCustomFolderOutputStates(),
+            "PlaylistSummaryBulkEditDialog.ApplyCustomFolderOutput");
+    }
+
+    private async void ApplyRootFolder(object sender, RoutedEventArgs e)
+    {
+        await RunApplyAsync(
+            viewModel => viewModel.ApplyRootFolder(),
+            viewModel => viewModel.ResetRootFolderOption(),
+            "PlaylistSummaryBulkEditDialog.ApplyRootFolder");
+    }
+
+    private async void ApplyExternalSync(object sender, RoutedEventArgs e)
+    {
+        if (!ConfirmExternalSyncChange())
+        {
+            return;
+        }
+        await RunApplyAsync(
+            viewModel => viewModel.ApplyExternalSync(),
+            viewModel => viewModel.ResetExternalSyncOption(),
+            "PlaylistSummaryBulkEditDialog.ApplyExternalSync");
+    }
+
+    private async void ApplyBmtOutput(object sender, RoutedEventArgs e)
+    {
+        await RunApplyAsync(
+            viewModel => viewModel.ApplyBmtOutput(),
+            viewModel => viewModel.ResetBmtOutputOption(),
+            "PlaylistSummaryBulkEditDialog.ApplyBmtOutput");
+    }
+
+    private async Task RunApplyAsync(Action<MainWindowViewModel.PlaylistSummaryBulkEditDialogViewModel> apply, Action<MainWindowViewModel.PlaylistSummaryBulkEditDialogViewModel> afterApply, string logName)
+    {
+        if (base.DataContext is not MainWindowViewModel { playlistSummaryBulkEditDialog: { } bulkEditDialogViewModel })
+        {
+            return;
+        }
+        IsEnabled = false;
+        try
+        {
+            await Task.Run(() => apply(bulkEditDialogViewModel)).Logging(logName);
+            afterApply?.Invoke(bulkEditDialogViewModel);
+        }
+        finally
+        {
+            IsEnabled = true;
+        }
+    }
+
+    private bool ConfirmExternalSyncChange()
+    {
+        if (base.DataContext is not MainWindowViewModel { playlistSummaryBulkEditDialog: { } bulkEditDialogViewModel } mainWindowViewModel
+            || bulkEditDialogViewModel.ExternalSyncOption?.Value is not bool value)
+        {
+            return true;
+        }
+        string message = !value
+            ? "同期モードを解除するとリモートの変更が反映されなくなります。" + Environment.NewLine + "よろしいですか？"
+            : "同期モードに設定するとローカルの変更が失われます。" + Environment.NewLine + "よろしいですか？";
+        var confirmationMessage = new ConfirmationMessage(
+            message,
+            "警告",
+            MessageBoxImage.Exclamation,
+            MessageBoxButton.OKCancel,
+            "ConfirmationDialog");
+        mainWindowViewModel.RaiseInteractionMessageOnUiThread(confirmationMessage);
+        return confirmationMessage.Response.HasValue && confirmationMessage.Response.Value;
+    }
+}

@@ -1262,6 +1262,9 @@ BMSファイルが重複しないようにマージします。
   <data name="Cancel" xml:space="preserve">
     <value>キャンセル</value>
   </data>
+  <data name="Close" xml:space="preserve">
+    <value>閉じる</value>
+  </data>
   <data name="Drop_install_queue_label_format" xml:space="preserve">
     <value>導入中: {0}/{1}件 (待機 {2} バッチ)</value>
   </data>
@@ -1285,6 +1288,12 @@ BMSファイルが重複しないようにマージします。
   </data>
   <data name="Beatoraja_bmt_export_progress_single_label" xml:space="preserve">
     <value>.bmt出力</value>
+  </data>
+  <data name="Custom_folder_output_progress_label_format" xml:space="preserve">
+    <value>カスタムフォルダ出力 {0}/{1}</value>
+  </data>
+  <data name="Custom_folder_output_progress_single_label" xml:space="preserve">
+    <value>カスタムフォルダ出力</value>
   </data>
   <data name="Playlist_import_progress_label_format" xml:space="preserve">
     <value>外部表インポート {0}/{1}</value>
@@ -1598,6 +1607,45 @@ maintenance の再スキャンや chart_info の全譜面補完は行いませ�
   </data>
   <data name="Playlist_summary_move_to_bmt_sort_bottom" xml:space="preserve">
     <value>BMT SORTの末尾へ</value>
+  </data>
+  <data name="Playlist_summary_bulk_edit" xml:space="preserve">
+    <value>一括変更...</value>
+  </data>
+  <data name="Playlist_summary_bulk_target_count" xml:space="preserve">
+    <value>対象件数:</value>
+  </data>
+  <data name="Playlist_summary_bulk_custom_folder_output" xml:space="preserve">
+    <value>カスタムフォルダ出力種別</value>
+  </data>
+  <data name="Playlist_summary_bulk_root_folder" xml:space="preserve">
+    <value>ルートフォルダ</value>
+  </data>
+  <data name="Playlist_summary_bulk_external_sync" xml:space="preserve">
+    <value>外部同期</value>
+  </data>
+  <data name="Playlist_summary_bulk_bmt_output" xml:space="preserve">
+    <value>.bmt出力</value>
+  </data>
+  <data name="Playlist_summary_bulk_apply_custom_folder_output" xml:space="preserve">
+    <value>選択行へ一括適用</value>
+  </data>
+  <data name="Playlist_summary_bulk_apply_root_folder" xml:space="preserve">
+    <value>選択行へ一括適用</value>
+  </data>
+  <data name="Playlist_summary_bulk_apply_external_sync" xml:space="preserve">
+    <value>選択行へ一括適用</value>
+  </data>
+  <data name="Playlist_summary_bulk_apply_bmt_output" xml:space="preserve">
+    <value>選択行へ一括適用</value>
+  </data>
+  <data name="Playlist_summary_bulk_no_change" xml:space="preserve">
+    <value>変更なし</value>
+  </data>
+  <data name="Playlist_summary_bulk_on" xml:space="preserve">
+    <value>ON</value>
+  </data>
+  <data name="Playlist_summary_bulk_off" xml:space="preserve">
+    <value>OFF</value>
   </data>
   <data name="Playlist_sync_status_none" xml:space="preserve">
     <value>-</value>

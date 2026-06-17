@@ -4116,6 +4116,332 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
+    public sealed class PlaylistSummaryBulkBooleanOption
+    {
+        public PlaylistSummaryBulkBooleanOption(string label, bool? value)
+        {
+            Label = label;
+            Value = value;
+        }
+
+        public string Label { get; }
+
+        public bool? Value { get; }
+    }
+
+    public sealed class PlaylistSummaryCustomFolderOutputPatch
+    {
+        public bool? UserFolder { get; set; }
+
+        public bool? LevelFolder { get; set; }
+
+        public bool? AlphabetFolder { get; set; }
+
+        public bool? ClearFolder { get; set; }
+
+        public bool? DJLevelFolder { get; set; }
+
+        public bool? CategoryAllFolder { get; set; }
+
+        public bool? OtherFolder { get; set; }
+
+        public bool? RandomFolder { get; set; }
+
+        public bool? BpmSortFolder { get; set; }
+
+        public bool? BpSortFolder { get; set; }
+
+        public bool? PlayCountSortFolder { get; set; }
+
+        internal IEnumerable<KeyValuePair<LR2SongDBExtended.playlist.CustomFolderType, bool?>> Enumerate()
+        {
+            yield return new KeyValuePair<LR2SongDBExtended.playlist.CustomFolderType, bool?>(LR2SongDBExtended.playlist.CustomFolderType.UserFolder, UserFolder);
+            yield return new KeyValuePair<LR2SongDBExtended.playlist.CustomFolderType, bool?>(LR2SongDBExtended.playlist.CustomFolderType.LevelFolder, LevelFolder);
+            yield return new KeyValuePair<LR2SongDBExtended.playlist.CustomFolderType, bool?>(LR2SongDBExtended.playlist.CustomFolderType.AlphabetFolder, AlphabetFolder);
+            yield return new KeyValuePair<LR2SongDBExtended.playlist.CustomFolderType, bool?>(LR2SongDBExtended.playlist.CustomFolderType.ClearFolder, ClearFolder);
+            yield return new KeyValuePair<LR2SongDBExtended.playlist.CustomFolderType, bool?>(LR2SongDBExtended.playlist.CustomFolderType.DJLevelFolder, DJLevelFolder);
+            yield return new KeyValuePair<LR2SongDBExtended.playlist.CustomFolderType, bool?>(LR2SongDBExtended.playlist.CustomFolderType.CategoryAllFolder, CategoryAllFolder);
+            yield return new KeyValuePair<LR2SongDBExtended.playlist.CustomFolderType, bool?>(LR2SongDBExtended.playlist.CustomFolderType.OtherFolder, OtherFolder);
+            yield return new KeyValuePair<LR2SongDBExtended.playlist.CustomFolderType, bool?>(LR2SongDBExtended.playlist.CustomFolderType.RandomFolder, RandomFolder);
+            yield return new KeyValuePair<LR2SongDBExtended.playlist.CustomFolderType, bool?>(LR2SongDBExtended.playlist.CustomFolderType.BpmSortFolder, BpmSortFolder);
+            yield return new KeyValuePair<LR2SongDBExtended.playlist.CustomFolderType, bool?>(LR2SongDBExtended.playlist.CustomFolderType.BpSortFolder, BpSortFolder);
+            yield return new KeyValuePair<LR2SongDBExtended.playlist.CustomFolderType, bool?>(LR2SongDBExtended.playlist.CustomFolderType.PlayCountSortFolder, PlayCountSortFolder);
+        }
+    }
+
+    public class PlaylistSummaryBulkEditDialogViewModel : ViewModel
+    {
+        private readonly MainWindowViewModel ownerViewModel;
+
+        private readonly IReadOnlyList<PlaylistSummaryRow> targetRows;
+
+        private readonly IReadOnlyList<BMSTable> targetTables;
+
+        private bool? _outputUserFolder;
+
+        private bool? _outputLevelFolder;
+
+        private bool? _outputAlphabetFolder;
+
+        private bool? _outputClearFolder;
+
+        private bool? _outputDJLevelFolder;
+
+        private bool? _outputCategoryAllFolder;
+
+        private bool? _outputOtherFolder;
+
+        private bool? _outputRandomFolder;
+
+        private bool? _outputBpmSortFolder;
+
+        private bool? _outputBpSortFolder;
+
+        private bool? _outputPlayCountSortFolder;
+
+        private PlaylistSummaryBulkBooleanOption _rootFolderOption;
+
+        private PlaylistSummaryBulkBooleanOption _externalSyncOption;
+
+        private PlaylistSummaryBulkBooleanOption _bmtOutputOption;
+
+        public PlaylistSummaryBulkEditDialogViewModel(MainWindowViewModel owner, IEnumerable<PlaylistSummaryRow> rows)
+        {
+            ownerViewModel = owner ?? throw new ArgumentNullException(nameof(owner));
+            targetRows = rows?
+                .Where(row => row?.TableRef != null)
+                .GroupBy(row => row.TableRef)
+                .Select(group => group.First())
+                .ToList()
+                ?? [];
+            targetTables = [.. targetRows.Select(row => row.TableRef).Distinct()];
+            NoChangeOption = new PlaylistSummaryBulkBooleanOption(BeMusicSeeker.Properties.Resources.Playlist_summary_bulk_no_change, null);
+            OnOption = new PlaylistSummaryBulkBooleanOption(BeMusicSeeker.Properties.Resources.Playlist_summary_bulk_on, true);
+            OffOption = new PlaylistSummaryBulkBooleanOption(BeMusicSeeker.Properties.Resources.Playlist_summary_bulk_off, false);
+            BulkBooleanOptions = [NoChangeOption, OnOption, OffOption];
+            _rootFolderOption = NoChangeOption;
+            _externalSyncOption = NoChangeOption;
+            _bmtOutputOption = NoChangeOption;
+            ReloadCustomFolderOutputStates();
+        }
+
+        public IReadOnlyList<PlaylistSummaryBulkBooleanOption> BulkBooleanOptions { get; }
+
+        public PlaylistSummaryBulkBooleanOption NoChangeOption { get; }
+
+        public PlaylistSummaryBulkBooleanOption OnOption { get; }
+
+        public PlaylistSummaryBulkBooleanOption OffOption { get; }
+
+        public int TargetCount => targetTables.Count;
+
+        public bool IsLevelFolderBulkApplicable => targetTables.Any(table => table.entry_type != LR2SongDBExtended.playlist.EntryUnitType.Folder);
+
+        public bool? OutputUserFolder
+        {
+            get => _outputUserFolder;
+            set => SetCustomFolderState(ref _outputUserFolder, value, nameof(OutputUserFolder));
+        }
+
+        public bool? OutputLevelFolder
+        {
+            get => _outputLevelFolder;
+            set => SetCustomFolderState(ref _outputLevelFolder, value, nameof(OutputLevelFolder));
+        }
+
+        public bool? OutputAlphabetFolder
+        {
+            get => _outputAlphabetFolder;
+            set => SetCustomFolderState(ref _outputAlphabetFolder, value, nameof(OutputAlphabetFolder));
+        }
+
+        public bool? OutputClearFolder
+        {
+            get => _outputClearFolder;
+            set => SetCustomFolderState(ref _outputClearFolder, value, nameof(OutputClearFolder));
+        }
+
+        public bool? OutputDJLevelFolder
+        {
+            get => _outputDJLevelFolder;
+            set => SetCustomFolderState(ref _outputDJLevelFolder, value, nameof(OutputDJLevelFolder));
+        }
+
+        public bool? OutputCategoryAllFolder
+        {
+            get => _outputCategoryAllFolder;
+            set => SetCustomFolderState(ref _outputCategoryAllFolder, value, nameof(OutputCategoryAllFolder));
+        }
+
+        public bool? OutputOtherFolder
+        {
+            get => _outputOtherFolder;
+            set => SetCustomFolderState(ref _outputOtherFolder, value, nameof(OutputOtherFolder));
+        }
+
+        public bool? OutputRandomFolder
+        {
+            get => _outputRandomFolder;
+            set => SetCustomFolderState(ref _outputRandomFolder, value, nameof(OutputRandomFolder));
+        }
+
+        public bool? OutputBpmSortFolder
+        {
+            get => _outputBpmSortFolder;
+            set => SetCustomFolderState(ref _outputBpmSortFolder, value, nameof(OutputBpmSortFolder));
+        }
+
+        public bool? OutputBpSortFolder
+        {
+            get => _outputBpSortFolder;
+            set => SetCustomFolderState(ref _outputBpSortFolder, value, nameof(OutputBpSortFolder));
+        }
+
+        public bool? OutputPlayCountSortFolder
+        {
+            get => _outputPlayCountSortFolder;
+            set => SetCustomFolderState(ref _outputPlayCountSortFolder, value, nameof(OutputPlayCountSortFolder));
+        }
+
+        public bool CanApplyCustomFolderOutput => BuildCustomFolderOutputPatch().Enumerate().Any(item => item.Value.HasValue);
+
+        public PlaylistSummaryBulkBooleanOption RootFolderOption
+        {
+            get => _rootFolderOption;
+            set
+            {
+                if (_rootFolderOption != value)
+                {
+                    _rootFolderOption = value ?? NoChangeOption;
+                    RaisePropertyChanged(nameof(RootFolderOption));
+                    RaisePropertyChanged(nameof(CanApplyRootFolder));
+                }
+            }
+        }
+
+        public bool CanApplyRootFolder => RootFolderOption?.Value.HasValue == true;
+
+        public PlaylistSummaryBulkBooleanOption ExternalSyncOption
+        {
+            get => _externalSyncOption;
+            set
+            {
+                if (_externalSyncOption != value)
+                {
+                    _externalSyncOption = value ?? NoChangeOption;
+                    RaisePropertyChanged(nameof(ExternalSyncOption));
+                    RaisePropertyChanged(nameof(CanApplyExternalSync));
+                }
+            }
+        }
+
+        public bool CanApplyExternalSync => ExternalSyncOption?.Value.HasValue == true;
+
+        public PlaylistSummaryBulkBooleanOption BmtOutputOption
+        {
+            get => _bmtOutputOption;
+            set
+            {
+                if (_bmtOutputOption != value)
+                {
+                    _bmtOutputOption = value ?? NoChangeOption;
+                    RaisePropertyChanged(nameof(BmtOutputOption));
+                    RaisePropertyChanged(nameof(CanApplyBmtOutput));
+                }
+            }
+        }
+
+        public bool CanApplyBmtOutput => BmtOutputOption?.Value.HasValue == true;
+
+        public void ReloadCustomFolderOutputStates()
+        {
+            OutputUserFolder = ResolvePlaylistSummaryCustomFolderOutputState(targetTables, LR2SongDBExtended.playlist.CustomFolderType.UserFolder);
+            OutputLevelFolder = ResolvePlaylistSummaryCustomFolderOutputState(targetTables, LR2SongDBExtended.playlist.CustomFolderType.LevelFolder);
+            OutputAlphabetFolder = ResolvePlaylistSummaryCustomFolderOutputState(targetTables, LR2SongDBExtended.playlist.CustomFolderType.AlphabetFolder);
+            OutputClearFolder = ResolvePlaylistSummaryCustomFolderOutputState(targetTables, LR2SongDBExtended.playlist.CustomFolderType.ClearFolder);
+            OutputDJLevelFolder = ResolvePlaylistSummaryCustomFolderOutputState(targetTables, LR2SongDBExtended.playlist.CustomFolderType.DJLevelFolder);
+            OutputCategoryAllFolder = ResolvePlaylistSummaryCustomFolderOutputState(targetTables, LR2SongDBExtended.playlist.CustomFolderType.CategoryAllFolder);
+            OutputOtherFolder = ResolvePlaylistSummaryCustomFolderOutputState(targetTables, LR2SongDBExtended.playlist.CustomFolderType.OtherFolder);
+            OutputRandomFolder = ResolvePlaylistSummaryCustomFolderOutputState(targetTables, LR2SongDBExtended.playlist.CustomFolderType.RandomFolder);
+            OutputBpmSortFolder = ResolvePlaylistSummaryCustomFolderOutputState(targetTables, LR2SongDBExtended.playlist.CustomFolderType.BpmSortFolder);
+            OutputBpSortFolder = ResolvePlaylistSummaryCustomFolderOutputState(targetTables, LR2SongDBExtended.playlist.CustomFolderType.BpSortFolder);
+            OutputPlayCountSortFolder = ResolvePlaylistSummaryCustomFolderOutputState(targetTables, LR2SongDBExtended.playlist.CustomFolderType.PlayCountSortFolder);
+            RaisePropertyChanged(nameof(IsLevelFolderBulkApplicable));
+        }
+
+        public void ApplyCustomFolderOutputTypes()
+        {
+            ownerViewModel.ApplyPlaylistSummaryCustomFolderOutputTypes(targetRows, BuildCustomFolderOutputPatch());
+        }
+
+        public void ApplyRootFolder()
+        {
+            if (RootFolderOption?.Value is bool value)
+            {
+                ownerViewModel.ApplyPlaylistSummaryFlags(targetRows, isRootFolder: value);
+            }
+        }
+
+        public void ResetRootFolderOption()
+        {
+            RootFolderOption = NoChangeOption;
+        }
+
+        public void ApplyExternalSync()
+        {
+            if (ExternalSyncOption?.Value is bool value)
+            {
+                ownerViewModel.ApplyPlaylistSummaryExternalSync(targetRows, value);
+            }
+        }
+
+        public void ResetExternalSyncOption()
+        {
+            ExternalSyncOption = NoChangeOption;
+        }
+
+        public void ApplyBmtOutput()
+        {
+            if (BmtOutputOption?.Value is bool value)
+            {
+                ownerViewModel.ApplyPlaylistSummaryBmtOutput(targetRows, value);
+            }
+        }
+
+        public void ResetBmtOutputOption()
+        {
+            BmtOutputOption = NoChangeOption;
+        }
+
+        private PlaylistSummaryCustomFolderOutputPatch BuildCustomFolderOutputPatch()
+        {
+            return new PlaylistSummaryCustomFolderOutputPatch
+            {
+                UserFolder = OutputUserFolder,
+                LevelFolder = OutputLevelFolder,
+                AlphabetFolder = OutputAlphabetFolder,
+                ClearFolder = OutputClearFolder,
+                DJLevelFolder = OutputDJLevelFolder,
+                CategoryAllFolder = OutputCategoryAllFolder,
+                OtherFolder = OutputOtherFolder,
+                RandomFolder = OutputRandomFolder,
+                BpmSortFolder = OutputBpmSortFolder,
+                BpSortFolder = OutputBpSortFolder,
+                PlayCountSortFolder = OutputPlayCountSortFolder
+            };
+        }
+
+        private void SetCustomFolderState(ref bool? storage, bool? value, string propertyName)
+        {
+            if (storage != value)
+            {
+                storage = value;
+                RaisePropertyChanged(propertyName);
+                RaisePropertyChanged(nameof(CanApplyCustomFolderOutput));
+            }
+        }
+    }
+
     public class PlaylistPropertyDialogViewModel : ViewModel
     {
         private BMSTable bmsTable;
@@ -4147,6 +4473,10 @@ public class MainWindowViewModel : ViewModel
         private string _symbol;
 
         private Uri temp_Page_url;
+
+        private Uri temp_Header_url;
+
+        private IReadOnlyList<string> temp_folder_order;
 
         private Uri _Page_url;
 
@@ -4757,6 +5087,18 @@ public class MainWindowViewModel : ViewModel
             temp_name = bmsTable.name;
             temp_symbol = bmsTable.symbol;
             temp_Page_url = bmsTable.Page_url;
+            temp_Header_url = bmsTable.Header_url;
+            temp_folder_order = [.. (bmsTable.Folder_order ?? [])];
+        }
+
+        private static bool HasSameUri(Uri left, Uri right)
+        {
+            return string.Equals(left?.ToString() ?? string.Empty, right?.ToString() ?? string.Empty, StringComparison.Ordinal);
+        }
+
+        private static bool HasSameStringSequence(IEnumerable<string> left, IEnumerable<string> right)
+        {
+            return (left ?? Enumerable.Empty<string>()).SequenceEqual(right ?? Enumerable.Empty<string>(), StringComparer.Ordinal);
         }
 
         internal async Task ApplyPostSaveUpdatesAsync()
@@ -4889,7 +5231,18 @@ public class MainWindowViewModel : ViewModel
                     ownerViewModel.lr2config.Save();
                 }
             }
-            ownerViewModel.tables.QueueBeatorajaBmtExportForTable(bmsTable, "PlaylistPropertyDialog.SaveProperties");
+            bool bmtProjectionChanged = flag
+                || prefixChanged
+                || externalResyncApplied
+                || entryFolderProjectionChanged
+                || temp_is_external_sync != bmsTable.is_external_sync
+                || !HasSameUri(temp_Page_url, bmsTable.Page_url)
+                || !HasSameUri(temp_Header_url, bmsTable.Header_url)
+                || !HasSameStringSequence(temp_folder_order, bmsTable.Folder_order);
+            if (bmtProjectionChanged)
+            {
+                ownerViewModel.tables.QueueBeatorajaBmtExportForTable(bmsTable, "PlaylistPropertyDialog.SaveProperties");
+            }
             backupTableProperties();
         }
 
@@ -5841,6 +6194,8 @@ public class MainWindowViewModel : ViewModel
     private const string StartupUiSuppressFlushReason = "startup_ui_suppress_flush";
 
     private PlaylistPropertyDialogViewModel _playlistPropertyDialog;
+
+    private PlaylistSummaryBulkEditDialogViewModel _playlistSummaryBulkEditDialog;
 
     private bool initializationCompleted;
 
@@ -8713,6 +9068,10 @@ public class MainWindowViewModel : ViewModel
         {
             return 60;
         }
+        if (string.Equals(name, "playlist_custom_folder_output_repair", StringComparison.OrdinalIgnoreCase))
+        {
+            return 70;
+        }
         if (string.Equals(name, "lr2_song_db_sync", StringComparison.OrdinalIgnoreCase))
         {
             return 90;
@@ -8739,7 +9098,8 @@ public class MainWindowViewModel : ViewModel
         {
             return "playlist_followup";
         }
-        if (string.Equals(name, "installable_maintenance", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(name, "installable_maintenance", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(name, "playlist_custom_folder_output_repair", StringComparison.OrdinalIgnoreCase))
         {
             return "dependent_maintenance";
         }
@@ -9771,6 +10131,22 @@ public class MainWindowViewModel : ViewModel
             {
                 _playlistPropertyDialog = value;
                 RaisePropertyChanged("playlistPropertyDialog");
+            }
+        }
+    }
+
+    public PlaylistSummaryBulkEditDialogViewModel playlistSummaryBulkEditDialog
+    {
+        get
+        {
+            return _playlistSummaryBulkEditDialog;
+        }
+        set
+        {
+            if (_playlistSummaryBulkEditDialog != value)
+            {
+                _playlistSummaryBulkEditDialog = value;
+                RaisePropertyChanged(nameof(playlistSummaryBulkEditDialog));
             }
         }
     }
@@ -22115,6 +22491,192 @@ public class MainWindowViewModel : ViewModel
         };
     }
 
+    internal static bool IsPlaylistSummaryCustomFolderOutputEffectiveEnabled(BMSTable table, LR2SongDBExtended.playlist.CustomFolderType type)
+    {
+        if (table == null)
+        {
+            return false;
+        }
+        if (type == LR2SongDBExtended.playlist.CustomFolderType.LevelFolder
+            && table.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder)
+        {
+            return false;
+        }
+        return LR2SongDBExtended.playlist.IsCustomFolderTypeEnabled(table.ignore_folder_output, type);
+    }
+
+    internal static bool? ResolvePlaylistSummaryCustomFolderOutputState(IEnumerable<BMSTable> tables, LR2SongDBExtended.playlist.CustomFolderType type)
+    {
+        if (tables == null)
+        {
+            return null;
+        }
+        bool? state = null;
+        bool hasValue = false;
+        foreach (BMSTable table in tables.Where(table => table != null))
+        {
+            bool enabled = IsPlaylistSummaryCustomFolderOutputEffectiveEnabled(table, type);
+            if (!hasValue)
+            {
+                state = enabled;
+                hasValue = true;
+            }
+            else if (state != enabled)
+            {
+                return null;
+            }
+        }
+        return hasValue ? state : null;
+    }
+
+    internal static LR2SongDBExtended.playlist.CustomFolderType ApplyPlaylistSummaryCustomFolderOutputPatchToMask(BMSTable table, LR2SongDBExtended.playlist.CustomFolderType currentMask, PlaylistSummaryCustomFolderOutputPatch patch)
+    {
+        if (table == null)
+        {
+            throw new ArgumentNullException(nameof(table));
+        }
+        if (patch == null)
+        {
+            throw new ArgumentNullException(nameof(patch));
+        }
+        LR2SongDBExtended.playlist.CustomFolderType mask = LR2SongDBExtended.playlist.NormalizeCustomFolderOutputMask(currentMask);
+        foreach (KeyValuePair<LR2SongDBExtended.playlist.CustomFolderType, bool?> item in patch.Enumerate())
+        {
+            if (!item.Value.HasValue)
+            {
+                continue;
+            }
+            if (item.Key == LR2SongDBExtended.playlist.CustomFolderType.LevelFolder
+                && table.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder)
+            {
+                mask |= LR2SongDBExtended.playlist.CustomFolderType.LevelFolder;
+                continue;
+            }
+            if (item.Value.Value)
+            {
+                mask &= ~item.Key;
+            }
+            else
+            {
+                mask |= item.Key;
+            }
+        }
+        if (table.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder)
+        {
+            mask |= LR2SongDBExtended.playlist.CustomFolderType.LevelFolder;
+        }
+        return LR2SongDBExtended.playlist.NormalizeCustomFolderOutputMask(mask);
+    }
+
+    public void ApplyPlaylistSummaryCustomFolderOutputTypes(IEnumerable<PlaylistSummaryRow> rows, PlaylistSummaryCustomFolderOutputPatch patch)
+    {
+        if (rows == null || patch == null || tables == null)
+        {
+            return;
+        }
+        List<BMSTable> changedTables = [];
+        var previousMasks = new Dictionary<BMSTable, LR2SongDBExtended.playlist.CustomFolderType>();
+        foreach (BMSTable table in rows
+            .Where(row => row?.TableRef != null)
+            .Select(row => row.TableRef)
+            .Distinct())
+        {
+            LR2SongDBExtended.playlist.CustomFolderType nextMask = ApplyPlaylistSummaryCustomFolderOutputPatchToMask(table, table.ignore_folder_output, patch);
+            if (nextMask == table.ignore_folder_output)
+            {
+                continue;
+            }
+            previousMasks[table] = table.ignore_folder_output;
+            table.ignore_folder_output = nextMask;
+            changedTables.Add(table);
+        }
+        if (changedTables.Count == 0)
+        {
+            return;
+        }
+        BeginPlaylistSyncProgressOperation();
+        try
+        {
+            UpdatePlaylistSummaryCustomFolderOutputProgress(0, changedTables.Count, string.Empty);
+            tables.ReOutputCustomFoldersAndCommitHeadersToDB(
+                changedTables,
+                "playlist_summary_bulk_custom_folder_output_changed",
+                UpdatePlaylistSummaryCustomFolderOutputProgress);
+        }
+        catch
+        {
+            foreach (KeyValuePair<BMSTable, LR2SongDBExtended.playlist.CustomFolderType> item in previousMasks)
+            {
+                item.Key.ignore_folder_output = item.Value;
+            }
+            throw;
+        }
+        finally
+        {
+            EndPlaylistSyncProgressOperation();
+        }
+        RefreshPlaylistSummaryIfVisible("playlist_summary_bulk_custom_folder_output_changed", invalidateTableCountCache: false);
+    }
+
+    private void UpdatePlaylistSummaryCustomFolderOutputProgress(int completedTableCount, int totalTableCount, string currentTableName)
+    {
+        UpdatePlaylistSyncProgressStatus(new PlaylistSyncProgressSnapshot
+        {
+            IsActive = true,
+            TotalTableCount = totalTableCount,
+            CompletedTableCount = completedTableCount,
+            CurrentTableName = currentTableName ?? string.Empty,
+            LabelFormat = BeMusicSeeker.Properties.Resources.Custom_folder_output_progress_label_format,
+            SingleLabel = BeMusicSeeker.Properties.Resources.Custom_folder_output_progress_single_label
+        });
+    }
+
+    public void ApplyPlaylistSummaryExternalSync(IEnumerable<PlaylistSummaryRow> rows, bool isExternalSync)
+    {
+        if (rows == null || tables == null)
+        {
+            return;
+        }
+        List<BMSTable> changedTables = [];
+        foreach (BMSTable table in rows
+            .Where(row => row?.TableRef != null)
+            .Select(row => row.TableRef)
+            .Distinct())
+        {
+            if (ApplyPlaylistSummaryExternalSyncFlagForTable(table, isExternalSync))
+            {
+                changedTables.Add(table);
+            }
+        }
+        if (changedTables.Count == 0)
+        {
+            return;
+        }
+        tables.ReOutputCustomFoldersAndCommitHeadersToDB(
+            changedTables,
+            "playlist_summary_bulk_external_sync_changed");
+        tables.QueueBeatorajaBmtExportForTables(changedTables, "playlist_summary_bulk_external_sync_changed");
+        RefreshPlaylistSummaryIfVisible("playlist_summary_bulk_external_sync_changed", invalidateTableCountCache: true);
+    }
+
+    internal static bool ApplyPlaylistSummaryExternalSyncFlagForTable(BMSTable table, bool isExternalSync)
+    {
+        if (table == null)
+        {
+            return false;
+        }
+        bool before = table.is_external_sync;
+        if (isExternalSync)
+        {
+            table.EnableExternalSync();
+        }
+        else
+        {
+            table.DisableExternalSync();
+        }
+        return before != table.is_external_sync;
+    }
+
     public void ApplyPlaylistSummaryFlags(IEnumerable<PlaylistSummaryRow> rows, bool? isExternalSync = null, bool? isRootFolder = null)
     {
         if (rows == null || tables == null)
@@ -22131,6 +22693,8 @@ public class MainWindowViewModel : ViewModel
         {
             BMSTable tableRef = item.TableRef;
             bool flag2 = false;
+            bool externalSyncChanged = false;
+            bool rootFolderChanged = false;
             bool? nullable = null;
             string customFolderOutputDirectoryBefore = Settings.Default.OperationModeLR2DB && !string.IsNullOrWhiteSpace(tableRef.Output_dir)
                 ? BMSPlaylist.GetCustomFolderOutputDirectory(tableRef)
@@ -22146,12 +22710,14 @@ public class MainWindowViewModel : ViewModel
                 {
                     tableRef.DisableExternalSync();
                 }
+                externalSyncChanged = flag3;
                 flag2 = flag2 || flag3;
             }
             if (isRootFolder.HasValue && tableRef.is_root_folder != isRootFolder.Value)
             {
                 tableRef.is_root_folder = isRootFolder.Value;
                 nullable = isRootFolder;
+                rootFolderChanged = true;
                 flag2 = true;
             }
             if (!flag2)
@@ -22163,11 +22729,25 @@ public class MainWindowViewModel : ViewModel
                 tables.MigrateCustomFolderOutputDirectoryAndCommitToDB(
                     tableRef,
                     customFolderOutputDirectoryBefore,
-                    BMSPlaylist.GetCustomFolderOutputDirectory(tableRef));
+                    BMSPlaylist.GetCustomFolderOutputDirectory(tableRef),
+                    queueBeatorajaBmtExport: externalSyncChanged);
+            }
+            else if (externalSyncChanged)
+            {
+                tables.ReOutputCustomFoldersAndCommitHeadersToDB(
+                    [tableRef],
+                    "playlist_summary_external_sync_changed");
+                tables.QueueBeatorajaBmtExportForTable(tableRef, "playlist_summary_external_sync_changed");
+            }
+            else if (rootFolderChanged)
+            {
+                tables.ReOutputCustomFoldersAndCommitHeadersToDB(
+                    [tableRef],
+                    "playlist_summary_root_folder_changed");
             }
             else
             {
-                tables.ReOutputCustomFolderAndCommitToDB(tableRef);
+                tables.CommitBMSTableHeaderToDB(tableRef);
             }
             if (Settings.Default.OperationModeLR2DB && nullable.HasValue && lr2config != null && !string.IsNullOrWhiteSpace(tableRef.Output_dir))
             {

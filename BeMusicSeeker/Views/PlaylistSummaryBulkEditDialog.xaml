@@ -1,0 +1,118 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl x:Class="BeMusicSeeker.Views.PlaylistSummaryBulkEditDialog" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:vm="clr-namespace:BeMusicSeeker.ViewModels" x:Name="playlistSummaryBulkEditDialog">
+  <Grid TextElement.Foreground="{DynamicResource App.TextBrush}">
+    <FrameworkElement.Resources>
+      <ResourceDictionary>
+        <Style TargetType="{x:Type GroupBox}" BasedOn="{StaticResource {x:Type GroupBox}}">
+          <Setter Property="Margin" Value="0,0,0,8" />
+          <Setter Property="Padding" Value="10,8,10,10" />
+          <Setter Property="Template">
+            <Setter.Value>
+              <ControlTemplate TargetType="{x:Type GroupBox}">
+                <Grid SnapsToDevicePixels="True">
+                  <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                  </Grid.RowDefinitions>
+                  <ContentPresenter Grid.Row="0" Margin="2,0,0,3" ContentSource="Header" RecognizesAccessKey="True" TextElement.Foreground="{TemplateBinding Control.Foreground}" TextElement.FontWeight="SemiBold" />
+                  <Border Grid.Row="1" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" Background="{TemplateBinding Background}" CornerRadius="4">
+                    <ContentPresenter Margin="{TemplateBinding Padding}" TextElement.Foreground="{TemplateBinding Control.Foreground}" />
+                  </Border>
+                </Grid>
+                <ControlTemplate.Triggers>
+                  <Trigger Property="IsEnabled" Value="False">
+                    <Setter Property="Foreground" Value="{DynamicResource DisabledForegroundBrush}" />
+                    <Setter Property="BorderBrush" Value="{DynamicResource DisabledBorderBrush}" />
+                  </Trigger>
+                </ControlTemplate.Triggers>
+              </ControlTemplate>
+            </Setter.Value>
+          </Setter>
+        </Style>
+        <Style TargetType="{x:Type Button}" BasedOn="{StaticResource {x:Type Button}}">
+          <Setter Property="MinHeight" Value="24" />
+          <Setter Property="Padding" Value="10,2" />
+          <Setter Property="HorizontalContentAlignment" Value="Center" />
+          <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
+        <Style TargetType="{x:Type CheckBox}" BasedOn="{StaticResource {x:Type CheckBox}}">
+          <Setter Property="MinHeight" Value="20" />
+          <Setter Property="Padding" Value="4,1,0,1" />
+        </Style>
+        <Style TargetType="{x:Type ComboBox}" BasedOn="{StaticResource {x:Type ComboBox}}">
+          <Setter Property="MinHeight" Value="24" />
+          <Setter Property="Padding" Value="5,1" />
+          <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
+      </ResourceDictionary>
+    </FrameworkElement.Resources>
+    <Rectangle Fill="{DynamicResource App.DialogOverlayBrush}" Opacity="0.5" />
+    <Border Width="560" Height="470" CornerRadius="8" Background="{DynamicResource App.DialogBackgroundBrush}" BorderBrush="{DynamicResource App.DialogBorderBrush}" BorderThickness="1" Padding="12" SnapsToDevicePixels="True">
+      <DockPanel LastChildFill="True">
+        <Grid DockPanel.Dock="Bottom" Margin="0,8,0,0">
+          <Button MinWidth="72" HorizontalAlignment="Right" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Close, Mode=OneWay}" Click="CloseDialog" />
+        </Grid>
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+          <TextBlock FontSize="15" FontWeight="SemiBold" Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_summary_bulk_edit, Mode=OneWay}" />
+          <TextBlock Margin="16,2,4,0" Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_summary_bulk_target_count, Mode=OneWay}" />
+          <TextBlock Margin="0,2,0,0" Text="{Binding playlistSummaryBulkEditDialog.TargetCount}" />
+        </StackPanel>
+        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+          <StackPanel>
+            <GroupBox Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_summary_bulk_custom_folder_output, Mode=OneWay}" IsEnabled="{Binding settingDialog.OperationModeLR2DB}">
+              <DockPanel>
+                <Button DockPanel.Dock="Bottom" HorizontalAlignment="Right" MinWidth="140" Margin="0,8,0,0" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_summary_bulk_apply_custom_folder_output, Mode=OneWay}" IsEnabled="{Binding playlistSummaryBulkEditDialog.CanApplyCustomFolderOutput}" Click="ApplyCustomFolderOutput" />
+                <UniformGrid Columns="2" Margin="4,0,4,0">
+                  <CheckBox VerticalAlignment="Center" IsThreeState="True" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_user, Mode=OneWay}" IsChecked="{Binding playlistSummaryBulkEditDialog.OutputUserFolder, Mode=TwoWay}" />
+                  <CheckBox VerticalAlignment="Center" IsThreeState="True" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_level, Mode=OneWay}" IsEnabled="{Binding playlistSummaryBulkEditDialog.IsLevelFolderBulkApplicable}" IsChecked="{Binding playlistSummaryBulkEditDialog.OutputLevelFolder, Mode=TwoWay}" />
+                  <CheckBox VerticalAlignment="Center" IsThreeState="True" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_alphabet, Mode=OneWay}" IsChecked="{Binding playlistSummaryBulkEditDialog.OutputAlphabetFolder, Mode=TwoWay}" />
+                  <CheckBox VerticalAlignment="Center" IsThreeState="True" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_clear, Mode=OneWay}" IsChecked="{Binding playlistSummaryBulkEditDialog.OutputClearFolder, Mode=TwoWay}" />
+                  <CheckBox VerticalAlignment="Center" IsThreeState="True" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_djlevel, Mode=OneWay}" IsChecked="{Binding playlistSummaryBulkEditDialog.OutputDJLevelFolder, Mode=TwoWay}" />
+                  <CheckBox VerticalAlignment="Center" IsThreeState="True" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_all, Mode=OneWay}" IsChecked="{Binding playlistSummaryBulkEditDialog.OutputCategoryAllFolder, Mode=TwoWay}" />
+                  <CheckBox VerticalAlignment="Center" IsThreeState="True" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_etc, Mode=OneWay}" IsChecked="{Binding playlistSummaryBulkEditDialog.OutputOtherFolder, Mode=TwoWay}" />
+                  <CheckBox VerticalAlignment="Center" IsThreeState="True" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_random, Mode=OneWay}" IsChecked="{Binding playlistSummaryBulkEditDialog.OutputRandomFolder, Mode=TwoWay}" />
+                  <CheckBox VerticalAlignment="Center" IsThreeState="True" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_bpm_sort, Mode=OneWay}" IsChecked="{Binding playlistSummaryBulkEditDialog.OutputBpmSortFolder, Mode=TwoWay}" />
+                  <CheckBox VerticalAlignment="Center" IsThreeState="True" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_bp_sort, Mode=OneWay}" IsChecked="{Binding playlistSummaryBulkEditDialog.OutputBpSortFolder, Mode=TwoWay}" />
+                  <CheckBox VerticalAlignment="Center" IsThreeState="True" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_play_count_sort, Mode=OneWay}" IsChecked="{Binding playlistSummaryBulkEditDialog.OutputPlayCountSortFolder, Mode=TwoWay}" />
+                </UniformGrid>
+              </DockPanel>
+            </GroupBox>
+            <GroupBox Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_summary_bulk_root_folder, Mode=OneWay}" IsEnabled="{Binding settingDialog.OperationModeLR2DB}">
+              <Grid>
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="*" />
+                  <ColumnDefinition Width="Auto" />
+                  <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <ComboBox Grid.Column="1" Width="150" Margin="0,0,8,0" ItemsSource="{Binding playlistSummaryBulkEditDialog.BulkBooleanOptions}" SelectedItem="{Binding playlistSummaryBulkEditDialog.RootFolderOption, Mode=TwoWay}" DisplayMemberPath="Label" />
+                <Button Grid.Column="2" MinWidth="140" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_summary_bulk_apply_root_folder, Mode=OneWay}" IsEnabled="{Binding playlistSummaryBulkEditDialog.CanApplyRootFolder}" Click="ApplyRootFolder" />
+              </Grid>
+            </GroupBox>
+            <GroupBox Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_summary_bulk_external_sync, Mode=OneWay}">
+              <Grid>
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="*" />
+                  <ColumnDefinition Width="Auto" />
+                  <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <ComboBox Grid.Column="1" Width="150" Margin="0,0,8,0" ItemsSource="{Binding playlistSummaryBulkEditDialog.BulkBooleanOptions}" SelectedItem="{Binding playlistSummaryBulkEditDialog.ExternalSyncOption, Mode=TwoWay}" DisplayMemberPath="Label" />
+                <Button Grid.Column="2" MinWidth="140" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_summary_bulk_apply_external_sync, Mode=OneWay}" IsEnabled="{Binding playlistSummaryBulkEditDialog.CanApplyExternalSync}" Click="ApplyExternalSync" />
+              </Grid>
+            </GroupBox>
+            <GroupBox Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_summary_bulk_bmt_output, Mode=OneWay}">
+              <Grid>
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="*" />
+                  <ColumnDefinition Width="Auto" />
+                  <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <ComboBox Grid.Column="1" Width="150" Margin="0,0,8,0" ItemsSource="{Binding playlistSummaryBulkEditDialog.BulkBooleanOptions}" SelectedItem="{Binding playlistSummaryBulkEditDialog.BmtOutputOption, Mode=TwoWay}" DisplayMemberPath="Label" />
+                <Button Grid.Column="2" MinWidth="140" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_summary_bulk_apply_bmt_output, Mode=OneWay}" IsEnabled="{Binding playlistSummaryBulkEditDialog.CanApplyBmtOutput}" Click="ApplyBmtOutput" />
+              </Grid>
+            </GroupBox>
+          </StackPanel>
+        </ScrollViewer>
+      </DockPanel>
+    </Border>
+  </Grid>
+</UserControl>
