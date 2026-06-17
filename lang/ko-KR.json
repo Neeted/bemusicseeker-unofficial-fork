@@ -21,6 +21,7 @@
   "Beatoraja_bmt_export_progress_single_label": ".bmt 출력",
   "Custom_folder_output_progress_label_format": "커스텀 폴더 출력 {0}/{1}",
   "Custom_folder_output_progress_single_label": "커스텀 폴더 출력",
+  "Custom_folder_db_sync_progress_single_label": "LR2 folder 테이블 동기화",
   "Playlist_import_progress_label_format": "외부 표 가져오기 {0}/{1}",
   "Playlist_import_progress_single_label": "외부 표 가져오기",
   "Statusbar_progress_startup": "초기화 중",

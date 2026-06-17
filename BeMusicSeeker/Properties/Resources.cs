@@ -335,6 +335,8 @@ public class Resources
 
     public static string Custom_folder_output_progress_single_label => ResourceManager.GetString("Custom_folder_output_progress_single_label", resourceCulture);
 
+    public static string Custom_folder_db_sync_progress_single_label => ResourceManager.GetString("Custom_folder_db_sync_progress_single_label", resourceCulture);
+
     public static string Playlist_import_progress_label_format => ResourceManager.GetString("Playlist_import_progress_label_format", resourceCulture);
 
     public static string Playlist_import_progress_single_label => ResourceManager.GetString("Playlist_import_progress_single_label", resourceCulture);

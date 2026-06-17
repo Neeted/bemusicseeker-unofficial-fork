@@ -1295,6 +1295,9 @@ BMSファイルが重複しないようにマージします。
   <data name="Custom_folder_output_progress_single_label" xml:space="preserve">
     <value>カスタムフォルダ出力</value>
   </data>
+  <data name="Custom_folder_db_sync_progress_single_label" xml:space="preserve">
+    <value>LR2 folder テーブル同期</value>
+  </data>
   <data name="Playlist_import_progress_label_format" xml:space="preserve">
     <value>外部表インポート {0}/{1}</value>
   </data>

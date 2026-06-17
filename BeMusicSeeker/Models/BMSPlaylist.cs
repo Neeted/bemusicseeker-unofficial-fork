@@ -3297,6 +3297,7 @@ public partial class BMSPlaylist : NotificationObject
             "playlist_lr2_song_db_sync_data_resync",
             forceWriteAllFiles: false,
             throwOnProjectionFailure: false,
+            buildPreparedDataSurface: true,
             yieldBetweenTables,
             progressCallback);
         return result.PreparedDataSurface ?? Lr2SongDbSyncPreparedDataSurface.Empty;
@@ -3339,6 +3340,7 @@ public partial class BMSPlaylist : NotificationObject
             targets,
             reason,
             "playlist_custom_folder_output_repair",
+            buildPreparedDataSurface: false,
             yieldBetweenTables: false)
             .GetAwaiter()
             .GetResult();
@@ -3975,6 +3977,7 @@ public partial class BMSPlaylist : NotificationObject
         string operation,
         bool forceWriteAllFiles,
         bool throwOnProjectionFailure,
+        bool buildPreparedDataSurface,
         bool yieldBetweenTables,
         Action<int, int, string> progressCallback = null)
     {
@@ -4067,6 +4070,7 @@ public partial class BMSPlaylist : NotificationObject
             operation,
             stopwatch,
             projectionStopwatch.ElapsedMilliseconds,
+            buildPreparedDataSurface,
             progressCallback);
     }
 
@@ -4074,6 +4078,7 @@ public partial class BMSPlaylist : NotificationObject
         IReadOnlyList<CustomFolderOutputPlan> tablePlansSnapshot,
         string reason,
         string operation,
+        bool buildPreparedDataSurface,
         bool yieldBetweenTables,
         Action<int, int, string> progressCallback = null)
     {
@@ -4081,6 +4086,7 @@ public partial class BMSPlaylist : NotificationObject
             tablePlansSnapshot,
             reason,
             operation,
+            buildPreparedDataSurface,
             yieldBetweenTables,
             progressCallback);
     }
@@ -4089,6 +4095,7 @@ public partial class BMSPlaylist : NotificationObject
         IReadOnlyList<CustomFolderOutputPlan> tablePlansSnapshot,
         string reason,
         string operation,
+        bool buildPreparedDataSurface,
         bool yieldBetweenTables,
         Action<int, int, string> progressCallback = null)
     {
@@ -4158,6 +4165,7 @@ public partial class BMSPlaylist : NotificationObject
             operation,
             stopwatch,
             projectionStopwatch.ElapsedMilliseconds,
+            buildPreparedDataSurface,
             progressCallback);
     }
 
@@ -4170,6 +4178,7 @@ public partial class BMSPlaylist : NotificationObject
         string operation,
         Stopwatch stopwatch,
         long projectionMs,
+        bool buildPreparedDataSurface,
         Action<int, int, string> progressCallback = null)
     {
         projections ??= [];
@@ -4199,7 +4208,7 @@ public partial class BMSPlaylist : NotificationObject
             + " deletedFiles=" + materialization.DeletedFileCount
             + " elapsedMs=" + materializeStopwatch.ElapsedMilliseconds);
 
-        progressCallback?.Invoke(Math.Min(tableCount + projections.Count, progressTotalCount), progressTotalCount, Resources.Lr2_song_db_sync_status_running);
+        progressCallback?.Invoke(Math.Min(tableCount + projections.Count, progressTotalCount), progressTotalCount, Resources.Custom_folder_db_sync_progress_single_label);
         LogPlaylistPerformance(operation + " sync_start"
             + " reason=" + (reason ?? "unknown")
             + " outputDirCount=" + materialization.OutputDirectories.Count
@@ -4220,14 +4229,16 @@ public partial class BMSPlaylist : NotificationObject
             + " syncUpserted=" + (syncResult?.UpsertedCount ?? 0)
             + " syncDeleted=" + (syncResult?.DeletedCount ?? 0)
             + " elapsedMs=" + syncStopwatch.ElapsedMilliseconds);
-        progressCallback?.Invoke(progressTotalCount, progressTotalCount, Resources.Lr2_song_db_sync_status_running);
+        progressCallback?.Invoke(progressTotalCount, progressTotalCount, Resources.Custom_folder_db_sync_progress_single_label);
 
         var preparedSurfaceStopwatch = Stopwatch.StartNew();
-        Lr2SongDbSyncPreparedDataSurface preparedDataSurface = Lr2SongDbSyncPreparedDataSurface.FromSyncItems(
-            materialization.Lr2FolderSurfaceScopeDirectories,
-            materialization.SyncItems,
-            directoryEntries: materialization.DirectoryEntries,
-            discoveryComplete: projectionFailedCount == 0);
+        Lr2SongDbSyncPreparedDataSurface preparedDataSurface = buildPreparedDataSurface
+            ? Lr2SongDbSyncPreparedDataSurface.FromSyncItems(
+                materialization.Lr2FolderSurfaceScopeDirectories,
+                materialization.SyncItems,
+                directoryEntries: materialization.DirectoryEntries,
+                discoveryComplete: projectionFailedCount == 0)
+            : Lr2SongDbSyncPreparedDataSurface.Empty;
         preparedSurfaceStopwatch.Stop();
         stopwatch.Stop();
         LogPlaylistPerformance(operation + " done"
@@ -6146,6 +6157,7 @@ public partial class BMSPlaylist : NotificationObject
             "playlist_custom_folder_output_bulk",
             forceWriteAllFiles: true,
             throwOnProjectionFailure: true,
+            buildPreparedDataSurface: false,
             yieldBetweenTables: false,
             progressCallback)
             .GetAwaiter()

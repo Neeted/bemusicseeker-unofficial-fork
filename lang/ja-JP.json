@@ -28,6 +28,7 @@
   "Beatoraja_bmt_export_progress_single_label": ".bmt出力",
   "Custom_folder_output_progress_label_format": "カスタムフォルダ出力 {0}/{1}",
   "Custom_folder_output_progress_single_label": "カスタムフォルダ出力",
+  "Custom_folder_db_sync_progress_single_label": "LR2 folder テーブル同期",
   "Playlist_import_progress_label_format": "外部表インポート {0}/{1}",
   "Playlist_import_progress_single_label": "外部表インポート",
   "Statusbar_progress_startup": "初期化中",

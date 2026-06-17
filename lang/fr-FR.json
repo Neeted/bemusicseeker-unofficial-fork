@@ -21,6 +21,7 @@
   "Beatoraja_bmt_export_progress_single_label": "Export .bmt",
   "Custom_folder_output_progress_label_format": "Sortie des dossiers personnalisés {0}/{1}",
   "Custom_folder_output_progress_single_label": "Sortie des dossiers personnalisés",
+  "Custom_folder_db_sync_progress_single_label": "Synchronisation de la table folder LR2",
   "Playlist_import_progress_label_format": "Import de tables externes {0}/{1}",
   "Playlist_import_progress_single_label": "Import de tables externes",
   "Statusbar_progress_startup": "Initialisation",
