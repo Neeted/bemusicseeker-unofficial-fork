@@ -5726,7 +5726,8 @@ public class MainWindowViewModel : ViewModel
         LibraryFileEnumerationDone = 16384,
         LibraryFileDiffDone = 32768,
         InstallableMaintenanceDeferredDone = 65536,
-        Lr2SongDbSyncDone = 131072
+        Lr2SongDbSyncDone = 131072,
+        StartupBackgroundTasksDone = 262144
     }
 
     /// <summary>
@@ -8902,6 +8903,7 @@ public class MainWindowViewModel : ViewModel
         SetStartupUiInteractionBlocked(false);
         MarkStartupProgressPhaseCompleted(StartupProgressPhase.StartupReadyOperable);
         StartStartupBackgroundTaskScheduler();
+        TryCompleteStartupBackgroundTasksPhaseIfIdle();
     }
 
     private bool QueueStartupBackgroundTask(string name, string reason, string dependency, Func<Task> work)
@@ -8954,6 +8956,36 @@ public class MainWindowViewModel : ViewModel
             TryStartStartupBackgroundTaskWorkers();
         }
         return true;
+    }
+
+    private void TryCompleteStartupBackgroundTasksPhaseIfIdle()
+    {
+        bool schedulerIdle;
+        lock (startupBackgroundTaskLock)
+        {
+            schedulerIdle = startupBackgroundTaskSchedulerStarted
+                && startupBackgroundTaskQueue.Count == 0
+                && startupBackgroundTaskRunningCount == 0;
+        }
+        if (!schedulerIdle)
+        {
+            return;
+        }
+
+        bool shouldComplete;
+        lock (startupProgressLock)
+        {
+            StartupProgressPhase expectedExceptBackgroundTasks =
+                startupProgressState.ExpectedPhases & ~StartupProgressPhase.StartupBackgroundTasksDone;
+            shouldComplete = startupProgressState.IsActive
+                && (startupProgressState.ExpectedPhases & StartupProgressPhase.StartupBackgroundTasksDone) != 0
+                && (startupProgressState.CompletedPhases & StartupProgressPhase.StartupBackgroundTasksDone) == 0
+                && (startupProgressState.CompletedPhases & expectedExceptBackgroundTasks) == expectedExceptBackgroundTasks;
+        }
+        if (shouldComplete)
+        {
+            MarkStartupProgressPhaseCompleted(StartupProgressPhase.StartupBackgroundTasksDone);
+        }
     }
 
     private StartupBackgroundTaskMetric GetOrCreateStartupBackgroundTaskMetricUnsafe(string name)
@@ -9137,6 +9169,10 @@ public class MainWindowViewModel : ViewModel
         {
             TryStartStartupBackgroundTaskWorkers();
         }
+        else
+        {
+            TryCompleteStartupBackgroundTasksPhaseIfIdle();
+        }
     }
 
     private void TryStartStartupBackgroundTaskWorkers()
@@ -9243,6 +9279,7 @@ public class MainWindowViewModel : ViewModel
                     }
                 }
                 TryStartStartupBackgroundTaskWorkers();
+                TryCompleteStartupBackgroundTasksPhaseIfIdle();
             }
         }).Logging("StartupBackgroundTaskScheduler");
     }
@@ -16280,6 +16317,7 @@ public class MainWindowViewModel : ViewModel
                 () => files.CreateBeatorajaBmtSongHashResolver());
             tables.Lr2FolderSyncMutationGuard = operation => files.ThrowIfLr2SongDbSyncMutationBlockedForPlaylist(operation);
             tables.Lr2FolderSyncFailureReporter = (operation, ex) => files.MarkLr2SongDbSyncIncompleteAfterPlaylistLr2FolderSyncFailure(ex, operation);
+            tables.CustomFolderOutputPhysicalSurfaceProvider = () => files.GetCurrentAppManagedCustomFolderOutputPhysicalSurface();
             files.StartupBackgroundTaskScheduler = QueueStartupBackgroundTask;
             files.StartupBackgroundTaskReporter = RecordStartupBackgroundTaskCompleted;
             tables.StartupBackgroundTaskScheduler = QueueStartupBackgroundTask;
@@ -20027,6 +20065,10 @@ public class MainWindowViewModel : ViewModel
             }
         }
         RecomputeStartupProgressPresentation();
+        if (phase != StartupProgressPhase.StartupBackgroundTasksDone)
+        {
+            TryCompleteStartupBackgroundTasksPhaseIfIdle();
+        }
     }
 
     private void ResetStartupBackgroundTaskSchedulerState(StartupProgressOperationKind operationKind)
@@ -20073,6 +20115,10 @@ public class MainWindowViewModel : ViewModel
         {
             LogUiSuppression("startup_progress_phase_skipped operation=" + operationKind + " phase=" + phase + " reason=" + (reason ?? string.Empty));
             RecomputeStartupProgressPresentation();
+            if (phase != StartupProgressPhase.StartupBackgroundTasksDone)
+            {
+                TryCompleteStartupBackgroundTasksPhaseIfIdle();
+            }
         }
     }
 
@@ -20156,7 +20202,8 @@ public class MainWindowViewModel : ViewModel
             && phase != StartupProgressPhase.StartupReadyOperable
             && phase != StartupProgressPhase.LibraryDatabaseLoadDone
             && phase != StartupProgressPhase.LibraryFileEnumerationDone
-            && phase != StartupProgressPhase.LibraryFileDiffDone;
+            && phase != StartupProgressPhase.LibraryFileDiffDone
+            && phase != StartupProgressPhase.StartupBackgroundTasksDone;
     }
 
     private static bool CanCompleteStartupProgressPhase(StartupProgressState state, StartupProgressPhase phase)
@@ -21001,6 +21048,10 @@ public class MainWindowViewModel : ViewModel
                 }
             }
         }
+        if (operationCompletedForLog && operationKindForLog == StartupProgressOperationKind.Startup)
+        {
+            TryLogStartupInitializationComplete();
+        }
         Action reflect = delegate
         {
             lock (startupProgressLock)
@@ -21034,10 +21085,6 @@ public class MainWindowViewModel : ViewModel
         if (shouldHideLater)
         {
             ScheduleStartupProgressHide(hideOperationToken);
-        }
-        if (operationCompletedForLog && operationKindForLog == StartupProgressOperationKind.Startup)
-        {
-            TryLogStartupInitializationComplete();
         }
     }
 
@@ -21494,6 +21541,7 @@ public class MainWindowViewModel : ViewModel
         CountExpectedStartupProgressPhase(state, StartupProgressPhase.Lr2SongDbSyncDone, ref count);
         CountExpectedStartupProgressPhase(state, StartupProgressPhase.ScoreHydrationDone, ref count);
         CountExpectedStartupProgressPhase(state, StartupProgressPhase.RankingRefreshDone, ref count);
+        CountExpectedStartupProgressPhase(state, StartupProgressPhase.StartupBackgroundTasksDone, ref count);
         return count;
     }
 
@@ -21518,7 +21566,8 @@ public class MainWindowViewModel : ViewModel
                                 | StartupProgressPhase.ChartInfoBackfillDone
                                 | StartupProgressPhase.ChartInfoHydrationDone
                                 | StartupProgressPhase.Lr2SongDbSyncDone
-                                | StartupProgressPhase.PlaylistEntriesHydrationDone,
+                                | StartupProgressPhase.PlaylistEntriesHydrationDone
+                                | StartupProgressPhase.StartupBackgroundTasksDone,
             StartupProgressOperationKind.FullReinitialize => StartupProgressPhase.CoreInitializeStarted
                                 | StartupProgressPhase.LibraryDatabaseLoadDone
                                 | StartupProgressPhase.LibraryFileEnumerationDone
@@ -21574,6 +21623,7 @@ public class MainWindowViewModel : ViewModel
         CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.Lr2SongDbSyncDone, ref count);
         CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.ScoreHydrationDone, ref count);
         CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.RankingRefreshDone, ref count);
+        CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.StartupBackgroundTasksDone, ref count);
         return count;
     }
 
@@ -21815,6 +21865,7 @@ public class MainWindowViewModel : ViewModel
         CountStartupProgressPhase(phases, StartupProgressPhase.Lr2SongDbSyncDone, ref count);
         CountStartupProgressPhase(phases, StartupProgressPhase.ScoreHydrationDone, ref count);
         CountStartupProgressPhase(phases, StartupProgressPhase.RankingRefreshDone, ref count);
+        CountStartupProgressPhase(phases, StartupProgressPhase.StartupBackgroundTasksDone, ref count);
         return count;
     }
 

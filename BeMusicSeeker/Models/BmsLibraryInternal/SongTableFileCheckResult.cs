@@ -79,6 +79,13 @@ internal sealed class SongTableFileCheckResult
 
     public int Lr2ScanLr2FolderAppManagedExactFileCount { get; set; }
 
+    public IReadOnlyList<string> Lr2ScanAppManagedCustomFolderOutputFilePaths { get; set; } = [];
+
+    public IReadOnlyDictionary<string, RootFileEnumerationEntry> Lr2ScanAppManagedCustomFolderOutputFileEntries { get; set; } =
+        new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
+
+    public bool Lr2ScanAppManagedCustomFolderOutputDiscoveryComplete { get; set; }
+
     public int BmsPathCount { get; set; }
 
     public int DirectoryCount { get; set; }
@@ -383,5 +390,8 @@ internal sealed class SongTableFileCheckResult
         Lr2ScanLr2FolderAppManagedFilteredCount = 0;
         Lr2ScanLr2FolderAppManagedScopeDirectoryCount = 0;
         Lr2ScanLr2FolderAppManagedExactFileCount = 0;
+        Lr2ScanAppManagedCustomFolderOutputFilePaths = [];
+        Lr2ScanAppManagedCustomFolderOutputFileEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
+        Lr2ScanAppManagedCustomFolderOutputDiscoveryComplete = false;
     }
 }

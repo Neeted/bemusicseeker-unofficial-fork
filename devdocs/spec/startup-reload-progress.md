@@ -28,7 +28,7 @@ StartupProgressValue   = ExpectedPhases かつ CompletedPhases に含まれる p
 
 progress operation には `OperationToken` を付与する。UI suppress の遅延 flush、folder tree の遅延 refresh、external playlist sync、playlist reference apply のように operation 本体より遅れて戻る callback は、スケジュール時 token と現在の token が一致する場合だけ progress phase を進める。これにより、前回 operation の遅延 callback が次回 operation の `StartupReadyUi` / `StartupReadyOperable` / background phase を誤って完了させることを防ぐ。
 
-background 系 phase は request 済みでなければ complete できない。ただし次の基礎 phase と library load phase は request 不要で complete できる。
+background 系 phase は request 済みでなければ complete できない。ただし次の基礎 phase、library load phase、startup scheduler の idle phase は request 不要で complete できる。
 
 - `CoreInitializeStarted`
 - `StartupReadyData`
@@ -37,6 +37,9 @@ background 系 phase は request 済みでなければ complete できない。�
 - `LibraryDatabaseLoadDone`
 - `LibraryFileEnumerationDone`
 - `LibraryFileDiffDone`
+- `StartupBackgroundTasksDone`
+
+`StartupBackgroundTasksDone` は Startup 専用の完了 phase であり、`startup_ready_operable` 後に startup background scheduler が開始し、他の expected phase が完了したうえで queue / running task が空になった時だけ完了する。これによりステータスバーは `startup_background_summary` が出る前に完了表示へ遷移しない。
 
 `ChartInfoHydrationDone` は完了後に full `ChartInfoBackfillDone` を queue するため、hydration request を受けた時点で `ChartInfoBackfillDone` も request 済みとして扱う。これにより、`Initialize` 完了直後の未 request phase skip で譜面メタデータ解析が完了扱いにならず、backfill 開始後に `[processed/total] 譜面メタデータ解析 fileName` が表示される。
 
@@ -44,10 +47,10 @@ background 系 phase は request 済みでなければ complete できない。�
 
 | Operation | Expected count | Expected phases |
 | --- | ---: | --- |
-| `Startup` | 17 | 全 phase |
+| `Startup` | 19 | 全 phase |
 | `ReloadFileDiff` | 6 | `CoreInitializeStarted`, file enumeration, file diff, `StartupReadyOperable`, playlist reference, playlist entries hydration |
 | `ScoreOnly` | 4 | `CoreInitializeStarted`, `StartupReadyOperable`, score hydration, ranking refresh |
-| `FullReinitialize` | 14 | `CoreInitializeStarted`, library load 3 phase, `StartupReadyOperable`, playlist reference, playlist entries hydration, chart info hydration/backfill, chart digest backfill, score hydration, ranking refresh, maintenance deferred, installable maintenance deferred |
+| `FullReinitialize` | 15 | `CoreInitializeStarted`, library load 3 phase, `StartupReadyOperable`, playlist reference, playlist entries hydration, chart info hydration/backfill, chart digest backfill, score hydration, ranking refresh, maintenance deferred, installable maintenance deferred |
 | `ReloadTables` | 5 | `CoreInitializeStarted`, `StartupReadyOperable`, `PlaylistReferenceApplied`, `ExternalPlaylistSyncDone`, `PlaylistEntriesHydrationDone` |
 
 `ReloadFileDiff` は外部ファイル操作による追加・削除・移動検出用の軽量 reload で、DB 読み込み、chart_info hydration/backfill、score/ranking、maintenance deferred、installable maintenance deferred を expected に含めない。`FullReinitialize` は旧 ReloadFiles 相当の初期化再実行として残す。
@@ -85,6 +88,7 @@ BMS search root の追加・削除は `ReloadFileDiff` として扱う。実行�
 | `RankingRefreshDone` | ranking refresh | `ランキング更新` |
 | `MaintenanceDeferredDone` | maintenance hydration / orphan cleanup | `保守参照更新` |
 | `InstallableMaintenanceDeferredDone` | installable maintenance deferred 更新 | `保守情報更新` |
+| `StartupBackgroundTasksDone` | Startup background scheduler の queue / running task が空になった | `操作可能(バックグラウンド更新中)` |
 
 `InstallableMaintenanceDeferredDone` には bounded 並列の cache-aware resource health 実チェックと、その結果を通常一覧へ投影するための runtime resource health index build が含まれる。WARNING 表示用の全件 `BMSFile.Warnings` 再構築は行わない。
 

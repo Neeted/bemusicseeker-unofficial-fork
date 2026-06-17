@@ -10,7 +10,7 @@ public sealed class MainWindowViewModelStartupProgressTests
     [TestMethod]
     public void StartupProgress_InitialExpectedCounts_AreFixedByOperation()
     {
-        Assert.AreEqual(18, MainWindowViewModel.GetInitialStartupProgressExpectedCountForTest("Startup"));
+        Assert.AreEqual(19, MainWindowViewModel.GetInitialStartupProgressExpectedCountForTest("Startup"));
         Assert.AreEqual(6, MainWindowViewModel.GetInitialStartupProgressExpectedCountForTest("ReloadFileDiff"));
         Assert.AreEqual(4, MainWindowViewModel.GetInitialStartupProgressExpectedCountForTest("ScoreOnly"));
         Assert.AreEqual(15, MainWindowViewModel.GetInitialStartupProgressExpectedCountForTest("FullReinitialize"));
@@ -216,10 +216,39 @@ public sealed class MainWindowViewModelStartupProgressTests
             "complete:ChartInfoBackfillDone",
             "complete:ChartDigestBackfillDone");
 
-        Assert.AreEqual(18, result.ExpectedCount);
+        Assert.AreEqual(19, result.ExpectedCount);
         Assert.AreEqual(1, result.CompletedCount);
         Assert.AreEqual(3, result.IgnoredCompleteCount);
         Assert.IsFalse(result.IsCompleted);
+    }
+
+    [TestMethod]
+    public void StartupProgress_BackgroundTasksDoneCompletesAfterSkippedBackgroundPhases()
+    {
+        MainWindowViewModel.StartupProgressTestResult result = MainWindowViewModel.ReduceStartupProgressForTest(
+            "Startup",
+            "complete:LibraryDatabaseLoadDone",
+            "complete:LibraryFileEnumerationDone",
+            "complete:LibraryFileDiffDone",
+            "complete:StartupReadyData",
+            "complete:StartupReadyUi",
+            "complete:StartupReadyOperable",
+            "skip:PlaylistReferenceApplied",
+            "skip:ExternalPlaylistSyncDone",
+            "skip:PlaylistEntriesHydrationDone",
+            "skip:ChartInfoHydrationDone",
+            "skip:ChartInfoBackfillDone",
+            "skip:ChartDigestBackfillDone",
+            "skip:Lr2SongDbSyncDone",
+            "skip:ScoreHydrationDone",
+            "skip:RankingRefreshDone",
+            "skip:MaintenanceDeferredDone",
+            "skip:InstallableMaintenanceDeferredDone",
+            "complete:StartupBackgroundTasksDone");
+
+        Assert.AreEqual(19, result.ExpectedCount);
+        Assert.AreEqual(19, result.CompletedCount);
+        Assert.IsTrue(result.IsCompleted);
     }
 
     [TestMethod]
@@ -429,7 +458,7 @@ public sealed class MainWindowViewModelStartupProgressTests
             "skip:Lr2SongDbSyncDone",
             "request:Lr2SongDbSyncDone");
 
-        Assert.AreEqual(18, result.ExpectedCount);
+        Assert.AreEqual(19, result.ExpectedCount);
         Assert.AreEqual(2, result.CompletedCount);
         Assert.AreEqual(1, result.RequestedCount);
         Assert.AreEqual(1, result.SkippedCount);

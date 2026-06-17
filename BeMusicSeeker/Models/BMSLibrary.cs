@@ -1147,6 +1147,10 @@ public class BMSLibrary : NotificationObject
 
     private Lr2SongDbSyncScanSurfaceSnapshot lr2SongDbSyncScanSurfaceSnapshot;
 
+    private CustomFolderOutputPhysicalSurface appManagedCustomFolderOutputPhysicalSurface = new(
+        new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase),
+        discoveryComplete: false);
+
     private int lr2SongDbSyncScanSurfaceGeneration;
 
     private readonly object lockLr2SongDbSyncFileDiffFreshness = new();
@@ -5464,6 +5468,7 @@ completeFileEnumerationOnce,
         IReadOnlyList<string> appManagedOutputDirectories,
         IReadOnlyList<string> appManagedOutputFilePaths,
         IReadOnlyList<string> appManagedPruneExcludedPaths,
+        CustomFolderOutputPhysicalSurface appManagedPhysicalSurface,
         int appManagedCandidateCount,
         long rootsMs,
         long builtinSourceMs,
@@ -5481,6 +5486,9 @@ completeFileEnumerationOnce,
         public IReadOnlyList<string> AppManagedOutputFilePaths { get; } = appManagedOutputFilePaths ?? [];
 
         public IReadOnlyList<string> AppManagedPruneExcludedPaths { get; } = appManagedPruneExcludedPaths ?? [];
+
+        public CustomFolderOutputPhysicalSurface AppManagedPhysicalSurface { get; } =
+            appManagedPhysicalSurface ?? CustomFolderOutputPhysicalSurface.Empty;
 
         public int AppManagedCandidateCount { get; } = appManagedCandidateCount;
 
@@ -5628,6 +5636,8 @@ completeFileEnumerationOnce,
         long builtinSourceMs = RestartElapsed(stopwatchStage);
         Lr2SongDbSyncAppManagedOutputScope appManagedOutputScope = CreateLr2SongDbSyncAppManagedOutputScope();
         long appManagedScopeMs = RestartElapsed(stopwatchStage);
+        CustomFolderOutputPhysicalSurface appManagedPhysicalSurface =
+            CreateAppManagedCustomFolderOutputPhysicalSurface(fileCheckResult, appManagedOutputScope);
         Lr2FolderFileCandidateSnapshot fileDiffCandidates;
         int appManagedCandidateCount;
         if (!appManagedOutputScope.IsComplete)
@@ -5684,6 +5694,7 @@ completeFileEnumerationOnce,
             appManagedOutputScope.Directories,
             appManagedOutputScope.FilePaths,
             appManagedOutputScope.PruneExcludedPaths,
+            appManagedPhysicalSurface,
             appManagedCandidateCount,
             rootsMs,
             builtinSourceMs,
@@ -5693,6 +5704,56 @@ completeFileEnumerationOnce,
             extraTextRootsMs,
             textMetadataMs,
             stopwatchPrepare.ElapsedMilliseconds);
+    }
+
+    private static CustomFolderOutputPhysicalSurface CreateAppManagedCustomFolderOutputPhysicalSurface(
+        SongTableFileCheckResult fileCheckResult,
+        Lr2SongDbSyncAppManagedOutputScope appManagedOutputScope)
+    {
+        if (fileCheckResult == null || appManagedOutputScope?.IsComplete != true)
+        {
+            return new CustomFolderOutputPhysicalSurface(
+                new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase),
+                discoveryComplete: false);
+        }
+
+        var exactPaths = new HashSet<string>(
+            appManagedOutputScope.FilePaths ?? [],
+            StringComparer.OrdinalIgnoreCase);
+        var directoryMatcher = Lr2DirectoryScopeMatcher.Create(appManagedOutputScope.Directories);
+        var entries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
+        foreach (RootFileEnumerationEntry entry in fileCheckResult.Lr2ScanLr2FolderFileEntries?.Values ?? [])
+        {
+            string path = CustomFolderOutputPhysicalSurface.NormalizeFilePath(entry?.Path);
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                continue;
+            }
+            if (!exactPaths.Contains(path) && !directoryMatcher.ContainsFilePath(path))
+            {
+                continue;
+            }
+            entries[path] = new RootFileEnumerationEntry(path, entry.LastWriteTimeUtc, entry.FileSize);
+        }
+        foreach (string rawPath in fileCheckResult.Lr2ScanLr2FolderFilePaths ?? [])
+        {
+            string path = CustomFolderOutputPhysicalSurface.NormalizeFilePath(rawPath);
+            if (string.IsNullOrWhiteSpace(path) || entries.ContainsKey(path))
+            {
+                continue;
+            }
+            if (!exactPaths.Contains(path) && !directoryMatcher.ContainsFilePath(path))
+            {
+                continue;
+            }
+            entries[path] = fileCheckResult.Lr2ScanLr2FolderFileEntries != null
+                && fileCheckResult.Lr2ScanLr2FolderFileEntries.TryGetValue(rawPath, out RootFileEnumerationEntry entry)
+                    ? new RootFileEnumerationEntry(path, entry.LastWriteTimeUtc, entry.FileSize)
+                    : new RootFileEnumerationEntry(path);
+        }
+        return new CustomFolderOutputPhysicalSurface(
+            entries,
+            fileCheckResult.Lr2ScanLr2FolderFileDiscoveryComplete);
     }
 
     private static long RestartElapsed(Stopwatch stopwatch)
@@ -5921,6 +5982,9 @@ completeFileEnumerationOnce,
             lock (lockLr2SongDbSyncScanSurface)
             {
                 preservedGeneration = lr2SongDbSyncScanSurfaceSnapshot?.Generation ?? 0;
+                appManagedCustomFolderOutputPhysicalSurface = new CustomFolderOutputPhysicalSurface(
+                    new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase),
+                    discoveryComplete: false);
             }
             LogInstallPerformance("lr2_song_db_sync_scan_surface skipped"
                 + " reason=normal_folder_sync_unapplied"
@@ -5976,6 +6040,9 @@ completeFileEnumerationOnce,
             {
                 previousGeneration = lr2SongDbSyncScanSurfaceSnapshot?.Generation ?? 0;
                 lr2SongDbSyncScanSurfaceSnapshot = null;
+                appManagedCustomFolderOutputPhysicalSurface = new CustomFolderOutputPhysicalSurface(
+                    new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase),
+                    discoveryComplete: false);
                 lr2SongDbSyncPreparedDataSurfaceAppliedScanGeneration = 0;
             }
             LogInstallPerformance("lr2_song_db_sync_scan_surface skipped"
@@ -6008,6 +6075,9 @@ completeFileEnumerationOnce,
                 Volatile.Read(ref bmsStorageRowsVersion),
                 Volatile.Read(ref bmsonStorageRowsVersion));
             lr2SongDbSyncScanSurfaceSnapshot = snapshot;
+            appManagedCustomFolderOutputPhysicalSurface = new CustomFolderOutputPhysicalSurface(
+                fileCheckResult.Lr2ScanAppManagedCustomFolderOutputFileEntries,
+                fileCheckResult.Lr2ScanAppManagedCustomFolderOutputDiscoveryComplete);
             lr2SongDbSyncPreparedDataSurfaceAppliedScanGeneration = 0;
         }
         LogInstallPerformance("lr2_song_db_sync_scan_surface captured"
@@ -6026,6 +6096,8 @@ completeFileEnumerationOnce,
             + " appManagedExactFiles=" + (reusedFilteredLr2FolderCandidates
                 ? fileCheckResult.Lr2ScanLr2FolderAppManagedExactFileCount
                 : appManagedOutputFilePaths.Count)
+            + " appManagedPhysicalCandidates=" + (fileCheckResult.Lr2ScanAppManagedCustomFolderOutputFilePaths?.Count ?? 0)
+            + " appManagedPhysicalDiscoveryComplete=" + fileCheckResult.Lr2ScanAppManagedCustomFolderOutputDiscoveryComplete.ToString().ToLowerInvariant()
             + " lr2FolderDiscoveryComplete=" + snapshot.Lr2FolderFileDiscoveryComplete.ToString().ToLowerInvariant()
             + " textFileDirs=" + snapshot.TextFileDirectories.Count
             + " ownedCollectionVersion=" + snapshot.OwnedCollectionVersion
@@ -6322,6 +6394,14 @@ completeFileEnumerationOnce,
             lr2SongDbSyncPreparedDataSurface = Lr2SongDbSyncPreparedDataSurface.Empty;
             lr2SongDbSyncPreparedDataSurfaceAppliedScanGeneration = 0;
             return surface;
+        }
+    }
+
+    internal CustomFolderOutputPhysicalSurface GetCurrentAppManagedCustomFolderOutputPhysicalSurface()
+    {
+        lock (lockLr2SongDbSyncScanSurface)
+        {
+            return appManagedCustomFolderOutputPhysicalSurface ?? CustomFolderOutputPhysicalSurface.Empty;
         }
     }
 
@@ -7924,6 +8004,10 @@ completeFileEnumerationOnce,
         result.Lr2ScanLr2FolderAppManagedFilteredCount = preparation.AppManagedCandidateCount;
         result.Lr2ScanLr2FolderAppManagedScopeDirectoryCount = preparation.AppManagedOutputDirectories.Count;
         result.Lr2ScanLr2FolderAppManagedExactFileCount = preparation.AppManagedOutputFilePaths.Count;
+        result.Lr2ScanAppManagedCustomFolderOutputFilePaths = [.. preparation.AppManagedPhysicalSurface.FileEntries.Keys
+            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
+        result.Lr2ScanAppManagedCustomFolderOutputFileEntries = preparation.AppManagedPhysicalSurface.FileEntries;
+        result.Lr2ScanAppManagedCustomFolderOutputDiscoveryComplete = preparation.AppManagedPhysicalSurface.DiscoveryComplete;
     }
 
     private static IReadOnlyList<T> ToReadOnlyList<T>(IReadOnlyCollection<T> values)
