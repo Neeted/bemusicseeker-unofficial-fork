@@ -132,6 +132,16 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
         return new LR2ScoreDBExtended(ScoreDbPath, SQLiteOpenFlags.ReadOnly | SQLiteOpenFlags.FullMutex, acquireProcessLock: false);
     }
 
+    public Lr2PlayHistorySchemaCheckResult CheckLr2PlayHistorySchema(bool isLr2LinkedProfile)
+    {
+        return new Lr2PlayHistorySchemaService().Check(ScoreDbPath, isLr2LinkedProfile);
+    }
+
+    public Lr2PlayHistorySchemaCheckResult InstallOrRepairLr2PlayHistorySchema(bool isLr2LinkedProfile)
+    {
+        return new Lr2PlayHistorySchemaService().InstallOrRepair(ScoreDbPath, isLr2LinkedProfile);
+    }
+
     public void ExecuteSongDbTransaction(Action<LR2SongDBExtended> action)
     {
         if (action == null)
