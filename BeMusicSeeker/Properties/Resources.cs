@@ -1145,6 +1145,9 @@ public class Resources
     public static string WarningDigest_InstalledDestinationAmbiguous => ResourceManager.GetString("WarningDigest_InstalledDestinationAmbiguous", resourceCulture);
 
 
+    public static string WarningDigest_InstalledDestinationAutoAppliedAmbiguous => ResourceManager.GetString("WarningDigest_InstalledDestinationAutoAppliedAmbiguous", resourceCulture);
+
+
     public static string WarningDigest_UnsupportedResourcePath => ResourceManager.GetString("WarningDigest_UnsupportedResourcePath", resourceCulture);
 
 
@@ -1191,6 +1194,9 @@ public class Resources
 
 
     public static string Warning_InstalledDestinationAmbiguous => ResourceManager.GetString("Warning_InstalledDestinationAmbiguous", resourceCulture);
+
+
+    public static string Warning_InstalledDestinationAutoAppliedAmbiguous => ResourceManager.GetString("Warning_InstalledDestinationAutoAppliedAmbiguous", resourceCulture);
 
 
     public static string Warning_InstalledDestinationResolveFailed => ResourceManager.GetString("Warning_InstalledDestinationResolveFailed", resourceCulture);

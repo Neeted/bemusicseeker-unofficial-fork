@@ -3746,6 +3746,7 @@ public class BMSLibrary : NotificationObject
                     evaluationContext.DirectoryLookupCacheSnapshot,
                     request.BatchState,
                     result.InstalledResolution.CandidateDirectories,
+                    result.InstalledResolution.GetCandidateDirectoryUniquePrimaryHashCount,
                     markInstalledDestinationAmbiguous: true);
                 return result;
             }
@@ -16643,7 +16644,7 @@ completeFileEnumerationOnce,
             && !string.IsNullOrWhiteSpace(entry.Chart.InstallDestinationTitle));
     }
 
-    private InstallEstimationEvaluationData EvaluateInstallEstimation(ChartPackage package, List<PackageChartEntry> targetEntries, int candidateEvaluationDegree, ChartInstallationEstimateMode estimateMode, BmsLibraryOptionsSnapshot optionsSnapshot = null, bool useThreadSafeResolvers = false, bool useSharedLazyHashMetrics = false, DirectoryResourceLookupCache directoryLookupCacheSnapshot = null, PendingEstimateSourceBatchPackageState batchState = null, IReadOnlyCollection<string> candidateDirectoryOverride = null, bool markInstalledDestinationAmbiguous = false)
+    private InstallEstimationEvaluationData EvaluateInstallEstimation(ChartPackage package, List<PackageChartEntry> targetEntries, int candidateEvaluationDegree, ChartInstallationEstimateMode estimateMode, BmsLibraryOptionsSnapshot optionsSnapshot = null, bool useThreadSafeResolvers = false, bool useSharedLazyHashMetrics = false, DirectoryResourceLookupCache directoryLookupCacheSnapshot = null, PendingEstimateSourceBatchPackageState batchState = null, IReadOnlyCollection<string> candidateDirectoryOverride = null, Func<string, int> candidateDirectoryUniquePrimaryHashCountResolver = null, bool markInstalledDestinationAmbiguous = false)
     {
         List<PackageChartEntry> targetEntryList = [.. (targetEntries ?? []).Where(entry => entry?.Chart != null)];
         if (targetEntryList.Count == 0)
@@ -16694,7 +16695,8 @@ completeFileEnumerationOnce,
                 candidateEvaluationDegree,
                 estimateMode,
                 representativeResolver,
-                metadataProfileResolver)
+                metadataProfileResolver,
+                candidateDirectoryUniquePrimaryHashCountResolver)
             : CreateInstallEstimationService(optionsSnapshot).EstimateInstallationDirectoryForCandidateDirectories(
                 estimationSnapshot,
                 candidateDirectoryOverride,
@@ -16702,14 +16704,11 @@ completeFileEnumerationOnce,
                 candidateEvaluationDegree,
                 estimateMode,
                 representativeResolver,
-                metadataProfileResolver);
+                metadataProfileResolver,
+                candidateDirectoryUniquePrimaryHashCountResolver);
         if (markInstalledDestinationAmbiguous && result?.LowConfidenceKind == InstallEstimationLowConfidenceKind.AmbiguousCandidates)
         {
-            result.Confidence = InstallEstimationConfidence.Low;
-            result.LowConfidenceKind = InstallEstimationLowConfidenceKind.InstalledDestinationAmbiguous;
-            result.ConfidenceReason = "installed_destination_multiple_viable_candidates";
-            result.DestinationDirectory = null;
-            result.ShouldAutoApplyDestination = false;
+            ApplyMixedInstalledDestinationAmbiguityPolicy(result);
         }
         long lazyHashBuildMsAfter = useSharedLazyHashMetrics ? lazyHashBuildMsBefore : (effectiveDirectoryLookupCache?.LazyHashBuildMs ?? lazyHashBuildMsBefore);
         long lazyHashLookupCountAfter = useSharedLazyHashMetrics ? lazyHashLookupCountBefore : (effectiveDirectoryLookupCache?.LazyHashLookupCount ?? lazyHashLookupCountBefore);
@@ -16731,6 +16730,28 @@ completeFileEnumerationOnce,
             SourceSurfaceBatchHit = estimationSnapshot?.SourceSurfaceBatchHit ?? false,
             SourceSurfaceScanBackend = estimationSnapshot?.SourceSurfaceScanBackend ?? string.Empty
         };
+    }
+
+    private static void ApplyMixedInstalledDestinationAmbiguityPolicy(InstallEstimationResult result)
+    {
+        if (result == null || result.LowConfidenceKind != InstallEstimationLowConfidenceKind.AmbiguousCandidates)
+        {
+            return;
+        }
+        result.Confidence = InstallEstimationConfidence.Low;
+        if (result.ShouldAutoApplyDestination
+            && result.SelectedCandidateMetadataEvidenceStrong
+            && !string.IsNullOrWhiteSpace(result.DestinationDirectory))
+        {
+            result.LowConfidenceKind = InstallEstimationLowConfidenceKind.InstalledDestinationAutoAppliedAmbiguous;
+            result.ConfidenceReason = "installed_destination_multiple_viable_candidates_auto_apply_enabled";
+            return;
+        }
+
+        result.LowConfidenceKind = InstallEstimationLowConfidenceKind.InstalledDestinationAmbiguous;
+        result.ConfidenceReason = "installed_destination_multiple_viable_candidates";
+        result.DestinationDirectory = null;
+        result.ShouldAutoApplyDestination = false;
     }
 
     private static ChartResourceSnapshot ResolvePrecomputedDefinedResources(PendingEstimateSourceBatchPackageState batchState, IReadOnlyList<PackageChartEntry> targetEntries)
@@ -16785,6 +16806,10 @@ completeFileEnumerationOnce,
         if (!string.IsNullOrWhiteSpace(result.MetadataValidationSummary))
         {
             LogInstallPerformance("estimate_install metadata_validation " + result.MetadataValidationSummary);
+        }
+        if (!string.IsNullOrWhiteSpace(result.DirectoryHashCountTieBreakSummary))
+        {
+            LogInstallPerformance("estimate_install directory_hash_count_tiebreak " + result.DirectoryHashCountTieBreakSummary);
         }
     }
 
@@ -17435,6 +17460,7 @@ completeFileEnumerationOnce,
                                     BmsLibraryInstallEstimationService.ResolveCandidateEvaluationDegree(asParallel: true),
                                     ChartInstallationEstimateMode.Normal,
                                     candidateDirectoryOverride: resolution.CandidateDirectories,
+                                    candidateDirectoryUniquePrimaryHashCountResolver: resolution.GetCandidateDirectoryUniquePrimaryHashCount,
                                     markInstalledDestinationAmbiguous: true);
                                 LogInstallEstimationEvaluation(estimationData);
                                 if (estimationData.Result?.HasViableDestination == true)

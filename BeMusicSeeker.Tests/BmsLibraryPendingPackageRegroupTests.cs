@@ -667,6 +667,54 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     }
 
     [TestMethod]
+    public void SearchEstimatedInstallationDirectory_MixedPackageEquivalentCandidates_UsesDirectoryUniquePrimaryHashCount()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
+        {
+            string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "PackageMixedCountTieBreak");
+            string installedADirectoryPath = Path.Combine(tempRootPath, "Installed", "A");
+            string installedBDirectoryPath = Path.Combine(tempRootPath, "Installed", "B");
+            string pendingInstalledAPath = CreateBmsFileWithContents(sourceDirectoryPath, "installedA.bms", "#PLAYER 1\r\n#TITLE Installed A\r\n#ARTIST Test\r\n");
+            string pendingInstalledBPath = CreateBmsFileWithContents(sourceDirectoryPath, "installedB.bms", "#PLAYER 1\r\n#TITLE Installed B\r\n#ARTIST Test\r\n");
+            string pendingMissingPath = CreateBmsFileWithContents(sourceDirectoryPath, "missing.bms", "#PLAYER 1\r\n#WAVAA sound.wav\r\n#00111:AA\r\n");
+            string installedAPath = CreateBmsFileWithContents(installedADirectoryPath, "installedA.bms", "#PLAYER 1\r\n#TITLE Installed A\r\n#ARTIST Test\r\n");
+            string installedBPath = CreateBmsFileWithContents(installedBDirectoryPath, "installedB.bms", "#PLAYER 1\r\n#TITLE Installed B\r\n#ARTIST Test\r\n");
+            string extraABmsonPath = CreateBmsonFile(installedADirectoryPath, "extraA.bmson", "Extra A", "Test");
+            File.WriteAllText(Path.Combine(installedADirectoryPath, "sound.wav"), "a");
+            File.WriteAllText(Path.Combine(installedBDirectoryPath, "sound.wav"), "b");
+
+            var pendingInstalledA = BMSFile.CreateBMSFileFromFile(pendingInstalledAPath);
+            var pendingInstalledB = BMSFile.CreateBMSFileFromFile(pendingInstalledBPath);
+            var pendingMissing = BMSFile.CreateBMSFileFromFile(pendingMissingPath);
+            var pendingPackage = ChartPackageTestExtensions.CreatePackage([pendingInstalledA, pendingInstalledB, pendingMissing]);
+            pendingPackage.path = sourceDirectoryPath;
+            pendingPackage.delete_parent = false;
+            library.BMSFiles =
+            [
+                BMSFile.CreateBMSFileFromFile(installedAPath),
+                BMSFile.CreateBMSFileFromFile(installedBPath)
+            ];
+            library.BmsonSongs =
+            [
+                BmsonSongParser.Parse(extraABmsonPath)
+            ];
+            SeedPendingPackages(library, songDbPath, pendingPackage);
+            SetPrivateField(library, "directoryResourceLookupCache", BuildDirectoryLookupCache(sourceDirectoryPath, installedADirectoryPath, installedBDirectoryPath));
+
+            library.SearchEstimatedInstallationDirectory(pendingPackage);
+
+            Assert.AreEqual(PendingEstimateDeferredReason.None, pendingPackage.DeferredEstimateReason);
+            PackageChartEntry pendingMissingEntry = GetEntryByFileName(pendingPackage, "missing.bms");
+            Assert.AreEqual(installedADirectoryPath, pendingMissingEntry.Chart.InstallDestination);
+            Assert.AreEqual(0, pendingMissingEntry.Chart.InstallDestinationSuggestions.Count);
+            Assert.IsFalse(ChartWarningTestHelpers.ContainsLowConfidenceInstallEstimationWarning(pendingMissingEntry));
+            Assert.IsFalse(pendingMissingEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstalledDestinationAmbiguous));
+            Assert.IsFalse(pendingMissingEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstalledDestinationAutoAppliedAmbiguous));
+        });
+    }
+
+    [TestMethod]
     public void SearchEstimatedInstallationDirectory_MixedPackageMultipleViableCandidates_ShowsInstalledDestinationAmbiguousWarning()
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -710,6 +758,159 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             StringAssert.Contains(ChartWarningTestHelpers.BuildTooltipText(pendingMissingEntry), BeMusicSeeker.Properties.Resources.Warning_InstalledDestinationAmbiguous.Split('\n')[0]);
             StringAssert.Contains(ChartWarningTestHelpers.BuildTooltipText(pendingMissingEntry), installedADirectoryPath);
             StringAssert.Contains(ChartWarningTestHelpers.BuildTooltipText(pendingMissingEntry), installedBDirectoryPath);
+        });
+    }
+
+    [TestMethod]
+    [DoNotParallelize]
+    public void SearchEstimatedInstallationDirectory_MixedPackageStrongMetadataWithSetting_AutoAppliesFirstCandidateAndKeepsAutoAppliedWarning()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithAutoApplyAmbiguousInstallDestination(true, delegate
+        {
+            WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
+            {
+                string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "PackageMixedAutoApplyStrong");
+                string installedADirectoryPath = Path.Combine(tempRootPath, "Installed", "A");
+                string installedBDirectoryPath = Path.Combine(tempRootPath, "Installed", "B");
+                string installedAContents = "#PLAYER 1\r\n#TITLE Target Song\r\n#ARTIST Artist\r\n#GENRE A\r\n";
+                string installedBContents = "#PLAYER 1\r\n#TITLE Target Song\r\n#ARTIST Artist\r\n#GENRE B\r\n";
+                string pendingInstalledAPath = CreateBmsFileWithContents(sourceDirectoryPath, "installedA.bms", installedAContents);
+                string pendingInstalledBPath = CreateBmsFileWithContents(sourceDirectoryPath, "installedB.bms", installedBContents);
+                string pendingMissingPath = CreateBmsFileWithContents(sourceDirectoryPath, "missing.bms", "#PLAYER 1\r\n#TITLE Target Song (Another)\r\n#ARTIST Artist / Diff\r\n#WAVAA sound.wav\r\n#00111:AA\r\n");
+                string installedAPath = CreateBmsFileWithContents(installedADirectoryPath, "installedA.bms", installedAContents);
+                string installedBPath = CreateBmsFileWithContents(installedBDirectoryPath, "installedB.bms", installedBContents);
+                File.WriteAllText(Path.Combine(installedADirectoryPath, "sound.wav"), "a");
+                File.WriteAllText(Path.Combine(installedBDirectoryPath, "sound.wav"), "b");
+
+                var pendingInstalledA = BMSFile.CreateBMSFileFromFile(pendingInstalledAPath);
+                var pendingInstalledB = BMSFile.CreateBMSFileFromFile(pendingInstalledBPath);
+                var pendingMissing = BMSFile.CreateBMSFileFromFile(pendingMissingPath);
+                var pendingPackage = ChartPackageTestExtensions.CreatePackage([pendingInstalledA, pendingInstalledB, pendingMissing]);
+                pendingPackage.path = sourceDirectoryPath;
+                pendingPackage.delete_parent = false;
+                library.BMSFiles =
+                [
+                    BMSFile.CreateBMSFileFromFile(installedAPath),
+                    BMSFile.CreateBMSFileFromFile(installedBPath)
+                ];
+                SeedPendingPackages(library, songDbPath, pendingPackage);
+                SetPrivateField(library, "directoryResourceLookupCache", BuildDirectoryLookupCache(sourceDirectoryPath, installedADirectoryPath, installedBDirectoryPath));
+
+                library.SearchEstimatedInstallationDirectory(pendingPackage);
+
+                PackageChartEntry pendingMissingEntry = GetEntryByFileName(pendingPackage, "missing.bms");
+                Assert.AreEqual(installedADirectoryPath, pendingMissingEntry.Chart.InstallDestination);
+                Assert.AreEqual("Target Song", pendingMissingEntry.Chart.InstallDestinationTitle);
+                Assert.AreEqual("Artist", pendingMissingEntry.Chart.InstallDestinationArtist);
+                CollectionAssert.AreEqual(new[] { installedADirectoryPath, installedBDirectoryPath }, pendingMissingEntry.Chart.InstallDestinationSuggestions.ToArray());
+                Assert.IsTrue(ChartWarningTestHelpers.ContainsLowConfidenceInstallEstimationWarning(pendingMissingEntry));
+                Assert.IsTrue(pendingMissingEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstalledDestinationAutoAppliedAmbiguous));
+                Assert.IsFalse(pendingMissingEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstalledDestinationAmbiguous));
+                Assert.IsFalse(pendingMissingEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationAmbiguous));
+                StringAssert.Contains(ChartWarningTestHelpers.BuildDigestText(pendingMissingEntry), BeMusicSeeker.Properties.Resources.WarningDigest_InstalledDestinationAutoAppliedAmbiguous);
+                StringAssert.Contains(ChartWarningTestHelpers.BuildTooltipText(pendingMissingEntry), BeMusicSeeker.Properties.Resources.Warning_InstalledDestinationAutoAppliedAmbiguous.Split('\n')[0]);
+                StringAssert.Contains(ChartWarningTestHelpers.BuildTooltipText(pendingMissingEntry), installedADirectoryPath);
+                StringAssert.Contains(ChartWarningTestHelpers.BuildTooltipText(pendingMissingEntry), installedBDirectoryPath);
+            });
+        });
+    }
+
+    [TestMethod]
+    [DoNotParallelize]
+    public void SearchEstimatedInstallationDirectory_MixedPackageStrongMetadataWithSettingOff_LeavesInstallDestinationEmpty()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithAutoApplyAmbiguousInstallDestination(false, delegate
+        {
+            WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
+            {
+                string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "PackageMixedAutoApplyStrongOff");
+                string installedADirectoryPath = Path.Combine(tempRootPath, "Installed", "A");
+                string installedBDirectoryPath = Path.Combine(tempRootPath, "Installed", "B");
+                string installedAContents = "#PLAYER 1\r\n#TITLE Target Song\r\n#ARTIST Artist\r\n#GENRE A\r\n";
+                string installedBContents = "#PLAYER 1\r\n#TITLE Target Song\r\n#ARTIST Artist\r\n#GENRE B\r\n";
+                string pendingInstalledAPath = CreateBmsFileWithContents(sourceDirectoryPath, "installedA.bms", installedAContents);
+                string pendingInstalledBPath = CreateBmsFileWithContents(sourceDirectoryPath, "installedB.bms", installedBContents);
+                string pendingMissingPath = CreateBmsFileWithContents(sourceDirectoryPath, "missing.bms", "#PLAYER 1\r\n#TITLE Target Song (Another)\r\n#ARTIST Artist / Diff\r\n#WAVAA sound.wav\r\n#00111:AA\r\n");
+                string installedAPath = CreateBmsFileWithContents(installedADirectoryPath, "installedA.bms", installedAContents);
+                string installedBPath = CreateBmsFileWithContents(installedBDirectoryPath, "installedB.bms", installedBContents);
+                File.WriteAllText(Path.Combine(installedADirectoryPath, "sound.wav"), "a");
+                File.WriteAllText(Path.Combine(installedBDirectoryPath, "sound.wav"), "b");
+
+                var pendingInstalledA = BMSFile.CreateBMSFileFromFile(pendingInstalledAPath);
+                var pendingInstalledB = BMSFile.CreateBMSFileFromFile(pendingInstalledBPath);
+                var pendingMissing = BMSFile.CreateBMSFileFromFile(pendingMissingPath);
+                var pendingPackage = ChartPackageTestExtensions.CreatePackage([pendingInstalledA, pendingInstalledB, pendingMissing]);
+                pendingPackage.path = sourceDirectoryPath;
+                pendingPackage.delete_parent = false;
+                library.BMSFiles =
+                [
+                    BMSFile.CreateBMSFileFromFile(installedAPath),
+                    BMSFile.CreateBMSFileFromFile(installedBPath)
+                ];
+                SeedPendingPackages(library, songDbPath, pendingPackage);
+                SetPrivateField(library, "directoryResourceLookupCache", BuildDirectoryLookupCache(sourceDirectoryPath, installedADirectoryPath, installedBDirectoryPath));
+
+                library.SearchEstimatedInstallationDirectory(pendingPackage);
+
+                PackageChartEntry pendingMissingEntry = GetEntryByFileName(pendingPackage, "missing.bms");
+                Assert.IsTrue(string.IsNullOrWhiteSpace(pendingMissingEntry.Chart.InstallDestination));
+                Assert.AreEqual("Target Song", pendingMissingEntry.Chart.InstallDestinationTitle);
+                Assert.AreEqual("Artist", pendingMissingEntry.Chart.InstallDestinationArtist);
+                CollectionAssert.AreEqual(new[] { installedADirectoryPath, installedBDirectoryPath }, pendingMissingEntry.Chart.InstallDestinationSuggestions.ToArray());
+                Assert.IsTrue(ChartWarningTestHelpers.ContainsLowConfidenceInstallEstimationWarning(pendingMissingEntry));
+                Assert.IsTrue(pendingMissingEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstalledDestinationAmbiguous));
+                Assert.IsFalse(pendingMissingEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstalledDestinationAutoAppliedAmbiguous));
+                Assert.IsFalse(pendingMissingEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationAmbiguous));
+            });
+        });
+    }
+
+    [TestMethod]
+    [DoNotParallelize]
+    public void SearchEstimatedInstallationDirectory_MixedPackageWeakMetadataWithSetting_LeavesInstallDestinationEmpty()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithAutoApplyAmbiguousInstallDestination(true, delegate
+        {
+            WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
+            {
+                string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "PackageMixedAutoApplyWeak");
+                string installedADirectoryPath = Path.Combine(tempRootPath, "Installed", "A");
+                string installedBDirectoryPath = Path.Combine(tempRootPath, "Installed", "B");
+                string pendingInstalledAPath = CreateBmsFileWithContents(sourceDirectoryPath, "installedA.bms", "#PLAYER 1\r\n#TITLE Installed A\r\n#ARTIST Test\r\n");
+                string pendingInstalledBPath = CreateBmsFileWithContents(sourceDirectoryPath, "installedB.bms", "#PLAYER 1\r\n#TITLE Installed B\r\n#ARTIST Test\r\n");
+                string pendingMissingPath = CreateBmsFileWithContents(sourceDirectoryPath, "missing.bms", "#PLAYER 1\r\n#TITLE Missing\r\n#ARTIST Test\r\n#WAVAA sound.wav\r\n#00111:AA\r\n");
+                string installedAPath = CreateBmsFileWithContents(installedADirectoryPath, "installedA.bms", "#PLAYER 1\r\n#TITLE Installed A\r\n#ARTIST Test\r\n");
+                string installedBPath = CreateBmsFileWithContents(installedBDirectoryPath, "installedB.bms", "#PLAYER 1\r\n#TITLE Installed B\r\n#ARTIST Test\r\n");
+                File.WriteAllText(Path.Combine(installedADirectoryPath, "sound.wav"), "a");
+                File.WriteAllText(Path.Combine(installedBDirectoryPath, "sound.wav"), "b");
+
+                var pendingInstalledA = BMSFile.CreateBMSFileFromFile(pendingInstalledAPath);
+                var pendingInstalledB = BMSFile.CreateBMSFileFromFile(pendingInstalledBPath);
+                var pendingMissing = BMSFile.CreateBMSFileFromFile(pendingMissingPath);
+                var pendingPackage = ChartPackageTestExtensions.CreatePackage([pendingInstalledA, pendingInstalledB, pendingMissing]);
+                pendingPackage.path = sourceDirectoryPath;
+                pendingPackage.delete_parent = false;
+                library.BMSFiles =
+                [
+                    BMSFile.CreateBMSFileFromFile(installedAPath),
+                    BMSFile.CreateBMSFileFromFile(installedBPath)
+                ];
+                SeedPendingPackages(library, songDbPath, pendingPackage);
+                SetPrivateField(library, "directoryResourceLookupCache", BuildDirectoryLookupCache(sourceDirectoryPath, installedADirectoryPath, installedBDirectoryPath));
+
+                library.SearchEstimatedInstallationDirectory(pendingPackage);
+
+                PackageChartEntry pendingMissingEntry = GetEntryByFileName(pendingPackage, "missing.bms");
+                Assert.IsTrue(string.IsNullOrWhiteSpace(pendingMissingEntry.Chart.InstallDestination));
+                CollectionAssert.AreEquivalent(new[] { installedADirectoryPath, installedBDirectoryPath }, pendingMissingEntry.Chart.InstallDestinationSuggestions.ToArray());
+                Assert.IsTrue(ChartWarningTestHelpers.ContainsLowConfidenceInstallEstimationWarning(pendingMissingEntry));
+                Assert.IsTrue(pendingMissingEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstalledDestinationAmbiguous));
+                Assert.IsFalse(pendingMissingEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstalledDestinationAutoAppliedAmbiguous));
+                Assert.IsFalse(pendingMissingEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationAmbiguous));
+            });
         });
     }
 

@@ -81,10 +81,12 @@ merge / reinstall correction では source/bundled resource を足さず、`cand
 
 - 既所持 chart だけの package は通常推定しません。
 - mixed package では、まず既所持 chart の実配置先を hash index から候補 directory 集合として解決します。
-- 候補が 1 件なら、未所持 chart をその配置先へ寄せます。
-- 候補が 2 件以上なら、その候補集合だけを通常推定と同じ final evaluation へ渡します。
-  - 一意に勝つ viable candidate があれば `INSTL DST` を自動設定します。
-  - 複数 viable candidate が残る場合は `INSTL DST` を空にし、候補を suggestions に入れ、`InstalledDestinationAmbiguous` warning を付けます。
+- hash 一致先の score が単独最多なら、その directory を `INSTL DST` に自動設定します。
+- score 同点の候補が 2 件以上なら、その候補集合だけを通常推定と同じ final evaluation へ渡します。
+  - 候補限定の resource / metadata evaluation で一意に勝つ viable candidate があれば自動設定します。
+  - resource / metadata が完全同等の場合だけ、候補 directory 内の unique primary hash 数を補助 tie-break として使います。単独最多なら通常決定として自動設定し、low-confidence warning は出しません。
+  - それでも複数 viable candidate が残り、`AutoApplyAmbiguousInstallDestination` が ON かつ selected candidate の TITLE / ARTIST evidence が Strong なら、第1候補を自動設定したうえで suggestions と `InstalledDestinationAutoAppliedAmbiguous` warning を残します。
+  - 設定 OFF、または metadata evidence が Weak / None の場合は `INSTL DST` を空にし、候補を suggestions に入れ、`InstalledDestinationAmbiguous` warning を付けます。
 - 候補が 0 件、または候補限定 final evaluation に必要な `DirectoryResourceLookupCache` がない場合は、通常推定へ fallback せず `InstalledDestinationResolveFailed` warning の対象にします。
 
 ### マージ先推定
@@ -275,7 +277,7 @@ primary health は次の順で選ばれます。
 
 all-base union 派生 API は `DirectoryResourceLookupCache.Entry` から削除済みです。導入先の candidate 列挙、primary matching、primary tie-break の正本は audio / image / movie のカテゴリ別 relative key です。
 
-mixed package の既存配置先再利用では、hash tie が複数候補になっても extensionless union の health 判定補助は使いません。候補限定 final evaluation の category resource metrics で評価し、曖昧なら suggestions と warning に落とします。
+mixed package の既存配置先再利用では、hash tie が複数候補になっても extensionless union の health 判定補助は使いません。候補限定 final evaluation の category resource metrics で評価し、metadata まで完全同等な場合だけ候補 directory 内の unique primary hash 数を補助 tie-break として使います。unique primary hash 数も同等なら suggestions と warning に落とします。
 
 resource health / maintenance もカテゴリ別 `ResourceHealthLookupContext` を正本にし、`FolderAllFileList` には fallback しません。health 判定も chart-relative key のみを使うため、`foo.wav` は root の `foo`、`sound/foo.wav` は `sound/foo` として別物です。folder move/delete/merge/install/reload 後の memory index 差分更新も `DirectoryResourceLookupCache` 正本へ移したため、extensionless union の live cache は残していません。順序安定だけが必要なら path 順などの明示的で安全な tie-break を使います。
 
@@ -283,7 +285,7 @@ resource health / maintenance もカテゴリ別 `ResourceHealthLookupContext` �
 
 resource 指標が同一の viable frontier だけに metadata tie-break を適用します。
 
-対象は先頭 candidate と `HasSameRankingMetrics()` な候補群のうち最大 3 件です。
+通常推定では、対象は先頭 candidate と `HasSameRankingMetrics()` な候補群のうち最大 3 件です。mixed package の既存配置先再利用で directory unique primary hash count resolver が渡されている場合だけ、同等候補群すべてを対象にします。UI に表示する suggestions はどちらの場合も後段で上位最大 3 件に制限します。
 
 比較順:
 
@@ -294,9 +296,12 @@ resource 指標が同一の viable frontier だけに metadata tie-break を適�
 5. Pair support count
 6. Title support count
 7. Artist support count
-8. Resource metrics / path order
+8. mixed package 候補限定評価で resolver が渡された場合だけ、directory unique primary hash count
+9. Resource metrics / path order
 
 metadata tie-break で明確に 1 位が分かれた場合、resource metrics 上は tie でも `metadata_tiebreak_distinct` として high confidence にできます。
+
+directory unique primary hash count は、metadata 比較が完全同等の場合だけ使う補助 tie-break です。metadata exact / fuzzy / support count のいずれかで順位差がある場合、譜面数でその順位を上書きしません。ここで単独最多の候補が選ばれた場合は `directory_hash_count_tiebreak_distinct` として high confidence にします。
 
 ## Ancestor Shadow Suppression
 
@@ -325,6 +330,7 @@ self-owned match はこの比較が必要な候補だけ lazy に計算します
   - `ShouldAutoApplyDestination=true`
 - viable candidate が複数で resource metrics が同一
   - metadata tie-break が distinct なら high
+  - mixed package 候補限定評価で metadata まで完全同等、かつ directory unique primary hash count が distinct なら high
   - そうでなければ low + suggestions
 - metadata mismatch
   - low + suggestion

@@ -47,6 +47,7 @@ internal static class ChartWarningTestHelpers
             || warning?.Kind == ChartWarningKind.InstallEstimationMetadataMismatch
             || warning?.Kind == ChartWarningKind.InstallEstimationReinstallNotImproved
             || warning?.Kind == ChartWarningKind.InstalledDestinationAmbiguous
+            || warning?.Kind == ChartWarningKind.InstalledDestinationAutoAppliedAmbiguous
             || warning?.Kind == ChartWarningKind.InstallEstimationLowConfidence;
     }
 }

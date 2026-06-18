@@ -2230,6 +2230,35 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     }
 
     [TestMethod]
+    public void InstalledChartLookupIndexState_CountsUniquePrimaryHashesByDirectory()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string duplicateHash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        string otherHash = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+        string bmsonHash = "cccccccccccccccccccccccccccccccc";
+        string firstDir = Path.Combine("C:\\Installed", "First");
+        string secondDir = Path.Combine("C:\\Installed", "Second");
+        var state = new InstalledChartLookupIndexState();
+        state.AddChart(Path.Combine(firstDir, "a.bms"), duplicateHash, null);
+        state.AddChart(Path.Combine(firstDir, "a-copy.bms"), duplicateHash, null);
+        state.AddChart(Path.Combine(firstDir, "b.bms"), otherHash, null);
+        state.AddChart(Path.Combine(firstDir, "c.bmson"), bmsonHash, null);
+        state.AddChart(Path.Combine(secondDir, "a.bms"), duplicateHash, null);
+
+        InstalledChartLookupIndexSnapshot initial = state.CreateSnapshot();
+
+        Assert.AreEqual(3, initial.GetUniquePrimaryHashCountByDirectory(firstDir));
+        Assert.AreEqual(1, initial.GetUniquePrimaryHashCountByDirectory(secondDir));
+
+        state.RemoveChart(Path.Combine(firstDir, "b.bms"), otherHash, null);
+        state.MoveChart(Path.Combine(secondDir, "a.bms"), Path.Combine(firstDir, "moved-a.bms"), duplicateHash, null);
+        InstalledChartLookupIndexSnapshot updated = state.CreateSnapshot();
+
+        Assert.AreEqual(2, updated.GetUniquePrimaryHashCountByDirectory(firstDir));
+        Assert.AreEqual(0, updated.GetUniquePrimaryHashCountByDirectory(secondDir));
+    }
+
+    [TestMethod]
     public void InstalledChartLookupIndexState_TracksPathsByPrimaryHash()
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -2505,6 +2534,52 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 CollectionAssert.AreEqual(new[] { candidateADir, candidateBDir }, result.SuggestedDestinationDirectories.ToArray());
             });
         });
+    }
+
+    [TestMethod]
+    public void EstimateInstallationDirectory_CandidateDirectoryHashCountTieBreakUsesFullTiedFrontier()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        BmsLibraryInstallEstimationService service = CreateService();
+        string sourceDir = Path.Combine("C:\\Pending", "Source");
+        string candidateADir = Path.Combine("C:\\Installed", "A");
+        string candidateBDir = Path.Combine("C:\\Installed", "B");
+        string candidateCDir = Path.Combine("C:\\Installed", "C");
+        string candidateDDir = Path.Combine("C:\\Installed", "D");
+        TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sourceDir, "chart.bms"), "sound.wav");
+        file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 1, wavExisting: 0), suppressPropertyChanged: true);
+
+        var lookupCache = new DirectoryResourceLookupCache();
+        lookupCache.AddDir(sourceDir, ["chart.bms"]);
+        lookupCache.AddDir(candidateADir, ["sound.wav"]);
+        lookupCache.AddDir(candidateBDir, ["sound.wav"]);
+        lookupCache.AddDir(candidateCDir, ["sound.wav"]);
+        lookupCache.AddDir(candidateDDir, ["sound.wav"]);
+        var directoryHashCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+        {
+            [candidateADir] = 1,
+            [candidateBDir] = 1,
+            [candidateCDir] = 1,
+            [candidateDDir] = 5
+        };
+
+        InstallEstimationResult result = service.EstimateInstallationDirectoryForCandidateDirectories(
+            BuildLooseChartSnapshot([file], new HashSet<string>(StringComparer.OrdinalIgnoreCase), ChartInstallationEstimateMode.Normal)!,
+            [candidateADir, candidateBDir, candidateCDir, candidateDDir],
+            lookupCache,
+            asParallel: false,
+            ChartInstallationEstimateMode.Normal,
+            representativeMetadataResolver: null,
+            metadataProfileResolver: null,
+            candidateDirectoryUniquePrimaryHashCountResolver: path => directoryHashCounts.TryGetValue(path, out int count) ? count : 0);
+
+        Assert.AreEqual(candidateDDir, result.DestinationDirectory);
+        Assert.AreEqual(candidateDDir, result.SelectedCandidate?.DirectoryPath);
+        Assert.AreEqual(InstallEstimationConfidence.High, result.Confidence);
+        Assert.IsTrue(result.ShouldAutoApplyDestination);
+        Assert.IsTrue(result.DirectoryHashCountTieBreakApplied);
+        Assert.AreEqual("directory_hash_count_tiebreak_distinct", result.ConfidenceReason);
+        StringAssert.Contains(result.DirectoryHashCountTieBreakSummary ?? string.Empty, candidateDDir + ":5");
     }
 
     [TestMethod]

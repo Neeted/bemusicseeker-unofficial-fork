@@ -17,6 +17,7 @@ internal enum InstallEstimationLowConfidenceKind
     None,
     AmbiguousCandidates,
     InstalledDestinationAmbiguous,
+    InstalledDestinationAutoAppliedAmbiguous,
     MetadataMismatch,
     ReinstallNotImproved
 }
@@ -237,4 +238,10 @@ internal sealed class InstallEstimationResult
     public string MetadataTieBreakSummary { get; set; }
 
     public string MetadataValidationSummary { get; set; }
+
+    public bool SelectedCandidateMetadataEvidenceStrong { get; set; }
+
+    public bool DirectoryHashCountTieBreakApplied { get; set; }
+
+    public string DirectoryHashCountTieBreakSummary { get; set; }
 }

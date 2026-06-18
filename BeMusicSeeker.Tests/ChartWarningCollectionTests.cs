@@ -177,6 +177,21 @@ public sealed class ChartWarningCollectionTests
     }
 
     [TestMethod]
+    public void InstalledDestinationAutoAppliedAmbiguous_IsLowConfidenceAlias()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var file = new BMSFile();
+
+        file.SetWarning(ChartWarningKind.InstalledDestinationAutoAppliedAmbiguous, Resources.Warning_InstalledDestinationAutoAppliedAmbiguous);
+
+        Assert.IsTrue(ChartWarningTestHelpers.ContainsLowConfidenceInstallEstimationWarning(file));
+        Assert.IsTrue(file.Warnings.HasHighlightedWarning);
+        Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.InstalledDestinationAutoAppliedAmbiguous));
+        StringAssert.Contains(file.Warnings.BuildDigestText(), Resources.WarningDigest_InstalledDestinationAutoAppliedAmbiguous);
+        StringAssert.Contains(file.Warnings.BuildTooltipText(), Resources.Warning_InstalledDestinationAutoAppliedAmbiguous.Split('\n')[0]);
+    }
+
+    [TestMethod]
     public void ChartInfoParseFailure_HighlightsAndUsesDedicatedDigest()
     {
         TestResourceInitializer.EnsureJapaneseResources();

@@ -431,6 +431,10 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
         {
             return [ChartWarning.Create(ChartWarningKind.InstalledDestinationAmbiguous, string.Format(Properties.Resources.Warning_InstalledDestinationAmbiguous, string.Join(Environment.NewLine, suggestionPaths.Select(path => "- " + path))))];
         }
+        if (isLowConfidence && lowConfidenceKind == InstallEstimationLowConfidenceKind.InstalledDestinationAutoAppliedAmbiguous && suggestionPaths.Length >= 2)
+        {
+            return [ChartWarning.Create(ChartWarningKind.InstalledDestinationAutoAppliedAmbiguous, string.Format(Properties.Resources.Warning_InstalledDestinationAutoAppliedAmbiguous, string.Join(Environment.NewLine, suggestionPaths.Select(path => "- " + path))))];
+        }
         if (isLowConfidence && lowConfidenceKind == InstallEstimationLowConfidenceKind.MetadataMismatch && selectedCandidate != null)
         {
             return [ChartWarning.Create(ChartWarningKind.InstallEstimationMetadataMismatch, string.Format(Properties.Resources.Warning_InstallEstimationMetadataMismatch, selectedCandidate.DirectoryPath))];

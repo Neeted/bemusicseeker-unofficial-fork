@@ -240,7 +240,7 @@ Some install-related settings affect real file operations, such as deleting sour
 | Install | Automatically try to install after download execution | OFF | If possible, proceeds directly to install processing for packages downloaded from URLs. **Turning this ON is convenient**, but for files that cannot proceed directly to install, such as multi-layer archives, there are caveats such as the package not being added to the pending screen. For that reason, the default is OFF. When importing URLs from multiple selected playlist-detail rows, supported downloadable files are passed to install processing regardless of this setting. |
 | Install | Add to pending even when judged new, without automatic install | OFF | Even if enough resources are present for a new work, do not install automatically; always make it possible to confirm it in the pending list. |
 | Install | Use Everything when estimating pending packages | OFF | Uses Everything for source-side resource enumeration during install-destination estimation for pending packages. This may speed up large pending folders. For normal differential installs, OFF is likely faster. |
-| Install | Set the first candidate as install destination when highly matched even with multiple candidates | OFF | Even when there are multiple install-destination candidates, sets the top candidate as `INSTL DST` if it can be judged to have a sufficiently high match. When OFF, ambiguous cases leave a WARNING and candidate list. **This is intended to be turned ON in environments with many duplicate BMS folders, such as when using difficulty table packages.** |
+| Install | Set the first candidate as install destination when highly matched even with multiple candidates | OFF | Even when multiple install-destination candidates remain, sets the top candidate as `INSTL DST` if TITLE / ARTIST can be judged to match sufficiently well. For packages mixed with already-owned charts, this is used as the final auto-apply step after hash majority, resource / metadata evaluation, and candidate-folder chart counts cannot decide the destination. Even when ON, a caution WARNING and candidate list may remain. **This is intended to be turned ON in environments with many duplicate BMS folders, such as when using difficulty table packages.** |
 | Install | During normal install, delete the source package even if already-owned charts remain | OFF | After normal install, deletes the source package even if leftovers such as already-owned charts remain in the source. This is hard to undo, so OFF is usually recommended. It is intended for quickly cleaning up source folders when installing differential packages mixed with already-owned charts. |
 | Install | During differential install, compare update time and size to optimize overwriting bundled files | ON | Enables [Smart Overwrite](#smart-overwrite). |
 | Install | During smart overwrite, keep *.bmx/*.pmx/*.txt without overwriting by auto-numbering | OFF | In [Smart Overwrite](#smart-overwrite), protected extensions are not overwritten and are kept with sequentially numbered names. |
@@ -647,6 +647,14 @@ For charts added to Pending, BeMusicSeeker estimates the install destination usi
 
 Estimation asks: "Which existing directory would satisfy this differential chart's referenced resources best if the chart were placed there?" Audio-resource matches are weighted especially heavily, and images / videos are also compared by category. Resources with different relative paths, such as `sound/foo.wav` and `foo.wav`, are treated as different resources.
 
+For packages mixed with already-owned charts, BeMusicSeeker first checks the hash-matched locations of the already-owned charts. If the destination is split across multiple locations, it resolves the destination roughly in this order:
+
+1. If one hash-matched location has the single highest count, that folder is set as `INSTL DST`.
+2. If candidate-only resource / metadata re-evaluation has a clear winner, that candidate is set.
+3. If resource / metadata evaluation is equal, the candidate folder with more unique chart hashes is preferred.
+4. If the candidates are still equal, the setting `Set the first candidate as install destination when highly matched even with multiple candidates` is ON, and TITLE / ARTIST similarity is high, the first candidate is set as `INSTL DST`. In this case, BeMusicSeeker keeps a WARNING and candidate list to show that multiple candidates existed.
+5. If the setting is OFF, or TITLE / ARTIST similarity is weak, `INSTL DST` is left empty and BeMusicSeeker keeps a WARNING and candidate list.
+
 In cases such as the following, BeMusicSeeker may avoid automatically fixing `INSTL DST` and instead show a warning:
 
 - Multiple strong candidates exist, and resource match score alone cannot decide one destination.
@@ -654,7 +662,7 @@ In cases such as the following, BeMusicSeeker may avoid automatically fixing `IN
 - Resources match reasonably well, but TITLE / ARTIST similarity is low.
 - Startup file-difference checking was skipped, so the resource index required for estimation is unavailable.
 
-When multiple candidates exist, click the `INSTL DST` cell and enter edit mode to show candidates as suggestions. Choosing a candidate sets that directory as `INSTL DST`. Even after choosing a candidate, ambiguity warnings may remain. This preserves the ability to reselect another candidate later.
+When multiple candidates exist, click the `INSTL DST` cell and enter edit mode to show candidates as suggestions. Suggestions show up to the top 3 candidates. Choosing a candidate sets that directory as `INSTL DST`. Even after choosing a candidate, or when the setting above automatically applies the first candidate, ambiguity warnings may remain. This preserves the ability to reselect another candidate later.
 
 `INSTL DST` can also be entered manually. You can enter either the full path of an owned chart file, or the directory containing owned chart files. If you enter a full chart-file path, it is normalized to the directory containing that chart. Nonexistent paths, and directories not recognized as existing chart directories in the library, cannot be specified.
 

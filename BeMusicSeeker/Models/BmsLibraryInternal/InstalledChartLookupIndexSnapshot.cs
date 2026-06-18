@@ -10,6 +10,8 @@ internal interface IInstalledChartLookupIndex : IPrimaryHashLookup
     int HashCount { get; }
 
     IReadOnlyList<string> GetDistinctDirectoriesByPrimaryHash(string lookupHash);
+
+    int GetUniquePrimaryHashCountByDirectory(string directoryPath);
 }
 
 internal interface IPrimaryHashLookup
@@ -207,11 +209,14 @@ internal sealed class InstalledChartLookupIndexSnapshot : IInstalledChartLookupI
 
     private readonly Dictionary<string, int> primaryHashCounts;
 
+    private readonly Dictionary<string, int> uniquePrimaryHashCountsByDirectory;
+
     public InstalledChartLookupIndexSnapshot()
         : this(
             new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase),
             new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase),
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+            new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase),
             new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase))
     {
     }
@@ -220,25 +225,29 @@ internal sealed class InstalledChartLookupIndexSnapshot : IInstalledChartLookupI
         Dictionary<string, IReadOnlyList<string>> md5Directories,
         Dictionary<string, IReadOnlyList<string>> sha256Directories,
         HashSet<string> knownChartDirectories,
-        Dictionary<string, int> primaryHashCounts)
+        Dictionary<string, int> primaryHashCounts,
+        Dictionary<string, int> uniquePrimaryHashCountsByDirectory)
     {
         this.md5Directories = md5Directories ?? new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
         this.sha256Directories = sha256Directories ?? new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
         this.knownChartDirectories = knownChartDirectories ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         this.primaryHashCounts = primaryHashCounts ?? new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        this.uniquePrimaryHashCountsByDirectory = uniquePrimaryHashCountsByDirectory ?? new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
     }
 
     internal static InstalledChartLookupIndexSnapshot Create(
         Dictionary<string, HashSet<string>> md5DirectoryMap,
         Dictionary<string, HashSet<string>> sha256DirectoryMap,
         HashSet<string> knownChartDirectories,
-        Dictionary<string, int> primaryHashCounts)
+        Dictionary<string, int> primaryHashCounts,
+        Dictionary<string, int> uniquePrimaryHashCountsByDirectory)
     {
         return new InstalledChartLookupIndexSnapshot(
             CopyDirectoryMap(md5DirectoryMap),
             CopyDirectoryMap(sha256DirectoryMap),
             CopyKnownDirectories(knownChartDirectories),
-            CopyPrimaryHashCounts(primaryHashCounts));
+            CopyPrimaryHashCounts(primaryHashCounts),
+            CopyPrimaryHashCounts(uniquePrimaryHashCountsByDirectory));
     }
 
     public IReadOnlyDictionary<string, IReadOnlyList<string>> Md5Directories => md5Directories;
@@ -253,6 +262,8 @@ internal sealed class InstalledChartLookupIndexSnapshot : IInstalledChartLookupI
     public IReadOnlyCollection<string> KnownChartDirectories => knownChartDirectories;
 
     public IReadOnlyDictionary<string, int> PrimaryHashCounts => primaryHashCounts;
+
+    public IReadOnlyDictionary<string, int> UniquePrimaryHashCountsByDirectory => uniquePrimaryHashCountsByDirectory;
 
     public int DistinctPrimaryHashCount => primaryHashCounts.Count;
 
@@ -290,6 +301,14 @@ internal sealed class InstalledChartLookupIndexSnapshot : IInstalledChartLookupI
             return CreateDistinctDirectoryList(md5DirectoryList);
         }
         return [];
+    }
+
+    public int GetUniquePrimaryHashCountByDirectory(string directoryPath)
+    {
+        return !string.IsNullOrWhiteSpace(directoryPath)
+            && uniquePrimaryHashCountsByDirectory.TryGetValue(directoryPath, out int count)
+            ? count
+            : 0;
     }
 
     private static Dictionary<string, IReadOnlyList<string>> CopyDirectoryMap(Dictionary<string, HashSet<string>> source)
@@ -373,6 +392,10 @@ internal sealed class InstalledChartLookupIndexState : IPrimaryHashLookup
 
     private readonly Dictionary<string, Dictionary<string, int>> primaryHashPathCounts = new(StringComparer.OrdinalIgnoreCase);
 
+    private readonly Dictionary<string, Dictionary<string, int>> directoryPrimaryHashCounts = new(StringComparer.OrdinalIgnoreCase);
+
+    private readonly Dictionary<string, int> uniquePrimaryHashCountsByDirectory = new(StringComparer.OrdinalIgnoreCase);
+
     private InstalledChartLookupIndexSnapshot snapshot;
 
     private bool snapshotDirty = true;
@@ -440,6 +463,7 @@ internal sealed class InstalledChartLookupIndexState : IPrimaryHashLookup
         AddDirectoryHash(sha256DirectoryCounts, sha256, directory);
         AddPrimaryHash(primaryHash);
         AddPrimaryHashPath(primaryHash, path);
+        AddDirectoryPrimaryHash(directory, primaryHash);
     }
 
     internal void RemoveChart(string path, string md5, string sha256)
@@ -455,6 +479,7 @@ internal sealed class InstalledChartLookupIndexState : IPrimaryHashLookup
         RemoveDirectoryHash(sha256DirectoryCounts, sha256, directory);
         RemovePrimaryHash(primaryHash);
         RemovePrimaryHashPath(primaryHash, path);
+        RemoveDirectoryPrimaryHash(directory, primaryHash);
     }
 
     internal void MoveChart(string oldPath, string newPath, string md5, string sha256)
@@ -481,7 +506,8 @@ internal sealed class InstalledChartLookupIndexState : IPrimaryHashLookup
             ToDirectorySetMap(md5DirectoryCounts),
             ToDirectorySetMap(sha256DirectoryCounts),
             new HashSet<string>(knownChartDirectoryCounts.Keys, StringComparer.OrdinalIgnoreCase),
-            new Dictionary<string, int>(primaryHashCounts, StringComparer.OrdinalIgnoreCase));
+            new Dictionary<string, int>(primaryHashCounts, StringComparer.OrdinalIgnoreCase),
+            new Dictionary<string, int>(uniquePrimaryHashCountsByDirectory, StringComparer.OrdinalIgnoreCase));
         snapshotDirty = false;
         return snapshot;
     }
@@ -614,6 +640,46 @@ internal sealed class InstalledChartLookupIndexState : IPrimaryHashLookup
             && pathCounts.Count == 0)
         {
             primaryHashPathCounts.Remove(lookupHash);
+        }
+    }
+
+    private void AddDirectoryPrimaryHash(string directory, string lookupHash)
+    {
+        if (string.IsNullOrWhiteSpace(directory) || string.IsNullOrWhiteSpace(lookupHash))
+        {
+            return;
+        }
+        if (!directoryPrimaryHashCounts.TryGetValue(directory, out Dictionary<string, int> hashCounts))
+        {
+            hashCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            directoryPrimaryHashCounts[directory] = hashCounts;
+        }
+        if (!hashCounts.ContainsKey(lookupHash))
+        {
+            Increment(uniquePrimaryHashCountsByDirectory, directory);
+        }
+        Increment(hashCounts, lookupHash);
+        MarkDirty();
+    }
+
+    private void RemoveDirectoryPrimaryHash(string directory, string lookupHash)
+    {
+        if (string.IsNullOrWhiteSpace(directory) || string.IsNullOrWhiteSpace(lookupHash))
+        {
+            return;
+        }
+        if (directoryPrimaryHashCounts.TryGetValue(directory, out Dictionary<string, int> hashCounts)
+            && Decrement(hashCounts, lookupHash))
+        {
+            if (!hashCounts.ContainsKey(lookupHash))
+            {
+                Decrement(uniquePrimaryHashCountsByDirectory, directory);
+            }
+            if (hashCounts.Count == 0)
+            {
+                directoryPrimaryHashCounts.Remove(directory);
+            }
+            MarkDirty();
         }
     }
 
