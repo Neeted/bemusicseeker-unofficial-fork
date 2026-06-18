@@ -514,6 +514,232 @@ public sealed class BmsPlaylistUpdateTests
 
     [TestMethod]
     [TestCategory("Playlist")]
+    public async Task ApplyPlaylistSummaryExternalPropertyInitializationAsync_ResetsSelectedPropertiesFromRawExternalData()
+    {
+        bool previousEnablePlaylistUrlCompletion = Settings.Default.EnablePlaylistUrlCompletion;
+        bool previousOperationModeLr2Db = Settings.Default.OperationModeLR2DB;
+        Settings.Default.EnablePlaylistUrlCompletion = false;
+        Settings.Default.OperationModeLR2DB = false;
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string headerJsonPath = Path.Combine(tempDirectory, "header.json");
+            string scoreJsonPath = Path.Combine(tempDirectory, "score.json");
+            File.WriteAllBytes(headerJsonPath, CreateUtf8BomBytes("{\r\n\"name\":\"External:Name\",\r\n\"symbol\":\"★\",\r\n\"data_url\":\"./score.json\",\r\n\"level_order\":[1]\r\n}"));
+            File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"External Song\",\"artist\":\"Artist\",\"level\":\"1\"}]"));
+
+            string songDbPath = CreateTempSongDbPath(tempDirectory);
+            BMSPlaylist.EnsureSchema(songDbPath);
+            var playlist = new BMSPlaylist(songDbPath);
+            BMSTable table = await playlist.LoadExternalTableAsync(new Uri(headerJsonPath));
+            table.playlist_id = 9501;
+            table.name = "Local Name";
+            table.symbol = "L";
+            table.compat_prefix = "LEVEL ";
+            table.Output_dir = "CustomOutput";
+            table.DisableExternalSync();
+            foreach (BMSTableEntry entry in table.entries)
+            {
+                entry.playlist_id = table.playlist_id;
+            }
+            table.entries[0].folder = "LEVEL 1";
+            table.Folder_order = ["LEVEL 1"];
+            playlist.BMSTables = new DispatcherCollection<BMSTable>(
+                new ObservableCollection<BMSTable>(new[] { table }),
+                Dispatcher.CurrentDispatcher);
+            var viewModel = new MainWindowViewModel();
+            typeof(MainWindowViewModel)
+                .GetField("tables", BindingFlags.Instance | BindingFlags.NonPublic)
+                ?.SetValue(viewModel, playlist);
+
+            await viewModel.ApplyPlaylistSummaryExternalPropertyInitializationAsync(
+                [new PlaylistSummaryRow { TableRef = table }],
+                new MainWindowViewModel.PlaylistSummaryExternalPropertyInitializationOptions
+                {
+                    Name = true,
+                    Symbol = true,
+                    CompatPrefix = true,
+                    OutputDirectory = true
+                });
+
+            Assert.AreEqual("External:Name", table.name);
+            Assert.AreEqual("★", table.symbol);
+            Assert.AreEqual("★", table.compat_prefix);
+            Assert.AreEqual(BMSTable.CreateDefaultOutputDirectoryName("External:Name"), table.Output_dir);
+            Assert.IsFalse(table.is_external_sync);
+            Assert.AreEqual("★1", table.entries[0].folder);
+            Assert.AreEqual("★1", table.Folder_order.Single());
+            using var verify = new LR2SongDBExtended(songDbPath);
+            LR2SongDBExtended.playlist persisted = verify.Table<LR2SongDBExtended.playlist>().Single(row => row.playlist_id == 9501);
+            Assert.AreEqual("External:Name", persisted.name);
+            Assert.AreEqual("★", persisted.symbol);
+            Assert.AreEqual("★", persisted.compat_prefix);
+            Assert.IsNull(persisted.output_dir);
+            Assert.AreEqual("★1", verify.ExecuteScalar<string>("SELECT folder FROM playlist_entry WHERE playlist_id = ?;", 9501));
+        }
+        finally
+        {
+            Settings.Default.EnablePlaylistUrlCompletion = previousEnablePlaylistUrlCompletion;
+            Settings.Default.OperationModeLR2DB = previousOperationModeLr2Db;
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public async Task ApplyPlaylistSummaryExternalPropertyInitializationAsync_DoesNotTakeAnotherPendingTableCurrentOutputDir()
+    {
+        bool previousEnablePlaylistUrlCompletion = Settings.Default.EnablePlaylistUrlCompletion;
+        bool previousOperationModeLr2Db = Settings.Default.OperationModeLR2DB;
+        Settings.Default.EnablePlaylistUrlCompletion = false;
+        Settings.Default.OperationModeLR2DB = true;
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string dataJsonPath = Path.Combine(tempDirectory, "score.json");
+            string headerAPath = Path.Combine(tempDirectory, "header-a.json");
+            string headerBPath = Path.Combine(tempDirectory, "header-b.json");
+            File.WriteAllBytes(dataJsonPath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"External Song\",\"artist\":\"Artist\",\"level\":\"1\"}]"));
+            File.WriteAllBytes(headerAPath, CreateUtf8BomBytes("{\r\n\"name\":\"OutputB\",\r\n\"symbol\":\"A2\",\r\n\"data_url\":\"./score.json\",\r\n\"level_order\":[1]\r\n}"));
+            File.WriteAllBytes(headerBPath, CreateUtf8BomBytes("{\r\n\"name\":\"OutputB\",\r\n\"symbol\":\"B2\",\r\n\"data_url\":\"./score.json\",\r\n\"level_order\":[1]\r\n}"));
+
+            string songDbPath = CreateTempSongDbPath(tempDirectory);
+            BMSPlaylist.EnsureSchema(songDbPath);
+            var playlist = new BMSPlaylist(songDbPath);
+            BMSTable tableA = await playlist.LoadExternalTableAsync(new Uri(headerAPath));
+            BMSTable tableB = await playlist.LoadExternalTableAsync(new Uri(headerBPath));
+            tableA.playlist_id = 9502;
+            tableA.name = "LocalA";
+            tableA.symbol = "A1";
+            tableA.Output_dir = "LocalA";
+            tableB.playlist_id = 9503;
+            tableB.name = "OutputB";
+            tableB.symbol = "B1";
+            tableB.Output_dir = "OutputB";
+            playlist.BMSTables = new DispatcherCollection<BMSTable>(
+                new ObservableCollection<BMSTable>(new[] { tableA, tableB }),
+                Dispatcher.CurrentDispatcher);
+            var viewModel = new MainWindowViewModel();
+            typeof(MainWindowViewModel)
+                .GetField("tables", BindingFlags.Instance | BindingFlags.NonPublic)
+                ?.SetValue(viewModel, playlist);
+
+            await viewModel.ApplyPlaylistSummaryExternalPropertyInitializationAsync(
+                [new PlaylistSummaryRow { TableRef = tableA }, new PlaylistSummaryRow { TableRef = tableB }],
+                new MainWindowViewModel.PlaylistSummaryExternalPropertyInitializationOptions
+                {
+                    Name = true,
+                    Symbol = true,
+                    OutputDirectory = true
+                });
+
+            Assert.AreEqual("LocalA", tableA.name);
+            Assert.AreEqual("A1", tableA.symbol);
+            Assert.AreEqual("LocalA", tableA.Output_dir);
+            Assert.AreEqual("OutputB", tableB.name);
+            Assert.AreEqual("B2", tableB.symbol);
+            Assert.AreEqual("OutputB", tableB.Output_dir);
+        }
+        finally
+        {
+            Settings.Default.EnablePlaylistUrlCompletion = previousEnablePlaylistUrlCompletion;
+            Settings.Default.OperationModeLR2DB = previousOperationModeLr2Db;
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public async Task ApplyPlaylistSummaryExternalPropertyInitializationAsync_ReoutputsCustomFolderWhenNameChangesWithoutOutputDirChange()
+    {
+        bool previousEnablePlaylistUrlCompletion = Settings.Default.EnablePlaylistUrlCompletion;
+        bool previousOperationModeLr2Db = Settings.Default.OperationModeLR2DB;
+        string previousOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDir;
+        Settings.Default.EnablePlaylistUrlCompletion = false;
+        Settings.Default.OperationModeLR2DB = true;
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string outputBaseDir = Path.Combine(tempDirectory, "CustomFolder");
+            Settings.Default.LR2CustomFolderOutputBaseDir = outputBaseDir;
+            string headerJsonPath = Path.Combine(tempDirectory, "header.json");
+            string scoreJsonPath = Path.Combine(tempDirectory, "score.json");
+            File.WriteAllBytes(headerJsonPath, CreateUtf8BomBytes("{\r\n\"name\":\"ExternalName\",\r\n\"symbol\":\"EX\",\r\n\"data_url\":\"./score.json\",\r\n\"level_order\":[1]\r\n}"));
+            File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"External Song\",\"artist\":\"Artist\",\"level\":\"1\"}]"));
+
+            string songDbPath = CreateTempSongDbPath(tempDirectory);
+            BMSPlaylist.EnsureSchema(songDbPath);
+            using (var db = new LR2SongDBExtended(songDbPath))
+            {
+                db.CreateTable<LR2SongDB.folder>();
+            }
+            var playlist = new BMSPlaylist(songDbPath);
+            BMSTable table = await playlist.LoadExternalTableAsync(new Uri(headerJsonPath));
+            table.playlist_id = 9504;
+            table.name = "LocalName";
+            table.symbol = "LC";
+            table.Output_dir = "StableOutput";
+            table.ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
+                & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder;
+            foreach (BMSTableEntry entry in table.entries)
+            {
+                entry.playlist_id = table.playlist_id;
+                entry.folder = "Folder A";
+            }
+            table.Folder_order = ["Folder A"];
+            playlist.BMSTables = new DispatcherCollection<BMSTable>(
+                new ObservableCollection<BMSTable>(new[] { table }),
+                Dispatcher.CurrentDispatcher);
+            playlist.ReOutputCustomFolderAndCommitToDB(table);
+            string outputPath = Path.Combine(outputBaseDir, "StableOutput", "0001.lr2folder");
+            string beforeText = File.ReadAllText(outputPath, Encoding.GetEncoding("shift_jis"));
+            StringAssert.Contains(beforeText, "#CATEGORY LocalName");
+            var viewModel = new MainWindowViewModel();
+            Settings.Default.LR2CustomFolderOutputBaseDir = outputBaseDir;
+            typeof(MainWindowViewModel)
+                .GetField("tables", BindingFlags.Instance | BindingFlags.NonPublic)
+                ?.SetValue(viewModel, playlist);
+
+            await viewModel.ApplyPlaylistSummaryExternalPropertyInitializationAsync(
+                [new PlaylistSummaryRow { TableRef = table }],
+                new MainWindowViewModel.PlaylistSummaryExternalPropertyInitializationOptions
+                {
+                    Name = true
+                });
+
+            Assert.AreEqual("ExternalName", table.name);
+            Assert.AreEqual("StableOutput", table.Output_dir);
+            string afterText = string.Join(
+                Environment.NewLine,
+                Directory.GetFiles(Path.Combine(outputBaseDir, "StableOutput"), "*.lr2folder", SearchOption.AllDirectories)
+                    .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+                    .Select(path => File.ReadAllText(path, Encoding.GetEncoding("shift_jis"))));
+            StringAssert.Contains(afterText, "#CATEGORY ExternalName");
+            Assert.IsFalse(afterText.Contains("#CATEGORY LocalName"));
+        }
+        finally
+        {
+            Settings.Default.EnablePlaylistUrlCompletion = previousEnablePlaylistUrlCompletion;
+            Settings.Default.OperationModeLR2DB = previousOperationModeLr2Db;
+            Settings.Default.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
     public void ReloadTables_ReloadsHeadersWithoutScoreInitialization()
     {
         bool previousEnablePlaylistUrlCompletion = Settings.Default.EnablePlaylistUrlCompletion;

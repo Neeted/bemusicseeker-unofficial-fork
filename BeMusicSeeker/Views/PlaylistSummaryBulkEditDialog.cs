@@ -68,6 +68,14 @@ public partial class PlaylistSummaryBulkEditDialog : UserControl
             "PlaylistSummaryBulkEditDialog.ApplyOutputBase");
     }
 
+    private async void ApplyExternalPropertyInitialization(object sender, RoutedEventArgs e)
+    {
+        await RunApplyAsync(
+            viewModel => viewModel.ApplyExternalPropertyInitializationAsync(),
+            viewModel => viewModel.ResetExternalPropertyInitializationOptions(),
+            "PlaylistSummaryBulkEditDialog.ApplyExternalPropertyInitialization");
+    }
+
     private async Task RunApplyAsync(Action<MainWindowViewModel.PlaylistSummaryBulkEditDialogViewModel> apply, Action<MainWindowViewModel.PlaylistSummaryBulkEditDialogViewModel> afterApply, string logName)
     {
         if (base.DataContext is not MainWindowViewModel { playlistSummaryBulkEditDialog: { } bulkEditDialogViewModel })
@@ -78,6 +86,24 @@ public partial class PlaylistSummaryBulkEditDialog : UserControl
         try
         {
             await Task.Run(() => apply(bulkEditDialogViewModel)).Logging(logName);
+            afterApply?.Invoke(bulkEditDialogViewModel);
+        }
+        finally
+        {
+            IsEnabled = true;
+        }
+    }
+
+    private async Task RunApplyAsync(Func<MainWindowViewModel.PlaylistSummaryBulkEditDialogViewModel, Task> apply, Action<MainWindowViewModel.PlaylistSummaryBulkEditDialogViewModel> afterApply, string logName)
+    {
+        if (base.DataContext is not MainWindowViewModel { playlistSummaryBulkEditDialog: { } bulkEditDialogViewModel })
+        {
+            return;
+        }
+        IsEnabled = false;
+        try
+        {
+            await Task.Run(async () => await apply(bulkEditDialogViewModel).ConfigureAwait(false)).Logging(logName);
             afterApply?.Invoke(bulkEditDialogViewModel);
         }
         finally

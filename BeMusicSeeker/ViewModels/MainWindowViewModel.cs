@@ -5079,6 +5079,19 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
+    public sealed class PlaylistSummaryExternalPropertyInitializationOptions
+    {
+        public bool Name { get; set; }
+
+        public bool Symbol { get; set; }
+
+        public bool CompatPrefix { get; set; }
+
+        public bool OutputDirectory { get; set; }
+
+        public bool HasAnySelection => Name || Symbol || CompatPrefix || OutputDirectory;
+    }
+
     public class PlaylistSummaryBulkEditDialogViewModel : ViewModel
     {
         private readonly MainWindowViewModel ownerViewModel;
@@ -5116,6 +5129,14 @@ public class MainWindowViewModel : ViewModel
         private PlaylistSummaryBulkBooleanOption _bmtOutputOption;
 
         private PlaylistCustomFolderOutputBaseOption _outputBaseOption;
+
+        private bool _initializeNameFromExternal;
+
+        private bool _initializeSymbolFromExternal;
+
+        private bool _initializeCompatPrefixFromExternal;
+
+        private bool _initializeOutputDirectoryFromExternal;
 
         public PlaylistSummaryBulkEditDialogViewModel(MainWindowViewModel owner, IEnumerable<PlaylistSummaryRow> rows)
         {
@@ -5285,6 +5306,32 @@ public class MainWindowViewModel : ViewModel
 
         public bool CanApplyOutputBase => OutputBaseOption != null && !OutputBaseOption.IsNoChange;
 
+        public bool InitializeNameFromExternal
+        {
+            get => _initializeNameFromExternal;
+            set => SetExternalInitializationState(ref _initializeNameFromExternal, value, nameof(InitializeNameFromExternal));
+        }
+
+        public bool InitializeSymbolFromExternal
+        {
+            get => _initializeSymbolFromExternal;
+            set => SetExternalInitializationState(ref _initializeSymbolFromExternal, value, nameof(InitializeSymbolFromExternal));
+        }
+
+        public bool InitializeCompatPrefixFromExternal
+        {
+            get => _initializeCompatPrefixFromExternal;
+            set => SetExternalInitializationState(ref _initializeCompatPrefixFromExternal, value, nameof(InitializeCompatPrefixFromExternal));
+        }
+
+        public bool InitializeOutputDirectoryFromExternal
+        {
+            get => _initializeOutputDirectoryFromExternal;
+            set => SetExternalInitializationState(ref _initializeOutputDirectoryFromExternal, value, nameof(InitializeOutputDirectoryFromExternal));
+        }
+
+        public bool CanApplyExternalPropertyInitialization => BuildExternalPropertyInitializationOptions().HasAnySelection;
+
         public void ReloadCustomFolderOutputStates()
         {
             OutputUserFolder = ResolvePlaylistSummaryCustomFolderOutputState(targetTables, LR2SongDBExtended.playlist.CustomFolderType.UserFolder);
@@ -5358,6 +5405,19 @@ public class MainWindowViewModel : ViewModel
             OutputBaseOption = OutputBaseOptions.FirstOrDefault(option => option.IsNoChange) ?? OutputBaseOptions.FirstOrDefault();
         }
 
+        public Task ApplyExternalPropertyInitializationAsync()
+        {
+            return ownerViewModel.ApplyPlaylistSummaryExternalPropertyInitializationAsync(targetRows, BuildExternalPropertyInitializationOptions());
+        }
+
+        public void ResetExternalPropertyInitializationOptions()
+        {
+            InitializeNameFromExternal = false;
+            InitializeSymbolFromExternal = false;
+            InitializeCompatPrefixFromExternal = false;
+            InitializeOutputDirectoryFromExternal = false;
+        }
+
         private PlaylistSummaryCustomFolderOutputPatch BuildCustomFolderOutputPatch()
         {
             return new PlaylistSummaryCustomFolderOutputPatch
@@ -5383,6 +5443,27 @@ public class MainWindowViewModel : ViewModel
                 storage = value;
                 RaisePropertyChanged(propertyName);
                 RaisePropertyChanged(nameof(CanApplyCustomFolderOutput));
+            }
+        }
+
+        private PlaylistSummaryExternalPropertyInitializationOptions BuildExternalPropertyInitializationOptions()
+        {
+            return new PlaylistSummaryExternalPropertyInitializationOptions
+            {
+                Name = InitializeNameFromExternal,
+                Symbol = InitializeSymbolFromExternal,
+                CompatPrefix = InitializeCompatPrefixFromExternal,
+                OutputDirectory = InitializeOutputDirectoryFromExternal
+            };
+        }
+
+        private void SetExternalInitializationState(ref bool storage, bool value, string propertyName)
+        {
+            if (storage != value)
+            {
+                storage = value;
+                RaisePropertyChanged(propertyName);
+                RaisePropertyChanged(nameof(CanApplyExternalPropertyInitialization));
             }
         }
     }
@@ -5786,16 +5867,14 @@ public class MainWindowViewModel : ViewModel
         {
             get
             {
-                if (!string.IsNullOrWhiteSpace(_output_dir) && _output_dir != name.Trim().ToSjisSchemeString().RemoveInvalidFileNameChars())
-                {
-                    return _output_dir;
-                }
-                return name.Trim().ToSjisSchemeString().RemoveInvalidFileNameChars();
+                return BMSTable.ResolveOutputDirectoryName(name, _output_dir);
             }
             set
             {
-                value = value?.Trim().ToSjisSchemeString().RemoveInvalidFileNameChars();
-                if (name != null && name.Trim().ToSjisSchemeString().RemoveInvalidFileNameChars() != value)
+                value = BMSTable.NormalizeOutputDirectoryName(value);
+                string defaultOutputDirectoryName = BMSTable.CreateDefaultOutputDirectoryName(name);
+                if (!string.IsNullOrWhiteSpace(value)
+                    && !string.Equals(defaultOutputDirectoryName, value, StringComparison.Ordinal))
                 {
                     if (!Settings.Default.OperationModeLR2DB || IsOutputDirValid(value))
                     {
@@ -5806,7 +5885,8 @@ public class MainWindowViewModel : ViewModel
                         ownerViewModel.RaiseInteractionMessageOnUiThread(new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Error_OutputFolderNameEmptyOrDuplicateCheckInput, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
                     }
                 }
-                else if (string.IsNullOrWhiteSpace(value) || value == name.Trim().ToSjisSchemeString().RemoveInvalidFileNameChars())
+                else if (string.IsNullOrWhiteSpace(value)
+                    || string.Equals(defaultOutputDirectoryName, value, StringComparison.Ordinal))
                 {
                     _output_dir = null;
                 }
@@ -23712,6 +23792,397 @@ public class MainWindowViewModel : ViewModel
             mask |= LR2SongDBExtended.playlist.CustomFolderType.LevelFolder;
         }
         return LR2SongDBExtended.playlist.NormalizeCustomFolderOutputMask(mask);
+    }
+
+    private sealed class PlaylistSummaryExternalPropertyInitializationChange
+    {
+        public BMSTable Table { get; set; }
+
+        public BMSTable ExternalTable { get; set; }
+
+        public string OriginalName { get; set; }
+
+        public string OriginalSymbol { get; set; }
+
+        public string OriginalCompatPrefix { get; set; }
+
+        public string OriginalOutputDir { get; set; }
+
+        public string DesiredName { get; set; }
+
+        public string DesiredSymbol { get; set; }
+
+        public string DesiredCompatPrefix { get; set; }
+
+        public string DesiredOutputDir { get; set; }
+
+        public bool RequiresCompatiblePrefixRewrite => !string.Equals(OriginalCompatPrefix ?? string.Empty, DesiredCompatPrefix ?? string.Empty, StringComparison.Ordinal);
+
+        public bool HeaderChanged =>
+            !string.Equals(OriginalName ?? string.Empty, DesiredName ?? string.Empty, StringComparison.Ordinal)
+            || !string.Equals(OriginalSymbol ?? string.Empty, DesiredSymbol ?? string.Empty, StringComparison.Ordinal)
+            || !string.Equals(OriginalCompatPrefix ?? string.Empty, DesiredCompatPrefix ?? string.Empty, StringComparison.Ordinal)
+            || !string.Equals(BMSTable.NormalizeOutputDirectoryName(OriginalOutputDir) ?? string.Empty, BMSTable.NormalizeOutputDirectoryName(DesiredOutputDir) ?? string.Empty, StringComparison.Ordinal);
+
+        public bool BmtProjectionChanged =>
+            !string.Equals(OriginalName ?? string.Empty, DesiredName ?? string.Empty, StringComparison.Ordinal)
+            || !string.Equals(OriginalSymbol ?? string.Empty, DesiredSymbol ?? string.Empty, StringComparison.Ordinal)
+            || !string.Equals(OriginalCompatPrefix ?? string.Empty, DesiredCompatPrefix ?? string.Empty, StringComparison.Ordinal);
+
+        public bool CustomFolderHeaderProjectionChanged =>
+            !string.Equals(OriginalName ?? string.Empty, DesiredName ?? string.Empty, StringComparison.Ordinal);
+
+        public string EffectiveOutputDirBefore => BMSTable.ResolveOutputDirectoryName(OriginalName, OriginalOutputDir);
+
+        public string EffectiveOutputDirAfter => BMSTable.ResolveOutputDirectoryName(DesiredName, DesiredOutputDir);
+    }
+
+    public async Task ApplyPlaylistSummaryExternalPropertyInitializationAsync(IEnumerable<PlaylistSummaryRow> rows, PlaylistSummaryExternalPropertyInitializationOptions options, CancellationToken cancellationToken = default)
+    {
+        if (rows == null || options?.HasAnySelection != true || tables == null)
+        {
+            return;
+        }
+        List<BMSTable> targetTables = [.. rows
+            .Where(row => row?.TableRef != null)
+            .Select(row => row.TableRef)
+            .Distinct()];
+        if (targetTables.Count == 0)
+        {
+            return;
+        }
+
+        const string reason = "playlist_summary_external_property_initialization";
+        List<BMSPlaylist.PlaylistExternalTableLoadResult> loadResults;
+        BeginPlaylistSyncProgressOperation();
+        try
+        {
+            loadResults = await tables.LoadExternalTableSnapshotsAsync(
+                targetTables,
+                inheritLocalTableProperties: false,
+                UpdatePlaylistSyncProgressStatus,
+                reason,
+                cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            EndPlaylistSyncProgressOperation();
+        }
+
+        List<PlaylistSummaryExternalPropertyInitializationChange> pendingChanges = [];
+        foreach (BMSPlaylist.PlaylistExternalTableLoadResult result in loadResults.Where(result => result?.Succeeded == true))
+        {
+            BMSTable table = result.SourceTable;
+            BMSTable externalTable = result.ExternalTable;
+            if (table == null || externalTable == null)
+            {
+                continue;
+            }
+            if (options.Name && string.IsNullOrWhiteSpace(externalTable.name))
+            {
+                NLogWrapper.FileLogger?.Warn("playlist_summary_external_property_initialization_skipped reason=blank_external_name table=" + (table.name ?? string.Empty) + " uri=" + result.Uri);
+                continue;
+            }
+
+            string originalName = table.name ?? string.Empty;
+            string originalSymbol = table.symbol ?? string.Empty;
+            string originalCompatPrefix = table.compat_prefix ?? string.Empty;
+            string originalOutputDir = table.output_dir;
+            string desiredName = options.Name ? externalTable.name : table.name;
+            string desiredSymbol = options.Symbol ? (externalTable.symbol ?? string.Empty) : table.symbol;
+            string desiredCompatPrefix = options.CompatPrefix ? (externalTable.compat_prefix ?? string.Empty) : table.compat_prefix;
+            string desiredOutputDir = options.OutputDirectory ? null : table.output_dir;
+
+            var change = new PlaylistSummaryExternalPropertyInitializationChange
+            {
+                Table = table,
+                ExternalTable = externalTable,
+                OriginalName = originalName,
+                OriginalSymbol = originalSymbol,
+                OriginalCompatPrefix = originalCompatPrefix,
+                OriginalOutputDir = originalOutputDir,
+                DesiredName = desiredName ?? string.Empty,
+                DesiredSymbol = desiredSymbol ?? string.Empty,
+                DesiredCompatPrefix = desiredCompatPrefix ?? string.Empty,
+                DesiredOutputDir = desiredOutputDir
+            };
+            if (!change.HeaderChanged
+                && string.Equals(change.EffectiveOutputDirBefore ?? string.Empty, change.EffectiveOutputDirAfter ?? string.Empty, StringComparison.Ordinal))
+            {
+                continue;
+            }
+            if (change.RequiresCompatiblePrefixRewrite)
+            {
+                tables.EnsurePlaylistEntriesLoaded(table, "ApplyPlaylistSummaryExternalPropertyInitialization.ValidateCompatiblePrefix");
+                using (table.ReaderWriterLock.GetReaderGuard())
+                {
+                    if (!table.CanRewriteCompatibleFolderPrefix(change.OriginalCompatPrefix, change.DesiredCompatPrefix, treatUnprefixedFoldersAsExternal: true))
+                    {
+                        NLogWrapper.FileLogger?.Warn("playlist_summary_external_property_initialization_skipped reason=compatible_prefix_collision table=" + (table.name ?? string.Empty) + " uri=" + result.Uri);
+                        continue;
+                    }
+                }
+            }
+            pendingChanges.Add(change);
+        }
+        if (pendingChanges.Count == 0)
+        {
+            return;
+        }
+
+        List<PlaylistSummaryExternalPropertyInitializationChange> acceptedChanges = FilterPlaylistSummaryExternalPropertyInitializationOutputConflicts(pendingChanges);
+        if (acceptedChanges.Count == 0)
+        {
+            return;
+        }
+
+        var outputDirPathBeforeByTable = new Dictionary<BMSTable, string>();
+        var outputBaseDirPathBeforeByTable = new Dictionary<BMSTable, string>();
+        var wasRootFolderBeforeByTable = new Dictionary<BMSTable, bool>();
+        var entryChangedTables = new List<BMSTable>();
+        var outputChangedTables = new List<BMSTable>();
+        var headerOnlyTables = new List<BMSTable>();
+        var sameOutputReOutputTables = new List<BMSTable>();
+        var bmtProjectionTables = new List<BMSTable>();
+        foreach (PlaylistSummaryExternalPropertyInitializationChange change in acceptedChanges)
+        {
+            BMSTable table = change.Table;
+            string beforeEffectiveOutputDir = change.EffectiveOutputDirBefore;
+            string afterEffectiveOutputDir = change.EffectiveOutputDirAfter;
+            bool outputDirChanged = !string.Equals(beforeEffectiveOutputDir ?? string.Empty, afterEffectiveOutputDir ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+            if (outputDirChanged)
+            {
+                CapturePlaylistSummaryOutputDirectoryBefore(table, beforeEffectiveOutputDir, outputDirPathBeforeByTable, outputBaseDirPathBeforeByTable, wasRootFolderBeforeByTable);
+            }
+
+            bool entryFolderProjectionChanged = false;
+            if (change.RequiresCompatiblePrefixRewrite)
+            {
+                tables.EnsurePlaylistEntriesLoaded(table, "ApplyPlaylistSummaryExternalPropertyInitialization.RewriteCompatiblePrefix");
+                using (table.ReaderWriterLock.GetWriterGuard())
+                {
+                    table.compat_prefix = change.DesiredCompatPrefix;
+                    entryFolderProjectionChanged = table.RewriteCompatibleFolderPrefix(change.OriginalCompatPrefix, change.DesiredCompatPrefix, treatUnprefixedFoldersAsExternal: true, out _);
+                }
+            }
+
+            table.name = change.DesiredName;
+            table.symbol = change.DesiredSymbol;
+            if (!change.RequiresCompatiblePrefixRewrite)
+            {
+                table.compat_prefix = change.DesiredCompatPrefix;
+            }
+            if (options.OutputDirectory)
+            {
+                table.Output_dir = BMSTable.CreateDefaultOutputDirectoryName(table.name);
+            }
+
+            if (entryFolderProjectionChanged)
+            {
+                entryChangedTables.Add(table);
+            }
+            if (outputDirChanged)
+            {
+                outputChangedTables.Add(table);
+            }
+            if (!entryFolderProjectionChanged && !outputDirChanged)
+            {
+                headerOnlyTables.Add(table);
+            }
+            if (!outputDirChanged && (entryFolderProjectionChanged || change.CustomFolderHeaderProjectionChanged))
+            {
+                sameOutputReOutputTables.Add(table);
+            }
+            if (change.BmtProjectionChanged || entryFolderProjectionChanged)
+            {
+                bmtProjectionTables.Add(table);
+            }
+        }
+
+        foreach (BMSTable table in entryChangedTables.Distinct())
+        {
+            tables.CommitBMSTableWithEntriesToDB(table);
+        }
+        if (outputChangedTables.Count > 0)
+        {
+            BeginPlaylistSyncProgressOperation();
+            try
+            {
+                UpdatePlaylistSummaryCustomFolderOutputProgress(0, outputChangedTables.Count, string.Empty);
+                tables.MigrateCustomFolderOutputDirectoriesAndCommitHeadersToDB(
+                    outputChangedTables,
+                    outputDirPathBeforeByTable,
+                    reason,
+                    UpdatePlaylistSummaryCustomFolderOutputProgress,
+                    wasRootFolderBeforeByTable,
+                    outputBaseDirPathBeforeByTable: outputBaseDirPathBeforeByTable);
+            }
+            finally
+            {
+                EndPlaylistSyncProgressOperation();
+            }
+            UpdatePlaylistSummaryRootOutputDirectoriesAfterExternalInitialization(outputChangedTables, outputDirPathBeforeByTable);
+        }
+        List<BMSTable> sameOutputReOutputTableList = [.. sameOutputReOutputTables.Distinct()];
+        bool sameOutputReOutputCommitted = sameOutputReOutputTableList.Count > 0 && Settings.Default.OperationModeLR2DB;
+        if (sameOutputReOutputCommitted)
+        {
+            BeginPlaylistSyncProgressOperation();
+            try
+            {
+                for (int i = 0; i < sameOutputReOutputTableList.Count; i++)
+                {
+                    BMSTable table = sameOutputReOutputTableList[i];
+                    UpdatePlaylistSummaryCustomFolderOutputProgress(i, sameOutputReOutputTableList.Count, table?.name ?? string.Empty);
+                    tables.ReOutputCustomFolderAndCommitToDB(table);
+                    UpdatePlaylistSummaryCustomFolderOutputProgress(i + 1, sameOutputReOutputTableList.Count, table?.name ?? string.Empty);
+                }
+            }
+            finally
+            {
+                EndPlaylistSyncProgressOperation();
+            }
+        }
+        List<BMSTable> headerOnlyCommitTables = [.. (sameOutputReOutputCommitted
+            ? headerOnlyTables.Except(sameOutputReOutputTables)
+            : headerOnlyTables).Distinct()];
+        if (headerOnlyCommitTables.Count > 0)
+        {
+            tables.CommitBMSTableHeadersToDB(headerOnlyCommitTables);
+        }
+        if (bmtProjectionTables.Count > 0)
+        {
+            tables.QueueBeatorajaBmtExportForTables(bmtProjectionTables.Distinct(), reason);
+        }
+        RefreshPlaylistSummaryIfVisible(reason, invalidateTableCountCache: true);
+    }
+
+    private List<PlaylistSummaryExternalPropertyInitializationChange> FilterPlaylistSummaryExternalPropertyInitializationOutputConflicts(IReadOnlyList<PlaylistSummaryExternalPropertyInitializationChange> pendingChanges)
+    {
+        if (pendingChanges == null || pendingChanges.Count == 0)
+        {
+            return [];
+        }
+        if (!Settings.Default.OperationModeLR2DB)
+        {
+            return [.. pendingChanges];
+        }
+
+        var reservedOutputDirectories = new Dictionary<string, BMSTable>(
+            StringComparer.OrdinalIgnoreCase);
+        foreach (BMSTable table in BMSTables ?? Enumerable.Empty<BMSTable>())
+        {
+            ReserveOutputDirectoryOwner(reservedOutputDirectories, table?.Output_dir, table);
+        }
+
+        var acceptedChanges = new List<PlaylistSummaryExternalPropertyInitializationChange>();
+        foreach (PlaylistSummaryExternalPropertyInitializationChange change in pendingChanges)
+        {
+            string outputDir = change.EffectiveOutputDirAfter;
+            if (string.IsNullOrWhiteSpace(outputDir))
+            {
+                NLogWrapper.FileLogger?.Warn("playlist_summary_external_property_initialization_skipped reason=blank_output_dir table=" + (change.Table?.name ?? string.Empty));
+                continue;
+            }
+            if (reservedOutputDirectories.TryGetValue(outputDir, out BMSTable reservedTable)
+                && !ReferenceEquals(reservedTable, change.Table))
+            {
+                NLogWrapper.FileLogger?.Warn("playlist_summary_external_property_initialization_skipped reason=duplicate_output_dir table=" + (change.Table?.name ?? string.Empty) + " outputDir=" + outputDir);
+                continue;
+            }
+            string currentOutputDir = change.EffectiveOutputDirBefore;
+            if (!string.Equals(currentOutputDir ?? string.Empty, outputDir ?? string.Empty, StringComparison.OrdinalIgnoreCase)
+                && !string.IsNullOrWhiteSpace(currentOutputDir)
+                && reservedOutputDirectories.TryGetValue(currentOutputDir, out BMSTable currentOwner)
+                && ReferenceEquals(currentOwner, change.Table))
+            {
+                reservedOutputDirectories.Remove(currentOutputDir);
+            }
+            reservedOutputDirectories[outputDir] = change.Table;
+            acceptedChanges.Add(change);
+        }
+        return acceptedChanges;
+    }
+
+    private static void ReserveOutputDirectoryOwner(Dictionary<string, BMSTable> reservedOutputDirectories, string outputDir, BMSTable table)
+    {
+        if (reservedOutputDirectories == null || string.IsNullOrWhiteSpace(outputDir))
+        {
+            return;
+        }
+        if (!reservedOutputDirectories.ContainsKey(outputDir))
+        {
+            reservedOutputDirectories.Add(outputDir, table);
+        }
+    }
+
+    private static void CapturePlaylistSummaryOutputDirectoryBefore(
+        BMSTable table,
+        string effectiveOutputDirBefore,
+        Dictionary<BMSTable, string> outputDirPathBeforeByTable,
+        Dictionary<BMSTable, string> outputBaseDirPathBeforeByTable,
+        Dictionary<BMSTable, bool> wasRootFolderBeforeByTable)
+    {
+        if (!Settings.Default.OperationModeLR2DB
+            || table == null
+            || string.IsNullOrWhiteSpace(effectiveOutputDirBefore))
+        {
+            return;
+        }
+
+        bool beforeBaseDirectoryResolved = table.is_root_folder;
+        string beforeBaseDirectory = table.is_root_folder
+            ? Settings.Default.LR2CustomFolderOutputBaseDirRootType
+            : null;
+        if (!table.is_root_folder)
+        {
+            beforeBaseDirectoryResolved = CustomFolderOutputBaseRegistry.TryResolveNormalOutputBaseDirectory(
+                table.custom_folder_output_base_name,
+                Settings.Default.LR2CustomFolderOutputBaseDir,
+                Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs,
+                out beforeBaseDirectory);
+            if (!beforeBaseDirectoryResolved)
+            {
+                beforeBaseDirectory = Settings.Default.LR2CustomFolderOutputBaseDir;
+                beforeBaseDirectoryResolved = !string.IsNullOrWhiteSpace(beforeBaseDirectory);
+            }
+        }
+        if (!beforeBaseDirectoryResolved || string.IsNullOrWhiteSpace(beforeBaseDirectory))
+        {
+            return;
+        }
+        outputDirPathBeforeByTable[table] = Path.Combine(beforeBaseDirectory, effectiveOutputDirBefore);
+        outputBaseDirPathBeforeByTable[table] = beforeBaseDirectory;
+        wasRootFolderBeforeByTable[table] = table.is_root_folder;
+    }
+
+    private void UpdatePlaylistSummaryRootOutputDirectoriesAfterExternalInitialization(IEnumerable<BMSTable> outputChangedTables, IReadOnlyDictionary<BMSTable, string> outputDirPathBeforeByTable)
+    {
+        if (!Settings.Default.OperationModeLR2DB || lr2config == null)
+        {
+            return;
+        }
+        List<BMSTable> rootTables = [.. (outputChangedTables ?? [])
+            .Where(table => table != null && table.is_root_folder && !string.IsNullOrWhiteSpace(table.Output_dir))
+            .Distinct()];
+        if (rootTables.Count == 0)
+        {
+            return;
+        }
+
+        List<string> bmsSearchDirectories = lr2config.GetBMSSearchDirectories();
+        IEnumerable<string> removeDirectories = (outputDirPathBeforeByTable ?? new Dictionary<BMSTable, string>())
+            .Where(item => item.Key != null && item.Key.is_root_folder)
+            .Select(item => item.Value)
+            .Where(directory => !string.IsNullOrWhiteSpace(directory));
+        IEnumerable<string> addDirectories = rootTables
+            .Select(BMSPlaylist.GetCustomFolderOutputDirectory)
+            .Where(directory => !string.IsNullOrWhiteSpace(directory));
+        lr2config.SetBMSSearchDirectories(bmsSearchDirectories
+            .Except(removeDirectories, StringComparer.OrdinalIgnoreCase)
+            .Union(addDirectories)
+            .Distinct(StringComparer.OrdinalIgnoreCase));
+        lr2config.Save();
     }
 
     public void ApplyPlaylistSummaryCustomFolderOutputTypes(IEnumerable<PlaylistSummaryRow> rows, PlaylistSummaryCustomFolderOutputPatch patch)

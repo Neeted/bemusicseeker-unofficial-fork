@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Security.Cryptography;
@@ -339,24 +340,88 @@ public class BMSTable : LR2SongDBExtended.playlist
     {
         get
         {
-            if (!string.IsNullOrWhiteSpace(base.output_dir) && base.output_dir != base.name.Trim().ToSjisSchemeString())
-            {
-                return base.output_dir;
-            }
-            return base.name.Trim().ToSjisSchemeString();
+            return ResolveOutputDirectoryName(base.name, base.output_dir);
         }
         set
         {
-            value = value?.Trim().ToSjisSchemeString();
-            if (base.name != null && base.name.Trim().ToSjisSchemeString() != value)
+            value = NormalizeOutputDirectoryName(value);
+            string defaultOutputDirectoryName = CreateDefaultOutputDirectoryName(base.name);
+            if (!string.IsNullOrWhiteSpace(value)
+                && !string.Equals(defaultOutputDirectoryName, value, StringComparison.Ordinal))
             {
                 base.output_dir = value;
             }
-            else if (string.IsNullOrWhiteSpace(value) || value == base.name.Trim().ToSjisSchemeString())
+            else if (string.IsNullOrWhiteSpace(value)
+                || string.Equals(defaultOutputDirectoryName, value, StringComparison.Ordinal))
             {
                 base.output_dir = null;
             }
         }
+    }
+
+    internal static string CreateDefaultOutputDirectoryName(string name)
+    {
+        return NormalizeOutputDirectorySegment(name);
+    }
+
+    internal static string NormalizeOutputDirectoryName(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        string[] segments = value.Trim()
+            .Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar], StringSplitOptions.RemoveEmptyEntries);
+        if (segments.Length == 0)
+        {
+            return null;
+        }
+
+        var normalizedSegments = new List<string>(segments.Length);
+        foreach (string segment in segments)
+        {
+            string trimmedSegment = segment.Trim();
+            if (trimmedSegment == ".")
+            {
+                continue;
+            }
+            if (trimmedSegment == "..")
+            {
+                if (normalizedSegments.Count > 0)
+                {
+                    normalizedSegments.RemoveAt(normalizedSegments.Count - 1);
+                }
+                continue;
+            }
+
+            string normalizedSegment = NormalizeOutputDirectorySegment(trimmedSegment);
+            if (!string.IsNullOrWhiteSpace(normalizedSegment))
+            {
+                normalizedSegments.Add(normalizedSegment);
+            }
+        }
+
+        return normalizedSegments.Count == 0
+            ? null
+            : Path.Combine([.. normalizedSegments]);
+    }
+
+    private static string NormalizeOutputDirectorySegment(string value)
+    {
+        return (value ?? string.Empty).Trim().ToSjisSchemeString().RemoveInvalidFileNameChars();
+    }
+
+    internal static string ResolveOutputDirectoryName(string name, string outputDir)
+    {
+        string defaultOutputDirectoryName = CreateDefaultOutputDirectoryName(name);
+        string explicitOutputDirectoryName = NormalizeOutputDirectoryName(outputDir);
+        if (!string.IsNullOrWhiteSpace(explicitOutputDirectoryName)
+            && !string.Equals(explicitOutputDirectoryName, defaultOutputDirectoryName, StringComparison.Ordinal))
+        {
+            return explicitOutputDirectoryName;
+        }
+        return defaultOutputDirectoryName;
     }
 
     private List<string> _cached_folder_list;
@@ -863,11 +928,11 @@ public class BMSTable : LR2SongDBExtended.playlist
         return RewriteCompatibleFolderPrefix(oldPrefix, newPrefix, out _);
     }
 
-    internal bool CanRewriteCompatibleFolderPrefix(string oldPrefix, string newPrefix)
+    internal bool CanRewriteCompatibleFolderPrefix(string oldPrefix, string newPrefix, bool treatUnprefixedFoldersAsExternal = false)
     {
         try
         {
-            CreateValidatedCompatibleFolderPrefixRewriteMap(oldPrefix, newPrefix);
+            CreateValidatedCompatibleFolderPrefixRewriteMap(oldPrefix, newPrefix, treatUnprefixedFoldersAsExternal);
             return true;
         }
         catch (InvalidOperationException)
@@ -876,7 +941,7 @@ public class BMSTable : LR2SongDBExtended.playlist
         }
     }
 
-    internal IReadOnlyDictionary<string, string> CreateValidatedCompatibleFolderPrefixRewriteMap(string oldPrefix, string newPrefix)
+    internal IReadOnlyDictionary<string, string> CreateValidatedCompatibleFolderPrefixRewriteMap(string oldPrefix, string newPrefix, bool treatUnprefixedFoldersAsExternal = false)
     {
         oldPrefix ??= string.Empty;
         newPrefix ??= string.Empty;
@@ -884,7 +949,7 @@ public class BMSTable : LR2SongDBExtended.playlist
         {
             return new Dictionary<string, string>(StringComparer.Ordinal);
         }
-        Dictionary<string, string> folderMap = CreateCompatibleFolderPrefixRewriteMapCore(oldPrefix, newPrefix);
+        Dictionary<string, string> folderMap = CreateCompatibleFolderPrefixRewriteMapCore(oldPrefix, newPrefix, treatUnprefixedFoldersAsExternal);
         if (folderMap.Count > 0)
         {
             ValidateCompatibleFolderRewriteMap(folderMap);
@@ -915,7 +980,30 @@ public class BMSTable : LR2SongDBExtended.playlist
         return true;
     }
 
-    private Dictionary<string, string> CreateCompatibleFolderPrefixRewriteMapCore(string oldPrefix, string newPrefix)
+    internal bool RewriteCompatibleFolderPrefix(string oldPrefix, string newPrefix, bool treatUnprefixedFoldersAsExternal, out IReadOnlyDictionary<string, string> rewrittenFolders)
+    {
+        IReadOnlyDictionary<string, string> folderMap = CreateValidatedCompatibleFolderPrefixRewriteMap(oldPrefix, newPrefix, treatUnprefixedFoldersAsExternal);
+        if (folderMap.Count == 0)
+        {
+            rewrittenFolders = folderMap;
+            return false;
+        }
+        rewrittenFolders = folderMap;
+
+        foreach (BMSTableEntry entry in entries)
+        {
+            if (entry != null && folderMap.TryGetValue(entry.folder ?? string.Empty, out string rewrittenFolder))
+            {
+                entry.folder = rewrittenFolder;
+            }
+        }
+        Folder_order = [.. (Folder_order ?? []).Select(folder => folderMap.TryGetValue(folder ?? string.Empty, out string rewrittenFolder) ? rewrittenFolder : folder).Distinct(StringComparer.Ordinal)];
+        RebuildFolderState();
+        TouchPlaylistEntriesRevision();
+        return true;
+    }
+
+    private Dictionary<string, string> CreateCompatibleFolderPrefixRewriteMapCore(string oldPrefix, string newPrefix, bool treatUnprefixedFoldersAsExternal)
     {
         var map = new Dictionary<string, string>(StringComparer.Ordinal);
         IEnumerable<string> sourceFolders = (entries ?? [])
@@ -935,7 +1023,7 @@ public class BMSTable : LR2SongDBExtended.playlist
                 }
                 compatibleLevelName = folder.Substring(oldPrefix.Length);
             }
-            else if (base.is_external_sync && (newPrefix.Length == 0 || !folder.StartsWith(newPrefix, StringComparison.Ordinal)))
+            else if ((base.is_external_sync || treatUnprefixedFoldersAsExternal) && (newPrefix.Length == 0 || !folder.StartsWith(newPrefix, StringComparison.Ordinal)))
             {
                 compatibleLevelName = folder;
             }

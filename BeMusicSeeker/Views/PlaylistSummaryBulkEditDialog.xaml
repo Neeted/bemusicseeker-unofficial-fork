@@ -88,6 +88,17 @@
                 <Button Grid.Column="2" MinWidth="140" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_summary_bulk_apply_output_base, Mode=OneWay}" IsEnabled="{Binding playlistSummaryBulkEditDialog.CanApplyOutputBase}" Click="ApplyOutputBase" />
               </Grid>
             </GroupBox>
+            <GroupBox Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_summary_bulk_external_property_initialization, Mode=OneWay}">
+              <DockPanel>
+                <Button DockPanel.Dock="Bottom" HorizontalAlignment="Right" MinWidth="140" Margin="0,8,0,0" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_summary_bulk_apply_external_property_initialization, Mode=OneWay}" IsEnabled="{Binding playlistSummaryBulkEditDialog.CanApplyExternalPropertyInitialization}" Click="ApplyExternalPropertyInitialization" />
+                <UniformGrid Columns="2" Margin="4,0,4,0">
+                  <CheckBox VerticalAlignment="Center" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_summary_bulk_initialize_playlist_name, Mode=OneWay}" IsChecked="{Binding playlistSummaryBulkEditDialog.InitializeNameFromExternal, Mode=TwoWay}" />
+                  <CheckBox VerticalAlignment="Center" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_summary_bulk_initialize_symbol, Mode=OneWay}" IsChecked="{Binding playlistSummaryBulkEditDialog.InitializeSymbolFromExternal, Mode=TwoWay}" />
+                  <CheckBox VerticalAlignment="Center" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_summary_bulk_initialize_compat_prefix, Mode=OneWay}" IsChecked="{Binding playlistSummaryBulkEditDialog.InitializeCompatPrefixFromExternal, Mode=TwoWay}" />
+                  <CheckBox VerticalAlignment="Center" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_summary_bulk_initialize_output_dir, Mode=OneWay}" IsChecked="{Binding playlistSummaryBulkEditDialog.InitializeOutputDirectoryFromExternal, Mode=TwoWay}" />
+                </UniformGrid>
+              </DockPanel>
+            </GroupBox>
             <GroupBox Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_summary_bulk_root_folder, Mode=OneWay}" IsEnabled="{Binding settingDialog.OperationModeLR2DB}">
               <Grid>
                 <Grid.ColumnDefinitions>

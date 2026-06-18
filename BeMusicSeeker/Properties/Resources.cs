@@ -1027,6 +1027,8 @@ public class Resources
 
     public static string Playlist_summary_bulk_output_base => ResourceManager.GetString("Playlist_summary_bulk_output_base", resourceCulture);
 
+    public static string Playlist_summary_bulk_external_property_initialization => ResourceManager.GetString("Playlist_summary_bulk_external_property_initialization", resourceCulture);
+
     public static string Playlist_summary_bulk_apply_custom_folder_output => ResourceManager.GetString("Playlist_summary_bulk_apply_custom_folder_output", resourceCulture);
 
     public static string Playlist_summary_bulk_apply_root_folder => ResourceManager.GetString("Playlist_summary_bulk_apply_root_folder", resourceCulture);
@@ -1036,6 +1038,16 @@ public class Resources
     public static string Playlist_summary_bulk_apply_bmt_output => ResourceManager.GetString("Playlist_summary_bulk_apply_bmt_output", resourceCulture);
 
     public static string Playlist_summary_bulk_apply_output_base => ResourceManager.GetString("Playlist_summary_bulk_apply_output_base", resourceCulture);
+
+    public static string Playlist_summary_bulk_apply_external_property_initialization => ResourceManager.GetString("Playlist_summary_bulk_apply_external_property_initialization", resourceCulture);
+
+    public static string Playlist_summary_bulk_initialize_playlist_name => ResourceManager.GetString("Playlist_summary_bulk_initialize_playlist_name", resourceCulture);
+
+    public static string Playlist_summary_bulk_initialize_symbol => ResourceManager.GetString("Playlist_summary_bulk_initialize_symbol", resourceCulture);
+
+    public static string Playlist_summary_bulk_initialize_compat_prefix => ResourceManager.GetString("Playlist_summary_bulk_initialize_compat_prefix", resourceCulture);
+
+    public static string Playlist_summary_bulk_initialize_output_dir => ResourceManager.GetString("Playlist_summary_bulk_initialize_output_dir", resourceCulture);
 
     public static string Playlist_summary_bulk_no_change => ResourceManager.GetString("Playlist_summary_bulk_no_change", resourceCulture);
 

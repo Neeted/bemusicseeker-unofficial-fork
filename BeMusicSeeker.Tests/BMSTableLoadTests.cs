@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Reflection;
 using BeMusicSeeker.Models;
@@ -43,6 +44,15 @@ public sealed class BMSTableLoadTests
         PlaylistDataParseException exception = Assert.ThrowsException<PlaylistDataParseException>(() => table.LoadDataJSON("{ invalid json }"));
 
         Assert.IsNotNull(exception.InnerException);
+    }
+
+    [TestMethod]
+    public void NormalizeOutputDirectoryName_ResolvesRelativeSegmentsInsideManagedBase()
+    {
+        Assert.AreEqual(Path.Combine("Parent", "Child"), BMSTable.NormalizeOutputDirectoryName("Parent/./Child"));
+        Assert.AreEqual("Child", BMSTable.NormalizeOutputDirectoryName("Parent/../Child"));
+        Assert.AreEqual("Sibling", BMSTable.NormalizeOutputDirectoryName("../Sibling"));
+        Assert.IsNull(BMSTable.NormalizeOutputDirectoryName("../.."));
     }
 
     [TestMethod]

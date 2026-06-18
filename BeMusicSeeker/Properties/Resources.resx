@@ -1642,6 +1642,9 @@ maintenance の再スキャンや chart_info の全譜面補完は行いませ�
   <data name="Playlist_summary_bulk_output_base" xml:space="preserve">
     <value>OUTPUT</value>
   </data>
+  <data name="Playlist_summary_bulk_external_property_initialization" xml:space="preserve">
+    <value>外部データで初期化</value>
+  </data>
   <data name="Playlist_summary_bulk_apply_custom_folder_output" xml:space="preserve">
     <value>選択行へ一括適用</value>
   </data>
@@ -1656,6 +1659,21 @@ maintenance の再スキャンや chart_info の全譜面補完は行いませ�
   </data>
   <data name="Playlist_summary_bulk_apply_output_base" xml:space="preserve">
     <value>選択行へ一括適用</value>
+  </data>
+  <data name="Playlist_summary_bulk_apply_external_property_initialization" xml:space="preserve">
+    <value>選択行を初期化</value>
+  </data>
+  <data name="Playlist_summary_bulk_initialize_playlist_name" xml:space="preserve">
+    <value>プレイリスト名</value>
+  </data>
+  <data name="Playlist_summary_bulk_initialize_symbol" xml:space="preserve">
+    <value>記号</value>
+  </data>
+  <data name="Playlist_summary_bulk_initialize_compat_prefix" xml:space="preserve">
+    <value>フォルダ接頭辞</value>
+  </data>
+  <data name="Playlist_summary_bulk_initialize_output_dir" xml:space="preserve">
+    <value>フォルダ名</value>
   </data>
   <data name="Playlist_summary_bulk_no_change" xml:space="preserve">
     <value>変更なし</value>
