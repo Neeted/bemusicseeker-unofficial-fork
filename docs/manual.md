@@ -195,8 +195,8 @@ Configure recording format, quality, sample rate, output filename format, encode
 
 Change custom folder output destinations, difficulty table list acquisition URI, MD5-URL mapping TSV acquisition URI, and URL1/URL2 completion settings.
 
-`Normal output destination` is where ordinary custom folders corresponding to playlists are output.
-`Additional normal outputs` registers extra normal destinations that can be selected per playlist. The output folder name itself is used as the display name, and that name appears in the Playlist Summary `OUTPUT` column and playlist properties. In LR2-linked mode, each additional normal output is also registered as an LR2 BMS root and is automatically removed from the BMS roots when the output is removed. It cannot be the same as, a parent of, or a child of an existing BMS root or another custom-folder output destination. When an additional output is removed, playlists using it return to the normal output destination.
+`Normal output destination` is where ordinary custom folders corresponding to playlists are output. In LR2-linked mode, it is treated as a BeMusicSeeker-managed output destination, and required LR2 BMS root entries are synchronized on save and repaired at startup.
+`Additional normal outputs` registers extra normal destinations that can be selected per playlist. The output folder name itself is used as the display name, and that name appears in the Playlist Summary `OUTPUT` column and playlist properties. In LR2-linked mode, each additional normal output is also synchronized as an LR2 BMS root and is automatically removed from the BMS roots when the output is removed. It cannot be the same as, a parent of, or a child of an existing BMS root or another custom-folder output destination. When an additional output is removed, playlists using it return to the normal output destination.
 `Root folder output destination` is where playlists whose properties have `Make root folder` enabled are output. These appear at the root of the song selection screen, so frequently used tables can be accessed quickly.
 
 For URL completion, see [URL1/URL2 Completion](#url1url2-completion).
@@ -206,7 +206,7 @@ For URL completion, see [URL1/URL2 Completion](#url1url2-completion).
 ![Settings Install](img/設定_インストール.PNG)
 
 Configure the new install destination and the naming format used when creating new folders.
-In either operating mode, the install destination must be selected from inside a registered BMS directory.
+In either operating mode, the install destination must be selected from inside a registered BMS directory. In LR2-linked mode, BeMusicSeeker-managed custom-folder output destinations are hidden from the BMS directory list and new install destination choices.
 
 ### Backup
 

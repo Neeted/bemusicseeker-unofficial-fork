@@ -219,6 +219,68 @@ public sealed class LR2ConfigTests
     }
 
     [TestMethod]
+    public void PrepareNormalOutputBaseRoots_AddsNewDefaultAndRemovesOldDefault()
+    {
+        WithConfig("<config><system /><jukebox /></config>", delegate (string configPath, LR2Config config)
+        {
+            string tempRoot = Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(configPath)));
+            string oldDefaultBase = Path.Combine(tempRoot, "OldDefault");
+            string newDefaultBase = Path.Combine(tempRoot, "NewDefault");
+            Directory.CreateDirectory(oldDefaultBase);
+            Directory.CreateDirectory(newDefaultBase);
+            config.AddBMSSearchDirectories([oldDefaultBase]);
+
+            CustomFolderOutputBaseSearchRootSyncPlan plan =
+                CustomFolderOutputBaseSearchRootSyncService.PrepareNormalOutputBaseRoots(
+                    config,
+                    oldDefaultBase,
+                    newDefaultBase,
+                    "[]",
+                    "[]");
+
+            CollectionAssert.Contains(config.GetBMSSearchDirectories(), oldDefaultBase);
+            CollectionAssert.Contains(config.GetBMSSearchDirectories(), newDefaultBase);
+            CollectionAssert.Contains(plan.RemovedPaths.ToArray(), oldDefaultBase);
+
+            CustomFolderOutputBaseSearchRootSyncResult result =
+                CustomFolderOutputBaseSearchRootSyncService.CompleteAdditionalOutputBaseRootSync(config, plan);
+
+            Assert.IsTrue(result.Changed);
+            Assert.AreEqual(1, result.AddedCount);
+            Assert.AreEqual(1, result.RemovedCount);
+            CollectionAssert.DoesNotContain(config.GetBMSSearchDirectories(), oldDefaultBase);
+            CollectionAssert.Contains(config.GetBMSSearchDirectories(), newDefaultBase);
+        });
+    }
+
+    [TestMethod]
+    public void PrepareNormalOutputBaseRoots_PreservesOldAdditionalWhenPromotedToDefault()
+    {
+        WithConfig("<config><system /><jukebox /></config>", delegate (string configPath, LR2Config config)
+        {
+            string tempRoot = Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(configPath)));
+            string oldDefaultBase = Path.Combine(tempRoot, "OldDefault");
+            string promotedBase = Path.Combine(tempRoot, "Promoted");
+            Directory.CreateDirectory(oldDefaultBase);
+            Directory.CreateDirectory(promotedBase);
+            config.AddBMSSearchDirectories([oldDefaultBase, promotedBase]);
+            string previousAdditionalBase = CustomFolderOutputBaseRegistry.SerializeBaseDirectories([promotedBase]);
+
+            CustomFolderOutputBaseSearchRootSyncPlan plan =
+                CustomFolderOutputBaseSearchRootSyncService.PrepareNormalOutputBaseRoots(
+                    config,
+                    oldDefaultBase,
+                    promotedBase,
+                    previousAdditionalBase,
+                    "[]");
+
+            CollectionAssert.Contains(config.GetBMSSearchDirectories(), promotedBase);
+            CollectionAssert.Contains(plan.RemovedPaths.ToArray(), oldDefaultBase);
+            CollectionAssert.DoesNotContain(plan.RemovedPaths.ToArray(), promotedBase);
+        });
+    }
+
+    [TestMethod]
     public void PrepareAdditionalOutputBaseRoots_AddsNewRootBeforeOldRootRemoval()
     {
         WithConfig("<config><system /><jukebox /></config>", delegate (string configPath, LR2Config config)

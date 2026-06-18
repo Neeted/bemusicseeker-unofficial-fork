@@ -549,12 +549,12 @@
                 <GroupBox Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.CustomFolder, Mode=OneWay}" IsEnabled="{Binding settingDialog.OperationModeLR2DB}">
                   <StackPanel>
                     <DockPanel>
-                      <Button Width="75" DockPanel.Dock="Right" Height="24" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Add, Mode=OneWay}">
+                      <Button Width="75" DockPanel.Dock="Right" Height="24" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Browse, Mode=OneWay}">
                         <i:Interaction.Triggers>
                           <i:EventTrigger EventName="Click">
                             <v:CommonOpenFileDialogInteractionMessageAction>
-                              <l:DirectInteractionMessage CallbackCommand="{Binding settingDialog.AddBMSDirCommand}">
-                                <l:FolderSelectionMessage DialogPreference="FolderBrowser" MessageKey="{Binding Path.Path, ElementName=bindingLR2CustomFolderOutputDir}">
+                              <l:DirectInteractionMessage CallbackCommand="{Binding settingDialog.OpenRootFolderCommand}">
+                                <l:FolderSelectionMessage DialogPreference="FolderBrowser" MessageKey="settingDialog.LR2CustomFolderOutputDir">
                                   <l:FolderSelectionMessage.SelectedPath>
                                     <MultiBinding Converter="{StaticResource firstNonEmptyStringConverter}">
                                       <Binding Path="settingDialog.LR2CustomFolderOutputDir" />
@@ -567,7 +567,7 @@
                           </i:EventTrigger>
                         </i:Interaction.Triggers>
                       </Button>
-                      <ComboBox Name="comboBox" Height="24" IsReadOnly="True" HorizontalAlignment="Right" Width="245" DockPanel.Dock="Right" VerticalContentAlignment="Center" ItemsSource="{Binding settingDialog.LR2ConfigBMSDirectories, Mode=OneWay}" SelectedItem="{Binding Path=settingDialog.LR2CustomFolderOutputDir}" />
+                      <TextBox Name="customFolderOutputTextBox" Height="24" IsReadOnly="True" HorizontalAlignment="Right" Width="245" DockPanel.Dock="Right" VerticalContentAlignment="Center" Margin="0" Padding="3,0,0,0" Text="{Binding settingDialog.LR2CustomFolderOutputDir}" />
                       <Label Height="28" DockPanel.Dock="Right" HorizontalAlignment="Right" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_output, Mode=OneWay}" />
                     </DockPanel>
                     <DockPanel LastChildFill="False">
@@ -589,7 +589,7 @@
                           </i:EventTrigger>
                         </i:Interaction.Triggers>
                       </Button>
-                      <TextBox Height="24" IsReadOnly="True" DockPanel.Dock="Right" VerticalContentAlignment="Center" Margin="0" Padding="3,0,0,0" Width="{Binding ActualWidth, ElementName=comboBox, Mode=OneWay}">
+                      <TextBox Height="24" IsReadOnly="True" DockPanel.Dock="Right" VerticalContentAlignment="Center" Margin="0" Padding="3,0,0,0" Width="{Binding ActualWidth, ElementName=customFolderOutputTextBox, Mode=OneWay}">
                         <Binding x:Name="bindingLR2CustomFolderAsRootOutputDir" Path="settingDialog.LR2CustomFolderAsRootOutputDir" />
                       </TextBox>
                       <Label Height="28" DockPanel.Dock="Right" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_output_root, Mode=OneWay}" />

@@ -1247,6 +1247,8 @@ public class MainWindowViewModel : ViewModel
                 {
                     ownerViewModel.lr2config = value;
                     RaisePropertyChanged(() => LR2ConfigBMSDirectories);
+                    RaisePropertyChanged(() => AvailableBMSDirectories);
+                    RaisePropertyChanged(() => SelectedBmsSearchRootPath);
                     RaisePropertyChanged(() => LR2CustomFolderOutputDir);
                     RaisePropertyChanged(() => LR2CustomFolderAsRootOutputDir);
                     RaisePropertyChanged(() => BMSInstallDir);
@@ -1373,19 +1375,73 @@ public class MainWindowViewModel : ViewModel
         {
             get
             {
-                string rootDir = LR2CustomFolderAsRootOutputDir;
-                string tempRootDir = tempLR2CustomFolderAsRootOutputDir;
                 if (lr2config != null)
                 {
-                    return [.. (from d in lr2config.GetBMSSearchDirectories()
-                            where string.IsNullOrWhiteSpace(rootDir) || ownerViewModel.BMSTables == null || ownerViewModel.BMSTables.Where(t => t != null && t.is_root_folder && !string.IsNullOrWhiteSpace(t.Output_dir)).All(t => !string.Equals(d, Path.Combine(rootDir, t.Output_dir), StringComparison.OrdinalIgnoreCase) && (string.IsNullOrWhiteSpace(tempRootDir) || !string.Equals(d, Path.Combine(tempRootDir, t.Output_dir), StringComparison.OrdinalIgnoreCase)))
-                            select d)];
+                    return GetLR2UserBmsSearchRootDirectories();
                 }
                 return [];
             }
             private set
             {
             }
+        }
+
+        private List<string> GetLR2UserBmsSearchRootDirectories()
+        {
+            return [.. lr2config.GetBMSSearchDirectories()
+                .Where(directory => !IsManagedCustomFolderSearchRootPath(directory))];
+        }
+
+        internal bool IsManagedCustomFolderSearchRootPath(string path)
+        {
+            IReadOnlyList<string> managedRoots = GetManagedCustomFolderSearchRootDirectories(includePreviousSettings: true);
+            return ContainsSameOrChildDirectory(managedRoots, path);
+        }
+
+        private IReadOnlyList<string> GetManagedCustomFolderSearchRootDirectories(bool includePreviousSettings)
+        {
+            var paths = new List<string>
+            {
+                LR2CustomFolderOutputDir,
+                LR2CustomFolderAsRootOutputDir
+            };
+            paths.AddRange(CustomFolderAdditionalOutputBaseDirList);
+            paths.AddRange(CreateRootFolderOutputDirectories(LR2CustomFolderAsRootOutputDir));
+
+            if (includePreviousSettings)
+            {
+                paths.Add(tempLR2CustomFolderOutputDir);
+                paths.Add(tempLR2CustomFolderAsRootOutputDir);
+                paths.AddRange(CustomFolderOutputBaseRegistry.DeserializeBaseDirectories(tempLR2CustomFolderAdditionalOutputBaseDirs));
+                paths.AddRange(CreateRootFolderOutputDirectories(tempLR2CustomFolderAsRootOutputDir));
+            }
+
+            return CustomFolderOutputBaseRegistry.NormalizeBaseDirectories(paths);
+        }
+
+        private IEnumerable<string> CreateRootFolderOutputDirectories(string rootOutputBaseDirectory)
+        {
+            if (string.IsNullOrWhiteSpace(rootOutputBaseDirectory) || ownerViewModel.BMSTables == null)
+            {
+                return [];
+            }
+
+            return [.. ownerViewModel.BMSTables
+                .Where(table => table != null && table.is_root_folder && !string.IsNullOrWhiteSpace(table.Output_dir))
+                .Select(table => Path.Combine(rootOutputBaseDirectory, table.Output_dir))];
+        }
+
+        private static bool ContainsSameOrChildDirectory(IEnumerable<string> parentDirectories, string targetDirectory)
+        {
+            string normalizedTargetDirectory = CustomFolderOutputBaseRegistry.NormalizeDirectoryPath(targetDirectory);
+            return !string.IsNullOrWhiteSpace(normalizedTargetDirectory)
+                && parentDirectories != null
+                && parentDirectories.Any(parentDirectory =>
+                {
+                    string normalizedParentDirectory = CustomFolderOutputBaseRegistry.NormalizeDirectoryPath(parentDirectory);
+                    return !string.IsNullOrWhiteSpace(normalizedParentDirectory)
+                        && IsSameOrChildPath(normalizedTargetDirectory, normalizedParentDirectory);
+                });
         }
 
         public List<string> AvailableBMSDirectories
@@ -1410,12 +1466,18 @@ public class MainWindowViewModel : ViewModel
             {
                 if (value != null && !(Settings.Default.LR2CustomFolderOutputBaseDir == value))
                 {
-                    if (IsLR2CustomFolderOutputDirValid(value))
+                    if (ValidateCustomFolderOutputBaseDir(value, out string errMsg))
                     {
                         Settings.Default.LR2CustomFolderOutputBaseDir = value;
                     }
+                    else
+                    {
+                        ShowSettingValidationError(errMsg);
+                    }
                     RaisePropertyChanged("LR2CustomFolderOutputDir");
                     RaisePropertyChanged(() => LR2ConfigBMSDirectories);
+                    RaisePropertyChanged(() => AvailableBMSDirectories);
+                    RaisePropertyChanged(() => SelectedBmsSearchRootPath);
                     RaiseCustomFolderAdditionalOutputBasePropertiesChanged();
                     RaiseValidationStateChanged();
                 }
@@ -1452,19 +1514,30 @@ public class MainWindowViewModel : ViewModel
             {
                 if (value != null && !(Settings.Default.LR2CustomFolderOutputBaseDirRootType == value))
                 {
-                    if (IsLR2CustomFolderAsRootOutputDirValid(value))
+                    if (ValidateCustomFolderAsRootOutputBaseDir(value, out string errMsg))
                     {
                         Settings.Default.LR2CustomFolderOutputBaseDirRootType = value;
                     }
                     else
                     {
-                        ownerViewModel.RaiseInteractionMessageOnUiThread(new ConfirmationMessage("既に親ディレクトリが登録されています。", "エラー", MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
+                        ShowSettingValidationError(errMsg);
                     }
                     RaisePropertyChanged("LR2CustomFolderAsRootOutputDir");
                     RaisePropertyChanged(() => LR2ConfigBMSDirectories);
+                    RaisePropertyChanged(() => AvailableBMSDirectories);
+                    RaisePropertyChanged(() => SelectedBmsSearchRootPath);
                     RaiseValidationStateChanged();
                 }
             }
+        }
+
+        private void ShowSettingValidationError(string errMsg)
+        {
+            if (string.IsNullOrWhiteSpace(errMsg))
+            {
+                return;
+            }
+            ownerViewModel.RaiseInteractionMessageOnUiThread(new ConfirmationMessage(errMsg, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
         }
 
         public Uri TableListURL
@@ -2937,6 +3010,9 @@ public class MainWindowViewModel : ViewModel
             RaisePropertyChanged(() => CustomFolderAdditionalOutputBaseDirList);
             RaisePropertyChanged(() => SelectedCustomFolderAdditionalOutputBaseDir);
             RaisePropertyChanged(() => SelectedCustomFolderAdditionalOutputBaseName);
+            RaisePropertyChanged(() => LR2ConfigBMSDirectories);
+            RaisePropertyChanged(() => AvailableBMSDirectories);
+            RaisePropertyChanged(() => SelectedBmsSearchRootPath);
             RaisePropertyChanged(() => PlaylistPropertyOutputBaseOptions);
             RaiseValidationStateChanged();
         }
@@ -3054,11 +3130,7 @@ public class MainWindowViewModel : ViewModel
 
         private bool IsLR2CustomFolderOutputDirValid(string value)
         {
-            if (lr2config != null && value != null)
-            {
-                return lr2config.GetBMSSearchDirectories().Contains(value);
-            }
-            return false;
+            return ValidateCustomFolderOutputBaseDir(value, out _);
         }
 
         private bool IsBMSInstallDirValid()
@@ -3074,7 +3146,7 @@ public class MainWindowViewModel : ViewModel
             }
             if (OperationModeLR2DB && lr2config != null)
             {
-                return lr2config.GetBMSSearchDirectories().Contains(value);
+                return LR2ConfigBMSDirectories.Contains(value, StringComparer.OrdinalIgnoreCase);
             }
             return NormalizeStandaloneBmsRootPaths(StandaloneBmsRootPathList).Contains(value, StringComparer.OrdinalIgnoreCase);
         }
@@ -3086,11 +3158,7 @@ public class MainWindowViewModel : ViewModel
 
         private bool IsLR2CustomFolderAsRootOutputDirValid(string value)
         {
-            if (lr2config != null && value != null)
-            {
-                return lr2config.GetBMSSearchDirectories().All(d => !(value + Path.DirectorySeparatorChar).StartsWith(d + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase));
-            }
-            return false;
+            return ValidateCustomFolderAsRootOutputBaseDir(value, out _);
         }
 
         private bool IsTableListURLValid()
@@ -3474,6 +3542,183 @@ public class MainWindowViewModel : ViewModel
             }
         }
 
+        private bool ValidateCustomFolderOutputBaseDir(out string errMsg)
+        {
+            return ValidateCustomFolderOutputBaseDir(LR2CustomFolderOutputDir, out errMsg);
+        }
+
+        private bool ValidateCustomFolderOutputBaseDir(string path, out string errMsg)
+        {
+            errMsg = string.Empty;
+            try
+            {
+                string normalizedPath = CustomFolderOutputBaseRegistry.NormalizeDirectoryPath(path);
+                CustomFolderOutputBaseSearchRootSyncService.ValidateSjisDirectoryPath(normalizedPath, "通常出力先フォルダ");
+
+                string name = CustomFolderOutputBaseRegistry.GetDirectoryDisplayName(normalizedPath);
+                if (string.IsNullOrWhiteSpace(name))
+                {
+                    errMsg = "プレイリスト: 通常出力先のフォルダ名が空です";
+                    return false;
+                }
+
+                foreach (string additionalPath in CustomFolderAdditionalOutputBaseDirList)
+                {
+                    if (CustomFolderOutputBaseSearchRootSyncService.IsSameOrNestedDirectory(normalizedPath, additionalPath))
+                    {
+                        errMsg = "プレイリスト: 通常出力先と追加通常出力先を同じ場所または親子関係にすることはできません";
+                        return false;
+                    }
+                }
+
+                ValidateCustomFolderOutputBaseIsNotNestedWithPreviousManagedRoot(
+                    normalizedPath,
+                    "通常出力先",
+                    tempLR2CustomFolderOutputDir,
+                    "変更前の通常出力先",
+                    out errMsg);
+                if (!string.IsNullOrWhiteSpace(errMsg))
+                {
+                    return false;
+                }
+
+                foreach (string previousAdditionalPath in CustomFolderOutputBaseRegistry.DeserializeBaseDirectories(tempLR2CustomFolderAdditionalOutputBaseDirs))
+                {
+                    ValidateCustomFolderOutputBaseIsNotNestedWithPreviousManagedRoot(
+                        normalizedPath,
+                        "通常出力先",
+                        previousAdditionalPath,
+                        "変更前の追加通常出力先",
+                        out errMsg);
+                    if (!string.IsNullOrWhiteSpace(errMsg))
+                    {
+                        return false;
+                    }
+                }
+
+                if (CustomFolderOutputBaseSearchRootSyncService.IsSameOrNestedDirectory(normalizedPath, LR2CustomFolderAsRootOutputDir))
+                {
+                    errMsg = "プレイリスト: 通常出力先とルートフォルダ出力先を同じ場所または親子関係にすることはできません";
+                    return false;
+                }
+
+                if (!ValidateOutputBaseIsNotNestedWithUserBmsRoot(normalizedPath, "通常出力先", out errMsg))
+                {
+                    return false;
+                }
+
+                return true;
+            }
+            catch (Exception ex) when (ex is ArgumentException || ex is InvalidOperationException || ex is NotSupportedException || ex is PathTooLongException)
+            {
+                errMsg = "プレイリスト: " + ex.Message;
+                return false;
+            }
+        }
+
+        private static void ValidateCustomFolderOutputBaseIsNotNestedWithPreviousManagedRoot(
+            string outputBasePath,
+            string outputBaseLabel,
+            string previousManagedRootPath,
+            string previousManagedRootLabel,
+            out string errMsg)
+        {
+            errMsg = string.Empty;
+            if (string.IsNullOrWhiteSpace(previousManagedRootPath)
+                || CustomFolderOutputBaseSearchRootSyncService.IsSameDirectory(outputBasePath, previousManagedRootPath))
+            {
+                return;
+            }
+            if (CustomFolderOutputBaseSearchRootSyncService.IsSameOrNestedDirectory(outputBasePath, previousManagedRootPath))
+            {
+                errMsg = "プレイリスト: " + outputBaseLabel + "と" + previousManagedRootLabel + "を親子関係にすることはできません";
+            }
+        }
+
+        private bool ValidateCustomFolderAsRootOutputBaseDir(out string errMsg)
+        {
+            return ValidateCustomFolderAsRootOutputBaseDir(LR2CustomFolderAsRootOutputDir, out errMsg);
+        }
+
+        private bool ValidateCustomFolderAsRootOutputBaseDir(string path, out string errMsg)
+        {
+            errMsg = string.Empty;
+            try
+            {
+                string normalizedPath = CustomFolderOutputBaseRegistry.NormalizeDirectoryPath(path);
+                CustomFolderOutputBaseSearchRootSyncService.ValidateSjisDirectoryPath(normalizedPath, "ルートフォルダ出力先フォルダ");
+
+                string name = CustomFolderOutputBaseRegistry.GetDirectoryDisplayName(normalizedPath);
+                if (string.IsNullOrWhiteSpace(name))
+                {
+                    errMsg = "プレイリスト: ルートフォルダ出力先のフォルダ名が空です";
+                    return false;
+                }
+
+                if (CustomFolderOutputBaseSearchRootSyncService.IsSameOrNestedDirectory(normalizedPath, LR2CustomFolderOutputDir))
+                {
+                    errMsg = "プレイリスト: ルートフォルダ出力先と通常出力先を同じ場所または親子関係にすることはできません";
+                    return false;
+                }
+
+                foreach (string additionalPath in CustomFolderAdditionalOutputBaseDirList)
+                {
+                    if (CustomFolderOutputBaseSearchRootSyncService.IsSameOrNestedDirectory(normalizedPath, additionalPath))
+                    {
+                        errMsg = "プレイリスト: ルートフォルダ出力先と追加通常出力先を同じ場所または親子関係にすることはできません";
+                        return false;
+                    }
+                }
+
+                ValidateCustomFolderOutputBaseIsNotNestedWithPreviousManagedRoot(
+                    normalizedPath,
+                    "ルートフォルダ出力先",
+                    tempLR2CustomFolderAsRootOutputDir,
+                    "変更前のルートフォルダ出力先",
+                    out errMsg);
+                if (!string.IsNullOrWhiteSpace(errMsg))
+                {
+                    return false;
+                }
+
+                if (!ValidateOutputBaseIsNotNestedWithUserBmsRoot(normalizedPath, "ルートフォルダ出力先", out errMsg))
+                {
+                    return false;
+                }
+
+                return true;
+            }
+            catch (Exception ex) when (ex is ArgumentException || ex is InvalidOperationException || ex is NotSupportedException || ex is PathTooLongException)
+            {
+                errMsg = "プレイリスト: " + ex.Message;
+                return false;
+            }
+        }
+
+        private bool ValidateOutputBaseIsNotNestedWithUserBmsRoot(string normalizedPath, string outputBaseLabel, out string errMsg)
+        {
+            errMsg = string.Empty;
+            if (!OperationModeLR2DB || lr2config == null)
+            {
+                return true;
+            }
+
+            foreach (string bmsRoot in GetLR2UserBmsSearchRootDirectories())
+            {
+                if (CustomFolderOutputBaseSearchRootSyncService.IsSameDirectory(normalizedPath, bmsRoot))
+                {
+                    errMsg = "プレイリスト: " + outputBaseLabel + "は登録済みBMSディレクトリと同じ場所にはできません";
+                    return false;
+                }
+                if (CustomFolderOutputBaseSearchRootSyncService.IsSameOrNestedDirectory(normalizedPath, bmsRoot))
+                {
+                    errMsg = "プレイリスト: " + outputBaseLabel + "は登録済みBMSディレクトリの親または子にはできません";
+                    return false;
+                }
+            }
+            return true;
+        }
+
         private void ValidateCustomFolderAdditionalOutputBaseSearchRootPath(string path, string oldPath)
         {
             CustomFolderOutputBaseSearchRootSyncService.ValidateSjisDirectoryPath(path);
@@ -3489,6 +3734,11 @@ public class MainWindowViewModel : ViewModel
             {
                 if (!string.IsNullOrWhiteSpace(oldPath) && CustomFolderOutputBaseSearchRootSyncService.IsSameDirectory(oldPath, bmsRoot))
                 {
+                    if (!CustomFolderOutputBaseSearchRootSyncService.IsSameDirectory(path, bmsRoot)
+                        && CustomFolderOutputBaseSearchRootSyncService.IsSameOrNestedDirectory(path, bmsRoot))
+                    {
+                        throw new InvalidOperationException("追加出力先は変更前の追加出力先の親または子にはできません。");
+                    }
                     continue;
                 }
                 if (CustomFolderOutputBaseSearchRootSyncService.IsSameDirectory(path, bmsRoot))
@@ -3612,6 +3862,13 @@ public class MainWindowViewModel : ViewModel
                 if (nonSjisPaths.Count > 0)
                 {
                     throw new ArgumentException("パスにユニコード文字が含まれているためLR2で認識できません" + Environment.NewLine + string.Join(Environment.NewLine, nonSjisPaths));
+                }
+                IReadOnlyList<string> managedCustomFolderOutputRoots = GetManagedCustomFolderSearchRootDirectories(includePreviousSettings: true);
+                string conflictingPath = requestedPaths.FirstOrDefault(path =>
+                    managedCustomFolderOutputRoots.Any(root => CustomFolderOutputBaseSearchRootSyncService.IsSameOrNestedDirectory(path, root)));
+                if (!string.IsNullOrWhiteSpace(conflictingPath))
+                {
+                    throw new ArgumentException("BeMusicSeeker管理のカスタムフォルダ出力先はBMSディレクトリとして追加できません" + Environment.NewLine + conflictingPath);
                 }
                 lr2config.AddBMSSearchDirectories(requestedPaths);
                 isSearchRootsChanged = true;
@@ -3751,7 +4008,15 @@ public class MainWindowViewModel : ViewModel
                 {
                     throw new InvalidOperationException("カスタムフォルダ出力ディレクトリの登録解除は出来ません");
                 }
+                if (CustomFolderAdditionalOutputBaseDirList.Any(path => path != null && (path + Path.DirectorySeparatorChar).StartsWith(dir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)))
+                {
+                    throw new InvalidOperationException("追加通常出力先ディレクトリの登録解除は出来ません");
+                }
                 if (LR2CustomFolderAsRootOutputDir != null && (LR2CustomFolderAsRootOutputDir + Path.DirectorySeparatorChar).StartsWith(dir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new InvalidOperationException("カスタムフォルダ(ルート)出力ディレクトリの登録解除は出来ません");
+                }
+                if (CreateRootFolderOutputDirectories(LR2CustomFolderAsRootOutputDir).Any(path => path != null && (path + Path.DirectorySeparatorChar).StartsWith(dir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)))
                 {
                     throw new InvalidOperationException("カスタムフォルダ(ルート)出力ディレクトリの登録解除は出来ません");
                 }
@@ -3934,6 +4199,13 @@ public class MainWindowViewModel : ViewModel
             RaiseValidationStateChanged();
         }
 
+        internal void AcceptStartupBmsInstallDirRepair()
+        {
+            tempBMSInstallDir = Settings.Default.BMSInstallDir;
+            RaisePropertyChanged(() => BMSInstallDir);
+            RaiseValidationStateChanged();
+        }
+
         private async Task necessaryStepsAfterSaved()
         {
             if (ownerViewModel.tables == null)
@@ -3946,13 +4218,13 @@ public class MainWindowViewModel : ViewModel
                 {
                     await Task.Delay(100);
                 }
-                CustomFolderOutputBaseSearchRootSyncPlan additionalOutputBaseRootSyncPlan = default;
-                CustomFolderOutputBaseSearchRootSyncResult additionalOutputBaseRootSyncResult = default;
+                CustomFolderOutputBaseSearchRootSyncPlan normalOutputBaseRootSyncPlan = default;
+                CustomFolderOutputBaseSearchRootSyncResult normalOutputBaseRootSyncResult = default;
                 try
                 {
                     await Task.Run(delegate
                     {
-                        additionalOutputBaseRootSyncPlan = PrepareCustomFolderAdditionalOutputBaseSearchRootSync();
+                        normalOutputBaseRootSyncPlan = PrepareCustomFolderNormalOutputBaseSearchRootSync();
                         if (!string.IsNullOrWhiteSpace(tempLR2CustomFolderOutputDir) && !string.IsNullOrWhiteSpace(Settings.Default.LR2CustomFolderOutputBaseDir) && tempLR2CustomFolderOutputDir != Settings.Default.LR2CustomFolderOutputBaseDir)
                         {
                             ownerViewModel.tables.ChangeCustomFolderBaseDirectory(
@@ -3962,7 +4234,7 @@ public class MainWindowViewModel : ViewModel
                                 Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs);
                         }
                         ApplyCustomFolderAdditionalOutputBaseRegistrationChanges();
-                        additionalOutputBaseRootSyncResult = CompleteCustomFolderAdditionalOutputBaseSearchRootSync(additionalOutputBaseRootSyncPlan);
+                        normalOutputBaseRootSyncResult = CompleteCustomFolderNormalOutputBaseSearchRootSync(normalOutputBaseRootSyncPlan);
                         if (!string.IsNullOrWhiteSpace(tempLR2CustomFolderAsRootOutputDir) && !string.IsNullOrWhiteSpace(Settings.Default.LR2CustomFolderOutputBaseDirRootType) && tempLR2CustomFolderAsRootOutputDir != Settings.Default.LR2CustomFolderOutputBaseDirRootType)
                         {
                             ownerViewModel.tables.ChangeCustomFolderBaseDirectoryRoot(
@@ -3988,7 +4260,7 @@ public class MainWindowViewModel : ViewModel
                     NLogWrapper.FileLogger?.Error(ex, "necessaryStepsAfterSaved failed");
                     throw;
                 }
-                ApplyCustomFolderAdditionalOutputBaseSearchRootSyncResult(additionalOutputBaseRootSyncResult);
+                ApplyCustomFolderNormalOutputBaseSearchRootSyncResult(normalOutputBaseRootSyncResult);
             }
             if ((!Settings.Default.UsePlayeruBMplay && tempUsePlayeruBMplay != Settings.Default.UsePlayeruBMplay) || (!Settings.Default.UsePlayerBMIIDXView && tempUsePlayerBMIIDXView != Settings.Default.UsePlayerBMIIDXView) || (!Settings.Default.UsePlayerLR2body && tempUsePlayerLR2body != Settings.Default.UsePlayerLR2body) || (!Settings.Default.OperationModeLR2DB && tempOperationModeLR2DB != Settings.Default.OperationModeLR2DB))
             {
@@ -4089,18 +4361,19 @@ public class MainWindowViewModel : ViewModel
             }
         }
 
-        private CustomFolderOutputBaseSearchRootSyncPlan PrepareCustomFolderAdditionalOutputBaseSearchRootSync()
+        private CustomFolderOutputBaseSearchRootSyncPlan PrepareCustomFolderNormalOutputBaseSearchRootSync()
         {
             if (!Settings.Default.OperationModeLR2DB || lr2config == null)
             {
                 return default;
             }
 
-            CustomFolderOutputBaseSearchRootSyncPlan plan = CustomFolderOutputBaseSearchRootSyncService.PrepareAdditionalOutputBaseRoots(
+            CustomFolderOutputBaseSearchRootSyncPlan plan = CustomFolderOutputBaseSearchRootSyncService.PrepareNormalOutputBaseRoots(
                 lr2config,
+                tempLR2CustomFolderOutputDir,
+                Settings.Default.LR2CustomFolderOutputBaseDir,
                 tempLR2CustomFolderAdditionalOutputBaseDirs,
-                Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs,
-                [Settings.Default.LR2CustomFolderOutputBaseDir]);
+                Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs);
             if (plan.AddedCount > 0)
             {
                 lr2config.Save();
@@ -4108,7 +4381,7 @@ public class MainWindowViewModel : ViewModel
             return plan;
         }
 
-        private CustomFolderOutputBaseSearchRootSyncResult CompleteCustomFolderAdditionalOutputBaseSearchRootSync(CustomFolderOutputBaseSearchRootSyncPlan plan)
+        private CustomFolderOutputBaseSearchRootSyncResult CompleteCustomFolderNormalOutputBaseSearchRootSync(CustomFolderOutputBaseSearchRootSyncPlan plan)
         {
             if (!Settings.Default.OperationModeLR2DB || lr2config == null)
             {
@@ -4128,7 +4401,7 @@ public class MainWindowViewModel : ViewModel
             return result;
         }
 
-        private void ApplyCustomFolderAdditionalOutputBaseSearchRootSyncResult(CustomFolderOutputBaseSearchRootSyncResult result)
+        private void ApplyCustomFolderNormalOutputBaseSearchRootSyncResult(CustomFolderOutputBaseSearchRootSyncResult result)
         {
             if (!result.Changed)
             {
@@ -4348,9 +4621,19 @@ public class MainWindowViewModel : ViewModel
                     errMsg = errMsg + "プレイリスト: カスタムフォルダの出力パスが設定されていません" + Environment.NewLine;
                     result = false;
                 }
+                else if (!ValidateCustomFolderOutputBaseDir(out string outputBaseDirErrMsg))
+                {
+                    errMsg = errMsg + outputBaseDirErrMsg + Environment.NewLine;
+                    result = false;
+                }
                 if (string.IsNullOrWhiteSpace(LR2CustomFolderAsRootOutputDir))
                 {
                     errMsg = errMsg + "プレイリスト: カスタムフォルダ(ROOT)の出力パスが設定されていません" + Environment.NewLine;
+                    result = false;
+                }
+                else if (!ValidateCustomFolderAsRootOutputBaseDir(out string rootOutputBaseDirErrMsg))
+                {
+                    errMsg = errMsg + rootOutputBaseDirErrMsg + Environment.NewLine;
                     result = false;
                 }
                 if (!ValidateCustomFolderAdditionalOutputBaseDirs(out string additionalOutputBaseErrMsg))
@@ -16963,13 +17246,38 @@ public class MainWindowViewModel : ViewModel
                 lr2config,
                 Settings.Default.LR2CustomFolderOutputBaseDir,
                 Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs);
-        if (!result.Changed)
+        if (result.Changed)
         {
-            return;
+            lr2config.Save();
+            LogInitStage("custom_folder_output_search_root_repair added=" + result.AddedCount, "Initialize");
         }
 
-        lr2config.Save();
-        LogInitStage("custom_folder_output_search_root_repair added=" + result.AddedCount, "Initialize");
+        if (RepairBmsInstallDirIfManagedOutputSearchRoot())
+        {
+            Settings.Default.Save();
+        }
+    }
+
+    private bool RepairBmsInstallDirIfManagedOutputSearchRoot()
+    {
+        string currentInstallDir = CustomFolderOutputBaseRegistry.NormalizeDirectoryPath(Settings.Default.BMSInstallDir);
+        if (string.IsNullOrWhiteSpace(currentInstallDir)
+            || settingDialog.LR2ConfigBMSDirectories.Contains(currentInstallDir, StringComparer.OrdinalIgnoreCase)
+            || !settingDialog.IsManagedCustomFolderSearchRootPath(currentInstallDir))
+        {
+            return false;
+        }
+
+        string replacement = settingDialog.LR2ConfigBMSDirectories.FirstOrDefault();
+        if (string.IsNullOrWhiteSpace(replacement))
+        {
+            return false;
+        }
+
+        Settings.Default.BMSInstallDir = replacement;
+        settingDialog.AcceptStartupBmsInstallDirRepair();
+        LogInitStage("custom_folder_output_bms_install_dir_repair old=\"" + currentInstallDir + "\" new=\"" + replacement + "\"", "Initialize");
+        return true;
     }
 
     private void EnsureLR2DatabaseAutoReloadManualOnlyForStartup()
@@ -17017,8 +17325,9 @@ public class MainWindowViewModel : ViewModel
             RaiseInteractionMessageOnUiThread(new InteractionMessage("InitializationException"));
             return;
         }
-        if (!settingDialog.CheckValidation())
+        if (!settingDialog.CheckValidation(out string startupValidationErrorMessage))
         {
+            NLogWrapper.FileLogger?.Warn("startup_setting_validation_failed " + (startupValidationErrorMessage ?? string.Empty).Replace(Environment.NewLine, " | "));
             if (((App)System.Windows.Application.Current).firstStartup)
             {
                 _semaphore.Release();

@@ -71,6 +71,36 @@ internal static class CustomFolderOutputBaseSearchRootSyncService
         return CompleteAdditionalOutputBaseRootSync(config, plan);
     }
 
+    internal static CustomFolderOutputBaseSearchRootSyncPlan PrepareNormalOutputBaseRoots(
+        LR2Config config,
+        string previousDefaultBaseDirectory,
+        string currentDefaultBaseDirectory,
+        string previousSerializedAdditionalBaseDirectories,
+        string currentSerializedAdditionalBaseDirectories,
+        IEnumerable<string> preservedRootPaths = null)
+    {
+        if (config == null)
+        {
+            return default;
+        }
+
+        IReadOnlyList<string> previousPaths = CreateNormalOutputBaseRootSet(
+            previousDefaultBaseDirectory,
+            previousSerializedAdditionalBaseDirectories);
+        IReadOnlyList<string> currentPaths = CreateNormalOutputBaseRootSet(
+            currentDefaultBaseDirectory,
+            currentSerializedAdditionalBaseDirectories);
+        IReadOnlyList<string> preservedPaths = CustomFolderOutputBaseRegistry.NormalizeBaseDirectories(preservedRootPaths);
+        List<string> registeredBeforeRemove = config.GetBMSSearchDirectories();
+        List<string> removedPaths = [.. previousPaths.Where(path =>
+            !currentPaths.Contains(path, StringComparer.OrdinalIgnoreCase)
+            && !preservedPaths.Contains(path, StringComparer.OrdinalIgnoreCase)
+            && registeredBeforeRemove.Contains(path, StringComparer.OrdinalIgnoreCase))];
+
+        int addedCount = AddMissingSearchRoots(config, currentPaths, registeredBeforeRemove);
+        return new CustomFolderOutputBaseSearchRootSyncPlan(addedCount, removedPaths);
+    }
+
     internal static CustomFolderOutputBaseSearchRootSyncPlan PrepareAdditionalOutputBaseRoots(
         LR2Config config,
         string previousSerializedBaseDirectories,
@@ -111,15 +141,29 @@ internal static class CustomFolderOutputBaseSearchRootSyncService
 
     internal static void ValidateSjisDirectoryPath(string path)
     {
+        ValidateSjisDirectoryPath(path, "追加出力先フォルダ");
+    }
+
+    internal static void ValidateSjisDirectoryPath(string path, string pathLabel)
+    {
         string normalizedPath = CustomFolderOutputBaseRegistry.NormalizeDirectoryPath(path);
         if (string.IsNullOrWhiteSpace(normalizedPath))
         {
-            throw new ArgumentException("追加出力先フォルダが選択されていません。");
+            throw new ArgumentException(pathLabel + "が選択されていません。");
         }
         if (!normalizedPath.IsSjisSchemeString())
         {
-            throw new ArgumentException("追加出力先フォルダのパスにShift_JISで表現できない文字が含まれています。" + Environment.NewLine + normalizedPath);
+            throw new ArgumentException(pathLabel + "のパスにShift_JISで表現できない文字が含まれています。" + Environment.NewLine + normalizedPath);
         }
+    }
+
+    private static IReadOnlyList<string> CreateNormalOutputBaseRootSet(
+        string defaultBaseDirectory,
+        string serializedAdditionalBaseDirectories)
+    {
+        return CustomFolderOutputBaseRegistry.NormalizeBaseDirectories(
+            new[] { defaultBaseDirectory }
+                .Concat(CustomFolderOutputBaseRegistry.DeserializeBaseDirectoriesStrict(serializedAdditionalBaseDirectories)));
     }
 
     private static void EnsureSjisDirectoryExists(string path)

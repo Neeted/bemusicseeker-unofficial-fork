@@ -554,7 +554,7 @@ public sealed class MainWindowContextMenuResourceTests
             "public void SetuBMplayPanel()");
         string validationFailure = ExtractBetween(
             initialize,
-            "if (!settingDialog.CheckValidation())",
+            "if (!settingDialog.CheckValidation(out string startupValidationErrorMessage))",
             "if (Settings.Default.OperationModeLR2DB && !await EnsureAppSchemaRepairApprovedForStartupAsync())");
 
         Assert.IsFalse(validationFailure.Contains("DispatcherMessageBox.Show(BeMusicSeeker.Properties.Resources.Msg_init_settings,"));
