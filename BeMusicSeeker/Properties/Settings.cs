@@ -625,6 +625,20 @@ internal sealed class Settings : ApplicationSettingsBase
 
     [UserScopedSetting]
     [DebuggerNonUserCode]
+    public CustomTableColumnSettings PlayHistoryCustomTableColumnSettings
+    {
+        get
+        {
+            return (CustomTableColumnSettings)this["PlayHistoryCustomTableColumnSettings"];
+        }
+        set
+        {
+            this["PlayHistoryCustomTableColumnSettings"] = value;
+        }
+    }
+
+    [UserScopedSetting]
+    [DebuggerNonUserCode]
     [DefaultSettingValue("")]
     public string BMSInstallDir
     {
@@ -1554,6 +1568,17 @@ internal sealed class Settings : ApplicationSettingsBase
         {
             settings["AppearanceTheme"] = normalizedAppearanceTheme;
         }
+        EnsureColumnSettingDefaults(settings);
+        if (settings.WindowPlacement.NormalPosition.Left >= settings.WindowPlacement.NormalPosition.Right || settings.WindowPlacement.NormalPosition.Top >= settings.WindowPlacement.NormalPosition.Bottom)
+        {
+            Win32API.WINDOWPLACEMENT windowPlacement = settings.WindowPlacement;
+            windowPlacement.NormalPosition = new Win32API.RECT(0, 0, 1000, 800);
+            settings.WindowPlacement = windowPlacement;
+        }
+    }
+
+    internal static void EnsureColumnSettingDefaults(Settings settings)
+    {
         if (settings.StandardCustomTableColumnSettings == null)
         {
             settings.StandardCustomTableColumnSettings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD);
@@ -1590,6 +1615,10 @@ internal sealed class Settings : ApplicationSettingsBase
         {
             settings.ChartInfoParseErrorCustomTableColumnSettings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.CHART_INFO_PARSE_ERROR);
         }
+        if (settings.PlayHistoryCustomTableColumnSettings == null)
+        {
+            settings.PlayHistoryCustomTableColumnSettings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.PLAY_HISTORY);
+        }
         if (settings.PlaylistSummaryColumnsSettings == null)
         {
             settings.PlaylistSummaryColumnsSettings = new PlaylistSummaryColumnSettings();
@@ -1603,11 +1632,6 @@ internal sealed class Settings : ApplicationSettingsBase
         settings.EncodingCustomTableColumnSettings.EnsureChartInfoColumnDefaults(CustomTableColumnSettings.ViewKind.ENCODING);
         settings.InstallCustomTableColumnSettings.EnsureChartInfoColumnDefaults(CustomTableColumnSettings.ViewKind.INSTALL);
         settings.ChartInfoParseErrorCustomTableColumnSettings.EnsureChartInfoColumnDefaults(CustomTableColumnSettings.ViewKind.CHART_INFO_PARSE_ERROR);
-        if (settings.WindowPlacement.NormalPosition.Left >= settings.WindowPlacement.NormalPosition.Right || settings.WindowPlacement.NormalPosition.Top >= settings.WindowPlacement.NormalPosition.Bottom)
-        {
-            Win32API.WINDOWPLACEMENT windowPlacement = settings.WindowPlacement;
-            windowPlacement.NormalPosition = new Win32API.RECT(0, 0, 1000, 800);
-            settings.WindowPlacement = windowPlacement;
-        }
+        settings.PlayHistoryCustomTableColumnSettings.EnsurePlayHistoryColumnDefaults();
     }
 }

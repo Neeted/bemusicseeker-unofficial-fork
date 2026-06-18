@@ -1003,7 +1003,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        if (TryFindResource("tableColumnHeaderContextMenu") is not ContextMenu contextMenu)
+        CustomTableColumnSettings columnSettings = (base.DataContext as MainWindowViewModel)?.ColumnsSettingsChartRowsView;
+        if (TryFindResource(ResolveMainColumnHeaderContextMenuResourceKey(columnSettings)) is not ContextMenu contextMenu)
         {
             return;
         }
@@ -1012,6 +1013,18 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         contextMenu.PlacementTarget = customTableView;
         contextMenu.Placement = e.OpenAtMousePosition ? PlacementMode.MousePoint : PlacementMode.Bottom;
         contextMenu.IsOpen = true;
+    }
+
+    private static string ResolveMainColumnHeaderContextMenuResourceKey(CustomTableColumnSettings columnSettings)
+    {
+        return columnSettings?.Kind == CustomTableColumnSettings.ViewKind.PLAY_HISTORY
+            ? "playHistoryColumnHeaderContextMenu"
+            : "tableColumnHeaderContextMenu";
+    }
+
+    internal static string ResolveMainColumnHeaderContextMenuResourceKeyForTest(CustomTableColumnSettings columnSettings)
+    {
+        return ResolveMainColumnHeaderContextMenuResourceKey(columnSettings);
     }
 
     private void customTablePlaylistSummary_HeaderContextMenuRequested(object sender, CustomTableHeaderRequestedEventArgs e)

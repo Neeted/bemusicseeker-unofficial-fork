@@ -192,6 +192,91 @@ public sealed class CustomTableColumnFactoryTests
     }
 
     [TestMethod]
+    public void CreateMainColumns_UsesPlayHistoryColumnsForPlayHistoryView()
+    {
+        var settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.PLAY_HISTORY);
+
+        string[] ids = [.. CustomTableColumnFactory.CreateMainColumns(settings).Select(column => column.Id)];
+
+        CollectionAssert.AreEqual(
+            new[]
+            {
+                "PlayedAt",
+                "FolderLabels",
+                "Title",
+                "BestClear",
+                "BestDjLevel",
+                "BestRate",
+                "BestBp",
+                "BestCombo",
+                "Kind",
+                "OpHistory"
+            },
+            ids);
+    }
+
+    [TestMethod]
+    public void CreateMainColumns_PlayHistoryColumnsDoNotEnablePlaylistOrInstallEditing()
+    {
+        var settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.PLAY_HISTORY);
+        foreach (CustomTableColumnSettings.ColumnLayout layout in CustomTableColumnFactory.EnumerateMainColumnLayouts(settings))
+        {
+            layout.Visibility = Visibility.Visible;
+        }
+
+        CustomTableColumn[] columns = [.. CustomTableColumnFactory.CreateMainColumns(settings)];
+
+        Assert.IsFalse(columns.Any(column => !string.IsNullOrWhiteSpace(column.EditPropertyName)));
+        Assert.IsFalse(columns.Any(column => column.CellKind is CustomTableCellKind.DownloadIcon or CustomTableCellKind.CheckBox or CustomTableCellKind.ActionText));
+        Assert.IsFalse(columns.Any(column => column.Id is "Url1" or "Url2" or "InstallDst"));
+    }
+
+    [TestMethod]
+    public void CreateMainColumns_PlayHistoryVisibleSortMemberPathsAreAcceptedByPlayHistorySortEngine()
+    {
+        var settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.PLAY_HISTORY);
+        foreach (CustomTableColumnSettings.ColumnLayout layout in CustomTableColumnFactory.EnumerateMainColumnLayouts(settings))
+        {
+            layout.Visibility = Visibility.Visible;
+        }
+
+        CustomTableColumn[] sortableColumns = [.. CustomTableColumnFactory.CreateMainColumns(settings).Where(column => !string.IsNullOrWhiteSpace(column.SortMemberPath))];
+
+        CollectionAssert.AreEqual(
+            new[]
+            {
+                "PlayedAt",
+                "FolderLabels",
+                "Title",
+                "BestClear",
+                "BestDjLevel",
+                "BestRate",
+                "BestBp",
+                "BestCombo",
+                "Kind",
+                "OpHistory",
+                "Artist",
+                "BestExscore",
+                "PlayExscore",
+                "Judges",
+                "Option",
+                "Sha256",
+                "Provider",
+                "Source",
+                "RawHash",
+                "Finalized"
+            },
+            sortableColumns.Select(column => column.Id).ToArray());
+        Assert.IsTrue(sortableColumns.Length > 0);
+        foreach (CustomTableColumn column in sortableColumns)
+        {
+            Assert.IsTrue(
+                PlayHistorySortEngine.TryNormalizeSortColumn(column.SortMemberPath, out _),
+                column.Id + " uses unsupported PlayHistory sort path " + column.SortMemberPath);
+        }
+    }
+
+    [TestMethod]
     public void CreatePlaylistSummaryColumns_CreatesAllSummaryColumns()
     {
         var settings = new PlaylistSummaryColumnSettings();

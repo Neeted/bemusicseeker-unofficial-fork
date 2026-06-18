@@ -278,7 +278,9 @@ internal static class CustomTableColumnFactory
         {
             return [];
         }
-        CustomTableColumn[] columns = CreateAllMainColumns(settings);
+        CustomTableColumn[] columns = settings.Kind == CustomTableColumnSettings.ViewKind.PLAY_HISTORY
+            ? CreateAllPlayHistoryColumns(settings)
+            : CreateAllMainColumns(settings);
         return [.. columns
             .Where(column => column.IsVisible)
             .OrderBy(column => column.DisplayIndex >= 0 ? column.DisplayIndex : int.MaxValue)
@@ -291,7 +293,10 @@ internal static class CustomTableColumnFactory
         {
             yield break;
         }
-        foreach (CustomTableColumn column in CreateAllMainColumns(settings))
+        CustomTableColumn[] columns = settings.Kind == CustomTableColumnSettings.ViewKind.PLAY_HISTORY
+            ? CreateAllPlayHistoryColumns(settings)
+            : CreateAllMainColumns(settings);
+        foreach (CustomTableColumn column in columns)
         {
             if (column.Layout is CustomTableColumnSettings.ColumnLayout layout)
             {
@@ -384,6 +389,33 @@ internal static class CustomTableColumnFactory
             new CustomTableColumn("RankingLastupdate", "RANK UPDATE", settings.RankingLastupdate, 49, "rankingLastupdate", TextAlignment.Center, row => FormatShortDate(GetValue(row, "rankingLastupdate"))),
             new CustomTableColumn("TScore", "T-SCORE", settings.TScore, 50, "stddevVal", TextAlignment.Right, row => FormatFixedTwo(GetValue(row, "stddevVal"))),
             new CustomTableColumn("ScoreDifficulty", "ΔMAX", settings.ScoreDifficulty, 51, "scoreDifficulty", TextAlignment.Right, row => FormatFixedTwo(GetValue(row, "scoreDifficulty")))
+        ];
+    }
+
+    private static CustomTableColumn[] CreateAllPlayHistoryColumns(CustomTableColumnSettings settings)
+    {
+        return
+        [
+            new CustomTableColumn("PlayedAt", "DATE", settings.PlayHistoryPlayedAt, 0, nameof(PlayHistoryRow.PlayedAt), TextAlignment.Center, row => FormatDateTime(GetValue(row, nameof(PlayHistoryRow.PlayedAt))), minWidth: 120),
+            new CustomTableColumn("FolderLabels", "FOLDER", settings.PlayHistoryFolderLabels, 1, nameof(PlayHistoryRow.FolderLabels), TextAlignment.Left, row => GetString(row, nameof(PlayHistoryRow.FolderLabels)), tooltipSelector: row => GetString(row, nameof(PlayHistoryRow.PlaylistNames))),
+            new CustomTableColumn("Title", "TITLE", settings.Title, 2, nameof(PlayHistoryRow.Title), TextAlignment.Left, row => GetString(row, nameof(PlayHistoryRow.Title))),
+            new CustomTableColumn("Artist", "ARTIST", settings.Artist, 3, nameof(PlayHistoryRow.Artist), TextAlignment.Left, row => GetString(row, nameof(PlayHistoryRow.Artist))),
+            new CustomTableColumn("BestClear", "CLEAR", settings.PlayHistoryBestClear, 4, "BestClear", TextAlignment.Center, row => GetString(row, nameof(PlayHistoryRow.BestClear)), textStyle: CustomTableTextStyle.Score, autoTrimTooltip: false),
+            new CustomTableColumn("BestDjLevel", "BEST DJ", settings.PlayHistoryBestDjLevel, 5, "BestDjLevel", TextAlignment.Center, row => GetString(row, nameof(PlayHistoryRow.BestDjLevelText)), textStyle: CustomTableTextStyle.Rank, autoTrimTooltip: false),
+            new CustomTableColumn("BestRate", "BEST RATE", settings.PlayHistoryBestRate, 6, "BestRate", TextAlignment.Right, row => FormatPercentTwo(GetValue(row, nameof(PlayHistoryRow.BestRate))), autoTrimTooltip: false),
+            new CustomTableColumn("BestBp", "BP", settings.PlayHistoryBestBp, 7, "BestBp", TextAlignment.Right, row => GetString(row, nameof(PlayHistoryRow.BestBp))),
+            new CustomTableColumn("BestCombo", "COMBO", settings.PlayHistoryBestCombo, 8, "BestCombo", TextAlignment.Right, row => GetString(row, nameof(PlayHistoryRow.BestCombo))),
+            new CustomTableColumn("Kind", "TYPE", settings.PlayHistoryKind, 9, nameof(PlayHistoryRow.Kind), TextAlignment.Center, row => GetString(row, nameof(PlayHistoryRow.Kind))),
+            new CustomTableColumn("OpHistory", "OP HISTORY", settings.PlayHistoryOpHistory, 10, "OpHistory", TextAlignment.Center, row => GetString(row, nameof(PlayHistoryRow.OpHistory)), autoTrimTooltip: false),
+            new CustomTableColumn("BestExscore", "BEST EXSCORE", settings.PlayHistoryBestExscore, 11, "BestExscore", TextAlignment.Right, row => GetString(row, nameof(PlayHistoryRow.BestExscore))),
+            new CustomTableColumn("PlayExscore", "PLAY EXSCORE", settings.PlayHistoryPlayExscore, 12, "PlayExscore", TextAlignment.Right, row => GetString(row, nameof(PlayHistoryRow.PlayExscore))),
+            new CustomTableColumn("Judges", "JUDGES", settings.PlayHistoryJudges, 13, "JudgeTotal", TextAlignment.Left, row => GetString(row, nameof(PlayHistoryRow.Judges))),
+            new CustomTableColumn("Option", "OPTION", settings.PlayHistoryOption, 14, nameof(PlayHistoryRow.Option), TextAlignment.Left, row => GetString(row, nameof(PlayHistoryRow.Option))),
+            new CustomTableColumn("Sha256", "SHA256", settings.Sha256, 15, nameof(PlayHistoryRow.Sha256), TextAlignment.Center, row => GetString(row, nameof(PlayHistoryRow.Sha256)), maxWidth: 480),
+            new CustomTableColumn("Provider", "PROVIDER", settings.PlayHistoryProvider, 16, nameof(PlayHistoryRow.Provider), TextAlignment.Center, row => GetString(row, nameof(PlayHistoryRow.Provider))),
+            new CustomTableColumn("Source", "SOURCE", settings.PlayHistorySource, 17, nameof(PlayHistoryRow.Source), TextAlignment.Left, row => GetString(row, nameof(PlayHistoryRow.Source)), tooltipSelector: row => GetString(row, nameof(PlayHistoryRow.SourcePath))),
+            new CustomTableColumn("RawHash", "RAW HASH", settings.PlayHistoryRawHash, 18, nameof(PlayHistoryRow.RawHash), TextAlignment.Center, row => GetString(row, nameof(PlayHistoryRow.RawHash)), maxWidth: 240),
+            new CustomTableColumn("Finalized", "FINALIZED", settings.PlayHistoryFinalized, 19, nameof(PlayHistoryRow.Finalized), TextAlignment.Center, row => GetString(row, nameof(PlayHistoryRow.Finalized)), autoTrimTooltip: false)
         ];
     }
 
@@ -603,6 +635,37 @@ internal static class CustomTableColumnFactory
 
     private static object GetValue(object row, string propertyName)
     {
+        if (row is PlayHistoryRow playHistoryRow)
+        {
+            return propertyName switch
+            {
+                nameof(PlayHistoryRow.PlayedAt) => playHistoryRow.PlayedAt,
+                nameof(PlayHistoryRow.FolderLabels) => playHistoryRow.FolderLabels,
+                nameof(PlayHistoryRow.PlaylistNames) => playHistoryRow.PlaylistNames,
+                nameof(PlayHistoryRow.Title) => playHistoryRow.Title,
+                nameof(PlayHistoryRow.Artist) => playHistoryRow.Artist,
+                nameof(PlayHistoryRow.BestClear) => playHistoryRow.BestClear,
+                nameof(PlayHistoryRow.BestDjLevel) => playHistoryRow.BestDjLevel,
+                nameof(PlayHistoryRow.BestDjLevelText) => playHistoryRow.BestDjLevelText,
+                nameof(PlayHistoryRow.BestRate) => playHistoryRow.BestRate,
+                nameof(PlayHistoryRow.BestBp) => playHistoryRow.BestBp,
+                nameof(PlayHistoryRow.BestCombo) => playHistoryRow.BestCombo,
+                nameof(PlayHistoryRow.Kind) => playHistoryRow.Kind,
+                nameof(PlayHistoryRow.OpHistory) => playHistoryRow.OpHistory,
+                nameof(PlayHistoryRow.BestExscore) => playHistoryRow.BestExscore,
+                nameof(PlayHistoryRow.PlayExscore) => playHistoryRow.PlayExscore,
+                nameof(PlayHistoryRow.Judges) => playHistoryRow.Judges,
+                nameof(PlayHistoryRow.JudgeTotal) => playHistoryRow.JudgeTotal,
+                nameof(PlayHistoryRow.Option) => playHistoryRow.Option,
+                nameof(PlayHistoryRow.Sha256) => playHistoryRow.Sha256,
+                nameof(PlayHistoryRow.Provider) => playHistoryRow.Provider,
+                nameof(PlayHistoryRow.Source) => playHistoryRow.Source,
+                nameof(PlayHistoryRow.SourcePath) => playHistoryRow.SourcePath,
+                nameof(PlayHistoryRow.RawHash) => playHistoryRow.RawHash,
+                nameof(PlayHistoryRow.Finalized) => playHistoryRow.Finalized,
+                _ => row?.GetType().GetProperty(propertyName)?.GetValue(row, null),
+            };
+        }
         if (row is LibraryChartRow libraryRow)
         {
             return propertyName switch

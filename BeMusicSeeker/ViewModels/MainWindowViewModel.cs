@@ -6515,6 +6515,7 @@ public class MainWindowViewModel : ViewModel
         UnregisteredFilterSelected = 38,
         ZeroNoteFilterSelected = 39,
         ChartInfoParseErrorFilterSelected = 40,
+        PlayHistorySelected = 41,
         NewlyInstalledFolderSelected = 49,
         PendingInstallFolderSelected = 50,
         KeywordFilterUpdated = 65,
@@ -6530,7 +6531,8 @@ public class MainWindowViewModel : ViewModel
         InstallPending,
         InstallInstalled,
         FullScanCheck,
-        ChartInfoParseError
+        ChartInfoParseError,
+        PlayHistory
     }
 
     public enum FolderFilterType
@@ -7565,6 +7567,8 @@ public class MainWindowViewModel : ViewModel
     private int deferredPlaylistRefLastCompletedVersion;
 
     private string _WindowTitle = "BeMusicSeeker Unofficial Fork - ";
+
+    private static readonly PlayHistoryVirtualView EmptyPlayHistoryPlaceholderView = new([]);
 
     private IEnumerable<LibraryChartRow> ChartRowsFolderView;
 
@@ -12311,8 +12315,19 @@ public class MainWindowViewModel : ViewModel
             viewUpdateMode.PlaylistFilterSelected or viewUpdateMode.PlaylistNotOwnedFilterSelected => MainViewOperationSection.Playlist,
             viewUpdateMode.FullScanAllChartsFilterSelected or viewUpdateMode.FileMissingFilterSelected or viewUpdateMode.FileMissingIgnoredFilterSelected => MainViewOperationSection.FullScanCheck,
             viewUpdateMode.ChartInfoParseErrorFilterSelected => MainViewOperationSection.ChartInfoParseError,
+            viewUpdateMode.PlayHistorySelected => MainViewOperationSection.PlayHistory,
             _ => MainViewOperationSection.Library,
         };
+    }
+
+    private static bool IsPlayHistoryMainViewMode(viewUpdateMode mode, viewUpdateMode currentTreeMode)
+    {
+        return ResolveMainColumnSettingMode(mode, currentTreeMode) == viewUpdateMode.PlayHistorySelected;
+    }
+
+    internal static bool IsPlayHistoryMainViewModeForTest(viewUpdateMode mode, viewUpdateMode currentTreeMode)
+    {
+        return IsPlayHistoryMainViewMode(mode, currentTreeMode);
     }
 
     internal static ChartOperationSourceScope ResolveMainViewChartOperationSourceScope(MainViewOperationSection section)
@@ -19421,6 +19436,11 @@ public class MainWindowViewModel : ViewModel
         {
             return;
         }
+        if (IsPlayHistoryMainViewMode(mode, treeViewFilterTypeSelected))
+        {
+            ApplyPlayHistoryPlaceholderView(mode, requestedMode, parameter, viewBuildStopwatch);
+            return;
+        }
         UpdateBmsFilesViewBindingMode(IsPlaylistTreeActive(mode, treeViewFilterTypeSelected));
         if (IsPlaylistTreeActive(mode, treeViewFilterTypeSelected))
         {
@@ -19669,6 +19689,38 @@ public class MainWindowViewModel : ViewModel
             Interlocked.Exchange(ref lastPlaylistDetailBuildElapsedMs, viewBuildStopwatch.ElapsedMilliseconds);
         }
         LogMainViewBuild("main_view_build mode=" + mode + " requestedMode=" + requestedMode + " parameterType=" + parameterType + " folderMs=" + folderStageMs + " keywordMs=" + keywordStageMs + " modeMs=" + modeStageMs + " sortMs=" + sortStageMs + " sortReuse=" + sortReuse + " sortProfile=" + sortProfile + " sortEngine=fast fastSortEnabled=" + fastSortEnabled + " isPlaylistDetailView=" + isPlaylistDetailForLog + " columnMs=" + columnStageMs + " prepareSwapMs=" + prepareSwapMs + " columnSettingMs=" + columnSettingMs + " setViewMs=" + setViewMs + " columnSettingReuse=" + columnSettingReuse + " callbackMs=" + callbackStageMs + " totalMs=" + viewBuildStopwatch.ElapsedMilliseconds + " folderCount=" + folderCount + " keywordCount=" + keywordCount + " modeCount=" + modeCount + " viewCount=" + viewCount + " sortColumn=" + sortColumn + " sortDirection=" + sortDirection);
+    }
+
+    private void ApplyPlayHistoryPlaceholderView(viewUpdateMode mode, viewUpdateMode requestedMode, object parameter, Stopwatch viewBuildStopwatch)
+    {
+        UpdateBmsFilesViewBindingMode(playlistDetailActive: false);
+        ClearPlaylistSourceRows();
+        ChartRowsFolderView = [];
+        ChartRowsKeywordFilterView = [];
+        ChartRowsModeFilterView = [];
+        IList nextRowsView = ChartRowsView is PlayHistoryVirtualView playHistoryView && playHistoryView.Count == 0
+            ? ChartRowsView
+            : EmptyPlayHistoryPlaceholderView;
+        long prepareSwapMs = 0L;
+        if (!ReferenceEquals(ChartRowsView, nextRowsView))
+        {
+            long prepareStartMs = viewBuildStopwatch.ElapsedMilliseconds;
+            RaiseInteractionMessageOnUiThread(new InteractionMessage("PrepareMainTableSwap"));
+            prepareSwapMs = viewBuildStopwatch.ElapsedMilliseconds - prepareStartMs;
+        }
+        long columnSettingStartMs = viewBuildStopwatch.ElapsedMilliseconds;
+        bool columnSettingReuse = ApplyMainColumnSettingForViewUpdate(mode);
+        long columnSettingMs = viewBuildStopwatch.ElapsedMilliseconds - columnSettingStartMs;
+        long setViewMs = 0L;
+        if (!ReferenceEquals(ChartRowsView, nextRowsView))
+        {
+            long setViewStartMs = viewBuildStopwatch.ElapsedMilliseconds;
+            SetChartRowsView(nextRowsView);
+            setViewMs = viewBuildStopwatch.ElapsedMilliseconds - setViewStartMs;
+        }
+        SelectedIndexChartRowsView = -1;
+        string parameterType = parameter?.GetType().Name ?? "(null)";
+        LogMainViewBuildWarning("main_view_build mode=" + mode + " requestedMode=" + requestedMode + " parameterType=" + parameterType + " playHistoryProjection=not_connected viewCount=0 columnSettingMs=" + columnSettingMs + " prepareSwapMs=" + prepareSwapMs + " setViewMs=" + setViewMs + " columnSettingReuse=" + columnSettingReuse + " totalMs=" + viewBuildStopwatch.ElapsedMilliseconds);
     }
 
     private static int CountIfCheap<T>(IEnumerable<T> source)
@@ -20021,19 +20073,34 @@ public class MainWindowViewModel : ViewModel
 
     private bool IsMainColumnSettingTargetReady(viewUpdateMode mode)
     {
+        return IsMainColumnSettingTargetReady(mode, Settings.Default);
+    }
+
+    private static bool IsMainColumnSettingTargetReady(viewUpdateMode mode, Settings settings)
+    {
+        if (settings == null)
+        {
+            return false;
+        }
         return mode switch
         {
-            viewUpdateMode.PlaylistFilterSelected or viewUpdateMode.PlaylistNotOwnedFilterSelected => Settings.Default.PlaylistCustomTableColumnSettings != null,
-            viewUpdateMode.FolderFilterSelected => Settings.Default.StandardCustomTableColumnSettings != null,
-            viewUpdateMode.UnregisteredFilterSelected => Settings.Default.UnregisteredCustomTableColumnSettings != null,
-            viewUpdateMode.ZeroNoteFilterSelected => Settings.Default.ZeroNoteCustomTableColumnSettings != null,
-            viewUpdateMode.ChartInfoParseErrorFilterSelected => Settings.Default.ChartInfoParseErrorCustomTableColumnSettings != null,
-            viewUpdateMode.FileMissingFilterSelected or viewUpdateMode.FileMissingIgnoredFilterSelected or viewUpdateMode.FullScanAllChartsFilterSelected or viewUpdateMode.NewlyInstalledFolderSelected => Settings.Default.FullScanCustomTableColumnSettings != null,
-            viewUpdateMode.DuplicateFilterSelected => Settings.Default.DuplicateCustomTableColumnSettings != null,
-            viewUpdateMode.GarbledFilterSelected or viewUpdateMode.GarbleFixedFilterSelected => Settings.Default.EncodingCustomTableColumnSettings != null,
-            viewUpdateMode.PendingInstallFolderSelected => Settings.Default.InstallCustomTableColumnSettings != null,
+            viewUpdateMode.PlaylistFilterSelected or viewUpdateMode.PlaylistNotOwnedFilterSelected => settings.PlaylistCustomTableColumnSettings != null,
+            viewUpdateMode.FolderFilterSelected => settings.StandardCustomTableColumnSettings != null,
+            viewUpdateMode.UnregisteredFilterSelected => settings.UnregisteredCustomTableColumnSettings != null,
+            viewUpdateMode.ZeroNoteFilterSelected => settings.ZeroNoteCustomTableColumnSettings != null,
+            viewUpdateMode.ChartInfoParseErrorFilterSelected => settings.ChartInfoParseErrorCustomTableColumnSettings != null,
+            viewUpdateMode.FileMissingFilterSelected or viewUpdateMode.FileMissingIgnoredFilterSelected or viewUpdateMode.FullScanAllChartsFilterSelected or viewUpdateMode.NewlyInstalledFolderSelected => settings.FullScanCustomTableColumnSettings != null,
+            viewUpdateMode.DuplicateFilterSelected => settings.DuplicateCustomTableColumnSettings != null,
+            viewUpdateMode.GarbledFilterSelected or viewUpdateMode.GarbleFixedFilterSelected => settings.EncodingCustomTableColumnSettings != null,
+            viewUpdateMode.PendingInstallFolderSelected => settings.InstallCustomTableColumnSettings != null,
+            viewUpdateMode.PlayHistorySelected => settings.PlayHistoryCustomTableColumnSettings != null,
             _ => false,
         };
+    }
+
+    internal static bool IsMainColumnSettingTargetReadyForTest(viewUpdateMode mode, Settings settings)
+    {
+        return IsMainColumnSettingTargetReady(mode, settings);
     }
 
     private void loadColumnSetting(viewUpdateMode mode, bool isInit = false)
@@ -20165,6 +20232,19 @@ public class MainWindowViewModel : ViewModel
                 caseEnsureMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 stageStartMs = stopwatch.ElapsedMilliseconds;
                 ColumnsSettingsChartRowsView = Settings.Default.InstallCustomTableColumnSettings;
+                caseAssignMs = stopwatch.ElapsedMilliseconds - stageStartMs;
+                break;
+            case viewUpdateMode.PlayHistorySelected:
+                caseLabel = "play-history";
+                stageStartMs = stopwatch.ElapsedMilliseconds;
+                if (isInit || Settings.Default.PlayHistoryCustomTableColumnSettings == null)
+                {
+                    Settings.Default.PlayHistoryCustomTableColumnSettings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.PLAY_HISTORY);
+                }
+                Settings.Default.PlayHistoryCustomTableColumnSettings.EnsurePlayHistoryColumnDefaults();
+                caseEnsureMs = stopwatch.ElapsedMilliseconds - stageStartMs;
+                stageStartMs = stopwatch.ElapsedMilliseconds;
+                ColumnsSettingsChartRowsView = Settings.Default.PlayHistoryCustomTableColumnSettings;
                 caseAssignMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 break;
             default:

@@ -3,7 +3,9 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using System.Windows;
+using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
+using BeMusicSeeker.Views;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
@@ -207,12 +209,43 @@ public sealed class CustomTableColumnSettingsTests
     }
 
     [TestMethod]
+    public void Constructor_PlayHistoryDefaultsMatchInitialColumnOrder()
+    {
+        AssertVisibleColumnOrder(
+            new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.PLAY_HISTORY),
+            "PlayHistoryPlayedAt",
+            "PlayHistoryFolderLabels",
+            "Title",
+            "PlayHistoryBestClear",
+            "PlayHistoryBestDjLevel",
+            "PlayHistoryBestRate",
+            "PlayHistoryBestBp",
+            "PlayHistoryBestCombo",
+            "PlayHistoryKind",
+            "PlayHistoryOpHistory");
+    }
+
+    [TestMethod]
+    public void Constructor_PlayHistoryHidesMainOnlyLayouts()
+    {
+        var settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.PLAY_HISTORY);
+
+        Assert.AreEqual(Visibility.Hidden, settings.Status.Visibility);
+        Assert.AreEqual(Visibility.Hidden, settings.Folder.Visibility);
+        Assert.AreEqual(Visibility.Hidden, settings.Path.Visibility);
+        Assert.AreEqual(Visibility.Hidden, settings.Clear.Visibility);
+        Assert.AreEqual(Visibility.Hidden, settings.Rank.Visibility);
+        Assert.AreEqual(Visibility.Hidden, settings.Rate.Visibility);
+        Assert.AreEqual(Visibility.Hidden, settings.Bp.Visibility);
+    }
+
+    [TestMethod]
     public void Constructor_AssignsUniqueDisplayIndexToHiddenColumns()
     {
         foreach (CustomTableColumnSettings.ViewKind ViewKind in Enum.GetValues(typeof(CustomTableColumnSettings.ViewKind)))
         {
             var settings = new CustomTableColumnSettings(ViewKind);
-            int[] displayIndexes = [.. GetLayouts(settings).Select((item) => item.Layout.DisplayIndex)];
+            int[] displayIndexes = [.. GetActiveLayouts(settings).Select((item) => item.Layout.DisplayIndex)];
 
             Assert.AreEqual(displayIndexes.Length, displayIndexes.Distinct().Count(), ViewKind.ToString());
         }
@@ -263,9 +296,63 @@ public sealed class CustomTableColumnSettingsTests
         Assert.AreEqual(18, settings.Status.Width);
     }
 
+    [TestMethod]
+    public void EnsurePlayHistoryColumnDefaults_CompletesMissingLayoutsWithoutOverwritingExistingChoices()
+    {
+        var settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.PLAY_HISTORY);
+        settings.PlayHistoryBestExscore.Visibility = Visibility.Visible;
+        settings.PlayHistoryBestExscore.DisplayIndex = 77;
+        settings.PlayHistoryJudges = null;
+
+        settings.EnsurePlayHistoryColumnDefaults();
+
+        Assert.AreEqual(CustomTableColumnSettings.ViewKind.PLAY_HISTORY, settings.Kind);
+        Assert.IsNotNull(settings.PlayHistoryJudges);
+        Assert.AreEqual(Visibility.Visible, settings.PlayHistoryBestExscore.Visibility);
+        Assert.AreEqual(77, settings.PlayHistoryBestExscore.DisplayIndex);
+        Assert.IsTrue(GetActiveLayouts(settings).All(item => item.Layout.DisplayIndex >= 0), "missing display index remains");
+    }
+
+    [TestMethod]
+    public void EnsureColumnSettingDefaults_RecreatesAndCompletesPlayHistorySettings()
+    {
+        var settings = new Settings();
+        var existing = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.PLAY_HISTORY);
+        existing.PlayHistoryBestExscore.Visibility = Visibility.Visible;
+        existing.PlayHistoryBestExscore.DisplayIndex = 77;
+        existing.PlayHistoryJudges = null;
+        settings.PlayHistoryCustomTableColumnSettings = existing;
+
+        Settings.EnsureColumnSettingDefaults(settings);
+
+        Assert.AreSame(existing, settings.PlayHistoryCustomTableColumnSettings);
+        Assert.AreEqual(CustomTableColumnSettings.ViewKind.PLAY_HISTORY, settings.PlayHistoryCustomTableColumnSettings.Kind);
+        Assert.IsNotNull(settings.PlayHistoryCustomTableColumnSettings.PlayHistoryJudges);
+        Assert.AreEqual(Visibility.Visible, settings.PlayHistoryCustomTableColumnSettings.PlayHistoryBestExscore.Visibility);
+        Assert.AreEqual(77, settings.PlayHistoryCustomTableColumnSettings.PlayHistoryBestExscore.DisplayIndex);
+
+        settings.PlayHistoryCustomTableColumnSettings = null;
+        Settings.EnsureColumnSettingDefaults(settings);
+
+        Assert.IsNotNull(settings.PlayHistoryCustomTableColumnSettings);
+        Assert.AreEqual(CustomTableColumnSettings.ViewKind.PLAY_HISTORY, settings.PlayHistoryCustomTableColumnSettings.Kind);
+        AssertVisibleColumnOrder(
+            settings.PlayHistoryCustomTableColumnSettings,
+            "PlayHistoryPlayedAt",
+            "PlayHistoryFolderLabels",
+            "Title",
+            "PlayHistoryBestClear",
+            "PlayHistoryBestDjLevel",
+            "PlayHistoryBestRate",
+            "PlayHistoryBestBp",
+            "PlayHistoryBestCombo",
+            "PlayHistoryKind",
+            "PlayHistoryOpHistory");
+    }
+
     private static void AssertVisibleColumnOrder(CustomTableColumnSettings settings, params string[] expectedNames)
     {
-        string[] actualNames = [.. GetLayouts(settings)
+        string[] actualNames = [.. GetActiveLayouts(settings)
             .Where((item) => item.Layout.Visibility == Visibility.Visible)
             .OrderBy((item) => item.Layout.DisplayIndex)
             .Select((item) => item.Name)];
@@ -279,5 +366,11 @@ public sealed class CustomTableColumnSettingsTests
             .GetProperties(BindingFlags.Instance | BindingFlags.Public)
             .Where((property) => property.PropertyType == typeof(CustomTableColumnSettings.ColumnLayout))
             .Select((property) => (property.Name, Layout: (CustomTableColumnSettings.ColumnLayout)property.GetValue(settings)))];
+    }
+
+    private static IReadOnlyList<(string Name, CustomTableColumnSettings.ColumnLayout Layout)> GetActiveLayouts(CustomTableColumnSettings settings)
+    {
+        HashSet<CustomTableColumnSettings.ColumnLayout> activeLayouts = [.. CustomTableColumnFactory.EnumerateMainColumnLayouts(settings)];
+        return [.. GetLayouts(settings).Where((item) => item.Layout != null && activeLayouts.Contains(item.Layout))];
     }
 }

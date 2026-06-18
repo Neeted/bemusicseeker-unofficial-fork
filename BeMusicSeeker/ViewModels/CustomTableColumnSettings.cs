@@ -76,8 +76,11 @@ public class CustomTableColumnSettings : NotificationObject
         INSTALL,
         ZERO_NOTE,
         CHART_INFO_PARSE_ERROR,
-        UNREGISTERED
+        UNREGISTERED,
+        PLAY_HISTORY
     }
+
+    private ViewKind _Kind = ViewKind.STANDARD;
 
     private ColumnLayout _Status;
 
@@ -182,6 +185,56 @@ public class CustomTableColumnSettings : NotificationObject
     private ColumnLayout _ChartEndDensity;
 
     private ColumnLayout _ChartSoflan;
+
+    private ColumnLayout _PlayHistoryPlayedAt;
+
+    private ColumnLayout _PlayHistoryFolderLabels;
+
+    private ColumnLayout _PlayHistoryBestClear;
+
+    private ColumnLayout _PlayHistoryBestDjLevel;
+
+    private ColumnLayout _PlayHistoryBestRate;
+
+    private ColumnLayout _PlayHistoryBestBp;
+
+    private ColumnLayout _PlayHistoryBestCombo;
+
+    private ColumnLayout _PlayHistoryKind;
+
+    private ColumnLayout _PlayHistoryOpHistory;
+
+    private ColumnLayout _PlayHistoryBestExscore;
+
+    private ColumnLayout _PlayHistoryPlayExscore;
+
+    private ColumnLayout _PlayHistoryJudges;
+
+    private ColumnLayout _PlayHistoryOption;
+
+    private ColumnLayout _PlayHistoryProvider;
+
+    private ColumnLayout _PlayHistorySource;
+
+    private ColumnLayout _PlayHistoryRawHash;
+
+    private ColumnLayout _PlayHistoryFinalized;
+
+    public ViewKind Kind
+    {
+        get
+        {
+            return _Kind;
+        }
+        set
+        {
+            if (_Kind != value)
+            {
+                _Kind = value;
+                RaisePropertyChanged("Kind");
+            }
+        }
+    }
 
     public ColumnLayout Status
     {
@@ -860,6 +913,108 @@ public class CustomTableColumnSettings : NotificationObject
         set { if (_ChartSoflan != value) { _ChartSoflan = value; RaisePropertyChanged("ChartSoflan"); } }
     }
 
+    public ColumnLayout PlayHistoryPlayedAt
+    {
+        get { return _PlayHistoryPlayedAt ??= CreateHiddenLayout(130); }
+        set { if (_PlayHistoryPlayedAt != value) { _PlayHistoryPlayedAt = value; RaisePropertyChanged("PlayHistoryPlayedAt"); } }
+    }
+
+    public ColumnLayout PlayHistoryFolderLabels
+    {
+        get { return _PlayHistoryFolderLabels ??= CreateHiddenLayout(90); }
+        set { if (_PlayHistoryFolderLabels != value) { _PlayHistoryFolderLabels = value; RaisePropertyChanged("PlayHistoryFolderLabels"); } }
+    }
+
+    public ColumnLayout PlayHistoryBestClear
+    {
+        get { return _PlayHistoryBestClear ??= CreateHiddenLayout(120); }
+        set { if (_PlayHistoryBestClear != value) { _PlayHistoryBestClear = value; RaisePropertyChanged("PlayHistoryBestClear"); } }
+    }
+
+    public ColumnLayout PlayHistoryBestDjLevel
+    {
+        get { return _PlayHistoryBestDjLevel ??= CreateHiddenLayout(70); }
+        set { if (_PlayHistoryBestDjLevel != value) { _PlayHistoryBestDjLevel = value; RaisePropertyChanged("PlayHistoryBestDjLevel"); } }
+    }
+
+    public ColumnLayout PlayHistoryBestRate
+    {
+        get { return _PlayHistoryBestRate ??= CreateHiddenLayout(80); }
+        set { if (_PlayHistoryBestRate != value) { _PlayHistoryBestRate = value; RaisePropertyChanged("PlayHistoryBestRate"); } }
+    }
+
+    public ColumnLayout PlayHistoryBestBp
+    {
+        get { return _PlayHistoryBestBp ??= CreateHiddenLayout(70); }
+        set { if (_PlayHistoryBestBp != value) { _PlayHistoryBestBp = value; RaisePropertyChanged("PlayHistoryBestBp"); } }
+    }
+
+    public ColumnLayout PlayHistoryBestCombo
+    {
+        get { return _PlayHistoryBestCombo ??= CreateHiddenLayout(80); }
+        set { if (_PlayHistoryBestCombo != value) { _PlayHistoryBestCombo = value; RaisePropertyChanged("PlayHistoryBestCombo"); } }
+    }
+
+    public ColumnLayout PlayHistoryKind
+    {
+        get { return _PlayHistoryKind ??= CreateHiddenLayout(70); }
+        set { if (_PlayHistoryKind != value) { _PlayHistoryKind = value; RaisePropertyChanged("PlayHistoryKind"); } }
+    }
+
+    public ColumnLayout PlayHistoryOpHistory
+    {
+        get { return _PlayHistoryOpHistory ??= CreateHiddenLayout(90); }
+        set { if (_PlayHistoryOpHistory != value) { _PlayHistoryOpHistory = value; RaisePropertyChanged("PlayHistoryOpHistory"); } }
+    }
+
+    public ColumnLayout PlayHistoryBestExscore
+    {
+        get { return _PlayHistoryBestExscore ??= CreateHiddenLayout(100); }
+        set { if (_PlayHistoryBestExscore != value) { _PlayHistoryBestExscore = value; RaisePropertyChanged("PlayHistoryBestExscore"); } }
+    }
+
+    public ColumnLayout PlayHistoryPlayExscore
+    {
+        get { return _PlayHistoryPlayExscore ??= CreateHiddenLayout(100); }
+        set { if (_PlayHistoryPlayExscore != value) { _PlayHistoryPlayExscore = value; RaisePropertyChanged("PlayHistoryPlayExscore"); } }
+    }
+
+    public ColumnLayout PlayHistoryJudges
+    {
+        get { return _PlayHistoryJudges ??= CreateHiddenLayout(180); }
+        set { if (_PlayHistoryJudges != value) { _PlayHistoryJudges = value; RaisePropertyChanged("PlayHistoryJudges"); } }
+    }
+
+    public ColumnLayout PlayHistoryOption
+    {
+        get { return _PlayHistoryOption ??= CreateHiddenLayout(120); }
+        set { if (_PlayHistoryOption != value) { _PlayHistoryOption = value; RaisePropertyChanged("PlayHistoryOption"); } }
+    }
+
+    public ColumnLayout PlayHistoryProvider
+    {
+        get { return _PlayHistoryProvider ??= CreateHiddenLayout(70); }
+        set { if (_PlayHistoryProvider != value) { _PlayHistoryProvider = value; RaisePropertyChanged("PlayHistoryProvider"); } }
+    }
+
+    public ColumnLayout PlayHistorySource
+    {
+        get { return _PlayHistorySource ??= CreateHiddenLayout(120); }
+        set { if (_PlayHistorySource != value) { _PlayHistorySource = value; RaisePropertyChanged("PlayHistorySource"); } }
+    }
+
+    public ColumnLayout PlayHistoryRawHash
+    {
+        get { return _PlayHistoryRawHash ??= CreateHiddenLayout(240); }
+        set { if (_PlayHistoryRawHash != value) { _PlayHistoryRawHash = value; RaisePropertyChanged("PlayHistoryRawHash"); } }
+    }
+
+    public ColumnLayout PlayHistoryFinalized
+    {
+        get { return _PlayHistoryFinalized ??= CreateHiddenLayout(70); }
+        set { if (_PlayHistoryFinalized != value) { _PlayHistoryFinalized = value; RaisePropertyChanged("PlayHistoryFinalized"); } }
+    }
+
     public CustomTableColumnSettings()
     {
         Status = new ColumnLayout
@@ -1024,12 +1179,13 @@ public class CustomTableColumnSettings : NotificationObject
         {
             Width = 70
         };
-        ApplyColumnOrder(GetAllColumnLayouts());
+        ApplyColumnOrder(GetColumnLayoutsForCurrentKind());
     }
 
     public CustomTableColumnSettings(ViewKind type)
         : this()
     {
+        Kind = type;
         switch (type)
         {
             case ViewKind.STANDARD:
@@ -1176,10 +1332,27 @@ public class CustomTableColumnSettings : NotificationObject
                     ApplyInstallAndFullScanDefaults();
                     break;
                 }
+            case ViewKind.PLAY_HISTORY:
+                {
+                    ApplyPlayHistoryDefaults();
+                    break;
+                }
         }
     }
 
-    private ColumnLayout[] GetAllColumnLayouts()
+    private ColumnLayout[] GetColumnLayoutsForCurrentKind()
+    {
+        return Kind == ViewKind.PLAY_HISTORY ? GetPlayHistoryColumnLayouts() : GetMainColumnLayouts();
+    }
+
+    private ColumnLayout[] GetColumnLayoutsForVisibilityReset()
+    {
+        return Kind == ViewKind.PLAY_HISTORY
+            ? [.. GetMainColumnLayouts(), .. GetPlayHistoryColumnLayouts()]
+            : GetMainColumnLayouts();
+    }
+
+    private ColumnLayout[] GetMainColumnLayouts()
     {
         return
         [
@@ -1238,6 +1411,48 @@ public class CustomTableColumnSettings : NotificationObject
         ];
     }
 
+    private ColumnLayout[] GetPlayHistoryColumnLayouts()
+    {
+        return
+        [
+            PlayHistoryPlayedAt,
+            PlayHistoryFolderLabels,
+            Title,
+            Artist,
+            PlayHistoryBestClear,
+            PlayHistoryBestDjLevel,
+            PlayHistoryBestRate,
+            PlayHistoryBestBp,
+            PlayHistoryBestCombo,
+            PlayHistoryKind,
+            PlayHistoryOpHistory,
+            PlayHistoryBestExscore,
+            PlayHistoryPlayExscore,
+            PlayHistoryJudges,
+            PlayHistoryOption,
+            Sha256,
+            PlayHistoryProvider,
+            PlayHistorySource,
+            PlayHistoryRawHash,
+            PlayHistoryFinalized
+        ];
+    }
+
+    private void ApplyPlayHistoryDefaults()
+    {
+        ApplyVisibleColumnOrder(
+            PlayHistoryPlayedAt,
+            PlayHistoryFolderLabels,
+            Title,
+            PlayHistoryBestClear,
+            PlayHistoryBestDjLevel,
+            PlayHistoryBestRate,
+            PlayHistoryBestBp,
+            PlayHistoryBestCombo,
+            PlayHistoryKind,
+            PlayHistoryOpHistory);
+    }
+
     private void ApplyInstallAndFullScanDefaults()
     {
         ApplyVisibleColumnOrder(
@@ -1260,7 +1475,7 @@ public class CustomTableColumnSettings : NotificationObject
 
     private void ApplyVisibleColumnOrder(params ColumnLayout[] visibleLayouts)
     {
-        foreach (ColumnLayout layout in GetAllColumnLayouts())
+        foreach (ColumnLayout layout in GetColumnLayoutsForVisibilityReset())
         {
             layout.Visibility = Visibility.Hidden;
         }
@@ -1278,7 +1493,7 @@ public class CustomTableColumnSettings : NotificationObject
         {
             layout.DisplayIndex = displayIndex++;
         }
-        foreach (ColumnLayout layout in GetAllColumnLayouts())
+        foreach (ColumnLayout layout in GetColumnLayoutsForCurrentKind())
         {
             if (Array.IndexOf(firstLayouts, layout) < 0)
             {
@@ -1289,6 +1504,7 @@ public class CustomTableColumnSettings : NotificationObject
 
     public void EnsureChartInfoColumnDefaults(ViewKind type)
     {
+        Kind = type;
         EnsureStatusColumnDefaults();
         _ = EntryLevel;
         _ = ChartDifficulty;
@@ -1307,6 +1523,49 @@ public class CustomTableColumnSettings : NotificationObject
         _ = ChartPeakDensity;
         _ = ChartEndDensity;
         _ = ChartSoflan;
+    }
+
+    public void EnsurePlayHistoryColumnDefaults()
+    {
+        Kind = ViewKind.PLAY_HISTORY;
+        _ = PlayHistoryPlayedAt;
+        _ = PlayHistoryFolderLabels;
+        _ = PlayHistoryBestClear;
+        _ = PlayHistoryBestDjLevel;
+        _ = PlayHistoryBestRate;
+        _ = PlayHistoryBestBp;
+        _ = PlayHistoryBestCombo;
+        _ = PlayHistoryKind;
+        _ = PlayHistoryOpHistory;
+        _ = PlayHistoryBestExscore;
+        _ = PlayHistoryPlayExscore;
+        _ = PlayHistoryJudges;
+        _ = PlayHistoryOption;
+        _ = PlayHistoryProvider;
+        _ = PlayHistorySource;
+        _ = PlayHistoryRawHash;
+        _ = PlayHistoryFinalized;
+        EnsureMissingDisplayIndexes();
+    }
+
+    private void EnsureMissingDisplayIndexes()
+    {
+        ColumnLayout[] layouts = GetColumnLayoutsForCurrentKind();
+        int displayIndex = -1;
+        foreach (ColumnLayout layout in layouts)
+        {
+            if (layout != null && layout.DisplayIndex > displayIndex)
+            {
+                displayIndex = layout.DisplayIndex;
+            }
+        }
+        foreach (ColumnLayout layout in layouts)
+        {
+            if (layout != null && layout.DisplayIndex < 0)
+            {
+                layout.DisplayIndex = ++displayIndex;
+            }
+        }
     }
 
     private static ColumnLayout CreateHiddenLayout(int width)
