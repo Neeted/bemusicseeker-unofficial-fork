@@ -6,7 +6,7 @@
 
 初期実装は LR2 provider を対象にする。ここでいう LR2 provider は LR2 / OpenLR2 のプレイヤー別 score DB を入力にする provider である。LR2 実装後に beatoraja provider を追加する前提で、表示用 model、UI、列設定、検索・summary の境界は最初から provider 非依存にする。
 
-この資料は BeMusicSeeker repository 側の実装計画として `devdocs/plan/playlog/BeMusicSeeker_PlayHistory_Implementation_Plan.md` に置く。LR2 score DB に追加する table / trigger の仕様は、同じ directory の `BeMusicSeeker_LR2_PlayHistory_Trigger_Proposal.md` を正本として参照する。実装が安定したら、確定した仕様を `devdocs/spec/play-history.md` と `docs/manual.ja.md` へ昇格・反映する。
+この資料は BeMusicSeeker repository 側の実装計画として `devdocs/plan/playlog/BeMusicSeeker_PlayHistory_Implementation_Plan.md` に置く。LR2 score DB に追加する table / trigger の仕様は、同じ directory の `BeMusicSeeker_LR2_PlayHistory_Trigger_Proposal.md` を正本として参照する。実装が安定したら、確定した仕様を `devdocs/spec/play-history.md` と `docs/manual.ja.md` / `docs/manual.md` へ昇格・反映する。
 
 ## 参照する既存仕様
 
@@ -360,7 +360,7 @@ Play history view 用の keyword search context を追加する。既存 chart l
 - [ ] `devdocs/plan/playlog/BeMusicSeeker_LR2_PlayHistory_Trigger_Proposal.md` を LR2 score DB trigger 仕様資料として維持する。
 - [ ] 本資料を BeMusicSeeker 実装計画として `devdocs/plan/playlog/BeMusicSeeker_PlayHistory_Implementation_Plan.md` に維持する。
 - [ ] 実装後に `devdocs/spec/play-history.md` へ昇格する項目を決める。
-- [ ] `docs/manual.ja.md` の追加章案を作る。
+- [ ] `docs/manual.ja.md` / `docs/manual.md` の追加章案を作る。
 
 完了条件:
 
@@ -585,7 +585,7 @@ Play history view 用の keyword search context を追加する。既存 chart l
 - [ ] `folder` table sync projection にも同じ command を入れる。
 - [ ] `bms_lr2_last_play` が無い場合は score / playcount / playlist 更新日時へ意味を変えて fallback しない。未導入として UI / diagnostics に出し、存在しない table を参照する command を生成しない。
 - [ ] `playlist_custom_folder_output_status` の fingerprint に last play sort output bit を含める。
-- [ ] manual / spec に `LAST PLAY SORT` を追記する。
+- [ ] `docs/manual.ja.md` / `docs/manual.md` / spec に `LAST PLAY SORT` を追記する。
 - [ ] LR2 で play 後に `.lr2folder` 再出力不要で並びが変わることを仕様として明記する。
 
 テスト:
@@ -650,14 +650,14 @@ Play history view 用の keyword search context を追加する。既存 chart l
 - [ ] `finalized = 0` や異常値を診断表示に出す。
 - [ ] `LR2 score DB に履歴 trigger を導入する` 操作の注意文を追加する。
 - [ ] backup 対象に score DB を含める注意を更新する。
-- [ ] `docs/manual.ja.md` に `プレイログ` 章を追加する。
+- [ ] `docs/manual.ja.md` に `プレイログ` 章、`docs/manual.md` に対応する英語章を追加する。
 - [ ] `devdocs/spec/play-history.md` を作り、実装済み仕様を正本化する。
 - [ ] log event を `play_history_schema_*`, `play_history_read_*`, `play_history_projection_*`, `play_history_view_*` のように段階別に出す。
 
 テスト:
 
 - [ ] schema missing / trigger missing / locked / read-only の表示確認。
-- [ ] manual 画像更新は UI mock ではなく実画面 screenshot で行う。
+- [ ] manual 画像更新は UI mock ではなく実画面 screenshot で行う。日英 manual の参照画像・説明が同じ実装状態を指すようにする。
 
 完了条件:
 
@@ -726,7 +726,7 @@ Play history view 用の keyword search context を追加する。既存 chart l
 
 ## マニュアル更新案
 
-`docs/manual.ja.md` には実装後に次を追加する。
+`docs/manual.ja.md` と英語版 `docs/manual.md` には、実装後に同じ内容をそれぞれの言語で追加する。片方だけ更新して完了扱いにしない。
 
 - `はじめに` の追加機能に `LR2 / beatoraja プレイログ表示` を追加。
 - `設定画面 > LR2と連携する` に、`プレイログ` 状態表示、`プレイログを有効化...` / `修復...` ボタン、警告 dialog の意味を追加。
