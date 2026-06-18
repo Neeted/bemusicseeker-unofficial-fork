@@ -12,6 +12,7 @@ using System.Windows.Data;
 using System.Windows.Markup;
 using System.Windows.Navigation;
 using System.Windows.Threading;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
@@ -60,11 +61,12 @@ public partial class SettingDialog : UserControl, IComponentConnector
         }
     }
 
-    private void SettingDialogIsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
+    private async void SettingDialogIsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
     {
         if (e.NewValue is true && base.DataContext is MainWindowViewModel { settingDialog: { } settingDialogViewModel })
         {
             SyncAppearanceThemeSelection(settingDialogViewModel);
+            await RefreshLr2PlayHistorySchemaStatusAsync(settingDialogViewModel);
         }
     }
 
@@ -202,6 +204,107 @@ public partial class SettingDialog : UserControl, IComponentConnector
                 viewModel.BackupBMSTables(fileDialog.FileName);
             }).Logging("detailTabItemBackupButtonClicked");
             settingDialogRootGrid.IsEnabled = true;
+        }
+    }
+
+    private async void refreshLr2PlayHistorySchemaButtonClicked(object sender, RoutedEventArgs e)
+    {
+        if (base.DataContext is MainWindowViewModel { settingDialog: { } settingDialogViewModel })
+        {
+            await RefreshLr2PlayHistorySchemaStatusAsync(settingDialogViewModel);
+        }
+    }
+
+    private async void installLr2PlayHistorySchemaButtonClicked(object sender, RoutedEventArgs e)
+    {
+        await InstallOrRepairLr2PlayHistorySchemaAsync(isRepair: false);
+    }
+
+    private async void repairLr2PlayHistorySchemaButtonClicked(object sender, RoutedEventArgs e)
+    {
+        await InstallOrRepairLr2PlayHistorySchemaAsync(isRepair: true);
+    }
+
+    private async Task InstallOrRepairLr2PlayHistorySchemaAsync(bool isRepair)
+    {
+        if (base.DataContext is not MainWindowViewModel { settingDialog: { } settingDialogViewModel } viewModel)
+        {
+            return;
+        }
+        if (viewModel.IsLibraryOperationInProgress)
+        {
+            DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_settings_apply_blocked_during_initialization, BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation);
+            return;
+        }
+
+        await RefreshLr2PlayHistorySchemaStatusAsync(settingDialogViewModel);
+        if ((isRepair && !settingDialogViewModel.CanRepairLr2PlayHistorySchema)
+            || (!isRepair && !settingDialogViewModel.CanInstallLr2PlayHistorySchema))
+        {
+            return;
+        }
+        if (DispatcherMessageBox.Show(
+            Window.GetWindow(this),
+            BeMusicSeeker.Properties.Resources.Msg_confirm_lr2_play_history_schema_install_or_repair
+                + Environment.NewLine
+                + Environment.NewLine
+                + "score DB: "
+                + settingDialogViewModel.Lr2PlayHistoryScoreDbPath,
+            BeMusicSeeker.Properties.Resources.Confirm,
+            MessageBoxButton.OKCancel,
+            MessageBoxImage.Exclamation,
+            MessageBoxResult.Cancel) != MessageBoxResult.OK)
+        {
+            return;
+        }
+
+        settingDialogRootGrid.IsEnabled = false;
+        try
+        {
+            Lr2PlayHistorySchemaCheckResult result = await Task.Run(settingDialogViewModel.InstallOrRepairLr2PlayHistorySchemaCore);
+            settingDialogViewModel.ApplyLr2PlayHistorySchemaCheckResult(result);
+            if (result.Status == Lr2PlayHistorySchemaStatus.Installed)
+            {
+                DispatcherMessageBox.Show(
+                    Window.GetWindow(this),
+                    BeMusicSeeker.Properties.Resources.Msg_success_lr2_play_history_schema_install_or_repair,
+                    BeMusicSeeker.Properties.Resources.Success,
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Asterisk);
+                if (viewModel.HasActiveLibraryProfile)
+                {
+                    viewModel.ReloadScoresOnly();
+                }
+                return;
+            }
+
+            DispatcherMessageBox.Show(
+                Window.GetWindow(this),
+                result.Message,
+                BeMusicSeeker.Properties.Resources.Warning,
+                MessageBoxButton.OK,
+                MessageBoxImage.Exclamation);
+        }
+        catch (Exception ex)
+        {
+            DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + Environment.NewLine + ex.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxButton.OK, MessageBoxImage.Hand);
+        }
+        finally
+        {
+            settingDialogRootGrid.IsEnabled = true;
+        }
+    }
+
+    private static async Task RefreshLr2PlayHistorySchemaStatusAsync(MainWindowViewModel.SettingDialogViewModel settingDialogViewModel)
+    {
+        string expectedScoreDbPath = settingDialogViewModel.Lr2PlayHistoryScoreDbPath;
+        bool expectedOperationMode = settingDialogViewModel.OperationModeLR2DB;
+        Lr2PlayHistorySchemaCheckResult result = await Task.Run(() =>
+            settingDialogViewModel.CheckLr2PlayHistorySchemaCore(expectedScoreDbPath, expectedOperationMode));
+        if (expectedOperationMode == settingDialogViewModel.OperationModeLR2DB
+            && string.Equals(expectedScoreDbPath, settingDialogViewModel.Lr2PlayHistoryScoreDbPath, StringComparison.OrdinalIgnoreCase))
+        {
+            settingDialogViewModel.ApplyLr2PlayHistorySchemaCheckResult(result);
         }
     }
 

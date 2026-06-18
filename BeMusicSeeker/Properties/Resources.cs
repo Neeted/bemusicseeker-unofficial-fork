@@ -417,6 +417,32 @@ public class Resources
 
     public static string Msg_confirm_lr2_song_db_sync_data_resync => ResourceManager.GetString("Msg_confirm_lr2_song_db_sync_data_resync", resourceCulture);
 
+    public static string Lr2_play_history_schema_label => ResourceManager.GetString("Lr2_play_history_schema_label", resourceCulture);
+
+    public static string Lr2_play_history_schema_refresh => ResourceManager.GetString("Lr2_play_history_schema_refresh", resourceCulture);
+
+    public static string Lr2_play_history_schema_install => ResourceManager.GetString("Lr2_play_history_schema_install", resourceCulture);
+
+    public static string Lr2_play_history_schema_repair => ResourceManager.GetString("Lr2_play_history_schema_repair", resourceCulture);
+
+    public static string Lr2_play_history_schema_status_unknown => ResourceManager.GetString("Lr2_play_history_schema_status_unknown", resourceCulture);
+
+    public static string Lr2_play_history_schema_status_installed => ResourceManager.GetString("Lr2_play_history_schema_status_installed", resourceCulture);
+
+    public static string Lr2_play_history_schema_status_not_installed => ResourceManager.GetString("Lr2_play_history_schema_status_not_installed", resourceCulture);
+
+    public static string Lr2_play_history_schema_status_repairable => ResourceManager.GetString("Lr2_play_history_schema_status_repairable", resourceCulture);
+
+    public static string Lr2_play_history_schema_status_manual_repair_required => ResourceManager.GetString("Lr2_play_history_schema_status_manual_repair_required", resourceCulture);
+
+    public static string Lr2_play_history_schema_status_unreadable => ResourceManager.GetString("Lr2_play_history_schema_status_unreadable", resourceCulture);
+
+    public static string Lr2_play_history_schema_status_skipped_profile => ResourceManager.GetString("Lr2_play_history_schema_status_skipped_profile", resourceCulture);
+
+    public static string Msg_confirm_lr2_play_history_schema_install_or_repair => ResourceManager.GetString("Msg_confirm_lr2_play_history_schema_install_or_repair", resourceCulture);
+
+    public static string Msg_success_lr2_play_history_schema_install_or_repair => ResourceManager.GetString("Msg_success_lr2_play_history_schema_install_or_repair", resourceCulture);
+
     public static string Lr2_song_db_sync_cleanup_startup_scan_blockers => ResourceManager.GetString("Lr2_song_db_sync_cleanup_startup_scan_blockers", resourceCulture);
 
     public static string Msg_confirm_lr2_song_db_sync_startup_scan_blocker_cleanup => ResourceManager.GetString("Msg_confirm_lr2_song_db_sync_startup_scan_blocker_cleanup", resourceCulture);

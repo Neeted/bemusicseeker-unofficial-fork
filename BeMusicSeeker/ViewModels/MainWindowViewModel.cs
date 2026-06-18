@@ -556,6 +556,10 @@ public class MainWindowViewModel : ViewModel
 
         private string tempLR2ConfigXmlPath;
 
+        private Lr2PlayHistorySchemaCheckResult lr2PlayHistorySchemaCheckResult;
+
+        private string lr2PlayHistoryScoreDbPath;
+
         private bool tempUseBeatorajaScoreDb;
 
         private string tempBeatorajaRootPath;
@@ -779,6 +783,7 @@ public class MainWindowViewModel : ViewModel
             RaisePropertyChanged(() => BMSInstallDir);
             RaiseValidationStateChanged();
             ownerViewModel.RaiseLr2SongDbSyncDataResyncAvailabilityChanged();
+            ResetLr2PlayHistorySchemaStatus();
         }
 
         private void ConfirmAndRestartForOperationModeChange(bool value)
@@ -881,6 +886,7 @@ public class MainWindowViewModel : ViewModel
                 RaisePropertyChanged("LR2RootPath");
                 RaisePropertyChanged(() => LR2bodyPath);
                 RaiseValidationStateChanged();
+                ResetLr2PlayHistorySchemaStatus();
             }
         }
 
@@ -979,6 +985,113 @@ public class MainWindowViewModel : ViewModel
         }
 
         public bool IsBmsSearchRootEditorEnabled => !OperationModeLR2DB || lr2config != null;
+
+        internal Lr2PlayHistorySchemaCheckResult Lr2PlayHistorySchemaCheckResult => lr2PlayHistorySchemaCheckResult;
+
+        public string Lr2PlayHistoryScoreDbPath => lr2PlayHistoryScoreDbPath ?? string.Empty;
+
+        public string Lr2PlayHistorySchemaStatusText => Lr2PlayHistorySchemaStatusPresentation.Create(lr2PlayHistorySchemaCheckResult).StatusText;
+
+        public string Lr2PlayHistorySchemaMessage => Lr2PlayHistorySchemaStatusPresentation.Create(lr2PlayHistorySchemaCheckResult).Message;
+
+        public string Lr2PlayHistorySchemaDetailText
+        {
+            get
+            {
+                string message = Lr2PlayHistorySchemaMessage;
+                string scoreDbPath = Lr2PlayHistoryScoreDbPath;
+                if (string.IsNullOrWhiteSpace(scoreDbPath))
+                {
+                    return message;
+                }
+                return string.IsNullOrWhiteSpace(message)
+                    ? scoreDbPath
+                    : message + Environment.NewLine + scoreDbPath;
+            }
+        }
+
+        public bool CanInstallLr2PlayHistorySchema => Lr2PlayHistorySchemaStatusPresentation.Create(lr2PlayHistorySchemaCheckResult).CanInstall;
+
+        public bool CanRepairLr2PlayHistorySchema => Lr2PlayHistorySchemaStatusPresentation.Create(lr2PlayHistorySchemaCheckResult).CanRepair;
+
+        internal void ResetLr2PlayHistorySchemaStatus()
+        {
+            lr2PlayHistoryScoreDbPath = ResolveLr2PlayHistoryScoreDbPath();
+            lr2PlayHistorySchemaCheckResult = null;
+            RaiseLr2PlayHistorySchemaStatusChanged();
+        }
+
+        internal Lr2PlayHistorySchemaCheckResult InstallOrRepairLr2PlayHistorySchemaCore()
+        {
+            string scoreDbPath = ResolveLr2PlayHistoryScoreDbPath();
+            LogLr2PlayHistorySchema("install_or_repair_start", scoreDbPath, OperationModeLR2DB);
+            Lr2PlayHistorySchemaCheckResult result = new Lr2PlayHistorySchemaService().InstallOrRepair(scoreDbPath, OperationModeLR2DB);
+            LogLr2PlayHistorySchema("install_or_repair_done", result, OperationModeLR2DB);
+            return result;
+        }
+
+        internal void ApplyLr2PlayHistorySchemaCheckResult(Lr2PlayHistorySchemaCheckResult result)
+        {
+            lr2PlayHistoryScoreDbPath = result?.ScoreDbPath ?? ResolveLr2PlayHistoryScoreDbPath();
+            lr2PlayHistorySchemaCheckResult = result;
+            RaiseLr2PlayHistorySchemaStatusChanged();
+        }
+
+        internal Lr2PlayHistorySchemaCheckResult CheckLr2PlayHistorySchemaCore()
+        {
+            return CheckLr2PlayHistorySchemaCore(ResolveLr2PlayHistoryScoreDbPath(), OperationModeLR2DB);
+        }
+
+        internal Lr2PlayHistorySchemaCheckResult CheckLr2PlayHistorySchemaCore(string scoreDbPath, bool isLr2LinkedProfile)
+        {
+            Lr2PlayHistorySchemaCheckResult result = new Lr2PlayHistorySchemaService().Check(scoreDbPath, isLr2LinkedProfile);
+            LogLr2PlayHistorySchema("check", result, isLr2LinkedProfile);
+            return result;
+        }
+
+        private string ResolveLr2PlayHistoryScoreDbPath()
+        {
+            if (!OperationModeLR2DB)
+            {
+                return null;
+            }
+            return Lr2ScoreDbPathResolver.BuildPlayerScoreDbPath(Settings.Default.LR2RootPath, () => lr2config?.GetPlayerId());
+        }
+
+        private void RaiseLr2PlayHistorySchemaStatusChanged()
+        {
+            RaisePropertyChanged(() => Lr2PlayHistorySchemaCheckResult);
+            RaisePropertyChanged(() => Lr2PlayHistoryScoreDbPath);
+            RaisePropertyChanged(() => Lr2PlayHistorySchemaStatusText);
+            RaisePropertyChanged(() => Lr2PlayHistorySchemaMessage);
+            RaisePropertyChanged(() => Lr2PlayHistorySchemaDetailText);
+            RaisePropertyChanged(() => CanInstallLr2PlayHistorySchema);
+            RaisePropertyChanged(() => CanRepairLr2PlayHistorySchema);
+        }
+
+        private static void LogLr2PlayHistorySchema(string action, Lr2PlayHistorySchemaCheckResult result, bool isLr2LinkedProfile)
+        {
+            LogLr2PlayHistorySchema(action, result?.ScoreDbPath, isLr2LinkedProfile, result?.Status.ToString(), result?.Message);
+        }
+
+        private static void LogLr2PlayHistorySchema(string action, string scoreDbPath, bool isLr2LinkedProfile)
+        {
+            LogLr2PlayHistorySchema(action, scoreDbPath, isLr2LinkedProfile, status: null, message: null);
+        }
+
+        private static void LogLr2PlayHistorySchema(string action, string scoreDbPath, bool isLr2LinkedProfile, string status, string message)
+        {
+            NLogWrapper.FileLogger?.Info("play_history_schema_" + (action ?? string.Empty)
+                + " linked=" + isLr2LinkedProfile
+                + " status=" + QuoteLr2PlayHistorySchemaLogValue(status)
+                + " path=" + QuoteLr2PlayHistorySchemaLogValue(scoreDbPath)
+                + " message=" + QuoteLr2PlayHistorySchemaLogValue(message));
+        }
+
+        private static string QuoteLr2PlayHistorySchemaLogValue(string value)
+        {
+            return "\"" + (value ?? string.Empty).Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\r", "\\r").Replace("\n", "\\n") + "\"";
+        }
 
         public string SelectedCustomFolderAdditionalOutputBaseDir
         {
@@ -1085,6 +1198,7 @@ public class MainWindowViewModel : ViewModel
                 RaisePropertyChanged(() => IsBmsSearchRootEditorEnabled);
                 RaisePropertyChanged(() => BMSInstallDir);
                 RaiseValidationStateChanged();
+                ResetLr2PlayHistorySchemaStatus();
             }
         }
 
@@ -2843,6 +2957,7 @@ public class MainWindowViewModel : ViewModel
             RefreshStandaloneBmsRootPathsFromSettings();
             RefreshBeatorajaDerivedSettings();
             backupSavedSettings();
+            ResetLr2PlayHistorySchemaStatus();
         }
 
         private bool IsLR2RootPathValid()
@@ -4929,6 +5044,7 @@ public class MainWindowViewModel : ViewModel
             RaisePropertyChanged(() => IsOperationModeChanged);
             RaiseValidationStateChanged();
             backupSavedSettings();
+            ResetLr2PlayHistorySchemaStatus();
         }
 
         public RestartMode IsNeedRestartForSaved()
@@ -17297,12 +17413,7 @@ public class MainWindowViewModel : ViewModel
         {
             lr2config ??= new LR2Config(Settings.Default.LR2ConfigXmlPath);
             EnsureLR2DatabaseAutoReloadManualOnlyForStartup();
-            string playerId = lr2config.GetPlayerId();
-            string scoreDbPath = Settings.Default.LR2RootPath + "\\LR2files\\Database\\Score\\" + playerId + ".db";
-            if (playerId == null || !File.Exists(scoreDbPath))
-            {
-                scoreDbPath = null;
-            }
+            string scoreDbPath = Lr2ScoreDbPathResolver.ResolvePlayerScoreDbPath(Settings.Default.LR2RootPath, lr2config.GetPlayerId);
             return new LibraryProfile(
                 operationModeLR2DB: true,
                 songDbPath: Settings.Default.LR2SongDBPath,
