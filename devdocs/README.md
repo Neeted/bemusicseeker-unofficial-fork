@@ -15,6 +15,9 @@
 - `plan/bmson/`
   - bmson 対応メジャーアップデートの計画・履歴。
   - 現行仕様へ昇格した資料は `spec/` へ移す。
+- `plan/playlog/`
+  - LR2 / beatoraja のプレイログ参照機能の計画・調査。
+  - 実装が安定した仕様は `spec/play-history.md` へ移す。
 - `everything/`
   - Everything の仕様差、癖、検証メモ。
   - 現行実装の正本ではなく、回避策や設計判断の背景として読む。

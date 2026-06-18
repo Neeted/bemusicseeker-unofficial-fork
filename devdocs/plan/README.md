@@ -7,6 +7,7 @@
 ## 主な資料
 
 - `bmson/`: bmson 対応メジャーアップデートの計画と履歴。
+- `playlog/`: LR2 / beatoraja プレイログ参照機能の計画と調査。
 - `chart-file-read-consolidation-plan.md`: chart file read pipeline 整理の履歴。
 - `chart-file-read-pipeline-unification-plan.md`: 譜面 bytes read / hash / worker / writer pipeline 統一の次期計画。
 - `chart-info-metadata-bundle-import-plan.md`: metadata bundle import の設計履歴。
