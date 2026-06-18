@@ -66,8 +66,8 @@ internal sealed class BeatorajaScoreDbLoader
             minbp = row.minbp,
             playcount = Math.Max(0, row.playcount),
             clearcount = Math.Max(0, row.clearcount),
-            rate = CalculateRate(score, notes),
-            rank = CalculateRank(score, notes)
+            rate = ScoreValueCalculator.CalculateRatePercent(score, notes) ?? 0,
+            rank = ScoreValueCalculator.CalculateRank(score, notes)
         };
     }
 
@@ -79,61 +79,6 @@ internal sealed class BeatorajaScoreDbLoader
         }
 
         return (ClearType)clear;
-    }
-
-    private static int CalculateRate(int score, int notes)
-    {
-        if (notes <= 0)
-        {
-            return 0;
-        }
-
-        return Math.Max(0, Math.Min(100, (int)Math.Floor(score * 100.0 / (notes * 2.0))));
-    }
-
-    private static RankType CalculateRank(int score, int notes)
-    {
-        if (notes <= 0)
-        {
-            return RankType.INVALID;
-        }
-
-        long scaledScore = (long)Math.Max(0, score) * 27L;
-        long maxScore = (long)notes * 2L;
-        if (score >= notes * 2)
-        {
-            return RankType.MAX;
-        }
-        if (scaledScore >= maxScore * 24L)
-        {
-            return RankType.AAA;
-        }
-        if (scaledScore >= maxScore * 21L)
-        {
-            return RankType.AA;
-        }
-        if (scaledScore >= maxScore * 18L)
-        {
-            return RankType.A;
-        }
-        if (scaledScore >= maxScore * 15L)
-        {
-            return RankType.B;
-        }
-        if (scaledScore >= maxScore * 12L)
-        {
-            return RankType.C;
-        }
-        if (scaledScore >= maxScore * 9L)
-        {
-            return RankType.D;
-        }
-        if (scaledScore >= maxScore * 6L)
-        {
-            return RankType.E;
-        }
-
-        return RankType.F;
     }
 
     private static string NormalizeSha256(string value)
