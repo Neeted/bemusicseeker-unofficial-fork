@@ -7587,7 +7587,7 @@ public partial class BMSPlaylist : NotificationObject
             {
                 bMSTable.compat_prefix = baseTable.compat_prefix;
             }
-            bMSTable.LoadHeaderJSON(header_json, pageUri, headerUri);
+            bMSTable.LoadHeaderJSON(header_json, pageUri, headerUri, preserveLoadedCompatPrefix: baseTable != null);
             if (baseTable != null)
             {
                 bMSTable.playlist_id = baseTable.playlist_id;

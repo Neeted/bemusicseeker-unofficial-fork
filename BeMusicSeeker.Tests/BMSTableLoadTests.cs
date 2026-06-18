@@ -82,6 +82,99 @@ public sealed class BMSTableLoadTests
     }
 
     [TestMethod]
+    public void LoadHeaderJson_InferCompatPrefixFromNumericLevelOrderSymbol()
+    {
+        BMSTable table = LoadTableWithSingleEntry("{\"name\":\"Stella\",\"symbol\":\"st\",\"data_url\":\"score.json\",\"level_order\":[1]}", "1");
+
+        Assert.AreEqual("st", table.compat_prefix);
+        CollectionAssert.AreEqual(new[] { "st1" }, table.Folder_order);
+        Assert.AreEqual("st1", table.entries[0].folder);
+        CollectionAssert.AreEqual(new[] { "st1" }, table.folder_list);
+    }
+
+    [TestMethod]
+    public void LoadHeaderJson_InferCompatPrefixFromNumericLevelOrderJapaneseSymbol()
+    {
+        BMSTable table = LoadTableWithSingleEntry("{\"name\":\"Insane\",\"symbol\":\"★\",\"data_url\":\"score.json\",\"level_order\":[1]}", "1");
+
+        Assert.AreEqual("★", table.compat_prefix);
+        CollectionAssert.AreEqual(new[] { "★1" }, table.Folder_order);
+        Assert.AreEqual("★1", table.entries[0].folder);
+    }
+
+    [TestMethod]
+    public void LoadHeaderJson_KeepEmptyCompatPrefixForSymbolicLevelOrder()
+    {
+        BMSTable table = LoadTableWithSingleEntry("{\"name\":\"Stella\",\"symbol\":\"st\",\"data_url\":\"score.json\",\"level_order\":[\"st1\"]}", "st1");
+
+        Assert.AreEqual(string.Empty, table.compat_prefix);
+        CollectionAssert.AreEqual(new[] { "st1" }, table.Folder_order);
+        Assert.AreEqual("st1", table.entries[0].folder);
+    }
+
+    [TestMethod]
+    public void LoadHeaderJson_ExplicitEmptyCompatPrefixPreventsInference()
+    {
+        BMSTable table = LoadTableWithSingleEntry("{\"name\":\"Stella\",\"symbol\":\"st\",\"compat_prefix\":\"\",\"data_url\":\"score.json\",\"level_order\":[1]}", "1");
+
+        Assert.AreEqual(string.Empty, table.compat_prefix);
+        CollectionAssert.AreEqual(new[] { "1" }, table.Folder_order);
+        Assert.AreEqual("1", table.entries[0].folder);
+    }
+
+    [TestMethod]
+    public void LoadHeaderJson_ExplicitLevelCompatPrefixKeepsLegacyFolderNames()
+    {
+        BMSTable table = LoadTableWithSingleEntry("{\"name\":\"Legacy\",\"symbol\":\"st\",\"compat_prefix\":\"LEVEL \",\"data_url\":\"score.json\",\"level_order\":[1]}", "1");
+
+        Assert.AreEqual("LEVEL ", table.compat_prefix);
+        CollectionAssert.AreEqual(new[] { "LEVEL 1" }, table.Folder_order);
+        Assert.AreEqual("LEVEL 1", table.entries[0].folder);
+    }
+
+    [TestMethod]
+    public void LoadHeaderJson_InferCompatPrefixFromFolderOrderWhenLevelOrderIsMissing()
+    {
+        BMSTable table = LoadTableWithSingleEntry("{\"name\":\"FolderOrder\",\"symbol\":\"st\",\"data_url\":\"score.json\",\"folder_order\":[\"st1\"]}", "1");
+
+        Assert.AreEqual("st", table.compat_prefix);
+        CollectionAssert.AreEqual(new[] { "st1" }, table.Folder_order);
+        Assert.AreEqual("st1", table.entries[0].folder);
+    }
+
+    [TestMethod]
+    public void LoadDataJson_InferCompatPrefixFromNumericDataLevelWhenHeaderOrderIsMissing()
+    {
+        BMSTable table = LoadTableWithSingleEntry("{\"name\":\"Stella\",\"symbol\":\"st\",\"data_url\":\"score.json\"}", "0");
+
+        Assert.AreEqual("st", table.compat_prefix);
+        Assert.AreEqual("st0", table.entries[0].folder);
+        CollectionAssert.AreEqual(new[] { "st0" }, table.folder_list);
+    }
+
+    [TestMethod]
+    public void LoadDataJson_KeepEmptyCompatPrefixForSymbolicDataLevelWhenHeaderOrderIsMissing()
+    {
+        BMSTable table = LoadTableWithSingleEntry("{\"name\":\"Stella\",\"symbol\":\"st\",\"data_url\":\"score.json\"}", "st0");
+
+        Assert.AreEqual(string.Empty, table.compat_prefix);
+        Assert.AreEqual("st0", table.entries[0].folder);
+        CollectionAssert.AreEqual(new[] { "st0" }, table.folder_list);
+    }
+
+    [TestMethod]
+    public void LoadHeaderJson_ExplicitCompatPrefixClearsPendingDataInference()
+    {
+        var table = new BMSTable();
+        table.LoadHeaderJSON("{\"name\":\"First\",\"symbol\":\"st\",\"data_url\":\"score.json\"}");
+        table.LoadHeaderJSON("{\"name\":\"Second\",\"symbol\":\"st\",\"compat_prefix\":\"LEVEL \",\"folder_sort_key\":\"\",\"folder_sort_ascending\":true,\"data_url\":\"score.json\"}");
+        table.LoadDataJSON("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Song\",\"level\":\"1\"}]");
+
+        Assert.AreEqual("LEVEL ", table.compat_prefix);
+        Assert.AreEqual("LEVEL 1", table.entries[0].folder);
+    }
+
+    [TestMethod]
     public void RewriteCompatibleFolderPrefix_UpdatesEntriesAndFolderOrderWithoutTouchingLastUpdate()
     {
         var lastUpdate = new DateTime(2026, 1, 2, 3, 4, 5);
@@ -218,5 +311,13 @@ public sealed class BMSTableLoadTests
     private static BMSTableEntry CreateEntry(string md5, string folder)
     {
         return new BMSTableEntry(DynamicJson.Parse("{\"md5\":\"" + md5 + "\",\"title\":\"" + md5 + "\",\"level\":\"" + folder + "\"}"));
+    }
+
+    private static BMSTable LoadTableWithSingleEntry(string headerJson, string level)
+    {
+        var table = new BMSTable();
+        table.LoadHeaderJSON(headerJson);
+        table.LoadDataJSON("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Song\",\"level\":\"" + level + "\"}]");
+        return table;
     }
 }

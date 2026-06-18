@@ -36,7 +36,7 @@ public class BMSTable : LR2SongDBExtended.playlist
 
     private string _EntriesLoadErrorMessage = string.Empty;
 
-    private const string compat_prefix_external_default = "LEVEL ";
+    private bool _inferDefaultCompatPrefixFromDataJson;
 
     public override string folder_order
     {
@@ -516,12 +516,13 @@ public class BMSTable : LR2SongDBExtended.playlist
         return val.ToString();
     }
 
-    public void LoadHeaderJSON(string _header_json, Uri _page_url_absolute = null, Uri __header_url = null, string _data_json = null)
+    public void LoadHeaderJSON(string _header_json, Uri _page_url_absolute = null, Uri __header_url = null, string _data_json = null, bool preserveLoadedCompatPrefix = false)
     {
         if (_header_json == null)
         {
             throw new ArgumentNullException("_header_json");
         }
+        _inferDefaultCompatPrefixFromDataJson = false;
         try
         {
             dynamic val = DynamicJson.Parse(_header_json);
@@ -553,7 +554,8 @@ public class BMSTable : LR2SongDBExtended.playlist
             {
                 base.entry_type = EntryUnitTypeExt.FromStringName(val.entry_type.ToString());
             }
-            if (val.IsDefined("compat_prefix") && val.compat_prefix != null)
+            bool hasExplicitCompatPrefix = val.IsDefined("compat_prefix") && val.compat_prefix != null;
+            if (hasExplicitCompatPrefix)
             {
                 base.compat_prefix = val.compat_prefix.ToString();
             }
@@ -567,11 +569,13 @@ public class BMSTable : LR2SongDBExtended.playlist
                 {
                 }
             }
+            List<string> headerFolderOrder = null;
             if (val.IsDefined("folder_order") && val.folder_order != null)
             {
                 try
                 {
-                    Folder_order = [.. ((object[])val.folder_order).Select(e => e.ToString()).Cast<string>()];
+                    headerFolderOrder = [.. ((object[])val.folder_order).Select(e => e.ToString()).Cast<string>()];
+                    Folder_order = headerFolderOrder;
                 }
                 catch
                 {
@@ -592,9 +596,18 @@ public class BMSTable : LR2SongDBExtended.playlist
             if (!val.IsDefined("compat_prefix") || !val.IsDefined("folder_sort_key") || !val.IsDefined("folder_sort_ascending"))
             {
                 base.ignore_folder_output |= CustomFolderType.LevelFolder;
-                if (string.IsNullOrWhiteSpace(base.compat_prefix))
+                if (!hasExplicitCompatPrefix && !preserveLoadedCompatPrefix)
                 {
-                    base.compat_prefix = "LEVEL ";
+                    string inferredCompatPrefix = InferDefaultCompatibleFolderPrefixFromHeader(val, base.symbol, headerFolderOrder);
+                    if (inferredCompatPrefix != null)
+                    {
+                        base.compat_prefix = inferredCompatPrefix;
+                    }
+                    else
+                    {
+                        base.compat_prefix = string.Empty;
+                        _inferDefaultCompatPrefixFromDataJson = !string.IsNullOrWhiteSpace(base.symbol);
+                    }
                 }
                 if (val.IsDefined("level_order"))
                 {
@@ -630,6 +643,59 @@ public class BMSTable : LR2SongDBExtended.playlist
         EnableExternalSync();
     }
 
+    private static string InferDefaultCompatibleFolderPrefixFromHeader(dynamic headerJson, string symbol, IEnumerable<string> headerFolderOrder)
+    {
+        if (string.IsNullOrWhiteSpace(symbol))
+        {
+            return string.Empty;
+        }
+        string firstLevelOrderValue = GetFirstHeaderLevelOrderValue(headerJson);
+        if (firstLevelOrderValue != null)
+        {
+            return IsAsciiDigitsOnly(firstLevelOrderValue) ? symbol : string.Empty;
+        }
+        string firstFolderOrderValue = GetFirstNonEmptyString(headerFolderOrder);
+        if (firstFolderOrderValue != null)
+        {
+            if (firstFolderOrderValue.StartsWith(symbol, StringComparison.Ordinal))
+            {
+                string folderOrderSuffix = firstFolderOrderValue.Substring(symbol.Length);
+                if (IsAsciiDigitsOnly(folderOrderSuffix))
+                {
+                    return symbol;
+                }
+            }
+            return string.Empty;
+        }
+        return null;
+    }
+
+    private static string GetFirstHeaderLevelOrderValue(dynamic headerJson)
+    {
+        try
+        {
+            if (!headerJson.IsDefined("level_order") || headerJson.level_order == null)
+            {
+                return null;
+            }
+            return GetFirstNonEmptyString(((object[])headerJson.level_order).Select(e => e?.ToString()));
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static string GetFirstNonEmptyString(IEnumerable<string> values)
+    {
+        return values?.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));
+    }
+
+    private static bool IsAsciiDigitsOnly(string value)
+    {
+        return !string.IsNullOrEmpty(value) && value.All(c => c >= '0' && c <= '9');
+    }
+
     public void LoadDataJSON(string _data_json)
     {
         if (_data_json == null)
@@ -640,12 +706,67 @@ public class BMSTable : LR2SongDBExtended.playlist
         {
             dynamic val = DynamicJson.Parse(_data_json);
             base.data_sha256 = ComputeSha256Hex(_data_json);
+            InferDefaultCompatibleFolderPrefixFromDataJson(val);
             entries = [.. ((object[])val).Select((dynamic json) => new BMSTableEntry(json, this)).Where(entry => BMSPlaylist.CreateComparablePlaylistEntryRow(entry) != null)];
         }
         catch (Exception ex)
         {
             throw new PlaylistDataParseException("データのパースに失敗しました", ex);
         }
+    }
+
+    private void InferDefaultCompatibleFolderPrefixFromDataJson(dynamic dataJson)
+    {
+        if (!_inferDefaultCompatPrefixFromDataJson)
+        {
+            return;
+        }
+        _inferDefaultCompatPrefixFromDataJson = false;
+        if (string.IsNullOrWhiteSpace(base.symbol))
+        {
+            base.compat_prefix = string.Empty;
+            return;
+        }
+        string firstLevelValue = GetFirstDataJsonPropertyValue(dataJson, "level");
+        if (firstLevelValue != null)
+        {
+            base.compat_prefix = IsAsciiDigitsOnly(firstLevelValue) ? base.symbol : string.Empty;
+            return;
+        }
+        string firstFolderValue = GetFirstDataJsonPropertyValue(dataJson, "folder");
+        if (firstFolderValue != null && firstFolderValue.StartsWith(base.symbol, StringComparison.Ordinal))
+        {
+            string folderSuffix = firstFolderValue.Substring(base.symbol.Length);
+            base.compat_prefix = IsAsciiDigitsOnly(folderSuffix) ? base.symbol : string.Empty;
+            return;
+        }
+        base.compat_prefix = string.Empty;
+    }
+
+    private static string GetFirstDataJsonPropertyValue(dynamic dataJson, string propertyName)
+    {
+        try
+        {
+            foreach (dynamic entry in (object[])dataJson)
+            {
+                if (entry != null && entry.IsDefined(propertyName))
+                {
+                    object value = entry[propertyName];
+                    if (value != null)
+                    {
+                        string text = value.ToString();
+                        if (!string.IsNullOrWhiteSpace(text))
+                        {
+                            return text;
+                        }
+                    }
+                }
+            }
+        }
+        catch
+        {
+        }
+        return null;
     }
 
     public bool IsCommitedToDB()

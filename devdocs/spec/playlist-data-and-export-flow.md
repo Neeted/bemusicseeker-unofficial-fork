@@ -39,6 +39,8 @@
 
 `course_sha256` は保存しない。course は header JSON 由来なので、course の外部更新は `header_sha256` の変化で検知する。DB 内の `playlist_course` 改ざん検知は現時点の要件に含めない。
 
+外部表 header に `compat_prefix` が明示されている場合は、空文字を含めてその値を正本として保存する。`compat_prefix` が無い新規ロードでは、header の `level_order` を優先して初期値を推定する。先頭の有効な `level_order` 値が ASCII 数字のみなら `symbol` を `compat_prefix` にし、`st1` や `★1` のように記号を含む場合は空文字にする。`level_order` が使えない場合だけ `folder_order` を見て、先頭 folder が `symbol` で始まり残りが ASCII 数字のみなら `symbol` を使う。それ以外、または `symbol` が空の場合は空文字とする。header に `level_order` / `folder_order` が無い場合は、data JSON parse 時に先頭の有効な `level` を同じ規則で見て、entry を materialize する前に `compat_prefix` を補完する。保存時は従来通り header に `compat_prefix` を出力するため、一度保存された table では推定値が明示値として固定される。外部同期更新で既存 playlist を読み直す場合は、source header に `compat_prefix` が無ければ DB に保存済みの `compat_prefix` を維持し、初期値推定で上書きしない。
+
 既存 DB で `bmt_sort` / `is_bmt_output` / `custom_folder_output_base_name` が無い場合は column を追加するだけで特殊な移行 table rebuild は行わない。`custom_folder_output_base_name` は NULL のまま既定の通常出力先として扱う。`is_bmt_output` は旧 dump 復元や fresh schema の互換性のため DB 上は NULL を許容し、アプリ正規化で NULL を true へ収束させる。`bmt_sort` は欠損・重複・0 以下の値を含め、既存の有効値を優先しつつ playlist name / `playlist_id` で tie-break して 1 始まりの連番へ正規化する。既存 playlist を外部同期で更新する場合は `bmt_sort` / `is_bmt_output` / `custom_folder_output_base_name` を維持し、新規 playlist は現在の最大 `bmt_sort` + 1 を割り当て、`is_bmt_output = true`、`custom_folder_output_base_name = NULL` で作る。
 
 ### `playlist_entry`

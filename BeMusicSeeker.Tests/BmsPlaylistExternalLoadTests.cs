@@ -233,6 +233,74 @@ public sealed class BmsPlaylistExternalLoadTests
         }
     }
 
+    [DataTestMethod]
+    [TestCategory("Playlist")]
+    [DataRow("", "1")]
+    [DataRow("LEVEL ", "LEVEL 1")]
+    public async Task LoadExternalTableAsync_BaseTableCompatPrefixIsPreservedWhenHeaderOmitsCompatPrefix(string compatPrefix, string expectedFolder)
+    {
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistExternalLoadTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string headerJsonPath = Path.Combine(tempDirectory, "header.json");
+            string scoreJsonPath = Path.Combine(tempDirectory, "score.json");
+            File.WriteAllBytes(headerJsonPath, CreateUtf8BomBytes("{\"name\":\"Reloaded\",\"symbol\":\"st\",\"data_url\":\"./score.json\",\"level_order\":[1]}"));
+            File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Song\",\"artist\":\"Artist\",\"level\":\"1\"}]"));
+
+            string songDbPath = CreateTempSongDbPath(tempDirectory);
+            var playlist = new BMSPlaylist(songDbPath);
+            var baseTable = new BMSTable
+            {
+                name = "Existing",
+                symbol = "ExistingSymbol",
+                compat_prefix = compatPrefix
+            };
+
+            BMSTable table = await playlist.LoadExternalTableAsync(new Uri(headerJsonPath), baseTable);
+
+            Assert.AreEqual(compatPrefix, table.compat_prefix);
+            Assert.AreEqual(expectedFolder, table.entries.Single().folder);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public async Task LoadExternalTableAsync_InferCompatPrefixFromDataLevelWhenHeaderOrderIsMissing()
+    {
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistExternalLoadTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string headerJsonPath = Path.Combine(tempDirectory, "header.json");
+            string scoreJsonPath = Path.Combine(tempDirectory, "score.json");
+            File.WriteAllBytes(headerJsonPath, CreateUtf8BomBytes("{\"name\":\"Stella\",\"symbol\":\"st\",\"data_url\":\"./score.json\"}"));
+            File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Song\",\"artist\":\"Artist\",\"level\":\"0\"}]"));
+
+            string songDbPath = CreateTempSongDbPath(tempDirectory);
+            var playlist = new BMSPlaylist(songDbPath);
+
+            BMSTable table = await playlist.LoadExternalTableAsync(new Uri(headerJsonPath));
+
+            Assert.AreEqual("st", table.compat_prefix);
+            Assert.AreEqual("st0", table.entries.Single().folder);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
     [TestMethod]
     [TestCategory("Playlist")]
     [DoNotParallelize]
