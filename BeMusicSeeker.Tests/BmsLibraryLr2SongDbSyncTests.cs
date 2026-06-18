@@ -5728,6 +5728,112 @@ public sealed class BmsLibraryLr2SongDbSyncTests
     }
 
     [TestMethod]
+    public void SyncExternalLr2FolderRowsForCustomFolderOutputBaseChange_SyncsSiblingAndExcludesManagedDirectory()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        try
+        {
+            Settings.Default.OperationModeLR2DB = true;
+            ResetLr2FolderDiscoverySettings();
+            BMSPlaylist.EnsureSchema(scope.SongDbPath);
+            string additionalBase = Path.Combine(scope.DirectoryPath, "Additional");
+            string managedDirectory = Path.Combine(additionalBase, "ManagedTable");
+            string unmanagedSiblingDirectory = Path.Combine(additionalBase, "ExternalTable");
+            string managedPath = Path.Combine(managedDirectory, "0000.lr2folder");
+            string unmanagedSiblingPath = Path.Combine(unmanagedSiblingDirectory, "external.lr2folder");
+            Directory.CreateDirectory(managedDirectory);
+            Directory.CreateDirectory(unmanagedSiblingDirectory);
+            File.WriteAllText(managedPath, "#TITLE Managed", Encoding.GetEncoding("shift_jis"));
+            File.WriteAllText(unmanagedSiblingPath, "#TITLE External Sibling", Encoding.GetEncoding("shift_jis"));
+            Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs =
+                CustomFolderOutputBaseRegistry.SerializeBaseDirectories([additionalBase]);
+            using (var setup = new LR2SongDBExtended(scope.SongDbPath))
+            {
+                setup.InsertOrReplace(new BMSTable
+                {
+                    playlist_id = 9401,
+                    name = "ManagedTable",
+                    symbol = "MT",
+                    Output_dir = "ManagedTable",
+                    custom_folder_output_base_name = "Additional",
+                    ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
+                        & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder
+                }, typeof(LR2SongDBExtended.playlist));
+            }
+            var library = new BMSLibrary(scope.SongDbPath)
+            {
+                SearchTargets = [],
+                BMSFiles = []
+            };
+
+            library.SyncExternalLr2FolderRowsForCustomFolderOutputBaseChange("test_additional_output_base_external_sync");
+
+            using var verify = new LR2SongDBExtended(scope.SongDbPath);
+            List<LR2SongDB.folder> rows = verify.Table<LR2SongDB.folder>().ToList();
+            string rowSummary = string.Join(" | ", rows.Select(row => $"{row.type}:{row.parent}:{row.path}").Take(20));
+            LR2SongDB.folder additionalBaseRow = rows.SingleOrDefault(row => row.path == Lr2FolderPath.ToFolderPath(additionalBase));
+            Assert.IsNotNull(additionalBaseRow, rowSummary);
+            Assert.AreEqual(1, additionalBaseRow.type);
+            Assert.AreEqual("Additional", additionalBaseRow.title);
+            Assert.AreEqual(Lr2SongFolderParentNormalizer.RootParentHash, additionalBaseRow.parent);
+            LR2SongDB.folder unmanagedSiblingDirectoryRow = rows.SingleOrDefault(row => row.path == Lr2FolderPath.ToFolderPath(unmanagedSiblingDirectory));
+            Assert.IsNotNull(unmanagedSiblingDirectoryRow, rowSummary);
+            Assert.AreEqual(1, unmanagedSiblingDirectoryRow.type);
+            Assert.AreEqual("ExternalTable", unmanagedSiblingDirectoryRow.title);
+            Assert.AreEqual(Lr2SongFolderParentNormalizer.ComputeDirectoryHash(additionalBase), unmanagedSiblingDirectoryRow.parent);
+            LR2SongDB.folder unmanagedSiblingRow = rows.SingleOrDefault(row => row.path == unmanagedSiblingPath);
+            Assert.IsNotNull(unmanagedSiblingRow, rowSummary);
+            Assert.AreEqual(2, unmanagedSiblingRow.type);
+            Assert.AreEqual(Lr2SongFolderParentNormalizer.ComputeDirectoryHash(unmanagedSiblingDirectory), unmanagedSiblingRow.parent);
+            Assert.IsFalse(rows.Any(row => row.path == managedPath));
+        }
+        finally
+        {
+            ResetTouchedSettings();
+        }
+    }
+
+    [TestMethod]
+    public void SyncExternalLr2FolderRowsForCustomFolderOutputBaseChange_PreservesRemovedAdditionalBaseRows()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        try
+        {
+            Settings.Default.OperationModeLR2DB = true;
+            ResetLr2FolderDiscoverySettings();
+            string oldAdditionalBase = Path.Combine(scope.DirectoryPath, "OldAdditional");
+            string oldExternalPath = Path.Combine(oldAdditionalBase, "ExternalTable", "external.lr2folder");
+            Directory.CreateDirectory(Path.GetDirectoryName(oldExternalPath));
+            File.WriteAllText(oldExternalPath, "#TITLE Old External", Encoding.GetEncoding("shift_jis"));
+            using (var setup = new LR2SongDBExtended(scope.SongDbPath))
+            {
+                setup.CreateTable<LR2SongDB.folder>();
+                setup.InsertOrReplace(new LR2SongDB.folder
+                {
+                    path = oldExternalPath,
+                    type = 2,
+                    title = "Old External",
+                    date = 1
+                }, typeof(LR2SongDB.folder));
+            }
+            var library = new BMSLibrary(scope.SongDbPath)
+            {
+                SearchTargets = [],
+                BMSFiles = []
+            };
+
+            library.SyncExternalLr2FolderRowsForCustomFolderOutputBaseChange("test_removed_additional_output_base_preserve");
+
+            using var verify = new LR2SongDBExtended(scope.SongDbPath);
+            Assert.AreEqual(1, verify.Table<LR2SongDB.folder>().Count(row => row.path == oldExternalPath));
+        }
+        finally
+        {
+            ResetTouchedSettings();
+        }
+    }
+
+    [TestMethod]
     public void QueueLr2SongDbSync_GeneratesRootCustomFolderOutputParentRow()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
@@ -6768,8 +6874,10 @@ public sealed class BmsLibraryLr2SongDbSyncTests
     private static void ResetLr2FolderDiscoverySettings()
     {
         Settings.Default.LR2CustomFolderOutputBaseDir = string.Empty;
+        Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs = "[]";
         Settings.Default.LR2CustomFolderOutputBaseDirRootType = string.Empty;
         Settings.Default.LR2RootPath = string.Empty;
+        Settings.Default.EnableDownloadLr2IrScoreAndDetectUnsent = false;
     }
 
     private static LR2Config CreateLr2Config(string lr2RootPath, int customFolderMask, int titleFlashHours, params string[] bmsRoots)

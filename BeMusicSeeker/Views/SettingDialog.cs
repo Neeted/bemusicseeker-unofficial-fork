@@ -312,6 +312,47 @@ public partial class SettingDialog : UserControl, IComponentConnector
         }
     }
 
+    private void buttonAddCustomFolderAdditionalOutputBaseClicked(object sender, RoutedEventArgs e)
+    {
+        if (base.DataContext is not MainWindowViewModel { settingDialog: { } settingDialogViewModel })
+        {
+            return;
+        }
+        using var dialog = new CommonOpenFileDialog
+        {
+            Title = BeMusicSeeker.Properties.Resources.Playlist_output_additional,
+            IsFolderPicker = true,
+            EnsurePathExists = true,
+            Multiselect = true
+        };
+        CommonOpenFileDialogInteractionMessageAction.SetInitialDirectory(
+            dialog,
+            settingDialogViewModel.SelectedCustomFolderAdditionalOutputBaseDir ?? settingDialogViewModel.LR2CustomFolderOutputDir);
+        if (dialog.ShowDialog(Window.GetWindow(this)) == CommonFileDialogResult.Ok)
+        {
+            foreach (string directory in dialog.FileNames)
+            {
+                settingDialogViewModel.AddCustomFolderAdditionalOutputBaseDir(directory);
+            }
+        }
+    }
+
+    private void buttonRemoveCustomFolderAdditionalOutputBaseClicked(object sender, RoutedEventArgs e)
+    {
+        if (base.DataContext is MainWindowViewModel { settingDialog: { } settingDialogViewModel })
+        {
+            settingDialogViewModel.RemoveSelectedCustomFolderAdditionalOutputBaseDir();
+        }
+    }
+
+    private void buttonRenameCustomFolderAdditionalOutputBaseClicked(object sender, RoutedEventArgs e)
+    {
+        if (base.DataContext is MainWindowViewModel { settingDialog: { } settingDialogViewModel })
+        {
+            settingDialogViewModel.RenameSelectedCustomFolderAdditionalOutputBaseDir();
+        }
+    }
+
     private void bmsSearchRootPathListBoxDragOver(object sender, DragEventArgs e)
     {
         e.Effects = TryGetDroppedDirectories(e, out _) ? DragDropEffects.Copy : DragDropEffects.None;

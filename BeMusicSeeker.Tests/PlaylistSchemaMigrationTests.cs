@@ -93,6 +93,7 @@ public sealed class PlaylistSchemaMigrationTests
             StringAssert.Contains(playlistSql, "data_sha256");
             StringAssert.Contains(playlistSql, "bmt_sort");
             StringAssert.Contains(playlistSql, "is_bmt_output");
+            StringAssert.Contains(playlistSql, "custom_folder_output_base_name");
             string courseSql = verify.ExecuteScalar<string>("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'playlist_course';");
             StringAssert.Contains(courseSql, "course_json");
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'index' AND name = 'playlist_course_idx_id';"));
@@ -124,6 +125,7 @@ public sealed class PlaylistSchemaMigrationTests
             BMSTable restored = verify.Table<BMSTable>().Single();
             Assert.AreEqual(1, restored.bmt_sort);
             Assert.AreEqual(true, restored.is_bmt_output);
+            Assert.IsNull(restored.custom_folder_output_base_name);
         }
         finally
         {

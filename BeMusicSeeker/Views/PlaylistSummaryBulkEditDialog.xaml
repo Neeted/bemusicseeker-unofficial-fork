@@ -77,6 +77,17 @@
                 </UniformGrid>
               </DockPanel>
             </GroupBox>
+            <GroupBox Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_summary_bulk_output_base, Mode=OneWay}" IsEnabled="{Binding settingDialog.OperationModeLR2DB}">
+              <Grid>
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="*" />
+                  <ColumnDefinition Width="Auto" />
+                  <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <ComboBox Grid.Column="1" Width="190" Margin="0,0,8,0" ItemsSource="{Binding playlistSummaryBulkEditDialog.OutputBaseOptions}" SelectedItem="{Binding playlistSummaryBulkEditDialog.OutputBaseOption, Mode=TwoWay}" DisplayMemberPath="Label" />
+                <Button Grid.Column="2" MinWidth="140" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_summary_bulk_apply_output_base, Mode=OneWay}" IsEnabled="{Binding playlistSummaryBulkEditDialog.CanApplyOutputBase}" Click="ApplyOutputBase" />
+              </Grid>
+            </GroupBox>
             <GroupBox Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_summary_bulk_root_folder, Mode=OneWay}" IsEnabled="{Binding settingDialog.OperationModeLR2DB}">
               <Grid>
                 <Grid.ColumnDefinitions>

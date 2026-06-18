@@ -205,13 +205,13 @@ public sealed class Lr2FolderFileDiscoveryServiceTests
 
         List<string> withBuiltin = Lr2FolderFileDiscoveryService.CreatePruneDirectories(
             [bmsRoot],
-            null,
-            null,
+            string.Empty,
+            string.Empty,
             [builtinSource]);
         List<string> withoutBuiltin = Lr2FolderFileDiscoveryService.CreatePruneDirectories(
             [bmsRoot],
-            null,
-            null,
+            string.Empty,
+            string.Empty,
             []);
 
         CollectionAssert.Contains(withBuiltin, @"LR2files\CustomFolder");

@@ -207,6 +207,7 @@ public sealed class CustomTableColumnFactoryTests
             new[]
             {
                 "PlaylistId",
+                "OutputBase",
                 "Name",
                 "Symbol",
                 "LastUpdate",

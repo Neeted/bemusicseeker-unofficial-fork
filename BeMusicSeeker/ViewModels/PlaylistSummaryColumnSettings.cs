@@ -67,6 +67,8 @@ public class PlaylistSummaryColumnSettings : NotificationObject
 
     private ColumnLayout _PlaylistId = new();
 
+    private ColumnLayout _OutputBase = new();
+
     private ColumnLayout _Name = new();
 
     private ColumnLayout _Symbol = new();
@@ -103,6 +105,19 @@ public class PlaylistSummaryColumnSettings : NotificationObject
         {
             _PlaylistId = value;
             RaisePropertyChanged("PlaylistId");
+        }
+    }
+
+    public ColumnLayout OutputBase
+    {
+        get
+        {
+            return _OutputBase;
+        }
+        set
+        {
+            _OutputBase = value;
+            RaisePropertyChanged("OutputBase");
         }
     }
 
@@ -278,6 +293,7 @@ public class PlaylistSummaryColumnSettings : NotificationObject
     public PlaylistSummaryColumnSettings()
     {
         PlaylistId.Width = 60;
+        OutputBase.Width = 100;
         Name.Width = 220;
         Symbol.Width = 70;
         LastUpdate.Width = 145;
@@ -293,6 +309,7 @@ public class PlaylistSummaryColumnSettings : NotificationObject
         IsBmtOutput.Width = 95;
         int num = 0;
         PlaylistId.DisplayIndex = num++;
+        OutputBase.DisplayIndex = num++;
         Name.DisplayIndex = num++;
         Symbol.DisplayIndex = num++;
         LastUpdate.DisplayIndex = num++;
@@ -311,7 +328,9 @@ public class PlaylistSummaryColumnSettings : NotificationObject
     public void EnsureCompatibility()
     {
         bool flag = _Status == null;
+        bool outputBaseMissing = _OutputBase == null;
         PlaylistId ??= new ColumnLayout();
+        OutputBase ??= new ColumnLayout();
         Name ??= new ColumnLayout();
         Symbol ??= new ColumnLayout();
         LastUpdate ??= new ColumnLayout();
@@ -326,22 +345,39 @@ public class PlaylistSummaryColumnSettings : NotificationObject
         BmtSort ??= new ColumnLayout();
         IsBmtOutput ??= new ColumnLayout();
         ApplyDefaultLayout(PlaylistId, 60, 0);
-        ApplyDefaultLayout(Name, 220, 1);
-        ApplyDefaultLayout(Symbol, 70, 2);
-        ApplyDefaultLayout(LastUpdate, 145, 3);
-        ApplyDefaultLayout(TotalCharts, 80, 4);
-        ApplyDefaultLayout(OwnedCharts, 80, 5);
-        ApplyDefaultLayout(MissingCharts, 80, 6);
-        ApplyDefaultLayout(OwnedRatio, 80, 7);
-        ApplyDefaultLayout(Link, 70, 8);
-        ApplyDefaultLayout(IsExternalSync, 70, 9);
-        ApplyDefaultLayout(Status, 90, 10);
-        ApplyDefaultLayout(IsRootFolder, 70, 11);
-        ApplyDefaultLayout(BmtSort, 80, 12);
-        ApplyDefaultLayout(IsBmtOutput, 95, 13);
+        ApplyDefaultLayout(OutputBase, 100, 1);
+        ApplyDefaultLayout(Name, 220, 2);
+        ApplyDefaultLayout(Symbol, 70, 3);
+        ApplyDefaultLayout(LastUpdate, 145, 4);
+        ApplyDefaultLayout(TotalCharts, 80, 5);
+        ApplyDefaultLayout(OwnedCharts, 80, 6);
+        ApplyDefaultLayout(MissingCharts, 80, 7);
+        ApplyDefaultLayout(OwnedRatio, 80, 8);
+        ApplyDefaultLayout(Link, 70, 9);
+        ApplyDefaultLayout(IsExternalSync, 70, 10);
+        ApplyDefaultLayout(Status, 90, 11);
+        ApplyDefaultLayout(IsRootFolder, 70, 12);
+        ApplyDefaultLayout(BmtSort, 80, 13);
+        ApplyDefaultLayout(IsBmtOutput, 95, 14);
+        if (outputBaseMissing)
+        {
+            ShiftDisplayIndexesFrom(Name, Symbol, LastUpdate, TotalCharts, OwnedCharts, MissingCharts, OwnedRatio, Link, IsExternalSync, Status, IsRootFolder, BmtSort, IsBmtOutput);
+            OutputBase.DisplayIndex = 1;
+        }
         if (flag && IsRootFolder.DisplayIndex <= 10)
         {
-            IsRootFolder.DisplayIndex = 11;
+            IsRootFolder.DisplayIndex = 12;
+        }
+    }
+
+    private static void ShiftDisplayIndexesFrom(params ColumnLayout[] layouts)
+    {
+        foreach (ColumnLayout layout in layouts ?? [])
+        {
+            if (layout != null && layout.DisplayIndex >= 1)
+            {
+                layout.DisplayIndex++;
+            }
         }
     }
 

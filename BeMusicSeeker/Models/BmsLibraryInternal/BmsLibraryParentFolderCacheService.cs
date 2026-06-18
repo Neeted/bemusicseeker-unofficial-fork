@@ -22,11 +22,12 @@ internal sealed class BmsLibraryParentFolderCacheService
             }
             if (options.OperationModeLR2DB)
             {
-                if ((directoryPath + Path.DirectorySeparatorChar).StartsWith(options.LR2CustomFolderOutputBaseDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
-                {
-                    return false;
-                }
-                if ((directoryPath + Path.DirectorySeparatorChar).StartsWith(options.LR2CustomFolderOutputBaseDirRootType + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+                IEnumerable<string> customFolderOutputBases = new[] { options.LR2CustomFolderOutputBaseDir }
+                    .Concat(options.LR2CustomFolderAdditionalOutputBaseDirs ?? [])
+                    .Append(options.LR2CustomFolderOutputBaseDirRootType)
+                    .Where(path => !string.IsNullOrWhiteSpace(path));
+                if (customFolderOutputBases.Any(outputBase =>
+                    (directoryPath + Path.DirectorySeparatorChar).StartsWith(outputBase + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)))
                 {
                     return false;
                 }

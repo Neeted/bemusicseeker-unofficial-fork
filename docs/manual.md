@@ -98,7 +98,7 @@ This mode uses LR2 `config.xml`, `song.db`, and `score.db` to integrate with LR2
 Main required settings:
 
 - `General` tab: LR2 directory, `song.db`, `config.xml`
-- `Playlist` tab: normal custom folder output destination, root folder output destination
+- `Playlist` tab: normal custom folder output destination, additional normal outputs, root folder output destination
 - `Install` tab: new install destination
 
 Use this mode when you want to manage the same library as LR2 in BeMusicSeeker.
@@ -196,6 +196,7 @@ Configure recording format, quality, sample rate, output filename format, encode
 Change custom folder output destinations, difficulty table list acquisition URI, MD5-URL mapping TSV acquisition URI, and URL1/URL2 completion settings.
 
 `Normal output destination` is where ordinary custom folders corresponding to playlists are output.
+`Additional normal outputs` registers extra normal destinations that can be selected per playlist. The output folder name itself is used as the display name, and that name appears in the Playlist Summary `OUTPUT` column and playlist properties. In LR2-linked mode, each additional normal output is also registered as an LR2 BMS root and is automatically removed from the BMS roots when the output is removed. It cannot be the same as, a parent of, or a child of an existing BMS root or another custom-folder output destination. When an additional output is removed, playlists using it return to the normal output destination.
 `Root folder output destination` is where playlists whose properties have `Make root folder` enabled are output. These appear at the root of the song selection screen, so frequently used tables can be accessed quickly.
 
 For URL completion, see [URL1/URL2 Completion](#url1url2-completion).
@@ -492,7 +493,7 @@ The `STATUS` column shows the result of external playlist sync performed after s
 
 `BMT OUTPUT` controls whether that playlist is included in `.bmt` output. Disabling it removes that playlist's managed `.bmt` and BeMusicSeeker-managed `tableURL` entry on the next output.
 
-Select multiple rows and open `Bulk edit...` from the context menu to apply custom folder output types, root folder, external sync, and `.bmt` output to the selected rows. The dialog has no global OK; only the `Apply to selected rows` button in each section changes that section. For custom folder output types, checked means output, unchecked means no output, and indeterminate means no change. Bulk custom folder output changes show progress in the status bar and do not regenerate `.bmt` files. When external sync is turned on, playlists with insufficient URL information remain off without a warning dialog.
+Select multiple rows and open `Bulk edit...` from the context menu to apply custom folder output types, `OUTPUT`, root folder, external sync, and `.bmt` output to the selected rows. The dialog has no global OK; only the `Apply to selected rows` button in each section changes that section. `OUTPUT` selects the normal output destination or an additional normal output. The saved `OUTPUT` value is updated even for playlists with `Make root folder` enabled, but the actual output destination remains the root folder output destination. For custom folder output types, checked means output, unchecked means no output, and indeterminate means no change. Bulk custom folder output changes show progress in the status bar and do not regenerate `.bmt` files. When external sync is turned on, playlists with insufficient URL information remain off without a warning dialog.
 
 ### Playlist Detail
 
@@ -550,7 +551,7 @@ On the `Folder` tab, you can set the sort key and ascending / descending order f
 
 ![Playlist properties folder](img/プレイリストプロパティ_フォルダ.PNG)
 
-On the `Custom Folder` tab, you can set the output folder types and output names.
+On the `Custom Folder` tab, you can set the output folder types, `OUTPUT`, and output names.
 
 ![Playlist properties custom folder](img/プレイリストプロパティ_カスタムフォルダ.PNG)
 
@@ -558,10 +559,10 @@ On the `Custom Folder` tab, you can set the output folder types and output names
 
 In LR2 linked mode, playlists can be output as LR2 custom folders.
 
-Specify the normal output destination and root folder output destination on the `Playlist` tab in the settings dialog.
-From playlist `Properties`, configure the output name, `Make root folder`, and the folder types to output. To apply folder output types or `Make root folder` to multiple playlists, use `Bulk edit...` from the playlist summary.
+Specify the normal output destination, additional normal outputs, and root folder output destination on the `Playlist` tab in the settings dialog.
+From playlist `Properties`, configure `OUTPUT`, the output name, `Make root folder`, and the folder types to output. `OUTPUT` selects the normal output destination or an additional normal output from settings. While `Make root folder` is enabled, the saved `OUTPUT` value is kept, but the actual output destination is the root folder output destination. To apply `OUTPUT`, folder output types, or `Make root folder` to multiple playlists, use `Bulk edit...` from the playlist summary.
 
-Do not place important data in the output destinations, and specify different locations for the normal output destination and root folder output destination. During output, `.lr2folder` files under each playlist output folder are treated as BeMusicSeeker-managed files and stale ones are deleted. Other folders directly under the normal/root output destination are not touched, but manually managed LR2 custom folders placed inside a playlist output folder may be deleted. It is recommended to prepare an empty folder dedicated to BeMusicSeeker.
+Do not place important data in the output destinations, and specify different locations for the normal output destination, additional normal outputs, and root folder output destination. During output, `.lr2folder` files under each playlist output folder are treated as BeMusicSeeker-managed files and stale ones are deleted. When `OUTPUT` or the root folder setting is changed, the previous playlist output folder is treated as a managed area and deleted as a whole. Other folders directly under the normal/root output destination are not touched, but manually managed LR2 custom folders or other files placed inside a playlist output folder will be deleted. It is recommended to prepare an empty folder dedicated to BeMusicSeeker.
 
 Main folder types that can be output:
 

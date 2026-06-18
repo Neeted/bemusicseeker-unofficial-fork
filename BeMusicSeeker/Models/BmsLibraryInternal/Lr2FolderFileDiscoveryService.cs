@@ -29,9 +29,22 @@ internal static class Lr2FolderFileDiscoveryService
         string rootCustomFolderOutputBaseDir,
         IEnumerable<string> builtinSourceDirectories)
     {
+        return CreateDiscoveryDirectories(
+            rootDirectories,
+            new[] { normalCustomFolderOutputBaseDir },
+            rootCustomFolderOutputBaseDir,
+            builtinSourceDirectories);
+    }
+
+    internal static List<string> CreateDiscoveryDirectories(
+        IEnumerable<string> rootDirectories,
+        IEnumerable<string> normalCustomFolderOutputBaseDirs,
+        string rootCustomFolderOutputBaseDir,
+        IEnumerable<string> builtinSourceDirectories)
+    {
         var candidates = new List<string>();
         candidates.AddRange(rootDirectories ?? []);
-        candidates.Add(normalCustomFolderOutputBaseDir);
+        candidates.AddRange(normalCustomFolderOutputBaseDirs ?? []);
         candidates.Add(rootCustomFolderOutputBaseDir);
         candidates.AddRange(builtinSourceDirectories ?? []);
 
@@ -326,11 +339,26 @@ internal static class Lr2FolderFileDiscoveryService
         IEnumerable<string> builtinSourceDirectories,
         bool includeAppManagedOutputDirectories = true)
     {
+        return CreatePruneDirectories(
+            rootDirectories,
+            new[] { normalCustomFolderOutputBaseDir },
+            rootCustomFolderOutputBaseDir,
+            builtinSourceDirectories,
+            includeAppManagedOutputDirectories);
+    }
+
+    internal static List<string> CreatePruneDirectories(
+        IEnumerable<string> rootDirectories,
+        IEnumerable<string> normalCustomFolderOutputBaseDirs,
+        string rootCustomFolderOutputBaseDir,
+        IEnumerable<string> builtinSourceDirectories,
+        bool includeAppManagedOutputDirectories = true)
+    {
         var candidates = new List<string>();
         candidates.AddRange(rootDirectories ?? []);
         if (includeAppManagedOutputDirectories)
         {
-            candidates.Add(normalCustomFolderOutputBaseDir);
+            candidates.AddRange(normalCustomFolderOutputBaseDirs ?? []);
             candidates.Add(rootCustomFolderOutputBaseDir);
         }
         candidates.AddRange(builtinSourceDirectories ?? []);

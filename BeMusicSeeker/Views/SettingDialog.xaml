@@ -594,6 +594,20 @@
                       </TextBox>
                       <Label Height="28" DockPanel.Dock="Right" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_output_root, Mode=OneWay}" />
                     </DockPanel>
+                    <GroupBox Margin="0,6,0,0" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_output_additional, Mode=OneWay}">
+                      <DockPanel LastChildFill="True">
+                        <StackPanel DockPanel.Dock="Right" Width="92" Margin="6,0,0,0">
+                          <Button Height="24" Margin="0,0,0,4" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Add, Mode=OneWay}" Click="buttonAddCustomFolderAdditionalOutputBaseClicked" />
+                          <Button Height="24" Margin="0,0,0,4" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Delete_from_list, Mode=OneWay}" Click="buttonRemoveCustomFolderAdditionalOutputBaseClicked" />
+                        </StackPanel>
+                        <DockPanel DockPanel.Dock="Bottom" Margin="0,6,0,0">
+                          <Button DockPanel.Dock="Right" Width="75" Height="24" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Rename_folder, Mode=OneWay}" Click="buttonRenameCustomFolderAdditionalOutputBaseClicked" />
+                          <TextBox DockPanel.Dock="Right" Width="210" Height="24" VerticalContentAlignment="Center" Text="{Binding settingDialog.SelectedCustomFolderAdditionalOutputBaseName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                          <Label DockPanel.Dock="Left" Height="28" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_output_additional_name, Mode=OneWay}" />
+                        </DockPanel>
+                        <ListBox Height="72" ItemsSource="{Binding settingDialog.CustomFolderAdditionalOutputBaseDirList}" SelectedItem="{Binding settingDialog.SelectedCustomFolderAdditionalOutputBaseDir, Mode=TwoWay}" />
+                      </DockPanel>
+                    </GroupBox>
                     <TextBlock TextWrapping="Wrap" Margin="18,6,18,2" LineHeight="18" Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_output_desc, Mode=OneWay}" />
                   </StackPanel>
                 </GroupBox>

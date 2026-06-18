@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using BeMusicSeeker.Properties;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
@@ -9,6 +10,8 @@ internal sealed class BmsLibraryOptionsSnapshot
     public string LR2RootPath { get; set; }
 
     public string LR2CustomFolderOutputBaseDir { get; set; }
+
+    public IReadOnlyList<string> LR2CustomFolderAdditionalOutputBaseDirs { get; set; } = [];
 
     public string LR2CustomFolderOutputBaseDirRootType { get; set; }
 
@@ -51,6 +54,7 @@ internal sealed class BmsLibraryOptionsSnapshot
             OperationModeLR2DB = Settings.Default.OperationModeLR2DB,
             LR2RootPath = Settings.Default.LR2RootPath,
             LR2CustomFolderOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDir,
+            LR2CustomFolderAdditionalOutputBaseDirs = CustomFolderOutputBaseRegistry.ReadAdditionalBaseDirectories(),
             LR2CustomFolderOutputBaseDirRootType = Settings.Default.LR2CustomFolderOutputBaseDirRootType,
             EnableSmartComponentOverwrite = Settings.Default.EnableSmartComponentOverwrite,
             KeepSmartOverwriteProtectedFilesByRenaming = Settings.Default.KeepSmartOverwriteProtectedFilesByRenaming,

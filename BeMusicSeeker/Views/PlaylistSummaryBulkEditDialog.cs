@@ -42,7 +42,7 @@ public partial class PlaylistSummaryBulkEditDialog : UserControl
 
     private async void ApplyExternalSync(object sender, RoutedEventArgs e)
     {
-        if (!ConfirmExternalSyncChange())
+        if (!ConfirmExternalSyncBulkApply())
         {
             return;
         }
@@ -58,6 +58,14 @@ public partial class PlaylistSummaryBulkEditDialog : UserControl
             viewModel => viewModel.ApplyBmtOutput(),
             viewModel => viewModel.ResetBmtOutputOption(),
             "PlaylistSummaryBulkEditDialog.ApplyBmtOutput");
+    }
+
+    private async void ApplyOutputBase(object sender, RoutedEventArgs e)
+    {
+        await RunApplyAsync(
+            viewModel => viewModel.ApplyOutputBase(),
+            viewModel => viewModel.ResetOutputBaseOption(),
+            "PlaylistSummaryBulkEditDialog.ApplyOutputBase");
     }
 
     private async Task RunApplyAsync(Action<MainWindowViewModel.PlaylistSummaryBulkEditDialogViewModel> apply, Action<MainWindowViewModel.PlaylistSummaryBulkEditDialogViewModel> afterApply, string logName)
@@ -78,16 +86,18 @@ public partial class PlaylistSummaryBulkEditDialog : UserControl
         }
     }
 
-    private bool ConfirmExternalSyncChange()
+    private bool ConfirmExternalSyncBulkApply()
     {
-        if (base.DataContext is not MainWindowViewModel { playlistSummaryBulkEditDialog: { } bulkEditDialogViewModel } mainWindowViewModel
-            || bulkEditDialogViewModel.ExternalSyncOption?.Value is not bool value)
+        if (base.DataContext is not MainWindowViewModel mainWindowViewModel
+            || mainWindowViewModel.playlistSummaryBulkEditDialog is not { } bulkEditDialogViewModel
+            || bulkEditDialogViewModel.ExternalSyncOption?.Value is not bool enabled)
         {
-            return true;
+            return false;
         }
-        string message = !value
-            ? "同期モードを解除するとリモートの変更が反映されなくなります。" + Environment.NewLine + "よろしいですか？"
-            : "同期モードに設定するとローカルの変更が失われます。" + Environment.NewLine + "よろしいですか？";
+
+        string message = enabled
+            ? "同期モードに設定するとローカルの変更が失われます。" + Environment.NewLine + "よろしいですか？"
+            : "同期モードを解除するとリモートの変更が反映されなくなります。" + Environment.NewLine + "よろしいですか？";
         var confirmationMessage = new ConfirmationMessage(
             message,
             "警告",
@@ -95,6 +105,6 @@ public partial class PlaylistSummaryBulkEditDialog : UserControl
             MessageBoxButton.OKCancel,
             "ConfirmationDialog");
         mainWindowViewModel.RaiseInteractionMessageOnUiThread(confirmationMessage);
-        return confirmationMessage.Response.HasValue && confirmationMessage.Response.Value;
+        return confirmationMessage.Response == true;
     }
 }

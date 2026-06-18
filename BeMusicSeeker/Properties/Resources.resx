@@ -955,7 +955,17 @@ LR2IRにスコアやクリアが自動送信されるわけではありません
   <data name="Playlist_output_desc" xml:space="preserve">
     <value>※出力先には重要なデータを含まないようにして下さい。出力先はそれぞれ別の場所を指定してください。
 「通常出力先」にはプレイリストに対応するカスタムフォルダが出力されます。
+「追加通常出力先」はLR2のBMSルートにも登録されます。登録済みBMSルートや他の出力先と同じ場所、または親子関係になる場所は指定できません。
 「ルートフォルダ出力先」にはプレイリストのプロパティで「ルートフォルダにする」を有効にしたものが出力されます。選曲画面のルートに表示されるのでクイックアクセスが可能です。</value>
+  </data>
+  <data name="Playlist_output_additional" xml:space="preserve">
+    <value>追加通常出力先</value>
+  </data>
+  <data name="Playlist_output_additional_name" xml:space="preserve">
+    <value>フォルダ名: </value>
+  </data>
+  <data name="Playlist_output_base" xml:space="preserve">
+    <value>OUTPUT: </value>
   </data>
   <data name="Unregistered_in_lr2_db" xml:space="preserve">
     <value>LR2互換性警告</value>
@@ -1629,6 +1639,9 @@ maintenance の再スキャンや chart_info の全譜面補完は行いませ�
   <data name="Playlist_summary_bulk_bmt_output" xml:space="preserve">
     <value>.bmt出力</value>
   </data>
+  <data name="Playlist_summary_bulk_output_base" xml:space="preserve">
+    <value>OUTPUT</value>
+  </data>
   <data name="Playlist_summary_bulk_apply_custom_folder_output" xml:space="preserve">
     <value>選択行へ一括適用</value>
   </data>
@@ -1639,6 +1652,9 @@ maintenance の再スキャンや chart_info の全譜面補完は行いませ�
     <value>選択行へ一括適用</value>
   </data>
   <data name="Playlist_summary_bulk_apply_bmt_output" xml:space="preserve">
+    <value>選択行へ一括適用</value>
+  </data>
+  <data name="Playlist_summary_bulk_apply_output_base" xml:space="preserve">
     <value>選択行へ一括適用</value>
   </data>
   <data name="Playlist_summary_bulk_no_change" xml:space="preserve">

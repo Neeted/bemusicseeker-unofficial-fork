@@ -223,6 +223,8 @@ public sealed class LR2SongDBExtended : LR2SongDB
 
         public string output_dir { get; protected set; }
 
+        public string custom_folder_output_base_name { get; set; }
+
         public bool is_root_folder { get; set; }
 
         public int? bmt_sort { get; set; }

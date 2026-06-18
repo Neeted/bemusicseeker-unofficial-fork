@@ -1984,6 +1984,7 @@ public partial class BMSPlaylist : NotificationObject
         EnsureColumn(db, tableName, "tag", "TEXT NULL");
         EnsureColumn(db, tableName, "header_sha256", "TEXT NULL");
         EnsureColumn(db, tableName, "data_sha256", "TEXT NULL");
+        EnsureColumn(db, tableName, "custom_folder_output_base_name", "TEXT NULL");
         EnsureColumn(db, tableName, "bmt_sort", "INTEGER NULL");
         EnsureColumn(db, tableName, "is_bmt_output", "INTEGER NULL");
         NormalizePersistedBeatorajaBmtPlaylistSettings(db);
@@ -2299,6 +2300,7 @@ public partial class BMSPlaylist : NotificationObject
             bMSTable.ignore_folder_output = baseTable.ignore_folder_output;
             bMSTable.is_external_sync = baseTable.is_external_sync;
             bMSTable.is_root_folder = baseTable.is_root_folder;
+            bMSTable.custom_folder_output_base_name = baseTable.custom_folder_output_base_name;
             bMSTable.bmt_sort = baseTable.bmt_sort;
             bMSTable.is_bmt_output = baseTable.is_bmt_output;
         }
@@ -3203,22 +3205,50 @@ public partial class BMSPlaylist : NotificationObject
     /// </summary>
     /// <param name="outputDirBaseBefore">変更前のベースディレクトリ。</param>
     /// <param name="outputDirBaseAfter">変更後のベースディレクトリ。</param>
-    public void ChangeCustomFolderBaseDirectory(string outputDirBaseBefore, string outputDirBaseAfter)
+    public void ChangeCustomFolderBaseDirectory(
+        string outputDirBaseBefore,
+        string outputDirBaseAfter,
+        string additionalOutputBaseDirsBefore = null,
+        string additionalOutputBaseDirsAfter = null)
     {
+        additionalOutputBaseDirsBefore ??= Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs;
+        additionalOutputBaseDirsAfter ??= Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs;
+        var outputDirPathBeforeByTable = new Dictionary<BMSTable, string>();
+        var outputBaseDirPathBeforeByTable = new Dictionary<BMSTable, string>();
         using (rwlockBMSTables.GetReaderGuard())
         {
-            foreach (BMSTable item in BMSTables.Where(t => !t.is_root_folder && !string.IsNullOrWhiteSpace(t.Output_dir)))
+            foreach (BMSTable item in BMSTables.Where(t =>
+                !t.is_root_folder
+                && !string.IsNullOrWhiteSpace(t.Output_dir)))
             {
-                EnsurePlaylistEntriesLoaded(item, "ChangeCustomFolderBaseDirectory");
-                using (item.ReaderWriterLock.GetWriterGuard())
+                bool oldBaseResolved = CustomFolderOutputBaseRegistry.TryResolveNormalOutputBaseDirectory(
+                    item.custom_folder_output_base_name,
+                    outputDirBaseBefore,
+                    additionalOutputBaseDirsBefore,
+                    out string oldBaseDirectory);
+                bool newBaseResolved = CustomFolderOutputBaseRegistry.TryResolveNormalOutputBaseDirectory(
+                    item.custom_folder_output_base_name,
+                    outputDirBaseAfter,
+                    additionalOutputBaseDirsAfter,
+                    out string newBaseDirectory);
+                if (!oldBaseResolved
+                    || !newBaseResolved
+                    || !IsSameCustomFolderDirectory(oldBaseDirectory, outputDirBaseBefore)
+                    || !IsSameCustomFolderDirectory(newBaseDirectory, outputDirBaseAfter)
+                    || IsSameCustomFolderDirectory(oldBaseDirectory, newBaseDirectory))
                 {
-                    migrateCustomFolderOutputDirectoryFiles(
-                        item,
-                        Path.Combine(outputDirBaseBefore, item.Output_dir),
-                        Path.Combine(outputDirBaseAfter, item.Output_dir));
+                    continue;
                 }
+                outputDirPathBeforeByTable[item] = Path.Combine(oldBaseDirectory, item.Output_dir);
+                outputBaseDirPathBeforeByTable[item] = oldBaseDirectory;
             }
         }
+        MigrateCustomFolderOutputDirectoriesAndCommitHeadersToDB(
+            outputDirPathBeforeByTable.Keys,
+            outputDirPathBeforeByTable,
+            "setting_custom_folder_output_base_dir_changed",
+            wasRootFolderBeforeByTable: outputDirPathBeforeByTable.Keys.ToDictionary(table => table, _ => false),
+            outputBaseDirPathBeforeByTable: outputBaseDirPathBeforeByTable);
     }
 
     private sealed class BeatorajaBmtTableProjectionInput
@@ -3237,22 +3267,27 @@ public partial class BMSPlaylist : NotificationObject
     /// </summary>
     /// <param name="outputDirBaseBefore">変更前のベースディレクトリ。</param>
     /// <param name="outputDirBaseAfter">変更後のベースディレクトリ。</param>
-    public void ChangeCustomFolderBaseDirectoryRoot(string outputDirBaseBefore, string outputDirBaseAfter)
+    public void ChangeCustomFolderBaseDirectoryRoot(
+        string outputDirBaseBefore,
+        string outputDirBaseAfter)
     {
+        var outputDirPathBeforeByTable = new Dictionary<BMSTable, string>();
+        var outputBaseDirPathBeforeByTable = new Dictionary<BMSTable, string>();
         using (rwlockBMSTables.GetReaderGuard())
         {
             foreach (BMSTable item in BMSTables.Where(t => t.is_root_folder && !string.IsNullOrWhiteSpace(t.Output_dir)))
             {
-                EnsurePlaylistEntriesLoaded(item, "ChangeCustomFolderBaseDirectoryRoot");
-                using (item.ReaderWriterLock.GetWriterGuard())
-                {
-                    migrateCustomFolderOutputDirectoryFiles(
-                        item,
-                        Path.Combine(outputDirBaseBefore, item.Output_dir),
-                        Path.Combine(outputDirBaseAfter, item.Output_dir));
-                }
+                outputDirPathBeforeByTable[item] = Path.Combine(outputDirBaseBefore, item.Output_dir);
+                outputBaseDirPathBeforeByTable[item] = outputDirBaseBefore;
             }
         }
+        MigrateCustomFolderOutputDirectoriesAndCommitHeadersToDB(
+            outputDirPathBeforeByTable.Keys,
+            outputDirPathBeforeByTable,
+            "setting_custom_folder_root_output_base_dir_changed",
+            wasRootFolderBeforeByTable: outputDirPathBeforeByTable.Keys.ToDictionary(table => table, _ => true),
+            rootOutputBaseDirBefore: outputDirBaseBefore,
+            outputBaseDirPathBeforeByTable: outputBaseDirPathBeforeByTable);
     }
 
     /// <summary>
@@ -3264,7 +3299,14 @@ public partial class BMSPlaylist : NotificationObject
     /// <exception cref="InvalidOperationException">LR2DB モードでない場合。</exception>
     /// <exception cref="ArgumentNullException"><paramref name="bmsTable"/> が <see langword="null"/> の場合。</exception>
     /// <exception cref="ArgumentException">出力先に必要な情報が不足している場合。</exception>
-    public void MigrateCustomFolderOutputDirectory(BMSTable bmsTable, string outputDirPathBefore, string outputDirPathAfter = null)
+    public void MigrateCustomFolderOutputDirectory(
+        BMSTable bmsTable,
+        string outputDirPathBefore,
+        string outputDirPathAfter = null,
+        bool? wasRootFolderBefore = null,
+        string rootOutputBaseDirBefore = null,
+        string outputBaseDirBefore = null,
+        bool inferOutputBaseDirBeforeWhenMissing = true)
     {
         if (!Settings.Default.OperationModeLR2DB)
         {
@@ -3287,7 +3329,14 @@ public partial class BMSPlaylist : NotificationObject
         {
             if (BMSTables.Contains(bmsTable))
             {
-                migrateCustomFolderOutputDirectoryFiles(bmsTable, outputDirPathBefore, outputDirPathAfter);
+                migrateCustomFolderOutputDirectoryFiles(
+                    bmsTable,
+                    outputDirPathBefore,
+                    outputDirPathAfter,
+                    wasRootFolderBefore ?? bmsTable.is_root_folder,
+                    rootOutputBaseDirBefore,
+                    outputBaseDirBefore,
+                    inferOutputBaseDirBeforeWhenMissing);
             }
         }
     }
@@ -5770,10 +5819,17 @@ public partial class BMSPlaylist : NotificationObject
     private void reOutputCustomFolderFiles(BMSTable bmsTable)
     {
         string customFolderOutputDirectory = GetCustomFolderOutputDirectory(bmsTable);
-        migrateCustomFolderOutputDirectoryFiles(bmsTable, customFolderOutputDirectory, customFolderOutputDirectory);
+        migrateCustomFolderOutputDirectoryFiles(bmsTable, customFolderOutputDirectory, customFolderOutputDirectory, bmsTable.is_root_folder);
     }
 
-    private void migrateCustomFolderOutputDirectoryFiles(BMSTable bmsTable, string outputDirPathBefore, string outputDirPathAfter)
+    private void migrateCustomFolderOutputDirectoryFiles(
+        BMSTable bmsTable,
+        string outputDirPathBefore,
+        string outputDirPathAfter,
+        bool wasRootFolderBefore,
+        string rootOutputBaseDirBefore = null,
+        string outputBaseDirBefore = null,
+        bool inferOutputBaseDirBeforeWhenMissing = true)
     {
         bool sameDirectory = IsSameCustomFolderDirectory(outputDirPathBefore, outputDirPathAfter);
         if (sameDirectory)
@@ -5782,26 +5838,28 @@ public partial class BMSPlaylist : NotificationObject
             return;
         }
 
-        string removeExcludedDirectory = !sameDirectory && IsSameOrDescendantCustomFolderDirectory(outputDirPathAfter, outputDirPathBefore)
-            ? outputDirPathAfter
-            : null;
-        if (!removeCustomFolder(outputDirPathBefore, pruneRows: false, out List<string> removedFilePaths, removeExcludedDirectory))
+        bool created = createCustomFolder(bmsTable, outputDirPathAfter);
+        if (!created)
         {
             return;
         }
 
-        bool created = createCustomFolder(bmsTable, outputDirPathAfter);
-        if (!sameDirectory || !created)
+        IReadOnlyCollection<string> deleteBaseDirectories = CreateCustomFolderManagedOutputBaseScopes(
+            bmsTable,
+            wasRootFolderBefore,
+            rootOutputBaseDirBefore,
+            outputBaseDirBefore,
+            inferOutputBaseDirBeforeWhenMissing);
+        if (!DeleteCustomFolderOutputDirectoryTree(outputDirPathBefore, deleteBaseDirectories))
+        {
+            return;
+        }
+
+        if (!sameDirectory)
         {
             try
             {
-                IReadOnlyCollection<string> directoryRowScopeDirectories = CanPruneRemovedCustomFolderDirectoryRows(
-                    outputDirPathBefore,
-                    outputDirPathAfter,
-                    created)
-                        ? [outputDirPathBefore]
-                        : [];
-                SyncCustomFolderRowsByPaths(removedFilePaths, directoryRowScopeDirectories);
+                SyncCustomFolderRowsByPaths([], CreateCustomFolderDirectoryPruneScopes(outputDirPathBefore, wasRootFolderBefore, rootOutputBaseDirBefore));
             }
             catch
             {
@@ -5829,23 +5887,6 @@ public partial class BMSPlaylist : NotificationObject
         return !string.IsNullOrWhiteSpace(normalizedCandidate)
             && !string.IsNullOrWhiteSpace(normalizedAncestor)
             && Lr2FolderPath.IsSameOrDescendant(normalizedCandidate, normalizedAncestor);
-    }
-
-    private static bool CanPruneRemovedCustomFolderDirectoryRows(
-        string removedDirectory,
-        string newDirectory,
-        bool newDirectoryCreated)
-    {
-        if (!newDirectoryCreated)
-        {
-            return true;
-        }
-
-        string normalizedRemoved = Lr2FolderPath.NormalizeDirectoryPath(removedDirectory);
-        string normalizedNew = Lr2FolderPath.NormalizeDirectoryPath(newDirectory);
-        return !string.IsNullOrWhiteSpace(normalizedRemoved)
-            && !string.IsNullOrWhiteSpace(normalizedNew)
-            && !Lr2FolderPath.IsSameOrDescendant(normalizedNew, normalizedRemoved);
     }
 
     /// <summary>
@@ -5921,7 +5962,12 @@ public partial class BMSPlaylist : NotificationObject
         {
             if (BMSTables.Contains(bmsTable))
             {
-                if (removeCustomFolder(GetCustomFolderOutputDirectory(bmsTable), pruneRows: true, out _))
+                if (removeCustomFolder(
+                    GetCustomFolderOutputDirectory(bmsTable),
+                    pruneRows: true,
+                    wasRootFolder: bmsTable.is_root_folder,
+                    rootCustomFolderOutputBaseDir: Settings.Default.LR2CustomFolderOutputBaseDirRootType,
+                    outputBaseDir: CreateCustomFolderManagedOutputBase(bmsTable, bmsTable.is_root_folder)))
                 {
                     DeleteCustomFolderOutputStatus(bmsTable);
                 }
@@ -6199,9 +6245,16 @@ public partial class BMSPlaylist : NotificationObject
             string normalizedOutputDir = Lr2FolderPath.NormalizeDirectoryPath(outputDir);
             if (bmsTable?.is_root_folder != true)
             {
-                string normalOutputBase = NormalizeDirectoryPathOrNull(Settings.Default.LR2CustomFolderOutputBaseDir);
-                if (!string.IsNullOrWhiteSpace(normalOutputBase)
-                    && Lr2FolderPath.IsSameOrDescendant(normalizedOutputDir, normalOutputBase))
+                IEnumerable<string> normalOutputBases = new[]
+                    {
+                        Settings.Default.LR2CustomFolderOutputBaseDir
+                    }
+                    .Concat(CustomFolderOutputBaseRegistry.ReadAdditionalBaseDirectories());
+                string normalOutputBase = normalOutputBases
+                    .Select(NormalizeDirectoryPathOrNull)
+                    .Where(baseDir => !string.IsNullOrWhiteSpace(baseDir))
+                    .FirstOrDefault(baseDir => Lr2FolderPath.IsSameOrDescendant(normalizedOutputDir, baseDir));
+                if (!string.IsNullOrWhiteSpace(normalOutputBase))
                 {
                     return [CreateDirectoryRowGenerationBoundary(normalOutputBase)];
                 }
@@ -6249,6 +6302,70 @@ public partial class BMSPlaylist : NotificationObject
         {
             return null;
         }
+    }
+
+    private static IReadOnlyCollection<string> CreateCustomFolderDirectoryPruneScopes(
+        string physicalDirectory,
+        bool wasRootFolder,
+        string rootCustomFolderOutputBaseDir = null)
+    {
+        var scopes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        AddCustomFolderDirectoryPruneScope(scopes, physicalDirectory);
+        if (wasRootFolder)
+        {
+            Lr2FolderFileSourceClassification classification = Lr2FolderFileSourceClassifier.Classify(new Lr2FolderFileSourceClassificationRequest
+            {
+                FilePath = physicalDirectory,
+                Lr2RootPath = Settings.Default.LR2RootPath,
+                RootCustomFolderOutputBaseDir = rootCustomFolderOutputBaseDir ?? Settings.Default.LR2CustomFolderOutputBaseDirRootType
+            });
+            AddCustomFolderDirectoryPruneScope(scopes, classification.DatabasePath);
+        }
+        return [.. scopes];
+    }
+
+    private static void AddCustomFolderDirectoryPruneScope(ISet<string> scopes, string directory)
+    {
+        string normalized = NormalizeCustomFolderRowPath(directory);
+        if (!string.IsNullOrWhiteSpace(normalized))
+        {
+            scopes?.Add(normalized);
+        }
+    }
+
+    private static IReadOnlyCollection<string> CreateCustomFolderManagedOutputBaseScopes(
+        BMSTable bmsTable,
+        bool wasRootFolder,
+        string rootOutputBaseDirBefore = null,
+        string outputBaseDirBefore = null,
+        bool inferOutputBaseDirBeforeWhenMissing = true)
+    {
+        string outputBaseDir = !string.IsNullOrWhiteSpace(outputBaseDirBefore)
+            ? outputBaseDirBefore
+            : inferOutputBaseDirBeforeWhenMissing
+                ? CreateCustomFolderManagedOutputBase(bmsTable, wasRootFolder, rootOutputBaseDirBefore)
+                : null;
+        return string.IsNullOrWhiteSpace(outputBaseDir)
+            ? []
+            : [outputBaseDir];
+    }
+
+    private static string CreateCustomFolderManagedOutputBase(
+        BMSTable bmsTable,
+        bool isRootFolder,
+        string rootOutputBaseDir = null)
+    {
+        if (isRootFolder)
+        {
+            return rootOutputBaseDir ?? Settings.Default.LR2CustomFolderOutputBaseDirRootType;
+        }
+        return CustomFolderOutputBaseRegistry.TryResolveNormalOutputBaseDirectory(
+            bmsTable?.custom_folder_output_base_name,
+            Settings.Default.LR2CustomFolderOutputBaseDir,
+            Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs,
+            out string outputBaseDir)
+                ? outputBaseDir
+                : null;
     }
 
     private void SyncCustomFolderRowsByPaths(
@@ -6330,43 +6447,25 @@ public partial class BMSPlaylist : NotificationObject
     /// </summary>
     /// <param name="targetDir">削除対象ディレクトリ。</param>
     /// <param name="pruneRows">対応する LR2 folder row も削除する場合は <see langword="true"/>。</param>
-    private bool removeCustomFolder(string targetDir, bool pruneRows, out List<string> deletedFilePaths, string excludedDirectory = null)
+    private bool removeCustomFolder(
+        string targetDir,
+        bool pruneRows,
+        bool wasRootFolder = false,
+        string rootCustomFolderOutputBaseDir = null,
+        string outputBaseDir = null)
     {
-        deletedFilePaths = [];
-        string normalizedExcludedDirectory = NormalizeDirectoryPathOrNull(excludedDirectory);
-        if (Directory.Exists(targetDir))
+        if (!DeleteCustomFolderOutputDirectoryTree(targetDir, [outputBaseDir]))
         {
-            try
-            {
-                foreach (string item in Directory.EnumerateFiles(targetDir, "*.lr2folder", System.IO.SearchOption.AllDirectories)
-                    .OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
-                {
-                    if (IsFileUnderDirectory(item, normalizedExcludedDirectory))
-                    {
-                        continue;
-                    }
-                    FileSystem.DeleteFile(item, UIOption.OnlyErrorDialogs, RecycleOption.DeletePermanently);
-                    deletedFilePaths.Add(item);
-                }
-                deletedFilePaths.AddRange(RemoveEmptyCustomFolderDirectories(targetDir)
-                    .Select(Lr2FolderPath.ToFolderPath));
-                if (Directory.GetFileSystemEntries(targetDir).Count() == 0)
-                {
-                    FileSystem.DeleteDirectory(targetDir, DeleteDirectoryOption.ThrowIfDirectoryNonEmpty);
-                }
-            }
-            catch
-            {
-                DispatcherMessageBox.Show(string.Format(Resources.Warn_FileOrDirDeleteFailed, targetDir), Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
-                return false;
-            }
+            return false;
         }
 
         if (pruneRows)
         {
             try
             {
-                SyncCustomFolderRows(targetDir, []);
+                SyncCustomFolderRowsByPaths(
+                    [],
+                    CreateCustomFolderDirectoryPruneScopes(targetDir, wasRootFolder, rootCustomFolderOutputBaseDir));
             }
             catch
             {
@@ -6376,6 +6475,57 @@ public partial class BMSPlaylist : NotificationObject
         }
 
         return true;
+    }
+
+    private static bool DeleteCustomFolderOutputDirectoryTree(
+        string targetDir,
+        IReadOnlyCollection<string> managedOutputBaseDirectories)
+    {
+        if (!IsSafeManagedCustomFolderOutputDirectory(targetDir, managedOutputBaseDirectories))
+        {
+            return false;
+        }
+        if (!Directory.Exists(targetDir))
+        {
+            return true;
+        }
+
+        try
+        {
+            Directory.Delete(targetDir, recursive: true);
+            return true;
+        }
+        catch
+        {
+            DispatcherMessageBox.Show(string.Format(Resources.Warn_FileOrDirDeleteFailed, targetDir), Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
+            return false;
+        }
+    }
+
+    private static bool IsSafeManagedCustomFolderOutputDirectory(
+        string targetDir,
+        IEnumerable<string> managedOutputBaseDirectories)
+    {
+        string normalizedTarget = NormalizeDirectoryPathOrNull(targetDir);
+        if (string.IsNullOrWhiteSpace(normalizedTarget))
+        {
+            return false;
+        }
+
+        foreach (string baseDirectory in managedOutputBaseDirectories ?? [])
+        {
+            string normalizedBase = NormalizeDirectoryPathOrNull(baseDirectory);
+            if (string.IsNullOrWhiteSpace(normalizedBase)
+                || string.Equals(normalizedTarget, normalizedBase, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+            if (Lr2FolderPath.IsSameOrDescendantNormalized(normalizedTarget, normalizedBase))
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static bool IsFileUnderDirectory(string filePath, string normalizedDirectory)
@@ -6430,7 +6580,7 @@ public partial class BMSPlaylist : NotificationObject
                 if (Settings.Default.OperationModeLR2DB)
                 {
                     string customFolderOutputDirectory = GetCustomFolderOutputDirectory(bMSTable);
-                    migrateCustomFolderOutputDirectoryFiles(bMSTable, customFolderOutputDirectory, customFolderOutputDirectory);
+                    migrateCustomFolderOutputDirectoryFiles(bMSTable, customFolderOutputDirectory, customFolderOutputDirectory, bMSTable.is_root_folder);
                 }
             }
         }
@@ -7021,6 +7171,237 @@ public partial class BMSPlaylist : NotificationObject
     }
 
     /// <summary>
+    /// カスタムフォルダ出力先を複数プレイリスト分まとめて移行し、プレイリスト本体のヘッダ情報だけを永続化します。
+    /// </summary>
+    /// <param name="bmsTables">反映対象のプレイリスト群。</param>
+    /// <param name="outputDirPathBeforeByTable">変更前の出力先パス。</param>
+    /// <param name="reason">性能ログに残す理由。</param>
+    /// <param name="progressCallback">処理済み件数、全件数、処理中プレイリスト名を通知する callback。</param>
+    /// <exception cref="ArgumentNullException"><paramref name="bmsTables"/> が <see langword="null"/> の場合。</exception>
+    internal void MigrateCustomFolderOutputDirectoriesAndCommitHeadersToDB(
+        IEnumerable<BMSTable> bmsTables,
+        IReadOnlyDictionary<BMSTable, string> outputDirPathBeforeByTable,
+        string reason,
+        Action<int, int, string> progressCallback = null,
+        IReadOnlyDictionary<BMSTable, bool> wasRootFolderBeforeByTable = null,
+        string rootOutputBaseDirBefore = null,
+        IReadOnlyDictionary<BMSTable, string> outputBaseDirPathBeforeByTable = null)
+    {
+        if (bmsTables == null)
+        {
+            throw new ArgumentNullException(nameof(bmsTables));
+        }
+
+        const string operation = "playlist_custom_folder_output_migrate_bulk";
+        var prepareStopwatch = Stopwatch.StartNew();
+        List<BMSTable> tableList = [.. bmsTables.Where(table => table != null).Distinct()];
+        if (tableList.Count == 0)
+        {
+            return;
+        }
+        using (rwlockBMSTables.GetReaderGuard())
+        {
+            tableList = [.. tableList.Where(table => BMSTables.Contains(table))];
+        }
+        if (tableList.Count == 0)
+        {
+            return;
+        }
+
+        LogPlaylistPerformance(operation + " prepare_start"
+            + " reason=" + (reason ?? "unknown")
+            + " tableCount=" + tableList.Count);
+        var headerCommitStopwatch = Stopwatch.StartNew();
+        CommitBMSTableHeadersToDB(tableList);
+        headerCommitStopwatch.Stop();
+        LogPlaylistPerformance(operation + " header_commit_done"
+            + " reason=" + (reason ?? "unknown")
+            + " tableCount=" + tableList.Count
+            + " elapsedMs=" + headerCommitStopwatch.ElapsedMilliseconds);
+        if (!Settings.Default.OperationModeLR2DB)
+        {
+            prepareStopwatch.Stop();
+            LogPlaylistPerformance(operation + " skipped"
+                + " reason=" + (reason ?? "unknown")
+                + " detail=operation_mode_not_lr2db"
+                + " tableCount=" + tableList.Count
+                + " elapsedMs=" + prepareStopwatch.ElapsedMilliseconds);
+            return;
+        }
+
+        List<CustomFolderOutputDirectoryMigrationPlan> migrationPlans = [];
+        foreach (BMSTable table in tableList)
+        {
+            if (table == null
+                || string.IsNullOrWhiteSpace(table.Output_dir)
+                || outputDirPathBeforeByTable?.TryGetValue(table, out string beforeDirectory) != true
+                || string.IsNullOrWhiteSpace(beforeDirectory))
+            {
+                continue;
+            }
+
+            string afterDirectory = GetCustomFolderOutputDirectory(table);
+            if (string.IsNullOrWhiteSpace(afterDirectory)
+                || IsSameCustomFolderDirectory(beforeDirectory, afterDirectory))
+            {
+                continue;
+            }
+
+            migrationPlans.Add(new CustomFolderOutputDirectoryMigrationPlan
+            {
+                Table = table,
+                OutputDirectoryBefore = beforeDirectory,
+                OutputDirectoryAfter = afterDirectory,
+                WasRootFolderBefore = wasRootFolderBeforeByTable?.TryGetValue(table, out bool wasRootFolderBefore) == true
+                    ? wasRootFolderBefore
+                    : table.is_root_folder,
+                RootOutputBaseDirBefore = rootOutputBaseDirBefore,
+                OutputBaseDirectoryBefore = outputBaseDirPathBeforeByTable?.TryGetValue(table, out string outputBaseDirectoryBefore) == true
+                    ? outputBaseDirectoryBefore
+                    : null,
+                InferOutputBaseDirectoryBeforeWhenMissing = outputBaseDirPathBeforeByTable == null
+            });
+        }
+        if (migrationPlans.Count == 0)
+        {
+            prepareStopwatch.Stop();
+            LogPlaylistPerformance(operation + " skipped"
+                + " reason=" + (reason ?? "unknown")
+                + " detail=no_directory_migration"
+                + " tableCount=" + tableList.Count
+                + " elapsedMs=" + prepareStopwatch.ElapsedMilliseconds);
+            return;
+        }
+
+        prepareStopwatch.Stop();
+        LogPlaylistPerformance(operation + " prepare_done"
+            + " reason=" + (reason ?? "unknown")
+            + " tableCount=" + tableList.Count
+            + " migrationCount=" + migrationPlans.Count
+            + " elapsedMs=" + prepareStopwatch.ElapsedMilliseconds);
+        ReOutputCustomFoldersForTablesCoreAsync(
+            [.. migrationPlans.Select(plan => plan.Table)],
+            reason,
+            operation,
+            forceWriteAllFiles: true,
+            throwOnProjectionFailure: true,
+            buildPreparedDataSurface: false,
+            yieldBetweenTables: false,
+            progressCallback)
+            .GetAwaiter()
+            .GetResult();
+        CleanupMigratedCustomFolderOutputDirectories(migrationPlans, reason, progressCallback);
+    }
+
+    private sealed class CustomFolderOutputDirectoryMigrationPlan
+    {
+        public BMSTable Table { get; set; }
+
+        public string OutputDirectoryBefore { get; set; }
+
+        public string OutputDirectoryAfter { get; set; }
+
+        public bool WasRootFolderBefore { get; set; }
+
+        public string RootOutputBaseDirBefore { get; set; }
+
+        public string OutputBaseDirectoryBefore { get; set; }
+
+        public bool InferOutputBaseDirectoryBeforeWhenMissing { get; set; } = true;
+    }
+
+    private void CleanupMigratedCustomFolderOutputDirectories(
+        IReadOnlyCollection<CustomFolderOutputDirectoryMigrationPlan> migrationPlans,
+        string reason,
+        Action<int, int, string> progressCallback = null)
+    {
+        if (migrationPlans == null || migrationPlans.Count == 0)
+        {
+            return;
+        }
+
+        const string operation = "playlist_custom_folder_output_migrate_bulk";
+        var stopwatch = Stopwatch.StartNew();
+        var directoryRowScopeDirectories = new List<string>();
+        int removedDirectoryCount = 0;
+        int failedCount = 0;
+        LogPlaylistPerformance(operation + " old_output_cleanup_start"
+            + " reason=" + (reason ?? "unknown")
+            + " tableCount=" + migrationPlans.Count);
+        int index = 0;
+        foreach (CustomFolderOutputDirectoryMigrationPlan plan in migrationPlans)
+        {
+            index++;
+            if (plan == null
+                || string.IsNullOrWhiteSpace(plan.OutputDirectoryBefore)
+                || string.IsNullOrWhiteSpace(plan.OutputDirectoryAfter)
+                || IsSameCustomFolderDirectory(plan.OutputDirectoryBefore, plan.OutputDirectoryAfter))
+            {
+                continue;
+            }
+
+            progressCallback?.Invoke(index - 1, migrationPlans.Count, plan.Table?.name ?? string.Empty);
+            LogPlaylistPerformance(operation + " old_output_cleanup_delete_start"
+                + " reason=" + (reason ?? "unknown")
+                + " index=" + index
+                + " total=" + migrationPlans.Count
+                + " name=" + QuoteLogValue(plan.Table?.name)
+                + " outputDir=" + QuoteLogValue(plan.OutputDirectoryBefore));
+            var deleteStopwatch = Stopwatch.StartNew();
+            if (!DeleteCustomFolderOutputDirectoryTree(
+                plan.OutputDirectoryBefore,
+                CreateCustomFolderManagedOutputBaseScopes(
+                    plan.Table,
+                    plan.WasRootFolderBefore,
+                    plan.RootOutputBaseDirBefore,
+                    plan.OutputBaseDirectoryBefore,
+                    plan.InferOutputBaseDirectoryBeforeWhenMissing)))
+            {
+                failedCount++;
+                deleteStopwatch.Stop();
+                LogPlaylistPerformance(operation + " old_output_cleanup_delete_failed"
+                    + " reason=" + (reason ?? "unknown")
+                    + " index=" + index
+                    + " total=" + migrationPlans.Count
+                    + " name=" + QuoteLogValue(plan.Table?.name)
+                    + " elapsedMs=" + deleteStopwatch.ElapsedMilliseconds);
+                continue;
+            }
+
+            deleteStopwatch.Stop();
+            removedDirectoryCount++;
+            directoryRowScopeDirectories.AddRange(CreateCustomFolderDirectoryPruneScopes(
+                plan.OutputDirectoryBefore,
+                plan.WasRootFolderBefore,
+                plan.RootOutputBaseDirBefore));
+            progressCallback?.Invoke(index, migrationPlans.Count, plan.Table?.name ?? string.Empty);
+            LogPlaylistPerformance(operation + " old_output_cleanup_delete_done"
+                + " reason=" + (reason ?? "unknown")
+                + " index=" + index
+                + " total=" + migrationPlans.Count
+                + " name=" + QuoteLogValue(plan.Table?.name)
+                + " elapsedMs=" + deleteStopwatch.ElapsedMilliseconds);
+        }
+
+        directoryRowScopeDirectories = [.. directoryRowScopeDirectories
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)];
+        LogPlaylistPerformance(operation + " old_output_cleanup_prune_start"
+            + " reason=" + (reason ?? "unknown")
+            + " directoryRowScopeCount=" + directoryRowScopeDirectories.Count);
+        SyncCustomFolderRowsByPaths([], directoryRowScopeDirectories);
+        stopwatch.Stop();
+        LogPlaylistPerformance(operation + " old_output_cleanup_done"
+            + " reason=" + (reason ?? "unknown")
+            + " tableCount=" + migrationPlans.Count
+            + " removedDirectoryCount=" + removedDirectoryCount
+            + " prunePathCount=0"
+            + " directoryRowScopeCount=" + directoryRowScopeDirectories.Count
+            + " failedCount=" + failedCount
+            + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
+    }
+
+    /// <summary>
     /// プレイリストを永続化し、LR2DB モード時は旧出力先から新出力先へカスタムフォルダも移行します。
     /// </summary>
     /// <param name="bmsTable">反映対象のプレイリスト。</param>
@@ -7028,7 +7409,15 @@ public partial class BMSPlaylist : NotificationObject
     /// <param name="outputDirPathAfter">変更後の出力先パス。省略時は現設定から算出します。</param>
     /// <param name="queueBeatorajaBmtExport">変更後に beatoraja `.bmt` 出力を予約するかどうか。</param>
     /// <exception cref="ArgumentNullException"><paramref name="bmsTable"/> が <see langword="null"/> の場合。</exception>
-    internal void MigrateCustomFolderOutputDirectoryAndCommitToDB(BMSTable bmsTable, string outputDirPathBefore, string outputDirPathAfter = null, bool queueBeatorajaBmtExport = true)
+    internal void MigrateCustomFolderOutputDirectoryAndCommitToDB(
+        BMSTable bmsTable,
+        string outputDirPathBefore,
+        string outputDirPathAfter = null,
+        bool queueBeatorajaBmtExport = true,
+        bool? wasRootFolderBefore = null,
+        string rootOutputBaseDirBefore = null,
+        string outputBaseDirBefore = null,
+        bool inferOutputBaseDirBeforeWhenMissing = true)
     {
         if (bmsTable == null)
         {
@@ -7046,7 +7435,14 @@ public partial class BMSPlaylist : NotificationObject
                     {
                         outputDirPathAfter = GetCustomFolderOutputDirectory(bmsTable);
                     }
-                    migrateCustomFolderOutputDirectoryFiles(bmsTable, outputDirPathBefore, outputDirPathAfter);
+                    migrateCustomFolderOutputDirectoryFiles(
+                        bmsTable,
+                        outputDirPathBefore,
+                        outputDirPathAfter,
+                        wasRootFolderBefore ?? bmsTable.is_root_folder,
+                        rootOutputBaseDirBefore,
+                        outputBaseDirBefore,
+                        inferOutputBaseDirBeforeWhenMissing);
                 }
             }
         }
@@ -7201,6 +7597,7 @@ public partial class BMSPlaylist : NotificationObject
                 bMSTable.is_external_sync = baseTable.is_external_sync;
                 bMSTable.Output_dir = baseTable.Output_dir;
                 bMSTable.is_root_folder = baseTable.is_root_folder;
+                bMSTable.custom_folder_output_base_name = baseTable.custom_folder_output_base_name;
                 bMSTable.bmt_sort = baseTable.bmt_sort;
                 bMSTable.is_bmt_output = baseTable.is_bmt_output;
             }
@@ -8183,9 +8580,28 @@ public partial class BMSPlaylist : NotificationObject
     /// <returns>算出された出力先ディレクトリ。</returns>
     public static string GetCustomFolderOutputDirectory(BMSTable bmsTable)
     {
+        return GetCustomFolderOutputDirectory(
+            bmsTable,
+            Settings.Default.LR2CustomFolderOutputBaseDir,
+            Settings.Default.LR2CustomFolderOutputBaseDirRootType,
+            Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs);
+    }
+
+    public static string GetCustomFolderOutputDirectory(
+        BMSTable bmsTable,
+        string normalOutputBaseDirectory,
+        string rootOutputBaseDirectory,
+        string serializedAdditionalOutputBaseDirectories)
+    {
         try
         {
-            return Path.Combine(bmsTable.is_root_folder ? Settings.Default.LR2CustomFolderOutputBaseDirRootType : Settings.Default.LR2CustomFolderOutputBaseDir, bmsTable.Output_dir);
+            string outputBaseDirectory = bmsTable.is_root_folder
+                ? rootOutputBaseDirectory
+                : CustomFolderOutputBaseRegistry.ResolveNormalOutputBaseDirectory(
+                    bmsTable.custom_folder_output_base_name,
+                    normalOutputBaseDirectory,
+                    serializedAdditionalOutputBaseDirectories);
+            return Path.Combine(outputBaseDirectory, bmsTable.Output_dir);
         }
         catch (ArgumentNullException)
         {

@@ -1133,7 +1133,7 @@ internal sealed class BmsLibraryInitializationService
 
         List<string> lr2FolderDiscoveryDirectories = Lr2FolderFileDiscoveryService.CreateDiscoveryDirectories(
             rootDirectories,
-            options.LR2CustomFolderOutputBaseDir,
+            new[] { options.LR2CustomFolderOutputBaseDir }.Concat(options.LR2CustomFolderAdditionalOutputBaseDirs ?? []),
             options.LR2CustomFolderOutputBaseDirRootType,
             Lr2FolderFileDiscoveryService.CreateBuiltinFolderSourceDirectories(options.LR2RootPath));
         Lr2FolderFileCandidateSnapshot candidates = Lr2FolderFileDiscoveryService.CreateFileCandidates(

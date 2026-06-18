@@ -394,6 +394,21 @@ internal sealed class Settings : ApplicationSettingsBase
 
     [UserScopedSetting]
     [DebuggerNonUserCode]
+    [DefaultSettingValue("[]")]
+    public string LR2CustomFolderAdditionalOutputBaseDirs
+    {
+        get
+        {
+            return (string)this["LR2CustomFolderAdditionalOutputBaseDirs"];
+        }
+        set
+        {
+            this["LR2CustomFolderAdditionalOutputBaseDirs"] = value;
+        }
+    }
+
+    [UserScopedSetting]
+    [DebuggerNonUserCode]
     [DefaultSettingValue("")]
     public string LR2CustomFolderOutputBaseDirRootType
     {

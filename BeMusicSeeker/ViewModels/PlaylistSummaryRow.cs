@@ -8,6 +8,10 @@ public class PlaylistSummaryRow
 {
     public int? PlaylistId { get; set; }
 
+    public string OutputBaseName { get; set; } = string.Empty;
+
+    public string OutputBaseDisplayName { get; set; } = string.Empty;
+
     public string Name { get; set; } = string.Empty;
 
     public string Symbol { get; set; } = string.Empty;

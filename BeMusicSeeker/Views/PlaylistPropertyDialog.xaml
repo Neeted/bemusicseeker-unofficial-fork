@@ -226,11 +226,17 @@
           <TabItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Custom_folder, Mode=OneWay}" IsEnabled="{Binding settingDialog.OperationModeLR2DB}">
             <DockPanel>
               <GroupBox DockPanel.Dock="Bottom" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_output_dst, Mode=OneWay}">
-                <DockPanel>
-                  <Label Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_save_name, Mode=OneWay}" />
-                  <CheckBox DockPanel.Dock="Right" VerticalAlignment="Center" Margin="10,5,5,5" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_make_root, Mode=OneWay}" IsChecked="{Binding playlistPropertyDialog.is_root_folder}" />
-                  <TextBox Height="24" HorizontalAlignment="Left" Width="210" VerticalContentAlignment="Center" Text="{Binding playlistPropertyDialog.output_dir}" />
-                </DockPanel>
+                <StackPanel>
+                  <DockPanel Margin="0,0,0,4">
+                    <Label Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_output_base, Mode=OneWay}" />
+                    <ComboBox Height="24" Width="210" HorizontalAlignment="Left" VerticalContentAlignment="Center" ItemsSource="{Binding playlistPropertyDialog.OutputBaseOptions, Mode=OneWay}" SelectedItem="{Binding playlistPropertyDialog.custom_folder_output_base_option, Mode=TwoWay}" DisplayMemberPath="Label" />
+                  </DockPanel>
+                  <DockPanel>
+                    <Label Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_save_name, Mode=OneWay}" />
+                    <CheckBox DockPanel.Dock="Right" VerticalAlignment="Center" Margin="10,5,5,5" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_make_root, Mode=OneWay}" IsChecked="{Binding playlistPropertyDialog.is_root_folder}" />
+                    <TextBox Height="24" HorizontalAlignment="Left" Width="210" VerticalContentAlignment="Center" Text="{Binding playlistPropertyDialog.output_dir}" />
+                  </DockPanel>
+                </StackPanel>
               </GroupBox>
               <GroupBox DockPanel.Dock="Top" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_folder_type, Mode=OneWay}">
                 <DockPanel>

@@ -714,6 +714,12 @@ public class Resources
 
     public static string Playlist_output_root => ResourceManager.GetString("Playlist_output_root", resourceCulture);
 
+    public static string Playlist_output_additional => ResourceManager.GetString("Playlist_output_additional", resourceCulture);
+
+    public static string Playlist_output_additional_name => ResourceManager.GetString("Playlist_output_additional_name", resourceCulture);
+
+    public static string Playlist_output_base => ResourceManager.GetString("Playlist_output_base", resourceCulture);
+
     public static string Playlist_table_uri => ResourceManager.GetString("Playlist_table_uri", resourceCulture);
 
     public static string Playlist_md5_url_mapping_tsv_uri => ResourceManager.GetString("Playlist_md5_url_mapping_tsv_uri", resourceCulture);
@@ -1019,6 +1025,8 @@ public class Resources
 
     public static string Playlist_summary_bulk_bmt_output => ResourceManager.GetString("Playlist_summary_bulk_bmt_output", resourceCulture);
 
+    public static string Playlist_summary_bulk_output_base => ResourceManager.GetString("Playlist_summary_bulk_output_base", resourceCulture);
+
     public static string Playlist_summary_bulk_apply_custom_folder_output => ResourceManager.GetString("Playlist_summary_bulk_apply_custom_folder_output", resourceCulture);
 
     public static string Playlist_summary_bulk_apply_root_folder => ResourceManager.GetString("Playlist_summary_bulk_apply_root_folder", resourceCulture);
@@ -1026,6 +1034,8 @@ public class Resources
     public static string Playlist_summary_bulk_apply_external_sync => ResourceManager.GetString("Playlist_summary_bulk_apply_external_sync", resourceCulture);
 
     public static string Playlist_summary_bulk_apply_bmt_output => ResourceManager.GetString("Playlist_summary_bulk_apply_bmt_output", resourceCulture);
+
+    public static string Playlist_summary_bulk_apply_output_base => ResourceManager.GetString("Playlist_summary_bulk_apply_output_base", resourceCulture);
 
     public static string Playlist_summary_bulk_no_change => ResourceManager.GetString("Playlist_summary_bulk_no_change", resourceCulture);
 

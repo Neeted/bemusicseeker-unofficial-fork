@@ -49,6 +49,8 @@ internal sealed class Lr2SongDbSyncRequest
 
     public string Lr2NormalCustomFolderOutputBaseDir { get; set; }
 
+    public IReadOnlyCollection<string> Lr2AdditionalNormalCustomFolderOutputBaseDirs { get; set; } = [];
+
     public string Lr2RootCustomFolderOutputBaseDir { get; set; }
 
     public IReadOnlyCollection<string> Lr2BuiltinFolderSourceDirectories { get; set; } = [];
@@ -1987,6 +1989,14 @@ internal static class Lr2SongDbSyncService
         if (!string.IsNullOrWhiteSpace(normalOutputBase))
         {
             candidates.Add(CreateDirectoryRowGenerationBoundary(normalOutputBase));
+        }
+        foreach (string additionalNormalOutputBase in request?.Lr2AdditionalNormalCustomFolderOutputBaseDirs ?? [])
+        {
+            string normalizedAdditionalNormalOutputBase = NormalizeDirectoryPathOrNull(additionalNormalOutputBase);
+            if (!string.IsNullOrWhiteSpace(normalizedAdditionalNormalOutputBase))
+            {
+                candidates.Add(CreateDirectoryRowGenerationBoundary(normalizedAdditionalNormalOutputBase));
+            }
         }
 
         string rootOutputBase = NormalizeDirectoryPathOrNull(request?.Lr2RootCustomFolderOutputBaseDir);
