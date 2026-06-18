@@ -1540,6 +1540,21 @@ public class MainWindowViewModel : ViewModel
             ownerViewModel.RaiseInteractionMessageOnUiThread(new ConfirmationMessage(errMsg, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
         }
 
+        private static string FormatResource(string format, params object[] args)
+        {
+            return string.Format(CultureInfo.CurrentCulture, format, args);
+        }
+
+        private static string FormatSettingValidationMessage(string sectionName, string message)
+        {
+            return FormatResource(BeMusicSeeker.Properties.Resources.SettingValidation_SectionMessageFormat, sectionName, message);
+        }
+
+        private static string FormatPlaylistValidationMessage(string message)
+        {
+            return FormatSettingValidationMessage(BeMusicSeeker.Properties.Resources.Playlist, message);
+        }
+
         public Uri TableListURL
         {
             get
@@ -1560,7 +1575,7 @@ public class MainWindowViewModel : ViewModel
                     }
                     else
                     {
-                        ownerViewModel.RaiseInteractionMessageOnUiThread(new ConfirmationMessage("難易度表リスト取得URIが正しくありません。", "エラー", MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
+                        ownerViewModel.RaiseInteractionMessageOnUiThread(new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Error_InvalidTableListUri, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
                     }
                     RaisePropertyChanged("TableListURL");
                     RaiseValidationStateChanged();
@@ -2264,7 +2279,7 @@ public class MainWindowViewModel : ViewModel
                     else
                     {
                         Settings.Default.FolderNameFormat = defaultFolderNameFormat;
-                        ownerViewModel.RaiseInteractionMessageOnUiThread(new ConfirmationMessage("リネーム書式には「%ARTIST%」または「%TITLE%」を含めて下さい", "警告", MessageBoxImage.Exclamation, MessageBoxButton.OK, "ConfirmationDialog"));
+                        ownerViewModel.RaiseInteractionMessageOnUiThread(new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Error_InvalidFolderNameFormat, BeMusicSeeker.Properties.Resources.Warning, MessageBoxImage.Exclamation, MessageBoxButton.OK, "ConfirmationDialog"));
                     }
                     RaisePropertyChanged("FolderNameFormat");
                     RaiseValidationStateChanged();
@@ -2284,7 +2299,7 @@ public class MainWindowViewModel : ViewModel
                 {
                     if (!value)
                     {
-                        ownerViewModel.RaiseInteractionMessageOnUiThread(new ConfirmationMessage("チェックを外すと、LR2が正常に起動しなかったり" + Environment.NewLine + "作成されたフォルダが認識できなくなる場合があります", "警告", MessageBoxImage.Exclamation, MessageBoxButton.OK, "ConfirmationDialog"));
+                        ownerViewModel.RaiseInteractionMessageOnUiThread(new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Warn_DisableShiftJisFolderNames, BeMusicSeeker.Properties.Resources.Warning, MessageBoxImage.Exclamation, MessageBoxButton.OK, "ConfirmationDialog"));
                     }
                     Settings.Default.UseOnlyShiftJISChars = value;
                     RaisePropertyChanged("UseOnlyShiftJISChars");
@@ -2374,7 +2389,12 @@ public class MainWindowViewModel : ViewModel
                     }
                     else
                     {
-                        ownerViewModel.RaiseInteractionMessageOnUiThread(new ConfirmationMessage("エンコード実行ファイル: " + ((EncoderType)value).GetEncoderFileName() + " が見つかりませんでした" + Environment.NewLine + "検索フォルダを正しく指定して下さい", "警告", MessageBoxImage.Exclamation, MessageBoxButton.OK, "ConfirmationDialog"));
+                        ownerViewModel.RaiseInteractionMessageOnUiThread(new ConfirmationMessage(
+                            FormatResource(BeMusicSeeker.Properties.Resources.Warn_EncoderExecutableNotFoundFormat, ((EncoderType)value).GetEncoderFileName()),
+                            BeMusicSeeker.Properties.Resources.Warning,
+                            MessageBoxImage.Exclamation,
+                            MessageBoxButton.OK,
+                            "ConfirmationDialog"));
                     }
                     RaisePropertyChanged("EncoderIndex");
                 }
@@ -3263,18 +3283,18 @@ public class MainWindowViewModel : ViewModel
             {
                 if (!response.IsSjisSchemeString())
                 {
-                    throw new ArgumentException("パスにユニコード文字が含まれているためLR2で認識できません");
+                    throw new ArgumentException(BeMusicSeeker.Properties.Resources.Error_LR2UnicodePathUnsupported);
                 }
                 string name = parameter.MessageKey.Substring(parameter.MessageKey.LastIndexOf('.') + 1);
                 GetType().GetProperty(name).GetSetMethod().Invoke(this, [response]);
             }
             catch (ArgumentException ex)
             {
-                ownerViewModel.RaiseInteractionMessageOnUiThread(new ConfirmationMessage(ex.Message, "エラー", MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
+                ownerViewModel.RaiseInteractionMessageOnUiThread(new ConfirmationMessage(ex.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
             }
             catch (Exception ex)
             {
-                ownerViewModel.RaiseInteractionMessageOnUiThread(new ConfirmationMessage(ex.Message, "エラー", MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
+                ownerViewModel.RaiseInteractionMessageOnUiThread(new ConfirmationMessage(ex.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
             }
         }
 
@@ -3374,9 +3394,7 @@ public class MainWindowViewModel : ViewModel
             if (referenceCount > 0)
             {
                 var confirmationMessage = new ConfirmationMessage(
-                    "この出力先を使用しているプレイリストが " + referenceCount.ToString(CultureInfo.InvariantCulture) + " 件あります。" + Environment.NewLine
-                    + "削除すると、それらの OUTPUT は通常出力先に戻ります。" + Environment.NewLine + Environment.NewLine
-                    + "続行しますか？",
+                    FormatResource(BeMusicSeeker.Properties.Resources.Confirm_RemoveAdditionalOutputBaseReferencedFormat, referenceCount),
                     BeMusicSeeker.Properties.Resources.Confirm,
                     MessageBoxImage.Exclamation,
                     MessageBoxButton.OKCancel,
@@ -3469,19 +3487,19 @@ public class MainWindowViewModel : ViewModel
             string name = CustomFolderOutputBaseRegistry.GetDirectoryDisplayName(path);
             if (string.IsNullOrWhiteSpace(name))
             {
-                throw new ArgumentException("出力先フォルダ名が空です。");
+                throw new ArgumentException(BeMusicSeeker.Properties.Resources.Error_CustomFolderOutputBaseNameEmpty);
             }
             string defaultName = CustomFolderOutputBaseRegistry.GetDirectoryDisplayName(LR2CustomFolderOutputDir);
             if (!string.IsNullOrWhiteSpace(defaultName)
                 && string.Equals(name, defaultName, StringComparison.OrdinalIgnoreCase))
             {
-                throw new InvalidOperationException("通常出力先と同じフォルダ名は追加登録できません。");
+                throw new InvalidOperationException(BeMusicSeeker.Properties.Resources.Error_AdditionalOutputBaseNameMatchesNormalOutput);
             }
             if (CustomFolderAdditionalOutputBaseDirList.Any(existingPath =>
                     !string.Equals(existingPath, oldPath, StringComparison.OrdinalIgnoreCase)
                     && string.Equals(CustomFolderOutputBaseRegistry.GetDirectoryDisplayName(existingPath), name, StringComparison.OrdinalIgnoreCase)))
             {
-                throw new InvalidOperationException("同じフォルダ名の追加出力先が既に登録されています。");
+                throw new InvalidOperationException(BeMusicSeeker.Properties.Resources.Error_AdditionalOutputBaseNameDuplicate);
             }
             ValidateCustomFolderAdditionalOutputBaseSearchRootPath(path, oldPath);
         }
@@ -3508,12 +3526,12 @@ public class MainWindowViewModel : ViewModel
                     string name = CustomFolderOutputBaseRegistry.GetDirectoryDisplayName(path);
                     if (string.IsNullOrWhiteSpace(name))
                     {
-                        errMsg = "プレイリスト: 追加出力先のフォルダ名が空です";
+                        errMsg = FormatPlaylistValidationMessage(BeMusicSeeker.Properties.Resources.Validation_AdditionalOutputBaseNameEmpty);
                         return false;
                     }
                     if (!names.Add(name))
                     {
-                        errMsg = "プレイリスト: 通常出力先または追加出力先に同じフォルダ名があります: " + name;
+                        errMsg = FormatPlaylistValidationMessage(FormatResource(BeMusicSeeker.Properties.Resources.Validation_OutputBaseNameDuplicateFormat, name));
                         return false;
                     }
                     string oldPath = previousAdditionalOutputBasePaths.Contains(path, StringComparer.OrdinalIgnoreCase)
@@ -3528,7 +3546,7 @@ public class MainWindowViewModel : ViewModel
                     {
                         if (CustomFolderOutputBaseSearchRootSyncService.IsSameOrNestedDirectory(normalizedPaths[leftIndex], normalizedPaths[rightIndex]))
                         {
-                            errMsg = "プレイリスト: 追加出力先同士を親子関係にすることはできません";
+                            errMsg = FormatPlaylistValidationMessage(BeMusicSeeker.Properties.Resources.Validation_AdditionalOutputBasesNested);
                             return false;
                         }
                     }
@@ -3537,7 +3555,7 @@ public class MainWindowViewModel : ViewModel
             }
             catch (Exception ex) when (ex is ArgumentException || ex is InvalidOperationException || ex is NotSupportedException || ex is PathTooLongException)
             {
-                errMsg = "プレイリスト: " + ex.Message;
+                errMsg = FormatPlaylistValidationMessage(ex.Message);
                 return false;
             }
         }
@@ -3553,12 +3571,12 @@ public class MainWindowViewModel : ViewModel
             try
             {
                 string normalizedPath = CustomFolderOutputBaseRegistry.NormalizeDirectoryPath(path);
-                CustomFolderOutputBaseSearchRootSyncService.ValidateSjisDirectoryPath(normalizedPath, "通常出力先フォルダ");
+                CustomFolderOutputBaseSearchRootSyncService.ValidateSjisDirectoryPath(normalizedPath, BeMusicSeeker.Properties.Resources.Label_NormalOutputBaseFolder);
 
                 string name = CustomFolderOutputBaseRegistry.GetDirectoryDisplayName(normalizedPath);
                 if (string.IsNullOrWhiteSpace(name))
                 {
-                    errMsg = "プレイリスト: 通常出力先のフォルダ名が空です";
+                    errMsg = FormatPlaylistValidationMessage(BeMusicSeeker.Properties.Resources.Validation_NormalOutputBaseNameEmpty);
                     return false;
                 }
 
@@ -3566,16 +3584,16 @@ public class MainWindowViewModel : ViewModel
                 {
                     if (CustomFolderOutputBaseSearchRootSyncService.IsSameOrNestedDirectory(normalizedPath, additionalPath))
                     {
-                        errMsg = "プレイリスト: 通常出力先と追加通常出力先を同じ場所または親子関係にすることはできません";
+                        errMsg = FormatPlaylistValidationMessage(BeMusicSeeker.Properties.Resources.Validation_NormalAndAdditionalOutputBasesNested);
                         return false;
                     }
                 }
 
                 ValidateCustomFolderOutputBaseIsNotNestedWithPreviousManagedRoot(
                     normalizedPath,
-                    "通常出力先",
+                    BeMusicSeeker.Properties.Resources.Label_NormalOutputBase,
                     tempLR2CustomFolderOutputDir,
-                    "変更前の通常出力先",
+                    BeMusicSeeker.Properties.Resources.Label_PreviousNormalOutputBase,
                     out errMsg);
                 if (!string.IsNullOrWhiteSpace(errMsg))
                 {
@@ -3586,9 +3604,9 @@ public class MainWindowViewModel : ViewModel
                 {
                     ValidateCustomFolderOutputBaseIsNotNestedWithPreviousManagedRoot(
                         normalizedPath,
-                        "通常出力先",
+                        BeMusicSeeker.Properties.Resources.Label_NormalOutputBase,
                         previousAdditionalPath,
-                        "変更前の追加通常出力先",
+                        BeMusicSeeker.Properties.Resources.Label_PreviousAdditionalOutputBase,
                         out errMsg);
                     if (!string.IsNullOrWhiteSpace(errMsg))
                     {
@@ -3598,11 +3616,11 @@ public class MainWindowViewModel : ViewModel
 
                 if (CustomFolderOutputBaseSearchRootSyncService.IsSameOrNestedDirectory(normalizedPath, LR2CustomFolderAsRootOutputDir))
                 {
-                    errMsg = "プレイリスト: 通常出力先とルートフォルダ出力先を同じ場所または親子関係にすることはできません";
+                    errMsg = FormatPlaylistValidationMessage(BeMusicSeeker.Properties.Resources.Validation_NormalAndRootOutputBasesNested);
                     return false;
                 }
 
-                if (!ValidateOutputBaseIsNotNestedWithUserBmsRoot(normalizedPath, "通常出力先", out errMsg))
+                if (!ValidateOutputBaseIsNotNestedWithUserBmsRoot(normalizedPath, BeMusicSeeker.Properties.Resources.Label_NormalOutputBase, out errMsg))
                 {
                     return false;
                 }
@@ -3611,12 +3629,12 @@ public class MainWindowViewModel : ViewModel
             }
             catch (Exception ex) when (ex is ArgumentException || ex is InvalidOperationException || ex is NotSupportedException || ex is PathTooLongException)
             {
-                errMsg = "プレイリスト: " + ex.Message;
+                errMsg = FormatPlaylistValidationMessage(ex.Message);
                 return false;
             }
         }
 
-        private static void ValidateCustomFolderOutputBaseIsNotNestedWithPreviousManagedRoot(
+        private void ValidateCustomFolderOutputBaseIsNotNestedWithPreviousManagedRoot(
             string outputBasePath,
             string outputBaseLabel,
             string previousManagedRootPath,
@@ -3631,7 +3649,7 @@ public class MainWindowViewModel : ViewModel
             }
             if (CustomFolderOutputBaseSearchRootSyncService.IsSameOrNestedDirectory(outputBasePath, previousManagedRootPath))
             {
-                errMsg = "プレイリスト: " + outputBaseLabel + "と" + previousManagedRootLabel + "を親子関係にすることはできません";
+                errMsg = FormatPlaylistValidationMessage(FormatResource(BeMusicSeeker.Properties.Resources.Validation_PreviousManagedRootNestedFormat, outputBaseLabel, previousManagedRootLabel));
             }
         }
 
@@ -3646,18 +3664,18 @@ public class MainWindowViewModel : ViewModel
             try
             {
                 string normalizedPath = CustomFolderOutputBaseRegistry.NormalizeDirectoryPath(path);
-                CustomFolderOutputBaseSearchRootSyncService.ValidateSjisDirectoryPath(normalizedPath, "ルートフォルダ出力先フォルダ");
+                CustomFolderOutputBaseSearchRootSyncService.ValidateSjisDirectoryPath(normalizedPath, BeMusicSeeker.Properties.Resources.Label_RootOutputBaseFolder);
 
                 string name = CustomFolderOutputBaseRegistry.GetDirectoryDisplayName(normalizedPath);
                 if (string.IsNullOrWhiteSpace(name))
                 {
-                    errMsg = "プレイリスト: ルートフォルダ出力先のフォルダ名が空です";
+                    errMsg = FormatPlaylistValidationMessage(BeMusicSeeker.Properties.Resources.Validation_RootOutputBaseNameEmpty);
                     return false;
                 }
 
                 if (CustomFolderOutputBaseSearchRootSyncService.IsSameOrNestedDirectory(normalizedPath, LR2CustomFolderOutputDir))
                 {
-                    errMsg = "プレイリスト: ルートフォルダ出力先と通常出力先を同じ場所または親子関係にすることはできません";
+                    errMsg = FormatPlaylistValidationMessage(BeMusicSeeker.Properties.Resources.Validation_RootAndNormalOutputBasesNested);
                     return false;
                 }
 
@@ -3665,23 +3683,23 @@ public class MainWindowViewModel : ViewModel
                 {
                     if (CustomFolderOutputBaseSearchRootSyncService.IsSameOrNestedDirectory(normalizedPath, additionalPath))
                     {
-                        errMsg = "プレイリスト: ルートフォルダ出力先と追加通常出力先を同じ場所または親子関係にすることはできません";
+                        errMsg = FormatPlaylistValidationMessage(BeMusicSeeker.Properties.Resources.Validation_RootAndAdditionalOutputBasesNested);
                         return false;
                     }
                 }
 
                 ValidateCustomFolderOutputBaseIsNotNestedWithPreviousManagedRoot(
                     normalizedPath,
-                    "ルートフォルダ出力先",
+                    BeMusicSeeker.Properties.Resources.Label_RootOutputBase,
                     tempLR2CustomFolderAsRootOutputDir,
-                    "変更前のルートフォルダ出力先",
+                    BeMusicSeeker.Properties.Resources.Label_PreviousRootOutputBase,
                     out errMsg);
                 if (!string.IsNullOrWhiteSpace(errMsg))
                 {
                     return false;
                 }
 
-                if (!ValidateOutputBaseIsNotNestedWithUserBmsRoot(normalizedPath, "ルートフォルダ出力先", out errMsg))
+                if (!ValidateOutputBaseIsNotNestedWithUserBmsRoot(normalizedPath, BeMusicSeeker.Properties.Resources.Label_RootOutputBase, out errMsg))
                 {
                     return false;
                 }
@@ -3690,7 +3708,7 @@ public class MainWindowViewModel : ViewModel
             }
             catch (Exception ex) when (ex is ArgumentException || ex is InvalidOperationException || ex is NotSupportedException || ex is PathTooLongException)
             {
-                errMsg = "プレイリスト: " + ex.Message;
+                errMsg = FormatPlaylistValidationMessage(ex.Message);
                 return false;
             }
         }
@@ -3707,12 +3725,12 @@ public class MainWindowViewModel : ViewModel
             {
                 if (CustomFolderOutputBaseSearchRootSyncService.IsSameDirectory(normalizedPath, bmsRoot))
                 {
-                    errMsg = "プレイリスト: " + outputBaseLabel + "は登録済みBMSディレクトリと同じ場所にはできません";
+                    errMsg = FormatPlaylistValidationMessage(FormatResource(BeMusicSeeker.Properties.Resources.Validation_OutputBaseSameAsBmsRootFormat, outputBaseLabel));
                     return false;
                 }
                 if (CustomFolderOutputBaseSearchRootSyncService.IsSameOrNestedDirectory(normalizedPath, bmsRoot))
                 {
-                    errMsg = "プレイリスト: " + outputBaseLabel + "は登録済みBMSディレクトリの親または子にはできません";
+                    errMsg = FormatPlaylistValidationMessage(FormatResource(BeMusicSeeker.Properties.Resources.Validation_OutputBaseNestedWithBmsRootFormat, outputBaseLabel));
                     return false;
                 }
             }
@@ -3722,8 +3740,8 @@ public class MainWindowViewModel : ViewModel
         private void ValidateCustomFolderAdditionalOutputBaseSearchRootPath(string path, string oldPath)
         {
             CustomFolderOutputBaseSearchRootSyncService.ValidateSjisDirectoryPath(path);
-            ValidateCustomFolderAdditionalOutputBaseIsNotNestedWithOutputBase(path, LR2CustomFolderOutputDir, "通常出力先");
-            ValidateCustomFolderAdditionalOutputBaseIsNotNestedWithOutputBase(path, LR2CustomFolderAsRootOutputDir, "ルートフォルダ出力先");
+            ValidateCustomFolderAdditionalOutputBaseIsNotNestedWithOutputBase(path, LR2CustomFolderOutputDir, BeMusicSeeker.Properties.Resources.Label_NormalOutputBase);
+            ValidateCustomFolderAdditionalOutputBaseIsNotNestedWithOutputBase(path, LR2CustomFolderAsRootOutputDir, BeMusicSeeker.Properties.Resources.Label_RootOutputBase);
 
             if (!OperationModeLR2DB || lr2config == null)
             {
@@ -3737,22 +3755,22 @@ public class MainWindowViewModel : ViewModel
                     if (!CustomFolderOutputBaseSearchRootSyncService.IsSameDirectory(path, bmsRoot)
                         && CustomFolderOutputBaseSearchRootSyncService.IsSameOrNestedDirectory(path, bmsRoot))
                     {
-                        throw new InvalidOperationException("追加出力先は変更前の追加出力先の親または子にはできません。");
+                        throw new InvalidOperationException(BeMusicSeeker.Properties.Resources.Error_AdditionalOutputBaseNestedWithPreviousAdditional);
                     }
                     continue;
                 }
                 if (CustomFolderOutputBaseSearchRootSyncService.IsSameDirectory(path, bmsRoot))
                 {
-                    throw new InvalidOperationException("追加出力先は登録済みBMSディレクトリと同じ場所にはできません。");
+                    throw new InvalidOperationException(BeMusicSeeker.Properties.Resources.Error_AdditionalOutputBaseSameAsBmsRoot);
                 }
                 if (CustomFolderOutputBaseSearchRootSyncService.IsSameOrNestedDirectory(path, bmsRoot))
                 {
-                    throw new InvalidOperationException("追加出力先は登録済みBMSディレクトリの親または子にはできません。");
+                    throw new InvalidOperationException(BeMusicSeeker.Properties.Resources.Error_AdditionalOutputBaseNestedWithBmsRoot);
                 }
             }
         }
 
-        private static void ValidateCustomFolderAdditionalOutputBaseIsNotNestedWithOutputBase(string additionalOutputBasePath, string outputBasePath, string outputBaseLabel)
+        private void ValidateCustomFolderAdditionalOutputBaseIsNotNestedWithOutputBase(string additionalOutputBasePath, string outputBasePath, string outputBaseLabel)
         {
             if (string.IsNullOrWhiteSpace(outputBasePath))
             {
@@ -3760,7 +3778,7 @@ public class MainWindowViewModel : ViewModel
             }
             if (CustomFolderOutputBaseSearchRootSyncService.IsSameOrNestedDirectory(additionalOutputBasePath, outputBasePath))
             {
-                throw new InvalidOperationException("追加出力先は" + outputBaseLabel + "の親または子にはできません。");
+                throw new InvalidOperationException(FormatResource(BeMusicSeeker.Properties.Resources.Error_AdditionalOutputBaseNestedWithOutputBaseFormat, outputBaseLabel));
             }
         }
 
@@ -3861,14 +3879,14 @@ public class MainWindowViewModel : ViewModel
                 List<string> nonSjisPaths = [.. requestedPaths.Where(path => !path.IsSjisSchemeString())];
                 if (nonSjisPaths.Count > 0)
                 {
-                    throw new ArgumentException("パスにユニコード文字が含まれているためLR2で認識できません" + Environment.NewLine + string.Join(Environment.NewLine, nonSjisPaths));
+                    throw new ArgumentException(BeMusicSeeker.Properties.Resources.Error_LR2UnicodePathUnsupported + Environment.NewLine + string.Join(Environment.NewLine, nonSjisPaths));
                 }
                 IReadOnlyList<string> managedCustomFolderOutputRoots = GetManagedCustomFolderSearchRootDirectories(includePreviousSettings: true);
                 string conflictingPath = requestedPaths.FirstOrDefault(path =>
                     managedCustomFolderOutputRoots.Any(root => CustomFolderOutputBaseSearchRootSyncService.IsSameOrNestedDirectory(path, root)));
                 if (!string.IsNullOrWhiteSpace(conflictingPath))
                 {
-                    throw new ArgumentException("BeMusicSeeker管理のカスタムフォルダ出力先はBMSディレクトリとして追加できません" + Environment.NewLine + conflictingPath);
+                    throw new ArgumentException(BeMusicSeeker.Properties.Resources.Error_ManagedCustomFolderOutputCannotBeAddedAsBmsRoot + Environment.NewLine + conflictingPath);
                 }
                 lr2config.AddBMSSearchDirectories(requestedPaths);
                 isSearchRootsChanged = true;
@@ -3890,11 +3908,11 @@ public class MainWindowViewModel : ViewModel
             }
             catch (ArgumentException ex)
             {
-                ownerViewModel.RaiseInteractionMessageOnUiThread(new ConfirmationMessage(ex.Message, "エラー", MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
+                ownerViewModel.RaiseInteractionMessageOnUiThread(new ConfirmationMessage(ex.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
             }
             catch (Exception ex)
             {
-                ownerViewModel.RaiseInteractionMessageOnUiThread(new ConfirmationMessage(ex.Message, "エラー", MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
+                ownerViewModel.RaiseInteractionMessageOnUiThread(new ConfirmationMessage(ex.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
             }
         }
 
@@ -3971,7 +3989,7 @@ public class MainWindowViewModel : ViewModel
                 string normalizedDir = TrimDirectorySeparatorUnlessRoot(Path.GetFullPath(dir.Trim()));
                 if (!string.IsNullOrWhiteSpace(Settings.Default.BMSInstallDir) && IsSameOrChildPath(Settings.Default.BMSInstallDir, normalizedDir))
                 {
-                    throw new InvalidOperationException("BMSインストール先ディレクトリの登録解除は出来ません");
+                    throw new InvalidOperationException(BeMusicSeeker.Properties.Resources.Error_CannotRemoveBmsInstallDir);
                 }
                 string before = SerializeStandaloneBmsRootPaths(StandaloneBmsRootPathList);
                 List<string> remaining = [.. StandaloneBmsRootPathList.Where(path => !string.Equals(path, normalizedDir, StringComparison.OrdinalIgnoreCase))];
@@ -3992,7 +4010,7 @@ public class MainWindowViewModel : ViewModel
             }
             catch (Exception ex)
             {
-                ownerViewModel.RaiseInteractionMessageOnUiThread(new ConfirmationMessage(ex.Message, "エラー", MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
+                ownerViewModel.RaiseInteractionMessageOnUiThread(new ConfirmationMessage(ex.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
             }
         }
 
@@ -4006,23 +4024,23 @@ public class MainWindowViewModel : ViewModel
             {
                 if (LR2CustomFolderOutputDir != null && (LR2CustomFolderOutputDir + Path.DirectorySeparatorChar).StartsWith(dir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
                 {
-                    throw new InvalidOperationException("カスタムフォルダ出力ディレクトリの登録解除は出来ません");
+                    throw new InvalidOperationException(BeMusicSeeker.Properties.Resources.Error_CannotRemoveCustomFolderOutputDir);
                 }
                 if (CustomFolderAdditionalOutputBaseDirList.Any(path => path != null && (path + Path.DirectorySeparatorChar).StartsWith(dir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)))
                 {
-                    throw new InvalidOperationException("追加通常出力先ディレクトリの登録解除は出来ません");
+                    throw new InvalidOperationException(BeMusicSeeker.Properties.Resources.Error_CannotRemoveAdditionalOutputBaseDir);
                 }
                 if (LR2CustomFolderAsRootOutputDir != null && (LR2CustomFolderAsRootOutputDir + Path.DirectorySeparatorChar).StartsWith(dir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
                 {
-                    throw new InvalidOperationException("カスタムフォルダ(ルート)出力ディレクトリの登録解除は出来ません");
+                    throw new InvalidOperationException(BeMusicSeeker.Properties.Resources.Error_CannotRemoveRootCustomFolderOutputDir);
                 }
                 if (CreateRootFolderOutputDirectories(LR2CustomFolderAsRootOutputDir).Any(path => path != null && (path + Path.DirectorySeparatorChar).StartsWith(dir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)))
                 {
-                    throw new InvalidOperationException("カスタムフォルダ(ルート)出力ディレクトリの登録解除は出来ません");
+                    throw new InvalidOperationException(BeMusicSeeker.Properties.Resources.Error_CannotRemoveRootCustomFolderOutputDir);
                 }
                 if (BMSInstallDir != null && (BMSInstallDir + Path.DirectorySeparatorChar).StartsWith(dir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
                 {
-                    throw new InvalidOperationException("BMSインストール先ディレクトリの登録解除は出来ません");
+                    throw new InvalidOperationException(BeMusicSeeker.Properties.Resources.Error_CannotRemoveBmsInstallDir);
                 }
                 if (lr2config.RemoveBMSSearchDirectories([dir]))
                 {
@@ -4048,7 +4066,7 @@ public class MainWindowViewModel : ViewModel
             }
             catch (Exception ex)
             {
-                ownerViewModel.RaiseInteractionMessageOnUiThread(new ConfirmationMessage(ex.Message, "エラー", MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
+                ownerViewModel.RaiseInteractionMessageOnUiThread(new ConfirmationMessage(ex.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
             }
         }
 
@@ -4307,7 +4325,7 @@ public class MainWindowViewModel : ViewModel
             }
             if (Settings.Default.OperationModeLR2DB && Settings.Default.IsLR2BackupEnabled && tempIsLR2BackupEnabled != Settings.Default.IsLR2BackupEnabled)
             {
-                ownerViewModel.RaiseInteractionMessageOnUiThread(new ConfirmationMessage("LR2設定ファイルバックアップ機能は" + Environment.NewLine + "次回起動時から有効になります", "確認", MessageBoxImage.Asterisk, MessageBoxButton.OK, "ConfirmationDialog"));
+                ownerViewModel.RaiseInteractionMessageOnUiThread(new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Msg_LR2ConfigBackupEnabledNextStartup, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxImage.Asterisk, MessageBoxButton.OK, "ConfirmationDialog"));
             }
             if (tempEnablePlaylistUrlCompletion != Settings.Default.EnablePlaylistUrlCompletion || tempOverwritePlaylistUrlsWithCompletion != Settings.Default.OverwritePlaylistUrlsWithCompletion || tempEnableStellaFullPlaylistUrlCompletion != Settings.Default.EnableStellaFullPlaylistUrlCompletion || !string.Equals(tempPlaylistMd5UrlMappingTsvUri, Settings.Default.PlaylistMd5UrlMappingTsvUri, StringComparison.Ordinal))
             {
@@ -4557,68 +4575,68 @@ public class MainWindowViewModel : ViewModel
             {
                 if (!IsLR2SongDBPathValid() || !IsLR2ConfigXmlPathValid())
                 {
-                    errMsg = errMsg + "一般: LR2のsong.dbまたはconfig.xmlのパスが正しくありません" + Environment.NewLine;
+                    errMsg += FormatSettingValidationMessage(BeMusicSeeker.Properties.Resources.General, BeMusicSeeker.Properties.Resources.Error_InvalidLR2SongDbOrConfigPath) + Environment.NewLine;
                     result = false;
                 }
             }
             else if (NormalizeStandaloneBmsRootPaths(StandaloneBmsRootPathList).Count == 0)
             {
-                errMsg = errMsg + BeMusicSeeker.Properties.Resources.General + ": " + BeMusicSeeker.Properties.Resources.Error_InvalidStandaloneBmsRootPaths + Environment.NewLine;
+                errMsg += FormatSettingValidationMessage(BeMusicSeeker.Properties.Resources.General, BeMusicSeeker.Properties.Resources.Error_InvalidStandaloneBmsRootPaths) + Environment.NewLine;
                 result = false;
             }
             if ((UseBeatorajaScoreDb || EnableBeatorajaBmtOutput) && !IsBeatorajaRootPathValid())
             {
-                errMsg = errMsg + BeMusicSeeker.Properties.Resources.General + ": " + BeMusicSeeker.Properties.Resources.Error_InvalidBeatorajaRootPath + Environment.NewLine;
+                errMsg += FormatSettingValidationMessage(BeMusicSeeker.Properties.Resources.General, BeMusicSeeker.Properties.Resources.Error_InvalidBeatorajaRootPath) + Environment.NewLine;
                 result = false;
             }
             if (UseBeatorajaScoreDb && !IsBeatorajaScoreDbPathValid())
             {
-                errMsg = errMsg + BeMusicSeeker.Properties.Resources.General + ": " + BeMusicSeeker.Properties.Resources.Error_InvalidBeatorajaScoreDbPath + Environment.NewLine;
+                errMsg += FormatSettingValidationMessage(BeMusicSeeker.Properties.Resources.General, BeMusicSeeker.Properties.Resources.Error_InvalidBeatorajaScoreDbPath) + Environment.NewLine;
                 result = false;
             }
             if (EnableBeatorajaBmtOutput && IsBeatorajaRootPathValid() && string.IsNullOrWhiteSpace(BeatorajaConfigService.GetTablePath(Settings.Default.BeatorajaRootPath)))
             {
-                errMsg = errMsg + BeMusicSeeker.Properties.Resources.General + ": " + BeMusicSeeker.Properties.Resources.Error_InvalidBeatorajaBmtTablePath + Environment.NewLine;
+                errMsg += FormatSettingValidationMessage(BeMusicSeeker.Properties.Resources.General, BeMusicSeeker.Properties.Resources.Error_InvalidBeatorajaBmtTablePath) + Environment.NewLine;
                 result = false;
             }
             if (UseExternalPanelImage && !IsStagefilePathValid())
             {
-                errMsg = errMsg + "一般: ステージファイルのパスが正しくありません" + Environment.NewLine;
+                errMsg += FormatSettingValidationMessage(BeMusicSeeker.Properties.Resources.General, BeMusicSeeker.Properties.Resources.Error_InvalidStagefilePath) + Environment.NewLine;
                 result = false;
             }
             if (UsePlayeruBMplay && !IsuBMplayPathValid())
             {
-                errMsg = errMsg + "再生: uBMplay実行ファイルのパスが正しくありません" + Environment.NewLine;
+                errMsg += FormatSettingValidationMessage(BeMusicSeeker.Properties.Resources.Playback, BeMusicSeeker.Properties.Resources.Error_InvalidUBMPlayExecutablePath) + Environment.NewLine;
                 result = false;
             }
             else if (UsePlayerLR2body)
             {
                 if (!IsLR2PlayerRootPathValid())
                 {
-                    errMsg = errMsg + "再生: LR2ディレクトリのパスが正しくありません" + Environment.NewLine;
+                    errMsg += FormatSettingValidationMessage(BeMusicSeeker.Properties.Resources.Playback, BeMusicSeeker.Properties.Resources.Error_InvalidLR2RootPath) + Environment.NewLine;
                     result = false;
                 }
                 if (!File.Exists(LR2bodyPath))
                 {
-                    errMsg = errMsg + "再生: LR2実行ファイルが見つかりません: " + LR2bodyPath + Environment.NewLine;
+                    errMsg += FormatSettingValidationMessage(BeMusicSeeker.Properties.Resources.Playback, FormatResource(BeMusicSeeker.Properties.Resources.Error_LR2ExecutableNotFoundFormat, LR2bodyPath)) + Environment.NewLine;
                     result = false;
                 }
                 if ((int)LR2bodyResolution.X <= 0 || (int)LR2bodyResolution.Y <= 0)
                 {
-                    errMsg = errMsg + "再生: LR2ウィンドウサイズが正しくありません" + Environment.NewLine;
+                    errMsg += FormatSettingValidationMessage(BeMusicSeeker.Properties.Resources.Playback, BeMusicSeeker.Properties.Resources.Error_InvalidLR2WindowSize) + Environment.NewLine;
                     result = false;
                 }
             }
             else if (UsePlayerBMIIDXView && !IsBMIIDXViewPathValid())
             {
-                errMsg = errMsg + "再生: BMIIDXViewのパスが正しくありません" + Environment.NewLine;
+                errMsg += FormatSettingValidationMessage(BeMusicSeeker.Properties.Resources.Playback, BeMusicSeeker.Properties.Resources.Error_InvalidBMIIDXViewPath) + Environment.NewLine;
                 result = false;
             }
             if (OperationModeLR2DB)
             {
                 if (string.IsNullOrWhiteSpace(LR2CustomFolderOutputDir))
                 {
-                    errMsg = errMsg + "プレイリスト: カスタムフォルダの出力パスが設定されていません" + Environment.NewLine;
+                    errMsg += FormatPlaylistValidationMessage(BeMusicSeeker.Properties.Resources.Error_CustomFolderOutputPathNotSet) + Environment.NewLine;
                     result = false;
                 }
                 else if (!ValidateCustomFolderOutputBaseDir(out string outputBaseDirErrMsg))
@@ -4628,7 +4646,7 @@ public class MainWindowViewModel : ViewModel
                 }
                 if (string.IsNullOrWhiteSpace(LR2CustomFolderAsRootOutputDir))
                 {
-                    errMsg = errMsg + "プレイリスト: カスタムフォルダ(ROOT)の出力パスが設定されていません" + Environment.NewLine;
+                    errMsg += FormatPlaylistValidationMessage(BeMusicSeeker.Properties.Resources.Error_CustomFolderRootOutputPathNotSet) + Environment.NewLine;
                     result = false;
                 }
                 else if (!ValidateCustomFolderAsRootOutputBaseDir(out string rootOutputBaseDirErrMsg))
@@ -4644,17 +4662,17 @@ public class MainWindowViewModel : ViewModel
             }
             if (string.IsNullOrWhiteSpace(TableListURL.ToString()))
             {
-                errMsg = errMsg + "プレイリスト: 難易度表リスト取得URIが設定されていません" + Environment.NewLine;
+                errMsg += FormatPlaylistValidationMessage(BeMusicSeeker.Properties.Resources.Error_TableListUrlNotSet) + Environment.NewLine;
                 result = false;
             }
             if (EnablePlaylistUrlCompletion && !IsPlaylistMd5UrlMappingTsvUriValid())
             {
-                errMsg = errMsg + "プレイリスト: " + BeMusicSeeker.Properties.Resources.Error_InvalidPlaylistMd5UrlMappingTsvUri + Environment.NewLine;
+                errMsg += FormatPlaylistValidationMessage(BeMusicSeeker.Properties.Resources.Error_InvalidPlaylistMd5UrlMappingTsvUri) + Environment.NewLine;
                 result = false;
             }
             if (!IsBMSInstallDirValid())
             {
-                errMsg = errMsg + BeMusicSeeker.Properties.Resources.Install + ": " + BeMusicSeeker.Properties.Resources.Error_InvalidBmsInstallDir + Environment.NewLine;
+                errMsg += FormatSettingValidationMessage(BeMusicSeeker.Properties.Resources.Install, BeMusicSeeker.Properties.Resources.Error_InvalidBmsInstallDir) + Environment.NewLine;
                 result = false;
             }
             if (!IsFolderNameFormatValid())
@@ -4663,7 +4681,7 @@ public class MainWindowViewModel : ViewModel
             }
             if (OperationModeLR2DB && IsLR2BackupEnabled && !IsLR2BackupPathValid())
             {
-                errMsg = errMsg + "詳細: LR2バックアップ出力先が設定されていません" + Environment.NewLine;
+                errMsg += FormatSettingValidationMessage(BeMusicSeeker.Properties.Resources.Details, BeMusicSeeker.Properties.Resources.Error_LR2BackupPathNotSet) + Environment.NewLine;
                 result = false;
             }
             return result;
@@ -5598,7 +5616,7 @@ public class MainWindowViewModel : ViewModel
                     RaisePropertyChanged(() => output_dir);
                     if (Settings.Default.OperationModeLR2DB && !IsOutputDirValid())
                     {
-                        ownerViewModel.RaiseInteractionMessageOnUiThread(new ConfirmationMessage("出力先フォルダ名が空もしくは重複しています。" + Environment.NewLine + "プレイリスト名または出力先フォルダ名を変更して下さい。", "エラー", MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
+                        ownerViewModel.RaiseInteractionMessageOnUiThread(new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Error_OutputFolderNameEmptyOrDuplicateChangePlaylist, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
                     }
                 }
             }
@@ -5645,7 +5663,7 @@ public class MainWindowViewModel : ViewModel
                     }
                     else
                     {
-                        ownerViewModel.RaiseInteractionMessageOnUiThread(new ConfirmationMessage("入力されたページURIが正しくありません。" + Environment.NewLine + "絶対URIを入力して下さい。", "エラー", MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
+                        ownerViewModel.RaiseInteractionMessageOnUiThread(new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Error_InvalidPageUriAbsoluteRequired, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
                     }
                     RaisePropertyChanged("Page_url");
                 }
@@ -5672,7 +5690,7 @@ public class MainWindowViewModel : ViewModel
                     }
                     else
                     {
-                        ownerViewModel.RaiseInteractionMessageOnUiThread(new ConfirmationMessage("入力されたヘッダURIが正しくありません。", "エラー", MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
+                        ownerViewModel.RaiseInteractionMessageOnUiThread(new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Error_InvalidHeaderUri, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
                     }
                     RaisePropertyChanged("Header_url");
                 }
@@ -5699,7 +5717,7 @@ public class MainWindowViewModel : ViewModel
                     }
                     else
                     {
-                        ownerViewModel.RaiseInteractionMessageOnUiThread(new ConfirmationMessage("入力されたデータURIが正しくありません。", "エラー", MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
+                        ownerViewModel.RaiseInteractionMessageOnUiThread(new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Error_InvalidDataUri, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
                     }
                     RaisePropertyChanged("Data_url");
                 }
@@ -5721,11 +5739,11 @@ public class MainWindowViewModel : ViewModel
                 if (!IsExternal_syncValid(value))
                 {
                     value = false;
-                    ownerViewModel.RaiseInteractionMessageOnUiThread(new ConfirmationMessage("ページURIまたはヘッダURIが正しくありません。", "エラー", MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
+                    ownerViewModel.RaiseInteractionMessageOnUiThread(new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Error_InvalidPageOrHeaderUri, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
                 }
                 if (!_is_external_sync && value)
                 {
-                    var confirmationMessage = new ConfirmationMessage("同期モードに設定するとローカルの変更が失われます。" + Environment.NewLine + "よろしいですか？", "警告", MessageBoxImage.Exclamation, MessageBoxButton.OKCancel, "ConfirmationDialog");
+                    var confirmationMessage = new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Confirm_EnablePlaylistSyncModeLoseLocalChanges, BeMusicSeeker.Properties.Resources.Warning, MessageBoxImage.Exclamation, MessageBoxButton.OKCancel, "ConfirmationDialog");
                     ownerViewModel.RaiseInteractionMessageOnUiThread(confirmationMessage);
                     if (!confirmationMessage.Response.HasValue || !confirmationMessage.Response.Value)
                     {
@@ -5735,7 +5753,7 @@ public class MainWindowViewModel : ViewModel
                 }
                 else if (_is_external_sync && !value)
                 {
-                    var confirmationMessage2 = new ConfirmationMessage("同期モードを解除するとリモートの変更が反映されなくなります。" + Environment.NewLine + "よろしいですか？", "警告", MessageBoxImage.Exclamation, MessageBoxButton.OKCancel, "ConfirmationDialog");
+                    var confirmationMessage2 = new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Confirm_DisablePlaylistSyncModeRemoteChangesNotApplied, BeMusicSeeker.Properties.Resources.Warning, MessageBoxImage.Exclamation, MessageBoxButton.OKCancel, "ConfirmationDialog");
                     ownerViewModel.RaiseInteractionMessageOnUiThread(confirmationMessage2);
                     if (!confirmationMessage2.Response.HasValue || !confirmationMessage2.Response.Value)
                     {
@@ -5785,7 +5803,7 @@ public class MainWindowViewModel : ViewModel
                     }
                     else
                     {
-                        ownerViewModel.RaiseInteractionMessageOnUiThread(new ConfirmationMessage("出力先フォルダ名が空もしくは重複しています。" + Environment.NewLine + "入力した値を確認して下さい。", "エラー", MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
+                        ownerViewModel.RaiseInteractionMessageOnUiThread(new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Error_OutputFolderNameEmptyOrDuplicateCheckInput, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
                     }
                 }
                 else if (string.IsNullOrWhiteSpace(value) || value == name.Trim().ToSjisSchemeString().RemoveInvalidFileNameChars())
@@ -22443,7 +22461,7 @@ public class MainWindowViewModel : ViewModel
         }
         if (!IsStartupProgressPhaseCompletedOrNotExpected(state, StartupProgressPhase.PlaylistEntriesHydrationDone))
         {
-            return "プレイリスト読込";
+            return BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_playlist_load;
         }
         if (!IsStartupProgressPhaseCompletedOrNotExpected(state, StartupProgressPhase.ChartInfoHydrationDone))
         {
@@ -23308,7 +23326,9 @@ public class MainWindowViewModel : ViewModel
             string statusDetail = playlistSyncRuntimeStatus.Detail;
             if (!entriesLoaded)
             {
-                statusDetail = string.IsNullOrWhiteSpace(statusDetail) ? "プレイリスト読込中" : (statusDetail + " / プレイリスト読込中");
+                statusDetail = string.IsNullOrWhiteSpace(statusDetail)
+                    ? BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_playlist_loading
+                    : string.Format(CultureInfo.CurrentCulture, BeMusicSeeker.Properties.Resources.Statusbar_progress_detail_separator_format, statusDetail, BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_playlist_loading);
             }
             rows.Add(new PlaylistSummaryRow
             {
@@ -24786,7 +24806,7 @@ public class MainWindowViewModel : ViewModel
     {
         if (bmsTable.is_external_sync)
         {
-            RaiseInteractionMessageOnUiThread(new ConfirmationMessage("プレイリストが外部同期モードになっているため" + Environment.NewLine + "フォルダ名を変更することは出来ません。", "エラー", MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
+            RaiseInteractionMessageOnUiThread(new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Msg_failed_rename_playlist_folder, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
         }
         else
         {

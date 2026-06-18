@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using BeMusicSeeker.Models.LR2;
@@ -141,7 +142,7 @@ internal static class CustomFolderOutputBaseSearchRootSyncService
 
     internal static void ValidateSjisDirectoryPath(string path)
     {
-        ValidateSjisDirectoryPath(path, "追加出力先フォルダ");
+        ValidateSjisDirectoryPath(path, BeMusicSeeker.Properties.Resources.Label_AdditionalOutputBaseFolder);
     }
 
     internal static void ValidateSjisDirectoryPath(string path, string pathLabel)
@@ -149,11 +150,18 @@ internal static class CustomFolderOutputBaseSearchRootSyncService
         string normalizedPath = CustomFolderOutputBaseRegistry.NormalizeDirectoryPath(path);
         if (string.IsNullOrWhiteSpace(normalizedPath))
         {
-            throw new ArgumentException(pathLabel + "が選択されていません。");
+            throw new ArgumentException(string.Format(
+                CultureInfo.CurrentCulture,
+                BeMusicSeeker.Properties.Resources.Error_SjisDirectoryPathNotSelectedFormat,
+                pathLabel));
         }
         if (!normalizedPath.IsSjisSchemeString())
         {
-            throw new ArgumentException(pathLabel + "のパスにShift_JISで表現できない文字が含まれています。" + Environment.NewLine + normalizedPath);
+            throw new ArgumentException(string.Format(
+                CultureInfo.CurrentCulture,
+                BeMusicSeeker.Properties.Resources.Error_SjisDirectoryPathContainsUnsupportedCharsFormat,
+                pathLabel,
+                normalizedPath));
         }
     }
 

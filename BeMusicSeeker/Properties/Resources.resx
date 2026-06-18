@@ -2301,4 +2301,212 @@ cleanup-only成功: {3}
 {0}件のファイルをごみ箱へ移動します。
 続行しますか？</value>
   </data>
+  <data name="SettingValidation_SectionMessageFormat" xml:space="preserve">
+    <value>{0}: {1}</value>
+  </data>
+  <data name="Error_InvalidTableListUri" xml:space="preserve">
+    <value>難易度表リスト取得URIが正しくありません。</value>
+  </data>
+  <data name="Error_InvalidFolderNameFormat" xml:space="preserve">
+    <value>リネーム書式には「%ARTIST%」または「%TITLE%」を含めて下さい</value>
+  </data>
+  <data name="Warn_DisableShiftJisFolderNames" xml:space="preserve">
+    <value>チェックを外すと、LR2が正常に起動しなかったり
+作成されたフォルダが認識できなくなる場合があります</value>
+  </data>
+  <data name="Warn_EncoderExecutableNotFoundFormat" xml:space="preserve">
+    <value>エンコード実行ファイル: {0} が見つかりませんでした
+検索フォルダを正しく指定して下さい</value>
+  </data>
+  <data name="Error_LR2UnicodePathUnsupported" xml:space="preserve">
+    <value>パスにユニコード文字が含まれているためLR2で認識できません</value>
+  </data>
+  <data name="Confirm_RemoveAdditionalOutputBaseReferencedFormat" xml:space="preserve">
+    <value>この出力先を使用しているプレイリストが {0} 件あります。
+削除すると、それらの OUTPUT は通常出力先に戻ります。
+
+続行しますか？</value>
+  </data>
+  <data name="Error_CustomFolderOutputBaseNameEmpty" xml:space="preserve">
+    <value>出力先フォルダ名が空です。</value>
+  </data>
+  <data name="Error_AdditionalOutputBaseNameMatchesNormalOutput" xml:space="preserve">
+    <value>通常出力先と同じフォルダ名は追加登録できません。</value>
+  </data>
+  <data name="Error_AdditionalOutputBaseNameDuplicate" xml:space="preserve">
+    <value>同じフォルダ名の追加出力先が既に登録されています。</value>
+  </data>
+  <data name="Validation_AdditionalOutputBaseNameEmpty" xml:space="preserve">
+    <value>追加出力先のフォルダ名が空です</value>
+  </data>
+  <data name="Validation_OutputBaseNameDuplicateFormat" xml:space="preserve">
+    <value>通常出力先または追加出力先に同じフォルダ名があります: {0}</value>
+  </data>
+  <data name="Validation_AdditionalOutputBasesNested" xml:space="preserve">
+    <value>追加出力先同士を親子関係にすることはできません</value>
+  </data>
+  <data name="Label_NormalOutputBaseFolder" xml:space="preserve">
+    <value>通常出力先フォルダ</value>
+  </data>
+  <data name="Label_AdditionalOutputBaseFolder" xml:space="preserve">
+    <value>追加出力先フォルダ</value>
+  </data>
+  <data name="Error_SjisDirectoryPathNotSelectedFormat" xml:space="preserve">
+    <value>{0}が選択されていません。</value>
+  </data>
+  <data name="Error_SjisDirectoryPathContainsUnsupportedCharsFormat" xml:space="preserve">
+    <value>{0}のパスにShift_JISで表現できない文字が含まれています。
+{1}</value>
+  </data>
+  <data name="Validation_NormalOutputBaseNameEmpty" xml:space="preserve">
+    <value>通常出力先のフォルダ名が空です</value>
+  </data>
+  <data name="Validation_NormalAndAdditionalOutputBasesNested" xml:space="preserve">
+    <value>通常出力先と追加通常出力先を同じ場所または親子関係にすることはできません</value>
+  </data>
+  <data name="Label_NormalOutputBase" xml:space="preserve">
+    <value>通常出力先</value>
+  </data>
+  <data name="Label_PreviousNormalOutputBase" xml:space="preserve">
+    <value>変更前の通常出力先</value>
+  </data>
+  <data name="Label_PreviousAdditionalOutputBase" xml:space="preserve">
+    <value>変更前の追加通常出力先</value>
+  </data>
+  <data name="Validation_NormalAndRootOutputBasesNested" xml:space="preserve">
+    <value>通常出力先とルートフォルダ出力先を同じ場所または親子関係にすることはできません</value>
+  </data>
+  <data name="Validation_PreviousManagedRootNestedFormat" xml:space="preserve">
+    <value>{0}と{1}を親子関係にすることはできません</value>
+  </data>
+  <data name="Label_RootOutputBaseFolder" xml:space="preserve">
+    <value>ルートフォルダ出力先フォルダ</value>
+  </data>
+  <data name="Validation_RootOutputBaseNameEmpty" xml:space="preserve">
+    <value>ルートフォルダ出力先のフォルダ名が空です</value>
+  </data>
+  <data name="Validation_RootAndNormalOutputBasesNested" xml:space="preserve">
+    <value>ルートフォルダ出力先と通常出力先を同じ場所または親子関係にすることはできません</value>
+  </data>
+  <data name="Validation_RootAndAdditionalOutputBasesNested" xml:space="preserve">
+    <value>ルートフォルダ出力先と追加通常出力先を同じ場所または親子関係にすることはできません</value>
+  </data>
+  <data name="Label_RootOutputBase" xml:space="preserve">
+    <value>ルートフォルダ出力先</value>
+  </data>
+  <data name="Label_PreviousRootOutputBase" xml:space="preserve">
+    <value>変更前のルートフォルダ出力先</value>
+  </data>
+  <data name="Validation_OutputBaseSameAsBmsRootFormat" xml:space="preserve">
+    <value>{0}は登録済みBMSディレクトリと同じ場所にはできません</value>
+  </data>
+  <data name="Validation_OutputBaseNestedWithBmsRootFormat" xml:space="preserve">
+    <value>{0}は登録済みBMSディレクトリの親または子にはできません</value>
+  </data>
+  <data name="Error_AdditionalOutputBaseNestedWithPreviousAdditional" xml:space="preserve">
+    <value>追加出力先は変更前の追加出力先の親または子にはできません。</value>
+  </data>
+  <data name="Error_AdditionalOutputBaseSameAsBmsRoot" xml:space="preserve">
+    <value>追加出力先は登録済みBMSディレクトリと同じ場所にはできません。</value>
+  </data>
+  <data name="Error_AdditionalOutputBaseNestedWithBmsRoot" xml:space="preserve">
+    <value>追加出力先は登録済みBMSディレクトリの親または子にはできません。</value>
+  </data>
+  <data name="Error_AdditionalOutputBaseNestedWithOutputBaseFormat" xml:space="preserve">
+    <value>追加出力先は{0}の親または子にはできません。</value>
+  </data>
+  <data name="Error_ManagedCustomFolderOutputCannotBeAddedAsBmsRoot" xml:space="preserve">
+    <value>BeMusicSeeker管理のカスタムフォルダ出力先はBMSディレクトリとして追加できません</value>
+  </data>
+  <data name="Error_CannotRemoveBmsInstallDir" xml:space="preserve">
+    <value>BMSインストール先ディレクトリの登録解除は出来ません</value>
+  </data>
+  <data name="Error_CannotRemoveCustomFolderOutputDir" xml:space="preserve">
+    <value>カスタムフォルダ出力ディレクトリの登録解除は出来ません</value>
+  </data>
+  <data name="Error_CannotRemoveAdditionalOutputBaseDir" xml:space="preserve">
+    <value>追加通常出力先ディレクトリの登録解除は出来ません</value>
+  </data>
+  <data name="Error_CannotRemoveRootCustomFolderOutputDir" xml:space="preserve">
+    <value>カスタムフォルダ(ルート)出力ディレクトリの登録解除は出来ません</value>
+  </data>
+  <data name="Msg_LR2ConfigBackupEnabledNextStartup" xml:space="preserve">
+    <value>LR2設定ファイルバックアップ機能は
+次回起動時から有効になります</value>
+  </data>
+  <data name="Error_InvalidLR2SongDbOrConfigPath" xml:space="preserve">
+    <value>LR2のsong.dbまたはconfig.xmlのパスが正しくありません</value>
+  </data>
+  <data name="Error_InvalidStagefilePath" xml:space="preserve">
+    <value>ステージファイルのパスが正しくありません</value>
+  </data>
+  <data name="Error_InvalidUBMPlayExecutablePath" xml:space="preserve">
+    <value>uBMplay実行ファイルのパスが正しくありません</value>
+  </data>
+  <data name="Error_InvalidLR2RootPath" xml:space="preserve">
+    <value>LR2ディレクトリのパスが正しくありません</value>
+  </data>
+  <data name="Error_LR2ExecutableNotFoundFormat" xml:space="preserve">
+    <value>LR2実行ファイルが見つかりません: {0}</value>
+  </data>
+  <data name="Error_InvalidLR2WindowSize" xml:space="preserve">
+    <value>LR2ウィンドウサイズが正しくありません</value>
+  </data>
+  <data name="Error_InvalidBMIIDXViewPath" xml:space="preserve">
+    <value>BMIIDXViewのパスが正しくありません</value>
+  </data>
+  <data name="Error_CustomFolderOutputPathNotSet" xml:space="preserve">
+    <value>カスタムフォルダの出力パスが設定されていません</value>
+  </data>
+  <data name="Error_CustomFolderRootOutputPathNotSet" xml:space="preserve">
+    <value>カスタムフォルダ(ROOT)の出力パスが設定されていません</value>
+  </data>
+  <data name="Error_TableListUrlNotSet" xml:space="preserve">
+    <value>難易度表リスト取得URIが設定されていません</value>
+  </data>
+  <data name="Error_LR2BackupPathNotSet" xml:space="preserve">
+    <value>LR2バックアップ出力先が設定されていません</value>
+  </data>
+  <data name="Error_OutputFolderNameEmptyOrDuplicateChangePlaylist" xml:space="preserve">
+    <value>出力先フォルダ名が空もしくは重複しています。
+プレイリスト名または出力先フォルダ名を変更して下さい。</value>
+  </data>
+  <data name="Error_InvalidPageUriAbsoluteRequired" xml:space="preserve">
+    <value>入力されたページURIが正しくありません。
+絶対URIを入力して下さい。</value>
+  </data>
+  <data name="Error_InvalidHeaderUri" xml:space="preserve">
+    <value>入力されたヘッダURIが正しくありません。</value>
+  </data>
+  <data name="Error_InvalidDataUri" xml:space="preserve">
+    <value>入力されたデータURIが正しくありません。</value>
+  </data>
+  <data name="Error_InvalidPageOrHeaderUri" xml:space="preserve">
+    <value>ページURIまたはヘッダURIが正しくありません。</value>
+  </data>
+  <data name="Confirm_EnablePlaylistSyncModeLoseLocalChanges" xml:space="preserve">
+    <value>同期モードに設定するとローカルの変更が失われます。
+よろしいですか？</value>
+  </data>
+  <data name="Confirm_DisablePlaylistSyncModeRemoteChangesNotApplied" xml:space="preserve">
+    <value>同期モードを解除するとリモートの変更が反映されなくなります。
+よろしいですか？</value>
+  </data>
+  <data name="Error_OutputFolderNameEmptyOrDuplicateCheckInput" xml:space="preserve">
+    <value>出力先フォルダ名が空もしくは重複しています。
+入力した値を確認して下さい。</value>
+  </data>
+  <data name="Statusbar_progress_phase_playlist_load" xml:space="preserve">
+    <value>プレイリスト読込</value>
+  </data>
+  <data name="Statusbar_progress_phase_playlist_loading" xml:space="preserve">
+    <value>プレイリスト読込中</value>
+  </data>
+  <data name="Statusbar_progress_detail_separator_format" xml:space="preserve">
+    <value>{0} / {1}</value>
+  </data>
+  <data name="Msg_failed_rename_playlist_folder" xml:space="preserve">
+    <value>プレイリストが外部同期モードになっているため
+フォルダ名を変更することは出来ません。</value>
+  </data>
 </root>

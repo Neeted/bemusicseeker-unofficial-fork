@@ -1505,7 +1505,135 @@ public class Resources
 
 
     public static string Warn_ArchiveBundledSevenZipMissingDetail => ResourceManager.GetString("Warn_ArchiveBundledSevenZipMissingDetail", resourceCulture);
+    public static string SettingValidation_SectionMessageFormat => ResourceManager.GetString("SettingValidation_SectionMessageFormat", resourceCulture);
 
+    public static string Error_InvalidTableListUri => ResourceManager.GetString("Error_InvalidTableListUri", resourceCulture);
+
+    public static string Error_InvalidFolderNameFormat => ResourceManager.GetString("Error_InvalidFolderNameFormat", resourceCulture);
+
+    public static string Warn_DisableShiftJisFolderNames => ResourceManager.GetString("Warn_DisableShiftJisFolderNames", resourceCulture);
+
+    public static string Warn_EncoderExecutableNotFoundFormat => ResourceManager.GetString("Warn_EncoderExecutableNotFoundFormat", resourceCulture);
+
+    public static string Error_LR2UnicodePathUnsupported => ResourceManager.GetString("Error_LR2UnicodePathUnsupported", resourceCulture);
+
+    public static string Confirm_RemoveAdditionalOutputBaseReferencedFormat => ResourceManager.GetString("Confirm_RemoveAdditionalOutputBaseReferencedFormat", resourceCulture);
+
+    public static string Error_CustomFolderOutputBaseNameEmpty => ResourceManager.GetString("Error_CustomFolderOutputBaseNameEmpty", resourceCulture);
+
+    public static string Error_AdditionalOutputBaseNameMatchesNormalOutput => ResourceManager.GetString("Error_AdditionalOutputBaseNameMatchesNormalOutput", resourceCulture);
+
+    public static string Error_AdditionalOutputBaseNameDuplicate => ResourceManager.GetString("Error_AdditionalOutputBaseNameDuplicate", resourceCulture);
+
+    public static string Validation_AdditionalOutputBaseNameEmpty => ResourceManager.GetString("Validation_AdditionalOutputBaseNameEmpty", resourceCulture);
+
+    public static string Validation_OutputBaseNameDuplicateFormat => ResourceManager.GetString("Validation_OutputBaseNameDuplicateFormat", resourceCulture);
+
+    public static string Validation_AdditionalOutputBasesNested => ResourceManager.GetString("Validation_AdditionalOutputBasesNested", resourceCulture);
+
+    public static string Label_NormalOutputBaseFolder => ResourceManager.GetString("Label_NormalOutputBaseFolder", resourceCulture);
+
+    public static string Label_AdditionalOutputBaseFolder => ResourceManager.GetString("Label_AdditionalOutputBaseFolder", resourceCulture);
+
+    public static string Error_SjisDirectoryPathNotSelectedFormat => ResourceManager.GetString("Error_SjisDirectoryPathNotSelectedFormat", resourceCulture);
+
+    public static string Error_SjisDirectoryPathContainsUnsupportedCharsFormat => ResourceManager.GetString("Error_SjisDirectoryPathContainsUnsupportedCharsFormat", resourceCulture);
+
+    public static string Validation_NormalOutputBaseNameEmpty => ResourceManager.GetString("Validation_NormalOutputBaseNameEmpty", resourceCulture);
+
+    public static string Validation_NormalAndAdditionalOutputBasesNested => ResourceManager.GetString("Validation_NormalAndAdditionalOutputBasesNested", resourceCulture);
+
+    public static string Label_NormalOutputBase => ResourceManager.GetString("Label_NormalOutputBase", resourceCulture);
+
+    public static string Label_PreviousNormalOutputBase => ResourceManager.GetString("Label_PreviousNormalOutputBase", resourceCulture);
+
+    public static string Label_PreviousAdditionalOutputBase => ResourceManager.GetString("Label_PreviousAdditionalOutputBase", resourceCulture);
+
+    public static string Validation_NormalAndRootOutputBasesNested => ResourceManager.GetString("Validation_NormalAndRootOutputBasesNested", resourceCulture);
+
+    public static string Validation_PreviousManagedRootNestedFormat => ResourceManager.GetString("Validation_PreviousManagedRootNestedFormat", resourceCulture);
+
+    public static string Label_RootOutputBaseFolder => ResourceManager.GetString("Label_RootOutputBaseFolder", resourceCulture);
+
+    public static string Validation_RootOutputBaseNameEmpty => ResourceManager.GetString("Validation_RootOutputBaseNameEmpty", resourceCulture);
+
+    public static string Validation_RootAndNormalOutputBasesNested => ResourceManager.GetString("Validation_RootAndNormalOutputBasesNested", resourceCulture);
+
+    public static string Validation_RootAndAdditionalOutputBasesNested => ResourceManager.GetString("Validation_RootAndAdditionalOutputBasesNested", resourceCulture);
+
+    public static string Label_RootOutputBase => ResourceManager.GetString("Label_RootOutputBase", resourceCulture);
+
+    public static string Label_PreviousRootOutputBase => ResourceManager.GetString("Label_PreviousRootOutputBase", resourceCulture);
+
+    public static string Validation_OutputBaseSameAsBmsRootFormat => ResourceManager.GetString("Validation_OutputBaseSameAsBmsRootFormat", resourceCulture);
+
+    public static string Validation_OutputBaseNestedWithBmsRootFormat => ResourceManager.GetString("Validation_OutputBaseNestedWithBmsRootFormat", resourceCulture);
+
+    public static string Error_AdditionalOutputBaseNestedWithPreviousAdditional => ResourceManager.GetString("Error_AdditionalOutputBaseNestedWithPreviousAdditional", resourceCulture);
+
+    public static string Error_AdditionalOutputBaseSameAsBmsRoot => ResourceManager.GetString("Error_AdditionalOutputBaseSameAsBmsRoot", resourceCulture);
+
+    public static string Error_AdditionalOutputBaseNestedWithBmsRoot => ResourceManager.GetString("Error_AdditionalOutputBaseNestedWithBmsRoot", resourceCulture);
+
+    public static string Error_AdditionalOutputBaseNestedWithOutputBaseFormat => ResourceManager.GetString("Error_AdditionalOutputBaseNestedWithOutputBaseFormat", resourceCulture);
+
+    public static string Error_ManagedCustomFolderOutputCannotBeAddedAsBmsRoot => ResourceManager.GetString("Error_ManagedCustomFolderOutputCannotBeAddedAsBmsRoot", resourceCulture);
+
+    public static string Error_CannotRemoveBmsInstallDir => ResourceManager.GetString("Error_CannotRemoveBmsInstallDir", resourceCulture);
+
+    public static string Error_CannotRemoveCustomFolderOutputDir => ResourceManager.GetString("Error_CannotRemoveCustomFolderOutputDir", resourceCulture);
+
+    public static string Error_CannotRemoveAdditionalOutputBaseDir => ResourceManager.GetString("Error_CannotRemoveAdditionalOutputBaseDir", resourceCulture);
+
+    public static string Error_CannotRemoveRootCustomFolderOutputDir => ResourceManager.GetString("Error_CannotRemoveRootCustomFolderOutputDir", resourceCulture);
+
+    public static string Msg_LR2ConfigBackupEnabledNextStartup => ResourceManager.GetString("Msg_LR2ConfigBackupEnabledNextStartup", resourceCulture);
+
+    public static string Error_InvalidLR2SongDbOrConfigPath => ResourceManager.GetString("Error_InvalidLR2SongDbOrConfigPath", resourceCulture);
+
+    public static string Error_InvalidStagefilePath => ResourceManager.GetString("Error_InvalidStagefilePath", resourceCulture);
+
+    public static string Error_InvalidUBMPlayExecutablePath => ResourceManager.GetString("Error_InvalidUBMPlayExecutablePath", resourceCulture);
+
+    public static string Error_InvalidLR2RootPath => ResourceManager.GetString("Error_InvalidLR2RootPath", resourceCulture);
+
+    public static string Error_LR2ExecutableNotFoundFormat => ResourceManager.GetString("Error_LR2ExecutableNotFoundFormat", resourceCulture);
+
+    public static string Error_InvalidLR2WindowSize => ResourceManager.GetString("Error_InvalidLR2WindowSize", resourceCulture);
+
+    public static string Error_InvalidBMIIDXViewPath => ResourceManager.GetString("Error_InvalidBMIIDXViewPath", resourceCulture);
+
+    public static string Error_CustomFolderOutputPathNotSet => ResourceManager.GetString("Error_CustomFolderOutputPathNotSet", resourceCulture);
+
+    public static string Error_CustomFolderRootOutputPathNotSet => ResourceManager.GetString("Error_CustomFolderRootOutputPathNotSet", resourceCulture);
+
+    public static string Error_TableListUrlNotSet => ResourceManager.GetString("Error_TableListUrlNotSet", resourceCulture);
+
+    public static string Error_LR2BackupPathNotSet => ResourceManager.GetString("Error_LR2BackupPathNotSet", resourceCulture);
+
+    public static string Error_OutputFolderNameEmptyOrDuplicateChangePlaylist => ResourceManager.GetString("Error_OutputFolderNameEmptyOrDuplicateChangePlaylist", resourceCulture);
+
+    public static string Error_InvalidPageUriAbsoluteRequired => ResourceManager.GetString("Error_InvalidPageUriAbsoluteRequired", resourceCulture);
+
+    public static string Error_InvalidHeaderUri => ResourceManager.GetString("Error_InvalidHeaderUri", resourceCulture);
+
+    public static string Error_InvalidDataUri => ResourceManager.GetString("Error_InvalidDataUri", resourceCulture);
+
+    public static string Error_InvalidPageOrHeaderUri => ResourceManager.GetString("Error_InvalidPageOrHeaderUri", resourceCulture);
+
+    public static string Confirm_EnablePlaylistSyncModeLoseLocalChanges => ResourceManager.GetString("Confirm_EnablePlaylistSyncModeLoseLocalChanges", resourceCulture);
+
+    public static string Confirm_DisablePlaylistSyncModeRemoteChangesNotApplied => ResourceManager.GetString("Confirm_DisablePlaylistSyncModeRemoteChangesNotApplied", resourceCulture);
+
+    public static string Error_OutputFolderNameEmptyOrDuplicateCheckInput => ResourceManager.GetString("Error_OutputFolderNameEmptyOrDuplicateCheckInput", resourceCulture);
+
+    public static string Statusbar_progress_phase_playlist_load => ResourceManager.GetString("Statusbar_progress_phase_playlist_load", resourceCulture);
+
+    public static string Statusbar_progress_phase_playlist_loading => ResourceManager.GetString("Statusbar_progress_phase_playlist_loading", resourceCulture);
+
+    public static string Statusbar_progress_detail_separator_format => ResourceManager.GetString("Statusbar_progress_detail_separator_format", resourceCulture);
+
+    public static string Msg_failed_rename_playlist_folder => ResourceManager.GetString("Msg_failed_rename_playlist_folder", resourceCulture);
 
     internal Resources()
     {
