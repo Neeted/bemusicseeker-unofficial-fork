@@ -314,7 +314,7 @@ beatoraja provider:
 - `bms_lr2_last_play` を見る。
 - 既存 `score` row から backfill しない。
 - SQL は素朴な correlated subquery を基本にする。
-- active LR2 linked profile の schema status が `Installed` ではない場合、LAST PLAY SORT の出力設定は UI で選択不可にし、materialization は diagnostics 付きで失敗させる。存在しない `bms_lr2_last_play` を参照する `.lr2folder` / `folder` row は新規生成しない。
+- active LR2 linked profile の schema status に関わらず、LAST PLAY SORT の出力設定は通常の出力種別として選択可能にし、materialization は固定 SQL projection を生成する。schema 未導入時も `bms_lr2_last_play` を参照する `.lr2folder` / `folder` row は生成し、LR2 / OpenLR2 側で利用するには schema 導入が必要であることを manual / spec に記載する。
 - schema が導入済みで `bms_lr2_last_play` に row がない譜面は、SQL 上の `NULL` により最新順の末尾へ回る。これは fallback ではなく、履歴機能導入後に未観測という意味である。
 
 ```text
@@ -584,15 +584,15 @@ Play history view 用の keyword search context を追加する。既存 chart l
 作業:
 
 - [x] `LR2SongDBExtended.playlist.CustomFolderType` に `LastPlaySortFolder` を追加する。
-- [x] `LegacyAllFolders` / `AllFolders` / `NormalizeCustomFolderOutputMask` / `ignore_folder_output` 既存値の互換を崩さない bit を割り当てる。
+- [x] `AllFolders` / `ignore_folder_output` の bit を割り当てる。保存済み `ignore_folder_output` は raw mask として扱い、旧全 OFF 相当値を新 `AllFolders` へ拡張しない。
 - [x] `CustomFolderSortType` / `CustomFolderSortTypeExt` には追加しない。
 - [x] `BMSPlaylist` の custom folder definition builder と `Lr2ManagedCustomFolderOutputLayout` の relative path / count 計算へ `LastPlaySortFolder` を追加する。
 - [x] playlist property / bulk edit / output bit へ追加する。
-- [x] LR2 play history schema status が `Installed` でない profile では、LastPlaySortFolder の UI を disabled にする。
-- [x] 保存済み LastPlaySortFolder bit が ON で LR2 play history schema status が `Installed` ではない場合、materialization 前に diagnostics 付きで停止し、存在しない `bms_lr2_last_play` を参照する `.lr2folder` / `folder` row を新規生成しない。
+- [x] LR2 play history schema status に関わらず、LastPlaySortFolder の UI は通常の出力種別として操作できるようにする。
+- [x] 保存済み LastPlaySortFolder bit が ON の場合、LR2 play history schema status に関わらず固定 SQL projection を生成する。schema 未導入時も `bms_lr2_last_play` への fallback や出力抑止は行わない。
 - [x] `.lr2folder` projection に `ORDER BY (SELECT last_play_at FROM bms_lr2_last_play WHERE hash = song.hash) IS NULL ASC, (SELECT last_play_at FROM bms_lr2_last_play WHERE hash = song.hash) DESC` を追加する。
 - [x] `folder` table sync projection にも同じ command を入れる。
-- [x] `bms_lr2_last_play` が無い場合は score / playcount / playlist 更新日時へ意味を変えて fallback しない。未導入として diagnostics に出し、存在しない table を参照する command を生成しない。
+- [x] `bms_lr2_last_play` が無い場合は score / playcount / playlist 更新日時へ意味を変えて fallback しない。schema 未導入時も固定 command を生成し、LR2 / OpenLR2 側で利用するには schema 導入を必要とする。
 - [x] `playlist_custom_folder_output_status` の fingerprint に last play sort output bit を含める。
 - [x] `docs/manual.ja.md` / `docs/manual.md` / spec に `LAST PLAY SORT` を追記する。
 - [x] LR2 で play 後に `.lr2folder` 再出力不要で並びが変わることを仕様として明記する。
@@ -601,7 +601,7 @@ Play history view 用の keyword search context を追加する。既存 chart l
 
 - [x] `.lr2folder` に LAST PLAY SORT command が出る。
 - [x] output bit OFF の場合は出ない。
-- [x] schema 未導入で output bit ON の場合は diagnostics 付きで materialization が失敗し、LAST PLAY SORT command を生成しない。
+- [x] schema 未導入で output bit ON の場合も materialization は成功し、LAST PLAY SORT command を生成する。
 - [x] LAST PLAY SORT 固有の stale file / stale row cleanup が既存 sort folder と同じように動く。
 - [x] folder table sync に LAST PLAY SORT command が入る。
 - [x] schema 導入済みで未観測譜面に row が無い場合は、`NULL` sort として末尾へ回る command になる。
@@ -724,7 +724,7 @@ Play history view 用の keyword search context を追加する。既存 chart l
 | Phase 1 | 完了 | LR2 score DB へ trigger / table を導入できる |
 | Phase 2 | 完了 | LR2 履歴を `PlayHistoryRow` と summary に投影できる |
 | Phase 3 | 完了 | Play log tree と table UI は固定期間 + 年 / 月 / 日 archive node で動作。専用 summary row、DnD / cell edit / activation / 通常 context menu guard、PlayHistory 専用 BMS-IR / repository / hash context menu まで完了 |
-| Phase 4 | 完了 | LAST PLAY SORT custom folder が出力され、schema guard / cleanup / NULL sort command の検証まで完了 |
+| Phase 4 | 完了 | LAST PLAY SORT custom folder が schema status に関わらず出力され、cleanup / NULL sort command / schema 未導入時の固定 SQL 出力の検証まで完了 |
 | Phase 5 | 完了 | keyword search と `すべて` / 表示プリセット / playlist dropdown filter が動作し、settings JSON 保存形式と設定 UI まで追加済み |
 | Phase 6 | 進行中 | status 表示、summary 診断、現行仕様 spec、log contract は追加済み。locked / read-only 実環境確認と実画面 screenshot が残る |
 | Phase 7 | 完了 | beatoraja provider が同じ UI に載り、挙動 / 性能 / テスト充足レビューで P0 / P1 指摘なしを確認済み |
@@ -740,9 +740,9 @@ Play history view 用の keyword search context を追加する。既存 chart l
 - 2026-06-19: Phase 3 操作 guard として PlayHistory view の row drag kind を `GenericSelectedRows` へ切り替え、playlist drop candidate / cell edit / row activation / 通常 chart context menu に流れないことを静的テストで固定した。
 - 2026-06-19: Phase 3 archive node として `bms_lr2_play_history.played_at` の軽量 period index reader、年 / 月 / 日 `PlayHistoryPeriodRequest`、`PlayHistoryArchivePeriodTree` binding を追加し、`docs/manual.ja.md` / `docs/manual.md` に `日付別` / `By Date` を追記した。
 - 2026-06-19: Phase 3 PlayHistory 専用 context menu として、解決済み row は Mocha / MinIR と MD5 / repository SHA256 copy、未解決 row は raw hash copy だけを出す hash-only policy を追加した。
-- 2026-06-19: Phase 4 初期実装として `LastPlaySortFolder` bit、playlist property / bulk edit の出力種別、`.lr2folder` / LR2 `folder` row の LAST PLAY SORT projection、schema 未導入時の materialization guard、manual/spec 追記を追加した。schema 未導入時に UI を disabled にする作業と LAST PLAY SORT 固有 cleanup / NULL sort の追加テストは残る。
+- 2026-06-19: Phase 4 初期実装として `LastPlaySortFolder` bit、playlist property / bulk edit の出力種別、`.lr2folder` / LR2 `folder` row の LAST PLAY SORT projection、manual/spec 追記を追加した。当初検討した schema 未導入時の materialization guard と UI disabled は採用せず、schema status に関わらず固定 SQL projection を出力する方針に整理した。
 - 2026-06-19: Phase 4 追加検証として、LastPlaySortFolder を OFF にした再出力で `LAST PLAY SORT` の生成済み file / stale file / stale LR2 `folder` row が prune されることをテストで固定した。
-- 2026-06-19: Phase 4 UI guard として、play history schema status が `Installed` ではない場合に playlist property / bulk edit の LastPlaySortFolder checkbox を disabled にし、bulk patch から LastPlaySortFolder 変更を除外する helper と tests を追加した。
+- 2026-06-19: Phase 4 UI 方針を見直し、play history schema status が `Installed` ではない場合でも playlist property / bulk edit の LastPlaySortFolder checkbox は enabled のままにし、bulk patch から LastPlaySortFolder 変更を除外しない tests に更新した。
 - 2026-06-19: Phase 4 NULL sort 検証として、LAST PLAY SORT command を `last_play_at IS NULL ASC, last_play_at DESC` に明示化し、未観測譜面が末尾へ回る ORDER BY を `.lr2folder` / LR2 `folder` row の tests で固定した。
 - 2026-06-19: Phase 0 / Phase 6 spec 整理として `devdocs/spec/play-history.md` を追加し、LR2 schema / read model / projection / period UI / diagnostics / LAST PLAY SORT の現行仕様と、当時未実装だった Phase 5 / Phase 7 の scope を分離した。
 - 2026-06-19: Phase 6 manual 整理として、`docs/manual.ja.md` / `docs/manual.md` に LR2 play-log schema 有効化 / 修復が player `score.db` へ table / index / trigger を追加・修復することと、backup 対象に score DB を含める注意を追記した。

@@ -1192,14 +1192,17 @@ public sealed class BmsPlaylistUpdateTests
 
     [TestMethod]
     [TestCategory("Playlist")]
-    public void ApplyPlaylistSummaryCustomFolderOutputTypes_SuppressesLastPlaySortWhenSchemaUnavailable()
+    public void ApplyPlaylistSummaryCustomFolderOutputTypes_AppliesLastPlaySortWhenSchemaUnavailable()
     {
         bool previousOperationModeLr2Db = Settings.Default.OperationModeLR2DB;
+        string previousOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDir;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
         {
+            string outputBaseDir = Path.Combine(tempDirectory, "CustomFolder");
             Settings.Default.OperationModeLR2DB = true;
+            Settings.Default.LR2CustomFolderOutputBaseDir = outputBaseDir;
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             string scoreDbPath = CreateBaseScoreDbPath(tempDirectory);
             BMSPlaylist.EnsureSchema(songDbPath);
@@ -1228,10 +1231,8 @@ public sealed class BmsPlaylistUpdateTests
                 ?.SetValue(viewModel, playlist);
             viewModel.settingDialog.ApplyLr2PlayHistorySchemaCheckResult(new Lr2PlayHistorySchemaCheckResult
             {
-                Status = Lr2PlayHistorySchemaStatus.Installed
+                Status = Lr2PlayHistorySchemaStatus.NotInstalled
             });
-            Assert.IsTrue(viewModel.settingDialog.CanUseLastPlaySortFolder);
-
             viewModel.ApplyPlaylistSummaryCustomFolderOutputTypes(
                 [new PlaylistSummaryRow { TableRef = table }],
                 new MainWindowViewModel.PlaylistSummaryCustomFolderOutputPatch
@@ -1239,12 +1240,15 @@ public sealed class BmsPlaylistUpdateTests
                     LastPlaySortFolder = true
                 });
 
-            Assert.AreEqual(LR2SongDBExtended.playlist.CustomFolderType.AllFolders, table.ignore_folder_output);
-            Assert.IsFalse(viewModel.settingDialog.CanUseLastPlaySortFolder);
+            Assert.AreEqual(
+                LR2SongDBExtended.playlist.CustomFolderType.AllFolders
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.LastPlaySortFolder,
+                table.ignore_folder_output);
         }
         finally
         {
             Settings.Default.OperationModeLR2DB = previousOperationModeLr2Db;
+            Settings.Default.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -1484,7 +1488,7 @@ public sealed class BmsPlaylistUpdateTests
 
     [TestMethod]
     [TestCategory("Playlist")]
-    public void ReOutputCustomFoldersAndCommitHeadersToDB_FailsLastPlaySortWhenSchemaNotInstalled()
+    public void ReOutputCustomFoldersAndCommitHeadersToDB_WritesLastPlaySortWhenSchemaNotInstalled()
     {
         bool previousOperationModeLr2Db = Settings.Default.OperationModeLR2DB;
         string previousOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDir;
@@ -1519,20 +1523,12 @@ public sealed class BmsPlaylistUpdateTests
                     Dispatcher.CurrentDispatcher)
             };
 
-            try
-            {
-                playlist.ReOutputCustomFoldersAndCommitHeadersToDB([table], "test_last_play_schema_missing");
-                Assert.Fail("LAST PLAY SORT should fail when the LR2 play history schema is not installed.");
-            }
-            catch (InvalidOperationException ex)
-            {
-                StringAssert.Contains(ex.Message, "LAST PLAY SORT");
-            }
+            playlist.ReOutputCustomFoldersAndCommitHeadersToDB([table], "test_last_play_schema_missing");
 
             string outputDir = Path.Combine(outputBaseDir, "MissingLastPlaySchema");
-            Assert.IsFalse(File.Exists(Path.Combine(outputDir, "LAST PLAY SORT", "0000.lr2folder")));
+            Assert.IsTrue(File.Exists(Path.Combine(outputDir, "LAST PLAY SORT", "0000.lr2folder")));
             using var verify = new LR2SongDBExtended(songDbPath);
-            Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE command LIKE '%bms_lr2_last_play%';"));
+            Assert.AreEqual(2L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE command LIKE '%bms_lr2_last_play%';"));
         }
         finally
         {
@@ -1686,7 +1682,7 @@ public sealed class BmsPlaylistUpdateTests
 
     [TestMethod]
     [TestCategory("Playlist")]
-    public void ReOutputCustomFolderAndCommitToDB_TreatsLegacyAllFoldersMaskAsAllDisabled()
+    public void ReOutputCustomFolderAndCommitToDB_DoesNotExpandOldAllFoldersMaskToNewTypes()
     {
         bool previousOperationModeLr2Db = Settings.Default.OperationModeLR2DB;
         string previousOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDir;
@@ -1705,7 +1701,7 @@ public sealed class BmsPlaylistUpdateTests
                 name = "LegacyDisabled",
                 symbol = "LD",
                 Output_dir = "LegacyDisabled",
-                ignore_folder_output = LR2SongDBExtended.playlist.LegacyAllFolders,
+                ignore_folder_output = (LR2SongDBExtended.playlist.CustomFolderType)0x7F,
                 entries =
                 [
                     CreateEntry("dddddddddddddddddddddddddddddddd", "Folder A")
@@ -1726,9 +1722,12 @@ public sealed class BmsPlaylistUpdateTests
             playlist.ReOutputCustomFolderAndCommitToDB(table);
 
             string outputDir = Path.Combine(outputBaseDir, "LegacyDisabled");
-            Assert.IsFalse(Directory.Exists(outputDir));
+            Assert.IsTrue(File.Exists(Path.Combine(outputDir, "BPM SORT", "0000.lr2folder")));
+            Assert.IsTrue(File.Exists(Path.Combine(outputDir, "BP SORT", "0000.lr2folder")));
+            Assert.IsTrue(File.Exists(Path.Combine(outputDir, "PLAY COUNT SORT", "0000.lr2folder")));
+            Assert.IsTrue(File.Exists(Path.Combine(outputDir, "LAST PLAY SORT", "0000.lr2folder")));
             using var verify = new LR2SongDBExtended(songDbPath);
-            Assert.AreEqual(0, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path LIKE ?;", outputDir + "%"));
+            Assert.AreEqual(2L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE command LIKE '%bms_lr2_last_play%';"));
         }
         finally
         {

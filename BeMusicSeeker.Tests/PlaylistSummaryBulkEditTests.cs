@@ -70,52 +70,24 @@ public sealed class PlaylistSummaryBulkEditTests
     }
 
     [TestMethod]
-    public void CanUseLastPlaySortFolder_ReturnsTrueOnlyWhenSchemaInstalled()
+    public void ResolvePlaylistSummaryCustomFolderOutputState_TreatsOldAllFoldersMaskAsNewTypesEnabled()
     {
-        Assert.IsFalse(MainWindowViewModel.CanUseLastPlaySortFolder(null));
-        foreach (Lr2PlayHistorySchemaStatus status in Enum.GetValues(typeof(Lr2PlayHistorySchemaStatus)))
-        {
-            Assert.AreEqual(
-                status == Lr2PlayHistorySchemaStatus.Installed,
-                MainWindowViewModel.CanUseLastPlaySortFolder(new Lr2PlayHistorySchemaCheckResult { Status = status }),
-                status.ToString());
-        }
+        BMSTable table = CreateTable((LR2SongDBExtended.playlist.CustomFolderType)0x7F);
+
+        Assert.AreEqual(
+            true,
+            MainWindowViewModel.ResolvePlaylistSummaryCustomFolderOutputState(
+                [table],
+                LR2SongDBExtended.playlist.CustomFolderType.LastPlaySortFolder));
+        Assert.AreEqual(
+            true,
+            MainWindowViewModel.ResolvePlaylistSummaryCustomFolderOutputState(
+                [table],
+                LR2SongDBExtended.playlist.CustomFolderType.BpmSortFolder));
     }
 
     [TestMethod]
-    public void SuppressUnavailableLastPlaySortFolder_ClearsOnlyLastPlaySortFolder()
-    {
-        var patch = new MainWindowViewModel.PlaylistSummaryCustomFolderOutputPatch
-        {
-            UserFolder = true,
-            LastPlaySortFolder = true
-        };
-
-        MainWindowViewModel.PlaylistSummaryCustomFolderOutputPatch next =
-            MainWindowViewModel.SuppressUnavailableLastPlaySortFolder(patch, canUseLastPlaySortFolder: false);
-
-        Assert.AreSame(patch, next);
-        Assert.AreEqual(true, next.UserFolder);
-        Assert.IsNull(next.LastPlaySortFolder);
-    }
-
-    [TestMethod]
-    public void SuppressUnavailableLastPlaySortFolder_KeepsLastPlaySortFolderWhenAvailable()
-    {
-        var patch = new MainWindowViewModel.PlaylistSummaryCustomFolderOutputPatch
-        {
-            LastPlaySortFolder = true
-        };
-
-        MainWindowViewModel.PlaylistSummaryCustomFolderOutputPatch next =
-            MainWindowViewModel.SuppressUnavailableLastPlaySortFolder(patch, canUseLastPlaySortFolder: true);
-
-        Assert.AreSame(patch, next);
-        Assert.AreEqual(true, next.LastPlaySortFolder);
-    }
-
-    [TestMethod]
-    public void PlaylistSummaryBulkEditDialogViewModel_IgnoresLastPlaySortFolderWhenUnavailable()
+    public void PlaylistSummaryBulkEditDialogViewModel_AllowsLastPlaySortFolderRegardlessOfSchemaStatus()
     {
         var owner = new MainWindowViewModel();
         owner.settingDialog.ApplyLr2PlayHistorySchemaCheckResult(new Lr2PlayHistorySchemaCheckResult
@@ -126,52 +98,34 @@ public sealed class PlaylistSummaryBulkEditTests
 
         dialog.OutputLastPlaySortFolder = true;
 
-        Assert.IsFalse(dialog.CanUseLastPlaySortFolder);
-        Assert.IsFalse(dialog.CanApplyCustomFolderOutput);
-
-        dialog.OutputUserFolder = true;
-
         Assert.IsTrue(dialog.CanApplyCustomFolderOutput);
     }
 
     [TestMethod]
-    public void PlaylistPropertyDialog_BindsLastPlaySortFolderEnabledStateToSchemaStatus()
+    public void PlaylistPropertyDialog_DoesNotBindLastPlaySortFolderEnabledStateToSchemaStatus()
     {
         string xaml = ReadWorkspaceText("BeMusicSeeker", "Views", "PlaylistPropertyDialog.xaml");
 
         StringAssert.Contains(xaml, "PlaylistProp_ftype_last_play_sort");
-        StringAssert.Contains(xaml, "IsEnabled=\"{Binding settingDialog.CanUseLastPlaySortFolder, Mode=OneWay}\"");
+        Assert.IsFalse(xaml.Contains("CanUseLastPlaySortFolder"));
     }
 
     [TestMethod]
-    public void PlaylistSummaryBulkEditDialog_BindsLastPlaySortFolderEnabledStateToSchemaStatus()
+    public void PlaylistSummaryBulkEditDialog_DoesNotBindLastPlaySortFolderEnabledStateToSchemaStatus()
     {
         string xaml = ReadWorkspaceText("BeMusicSeeker", "Views", "PlaylistSummaryBulkEditDialog.xaml");
 
         StringAssert.Contains(xaml, "PlaylistProp_ftype_last_play_sort");
-        StringAssert.Contains(xaml, "IsEnabled=\"{Binding playlistSummaryBulkEditDialog.CanUseLastPlaySortFolder, Mode=OneWay}\"");
+        Assert.IsFalse(xaml.Contains("CanUseLastPlaySortFolder"));
     }
 
     [TestMethod]
-    public void MainWindowRefreshLastPlaySortSchemaStatus_DropsStalePlaylistResult()
+    public void MainWindowPlaylistPropertyDialogs_DoNotRefreshLastPlaySortSchemaStatus()
     {
         string source = ReadWorkspaceText("BeMusicSeeker", "Views", "MainWindow.cs");
 
-        StringAssert.Contains(source, "BMSPlaylist expectedPlaylist = viewModel?.GetActiveBMSPlaylistForCustomFolderOutput();");
-        StringAssert.Contains(source, "ReferenceEquals(expectedPlaylist, viewModel.GetActiveBMSPlaylistForCustomFolderOutput())");
-    }
-
-    [TestMethod]
-    public void MainWindowCreateNewPlaylist_RefreshesLastPlaySortSchemaBeforeCreate()
-    {
-        string source = ReadWorkspaceText("BeMusicSeeker", "Views", "MainWindow.cs");
-        int handlerIndex = source.IndexOf("private async void treeViewPlaylistRootContextMenuItemCreateNewPlaylistClick", StringComparison.Ordinal);
-        int refreshIndex = source.IndexOf("await RefreshLr2PlayHistorySchemaStatusForCustomFolderUiAsync(viewModel)", handlerIndex, StringComparison.Ordinal);
-        int createIndex = source.IndexOf("viewModel.CreateBMSTable()", handlerIndex, StringComparison.Ordinal);
-
-        Assert.IsTrue(handlerIndex >= 0);
-        Assert.IsTrue(refreshIndex > handlerIndex);
-        Assert.IsTrue(createIndex > refreshIndex);
+        Assert.IsFalse(source.Contains("RefreshLr2PlayHistorySchemaStatusForCustomFolderUiAsync"));
+        Assert.IsFalse(source.Contains("CheckLastPlaySortCustomFolderAvailability"));
     }
 
     [TestMethod]

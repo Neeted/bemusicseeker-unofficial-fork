@@ -70,8 +70,7 @@ internal static class Lr2ManagedCustomFolderOutputLayout
         }
 
         int playlistId = table.playlist_id.Value;
-        LR2SongDBExtended.playlist.CustomFolderType ignored =
-            LR2SongDBExtended.playlist.NormalizeCustomFolderOutputMask(table.ignore_folder_output);
+        LR2SongDBExtended.playlist.CustomFolderType ignored = table.ignore_folder_output;
         bool outputRandom = IsCustomFolderTypeEnabled(ignored, LR2SongDBExtended.playlist.CustomFolderType.RandomFolder);
         int folderScopeCount = 1 + (outputCounts?.UserFolderCounts.TryGetValue(playlistId, out int userFolderCount) == true
             ? userFolderCount

@@ -15,7 +15,7 @@ UI は現在の score source から単一 provider を選択する。`UseBeatora
 
 ## LR2 Schema
 
-LR2 provider は LR2 linked profile 専用で動く。stand-alone mode など LR2 linked profile ではない場合は schema status を `SkippedProfile` として扱い、trigger install / read / LAST PLAY SORT materialization は有効化しない。LR2 linked profile で score DB path が未設定または file 不在の場合は `Unreadable` として扱う。
+LR2 provider は LR2 linked profile 専用で動く。stand-alone mode など LR2 linked profile ではない場合は schema status を `SkippedProfile` として扱い、trigger install / read は有効化しない。LR2 linked profile で score DB path が未設定または file 不在の場合は `Unreadable` として扱う。LAST PLAY SORT materialization は schema status に関わらず固定 SQL projection を出力する。
 
 `Lr2PlayHistorySchemaService` は LR2 `score.db` に次の app-owned objects を導入または検査する。
 
@@ -33,7 +33,7 @@ schema check は missing object、missing column、incompatible column、index /
 
 | Status | 意味 |
 | --- | --- |
-| `Installed` | 必要 objects が揃っている。read と LAST PLAY SORT materialization を許可する。 |
+| `Installed` | 必要 objects が揃っている。read と LR2 / OpenLR2 側での LAST PLAY SORT 利用が可能。 |
 | `NotInstalled` | 導入対象 objects がまだ無い。UI は install を提示する。 |
 | `Repairable` | repair 可能な missing / mismatched object がある。UI は repair を提示する。 |
 | `ManualRepairRequired` | 互換性のない column や object name collision など、自動 repair すべきでない状態。 |
@@ -172,7 +172,7 @@ play history diagnostics は provider / stage / severity / code / message / sour
 | `play_history_lr2_schema_*` | LR2 schema check / read boundary の問題。未導入、manual repair required、unreadable など。 |
 | `play_history_projection_*` | raw history を app chart / playlist 表示へ投影するときの問題。 |
 
-diagnostics は schema / table 未導入を成功扱いに変える fallback ではない。schema が未導入または壊れている場合は、存在しない table を参照する command や row を生成しない。一方で projection 段階では、chart / playlist 解決に失敗しても raw history row を unresolved row として表示し、diagnostic を添えることがある。
+diagnostics は schema / table 未導入を成功扱いに変える fallback ではない。play history read / projection では schema が未導入または壊れている状態を diagnostic として扱い、履歴 table の意味を score / playcount などへ置き換えない。一方で LAST PLAY SORT custom folder materialization は schema status を検査せず、固定 SQL projection を出力する。projection 段階では、chart / playlist 解決に失敗しても raw history row を unresolved row として表示し、diagnostic を添えることがある。
 
 ## LAST PLAY SORT
 
@@ -187,7 +187,7 @@ ORDER BY (SELECT last_play_at FROM bms_lr2_last_play WHERE hash = song.hash) IS 
 
 `bms_lr2_last_play` に row がない chart は `NULL` sort として末尾へ回る。これは「履歴機能導入後にまだ観測していない」という意味であり、score / playcount / playlist update time へ意味を変えて fallback しない。
 
-active LR2 linked profile の play history schema status が `Installed` ではない場合、playlist property / bulk edit の LastPlaySortFolder checkbox は disabled になる。保存済み output bit が ON の場合でも、materialization は diagnostics 付きで失敗し、存在しない `bms_lr2_last_play` を参照する `.lr2folder` / `folder` row を新規生成しない。
+active LR2 linked profile の play history schema status に関わらず、playlist property / bulk edit の LastPlaySortFolder checkbox は通常の出力種別として操作できる。materialization は固定 SQL projection を出力し、schema 未導入時に `bms_lr2_last_play` へ fallback したり出力を抑止したりしない。schema 未導入環境では、LR2 / OpenLR2 側で `LAST PLAY SORT` が機能しない。
 
 LAST PLAY SORT の `.lr2folder` 本文と LR2 `folder` row は固定 SQL projection である。LR2 で曲をプレイして `bms_lr2_last_play` が更新された後は、BeMusicSeeker が `.lr2folder` を再出力しなくても、LR2 / OpenLR2 が custom folder を開く時点の DB 内容で並び順が決まる。
 
