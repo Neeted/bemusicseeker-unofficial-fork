@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using BeMusicSeeker.Models.LR2;
 using SQLite;
 
@@ -13,11 +14,18 @@ internal sealed class Lr2PlayHistoryReader
 
     internal Lr2PlayHistoryReadResult Read(Lr2PlayHistoryReadRequest request)
     {
+        return Read(request, CancellationToken.None);
+    }
+
+    internal Lr2PlayHistoryReadResult Read(Lr2PlayHistoryReadRequest request, CancellationToken cancellationToken)
+    {
         request ??= new Lr2PlayHistoryReadRequest();
+        cancellationToken.ThrowIfCancellationRequested();
         PlayHistorySourceProfile sourceProfile = PlayHistorySourceProfile.Lr2(request.ScoreDbPath);
         var diagnostics = new List<PlayHistoryDiagnostic>();
 
         Lr2PlayHistorySchemaCheckResult schema = new Lr2PlayHistorySchemaService().Check(request.ScoreDbPath, request.IsLr2LinkedProfile);
+        cancellationToken.ThrowIfCancellationRequested();
         if (schema.Status == Lr2PlayHistorySchemaStatus.SkippedProfile)
         {
             diagnostics.Add(CreateDiagnostic(PlayHistoryDiagnosticSeverity.Info, "play_history_lr2_skipped_profile", schema.Message, request.ScoreDbPath));
@@ -51,8 +59,14 @@ internal sealed class Lr2PlayHistoryReader
             using LR2ScoreDBExtended db = new(request.ScoreDbPath, SQLiteOpenFlags.ReadOnly | SQLiteOpenFlags.FullMutex, acquireProcessLock: false);
             List<object> args = [];
             string sql = BuildReadSql(request, args);
+            cancellationToken.ThrowIfCancellationRequested();
             List<Lr2PlayHistoryRecord> rows = db.Query<Lr2PlayHistoryRecord>(sql, [.. args]);
+            cancellationToken.ThrowIfCancellationRequested();
             return new Lr2PlayHistoryReadResult(sourceProfile, rows, diagnostics, schema.Status);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception ex)
         {

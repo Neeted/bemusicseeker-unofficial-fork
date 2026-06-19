@@ -357,10 +357,10 @@ Play history view 用の keyword search context を追加する。既存 chart l
 
 作業:
 
-- [ ] `devdocs/plan/playlog/BeMusicSeeker_LR2_PlayHistory_Trigger_Proposal.md` を LR2 score DB trigger 仕様資料として維持する。
-- [ ] 本資料を BeMusicSeeker 実装計画として `devdocs/plan/playlog/BeMusicSeeker_PlayHistory_Implementation_Plan.md` に維持する。
+- [x] `devdocs/plan/playlog/BeMusicSeeker_LR2_PlayHistory_Trigger_Proposal.md` を LR2 score DB trigger 仕様資料として維持する。
+- [x] 本資料を BeMusicSeeker 実装計画として `devdocs/plan/playlog/BeMusicSeeker_PlayHistory_Implementation_Plan.md` に維持する。
 - [ ] 実装後に `devdocs/spec/play-history.md` へ昇格する項目を決める。
-- [ ] `docs/manual.ja.md` / `docs/manual.md` の追加章案を作る。
+- [x] `docs/manual.ja.md` / `docs/manual.md` の追加章案を作る。
 
 完了条件:
 
@@ -387,39 +387,39 @@ Play history view 用の keyword search context を追加する。既存 chart l
 
 作業:
 
-- [ ] `Lr2PlayHistorySchemaService` を追加する。
-- [ ] `BeMusicSeeker_LR2_PlayHistory_Trigger_Proposal.md` の SQL を install SQL の正本としてコードへ持ち込み、SQL text snapshot test で固定する。
-- [ ] `bms_lr2_last_play` / `bms_lr2_play_history` / `bms_lr2_play_pending`、2 index、4 trigger を install 対象として列挙する。
-- [ ] read-only schema check path を作り、`Installed` / `NotInstalled` / `Repairable` / `ManualRepairRequired` / `Unreadable` / `SkippedProfile` を返す。
-- [ ] ユーザー明示操作用の install / repair path を作る。
-- [ ] install path で `CREATE TABLE IF NOT EXISTS` / `CREATE INDEX IF NOT EXISTS` / `CREATE TRIGGER IF NOT EXISTS` を実行する。
-- [ ] repair path では missing index を作成し、trigger 欠落・trigger SQL 不一致だけを drop / recreate する。
-- [ ] required table の required column 不足や互換不能な table 衝突は `ManualRepairRequired` とし、table drop / truncate / rename は行わない。
-- [ ] score DB path がない / read-only / lock / SQLite error の診断結果を返す。
-- [ ] 設定画面の `LR2と連携する` 配下に play history schema 状態表示と `[プレイログを有効化...]` / `[修復...]` ボタンを追加する。
-- [ ] 導入・修復ボタン押下時に warning dialog を表示し、OK の場合だけ score DB へ書き込む。
-- [ ] warning dialog には、LR2 終了、score DB への table / trigger 追加、既存 score / player table 非変更、backup 推奨を明記する。
-- [ ] trigger install を設定保存時または startup score hydration 前に自動実行しない。
-- [ ] trigger install 成功後も `bms_lr2_last_play` / `bms_lr2_play_history` は空開始であることを UI / log 上で自然に扱う。
-- [ ] LR2 play history schema check / install は `ActiveScoreSource` ではなく LR2 linked profile の score DB path を見る。
-- [ ] `application.log` または `install-performance.log` に `play_history_schema_*` を出す。
-- [ ] LR2 linked profile でない場合は `skipped_profile` として診断する。
-- [ ] schema install は file scan / playlist reload / `.bmt` 出力を要求しない。
-- [ ] 導入済み schema を削除する UI は初期 scope 外にする。
+- [x] `Lr2PlayHistorySchemaService` を追加する。
+- [x] `BeMusicSeeker_LR2_PlayHistory_Trigger_Proposal.md` の SQL を install SQL の正本としてコードへ持ち込み、SQL text snapshot test で固定する。
+- [x] `bms_lr2_last_play` / `bms_lr2_play_history` / `bms_lr2_play_pending`、2 index、4 trigger を install 対象として列挙する。
+- [x] read-only schema check path を作り、`Installed` / `NotInstalled` / `Repairable` / `ManualRepairRequired` / `Unreadable` / `SkippedProfile` を返す。
+- [x] ユーザー明示操作用の install / repair path を作る。
+- [x] install path で `CREATE TABLE IF NOT EXISTS` / `CREATE INDEX IF NOT EXISTS` / `CREATE TRIGGER IF NOT EXISTS` を実行する。
+- [x] repair path では missing index を作成し、trigger 欠落・trigger SQL 不一致だけを drop / recreate する。
+- [x] required table の required column 不足や互換不能な table 衝突は `ManualRepairRequired` とし、table drop / truncate / rename は行わない。
+- [x] score DB path がない / read-only / lock / SQLite error の診断結果を返す。
+- [x] 設定画面の `LR2と連携する` 配下に play history schema 状態表示と `[プレイログを有効化...]` / `[修復...]` ボタンを追加する。
+- [x] 導入・修復ボタン押下時に warning dialog を表示し、OK の場合だけ score DB へ書き込む。
+- [x] warning dialog には、LR2 終了、score DB への table / trigger 追加、既存 score / player table 非変更、backup 推奨を明記する。
+- [x] trigger install を設定保存時または startup score hydration 前に自動実行しない。
+- [x] trigger install 成功後も `bms_lr2_last_play` / `bms_lr2_play_history` は空開始であることを UI / log 上で自然に扱う。
+- [x] LR2 play history schema check / install は `ActiveScoreSource` ではなく LR2 linked profile の score DB path を見る。
+- [x] `application.log` または `install-performance.log` に `play_history_schema_*` を出す。
+- [x] LR2 linked profile でない場合は `skipped_profile` として診断する。
+- [x] schema install は file scan / playlist reload / `.bmt` 出力を要求しない。
+- [x] 導入済み schema を削除する UI は初期 scope 外にする。
 
 テスト:
 
-- [ ] temp SQLite score DB に schema / trigger を作れる。
-- [ ] 2 回実行して冪等。
-- [ ] `bms_lr2_play_pending`、2 index、4 trigger の作成漏れを検出できる。
-- [ ] trigger SQL 不一致は repairable になり、repair で trigger だけ再作成される。
-- [ ] required table の column 不足は `ManualRepairRequired` になり、table が drop されない。
-- [ ] startup / 設定画面表示の schema check が read-only で完了し、table / trigger を作らない。
-- [ ] warning dialog で cancel した場合、DB が変更されない。
-- [ ] SQLite 3.6.7 非互換構文が入っていないことを SQL text snapshot で固定。
-- [ ] read-only DB で失敗が診断扱いになり、成功扱いにならない。
-- [ ] stand-alone mode では install が skip される。
-- [ ] beatoraja score DB を表示 score source にしていても、LR2 linked profile の score DB path があれば schema check は実行される。
+- [x] temp SQLite score DB に schema / trigger を作れる。
+- [x] 2 回実行して冪等。
+- [x] `bms_lr2_play_pending`、2 index、4 trigger の作成漏れを検出できる。
+- [x] trigger SQL 不一致は repairable になり、repair で trigger だけ再作成される。
+- [x] required table の column 不足は `ManualRepairRequired` になり、table が drop されない。
+- [x] startup / 設定画面表示の schema check が read-only で完了し、table / trigger を作らない。
+- [x] warning dialog で cancel した場合、DB が変更されない。
+- [x] SQLite 3.6.7 非互換構文が入っていないことを SQL text snapshot で固定。
+- [x] read-only DB で失敗が診断扱いになり、成功扱いにならない。
+- [x] stand-alone mode では install が skip される。
+- [x] beatoraja score DB を表示 score source にしていても、LR2 linked profile の score DB path があれば schema check は実行される。
 
 完了条件:
 
@@ -447,29 +447,29 @@ Play history view 用の keyword search context を追加する。既存 chart l
 
 作業:
 
-- [ ] `PlayHistoryProvider` / `PlayHistorySourceProfile` / `PlayHistoryRow` を追加する。
-- [ ] `Lr2PlayHistoryReader` を追加し、期間・provider・playlist 対象で query できるようにする。
-- [ ] `Lr2PlayHistoryReader` は score snapshot の `ActiveScoreSource` からではなく、LR2 linked profile の score DB path から read-only で開く。
-- [ ] MD5 -> Chart / playlist_entry / chart_info / SHA256 mapping を解決する projection service を作る。
-- [ ] `playlist_entry` と `chart_digest_map` を使い、MD5 優先で chart / SHA256 を解決する。
-- [ ] 通常 chart list への `LAST PLAY` column 追加は初期 scope 外に固定する。後続で追加する場合の対象コードは `ChartListSourceRow` / `LibraryChartRow` / `PlaylistDetailSourceRow` / `PlaylistDetailRow` と各 sort engine。
-- [ ] `HashKind = chart / course / unknown` を解決する。
-- [ ] `finalized = 0` は通常一覧から除外し、診断 filter で見えるようにする。
-- [ ] option / clear / rank / rate / DJ LEVEL / BP / combo / EX score の display formatter を作る。
-- [ ] LR2 provider では `ActualResult` と `BestDelta` を別 projection にし、best 更新値を今回プレイ実値として表示しない。
+- [x] `PlayHistoryProvider` / `PlayHistorySourceProfile` / `PlayHistoryRow` を追加する。
+- [x] `Lr2PlayHistoryReader` を追加し、期間・provider・playlist 対象で query できるようにする。
+- [x] `Lr2PlayHistoryReader` は score snapshot の `ActiveScoreSource` からではなく、LR2 linked profile の score DB path から read-only で開く。
+- [x] MD5 -> Chart / playlist_entry / chart_info / SHA256 mapping を解決する projection service を作る。
+- [x] `playlist_entry` と `chart_digest_map` を使い、MD5 優先で chart / SHA256 を解決する。
+- [x] 通常 chart list への `LAST PLAY` column 追加は初期 scope 外に固定する。後続で追加する場合の対象コードは `ChartListSourceRow` / `LibraryChartRow` / `PlaylistDetailSourceRow` / `PlaylistDetailRow` と各 sort engine。
+- [x] `HashKind = chart / course / unknown` を解決する。
+- [x] `finalized = 0` は通常一覧から除外し、診断 filter で見えるようにする。
+- [x] option / clear / rank / rate / DJ LEVEL / BP / combo / EX score の display formatter を作る。
+- [x] LR2 provider では `ActualResult` と `BestDelta` を別 projection にし、best 更新値を今回プレイ実値として表示しない。
 - [ ] 日別 / 月別 / 年別 summary 用 aggregate を作る。
-- [ ] score DB lock / missing table / malformed row の診断 result を作る。
-- [ ] 読み取り失敗時も playlist reload や full scan へ fallback しない。
+- [x] score DB lock / missing table / malformed row の診断 result を作る。
+- [x] 読み取り失敗時も playlist reload や full scan へ fallback しない。
 
 テスト:
 
-- [ ] score update row から score / BP / clear / combo の best delta が出る。
-- [ ] player 差分がある row だけ summary の playtime / judge count に反映される。
-- [ ] Chart 解決できない hash でも raw hash row として落ちない。
-- [ ] `finalized = 0` は通常 query に出ない。
-- [ ] `NO PLAY -> value` 表示、BP 初回表示、option 表示条件を固定。
-- [ ] best 更新しなかった LR2 row では `BEST RATE` / `BEST DJ` / `BEST EXSCORE` が今回結果として表示されない。
-- [ ] `finalized = 1` の row では `PLAY EXSCORE` / `JUDGES` が player 差分から出る。
+- [x] score update row から score / BP / clear / combo の best delta が出る。
+- [x] player 差分がある row だけ summary の playtime / judge count に反映される。
+- [x] Chart 解決できない hash でも raw hash row として落ちない。
+- [x] `finalized = 0` は通常 query に出ない。
+- [x] `NO PLAY -> value` 表示、BP 初回表示、option 表示条件を固定。
+- [x] best 更新しなかった LR2 row では `BEST RATE` / `BEST DJ` / `BEST EXSCORE` が今回結果として表示されない。
+- [x] `finalized = 1` の row では `PLAY EXSCORE` / `JUDGES` が player 差分から出る。
 
 完了条件:
 
@@ -500,21 +500,21 @@ Play history view 用の keyword search context を追加する。既存 chart l
 
 作業:
 
-- [ ] `viewUpdateMode.PlayHistorySelected` を追加する。
-- [ ] `MainViewOperationSection` / chart operation scope / row activation / context menu の view mode 判定に play history を追加する。
-- [ ] `CustomTableColumnSettings.ViewKind.PLAY_HISTORY` を追加する。
-- [ ] `Settings.Default.PlayHistoryCustomTableColumnSettings` を追加する。
-- [ ] portable settings provider に play history settings を追加する。
-- [ ] `loadColumnSetting(...)` に play history settings を追加する。
-- [ ] `PlayHistoryColumns` を `CustomTableColumnFactory` に追加する。
-- [ ] Header context menu に play history columns を追加する。
-- [ ] `PlayHistoryRowsView` を `customTableView.ItemsSource` へ出せるようにする。
-- [ ] `CustomTableView` の row context / header context / sort request で play history row を識別する。
+- [x] `viewUpdateMode.PlayHistorySelected` を追加する。
+- [x] `MainViewOperationSection` / chart operation scope / row activation / context menu の view mode 判定に play history を追加する。
+- [x] `CustomTableColumnSettings.ViewKind.PLAY_HISTORY` を追加する。
+- [x] `Settings.Default.PlayHistoryCustomTableColumnSettings` を追加する。
+- [x] portable settings provider に play history settings を追加する。
+- [x] `loadColumnSetting(...)` に play history settings を追加する。
+- [x] `PlayHistoryColumns` を `CustomTableColumnFactory` に追加する。
+- [x] Header context menu に play history columns を追加する。
+- [x] `PlayHistoryRowsView` を `customTableView.ItemsSource` へ出せるようにする。
+- [x] `CustomTableView` の row context / header context / sort request で play history row を識別する。
 - [ ] PlayHistory view 中は playlist 編集用 column / DnD / cell edit を無効にする。`customTableView` の固定 `RowDragKind="PlaylistDropCandidateRows"` に依存せず、binding または event guard で PlayHistory row を drop candidate にしない。
 - [ ] `GridRowResolver` に PlayHistory row 用の hash-only operation target を追加し、未解決 row は raw hash copy のみにする。
-- [ ] `GridSummaryText` または専用 summary binding で期間 digest を出す。
-- [ ] Phase 3 では表示対象 dropdown を作らず、全履歴を対象にする。`FOLDER` は解決できた playlist / folder label の表示だけに使い、絞り込みは Phase 5 に送る。
-- [ ] play history view rebuild は score DB read と projection に限定し、library catalog 再構築を要求しない。
+- [x] `GridSummaryText` または専用 summary binding で期間 digest を出す。
+- [x] Phase 3 では表示対象 dropdown を作らず、全履歴を対象にする。`FOLDER` は解決できた playlist / folder label の表示だけに使い、絞り込みは Phase 5 に送る。
+- [x] play history view rebuild は score DB read と projection に限定し、library catalog 再構築を要求しない。
 
 初期可視 columns:
 
@@ -545,10 +545,11 @@ Play history view 用の keyword search context を追加する。既存 chart l
 
 テスト:
 
-- [ ] `PLAY_HISTORY` settings が null から作成される。
-- [ ] 既存 view の column settings が壊れない。
-- [ ] `すべて` / `今日` / `昨日` / `最近 7 日` / `最近 30 日` / 年 / 月 / 日 node の epoch range が期待通りになる。
-- [ ] `未確定 / 診断` node では `finalized = 0` と projection diagnostics が見える。
+- [x] `PLAY_HISTORY` settings が null から作成される。
+- [x] 既存 view の column settings が壊れない。
+- [x] `すべて` / `今日` / `昨日` / `最近 7 日` / `最近 30 日` node の epoch range が期待通りになる。
+- [ ] 年 / 月 / 日 node の epoch range が期待通りになる。
+- [x] `未確定 / 診断` node では `finalized = 0` と projection diagnostics が見える。
 - [ ] play history row は playlist tree drop candidate にならない。
 - [ ] play history row 右 click では解決済み row の repository / hash 系と、未解決 row の raw hash copy だけが出る。
 - [ ] play history row activation は chart 再生 / explorer / playlist edit を起動しない。
@@ -650,9 +651,10 @@ Play history view 用の keyword search context を追加する。既存 chart l
 - [ ] `finalized = 0` や異常値を診断表示に出す。
 - [ ] `LR2 score DB に履歴 trigger を導入する` 操作の注意文を追加する。
 - [ ] backup 対象に score DB を含める注意を更新する。
-- [ ] `docs/manual.ja.md` に `プレイログ` 章、`docs/manual.md` に対応する英語章を追加する。
+- [x] `docs/manual.ja.md` に `プレイログ` 章、`docs/manual.md` に対応する英語章を追加する。
 - [ ] `devdocs/spec/play-history.md` を作り、実装済み仕様を正本化する。
 - [ ] log event を `play_history_schema_*`, `play_history_read_*`, `play_history_projection_*`, `play_history_view_*` のように段階別に出す。
+  - 現状: `play_history_schema_*` と main view build / diagnostics log は出力済み。read / projection / view の event 名整理は後続で行う。
 
 テスト:
 
@@ -700,14 +702,23 @@ Play history view 用の keyword search context を追加する。既存 chart l
 
 | Phase | 状態 | 完了条件 |
 | --- | --- | --- |
-| Phase 0 | 未着手 | 資料と仕様境界が実装者向けに固定される |
-| Phase 1 | 未着手 | LR2 score DB へ trigger / table を導入できる |
-| Phase 2 | 未着手 | LR2 履歴を `PlayHistoryRow` と summary に投影できる |
-| Phase 3 | 未着手 | Play log tree と table UI が動く |
+| Phase 0 | 進行中 | 実装計画と trigger proposal は配置済み。`devdocs/spec/play-history.md` 昇格は未実施 |
+| Phase 1 | 完了 | LR2 score DB へ trigger / table を導入できる |
+| Phase 2 | 完了 | LR2 履歴を `PlayHistoryRow` と summary に投影できる |
+| Phase 3 | 進行中 | Play log tree と table UI は静的期間で動作。年 / 月 / 日 node、DnD /操作 guard の追加確認が残る |
 | Phase 4 | 未着手 | LAST PLAY SORT custom folder が出力される |
 | Phase 5 | 未着手 | keyword search と表示対象 filter が動く |
-| Phase 6 | 未着手 | 診断表示と manual/spec 更新が揃う |
+| Phase 6 | 進行中 | 最小 manual と summary 診断は追加済み。maintenance/spec/log contract 整理が残る |
 | Phase 7 | 未着手 | beatoraja provider が同じ UI に載る |
+
+## 作業記録
+
+- 2026-06-19: 実装計画を BeMusicSeeker repository 前提に整理し、manual は `docs/manual.ja.md` と英語版 `docs/manual.md` を同時更新する方針を明記した。
+- 2026-06-19: Phase 1 として LR2 play history schema service、設定画面の状態表示 / install / repair、schema tests を追加した。
+- 2026-06-19: Phase 2 として LR2 play history reader、`PlayHistoryRow` projection、summary、sort、column settings foundation を追加した。
+- 2026-06-19: Phase 3 初期実装として `プレイログ` tree、静的期間 selection、main table 表示、summary 診断、in-memory sort、対象 row だけを読む projection index、stale request guard を追加した。
+- 2026-06-19: `docs/manual.ja.md` / `docs/manual.md` に `プレイログ` の最小説明を追加した。後続で設定画面、LAST PLAY SORT、troubleshooting、画像を拡充する。
+- 2026-06-19: Phase 3 初期実装の検証として `PlayHistoryReadModelTests|MainWindowContextMenuResourceTests|LocalizationResourceParityTests|MainColumnSettingModeTests` と `dotnet build BeMusicSeeker-decomp.sln` を実行し、成功を確認した。
 
 ## 実装時の注意
 

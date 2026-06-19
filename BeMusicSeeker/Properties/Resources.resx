@@ -1464,6 +1464,30 @@ maintenance の再スキャンや chart_info の全譜面補完は行いませ�
   <data name="Lr2_play_history_schema_status_skipped_profile" xml:space="preserve">
     <value>LR2 連携外</value>
   </data>
+  <data name="Play_history_tree_root" xml:space="preserve">
+    <value>プレイログ</value>
+  </data>
+  <data name="Play_history_period_all" xml:space="preserve">
+    <value>すべて</value>
+  </data>
+  <data name="Play_history_period_today" xml:space="preserve">
+    <value>今日</value>
+  </data>
+  <data name="Play_history_period_yesterday" xml:space="preserve">
+    <value>昨日</value>
+  </data>
+  <data name="Play_history_period_recent_7_days" xml:space="preserve">
+    <value>最近 7 日</value>
+  </data>
+  <data name="Play_history_period_recent_30_days" xml:space="preserve">
+    <value>最近 30 日</value>
+  </data>
+  <data name="Play_history_period_diagnostics" xml:space="preserve">
+    <value>未確定 / 診断</value>
+  </data>
+  <data name="Play_history_summary_format" xml:space="preserve">
+    <value>{0}: {1} 件 / SCORE更新 {2} / CLEAR更新 {3} / FC {4} / PLAYTIME {5} / 診断 {6}</value>
+  </data>
   <data name="Msg_confirm_lr2_play_history_schema_install_or_repair" xml:space="preserve">
     <value>LR2 を終了してから実行してください。
 プレイヤー別 score DB にプレイログ用の table / trigger を追加または修復します。

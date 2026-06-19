@@ -17,6 +17,54 @@ namespace BeMusicSeeker.Tests;
 public sealed class PlayHistoryReadModelTests
 {
     [TestMethod]
+    public void PlayHistoryPeriodRequest_AllHasNoEpochBounds()
+    {
+        PlayHistoryPeriodRequest request = PlayHistoryPeriodRequest.Create(
+            PlayHistoryPeriodKind.All,
+            new DateTimeOffset(2026, 6, 19, 15, 30, 0, TimeSpan.Zero),
+            TimeZoneInfo.Utc);
+
+        Assert.IsNull(request.PlayedAtFromInclusive);
+        Assert.IsNull(request.PlayedAtToExclusive);
+        Assert.IsFalse(request.IncludeUnfinalized);
+    }
+
+    [TestMethod]
+    public void PlayHistoryPeriodRequest_DayRangesUseLocalMidnightInclusiveAndNextMidnightExclusive()
+    {
+        AssertPeriodRange(PlayHistoryPeriodKind.Today, UtcEpoch(2026, 6, 19), UtcEpoch(2026, 6, 20));
+        AssertPeriodRange(PlayHistoryPeriodKind.Yesterday, UtcEpoch(2026, 6, 18), UtcEpoch(2026, 6, 19));
+        AssertPeriodRange(PlayHistoryPeriodKind.Recent7Days, UtcEpoch(2026, 6, 13), UtcEpoch(2026, 6, 20));
+        AssertPeriodRange(PlayHistoryPeriodKind.Recent30Days, UtcEpoch(2026, 5, 21), UtcEpoch(2026, 6, 20));
+    }
+
+    [TestMethod]
+    public void PlayHistoryPeriodRequest_UsesProvidedLocalTimeZoneForDayBoundary()
+    {
+        TimeZoneInfo utcPlusNine = TimeZoneInfo.CreateCustomTimeZone("UTC+09", TimeSpan.FromHours(9), "UTC+09", "UTC+09");
+        PlayHistoryPeriodRequest request = PlayHistoryPeriodRequest.Create(
+            PlayHistoryPeriodKind.Today,
+            new DateTimeOffset(2026, 6, 19, 15, 30, 0, TimeSpan.Zero),
+            utcPlusNine);
+
+        Assert.AreEqual(UtcEpoch(2026, 6, 19, 15), request.PlayedAtFromInclusive);
+        Assert.AreEqual(UtcEpoch(2026, 6, 20, 15), request.PlayedAtToExclusive);
+    }
+
+    [TestMethod]
+    public void PlayHistoryPeriodRequest_DiagnosticsIncludesUnfinalizedWithoutDateBounds()
+    {
+        PlayHistoryPeriodRequest request = PlayHistoryPeriodRequest.Create(
+            PlayHistoryPeriodKind.Diagnostics,
+            new DateTimeOffset(2026, 6, 19, 15, 30, 0, TimeSpan.Zero),
+            TimeZoneInfo.Utc);
+
+        Assert.IsNull(request.PlayedAtFromInclusive);
+        Assert.IsNull(request.PlayedAtToExclusive);
+        Assert.IsTrue(request.IncludeUnfinalized);
+    }
+
+    [TestMethod]
     public void Lr2Reader_ReadsFinalizedRowsByRangeDescendingAndExcludesUnfinalized()
     {
         WithScoreDb(delegate (string scoreDbPath)
@@ -59,6 +107,33 @@ public sealed class PlayHistoryReadModelTests
             Assert.AreEqual(2, withUnfinalized.Rows.Count);
             Assert.AreEqual(3L, withUnfinalized.Rows[0].history_id);
             Assert.AreEqual(2L, withUnfinalized.Rows[1].history_id);
+        });
+    }
+
+    [TestMethod]
+    public void Lr2Reader_RangeBoundariesAreInclusiveFromExclusiveTo()
+    {
+        WithScoreDb(delegate (string scoreDbPath)
+        {
+            CreateInstalledScoreDb(scoreDbPath);
+            using (var db = new SQLiteConnection(scoreDbPath))
+            {
+                InsertHistory(db, historyId: 1, hash: HashA, playedAt: 999, finalized: true, newExscore: 100);
+                InsertHistory(db, historyId: 2, hash: HashA, playedAt: 1000, finalized: true, newExscore: 110);
+                InsertHistory(db, historyId: 3, hash: HashA, playedAt: 1999, finalized: true, newExscore: 120);
+                InsertHistory(db, historyId: 4, hash: HashA, playedAt: 2000, finalized: true, newExscore: 130);
+            }
+
+            Lr2PlayHistoryReadResult result = new Lr2PlayHistoryReader().Read(new Lr2PlayHistoryReadRequest
+            {
+                ScoreDbPath = scoreDbPath,
+                IsLr2LinkedProfile = true,
+                PlayedAtFromInclusive = 1000,
+                PlayedAtToExclusive = 2000,
+                Limit = 10
+            });
+
+            CollectionAssert.AreEqual(new long[] { 3L, 2L }, result.Rows.Select(row => row.history_id).ToArray());
         });
     }
 
@@ -414,6 +489,35 @@ public sealed class PlayHistoryReadModelTests
     }
 
     [TestMethod]
+    public void SummaryTextIncludesDiagnosticDetailWhenPresent()
+    {
+        PlayHistoryPeriodRequest request = PlayHistoryPeriodRequest.Create(
+            PlayHistoryPeriodKind.All,
+            new DateTimeOffset(2026, 6, 19, 15, 30, 0, TimeSpan.Zero),
+            TimeZoneInfo.Utc);
+        PlayHistoryPeriodSummary summary = PlayHistoryPeriodSummary.FromRows("all", []);
+
+        string text = MainWindowViewModel.FormatPlayHistoryGridSummaryTextForTest(
+            request,
+            summary,
+            [
+                new PlayHistoryDiagnostic
+                {
+                    Provider = PlayHistoryProvider.Lr2,
+                    Stage = "read",
+                    Severity = PlayHistoryDiagnosticSeverity.Error,
+                    Code = "play_history_lr2_schema_unreadable",
+                    Message = "Score DB file does not exist.",
+                    SourcePath = "C:\\LR2\\Score\\player.db"
+                }
+            ]);
+
+        StringAssert.Contains(text, "play_history_lr2_schema_unreadable");
+        StringAssert.Contains(text, "Score DB file does not exist.");
+        StringAssert.Contains(text, "C:\\LR2\\Score\\player.db");
+    }
+
+    [TestMethod]
     public void SummaryDoesNotCountFailedAsNewClear()
     {
         PlayHistoryProjectionResult projected = PlayHistoryRow.ProjectLr2Rows(
@@ -559,6 +663,28 @@ public sealed class PlayHistoryReadModelTests
             new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { [HashA] = ShaA },
             (md5, sha256) => new PlaylistReferenceDisplay([table]),
             (sha256, md5) => null);
+    }
+
+    private static void AssertPeriodRange(PlayHistoryPeriodKind kind, long expectedFromInclusive, long expectedToExclusive)
+    {
+        PlayHistoryPeriodRequest request = PlayHistoryPeriodRequest.Create(
+            kind,
+            new DateTimeOffset(2026, 6, 19, 15, 30, 0, TimeSpan.Zero),
+            TimeZoneInfo.Utc);
+
+        Assert.AreEqual(expectedFromInclusive, request.PlayedAtFromInclusive, kind.ToString());
+        Assert.AreEqual(expectedToExclusive, request.PlayedAtToExclusive, kind.ToString());
+        Assert.IsFalse(request.IncludeUnfinalized, kind.ToString());
+    }
+
+    private static long UtcEpoch(int year, int month, int day)
+    {
+        return UtcEpoch(year, month, day, 0);
+    }
+
+    private static long UtcEpoch(int year, int month, int day, int hour)
+    {
+        return new DateTimeOffset(year, month, day, hour, 0, 0, TimeSpan.Zero).ToUnixTimeSeconds();
     }
 
     private static void WithScoreDb(Action<string> action)

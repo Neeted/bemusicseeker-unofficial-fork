@@ -77,6 +77,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     {
         None,
         Playlist,
+        PlayHistory,
         InstallPending,
         InstallInstalled,
         FullScanCheck,
@@ -2626,6 +2627,32 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             (base.DataContext as MainWindowViewModel).ExecFolderFilter(MainWindowViewModel.FolderFilterType.DirectoryFilter, treeViewItem.Header.ToString());
             e.Handled = true;
         }
+    }
+
+    private async void playHistoryPeriodSelect(object sender, RoutedEventArgs e)
+    {
+        if (ShouldBlockStartupUiInteraction("tree_play_history_period_select"))
+        {
+            e.Handled = true;
+            return;
+        }
+        if (base.DataContext is not MainWindowViewModel viewModel
+            || sender is not TreeViewItem treeRoot
+            || e.OriginalSource is not TreeViewItem treeViewItem)
+        {
+            return;
+        }
+        e.Handled = true;
+        string tag = ReferenceEquals(treeRoot, treeViewItem)
+            ? nameof(PlayHistoryPeriodKind.All)
+            : treeViewItem.Tag as string;
+        PlayHistoryPeriodRequest request = PlayHistoryPeriodRequest.FromTag(tag);
+        long requestId = viewModel.BeginPlayHistoryFilterRequest(request);
+        await Task.Run(delegate
+        {
+            viewModel.ExecPlayHistoryFilter(request, requestId);
+        }).Logging("playHistoryPeriodSelect");
+        treeRoot.IsExpanded = true;
     }
 
     private void artistFolderSelect(object sender, RoutedEventArgs e)
@@ -8883,6 +8910,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         if (IsSameOrDescendantOf(selectedTreeViewItem, treeViewItemPlaylist))
         {
             return TreeSelectionSection.Playlist;
+        }
+        if (IsSameOrDescendantOf(selectedTreeViewItem, treeViewItemPlayHistory))
+        {
+            return TreeSelectionSection.PlayHistory;
         }
         if (IsSameOrDescendantOf(selectedTreeViewItem, treeViewItemFullScanCheck))
         {

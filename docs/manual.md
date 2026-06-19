@@ -323,6 +323,16 @@ You can use field specifiers such as `title:`, `artist:`, `playlist:`, and `rate
 
 Click a column header to sort. Many columns can be displayed, including `TITLE`, `ARTIST`, `PATH`, `LEVEL`, and `CLEAR`. Column visibility and order can be changed from the header context menu.
 
+### Play Log
+
+The `Play Log` tree shows LR2 play history in the main list. After enabling the LR2 play-log schema in the settings dialog, newly played LR2 charts become available here.
+
+The available periods are `All`, `Today`, `Yesterday`, `Recent 7 Days`, `Recent 30 Days`, and `Unfinalized / Diagnostics`. Date ranges use local day boundaries, and the recent 7/30 day views include today. `Unfinalized / Diagnostics` also includes unfinalized rows and is useful when checking schema, score DB, read, or projection problems.
+
+The summary bar shows the row count, SCORE / CLEAR / FC updates, PLAYTIME, and diagnostics. When the score DB is missing, the schema is not installed, or a read/projection problem occurs, diagnostic details are shown in the summary and written to the log.
+
+This view currently reads the LR2 player `score.db`. beatoraja play history viewing is planned separately.
+
 ### Copy Operations
 
 In lists such as the library, playlist detail, and install / pending views, you can copy displayed content from the keyboard.

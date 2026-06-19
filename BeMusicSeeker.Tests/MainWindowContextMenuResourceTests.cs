@@ -41,6 +41,34 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
+    public void PlayHistoryTree_ExposesExpectedPeriodNodes()
+    {
+        string xaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "MainWindow.xaml"));
+        string playHistoryTree = ExtractBetween(xaml, "Name=\"treeViewItemPlayHistory\"", "Name=\"treeViewItemInstall\"");
+
+        Assert.AreEqual(1, CountOccurrences(xaml, "Name=\"treeViewItemPlayHistory\""));
+        Assert.AreEqual(1, CountOccurrences(playHistoryTree, "Selected=\"playHistoryPeriodSelect\""));
+        foreach (string tag in new[] { "All", "Today", "Yesterday", "Recent7Days", "Recent30Days", "Diagnostics" })
+        {
+            Assert.AreEqual(1, CountOccurrences(playHistoryTree, "Tag=\"" + tag + "\""), tag);
+        }
+        foreach (string resource in new[]
+        {
+            "Play_history_tree_root",
+            "Play_history_period_all",
+            "Play_history_period_today",
+            "Play_history_period_yesterday",
+            "Play_history_period_recent_7_days",
+            "Play_history_period_recent_30_days",
+            "Play_history_period_diagnostics"
+        })
+        {
+            StringAssert.Contains(playHistoryTree, "Path=Resources." + resource + ", Mode=OneWay", resource);
+            Assert.IsFalse(string.IsNullOrWhiteSpace(Resources.ResourceManager.GetString(resource)), resource);
+        }
+    }
+
+    [TestMethod]
     public void ChartInfoParseFailureContextMenu_UsesDedicatedResourceAndVisibilityPolicy()
     {
         string xaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "MainWindow.xaml"));

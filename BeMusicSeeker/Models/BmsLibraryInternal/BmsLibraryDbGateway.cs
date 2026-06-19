@@ -912,6 +912,43 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
         return LoadChartDigestMap(songDb);
     }
 
+    public Dictionary<string, string> LoadChartDigestMapByMd5(IEnumerable<string> md5s)
+    {
+        List<string> keys = NormalizeChartInfoLookupKeys(md5s);
+        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (keys.Count == 0)
+        {
+            return result;
+        }
+        using LR2SongDBExtended songDb = OpenSongDb();
+        string tableName = SQLiteTable<LR2SongDBExtended.chart_digest_map>.GetTableName();
+        if (!TableExists(songDb, tableName))
+        {
+            return result;
+        }
+        for (int offset = 0; offset < keys.Count; offset += ChartInfoLookupChunkSize)
+        {
+            List<string> chunk = [.. keys.Skip(offset).Take(ChartInfoLookupChunkSize)];
+            if (chunk.Count == 0)
+            {
+                continue;
+            }
+            string placeholders = string.Join(", ", chunk.Select(_ => "?"));
+            string sql = "SELECT md5, sha256 FROM " + tableName
+                + " WHERE md5 IN (" + placeholders + ")"
+                + " AND md5 IS NOT NULL AND TRIM(md5) <> ''"
+                + " AND sha256 IS NOT NULL AND TRIM(sha256) <> '';";
+            foreach (ChartDigestQueryRow row in songDb.Query<ChartDigestQueryRow>(sql, [.. chunk.Cast<object>()]))
+            {
+                if (row != null && !string.IsNullOrWhiteSpace(row.md5) && !string.IsNullOrWhiteSpace(row.sha256))
+                {
+                    result[row.md5] = row.sha256;
+                }
+            }
+        }
+        return result;
+    }
+
     internal Dictionary<string, string> LoadChartDigestMap(LR2SongDBExtended songDb)
     {
         if (songDb == null)

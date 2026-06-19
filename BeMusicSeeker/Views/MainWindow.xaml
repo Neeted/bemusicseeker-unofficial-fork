@@ -2167,6 +2167,20 @@
                 </ItemsControl.ItemContainerStyle>
               </TreeViewItem>
             </TreeViewItem>
+            <TreeViewItem Name="treeViewItemPlayHistory" IsExpanded="True" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Play_history_tree_root, Mode=OneWay}" Selected="playHistoryPeriodSelect">
+              <ItemsControl.ItemContainerStyle>
+                <Style TargetType="{x:Type TreeViewItem}">
+                  <Setter Property="FrameworkElement.FocusVisualStyle" Value="{x:Null}" />
+                  <Setter Property="Template" Value="{StaticResource TreeViewItemFullWidth}" />
+                </Style>
+              </ItemsControl.ItemContainerStyle>
+              <TreeViewItem Tag="All" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Play_history_period_all, Mode=OneWay}" />
+              <TreeViewItem Tag="Today" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Play_history_period_today, Mode=OneWay}" />
+              <TreeViewItem Tag="Yesterday" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Play_history_period_yesterday, Mode=OneWay}" />
+              <TreeViewItem Tag="Recent7Days" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Play_history_period_recent_7_days, Mode=OneWay}" />
+              <TreeViewItem Tag="Recent30Days" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Play_history_period_recent_30_days, Mode=OneWay}" />
+              <TreeViewItem Tag="Diagnostics" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Play_history_period_diagnostics, Mode=OneWay}" />
+            </TreeViewItem>
             <TreeViewItem Name="treeViewItemInstall" IsExpanded="True" Focusable="False" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Install, Mode=OneWay}">
               <FrameworkElement.Resources>
                 <ResourceDictionary>

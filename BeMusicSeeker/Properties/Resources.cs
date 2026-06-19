@@ -439,6 +439,22 @@ public class Resources
 
     public static string Lr2_play_history_schema_status_skipped_profile => ResourceManager.GetString("Lr2_play_history_schema_status_skipped_profile", resourceCulture);
 
+    public static string Play_history_tree_root => ResourceManager.GetString("Play_history_tree_root", resourceCulture);
+
+    public static string Play_history_period_all => ResourceManager.GetString("Play_history_period_all", resourceCulture);
+
+    public static string Play_history_period_today => ResourceManager.GetString("Play_history_period_today", resourceCulture);
+
+    public static string Play_history_period_yesterday => ResourceManager.GetString("Play_history_period_yesterday", resourceCulture);
+
+    public static string Play_history_period_recent_7_days => ResourceManager.GetString("Play_history_period_recent_7_days", resourceCulture);
+
+    public static string Play_history_period_recent_30_days => ResourceManager.GetString("Play_history_period_recent_30_days", resourceCulture);
+
+    public static string Play_history_period_diagnostics => ResourceManager.GetString("Play_history_period_diagnostics", resourceCulture);
+
+    public static string Play_history_summary_format => ResourceManager.GetString("Play_history_summary_format", resourceCulture);
+
     public static string Msg_confirm_lr2_play_history_schema_install_or_repair => ResourceManager.GetString("Msg_confirm_lr2_play_history_schema_install_or_repair", resourceCulture);
 
     public static string Msg_success_lr2_play_history_schema_install_or_repair => ResourceManager.GetString("Msg_success_lr2_play_history_schema_install_or_repair", resourceCulture);

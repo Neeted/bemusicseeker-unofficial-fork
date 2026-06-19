@@ -12360,6 +12360,75 @@ completeFileEnumerationOnce,
         }
     }
 
+    internal PlayHistoryProjectionIndex CreatePlayHistoryProjectionIndex(
+        IEnumerable<Lr2PlayHistoryRecord> records,
+        CancellationToken cancellationToken,
+        out bool cacheHit,
+        out int staleRetryCount)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        PlaylistLibraryResolveIndexSnapshot resolveIndex = GetPlaylistLibraryResolveIndexSnapshot(
+            cancellationToken,
+            out cacheHit,
+            out staleRetryCount);
+        List<string> md5s = [.. (records ?? [])
+            .Select(record => record?.hash)
+            .Where(hash => !string.IsNullOrWhiteSpace(hash))
+            .Select(hash => hash.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)];
+        cancellationToken.ThrowIfCancellationRequested();
+        IReadOnlyDictionary<string, string> sha256ByMd5 = dbGateway.LoadChartDigestMapByMd5(md5s);
+        cancellationToken.ThrowIfCancellationRequested();
+        Func<string, string, LR2SongDBExtended.chart_info> chartInfoResolver = CreatePlayHistoryChartInfoResolver(
+            md5s,
+            sha256ByMd5,
+            resolveIndex,
+            cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+        return PlayHistoryProjectionIndex.Create(
+            resolveIndex,
+            sha256ByMd5,
+            GetPlaylistReferenceDisplay,
+            chartInfoResolver);
+    }
+
+    private Func<string, string, LR2SongDBExtended.chart_info> CreatePlayHistoryChartInfoResolver(
+        IReadOnlyList<string> md5s,
+        IReadOnlyDictionary<string, string> sha256ByMd5,
+        PlaylistLibraryResolveIndexSnapshot resolveIndex,
+        CancellationToken cancellationToken)
+    {
+        List<string> sha256s = [.. (sha256ByMd5?.Values ?? Enumerable.Empty<string>())
+            .Where(sha256 => !string.IsNullOrWhiteSpace(sha256))
+            .Select(sha256 => sha256.Trim())];
+        foreach (string md5 in md5s ?? Array.Empty<string>())
+        {
+            LibraryChartRef chartRef = resolveIndex?.ResolveChartForPlaylistHash(md5, null);
+            if (!string.IsNullOrWhiteSpace(chartRef?.Sha256))
+            {
+                sha256s.Add(chartRef.Sha256.Trim());
+            }
+        }
+        cancellationToken.ThrowIfCancellationRequested();
+        Dictionary<string, LR2SongDBExtended.chart_info> chartInfoBySha256 = LoadChartInfosBySha256(sha256s);
+        cancellationToken.ThrowIfCancellationRequested();
+        Dictionary<string, LR2SongDBExtended.chart_info> chartInfoByMd5 = LoadChartInfosByMd5(md5s);
+        return (sha256, md5) =>
+        {
+            if (!string.IsNullOrWhiteSpace(sha256)
+                && chartInfoBySha256.TryGetValue(sha256.Trim(), out LR2SongDBExtended.chart_info bySha256))
+            {
+                return bySha256;
+            }
+            if (!string.IsNullOrWhiteSpace(md5)
+                && chartInfoByMd5.TryGetValue(md5.Trim(), out LR2SongDBExtended.chart_info byMd5))
+            {
+                return byMd5;
+            }
+            return null;
+        };
+    }
+
     internal PlaylistLibraryResolveIndexRuntimeState GetPlaylistLibraryResolveIndexRuntimeState()
     {
         lock (lockPlaylistLibraryResolveIndexSnapshot)
