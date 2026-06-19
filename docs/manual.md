@@ -327,6 +327,8 @@ Click a column header to sort. Many columns can be displayed, including `TITLE`,
 
 The `Play Log` tree shows LR2 play history in the main list. After enabling the LR2 play-log schema in the settings dialog, newly played LR2 charts become available here.
 
+Enabling or repairing the LR2 play-log schema adds or repairs BeMusicSeeker tables, indexes, and triggers in the selected player's LR2 `score.db`. Before running it, confirm that the target player is correct and back up `score.db` in advance.
+
 The available periods are `All`, `Today`, `Yesterday`, `Recent 7 Days`, `Recent 30 Days`, `By Date`, and `Unfinalized / Diagnostics`. `By Date` builds year / month / day nodes from recorded history. Date ranges use local day boundaries, and the recent 7/30 day views include today. `Unfinalized / Diagnostics` also includes unfinalized rows and is useful when checking schema, score DB, read, or projection problems.
 
 The summary bar shows the row count, SCORE / CLEAR / FC updates, PLAYTIME, and diagnostics. When the score DB is missing, the schema is not installed, or a read/projection problem occurs, diagnostic details are shown in the summary and written to the log.
@@ -804,6 +806,8 @@ This view checks missing WAV, BGA, video, image, and similar resources.
 ## Backup / Uninstall
 
 From the `Backup` tab in the settings dialog, you can back up / restore playlists. `LR2 backup and optimization` configures the destination, targets, schedule, and generation count, and automatically creates backups on startup when conditions are met. After a successful backup, `song.db` and score DBs are also optimized using `VACUUM` / `REINDEX`. Simply configuring the setting does not immediately back up LR2-related files on the spot, so if you need a backup before a large update or uninstall, also make a manual copy.
+
+Before enabling or repairing the play-log schema, first-time LR2 linked setup, or major updates, include each player's `score.db` as well as LR2 `song.db` in your backup target.
 
 In LR2 linked mode, BeMusicSeeker may add application tables and indexes to LR2's `song.db`. `Remove BeMusicSeeker-related data from LR2 database` deletes these BeMusicSeeker-managed data. This operation assumes you will exit the application afterward.
 

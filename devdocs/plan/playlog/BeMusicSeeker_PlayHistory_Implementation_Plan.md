@@ -655,8 +655,8 @@ Play history view 用の keyword search context を追加する。既存 chart l
 
 - [ ] 設定画面またはメンテナンスに play history status を表示する。
 - [ ] `finalized = 0` や異常値を診断表示に出す。
-- [ ] `LR2 score DB に履歴 trigger を導入する` 操作の注意文を追加する。
-- [ ] backup 対象に score DB を含める注意を更新する。
+- [x] `LR2 score DB に履歴 trigger を導入する` 操作の注意文を追加する。
+- [x] backup 対象に score DB を含める注意を更新する。
 - [x] `docs/manual.ja.md` に `プレイログ` 章、`docs/manual.md` に対応する英語章を追加する。
 - [x] `devdocs/spec/play-history.md` を作り、実装済み仕様を正本化する。
 - [ ] log event を `play_history_schema_*`, `play_history_read_*`, `play_history_projection_*`, `play_history_view_*` のように段階別に出す。
@@ -733,6 +733,7 @@ Play history view 用の keyword search context を追加する。既存 chart l
 - 2026-06-19: Phase 4 UI guard として、play history schema status が `Installed` ではない場合に playlist property / bulk edit の LastPlaySortFolder checkbox を disabled にし、bulk patch から LastPlaySortFolder 変更を除外する helper と tests を追加した。
 - 2026-06-19: Phase 4 NULL sort 検証として、LAST PLAY SORT command を `last_play_at IS NULL ASC, last_play_at DESC` に明示化し、未観測譜面が末尾へ回る ORDER BY を `.lr2folder` / LR2 `folder` row の tests で固定した。
 - 2026-06-19: Phase 0 / Phase 6 spec 整理として `devdocs/spec/play-history.md` を追加し、LR2 schema / read model / projection / period UI / diagnostics / LAST PLAY SORT の現行仕様と、Phase 5 / Phase 7 の未実装 scope を分離した。
+- 2026-06-19: Phase 6 manual 整理として、`docs/manual.ja.md` / `docs/manual.md` に LR2 play-log schema 有効化 / 修復が player `score.db` へ table / index / trigger を追加・修復することと、backup 対象に score DB を含める注意を追記した。
 
 ## 実装時の注意
 
