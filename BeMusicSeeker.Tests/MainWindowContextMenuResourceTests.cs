@@ -130,8 +130,8 @@ public sealed class MainWindowContextMenuResourceTests
     public void PlayHistoryView_LogsDedicatedStageEvents()
     {
         string viewModelCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
-        string applyPlayHistoryView = ExtractBetween(viewModelCode, "private void ApplyPlayHistoryView", "private bool TryApplyPlayHistorySortOnly");
-        string tryApplyPlayHistorySortOnly = ExtractBetween(viewModelCode, "private bool TryApplyPlayHistorySortOnly", "private void ApplyPlayHistorySortedRows");
+        string applyPlayHistoryView = ExtractBetween(viewModelCode, "private void ApplyPlayHistoryView", "private IReadOnlyList<PlayHistoryRow> ApplyPlayHistoryKeywordFilterRows");
+        string presentationOnly = ExtractBetween(viewModelCode, "private bool TryApplyPlayHistoryPresentationOnly", "private void ApplyPlayHistorySortedRows");
         string applyPlayHistorySortedRows = ExtractBetween(viewModelCode, "private void ApplyPlayHistorySortedRows", "private PlayHistoryProjectionResult CreatePlayHistoryProjectionResult");
         string staleRequestLog = ExtractBetween(viewModelCode, "private void LogStalePlayHistoryViewRequest", "private static int CountDistinctPlayHistoryFolderLabels");
 
@@ -142,9 +142,35 @@ public sealed class MainWindowContextMenuResourceTests
         AssertLogPlayHistoryEventContract(applyPlayHistoryView, "play_history_projection_done", "projectionEventName", "schemaStatus=", "fallback=", "reason=", "projection_index_failed", "schema_unavailable");
         AssertLogPlayHistoryEventContract(applyPlayHistoryView, "play_history_projection_skipped", "projectionEventName", "rawCount=", "projectedCount=", "diagnosticsCount=", "projectionMs=");
         AssertLogPlayHistoryEventContract(applyPlayHistoryView, "play_history_projection_fallback", "projectionEventName", "fallback=", "reason=", "projection_index_failed");
-        AssertLogPlayHistoryEventContract(tryApplyPlayHistorySortOnly, "play_history_view_sort_skipped", "period=", "requestId=", "reason=no_current_matching_state", "totalMs=");
+        AssertLogPlayHistoryEventContract(presentationOnly, "play_history_view_presentation_skipped", "period=", "requestId=", "reason=no_current_matching_state", "totalMs=");
         AssertLogPlayHistoryEventContract(applyPlayHistorySortedRows, "play_history_view_apply", "period=", "requestId=", "sortOnly=", "schemaStatus=", "sourceCount=", "projectedCount=", "viewCount=", "totalMs=");
         AssertLogPlayHistoryEventContract(staleRequestLog, "play_history_view_stale_skipped", "mode=", "requestedMode=", "requestId=", "currentRequestId=", "elapsedMs=");
+    }
+
+    [TestMethod]
+    public void PlayHistoryView_KeywordFilterUpdatedReusesProjectedState()
+    {
+        string viewModelCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string applyPlayHistoryView = ExtractBetween(viewModelCode, "private void ApplyPlayHistoryView", "private IReadOnlyList<PlayHistoryRow> ApplyPlayHistoryKeywordFilterRows");
+        string presentationOnly = ExtractBetween(viewModelCode, "private bool TryApplyPlayHistoryPresentationOnly", "private void ApplyPlayHistorySortedRows");
+        string state = ExtractBetween(viewModelCode, "private sealed class PlayHistoryViewState", "private readonly struct SortSnapshot");
+
+        StringAssert.Contains(applyPlayHistoryView, "requestedMode == viewUpdateMode.KeywordFilterUpdated");
+        StringAssert.Contains(applyPlayHistoryView, "TryApplyPlayHistoryPresentationOnly");
+        StringAssert.Contains(viewModelCode, "mode == viewUpdateMode.KeywordFilterUpdated && parameter is PlayHistoryViewRequest playHistoryKeywordRequest");
+        StringAssert.Contains(viewModelCode, "ApplyPlayHistoryView(mode, requestedMode, parameter, viewBuildStopwatch);");
+        StringAssert.Contains(presentationOnly, "state.FilterSourceRows");
+        StringAssert.Contains(presentationOnly, "ApplyPlayHistoryKeywordFilterRows");
+        StringAssert.Contains(presentationOnly, "requestedMode == viewUpdateMode.SortUpdated && keywordStateStale");
+        StringAssert.Contains(presentationOnly, "KeywordFilterIdentity");
+        StringAssert.Contains(viewModelCode, "QueuePlayHistoryKeywordFilterRefresh");
+        StringAssert.Contains(viewModelCode, "QueuePlayHistoryKeywordFilterRefresh(advanceRevision: false)");
+        StringAssert.Contains(viewModelCode, "playHistoryKeywordFilterRevision");
+        StringAssert.Contains(viewModelCode, "playHistoryKeywordFilterQueuedRevision");
+        StringAssert.Contains(viewModelCode, "Interlocked.CompareExchange(ref playHistoryKeywordFilterQueuedRevision");
+        StringAssert.Contains(state, "FilterSourceRows");
+        StringAssert.Contains(state, "KeywordFilterIdentity");
+        StringAssert.Contains(state, "KeywordFilterRevision");
     }
 
     [TestMethod]

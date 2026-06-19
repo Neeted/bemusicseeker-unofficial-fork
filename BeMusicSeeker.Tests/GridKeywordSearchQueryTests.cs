@@ -487,12 +487,38 @@ public sealed class GridKeywordSearchQueryTests
     }
 
     [TestMethod]
+    public void MatchesPlayHistoryRow_SearchesPlayHistoryFields()
+    {
+        PlayHistoryRow row = CreatePlayHistoryRow(finalized: true);
+
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("alpha artistx").MatchesPlayHistoryRow(row));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("title:alpha artist:artistx folder:SL playlist:\"Satellite sl\"").MatchesPlayHistoryRow(row));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("date:2026-06-19 year:2026 month:06 month:2026-06 kind:score clear:HC finalized:true").MatchesPlayHistoryRow(row));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("md5:abcdef sha256:123456 source:LR2").MatchesPlayHistoryRow(row));
+        Assert.IsFalse(GridKeywordSearchQuery.Parse("date:2026-06-18").MatchesPlayHistoryRow(row));
+        Assert.IsFalse(GridKeywordSearchQuery.Parse("month:2026").MatchesPlayHistoryRow(row));
+        Assert.IsFalse(GridKeywordSearchQuery.Parse("finalized:false").MatchesPlayHistoryRow(row));
+    }
+
+    [TestMethod]
+    public void MatchesPlayHistoryRow_SupportsDiagnosticsFields()
+    {
+        PlayHistoryRow row = CreatePlayHistoryRow(finalized: false);
+
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("finalized:0").MatchesPlayHistoryRow(row));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("finalized:pending").MatchesPlayHistoryRow(row));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("clear:defined").MatchesPlayHistoryRow(row));
+        Assert.IsFalse(GridKeywordSearchQuery.Parse("clear:HC").MatchesPlayHistoryRow(row));
+    }
+
+    [TestMethod]
     public void CreateFieldCompletion_CompletesContextSpecificFields()
     {
         GridKeywordSearchCompletionResult bmsResult = GridKeywordSearchCompletion.CreateFieldCompletion("tit", 3, GridKeywordSearchContext.ChartList);
         GridKeywordSearchCompletionResult negatedResult = GridKeywordSearchCompletion.CreateFieldCompletion("-ar", 3, GridKeywordSearchContext.ChartList);
         GridKeywordSearchCompletionResult detailResult = GridKeywordSearchCompletion.CreateFieldCompletion("mem", 3, GridKeywordSearchContext.PlaylistDetail);
         GridKeywordSearchCompletionResult summaryResult = GridKeywordSearchCompletion.CreateFieldCompletion("na", 2, GridKeywordSearchContext.PlaylistSummary);
+        GridKeywordSearchCompletionResult playHistoryResult = GridKeywordSearchCompletion.CreateFieldCompletion("fin", 3, GridKeywordSearchContext.PlayHistory);
         GridKeywordSearchCompletionResult clearResult = GridKeywordSearchCompletion.CreateFieldCompletion("cle", 3, GridKeywordSearchContext.ChartList);
         GridKeywordSearchCompletionResult djResult = GridKeywordSearchCompletion.CreateFieldCompletion("dj", 2, GridKeywordSearchContext.ChartList);
         GridKeywordSearchCompletionResult rateRankResult = GridKeywordSearchCompletion.CreateFieldCompletion("ra", 2, GridKeywordSearchContext.ChartList);
@@ -502,6 +528,7 @@ public sealed class GridKeywordSearchQueryTests
         Assert.IsTrue(negatedResult.Items.Any(item => item.DisplayText == "-artist:"));
         Assert.IsTrue(detailResult.Items.Any(item => item.DisplayText == "memo:"));
         Assert.IsTrue(summaryResult.Items.Any(item => item.DisplayText == "name:"));
+        Assert.IsTrue(playHistoryResult.Items.Any(item => item.DisplayText == "finalized:"));
         Assert.IsTrue(clearResult.Items.Any(item => item.DisplayText == "clear:"));
         Assert.IsTrue(djResult.Items.Any(item => item.DisplayText == "dj:"));
         Assert.IsTrue(djResult.Items.Any(item => item.DisplayText == "djlevel:"));
@@ -509,6 +536,7 @@ public sealed class GridKeywordSearchQueryTests
         Assert.IsTrue(rateRankResult.Items.Any(item => item.DisplayText == "rate:"));
         Assert.IsTrue(tableResult.Items.Any(item => item.DisplayText == "table:"));
         Assert.AreEqual(0, GridKeywordSearchCompletion.CreateFieldCompletion("mem", 3, GridKeywordSearchContext.ChartList).Items.Count);
+        Assert.AreEqual(0, GridKeywordSearchCompletion.CreateFieldCompletion("memo", 4, GridKeywordSearchContext.PlayHistory).Items.Count);
         Assert.AreEqual(0, GridKeywordSearchCompletion.CreateFieldCompletion("D:", 2, GridKeywordSearchContext.ChartList).Items.Count);
     }
 
@@ -626,6 +654,42 @@ public sealed class GridKeywordSearchQueryTests
             index.ReplaceTable(table, table.entries);
         }
         return index;
+    }
+
+    private static PlayHistoryRow CreatePlayHistoryRow(bool finalized)
+    {
+        TestableBmsFile file = CreateFile();
+        BMSTable table = CreateTable("Satellite sl", "SL");
+        PlaylistLibraryResolveIndexSnapshot resolveIndex = PlaylistLibraryResolveIndexSnapshot.FromLibraryChartRefs([LibraryChartRef.FromBmsFile(file)]);
+        PlayHistoryProjectionIndex projectionIndex = PlayHistoryProjectionIndex.Create(
+            resolveIndex,
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { [file.hash] = file.sha256 },
+            (md5, sha256) => new PlaylistReferenceDisplay([table]),
+            (sha256, md5) => null);
+        PlayHistoryProjectionResult projected = PlayHistoryRow.ProjectLr2Rows(
+            new Lr2PlayHistoryReadResult(
+                PlayHistorySourceProfile.Lr2(@"C:\LR2\score.db"),
+                [
+                    new Lr2PlayHistoryRecord
+                    {
+                        history_id = 1,
+                        hash = file.hash,
+                        played_at = new DateTimeOffset(2026, 6, 19, 12, 34, 56, TimeSpan.Zero).ToUnixTimeSeconds(),
+                        finalized = finalized ? 1 : 0,
+                        score_write_type = "update",
+                        old_clear = 3,
+                        new_clear = finalized ? 4 : 3,
+                        old_exscore = finalized ? 1000 : null,
+                        new_exscore = finalized ? 1200 : null,
+                        new_totalnotes = 1000,
+                        new_playcount = 1,
+                        playcount_delta = 1
+                    }
+                ],
+                [],
+                Lr2PlayHistorySchemaStatus.Installed),
+            projectionIndex);
+        return projected.Rows.Single();
     }
 
     private static BMSTableEntry CreateBmsonPlaylistEntry(string sha256)

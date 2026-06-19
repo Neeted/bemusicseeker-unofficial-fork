@@ -9,7 +9,7 @@
 次のものは現行実装の scope 外である。
 
 - beatoraja provider。UI / provider enum / plan 上の受け皿はあるが、`scoredatalog.db` / `scorelog.db` からの read model は未実装。
-- プレイログ専用 keyword search と表示対象セット。現行の Play History view は期間選択だけを filter とし、対象 playlist / folder set の dropdown は持たない。
+- 表示対象セット。現行の Play History view は期間選択と keyword search を filter とし、対象 playlist / folder set の dropdown は持たない。
 - 導入前 LR2 score からの backfill。LR2 `score` row には「最後にいつプレイしたか」を復元できる十分な情報が無いため、導入済み score を last play として補完しない。
 
 ## LR2 Schema
@@ -102,6 +102,30 @@ archive node は `年 > 月 > 日` の階層で、`ReadPeriodIndex` の結果か
 
 view request には request id があり、古い非同期 refresh の結果が新しい selection を上書きしないよう stale request guard を持つ。Play History view では in-memory sort と column settings foundation を使い、row source は `PlayHistoryRow` として custom table view に渡す。
 
+## Keyword Search
+
+Play History view は通常検索欄に `GridKeywordSearchContext.PlayHistory` を使う。keyword search は LR2 DB read と projection が終わった後、sort / view 適用の前に in-memory で `PlayHistoryRow` を絞り込む。`KeywordFilterUpdated` と `SortUpdated` は同じ期間 request の read / projection result を再利用し、DB read と projection index build を繰り返さない。
+
+Play History context の field は次の通り。
+
+| Field | 意味 |
+| --- | --- |
+| global token | title、artist、path、folder labels、playlist names、raw hash、SHA-256、kind、source、play date を横断検索する。 |
+| `title:` / `artist:` / `path:` | resolved chart の表示情報。未解決 row では空。 |
+| `folder:` | `FolderLabels`。現行では playlist reference の symbol 表示。 |
+| `playlist:` / `ref:` / `table:` | playlist reference の name 表示。 |
+| `md5:` / `hash:` | source raw hash。LR2 では MD5。 |
+| `sha256:` | resolved SHA-256。未解決 row では空。 |
+| `date:` | local play date。`yyyy-MM-dd` / `yyyy/MM/dd` / `yyyyMMdd` を exact match する。 |
+| `year:` | local play year を exact match する。 |
+| `month:` | local play month を exact match する。`M` / `MM` / `yyyy-M` / `yyyy-MM` / `yyyy/M` / `yyyy/MM` を受け付ける。 |
+| `kind:` | `Kind` と LR2 `score_write_type`。 |
+| `clear:` | LR2 best clear の before / after 表示。`HC` など既存 clear alias を使える。 |
+| `finalized:` | `true` / `false`、`1` / `0`、`finalized` / `unfinalized` / `pending` を boolean として扱う。 |
+| `source:` | provider display name と source path。 |
+
+`date:` / `year:` / `month:` は通常検索では substring ではなく exact match で扱う。regex (`field:re:...`) を指定した場合だけ、表示用文字列表現に対する regex として扱う。
+
 ## Diagnostics
 
 play history diagnostics は provider / stage / severity / code / message / source path を持つ。現行 UI は summary diagnostic text と log に出す最小実装であり、専用 maintenance view への詳細表示は未実装である。
@@ -142,7 +166,6 @@ manual は日本語 `docs/manual.ja.md` と英語 `docs/manual.md` を同時更�
 
 次は計画上の未実装範囲であり、この spec の現行仕様には含めない。
 
-- Play History keyword search: `date:` / `year:` / `month:` / `kind:` / `clear:` / `playlist:` / `folder:` / `finalized:`。
 - Play History display target set: `すべて` / playlist / user-defined target set の dropdown と portable settings 保存。
 - maintenance / settings での detailed status view と schema missing / locked / read-only の表示確認。
 - beatoraja provider: `scoredatalog.db` / `scorelog.db` / `score.db` の取り込み、best delta projection、provider 固有 aggregate。

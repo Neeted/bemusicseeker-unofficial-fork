@@ -12,10 +12,13 @@ public sealed class KeywordSearchPresentationTests
         string chartListWarning = MainWindowViewModel.BuildKeywordSearchWarningText("memo:alpha", GridKeywordSearchContext.ChartList);
         string playlistDetailWarning = MainWindowViewModel.BuildKeywordSearchWarningText("memo:alpha", GridKeywordSearchContext.PlaylistDetail);
         string summaryWarning = MainWindowViewModel.BuildKeywordSearchWarningText("memo:alpha", GridKeywordSearchContext.PlaylistSummary);
+        string playHistoryWarning = MainWindowViewModel.BuildKeywordSearchWarningText("finalized:false memo:alpha", GridKeywordSearchContext.PlayHistory);
 
         StringAssert.Contains(chartListWarning, "memo");
         Assert.AreEqual(string.Empty, playlistDetailWarning);
         StringAssert.Contains(summaryWarning, "memo");
+        StringAssert.Contains(playHistoryWarning, "memo");
+        Assert.IsFalse(playHistoryWarning.Contains("finalized"));
     }
 
     [TestMethod]
@@ -35,6 +38,7 @@ public sealed class KeywordSearchPresentationTests
         string chartListHelp = MainWindowViewModel.BuildKeywordSearchHelpText(GridKeywordSearchContext.ChartList);
         string playlistDetailHelp = MainWindowViewModel.BuildKeywordSearchHelpText(GridKeywordSearchContext.PlaylistDetail);
         string summaryHelp = MainWindowViewModel.BuildKeywordSearchHelpText(GridKeywordSearchContext.PlaylistSummary);
+        string playHistoryHelp = MainWindowViewModel.BuildKeywordSearchHelpText(GridKeywordSearchContext.PlayHistory);
 
         StringAssert.Contains(chartListHelp, "sha256");
         StringAssert.Contains(chartListHelp, "clear");
@@ -45,6 +49,8 @@ public sealed class KeywordSearchPresentationTests
         StringAssert.Contains(playlistDetailHelp, "rate");
         StringAssert.Contains(playlistDetailHelp, "bp");
         StringAssert.Contains(summaryHelp, "symbol");
+        StringAssert.Contains(playHistoryHelp, "finalized");
+        StringAssert.Contains(playHistoryHelp, "date");
     }
 
     [TestMethod]

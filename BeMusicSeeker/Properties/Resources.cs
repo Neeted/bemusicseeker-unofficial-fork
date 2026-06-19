@@ -962,6 +962,8 @@ public class Resources
 
     public static string Keyword_search_help_fields_playlist_summary => ResourceManager.GetString("Keyword_search_help_fields_playlist_summary", resourceCulture);
 
+    public static string Keyword_search_help_fields_play_history => ResourceManager.GetString("Keyword_search_help_fields_play_history", resourceCulture);
+
     public static string Keyword_search_completion_fields_header => ResourceManager.GetString("Keyword_search_completion_fields_header", resourceCulture);
 
     public static string Keyword_search_completion_history_header => ResourceManager.GetString("Keyword_search_completion_history_header", resourceCulture);

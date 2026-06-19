@@ -14,7 +14,8 @@ internal enum GridKeywordSearchContext
 {
     ChartList,
     PlaylistDetail,
-    PlaylistSummary
+    PlaylistSummary,
+    PlayHistory
 }
 
 internal enum GridKeywordSearchDiagnosticKind
@@ -62,6 +63,12 @@ internal sealed class GridKeywordSearchQuery
 
     private static readonly string[] PlaylistSummaryFields = ["id", "output", "name", "symbol"];
 
+    private static readonly string[] PlayHistoryFields =
+    [
+        "title", "artist", "path", "folder", "playlist", "ref", "table", "md5", "hash", "sha256",
+        "date", "year", "month", "kind", "clear", "finalized", "source"
+    ];
+
     private readonly SearchCondition[] conditions;
 
     private GridKeywordSearchQuery(SearchCondition[] conditions)
@@ -83,6 +90,7 @@ internal sealed class GridKeywordSearchQuery
         {
             GridKeywordSearchContext.PlaylistDetail => PlaylistDetailFields,
             GridKeywordSearchContext.PlaylistSummary => PlaylistSummaryFields,
+            GridKeywordSearchContext.PlayHistory => PlayHistoryFields,
             _ => ChartListFields,
         };
     }
@@ -188,6 +196,26 @@ internal sealed class GridKeywordSearchQuery
     }
 
     internal bool MatchesPlaylistSummary(PlaylistSummaryRow row)
+    {
+        if (!HasTokens)
+        {
+            return true;
+        }
+        if (row == null)
+        {
+            return false;
+        }
+        foreach (SearchCondition condition in conditions)
+        {
+            if (!MatchesCondition(condition, row))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    internal bool MatchesPlayHistoryRow(PlayHistoryRow row)
     {
         if (!HasTokens)
         {
@@ -538,6 +566,22 @@ internal sealed class GridKeywordSearchQuery
         return condition.IsNegated ? !matched : matched;
     }
 
+    private static bool MatchesCondition(SearchCondition condition, PlayHistoryRow row)
+    {
+        if (condition.IsInvalid || !IsKnownPlayHistoryField(condition.Field))
+        {
+            return false;
+        }
+        bool matched = string.Equals(condition.Field, "clear", StringComparison.Ordinal) && !condition.IsRegex
+            ? condition.Alternatives.Any(alternative => MatchesPlayHistoryClearAlternative(alternative, row))
+            : string.Equals(condition.Field, "finalized", StringComparison.Ordinal) && !condition.IsRegex
+                ? condition.Alternatives.Any(alternative => MatchesBooleanAlternative(alternative, row.Finalized))
+                : IsPlayHistoryDateField(condition.Field) && !condition.IsRegex
+                    ? condition.Alternatives.Any(alternative => MatchesPlayHistoryDateAlternative(alternative, row, condition.Field))
+                    : condition.Alternatives.Any(alternative => MatchesAlternative(alternative, GetPlayHistoryValues(row, condition.Field)));
+        return condition.IsNegated ? !matched : matched;
+    }
+
     private static bool MatchesAlternative(SearchAlternative alternative, IEnumerable<string> values)
     {
         if (alternative.IsInvalid || alternative.IsEmpty)
@@ -583,12 +627,18 @@ internal sealed class GridKeywordSearchQuery
         return field == null || PlaylistSummaryFields.Contains(field);
     }
 
+    private static bool IsKnownPlayHistoryField(string field)
+    {
+        return field == null || PlayHistoryFields.Contains(field);
+    }
+
     private static bool IsKnownField(GridKeywordSearchContext context, string field)
     {
         return context switch
         {
             GridKeywordSearchContext.PlaylistDetail => IsKnownPlaylistDetailField(field),
             GridKeywordSearchContext.PlaylistSummary => IsKnownPlaylistSummaryField(field),
+            GridKeywordSearchContext.PlayHistory => IsKnownPlayHistoryField(field),
             _ => IsKnownChartListField(field),
         };
     }
@@ -1323,6 +1373,192 @@ internal sealed class GridKeywordSearchQuery
                 yield return row.Symbol;
                 break;
         }
+    }
+
+    private static IEnumerable<string> GetPlayHistoryValues(PlayHistoryRow row, string field)
+    {
+        switch (field)
+        {
+            case null:
+                yield return row.Title;
+                yield return row.Artist;
+                yield return row.Path;
+                yield return row.FolderLabels;
+                yield return row.PlaylistNames;
+                yield return row.RawHash;
+                yield return row.Sha256;
+                yield return row.Kind;
+                yield return row.ScoreWriteType;
+                yield return row.BestClear;
+                yield return row.Source;
+                yield return row.SourcePath;
+                yield return FormatPlayHistoryDate(row.PlayedAt);
+                break;
+            case "title":
+                yield return row.Title;
+                break;
+            case "artist":
+                yield return row.Artist;
+                break;
+            case "path":
+                yield return row.Path;
+                break;
+            case "folder":
+                yield return row.FolderLabels;
+                break;
+            case "playlist":
+            case "ref":
+            case "table":
+                foreach (string name in SplitPlaylistReferenceNames(row.PlaylistNames))
+                {
+                    yield return name;
+                }
+                break;
+            case "md5":
+            case "hash":
+                yield return row.RawHash;
+                break;
+            case "sha256":
+                yield return row.Sha256;
+                break;
+            case "date":
+                yield return FormatPlayHistoryDate(row.PlayedAt);
+                yield return row.PlayedAt.ToString("yyyy/MM/dd", CultureInfo.InvariantCulture);
+                break;
+            case "year":
+                yield return row.PlayedAt.ToString("yyyy", CultureInfo.InvariantCulture);
+                break;
+            case "month":
+                yield return row.PlayedAt.ToString("yyyy-MM", CultureInfo.InvariantCulture);
+                yield return row.PlayedAt.ToString("yyyy/MM", CultureInfo.InvariantCulture);
+                yield return row.PlayedAt.ToString("MM", CultureInfo.InvariantCulture);
+                break;
+            case "kind":
+                yield return row.Kind;
+                yield return row.ScoreWriteType;
+                break;
+            case "clear":
+                yield return row.BestClear;
+                yield return row.OldBestClear.HasValue ? ScoreDisplayTextFormatter.FormatClear(row.OldBestClear.Value) : string.Empty;
+                yield return row.NewBestClear.HasValue ? ScoreDisplayTextFormatter.FormatClear(row.NewBestClear.Value) : string.Empty;
+                break;
+            case "finalized":
+                yield return row.Finalized ? "true" : "false";
+                yield return row.Finalized ? "1" : "0";
+                break;
+            case "source":
+                yield return row.Source;
+                yield return row.SourcePath;
+                break;
+        }
+    }
+
+    private static bool MatchesPlayHistoryClearAlternative(SearchAlternative alternative, PlayHistoryRow row)
+    {
+        if (alternative.IsInvalid || alternative.IsEmpty || row == null)
+        {
+            return false;
+        }
+        string term = alternative.Term?.Trim() ?? string.Empty;
+        if (IsDefinedTerm(term, out bool clearDefined))
+        {
+            return row.NewBestClear.HasValue == clearDefined;
+        }
+        if (TryParseClearTerm(term, out ClearType expectedClear))
+        {
+            return row.NewBestClear == expectedClear || row.OldBestClear == expectedClear;
+        }
+        return MatchesAlternative(alternative, GetPlayHistoryValues(row, "clear"));
+    }
+
+    private static bool MatchesBooleanAlternative(SearchAlternative alternative, bool value)
+    {
+        if (alternative.IsInvalid || alternative.IsEmpty)
+        {
+            return false;
+        }
+        string term = NormalizeEnumTerm(alternative.Term);
+        bool? expected = term switch
+        {
+            "1" or "true" or "yes" or "y" or "finalized" => true,
+            "0" or "false" or "no" or "n" or "unfinalized" or "pending" => false,
+            _ => null,
+        };
+        return expected.HasValue && expected.Value == value;
+    }
+
+    private static bool IsPlayHistoryDateField(string field)
+    {
+        return string.Equals(field, "date", StringComparison.Ordinal)
+            || string.Equals(field, "year", StringComparison.Ordinal)
+            || string.Equals(field, "month", StringComparison.Ordinal);
+    }
+
+    private static bool MatchesPlayHistoryDateAlternative(SearchAlternative alternative, PlayHistoryRow row, string field)
+    {
+        if (alternative.IsInvalid || alternative.IsEmpty || row == null)
+        {
+            return false;
+        }
+        string term = alternative.Term?.Trim() ?? string.Empty;
+        if (string.Equals(field, "date", StringComparison.Ordinal))
+        {
+            return TryParsePlayHistoryDateTerm(term, out DateTime date)
+                && row.PlayedAt.Date == date.Date;
+        }
+        if (string.Equals(field, "year", StringComparison.Ordinal))
+        {
+            return int.TryParse(term, NumberStyles.Integer, CultureInfo.InvariantCulture, out int year)
+                && row.PlayedAt.Year == year;
+        }
+        return TryParsePlayHistoryMonthTerm(term, out int? yearPart, out int month)
+            && row.PlayedAt.Month == month
+            && (!yearPart.HasValue || row.PlayedAt.Year == yearPart.Value);
+    }
+
+    private static bool TryParsePlayHistoryDateTerm(string term, out DateTime date)
+    {
+        return DateTime.TryParseExact(
+            term ?? string.Empty,
+            ["yyyy-MM-dd", "yyyy/M/d", "yyyy/MM/dd", "yyyyMMdd"],
+            CultureInfo.InvariantCulture,
+            DateTimeStyles.None,
+            out date);
+    }
+
+    private static bool TryParsePlayHistoryMonthTerm(string term, out int? year, out int month)
+    {
+        year = null;
+        month = 0;
+        string text = term?.Trim() ?? string.Empty;
+        if (text.Contains("-") || text.Contains("/"))
+        {
+            string[] parts = text.Split(['-', '/'], StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length != 2
+                || !int.TryParse(parts[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsedYear)
+                || !int.TryParse(parts[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsedMonth)
+                || parsedMonth < 1
+                || parsedMonth > 12)
+            {
+                return false;
+            }
+            year = parsedYear;
+            month = parsedMonth;
+            return true;
+        }
+        if (!int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out int monthOnly)
+            || monthOnly < 1
+            || monthOnly > 12)
+        {
+            return false;
+        }
+        month = monthOnly;
+        return true;
+    }
+
+    private static string FormatPlayHistoryDate(DateTime playedAt)
+    {
+        return playedAt.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
     }
 
     private static bool Contains(string value, string term)
