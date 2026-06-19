@@ -457,6 +457,40 @@ public class Resources
 
     public static string Play_history_summary_format => ResourceManager.GetString("Play_history_summary_format", resourceCulture);
 
+    public static string Play_history_summary_judge_count => ResourceManager.GetString("Play_history_summary_judge_count", resourceCulture);
+
+    public static string Play_history_summary_play_count => ResourceManager.GetString("Play_history_summary_play_count", resourceCulture);
+
+    public static string Play_history_summary_playtime => ResourceManager.GetString("Play_history_summary_playtime", resourceCulture);
+
+    public static string Play_history_summary_score_update => ResourceManager.GetString("Play_history_summary_score_update", resourceCulture);
+
+    public static string Play_history_summary_bp_update => ResourceManager.GetString("Play_history_summary_bp_update", resourceCulture);
+
+    public static string Play_history_summary_combo_update => ResourceManager.GetString("Play_history_summary_combo_update", resourceCulture);
+
+    public static string Play_history_summary_clear_update => ResourceManager.GetString("Play_history_summary_clear_update", resourceCulture);
+
+    public static string Play_history_display_target_set_format => ResourceManager.GetString("Play_history_display_target_set_format", resourceCulture);
+
+    public static string Play_history_folder_display_preset => ResourceManager.GetString("Play_history_folder_display_preset", resourceCulture);
+
+    public static string Play_history_folder_display_preset_name => ResourceManager.GetString("Play_history_folder_display_preset_name", resourceCulture);
+
+    public static string Play_history_folder_display_preset_playlists => ResourceManager.GetString("Play_history_folder_display_preset_playlists", resourceCulture);
+
+    public static string Play_history_folder_display_preset_edit => ResourceManager.GetString("Play_history_folder_display_preset_edit", resourceCulture);
+
+    public static string Play_history_folder_display_preset_default_name => ResourceManager.GetString("Play_history_folder_display_preset_default_name", resourceCulture);
+
+    public static string Play_history_folder_display_preset_desc => ResourceManager.GetString("Play_history_folder_display_preset_desc", resourceCulture);
+
+    public static string Error_PlayHistoryFolderPresetNameEmpty => ResourceManager.GetString("Error_PlayHistoryFolderPresetNameEmpty", resourceCulture);
+
+    public static string Error_PlayHistoryFolderPresetDuplicateName => ResourceManager.GetString("Error_PlayHistoryFolderPresetDuplicateName", resourceCulture);
+
+    public static string Error_PlayHistoryFolderPresetNoPlaylist => ResourceManager.GetString("Error_PlayHistoryFolderPresetNoPlaylist", resourceCulture);
+
     public static string Play_history_copy_md5 => ResourceManager.GetString("Play_history_copy_md5", resourceCulture);
 
     public static string Play_history_copy_repository_sha256 => ResourceManager.GetString("Play_history_copy_repository_sha256", resourceCulture);

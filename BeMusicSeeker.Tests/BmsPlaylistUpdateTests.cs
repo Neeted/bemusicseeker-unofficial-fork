@@ -26,6 +26,49 @@ public sealed class BmsPlaylistUpdateTests
 {
     [TestMethod]
     [TestCategory("Playlist")]
+    public void EnsureSchema_DoesNotMigrateLastPlaySortOutputMaskOrCreateLegacyMarker()
+    {
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string songDbPath = CreateTempSongDbPath(tempDirectory);
+            BMSPlaylist.EnsureSchema(songDbPath);
+            const int playlistId = 6101;
+            const int legacyMask = 0x7FE;
+            using (var setup = new LR2SongDBExtended(songDbPath))
+            {
+                setup.InsertOrReplace(new BMSTable
+                {
+                    playlist_id = playlistId,
+                    name = "LegacyMask",
+                    symbol = "LM",
+                    ignore_folder_output = (LR2SongDBExtended.playlist.CustomFolderType)legacyMask
+                }, typeof(LR2SongDBExtended.playlist));
+            }
+
+            BMSPlaylist.EnsureSchema(songDbPath);
+
+            using var verify = new LR2SongDBExtended(songDbPath);
+            Assert.AreEqual(
+                legacyMask,
+                verify.ExecuteScalar<int>("SELECT ignore_folder_output FROM playlist WHERE playlist_id = ?;", playlistId));
+            Assert.AreEqual(
+                0L,
+                verify.ExecuteScalar<long>(
+                    "SELECT COUNT(1) FROM sqlite_master WHERE type = 'table' AND name = 'app_schema_version';"));
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
     public void Lr2FolderSync_InvokesMutationGuardBeforeOpeningDatabase()
     {
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
@@ -1691,62 +1734,6 @@ public sealed class BmsPlaylistUpdateTests
         {
             Settings.Default.OperationModeLR2DB = previousOperationModeLr2Db;
             Settings.Default.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
-            if (Directory.Exists(tempDirectory))
-            {
-                Directory.Delete(tempDirectory, recursive: true);
-            }
-        }
-    }
-
-    [TestMethod]
-    [TestCategory("Playlist")]
-    public void EnsureSchema_MigratesPreLastPlaySortOutputMasksOnce()
-    {
-        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tempDirectory);
-        try
-        {
-            string songDbPath = CreateTempSongDbPath(tempDirectory);
-            using (var seed = new LR2SongDBExtended(songDbPath))
-            {
-                seed.CreateTable<LR2SongDBExtended.playlist>();
-                seed.InsertOrReplace(new BMSTable
-                {
-                    playlist_id = 7306,
-                    name = "OldUserOnly",
-                    symbol = "OU",
-                    Output_dir = "OldUserOnly",
-                    ignore_folder_output = (LR2SongDBExtended.playlist.CustomFolderType)0x7FE
-                }, typeof(LR2SongDBExtended.playlist));
-            }
-
-            BMSPlaylist.EnsureSchema(songDbPath);
-
-            using (var verify = new LR2SongDBExtended(songDbPath))
-            {
-                Assert.AreEqual(
-                    (int)(LR2SongDBExtended.playlist.CustomFolderType.AllFolders
-                        & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder),
-                    verify.ExecuteScalar<int>("SELECT ignore_folder_output FROM playlist WHERE playlist_id = 7306;"));
-                Assert.AreEqual(
-                    1L,
-                    verify.ExecuteScalar<long>("SELECT COUNT(1) FROM app_schema_version WHERE name = 'playlist_last_play_sort_folder_mask' AND version >= 1;"));
-                verify.Execute(
-                    "UPDATE playlist SET ignore_folder_output = ? WHERE playlist_id = 7306;",
-                    (int)(LR2SongDBExtended.playlist.CustomFolderType.AllFolders
-                        & ~LR2SongDBExtended.playlist.CustomFolderType.LastPlaySortFolder));
-            }
-
-            BMSPlaylist.EnsureSchema(songDbPath);
-
-            using var verifyAfterSecondRun = new LR2SongDBExtended(songDbPath);
-            Assert.AreEqual(
-                (int)(LR2SongDBExtended.playlist.CustomFolderType.AllFolders
-                    & ~LR2SongDBExtended.playlist.CustomFolderType.LastPlaySortFolder),
-                verifyAfterSecondRun.ExecuteScalar<int>("SELECT ignore_folder_output FROM playlist WHERE playlist_id = 7306;"));
-        }
-        finally
-        {
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);

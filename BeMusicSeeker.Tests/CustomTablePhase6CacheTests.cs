@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Reflection;
 using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Windows;
@@ -135,7 +136,7 @@ public sealed class CustomTablePhase6CacheTests
     }
 
     [TestMethod]
-    public void CustomTableView_RendersCellTextRunsAndDisablesRunsForSelection()
+    public void CustomTableView_RendersCellTextRunsAndPreservesRunsForSelection()
     {
         RunOnSta(delegate
         {
@@ -160,13 +161,16 @@ public sealed class CustomTablePhase6CacheTests
                     new CustomTableTextRunStyle(8, 4, Brushes.Blue)
                 ]);
 
-            RenderTable(row, column, selectedIndex: -1, out int normalRedPixels, out int normalBluePixels);
-            RenderTable(row, column, selectedIndex: 0, out int selectedRedPixels, out int selectedBluePixels);
+            RenderTable(row, column, selectedIndex: -1, currentCell: false, out int normalRedPixels, out int normalBluePixels);
+            RenderTable(row, column, selectedIndex: 0, currentCell: false, out int selectedRedPixels, out int selectedBluePixels);
+            RenderTable(row, column, selectedIndex: -1, currentCell: true, out int currentCellRedPixels, out int currentCellBluePixels);
 
             Assert.IsTrue(normalRedPixels > 0, "Expected red pixels when text runs are active.");
             Assert.IsTrue(normalBluePixels > 0, "Expected blue pixels when text runs are active.");
-            Assert.AreEqual(0, selectedRedPixels, "Selected rows should use a single selected foreground.");
-            Assert.AreEqual(0, selectedBluePixels, "Selected rows should use a single selected foreground.");
+            Assert.IsTrue(selectedRedPixels > 0, "Selected rows should preserve explicit text-run foregrounds.");
+            Assert.IsTrue(selectedBluePixels > 0, "Selected rows should preserve explicit text-run foregrounds.");
+            Assert.IsTrue(currentCellRedPixels > 0, "Current cells should preserve explicit text-run foregrounds.");
+            Assert.IsTrue(currentCellBluePixels > 0, "Current cells should preserve explicit text-run foregrounds.");
         });
     }
 
@@ -180,7 +184,7 @@ public sealed class CustomTablePhase6CacheTests
         return new CustomTableColumn(id, id, layout, 0, null, TextAlignment.Left, row => id);
     }
 
-    private static void RenderTable(object row, CustomTableColumn column, int selectedIndex, out int redPixels, out int bluePixels)
+    private static void RenderTable(object row, CustomTableColumn column, int selectedIndex, bool currentCell, out int redPixels, out int bluePixels)
     {
         const int width = 240;
         const int height = 70;
@@ -197,6 +201,13 @@ public sealed class CustomTablePhase6CacheTests
         table.Measure(new Size(width, height));
         table.Arrange(new Rect(0, 0, width, height));
         table.UpdateLayout();
+        if (currentCell)
+        {
+            CustomTableHitTestResult hit = table.HitTestTable(new Point(10d, 30d));
+            typeof(CustomTableView)
+                .GetField("currentCellHit", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .SetValue(table, hit);
+        }
 
         var bitmap = new RenderTargetBitmap(width, height, 96, 96, PixelFormats.Pbgra32);
         bitmap.Render(table);

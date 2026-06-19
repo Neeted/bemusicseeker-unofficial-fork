@@ -612,6 +612,14 @@ public class MainWindowViewModel : ViewModel
 
         private string tempPlaylistMd5UrlMappingTsvUri;
 
+        private string tempPlayHistoryDisplayTargetSetsJson;
+
+        private string tempPlayHistoryDisplayTargetSetDraftsJson;
+
+        private PlayHistoryFolderDisplayPresetEditor selectedPlayHistoryFolderDisplayPreset;
+
+        private bool isPlayHistoryFolderDisplayPresetPlaylistOptionsDirty = true;
+
         private bool tempIsLR2BackupEnabled;
 
         private string tempLR2BackupPath;
@@ -940,6 +948,57 @@ public class MainWindowViewModel : ViewModel
 
         public ObservableCollection<string> CustomFolderAdditionalOutputBaseDirList { get; } = [];
 
+        /// <summary>
+        /// 設定ダイアログで編集する play history FOLDER 表示プリセットの draft 一覧です。
+        /// OK まで user.config へ保存しないことで、Cancel 時の設定復元コストを抑えます。
+        /// </summary>
+        public ObservableCollection<PlayHistoryFolderDisplayPresetEditor> PlayHistoryFolderDisplayPresets { get; } = [];
+
+        /// <summary>
+        /// 選択中プリセットへ追加できる playlist 候補です。
+        /// BMSTables の再読み込みに追従するため、選択中プリセットから都度再構築します。
+        /// </summary>
+        public ObservableCollection<PlayHistoryFolderPresetPlaylistOption> PlayHistoryFolderDisplayPresetPlaylistOptions { get; } = [];
+
+        /// <summary>
+        /// 設定ダイアログで現在編集している play history FOLDER 表示プリセットです。
+        /// </summary>
+        public PlayHistoryFolderDisplayPresetEditor SelectedPlayHistoryFolderDisplayPreset
+        {
+            get
+            {
+                if (selectedPlayHistoryFolderDisplayPreset != null
+                    && !PlayHistoryFolderDisplayPresets.Contains(selectedPlayHistoryFolderDisplayPreset))
+                {
+                    selectedPlayHistoryFolderDisplayPreset = null;
+                }
+                selectedPlayHistoryFolderDisplayPreset ??= PlayHistoryFolderDisplayPresets.FirstOrDefault();
+                return selectedPlayHistoryFolderDisplayPreset;
+            }
+            set
+            {
+                if (!ReferenceEquals(selectedPlayHistoryFolderDisplayPreset, value))
+                {
+                    selectedPlayHistoryFolderDisplayPreset = value;
+                    MarkPlayHistoryFolderDisplayPresetPlaylistOptionsDirty();
+                    RaisePropertyChanged();
+                    RaisePropertyChanged(() => CanEditPlayHistoryFolderDisplayPreset);
+                    RaisePropertyChanged(() => CanRemovePlayHistoryFolderDisplayPreset);
+                    RaiseValidationStateChanged();
+                }
+            }
+        }
+
+        /// <summary>
+        /// 選択中プリセットへ編集操作を適用できるかどうかを取得します。
+        /// </summary>
+        public bool CanEditPlayHistoryFolderDisplayPreset => SelectedPlayHistoryFolderDisplayPreset != null;
+
+        /// <summary>
+        /// 選択中プリセットを削除できるかどうかを取得します。
+        /// </summary>
+        public bool CanRemovePlayHistoryFolderDisplayPreset => SelectedPlayHistoryFolderDisplayPreset != null;
+
         public string SelectedStandaloneBmsRootPath
         {
             get
@@ -1022,7 +1081,16 @@ public class MainWindowViewModel : ViewModel
 
         internal void ResetLr2PlayHistorySchemaStatus()
         {
-            lr2PlayHistoryScoreDbPath = ResolveLr2PlayHistoryScoreDbPath();
+            string nextScoreDbPath = ResolveLr2PlayHistoryScoreDbPath();
+            bool nextOperationMode = OperationModeLR2DB;
+            if (lr2PlayHistorySchemaCheckResult != null
+                && lr2PlayHistorySchemaCheckOperationMode == nextOperationMode
+                && string.Equals(lr2PlayHistoryScoreDbPath ?? string.Empty, nextScoreDbPath ?? string.Empty, StringComparison.OrdinalIgnoreCase))
+            {
+                RaiseLr2PlayHistorySchemaStatusChanged();
+                return;
+            }
+            lr2PlayHistoryScoreDbPath = nextScoreDbPath;
             lr2PlayHistorySchemaCheckResult = null;
             lr2PlayHistorySchemaCheckOperationMode = null;
             RaiseLr2PlayHistorySchemaStatusChanged();
@@ -2933,6 +3001,7 @@ public class MainWindowViewModel : ViewModel
             {
                 settingDialogViewModel.RaisePropertyChanged(() => settingDialogViewModel.LR2ConfigBMSDirectories);
                 settingDialogViewModel.RaisePropertyChanged(() => settingDialogViewModel.AvailableBMSDirectories);
+                settingDialogViewModel.MarkPlayHistoryFolderDisplayPresetPlaylistOptionsDirty();
             });
             resourceServiceEventListener = new PropertyChangedEventListener(ResourceService.Current);
             resourceServiceEventListener.RegisterHandler(() => ResourceService.Current.Resources, delegate
@@ -2953,6 +3022,7 @@ public class MainWindowViewModel : ViewModel
                 {
                     option.RefreshDisplayName();
                 }
+                ownerViewModel.RefreshPlayHistoryDisplayTargets(queueRefreshWhenSelectionChanges: false);
             });
             Settings.Default.Reload();
             if (Settings.Default.OperationModeLR2DB)
@@ -3153,6 +3223,381 @@ public class MainWindowViewModel : ViewModel
             SelectedCustomFolderAdditionalOutputBaseDir = CustomFolderAdditionalOutputBaseDirList.FirstOrDefault();
             pendingCustomFolderAdditionalOutputBaseRenames.Clear();
             RaiseCustomFolderAdditionalOutputBasePropertiesChanged();
+        }
+
+        /// <summary>
+        /// 選択中プリセットに対応する playlist 候補リストを再構築します。
+        /// playlist tree の再読み込み後でも draft の選択状態を維持するため、保存済み参照と現在の BMSTable を照合します。
+        /// </summary>
+        internal void RefreshPlayHistoryFolderDisplayPresetPlaylistOptions()
+        {
+            isPlayHistoryFolderDisplayPresetPlaylistOptionsDirty = false;
+            PlayHistoryFolderDisplayPresetPlaylistOptions.Clear();
+            PlayHistoryFolderDisplayPresetEditor preset = SelectedPlayHistoryFolderDisplayPreset;
+            if (preset != null)
+            {
+                PlayHistoryFolderDisplayPresetSelectionIndex selectionIndex = PlayHistoryFolderDisplayPresetSelectionIndex.Create(preset.Targets);
+                foreach (BMSTable table in GetPlayHistoryFolderDisplayPresetTables())
+                {
+                    PlayHistoryFolderDisplayPresetPlaylistOptions.Add(new PlayHistoryFolderPresetPlaylistOption(
+                        table,
+                        selectionIndex.Matches(table),
+                        ApplyPlayHistoryFolderDisplayPresetPlaylistSelection));
+                }
+            }
+            RaisePropertyChanged(() => PlayHistoryFolderDisplayPresetPlaylistOptions);
+        }
+
+        internal void RefreshPlayHistoryFolderDisplayPresetPlaylistOptionsIfDirty()
+        {
+            if (isPlayHistoryFolderDisplayPresetPlaylistOptionsDirty)
+            {
+                RefreshPlayHistoryFolderDisplayPresetPlaylistOptions();
+            }
+        }
+
+        private void MarkPlayHistoryFolderDisplayPresetPlaylistOptionsDirty()
+        {
+            isPlayHistoryFolderDisplayPresetPlaylistOptionsDirty = true;
+        }
+
+        private IReadOnlyList<BMSTable> GetPlayHistoryFolderDisplayPresetTables()
+        {
+            try
+            {
+                ownerViewModel.tables?.AcquireReaderLockBMSTables();
+                return [.. (ownerViewModel.BMSTables ?? Enumerable.Empty<BMSTable>())
+                    .Where(table => table != null)
+                    .OrderBy(table => table.name ?? string.Empty, StringComparer.OrdinalIgnoreCase)
+                    .ThenBy(table => table.symbol ?? string.Empty, StringComparer.OrdinalIgnoreCase)];
+            }
+            finally
+            {
+                ownerViewModel.tables?.FreeReaderLockBMSTables();
+            }
+        }
+
+        private void RefreshPlayHistoryFolderDisplayPresetsFromSettings()
+        {
+            PlayHistoryFolderDisplayPresets.Clear();
+            foreach (PlayHistoryDisplayTargetSet targetSet in PlayHistoryDisplayTargetSetStore.Deserialize(Settings.Default.PlayHistoryDisplayTargetSetsJson))
+            {
+                PlayHistoryFolderDisplayPresets.Add(new PlayHistoryFolderDisplayPresetEditor(targetSet.Name, targetSet.Targets));
+            }
+            selectedPlayHistoryFolderDisplayPreset = PlayHistoryFolderDisplayPresets.FirstOrDefault();
+            PlayHistoryFolderDisplayPresetPlaylistOptions.Clear();
+            MarkPlayHistoryFolderDisplayPresetPlaylistOptionsDirty();
+            RaisePlayHistoryFolderDisplayPresetPropertiesChanged();
+        }
+
+        private string SerializePlayHistoryFolderDisplayPresets()
+        {
+            return PlayHistoryDisplayTargetSetStore.Serialize(PlayHistoryFolderDisplayPresets.Select(preset => preset.ToTargetSet()));
+        }
+
+        private string SerializePlayHistoryFolderDisplayPresetDraftsForChangeTracking()
+        {
+            return PlayHistoryDisplayTargetSetStore.SerializeDraftsForChangeTracking(PlayHistoryFolderDisplayPresets.Select(preset => preset.ToTargetSet()));
+        }
+
+        /// <summary>
+        /// play history FOLDER 表示プリセットの draft を設定へ保存し、必要な場合だけ表示対象 dropdown を再構築します。
+        /// 保存済み JSON と保存用に正規化した draft の差分だけを見るため、無関係な設定保存で PlayHistory 表示を再 filter しません。
+        /// </summary>
+        /// <returns>保存済み表示対象セットが変更された場合は <c>true</c>。</returns>
+        internal bool PersistPlayHistoryFolderDisplayPresetsIfChanged()
+        {
+            string serializedDisplayTargetSets = SerializePlayHistoryFolderDisplayPresets();
+            bool playHistoryDisplayTargetSetsChanged =
+                !string.Equals(tempPlayHistoryDisplayTargetSetsJson, serializedDisplayTargetSets, StringComparison.Ordinal);
+            Settings.Default.PlayHistoryDisplayTargetSetsJson = serializedDisplayTargetSets;
+            if (playHistoryDisplayTargetSetsChanged)
+            {
+                ownerViewModel.RefreshPlayHistoryDisplayTargetSetsFromSettings(queueRefreshWhenSelectionChanges: true);
+            }
+            return playHistoryDisplayTargetSetsChanged;
+        }
+
+        /// <summary>
+        /// 新しい play history FOLDER 表示プリセットを draft に追加します。
+        /// </summary>
+        public void AddPlayHistoryFolderDisplayPreset()
+        {
+            PlayHistoryFolderDisplayPresetEditSession session = CreatePlayHistoryFolderDisplayPresetEditSession(null);
+            PlayHistoryFolderPresetPlaylistOption firstOption = session.PlaylistOptions.FirstOrDefault();
+            if (firstOption != null)
+            {
+                firstOption.IsSelected = true;
+            }
+            TryApplyPlayHistoryFolderDisplayPresetEditSession(session, out _);
+        }
+
+        /// <summary>
+        /// 選択中の play history FOLDER 表示プリセットを draft から削除します。
+        /// </summary>
+        public void RemoveSelectedPlayHistoryFolderDisplayPreset()
+        {
+            PlayHistoryFolderDisplayPresetEditor preset = SelectedPlayHistoryFolderDisplayPreset;
+            if (preset == null)
+            {
+                return;
+            }
+            int index = PlayHistoryFolderDisplayPresets.IndexOf(preset);
+            PlayHistoryFolderDisplayPresets.Remove(preset);
+            SelectedPlayHistoryFolderDisplayPreset = PlayHistoryFolderDisplayPresets.Count == 0
+                ? null
+                : PlayHistoryFolderDisplayPresets[Math.Max(0, Math.Min(index, PlayHistoryFolderDisplayPresets.Count - 1))];
+            RaisePlayHistoryFolderDisplayPresetPropertiesChanged();
+        }
+
+        /// <summary>
+        /// チェックボックス一覧の選択状態を選択中プリセットへ反映します。
+        /// </summary>
+        public void EditSelectedPlayHistoryFolderDisplayPreset()
+        {
+            ApplyPlayHistoryFolderDisplayPresetPlaylistSelection();
+            RaisePlayHistoryFolderDisplayPresetPropertiesChanged();
+        }
+
+        /// <summary>
+        /// 別ウィンドウで編集する play history FOLDER 表示プリセットの一時セッションを作成します。
+        /// </summary>
+        /// <param name="preset">編集元プリセット。新規追加時は <c>null</c>。</param>
+        /// <returns>元 draft を直接変更しない編集セッション。</returns>
+        public PlayHistoryFolderDisplayPresetEditSession CreatePlayHistoryFolderDisplayPresetEditSession(PlayHistoryFolderDisplayPresetEditor preset)
+        {
+            IEnumerable<PlayHistoryDisplayTargetReference> targets = preset?.Targets ?? [];
+            PlayHistoryFolderDisplayPresetSelectionIndex selectionIndex = PlayHistoryFolderDisplayPresetSelectionIndex.Create(targets);
+            string sessionName = preset == null ? CreateUniquePlayHistoryFolderDisplayPresetName() : preset.Name;
+            return new PlayHistoryFolderDisplayPresetEditSession(
+                preset,
+                sessionName,
+                GetPlayHistoryFolderDisplayPresetTables()
+                    .Select(table => new PlayHistoryFolderPresetPlaylistOption(
+                        table,
+                        selectionIndex.Matches(table),
+                        _ => RaiseValidationStateChanged())));
+        }
+
+        /// <summary>
+        /// 別ウィンドウの編集セッションを設定ダイアログの draft へ反映します。
+        /// </summary>
+        /// <param name="session">編集セッション。</param>
+        /// <param name="errMsg">反映できない場合の理由。</param>
+        /// <returns>反映できた場合は <c>true</c>。</returns>
+        public bool TryApplyPlayHistoryFolderDisplayPresetEditSession(PlayHistoryFolderDisplayPresetEditSession session, out string errMsg)
+        {
+            if (!ValidatePlayHistoryFolderDisplayPresetEditSession(session, out errMsg))
+            {
+                return false;
+            }
+            PlayHistoryDisplayTargetSet targetSet = session.ToTargetSet();
+            PlayHistoryFolderDisplayPresetEditor preset = session.SourcePreset;
+            if (preset == null)
+            {
+                preset = new PlayHistoryFolderDisplayPresetEditor(targetSet.Name, targetSet.Targets);
+                PlayHistoryFolderDisplayPresets.Add(preset);
+            }
+            else
+            {
+                preset.Name = targetSet.Name;
+                preset.Targets.Clear();
+                foreach (PlayHistoryDisplayTargetReference reference in targetSet.Targets)
+                {
+                    preset.Targets.Add(reference);
+                }
+            }
+            SelectedPlayHistoryFolderDisplayPreset = preset;
+            PlayHistoryFolderDisplayPresetPlaylistOptions.Clear();
+            MarkPlayHistoryFolderDisplayPresetPlaylistOptionsDirty();
+            RaisePlayHistoryFolderDisplayPresetPropertiesChanged();
+            return true;
+        }
+
+        private void ApplyPlayHistoryFolderDisplayPresetPlaylistSelection(PlayHistoryFolderPresetPlaylistOption option)
+        {
+            ApplyPlayHistoryFolderDisplayPresetPlaylistSelection();
+        }
+
+        private void ApplyPlayHistoryFolderDisplayPresetPlaylistSelection()
+        {
+            PlayHistoryFolderDisplayPresetEditor preset = SelectedPlayHistoryFolderDisplayPreset;
+            if (preset == null)
+            {
+                return;
+            }
+            preset.Targets.Clear();
+            foreach (PlayHistoryFolderPresetPlaylistOption option in PlayHistoryFolderDisplayPresetPlaylistOptions.Where(option => option.IsSelected))
+            {
+                preset.Targets.Add(option.ToReference());
+            }
+            RaiseValidationStateChanged();
+        }
+
+        private string CreateUniquePlayHistoryFolderDisplayPresetName()
+        {
+            string baseName = BeMusicSeeker.Properties.Resources.Play_history_folder_display_preset_default_name;
+            var names = new HashSet<string>(
+                PlayHistoryFolderDisplayPresets.Select(preset => preset?.Name).Where(name => !string.IsNullOrWhiteSpace(name)),
+                StringComparer.OrdinalIgnoreCase);
+            if (!names.Contains(baseName))
+            {
+                return baseName;
+            }
+            for (int suffix = 2; suffix < int.MaxValue; suffix++)
+            {
+                string candidate = baseName + " " + suffix.ToString(CultureInfo.CurrentCulture);
+                if (!names.Contains(candidate))
+                {
+                    return candidate;
+                }
+            }
+            return baseName;
+        }
+
+        private bool ValidatePlayHistoryFolderDisplayPresetEditSession(PlayHistoryFolderDisplayPresetEditSession session, out string errMsg)
+        {
+            errMsg = string.Empty;
+            if (session == null)
+            {
+                errMsg = BeMusicSeeker.Properties.Resources.Error_PlayHistoryFolderPresetNameEmpty;
+                return false;
+            }
+            string name = session.Name?.Trim();
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                errMsg = BeMusicSeeker.Properties.Resources.Error_PlayHistoryFolderPresetNameEmpty;
+                return false;
+            }
+            if (PlayHistoryFolderDisplayPresets.Any(preset =>
+                !ReferenceEquals(preset, session.SourcePreset)
+                && string.Equals(preset?.Name?.Trim(), name, StringComparison.OrdinalIgnoreCase)))
+            {
+                errMsg = FormatResource(BeMusicSeeker.Properties.Resources.Error_PlayHistoryFolderPresetDuplicateName, name);
+                return false;
+            }
+            if (!session.PlaylistOptions.Any(option => option.IsSelected))
+            {
+                errMsg = FormatResource(BeMusicSeeker.Properties.Resources.Error_PlayHistoryFolderPresetNoPlaylist, name);
+                return false;
+            }
+            return true;
+        }
+
+        private bool ValidatePlayHistoryFolderDisplayPresets(out string errMsg)
+        {
+            errMsg = string.Empty;
+            bool result = true;
+            var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (PlayHistoryFolderDisplayPresetEditor preset in PlayHistoryFolderDisplayPresets)
+            {
+                string name = preset?.Name?.Trim();
+                if (string.IsNullOrWhiteSpace(name))
+                {
+                    errMsg += FormatPlaylistValidationMessage(BeMusicSeeker.Properties.Resources.Error_PlayHistoryFolderPresetNameEmpty) + Environment.NewLine;
+                    result = false;
+                    continue;
+                }
+                if (!names.Add(name))
+                {
+                    errMsg += FormatPlaylistValidationMessage(FormatResource(BeMusicSeeker.Properties.Resources.Error_PlayHistoryFolderPresetDuplicateName, name)) + Environment.NewLine;
+                    result = false;
+                }
+                if (preset.Targets.Count == 0)
+                {
+                    errMsg += FormatPlaylistValidationMessage(FormatResource(BeMusicSeeker.Properties.Resources.Error_PlayHistoryFolderPresetNoPlaylist, name)) + Environment.NewLine;
+                    result = false;
+                }
+            }
+            return result;
+        }
+
+        private void RaisePlayHistoryFolderDisplayPresetPropertiesChanged()
+        {
+            RaisePropertyChanged(() => PlayHistoryFolderDisplayPresets);
+            RaisePropertyChanged(() => SelectedPlayHistoryFolderDisplayPreset);
+            RaisePropertyChanged(() => CanEditPlayHistoryFolderDisplayPreset);
+            RaisePropertyChanged(() => CanRemovePlayHistoryFolderDisplayPreset);
+            RaiseValidationStateChanged();
+        }
+
+        private sealed class PlayHistoryFolderDisplayPresetSelectionIndex
+        {
+            private readonly HashSet<int> playlistIds = [];
+
+            private readonly HashSet<string> playlistNames = new(StringComparer.OrdinalIgnoreCase);
+
+            private readonly HashSet<string> playlistSymbols = new(StringComparer.OrdinalIgnoreCase);
+
+            private PlayHistoryFolderDisplayPresetSelectionIndex()
+            {
+            }
+
+            /// <summary>
+            /// 保存済み参照から候補 playlist の選択判定用 index を作成します。
+            /// </summary>
+            /// <param name="references">選択中プリセットに保存されている playlist 参照。</param>
+            /// <returns>playlist id / name / symbol を事前集計した selection index。</returns>
+            public static PlayHistoryFolderDisplayPresetSelectionIndex Create(IEnumerable<PlayHistoryDisplayTargetReference> references)
+            {
+                var index = new PlayHistoryFolderDisplayPresetSelectionIndex();
+                foreach (PlayHistoryDisplayTargetReference reference in references ?? [])
+                {
+                    if (reference == null)
+                    {
+                        continue;
+                    }
+                    if (reference.PlaylistId.HasValue)
+                    {
+                        index.playlistIds.Add(reference.PlaylistId.Value);
+                        continue;
+                    }
+                    index.AddText(index.playlistNames, reference.PlaylistName);
+                    index.AddText(index.playlistSymbols, reference.PlaylistSymbol);
+                }
+                return index;
+            }
+
+            /// <summary>
+            /// 指定された playlist が index 内の参照に一致するかどうかを判定します。
+            /// </summary>
+            /// <param name="table">候補 playlist。</param>
+            /// <returns>一致する場合は <c>true</c>。</returns>
+            public bool Matches(BMSTable table)
+            {
+                if (table == null)
+                {
+                    return false;
+                }
+                if (table.playlist_id.HasValue && playlistIds.Contains(table.playlist_id.Value))
+                {
+                    return true;
+                }
+                return ContainsText(playlistNames, table.name)
+                    || ContainsText(playlistNames, table.org_name)
+                    || ContainsText(playlistSymbols, table.symbol)
+                    || ContainsText(playlistSymbols, table.org_symbol);
+            }
+
+            private void AddText(HashSet<string> values, string value)
+            {
+                string normalizedValue = NormalizeText(value);
+                if (!string.IsNullOrWhiteSpace(normalizedValue))
+                {
+                    values.Add(normalizedValue);
+                }
+            }
+
+            private static bool ContainsText(HashSet<string> values, string value)
+            {
+                string normalizedValue = NormalizeText(value);
+                return !string.IsNullOrWhiteSpace(normalizedValue) && values.Contains(normalizedValue);
+            }
+
+            private static string NormalizeText(string value)
+            {
+                return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+            }
         }
 
         private void PersistCustomFolderAdditionalOutputBaseDirsToSettings()
@@ -4301,6 +4746,7 @@ public class MainWindowViewModel : ViewModel
             tempOverwritePlaylistUrlsWithCompletion = Settings.Default.OverwritePlaylistUrlsWithCompletion;
             tempEnableStellaFullPlaylistUrlCompletion = Settings.Default.EnableStellaFullPlaylistUrlCompletion;
             tempPlaylistMd5UrlMappingTsvUri = Settings.Default.PlaylistMd5UrlMappingTsvUri;
+            tempPlayHistoryDisplayTargetSetsJson = Settings.Default.PlayHistoryDisplayTargetSetsJson;
             tempIsLR2BackupEnabled = Settings.Default.IsLR2BackupEnabled;
             tempLR2BackupPath = Settings.Default.LR2BackupPath;
             tempLR2BackupTarget = Settings.Default.LR2BackupTarget;
@@ -4346,6 +4792,8 @@ public class MainWindowViewModel : ViewModel
             tempPlayerWASAPIParam = Settings.Default.PlayerWASAPIParam;
             tempLanguage = Settings.Default.Lang;
             tempLanguageDisplayName = Settings.Default.LangDisplayName;
+            RefreshPlayHistoryFolderDisplayPresetsFromSettings();
+            tempPlayHistoryDisplayTargetSetDraftsJson = SerializePlayHistoryFolderDisplayPresetDraftsForChangeTracking();
             isSearchRootsChanged = false;
             isBMSDirectoryAdded = false;
             isBMSDirectoryRemoved = false;
@@ -4362,7 +4810,8 @@ public class MainWindowViewModel : ViewModel
                 || isBMSDirectoryRemoved
                 || tempOperationModeLR2DB != operationModeLR2DB
                 || !string.Equals(tempStandaloneBmsRootPaths, SerializeStandaloneBmsRootPaths(StandaloneBmsRootPathList), StringComparison.OrdinalIgnoreCase)
-                || !string.Equals(tempLR2CustomFolderAdditionalOutputBaseDirs, Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs, StringComparison.Ordinal);
+                || !string.Equals(tempLR2CustomFolderAdditionalOutputBaseDirs, Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs, StringComparison.Ordinal)
+                || !string.Equals(tempPlayHistoryDisplayTargetSetDraftsJson, SerializePlayHistoryFolderDisplayPresetDraftsForChangeTracking(), StringComparison.Ordinal);
         }
 
         internal void AcceptStartupBmsInstallDirRepair()
@@ -4818,6 +5267,11 @@ public class MainWindowViewModel : ViewModel
                 errMsg += FormatPlaylistValidationMessage(BeMusicSeeker.Properties.Resources.Error_InvalidPlaylistMd5UrlMappingTsvUri) + Environment.NewLine;
                 result = false;
             }
+            if (!ValidatePlayHistoryFolderDisplayPresets(out string playHistoryPresetErrMsg))
+            {
+                errMsg += playHistoryPresetErrMsg;
+                result = false;
+            }
             if (!IsBMSInstallDirValid())
             {
                 errMsg += FormatSettingValidationMessage(BeMusicSeeker.Properties.Resources.Install, BeMusicSeeker.Properties.Resources.Error_InvalidBmsInstallDir) + Environment.NewLine;
@@ -4858,6 +5312,7 @@ public class MainWindowViewModel : ViewModel
                 bool lr2SearchRootsChanged = OperationModeLR2DB && searchRootsChanged;
                 PersistStandaloneBmsRootPathsToSettings();
                 PersistCustomFolderAdditionalOutputBaseDirsToSettings();
+                PersistPlayHistoryFolderDisplayPresetsIfChanged();
                 RefreshBeatorajaDerivedSettings();
                 Settings.Default.OperationModeLR2DB = operationModeLR2DB;
                 Settings.Default.Save();
@@ -4921,6 +5376,7 @@ public class MainWindowViewModel : ViewModel
             Settings.Default.OverwritePlaylistUrlsWithCompletion = tempOverwritePlaylistUrlsWithCompletion;
             Settings.Default.EnableStellaFullPlaylistUrlCompletion = tempEnableStellaFullPlaylistUrlCompletion;
             Settings.Default.PlaylistMd5UrlMappingTsvUri = tempPlaylistMd5UrlMappingTsvUri;
+            Settings.Default.PlayHistoryDisplayTargetSetsJson = tempPlayHistoryDisplayTargetSetsJson;
             Settings.Default.LR2bodyResolution = tempLR2bodyResolution;
             Settings.Default.IsSaveLR2bodyWindowPosition = tempIsSaveLR2bodyWindowPosition;
             Settings.Default.IsLR2BackupEnabled = tempIsLR2BackupEnabled;
@@ -4991,6 +5447,7 @@ public class MainWindowViewModel : ViewModel
             }
             RefreshStandaloneBmsRootPathsFromSettings();
             RefreshCustomFolderAdditionalOutputBaseDirsFromSettings();
+            ResetPlayHistoryFolderDisplayPresetsForCancel();
             RaisePropertyChanged(() => OperationModeLR2DB);
             RaisePropertyChanged(() => CanUseLr2Features);
             ownerViewModel.RaiseLr2SongDbSyncDataResyncAvailabilityChanged();
@@ -5029,6 +5486,9 @@ public class MainWindowViewModel : ViewModel
             RaisePropertyChanged(() => OverwritePlaylistUrlsWithCompletion);
             RaisePropertyChanged(() => EnableStellaFullPlaylistUrlCompletion);
             RaisePropertyChanged(() => PlaylistMd5UrlMappingTsvUri);
+            RaisePropertyChanged(() => PlayHistoryFolderDisplayPresets);
+            RaisePropertyChanged(() => SelectedPlayHistoryFolderDisplayPreset);
+            RaisePropertyChanged(() => PlayHistoryFolderDisplayPresetPlaylistOptions);
             RaisePropertyChanged(() => IsLR2BackupEnabled);
             RaisePropertyChanged(() => LR2BackupPath);
             RaisePropertyChanged(() => LR2BackupTarget);
@@ -5078,6 +5538,17 @@ public class MainWindowViewModel : ViewModel
             RaiseValidationStateChanged();
             backupSavedSettings();
             ResetLr2PlayHistorySchemaStatus();
+        }
+
+        /// <summary>
+        /// キャンセル時に play history FOLDER 表示プリセットの draft と settings 値を保存済み snapshot へ戻します。
+        /// ResetSettings 全体は audio device なども復元するため、この helper は preset UI の回帰テストから副作用なしで呼べる境界にしています。
+        /// </summary>
+        internal void ResetPlayHistoryFolderDisplayPresetsForCancel()
+        {
+            Settings.Default.PlayHistoryDisplayTargetSetsJson = tempPlayHistoryDisplayTargetSetsJson;
+            RefreshPlayHistoryFolderDisplayPresetsFromSettings();
+            tempPlayHistoryDisplayTargetSetDraftsJson = SerializePlayHistoryFolderDisplayPresetDraftsForChangeTracking();
         }
 
         public RestartMode IsNeedRestartForSaved()
@@ -16766,6 +17237,7 @@ public class MainWindowViewModel : ViewModel
         PlayHistoryDisplayTargetItem previousSelected = SelectedPlayHistoryDisplayTarget;
         string selectedIdentity = previousSelected.Identity;
         List<PlayHistoryDisplayTargetItem> nextItems = [PlayHistoryDisplayTargetItem.All];
+        nextItems.AddRange(playHistoryDisplayTargetSets.Select(PlayHistoryDisplayTargetItem.FromTargetSet));
         try
         {
             tables?.AcquireReaderLockBMSTables();
@@ -16779,7 +17251,6 @@ public class MainWindowViewModel : ViewModel
         {
             tables?.FreeReaderLockBMSTables();
         }
-        nextItems.AddRange(playHistoryDisplayTargetSets.Select(PlayHistoryDisplayTargetItem.FromTargetSet));
 
         _PlayHistoryDisplayTargets.Clear();
         foreach (PlayHistoryDisplayTargetItem item in nextItems)
@@ -17435,10 +17906,16 @@ public class MainWindowViewModel : ViewModel
         regularBmsLibraryRowCache = new NormalLibraryRowCache();
         ReplaceKeywordSearchHistory(keywordSearchHistory, KeywordSearchHistoryStore.Deserialize(Settings.Default.KeywordSearchHistory));
         ReplaceKeywordSearchHistory(playlistSummaryKeywordSearchHistory, KeywordSearchHistoryStore.Deserialize(Settings.Default.PlaylistSummaryKeywordSearchHistory));
-        playHistoryDisplayTargetSets.AddRange(PlayHistoryDisplayTargetSetStore.Deserialize(Settings.Default.PlayHistoryDisplayTargetSetsJson));
-        RefreshPlayHistoryDisplayTargets();
+        RefreshPlayHistoryDisplayTargetSetsFromSettings(queueRefreshWhenSelectionChanges: false);
         settingDialog = new SettingDialogViewModel(this);
         dropInstallQueueProcessor = new DropInstallQueueProcessor(ProcessDroppedInstallBatch, UpdateDropInstallQueueStatus, HandleDroppedInstallBatchException);
+    }
+
+    private void RefreshPlayHistoryDisplayTargetSetsFromSettings(bool queueRefreshWhenSelectionChanges)
+    {
+        playHistoryDisplayTargetSets.Clear();
+        playHistoryDisplayTargetSets.AddRange(PlayHistoryDisplayTargetSetStore.Deserialize(Settings.Default.PlayHistoryDisplayTargetSetsJson));
+        RefreshPlayHistoryDisplayTargets(queueRefreshWhenSelectionChanges);
     }
 
     internal void RaiseInteractionMessageOnUiThread(InteractionMessage message)
@@ -21374,13 +21851,13 @@ public class MainWindowViewModel : ViewModel
         summary ??= PlayHistoryPeriodSummary.FromRows(string.Empty, []);
         List<PlayHistorySummaryCard> cards =
         [
-            new PlayHistorySummaryCard("判定数", summary.JudgeCount.ToString("N0", CultureInfo.CurrentCulture)),
-            new PlayHistorySummaryCard("プレイ数", summary.FinalizedCount.ToString("N0", CultureInfo.CurrentCulture)),
-            new PlayHistorySummaryCard("演奏時間", FormatPlayHistoryDuration(summary.PlaytimeSeconds)),
-            new PlayHistorySummaryCard("スコア更新", summary.ScoreUpdateCount.ToString("N0", CultureInfo.CurrentCulture)),
-            new PlayHistorySummaryCard("BP更新", summary.BpUpdateCount.ToString("N0", CultureInfo.CurrentCulture)),
-            new PlayHistorySummaryCard("コンボ更新", summary.ComboUpdateCount.ToString("N0", CultureInfo.CurrentCulture)),
-            new PlayHistorySummaryCard("クリア更新", summary.ClearUpdateCount.ToString("N0", CultureInfo.CurrentCulture)),
+            new PlayHistorySummaryCard(BeMusicSeeker.Properties.Resources.Play_history_summary_judge_count, summary.JudgeCount.ToString("N0", CultureInfo.CurrentCulture)),
+            new PlayHistorySummaryCard(BeMusicSeeker.Properties.Resources.Play_history_summary_play_count, summary.FinalizedCount.ToString("N0", CultureInfo.CurrentCulture)),
+            new PlayHistorySummaryCard(BeMusicSeeker.Properties.Resources.Play_history_summary_playtime, FormatPlayHistoryDuration(summary.PlaytimeSeconds)),
+            new PlayHistorySummaryCard(BeMusicSeeker.Properties.Resources.Play_history_summary_score_update, summary.ScoreUpdateCount.ToString("N0", CultureInfo.CurrentCulture)),
+            new PlayHistorySummaryCard(BeMusicSeeker.Properties.Resources.Play_history_summary_bp_update, summary.BpUpdateCount.ToString("N0", CultureInfo.CurrentCulture)),
+            new PlayHistorySummaryCard(BeMusicSeeker.Properties.Resources.Play_history_summary_combo_update, summary.ComboUpdateCount.ToString("N0", CultureInfo.CurrentCulture)),
+            new PlayHistorySummaryCard(BeMusicSeeker.Properties.Resources.Play_history_summary_clear_update, summary.ClearUpdateCount.ToString("N0", CultureInfo.CurrentCulture)),
             new PlayHistorySummaryCard("ASSIST", summary.AssistClearUpdateCount.ToString("N0", CultureInfo.CurrentCulture), compact: true),
             new PlayHistorySummaryCard("EASY", summary.EasyClearUpdateCount.ToString("N0", CultureInfo.CurrentCulture), compact: true),
             new PlayHistorySummaryCard("NORMAL", summary.NormalClearUpdateCount.ToString("N0", CultureInfo.CurrentCulture), compact: true),
@@ -25352,7 +25829,16 @@ public class MainWindowViewModel : ViewModel
 
     public void SelectPlaylistSummary()
     {
+        bool wasPlayHistoryViewActive = IsPlayHistoryViewActive;
+        SetTreeViewFilterSelection(viewUpdateMode.PlaylistFilterSelected, null);
+        PlayHistorySummaryCards = [];
+        PlayHistorySummaryDiagnosticText = string.Empty;
         SetPlaylistSummaryMode(enabled: true);
+        if (wasPlayHistoryViewActive != IsPlayHistoryViewActive)
+        {
+            RaisePropertyChanged(() => IsPlayHistoryViewActive);
+            RaisePropertyChanged(() => CurrentMainViewOperationSection);
+        }
         RefreshPlaylistSummaryPresentationIfVisible();
     }
 

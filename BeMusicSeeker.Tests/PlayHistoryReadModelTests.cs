@@ -8,6 +8,7 @@ using System.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using Codeplex.Data;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -557,6 +558,41 @@ public sealed class PlayHistoryReadModelTests
     }
 
     [TestMethod]
+    public void PlayHistoryDisplayTargetIndex_TargetSetUsesPlaylistIdBeforeNameFallback()
+    {
+        PlayHistoryRow idMatchRow = CreateProjectedRow(HashA);
+        PlayHistoryRow nameOnlyRow = CreateProjectedRow(HashB);
+        BMSTable idMatchedTable = CreateTargetTable(HashA, "Alpha");
+        idMatchedTable.playlist_id = 101;
+        BMSTable sameNameDifferentIdTable = CreateTargetTable(HashB, "Beta");
+        sameNameDifferentIdTable.playlist_id = 202;
+        sameNameDifferentIdTable.name = idMatchedTable.name;
+        sameNameDifferentIdTable.symbol = idMatchedTable.symbol;
+        sameNameDifferentIdTable.org_symbol = idMatchedTable.org_symbol;
+        PlayHistoryDisplayTargetItem target = PlayHistoryDisplayTargetItem.FromTargetSet(new PlayHistoryDisplayTargetSet
+        {
+            Name = "SAT Alpha",
+            Targets =
+            [
+                new PlayHistoryDisplayTargetReference
+                {
+                    PlaylistId = idMatchedTable.playlist_id,
+                    PlaylistName = sameNameDifferentIdTable.name,
+                    PlaylistSymbol = sameNameDifferentIdTable.symbol
+                }
+            ]
+        });
+        PlayHistoryDisplayTargetIndex index = PlayHistoryDisplayTargetIndex.Create(target, [idMatchedTable, sameNameDifferentIdTable], _ => { });
+
+        bool idMatched = index.TryApply(idMatchRow, out PlayHistoryRow displayRow);
+        bool sameNameMatched = index.TryApply(nameOnlyRow, out _);
+
+        Assert.IsTrue(idMatched);
+        Assert.IsFalse(sameNameMatched);
+        Assert.AreEqual("SATAlpha", displayRow.FolderLabels);
+    }
+
+    [TestMethod]
     public void ApplyPlayHistoryDisplayTargetRows_AllKeepsProjectedRowsFastPath()
     {
         var viewModel = new MainWindowViewModel();
@@ -770,19 +806,19 @@ public sealed class PlayHistoryReadModelTests
 
         IReadOnlyList<PlayHistorySummaryCard> cards = MainWindowViewModel.CreatePlayHistorySummaryCardsForTest(summary);
 
-        Assert.AreEqual("判定数", cards[0].Label);
+        Assert.AreEqual(Resources.Play_history_summary_judge_count, cards[0].Label);
         Assert.AreEqual("160", cards[0].Value);
-        Assert.AreEqual("プレイ数", cards[1].Label);
+        Assert.AreEqual(Resources.Play_history_summary_play_count, cards[1].Label);
         Assert.AreEqual("2", cards[1].Value);
-        Assert.AreEqual("演奏時間", cards[2].Label);
+        Assert.AreEqual(Resources.Play_history_summary_playtime, cards[2].Label);
         Assert.AreEqual("2:00", cards[2].Value);
-        Assert.AreEqual("スコア更新", cards[3].Label);
+        Assert.AreEqual(Resources.Play_history_summary_score_update, cards[3].Label);
         Assert.AreEqual("1", cards[3].Value);
-        Assert.AreEqual("BP更新", cards[4].Label);
+        Assert.AreEqual(Resources.Play_history_summary_bp_update, cards[4].Label);
         Assert.AreEqual("1", cards[4].Value);
-        Assert.AreEqual("コンボ更新", cards[5].Label);
+        Assert.AreEqual(Resources.Play_history_summary_combo_update, cards[5].Label);
         Assert.AreEqual("1", cards[5].Value);
-        Assert.AreEqual("クリア更新", cards[6].Label);
+        Assert.AreEqual(Resources.Play_history_summary_clear_update, cards[6].Label);
         Assert.AreEqual("2", cards[6].Value);
         Assert.AreEqual("EASY", cards[8].Label);
         Assert.AreEqual("1", cards[8].Value);
@@ -790,6 +826,19 @@ public sealed class PlayHistoryReadModelTests
         Assert.AreEqual("FC", cards[11].Label);
         Assert.AreEqual("1", cards[11].Value);
         Assert.IsTrue(cards[11].Compact);
+    }
+
+    [TestMethod]
+    public void SelectPlaylistSummaryClearsPlayHistorySummaryPresentation()
+    {
+        var viewModel = new MainWindowViewModel();
+        SetMainWindowViewModelProperty(viewModel, nameof(MainWindowViewModel.PlayHistorySummaryCards), new[] { new PlayHistorySummaryCard(Resources.Play_history_summary_judge_count, "1") });
+        SetMainWindowViewModelProperty(viewModel, nameof(MainWindowViewModel.PlayHistorySummaryDiagnosticText), "diagnostic");
+
+        viewModel.SelectPlaylistSummary();
+
+        Assert.AreEqual(0, viewModel.PlayHistorySummaryCards.Count);
+        Assert.AreEqual(string.Empty, viewModel.PlayHistorySummaryDiagnosticText);
     }
 
     [TestMethod]
@@ -1516,6 +1565,13 @@ public sealed class PlayHistoryReadModelTests
             ]
         };
         return table;
+    }
+
+    private static void SetMainWindowViewModelProperty<T>(MainWindowViewModel viewModel, string propertyName, T value)
+    {
+        typeof(MainWindowViewModel)
+            .GetProperty(propertyName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)!
+            .SetValue(viewModel, value);
     }
 
     private const string HashA = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";

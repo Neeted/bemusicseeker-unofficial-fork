@@ -37,8 +37,6 @@ namespace BeMusicSeeker.Models;
 public partial class BMSPlaylist : NotificationObject
 {
     private const string CustomFolderOutputLr2FolderEnumerationGroupName = "lr2folder";
-    private const string LastPlaySortFolderMaskMigrationName = "playlist_last_play_sort_folder_mask";
-    private const int LastPlaySortFolderMaskMigrationVersion = 1;
 
     internal sealed class ComparablePlaylistEntryRow
     {
@@ -2003,7 +2001,6 @@ public partial class BMSPlaylist : NotificationObject
         EnsureColumn(db, tableName, "bmt_sort", "INTEGER NULL");
         EnsureColumn(db, tableName, "is_bmt_output", "INTEGER NULL");
         NormalizePersistedBeatorajaBmtPlaylistSettings(db);
-        NormalizePersistedLastPlaySortFolderOutputMasks(db);
     }
 
     /// <summary>
@@ -2079,52 +2076,6 @@ public partial class BMSPlaylist : NotificationObject
         List<BMSTable> tableList = [.. (tables ?? []).Where(table => table != null)];
         return NormalizeBeatorajaBmtSortOrder(tableList)
             + NormalizeBeatorajaBmtOutputTargets(tableList);
-    }
-
-    private static void NormalizePersistedLastPlaySortFolderOutputMasks(LR2SongDBExtended db)
-    {
-        db.CreateTable<LR2SongDBExtended.app_schema_version>();
-        string versionTableName = SQLiteTable<LR2SongDBExtended.app_schema_version>.GetTableName();
-        long migrated = db.ExecuteScalar<long>(
-            "SELECT COUNT(1) FROM " + versionTableName
-            + " WHERE name = " + sqlQuote(LastPlaySortFolderMaskMigrationName)
-            + " AND version >= " + LastPlaySortFolderMaskMigrationVersion + ";");
-        if (migrated > 0)
-        {
-            return;
-        }
-
-        string playlistTableName = SQLiteTable<LR2SongDBExtended.playlist>.GetTableName();
-        string ignoreColumnName = SQLiteTable<LR2SongDBExtended.playlist>.GetColumnName(row => row.ignore_folder_output);
-        int legacyAllFolders = (int)LR2SongDBExtended.playlist.LegacyAllFolders;
-        int preLastPlaySortAllFolders =
-            (int)(LR2SongDBExtended.playlist.CustomFolderType.AllFolders
-                & ~LR2SongDBExtended.playlist.CustomFolderType.LastPlaySortFolder);
-        int allFolders = (int)LR2SongDBExtended.playlist.CustomFolderType.AllFolders;
-        int lastPlaySortFolder = (int)LR2SongDBExtended.playlist.CustomFolderType.LastPlaySortFolder;
-        string savepoint = db.SaveTransactionPoint();
-        try
-        {
-            db.Execute(
-                "UPDATE " + playlistTableName
-                + " SET " + ignoreColumnName + " = CASE"
-                + " WHEN " + ignoreColumnName + " IN (" + legacyAllFolders + ", " + preLastPlaySortAllFolders + ") THEN " + allFolders
-                + " ELSE (" + ignoreColumnName + " | " + lastPlaySortFolder + ")"
-                + " END"
-                + " WHERE " + ignoreColumnName + " IS NOT NULL"
-                + " AND (" + ignoreColumnName + " & " + lastPlaySortFolder + ") = 0;");
-            db.InsertOrReplace(new LR2SongDBExtended.app_schema_version
-            {
-                name = LastPlaySortFolderMaskMigrationName,
-                version = LastPlaySortFolderMaskMigrationVersion
-            }, typeof(LR2SongDBExtended.app_schema_version));
-            db.Commit();
-        }
-        catch
-        {
-            db.RollbackTo(savepoint);
-            throw;
-        }
     }
 
     private static bool IsValidBeatorajaBmtSort(int? sort)

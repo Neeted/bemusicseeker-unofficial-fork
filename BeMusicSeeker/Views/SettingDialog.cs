@@ -21,12 +21,18 @@ using Microsoft.WindowsAPICodePack.Dialogs;
 
 namespace BeMusicSeeker.Views;
 
+/// <summary>
+/// アプリケーション設定を編集する WPF ユーザーコントロールです。
+/// </summary>
 public partial class SettingDialog : UserControl, IComponentConnector
 {
     internal Binding bindingLR2CustomFolderOutputDir;
 
     internal Binding bindingBMSInstallDir;
 
+    /// <summary>
+    /// 設定ダイアログを初期化し、表示時に必要な遅延更新を登録します。
+    /// </summary>
     public SettingDialog()
     {
         InitializeComponent();
@@ -95,9 +101,14 @@ public partial class SettingDialog : UserControl, IComponentConnector
                 SyncAppearanceThemeSelection(settingDialogViewModel);
                 return;
             }
+            if (ShouldCloseSettingsWithoutSave(viewModel, settingDialogViewModel))
+            {
+                settingDialog.Visibility = Visibility.Hidden;
+                return;
+            }
+            bool shouldInitializeAfterSave = !viewModel.HasActiveLibraryProfile;
             if (settingDialogViewModel.CheckValidation(out string errMsg))
             {
-                bool shouldInitializeAfterSave = !viewModel.HasActiveLibraryProfile;
                 MainWindowViewModel.SettingDialogViewModel.RestartMode needRestart = shouldInitializeAfterSave
                     ? MainWindowViewModel.SettingDialogViewModel.RestartMode.None
                     : settingDialogViewModel.IsNeedRestartForSaved();
@@ -315,11 +326,40 @@ public partial class SettingDialog : UserControl, IComponentConnector
         }
     }
 
+    /// <summary>
+    /// キャンセル時に保存済み設定へ戻す必要があるかどうかを判定します。
+    /// </summary>
+    /// <param name="settingDialogViewModel">設定画面の ViewModel。</param>
+    /// <returns>未保存の変更がある場合は <c>true</c>。</returns>
     internal static bool ShouldResetSettingsOnCancel(MainWindowViewModel.SettingDialogViewModel settingDialogViewModel)
     {
         return settingDialogViewModel?.HasPendingSettingChanges() == true;
     }
 
+    /// <summary>
+    /// OK クリック時に保存と検証を省略して閉じられる状態かどうかを判定します。
+    /// 既にライブラリが成立していて未保存変更が無い場合、閉じるだけでよいため重い再検証を避けます。
+    /// </summary>
+    /// <param name="viewModel">メイン画面の ViewModel。</param>
+    /// <param name="settingDialogViewModel">設定画面の ViewModel。</param>
+    /// <returns>保存処理を呼ばずに閉じてよい場合は <c>true</c>。</returns>
+    internal static bool ShouldCloseSettingsWithoutSave(
+        MainWindowViewModel viewModel,
+        MainWindowViewModel.SettingDialogViewModel settingDialogViewModel)
+    {
+        return viewModel?.HasActiveLibraryProfile == true
+            && settingDialogViewModel?.HasPendingSettingChanges() != true;
+    }
+
+    /// <summary>
+    /// LR2 play history schema status の非同期再確認が必要かどうかを判定します。
+    /// 表示時の UI 停止を避けるため、同じ path と operation mode の確認済み結果は再利用します。
+    /// </summary>
+    /// <param name="settingDialogViewModel">設定画面の ViewModel。</param>
+    /// <param name="force">既存キャッシュに関係なく再確認する場合は <c>true</c>。</param>
+    /// <param name="expectedScoreDbPath">現在の設定から期待される score.db path。</param>
+    /// <param name="expectedOperationMode">現在の LR2 DB 連携モード。</param>
+    /// <returns>schema status の再確認が必要な場合は <c>true</c>。</returns>
     internal static bool ShouldRefreshLr2PlayHistorySchemaStatus(
         MainWindowViewModel.SettingDialogViewModel settingDialogViewModel,
         bool force,
@@ -476,6 +516,47 @@ public partial class SettingDialog : UserControl, IComponentConnector
         {
             settingDialogViewModel.RenameSelectedCustomFolderAdditionalOutputBaseDir();
         }
+    }
+
+    private void buttonAddPlayHistoryFolderDisplayPresetClicked(object sender, RoutedEventArgs e)
+    {
+        if (base.DataContext is MainWindowViewModel { settingDialog: { } settingDialogViewModel })
+        {
+            ShowPlayHistoryFolderDisplayPresetEditDialog(settingDialogViewModel, null);
+        }
+    }
+
+    private void buttonRemovePlayHistoryFolderDisplayPresetClicked(object sender, RoutedEventArgs e)
+    {
+        if (base.DataContext is MainWindowViewModel { settingDialog: { } settingDialogViewModel })
+        {
+            settingDialogViewModel.RemoveSelectedPlayHistoryFolderDisplayPreset();
+        }
+    }
+
+    private void buttonEditPlayHistoryFolderDisplayPresetClicked(object sender, RoutedEventArgs e)
+    {
+        if (base.DataContext is MainWindowViewModel { settingDialog: { } settingDialogViewModel })
+        {
+            ShowPlayHistoryFolderDisplayPresetEditDialog(settingDialogViewModel, settingDialogViewModel.SelectedPlayHistoryFolderDisplayPreset);
+        }
+    }
+
+    private void ShowPlayHistoryFolderDisplayPresetEditDialog(
+        MainWindowViewModel.SettingDialogViewModel settingDialogViewModel,
+        PlayHistoryFolderDisplayPresetEditor preset)
+    {
+        if (settingDialogViewModel == null)
+        {
+            return;
+        }
+        var dialog = new PlayHistoryFolderDisplayPresetEditDialog(
+            settingDialogViewModel,
+            settingDialogViewModel.CreatePlayHistoryFolderDisplayPresetEditSession(preset))
+        {
+            Owner = Window.GetWindow(this)
+        };
+        dialog.ShowDialog();
     }
 
     private void bmsSearchRootPathListBoxDragOver(object sender, DragEventArgs e)

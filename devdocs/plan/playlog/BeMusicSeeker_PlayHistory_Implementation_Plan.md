@@ -583,7 +583,6 @@ Play history view 用の keyword search context を追加する。既存 chart l
 
 - [x] `LR2SongDBExtended.playlist.CustomFolderType` に `LastPlaySortFolder` を追加する。
 - [x] `LegacyAllFolders` / `AllFolders` / `NormalizeCustomFolderOutputMask` / `ignore_folder_output` 既存値の互換を崩さない bit を割り当てる。
-- [x] LastPlaySortFolder 追加前の persisted `ignore_folder_output` は一度だけ migration し、既存 playlist が LAST PLAY SORT を勝手に出力しないようにする。
 - [x] `CustomFolderSortType` / `CustomFolderSortTypeExt` には追加しない。
 - [x] `BMSPlaylist` の custom folder definition builder と `Lr2ManagedCustomFolderOutputLayout` の relative path / count 計算へ `LastPlaySortFolder` を追加する。
 - [x] playlist property / bulk edit / output bit へ追加する。
@@ -630,10 +629,11 @@ Play history view 用の keyword search context を追加する。既存 chart l
 - [x] `GridKeywordSearchContext.PlayHistory` を追加する。
 - [x] PlayHistoryRow 用 matcher を実装する。
 - [x] field completion に play history fields を追加する。
-- [x] `プレイログ` 右上 dropdown の対象を `すべて` / playlist / 表示対象セットにする。
+- [x] `プレイログ` 右上 dropdown の対象を `すべて` / 表示プリセット / playlist にする。
 - [x] 表示対象セットは `Settings.Default.PlayHistoryDisplayTargetSetsJson` のような settings へ保存し、portable settings 対象に含める。
 - [x] 表示対象セットは playlist identity / folder label の参照集合として扱い、playlist 正本や `playlist.last_update` は変更しない。
-- [x] FOLDER column は `すべて` では投影時の playlist symbol、対象 playlist 選択時は playlist folder、表示対象セットでは一致する難易度表 entry の `org_symbol + level` を列挙する。`すべて` は表示補正のために playlist entries を同期ロードまたは全件走査しない。
+- [x] 設定ダイアログ Playlist tab に `プレイログ FOLDER 表示プリセット` 編集 UI を追加する。プリセット名と対象 playlist の複数選択を編集でき、JSON は user.config に保存する。
+- [x] FOLDER column は `すべて` では投影時の playlist symbol、対象 playlist 選択時は playlist folder、表示プリセットでは一致する難易度表 entry の `org_symbol + level` を列挙する。`すべて` は表示補正のために playlist entries を同期ロードまたは全件走査しない。
 
 テスト:
 
@@ -723,7 +723,7 @@ Play history view 用の keyword search context を追加する。既存 chart l
 | Phase 2 | 完了 | LR2 履歴を `PlayHistoryRow` と summary に投影できる |
 | Phase 3 | 完了 | Play log tree と table UI は固定期間 + 年 / 月 / 日 archive node で動作。専用 summary row、DnD / cell edit / activation / 通常 context menu guard、PlayHistory 専用 BMS-IR / repository / hash context menu まで完了 |
 | Phase 4 | 完了 | LAST PLAY SORT custom folder が出力され、schema guard / cleanup / NULL sort command の検証まで完了 |
-| Phase 5 | 完了 | keyword search と `すべて` / playlist / 表示対象セット dropdown filter が動作し、settings JSON 保存形式まで追加済み |
+| Phase 5 | 完了 | keyword search と `すべて` / 表示プリセット / playlist dropdown filter が動作し、settings JSON 保存形式と設定 UI まで追加済み |
 | Phase 6 | 進行中 | status 表示、summary 診断、現行仕様 spec、log contract は追加済み。locked / read-only 実環境確認と実画面 screenshot が残る |
 | Phase 7 | 完了 | beatoraja provider が同じ UI に載り、挙動 / 性能 / テスト充足レビューで P0 / P1 指摘なしを確認済み |
 
@@ -738,7 +738,7 @@ Play history view 用の keyword search context を追加する。既存 chart l
 - 2026-06-19: Phase 3 操作 guard として PlayHistory view の row drag kind を `GenericSelectedRows` へ切り替え、playlist drop candidate / cell edit / row activation / 通常 chart context menu に流れないことを静的テストで固定した。
 - 2026-06-19: Phase 3 archive node として `bms_lr2_play_history.played_at` の軽量 period index reader、年 / 月 / 日 `PlayHistoryPeriodRequest`、`PlayHistoryArchivePeriodTree` binding を追加し、`docs/manual.ja.md` / `docs/manual.md` に `日付別` / `By Date` を追記した。
 - 2026-06-19: Phase 3 PlayHistory 専用 context menu として、解決済み row は Mocha / MinIR と MD5 / repository SHA256 copy、未解決 row は raw hash copy だけを出す hash-only policy を追加した。
-- 2026-06-19: Phase 4 初期実装として `LastPlaySortFolder` bit、旧 persisted mask の一度限り migration、playlist property / bulk edit の出力種別、`.lr2folder` / LR2 `folder` row の LAST PLAY SORT projection、schema 未導入時の materialization guard、manual/spec 追記を追加した。schema 未導入時に UI を disabled にする作業と LAST PLAY SORT 固有 cleanup / NULL sort の追加テストは残る。
+- 2026-06-19: Phase 4 初期実装として `LastPlaySortFolder` bit、playlist property / bulk edit の出力種別、`.lr2folder` / LR2 `folder` row の LAST PLAY SORT projection、schema 未導入時の materialization guard、manual/spec 追記を追加した。schema 未導入時に UI を disabled にする作業と LAST PLAY SORT 固有 cleanup / NULL sort の追加テストは残る。
 - 2026-06-19: Phase 4 追加検証として、LastPlaySortFolder を OFF にした再出力で `LAST PLAY SORT` の生成済み file / stale file / stale LR2 `folder` row が prune されることをテストで固定した。
 - 2026-06-19: Phase 4 UI guard として、play history schema status が `Installed` ではない場合に playlist property / bulk edit の LastPlaySortFolder checkbox を disabled にし、bulk patch から LastPlaySortFolder 変更を除外する helper と tests を追加した。
 - 2026-06-19: Phase 4 NULL sort 検証として、LAST PLAY SORT command を `last_play_at IS NULL ASC, last_play_at DESC` に明示化し、未観測譜面が末尾へ回る ORDER BY を `.lr2folder` / LR2 `folder` row の tests で固定した。
@@ -747,7 +747,7 @@ Play history view 用の keyword search context を追加する。既存 chart l
 - 2026-06-19: Phase 6 log contract として、PlayHistory view build に `play_history_read_done` / `play_history_read_period_index_*` / `play_history_projection_*` / `play_history_view_*` の段階別 event を追加し、専用 event 名・主要 field・projection fallback の理由を静的テストで固定した。
 - 2026-06-19: Phase 6 進捗整理として、設定画面の play history schema status 表示、`未確定 / 診断` node、schema missing / trigger missing / unreadable / manual repair required の自動テストが実装済みであることを計画表へ反映した。locked / read-only の実環境確認と実画面 screenshot は手動検証として残す。
 - 2026-06-19: Phase 5 keyword search として `GridKeywordSearchContext.PlayHistory`、`PlayHistoryRow` matcher、PlayHistory 用 field completion/help、PlayHistory view の projection 後 keyword filter を追加した。この時点では表示対象セット / dropdown filter は後続作業として残っていた。
-- 2026-06-19: Phase 5 display target として、PlayHistory 右上に `すべて` / playlist / settings JSON の表示対象セット dropdown を追加し、target filter を projection 後・keyword filter 前に適用する read model を追加した。playlist 選択時の FOLDER は playlist entry folder、target set 選択時は `org_symbol + level` 表示とし、対象外 row は除外する。`Settings.Default.PlayHistoryDisplayTargetSetsJson` は portable settings と同じ provider 管理対象で、初期実装では編集 UI や app-owned DB table は追加しない。
+- 2026-06-19: Phase 5 display target として、PlayHistory 右上に `すべて` / settings JSON の表示プリセット / playlist dropdown を追加し、target filter を projection 後・keyword filter 前に適用する read model を追加した。playlist 選択時の FOLDER は playlist entry folder、表示プリセット選択時は `org_symbol + level` 表示とし、対象外 row は除外する。`Settings.Default.PlayHistoryDisplayTargetSetsJson` は portable settings と同じ provider 管理対象とし、設定ダイアログ Playlist tab で追加 / 編集 / 削除する。
 - 2026-06-19: Phase 5 display target のサブエージェントレビューを挙動 / 性能 / テスト充足の観点で実施し、PlaylistTree flush 時の target 再構築、playlist entries hydration 完了時の不要 refresh 抑止、MD5 優先 lookup、空 folder 表示、stale target filter cancellation、settings / XAML / refresh 経路の静的テストを追加した。再レビューで P0 / P1 指摘なしを確認した。
 - 2026-06-19: Phase 7 初期実装として、beatoraja player directory の `scoredatalog.db` / `scorelog.db` path 解決、`BeatorajaPlayHistoryReader`、`BeatorajaPlayHistoryRecord`、`PlayHistoryRow.ProjectBeatorajaRows`、MainWindow の provider 切り替えを追加した。`scoredatalog.mode = 0` の単曲 row を actual result とし、`scorelog` は `sha256 + mode + date` が一致した場合のみ best delta を補う。`scorelog.db` 不在時は best delta を空欄にし、playtime は row に混ぜない。
 - 2026-06-19: Phase 7 サブエージェントレビューを挙動 / 性能 / テスト充足の観点で実施し、resolved MD5 を使う playlist / display target 解決、beatoraja projection diagnostic provider、scorelog cancellation、scorelog read 範囲、provider 判定の snapshot build 回避、summary / search / display target / scorelog mismatch tests、manual / spec の単一 provider 記述を追加・修正した。再レビューで P0 / P1 指摘なしを確認した。
@@ -757,7 +757,12 @@ Play history view 用の keyword search context を追加する。既存 chart l
 - 2026-06-19: UX follow-up として、PlayHistory の PROVIDER / SOURCE をユーザー表示列と列メニューから外し、右クリックに BMS-IR を追加し、日付別 tree は同じ archive tree を毎回差し替えないようにして選択が root へ戻る問題を修正した。
 - 2026-06-19: 上記 follow-up の検証として、`PlayHistoryReadModelTests|MainWindowContextMenuResourceTests|CustomTableColumnFactoryTests` を実行し、成功を確認した。実装後レビューを挙動 / 性能 / テスト充足のサブエージェントへ依頼し、diagnostics 表示消失、beatoraja BP sentinel / summary row / BEST DJ・RATE column のテスト不足、summary card binding のテスト不足を修正した。再レビューで重大指摘なしを確認する。
 - 2026-06-19: 追加 follow-up として、設定ダイアログを開いてキャンセルするだけの経路で schema check と設定復元の重い処理を繰り返さないようにし、CLEAR / BEST DJ の遷移をセル内で更新元・矢印・更新先別に色分けした。CLEAR は PlayHistory 用の短縮形に変更し、LR2 summary では EXH 内訳を非表示にした。
-- 2026-06-19: 追加 follow-up として、日付別 tree のパンくず表示、PlayHistory tree の配置、playlist tree の編集時テーマ色、`未確定 / 診断` node の LR2 `finalized = 0` 絞り込みを修正した。性能レビューを受け、`すべて` 選択時の FOLDER は entry-level 補正を行わず fast path を維持し、playlist entries の同期 hydration / 全件走査を起動しない設計にした。
+- 2026-06-19: 追加 follow-up として、日付別 tree のパンくず表示、PlayHistory tree の配置、playlist tree の編集時テーマ色、`未確定 / 診断` node の LR2 `finalized = 0` 絞り込みを修正した。`すべて` 選択時の FOLDER は entry-level 補正を行わず、複数 playlist の `symbol + level` 表示が必要な場合は表示プリセットを選ぶ設計にした。
+- 2026-06-19: 追加 follow-up として、PlayHistory summary row が playlist summary 画面に残る問題、summary card label のリソース化、PlayHistory tree static node のテーマ追従、CustomTableView の選択行 text-run 色維持、設定ダイアログの変更なし OK / Cancel 軽量化、PlayHistory FOLDER 表示プリセット設定 UI を追加した。
+- 2026-06-19: 追加レビュー指摘への対応として、表示プリセット参照は `playlist.id` が保存されている場合に name / symbol へフォールバックしない挙動を固定し、設定ダイアログの表示プリセット draft / validation / dropdown 順序、変更なし OK の早期 close、`EnsureSchema` が既存 custom folder 出力設定を書き換えない DB 回帰テストを追加した。
+- 2026-06-19: 再レビュー指摘への対応として、表示プリセットの保存用 JSON と変更検知用 draft JSON を分離し、空名 / 重複名 / playlist 未選択の invalid draft を「変更なし」と誤判定しないようにした。設定ダイアログ表示用 playlist 候補は settings backup / cancel では全件再構築せず dirty 化し、選択判定は `playlist.id` / name / symbol の集合 index で行う。保存 helper / cancel 復元 / summary row clear / CustomTable current cell text-run 色保持の tests も追加した。
+- 2026-06-19: UI follow-up として、設定ダイアログ Playlist tab の `プレイログ FOLDER 表示プリセット` はプリセット名一覧だけを表示し、追加 / 編集ボタンから別ウィンドウでプリセット名と対象 playlist を選択する設計へ変更した。対象 playlist 候補の全件構築は別ウィンドウを開く時だけ行い、Cancel では draft を変更しない。
+- 2026-06-19: テストレビュー指摘への対応として、別ウィンドウ化した FOLDER 表示プリセット編集の OK / Cancel 配線、未適用 edit session が draft を汚さないこと、検証失敗時に既存 preset が変わらないこと、設定ダイアログ OK 保存経路が preset persist を呼ぶことをテストで固定した。
 - 2026-06-19: 再レビュー指摘への対応として、beatoraja provider の `未確定 / 診断` では通常履歴を未確定 row として代替表示しないよう `FinalizationFilter.UnfinalizedOnly` を空 rows として扱う実装にした。CustomTable text run の実描画色、SettingDialog cancel / schema check 判定、beatoraja diagnostics を追加した。さらに `UnfinalizedOnly` でも壊れた `scoredatalog.db` は `Unreadable` diagnostic として検出する。
 
 ## 実装時の注意

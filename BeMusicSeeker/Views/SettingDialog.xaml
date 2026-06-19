@@ -638,6 +638,17 @@
                     <CheckBox Margin="0,2,0,0" IsChecked="{Binding settingDialog.EnableStellaFullPlaylistUrlCompletion}" IsEnabled="{Binding settingDialog.EnablePlaylistUrlCompletion}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_url_completion_stella_full_enable, Mode=OneWay}" />
                   </StackPanel>
                 </GroupBox>
+                <GroupBox Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Play_history_folder_display_preset, Mode=OneWay}">
+                  <DockPanel LastChildFill="True">
+                    <StackPanel DockPanel.Dock="Right" Width="92" Margin="6,0,0,0">
+                      <Button Height="24" Margin="0,0,0,4" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Add, Mode=OneWay}" Click="buttonAddPlayHistoryFolderDisplayPresetClicked" />
+                      <Button Height="24" Margin="0,0,0,4" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Delete_from_list, Mode=OneWay}" IsEnabled="{Binding settingDialog.CanRemovePlayHistoryFolderDisplayPreset}" Click="buttonRemovePlayHistoryFolderDisplayPresetClicked" />
+                      <Button Height="24" Margin="0,0,0,4" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Play_history_folder_display_preset_edit, Mode=OneWay}" IsEnabled="{Binding settingDialog.CanEditPlayHistoryFolderDisplayPreset}" Click="buttonEditPlayHistoryFolderDisplayPresetClicked" />
+                    </StackPanel>
+                    <TextBlock DockPanel.Dock="Bottom" TextWrapping="Wrap" Margin="0,6,0,0" Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Play_history_folder_display_preset_desc, Mode=OneWay}" />
+                    <ListBox Height="104" ItemsSource="{Binding settingDialog.PlayHistoryFolderDisplayPresets}" SelectedItem="{Binding settingDialog.SelectedPlayHistoryFolderDisplayPreset, Mode=TwoWay}" DisplayMemberPath="Name" />
+                  </DockPanel>
+                </GroupBox>
               </StackPanel>
             </TabItem>
             <TabItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Install, Mode=OneWay}">

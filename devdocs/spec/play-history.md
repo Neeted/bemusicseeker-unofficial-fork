@@ -153,10 +153,10 @@ Play History view の右上 dropdown は表示対象を次の単位で切り替�
 | Target | 意味 |
 | --- | --- |
 | `すべて` | 期間内の play history row を全件対象にする。FOLDER は投影時に解決した playlist symbol の列挙を使い、表示補正のために playlist entries を同期ロードまたは全件走査しない。 |
+| preset | 設定ダイアログの `プレイログ FOLDER 表示プリセット` で選んだ複数 playlist の entries と hash が一致する row だけを対象にする。FOLDER は各 playlist の `org_symbol + level` の列挙。 |
 | playlist | 選択した playlist の entries と hash が一致する row だけを対象にする。FOLDER はその playlist entry の folder。 |
-| target set | settings JSON に保存された playlist / folder reference 集合に一致する row だけを対象にする。FOLDER は `org_symbol + level` の列挙。 |
 
-target set は `Settings.Default.PlayHistoryDisplayTargetSetsJson` に JSON として保存する。初期実装では app-owned DB table と編集 UI は追加しない。JSON は target set name と、`PlaylistId` / `PlaylistName` / `PlaylistSymbol`、任意の `FolderLabel` を持つ reference 配列で構成する。playlist 正本、playlist entries、`playlist.last_update` は変更しない。
+dropdown の表示順は `すべて`、preset、playlist 単体である。preset は `Settings.Default.PlayHistoryDisplayTargetSetsJson` に JSON として保存し、設定ダイアログの Playlist tab で追加 / 編集 / 削除する。JSON は target set name と、`PlaylistId` / `PlaylistName` / `PlaylistSymbol`、任意の `FolderLabel` を持つ reference 配列で構成する。playlist 正本、playlist entries、`playlist.last_update` は変更しない。
 
 display target filter は projection 後、keyword search 前に適用する。target 変更では、同じ期間 request の projection result を再利用して target filter / keyword filter / sort だけを再適用する。対象 playlist entries の読み込みが必要な場合は playlist entries hydration を使うが、playlist reload / external sync / `.bmt` 再出力は起動しない。
 

@@ -1494,6 +1494,57 @@ maintenance の再スキャンや chart_info の全譜面補完は行いませ�
   <data name="Play_history_summary_format" xml:space="preserve">
     <value>{0}: {1} 件 / SCORE更新 {2} / CLEAR更新 {3} / FC {4} / PLAYTIME {5} / 診断 {6}</value>
   </data>
+  <data name="Play_history_summary_judge_count" xml:space="preserve">
+    <value>判定数</value>
+  </data>
+  <data name="Play_history_summary_play_count" xml:space="preserve">
+    <value>プレイ数</value>
+  </data>
+  <data name="Play_history_summary_playtime" xml:space="preserve">
+    <value>演奏時間</value>
+  </data>
+  <data name="Play_history_summary_score_update" xml:space="preserve">
+    <value>スコア更新</value>
+  </data>
+  <data name="Play_history_summary_bp_update" xml:space="preserve">
+    <value>BP更新</value>
+  </data>
+  <data name="Play_history_summary_combo_update" xml:space="preserve">
+    <value>コンボ更新</value>
+  </data>
+  <data name="Play_history_summary_clear_update" xml:space="preserve">
+    <value>クリア更新</value>
+  </data>
+  <data name="Play_history_display_target_set_format" xml:space="preserve">
+    <value>プリセット: {0}</value>
+  </data>
+  <data name="Play_history_folder_display_preset" xml:space="preserve">
+    <value>プレイログ FOLDER 表示プリセット</value>
+  </data>
+  <data name="Play_history_folder_display_preset_name" xml:space="preserve">
+    <value>プリセット名: </value>
+  </data>
+  <data name="Play_history_folder_display_preset_playlists" xml:space="preserve">
+    <value>対象プレイリスト</value>
+  </data>
+  <data name="Play_history_folder_display_preset_edit" xml:space="preserve">
+    <value>編集</value>
+  </data>
+  <data name="Play_history_folder_display_preset_default_name" xml:space="preserve">
+    <value>新規プリセット</value>
+  </data>
+  <data name="Play_history_folder_display_preset_desc" xml:space="preserve">
+    <value>プレイログ画面右上の FOLDER 表示対象に表示するプレイリストセットを設定します。</value>
+  </data>
+  <data name="Error_PlayHistoryFolderPresetNameEmpty" xml:space="preserve">
+    <value>プレイログ FOLDER 表示プリセット名を入力してください</value>
+  </data>
+  <data name="Error_PlayHistoryFolderPresetDuplicateName" xml:space="preserve">
+    <value>プレイログ FOLDER 表示プリセット名が重複しています: {0}</value>
+  </data>
+  <data name="Error_PlayHistoryFolderPresetNoPlaylist" xml:space="preserve">
+    <value>プレイログ FOLDER 表示プリセットにはプレイリストを 1 つ以上選択してください: {0}</value>
+  </data>
   <data name="Play_history_copy_md5" xml:space="preserve">
     <value>MD5 をコピー</value>
   </data>

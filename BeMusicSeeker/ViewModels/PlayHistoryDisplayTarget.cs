@@ -44,8 +44,25 @@ public sealed class PlayHistoryDisplayTargetItem
 
     internal bool IsFiltering => Kind != PlayHistoryDisplayTargetKind.All;
 
-    internal static PlayHistoryDisplayTargetItem All { get; } =
-        new(PlayHistoryDisplayTargetKind.All, "all", "すべて", null, null);
+    /// <summary>
+    /// 現在の表示言語で作った「すべて」表示対象を取得します。
+    /// </summary>
+    internal static PlayHistoryDisplayTargetItem All => CreateAll();
+
+    /// <summary>
+    /// 現在の表示言語で「すべて」表示対象を作成します。
+    /// 言語切替時に候補を再構築するため、固定 singleton にはしません。
+    /// </summary>
+    /// <returns>全 play history row を対象にする display target。</returns>
+    internal static PlayHistoryDisplayTargetItem CreateAll()
+    {
+        return new PlayHistoryDisplayTargetItem(
+            PlayHistoryDisplayTargetKind.All,
+            "all",
+            BeMusicSeeker.Properties.Resources.Play_history_period_all,
+            null,
+            null);
+    }
 
     internal static PlayHistoryDisplayTargetItem FromPlaylist(BMSTable table)
     {
@@ -70,7 +87,7 @@ public sealed class PlayHistoryDisplayTargetItem
         return new PlayHistoryDisplayTargetItem(
             PlayHistoryDisplayTargetKind.TargetSet,
             "set:" + name.ToUpperInvariant(),
-            "Set: " + name,
+            string.Format(CultureInfo.CurrentCulture, BeMusicSeeker.Properties.Resources.Play_history_display_target_set_format, name),
             null,
             targetSet);
     }
@@ -119,6 +136,39 @@ internal static class PlayHistoryDisplayTargetSetStore
         return normalized.Count == 0
             ? string.Empty
             : JsonConvert.SerializeObject(normalized, Formatting.None);
+    }
+
+    /// <summary>
+    /// 設定ダイアログの draft 変更検知用に、無効な行も落とさず安定した JSON へ変換します。
+    /// 保存形式の正規化は validation 後だけに限定し、invalid draft を「変更なし」と誤判定しないために分けています。
+    /// </summary>
+    /// <param name="targetSets">設定ダイアログ上の未保存 target set。</param>
+    /// <returns>変更検知用 JSON。draft が空の場合は空文字列。</returns>
+    internal static string SerializeDraftsForChangeTracking(IEnumerable<PlayHistoryDisplayTargetSet> targetSets)
+    {
+        List<PlayHistoryDisplayTargetSet> drafts =
+        [
+            .. (targetSets ?? [])
+                .Select(targetSet => new PlayHistoryDisplayTargetSet
+                {
+                    Name = targetSet?.Name ?? string.Empty,
+                    Targets =
+                    [
+                        .. (targetSet?.Targets ?? [])
+                            .Where(reference => reference != null)
+                            .Select(reference => new PlayHistoryDisplayTargetReference
+                            {
+                                PlaylistId = reference.PlaylistId,
+                                PlaylistName = reference.PlaylistName,
+                                PlaylistSymbol = reference.PlaylistSymbol,
+                                FolderLabel = reference.FolderLabel
+                            })
+                    ]
+                })
+        ];
+        return drafts.Count == 0
+            ? string.Empty
+            : JsonConvert.SerializeObject(drafts, Formatting.None);
     }
 
     private static IReadOnlyList<PlayHistoryDisplayTargetSet> Normalize(IEnumerable<PlayHistoryDisplayTargetSet> targetSets)
@@ -304,9 +354,25 @@ internal sealed class PlayHistoryDisplayTargetIndex
         IEnumerable<BMSTable> tables,
         PlayHistoryDisplayTargetSet targetSet)
     {
+        List<BMSTable> tableList = [.. (tables ?? []).Where(table => table != null)];
+        Dictionary<int, List<BMSTable>> tablesByPlaylistId = tableList
+            .Where(table => table.playlist_id.HasValue)
+            .GroupBy(table => table.playlist_id.Value)
+            .ToDictionary(group => group.Key, group => group.ToList());
         foreach (PlayHistoryDisplayTargetReference reference in targetSet?.Targets ?? [])
         {
-            foreach (BMSTable table in tables ?? [])
+            if (reference?.PlaylistId is int playlistId)
+            {
+                if (tablesByPlaylistId.TryGetValue(playlistId, out List<BMSTable> matchedTables))
+                {
+                    foreach (BMSTable table in matchedTables)
+                    {
+                        yield return (table, reference);
+                    }
+                }
+                continue;
+            }
+            foreach (BMSTable table in tableList)
             {
                 if (MatchesTableReference(table, reference))
                 {
@@ -322,9 +388,9 @@ internal sealed class PlayHistoryDisplayTargetIndex
         {
             return false;
         }
-        if (reference.PlaylistId.HasValue && table.playlist_id == reference.PlaylistId)
+        if (reference.PlaylistId.HasValue)
         {
-            return true;
+            return table.playlist_id == reference.PlaylistId;
         }
         return MatchesText(table.name, reference.PlaylistName)
             || MatchesText(table.org_name, reference.PlaylistName)

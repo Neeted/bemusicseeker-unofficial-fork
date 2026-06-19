@@ -72,7 +72,8 @@ public sealed class MainWindowContextMenuResourceTests
         }
         StringAssert.Contains(playHistoryTree, "ItemsSource=\"{Binding PlayHistoryArchivePeriodTree}\"");
         StringAssert.Contains(playHistoryTree, "<HierarchicalDataTemplate DataType=\"{x:Type vm:PlayHistoryPeriodTreeItem}\" ItemsSource=\"{Binding Children}\" ItemContainerStyle=\"{StaticResource styleTreeViewItemPlayHistoryPeriodContainer}\">");
-        StringAssert.Contains(playHistoryTree, "<TreeViewItem Focusable=\"False\" Header=\"{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Play_history_period_archive, Mode=OneWay}\" ItemsSource=\"{Binding PlayHistoryArchivePeriodTree}\" ItemContainerStyle=\"{StaticResource styleTreeViewItemPlayHistoryPeriodContainer}\" />");
+        StringAssert.Contains(playHistoryTree, "<DataTemplate x:Key=\"templateTreeViewItemHeaderPlayHistoryPeriod\">");
+        StringAssert.Contains(playHistoryTree, "<TreeViewItem Focusable=\"False\" HeaderTemplate=\"{StaticResource templateTreeViewItemHeaderPlayHistoryPeriod}\" Header=\"{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Play_history_period_archive, Mode=OneWay}\" ItemsSource=\"{Binding PlayHistoryArchivePeriodTree}\" ItemContainerStyle=\"{StaticResource styleTreeViewItemPlayHistoryPeriodContainer}\" />");
     }
 
     [TestMethod]
@@ -139,7 +140,9 @@ public sealed class MainWindowContextMenuResourceTests
         string viewModelCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
         string summaryRow = ExtractBetween(xaml, "<Border Grid.Row=\"2\" Grid.Column=\"1\" Background=\"{DynamicResource App.SurfaceBrush}\"", "<v:CustomTableView x:Name=\"customTableView\"");
 
-        StringAssert.Contains(summaryRow, "Visibility=\"{Binding IsPlayHistoryViewActive");
+        StringAssert.Contains(summaryRow, "Visibility=\"{qc:MultiBinding '($P0 &amp;&amp; !$P1) ? Visibility.Visible : Visibility.Collapsed'");
+        StringAssert.Contains(summaryRow, "P0={Binding IsPlayHistoryViewActive}");
+        StringAssert.Contains(summaryRow, "P1={Binding IsPlaylistSummaryMode}");
         StringAssert.Contains(summaryRow, "ItemsSource=\"{Binding PlayHistorySummaryCards}\"");
         StringAssert.Contains(summaryRow, "Text=\"{Binding PlayHistorySummaryDiagnosticText}\"");
         StringAssert.Contains(summaryRow, "Text=\"{Binding Label}\"");
@@ -252,12 +255,38 @@ public sealed class MainWindowContextMenuResourceTests
     public void PlayHistoryDisplayTargetDropdown_BindsToPlayHistoryViewState()
     {
         string xaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "MainWindow.xaml"));
+        string settingDialogXaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "SettingDialog.xaml"));
+        string settingDialogCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "SettingDialog.cs"));
+        string editDialogXaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "PlayHistoryFolderDisplayPresetEditDialog.xaml"));
+        string editDialogCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "PlayHistoryFolderDisplayPresetEditDialog.cs"));
+        string viewModelCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
         string toolbar = ExtractBetween(xaml, "<Border BorderThickness=\"0\" Grid.Row=\"1\" Grid.ColumnSpan=\"1\" Grid.Column=\"1\"", "<Border DockPanel.Dock=\"Right\" CornerRadius=\"6\" BorderThickness=\"1\" BorderBrush=\"{DynamicResource App.StrongBorderBrush}\" Width=\"Auto\" Margin=\"0,0,2,0\" VerticalAlignment=\"Center\" FlowDirection=\"LeftToRight\" Visibility=\"{Binding IsPlaylistSummaryMode");
+        string saveAndClose = ExtractBetween(settingDialogCode, "private async void SaveAndClose", "internal static bool ShouldResetSettingsOnCancel");
+        string saveSettings = ExtractBetween(viewModelCode, "public async Task SaveSettings()", "public async Task SaveSettingsForInitialInitialize()");
+        string saveSettingsCore = ExtractBetween(viewModelCode, "private async Task SaveSettingsCore", "public void SaveOperationModeForRestart");
 
         StringAssert.Contains(toolbar, "Visibility=\"{Binding IsPlayHistoryViewActive");
         StringAssert.Contains(toolbar, "ItemsSource=\"{Binding PlayHistoryDisplayTargets}\"");
         StringAssert.Contains(toolbar, "SelectedItem=\"{Binding SelectedPlayHistoryDisplayTarget, Mode=TwoWay}\"");
         StringAssert.Contains(toolbar, "DisplayMemberPath=\"DisplayName\"");
+        StringAssert.Contains(viewModelCode, "nextItems.AddRange(playHistoryDisplayTargetSets.Select(PlayHistoryDisplayTargetItem.FromTargetSet));");
+        StringAssert.Contains(viewModelCode, ".Select(PlayHistoryDisplayTargetItem.FromPlaylist));");
+        StringAssert.Contains(settingDialogXaml, "Path=Resources.Play_history_folder_display_preset, Mode=OneWay");
+        StringAssert.Contains(settingDialogXaml, "ItemsSource=\"{Binding settingDialog.PlayHistoryFolderDisplayPresets}\"");
+        Assert.IsFalse(settingDialogXaml.Contains("ItemsSource=\"{Binding settingDialog.PlayHistoryFolderDisplayPresetPlaylistOptions}\""));
+        StringAssert.Contains(editDialogXaml, "ItemsSource=\"{Binding PlaylistOptions}\"");
+        StringAssert.Contains(editDialogXaml, "Path=Resources.Play_history_folder_display_preset_playlists, Mode=OneWay");
+        StringAssert.Contains(editDialogXaml, "Click=\"SaveAndClose\"");
+        StringAssert.Contains(editDialogXaml, "IsCancel=\"True\"");
+        StringAssert.Contains(editDialogCode, "TryApplyPlayHistoryFolderDisplayPresetEditSession(session, out string errMsg)");
+        StringAssert.Contains(editDialogCode, "DialogResult = true;");
+        StringAssert.Contains(editDialogCode, "DialogResult = false;");
+        StringAssert.Contains(settingDialogXaml, "Click=\"buttonAddPlayHistoryFolderDisplayPresetClicked\"");
+        StringAssert.Contains(settingDialogXaml, "Click=\"buttonRemovePlayHistoryFolderDisplayPresetClicked\"");
+        StringAssert.Contains(settingDialogXaml, "Click=\"buttonEditPlayHistoryFolderDisplayPresetClicked\"");
+        StringAssert.Contains(saveAndClose, "await settingDialogViewModel.SaveSettings();");
+        StringAssert.Contains(saveSettings, "await SaveSettingsCore(runPostSaveActions: true);");
+        StringAssert.Contains(saveSettingsCore, "PersistPlayHistoryFolderDisplayPresetsIfChanged();");
     }
 
     [TestMethod]

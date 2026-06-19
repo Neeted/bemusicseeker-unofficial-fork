@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Window x:Class="BeMusicSeeker.Views.PlayHistoryFolderDisplayPresetEditDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="clr-namespace:BeMusicSeeker.ViewModels"
+        Title="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Play_history_folder_display_preset_edit, Mode=OneWay}"
+        Width="560"
+        Height="460"
+        MinWidth="480"
+        MinHeight="360"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="CanResize"
+        ShowInTaskbar="False"
+        Background="{DynamicResource App.DialogBackgroundBrush}"
+        Foreground="{DynamicResource App.TextBrush}">
+  <DockPanel Margin="12" LastChildFill="True">
+    <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,10,0,0">
+      <Button MinWidth="72" Height="24" Margin="0,0,8,0" Content="OK" Click="SaveAndClose" />
+      <Button MinWidth="72" Height="24" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Cancel, Mode=OneWay}" IsCancel="True" />
+    </StackPanel>
+    <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,10" Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Play_history_folder_display_preset_desc, Mode=OneWay}" />
+    <DockPanel DockPanel.Dock="Top" Margin="0,0,0,10">
+      <Label DockPanel.Dock="Left" Height="28" Padding="0,4,8,0" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Play_history_folder_display_preset_name, Mode=OneWay}" />
+      <TextBox Height="24" VerticalContentAlignment="Center" Text="{Binding Name, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+    </DockPanel>
+    <GroupBox Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Play_history_folder_display_preset_playlists, Mode=OneWay}">
+      <ListBox ItemsSource="{Binding PlaylistOptions}" ScrollViewer.HorizontalScrollBarVisibility="Auto" ScrollViewer.VerticalScrollBarVisibility="Auto">
+        <ListBox.ItemTemplate>
+          <DataTemplate>
+            <CheckBox MinHeight="20" IsChecked="{Binding IsSelected, Mode=TwoWay}" Content="{Binding DisplayName}" />
+          </DataTemplate>
+        </ListBox.ItemTemplate>
+      </ListBox>
+    </GroupBox>
+  </DockPanel>
+</Window>

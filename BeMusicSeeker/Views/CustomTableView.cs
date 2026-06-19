@@ -2582,11 +2582,14 @@ internal sealed class CustomTableSurface : FrameworkElement
             {
                 drawingContext.DrawRectangle(CustomTablePalette.Current.CurrentCellBackground, null, entry.CreateVisibleRect(horizontalOffset, width, y, rowHeight));
             }
-            Brush foreground = currentCell
-                ? CustomTablePalette.Current.CurrentCellForeground
-                : owner.IsRowSelected(rowIndex)
-                    ? CustomTableScoreBrushProvider.SelectedForeground
-                    : cellValue.Foreground;
+            bool hasTextRuns = cellValue.TextRuns.Count > 0;
+            Brush foreground = hasTextRuns
+                ? cellValue.Foreground
+                : currentCell
+                    ? CustomTablePalette.Current.CurrentCellForeground
+                    : owner.IsRowSelected(rowIndex)
+                        ? CustomTableScoreBrushProvider.SelectedForeground
+                        : cellValue.Foreground;
             if (cellValue.CellKind == CustomTableCellKind.DownloadIcon)
             {
                 DrawDownloadIcon(drawingContext, cellValue.Text, cellRect, foreground);
@@ -2601,10 +2604,7 @@ internal sealed class CustomTableSurface : FrameworkElement
             }
             else
             {
-                IReadOnlyList<CustomTableTextRunStyle> textRuns = currentCell || owner.IsRowSelected(rowIndex)
-                    ? []
-                    : cellValue.TextRuns;
-                DrawCellText(drawingContext, cellValue.Text, cellRect, foreground, textRuns, cellValue.Alignment, cellValue.TextStyle);
+                DrawCellText(drawingContext, cellValue.Text, cellRect, foreground, cellValue.TextRuns, cellValue.Alignment, cellValue.TextStyle);
             }
             double borderX = entry.TableX + entry.Width - horizontalOffset - 0.5d;
             if (borderX >= 0d && borderX <= width)
