@@ -90,6 +90,7 @@
   "Play_history_summary_combo_update": "콤보 갱신",
   "Play_history_summary_clear_update": "클리어 갱신",
   "Play_history_display_target_set_format": "프리셋: {0}",
+  "Play_history_display_target_folder_only_set_format": "FOLDER: {0}",
   "Play_history_folder_display_preset": "플레이 로그 FOLDER 표시 프리셋",
   "Play_history_folder_display_preset_name": "프리셋 이름: ",
   "Play_history_folder_display_preset_playlists": "대상 플레이리스트",

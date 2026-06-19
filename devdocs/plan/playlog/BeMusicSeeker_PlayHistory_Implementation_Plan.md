@@ -629,17 +629,17 @@ Play history view 用の keyword search context を追加する。既存 chart l
 - [x] `GridKeywordSearchContext.PlayHistory` を追加する。
 - [x] PlayHistoryRow 用 matcher を実装する。
 - [x] field completion に play history fields を追加する。
-- [x] `プレイログ` 右上 dropdown の対象を `すべて` / 表示プリセット / playlist にする。
+- [x] `プレイログ` 右上 dropdown の対象を `すべて` / 表示プリセット / `FOLDER: 表示プリセット` / playlist にする。
 - [x] 表示対象セットは `Settings.Default.PlayHistoryDisplayTargetSetsJson` のような settings へ保存し、portable settings 対象に含める。
 - [x] 表示対象セットは playlist identity / folder label の参照集合として扱い、playlist 正本や `playlist.last_update` は変更しない。
 - [x] 設定ダイアログ Playlist tab に `プレイログ FOLDER 表示プリセット` 編集 UI を追加する。プリセット名と対象 playlist の複数選択を編集でき、JSON は user.config に保存する。
-- [x] FOLDER column は `すべて` では投影時の playlist symbol、対象 playlist 選択時は playlist folder、表示プリセットでは一致する難易度表 entry の `org_symbol + level` を列挙する。`すべて` は表示補正のために playlist entries を同期ロードまたは全件走査しない。
+- [x] FOLDER column は `すべて` では投影時の playlist symbol、対象 playlist 選択時は playlist folder、表示プリセットでは一致する難易度表 entry の `org_symbol + level` を列挙する。`FOLDER: 表示プリセット` では row filter は行わず、preset に一致しない row の FOLDER は空欄にする。`すべて` は表示補正のために playlist entries を同期ロードまたは全件走査しない。
 
 テスト:
 
 - [x] `date:` / `year:` / `month:` / `kind:` / `clear:` / `playlist:` / `folder:` / `finalized:` が期待通り絞り込む。
 - [x] field completion と unknown field diagnostics が play history fields と一致する。
-- [x] 表示対象セットの変更で FOLDER 表示と row filter が変わる。
+- [x] 表示対象セットの変更で FOLDER 表示と row filter が変わる。`FOLDER: 表示プリセット` では FOLDER 表示だけが変わり、期間 tree / keyword search の対象行は維持する。
 - [x] 既存 chart list / playlist detail の keyword search が壊れない。
 
 完了条件:
@@ -764,6 +764,7 @@ Play history view 用の keyword search context を追加する。既存 chart l
 - 2026-06-19: UI follow-up として、設定ダイアログ Playlist tab の `プレイログ FOLDER 表示プリセット` はプリセット名一覧だけを表示し、追加 / 編集ボタンから別ウィンドウでプリセット名と対象 playlist を選択する設計へ変更した。対象 playlist 候補の全件構築は別ウィンドウを開く時だけ行い、Cancel では draft を変更しない。
 - 2026-06-19: テストレビュー指摘への対応として、別ウィンドウ化した FOLDER 表示プリセット編集の OK / Cancel 配線、未適用 edit session が draft を汚さないこと、検証失敗時に既存 preset が変わらないこと、設定ダイアログ OK 保存経路が preset persist を呼ぶことをテストで固定した。
 - 2026-06-19: 再レビュー指摘への対応として、beatoraja provider の `未確定 / 診断` では通常履歴を未確定 row として代替表示しないよう `FinalizationFilter.UnfinalizedOnly` を空 rows として扱う実装にした。CustomTable text run の実描画色、SettingDialog cancel / schema check 判定、beatoraja diagnostics を追加した。さらに `UnfinalizedOnly` でも壊れた `scoredatalog.db` は `Unreadable` diagnostic として検出する。
+- 2026-06-19: 表示対象 follow-up として、PlayHistory 右上 dropdown の表示プリセットに `FOLDER: preset` モードを追加した。このモードは期間 tree で得た行を落とさず、FOLDER だけを preset の `org_symbol + level` で投影し、preset 外 row の FOLDER は空欄にする。keyword search は従来通り display target 適用後に実行する。
 
 ## 実装時の注意
 

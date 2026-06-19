@@ -199,6 +199,8 @@ Change custom folder output destinations, difficulty table list acquisition URI,
 `Additional normal outputs` registers extra normal destinations that can be selected per playlist. The output folder name itself is used as the display name, and that name appears in the Playlist Summary `OUTPUT` column and playlist properties. In LR2-linked mode, each additional normal output is also synchronized as an LR2 BMS root and is automatically removed from the BMS roots when the output is removed. It cannot be the same as, a parent of, or a child of an existing BMS root or another custom-folder output destination. When an additional output is removed, playlists using it return to the normal output destination.
 `Root folder output destination` is where playlists whose properties have `Make root folder` enabled are output. These appear at the root of the song selection screen, so frequently used tables can be accessed quickly.
 
+`Play Log FOLDER Display Presets` lets you create playlist sets shown in the drop-down menu at the top-right of the Play Log view. Press `Add` or `Edit` to open a separate window where you can enter a preset name and select multiple target playlists. These presets are used for Play Log filtering and for adjusting the FOLDER column display.
+
 For URL completion, see [URL1/URL2 Completion](#url1url2-completion).
 
 ### Install
@@ -334,6 +336,8 @@ The available periods are `All`, `Today`, `Yesterday`, `Recent 7 Days`, `Recent 
 The dedicated summary row below the list header shows judge count, play count, playtime, SCORE / BP / COMBO / CLEAR updates, and a compact clear breakdown such as ASSIST, EASY, NORMAL, HARD, and FC. EXH is shown only for the beatoraja provider. When the score DB is missing, the schema is not installed, or a read/projection problem occurs, diagnostic details are shown in the summary text and written to the log.
 
 Play-log rows show best-update transitions such as `old -> new` for SCORE, BEST DJ, BEST RATE, BP, COMBO, and CLEAR. CLEAR uses compact labels such as `NO PLAY`, `EASY`, `NORMAL`, `HARD`, `EXH`, and `FC`; CLEAR and BEST DJ color the source, arrow, and destination separately when the row is not selected. Initial BP values are shown as the value only. `TYPE` can contain multiple update kinds, such as `score bp clear`; `play` is used only when no more specific update kind applies. LR2 `OP HISTORY` shows newly achieved option-history flags by name, and beatoraja `OPTION` decodes the stored option into names such as RANDOM, MIRROR, FLIP, and BATTLE AS. `PROVIDER` and `SOURCE` are not user-facing columns.
+
+The drop-down menu at the top-right of the Play Log view switches the display target and how the FOLDER column is projected. `All` shows all history rows in the range selected in the period tree. `Preset: <name>` filters the rows to charts included in the playlists selected in `Play Log FOLDER Display Presets`, and the FOLDER column shows each playlist symbol plus level. `FOLDER: <name>` does not filter rows; it keeps the rows selected by the period tree and search box, and only projects the FOLDER column using that preset. Charts outside the preset have an empty FOLDER value. Selecting a single playlist filters to charts in that playlist and shows the playlist folder name in the FOLDER column.
 
 The play-log context menu can open BMS-IR for rows with a resolved MD5, open Mocha / MinIR for rows with a repository SHA-256, and copy the relevant hashes.
 

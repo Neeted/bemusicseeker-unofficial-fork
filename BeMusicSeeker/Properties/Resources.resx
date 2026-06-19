@@ -1518,6 +1518,9 @@ maintenance の再スキャンや chart_info の全譜面補完は行いませ�
   <data name="Play_history_display_target_set_format" xml:space="preserve">
     <value>プリセット: {0}</value>
   </data>
+  <data name="Play_history_display_target_folder_only_set_format" xml:space="preserve">
+    <value>FOLDER: {0}</value>
+  </data>
   <data name="Play_history_folder_display_preset" xml:space="preserve">
     <value>プレイログ FOLDER 表示プリセット</value>
   </data>

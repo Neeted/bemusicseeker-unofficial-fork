@@ -88,7 +88,7 @@ UI refresh では raw rows がある場合に projection index を作る。proje
 | `ResolvedChart` / `ResolvedChartRef` | app library で解決できた chart identity。 |
 | `HashKind` | chart / course / unknown の分類。現行 LR2 projection は chart 解決できなければ unknown。 |
 | `Title` / `Artist` / `Path` | resolved chart から得た表示情報。未解決なら空。 |
-| `FolderLabels` / `PlaylistNames` | playlist reference resolver と display target filter で得た所属表示。display target が `すべて` の場合は projection 時点の playlist symbol、playlist 選択時は playlist entry folder、target set 選択時は `org_symbol + level` を表示する。 |
+| `FolderLabels` / `PlaylistNames` | playlist reference resolver と display target filter / FOLDER projection で得た所属表示。display target が `すべて` の場合は projection 時点の playlist symbol、playlist 選択時は playlist entry folder、target set 選択時は `org_symbol + level` を表示する。 |
 | `Kind` | play history row の分類。score / bp / clear / combo は複合表示できる。`play` は他の分類がない場合だけ表示する。 |
 | `BestClear` / `BestDjLevelText` / `BestRateText` / `BestExscore` / `BestBp` / `BestCombo` | best 更新があった場合の before / after 表示。初回 BP は値だけを表示する。 |
 | `PlayExscore` / `Judges` / `PlaytimeSeconds` | finalized actual play delta から作る実プレイ結果。 |
@@ -131,7 +131,7 @@ Play History context の field は次の通り。
 | --- | --- |
 | global token | title、artist、path、folder labels、playlist names、raw hash、SHA-256、kind、source、play date を横断検索する。 |
 | `title:` / `artist:` / `path:` | resolved chart の表示情報。未解決 row では空。 |
-| `folder:` | display target 適用後の `FolderLabels`。`すべて` では projection 時点の playlist symbol、playlist 選択時は playlist entry folder、target set では一致する難易度表 entry の `org_symbol + level`。 |
+| `folder:` | display target 適用後の `FolderLabels`。`すべて` では projection 時点の playlist symbol、playlist 選択時は playlist entry folder、target set では一致する難易度表 entry の `org_symbol + level`。`FOLDER: preset` では preset 外の row は空文字列として扱う。 |
 | `playlist:` / `ref:` / `table:` | playlist reference の name 表示。 |
 | `md5:` | resolved MD5。 |
 | `hash:` | source raw hash。LR2 では MD5、beatoraja では SHA-256。 |
@@ -154,11 +154,12 @@ Play History view の右上 dropdown は表示対象を次の単位で切り替�
 | --- | --- |
 | `すべて` | 期間内の play history row を全件対象にする。FOLDER は投影時に解決した playlist symbol の列挙を使い、表示補正のために playlist entries を同期ロードまたは全件走査しない。 |
 | preset | 設定ダイアログの `プレイログ FOLDER 表示プリセット` で選んだ複数 playlist の entries と hash が一致する row だけを対象にする。FOLDER は各 playlist の `org_symbol + level` の列挙。 |
+| `FOLDER: preset` | 期間選択で得た play history row は除外せず、FOLDER だけを指定 preset の `org_symbol + level` で投影する。preset に一致しない row の FOLDER は空欄にする。keyword search はこの FOLDER 投影後に適用する。 |
 | playlist | 選択した playlist の entries と hash が一致する row だけを対象にする。FOLDER はその playlist entry の folder。 |
 
-dropdown の表示順は `すべて`、preset、playlist 単体である。preset は `Settings.Default.PlayHistoryDisplayTargetSetsJson` に JSON として保存し、設定ダイアログの Playlist tab で追加 / 編集 / 削除する。JSON は target set name と、`PlaylistId` / `PlaylistName` / `PlaylistSymbol`、任意の `FolderLabel` を持つ reference 配列で構成する。playlist 正本、playlist entries、`playlist.last_update` は変更しない。
+dropdown の表示順は `すべて`、preset、`FOLDER: preset`、playlist 単体である。preset は `Settings.Default.PlayHistoryDisplayTargetSetsJson` に JSON として保存し、設定ダイアログの Playlist tab で追加 / 編集 / 削除する。JSON は target set name と、`PlaylistId` / `PlaylistName` / `PlaylistSymbol`、任意の `FolderLabel` を持つ reference 配列で構成する。playlist 正本、playlist entries、`playlist.last_update` は変更しない。
 
-display target filter は projection 後、keyword search 前に適用する。target 変更では、同じ期間 request の projection result を再利用して target filter / keyword filter / sort だけを再適用する。対象 playlist entries の読み込みが必要な場合は playlist entries hydration を使うが、playlist reload / external sync / `.bmt` 再出力は起動しない。
+display target filter / FOLDER projection は projection 後、keyword search 前に適用する。target 変更では、同じ期間 request の projection result を再利用して target filter / FOLDER projection / keyword filter / sort だけを再適用する。対象 playlist entries の読み込みが必要な場合は playlist entries hydration を使うが、playlist reload / external sync / `.bmt` 再出力は起動しない。
 
 ## Diagnostics
 

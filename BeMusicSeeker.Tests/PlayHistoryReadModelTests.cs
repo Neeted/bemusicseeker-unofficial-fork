@@ -558,6 +558,37 @@ public sealed class PlayHistoryReadModelTests
     }
 
     [TestMethod]
+    public void PlayHistoryDisplayTargetIndex_TargetSetProjectionOnlyKeepsRowsAndClearsUnmatchedFolder()
+    {
+        PlayHistoryRow matchingRow = CreateProjectedRow(HashA, initialFolderLabels: "Original");
+        PlayHistoryRow otherRow = CreateProjectedRow(HashB, initialFolderLabels: "Original");
+        BMSTable table = CreateTargetTable(HashA, "Alpha");
+        PlayHistoryDisplayTargetItem target = PlayHistoryDisplayTargetItem.FromTargetSetProjectionOnly(new PlayHistoryDisplayTargetSet
+        {
+            Name = "SAT Alpha",
+            Targets =
+            [
+                new PlayHistoryDisplayTargetReference
+                {
+                    PlaylistSymbol = "SAT",
+                    FolderLabel = "Alpha"
+                }
+            ]
+        });
+        PlayHistoryDisplayTargetIndex index = PlayHistoryDisplayTargetIndex.Create(target, [table], _ => { });
+
+        bool matched = index.TryApply(matchingRow, out PlayHistoryRow displayRow);
+        bool otherMatched = index.TryApply(otherRow, out PlayHistoryRow otherDisplayRow);
+
+        Assert.IsTrue(matched);
+        Assert.IsTrue(otherMatched);
+        Assert.IsFalse(target.IsFiltering);
+        Assert.IsTrue(target.UsesProjection);
+        Assert.AreEqual("SATAlpha", displayRow.FolderLabels);
+        Assert.AreEqual(string.Empty, otherDisplayRow.FolderLabels);
+    }
+
+    [TestMethod]
     public void PlayHistoryDisplayTargetIndex_TargetSetUsesPlaylistIdBeforeNameFallback()
     {
         PlayHistoryRow idMatchRow = CreateProjectedRow(HashA);

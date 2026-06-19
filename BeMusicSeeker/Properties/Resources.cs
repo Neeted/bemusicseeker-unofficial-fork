@@ -473,6 +473,8 @@ public class Resources
 
     public static string Play_history_display_target_set_format => ResourceManager.GetString("Play_history_display_target_set_format", resourceCulture);
 
+    public static string Play_history_display_target_folder_only_set_format => ResourceManager.GetString("Play_history_display_target_folder_only_set_format", resourceCulture);
+
     public static string Play_history_folder_display_preset => ResourceManager.GetString("Play_history_folder_display_preset", resourceCulture);
 
     public static string Play_history_folder_display_preset_name => ResourceManager.GetString("Play_history_folder_display_preset_name", resourceCulture);

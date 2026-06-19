@@ -17238,6 +17238,7 @@ public class MainWindowViewModel : ViewModel
         string selectedIdentity = previousSelected.Identity;
         List<PlayHistoryDisplayTargetItem> nextItems = [PlayHistoryDisplayTargetItem.All];
         nextItems.AddRange(playHistoryDisplayTargetSets.Select(PlayHistoryDisplayTargetItem.FromTargetSet));
+        nextItems.AddRange(playHistoryDisplayTargetSets.Select(PlayHistoryDisplayTargetItem.FromTargetSetProjectionOnly));
         try
         {
             tables?.AcquireReaderLockBMSTables();
@@ -17264,7 +17265,7 @@ public class MainWindowViewModel : ViewModel
             _SelectedPlayHistoryDisplayTarget = selected;
             RaisePropertyChanged("SelectedPlayHistoryDisplayTarget");
             if (queueRefreshWhenSelectionChanges
-                && (previousSelected.IsFiltering || selected.IsFiltering))
+                && (previousSelected.UsesProjection || selected.UsesProjection))
             {
                 QueuePlayHistoryDisplayTargetRefresh();
             }
@@ -18762,7 +18763,7 @@ public class MainWindowViewModel : ViewModel
         {
             TryCompleteStartupProgressPlaylistEntriesHydration(tables.PlaylistEntriesHydrationCompletedVersion);
             ScheduleDeferredPlaylistReferenceApply("PlaylistEntriesHydration");
-            if (SelectedPlayHistoryDisplayTarget.IsFiltering)
+            if (SelectedPlayHistoryDisplayTarget.UsesProjection)
             {
                 QueuePlayHistoryDisplayTargetRefresh();
             }
@@ -20925,7 +20926,7 @@ public class MainWindowViewModel : ViewModel
     {
         IReadOnlyList<PlayHistoryRow> safeRows = rows ?? [];
         PlayHistoryDisplayTargetItem safeTarget = displayTarget ?? PlayHistoryDisplayTargetItem.All;
-        if (!safeTarget.IsFiltering)
+        if (!safeTarget.UsesProjection)
         {
             return safeRows;
         }
@@ -20991,8 +20992,10 @@ public class MainWindowViewModel : ViewModel
             "period=" + (periodRequest?.Kind.ToString() ?? string.Empty)
             + " requestId=" + requestId
             + " targetKind=" + safeTarget.Kind
+            + " targetMode=" + safeTarget.Mode
             + " targetIdentity=" + QuotePlayHistoryLogValue(safeTarget.Identity)
-            + " active=" + safeTarget.IsFiltering.ToString().ToLowerInvariant()
+            + " active=" + safeTarget.UsesProjection.ToString().ToLowerInvariant()
+            + " rowFiltering=" + safeTarget.IsFiltering.ToString().ToLowerInvariant()
             + " sourceCount=" + sourceCount
             + " targetCount=" + targetCount);
     }

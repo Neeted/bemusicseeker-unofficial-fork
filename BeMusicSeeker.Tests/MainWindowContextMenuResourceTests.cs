@@ -220,7 +220,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(viewModelCode, "ApplyPlayHistoryView(mode, requestedMode, parameter, viewBuildStopwatch);");
         StringAssert.Contains(presentationOnly, "state.AllProjectedRows");
         StringAssert.Contains(presentationOnly, "ApplyPlayHistoryDisplayTargetRows(state.AllProjectedRows, displayTarget, state.RequestId, displayTargetRevision, cancellationToken)");
-        StringAssert.Contains(viewModelCode, "if (SelectedPlayHistoryDisplayTarget.IsFiltering)");
+        StringAssert.Contains(viewModelCode, "if (SelectedPlayHistoryDisplayTarget.UsesProjection)");
         StringAssert.Contains(presentationOnly, "state.FilterSourceRows");
         StringAssert.Contains(presentationOnly, "ApplyPlayHistoryKeywordFilterRows");
         StringAssert.Contains(presentationOnly, "requestedMode == viewUpdateMode.SortUpdated && keywordStateStale");
@@ -236,7 +236,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(queueDisplayTarget, "Interlocked.CompareExchange(ref playHistoryDisplayTargetQueuedRevision");
         StringAssert.Contains(applySortedRows, "QueuePlayHistoryDisplayTargetRefresh(advanceRevision: false)");
         StringAssert.Contains(flushPendingUiRefresh, "RefreshPlayHistoryDisplayTargets();");
-        StringAssert.Contains(playlistEntriesHydrationHandler, "if (SelectedPlayHistoryDisplayTarget.IsFiltering)");
+        StringAssert.Contains(playlistEntriesHydrationHandler, "if (SelectedPlayHistoryDisplayTarget.UsesProjection)");
         StringAssert.Contains(playlistEntriesHydrationHandler, "QueuePlayHistoryDisplayTargetRefresh();");
         StringAssert.Contains(viewModelCode, "playHistoryKeywordFilterRevision");
         StringAssert.Contains(viewModelCode, "playHistoryKeywordFilterQueuedRevision");
@@ -270,7 +270,9 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(toolbar, "SelectedItem=\"{Binding SelectedPlayHistoryDisplayTarget, Mode=TwoWay}\"");
         StringAssert.Contains(toolbar, "DisplayMemberPath=\"DisplayName\"");
         StringAssert.Contains(viewModelCode, "nextItems.AddRange(playHistoryDisplayTargetSets.Select(PlayHistoryDisplayTargetItem.FromTargetSet));");
+        StringAssert.Contains(viewModelCode, "nextItems.AddRange(playHistoryDisplayTargetSets.Select(PlayHistoryDisplayTargetItem.FromTargetSetProjectionOnly));");
         StringAssert.Contains(viewModelCode, ".Select(PlayHistoryDisplayTargetItem.FromPlaylist));");
+        Assert.IsFalse(string.IsNullOrWhiteSpace(Resources.Play_history_display_target_folder_only_set_format));
         StringAssert.Contains(settingDialogXaml, "Path=Resources.Play_history_folder_display_preset, Mode=OneWay");
         StringAssert.Contains(settingDialogXaml, "ItemsSource=\"{Binding settingDialog.PlayHistoryFolderDisplayPresets}\"");
         Assert.IsFalse(settingDialogXaml.Contains("ItemsSource=\"{Binding settingDialog.PlayHistoryFolderDisplayPresetPlaylistOptions}\""));

@@ -191,12 +191,18 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             Assert.IsTrue(dialog.PersistPlayHistoryFolderDisplayPresetsIfChanged());
             Assert.IsFalse(string.IsNullOrWhiteSpace(Settings.Default.PlayHistoryDisplayTargetSetsJson));
 
-            Assert.AreEqual(5, viewModel.PlayHistoryDisplayTargets.Count);
+            Assert.AreEqual(7, viewModel.PlayHistoryDisplayTargets.Count);
             Assert.AreEqual(PlayHistoryDisplayTargetKind.All, viewModel.PlayHistoryDisplayTargets[0].Kind);
             Assert.AreEqual(PlayHistoryDisplayTargetKind.TargetSet, viewModel.PlayHistoryDisplayTargets[1].Kind);
             Assert.AreEqual(PlayHistoryDisplayTargetKind.TargetSet, viewModel.PlayHistoryDisplayTargets[2].Kind);
-            Assert.AreEqual(PlayHistoryDisplayTargetKind.Playlist, viewModel.PlayHistoryDisplayTargets[3].Kind);
-            Assert.AreEqual(PlayHistoryDisplayTargetKind.Playlist, viewModel.PlayHistoryDisplayTargets[4].Kind);
+            Assert.AreEqual(PlayHistoryDisplayTargetMode.FilterAndProject, viewModel.PlayHistoryDisplayTargets[1].Mode);
+            Assert.AreEqual(PlayHistoryDisplayTargetMode.FilterAndProject, viewModel.PlayHistoryDisplayTargets[2].Mode);
+            Assert.AreEqual(PlayHistoryDisplayTargetKind.TargetSet, viewModel.PlayHistoryDisplayTargets[3].Kind);
+            Assert.AreEqual(PlayHistoryDisplayTargetKind.TargetSet, viewModel.PlayHistoryDisplayTargets[4].Kind);
+            Assert.AreEqual(PlayHistoryDisplayTargetMode.ProjectOnly, viewModel.PlayHistoryDisplayTargets[3].Mode);
+            Assert.AreEqual(PlayHistoryDisplayTargetMode.ProjectOnly, viewModel.PlayHistoryDisplayTargets[4].Mode);
+            Assert.AreEqual(PlayHistoryDisplayTargetKind.Playlist, viewModel.PlayHistoryDisplayTargets[5].Kind);
+            Assert.AreEqual(PlayHistoryDisplayTargetKind.Playlist, viewModel.PlayHistoryDisplayTargets[6].Kind);
         }
         finally
         {

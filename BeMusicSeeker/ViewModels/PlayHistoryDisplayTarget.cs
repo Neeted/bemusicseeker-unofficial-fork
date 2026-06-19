@@ -16,16 +16,31 @@ public enum PlayHistoryDisplayTargetKind
     TargetSet
 }
 
+internal enum PlayHistoryDisplayTargetMode
+{
+    /// <summary>
+    /// 対象 playlist / preset に一致する履歴だけを残し、FOLDER も同じ対象で投影します。
+    /// </summary>
+    FilterAndProject,
+
+    /// <summary>
+    /// 履歴行は落とさず、FOLDER だけを対象 preset で投影します。
+    /// </summary>
+    ProjectOnly
+}
+
 public sealed class PlayHistoryDisplayTargetItem
 {
     private PlayHistoryDisplayTargetItem(
         PlayHistoryDisplayTargetKind kind,
+        PlayHistoryDisplayTargetMode mode,
         string identity,
         string displayName,
         BMSTable table,
         PlayHistoryDisplayTargetSet targetSet)
     {
         Kind = kind;
+        Mode = mode;
         Identity = identity ?? string.Empty;
         DisplayName = displayName ?? string.Empty;
         Table = table;
@@ -33,6 +48,8 @@ public sealed class PlayHistoryDisplayTargetItem
     }
 
     internal PlayHistoryDisplayTargetKind Kind { get; }
+
+    internal PlayHistoryDisplayTargetMode Mode { get; }
 
     internal string Identity { get; }
 
@@ -42,7 +59,9 @@ public sealed class PlayHistoryDisplayTargetItem
 
     internal PlayHistoryDisplayTargetSet TargetSet { get; }
 
-    internal bool IsFiltering => Kind != PlayHistoryDisplayTargetKind.All;
+    internal bool UsesProjection => Kind != PlayHistoryDisplayTargetKind.All;
+
+    internal bool IsFiltering => UsesProjection && Mode == PlayHistoryDisplayTargetMode.FilterAndProject;
 
     /// <summary>
     /// 現在の表示言語で作った「すべて」表示対象を取得します。
@@ -58,6 +77,7 @@ public sealed class PlayHistoryDisplayTargetItem
     {
         return new PlayHistoryDisplayTargetItem(
             PlayHistoryDisplayTargetKind.All,
+            PlayHistoryDisplayTargetMode.FilterAndProject,
             "all",
             BeMusicSeeker.Properties.Resources.Play_history_period_all,
             null,
@@ -73,6 +93,7 @@ public sealed class PlayHistoryDisplayTargetItem
             : table.name;
         return new PlayHistoryDisplayTargetItem(
             PlayHistoryDisplayTargetKind.Playlist,
+            PlayHistoryDisplayTargetMode.FilterAndProject,
             "playlist:" + id,
             string.IsNullOrWhiteSpace(name) ? "(playlist)" : name,
             table,
@@ -81,13 +102,30 @@ public sealed class PlayHistoryDisplayTargetItem
 
     internal static PlayHistoryDisplayTargetItem FromTargetSet(PlayHistoryDisplayTargetSet targetSet)
     {
+        return FromTargetSet(targetSet, PlayHistoryDisplayTargetMode.FilterAndProject);
+    }
+
+    internal static PlayHistoryDisplayTargetItem FromTargetSetProjectionOnly(PlayHistoryDisplayTargetSet targetSet)
+    {
+        return FromTargetSet(targetSet, PlayHistoryDisplayTargetMode.ProjectOnly);
+    }
+
+    private static PlayHistoryDisplayTargetItem FromTargetSet(PlayHistoryDisplayTargetSet targetSet, PlayHistoryDisplayTargetMode mode)
+    {
         string name = string.IsNullOrWhiteSpace(targetSet?.Name)
             ? "(set)"
             : targetSet.Name.Trim();
+        bool projectOnly = mode == PlayHistoryDisplayTargetMode.ProjectOnly;
         return new PlayHistoryDisplayTargetItem(
             PlayHistoryDisplayTargetKind.TargetSet,
-            "set:" + name.ToUpperInvariant(),
-            string.Format(CultureInfo.CurrentCulture, BeMusicSeeker.Properties.Resources.Play_history_display_target_set_format, name),
+            mode,
+            (projectOnly ? "set-folder:" : "set:") + name.ToUpperInvariant(),
+            string.Format(
+                CultureInfo.CurrentCulture,
+                projectOnly
+                    ? BeMusicSeeker.Properties.Resources.Play_history_display_target_folder_only_set_format
+                    : BeMusicSeeker.Properties.Resources.Play_history_display_target_set_format,
+                name),
             null,
             targetSet);
     }
@@ -299,8 +337,18 @@ internal sealed class PlayHistoryDisplayTargetIndex
         List<PlayHistoryDisplayTargetMatch> matches = ResolveMatches(row);
         if (matches.Count == 0)
         {
-            displayRow = target.Kind == PlayHistoryDisplayTargetKind.All ? row : null;
-            return target.Kind == PlayHistoryDisplayTargetKind.All;
+            if (target.Kind == PlayHistoryDisplayTargetKind.All)
+            {
+                displayRow = row;
+                return true;
+            }
+            if (target.IsFiltering)
+            {
+                displayRow = null;
+                return false;
+            }
+            displayRow = row.WithPlaylistDisplay(string.Empty);
+            return true;
         }
         string folderLabels = string.Join(
             " ",
