@@ -653,8 +653,10 @@ Play history view 用の keyword search context を追加する。既存 chart l
 
 作業:
 
-- [ ] 設定画面またはメンテナンスに play history status を表示する。
-- [ ] `finalized = 0` や異常値を診断表示に出す。
+- [x] 設定画面またはメンテナンスに play history status を表示する。
+  - 実装済み: `設定 > LR2と連携する` 配下の `Lr2PlayHistorySchemaStatusText` / detail tooltip / refresh / install / repair。
+- [x] `finalized = 0` や異常値を診断表示に出す。
+  - 実装済み: `未確定 / 診断` node と summary diagnostics。projection/read diagnostics は summary と log に出す。
 - [x] `LR2 score DB に履歴 trigger を導入する` 操作の注意文を追加する。
 - [x] backup 対象に score DB を含める注意を更新する。
 - [x] `docs/manual.ja.md` に `プレイログ` 章、`docs/manual.md` に対応する英語章を追加する。
@@ -664,7 +666,10 @@ Play history view 用の keyword search context を追加する。既存 chart l
 
 テスト:
 
-- [ ] schema missing / trigger missing / locked / read-only の表示確認。
+- [x] schema missing / trigger missing / unreadable / manual repair required の表示確認。
+  - 自動テスト済み: `Lr2PlayHistorySchemaUiTests`, `Lr2PlayHistorySchemaServiceTests`, `PlayHistoryReadModelTests`。
+- [ ] locked / read-only の実環境表示確認。
+  - SQLite / Windows file lock 状態に依存するため、自動テストではなく実画面または手動検証として残す。
 - [ ] manual 画像更新は UI mock ではなく実画面 screenshot で行う。日英 manual の参照画像・説明が同じ実装状態を指すようにする。
 
 完了条件:
@@ -714,7 +719,7 @@ Play history view 用の keyword search context を追加する。既存 chart l
 | Phase 3 | 完了 | Play log tree と table UI は固定期間 + 年 / 月 / 日 archive node で動作。DnD / cell edit / activation / 通常 context menu guard、PlayHistory 専用 hash-only context menu まで完了 |
 | Phase 4 | 完了 | LAST PLAY SORT custom folder が出力され、schema guard / cleanup / NULL sort command の検証まで完了 |
 | Phase 5 | 完了 | keyword search と `すべて` / playlist / 表示対象セット dropdown filter が動作し、settings JSON 保存形式まで追加済み |
-| Phase 6 | 進行中 | 最小 manual、summary 診断、現行仕様 spec、log contract は追加済み。maintenance 診断表示と実画面 screenshot が残る |
+| Phase 6 | 進行中 | status 表示、summary 診断、現行仕様 spec、log contract は追加済み。locked / read-only 実環境確認と実画面 screenshot が残る |
 | Phase 7 | 未着手 | beatoraja provider が同じ UI に載る |
 
 ## 作業記録
@@ -735,6 +740,7 @@ Play history view 用の keyword search context を追加する。既存 chart l
 - 2026-06-19: Phase 0 / Phase 6 spec 整理として `devdocs/spec/play-history.md` を追加し、LR2 schema / read model / projection / period UI / diagnostics / LAST PLAY SORT の現行仕様と、当時未実装だった Phase 5 / Phase 7 の scope を分離した。
 - 2026-06-19: Phase 6 manual 整理として、`docs/manual.ja.md` / `docs/manual.md` に LR2 play-log schema 有効化 / 修復が player `score.db` へ table / index / trigger を追加・修復することと、backup 対象に score DB を含める注意を追記した。
 - 2026-06-19: Phase 6 log contract として、PlayHistory view build に `play_history_read_done` / `play_history_read_period_index_*` / `play_history_projection_*` / `play_history_view_*` の段階別 event を追加し、専用 event 名・主要 field・projection fallback の理由を静的テストで固定した。
+- 2026-06-19: Phase 6 進捗整理として、設定画面の play history schema status 表示、`未確定 / 診断` node、schema missing / trigger missing / unreadable / manual repair required の自動テストが実装済みであることを計画表へ反映した。locked / read-only の実環境確認と実画面 screenshot は手動検証として残す。
 - 2026-06-19: Phase 5 keyword search として `GridKeywordSearchContext.PlayHistory`、`PlayHistoryRow` matcher、PlayHistory 用 field completion/help、PlayHistory view の projection 後 keyword filter を追加した。この時点では表示対象セット / dropdown filter は後続作業として残っていた。
 - 2026-06-19: Phase 5 display target として、PlayHistory 右上に `すべて` / playlist / settings JSON の表示対象セット dropdown を追加し、target filter を projection 後・keyword filter 前に適用する read model を追加した。playlist 選択時の FOLDER は playlist entry folder、target set 選択時は `org_symbol + level` 表示とし、対象外 row は除外する。`Settings.Default.PlayHistoryDisplayTargetSetsJson` は portable settings と同じ provider 管理対象で、初期実装では編集 UI や app-owned DB table は追加しない。
 - 2026-06-19: Phase 5 display target のサブエージェントレビューを挙動 / 性能 / テスト充足の観点で実施し、PlaylistTree flush 時の target 再構築、playlist entries hydration 完了時の不要 refresh 抑止、MD5 優先 lookup、空 folder 表示、stale target filter cancellation、settings / XAML / refresh 経路の静的テストを追加した。再レビューで P0 / P1 指摘なしを確認した。
