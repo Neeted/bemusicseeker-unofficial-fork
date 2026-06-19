@@ -221,25 +221,12 @@ public partial class SettingDialog : UserControl, IComponentConnector
         }
     }
 
-    private async void refreshLr2PlayHistorySchemaButtonClicked(object sender, RoutedEventArgs e)
+    private async void installOrRepairLr2PlayHistorySchemaButtonClicked(object sender, RoutedEventArgs e)
     {
-        if (base.DataContext is MainWindowViewModel { settingDialog: { } settingDialogViewModel })
-        {
-            await RefreshLr2PlayHistorySchemaStatusAsync(settingDialogViewModel, force: true);
-        }
+        await InstallOrRepairLr2PlayHistorySchemaAsync();
     }
 
-    private async void installLr2PlayHistorySchemaButtonClicked(object sender, RoutedEventArgs e)
-    {
-        await InstallOrRepairLr2PlayHistorySchemaAsync(isRepair: false);
-    }
-
-    private async void repairLr2PlayHistorySchemaButtonClicked(object sender, RoutedEventArgs e)
-    {
-        await InstallOrRepairLr2PlayHistorySchemaAsync(isRepair: true);
-    }
-
-    private async Task InstallOrRepairLr2PlayHistorySchemaAsync(bool isRepair)
+    private async Task InstallOrRepairLr2PlayHistorySchemaAsync()
     {
         if (base.DataContext is not MainWindowViewModel { settingDialog: { } settingDialogViewModel } viewModel)
         {
@@ -252,8 +239,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
         }
 
         await RefreshLr2PlayHistorySchemaStatusAsync(settingDialogViewModel, force: true);
-        if ((isRepair && !settingDialogViewModel.CanRepairLr2PlayHistorySchema)
-            || (!isRepair && !settingDialogViewModel.CanInstallLr2PlayHistorySchema))
+        if (!settingDialogViewModel.CanInstallOrRepairLr2PlayHistorySchema)
         {
             return;
         }
@@ -307,6 +293,101 @@ public partial class SettingDialog : UserControl, IComponentConnector
         {
             settingDialogRootGrid.IsEnabled = true;
         }
+    }
+
+    private async void uninstallLr2PlayHistorySchemaButtonClicked(object sender, RoutedEventArgs e)
+    {
+        if (base.DataContext is not MainWindowViewModel { settingDialog: { } settingDialogViewModel } viewModel)
+        {
+            return;
+        }
+        if (viewModel.IsLibraryOperationInProgress)
+        {
+            DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_settings_apply_blocked_during_initialization, BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation);
+            return;
+        }
+
+        await RefreshLr2PlayHistorySchemaStatusAsync(settingDialogViewModel, force: false);
+        Lr2PlayHistorySchemaCheckResult before = settingDialogViewModel.Lr2PlayHistorySchemaCheckResult;
+        if (before == null || !settingDialogViewModel.CanUninstallLr2PlayHistorySchema)
+        {
+            return;
+        }
+        if (before.Status == Lr2PlayHistorySchemaStatus.NotInstalled)
+        {
+            DispatcherMessageBox.Show(
+                Window.GetWindow(this),
+                BeMusicSeeker.Properties.Resources.Msg_lr2_play_history_schema_uninstall_not_installed,
+                BeMusicSeeker.Properties.Resources.Information,
+                MessageBoxButton.OK,
+                MessageBoxImage.Asterisk);
+            return;
+        }
+        if (before.Status is Lr2PlayHistorySchemaStatus.SkippedProfile or Lr2PlayHistorySchemaStatus.Unreadable)
+        {
+            DispatcherMessageBox.Show(
+                Window.GetWindow(this),
+                before.Message,
+                BeMusicSeeker.Properties.Resources.Warning,
+                MessageBoxButton.OK,
+                MessageBoxImage.Exclamation);
+            return;
+        }
+
+        var dialog = new Lr2PlayHistorySchemaUninstallDialog(settingDialogViewModel.Lr2PlayHistoryScoreDbPath)
+        {
+            Owner = Window.GetWindow(this)
+        };
+        if (dialog.ShowDialog() != true)
+        {
+            return;
+        }
+
+        Lr2PlayHistorySchemaUninstallMode uninstallMode = dialog.SelectedMode;
+        settingDialogRootGrid.IsEnabled = false;
+        try
+        {
+            Lr2PlayHistorySchemaCheckResult result = await Task.Run(() =>
+                settingDialogViewModel.UninstallLr2PlayHistorySchemaCore(uninstallMode));
+            settingDialogViewModel.ApplyLr2PlayHistorySchemaCheckResult(result);
+            if (IsExpectedLr2PlayHistorySchemaUninstallResult(uninstallMode, result.Status))
+            {
+                DispatcherMessageBox.Show(
+                    Window.GetWindow(this),
+                    BeMusicSeeker.Properties.Resources.Msg_success_lr2_play_history_schema_uninstall,
+                    BeMusicSeeker.Properties.Resources.Success,
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Asterisk);
+                if (viewModel.HasActiveLibraryProfile)
+                {
+                    viewModel.ReloadScoresOnly();
+                }
+                return;
+            }
+
+            DispatcherMessageBox.Show(
+                Window.GetWindow(this),
+                result.Message,
+                BeMusicSeeker.Properties.Resources.Warning,
+                MessageBoxButton.OK,
+                MessageBoxImage.Exclamation);
+        }
+        catch (Exception ex)
+        {
+            DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + Environment.NewLine + ex.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxButton.OK, MessageBoxImage.Hand);
+        }
+        finally
+        {
+            settingDialogRootGrid.IsEnabled = true;
+        }
+    }
+
+    private static bool IsExpectedLr2PlayHistorySchemaUninstallResult(
+        Lr2PlayHistorySchemaUninstallMode uninstallMode,
+        Lr2PlayHistorySchemaStatus status)
+    {
+        return (uninstallMode == Lr2PlayHistorySchemaUninstallMode.TriggersOnly && status == Lr2PlayHistorySchemaStatus.Repairable)
+            || (uninstallMode == Lr2PlayHistorySchemaUninstallMode.TablesAndTriggers && status == Lr2PlayHistorySchemaStatus.NotInstalled);
     }
 
     private static async Task RefreshLr2PlayHistorySchemaStatusAsync(MainWindowViewModel.SettingDialogViewModel settingDialogViewModel, bool force)

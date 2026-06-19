@@ -419,11 +419,27 @@ public class Resources
 
     public static string Lr2_play_history_schema_label => ResourceManager.GetString("Lr2_play_history_schema_label", resourceCulture);
 
-    public static string Lr2_play_history_schema_refresh => ResourceManager.GetString("Lr2_play_history_schema_refresh", resourceCulture);
-
     public static string Lr2_play_history_schema_install => ResourceManager.GetString("Lr2_play_history_schema_install", resourceCulture);
 
     public static string Lr2_play_history_schema_repair => ResourceManager.GetString("Lr2_play_history_schema_repair", resourceCulture);
+
+    public static string Lr2_play_history_schema_install_or_repair => ResourceManager.GetString("Lr2_play_history_schema_install_or_repair", resourceCulture);
+
+    public static string Lr2_play_history_schema_uninstall => ResourceManager.GetString("Lr2_play_history_schema_uninstall", resourceCulture);
+
+    public static string Lr2_play_history_schema_uninstall_title => ResourceManager.GetString("Lr2_play_history_schema_uninstall_title", resourceCulture);
+
+    public static string Lr2_play_history_schema_uninstall_desc => ResourceManager.GetString("Lr2_play_history_schema_uninstall_desc", resourceCulture);
+
+    public static string Lr2_play_history_schema_uninstall_score_db => ResourceManager.GetString("Lr2_play_history_schema_uninstall_score_db", resourceCulture);
+
+    public static string Lr2_play_history_schema_uninstall_mode => ResourceManager.GetString("Lr2_play_history_schema_uninstall_mode", resourceCulture);
+
+    public static string Lr2_play_history_schema_uninstall_triggers_only => ResourceManager.GetString("Lr2_play_history_schema_uninstall_triggers_only", resourceCulture);
+
+    public static string Lr2_play_history_schema_uninstall_tables_and_triggers => ResourceManager.GetString("Lr2_play_history_schema_uninstall_tables_and_triggers", resourceCulture);
+
+    public static string Lr2_play_history_schema_uninstall_warning => ResourceManager.GetString("Lr2_play_history_schema_uninstall_warning", resourceCulture);
 
     public static string Lr2_play_history_schema_status_unknown => ResourceManager.GetString("Lr2_play_history_schema_status_unknown", resourceCulture);
 
@@ -502,6 +518,10 @@ public class Resources
     public static string Msg_confirm_lr2_play_history_schema_install_or_repair => ResourceManager.GetString("Msg_confirm_lr2_play_history_schema_install_or_repair", resourceCulture);
 
     public static string Msg_success_lr2_play_history_schema_install_or_repair => ResourceManager.GetString("Msg_success_lr2_play_history_schema_install_or_repair", resourceCulture);
+
+    public static string Msg_lr2_play_history_schema_uninstall_not_installed => ResourceManager.GetString("Msg_lr2_play_history_schema_uninstall_not_installed", resourceCulture);
+
+    public static string Msg_success_lr2_play_history_schema_uninstall => ResourceManager.GetString("Msg_success_lr2_play_history_schema_uninstall", resourceCulture);
 
     public static string Lr2_song_db_sync_cleanup_startup_scan_blockers => ResourceManager.GetString("Lr2_song_db_sync_cleanup_startup_scan_blockers", resourceCulture);
 

@@ -193,7 +193,9 @@ LAST PLAY SORT の `.lr2folder` 本文と LR2 `folder` row は固定 SQL project
 
 ## Settings And Manual Boundary
 
-設定画面の `LR2と連携する` 配下に LR2 play history schema status、refresh、install、repair の操作がある。install / repair は LR2 score DB へ table / index / trigger を追加するため、実行前に対象 DB を確認する必要がある。
+設定画面の `LR2と連携する` 配下に LR2 play history schema status と、状態別文言を持つ導入 / 修復の統合ボタンがある。install / repair は LR2 score DB へ table / index / trigger を追加するため、実行前に対象 DB を確認する必要がある。手動の状態確認ボタンは置かず、設定画面表示時と操作直前の read-only check で状態を更新する。
+
+LR2 play history schema の削除は `バックアップ > データのアンインストール` に置く。確認 dialog で対象 player score DB path を表示し、trigger のみ削除（今後の記録を停止し、既存履歴 table は保持）と、table も含めた削除（既存履歴も削除）を選択できる。
 
 manual は日本語 `docs/manual.ja.md` と英語 `docs/manual.md` を同時更新する。現行 manual は Play History view の最小説明、archive period tree、LAST PLAY SORT の概略を持つ。実画面 screenshot 更新は未実施である。
 

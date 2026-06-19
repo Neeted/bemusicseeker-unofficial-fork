@@ -71,18 +71,29 @@ public sealed class Lr2PlayHistorySchemaUiTests
         string root = FindRepositoryRoot();
         string xaml = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingDialog.xaml"));
         string codeBehind = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingDialog.cs"));
+        string uninstallDialogXaml = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "Lr2PlayHistorySchemaUninstallDialog.xaml"));
         string viewModel = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
         string resources = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Properties", "Resources.resx"));
         string resourceCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Properties", "Resources.cs"));
 
         Assert.AreEqual(1, CountOccurrences(xaml, "Path=Resources.Lr2_play_history_schema_label, Mode=OneWay"));
-        Assert.AreEqual(1, CountOccurrences(xaml, "Click=\"refreshLr2PlayHistorySchemaButtonClicked\""));
-        Assert.AreEqual(1, CountOccurrences(xaml, "Click=\"installLr2PlayHistorySchemaButtonClicked\""));
-        Assert.AreEqual(1, CountOccurrences(xaml, "Click=\"repairLr2PlayHistorySchemaButtonClicked\""));
+        Assert.AreEqual(0, CountOccurrences(xaml, "Click=\"refreshLr2PlayHistorySchemaButtonClicked\""));
+        Assert.AreEqual(0, CountOccurrences(xaml, "Click=\"installLr2PlayHistorySchemaButtonClicked\""));
+        Assert.AreEqual(0, CountOccurrences(xaml, "Click=\"repairLr2PlayHistorySchemaButtonClicked\""));
+        Assert.AreEqual(1, CountOccurrences(xaml, "Click=\"installOrRepairLr2PlayHistorySchemaButtonClicked\""));
         Assert.AreEqual(1, CountOccurrences(xaml, "Text=\"{Binding settingDialog.Lr2PlayHistorySchemaStatusText, Mode=OneWay}\""));
         Assert.AreEqual(1, CountOccurrences(xaml, "ToolTip=\"{Binding settingDialog.Lr2PlayHistorySchemaDetailText, Mode=OneWay}\""));
-        StringAssert.Contains(xaml, "IsEnabled=\"{Binding settingDialog.CanInstallLr2PlayHistorySchema, Mode=OneWay}\"");
-        StringAssert.Contains(xaml, "IsEnabled=\"{Binding settingDialog.CanRepairLr2PlayHistorySchema, Mode=OneWay}\"");
+        StringAssert.Contains(xaml, "Content=\"{Binding settingDialog.Lr2PlayHistorySchemaInstallOrRepairButtonText, Mode=OneWay}\"");
+        StringAssert.Contains(xaml, "IsEnabled=\"{Binding settingDialog.CanInstallOrRepairLr2PlayHistorySchema, Mode=OneWay}\"");
+        StringAssert.Contains(xaml, "Click=\"uninstallLr2PlayHistorySchemaButtonClicked\"");
+        StringAssert.Contains(xaml, "IsEnabled=\"{Binding settingDialog.CanUninstallLr2PlayHistorySchema, Mode=OneWay}\"");
+        StringAssert.Contains(uninstallDialogXaml, "Path=Resources.Lr2_play_history_schema_uninstall_title, Mode=OneWay");
+        StringAssert.Contains(uninstallDialogXaml, "Path=Resources.Lr2_play_history_schema_uninstall_desc, Mode=OneWay");
+        StringAssert.Contains(uninstallDialogXaml, "Path=Resources.Lr2_play_history_schema_uninstall_score_db, Mode=OneWay");
+        StringAssert.Contains(uninstallDialogXaml, "Path=Resources.Lr2_play_history_schema_uninstall_mode, Mode=OneWay");
+        StringAssert.Contains(uninstallDialogXaml, "Path=Resources.Lr2_play_history_schema_uninstall_triggers_only, Mode=OneWay");
+        StringAssert.Contains(uninstallDialogXaml, "Path=Resources.Lr2_play_history_schema_uninstall_tables_and_triggers, Mode=OneWay");
+        StringAssert.Contains(uninstallDialogXaml, "Path=Resources.Lr2_play_history_schema_uninstall_warning, Mode=OneWay");
         Assert.IsTrue(
             xaml.IndexOf("Lr2_song_db_sync_data_resync", StringComparison.Ordinal)
             < xaml.IndexOf("Lr2_play_history_schema_label", StringComparison.Ordinal));
@@ -104,11 +115,14 @@ public sealed class Lr2PlayHistorySchemaUiTests
         Assert.IsFalse(installHandler.Contains("SaveSettings("));
         Assert.IsFalse(installHandler.Contains("Settings.Default.Save"));
         Assert.IsFalse(installHandler.Contains("lr2config.Save"));
+        StringAssert.Contains(codeBehind, "private async void uninstallLr2PlayHistorySchemaButtonClicked");
+        StringAssert.Contains(codeBehind, "new Lr2PlayHistorySchemaUninstallDialog(settingDialogViewModel.Lr2PlayHistoryScoreDbPath)");
 
         StringAssert.Contains(viewModel, "Lr2ScoreDbPathResolver.ResolvePlayerScoreDbPath(Settings.Default.LR2RootPath, lr2config.GetPlayerId)");
         StringAssert.Contains(viewModel, "Lr2ScoreDbPathResolver.BuildPlayerScoreDbPath(Settings.Default.LR2RootPath, () => lr2config?.GetPlayerId())");
         StringAssert.Contains(viewModel, "new Lr2PlayHistorySchemaService().Check(scoreDbPath, isLr2LinkedProfile)");
         StringAssert.Contains(viewModel, "new Lr2PlayHistorySchemaService().InstallOrRepair(scoreDbPath, OperationModeLR2DB)");
+        StringAssert.Contains(viewModel, "new Lr2PlayHistorySchemaService().Uninstall(scoreDbPath, OperationModeLR2DB, uninstallMode)");
         StringAssert.Contains(viewModel, "play_history_schema_");
 
         foreach (string key in RequiredResourceKeys)
@@ -119,6 +133,12 @@ public sealed class Lr2PlayHistorySchemaUiTests
             {
                 StringAssert.Contains(File.ReadAllText(languagePath), "\"" + key + "\"");
             }
+        }
+        Assert.IsFalse(resources.Contains("name=\"Lr2_play_history_schema_refresh\""));
+        Assert.IsFalse(resourceCode.Contains("public static string Lr2_play_history_schema_refresh"));
+        foreach (string languagePath in Directory.GetFiles(Path.Combine(root, "lang"), "*.json"))
+        {
+            Assert.IsFalse(File.ReadAllText(languagePath).Contains("\"Lr2_play_history_schema_refresh\""));
         }
     }
 
@@ -171,9 +191,17 @@ public sealed class Lr2PlayHistorySchemaUiTests
     private static readonly string[] RequiredResourceKeys =
     [
         "Lr2_play_history_schema_label",
-        "Lr2_play_history_schema_refresh",
         "Lr2_play_history_schema_install",
         "Lr2_play_history_schema_repair",
+        "Lr2_play_history_schema_install_or_repair",
+        "Lr2_play_history_schema_uninstall",
+        "Lr2_play_history_schema_uninstall_title",
+        "Lr2_play_history_schema_uninstall_desc",
+        "Lr2_play_history_schema_uninstall_score_db",
+        "Lr2_play_history_schema_uninstall_mode",
+        "Lr2_play_history_schema_uninstall_triggers_only",
+        "Lr2_play_history_schema_uninstall_tables_and_triggers",
+        "Lr2_play_history_schema_uninstall_warning",
         "Lr2_play_history_schema_status_unknown",
         "Lr2_play_history_schema_status_installed",
         "Lr2_play_history_schema_status_not_installed",
@@ -182,6 +210,8 @@ public sealed class Lr2PlayHistorySchemaUiTests
         "Lr2_play_history_schema_status_unreadable",
         "Lr2_play_history_schema_status_skipped_profile",
         "Msg_confirm_lr2_play_history_schema_install_or_repair",
-        "Msg_success_lr2_play_history_schema_install_or_repair"
+        "Msg_success_lr2_play_history_schema_install_or_repair",
+        "Msg_lr2_play_history_schema_uninstall_not_installed",
+        "Msg_success_lr2_play_history_schema_uninstall"
     ];
 }

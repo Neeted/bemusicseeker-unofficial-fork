@@ -18,6 +18,22 @@ internal enum Lr2PlayHistorySchemaStatus
     SkippedProfile
 }
 
+/// <summary>
+/// LR2 play history schema のアンインストールで、記録停止だけにするか履歴データも削除するかを表します。
+/// </summary>
+internal enum Lr2PlayHistorySchemaUninstallMode
+{
+    /// <summary>
+    /// score/player table に設置した trigger だけを削除し、既存の履歴 table は保持します。
+    /// </summary>
+    TriggersOnly,
+
+    /// <summary>
+    /// trigger と BeMusicSeeker 管理の play history table/index を削除します。
+    /// </summary>
+    TablesAndTriggers
+}
+
 internal sealed class Lr2PlayHistorySchemaCheckResult
 {
     public Lr2PlayHistorySchemaStatus Status { get; set; }
@@ -66,6 +82,27 @@ internal sealed class Lr2PlayHistorySchemaService
     internal const string ScoreUpdateTriggerName = "bms_lr2_score_history_after_update_playcount";
     internal const string PlayerUpdateTriggerName = "bms_lr2_player_history_after_update";
     internal const string PlayerCleanupTriggerName = "bms_lr2_player_history_cleanup_stale_pending";
+
+    private static readonly string[] ExpectedTableNames =
+    [
+        LastPlayTableName,
+        PlayHistoryTableName,
+        PlayPendingTableName
+    ];
+
+    private static readonly string[] ExpectedIndexNames =
+    [
+        HashTimeIndexName,
+        TimeIndexName
+    ];
+
+    private static readonly string[] ExpectedTriggerNames =
+    [
+        ScoreInsertTriggerName,
+        ScoreUpdateTriggerName,
+        PlayerUpdateTriggerName,
+        PlayerCleanupTriggerName
+    ];
 
     private static readonly Regex WhitespaceRegex = new(@"\s+", RegexOptions.Compiled);
 
@@ -302,6 +339,86 @@ internal sealed class Lr2PlayHistorySchemaService
         }
 
         return Check(scoreDbPath, isLr2LinkedProfile);
+    }
+
+    /// <summary>
+    /// LR2 score DB に追加した play history schema を指定された範囲で削除します。
+    /// </summary>
+    /// <param name="scoreDbPath">対象の player score DB path。</param>
+    /// <param name="isLr2LinkedProfile">LR2 連携プロファイルとして操作してよい場合は <c>true</c>。</param>
+    /// <param name="mode">trigger のみ削除するか、履歴 table も削除するか。</param>
+    /// <returns>削除後に再確認した schema 状態。</returns>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="mode"/> が定義済みの削除範囲ではない場合。</exception>
+    public Lr2PlayHistorySchemaCheckResult Uninstall(string scoreDbPath, bool isLr2LinkedProfile, Lr2PlayHistorySchemaUninstallMode mode)
+    {
+        if (mode is not Lr2PlayHistorySchemaUninstallMode.TriggersOnly and not Lr2PlayHistorySchemaUninstallMode.TablesAndTriggers)
+        {
+            throw new ArgumentOutOfRangeException(nameof(mode), mode, "Unknown LR2 play history schema uninstall mode.");
+        }
+
+        Lr2PlayHistorySchemaCheckResult before = Check(scoreDbPath, isLr2LinkedProfile);
+        if (before.Status is Lr2PlayHistorySchemaStatus.SkippedProfile
+            or Lr2PlayHistorySchemaStatus.Unreadable
+            or Lr2PlayHistorySchemaStatus.NotInstalled)
+        {
+            return before;
+        }
+
+        try
+        {
+            using LR2ScoreDBExtended db = new(scoreDbPath);
+            ExecuteInTransaction(db, delegate
+            {
+                DropExpectedTriggers(db);
+                if (mode == Lr2PlayHistorySchemaUninstallMode.TablesAndTriggers)
+                {
+                    DropExpectedIndexesAndTables(db);
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            return CreateUnreadableResult(scoreDbPath, "Failed to uninstall play history schema: " + ex.Message);
+        }
+
+        return Check(scoreDbPath, isLr2LinkedProfile);
+    }
+
+    private static void DropExpectedTriggers(SQLiteConnection db)
+    {
+        Dictionary<string, string> objectTypesByName = LoadObjectTypes(db);
+        foreach (string triggerName in ExpectedTriggerNames)
+        {
+            if (HasExpectedObjectType(objectTypesByName, triggerName, "trigger"))
+            {
+                db.Execute("DROP TRIGGER IF EXISTS " + triggerName + ";");
+            }
+        }
+    }
+
+    private static void DropExpectedIndexesAndTables(SQLiteConnection db)
+    {
+        Dictionary<string, string> objectTypesByName = LoadObjectTypes(db);
+        foreach (string indexName in ExpectedIndexNames)
+        {
+            if (HasExpectedObjectType(objectTypesByName, indexName, "index"))
+            {
+                db.Execute("DROP INDEX IF EXISTS " + indexName + ";");
+            }
+        }
+        foreach (string tableName in ExpectedTableNames)
+        {
+            if (HasExpectedObjectType(objectTypesByName, tableName, "table"))
+            {
+                db.Execute("DROP TABLE IF EXISTS " + tableName + ";");
+            }
+        }
+    }
+
+    private static bool HasExpectedObjectType(Dictionary<string, string> objectTypesByName, string objectName, string expectedType)
+    {
+        return objectTypesByName.TryGetValue(objectName, out string actualType)
+            && string.Equals(actualType, expectedType, StringComparison.OrdinalIgnoreCase);
     }
 
     private static Lr2PlayHistorySchemaCheckResult CheckOpenConnection(LR2ScoreDBExtended db, string scoreDbPath)

@@ -329,7 +329,9 @@ Click a column header to sort. Many columns can be displayed, including `TITLE`,
 
 The `Play Log` tree shows LR2 or beatoraja play history in the main list. The list shows one provider selected from the current score source; it does not merge LR2 and beatoraja history at the same time. When beatoraja score DB use is enabled and beatoraja scores were actually loaded for the selected player, the beatoraja provider is used. Otherwise, the LR2 provider is used. For LR2, newly played charts become available after enabling the LR2 play-log schema in the settings dialog. For beatoraja, the view reads `scoredatalog.db` from the player folder selected in beatoraja integration.
 
-Enabling or repairing the LR2 play-log schema adds or repairs BeMusicSeeker tables, indexes, and triggers in the selected player's LR2 `score.db`. Before running it, confirm that the target player is correct and back up `score.db` in advance.
+Enable or repair the LR2 play-log schema from the button beside the LR2 Play Log status on the `General` tab of the settings dialog. The same button enables the schema when it is not installed and repairs it when tables, indexes, or triggers are partially missing or mismatched. It adds or repairs BeMusicSeeker tables, indexes, and triggers in the selected player's LR2 `score.db`. Before running it, confirm that the target player is correct and back up `score.db` in advance.
+
+To disable or delete the LR2 play log, use `Disable / delete LR2 play log...` under `Backup > Uninstall data` in the settings dialog. The confirmation dialog lets you remove only the triggers, which stops future recording while keeping existing history, or remove the history tables as well. Removing triggers only keeps the existing play-log history.
 
 The available periods are `All`, `Today`, `Yesterday`, `Recent 7 Days`, `Recent 30 Days`, `By Date`, and `Unfinalized / Diagnostics`. `By Date` builds year / month / day nodes from recorded history. Date ranges use local day boundaries, and the recent 7/30 day views include today. `Unfinalized / Diagnostics` shows LR2 unfinalized rows and is useful when checking schema, score DB, read, or projection problems. beatoraja does not have rows equivalent to LR2 `finalized = 0`, so this node does not substitute beatoraja's normal history rows.
 
@@ -815,7 +817,7 @@ This view checks missing WAV, BGA, video, image, and similar resources.
 
 From the `Backup` tab in the settings dialog, you can back up / restore playlists. `LR2 backup and optimization` configures the destination, targets, schedule, and generation count, and automatically creates backups on startup when conditions are met. After a successful backup, `song.db` and score DBs are also optimized using `VACUUM` / `REINDEX`. Simply configuring the setting does not immediately back up LR2-related files on the spot, so if you need a backup before a large update or uninstall, also make a manual copy.
 
-Before enabling or repairing the play-log schema, first-time LR2 linked setup, or major updates, include each player's `score.db` as well as LR2 `song.db` in your backup target.
+Before enabling or repairing the play-log schema, first-time LR2 linked setup, or major updates, include each player's `score.db` as well as LR2 `song.db` in your backup target. If you choose the option to remove tables from `Disable / delete LR2 play log...`, existing play-log history is deleted too, so back up `score.db` first if you need that history.
 
 In LR2 linked mode, BeMusicSeeker may add application tables and indexes to LR2's `song.db`. `Remove BeMusicSeeker-related data from LR2 database` deletes these BeMusicSeeker-managed data. This operation assumes you will exit the application afterward.
 

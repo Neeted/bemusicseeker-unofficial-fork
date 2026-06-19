@@ -351,6 +351,63 @@ public sealed class Lr2PlayHistorySchemaServiceTests
     }
 
     [TestMethod]
+    public void Uninstall_TriggersOnlyKeepsHistoryAndLeavesSchemaRepairable()
+    {
+        WithScoreDb(delegate (string scoreDbPath)
+        {
+            CreateBaseScoreDb(scoreDbPath);
+            var service = new Lr2PlayHistorySchemaService();
+            service.InstallOrRepair(scoreDbPath, isLr2LinkedProfile: true);
+            using (var db = new SQLiteConnection(scoreDbPath))
+            {
+                db.Execute("INSERT INTO bms_lr2_play_history (hash, played_at, score_write_type, new_playcount, playcount_delta) VALUES (?, ?, ?, ?, ?);",
+                    "ffffffffffffffffffffffffffffffff", 100, "insert", 1, 1);
+            }
+
+            Lr2PlayHistorySchemaCheckResult result = service.Uninstall(
+                scoreDbPath,
+                isLr2LinkedProfile: true,
+                Lr2PlayHistorySchemaUninstallMode.TriggersOnly);
+
+            Assert.AreEqual(Lr2PlayHistorySchemaStatus.Repairable, result.Status);
+            CollectionAssert.Contains(result.MissingTriggers, Lr2PlayHistorySchemaService.ScoreInsertTriggerName);
+            CollectionAssert.Contains(result.MissingTriggers, Lr2PlayHistorySchemaService.ScoreUpdateTriggerName);
+            CollectionAssert.Contains(result.MissingTriggers, Lr2PlayHistorySchemaService.PlayerUpdateTriggerName);
+            CollectionAssert.Contains(result.MissingTriggers, Lr2PlayHistorySchemaService.PlayerCleanupTriggerName);
+            using var verify = new SQLiteConnection(scoreDbPath);
+            AssertObjectExists(verify, "table", Lr2PlayHistorySchemaService.LastPlayTableName);
+            AssertObjectExists(verify, "table", Lr2PlayHistorySchemaService.PlayHistoryTableName);
+            AssertObjectExists(verify, "table", Lr2PlayHistorySchemaService.PlayPendingTableName);
+            AssertObjectExists(verify, "index", Lr2PlayHistorySchemaService.HashTimeIndexName);
+            AssertObjectExists(verify, "index", Lr2PlayHistorySchemaService.TimeIndexName);
+            AssertObjectDoesNotExist(verify, "trigger", Lr2PlayHistorySchemaService.ScoreInsertTriggerName);
+            Assert.AreEqual(1, verify.ExecuteScalar<int>("SELECT COUNT(1) FROM bms_lr2_play_history WHERE hash = ?;", "ffffffffffffffffffffffffffffffff"));
+        });
+    }
+
+    [TestMethod]
+    public void Uninstall_TablesAndTriggersRemovesPlayHistoryObjects()
+    {
+        WithScoreDb(delegate (string scoreDbPath)
+        {
+            CreateBaseScoreDb(scoreDbPath);
+            var service = new Lr2PlayHistorySchemaService();
+            service.InstallOrRepair(scoreDbPath, isLr2LinkedProfile: true);
+
+            Lr2PlayHistorySchemaCheckResult result = service.Uninstall(
+                scoreDbPath,
+                isLr2LinkedProfile: true,
+                Lr2PlayHistorySchemaUninstallMode.TablesAndTriggers);
+
+            Assert.AreEqual(Lr2PlayHistorySchemaStatus.NotInstalled, result.Status);
+            using var verify = new SQLiteConnection(scoreDbPath);
+            Assert.AreEqual(0, CountPlayHistoryObjects(verify));
+            AssertObjectExists(verify, "table", "score");
+            AssertObjectExists(verify, "table", "player");
+        });
+    }
+
+    [TestMethod]
     public void InstallSqlStatements_DoNotUseKnownSqlite367IncompatibleSyntax()
     {
         string sql = string.Join(Environment.NewLine, Lr2PlayHistorySchemaService.InstallSqlStatements);
@@ -423,6 +480,11 @@ public sealed class Lr2PlayHistorySchemaServiceTests
     private static void AssertObjectExists(SQLiteConnection db, string type, string name)
     {
         Assert.AreEqual(1, db.ExecuteScalar<int>("SELECT COUNT(1) FROM sqlite_master WHERE type = ? AND name = ?;", type, name), type + ":" + name);
+    }
+
+    private static void AssertObjectDoesNotExist(SQLiteConnection db, string type, string name)
+    {
+        Assert.AreEqual(0, db.ExecuteScalar<int>("SELECT COUNT(1) FROM sqlite_master WHERE type = ? AND name = ?;", type, name), type + ":" + name);
     }
 
     private sealed class PlayHistoryProbe

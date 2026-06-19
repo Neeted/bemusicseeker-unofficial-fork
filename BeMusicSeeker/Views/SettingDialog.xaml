@@ -169,9 +169,7 @@
                       <Label Grid.Column="0" Height="28" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Lr2_play_history_schema_label, Mode=OneWay}" />
                       <TextBlock Grid.Column="1" VerticalAlignment="Center" Margin="4,0,6,0" TextTrimming="CharacterEllipsis" Text="{Binding settingDialog.Lr2PlayHistorySchemaStatusText, Mode=OneWay}" ToolTip="{Binding settingDialog.Lr2PlayHistorySchemaDetailText, Mode=OneWay}" />
                       <StackPanel Grid.Column="2" Orientation="Horizontal">
-                        <Button Width="75" Height="24" Margin="0,0,4,0" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Lr2_play_history_schema_refresh, Mode=OneWay}" Click="refreshLr2PlayHistorySchemaButtonClicked" />
-                        <Button Width="130" Height="24" Margin="0,0,4,0" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Lr2_play_history_schema_install, Mode=OneWay}" IsEnabled="{Binding settingDialog.CanInstallLr2PlayHistorySchema, Mode=OneWay}" Click="installLr2PlayHistorySchemaButtonClicked" />
-                        <Button Width="75" Height="24" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Lr2_play_history_schema_repair, Mode=OneWay}" IsEnabled="{Binding settingDialog.CanRepairLr2PlayHistorySchema, Mode=OneWay}" Click="repairLr2PlayHistorySchemaButtonClicked" />
+                        <Button Width="130" Height="24" Content="{Binding settingDialog.Lr2PlayHistorySchemaInstallOrRepairButtonText, Mode=OneWay}" IsEnabled="{Binding settingDialog.CanInstallOrRepairLr2PlayHistorySchema, Mode=OneWay}" Click="installOrRepairLr2PlayHistorySchemaButtonClicked" />
                       </StackPanel>
                     </Grid>
                     <Grid Margin="10,0,0,4" IsEnabled="{Binding settingDialog.IsBmsSearchRootEditorEnabled}">
@@ -701,7 +699,10 @@
                   </Grid>
                 </GroupBox>
                 <GroupBox Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Backup_unistall, Mode=OneWay}">
-                  <Button Margin="10" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Backup_unistall_desc, Mode=OneWay}" IsEnabled="{Binding settingDialog.OperationModeLR2DB, Mode=OneWay}" Click="detailTabItemUninstallButtonClicked" />
+                  <StackPanel>
+                    <Button Margin="10,10,10,4" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Backup_unistall_desc, Mode=OneWay}" IsEnabled="{Binding settingDialog.OperationModeLR2DB, Mode=OneWay}" Click="detailTabItemUninstallButtonClicked" />
+                    <Button Margin="10,0,10,10" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Lr2_play_history_schema_uninstall, Mode=OneWay}" IsEnabled="{Binding settingDialog.CanUninstallLr2PlayHistorySchema, Mode=OneWay}" Click="uninstallLr2PlayHistorySchemaButtonClicked" />
+                  </StackPanel>
                 </GroupBox>
                 <GroupBox>
                   <HeaderedContentControl.Header>

@@ -1077,6 +1077,38 @@ public class MainWindowViewModel : ViewModel
 
         public bool CanRepairLr2PlayHistorySchema => Lr2PlayHistorySchemaStatusPresentation.Create(lr2PlayHistorySchemaCheckResult).CanRepair;
 
+        /// <summary>
+        /// LR2 play history schema に対して enable/repair のどちらかを実行できるかを返します。
+        /// UI では状態別にボタンを分けず、現在の schema 状態に応じて同じ操作境界へ集約します。
+        /// </summary>
+        public bool CanInstallOrRepairLr2PlayHistorySchema => CanInstallLr2PlayHistorySchema || CanRepairLr2PlayHistorySchema;
+
+        /// <summary>
+        /// LR2 play history schema の enable/repair 統合ボタンに表示する文言を返します。
+        /// </summary>
+        public string Lr2PlayHistorySchemaInstallOrRepairButtonText
+        {
+            get
+            {
+                Lr2PlayHistorySchemaStatusPresentation presentation = Lr2PlayHistorySchemaStatusPresentation.Create(lr2PlayHistorySchemaCheckResult);
+                if (presentation.CanInstall)
+                {
+                    return BeMusicSeeker.Properties.Resources.Lr2_play_history_schema_install;
+                }
+                if (presentation.CanRepair)
+                {
+                    return BeMusicSeeker.Properties.Resources.Lr2_play_history_schema_repair;
+                }
+                return BeMusicSeeker.Properties.Resources.Lr2_play_history_schema_install_or_repair;
+            }
+        }
+
+        /// <summary>
+        /// Backup タブから LR2 play history schema のアンインストール操作を開始できるかを返します。
+        /// destructive な選択は押下後の確認ダイアログへ閉じ込めます。
+        /// </summary>
+        public bool CanUninstallLr2PlayHistorySchema => OperationModeLR2DB && !string.IsNullOrWhiteSpace(Lr2PlayHistoryScoreDbPath);
+
         public bool CanUseLastPlaySortFolder => MainWindowViewModel.CanUseLastPlaySortFolder(lr2PlayHistorySchemaCheckResult);
 
         internal void ResetLr2PlayHistorySchemaStatus()
@@ -1102,6 +1134,20 @@ public class MainWindowViewModel : ViewModel
             LogLr2PlayHistorySchema("install_or_repair_start", scoreDbPath, OperationModeLR2DB);
             Lr2PlayHistorySchemaCheckResult result = new Lr2PlayHistorySchemaService().InstallOrRepair(scoreDbPath, OperationModeLR2DB);
             LogLr2PlayHistorySchema("install_or_repair_done", result, OperationModeLR2DB);
+            return result;
+        }
+
+        /// <summary>
+        /// LR2 score DB に入れた play history schema を指定モードで削除し、削除後の状態を返します。
+        /// </summary>
+        /// <param name="uninstallMode">trigger のみ削除するか、履歴 table も削除するか。</param>
+        /// <returns>削除後に再確認した schema 状態。</returns>
+        internal Lr2PlayHistorySchemaCheckResult UninstallLr2PlayHistorySchemaCore(Lr2PlayHistorySchemaUninstallMode uninstallMode)
+        {
+            string scoreDbPath = ResolveLr2PlayHistoryScoreDbPath();
+            LogLr2PlayHistorySchema("uninstall_start_" + uninstallMode, scoreDbPath, OperationModeLR2DB);
+            Lr2PlayHistorySchemaCheckResult result = new Lr2PlayHistorySchemaService().Uninstall(scoreDbPath, OperationModeLR2DB, uninstallMode);
+            LogLr2PlayHistorySchema("uninstall_done", result, OperationModeLR2DB);
             return result;
         }
 
@@ -1150,6 +1196,9 @@ public class MainWindowViewModel : ViewModel
             RaisePropertyChanged(() => Lr2PlayHistorySchemaDetailText);
             RaisePropertyChanged(() => CanInstallLr2PlayHistorySchema);
             RaisePropertyChanged(() => CanRepairLr2PlayHistorySchema);
+            RaisePropertyChanged(() => CanInstallOrRepairLr2PlayHistorySchema);
+            RaisePropertyChanged(() => Lr2PlayHistorySchemaInstallOrRepairButtonText);
+            RaisePropertyChanged(() => CanUninstallLr2PlayHistorySchema);
             RaisePropertyChanged(() => CanUseLastPlaySortFolder);
             ownerViewModel.playlistSummaryBulkEditDialog?.RaiseLastPlaySortFolderAvailabilityChanged();
         }

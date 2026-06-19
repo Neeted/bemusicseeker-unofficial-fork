@@ -220,6 +220,7 @@ play history schema 状態確認や LR2 score DB 変更は、既存の重い rel
 | LR2 score DB path 変更 | schema check、score snapshot reload、play history view invalidation |
 | play history schema 状態確認 | read-only schema check、diagnostics 更新 |
 | play history schema 導入 / 修復ボタン実行 | schema install / repair、diagnostics 更新、score refresh、play history view invalidation |
+| play history schema 無効化 / 削除ボタン実行 | trigger uninstall または play history table uninstall、diagnostics 更新、score refresh、play history view invalidation |
 | custom folder LAST PLAY SORT 出力設定 | custom folder projection / materialization |
 | 表示対象セット変更 | play history view rebuild のみ |
 | beatoraja player 変更 | Phase 7 以降、beatoraja provider view invalidation |
@@ -236,20 +237,20 @@ startup / reload 中に score DB が読めない場合は、失敗を隠して�
 
 ```text
 プレイログ: 未導入
-[プレイログを有効化...]
+[有効化 / 修復...]
 ```
 
 状態:
 
-- `未導入`: `[プレイログを有効化...]` を表示する。
-- `導入済み`: `[再確認]` を表示するか、操作ボタンを disabled にする。
-- `一部不足 / 不整合`: `[修復...]` を表示する。
+- `未導入`: 統合ボタンの表示を `[プレイログを有効化...]` にして有効化する。
+- `導入済み`: 統合ボタンを disabled にする。状態確認は設定画面表示時と操作直前の read-only check で行い、手動の `[状態確認]` ボタンは置かない。
+- `一部不足 / 不整合`: 統合ボタンの表示を `[修復...]` にして有効化する。
 - `DBロック / 読み取り専用 / path不明`: 操作ボタンを disabled にし、diagnostics に理由を出す。
 - `LR2 linked profile ではない`: 表示しない、または disabled にする。
 
 導入・修復ボタン押下時は、LR2 を終了してから実行すること、プレイヤー別 score DB に table / trigger を追加すること、既存 score / player table は変更しないこと、score DB backup を推奨することを警告 dialog で確認する。
 
-初期実装では、導入済み schema を削除する UI は作らない。削除はメンテナンス系の後続 scope とし、通常設定画面には置かない。
+導入済み schema の削除は `バックアップ > データのアンインストール` に置く。ボタンは 1 つだけとし、押下後の確認 dialog で対象の player score DB path と削除範囲を表示する。削除範囲は、今後の記録だけを止めて既存履歴 table を保持する `trigger のみ削除` と、既存履歴も削除する `table も含めて削除` を選べるようにする。
 
 ### Provider model
 
@@ -397,7 +398,7 @@ Play history view 用の keyword search context を追加する。既存 chart l
 - [x] repair path では missing index を作成し、trigger 欠落・trigger SQL 不一致だけを drop / recreate する。
 - [x] required table の required column 不足や互換不能な table 衝突は `ManualRepairRequired` とし、table drop / truncate / rename は行わない。
 - [x] score DB path がない / read-only / lock / SQLite error の診断結果を返す。
-- [x] 設定画面の `LR2と連携する` 配下に play history schema 状態表示と `[プレイログを有効化...]` / `[修復...]` ボタンを追加する。
+- [x] 設定画面の `LR2と連携する` 配下に play history schema 状態表示と状態別文言を持つ統合 `[プレイログを有効化...]` / `[修復...]` ボタンを追加する。
 - [x] 導入・修復ボタン押下時に warning dialog を表示し、OK の場合だけ score DB へ書き込む。
 - [x] warning dialog には、LR2 終了、score DB への table / trigger 追加、既存 score / player table 非変更、backup 推奨を明記する。
 - [x] trigger install を設定保存時または startup score hydration 前に自動実行しない。
@@ -406,7 +407,7 @@ Play history view 用の keyword search context を追加する。既存 chart l
 - [x] `application.log` または `install-performance.log` に `play_history_schema_*` を出す。
 - [x] LR2 linked profile でない場合は `skipped_profile` として診断する。
 - [x] schema install は file scan / playlist reload / `.bmt` 出力を要求しない。
-- [x] 導入済み schema を削除する UI は初期 scope 外にする。
+- [x] `バックアップ > データのアンインストール` に LR2 play history schema の無効化 / 削除ボタンを追加し、確認 dialog で trigger のみ削除 / table も含めて削除を選べるようにする。
 
 テスト:
 
@@ -417,6 +418,7 @@ Play history view 用の keyword search context を追加する。既存 chart l
 - [x] required table の column 不足は `ManualRepairRequired` になり、table が drop されない。
 - [x] startup / 設定画面表示の schema check が read-only で完了し、table / trigger を作らない。
 - [x] warning dialog で cancel した場合、DB が変更されない。
+- [x] trigger のみ削除では履歴 table / index を保持し `Repairable` になること、table も含めた削除では app-owned play history object が消えて `NotInstalled` になることをテストする。
 - [x] SQLite 3.6.7 非互換構文が入っていないことを SQL text snapshot で固定。
 - [x] read-only DB で失敗が診断扱いになり、成功扱いにならない。
 - [x] stand-alone mode では install が skip される。
@@ -656,7 +658,7 @@ Play history view 用の keyword search context を追加する。既存 chart l
 作業:
 
 - [x] 設定画面またはメンテナンスに play history status を表示する。
-  - 実装済み: `設定 > LR2と連携する` 配下の `Lr2PlayHistorySchemaStatusText` / detail tooltip / refresh / install / repair。
+  - 実装済み: `設定 > LR2と連携する` 配下の `Lr2PlayHistorySchemaStatusText` / detail tooltip / 導入・修復の統合ボタン、`バックアップ > データのアンインストール` 配下の無効化・削除ボタン。
 - [x] `finalized = 0` や異常値を診断表示に出す。
   - 実装済み: `未確定 / 診断` node と summary diagnostics。projection/read diagnostics は summary と log に出す。
 - [x] `LR2 score DB に履歴 trigger を導入する` 操作の注意文を追加する。
@@ -765,6 +767,7 @@ Play history view 用の keyword search context を追加する。既存 chart l
 - 2026-06-19: テストレビュー指摘への対応として、別ウィンドウ化した FOLDER 表示プリセット編集の OK / Cancel 配線、未適用 edit session が draft を汚さないこと、検証失敗時に既存 preset が変わらないこと、設定ダイアログ OK 保存経路が preset persist を呼ぶことをテストで固定した。
 - 2026-06-19: 再レビュー指摘への対応として、beatoraja provider の `未確定 / 診断` では通常履歴を未確定 row として代替表示しないよう `FinalizationFilter.UnfinalizedOnly` を空 rows として扱う実装にした。CustomTable text run の実描画色、SettingDialog cancel / schema check 判定、beatoraja diagnostics を追加した。さらに `UnfinalizedOnly` でも壊れた `scoredatalog.db` は `Unreadable` diagnostic として検出する。
 - 2026-06-19: 表示対象 follow-up として、PlayHistory 右上 dropdown の表示プリセットに `FOLDER: preset` モードを追加した。このモードは期間 tree で得た行を落とさず、FOLDER だけを preset の `org_symbol + level` で投影し、preset 外 row の FOLDER は空欄にする。keyword search は従来通り display target 適用後に実行する。
+- 2026-06-19: 設定画面 follow-up として、LR2 play history schema の手動 `[状態確認]` ボタンを撤去し、導入 / 修復を状態別文言の統合ボタンに整理した。`バックアップ > データのアンインストール` へ LR2 play history schema の無効化 / 削除ボタンを追加し、確認 dialog で trigger のみ削除（既存履歴保持）と table も含めた削除（履歴削除）を選べるようにした。
 
 ## 実装時の注意
 
@@ -786,11 +789,11 @@ Play history view 用の keyword search context を追加する。既存 chart l
 `docs/manual.ja.md` と英語版 `docs/manual.md` には、実装後に同じ内容をそれぞれの言語で追加する。片方だけ更新して完了扱いにしない。
 
 - `はじめに` の追加機能に `LR2 / beatoraja プレイログ表示` を追加。
-- `設定画面 > LR2と連携する` に、`プレイログ` 状態表示、`プレイログを有効化...` / `修復...` ボタン、警告 dialog の意味を追加。
+- `設定画面 > LR2と連携する` に、`プレイログ` 状態表示、状態別文言を持つ導入 / 修復の統合ボタン、警告 dialog の意味を追加。
 - `設定画面 > LR2と連携する` に、score DB へ履歴 table / trigger を追加すること、ユーザー操作でのみ導入すること、バックアップ推奨、導入後から記録開始することを追加。
 - `画面構成` に `プレイログ` tree を追加。
 - 新章 `プレイログ` を追加し、期間 tree、summary、table columns、LAST PLAY SORT、診断表示を説明する。
-- `バックアップ・アンインストール` に、履歴 table は LR2 score DB に入るため score DB backup が重要であることを追加。
+- `バックアップ・アンインストール` に、履歴 table は LR2 score DB に入るため score DB backup が重要であることと、LR2 play history schema の trigger のみ削除 / table も含めた削除の違いを追加。
 - `ログとトラブルシューティング` に schema install 失敗、score DB locked、`finalized = 0` の意味を追加。
 
 ## 後続で spec 化する項目

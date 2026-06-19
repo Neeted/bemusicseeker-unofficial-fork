@@ -1437,14 +1437,38 @@ maintenance の再スキャンや chart_info の全譜面補完は行いませ�
   <data name="Lr2_play_history_schema_label" xml:space="preserve">
     <value>LR2 プレイログ</value>
   </data>
-  <data name="Lr2_play_history_schema_refresh" xml:space="preserve">
-    <value>状態確認</value>
-  </data>
   <data name="Lr2_play_history_schema_install" xml:space="preserve">
     <value>プレイログを有効化...</value>
   </data>
   <data name="Lr2_play_history_schema_repair" xml:space="preserve">
     <value>修復...</value>
+  </data>
+  <data name="Lr2_play_history_schema_install_or_repair" xml:space="preserve">
+    <value>有効化 / 修復...</value>
+  </data>
+  <data name="Lr2_play_history_schema_uninstall" xml:space="preserve">
+    <value>LR2 プレイログを無効化 / 削除...</value>
+  </data>
+  <data name="Lr2_play_history_schema_uninstall_title" xml:space="preserve">
+    <value>LR2 プレイログのアンインストール</value>
+  </data>
+  <data name="Lr2_play_history_schema_uninstall_desc" xml:space="preserve">
+    <value>LR2 を終了してから実行してください。対象の player score DB から LR2 プレイログの trigger または履歴 table を削除します。</value>
+  </data>
+  <data name="Lr2_play_history_schema_uninstall_score_db" xml:space="preserve">
+    <value>対象 score DB</value>
+  </data>
+  <data name="Lr2_play_history_schema_uninstall_mode" xml:space="preserve">
+    <value>削除範囲</value>
+  </data>
+  <data name="Lr2_play_history_schema_uninstall_triggers_only" xml:space="preserve">
+    <value>トリガーのみ削除（今後の記録を停止し、既存の履歴は保持）</value>
+  </data>
+  <data name="Lr2_play_history_schema_uninstall_tables_and_triggers" xml:space="preserve">
+    <value>テーブルも含めて削除（既存のプレイログ履歴も削除）</value>
+  </data>
+  <data name="Lr2_play_history_schema_uninstall_warning" xml:space="preserve">
+    <value>この操作は元に戻せません。必要に応じて score DB を事前にバックアップしてください。</value>
   </data>
   <data name="Lr2_play_history_schema_status_unknown" xml:space="preserve">
     <value>状態未確認</value>
@@ -1567,6 +1591,12 @@ maintenance の再スキャンや chart_info の全譜面補完は行いませ�
   </data>
   <data name="Msg_success_lr2_play_history_schema_install_or_repair" xml:space="preserve">
     <value>LR2 プレイログ schema を更新しました。導入後のプレイから記録が始まります。</value>
+  </data>
+  <data name="Msg_lr2_play_history_schema_uninstall_not_installed" xml:space="preserve">
+    <value>LR2 プレイログ schema は未導入です。削除する対象はありません。</value>
+  </data>
+  <data name="Msg_success_lr2_play_history_schema_uninstall" xml:space="preserve">
+    <value>LR2 プレイログ schema のアンインストール操作が完了しました。</value>
   </data>
   <data name="Lr2_song_db_sync_cleanup_startup_scan_blockers" xml:space="preserve">
     <value>LR2 folder 行を整理して再試行</value>
