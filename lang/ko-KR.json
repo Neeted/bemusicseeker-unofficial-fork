@@ -79,6 +79,7 @@
   "Play_history_period_yesterday": "어제",
   "Play_history_period_recent_7_days": "최근 7일",
   "Play_history_period_recent_30_days": "최근 30일",
+  "Play_history_period_archive": "날짜별",
   "Play_history_period_diagnostics": "미확정 / 진단",
   "Play_history_summary_format": "{0}: {1}회 / 스코어 갱신 {2} / 클리어 갱신 {3} / FC {4} / 플레이 시간 {5} / 진단 {6}",
   "Msg_confirm_lr2_song_db_sync_startup_scan_blocker_cleanup": "진단 대상인 LR2 folder 테이블 행을 정리한 뒤 다시 시도합니다.\n삭제되는 것은 진단 대상인 LR2 folder 테이블 행뿐이며, 채보 파일이나 .lr2folder 파일은 삭제하지 않습니다.\n\n계속하시겠습니까?",

@@ -2666,10 +2666,29 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
         e.Handled = true;
-        string tag = ReferenceEquals(treeRoot, treeViewItem)
-            ? nameof(PlayHistoryPeriodKind.All)
-            : treeViewItem.Tag as string;
-        PlayHistoryPeriodRequest request = PlayHistoryPeriodRequest.FromTag(tag);
+        PlayHistoryPeriodRequest request;
+        if (treeViewItem.DataContext is PlayHistoryPeriodTreeItem periodTreeItem)
+        {
+            request = periodTreeItem.Request;
+        }
+        else if (ReferenceEquals(treeRoot, treeViewItem))
+        {
+            request = PlayHistoryPeriodRequest.All();
+        }
+        else if (treeViewItem.Tag is string tag)
+        {
+            request = PlayHistoryPeriodRequest.FromTag(tag);
+        }
+        else
+        {
+            treeRoot.IsSelected = true;
+            treeRoot.IsExpanded = true;
+            return;
+        }
+        if (request == null)
+        {
+            return;
+        }
         long requestId = viewModel.BeginPlayHistoryFilterRequest(request);
         await Task.Run(delegate
         {

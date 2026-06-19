@@ -61,12 +61,16 @@ public sealed class MainWindowContextMenuResourceTests
             "Play_history_period_yesterday",
             "Play_history_period_recent_7_days",
             "Play_history_period_recent_30_days",
+            "Play_history_period_archive",
             "Play_history_period_diagnostics"
         })
         {
             StringAssert.Contains(playHistoryTree, "Path=Resources." + resource + ", Mode=OneWay", resource);
             Assert.IsFalse(string.IsNullOrWhiteSpace(Resources.ResourceManager.GetString(resource)), resource);
         }
+        StringAssert.Contains(playHistoryTree, "ItemsSource=\"{Binding PlayHistoryArchivePeriodTree}\"");
+        StringAssert.Contains(playHistoryTree, "<HierarchicalDataTemplate DataType=\"{x:Type vm:PlayHistoryPeriodTreeItem}\" ItemsSource=\"{Binding Children}\" ItemContainerStyle=\"{StaticResource styleTreeViewItemPlayHistoryPeriodContainer}\">");
+        StringAssert.Contains(playHistoryTree, "<TreeViewItem Focusable=\"False\" Header=\"{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Play_history_period_archive, Mode=OneWay}\" ItemsSource=\"{Binding PlayHistoryArchivePeriodTree}\" ItemContainerStyle=\"{StaticResource styleTreeViewItemPlayHistoryPeriodContainer}\" />");
     }
 
     [TestMethod]

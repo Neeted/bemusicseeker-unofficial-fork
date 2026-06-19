@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
@@ -62,6 +63,71 @@ public sealed class PlayHistoryReadModelTests
         Assert.IsNull(request.PlayedAtFromInclusive);
         Assert.IsNull(request.PlayedAtToExclusive);
         Assert.IsTrue(request.IncludeUnfinalized);
+    }
+
+    [TestMethod]
+    public void PlayHistoryPeriodRequest_ArchiveRangesUseLocalBoundaries()
+    {
+        TimeZoneInfo utcPlusNine = TimeZoneInfo.CreateCustomTimeZone("UTC+09", TimeSpan.FromHours(9), "UTC+09", "UTC+09");
+
+        PlayHistoryPeriodRequest year = PlayHistoryPeriodRequest.CreateYear(2026, utcPlusNine);
+        PlayHistoryPeriodRequest month = PlayHistoryPeriodRequest.CreateMonth(2026, 12, utcPlusNine);
+        PlayHistoryPeriodRequest day = PlayHistoryPeriodRequest.CreateDay(2026, 1, 2, utcPlusNine);
+
+        Assert.AreEqual(PlayHistoryPeriodKind.Year, year.Kind);
+        Assert.AreEqual("2026", year.Label);
+        Assert.AreEqual(UtcEpoch(2025, 12, 31, 15), year.PlayedAtFromInclusive);
+        Assert.AreEqual(UtcEpoch(2026, 12, 31, 15), year.PlayedAtToExclusive);
+        Assert.AreEqual(PlayHistoryPeriodKind.Month, month.Kind);
+        Assert.AreEqual("2026/12", month.Label);
+        Assert.AreEqual(UtcEpoch(2026, 11, 30, 15), month.PlayedAtFromInclusive);
+        Assert.AreEqual(UtcEpoch(2026, 12, 31, 15), month.PlayedAtToExclusive);
+        Assert.AreEqual(PlayHistoryPeriodKind.Day, day.Kind);
+        Assert.AreEqual("2026/01/02", day.Label);
+        Assert.AreEqual(UtcEpoch(2026, 1, 1, 15), day.PlayedAtFromInclusive);
+        Assert.AreEqual(UtcEpoch(2026, 1, 2, 15), day.PlayedAtToExclusive);
+    }
+
+    [TestMethod]
+    public void PlayHistoryPeriodTreeItem_BuildArchiveTreeGroupsDescending()
+    {
+        IReadOnlyList<PlayHistoryPeriodTreeItem> tree = PlayHistoryPeriodTreeItem.BuildArchiveTree(
+            [
+                UtcEpoch(2025, 12, 31, 23),
+                UtcEpoch(2026, 1, 1, 1),
+                UtcEpoch(2026, 1, 2, 1),
+                UtcEpoch(2026, 1, 2, 23)
+            ],
+            TimeZoneInfo.Utc);
+
+        CollectionAssert.AreEqual(new[] { "2026", "2025" }, tree.Select(node => node.Label).ToArray());
+        PlayHistoryPeriodTreeItem year2026 = tree[0];
+        Assert.AreEqual(PlayHistoryPeriodKind.Year, year2026.Request.Kind);
+        Assert.AreEqual(UtcEpoch(2026, 1, 1), year2026.Request.PlayedAtFromInclusive);
+        CollectionAssert.AreEqual(new[] { "2026/01" }, year2026.Children.Select(node => node.Label).ToArray());
+        CollectionAssert.AreEqual(new[] { "2026/01/02", "2026/01/01" }, year2026.Children[0].Children.Select(node => node.Label).ToArray());
+        Assert.AreEqual(PlayHistoryPeriodKind.Day, year2026.Children[0].Children[0].Request.Kind);
+        Assert.AreEqual(UtcEpoch(2026, 1, 2), year2026.Children[0].Children[0].Request.PlayedAtFromInclusive);
+        Assert.AreEqual(UtcEpoch(2026, 1, 3), year2026.Children[0].Children[0].Request.PlayedAtToExclusive);
+    }
+
+    [TestMethod]
+    public void PlayHistoryPeriodTreeItem_BuildArchiveTreeUsesProvidedTimeZone()
+    {
+        TimeZoneInfo utcPlusNine = TimeZoneInfo.CreateCustomTimeZone("UTC+09", TimeSpan.FromHours(9), "UTC+09", "UTC+09");
+        IReadOnlyList<PlayHistoryPeriodTreeItem> tree = PlayHistoryPeriodTreeItem.BuildArchiveTree(
+            [
+                UtcEpoch(2026, 1, 1, 14),
+                UtcEpoch(2026, 1, 1, 15),
+                UtcEpoch(2026, 1, 2, 14)
+            ],
+            utcPlusNine);
+
+        PlayHistoryPeriodTreeItem january = tree.Single().Children.Single();
+
+        CollectionAssert.AreEqual(new[] { "2026/01/02", "2026/01/01" }, january.Children.Select(node => node.Label).ToArray());
+        Assert.AreEqual(UtcEpoch(2026, 1, 1, 15), january.Children[0].Request.PlayedAtFromInclusive);
+        Assert.AreEqual(UtcEpoch(2026, 1, 2, 15), january.Children[0].Request.PlayedAtToExclusive);
     }
 
     [TestMethod]
@@ -300,6 +366,46 @@ public sealed class PlayHistoryReadModelTests
             Assert.AreEqual(Lr2PlayHistoryReader.DefaultReadLimit + 1L, zeroResult.Rows[0].history_id);
             Assert.AreEqual(Lr2PlayHistoryReader.DefaultReadLimit, negativeResult.Rows.Count);
             Assert.AreEqual(Lr2PlayHistoryReader.DefaultReadLimit + 1L, negativeResult.Rows[0].history_id);
+        });
+    }
+
+    [TestMethod]
+    public void Lr2Reader_ReadPeriodIndexReadsFinalizedRowsWithoutDefaultLimit()
+    {
+        WithScoreDb(delegate (string scoreDbPath)
+        {
+            CreateInstalledScoreDb(scoreDbPath);
+            using (var db = new SQLiteConnection(scoreDbPath))
+            {
+                db.BeginTransaction();
+                try
+                {
+                    long baseEpoch = UtcEpoch(2020, 1, 1);
+                    for (int index = 1; index <= Lr2PlayHistoryReader.DefaultReadLimit + 1; index++)
+                    {
+                        InsertHistory(db, historyId: index, hash: HashA, playedAt: baseEpoch + (index * 86400L), finalized: true, newExscore: 200);
+                    }
+                    InsertHistory(db, historyId: 99999, hash: HashB, playedAt: 99999, finalized: false, newExscore: 999);
+                    db.Commit();
+                }
+                catch
+                {
+                    db.Rollback();
+                    throw;
+                }
+            }
+
+            Lr2PlayHistoryPeriodIndexResult result = new Lr2PlayHistoryReader().ReadPeriodIndex(
+                new Lr2PlayHistoryPeriodIndexRequest
+                {
+                    ScoreDbPath = scoreDbPath,
+                    IsLr2LinkedProfile = true
+                },
+                CancellationToken.None);
+
+            Assert.AreEqual(Lr2PlayHistorySchemaStatus.Installed, result.SchemaStatus);
+            Assert.AreEqual(Lr2PlayHistoryReader.DefaultReadLimit + 1, result.PlayedAtUnixSeconds.Count);
+            Assert.IsTrue(result.PlayedAtUnixSeconds[0] > result.PlayedAtUnixSeconds[result.PlayedAtUnixSeconds.Count - 1]);
         });
     }
 

@@ -78,6 +78,36 @@ internal sealed class Lr2PlayHistoryReadRequest
     internal int? Limit { get; set; }
 }
 
+internal sealed class Lr2PlayHistoryPeriodIndexRequest
+{
+    internal string ScoreDbPath { get; set; }
+
+    internal bool IsLr2LinkedProfile { get; set; } = true;
+}
+
+internal sealed class Lr2PlayHistoryPeriodIndexResult
+{
+    internal Lr2PlayHistoryPeriodIndexResult(
+        PlayHistorySourceProfile sourceProfile,
+        IReadOnlyList<long> playedAtUnixSeconds,
+        IReadOnlyList<PlayHistoryDiagnostic> diagnostics,
+        Lr2PlayHistorySchemaStatus schemaStatus)
+    {
+        SourceProfile = sourceProfile;
+        PlayedAtUnixSeconds = playedAtUnixSeconds ?? [];
+        Diagnostics = diagnostics ?? [];
+        SchemaStatus = schemaStatus;
+    }
+
+    internal PlayHistorySourceProfile SourceProfile { get; }
+
+    internal IReadOnlyList<long> PlayedAtUnixSeconds { get; }
+
+    internal IReadOnlyList<PlayHistoryDiagnostic> Diagnostics { get; }
+
+    internal Lr2PlayHistorySchemaStatus SchemaStatus { get; }
+}
+
 internal sealed class Lr2PlayHistoryReadResult
 {
     internal Lr2PlayHistoryReadResult(

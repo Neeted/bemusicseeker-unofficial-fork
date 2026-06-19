@@ -79,6 +79,7 @@
   "Play_history_period_yesterday": "Hier",
   "Play_history_period_recent_7_days": "7 derniers jours",
   "Play_history_period_recent_30_days": "30 derniers jours",
+  "Play_history_period_archive": "Par date",
   "Play_history_period_diagnostics": "Non finalise / Diagnostic",
   "Play_history_summary_format": "{0}: {1} parties / scores maj {2} / clears maj {3} / FC {4} / temps de jeu {5} / diagnostics {6}",
   "Msg_confirm_lr2_song_db_sync_startup_scan_blocker_cleanup": "Les lignes diagnostiquees de la table folder LR2 seront nettoyees avant la nouvelle tentative.\nSeules les lignes de la table folder LR2 diagnostiquees sont supprimees. Les fichiers de chart et les fichiers .lr2folder ne sont pas supprimes.\n\nContinuer?",

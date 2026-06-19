@@ -7586,6 +7586,8 @@ public class MainWindowViewModel : ViewModel
 
     private IList _ChartRowsView = new List<object>();
 
+    private IReadOnlyList<PlayHistoryPeriodTreeItem> _PlayHistoryArchivePeriodTree = [];
+
     private cSortParameters _SortParameters;
 
     private cSortParameters _PlaylistSummarySortParameters;
@@ -11591,6 +11593,23 @@ public class MainWindowViewModel : ViewModel
                     _ChartRowsView = value;
                 }
                 RaisePropertyChanged("ChartRowsView");
+            }
+        }
+    }
+
+    public IReadOnlyList<PlayHistoryPeriodTreeItem> PlayHistoryArchivePeriodTree
+    {
+        get
+        {
+            return _PlayHistoryArchivePeriodTree;
+        }
+        private set
+        {
+            IReadOnlyList<PlayHistoryPeriodTreeItem> next = value ?? [];
+            if (!ReferenceEquals(_PlayHistoryArchivePeriodTree, next))
+            {
+                _PlayHistoryArchivePeriodTree = next;
+                RaisePropertyChanged("PlayHistoryArchivePeriodTree");
             }
         }
     }
@@ -19766,11 +19785,13 @@ public class MainWindowViewModel : ViewModel
 
         var readStopwatch = Stopwatch.StartNew();
         CancellationToken cancellationToken = GetPlayHistoryFilterCancellationToken(requestId);
+        var reader = new Lr2PlayHistoryReader();
+        string scoreDbPath = ResolveMainViewLr2PlayHistoryScoreDbPath();
         Lr2PlayHistoryReadResult readResult;
         try
         {
-            readResult = new Lr2PlayHistoryReader().Read(
-                periodRequest.ToLr2ReadRequest(ResolveMainViewLr2PlayHistoryScoreDbPath(), Settings.Default.OperationModeLR2DB),
+            readResult = reader.Read(
+                periodRequest.ToLr2ReadRequest(scoreDbPath, Settings.Default.OperationModeLR2DB),
                 cancellationToken);
         }
         catch (OperationCanceledException)
@@ -19783,6 +19804,35 @@ public class MainWindowViewModel : ViewModel
         {
             LogStalePlayHistoryViewRequest(mode, requestedMode, parameter, periodRequest, requestId, readMs);
             return;
+        }
+
+        Lr2PlayHistoryPeriodIndexResult periodIndexResult = null;
+        long periodIndexMs = 0L;
+        if (readResult.SchemaStatus == Lr2PlayHistorySchemaStatus.Installed
+            || readResult.SchemaStatus == Lr2PlayHistorySchemaStatus.Repairable)
+        {
+            var periodIndexStopwatch = Stopwatch.StartNew();
+            try
+            {
+                periodIndexResult = reader.ReadPeriodIndex(
+                    new Lr2PlayHistoryPeriodIndexRequest
+                    {
+                        ScoreDbPath = scoreDbPath,
+                        IsLr2LinkedProfile = Settings.Default.OperationModeLR2DB
+                    },
+                    cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                LogStalePlayHistoryViewRequest(mode, requestedMode, parameter, periodRequest, requestId, readMs + periodIndexStopwatch.ElapsedMilliseconds);
+                return;
+            }
+            periodIndexMs = periodIndexStopwatch.ElapsedMilliseconds;
+            if (!IsCurrentPlayHistoryViewRequest(requestId))
+            {
+                LogStalePlayHistoryViewRequest(mode, requestedMode, parameter, periodRequest, requestId, readMs + periodIndexMs);
+                return;
+            }
         }
 
         PlayHistoryProjectionResult projectionResult;
@@ -19812,9 +19862,15 @@ public class MainWindowViewModel : ViewModel
         {
             projectionResult = PlayHistoryRow.ProjectLr2Rows(readResult, PlayHistoryProjectionIndex.Empty);
         }
+        IReadOnlyList<PlayHistoryDiagnostic> mergedDiagnostics = MergePlayHistoryDiagnostics(projectionResult.Diagnostics, periodIndexResult?.Diagnostics);
+        if (!ReferenceEquals(mergedDiagnostics, projectionResult.Diagnostics))
+        {
+            projectionResult = new PlayHistoryProjectionResult(projectionResult.Rows, mergedDiagnostics);
+        }
+        IReadOnlyList<PlayHistoryPeriodTreeItem> archivePeriodTree = PlayHistoryPeriodTreeItem.BuildArchiveTree(periodIndexResult?.PlayedAtUnixSeconds, TimeZoneInfo.Local);
         if (!IsCurrentPlayHistoryViewRequest(requestId))
         {
-            LogStalePlayHistoryViewRequest(mode, requestedMode, parameter, periodRequest, requestId, readMs + projectionIndexMs + projectionMs);
+            LogStalePlayHistoryViewRequest(mode, requestedMode, parameter, periodRequest, requestId, readMs + periodIndexMs + projectionIndexMs + projectionMs);
             return;
         }
 
@@ -19849,6 +19905,8 @@ public class MainWindowViewModel : ViewModel
             projectionIndexCacheHit,
             projectionIndexStaleRetries,
             projectionMs,
+            periodIndexMs,
+            archivePeriodTree,
             sortMs,
             fromSortOnly: false);
     }
@@ -19899,6 +19957,8 @@ public class MainWindowViewModel : ViewModel
             projectionIndexCacheHit: false,
             projectionIndexStaleRetries: 0,
             projectionMs: 0,
+            periodIndexMs: 0,
+            archivePeriodTree: null,
             sortMs,
             fromSortOnly: true);
         return true;
@@ -19918,6 +19978,8 @@ public class MainWindowViewModel : ViewModel
         bool projectionIndexCacheHit,
         int projectionIndexStaleRetries,
         long projectionMs,
+        long periodIndexMs,
+        IReadOnlyList<PlayHistoryPeriodTreeItem> archivePeriodTree,
         long sortMs,
         bool fromSortOnly)
     {
@@ -19945,6 +20007,8 @@ public class MainWindowViewModel : ViewModel
                     projectionIndexCacheHit,
                     projectionIndexStaleRetries,
                     projectionMs,
+                    periodIndexMs,
+                    archivePeriodTree,
                     sortMs,
                     fromSortOnly)));
             return;
@@ -20009,6 +20073,10 @@ public class MainWindowViewModel : ViewModel
                 SetChartRowsView(nextRowsView);
                 setViewMs = viewBuildStopwatch.ElapsedMilliseconds - setViewStartMs;
             }
+            if (archivePeriodTree != null)
+            {
+                PlayHistoryArchivePeriodTree = archivePeriodTree;
+            }
             GridSummaryText = FormatPlayHistoryGridSummaryText(periodRequest, summary, diagnostics);
             SelectedIndexChartRowsView = -1;
             Volatile.Write(ref playHistoryViewState, state);
@@ -20017,7 +20085,7 @@ public class MainWindowViewModel : ViewModel
         {
             LogPlayHistoryDiagnostics(periodRequest, sortProfile, diagnostics);
         }
-        LogMainViewBuild("main_view_build mode=" + mode + " requestedMode=" + requestedMode + " parameterType=" + parameterType + " playHistoryPeriod=" + periodRequest.Kind + " playHistorySortOnly=" + fromSortOnly.ToString().ToLowerInvariant() + " readMs=" + readMs + " projectionIndexMs=" + projectionIndexMs + " projectionIndexCacheHit=" + projectionIndexCacheHit.ToString().ToLowerInvariant() + " projectionIndexStaleRetries=" + projectionIndexStaleRetries + " projectionMs=" + projectionMs + " sortMs=" + sortMs + " sortProfile=" + sortProfile + " schemaStatus=" + state.SchemaStatus + " diagnosticsCount=" + diagnosticsCount + " columnSettingMs=" + columnSettingMs + " prepareSwapMs=" + prepareSwapMs + " setViewMs=" + setViewMs + " columnSettingReuse=" + columnSettingReuse + " totalMs=" + viewBuildStopwatch.ElapsedMilliseconds + " sourceCount=" + state.SourceCount + " projectedCount=" + state.ProjectedRows.Count + " viewCount=" + sortedRows.Count);
+        LogMainViewBuild("main_view_build mode=" + mode + " requestedMode=" + requestedMode + " parameterType=" + parameterType + " playHistoryPeriod=" + periodRequest.Kind + " playHistorySortOnly=" + fromSortOnly.ToString().ToLowerInvariant() + " readMs=" + readMs + " periodIndexMs=" + periodIndexMs + " projectionIndexMs=" + projectionIndexMs + " projectionIndexCacheHit=" + projectionIndexCacheHit.ToString().ToLowerInvariant() + " projectionIndexStaleRetries=" + projectionIndexStaleRetries + " projectionMs=" + projectionMs + " sortMs=" + sortMs + " sortProfile=" + sortProfile + " schemaStatus=" + state.SchemaStatus + " diagnosticsCount=" + diagnosticsCount + " columnSettingMs=" + columnSettingMs + " prepareSwapMs=" + prepareSwapMs + " setViewMs=" + setViewMs + " columnSettingReuse=" + columnSettingReuse + " totalMs=" + viewBuildStopwatch.ElapsedMilliseconds + " sourceCount=" + state.SourceCount + " projectedCount=" + state.ProjectedRows.Count + " viewCount=" + sortedRows.Count);
     }
 
     private PlayHistoryProjectionResult CreatePlayHistoryProjectionResult(
@@ -20224,6 +20292,21 @@ public class MainWindowViewModel : ViewModel
             Message = message ?? string.Empty,
             SourcePath = sourcePath ?? string.Empty
         };
+    }
+
+    private static IReadOnlyList<PlayHistoryDiagnostic> MergePlayHistoryDiagnostics(
+        IReadOnlyList<PlayHistoryDiagnostic> first,
+        IReadOnlyList<PlayHistoryDiagnostic> second)
+    {
+        if (second == null || second.Count == 0)
+        {
+            return first ?? [];
+        }
+        if (first == null || first.Count == 0)
+        {
+            return second;
+        }
+        return [.. first, .. second];
     }
 
     private static IReadOnlyList<PlayHistoryDiagnostic> CreatePlayHistoryViewDiagnostics(

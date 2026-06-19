@@ -75,6 +75,63 @@ internal sealed class Lr2PlayHistoryReader
         }
     }
 
+    internal Lr2PlayHistoryPeriodIndexResult ReadPeriodIndex(Lr2PlayHistoryPeriodIndexRequest request, CancellationToken cancellationToken)
+    {
+        request ??= new Lr2PlayHistoryPeriodIndexRequest();
+        cancellationToken.ThrowIfCancellationRequested();
+        PlayHistorySourceProfile sourceProfile = PlayHistorySourceProfile.Lr2(request.ScoreDbPath);
+        var diagnostics = new List<PlayHistoryDiagnostic>();
+
+        Lr2PlayHistorySchemaCheckResult schema = new Lr2PlayHistorySchemaService().Check(request.ScoreDbPath, request.IsLr2LinkedProfile);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (schema.Status == Lr2PlayHistorySchemaStatus.SkippedProfile)
+        {
+            diagnostics.Add(CreateDiagnostic(PlayHistoryDiagnosticSeverity.Info, "play_history_lr2_period_index_skipped_profile", schema.Message, request.ScoreDbPath));
+            return new Lr2PlayHistoryPeriodIndexResult(sourceProfile, [], diagnostics, schema.Status);
+        }
+        if (schema.Status == Lr2PlayHistorySchemaStatus.Unreadable
+            || schema.Status == Lr2PlayHistorySchemaStatus.NotInstalled
+            || schema.Status == Lr2PlayHistorySchemaStatus.ManualRepairRequired)
+        {
+            diagnostics.Add(CreateDiagnostic(PlayHistoryDiagnosticSeverity.Error, "play_history_lr2_period_index_" + GetSchemaDiagnosticCode(schema.Status), schema.Message, request.ScoreDbPath));
+            return new Lr2PlayHistoryPeriodIndexResult(sourceProfile, [], diagnostics, schema.Status);
+        }
+        if (schema.Status == Lr2PlayHistorySchemaStatus.Repairable)
+        {
+            if (schema.MissingIndexes.Count > 0 || schema.MismatchedIndexes.Count > 0)
+            {
+                diagnostics.Add(CreateDiagnostic(PlayHistoryDiagnosticSeverity.Error, "play_history_lr2_period_index_schema_index_repair_required", schema.Message, request.ScoreDbPath));
+                return new Lr2PlayHistoryPeriodIndexResult(sourceProfile, [], diagnostics, schema.Status);
+            }
+            diagnostics.Add(CreateDiagnostic(PlayHistoryDiagnosticSeverity.Warning, "play_history_lr2_period_index_schema_repairable", schema.Message, request.ScoreDbPath));
+        }
+
+        if (string.IsNullOrWhiteSpace(request.ScoreDbPath) || !File.Exists(request.ScoreDbPath))
+        {
+            diagnostics.Add(CreateDiagnostic(PlayHistoryDiagnosticSeverity.Error, "play_history_lr2_period_index_score_db_missing", "Score DB file does not exist.", request.ScoreDbPath));
+            return new Lr2PlayHistoryPeriodIndexResult(sourceProfile, [], diagnostics, schema.Status);
+        }
+
+        try
+        {
+            using LR2ScoreDBExtended db = new(request.ScoreDbPath, SQLiteOpenFlags.ReadOnly | SQLiteOpenFlags.FullMutex, acquireProcessLock: false);
+            cancellationToken.ThrowIfCancellationRequested();
+            List<PeriodIndexRow> rows = db.Query<PeriodIndexRow>(
+                "SELECT MAX(played_at) AS played_at FROM " + Lr2PlayHistorySchemaService.PlayHistoryTableName + " WHERE finalized = 1 GROUP BY strftime('%Y-%m-%d', played_at, 'unixepoch', 'localtime') ORDER BY played_at DESC;");
+            cancellationToken.ThrowIfCancellationRequested();
+            return new Lr2PlayHistoryPeriodIndexResult(sourceProfile, [.. rows.Select(row => row.played_at)], diagnostics, schema.Status);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            diagnostics.Add(CreateDiagnostic(PlayHistoryDiagnosticSeverity.Error, "play_history_lr2_period_index_failed", ex.Message, request.ScoreDbPath));
+            return new Lr2PlayHistoryPeriodIndexResult(sourceProfile, [], diagnostics, schema.Status);
+        }
+    }
+
     private static string BuildReadSql(Lr2PlayHistoryReadRequest request, List<object> args)
     {
         var where = new List<string>();
@@ -133,5 +190,10 @@ internal sealed class Lr2PlayHistoryReader
             Lr2PlayHistorySchemaStatus.ManualRepairRequired => "play_history_lr2_schema_manual_repair_required",
             _ => "play_history_lr2_schema_" + status.ToString().ToLowerInvariant(),
         };
+    }
+
+    private sealed class PeriodIndexRow
+    {
+        public long played_at { get; set; }
     }
 }

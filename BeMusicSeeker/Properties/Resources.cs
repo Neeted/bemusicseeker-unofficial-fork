@@ -451,6 +451,8 @@ public class Resources
 
     public static string Play_history_period_recent_30_days => ResourceManager.GetString("Play_history_period_recent_30_days", resourceCulture);
 
+    public static string Play_history_period_archive => ResourceManager.GetString("Play_history_period_archive", resourceCulture);
+
     public static string Play_history_period_diagnostics => ResourceManager.GetString("Play_history_period_diagnostics", resourceCulture);
 
     public static string Play_history_summary_format => ResourceManager.GetString("Play_history_summary_format", resourceCulture);

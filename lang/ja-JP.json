@@ -86,6 +86,7 @@
   "Play_history_period_yesterday": "昨日",
   "Play_history_period_recent_7_days": "最近 7 日",
   "Play_history_period_recent_30_days": "最近 30 日",
+  "Play_history_period_archive": "日付別",
   "Play_history_period_diagnostics": "未確定 / 診断",
   "Play_history_summary_format": "{0}: {1} 件 / SCORE更新 {2} / CLEAR更新 {3} / FC {4} / PLAYTIME {5} / 診断 {6}",
   "Msg_confirm_lr2_song_db_sync_startup_scan_blocker_cleanup": "LR2 folder テーブルの診断対象行を整理してから再試行します。\n削除するのは診断対象になった LR2 folder テーブル行のみで、譜面ファイルや .lr2folder ファイルは削除しません。\n\n続行しますか?",

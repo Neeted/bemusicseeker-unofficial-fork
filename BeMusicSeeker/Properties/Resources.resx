@@ -1482,6 +1482,9 @@ maintenance の再スキャンや chart_info の全譜面補完は行いませ�
   <data name="Play_history_period_recent_30_days" xml:space="preserve">
     <value>最近 30 日</value>
   </data>
+  <data name="Play_history_period_archive" xml:space="preserve">
+    <value>日付別</value>
+  </data>
   <data name="Play_history_period_diagnostics" xml:space="preserve">
     <value>未確定 / 診断</value>
   </data>

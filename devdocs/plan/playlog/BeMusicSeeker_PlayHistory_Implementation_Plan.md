@@ -515,6 +515,7 @@ Play history view 用の keyword search context を追加する。既存 chart l
 - [x] `GridSummaryText` または専用 summary binding で期間 digest を出す。
 - [x] Phase 3 では表示対象 dropdown を作らず、全履歴を対象にする。`FOLDER` は解決できた playlist / folder label の表示だけに使い、絞り込みは Phase 5 に送る。
 - [x] play history view rebuild は score DB read と projection に限定し、library catalog 再構築を要求しない。
+- [x] `bms_lr2_play_history.played_at` から年 / 月 / 日 archive node を動的生成し、一覧 reader の default limit に巻き込まれない軽量 period index read を使う。
 
 初期可視 columns:
 
@@ -548,7 +549,7 @@ Play history view 用の keyword search context を追加する。既存 chart l
 - [x] `PLAY_HISTORY` settings が null から作成される。
 - [x] 既存 view の column settings が壊れない。
 - [x] `すべて` / `今日` / `昨日` / `最近 7 日` / `最近 30 日` node の epoch range が期待通りになる。
-- [ ] 年 / 月 / 日 node の epoch range が期待通りになる。
+- [x] 年 / 月 / 日 node の epoch range が期待通りになる。
 - [x] `未確定 / 診断` node では `finalized = 0` と projection diagnostics が見える。
 - [x] play history row は playlist tree drop candidate にならない。
 - [x] play history row 右 click では通常 chart 操作 context menu を開かない。
@@ -706,7 +707,7 @@ Play history view 用の keyword search context を追加する。既存 chart l
 | Phase 0 | 進行中 | 実装計画と trigger proposal は配置済み。`devdocs/spec/play-history.md` 昇格は未実施 |
 | Phase 1 | 完了 | LR2 score DB へ trigger / table を導入できる |
 | Phase 2 | 完了 | LR2 履歴を `PlayHistoryRow` と summary に投影できる |
-| Phase 3 | 進行中 | Play log tree と table UI は静的期間で動作。DnD / cell edit / activation / 通常 context menu guard は完了。年 / 月 / 日 node と PlayHistory 専用 context menu が残る |
+| Phase 3 | 進行中 | Play log tree と table UI は固定期間 + 年 / 月 / 日 archive node で動作。DnD / cell edit / activation / 通常 context menu guard は完了。PlayHistory 専用 context menu が残る |
 | Phase 4 | 未着手 | LAST PLAY SORT custom folder が出力される |
 | Phase 5 | 未着手 | keyword search と表示対象 filter が動く |
 | Phase 6 | 進行中 | 最小 manual と summary 診断は追加済み。maintenance/spec/log contract 整理が残る |
@@ -721,6 +722,7 @@ Play history view 用の keyword search context を追加する。既存 chart l
 - 2026-06-19: `docs/manual.ja.md` / `docs/manual.md` に `プレイログ` の最小説明を追加した。後続で設定画面、LAST PLAY SORT、troubleshooting、画像を拡充する。
 - 2026-06-19: Phase 3 初期実装の検証として `PlayHistoryReadModelTests|MainWindowContextMenuResourceTests|LocalizationResourceParityTests|MainColumnSettingModeTests` と `dotnet build BeMusicSeeker-decomp.sln` を実行し、成功を確認した。
 - 2026-06-19: Phase 3 操作 guard として PlayHistory view の row drag kind を `GenericSelectedRows` へ切り替え、playlist drop candidate / cell edit / row activation / 通常 chart context menu に流れないことを静的テストで固定した。
+- 2026-06-19: Phase 3 archive node として `bms_lr2_play_history.played_at` の軽量 period index reader、年 / 月 / 日 `PlayHistoryPeriodRequest`、`PlayHistoryArchivePeriodTree` binding を追加し、`docs/manual.ja.md` / `docs/manual.md` に `日付別` / `By Date` を追記した。
 
 ## 実装時の注意
 

@@ -79,6 +79,7 @@
   "Play_history_period_yesterday": "昨天",
   "Play_history_period_recent_7_days": "最近 7 天",
   "Play_history_period_recent_30_days": "最近 30 天",
+  "Play_history_period_archive": "依日期",
   "Play_history_period_diagnostics": "未完成 / 診斷",
   "Play_history_summary_format": "{0}: {1} 次 / 分數更新 {2} / CLEAR 更新 {3} / FC {4} / 遊玩時間 {5} / 診斷 {6}",
   "Msg_confirm_lr2_song_db_sync_startup_scan_blocker_cleanup": "將整理診斷出的 LR2 folder 表格行，然後重試。\n只會刪除診斷出的 LR2 folder 表格行，不會刪除譜面檔案或 .lr2folder 檔案。\n\n要繼續嗎?",

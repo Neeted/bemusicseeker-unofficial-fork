@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 
 namespace BeMusicSeeker.ViewModels;
@@ -10,6 +11,9 @@ internal enum PlayHistoryPeriodKind
     Yesterday,
     Recent7Days,
     Recent30Days,
+    Year,
+    Month,
+    Day,
     Diagnostics
 }
 
@@ -90,6 +94,38 @@ internal sealed class PlayHistoryPeriodRequest
         return new PlayHistoryPeriodRequest(kind, label, from, to, includeUnfinalized);
     }
 
+    internal static PlayHistoryPeriodRequest CreateYear(int year, TimeZoneInfo timeZone)
+    {
+        return CreateRange(
+            PlayHistoryPeriodKind.Year,
+            year.ToString("0000", CultureInfo.InvariantCulture),
+            new DateTime(year, 1, 1),
+            new DateTime(year + 1, 1, 1),
+            timeZone);
+    }
+
+    internal static PlayHistoryPeriodRequest CreateMonth(int year, int month, TimeZoneInfo timeZone)
+    {
+        DateTime from = new(year, month, 1);
+        return CreateRange(
+            PlayHistoryPeriodKind.Month,
+            year.ToString("0000", CultureInfo.InvariantCulture) + "/" + month.ToString("00", CultureInfo.InvariantCulture),
+            from,
+            from.AddMonths(1),
+            timeZone);
+    }
+
+    internal static PlayHistoryPeriodRequest CreateDay(int year, int month, int day, TimeZoneInfo timeZone)
+    {
+        DateTime from = new(year, month, day);
+        return CreateRange(
+            PlayHistoryPeriodKind.Day,
+            year.ToString("0000", CultureInfo.InvariantCulture) + "/" + month.ToString("00", CultureInfo.InvariantCulture) + "/" + day.ToString("00", CultureInfo.InvariantCulture),
+            from,
+            from.AddDays(1),
+            timeZone);
+    }
+
     internal Lr2PlayHistoryReadRequest ToLr2ReadRequest(string scoreDbPath, bool isLr2LinkedProfile)
     {
         return new Lr2PlayHistoryReadRequest
@@ -106,6 +142,17 @@ internal sealed class PlayHistoryPeriodRequest
     {
         DateTime unspecified = DateTime.SpecifyKind(localDateTime, DateTimeKind.Unspecified);
         return new DateTimeOffset(TimeZoneInfo.ConvertTimeToUtc(unspecified, timeZone)).ToUnixTimeSeconds();
+    }
+
+    private static PlayHistoryPeriodRequest CreateRange(PlayHistoryPeriodKind kind, string label, DateTime localFromInclusive, DateTime localToExclusive, TimeZoneInfo timeZone)
+    {
+        timeZone ??= TimeZoneInfo.Local;
+        return new PlayHistoryPeriodRequest(
+            kind,
+            label,
+            ToUnixSeconds(localFromInclusive, timeZone),
+            ToUnixSeconds(localToExclusive, timeZone),
+            includeUnfinalized: false);
     }
 
     private static string ResolveLabel(PlayHistoryPeriodKind kind)
