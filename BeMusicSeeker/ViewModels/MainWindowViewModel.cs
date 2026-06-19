@@ -19983,14 +19983,33 @@ public class MainWindowViewModel : ViewModel
 
         var readStopwatch = Stopwatch.StartNew();
         CancellationToken cancellationToken = GetPlayHistoryFilterCancellationToken(requestId);
-        var reader = new Lr2PlayHistoryReader();
-        string scoreDbPath = ResolveMainViewLr2PlayHistoryScoreDbPath();
-        Lr2PlayHistoryReadResult readResult;
+        bool useBeatorajaProvider = ShouldUseBeatorajaPlayHistoryProvider();
+        PlayHistoryProvider activePlayHistoryProvider = useBeatorajaProvider ? PlayHistoryProvider.Beatoraja : PlayHistoryProvider.Lr2;
+        Lr2PlayHistoryReadResult lr2ReadResult = null;
+        BeatorajaPlayHistoryReadResult beatorajaReadResult = null;
+        Lr2PlayHistorySchemaStatus readSchemaStatus;
+        int rawReadCount;
+        IReadOnlyList<PlayHistoryDiagnostic> readDiagnostics;
         try
         {
-            readResult = reader.Read(
-                periodRequest.ToLr2ReadRequest(scoreDbPath, Settings.Default.OperationModeLR2DB),
-                cancellationToken);
+            if (useBeatorajaProvider)
+            {
+                beatorajaReadResult = new BeatorajaPlayHistoryReader().Read(
+                    periodRequest.ToBeatorajaReadRequest(ResolveMainViewBeatorajaPlayHistoryScoreDbPath()),
+                    cancellationToken);
+                readSchemaStatus = beatorajaReadResult.SchemaStatus;
+                rawReadCount = beatorajaReadResult.Rows.Count;
+                readDiagnostics = beatorajaReadResult.Diagnostics;
+            }
+            else
+            {
+                lr2ReadResult = new Lr2PlayHistoryReader().Read(
+                    periodRequest.ToLr2ReadRequest(ResolveMainViewLr2PlayHistoryScoreDbPath(), Settings.Default.OperationModeLR2DB),
+                    cancellationToken);
+                readSchemaStatus = lr2ReadResult.SchemaStatus;
+                rawReadCount = lr2ReadResult.Rows.Count;
+                readDiagnostics = lr2ReadResult.Diagnostics;
+            }
         }
         catch (OperationCanceledException)
         {
@@ -20002,9 +20021,10 @@ public class MainWindowViewModel : ViewModel
             "play_history_read_done",
             "period=" + periodRequest.Kind
             + " requestId=" + requestId
-            + " schemaStatus=" + readResult.SchemaStatus
-            + " rows=" + readResult.Rows.Count
-            + " diagnosticsCount=" + (readResult.Diagnostics?.Count ?? 0)
+            + " provider=" + activePlayHistoryProvider
+            + " schemaStatus=" + readSchemaStatus
+            + " rows=" + rawReadCount
+            + " diagnosticsCount=" + (readDiagnostics?.Count ?? 0)
             + " elapsedMs=" + readMs);
         if (!IsCurrentPlayHistoryViewRequest(requestId))
         {
@@ -20012,22 +20032,36 @@ public class MainWindowViewModel : ViewModel
             return;
         }
 
-        Lr2PlayHistoryPeriodIndexResult periodIndexResult = null;
+        IReadOnlyList<long> periodIndexPlayedAt = [];
+        IReadOnlyList<PlayHistoryDiagnostic> periodIndexDiagnostics = [];
         long periodIndexMs = 0L;
-        bool canReadPlayHistoryPeriodIndex = readResult.SchemaStatus == Lr2PlayHistorySchemaStatus.Installed
-            || readResult.SchemaStatus == Lr2PlayHistorySchemaStatus.Repairable;
+        bool canReadPlayHistoryPeriodIndex = readSchemaStatus == Lr2PlayHistorySchemaStatus.Installed
+            || readSchemaStatus == Lr2PlayHistorySchemaStatus.Repairable;
         if (canReadPlayHistoryPeriodIndex)
         {
             var periodIndexStopwatch = Stopwatch.StartNew();
             try
             {
-                periodIndexResult = reader.ReadPeriodIndex(
-                    new Lr2PlayHistoryPeriodIndexRequest
-                    {
-                        ScoreDbPath = scoreDbPath,
-                        IsLr2LinkedProfile = Settings.Default.OperationModeLR2DB
-                    },
-                    cancellationToken);
+                if (useBeatorajaProvider)
+                {
+                    BeatorajaPlayHistoryPeriodIndexResult periodIndexResult = new BeatorajaPlayHistoryReader().ReadPeriodIndex(
+                        new BeatorajaPlayHistoryPeriodIndexRequest { ScoreDbPath = ResolveMainViewBeatorajaPlayHistoryScoreDbPath() },
+                        cancellationToken);
+                    periodIndexPlayedAt = periodIndexResult.PlayedAtUnixSeconds;
+                    periodIndexDiagnostics = periodIndexResult.Diagnostics;
+                }
+                else
+                {
+                    Lr2PlayHistoryPeriodIndexResult periodIndexResult = new Lr2PlayHistoryReader().ReadPeriodIndex(
+                        new Lr2PlayHistoryPeriodIndexRequest
+                        {
+                            ScoreDbPath = ResolveMainViewLr2PlayHistoryScoreDbPath(),
+                            IsLr2LinkedProfile = Settings.Default.OperationModeLR2DB
+                        },
+                        cancellationToken);
+                    periodIndexPlayedAt = periodIndexResult.PlayedAtUnixSeconds;
+                    periodIndexDiagnostics = periodIndexResult.Diagnostics;
+                }
             }
             catch (OperationCanceledException)
             {
@@ -20039,9 +20073,10 @@ public class MainWindowViewModel : ViewModel
                 "play_history_read_period_index_done",
                 "period=" + periodRequest.Kind
                 + " requestId=" + requestId
-                + " schemaStatus=" + periodIndexResult.SchemaStatus
-                + " days=" + (periodIndexResult.PlayedAtUnixSeconds?.Count ?? 0)
-                + " diagnosticsCount=" + (periodIndexResult.Diagnostics?.Count ?? 0)
+                + " provider=" + activePlayHistoryProvider
+                + " schemaStatus=" + readSchemaStatus
+                + " days=" + (periodIndexPlayedAt?.Count ?? 0)
+                + " diagnosticsCount=" + (periodIndexDiagnostics?.Count ?? 0)
                 + " elapsedMs=" + periodIndexMs);
             if (!IsCurrentPlayHistoryViewRequest(requestId))
             {
@@ -20055,7 +20090,8 @@ public class MainWindowViewModel : ViewModel
                 "play_history_read_period_index_skipped",
                 "period=" + periodRequest.Kind
                 + " requestId=" + requestId
-                + " schemaStatus=" + readResult.SchemaStatus
+                + " provider=" + activePlayHistoryProvider
+                + " schemaStatus=" + readSchemaStatus
                 + " reason=schema_unavailable");
         }
 
@@ -20064,17 +20100,25 @@ public class MainWindowViewModel : ViewModel
         bool projectionIndexCacheHit = false;
         int projectionIndexStaleRetries = 0;
         long projectionMs = 0L;
-        if (readResult.Rows.Count > 0)
+        if (rawReadCount > 0)
         {
             try
             {
-                projectionResult = CreatePlayHistoryProjectionResult(
-                    readResult,
-                    cancellationToken,
-                    out projectionIndexMs,
-                    out projectionIndexCacheHit,
-                    out projectionIndexStaleRetries,
-                    out projectionMs);
+                projectionResult = useBeatorajaProvider
+                    ? CreatePlayHistoryProjectionResult(
+                        beatorajaReadResult,
+                        cancellationToken,
+                        out projectionIndexMs,
+                        out projectionIndexCacheHit,
+                        out projectionIndexStaleRetries,
+                        out projectionMs)
+                    : CreatePlayHistoryProjectionResult(
+                        lr2ReadResult,
+                        cancellationToken,
+                        out projectionIndexMs,
+                        out projectionIndexCacheHit,
+                        out projectionIndexStaleRetries,
+                        out projectionMs);
             }
             catch (OperationCanceledException)
             {
@@ -20084,22 +20128,25 @@ public class MainWindowViewModel : ViewModel
         }
         else
         {
-            projectionResult = PlayHistoryRow.ProjectLr2Rows(readResult, PlayHistoryProjectionIndex.Empty);
+            projectionResult = useBeatorajaProvider
+                ? PlayHistoryRow.ProjectBeatorajaRows(beatorajaReadResult, PlayHistoryProjectionIndex.Empty)
+                : PlayHistoryRow.ProjectLr2Rows(lr2ReadResult, PlayHistoryProjectionIndex.Empty);
         }
         bool projectionIndexFallback = (projectionResult.Diagnostics ?? [])
             .Any(diagnostic => string.Equals(diagnostic?.Code, "play_history_projection_index_failed", StringComparison.Ordinal));
-        string projectionEventName = readResult.Rows.Count == 0
+        string projectionEventName = rawReadCount == 0
             ? "play_history_projection_skipped"
             : (projectionIndexFallback ? "play_history_projection_fallback" : "play_history_projection_done");
         string projectionReason = projectionIndexFallback
             ? "projection_index_failed"
-            : (readResult.Rows.Count == 0 ? (canReadPlayHistoryPeriodIndex ? "no_rows" : "schema_unavailable") : string.Empty);
+            : (rawReadCount == 0 ? (canReadPlayHistoryPeriodIndex ? "no_rows" : "schema_unavailable") : string.Empty);
         LogPlayHistoryEvent(
             projectionEventName,
             "period=" + periodRequest.Kind
             + " requestId=" + requestId
-            + " schemaStatus=" + readResult.SchemaStatus
-            + " rawCount=" + readResult.Rows.Count
+            + " provider=" + activePlayHistoryProvider
+            + " schemaStatus=" + readSchemaStatus
+            + " rawCount=" + rawReadCount
             + " projectedCount=" + projectionResult.Rows.Count
             + " diagnosticsCount=" + (projectionResult.Diagnostics?.Count ?? 0)
             + " fallback=" + projectionIndexFallback.ToString().ToLowerInvariant()
@@ -20108,7 +20155,7 @@ public class MainWindowViewModel : ViewModel
             + " projectionIndexStaleRetries=" + projectionIndexStaleRetries
             + " projectionMs=" + projectionMs
             + (string.IsNullOrEmpty(projectionReason) ? string.Empty : " reason=" + projectionReason));
-        IReadOnlyList<PlayHistoryDiagnostic> mergedDiagnostics = MergePlayHistoryDiagnostics(projectionResult.Diagnostics, periodIndexResult?.Diagnostics);
+        IReadOnlyList<PlayHistoryDiagnostic> mergedDiagnostics = MergePlayHistoryDiagnostics(projectionResult.Diagnostics, periodIndexDiagnostics);
         if (!ReferenceEquals(mergedDiagnostics, projectionResult.Diagnostics))
         {
             projectionResult = new PlayHistoryProjectionResult(projectionResult.Rows, mergedDiagnostics);
@@ -20149,8 +20196,8 @@ public class MainWindowViewModel : ViewModel
             projectionResult = new PlayHistoryProjectionResult(filteredRows, projectionResult.Diagnostics);
         }
         LogPlayHistoryDisplayTargetFilter(periodRequest, requestId, displayTarget, projectedRows.Count, targetRows.Count);
-        LogPlayHistoryKeywordFilter(periodRequest, requestId, keywordFilter, readResult.Rows.Count, targetRows.Count, keywordCount, keywordMs);
-        IReadOnlyList<PlayHistoryPeriodTreeItem> archivePeriodTree = PlayHistoryPeriodTreeItem.BuildArchiveTree(periodIndexResult?.PlayedAtUnixSeconds, TimeZoneInfo.Local);
+        LogPlayHistoryKeywordFilter(periodRequest, requestId, keywordFilter, rawReadCount, targetRows.Count, keywordCount, keywordMs);
+        IReadOnlyList<PlayHistoryPeriodTreeItem> archivePeriodTree = PlayHistoryPeriodTreeItem.BuildArchiveTree(periodIndexPlayedAt, TimeZoneInfo.Local);
         if (!IsCurrentPlayHistoryViewRequest(requestId))
         {
             LogStalePlayHistoryViewRequest(mode, requestedMode, parameter, periodRequest, requestId, readMs + periodIndexMs + projectionIndexMs + projectionMs);
@@ -20173,8 +20220,8 @@ public class MainWindowViewModel : ViewModel
             targetRows,
             projectionResult.Rows,
             projectionResult.Diagnostics,
-            readResult.SchemaStatus,
-            readResult.Rows.Count,
+            readSchemaStatus,
+            rawReadCount,
             sortSnapshot,
             keywordFilter,
             keywordRevision,
@@ -20713,6 +20760,55 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
+    private PlayHistoryProjectionResult CreatePlayHistoryProjectionResult(
+        BeatorajaPlayHistoryReadResult readResult,
+        CancellationToken cancellationToken,
+        out long projectionIndexMs,
+        out bool projectionIndexCacheHit,
+        out int projectionIndexStaleRetries,
+        out long projectionMs)
+    {
+        projectionIndexMs = 0L;
+        projectionIndexCacheHit = false;
+        projectionIndexStaleRetries = 0;
+        projectionMs = 0L;
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var projectionIndexStopwatch = Stopwatch.StartNew();
+            PlayHistoryProjectionIndex projectionIndex = files.CreateBeatorajaPlayHistoryProjectionIndex(
+                readResult.Rows,
+                cancellationToken,
+                out projectionIndexCacheHit,
+                out projectionIndexStaleRetries);
+            projectionIndexMs = projectionIndexStopwatch.ElapsedMilliseconds;
+            cancellationToken.ThrowIfCancellationRequested();
+            var projectionStopwatch = Stopwatch.StartNew();
+            PlayHistoryProjectionResult projectionResult = PlayHistoryRow.ProjectBeatorajaRows(readResult, projectionIndex);
+            projectionMs = projectionStopwatch.ElapsedMilliseconds;
+            return projectionResult;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            projectionMs = 0L;
+            PlayHistoryProjectionResult fallback = PlayHistoryRow.ProjectBeatorajaRows(readResult, PlayHistoryProjectionIndex.Empty);
+            List<PlayHistoryDiagnostic> diagnostics = [.. fallback.Diagnostics];
+            diagnostics.Add(CreatePlayHistoryDiagnostic(
+                PlayHistoryProvider.Beatoraja,
+                PlayHistoryDiagnosticSeverity.Error,
+                "projection",
+                "play_history_projection_index_failed",
+                ex.Message,
+                readResult?.SourceProfile?.SourcePath));
+            NLogWrapper.FileLogger?.Warn(ex, "play_history_projection_index_failed");
+            return new PlayHistoryProjectionResult(fallback.Rows, diagnostics);
+        }
+    }
+
     private PlayHistoryViewRequest ResolvePlayHistoryViewRequest(object parameter)
     {
         if (parameter is PlayHistoryViewRequest request)
@@ -20773,6 +20869,23 @@ public class MainWindowViewModel : ViewModel
             lr2config = new LR2Config(Settings.Default.LR2ConfigXmlPath);
         }
         return Lr2ScoreDbPathResolver.BuildPlayerScoreDbPath(Settings.Default.LR2RootPath, () => lr2config?.GetPlayerId());
+    }
+
+    private bool ShouldUseBeatorajaPlayHistoryProvider()
+    {
+        string scoreDbPath = ResolveMainViewBeatorajaPlayHistoryScoreDbPath();
+        return Settings.Default.UseBeatorajaScoreDb
+            && !string.IsNullOrWhiteSpace(scoreDbPath)
+            && File.Exists(scoreDbPath);
+    }
+
+    private string ResolveMainViewBeatorajaPlayHistoryScoreDbPath()
+    {
+        if (BeatorajaConfigService.IsBeatorajaRootPathValid(Settings.Default.BeatorajaRootPath))
+        {
+            return BeatorajaConfigService.GetScoreDbPath(Settings.Default.BeatorajaRootPath, Settings.Default.BeatorajaPlayerId);
+        }
+        return Settings.Default.BeatorajaScoreDbPath;
     }
 
     internal long RegisterPlayHistoryFilterRequest()
@@ -20950,9 +21063,20 @@ public class MainWindowViewModel : ViewModel
         string message,
         string sourcePath)
     {
+        return CreatePlayHistoryDiagnostic(PlayHistoryProvider.Lr2, severity, stage, code, message, sourcePath);
+    }
+
+    private static PlayHistoryDiagnostic CreatePlayHistoryDiagnostic(
+        PlayHistoryProvider provider,
+        PlayHistoryDiagnosticSeverity severity,
+        string stage,
+        string code,
+        string message,
+        string sourcePath)
+    {
         return new PlayHistoryDiagnostic
         {
-            Provider = PlayHistoryProvider.Lr2,
+            Provider = provider,
             Stage = stage ?? string.Empty,
             Severity = severity,
             Code = code ?? string.Empty,

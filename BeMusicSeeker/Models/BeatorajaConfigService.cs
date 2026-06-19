@@ -48,11 +48,26 @@ internal static class BeatorajaConfigService
 
     internal static string GetScoreDbPath(string rootPath, string playerId)
     {
+        return GetPlayerDbPath(rootPath, playerId, "score.db");
+    }
+
+    internal static string GetScoreDataLogDbPath(string rootPath, string playerId)
+    {
+        return GetPlayerDbPath(rootPath, playerId, "scoredatalog.db");
+    }
+
+    internal static string GetScoreLogDbPath(string rootPath, string playerId)
+    {
+        return GetPlayerDbPath(rootPath, playerId, "scorelog.db");
+    }
+
+    internal static string GetPlayerDbPath(string rootPath, string playerId, string fileName)
+    {
         if (string.IsNullOrWhiteSpace(rootPath) || string.IsNullOrWhiteSpace(playerId))
         {
             return string.Empty;
         }
-        return Path.Combine(GetPlayerRootPath(rootPath), playerId, "score.db");
+        return Path.Combine(GetPlayerRootPath(rootPath), playerId, string.IsNullOrWhiteSpace(fileName) ? string.Empty : fileName);
     }
 
     internal static List<string> GetPlayerIds(string rootPath)

@@ -1386,6 +1386,7 @@ internal sealed class GridKeywordSearchQuery
                 yield return row.FolderLabels;
                 yield return row.PlaylistNames;
                 yield return row.RawHash;
+                yield return row.Md5;
                 yield return row.Sha256;
                 yield return row.Kind;
                 yield return row.ScoreWriteType;
@@ -1415,6 +1416,8 @@ internal sealed class GridKeywordSearchQuery
                 }
                 break;
             case "md5":
+                yield return row.Md5;
+                break;
             case "hash":
                 yield return row.RawHash;
                 break;

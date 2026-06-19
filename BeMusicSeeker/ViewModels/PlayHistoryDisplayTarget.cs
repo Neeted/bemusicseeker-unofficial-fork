@@ -279,6 +279,7 @@ internal sealed class PlayHistoryDisplayTargetIndex
     {
         var matches = new List<PlayHistoryDisplayTargetMatch>();
         AddMatches(matches, md5Map, row.RawHash);
+        AddMatches(matches, md5Map, row.Md5);
         AddMatches(matches, sha256Map, row.Sha256);
         return matches
             .GroupBy(match => match.Identity, StringComparer.OrdinalIgnoreCase)

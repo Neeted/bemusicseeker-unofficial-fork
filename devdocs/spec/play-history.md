@@ -4,11 +4,13 @@
 
 ## 目的
 
-プレイログは BMS player の play history を BeMusicSeeker 上で参照するための read model である。初期実装では LR2 linked profile の LR2 `score.db` を source とし、設定画面で導入した trigger が導入後の score 更新を記録する。
+プレイログは BMS player の play history を BeMusicSeeker 上で参照するための read model である。LR2 provider は LR2 linked profile の LR2 `score.db` を source とし、設定画面で導入した trigger が導入後の score 更新を記録する。beatoraja provider は既存 beatoraja 設定の選択 player directory にある `scoredatalog.db` / `scorelog.db` を read-only で参照する。
+
+UI は現在の設定から単一 provider を選択する。`UseBeatorajaScoreDb` が有効で、選択 player の beatoraja `score.db` が存在する場合は beatoraja provider を使う。それ以外では LR2 provider を使う。LR2 と beatoraja の履歴を同じ view で合算しない。
 
 次のものは現行実装の scope 外である。
 
-- beatoraja provider。UI / provider enum / plan 上の受け皿はあるが、`scoredatalog.db` / `scorelog.db` からの read model は未実装。
+- beatoraja の provider 固有 aggregate。単曲 row の playtime は空欄であり、player aggregate から期間 summary へ足す処理は未実装。
 - 導入前 LR2 score からの backfill。LR2 `score` row には「最後にいつプレイしたか」を復元できる十分な情報が無いため、導入済み score を last play として補完しない。
 
 ## LR2 Schema
@@ -58,9 +60,17 @@ reader は schema check を先に行う。`Installed` 以外の read 可能で�
 
 `ReadPeriodIndex` は `bms_lr2_play_history.played_at` から日単位の代表 timestamp を読む。これは archive tree 用であり、通常一覧の row limit に巻き込まれない。現行 SQL は `strftime(..., 'localtime')` で finalized 全履歴を日単位に group 化するため、真の index-only lookup ではなく O(履歴行数) の集計になり得る。ただし row 本体や projection index を作らないため、通常一覧の全 row projection より軽い境界として扱う。
 
+## beatoraja Read Model
+
+`BeatorajaPlayHistoryReader` は beatoraja player directory の `scoredatalog.db` を read-only source として扱う。通常 Chart 履歴として扱うのは `mode = 0` の row だけであり、course / grade などの aggregate row を通常 Chart 履歴に混ぜない。
+
+`scorelog.db` が同じ player directory にある場合は、`sha256 + mode + date` が一致する `scorelog` row から best delta を補う。対応する `scorelog` row が無い場合、actual result は表示し、best delta 欄は空欄のままにする。
+
+beatoraja provider の日時 index は `MAX(scoredatalog.date)` を日別に集約する。`scoredatalog.db` が無い、または読めない場合、beatoraja provider の last play / archive index は未提供になり、`score.db` の `score.date` へ意味を変えて fallback しない。
+
 ## Projection
 
-`PlayHistoryRow` は provider 非依存の表示 row である。LR2 provider では `Lr2PlayHistoryRecord` を `PlayHistoryProjectionIndex` で app-owned library / playlist 情報へ解決して作る。
+`PlayHistoryRow` は provider 非依存の表示 row である。LR2 provider では `Lr2PlayHistoryRecord`、beatoraja provider では `BeatorajaPlayHistoryRecord` を `PlayHistoryProjectionIndex` で app-owned library / playlist 情報へ解決して作る。
 
 UI refresh では raw rows がある場合に projection index を作る。projection index の作成が stale request / cancellation で中断された場合は表示更新を中止する。raw rows が無い場合や projection source が無い場合は `PlayHistoryProjectionIndex.Empty` で unresolved row と diagnostics を作れる。これは chart 解決を諦めて raw history を表示するための projection fallback であり、schema / table 未導入を成功扱いに変える fallback ではない。
 
@@ -68,11 +78,11 @@ UI refresh では raw rows がある場合に projection index を作る。proje
 
 | Field | 意味 |
 | --- | --- |
-| `Provider` / `Source` / `SourcePath` | source provider と DB path。現行 provider は LR2。 |
-| `HistoryId` / `SourceKey` | source 内の履歴 row identity。LR2 では `history_id`。 |
+| `Provider` / `Source` / `SourcePath` | source provider と DB path。 |
+| `HistoryId` / `SourceKey` | source 内の履歴 row identity。LR2 では `history_id`、beatoraja では `scoredatalog.rowid`。 |
 | `PlayedAtUnix` / `PlayedAt` | play time。UI では local time として表示する。 |
 | `Finalized` | player aggregate delta まで確定した row か。通常一覧では finalized row を扱う。 |
-| `RawHash` / `Sha256` | source hash と resolved SHA-256。LR2 source hash は MD5。 |
+| `RawHash` / `Md5` / `Sha256` | source hash、resolved MD5、resolved SHA-256。LR2 source hash は MD5、beatoraja source hash は SHA-256。 |
 | `ResolvedChart` / `ResolvedChartRef` | app library で解決できた chart identity。 |
 | `HashKind` | chart / course / unknown の分類。現行 LR2 projection は chart 解決できなければ unknown。 |
 | `Title` / `Artist` / `Path` | resolved chart から得た表示情報。未解決なら空。 |
@@ -80,9 +90,11 @@ UI refresh では raw rows がある場合に projection index を作る。proje
 | `Kind` | play history row の分類。actual result や best 更新内容から表示用に解決する。 |
 | `BestClear` / `BestDjLevelText` / `BestRatePercent` / `BestExscore` / `BestBp` / `BestCombo` | best 更新があった場合の before / after 表示。 |
 | `PlayExscore` / `Judges` / `PlaytimeSeconds` | finalized actual play delta から作る実プレイ結果。 |
-| `Option` / `OpHistory` | LR2 option bit の表示。 |
+| `Option` / `OpHistory` | LR2 option bit または beatoraja raw option / random / seed の表示。 |
 
 空 hash の raw row や chart 解決できない row は失敗として捨てず、diagnostic または unresolved row として扱う。Play history view の context menu は chart row 用 menu を広く出さず、resolved row は Mocha / MinIR と hash copy、unresolved row は raw hash copy を中心にする。
+
+beatoraja row では raw `option` / `random` / `seed` を保存値として扱い、LR2 `op_best` と同じ意味へ丸めない。UI projection では raw 値を短い文字列として表示する。beatoraja clear は表示用に既存 clear text へ投影するが、raw record は provider 専用 record に保持する。
 
 ## Period Selection And UI
 
@@ -113,7 +125,8 @@ Play History context の field は次の通り。
 | `title:` / `artist:` / `path:` | resolved chart の表示情報。未解決 row では空。 |
 | `folder:` | display target 適用後の `FolderLabels`。`すべて` では playlist symbol、playlist 選択時は playlist entry folder、target set 選択時は `org_symbol + level`。 |
 | `playlist:` / `ref:` / `table:` | playlist reference の name 表示。 |
-| `md5:` / `hash:` | source raw hash。LR2 では MD5。 |
+| `md5:` | resolved MD5。 |
+| `hash:` | source raw hash。LR2 では MD5、beatoraja では SHA-256。 |
 | `sha256:` | resolved SHA-256。未解決 row では空。 |
 | `date:` | local play date。`yyyy-MM-dd` / `yyyy/MM/dd` / `yyyyMMdd` を exact match する。 |
 | `year:` | local play year を exact match する。 |
@@ -180,4 +193,4 @@ manual は日本語 `docs/manual.ja.md` と英語 `docs/manual.md` を同時更�
 次は計画上の未実装範囲であり、この spec の現行仕様には含めない。
 
 - maintenance / settings での detailed status view と schema missing / locked / read-only の表示確認。
-- beatoraja provider: `scoredatalog.db` / `scorelog.db` / `score.db` の取り込み、best delta projection、provider 固有 aggregate。
+- beatoraja provider 固有 aggregate: player aggregate から期間 summary へ playtime などを足す処理。

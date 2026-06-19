@@ -691,19 +691,19 @@ Play history view 用の keyword search context を追加する。既存 chart l
 
 作業:
 
-- [ ] player directory から `scoredatalog.db` / `scorelog.db` / `score.db` path を解決する。
-- [ ] `scoredatalog.db` を主入力にして actual result を作る。
-- [ ] `scorelog.db` を `sha256 + mode + date` で対応させ、best delta を補う。
-- [ ] LAST PLAY SORT は `MAX(scoredatalog.date)` を主入力にする。`scoredatalog.db` が読めない場合は beatoraja provider の last play を未提供にする。
-- [ ] clear / option は raw と projection を分ける。
-- [ ] course / grade aggregate row は通常 Chart 履歴に混ぜず、診断または後続 scope にする。
+- [x] player directory から `scoredatalog.db` / `scorelog.db` / `score.db` path を解決する。
+- [x] `scoredatalog.db` を主入力にして actual result を作る。
+- [x] `scorelog.db` を `sha256 + mode + date` で対応させ、best delta を補う。
+- [x] archive / last play index は `MAX(scoredatalog.date)` を主入力にする。`scoredatalog.db` が読めない場合は beatoraja provider の last play を未提供にする。LR2 LAST PLAY SORT custom folder への beatoraja 統合は今回の scope 外。
+- [x] clear / option は raw と projection を分ける。
+- [x] course / grade aggregate row は通常 Chart 履歴に混ぜず、診断または後続 scope にする。
 
 テスト:
 
-- [ ] `scoredatalog.db` の single play row が `PlayHistoryRow` になる。
-- [ ] `scorelog.db` が対応できない場合は `BestDelta` 空欄。
-- [ ] playtime は row では空欄、期間 summary は provider 固有 aggregate から扱う。
-- [ ] LR2 provider と同じ columns / search / summary が動く。
+- [x] `scoredatalog.db` の single play row が `PlayHistoryRow` になる。
+- [x] `scorelog.db` が対応できない場合は `BestDelta` 空欄。
+- [x] playtime は row では空欄。期間 summary の provider 固有 aggregate 加算は後続 scope とする。
+- [x] LR2 provider と同じ columns / search / summary 経路へ載る。
 
 完了条件:
 
@@ -720,7 +720,7 @@ Play history view 用の keyword search context を追加する。既存 chart l
 | Phase 4 | 完了 | LAST PLAY SORT custom folder が出力され、schema guard / cleanup / NULL sort command の検証まで完了 |
 | Phase 5 | 完了 | keyword search と `すべて` / playlist / 表示対象セット dropdown filter が動作し、settings JSON 保存形式まで追加済み |
 | Phase 6 | 進行中 | status 表示、summary 診断、現行仕様 spec、log contract は追加済み。locked / read-only 実環境確認と実画面 screenshot が残る |
-| Phase 7 | 未着手 | beatoraja provider が同じ UI に載る |
+| Phase 7 | 完了 | beatoraja provider が同じ UI に載り、挙動 / 性能 / テスト充足レビューで P0 / P1 指摘なしを確認済み |
 
 ## 作業記録
 
@@ -744,6 +744,8 @@ Play history view 用の keyword search context を追加する。既存 chart l
 - 2026-06-19: Phase 5 keyword search として `GridKeywordSearchContext.PlayHistory`、`PlayHistoryRow` matcher、PlayHistory 用 field completion/help、PlayHistory view の projection 後 keyword filter を追加した。この時点では表示対象セット / dropdown filter は後続作業として残っていた。
 - 2026-06-19: Phase 5 display target として、PlayHistory 右上に `すべて` / playlist / settings JSON の表示対象セット dropdown を追加し、target filter を projection 後・keyword filter 前に適用する read model を追加した。playlist 選択時の FOLDER は playlist entry folder、target set 選択時は `org_symbol + level` 表示とし、対象外 row は除外する。`Settings.Default.PlayHistoryDisplayTargetSetsJson` は portable settings と同じ provider 管理対象で、初期実装では編集 UI や app-owned DB table は追加しない。
 - 2026-06-19: Phase 5 display target のサブエージェントレビューを挙動 / 性能 / テスト充足の観点で実施し、PlaylistTree flush 時の target 再構築、playlist entries hydration 完了時の不要 refresh 抑止、MD5 優先 lookup、空 folder 表示、stale target filter cancellation、settings / XAML / refresh 経路の静的テストを追加した。再レビューで P0 / P1 指摘なしを確認した。
+- 2026-06-19: Phase 7 初期実装として、beatoraja player directory の `scoredatalog.db` / `scorelog.db` path 解決、`BeatorajaPlayHistoryReader`、`BeatorajaPlayHistoryRecord`、`PlayHistoryRow.ProjectBeatorajaRows`、MainWindow の provider 切り替えを追加した。`scoredatalog.mode = 0` の単曲 row を actual result とし、`scorelog` は `sha256 + mode + date` が一致した場合のみ best delta を補う。`scorelog.db` 不在時は best delta を空欄にし、playtime は row に混ぜない。
+- 2026-06-19: Phase 7 サブエージェントレビューを挙動 / 性能 / テスト充足の観点で実施し、resolved MD5 を使う playlist / display target 解決、beatoraja projection diagnostic provider、scorelog cancellation、scorelog read 範囲、provider 判定の snapshot build 回避、summary / search / display target / scorelog mismatch tests、manual / spec の単一 provider 記述を追加・修正した。再レビューで P0 / P1 指摘なしを確認した。
 
 ## 実装時の注意
 

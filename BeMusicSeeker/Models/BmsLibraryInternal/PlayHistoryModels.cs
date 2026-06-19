@@ -61,6 +61,176 @@ internal sealed class PlayHistorySourceProfile
     {
         return new PlayHistorySourceProfile(PlayHistoryProvider.Lr2, scoreDbPath, "LR2");
     }
+
+    internal static PlayHistorySourceProfile Beatoraja(string scoreDataLogDbPath)
+    {
+        return new PlayHistorySourceProfile(PlayHistoryProvider.Beatoraja, scoreDataLogDbPath, "beatoraja");
+    }
+}
+
+internal sealed class BeatorajaPlayHistoryReadRequest
+{
+    internal string ScoreDbPath { get; set; }
+
+    internal string ScoreDataLogDbPath { get; set; }
+
+    internal string ScoreLogDbPath { get; set; }
+
+    internal long? PlayedAtFromInclusive { get; set; }
+
+    internal long? PlayedAtToExclusive { get; set; }
+
+    internal int? Limit { get; set; }
+}
+
+internal sealed class BeatorajaPlayHistoryPeriodIndexRequest
+{
+    internal string ScoreDbPath { get; set; }
+
+    internal string ScoreDataLogDbPath { get; set; }
+}
+
+internal sealed class BeatorajaPlayHistoryPeriodIndexResult
+{
+    internal BeatorajaPlayHistoryPeriodIndexResult(
+        PlayHistorySourceProfile sourceProfile,
+        IReadOnlyList<long> playedAtUnixSeconds,
+        IReadOnlyList<PlayHistoryDiagnostic> diagnostics,
+        Lr2PlayHistorySchemaStatus schemaStatus)
+    {
+        SourceProfile = sourceProfile;
+        PlayedAtUnixSeconds = playedAtUnixSeconds ?? [];
+        Diagnostics = diagnostics ?? [];
+        SchemaStatus = schemaStatus;
+    }
+
+    internal PlayHistorySourceProfile SourceProfile { get; }
+
+    internal IReadOnlyList<long> PlayedAtUnixSeconds { get; }
+
+    internal IReadOnlyList<PlayHistoryDiagnostic> Diagnostics { get; }
+
+    internal Lr2PlayHistorySchemaStatus SchemaStatus { get; }
+}
+
+internal sealed class BeatorajaPlayHistoryReadResult
+{
+    internal BeatorajaPlayHistoryReadResult(
+        PlayHistorySourceProfile sourceProfile,
+        IReadOnlyList<BeatorajaPlayHistoryRecord> rows,
+        IReadOnlyList<PlayHistoryDiagnostic> diagnostics,
+        Lr2PlayHistorySchemaStatus schemaStatus)
+    {
+        SourceProfile = sourceProfile;
+        Rows = rows ?? [];
+        Diagnostics = diagnostics ?? [];
+        SchemaStatus = schemaStatus;
+    }
+
+    internal PlayHistorySourceProfile SourceProfile { get; }
+
+    internal IReadOnlyList<BeatorajaPlayHistoryRecord> Rows { get; }
+
+    internal IReadOnlyList<PlayHistoryDiagnostic> Diagnostics { get; }
+
+    internal Lr2PlayHistorySchemaStatus SchemaStatus { get; }
+
+    internal bool HasErrors
+    {
+        get
+        {
+            foreach (PlayHistoryDiagnostic diagnostic in Diagnostics)
+            {
+                if (diagnostic?.Severity == PlayHistoryDiagnosticSeverity.Error)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+    }
+}
+
+internal sealed class BeatorajaPlayHistoryRecord
+{
+    public long history_id { get; set; }
+
+    public string sha256 { get; set; }
+
+    public int mode { get; set; }
+
+    public long played_at { get; set; }
+
+    public int clear { get; set; }
+
+    public int epg { get; set; }
+
+    public int lpg { get; set; }
+
+    public int egr { get; set; }
+
+    public int lgr { get; set; }
+
+    public int egd { get; set; }
+
+    public int lgd { get; set; }
+
+    public int ebd { get; set; }
+
+    public int lbd { get; set; }
+
+    public int epr { get; set; }
+
+    public int lpr { get; set; }
+
+    public int ems { get; set; }
+
+    public int lms { get; set; }
+
+    public int notes { get; set; }
+
+    public int combo { get; set; }
+
+    public int minbp { get; set; }
+
+    public int playcount { get; set; }
+
+    public int clearcount { get; set; }
+
+    public int option { get; set; }
+
+    public long seed { get; set; }
+
+    public int random { get; set; }
+
+    public int state { get; set; }
+
+    public string scorehash { get; set; }
+
+    public int? old_clear { get; set; }
+
+    public int? new_clear { get; set; }
+
+    public int? old_exscore { get; set; }
+
+    public int? new_exscore { get; set; }
+
+    public int? old_maxcombo { get; set; }
+
+    public int? new_maxcombo { get; set; }
+
+    public int? old_minbp { get; set; }
+
+    public int? new_minbp { get; set; }
+
+    internal bool HasBestDelta => old_clear.HasValue
+        || new_clear.HasValue
+        || old_exscore.HasValue
+        || new_exscore.HasValue
+        || old_maxcombo.HasValue
+        || new_maxcombo.HasValue
+        || old_minbp.HasValue
+        || new_minbp.HasValue;
 }
 
 internal sealed class Lr2PlayHistoryReadRequest

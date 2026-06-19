@@ -138,6 +138,16 @@ internal sealed class PlayHistoryPeriodRequest
         };
     }
 
+    internal BeatorajaPlayHistoryReadRequest ToBeatorajaReadRequest(string scoreDbPath)
+    {
+        return new BeatorajaPlayHistoryReadRequest
+        {
+            ScoreDbPath = scoreDbPath,
+            PlayedAtFromInclusive = PlayedAtFromInclusive,
+            PlayedAtToExclusive = PlayedAtToExclusive
+        };
+    }
+
     private static long ToUnixSeconds(DateTime localDateTime, TimeZoneInfo timeZone)
     {
         DateTime unspecified = DateTime.SpecifyKind(localDateTime, DateTimeKind.Unspecified);

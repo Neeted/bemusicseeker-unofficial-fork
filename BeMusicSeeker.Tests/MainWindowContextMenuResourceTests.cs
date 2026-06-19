@@ -148,6 +148,29 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
+    public void PlayHistoryView_SelectsBeatorajaProviderAndProjectsSha256Rows()
+    {
+        string viewModelCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string applyPlayHistoryView = ExtractBetween(viewModelCode, "private void ApplyPlayHistoryView", "private IReadOnlyList<PlayHistoryRow> ApplyPlayHistoryKeywordFilterRows");
+        string beatorajaProjection = ExtractBetween(viewModelCode, "BeatorajaPlayHistoryReadResult readResult,", "private PlayHistoryViewRequest ResolvePlayHistoryViewRequest");
+        string providerSelection = ExtractBetween(viewModelCode, "private bool ShouldUseBeatorajaPlayHistoryProvider", "private string ResolveMainViewBeatorajaPlayHistoryScoreDbPath");
+        string rowCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "PlayHistoryRow.cs"));
+
+        StringAssert.Contains(applyPlayHistoryView, "ShouldUseBeatorajaPlayHistoryProvider()");
+        StringAssert.Contains(applyPlayHistoryView, "new BeatorajaPlayHistoryReader().Read(");
+        StringAssert.Contains(applyPlayHistoryView, "periodRequest.ToBeatorajaReadRequest");
+        StringAssert.Contains(applyPlayHistoryView, "PlayHistoryRow.ProjectBeatorajaRows");
+        StringAssert.Contains(applyPlayHistoryView, "provider=\" + activePlayHistoryProvider");
+        StringAssert.Contains(beatorajaProjection, "files.CreateBeatorajaPlayHistoryProjectionIndex");
+        StringAssert.Contains(beatorajaProjection, "PlayHistoryRow.ProjectBeatorajaRows(readResult, projectionIndex)");
+        StringAssert.Contains(providerSelection, "Settings.Default.UseBeatorajaScoreDb");
+        Assert.IsFalse(providerSelection.Contains("GetScoreSnapshotForDiagnostics"));
+        StringAssert.Contains(rowCode, "safeIndex.ResolveChartByMd5(string.Empty, sha256)");
+        StringAssert.Contains(rowCode, "safeIndex.ResolvePlaylistReference(resolvedMd5, sha256)");
+        StringAssert.Contains(rowCode, "FormatBeatorajaOption");
+    }
+
+    [TestMethod]
     public void PlayHistoryView_KeywordFilterUpdatedReusesProjectedState()
     {
         string viewModelCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));

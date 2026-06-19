@@ -325,7 +325,7 @@ Click a column header to sort. Many columns can be displayed, including `TITLE`,
 
 ### Play Log
 
-The `Play Log` tree shows LR2 play history in the main list. After enabling the LR2 play-log schema in the settings dialog, newly played LR2 charts become available here.
+The `Play Log` tree shows LR2 or beatoraja play history in the main list. The list shows one provider selected from the current settings; it does not merge LR2 and beatoraja history at the same time. When beatoraja score DB use is enabled and the selected player's `score.db` exists, the beatoraja provider is used. Otherwise, the LR2 provider is used. For LR2, newly played charts become available after enabling the LR2 play-log schema in the settings dialog. For beatoraja, the view reads `scoredatalog.db` from the player folder selected in beatoraja integration.
 
 Enabling or repairing the LR2 play-log schema adds or repairs BeMusicSeeker tables, indexes, and triggers in the selected player's LR2 `score.db`. Before running it, confirm that the target player is correct and back up `score.db` in advance.
 
@@ -333,7 +333,7 @@ The available periods are `All`, `Today`, `Yesterday`, `Recent 7 Days`, `Recent 
 
 The summary bar shows the row count, SCORE / CLEAR / FC updates, PLAYTIME, and diagnostics. When the score DB is missing, the schema is not installed, or a read/projection problem occurs, diagnostic details are shown in the summary and written to the log.
 
-This view currently reads the LR2 player `score.db`. beatoraja play history viewing is planned separately.
+beatoraja play-log reading is read-only and uses `scoredatalog.db` single-chart plays as the primary input. When `scorelog.db` exists in the same player folder, matching SHA-256 / mode / date best-update logs fill SCORE / CLEAR / BP / COMBO deltas. If `scorelog.db` is missing or has no matching row, the best-delta columns stay blank. beatoraja playtime is not shown on individual rows.
 
 ### Copy Operations
 

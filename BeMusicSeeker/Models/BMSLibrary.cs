@@ -12367,20 +12367,47 @@ completeFileEnumerationOnce,
         out int staleRetryCount)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        PlaylistLibraryResolveIndexSnapshot resolveIndex = GetPlaylistLibraryResolveIndexSnapshot(
-            cancellationToken,
-            out cacheHit,
-            out staleRetryCount);
         List<string> md5s = [.. (records ?? [])
             .Select(record => record?.hash)
             .Where(hash => !string.IsNullOrWhiteSpace(hash))
             .Select(hash => hash.Trim())
             .Distinct(StringComparer.OrdinalIgnoreCase)];
+        return CreatePlayHistoryProjectionIndex(md5s, [], cancellationToken, out cacheHit, out staleRetryCount);
+    }
+
+    internal PlayHistoryProjectionIndex CreateBeatorajaPlayHistoryProjectionIndex(
+        IEnumerable<BeatorajaPlayHistoryRecord> records,
+        CancellationToken cancellationToken,
+        out bool cacheHit,
+        out int staleRetryCount)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        List<string> sha256s = [.. (records ?? [])
+            .Select(record => record?.sha256)
+            .Where(hash => !string.IsNullOrWhiteSpace(hash))
+            .Select(hash => hash.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)];
+        return CreatePlayHistoryProjectionIndex([], sha256s, cancellationToken, out cacheHit, out staleRetryCount);
+    }
+
+    private PlayHistoryProjectionIndex CreatePlayHistoryProjectionIndex(
+        IReadOnlyList<string> md5s,
+        IReadOnlyList<string> sha256s,
+        CancellationToken cancellationToken,
+        out bool cacheHit,
+        out int staleRetryCount)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        PlaylistLibraryResolveIndexSnapshot resolveIndex = GetPlaylistLibraryResolveIndexSnapshot(
+            cancellationToken,
+            out cacheHit,
+            out staleRetryCount);
         cancellationToken.ThrowIfCancellationRequested();
         IReadOnlyDictionary<string, string> sha256ByMd5 = dbGateway.LoadChartDigestMapByMd5(md5s);
         cancellationToken.ThrowIfCancellationRequested();
         Func<string, string, LR2SongDBExtended.chart_info> chartInfoResolver = CreatePlayHistoryChartInfoResolver(
             md5s,
+            sha256s,
             sha256ByMd5,
             resolveIndex,
             cancellationToken);
@@ -12394,6 +12421,7 @@ completeFileEnumerationOnce,
 
     private Func<string, string, LR2SongDBExtended.chart_info> CreatePlayHistoryChartInfoResolver(
         IReadOnlyList<string> md5s,
+        IReadOnlyList<string> sourceSha256s,
         IReadOnlyDictionary<string, string> sha256ByMd5,
         PlaylistLibraryResolveIndexSnapshot resolveIndex,
         CancellationToken cancellationToken)
@@ -12401,6 +12429,9 @@ completeFileEnumerationOnce,
         List<string> sha256s = [.. (sha256ByMd5?.Values ?? Enumerable.Empty<string>())
             .Where(sha256 => !string.IsNullOrWhiteSpace(sha256))
             .Select(sha256 => sha256.Trim())];
+        sha256s.AddRange((sourceSha256s ?? [])
+            .Where(sha256 => !string.IsNullOrWhiteSpace(sha256))
+            .Select(sha256 => sha256.Trim()));
         foreach (string md5 in md5s ?? Array.Empty<string>())
         {
             LibraryChartRef chartRef = resolveIndex?.ResolveChartForPlaylistHash(md5, null);

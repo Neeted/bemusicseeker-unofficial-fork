@@ -36,6 +36,7 @@ internal sealed class PlayHistoryRow
         PlayHistoryHashKind hashKind)
     {
         Raw = raw ?? throw new ArgumentNullException(nameof(raw));
+        BeatorajaRaw = null;
         SourceProfile = sourceProfile ?? PlayHistorySourceProfile.Lr2(string.Empty);
         Provider = SourceProfile.Provider;
         Source = SourceProfile.DisplayName;
@@ -47,6 +48,7 @@ internal sealed class PlayHistoryRow
         Finalized = Raw.finalized != 0;
         ScoreWriteType = Raw.score_write_type ?? string.Empty;
         RawHash = rawHash ?? string.Empty;
+        Md5 = rawHash ?? string.Empty;
         Sha256 = sha256 ?? string.Empty;
         ResolvedChart = chart;
         ResolvedChartRef = chartRef;
@@ -57,14 +59,90 @@ internal sealed class PlayHistoryRow
         Path = chart?.Path ?? string.Empty;
         FolderLabels = ResolveFolderLabels(playlistReference);
         PlaylistNames = playlistReference?.Names ?? string.Empty;
-        ResolveScoreProjection();
+        OldPlaycount = Raw.old_playcount;
+        NewPlaycount = Raw.new_playcount;
+        PlaycountDelta = Raw.playcount_delta;
+        OldBestExscore = Raw.old_exscore;
+        NewBestExscore = Raw.new_exscore;
+        OldBestBp = Raw.old_minbp;
+        NewBestBp = Raw.new_minbp;
+        OldBestCombo = Raw.old_maxcombo;
+        NewBestCombo = Raw.new_maxcombo;
+        JudgeTotal = Raw.judge_delta;
+        PlaytimeSeconds = Raw.playtime_delta;
+        Perfect = Raw.perfect_delta;
+        Great = Raw.great_delta;
+        Good = Raw.good_delta;
+        Bad = Raw.bad_delta;
+        Poor = Raw.poor_delta;
+        ResolveScoreProjection(Raw.old_clear, Raw.new_clear, Raw.old_op_history, Raw.new_op_history);
         ResolveActualResultProjection();
         Kind = ResolveKind();
         Option = BestScoreUpdated ? DecodeLr2OpBest(Raw.new_op_best) : string.Empty;
         OpHistory = FormatOpHistoryNewBits(OpHistoryNewBits);
     }
 
+    private PlayHistoryRow(
+        BeatorajaPlayHistoryRecord raw,
+        PlayHistorySourceProfile sourceProfile,
+        string md5,
+        string sha256,
+        LibraryChartRef chartRef,
+        ChartFile chart,
+        PlaylistReferenceDisplay playlistReference,
+        PlayHistoryHashKind hashKind)
+    {
+        BeatorajaRaw = raw ?? throw new ArgumentNullException(nameof(raw));
+        Raw = null;
+        SourceProfile = sourceProfile ?? PlayHistorySourceProfile.Beatoraja(string.Empty);
+        Provider = SourceProfile.Provider;
+        Source = SourceProfile.DisplayName;
+        SourcePath = SourceProfile.SourcePath;
+        SourceKey = BeatorajaRaw.history_id.ToString(CultureInfo.InvariantCulture);
+        HistoryId = BeatorajaRaw.history_id;
+        PlayedAtUnix = BeatorajaRaw.played_at;
+        PlayedAt = UnixEpochUtc.AddSeconds(BeatorajaRaw.played_at).ToLocalTime();
+        Finalized = true;
+        ScoreWriteType = BeatorajaRaw.HasBestDelta ? "best-update" : "play";
+        RawHash = sha256 ?? string.Empty;
+        Md5 = md5 ?? string.Empty;
+        Sha256 = sha256 ?? string.Empty;
+        ResolvedChart = chart;
+        ResolvedChartRef = chartRef;
+        HashKind = hashKind;
+        IsSummaryEligible = HashKind is PlayHistoryHashKind.Chart or PlayHistoryHashKind.NonstopCourse;
+        Title = chart?.Title ?? string.Empty;
+        Artist = chart?.Artist ?? string.Empty;
+        Path = chart?.Path ?? string.Empty;
+        FolderLabels = ResolveFolderLabels(playlistReference);
+        PlaylistNames = playlistReference?.Names ?? string.Empty;
+        OldPlaycount = BeatorajaRaw.playcount > 0 ? BeatorajaRaw.playcount - 1 : null;
+        NewPlaycount = BeatorajaRaw.playcount;
+        PlaycountDelta = 1;
+        OldBestExscore = BeatorajaRaw.old_exscore;
+        NewBestExscore = BeatorajaRaw.new_exscore;
+        OldBestBp = BeatorajaRaw.old_minbp;
+        NewBestBp = BeatorajaRaw.new_minbp;
+        OldBestCombo = BeatorajaRaw.old_maxcombo;
+        NewBestCombo = BeatorajaRaw.new_maxcombo;
+        Perfect = BeatorajaRaw.epg + BeatorajaRaw.lpg;
+        Great = BeatorajaRaw.egr + BeatorajaRaw.lgr;
+        Good = BeatorajaRaw.egd + BeatorajaRaw.lgd;
+        Bad = BeatorajaRaw.ebd + BeatorajaRaw.lbd;
+        Poor = BeatorajaRaw.epr + BeatorajaRaw.lpr + BeatorajaRaw.ems + BeatorajaRaw.lms;
+        JudgeTotal = Perfect + Great + Good + Bad + Poor;
+        PlaytimeSeconds = null;
+        ResolveScoreProjection(BeatorajaRaw.old_clear, BeatorajaRaw.new_clear, null, null);
+        ResolveActualResultProjection();
+        Kind = ResolveKind();
+        Option = FormatBeatorajaOption(BeatorajaRaw.option, BeatorajaRaw.random, BeatorajaRaw.seed);
+        OpHistoryNewBits = 0;
+        OpHistory = string.Empty;
+    }
+
     internal Lr2PlayHistoryRecord Raw { get; }
+
+    internal BeatorajaPlayHistoryRecord BeatorajaRaw { get; }
 
     internal PlayHistorySourceProfile SourceProfile { get; }
 
@@ -92,6 +170,8 @@ internal sealed class PlayHistoryRow
 
     public string RawHash { get; }
 
+    public string Md5 { get; }
+
     public string Sha256 { get; }
 
     public PlayHistoryHashKind HashKind { get; }
@@ -110,11 +190,11 @@ internal sealed class PlayHistoryRow
 
     public string Kind { get; private set; }
 
-    public int? OldPlaycount => Raw.old_playcount;
+    public int? OldPlaycount { get; private set; }
 
-    public int NewPlaycount => Raw.new_playcount;
+    public int NewPlaycount { get; private set; }
 
-    public int PlaycountDelta => Raw.playcount_delta;
+    public int PlaycountDelta { get; private set; }
 
     public ClearType? OldBestClear { get; private set; }
 
@@ -130,39 +210,39 @@ internal sealed class PlayHistoryRow
 
     public int? BestRatePercent { get; private set; }
 
-    public int? OldBestExscore => Raw.old_exscore;
+    public int? OldBestExscore { get; private set; }
 
-    public int? NewBestExscore => Raw.new_exscore;
+    public int? NewBestExscore { get; private set; }
 
     public string BestExscore { get; private set; }
 
-    public int? OldBestBp => Raw.old_minbp;
+    public int? OldBestBp { get; private set; }
 
-    public int? NewBestBp => Raw.new_minbp;
+    public int? NewBestBp { get; private set; }
 
     public string BestBp { get; private set; }
 
-    public int? OldBestCombo => Raw.old_maxcombo;
+    public int? OldBestCombo { get; private set; }
 
-    public int? NewBestCombo => Raw.new_maxcombo;
+    public int? NewBestCombo { get; private set; }
 
     public string BestCombo { get; private set; }
 
     public int? PlayExscore { get; private set; }
 
-    public int? JudgeTotal => Raw.judge_delta;
+    public int? JudgeTotal { get; private set; }
 
-    public int? PlaytimeSeconds => Raw.playtime_delta;
+    public int? PlaytimeSeconds { get; private set; }
 
-    public int? Perfect => Raw.perfect_delta;
+    public int? Perfect { get; private set; }
 
-    public int? Great => Raw.great_delta;
+    public int? Great { get; private set; }
 
-    public int? Good => Raw.good_delta;
+    public int? Good { get; private set; }
 
-    public int? Bad => Raw.bad_delta;
+    public int? Bad { get; private set; }
 
-    public int? Poor => Raw.poor_delta;
+    public int? Poor { get; private set; }
 
     public string Judges { get; private set; }
 
@@ -219,6 +299,44 @@ internal sealed class PlayHistoryRow
         return new PlayHistoryProjectionResult(rows, diagnostics);
     }
 
+    internal static PlayHistoryProjectionResult ProjectBeatorajaRows(BeatorajaPlayHistoryReadResult readResult, PlayHistoryProjectionIndex projectionIndex)
+    {
+        var diagnostics = new List<PlayHistoryDiagnostic>(readResult?.Diagnostics ?? []);
+        var rows = new List<PlayHistoryRow>();
+        PlayHistoryProjectionIndex safeIndex = projectionIndex ?? PlayHistoryProjectionIndex.Empty;
+        PlayHistorySourceProfile sourceProfile = readResult?.SourceProfile ?? PlayHistorySourceProfile.Beatoraja(string.Empty);
+        foreach (BeatorajaPlayHistoryRecord record in readResult?.Rows ?? [])
+        {
+            string sha256 = NormalizeHash(record?.sha256);
+            if (string.IsNullOrWhiteSpace(sha256))
+            {
+                diagnostics.Add(CreateProjectionDiagnostic(
+                    PlayHistoryProvider.Beatoraja,
+                    PlayHistoryDiagnosticSeverity.Warning,
+                    "play_history_projection_empty_sha256",
+                    "beatoraja play history row has no SHA-256.",
+                    sourceProfile.SourcePath));
+            }
+
+            LibraryChartRef chartRef = safeIndex.ResolveChartByMd5(string.Empty, sha256);
+            LR2SongDBExtended.chart_info chartInfo = safeIndex.ResolveChartInfo(sha256, string.Empty);
+            string resolvedMd5 = FirstNonEmpty(chartRef?.Md5, chartInfo?.md5);
+            ChartFile chart = chartRef?.ToChartFileIdentity() ?? chartRef?.ToChartFile();
+            PlaylistReferenceDisplay playlistReference = safeIndex.ResolvePlaylistReference(resolvedMd5, sha256);
+            rows.Add(new PlayHistoryRow(
+                record,
+                sourceProfile,
+                resolvedMd5,
+                sha256,
+                chartRef,
+                chart,
+                playlistReference,
+                chartRef != null || chartInfo != null ? PlayHistoryHashKind.Chart : PlayHistoryHashKind.Unknown));
+        }
+
+        return new PlayHistoryProjectionResult(rows, diagnostics);
+    }
+
     internal PlayHistoryRow WithPlaylistDisplay(string folderLabels)
     {
         var clone = (PlayHistoryRow)MemberwiseClone();
@@ -226,29 +344,29 @@ internal sealed class PlayHistoryRow
         return clone;
     }
 
-    private void ResolveScoreProjection()
+    private void ResolveScoreProjection(int? oldClear, int? newClear, int? oldOpHistory, int? newOpHistory)
     {
-        OldBestClear = ConvertLr2Clear(Raw.old_clear, Raw.old_op_history);
-        NewBestClear = ConvertLr2Clear(Raw.new_clear, Raw.new_op_history);
+        OldBestClear = ConvertClear(oldClear, oldOpHistory, Provider);
+        NewBestClear = ConvertClear(newClear, newOpHistory, Provider);
         BestClearUpdated = NewBestClear.HasValue && OldBestClear != NewBestClear;
         BestClear = BestClearUpdated ? FormatClearDelta(OldBestClear, NewBestClear) : string.Empty;
 
-        BestScoreUpdated = Raw.new_exscore.HasValue && Raw.old_exscore != Raw.new_exscore;
+        BestScoreUpdated = NewBestExscore.HasValue && OldBestExscore != NewBestExscore;
         BestDjLevel = BestScoreUpdated
-            ? ScoreValueCalculator.CalculateRank(Raw.new_exscore, Raw.new_totalnotes)
+            ? ScoreValueCalculator.CalculateRank(NewBestExscore, ResolveBestTotalNotes())
             : RankType.INVALID;
         BestDjLevelText = ScoreDisplayTextFormatter.FormatRank(BestDjLevel);
-        BestRate = BestScoreUpdated ? ScoreValueCalculator.CalculateRateDouble(Raw.new_exscore, Raw.new_totalnotes) : null;
-        BestRatePercent = BestScoreUpdated ? ScoreValueCalculator.CalculateRatePercent(Raw.new_exscore, Raw.new_totalnotes) : null;
-        BestExscore = BestScoreUpdated ? FormatNullableDelta(Raw.old_exscore, Raw.new_exscore) : string.Empty;
+        BestRate = BestScoreUpdated ? ScoreValueCalculator.CalculateRateDouble(NewBestExscore, ResolveBestTotalNotes()) : null;
+        BestRatePercent = BestScoreUpdated ? ScoreValueCalculator.CalculateRatePercent(NewBestExscore, ResolveBestTotalNotes()) : null;
+        BestExscore = BestScoreUpdated ? FormatNullableDelta(OldBestExscore, NewBestExscore) : string.Empty;
 
-        BestBpUpdated = Raw.new_minbp.HasValue && (!Raw.old_minbp.HasValue || Raw.new_minbp.Value < Raw.old_minbp.Value);
-        BestBp = BestBpUpdated ? FormatBpDelta(Raw.old_minbp, Raw.new_minbp) : string.Empty;
+        BestBpUpdated = NewBestBp.HasValue && (!OldBestBp.HasValue || NewBestBp.Value < OldBestBp.Value);
+        BestBp = BestBpUpdated ? FormatBpDelta(OldBestBp, NewBestBp) : string.Empty;
 
-        BestComboUpdated = Raw.new_maxcombo.HasValue && (!Raw.old_maxcombo.HasValue || Raw.new_maxcombo.Value > Raw.old_maxcombo.Value);
-        BestCombo = BestComboUpdated ? FormatNullableDelta(Raw.old_maxcombo, Raw.new_maxcombo) : string.Empty;
+        BestComboUpdated = NewBestCombo.HasValue && (!OldBestCombo.HasValue || NewBestCombo.Value > OldBestCombo.Value);
+        BestCombo = BestComboUpdated ? FormatNullableDelta(OldBestCombo, NewBestCombo) : string.Empty;
 
-        OpHistoryNewBits = (Raw.new_op_history ?? 0) & ~(Raw.old_op_history ?? 0);
+        OpHistoryNewBits = (newOpHistory ?? 0) & ~(oldOpHistory ?? 0);
     }
 
     private void ResolveActualResultProjection()
@@ -259,11 +377,11 @@ internal sealed class PlayHistoryRow
             return;
         }
 
-        if (Raw.perfect_delta.HasValue || Raw.great_delta.HasValue)
+        if (Perfect.HasValue || Great.HasValue)
         {
-            PlayExscore = ScoreValueCalculator.CalculateExScore(Raw.perfect_delta ?? 0, Raw.great_delta ?? 0);
+            PlayExscore = ScoreValueCalculator.CalculateExScore(Perfect ?? 0, Great ?? 0);
         }
-        Judges = FormatJudges(Raw.perfect_delta, Raw.great_delta, Raw.good_delta, Raw.bad_delta, Raw.poor_delta);
+        Judges = FormatJudges(Perfect, Great, Good, Bad, Poor);
     }
 
     private string ResolveKind()
@@ -292,11 +410,26 @@ internal sealed class PlayHistoryRow
         return playlistReference?.Symbols ?? string.Empty;
     }
 
-    private static ClearType? ConvertLr2Clear(int? value, int? opHistory)
+    private int? ResolveBestTotalNotes()
+    {
+        if (Provider == PlayHistoryProvider.Beatoraja)
+        {
+            return BeatorajaRaw?.notes;
+        }
+        return Raw?.new_totalnotes;
+    }
+
+    private static ClearType? ConvertClear(int? value, int? opHistory, PlayHistoryProvider provider)
     {
         if (!value.HasValue)
         {
             return null;
+        }
+        if (provider == PlayHistoryProvider.Beatoraja)
+        {
+            return value.Value < (int)ClearType.NO_PLAY || value.Value > (int)ClearType.MAX
+                ? ClearType.NO_PLAY
+                : (ClearType)value.Value;
         }
         ClearType clear = ClearTypeStorageConverter.FromLr2Value(value.Value);
         return clear == ClearType.FC && ((opHistory ?? 0) & 0x10) != 0
@@ -386,6 +519,24 @@ internal sealed class PlayHistoryRow
         return text.Trim();
     }
 
+    private static string FormatBeatorajaOption(int option, int random, long seed)
+    {
+        var parts = new List<string>();
+        if (option != 0)
+        {
+            parts.Add("option " + option.ToString(CultureInfo.InvariantCulture));
+        }
+        if (random != 0)
+        {
+            parts.Add("random " + random.ToString(CultureInfo.InvariantCulture));
+        }
+        if (seed >= 0)
+        {
+            parts.Add("seed " + seed.ToString(CultureInfo.InvariantCulture));
+        }
+        return string.Join(" / ", parts);
+    }
+
     private static string GetGaugeName(int value)
     {
         return value switch
@@ -438,9 +589,14 @@ internal sealed class PlayHistoryRow
 
     private static PlayHistoryDiagnostic CreateProjectionDiagnostic(PlayHistoryDiagnosticSeverity severity, string code, string message, string sourcePath)
     {
+        return CreateProjectionDiagnostic(PlayHistoryProvider.Lr2, severity, code, message, sourcePath);
+    }
+
+    private static PlayHistoryDiagnostic CreateProjectionDiagnostic(PlayHistoryProvider provider, PlayHistoryDiagnosticSeverity severity, string code, string message, string sourcePath)
+    {
         return new PlayHistoryDiagnostic
         {
-            Provider = PlayHistoryProvider.Lr2,
+            Provider = provider,
             Stage = "projection",
             Severity = severity,
             Code = code ?? string.Empty,
