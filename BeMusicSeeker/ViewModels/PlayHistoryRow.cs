@@ -102,7 +102,7 @@ internal sealed class PlayHistoryRow
 
     public string Artist { get; }
 
-    public string FolderLabels { get; }
+    public string FolderLabels { get; private set; }
 
     public string PlaylistNames { get; }
 
@@ -217,6 +217,13 @@ internal sealed class PlayHistoryRow
         }
 
         return new PlayHistoryProjectionResult(rows, diagnostics);
+    }
+
+    internal PlayHistoryRow WithPlaylistDisplay(string folderLabels)
+    {
+        var clone = (PlayHistoryRow)MemberwiseClone();
+        clone.FolderLabels = folderLabels ?? string.Empty;
+        return clone;
     }
 
     private void ResolveScoreProjection()

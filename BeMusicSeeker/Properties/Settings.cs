@@ -1489,6 +1489,21 @@ internal sealed class Settings : ApplicationSettingsBase
         }
     }
 
+    [UserScopedSetting]
+    [DebuggerNonUserCode]
+    [DefaultSettingValue("")]
+    public string PlayHistoryDisplayTargetSetsJson
+    {
+        get
+        {
+            return (string)this["PlayHistoryDisplayTargetSetsJson"];
+        }
+        set
+        {
+            this["PlayHistoryDisplayTargetSetsJson"] = value;
+        }
+    }
+
     /// <summary>
     /// 推定先への通常インストール後に、元の保留パッケージフォルダを残り物ごと削除するかどうかを取得または設定します。
     /// </summary>

@@ -153,24 +153,62 @@ public sealed class MainWindowContextMenuResourceTests
         string viewModelCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
         string applyPlayHistoryView = ExtractBetween(viewModelCode, "private void ApplyPlayHistoryView", "private IReadOnlyList<PlayHistoryRow> ApplyPlayHistoryKeywordFilterRows");
         string presentationOnly = ExtractBetween(viewModelCode, "private bool TryApplyPlayHistoryPresentationOnly", "private void ApplyPlayHistorySortedRows");
+        string refreshTargets = ExtractBetween(viewModelCode, "private void RefreshPlayHistoryDisplayTargets", "internal void ReplacePlayHistoryDisplayTargetSetsForTest");
+        string queueDisplayTarget = ExtractBetween(viewModelCode, "private void QueuePlayHistoryDisplayTargetRefresh", "private bool IsCurrentPlayHistoryViewRequest");
+        string applySortedRows = ExtractBetween(viewModelCode, "private void ApplyPlayHistorySortedRows", "private PlayHistoryProjectionResult CreatePlayHistoryProjectionResult");
+        string flushPendingUiRefresh = ExtractBetween(viewModelCode, "private void FlushPendingUiRefresh", "private void ScheduleDeferredPlaylistReferenceApply");
+        string playlistEntriesHydrationHandler = ExtractBetween(viewModelCode, "listenerForBMSPlaylist.RegisterHandler(() => tables.PlaylistEntriesHydrationCompletedVersion", "listenerForBMSPlaylist.RegisterHandler(() => tables.IsWriteLockHeldBMSTables");
         string state = ExtractBetween(viewModelCode, "private sealed class PlayHistoryViewState", "private readonly struct SortSnapshot");
 
         StringAssert.Contains(applyPlayHistoryView, "requestedMode == viewUpdateMode.KeywordFilterUpdated");
         StringAssert.Contains(applyPlayHistoryView, "TryApplyPlayHistoryPresentationOnly");
+        StringAssert.Contains(applyPlayHistoryView, "ApplyPlayHistoryDisplayTargetRows(projectedRows, displayTarget, requestId, displayTargetRevision, cancellationToken)");
+        StringAssert.Contains(applyPlayHistoryView, "ApplyPlayHistoryKeywordFilterRows(targetRows");
         StringAssert.Contains(viewModelCode, "mode == viewUpdateMode.KeywordFilterUpdated && parameter is PlayHistoryViewRequest playHistoryKeywordRequest");
         StringAssert.Contains(viewModelCode, "ApplyPlayHistoryView(mode, requestedMode, parameter, viewBuildStopwatch);");
+        StringAssert.Contains(presentationOnly, "state.AllProjectedRows");
+        StringAssert.Contains(presentationOnly, "ApplyPlayHistoryDisplayTargetRows(state.AllProjectedRows, displayTarget, state.RequestId, displayTargetRevision, cancellationToken)");
+        StringAssert.Contains(viewModelCode, "if (SelectedPlayHistoryDisplayTarget.IsFiltering)");
         StringAssert.Contains(presentationOnly, "state.FilterSourceRows");
         StringAssert.Contains(presentationOnly, "ApplyPlayHistoryKeywordFilterRows");
         StringAssert.Contains(presentationOnly, "requestedMode == viewUpdateMode.SortUpdated && keywordStateStale");
+        StringAssert.Contains(presentationOnly, "requestedMode == viewUpdateMode.SortUpdated && targetStateStale");
         StringAssert.Contains(presentationOnly, "KeywordFilterIdentity");
+        StringAssert.Contains(presentationOnly, "DisplayTargetIdentity");
         StringAssert.Contains(viewModelCode, "QueuePlayHistoryKeywordFilterRefresh");
         StringAssert.Contains(viewModelCode, "QueuePlayHistoryKeywordFilterRefresh(advanceRevision: false)");
+        StringAssert.Contains(viewModelCode, "QueuePlayHistoryDisplayTargetRefresh");
+        StringAssert.Contains(viewModelCode, "QueuePlayHistoryDisplayTargetRefresh(advanceRevision: false)");
+        StringAssert.Contains(refreshTargets, "QueuePlayHistoryDisplayTargetRefresh();");
+        StringAssert.Contains(queueDisplayTarget, "new PlayHistoryViewRequest(request.PeriodRequest, request.RequestId, keywordRevision, targetRevision)");
+        StringAssert.Contains(queueDisplayTarget, "Interlocked.CompareExchange(ref playHistoryDisplayTargetQueuedRevision");
+        StringAssert.Contains(applySortedRows, "QueuePlayHistoryDisplayTargetRefresh(advanceRevision: false)");
+        StringAssert.Contains(flushPendingUiRefresh, "RefreshPlayHistoryDisplayTargets();");
+        StringAssert.Contains(playlistEntriesHydrationHandler, "if (SelectedPlayHistoryDisplayTarget.IsFiltering)");
+        StringAssert.Contains(playlistEntriesHydrationHandler, "QueuePlayHistoryDisplayTargetRefresh();");
         StringAssert.Contains(viewModelCode, "playHistoryKeywordFilterRevision");
         StringAssert.Contains(viewModelCode, "playHistoryKeywordFilterQueuedRevision");
+        StringAssert.Contains(viewModelCode, "playHistoryDisplayTargetRevision");
+        StringAssert.Contains(viewModelCode, "playHistoryDisplayTargetQueuedRevision");
         StringAssert.Contains(viewModelCode, "Interlocked.CompareExchange(ref playHistoryKeywordFilterQueuedRevision");
+        StringAssert.Contains(state, "AllProjectedRows");
         StringAssert.Contains(state, "FilterSourceRows");
         StringAssert.Contains(state, "KeywordFilterIdentity");
         StringAssert.Contains(state, "KeywordFilterRevision");
+        StringAssert.Contains(state, "DisplayTargetIdentity");
+        StringAssert.Contains(state, "DisplayTargetRevision");
+    }
+
+    [TestMethod]
+    public void PlayHistoryDisplayTargetDropdown_BindsToPlayHistoryViewState()
+    {
+        string xaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "MainWindow.xaml"));
+        string toolbar = ExtractBetween(xaml, "<Border BorderThickness=\"0\" Grid.Row=\"1\" Grid.ColumnSpan=\"1\" Grid.Column=\"1\"", "<Border DockPanel.Dock=\"Right\" CornerRadius=\"6\" BorderThickness=\"1\" BorderBrush=\"{DynamicResource App.StrongBorderBrush}\" Width=\"Auto\" Margin=\"0,0,2,0\" VerticalAlignment=\"Center\" FlowDirection=\"LeftToRight\" Visibility=\"{Binding IsPlaylistSummaryMode");
+
+        StringAssert.Contains(toolbar, "Visibility=\"{Binding IsPlayHistoryViewActive");
+        StringAssert.Contains(toolbar, "ItemsSource=\"{Binding PlayHistoryDisplayTargets}\"");
+        StringAssert.Contains(toolbar, "SelectedItem=\"{Binding SelectedPlayHistoryDisplayTarget, Mode=TwoWay}\"");
+        StringAssert.Contains(toolbar, "DisplayMemberPath=\"DisplayName\"");
     }
 
     [TestMethod]
@@ -2230,6 +2268,8 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.AreEqual("False", appConfigDefaults["EstimateOfflineScoreRanking"]);
         Assert.AreEqual("False", settingsDefaults["UpdateLr2IrRankingCacheOnStartup"]);
         Assert.AreEqual("False", appConfigDefaults["UpdateLr2IrRankingCacheOnStartup"]);
+        Assert.AreEqual(string.Empty, settingsDefaults["PlayHistoryDisplayTargetSetsJson"]);
+        Assert.AreEqual(string.Empty, appConfigDefaults["PlayHistoryDisplayTargetSetsJson"]);
         Assert.IsFalse(settingsDefaults.ContainsKey("SkipEstimateOfflineScoreRanking"));
         Assert.IsFalse(appConfigDefaults.ContainsKey("SkipEstimateOfflineScoreRanking"));
         StringAssert.Contains(settingsCode, "internal const string LegacyTableListUrl = \"http://www.ribbit.xyz/bms/tables/table_info.json\";");

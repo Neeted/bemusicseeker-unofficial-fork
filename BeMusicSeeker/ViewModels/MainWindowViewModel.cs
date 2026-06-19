@@ -7937,6 +7937,12 @@ public class MainWindowViewModel : ViewModel
 
     private readonly List<string> playlistSummaryKeywordSearchHistory = [];
 
+    private readonly ObservableCollection<PlayHistoryDisplayTargetItem> _PlayHistoryDisplayTargets = [];
+
+    private readonly List<PlayHistoryDisplayTargetSet> playHistoryDisplayTargetSets = [];
+
+    private PlayHistoryDisplayTargetItem _SelectedPlayHistoryDisplayTarget;
+
     private bool _IsKeywordSearchSuggestionPopupOpen;
 
     private bool _IsPlaylistSummaryKeywordSearchSuggestionPopupOpen;
@@ -7946,6 +7952,10 @@ public class MainWindowViewModel : ViewModel
     private string _PlaylistSummaryKeywordSearchSuggestionHeaderText = string.Empty;
 
     private PlaylistSummaryOwnedFilterType _PlaylistSummaryOwnedFilter = PlaylistSummaryOwnedFilterType.All;
+
+    private long playHistoryDisplayTargetRevision;
+
+    private long playHistoryDisplayTargetQueuedRevision;
 
     private NormalLibraryTreeFilter virtualNormalLibraryTreeFilter;
 
@@ -11021,6 +11031,7 @@ public class MainWindowViewModel : ViewModel
         if ((mask & UiRefreshChannel.PlaylistTree) != 0)
         {
             var stopwatch2 = Stopwatch.StartNew();
+            RefreshPlayHistoryDisplayTargets();
             RaisePropertyChanged(() => BMSTables);
             stopwatch2.Stop();
             num2 = stopwatch2.ElapsedMilliseconds;
@@ -12400,6 +12411,8 @@ public class MainWindowViewModel : ViewModel
     internal MainViewOperationSection CurrentMainViewOperationSection => ResolveMainViewOperationSection(treeViewFilterTypeSelected);
 
     internal ChartOperationSourceScope CurrentMainViewChartOperationSourceScope => ResolveMainViewChartOperationSourceScope(CurrentMainViewOperationSection);
+
+    public bool IsPlayHistoryViewActive => CurrentMainViewOperationSection == MainViewOperationSection.PlayHistory;
 
     internal static MainViewOperationSection ResolveMainViewOperationSection(viewUpdateMode mode)
     {
@@ -16433,6 +16446,27 @@ public class MainWindowViewModel : ViewModel
 
     public string PlaylistSummaryKeywordSearchHelpText => BuildKeywordSearchHelpText(GridKeywordSearchContext.PlaylistSummary);
 
+    public ObservableCollection<PlayHistoryDisplayTargetItem> PlayHistoryDisplayTargets => _PlayHistoryDisplayTargets;
+
+    public PlayHistoryDisplayTargetItem SelectedPlayHistoryDisplayTarget
+    {
+        get
+        {
+            return _SelectedPlayHistoryDisplayTarget ?? PlayHistoryDisplayTargetItem.All;
+        }
+        set
+        {
+            PlayHistoryDisplayTargetItem next = value ?? PlayHistoryDisplayTargetItem.All;
+            if (!ReferenceEquals(_SelectedPlayHistoryDisplayTarget, next)
+                && !string.Equals(_SelectedPlayHistoryDisplayTarget?.Identity, next.Identity, StringComparison.Ordinal))
+            {
+                _SelectedPlayHistoryDisplayTarget = next;
+                RaisePropertyChanged("SelectedPlayHistoryDisplayTarget");
+                QueuePlayHistoryDisplayTargetRefresh();
+            }
+        }
+    }
+
     public bool IsPlaylistSummaryKeywordSearchHelpOpen
     {
         get
@@ -16579,6 +16613,53 @@ public class MainWindowViewModel : ViewModel
     {
         ReplaceKeywordSearchHistory(playlistSummaryKeywordSearchHistory, KeywordSearchHistoryStore.AddEntry(playlistSummaryKeywordSearchHistory, keywordFilter));
         Settings.Default.PlaylistSummaryKeywordSearchHistory = KeywordSearchHistoryStore.Serialize(playlistSummaryKeywordSearchHistory);
+    }
+
+    private void RefreshPlayHistoryDisplayTargets(bool queueRefreshWhenSelectionChanges = true)
+    {
+        PlayHistoryDisplayTargetItem previousSelected = SelectedPlayHistoryDisplayTarget;
+        string selectedIdentity = previousSelected.Identity;
+        List<PlayHistoryDisplayTargetItem> nextItems = [PlayHistoryDisplayTargetItem.All];
+        try
+        {
+            tables?.AcquireReaderLockBMSTables();
+            nextItems.AddRange((BMSTables ?? Enumerable.Empty<BMSTable>())
+                .Where(table => table != null)
+                .OrderBy(table => table.name ?? string.Empty, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(table => table.symbol ?? string.Empty, StringComparer.OrdinalIgnoreCase)
+                .Select(PlayHistoryDisplayTargetItem.FromPlaylist));
+        }
+        finally
+        {
+            tables?.FreeReaderLockBMSTables();
+        }
+        nextItems.AddRange(playHistoryDisplayTargetSets.Select(PlayHistoryDisplayTargetItem.FromTargetSet));
+
+        _PlayHistoryDisplayTargets.Clear();
+        foreach (PlayHistoryDisplayTargetItem item in nextItems)
+        {
+            _PlayHistoryDisplayTargets.Add(item);
+        }
+        PlayHistoryDisplayTargetItem selected = nextItems.FirstOrDefault(item => string.Equals(item.Identity, selectedIdentity, StringComparison.Ordinal))
+            ?? PlayHistoryDisplayTargetItem.All;
+        if (!ReferenceEquals(_SelectedPlayHistoryDisplayTarget, selected))
+        {
+            _SelectedPlayHistoryDisplayTarget = selected;
+            RaisePropertyChanged("SelectedPlayHistoryDisplayTarget");
+            if (queueRefreshWhenSelectionChanges
+                && (previousSelected.IsFiltering || selected.IsFiltering))
+            {
+                QueuePlayHistoryDisplayTargetRefresh();
+            }
+        }
+    }
+
+    internal void ReplacePlayHistoryDisplayTargetSetsForTest(IEnumerable<PlayHistoryDisplayTargetSet> targetSets)
+    {
+        playHistoryDisplayTargetSets.Clear();
+        playHistoryDisplayTargetSets.AddRange(PlayHistoryDisplayTargetSetStore.Deserialize(PlayHistoryDisplayTargetSetStore.Serialize(targetSets)));
+        Settings.Default.PlayHistoryDisplayTargetSetsJson = PlayHistoryDisplayTargetSetStore.Serialize(playHistoryDisplayTargetSets);
+        RefreshPlayHistoryDisplayTargets(queueRefreshWhenSelectionChanges: false);
     }
 
     private GridKeywordSearchContext GetCurrentKeywordSearchContext()
@@ -17208,6 +17289,8 @@ public class MainWindowViewModel : ViewModel
         regularBmsLibraryRowCache = new NormalLibraryRowCache();
         ReplaceKeywordSearchHistory(keywordSearchHistory, KeywordSearchHistoryStore.Deserialize(Settings.Default.KeywordSearchHistory));
         ReplaceKeywordSearchHistory(playlistSummaryKeywordSearchHistory, KeywordSearchHistoryStore.Deserialize(Settings.Default.PlaylistSummaryKeywordSearchHistory));
+        playHistoryDisplayTargetSets.AddRange(PlayHistoryDisplayTargetSetStore.Deserialize(Settings.Default.PlayHistoryDisplayTargetSetsJson));
+        RefreshPlayHistoryDisplayTargets();
         settingDialog = new SettingDialogViewModel(this);
         dropInstallQueueProcessor = new DropInstallQueueProcessor(ProcessDroppedInstallBatch, UpdateDropInstallQueueStatus, HandleDroppedInstallBatchException);
     }
@@ -18033,6 +18116,7 @@ public class MainWindowViewModel : ViewModel
                 return;
             }
             RaisePropertyChanged(() => BMSTables);
+            RefreshPlayHistoryDisplayTargets();
             RefreshPlaylistSummaryIfVisible("playlist_tables_changed", invalidateTableCountCache: true);
         });
         listenerForBMSPlaylistBMSTablesCollection.RegisterHandler(delegate
@@ -18048,12 +18132,17 @@ public class MainWindowViewModel : ViewModel
                 return;
             }
             RaisePropertyChanged(() => BMSTables);
+            RefreshPlayHistoryDisplayTargets();
             RefreshPlaylistSummaryIfVisible("playlist_tables_collection_changed", invalidateTableCountCache: true);
         });
         listenerForBMSPlaylist.RegisterHandler(() => tables.PlaylistEntriesHydrationCompletedVersion, delegate
         {
             TryCompleteStartupProgressPlaylistEntriesHydration(tables.PlaylistEntriesHydrationCompletedVersion);
             ScheduleDeferredPlaylistReferenceApply("PlaylistEntriesHydration");
+            if (SelectedPlayHistoryDisplayTarget.IsFiltering)
+            {
+                QueuePlayHistoryDisplayTargetRefresh();
+            }
             if (TryDeferStartupPresentationRefresh(UiRefreshChannel.PlaylistTree, "playlist_entries_hydration_completed"))
             {
                 RequestDeferredPlaylistSummaryRefresh();
@@ -19598,6 +19687,7 @@ public class MainWindowViewModel : ViewModel
         {
             RaisePropertyChanged(() => CurrentMainViewOperationSection);
             RaisePropertyChanged(() => CurrentMainViewChartOperationSourceScope);
+            RaisePropertyChanged(() => IsPlayHistoryViewActive);
         }
         if (files == null)
         {
@@ -19872,6 +19962,13 @@ public class MainWindowViewModel : ViewModel
             LogStalePlayHistoryViewRequest(mode, requestedMode, parameter, periodRequest, requestId, viewBuildStopwatch.ElapsedMilliseconds);
             return;
         }
+        if (requestedMode == viewUpdateMode.KeywordFilterUpdated
+            && viewRequest.DisplayTargetRevision > 0
+            && viewRequest.DisplayTargetRevision != Interlocked.Read(ref playHistoryDisplayTargetRevision))
+        {
+            LogStalePlayHistoryViewRequest(mode, requestedMode, parameter, periodRequest, requestId, viewBuildStopwatch.ElapsedMilliseconds);
+            return;
+        }
         if (!IsCurrentPlayHistoryViewRequest(requestId))
         {
             LogStalePlayHistoryViewRequest(mode, requestedMode, parameter, periodRequest, requestId, viewBuildStopwatch.ElapsedMilliseconds);
@@ -20017,6 +20114,20 @@ public class MainWindowViewModel : ViewModel
             projectionResult = new PlayHistoryProjectionResult(projectionResult.Rows, mergedDiagnostics);
         }
         IReadOnlyList<PlayHistoryRow> projectedRows = projectionResult.Rows;
+        PlayHistoryDisplayTargetItem displayTarget = SelectedPlayHistoryDisplayTarget;
+        long displayTargetRevision = viewRequest.DisplayTargetRevision > 0
+            ? viewRequest.DisplayTargetRevision
+            : Interlocked.Read(ref playHistoryDisplayTargetRevision);
+        IReadOnlyList<PlayHistoryRow> targetRows;
+        try
+        {
+            targetRows = ApplyPlayHistoryDisplayTargetRows(projectedRows, displayTarget, requestId, displayTargetRevision, cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            LogStalePlayHistoryViewRequest(mode, requestedMode, parameter, periodRequest, requestId, readMs + periodIndexMs + projectionIndexMs + projectionMs);
+            return;
+        }
         IReadOnlyList<PlayHistoryRow> filteredRows;
         long keywordMs;
         string keywordFilter = KeywordFilter;
@@ -20025,7 +20136,7 @@ public class MainWindowViewModel : ViewModel
             : Interlocked.Read(ref playHistoryKeywordFilterRevision);
         try
         {
-            filteredRows = ApplyPlayHistoryKeywordFilterRows(projectedRows, keywordFilter, requestId, keywordRevision, cancellationToken, out keywordMs);
+            filteredRows = ApplyPlayHistoryKeywordFilterRows(targetRows, keywordFilter, requestId, keywordRevision, cancellationToken, out keywordMs);
         }
         catch (OperationCanceledException)
         {
@@ -20037,7 +20148,8 @@ public class MainWindowViewModel : ViewModel
         {
             projectionResult = new PlayHistoryProjectionResult(filteredRows, projectionResult.Diagnostics);
         }
-        LogPlayHistoryKeywordFilter(periodRequest, requestId, keywordFilter, readResult.Rows.Count, projectedRows.Count, keywordCount, keywordMs);
+        LogPlayHistoryDisplayTargetFilter(periodRequest, requestId, displayTarget, projectedRows.Count, targetRows.Count);
+        LogPlayHistoryKeywordFilter(periodRequest, requestId, keywordFilter, readResult.Rows.Count, targetRows.Count, keywordCount, keywordMs);
         IReadOnlyList<PlayHistoryPeriodTreeItem> archivePeriodTree = PlayHistoryPeriodTreeItem.BuildArchiveTree(periodIndexResult?.PlayedAtUnixSeconds, TimeZoneInfo.Local);
         if (!IsCurrentPlayHistoryViewRequest(requestId))
         {
@@ -20058,13 +20170,16 @@ public class MainWindowViewModel : ViewModel
             requestId,
             periodRequest,
             projectedRows,
+            targetRows,
             projectionResult.Rows,
             projectionResult.Diagnostics,
             readResult.SchemaStatus,
             readResult.Rows.Count,
             sortSnapshot,
             keywordFilter,
-            keywordRevision);
+            keywordRevision,
+            displayTarget,
+            displayTargetRevision);
         ApplyPlayHistorySortedRows(
             mode,
             requestedMode,
@@ -20130,6 +20245,87 @@ public class MainWindowViewModel : ViewModel
         return filteredRows;
     }
 
+    private IReadOnlyList<PlayHistoryRow> ApplyPlayHistoryDisplayTargetRows(
+        IReadOnlyList<PlayHistoryRow> rows,
+        PlayHistoryDisplayTargetItem displayTarget,
+        long requestId,
+        long displayTargetRevision,
+        CancellationToken cancellationToken)
+    {
+        IReadOnlyList<PlayHistoryRow> safeRows = rows ?? [];
+        PlayHistoryDisplayTargetItem safeTarget = displayTarget ?? PlayHistoryDisplayTargetItem.All;
+        if (!safeTarget.IsFiltering)
+        {
+            return safeRows;
+        }
+        ThrowIfStalePlayHistoryDisplayTargetRequest(requestId, displayTargetRevision, cancellationToken);
+        List<BMSTable> tableSnapshot = SnapshotPlayHistoryDisplayTargetTables();
+        PlayHistoryDisplayTargetIndex index = PlayHistoryDisplayTargetIndex.Create(
+            safeTarget,
+            tableSnapshot,
+            table => tables?.EnsurePlaylistEntriesLoaded(table, "PlayHistoryDisplayTarget"),
+            cancellationToken,
+            () => IsCurrentPlayHistoryViewRequest(requestId)
+                && displayTargetRevision == Interlocked.Read(ref playHistoryDisplayTargetRevision));
+        var filteredRows = new List<PlayHistoryRow>(safeRows.Count);
+        for (int indexInRows = 0; indexInRows < safeRows.Count; indexInRows++)
+        {
+            if ((indexInRows & 0x7f) == 0)
+            {
+                ThrowIfStalePlayHistoryDisplayTargetRequest(requestId, displayTargetRevision, cancellationToken);
+            }
+            PlayHistoryRow row = safeRows[indexInRows];
+            if (index.TryApply(row, out PlayHistoryRow displayRow))
+            {
+                filteredRows.Add(displayRow);
+            }
+        }
+        ThrowIfStalePlayHistoryDisplayTargetRequest(requestId, displayTargetRevision, cancellationToken);
+        return filteredRows;
+    }
+
+    private void ThrowIfStalePlayHistoryDisplayTargetRequest(long requestId, long displayTargetRevision, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!IsCurrentPlayHistoryViewRequest(requestId)
+            || displayTargetRevision != Interlocked.Read(ref playHistoryDisplayTargetRevision))
+        {
+            throw new OperationCanceledException(cancellationToken);
+        }
+    }
+
+    private List<BMSTable> SnapshotPlayHistoryDisplayTargetTables()
+    {
+        try
+        {
+            tables?.AcquireReaderLockBMSTables();
+            return [.. (BMSTables ?? Enumerable.Empty<BMSTable>()).Where(table => table != null)];
+        }
+        finally
+        {
+            tables?.FreeReaderLockBMSTables();
+        }
+    }
+
+    private void LogPlayHistoryDisplayTargetFilter(
+        PlayHistoryPeriodRequest periodRequest,
+        long requestId,
+        PlayHistoryDisplayTargetItem displayTarget,
+        int sourceCount,
+        int targetCount)
+    {
+        PlayHistoryDisplayTargetItem safeTarget = displayTarget ?? PlayHistoryDisplayTargetItem.All;
+        LogPlayHistoryEvent(
+            "play_history_view_display_target_filter",
+            "period=" + (periodRequest?.Kind.ToString() ?? string.Empty)
+            + " requestId=" + requestId
+            + " targetKind=" + safeTarget.Kind
+            + " targetIdentity=" + QuotePlayHistoryLogValue(safeTarget.Identity)
+            + " active=" + safeTarget.IsFiltering.ToString().ToLowerInvariant()
+            + " sourceCount=" + sourceCount
+            + " targetCount=" + targetCount);
+    }
+
     private void LogPlayHistoryKeywordFilter(PlayHistoryPeriodRequest periodRequest, long requestId, string keywordFilter, int sourceCount, int projectedCount, int keywordCount, long keywordMs)
     {
         LogPlayHistoryEvent(
@@ -20169,29 +20365,56 @@ public class MainWindowViewModel : ViewModel
         long keywordRevision = viewRequest.KeywordFilterRevision > 0
             ? viewRequest.KeywordFilterRevision
             : Interlocked.Read(ref playHistoryKeywordFilterRevision);
+        PlayHistoryDisplayTargetItem displayTarget = SelectedPlayHistoryDisplayTarget;
+        long displayTargetRevision = viewRequest.DisplayTargetRevision > 0
+            ? viewRequest.DisplayTargetRevision
+            : Interlocked.Read(ref playHistoryDisplayTargetRevision);
+        IReadOnlyList<PlayHistoryRow> targetRows = state.FilterSourceRows;
         IReadOnlyList<PlayHistoryRow> filteredRows = state.ProjectedRows;
         long keywordMs = 0L;
+        bool targetStateStale = displayTargetRevision != state.DisplayTargetRevision
+            || !string.Equals(displayTarget?.Identity ?? string.Empty, state.DisplayTargetIdentity, StringComparison.Ordinal);
         bool keywordStateStale = keywordRevision != state.KeywordFilterRevision
             || !string.Equals(NormalizePlaylistKeywordFilter(keywordFilter), state.KeywordFilterIdentity, StringComparison.Ordinal);
+        if (requestedMode == viewUpdateMode.SortUpdated && targetStateStale)
+        {
+            QueuePlayHistoryDisplayTargetRefresh(advanceRevision: false);
+            LogStalePlayHistoryViewRequest(mode, requestedMode, parameter, state.PeriodRequest, state.RequestId, viewBuildStopwatch.ElapsedMilliseconds);
+            return true;
+        }
         if (requestedMode == viewUpdateMode.SortUpdated && keywordStateStale)
         {
             QueuePlayHistoryKeywordFilterRefresh(advanceRevision: false);
             LogStalePlayHistoryViewRequest(mode, requestedMode, parameter, state.PeriodRequest, state.RequestId, viewBuildStopwatch.ElapsedMilliseconds);
             return true;
         }
-        if (keywordStateStale)
+        if (targetStateStale)
         {
             CancellationToken cancellationToken = GetPlayHistoryFilterCancellationToken(state.RequestId);
             try
             {
-                filteredRows = ApplyPlayHistoryKeywordFilterRows(state.FilterSourceRows, keywordFilter, state.RequestId, keywordRevision, cancellationToken, out keywordMs);
+                targetRows = ApplyPlayHistoryDisplayTargetRows(state.AllProjectedRows, displayTarget, state.RequestId, displayTargetRevision, cancellationToken);
             }
             catch (OperationCanceledException)
             {
                 LogStalePlayHistoryViewRequest(mode, requestedMode, parameter, state.PeriodRequest, state.RequestId, viewBuildStopwatch.ElapsedMilliseconds);
                 return true;
             }
-            LogPlayHistoryKeywordFilter(state.PeriodRequest, state.RequestId, keywordFilter, state.SourceCount, state.FilterSourceRows.Count, filteredRows.Count, keywordMs);
+            LogPlayHistoryDisplayTargetFilter(state.PeriodRequest, state.RequestId, displayTarget, state.AllProjectedRows.Count, targetRows.Count);
+        }
+        if (targetStateStale || keywordStateStale)
+        {
+            CancellationToken cancellationToken = GetPlayHistoryFilterCancellationToken(state.RequestId);
+            try
+            {
+                filteredRows = ApplyPlayHistoryKeywordFilterRows(targetRows, keywordFilter, state.RequestId, keywordRevision, cancellationToken, out keywordMs);
+            }
+            catch (OperationCanceledException)
+            {
+                LogStalePlayHistoryViewRequest(mode, requestedMode, parameter, state.PeriodRequest, state.RequestId, viewBuildStopwatch.ElapsedMilliseconds);
+                return true;
+            }
+            LogPlayHistoryKeywordFilter(state.PeriodRequest, state.RequestId, keywordFilter, state.SourceCount, targetRows.Count, filteredRows.Count, keywordMs);
         }
         var sortStopwatch = Stopwatch.StartNew();
         cSortParameters sortParameters = CaptureSortParameters(out SortSnapshot sortSnapshot);
@@ -20204,14 +20427,17 @@ public class MainWindowViewModel : ViewModel
         var sortedState = new PlayHistoryViewState(
             state.RequestId,
             state.PeriodRequest,
-            state.FilterSourceRows,
+            state.AllProjectedRows,
+            targetRows,
             filteredRows,
             state.Diagnostics,
             state.SchemaStatus,
             state.SourceCount,
             sortSnapshot,
             keywordFilter,
-            keywordRevision);
+            keywordRevision,
+            displayTarget,
+            displayTargetRevision);
         ApplyPlayHistorySortedRows(
             mode,
             requestedMode,
@@ -20322,6 +20548,7 @@ public class MainWindowViewModel : ViewModel
                 state = new PlayHistoryViewState(
                     state.RequestId,
                     state.PeriodRequest,
+                    state.AllProjectedRows,
                     state.FilterSourceRows,
                     state.ProjectedRows,
                     state.Diagnostics,
@@ -20329,10 +20556,35 @@ public class MainWindowViewModel : ViewModel
                     state.SourceCount,
                     currentSortSnapshot,
                     state.KeywordFilter,
-                    state.KeywordFilterRevision);
+                    state.KeywordFilterRevision,
+                    state.DisplayTarget,
+                    state.DisplayTargetRevision);
             }
             string currentKeywordFilter = KeywordFilter;
             long currentKeywordRevision = Interlocked.Read(ref playHistoryKeywordFilterRevision);
+            PlayHistoryDisplayTargetItem currentDisplayTarget = SelectedPlayHistoryDisplayTarget;
+            long currentDisplayTargetRevision = Interlocked.Read(ref playHistoryDisplayTargetRevision);
+            if (currentDisplayTargetRevision != state.DisplayTargetRevision
+                || !string.Equals(currentDisplayTarget?.Identity ?? string.Empty, state.DisplayTargetIdentity, StringComparison.Ordinal))
+            {
+                PlayHistoryViewState cachedState = Volatile.Read(ref playHistoryViewState);
+                bool latestDisplayTargetStateAvailable = cachedState != null
+                    && cachedState.RequestId == state.RequestId
+                    && cachedState.DisplayTargetRevision == currentDisplayTargetRevision
+                    && string.Equals(currentDisplayTarget?.Identity ?? string.Empty, cachedState.DisplayTargetIdentity, StringComparison.Ordinal);
+                if (!latestDisplayTargetStateAvailable)
+                {
+                    if (cachedState == null
+                        || cachedState.RequestId != state.RequestId
+                        || cachedState.DisplayTargetRevision <= state.DisplayTargetRevision)
+                    {
+                        Volatile.Write(ref playHistoryViewState, state);
+                    }
+                    QueuePlayHistoryDisplayTargetRefresh(advanceRevision: false);
+                }
+                LogStalePlayHistoryViewRequest(mode, requestedMode, parameter, periodRequest, state.RequestId, viewBuildStopwatch.ElapsedMilliseconds);
+                return;
+            }
             if (currentKeywordRevision != state.KeywordFilterRevision
                 || !string.Equals(NormalizePlaylistKeywordFilter(currentKeywordFilter), state.KeywordFilterIdentity, StringComparison.Ordinal))
             {
@@ -20551,6 +20803,7 @@ public class MainWindowViewModel : ViewModel
         {
             RaisePropertyChanged(() => CurrentMainViewOperationSection);
             RaisePropertyChanged(() => CurrentMainViewChartOperationSourceScope);
+            RaisePropertyChanged(() => IsPlayHistoryViewActive);
         }
         return requestId;
     }
@@ -20577,7 +20830,11 @@ public class MainWindowViewModel : ViewModel
                 return;
             }
             Interlocked.Exchange(ref playHistoryKeywordFilterQueuedRevision, keywordRevision);
-            request = new PlayHistoryViewRequest(request.PeriodRequest, request.RequestId, keywordRevision);
+            request = new PlayHistoryViewRequest(
+                request.PeriodRequest,
+                request.RequestId,
+                keywordRevision,
+                Interlocked.Read(ref playHistoryDisplayTargetRevision));
         }
         Task.Run(() =>
         {
@@ -20591,6 +20848,53 @@ public class MainWindowViewModel : ViewModel
             }
         })
             .Logging("playHistoryKeywordFilterUpdated");
+    }
+
+    private void QueuePlayHistoryDisplayTargetRefresh(bool advanceRevision = true)
+    {
+        PlayHistoryViewRequest request = null;
+        lock (playHistoryViewRequestLock)
+        {
+            if (treeViewFilterTypeSelected != viewUpdateMode.PlayHistorySelected)
+            {
+                if (advanceRevision)
+                {
+                    Interlocked.Increment(ref playHistoryDisplayTargetRevision);
+                }
+                return;
+            }
+            request = treeViewFilterParameterSelected as PlayHistoryViewRequest;
+            if (request == null || !IsCurrentPlayHistoryViewRequestUnsafe(request.RequestId))
+            {
+                if (advanceRevision)
+                {
+                    Interlocked.Increment(ref playHistoryDisplayTargetRevision);
+                }
+                return;
+            }
+            long targetRevision = advanceRevision
+                ? Interlocked.Increment(ref playHistoryDisplayTargetRevision)
+                : Interlocked.Read(ref playHistoryDisplayTargetRevision);
+            if (Interlocked.Read(ref playHistoryDisplayTargetQueuedRevision) == targetRevision)
+            {
+                return;
+            }
+            Interlocked.Exchange(ref playHistoryDisplayTargetQueuedRevision, targetRevision);
+            long keywordRevision = Interlocked.Read(ref playHistoryKeywordFilterRevision);
+            request = new PlayHistoryViewRequest(request.PeriodRequest, request.RequestId, keywordRevision, targetRevision);
+        }
+        Task.Run(() =>
+        {
+            try
+            {
+                RefreshChartRowsView(viewUpdateMode.KeywordFilterUpdated, request);
+            }
+            finally
+            {
+                Interlocked.CompareExchange(ref playHistoryDisplayTargetQueuedRevision, 0L, request.DisplayTargetRevision);
+            }
+        })
+            .Logging("playHistoryDisplayTargetUpdated");
     }
 
     private bool IsCurrentPlayHistoryViewRequest(long requestId)
@@ -20838,11 +21142,12 @@ public class MainWindowViewModel : ViewModel
 
     private sealed class PlayHistoryViewRequest
     {
-        internal PlayHistoryViewRequest(PlayHistoryPeriodRequest periodRequest, long requestId, long keywordFilterRevision = 0L)
+        internal PlayHistoryViewRequest(PlayHistoryPeriodRequest periodRequest, long requestId, long keywordFilterRevision = 0L, long displayTargetRevision = 0L)
         {
             PeriodRequest = periodRequest ?? PlayHistoryPeriodRequest.All();
             RequestId = requestId;
             KeywordFilterRevision = keywordFilterRevision;
+            DisplayTargetRevision = displayTargetRevision;
         }
 
         internal PlayHistoryPeriodRequest PeriodRequest { get; }
@@ -20850,6 +21155,8 @@ public class MainWindowViewModel : ViewModel
         internal long RequestId { get; }
 
         internal long KeywordFilterRevision { get; }
+
+        internal long DisplayTargetRevision { get; }
     }
 
     private sealed class PlayHistoryViewState
@@ -20857,6 +21164,7 @@ public class MainWindowViewModel : ViewModel
         internal PlayHistoryViewState(
             long requestId,
             PlayHistoryPeriodRequest periodRequest,
+            IReadOnlyList<PlayHistoryRow> allProjectedRows,
             IReadOnlyList<PlayHistoryRow> filterSourceRows,
             IReadOnlyList<PlayHistoryRow> projectedRows,
             IReadOnlyList<PlayHistoryDiagnostic> diagnostics,
@@ -20864,10 +21172,13 @@ public class MainWindowViewModel : ViewModel
             int sourceCount,
             SortSnapshot sortSnapshot,
             string keywordFilter,
-            long keywordFilterRevision)
+            long keywordFilterRevision,
+            PlayHistoryDisplayTargetItem displayTarget,
+            long displayTargetRevision)
         {
             RequestId = requestId;
             PeriodRequest = periodRequest ?? PlayHistoryPeriodRequest.All();
+            AllProjectedRows = allProjectedRows ?? [];
             FilterSourceRows = filterSourceRows ?? [];
             ProjectedRows = projectedRows ?? [];
             Diagnostics = diagnostics ?? [];
@@ -20877,11 +21188,16 @@ public class MainWindowViewModel : ViewModel
             KeywordFilter = keywordFilter ?? string.Empty;
             KeywordFilterIdentity = NormalizePlaylistKeywordFilter(KeywordFilter);
             KeywordFilterRevision = keywordFilterRevision;
+            DisplayTarget = displayTarget ?? PlayHistoryDisplayTargetItem.All;
+            DisplayTargetIdentity = DisplayTarget.Identity;
+            DisplayTargetRevision = displayTargetRevision;
         }
 
         internal long RequestId { get; }
 
         internal PlayHistoryPeriodRequest PeriodRequest { get; }
+
+        internal IReadOnlyList<PlayHistoryRow> AllProjectedRows { get; }
 
         internal IReadOnlyList<PlayHistoryRow> FilterSourceRows { get; }
 
@@ -20900,6 +21216,12 @@ public class MainWindowViewModel : ViewModel
         internal string KeywordFilterIdentity { get; }
 
         internal long KeywordFilterRevision { get; }
+
+        internal PlayHistoryDisplayTargetItem DisplayTarget { get; }
+
+        internal string DisplayTargetIdentity { get; }
+
+        internal long DisplayTargetRevision { get; }
     }
 
     private readonly struct SortSnapshot

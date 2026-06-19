@@ -9,7 +9,6 @@
 次のものは現行実装の scope 外である。
 
 - beatoraja provider。UI / provider enum / plan 上の受け皿はあるが、`scoredatalog.db` / `scorelog.db` からの read model は未実装。
-- 表示対象セット。現行の Play History view は期間選択と keyword search を filter とし、対象 playlist / folder set の dropdown は持たない。
 - 導入前 LR2 score からの backfill。LR2 `score` row には「最後にいつプレイしたか」を復元できる十分な情報が無いため、導入済み score を last play として補完しない。
 
 ## LR2 Schema
@@ -77,7 +76,7 @@ UI refresh では raw rows がある場合に projection index を作る。proje
 | `ResolvedChart` / `ResolvedChartRef` | app library で解決できた chart identity。 |
 | `HashKind` | chart / course / unknown の分類。現行 LR2 projection は chart 解決できなければ unknown。 |
 | `Title` / `Artist` / `Path` | resolved chart から得た表示情報。未解決なら空。 |
-| `FolderLabels` / `PlaylistNames` | playlist reference resolver で得た所属表示。Phase 5 の filter source ではなく、現行では表示用。 |
+| `FolderLabels` / `PlaylistNames` | playlist reference resolver と display target filter で得た所属表示。display target が `すべて` の場合は playlist symbol、playlist 選択時は playlist entry folder、target set 選択時は `org_symbol + level` を表示する。 |
 | `Kind` | play history row の分類。actual result や best 更新内容から表示用に解決する。 |
 | `BestClear` / `BestDjLevelText` / `BestRatePercent` / `BestExscore` / `BestBp` / `BestCombo` | best 更新があった場合の before / after 表示。 |
 | `PlayExscore` / `Judges` / `PlaytimeSeconds` | finalized actual play delta から作る実プレイ結果。 |
@@ -104,7 +103,7 @@ view request には request id があり、古い非同期 refresh の結果が�
 
 ## Keyword Search
 
-Play History view は通常検索欄に `GridKeywordSearchContext.PlayHistory` を使う。keyword search は LR2 DB read と projection が終わった後、sort / view 適用の前に in-memory で `PlayHistoryRow` を絞り込む。`KeywordFilterUpdated` と `SortUpdated` は同じ期間 request の read / projection result を再利用し、DB read と projection index build を繰り返さない。
+Play History view は通常検索欄に `GridKeywordSearchContext.PlayHistory` を使う。keyword search は LR2 DB read と projection が終わり、display target filter を適用した後、sort / view 適用の前に in-memory で `PlayHistoryRow` を絞り込む。`KeywordFilterUpdated` / display target 変更 / `SortUpdated` は同じ期間 request の read / projection result を再利用し、DB read と projection index build を繰り返さない。
 
 Play History context の field は次の通り。
 
@@ -112,7 +111,7 @@ Play History context の field は次の通り。
 | --- | --- |
 | global token | title、artist、path、folder labels、playlist names、raw hash、SHA-256、kind、source、play date を横断検索する。 |
 | `title:` / `artist:` / `path:` | resolved chart の表示情報。未解決 row では空。 |
-| `folder:` | `FolderLabels`。現行では playlist reference の symbol 表示。 |
+| `folder:` | display target 適用後の `FolderLabels`。`すべて` では playlist symbol、playlist 選択時は playlist entry folder、target set 選択時は `org_symbol + level`。 |
 | `playlist:` / `ref:` / `table:` | playlist reference の name 表示。 |
 | `md5:` / `hash:` | source raw hash。LR2 では MD5。 |
 | `sha256:` | resolved SHA-256。未解決 row では空。 |
@@ -125,6 +124,20 @@ Play History context の field は次の通り。
 | `source:` | provider display name と source path。 |
 
 `date:` / `year:` / `month:` は通常検索では substring ではなく exact match で扱う。regex (`field:re:...`) を指定した場合だけ、表示用文字列表現に対する regex として扱う。
+
+## Display Target
+
+Play History view の右上 dropdown は表示対象を次の単位で切り替える。
+
+| Target | 意味 |
+| --- | --- |
+| `すべて` | 期間内の play history row を全件対象にする。FOLDER は所属 playlist symbol の列挙。 |
+| playlist | 選択した playlist の entries と hash が一致する row だけを対象にする。FOLDER はその playlist entry の folder。 |
+| target set | settings JSON に保存された playlist / folder reference 集合に一致する row だけを対象にする。FOLDER は `org_symbol + level` の列挙。 |
+
+target set は `Settings.Default.PlayHistoryDisplayTargetSetsJson` に JSON として保存する。初期実装では app-owned DB table と編集 UI は追加しない。JSON は target set name と、`PlaylistId` / `PlaylistName` / `PlaylistSymbol`、任意の `FolderLabel` を持つ reference 配列で構成する。playlist 正本、playlist entries、`playlist.last_update` は変更しない。
+
+display target filter は projection 後、keyword search 前に適用する。target 変更では、同じ期間 request の projection result を再利用して target filter / keyword filter / sort だけを再適用する。対象 playlist entries の読み込みが必要な場合は playlist entries hydration を使うが、playlist reload / external sync / `.bmt` 再出力は起動しない。
 
 ## Diagnostics
 
@@ -166,6 +179,5 @@ manual は日本語 `docs/manual.ja.md` と英語 `docs/manual.md` を同時更�
 
 次は計画上の未実装範囲であり、この spec の現行仕様には含めない。
 
-- Play History display target set: `すべて` / playlist / user-defined target set の dropdown と portable settings 保存。
 - maintenance / settings での detailed status view と schema missing / locked / read-only の表示確認。
 - beatoraja provider: `scoredatalog.db` / `scorelog.db` / `score.db` の取り込み、best delta projection、provider 固有 aggregate。

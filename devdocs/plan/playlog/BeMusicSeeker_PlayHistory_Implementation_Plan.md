@@ -360,7 +360,7 @@ Play history view 用の keyword search context を追加する。既存 chart l
 
 - [x] `devdocs/plan/playlog/BeMusicSeeker_LR2_PlayHistory_Trigger_Proposal.md` を LR2 score DB trigger 仕様資料として維持する。
 - [x] 本資料を BeMusicSeeker 実装計画として `devdocs/plan/playlog/BeMusicSeeker_PlayHistory_Implementation_Plan.md` に維持する。
-- [x] 実装済み範囲を `devdocs/spec/play-history.md` へ昇格し、未実装の Phase 5 / Phase 7 は out of scope として分離する。
+- [x] 実装済み範囲を `devdocs/spec/play-history.md` へ昇格し、未実装または後続 scope を現行仕様から分離する。
 - [x] `docs/manual.ja.md` / `docs/manual.md` の追加章案を作る。
 
 完了条件:
@@ -628,16 +628,16 @@ Play history view 用の keyword search context を追加する。既存 chart l
 - [x] `GridKeywordSearchContext.PlayHistory` を追加する。
 - [x] PlayHistoryRow 用 matcher を実装する。
 - [x] field completion に play history fields を追加する。
-- [ ] `プレイログ` 右上 dropdown の対象を `すべて` / playlist / 表示対象セットにする。
-- [ ] 表示対象セットは `Settings.Default.PlayHistoryDisplayTargetSetsJson` のような settings へ保存し、portable settings 対象に含める。
-- [ ] 表示対象セットは playlist identity / folder label の参照集合として扱い、playlist 正本や `playlist.last_update` は変更しない。
-- [ ] FOLDER column は対象 playlist 選択時は playlist folder、それ以外は表示対象セット内の `org_symbol + level` を列挙する。
+- [x] `プレイログ` 右上 dropdown の対象を `すべて` / playlist / 表示対象セットにする。
+- [x] 表示対象セットは `Settings.Default.PlayHistoryDisplayTargetSetsJson` のような settings へ保存し、portable settings 対象に含める。
+- [x] 表示対象セットは playlist identity / folder label の参照集合として扱い、playlist 正本や `playlist.last_update` は変更しない。
+- [x] FOLDER column は対象 playlist 選択時は playlist folder、それ以外は表示対象セット内の `org_symbol + level` を列挙する。
 
 テスト:
 
 - [x] `date:` / `year:` / `month:` / `kind:` / `clear:` / `playlist:` / `folder:` / `finalized:` が期待通り絞り込む。
 - [x] field completion と unknown field diagnostics が play history fields と一致する。
-- [ ] 表示対象セットの変更で FOLDER 表示と row filter が変わる。
+- [x] 表示対象セットの変更で FOLDER 表示と row filter が変わる。
 - [x] 既存 chart list / playlist detail の keyword search が壊れない。
 
 完了条件:
@@ -713,7 +713,7 @@ Play history view 用の keyword search context を追加する。既存 chart l
 | Phase 2 | 完了 | LR2 履歴を `PlayHistoryRow` と summary に投影できる |
 | Phase 3 | 完了 | Play log tree と table UI は固定期間 + 年 / 月 / 日 archive node で動作。DnD / cell edit / activation / 通常 context menu guard、PlayHistory 専用 hash-only context menu まで完了 |
 | Phase 4 | 完了 | LAST PLAY SORT custom folder が出力され、schema guard / cleanup / NULL sort command の検証まで完了 |
-| Phase 5 | 進行中 | keyword search は PlayHistory context / matcher / completion まで完了。表示対象セットと dropdown filter が残る |
+| Phase 5 | 完了 | keyword search と `すべて` / playlist / 表示対象セット dropdown filter が動作し、settings JSON 保存形式まで追加済み |
 | Phase 6 | 進行中 | 最小 manual、summary 診断、現行仕様 spec、log contract は追加済み。maintenance 診断表示と実画面 screenshot が残る |
 | Phase 7 | 未着手 | beatoraja provider が同じ UI に載る |
 
@@ -732,10 +732,12 @@ Play history view 用の keyword search context を追加する。既存 chart l
 - 2026-06-19: Phase 4 追加検証として、LastPlaySortFolder を OFF にした再出力で `LAST PLAY SORT` の生成済み file / stale file / stale LR2 `folder` row が prune されることをテストで固定した。
 - 2026-06-19: Phase 4 UI guard として、play history schema status が `Installed` ではない場合に playlist property / bulk edit の LastPlaySortFolder checkbox を disabled にし、bulk patch から LastPlaySortFolder 変更を除外する helper と tests を追加した。
 - 2026-06-19: Phase 4 NULL sort 検証として、LAST PLAY SORT command を `last_play_at IS NULL ASC, last_play_at DESC` に明示化し、未観測譜面が末尾へ回る ORDER BY を `.lr2folder` / LR2 `folder` row の tests で固定した。
-- 2026-06-19: Phase 0 / Phase 6 spec 整理として `devdocs/spec/play-history.md` を追加し、LR2 schema / read model / projection / period UI / diagnostics / LAST PLAY SORT の現行仕様と、Phase 5 / Phase 7 の未実装 scope を分離した。
+- 2026-06-19: Phase 0 / Phase 6 spec 整理として `devdocs/spec/play-history.md` を追加し、LR2 schema / read model / projection / period UI / diagnostics / LAST PLAY SORT の現行仕様と、当時未実装だった Phase 5 / Phase 7 の scope を分離した。
 - 2026-06-19: Phase 6 manual 整理として、`docs/manual.ja.md` / `docs/manual.md` に LR2 play-log schema 有効化 / 修復が player `score.db` へ table / index / trigger を追加・修復することと、backup 対象に score DB を含める注意を追記した。
 - 2026-06-19: Phase 6 log contract として、PlayHistory view build に `play_history_read_done` / `play_history_read_period_index_*` / `play_history_projection_*` / `play_history_view_*` の段階別 event を追加し、専用 event 名・主要 field・projection fallback の理由を静的テストで固定した。
-- 2026-06-19: Phase 5 keyword search として `GridKeywordSearchContext.PlayHistory`、`PlayHistoryRow` matcher、PlayHistory 用 field completion/help、PlayHistory view の projection 後 keyword filter を追加した。表示対象セット / dropdown filter は引き続き未実装。
+- 2026-06-19: Phase 5 keyword search として `GridKeywordSearchContext.PlayHistory`、`PlayHistoryRow` matcher、PlayHistory 用 field completion/help、PlayHistory view の projection 後 keyword filter を追加した。この時点では表示対象セット / dropdown filter は後続作業として残っていた。
+- 2026-06-19: Phase 5 display target として、PlayHistory 右上に `すべて` / playlist / settings JSON の表示対象セット dropdown を追加し、target filter を projection 後・keyword filter 前に適用する read model を追加した。playlist 選択時の FOLDER は playlist entry folder、target set 選択時は `org_symbol + level` 表示とし、対象外 row は除外する。`Settings.Default.PlayHistoryDisplayTargetSetsJson` は portable settings と同じ provider 管理対象で、初期実装では編集 UI や app-owned DB table は追加しない。
+- 2026-06-19: Phase 5 display target のサブエージェントレビューを挙動 / 性能 / テスト充足の観点で実施し、PlaylistTree flush 時の target 再構築、playlist entries hydration 完了時の不要 refresh 抑止、MD5 優先 lookup、空 folder 表示、stale target filter cancellation、settings / XAML / refresh 経路の静的テストを追加した。再レビューで P0 / P1 指摘なしを確認した。
 
 ## 実装時の注意
 

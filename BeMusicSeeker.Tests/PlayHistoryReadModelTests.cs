@@ -8,6 +8,7 @@ using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.ViewModels;
+using Codeplex.Data;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using SQLite;
 
@@ -473,6 +474,82 @@ public sealed class PlayHistoryReadModelTests
     }
 
     [TestMethod]
+    public void PlayHistoryDisplayTargetIndex_PlaylistTargetUsesPlaylistFolder()
+    {
+        PlayHistoryRow row = CreateProjectedRow(HashA);
+        BMSTable table = CreateTargetTable(HashA, "Alpha");
+        PlayHistoryDisplayTargetIndex index = PlayHistoryDisplayTargetIndex.Create(
+            PlayHistoryDisplayTargetItem.FromPlaylist(table),
+            [table],
+            _ => { });
+
+        bool matched = index.TryApply(row, out PlayHistoryRow displayRow);
+
+        Assert.IsTrue(matched);
+        Assert.AreEqual("Alpha", displayRow.FolderLabels);
+        Assert.AreEqual(string.Empty, row.FolderLabels);
+    }
+
+    [TestMethod]
+    public void PlayHistoryDisplayTargetIndex_TargetSetFiltersRowsAndUsesOrgSymbolLevel()
+    {
+        PlayHistoryRow matchingRow = CreateProjectedRow(HashA);
+        PlayHistoryRow otherRow = CreateProjectedRow(HashB);
+        BMSTable table = CreateTargetTable(HashA, "Alpha");
+        PlayHistoryDisplayTargetItem target = PlayHistoryDisplayTargetItem.FromTargetSet(new PlayHistoryDisplayTargetSet
+        {
+            Name = "SAT Alpha",
+            Targets =
+            [
+                new PlayHistoryDisplayTargetReference
+                {
+                    PlaylistSymbol = "SAT",
+                    FolderLabel = "Alpha"
+                }
+            ]
+        });
+        PlayHistoryDisplayTargetIndex index = PlayHistoryDisplayTargetIndex.Create(target, [table], _ => { });
+
+        bool matched = index.TryApply(matchingRow, out PlayHistoryRow displayRow);
+        bool otherMatched = index.TryApply(otherRow, out _);
+
+        Assert.IsTrue(matched);
+        Assert.IsFalse(otherMatched);
+        Assert.AreEqual("SATAlpha", displayRow.FolderLabels);
+    }
+
+    [TestMethod]
+    public void PlayHistoryDisplayTargetIndex_UsesPlaylistEntryMd5BeforeSha256()
+    {
+        PlayHistoryRow row = CreateProjectedRow(HashA, ShaA, initialFolderLabels: "SAT");
+        BMSTable table = CreateTargetTable(HashB, "Alpha", ShaA);
+        PlayHistoryDisplayTargetIndex index = PlayHistoryDisplayTargetIndex.Create(
+            PlayHistoryDisplayTargetItem.FromPlaylist(table),
+            [table],
+            _ => { });
+
+        bool matched = index.TryApply(row, out _);
+
+        Assert.IsFalse(matched);
+    }
+
+    [TestMethod]
+    public void PlayHistoryDisplayTargetIndex_PlaylistTargetKeepsEmptyFolderEmpty()
+    {
+        PlayHistoryRow row = CreateProjectedRow(HashA, initialFolderLabels: "SAT");
+        BMSTable table = CreateTargetTable(HashA, string.Empty);
+        PlayHistoryDisplayTargetIndex index = PlayHistoryDisplayTargetIndex.Create(
+            PlayHistoryDisplayTargetItem.FromPlaylist(table),
+            [table],
+            _ => { });
+
+        bool matched = index.TryApply(row, out PlayHistoryRow displayRow);
+
+        Assert.IsTrue(matched);
+        Assert.AreEqual(string.Empty, displayRow.FolderLabels);
+    }
+
+    [TestMethod]
     public void ProjectLr2Rows_UnresolvedUnfinalizedRowRemainsVisible()
     {
         var readResult = new Lr2PlayHistoryReadResult(
@@ -901,6 +978,40 @@ public sealed class PlayHistoryReadModelTests
             old_op_history = oldOpHistory,
             new_op_history = newOpHistory
         };
+    }
+
+    private static PlayHistoryRow CreateProjectedRow(string hash, string sha256 = "", string initialFolderLabels = "")
+    {
+        PlayHistoryProjectionResult projected = PlayHistoryRow.ProjectLr2Rows(
+            new Lr2PlayHistoryReadResult(
+                PlayHistorySourceProfile.Lr2("score.db"),
+                [CreateRawRecord(100, hash, 1000, finalized: true, oldExscore: null, newExscore: 100, newTotalNotes: 100)],
+                [],
+                Lr2PlayHistorySchemaStatus.Installed),
+            string.IsNullOrWhiteSpace(sha256)
+                ? PlayHistoryProjectionIndex.Empty
+                : PlayHistoryProjectionIndex.Create(
+                    PlaylistLibraryResolveIndexSnapshot.Empty,
+                    new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { [hash] = sha256 }));
+        PlayHistoryRow row = projected.Rows.Single();
+        return string.IsNullOrEmpty(initialFolderLabels) ? row : row.WithPlaylistDisplay(initialFolderLabels);
+    }
+
+    private static BMSTable CreateTargetTable(string md5, string folder, string sha256 = "")
+    {
+        string sha256Json = string.IsNullOrWhiteSpace(sha256) ? string.Empty : ",\"sha256\":\"" + sha256 + "\"";
+        var table = new BMSTable
+        {
+            playlist_id = 7,
+            name = "Satellite",
+            symbol = "SAT",
+            org_symbol = "SAT",
+            entries =
+            [
+                new BMSTableEntry(DynamicJson.Parse("{\"md5\":\"" + md5 + "\"" + sha256Json + ",\"title\":\"Target\",\"level\":\"" + folder + "\"}"))
+            ]
+        };
+        return table;
     }
 
     private const string HashA = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
