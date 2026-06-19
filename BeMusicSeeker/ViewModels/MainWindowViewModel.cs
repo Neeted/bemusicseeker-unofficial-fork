@@ -1014,6 +1014,8 @@ public class MainWindowViewModel : ViewModel
 
         public bool CanRepairLr2PlayHistorySchema => Lr2PlayHistorySchemaStatusPresentation.Create(lr2PlayHistorySchemaCheckResult).CanRepair;
 
+        public bool CanUseLastPlaySortFolder => MainWindowViewModel.CanUseLastPlaySortFolder(lr2PlayHistorySchemaCheckResult);
+
         internal void ResetLr2PlayHistorySchemaStatus()
         {
             lr2PlayHistoryScoreDbPath = ResolveLr2PlayHistoryScoreDbPath();
@@ -1067,6 +1069,8 @@ public class MainWindowViewModel : ViewModel
             RaisePropertyChanged(() => Lr2PlayHistorySchemaDetailText);
             RaisePropertyChanged(() => CanInstallLr2PlayHistorySchema);
             RaisePropertyChanged(() => CanRepairLr2PlayHistorySchema);
+            RaisePropertyChanged(() => CanUseLastPlaySortFolder);
+            ownerViewModel.playlistSummaryBulkEditDialog?.RaiseLastPlaySortFolderAvailabilityChanged();
         }
 
         private static void LogLr2PlayHistorySchema(string action, Lr2PlayHistorySchemaCheckResult result, bool isLr2LinkedProfile)
@@ -5367,6 +5371,8 @@ public class MainWindowViewModel : ViewModel
             set => SetCustomFolderState(ref _outputLastPlaySortFolder, value, nameof(OutputLastPlaySortFolder));
         }
 
+        public bool CanUseLastPlaySortFolder => ownerViewModel.settingDialog?.CanUseLastPlaySortFolder == true;
+
         public bool CanApplyCustomFolderOutput => BuildCustomFolderOutputPatch().Enumerate().Any(item => item.Value.HasValue);
 
         public PlaylistSummaryBulkBooleanOption RootFolderOption
@@ -5476,6 +5482,12 @@ public class MainWindowViewModel : ViewModel
             RaisePropertyChanged(nameof(IsLevelFolderBulkApplicable));
         }
 
+        internal void RaiseLastPlaySortFolderAvailabilityChanged()
+        {
+            RaisePropertyChanged(nameof(CanUseLastPlaySortFolder));
+            RaisePropertyChanged(nameof(CanApplyCustomFolderOutput));
+        }
+
         public void ApplyCustomFolderOutputTypes()
         {
             ownerViewModel.ApplyPlaylistSummaryCustomFolderOutputTypes(targetRows, BuildCustomFolderOutputPatch());
@@ -5548,7 +5560,7 @@ public class MainWindowViewModel : ViewModel
 
         private PlaylistSummaryCustomFolderOutputPatch BuildCustomFolderOutputPatch()
         {
-            return new PlaylistSummaryCustomFolderOutputPatch
+            return SuppressUnavailableLastPlaySortFolder(new PlaylistSummaryCustomFolderOutputPatch
             {
                 UserFolder = OutputUserFolder,
                 LevelFolder = OutputLevelFolder,
@@ -5562,7 +5574,7 @@ public class MainWindowViewModel : ViewModel
                 BpSortFolder = OutputBpSortFolder,
                 PlayCountSortFolder = OutputPlayCountSortFolder,
                 LastPlaySortFolder = OutputLastPlaySortFolder
-            };
+            }, CanUseLastPlaySortFolder);
         }
 
         private void SetCustomFolderState(ref bool? storage, bool? value, string propertyName)
@@ -8013,6 +8025,34 @@ public class MainWindowViewModel : ViewModel
     private static readonly string scoreViewUrl = "https://bms-score-viewer.pages.dev/view?md5=";
 
     public SettingDialogViewModel settingDialog { get; private set; }
+
+    internal bool CanUseLastPlaySortFolderForCustomFolderOutput()
+    {
+        Lr2PlayHistorySchemaCheckResult result = CheckLastPlaySortCustomFolderAvailabilityForActivePlaylist();
+        settingDialog?.ApplyLr2PlayHistorySchemaCheckResult(result);
+        return CanUseLastPlaySortFolder(result);
+    }
+
+    internal Lr2PlayHistorySchemaCheckResult CheckLastPlaySortCustomFolderAvailabilityForActivePlaylist()
+    {
+        return tables?.CheckLastPlaySortCustomFolderAvailability();
+    }
+
+    internal BMSPlaylist GetActiveBMSPlaylistForCustomFolderOutput()
+    {
+        return tables;
+    }
+
+    internal bool ContainsActivePlaylistTable(BMSTable table)
+    {
+        return table != null && tables?.BMSTables?.Contains(table) == true;
+    }
+
+    internal bool ContainsActivePlaylistSummaryRows(IEnumerable<PlaylistSummaryRow> rows)
+    {
+        return rows != null
+            && rows.All(row => row?.TableRef != null && ContainsActivePlaylistTable(row.TableRef));
+    }
 
     private static void LogUiSuppression(string message)
     {
@@ -24767,6 +24807,25 @@ public class MainWindowViewModel : ViewModel
         return LR2SongDBExtended.playlist.IsCustomFolderTypeEnabled(table.ignore_folder_output, type);
     }
 
+    internal static bool CanUseLastPlaySortFolder(Lr2PlayHistorySchemaCheckResult result)
+    {
+        return result?.Status == Lr2PlayHistorySchemaStatus.Installed;
+    }
+
+    internal static PlaylistSummaryCustomFolderOutputPatch SuppressUnavailableLastPlaySortFolder(PlaylistSummaryCustomFolderOutputPatch patch, bool canUseLastPlaySortFolder)
+    {
+        if (patch == null)
+        {
+            throw new ArgumentNullException(nameof(patch));
+        }
+        if (canUseLastPlaySortFolder)
+        {
+            return patch;
+        }
+        patch.LastPlaySortFolder = null;
+        return patch;
+    }
+
     internal static bool? ResolvePlaylistSummaryCustomFolderOutputState(IEnumerable<BMSTable> tables, LR2SongDBExtended.playlist.CustomFolderType type)
     {
         if (tables == null)
@@ -25226,6 +25285,11 @@ public class MainWindowViewModel : ViewModel
         if (rows == null || patch == null || tables == null)
         {
             return;
+        }
+        if (patch.LastPlaySortFolder.HasValue
+            && !CanUseLastPlaySortFolderForCustomFolderOutput())
+        {
+            patch = SuppressUnavailableLastPlaySortFolder(patch, canUseLastPlaySortFolder: false);
         }
         List<BMSTable> changedTables = [];
         var previousMasks = new Dictionary<BMSTable, LR2SongDBExtended.playlist.CustomFolderType>();

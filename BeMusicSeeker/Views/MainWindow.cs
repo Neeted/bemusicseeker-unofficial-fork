@@ -30,6 +30,7 @@ using System.Windows.Navigation;
 using System.Windows.Threading;
 using BeMusicSeeker.Diagnostics;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
@@ -3169,7 +3170,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }).Logging("playlistSummaryContextMenuMoveToBmtSortBottomClick");
     }
 
-    private void playlistSummaryContextMenuOpenBulkEditClick(object sender, RoutedEventArgs e)
+    private async void playlistSummaryContextMenuOpenBulkEditClick(object sender, RoutedEventArgs e)
     {
         PlaylistSummaryRow playlistSummaryRow = resolvePlaylistSummaryRowFromSender(sender);
         List<PlaylistSummaryRow> selectedPlaylistSummaryRows = [.. getSelectedPlaylistSummaryRows(playlistSummaryRow).Where(row => row?.TableRef != null)];
@@ -3177,25 +3178,63 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        if (base.DataContext is MainWindowViewModel mainWindowViewModel && !mainWindowViewModel.IsWriteLockHeldBMSTablesInitializeMin && !mainWindowViewModel.IsWriteLockHeldBMSTables && !mainWindowViewModel.IsWriteLockHeldAnyBMSTable)
+        if (base.DataContext is MainWindowViewModel mainWindowViewModel && CanOpenPlaylistEditDialog(mainWindowViewModel))
         {
+            if (!await RefreshLr2PlayHistorySchemaStatusForCustomFolderUiAsync(mainWindowViewModel)
+                || !CanOpenPlaylistEditDialog(mainWindowViewModel)
+                || !mainWindowViewModel.ContainsActivePlaylistSummaryRows(selectedPlaylistSummaryRows))
+            {
+                return;
+            }
             mainWindowViewModel.playlistSummaryBulkEditDialog = new MainWindowViewModel.PlaylistSummaryBulkEditDialogViewModel(mainWindowViewModel, selectedPlaylistSummaryRows);
             playlistSummaryBulkEditDialog.Visibility = Visibility.Visible;
         }
     }
 
-    private void playlistSummaryContextMenuOpenPropertyClick(object sender, RoutedEventArgs e)
+    private async void playlistSummaryContextMenuOpenPropertyClick(object sender, RoutedEventArgs e)
     {
         PlaylistSummaryRow playlistSummaryRow = resolvePlaylistSummaryRowFromSender(sender);
         if (playlistSummaryRow?.TableRef == null)
         {
             return;
         }
-        if (base.DataContext is MainWindowViewModel mainWindowViewModel && !mainWindowViewModel.IsWriteLockHeldBMSTablesInitializeMin && !mainWindowViewModel.IsWriteLockHeldBMSTables && !mainWindowViewModel.IsWriteLockHeldAnyBMSTable)
+        if (base.DataContext is MainWindowViewModel mainWindowViewModel && CanOpenPlaylistEditDialog(mainWindowViewModel))
         {
+            if (!await RefreshLr2PlayHistorySchemaStatusForCustomFolderUiAsync(mainWindowViewModel)
+                || !CanOpenPlaylistEditDialog(mainWindowViewModel)
+                || !mainWindowViewModel.ContainsActivePlaylistTable(playlistSummaryRow.TableRef))
+            {
+                return;
+            }
             mainWindowViewModel.playlistPropertyDialog = new MainWindowViewModel.PlaylistPropertyDialogViewModel(mainWindowViewModel, playlistSummaryRow.TableRef);
             playlistPropertyDialog.Visibility = Visibility.Visible;
         }
+    }
+
+    private static async Task<bool> RefreshLr2PlayHistorySchemaStatusForCustomFolderUiAsync(MainWindowViewModel viewModel)
+    {
+        MainWindowViewModel.SettingDialogViewModel settingDialogViewModel = viewModel?.settingDialog;
+        BMSPlaylist expectedPlaylist = viewModel?.GetActiveBMSPlaylistForCustomFolderOutput();
+        if (settingDialogViewModel == null || expectedPlaylist == null)
+        {
+            return false;
+        }
+        Lr2PlayHistorySchemaCheckResult result = await Task.Run(() =>
+            expectedPlaylist.CheckLastPlaySortCustomFolderAvailability());
+        if (!ReferenceEquals(expectedPlaylist, viewModel.GetActiveBMSPlaylistForCustomFolderOutput()))
+        {
+            return false;
+        }
+        settingDialogViewModel.ApplyLr2PlayHistorySchemaCheckResult(result);
+        return true;
+    }
+
+    private static bool CanOpenPlaylistEditDialog(MainWindowViewModel viewModel)
+    {
+        return viewModel != null
+            && !viewModel.IsWriteLockHeldBMSTablesInitializeMin
+            && !viewModel.IsWriteLockHeldBMSTables
+            && !viewModel.IsWriteLockHeldAnyBMSTable;
     }
 
     private async void playlistSummaryContextMenuRemoveClick(object sender, RoutedEventArgs e)
@@ -3540,15 +3579,24 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     /// </summary>
     private async void treeViewPlaylistRootContextMenuItemCreateNewPlaylistClick(object sender, RoutedEventArgs e)
     {
-        if (base.DataContext is not MainWindowViewModel viewModel || sender is not MenuItem || viewModel.IsWriteLockHeldBMSTablesInitializeMin || viewModel.IsWriteLockHeldBMSTables || viewModel.IsWriteLockHeldAnyBMSTable)
+        if (base.DataContext is not MainWindowViewModel viewModel || sender is not MenuItem || !CanOpenPlaylistEditDialog(viewModel))
         {
             return;
         }
         try
         {
+            if (!await RefreshLr2PlayHistorySchemaStatusForCustomFolderUiAsync(viewModel)
+                || !CanOpenPlaylistEditDialog(viewModel))
+            {
+                return;
+            }
             BMSTable bMSTable = await Task.Run(() => viewModel.CreateBMSTable()).Logging("treeViewPlaylistRootContextMenuItemCreateNewPlaylistClick");
             if (bMSTable != null)
             {
+                if (!viewModel.ContainsActivePlaylistTable(bMSTable))
+                {
+                    return;
+                }
                 viewModel.playlistPropertyDialog = new MainWindowViewModel.PlaylistPropertyDialogViewModel(viewModel, bMSTable, _isForNewTable: true);
                 playlistPropertyDialog.Visibility = Visibility.Visible;
             }
@@ -3908,10 +3956,16 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     /// テーブル階層コンテキストメニュー「プロパティ」実行時の処理。
     /// 選択中の難易度表（BMSTable）の詳細情報や同期URLなどを確認・編集できる専用ダイアログを開きます。
     /// </summary>
-    private void treeViewPlaylistTableCcontextMenuItemOpenPropertyDialogClick(object sender, RoutedEventArgs e)
+    private async void treeViewPlaylistTableCcontextMenuItemOpenPropertyDialogClick(object sender, RoutedEventArgs e)
     {
-        if (base.DataContext is MainWindowViewModel mainWindowViewModel && sender is MenuItem menuItem && menuItem.DataContext is BMSTable table && !mainWindowViewModel.IsWriteLockHeldBMSTablesInitializeMin && !mainWindowViewModel.IsWriteLockHeldBMSTables && !mainWindowViewModel.IsWriteLockHeldAnyBMSTable)
+        if (base.DataContext is MainWindowViewModel mainWindowViewModel && sender is MenuItem menuItem && menuItem.DataContext is BMSTable table && CanOpenPlaylistEditDialog(mainWindowViewModel))
         {
+            if (!await RefreshLr2PlayHistorySchemaStatusForCustomFolderUiAsync(mainWindowViewModel)
+                || !CanOpenPlaylistEditDialog(mainWindowViewModel)
+                || !mainWindowViewModel.ContainsActivePlaylistTable(table))
+            {
+                return;
+            }
             mainWindowViewModel.playlistPropertyDialog = new MainWindowViewModel.PlaylistPropertyDialogViewModel(mainWindowViewModel, table);
             playlistPropertyDialog.Visibility = Visibility.Visible;
         }

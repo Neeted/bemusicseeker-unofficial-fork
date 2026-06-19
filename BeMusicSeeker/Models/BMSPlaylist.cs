@@ -3237,9 +3237,14 @@ public partial class BMSPlaylist : NotificationObject
         return "(SELECT last_play_at FROM " + Lr2PlayHistorySchemaService.LastPlayTableName + " WHERE hash = song.hash)";
     }
 
+    internal Lr2PlayHistorySchemaCheckResult CheckLastPlaySortCustomFolderAvailability()
+    {
+        return new Lr2PlayHistorySchemaService().Check(lr2ScoreDBPath, isLr2LinkedProfile: true);
+    }
+
     private void EnsureLastPlaySortCustomFolderAvailable()
     {
-        Lr2PlayHistorySchemaCheckResult result = new Lr2PlayHistorySchemaService().Check(lr2ScoreDBPath, isLr2LinkedProfile: true);
+        Lr2PlayHistorySchemaCheckResult result = CheckLastPlaySortCustomFolderAvailability();
         if (result.Status != Lr2PlayHistorySchemaStatus.Installed)
         {
             throw new LastPlaySortCustomFolderUnavailableException(result);
