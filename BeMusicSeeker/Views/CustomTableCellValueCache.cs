@@ -150,26 +150,45 @@ internal sealed class CustomTableCellValueCache
     }
 }
 
+internal readonly struct CustomTableTextRunStyle
+{
+    internal CustomTableTextRunStyle(int startIndex, int length, Brush foreground)
+    {
+        StartIndex = startIndex;
+        Length = length;
+        Foreground = foreground;
+    }
+
+    internal int StartIndex { get; }
+
+    internal int Length { get; }
+
+    internal Brush Foreground { get; }
+}
+
 internal readonly struct CustomTableCellValue
 {
-    private CustomTableCellValue(string text, Brush foreground, Brush background, CustomTableCellKind cellKind, CustomTableTextStyle textStyle, System.Windows.TextAlignment alignment, bool? isChecked)
+    private CustomTableCellValue(string text, Brush foreground, Brush background, IReadOnlyList<CustomTableTextRunStyle> textRuns, CustomTableCellKind cellKind, CustomTableTextStyle textStyle, System.Windows.TextAlignment alignment, bool? isChecked)
     {
         Text = text ?? string.Empty;
         Foreground = foreground ?? CustomTableScoreBrushProvider.DefaultForeground;
         Background = background;
+        TextRuns = textRuns ?? [];
         CellKind = cellKind;
         TextStyle = textStyle ?? CustomTableTextStyle.Normal;
         Alignment = alignment;
         IsChecked = isChecked;
     }
 
-    internal static CustomTableCellValue Empty { get; } = new CustomTableCellValue(string.Empty, CustomTableScoreBrushProvider.DefaultForeground, null, CustomTableCellKind.Text, CustomTableTextStyle.Normal, System.Windows.TextAlignment.Left, null);
+    internal static CustomTableCellValue Empty { get; } = new CustomTableCellValue(string.Empty, CustomTableScoreBrushProvider.DefaultForeground, null, [], CustomTableCellKind.Text, CustomTableTextStyle.Normal, System.Windows.TextAlignment.Left, null);
 
     internal string Text { get; }
 
     internal Brush Foreground { get; }
 
     internal Brush Background { get; }
+
+    internal IReadOnlyList<CustomTableTextRunStyle> TextRuns { get; }
 
     internal CustomTableCellKind CellKind { get; }
 
@@ -183,10 +202,12 @@ internal readonly struct CustomTableCellValue
 
     internal static CustomTableCellValue Create(object row, CustomTableColumn column)
     {
+        string text = column.GetText(row);
         return new CustomTableCellValue(
-            column.GetText(row),
+            text,
             column.GetForeground(row),
             column.GetBackground(row),
+            column.GetTextRuns(row, text),
             column.CellKind,
             column.TextStyle,
             column.Alignment,

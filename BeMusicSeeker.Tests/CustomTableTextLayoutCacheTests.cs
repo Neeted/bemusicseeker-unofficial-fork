@@ -1,9 +1,11 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Windows;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using BeMusicSeeker.Views;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -43,8 +45,55 @@ public sealed class CustomTableTextLayoutCacheTests
             AssertKeyChangeMisses(cache => Create(cache, out _, textStyle: CustomTableTextStyle.Score), cache => { Create(cache, out bool hit, textStyle: CustomTableTextStyle.Rank); return hit; });
             AssertKeyChangeMisses(cache => Create(cache, out _, textStyle: CustomTableTextStyle.Score), cache => { Create(cache, out bool hit, textStyle: CustomTableTextStyle.Score, scoreFontFamily: new FontFamily("Arial")); return hit; });
             AssertKeyChangeMisses(cache => Create(cache, out _, foreground: Brushes.Black), cache => { Create(cache, out bool hit, foreground: Brushes.Red); return hit; });
+            AssertKeyChangeMisses(cache => Create(cache, out _, textRuns: [new CustomTableTextRunStyle(0, 1, Brushes.Red)]), cache => { Create(cache, out bool hit, textRuns: [new CustomTableTextRunStyle(1, 1, Brushes.Red)]); return hit; });
+            AssertKeyChangeMisses(cache => Create(cache, out _, textRuns: [new CustomTableTextRunStyle(0, 1, Brushes.Red)]), cache => { Create(cache, out bool hit, textRuns: [new CustomTableTextRunStyle(0, 1, Brushes.Blue)]); return hit; });
             AssertKeyChangeMisses(cache => Create(cache, out _, pixelsPerDip: 1d), cache => { Create(cache, out bool hit, pixelsPerDip: 1.25d); return hit; });
             AssertKeyChangeMisses(cache => Create(cache, out _, culture: CultureInfo.GetCultureInfo("en-US")), cache => { Create(cache, out bool hit, culture: CultureInfo.GetCultureInfo("ja-JP")); return hit; });
+        });
+    }
+
+    [TestMethod]
+    public void GetOrCreate_ReusesSameTextRunKey()
+    {
+        RunOnSta(delegate
+        {
+            var cache = new CustomTableTextLayoutCache();
+            IReadOnlyList<CustomTableTextRunStyle> textRuns = [new CustomTableTextRunStyle(0, 1, Brushes.Red)];
+
+            FormattedText first = Create(cache, out bool firstHit, textRuns: textRuns);
+            FormattedText second = Create(cache, out bool secondHit, textRuns: textRuns);
+
+            Assert.IsFalse(firstHit);
+            Assert.IsTrue(secondHit);
+            Assert.AreSame(first, second);
+            Assert.AreEqual(1, cache.Count);
+        });
+    }
+
+    [TestMethod]
+    public void GetOrCreate_AppliesTextRunForegrounds()
+    {
+        RunOnSta(delegate
+        {
+            var cache = new CustomTableTextLayoutCache();
+            FormattedText text = Create(
+                cache,
+                out _,
+                text: "MMMM    MMMM",
+                maxTextWidth: 220d,
+                maxTextHeight: 60d,
+                textRuns:
+                [
+                    new CustomTableTextRunStyle(0, 4, Brushes.Red),
+                    new CustomTableTextRunStyle(8, 4, Brushes.Blue)
+                ]);
+
+            int redPixels;
+            int bluePixels;
+            CountDominantRunPixels(text, out redPixels, out bluePixels);
+
+            Assert.IsTrue(redPixels > 0, "Expected red pixels from the old-value text run.");
+            Assert.IsTrue(bluePixels > 0, "Expected blue pixels from the new-value text run.");
         });
     }
 
@@ -113,6 +162,7 @@ public sealed class CustomTableTextLayoutCacheTests
         CustomTableTextStyle textStyle = null!,
         FontFamily scoreFontFamily = null!,
         Brush foreground = null!,
+        IReadOnlyList<CustomTableTextRunStyle> textRuns = null!,
         double pixelsPerDip = 1d,
         CultureInfo culture = null!)
     {
@@ -124,9 +174,48 @@ public sealed class CustomTableTextLayoutCacheTests
             textStyle ?? CustomTableTextStyle.Normal,
             scoreFontFamily,
             foreground ?? Brushes.Black,
+            textRuns ?? [],
             pixelsPerDip,
             culture ?? CultureInfo.GetCultureInfo("ja-JP"),
             out hit);
+    }
+
+    private static void CountDominantRunPixels(FormattedText text, out int redPixels, out int bluePixels)
+    {
+        const int width = 220;
+        const int height = 60;
+        var visual = new DrawingVisual();
+        using (DrawingContext context = visual.RenderOpen())
+        {
+            context.DrawRectangle(Brushes.White, null, new Rect(0, 0, width, height));
+            context.DrawText(text, new Point(4, 4));
+        }
+
+        var bitmap = new RenderTargetBitmap(width, height, 96, 96, PixelFormats.Pbgra32);
+        bitmap.Render(visual);
+        byte[] pixels = new byte[width * height * 4];
+        bitmap.CopyPixels(pixels, width * 4, 0);
+
+        redPixels = 0;
+        bluePixels = 0;
+        for (int y = 0; y < height; y++)
+        {
+            for (int x = 0; x < width; x++)
+            {
+                int offset = ((y * width) + x) * 4;
+                byte blue = pixels[offset];
+                byte green = pixels[offset + 1];
+                byte red = pixels[offset + 2];
+                if (red > 120 && green < 100 && blue < 100)
+                {
+                    redPixels++;
+                }
+                if (blue > 120 && green < 100 && red < 100)
+                {
+                    bluePixels++;
+                }
+            }
+        }
     }
 
     private static void RunOnSta(Action action)

@@ -6,6 +6,7 @@ using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
+using BeMusicSeeker.Views;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
@@ -14,6 +15,70 @@ namespace BeMusicSeeker.Tests;
 [DoNotParallelize]
 public sealed class SettingDialogCustomFolderOutputBaseTests
 {
+    [TestMethod]
+    public void HasPendingSettingChanges_TracksSettingsChangesAndReset()
+    {
+        bool previousShowRecommUpdatedMsg = Settings.Default.ShowRecommUpdatedMsg;
+        try
+        {
+            var viewModel = new MainWindowViewModel();
+            MainWindowViewModel.SettingDialogViewModel dialog = viewModel.settingDialog;
+
+            Assert.IsFalse(dialog.HasPendingSettingChanges());
+            Assert.IsFalse(SettingDialog.ShouldResetSettingsOnCancel(dialog));
+
+            Settings.Default.ShowRecommUpdatedMsg = !previousShowRecommUpdatedMsg;
+
+            Assert.IsTrue(dialog.HasPendingSettingChanges());
+            Assert.IsTrue(SettingDialog.ShouldResetSettingsOnCancel(dialog));
+
+            Settings.Default.ShowRecommUpdatedMsg = previousShowRecommUpdatedMsg;
+            SetDialogField(dialog, "operationModeLR2DB", !GetDialogField<bool>(dialog, "tempOperationModeLR2DB"));
+
+            Assert.IsTrue(dialog.HasPendingSettingChanges());
+
+            SetDialogField(dialog, "operationModeLR2DB", GetDialogField<bool>(dialog, "tempOperationModeLR2DB"));
+            typeof(MainWindowViewModel.SettingDialogViewModel)
+                .GetMethod("backupSavedSettings", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .Invoke(dialog, null);
+
+            Assert.AreEqual(previousShowRecommUpdatedMsg, Settings.Default.ShowRecommUpdatedMsg);
+            Assert.IsFalse(dialog.HasPendingSettingChanges());
+        }
+        finally
+        {
+            Settings.Default.ShowRecommUpdatedMsg = previousShowRecommUpdatedMsg;
+        }
+    }
+
+    [TestMethod]
+    public void HasFreshLr2PlayHistorySchemaCheckResult_MatchesPathAndOperationMode()
+    {
+        var viewModel = new MainWindowViewModel();
+        MainWindowViewModel.SettingDialogViewModel dialog = viewModel.settingDialog;
+        SetDialogField(dialog, "operationModeLR2DB", true);
+        var result = new Lr2PlayHistorySchemaCheckResult
+        {
+            ScoreDbPath = @"C:\LR2\Score\player.db",
+            Status = Lr2PlayHistorySchemaStatus.Installed
+        };
+
+        dialog.ApplyLr2PlayHistorySchemaCheckResult(result);
+
+        Assert.IsTrue(dialog.HasFreshLr2PlayHistorySchemaCheckResult(@"C:\LR2\Score\player.db", isLr2LinkedProfile: true));
+        Assert.IsFalse(dialog.HasFreshLr2PlayHistorySchemaCheckResult(@"C:\LR2\Score\other.db", isLr2LinkedProfile: true));
+        Assert.IsFalse(dialog.HasFreshLr2PlayHistorySchemaCheckResult(@"C:\LR2\Score\player.db", isLr2LinkedProfile: false));
+        Assert.IsFalse(SettingDialog.ShouldRefreshLr2PlayHistorySchemaStatus(dialog, force: false, @"C:\LR2\Score\player.db", expectedOperationMode: true));
+        Assert.IsTrue(SettingDialog.ShouldRefreshLr2PlayHistorySchemaStatus(dialog, force: true, @"C:\LR2\Score\player.db", expectedOperationMode: true));
+        Assert.IsTrue(SettingDialog.ShouldRefreshLr2PlayHistorySchemaStatus(dialog, force: false, @"C:\LR2\Score\other.db", expectedOperationMode: true));
+        Assert.IsTrue(SettingDialog.ShouldRefreshLr2PlayHistorySchemaStatus(dialog, force: false, @"C:\LR2\Score\player.db", expectedOperationMode: false));
+
+        dialog.ResetLr2PlayHistorySchemaStatus();
+
+        Assert.IsFalse(dialog.HasFreshLr2PlayHistorySchemaCheckResult(@"C:\LR2\Score\player.db", isLr2LinkedProfile: true));
+        Assert.IsTrue(SettingDialog.ShouldRefreshLr2PlayHistorySchemaStatus(dialog, force: false, @"C:\LR2\Score\player.db", expectedOperationMode: true));
+    }
+
     [TestMethod]
     public void Lr2BmsDirectoryChoices_ExcludeManagedCustomFolderOutputBases()
     {

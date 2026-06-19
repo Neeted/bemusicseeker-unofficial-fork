@@ -551,7 +551,7 @@ Play history view 用の keyword search context を追加する。既存 chart l
 - [x] 既存 view の column settings が壊れない。
 - [x] `すべて` / `今日` / `昨日` / `最近 7 日` / `最近 30 日` node の epoch range が期待通りになる。
 - [x] 年 / 月 / 日 node の epoch range が期待通りになる。
-- [x] `未確定 / 診断` node では `finalized = 0` と projection diagnostics が見える。
+- [x] `未確定 / 診断` node では LR2 `finalized = 0` の未確定 row と projection / read diagnostics が見える。確定済み row は一覧対象にしない。beatoraja provider では通常履歴を未確定 row として代替表示しない。
 - [x] play history row は playlist tree drop candidate にならない。
 - [x] play history row 右 click では通常 chart 操作 context menu を開かない。
 - [x] play history 専用 context menu で、解決済み row の repository / hash 系と、未解決 row の raw hash copy だけを出す。
@@ -560,7 +560,7 @@ Play history view 用の keyword search context を追加する。既存 chart l
 完了条件:
 
 - LR2 履歴を一覧・sort・期間選択・summary 表示できる。
-- 一覧ラベル / 検索欄の下に PlayHistory 専用 summary row を出す。判定数、プレイ数、演奏時間、score / BP / combo / clear 更新、ASSIST / EASY / NORMAL / HARD / EXH / FC の clear 内訳をカード風領域として並べる。
+- 一覧ラベル / 検索欄の下に PlayHistory 専用 summary row を出す。判定数、プレイ数、演奏時間、score / BP / combo / clear 更新、ASSIST / EASY / NORMAL / HARD / FC の clear 内訳をカード風領域として並べる。EXH は LR2 provider では出さず、beatoraja provider のときだけ出す。
 - PlayHistory 専用 context menu は、MD5 解決済み row で BMS-IR、repository SHA-256 解決済み row で Mocha / MinIR、未解決 row で raw hash copy を出す。
 
 ### Phase 4: LAST PLAY SORT custom folder output
@@ -633,7 +633,7 @@ Play history view 用の keyword search context を追加する。既存 chart l
 - [x] `プレイログ` 右上 dropdown の対象を `すべて` / playlist / 表示対象セットにする。
 - [x] 表示対象セットは `Settings.Default.PlayHistoryDisplayTargetSetsJson` のような settings へ保存し、portable settings 対象に含める。
 - [x] 表示対象セットは playlist identity / folder label の参照集合として扱い、playlist 正本や `playlist.last_update` は変更しない。
-- [x] FOLDER column は対象 playlist 選択時は playlist folder、それ以外は表示対象セット内の `org_symbol + level` を列挙する。
+- [x] FOLDER column は `すべて` では投影時の playlist symbol、対象 playlist 選択時は playlist folder、表示対象セットでは一致する難易度表 entry の `org_symbol + level` を列挙する。`すべて` は表示補正のために playlist entries を同期ロードまたは全件走査しない。
 
 テスト:
 
@@ -756,6 +756,9 @@ Play history view 用の keyword search context を追加する。既存 chart l
 - 2026-06-19: beatoraja follow-up として、provider 選択を `ActiveScoreSource.Beatoraja` に連動させ、`scoredatalog.option` を beatoraja 実装に基づき decode し、`scorelog.oldminbp = int.MaxValue` を未プレイ扱いにした。
 - 2026-06-19: UX follow-up として、PlayHistory の PROVIDER / SOURCE をユーザー表示列と列メニューから外し、右クリックに BMS-IR を追加し、日付別 tree は同じ archive tree を毎回差し替えないようにして選択が root へ戻る問題を修正した。
 - 2026-06-19: 上記 follow-up の検証として、`PlayHistoryReadModelTests|MainWindowContextMenuResourceTests|CustomTableColumnFactoryTests` を実行し、成功を確認した。実装後レビューを挙動 / 性能 / テスト充足のサブエージェントへ依頼し、diagnostics 表示消失、beatoraja BP sentinel / summary row / BEST DJ・RATE column のテスト不足、summary card binding のテスト不足を修正した。再レビューで重大指摘なしを確認する。
+- 2026-06-19: 追加 follow-up として、設定ダイアログを開いてキャンセルするだけの経路で schema check と設定復元の重い処理を繰り返さないようにし、CLEAR / BEST DJ の遷移をセル内で更新元・矢印・更新先別に色分けした。CLEAR は PlayHistory 用の短縮形に変更し、LR2 summary では EXH 内訳を非表示にした。
+- 2026-06-19: 追加 follow-up として、日付別 tree のパンくず表示、PlayHistory tree の配置、playlist tree の編集時テーマ色、`未確定 / 診断` node の LR2 `finalized = 0` 絞り込みを修正した。性能レビューを受け、`すべて` 選択時の FOLDER は entry-level 補正を行わず fast path を維持し、playlist entries の同期 hydration / 全件走査を起動しない設計にした。
+- 2026-06-19: 再レビュー指摘への対応として、beatoraja provider の `未確定 / 診断` では通常履歴を未確定 row として代替表示しないよう `FinalizationFilter.UnfinalizedOnly` を空 rows として扱う実装にした。CustomTable text run の実描画色、SettingDialog cancel / schema check 判定、beatoraja diagnostics を追加した。さらに `UnfinalizedOnly` でも壊れた `scoredatalog.db` は `Unreadable` diagnostic として検出する。
 
 ## 実装時の注意
 

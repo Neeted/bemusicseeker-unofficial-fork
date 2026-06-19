@@ -560,7 +560,11 @@ public class MainWindowViewModel : ViewModel
 
         private string lr2PlayHistoryScoreDbPath;
 
+        private bool? lr2PlayHistorySchemaCheckOperationMode;
+
         private bool tempUseBeatorajaScoreDb;
+
+        private bool hasDialogSettingChanges;
 
         private string tempBeatorajaRootPath;
 
@@ -1020,6 +1024,7 @@ public class MainWindowViewModel : ViewModel
         {
             lr2PlayHistoryScoreDbPath = ResolveLr2PlayHistoryScoreDbPath();
             lr2PlayHistorySchemaCheckResult = null;
+            lr2PlayHistorySchemaCheckOperationMode = null;
             RaiseLr2PlayHistorySchemaStatusChanged();
         }
 
@@ -1036,7 +1041,15 @@ public class MainWindowViewModel : ViewModel
         {
             lr2PlayHistoryScoreDbPath = result?.ScoreDbPath ?? ResolveLr2PlayHistoryScoreDbPath();
             lr2PlayHistorySchemaCheckResult = result;
+            lr2PlayHistorySchemaCheckOperationMode = OperationModeLR2DB;
             RaiseLr2PlayHistorySchemaStatusChanged();
+        }
+
+        internal bool HasFreshLr2PlayHistorySchemaCheckResult(string scoreDbPath, bool isLr2LinkedProfile)
+        {
+            return lr2PlayHistorySchemaCheckResult != null
+                && lr2PlayHistorySchemaCheckOperationMode == isLr2LinkedProfile
+                && string.Equals(lr2PlayHistoryScoreDbPath ?? string.Empty, scoreDbPath ?? string.Empty, StringComparison.OrdinalIgnoreCase);
         }
 
         internal Lr2PlayHistorySchemaCheckResult CheckLr2PlayHistorySchemaCore()
@@ -2961,6 +2974,10 @@ public class MainWindowViewModel : ViewModel
             RefreshStandaloneBmsRootPathsFromSettings();
             RefreshBeatorajaDerivedSettings();
             backupSavedSettings();
+            Settings.Default.PropertyChanged += delegate
+            {
+                hasDialogSettingChanges = true;
+            };
             ResetLr2PlayHistorySchemaStatus();
         }
 
@@ -4332,8 +4349,20 @@ public class MainWindowViewModel : ViewModel
             isSearchRootsChanged = false;
             isBMSDirectoryAdded = false;
             isBMSDirectoryRemoved = false;
+            hasDialogSettingChanges = false;
             RaisePropertyChanged(() => IsOperationModeChanged);
             RaiseValidationStateChanged();
+        }
+
+        internal bool HasPendingSettingChanges()
+        {
+            return hasDialogSettingChanges
+                || isSearchRootsChanged
+                || isBMSDirectoryAdded
+                || isBMSDirectoryRemoved
+                || tempOperationModeLR2DB != operationModeLR2DB
+                || !string.Equals(tempStandaloneBmsRootPaths, SerializeStandaloneBmsRootPaths(StandaloneBmsRootPathList), StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(tempLR2CustomFolderAdditionalOutputBaseDirs, Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs, StringComparison.Ordinal);
         }
 
         internal void AcceptStartupBmsInstallDirRepair()
@@ -11739,7 +11768,7 @@ public class MainWindowViewModel : ViewModel
             && string.Equals(left.Label, right.Label, StringComparison.Ordinal)
             && left.PlayedAtFromInclusive == right.PlayedAtFromInclusive
             && left.PlayedAtToExclusive == right.PlayedAtToExclusive
-            && left.IncludeUnfinalized == right.IncludeUnfinalized;
+            && left.FinalizationFilter == right.FinalizationFilter;
     }
 
     private static void DisposeDisposableRows(IEnumerable rows)
@@ -20337,6 +20366,7 @@ public class MainWindowViewModel : ViewModel
             targetRows,
             projectionResult.Rows,
             projectionResult.Diagnostics,
+            activePlayHistoryProvider,
             readSchemaStatus,
             rawReadCount,
             sortSnapshot,
@@ -20595,6 +20625,7 @@ public class MainWindowViewModel : ViewModel
             targetRows,
             filteredRows,
             state.Diagnostics,
+            state.Provider,
             state.SchemaStatus,
             state.SourceCount,
             sortSnapshot,
@@ -20716,6 +20747,7 @@ public class MainWindowViewModel : ViewModel
                     state.FilterSourceRows,
                     state.ProjectedRows,
                     state.Diagnostics,
+                    state.Provider,
                     state.SchemaStatus,
                     state.SourceCount,
                     currentSortSnapshot,
@@ -20796,7 +20828,7 @@ public class MainWindowViewModel : ViewModel
             }
             string diagnosticSummaryText = FormatPlayHistoryDiagnosticSummary(diagnostics);
             GridSummaryText = FormatPlayHistoryGridSummaryText(periodRequest, summary, diagnostics, diagnosticSummaryText);
-            PlayHistorySummaryCards = CreatePlayHistorySummaryCards(summary);
+            PlayHistorySummaryCards = CreatePlayHistorySummaryCards(summary, state.Provider);
             PlayHistorySummaryDiagnosticText = diagnosticSummaryText;
             SelectedIndexChartRowsView = -1;
             Volatile.Write(ref playHistoryViewState, state);
@@ -21174,7 +21206,7 @@ public class MainWindowViewModel : ViewModel
         return left.Kind == right.Kind
             && left.PlayedAtFromInclusive == right.PlayedAtFromInclusive
             && left.PlayedAtToExclusive == right.PlayedAtToExclusive
-            && left.IncludeUnfinalized == right.IncludeUnfinalized;
+            && left.FinalizationFilter == right.FinalizationFilter;
     }
 
     private static PlayHistoryDiagnostic CreatePlayHistoryDiagnostic(
@@ -21337,10 +21369,10 @@ public class MainWindowViewModel : ViewModel
         return FormatPlayHistoryGridSummaryText(request, summary, diagnostics);
     }
 
-    private static IReadOnlyList<PlayHistorySummaryCard> CreatePlayHistorySummaryCards(PlayHistoryPeriodSummary summary)
+    private static IReadOnlyList<PlayHistorySummaryCard> CreatePlayHistorySummaryCards(PlayHistoryPeriodSummary summary, PlayHistoryProvider provider)
     {
         summary ??= PlayHistoryPeriodSummary.FromRows(string.Empty, []);
-        return
+        List<PlayHistorySummaryCard> cards =
         [
             new PlayHistorySummaryCard("判定数", summary.JudgeCount.ToString("N0", CultureInfo.CurrentCulture)),
             new PlayHistorySummaryCard("プレイ数", summary.FinalizedCount.ToString("N0", CultureInfo.CurrentCulture)),
@@ -21352,15 +21384,24 @@ public class MainWindowViewModel : ViewModel
             new PlayHistorySummaryCard("ASSIST", summary.AssistClearUpdateCount.ToString("N0", CultureInfo.CurrentCulture), compact: true),
             new PlayHistorySummaryCard("EASY", summary.EasyClearUpdateCount.ToString("N0", CultureInfo.CurrentCulture), compact: true),
             new PlayHistorySummaryCard("NORMAL", summary.NormalClearUpdateCount.ToString("N0", CultureInfo.CurrentCulture), compact: true),
-            new PlayHistorySummaryCard("HARD", summary.HardClearUpdateCount.ToString("N0", CultureInfo.CurrentCulture), compact: true),
-            new PlayHistorySummaryCard("EXH", summary.ExHardClearUpdateCount.ToString("N0", CultureInfo.CurrentCulture), compact: true),
-            new PlayHistorySummaryCard("FC", summary.FullComboClearUpdateCount.ToString("N0", CultureInfo.CurrentCulture), compact: true)
+            new PlayHistorySummaryCard("HARD", summary.HardClearUpdateCount.ToString("N0", CultureInfo.CurrentCulture), compact: true)
         ];
+        if (provider == PlayHistoryProvider.Beatoraja)
+        {
+            cards.Add(new PlayHistorySummaryCard("EXH", summary.ExHardClearUpdateCount.ToString("N0", CultureInfo.CurrentCulture), compact: true));
+        }
+        cards.Add(new PlayHistorySummaryCard("FC", summary.FullComboClearUpdateCount.ToString("N0", CultureInfo.CurrentCulture), compact: true));
+        return cards;
     }
 
     internal static IReadOnlyList<PlayHistorySummaryCard> CreatePlayHistorySummaryCardsForTest(PlayHistoryPeriodSummary summary)
     {
-        return CreatePlayHistorySummaryCards(summary);
+        return CreatePlayHistorySummaryCards(summary, PlayHistoryProvider.Lr2);
+    }
+
+    internal static IReadOnlyList<PlayHistorySummaryCard> CreatePlayHistorySummaryCardsForTest(PlayHistoryPeriodSummary summary, PlayHistoryProvider provider)
+    {
+        return CreatePlayHistorySummaryCards(summary, provider);
     }
 
     private static string FormatPlayHistoryDuration(int seconds)
@@ -21443,6 +21484,7 @@ public class MainWindowViewModel : ViewModel
             IReadOnlyList<PlayHistoryRow> filterSourceRows,
             IReadOnlyList<PlayHistoryRow> projectedRows,
             IReadOnlyList<PlayHistoryDiagnostic> diagnostics,
+            PlayHistoryProvider provider,
             Lr2PlayHistorySchemaStatus schemaStatus,
             int sourceCount,
             SortSnapshot sortSnapshot,
@@ -21457,6 +21499,7 @@ public class MainWindowViewModel : ViewModel
             FilterSourceRows = filterSourceRows ?? [];
             ProjectedRows = projectedRows ?? [];
             Diagnostics = diagnostics ?? [];
+            Provider = provider;
             SchemaStatus = schemaStatus;
             SourceCount = sourceCount;
             SortSnapshot = sortSnapshot;
@@ -21479,6 +21522,8 @@ public class MainWindowViewModel : ViewModel
         internal IReadOnlyList<PlayHistoryRow> ProjectedRows { get; }
 
         internal IReadOnlyList<PlayHistoryDiagnostic> Diagnostics { get; }
+
+        internal PlayHistoryProvider Provider { get; }
 
         internal Lr2PlayHistorySchemaStatus SchemaStatus { get; }
 

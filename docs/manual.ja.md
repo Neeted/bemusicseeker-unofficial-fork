@@ -329,11 +329,11 @@ BeMusicSeeker の起動処理は段階的に進みます。
 
 LR2 プレイログ schema の有効化 / 修復は、選択中プレイヤーの LR2 `score.db` に BeMusicSeeker 用の table / index / trigger を追加または修復します。実行前に対象プレイヤーが正しいことを確認し、事前に `score.db` をバックアップしてください。
 
-期間は `すべて`、`今日`、`昨日`、`最近 7 日`、`最近 30 日`、`日付別`、`未確定 / 診断` です。`日付別` には記録済みの履歴から年 / 月 / 日のノードが作られます。日付範囲はローカル日付の 0:00 区切りで、最近 7/30 日は今日を含みます。`未確定 / 診断` は未確定行も含め、schema、score DB、読み取り、投影の問題を確認するときに使います。
+期間は `すべて`、`今日`、`昨日`、`最近 7 日`、`最近 30 日`、`日付別`、`未確定 / 診断` です。`日付別` には記録済みの履歴から年 / 月 / 日のノードが作られます。日付範囲はローカル日付の 0:00 区切りで、最近 7/30 日は今日を含みます。`未確定 / 診断` は LR2 の未確定行を表示し、schema、score DB、読み取り、投影の問題を確認するときに使います。beatoraja には LR2 の `finalized = 0` に相当する未確定行がないため、このノードで beatoraja の通常履歴を代わりに表示することはありません。
 
-一覧ラベル・検索欄の下にある専用サマリー行には、判定数、プレイ数、演奏時間、SCORE / BP / COMBO / CLEAR 更新、ASSIST / EASY / NORMAL / HARD / EXH / FC などのクリア内訳が表示されます。score DB 不在、schema 未導入、読み取り / 投影エラーがある場合は、サマリーテキストとログに診断詳細が表示されます。
+一覧ラベル・検索欄の下にある専用サマリー行には、判定数、プレイ数、演奏時間、SCORE / BP / COMBO / CLEAR 更新、ASSIST / EASY / NORMAL / HARD / FC などのクリア内訳が表示されます。EXH は beatoraja provider のときだけ表示されます。score DB 不在、schema 未導入、読み取り / 投影エラーがある場合は、サマリーテキストとログに診断詳細が表示されます。
 
-プレイログ行では、SCORE、BEST DJ、BEST RATE、BP、COMBO、CLEAR の best 更新を `old -> new` の遷移で表示します。初回 BP は値だけを表示します。`TYPE` は `score bp clear` のように複数の更新種別を持つことがあり、`play` は他の更新種別が無い場合だけ表示されます。LR2 の `OP HISTORY` は新しく達成された option history flag を名前で表示し、beatoraja の `OPTION` は保存値を RANDOM、MIRROR、FLIP、BATTLE AS などの名前へ変換して表示します。`PROVIDER` と `SOURCE` はユーザー向け列としては表示しません。
+プレイログ行では、SCORE、BEST DJ、BEST RATE、BP、COMBO、CLEAR の best 更新を `old -> new` の遷移で表示します。CLEAR は `NO PLAY`、`EASY`、`NORMAL`、`HARD`、`EXH`、`FC` などの短縮形で表示し、CLEAR と BEST DJ は未選択行では更新元、矢印、更新先をそれぞれ別色で表示します。初回 BP は値だけを表示します。`TYPE` は `score bp clear` のように複数の更新種別を持つことがあり、`play` は他の更新種別が無い場合だけ表示されます。LR2 の `OP HISTORY` は新しく達成された option history flag を名前で表示し、beatoraja の `OPTION` は保存値を RANDOM、MIRROR、FLIP、BATTLE AS などの名前へ変換して表示します。`PROVIDER` と `SOURCE` はユーザー向け列としては表示しません。
 
 プレイログの右クリックメニューでは、MD5 が解決できる行は BMS-IR を開けます。repository SHA-256 が解決できる行は Mocha / MinIR を開け、必要な hash もコピーできます。
 

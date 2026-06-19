@@ -53,7 +53,7 @@ read の入力は `Lr2PlayHistoryReadRequest` である。
 | `ScoreDbPath` | LR2 score DB path。 |
 | `IsLr2LinkedProfile` | LR2 linked profile として扱うか。false の場合は skipped。 |
 | `PlayedAtFromInclusive` / `PlayedAtToExclusive` | `played_at` の half-open range。 |
-| `IncludeUnfinalized` | `finalized = 0` row を含めるか。通常期間は false、Diagnostics node は true。 |
+| `FinalizationFilter` | LR2 row の確定状態 filter。通常期間は `FinalizedOnly`、Diagnostics node は `UnfinalizedOnly`。 |
 | `Limit` | 読み込み上限。UI の通常一覧は default limit を使い、archive period index には使わない。 |
 
 reader は schema check を先に行う。`Installed` 以外の read 可能でない status では rows を空にし、diagnostics に原因を入れる。`Repairable` は index 以外の repairable mismatch なら warning diagnostic を付けて read を試みるが、missing / mismatched index がある場合は performance boundary を守るため read / period index を止め、error diagnostic を返す。read result は source profile、raw rows、diagnostics、schema status を保持する。
@@ -65,6 +65,8 @@ reader は schema check を先に行う。`Installed` 以外の read 可能で�
 `BeatorajaPlayHistoryReader` は beatoraja player directory の `scoredatalog.db` を read-only source として扱う。通常 Chart 履歴として扱うのは `mode = 0` の row だけであり、course / grade などの aggregate row を通常 Chart 履歴に混ぜない。
 
 `scorelog.db` が同じ player directory にある場合は、`sha256 + mode + date` が一致する `scorelog` row から best delta を補う。対応する `scorelog` row が無い場合、actual result は表示し、best delta 欄は空欄のままにする。
+
+beatoraja には LR2 `finalized = 0` に相当する未確定 play history row がない。Diagnostics node の `UnfinalizedOnly` 要求では `scoredatalog.db` の通常履歴を代替表示せず、空 rows として扱う。
 
 beatoraja provider の日時 index は `MAX(scoredatalog.date)` を日別に集約する。`scoredatalog.db` が無い、または読めない場合、beatoraja provider の last play / archive index は未提供になり、`score.db` の `score.date` へ意味を変えて fallback しない。
 
@@ -86,7 +88,7 @@ UI refresh では raw rows がある場合に projection index を作る。proje
 | `ResolvedChart` / `ResolvedChartRef` | app library で解決できた chart identity。 |
 | `HashKind` | chart / course / unknown の分類。現行 LR2 projection は chart 解決できなければ unknown。 |
 | `Title` / `Artist` / `Path` | resolved chart から得た表示情報。未解決なら空。 |
-| `FolderLabels` / `PlaylistNames` | playlist reference resolver と display target filter で得た所属表示。display target が `すべて` の場合は playlist symbol、playlist 選択時は playlist entry folder、target set 選択時は `org_symbol + level` を表示する。 |
+| `FolderLabels` / `PlaylistNames` | playlist reference resolver と display target filter で得た所属表示。display target が `すべて` の場合は projection 時点の playlist symbol、playlist 選択時は playlist entry folder、target set 選択時は `org_symbol + level` を表示する。 |
 | `Kind` | play history row の分類。score / bp / clear / combo は複合表示できる。`play` は他の分類がない場合だけ表示する。 |
 | `BestClear` / `BestDjLevelText` / `BestRateText` / `BestExscore` / `BestBp` / `BestCombo` | best 更新があった場合の before / after 表示。初回 BP は値だけを表示する。 |
 | `PlayExscore` / `Judges` / `PlaytimeSeconds` | finalized actual play delta から作る実プレイ結果。 |
@@ -109,13 +111,15 @@ beatoraja row では raw `option` / `random` / `seed` を保存値として扱�
 | `昨日` | 前日 local midnight inclusive から当日 local midnight exclusive。 |
 | `最近 7 日` | 今日を含む 7 日間。 |
 | `最近 30 日` | 今日を含む 30 日間。 |
-| `未確定 / 診断` | unfinalized row を含める diagnostics 用 node。 |
+| `未確定 / 診断` | LR2 `finalized = 0` の未確定 row と read / projection diagnostics を確認する diagnostics 用 node。確定済み row は一覧対象にしない。beatoraja provider では通常履歴を未確定 row として代替表示しない。 |
 
 archive node は `年 > 月 > 日` の階層で、`ReadPeriodIndex` の結果から local date を作って降順に並べる。年 / 月 / 日 node の range も local time zone で計算した half-open range である。
 
 view request には request id があり、古い非同期 refresh の結果が新しい selection を上書きしないよう stale request guard を持つ。Play History view では in-memory sort と column settings foundation を使い、row source は `PlayHistoryRow` として custom table view に渡す。
 
-一覧ラベル・検索欄の下には Play History 専用 summary row を表示する。summary row は table row ではなく UI band であり、判定数、プレイ数、演奏時間、score / BP / combo / clear 更新数、ASSIST / EASY / NORMAL / HARD / EXH / FC の clear 更新内訳をカード風に並べる。`PROVIDER` / `SOURCE` は内部診断用プロパティとして保持するが、ユーザー表示列にはしない。
+一覧ラベル・検索欄の下には Play History 専用 summary row を表示する。summary row は table row ではなく UI band であり、判定数、プレイ数、演奏時間、score / BP / combo / clear 更新数、ASSIST / EASY / NORMAL / HARD / FC の clear 更新内訳をカード風に並べる。beatoraja provider のときだけ EXH 内訳も表示する。`PROVIDER` / `SOURCE` は内部診断用プロパティとして保持するが、ユーザー表示列にはしない。
+
+`CLEAR` と `BEST DJ` は更新元、矢印、更新先を同一セル内で別色表示する。選択行や current cell では読みやすさを優先して選択用の単色前景にする。Play History の `CLEAR` は遷移表示を短く保つため、通常一覧の長い表記ではなく `NO PLAY`、`ASSIST`、`EASY`、`NORMAL`、`HARD`、`EXH`、`FC`、`PA` などの短縮形を使う。
 
 ## Keyword Search
 
@@ -127,7 +131,7 @@ Play History context の field は次の通り。
 | --- | --- |
 | global token | title、artist、path、folder labels、playlist names、raw hash、SHA-256、kind、source、play date を横断検索する。 |
 | `title:` / `artist:` / `path:` | resolved chart の表示情報。未解決 row では空。 |
-| `folder:` | display target 適用後の `FolderLabels`。`すべて` では playlist symbol、playlist 選択時は playlist entry folder、target set 選択時は `org_symbol + level`。 |
+| `folder:` | display target 適用後の `FolderLabels`。`すべて` では projection 時点の playlist symbol、playlist 選択時は playlist entry folder、target set では一致する難易度表 entry の `org_symbol + level`。 |
 | `playlist:` / `ref:` / `table:` | playlist reference の name 表示。 |
 | `md5:` | resolved MD5。 |
 | `hash:` | source raw hash。LR2 では MD5、beatoraja では SHA-256。 |
@@ -148,7 +152,7 @@ Play History view の右上 dropdown は表示対象を次の単位で切り替�
 
 | Target | 意味 |
 | --- | --- |
-| `すべて` | 期間内の play history row を全件対象にする。FOLDER は所属 playlist symbol の列挙。 |
+| `すべて` | 期間内の play history row を全件対象にする。FOLDER は投影時に解決した playlist symbol の列挙を使い、表示補正のために playlist entries を同期ロードまたは全件走査しない。 |
 | playlist | 選択した playlist の entries と hash が一致する row だけを対象にする。FOLDER はその playlist entry の folder。 |
 | target set | settings JSON に保存された playlist / folder reference 集合に一致する row だけを対象にする。FOLDER は `org_symbol + level` の列挙。 |
 

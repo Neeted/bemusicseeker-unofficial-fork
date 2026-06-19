@@ -24,13 +24,13 @@ internal sealed class PlayHistoryPeriodRequest
         string label,
         long? playedAtFromInclusive,
         long? playedAtToExclusive,
-        bool includeUnfinalized)
+        Lr2PlayHistoryFinalizationFilter finalizationFilter)
     {
         Kind = kind;
         Label = label ?? string.Empty;
         PlayedAtFromInclusive = playedAtFromInclusive;
         PlayedAtToExclusive = playedAtToExclusive;
-        IncludeUnfinalized = includeUnfinalized;
+        FinalizationFilter = finalizationFilter;
     }
 
     internal PlayHistoryPeriodKind Kind { get; }
@@ -41,7 +41,9 @@ internal sealed class PlayHistoryPeriodRequest
 
     internal long? PlayedAtToExclusive { get; }
 
-    internal bool IncludeUnfinalized { get; }
+    internal Lr2PlayHistoryFinalizationFilter FinalizationFilter { get; }
+
+    internal bool IncludeUnfinalized => FinalizationFilter != Lr2PlayHistoryFinalizationFilter.FinalizedOnly;
 
     internal static PlayHistoryPeriodRequest All()
     {
@@ -69,7 +71,9 @@ internal sealed class PlayHistoryPeriodRequest
         DateTime localToday = TimeZoneInfo.ConvertTime(now, timeZone).Date;
         long? from = null;
         long? to = null;
-        bool includeUnfinalized = kind == PlayHistoryPeriodKind.Diagnostics;
+        Lr2PlayHistoryFinalizationFilter finalizationFilter = kind == PlayHistoryPeriodKind.Diagnostics
+            ? Lr2PlayHistoryFinalizationFilter.UnfinalizedOnly
+            : Lr2PlayHistoryFinalizationFilter.FinalizedOnly;
 
         switch (kind)
         {
@@ -91,7 +95,7 @@ internal sealed class PlayHistoryPeriodRequest
                 break;
         }
 
-        return new PlayHistoryPeriodRequest(kind, label, from, to, includeUnfinalized);
+        return new PlayHistoryPeriodRequest(kind, label, from, to, finalizationFilter);
     }
 
     internal static PlayHistoryPeriodRequest CreateYear(int year, TimeZoneInfo timeZone)
@@ -134,7 +138,7 @@ internal sealed class PlayHistoryPeriodRequest
             IsLr2LinkedProfile = isLr2LinkedProfile,
             PlayedAtFromInclusive = PlayedAtFromInclusive,
             PlayedAtToExclusive = PlayedAtToExclusive,
-            IncludeUnfinalized = IncludeUnfinalized
+            FinalizationFilter = FinalizationFilter
         };
     }
 
@@ -144,7 +148,8 @@ internal sealed class PlayHistoryPeriodRequest
         {
             ScoreDbPath = scoreDbPath,
             PlayedAtFromInclusive = PlayedAtFromInclusive,
-            PlayedAtToExclusive = PlayedAtToExclusive
+            PlayedAtToExclusive = PlayedAtToExclusive,
+            FinalizationFilter = FinalizationFilter
         };
     }
 
@@ -162,7 +167,7 @@ internal sealed class PlayHistoryPeriodRequest
             label,
             ToUnixSeconds(localFromInclusive, timeZone),
             ToUnixSeconds(localToExclusive, timeZone),
-            includeUnfinalized: false);
+            Lr2PlayHistoryFinalizationFilter.FinalizedOnly);
     }
 
     private static string ResolveLabel(PlayHistoryPeriodKind kind)

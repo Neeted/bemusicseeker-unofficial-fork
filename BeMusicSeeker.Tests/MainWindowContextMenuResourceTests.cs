@@ -45,9 +45,10 @@ public sealed class MainWindowContextMenuResourceTests
     public void PlayHistoryTree_ExposesExpectedPeriodNodes()
     {
         string xaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "MainWindow.xaml"));
-        string playHistoryTree = ExtractBetween(xaml, "Name=\"treeViewItemPlayHistory\"", "Name=\"treeViewItemInstall\"");
+        string playHistoryTree = ExtractBetween(xaml, "Name=\"treeViewItemPlayHistory\"", "</TreeView>");
 
         Assert.AreEqual(1, CountOccurrences(xaml, "Name=\"treeViewItemPlayHistory\""));
+        Assert.IsTrue(xaml.IndexOf("Path=Resources.Maintenance", StringComparison.Ordinal) < xaml.IndexOf("Name=\"treeViewItemPlayHistory\"", StringComparison.Ordinal));
         Assert.AreEqual(1, CountOccurrences(playHistoryTree, "Selected=\"playHistoryPeriodSelect\""));
         StringAssert.Contains(playHistoryTree, "<EventSetter Event=\"Selected\" Handler=\"playHistoryPeriodSelect\" />");
         foreach (string tag in new[] { "All", "Today", "Yesterday", "Recent7Days", "Recent30Days", "Diagnostics" })
@@ -145,7 +146,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(summaryRow, "Text=\"{Binding Value}\"");
         StringAssert.Contains(summaryRow, "<DataTrigger Binding=\"{Binding Compact}\" Value=\"True\">");
         StringAssert.Contains(summaryRow, "App.WarningTextBrush");
-        StringAssert.Contains(viewModelCode, "PlayHistorySummaryCards = CreatePlayHistorySummaryCards(summary)");
+        StringAssert.Contains(viewModelCode, "PlayHistorySummaryCards = CreatePlayHistorySummaryCards(summary, state.Provider)");
         StringAssert.Contains(viewModelCode, "string diagnosticSummaryText = FormatPlayHistoryDiagnosticSummary(diagnostics)");
         StringAssert.Contains(viewModelCode, "PlayHistorySummaryDiagnosticText = diagnosticSummaryText");
     }

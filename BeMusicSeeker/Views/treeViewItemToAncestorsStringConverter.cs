@@ -7,6 +7,7 @@ using System.Windows.Controls;
 using System.Windows.Data;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Properties;
+using BeMusicSeeker.ViewModels;
 
 namespace BeMusicSeeker.Views;
 
@@ -84,6 +85,10 @@ internal class treeViewItemToAncestorsStringConverter : IMultiValueConverter
         if (treeViewItem.Header is Tuple<string, bool> tupleHeader)
         {
             return tupleHeader.Item1 ?? string.Empty;
+        }
+        if (treeViewItem.Header is PlayHistoryPeriodTreeItem playHistoryPeriod)
+        {
+            return playHistoryPeriod.Label ?? string.Empty;
         }
         return treeViewItem.Header.ToString();
     }

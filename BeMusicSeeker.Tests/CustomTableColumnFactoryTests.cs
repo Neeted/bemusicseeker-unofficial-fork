@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
 using System.Windows.Input;
@@ -298,6 +299,8 @@ public sealed class CustomTableColumnFactoryTests
                         score_write_type = "update",
                         new_playcount = 1,
                         playcount_delta = 1,
+                        old_clear = 0,
+                        new_clear = 3,
                         old_exscore = 200,
                         new_exscore = 250,
                         new_totalnotes = 150
@@ -307,7 +310,26 @@ public sealed class CustomTableColumnFactoryTests
                 Lr2PlayHistorySchemaStatus.Installed),
             PlayHistoryProjectionIndex.Empty).Rows.Single();
 
-        Assert.AreEqual("A -> AA", columns.Single(column => column.Id == "BestDjLevel").GetText(row));
+        CustomTableColumn clearColumn = columns.Single(column => column.Id == "BestClear");
+        CustomTableColumn bestDjColumn = columns.Single(column => column.Id == "BestDjLevel");
+        Assert.AreEqual("NO PLAY -> NORMAL", clearColumn.GetText(row));
+        IReadOnlyList<CustomTableTextRunStyle> clearRuns = clearColumn.GetTextRuns(row, clearColumn.GetText(row));
+        Assert.AreEqual(3, clearRuns.Count);
+        Assert.AreEqual(0, clearRuns[0].StartIndex);
+        Assert.AreEqual("NO PLAY".Length, clearRuns[0].Length);
+        Assert.AreEqual("NO PLAY".Length, clearRuns[1].StartIndex);
+        Assert.AreEqual(" -> ".Length, clearRuns[1].Length);
+        Assert.AreEqual("NO PLAY -> ".Length, clearRuns[2].StartIndex);
+        Assert.AreEqual("NORMAL".Length, clearRuns[2].Length);
+        Assert.AreEqual("A -> AA", bestDjColumn.GetText(row));
+        IReadOnlyList<CustomTableTextRunStyle> bestDjRuns = bestDjColumn.GetTextRuns(row, bestDjColumn.GetText(row));
+        Assert.AreEqual(3, bestDjRuns.Count);
+        Assert.AreEqual(0, bestDjRuns[0].StartIndex);
+        Assert.AreEqual(1, bestDjRuns[0].Length);
+        Assert.AreEqual(1, bestDjRuns[1].StartIndex);
+        Assert.AreEqual(" -> ".Length, bestDjRuns[1].Length);
+        Assert.AreEqual("A -> ".Length, bestDjRuns[2].StartIndex);
+        Assert.AreEqual(2, bestDjRuns[2].Length);
         Assert.AreEqual("66.67% -> 83.33%", columns.Single(column => column.Id == "BestRate").GetText(row));
     }
 

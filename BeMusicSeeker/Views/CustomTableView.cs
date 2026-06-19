@@ -2473,7 +2473,7 @@ internal sealed class CustomTableSurface : FrameworkElement
                         null,
                         entry.CreateVisibleRect(horizontalOffset, width, 0d, headerHeight));
                 }
-                DrawCellText(drawingContext, column.Header, cellRect, CustomTableScoreBrushProvider.DefaultForeground, TextAlignment.Center, CustomTableTextStyle.Normal);
+                DrawCellText(drawingContext, column.Header, cellRect, CustomTableScoreBrushProvider.DefaultForeground, [], TextAlignment.Center, CustomTableTextStyle.Normal);
                 DrawSortGlyph(drawingContext, column, cellRect);
                 double borderX = entry.TableX + entry.Width - horizontalOffset - 0.5d;
                 if (borderX >= 0d && borderX <= width)
@@ -2601,7 +2601,10 @@ internal sealed class CustomTableSurface : FrameworkElement
             }
             else
             {
-                DrawCellText(drawingContext, cellValue.Text, cellRect, foreground, cellValue.Alignment, cellValue.TextStyle);
+                IReadOnlyList<CustomTableTextRunStyle> textRuns = currentCell || owner.IsRowSelected(rowIndex)
+                    ? []
+                    : cellValue.TextRuns;
+                DrawCellText(drawingContext, cellValue.Text, cellRect, foreground, textRuns, cellValue.Alignment, cellValue.TextStyle);
             }
             double borderX = entry.TableX + entry.Width - horizontalOffset - 0.5d;
             if (borderX >= 0d && borderX <= width)
@@ -2611,7 +2614,7 @@ internal sealed class CustomTableSurface : FrameworkElement
         }
     }
 
-    private void DrawCellText(DrawingContext drawingContext, string text, Rect cellRect, Brush foreground, TextAlignment alignment, CustomTableTextStyle textStyle)
+    private void DrawCellText(DrawingContext drawingContext, string text, Rect cellRect, Brush foreground, IReadOnlyList<CustomTableTextRunStyle> textRuns, TextAlignment alignment, CustomTableTextStyle textStyle)
     {
         if (string.IsNullOrEmpty(text) || cellRect.Width <= 2d || cellRect.Height <= 1d)
         {
@@ -2630,6 +2633,7 @@ internal sealed class CustomTableSurface : FrameworkElement
             effectiveTextStyle,
             owner.ScoreFontFamily,
             foreground,
+            textRuns,
             pixelsPerDip,
             CultureInfo.CurrentUICulture,
             out bool cacheHit);

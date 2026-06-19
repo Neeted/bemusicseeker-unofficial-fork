@@ -135,9 +135,13 @@ internal sealed class Lr2PlayHistoryReader
     private static string BuildReadSql(Lr2PlayHistoryReadRequest request, List<object> args)
     {
         var where = new List<string>();
-        if (!request.IncludeUnfinalized)
+        if (request.FinalizationFilter == Lr2PlayHistoryFinalizationFilter.FinalizedOnly)
         {
             where.Add("finalized = 1");
+        }
+        else if (request.FinalizationFilter == Lr2PlayHistoryFinalizationFilter.UnfinalizedOnly)
+        {
+            where.Add("finalized = 0");
         }
         if (request.PlayedAtFromInclusive.HasValue)
         {

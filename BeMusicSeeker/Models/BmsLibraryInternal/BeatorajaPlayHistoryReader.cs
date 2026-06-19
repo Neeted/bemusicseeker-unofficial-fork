@@ -28,10 +28,15 @@ internal sealed class BeatorajaPlayHistoryReader
         {
             return new BeatorajaPlayHistoryReadResult(sourceProfile, [], diagnostics, Lr2PlayHistorySchemaStatus.NotInstalled);
         }
-
         try
         {
             using var connection = new SQLiteConnection(request.ScoreDataLogDbPath, SQLiteOpenFlags.ReadOnly | SQLiteOpenFlags.FullMutex);
+            if (request.FinalizationFilter == Lr2PlayHistoryFinalizationFilter.UnfinalizedOnly)
+            {
+                connection.ExecuteScalar<int>("SELECT EXISTS(SELECT 1 FROM scoredatalog WHERE mode = ? LIMIT 1);", NormalScoreMode);
+                return new BeatorajaPlayHistoryReadResult(sourceProfile, [], diagnostics, Lr2PlayHistorySchemaStatus.Installed);
+            }
+
             List<object> args = [];
             string sql = BuildScoreDataLogReadSql(request, args);
             cancellationToken.ThrowIfCancellationRequested();

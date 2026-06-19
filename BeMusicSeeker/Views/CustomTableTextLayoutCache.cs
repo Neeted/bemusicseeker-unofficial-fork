@@ -38,6 +38,7 @@ internal sealed class CustomTableTextLayoutCache
         CustomTableTextStyle textStyle,
         FontFamily scoreFontFamily,
         Brush foreground,
+        IReadOnlyList<CustomTableTextRunStyle> textRuns,
         double pixelsPerDip,
         CultureInfo culture,
         out bool hit)
@@ -45,7 +46,8 @@ internal sealed class CustomTableTextLayoutCache
         Brush effectiveForeground = foreground ?? Brushes.Black;
         CultureInfo effectiveCulture = culture ?? CultureInfo.CurrentUICulture;
         CustomTableTextStyle effectiveTextStyle = textStyle ?? CustomTableTextStyle.Normal;
-        var key = Key.Create(text, maxTextWidth, maxTextHeight, alignment, effectiveTextStyle, scoreFontFamily, effectiveForeground, pixelsPerDip, effectiveCulture);
+        string runKey = CreateTextRunsCacheKey(textRuns, text?.Length ?? 0);
+        var key = Key.Create(text, maxTextWidth, maxTextHeight, alignment, effectiveTextStyle, scoreFontFamily, effectiveForeground, runKey, pixelsPerDip, effectiveCulture);
         if (cache.TryGetValue(key, out FormattedText formattedText))
         {
             hit = true;
@@ -67,6 +69,7 @@ internal sealed class CustomTableTextLayoutCache
             Trimming = TextTrimming.CharacterEllipsis,
             TextAlignment = alignment
         };
+        ApplyTextRuns(formattedText, textRuns, text?.Length ?? 0);
         cache.Add(key, formattedText);
         insertionOrder.Enqueue(key);
         TrimToCapacity();
@@ -111,6 +114,60 @@ internal sealed class CustomTableTextLayoutCache
         }
     }
 
+    private static void ApplyTextRuns(FormattedText formattedText, IReadOnlyList<CustomTableTextRunStyle> textRuns, int textLength)
+    {
+        if (formattedText == null || textRuns == null || textRuns.Count == 0 || textLength <= 0)
+        {
+            return;
+        }
+        foreach (CustomTableTextRunStyle run in textRuns)
+        {
+            if (run.Foreground == null || run.Length <= 0 || run.StartIndex >= textLength)
+            {
+                continue;
+            }
+            int length = Math.Min(run.Length, textLength - run.StartIndex);
+            if (length > 0)
+            {
+                formattedText.SetForegroundBrush(run.Foreground, run.StartIndex, length);
+            }
+        }
+    }
+
+    private static string CreateTextRunsCacheKey(IReadOnlyList<CustomTableTextRunStyle> textRuns, int textLength)
+    {
+        if (textRuns == null || textRuns.Count == 0)
+        {
+            return string.Empty;
+        }
+        var parts = new List<string>(textRuns.Count);
+        foreach (CustomTableTextRunStyle run in textRuns)
+        {
+            if (run.Foreground == null || run.Length <= 0 || run.StartIndex >= textLength)
+            {
+                continue;
+            }
+            int length = Math.Min(run.Length, textLength - run.StartIndex);
+            if (length <= 0)
+            {
+                continue;
+            }
+            parts.Add(run.StartIndex.ToString(CultureInfo.InvariantCulture)
+                + ":"
+                + length.ToString(CultureInfo.InvariantCulture)
+                + ":"
+                + GetBrushCacheKey(run.Foreground));
+        }
+        return string.Join("|", parts);
+    }
+
+    private static string GetBrushCacheKey(Brush brush)
+    {
+        return brush is SolidColorBrush solidColorBrush
+            ? "c:" + solidColorBrush.Color.ToString(CultureInfo.InvariantCulture)
+            : "r:" + RuntimeHelpers.GetHashCode(brush).ToString(CultureInfo.InvariantCulture);
+    }
+
     private readonly struct Key : IEquatable<Key>
     {
         private Key(
@@ -122,6 +179,7 @@ internal sealed class CustomTableTextLayoutCache
             Color foregroundColor,
             int foregroundReferenceHash,
             bool usesForegroundColor,
+            string textRunsKey,
             double pixelsPerDip,
             string cultureName)
         {
@@ -133,6 +191,7 @@ internal sealed class CustomTableTextLayoutCache
             ForegroundColor = foregroundColor;
             ForegroundReferenceHash = foregroundReferenceHash;
             UsesForegroundColor = usesForegroundColor;
+            TextRunsKey = textRunsKey ?? string.Empty;
             PixelsPerDip = pixelsPerDip;
             CultureName = cultureName;
         }
@@ -153,11 +212,13 @@ internal sealed class CustomTableTextLayoutCache
 
         private bool UsesForegroundColor { get; }
 
+        private string TextRunsKey { get; }
+
         private double PixelsPerDip { get; }
 
         private string CultureName { get; }
 
-        internal static Key Create(string text, double maxTextWidth, double maxTextHeight, TextAlignment alignment, CustomTableTextStyle textStyle, FontFamily scoreFontFamily, Brush foreground, double pixelsPerDip, CultureInfo culture)
+        internal static Key Create(string text, double maxTextWidth, double maxTextHeight, TextAlignment alignment, CustomTableTextStyle textStyle, FontFamily scoreFontFamily, Brush foreground, string textRunsKey, double pixelsPerDip, CultureInfo culture)
         {
             bool usesForegroundColor = foreground is SolidColorBrush;
             Color foregroundColor = usesForegroundColor ? ((SolidColorBrush)foreground).Color : default;
@@ -172,6 +233,7 @@ internal sealed class CustomTableTextLayoutCache
                 foregroundColor,
                 foregroundReferenceHash,
                 usesForegroundColor,
+                textRunsKey,
                 pixelsPerDip,
                 (culture ?? CultureInfo.CurrentUICulture).Name);
         }
@@ -186,6 +248,7 @@ internal sealed class CustomTableTextLayoutCache
                 && ForegroundColor.Equals(other.ForegroundColor)
                 && ForegroundReferenceHash == other.ForegroundReferenceHash
                 && UsesForegroundColor == other.UsesForegroundColor
+                && TextRunsKey == other.TextRunsKey
                 && PixelsPerDip.Equals(other.PixelsPerDip)
                 && CultureName == other.CultureName;
         }
@@ -208,6 +271,7 @@ internal sealed class CustomTableTextLayoutCache
                 hash = (hash * 31) + ForegroundColor.GetHashCode();
                 hash = (hash * 31) + ForegroundReferenceHash;
                 hash = (hash * 31) + UsesForegroundColor.GetHashCode();
+                hash = (hash * 31) + TextRunsKey.GetHashCode();
                 hash = (hash * 31) + PixelsPerDip.GetHashCode();
                 hash = (hash * 31) + CultureName.GetHashCode();
                 return hash;

@@ -202,6 +202,8 @@ internal sealed class PlayHistoryRow
 
     public string BestClear { get; private set; }
 
+    public RankType OldBestDjLevel { get; private set; }
+
     public RankType BestDjLevel { get; private set; }
 
     public string BestDjLevelText { get; private set; }
@@ -356,13 +358,17 @@ internal sealed class PlayHistoryRow
         BestClear = BestClearUpdated ? FormatClearDelta(OldBestClear, NewBestClear) : string.Empty;
 
         BestScoreUpdated = NewBestExscore.HasValue && OldBestExscore != NewBestExscore;
-        BestDjLevel = BestScoreUpdated
-            ? ScoreValueCalculator.CalculateRank(NewBestExscore, ResolveBestTotalNotes())
+        int? bestTotalNotes = ResolveBestTotalNotes();
+        OldBestDjLevel = BestScoreUpdated
+            ? ScoreValueCalculator.CalculateRank(OldBestExscore, bestTotalNotes)
             : RankType.INVALID;
-        BestDjLevelText = BestScoreUpdated ? FormatRankDelta(OldBestExscore, NewBestExscore, ResolveBestTotalNotes()) : string.Empty;
-        BestRate = BestScoreUpdated ? ScoreValueCalculator.CalculateRateDouble(NewBestExscore, ResolveBestTotalNotes()) : null;
-        BestRatePercent = BestScoreUpdated ? ScoreValueCalculator.CalculateRatePercent(NewBestExscore, ResolveBestTotalNotes()) : null;
-        BestRateText = BestScoreUpdated ? FormatRateDelta(OldBestExscore, NewBestExscore, ResolveBestTotalNotes()) : string.Empty;
+        BestDjLevel = BestScoreUpdated
+            ? ScoreValueCalculator.CalculateRank(NewBestExscore, bestTotalNotes)
+            : RankType.INVALID;
+        BestDjLevelText = BestScoreUpdated ? FormatRankDelta(OldBestExscore, NewBestExscore, bestTotalNotes) : string.Empty;
+        BestRate = BestScoreUpdated ? ScoreValueCalculator.CalculateRateDouble(NewBestExscore, bestTotalNotes) : null;
+        BestRatePercent = BestScoreUpdated ? ScoreValueCalculator.CalculateRatePercent(NewBestExscore, bestTotalNotes) : null;
+        BestRateText = BestScoreUpdated ? FormatRateDelta(OldBestExscore, NewBestExscore, bestTotalNotes) : string.Empty;
         BestExscore = BestScoreUpdated ? FormatNullableDelta(OldBestExscore, NewBestExscore) : string.Empty;
 
         BestBpUpdated = NewBestBp.HasValue && (!OldBestBp.HasValue || NewBestBp.Value < OldBestBp.Value);
@@ -450,13 +456,30 @@ internal sealed class PlayHistoryRow
         {
             return string.Empty;
         }
-        string newText = ScoreDisplayTextFormatter.FormatClear(newValue.Value);
+        string newText = FormatClearShort(newValue.Value);
         if (!oldValue.HasValue)
         {
-            return ScoreDisplayTextFormatter.FormatClear(ClearType.NO_PLAY) + " -> " + newText;
+            return FormatClearShort(ClearType.NO_PLAY) + " -> " + newText;
         }
-        string oldText = ScoreDisplayTextFormatter.FormatClear(oldValue.Value);
+        string oldText = FormatClearShort(oldValue.Value);
         return string.Equals(oldText, newText, StringComparison.Ordinal) ? newText : oldText + " -> " + newText;
+    }
+
+    private static string FormatClearShort(ClearType clear)
+    {
+        return clear switch
+        {
+            ClearType.NO_SONG => "NO SONG",
+            ClearType.NO_PLAY => "NO PLAY",
+            ClearType.INVALID or ClearType.L_ASSIST => "ASSIST",
+            ClearType.EASY => "EASY",
+            ClearType.CLEAR => "NORMAL",
+            ClearType.HARD => "HARD",
+            ClearType.EX_HARD => "EXH",
+            ClearType.FC => "FC",
+            ClearType.PA => "PA",
+            _ => ScoreDisplayTextFormatter.FormatClear(clear),
+        };
     }
 
     private static string FormatNullableDelta(int? oldValue, int? newValue)

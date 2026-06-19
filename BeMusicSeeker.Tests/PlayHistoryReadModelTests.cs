@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
@@ -29,6 +30,7 @@ public sealed class PlayHistoryReadModelTests
         Assert.IsNull(request.PlayedAtFromInclusive);
         Assert.IsNull(request.PlayedAtToExclusive);
         Assert.IsFalse(request.IncludeUnfinalized);
+        Assert.AreEqual(Lr2PlayHistoryFinalizationFilter.FinalizedOnly, request.FinalizationFilter);
     }
 
     [TestMethod]
@@ -64,6 +66,13 @@ public sealed class PlayHistoryReadModelTests
         Assert.IsNull(request.PlayedAtFromInclusive);
         Assert.IsNull(request.PlayedAtToExclusive);
         Assert.IsTrue(request.IncludeUnfinalized);
+        Assert.AreEqual(Lr2PlayHistoryFinalizationFilter.UnfinalizedOnly, request.FinalizationFilter);
+        Assert.AreEqual(
+            Lr2PlayHistoryFinalizationFilter.UnfinalizedOnly,
+            request.ToLr2ReadRequest("score.db", isLr2LinkedProfile: true).FinalizationFilter);
+        Assert.AreEqual(
+            Lr2PlayHistoryFinalizationFilter.UnfinalizedOnly,
+            request.ToBeatorajaReadRequest("score.db").FinalizationFilter);
     }
 
     [TestMethod]
@@ -103,6 +112,7 @@ public sealed class PlayHistoryReadModelTests
 
         CollectionAssert.AreEqual(new[] { "2026", "2025" }, tree.Select(node => node.Label).ToArray());
         PlayHistoryPeriodTreeItem year2026 = tree[0];
+        Assert.AreEqual("2026", year2026.ToString());
         Assert.AreEqual(PlayHistoryPeriodKind.Year, year2026.Request.Kind);
         Assert.AreEqual(UtcEpoch(2026, 1, 1), year2026.Request.PlayedAtFromInclusive);
         CollectionAssert.AreEqual(new[] { "2026/01" }, year2026.Children.Select(node => node.Label).ToArray());
@@ -174,6 +184,32 @@ public sealed class PlayHistoryReadModelTests
             Assert.AreEqual(2, withUnfinalized.Rows.Count);
             Assert.AreEqual(3L, withUnfinalized.Rows[0].history_id);
             Assert.AreEqual(2L, withUnfinalized.Rows[1].history_id);
+        });
+    }
+
+    [TestMethod]
+    public void Lr2Reader_UnfinalizedOnlyFilterReadsOnlyDiagnosticRows()
+    {
+        WithScoreDb(delegate (string scoreDbPath)
+        {
+            CreateInstalledScoreDb(scoreDbPath);
+            using (var db = new SQLiteConnection(scoreDbPath))
+            {
+                InsertHistory(db, historyId: 1, hash: HashA, playedAt: 1000, finalized: true, newExscore: 200);
+                InsertHistory(db, historyId: 2, hash: HashB, playedAt: 2000, finalized: false, newExscore: 250);
+                InsertHistory(db, historyId: 3, hash: HashC, playedAt: 3000, finalized: false, newExscore: 300);
+            }
+
+            Lr2PlayHistoryReadResult result = new Lr2PlayHistoryReader().Read(new Lr2PlayHistoryReadRequest
+            {
+                ScoreDbPath = scoreDbPath,
+                IsLr2LinkedProfile = true,
+                FinalizationFilter = Lr2PlayHistoryFinalizationFilter.UnfinalizedOnly,
+                Limit = 10
+            });
+
+            CollectionAssert.AreEqual(new long[] { 3L, 2L }, result.Rows.Select(row => row.history_id).ToArray());
+            Assert.IsTrue(result.Rows.All(row => row.finalized == 0));
         });
     }
 
@@ -455,7 +491,7 @@ public sealed class PlayHistoryReadModelTests
         Assert.AreEqual("Resolved Artist", row.Artist);
         Assert.AreEqual(ShaA, row.Sha256);
         Assert.AreEqual("SAT", row.FolderLabels);
-        Assert.AreEqual("NO PLAY -> CLEAR", row.BestClear);
+        Assert.AreEqual("NO PLAY -> NORMAL", row.BestClear);
         Assert.AreEqual("200 -> 250", row.BestExscore);
         Assert.AreEqual("20", row.BestBp);
         Assert.AreEqual("80 -> 120", row.BestCombo);
@@ -518,6 +554,21 @@ public sealed class PlayHistoryReadModelTests
         Assert.IsTrue(matched);
         Assert.IsFalse(otherMatched);
         Assert.AreEqual("SATAlpha", displayRow.FolderLabels);
+    }
+
+    [TestMethod]
+    public void ApplyPlayHistoryDisplayTargetRows_AllKeepsProjectedRowsFastPath()
+    {
+        var viewModel = new MainWindowViewModel();
+        IReadOnlyList<PlayHistoryRow> rows = [CreateProjectedRow(HashA, initialFolderLabels: "SAT")];
+        MethodInfo method = typeof(MainWindowViewModel).GetMethod("ApplyPlayHistoryDisplayTargetRows", BindingFlags.Instance | BindingFlags.NonPublic)!;
+
+        object result = method.Invoke(
+            viewModel,
+            [rows, PlayHistoryDisplayTargetItem.All, 1L, 0L, CancellationToken.None]);
+
+        Assert.AreSame(rows, result);
+        Assert.AreEqual("SAT", rows[0].FolderLabels);
     }
 
     [TestMethod]
@@ -640,7 +691,7 @@ public sealed class PlayHistoryReadModelTests
         Assert.AreEqual(ClearType.FC, row.OldBestClear);
         Assert.AreEqual(ClearType.PA, row.NewBestClear);
         Assert.IsTrue(row.BestClearUpdated);
-        Assert.AreEqual("FULL COMBO -> PERFECT", row.BestClear);
+        Assert.AreEqual("FC -> PA", row.BestClear);
 
         PlayHistoryPeriodSummary summary = PlayHistoryPeriodSummary.FromRows("all", projected.Rows);
         Assert.AreEqual(1, summary.NewPerfectCount);
@@ -735,9 +786,42 @@ public sealed class PlayHistoryReadModelTests
         Assert.AreEqual("2", cards[6].Value);
         Assert.AreEqual("EASY", cards[8].Label);
         Assert.AreEqual("1", cards[8].Value);
-        Assert.AreEqual("FC", cards[12].Label);
-        Assert.AreEqual("1", cards[12].Value);
-        Assert.IsTrue(cards[12].Compact);
+        Assert.IsFalse(cards.Any(card => card.Label == "EXH"));
+        Assert.AreEqual("FC", cards[11].Label);
+        Assert.AreEqual("1", cards[11].Value);
+        Assert.IsTrue(cards[11].Compact);
+    }
+
+    [TestMethod]
+    public void SummaryCardsIncludeExHardOnlyForBeatorajaProvider()
+    {
+        var readResult = new BeatorajaPlayHistoryReadResult(
+            PlayHistorySourceProfile.Beatoraja("score.db"),
+            [
+                new BeatorajaPlayHistoryRecord
+                {
+                    history_id = 1,
+                    sha256 = ShaA,
+                    played_at = 1000,
+                    playcount = 1,
+                    old_clear = (int)ClearType.HARD,
+                    new_clear = (int)ClearType.EX_HARD,
+                    old_exscore = 100,
+                    new_exscore = 120,
+                    notes = 100
+                }
+            ],
+            [],
+            Lr2PlayHistorySchemaStatus.Installed);
+        PlayHistoryPeriodSummary summary = PlayHistoryPeriodSummary.FromRows(
+            "today",
+            PlayHistoryRow.ProjectBeatorajaRows(readResult, CreateProjectionIndex()).Rows);
+
+        IReadOnlyList<PlayHistorySummaryCard> beatorajaCards = MainWindowViewModel.CreatePlayHistorySummaryCardsForTest(summary, PlayHistoryProvider.Beatoraja);
+        IReadOnlyList<PlayHistorySummaryCard> lr2Cards = MainWindowViewModel.CreatePlayHistorySummaryCardsForTest(summary, PlayHistoryProvider.Lr2);
+
+        Assert.IsTrue(beatorajaCards.Any(card => card.Label == "EXH" && card.Value == "1"));
+        Assert.IsFalse(lr2Cards.Any(card => card.Label == "EXH"));
     }
 
     [TestMethod]
@@ -919,7 +1003,7 @@ public sealed class PlayHistoryReadModelTests
             Assert.AreEqual("100 -> 133", row.BestExscore);
             Assert.AreEqual("20 -> 10", row.BestBp);
             Assert.AreEqual("70 -> 80", row.BestCombo);
-            Assert.AreEqual("EASY CLEAR -> CLEAR", row.BestClear);
+            Assert.AreEqual("EASY -> NORMAL", row.BestClear);
             Assert.AreEqual("1P RANDOM / 2P MIRROR", row.Option);
             Assert.AreEqual("score bp clear combo", row.Kind);
             Assert.AreEqual("50.00% -> 66.50%", row.BestRateText);
@@ -964,6 +1048,49 @@ public sealed class PlayHistoryReadModelTests
             Assert.AreEqual(string.Empty, row.BestClear);
             Assert.AreEqual("play", row.Kind);
             Assert.IsNull(row.PlaytimeSeconds);
+        });
+    }
+
+    [TestMethod]
+    public void BeatorajaReader_UnfinalizedOnlyReturnsEmptyRows()
+    {
+        WithBeatorajaPlayerDb(delegate (string scoreDbPath, string scoreDataLogDbPath, string scoreLogDbPath)
+        {
+            CreateBeatorajaScoreDataLogDb(scoreDataLogDbPath);
+            using (var db = new SQLiteConnection(scoreDataLogDbPath))
+            {
+                InsertBeatorajaScoreDataLog(db, ShaA, mode: 0, date: 1000, clear: 5, epg: 10, lpg: 0, egr: 5, lgr: 0, notes: 20, combo: 12, minbp: 3, playcount: 2, clearcount: 1, option: 0, seed: -1, random: 0);
+            }
+
+            BeatorajaPlayHistoryReadResult read = new BeatorajaPlayHistoryReader().Read(new BeatorajaPlayHistoryReadRequest
+            {
+                ScoreDbPath = scoreDbPath,
+                FinalizationFilter = Lr2PlayHistoryFinalizationFilter.UnfinalizedOnly
+            });
+
+            Assert.AreEqual(Lr2PlayHistorySchemaStatus.Installed, read.SchemaStatus);
+            Assert.IsFalse(read.HasErrors);
+            Assert.AreEqual(0, read.Rows.Count);
+        });
+    }
+
+    [TestMethod]
+    public void BeatorajaReader_UnfinalizedOnlyStillReportsUnreadableScoreDataLog()
+    {
+        WithBeatorajaPlayerDb(delegate (string scoreDbPath, string scoreDataLogDbPath, string scoreLogDbPath)
+        {
+            File.WriteAllText(scoreDataLogDbPath, "not a sqlite database");
+
+            BeatorajaPlayHistoryReadResult read = new BeatorajaPlayHistoryReader().Read(new BeatorajaPlayHistoryReadRequest
+            {
+                ScoreDbPath = scoreDbPath,
+                FinalizationFilter = Lr2PlayHistoryFinalizationFilter.UnfinalizedOnly
+            });
+
+            Assert.AreEqual(Lr2PlayHistorySchemaStatus.Unreadable, read.SchemaStatus);
+            Assert.IsTrue(read.HasErrors);
+            Assert.AreEqual(0, read.Rows.Count);
+            Assert.IsTrue(read.Diagnostics.Any(diagnostic => diagnostic.Code == "play_history_beatoraja_read_failed"));
         });
     }
 
@@ -1106,6 +1233,7 @@ public sealed class PlayHistoryReadModelTests
         Assert.AreEqual(expectedFromInclusive, request.PlayedAtFromInclusive, kind.ToString());
         Assert.AreEqual(expectedToExclusive, request.PlayedAtToExclusive, kind.ToString());
         Assert.IsFalse(request.IncludeUnfinalized, kind.ToString());
+        Assert.AreEqual(Lr2PlayHistoryFinalizationFilter.FinalizedOnly, request.FinalizationFilter, kind.ToString());
     }
 
     private static long UtcEpoch(int year, int month, int day)

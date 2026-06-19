@@ -117,6 +117,7 @@ public sealed class CustomTableColumn
         Func<object, string> textSelector,
         Func<object, Brush> foregroundSelector = null,
         Func<object, Brush> backgroundSelector = null,
+        Func<object, string, IReadOnlyList<CustomTableTextRunStyle>> textRunSelector = null,
         CustomTableTextStyle textStyle = null,
         bool useBoldText = false,
         Func<object, string> tooltipSelector = null,
@@ -143,6 +144,7 @@ public sealed class CustomTableColumn
         TextSelector = textSelector;
         ForegroundSelector = foregroundSelector;
         BackgroundSelector = backgroundSelector;
+        TextRunSelector = textRunSelector;
         TextStyle = textStyle ?? (useBoldText ? CustomTableTextStyle.NormalBold : CustomTableTextStyle.Normal);
         UseBoldText = TextStyle.UseBoldText;
         TooltipSelector = tooltipSelector;
@@ -211,6 +213,8 @@ public sealed class CustomTableColumn
 
     internal Func<object, Brush> BackgroundSelector { get; }
 
+    internal Func<object, string, IReadOnlyList<CustomTableTextRunStyle>> TextRunSelector { get; }
+
     internal Func<object, string> TooltipSelector { get; }
 
     internal Func<object, bool?> CheckedSelector { get; }
@@ -243,6 +247,37 @@ public sealed class CustomTableColumn
     internal Brush GetBackground(object row)
     {
         return BackgroundSelector == null ? null : BackgroundSelector(row);
+    }
+
+    internal IReadOnlyList<CustomTableTextRunStyle> GetTextRuns(object row)
+    {
+        return GetTextRuns(row, GetText(row));
+    }
+
+    internal IReadOnlyList<CustomTableTextRunStyle> GetTextRuns(object row, string text)
+    {
+        if (TextRunSelector == null)
+        {
+            return [];
+        }
+        IReadOnlyList<CustomTableTextRunStyle> textRuns = TextRunSelector(row, text) ?? [];
+        ValidateTextRuns(text, textRuns);
+        return textRuns;
+    }
+
+    private static void ValidateTextRuns(string text, IReadOnlyList<CustomTableTextRunStyle> textRuns)
+    {
+        int textLength = text?.Length ?? 0;
+        foreach (CustomTableTextRunStyle run in textRuns)
+        {
+            if (run.StartIndex < 0
+                || run.Length < 0
+                || run.StartIndex > textLength
+                || run.StartIndex + run.Length > textLength)
+            {
+                throw new InvalidOperationException("Custom table text run is outside the cell text.");
+            }
+        }
     }
 
     internal bool? GetChecked(object row)
@@ -400,8 +435,8 @@ internal static class CustomTableColumnFactory
             new CustomTableColumn("FolderLabels", "FOLDER", settings.PlayHistoryFolderLabels, 1, nameof(PlayHistoryRow.FolderLabels), TextAlignment.Left, row => GetString(row, nameof(PlayHistoryRow.FolderLabels)), tooltipSelector: row => GetString(row, nameof(PlayHistoryRow.PlaylistNames))),
             new CustomTableColumn("Title", "TITLE", settings.Title, 2, nameof(PlayHistoryRow.Title), TextAlignment.Left, row => GetString(row, nameof(PlayHistoryRow.Title))),
             new CustomTableColumn("Artist", "ARTIST", settings.Artist, 3, nameof(PlayHistoryRow.Artist), TextAlignment.Left, row => GetString(row, nameof(PlayHistoryRow.Artist))),
-            new CustomTableColumn("BestClear", "CLEAR", settings.PlayHistoryBestClear, 4, "BestClear", TextAlignment.Center, row => GetString(row, nameof(PlayHistoryRow.BestClear)), row => GetPlayHistoryBestClearBrush(row), textStyle: CustomTableTextStyle.Score, autoTrimTooltip: false),
-            new CustomTableColumn("BestDjLevel", "BEST DJ", settings.PlayHistoryBestDjLevel, 5, "BestDjLevel", TextAlignment.Center, row => GetString(row, nameof(PlayHistoryRow.BestDjLevelText)), row => GetPlayHistoryBestDjLevelBrush(row), textStyle: CustomTableTextStyle.Rank, autoTrimTooltip: false),
+            new CustomTableColumn("BestClear", "CLEAR", settings.PlayHistoryBestClear, 4, "BestClear", TextAlignment.Center, row => GetString(row, nameof(PlayHistoryRow.BestClear)), row => GetPlayHistoryBestClearBrush(row), textRunSelector: GetPlayHistoryBestClearTextRuns, textStyle: CustomTableTextStyle.Rank, autoTrimTooltip: false),
+            new CustomTableColumn("BestDjLevel", "BEST DJ", settings.PlayHistoryBestDjLevel, 5, "BestDjLevel", TextAlignment.Center, row => GetString(row, nameof(PlayHistoryRow.BestDjLevelText)), row => GetPlayHistoryBestDjLevelBrush(row), textRunSelector: GetPlayHistoryBestDjLevelTextRuns, textStyle: CustomTableTextStyle.Rank, autoTrimTooltip: false),
             new CustomTableColumn("BestRate", "BEST RATE", settings.PlayHistoryBestRate, 6, "BestRate", TextAlignment.Right, row => GetString(row, nameof(PlayHistoryRow.BestRateText)), autoTrimTooltip: false),
             new CustomTableColumn("BestBp", "BP", settings.PlayHistoryBestBp, 7, "BestBp", TextAlignment.Right, row => GetString(row, nameof(PlayHistoryRow.BestBp))),
             new CustomTableColumn("BestCombo", "COMBO", settings.PlayHistoryBestCombo, 8, "BestCombo", TextAlignment.Right, row => GetString(row, nameof(PlayHistoryRow.BestCombo))),
@@ -892,6 +927,54 @@ internal static class CustomTableColumnFactory
         return row is PlayHistoryRow playHistoryRow
             ? CustomTableScoreBrushProvider.ResolveBrush(CustomTableScoreBrushProvider.ConvertRank(playHistoryRow.BestDjLevel), CustomTableScoreBrushProvider.DefaultForeground)
             : CustomTableScoreBrushProvider.DefaultForeground;
+    }
+
+    private static IReadOnlyList<CustomTableTextRunStyle> GetPlayHistoryBestClearTextRuns(object row, string text)
+    {
+        if (row is not PlayHistoryRow playHistoryRow || string.IsNullOrEmpty(text) || !playHistoryRow.NewBestClear.HasValue)
+        {
+            return [];
+        }
+        return CreateTransitionTextRuns(
+            text,
+            CustomTableScoreBrushProvider.ResolveBrush(
+                CustomTableScoreBrushProvider.ConvertClear(playHistoryRow.OldBestClear ?? ClearType.NO_PLAY),
+                CustomTableScoreBrushProvider.DefaultForeground),
+            CustomTableScoreBrushProvider.ResolveBrush(
+                CustomTableScoreBrushProvider.ConvertClear(playHistoryRow.NewBestClear.Value),
+                CustomTableScoreBrushProvider.DefaultForeground));
+    }
+
+    private static IReadOnlyList<CustomTableTextRunStyle> GetPlayHistoryBestDjLevelTextRuns(object row, string text)
+    {
+        if (row is not PlayHistoryRow playHistoryRow || string.IsNullOrEmpty(text))
+        {
+            return [];
+        }
+        return CreateTransitionTextRuns(
+            text,
+            CustomTableScoreBrushProvider.ResolveBrush(
+                CustomTableScoreBrushProvider.ConvertRank(playHistoryRow.OldBestDjLevel),
+                CustomTableScoreBrushProvider.DefaultForeground),
+            CustomTableScoreBrushProvider.ResolveBrush(
+                CustomTableScoreBrushProvider.ConvertRank(playHistoryRow.BestDjLevel),
+                CustomTableScoreBrushProvider.DefaultForeground));
+    }
+
+    private static IReadOnlyList<CustomTableTextRunStyle> CreateTransitionTextRuns(string text, Brush oldBrush, Brush newBrush)
+    {
+        const string Separator = " -> ";
+        int separatorIndex = text.IndexOf(Separator, StringComparison.Ordinal);
+        if (separatorIndex < 0)
+        {
+            return [new CustomTableTextRunStyle(0, text.Length, newBrush)];
+        }
+        return
+        [
+            new CustomTableTextRunStyle(0, separatorIndex, oldBrush),
+            new CustomTableTextRunStyle(separatorIndex, Separator.Length, CustomTableScoreBrushProvider.GrayBrush),
+            new CustomTableTextRunStyle(separatorIndex + Separator.Length, text.Length - separatorIndex - Separator.Length, newBrush)
+        ];
     }
 
     private static Brush GetDifficultyBrush(object row)

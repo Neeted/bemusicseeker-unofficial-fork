@@ -43,8 +43,11 @@ public partial class SettingDialog : UserControl, IComponentConnector
         if (base.DataContext is MainWindowViewModel { settingDialog: { } settingDialogViewModel } mainWindowViewModel)
         {
             MainWindowViewModel.SettingDialogViewModel.RestartMode restartMode = settingDialogViewModel.IsNeedRestartForSaveOrCancel();
-            settingDialogViewModel.ResetSettings();
-            SyncAppearanceThemeSelection(settingDialogViewModel);
+            if (ShouldResetSettingsOnCancel(settingDialogViewModel))
+            {
+                settingDialogViewModel.ResetSettings();
+                SyncAppearanceThemeSelection(settingDialogViewModel);
+            }
             settingDialog.Visibility = Visibility.Hidden;
             if (restartMode.HasFlag(MainWindowViewModel.SettingDialogViewModel.RestartMode.All))
             {
@@ -66,7 +69,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
         if (e.NewValue is true && base.DataContext is MainWindowViewModel { settingDialog: { } settingDialogViewModel })
         {
             SyncAppearanceThemeSelection(settingDialogViewModel);
-            await RefreshLr2PlayHistorySchemaStatusAsync(settingDialogViewModel);
+            await RefreshLr2PlayHistorySchemaStatusAsync(settingDialogViewModel, force: false);
         }
     }
 
@@ -211,7 +214,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
     {
         if (base.DataContext is MainWindowViewModel { settingDialog: { } settingDialogViewModel })
         {
-            await RefreshLr2PlayHistorySchemaStatusAsync(settingDialogViewModel);
+            await RefreshLr2PlayHistorySchemaStatusAsync(settingDialogViewModel, force: true);
         }
     }
 
@@ -237,7 +240,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
             return;
         }
 
-        await RefreshLr2PlayHistorySchemaStatusAsync(settingDialogViewModel);
+        await RefreshLr2PlayHistorySchemaStatusAsync(settingDialogViewModel, force: true);
         if ((isRepair && !settingDialogViewModel.CanRepairLr2PlayHistorySchema)
             || (!isRepair && !settingDialogViewModel.CanInstallLr2PlayHistorySchema))
         {
@@ -295,10 +298,14 @@ public partial class SettingDialog : UserControl, IComponentConnector
         }
     }
 
-    private static async Task RefreshLr2PlayHistorySchemaStatusAsync(MainWindowViewModel.SettingDialogViewModel settingDialogViewModel)
+    private static async Task RefreshLr2PlayHistorySchemaStatusAsync(MainWindowViewModel.SettingDialogViewModel settingDialogViewModel, bool force)
     {
         string expectedScoreDbPath = settingDialogViewModel.Lr2PlayHistoryScoreDbPath;
         bool expectedOperationMode = settingDialogViewModel.OperationModeLR2DB;
+        if (!ShouldRefreshLr2PlayHistorySchemaStatus(settingDialogViewModel, force, expectedScoreDbPath, expectedOperationMode))
+        {
+            return;
+        }
         Lr2PlayHistorySchemaCheckResult result = await Task.Run(() =>
             settingDialogViewModel.CheckLr2PlayHistorySchemaCore(expectedScoreDbPath, expectedOperationMode));
         if (expectedOperationMode == settingDialogViewModel.OperationModeLR2DB
@@ -306,6 +313,21 @@ public partial class SettingDialog : UserControl, IComponentConnector
         {
             settingDialogViewModel.ApplyLr2PlayHistorySchemaCheckResult(result);
         }
+    }
+
+    internal static bool ShouldResetSettingsOnCancel(MainWindowViewModel.SettingDialogViewModel settingDialogViewModel)
+    {
+        return settingDialogViewModel?.HasPendingSettingChanges() == true;
+    }
+
+    internal static bool ShouldRefreshLr2PlayHistorySchemaStatus(
+        MainWindowViewModel.SettingDialogViewModel settingDialogViewModel,
+        bool force,
+        string expectedScoreDbPath,
+        bool expectedOperationMode)
+    {
+        return settingDialogViewModel != null
+            && (force || !settingDialogViewModel.HasFreshLr2PlayHistorySchemaCheckResult(expectedScoreDbPath, expectedOperationMode));
     }
 
     private async void detailTabItemRestoreButtonClicked(object sender, RoutedEventArgs e)

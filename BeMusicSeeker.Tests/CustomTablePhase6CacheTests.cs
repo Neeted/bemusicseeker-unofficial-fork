@@ -1,5 +1,10 @@
+using System;
+using System.Collections.Generic;
+using System.Runtime.ExceptionServices;
+using System.Threading;
 using System.Windows;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -129,6 +134,42 @@ public sealed class CustomTablePhase6CacheTests
         Assert.AreEqual("3", third.Text);
     }
 
+    [TestMethod]
+    public void CustomTableView_RendersCellTextRunsAndDisablesRunsForSelection()
+    {
+        RunOnSta(delegate
+        {
+            object row = new();
+            var layout = new CustomTableColumnSettings.ColumnLayout
+            {
+                Width = 210,
+                Visibility = Visibility.Visible
+            };
+            var column = new CustomTableColumn(
+                "Delta",
+                "DELTA",
+                layout,
+                fallbackOrder: 0,
+                sortMemberPath: null,
+                alignment: TextAlignment.Left,
+                textSelector: _ => "MMMM    MMMM",
+                foregroundSelector: _ => Brushes.Black,
+                textRunSelector: (_, _) =>
+                [
+                    new CustomTableTextRunStyle(0, 4, Brushes.Red),
+                    new CustomTableTextRunStyle(8, 4, Brushes.Blue)
+                ]);
+
+            RenderTable(row, column, selectedIndex: -1, out int normalRedPixels, out int normalBluePixels);
+            RenderTable(row, column, selectedIndex: 0, out int selectedRedPixels, out int selectedBluePixels);
+
+            Assert.IsTrue(normalRedPixels > 0, "Expected red pixels when text runs are active.");
+            Assert.IsTrue(normalBluePixels > 0, "Expected blue pixels when text runs are active.");
+            Assert.AreEqual(0, selectedRedPixels, "Selected rows should use a single selected foreground.");
+            Assert.AreEqual(0, selectedBluePixels, "Selected rows should use a single selected foreground.");
+        });
+    }
+
     private static CustomTableColumn CreateColumn(string id, int width)
     {
         var layout = new CustomTableColumnSettings.ColumnLayout
@@ -137,5 +178,79 @@ public sealed class CustomTablePhase6CacheTests
             Visibility = Visibility.Visible
         };
         return new CustomTableColumn(id, id, layout, 0, null, TextAlignment.Left, row => id);
+    }
+
+    private static void RenderTable(object row, CustomTableColumn column, int selectedIndex, out int redPixels, out int bluePixels)
+    {
+        const int width = 240;
+        const int height = 70;
+        var table = new CustomTableView
+        {
+            Width = width,
+            Height = height,
+            HeaderHeight = 0d,
+            RowHeight = 60d,
+            Columns = [column],
+            ItemsSource = new List<object> { row },
+            SelectedIndex = selectedIndex
+        };
+        table.Measure(new Size(width, height));
+        table.Arrange(new Rect(0, 0, width, height));
+        table.UpdateLayout();
+
+        var bitmap = new RenderTargetBitmap(width, height, 96, 96, PixelFormats.Pbgra32);
+        bitmap.Render(table);
+        CountDominantPixels(bitmap, out redPixels, out bluePixels);
+    }
+
+    private static void CountDominantPixels(BitmapSource bitmap, out int redPixels, out int bluePixels)
+    {
+        int width = bitmap.PixelWidth;
+        int height = bitmap.PixelHeight;
+        byte[] pixels = new byte[width * height * 4];
+        bitmap.CopyPixels(pixels, width * 4, 0);
+        redPixels = 0;
+        bluePixels = 0;
+        for (int y = 0; y < height; y++)
+        {
+            for (int x = 0; x < width; x++)
+            {
+                int offset = ((y * width) + x) * 4;
+                byte blue = pixels[offset];
+                byte green = pixels[offset + 1];
+                byte red = pixels[offset + 2];
+                if (red > 120 && green < 100 && blue < 100)
+                {
+                    redPixels++;
+                }
+                if (blue > 120 && green < 100 && red < 100)
+                {
+                    bluePixels++;
+                }
+            }
+        }
+    }
+
+    private static void RunOnSta(Action action)
+    {
+        Exception exception = null!;
+        var thread = new Thread((ThreadStart)delegate
+        {
+            try
+            {
+                action();
+            }
+            catch (Exception ex)
+            {
+                exception = ex;
+            }
+        });
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+        thread.Join();
+        if (exception != null)
+        {
+            ExceptionDispatchInfo.Capture(exception).Throw();
+        }
     }
 }

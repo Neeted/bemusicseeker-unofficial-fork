@@ -9,7 +9,7 @@
               <SolidColorBrush Color="{DynamicResource {x:Static SystemColors.GrayTextColorKey}}" />
             </Shape.Stroke>
           </Rectangle>
-          <TextBox Margin="1,1,1,1" BorderThickness="0" Padding="-1,-1,-1,-1" Text="{Binding Text, ElementName=mainControl, UpdateSourceTrigger=PropertyChanged}" KeyDown="TextBox_KeyDown" Loaded="TextBox_Loaded" LostFocus="TextBox_LostFocus" />
+          <TextBox Margin="1,1,1,1" BorderThickness="0" Padding="-1,-1,-1,-1" Background="{DynamicResource App.ControlBackgroundBrush}" Foreground="{Binding Foreground, ElementName=mainControl}" CaretBrush="{Binding Foreground, ElementName=mainControl}" Text="{Binding Text, ElementName=mainControl, UpdateSourceTrigger=PropertyChanged}" KeyDown="TextBox_KeyDown" Loaded="TextBox_Loaded" LostFocus="TextBox_LostFocus" />
         </Grid>
       </DataTemplate>
       <DataTemplate x:Key="DisplayModeTemplate">

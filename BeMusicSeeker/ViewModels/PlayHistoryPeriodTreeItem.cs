@@ -20,6 +20,11 @@ public sealed class PlayHistoryPeriodTreeItem
 
     public IReadOnlyList<PlayHistoryPeriodTreeItem> Children { get; }
 
+    public override string ToString()
+    {
+        return Label;
+    }
+
     internal static IReadOnlyList<PlayHistoryPeriodTreeItem> BuildArchiveTree(IEnumerable<long> playedAtUnixSeconds, TimeZoneInfo timeZone)
     {
         timeZone ??= TimeZoneInfo.Local;

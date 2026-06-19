@@ -242,15 +242,15 @@ internal sealed class PlayHistoryDisplayTargetIndex
     internal bool TryApply(PlayHistoryRow row, out PlayHistoryRow displayRow)
     {
         displayRow = row;
-        if (row == null || target.Kind == PlayHistoryDisplayTargetKind.All)
+        if (row == null)
         {
             return row != null;
         }
         List<PlayHistoryDisplayTargetMatch> matches = ResolveMatches(row);
         if (matches.Count == 0)
         {
-            displayRow = null;
-            return false;
+            displayRow = target.Kind == PlayHistoryDisplayTargetKind.All ? row : null;
+            return target.Kind == PlayHistoryDisplayTargetKind.All;
         }
         string folderLabels = string.Join(
             " ",

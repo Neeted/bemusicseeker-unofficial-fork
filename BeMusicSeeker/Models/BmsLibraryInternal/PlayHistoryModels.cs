@@ -81,6 +81,8 @@ internal sealed class BeatorajaPlayHistoryReadRequest
     internal long? PlayedAtToExclusive { get; set; }
 
     internal int? Limit { get; set; }
+
+    internal Lr2PlayHistoryFinalizationFilter FinalizationFilter { get; set; } = Lr2PlayHistoryFinalizationFilter.FinalizedOnly;
 }
 
 internal sealed class BeatorajaPlayHistoryPeriodIndexRequest
@@ -233,6 +235,13 @@ internal sealed class BeatorajaPlayHistoryRecord
         || new_minbp.HasValue;
 }
 
+internal enum Lr2PlayHistoryFinalizationFilter
+{
+    FinalizedOnly,
+    UnfinalizedOnly,
+    All
+}
+
 internal sealed class Lr2PlayHistoryReadRequest
 {
     internal string ScoreDbPath { get; set; }
@@ -243,7 +252,13 @@ internal sealed class Lr2PlayHistoryReadRequest
 
     internal long? PlayedAtToExclusive { get; set; }
 
-    internal bool IncludeUnfinalized { get; set; }
+    internal Lr2PlayHistoryFinalizationFilter FinalizationFilter { get; set; } = Lr2PlayHistoryFinalizationFilter.FinalizedOnly;
+
+    internal bool IncludeUnfinalized
+    {
+        get => FinalizationFilter != Lr2PlayHistoryFinalizationFilter.FinalizedOnly;
+        set => FinalizationFilter = value ? Lr2PlayHistoryFinalizationFilter.All : Lr2PlayHistoryFinalizationFilter.FinalizedOnly;
+    }
 
     internal int? Limit { get; set; }
 }
