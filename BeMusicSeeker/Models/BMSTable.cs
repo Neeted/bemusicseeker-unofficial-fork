@@ -472,7 +472,8 @@ public class BMSTable : LR2SongDBExtended.playlist
         base.folder_sort_ascending = true;
         base.ignore_folder_output = CustomFolderType.LevelFolder
             | CustomFolderType.AlphabetFolder
-            | CustomFolderType.CategoryAllFolder;
+            | CustomFolderType.CategoryAllFolder
+            | CustomFolderType.LastPlaySortFolder;
         base.compat_prefix = string.Empty;
         base.entry_type = EntryUnitType.File;
         ReaderWriterLock = new ReaderWriterLockSlimWrapper();

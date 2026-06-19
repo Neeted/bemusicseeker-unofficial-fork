@@ -146,6 +146,10 @@ internal static class Lr2ManagedCustomFolderOutputLayout
         {
             AddSequentialRelativePaths(result, "PLAY COUNT SORT", folderScopeCount);
         }
+        if (IsCustomFolderTypeEnabled(ignored, LR2SongDBExtended.playlist.CustomFolderType.LastPlaySortFolder))
+        {
+            AddSequentialRelativePaths(result, "LAST PLAY SORT", folderScopeCount);
+        }
         return result;
     }
 

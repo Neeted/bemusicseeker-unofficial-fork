@@ -469,6 +469,7 @@
   "PlaylistProp_ftype_bpm_sort": "BPM sort",
   "PlaylistProp_ftype_bp_sort": "BP sort",
   "PlaylistProp_ftype_play_count_sort": "Play count sort",
+  "PlaylistProp_ftype_last_play_sort": "Last play sort",
   "PlaylistProp_entrytype": "Entry unit: ",
   "Open_file_explorer": "Open in Explorer",
   "Install_foldername": "Folder name",

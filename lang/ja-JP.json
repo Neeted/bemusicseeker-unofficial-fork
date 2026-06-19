@@ -479,6 +479,7 @@
   "PlaylistProp_ftype_bpm_sort": "BPM順",
   "PlaylistProp_ftype_bp_sort": "BP順",
   "PlaylistProp_ftype_play_count_sort": "プレイ回数順",
+  "PlaylistProp_ftype_last_play_sort": "最終プレイ順",
   "PlaylistProp_entrytype": "エントリー単位: ",
   "Open_file_explorer": "エクスプローラで開く",
   "Install_foldername": "フォルダ名書式: ",

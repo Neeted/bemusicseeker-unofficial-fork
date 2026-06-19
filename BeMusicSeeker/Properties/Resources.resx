@@ -1574,6 +1574,9 @@ maintenance の再スキャンや chart_info の全譜面補完は行いませ�
   <data name="PlaylistProp_ftype_play_count_sort" xml:space="preserve">
     <value>プレイ回数順</value>
   </data>
+  <data name="PlaylistProp_ftype_last_play_sort" xml:space="preserve">
+    <value>最終プレイ順</value>
+  </data>
   <data name="PlaylistProp_entrytype" xml:space="preserve">
     <value>エントリー単位: </value>
   </data>

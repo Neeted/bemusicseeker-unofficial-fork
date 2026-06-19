@@ -74,6 +74,7 @@
                   <CheckBox VerticalAlignment="Center" IsThreeState="True" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_bpm_sort, Mode=OneWay}" IsChecked="{Binding playlistSummaryBulkEditDialog.OutputBpmSortFolder, Mode=TwoWay}" />
                   <CheckBox VerticalAlignment="Center" IsThreeState="True" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_bp_sort, Mode=OneWay}" IsChecked="{Binding playlistSummaryBulkEditDialog.OutputBpSortFolder, Mode=TwoWay}" />
                   <CheckBox VerticalAlignment="Center" IsThreeState="True" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_play_count_sort, Mode=OneWay}" IsChecked="{Binding playlistSummaryBulkEditDialog.OutputPlayCountSortFolder, Mode=TwoWay}" />
+                  <CheckBox VerticalAlignment="Center" IsThreeState="True" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_last_play_sort, Mode=OneWay}" IsChecked="{Binding playlistSummaryBulkEditDialog.OutputLastPlaySortFolder, Mode=TwoWay}" />
                 </UniformGrid>
               </DockPanel>
             </GroupBox>

@@ -469,6 +469,7 @@
   "PlaylistProp_ftype_bpm_sort": "Tri par BPM",
   "PlaylistProp_ftype_bp_sort": "Tri par BP",
   "PlaylistProp_ftype_play_count_sort": "Tri par nombre de jeux",
+  "PlaylistProp_ftype_last_play_sort": "Tri par derniere partie",
   "PlaylistProp_entrytype": "Entry unit: ",
   "Open_file_explorer": "Ouvrir dans Windows",
   "Install_foldername": "Folder name",

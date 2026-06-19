@@ -37,6 +37,8 @@ namespace BeMusicSeeker.Models;
 public partial class BMSPlaylist : NotificationObject
 {
     private const string CustomFolderOutputLr2FolderEnumerationGroupName = "lr2folder";
+    private const string LastPlaySortFolderMaskMigrationName = "playlist_last_play_sort_folder_mask";
+    private const int LastPlaySortFolderMaskMigrationVersion = 1;
 
     internal sealed class ComparablePlaylistEntryRow
     {
@@ -2001,6 +2003,7 @@ public partial class BMSPlaylist : NotificationObject
         EnsureColumn(db, tableName, "bmt_sort", "INTEGER NULL");
         EnsureColumn(db, tableName, "is_bmt_output", "INTEGER NULL");
         NormalizePersistedBeatorajaBmtPlaylistSettings(db);
+        NormalizePersistedLastPlaySortFolderOutputMasks(db);
     }
 
     /// <summary>
@@ -2076,6 +2079,52 @@ public partial class BMSPlaylist : NotificationObject
         List<BMSTable> tableList = [.. (tables ?? []).Where(table => table != null)];
         return NormalizeBeatorajaBmtSortOrder(tableList)
             + NormalizeBeatorajaBmtOutputTargets(tableList);
+    }
+
+    private static void NormalizePersistedLastPlaySortFolderOutputMasks(LR2SongDBExtended db)
+    {
+        db.CreateTable<LR2SongDBExtended.app_schema_version>();
+        string versionTableName = SQLiteTable<LR2SongDBExtended.app_schema_version>.GetTableName();
+        long migrated = db.ExecuteScalar<long>(
+            "SELECT COUNT(1) FROM " + versionTableName
+            + " WHERE name = " + sqlQuote(LastPlaySortFolderMaskMigrationName)
+            + " AND version >= " + LastPlaySortFolderMaskMigrationVersion + ";");
+        if (migrated > 0)
+        {
+            return;
+        }
+
+        string playlistTableName = SQLiteTable<LR2SongDBExtended.playlist>.GetTableName();
+        string ignoreColumnName = SQLiteTable<LR2SongDBExtended.playlist>.GetColumnName(row => row.ignore_folder_output);
+        int legacyAllFolders = (int)LR2SongDBExtended.playlist.LegacyAllFolders;
+        int preLastPlaySortAllFolders =
+            (int)(LR2SongDBExtended.playlist.CustomFolderType.AllFolders
+                & ~LR2SongDBExtended.playlist.CustomFolderType.LastPlaySortFolder);
+        int allFolders = (int)LR2SongDBExtended.playlist.CustomFolderType.AllFolders;
+        int lastPlaySortFolder = (int)LR2SongDBExtended.playlist.CustomFolderType.LastPlaySortFolder;
+        string savepoint = db.SaveTransactionPoint();
+        try
+        {
+            db.Execute(
+                "UPDATE " + playlistTableName
+                + " SET " + ignoreColumnName + " = CASE"
+                + " WHEN " + ignoreColumnName + " IN (" + legacyAllFolders + ", " + preLastPlaySortAllFolders + ") THEN " + allFolders
+                + " ELSE (" + ignoreColumnName + " | " + lastPlaySortFolder + ")"
+                + " END"
+                + " WHERE " + ignoreColumnName + " IS NOT NULL"
+                + " AND (" + ignoreColumnName + " & " + lastPlaySortFolder + ") = 0;");
+            db.InsertOrReplace(new LR2SongDBExtended.app_schema_version
+            {
+                name = LastPlaySortFolderMaskMigrationName,
+                version = LastPlaySortFolderMaskMigrationVersion
+            }, typeof(LR2SongDBExtended.app_schema_version));
+            db.Commit();
+        }
+        catch
+        {
+            db.RollbackTo(savepoint);
+            throw;
+        }
     }
 
     private static bool IsValidBeatorajaBmtSort(int? sort)
@@ -2430,7 +2479,7 @@ public partial class BMSPlaylist : NotificationObject
         table.folder_sort_key = LR2SongDBExtended.playlist.CustomFolderSortType.LEVEL;
         table.folder_sort_ascending = true;
         table.is_external_sync = true;
-        table.ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AlphabetFolder | LR2SongDBExtended.playlist.CustomFolderType.ClearFolder | LR2SongDBExtended.playlist.CustomFolderType.DJLevelFolder | LR2SongDBExtended.playlist.CustomFolderType.CategoryAllFolder | LR2SongDBExtended.playlist.CustomFolderType.OtherFolder | LR2SongDBExtended.playlist.CustomFolderType.RandomFolder | LR2SongDBExtended.playlist.CustomFolderType.BpmSortFolder | LR2SongDBExtended.playlist.CustomFolderType.BpSortFolder | LR2SongDBExtended.playlist.CustomFolderType.PlayCountSortFolder;
+        table.ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AlphabetFolder | LR2SongDBExtended.playlist.CustomFolderType.ClearFolder | LR2SongDBExtended.playlist.CustomFolderType.DJLevelFolder | LR2SongDBExtended.playlist.CustomFolderType.CategoryAllFolder | LR2SongDBExtended.playlist.CustomFolderType.OtherFolder | LR2SongDBExtended.playlist.CustomFolderType.RandomFolder | LR2SongDBExtended.playlist.CustomFolderType.BpmSortFolder | LR2SongDBExtended.playlist.CustomFolderType.BpSortFolder | LR2SongDBExtended.playlist.CustomFolderType.PlayCountSortFolder | LR2SongDBExtended.playlist.CustomFolderType.LastPlaySortFolder;
         switch (type)
         {
             case estimationTableType.easy:
@@ -2580,7 +2629,7 @@ public partial class BMSPlaylist : NotificationObject
         table.is_external_sync = true;
         table.entries = entries;
         table.last_update = DateTime.Parse(dateTime.ToString());
-        table.ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.LevelFolder | LR2SongDBExtended.playlist.CustomFolderType.AlphabetFolder | LR2SongDBExtended.playlist.CustomFolderType.ClearFolder | LR2SongDBExtended.playlist.CustomFolderType.DJLevelFolder | LR2SongDBExtended.playlist.CustomFolderType.CategoryAllFolder | LR2SongDBExtended.playlist.CustomFolderType.OtherFolder | LR2SongDBExtended.playlist.CustomFolderType.RandomFolder | LR2SongDBExtended.playlist.CustomFolderType.BpmSortFolder | LR2SongDBExtended.playlist.CustomFolderType.BpSortFolder | LR2SongDBExtended.playlist.CustomFolderType.PlayCountSortFolder;
+        table.ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.LevelFolder | LR2SongDBExtended.playlist.CustomFolderType.AlphabetFolder | LR2SongDBExtended.playlist.CustomFolderType.ClearFolder | LR2SongDBExtended.playlist.CustomFolderType.DJLevelFolder | LR2SongDBExtended.playlist.CustomFolderType.CategoryAllFolder | LR2SongDBExtended.playlist.CustomFolderType.OtherFolder | LR2SongDBExtended.playlist.CustomFolderType.RandomFolder | LR2SongDBExtended.playlist.CustomFolderType.BpmSortFolder | LR2SongDBExtended.playlist.CustomFolderType.BpSortFolder | LR2SongDBExtended.playlist.CustomFolderType.PlayCountSortFolder | LR2SongDBExtended.playlist.CustomFolderType.LastPlaySortFolder;
         table.Folder_order = ["EASY", "NORMAL", "HARD", "FC"];
         string name2 = (table.org_name = string.Format(Resources.RecommendFormat, displayName ?? name, num.ToString("F2")));
         table.name = name2;
@@ -3005,6 +3054,16 @@ public partial class BMSPlaylist : NotificationObject
             "Sort: PLAY COUNT DESC");
     }
 
+    private List<CustomFolderDefinition> makeCustomFolderDefinitionsLastPlaySortFolder(BMSTable bmsTable)
+    {
+        string lastPlayAtExpression = MakeLastPlayAtExpression();
+        return makeCustomFolderDefinitionsScopedSortFolder(
+            bmsTable,
+            "LAST PLAY SORT",
+            lastPlayAtExpression + " DESC",
+            "Sort: LAST PLAY DESC");
+    }
+
     private List<CustomFolderDefinition> makeCustomFolderDefinitionsScopedSortFolder(BMSTable bmsTable, string relativeDirectory, string orderBy, string infoA)
     {
         var definitions = new List<CustomFolderDefinition>();
@@ -3019,6 +3078,14 @@ public partial class BMSPlaylist : NotificationObject
     private static bool IsCustomFolderTypeEnabled(BMSTable bmsTable, LR2SongDBExtended.playlist.CustomFolderType type)
     {
         return bmsTable != null && LR2SongDBExtended.playlist.IsCustomFolderTypeEnabled(bmsTable.ignore_folder_output, type);
+    }
+
+    private void EnsureLastPlaySortCustomFolderAvailableIfEnabled(BMSTable bmsTable)
+    {
+        if (IsCustomFolderTypeEnabled(bmsTable, LR2SongDBExtended.playlist.CustomFolderType.LastPlaySortFolder))
+        {
+            EnsureLastPlaySortCustomFolderAvailable();
+        }
     }
 
     private static IReadOnlyList<CustomFolderEntryScope> CreateCustomFolderEntryScopes(BMSTable bmsTable)
@@ -3163,6 +3230,50 @@ public partial class BMSPlaylist : NotificationObject
             + " AND " + mainBpmColumn + " IS NOT NULL"
             + " ORDER BY " + parserVersionColumn + " DESC, " + updatedAtColumn + " DESC, " + sha256Column + " ASC"
             + " LIMIT 1)";
+    }
+
+    private static string MakeLastPlayAtExpression()
+    {
+        return "(SELECT last_play_at FROM " + Lr2PlayHistorySchemaService.LastPlayTableName + " WHERE hash = song.hash)";
+    }
+
+    private void EnsureLastPlaySortCustomFolderAvailable()
+    {
+        Lr2PlayHistorySchemaCheckResult result = new Lr2PlayHistorySchemaService().Check(lr2ScoreDBPath, isLr2LinkedProfile: true);
+        if (result.Status != Lr2PlayHistorySchemaStatus.Installed)
+        {
+            throw new LastPlaySortCustomFolderUnavailableException(result);
+        }
+    }
+
+    private bool IsLastPlaySortCustomFolderStatusEligible(BMSTable bmsTable, string operation, string reason)
+    {
+        try
+        {
+            EnsureLastPlaySortCustomFolderAvailableIfEnabled(bmsTable);
+            return true;
+        }
+        catch (LastPlaySortCustomFolderUnavailableException ex)
+        {
+            LogLastPlaySortCustomFolderUnavailable(operation, reason, bmsTable, ex);
+            return false;
+        }
+    }
+
+    private void LogLastPlaySortCustomFolderUnavailable(string operation, string reason, BMSTable bmsTable, LastPlaySortCustomFolderUnavailableException ex)
+    {
+        LogPlaylistPerformance((operation ?? "playlist_custom_folder_output") + " last_play_sort_schema_unavailable"
+            + " reason=" + (reason ?? "unknown")
+            + " name=" + QuoteLogValue(bmsTable?.name)
+            + " " + FormatLastPlaySortCustomFolderUnavailableDiagnostic(ex));
+    }
+
+    private static string FormatLastPlaySortCustomFolderUnavailableDiagnostic(LastPlaySortCustomFolderUnavailableException ex)
+    {
+        Lr2PlayHistorySchemaCheckResult result = ex?.Result;
+        return "status=" + QuoteLogValue(result?.Status.ToString() ?? "Unknown")
+            + " scoreDbPath=" + QuoteLogValue(result?.ScoreDbPath)
+            + " message=" + QuoteLogValue(result?.Message);
     }
 
     /// <summary>
@@ -3534,7 +3645,8 @@ public partial class BMSPlaylist : NotificationObject
             int? playlistId = candidate?.Table?.playlist_id;
             if (playlistId.HasValue
                 && statusRows.TryGetValue(playlistId.Value, out CustomFolderOutputStatusRow status)
-                && IsCustomFolderOutputStatusConfigCurrent(candidate.Table, candidate.OutputDirectory, status))
+                && IsCustomFolderOutputStatusConfigCurrent(candidate.Table, candidate.OutputDirectory, status)
+                && IsLastPlaySortCustomFolderStatusEligible(candidate.Table, "playlist_custom_folder_output_repair", reason))
             {
                 configCurrentCount++;
                 physicalCheckCandidates.Add(candidate);
@@ -3629,11 +3741,16 @@ public partial class BMSPlaylist : NotificationObject
                 EnsurePlaylistEntriesLoaded(candidate.Table, "CustomFolderOutputRepairPlan");
                 using (candidate.Table.ReaderWriterLock.GetReaderGuard())
                 {
+                    EnsureLastPlaySortCustomFolderAvailableIfEnabled(candidate.Table);
                     pendingProjections.Add(CreateCustomFolderOutputLayoutProjection(candidate.Table, candidate.OutputDirectory));
                 }
             }
-            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException || ex is SQLiteException)
+            catch (Exception ex) when (ex is LastPlaySortCustomFolderUnavailableException || ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException || ex is SQLiteException)
             {
+                if (ex is LastPlaySortCustomFolderUnavailableException lastPlayEx)
+                {
+                    LogLastPlaySortCustomFolderUnavailable("playlist_custom_folder_output_repair", reason, candidate?.Table, lastPlayEx);
+                }
                 continue;
             }
         }
@@ -3697,8 +3814,12 @@ public partial class BMSPlaylist : NotificationObject
                     fullProjection = CreateCustomFolderOutputProjection(projection.Table, includeText: true);
                 }
             }
-            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException || ex is SQLiteException)
+            catch (Exception ex) when (ex is LastPlaySortCustomFolderUnavailableException || ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException || ex is SQLiteException)
             {
+                if (ex is LastPlaySortCustomFolderUnavailableException lastPlayEx)
+                {
+                    LogLastPlaySortCustomFolderUnavailable("playlist_custom_folder_output_repair", reason, projection?.Table, lastPlayEx);
+                }
                 continue;
             }
 
@@ -4450,6 +4571,32 @@ public partial class BMSPlaylist : NotificationObject
         public bool ProjectionFailed { get; set; }
     }
 
+    private sealed class LastPlaySortCustomFolderUnavailableException : InvalidOperationException
+    {
+        public LastPlaySortCustomFolderUnavailableException()
+            : this((Lr2PlayHistorySchemaCheckResult)null)
+        {
+        }
+
+        public LastPlaySortCustomFolderUnavailableException(string message)
+            : base(message)
+        {
+        }
+
+        public LastPlaySortCustomFolderUnavailableException(string message, Exception innerException)
+            : base(message, innerException)
+        {
+        }
+
+        public LastPlaySortCustomFolderUnavailableException(Lr2PlayHistorySchemaCheckResult result)
+            : base("LAST PLAY SORT requires installed LR2 play history schema. Status: " + (result?.Status.ToString() ?? "Unknown"))
+        {
+            Result = result;
+        }
+
+        public Lr2PlayHistorySchemaCheckResult Result { get; }
+    }
+
     private async Task<CustomFolderBatchOutputResult> ReOutputCustomFoldersForTablesCoreAsync(
         IReadOnlyList<BMSTable> tablesSnapshot,
         string reason,
@@ -4520,8 +4667,12 @@ public partial class BMSPlaylist : NotificationObject
                     + " name=" + QuoteLogValue(table.name)
                     + " elapsedMs=" + tableStopwatch.ElapsedMilliseconds);
             }
-            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException || ex is SQLiteException)
+            catch (Exception ex) when (ex is LastPlaySortCustomFolderUnavailableException || ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException || ex is SQLiteException)
             {
+                if (ex is LastPlaySortCustomFolderUnavailableException lastPlayEx)
+                {
+                    LogLastPlaySortCustomFolderUnavailable(operation, reason, table, lastPlayEx);
+                }
                 projectionFailedCount++;
                 tableStopwatch.Stop();
                 progressCallback?.Invoke(index + 1, progressTotalCount, table.name ?? string.Empty);
@@ -4532,6 +4683,7 @@ public partial class BMSPlaylist : NotificationObject
                     + " name=" + QuoteLogValue(table.name)
                     + " detail=projection_failed"
                     + " exception=" + QuoteLogValue(ex.GetType().Name)
+                    + (ex is LastPlaySortCustomFolderUnavailableException ? " " + FormatLastPlaySortCustomFolderUnavailableDiagnostic(ex as LastPlaySortCustomFolderUnavailableException) : string.Empty)
                     + " elapsedMs=" + tableStopwatch.ElapsedMilliseconds);
                 if (throwOnProjectionFailure)
                 {
@@ -4617,10 +4769,33 @@ public partial class BMSPlaylist : NotificationObject
             CustomFolderOutputProjection projection = plan?.Projection;
             if (projection == null)
             {
-                EnsurePlaylistEntriesLoaded(table, "ReOutputAllCustomFoldersForLr2SongDbSync");
-                using (table.ReaderWriterLock.GetReaderGuard())
+                try
                 {
-                    projection = CreateCustomFolderOutputProjection(table);
+                    EnsurePlaylistEntriesLoaded(table, "ReOutputAllCustomFoldersForLr2SongDbSync");
+                    using (table.ReaderWriterLock.GetReaderGuard())
+                    {
+                        projection = CreateCustomFolderOutputProjection(table);
+                    }
+                }
+                catch (Exception ex) when (ex is LastPlaySortCustomFolderUnavailableException || ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException || ex is SQLiteException)
+                {
+                    if (ex is LastPlaySortCustomFolderUnavailableException lastPlayEx)
+                    {
+                        LogLastPlaySortCustomFolderUnavailable(operation, reason, table, lastPlayEx);
+                    }
+                    projectionFailedCount++;
+                    tableStopwatch.Stop();
+                    progressCallback?.Invoke(index + 1, progressTotalCount, table?.name ?? string.Empty);
+                    LogPlaylistPerformance(operation + " table_skipped"
+                        + " reason=" + (reason ?? "unknown")
+                        + " index=" + (index + 1)
+                        + " total=" + tablePlansSnapshot.Count
+                        + " name=" + QuoteLogValue(table?.name)
+                        + " detail=projection_failed"
+                        + " exception=" + QuoteLogValue(ex.GetType().Name)
+                        + (ex is LastPlaySortCustomFolderUnavailableException ? " " + FormatLastPlaySortCustomFolderUnavailableDiagnostic(ex as LastPlaySortCustomFolderUnavailableException) : string.Empty)
+                        + " elapsedMs=" + tableStopwatch.ElapsedMilliseconds);
+                    continue;
                 }
             }
             projections.Add(projection);
@@ -5605,6 +5780,7 @@ public partial class BMSPlaylist : NotificationObject
         {
             return definitions;
         }
+        EnsureLastPlaySortCustomFolderAvailableIfEnabled(bmsTable);
 
         foreach (Tuple<LR2SongDBExtended.playlist.CustomFolderType, Func<BMSTable, List<CustomFolderDefinition>>> item in new List<Tuple<LR2SongDBExtended.playlist.CustomFolderType, Func<BMSTable, List<CustomFolderDefinition>>>>
         {
@@ -5617,7 +5793,8 @@ public partial class BMSPlaylist : NotificationObject
             new(LR2SongDBExtended.playlist.CustomFolderType.OtherFolder, table => WrapFlatCustomFolderDefinitions(makeCustomFolderTextsOtherFolder(table))),
             new(LR2SongDBExtended.playlist.CustomFolderType.BpmSortFolder, makeCustomFolderDefinitionsBpmSortFolder),
             new(LR2SongDBExtended.playlist.CustomFolderType.BpSortFolder, makeCustomFolderDefinitionsBpSortFolder),
-            new(LR2SongDBExtended.playlist.CustomFolderType.PlayCountSortFolder, makeCustomFolderDefinitionsPlayCountSortFolder)
+            new(LR2SongDBExtended.playlist.CustomFolderType.PlayCountSortFolder, makeCustomFolderDefinitionsPlayCountSortFolder),
+            new(LR2SongDBExtended.playlist.CustomFolderType.LastPlaySortFolder, makeCustomFolderDefinitionsLastPlaySortFolder)
         })
         {
             if (LR2SongDBExtended.playlist.IsCustomFolderTypeEnabled(bmsTable.ignore_folder_output, item.Item1))
@@ -7209,6 +7386,10 @@ public partial class BMSPlaylist : NotificationObject
         {
             if (BMSTables.Contains(bmsTable))
             {
+                if (Settings.Default.OperationModeLR2DB)
+                {
+                    EnsureLastPlaySortCustomFolderAvailableIfEnabled(bmsTable);
+                }
                 CommitBMSTable(bmsTable);
                 if (Settings.Default.OperationModeLR2DB)
                 {

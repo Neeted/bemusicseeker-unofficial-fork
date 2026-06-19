@@ -5179,6 +5179,8 @@ public class MainWindowViewModel : ViewModel
 
         public bool? PlayCountSortFolder { get; set; }
 
+        public bool? LastPlaySortFolder { get; set; }
+
         internal IEnumerable<KeyValuePair<LR2SongDBExtended.playlist.CustomFolderType, bool?>> Enumerate()
         {
             yield return new KeyValuePair<LR2SongDBExtended.playlist.CustomFolderType, bool?>(LR2SongDBExtended.playlist.CustomFolderType.UserFolder, UserFolder);
@@ -5192,6 +5194,7 @@ public class MainWindowViewModel : ViewModel
             yield return new KeyValuePair<LR2SongDBExtended.playlist.CustomFolderType, bool?>(LR2SongDBExtended.playlist.CustomFolderType.BpmSortFolder, BpmSortFolder);
             yield return new KeyValuePair<LR2SongDBExtended.playlist.CustomFolderType, bool?>(LR2SongDBExtended.playlist.CustomFolderType.BpSortFolder, BpSortFolder);
             yield return new KeyValuePair<LR2SongDBExtended.playlist.CustomFolderType, bool?>(LR2SongDBExtended.playlist.CustomFolderType.PlayCountSortFolder, PlayCountSortFolder);
+            yield return new KeyValuePair<LR2SongDBExtended.playlist.CustomFolderType, bool?>(LR2SongDBExtended.playlist.CustomFolderType.LastPlaySortFolder, LastPlaySortFolder);
         }
     }
 
@@ -5237,6 +5240,8 @@ public class MainWindowViewModel : ViewModel
         private bool? _outputBpSortFolder;
 
         private bool? _outputPlayCountSortFolder;
+
+        private bool? _outputLastPlaySortFolder;
 
         private PlaylistSummaryBulkBooleanOption _rootFolderOption;
 
@@ -5356,6 +5361,12 @@ public class MainWindowViewModel : ViewModel
             set => SetCustomFolderState(ref _outputPlayCountSortFolder, value, nameof(OutputPlayCountSortFolder));
         }
 
+        public bool? OutputLastPlaySortFolder
+        {
+            get => _outputLastPlaySortFolder;
+            set => SetCustomFolderState(ref _outputLastPlaySortFolder, value, nameof(OutputLastPlaySortFolder));
+        }
+
         public bool CanApplyCustomFolderOutput => BuildCustomFolderOutputPatch().Enumerate().Any(item => item.Value.HasValue);
 
         public PlaylistSummaryBulkBooleanOption RootFolderOption
@@ -5461,6 +5472,7 @@ public class MainWindowViewModel : ViewModel
             OutputBpmSortFolder = ResolvePlaylistSummaryCustomFolderOutputState(targetTables, LR2SongDBExtended.playlist.CustomFolderType.BpmSortFolder);
             OutputBpSortFolder = ResolvePlaylistSummaryCustomFolderOutputState(targetTables, LR2SongDBExtended.playlist.CustomFolderType.BpSortFolder);
             OutputPlayCountSortFolder = ResolvePlaylistSummaryCustomFolderOutputState(targetTables, LR2SongDBExtended.playlist.CustomFolderType.PlayCountSortFolder);
+            OutputLastPlaySortFolder = ResolvePlaylistSummaryCustomFolderOutputState(targetTables, LR2SongDBExtended.playlist.CustomFolderType.LastPlaySortFolder);
             RaisePropertyChanged(nameof(IsLevelFolderBulkApplicable));
         }
 
@@ -5548,7 +5560,8 @@ public class MainWindowViewModel : ViewModel
                 RandomFolder = OutputRandomFolder,
                 BpmSortFolder = OutputBpmSortFolder,
                 BpSortFolder = OutputBpSortFolder,
-                PlayCountSortFolder = OutputPlayCountSortFolder
+                PlayCountSortFolder = OutputPlayCountSortFolder,
+                LastPlaySortFolder = OutputLastPlaySortFolder
             };
         }
 

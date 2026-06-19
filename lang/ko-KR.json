@@ -469,6 +469,7 @@
   "PlaylistProp_ftype_bpm_sort": "BPM 순",
   "PlaylistProp_ftype_bp_sort": "BP 순",
   "PlaylistProp_ftype_play_count_sort": "플레이 횟수 순",
+  "PlaylistProp_ftype_last_play_sort": "마지막 플레이 순",
   "PlaylistProp_entrytype": "등록 단위: ",
   "Open_file_explorer": "탐색기에서 열기",
   "Install_foldername": "폴더 이름",

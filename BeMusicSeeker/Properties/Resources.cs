@@ -816,6 +816,8 @@ public class Resources
 
     public static string PlaylistProp_ftype_play_count_sort => ResourceManager.GetString("PlaylistProp_ftype_play_count_sort", resourceCulture);
 
+    public static string PlaylistProp_ftype_last_play_sort => ResourceManager.GetString("PlaylistProp_ftype_last_play_sort", resourceCulture);
+
     public static string PlaylistProp_ftype_random => ResourceManager.GetString("PlaylistProp_ftype_random", resourceCulture);
 
     public static string PlaylistProp_ftype_user => ResourceManager.GetString("PlaylistProp_ftype_user", resourceCulture);

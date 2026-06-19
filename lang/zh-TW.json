@@ -469,6 +469,7 @@
   "PlaylistProp_ftype_bpm_sort": "依 BPM 排序",
   "PlaylistProp_ftype_bp_sort": "依 BP 排序",
   "PlaylistProp_ftype_play_count_sort": "依遊玩次數排序",
+  "PlaylistProp_ftype_last_play_sort": "依最後遊玩排序",
   "PlaylistProp_entrytype": "註冊單位：",
   "Open_file_explorer": "在檔案總管中開啟",
   "Install_foldername": "資料夾名稱",

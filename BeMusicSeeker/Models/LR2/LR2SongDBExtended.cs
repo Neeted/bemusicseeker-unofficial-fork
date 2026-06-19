@@ -107,7 +107,8 @@ public sealed class LR2SongDBExtended : LR2SongDB
             BpmSortFolder = 0x100,
             BpSortFolder = 0x200,
             PlayCountSortFolder = 0x400,
-            AllFolders = 0x7FF
+            LastPlaySortFolder = 0x800,
+            AllFolders = 0xFFF
         }
 
         public const CustomFolderType LegacyAllFolders = CustomFolderType.UserFolder

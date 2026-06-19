@@ -469,6 +469,7 @@
   "PlaylistProp_ftype_bpm_sort": "按 BPM 排序",
   "PlaylistProp_ftype_bp_sort": "按 BP 排序",
   "PlaylistProp_ftype_play_count_sort": "按游玩次数排序",
+  "PlaylistProp_ftype_last_play_sort": "按最后游玩排序",
   "PlaylistProp_entrytype": "注册单位：",
   "Open_file_explorer": "在资源管理器中打开",
   "Install_foldername": "文件夹名称",
