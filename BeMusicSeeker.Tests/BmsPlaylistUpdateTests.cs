@@ -1419,14 +1419,14 @@ public sealed class BmsPlaylistUpdateTests
             string outputDir = Path.Combine(outputBaseDir, "LastPlay");
             string lastPlayText = ReadShiftJisText(Path.Combine(outputDir, "LAST PLAY SORT", "0000.lr2folder"));
             StringAssert.Contains(lastPlayText, "#TITLE LastPlay ALL");
-            StringAssert.Contains(lastPlayText, "ORDER BY (SELECT last_play_at FROM bms_lr2_last_play WHERE hash = song.hash) DESC");
+            StringAssert.Contains(lastPlayText, "ORDER BY (SELECT last_play_at FROM bms_lr2_last_play WHERE hash = song.hash) IS NULL ASC, (SELECT last_play_at FROM bms_lr2_last_play WHERE hash = song.hash) DESC");
             StringAssert.Contains(lastPlayText, "#INFORMATION_A Sort: LAST PLAY DESC");
             Assert.IsFalse(File.Exists(Path.Combine(outputDir, "PLAY COUNT SORT", "0000.lr2folder")));
 
             using var verify = new LR2SongDBExtended(songDbPath);
             LR2SongDB.folder row = verify.Table<LR2SongDB.folder>().Single(item => item.path == Path.Combine(outputDir, "LAST PLAY SORT", "0000.lr2folder"));
             StringAssert.Contains(row.command, "bms_lr2_last_play");
-            StringAssert.Contains(row.command, "ORDER BY (SELECT last_play_at FROM bms_lr2_last_play WHERE hash = song.hash) DESC");
+            StringAssert.Contains(row.command, "ORDER BY (SELECT last_play_at FROM bms_lr2_last_play WHERE hash = song.hash) IS NULL ASC, (SELECT last_play_at FROM bms_lr2_last_play WHERE hash = song.hash) DESC");
         }
         finally
         {
@@ -1551,7 +1551,7 @@ public sealed class BmsPlaylistUpdateTests
             File.WriteAllText(stalePath, "#TITLE stale", Encoding.GetEncoding("shift_jis"));
             using (var seed = new LR2SongDBExtended(songDbPath))
             {
-                seed.InsertOrReplace(new LR2SongDB.folder { path = stalePath, title = "stale", type = 2, command = "song.hash IS NOT NULL ORDER BY (SELECT last_play_at FROM bms_lr2_last_play WHERE hash = song.hash) DESC" }, typeof(LR2SongDB.folder));
+                seed.InsertOrReplace(new LR2SongDB.folder { path = stalePath, title = "stale", type = 2, command = "song.hash IS NOT NULL ORDER BY (SELECT last_play_at FROM bms_lr2_last_play WHERE hash = song.hash) IS NULL ASC, (SELECT last_play_at FROM bms_lr2_last_play WHERE hash = song.hash) DESC" }, typeof(LR2SongDB.folder));
             }
 
             table.ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders

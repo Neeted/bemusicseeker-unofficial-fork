@@ -674,10 +674,11 @@ BeMusicSeeker の custom folder 出力で、既存の `PLAY COUNT SORT` と同�
 
 ```sql
 {playlist_base_condition}
-ORDER BY (SELECT last_play_at FROM bms_lr2_last_play WHERE hash = song.hash) DESC
+ORDER BY (SELECT last_play_at FROM bms_lr2_last_play WHERE hash = song.hash) IS NULL ASC,
+         (SELECT last_play_at FROM bms_lr2_last_play WHERE hash = song.hash) DESC
 ```
 
-SQLite では `NULL` が通常の値より小さい扱いになるため、`DESC` なら `bms_lr2_last_play` に row がない譜面は自然に末尾になる。これは LR2 的な `NO PLAY` とは別で、既存 score がある譜面でも `bms_lr2_last_play` に row がなければ末尾になる。
+`bms_lr2_last_play` に row がない譜面は `IS NULL ASC` により末尾へ明示的に回す。これは LR2 的な `NO PLAY` とは別で、既存 score がある譜面でも `bms_lr2_last_play` に row がなければ末尾になる。
 
 LAST PLAY SORT 用の時刻更新は、前述の詳細履歴 `score` trigger が `bms_lr2_play_history` と同時に `bms_lr2_last_play` を更新することで実現する。LAST PLAY SORT だけの独立 trigger は作らない。
 
@@ -685,9 +686,9 @@ LAST PLAY SORT 用の時刻更新は、前述の詳細履歴 `score` trigger が
 
 `bms_lr2_last_play` は score DB 側にあるため、OpenLR2 の `score` と同様に unqualified table name で参照する。LR2 側の attach 名を command に埋め込まない。
 
-custom folder の `ORDER BY (SELECT last_play_at ... WHERE hash = song.hash)` は、表示対象 row ごとに `bms_lr2_last_play.hash` の primary key index を引く形になる。playlist / 難易度表 folder 程度の件数なら十分軽いはずで、コストはおおむね「対象件数分の hash index lookup + sort」である。
+custom folder の `ORDER BY (SELECT last_play_at ... WHERE hash = song.hash) IS NULL ASC, (SELECT last_play_at ... WHERE hash = song.hash) DESC` は、表示対象 row ごとに `bms_lr2_last_play.hash` の primary key index を引く形になる。playlist / 難易度表 folder 程度の件数なら十分軽いはずで、コストはおおむね「対象件数分の hash index lookup + sort」である。
 
-巨大な全曲 folder で毎回実行する場合は sort 自体のコストが支配的になる。LR2 custom folder 用には `ORDER BY (SELECT last_play_at ...) DESC` の形に固定する。
+巨大な全曲 folder で毎回実行する場合は sort 自体のコストが支配的になる。LR2 custom folder 用には `ORDER BY (SELECT last_play_at ...) IS NULL ASC, (SELECT last_play_at ...) DESC` の形に固定する。
 
 初回導入時に既存 `score.playcount > 0` の曲へ現在時刻を入れない。現在時刻を入れると、過去にプレイ済みだった曲が「導入日に最後に遊ばれた」ように見えてしまうためである。
 

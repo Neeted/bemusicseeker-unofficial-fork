@@ -157,7 +157,7 @@ LR2 linked profile の起動時には、user.config の既定通常出力先と�
 
 `playlist.entry_type = File` の playlist では、基本条件は `song.hash in (SELECT md5 FROM playlist_entry WHERE playlist_id = ... AND is_removed = 0 ...)` になる。`entry_type = Folder` の playlist では、基本条件は `song.folder in (SELECT folder FROM song WHERE hash in (...))` になり、playlist entry の譜面 hash から LR2 `song.folder` 単位に広げる。どちらの場合も command は LR2 / OpenLR2 が `SELECT * FROM song LEFT JOIN score ON song.hash = score.hash WHERE {folder.command}` として評価できる WHERE 句断片である。OpenLR2 の実装では、`.lr2folder` の `#COMMAND` または `#TAG` が `folder.command` に入り、選曲画面でカスタムフォルダを開いたときにこの command が song/score join の WHERE 条件として使われる。
 
-`LastPlaySortFolder` の command は `ORDER BY (SELECT last_play_at FROM bms_lr2_last_play WHERE hash = song.hash) DESC` を使う。LAST PLAY SORT の `.lr2folder` 本文と LR2 `folder` row は固定の SQL projection であり、プレイ後に `bms_lr2_last_play` が更新されても BeMusicSeeker 側で再 materialize する必要はない。LR2 / OpenLR2 が custom folder を開く時点の DB 内容で並び順が決まる。
+`LastPlaySortFolder` の command は `ORDER BY (SELECT last_play_at FROM bms_lr2_last_play WHERE hash = song.hash) IS NULL ASC, (SELECT last_play_at FROM bms_lr2_last_play WHERE hash = song.hash) DESC` を使う。LAST PLAY SORT の `.lr2folder` 本文と LR2 `folder` row は固定の SQL projection であり、プレイ後に `bms_lr2_last_play` が更新されても BeMusicSeeker 側で再 materialize する必要はない。LR2 / OpenLR2 が custom folder を開く時点の DB 内容で並び順が決まる。
 
 現在の command が主に参照する SQL table は次の通り。
 

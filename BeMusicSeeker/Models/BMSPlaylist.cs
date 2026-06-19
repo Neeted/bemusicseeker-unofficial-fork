@@ -3060,7 +3060,7 @@ public partial class BMSPlaylist : NotificationObject
         return makeCustomFolderDefinitionsScopedSortFolder(
             bmsTable,
             "LAST PLAY SORT",
-            lastPlayAtExpression + " DESC",
+            lastPlayAtExpression + " IS NULL ASC, " + lastPlayAtExpression + " DESC",
             "Sort: LAST PLAY DESC");
     }
 
