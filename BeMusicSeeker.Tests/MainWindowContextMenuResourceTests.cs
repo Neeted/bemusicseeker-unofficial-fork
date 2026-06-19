@@ -127,6 +127,27 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
+    public void PlayHistoryView_LogsDedicatedStageEvents()
+    {
+        string viewModelCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string applyPlayHistoryView = ExtractBetween(viewModelCode, "private void ApplyPlayHistoryView", "private bool TryApplyPlayHistorySortOnly");
+        string tryApplyPlayHistorySortOnly = ExtractBetween(viewModelCode, "private bool TryApplyPlayHistorySortOnly", "private void ApplyPlayHistorySortedRows");
+        string applyPlayHistorySortedRows = ExtractBetween(viewModelCode, "private void ApplyPlayHistorySortedRows", "private PlayHistoryProjectionResult CreatePlayHistoryProjectionResult");
+        string staleRequestLog = ExtractBetween(viewModelCode, "private void LogStalePlayHistoryViewRequest", "private static int CountDistinctPlayHistoryFolderLabels");
+
+        StringAssert.Contains(viewModelCode, "LogPlayHistoryEvent(");
+        AssertLogPlayHistoryEventContract(applyPlayHistoryView, "play_history_read_done", "period=", "requestId=", "schemaStatus=", "rows=", "diagnosticsCount=", "elapsedMs=");
+        AssertLogPlayHistoryEventContract(applyPlayHistoryView, "play_history_read_period_index_done", "period=", "requestId=", "schemaStatus=", "days=", "diagnosticsCount=", "elapsedMs=");
+        AssertLogPlayHistoryEventContract(applyPlayHistoryView, "play_history_read_period_index_skipped", "period=", "requestId=", "schemaStatus=", "reason=schema_unavailable");
+        AssertLogPlayHistoryEventContract(applyPlayHistoryView, "play_history_projection_done", "projectionEventName", "schemaStatus=", "fallback=", "reason=", "projection_index_failed", "schema_unavailable");
+        AssertLogPlayHistoryEventContract(applyPlayHistoryView, "play_history_projection_skipped", "projectionEventName", "rawCount=", "projectedCount=", "diagnosticsCount=", "projectionMs=");
+        AssertLogPlayHistoryEventContract(applyPlayHistoryView, "play_history_projection_fallback", "projectionEventName", "fallback=", "reason=", "projection_index_failed");
+        AssertLogPlayHistoryEventContract(tryApplyPlayHistorySortOnly, "play_history_view_sort_skipped", "period=", "requestId=", "reason=no_current_matching_state", "totalMs=");
+        AssertLogPlayHistoryEventContract(applyPlayHistorySortedRows, "play_history_view_apply", "period=", "requestId=", "sortOnly=", "schemaStatus=", "sourceCount=", "projectedCount=", "viewCount=", "totalMs=");
+        AssertLogPlayHistoryEventContract(staleRequestLog, "play_history_view_stale_skipped", "mode=", "requestedMode=", "requestId=", "currentRequestId=", "elapsedMs=");
+    }
+
+    [TestMethod]
     public void ChartInfoParseFailureContextMenu_UsesDedicatedResourceAndVisibilityPolicy()
     {
         string xaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "MainWindow.xaml"));
@@ -2783,6 +2804,16 @@ public sealed class MainWindowContextMenuResourceTests
             index += pattern.Length;
         }
         return count;
+    }
+
+    private static void AssertLogPlayHistoryEventContract(string source, string eventName, params string[] requiredFragments)
+    {
+        StringAssert.Contains(source, "\"" + eventName + "\"");
+        StringAssert.Contains(source, "LogPlayHistoryEvent(");
+        foreach (string fragment in requiredFragments)
+        {
+            StringAssert.Contains(source, fragment, eventName + " should include " + fragment);
+        }
     }
 
     private static string ExtractBetween(string text, string start, string end)

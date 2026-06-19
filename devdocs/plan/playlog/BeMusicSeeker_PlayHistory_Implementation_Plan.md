@@ -659,8 +659,8 @@ Play history view 用の keyword search context を追加する。既存 chart l
 - [x] backup 対象に score DB を含める注意を更新する。
 - [x] `docs/manual.ja.md` に `プレイログ` 章、`docs/manual.md` に対応する英語章を追加する。
 - [x] `devdocs/spec/play-history.md` を作り、実装済み仕様を正本化する。
-- [ ] log event を `play_history_schema_*`, `play_history_read_*`, `play_history_projection_*`, `play_history_view_*` のように段階別に出す。
-  - 現状: `play_history_schema_*` と main view build / diagnostics log は出力済み。read / projection / view の event 名整理は後続で行う。
+- [x] log event を `play_history_schema_*`, `play_history_read_*`, `play_history_projection_*`, `play_history_view_*` のように段階別に出す。
+  - 実装済み: schema 操作は `application.log` の `play_history_schema_*`、view build は `install-performance.log` の read (`play_history_read_done`, `play_history_read_period_index_*`)、projection (`play_history_projection_*`)、view (`play_history_view_*`) で段階別に追跡できる。
 
 テスト:
 
@@ -714,7 +714,7 @@ Play history view 用の keyword search context を追加する。既存 chart l
 | Phase 3 | 完了 | Play log tree と table UI は固定期間 + 年 / 月 / 日 archive node で動作。DnD / cell edit / activation / 通常 context menu guard、PlayHistory 専用 hash-only context menu まで完了 |
 | Phase 4 | 完了 | LAST PLAY SORT custom folder が出力され、schema guard / cleanup / NULL sort command の検証まで完了 |
 | Phase 5 | 未着手 | keyword search と表示対象 filter が動く |
-| Phase 6 | 進行中 | 最小 manual、summary 診断、現行仕様 spec は追加済み。maintenance / log contract 整理が残る |
+| Phase 6 | 進行中 | 最小 manual、summary 診断、現行仕様 spec、log contract は追加済み。maintenance 診断表示と実画面 screenshot が残る |
 | Phase 7 | 未着手 | beatoraja provider が同じ UI に載る |
 
 ## 作業記録
@@ -734,6 +734,7 @@ Play history view 用の keyword search context を追加する。既存 chart l
 - 2026-06-19: Phase 4 NULL sort 検証として、LAST PLAY SORT command を `last_play_at IS NULL ASC, last_play_at DESC` に明示化し、未観測譜面が末尾へ回る ORDER BY を `.lr2folder` / LR2 `folder` row の tests で固定した。
 - 2026-06-19: Phase 0 / Phase 6 spec 整理として `devdocs/spec/play-history.md` を追加し、LR2 schema / read model / projection / period UI / diagnostics / LAST PLAY SORT の現行仕様と、Phase 5 / Phase 7 の未実装 scope を分離した。
 - 2026-06-19: Phase 6 manual 整理として、`docs/manual.ja.md` / `docs/manual.md` に LR2 play-log schema 有効化 / 修復が player `score.db` へ table / index / trigger を追加・修復することと、backup 対象に score DB を含める注意を追記した。
+- 2026-06-19: Phase 6 log contract として、PlayHistory view build に `play_history_read_done` / `play_history_read_period_index_*` / `play_history_projection_*` / `play_history_view_*` の段階別 event を追加し、専用 event 名・主要 field・projection fallback の理由を静的テストで固定した。
 
 ## 実装時の注意
 

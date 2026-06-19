@@ -8110,6 +8110,11 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
+    private static void LogPlayHistoryEvent(string eventName, string message)
+    {
+        LogMainViewBuild((eventName ?? "play_history_event") + " " + (message ?? string.Empty));
+    }
+
     /// <summary>
     /// プレイリスト source build の診断ログを出力します。
     /// </summary>
@@ -19853,6 +19858,14 @@ public class MainWindowViewModel : ViewModel
             return;
         }
         long readMs = readStopwatch.ElapsedMilliseconds;
+        LogPlayHistoryEvent(
+            "play_history_read_done",
+            "period=" + periodRequest.Kind
+            + " requestId=" + requestId
+            + " schemaStatus=" + readResult.SchemaStatus
+            + " rows=" + readResult.Rows.Count
+            + " diagnosticsCount=" + (readResult.Diagnostics?.Count ?? 0)
+            + " elapsedMs=" + readMs);
         if (!IsCurrentPlayHistoryViewRequest(requestId))
         {
             LogStalePlayHistoryViewRequest(mode, requestedMode, parameter, periodRequest, requestId, readMs);
@@ -19861,8 +19874,9 @@ public class MainWindowViewModel : ViewModel
 
         Lr2PlayHistoryPeriodIndexResult periodIndexResult = null;
         long periodIndexMs = 0L;
-        if (readResult.SchemaStatus == Lr2PlayHistorySchemaStatus.Installed
-            || readResult.SchemaStatus == Lr2PlayHistorySchemaStatus.Repairable)
+        bool canReadPlayHistoryPeriodIndex = readResult.SchemaStatus == Lr2PlayHistorySchemaStatus.Installed
+            || readResult.SchemaStatus == Lr2PlayHistorySchemaStatus.Repairable;
+        if (canReadPlayHistoryPeriodIndex)
         {
             var periodIndexStopwatch = Stopwatch.StartNew();
             try
@@ -19881,11 +19895,28 @@ public class MainWindowViewModel : ViewModel
                 return;
             }
             periodIndexMs = periodIndexStopwatch.ElapsedMilliseconds;
+            LogPlayHistoryEvent(
+                "play_history_read_period_index_done",
+                "period=" + periodRequest.Kind
+                + " requestId=" + requestId
+                + " schemaStatus=" + periodIndexResult.SchemaStatus
+                + " days=" + (periodIndexResult.PlayedAtUnixSeconds?.Count ?? 0)
+                + " diagnosticsCount=" + (periodIndexResult.Diagnostics?.Count ?? 0)
+                + " elapsedMs=" + periodIndexMs);
             if (!IsCurrentPlayHistoryViewRequest(requestId))
             {
                 LogStalePlayHistoryViewRequest(mode, requestedMode, parameter, periodRequest, requestId, readMs + periodIndexMs);
                 return;
             }
+        }
+        else
+        {
+            LogPlayHistoryEvent(
+                "play_history_read_period_index_skipped",
+                "period=" + periodRequest.Kind
+                + " requestId=" + requestId
+                + " schemaStatus=" + readResult.SchemaStatus
+                + " reason=schema_unavailable");
         }
 
         PlayHistoryProjectionResult projectionResult;
@@ -19915,6 +19946,28 @@ public class MainWindowViewModel : ViewModel
         {
             projectionResult = PlayHistoryRow.ProjectLr2Rows(readResult, PlayHistoryProjectionIndex.Empty);
         }
+        bool projectionIndexFallback = (projectionResult.Diagnostics ?? [])
+            .Any(diagnostic => string.Equals(diagnostic?.Code, "play_history_projection_index_failed", StringComparison.Ordinal));
+        string projectionEventName = readResult.Rows.Count == 0
+            ? "play_history_projection_skipped"
+            : (projectionIndexFallback ? "play_history_projection_fallback" : "play_history_projection_done");
+        string projectionReason = projectionIndexFallback
+            ? "projection_index_failed"
+            : (readResult.Rows.Count == 0 ? (canReadPlayHistoryPeriodIndex ? "no_rows" : "schema_unavailable") : string.Empty);
+        LogPlayHistoryEvent(
+            projectionEventName,
+            "period=" + periodRequest.Kind
+            + " requestId=" + requestId
+            + " schemaStatus=" + readResult.SchemaStatus
+            + " rawCount=" + readResult.Rows.Count
+            + " projectedCount=" + projectionResult.Rows.Count
+            + " diagnosticsCount=" + (projectionResult.Diagnostics?.Count ?? 0)
+            + " fallback=" + projectionIndexFallback.ToString().ToLowerInvariant()
+            + " projectionIndexMs=" + projectionIndexMs
+            + " projectionIndexCacheHit=" + projectionIndexCacheHit.ToString().ToLowerInvariant()
+            + " projectionIndexStaleRetries=" + projectionIndexStaleRetries
+            + " projectionMs=" + projectionMs
+            + (string.IsNullOrEmpty(projectionReason) ? string.Empty : " reason=" + projectionReason));
         IReadOnlyList<PlayHistoryDiagnostic> mergedDiagnostics = MergePlayHistoryDiagnostics(projectionResult.Diagnostics, periodIndexResult?.Diagnostics);
         if (!ReferenceEquals(mergedDiagnostics, projectionResult.Diagnostics))
         {
@@ -19976,6 +20029,12 @@ public class MainWindowViewModel : ViewModel
             || !IsCurrentPlayHistoryViewRequest(state.RequestId)
             || !IsSamePlayHistoryPeriod(state.PeriodRequest, viewRequest.PeriodRequest))
         {
+            LogPlayHistoryEvent(
+                "play_history_view_sort_skipped",
+                "period=" + viewRequest.PeriodRequest.Kind
+                + " requestId=" + viewRequest.RequestId
+                + " reason=no_current_matching_state"
+                + " totalMs=" + viewBuildStopwatch.ElapsedMilliseconds);
             LogMainViewBuild("main_view_build mode=" + mode + " requestedMode=" + requestedMode + " parameterType=" + (parameter?.GetType().Name ?? "(null)") + " playHistorySortOnly=true skipped=true reason=no_current_matching_state playHistoryPeriod=" + viewRequest.PeriodRequest.Kind + " totalMs=" + viewBuildStopwatch.ElapsedMilliseconds);
             return true;
         }
@@ -20138,6 +20197,28 @@ public class MainWindowViewModel : ViewModel
         {
             LogPlayHistoryDiagnostics(periodRequest, sortProfile, diagnostics);
         }
+        LogPlayHistoryEvent(
+            "play_history_view_apply",
+            "period=" + periodRequest.Kind
+            + " requestId=" + state.RequestId
+            + " sortOnly=" + fromSortOnly.ToString().ToLowerInvariant()
+            + " sortSucceeded=" + sortSucceeded.ToString().ToLowerInvariant()
+            + " sortProfile=" + (sortProfile ?? string.Empty)
+            + " schemaStatus=" + state.SchemaStatus
+            + " diagnosticsCount=" + diagnosticsCount
+            + " sourceCount=" + state.SourceCount
+            + " projectedCount=" + state.ProjectedRows.Count
+            + " viewCount=" + sortedRows.Count
+            + " readMs=" + readMs
+            + " periodIndexMs=" + periodIndexMs
+            + " projectionIndexMs=" + projectionIndexMs
+            + " projectionIndexCacheHit=" + projectionIndexCacheHit.ToString().ToLowerInvariant()
+            + " projectionIndexStaleRetries=" + projectionIndexStaleRetries
+            + " projectionMs=" + projectionMs
+            + " sortMs=" + sortMs
+            + " columnSettingMs=" + columnSettingMs
+            + " setViewMs=" + setViewMs
+            + " totalMs=" + viewBuildStopwatch.ElapsedMilliseconds);
         LogMainViewBuild("main_view_build mode=" + mode + " requestedMode=" + requestedMode + " parameterType=" + parameterType + " playHistoryPeriod=" + periodRequest.Kind + " playHistorySortOnly=" + fromSortOnly.ToString().ToLowerInvariant() + " readMs=" + readMs + " periodIndexMs=" + periodIndexMs + " projectionIndexMs=" + projectionIndexMs + " projectionIndexCacheHit=" + projectionIndexCacheHit.ToString().ToLowerInvariant() + " projectionIndexStaleRetries=" + projectionIndexStaleRetries + " projectionMs=" + projectionMs + " sortMs=" + sortMs + " sortProfile=" + sortProfile + " schemaStatus=" + state.SchemaStatus + " diagnosticsCount=" + diagnosticsCount + " columnSettingMs=" + columnSettingMs + " prepareSwapMs=" + prepareSwapMs + " setViewMs=" + setViewMs + " columnSettingReuse=" + columnSettingReuse + " totalMs=" + viewBuildStopwatch.ElapsedMilliseconds + " sourceCount=" + state.SourceCount + " projectedCount=" + state.ProjectedRows.Count + " viewCount=" + sortedRows.Count);
     }
 
@@ -20429,6 +20510,15 @@ public class MainWindowViewModel : ViewModel
         {
             currentRequestId = playHistoryViewRequestGeneration;
         }
+        LogPlayHistoryEvent(
+            "play_history_view_stale_skipped",
+            "mode=" + mode
+            + " requestedMode=" + requestedMode
+            + " parameterType=" + (parameter?.GetType().Name ?? "(null)")
+            + " period=" + (periodRequest?.Kind.ToString() ?? string.Empty)
+            + " requestId=" + requestId
+            + " currentRequestId=" + currentRequestId
+            + " elapsedMs=" + elapsedMs);
         LogMainViewBuild("main_view_build mode=" + mode + " requestedMode=" + requestedMode + " parameterType=" + (parameter?.GetType().Name ?? "(null)") + " playHistoryPeriod=" + (periodRequest?.Kind.ToString() ?? string.Empty) + " skipped=true reason=stale_play_history_request requestId=" + requestId + " currentRequestId=" + currentRequestId + " elapsedMs=" + elapsedMs);
     }
 
