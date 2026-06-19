@@ -82,6 +82,8 @@ internal sealed class BeatorajaPlayHistoryReadRequest
 
     internal int? Limit { get; set; }
 
+    internal bool DisableLimit { get; set; }
+
     internal Lr2PlayHistoryFinalizationFilter FinalizationFilter { get; set; } = Lr2PlayHistoryFinalizationFilter.FinalizedOnly;
 }
 
@@ -261,6 +263,8 @@ internal sealed class Lr2PlayHistoryReadRequest
     }
 
     internal int? Limit { get; set; }
+
+    internal bool DisableLimit { get; set; }
 }
 
 internal sealed class Lr2PlayHistoryPeriodIndexRequest
@@ -299,12 +303,14 @@ internal sealed class Lr2PlayHistoryReadResult
         PlayHistorySourceProfile sourceProfile,
         IReadOnlyList<Lr2PlayHistoryRecord> rows,
         IReadOnlyList<PlayHistoryDiagnostic> diagnostics,
-        Lr2PlayHistorySchemaStatus schemaStatus)
+        Lr2PlayHistorySchemaStatus schemaStatus,
+        Lr2PlayHistorySchemaCheckResult schemaCheckResult = null)
     {
         SourceProfile = sourceProfile;
         Rows = rows ?? [];
         Diagnostics = diagnostics ?? [];
         SchemaStatus = schemaStatus;
+        SchemaCheckResult = schemaCheckResult;
     }
 
     internal PlayHistorySourceProfile SourceProfile { get; }
@@ -314,6 +320,8 @@ internal sealed class Lr2PlayHistoryReadResult
     internal IReadOnlyList<PlayHistoryDiagnostic> Diagnostics { get; }
 
     internal Lr2PlayHistorySchemaStatus SchemaStatus { get; }
+
+    internal Lr2PlayHistorySchemaCheckResult SchemaCheckResult { get; }
 
     internal bool HasErrors
     {

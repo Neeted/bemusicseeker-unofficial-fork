@@ -29,21 +29,21 @@ internal sealed class Lr2PlayHistoryReader
         if (schema.Status == Lr2PlayHistorySchemaStatus.SkippedProfile)
         {
             diagnostics.Add(CreateDiagnostic(PlayHistoryDiagnosticSeverity.Info, "play_history_lr2_skipped_profile", schema.Message, request.ScoreDbPath));
-            return new Lr2PlayHistoryReadResult(sourceProfile, [], diagnostics, schema.Status);
+            return new Lr2PlayHistoryReadResult(sourceProfile, [], diagnostics, schema.Status, schema);
         }
         if (schema.Status == Lr2PlayHistorySchemaStatus.Unreadable
             || schema.Status == Lr2PlayHistorySchemaStatus.NotInstalled
             || schema.Status == Lr2PlayHistorySchemaStatus.ManualRepairRequired)
         {
             diagnostics.Add(CreateDiagnostic(PlayHistoryDiagnosticSeverity.Error, GetSchemaDiagnosticCode(schema.Status), schema.Message, request.ScoreDbPath));
-            return new Lr2PlayHistoryReadResult(sourceProfile, [], diagnostics, schema.Status);
+            return new Lr2PlayHistoryReadResult(sourceProfile, [], diagnostics, schema.Status, schema);
         }
         if (schema.Status == Lr2PlayHistorySchemaStatus.Repairable)
         {
             if (schema.MissingIndexes.Count > 0 || schema.MismatchedIndexes.Count > 0)
             {
                 diagnostics.Add(CreateDiagnostic(PlayHistoryDiagnosticSeverity.Error, "play_history_lr2_schema_index_repair_required", schema.Message, request.ScoreDbPath));
-                return new Lr2PlayHistoryReadResult(sourceProfile, [], diagnostics, schema.Status);
+                return new Lr2PlayHistoryReadResult(sourceProfile, [], diagnostics, schema.Status, schema);
             }
             diagnostics.Add(CreateDiagnostic(PlayHistoryDiagnosticSeverity.Warning, "play_history_lr2_schema_repairable", schema.Message, request.ScoreDbPath));
         }
@@ -51,7 +51,7 @@ internal sealed class Lr2PlayHistoryReader
         if (string.IsNullOrWhiteSpace(request.ScoreDbPath) || !File.Exists(request.ScoreDbPath))
         {
             diagnostics.Add(CreateDiagnostic(PlayHistoryDiagnosticSeverity.Error, "play_history_lr2_score_db_missing", "Score DB file does not exist.", request.ScoreDbPath));
-            return new Lr2PlayHistoryReadResult(sourceProfile, [], diagnostics, schema.Status);
+            return new Lr2PlayHistoryReadResult(sourceProfile, [], diagnostics, schema.Status, schema);
         }
 
         try
@@ -62,7 +62,7 @@ internal sealed class Lr2PlayHistoryReader
             cancellationToken.ThrowIfCancellationRequested();
             List<Lr2PlayHistoryRecord> rows = db.Query<Lr2PlayHistoryRecord>(sql, [.. args]);
             cancellationToken.ThrowIfCancellationRequested();
-            return new Lr2PlayHistoryReadResult(sourceProfile, rows, diagnostics, schema.Status);
+            return new Lr2PlayHistoryReadResult(sourceProfile, rows, diagnostics, schema.Status, schema);
         }
         catch (OperationCanceledException)
         {
@@ -71,7 +71,7 @@ internal sealed class Lr2PlayHistoryReader
         catch (Exception ex)
         {
             diagnostics.Add(CreateDiagnostic(PlayHistoryDiagnosticSeverity.Error, "play_history_lr2_read_failed", ex.Message, request.ScoreDbPath));
-            return new Lr2PlayHistoryReadResult(sourceProfile, [], diagnostics, schema.Status);
+            return new Lr2PlayHistoryReadResult(sourceProfile, [], diagnostics, schema.Status, schema);
         }
     }
 
@@ -163,7 +163,7 @@ internal sealed class Lr2PlayHistoryReader
         int limit = request.Limit.HasValue && request.Limit.Value > 0
             ? request.Limit.Value
             : DefaultReadLimit;
-        if (limit > 0)
+        if (!request.DisableLimit && limit > 0)
         {
             sql += " LIMIT ?";
             args.Add(limit);

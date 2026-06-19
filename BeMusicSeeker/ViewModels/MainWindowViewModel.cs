@@ -8290,6 +8290,8 @@ public class MainWindowViewModel : ViewModel
 
     private PlayHistoryViewState playHistoryViewState;
 
+    private readonly PlayHistoryReadCache playHistoryReadCache = new();
+
     private long playHistoryKeywordFilterRevision;
 
     private long playHistoryKeywordFilterQueuedRevision;
@@ -18191,6 +18193,7 @@ public class MainWindowViewModel : ViewModel
         try
         {
             BeginUiUpdateSuppression(UiRefreshChannel.LibraryMainView);
+            InvalidatePlayHistoryReadCache("score_reload");
             LogInitStage("score_reload_task_start", "ReloadScoresOnly");
             await Task.Run(delegate
             {
@@ -18222,6 +18225,16 @@ public class MainWindowViewModel : ViewModel
             operationToken,
             StartupProgressPhase.ScoreHydrationDone,
             StartupProgressPhase.RankingRefreshDone);
+    }
+
+    internal void InvalidatePlayHistoryReadCache(string reason)
+    {
+        lock (playHistoryViewRequestLock)
+        {
+            InvalidatePlayHistoryFilterRequestUnsafe();
+        }
+        playHistoryReadCache.Invalidate();
+        LogPlayHistoryEvent("play_history_read_cache_invalidated", "reason=" + (reason ?? string.Empty));
     }
 
     public async void ReloadFileDiff()
@@ -18290,6 +18303,7 @@ public class MainWindowViewModel : ViewModel
         long operationToken = StartStartupProgressOperation(StartupProgressOperationKind.FullReinitialize);
         try
         {
+            InvalidatePlayHistoryReadCache("full_reinitialize");
             BeginUiUpdateSuppression(UiRefreshChannel.LibraryMainView | UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.InstallTree | UiRefreshChannel.DuplicateTree);
             LogInitStage("files_initialize_task_start", "FullReinitialize");
             await Task.Run(delegate
@@ -18602,6 +18616,7 @@ public class MainWindowViewModel : ViewModel
         long operationToken;
         try
         {
+            InvalidatePlayHistoryReadCache("initialize");
             LibraryProfile libraryProfile = CreateLibraryProfileForStartup();
             files = new BMSLibrary(libraryProfile.SongDbPath, libraryProfile.Lr2ConfigProvider, libraryProfile.Lr2ScoreDbPath);
             tables = new BMSPlaylist(
@@ -20784,22 +20799,26 @@ public class MainWindowViewModel : ViewModel
         Lr2PlayHistorySchemaStatus readSchemaStatus;
         int rawReadCount;
         IReadOnlyList<PlayHistoryDiagnostic> readDiagnostics;
+        bool playHistoryReadCacheHit;
         try
         {
             if (useBeatorajaProvider)
             {
-                beatorajaReadResult = new BeatorajaPlayHistoryReader().Read(
+                beatorajaReadResult = playHistoryReadCache.ReadBeatoraja(
                     periodRequest.ToBeatorajaReadRequest(ResolveMainViewBeatorajaPlayHistoryScoreDbPath()),
-                    cancellationToken);
+                    cancellationToken,
+                    out playHistoryReadCacheHit);
                 readSchemaStatus = beatorajaReadResult.SchemaStatus;
                 rawReadCount = beatorajaReadResult.Rows.Count;
                 readDiagnostics = beatorajaReadResult.Diagnostics;
             }
             else
             {
-                lr2ReadResult = new Lr2PlayHistoryReader().Read(
+                lr2ReadResult = playHistoryReadCache.ReadLr2(
                     periodRequest.ToLr2ReadRequest(ResolveMainViewLr2PlayHistoryScoreDbPath(), Settings.Default.OperationModeLR2DB),
-                    cancellationToken);
+                    cancellationToken,
+                    out playHistoryReadCacheHit);
+                ApplyLr2PlayHistorySchemaCheckResultFromRead(lr2ReadResult?.SchemaCheckResult);
                 readSchemaStatus = lr2ReadResult.SchemaStatus;
                 rawReadCount = lr2ReadResult.Rows.Count;
                 readDiagnostics = lr2ReadResult.Diagnostics;
@@ -20817,6 +20836,7 @@ public class MainWindowViewModel : ViewModel
             + " requestId=" + requestId
             + " provider=" + activePlayHistoryProvider
             + " schemaStatus=" + readSchemaStatus
+            + " cacheHit=" + playHistoryReadCacheHit.ToString().ToLowerInvariant()
             + " rows=" + rawReadCount
             + " diagnosticsCount=" + (readDiagnostics?.Count ?? 0)
             + " elapsedMs=" + readMs);
@@ -20829,6 +20849,7 @@ public class MainWindowViewModel : ViewModel
         IReadOnlyList<long> periodIndexPlayedAt = [];
         IReadOnlyList<PlayHistoryDiagnostic> periodIndexDiagnostics = [];
         long periodIndexMs = 0L;
+        bool playHistoryPeriodIndexCacheHit = false;
         bool canReadPlayHistoryPeriodIndex = readSchemaStatus == Lr2PlayHistorySchemaStatus.Installed
             || readSchemaStatus == Lr2PlayHistorySchemaStatus.Repairable;
         if (canReadPlayHistoryPeriodIndex)
@@ -20838,21 +20859,23 @@ public class MainWindowViewModel : ViewModel
             {
                 if (useBeatorajaProvider)
                 {
-                    BeatorajaPlayHistoryPeriodIndexResult periodIndexResult = new BeatorajaPlayHistoryReader().ReadPeriodIndex(
+                    BeatorajaPlayHistoryPeriodIndexResult periodIndexResult = playHistoryReadCache.ReadBeatorajaPeriodIndex(
                         new BeatorajaPlayHistoryPeriodIndexRequest { ScoreDbPath = ResolveMainViewBeatorajaPlayHistoryScoreDbPath() },
-                        cancellationToken);
+                        cancellationToken,
+                        out playHistoryPeriodIndexCacheHit);
                     periodIndexPlayedAt = periodIndexResult.PlayedAtUnixSeconds;
                     periodIndexDiagnostics = periodIndexResult.Diagnostics;
                 }
                 else
                 {
-                    Lr2PlayHistoryPeriodIndexResult periodIndexResult = new Lr2PlayHistoryReader().ReadPeriodIndex(
+                    Lr2PlayHistoryPeriodIndexResult periodIndexResult = playHistoryReadCache.ReadLr2PeriodIndex(
                         new Lr2PlayHistoryPeriodIndexRequest
                         {
                             ScoreDbPath = ResolveMainViewLr2PlayHistoryScoreDbPath(),
                             IsLr2LinkedProfile = Settings.Default.OperationModeLR2DB
                         },
-                        cancellationToken);
+                        cancellationToken,
+                        out playHistoryPeriodIndexCacheHit);
                     periodIndexPlayedAt = periodIndexResult.PlayedAtUnixSeconds;
                     periodIndexDiagnostics = periodIndexResult.Diagnostics;
                 }
@@ -20869,6 +20892,7 @@ public class MainWindowViewModel : ViewModel
                 + " requestId=" + requestId
                 + " provider=" + activePlayHistoryProvider
                 + " schemaStatus=" + readSchemaStatus
+                + " cacheHit=" + playHistoryPeriodIndexCacheHit.ToString().ToLowerInvariant()
                 + " days=" + (periodIndexPlayedAt?.Count ?? 0)
                 + " diagnosticsCount=" + (periodIndexDiagnostics?.Count ?? 0)
                 + " elapsedMs=" + periodIndexMs);
@@ -21042,6 +21066,31 @@ public class MainWindowViewModel : ViewModel
             archivePeriodTree,
             sortMs,
             fromSortOnly: false);
+    }
+
+    private void ApplyLr2PlayHistorySchemaCheckResultFromRead(Lr2PlayHistorySchemaCheckResult result)
+    {
+        if (result == null || !Settings.Default.OperationModeLR2DB)
+        {
+            return;
+        }
+        Dispatcher dispatcher = System.Windows.Application.Current?.Dispatcher;
+        if (dispatcher != null && !dispatcher.CheckAccess())
+        {
+            if (dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
+            {
+                return;
+            }
+            dispatcher.BeginInvoke(
+                DispatcherPriority.Background,
+                (Action)(() => ApplyLr2PlayHistorySchemaCheckResultFromRead(result)));
+            return;
+        }
+        if (settingDialog?.OperationModeLR2DB == true
+            && string.Equals(ResolveMainViewLr2PlayHistoryScoreDbPath() ?? string.Empty, result.ScoreDbPath ?? string.Empty, StringComparison.OrdinalIgnoreCase))
+        {
+            settingDialog.ApplyLr2PlayHistorySchemaCheckResult(result);
+        }
     }
 
     private IReadOnlyList<PlayHistoryRow> ApplyPlayHistoryKeywordFilterRows(

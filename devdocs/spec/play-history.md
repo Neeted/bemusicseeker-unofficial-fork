@@ -55,10 +55,11 @@ read の入力は `Lr2PlayHistoryReadRequest` である。
 | `PlayedAtFromInclusive` / `PlayedAtToExclusive` | `played_at` の half-open range。 |
 | `FinalizationFilter` | LR2 row の確定状態 filter。通常期間は `FinalizedOnly`、Diagnostics node は `UnfinalizedOnly`。 |
 | `Limit` | 読み込み上限。UI の通常一覧は default limit を使い、archive period index には使わない。 |
+| `DisableLimit` | UI の read cache 構築など、source 全体を snapshot する内部用途で既定上限を無効化する。 |
 
 reader は schema check を先に行う。`Installed` 以外の read 可能でない status では rows を空にし、diagnostics に原因を入れる。`Repairable` は index 以外の repairable mismatch なら warning diagnostic を付けて read を試みるが、missing / mismatched index がある場合は performance boundary を守るため read / period index を止め、error diagnostic を返す。read result は source profile、raw rows、diagnostics、schema status を保持する。
 
-`ReadPeriodIndex` は `bms_lr2_play_history.played_at` から日単位の代表 timestamp を読む。これは archive tree 用であり、通常一覧の row limit に巻き込まれない。現行 SQL は `strftime(..., 'localtime')` で finalized 全履歴を日単位に group 化するため、真の index-only lookup ではなく O(履歴行数) の集計になり得る。ただし row 本体や projection index を作らないため、通常一覧の全 row projection より軽い境界として扱う。
+`ReadPeriodIndex` は `bms_lr2_play_history.played_at` から archive tree 用の日別代表 timestamp を読む。これは通常一覧の row limit に巻き込まれない。reader 単体の period index は SQL で日単位に group 化できるが、UI では下記の read cache から finalized row の `played_at` を取り出し、local date ごとの最大 timestamp を in-memory で作る。
 
 ## beatoraja Read Model
 
@@ -68,7 +69,17 @@ reader は schema check を先に行う。`Installed` 以外の read 可能で�
 
 beatoraja には LR2 `finalized = 0` に相当する未確定 play history row がない。Diagnostics node の `UnfinalizedOnly` 要求では `scoredatalog.db` の通常履歴を代替表示せず、空 rows として扱う。
 
-beatoraja provider の日時 index は `MAX(scoredatalog.date)` を日別に集約する。`scoredatalog.db` が無い、または読めない場合、beatoraja provider の last play / archive index は未提供になり、`score.db` の `score.date` へ意味を変えて fallback しない。
+beatoraja provider の日時 index は `scoredatalog.date` を source とする。reader 単体では `MAX(scoredatalog.date)` を日別に集約できるが、UI では read cache から finalized 相当の通常 row の `played_at` を取り出し、local date ごとの最大 timestamp を in-memory で作る。`scoredatalog.db` が無い、または読めない場合、beatoraja provider の last play / archive index は未提供になり、`score.db` の `score.date` へ意味を変えて fallback しない。
+
+## Read Cache
+
+Play History view は画面遷移または期間選択で最初に provider / source path ごとの play history row を全件ロードし、アプリ起動中は `PlayHistoryReadCache` に保持する。以後の期間切り替え、Diagnostics node、archive tree、row limit、keyword search、sort、表示対象切り替えは原則として同じ in-memory snapshot から処理し、同一 source への DB select を繰り返さない。
+
+cache 構築は `Lr2PlayHistoryReader` / `BeatorajaPlayHistoryReader` に `FinalizationFilter = All` と `DisableLimit = true` を渡して行う。SQL や row conversion は reader 側の既存実装を使い、cache は読み込まれた raw row に対して期間・確定状態・limit の in-memory filter だけを担当する。独自 SQL や別の row mapping は持たない。
+
+cache key は LR2 では score DB path と LR2 linked profile 判定、beatoraja では score DB path、`scoredatalog.db` path、`scorelog.db` path である。score reload、play history schema の導入 / 修復 / 削除、source path または provider の切り替えでは cache を破棄し、次回 Play History view 利用時に再ロードする。
+
+LR2 schema status は reader が source を読むときに得た `Lr2PlayHistorySchemaCheckResult` を含む。設定ダイアログは表示時に DB check を自動実行しないが、Play History read で得た結果が現在の LR2 linked profile と一致する場合は表示状態へ共有する。未読の場合は未確認表示のままであり、導入 / 修復 / 削除ボタンの明示操作だけが操作直前の check を行う。
 
 ## Projection
 

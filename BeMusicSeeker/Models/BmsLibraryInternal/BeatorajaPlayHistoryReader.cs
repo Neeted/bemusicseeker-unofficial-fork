@@ -104,7 +104,7 @@ internal sealed class BeatorajaPlayHistoryReader
         }
     }
 
-    private static BeatorajaPlayHistoryReadRequest ResolveRequestPaths(BeatorajaPlayHistoryReadRequest request)
+    internal static BeatorajaPlayHistoryReadRequest ResolveRequestPaths(BeatorajaPlayHistoryReadRequest request)
     {
         request ??= new BeatorajaPlayHistoryReadRequest();
         if (string.IsNullOrWhiteSpace(request.ScoreDbPath))
@@ -162,7 +162,7 @@ internal sealed class BeatorajaPlayHistoryReader
         int limit = request.Limit.HasValue && request.Limit.Value > 0
             ? request.Limit.Value
             : DefaultReadLimit;
-        if (limit > 0)
+        if (!request.DisableLimit && limit > 0)
         {
             sql += " LIMIT ?";
             args.Add(limit);

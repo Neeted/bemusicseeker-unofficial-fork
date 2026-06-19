@@ -37,6 +37,7 @@
 
 - 既存プロファイルが有効な通常状態では `ReloadScoresOnly()` を起動する。
 - LR2 play history schema check は score DB 読み込み境界で行い、設定画面を開くだけでは行わない。
+- score reload 後は Play History read cache を破棄する。Play History view は次回利用時に現在の score source から履歴 row を全件ロードし直す。
 - 起動・リロード進捗が active の間は適用不可。
 
 ### Play History Display
@@ -103,7 +104,7 @@
 
 設定画面の dirty 判定は `Settings.Default.PropertyChanged` の発火有無ではなく、保存済み snapshot と現在の draft / settings 値の明示差分で行う。getter の防御的正規化、表示更新、schema status の presentation 更新だけで Cancel が full restore に入ってはならない。
 
-LR2 play history schema check は設定画面表示時の自動処理にしない。schema status は、アプリ起動時または Play History read など score DB を読むタイミングで得た結果を表示に利用し、未確認の場合は「未確認」表示のままにする。導入 / 修復 / 削除の明示操作では、操作直前に read-only check を行って対象 score DB と状態を確認する。
+LR2 play history schema check は設定画面表示時の自動処理にしない。schema status は、アプリ起動時または Play History read など score DB を読むタイミングで得た結果を表示に利用し、未確認の場合は「未確認」表示のままにする。Play History read で得た `Lr2PlayHistorySchemaCheckResult` が現在の LR2 linked profile の score DB と一致する場合、設定画面の表示状態へ共有してよい。導入 / 修復 / 削除の明示操作では、操作直前に read-only check を行って対象 score DB と状態を確認する。操作成功後は Play History read cache を破棄する。
 
 初回設定の案内は、設定画面で言語と動作モードを選ぶことを先に示す。`スタンドアローン(LR2と連携しない)` では一般タブの BMS ディレクトリとインストールタブの新規インストール先が必須で、`LR2と連携する` では一般タブの LR2 ディレクトリ、プレイリストタブのカスタムフォルダ出力先、インストールタブの新規インストール先が必須になる。必須項目が揃って `OK` が押されるまで、BMS ファイルの初回スキャンは開始しない。
 

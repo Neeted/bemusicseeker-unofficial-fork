@@ -265,6 +265,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
             settingDialogViewModel.ApplyLr2PlayHistorySchemaCheckResult(result);
             if (result.Status == Lr2PlayHistorySchemaStatus.Installed)
             {
+                viewModel.InvalidatePlayHistoryReadCache("lr2_play_history_schema_install_or_repair");
                 DispatcherMessageBox.Show(
                     Window.GetWindow(this),
                     BeMusicSeeker.Properties.Resources.Msg_success_lr2_play_history_schema_install_or_repair,
@@ -352,6 +353,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
             settingDialogViewModel.ApplyLr2PlayHistorySchemaCheckResult(result);
             if (IsExpectedLr2PlayHistorySchemaUninstallResult(uninstallMode, result.Status))
             {
+                viewModel.InvalidatePlayHistoryReadCache("lr2_play_history_schema_uninstall");
                 DispatcherMessageBox.Show(
                     Window.GetWindow(this),
                     BeMusicSeeker.Properties.Resources.Msg_success_lr2_play_history_schema_uninstall,

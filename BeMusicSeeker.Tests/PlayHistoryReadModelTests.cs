@@ -448,6 +448,243 @@ public sealed class PlayHistoryReadModelTests
     }
 
     [TestMethod]
+    public void PlayHistoryReadCache_Lr2LoadsAllRowsOnceAndFiltersFromMemory()
+    {
+        WithScoreDb(delegate (string scoreDbPath)
+        {
+            CreateInstalledScoreDb(scoreDbPath);
+            long day1 = UtcEpoch(2026, 1, 1);
+            long day2 = UtcEpoch(2026, 1, 2);
+            long day3 = UtcEpoch(2026, 1, 3);
+            using (var db = new SQLiteConnection(scoreDbPath))
+            {
+                InsertHistory(db, historyId: 1, hash: HashA, playedAt: day1, finalized: true, newExscore: 100);
+                InsertHistory(db, historyId: 2, hash: HashA, playedAt: day2, finalized: true, newExscore: 200);
+                InsertHistory(db, historyId: 3, hash: HashB, playedAt: day3, finalized: false, newExscore: 300);
+            }
+
+            var cache = new PlayHistoryReadCache();
+            Lr2PlayHistoryReadResult first = cache.ReadLr2(
+                new Lr2PlayHistoryReadRequest
+                {
+                    ScoreDbPath = scoreDbPath,
+                    IsLr2LinkedProfile = true,
+                    PlayedAtFromInclusive = day1 - 100,
+                    PlayedAtToExclusive = day1 + 100,
+                    FinalizationFilter = Lr2PlayHistoryFinalizationFilter.FinalizedOnly
+                },
+                CancellationToken.None,
+                out bool firstCacheHit);
+
+            Assert.IsFalse(firstCacheHit);
+            Assert.AreEqual(Lr2PlayHistorySchemaStatus.Installed, first.SchemaStatus);
+            Assert.AreEqual(Lr2PlayHistorySchemaStatus.Installed, first.SchemaCheckResult.Status);
+            CollectionAssert.AreEqual(new long[] { 1L }, first.Rows.Select(row => row.history_id).ToArray());
+
+            File.Delete(scoreDbPath);
+
+            Lr2PlayHistoryReadResult second = cache.ReadLr2(
+                new Lr2PlayHistoryReadRequest
+                {
+                    ScoreDbPath = scoreDbPath,
+                    IsLr2LinkedProfile = true,
+                    PlayedAtFromInclusive = day2 - 100,
+                    PlayedAtToExclusive = day2 + 100,
+                    FinalizationFilter = Lr2PlayHistoryFinalizationFilter.FinalizedOnly
+                },
+                CancellationToken.None,
+                out bool secondCacheHit);
+
+            Assert.IsTrue(secondCacheHit);
+            CollectionAssert.AreEqual(new long[] { 2L }, second.Rows.Select(row => row.history_id).ToArray());
+
+            Lr2PlayHistoryReadResult unfinalized = cache.ReadLr2(
+                new Lr2PlayHistoryReadRequest
+                {
+                    ScoreDbPath = scoreDbPath,
+                    IsLr2LinkedProfile = true,
+                    FinalizationFilter = Lr2PlayHistoryFinalizationFilter.UnfinalizedOnly
+                },
+                CancellationToken.None,
+                out bool unfinalizedCacheHit);
+
+            Assert.IsTrue(unfinalizedCacheHit);
+            CollectionAssert.AreEqual(new long[] { 3L }, unfinalized.Rows.Select(row => row.history_id).ToArray());
+
+            Lr2PlayHistoryPeriodIndexResult periodIndex = cache.ReadLr2PeriodIndex(
+                new Lr2PlayHistoryPeriodIndexRequest
+                {
+                    ScoreDbPath = scoreDbPath,
+                    IsLr2LinkedProfile = true
+                },
+                CancellationToken.None,
+                out bool periodIndexCacheHit);
+
+            Assert.IsTrue(periodIndexCacheHit);
+            CollectionAssert.AreEqual(new[] { day2, day1 }, periodIndex.PlayedAtUnixSeconds.ToArray());
+
+            cache.Invalidate();
+            Lr2PlayHistoryReadResult afterInvalidate = cache.ReadLr2(
+                new Lr2PlayHistoryReadRequest
+                {
+                    ScoreDbPath = scoreDbPath,
+                    IsLr2LinkedProfile = true,
+                    FinalizationFilter = Lr2PlayHistoryFinalizationFilter.FinalizedOnly
+                },
+                CancellationToken.None,
+                out bool afterInvalidateCacheHit);
+
+            Assert.IsFalse(afterInvalidateCacheHit);
+            Assert.AreEqual(Lr2PlayHistorySchemaStatus.Unreadable, afterInvalidate.SchemaStatus);
+        });
+    }
+
+    [TestMethod]
+    public void PlayHistoryReadCache_Lr2KeepsDefaultLimitUnlessDisabled()
+    {
+        WithScoreDb(delegate (string scoreDbPath)
+        {
+            CreateInstalledScoreDb(scoreDbPath);
+            using (var db = new SQLiteConnection(scoreDbPath))
+            {
+                db.BeginTransaction();
+                try
+                {
+                    for (int index = 1; index <= Lr2PlayHistoryReader.DefaultReadLimit + 1; index++)
+                    {
+                        InsertHistory(db, historyId: index, hash: HashA, playedAt: index, finalized: true, newExscore: 200);
+                    }
+                    db.Commit();
+                }
+                catch
+                {
+                    db.Rollback();
+                    throw;
+                }
+            }
+
+            var cache = new PlayHistoryReadCache();
+            Lr2PlayHistoryReadResult defaultLimited = cache.ReadLr2(
+                new Lr2PlayHistoryReadRequest
+                {
+                    ScoreDbPath = scoreDbPath,
+                    IsLr2LinkedProfile = true,
+                    FinalizationFilter = Lr2PlayHistoryFinalizationFilter.FinalizedOnly
+                },
+                CancellationToken.None,
+                out bool firstCacheHit);
+
+            Lr2PlayHistoryReadResult unlimited = cache.ReadLr2(
+                new Lr2PlayHistoryReadRequest
+                {
+                    ScoreDbPath = scoreDbPath,
+                    IsLr2LinkedProfile = true,
+                    FinalizationFilter = Lr2PlayHistoryFinalizationFilter.FinalizedOnly,
+                    DisableLimit = true
+                },
+                CancellationToken.None,
+                out bool secondCacheHit);
+
+            Assert.IsFalse(firstCacheHit);
+            Assert.IsTrue(secondCacheHit);
+            Assert.AreEqual(Lr2PlayHistoryReader.DefaultReadLimit, defaultLimited.Rows.Count);
+            Assert.AreEqual(Lr2PlayHistoryReader.DefaultReadLimit + 1, unlimited.Rows.Count);
+        });
+    }
+
+    [TestMethod]
+    public void PlayHistoryReadCache_BeatorajaLoadsAllRowsOnceAndFiltersFromMemory()
+    {
+        WithBeatorajaPlayerDb(delegate (string scoreDbPath, string scoreDataLogDbPath, string scoreLogDbPath)
+        {
+            CreateBeatorajaScoreDataLogDb(scoreDataLogDbPath);
+            CreateBeatorajaScoreLogDb(scoreLogDbPath);
+            long day1 = UtcEpoch(2026, 1, 1);
+            long day2 = UtcEpoch(2026, 1, 2);
+            long day3 = UtcEpoch(2026, 1, 3);
+            using (var db = new SQLiteConnection(scoreDataLogDbPath))
+            {
+                InsertBeatorajaScoreDataLog(db, ShaA, mode: 0, date: day1, clear: 5, epg: 10, lpg: 0, egr: 5, lgr: 0, notes: 20, combo: 12, minbp: 3, playcount: 2, clearcount: 1);
+                InsertBeatorajaScoreDataLog(db, ShaA, mode: 0, date: day2, clear: 6, epg: 20, lpg: 0, egr: 10, lgr: 0, notes: 40, combo: 24, minbp: 2, playcount: 3, clearcount: 2);
+                InsertBeatorajaScoreDataLog(db, ShaA, mode: 10000, date: day3, clear: 9, epg: 1, lpg: 0, egr: 0, lgr: 0, notes: 1, combo: 1, minbp: 0, playcount: 1, clearcount: 1);
+            }
+            using (var db = new SQLiteConnection(scoreLogDbPath))
+            {
+                InsertBeatorajaScoreLog(db, ShaA, mode: 0, date: day2, oldClear: 5, clear: 6, oldScore: 100, score: 180, oldCombo: 12, combo: 24, oldMinBp: 3, minBp: 2);
+            }
+
+            var cache = new PlayHistoryReadCache();
+            BeatorajaPlayHistoryReadResult first = cache.ReadBeatoraja(
+                new BeatorajaPlayHistoryReadRequest
+                {
+                    ScoreDbPath = scoreDbPath,
+                    PlayedAtFromInclusive = day1 - 100,
+                    PlayedAtToExclusive = day1 + 100
+                },
+                CancellationToken.None,
+                out bool firstCacheHit);
+
+            Assert.IsFalse(firstCacheHit);
+            Assert.AreEqual(Lr2PlayHistorySchemaStatus.Installed, first.SchemaStatus);
+            CollectionAssert.AreEqual(new[] { day1 }, first.Rows.Select(row => row.played_at).ToArray());
+
+            File.Delete(scoreDataLogDbPath);
+            File.Delete(scoreLogDbPath);
+
+            BeatorajaPlayHistoryReadResult second = cache.ReadBeatoraja(
+                new BeatorajaPlayHistoryReadRequest
+                {
+                    ScoreDbPath = scoreDbPath,
+                    ScoreDataLogDbPath = scoreDataLogDbPath,
+                    ScoreLogDbPath = scoreLogDbPath,
+                    PlayedAtFromInclusive = day2 - 100,
+                    PlayedAtToExclusive = day2 + 100
+                },
+                CancellationToken.None,
+                out bool secondCacheHit);
+
+            Assert.IsTrue(secondCacheHit);
+            Assert.AreEqual(1, second.Rows.Count);
+            Assert.AreEqual(day2, second.Rows[0].played_at);
+            Assert.AreEqual(100, second.Rows[0].old_exscore);
+            Assert.AreEqual(180, second.Rows[0].new_exscore);
+
+            BeatorajaPlayHistoryReadResult unfinalized = cache.ReadBeatoraja(
+                new BeatorajaPlayHistoryReadRequest
+                {
+                    ScoreDbPath = scoreDbPath,
+                    FinalizationFilter = Lr2PlayHistoryFinalizationFilter.UnfinalizedOnly
+                },
+                CancellationToken.None,
+                out bool unfinalizedCacheHit);
+
+            Assert.IsTrue(unfinalizedCacheHit);
+            Assert.AreEqual(0, unfinalized.Rows.Count);
+
+            BeatorajaPlayHistoryPeriodIndexResult periodIndex = cache.ReadBeatorajaPeriodIndex(
+                new BeatorajaPlayHistoryPeriodIndexRequest { ScoreDbPath = scoreDbPath },
+                CancellationToken.None,
+                out bool periodIndexCacheHit);
+
+            Assert.IsTrue(periodIndexCacheHit);
+            CollectionAssert.AreEqual(new[] { day2, day1 }, periodIndex.PlayedAtUnixSeconds.ToArray());
+
+            cache.Invalidate();
+            BeatorajaPlayHistoryReadResult afterInvalidate = cache.ReadBeatoraja(
+                new BeatorajaPlayHistoryReadRequest
+                {
+                    ScoreDbPath = scoreDbPath,
+                    ScoreDataLogDbPath = scoreDataLogDbPath
+                },
+                CancellationToken.None,
+                out bool afterInvalidateCacheHit);
+
+            Assert.IsFalse(afterInvalidateCacheHit);
+            Assert.AreEqual(Lr2PlayHistorySchemaStatus.NotInstalled, afterInvalidate.SchemaStatus);
+        });
+    }
+
+    [TestMethod]
     public void ProjectLr2Rows_ResolvesChartAndSeparatesBestDeltaFromActualResult()
     {
         var readResult = new Lr2PlayHistoryReadResult(
