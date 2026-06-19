@@ -1532,6 +1532,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         return TryResolveTableContextMenuPolicy(row, sourceScope, out usePlaylistMissingContextMenu);
     }
 
+    internal static bool TryResolvePlayHistoryContextMenuPolicyForTest(object row, out PlayHistoryContextMenuState state)
+    {
+        return PlayHistoryContextMenuState.TryCreate(row, out state);
+    }
+
     private static bool TryResolveTableContextMenuPolicy(object row, ChartOperationSourceScope sourceScope, out bool usePlaylistMissingContextMenu)
     {
         usePlaylistMissingContextMenu = false;
@@ -1637,16 +1642,29 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     private bool TryGetTableContextMenuResource(object row, string logPrefix, out ContextMenu contextMenu, out bool usePlaylistMissingContextMenu)
     {
         contextMenu = null;
+        usePlaylistMissingContextMenu = false;
         if (row == null)
         {
-            usePlaylistMissingContextMenu = false;
             return false;
         }
-        if (!TryResolveTableContextMenuPolicy(row, GetCurrentChartOperationSourceScope(), out usePlaylistMissingContextMenu))
+        string resourceKey;
+        if (PlayHistoryContextMenuState.TryCreate(row, out _))
+        {
+            resourceKey = "playHistoryContextMenu";
+            usePlaylistMissingContextMenu = false;
+        }
+        else if (row is PlayHistoryRow)
         {
             return false;
         }
-        string resourceKey = usePlaylistMissingContextMenu ? "tableContextMenuPlaylistMissing" : "tableContextMenu";
+        else if (!TryResolveTableContextMenuPolicy(row, GetCurrentChartOperationSourceScope(), out usePlaylistMissingContextMenu))
+        {
+            return false;
+        }
+        else
+        {
+            resourceKey = usePlaylistMissingContextMenu ? "tableContextMenuPlaylistMissing" : "tableContextMenu";
+        }
         if (TryFindResource(resourceKey) is not ContextMenu foundContextMenu)
         {
             return false;
@@ -5861,6 +5879,68 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             }
         }
         NLogWrapper.FileLogger?.Info("playlist_missing_context_menu rowType=" + row?.GetType().FullName + " entryParent=" + entry?.parent?.name + " isBmson=" + isBmsonContextRow + " url=" + (rowUrl != null) + " urlDiff=" + (rowUrlDiff != null) + " canOpenLr2Ir=" + canOpenLr2Ir + " canOpenRepository=" + canOpenRepository + " canOpenScoreViewer=" + canOpenScoreViewer + " canUpdateRanking=" + canUpdateRanking);
+    }
+
+    private void playHistoryContextMenuOpened(object sender, RoutedEventArgs e)
+    {
+        if (ShouldBlockStartupUiInteraction("datagrid_play_history_context_menu_opened"))
+        {
+            e.Handled = true;
+            return;
+        }
+        if (!TryGetContextMenuRow(sender, out ContextMenu contextMenu, out object row)
+            || !PlayHistoryContextMenuState.TryCreate(row, out PlayHistoryContextMenuState state))
+        {
+            return;
+        }
+
+        calcelAllContextMenuTasks();
+        _lastOpenedContextMenu = contextMenu;
+        foreach (Control item in (IEnumerable)contextMenu.Items)
+        {
+            switch (item.Name)
+            {
+                case "playHistoryContextMenuItemOpenMocha":
+                case "playHistoryContextMenuItemOpenMinIR":
+                    item.Visibility = state.CanOpenRepository ? Visibility.Visible : Visibility.Collapsed;
+                    item.IsEnabled = state.CanOpenRepository;
+                    break;
+                case "playHistoryContextMenuSeparatorRepository":
+                    item.Visibility = state.CanOpenRepository ? Visibility.Visible : Visibility.Collapsed;
+                    break;
+                case "playHistoryContextMenuItemCopyMd5":
+                    item.Visibility = state.CanCopyMd5 ? Visibility.Visible : Visibility.Collapsed;
+                    item.IsEnabled = state.CanCopyMd5;
+                    break;
+                case "playHistoryContextMenuItemCopyRepositorySha256":
+                    item.Visibility = state.CanCopyRepositorySha256 ? Visibility.Visible : Visibility.Collapsed;
+                    item.IsEnabled = state.CanCopyRepositorySha256;
+                    break;
+                case "playHistoryContextMenuItemCopyRawHash":
+                    item.Visibility = state.CanCopyRawHash ? Visibility.Visible : Visibility.Collapsed;
+                    item.IsEnabled = state.CanCopyRawHash;
+                    break;
+            }
+        }
+    }
+
+    private void playHistoryContextMenuItemCopyHashClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is not MenuItem { Tag: string copyKind }
+            || !TryGetContextMenuRow(sender, out object row)
+            || !PlayHistoryContextMenuState.TryCreate(row, out PlayHistoryContextMenuState state))
+        {
+            return;
+        }
+
+        string value = state.GetCopyValue(copyKind);
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return;
+        }
+
+        Clipboard.SetText(value);
+        e.Handled = true;
     }
 
     private void tableContextMenuItemOpenExplorerClick(object sender, RoutedEventArgs e)

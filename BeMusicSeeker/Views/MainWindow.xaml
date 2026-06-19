@@ -270,6 +270,14 @@
         <Separator />
         <MenuItem Name="tableContextMenuItemDeleteEntry" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Remove_playlist_entry, Mode=OneWay}" Click="tableContextMenuItemDeleteEntryClick" />
       </ContextMenu>
+      <ContextMenu x:Key="playHistoryContextMenu" x:Shared="False" HasDropShadow="True" Opened="playHistoryContextMenuOpened">
+        <MenuItem Name="playHistoryContextMenuItemOpenMocha" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_mocha, Mode=OneWay}" Click="tableContextMenuItemOpenMochaClick" />
+        <MenuItem Name="playHistoryContextMenuItemOpenMinIR" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_minir, Mode=OneWay}" Click="tableContextMenuItemOpenMinIRClick" />
+        <Separator Name="playHistoryContextMenuSeparatorRepository" />
+        <MenuItem Name="playHistoryContextMenuItemCopyMd5" Tag="Md5" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Play_history_copy_md5, Mode=OneWay}" Click="playHistoryContextMenuItemCopyHashClick" />
+        <MenuItem Name="playHistoryContextMenuItemCopyRepositorySha256" Tag="RepositorySha256" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Play_history_copy_repository_sha256, Mode=OneWay}" Click="playHistoryContextMenuItemCopyHashClick" />
+        <MenuItem Name="playHistoryContextMenuItemCopyRawHash" Tag="RawHash" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Play_history_copy_raw_hash, Mode=OneWay}" Click="playHistoryContextMenuItemCopyHashClick" />
+      </ContextMenu>
       <ContextMenu x:Key="treeViewPlaylistRootContextMenu" HasDropShadow="True" Opened="treeViewPlaylistRootContextMenuOpend">
         <MenuItem Name="treeViewPlaylistRootContextMenuItemCreateNewPlaylist" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Create_new, Mode=OneWay}" Click="treeViewPlaylistRootContextMenuItemCreateNewPlaylistClick" />
         <MenuItem>

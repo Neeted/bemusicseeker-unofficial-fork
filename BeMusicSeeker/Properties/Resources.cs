@@ -457,6 +457,12 @@ public class Resources
 
     public static string Play_history_summary_format => ResourceManager.GetString("Play_history_summary_format", resourceCulture);
 
+    public static string Play_history_copy_md5 => ResourceManager.GetString("Play_history_copy_md5", resourceCulture);
+
+    public static string Play_history_copy_repository_sha256 => ResourceManager.GetString("Play_history_copy_repository_sha256", resourceCulture);
+
+    public static string Play_history_copy_raw_hash => ResourceManager.GetString("Play_history_copy_raw_hash", resourceCulture);
+
     public static string Msg_confirm_lr2_play_history_schema_install_or_repair => ResourceManager.GetString("Msg_confirm_lr2_play_history_schema_install_or_repair", resourceCulture);
 
     public static string Msg_success_lr2_play_history_schema_install_or_repair => ResourceManager.GetString("Msg_success_lr2_play_history_schema_install_or_repair", resourceCulture);

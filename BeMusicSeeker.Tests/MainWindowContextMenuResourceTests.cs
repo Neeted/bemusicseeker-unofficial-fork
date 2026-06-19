@@ -78,7 +78,9 @@ public sealed class MainWindowContextMenuResourceTests
     {
         string xaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "MainWindow.xaml"));
         string mainTable = ExtractBetween(xaml, "<v:CustomTableView x:Name=\"customTableView\"", "<i:Interaction.Triggers>");
+        string playHistoryContextMenu = ExtractBetween(xaml, "<ContextMenu x:Key=\"playHistoryContextMenu\"", "<ContextMenu x:Key=\"treeViewPlaylistRootContextMenu\"");
         PlayHistoryRow playHistoryRow = CreateUnresolvedPlayHistoryRow();
+        PlayHistoryRow resolvedPlayHistoryRow = CreateResolvedPlayHistoryRow();
         LibraryChartRow libraryRow = LibraryChartRow.FromBmsFile(CreateContextMenuBmsFile());
 
         StringAssert.Contains(mainTable, "RowDragKind=\"{Binding ChartRowsViewRowDragKind, Mode=OneWay}\"");
@@ -87,6 +89,41 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(playHistoryMissingContextMenu);
         Assert.IsTrue(MainWindow.TryResolveTableContextMenuPolicyForTest(libraryRow, ChartOperationSourceScope.Library, out bool libraryMissingContextMenu));
         Assert.IsFalse(libraryMissingContextMenu);
+        Assert.AreEqual(1, CountOccurrences(xaml, "x:Key=\"playHistoryContextMenu\""));
+        StringAssert.Contains(playHistoryContextMenu, "Opened=\"playHistoryContextMenuOpened\"");
+        StringAssert.Contains(playHistoryContextMenu, "Name=\"playHistoryContextMenuItemOpenMocha\"");
+        StringAssert.Contains(playHistoryContextMenu, "Name=\"playHistoryContextMenuItemOpenMinIR\"");
+        StringAssert.Contains(playHistoryContextMenu, "Name=\"playHistoryContextMenuItemCopyMd5\"");
+        StringAssert.Contains(playHistoryContextMenu, "Name=\"playHistoryContextMenuItemCopyRepositorySha256\"");
+        StringAssert.Contains(playHistoryContextMenu, "Name=\"playHistoryContextMenuItemCopyRawHash\"");
+        Assert.IsFalse(playHistoryContextMenu.Contains("tableContextMenuItemOpenExplorer"));
+        Assert.IsFalse(playHistoryContextMenu.Contains("tableContextMenuItemDeleteFile"));
+        Assert.IsFalse(playHistoryContextMenu.Contains("tableContextMenuItemUpdateRankingData"));
+        foreach (string resource in new[]
+        {
+            "Play_history_copy_md5",
+            "Play_history_copy_repository_sha256",
+            "Play_history_copy_raw_hash"
+        })
+        {
+            StringAssert.Contains(playHistoryContextMenu, "Path=Resources." + resource + ", Mode=OneWay", resource);
+            Assert.IsFalse(string.IsNullOrWhiteSpace(Resources.ResourceManager.GetString(resource)), resource);
+        }
+        Assert.IsTrue(MainWindow.TryResolvePlayHistoryContextMenuPolicyForTest(playHistoryRow, out PlayHistoryContextMenuState unresolvedState));
+        Assert.IsNull(GridRowResolver.GetRepositorySha256(playHistoryRow));
+        Assert.IsTrue(unresolvedState.CanCopyRawHash);
+        Assert.IsFalse(unresolvedState.CanOpenRepository);
+        Assert.IsFalse(unresolvedState.CanCopyMd5);
+        Assert.IsFalse(unresolvedState.CanCopyRepositorySha256);
+        Assert.AreEqual("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", unresolvedState.GetCopyValue(PlayHistoryContextMenuState.CopyRawHashKind));
+        Assert.IsTrue(MainWindow.TryResolvePlayHistoryContextMenuPolicyForTest(resolvedPlayHistoryRow, out PlayHistoryContextMenuState resolvedState));
+        Assert.AreEqual(new string('d', 64), GridRowResolver.GetRepositorySha256(resolvedPlayHistoryRow));
+        Assert.IsFalse(resolvedState.CanCopyRawHash);
+        Assert.IsTrue(resolvedState.CanOpenRepository);
+        Assert.IsTrue(resolvedState.CanCopyMd5);
+        Assert.IsTrue(resolvedState.CanCopyRepositorySha256);
+        Assert.AreEqual("cccccccccccccccccccccccccccccccc", resolvedState.GetCopyValue(PlayHistoryContextMenuState.CopyMd5Kind));
+        Assert.AreEqual(new string('d', 64), resolvedState.GetCopyValue(PlayHistoryContextMenuState.CopyRepositorySha256Kind));
     }
 
     [TestMethod]
@@ -2522,6 +2559,71 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(libraryCode, "if (!fixMode && looseEntries.Count == 0 && packageTargets.Count > 1)");
         StringAssert.Contains(installEstimationDoc, "手動の複数 package 推定");
         StringAssert.Contains(installEstimationDoc, "loose chart が混じる手動 chart 群推定");
+    }
+
+    private static PlayHistoryRow CreateResolvedPlayHistoryRow()
+    {
+        const string hash = "cccccccccccccccccccccccccccccccc";
+        string sha256 = new string('d', 64);
+        BMSFile file = BMSFile.FromSongTableRawValues(
+        [
+            hash,
+            "Resolved Play History",
+            "",
+            "Artist",
+            "",
+            "",
+            "",
+            "C:\\BMS\\play-history-resolved.bms",
+            "",
+            "Folder",
+            "",
+            "",
+            "",
+            "",
+            "12",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            ""
+        ]);
+        file.ApplySnapshotDigest(hash, sha256);
+        PlaylistLibraryResolveIndexSnapshot resolveIndex = PlaylistLibraryResolveIndexSnapshot.FromLibraryChartRefs([LibraryChartRef.FromBmsFile(file)]);
+        PlayHistoryProjectionIndex projectionIndex = PlayHistoryProjectionIndex.Create(
+            resolveIndex,
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { [hash] = sha256 });
+        PlayHistoryProjectionResult projected = PlayHistoryRow.ProjectLr2Rows(
+            new Lr2PlayHistoryReadResult(
+                PlayHistorySourceProfile.Lr2("score.db"),
+                [
+                    new Lr2PlayHistoryRecord
+                    {
+                        history_id = 2,
+                        hash = hash,
+                        played_at = 1000,
+                        finalized = 1,
+                        score_write_type = "update",
+                        new_playcount = 1,
+                        playcount_delta = 1,
+                        new_exscore = 100,
+                        new_totalnotes = 100
+                    }
+                ],
+                [],
+                Lr2PlayHistorySchemaStatus.Installed),
+            projectionIndex);
+
+        return projected.Rows.Single();
     }
 
     private static PlayHistoryRow CreateUnresolvedPlayHistoryRow()

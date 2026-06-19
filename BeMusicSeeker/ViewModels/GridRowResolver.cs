@@ -200,6 +200,14 @@ internal static class GridRowResolver
     /// </summary>
     internal static string GetHash(object row)
     {
+        if (row is PlayHistoryRow playHistoryRow)
+        {
+            if (playHistoryRow.ResolvedChart == null)
+            {
+                return null;
+            }
+            return FirstNonEmpty(playHistoryRow.ResolvedChart?.Md5, playHistoryRow.RawHash);
+        }
         if (TryGetChartFile(row, out ChartFile chart))
         {
             return chart.Md5;
@@ -212,6 +220,14 @@ internal static class GridRowResolver
     /// </summary>
     internal static string GetSha256(object row)
     {
+        if (row is PlayHistoryRow playHistoryRow)
+        {
+            if (playHistoryRow.ResolvedChart == null)
+            {
+                return null;
+            }
+            return FirstNonEmpty(playHistoryRow.Sha256, playHistoryRow.ResolvedChart?.Sha256, playHistoryRow.ResolvedChart?.ChartInfo?.sha256);
+        }
         if (TryGetChartFile(row, out ChartFile chart))
         {
             return chart.Sha256;
@@ -225,9 +241,13 @@ internal static class GridRowResolver
     /// </summary>
     internal static string GetRepositorySha256(object row)
     {
-        string sha256 = TryGetChartFile(row, out ChartFile chart)
-            ? FirstNonEmpty(chart.Sha256, chart.ChartInfo?.sha256)
-            : null;
+        string sha256 = row is PlayHistoryRow playHistoryRow
+            ? playHistoryRow.ResolvedChart == null
+                ? null
+                : FirstNonEmpty(playHistoryRow.Sha256, playHistoryRow.ResolvedChart?.Sha256, playHistoryRow.ResolvedChart?.ChartInfo?.sha256)
+            : TryGetChartFile(row, out ChartFile chart)
+                ? FirstNonEmpty(chart.Sha256, chart.ChartInfo?.sha256)
+                : null;
         return IsValidSha256(sha256) ? sha256.ToLowerInvariant() : null;
     }
 

@@ -1491,6 +1491,15 @@ maintenance の再スキャンや chart_info の全譜面補完は行いませ�
   <data name="Play_history_summary_format" xml:space="preserve">
     <value>{0}: {1} 件 / SCORE更新 {2} / CLEAR更新 {3} / FC {4} / PLAYTIME {5} / 診断 {6}</value>
   </data>
+  <data name="Play_history_copy_md5" xml:space="preserve">
+    <value>MD5 をコピー</value>
+  </data>
+  <data name="Play_history_copy_repository_sha256" xml:space="preserve">
+    <value>Repository SHA256 をコピー</value>
+  </data>
+  <data name="Play_history_copy_raw_hash" xml:space="preserve">
+    <value>RAW HASH をコピー</value>
+  </data>
   <data name="Msg_confirm_lr2_play_history_schema_install_or_repair" xml:space="preserve">
     <value>LR2 を終了してから実行してください。
 プレイヤー別 score DB にプレイログ用の table / trigger を追加または修復します。
