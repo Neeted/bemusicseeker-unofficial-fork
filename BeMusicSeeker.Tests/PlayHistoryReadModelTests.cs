@@ -457,11 +457,13 @@ public sealed class PlayHistoryReadModelTests
         Assert.AreEqual("SAT", row.FolderLabels);
         Assert.AreEqual("NO PLAY -> CLEAR", row.BestClear);
         Assert.AreEqual("200 -> 250", row.BestExscore);
-        Assert.AreEqual("BP 20", row.BestBp);
+        Assert.AreEqual("20", row.BestBp);
         Assert.AreEqual("80 -> 120", row.BestCombo);
         Assert.AreEqual(RankType.AA, row.BestDjLevel);
+        Assert.AreEqual("A -> AA", row.BestDjLevelText);
         Assert.IsTrue(row.BestRate.HasValue);
         Assert.AreEqual(250 / 300.0, row.BestRate.Value, 0.0001);
+        Assert.AreEqual("66.67% -> 83.33%", row.BestRateText);
         Assert.AreEqual(240, row.PlayExscore);
         Assert.AreEqual(250, row.NewBestExscore);
         Assert.AreEqual(90, row.PlaytimeSeconds);
@@ -469,8 +471,8 @@ public sealed class PlayHistoryReadModelTests
         Assert.AreEqual("PG 100 / GR 40 / GD 10 / BD 5 / PR 2", row.Judges);
         Assert.AreEqual("EASY RANDOM", row.Option);
         Assert.AreEqual(16, row.OpHistoryNewBits);
-        Assert.AreEqual("0x00000010", row.OpHistory);
-        Assert.AreEqual("score", row.Kind);
+        Assert.AreEqual("P.A", row.OpHistory);
+        Assert.AreEqual("score bp clear combo", row.Kind);
     }
 
     [TestMethod]
@@ -701,6 +703,80 @@ public sealed class PlayHistoryReadModelTests
     }
 
     [TestMethod]
+    public void SummaryCardsExposeDedicatedPlayHistoryMetrics()
+    {
+        PlayHistoryProjectionResult projected = PlayHistoryRow.ProjectLr2Rows(
+            new Lr2PlayHistoryReadResult(
+                PlayHistorySourceProfile.Lr2("score.db"),
+                [
+                    CreateRawRecord(1, HashA, 1000, finalized: true, oldExscore: 100, newExscore: 120, newTotalNotes: 100, oldClear: 0, newClear: 2, oldMinBp: null, newMinBp: 10, oldMaxCombo: 50, newMaxCombo: 80, playtimeDelta: 70, judgeDelta: 100),
+                    CreateRawRecord(2, HashA, 2000, finalized: true, oldExscore: 100, newExscore: 100, newTotalNotes: 100, oldClear: 3, newClear: 5, playtimeDelta: 50, judgeDelta: 60)
+                ],
+                [],
+                Lr2PlayHistorySchemaStatus.Installed),
+            CreateProjectionIndex());
+        PlayHistoryPeriodSummary summary = PlayHistoryPeriodSummary.FromRows("today", projected.Rows);
+
+        IReadOnlyList<PlayHistorySummaryCard> cards = MainWindowViewModel.CreatePlayHistorySummaryCardsForTest(summary);
+
+        Assert.AreEqual("判定数", cards[0].Label);
+        Assert.AreEqual("160", cards[0].Value);
+        Assert.AreEqual("プレイ数", cards[1].Label);
+        Assert.AreEqual("2", cards[1].Value);
+        Assert.AreEqual("演奏時間", cards[2].Label);
+        Assert.AreEqual("2:00", cards[2].Value);
+        Assert.AreEqual("スコア更新", cards[3].Label);
+        Assert.AreEqual("1", cards[3].Value);
+        Assert.AreEqual("BP更新", cards[4].Label);
+        Assert.AreEqual("1", cards[4].Value);
+        Assert.AreEqual("コンボ更新", cards[5].Label);
+        Assert.AreEqual("1", cards[5].Value);
+        Assert.AreEqual("クリア更新", cards[6].Label);
+        Assert.AreEqual("2", cards[6].Value);
+        Assert.AreEqual("EASY", cards[8].Label);
+        Assert.AreEqual("1", cards[8].Value);
+        Assert.AreEqual("FC", cards[12].Label);
+        Assert.AreEqual("1", cards[12].Value);
+        Assert.IsTrue(cards[12].Compact);
+    }
+
+    [TestMethod]
+    public void RowProjectionFormatsTransitionsAndOptionHistory()
+    {
+        PlayHistoryProjectionResult projected = PlayHistoryRow.ProjectLr2Rows(
+            new Lr2PlayHistoryReadResult(
+                PlayHistorySourceProfile.Lr2("score.db"),
+                [
+                    CreateRawRecord(
+                        1,
+                        HashA,
+                        1000,
+                        finalized: true,
+                        oldExscore: 100,
+                        newExscore: 120,
+                        newTotalNotes: 100,
+                        oldClear: 0,
+                        newClear: 3,
+                        oldMinBp: null,
+                        newMinBp: 10,
+                        oldMaxCombo: 50,
+                        newMaxCombo: 80,
+                        oldOpHistory: 0x01000000,
+                        newOpHistory: 0x00000010)
+                ],
+                [],
+                Lr2PlayHistorySchemaStatus.Installed),
+            CreateProjectionIndex());
+
+        PlayHistoryRow row = projected.Rows.Single();
+
+        Assert.AreEqual("score bp clear combo", row.Kind);
+        Assert.AreEqual("10", row.BestBp);
+        Assert.AreEqual("50.00% -> 60.00%", row.BestRateText);
+        Assert.AreEqual("P.A / ASSIST off", row.OpHistory);
+    }
+
+    [TestMethod]
     public void SummaryDoesNotCountFailedAsNewClear()
     {
         PlayHistoryProjectionResult projected = PlayHistoryRow.ProjectLr2Rows(
@@ -844,7 +920,9 @@ public sealed class PlayHistoryReadModelTests
             Assert.AreEqual("20 -> 10", row.BestBp);
             Assert.AreEqual("70 -> 80", row.BestCombo);
             Assert.AreEqual("EASY CLEAR -> CLEAR", row.BestClear);
-            Assert.AreEqual("option 12 / random 6 / seed 345", row.Option);
+            Assert.AreEqual("1P RANDOM / 2P MIRROR", row.Option);
+            Assert.AreEqual("score bp clear combo", row.Kind);
+            Assert.AreEqual("50.00% -> 66.50%", row.BestRateText);
             Assert.IsNull(row.PlaytimeSeconds);
             Assert.AreEqual(1, summary.RowCount);
             Assert.AreEqual(1, summary.SummaryEligibleCount);
@@ -886,6 +964,34 @@ public sealed class PlayHistoryReadModelTests
             Assert.AreEqual(string.Empty, row.BestClear);
             Assert.AreEqual("play", row.Kind);
             Assert.IsNull(row.PlaytimeSeconds);
+        });
+    }
+
+    [TestMethod]
+    public void BeatorajaReader_TreatsMaxValueOldMinBpAsUnplayed()
+    {
+        WithBeatorajaPlayerDb(delegate (string scoreDbPath, string scoreDataLogDbPath, string scoreLogDbPath)
+        {
+            CreateBeatorajaScoreDataLogDb(scoreDataLogDbPath);
+            CreateBeatorajaScoreLogDb(scoreLogDbPath);
+            using (var db = new SQLiteConnection(scoreDataLogDbPath))
+            {
+                InsertBeatorajaScoreDataLog(db, ShaA, mode: 0, date: 1000, clear: 5, epg: 10, lpg: 0, egr: 5, lgr: 0, notes: 20, combo: 12, minbp: 10, playcount: 1, clearcount: 1, option: 0, seed: -1, random: 0);
+            }
+            using (var db = new SQLiteConnection(scoreLogDbPath))
+            {
+                InsertBeatorajaScoreLog(db, ShaA, mode: 0, date: 1000, oldClear: 5, clear: 5, oldScore: 50, score: 50, oldCombo: 12, combo: 12, oldMinBp: int.MaxValue, minBp: 10);
+            }
+
+            PlayHistoryRow row = PlayHistoryRow.ProjectBeatorajaRows(
+                new BeatorajaPlayHistoryReader().Read(new BeatorajaPlayHistoryReadRequest { ScoreDbPath = scoreDbPath }),
+                CreateProjectionIndex()).Rows.Single();
+
+            Assert.IsNull(row.OldBestBp);
+            Assert.AreEqual(10, row.NewBestBp);
+            Assert.AreEqual("10", row.BestBp);
+            Assert.AreEqual("bp", row.Kind);
+            Assert.IsFalse(row.BestBp.Contains(int.MaxValue.ToString(System.Globalization.CultureInfo.InvariantCulture)));
         });
     }
 

@@ -21,6 +21,8 @@ internal sealed class PlayHistoryContextMenuState
 
     internal bool IsResolved => !string.IsNullOrWhiteSpace(Md5);
 
+    internal bool CanOpenBmsIr => IsResolved;
+
     internal bool CanOpenRepository => IsResolved && !string.IsNullOrWhiteSpace(RepositorySha256);
 
     internal bool CanCopyRawHash => !IsResolved && !string.IsNullOrWhiteSpace(RawHash);
@@ -29,7 +31,7 @@ internal sealed class PlayHistoryContextMenuState
 
     internal bool CanCopyRepositorySha256 => IsResolved && !string.IsNullOrWhiteSpace(RepositorySha256);
 
-    internal bool HasVisibleItem => CanOpenRepository || CanCopyRawHash || CanCopyMd5 || CanCopyRepositorySha256;
+    internal bool HasVisibleItem => CanOpenBmsIr || CanOpenRepository || CanCopyRawHash || CanCopyMd5 || CanCopyRepositorySha256;
 
     internal static bool TryCreate(object row, out PlayHistoryContextMenuState state)
     {

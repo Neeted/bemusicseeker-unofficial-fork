@@ -271,6 +271,7 @@
         <MenuItem Name="tableContextMenuItemDeleteEntry" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Remove_playlist_entry, Mode=OneWay}" Click="tableContextMenuItemDeleteEntryClick" />
       </ContextMenu>
       <ContextMenu x:Key="playHistoryContextMenu" x:Shared="False" HasDropShadow="True" Opened="playHistoryContextMenuOpened">
+        <MenuItem Name="playHistoryContextMenuItemOpenBMSIR" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_lr2ir, Mode=OneWay}" Click="playHistoryContextMenuItemOpenBMSIRClick" />
         <MenuItem Name="playHistoryContextMenuItemOpenMocha" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_mocha, Mode=OneWay}" Click="tableContextMenuItemOpenMochaClick" />
         <MenuItem Name="playHistoryContextMenuItemOpenMinIR" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_minir, Mode=OneWay}" Click="tableContextMenuItemOpenMinIRClick" />
         <Separator Name="playHistoryContextMenuSeparatorRepository" />
@@ -533,8 +534,6 @@
         <MenuItem Header="JUDGES" IsCheckable="True" Style="{StaticResource stylePlayHistoryContextMenuLeftAlignment}" IsChecked="{Binding ColumnsSettingsChartRowsView.PlayHistoryJudges.Visibility, Source={StaticResource vm}, Converter={qc:QuickConverter '$P == Visibility.Visible ? true : false', ConvertBack='$value ? Visibility.Visible : Visibility.Hidden'}}" />
         <MenuItem Header="OPTION" IsCheckable="True" Style="{StaticResource stylePlayHistoryContextMenuLeftAlignment}" IsChecked="{Binding ColumnsSettingsChartRowsView.PlayHistoryOption.Visibility, Source={StaticResource vm}, Converter={qc:QuickConverter '$P == Visibility.Visible ? true : false', ConvertBack='$value ? Visibility.Visible : Visibility.Hidden'}}" />
         <MenuItem Header="SHA256" IsCheckable="True" Style="{StaticResource stylePlayHistoryContextMenuLeftAlignment}" IsChecked="{Binding ColumnsSettingsChartRowsView.Sha256.Visibility, Source={StaticResource vm}, Converter={qc:QuickConverter '$P == Visibility.Visible ? true : false', ConvertBack='$value ? Visibility.Visible : Visibility.Hidden'}}" />
-        <MenuItem Header="PROVIDER" IsCheckable="True" Style="{StaticResource stylePlayHistoryContextMenuLeftAlignment}" IsChecked="{Binding ColumnsSettingsChartRowsView.PlayHistoryProvider.Visibility, Source={StaticResource vm}, Converter={qc:QuickConverter '$P == Visibility.Visible ? true : false', ConvertBack='$value ? Visibility.Visible : Visibility.Hidden'}}" />
-        <MenuItem Header="SOURCE" IsCheckable="True" Style="{StaticResource stylePlayHistoryContextMenuLeftAlignment}" IsChecked="{Binding ColumnsSettingsChartRowsView.PlayHistorySource.Visibility, Source={StaticResource vm}, Converter={qc:QuickConverter '$P == Visibility.Visible ? true : false', ConvertBack='$value ? Visibility.Visible : Visibility.Hidden'}}" />
         <MenuItem Header="RAW HASH" IsCheckable="True" Style="{StaticResource stylePlayHistoryContextMenuLeftAlignment}" IsChecked="{Binding ColumnsSettingsChartRowsView.PlayHistoryRawHash.Visibility, Source={StaticResource vm}, Converter={qc:QuickConverter '$P == Visibility.Visible ? true : false', ConvertBack='$value ? Visibility.Visible : Visibility.Hidden'}}" />
         <MenuItem Header="FINALIZED" IsCheckable="True" Style="{StaticResource stylePlayHistoryContextMenuLeftAlignment}" IsChecked="{Binding ColumnsSettingsChartRowsView.PlayHistoryFinalized.Visibility, Source={StaticResource vm}, Converter={qc:QuickConverter '$P == Visibility.Visible ? true : false', ConvertBack='$value ? Visibility.Visible : Visibility.Hidden'}}" />
         <Separator />
@@ -1253,6 +1252,7 @@
           <Grid.RowDefinitions>
             <RowDefinition MaxHeight="{qc:MultiBinding $P0 + $P1, P0={Binding Height, ElementName=gridBMSPlayerBody}, P1={Binding Height, ElementName=gridBMSPlayerControls}}" MinHeight="{Binding MaxHeight, RelativeSource={x:Static RelativeSource.Self}}" />
             <RowDefinition Height="27" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
           </Grid.RowDefinitions>
           <Grid Name="gridBMSPlayer" Row="0" Column="0" ColumnSpan="2" Width="{Binding Width, ElementName=gridBMSPlayerBody}">
@@ -1908,7 +1908,7 @@
                   <TextBlock FontFamily="{StaticResource LigatureSymbols}" VerticalAlignment="Center" FontSize="16" Text="close" Margin="0,0,3,0.5" Foreground="{DynamicResource App.AccentSubtleBrush}" Cursor="Hand" Visibility="{Binding Text, ElementName=KeywordSearchBoxPlaylistSummary, Mode=OneWay, Converter={qc:QuickConverter 'String.IsNullOrWhiteSpace($P) ? Visibility.Hidden : Visibility.Visible'}}" MouseLeftButtonDown="{qc:QuickEvent '$KeywordSearchBoxPlaylistSummary.Text = String.Empty'}" />
                 </StackPanel>
               </Border>
-              <TextBlock DockPanel.Dock="Right" FontFamily="Meiryo" FontSize="12" VerticalAlignment="Bottom" Margin="10,0,5,0" Foreground="{DynamicResource App.TextBrush}" HorizontalAlignment="Left" Visibility="{Binding IsPlaylistSummaryMode, Converter={qc:QuickConverter '$P ? Visibility.Collapsed : Visibility.Visible'}}" Text="{Binding GridSummaryText}" />
+              <TextBlock DockPanel.Dock="Right" FontFamily="Meiryo" FontSize="12" VerticalAlignment="Bottom" Margin="10,0,5,0" Foreground="{DynamicResource App.TextBrush}" HorizontalAlignment="Left" Visibility="{qc:MultiBinding '(!$P0 &amp;&amp; !$P1) ? Visibility.Visible : Visibility.Collapsed', P0={Binding IsPlaylistSummaryMode}, P1={Binding IsPlayHistoryViewActive}}" Text="{Binding GridSummaryText}" />
               <TextBlock DockPanel.Dock="Right" FontFamily="Meiryo" FontSize="12" VerticalAlignment="Bottom" Margin="10,0,5,0" Foreground="{DynamicResource App.TextBrush}" HorizontalAlignment="Left" Visibility="{Binding IsPlaylistSummaryMode, Converter={qc:QuickConverter '$P ? Visibility.Visible : Visibility.Collapsed'}}" Text="{Binding GridSummaryText}" />
               <TextBlock Name="gridBMSPlayerControlsFolderPath" DockPanel.Dock="Left" FontFamily="Meiryo" FontSize="14" VerticalAlignment="Center" Margin="5,0" Foreground="{DynamicResource App.TextBrush}" TextTrimming="CharacterEllipsis" Visibility="{qc:MultiBinding '(!$P0 &amp;&amp; $P1 != Visibility.Visible) ? Visibility.Visible : Visibility.Collapsed', P0={Binding IsPlaylistSummaryMode}, P1={Binding ColumnSettingsVisibilityForPlaylist}}">
                 <TextBlock.Text>
@@ -1929,7 +1929,45 @@
               <TextBlock DockPanel.Dock="Left" FontFamily="Meiryo" FontSize="14" VerticalAlignment="Center" Margin="5,0" Foreground="{DynamicResource App.TextBrush}" TextTrimming="CharacterEllipsis" Visibility="{Binding IsPlaylistSummaryMode, Converter={qc:QuickConverter '$P ? Visibility.Visible : Visibility.Collapsed'}}" Text="{Binding GridHeaderText}" />
             </DockPanel>
           </Border>
-          <v:CustomTableView x:Name="customTableView" Grid.Row="2" Grid.ColumnSpan="1" Grid.Column="1" RowHeight="19" HeaderHeight="22" RowDragKind="{Binding ChartRowsViewRowDragKind, Mode=OneWay}" ScoreFontFamily="{StaticResource SovjetBox}" ItemsSource="{Binding ChartRowsView, Mode=OneWay}" ColumnsSettings="{Binding ColumnsSettingsChartRowsView, Mode=OneWay}" SelectedIndex="{Binding SelectedIndexChartRowsView, Mode=TwoWay}" SortColumnName="{Binding SortParameters.ColumnsName, Mode=OneWay}" SortDirection="{Binding SortParameters.Direction, Mode=OneWay}" FirstRenderCompleted="customTableView_FirstRenderCompleted" SortRequested="customTableView_SortRequested" SelectionChanged="customTableView_SelectionChanged" RowActivated="customTableView_RowActivated" RowContextMenuRequested="customTableView_RowContextMenuRequested" HeaderContextMenuRequested="customTableView_HeaderContextMenuRequested" CellEditBeginning="customTableView_CellEditBeginning" CellActionRequested="customTableView_CellActionRequested" CellEditEnded="customTableView_CellEditEnded" Visibility="{Binding IsPlaylistSummaryMode, Converter={qc:QuickConverter '!$P ? Visibility.Visible : Visibility.Collapsed'}}" >
+          <Border Grid.Row="2" Grid.Column="1" Background="{DynamicResource App.SurfaceBrush}" BorderBrush="{DynamicResource App.BorderBrush}" BorderThickness="0,0,0,1" Padding="4,3" Visibility="{Binding IsPlayHistoryViewActive, Converter={qc:QuickConverter '$P ? Visibility.Visible : Visibility.Collapsed'}}">
+            <DockPanel LastChildFill="True">
+              <TextBlock DockPanel.Dock="Right" FontFamily="Meiryo" FontSize="11" Foreground="{DynamicResource App.WarningTextBrush}" Text="{Binding PlayHistorySummaryDiagnosticText}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Margin="8,0,2,0" Visibility="{Binding PlayHistorySummaryDiagnosticText, Converter={qc:QuickConverter 'String.IsNullOrWhiteSpace($P) ? Visibility.Collapsed : Visibility.Visible'}}" />
+              <ItemsControl ItemsSource="{Binding PlayHistorySummaryCards}">
+                <ItemsControl.ItemsPanel>
+                  <ItemsPanelTemplate>
+                    <WrapPanel Orientation="Horizontal" />
+                  </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate>
+                    <Border CornerRadius="4" BorderThickness="1" BorderBrush="{DynamicResource App.StrongBorderBrush}" Background="{DynamicResource App.ControlBackgroundBrush}" Margin="0,0,4,0">
+                      <Border.Style>
+                        <Style TargetType="{x:Type Border}">
+                          <Setter Property="MinWidth" Value="82" />
+                          <Setter Property="Padding" Value="7,2" />
+                          <Style.Triggers>
+                            <DataTrigger Binding="{Binding Compact}" Value="True">
+                              <Setter Property="MinWidth" Value="58" />
+                              <Setter Property="Padding" Value="5,2" />
+                            </DataTrigger>
+                          </Style.Triggers>
+                        </Style>
+                      </Border.Style>
+                      <Grid>
+                        <Grid.ColumnDefinitions>
+                          <ColumnDefinition Width="*" />
+                          <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" FontFamily="Meiryo" FontSize="11" Foreground="{DynamicResource App.SubtleTextBrush}" Text="{Binding Label}" TextAlignment="Center" VerticalAlignment="Center" Margin="0,0,5,0" />
+                        <TextBlock Grid.Column="1" FontFamily="Meiryo" FontSize="12" FontWeight="Bold" Foreground="{DynamicResource App.TextBrush}" Text="{Binding Value}" TextAlignment="Center" VerticalAlignment="Center" />
+                      </Grid>
+                    </Border>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </DockPanel>
+          </Border>
+          <v:CustomTableView x:Name="customTableView" Grid.Row="3" Grid.ColumnSpan="1" Grid.Column="1" RowHeight="19" HeaderHeight="22" RowDragKind="{Binding ChartRowsViewRowDragKind, Mode=OneWay}" ScoreFontFamily="{StaticResource SovjetBox}" ItemsSource="{Binding ChartRowsView, Mode=OneWay}" ColumnsSettings="{Binding ColumnsSettingsChartRowsView, Mode=OneWay}" SelectedIndex="{Binding SelectedIndexChartRowsView, Mode=TwoWay}" SortColumnName="{Binding SortParameters.ColumnsName, Mode=OneWay}" SortDirection="{Binding SortParameters.Direction, Mode=OneWay}" FirstRenderCompleted="customTableView_FirstRenderCompleted" SortRequested="customTableView_SortRequested" SelectionChanged="customTableView_SelectionChanged" RowActivated="customTableView_RowActivated" RowContextMenuRequested="customTableView_RowContextMenuRequested" HeaderContextMenuRequested="customTableView_HeaderContextMenuRequested" CellEditBeginning="customTableView_CellEditBeginning" CellActionRequested="customTableView_CellActionRequested" CellEditEnded="customTableView_CellEditEnded" Visibility="{Binding IsPlaylistSummaryMode, Converter={qc:QuickConverter '!$P ? Visibility.Visible : Visibility.Collapsed'}}" >
             <i:Interaction.Triggers>
               <l:InteractionMessageTrigger MessageKey="CallbackPlayStartBMSfile" Messenger="{Binding Messenger}">
                 <l:LivetCallMethodAction MethodName="_renewBMSPlayerControlInfo" MethodTarget="{Binding ElementName=window, Mode=OneWay}" />
@@ -1946,8 +1984,8 @@
               </l:InteractionMessageTrigger>
             </i:Interaction.Triggers>
           </v:CustomTableView>
-          <v:CustomTableView x:Name="customTablePlaylistSummary" Grid.Row="2" Grid.ColumnSpan="1" Grid.Column="1" RowHeight="19" HeaderHeight="22" RowDragKind="PlaylistSummaryRows" AllowDrop="True" ItemsSource="{Binding PlaylistSummaryView, Mode=OneWay}" PlaylistSummaryColumnsSettings="{Binding PlaylistSummaryColumnsSettings, Mode=OneWay}" SortColumnName="{Binding PlaylistSummarySortParameters.ColumnsName, Mode=OneWay}" SortDirection="{Binding PlaylistSummarySortParameters.Direction, Mode=OneWay}" SortRequested="customTablePlaylistSummary_SortRequested" RowActivated="customTablePlaylistSummary_RowActivated" RowContextMenuRequested="customTablePlaylistSummary_RowContextMenuRequested" HeaderContextMenuRequested="customTablePlaylistSummary_HeaderContextMenuRequested" CellActionRequested="customTablePlaylistSummary_CellActionRequested" PreviewDragOver="customTablePlaylistSummary_PreviewDragOver" PreviewDragLeave="customTablePlaylistSummary_PreviewDragLeave" Drop="customTablePlaylistSummary_Drop" Visibility="{Binding IsPlaylistSummaryMode, Converter={qc:QuickConverter '$P ? Visibility.Visible : Visibility.Collapsed'}}" />
-          <Grid Name="gridTreePane" Margin="0" Grid.Row="1" Grid.RowSpan="2" Background="{DynamicResource App.BackgroundBrush}" TreeViewItem.Selected="gridTreePane_TreeViewItemSelected">
+          <v:CustomTableView x:Name="customTablePlaylistSummary" Grid.Row="3" Grid.ColumnSpan="1" Grid.Column="1" RowHeight="19" HeaderHeight="22" RowDragKind="PlaylistSummaryRows" AllowDrop="True" ItemsSource="{Binding PlaylistSummaryView, Mode=OneWay}" PlaylistSummaryColumnsSettings="{Binding PlaylistSummaryColumnsSettings, Mode=OneWay}" SortColumnName="{Binding PlaylistSummarySortParameters.ColumnsName, Mode=OneWay}" SortDirection="{Binding PlaylistSummarySortParameters.Direction, Mode=OneWay}" SortRequested="customTablePlaylistSummary_SortRequested" RowActivated="customTablePlaylistSummary_RowActivated" RowContextMenuRequested="customTablePlaylistSummary_RowContextMenuRequested" HeaderContextMenuRequested="customTablePlaylistSummary_HeaderContextMenuRequested" CellActionRequested="customTablePlaylistSummary_CellActionRequested" PreviewDragOver="customTablePlaylistSummary_PreviewDragOver" PreviewDragLeave="customTablePlaylistSummary_PreviewDragLeave" Drop="customTablePlaylistSummary_Drop" Visibility="{Binding IsPlaylistSummaryMode, Converter={qc:QuickConverter '$P ? Visibility.Visible : Visibility.Collapsed'}}" />
+          <Grid Name="gridTreePane" Margin="0" Grid.Row="1" Grid.RowSpan="3" Background="{DynamicResource App.BackgroundBrush}" TreeViewItem.Selected="gridTreePane_TreeViewItemSelected">
   <Grid.Resources>
     <ResourceDictionary>
                 <Style x:Key="styleTreeViewItemIconCommon" TargetType="{x:Type Image}">
@@ -2184,6 +2222,7 @@
                   <Style x:Key="styleTreeViewItemPlayHistoryPeriodContainer" TargetType="{x:Type TreeViewItem}">
                     <Setter Property="FrameworkElement.FocusVisualStyle" Value="{x:Null}" />
                     <Setter Property="Template" Value="{StaticResource TreeViewItemFullWidth}" />
+                    <EventSetter Event="Selected" Handler="playHistoryPeriodSelect" />
                   </Style>
                   <HierarchicalDataTemplate DataType="{x:Type vm:PlayHistoryPeriodTreeItem}" ItemsSource="{Binding Children}" ItemContainerStyle="{StaticResource styleTreeViewItemPlayHistoryPeriodContainer}">
                     <TextBlock Style="{StaticResource styleTreeViewItemTextBlockCommon}" Text="{Binding Label}" />

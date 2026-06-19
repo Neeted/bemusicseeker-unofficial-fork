@@ -400,9 +400,9 @@ internal static class CustomTableColumnFactory
             new CustomTableColumn("FolderLabels", "FOLDER", settings.PlayHistoryFolderLabels, 1, nameof(PlayHistoryRow.FolderLabels), TextAlignment.Left, row => GetString(row, nameof(PlayHistoryRow.FolderLabels)), tooltipSelector: row => GetString(row, nameof(PlayHistoryRow.PlaylistNames))),
             new CustomTableColumn("Title", "TITLE", settings.Title, 2, nameof(PlayHistoryRow.Title), TextAlignment.Left, row => GetString(row, nameof(PlayHistoryRow.Title))),
             new CustomTableColumn("Artist", "ARTIST", settings.Artist, 3, nameof(PlayHistoryRow.Artist), TextAlignment.Left, row => GetString(row, nameof(PlayHistoryRow.Artist))),
-            new CustomTableColumn("BestClear", "CLEAR", settings.PlayHistoryBestClear, 4, "BestClear", TextAlignment.Center, row => GetString(row, nameof(PlayHistoryRow.BestClear)), textStyle: CustomTableTextStyle.Score, autoTrimTooltip: false),
-            new CustomTableColumn("BestDjLevel", "BEST DJ", settings.PlayHistoryBestDjLevel, 5, "BestDjLevel", TextAlignment.Center, row => GetString(row, nameof(PlayHistoryRow.BestDjLevelText)), textStyle: CustomTableTextStyle.Rank, autoTrimTooltip: false),
-            new CustomTableColumn("BestRate", "BEST RATE", settings.PlayHistoryBestRate, 6, "BestRate", TextAlignment.Right, row => FormatPercentTwo(GetValue(row, nameof(PlayHistoryRow.BestRate))), autoTrimTooltip: false),
+            new CustomTableColumn("BestClear", "CLEAR", settings.PlayHistoryBestClear, 4, "BestClear", TextAlignment.Center, row => GetString(row, nameof(PlayHistoryRow.BestClear)), row => GetPlayHistoryBestClearBrush(row), textStyle: CustomTableTextStyle.Score, autoTrimTooltip: false),
+            new CustomTableColumn("BestDjLevel", "BEST DJ", settings.PlayHistoryBestDjLevel, 5, "BestDjLevel", TextAlignment.Center, row => GetString(row, nameof(PlayHistoryRow.BestDjLevelText)), row => GetPlayHistoryBestDjLevelBrush(row), textStyle: CustomTableTextStyle.Rank, autoTrimTooltip: false),
+            new CustomTableColumn("BestRate", "BEST RATE", settings.PlayHistoryBestRate, 6, "BestRate", TextAlignment.Right, row => GetString(row, nameof(PlayHistoryRow.BestRateText)), autoTrimTooltip: false),
             new CustomTableColumn("BestBp", "BP", settings.PlayHistoryBestBp, 7, "BestBp", TextAlignment.Right, row => GetString(row, nameof(PlayHistoryRow.BestBp))),
             new CustomTableColumn("BestCombo", "COMBO", settings.PlayHistoryBestCombo, 8, "BestCombo", TextAlignment.Right, row => GetString(row, nameof(PlayHistoryRow.BestCombo))),
             new CustomTableColumn("Kind", "TYPE", settings.PlayHistoryKind, 9, nameof(PlayHistoryRow.Kind), TextAlignment.Center, row => GetString(row, nameof(PlayHistoryRow.Kind))),
@@ -412,8 +412,6 @@ internal static class CustomTableColumnFactory
             new CustomTableColumn("Judges", "JUDGES", settings.PlayHistoryJudges, 13, "JudgeTotal", TextAlignment.Left, row => GetString(row, nameof(PlayHistoryRow.Judges))),
             new CustomTableColumn("Option", "OPTION", settings.PlayHistoryOption, 14, nameof(PlayHistoryRow.Option), TextAlignment.Left, row => GetString(row, nameof(PlayHistoryRow.Option))),
             new CustomTableColumn("Sha256", "SHA256", settings.Sha256, 15, nameof(PlayHistoryRow.Sha256), TextAlignment.Center, row => GetString(row, nameof(PlayHistoryRow.Sha256)), maxWidth: 480),
-            new CustomTableColumn("Provider", "PROVIDER", settings.PlayHistoryProvider, 16, nameof(PlayHistoryRow.Provider), TextAlignment.Center, row => GetString(row, nameof(PlayHistoryRow.Provider))),
-            new CustomTableColumn("Source", "SOURCE", settings.PlayHistorySource, 17, nameof(PlayHistoryRow.Source), TextAlignment.Left, row => GetString(row, nameof(PlayHistoryRow.Source)), tooltipSelector: row => GetString(row, nameof(PlayHistoryRow.SourcePath))),
             new CustomTableColumn("RawHash", "RAW HASH", settings.PlayHistoryRawHash, 18, nameof(PlayHistoryRow.RawHash), TextAlignment.Center, row => GetString(row, nameof(PlayHistoryRow.RawHash)), maxWidth: 240),
             new CustomTableColumn("Finalized", "FINALIZED", settings.PlayHistoryFinalized, 19, nameof(PlayHistoryRow.Finalized), TextAlignment.Center, row => GetString(row, nameof(PlayHistoryRow.Finalized)), autoTrimTooltip: false)
         ];
@@ -648,6 +646,7 @@ internal static class CustomTableColumnFactory
                 nameof(PlayHistoryRow.BestDjLevel) => playHistoryRow.BestDjLevel,
                 nameof(PlayHistoryRow.BestDjLevelText) => playHistoryRow.BestDjLevelText,
                 nameof(PlayHistoryRow.BestRate) => playHistoryRow.BestRate,
+                nameof(PlayHistoryRow.BestRateText) => playHistoryRow.BestRateText,
                 nameof(PlayHistoryRow.BestBp) => playHistoryRow.BestBp,
                 nameof(PlayHistoryRow.BestCombo) => playHistoryRow.BestCombo,
                 nameof(PlayHistoryRow.Kind) => playHistoryRow.Kind,
@@ -879,6 +878,20 @@ internal static class CustomTableColumnFactory
             return CustomTableScoreBrushProvider.ResolveBrush(CustomTableScoreBrushProvider.ConvertRank(playlistRow.rank), CustomTableScoreBrushProvider.DefaultForeground);
         }
         return CustomTableScoreBrushProvider.DefaultForeground;
+    }
+
+    private static Brush GetPlayHistoryBestClearBrush(object row)
+    {
+        return row is PlayHistoryRow playHistoryRow && playHistoryRow.NewBestClear.HasValue
+            ? CustomTableScoreBrushProvider.ResolveBrush(CustomTableScoreBrushProvider.ConvertClear(playHistoryRow.NewBestClear.Value), CustomTableScoreBrushProvider.DefaultForeground)
+            : CustomTableScoreBrushProvider.DefaultForeground;
+    }
+
+    private static Brush GetPlayHistoryBestDjLevelBrush(object row)
+    {
+        return row is PlayHistoryRow playHistoryRow
+            ? CustomTableScoreBrushProvider.ResolveBrush(CustomTableScoreBrushProvider.ConvertRank(playHistoryRow.BestDjLevel), CustomTableScoreBrushProvider.DefaultForeground)
+            : CustomTableScoreBrushProvider.DefaultForeground;
     }
 
     private static Brush GetDifficultyBrush(object row)

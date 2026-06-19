@@ -458,7 +458,7 @@ Play history view 用の keyword search context を追加する。既存 chart l
 - [x] `finalized = 0` は通常一覧から除外し、診断 filter で見えるようにする。
 - [x] option / clear / rank / rate / DJ LEVEL / BP / combo / EX score の display formatter を作る。
 - [x] LR2 provider では `ActualResult` と `BestDelta` を別 projection にし、best 更新値を今回プレイ実値として表示しない。
-- [ ] 日別 / 月別 / 年別 summary 用 aggregate を作る。
+- [x] 日別 / 月別 / 年別 summary 用 aggregate を作る。
 - [x] score DB lock / missing table / malformed row の診断 result を作る。
 - [x] 読み取り失敗時も playlist reload や full scan へ fallback しない。
 
@@ -528,10 +528,10 @@ Play history view 用の keyword search context を追加する。既存 chart l
 | 4 | BestClear | `CLEAR` | BestDelta。更新時だけ old -> new、初回は NO PLAY -> value |
 | 5 | BestDjLevel | `BEST DJ` | BestDelta。best EX score が変化した row だけ表示 |
 | 6 | BestRate | `BEST RATE` | BestDelta。best EX score が変化した row だけ表示 |
-| 7 | BestBp | `BP` | BestDelta。初回 BP は悪化表示しない |
+| 7 | BestBp | `BP` | BestDelta。初回 BP は `BP 10` ではなく `10` のように値だけ表示する |
 | 8 | BestCombo | `COMBO` | BestDelta。更新時 old -> new |
-| 9 | Kind | `TYPE` | score / BP / clear / combo / play only |
-| 10 | OpHistory | `OP HISTORY` | 新規 bit だけセル表示、詳細は tooltip |
+| 9 | Kind | `TYPE` | score / bp / clear / combo は複合表示可。`play` は他の種別が無い場合だけ表示 |
+| 10 | OpHistory | `OP HISTORY` | 新規 bit を option 名で表示。ASSIST など消えた bit も `off` として遷移表示 |
 
 切替 columns:
 
@@ -560,6 +560,8 @@ Play history view 用の keyword search context を追加する。既存 chart l
 完了条件:
 
 - LR2 履歴を一覧・sort・期間選択・summary 表示できる。
+- 一覧ラベル / 検索欄の下に PlayHistory 専用 summary row を出す。判定数、プレイ数、演奏時間、score / BP / combo / clear 更新、ASSIST / EASY / NORMAL / HARD / EXH / FC の clear 内訳をカード風領域として並べる。
+- PlayHistory 専用 context menu は、MD5 解決済み row で BMS-IR、repository SHA-256 解決済み row で Mocha / MinIR、未解決 row で raw hash copy を出す。
 
 ### Phase 4: LAST PLAY SORT custom folder output
 
@@ -704,6 +706,9 @@ Play history view 用の keyword search context を追加する。既存 chart l
 - [x] `scorelog.db` が対応できない場合は `BestDelta` 空欄。
 - [x] playtime は row では空欄。期間 summary の provider 固有 aggregate 加算は後続 scope とする。
 - [x] LR2 provider と同じ columns / search / summary 経路へ載る。
+- [x] beatoraja provider は score 表示 source が実際に beatoraja の場合だけ選択する。設定値や DB path だけで provider を切り替えない。
+- [x] `scoredatalog.option` は `1P + 2P * 10 + DP * 100` として RANDOM / MIRROR / FLIP / BATTLE AS などへ decode する。`random` / `seed` は通常表示には混ぜない。
+- [x] `scorelog.oldminbp = int.MaxValue` は未プレイ sentinel として null に正規化し、`2147483647 -> value` と表示しない。
 
 完了条件:
 
@@ -716,7 +721,7 @@ Play history view 用の keyword search context を追加する。既存 chart l
 | Phase 0 | 完了 | 実装計画 / trigger proposal / `devdocs/spec/play-history.md` が配置済み |
 | Phase 1 | 完了 | LR2 score DB へ trigger / table を導入できる |
 | Phase 2 | 完了 | LR2 履歴を `PlayHistoryRow` と summary に投影できる |
-| Phase 3 | 完了 | Play log tree と table UI は固定期間 + 年 / 月 / 日 archive node で動作。DnD / cell edit / activation / 通常 context menu guard、PlayHistory 専用 hash-only context menu まで完了 |
+| Phase 3 | 完了 | Play log tree と table UI は固定期間 + 年 / 月 / 日 archive node で動作。専用 summary row、DnD / cell edit / activation / 通常 context menu guard、PlayHistory 専用 BMS-IR / repository / hash context menu まで完了 |
 | Phase 4 | 完了 | LAST PLAY SORT custom folder が出力され、schema guard / cleanup / NULL sort command の検証まで完了 |
 | Phase 5 | 完了 | keyword search と `すべて` / playlist / 表示対象セット dropdown filter が動作し、settings JSON 保存形式まで追加済み |
 | Phase 6 | 進行中 | status 表示、summary 診断、現行仕様 spec、log contract は追加済み。locked / read-only 実環境確認と実画面 screenshot が残る |
@@ -746,6 +751,11 @@ Play history view 用の keyword search context を追加する。既存 chart l
 - 2026-06-19: Phase 5 display target のサブエージェントレビューを挙動 / 性能 / テスト充足の観点で実施し、PlaylistTree flush 時の target 再構築、playlist entries hydration 完了時の不要 refresh 抑止、MD5 優先 lookup、空 folder 表示、stale target filter cancellation、settings / XAML / refresh 経路の静的テストを追加した。再レビューで P0 / P1 指摘なしを確認した。
 - 2026-06-19: Phase 7 初期実装として、beatoraja player directory の `scoredatalog.db` / `scorelog.db` path 解決、`BeatorajaPlayHistoryReader`、`BeatorajaPlayHistoryRecord`、`PlayHistoryRow.ProjectBeatorajaRows`、MainWindow の provider 切り替えを追加した。`scoredatalog.mode = 0` の単曲 row を actual result とし、`scorelog` は `sha256 + mode + date` が一致した場合のみ best delta を補う。`scorelog.db` 不在時は best delta を空欄にし、playtime は row に混ぜない。
 - 2026-06-19: Phase 7 サブエージェントレビューを挙動 / 性能 / テスト充足の観点で実施し、resolved MD5 を使う playlist / display target 解決、beatoraja projection diagnostic provider、scorelog cancellation、scorelog read 範囲、provider 判定の snapshot build 回避、summary / search / display target / scorelog mismatch tests、manual / spec の単一 provider 記述を追加・修正した。再レビューで P0 / P1 指摘なしを確認した。
+- 2026-06-19: UI follow-up として、PlayHistory 専用 summary row を一覧ラベル / 検索欄の下へ追加し、判定数 / プレイ数 / 演奏時間 / score / BP / combo / clear 更新 / clear 内訳をカード風に表示するようにした。通常の `GridSummaryText` は PlayHistory では診断・補助情報へ寄せる。
+- 2026-06-19: 表示 follow-up として、CLEAR / BEST DJ に通常一覧の色解決を適用し、BEST DJ / BEST RATE / BEST EXSCORE / BP / COMBO / CLEAR を遷移表示に統一した。初回 BP は値だけ、TYPE は複合表示、OP HISTORY は LR2 option history bit 名表示と ASSIST off などの遷移表示に変更した。
+- 2026-06-19: beatoraja follow-up として、provider 選択を `ActiveScoreSource.Beatoraja` に連動させ、`scoredatalog.option` を beatoraja 実装に基づき decode し、`scorelog.oldminbp = int.MaxValue` を未プレイ扱いにした。
+- 2026-06-19: UX follow-up として、PlayHistory の PROVIDER / SOURCE をユーザー表示列と列メニューから外し、右クリックに BMS-IR を追加し、日付別 tree は同じ archive tree を毎回差し替えないようにして選択が root へ戻る問題を修正した。
+- 2026-06-19: 上記 follow-up の検証として、`PlayHistoryReadModelTests|MainWindowContextMenuResourceTests|CustomTableColumnFactoryTests` を実行し、成功を確認した。実装後レビューを挙動 / 性能 / テスト充足のサブエージェントへ依頼し、diagnostics 表示消失、beatoraja BP sentinel / summary row / BEST DJ・RATE column のテスト不足、summary card binding のテスト不足を修正した。再レビューで重大指摘なしを確認する。
 
 ## 実装時の注意
 

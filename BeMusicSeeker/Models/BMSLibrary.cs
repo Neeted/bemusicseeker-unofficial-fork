@@ -3365,6 +3365,14 @@ public class BMSLibrary : NotificationObject
         return GetScoreSnapshotForLookup(allowOnDemandBuild: true);
     }
 
+    internal ActiveScoreSource GetActiveScoreSourceForDiagnostics()
+    {
+        using (rwlockBMSScores.GetReaderGuard())
+        {
+            return activeScoreSource;
+        }
+    }
+
     /// <summary>
     /// score snapshot と deferred worker の診断状態を返します。
     /// </summary>

@@ -325,13 +325,17 @@ Click a column header to sort. Many columns can be displayed, including `TITLE`,
 
 ### Play Log
 
-The `Play Log` tree shows LR2 or beatoraja play history in the main list. The list shows one provider selected from the current settings; it does not merge LR2 and beatoraja history at the same time. When beatoraja score DB use is enabled and the selected player's `score.db` exists, the beatoraja provider is used. Otherwise, the LR2 provider is used. For LR2, newly played charts become available after enabling the LR2 play-log schema in the settings dialog. For beatoraja, the view reads `scoredatalog.db` from the player folder selected in beatoraja integration.
+The `Play Log` tree shows LR2 or beatoraja play history in the main list. The list shows one provider selected from the current score source; it does not merge LR2 and beatoraja history at the same time. When beatoraja score DB use is enabled and beatoraja scores were actually loaded for the selected player, the beatoraja provider is used. Otherwise, the LR2 provider is used. For LR2, newly played charts become available after enabling the LR2 play-log schema in the settings dialog. For beatoraja, the view reads `scoredatalog.db` from the player folder selected in beatoraja integration.
 
 Enabling or repairing the LR2 play-log schema adds or repairs BeMusicSeeker tables, indexes, and triggers in the selected player's LR2 `score.db`. Before running it, confirm that the target player is correct and back up `score.db` in advance.
 
 The available periods are `All`, `Today`, `Yesterday`, `Recent 7 Days`, `Recent 30 Days`, `By Date`, and `Unfinalized / Diagnostics`. `By Date` builds year / month / day nodes from recorded history. Date ranges use local day boundaries, and the recent 7/30 day views include today. `Unfinalized / Diagnostics` also includes unfinalized rows and is useful when checking schema, score DB, read, or projection problems.
 
-The summary bar shows the row count, SCORE / CLEAR / FC updates, PLAYTIME, and diagnostics. When the score DB is missing, the schema is not installed, or a read/projection problem occurs, diagnostic details are shown in the summary and written to the log.
+The dedicated summary row below the list header shows judge count, play count, playtime, SCORE / BP / COMBO / CLEAR updates, and a compact clear breakdown such as ASSIST, EASY, NORMAL, HARD, EXH, and FC. When the score DB is missing, the schema is not installed, or a read/projection problem occurs, diagnostic details are shown in the summary text and written to the log.
+
+Play-log rows show best-update transitions such as `old -> new` for SCORE, BEST DJ, BEST RATE, BP, COMBO, and CLEAR. Initial BP values are shown as the value only. `TYPE` can contain multiple update kinds, such as `score bp clear`; `play` is used only when no more specific update kind applies. LR2 `OP HISTORY` shows newly achieved option-history flags by name, and beatoraja `OPTION` decodes the stored option into names such as RANDOM, MIRROR, FLIP, and BATTLE AS. `PROVIDER` and `SOURCE` are not user-facing columns.
+
+The play-log context menu can open BMS-IR for rows with a resolved MD5, open Mocha / MinIR for rows with a repository SHA-256, and copy the relevant hashes.
 
 beatoraja play-log reading is read-only and uses `scoredatalog.db` single-chart plays as the primary input. When `scorelog.db` exists in the same player folder, matching SHA-256 / mode / date best-update logs fill SCORE / CLEAR / BP / COMBO deltas. If `scorelog.db` is missing or has no matching row, the best-delta columns stay blank. beatoraja playtime is not shown on individual rows.
 

@@ -325,13 +325,17 @@ BeMusicSeeker の起動処理は段階的に進みます。
 
 ### プレイログ
 
-下段ツリーの `プレイログ` から LR2 または beatoraja のプレイ履歴を一覧に表示できます。一覧は現在の設定から選ばれる単一 provider の履歴を表示し、LR2 と beatoraja の履歴を同時に合算しません。beatoraja スコア DB を使う設定が有効で、選択プレイヤーの `score.db` が見つかる場合は beatoraja provider を使います。それ以外では LR2 provider を使います。LR2 では、設定画面で LR2 プレイログ schema を有効化したあと、以後に LR2 でプレイした譜面が表示対象になります。beatoraja では、beatoraja 連携で選択しているプレイヤーフォルダの `scoredatalog.db` を読み取ります。
+下段ツリーの `プレイログ` から LR2 または beatoraja のプレイ履歴を一覧に表示できます。一覧は現在のスコア読み込み元から選ばれる単一 provider の履歴を表示し、LR2 と beatoraja の履歴を同時に合算しません。beatoraja スコア DB を使う設定が有効で、選択プレイヤーの beatoraja スコアが実際に読み込まれている場合は beatoraja provider を使います。それ以外では LR2 provider を使います。LR2 では、設定画面で LR2 プレイログ schema を有効化したあと、以後に LR2 でプレイした譜面が表示対象になります。beatoraja では、beatoraja 連携で選択しているプレイヤーフォルダの `scoredatalog.db` を読み取ります。
 
 LR2 プレイログ schema の有効化 / 修復は、選択中プレイヤーの LR2 `score.db` に BeMusicSeeker 用の table / index / trigger を追加または修復します。実行前に対象プレイヤーが正しいことを確認し、事前に `score.db` をバックアップしてください。
 
 期間は `すべて`、`今日`、`昨日`、`最近 7 日`、`最近 30 日`、`日付別`、`未確定 / 診断` です。`日付別` には記録済みの履歴から年 / 月 / 日のノードが作られます。日付範囲はローカル日付の 0:00 区切りで、最近 7/30 日は今日を含みます。`未確定 / 診断` は未確定行も含め、schema、score DB、読み取り、投影の問題を確認するときに使います。
 
-サマリーには件数、SCORE / CLEAR / FC 更新、PLAYTIME、診断件数が表示されます。score DB 不在、schema 未導入、読み取り / 投影エラーがある場合は、サマリーとログに診断詳細が表示されます。
+一覧ラベル・検索欄の下にある専用サマリー行には、判定数、プレイ数、演奏時間、SCORE / BP / COMBO / CLEAR 更新、ASSIST / EASY / NORMAL / HARD / EXH / FC などのクリア内訳が表示されます。score DB 不在、schema 未導入、読み取り / 投影エラーがある場合は、サマリーテキストとログに診断詳細が表示されます。
+
+プレイログ行では、SCORE、BEST DJ、BEST RATE、BP、COMBO、CLEAR の best 更新を `old -> new` の遷移で表示します。初回 BP は値だけを表示します。`TYPE` は `score bp clear` のように複数の更新種別を持つことがあり、`play` は他の更新種別が無い場合だけ表示されます。LR2 の `OP HISTORY` は新しく達成された option history flag を名前で表示し、beatoraja の `OPTION` は保存値を RANDOM、MIRROR、FLIP、BATTLE AS などの名前へ変換して表示します。`PROVIDER` と `SOURCE` はユーザー向け列としては表示しません。
+
+プレイログの右クリックメニューでは、MD5 が解決できる行は BMS-IR を開けます。repository SHA-256 が解決できる行は Mocha / MinIR を開け、必要な hash もコピーできます。
 
 beatoraja のプレイログは read-only で、`scoredatalog.db` の単曲プレイを主入力にします。同じプレイヤーフォルダに `scorelog.db` がある場合は、同じ SHA-256 / mode / date の best 更新ログから SCORE / CLEAR / BP / COMBO の差分を補います。`scorelog.db` が無い、または対応する行が無い場合、best 差分欄は空欄になります。beatoraja の playtime は単曲 row には表示しません。
 

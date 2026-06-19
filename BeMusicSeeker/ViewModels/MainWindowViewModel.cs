@@ -7779,6 +7779,10 @@ public class MainWindowViewModel : ViewModel
 
     private string _GridSummaryText = string.Empty;
 
+    private IReadOnlyList<PlayHistorySummaryCard> _PlayHistorySummaryCards = [];
+
+    private string _PlayHistorySummaryDiagnosticText = string.Empty;
+
     private readonly DropInstallQueueProcessor dropInstallQueueProcessor;
 
     private bool _IsDropInstallQueueActive;
@@ -11680,12 +11684,62 @@ public class MainWindowViewModel : ViewModel
         private set
         {
             IReadOnlyList<PlayHistoryPeriodTreeItem> next = value ?? [];
-            if (!ReferenceEquals(_PlayHistoryArchivePeriodTree, next))
+            if (!ReferenceEquals(_PlayHistoryArchivePeriodTree, next) && !AreSamePlayHistoryArchivePeriodTree(_PlayHistoryArchivePeriodTree, next))
             {
                 _PlayHistoryArchivePeriodTree = next;
                 RaisePropertyChanged("PlayHistoryArchivePeriodTree");
             }
         }
+    }
+
+    private static bool AreSamePlayHistoryArchivePeriodTree(IReadOnlyList<PlayHistoryPeriodTreeItem> left, IReadOnlyList<PlayHistoryPeriodTreeItem> right)
+    {
+        left ??= [];
+        right ??= [];
+        if (left.Count != right.Count)
+        {
+            return false;
+        }
+        for (int index = 0; index < left.Count; index++)
+        {
+            if (!AreSamePlayHistoryArchivePeriodTreeItem(left[index], right[index]))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static bool AreSamePlayHistoryArchivePeriodTreeItem(PlayHistoryPeriodTreeItem left, PlayHistoryPeriodTreeItem right)
+    {
+        if (ReferenceEquals(left, right))
+        {
+            return true;
+        }
+        if (left == null || right == null)
+        {
+            return false;
+        }
+        return string.Equals(left.Label, right.Label, StringComparison.Ordinal)
+            && AreSamePlayHistoryPeriodRequest(left.Request, right.Request)
+            && AreSamePlayHistoryArchivePeriodTree(left.Children, right.Children);
+    }
+
+    private static bool AreSamePlayHistoryPeriodRequest(PlayHistoryPeriodRequest left, PlayHistoryPeriodRequest right)
+    {
+        if (ReferenceEquals(left, right))
+        {
+            return true;
+        }
+        if (left == null || right == null)
+        {
+            return false;
+        }
+        return left.Kind == right.Kind
+            && string.Equals(left.Label, right.Label, StringComparison.Ordinal)
+            && left.PlayedAtFromInclusive == right.PlayedAtFromInclusive
+            && left.PlayedAtToExclusive == right.PlayedAtToExclusive
+            && left.IncludeUnfinalized == right.IncludeUnfinalized;
     }
 
     private static void DisposeDisposableRows(IEnumerable rows)
@@ -15535,6 +15589,69 @@ public class MainWindowViewModel : ViewModel
             {
                 _GridSummaryText = value ?? string.Empty;
                 RaisePropertyChanged("GridSummaryText");
+            }
+        }
+    }
+
+    public IReadOnlyList<PlayHistorySummaryCard> PlayHistorySummaryCards
+    {
+        get
+        {
+            return _PlayHistorySummaryCards;
+        }
+        private set
+        {
+            IReadOnlyList<PlayHistorySummaryCard> next = value ?? [];
+            if (!ReferenceEquals(_PlayHistorySummaryCards, next) && !AreSamePlayHistorySummaryCards(_PlayHistorySummaryCards, next))
+            {
+                _PlayHistorySummaryCards = next;
+                RaisePropertyChanged("PlayHistorySummaryCards");
+            }
+        }
+    }
+
+    private static bool AreSamePlayHistorySummaryCards(IReadOnlyList<PlayHistorySummaryCard> left, IReadOnlyList<PlayHistorySummaryCard> right)
+    {
+        left ??= [];
+        right ??= [];
+        if (left.Count != right.Count)
+        {
+            return false;
+        }
+        for (int index = 0; index < left.Count; index++)
+        {
+            PlayHistorySummaryCard leftCard = left[index];
+            PlayHistorySummaryCard rightCard = right[index];
+            if (leftCard == null || rightCard == null)
+            {
+                if (leftCard != rightCard)
+                {
+                    return false;
+                }
+                continue;
+            }
+            if (!string.Equals(leftCard.Label, rightCard.Label, StringComparison.Ordinal)
+                || !string.Equals(leftCard.Value, rightCard.Value, StringComparison.Ordinal)
+                || leftCard.Compact != rightCard.Compact)
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    public string PlayHistorySummaryDiagnosticText
+    {
+        get
+        {
+            return _PlayHistorySummaryDiagnosticText;
+        }
+        private set
+        {
+            if (_PlayHistorySummaryDiagnosticText != value)
+            {
+                _PlayHistorySummaryDiagnosticText = value ?? string.Empty;
+                RaisePropertyChanged("PlayHistorySummaryDiagnosticText");
             }
         }
     }
@@ -20677,7 +20794,10 @@ public class MainWindowViewModel : ViewModel
             {
                 PlayHistoryArchivePeriodTree = archivePeriodTree;
             }
-            GridSummaryText = FormatPlayHistoryGridSummaryText(periodRequest, summary, diagnostics);
+            string diagnosticSummaryText = FormatPlayHistoryDiagnosticSummary(diagnostics);
+            GridSummaryText = FormatPlayHistoryGridSummaryText(periodRequest, summary, diagnostics, diagnosticSummaryText);
+            PlayHistorySummaryCards = CreatePlayHistorySummaryCards(summary);
+            PlayHistorySummaryDiagnosticText = diagnosticSummaryText;
             SelectedIndexChartRowsView = -1;
             Volatile.Write(ref playHistoryViewState, state);
         }
@@ -20875,6 +20995,7 @@ public class MainWindowViewModel : ViewModel
     {
         string scoreDbPath = ResolveMainViewBeatorajaPlayHistoryScoreDbPath();
         return Settings.Default.UseBeatorajaScoreDb
+            && files?.GetActiveScoreSourceForDiagnostics() == ActiveScoreSource.Beatoraja
             && !string.IsNullOrWhiteSpace(scoreDbPath)
             && File.Exists(scoreDbPath);
     }
@@ -21190,6 +21311,11 @@ public class MainWindowViewModel : ViewModel
 
     private static string FormatPlayHistoryGridSummaryText(PlayHistoryPeriodRequest request, PlayHistoryPeriodSummary summary, IReadOnlyList<PlayHistoryDiagnostic> diagnostics)
     {
+        return FormatPlayHistoryGridSummaryText(request, summary, diagnostics, FormatPlayHistoryDiagnosticSummary(diagnostics));
+    }
+
+    private static string FormatPlayHistoryGridSummaryText(PlayHistoryPeriodRequest request, PlayHistoryPeriodSummary summary, IReadOnlyList<PlayHistoryDiagnostic> diagnostics, string diagnosticSummary)
+    {
         summary ??= PlayHistoryPeriodSummary.FromRows(request?.Label ?? string.Empty, []);
         int diagnosticsCount = diagnostics?.Count ?? 0;
         string baseText = string.Format(
@@ -21201,7 +21327,6 @@ public class MainWindowViewModel : ViewModel
             summary.NewFullComboCount,
             FormatPlayHistoryDuration(summary.PlaytimeSeconds),
             diagnosticsCount);
-        string diagnosticSummary = FormatPlayHistoryDiagnosticSummary(diagnostics);
         return string.IsNullOrWhiteSpace(diagnosticSummary)
             ? baseText
             : baseText + " / " + diagnosticSummary;
@@ -21210,6 +21335,32 @@ public class MainWindowViewModel : ViewModel
     internal static string FormatPlayHistoryGridSummaryTextForTest(PlayHistoryPeriodRequest request, PlayHistoryPeriodSummary summary, IReadOnlyList<PlayHistoryDiagnostic> diagnostics)
     {
         return FormatPlayHistoryGridSummaryText(request, summary, diagnostics);
+    }
+
+    private static IReadOnlyList<PlayHistorySummaryCard> CreatePlayHistorySummaryCards(PlayHistoryPeriodSummary summary)
+    {
+        summary ??= PlayHistoryPeriodSummary.FromRows(string.Empty, []);
+        return
+        [
+            new PlayHistorySummaryCard("判定数", summary.JudgeCount.ToString("N0", CultureInfo.CurrentCulture)),
+            new PlayHistorySummaryCard("プレイ数", summary.FinalizedCount.ToString("N0", CultureInfo.CurrentCulture)),
+            new PlayHistorySummaryCard("演奏時間", FormatPlayHistoryDuration(summary.PlaytimeSeconds)),
+            new PlayHistorySummaryCard("スコア更新", summary.ScoreUpdateCount.ToString("N0", CultureInfo.CurrentCulture)),
+            new PlayHistorySummaryCard("BP更新", summary.BpUpdateCount.ToString("N0", CultureInfo.CurrentCulture)),
+            new PlayHistorySummaryCard("コンボ更新", summary.ComboUpdateCount.ToString("N0", CultureInfo.CurrentCulture)),
+            new PlayHistorySummaryCard("クリア更新", summary.ClearUpdateCount.ToString("N0", CultureInfo.CurrentCulture)),
+            new PlayHistorySummaryCard("ASSIST", summary.AssistClearUpdateCount.ToString("N0", CultureInfo.CurrentCulture), compact: true),
+            new PlayHistorySummaryCard("EASY", summary.EasyClearUpdateCount.ToString("N0", CultureInfo.CurrentCulture), compact: true),
+            new PlayHistorySummaryCard("NORMAL", summary.NormalClearUpdateCount.ToString("N0", CultureInfo.CurrentCulture), compact: true),
+            new PlayHistorySummaryCard("HARD", summary.HardClearUpdateCount.ToString("N0", CultureInfo.CurrentCulture), compact: true),
+            new PlayHistorySummaryCard("EXH", summary.ExHardClearUpdateCount.ToString("N0", CultureInfo.CurrentCulture), compact: true),
+            new PlayHistorySummaryCard("FC", summary.FullComboClearUpdateCount.ToString("N0", CultureInfo.CurrentCulture), compact: true)
+        ];
+    }
+
+    internal static IReadOnlyList<PlayHistorySummaryCard> CreatePlayHistorySummaryCardsForTest(PlayHistoryPeriodSummary summary)
+    {
+        return CreatePlayHistorySummaryCards(summary);
     }
 
     private static string FormatPlayHistoryDuration(int seconds)

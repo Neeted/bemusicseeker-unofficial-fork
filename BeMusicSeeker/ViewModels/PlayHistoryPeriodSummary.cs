@@ -31,6 +31,18 @@ internal sealed class PlayHistoryPeriodSummary
 
     public int ComboUpdateCount { get; private set; }
 
+    public int AssistClearUpdateCount { get; private set; }
+
+    public int EasyClearUpdateCount { get; private set; }
+
+    public int NormalClearUpdateCount { get; private set; }
+
+    public int HardClearUpdateCount { get; private set; }
+
+    public int ExHardClearUpdateCount { get; private set; }
+
+    public int FullComboClearUpdateCount { get; private set; }
+
     public int NewClearCount { get; private set; }
 
     public int NewFullComboCount { get; private set; }
@@ -75,6 +87,7 @@ internal sealed class PlayHistoryPeriodSummary
             if (row.BestClearUpdated)
             {
                 summary.ClearUpdateCount++;
+                summary.AddClearBreakdown(row.NewBestClear);
             }
             if (row.BestComboUpdated)
             {
@@ -95,6 +108,33 @@ internal sealed class PlayHistoryPeriodSummary
         }
 
         return summary;
+    }
+
+    private void AddClearBreakdown(Models.LR2.ClearType? clear)
+    {
+        switch (clear)
+        {
+            case Models.LR2.ClearType.INVALID:
+            case Models.LR2.ClearType.L_ASSIST:
+                AssistClearUpdateCount++;
+                break;
+            case Models.LR2.ClearType.EASY:
+                EasyClearUpdateCount++;
+                break;
+            case Models.LR2.ClearType.CLEAR:
+                NormalClearUpdateCount++;
+                break;
+            case Models.LR2.ClearType.HARD:
+                HardClearUpdateCount++;
+                break;
+            case Models.LR2.ClearType.EX_HARD:
+                ExHardClearUpdateCount++;
+                break;
+            case Models.LR2.ClearType.FC:
+            case Models.LR2.ClearType.PA:
+                FullComboClearUpdateCount++;
+                break;
+        }
     }
 
     private static bool IsNewClear(PlayHistoryRow row)

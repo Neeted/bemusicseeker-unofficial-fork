@@ -260,7 +260,7 @@ internal sealed class BeatorajaPlayHistoryReader
             lms = Math.Max(0, row.lms),
             notes = Math.Max(0, row.notes),
             combo = Math.Max(0, row.combo),
-            minbp = row.minbp,
+            minbp = Math.Max(0, row.minbp),
             playcount = Math.Max(0, row.playcount),
             clearcount = Math.Max(0, row.clearcount),
             option = row.option,
@@ -279,8 +279,13 @@ internal sealed class BeatorajaPlayHistoryReader
         record.new_exscore = log.score;
         record.old_maxcombo = log.oldcombo;
         record.new_maxcombo = log.combo;
-        record.old_minbp = log.oldminbp;
-        record.new_minbp = log.minbp;
+        record.old_minbp = NormalizeBeatorajaMinBp(log.oldminbp);
+        record.new_minbp = NormalizeBeatorajaMinBp(log.minbp);
+    }
+
+    private static int? NormalizeBeatorajaMinBp(int? value)
+    {
+        return !value.HasValue || value.Value == int.MaxValue ? null : value;
     }
 
     private static PlayHistoryDiagnostic CreateDiagnostic(PlayHistoryDiagnosticSeverity severity, string code, string message, string sourcePath)

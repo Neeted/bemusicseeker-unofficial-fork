@@ -79,7 +79,7 @@ internal sealed class PlayHistoryRow
         ResolveActualResultProjection();
         Kind = ResolveKind();
         Option = BestScoreUpdated ? DecodeLr2OpBest(Raw.new_op_best) : string.Empty;
-        OpHistory = FormatOpHistoryNewBits(OpHistoryNewBits);
+        OpHistory = FormatOpHistoryDelta(OpHistoryNewBits, OpHistoryRemovedBits);
     }
 
     private PlayHistoryRow(
@@ -210,6 +210,8 @@ internal sealed class PlayHistoryRow
 
     public int? BestRatePercent { get; private set; }
 
+    public string BestRateText { get; private set; }
+
     public int? OldBestExscore { get; private set; }
 
     public int? NewBestExscore { get; private set; }
@@ -249,6 +251,8 @@ internal sealed class PlayHistoryRow
     public string Option { get; private set; }
 
     public int OpHistoryNewBits { get; private set; }
+
+    public int OpHistoryRemovedBits { get; private set; }
 
     public string OpHistory { get; private set; }
 
@@ -355,9 +359,10 @@ internal sealed class PlayHistoryRow
         BestDjLevel = BestScoreUpdated
             ? ScoreValueCalculator.CalculateRank(NewBestExscore, ResolveBestTotalNotes())
             : RankType.INVALID;
-        BestDjLevelText = ScoreDisplayTextFormatter.FormatRank(BestDjLevel);
+        BestDjLevelText = BestScoreUpdated ? FormatRankDelta(OldBestExscore, NewBestExscore, ResolveBestTotalNotes()) : string.Empty;
         BestRate = BestScoreUpdated ? ScoreValueCalculator.CalculateRateDouble(NewBestExscore, ResolveBestTotalNotes()) : null;
         BestRatePercent = BestScoreUpdated ? ScoreValueCalculator.CalculateRatePercent(NewBestExscore, ResolveBestTotalNotes()) : null;
+        BestRateText = BestScoreUpdated ? FormatRateDelta(OldBestExscore, NewBestExscore, ResolveBestTotalNotes()) : string.Empty;
         BestExscore = BestScoreUpdated ? FormatNullableDelta(OldBestExscore, NewBestExscore) : string.Empty;
 
         BestBpUpdated = NewBestBp.HasValue && (!OldBestBp.HasValue || NewBestBp.Value < OldBestBp.Value);
@@ -367,6 +372,7 @@ internal sealed class PlayHistoryRow
         BestCombo = BestComboUpdated ? FormatNullableDelta(OldBestCombo, NewBestCombo) : string.Empty;
 
         OpHistoryNewBits = (newOpHistory ?? 0) & ~(oldOpHistory ?? 0);
+        OpHistoryRemovedBits = (oldOpHistory ?? 0) & ~(newOpHistory ?? 0);
     }
 
     private void ResolveActualResultProjection()
@@ -386,23 +392,24 @@ internal sealed class PlayHistoryRow
 
     private string ResolveKind()
     {
+        var states = new List<string>();
         if (BestScoreUpdated)
         {
-            return "score";
+            states.Add("score");
         }
         if (BestBpUpdated)
         {
-            return "bp";
+            states.Add("bp");
         }
         if (BestClearUpdated)
         {
-            return "clear";
+            states.Add("clear");
         }
         if (BestComboUpdated)
         {
-            return "combo";
+            states.Add("combo");
         }
-        return "play";
+        return states.Count > 0 ? string.Join(" ", states) : "play";
     }
 
     private static string ResolveFolderLabels(PlaylistReferenceDisplay playlistReference)
@@ -475,7 +482,7 @@ internal sealed class PlayHistoryRow
         }
         if (!oldValue.HasValue)
         {
-            return "BP " + newValue.Value.ToString(CultureInfo.InvariantCulture);
+            return newValue.Value.ToString(CultureInfo.InvariantCulture);
         }
         return oldValue.Value == newValue.Value
             ? newValue.Value.ToString(CultureInfo.InvariantCulture)
@@ -493,6 +500,45 @@ internal sealed class PlayHistoryRow
             + " / GD " + (good ?? 0).ToString(CultureInfo.InvariantCulture)
             + " / BD " + (bad ?? 0).ToString(CultureInfo.InvariantCulture)
             + " / PR " + (poor ?? 0).ToString(CultureInfo.InvariantCulture);
+    }
+
+    private static string FormatRankDelta(int? oldExscore, int? newExscore, int? totalNotes)
+    {
+        if (!newExscore.HasValue)
+        {
+            return string.Empty;
+        }
+        RankType newRank = ScoreValueCalculator.CalculateRank(newExscore, totalNotes);
+        string newText = ScoreDisplayTextFormatter.FormatRank(newRank);
+        if (!oldExscore.HasValue)
+        {
+            return newText;
+        }
+        RankType oldRank = ScoreValueCalculator.CalculateRank(oldExscore, totalNotes);
+        string oldText = ScoreDisplayTextFormatter.FormatRank(oldRank);
+        return string.Equals(oldText, newText, StringComparison.Ordinal) ? newText : oldText + " -> " + newText;
+    }
+
+    private static string FormatRateDelta(int? oldExscore, int? newExscore, int? totalNotes)
+    {
+        if (!newExscore.HasValue)
+        {
+            return string.Empty;
+        }
+        string newText = FormatRate(ScoreValueCalculator.CalculateRateDouble(newExscore, totalNotes));
+        if (!oldExscore.HasValue)
+        {
+            return newText;
+        }
+        string oldText = FormatRate(ScoreValueCalculator.CalculateRateDouble(oldExscore, totalNotes));
+        return string.Equals(oldText, newText, StringComparison.Ordinal) ? newText : oldText + " -> " + newText;
+    }
+
+    private static string FormatRate(double? rate)
+    {
+        return rate.HasValue
+            ? (rate.Value * 100d).ToString("F2", CultureInfo.CurrentCulture) + "%"
+            : string.Empty;
     }
 
     private static string DecodeLr2OpBest(int? opBest)
@@ -522,19 +568,52 @@ internal sealed class PlayHistoryRow
     private static string FormatBeatorajaOption(int option, int random, long seed)
     {
         var parts = new List<string>();
-        if (option != 0)
+        int option1p = option % 10;
+        int option2p = (option / 10) % 10;
+        int doubleOption = (option / 100) % 10;
+        if (option2p != 0 || doubleOption != 0)
         {
-            parts.Add("option " + option.ToString(CultureInfo.InvariantCulture));
+            parts.Add("1P " + GetBeatorajaRandomOptionName(option1p));
+            parts.Add("2P " + GetBeatorajaRandomOptionName(option2p));
+            if (doubleOption != 0)
+            {
+                parts.Add(GetBeatorajaDoubleOptionName(doubleOption));
+            }
         }
-        if (random != 0)
+        else if (option1p != 0)
         {
-            parts.Add("random " + random.ToString(CultureInfo.InvariantCulture));
-        }
-        if (seed >= 0)
-        {
-            parts.Add("seed " + seed.ToString(CultureInfo.InvariantCulture));
+            parts.Add(GetBeatorajaRandomOptionName(option1p));
         }
         return string.Join(" / ", parts);
+    }
+
+    private static string GetBeatorajaRandomOptionName(int value)
+    {
+        return value switch
+        {
+            0 => "OFF",
+            1 => "MIRROR",
+            2 => "RANDOM",
+            3 => "R-RANDOM",
+            4 => "S-RANDOM",
+            5 => "SPIRAL",
+            6 => "H-RANDOM",
+            7 => "ALL-SCR",
+            8 => "RANDOM-EX",
+            9 => "S-RANDOM-EX",
+            _ => "OPTION " + value.ToString(CultureInfo.InvariantCulture)
+        };
+    }
+
+    private static string GetBeatorajaDoubleOptionName(int value)
+    {
+        return value switch
+        {
+            1 => "FLIP",
+            2 => "BATTLE",
+            3 => "BATTLE AS",
+            _ => "DP OPTION " + value.ToString(CultureInfo.InvariantCulture)
+        };
     }
 
     private static string GetGaugeName(int value)
@@ -565,9 +644,69 @@ internal sealed class PlayHistoryRow
         };
     }
 
-    private static string FormatOpHistoryNewBits(int bits)
+    private static string FormatOpHistoryDelta(int newBits, int removedBits)
     {
-        return bits == 0 ? string.Empty : "0x" + bits.ToString("X8", CultureInfo.InvariantCulture);
+        var parts = new List<string>();
+        AddOpHistoryBitNames(parts, newBits, removed: false);
+        AddOpHistoryBitNames(parts, removedBits, removed: true);
+        return string.Join(" / ", parts);
+    }
+
+    private static void AddOpHistoryBitNames(List<string> parts, int bits, bool removed)
+    {
+        if (bits == 0)
+        {
+            return;
+        }
+
+        uint remaining = unchecked((uint)bits);
+        for (int bit = 0; bit < 32; bit++)
+        {
+            uint mask = 1u << bit;
+            if ((remaining & mask) == 0u)
+            {
+                continue;
+            }
+            string name = GetOpHistoryBitName(mask);
+            parts.Add(removed ? name + " off" : name);
+            remaining &= ~mask;
+        }
+    }
+
+    private static string GetOpHistoryBitName(uint bit)
+    {
+        return bit switch
+        {
+            0x00000001u => "GROOVE",
+            0x00000002u => "SURVIVAL",
+            0x00000004u => "DEATH",
+            0x00000008u => "EASY",
+            0x00000010u => "P.A",
+            0x00000020u => "G.A",
+            0x00000040u => "GAUGE 6",
+            0x00000080u => "GAUGE 7",
+            0x00000100u => "NORMAL",
+            0x00000200u => "MIRROR",
+            0x00000400u => "RANDOM",
+            0x00000800u => "S-RANDOM",
+            0x00001000u => "SCATTER",
+            0x00002000u => "CONVERGE",
+            0x00004000u => "RANDOM 6",
+            0x00008000u => "RANDOM 7",
+            0x00010000u => "HIDSUD 0",
+            0x00020000u => "HIDSUD 1",
+            0x00040000u => "HIDSUD 2",
+            0x00080000u => "HIDSUD 3",
+            0x00100000u => "HIDSUD 4",
+            0x00200000u => "HIDSUD 5",
+            0x00400000u => "HIDSUD 6",
+            0x00800000u => "HIDSUD 7",
+            0x01000000u => "ASSIST",
+            0x02000000u => "EXTRA",
+            0x04000000u => "D-BATTLE",
+            0x08000000u => "SP-to-DP",
+            _ => "0x" + bit.ToString("X8", CultureInfo.InvariantCulture)
+        };
     }
 
     private static string NormalizeHash(string value)

@@ -49,6 +49,7 @@ public sealed class MainWindowContextMenuResourceTests
 
         Assert.AreEqual(1, CountOccurrences(xaml, "Name=\"treeViewItemPlayHistory\""));
         Assert.AreEqual(1, CountOccurrences(playHistoryTree, "Selected=\"playHistoryPeriodSelect\""));
+        StringAssert.Contains(playHistoryTree, "<EventSetter Event=\"Selected\" Handler=\"playHistoryPeriodSelect\" />");
         foreach (string tag in new[] { "All", "Today", "Yesterday", "Recent7Days", "Recent30Days", "Diagnostics" })
         {
             Assert.AreEqual(1, CountOccurrences(playHistoryTree, "Tag=\"" + tag + "\""), tag);
@@ -91,6 +92,7 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(libraryMissingContextMenu);
         Assert.AreEqual(1, CountOccurrences(xaml, "x:Key=\"playHistoryContextMenu\""));
         StringAssert.Contains(playHistoryContextMenu, "Opened=\"playHistoryContextMenuOpened\"");
+        StringAssert.Contains(playHistoryContextMenu, "Name=\"playHistoryContextMenuItemOpenBMSIR\"");
         StringAssert.Contains(playHistoryContextMenu, "Name=\"playHistoryContextMenuItemOpenMocha\"");
         StringAssert.Contains(playHistoryContextMenu, "Name=\"playHistoryContextMenuItemOpenMinIR\"");
         StringAssert.Contains(playHistoryContextMenu, "Name=\"playHistoryContextMenuItemCopyMd5\"");
@@ -112,6 +114,7 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsTrue(MainWindow.TryResolvePlayHistoryContextMenuPolicyForTest(playHistoryRow, out PlayHistoryContextMenuState unresolvedState));
         Assert.IsNull(GridRowResolver.GetRepositorySha256(playHistoryRow));
         Assert.IsTrue(unresolvedState.CanCopyRawHash);
+        Assert.IsFalse(unresolvedState.CanOpenBmsIr);
         Assert.IsFalse(unresolvedState.CanOpenRepository);
         Assert.IsFalse(unresolvedState.CanCopyMd5);
         Assert.IsFalse(unresolvedState.CanCopyRepositorySha256);
@@ -119,11 +122,32 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsTrue(MainWindow.TryResolvePlayHistoryContextMenuPolicyForTest(resolvedPlayHistoryRow, out PlayHistoryContextMenuState resolvedState));
         Assert.AreEqual(new string('d', 64), GridRowResolver.GetRepositorySha256(resolvedPlayHistoryRow));
         Assert.IsFalse(resolvedState.CanCopyRawHash);
+        Assert.IsTrue(resolvedState.CanOpenBmsIr);
         Assert.IsTrue(resolvedState.CanOpenRepository);
         Assert.IsTrue(resolvedState.CanCopyMd5);
         Assert.IsTrue(resolvedState.CanCopyRepositorySha256);
         Assert.AreEqual("cccccccccccccccccccccccccccccccc", resolvedState.GetCopyValue(PlayHistoryContextMenuState.CopyMd5Kind));
         Assert.AreEqual(new string('d', 64), resolvedState.GetCopyValue(PlayHistoryContextMenuState.CopyRepositorySha256Kind));
+    }
+
+    [TestMethod]
+    public void PlayHistoryMainTable_ShowsDedicatedSummaryCardsAndDiagnostics()
+    {
+        string root = FindRepositoryRoot();
+        string xaml = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow.xaml"));
+        string viewModelCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string summaryRow = ExtractBetween(xaml, "<Border Grid.Row=\"2\" Grid.Column=\"1\" Background=\"{DynamicResource App.SurfaceBrush}\"", "<v:CustomTableView x:Name=\"customTableView\"");
+
+        StringAssert.Contains(summaryRow, "Visibility=\"{Binding IsPlayHistoryViewActive");
+        StringAssert.Contains(summaryRow, "ItemsSource=\"{Binding PlayHistorySummaryCards}\"");
+        StringAssert.Contains(summaryRow, "Text=\"{Binding PlayHistorySummaryDiagnosticText}\"");
+        StringAssert.Contains(summaryRow, "Text=\"{Binding Label}\"");
+        StringAssert.Contains(summaryRow, "Text=\"{Binding Value}\"");
+        StringAssert.Contains(summaryRow, "<DataTrigger Binding=\"{Binding Compact}\" Value=\"True\">");
+        StringAssert.Contains(summaryRow, "App.WarningTextBrush");
+        StringAssert.Contains(viewModelCode, "PlayHistorySummaryCards = CreatePlayHistorySummaryCards(summary)");
+        StringAssert.Contains(viewModelCode, "string diagnosticSummaryText = FormatPlayHistoryDiagnosticSummary(diagnostics)");
+        StringAssert.Contains(viewModelCode, "PlayHistorySummaryDiagnosticText = diagnosticSummaryText");
     }
 
     [TestMethod]
@@ -164,6 +188,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(beatorajaProjection, "files.CreateBeatorajaPlayHistoryProjectionIndex");
         StringAssert.Contains(beatorajaProjection, "PlayHistoryRow.ProjectBeatorajaRows(readResult, projectionIndex)");
         StringAssert.Contains(providerSelection, "Settings.Default.UseBeatorajaScoreDb");
+        StringAssert.Contains(providerSelection, "GetActiveScoreSourceForDiagnostics() == ActiveScoreSource.Beatoraja");
         Assert.IsFalse(providerSelection.Contains("GetScoreSnapshotForDiagnostics"));
         StringAssert.Contains(rowCode, "safeIndex.ResolveChartByMd5(string.Empty, sha256)");
         StringAssert.Contains(rowCode, "safeIndex.ResolvePlaylistReference(resolvedMd5, sha256)");
@@ -293,7 +318,7 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.AreEqual(1, CountOccurrences(xaml, "<RowDefinition Height=\"1\" />"));
         Assert.AreEqual(1, CountOccurrences(xaml, "Name=\"gridSplitterTree\" Style=\"{StaticResource SidebarSplitterStyle}\" Grid.Row=\"1\" Height=\"5\" HorizontalAlignment=\"Stretch\" VerticalAlignment=\"Center\" ResizeDirection=\"Rows\" ResizeBehavior=\"PreviousAndNext\" Margin=\"0\" Panel.ZIndex=\"1\""));
         Assert.AreEqual(1, CountOccurrences(xaml, "Name=\"gridColumn0\" MinWidth=\"160\" Width=\"{Binding TreeViewWidth, Source={x:Static prop:Settings.Default}, Mode=OneTime}\""));
-        Assert.AreEqual(1, CountOccurrences(xaml, "Name=\"gridTreePane\" Margin=\"0\" Grid.Row=\"1\" Grid.RowSpan=\"2\" Background=\"{DynamicResource App.BackgroundBrush}\""));
+        Assert.AreEqual(1, CountOccurrences(xaml, "Name=\"gridTreePane\" Margin=\"0\" Grid.Row=\"1\" Grid.RowSpan=\"3\" Background=\"{DynamicResource App.BackgroundBrush}\""));
         Assert.AreEqual(1, CountOccurrences(xaml, "<Border BorderThickness=\"0\" Grid.Row=\"1\" Grid.ColumnSpan=\"1\" Grid.Column=\"1\" Background=\"{DynamicResource App.SurfaceBrush}\">"));
         StringAssert.Contains(xaml, "UseLayoutRounding=\"True\" SnapsToDevicePixels=\"True\"");
         Assert.AreEqual(0, CountOccurrences(xaml, "BorderBrush=\"#FF828790\" BorderThickness=\"1,0,0,0\" Grid.Row=\"1\" Grid.ColumnSpan=\"1\" Grid.Column=\"1\""));

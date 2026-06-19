@@ -6,7 +6,7 @@
 
 プレイログは BMS player の play history を BeMusicSeeker 上で参照するための read model である。LR2 provider は LR2 linked profile の LR2 `score.db` を source とし、設定画面で導入した trigger が導入後の score 更新を記録する。beatoraja provider は既存 beatoraja 設定の選択 player directory にある `scoredatalog.db` / `scorelog.db` を read-only で参照する。
 
-UI は現在の設定から単一 provider を選択する。`UseBeatorajaScoreDb` が有効で、選択 player の beatoraja `score.db` が存在する場合は beatoraja provider を使う。それ以外では LR2 provider を使う。LR2 と beatoraja の履歴を同じ view で合算しない。
+UI は現在の score source から単一 provider を選択する。`UseBeatorajaScoreDb` が有効で、選択 player の beatoraja score が実際に読み込まれている場合は beatoraja provider を使う。それ以外では LR2 provider を使う。LR2 と beatoraja の履歴を同じ view で合算しない。
 
 次のものは現行実装の scope 外である。
 
@@ -87,14 +87,16 @@ UI refresh では raw rows がある場合に projection index を作る。proje
 | `HashKind` | chart / course / unknown の分類。現行 LR2 projection は chart 解決できなければ unknown。 |
 | `Title` / `Artist` / `Path` | resolved chart から得た表示情報。未解決なら空。 |
 | `FolderLabels` / `PlaylistNames` | playlist reference resolver と display target filter で得た所属表示。display target が `すべて` の場合は playlist symbol、playlist 選択時は playlist entry folder、target set 選択時は `org_symbol + level` を表示する。 |
-| `Kind` | play history row の分類。actual result や best 更新内容から表示用に解決する。 |
-| `BestClear` / `BestDjLevelText` / `BestRatePercent` / `BestExscore` / `BestBp` / `BestCombo` | best 更新があった場合の before / after 表示。 |
+| `Kind` | play history row の分類。score / bp / clear / combo は複合表示できる。`play` は他の分類がない場合だけ表示する。 |
+| `BestClear` / `BestDjLevelText` / `BestRateText` / `BestExscore` / `BestBp` / `BestCombo` | best 更新があった場合の before / after 表示。初回 BP は値だけを表示する。 |
 | `PlayExscore` / `Judges` / `PlaytimeSeconds` | finalized actual play delta から作る実プレイ結果。 |
-| `Option` / `OpHistory` | LR2 option bit または beatoraja raw option / random / seed の表示。 |
+| `Option` / `OpHistory` | LR2 option snapshot / option history、または beatoraja option の表示。 |
 
-空 hash の raw row や chart 解決できない row は失敗として捨てず、diagnostic または unresolved row として扱う。Play history view の context menu は chart row 用 menu を広く出さず、resolved row は Mocha / MinIR と hash copy、unresolved row は raw hash copy を中心にする。
+空 hash の raw row や chart 解決できない row は失敗として捨てず、diagnostic または unresolved row として扱う。Play history view の context menu は chart row 用 menu を広く出さず、resolved MD5 がある row は BMS-IR、repository SHA-256 がある row は Mocha / MinIR と hash copy、unresolved row は raw hash copy を中心にする。
 
-beatoraja row では raw `option` / `random` / `seed` を保存値として扱い、LR2 `op_best` と同じ意味へ丸めない。UI projection では raw 値を短い文字列として表示する。beatoraja clear は表示用に既存 clear text へ投影するが、raw record は provider 専用 record に保持する。
+LR2 `OP HISTORY` は `new_op_history & ~old_op_history` で新規に立った bit を名前表示する。`old_op_history & ~new_op_history` がある場合は `ASSIST off` のように消えた bit も遷移として表示する。
+
+beatoraja row では raw `option` / `random` / `seed` を保存値として扱い、LR2 `op_best` と同じ意味へ丸めない。UI projection では `option = 1P + 2P * 10 + DP * 100` として RANDOM / MIRROR / FLIP / BATTLE AS などの短い文字列へ変換する。`random` / `seed` は通常の OPTION 表示には混ぜない。beatoraja clear は表示用に既存 clear text へ投影するが、raw record は provider 専用 record に保持する。beatoraja の `oldminbp = int.MaxValue` は未プレイ sentinel として null に正規化し、`2147483647 -> value` とは表示しない。
 
 ## Period Selection And UI
 
@@ -112,6 +114,8 @@ beatoraja row では raw `option` / `random` / `seed` を保存値として扱�
 archive node は `年 > 月 > 日` の階層で、`ReadPeriodIndex` の結果から local date を作って降順に並べる。年 / 月 / 日 node の range も local time zone で計算した half-open range である。
 
 view request には request id があり、古い非同期 refresh の結果が新しい selection を上書きしないよう stale request guard を持つ。Play History view では in-memory sort と column settings foundation を使い、row source は `PlayHistoryRow` として custom table view に渡す。
+
+一覧ラベル・検索欄の下には Play History 専用 summary row を表示する。summary row は table row ではなく UI band であり、判定数、プレイ数、演奏時間、score / BP / combo / clear 更新数、ASSIST / EASY / NORMAL / HARD / EXH / FC の clear 更新内訳をカード風に並べる。`PROVIDER` / `SOURCE` は内部診断用プロパティとして保持するが、ユーザー表示列にはしない。
 
 ## Keyword Search
 

@@ -3,6 +3,7 @@ using System.Linq;
 using System.Windows;
 using System.Windows.Input;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
@@ -261,8 +262,6 @@ public sealed class CustomTableColumnFactoryTests
                 "Judges",
                 "Option",
                 "Sha256",
-                "Provider",
-                "Source",
                 "RawHash",
                 "Finalized"
             },
@@ -274,6 +273,42 @@ public sealed class CustomTableColumnFactoryTests
                 PlayHistorySortEngine.TryNormalizeSortColumn(column.SortMemberPath, out _),
                 column.Id + " uses unsupported PlayHistory sort path " + column.SortMemberPath);
         }
+    }
+
+    [TestMethod]
+    public void CreateMainColumns_PlayHistoryBestDjAndRateUseTransitionText()
+    {
+        var settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.PLAY_HISTORY);
+        foreach (CustomTableColumnSettings.ColumnLayout layout in CustomTableColumnFactory.EnumerateMainColumnLayouts(settings))
+        {
+            layout.Visibility = Visibility.Visible;
+        }
+
+        CustomTableColumn[] columns = [.. CustomTableColumnFactory.CreateMainColumns(settings)];
+        PlayHistoryRow row = PlayHistoryRow.ProjectLr2Rows(
+            new Lr2PlayHistoryReadResult(
+                PlayHistorySourceProfile.Lr2("score.db"),
+                [
+                    new Lr2PlayHistoryRecord
+                    {
+                        history_id = 1,
+                        hash = new string('a', 32),
+                        played_at = 1000,
+                        finalized = 1,
+                        score_write_type = "update",
+                        new_playcount = 1,
+                        playcount_delta = 1,
+                        old_exscore = 200,
+                        new_exscore = 250,
+                        new_totalnotes = 150
+                    }
+                ],
+                [],
+                Lr2PlayHistorySchemaStatus.Installed),
+            PlayHistoryProjectionIndex.Empty).Rows.Single();
+
+        Assert.AreEqual("A -> AA", columns.Single(column => column.Id == "BestDjLevel").GetText(row));
+        Assert.AreEqual("66.67% -> 83.33%", columns.Single(column => column.Id == "BestRate").GetText(row));
     }
 
     [TestMethod]

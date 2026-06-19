@@ -5954,6 +5954,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             switch (item.Name)
             {
+                case "playHistoryContextMenuItemOpenBMSIR":
+                    item.Visibility = state.CanOpenBmsIr ? Visibility.Visible : Visibility.Collapsed;
+                    item.IsEnabled = state.CanOpenBmsIr;
+                    break;
                 case "playHistoryContextMenuItemOpenMocha":
                 case "playHistoryContextMenuItemOpenMinIR":
                     item.Visibility = state.CanOpenRepository ? Visibility.Visible : Visibility.Collapsed;
@@ -5976,6 +5980,23 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                     break;
             }
         }
+    }
+
+    private void playHistoryContextMenuItemOpenBMSIRClick(object sender, RoutedEventArgs e)
+    {
+        if (!TryGetContextMenuRow(e.Source, out object row)
+            || !PlayHistoryContextMenuState.TryCreate(row, out PlayHistoryContextMenuState state)
+            || !state.CanOpenBmsIr)
+        {
+            return;
+        }
+
+        string url = GetBmsIrSongUrl(state.Md5);
+        if (!string.IsNullOrWhiteSpace(url))
+        {
+            Process.Start(url);
+        }
+        e.Handled = true;
     }
 
     private void playHistoryContextMenuItemCopyHashClick(object sender, RoutedEventArgs e)
