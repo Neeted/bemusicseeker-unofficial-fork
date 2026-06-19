@@ -75,6 +75,10 @@ public sealed class Lr2PlayHistorySchemaUiTests
         string viewModel = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
         string resources = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Properties", "Resources.resx"));
         string resourceCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Properties", "Resources.cs"));
+        string playHistorySchemaUi = ExtractBetween(
+            xaml,
+            "<Grid Margin=\"20,2,10,4\" IsEnabled=\"{Binding IsChecked, ElementName=radioButtonUseLR2}\">",
+            "<Grid Margin=\"10,0,0,4\" IsEnabled=\"{Binding settingDialog.IsBmsSearchRootEditorEnabled}\">");
 
         Assert.AreEqual(1, CountOccurrences(xaml, "Path=Resources.Lr2_play_history_schema_label, Mode=OneWay"));
         Assert.AreEqual(0, CountOccurrences(xaml, "Click=\"refreshLr2PlayHistorySchemaButtonClicked\""));
@@ -85,6 +89,8 @@ public sealed class Lr2PlayHistorySchemaUiTests
         Assert.AreEqual(1, CountOccurrences(xaml, "ToolTip=\"{Binding settingDialog.Lr2PlayHistorySchemaDetailText, Mode=OneWay}\""));
         StringAssert.Contains(xaml, "Content=\"{Binding settingDialog.Lr2PlayHistorySchemaInstallOrRepairButtonText, Mode=OneWay}\"");
         StringAssert.Contains(xaml, "IsEnabled=\"{Binding settingDialog.CanInstallOrRepairLr2PlayHistorySchema, Mode=OneWay}\"");
+        StringAssert.Contains(xaml, "DataTrigger Binding=\"{Binding settingDialog.CanInstallOrRepairLr2PlayHistorySchema, Mode=OneWay}\" Value=\"True\"");
+        StringAssert.Contains(xaml, "Value=\"{DynamicResource App.WarningTextBrush}\"");
         StringAssert.Contains(xaml, "Click=\"uninstallLr2PlayHistorySchemaButtonClicked\"");
         StringAssert.Contains(xaml, "IsEnabled=\"{Binding settingDialog.CanUninstallLr2PlayHistorySchema, Mode=OneWay}\"");
         StringAssert.Contains(uninstallDialogXaml, "Path=Resources.Lr2_play_history_schema_uninstall_title, Mode=OneWay");
@@ -97,6 +103,14 @@ public sealed class Lr2PlayHistorySchemaUiTests
         Assert.IsTrue(
             xaml.IndexOf("Lr2_song_db_sync_data_resync", StringComparison.Ordinal)
             < xaml.IndexOf("Lr2_play_history_schema_label", StringComparison.Ordinal));
+        StringAssert.Contains(playHistorySchemaUi, "<RowDefinition Height=\"20\" />");
+        StringAssert.Contains(playHistorySchemaUi, "Grid.Row=\"0\" Grid.Column=\"1\" Width=\"270\" HorizontalAlignment=\"Center\" VerticalAlignment=\"Center\" TextAlignment=\"Center\"");
+        StringAssert.Contains(playHistorySchemaUi, "<Run Text=\": \" />");
+        StringAssert.Contains(playHistorySchemaUi, "Grid.Row=\"1\" Grid.Column=\"0\" Width=\"190\" Height=\"24\" HorizontalAlignment=\"Center\"");
+        StringAssert.Contains(playHistorySchemaUi, "Grid.Row=\"1\" Grid.Column=\"1\" Width=\"130\" Height=\"24\" HorizontalAlignment=\"Center\"");
+        Assert.IsTrue(
+            playHistorySchemaUi.IndexOf("Grid.Row=\"1\" Grid.Column=\"0\"", StringComparison.Ordinal)
+            < playHistorySchemaUi.IndexOf("Grid.Row=\"1\" Grid.Column=\"1\"", StringComparison.Ordinal));
 
         string installHandler = ExtractBetween(
             codeBehind,
@@ -209,6 +223,18 @@ public sealed class Lr2PlayHistorySchemaUiTests
         "Lr2_play_history_schema_status_manual_repair_required",
         "Lr2_play_history_schema_status_unreadable",
         "Lr2_play_history_schema_status_skipped_profile",
+        "Lr2_play_history_schema_message_skipped_profile",
+        "Lr2_play_history_schema_message_score_db_path_not_configured",
+        "Lr2_play_history_schema_message_score_db_file_not_found",
+        "Lr2_play_history_schema_message_install_or_repair_failed_format",
+        "Lr2_play_history_schema_message_uninstall_failed_format",
+        "Lr2_play_history_schema_message_base_schema_incompatible",
+        "Lr2_play_history_schema_message_object_name_collision",
+        "Lr2_play_history_schema_message_table_columns_incompatible",
+        "Lr2_play_history_schema_message_partial_schema_manual_action_required",
+        "Lr2_play_history_schema_message_not_installed",
+        "Lr2_play_history_schema_message_installed",
+        "Lr2_play_history_schema_message_install_or_repair_available",
         "Msg_confirm_lr2_play_history_schema_install_or_repair",
         "Msg_success_lr2_play_history_schema_install_or_repair",
         "Msg_lr2_play_history_schema_uninstall_not_installed",

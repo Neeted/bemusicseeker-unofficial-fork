@@ -455,6 +455,30 @@ public class Resources
 
     public static string Lr2_play_history_schema_status_skipped_profile => ResourceManager.GetString("Lr2_play_history_schema_status_skipped_profile", resourceCulture);
 
+    public static string Lr2_play_history_schema_message_skipped_profile => ResourceManager.GetString("Lr2_play_history_schema_message_skipped_profile", resourceCulture);
+
+    public static string Lr2_play_history_schema_message_score_db_path_not_configured => ResourceManager.GetString("Lr2_play_history_schema_message_score_db_path_not_configured", resourceCulture);
+
+    public static string Lr2_play_history_schema_message_score_db_file_not_found => ResourceManager.GetString("Lr2_play_history_schema_message_score_db_file_not_found", resourceCulture);
+
+    public static string Lr2_play_history_schema_message_install_or_repair_failed_format => ResourceManager.GetString("Lr2_play_history_schema_message_install_or_repair_failed_format", resourceCulture);
+
+    public static string Lr2_play_history_schema_message_uninstall_failed_format => ResourceManager.GetString("Lr2_play_history_schema_message_uninstall_failed_format", resourceCulture);
+
+    public static string Lr2_play_history_schema_message_base_schema_incompatible => ResourceManager.GetString("Lr2_play_history_schema_message_base_schema_incompatible", resourceCulture);
+
+    public static string Lr2_play_history_schema_message_object_name_collision => ResourceManager.GetString("Lr2_play_history_schema_message_object_name_collision", resourceCulture);
+
+    public static string Lr2_play_history_schema_message_table_columns_incompatible => ResourceManager.GetString("Lr2_play_history_schema_message_table_columns_incompatible", resourceCulture);
+
+    public static string Lr2_play_history_schema_message_partial_schema_manual_action_required => ResourceManager.GetString("Lr2_play_history_schema_message_partial_schema_manual_action_required", resourceCulture);
+
+    public static string Lr2_play_history_schema_message_not_installed => ResourceManager.GetString("Lr2_play_history_schema_message_not_installed", resourceCulture);
+
+    public static string Lr2_play_history_schema_message_installed => ResourceManager.GetString("Lr2_play_history_schema_message_installed", resourceCulture);
+
+    public static string Lr2_play_history_schema_message_install_or_repair_available => ResourceManager.GetString("Lr2_play_history_schema_message_install_or_repair_available", resourceCulture);
+
     public static string Play_history_tree_root => ResourceManager.GetString("Play_history_tree_root", resourceCulture);
 
     public static string Play_history_period_all => ResourceManager.GetString("Play_history_period_all", resourceCulture);

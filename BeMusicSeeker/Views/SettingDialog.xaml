@@ -157,20 +157,34 @@
                   <StackPanel>
                     <RadioButton Name="radioButtonNotUseLR2" Height="20" GroupName="Operation Mode" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Not_use_LR2DB, Mode=OneWay}" IsChecked="{Binding settingDialog.OperationModeLR2DB, Converter={qc:QuickConverter '!$P', ConvertBack='!$value'}}" />
                     <RadioButton Name="radioButtonUseLR2" Height="20" GroupName="Operation Mode" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Use_LR2_DB, Mode=OneWay}" IsChecked="{Binding settingDialog.OperationModeLR2DB}" />
-                    <Grid Margin="0,0,0,4" IsEnabled="{Binding IsChecked, ElementName=radioButtonUseLR2}">
-                      <Button Width="190" Height="24" HorizontalAlignment="Center" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Lr2_song_db_sync_data_resync, Mode=OneWay}" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Lr2_song_db_sync_data_resync_tooltip, Mode=OneWay}" IsEnabled="{Binding CanRequestLr2SongDbSyncDataResync, Mode=OneWay}" Click="resyncLr2SongDbSyncDataButtonClicked" />
-                    </Grid>
-                    <Grid Margin="10,0,0,4" IsEnabled="{Binding IsChecked, ElementName=radioButtonUseLR2}">
+                    <Grid Margin="20,2,10,4" IsEnabled="{Binding IsChecked, ElementName=radioButtonUseLR2}">
+                      <Grid.RowDefinitions>
+                        <RowDefinition Height="20" />
+                        <RowDefinition Height="Auto" />
+                      </Grid.RowDefinitions>
                       <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
                       </Grid.ColumnDefinitions>
-                      <Label Grid.Column="0" Height="28" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Lr2_play_history_schema_label, Mode=OneWay}" />
-                      <TextBlock Grid.Column="1" VerticalAlignment="Center" Margin="4,0,6,0" TextTrimming="CharacterEllipsis" Text="{Binding settingDialog.Lr2PlayHistorySchemaStatusText, Mode=OneWay}" ToolTip="{Binding settingDialog.Lr2PlayHistorySchemaDetailText, Mode=OneWay}" />
-                      <StackPanel Grid.Column="2" Orientation="Horizontal">
-                        <Button Width="130" Height="24" Content="{Binding settingDialog.Lr2PlayHistorySchemaInstallOrRepairButtonText, Mode=OneWay}" IsEnabled="{Binding settingDialog.CanInstallOrRepairLr2PlayHistorySchema, Mode=OneWay}" Click="installOrRepairLr2PlayHistorySchemaButtonClicked" />
-                      </StackPanel>
+                      <TextBlock Grid.Row="0" Grid.Column="1" Width="270" HorizontalAlignment="Center" VerticalAlignment="Center" TextAlignment="Center" TextTrimming="CharacterEllipsis" ToolTip="{Binding settingDialog.Lr2PlayHistorySchemaDetailText, Mode=OneWay}">
+                        <TextBlock.Style>
+                          <Style TargetType="{x:Type TextBlock}">
+                            <Setter Property="FontWeight" Value="Normal" />
+                            <Setter Property="Foreground" Value="{DynamicResource App.TextBrush}" />
+                            <Style.Triggers>
+                              <DataTrigger Binding="{Binding settingDialog.CanInstallOrRepairLr2PlayHistorySchema, Mode=OneWay}" Value="True">
+                                <Setter Property="FontWeight" Value="SemiBold" />
+                                <Setter Property="Foreground" Value="{DynamicResource App.WarningTextBrush}" />
+                              </DataTrigger>
+                            </Style.Triggers>
+                          </Style>
+                        </TextBlock.Style>
+                        <Run Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Lr2_play_history_schema_label, Mode=OneWay}" />
+                        <Run Text=": " />
+                        <Run Text="{Binding settingDialog.Lr2PlayHistorySchemaStatusText, Mode=OneWay}" />
+                      </TextBlock>
+                      <Button Grid.Row="1" Grid.Column="0" Width="190" Height="24" HorizontalAlignment="Center" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Lr2_song_db_sync_data_resync, Mode=OneWay}" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Lr2_song_db_sync_data_resync_tooltip, Mode=OneWay}" IsEnabled="{Binding CanRequestLr2SongDbSyncDataResync, Mode=OneWay}" Click="resyncLr2SongDbSyncDataButtonClicked" />
+                      <Button Grid.Row="1" Grid.Column="1" Width="130" Height="24" HorizontalAlignment="Center" Content="{Binding settingDialog.Lr2PlayHistorySchemaInstallOrRepairButtonText, Mode=OneWay}" IsEnabled="{Binding settingDialog.CanInstallOrRepairLr2PlayHistorySchema, Mode=OneWay}" Click="installOrRepairLr2PlayHistorySchemaButtonClicked" />
                     </Grid>
                     <Grid Margin="10,0,0,4" IsEnabled="{Binding settingDialog.IsBmsSearchRootEditorEnabled}">
                       <Grid.RowDefinitions>

@@ -1438,13 +1438,13 @@ maintenance の再スキャンや chart_info の全譜面補完は行いませ�
     <value>LR2 プレイログ</value>
   </data>
   <data name="Lr2_play_history_schema_install" xml:space="preserve">
-    <value>プレイログを有効化...</value>
+    <value>プレイログを導入...</value>
   </data>
   <data name="Lr2_play_history_schema_repair" xml:space="preserve">
-    <value>修復...</value>
+    <value>導入 / 修復...</value>
   </data>
   <data name="Lr2_play_history_schema_install_or_repair" xml:space="preserve">
-    <value>有効化 / 修復...</value>
+    <value>導入 / 修復...</value>
   </data>
   <data name="Lr2_play_history_schema_uninstall" xml:space="preserve">
     <value>LR2 プレイログを無効化 / 削除...</value>
@@ -1480,16 +1480,52 @@ maintenance の再スキャンや chart_info の全譜面補完は行いませ�
     <value>未導入</value>
   </data>
   <data name="Lr2_play_history_schema_status_repairable" xml:space="preserve">
-    <value>修復可能</value>
+    <value>導入 / 修復可能</value>
   </data>
   <data name="Lr2_play_history_schema_status_manual_repair_required" xml:space="preserve">
-    <value>手動修復が必要</value>
+    <value>手動対応が必要</value>
   </data>
   <data name="Lr2_play_history_schema_status_unreadable" xml:space="preserve">
     <value>読み取り不可</value>
   </data>
   <data name="Lr2_play_history_schema_status_skipped_profile" xml:space="preserve">
     <value>LR2 連携外</value>
+  </data>
+  <data name="Lr2_play_history_schema_message_skipped_profile" xml:space="preserve">
+    <value>LR2 連携プロファイルではありません。</value>
+  </data>
+  <data name="Lr2_play_history_schema_message_score_db_path_not_configured" xml:space="preserve">
+    <value>score DB パスが設定されていません。</value>
+  </data>
+  <data name="Lr2_play_history_schema_message_score_db_file_not_found" xml:space="preserve">
+    <value>score DB ファイルが見つかりません。</value>
+  </data>
+  <data name="Lr2_play_history_schema_message_install_or_repair_failed_format" xml:space="preserve">
+    <value>プレイログ schema の導入 / 修復に失敗しました: {0}</value>
+  </data>
+  <data name="Lr2_play_history_schema_message_uninstall_failed_format" xml:space="preserve">
+    <value>プレイログ schema のアンインストールに失敗しました: {0}</value>
+  </data>
+  <data name="Lr2_play_history_schema_message_base_schema_incompatible" xml:space="preserve">
+    <value>必要な LR2 score/player schema が存在しないか、互換性がありません。</value>
+  </data>
+  <data name="Lr2_play_history_schema_message_object_name_collision" xml:space="preserve">
+    <value>プレイログ schema の object 名が互換性のない SQLite object と競合しています。</value>
+  </data>
+  <data name="Lr2_play_history_schema_message_table_columns_incompatible" xml:space="preserve">
+    <value>必要なプレイログ table column が存在しないか、互換性がありません。</value>
+  </data>
+  <data name="Lr2_play_history_schema_message_partial_schema_manual_action_required" xml:space="preserve">
+    <value>一部のプレイログ table が存在せず、関連 object は既に存在しています。</value>
+  </data>
+  <data name="Lr2_play_history_schema_message_not_installed" xml:space="preserve">
+    <value>プレイログ schema は未導入です。</value>
+  </data>
+  <data name="Lr2_play_history_schema_message_installed" xml:space="preserve">
+    <value>プレイログ schema は導入済みです。</value>
+  </data>
+  <data name="Lr2_play_history_schema_message_install_or_repair_available" xml:space="preserve">
+    <value>プレイログ schema を導入 / 修復できます。</value>
   </data>
   <data name="Play_history_tree_root" xml:space="preserve">
     <value>プレイログ</value>

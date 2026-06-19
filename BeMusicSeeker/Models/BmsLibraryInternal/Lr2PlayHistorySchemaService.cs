@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
 using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.Properties;
 using SQLite;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
@@ -272,16 +273,16 @@ internal sealed class Lr2PlayHistorySchemaService
             {
                 Status = Lr2PlayHistorySchemaStatus.SkippedProfile,
                 ScoreDbPath = scoreDbPath,
-                Message = "LR2 linked profile is not active."
+                Message = Resources.Lr2_play_history_schema_message_skipped_profile
             };
         }
         if (string.IsNullOrWhiteSpace(scoreDbPath))
         {
-            return CreateUnreadableResult(scoreDbPath, "Score DB path is not configured.");
+            return CreateUnreadableResult(scoreDbPath, Resources.Lr2_play_history_schema_message_score_db_path_not_configured);
         }
         if (!File.Exists(scoreDbPath))
         {
-            return CreateUnreadableResult(scoreDbPath, "Score DB file does not exist.");
+            return CreateUnreadableResult(scoreDbPath, Resources.Lr2_play_history_schema_message_score_db_file_not_found);
         }
 
         try
@@ -335,7 +336,9 @@ internal sealed class Lr2PlayHistorySchemaService
         }
         catch (Exception ex)
         {
-            return CreateUnreadableResult(scoreDbPath, "Failed to install or repair play history schema: " + ex.Message);
+            return CreateUnreadableResult(
+                scoreDbPath,
+                string.Format(Resources.Lr2_play_history_schema_message_install_or_repair_failed_format, ex.Message));
         }
 
         return Check(scoreDbPath, isLr2LinkedProfile);
@@ -378,7 +381,9 @@ internal sealed class Lr2PlayHistorySchemaService
         }
         catch (Exception ex)
         {
-            return CreateUnreadableResult(scoreDbPath, "Failed to uninstall play history schema: " + ex.Message);
+            return CreateUnreadableResult(
+                scoreDbPath,
+                string.Format(Resources.Lr2_play_history_schema_message_uninstall_failed_format, ex.Message));
         }
 
         return Check(scoreDbPath, isLr2LinkedProfile);
@@ -436,7 +441,7 @@ internal sealed class Lr2PlayHistorySchemaService
             || result.IncompatibleBaseColumns.Count > 0)
         {
             result.Status = Lr2PlayHistorySchemaStatus.ManualRepairRequired;
-            result.Message = "Required LR2 score/player schema is missing or incompatible.";
+            result.Message = Resources.Lr2_play_history_schema_message_base_schema_incompatible;
             return result;
         }
 
@@ -444,7 +449,7 @@ internal sealed class Lr2PlayHistorySchemaService
         if (result.ObjectNameCollisions.Count > 0)
         {
             result.Status = Lr2PlayHistorySchemaStatus.ManualRepairRequired;
-            result.Message = "Play history schema object names conflict with incompatible SQLite objects.";
+            result.Message = Resources.Lr2_play_history_schema_message_object_name_collision;
             return result;
         }
 
@@ -457,7 +462,7 @@ internal sealed class Lr2PlayHistorySchemaService
         if (result.MissingColumns.Count > 0 || result.IncompatibleColumns.Count > 0)
         {
             result.Status = Lr2PlayHistorySchemaStatus.ManualRepairRequired;
-            result.Message = "Required play history table columns are missing or incompatible.";
+            result.Message = Resources.Lr2_play_history_schema_message_table_columns_incompatible;
             return result;
         }
 
@@ -467,8 +472,8 @@ internal sealed class Lr2PlayHistorySchemaService
                 ? Lr2PlayHistorySchemaStatus.ManualRepairRequired
                 : Lr2PlayHistorySchemaStatus.NotInstalled;
             result.Message = hasAnyPlayHistoryObject
-                ? "Some play history tables are missing while related objects already exist."
-                : "Play history schema is not installed.";
+                ? Resources.Lr2_play_history_schema_message_partial_schema_manual_action_required
+                : Resources.Lr2_play_history_schema_message_not_installed;
             return result;
         }
 
@@ -507,8 +512,8 @@ internal sealed class Lr2PlayHistorySchemaService
                 ? Lr2PlayHistorySchemaStatus.Repairable
                 : Lr2PlayHistorySchemaStatus.Installed;
         result.Message = result.Status == Lr2PlayHistorySchemaStatus.Installed
-            ? "Play history schema is installed."
-            : "Play history schema can be repaired.";
+            ? Resources.Lr2_play_history_schema_message_installed
+            : Resources.Lr2_play_history_schema_message_install_or_repair_available;
         return result;
     }
 
