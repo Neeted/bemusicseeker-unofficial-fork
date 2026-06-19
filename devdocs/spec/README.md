@@ -31,6 +31,7 @@
 - [settings-change-impact-and-startup-operations.md](settings-change-impact-and-startup-operations.md)
 - [lr2-song-db-generation.md](lr2-song-db-generation.md)
 - [playlist-data-and-export-flow.md](playlist-data-and-export-flow.md)
+- [play-history.md](play-history.md)
 - [playlist-url-download-resolution.md](playlist-url-download-resolution.md)
 - [bms-bmson-chart-abstraction-current-state.md](bms-bmson-chart-abstraction-current-state.md)
 - [warning-model.md](warning-model.md)
