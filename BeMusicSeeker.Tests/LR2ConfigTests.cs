@@ -66,6 +66,23 @@ public sealed class LR2ConfigTests
     }
 
     [TestMethod]
+    public void GetBMSSearchDirectoriesReadOnly_DoesNotRewriteConfig()
+    {
+        WithConfig("<config><system /><jukebox><path>BMS\\</path><path>Missing\\</path></jukebox></config>", delegate (string configPath, LR2Config config)
+        {
+            string tempRoot = Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(configPath)));
+            string bmsRoot = Path.Combine(tempRoot, "BMS");
+            Directory.CreateDirectory(bmsRoot);
+            string before = File.ReadAllText(configPath);
+
+            var directories = config.GetBMSSearchDirectoriesReadOnly();
+
+            CollectionAssert.AreEqual(new[] { bmsRoot }, directories);
+            Assert.AreEqual(before, File.ReadAllText(configPath));
+        });
+    }
+
+    [TestMethod]
     public void RepairNormalOutputBaseRoots_AddsConfiguredDefaultAndAdditionalRoots()
     {
         WithConfig("<config><system /><jukebox /></config>", delegate (string configPath, LR2Config config)

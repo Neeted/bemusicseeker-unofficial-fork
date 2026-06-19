@@ -564,8 +564,6 @@ public class MainWindowViewModel : ViewModel
 
         private bool tempUseBeatorajaScoreDb;
 
-        private bool hasDialogSettingChanges;
-
         private string tempBeatorajaRootPath;
 
         private string tempBeatorajaPlayerId;
@@ -735,6 +733,8 @@ public class MainWindowViewModel : ViewModel
         private ListenerCommand<string> _RemoveDirCommand;
 
         private bool isSearchRootsChanged;
+
+        private string tempLR2ConfigBmsSearchRoots;
 
         private string tempStandaloneBmsRootPaths;
 
@@ -1081,7 +1081,10 @@ public class MainWindowViewModel : ViewModel
         /// LR2 play history schema に対して enable/repair のどちらかを実行できるかを返します。
         /// UI では状態別にボタンを分けず、現在の schema 状態に応じて同じ操作境界へ集約します。
         /// </summary>
-        public bool CanInstallOrRepairLr2PlayHistorySchema => CanInstallLr2PlayHistorySchema || CanRepairLr2PlayHistorySchema;
+        public bool CanInstallOrRepairLr2PlayHistorySchema =>
+            OperationModeLR2DB
+            && !string.IsNullOrWhiteSpace(Lr2PlayHistoryScoreDbPath)
+            && (lr2PlayHistorySchemaCheckResult == null || CanInstallLr2PlayHistorySchema || CanRepairLr2PlayHistorySchema);
 
         /// <summary>
         /// LR2 play history schema の enable/repair 統合ボタンに表示する文言を返します。
@@ -1124,6 +1127,11 @@ public class MainWindowViewModel : ViewModel
             lr2PlayHistorySchemaCheckResult = null;
             lr2PlayHistorySchemaCheckOperationMode = null;
             RaiseLr2PlayHistorySchemaStatusChanged();
+        }
+
+        internal void RefreshLr2PlayHistorySchemaStatusPresentation()
+        {
+            ResetLr2PlayHistorySchemaStatus();
         }
 
         internal Lr2PlayHistorySchemaCheckResult InstallOrRepairLr2PlayHistorySchemaCore()
@@ -3089,10 +3097,6 @@ public class MainWindowViewModel : ViewModel
             RefreshStandaloneBmsRootPathsFromSettings();
             RefreshBeatorajaDerivedSettings();
             backupSavedSettings();
-            Settings.Default.PropertyChanged += delegate
-            {
-                hasDialogSettingChanges = true;
-            };
             ResetLr2PlayHistorySchemaStatus();
         }
 
@@ -4774,6 +4778,7 @@ public class MainWindowViewModel : ViewModel
             tempBeatorajaBmtTablePath = Settings.Default.BeatorajaBmtTablePath;
             tempRegisterBeatorajaBmtUrls = Settings.Default.RegisterBeatorajaBmtUrls;
             tempBMSRootPath = Settings.Default.BMSRootPath;
+            tempLR2ConfigBmsSearchRoots = SerializeLR2ConfigBmsSearchRoots();
             tempStandaloneBmsRootPaths = SerializeStandaloneBmsRootPaths(StandaloneBmsRootPathList);
             tempuBMplayPath = Settings.Default.uBMplayPath;
             tempBMIIDXViewPath = Settings.Default.BMIIDXViewPath;
@@ -4842,21 +4847,153 @@ public class MainWindowViewModel : ViewModel
             isSearchRootsChanged = false;
             isBMSDirectoryAdded = false;
             isBMSDirectoryRemoved = false;
-            hasDialogSettingChanges = false;
             RaisePropertyChanged(() => IsOperationModeChanged);
             RaiseValidationStateChanged();
         }
 
         internal bool HasPendingSettingChanges()
         {
-            return hasDialogSettingChanges
-                || isSearchRootsChanged
-                || isBMSDirectoryAdded
-                || isBMSDirectoryRemoved
+            return HasSettingValueChanges()
                 || tempOperationModeLR2DB != operationModeLR2DB
-                || !string.Equals(tempStandaloneBmsRootPaths, SerializeStandaloneBmsRootPaths(StandaloneBmsRootPathList), StringComparison.OrdinalIgnoreCase)
-                || !string.Equals(tempLR2CustomFolderAdditionalOutputBaseDirs, Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs, StringComparison.Ordinal)
-                || !string.Equals(tempPlayHistoryDisplayTargetSetDraftsJson, SerializePlayHistoryFolderDisplayPresetDraftsForChangeTracking(), StringComparison.Ordinal);
+                || HasSearchRootSettingsChanged()
+                || HasCustomFolderAdditionalOutputBaseDirsChanged()
+                || HasPlayHistoryFolderDisplayPresetDraftsChanged();
+        }
+
+        private bool HasSettingValueChanges()
+        {
+            return HasPathSettingValueChanged(tempLR2RootPath, Settings.Default.LR2RootPath, value => IsLR2RootPathValid(value) || IsLR2PlayerRootPathValid(value))
+                || HasPathSettingValueChanged(tempLR2SongDBPath, Settings.Default.LR2SongDBPath, IsLR2SongDBPathValid)
+                || HasPathSettingValueChanged(tempLR2ConfigXmlPath, Settings.Default.LR2ConfigXmlPath, IsLR2ConfigXmlPathValid)
+                || tempUseBeatorajaScoreDb != Settings.Default.UseBeatorajaScoreDb
+                || !string.Equals(tempBeatorajaRootPath, Settings.Default.BeatorajaRootPath, StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(tempBeatorajaPlayerId, Settings.Default.BeatorajaPlayerId, StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(tempBeatorajaScoreDbPath, Settings.Default.BeatorajaScoreDbPath, StringComparison.OrdinalIgnoreCase)
+                || tempEnableBeatorajaBmtOutput != Settings.Default.EnableBeatorajaBmtOutput
+                || tempKeepBeatorajaBmtFilesWhenOutputDisabled != Settings.Default.KeepBeatorajaBmtFilesWhenOutputDisabled
+                || !string.Equals(tempBeatorajaBmtHashOutputMode, BeatorajaBmtHashOutputMode, StringComparison.Ordinal)
+                || !string.Equals(tempBeatorajaBmtTablePath, Settings.Default.BeatorajaBmtTablePath, StringComparison.OrdinalIgnoreCase)
+                || tempRegisterBeatorajaBmtUrls != Settings.Default.RegisterBeatorajaBmtUrls
+                || HasPathSettingValueChanged(tempBMSRootPath, Settings.Default.BMSRootPath, IsBMSRootPathValid)
+                || HasPathSettingValueChanged(tempuBMplayPath, Settings.Default.uBMplayPath, IsuBMplayPathValid)
+                || HasPathSettingValueChanged(tempBMIIDXViewPath, Settings.Default.BMIIDXViewPath, IsBMIIDXViewPathValid)
+                || tempUsePlayeruBMplay != Settings.Default.UsePlayeruBMplay
+                || tempUsePlayerLR2body != Settings.Default.UsePlayerLR2body
+                || tempUsePlayerBMIIDXView != Settings.Default.UsePlayerBMIIDXView
+                || tempLR2bodyResolution != Settings.Default.LR2bodyResolution
+                || tempIsSaveLR2bodyWindowPosition != Settings.Default.IsSaveLR2bodyWindowPosition
+                || HasCustomFolderOutputBaseSettingsChanged()
+                || !string.Equals(tempBMSInstallDir, Settings.Default.BMSInstallDir, StringComparison.OrdinalIgnoreCase)
+                || !IsSameUri(tempTableListURL, Settings.Default.TableListURL)
+                || tempEnablePlaylistUrlCompletion != Settings.Default.EnablePlaylistUrlCompletion
+                || tempOverwritePlaylistUrlsWithCompletion != Settings.Default.OverwritePlaylistUrlsWithCompletion
+                || tempEnableStellaFullPlaylistUrlCompletion != Settings.Default.EnableStellaFullPlaylistUrlCompletion
+                || !string.Equals(tempPlaylistMd5UrlMappingTsvUri, Settings.Default.PlaylistMd5UrlMappingTsvUri, StringComparison.Ordinal)
+                || !string.Equals(tempPlayHistoryDisplayTargetSetsJson, Settings.Default.PlayHistoryDisplayTargetSetsJson, StringComparison.Ordinal)
+                || tempIsLR2BackupEnabled != Settings.Default.IsLR2BackupEnabled
+                || HasPathSettingValueChanged(tempLR2BackupPath, Settings.Default.LR2BackupPath, IsLR2BackupPathValid)
+                || tempLR2BackupTarget != Settings.Default.LR2BackupTarget
+                || tempLR2BackupSpan != Settings.Default.LR2BackupSpan
+                || tempLR2BackupNum != Settings.Default.LR2BackupNum
+                || tempUseExternalWebBrowser != Settings.Default.UseExternalWebBrowser
+                || tempUseExternalPanelImage != Settings.Default.UseExternalPanelImage
+                || !string.Equals(AppThemeService.NormalizeTheme(tempAppearanceTheme), AppThemeService.NormalizeTheme(Settings.Default.AppearanceTheme), StringComparison.Ordinal)
+                || HasPathSettingValueChanged(tempStagefilePath, Settings.Default.StagefilePath, IsStagefilePathValid)
+                || !string.Equals(tempFolderNameFormat, Settings.Default.FolderNameFormat, StringComparison.Ordinal)
+                || tempUseOnlyShiftJISChars != Settings.Default.UseOnlyShiftJISChars
+                || tempShowScoreViewerRegisterConfirmMsg != Settings.Default.ShowScoreViewerRegisterConfirmMsg
+                || tempShowDiffBMSInstallConfirmMsg != Settings.Default.ShowDiffBMSInstallConfirmMsg
+                || tempShowRecommUpdatedMsg != Settings.Default.ShowRecommUpdatedMsg
+                || tempSkipInitFileCheck != Settings.Default.SkipInitFileCheck
+                || tempSkipInitPlaylistLoad != Settings.Default.SkipInitPlaylistLoad
+                || tempStartupSelectInstallPending != Settings.Default.StartupSelectInstallPending
+                || tempEnableReadOptimizedPragmas != Settings.Default.EnableReadOptimizedPragmas
+                || tempEstimateOfflineScoreRanking != Settings.Default.EstimateOfflineScoreRanking
+                || tempUpdateLr2IrRankingCacheOnStartup != Settings.Default.UpdateLr2IrRankingCacheOnStartup
+                || tempEnableDownloadLr2IrScoreAndDetectUnsent != Settings.Default.EnableDownloadLr2IrScoreAndDetectUnsent
+                || tempEnableAutoInstall != Settings.Default.AutoInstall
+                || tempKeepInstallablePackagesPending != Settings.Default.KeepInstallablePackagesPending
+                || tempUseEverythingForPendingPackageSourceScan != Settings.Default.UseEverythingForPendingPackageSourceScan
+                || tempAutoApplyAmbiguousInstallDestination != Settings.Default.AutoApplyAmbiguousInstallDestination
+                || tempDeletePendingPackageSourceAfterInstall != Settings.Default.DeletePendingPackageSourceAfterInstall
+                || tempEnableSmartComponentOverwrite != Settings.Default.EnableSmartComponentOverwrite
+                || tempKeepSmartOverwriteProtectedFilesByRenaming != Settings.Default.KeepSmartOverwriteProtectedFilesByRenaming
+                || tempEncoderSampleRate != Settings.Default.EncoderSampleRate
+                || tempEncoderIndex != (int)Settings.Default.Encoder
+                || tempEncoderFormat != Settings.Default.EncoderFormat
+                || tempEncoderNormalization != Settings.Default.EncoderNormalization
+                || !string.Equals(tempEncoderExeDir, Settings.Default.EncoderExeDir, StringComparison.OrdinalIgnoreCase)
+                || tempEncoderAmplifier != Settings.Default.EncoderAmplifier
+                || tempEncoderQuality != Settings.Default.EncoderQuality
+                || !string.Equals(tempEncodeFileNameFormat, Settings.Default.EncodeFileNameFormat, StringComparison.Ordinal)
+                || tempPlayerDriverIndex != (int)Settings.Default.PlayerDriver
+                || !string.Equals(tempPlayerDevice, Settings.Default.PlayerDevice, StringComparison.Ordinal)
+                || !string.Equals(tempPlayerDeviceName, Settings.Default.PlayerDeviceName, StringComparison.Ordinal)
+                || tempPlayerSampleRate != Settings.Default.PlayerSampleRate
+                || tempPlayerFormat != Settings.Default.PlayerFormat
+                || tempPlayerBufferSize != Settings.Default.PlayerBufferSize
+                || tempPlayerWASAPIParam != Settings.Default.PlayerWASAPIParam
+                || !string.Equals(tempLanguage, Settings.Default.Lang, StringComparison.Ordinal)
+                || !string.Equals(tempLanguageDisplayName, Settings.Default.LangDisplayName, StringComparison.Ordinal);
+        }
+
+        private bool HasSearchRootSettingsChanged()
+        {
+            return OperationModeLR2DB ? HasLR2ConfigBmsSearchRootsChanged() : HasStandaloneBmsRootPathsChanged();
+        }
+
+        private bool HasLR2ConfigBmsSearchRootsChanged()
+        {
+            return !string.Equals(tempLR2ConfigBmsSearchRoots, SerializeLR2ConfigBmsSearchRoots(), StringComparison.OrdinalIgnoreCase);
+        }
+
+        private bool HasStandaloneBmsRootPathsChanged()
+        {
+            return !string.Equals(tempStandaloneBmsRootPaths, SerializeStandaloneBmsRootPaths(StandaloneBmsRootPathList), StringComparison.OrdinalIgnoreCase);
+        }
+
+        private string SerializeLR2ConfigBmsSearchRoots()
+        {
+            return lr2config == null ? string.Empty : SerializeStandaloneBmsRootPaths(lr2config.GetBMSSearchDirectoriesReadOnly());
+        }
+
+        private bool HasCustomFolderOutputBaseSettingsChanged()
+        {
+            return !string.Equals(tempLR2CustomFolderOutputDir, Settings.Default.LR2CustomFolderOutputBaseDir, StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(tempLR2CustomFolderAsRootOutputDir, Settings.Default.LR2CustomFolderOutputBaseDirRootType, StringComparison.OrdinalIgnoreCase)
+                || HasCustomFolderAdditionalOutputBaseDirsChanged();
+        }
+
+        private bool HasCustomFolderAdditionalOutputBaseDirsChanged()
+        {
+            return !string.Equals(tempLR2CustomFolderAdditionalOutputBaseDirs, Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs, StringComparison.Ordinal);
+        }
+
+        private bool HasPlayHistoryFolderDisplayPresetDraftsChanged()
+        {
+            return !string.Equals(tempPlayHistoryDisplayTargetSetDraftsJson, SerializePlayHistoryFolderDisplayPresetDraftsForChangeTracking(), StringComparison.Ordinal);
+        }
+
+        private static bool IsSameUri(Uri left, Uri right)
+        {
+            return string.Equals(left?.OriginalString ?? string.Empty, right?.OriginalString ?? string.Empty, StringComparison.Ordinal);
+        }
+
+        private static bool HasPathSettingValueChanged(string savedValue, string currentValue, Func<string, bool> isValidSavedValue)
+        {
+            if (string.Equals(savedValue, currentValue, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+            if (string.IsNullOrWhiteSpace(savedValue) && string.IsNullOrWhiteSpace(currentValue))
+            {
+                return false;
+            }
+            if (string.IsNullOrWhiteSpace(currentValue) && !string.IsNullOrWhiteSpace(savedValue) && !isValidSavedValue(savedValue))
+            {
+                return false;
+            }
+            return true;
         }
 
         internal void AcceptStartupBmsInstallDirRepair()
@@ -4866,13 +5003,13 @@ public class MainWindowViewModel : ViewModel
             RaiseValidationStateChanged();
         }
 
-        private async Task necessaryStepsAfterSaved()
+        private async Task necessaryStepsAfterSaved(bool customFolderSearchRootSyncNeeded)
         {
             if (ownerViewModel.tables == null)
             {
                 return;
             }
-            if (Settings.Default.OperationModeLR2DB)
+            if (customFolderSearchRootSyncNeeded && Settings.Default.OperationModeLR2DB)
             {
                 while (ownerViewModel.BMSTables == null)
                 {
@@ -4994,6 +5131,7 @@ public class MainWindowViewModel : ViewModel
             if (tempEnableBeatorajaBmtOutput != Settings.Default.EnableBeatorajaBmtOutput
                 || tempKeepBeatorajaBmtFilesWhenOutputDisabled != Settings.Default.KeepBeatorajaBmtFilesWhenOutputDisabled
                 || tempRegisterBeatorajaBmtUrls != Settings.Default.RegisterBeatorajaBmtUrls
+                || !string.Equals(tempBeatorajaBmtHashOutputMode, BeatorajaBmtHashOutputMode, StringComparison.Ordinal)
                 || !string.Equals(tempBeatorajaRootPath, Settings.Default.BeatorajaRootPath, StringComparison.OrdinalIgnoreCase)
                 || !string.Equals(tempBeatorajaBmtTablePath, Settings.Default.BeatorajaBmtTablePath, StringComparison.OrdinalIgnoreCase))
             {
@@ -5353,16 +5491,24 @@ public class MainWindowViewModel : ViewModel
         {
             if (CheckValidation())
             {
-                bool searchRootsChanged = isSearchRootsChanged;
+                bool searchRootsChanged = HasSearchRootSettingsChanged();
                 bool lr2SearchRootsChanged = OperationModeLR2DB && searchRootsChanged;
+                bool customFolderOutputBaseSettingsChanged = OperationModeLR2DB && HasCustomFolderOutputBaseSettingsChanged();
+                bool lr2ConfigBoundaryChanged = OperationModeLR2DB
+                    && (!string.Equals(tempLR2RootPath, Settings.Default.LR2RootPath, StringComparison.OrdinalIgnoreCase)
+                        || !string.Equals(tempLR2ConfigXmlPath, Settings.Default.LR2ConfigXmlPath, StringComparison.OrdinalIgnoreCase)
+                        || tempOperationModeLR2DB != operationModeLR2DB
+                        || lr2SearchRootsChanged
+                        || customFolderOutputBaseSettingsChanged);
                 PersistStandaloneBmsRootPathsToSettings();
                 PersistCustomFolderAdditionalOutputBaseDirsToSettings();
                 PersistPlayHistoryFolderDisplayPresetsIfChanged();
                 RefreshBeatorajaDerivedSettings();
                 Settings.Default.OperationModeLR2DB = operationModeLR2DB;
                 Settings.Default.Save();
+                bool customFolderSearchRootSyncNeeded = lr2ConfigBoundaryChanged || customFolderOutputBaseSettingsChanged;
                 bool lr2ConfigNeedsSave = false;
-                if (operationModeLR2DB && lr2config != null)
+                if (lr2ConfigBoundaryChanged && operationModeLR2DB && lr2config != null)
                 {
                     lr2ConfigNeedsSave = lr2config.EnsureDatabaseAutoReloadManualOnly();
                 }
@@ -5376,7 +5522,7 @@ public class MainWindowViewModel : ViewModel
                     {
                         ApplyRuntimeSearchRootsForCurrentMode();
                     }
-                    await necessaryStepsAfterSaved();
+                    await necessaryStepsAfterSaved(customFolderSearchRootSyncNeeded);
                     backupSavedSettings();
                 }
             }
@@ -5617,12 +5763,16 @@ public class MainWindowViewModel : ViewModel
                 {
                     restartMode |= RestartMode.FolderOnly;
                 }
-                if (isSearchRootsChanged)
+                if (HasLR2ConfigBmsSearchRootsChanged())
+                {
+                    restartMode |= RestartMode.FolderOnly;
+                }
+                if (HasCustomFolderOutputBaseSettingsChanged())
                 {
                     restartMode |= RestartMode.FolderOnly;
                 }
             }
-            else if (!string.Equals(tempStandaloneBmsRootPaths, SerializeStandaloneBmsRootPaths(StandaloneBmsRootPathList), StringComparison.OrdinalIgnoreCase))
+            else if (HasStandaloneBmsRootPathsChanged())
             {
                 restartMode |= RestartMode.FolderOnly;
             }

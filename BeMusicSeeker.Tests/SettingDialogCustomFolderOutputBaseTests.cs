@@ -21,7 +21,7 @@ namespace BeMusicSeeker.Tests;
 public sealed class SettingDialogCustomFolderOutputBaseTests
 {
     [TestMethod]
-    public void HasPendingSettingChanges_TracksSettingsChangesAndReset()
+    public void HasPendingSettingChanges_UsesSnapshotDiffsAndReset()
     {
         bool previousShowRecommUpdatedMsg = Settings.Default.ShowRecommUpdatedMsg;
         try
@@ -38,6 +38,9 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             Assert.IsTrue(SettingDialog.ShouldResetSettingsOnCancel(dialog));
 
             Settings.Default.ShowRecommUpdatedMsg = previousShowRecommUpdatedMsg;
+
+            Assert.IsFalse(dialog.HasPendingSettingChanges());
+
             SetDialogField(dialog, "operationModeLR2DB", !GetDialogField<bool>(dialog, "tempOperationModeLR2DB"));
 
             Assert.IsTrue(dialog.HasPendingSettingChanges());

@@ -21,6 +21,8 @@
 扱い:
 
 - ライブラリ初期化、ファイル差分更新、スコア再読み込みは起動しない。
+- OK は user.config への保存と即時反映が必要な UI 状態だけを扱い、LR2 `config.xml` / custom folder 出力先 / BMS root の整合処理を起動しない。
+- Cancel は保存済み snapshot と現在値の差分が無い場合は閉じるだけにし、全設定の restore、theme / culture 再適用、`LR2Config` 再読み込みを行わない。
 - 起動・リロード進捗が active の間は、設定保存自体を受け付けない。これは UI-only だけの変更でも同じで、設定画面 OK の副作用を単純化するため。
 
 ### Score-only
@@ -29,11 +31,37 @@
 
 - beatoraja score.db の利用有無
 - beatoraja score.db パス
+- LR2 linked profile の player score DB path に影響する LR2 root / player config 変更
 
 扱い:
 
 - 既存プロファイルが有効な通常状態では `ReloadScoresOnly()` を起動する。
+- LR2 play history schema check は score DB 読み込み境界で行い、設定画面を開くだけでは行わない。
 - 起動・リロード進捗が active の間は適用不可。
+
+### Play History Display
+
+対象例:
+
+- `プレイログ FOLDER 表示プリセット`
+
+扱い:
+
+- user.config の JSON を保存し、Play History の表示対象 dropdown を再構築する。
+- playlist 正本、playlist entries、LR2 `song.db`、custom folder 出力は変更しない。
+
+### Startup-only / Next-use
+
+対象例:
+
+- 起動時の file check skip
+- pending install source scan policy
+- encoder / player の詳細設定のうち、次回実行時または該当機能利用時にだけ参照されるもの
+
+扱い:
+
+- user.config へ保存するだけで、現在の library / score / custom folder / LR2 config に即時整合処理をかけない。
+- Cancel 時は snapshot 差分がある設定だけを戻し、無変更なら閉じるだけにする。
 
 ### Folder/File Diff
 
@@ -42,10 +70,12 @@
 - LR2 config.xml パス
 - LR2 config.xml 由来の BMS 検索ルート変更
 - standalone mode の BMS 検索ルート変更
+- LR2 custom folder の通常 / 追加 / root 出力先
 
 扱い:
 
 - 既存プロファイルが有効な通常状態では `ReloadFileDiff()` を起動する。
+- LR2 custom folder 出力先の LR2 `config.xml` search root 同期、出力先移行、管理外 `.lr2folder` 同期は、custom folder 出力先設定が変わった場合だけ実行する。
 - 起動・リロード進捗が active の間は適用不可。
 
 ### Full Reinitialize
@@ -70,6 +100,10 @@
 
 初回設定ダイアログは、まだ進捗 operation が active ではないため保存可能とする。
 初期化が始まった後に設定画面を開いた場合は、起動・バックグラウンド更新が完全に終わるまで保存不可とする。
+
+設定画面の dirty 判定は `Settings.Default.PropertyChanged` の発火有無ではなく、保存済み snapshot と現在の draft / settings 値の明示差分で行う。getter の防御的正規化、表示更新、schema status の presentation 更新だけで Cancel が full restore に入ってはならない。
+
+LR2 play history schema check は設定画面表示時の自動処理にしない。schema status は、アプリ起動時または Play History read など score DB を読むタイミングで得た結果を表示に利用し、未確認の場合は「未確認」表示のままにする。導入 / 修復 / 削除の明示操作では、操作直前に read-only check を行って対象 score DB と状態を確認する。
 
 初回設定の案内は、設定画面で言語と動作モードを選ぶことを先に示す。`スタンドアローン(LR2と連携しない)` では一般タブの BMS ディレクトリとインストールタブの新規インストール先が必須で、`LR2と連携する` では一般タブの LR2 ディレクトリ、プレイリストタブのカスタムフォルダ出力先、インストールタブの新規インストール先が必須になる。必須項目が揃って `OK` が押されるまで、BMS ファイルの初回スキャンは開始しない。
 

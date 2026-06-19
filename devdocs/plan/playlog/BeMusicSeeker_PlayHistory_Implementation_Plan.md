@@ -211,7 +211,7 @@ install / repair はユーザーの明示操作でだけ write connection を開
 
 ### Settings impact
 
-play history schema の導入・修復は、設定保存や startup の副作用として自動実行しない。BeMusicSeeker は startup / 設定画面表示時に LR2 score DB を read-only で確認し、導入済み / 未導入 / 不整合 / 読み取り不可の状態だけを表示する。実際に LR2 score DB へ table / trigger を追加する操作は、設定画面の明示ボタンからだけ実行する。
+play history schema の導入・修復は、設定保存や startup の副作用として自動実行しない。BeMusicSeeker は startup / Play History read など score DB を読むタイミング、または設定画面の導入 / 修復 / 削除操作直前に LR2 score DB を read-only で確認し、導入済み / 未導入 / 不整合 / 読み取り不可の状態だけを表示する。設定画面を開くだけでは schema check を行わない。実際に LR2 score DB へ table / trigger を追加する操作は、設定画面の明示ボタンからだけ実行する。
 
 play history schema 状態確認や LR2 score DB 変更は、既存の重い reload ではなく score DB schema check / score refresh / play history view refresh の範囲で扱う。設定保存時の impact は次の粒度に分ける。
 
@@ -243,7 +243,7 @@ startup / reload 中に score DB が読めない場合は、失敗を隠して�
 状態:
 
 - `未導入`: 統合ボタンの表示を `[プレイログを有効化...]` にして有効化する。
-- `導入済み`: 統合ボタンを disabled にする。状態確認は設定画面表示時と操作直前の read-only check で行い、手動の `[状態確認]` ボタンは置かない。
+- `導入済み`: 統合ボタンを disabled にする。状態確認は startup / Play History read / 操作直前の read-only check で行い、設定画面表示時の自動 check と手動の `[状態確認]` ボタンは置かない。
 - `一部不足 / 不整合`: 統合ボタンの表示を `[修復...]` にして有効化する。
 - `DBロック / 読み取り専用 / path不明`: 操作ボタンを disabled にし、diagnostics に理由を出す。
 - `LR2 linked profile ではない`: 表示しない、または disabled にする。
@@ -376,7 +376,7 @@ Play history view 用の keyword search context を追加する。既存 chart l
 - SQLite 3.6.7 互換 SQL だけを使う。
 - 導入済み / 未導入 / 壊れた schema を診断できる。
 - LR2 linked profile 以外では install を実行しない。
-- startup / 設定画面表示時は read-only の schema check だけを行い、自動導入しない。
+- startup / Play History read / 設定画面の明示操作直前は read-only の schema check だけを行い、自動導入しない。設定画面表示だけでは schema check を行わない。
 
 主な対象コード:
 
@@ -416,7 +416,7 @@ Play history view 用の keyword search context を追加する。既存 chart l
 - [x] `bms_lr2_play_pending`、2 index、4 trigger の作成漏れを検出できる。
 - [x] trigger SQL 不一致は repairable になり、repair で trigger だけ再作成される。
 - [x] required table の column 不足は `ManualRepairRequired` になり、table が drop されない。
-- [x] startup / 設定画面表示の schema check が read-only で完了し、table / trigger を作らない。
+- [x] startup / Play History read / 設定画面の明示操作直前の schema check が read-only で完了し、table / trigger を作らない。設定画面表示だけでは schema check を行わない。
 - [x] warning dialog で cancel した場合、DB が変更されない。
 - [x] trigger のみ削除では履歴 table / index を保持し `Repairable` になること、table も含めた削除では app-owned play history object が消えて `NotInstalled` になることをテストする。
 - [x] SQLite 3.6.7 非互換構文が入っていないことを SQL text snapshot で固定。
@@ -774,7 +774,7 @@ Play history view 用の keyword search context を追加する。既存 chart l
 - 初期 LR2 provider は LR2 linked profile 限定。stand-alone mode へ LR2 score DB 連携を広げない。
 - LR2 score DB への trigger は SQLite 3.6.7 互換を必須にする。
 - LR2 score DB への table / trigger 導入・修復は、ユーザーの明示操作でだけ行う。startup、設定保存、score hydration の副作用で自動実行しない。
-- startup / 設定画面表示時の schema check は read-only にする。
+- startup / Play History read / 設定画面の明示操作直前の schema check は read-only にする。設定画面表示だけでは schema check を行わない。
 - 既存 score row から last play を backfill しない。
 - `playlist.last_update` と play history の日時を混ぜない。
 - play history 読み取りで playlist reload / external sync / `.bmt` 再出力 / full scan を起動しない。

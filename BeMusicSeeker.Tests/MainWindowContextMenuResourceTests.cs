@@ -705,7 +705,7 @@ public sealed class MainWindowContextMenuResourceTests
             "ColumnsSettingsChartRowsView");
         string saveFollowup = ExtractBetween(
             viewModelCode,
-            "private async Task necessaryStepsAfterSaved()",
+            "private async Task necessaryStepsAfterSaved(bool customFolderSearchRootSyncNeeded)",
             "public bool CheckValidation()");
         string lr2RootPathProperty = ExtractBetween(
             viewModelCode,
@@ -912,6 +912,8 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(initialSaveMethod, "SaveSettingsCore(runPostSaveActions: false)");
         StringAssert.Contains(initialSaveMethod, "backupSavedSettings();");
         Assert.IsFalse(initialSaveMethod.Contains("necessaryStepsAfterSaved"));
+        StringAssert.Contains(saveCore, "if (lr2ConfigBoundaryChanged && operationModeLR2DB && lr2config != null)");
+        StringAssert.Contains(saveCore, "bool customFolderSearchRootSyncNeeded = lr2ConfigBoundaryChanged || customFolderOutputBaseSettingsChanged;");
         StringAssert.Contains(saveCore, "lr2ConfigNeedsSave = lr2config.EnsureDatabaseAutoReloadManualOnly();");
         StringAssert.Contains(saveCore, "if ((lr2SearchRootsChanged || lr2ConfigNeedsSave) && lr2config != null)");
         Assert.IsTrue(
@@ -992,22 +994,40 @@ public sealed class MainWindowContextMenuResourceTests
         string backupSavedSettings = ExtractBetween(
             viewModelCode,
             "private void backupSavedSettings()",
-            "private async Task necessaryStepsAfterSaved()");
+            "private async Task necessaryStepsAfterSaved(bool customFolderSearchRootSyncNeeded)");
         string restartDecision = ExtractBetween(
             viewModelCode,
             "public RestartMode IsNeedRestartForSaved()",
             "public RestartMode IsNeedRestartForSaveOrCancel()");
+        string pendingDecision = ExtractBetween(
+            viewModelCode,
+            "internal bool HasPendingSettingChanges()",
+            "private bool HasSettingValueChanges()");
+        string saveCore = ExtractBetween(
+            viewModelCode,
+            "private async Task SaveSettingsCore(bool runPostSaveActions)",
+            "public void SaveOperationModeForRestart");
         string saveOrCancelDecision = ExtractBetween(
             viewModelCode,
             "public RestartMode IsNeedRestartForSaveOrCancel()",
             "public class PlaylistPropertyDialogViewModel");
 
         StringAssert.Contains(backupSavedSettings, "tempStandaloneBmsRootPaths = SerializeStandaloneBmsRootPaths(StandaloneBmsRootPathList);");
+        StringAssert.Contains(backupSavedSettings, "tempLR2ConfigBmsSearchRoots = SerializeLR2ConfigBmsSearchRoots();");
         Assert.IsFalse(backupSavedSettings.Contains("tempEnableLR2SongDbSync"));
         Assert.IsFalse(viewModelCode.Contains("tempValidation"));
+        StringAssert.Contains(pendingDecision, "HasSearchRootSettingsChanged()");
+        Assert.IsFalse(pendingDecision.Contains("isSearchRootsChanged"));
+        Assert.IsFalse(pendingDecision.Contains("isBMSDirectoryAdded"));
+        Assert.IsFalse(pendingDecision.Contains("isBMSDirectoryRemoved"));
+        StringAssert.Contains(saveCore, "bool searchRootsChanged = HasSearchRootSettingsChanged();");
+        StringAssert.Contains(viewModelCode, "HasPathSettingValueChanged(tempLR2RootPath, Settings.Default.LR2RootPath");
+        StringAssert.Contains(viewModelCode, "SerializeStandaloneBmsRootPaths(lr2config.GetBMSSearchDirectoriesReadOnly())");
         Assert.IsFalse(restartDecision.Contains("CheckValidation()"));
         StringAssert.Contains(restartDecision, "scoreSourceChanged");
-        StringAssert.Contains(restartDecision, "SerializeStandaloneBmsRootPaths(StandaloneBmsRootPathList)");
+        StringAssert.Contains(restartDecision, "HasLR2ConfigBmsSearchRootsChanged()");
+        StringAssert.Contains(restartDecision, "HasStandaloneBmsRootPathsChanged()");
+        StringAssert.Contains(restartDecision, "HasCustomFolderOutputBaseSettingsChanged()");
         StringAssert.Contains(saveOrCancelDecision, "return RestartMode.None;");
     }
 
@@ -1032,7 +1052,7 @@ public sealed class MainWindowContextMenuResourceTests
             "public void SaveOperationModeForRestart");
         string postSaveSteps = ExtractBlockAfter(
             viewModelCode,
-            "private async Task necessaryStepsAfterSaved()");
+            "private async Task necessaryStepsAfterSaved(bool customFolderSearchRootSyncNeeded)");
         string reloadFileDiff = ExtractBetween(
             viewModelCode,
             "public async void ReloadFileDiff()",
@@ -1065,7 +1085,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(viewModelCode, "public bool CanRequestLr2SongDbSyncDataResync => HasActiveLibraryProfile");
         StringAssert.Contains(viewModelCode, "&& settingDialog?.OperationModeLR2DB == true");
         StringAssert.Contains(viewModelCode, "&& !IsLibraryOperationInProgress;");
-        StringAssert.Contains(settingDialogXaml, "<Grid Margin=\"0,0,0,4\" IsEnabled=\"{Binding IsChecked, ElementName=radioButtonUseLR2}\">");
+        StringAssert.Contains(settingDialogXaml, "<Grid Margin=\"20,2,10,4\" IsEnabled=\"{Binding IsChecked, ElementName=radioButtonUseLR2}\">");
         StringAssert.Contains(settingDialogXaml, "HorizontalAlignment=\"Center\"");
         StringAssert.Contains(settingDialogXaml, "IsEnabled=\"{Binding CanRequestLr2SongDbSyncDataResync, Mode=OneWay}\"");
         StringAssert.Contains(manualResyncClickHandler, "if (!viewModel.CanRequestLr2SongDbSyncDataResync)");

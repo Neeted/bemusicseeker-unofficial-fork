@@ -70,12 +70,12 @@ public partial class SettingDialog : UserControl, IComponentConnector
         }
     }
 
-    private async void SettingDialogIsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
+    private void SettingDialogIsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
     {
         if (e.NewValue is true && base.DataContext is MainWindowViewModel { settingDialog: { } settingDialogViewModel })
         {
             SyncAppearanceThemeSelection(settingDialogViewModel);
-            await RefreshLr2PlayHistorySchemaStatusAsync(settingDialogViewModel, force: false);
+            settingDialogViewModel.RefreshLr2PlayHistorySchemaStatusPresentation();
         }
     }
 
@@ -307,7 +307,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
             return;
         }
 
-        await RefreshLr2PlayHistorySchemaStatusAsync(settingDialogViewModel, force: false);
+        await RefreshLr2PlayHistorySchemaStatusAsync(settingDialogViewModel, force: true);
         Lr2PlayHistorySchemaCheckResult before = settingDialogViewModel.Lr2PlayHistorySchemaCheckResult;
         if (before == null || !settingDialogViewModel.CanUninstallLr2PlayHistorySchema)
         {

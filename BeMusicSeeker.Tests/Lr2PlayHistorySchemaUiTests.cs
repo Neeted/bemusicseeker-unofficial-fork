@@ -101,8 +101,8 @@ public sealed class Lr2PlayHistorySchemaUiTests
         StringAssert.Contains(uninstallDialogXaml, "Path=Resources.Lr2_play_history_schema_uninstall_tables_and_triggers, Mode=OneWay");
         StringAssert.Contains(uninstallDialogXaml, "Path=Resources.Lr2_play_history_schema_uninstall_warning, Mode=OneWay");
         Assert.IsTrue(
-            xaml.IndexOf("Lr2_song_db_sync_data_resync", StringComparison.Ordinal)
-            < xaml.IndexOf("Lr2_play_history_schema_label", StringComparison.Ordinal));
+            xaml.IndexOf("Lr2_play_history_schema_label", StringComparison.Ordinal)
+            < xaml.IndexOf("Lr2_song_db_sync_data_resync", StringComparison.Ordinal));
         StringAssert.Contains(playHistorySchemaUi, "<RowDefinition Height=\"20\" />");
         StringAssert.Contains(playHistorySchemaUi, "Grid.Row=\"0\" Grid.Column=\"1\" Width=\"270\" HorizontalAlignment=\"Center\" VerticalAlignment=\"Center\" TextAlignment=\"Center\"");
         StringAssert.Contains(playHistorySchemaUi, "<Run Text=\": \" />");
@@ -130,6 +130,9 @@ public sealed class Lr2PlayHistorySchemaUiTests
         Assert.IsFalse(installHandler.Contains("Settings.Default.Save"));
         Assert.IsFalse(installHandler.Contains("lr2config.Save"));
         StringAssert.Contains(codeBehind, "private async void uninstallLr2PlayHistorySchemaButtonClicked");
+        StringAssert.Contains(codeBehind, "private void SettingDialogIsVisibleChanged");
+        Assert.IsFalse(codeBehind.Contains("await RefreshLr2PlayHistorySchemaStatusAsync(settingDialogViewModel, force: false);"));
+        StringAssert.Contains(codeBehind, "settingDialogViewModel.RefreshLr2PlayHistorySchemaStatusPresentation();");
         StringAssert.Contains(codeBehind, "new Lr2PlayHistorySchemaUninstallDialog(settingDialogViewModel.Lr2PlayHistoryScoreDbPath)");
 
         StringAssert.Contains(viewModel, "Lr2ScoreDbPathResolver.ResolvePlayerScoreDbPath(Settings.Default.LR2RootPath, lr2config.GetPlayerId)");
@@ -137,6 +140,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
         StringAssert.Contains(viewModel, "new Lr2PlayHistorySchemaService().Check(scoreDbPath, isLr2LinkedProfile)");
         StringAssert.Contains(viewModel, "new Lr2PlayHistorySchemaService().InstallOrRepair(scoreDbPath, OperationModeLR2DB)");
         StringAssert.Contains(viewModel, "new Lr2PlayHistorySchemaService().Uninstall(scoreDbPath, OperationModeLR2DB, uninstallMode)");
+        StringAssert.Contains(viewModel, "lr2PlayHistorySchemaCheckResult == null || CanInstallLr2PlayHistorySchema || CanRepairLr2PlayHistorySchema");
         StringAssert.Contains(viewModel, "play_history_schema_");
 
         foreach (string key in RequiredResourceKeys)

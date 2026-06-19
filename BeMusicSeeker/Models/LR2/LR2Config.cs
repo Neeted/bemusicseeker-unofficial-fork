@@ -116,6 +116,22 @@ public class LR2Config : XDocument
 
     public List<string> GetBMSSearchDirectories()
     {
+        (List<string> source, List<string> list, bool needSave) = ReadBMSSearchDirectories();
+        if (needSave || source.Count != list.Count)
+        {
+            SetBMSSearchDirectories(list);
+            Save();
+        }
+        return list;
+    }
+
+    public List<string> GetBMSSearchDirectoriesReadOnly()
+    {
+        return ReadBMSSearchDirectories().list;
+    }
+
+    private (List<string> source, List<string> list, bool needSave) ReadBMSSearchDirectories()
+    {
         bool needSave = false;
         List<string> source;
         List<string> list;
@@ -152,12 +168,7 @@ public class LR2Config : XDocument
             }
             list = list2;
         }
-        if (needSave || source.Count() != list.Count())
-        {
-            SetBMSSearchDirectories(list);
-            Save();
-        }
-        return list;
+        return (source, list, needSave);
     }
 
     public void SetBMSSearchDirectories(IEnumerable<string> dirs)
