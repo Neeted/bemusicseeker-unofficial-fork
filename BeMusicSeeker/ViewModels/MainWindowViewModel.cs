@@ -8659,6 +8659,11 @@ public class MainWindowViewModel : ViewModel
         return CanReuseMainColumnSetting((viewUpdateMode)resolvedMode, typedLastAppliedMode, targetSettingsReady, playlistSummarySettingsReady, isInit);
     }
 
+    internal static CustomTableRowDragKind ResolveChartRowsViewRowDragKindForTest(CustomTableColumnSettings settings)
+    {
+        return ResolveChartRowsViewRowDragKind(settings);
+    }
+
     /// <summary>
     /// playlist 列設定モード解決をテストします。
     /// </summary>
@@ -15216,7 +15221,23 @@ public class MainWindowViewModel : ViewModel
             }
             _ColumnsSettingsChartRowsView = value;
             RaisePropertyChanged("ColumnsSettingsChartRowsView");
+            RaisePropertyChanged("ChartRowsViewRowDragKind");
         }
+    }
+
+    public CustomTableRowDragKind ChartRowsViewRowDragKind
+    {
+        get
+        {
+            return ResolveChartRowsViewRowDragKind(ColumnsSettingsChartRowsView);
+        }
+    }
+
+    private static CustomTableRowDragKind ResolveChartRowsViewRowDragKind(CustomTableColumnSettings settings)
+    {
+        return settings?.Kind == CustomTableColumnSettings.ViewKind.PLAY_HISTORY
+            ? CustomTableRowDragKind.GenericSelectedRows
+            : CustomTableRowDragKind.PlaylistDropCandidateRows;
     }
 
     public Visibility ColumnSettingsVisibilityForPlaylist

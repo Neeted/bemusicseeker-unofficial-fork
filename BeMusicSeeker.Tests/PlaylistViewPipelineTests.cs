@@ -1895,6 +1895,10 @@ public sealed class PlaylistViewPipelineTests
             MainWindowViewModel.MainViewOperationSection.ChartInfoParseError,
             ChartOperationSourceScope.Library);
         AssertMainViewOperationContext(
+            MainWindowViewModel.viewUpdateMode.PlayHistorySelected,
+            MainWindowViewModel.MainViewOperationSection.PlayHistory,
+            ChartOperationSourceScope.Library);
+        AssertMainViewOperationContext(
             MainWindowViewModel.viewUpdateMode.FolderFilterSelected,
             MainWindowViewModel.MainViewOperationSection.Library,
             ChartOperationSourceScope.Library);
@@ -2369,6 +2373,22 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsTrue(MainWindowViewModel.IsPlaylistDropCandidateRow(playlistRow));
         Assert.IsTrue(MainWindowViewModel.ArePlaylistDropCandidateRows([libraryRow, playlistRow]));
         Assert.IsFalse(MainWindowViewModel.ArePlaylistDropCandidateRows([libraryRow, new PlaylistSummaryRow()]));
+    }
+
+    [TestMethod]
+    public void PlayHistoryRowOperationPolicy_RejectsPlaylistDropAndChartOperationsEvenWhenResolved()
+    {
+        PlayHistoryRow row = CreateResolvedPlayHistoryRow();
+
+        Assert.IsNotNull(row.ResolvedChart);
+        Assert.IsFalse(MainWindowViewModel.IsPlaylistDropCandidateRow(row));
+        Assert.IsFalse(MainWindowViewModel.ArePlaylistDropCandidateRows([row]));
+        Assert.IsFalse(GridRowResolver.IsPlaylistRow(row));
+        Assert.IsNull(GridRowResolver.GetPlaylistEntry(row));
+        Assert.IsFalse(GridRowResolver.TryGetBmsPlayerFile(row, out _));
+        Assert.IsFalse(GridRowResolver.TryGetChartFile(row, out _));
+        Assert.IsFalse(GridRowResolver.TryGetChartOperationTarget(row, out _));
+        Assert.IsFalse(GridRowResolver.TryGetFolderEditChartOperationTarget(row, ChartOperationSourceScope.Library, out _));
     }
 
     [TestMethod]
@@ -3601,6 +3621,41 @@ public sealed class PlaylistViewPipelineTests
             IsBmtOutput = table.is_bmt_output != false,
             TableRef = table
         };
+    }
+
+    private static PlayHistoryRow CreateResolvedPlayHistoryRow()
+    {
+        const string hash = "dddddddddddddddddddddddddddddddd";
+        const string sha256 = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd";
+        var file = new TestableBmsFile();
+        file.Apply(@"C:\BMS\play-history-resolved.bms", "Resolved Play History", "Artist", hash);
+        file.SetSha256(sha256);
+        PlaylistLibraryResolveIndexSnapshot resolveIndex = PlaylistLibraryResolveIndexSnapshot.FromLibraryChartRefs([LibraryChartRef.FromBmsFile(file)]);
+        PlayHistoryProjectionIndex projectionIndex = PlayHistoryProjectionIndex.Create(
+            resolveIndex,
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { [hash] = sha256 });
+        PlayHistoryProjectionResult projected = PlayHistoryRow.ProjectLr2Rows(
+            new Lr2PlayHistoryReadResult(
+                PlayHistorySourceProfile.Lr2("score.db"),
+                [
+                    new Lr2PlayHistoryRecord
+                    {
+                        history_id = 1,
+                        hash = hash,
+                        played_at = 1000,
+                        finalized = 1,
+                        score_write_type = "update",
+                        new_playcount = 1,
+                        playcount_delta = 1,
+                        new_exscore = 100,
+                        new_totalnotes = 100
+                    }
+                ],
+                [],
+                Lr2PlayHistorySchemaStatus.Installed),
+            projectionIndex);
+
+        return projected.Rows.Single();
     }
 
     private sealed class TestablePlaylistEntry : BMSTableEntry

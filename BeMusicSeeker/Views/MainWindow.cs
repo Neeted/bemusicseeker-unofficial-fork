@@ -1523,8 +1523,28 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     internal static bool ShouldUsePlaylistMissingContextMenu(object row, ChartOperationSourceScope sourceScope)
     {
-        return GridRowResolver.TryGetChartOperationTarget(row, sourceScope, out ChartOperationTarget target)
-            && target.IsPlaylistMissing;
+        return TryResolveTableContextMenuPolicy(row, sourceScope, out bool usePlaylistMissingContextMenu)
+            && usePlaylistMissingContextMenu;
+    }
+
+    internal static bool TryResolveTableContextMenuPolicyForTest(object row, ChartOperationSourceScope sourceScope, out bool usePlaylistMissingContextMenu)
+    {
+        return TryResolveTableContextMenuPolicy(row, sourceScope, out usePlaylistMissingContextMenu);
+    }
+
+    private static bool TryResolveTableContextMenuPolicy(object row, ChartOperationSourceScope sourceScope, out bool usePlaylistMissingContextMenu)
+    {
+        usePlaylistMissingContextMenu = false;
+        if (row == null || row is PlayHistoryRow)
+        {
+            return false;
+        }
+        if (!GridRowResolver.TryGetChartOperationTarget(row, sourceScope, out ChartOperationTarget target))
+        {
+            return false;
+        }
+        usePlaylistMissingContextMenu = target.IsPlaylistMissing;
+        return true;
     }
 
     private List<ScoreViewerTarget> GetSelectedGridScoreViewerTargets()
@@ -1622,7 +1642,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             usePlaylistMissingContextMenu = false;
             return false;
         }
-        usePlaylistMissingContextMenu = ShouldUsePlaylistMissingContextMenu(row, GetCurrentChartOperationSourceScope());
+        if (!TryResolveTableContextMenuPolicy(row, GetCurrentChartOperationSourceScope(), out usePlaylistMissingContextMenu))
+        {
+            return false;
+        }
         string resourceKey = usePlaylistMissingContextMenu ? "tableContextMenuPlaylistMissing" : "tableContextMenu";
         if (TryFindResource(resourceKey) is not ContextMenu foundContextMenu)
         {

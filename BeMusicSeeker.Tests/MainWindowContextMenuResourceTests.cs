@@ -9,6 +9,7 @@ using System.Text.RegularExpressions;
 using System.Windows;
 using System.Xml.Linq;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
@@ -66,6 +67,22 @@ public sealed class MainWindowContextMenuResourceTests
             StringAssert.Contains(playHistoryTree, "Path=Resources." + resource + ", Mode=OneWay", resource);
             Assert.IsFalse(string.IsNullOrWhiteSpace(Resources.ResourceManager.GetString(resource)), resource);
         }
+    }
+
+    [TestMethod]
+    public void PlayHistoryMainTable_UsesDisplayOnlyDragAndRejectsChartContextMenu()
+    {
+        string xaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "MainWindow.xaml"));
+        string mainTable = ExtractBetween(xaml, "<v:CustomTableView x:Name=\"customTableView\"", "<i:Interaction.Triggers>");
+        PlayHistoryRow playHistoryRow = CreateUnresolvedPlayHistoryRow();
+        LibraryChartRow libraryRow = LibraryChartRow.FromBmsFile(CreateContextMenuBmsFile());
+
+        StringAssert.Contains(mainTable, "RowDragKind=\"{Binding ChartRowsViewRowDragKind, Mode=OneWay}\"");
+        Assert.IsFalse(mainTable.Contains("RowDragKind=\"PlaylistDropCandidateRows\""));
+        Assert.IsFalse(MainWindow.TryResolveTableContextMenuPolicyForTest(playHistoryRow, ChartOperationSourceScope.Library, out bool playHistoryMissingContextMenu));
+        Assert.IsFalse(playHistoryMissingContextMenu);
+        Assert.IsTrue(MainWindow.TryResolveTableContextMenuPolicyForTest(libraryRow, ChartOperationSourceScope.Library, out bool libraryMissingContextMenu));
+        Assert.IsFalse(libraryMissingContextMenu);
     }
 
     [TestMethod]
@@ -1223,7 +1240,7 @@ public sealed class MainWindowContextMenuResourceTests
             "private void notIgnoredFileScanCheckSelectedCharts",
             "private async void forceInstallSelectedPendingCharts");
 
-        StringAssert.Contains(contextMenuResource, "ShouldUsePlaylistMissingContextMenu(row, GetCurrentChartOperationSourceScope())");
+        StringAssert.Contains(contextMenuResource, "TryResolveTableContextMenuPolicy(row, GetCurrentChartOperationSourceScope(), out usePlaylistMissingContextMenu)");
         Assert.IsFalse(contextMenuResource.Contains("GetRealBmsFile"));
         StringAssert.Contains(renameInvalidExtensionClick, "GetSelectedBmsFormatCharts(ChartOperationCapabilities.RenameInvalidExtension)");
         StringAssert.Contains(renameInvalidExtensionClick, "viewModel.RenameBMSFilesExtensions(list, \".bmx\")");
@@ -2501,6 +2518,72 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(libraryCode, "if (!fixMode && looseEntries.Count == 0 && packageTargets.Count > 1)");
         StringAssert.Contains(installEstimationDoc, "手動の複数 package 推定");
         StringAssert.Contains(installEstimationDoc, "loose chart が混じる手動 chart 群推定");
+    }
+
+    private static PlayHistoryRow CreateUnresolvedPlayHistoryRow()
+    {
+        PlayHistoryProjectionResult projected = PlayHistoryRow.ProjectLr2Rows(
+            new Lr2PlayHistoryReadResult(
+                PlayHistorySourceProfile.Lr2("score.db"),
+                [
+                    new Lr2PlayHistoryRecord
+                    {
+                        history_id = 1,
+                        hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                        played_at = 1000,
+                        finalized = 1,
+                        score_write_type = "update",
+                        new_playcount = 1,
+                        playcount_delta = 1,
+                        new_exscore = 100,
+                        new_totalnotes = 100
+                    }
+                ],
+                [],
+                Lr2PlayHistorySchemaStatus.Installed),
+            PlayHistoryProjectionIndex.Empty);
+
+        return projected.Rows.Single();
+    }
+
+    private static BMSFile CreateContextMenuBmsFile()
+    {
+        BMSFile file = BMSFile.FromSongTableRawValues(
+        [
+            "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "Context Menu BMS",
+            "",
+            "Artist",
+            "",
+            "",
+            "",
+            "C:\\BMS\\context-menu.bms",
+            "",
+            "Folder",
+            "",
+            "",
+            "",
+            "",
+            "12",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            ""
+        ]);
+        file.ApplySnapshotDigest(
+            "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+        return file;
     }
 
     private static string FindRepositoryRoot()

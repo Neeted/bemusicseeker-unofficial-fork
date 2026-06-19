@@ -108,6 +108,20 @@ public sealed class MainColumnSettingModeTests
     }
 
     [TestMethod]
+    public void ResolveChartRowsViewRowDragKind_UsesGenericRowsForPlayHistorySettings()
+    {
+        Assert.AreEqual(
+            CustomTableRowDragKind.GenericSelectedRows,
+            MainWindowViewModel.ResolveChartRowsViewRowDragKindForTest(new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.PLAY_HISTORY)));
+        Assert.AreEqual(
+            CustomTableRowDragKind.PlaylistDropCandidateRows,
+            MainWindowViewModel.ResolveChartRowsViewRowDragKindForTest(new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD)));
+        Assert.AreEqual(
+            CustomTableRowDragKind.PlaylistDropCandidateRows,
+            MainWindowViewModel.ResolveChartRowsViewRowDragKindForTest(null));
+    }
+
+    [TestMethod]
     public void ShouldReuseMainColumnSetting_DoesNotReuseWhenModeChangesOrSettingsAreMissing()
     {
         int resolvedMode = (int)MainWindowViewModel.viewUpdateMode.FolderFilterSelected;

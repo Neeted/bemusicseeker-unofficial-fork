@@ -510,7 +510,7 @@ Play history view 用の keyword search context を追加する。既存 chart l
 - [x] Header context menu に play history columns を追加する。
 - [x] `PlayHistoryRowsView` を `customTableView.ItemsSource` へ出せるようにする。
 - [x] `CustomTableView` の row context / header context / sort request で play history row を識別する。
-- [ ] PlayHistory view 中は playlist 編集用 column / DnD / cell edit を無効にする。`customTableView` の固定 `RowDragKind="PlaylistDropCandidateRows"` に依存せず、binding または event guard で PlayHistory row を drop candidate にしない。
+- [x] PlayHistory view 中は playlist 編集用 column / DnD / cell edit を無効にする。`customTableView` の固定 `RowDragKind="PlaylistDropCandidateRows"` に依存せず、`ChartRowsViewRowDragKind` binding で PlayHistory row を playlist drop candidate にしない。
 - [ ] `GridRowResolver` に PlayHistory row 用の hash-only operation target を追加し、未解決 row は raw hash copy のみにする。
 - [x] `GridSummaryText` または専用 summary binding で期間 digest を出す。
 - [x] Phase 3 では表示対象 dropdown を作らず、全履歴を対象にする。`FOLDER` は解決できた playlist / folder label の表示だけに使い、絞り込みは Phase 5 に送る。
@@ -550,9 +550,10 @@ Play history view 用の keyword search context を追加する。既存 chart l
 - [x] `すべて` / `今日` / `昨日` / `最近 7 日` / `最近 30 日` node の epoch range が期待通りになる。
 - [ ] 年 / 月 / 日 node の epoch range が期待通りになる。
 - [x] `未確定 / 診断` node では `finalized = 0` と projection diagnostics が見える。
-- [ ] play history row は playlist tree drop candidate にならない。
-- [ ] play history row 右 click では解決済み row の repository / hash 系と、未解決 row の raw hash copy だけが出る。
-- [ ] play history row activation は chart 再生 / explorer / playlist edit を起動しない。
+- [x] play history row は playlist tree drop candidate にならない。
+- [x] play history row 右 click では通常 chart 操作 context menu を開かない。
+- [ ] play history 専用 context menu で、解決済み row の repository / hash 系と、未解決 row の raw hash copy だけを出す。
+- [x] play history row activation は chart 再生 / explorer / playlist edit を起動しない。
 
 完了条件:
 
@@ -705,7 +706,7 @@ Play history view 用の keyword search context を追加する。既存 chart l
 | Phase 0 | 進行中 | 実装計画と trigger proposal は配置済み。`devdocs/spec/play-history.md` 昇格は未実施 |
 | Phase 1 | 完了 | LR2 score DB へ trigger / table を導入できる |
 | Phase 2 | 完了 | LR2 履歴を `PlayHistoryRow` と summary に投影できる |
-| Phase 3 | 進行中 | Play log tree と table UI は静的期間で動作。年 / 月 / 日 node、DnD /操作 guard の追加確認が残る |
+| Phase 3 | 進行中 | Play log tree と table UI は静的期間で動作。DnD / cell edit / activation / 通常 context menu guard は完了。年 / 月 / 日 node と PlayHistory 専用 context menu が残る |
 | Phase 4 | 未着手 | LAST PLAY SORT custom folder が出力される |
 | Phase 5 | 未着手 | keyword search と表示対象 filter が動く |
 | Phase 6 | 進行中 | 最小 manual と summary 診断は追加済み。maintenance/spec/log contract 整理が残る |
@@ -719,6 +720,7 @@ Play history view 用の keyword search context を追加する。既存 chart l
 - 2026-06-19: Phase 3 初期実装として `プレイログ` tree、静的期間 selection、main table 表示、summary 診断、in-memory sort、対象 row だけを読む projection index、stale request guard を追加した。
 - 2026-06-19: `docs/manual.ja.md` / `docs/manual.md` に `プレイログ` の最小説明を追加した。後続で設定画面、LAST PLAY SORT、troubleshooting、画像を拡充する。
 - 2026-06-19: Phase 3 初期実装の検証として `PlayHistoryReadModelTests|MainWindowContextMenuResourceTests|LocalizationResourceParityTests|MainColumnSettingModeTests` と `dotnet build BeMusicSeeker-decomp.sln` を実行し、成功を確認した。
+- 2026-06-19: Phase 3 操作 guard として PlayHistory view の row drag kind を `GenericSelectedRows` へ切り替え、playlist drop candidate / cell edit / row activation / 通常 chart context menu に流れないことを静的テストで固定した。
 
 ## 実装時の注意
 
