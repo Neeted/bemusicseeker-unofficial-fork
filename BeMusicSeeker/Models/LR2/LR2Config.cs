@@ -116,18 +116,49 @@ public class LR2Config : XDocument
 
     public List<string> GetBMSSearchDirectories()
     {
-        (List<string> source, List<string> list, bool needSave) = ReadBMSSearchDirectories();
-        if (needSave || source.Count != list.Count)
-        {
-            SetBMSSearchDirectories(list);
-            Save();
-        }
-        return list;
+        return GetBMSSearchDirectoriesReadOnly();
     }
 
     public List<string> GetBMSSearchDirectoriesReadOnly()
     {
         return ReadBMSSearchDirectories().list;
+    }
+
+    public List<string> GetBMSSearchDirectoriesForChangeTracking()
+    {
+        using (new ReaderGuard(rwlock))
+        {
+            IEnumerable<string> source = Element("config").Element("jukebox").Elements("path")
+                .Select(dirs => dirs.Value.TrimEnd('\\'));
+            if (!string.IsNullOrWhiteSpace(LR2RootPath))
+            {
+                source = source.Select(NormalizeBmsSearchDirectoryForChangeTracking);
+            }
+            return [.. source
+                .Where(dir => !string.IsNullOrWhiteSpace(dir))
+                .Distinct(StringComparer.OrdinalIgnoreCase)];
+        }
+    }
+
+    private string NormalizeBmsSearchDirectoryForChangeTracking(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || Path.IsPathRooted(path))
+        {
+            return path;
+        }
+        try
+        {
+            return Path.Combine(LR2RootPath, path);
+        }
+        catch
+        {
+            return path;
+        }
+    }
+
+    private string NormalizeBmsSearchDirectoryForMatching(string path)
+    {
+        return NormalizeBmsSearchDirectoryForChangeTracking(path?.TrimEnd('\\'));
     }
 
     private (List<string> source, List<string> list, bool needSave) ReadBMSSearchDirectories()
@@ -174,11 +205,10 @@ public class LR2Config : XDocument
     public void SetBMSSearchDirectories(IEnumerable<string> dirs)
     {
         dirs ??= [];
-        dirs = dirs.Where(d => Directory.Exists(d));
-        if (dirs.Any(d => !Directory.Exists(d)))
-        {
-            throw new ArgumentException("与えられたディレクトリの一部または全てが存在しません");
-        }
+        dirs = [.. dirs
+            .Where(d => !string.IsNullOrWhiteSpace(d))
+            .Select(d => NormalizeBmsSearchDirectoryForChangeTracking(d.TrimEnd('\\')))
+            .Distinct(StringComparer.OrdinalIgnoreCase)];
         List<string> list = [.. dirs.Where(d => !d.IsSjisSchemeString())];
         if (list.Count() > 0)
         {
@@ -207,7 +237,7 @@ public class LR2Config : XDocument
         {
             throw new ArgumentException("Shift_JISで表現できない文字がディレクトリパスに含まれています。" + Environment.NewLine + string.Join(Environment.NewLine, list));
         }
-        List<string> dirsInXML = GetBMSSearchDirectories();
+        List<string> dirsInXML = GetBMSSearchDirectoriesForChangeTracking();
         using (new WriterGuard(rwlock))
         {
             if (dirs.Any(dnew => dirsInXML.Any(dold => IsSameOrNestedDirectory(dnew, dold)))
@@ -241,8 +271,9 @@ public class LR2Config : XDocument
             }
             foreach (string dir in dirs)
             {
+                string normalizedTarget = NormalizeBmsSearchDirectoryForMatching(dir);
                 List<XElement> targets = [.. (from dirInXml in Element("config").Element("jukebox").Elements("path")
-                                          where dirInXml.Value.Equals(dir.TrimEnd('\\') + "\\", StringComparison.OrdinalIgnoreCase)
+                                          where string.Equals(NormalizeBmsSearchDirectoryForMatching(dirInXml.Value), normalizedTarget, StringComparison.OrdinalIgnoreCase)
                                           select dirInXml)];
                 if (targets.Count > 0)
                 {

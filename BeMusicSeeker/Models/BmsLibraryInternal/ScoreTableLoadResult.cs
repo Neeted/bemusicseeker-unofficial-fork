@@ -27,4 +27,6 @@ internal sealed class ScoreTableLoadResult
     public bool ReadOnly { get; set; }
 
     public long DbLockWaitMs { get; set; }
+
+    public Lr2PlayHistorySchemaCheckResult Lr2PlayHistorySchemaCheckResult { get; set; }
 }

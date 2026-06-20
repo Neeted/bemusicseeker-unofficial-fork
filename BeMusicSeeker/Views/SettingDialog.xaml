@@ -347,7 +347,7 @@
                   <StackPanel>
                     <Label Height="28" DockPanel.Dock="Top" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Player_Use, Mode=OneWay}" />
                     <DockPanel LastChildFill="False">
-                      <RadioButton Name="radioButtonInternalPlayer" Height="20" GroupName="Player" Margin="30,0,0,0" IsChecked="True" DockPanel.Dock="Top" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Player_Name_Internal, Mode=OneWay}" />
+                      <RadioButton Name="radioButtonInternalPlayer" Height="20" GroupName="Player" Margin="30,0,0,0" IsChecked="{Binding settingDialog.UseInternalPlayer}" DockPanel.Dock="Top" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Player_Name_Internal, Mode=OneWay}" />
                       <DockPanel Dock="Bottom">
                         <StackPanel DockPanel.Dock="Bottom">
                           <TextBlock Margin="0,0,5,5" HorizontalAlignment="Right" Width="294" Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Player_Internal_desc, Mode=OneWay}" Style="{StaticResource styleTextBlockActiveForeground}" Tag="{Binding IsChecked, ElementName=radioButtonInternalPlayer}" />

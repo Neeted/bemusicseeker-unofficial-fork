@@ -188,7 +188,7 @@ public sealed class MainWindowContextMenuResourceTests
         string rowCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "PlayHistoryRow.cs"));
 
         StringAssert.Contains(applyPlayHistoryView, "ShouldUseBeatorajaPlayHistoryProvider()");
-        StringAssert.Contains(applyPlayHistoryView, "new BeatorajaPlayHistoryReader().Read(");
+        StringAssert.Contains(applyPlayHistoryView, "playHistoryReadCache.ReadBeatoraja(");
         StringAssert.Contains(applyPlayHistoryView, "periodRequest.ToBeatorajaReadRequest");
         StringAssert.Contains(applyPlayHistoryView, "PlayHistoryRow.ProjectBeatorajaRows");
         StringAssert.Contains(applyPlayHistoryView, "provider=\" + activePlayHistoryProvider");
@@ -714,6 +714,10 @@ public sealed class MainWindowContextMenuResourceTests
             viewModelCode,
             "public string LR2RootPath",
             "public Dictionary<string, Point> LR2bodyResolutions");
+        string lr2RootPathGetter = ExtractBetween(
+            lr2RootPathProperty,
+            "get",
+            "set");
 
         Assert.IsFalse(lr2PlaybackXaml.Contains("OperationModeLR2DB"));
         StringAssert.Contains(checkValidation, "else if (UsePlayerLR2body)");
@@ -722,11 +726,13 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(initialize, "else if (Settings.Default.UsePlayerLR2body && File.Exists(settingDialog.LR2bodyPath))");
         StringAssert.Contains(initialize, "new LR2body(settingDialog.LR2bodyPath, CreateLR2PlayerConfig())");
         Assert.IsFalse(initialize.Contains("Settings.Default.OperationModeLR2DB && Settings.Default.UsePlayerLR2body"));
-        StringAssert.Contains(saveFollowup, "else if (Settings.Default.UsePlayerLR2body && tempUsePlayerLR2body != Settings.Default.UsePlayerLR2body)");
+        StringAssert.Contains(saveFollowup, "else if (!forceInternalPlayerForStandaloneModeChange && Settings.Default.UsePlayerLR2body)");
+        StringAssert.Contains(saveFollowup, "ownerViewModel.bmsPlayer = new LR2body(LR2bodyPath, new LR2Config(Settings.Default.LR2ConfigXmlPath));");
         Assert.IsFalse(saveFollowup.Contains("Settings.Default.OperationModeLR2DB && Settings.Default.UsePlayerLR2body"));
         StringAssert.Contains(viewModelCode, "private LR2Config CreateLR2PlayerConfig()");
         StringAssert.Contains(viewModelCode, "private bool IsLR2PlayerRootPathValid(string value)");
-        StringAssert.Contains(lr2RootPathProperty, "if (!IsLR2RootPathValid() && !IsLR2PlayerRootPathValid())");
+        Assert.IsFalse(lr2RootPathGetter.Contains("Settings.Default.LR2RootPath = null"));
+        StringAssert.Contains(lr2RootPathGetter, "return Settings.Default.LR2RootPath;");
     }
 
     [TestMethod]
@@ -773,14 +779,18 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(saveAndClose.Contains("SaveSettingsForRestart"));
         StringAssert.Contains(saveAndClose, "try");
         StringAssert.Contains(saveAndClose, "finally");
-        StringAssert.Contains(saveAndClose, "bool shouldInitializeAfterSave = !viewModel.HasActiveLibraryProfile;");
+        StringAssert.Contains(saveAndClose, "shouldInitializeAfterSave = !viewModel.HasActiveLibraryProfile;");
+        StringAssert.Contains(saveAndClose, "LogSettingsDialogPerformance(");
         StringAssert.Contains(saveAndClose, "MainWindowViewModel.SettingDialogViewModel.RestartMode.None");
         StringAssert.Contains(saveAndClose, "if (shouldInitializeAfterSave)");
         StringAssert.Contains(saveAndClose, "SaveSettingsForInitialInitialize()");
         StringAssert.Contains(saveAndClose, "settingDialog.Visibility = Visibility.Hidden;");
         StringAssert.Contains(saveAndClose, "Msg_initsetting_completed");
         Assert.IsTrue(saveAndClose.IndexOf("Msg_initsetting_completed", StringComparison.Ordinal) < saveAndClose.IndexOf("viewModel.Initialize();", StringComparison.Ordinal));
-        StringAssert.Contains(saveAndClose, "settingDialogViewModel.CheckValidation(out string errMsg)");
+        StringAssert.Contains(saveAndClose, "settingDialogViewModel.CheckValidation(out errMsg)");
+        StringAssert.Contains(saveAndClose, "settingDialogViewModel.CheckValidationBeforeSave(out errMsg)");
+        StringAssert.Contains(saveAndClose, "settingDialogRootGrid.IsEnabled = true;");
+        Assert.IsTrue(saveAndClose.IndexOf("settingDialogRootGrid.IsEnabled = true;", StringComparison.Ordinal) < saveAndClose.IndexOf("\"settings_save_and_close\"", StringComparison.Ordinal));
         StringAssert.Contains(saveAndClose, "viewModel.IsLibraryOperationInProgress");
         StringAssert.Contains(saveAndClose, "Resources.Msg_settings_apply_blocked_during_initialization");
         StringAssert.Contains(saveAndClose, "settingDialogViewModel.ResetSettings();");
@@ -916,7 +926,8 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(initialSaveMethod, "backupSavedSettings();");
         Assert.IsFalse(initialSaveMethod.Contains("necessaryStepsAfterSaved"));
         StringAssert.Contains(saveCore, "if (lr2ConfigBoundaryChanged && operationModeLR2DB && lr2config != null)");
-        StringAssert.Contains(saveCore, "bool customFolderSearchRootSyncNeeded = lr2ConfigBoundaryChanged || customFolderOutputBaseSettingsChanged;");
+        StringAssert.Contains(saveCore, "customFolderSearchRootSyncNeeded = lr2ConfigBoundaryChanged || customFolderOutputBaseSettingsChanged;");
+        StringAssert.Contains(saveCore, "\"settings_save\"");
         StringAssert.Contains(saveCore, "lr2ConfigNeedsSave = lr2config.EnsureDatabaseAutoReloadManualOnly();");
         StringAssert.Contains(saveCore, "if ((lr2SearchRootsChanged || lr2ConfigNeedsSave) && lr2config != null)");
         Assert.IsTrue(
@@ -956,6 +967,79 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(lr2CustomFolderGetter, "return Settings.Default.LR2CustomFolderOutputBaseDir;");
         StringAssert.Contains(bmsInstallDirGetter, "return Settings.Default.BMSInstallDir;");
         StringAssert.Contains(lr2CustomFolderRootGetter, "return Settings.Default.LR2CustomFolderOutputBaseDirRootType;");
+    }
+
+    [TestMethod]
+    public void SettingDialogAudioAndPlayerBindings_DoNotCreateFalsePendingChanges()
+    {
+        string root = FindRepositoryRoot();
+        string xaml = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingDialog.xaml"));
+        string viewModelCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string playerDriverProperty = ExtractBetween(
+            viewModelCode,
+            "public int PlayerDriverIndex",
+            "private static BassAudioPlayer.DeviceDriver NormalizePlayerDriver");
+        string playerDriverGetter = ExtractBetween(
+            playerDriverProperty,
+            "get",
+            "set");
+        string playerDeviceProperty = ExtractBetween(
+            viewModelCode,
+            "public string PlayerDevice",
+            "public SampleRate PlayerSampleRate");
+        string playerDeviceGetter = ExtractBetween(
+            playerDeviceProperty,
+            "get",
+            "set");
+        string playerSelectionProperties = ExtractBetween(
+            viewModelCode,
+            "public bool UsePlayeruBMplay",
+            "public bool IsSaveLR2bodyWindowPosition");
+        string resetSettings = ExtractBetween(
+            viewModelCode,
+            "public void ResetSettings()",
+            "public RestartMode IsNeedRestartForSaved()");
+        string saveFollowup = ExtractBetween(
+            viewModelCode,
+            "private async Task necessaryStepsAfterSaved(bool customFolderSearchRootSyncNeeded)",
+            "public bool CheckValidation()");
+        string tableListUrlGetter = ExtractBetween(
+            ExtractBetween(viewModelCode, "public Uri TableListURL", "public bool EnablePlaylistUrlCompletion"),
+            "get",
+            "set");
+        string playlistMd5UrlGetter = ExtractBetween(
+            ExtractBetween(viewModelCode, "public string PlaylistMd5UrlMappingTsvUri", "public bool IsLR2BackupEnabled"),
+            "get",
+            "set");
+        string folderNameFormatGetter = ExtractBetween(
+            ExtractBetween(viewModelCode, "public string FolderNameFormat", "public bool UseOnlyShiftJISChars"),
+            "get",
+            "set");
+        string encodeFileNameFormatGetter = ExtractBetween(
+            ExtractBetween(viewModelCode, "public string EncodeFileNameFormat", "public ReadOnlyObservableCollection<string> PlayerDriverNames"),
+            "get",
+            "set");
+        string languageProperty = ExtractBetween(
+            viewModelCode,
+            "public string Language",
+            "public SettingDialogViewModel(MainWindowViewModel owner)");
+
+        StringAssert.Contains(xaml, "IsChecked=\"{Binding settingDialog.UseInternalPlayer}\"");
+        Assert.IsFalse(xaml.Contains("Name=\"radioButtonInternalPlayer\" Height=\"20\" GroupName=\"Player\" Margin=\"30,0,0,0\" IsChecked=\"True\""));
+        StringAssert.Contains(playerSelectionProperties, "public bool UseInternalPlayer");
+        StringAssert.Contains(playerSelectionProperties, "SetPlayerSelection(usePlayeruBMplay: false, usePlayerLR2body: false, usePlayerBMIIDXView: false);");
+        Assert.IsFalse(playerDriverGetter.Contains("Settings.Default.PlayerDriver ="));
+        Assert.IsFalse(playerDeviceGetter.Contains("Settings.Default.PlayerDevice ="));
+        Assert.IsFalse(playerDeviceGetter.Contains("Settings.Default.PlayerDeviceName ="));
+        StringAssert.Contains(playerDeviceGetter, "return ResolvePlayerDeviceDescriptor().Driver ?? Settings.Default.PlayerDevice;");
+        StringAssert.Contains(resetSettings, "if (playerDeviceNames != null)");
+        Assert.IsFalse(saveFollowup.Contains("AudioPlayerInitTest(playSound: false)"));
+        Assert.IsFalse(tableListUrlGetter.Contains("Settings.Default.TableListURL ="));
+        Assert.IsFalse(playlistMd5UrlGetter.Contains("Settings.Default.PlaylistMd5UrlMappingTsvUri = null"));
+        Assert.IsFalse(folderNameFormatGetter.Contains("Settings.Default.FolderNameFormat ="));
+        Assert.IsFalse(encodeFileNameFormatGetter.Contains("Settings.Default.EncodeFileNameFormat ="));
+        StringAssert.Contains(languageProperty, "App.AvailableCultures.TryGetValue");
+        Assert.IsFalse(languageProperty.Contains("catch"));
     }
 
     [TestMethod]
@@ -1015,7 +1099,7 @@ public sealed class MainWindowContextMenuResourceTests
             "public RestartMode IsNeedRestartForSaveOrCancel()",
             "public class PlaylistPropertyDialogViewModel");
 
-        StringAssert.Contains(backupSavedSettings, "tempStandaloneBmsRootPaths = SerializeStandaloneBmsRootPaths(StandaloneBmsRootPathList);");
+        StringAssert.Contains(backupSavedSettings, "tempStandaloneBmsRootPaths = SerializeBmsRootPathsForChangeTracking(StandaloneBmsRootPathList);");
         StringAssert.Contains(backupSavedSettings, "tempLR2ConfigBmsSearchRoots = SerializeLR2ConfigBmsSearchRoots();");
         Assert.IsFalse(backupSavedSettings.Contains("tempEnableLR2SongDbSync"));
         Assert.IsFalse(viewModelCode.Contains("tempValidation"));
@@ -1023,9 +1107,9 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(pendingDecision.Contains("isSearchRootsChanged"));
         Assert.IsFalse(pendingDecision.Contains("isBMSDirectoryAdded"));
         Assert.IsFalse(pendingDecision.Contains("isBMSDirectoryRemoved"));
-        StringAssert.Contains(saveCore, "bool searchRootsChanged = HasSearchRootSettingsChanged();");
+        StringAssert.Contains(saveCore, "searchRootsChanged = HasSearchRootSettingsChanged();");
         StringAssert.Contains(viewModelCode, "HasPathSettingValueChanged(tempLR2RootPath, Settings.Default.LR2RootPath");
-        StringAssert.Contains(viewModelCode, "SerializeStandaloneBmsRootPaths(lr2config.GetBMSSearchDirectoriesReadOnly())");
+        StringAssert.Contains(viewModelCode, "SerializeBmsRootPathsForChangeTracking(lr2config.GetBMSSearchDirectoriesForChangeTracking())");
         Assert.IsFalse(restartDecision.Contains("CheckValidation()"));
         StringAssert.Contains(restartDecision, "scoreSourceChanged");
         StringAssert.Contains(restartDecision, "HasLR2ConfigBmsSearchRootsChanged()");

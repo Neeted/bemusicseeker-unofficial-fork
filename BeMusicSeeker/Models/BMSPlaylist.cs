@@ -1667,7 +1667,7 @@ public partial class BMSPlaylist : NotificationObject
             IEnumerable<string> second = from t in BMSTables
                                          where t.is_root_folder && !string.IsNullOrWhiteSpace(t.Output_dir)
                                          select Path.Combine(Settings.Default.LR2CustomFolderOutputBaseDirRootType, t.Output_dir);
-            List<string> bMSSearchDirectories = lr2config().GetBMSSearchDirectories();
+            List<string> bMSSearchDirectories = lr2config().GetBMSSearchDirectoriesForChangeTracking();
             lr2config().SetBMSSearchDirectories(bMSSearchDirectories.Union(second).Distinct(StringComparer.OrdinalIgnoreCase));
             lr2config().Save();
         }

@@ -92,7 +92,7 @@ internal static class CustomFolderOutputBaseSearchRootSyncService
             currentDefaultBaseDirectory,
             currentSerializedAdditionalBaseDirectories);
         IReadOnlyList<string> preservedPaths = CustomFolderOutputBaseRegistry.NormalizeBaseDirectories(preservedRootPaths);
-        List<string> registeredBeforeRemove = config.GetBMSSearchDirectories();
+        List<string> registeredBeforeRemove = config.GetBMSSearchDirectoriesForChangeTracking();
         List<string> removedPaths = [.. previousPaths.Where(path =>
             !currentPaths.Contains(path, StringComparer.OrdinalIgnoreCase)
             && !preservedPaths.Contains(path, StringComparer.OrdinalIgnoreCase)
@@ -116,7 +116,7 @@ internal static class CustomFolderOutputBaseSearchRootSyncService
         IReadOnlyList<string> previousPaths = CustomFolderOutputBaseRegistry.DeserializeBaseDirectoriesStrict(previousSerializedBaseDirectories);
         IReadOnlyList<string> currentPaths = CustomFolderOutputBaseRegistry.DeserializeBaseDirectoriesStrict(currentSerializedBaseDirectories);
         IReadOnlyList<string> preservedPaths = CustomFolderOutputBaseRegistry.NormalizeBaseDirectories(preservedRootPaths);
-        List<string> registeredBeforeRemove = config.GetBMSSearchDirectories();
+        List<string> registeredBeforeRemove = config.GetBMSSearchDirectoriesForChangeTracking();
         List<string> removedPaths = [.. previousPaths.Where(path =>
             !currentPaths.Contains(path, StringComparer.OrdinalIgnoreCase)
             && !preservedPaths.Contains(path, StringComparer.OrdinalIgnoreCase)
@@ -187,13 +187,13 @@ internal static class CustomFolderOutputBaseSearchRootSyncService
     {
         IReadOnlyList<string> expectedPaths = CustomFolderOutputBaseRegistry.NormalizeBaseDirectories(paths);
         List<string> registeredBeforeAdd = registeredPaths == null
-            ? config.GetBMSSearchDirectories()
+            ? config.GetBMSSearchDirectoriesForChangeTracking()
             : [.. registeredPaths];
-        List<string> addedPaths = [.. expectedPaths.Where(path => !registeredBeforeAdd.Contains(path, StringComparer.OrdinalIgnoreCase))];
-        foreach (string addedPath in addedPaths)
+        foreach (string expectedPath in expectedPaths)
         {
-            EnsureSjisDirectoryExists(addedPath);
+            EnsureSjisDirectoryExists(expectedPath);
         }
+        List<string> addedPaths = [.. expectedPaths.Where(path => !registeredBeforeAdd.Contains(path, StringComparer.OrdinalIgnoreCase))];
         if (addedPaths.Count > 0)
         {
             config.AddBMSSearchDirectories(addedPaths);

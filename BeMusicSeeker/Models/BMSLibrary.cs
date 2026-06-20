@@ -970,6 +970,8 @@ public class BMSLibrary : NotificationObject
 
     private ActiveScoreSource activeScoreSource;
 
+    private Lr2PlayHistorySchemaCheckResult lr2PlayHistorySchemaCheckResult;
+
     private readonly Func<LR2Config> lr2config;
 
     private DirectoryResourceLookupCache directoryResourceLookupCache = new();
@@ -3373,6 +3375,14 @@ public class BMSLibrary : NotificationObject
         }
     }
 
+    internal Lr2PlayHistorySchemaCheckResult GetLr2PlayHistorySchemaCheckResultForDiagnostics()
+    {
+        using (rwlockBMSScores.GetReaderGuard())
+        {
+            return lr2PlayHistorySchemaCheckResult;
+        }
+    }
+
     /// <summary>
     /// score snapshot と deferred worker の診断状態を返します。
     /// </summary>
@@ -5041,7 +5051,9 @@ public class BMSLibrary : NotificationObject
                         + " source=" + scoreTableLoadResult.ActiveScoreSource
                         + " rows=" + scoreTableLoadResult.Scores.Count
                         + " beatorajaRows=" + scoreTableLoadResult.BeatorajaScoresBySha256.Count
-                        + " lr2Id=" + scoreTableLoadResult.LR2Id);
+                        + " lr2Id=" + scoreTableLoadResult.LR2Id
+                        + " lr2PlayHistorySchemaStatus=" + (scoreTableLoadResult.Lr2PlayHistorySchemaCheckResult?.Status.ToString() ?? "Unknown"));
+                    lr2PlayHistorySchemaCheckResult = scoreTableLoadResult.Lr2PlayHistorySchemaCheckResult;
                     activeScoreSource = scoreTableLoadResult.ActiveScoreSource;
                     if (scoreTableLoadResult.ActiveScoreSource == ActiveScoreSource.Beatoraja)
                     {
@@ -5072,6 +5084,7 @@ public class BMSLibrary : NotificationObject
                 }
                 else
                 {
+                    lr2PlayHistorySchemaCheckResult = null;
                     activeScoreSource = ActiveScoreSource.None;
                     LR2ID = 0;
                     beatorajaScoresBySha256 = new Dictionary<string, BMSScore>(StringComparer.OrdinalIgnoreCase);

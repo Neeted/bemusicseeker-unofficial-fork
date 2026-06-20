@@ -46,11 +46,15 @@ public partial class SettingDialog : UserControl, IComponentConnector
 
     private void CancelAndClose(object sender, RoutedEventArgs e)
     {
+        var stopwatch = Stopwatch.StartNew();
+        bool reset = false;
+        MainWindowViewModel.SettingDialogViewModel.RestartMode restartMode = MainWindowViewModel.SettingDialogViewModel.RestartMode.None;
         if (base.DataContext is MainWindowViewModel { settingDialog: { } settingDialogViewModel } mainWindowViewModel)
         {
-            MainWindowViewModel.SettingDialogViewModel.RestartMode restartMode = settingDialogViewModel.IsNeedRestartForSaveOrCancel();
+            restartMode = settingDialogViewModel.IsNeedRestartForSaveOrCancel();
             if (ShouldResetSettingsOnCancel(settingDialogViewModel))
             {
+                reset = true;
                 settingDialogViewModel.ResetSettings();
                 SyncAppearanceThemeSelection(settingDialogViewModel);
             }
@@ -68,14 +72,27 @@ public partial class SettingDialog : UserControl, IComponentConnector
                 mainWindowViewModel.ReloadScoresOnly();
             }
         }
+        LogSettingsDialogPerformance("settings_cancel", stopwatch, "reset=" + reset.ToString().ToLowerInvariant() + " restartMode=" + restartMode);
     }
 
     private void SettingDialogIsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
     {
         if (e.NewValue is true && base.DataContext is MainWindowViewModel { settingDialog: { } settingDialogViewModel })
         {
+            var stopwatch = Stopwatch.StartNew();
             SyncAppearanceThemeSelection(settingDialogViewModel);
             settingDialogViewModel.RefreshLr2PlayHistorySchemaStatusPresentation();
+            long handlerMs = stopwatch.ElapsedMilliseconds;
+            string detail =
+                "handlerMs=" + handlerMs
+                + " operationModeLR2DB=" + settingDialogViewModel.OperationModeLR2DB.ToString().ToLowerInvariant()
+                + " schemaStatus=" + (settingDialogViewModel.Lr2PlayHistorySchemaCheckResult?.Status.ToString() ?? "Unknown");
+            Dispatcher.BeginInvoke(
+                DispatcherPriority.ContextIdle,
+                (Action)(() => LogSettingsDialogPerformance(
+                "settings_dialog_open",
+                stopwatch,
+                detail)));
         }
     }
 
@@ -91,11 +108,19 @@ public partial class SettingDialog : UserControl, IComponentConnector
         {
             return;
         }
+        var totalStopwatch = Stopwatch.StartNew();
+        long validationMs = 0L;
+        long saveMs = 0L;
+        string outcome = "unknown";
+        MainWindowViewModel.SettingDialogViewModel.RestartMode needRestart = MainWindowViewModel.SettingDialogViewModel.RestartMode.None;
+        bool shouldInitializeAfterSave = false;
         settingDialogRootGrid.IsEnabled = false;
         try
         {
             if (viewModel.IsLibraryOperationInProgress)
             {
+                outcome = "blocked_operation";
+                totalStopwatch.Stop();
                 DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_settings_apply_blocked_during_initialization, BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation);
                 settingDialogViewModel.ResetSettings();
                 SyncAppearanceThemeSelection(settingDialogViewModel);
@@ -103,28 +128,46 @@ public partial class SettingDialog : UserControl, IComponentConnector
             }
             if (ShouldCloseSettingsWithoutSave(viewModel, settingDialogViewModel))
             {
+                outcome = "no_changes";
                 settingDialog.Visibility = Visibility.Hidden;
                 return;
             }
-            bool shouldInitializeAfterSave = !viewModel.HasActiveLibraryProfile;
-            if (settingDialogViewModel.CheckValidation(out string errMsg))
+            shouldInitializeAfterSave = !viewModel.HasActiveLibraryProfile;
+            string errMsg;
+            var validationStopwatch = Stopwatch.StartNew();
+            bool isValid = shouldInitializeAfterSave
+                ? settingDialogViewModel.CheckValidation(out errMsg)
+                : settingDialogViewModel.CheckValidationBeforeSave(out errMsg);
+            validationMs = validationStopwatch.ElapsedMilliseconds;
+            LogSettingsDialogPerformance(
+                "settings_validation",
+                validationStopwatch,
+                "valid=" + isValid.ToString().ToLowerInvariant()
+                + " initial=" + shouldInitializeAfterSave.ToString().ToLowerInvariant());
+            if (isValid)
             {
-                MainWindowViewModel.SettingDialogViewModel.RestartMode needRestart = shouldInitializeAfterSave
+                needRestart = shouldInitializeAfterSave
                     ? MainWindowViewModel.SettingDialogViewModel.RestartMode.None
                     : settingDialogViewModel.IsNeedRestartForSaved();
+                var saveStopwatch = Stopwatch.StartNew();
                 if (shouldInitializeAfterSave)
                 {
                     await settingDialogViewModel.SaveSettingsForInitialInitialize();
+                    saveMs = saveStopwatch.ElapsedMilliseconds;
                     settingDialog.Visibility = Visibility.Hidden;
                     if (((App)Application.Current).firstStartup)
                     {
+                        totalStopwatch.Stop();
                         DispatcherMessageBox.Show(BeMusicSeeker.Properties.Resources.Msg_initsetting_completed, BeMusicSeeker.Properties.Resources.Information, MessageBoxButton.OK, MessageBoxImage.Asterisk, MessageBoxResult.OK);
+                        totalStopwatch.Start();
                     }
                     viewModel.Initialize();
+                    outcome = "saved_initial";
                 }
                 else
                 {
                     await settingDialogViewModel.SaveSettings();
+                    saveMs = saveStopwatch.ElapsedMilliseconds;
                     if (needRestart.HasFlag(MainWindowViewModel.SettingDialogViewModel.RestartMode.All))
                     {
                         viewModel.Initialize();
@@ -143,20 +186,48 @@ public partial class SettingDialog : UserControl, IComponentConnector
                         viewModel.ReloadFileDiff();
                     }
                     settingDialog.Visibility = Visibility.Hidden;
+                    outcome = "saved";
                 }
             }
             else
             {
+                outcome = "invalid";
+                totalStopwatch.Stop();
                 DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_invalid_setting + Environment.NewLine + Environment.NewLine + errMsg, BeMusicSeeker.Properties.Resources.Error, MessageBoxButton.OK, MessageBoxImage.Hand);
             }
         }
         catch (Exception ex)
         {
+            outcome = "failed";
+            totalStopwatch.Stop();
             DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + Environment.NewLine + ex.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxButton.OK, MessageBoxImage.Hand);
         }
         finally
         {
             settingDialogRootGrid.IsEnabled = true;
+            LogSettingsDialogPerformance(
+                "settings_save_and_close",
+                totalStopwatch,
+                "outcome=" + outcome
+                + " initial=" + shouldInitializeAfterSave.ToString().ToLowerInvariant()
+                + " restartMode=" + needRestart
+                + " validationMs=" + validationMs
+                + " saveMs=" + saveMs);
+        }
+    }
+
+    private static void LogSettingsDialogPerformance(string action, Stopwatch stopwatch, string detail = null)
+    {
+        try
+        {
+            stopwatch?.Stop();
+            Ribbit.Logging.NLogWrapper.FileLogger?.Info(
+                (action ?? "settings_dialog")
+                + " elapsedMs=" + (stopwatch?.ElapsedMilliseconds ?? 0L)
+                + (string.IsNullOrWhiteSpace(detail) ? string.Empty : " " + detail));
+        }
+        catch
+        {
         }
     }
 

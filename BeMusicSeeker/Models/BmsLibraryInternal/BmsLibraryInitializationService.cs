@@ -4779,6 +4779,7 @@ internal sealed class BmsLibraryInitializationService
         {
             EnableDownloadLr2IrScoreAndDetectUnsent = options?.EnableDownloadLr2IrScoreAndDetectUnsent ?? false
         };
+        result.Lr2PlayHistorySchemaCheckResult = CheckLr2PlayHistorySchemaForScoreLoad(dbGateway, options);
         if (IsBeatorajaScoreDbEnabled(options))
         {
             result.ActiveScoreSource = ActiveScoreSource.Beatoraja;
@@ -4813,6 +4814,53 @@ internal sealed class BmsLibraryInitializationService
         }
 
         return result;
+    }
+
+    private static Lr2PlayHistorySchemaCheckResult CheckLr2PlayHistorySchemaForScoreLoad(
+        BmsLibraryDbGateway dbGateway,
+        BmsLibraryOptionsSnapshot options)
+    {
+        if (options?.OperationModeLR2DB != true || string.IsNullOrWhiteSpace(dbGateway?.ScoreDbPath))
+        {
+            return null;
+        }
+        var stopwatch = Stopwatch.StartNew();
+        try
+        {
+            Lr2PlayHistorySchemaCheckResult result = dbGateway.CheckLr2PlayHistorySchema(isLr2LinkedProfile: true);
+            LogScoreLoadSchemaCheckPerformance(
+                "settings_schema_status_score_load_check elapsedMs=" + stopwatch.ElapsedMilliseconds
+                + " status=" + result.Status
+                + " path=" + (result.ScoreDbPath ?? string.Empty));
+            return result;
+        }
+        catch (Exception ex)
+        {
+            LogScoreLoadSchemaCheckWarning(ex, "lr2_play_history_schema_check_failed_at_score_load elapsedMs=" + stopwatch.ElapsedMilliseconds + " path=" + dbGateway.ScoreDbPath);
+            return null;
+        }
+    }
+
+    private static void LogScoreLoadSchemaCheckPerformance(string message)
+    {
+        try
+        {
+            Ribbit.Logging.NLogWrapper.FileLogger?.Info(message);
+        }
+        catch
+        {
+        }
+    }
+
+    private static void LogScoreLoadSchemaCheckWarning(Exception ex, string message)
+    {
+        try
+        {
+            Ribbit.Logging.NLogWrapper.FileLogger?.Warn(ex, message);
+        }
+        catch
+        {
+        }
     }
 
     private static bool IsBeatorajaScoreDbEnabled(BmsLibraryOptionsSnapshot options)
