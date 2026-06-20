@@ -66,10 +66,7 @@ public sealed class PlayHistoryFolderDisplayPresetEditor : ViewModel
     {
         return new PlayHistoryDisplayTargetReference
         {
-            PlaylistId = reference?.PlaylistId,
-            PlaylistName = reference?.PlaylistName,
-            PlaylistSymbol = reference?.PlaylistSymbol,
-            FolderLabel = reference?.FolderLabel
+            PlaylistId = reference?.PlaylistId
         };
     }
 }
@@ -203,9 +200,7 @@ public sealed class PlayHistoryFolderPresetPlaylistOption : ViewModel
     {
         return new PlayHistoryDisplayTargetReference
         {
-            PlaylistId = Table.playlist_id,
-            PlaylistName = NormalizeText(Table.org_name) ?? NormalizeText(Table.name),
-            PlaylistSymbol = NormalizeText(Table.org_symbol) ?? NormalizeText(Table.symbol)
+            PlaylistId = Table.playlist_id
         };
     }
 
@@ -224,21 +219,11 @@ public sealed class PlayHistoryFolderPresetPlaylistOption : ViewModel
     /// </summary>
     /// <param name="table">現在読み込まれている playlist。</param>
     /// <param name="reference">保存済み playlist 参照。</param>
-    /// <returns>playlist.id または名前・シンボルが一致する場合は <c>true</c>。</returns>
+    /// <returns>playlist.id が一致する場合は <c>true</c>。</returns>
     internal static bool Matches(BMSTable table, PlayHistoryDisplayTargetReference reference)
     {
-        if (reference == null)
-        {
-            return false;
-        }
-        if (reference.PlaylistId.HasValue)
-        {
-            return table?.playlist_id == reference.PlaylistId;
-        }
-        return MatchesText(table?.name, reference.PlaylistName)
-            || MatchesText(table?.org_name, reference.PlaylistName)
-            || MatchesText(table?.symbol, reference.PlaylistSymbol)
-            || MatchesText(table?.org_symbol, reference.PlaylistSymbol);
+        return reference?.PlaylistId.HasValue == true
+            && table?.playlist_id == reference.PlaylistId;
     }
 
     private static string BuildDisplayName(BMSTable table)
@@ -254,13 +239,6 @@ public sealed class PlayHistoryFolderPresetPlaylistOption : ViewModel
     private static string FormatId(string id)
     {
         return string.IsNullOrWhiteSpace(id) ? string.Empty : " #" + id;
-    }
-
-    private static bool MatchesText(string value, string expected)
-    {
-        return !string.IsNullOrWhiteSpace(value)
-            && !string.IsNullOrWhiteSpace(expected)
-            && string.Equals(value.Trim(), expected.Trim(), StringComparison.OrdinalIgnoreCase);
     }
 
     private static string NormalizeText(string value)

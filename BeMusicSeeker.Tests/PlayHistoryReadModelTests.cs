@@ -779,8 +779,7 @@ public sealed class PlayHistoryReadModelTests
             [
                 new PlayHistoryDisplayTargetReference
                 {
-                    PlaylistSymbol = "SAT",
-                    FolderLabel = "Alpha"
+                    PlaylistId = table.playlist_id
                 }
             ]
         });
@@ -807,8 +806,7 @@ public sealed class PlayHistoryReadModelTests
             [
                 new PlayHistoryDisplayTargetReference
                 {
-                    PlaylistSymbol = "SAT",
-                    FolderLabel = "Alpha"
+                    PlaylistId = table.playlist_id
                 }
             ]
         });
@@ -826,7 +824,7 @@ public sealed class PlayHistoryReadModelTests
     }
 
     [TestMethod]
-    public void PlayHistoryDisplayTargetIndex_TargetSetUsesPlaylistIdBeforeNameFallback()
+    public void PlayHistoryDisplayTargetIndex_TargetSetUsesPlaylistIdOnly()
     {
         PlayHistoryRow idMatchRow = CreateProjectedRow(HashA);
         PlayHistoryRow nameOnlyRow = CreateProjectedRow(HashB);
@@ -844,9 +842,7 @@ public sealed class PlayHistoryReadModelTests
             [
                 new PlayHistoryDisplayTargetReference
                 {
-                    PlaylistId = idMatchedTable.playlist_id,
-                    PlaylistName = sameNameDifferentIdTable.name,
-                    PlaylistSymbol = sameNameDifferentIdTable.symbol
+                    PlaylistId = idMatchedTable.playlist_id
                 }
             ]
         });

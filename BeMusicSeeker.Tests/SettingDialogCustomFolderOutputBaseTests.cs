@@ -182,6 +182,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             editSession.PlaylistOptions.Last().IsSelected = true;
             Assert.IsTrue(dialog.TryApplyPlayHistoryFolderDisplayPresetEditSession(editSession, out string applyPresetError), applyPresetError);
             Assert.IsTrue(InvokeValidatePlayHistoryFolderDisplayPresets(dialog, out string validPresetError), validPresetError);
+            secondPreset.Targets.Add(new PlayHistoryDisplayTargetReference { PlaylistId = 999 });
 
             PlayHistoryFolderDisplayPresetEditSession canceledEditSession =
                 dialog.CreatePlayHistoryFolderDisplayPresetEditSession(secondPreset);
@@ -193,6 +194,11 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
 
             Assert.IsTrue(dialog.PersistPlayHistoryFolderDisplayPresetsIfChanged());
             Assert.IsFalse(string.IsNullOrWhiteSpace(Settings.Default.PlayHistoryDisplayTargetSetsJson));
+            StringAssert.Contains(Settings.Default.PlayHistoryDisplayTargetSetsJson, "\"PlaylistId\"");
+            Assert.IsFalse(Settings.Default.PlayHistoryDisplayTargetSetsJson.Contains("PlaylistName"));
+            Assert.IsFalse(Settings.Default.PlayHistoryDisplayTargetSetsJson.Contains("PlaylistSymbol"));
+            Assert.IsFalse(Settings.Default.PlayHistoryDisplayTargetSetsJson.Contains("FolderLabel"));
+            Assert.IsFalse(Settings.Default.PlayHistoryDisplayTargetSetsJson.Contains("999"));
 
             Assert.AreEqual(7, viewModel.PlayHistoryDisplayTargets.Count);
             Assert.AreEqual(PlayHistoryDisplayTargetKind.All, viewModel.PlayHistoryDisplayTargets[0].Kind);
@@ -229,9 +235,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
                     [
                         new PlayHistoryDisplayTargetReference
                         {
-                            PlaylistId = 101,
-                            PlaylistName = "Satellite",
-                            PlaylistSymbol = "SAT"
+                            PlaylistId = 101
                         }
                     ]
                 }
@@ -628,8 +632,6 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
         for (int index = 0; index < expected.Targets.Count; index++)
         {
             Assert.AreEqual(expected.Targets[index].PlaylistId, actual.Targets[index].PlaylistId);
-            Assert.AreEqual(expected.Targets[index].PlaylistName, actual.Targets[index].PlaylistName);
-            Assert.AreEqual(expected.Targets[index].PlaylistSymbol, actual.Targets[index].PlaylistSymbol);
         }
     }
 

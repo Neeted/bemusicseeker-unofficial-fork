@@ -141,12 +141,6 @@ public sealed class PlayHistoryDisplayTargetSet
 public sealed class PlayHistoryDisplayTargetReference
 {
     public int? PlaylistId { get; set; }
-
-    public string PlaylistName { get; set; }
-
-    public string PlaylistSymbol { get; set; }
-
-    public string FolderLabel { get; set; }
 }
 
 internal static class PlayHistoryDisplayTargetSetStore
@@ -196,10 +190,7 @@ internal static class PlayHistoryDisplayTargetSetStore
                             .Where(reference => reference != null)
                             .Select(reference => new PlayHistoryDisplayTargetReference
                             {
-                                PlaylistId = reference.PlaylistId,
-                                PlaylistName = reference.PlaylistName,
-                                PlaylistSymbol = reference.PlaylistSymbol,
-                                FolderLabel = reference.FolderLabel
+                                PlaylistId = reference.PlaylistId
                             })
                     ]
                 })
@@ -226,10 +217,7 @@ internal static class PlayHistoryDisplayTargetSetStore
                     .Where(HasReferenceIdentity)
                     .Select(reference => new PlayHistoryDisplayTargetReference
                     {
-                        PlaylistId = reference.PlaylistId,
-                        PlaylistName = NormalizeText(reference.PlaylistName),
-                        PlaylistSymbol = NormalizeText(reference.PlaylistSymbol),
-                        FolderLabel = NormalizeText(reference.FolderLabel)
+                        PlaylistId = reference.PlaylistId
                     })
             ];
             if (targets.Count == 0)
@@ -247,15 +235,7 @@ internal static class PlayHistoryDisplayTargetSetStore
 
     private static bool HasReferenceIdentity(PlayHistoryDisplayTargetReference reference)
     {
-        return reference != null
-            && (reference.PlaylistId.HasValue
-                || !string.IsNullOrWhiteSpace(reference.PlaylistName)
-                || !string.IsNullOrWhiteSpace(reference.PlaylistSymbol));
-    }
-
-    private static string NormalizeText(string value)
-    {
-        return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+        return reference?.PlaylistId.HasValue == true;
     }
 }
 
@@ -284,10 +264,10 @@ internal sealed class PlayHistoryDisplayTargetIndex
         {
             return index;
         }
-        IEnumerable<(BMSTable table, PlayHistoryDisplayTargetReference reference)> tableReferences = target.Kind == PlayHistoryDisplayTargetKind.Playlist
-            ? [(target.Table, null)]
+        IEnumerable<BMSTable> targetTables = target.Kind == PlayHistoryDisplayTargetKind.Playlist
+            ? [target.Table]
             : ResolveTargetSetTables(tables, target.TargetSet);
-        foreach ((BMSTable table, PlayHistoryDisplayTargetReference reference) in tableReferences)
+        foreach (BMSTable table in targetTables)
         {
             ThrowIfStale(cancellationToken, shouldContinue);
             if (table == null)
@@ -308,7 +288,7 @@ internal sealed class PlayHistoryDisplayTargetIndex
                     ThrowIfStale(cancellationToken, shouldContinue);
                 }
                 BMSTableEntry entry = entries[indexInTable];
-                if (entry == null || entry.is_removed || !MatchesFolderReference(table, entry, reference))
+                if (entry == null || entry.is_removed)
                 {
                     continue;
                 }
@@ -398,7 +378,7 @@ internal sealed class PlayHistoryDisplayTargetIndex
             : (string.IsNullOrWhiteSpace(level) ? symbol : symbol + level);
     }
 
-    private static IEnumerable<(BMSTable table, PlayHistoryDisplayTargetReference reference)> ResolveTargetSetTables(
+    private static IEnumerable<BMSTable> ResolveTargetSetTables(
         IEnumerable<BMSTable> tables,
         PlayHistoryDisplayTargetSet targetSet)
     {
@@ -415,46 +395,11 @@ internal sealed class PlayHistoryDisplayTargetIndex
                 {
                     foreach (BMSTable table in matchedTables)
                     {
-                        yield return (table, reference);
+                        yield return table;
                     }
                 }
-                continue;
-            }
-            foreach (BMSTable table in tableList)
-            {
-                if (MatchesTableReference(table, reference))
-                {
-                    yield return (table, reference);
-                }
             }
         }
-    }
-
-    private static bool MatchesTableReference(BMSTable table, PlayHistoryDisplayTargetReference reference)
-    {
-        if (table == null || reference == null)
-        {
-            return false;
-        }
-        if (reference.PlaylistId.HasValue)
-        {
-            return table.playlist_id == reference.PlaylistId;
-        }
-        return MatchesText(table.name, reference.PlaylistName)
-            || MatchesText(table.org_name, reference.PlaylistName)
-            || MatchesText(table.symbol, reference.PlaylistSymbol)
-            || MatchesText(table.org_symbol, reference.PlaylistSymbol);
-    }
-
-    private static bool MatchesFolderReference(BMSTable table, BMSTableEntry entry, PlayHistoryDisplayTargetReference reference)
-    {
-        if (reference == null || string.IsNullOrWhiteSpace(reference.FolderLabel))
-        {
-            return true;
-        }
-        string folderLabel = reference.FolderLabel.Trim();
-        return MatchesText(entry?.folder, folderLabel)
-            || MatchesText(NormalizeFolderLabel(table, entry), folderLabel);
     }
 
     private static string NormalizeFolderLabel(BMSTable table, BMSTableEntry entry)
@@ -487,13 +432,6 @@ internal sealed class PlayHistoryDisplayTargetIndex
         {
             targetMatches.AddRange(matches);
         }
-    }
-
-    private static bool MatchesText(string value, string expected)
-    {
-        return !string.IsNullOrWhiteSpace(value)
-            && !string.IsNullOrWhiteSpace(expected)
-            && string.Equals(value.Trim(), expected.Trim(), StringComparison.OrdinalIgnoreCase);
     }
 
     private static string FirstNonEmpty(params string[] values)

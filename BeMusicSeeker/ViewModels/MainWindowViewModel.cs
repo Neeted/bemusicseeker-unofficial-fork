@@ -3316,7 +3316,7 @@ public class MainWindowViewModel : ViewModel
             {
                 ownerViewModel.tables?.AcquireReaderLockBMSTables();
                 return [.. (ownerViewModel.BMSTables ?? Enumerable.Empty<BMSTable>())
-                    .Where(table => table != null)
+                    .Where(table => table?.playlist_id != null)
                     .OrderBy(table => table.name ?? string.Empty, StringComparer.OrdinalIgnoreCase)
                     .ThenBy(table => table.symbol ?? string.Empty, StringComparer.OrdinalIgnoreCase)];
             }
@@ -3341,7 +3341,30 @@ public class MainWindowViewModel : ViewModel
 
         private string SerializePlayHistoryFolderDisplayPresets()
         {
-            return PlayHistoryDisplayTargetSetStore.Serialize(PlayHistoryFolderDisplayPresets.Select(preset => preset.ToTargetSet()));
+            HashSet<int> existingPlaylistIds = [.. GetPlayHistoryFolderDisplayPresetTables()
+                .Select(table => table.playlist_id.Value)];
+            return PlayHistoryDisplayTargetSetStore.Serialize(
+                PlayHistoryFolderDisplayPresets
+                    .Select(preset => FilterPlayHistoryFolderDisplayPresetTargets(preset.ToTargetSet(), existingPlaylistIds)));
+        }
+
+        private static PlayHistoryDisplayTargetSet FilterPlayHistoryFolderDisplayPresetTargets(
+            PlayHistoryDisplayTargetSet targetSet,
+            ISet<int> existingPlaylistIds)
+        {
+            return new PlayHistoryDisplayTargetSet
+            {
+                Name = targetSet?.Name,
+                Targets =
+                [
+                    .. (targetSet?.Targets ?? [])
+                        .Where(reference => reference?.PlaylistId is int playlistId && existingPlaylistIds.Contains(playlistId))
+                        .Select(reference => new PlayHistoryDisplayTargetReference
+                        {
+                            PlaylistId = reference.PlaylistId
+                        })
+                ]
+            };
         }
 
         private string SerializePlayHistoryFolderDisplayPresetDraftsForChangeTracking()
@@ -3574,10 +3597,6 @@ public class MainWindowViewModel : ViewModel
         {
             private readonly HashSet<int> playlistIds = [];
 
-            private readonly HashSet<string> playlistNames = new(StringComparer.OrdinalIgnoreCase);
-
-            private readonly HashSet<string> playlistSymbols = new(StringComparer.OrdinalIgnoreCase);
-
             private PlayHistoryFolderDisplayPresetSelectionIndex()
             {
             }
@@ -3586,7 +3605,7 @@ public class MainWindowViewModel : ViewModel
             /// 保存済み参照から候補 playlist の選択判定用 index を作成します。
             /// </summary>
             /// <param name="references">選択中プリセットに保存されている playlist 参照。</param>
-            /// <returns>playlist id / name / symbol を事前集計した selection index。</returns>
+            /// <returns>playlist id を事前集計した selection index。</returns>
             public static PlayHistoryFolderDisplayPresetSelectionIndex Create(IEnumerable<PlayHistoryDisplayTargetReference> references)
             {
                 var index = new PlayHistoryFolderDisplayPresetSelectionIndex();
@@ -3599,10 +3618,7 @@ public class MainWindowViewModel : ViewModel
                     if (reference.PlaylistId.HasValue)
                     {
                         index.playlistIds.Add(reference.PlaylistId.Value);
-                        continue;
                     }
-                    index.AddText(index.playlistNames, reference.PlaylistName);
-                    index.AddText(index.playlistSymbols, reference.PlaylistSymbol);
                 }
                 return index;
             }
@@ -3622,30 +3638,7 @@ public class MainWindowViewModel : ViewModel
                 {
                     return true;
                 }
-                return ContainsText(playlistNames, table.name)
-                    || ContainsText(playlistNames, table.org_name)
-                    || ContainsText(playlistSymbols, table.symbol)
-                    || ContainsText(playlistSymbols, table.org_symbol);
-            }
-
-            private void AddText(HashSet<string> values, string value)
-            {
-                string normalizedValue = NormalizeText(value);
-                if (!string.IsNullOrWhiteSpace(normalizedValue))
-                {
-                    values.Add(normalizedValue);
-                }
-            }
-
-            private static bool ContainsText(HashSet<string> values, string value)
-            {
-                string normalizedValue = NormalizeText(value);
-                return !string.IsNullOrWhiteSpace(normalizedValue) && values.Contains(normalizedValue);
-            }
-
-            private static string NormalizeText(string value)
-            {
-                return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+                return false;
             }
         }
 
