@@ -35,7 +35,23 @@ OK は次の契約に従う。
 - post-save 処理は `SettingsPostSaveImpact` で分類し、必要な impact flag がある場合だけ `necessaryStepsAfterSaved()` を実行する。
 - custom folder search root 同期は `CustomFolderSearchRootSync` impact がある場合だけ実行する。
 - player 再生成、LR2 backup 有効化通知、playlist URL completion refresh、LR2 generated-data sync、beatoraja BMT export は、それぞれ対応する impact flag がある場合だけ実行する。
-- 保存完了後は `backupSavedSettings()` で snapshot を現在値へ更新する。
+- 保存完了後は `SettingsSnapshotRefreshScope` で snapshot 更新範囲を分類し、変更された設定範囲に必要な snapshot / 表示状態だけを現在値へ更新する。
+
+`SettingsSnapshotRefreshScope` は保存後 snapshot 更新の範囲を表す。`backupSavedSettings()` は初期化や reset 後の full snapshot 更新に使い、通常の OK 保存後は `backupSavedSettingsCore(scope)` で部分更新する。
+
+- `StandaloneSearchRoots`: standalone BMS root list を再読込し、standalone root snapshot を更新する。
+- `Lr2SearchRoots`: LR2 config 由来の BMS search root snapshot を更新する。
+- `CustomFolderOutputBase`: custom folder 追加出力先 list を再読込する。LR2 search root snapshot にも影響するため `Lr2SearchRoots` と併用する。
+- `PlayHistoryDisplayPreset`: Play History 表示プリセット list を再読込し、プリセット snapshot を更新する。
+- `OperationMode`: operation mode 表示状態を更新する。
+- `ValidationState`: 保存可否や dirty 判定に関係する notification を更新する。
+- `Full`: 初期 snapshot、reset 後 snapshot、operation mode 変更など、境界全体を取り直す必要がある場合に使う。
+
+LR2 root / LR2 config path / operation mode / LR2 BMS search root / custom folder 出力先など LR2 config 境界が変わる場合は、post-save の custom folder search root sync が LR2 config の search root を補完する可能性がある。そのため、直接 BMS search root を編集していない場合でも `Lr2SearchRoots` を含め、保存後の LR2 search root snapshot を同期後の値へ更新する。
+
+保存後 snapshot 更新では、外観テーマ、言語、通常 UI 設定など search root / custom folder / play history preset に影響しない変更で root list や custom folder list の再読込を行わない。これらの list 再読込は `ObservableCollection` 更新と property notification を伴い、設定ダイアログ表示中は binding 経由で search root / custom folder / LR2 directory 候補の再評価へ連鎖しやすいため、対応する scope がある場合だけ行う。
+
+root list / custom folder list の再読込は、保存値と現在の `ObservableCollection` / selected item が一致している場合、collection clear / add と notification を行わない。同じ値を再代入して dirty 判定や候補リストを再評価させない。
 
 `SettingsPostSaveImpact` は post-save 処理の実行条件を表す。
 
@@ -71,7 +87,7 @@ score DB を読む既存の境界で read-only schema check を実行し、そ�
 - `settings_save`: `SaveSettingsCore()` 全体の時間、validation 結果、変更種別、user.config / LR2 config 保存有無と保存時間を記録する。
 - `settings_save_and_close`: OK button handler 全体の時間、結果、validation 時間、保存時間、restart mode を記録する。ユーザーが MessageBox を閉じるまでの待ち時間は含めない。
 - `settings_post_save`: post-save impact ごとの処理時間を記録する。
-- `settings_backup_snapshot`: snapshot 更新時の standalone roots、custom folder bases、LR2 roots snapshot、play history preset refresh / snapshot の時間を記録する。
+- `settings_backup_snapshot`: snapshot 更新時の scope、standalone roots、custom folder bases、LR2 roots snapshot、play history preset refresh / snapshot の時間を記録する。
 - `settings_schema_status_score_load_check`: score DB 読み込み境界の read-only schema check 時間と結果を記録する。
 - `settings_schema_status_publish`: library 側に保持した schema check 結果を設定ダイアログへ publish する時間と結果を記録する。
 

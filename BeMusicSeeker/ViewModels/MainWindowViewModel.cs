@@ -3315,15 +3315,29 @@ public class MainWindowViewModel : ViewModel
 
         private void RefreshStandaloneBmsRootPathsFromSettings()
         {
-            StandaloneBmsRootPathList.Clear();
-            foreach (string path in GetStandaloneBmsRootPathsFromSettings())
+            IReadOnlyList<string> paths = GetStandaloneBmsRootPathsFromSettings();
+            bool pathsChanged = !StandaloneBmsRootPathList.SequenceEqual(paths, StringComparer.OrdinalIgnoreCase);
+            string selectedPath = paths.FirstOrDefault();
+            bool selectedChanged = !string.Equals(SelectedStandaloneBmsRootPath, selectedPath, StringComparison.OrdinalIgnoreCase);
+            if (!pathsChanged && !selectedChanged)
             {
-                StandaloneBmsRootPathList.Add(path);
+                return;
             }
-            SelectedStandaloneBmsRootPath = StandaloneBmsRootPathList.FirstOrDefault();
-            RaisePropertyChanged(() => StandaloneBmsRootPathList);
-            RaisePropertyChanged(() => AvailableBMSDirectories);
-            RaisePropertyChanged(() => SelectedBmsSearchRootPath);
+            if (pathsChanged)
+            {
+                StandaloneBmsRootPathList.Clear();
+                foreach (string path in paths)
+                {
+                    StandaloneBmsRootPathList.Add(path);
+                }
+                RaisePropertyChanged(() => StandaloneBmsRootPathList);
+                RaisePropertyChanged(() => AvailableBMSDirectories);
+                RaisePropertyChanged(() => SelectedBmsSearchRootPath);
+            }
+            if (selectedChanged)
+            {
+                SelectedStandaloneBmsRootPath = selectedPath;
+            }
             RaiseValidationStateChanged();
         }
 
@@ -3336,13 +3350,31 @@ public class MainWindowViewModel : ViewModel
 
         private void RefreshCustomFolderAdditionalOutputBaseDirsFromSettings()
         {
-            CustomFolderAdditionalOutputBaseDirList.Clear();
-            foreach (string path in CustomFolderOutputBaseRegistry.ReadAdditionalBaseDirectories())
+            IReadOnlyList<string> paths = CustomFolderOutputBaseRegistry.ReadAdditionalBaseDirectories();
+            bool pathsChanged = !CustomFolderAdditionalOutputBaseDirList.SequenceEqual(paths, StringComparer.OrdinalIgnoreCase);
+            string selectedPath = paths.FirstOrDefault();
+            bool selectedChanged = !string.Equals(selectedCustomFolderAdditionalOutputBaseDir, selectedPath, StringComparison.OrdinalIgnoreCase);
+            bool pendingRenamesChanged = pendingCustomFolderAdditionalOutputBaseRenames.Count > 0;
+            if (!pathsChanged && !selectedChanged && !pendingRenamesChanged)
             {
-                CustomFolderAdditionalOutputBaseDirList.Add(path);
+                return;
             }
-            SelectedCustomFolderAdditionalOutputBaseDir = CustomFolderAdditionalOutputBaseDirList.FirstOrDefault();
-            pendingCustomFolderAdditionalOutputBaseRenames.Clear();
+            if (pathsChanged)
+            {
+                CustomFolderAdditionalOutputBaseDirList.Clear();
+                foreach (string path in paths)
+                {
+                    CustomFolderAdditionalOutputBaseDirList.Add(path);
+                }
+            }
+            if (selectedChanged)
+            {
+                SelectedCustomFolderAdditionalOutputBaseDir = selectedPath;
+            }
+            if (pendingRenamesChanged)
+            {
+                pendingCustomFolderAdditionalOutputBaseRenames.Clear();
+            }
             RaiseCustomFolderAdditionalOutputBasePropertiesChanged();
         }
 
@@ -4837,7 +4869,66 @@ public class MainWindowViewModel : ViewModel
             BeatorajaBmtExport = 64
         }
 
+        [Flags]
+        private enum SettingsSnapshotRefreshScope
+        {
+            None = 0,
+            StandaloneSearchRoots = 1,
+            Lr2SearchRoots = 2,
+            CustomFolderOutputBase = 4,
+            PlayHistoryDisplayPreset = 8,
+            OperationMode = 16,
+            ValidationState = 32,
+            Full = StandaloneSearchRoots | Lr2SearchRoots | CustomFolderOutputBase | PlayHistoryDisplayPreset | OperationMode | ValidationState
+        }
+
+        private static SettingsSnapshotRefreshScope BuildSettingsSnapshotRefreshScope(
+            bool operationModeChanged,
+            bool standaloneSearchRootsChanged,
+            bool lr2SearchRootsChanged,
+            bool customFolderOutputBaseSettingsChanged,
+            bool playHistoryFolderDisplayPresetDraftsChanged,
+            bool beatorajaDerivedSettingsSourceChanged,
+            bool lr2ConfigBoundaryChanged)
+        {
+            SettingsSnapshotRefreshScope scope = SettingsSnapshotRefreshScope.None;
+            if (operationModeChanged)
+            {
+                scope |= SettingsSnapshotRefreshScope.Full;
+            }
+            if (standaloneSearchRootsChanged)
+            {
+                scope |= SettingsSnapshotRefreshScope.StandaloneSearchRoots | SettingsSnapshotRefreshScope.ValidationState;
+            }
+            if (lr2SearchRootsChanged)
+            {
+                scope |= SettingsSnapshotRefreshScope.Lr2SearchRoots | SettingsSnapshotRefreshScope.ValidationState;
+            }
+            if (lr2ConfigBoundaryChanged)
+            {
+                scope |= SettingsSnapshotRefreshScope.Lr2SearchRoots | SettingsSnapshotRefreshScope.ValidationState;
+            }
+            if (customFolderOutputBaseSettingsChanged)
+            {
+                scope |= SettingsSnapshotRefreshScope.CustomFolderOutputBase | SettingsSnapshotRefreshScope.Lr2SearchRoots | SettingsSnapshotRefreshScope.ValidationState;
+            }
+            if (playHistoryFolderDisplayPresetDraftsChanged)
+            {
+                scope |= SettingsSnapshotRefreshScope.PlayHistoryDisplayPreset | SettingsSnapshotRefreshScope.ValidationState;
+            }
+            if (beatorajaDerivedSettingsSourceChanged)
+            {
+                scope |= SettingsSnapshotRefreshScope.ValidationState;
+            }
+            return scope;
+        }
+
         private void backupSavedSettings()
+        {
+            backupSavedSettingsCore(SettingsSnapshotRefreshScope.Full);
+        }
+
+        private void backupSavedSettingsCore(SettingsSnapshotRefreshScope scope)
         {
             var totalStopwatch = Stopwatch.StartNew();
             long standaloneRootsMs = 0L;
@@ -4848,10 +4939,16 @@ public class MainWindowViewModel : ViewModel
             long playHistoryPresetSnapshotMs = 0L;
             operationModeLR2DB = Settings.Default.OperationModeLR2DB;
             var stepStopwatch = Stopwatch.StartNew();
-            RefreshStandaloneBmsRootPathsFromSettings();
+            if (scope.HasFlag(SettingsSnapshotRefreshScope.StandaloneSearchRoots))
+            {
+                RefreshStandaloneBmsRootPathsFromSettings();
+            }
             standaloneRootsMs = stepStopwatch.ElapsedMilliseconds;
             stepStopwatch.Restart();
-            RefreshCustomFolderAdditionalOutputBaseDirsFromSettings();
+            if (scope.HasFlag(SettingsSnapshotRefreshScope.CustomFolderOutputBase))
+            {
+                RefreshCustomFolderAdditionalOutputBaseDirsFromSettings();
+            }
             customFolderBasesMs = stepStopwatch.ElapsedMilliseconds;
             tempOperationModeLR2DB = Settings.Default.OperationModeLR2DB;
             tempLR2RootPath = Settings.Default.LR2RootPath;
@@ -4868,10 +4965,16 @@ public class MainWindowViewModel : ViewModel
             tempRegisterBeatorajaBmtUrls = Settings.Default.RegisterBeatorajaBmtUrls;
             tempBMSRootPath = Settings.Default.BMSRootPath;
             stepStopwatch.Restart();
-            tempLR2ConfigBmsSearchRoots = SerializeLR2ConfigBmsSearchRoots();
+            if (scope.HasFlag(SettingsSnapshotRefreshScope.Lr2SearchRoots))
+            {
+                tempLR2ConfigBmsSearchRoots = SerializeLR2ConfigBmsSearchRoots();
+            }
             lr2RootsSnapshotMs = stepStopwatch.ElapsedMilliseconds;
             stepStopwatch.Restart();
-            tempStandaloneBmsRootPaths = SerializeBmsRootPathsForChangeTracking(StandaloneBmsRootPathList);
+            if (scope.HasFlag(SettingsSnapshotRefreshScope.StandaloneSearchRoots))
+            {
+                tempStandaloneBmsRootPaths = SerializeBmsRootPathsForChangeTracking(StandaloneBmsRootPathList);
+            }
             standaloneRootsSnapshotMs = stepStopwatch.ElapsedMilliseconds;
             tempuBMplayPath = Settings.Default.uBMplayPath;
             tempBMIIDXViewPath = Settings.Default.BMIIDXViewPath;
@@ -4936,20 +5039,33 @@ public class MainWindowViewModel : ViewModel
             tempLanguage = Settings.Default.Lang;
             tempLanguageDisplayName = Settings.Default.LangDisplayName;
             stepStopwatch.Restart();
-            RefreshPlayHistoryFolderDisplayPresetsFromSettings();
+            if (scope.HasFlag(SettingsSnapshotRefreshScope.PlayHistoryDisplayPreset))
+            {
+                RefreshPlayHistoryFolderDisplayPresetsFromSettings();
+            }
             playHistoryPresetRefreshMs = stepStopwatch.ElapsedMilliseconds;
             stepStopwatch.Restart();
-            tempPlayHistoryDisplayTargetSetDraftsJson = SerializePlayHistoryFolderDisplayPresetDraftsForChangeTracking();
+            if (scope.HasFlag(SettingsSnapshotRefreshScope.PlayHistoryDisplayPreset))
+            {
+                tempPlayHistoryDisplayTargetSetDraftsJson = SerializePlayHistoryFolderDisplayPresetDraftsForChangeTracking();
+            }
             playHistoryPresetSnapshotMs = stepStopwatch.ElapsedMilliseconds;
             isSearchRootsChanged = false;
             isBMSDirectoryAdded = false;
             isBMSDirectoryRemoved = false;
-            RaisePropertyChanged(() => IsOperationModeChanged);
-            RaiseValidationStateChanged();
+            if (scope.HasFlag(SettingsSnapshotRefreshScope.OperationMode))
+            {
+                RaisePropertyChanged(() => IsOperationModeChanged);
+            }
+            if (scope.HasFlag(SettingsSnapshotRefreshScope.ValidationState))
+            {
+                RaiseValidationStateChanged();
+            }
             LogSettingsPerformance(
                 "settings_backup_snapshot",
                 totalStopwatch,
-                "standaloneRootsMs=" + standaloneRootsMs
+                "scope=" + scope
+                + " standaloneRootsMs=" + standaloneRootsMs
                 + " customFolderBasesMs=" + customFolderBasesMs
                 + " lr2RootsSnapshotMs=" + lr2RootsSnapshotMs
                 + " standaloneRootsSnapshotMs=" + standaloneRootsSnapshotMs
@@ -5857,6 +5973,14 @@ public class MainWindowViewModel : ViewModel
                         || tempOperationModeLR2DB != operationModeLR2DB
                         || lr2SearchRootsChanged
                         || customFolderOutputBaseSettingsChanged);
+                SettingsSnapshotRefreshScope snapshotRefreshScope = BuildSettingsSnapshotRefreshScope(
+                    operationModeChanged,
+                    standaloneSearchRootsChanged,
+                    lr2SearchRootsChanged,
+                    customFolderOutputBaseSettingsChanged,
+                    playHistoryFolderDisplayPresetDraftsChanged,
+                    beatorajaDerivedSettingsSourceChanged,
+                    lr2ConfigBoundaryChanged);
                 if (standaloneSearchRootsChanged)
                 {
                     PersistStandaloneBmsRootPathsToSettings();
@@ -5933,7 +6057,7 @@ public class MainWindowViewModel : ViewModel
                     }
                     postSaveMs = postSaveStopwatch.ElapsedMilliseconds;
                     var backupSnapshotStopwatch = Stopwatch.StartNew();
-                    backupSavedSettings();
+                    backupSavedSettingsCore(snapshotRefreshScope);
                     backupSnapshotMs = backupSnapshotStopwatch.ElapsedMilliseconds;
                 }
             }

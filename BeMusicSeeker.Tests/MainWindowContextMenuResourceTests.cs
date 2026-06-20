@@ -928,9 +928,12 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(saveCore, "if (lr2ConfigBoundaryChanged && operationModeLR2DB && lr2config != null)");
         StringAssert.Contains(saveCore, "customFolderSearchRootSyncNeeded = lr2ConfigBoundaryChanged || customFolderOutputBaseSettingsChanged;");
         StringAssert.Contains(saveCore, "postSaveImpact = BuildSettingsPostSaveImpact(customFolderSearchRootSyncNeeded);");
+        StringAssert.Contains(saveCore, "snapshotRefreshScope = BuildSettingsSnapshotRefreshScope(");
+        StringAssert.Contains(saveCore, "lr2ConfigBoundaryChanged);");
         StringAssert.Contains(saveCore, "\"settings_change_classification\"");
         StringAssert.Contains(saveCore, "if (postSaveNeeded)");
         StringAssert.Contains(saveCore, "await necessaryStepsAfterSaved(postSaveImpact);");
+        StringAssert.Contains(saveCore, "backupSavedSettingsCore(snapshotRefreshScope);");
         StringAssert.Contains(saveCore, "\"settings_save\"");
         StringAssert.Contains(saveCore, "postSaveImpact=");
         StringAssert.Contains(saveCore, "backupSnapshotMs=");
@@ -1086,7 +1089,7 @@ public sealed class MainWindowContextMenuResourceTests
         string viewModelCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
         string backupSavedSettings = ExtractBetween(
             viewModelCode,
-            "private void backupSavedSettings()",
+            "private void backupSavedSettingsCore(SettingsSnapshotRefreshScope scope)",
             "private async Task necessaryStepsAfterSaved(SettingsPostSaveImpact impact)");
         string restartDecision = ExtractBetween(
             viewModelCode,
@@ -1107,6 +1110,13 @@ public sealed class MainWindowContextMenuResourceTests
 
         StringAssert.Contains(backupSavedSettings, "tempStandaloneBmsRootPaths = SerializeBmsRootPathsForChangeTracking(StandaloneBmsRootPathList);");
         StringAssert.Contains(backupSavedSettings, "tempLR2ConfigBmsSearchRoots = SerializeLR2ConfigBmsSearchRoots();");
+        StringAssert.Contains(backupSavedSettings, "scope.HasFlag(SettingsSnapshotRefreshScope.StandaloneSearchRoots)");
+        StringAssert.Contains(backupSavedSettings, "scope.HasFlag(SettingsSnapshotRefreshScope.CustomFolderOutputBase)");
+        StringAssert.Contains(backupSavedSettings, "scope.HasFlag(SettingsSnapshotRefreshScope.Lr2SearchRoots)");
+        StringAssert.Contains(backupSavedSettings, "scope.HasFlag(SettingsSnapshotRefreshScope.PlayHistoryDisplayPreset)");
+        StringAssert.Contains(backupSavedSettings, "settings_backup_snapshot");
+        StringAssert.Contains(viewModelCode, "if (lr2ConfigBoundaryChanged)");
+        StringAssert.Contains(viewModelCode, "scope |= SettingsSnapshotRefreshScope.Lr2SearchRoots | SettingsSnapshotRefreshScope.ValidationState;");
         Assert.IsFalse(backupSavedSettings.Contains("tempEnableLR2SongDbSync"));
         Assert.IsFalse(viewModelCode.Contains("tempValidation"));
         StringAssert.Contains(pendingDecision, "HasSearchRootSettingsChanged()");
