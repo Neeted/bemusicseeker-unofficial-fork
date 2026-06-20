@@ -93,6 +93,19 @@ score DB を読む既存の境界で read-only schema check を実行し、そ�
 
 `virtual_order_prewarm` は startup task として既知の重い処理であり、設定ダイアログ操作の性能評価からは分離して扱う。
 
+## Known Improvement Candidates
+
+設定変更後処理は、post-save impact と snapshot refresh scope の分解により、UI-only 設定では保存後の root / custom folder / play history preset 再読込を避けられる状態になっている。
+現行ログでは、外観テーマや言語などの軽微な変更は `postSaveImpact=None`、`scope=None`、`backupSnapshotMs=0` で完了し、保存本体も数 ms から数十 ms 程度に収まる。
+
+一方で、OK 押下後の総時間は `settings_validation` が支配的になる場合がある。これは現行仕様の許容範囲内だが、将来さらに詰める場合の改善候補として扱う。
+
+- 軽微な UI-only 変更でも `CheckValidationBeforeSave()` は現在の必須設定の外部状態を確認するため、path / file existence / player / backup / beatoraja / install dir などの検証が固定費になる。
+- Play History 表示プリセットの変更では、プリセット JSON の整合性だけで済むケースでも full validation 相当の経路へ入り、他カテゴリの filesystem validation が同時に走る可能性がある。
+- 今後改善する場合は、特定の設定名だけを特別扱いするのではなく、変更範囲から `ValidationImpact` を分類し、必須設定再確認、Play History preset 検証、外部ファイル存在確認、full validation を分ける。
+- その前段として、`settings_validation_detail` のような詳細ログで validation 内訳を記録する。候補は LR2 core path、standalone roots、custom folder output、beatoraja、player executable、install dir、LR2 backup、Play History preset JSON など。
+- 詳細ログも挙動に影響しない best-effort とし、validation の成否や保存結果を変えない。
+
 ## Impact Classes
 
 ### UI-only
