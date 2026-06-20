@@ -21,6 +21,7 @@ It summarizes the features, behavior, and cautions added or changed in this fork
 - [Playlists](#playlists)
 - [Install / Pending Packages](#install--pending-packages)
 - [Maintenance](#maintenance)
+- [Play Log](#play-log)
 - [Backup / Uninstall](#backup--uninstall)
 - [Logs and Troubleshooting](#logs-and-troubleshooting)
 - [References](#references)
@@ -44,6 +45,7 @@ In addition to the basic features of the traditional version, this fork includes
 - Structured and more informative `WARNING` display
 - Multilingual support and dark theme support
 - beatoraja integration, including score loading and difficulty table updates
+- Play Log, including incremental LR2 recording through score DB integration
 
 ### Caution
 
@@ -148,6 +150,14 @@ When the initial settings are saved and when starting in LR2 linked mode, BeMusi
 However, even charts that cause errors during LR2 scanning or playback are still saved in the `song` table so they can be managed by this application. Please understand that even if such charts appear on the song selection screen, problems may occur when playback starts. Some known LR2 compatibility risks can be checked in the `LR2 Compatibility Warnings` screen.
 
 The `Resynchronize LR2 song.db Data` button regenerates the `folder` and `song` tables. Even if the DB becomes incomplete for some reason, this re-parses and regenerates it from owned charts and playlists.
+
+#### LR2 Play Log
+
+The LR2 play log adds BeMusicSeeker tables, indexes, and triggers to each player's LR2 `score.db`, and incrementally records plays made in LR2 after installation. It is available in LR2 linked mode.
+
+The `LR2 Play Log` status shows the result of checking the selected player's `score.db`. When it is not installed, or when some tables, indexes, or triggers are missing or mismatched, the button beside the status installs or repairs it. Before running it, confirm that the target player is correct and back up `score.db` if needed.
+
+To disable or delete the LR2 play log, use `Disable / delete LR2 play log...` under `Backup > Uninstall data` in the settings dialog. Removing only triggers stops future recording while keeping existing history. Removing the history tables as well deletes existing play-log history.
 
 #### beatoraja Integration
 
@@ -325,26 +335,6 @@ You can use field specifiers such as `title:`, `artist:`, `playlist:`, and `rate
 
 Click a column header to sort. Many columns can be displayed, including `TITLE`, `ARTIST`, `PATH`, `LEVEL`, and `CLEAR`. Column visibility and order can be changed from the header context menu.
 
-### Play Log
-
-The `Play Log` tree shows LR2 or beatoraja play history in the main list. The list shows one provider selected from the current score source; it does not merge LR2 and beatoraja history at the same time. When beatoraja score DB use is enabled and beatoraja scores were actually loaded for the selected player, the beatoraja provider is used. Otherwise, the LR2 provider is used. For LR2, newly played charts become available after enabling the LR2 play-log schema in the settings dialog. For beatoraja, the view reads `scoredatalog.db` from the player folder selected in beatoraja integration.
-
-Enable or repair the LR2 play-log schema from the button beside the LR2 Play Log status on the `General` tab of the settings dialog. The same button enables the schema when it is not installed and repairs it when tables, indexes, or triggers are partially missing or mismatched. It adds or repairs BeMusicSeeker tables, indexes, and triggers in the selected player's LR2 `score.db`. Before running it, confirm that the target player is correct and back up `score.db` in advance.
-
-To disable or delete the LR2 play log, use `Disable / delete LR2 play log...` under `Backup > Uninstall data` in the settings dialog. The confirmation dialog lets you remove only the triggers, which stops future recording while keeping existing history, or remove the history tables as well. Removing triggers only keeps the existing play-log history.
-
-The available periods are `All`, `Today`, `Yesterday`, `Recent 7 Days`, `Recent 30 Days`, `By Date`, and `Unfinalized / Diagnostics`. `By Date` builds year / month / day nodes from recorded history. Date ranges use local day boundaries, and the recent 7/30 day views include today. `Unfinalized / Diagnostics` shows LR2 unfinalized rows and is useful when checking schema, score DB, read, or projection problems. beatoraja does not have rows equivalent to LR2 `finalized = 0`, so this node does not substitute beatoraja's normal history rows.
-
-The dedicated summary row below the list header shows judge count, play count, playtime, SCORE / BP / COMBO / CLEAR updates, and a compact clear breakdown such as ASSIST, EASY, NORMAL, HARD, and FC. EXH is shown only for the beatoraja provider. When the score DB is missing, the schema is not installed, or a read/projection problem occurs, diagnostic details are shown in the summary text and written to the log.
-
-Play-log rows show best-update transitions such as `old -> new` for SCORE, BEST DJ, BEST RATE, BP, COMBO, and CLEAR. CLEAR uses compact labels such as `NO PLAY`, `EASY`, `NORMAL`, `HARD`, `EXH`, and `FC`; CLEAR and BEST DJ color the source, arrow, and destination separately when the row is not selected. Initial BP values are shown as the value only. `TYPE` can contain multiple update kinds, such as `score bp clear`; `play` is used only when no more specific update kind applies. LR2 `OP HISTORY` shows newly achieved option-history flags by name, and beatoraja `OPTION` decodes the stored option into names such as RANDOM, MIRROR, FLIP, and BATTLE AS. `PROVIDER` and `SOURCE` are not user-facing columns.
-
-The drop-down menu at the top-right of the Play Log view switches the display target and how the FOLDER column is projected. `All` shows all history rows in the range selected in the period tree. `Preset: <name>` filters the rows to charts included in the playlists selected in `Play Log FOLDER Display Presets`, and the FOLDER column shows each playlist symbol plus level. `FOLDER: <name>` does not filter rows; it keeps the rows selected by the period tree and search box, and only projects the FOLDER column using that preset. Charts outside the preset have an empty FOLDER value. Selecting a single playlist filters to charts in that playlist and shows the playlist folder name in the FOLDER column.
-
-The play-log context menu can open BMS-IR for rows with a resolved MD5, open Mocha / MinIR for rows with a resolved SHA-256, open locally resolved charts in Explorer or the chart viewer, and copy MD5 or SHA256.
-
-beatoraja play-log reading is read-only and uses `scoredatalog.db` single-chart plays as the primary input. When `scorelog.db` exists in the same player folder, matching SHA-256 / mode / date best-update logs fill SCORE / CLEAR / BP / COMBO deltas. If `scorelog.db` is missing or has no matching row, the best-delta columns stay blank. beatoraja playtime is not shown on individual rows.
-
 ### Copy Operations
 
 In lists such as the library, playlist detail, and install / pending views, you can copy displayed content from the keyboard.
@@ -511,11 +501,28 @@ When you find a table whose number of unowned charts has increased, **double-cli
 
 The `STATUS` column shows the result of external playlist sync performed after startup or during reload. Broken links, header retrieval failures, data retrieval failures, and similar issues can be checked here. Details are shown in the tooltip.
 
-`BMT SORT` controls the order of BeMusicSeeker-managed `.bmt` URLs registered in `config_sys.json` `tableURL`. When the summary is sorted by `BMT SORT` ascending, rows can be reordered by drag and drop. If filters are active, hidden rows keep their relative positions. Drag reorder is disabled for descending `BMT SORT` and for other sort columns. The row context menu also provides `Apply current order to BMT SORT`, `Move to top of BMT SORT`, and `Move to bottom of BMT SORT`.
+#### BMT SORT
+
+`BMT SORT` controls the order of BeMusicSeeker-managed `.bmt` URLs registered in `config_sys.json` `tableURL`. Drag-and-drop reordering is available **only when the playlist summary is displayed in `BMT SORT` ascending order**. If filters are active, hidden rows keep their relative positions. Drag reorder is disabled for descending `BMT SORT` and for other sort columns. The row context menu also provides `Apply current order to BMT SORT`, `Move to top of BMT SORT`, and `Move to bottom of BMT SORT`.
 
 `BMT OUTPUT` controls whether that playlist is included in `.bmt` output. Disabling it removes that playlist's managed `.bmt` and BeMusicSeeker-managed `tableURL` entry on the next output.
 
-Select multiple rows and open `Bulk edit...` from the context menu to apply custom folder output types, `OUTPUT`, root folder, external sync, `.bmt` output, or initialization from external data to the selected rows. The dialog has no global OK; only the apply button in each section changes that section. The external-data initialization section can reset playlist name, symbol, folder prefix, and folder name by reloading the external playlist URL regardless of the external sync flag; playlists whose external URL cannot be read are skipped. Resetting the folder name clears the saved `output_dir`, so the effective folder name is generated from the playlist name with invalid filename characters normalized away. `OUTPUT` selects the normal output destination or an additional normal output. The saved `OUTPUT` value is updated even for playlists with `Make root folder` enabled, but the actual output destination remains the root folder output destination. For custom folder output types, checked means output, unchecked means no output, and indeterminate means no change. Bulk custom folder output changes show progress in the status bar and do not regenerate `.bmt` files. When external sync is turned on, playlists with insufficient URL information remain off without a warning dialog.
+#### Bulk edit...
+
+Select multiple rows and open `Bulk edit...` from the context menu to apply custom folder output types, `OUTPUT`, root folder, external sync, `.bmt` output, or initialization from external data to the selected rows. The dialog has no global OK; only the apply button in each section changes that section.
+
+`OUTPUT` selects the normal output destination or an additional normal output. The saved `OUTPUT` value is updated even for playlists with `Make root folder` enabled, but the actual output destination remains the root folder output destination.
+
+For custom folder output types, checked means output, unchecked means no output, and indeterminate means no change. Bulk custom folder output changes show progress in the status bar and do not regenerate `.bmt` files.
+
+When external sync is turned on, playlists with insufficient URL information remain off without a warning dialog.
+
+The external-data initialization section reloads the external playlist URL regardless of the external sync flag and resets only the checked fields. Playlists whose external URL cannot be read are skipped.
+
+- Playlist name: Resets the name from the external data.
+- Symbol: Resets the symbol from the external data.
+- Folder prefix: Resets the folder prefix inferred from the external data.
+- Folder name: Clears the saved `output_dir`. The effective folder name is then generated from the playlist name with invalid filename characters normalized away.
 
 ### Playlist Detail
 
@@ -605,7 +612,7 @@ User-defined output creates an `ALL` `.lr2folder` for the whole playlist plus `.
 
 Playlists made into root folders are displayed at the root of LR2's song selection screen. This is useful when you want quick access to frequently used tables.
 
-> Although I do have some interest in expanding this feature, [a custom folder output tool](https://github.com/Anyoji-bms/LR2FolderGenerator-v1.0.1) already exists, and these days I also think that if you tell various AI tools what kind of custom folder you want together with the DB schema, you may be able to generate something better suited to each person's preferences. Since `chart_info` contains various metadata, `chart_digest_map` contains BMS MD5/SHA256 mappings, and `playlist_entry` has an added SHA256 column, I think many kinds of folders can be made with some ingenuity.
+> Many other custom folder formats are possible, but adding more built-in types in this application would increase the number of generated `.lr2folder` files and may hurt performance. [A custom folder output tool](https://github.com/Anyoji-bms/LR2FolderGenerator-v1.0.1) also exists, and these days I also think that if you tell various AI tools what kind of custom folder you want together with the DB schema, you may be able to generate something better suited to each person's preferences. Since `chart_info` contains various metadata, `chart_digest_map` contains BMS MD5/SHA256 mappings, and `playlist_entry` has an added SHA256 column, many kinds of folders can be made with some ingenuity.
 
 ### URL1/URL2 Completion
 
@@ -813,11 +820,33 @@ After a merge or duplicate-hash cleanup finishes, focus automatically moves to t
 This view checks missing WAV, BGA, video, image, and similar resources.
 `Rescan all charts` is an explicit heavy operation. Ordinary startup does not revalidate resources for all charts. If you add missing resources after installation, update the state by rescanning the relevant row or rescanning all charts.
 
+## Play Log
+
+![Play Log](img/一覧_プレイログ.PNG)
+
+The `Play Log` tree shows LR2 or beatoraja play history in the main list. The list shows one provider selected from the current score source; it does not merge LR2 and beatoraja history at the same time. When beatoraja score DB use is enabled and beatoraja scores were actually loaded for the selected player, the beatoraja provider is used. Otherwise, the LR2 provider is used. For LR2, newly played charts become available after installing the LR2 play-log schema in the settings dialog. For beatoraja, the view reads `scoredatalog.db` from the player folder selected in beatoraja integration.
+
+Install or repair the LR2 play-log schema from the button beside the LR2 Play Log status on the `General` tab of the settings dialog. The same button installs the schema when it is not installed and repairs it when tables, indexes, or triggers are partially missing or mismatched. It adds or repairs BeMusicSeeker tables, indexes, and triggers in the selected player's LR2 `score.db`. Before running it, confirm that the target player is correct and back up `score.db` in advance.
+
+To disable or delete the LR2 play log, use `Disable / delete LR2 play log...` under `Backup > Uninstall data` in the settings dialog. The confirmation dialog lets you remove only the triggers, which stops future recording while keeping existing history, or remove the history tables as well. Removing triggers only keeps the existing play-log history.
+
+The available periods are `All`, `Today`, `Yesterday`, `Recent 7 Days`, `Recent 30 Days`, `By Date`, and `Unfinalized / Diagnostics`. `By Date` builds year / month / day nodes from recorded history. Date ranges use local day boundaries, and the recent 7/30 day views include today. `Unfinalized / Diagnostics` shows LR2 unfinalized rows and is useful when checking schema, score DB, read, or projection problems. beatoraja does not have rows equivalent to LR2 `finalized = 0`, so this node does not substitute beatoraja's normal history rows.
+
+The dedicated summary row below the list header shows judge count, play count, playtime, SCORE / BP / COMBO / CLEAR updates, and a compact clear breakdown such as ASSIST, EASY, NORMAL, HARD, and FC. EXH is shown only for the beatoraja provider. When the score DB is missing, the schema is not installed, or a read/projection problem occurs, diagnostic details are shown in the summary text and written to the log.
+
+Play-log rows show best-update transitions such as `old -> new` for SCORE, BEST DJ, BEST RATE, BP, COMBO, and CLEAR. CLEAR uses compact labels such as `NO PLAY`, `EASY`, `NORMAL`, `HARD`, `EXH`, and `FC`; CLEAR and BEST DJ color the source, arrow, and destination separately when the row is not selected. Initial BP values are shown as the value only. `TYPE` can contain multiple update kinds, such as `score bp clear`; `play` is used only when no more specific update kind applies. LR2 `OP HISTORY` shows newly achieved option-history flags by name, and beatoraja `OPTION` decodes the stored option into names such as RANDOM, MIRROR, FLIP, and BATTLE AS. `PROVIDER` and `SOURCE` are not user-facing columns.
+
+The drop-down menu at the top-right of the Play Log view switches the display target and how the FOLDER column is projected. `All` shows all history rows in the range selected in the period tree. `Preset: <name>` filters the rows to charts included in the playlists selected in `Play Log FOLDER Display Presets`, and the FOLDER column shows each playlist symbol plus level. `FOLDER: <name>` does not filter rows; it keeps the rows selected by the period tree and search box, and only projects the FOLDER column using that preset. Charts outside the preset have an empty FOLDER value. Selecting a single playlist filters to charts in that playlist and shows the playlist folder name in the FOLDER column.
+
+The play-log context menu can open BMS-IR for rows with a resolved MD5, open Mocha / MinIR for rows with a resolved SHA-256, open locally resolved charts in Explorer or the chart viewer, and copy MD5 or SHA256.
+
+beatoraja play-log reading is read-only and uses `scoredatalog.db` single-chart plays as the primary input. When `scorelog.db` exists in the same player folder, matching SHA-256 / mode / date best-update logs fill SCORE / CLEAR / BP / COMBO deltas. If `scorelog.db` is missing or has no matching row, the best-delta columns stay blank. beatoraja playtime is not shown on individual rows.
+
 ## Backup / Uninstall
 
 From the `Backup` tab in the settings dialog, you can back up / restore playlists. `LR2 backup and optimization` configures the destination, targets, schedule, and generation count, and automatically creates backups on startup when conditions are met. After a successful backup, `song.db` and score DBs are also optimized using `VACUUM` / `REINDEX`. Simply configuring the setting does not immediately back up LR2-related files on the spot, so if you need a backup before a large update or uninstall, also make a manual copy.
 
-Before enabling or repairing the play-log schema, first-time LR2 linked setup, or major updates, include each player's `score.db` as well as LR2 `song.db` in your backup target. If you choose the option to remove tables from `Disable / delete LR2 play log...`, existing play-log history is deleted too, so back up `score.db` first if you need that history.
+Before installing or repairing the play-log schema, first-time LR2 linked setup, or major updates, include each player's `score.db` as well as LR2 `song.db` in your backup target. If you choose the option to remove tables from `Disable / delete LR2 play log...`, existing play-log history is deleted too, so back up `score.db` first if you need that history.
 
 In LR2 linked mode, BeMusicSeeker may add application tables and indexes to LR2's `song.db`. `Remove BeMusicSeeker-related data from LR2 database` deletes these BeMusicSeeker-managed data. This operation assumes you will exit the application afterward.
 
