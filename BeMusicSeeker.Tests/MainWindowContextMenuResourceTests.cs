@@ -708,7 +708,7 @@ public sealed class MainWindowContextMenuResourceTests
             "ColumnsSettingsChartRowsView");
         string saveFollowup = ExtractBetween(
             viewModelCode,
-            "private async Task necessaryStepsAfterSaved(bool customFolderSearchRootSyncNeeded)",
+            "private async Task necessaryStepsAfterSaved(SettingsPostSaveImpact impact)",
             "public bool CheckValidation()");
         string lr2RootPathProperty = ExtractBetween(
             viewModelCode,
@@ -927,7 +927,13 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(initialSaveMethod.Contains("necessaryStepsAfterSaved"));
         StringAssert.Contains(saveCore, "if (lr2ConfigBoundaryChanged && operationModeLR2DB && lr2config != null)");
         StringAssert.Contains(saveCore, "customFolderSearchRootSyncNeeded = lr2ConfigBoundaryChanged || customFolderOutputBaseSettingsChanged;");
+        StringAssert.Contains(saveCore, "postSaveImpact = BuildSettingsPostSaveImpact(customFolderSearchRootSyncNeeded);");
+        StringAssert.Contains(saveCore, "\"settings_change_classification\"");
+        StringAssert.Contains(saveCore, "if (postSaveNeeded)");
+        StringAssert.Contains(saveCore, "await necessaryStepsAfterSaved(postSaveImpact);");
         StringAssert.Contains(saveCore, "\"settings_save\"");
+        StringAssert.Contains(saveCore, "postSaveImpact=");
+        StringAssert.Contains(saveCore, "backupSnapshotMs=");
         StringAssert.Contains(saveCore, "lr2ConfigNeedsSave = lr2config.EnsureDatabaseAutoReloadManualOnly();");
         StringAssert.Contains(saveCore, "if ((lr2SearchRootsChanged || lr2ConfigNeedsSave) && lr2config != null)");
         Assert.IsTrue(
@@ -1001,7 +1007,7 @@ public sealed class MainWindowContextMenuResourceTests
             "public RestartMode IsNeedRestartForSaved()");
         string saveFollowup = ExtractBetween(
             viewModelCode,
-            "private async Task necessaryStepsAfterSaved(bool customFolderSearchRootSyncNeeded)",
+            "private async Task necessaryStepsAfterSaved(SettingsPostSaveImpact impact)",
             "public bool CheckValidation()");
         string tableListUrlGetter = ExtractBetween(
             ExtractBetween(viewModelCode, "public Uri TableListURL", "public bool EnablePlaylistUrlCompletion"),
@@ -1081,7 +1087,7 @@ public sealed class MainWindowContextMenuResourceTests
         string backupSavedSettings = ExtractBetween(
             viewModelCode,
             "private void backupSavedSettings()",
-            "private async Task necessaryStepsAfterSaved(bool customFolderSearchRootSyncNeeded)");
+            "private async Task necessaryStepsAfterSaved(SettingsPostSaveImpact impact)");
         string restartDecision = ExtractBetween(
             viewModelCode,
             "public RestartMode IsNeedRestartForSaved()",
@@ -1139,7 +1145,11 @@ public sealed class MainWindowContextMenuResourceTests
             "public void SaveOperationModeForRestart");
         string postSaveSteps = ExtractBlockAfter(
             viewModelCode,
-            "private async Task necessaryStepsAfterSaved(bool customFolderSearchRootSyncNeeded)");
+            "private async Task necessaryStepsAfterSaved(SettingsPostSaveImpact impact)");
+        string buildPostSaveImpact = ExtractBetween(
+            viewModelCode,
+            "private SettingsPostSaveImpact BuildSettingsPostSaveImpact(bool customFolderSearchRootSyncNeeded)",
+            "private static bool HasPostSaveImpact");
         string reloadFileDiff = ExtractBetween(
             viewModelCode,
             "public async void ReloadFileDiff()",
@@ -1203,11 +1213,19 @@ public sealed class MainWindowContextMenuResourceTests
             manualResyncClickHandler.IndexOf("if (!viewModel.CanRequestLr2SongDbSyncDataResync)", StringComparison.Ordinal)
             < manualResyncClickHandler.IndexOf("Msg_confirm_lr2_song_db_sync_data_resync", StringComparison.Ordinal),
             "Manual LR2 generated-data sync must reject invalid profile/operation state before showing the destructive confirmation.");
-        StringAssert.Contains(postSaveSteps, "tempOperationModeLR2DB != Settings.Default.OperationModeLR2DB");
+        StringAssert.Contains(buildPostSaveImpact, "tempOperationModeLR2DB != Settings.Default.OperationModeLR2DB");
+        StringAssert.Contains(viewModelCode, "private enum SettingsPostSaveImpact");
+        StringAssert.Contains(viewModelCode, "BuildSettingsPostSaveImpact(bool customFolderSearchRootSyncNeeded)");
+        StringAssert.Contains(viewModelCode, "SettingsPostSaveImpact.Lr2CoreSync");
+        StringAssert.Contains(viewModelCode, "SettingsPostSaveImpact.ExternalLr2FolderRowsSync");
+        StringAssert.Contains(postSaveSteps, "impact.HasFlag(SettingsPostSaveImpact.Lr2CoreSync)");
+        StringAssert.Contains(postSaveSteps, "else if (impact.HasFlag(SettingsPostSaveImpact.ExternalLr2FolderRowsSync))");
+        StringAssert.Contains(postSaveSteps, "\"settings_post_save\"");
         Assert.IsFalse(postSaveSteps.Contains("tempEnableLR2SongDbSync"));
-        StringAssert.Contains(postSaveSteps, "tempLR2RootPath, Settings.Default.LR2RootPath");
-        StringAssert.Contains(postSaveSteps, "tempLR2CustomFolderOutputDir, Settings.Default.LR2CustomFolderOutputBaseDir");
-        StringAssert.Contains(postSaveSteps, "tempLR2CustomFolderAsRootOutputDir, Settings.Default.LR2CustomFolderOutputBaseDirRootType");
+        Assert.IsFalse(buildPostSaveImpact.Contains("tempEnableLR2SongDbSync"));
+        StringAssert.Contains(buildPostSaveImpact, "tempLR2RootPath, Settings.Default.LR2RootPath");
+        StringAssert.Contains(buildPostSaveImpact, "tempLR2CustomFolderOutputDir, Settings.Default.LR2CustomFolderOutputBaseDir");
+        StringAssert.Contains(buildPostSaveImpact, "tempLR2CustomFolderAsRootOutputDir, Settings.Default.LR2CustomFolderOutputBaseDirRootType");
         StringAssert.Contains(reloadFileDiff, "files.QueueLr2SongDbSync(");
         StringAssert.Contains(reloadFileDiff, "prepareGeneratedData: () => ReOutputAllCustomFoldersForLr2GeneratedDataSync(\"ReloadFileDiff\")");
         StringAssert.Contains(viewModelCode, "prepareGeneratedData: () => ReOutputAllCustomFoldersForLr2GeneratedDataSync(\"status_bar_cleanup_retry\")");

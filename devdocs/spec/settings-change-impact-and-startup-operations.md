@@ -32,8 +32,20 @@ OK は次の契約に従う。
 - 既存プロファイルでは `CheckValidationBeforeSave()` を使う。validation に関係する設定が変わった場合は full validation を行い、変わっていない場合は現在の必須設定が外部要因で壊れていないかだけを確認する。
 - `Settings.Default.Save()` は user.config 対象の変更がある場合だけ呼ぶ。
 - `lr2config.Save()` は LR2 BMS 検索ルートまたは autoreload 設定を保存する必要がある場合だけ呼ぶ。
-- post-save 処理は `necessaryStepsAfterSaved()` に集約し、custom folder search root 同期は custom folder / LR2 config 境界の変更がある場合だけ実行する。
+- post-save 処理は `SettingsPostSaveImpact` で分類し、必要な impact flag がある場合だけ `necessaryStepsAfterSaved()` を実行する。
+- custom folder search root 同期は `CustomFolderSearchRootSync` impact がある場合だけ実行する。
+- player 再生成、LR2 backup 有効化通知、playlist URL completion refresh、LR2 generated-data sync、beatoraja BMT export は、それぞれ対応する impact flag がある場合だけ実行する。
 - 保存完了後は `backupSavedSettings()` で snapshot を現在値へ更新する。
+
+`SettingsPostSaveImpact` は post-save 処理の実行条件を表す。
+
+- `CustomFolderSearchRootSync`: LR2 config 境界または custom folder 出力先が変わった場合。
+- `PlayerRuntime`: 外部プレイヤー選択、または standalone mode への変更により内部プレイヤーへ戻す必要がある場合。
+- `Lr2BackupEnabledNotice`: LR2 mode で LR2 backup を有効化した場合。
+- `PlaylistUrlCompletion`: playlist URL completion の有効化、上書き、Stella 対応、または TSV URI が変わった場合。
+- `Lr2CoreSync`: LR2 mode で operation mode または LR2 root が変わった場合。
+- `ExternalLr2FolderRowsSync`: LR2 mode で custom folder の通常 / root / 追加出力先が変わった場合。ただし `Lr2CoreSync` がある場合は core sync を優先する。
+- `BeatorajaBmtExport`: beatoraja BMT 出力、保持、URL 登録、hash mode、root path、または BMT table path が変わった場合。
 
 ## LR2 Play History Schema Status
 
@@ -55,8 +67,11 @@ score DB を読む既存の境界で read-only schema check を実行し、そ�
 - `settings_dialog_open`: ダイアログ表示時の theme selection 同期、schema status presentation 更新、`ContextIdle` 到達までの時間を記録する。`handlerMs` には visible changed handler 自体の時間を記録する。
 - `settings_cancel`: Cancel 操作の時間、reset 有無、restart mode を記録する。
 - `settings_validation`: OK 時 validation の時間と結果を記録する。
+- `settings_change_classification`: 保存時に算出した変更種別と `SettingsPostSaveImpact` を記録する。
 - `settings_save`: `SaveSettingsCore()` 全体の時間、validation 結果、変更種別、user.config / LR2 config 保存有無と保存時間を記録する。
 - `settings_save_and_close`: OK button handler 全体の時間、結果、validation 時間、保存時間、restart mode を記録する。ユーザーが MessageBox を閉じるまでの待ち時間は含めない。
+- `settings_post_save`: post-save impact ごとの処理時間を記録する。
+- `settings_backup_snapshot`: snapshot 更新時の standalone roots、custom folder bases、LR2 roots snapshot、play history preset refresh / snapshot の時間を記録する。
 - `settings_schema_status_score_load_check`: score DB 読み込み境界の read-only schema check 時間と結果を記録する。
 - `settings_schema_status_publish`: library 側に保持した schema check 結果を設定ダイアログへ publish する時間と結果を記録する。
 

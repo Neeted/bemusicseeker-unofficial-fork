@@ -4824,11 +4824,35 @@ public class MainWindowViewModel : ViewModel
             RaisePropertyChanged(() => PlayerLatency);
         }
 
+        [Flags]
+        private enum SettingsPostSaveImpact
+        {
+            None = 0,
+            CustomFolderSearchRootSync = 1,
+            PlayerRuntime = 2,
+            Lr2BackupEnabledNotice = 4,
+            PlaylistUrlCompletion = 8,
+            Lr2CoreSync = 16,
+            ExternalLr2FolderRowsSync = 32,
+            BeatorajaBmtExport = 64
+        }
+
         private void backupSavedSettings()
         {
+            var totalStopwatch = Stopwatch.StartNew();
+            long standaloneRootsMs = 0L;
+            long customFolderBasesMs = 0L;
+            long lr2RootsSnapshotMs = 0L;
+            long standaloneRootsSnapshotMs = 0L;
+            long playHistoryPresetRefreshMs = 0L;
+            long playHistoryPresetSnapshotMs = 0L;
             operationModeLR2DB = Settings.Default.OperationModeLR2DB;
+            var stepStopwatch = Stopwatch.StartNew();
             RefreshStandaloneBmsRootPathsFromSettings();
+            standaloneRootsMs = stepStopwatch.ElapsedMilliseconds;
+            stepStopwatch.Restart();
             RefreshCustomFolderAdditionalOutputBaseDirsFromSettings();
+            customFolderBasesMs = stepStopwatch.ElapsedMilliseconds;
             tempOperationModeLR2DB = Settings.Default.OperationModeLR2DB;
             tempLR2RootPath = Settings.Default.LR2RootPath;
             tempLR2SongDBPath = Settings.Default.LR2SongDBPath;
@@ -4843,8 +4867,12 @@ public class MainWindowViewModel : ViewModel
             tempBeatorajaBmtTablePath = Settings.Default.BeatorajaBmtTablePath;
             tempRegisterBeatorajaBmtUrls = Settings.Default.RegisterBeatorajaBmtUrls;
             tempBMSRootPath = Settings.Default.BMSRootPath;
+            stepStopwatch.Restart();
             tempLR2ConfigBmsSearchRoots = SerializeLR2ConfigBmsSearchRoots();
+            lr2RootsSnapshotMs = stepStopwatch.ElapsedMilliseconds;
+            stepStopwatch.Restart();
             tempStandaloneBmsRootPaths = SerializeBmsRootPathsForChangeTracking(StandaloneBmsRootPathList);
+            standaloneRootsSnapshotMs = stepStopwatch.ElapsedMilliseconds;
             tempuBMplayPath = Settings.Default.uBMplayPath;
             tempBMIIDXViewPath = Settings.Default.BMIIDXViewPath;
             tempUsePlayeruBMplay = Settings.Default.UsePlayeruBMplay;
@@ -4907,13 +4935,26 @@ public class MainWindowViewModel : ViewModel
             tempPlayerWASAPIParam = Settings.Default.PlayerWASAPIParam;
             tempLanguage = Settings.Default.Lang;
             tempLanguageDisplayName = Settings.Default.LangDisplayName;
+            stepStopwatch.Restart();
             RefreshPlayHistoryFolderDisplayPresetsFromSettings();
+            playHistoryPresetRefreshMs = stepStopwatch.ElapsedMilliseconds;
+            stepStopwatch.Restart();
             tempPlayHistoryDisplayTargetSetDraftsJson = SerializePlayHistoryFolderDisplayPresetDraftsForChangeTracking();
+            playHistoryPresetSnapshotMs = stepStopwatch.ElapsedMilliseconds;
             isSearchRootsChanged = false;
             isBMSDirectoryAdded = false;
             isBMSDirectoryRemoved = false;
             RaisePropertyChanged(() => IsOperationModeChanged);
             RaiseValidationStateChanged();
+            LogSettingsPerformance(
+                "settings_backup_snapshot",
+                totalStopwatch,
+                "standaloneRootsMs=" + standaloneRootsMs
+                + " customFolderBasesMs=" + customFolderBasesMs
+                + " lr2RootsSnapshotMs=" + lr2RootsSnapshotMs
+                + " standaloneRootsSnapshotMs=" + standaloneRootsSnapshotMs
+                + " playHistoryPresetRefreshMs=" + playHistoryPresetRefreshMs
+                + " playHistoryPresetSnapshotMs=" + playHistoryPresetSnapshotMs);
         }
 
         internal bool HasPendingSettingChanges()
@@ -5064,62 +5105,14 @@ public class MainWindowViewModel : ViewModel
             RaiseValidationStateChanged();
         }
 
-        private async Task necessaryStepsAfterSaved(bool customFolderSearchRootSyncNeeded)
+        private SettingsPostSaveImpact BuildSettingsPostSaveImpact(bool customFolderSearchRootSyncNeeded)
         {
-            if (ownerViewModel.tables == null)
+            SettingsPostSaveImpact impact = SettingsPostSaveImpact.None;
+            if (customFolderSearchRootSyncNeeded)
             {
-                return;
+                impact |= SettingsPostSaveImpact.CustomFolderSearchRootSync;
             }
-            if (customFolderSearchRootSyncNeeded && Settings.Default.OperationModeLR2DB)
-            {
-                while (ownerViewModel.BMSTables == null)
-                {
-                    await Task.Delay(100);
-                }
-                CustomFolderOutputBaseSearchRootSyncPlan normalOutputBaseRootSyncPlan = default;
-                CustomFolderOutputBaseSearchRootSyncResult normalOutputBaseRootSyncResult = default;
-                try
-                {
-                    await Task.Run(delegate
-                    {
-                        normalOutputBaseRootSyncPlan = PrepareCustomFolderNormalOutputBaseSearchRootSync();
-                        if (!string.IsNullOrWhiteSpace(tempLR2CustomFolderOutputDir) && !string.IsNullOrWhiteSpace(Settings.Default.LR2CustomFolderOutputBaseDir) && tempLR2CustomFolderOutputDir != Settings.Default.LR2CustomFolderOutputBaseDir)
-                        {
-                            ownerViewModel.tables.ChangeCustomFolderBaseDirectory(
-                                tempLR2CustomFolderOutputDir,
-                                Settings.Default.LR2CustomFolderOutputBaseDir,
-                                tempLR2CustomFolderAdditionalOutputBaseDirs,
-                                Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs);
-                        }
-                        ApplyCustomFolderAdditionalOutputBaseRegistrationChanges();
-                        normalOutputBaseRootSyncResult = CompleteCustomFolderNormalOutputBaseSearchRootSync(normalOutputBaseRootSyncPlan);
-                        if (!string.IsNullOrWhiteSpace(tempLR2CustomFolderAsRootOutputDir) && !string.IsNullOrWhiteSpace(Settings.Default.LR2CustomFolderOutputBaseDirRootType) && tempLR2CustomFolderAsRootOutputDir != Settings.Default.LR2CustomFolderOutputBaseDirRootType)
-                        {
-                            ownerViewModel.tables.ChangeCustomFolderBaseDirectoryRoot(
-                                tempLR2CustomFolderAsRootOutputDir,
-                                Settings.Default.LR2CustomFolderOutputBaseDirRootType);
-                            IEnumerable<string> second = from t in ownerViewModel.tables.BMSTables
-                                                         where t.is_root_folder && !string.IsNullOrWhiteSpace(t.Output_dir)
-                                                         select Path.Combine(tempLR2CustomFolderAsRootOutputDir, t.Output_dir);
-                            IEnumerable<string> second2 = from t in ownerViewModel.tables.BMSTables
-                                                          where t.is_root_folder && !string.IsNullOrWhiteSpace(t.Output_dir)
-                                                          select Path.Combine(Settings.Default.LR2CustomFolderOutputBaseDirRootType, t.Output_dir) into d
-                                                          where Directory.Exists(d)
-                                                          select d;
-                            IEnumerable<string> bMSSearchDirectories = lr2config.GetBMSSearchDirectoriesForChangeTracking().Except(second, StringComparer.OrdinalIgnoreCase).Concat(second2)
-                                .Distinct();
-                            lr2config.SetBMSSearchDirectories(bMSSearchDirectories);
-                            lr2config.Save();
-                        }
-                    });
-                }
-                catch (Exception ex)
-                {
-                    NLogWrapper.FileLogger?.Error(ex, "necessaryStepsAfterSaved failed");
-                    throw;
-                }
-                ApplyCustomFolderNormalOutputBaseSearchRootSyncResult(normalOutputBaseRootSyncResult);
-            }
+
             bool playerSelectionChanged = tempUsePlayeruBMplay != Settings.Default.UsePlayeruBMplay
                 || tempUsePlayerLR2body != Settings.Default.UsePlayerLR2body
                 || tempUsePlayerBMIIDXView != Settings.Default.UsePlayerBMIIDXView;
@@ -5128,33 +5121,21 @@ public class MainWindowViewModel : ViewModel
                 && tempOperationModeLR2DB != Settings.Default.OperationModeLR2DB;
             if (playerSelectionChanged || forceInternalPlayerForStandaloneModeChange)
             {
-                ownerViewModel.PlayEndBMSFile(closeProcess: true);
-                if (!forceInternalPlayerForStandaloneModeChange && Settings.Default.UsePlayeruBMplay)
-                {
-                    ownerViewModel.bmsPlayer = new uBMplay(uBMplayPath);
-                }
-                else if (!forceInternalPlayerForStandaloneModeChange && Settings.Default.UsePlayerLR2body)
-                {
-                    ownerViewModel.bmsPlayer = new LR2body(LR2bodyPath, new LR2Config(Settings.Default.LR2ConfigXmlPath));
-                }
-                else if (!forceInternalPlayerForStandaloneModeChange && Settings.Default.UsePlayerBMIIDXView)
-                {
-                    ownerViewModel.bmsPlayer = new BMIIDXView2015(BMIIDXViewPath);
-                }
-                else
-                {
-                    ownerViewModel.bmsPlayer = new InternalBMSAutoPlayerSoundOnly();
-                }
-                ownerViewModel.RaiseInteractionMessageOnUiThread(new InteractionMessage("InitializationSuccess"));
+                impact |= SettingsPostSaveImpact.PlayerRuntime;
             }
+
             if (Settings.Default.OperationModeLR2DB && Settings.Default.IsLR2BackupEnabled && tempIsLR2BackupEnabled != Settings.Default.IsLR2BackupEnabled)
             {
-                ownerViewModel.RaiseInteractionMessageOnUiThread(new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Msg_LR2ConfigBackupEnabledNextStartup, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxImage.Asterisk, MessageBoxButton.OK, "ConfirmationDialog"));
+                impact |= SettingsPostSaveImpact.Lr2BackupEnabledNotice;
             }
-            if (tempEnablePlaylistUrlCompletion != Settings.Default.EnablePlaylistUrlCompletion || tempOverwritePlaylistUrlsWithCompletion != Settings.Default.OverwritePlaylistUrlsWithCompletion || tempEnableStellaFullPlaylistUrlCompletion != Settings.Default.EnableStellaFullPlaylistUrlCompletion || !string.Equals(tempPlaylistMd5UrlMappingTsvUri, Settings.Default.PlaylistMd5UrlMappingTsvUri, StringComparison.Ordinal))
+            if (tempEnablePlaylistUrlCompletion != Settings.Default.EnablePlaylistUrlCompletion
+                || tempOverwritePlaylistUrlsWithCompletion != Settings.Default.OverwritePlaylistUrlsWithCompletion
+                || tempEnableStellaFullPlaylistUrlCompletion != Settings.Default.EnableStellaFullPlaylistUrlCompletion
+                || !string.Equals(tempPlaylistMd5UrlMappingTsvUri, Settings.Default.PlaylistMd5UrlMappingTsvUri, StringComparison.Ordinal))
             {
-                ownerViewModel.tables.SchedulePlaylistUrlCompletionRefresh("SettingDialog.SaveSettings");
+                impact |= SettingsPostSaveImpact.PlaylistUrlCompletion;
             }
+
             bool lr2CoreSyncInputChanged =
                 tempOperationModeLR2DB != Settings.Default.OperationModeLR2DB
                 || !string.Equals(tempLR2RootPath, Settings.Default.LR2RootPath, StringComparison.OrdinalIgnoreCase);
@@ -5166,13 +5147,14 @@ public class MainWindowViewModel : ViewModel
                 !string.Equals(tempLR2CustomFolderAdditionalOutputBaseDirs, Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs, StringComparison.Ordinal);
             if (Settings.Default.OperationModeLR2DB && lr2CoreSyncInputChanged)
             {
-                ownerViewModel.SyncLr2SongDbSyncFolderDataAfterSettingsChange("SettingDialog.SaveSettings");
+                impact |= SettingsPostSaveImpact.Lr2CoreSync;
             }
             else if (Settings.Default.OperationModeLR2DB
                 && (normalOutputBaseDirChanged || rootOutputBaseDirChanged || additionalOutputBaseDirsChanged))
             {
-                ownerViewModel.SyncExternalLr2FolderRowsAfterCustomFolderOutputBaseSettingsChange("SettingDialog.SaveSettings");
+                impact |= SettingsPostSaveImpact.ExternalLr2FolderRowsSync;
             }
+
             if (tempEnableBeatorajaBmtOutput != Settings.Default.EnableBeatorajaBmtOutput
                 || tempKeepBeatorajaBmtFilesWhenOutputDisabled != Settings.Default.KeepBeatorajaBmtFilesWhenOutputDisabled
                 || tempRegisterBeatorajaBmtUrls != Settings.Default.RegisterBeatorajaBmtUrls
@@ -5180,27 +5162,173 @@ public class MainWindowViewModel : ViewModel
                 || !string.Equals(tempBeatorajaRootPath, Settings.Default.BeatorajaRootPath, StringComparison.OrdinalIgnoreCase)
                 || !string.Equals(tempBeatorajaBmtTablePath, Settings.Default.BeatorajaBmtTablePath, StringComparison.OrdinalIgnoreCase))
             {
-                bool preserveDisabledBmtOutput = !Settings.Default.EnableBeatorajaBmtOutput && Settings.Default.KeepBeatorajaBmtFilesWhenOutputDisabled;
-                if (BeatorajaConfigService.IsBeatorajaRootPathValid(tempBeatorajaRootPath)
-                    && !string.IsNullOrWhiteSpace(tempBeatorajaBmtTablePath)
-                    && !preserveDisabledBmtOutput
-                    && (!string.Equals(tempBeatorajaRootPath, Settings.Default.BeatorajaRootPath, StringComparison.OrdinalIgnoreCase)
-                        || !Settings.Default.EnableBeatorajaBmtOutput
-                        || !Settings.Default.RegisterBeatorajaBmtUrls))
+                impact |= SettingsPostSaveImpact.BeatorajaBmtExport;
+            }
+
+            return impact;
+        }
+
+        private static bool HasPostSaveImpact(SettingsPostSaveImpact impact)
+        {
+            return impact != SettingsPostSaveImpact.None;
+        }
+
+        private async Task necessaryStepsAfterSaved(SettingsPostSaveImpact impact)
+        {
+            var totalStopwatch = Stopwatch.StartNew();
+            long customFolderSearchRootSyncMs = 0L;
+            long playerRuntimeMs = 0L;
+            long lr2BackupNoticeMs = 0L;
+            long playlistUrlCompletionMs = 0L;
+            long lr2GeneratedDataSyncMs = 0L;
+            long beatorajaBmtExportMs = 0L;
+            bool tablesAvailable = ownerViewModel.tables != null;
+            try
+            {
+                if (ownerViewModel.tables == null)
                 {
+                    return;
+                }
+                if (impact.HasFlag(SettingsPostSaveImpact.CustomFolderSearchRootSync) && Settings.Default.OperationModeLR2DB)
+                {
+                    var stepStopwatch = Stopwatch.StartNew();
+                    while (ownerViewModel.BMSTables == null)
+                    {
+                        await Task.Delay(100);
+                    }
+                    CustomFolderOutputBaseSearchRootSyncPlan normalOutputBaseRootSyncPlan = default;
+                    CustomFolderOutputBaseSearchRootSyncResult normalOutputBaseRootSyncResult = default;
                     try
                     {
-                        BeatorajaConfigService.SyncTableUrls(
-                            tempBeatorajaRootPath,
-                            [],
-                            BmtTableExportService.ReadManagedTableUrls(tempBeatorajaBmtTablePath).Select(entry => entry.Url));
+                        await Task.Run(delegate
+                        {
+                            normalOutputBaseRootSyncPlan = PrepareCustomFolderNormalOutputBaseSearchRootSync();
+                            if (!string.IsNullOrWhiteSpace(tempLR2CustomFolderOutputDir) && !string.IsNullOrWhiteSpace(Settings.Default.LR2CustomFolderOutputBaseDir) && tempLR2CustomFolderOutputDir != Settings.Default.LR2CustomFolderOutputBaseDir)
+                            {
+                                ownerViewModel.tables.ChangeCustomFolderBaseDirectory(
+                                    tempLR2CustomFolderOutputDir,
+                                    Settings.Default.LR2CustomFolderOutputBaseDir,
+                                    tempLR2CustomFolderAdditionalOutputBaseDirs,
+                                    Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs);
+                            }
+                            ApplyCustomFolderAdditionalOutputBaseRegistrationChanges();
+                            normalOutputBaseRootSyncResult = CompleteCustomFolderNormalOutputBaseSearchRootSync(normalOutputBaseRootSyncPlan);
+                            if (!string.IsNullOrWhiteSpace(tempLR2CustomFolderAsRootOutputDir) && !string.IsNullOrWhiteSpace(Settings.Default.LR2CustomFolderOutputBaseDirRootType) && tempLR2CustomFolderAsRootOutputDir != Settings.Default.LR2CustomFolderOutputBaseDirRootType)
+                            {
+                                ownerViewModel.tables.ChangeCustomFolderBaseDirectoryRoot(
+                                    tempLR2CustomFolderAsRootOutputDir,
+                                    Settings.Default.LR2CustomFolderOutputBaseDirRootType);
+                                IEnumerable<string> second = from t in ownerViewModel.tables.BMSTables
+                                                             where t.is_root_folder && !string.IsNullOrWhiteSpace(t.Output_dir)
+                                                             select Path.Combine(tempLR2CustomFolderAsRootOutputDir, t.Output_dir);
+                                IEnumerable<string> second2 = from t in ownerViewModel.tables.BMSTables
+                                                              where t.is_root_folder && !string.IsNullOrWhiteSpace(t.Output_dir)
+                                                              select Path.Combine(Settings.Default.LR2CustomFolderOutputBaseDirRootType, t.Output_dir) into d
+                                                              where Directory.Exists(d)
+                                                              select d;
+                                IEnumerable<string> bMSSearchDirectories = lr2config.GetBMSSearchDirectoriesForChangeTracking().Except(second, StringComparer.OrdinalIgnoreCase).Concat(second2)
+                                    .Distinct();
+                                lr2config.SetBMSSearchDirectories(bMSSearchDirectories);
+                                lr2config.Save();
+                            }
+                        });
                     }
                     catch (Exception ex)
                     {
-                        NLogWrapper.FileLogger?.Warn(ex, "beatoraja_old_table_url_cleanup_failed root=" + (tempBeatorajaRootPath ?? string.Empty));
+                        NLogWrapper.FileLogger?.Error(ex, "necessaryStepsAfterSaved failed");
+                        throw;
                     }
+                    ApplyCustomFolderNormalOutputBaseSearchRootSyncResult(normalOutputBaseRootSyncResult);
+                    customFolderSearchRootSyncMs = stepStopwatch.ElapsedMilliseconds;
                 }
-                ownerViewModel.tables.QueueBeatorajaBmtExportAll("SettingDialog.SaveSettings", tempBeatorajaBmtTablePath);
+                var playerRuntimeStopwatch = Stopwatch.StartNew();
+                bool forceInternalPlayerForStandaloneModeChange =
+                    !Settings.Default.OperationModeLR2DB
+                    && tempOperationModeLR2DB != Settings.Default.OperationModeLR2DB;
+                if (impact.HasFlag(SettingsPostSaveImpact.PlayerRuntime))
+                {
+                    ownerViewModel.PlayEndBMSFile(closeProcess: true);
+                    if (!forceInternalPlayerForStandaloneModeChange && Settings.Default.UsePlayeruBMplay)
+                    {
+                        ownerViewModel.bmsPlayer = new uBMplay(uBMplayPath);
+                    }
+                    else if (!forceInternalPlayerForStandaloneModeChange && Settings.Default.UsePlayerLR2body)
+                    {
+                        ownerViewModel.bmsPlayer = new LR2body(LR2bodyPath, new LR2Config(Settings.Default.LR2ConfigXmlPath));
+                    }
+                    else if (!forceInternalPlayerForStandaloneModeChange && Settings.Default.UsePlayerBMIIDXView)
+                    {
+                        ownerViewModel.bmsPlayer = new BMIIDXView2015(BMIIDXViewPath);
+                    }
+                    else
+                    {
+                        ownerViewModel.bmsPlayer = new InternalBMSAutoPlayerSoundOnly();
+                    }
+                    ownerViewModel.RaiseInteractionMessageOnUiThread(new InteractionMessage("InitializationSuccess"));
+                }
+                playerRuntimeMs = playerRuntimeStopwatch.ElapsedMilliseconds;
+                var lr2BackupNoticeStopwatch = Stopwatch.StartNew();
+                if (impact.HasFlag(SettingsPostSaveImpact.Lr2BackupEnabledNotice))
+                {
+                    ownerViewModel.RaiseInteractionMessageOnUiThread(new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Msg_LR2ConfigBackupEnabledNextStartup, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxImage.Asterisk, MessageBoxButton.OK, "ConfirmationDialog"));
+                }
+                lr2BackupNoticeMs = lr2BackupNoticeStopwatch.ElapsedMilliseconds;
+                var playlistUrlCompletionStopwatch = Stopwatch.StartNew();
+                if (impact.HasFlag(SettingsPostSaveImpact.PlaylistUrlCompletion))
+                {
+                    ownerViewModel.tables.SchedulePlaylistUrlCompletionRefresh("SettingDialog.SaveSettings");
+                }
+                playlistUrlCompletionMs = playlistUrlCompletionStopwatch.ElapsedMilliseconds;
+                var lr2GeneratedDataSyncStopwatch = Stopwatch.StartNew();
+                if (impact.HasFlag(SettingsPostSaveImpact.Lr2CoreSync))
+                {
+                    ownerViewModel.SyncLr2SongDbSyncFolderDataAfterSettingsChange("SettingDialog.SaveSettings");
+                }
+                else if (impact.HasFlag(SettingsPostSaveImpact.ExternalLr2FolderRowsSync))
+                {
+                    ownerViewModel.SyncExternalLr2FolderRowsAfterCustomFolderOutputBaseSettingsChange("SettingDialog.SaveSettings");
+                }
+                lr2GeneratedDataSyncMs = lr2GeneratedDataSyncStopwatch.ElapsedMilliseconds;
+                var beatorajaBmtExportStopwatch = Stopwatch.StartNew();
+                if (impact.HasFlag(SettingsPostSaveImpact.BeatorajaBmtExport))
+                {
+                    bool preserveDisabledBmtOutput = !Settings.Default.EnableBeatorajaBmtOutput && Settings.Default.KeepBeatorajaBmtFilesWhenOutputDisabled;
+                    if (BeatorajaConfigService.IsBeatorajaRootPathValid(tempBeatorajaRootPath)
+                        && !string.IsNullOrWhiteSpace(tempBeatorajaBmtTablePath)
+                        && !preserveDisabledBmtOutput
+                        && (!string.Equals(tempBeatorajaRootPath, Settings.Default.BeatorajaRootPath, StringComparison.OrdinalIgnoreCase)
+                            || !Settings.Default.EnableBeatorajaBmtOutput
+                            || !Settings.Default.RegisterBeatorajaBmtUrls))
+                    {
+                        try
+                        {
+                            BeatorajaConfigService.SyncTableUrls(
+                                tempBeatorajaRootPath,
+                                [],
+                                BmtTableExportService.ReadManagedTableUrls(tempBeatorajaBmtTablePath).Select(entry => entry.Url));
+                        }
+                        catch (Exception ex)
+                        {
+                            NLogWrapper.FileLogger?.Warn(ex, "beatoraja_old_table_url_cleanup_failed root=" + (tempBeatorajaRootPath ?? string.Empty));
+                        }
+                    }
+                    ownerViewModel.tables.QueueBeatorajaBmtExportAll("SettingDialog.SaveSettings", tempBeatorajaBmtTablePath);
+                }
+                beatorajaBmtExportMs = beatorajaBmtExportStopwatch.ElapsedMilliseconds;
+            }
+            finally
+            {
+                LogSettingsPerformance(
+                    "settings_post_save",
+                    totalStopwatch,
+                    "impact=" + impact
+                    + " tablesAvailable=" + tablesAvailable.ToString().ToLowerInvariant()
+                    + " customFolderSearchRootSyncMs=" + customFolderSearchRootSyncMs
+                    + " playerRuntimeMs=" + playerRuntimeMs
+                    + " lr2BackupNoticeMs=" + lr2BackupNoticeMs
+                    + " playlistUrlCompletionMs=" + playlistUrlCompletionMs
+                    + " lr2GeneratedDataSyncMs=" + lr2GeneratedDataSyncMs
+                    + " beatorajaBmtExportMs=" + beatorajaBmtExportMs);
             }
         }
 
@@ -5707,6 +5835,10 @@ public class MainWindowViewModel : ViewModel
             bool settingValueChanges = false;
             bool operationModeChanged = false;
             bool validationPassed = false;
+            SettingsPostSaveImpact postSaveImpact = SettingsPostSaveImpact.None;
+            bool postSaveNeeded = false;
+            long postSaveMs = 0L;
+            long backupSnapshotMs = 0L;
             if (!validate || CheckValidationForSave())
             {
                 validationPassed = true;
@@ -5759,6 +5891,23 @@ public class MainWindowViewModel : ViewModel
                     userConfigSaved = true;
                 }
                 customFolderSearchRootSyncNeeded = lr2ConfigBoundaryChanged || customFolderOutputBaseSettingsChanged;
+                postSaveImpact = BuildSettingsPostSaveImpact(customFolderSearchRootSyncNeeded);
+                postSaveNeeded = HasPostSaveImpact(postSaveImpact);
+                LogSettingsPerformance(
+                    "settings_change_classification",
+                    null,
+                    "runPostSaveActions=" + runPostSaveActions.ToString().ToLowerInvariant()
+                    + " settingValueChanges=" + settingValueChanges.ToString().ToLowerInvariant()
+                    + " operationModeChanged=" + operationModeChanged.ToString().ToLowerInvariant()
+                    + " searchRootsChanged=" + searchRootsChanged.ToString().ToLowerInvariant()
+                    + " standaloneSearchRootsChanged=" + standaloneSearchRootsChanged.ToString().ToLowerInvariant()
+                    + " lr2SearchRootsChanged=" + lr2SearchRootsChanged.ToString().ToLowerInvariant()
+                    + " customFolderOutputBaseSettingsChanged=" + customFolderOutputBaseSettingsChanged.ToString().ToLowerInvariant()
+                    + " customFolderAdditionalOutputBaseDirsChanged=" + customFolderAdditionalOutputBaseDirsChanged.ToString().ToLowerInvariant()
+                    + " playHistoryFolderDisplayPresetDraftsChanged=" + playHistoryFolderDisplayPresetDraftsChanged.ToString().ToLowerInvariant()
+                    + " beatorajaDerivedSettingsSourceChanged=" + beatorajaDerivedSettingsSourceChanged.ToString().ToLowerInvariant()
+                    + " lr2ConfigBoundaryChanged=" + lr2ConfigBoundaryChanged.ToString().ToLowerInvariant()
+                    + " postSaveImpact=" + postSaveImpact);
                 bool lr2ConfigNeedsSave = false;
                 if (lr2ConfigBoundaryChanged && operationModeLR2DB && lr2config != null)
                 {
@@ -5773,12 +5922,19 @@ public class MainWindowViewModel : ViewModel
                 }
                 if (runPostSaveActions)
                 {
+                    var postSaveStopwatch = Stopwatch.StartNew();
                     if (searchRootsChanged)
                     {
                         ApplyRuntimeSearchRootsForCurrentMode();
                     }
-                    await necessaryStepsAfterSaved(customFolderSearchRootSyncNeeded);
+                    if (postSaveNeeded)
+                    {
+                        await necessaryStepsAfterSaved(postSaveImpact);
+                    }
+                    postSaveMs = postSaveStopwatch.ElapsedMilliseconds;
+                    var backupSnapshotStopwatch = Stopwatch.StartNew();
                     backupSavedSettings();
+                    backupSnapshotMs = backupSnapshotStopwatch.ElapsedMilliseconds;
                 }
             }
             LogSettingsPerformance(
@@ -5790,6 +5946,10 @@ public class MainWindowViewModel : ViewModel
                 + " operationModeChanged=" + operationModeChanged.ToString().ToLowerInvariant()
                 + " searchRootsChanged=" + searchRootsChanged.ToString().ToLowerInvariant()
                 + " customFolderSearchRootSyncNeeded=" + customFolderSearchRootSyncNeeded.ToString().ToLowerInvariant()
+                + " postSaveImpact=" + postSaveImpact
+                + " postSaveNeeded=" + postSaveNeeded.ToString().ToLowerInvariant()
+                + " postSaveMs=" + postSaveMs
+                + " backupSnapshotMs=" + backupSnapshotMs
                 + " userConfigSaved=" + userConfigSaved.ToString().ToLowerInvariant()
                 + " userConfigSaveMs=" + userConfigSaveMs
                 + " lr2ConfigSaved=" + lr2ConfigSaved.ToString().ToLowerInvariant()
