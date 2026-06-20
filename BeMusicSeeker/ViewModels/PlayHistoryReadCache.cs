@@ -114,7 +114,7 @@ internal sealed class PlayHistoryReadCache
         out bool cacheHit)
     {
         BeatorajaPlayHistoryReadRequest resolved = BeatorajaPlayHistoryReader.ResolveRequestPaths(CopyBeatorajaRequest(request));
-        var key = new BeatorajaCacheKey(resolved.ScoreDbPath, resolved.ScoreDataLogDbPath, resolved.ScoreLogDbPath);
+        var key = new BeatorajaCacheKey(resolved.ScoreDbPath, resolved.ScoreLogDbPath);
         long loadGeneration;
         while (true)
         {
@@ -141,7 +141,6 @@ internal sealed class PlayHistoryReadCache
         var cacheRequest = new BeatorajaPlayHistoryReadRequest
         {
             ScoreDbPath = key.ScoreDbPath,
-            ScoreDataLogDbPath = key.ScoreDataLogDbPath,
             ScoreLogDbPath = key.ScoreLogDbPath,
             FinalizationFilter = Lr2PlayHistoryFinalizationFilter.All,
             DisableLimit = true
@@ -205,16 +204,38 @@ internal sealed class PlayHistoryReadCache
         CancellationToken cancellationToken,
         out bool cacheHit)
     {
+        BeatorajaPlayHistoryReadRequest resolved = BeatorajaPlayHistoryReader.ResolveRequestPaths(new BeatorajaPlayHistoryReadRequest
+        {
+            ScoreDbPath = request?.ScoreDbPath,
+            ScoreLogDbPath = request?.ScoreLogDbPath
+        });
+        var key = new BeatorajaCacheKey(resolved.ScoreDbPath, resolved.ScoreLogDbPath);
+        lock (syncRoot)
+        {
+            if (beatorajaEntry != null && beatorajaEntry.Key.IsSameSource(key))
+            {
+                cacheHit = true;
+                return CreateBeatorajaPeriodIndexResult(beatorajaEntry);
+            }
+        }
+
         var read = ReadBeatoraja(
             new BeatorajaPlayHistoryReadRequest
             {
-                ScoreDbPath = request?.ScoreDbPath,
-                ScoreDataLogDbPath = request?.ScoreDataLogDbPath,
+                ScoreDbPath = resolved.ScoreDbPath,
+                ScoreLogDbPath = resolved.ScoreLogDbPath,
                 FinalizationFilter = Lr2PlayHistoryFinalizationFilter.FinalizedOnly,
                 DisableLimit = true
             },
             cancellationToken,
             out cacheHit);
+        lock (syncRoot)
+        {
+            if (beatorajaEntry != null && beatorajaEntry.Key.IsSameSource(key))
+            {
+                return CreateBeatorajaPeriodIndexResult(beatorajaEntry);
+            }
+        }
         return new BeatorajaPlayHistoryPeriodIndexResult(
             read.SourceProfile,
             BuildPeriodIndex(read.Rows.Select(row => row.played_at)),
@@ -254,10 +275,12 @@ internal sealed class PlayHistoryReadCache
             rows = rows.Take(limit.Value);
         }
         return new BeatorajaPlayHistoryReadResult(
-            source?.SourceProfile ?? PlayHistorySourceProfile.Beatoraja(request?.ScoreDataLogDbPath),
+            source?.SourceProfile ?? PlayHistorySourceProfile.Beatoraja(request?.ScoreLogDbPath),
             [.. rows],
             source?.Diagnostics ?? [],
-            source?.SchemaStatus ?? Lr2PlayHistorySchemaStatus.Unreadable);
+            source?.SchemaStatus ?? Lr2PlayHistorySchemaStatus.Unreadable,
+            source?.PlayerSnapshots ?? [],
+            source?.PlayerSnapshotsAvailable ?? false);
     }
 
     private static bool MatchesFinalization(bool finalized, Lr2PlayHistoryFinalizationFilter filter)
@@ -301,6 +324,15 @@ internal sealed class PlayHistoryReadCache
         return [.. latestByLocalDate.Values.OrderByDescending(playedAt => playedAt)];
     }
 
+    private static BeatorajaPlayHistoryPeriodIndexResult CreateBeatorajaPeriodIndexResult(BeatorajaCacheEntry entry)
+    {
+        return new BeatorajaPlayHistoryPeriodIndexResult(
+            entry?.Result?.SourceProfile ?? PlayHistorySourceProfile.Beatoraja(string.Empty),
+            entry?.PeriodIndex ?? [],
+            entry?.Result?.Diagnostics ?? [],
+            entry?.Result?.SchemaStatus ?? Lr2PlayHistorySchemaStatus.Unreadable);
+    }
+
     private static bool ShouldCache(Lr2PlayHistorySchemaStatus status)
     {
         return status != Lr2PlayHistorySchemaStatus.Unreadable;
@@ -312,7 +344,6 @@ internal sealed class PlayHistoryReadCache
         return new BeatorajaPlayHistoryReadRequest
         {
             ScoreDbPath = request.ScoreDbPath,
-            ScoreDataLogDbPath = request.ScoreDataLogDbPath,
             ScoreLogDbPath = request.ScoreLogDbPath,
             PlayedAtFromInclusive = request.PlayedAtFromInclusive,
             PlayedAtToExclusive = request.PlayedAtToExclusive,
@@ -359,17 +390,13 @@ internal sealed class PlayHistoryReadCache
     {
         internal BeatorajaCacheKey(
             string scoreDbPath,
-            string scoreDataLogDbPath,
             string scoreLogDbPath)
         {
             ScoreDbPath = scoreDbPath ?? string.Empty;
-            ScoreDataLogDbPath = scoreDataLogDbPath ?? string.Empty;
             ScoreLogDbPath = scoreLogDbPath ?? string.Empty;
         }
 
         internal string ScoreDbPath { get; }
-
-        internal string ScoreDataLogDbPath { get; }
 
         internal string ScoreLogDbPath { get; }
 
@@ -377,7 +404,6 @@ internal sealed class PlayHistoryReadCache
         {
             return other != null
                 && string.Equals(ScoreDbPath, other.ScoreDbPath, StringComparison.OrdinalIgnoreCase)
-                && string.Equals(ScoreDataLogDbPath, other.ScoreDataLogDbPath, StringComparison.OrdinalIgnoreCase)
                 && string.Equals(ScoreLogDbPath, other.ScoreLogDbPath, StringComparison.OrdinalIgnoreCase);
         }
     }
@@ -388,10 +414,13 @@ internal sealed class PlayHistoryReadCache
         {
             Key = key;
             Result = result;
+            PeriodIndex = BuildPeriodIndex(result?.Rows?.Select(row => row.played_at));
         }
 
         internal BeatorajaCacheKey Key { get; }
 
         internal BeatorajaPlayHistoryReadResult Result { get; }
+
+        internal IReadOnlyList<long> PeriodIndex { get; }
     }
 }

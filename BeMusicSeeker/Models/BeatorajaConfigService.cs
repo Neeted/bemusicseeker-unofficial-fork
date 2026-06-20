@@ -51,11 +51,6 @@ internal static class BeatorajaConfigService
         return GetPlayerDbPath(rootPath, playerId, "score.db");
     }
 
-    internal static string GetScoreDataLogDbPath(string rootPath, string playerId)
-    {
-        return GetPlayerDbPath(rootPath, playerId, "scoredatalog.db");
-    }
-
     internal static string GetScoreLogDbPath(string rootPath, string playerId)
     {
         return GetPlayerDbPath(rootPath, playerId, "scorelog.db");

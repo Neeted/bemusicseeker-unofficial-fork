@@ -595,22 +595,24 @@ public sealed class PlayHistoryReadModelTests
     [TestMethod]
     public void PlayHistoryReadCache_BeatorajaLoadsAllRowsOnceAndFiltersFromMemory()
     {
-        WithBeatorajaPlayerDb(delegate (string scoreDbPath, string scoreDataLogDbPath, string scoreLogDbPath)
+        WithBeatorajaPlayerDb(delegate (string scoreDbPath, string scoreLogDbPath)
         {
-            CreateBeatorajaScoreDataLogDb(scoreDataLogDbPath);
             CreateBeatorajaScoreLogDb(scoreLogDbPath);
+            CreateBeatorajaPlayerDb(scoreDbPath);
             long day1 = UtcEpoch(2026, 1, 1);
             long day2 = UtcEpoch(2026, 1, 2);
             long day3 = UtcEpoch(2026, 1, 3);
-            using (var db = new SQLiteConnection(scoreDataLogDbPath))
-            {
-                InsertBeatorajaScoreDataLog(db, ShaA, mode: 0, date: day1, clear: 5, epg: 10, lpg: 0, egr: 5, lgr: 0, notes: 20, combo: 12, minbp: 3, playcount: 2, clearcount: 1);
-                InsertBeatorajaScoreDataLog(db, ShaA, mode: 0, date: day2, clear: 6, epg: 20, lpg: 0, egr: 10, lgr: 0, notes: 40, combo: 24, minbp: 2, playcount: 3, clearcount: 2);
-                InsertBeatorajaScoreDataLog(db, ShaA, mode: 10000, date: day3, clear: 9, epg: 1, lpg: 0, egr: 0, lgr: 0, notes: 1, combo: 1, minbp: 0, playcount: 1, clearcount: 1);
-            }
             using (var db = new SQLiteConnection(scoreLogDbPath))
             {
+                InsertBeatorajaScoreLog(db, ShaA, mode: 0, date: day1, oldClear: 4, clear: 5, oldScore: 80, score: 120, oldCombo: 10, combo: 12, oldMinBp: 4, minBp: 3);
                 InsertBeatorajaScoreLog(db, ShaA, mode: 0, date: day2, oldClear: 5, clear: 6, oldScore: 100, score: 180, oldCombo: 12, combo: 24, oldMinBp: 3, minBp: 2);
+                InsertBeatorajaScoreLog(db, ShaA, mode: 10000, date: day3, oldClear: 5, clear: 9, oldScore: 10, score: 99, oldCombo: 1, combo: 2, oldMinBp: 1, minBp: 0);
+            }
+            using (var db = new SQLiteConnection(scoreDbPath))
+            {
+                InsertBeatorajaPlayerAggregate(db, day1 - 1, playCount: 1, judgeCount: 100, playtime: 100);
+                InsertBeatorajaPlayerAggregate(db, day2 - 1, playCount: 2, judgeCount: 160, playtime: 160);
+                InsertBeatorajaPlayerAggregate(db, day3 - 1, playCount: 3, judgeCount: 210, playtime: 210);
             }
 
             var cache = new PlayHistoryReadCache();
@@ -627,15 +629,15 @@ public sealed class PlayHistoryReadModelTests
             Assert.IsFalse(firstCacheHit);
             Assert.AreEqual(Lr2PlayHistorySchemaStatus.Installed, first.SchemaStatus);
             CollectionAssert.AreEqual(new[] { day1 }, first.Rows.Select(row => row.played_at).ToArray());
+            Assert.IsTrue(first.PlayerSnapshotsAvailable);
+            Assert.AreEqual(3, first.PlayerSnapshots.Count);
 
-            File.Delete(scoreDataLogDbPath);
             File.Delete(scoreLogDbPath);
 
             BeatorajaPlayHistoryReadResult second = cache.ReadBeatoraja(
                 new BeatorajaPlayHistoryReadRequest
                 {
                     ScoreDbPath = scoreDbPath,
-                    ScoreDataLogDbPath = scoreDataLogDbPath,
                     ScoreLogDbPath = scoreLogDbPath,
                     PlayedAtFromInclusive = day2 - 100,
                     PlayedAtToExclusive = day2 + 100
@@ -648,6 +650,8 @@ public sealed class PlayHistoryReadModelTests
             Assert.AreEqual(day2, second.Rows[0].played_at);
             Assert.AreEqual(100, second.Rows[0].old_exscore);
             Assert.AreEqual(180, second.Rows[0].new_exscore);
+            Assert.IsTrue(second.PlayerSnapshotsAvailable);
+            Assert.AreEqual(3, second.PlayerSnapshots.Count);
 
             BeatorajaPlayHistoryReadResult unfinalized = cache.ReadBeatoraja(
                 new BeatorajaPlayHistoryReadRequest
@@ -673,14 +677,15 @@ public sealed class PlayHistoryReadModelTests
             BeatorajaPlayHistoryReadResult afterInvalidate = cache.ReadBeatoraja(
                 new BeatorajaPlayHistoryReadRequest
                 {
-                    ScoreDbPath = scoreDbPath,
-                    ScoreDataLogDbPath = scoreDataLogDbPath
+                    ScoreDbPath = scoreDbPath
                 },
                 CancellationToken.None,
                 out bool afterInvalidateCacheHit);
 
             Assert.IsFalse(afterInvalidateCacheHit);
-            Assert.AreEqual(Lr2PlayHistorySchemaStatus.NotInstalled, afterInvalidate.SchemaStatus);
+            Assert.AreEqual(Lr2PlayHistorySchemaStatus.Installed, afterInvalidate.SchemaStatus);
+            Assert.AreEqual(0, afterInvalidate.Rows.Count);
+            Assert.AreEqual("play_history_beatoraja_scorelog_missing", afterInvalidate.Diagnostics.Single().Code);
         });
     }
 
@@ -1015,11 +1020,11 @@ public sealed class PlayHistoryReadModelTests
 
         Assert.AreEqual("today", summary.Label);
         Assert.AreEqual(2, summary.RowCount);
-        Assert.AreEqual(1, summary.FinalizedCount);
-        Assert.AreEqual(1, summary.UnfinalizedCount);
+        Assert.AreEqual(1L, summary.FinalizedCount);
+        Assert.AreEqual(1L, summary.UnfinalizedCount);
         Assert.AreEqual(1, summary.SummaryEligibleCount);
-        Assert.AreEqual(60, summary.PlaytimeSeconds);
-        Assert.AreEqual(80, summary.JudgeCount);
+        Assert.AreEqual(60L, summary.PlaytimeSeconds);
+        Assert.AreEqual(80L, summary.JudgeCount);
         Assert.AreEqual(1, summary.ScoreUpdateCount);
         Assert.AreEqual(1, summary.NewClearCount);
     }
@@ -1138,6 +1143,27 @@ public sealed class PlayHistoryReadModelTests
     }
 
     [TestMethod]
+    public void SummaryCardsShowDashWhenSnapshotValuesAreUnavailable()
+    {
+        PlayHistoryPeriodSummary summary = PlayHistoryPeriodSummary.FromRows(
+            "summary",
+            [],
+            new PlayHistoryPeriodSummaryOverride(null, null, null));
+
+        IReadOnlyList<PlayHistorySummaryCard> cards = MainWindowViewModel.CreatePlayHistorySummaryCardsForTest(summary, PlayHistoryProvider.Beatoraja);
+
+        Assert.IsFalse(summary.PlayCountAvailable);
+        Assert.IsFalse(summary.JudgeCountAvailable);
+        Assert.IsFalse(summary.PlaytimeAvailable);
+        Assert.AreEqual(Resources.Play_history_summary_judge_count, cards[0].Label);
+        Assert.AreEqual("-", cards[0].Value);
+        Assert.AreEqual(Resources.Play_history_summary_play_count, cards[1].Label);
+        Assert.AreEqual("-", cards[1].Value);
+        Assert.AreEqual(Resources.Play_history_summary_playtime, cards[2].Label);
+        Assert.AreEqual("-", cards[2].Value);
+    }
+
+    [TestMethod]
     public void RowProjectionFormatsTransitionsAndOptionHistory()
     {
         PlayHistoryProjectionResult projected = PlayHistoryRow.ProjectLr2Rows(
@@ -1206,10 +1232,10 @@ public sealed class PlayHistoryReadModelTests
         PlayHistoryPeriodSummary summary = PlayHistoryPeriodSummary.FromRows("diagnostic", projected.Rows);
 
         Assert.AreEqual(1, summary.RowCount);
-        Assert.AreEqual(1, summary.FinalizedCount);
+        Assert.AreEqual(1L, summary.FinalizedCount);
         Assert.AreEqual(0, summary.SummaryEligibleCount);
-        Assert.AreEqual(0, summary.PlaytimeSeconds);
-        Assert.AreEqual(0, summary.JudgeCount);
+        Assert.AreEqual(0L, summary.PlaytimeSeconds);
+        Assert.AreEqual(0L, summary.JudgeCount);
         Assert.AreEqual(0, summary.ScoreUpdateCount);
     }
 
@@ -1274,20 +1300,21 @@ public sealed class PlayHistoryReadModelTests
     }
 
     [TestMethod]
-    public void BeatorajaReader_ReadsScoreDataLogAndScoreLogBestDelta()
+    public void BeatorajaReader_ReadsScoreLogUpdateHistory()
     {
-        WithBeatorajaPlayerDb(delegate (string scoreDbPath, string scoreDataLogDbPath, string scoreLogDbPath)
+        WithBeatorajaPlayerDb(delegate (string scoreDbPath, string scoreLogDbPath)
         {
-            CreateBeatorajaScoreDataLogDb(scoreDataLogDbPath);
             CreateBeatorajaScoreLogDb(scoreLogDbPath);
-            using (var db = new SQLiteConnection(scoreDataLogDbPath))
-            {
-                InsertBeatorajaScoreDataLog(db, ShaA, mode: 0, date: 1000, clear: 5, epg: 50, lpg: 5, egr: 20, lgr: 3, egd: 4, lgd: 1, ebd: 2, lbd: 1, epr: 3, lpr: 1, ems: 2, lms: 1, notes: 100, combo: 80, minbp: 10, playcount: 7, clearcount: 3, option: 12, seed: 345, random: 6);
-                InsertBeatorajaScoreDataLog(db, new string('b', 64), mode: 10000, date: 1050, clear: 9, epg: 1, lpg: 0, egr: 0, lgr: 0, notes: 1, combo: 1, minbp: 0, playcount: 1, clearcount: 1, option: 0, seed: -1, random: 0);
-            }
+            CreateBeatorajaPlayerDb(scoreDbPath);
             using (var db = new SQLiteConnection(scoreLogDbPath))
             {
                 InsertBeatorajaScoreLog(db, ShaA, mode: 0, date: 1000, oldClear: 4, clear: 5, oldScore: 100, score: 133, oldCombo: 70, combo: 80, oldMinBp: 20, minBp: 10);
+                InsertBeatorajaScoreLog(db, new string('b', 64), mode: 10000, date: 1050, oldClear: 4, clear: 9, oldScore: 1, score: 99, oldCombo: 1, combo: 10, oldMinBp: 2, minBp: 0);
+            }
+            using (var db = new SQLiteConnection(scoreDbPath))
+            {
+                InsertBeatorajaPlayerAggregate(db, 900, playCount: 6, judgeCount: 800, playtime: 300);
+                InsertBeatorajaPlayerAggregate(db, 1099, playCount: 7, judgeCount: 893, playtime: 390);
             }
 
             BeatorajaPlayHistoryReadResult read = new BeatorajaPlayHistoryReader().Read(new BeatorajaPlayHistoryReadRequest
@@ -1302,6 +1329,8 @@ public sealed class PlayHistoryReadModelTests
 
             Assert.AreEqual(Lr2PlayHistorySchemaStatus.Installed, read.SchemaStatus);
             Assert.IsFalse(read.HasErrors);
+            Assert.IsTrue(read.PlayerSnapshotsAvailable);
+            Assert.AreEqual(2, read.PlayerSnapshots.Count);
             Assert.AreEqual(PlayHistoryProvider.Beatoraja, row.Provider);
             Assert.AreEqual("Resolved Title", row.Title);
             Assert.AreEqual("Resolved Artist", row.Artist);
@@ -1311,22 +1340,22 @@ public sealed class PlayHistoryReadModelTests
             Assert.AreEqual(ShaA, row.RawHash);
             Assert.AreEqual(ShaA, row.Sha256);
             Assert.AreEqual(1000L, row.PlayedAtUnix);
-            Assert.AreEqual(133, row.PlayExscore);
-            Assert.AreEqual("PG 55 / GR 23 / GD 5 / BD 3 / PR 7", row.Judges);
+            Assert.IsNull(row.PlayExscore);
+            Assert.AreEqual(string.Empty, row.Judges);
             Assert.AreEqual("100 -> 133", row.BestExscore);
             Assert.AreEqual("20 -> 10", row.BestBp);
             Assert.AreEqual("70 -> 80", row.BestCombo);
             Assert.AreEqual("EASY -> NORMAL", row.BestClear);
-            Assert.AreEqual("1P RANDOM / 2P MIRROR", row.Option);
+            Assert.AreEqual(string.Empty, row.Option);
             Assert.AreEqual("score bp clear combo", row.Kind);
-            Assert.AreEqual("50.00% -> 66.50%", row.BestRateText);
+            Assert.AreEqual(string.Empty, row.BestRateText);
             Assert.IsNull(row.PlaytimeSeconds);
             Assert.AreEqual(1, summary.RowCount);
             Assert.AreEqual(1, summary.SummaryEligibleCount);
             Assert.AreEqual(1, summary.ScoreUpdateCount);
             Assert.AreEqual(1, summary.ClearUpdateCount);
-            Assert.AreEqual(0, summary.PlaytimeSeconds);
-            Assert.AreEqual(93, summary.JudgeCount);
+            Assert.AreEqual(0L, summary.PlaytimeSeconds);
+            Assert.AreEqual(0L, summary.JudgeCount);
             Assert.IsTrue(GridKeywordSearchQuery.Parse("title:resolved artist:artist folder:SAT playlist:Satellite md5:" + HashA.Substring(0, 8) + " hash:" + ShaA.Substring(0, 12) + " sha256:" + ShaA.Substring(0, 12) + " source:beatoraja kind:score clear:CLEAR").MatchesPlayHistoryRow(row));
             BMSTable targetTable = CreateTargetTable(HashA, "FolderA");
             PlayHistoryDisplayTargetIndex targetIndex = PlayHistoryDisplayTargetIndex.Create(
@@ -1339,40 +1368,339 @@ public sealed class PlayHistoryReadModelTests
     }
 
     [TestMethod]
-    public void BeatorajaReader_MissingScoreLogKeepsBestDeltaEmpty()
+    public void BeatorajaPeriodSummaryUsesPlayerAggregateRangeForScreenPeriod()
     {
-        WithBeatorajaPlayerDb(delegate (string scoreDbPath, string scoreDataLogDbPath, string scoreLogDbPath)
+        WithBeatorajaPlayerDb(delegate (string scoreDbPath, string scoreLogDbPath)
         {
-            CreateBeatorajaScoreDataLogDb(scoreDataLogDbPath);
-            using (var db = new SQLiteConnection(scoreDataLogDbPath))
+            CreateBeatorajaScoreLogDb(scoreLogDbPath);
+            CreateBeatorajaPlayerDb(scoreDbPath);
+            long day1 = UtcEpoch(2026, 1, 1);
+            long day2 = UtcEpoch(2026, 1, 2);
+            long day3 = UtcEpoch(2026, 1, 3);
+            using (var db = new SQLiteConnection(scoreLogDbPath))
             {
-                InsertBeatorajaScoreDataLog(db, ShaA, mode: 0, date: 1000, clear: 5, epg: 10, lpg: 0, egr: 5, lgr: 0, notes: 20, combo: 12, minbp: 3, playcount: 2, clearcount: 1, option: 0, seed: -1, random: 0);
+                InsertBeatorajaScoreLog(db, ShaA, mode: 0, date: day2 + 3600, oldClear: 4, clear: 5, oldScore: 10, score: 25, oldCombo: 8, combo: 12, oldMinBp: 5, minBp: 3);
+            }
+            using (var db = new SQLiteConnection(scoreDbPath))
+            {
+                InsertBeatorajaPlayerAggregate(db, day1, playCount: 10, judgeCount: 1000, playtime: 100);
+                InsertBeatorajaPlayerAggregate(db, day2, playCount: 12, judgeCount: 1160, playtime: 160);
+                InsertBeatorajaPlayerAggregate(db, day3, playCount: 13, judgeCount: 1220, playtime: 220);
             }
 
             BeatorajaPlayHistoryReadResult read = new BeatorajaPlayHistoryReader().Read(new BeatorajaPlayHistoryReadRequest
             {
                 ScoreDbPath = scoreDbPath
             });
-            PlayHistoryRow row = PlayHistoryRow.ProjectBeatorajaRows(read, PlayHistoryProjectionIndex.Empty).Rows.Single();
+            PlayHistoryPeriodRequest day2Request = PlayHistoryPeriodRequest.CreateDay(2026, 1, 2, TimeZoneInfo.Utc);
+            PlayHistoryPeriodSummaryOverride day2SummaryOverride = MainWindowViewModel.ResolveBeatorajaPeriodSummaryOverrideForTest(day2Request, read);
+            PlayHistoryPeriodSummaryOverride allSummaryOverride = MainWindowViewModel.ResolveBeatorajaPeriodSummaryOverrideForTest(
+                PlayHistoryPeriodRequest.Create(PlayHistoryPeriodKind.All, new DateTimeOffset(2026, 1, 3, 12, 0, 0, TimeSpan.Zero), TimeZoneInfo.Utc),
+                read);
+            PlayHistoryProjectionResult projected = PlayHistoryRow.ProjectBeatorajaRows(read, PlayHistoryProjectionIndex.Empty);
+            PlayHistoryPeriodSummary summary = PlayHistoryPeriodSummary.FromRows(
+                "beatoraja",
+                [],
+                day2SummaryOverride);
+
+            Assert.IsTrue(read.PlayerSnapshotsAvailable);
+            Assert.AreEqual(3, read.PlayerSnapshots.Count);
+            Assert.AreEqual(2L, day2SummaryOverride.PlayCount);
+            Assert.AreEqual(160L, day2SummaryOverride.JudgeCount);
+            Assert.AreEqual(60L, day2SummaryOverride.PlaytimeSeconds);
+            Assert.AreEqual(13L, allSummaryOverride.PlayCount);
+            Assert.AreEqual(1220L, allSummaryOverride.JudgeCount);
+            Assert.AreEqual(220L, allSummaryOverride.PlaytimeSeconds);
+            Assert.IsNull(projected.Rows.Single().PlaytimeSeconds);
+            Assert.AreEqual(0, summary.RowCount);
+            Assert.AreEqual(2L, summary.FinalizedCount);
+            Assert.AreEqual(160L, summary.JudgeCount);
+            Assert.AreEqual(60L, summary.PlaytimeSeconds);
+            Assert.IsTrue(summary.PlayCountAvailable);
+            Assert.IsTrue(summary.JudgeCountAvailable);
+            Assert.IsTrue(summary.PlaytimeAvailable);
+        });
+    }
+
+    [TestMethod]
+    public void BeatorajaPeriodSummaryIsUnavailableForDiagnosticsOrUnreadablePlayerTable()
+    {
+        WithBeatorajaPlayerDb(delegate (string scoreDbPath, string scoreLogDbPath)
+        {
+            CreateBeatorajaScoreLogDb(scoreLogDbPath);
+            using (var db = new SQLiteConnection(scoreLogDbPath))
+            {
+                InsertBeatorajaScoreLog(db, ShaA, mode: 0, date: UtcEpoch(2026, 1, 2), oldClear: 4, clear: 5, oldScore: 10, score: 25, oldCombo: 8, combo: 12, oldMinBp: 5, minBp: 3);
+            }
+            using (var db = new SQLiteConnection(scoreDbPath))
+            {
+                db.Execute("CREATE TABLE unrelated_to_player (id INTEGER);");
+            }
+
+            BeatorajaPlayHistoryReadResult read = new BeatorajaPlayHistoryReader().Read(new BeatorajaPlayHistoryReadRequest
+            {
+                ScoreDbPath = scoreDbPath
+            });
+            PlayHistoryPeriodSummaryOverride daySummaryOverride = MainWindowViewModel.ResolveBeatorajaPeriodSummaryOverrideForTest(
+                PlayHistoryPeriodRequest.CreateDay(2026, 1, 2, TimeZoneInfo.Utc),
+                read);
+            PlayHistoryPeriodSummaryOverride diagnosticSummaryOverride = MainWindowViewModel.ResolveBeatorajaPeriodSummaryOverrideForTest(
+                PlayHistoryPeriodRequest.Create(PlayHistoryPeriodKind.Diagnostics, new DateTimeOffset(2026, 1, 3, 12, 0, 0, TimeSpan.Zero), TimeZoneInfo.Utc),
+                new BeatorajaPlayHistoryReadResult(
+                    PlayHistorySourceProfile.Beatoraja(scoreDbPath),
+                    [],
+                    [],
+                    Lr2PlayHistorySchemaStatus.Installed,
+                    [new BeatorajaPlayerAggregateSnapshot { DateUnixSeconds = UtcEpoch(2026, 1, 2), PlayCount = 1, JudgeCount = 100, PlaytimeSeconds = 100 }],
+                    playerSnapshotsAvailable: true));
+
+            Assert.IsFalse(read.HasErrors);
+            Assert.IsFalse(read.PlayerSnapshotsAvailable);
+            Assert.AreEqual("play_history_beatoraja_player_aggregate_unreadable", read.Diagnostics.Single().Code);
+            Assert.IsNull(daySummaryOverride.PlayCount);
+            Assert.IsNull(daySummaryOverride.JudgeCount);
+            Assert.IsNull(daySummaryOverride.PlaytimeSeconds);
+            Assert.IsNull(diagnosticSummaryOverride.PlayCount);
+            Assert.IsNull(diagnosticSummaryOverride.JudgeCount);
+            Assert.IsNull(diagnosticSummaryOverride.PlaytimeSeconds);
+        });
+    }
+
+    [TestMethod]
+    public void BeatorajaPeriodSummaryIsUnavailableWhenPlayerAggregateDecreases()
+    {
+        long day1 = UtcEpoch(2026, 1, 1);
+        long day2 = UtcEpoch(2026, 1, 2);
+        AssertBeatorajaAggregateDecreaseIsUnavailable(day1, day2, playCount2: 9, judgeCount2: 1160, playtime2: 160);
+        AssertBeatorajaAggregateDecreaseIsUnavailable(day1, day2, playCount2: 11, judgeCount2: 900, playtime2: 160);
+        AssertBeatorajaAggregateDecreaseIsUnavailable(day1, day2, playCount2: 11, judgeCount2: 1160, playtime2: 90);
+        AssertBeatorajaAggregateDecreaseIsUnavailable(
+            day1,
+            day2,
+            playCount1: int.MaxValue + 1000L,
+            judgeCount1: int.MaxValue + 1000L,
+            playtime1: int.MaxValue + 1000L,
+            playCount2: int.MaxValue + 500L,
+            judgeCount2: int.MaxValue + 1500L,
+            playtime2: int.MaxValue + 1500L);
+        AssertBeatorajaAggregateDecreaseIsUnavailable(
+            day1,
+            day2,
+            playCount1: -1,
+            judgeCount1: 1000,
+            playtime1: 100,
+            playCount2: 11,
+            judgeCount2: 1160,
+            playtime2: 160);
+    }
+
+    [TestMethod]
+    public void BeatorajaPeriodSummaryPreservesLargePlayerAggregateValues()
+    {
+        long day1 = UtcEpoch(2026, 1, 1);
+        long day2 = UtcEpoch(2026, 1, 2);
+        long baseValue = int.MaxValue + 1000L;
+        long deltaValue = 500L;
+        var read = new BeatorajaPlayHistoryReadResult(
+            PlayHistorySourceProfile.Beatoraja("scorelog.db"),
+            [],
+            [],
+            Lr2PlayHistorySchemaStatus.Installed,
+            [
+                new BeatorajaPlayerAggregateSnapshot { DateUnixSeconds = day1, PlayCount = baseValue, JudgeCount = baseValue + 100, PlaytimeSeconds = baseValue + 200 },
+                new BeatorajaPlayerAggregateSnapshot { DateUnixSeconds = day2, PlayCount = baseValue + deltaValue, JudgeCount = baseValue + 100 + deltaValue, PlaytimeSeconds = baseValue + 200 + deltaValue }
+            ],
+            playerSnapshotsAvailable: true);
+
+        PlayHistoryPeriodSummaryOverride daySummary = MainWindowViewModel.ResolveBeatorajaPeriodSummaryOverrideForTest(
+            PlayHistoryPeriodRequest.CreateDay(2026, 1, 2, TimeZoneInfo.Utc),
+            read);
+        PlayHistoryPeriodSummaryOverride allSummary = MainWindowViewModel.ResolveBeatorajaPeriodSummaryOverrideForTest(
+            PlayHistoryPeriodRequest.All(),
+            read);
+
+        Assert.AreEqual(deltaValue, daySummary.PlayCount);
+        Assert.AreEqual(deltaValue, daySummary.JudgeCount);
+        Assert.AreEqual(deltaValue, daySummary.PlaytimeSeconds);
+        Assert.AreEqual(baseValue + deltaValue, allSummary.PlayCount);
+        Assert.AreEqual(baseValue + 100 + deltaValue, allSummary.JudgeCount);
+        Assert.AreEqual(baseValue + 200 + deltaValue, allSummary.PlaytimeSeconds);
+    }
+
+    [TestMethod]
+    public void BeatorajaPeriodSummaryIsUnavailableWhenAnyRawJudgeAggregateIsNegative()
+    {
+        long day1 = UtcEpoch(2026, 1, 1);
+        long day2 = UtcEpoch(2026, 1, 2);
+        var read = new BeatorajaPlayHistoryReadResult(
+            PlayHistorySourceProfile.Beatoraja("scorelog.db"),
+            [],
+            [],
+            Lr2PlayHistorySchemaStatus.Installed,
+            [
+                new BeatorajaPlayerAggregateSnapshot { DateUnixSeconds = day1, PlayCount = 10, JudgeCount = 1000, PlaytimeSeconds = 100 },
+                new BeatorajaPlayerAggregateSnapshot { DateUnixSeconds = day2, PlayCount = 11, JudgeCount = 1160, PlaytimeSeconds = 160, HasInvalidRawValue = true }
+            ],
+            playerSnapshotsAvailable: true);
+
+        PlayHistoryPeriodSummaryOverride summaryOverride = MainWindowViewModel.ResolveBeatorajaPeriodSummaryOverrideForTest(
+            PlayHistoryPeriodRequest.CreateDay(2026, 1, 2, TimeZoneInfo.Utc),
+            read);
+
+        Assert.IsNull(summaryOverride.PlayCount);
+        Assert.IsNull(summaryOverride.JudgeCount);
+        Assert.IsNull(summaryOverride.PlaytimeSeconds);
+    }
+
+    [TestMethod]
+    public void BeatorajaPeriodSummaryIsUnavailableWhenIntermediatePlayerAggregateIsInvalid()
+    {
+        long day1 = UtcEpoch(2026, 1, 1);
+        long day2 = UtcEpoch(2026, 1, 2);
+        long day3 = UtcEpoch(2026, 1, 3);
+        var read = new BeatorajaPlayHistoryReadResult(
+            PlayHistorySourceProfile.Beatoraja("scorelog.db"),
+            [],
+            [],
+            Lr2PlayHistorySchemaStatus.Installed,
+            [
+                new BeatorajaPlayerAggregateSnapshot { DateUnixSeconds = day1, PlayCount = 10, JudgeCount = 1000, PlaytimeSeconds = 100 },
+                new BeatorajaPlayerAggregateSnapshot { DateUnixSeconds = day2, PlayCount = 11, JudgeCount = 1160, PlaytimeSeconds = 160, HasInvalidRawValue = true },
+                new BeatorajaPlayerAggregateSnapshot { DateUnixSeconds = day3, PlayCount = 12, JudgeCount = 1220, PlaytimeSeconds = 220 }
+            ],
+            playerSnapshotsAvailable: true);
+
+        PlayHistoryPeriodSummaryOverride summaryOverride = MainWindowViewModel.ResolveBeatorajaPeriodSummaryOverrideForTest(
+            PlayHistoryPeriodRequest.All(),
+            read);
+
+        Assert.IsNull(summaryOverride.PlayCount);
+        Assert.IsNull(summaryOverride.JudgeCount);
+        Assert.IsNull(summaryOverride.PlaytimeSeconds);
+    }
+
+    [TestMethod]
+    public void BeatorajaPeriodSummaryIsUnavailableWhenIntermediatePlayerAggregateDecreases()
+    {
+        long day1 = UtcEpoch(2026, 1, 1);
+        long day2 = UtcEpoch(2026, 1, 2);
+        long day3 = UtcEpoch(2026, 1, 3);
+        var read = new BeatorajaPlayHistoryReadResult(
+            PlayHistorySourceProfile.Beatoraja("scorelog.db"),
+            [],
+            [],
+            Lr2PlayHistorySchemaStatus.Installed,
+            [
+                new BeatorajaPlayerAggregateSnapshot { DateUnixSeconds = day1, PlayCount = 10, JudgeCount = 1000, PlaytimeSeconds = 100 },
+                new BeatorajaPlayerAggregateSnapshot { DateUnixSeconds = day2, PlayCount = 9, JudgeCount = 900, PlaytimeSeconds = 90 },
+                new BeatorajaPlayerAggregateSnapshot { DateUnixSeconds = day3, PlayCount = 12, JudgeCount = 1220, PlaytimeSeconds = 220 }
+            ],
+            playerSnapshotsAvailable: true);
+
+        PlayHistoryPeriodSummaryOverride summaryOverride = MainWindowViewModel.ResolveBeatorajaPeriodSummaryOverrideForTest(
+            PlayHistoryPeriodRequest.All(),
+            read);
+
+        Assert.IsNull(summaryOverride.PlayCount);
+        Assert.IsNull(summaryOverride.JudgeCount);
+        Assert.IsNull(summaryOverride.PlaytimeSeconds);
+    }
+
+    [TestMethod]
+    public void BeatorajaReaderMarksNegativeRawJudgeAggregateAsInvalid()
+    {
+        WithBeatorajaPlayerDb(delegate (string scoreDbPath, string scoreLogDbPath)
+        {
+            CreateBeatorajaScoreLogDb(scoreLogDbPath);
+            CreateBeatorajaPlayerDb(scoreDbPath);
+            long day1 = UtcEpoch(2026, 1, 1);
+            long day2 = UtcEpoch(2026, 1, 2);
+            using (var db = new SQLiteConnection(scoreLogDbPath))
+            {
+                InsertBeatorajaScoreLog(db, ShaA, mode: 0, date: day2 + 3600, oldClear: 4, clear: 5, oldScore: 10, score: 25, oldCombo: 8, combo: 12, oldMinBp: 5, minBp: 3);
+            }
+            using (var db = new SQLiteConnection(scoreDbPath))
+            {
+                InsertBeatorajaPlayerAggregate(db, day1, playCount: 10, judgeCount: 1000, playtime: 100);
+                db.Execute(
+                    "INSERT OR REPLACE INTO player (date, playcount, epg, lpg, egr, lgr, egd, lgd, ebd, lbd, epr, lpr, ems, lms, playtime) VALUES (?, ?, ?, ?, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ?);",
+                    day2,
+                    11,
+                    -1,
+                    200,
+                    160);
+            }
+
+            BeatorajaPlayHistoryReadResult read = new BeatorajaPlayHistoryReader().Read(new BeatorajaPlayHistoryReadRequest
+            {
+                ScoreDbPath = scoreDbPath
+            });
+            PlayHistoryPeriodSummaryOverride summaryOverride = MainWindowViewModel.ResolveBeatorajaPeriodSummaryOverrideForTest(
+                PlayHistoryPeriodRequest.CreateDay(2026, 1, 2, TimeZoneInfo.Utc),
+                read);
+
+            Assert.IsTrue(read.PlayerSnapshots.Last().HasInvalidRawValue);
+            Assert.IsNull(summaryOverride.PlayCount);
+            Assert.IsNull(summaryOverride.JudgeCount);
+            Assert.IsNull(summaryOverride.PlaytimeSeconds);
+        });
+    }
+
+    [TestMethod]
+    public void BeatorajaReader_MissingScoreLogReturnsNoUpdateRows()
+    {
+        WithBeatorajaPlayerDb(delegate (string scoreDbPath, string scoreLogDbPath)
+        {
+            CreateBeatorajaPlayerDb(scoreDbPath);
+
+            BeatorajaPlayHistoryReadResult read = new BeatorajaPlayHistoryReader().Read(new BeatorajaPlayHistoryReadRequest
+            {
+                ScoreDbPath = scoreDbPath
+            });
 
             Assert.IsFalse(File.Exists(scoreLogDbPath));
-            Assert.AreEqual(string.Empty, row.BestExscore);
-            Assert.AreEqual(string.Empty, row.BestBp);
-            Assert.AreEqual(string.Empty, row.BestClear);
-            Assert.AreEqual("play", row.Kind);
-            Assert.IsNull(row.PlaytimeSeconds);
+            Assert.AreEqual(Lr2PlayHistorySchemaStatus.Installed, read.SchemaStatus);
+            Assert.AreEqual(0, read.Rows.Count);
+            Assert.AreEqual("play_history_beatoraja_scorelog_missing", read.Diagnostics.Single().Code);
+        });
+    }
+
+    [TestMethod]
+    public void BeatorajaReader_DoesNotFallbackToScoreDataLogWhenScoreLogIsMissing()
+    {
+        WithBeatorajaPlayerDb(delegate (string scoreDbPath, string scoreLogDbPath)
+        {
+            CreateBeatorajaPlayerDb(scoreDbPath);
+            string scoreDataLogDbPath = Path.Combine(Path.GetDirectoryName(scoreDbPath), "scoredatalog.db");
+            CreateBeatorajaScoreDataLogLatestDb(scoreDataLogDbPath);
+            using (var db = new SQLiteConnection(scoreDataLogDbPath))
+            {
+                InsertBeatorajaScoreDataLogLatest(db, ShaA, mode: 0, date: 1000);
+            }
+
+            BeatorajaPlayHistoryReadResult read = new BeatorajaPlayHistoryReader().Read(new BeatorajaPlayHistoryReadRequest
+            {
+                ScoreDbPath = scoreDbPath
+            });
+
+            Assert.IsTrue(File.Exists(scoreDataLogDbPath));
+            Assert.IsFalse(File.Exists(scoreLogDbPath));
+            Assert.AreEqual(Lr2PlayHistorySchemaStatus.Installed, read.SchemaStatus);
+            Assert.AreEqual(0, read.Rows.Count);
+            Assert.AreEqual("play_history_beatoraja_scorelog_missing", read.Diagnostics.Single().Code);
         });
     }
 
     [TestMethod]
     public void BeatorajaReader_UnfinalizedOnlyReturnsEmptyRows()
     {
-        WithBeatorajaPlayerDb(delegate (string scoreDbPath, string scoreDataLogDbPath, string scoreLogDbPath)
+        WithBeatorajaPlayerDb(delegate (string scoreDbPath, string scoreLogDbPath)
         {
-            CreateBeatorajaScoreDataLogDb(scoreDataLogDbPath);
-            using (var db = new SQLiteConnection(scoreDataLogDbPath))
+            CreateBeatorajaScoreLogDb(scoreLogDbPath);
+            CreateBeatorajaPlayerDb(scoreDbPath);
+            using (var db = new SQLiteConnection(scoreLogDbPath))
             {
-                InsertBeatorajaScoreDataLog(db, ShaA, mode: 0, date: 1000, clear: 5, epg: 10, lpg: 0, egr: 5, lgr: 0, notes: 20, combo: 12, minbp: 3, playcount: 2, clearcount: 1, option: 0, seed: -1, random: 0);
+                InsertBeatorajaScoreLog(db, ShaA, mode: 0, date: 1000, oldClear: 4, clear: 5, oldScore: 10, score: 25, oldCombo: 8, combo: 12, oldMinBp: 5, minBp: 3);
             }
 
             BeatorajaPlayHistoryReadResult read = new BeatorajaPlayHistoryReader().Read(new BeatorajaPlayHistoryReadRequest
@@ -1388,16 +1716,16 @@ public sealed class PlayHistoryReadModelTests
     }
 
     [TestMethod]
-    public void BeatorajaReader_UnfinalizedOnlyStillReportsUnreadableScoreDataLog()
+    public void BeatorajaReader_ReadReportsUnreadableScoreLog()
     {
-        WithBeatorajaPlayerDb(delegate (string scoreDbPath, string scoreDataLogDbPath, string scoreLogDbPath)
+        WithBeatorajaPlayerDb(delegate (string scoreDbPath, string scoreLogDbPath)
         {
-            File.WriteAllText(scoreDataLogDbPath, "not a sqlite database");
+            CreateBeatorajaPlayerDb(scoreDbPath);
+            File.WriteAllText(scoreLogDbPath, "not a sqlite database");
 
             BeatorajaPlayHistoryReadResult read = new BeatorajaPlayHistoryReader().Read(new BeatorajaPlayHistoryReadRequest
             {
-                ScoreDbPath = scoreDbPath,
-                FinalizationFilter = Lr2PlayHistoryFinalizationFilter.UnfinalizedOnly
+                ScoreDbPath = scoreDbPath
             });
 
             Assert.AreEqual(Lr2PlayHistorySchemaStatus.Unreadable, read.SchemaStatus);
@@ -1410,14 +1738,10 @@ public sealed class PlayHistoryReadModelTests
     [TestMethod]
     public void BeatorajaReader_TreatsMaxValueOldMinBpAsUnplayed()
     {
-        WithBeatorajaPlayerDb(delegate (string scoreDbPath, string scoreDataLogDbPath, string scoreLogDbPath)
+        WithBeatorajaPlayerDb(delegate (string scoreDbPath, string scoreLogDbPath)
         {
-            CreateBeatorajaScoreDataLogDb(scoreDataLogDbPath);
             CreateBeatorajaScoreLogDb(scoreLogDbPath);
-            using (var db = new SQLiteConnection(scoreDataLogDbPath))
-            {
-                InsertBeatorajaScoreDataLog(db, ShaA, mode: 0, date: 1000, clear: 5, epg: 10, lpg: 0, egr: 5, lgr: 0, notes: 20, combo: 12, minbp: 10, playcount: 1, clearcount: 1, option: 0, seed: -1, random: 0);
-            }
+            CreateBeatorajaPlayerDb(scoreDbPath);
             using (var db = new SQLiteConnection(scoreLogDbPath))
             {
                 InsertBeatorajaScoreLog(db, ShaA, mode: 0, date: 1000, oldClear: 5, clear: 5, oldScore: 50, score: 50, oldCombo: 12, combo: 12, oldMinBp: int.MaxValue, minBp: 10);
@@ -1436,16 +1760,12 @@ public sealed class PlayHistoryReadModelTests
     }
 
     [TestMethod]
-    public void BeatorajaReader_IgnoresScoreLogRowsWithoutExactShaModeDateMatch()
+    public void BeatorajaReader_ReadsScoreLogRowsDirectly()
     {
-        WithBeatorajaPlayerDb(delegate (string scoreDbPath, string scoreDataLogDbPath, string scoreLogDbPath)
+        WithBeatorajaPlayerDb(delegate (string scoreDbPath, string scoreLogDbPath)
         {
-            CreateBeatorajaScoreDataLogDb(scoreDataLogDbPath);
             CreateBeatorajaScoreLogDb(scoreLogDbPath);
-            using (var db = new SQLiteConnection(scoreDataLogDbPath))
-            {
-                InsertBeatorajaScoreDataLog(db, ShaA, mode: 0, date: 1000, clear: 5, epg: 10, lpg: 0, egr: 5, lgr: 0, notes: 20, combo: 12, minbp: 3, playcount: 2, clearcount: 1, option: 0, seed: -1, random: 0);
-            }
+            CreateBeatorajaPlayerDb(scoreDbPath);
             using (var db = new SQLiteConnection(scoreLogDbPath))
             {
                 InsertBeatorajaScoreLog(db, ShaA, mode: 0, date: 999, oldClear: 4, clear: 5, oldScore: 10, score: 25, oldCombo: 8, combo: 12, oldMinBp: 5, minBp: 3);
@@ -1454,28 +1774,33 @@ public sealed class PlayHistoryReadModelTests
             }
 
             PlayHistoryRow row = PlayHistoryRow.ProjectBeatorajaRows(
-                new BeatorajaPlayHistoryReader().Read(new BeatorajaPlayHistoryReadRequest { ScoreDbPath = scoreDbPath }),
+                new BeatorajaPlayHistoryReader().Read(new BeatorajaPlayHistoryReadRequest
+                {
+                    ScoreDbPath = scoreDbPath,
+                    PlayedAtToExclusive = 1000
+                }),
                 PlayHistoryProjectionIndex.Empty).Rows.Single();
 
-            Assert.AreEqual(string.Empty, row.BestExscore);
-            Assert.AreEqual(string.Empty, row.BestBp);
-            Assert.AreEqual(string.Empty, row.BestClear);
-            Assert.AreEqual("play", row.Kind);
+            Assert.AreEqual(999L, row.PlayedAtUnix);
+            Assert.AreEqual("10 -> 25", row.BestExscore);
+            Assert.AreEqual("5 -> 3", row.BestBp);
+            Assert.AreEqual("EASY -> NORMAL", row.BestClear);
+            Assert.AreEqual("score bp clear combo", row.Kind);
         });
     }
 
     [TestMethod]
-    public void BeatorajaReader_PeriodIndexUsesScoreDataLogMaxDatePerLocalDay()
+    public void BeatorajaReader_PeriodIndexUsesScoreLogMaxDatePerLocalDay()
     {
-        WithBeatorajaPlayerDb(delegate (string scoreDbPath, string scoreDataLogDbPath, string scoreLogDbPath)
+        WithBeatorajaPlayerDb(delegate (string scoreDbPath, string scoreLogDbPath)
         {
-            CreateBeatorajaScoreDataLogDb(scoreDataLogDbPath);
-            using (var db = new SQLiteConnection(scoreDataLogDbPath))
+            CreateBeatorajaScoreLogDb(scoreLogDbPath);
+            using (var db = new SQLiteConnection(scoreLogDbPath))
             {
-                InsertBeatorajaScoreDataLog(db, ShaA, mode: 0, date: UtcEpoch(2026, 1, 1, 1), clear: 5, epg: 10, lpg: 0, egr: 5, lgr: 0, notes: 20, combo: 12, minbp: 3, playcount: 2, clearcount: 1, option: 0, seed: -1, random: 0);
-                InsertBeatorajaScoreDataLog(db, ShaA, mode: 0, date: UtcEpoch(2026, 1, 1, 12), clear: 5, epg: 10, lpg: 0, egr: 5, lgr: 0, notes: 20, combo: 12, minbp: 3, playcount: 3, clearcount: 2, option: 0, seed: -1, random: 0);
-                InsertBeatorajaScoreDataLog(db, ShaA, mode: 0, date: UtcEpoch(2026, 1, 2, 1), clear: 5, epg: 10, lpg: 0, egr: 5, lgr: 0, notes: 20, combo: 12, minbp: 3, playcount: 4, clearcount: 3, option: 0, seed: -1, random: 0);
-                InsertBeatorajaScoreDataLog(db, new string('b', 64), mode: 10000, date: UtcEpoch(2026, 1, 3, 1), clear: 9, epg: 1, lpg: 0, egr: 0, lgr: 0, notes: 1, combo: 1, minbp: 0, playcount: 1, clearcount: 1, option: 0, seed: -1, random: 0);
+                InsertBeatorajaScoreLog(db, ShaA, mode: 0, date: UtcEpoch(2026, 1, 1, 1), oldClear: 4, clear: 5, oldScore: 10, score: 20, oldCombo: 5, combo: 10, oldMinBp: 8, minBp: 7);
+                InsertBeatorajaScoreLog(db, ShaA, mode: 0, date: UtcEpoch(2026, 1, 1, 12), oldClear: 5, clear: 5, oldScore: 20, score: 30, oldCombo: 10, combo: 11, oldMinBp: 7, minBp: 6);
+                InsertBeatorajaScoreLog(db, ShaA, mode: 0, date: UtcEpoch(2026, 1, 2, 1), oldClear: 5, clear: 5, oldScore: 30, score: 40, oldCombo: 11, combo: 12, oldMinBp: 6, minBp: 5);
+                InsertBeatorajaScoreLog(db, new string('b', 64), mode: 10000, date: UtcEpoch(2026, 1, 3, 1), oldClear: 4, clear: 9, oldScore: 1, score: 99, oldCombo: 1, combo: 20, oldMinBp: 5, minBp: 0);
             }
 
             BeatorajaPlayHistoryPeriodIndexResult result = new BeatorajaPlayHistoryReader().ReadPeriodIndex(
@@ -1576,7 +1901,7 @@ public sealed class PlayHistoryReadModelTests
         }
     }
 
-    private static void WithBeatorajaPlayerDb(Action<string, string, string> action)
+    private static void WithBeatorajaPlayerDb(Action<string, string> action)
     {
         string directoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_BeatorajaPlayHistory_" + Guid.NewGuid().ToString("N"));
         string playerDirectoryPath = Path.Combine(directoryPath, "player", "player1");
@@ -1589,7 +1914,6 @@ public sealed class PlayHistoryReadModelTests
             }
             action(
                 scoreDbPath,
-                Path.Combine(playerDirectoryPath, "scoredatalog.db"),
                 Path.Combine(playerDirectoryPath, "scorelog.db"));
         }
         finally
@@ -1601,13 +1925,6 @@ public sealed class PlayHistoryReadModelTests
         }
     }
 
-    private static void CreateBeatorajaScoreDataLogDb(string scoreDataLogDbPath)
-    {
-        using var db = new SQLiteConnection(scoreDataLogDbPath);
-        db.Execute(
-            "CREATE TABLE scoredatalog (sha256 TEXT NOT NULL, mode INTEGER, clear INTEGER, epg INTEGER, lpg INTEGER, egr INTEGER, lgr INTEGER, egd INTEGER, lgd INTEGER, ebd INTEGER, lbd INTEGER, epr INTEGER, lpr INTEGER, ems INTEGER, lms INTEGER, notes INTEGER, combo INTEGER, minbp INTEGER, avgjudge INTEGER, playcount INTEGER, clearcount INTEGER, trophy TEXT, ghost TEXT, option INTEGER, seed INTEGER, random INTEGER, date INTEGER, state INTEGER, scorehash TEXT);");
-    }
-
     private static void CreateBeatorajaScoreLogDb(string scoreLogDbPath)
     {
         using var db = new SQLiteConnection(scoreLogDbPath);
@@ -1615,64 +1932,81 @@ public sealed class PlayHistoryReadModelTests
             "CREATE TABLE scorelog (sha256 TEXT NOT NULL, mode INTEGER, clear INTEGER, oldclear INTEGER, score INTEGER, oldscore INTEGER, combo INTEGER, oldcombo INTEGER, minbp INTEGER, oldminbp INTEGER, date INTEGER);");
     }
 
-    private static void InsertBeatorajaScoreDataLog(
-        SQLiteConnection db,
-        string sha256,
-        int mode,
-        long date,
-        int clear,
-        int epg,
-        int lpg,
-        int egr,
-        int lgr,
-        int egd = 0,
-        int lgd = 0,
-        int ebd = 0,
-        int lbd = 0,
-        int epr = 0,
-        int lpr = 0,
-        int ems = 0,
-        int lms = 0,
-        int notes = 0,
-        int combo = 0,
-        int minbp = 0,
-        int playcount = 0,
-        int clearcount = 0,
-        int option = 0,
-        long seed = -1,
-        int random = 0)
+    private static void CreateBeatorajaScoreDataLogLatestDb(string scoreDataLogDbPath)
+    {
+        using var db = new SQLiteConnection(scoreDataLogDbPath);
+        db.Execute(
+            "CREATE TABLE scoredatalog (sha256 TEXT NOT NULL, mode INTEGER, clear INTEGER, date INTEGER, scorehash TEXT, PRIMARY KEY(sha256, mode));");
+    }
+
+    private static void CreateBeatorajaPlayerDb(string scoreDbPath)
+    {
+        using var db = new SQLiteConnection(scoreDbPath);
+        db.Execute("CREATE TABLE player (date INTEGER PRIMARY KEY, playcount INTEGER, epg INTEGER, lpg INTEGER, egr INTEGER, lgr INTEGER, egd INTEGER, lgd INTEGER, ebd INTEGER, lbd INTEGER, epr INTEGER, lpr INTEGER, ems INTEGER, lms INTEGER, playtime INTEGER);");
+    }
+
+    private static void InsertBeatorajaPlayerAggregate(SQLiteConnection db, long date, int playCount, int judgeCount, int playtime)
     {
         db.Execute(
-            "INSERT INTO scoredatalog (sha256, mode, clear, epg, lpg, egr, lgr, egd, lgd, ebd, lbd, epr, lpr, ems, lms, notes, combo, minbp, avgjudge, playcount, clearcount, trophy, ghost, option, seed, random, date, state, scorehash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);",
+            "INSERT OR REPLACE INTO player (date, playcount, epg, lpg, egr, lgr, egd, lgd, ebd, lbd, epr, lpr, ems, lms, playtime) VALUES (?, ?, ?, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ?);",
+            date,
+            playCount,
+            judgeCount,
+            playtime);
+    }
+
+    private static void AssertBeatorajaAggregateDecreaseIsUnavailable(long day1, long day2, long playCount2, long judgeCount2, long playtime2)
+    {
+        AssertBeatorajaAggregateDecreaseIsUnavailable(
+            day1,
+            day2,
+            playCount1: 10,
+            judgeCount1: 1000,
+            playtime1: 100,
+            playCount2,
+            judgeCount2,
+            playtime2);
+    }
+
+    private static void AssertBeatorajaAggregateDecreaseIsUnavailable(
+        long day1,
+        long day2,
+        long playCount1,
+        long judgeCount1,
+        long playtime1,
+        long playCount2,
+        long judgeCount2,
+        long playtime2)
+    {
+        var read = new BeatorajaPlayHistoryReadResult(
+            PlayHistorySourceProfile.Beatoraja("scorelog.db"),
+            [],
+            [],
+            Lr2PlayHistorySchemaStatus.Installed,
+            [
+                new BeatorajaPlayerAggregateSnapshot { DateUnixSeconds = day1, PlayCount = playCount1, JudgeCount = judgeCount1, PlaytimeSeconds = playtime1 },
+                new BeatorajaPlayerAggregateSnapshot { DateUnixSeconds = day2, PlayCount = playCount2, JudgeCount = judgeCount2, PlaytimeSeconds = playtime2 }
+            ],
+            playerSnapshotsAvailable: true);
+
+        PlayHistoryPeriodSummaryOverride summaryOverride = MainWindowViewModel.ResolveBeatorajaPeriodSummaryOverrideForTest(
+            PlayHistoryPeriodRequest.CreateDay(2026, 1, 2, TimeZoneInfo.Utc),
+            read);
+
+        Assert.IsNull(summaryOverride.PlayCount);
+        Assert.IsNull(summaryOverride.JudgeCount);
+        Assert.IsNull(summaryOverride.PlaytimeSeconds);
+    }
+
+    private static void InsertBeatorajaScoreDataLogLatest(SQLiteConnection db, string sha256, int mode, long date)
+    {
+        db.Execute(
+            "INSERT OR REPLACE INTO scoredatalog (sha256, mode, clear, date, scorehash) VALUES (?, ?, ?, ?, ?);",
             sha256,
             mode,
-            clear,
-            epg,
-            lpg,
-            egr,
-            lgr,
-            egd,
-            lgd,
-            ebd,
-            lbd,
-            epr,
-            lpr,
-            ems,
-            lms,
-            notes,
-            combo,
-            minbp,
-            0,
-            playcount,
-            clearcount,
-            string.Empty,
-            string.Empty,
-            option,
-            seed,
-            random,
+            5,
             date,
-            0,
-            string.Empty);
+            "latest-detail-only");
     }
 
     private static void InsertBeatorajaScoreLog(

@@ -21598,6 +21598,9 @@ public class MainWindowViewModel : ViewModel
             sortedRows = [.. projectionResult.Rows];
         }
         long sortMs = sortStopwatch.ElapsedMilliseconds;
+        PlayHistoryPeriodSummaryOverride summaryOverride = activePlayHistoryProvider == PlayHistoryProvider.Beatoraja
+            ? ResolveBeatorajaPeriodSummaryOverride(periodRequest, beatorajaReadResult)
+            : null;
 
         var state = new PlayHistoryViewState(
             requestId,
@@ -21613,7 +21616,8 @@ public class MainWindowViewModel : ViewModel
             keywordFilter,
             keywordRevision,
             displayTarget,
-            displayTargetRevision);
+            displayTargetRevision,
+            summaryOverride);
         ApplyPlayHistorySortedRows(
             mode,
             requestedMode,
@@ -21953,7 +21957,8 @@ public class MainWindowViewModel : ViewModel
             keywordFilter,
             keywordRevision,
             displayTarget,
-            displayTargetRevision);
+            displayTargetRevision,
+            state.SummaryOverride);
         ApplyPlayHistorySortedRows(
             mode,
             requestedMode,
@@ -22075,7 +22080,8 @@ public class MainWindowViewModel : ViewModel
                     state.KeywordFilter,
                     state.KeywordFilterRevision,
                     state.DisplayTarget,
-                    state.DisplayTargetRevision);
+                    state.DisplayTargetRevision,
+                    state.SummaryOverride);
             }
             string currentKeywordFilter = KeywordFilter;
             long currentKeywordRevision = Interlocked.Read(ref playHistoryKeywordFilterRevision);
@@ -22125,7 +22131,10 @@ public class MainWindowViewModel : ViewModel
             }
             diagnostics = CreatePlayHistoryViewDiagnostics(state.Diagnostics, sortSucceeded, sortProfile);
             diagnosticsCount = diagnostics.Count;
-            PlayHistoryPeriodSummary summary = PlayHistoryPeriodSummary.FromRows(periodRequest.Label, sortedRows);
+            PlayHistoryPeriodSummary summary = PlayHistoryPeriodSummary.FromRows(
+                periodRequest.Label,
+                sortedRows,
+                state.SummaryOverride);
             UpdateBmsFilesViewBindingMode(playlistDetailActive: false);
             ClearPlaylistSourceRows();
             ChartRowsFolderView = [];
@@ -22530,6 +22539,128 @@ public class MainWindowViewModel : ViewModel
             && left.FinalizationFilter == right.FinalizationFilter;
     }
 
+    private static PlayHistoryPeriodSummaryOverride ResolveBeatorajaPeriodSummaryOverride(PlayHistoryPeriodRequest request, BeatorajaPlayHistoryReadResult readResult)
+    {
+        if (request?.Kind == PlayHistoryPeriodKind.Diagnostics || readResult?.PlayerSnapshotsAvailable != true)
+        {
+            return new PlayHistoryPeriodSummaryOverride(null, null, null);
+        }
+
+        IReadOnlyList<BeatorajaPlayerAggregateSnapshot> snapshots = readResult.PlayerSnapshots ?? [];
+        if (snapshots.Count == 0)
+        {
+            return new PlayHistoryPeriodSummaryOverride(0, 0, 0);
+        }
+
+        if (HasInvalidBeatorajaAggregateRange(snapshots, request?.PlayedAtFromInclusive, request?.PlayedAtToExclusive))
+        {
+            return new PlayHistoryPeriodSummaryOverride(null, null, null);
+        }
+
+        BeatorajaPlayerAggregateSnapshot endSnapshot = ResolveLatestBeatorajaPlayerAggregateBefore(snapshots, request?.PlayedAtToExclusive);
+        if (HasNegativeBeatorajaAggregateValue(endSnapshot))
+        {
+            return new PlayHistoryPeriodSummaryOverride(null, null, null);
+        }
+        if (request?.PlayedAtFromInclusive.HasValue != true)
+        {
+            return new PlayHistoryPeriodSummaryOverride(
+                endSnapshot.PlayCount,
+                endSnapshot.JudgeCount,
+                endSnapshot.PlaytimeSeconds);
+        }
+
+        BeatorajaPlayerAggregateSnapshot startSnapshot = ResolveLatestBeatorajaPlayerAggregateBefore(snapshots, request.PlayedAtFromInclusive);
+        if (HasNegativeBeatorajaAggregateValue(startSnapshot))
+        {
+            return new PlayHistoryPeriodSummaryOverride(null, null, null);
+        }
+        long playCount = endSnapshot.PlayCount - startSnapshot.PlayCount;
+        long judgeCount = endSnapshot.JudgeCount - startSnapshot.JudgeCount;
+        long playtimeSeconds = endSnapshot.PlaytimeSeconds - startSnapshot.PlaytimeSeconds;
+        if (playCount < 0 || judgeCount < 0 || playtimeSeconds < 0)
+        {
+            return new PlayHistoryPeriodSummaryOverride(null, null, null);
+        }
+        return new PlayHistoryPeriodSummaryOverride(
+            playCount,
+            judgeCount,
+            playtimeSeconds);
+    }
+
+    internal static PlayHistoryPeriodSummaryOverride ResolveBeatorajaPeriodSummaryOverrideForTest(PlayHistoryPeriodRequest request, BeatorajaPlayHistoryReadResult readResult)
+    {
+        return ResolveBeatorajaPeriodSummaryOverride(request, readResult);
+    }
+
+    private static BeatorajaPlayerAggregateSnapshot ResolveLatestBeatorajaPlayerAggregateBefore(IReadOnlyList<BeatorajaPlayerAggregateSnapshot> snapshots, long? exclusiveBoundary)
+    {
+        BeatorajaPlayerAggregateSnapshot latest = new();
+        long latestDate = long.MinValue;
+        foreach (BeatorajaPlayerAggregateSnapshot snapshot in snapshots ?? [])
+        {
+            if (snapshot == null || snapshot.DateUnixSeconds <= 0)
+            {
+                continue;
+            }
+            if (exclusiveBoundary.HasValue && snapshot.DateUnixSeconds >= exclusiveBoundary.Value)
+            {
+                continue;
+            }
+            if (snapshot.DateUnixSeconds >= latestDate)
+            {
+                latestDate = snapshot.DateUnixSeconds;
+                latest = snapshot;
+            }
+        }
+        return latest;
+    }
+
+    private static bool HasInvalidBeatorajaAggregateRange(
+        IReadOnlyList<BeatorajaPlayerAggregateSnapshot> snapshots,
+        long? fromInclusive,
+        long? toExclusive)
+    {
+        BeatorajaPlayerAggregateSnapshot previous = null;
+        foreach (BeatorajaPlayerAggregateSnapshot snapshot in snapshots ?? [])
+        {
+            if (snapshot == null || snapshot.DateUnixSeconds <= 0)
+            {
+                continue;
+            }
+            if (fromInclusive.HasValue && snapshot.DateUnixSeconds < fromInclusive.Value)
+            {
+                previous = snapshot;
+                continue;
+            }
+            if (toExclusive.HasValue && snapshot.DateUnixSeconds >= toExclusive.Value)
+            {
+                break;
+            }
+            if (HasNegativeBeatorajaAggregateValue(snapshot))
+            {
+                return true;
+            }
+            if (previous != null
+                && (snapshot.PlayCount < previous.PlayCount
+                    || snapshot.JudgeCount < previous.JudgeCount
+                    || snapshot.PlaytimeSeconds < previous.PlaytimeSeconds))
+            {
+                return true;
+            }
+            previous = snapshot;
+        }
+        return false;
+    }
+
+    private static bool HasNegativeBeatorajaAggregateValue(BeatorajaPlayerAggregateSnapshot snapshot)
+    {
+        return snapshot?.HasInvalidRawValue == true
+            || snapshot?.PlayCount < 0
+            || snapshot?.JudgeCount < 0
+            || snapshot?.PlaytimeSeconds < 0;
+    }
+
     private static PlayHistoryDiagnostic CreatePlayHistoryDiagnostic(
         PlayHistoryDiagnosticSeverity severity,
         string stage,
@@ -22678,7 +22809,7 @@ public class MainWindowViewModel : ViewModel
             summary.ScoreUpdateCount,
             summary.ClearUpdateCount,
             summary.NewFullComboCount,
-            FormatPlayHistoryDuration(summary.PlaytimeSeconds),
+            FormatPlayHistoryDuration(summary),
             diagnosticsCount);
         return string.IsNullOrWhiteSpace(diagnosticSummary)
             ? baseText
@@ -22695,9 +22826,9 @@ public class MainWindowViewModel : ViewModel
         summary ??= PlayHistoryPeriodSummary.FromRows(string.Empty, []);
         List<PlayHistorySummaryCard> cards =
         [
-            new PlayHistorySummaryCard(BeMusicSeeker.Properties.Resources.Play_history_summary_judge_count, summary.JudgeCount.ToString("N0", CultureInfo.CurrentCulture)),
-            new PlayHistorySummaryCard(BeMusicSeeker.Properties.Resources.Play_history_summary_play_count, summary.FinalizedCount.ToString("N0", CultureInfo.CurrentCulture)),
-            new PlayHistorySummaryCard(BeMusicSeeker.Properties.Resources.Play_history_summary_playtime, FormatPlayHistoryDuration(summary.PlaytimeSeconds)),
+            new PlayHistorySummaryCard(BeMusicSeeker.Properties.Resources.Play_history_summary_judge_count, FormatPlayHistoryCount(summary.JudgeCount, summary.JudgeCountAvailable)),
+            new PlayHistorySummaryCard(BeMusicSeeker.Properties.Resources.Play_history_summary_play_count, FormatPlayHistoryCount(summary.FinalizedCount, summary.PlayCountAvailable)),
+            new PlayHistorySummaryCard(BeMusicSeeker.Properties.Resources.Play_history_summary_playtime, FormatPlayHistoryDuration(summary)),
             new PlayHistorySummaryCard(BeMusicSeeker.Properties.Resources.Play_history_summary_score_update, summary.ScoreUpdateCount.ToString("N0", CultureInfo.CurrentCulture)),
             new PlayHistorySummaryCard(BeMusicSeeker.Properties.Resources.Play_history_summary_bp_update, summary.BpUpdateCount.ToString("N0", CultureInfo.CurrentCulture)),
             new PlayHistorySummaryCard(BeMusicSeeker.Properties.Resources.Play_history_summary_combo_update, summary.ComboUpdateCount.ToString("N0", CultureInfo.CurrentCulture)),
@@ -22725,16 +22856,32 @@ public class MainWindowViewModel : ViewModel
         return CreatePlayHistorySummaryCards(summary, provider);
     }
 
-    private static string FormatPlayHistoryDuration(int seconds)
+    private static string FormatPlayHistoryDuration(long seconds)
     {
         if (seconds <= 0)
         {
             return "0:00";
         }
-        TimeSpan duration = TimeSpan.FromSeconds(seconds);
-        return duration.TotalHours >= 1d
-            ? ((int)duration.TotalHours).ToString(CultureInfo.InvariantCulture) + ":" + duration.Minutes.ToString("00", CultureInfo.InvariantCulture) + ":" + duration.Seconds.ToString("00", CultureInfo.InvariantCulture)
-            : duration.Minutes.ToString(CultureInfo.InvariantCulture) + ":" + duration.Seconds.ToString("00", CultureInfo.InvariantCulture);
+        long hours = seconds / 3600;
+        long minutes = (seconds / 60) % 60;
+        long remainderSeconds = seconds % 60;
+        return hours >= 1L
+            ? hours.ToString(CultureInfo.InvariantCulture) + ":" + minutes.ToString("00", CultureInfo.InvariantCulture) + ":" + remainderSeconds.ToString("00", CultureInfo.InvariantCulture)
+            : minutes.ToString(CultureInfo.InvariantCulture) + ":" + remainderSeconds.ToString("00", CultureInfo.InvariantCulture);
+    }
+
+    private static string FormatPlayHistoryDuration(PlayHistoryPeriodSummary summary)
+    {
+        return summary?.PlaytimeAvailable == false
+            ? "-"
+            : FormatPlayHistoryDuration(summary?.PlaytimeSeconds ?? 0);
+    }
+
+    private static string FormatPlayHistoryCount(long count, bool available)
+    {
+        return available
+            ? count.ToString("N0", CultureInfo.CurrentCulture)
+            : "-";
     }
 
     private static string FormatPlayHistoryDiagnosticSummary(IReadOnlyList<PlayHistoryDiagnostic> diagnostics)
@@ -22812,7 +22959,8 @@ public class MainWindowViewModel : ViewModel
             string keywordFilter,
             long keywordFilterRevision,
             PlayHistoryDisplayTargetItem displayTarget,
-            long displayTargetRevision)
+            long displayTargetRevision,
+            PlayHistoryPeriodSummaryOverride summaryOverride = null)
         {
             RequestId = requestId;
             PeriodRequest = periodRequest ?? PlayHistoryPeriodRequest.All();
@@ -22830,6 +22978,7 @@ public class MainWindowViewModel : ViewModel
             DisplayTarget = displayTarget ?? PlayHistoryDisplayTargetItem.All;
             DisplayTargetIdentity = DisplayTarget.Identity;
             DisplayTargetRevision = displayTargetRevision;
+            SummaryOverride = summaryOverride;
         }
 
         internal long RequestId { get; }
@@ -22863,6 +23012,8 @@ public class MainWindowViewModel : ViewModel
         internal string DisplayTargetIdentity { get; }
 
         internal long DisplayTargetRevision { get; }
+
+        internal PlayHistoryPeriodSummaryOverride SummaryOverride { get; }
     }
 
     private readonly struct SortSnapshot

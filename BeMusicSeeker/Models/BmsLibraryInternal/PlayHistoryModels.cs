@@ -62,17 +62,15 @@ internal sealed class PlayHistorySourceProfile
         return new PlayHistorySourceProfile(PlayHistoryProvider.Lr2, scoreDbPath, "LR2");
     }
 
-    internal static PlayHistorySourceProfile Beatoraja(string scoreDataLogDbPath)
+    internal static PlayHistorySourceProfile Beatoraja(string scoreLogDbPath)
     {
-        return new PlayHistorySourceProfile(PlayHistoryProvider.Beatoraja, scoreDataLogDbPath, "beatoraja");
+        return new PlayHistorySourceProfile(PlayHistoryProvider.Beatoraja, scoreLogDbPath, "beatoraja");
     }
 }
 
 internal sealed class BeatorajaPlayHistoryReadRequest
 {
     internal string ScoreDbPath { get; set; }
-
-    internal string ScoreDataLogDbPath { get; set; }
 
     internal string ScoreLogDbPath { get; set; }
 
@@ -91,7 +89,7 @@ internal sealed class BeatorajaPlayHistoryPeriodIndexRequest
 {
     internal string ScoreDbPath { get; set; }
 
-    internal string ScoreDataLogDbPath { get; set; }
+    internal string ScoreLogDbPath { get; set; }
 }
 
 internal sealed class BeatorajaPlayHistoryPeriodIndexResult
@@ -123,12 +121,16 @@ internal sealed class BeatorajaPlayHistoryReadResult
         PlayHistorySourceProfile sourceProfile,
         IReadOnlyList<BeatorajaPlayHistoryRecord> rows,
         IReadOnlyList<PlayHistoryDiagnostic> diagnostics,
-        Lr2PlayHistorySchemaStatus schemaStatus)
+        Lr2PlayHistorySchemaStatus schemaStatus,
+        IReadOnlyList<BeatorajaPlayerAggregateSnapshot> playerSnapshots = null,
+        bool playerSnapshotsAvailable = true)
     {
         SourceProfile = sourceProfile;
         Rows = rows ?? [];
         Diagnostics = diagnostics ?? [];
         SchemaStatus = schemaStatus;
+        PlayerSnapshots = playerSnapshots ?? [];
+        PlayerSnapshotsAvailable = playerSnapshotsAvailable;
     }
 
     internal PlayHistorySourceProfile SourceProfile { get; }
@@ -138,6 +140,10 @@ internal sealed class BeatorajaPlayHistoryReadResult
     internal IReadOnlyList<PlayHistoryDiagnostic> Diagnostics { get; }
 
     internal Lr2PlayHistorySchemaStatus SchemaStatus { get; }
+
+    internal IReadOnlyList<BeatorajaPlayerAggregateSnapshot> PlayerSnapshots { get; }
+
+    internal bool PlayerSnapshotsAvailable { get; }
 
     internal bool HasErrors
     {
@@ -153,6 +159,19 @@ internal sealed class BeatorajaPlayHistoryReadResult
             return false;
         }
     }
+}
+
+internal sealed class BeatorajaPlayerAggregateSnapshot
+{
+    internal long DateUnixSeconds { get; set; }
+
+    internal long PlayCount { get; set; }
+
+    internal long JudgeCount { get; set; }
+
+    internal long PlaytimeSeconds { get; set; }
+
+    internal bool HasInvalidRawValue { get; set; }
 }
 
 internal sealed class BeatorajaPlayHistoryRecord
@@ -210,6 +229,8 @@ internal sealed class BeatorajaPlayHistoryRecord
     public int state { get; set; }
 
     public string scorehash { get; set; }
+
+    public bool has_actual_result { get; set; }
 
     public int? old_clear { get; set; }
 

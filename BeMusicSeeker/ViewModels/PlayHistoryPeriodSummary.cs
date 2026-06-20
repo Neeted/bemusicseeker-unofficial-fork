@@ -13,15 +13,21 @@ internal sealed class PlayHistoryPeriodSummary
 
     public int RowCount { get; private set; }
 
-    public int FinalizedCount { get; private set; }
+    public long FinalizedCount { get; private set; }
 
-    public int UnfinalizedCount => RowCount - FinalizedCount;
+    public long UnfinalizedCount => RowCount - FinalizedCount;
 
     public int SummaryEligibleCount { get; private set; }
 
-    public int PlaytimeSeconds { get; private set; }
+    public long PlaytimeSeconds { get; private set; }
 
-    public int JudgeCount { get; private set; }
+    public bool PlayCountAvailable { get; private set; } = true;
+
+    public bool JudgeCountAvailable { get; private set; } = true;
+
+    public bool PlaytimeAvailable { get; private set; } = true;
+
+    public long JudgeCount { get; private set; }
 
     public int ScoreUpdateCount { get; private set; }
 
@@ -49,7 +55,10 @@ internal sealed class PlayHistoryPeriodSummary
 
     public int NewPerfectCount { get; private set; }
 
-    internal static PlayHistoryPeriodSummary FromRows(string label, IEnumerable<PlayHistoryRow> rows)
+    internal static PlayHistoryPeriodSummary FromRows(
+        string label,
+        IEnumerable<PlayHistoryRow> rows,
+        PlayHistoryPeriodSummaryOverride summaryOverride = null)
     {
         var summary = new PlayHistoryPeriodSummary
         {
@@ -106,6 +115,15 @@ internal sealed class PlayHistoryPeriodSummary
                 summary.NewPerfectCount++;
             }
         }
+        if (summaryOverride != null)
+        {
+            summary.PlayCountAvailable = summaryOverride.PlayCount.HasValue;
+            summary.FinalizedCount = summaryOverride.PlayCount.GetValueOrDefault();
+            summary.JudgeCountAvailable = summaryOverride.JudgeCount.HasValue;
+            summary.JudgeCount = summaryOverride.JudgeCount.GetValueOrDefault();
+            summary.PlaytimeAvailable = summaryOverride.PlaytimeSeconds.HasValue;
+            summary.PlaytimeSeconds = summaryOverride.PlaytimeSeconds.GetValueOrDefault();
+        }
 
         return summary;
     }
@@ -145,4 +163,20 @@ internal sealed class PlayHistoryPeriodSummary
         }
         return row.OldBestClear == null || row.OldBestClear < Models.LR2.ClearType.EASY;
     }
+}
+
+internal sealed class PlayHistoryPeriodSummaryOverride
+{
+    internal PlayHistoryPeriodSummaryOverride(long? playCount, long? judgeCount, long? playtimeSeconds)
+    {
+        PlayCount = playCount;
+        JudgeCount = judgeCount;
+        PlaytimeSeconds = playtimeSeconds;
+    }
+
+    internal long? PlayCount { get; }
+
+    internal long? JudgeCount { get; }
+
+    internal long? PlaytimeSeconds { get; }
 }

@@ -832,7 +832,7 @@ The `Play Log` tree shows LR2 or beatoraja play history in the main list.
 
 In LR2 linked mode, the view shows play logs recorded in LR2's score DB. To use LR2 play logs, install them first from [LR2 Play Log in the settings dialog](#lr2-play-log). **For LR2, only plays made after installation are shown. Past plays made before installation cannot be restored as play-log rows.**
 
-When beatoraja integration is loading scores, the view shows history from the beatoraja player data used for score loading. LR2 and beatoraja history are not merged into one list.
+When beatoraja integration is loading scores, the view shows update history from the beatoraja player data used for score loading. LR2 and beatoraja history are not merged into one list.
 
 ### Periods and Unfinalized / Diagnostics
 
@@ -842,11 +842,13 @@ The available periods are `All`, `Today`, `Yesterday`, `Recent 7 Days`, `Recent 
 
 ### Summary
 
-The dedicated summary row below the list header shows judge count, play count, playtime, SCORE / BP / COMBO / CLEAR updates, and a compact clear breakdown such as ASSIST, EASY, NORMAL, HARD, and FC. EXH is shown only when displaying beatoraja history. When LR2 play logs are not installed, the score DB is missing, or reading fails, diagnostic details are shown in the summary text and written to the log.
+The dedicated summary row below the list header shows judge count, play count, playtime, SCORE / BP / COMBO / CLEAR updates, and a compact clear breakdown such as ASSIST, EASY, NORMAL, HARD, and FC. EXH is shown only when displaying beatoraja history. For beatoraja, judge count, play count, and playtime are values for the period selected on the screen. They do not change when the search box or the top-right drop-down reduces the visible row count. If beatoraja period-summary data cannot be read, the value is shown as `-`. When LR2 play logs are not installed, the score DB is missing, or reading fails, diagnostic details are shown in the summary text and written to the log.
 
 ### Reading Rows
 
 Play-log rows show best-update transitions such as `old -> new` for SCORE, BEST DJ, BEST RATE, BP, COMBO, and CLEAR. CLEAR uses compact labels such as `NO PLAY`, `EASY`, `NORMAL`, `HARD`, `EXH`, and `FC`; CLEAR and BEST DJ color the source, arrow, and destination separately when the row is not selected. Initial BP values are shown as the value only. `TYPE` can contain multiple update kinds, such as `score bp clear`; `play` is used only when no more specific update kind applies. LR2 `OP HISTORY` shows newly achieved option history by name.
+
+For beatoraja, only rows where a best value was updated are shown. Plays without an update, including interrupted plays, do not become list rows.
 
 ### Display Target and FOLDER
 
@@ -858,7 +860,9 @@ The play-log context menu can open BMS-IR for rows with a resolved MD5, open Moc
 
 ### Notes for beatoraja
 
-beatoraja play-log reading is read-only. It uses `scoredatalog.db` single-chart plays as the primary input. When `scorelog.db` exists in the same player folder, matching SHA-256 / mode / date best-update logs fill SCORE / CLEAR / BP / COMBO deltas. If `scorelog.db` is missing or has no matching row, the best-delta columns stay blank. beatoraja `OPTION` is shown as names such as RANDOM, MIRROR, FLIP, and BATTLE AS. beatoraja playtime is not shown on individual rows.
+beatoraja play-log reading is read-only update history. It reads `scorelog.db` from the player folder selected for score loading, and shows SCORE / CLEAR / BP / COMBO deltas when best values were updated. If `scorelog.db` is missing, beatoraja update history cannot be shown. beatoraja `scoredatalog.db` stores the latest play details and is not used as per-play history.
+
+beatoraja judge count, play count, and playtime are not calculated from individual rows; they are shown only in the top summary. They are calculated for the selected period from the player daily totals in beatoraja `score.db`. Because of this, they may differ from the beatoraja row count or search result count. `Unfinalized / Diagnostics` is LR2-only, so these beatoraja period-summary values are shown as `-` there as well.
 
 ## Backup / Uninstall
 

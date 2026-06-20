@@ -22,40 +22,53 @@ internal sealed class BeatorajaPlayHistoryReader
     {
         request = ResolveRequestPaths(request);
         cancellationToken.ThrowIfCancellationRequested();
-        PlayHistorySourceProfile sourceProfile = PlayHistorySourceProfile.Beatoraja(request.ScoreDataLogDbPath);
+        PlayHistorySourceProfile sourceProfile = PlayHistorySourceProfile.Beatoraja(request.ScoreLogDbPath);
         var diagnostics = new List<PlayHistoryDiagnostic>();
-        if (!EnsureScoreDataLogExists(request.ScoreDataLogDbPath, diagnostics))
-        {
-            return new BeatorajaPlayHistoryReadResult(sourceProfile, [], diagnostics, Lr2PlayHistorySchemaStatus.NotInstalled);
-        }
+        IReadOnlyList<BeatorajaPlayerAggregateSnapshot> playerSnapshots = LoadPlayerAggregateSnapshots(request, diagnostics, cancellationToken, out bool playerSnapshotsAvailable);
         try
         {
-            using var connection = new SQLiteConnection(request.ScoreDataLogDbPath, SQLiteOpenFlags.ReadOnly | SQLiteOpenFlags.FullMutex);
             if (request.FinalizationFilter == Lr2PlayHistoryFinalizationFilter.UnfinalizedOnly)
             {
-                connection.ExecuteScalar<int>("SELECT EXISTS(SELECT 1 FROM scoredatalog WHERE mode = ? LIMIT 1);", NormalScoreMode);
-                return new BeatorajaPlayHistoryReadResult(sourceProfile, [], diagnostics, Lr2PlayHistorySchemaStatus.Installed);
+                return new BeatorajaPlayHistoryReadResult(
+                    sourceProfile,
+                    [],
+                    diagnostics,
+                    Lr2PlayHistorySchemaStatus.Installed,
+                    playerSnapshots,
+                    playerSnapshotsAvailable);
             }
 
+            if (!EnsureScoreLogExists(request.ScoreLogDbPath, diagnostics))
+            {
+                return new BeatorajaPlayHistoryReadResult(
+                    sourceProfile,
+                    [],
+                    diagnostics,
+                    Lr2PlayHistorySchemaStatus.Installed,
+                    playerSnapshots,
+                    playerSnapshotsAvailable);
+            }
+
+            using var connection = new SQLiteConnection(request.ScoreLogDbPath, SQLiteOpenFlags.ReadOnly | SQLiteOpenFlags.FullMutex);
             List<object> args = [];
-            string sql = BuildScoreDataLogReadSql(request, args);
+            string sql = BuildScoreLogReadSql(request, args);
             cancellationToken.ThrowIfCancellationRequested();
-            List<ScoreDataLogRow> dataRows = connection.Query<ScoreDataLogRow>(sql, [.. args]);
-            cancellationToken.ThrowIfCancellationRequested();
-            Dictionary<ScoreLogKey, ScoreLogRow> scoreLogs = LoadScoreLogs(request, dataRows, diagnostics, cancellationToken);
-            var rows = new List<BeatorajaPlayHistoryRecord>(dataRows.Count);
-            foreach (ScoreDataLogRow row in dataRows)
+            List<ScoreLogRow> logRows = connection.Query<ScoreLogRow>(sql, [.. args]);
+            var rows = new List<BeatorajaPlayHistoryRecord>(logRows.Count);
+            foreach (ScoreLogRow row in logRows)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                BeatorajaPlayHistoryRecord record = Convert(row);
-                if (scoreLogs.TryGetValue(new ScoreLogKey(record.sha256, record.mode, record.played_at), out ScoreLogRow log))
-                {
-                    ApplyScoreLog(record, log);
-                }
-                rows.Add(record);
+                rows.Add(Convert(row));
             }
+            logRows.Clear();
 
-            return new BeatorajaPlayHistoryReadResult(sourceProfile, rows, diagnostics, Lr2PlayHistorySchemaStatus.Installed);
+            return new BeatorajaPlayHistoryReadResult(
+                sourceProfile,
+                rows,
+                diagnostics,
+                Lr2PlayHistorySchemaStatus.Installed,
+                playerSnapshots,
+                playerSnapshotsAvailable);
         }
         catch (OperationCanceledException)
         {
@@ -63,8 +76,8 @@ internal sealed class BeatorajaPlayHistoryReader
         }
         catch (Exception ex)
         {
-            diagnostics.Add(CreateDiagnostic(PlayHistoryDiagnosticSeverity.Error, "play_history_beatoraja_read_failed", ex.Message, request.ScoreDataLogDbPath));
-            return new BeatorajaPlayHistoryReadResult(sourceProfile, [], diagnostics, Lr2PlayHistorySchemaStatus.Unreadable);
+            diagnostics.Add(CreateDiagnostic(PlayHistoryDiagnosticSeverity.Error, "play_history_beatoraja_read_failed", ex.Message, request.ScoreLogDbPath));
+            return new BeatorajaPlayHistoryReadResult(sourceProfile, [], diagnostics, Lr2PlayHistorySchemaStatus.Unreadable, playerSnapshots, playerSnapshotsAvailable);
         }
     }
 
@@ -73,22 +86,22 @@ internal sealed class BeatorajaPlayHistoryReader
         BeatorajaPlayHistoryReadRequest resolved = ResolveRequestPaths(new BeatorajaPlayHistoryReadRequest
         {
             ScoreDbPath = request?.ScoreDbPath,
-            ScoreDataLogDbPath = request?.ScoreDataLogDbPath
+            ScoreLogDbPath = request?.ScoreLogDbPath
         });
         cancellationToken.ThrowIfCancellationRequested();
-        PlayHistorySourceProfile sourceProfile = PlayHistorySourceProfile.Beatoraja(resolved.ScoreDataLogDbPath);
+        PlayHistorySourceProfile sourceProfile = PlayHistorySourceProfile.Beatoraja(resolved.ScoreLogDbPath);
         var diagnostics = new List<PlayHistoryDiagnostic>();
-        if (!EnsureScoreDataLogExists(resolved.ScoreDataLogDbPath, diagnostics))
+        if (!EnsureScoreLogExists(resolved.ScoreLogDbPath, diagnostics))
         {
-            return new BeatorajaPlayHistoryPeriodIndexResult(sourceProfile, [], diagnostics, Lr2PlayHistorySchemaStatus.NotInstalled);
+            return new BeatorajaPlayHistoryPeriodIndexResult(sourceProfile, [], diagnostics, Lr2PlayHistorySchemaStatus.Installed);
         }
 
         try
         {
-            using var connection = new SQLiteConnection(resolved.ScoreDataLogDbPath, SQLiteOpenFlags.ReadOnly | SQLiteOpenFlags.FullMutex);
+            using var connection = new SQLiteConnection(resolved.ScoreLogDbPath, SQLiteOpenFlags.ReadOnly | SQLiteOpenFlags.FullMutex);
             cancellationToken.ThrowIfCancellationRequested();
             List<PeriodIndexRow> rows = connection.Query<PeriodIndexRow>(
-                "SELECT MAX(date) AS played_at FROM scoredatalog WHERE mode = ? GROUP BY strftime('%Y-%m-%d', date, 'unixepoch', 'localtime') ORDER BY played_at DESC;",
+                "SELECT MAX(date) AS played_at FROM scorelog WHERE mode = ? GROUP BY strftime('%Y-%m-%d', date, 'unixepoch', 'localtime') ORDER BY played_at DESC;",
                 NormalScoreMode);
             cancellationToken.ThrowIfCancellationRequested();
             return new BeatorajaPlayHistoryPeriodIndexResult(sourceProfile, [.. rows.Select(row => row.played_at)], diagnostics, Lr2PlayHistorySchemaStatus.Installed);
@@ -99,7 +112,7 @@ internal sealed class BeatorajaPlayHistoryReader
         }
         catch (Exception ex)
         {
-            diagnostics.Add(CreateDiagnostic(PlayHistoryDiagnosticSeverity.Error, "play_history_beatoraja_period_index_failed", ex.Message, resolved.ScoreDataLogDbPath));
+            diagnostics.Add(CreateDiagnostic(PlayHistoryDiagnosticSeverity.Error, "play_history_beatoraja_period_index_failed", ex.Message, resolved.ScoreLogDbPath));
             return new BeatorajaPlayHistoryPeriodIndexResult(sourceProfile, [], diagnostics, Lr2PlayHistorySchemaStatus.Unreadable);
         }
     }
@@ -117,31 +130,28 @@ internal sealed class BeatorajaPlayHistoryReader
         {
             return request;
         }
-        request.ScoreDataLogDbPath = string.IsNullOrWhiteSpace(request.ScoreDataLogDbPath)
-            ? Path.Combine(playerDirectory, "scoredatalog.db")
-            : request.ScoreDataLogDbPath;
         request.ScoreLogDbPath = string.IsNullOrWhiteSpace(request.ScoreLogDbPath)
             ? Path.Combine(playerDirectory, "scorelog.db")
             : request.ScoreLogDbPath;
         return request;
     }
 
-    private static bool EnsureScoreDataLogExists(string scoreDataLogDbPath, List<PlayHistoryDiagnostic> diagnostics)
+    private static bool EnsureScoreLogExists(string scoreLogDbPath, List<PlayHistoryDiagnostic> diagnostics)
     {
-        if (!string.IsNullOrWhiteSpace(scoreDataLogDbPath) && File.Exists(scoreDataLogDbPath))
+        if (!string.IsNullOrWhiteSpace(scoreLogDbPath) && File.Exists(scoreLogDbPath))
         {
             return true;
         }
 
         diagnostics.Add(CreateDiagnostic(
-            PlayHistoryDiagnosticSeverity.Error,
-            "play_history_beatoraja_scoredatalog_missing",
-            "scoredatalog.db does not exist.",
-            scoreDataLogDbPath));
+            PlayHistoryDiagnosticSeverity.Warning,
+            "play_history_beatoraja_scorelog_missing",
+            "scorelog.db does not exist; beatoraja update history is unavailable.",
+            scoreLogDbPath));
         return false;
     }
 
-    private static string BuildScoreDataLogReadSql(BeatorajaPlayHistoryReadRequest request, List<object> args)
+    private static string BuildScoreLogReadSql(BeatorajaPlayHistoryReadRequest request, List<object> args)
     {
         var where = new List<string> { "mode = ?" };
         args.Add(NormalScoreMode);
@@ -156,7 +166,7 @@ internal sealed class BeatorajaPlayHistoryReader
             args.Add(request.PlayedAtToExclusive.Value);
         }
 
-        string sql = "SELECT rowid AS history_id, sha256, mode, clear, epg, lpg, egr, lgr, egd, lgd, ebd, lbd, epr, lpr, ems, lms, notes, combo, minbp, playcount, clearcount, option, seed, random, date AS played_at, state, scorehash FROM scoredatalog WHERE "
+        string sql = "SELECT rowid AS history_id, sha256, mode, clear, oldclear, score, oldscore, combo, oldcombo, minbp, oldminbp, date FROM scorelog WHERE "
             + string.Join(" AND ", where)
             + " ORDER BY date DESC, rowid DESC";
         int limit = request.Limit.HasValue && request.Limit.Value > 0
@@ -170,122 +180,115 @@ internal sealed class BeatorajaPlayHistoryReader
         return sql + ";";
     }
 
-    private static string BuildScoreLogReadSql(BeatorajaPlayHistoryReadRequest request, IReadOnlyList<ScoreDataLogRow> dataRows, List<object> args)
-    {
-        var where = new List<string> { "mode = ?" };
-        args.Add(NormalScoreMode);
-        long? fromInclusive = request.PlayedAtFromInclusive;
-        long? toExclusive = request.PlayedAtToExclusive;
-        if (dataRows != null && dataRows.Count > 0)
-        {
-            long minDate = dataRows.Min(row => row.played_at);
-            long maxDate = dataRows.Max(row => row.played_at);
-            fromInclusive = !fromInclusive.HasValue || fromInclusive.Value < minDate ? minDate : fromInclusive;
-            toExclusive = !toExclusive.HasValue || toExclusive.Value > maxDate + 1 ? maxDate + 1 : toExclusive;
-        }
-        if (fromInclusive.HasValue)
-        {
-            where.Add("date >= ?");
-            args.Add(fromInclusive.Value);
-        }
-        if (toExclusive.HasValue)
-        {
-            where.Add("date < ?");
-            args.Add(toExclusive.Value);
-        }
-        return "SELECT sha256, mode, clear, oldclear, score, oldscore, combo, oldcombo, minbp, oldminbp, date FROM scorelog WHERE "
-            + string.Join(" AND ", where)
-            + ";";
-    }
-
-    private static Dictionary<ScoreLogKey, ScoreLogRow> LoadScoreLogs(
+    private static IReadOnlyList<BeatorajaPlayerAggregateSnapshot> LoadPlayerAggregateSnapshots(
         BeatorajaPlayHistoryReadRequest request,
-        IReadOnlyList<ScoreDataLogRow> dataRows,
         List<PlayHistoryDiagnostic> diagnostics,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        out bool available)
     {
-        var logs = new Dictionary<ScoreLogKey, ScoreLogRow>();
-        if (dataRows == null || dataRows.Count == 0 || string.IsNullOrWhiteSpace(request.ScoreLogDbPath) || !File.Exists(request.ScoreLogDbPath))
+        available = false;
+        if (string.IsNullOrWhiteSpace(request.ScoreDbPath) || !File.Exists(request.ScoreDbPath))
         {
-            return logs;
+            diagnostics?.Add(CreateDiagnostic(
+                PlayHistoryDiagnosticSeverity.Warning,
+                "play_history_beatoraja_player_aggregate_unavailable",
+                "score.db does not exist; beatoraja period summary is unavailable.",
+                request.ScoreDbPath));
+            return [];
         }
 
         try
         {
-            using var connection = new SQLiteConnection(request.ScoreLogDbPath, SQLiteOpenFlags.ReadOnly | SQLiteOpenFlags.FullMutex);
-            List<object> args = [];
-            string sql = BuildScoreLogReadSql(request, dataRows, args);
+            using var connection = new SQLiteConnection(request.ScoreDbPath, SQLiteOpenFlags.ReadOnly | SQLiteOpenFlags.FullMutex);
             cancellationToken.ThrowIfCancellationRequested();
-            foreach (ScoreLogRow row in connection.Query<ScoreLogRow>(sql, [.. args]))
+            List<PlayerAggregateRow> rows = connection.Query<PlayerAggregateRow>(
+                "SELECT date, playcount, epg, lpg, egr, lgr, egd, lgd, ebd, lbd, epr, lpr, ems, lms, playtime FROM player WHERE date > 0 ORDER BY date ASC;");
+            cancellationToken.ThrowIfCancellationRequested();
+            available = true;
+            var snapshots = new List<BeatorajaPlayerAggregateSnapshot>(rows.Count);
+            long currentDate = 0;
+            for (int index = 0; index < rows.Count; index++)
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                var key = new ScoreLogKey(row.sha256, row.mode, row.date);
-                if (!logs.ContainsKey(key))
+                PlayerAggregateRow row = rows[index];
+                if (row.date <= 0)
                 {
-                    logs.Add(key, row);
+                    continue;
                 }
+                var snapshot = new BeatorajaPlayerAggregateSnapshot
+                {
+                    DateUnixSeconds = row.date,
+                    PlayCount = row.playcount,
+                    JudgeCount =
+                        row.epg + row.lpg
+                        + row.egr + row.lgr
+                        + row.egd + row.lgd
+                        + row.ebd + row.lbd
+                        + row.epr + row.lpr
+                        + row.ems + row.lms,
+                    PlaytimeSeconds = row.playtime,
+                    HasInvalidRawValue = HasNegativeAggregateValue(row)
+                };
+                if (snapshots.Count > 0 && row.date == currentDate)
+                {
+                    snapshots[snapshots.Count - 1] = snapshot;
+                    continue;
+                }
+                snapshots.Add(snapshot);
+                currentDate = row.date;
             }
+            return snapshots;
         }
         catch (OperationCanceledException)
         {
             throw;
         }
-        catch
+        catch (Exception ex)
         {
             diagnostics?.Add(CreateDiagnostic(
                 PlayHistoryDiagnosticSeverity.Warning,
-                "play_history_beatoraja_scorelog_unreadable",
-                "scorelog.db could not be read; best deltas are unavailable.",
-                request.ScoreLogDbPath));
-            return new Dictionary<ScoreLogKey, ScoreLogRow>();
+                "play_history_beatoraja_player_aggregate_unreadable",
+                "score.db player aggregate could not be read; beatoraja period summary is unavailable. " + ex.Message,
+                request.ScoreDbPath));
+            return [];
         }
-        return logs;
     }
 
-    private static BeatorajaPlayHistoryRecord Convert(ScoreDataLogRow row)
+    private static bool HasNegativeAggregateValue(PlayerAggregateRow row)
     {
-        return new BeatorajaPlayHistoryRecord
+        return row.playcount < 0
+            || row.epg < 0
+            || row.lpg < 0
+            || row.egr < 0
+            || row.lgr < 0
+            || row.egd < 0
+            || row.lgd < 0
+            || row.ebd < 0
+            || row.lbd < 0
+            || row.epr < 0
+            || row.lpr < 0
+            || row.ems < 0
+            || row.lms < 0
+            || row.playtime < 0;
+    }
+
+    private static BeatorajaPlayHistoryRecord Convert(ScoreLogRow row)
+    {
+        var record = new BeatorajaPlayHistoryRecord
         {
             history_id = row.history_id,
             sha256 = NormalizeSha256(row.sha256),
             mode = row.mode,
-            played_at = row.played_at,
-            clear = row.clear,
-            epg = Math.Max(0, row.epg),
-            lpg = Math.Max(0, row.lpg),
-            egr = Math.Max(0, row.egr),
-            lgr = Math.Max(0, row.lgr),
-            egd = Math.Max(0, row.egd),
-            lgd = Math.Max(0, row.lgd),
-            ebd = Math.Max(0, row.ebd),
-            lbd = Math.Max(0, row.lbd),
-            epr = Math.Max(0, row.epr),
-            lpr = Math.Max(0, row.lpr),
-            ems = Math.Max(0, row.ems),
-            lms = Math.Max(0, row.lms),
-            notes = Math.Max(0, row.notes),
-            combo = Math.Max(0, row.combo),
-            minbp = Math.Max(0, row.minbp),
-            playcount = Math.Max(0, row.playcount),
-            clearcount = Math.Max(0, row.clearcount),
-            option = row.option,
-            seed = row.seed,
-            random = row.random,
-            state = row.state,
-            scorehash = row.scorehash ?? string.Empty
+            played_at = row.date,
+            old_clear = row.oldclear,
+            new_clear = row.clear,
+            old_exscore = row.oldscore,
+            new_exscore = row.score,
+            old_maxcombo = row.oldcombo,
+            new_maxcombo = row.combo,
+            old_minbp = NormalizeBeatorajaMinBp(row.oldminbp),
+            new_minbp = NormalizeBeatorajaMinBp(row.minbp)
         };
-    }
-
-    private static void ApplyScoreLog(BeatorajaPlayHistoryRecord record, ScoreLogRow log)
-    {
-        record.old_clear = log.oldclear;
-        record.new_clear = log.clear;
-        record.old_exscore = log.oldscore;
-        record.new_exscore = log.score;
-        record.old_maxcombo = log.oldcombo;
-        record.new_maxcombo = log.combo;
-        record.old_minbp = NormalizeBeatorajaMinBp(log.oldminbp);
-        record.new_minbp = NormalizeBeatorajaMinBp(log.minbp);
+        return record;
     }
 
     private static int? NormalizeBeatorajaMinBp(int? value)
@@ -311,105 +314,10 @@ internal sealed class BeatorajaPlayHistoryReader
         return string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim().ToLowerInvariant();
     }
 
-    private readonly struct ScoreLogKey : IEquatable<ScoreLogKey>
-    {
-        private readonly string sha256;
-
-        private readonly int mode;
-
-        private readonly long date;
-
-        internal ScoreLogKey(string sha256, int mode, long date)
-        {
-            this.sha256 = NormalizeSha256(sha256);
-            this.mode = mode;
-            this.date = date;
-        }
-
-        public bool Equals(ScoreLogKey other)
-        {
-            return mode == other.mode
-                && date == other.date
-                && string.Equals(sha256, other.sha256, StringComparison.OrdinalIgnoreCase);
-        }
-
-        public override bool Equals(object obj)
-        {
-            return obj is ScoreLogKey other && Equals(other);
-        }
-
-        public override int GetHashCode()
-        {
-            unchecked
-            {
-                int hash = 17;
-                hash = (hash * 31) + StringComparer.OrdinalIgnoreCase.GetHashCode(sha256 ?? string.Empty);
-                hash = (hash * 31) + mode;
-                hash = (hash * 31) + date.GetHashCode();
-                return hash;
-            }
-        }
-    }
-
-    private sealed class ScoreDataLogRow
+    private sealed class ScoreLogRow
     {
         public long history_id { get; set; }
 
-        public string sha256 { get; set; }
-
-        public int mode { get; set; }
-
-        public int clear { get; set; }
-
-        public int epg { get; set; }
-
-        public int lpg { get; set; }
-
-        public int egr { get; set; }
-
-        public int lgr { get; set; }
-
-        public int egd { get; set; }
-
-        public int lgd { get; set; }
-
-        public int ebd { get; set; }
-
-        public int lbd { get; set; }
-
-        public int epr { get; set; }
-
-        public int lpr { get; set; }
-
-        public int ems { get; set; }
-
-        public int lms { get; set; }
-
-        public int notes { get; set; }
-
-        public int combo { get; set; }
-
-        public int minbp { get; set; }
-
-        public int playcount { get; set; }
-
-        public int clearcount { get; set; }
-
-        public int option { get; set; }
-
-        public long seed { get; set; }
-
-        public int random { get; set; }
-
-        public long played_at { get; set; }
-
-        public int state { get; set; }
-
-        public string scorehash { get; set; }
-    }
-
-    private sealed class ScoreLogRow
-    {
         public string sha256 { get; set; }
 
         public int mode { get; set; }
@@ -431,6 +339,39 @@ internal sealed class BeatorajaPlayHistoryReader
         public int oldminbp { get; set; }
 
         public long date { get; set; }
+    }
+
+    private sealed class PlayerAggregateRow
+    {
+        public long date { get; set; }
+
+        public long playcount { get; set; }
+
+        public long epg { get; set; }
+
+        public long lpg { get; set; }
+
+        public long egr { get; set; }
+
+        public long lgr { get; set; }
+
+        public long egd { get; set; }
+
+        public long lgd { get; set; }
+
+        public long ebd { get; set; }
+
+        public long lbd { get; set; }
+
+        public long epr { get; set; }
+
+        public long lpr { get; set; }
+
+        public long ems { get; set; }
+
+        public long lms { get; set; }
+
+        public long playtime { get; set; }
     }
 
     private sealed class PeriodIndexRow

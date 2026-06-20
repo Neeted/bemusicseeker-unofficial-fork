@@ -1219,58 +1219,55 @@ PlayHistoryRow
   Raw: provider 固有の raw 値
 ```
 
-`ActualResult` と `BestDelta` は分ける。LR2 trigger 由来 row では、判定差分と `PLAY EXSCORE` は今回プレイとして扱えるが、BP / clear / option は best 更新情報であることが多い。beatoraja では `scoredatalog.db` の row がある単曲プレイについて、今回プレイの clear / EX score / 判定 / BP / combo / option / seed を実値として扱える。
+`ActualResult` と `BestDelta` は分ける。LR2 trigger 由来 row では、判定差分と `PLAY EXSCORE` は今回プレイとして扱えるが、BP / clear / option は best 更新情報であることが多い。beatoraja では trigger を導入しないため、LR2 と同じ粒度の actual result は作らず、`scorelog.db` の best 更新を update history として扱う。
 
-`SourceKey` は provider 内の重複排除用識別子で、表示上の `ChartKey` とは分ける。LR2 は `bms_lr2_play_history.id`、beatoraja 単曲は `scoredatalog.scorehash` を優先する。`scorehash` が空の場合は `sha256` / `mode` / `date` / `rowid` を組み合わせて扱う。
+`SourceKey` は provider 内の重複排除用識別子で、表示上の `ChartKey` とは分ける。LR2 は `bms_lr2_play_history.id`、beatoraja は `scorelog.rowid` を使う。
 
 clear は `raw_clear` と `clear_label` / `clear_order` を分ける。beatoraja は `0=NoPlay`, `1=Failed`, `2=AssistEasy`, `3=LightAssistEasy`, `4=Easy`, `5=Normal`, `6=Hard`, `7=ExHard`, `8=FullCombo`, `9=Perfect`, `10=Max` を持つ。LR2 より細かい値は、表示上はそのまま表現し、集計や比較だけ `clear_order` を使う。
 
-option は `raw_option` と `option_label` を分ける。LR2 の `op_best` は best EX score row の option snapshot、`op_history` は達成済み option bit の蓄積である。一方、beatoraja の `scoredatalog.option` はそのプレイの random option で、SP では 1P option、DP では 1P / 2P / DP option を 1 の位 / 10 の位 / 100 の位へ持つ。共通 UI では同じ `OPTION` 列へ出せるが、tooltip では provider 固有の意味を出す。
+option は `raw_option` と `option_label` を分ける。LR2 の `op_best` は best EX score row の option snapshot、`op_history` は達成済み option bit の蓄積である。beatoraja update history では `scorelog.db` から option を得られないため、OPTION 列は空欄にする。
 
 ### beatoraja DB から取れるもの
 
 確認した beatoraja profile では、プレイヤー別 directory に次の DB がある。
 
-- `score.db`: 現在 best / 累計。`score` table と日別 snapshot 的な `player` table を持つ。
+- `score.db`: 現在 best / 累計。`score` table と日別 snapshot 的な `player` table を持つ。PlayHistory の beatoraja summary では `player` の日別累計を使う。
 - `scorelog.db`: best 更新ログ。`scorelog` table に `clear`, `oldclear`, `score`, `oldscore`, `combo`, `oldcombo`, `minbp`, `oldminbp`, `date` が入る。
-- `scoredatalog.db`: 単曲プレイごとの詳細ログ。`scoredatalog` table に `sha256`, `mode`, `clear`, `epg/lpg/egr/lgr/egd/lgd/ebd/lbd/epr/lpr/ems/lms`, `notes`, `combo`, `minbp`, `avgjudge`, `option`, `seed`, `random`, `date`, `state`, `scorehash` などが入る。
+- `scoredatalog.db`: `sha256 + mode` を主キーとする最新プレイ詳細。`scoredatalog` table に `sha256`, `mode`, `clear`, `epg/lpg/egr/lgr/egd/lgd/ebd/lbd/epr/lpr/ems/lms`, `notes`, `combo`, `minbp`, `avgjudge`, `option`, `seed`, `random`, `date`, `state`, `scorehash` などが入るが、append 履歴ではない。
 
-beatoraja の単曲履歴は `scoredatalog.db` を主入力にする。`scorelog.db` は best 更新の old/new を補うために使う。`score.db` は現在値、LAST PLAY SORT 用の補助、chart / mode ごとの現在 best 確認に使う。
+beatoraja の update history は `scorelog.db` を主入力にする。`score.db.player` は画面期間の play count / judge count / playtime summary に使う。`scoredatalog.db` は最新プレイ詳細であり、プレイ履歴 source として使わない。
 
-beatoraja の `mode` は source 固有の文脈として保持する。通常の Chart 解決と LAST PLAY SORT は `sha256` を軸にし、best 更新差分の対応付けだけ `sha256` + `mode` + `date` を使う。
+beatoraja の `mode` は source 固有の文脈として保持する。通常の Chart 解決は `sha256` を軸にし、update history の通常 Chart 表示では `mode = 0` だけを扱う。
 
-beatoraja 単曲 row の主な対応:
+beatoraja update history row の主な対応:
 
 ```text
-played_at        = scoredatalog.date
-chart_sha256     = scoredatalog.sha256
-source_mode      = scoredatalog.mode
-play_exscore     = (epg + lpg) * 2 + (egr + lgr)
-play_perfect     = epg + lpg
-play_great       = egr + lgr
-play_good        = egd + lgd
-play_bad         = ebd + lbd
-play_poor        = epr + lpr + ems + lms
-play_clear       = scoredatalog.clear
-play_bp          = scoredatalog.minbp
-play_combo       = scoredatalog.combo
-play_option_raw  = scoredatalog.option
-play_seed        = scoredatalog.seed
+played_at        = scorelog.date
+chart_sha256     = scorelog.sha256
+source_mode      = scorelog.mode
+old_clear        = scorelog.oldclear
+new_clear        = scorelog.clear
+old_exscore      = scorelog.oldscore
+new_exscore      = scorelog.score
+old_combo        = scorelog.oldcombo
+new_combo        = scorelog.combo
+old_bp           = scorelog.oldminbp
+new_bp           = scorelog.minbp
 ```
 
-FAST / SLOW 内訳は beatoraja 側では取れるが、LR2 と共通表示する初期列には入れない。詳細表示や tooltip へ逃がせるように raw には残す。
+actual result、FAST / SLOW、option、seed などは `scorelog.db` からは取れないため、beatoraja update history row には入れない。
 
 ### beatoraja 側の注意
 
-beatoraja は LR2 trigger 方式と違い、既にログ DB を持っているため、原則として beatoraja DB へ trigger を追加しない。BeMusicSeeker 側で read-only に取り込み、必要なら app-owned DB に正規化 cache を作る。
+beatoraja は LR2 trigger 方式と違い、既存 DB を read-only に読む。beatoraja DB へ trigger は追加しない。
 
-`scorelog.db` は更新ログであり、プレイのみの row は出ない。全プレイ一覧は `scoredatalog.db` を見る。`scorelog.db` と `scoredatalog.db` は `sha256`, `mode`, `date` で対応させるが、対応できない場合は `BestDelta` を空欄にする。
+`scorelog.db` は更新ログであり、プレイのみの row は出ない。更新が無かったプレイや途中終了したプレイを beatoraja 側で LR2 と同じ粒度の play history として復元しない。
 
 beatoraja の course score は、構成曲 SHA256 を連結した hash と mode に保存される。現在の保存処理では course result は `score.db` / `scorelog.db` へ保存されるが、単曲と同じ `scoredatalog.db` row は作られない。beatoraja 対応でも、LR2 と同様に course / grade aggregate row は通常の Chart 履歴一覧へ混ぜず、診断または後続 scope とする。
 
-playtime は `scoredatalog.db` の row には入らない。beatoraja の `player.playtime` は日別 snapshot としては使えるが、単曲 row へ厳密に結び付けない。期間 summary では provider ごとに集計元を分け、beatoraja の曲単位 row では `PLAYTIME` を空欄にする。
+play count / judge count / playtime は beatoraja の `player` 日別 snapshot から画面期間の summary として計算する。単曲 update history row へ厳密に結び付けないため、beatoraja row では actual result 系列を空欄にする。
 
-LAST PLAY SORT は、beatoraja では `scoredatalog.db` の `MAX(date)`、または `score.db.score.date` を使って作れる。LR2 と異なり既存ログがある場合は過去分も扱えるが、アプリ内の表示名は同じ `LAST PLAY SORT` とし、データ取得範囲の違いは provider の仕様として扱う。
+LAST PLAY SORT の beatoraja 統合は後続 scope とする。今回の beatoraja PlayHistory は `scorelog.db` の update history と `score.db.player` の期間 summary に限定する。
 
 ## BeMusicSeeker 側の扱い
 
