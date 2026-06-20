@@ -535,7 +535,7 @@ public class Resources
 
     public static string Play_history_copy_md5 => ResourceManager.GetString("Play_history_copy_md5", resourceCulture);
 
-    public static string Play_history_copy_repository_sha256 => ResourceManager.GetString("Play_history_copy_repository_sha256", resourceCulture);
+    public static string Play_history_copy_sha256 => ResourceManager.GetString("Play_history_copy_sha256", resourceCulture);
 
     public static string Play_history_copy_raw_hash => ResourceManager.GetString("Play_history_copy_raw_hash", resourceCulture);
 

@@ -155,9 +155,9 @@
 ### Row 操作 / Context Menu
 
 - `BeMusicSeeker/ViewModels/GridRowResolver.cs`
-  - row から `ChartFile`、MD5、SHA256、repository SHA256、操作 capability を解決する。
-  - play history row は Chart row ではないため、ChartFile 起点の操作へ無理に載せない。
-  - 解決済み chart row は repository SHA256 / MD5 を使う。未解決 row は raw hash copy だけを許可する。
+  - row から `ChartFile`、MD5、SHA256、操作 capability を解決する。
+  - play history row は専用 context menu に限定しつつ、所持 chart へ解決できた row だけ ChartFile 起点の Explorer / 譜面ビューア操作を許可する。
+  - 解決済み chart row は SHA256 / MD5 を使う。未解決 row には chart 操作 menu を出さない。
   - `D:\work\BeMusicSeeker-decomp\BeMusicSeeker\ViewModels\GridRowResolver.cs:211`
   - `D:\work\BeMusicSeeker-decomp\BeMusicSeeker\ViewModels\GridRowResolver.cs:223`
   - `D:\work\BeMusicSeeker-decomp\BeMusicSeeker\ViewModels\GridRowResolver.cs:274`
@@ -556,14 +556,14 @@ Play history view 用の keyword search context を追加する。既存 chart l
 - [x] `未確定 / 診断` node では LR2 `finalized = 0` の未確定 row と projection / read diagnostics が見える。確定済み row は一覧対象にしない。beatoraja provider では通常履歴を未確定 row として代替表示しない。
 - [x] play history row は playlist tree drop candidate にならない。
 - [x] play history row 右 click では通常 chart 操作 context menu を開かない。
-- [x] play history 専用 context menu で、解決済み row の repository / hash 系と、未解決 row の raw hash copy だけを出す。
+- [x] play history 専用 context menu で、解決済み row の外部ページ / 所持 chart / hash 系操作だけを出す。
 - [x] play history row activation は chart 再生 / explorer / playlist edit を起動しない。
 
 完了条件:
 
 - LR2 履歴を一覧・sort・期間選択・summary 表示できる。
 - 一覧ラベル / 検索欄の下に PlayHistory 専用 summary row を出す。判定数、プレイ数、演奏時間、score / BP / combo / clear 更新、ASSIST / EASY / NORMAL / HARD / FC の clear 内訳をカード風領域として並べる。EXH は LR2 provider では出さず、beatoraja provider のときだけ出す。
-- PlayHistory 専用 context menu は、MD5 解決済み row で BMS-IR、repository SHA-256 解決済み row で Mocha / MinIR、未解決 row で raw hash copy を出す。
+- PlayHistory 専用 context menu は、MD5 解決済み row で BMS-IR、SHA-256 解決済み row で Mocha / MinIR、所持 chart に解決できる row で Explorer / 譜面ビューア、MD5 / SHA256 copy を出す。未解決 row には chart 操作 menu を出さない。
 
 ### Phase 4: LAST PLAY SORT custom folder output
 
@@ -739,7 +739,8 @@ Play history view 用の keyword search context を追加する。既存 chart l
 - 2026-06-19: Phase 3 初期実装の検証として `PlayHistoryReadModelTests|MainWindowContextMenuResourceTests|LocalizationResourceParityTests|MainColumnSettingModeTests` と `dotnet build BeMusicSeeker-decomp.sln` を実行し、成功を確認した。
 - 2026-06-19: Phase 3 操作 guard として PlayHistory view の row drag kind を `GenericSelectedRows` へ切り替え、playlist drop candidate / cell edit / row activation / 通常 chart context menu に流れないことを静的テストで固定した。
 - 2026-06-19: Phase 3 archive node として `bms_lr2_play_history.played_at` の軽量 period index reader、年 / 月 / 日 `PlayHistoryPeriodRequest`、`PlayHistoryArchivePeriodTree` binding を追加し、`docs/manual.ja.md` / `docs/manual.md` に `日付別` / `By Date` を追記した。
-- 2026-06-19: Phase 3 PlayHistory 専用 context menu として、解決済み row は Mocha / MinIR と MD5 / repository SHA256 copy、未解決 row は raw hash copy だけを出す hash-only policy を追加した。
+- 2026-06-19: Phase 3 PlayHistory 専用 context menu として、解決済み row は Mocha / MinIR と MD5 / SHA256 copy、未解決 row は raw hash copy だけを出す hash-only policy を追加した。
+- 2026-06-20: PlayHistory 専用 context menu に所持 chart の Explorer / 譜面ビューア操作を追加し、未解決 row の raw hash copy は出さない方針へ更新した。
 - 2026-06-19: Phase 4 初期実装として `LastPlaySortFolder` bit、playlist property / bulk edit の出力種別、`.lr2folder` / LR2 `folder` row の LAST PLAY SORT projection、manual/spec 追記を追加した。当初検討した schema 未導入時の materialization guard と UI disabled は採用せず、schema status に関わらず固定 SQL projection を出力する方針に整理した。
 - 2026-06-19: Phase 4 追加検証として、LastPlaySortFolder を OFF にした再出力で `LAST PLAY SORT` の生成済み file / stale file / stale LR2 `folder` row が prune されることをテストで固定した。
 - 2026-06-19: Phase 4 UI 方針を見直し、play history schema status が `Installed` ではない場合でも playlist property / bulk edit の LastPlaySortFolder checkbox は enabled のままにし、bulk patch から LastPlaySortFolder 変更を除外しない tests に更新した。

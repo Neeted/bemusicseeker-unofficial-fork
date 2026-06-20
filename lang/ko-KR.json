@@ -121,7 +121,7 @@
   "Error_PlayHistoryFolderPresetDuplicateName": "플레이 로그 FOLDER 표시 프리셋 이름이 중복되었습니다: {0}",
   "Error_PlayHistoryFolderPresetNoPlaylist": "플레이 로그 FOLDER 표시 프리셋에는 플레이리스트를 하나 이상 선택하세요: {0}",
   "Play_history_copy_md5": "MD5 복사",
-  "Play_history_copy_repository_sha256": "Repository SHA256 복사",
+  "Play_history_copy_sha256": "SHA256 복사",
   "Play_history_copy_raw_hash": "RAW HASH 복사",
   "Msg_confirm_lr2_song_db_sync_startup_scan_blocker_cleanup": "진단 대상인 LR2 folder 테이블 행을 정리한 뒤 다시 시도합니다.\n삭제되는 것은 진단 대상인 LR2 folder 테이블 행뿐이며, 채보 파일이나 .lr2folder 파일은 삭제하지 않습니다.\n\n계속하시겠습니까?",
   "Warn_EverythingFallbackScanUsed": "Everything 연동에 실패했기 때문에 일반 파일 열거로 전환합니다.\n대규모 라이브러리에서는 초기화나 리로드에 시간이 걸릴 수 있습니다.\n\nEverything 1.5 Alpha x64가 실행 중인지, BMS 폴더의 인덱스 생성이 완료되었는지, Everything에서 검색 가능한 상태인지 확인해 주세요.\n\n상세: {0}",

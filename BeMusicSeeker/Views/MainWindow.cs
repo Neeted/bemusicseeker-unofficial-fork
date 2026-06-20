@@ -5938,20 +5938,27 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                     item.Visibility = state.CanOpenRepository ? Visibility.Visible : Visibility.Collapsed;
                     item.IsEnabled = state.CanOpenRepository;
                     break;
-                case "playHistoryContextMenuSeparatorRepository":
-                    item.Visibility = state.CanOpenRepository ? Visibility.Visible : Visibility.Collapsed;
+                case "playHistoryContextMenuSeparatorLocal":
+                    item.Visibility = state.HasExternalLinkItem && state.HasLocalChartItem ? Visibility.Visible : Visibility.Collapsed;
+                    break;
+                case "playHistoryContextMenuItemOpenExplorer":
+                    item.Visibility = state.CanOpenExplorer ? Visibility.Visible : Visibility.Collapsed;
+                    item.IsEnabled = state.CanOpenExplorer && File.Exists(state.ChartPath);
+                    break;
+                case "playHistoryContextMenuItemRegisterScore":
+                    item.Visibility = state.CanOpenScoreViewer ? Visibility.Visible : Visibility.Collapsed;
+                    item.IsEnabled = state.CanOpenScoreViewer && File.Exists(state.ChartPath);
+                    break;
+                case "playHistoryContextMenuSeparatorHash":
+                    item.Visibility = (state.HasExternalLinkItem || state.HasLocalChartItem) && state.HasHashCopyItem ? Visibility.Visible : Visibility.Collapsed;
                     break;
                 case "playHistoryContextMenuItemCopyMd5":
                     item.Visibility = state.CanCopyMd5 ? Visibility.Visible : Visibility.Collapsed;
                     item.IsEnabled = state.CanCopyMd5;
                     break;
-                case "playHistoryContextMenuItemCopyRepositorySha256":
-                    item.Visibility = state.CanCopyRepositorySha256 ? Visibility.Visible : Visibility.Collapsed;
-                    item.IsEnabled = state.CanCopyRepositorySha256;
-                    break;
-                case "playHistoryContextMenuItemCopyRawHash":
-                    item.Visibility = state.CanCopyRawHash ? Visibility.Visible : Visibility.Collapsed;
-                    item.IsEnabled = state.CanCopyRawHash;
+                case "playHistoryContextMenuItemCopySha256":
+                    item.Visibility = state.CanCopySha256 ? Visibility.Visible : Visibility.Collapsed;
+                    item.IsEnabled = state.CanCopySha256;
                     break;
             }
         }
@@ -5991,6 +5998,58 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
         Clipboard.SetText(value);
         e.Handled = true;
+    }
+
+    private void playHistoryContextMenuItemOpenExplorerClick(object sender, RoutedEventArgs e)
+    {
+        if (!TryGetContextMenuRow(e.Source, out object row)
+            || !PlayHistoryContextMenuState.TryCreate(row, out PlayHistoryContextMenuState state)
+            || !state.CanOpenExplorer
+            || !File.Exists(state.ChartPath))
+        {
+            return;
+        }
+
+        try
+        {
+            Process.Start("EXPLORER.EXE", "/select,\"" + state.ChartPath + "\"");
+        }
+        catch
+        {
+        }
+        e.Handled = true;
+    }
+
+    private void playHistoryContextMenuItemRegisterScoreViewerClick(object sender, RoutedEventArgs e)
+    {
+        if (!TryGetContextMenuRow(e.Source, out object row)
+            || !PlayHistoryContextMenuState.TryCreate(row, out PlayHistoryContextMenuState state)
+            || !state.CanOpenScoreViewer)
+        {
+            return;
+        }
+        var viewModel = base.DataContext as MainWindowViewModel;
+        if (viewModel == null)
+        {
+            return;
+        }
+
+        var targets = new List<ScoreViewerTarget> { new(state.Md5, state.ChartPath, state.ChartTitle) };
+        e.Handled = true;
+        Task.Run(delegate
+        {
+            string fileName = viewModel.RegisterScoreViewerTargets(targets);
+            try
+            {
+                if (!string.IsNullOrWhiteSpace(fileName))
+                {
+                    Process.Start(fileName);
+                }
+            }
+            catch
+            {
+            }
+        }).Logging("playHistoryContextMenuItemRegisterScoreViewerClick");
     }
 
     private void tableContextMenuItemOpenExplorerClick(object sender, RoutedEventArgs e)

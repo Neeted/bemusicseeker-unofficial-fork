@@ -1,37 +1,53 @@
+using BeMusicSeeker.Models;
+
 namespace BeMusicSeeker.ViewModels;
 
 internal sealed class PlayHistoryContextMenuState
 {
-    internal const string CopyRawHashKind = "RawHash";
     internal const string CopyMd5Kind = "Md5";
-    internal const string CopyRepositorySha256Kind = "RepositorySha256";
+    internal const string CopySha256Kind = "Sha256";
 
-    private PlayHistoryContextMenuState(string rawHash, string md5, string repositorySha256)
+    private PlayHistoryContextMenuState(
+        string md5,
+        string sha256,
+        string chartPath,
+        string chartTitle,
+        bool canOpenScoreViewer)
     {
-        RawHash = rawHash ?? string.Empty;
         Md5 = md5 ?? string.Empty;
-        RepositorySha256 = repositorySha256 ?? string.Empty;
+        Sha256 = sha256 ?? string.Empty;
+        ChartPath = chartPath ?? string.Empty;
+        ChartTitle = chartTitle ?? string.Empty;
+        CanOpenScoreViewer = canOpenScoreViewer;
     }
-
-    internal string RawHash { get; }
 
     internal string Md5 { get; }
 
-    internal string RepositorySha256 { get; }
+    internal string Sha256 { get; }
 
-    internal bool IsResolved => !string.IsNullOrWhiteSpace(Md5);
+    internal string ChartPath { get; }
 
-    internal bool CanOpenBmsIr => IsResolved;
+    internal string ChartTitle { get; }
 
-    internal bool CanOpenRepository => IsResolved && !string.IsNullOrWhiteSpace(RepositorySha256);
+    internal bool CanOpenBmsIr => !string.IsNullOrWhiteSpace(Md5);
 
-    internal bool CanCopyRawHash => !IsResolved && !string.IsNullOrWhiteSpace(RawHash);
+    internal bool CanOpenRepository => !string.IsNullOrWhiteSpace(Sha256);
 
-    internal bool CanCopyMd5 => IsResolved && !string.IsNullOrWhiteSpace(Md5);
+    internal bool CanOpenExplorer => !string.IsNullOrWhiteSpace(ChartPath);
 
-    internal bool CanCopyRepositorySha256 => IsResolved && !string.IsNullOrWhiteSpace(RepositorySha256);
+    internal bool CanOpenScoreViewer { get; }
 
-    internal bool HasVisibleItem => CanOpenBmsIr || CanOpenRepository || CanCopyRawHash || CanCopyMd5 || CanCopyRepositorySha256;
+    internal bool CanCopyMd5 => !string.IsNullOrWhiteSpace(Md5);
+
+    internal bool CanCopySha256 => !string.IsNullOrWhiteSpace(Sha256);
+
+    internal bool HasExternalLinkItem => CanOpenBmsIr || CanOpenRepository;
+
+    internal bool HasLocalChartItem => CanOpenExplorer || CanOpenScoreViewer;
+
+    internal bool HasHashCopyItem => CanCopyMd5 || CanCopySha256;
+
+    internal bool HasVisibleItem => HasExternalLinkItem || HasLocalChartItem || HasHashCopyItem;
 
     internal static bool TryCreate(object row, out PlayHistoryContextMenuState state)
     {
@@ -41,19 +57,28 @@ internal sealed class PlayHistoryContextMenuState
             return false;
         }
 
-        string md5 = playHistoryRow.ResolvedChart != null ? GridRowResolver.GetHash(playHistoryRow) : null;
-        string repositorySha256 = playHistoryRow.ResolvedChart != null ? GridRowResolver.GetRepositorySha256(playHistoryRow) : null;
-        state = new PlayHistoryContextMenuState(playHistoryRow.RawHash, md5, repositorySha256);
-        return state.HasVisibleItem;
+        ChartFile chart = playHistoryRow.ResolvedChart;
+        string md5 = chart?.Kind == ChartFileKind.Bms ? GridRowResolver.GetHash(playHistoryRow) : null;
+        string sha256 = GridRowResolver.GetRepositorySha256(playHistoryRow);
+        bool canOpenScoreViewer = chart?.Kind == ChartFileKind.Bms
+            && !string.IsNullOrWhiteSpace(chart.Md5)
+            && !string.IsNullOrWhiteSpace(chart.Path);
+        state = new PlayHistoryContextMenuState(md5, sha256, chart?.Path, chart?.Title, canOpenScoreViewer);
+        if (state.HasVisibleItem)
+        {
+            return true;
+        }
+
+        state = null;
+        return false;
     }
 
     internal string GetCopyValue(string kind)
     {
         return kind switch
         {
-            CopyRawHashKind => CanCopyRawHash ? RawHash : null,
             CopyMd5Kind => CanCopyMd5 ? Md5 : null,
-            CopyRepositorySha256Kind => CanCopyRepositorySha256 ? RepositorySha256 : null,
+            CopySha256Kind => CanCopySha256 ? Sha256 : null,
             _ => null
         };
     }

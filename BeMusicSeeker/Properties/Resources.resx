@@ -1611,8 +1611,8 @@ maintenance の再スキャンや chart_info の全譜面補完は行いませ�
   <data name="Play_history_copy_md5" xml:space="preserve">
     <value>MD5 をコピー</value>
   </data>
-  <data name="Play_history_copy_repository_sha256" xml:space="preserve">
-    <value>Repository SHA256 をコピー</value>
+  <data name="Play_history_copy_sha256" xml:space="preserve">
+    <value>SHA256 をコピー</value>
   </data>
   <data name="Play_history_copy_raw_hash" xml:space="preserve">
     <value>RAW HASH をコピー</value>

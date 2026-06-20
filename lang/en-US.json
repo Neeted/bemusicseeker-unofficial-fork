@@ -118,7 +118,7 @@
   "Error_PlayHistoryFolderPresetDuplicateName": "The play log FOLDER display preset name is duplicated: {0}",
   "Error_PlayHistoryFolderPresetNoPlaylist": "Select at least one playlist for the play log FOLDER display preset: {0}",
   "Play_history_copy_md5": "Copy MD5",
-  "Play_history_copy_repository_sha256": "Copy repository SHA256",
+  "Play_history_copy_sha256": "Copy SHA256",
   "Play_history_copy_raw_hash": "Copy raw hash",
   "Msg_confirm_lr2_song_db_sync_startup_scan_blocker_cleanup": "Diagnosed LR2 folder table rows will be cleaned up before retrying.\nOnly diagnosed LR2 folder table rows are deleted. Chart files and .lr2folder files are not deleted.\n\nContinue?",
   "Warn_EverythingFallbackScanUsed": "Everything integration failed, so BeMusicSeeker will switch to ordinary file enumeration.\nInitialization or reload may take longer for large libraries.\n\nCheck that Everything 1.5 Alpha x64 is running, has finished indexing your BMS folders, and can search them.\n\nDetails: {0}",

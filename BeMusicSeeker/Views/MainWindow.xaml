@@ -274,10 +274,12 @@
         <MenuItem Name="playHistoryContextMenuItemOpenBMSIR" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_lr2ir, Mode=OneWay}" Click="playHistoryContextMenuItemOpenBMSIRClick" />
         <MenuItem Name="playHistoryContextMenuItemOpenMocha" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_mocha, Mode=OneWay}" Click="tableContextMenuItemOpenMochaClick" />
         <MenuItem Name="playHistoryContextMenuItemOpenMinIR" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_minir, Mode=OneWay}" Click="tableContextMenuItemOpenMinIRClick" />
-        <Separator Name="playHistoryContextMenuSeparatorRepository" />
+        <Separator Name="playHistoryContextMenuSeparatorLocal" />
+        <MenuItem Name="playHistoryContextMenuItemOpenExplorer" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_file_explorer, Mode=OneWay}" Click="playHistoryContextMenuItemOpenExplorerClick" />
+        <MenuItem Name="playHistoryContextMenuItemRegisterScore" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_chart_viewer, Mode=OneWay}" Click="playHistoryContextMenuItemRegisterScoreViewerClick" />
+        <Separator Name="playHistoryContextMenuSeparatorHash" />
         <MenuItem Name="playHistoryContextMenuItemCopyMd5" Tag="Md5" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Play_history_copy_md5, Mode=OneWay}" Click="playHistoryContextMenuItemCopyHashClick" />
-        <MenuItem Name="playHistoryContextMenuItemCopyRepositorySha256" Tag="RepositorySha256" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Play_history_copy_repository_sha256, Mode=OneWay}" Click="playHistoryContextMenuItemCopyHashClick" />
-        <MenuItem Name="playHistoryContextMenuItemCopyRawHash" Tag="RawHash" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Play_history_copy_raw_hash, Mode=OneWay}" Click="playHistoryContextMenuItemCopyHashClick" />
+        <MenuItem Name="playHistoryContextMenuItemCopySha256" Tag="Sha256" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Play_history_copy_sha256, Mode=OneWay}" Click="playHistoryContextMenuItemCopyHashClick" />
       </ContextMenu>
       <ContextMenu x:Key="treeViewPlaylistRootContextMenu" HasDropShadow="True" Opened="treeViewPlaylistRootContextMenuOpend">
         <MenuItem Name="treeViewPlaylistRootContextMenuItemCreateNewPlaylist" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Create_new, Mode=OneWay}" Click="treeViewPlaylistRootContextMenuItemCreateNewPlaylistClick" />

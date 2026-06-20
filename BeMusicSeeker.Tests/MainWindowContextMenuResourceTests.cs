@@ -97,39 +97,42 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(playHistoryContextMenu, "Name=\"playHistoryContextMenuItemOpenBMSIR\"");
         StringAssert.Contains(playHistoryContextMenu, "Name=\"playHistoryContextMenuItemOpenMocha\"");
         StringAssert.Contains(playHistoryContextMenu, "Name=\"playHistoryContextMenuItemOpenMinIR\"");
+        StringAssert.Contains(playHistoryContextMenu, "Name=\"playHistoryContextMenuItemOpenExplorer\"");
+        StringAssert.Contains(playHistoryContextMenu, "Name=\"playHistoryContextMenuItemRegisterScore\"");
         StringAssert.Contains(playHistoryContextMenu, "Name=\"playHistoryContextMenuItemCopyMd5\"");
-        StringAssert.Contains(playHistoryContextMenu, "Name=\"playHistoryContextMenuItemCopyRepositorySha256\"");
-        StringAssert.Contains(playHistoryContextMenu, "Name=\"playHistoryContextMenuItemCopyRawHash\"");
-        Assert.IsFalse(playHistoryContextMenu.Contains("tableContextMenuItemOpenExplorer"));
+        StringAssert.Contains(playHistoryContextMenu, "Name=\"playHistoryContextMenuItemCopySha256\"");
+        Assert.IsFalse(playHistoryContextMenu.Contains("playHistoryContextMenuItemCopyRawHash"));
         Assert.IsFalse(playHistoryContextMenu.Contains("tableContextMenuItemDeleteFile"));
         Assert.IsFalse(playHistoryContextMenu.Contains("tableContextMenuItemUpdateRankingData"));
+        Assert.IsTrue(playHistoryContextMenu.IndexOf("playHistoryContextMenuItemOpenBMSIR", StringComparison.Ordinal) < playHistoryContextMenu.IndexOf("playHistoryContextMenuItemOpenMocha", StringComparison.Ordinal));
+        Assert.IsTrue(playHistoryContextMenu.IndexOf("playHistoryContextMenuItemOpenMinIR", StringComparison.Ordinal) < playHistoryContextMenu.IndexOf("playHistoryContextMenuItemOpenExplorer", StringComparison.Ordinal));
+        Assert.IsTrue(playHistoryContextMenu.IndexOf("playHistoryContextMenuItemRegisterScore", StringComparison.Ordinal) < playHistoryContextMenu.IndexOf("playHistoryContextMenuItemCopyMd5", StringComparison.Ordinal));
         foreach (string resource in new[]
         {
             "Play_history_copy_md5",
-            "Play_history_copy_repository_sha256",
-            "Play_history_copy_raw_hash"
+            "Play_history_copy_sha256"
         })
         {
             StringAssert.Contains(playHistoryContextMenu, "Path=Resources." + resource + ", Mode=OneWay", resource);
             Assert.IsFalse(string.IsNullOrWhiteSpace(Resources.ResourceManager.GetString(resource)), resource);
         }
-        Assert.IsTrue(MainWindow.TryResolvePlayHistoryContextMenuPolicyForTest(playHistoryRow, out PlayHistoryContextMenuState unresolvedState));
+        Assert.IsFalse(Resources.Play_history_copy_sha256.Contains("Repository"));
+        Assert.IsFalse(MainWindow.TryResolvePlayHistoryContextMenuPolicyForTest(playHistoryRow, out PlayHistoryContextMenuState unresolvedState));
+        Assert.IsNull(unresolvedState);
         Assert.IsNull(GridRowResolver.GetRepositorySha256(playHistoryRow));
-        Assert.IsTrue(unresolvedState.CanCopyRawHash);
-        Assert.IsFalse(unresolvedState.CanOpenBmsIr);
-        Assert.IsFalse(unresolvedState.CanOpenRepository);
-        Assert.IsFalse(unresolvedState.CanCopyMd5);
-        Assert.IsFalse(unresolvedState.CanCopyRepositorySha256);
-        Assert.AreEqual("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", unresolvedState.GetCopyValue(PlayHistoryContextMenuState.CopyRawHashKind));
         Assert.IsTrue(MainWindow.TryResolvePlayHistoryContextMenuPolicyForTest(resolvedPlayHistoryRow, out PlayHistoryContextMenuState resolvedState));
         Assert.AreEqual(new string('d', 64), GridRowResolver.GetRepositorySha256(resolvedPlayHistoryRow));
-        Assert.IsFalse(resolvedState.CanCopyRawHash);
         Assert.IsTrue(resolvedState.CanOpenBmsIr);
         Assert.IsTrue(resolvedState.CanOpenRepository);
+        Assert.IsTrue(resolvedState.CanOpenExplorer);
+        Assert.IsTrue(resolvedState.CanOpenScoreViewer);
         Assert.IsTrue(resolvedState.CanCopyMd5);
-        Assert.IsTrue(resolvedState.CanCopyRepositorySha256);
+        Assert.IsTrue(resolvedState.CanCopySha256);
+        Assert.IsTrue(resolvedState.HasExternalLinkItem);
+        Assert.IsTrue(resolvedState.HasLocalChartItem);
+        Assert.IsTrue(resolvedState.HasHashCopyItem);
         Assert.AreEqual("cccccccccccccccccccccccccccccccc", resolvedState.GetCopyValue(PlayHistoryContextMenuState.CopyMd5Kind));
-        Assert.AreEqual(new string('d', 64), resolvedState.GetCopyValue(PlayHistoryContextMenuState.CopyRepositorySha256Kind));
+        Assert.AreEqual(new string('d', 64), resolvedState.GetCopyValue(PlayHistoryContextMenuState.CopySha256Kind));
     }
 
     [TestMethod]

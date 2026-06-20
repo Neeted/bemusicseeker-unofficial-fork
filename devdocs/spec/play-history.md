@@ -105,7 +105,7 @@ UI refresh では raw rows がある場合に projection index を作る。proje
 | `PlayExscore` / `Judges` / `PlaytimeSeconds` | finalized actual play delta から作る実プレイ結果。 |
 | `Option` / `OpHistory` | LR2 option snapshot / option history、または beatoraja option の表示。 |
 
-空 hash の raw row や chart 解決できない row は失敗として捨てず、diagnostic または unresolved row として扱う。Play history view の context menu は chart row 用 menu を広く出さず、resolved MD5 がある row は BMS-IR、repository SHA-256 がある row は Mocha / MinIR と hash copy、unresolved row は raw hash copy を中心にする。
+空 hash の raw row や chart 解決できない row は失敗として捨てず、diagnostic または unresolved row として扱う。Play history view の context menu は chart row 用 menu を広く出さず、resolved MD5 がある row は BMS-IR、resolved SHA-256 がある row は Mocha / MinIR と hash copy、所持 chart に解決できる row は Explorer / 譜面ビューアを出す。unresolved row には chart 操作 menu を出さない。
 
 LR2 `OP HISTORY` は `new_op_history & ~old_op_history` で新規に立った bit を名前表示する。`old_op_history & ~new_op_history` がある場合は `ASSIST off` のように消えた bit も遷移として表示する。
 
