@@ -797,5 +797,17 @@
   "Statusbar_progress_phase_playlist_load": "プレイリスト読込",
   "Statusbar_progress_phase_playlist_loading": "プレイリスト読込中",
   "Statusbar_progress_detail_separator_format": "{0} / {1}",
-  "Msg_failed_rename_playlist_folder": "プレイリストが外部同期モードになっているため\nフォルダ名を変更することは出来ません。"
+  "Msg_failed_rename_playlist_folder": "プレイリストが外部同期モードになっているため\nフォルダ名を変更することは出来ません。",
+  "UpdateDialog_Title": "アップデートがあります",
+  "UpdateDialog_Message_Format": "新しいバージョン ({0}) を利用できます。",
+  "UpdateDialog_CurrentVersion": "現在:",
+  "UpdateDialog_LatestVersion": "最新:",
+  "UpdateDialog_Package": "パッケージ",
+  "UpdateDialog_PackageAppOnly": "通常版",
+  "UpdateDialog_PackageAppOnlyDescription": "アプリ本体のみを更新します。譜面解析済みメタデータは含まれません。",
+  "UpdateDialog_PackageWithMetadata": "メタデータ同梱版",
+  "UpdateDialog_PackageWithMetadataDescription": "アプリ本体に加えて譜面解析済みメタデータを同梱します。初回解析時間を短縮したい場合に選びます。",
+  "UpdateDialog_StartupBlocked": "起動初期化が完了するまでアップデートを開始できません。",
+  "UpdateDialog_UpdateButton": "更新",
+  "UpdateDialog_ReleasePageButton": "Releaseページ"
 }

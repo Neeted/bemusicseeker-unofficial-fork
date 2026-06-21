@@ -154,7 +154,7 @@ function Get-ReleaseAssetMetadata($assetPath, $version, $packageSuffix) {
 
     return [PSCustomObject]@{
         kind = if ($isMetadataPackage) { "app-with-metadata" } else { "app" }
-        label = if ($isMetadataPackage) { "譜面解析済みメタデータ同梱版" } else { "本体のみ" }
+        label = if ($isMetadataPackage) { "App with metadata bundle" } else { "App only" }
         fileName = $fileName
         url = $downloadUrl
         sha256 = (Get-FileHash -Path $asset.FullName -Algorithm SHA256).Hash.ToLowerInvariant()

@@ -797,5 +797,17 @@
   "Statusbar_progress_phase_playlist_load": "Chargement des listes de lecture",
   "Statusbar_progress_phase_playlist_loading": "Chargement des listes de lecture",
   "Statusbar_progress_detail_separator_format": "{0} / {1}",
-  "Msg_failed_rename_playlist_folder": "Le nom du dossier ne peut pas être modifié car la liste de lecture est en mode de synchronisation externe."
+  "Msg_failed_rename_playlist_folder": "Le nom du dossier ne peut pas être modifié car la liste de lecture est en mode de synchronisation externe.",
+  "UpdateDialog_Title": "Mise à jour disponible",
+  "UpdateDialog_Message_Format": "Une nouvelle version ({0}) est disponible.",
+  "UpdateDialog_CurrentVersion": "Actuelle :",
+  "UpdateDialog_LatestVersion": "Dernière :",
+  "UpdateDialog_Package": "Package",
+  "UpdateDialog_PackageAppOnly": "Application seule",
+  "UpdateDialog_PackageAppOnlyDescription": "Met à jour uniquement l'application. Les métadonnées de charts pré-analysées ne sont pas incluses.",
+  "UpdateDialog_PackageWithMetadata": "Application avec métadonnées",
+  "UpdateDialog_PackageWithMetadataDescription": "Met à jour l'application et inclut les métadonnées de charts pré-analysées. Choisissez ceci pour réduire le temps d'analyse initial.",
+  "UpdateDialog_StartupBlocked": "La mise à jour ne peut pas démarrer avant la fin de l'initialisation.",
+  "UpdateDialog_UpdateButton": "Mettre à jour",
+  "UpdateDialog_ReleasePageButton": "Page de version"
 }

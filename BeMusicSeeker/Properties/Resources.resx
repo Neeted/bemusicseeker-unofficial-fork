@@ -2741,4 +2741,40 @@ cleanup-only成功: {3}
     <value>プレイリストが外部同期モードになっているため
 フォルダ名を変更することは出来ません。</value>
   </data>
+  <data name="UpdateDialog_Title" xml:space="preserve">
+    <value>アップデートがあります</value>
+  </data>
+  <data name="UpdateDialog_Message_Format" xml:space="preserve">
+    <value>新しいバージョン ({0}) を利用できます。</value>
+  </data>
+  <data name="UpdateDialog_CurrentVersion" xml:space="preserve">
+    <value>現在:</value>
+  </data>
+  <data name="UpdateDialog_LatestVersion" xml:space="preserve">
+    <value>最新:</value>
+  </data>
+  <data name="UpdateDialog_Package" xml:space="preserve">
+    <value>パッケージ</value>
+  </data>
+  <data name="UpdateDialog_PackageAppOnly" xml:space="preserve">
+    <value>通常版</value>
+  </data>
+  <data name="UpdateDialog_PackageAppOnlyDescription" xml:space="preserve">
+    <value>アプリ本体のみを更新します。譜面解析済みメタデータは含まれません。</value>
+  </data>
+  <data name="UpdateDialog_PackageWithMetadata" xml:space="preserve">
+    <value>メタデータ同梱版</value>
+  </data>
+  <data name="UpdateDialog_PackageWithMetadataDescription" xml:space="preserve">
+    <value>アプリ本体に加えて譜面解析済みメタデータを同梱します。初回解析時間を短縮したい場合に選びます。</value>
+  </data>
+  <data name="UpdateDialog_StartupBlocked" xml:space="preserve">
+    <value>起動初期化が完了するまでアップデートを開始できません。</value>
+  </data>
+  <data name="UpdateDialog_UpdateButton" xml:space="preserve">
+    <value>更新</value>
+  </data>
+  <data name="UpdateDialog_ReleasePageButton" xml:space="preserve">
+    <value>Releaseページ</value>
+  </data>
 </root>

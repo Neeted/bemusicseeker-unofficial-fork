@@ -77,12 +77,12 @@ function Get-ReleaseAssetMetadata($asset, $context) {
 
     if ($asset.Name -eq $normalName) {
         $kind = "app"
-        $label = "本体のみ"
+        $label = "App only"
         $includesChartInfoMetadata = $false
     }
     elseif ($asset.Name -eq $metadataName) {
         $kind = "app-with-metadata"
-        $label = "譜面解析済みメタデータ同梱版"
+        $label = "App with metadata bundle"
         $includesChartInfoMetadata = $true
     }
     else {

@@ -797,5 +797,17 @@
   "Statusbar_progress_phase_playlist_load": "Loading Playlists",
   "Statusbar_progress_phase_playlist_loading": "Loading playlists",
   "Statusbar_progress_detail_separator_format": "{0} / {1}",
-  "Msg_failed_rename_playlist_folder": "The folder name cannot be changed because the playlist is in external sync mode."
+  "Msg_failed_rename_playlist_folder": "The folder name cannot be changed because the playlist is in external sync mode.",
+  "UpdateDialog_Title": "Update Available",
+  "UpdateDialog_Message_Format": "A new version ({0}) is available.",
+  "UpdateDialog_CurrentVersion": "Current:",
+  "UpdateDialog_LatestVersion": "Latest:",
+  "UpdateDialog_Package": "Package",
+  "UpdateDialog_PackageAppOnly": "App only",
+  "UpdateDialog_PackageAppOnlyDescription": "Updates the application only. Pre-analyzed chart metadata is not included.",
+  "UpdateDialog_PackageWithMetadata": "App with metadata bundle",
+  "UpdateDialog_PackageWithMetadataDescription": "Updates the application and includes pre-analyzed chart metadata. Choose this to reduce initial analysis time.",
+  "UpdateDialog_StartupBlocked": "The update cannot start until startup initialization is complete.",
+  "UpdateDialog_UpdateButton": "Update",
+  "UpdateDialog_ReleasePageButton": "Release Page"
 }

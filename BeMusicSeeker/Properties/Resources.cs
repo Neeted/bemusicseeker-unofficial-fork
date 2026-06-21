@@ -1787,6 +1787,30 @@ public class Resources
 
     public static string Msg_failed_rename_playlist_folder => ResourceManager.GetString("Msg_failed_rename_playlist_folder", resourceCulture);
 
+    public static string UpdateDialog_Title => ResourceManager.GetString("UpdateDialog_Title", resourceCulture);
+
+    public static string UpdateDialog_Message_Format => ResourceManager.GetString("UpdateDialog_Message_Format", resourceCulture);
+
+    public static string UpdateDialog_CurrentVersion => ResourceManager.GetString("UpdateDialog_CurrentVersion", resourceCulture);
+
+    public static string UpdateDialog_LatestVersion => ResourceManager.GetString("UpdateDialog_LatestVersion", resourceCulture);
+
+    public static string UpdateDialog_Package => ResourceManager.GetString("UpdateDialog_Package", resourceCulture);
+
+    public static string UpdateDialog_PackageAppOnly => ResourceManager.GetString("UpdateDialog_PackageAppOnly", resourceCulture);
+
+    public static string UpdateDialog_PackageAppOnlyDescription => ResourceManager.GetString("UpdateDialog_PackageAppOnlyDescription", resourceCulture);
+
+    public static string UpdateDialog_PackageWithMetadata => ResourceManager.GetString("UpdateDialog_PackageWithMetadata", resourceCulture);
+
+    public static string UpdateDialog_PackageWithMetadataDescription => ResourceManager.GetString("UpdateDialog_PackageWithMetadataDescription", resourceCulture);
+
+    public static string UpdateDialog_StartupBlocked => ResourceManager.GetString("UpdateDialog_StartupBlocked", resourceCulture);
+
+    public static string UpdateDialog_UpdateButton => ResourceManager.GetString("UpdateDialog_UpdateButton", resourceCulture);
+
+    public static string UpdateDialog_ReleasePageButton => ResourceManager.GetString("UpdateDialog_ReleasePageButton", resourceCulture);
+
     internal Resources()
     {
     }

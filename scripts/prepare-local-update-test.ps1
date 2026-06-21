@@ -13,6 +13,7 @@ param(
     [string]$Version = "999.0.0.0",
     [int]$Port = 8765,
     [string]$PackagePath,
+    [string]$MetadataPackagePath,
     [string]$OutputDir = "artifacts\local-update-test",
     [switch]$StartServer,
     [switch]$StopServer
@@ -32,9 +33,9 @@ function Get-AppVersion {
     throw "AssemblyInformationalVersion が見つかりません: $asmInfoPath"
 }
 
-function Resolve-PackagePath {
-    if (-not [string]::IsNullOrWhiteSpace($PackagePath)) {
-        $resolved = $PackagePath
+function Resolve-PackagePath($path, $defaultName, $requiredMessage) {
+    if (-not [string]::IsNullOrWhiteSpace($path)) {
+        $resolved = $path
         if (-not [System.IO.Path]::IsPathRooted($resolved)) {
             $resolved = Join-Path $devRoot $resolved
         }
@@ -45,13 +46,27 @@ function Resolve-PackagePath {
         return $resolved
     }
 
-    $currentVersion = Get-AppVersion
-    $defaultName = "bemusicseeker-unofficial-fork-v$currentVersion.zip"
     $defaultPath = Join-Path $distDir $defaultName
     if (-not (Test-Path $defaultPath -PathType Leaf)) {
-        throw "通常版 package が見つかりません: $defaultPath`n先に .\scripts\publish.ps1 -PackageOnly -SkipDocHtml を実行してください。"
+        if ($requiredMessage -ne $null) {
+            throw "$requiredMessage`: $defaultPath"
+        }
+        return $null
     }
     return [System.IO.Path]::GetFullPath($defaultPath)
+}
+
+function New-ManifestAsset($kind, $label, $localPackageName, $localPackagePath, $includesChartInfoMetadata, $baseUrl) {
+    $asset = Get-Item $localPackagePath
+    return [PSCustomObject]@{
+        kind = $kind
+        label = $label
+        fileName = $localPackageName
+        url = "$baseUrl/$localPackageName"
+        sha256 = (Get-FileHash -Path $asset.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+        sizeBytes = $asset.Length
+        includesChartInfoMetadata = $includesChartInfoMetadata
+    }
 }
 
 function Stop-ExistingServer($pidPath) {
@@ -88,14 +103,35 @@ if ($StopServer) {
 
 New-Item -ItemType Directory -Path $resolvedOutputDir -Force | Out-Null
 
-$sourcePackagePath = Resolve-PackagePath
+$currentVersion = Get-AppVersion
+$sourcePackagePath = Resolve-PackagePath `
+    $PackagePath `
+    "bemusicseeker-unofficial-fork-v$currentVersion.zip" `
+    "通常版 package が見つかりません。先に .\scripts\publish.ps1 -PackageOnly -SkipDocHtml を実行してください。"
+$sourceMetadataPackagePath = Resolve-PackagePath `
+    $MetadataPackagePath `
+    "bemusicseeker-unofficial-fork-v$currentVersion-with-metadata.zip" `
+    $null
+
 $localPackageName = "bemusicseeker-local-update-test.zip"
 $localPackagePath = Join-Path $resolvedOutputDir $localPackageName
 Copy-Item $sourcePackagePath $localPackagePath -Force
 
-$asset = Get-Item $localPackagePath
+$localMetadataPackagePath = $null
+$localMetadataPackageName = "bemusicseeker-local-update-test-with-metadata.zip"
+if ($sourceMetadataPackagePath -ne $null) {
+    $localMetadataPackagePath = Join-Path $resolvedOutputDir $localMetadataPackageName
+    Copy-Item $sourceMetadataPackagePath $localMetadataPackagePath -Force
+}
+
 $tag = "v$Version"
 $baseUrl = "http://127.0.0.1:$Port"
+$manifestAssets = @()
+$manifestAssets += New-ManifestAsset "app" "App only" $localPackageName $localPackagePath $false $baseUrl
+if ($localMetadataPackagePath -ne $null) {
+    $manifestAssets += New-ManifestAsset "app-with-metadata" "App with metadata bundle" $localMetadataPackageName $localMetadataPackagePath $true $baseUrl
+}
+
 $manifest = [PSCustomObject]@{
     schemaVersion = 1
     version = $Version
@@ -104,17 +140,7 @@ $manifest = [PSCustomObject]@{
     packageFormatVersion = 1
     publishedAt = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
     minimumUpdaterVersion = "1"
-    assets = @(
-        [PSCustomObject]@{
-            kind = "app"
-            label = "ローカル検証用 package"
-            fileName = $localPackageName
-            url = "$baseUrl/$localPackageName"
-            sha256 = (Get-FileHash -Path $asset.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-            sizeBytes = $asset.Length
-            includesChartInfoMetadata = $false
-        }
-    )
+    assets = $manifestAssets
 }
 
 $manifestPath = Join-Path $resolvedOutputDir "update.json"
@@ -124,6 +150,10 @@ Write-Host "local update manifest を作成しました:" -ForegroundColor Green
 Write-Host "  $manifestPath"
 Write-Host "package:"
 Write-Host "  $localPackagePath"
+if ($localMetadataPackagePath -ne $null) {
+    Write-Host "metadata package:"
+    Write-Host "  $localMetadataPackagePath"
+}
 Write-Host ""
 Write-Host "manifest URL:"
 Write-Host "  $baseUrl/update.json"

@@ -3,20 +3,21 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Linq;
 using BeMusicSeeker.Models.Update;
+using BeMusicSeeker.Properties;
 
 namespace BeMusicSeeker.ViewModels;
 
 internal sealed class UpdateAvailableDialogViewModel : INotifyPropertyChanged, IDisposable
 {
     private readonly MainWindowViewModel ownerViewModel;
-    private UpdateAssetInfo selectedAsset;
+    private UpdatePackageOption selectedPackage;
 
     public UpdateAvailableDialogViewModel(UpdateCheckResult updateCheckResult, MainWindowViewModel ownerViewModel)
     {
         UpdateCheckResult = updateCheckResult ?? throw new ArgumentNullException(nameof(updateCheckResult));
         this.ownerViewModel = ownerViewModel;
-        Assets = new ObservableCollection<UpdateAssetInfo>(UpdateCheckResult.Assets ?? []);
-        selectedAsset = Assets.FirstOrDefault();
+        Packages = new ObservableCollection<UpdatePackageOption>((UpdateCheckResult.Assets ?? []).Select(UpdatePackageOption.Create));
+        selectedPackage = Packages.FirstOrDefault();
         if (ownerViewModel != null)
         {
             ownerViewModel.PropertyChanged += OwnerViewModelPropertyChanged;
@@ -27,11 +28,21 @@ internal sealed class UpdateAvailableDialogViewModel : INotifyPropertyChanged, I
 
     public UpdateCheckResult UpdateCheckResult { get; }
 
-    public ObservableCollection<UpdateAssetInfo> Assets { get; }
+    public ObservableCollection<UpdatePackageOption> Packages { get; }
 
-    public string Title => "Update Available";
+    public string Title => Resources.UpdateDialog_Title;
 
-    public string Message => $"A new version ({UpdateCheckResult.LatestVersionText}) is available.";
+    public string Message => string.Format(Resources.UpdateDialog_Message_Format, UpdateCheckResult.LatestVersionText);
+
+    public string CurrentVersionLabel => Resources.UpdateDialog_CurrentVersion;
+
+    public string LatestVersionLabel => Resources.UpdateDialog_LatestVersion;
+
+    public string PackageLabel => Resources.UpdateDialog_Package;
+
+    public string UpdateButtonLabel => Resources.UpdateDialog_UpdateButton;
+
+    public string ReleasePageButtonLabel => Resources.UpdateDialog_ReleasePageButton;
 
     public string CurrentVersionText => UpdateCheckResult.CurrentVersionText;
 
@@ -39,22 +50,25 @@ internal sealed class UpdateAvailableDialogViewModel : INotifyPropertyChanged, I
 
     public string ReleasePageUrl => UpdateCheckResult.ReleasePageUrl;
 
-    public bool HasSelectableAssets => Assets.Count > 0;
+    public bool HasSelectableAssets => Packages.Count > 0;
 
     public bool CanApplyUpdateNow => HasSelectableAssets && ownerViewModel?.IsStartupProgressActive != true;
 
-    public string ApplyBlockedReason => CanApplyUpdateNow ? string.Empty : "Startup initialization is still running.";
+    public string ApplyBlockedReason => CanApplyUpdateNow ? string.Empty : Resources.UpdateDialog_StartupBlocked;
 
-    public UpdateAssetInfo SelectedAsset
+    public UpdateAssetInfo SelectedAsset => selectedPackage?.Asset;
+
+    public UpdatePackageOption SelectedPackage
     {
-        get => selectedAsset;
+        get => selectedPackage;
         set
         {
-            if (!ReferenceEquals(selectedAsset, value))
+            if (!ReferenceEquals(selectedPackage, value))
             {
-                selectedAsset = value;
-                RaisePropertyChanged(nameof(SelectedAsset));
+                selectedPackage = value;
+                RaisePropertyChanged(nameof(SelectedPackage));
                 RaisePropertyChanged(nameof(CanApplyUpdateNow));
+                RaisePropertyChanged(nameof(SelectedAsset));
             }
         }
     }
@@ -79,5 +93,49 @@ internal sealed class UpdateAvailableDialogViewModel : INotifyPropertyChanged, I
     private void RaisePropertyChanged(string propertyName)
     {
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+    }
+
+    internal sealed class UpdatePackageOption
+    {
+        private UpdatePackageOption(UpdateAssetInfo asset, string displayLabel, string description)
+        {
+            Asset = asset;
+            DisplayLabel = displayLabel;
+            Description = description;
+        }
+
+        public UpdateAssetInfo Asset { get; }
+
+        public string DisplayLabel { get; }
+
+        public string Description { get; }
+
+        public string FileName => Asset?.FileName ?? string.Empty;
+
+        public static UpdatePackageOption Create(UpdateAssetInfo asset)
+        {
+            if (asset == null)
+            {
+                return null;
+            }
+
+            if (string.Equals(asset.Kind, "app-with-metadata", StringComparison.Ordinal))
+            {
+                return new UpdatePackageOption(
+                    asset,
+                    Resources.UpdateDialog_PackageWithMetadata,
+                    Resources.UpdateDialog_PackageWithMetadataDescription);
+            }
+
+            if (string.Equals(asset.Kind, "app", StringComparison.Ordinal))
+            {
+                return new UpdatePackageOption(
+                    asset,
+                    Resources.UpdateDialog_PackageAppOnly,
+                    Resources.UpdateDialog_PackageAppOnlyDescription);
+            }
+
+            return new UpdatePackageOption(asset, asset.Label ?? asset.FileName ?? asset.Kind, string.Empty);
+        }
     }
 }

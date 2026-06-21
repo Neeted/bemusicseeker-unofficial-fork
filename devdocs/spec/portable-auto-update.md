@@ -32,8 +32,10 @@ asset 種別:
 - `app-with-metadata`: `chart-info-metadata.7z` 同梱版
 
 各 asset は `fileName`, `url`, `sha256`, `sizeBytes`, `includesChartInfoMetadata` を持つ。
+`label` は manifest 上では英語の識別用文字列とし、UI 表示名と説明文はアプリ側の多言語リソースで `kind` から決める。
 
 `--update-manifest-url=` を指定するとローカル検証用に manifest URL を差し替えられる。この override では失敗を fallback せず、そのまま失敗として扱う。
+`scripts/prepare-local-update-test.ps1 -StartServer` は通常版と metadata 同梱版の zip が `dist/` にある場合、2 asset を含むローカル `update.json` を生成して HTTP 配信する。
 
 ## 更新確認
 
@@ -48,6 +50,8 @@ asset 種別:
 `update.json` に asset がある場合、通常版と metadata 同梱版を選択できる。
 
 更新適用ボタンは `MainWindowViewModel.IsStartupProgressActive` が `false` のときのみ有効になる。これは起動初期化の進捗ゲージが消えた後に更新適用へ進ませるためで、永続設定としては保持しない。
+
+更新適用ボタンを押した場合も Release ページを開く。これにより、自動更新開始前にユーザーが配布ページやリリースノートを確認できる。
 
 ## ダウンロードと検証
 

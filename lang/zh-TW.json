@@ -797,5 +797,17 @@
   "Statusbar_progress_phase_playlist_load": "播放清單讀取",
   "Statusbar_progress_phase_playlist_loading": "正在讀取播放清單",
   "Statusbar_progress_detail_separator_format": "{0} / {1}",
-  "Msg_failed_rename_playlist_folder": "播放清單處於外部同步模式，\n因此無法變更資料夾名稱。"
+  "Msg_failed_rename_playlist_folder": "播放清單處於外部同步模式，\n因此無法變更資料夾名稱。",
+  "UpdateDialog_Title": "有可用更新",
+  "UpdateDialog_Message_Format": "有新版本 ({0}) 可用。",
+  "UpdateDialog_CurrentVersion": "目前:",
+  "UpdateDialog_LatestVersion": "最新:",
+  "UpdateDialog_Package": "套件",
+  "UpdateDialog_PackageAppOnly": "僅應用程式",
+  "UpdateDialog_PackageAppOnlyDescription": "僅更新應用程式本體。不包含預先分析的譜面中繼資料。",
+  "UpdateDialog_PackageWithMetadata": "應用程式與中繼資料包",
+  "UpdateDialog_PackageWithMetadataDescription": "更新應用程式本體，並包含預先分析的譜面中繼資料。若想縮短首次分析時間請選擇此項。",
+  "UpdateDialog_StartupBlocked": "啟動初始化完成前無法開始更新。",
+  "UpdateDialog_UpdateButton": "更新",
+  "UpdateDialog_ReleasePageButton": "Release 頁面"
 }

@@ -26,10 +26,16 @@ public partial class UpdateAvailableDialog : Window
         {
             return;
         }
+        OpenReleasePage();
         DialogResult = true;
     }
 
     private void OpenReleasePageButtonClick(object sender, RoutedEventArgs e)
+    {
+        OpenReleasePage();
+    }
+
+    private void OpenReleasePage()
     {
         if (string.IsNullOrWhiteSpace(viewModel.ReleasePageUrl))
         {
