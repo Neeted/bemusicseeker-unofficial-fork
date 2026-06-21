@@ -860,7 +860,7 @@ The play-log context menu can open BMS-IR for rows with a resolved MD5, open Moc
 
 ### Notes for beatoraja
 
-beatoraja play-log reading is read-only update history. It reads `scorelog.db` from the player folder selected for score loading, and shows SCORE / CLEAR / BP / COMBO deltas when best values were updated. If `scorelog.db` is missing, beatoraja update history cannot be shown. beatoraja `scoredatalog.db` stores the latest play details and is not used as per-play history.
+beatoraja play-log reading is read-only update history. It reads `scorelog.db` from the player folder selected for score loading, and shows SCORE / CLEAR / BP / COMBO deltas when best values were updated. BEST DJ / BEST RATE are shown when the note count already loaded for score display is available. If `scorelog.db` is missing, beatoraja update history cannot be shown. beatoraja `scoredatalog.db` stores the latest play details and is not used as per-play history.
 
 beatoraja judge count, play count, and playtime are not calculated from individual rows; they are shown only in the top summary. They are calculated for the selected period from the player daily totals in beatoraja `score.db`. Because of this, they may differ from the beatoraja row count or search result count. `Unfinalized / Diagnostics` is LR2-only, so these beatoraja period-summary values are shown as `-` there as well.
 

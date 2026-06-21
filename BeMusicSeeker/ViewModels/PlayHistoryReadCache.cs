@@ -114,7 +114,7 @@ internal sealed class PlayHistoryReadCache
         out bool cacheHit)
     {
         BeatorajaPlayHistoryReadRequest resolved = BeatorajaPlayHistoryReader.ResolveRequestPaths(CopyBeatorajaRequest(request));
-        var key = new BeatorajaCacheKey(resolved.ScoreDbPath, resolved.ScoreLogDbPath);
+        var key = new BeatorajaCacheKey(resolved.ScoreDbPath, resolved.ScoreLogDbPath, resolved.ScoreSnapshotVersion);
         long loadGeneration;
         while (true)
         {
@@ -142,6 +142,8 @@ internal sealed class PlayHistoryReadCache
         {
             ScoreDbPath = key.ScoreDbPath,
             ScoreLogDbPath = key.ScoreLogDbPath,
+            ScoresBySha256 = resolved.ScoresBySha256,
+            ScoreSnapshotVersion = key.ScoreSnapshotVersion,
             FinalizationFilter = Lr2PlayHistoryFinalizationFilter.All,
             DisableLimit = true
         };
@@ -207,9 +209,11 @@ internal sealed class PlayHistoryReadCache
         BeatorajaPlayHistoryReadRequest resolved = BeatorajaPlayHistoryReader.ResolveRequestPaths(new BeatorajaPlayHistoryReadRequest
         {
             ScoreDbPath = request?.ScoreDbPath,
-            ScoreLogDbPath = request?.ScoreLogDbPath
+            ScoreLogDbPath = request?.ScoreLogDbPath,
+            ScoresBySha256 = request?.ScoresBySha256,
+            ScoreSnapshotVersion = request?.ScoreSnapshotVersion ?? 0
         });
-        var key = new BeatorajaCacheKey(resolved.ScoreDbPath, resolved.ScoreLogDbPath);
+        var key = new BeatorajaCacheKey(resolved.ScoreDbPath, resolved.ScoreLogDbPath, resolved.ScoreSnapshotVersion);
         lock (syncRoot)
         {
             if (beatorajaEntry != null && beatorajaEntry.Key.IsSameSource(key))
@@ -224,6 +228,8 @@ internal sealed class PlayHistoryReadCache
             {
                 ScoreDbPath = resolved.ScoreDbPath,
                 ScoreLogDbPath = resolved.ScoreLogDbPath,
+                ScoresBySha256 = resolved.ScoresBySha256,
+                ScoreSnapshotVersion = resolved.ScoreSnapshotVersion,
                 FinalizationFilter = Lr2PlayHistoryFinalizationFilter.FinalizedOnly,
                 DisableLimit = true
             },
@@ -345,6 +351,8 @@ internal sealed class PlayHistoryReadCache
         {
             ScoreDbPath = request.ScoreDbPath,
             ScoreLogDbPath = request.ScoreLogDbPath,
+            ScoresBySha256 = request.ScoresBySha256,
+            ScoreSnapshotVersion = request.ScoreSnapshotVersion,
             PlayedAtFromInclusive = request.PlayedAtFromInclusive,
             PlayedAtToExclusive = request.PlayedAtToExclusive,
             Limit = request.Limit,
@@ -390,19 +398,24 @@ internal sealed class PlayHistoryReadCache
     {
         internal BeatorajaCacheKey(
             string scoreDbPath,
-            string scoreLogDbPath)
+            string scoreLogDbPath,
+            int scoreSnapshotVersion)
         {
             ScoreDbPath = scoreDbPath ?? string.Empty;
             ScoreLogDbPath = scoreLogDbPath ?? string.Empty;
+            ScoreSnapshotVersion = Math.Max(0, scoreSnapshotVersion);
         }
 
         internal string ScoreDbPath { get; }
 
         internal string ScoreLogDbPath { get; }
 
+        internal int ScoreSnapshotVersion { get; }
+
         internal bool IsSameSource(BeatorajaCacheKey other)
         {
             return other != null
+                && ScoreSnapshotVersion == other.ScoreSnapshotVersion
                 && string.Equals(ScoreDbPath, other.ScoreDbPath, StringComparison.OrdinalIgnoreCase)
                 && string.Equals(ScoreLogDbPath, other.ScoreLogDbPath, StringComparison.OrdinalIgnoreCase);
         }

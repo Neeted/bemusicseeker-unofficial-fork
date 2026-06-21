@@ -58,7 +58,7 @@ internal sealed class BeatorajaPlayHistoryReader
             foreach (ScoreLogRow row in logRows)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                rows.Add(Convert(row));
+                rows.Add(Convert(row, request.ScoresBySha256));
             }
             logRows.Clear();
 
@@ -271,18 +271,29 @@ internal sealed class BeatorajaPlayHistoryReader
             || row.playtime < 0;
     }
 
-    private static BeatorajaPlayHistoryRecord Convert(ScoreLogRow row)
+    private static BeatorajaPlayHistoryRecord Convert(ScoreLogRow row, IReadOnlyDictionary<string, BMSScore> scoresBySha256)
     {
+        string sha256 = NormalizeSha256(row.sha256);
+        int notes = 0;
+        if (row.mode == NormalScoreMode && !string.IsNullOrWhiteSpace(sha256))
+        {
+            notes = scoresBySha256 != null
+                && scoresBySha256.TryGetValue(sha256, out BMSScore score)
+                && score?.totalnotes > 0
+                    ? score.totalnotes
+                    : 0;
+        }
         var record = new BeatorajaPlayHistoryRecord
         {
             history_id = row.history_id,
-            sha256 = NormalizeSha256(row.sha256),
+            sha256 = sha256,
             mode = row.mode,
             played_at = row.date,
             old_clear = row.oldclear,
             new_clear = row.clear,
             old_exscore = row.oldscore,
             new_exscore = row.score,
+            notes = notes,
             old_maxcombo = row.oldcombo,
             new_maxcombo = row.combo,
             old_minbp = NormalizeBeatorajaMinBp(row.oldminbp),

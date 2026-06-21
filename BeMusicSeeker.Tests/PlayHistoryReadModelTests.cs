@@ -620,6 +620,8 @@ public sealed class PlayHistoryReadModelTests
                 new BeatorajaPlayHistoryReadRequest
                 {
                     ScoreDbPath = scoreDbPath,
+                    ScoresBySha256 = CreateBeatorajaScoreSnapshot((ShaA, 100)),
+                    ScoreSnapshotVersion = 1,
                     PlayedAtFromInclusive = day1 - 100,
                     PlayedAtToExclusive = day1 + 100
                 },
@@ -629,6 +631,7 @@ public sealed class PlayHistoryReadModelTests
             Assert.IsFalse(firstCacheHit);
             Assert.AreEqual(Lr2PlayHistorySchemaStatus.Installed, first.SchemaStatus);
             CollectionAssert.AreEqual(new[] { day1 }, first.Rows.Select(row => row.played_at).ToArray());
+            Assert.AreEqual(100, first.Rows[0].notes);
             Assert.IsTrue(first.PlayerSnapshotsAvailable);
             Assert.AreEqual(3, first.PlayerSnapshots.Count);
 
@@ -639,6 +642,8 @@ public sealed class PlayHistoryReadModelTests
                 {
                     ScoreDbPath = scoreDbPath,
                     ScoreLogDbPath = scoreLogDbPath,
+                    ScoresBySha256 = CreateBeatorajaScoreSnapshot((ShaA, 100)),
+                    ScoreSnapshotVersion = 1,
                     PlayedAtFromInclusive = day2 - 100,
                     PlayedAtToExclusive = day2 + 100
                 },
@@ -650,6 +655,7 @@ public sealed class PlayHistoryReadModelTests
             Assert.AreEqual(day2, second.Rows[0].played_at);
             Assert.AreEqual(100, second.Rows[0].old_exscore);
             Assert.AreEqual(180, second.Rows[0].new_exscore);
+            Assert.AreEqual(100, second.Rows[0].notes);
             Assert.IsTrue(second.PlayerSnapshotsAvailable);
             Assert.AreEqual(3, second.PlayerSnapshots.Count);
 
@@ -657,6 +663,8 @@ public sealed class PlayHistoryReadModelTests
                 new BeatorajaPlayHistoryReadRequest
                 {
                     ScoreDbPath = scoreDbPath,
+                    ScoresBySha256 = CreateBeatorajaScoreSnapshot((ShaA, 100)),
+                    ScoreSnapshotVersion = 1,
                     FinalizationFilter = Lr2PlayHistoryFinalizationFilter.UnfinalizedOnly
                 },
                 CancellationToken.None,
@@ -666,7 +674,12 @@ public sealed class PlayHistoryReadModelTests
             Assert.AreEqual(0, unfinalized.Rows.Count);
 
             BeatorajaPlayHistoryPeriodIndexResult periodIndex = cache.ReadBeatorajaPeriodIndex(
-                new BeatorajaPlayHistoryPeriodIndexRequest { ScoreDbPath = scoreDbPath },
+                new BeatorajaPlayHistoryPeriodIndexRequest
+                {
+                    ScoreDbPath = scoreDbPath,
+                    ScoresBySha256 = CreateBeatorajaScoreSnapshot((ShaA, 100)),
+                    ScoreSnapshotVersion = 1
+                },
                 CancellationToken.None,
                 out bool periodIndexCacheHit);
 
@@ -686,6 +699,45 @@ public sealed class PlayHistoryReadModelTests
             Assert.AreEqual(Lr2PlayHistorySchemaStatus.Installed, afterInvalidate.SchemaStatus);
             Assert.AreEqual(0, afterInvalidate.Rows.Count);
             Assert.AreEqual("play_history_beatoraja_scorelog_missing", afterInvalidate.Diagnostics.Single().Code);
+        });
+    }
+
+    [TestMethod]
+    public void PlayHistoryReadCache_BeatorajaScoreSnapshotVersionInvalidatesCachedNotes()
+    {
+        WithBeatorajaPlayerDb(delegate (string scoreDbPath, string scoreLogDbPath)
+        {
+            CreateBeatorajaScoreLogDb(scoreLogDbPath);
+            CreateBeatorajaPlayerDb(scoreDbPath);
+            using (var db = new SQLiteConnection(scoreLogDbPath))
+            {
+                InsertBeatorajaScoreLog(db, ShaA, mode: 0, date: 1000, oldClear: 4, clear: 5, oldScore: 100, score: 133, oldCombo: 70, combo: 80, oldMinBp: 20, minBp: 10);
+            }
+
+            var cache = new PlayHistoryReadCache();
+            BeatorajaPlayHistoryReadResult first = cache.ReadBeatoraja(
+                new BeatorajaPlayHistoryReadRequest
+                {
+                    ScoreDbPath = scoreDbPath,
+                    ScoresBySha256 = CreateBeatorajaScoreSnapshot((ShaA, 100)),
+                    ScoreSnapshotVersion = 1
+                },
+                CancellationToken.None,
+                out bool firstCacheHit);
+            BeatorajaPlayHistoryReadResult second = cache.ReadBeatoraja(
+                new BeatorajaPlayHistoryReadRequest
+                {
+                    ScoreDbPath = scoreDbPath,
+                    ScoresBySha256 = CreateBeatorajaScoreSnapshot((ShaA, 200)),
+                    ScoreSnapshotVersion = 2
+                },
+                CancellationToken.None,
+                out bool secondCacheHit);
+
+            Assert.IsFalse(firstCacheHit);
+            Assert.IsFalse(secondCacheHit);
+            Assert.AreEqual(100, first.Rows.Single().notes);
+            Assert.AreEqual(200, second.Rows.Single().notes);
         });
     }
 
@@ -1320,6 +1372,8 @@ public sealed class PlayHistoryReadModelTests
             BeatorajaPlayHistoryReadResult read = new BeatorajaPlayHistoryReader().Read(new BeatorajaPlayHistoryReadRequest
             {
                 ScoreDbPath = scoreDbPath,
+                ScoresBySha256 = CreateBeatorajaScoreSnapshot((ShaA, 100)),
+                ScoreSnapshotVersion = 1,
                 PlayedAtFromInclusive = 900,
                 PlayedAtToExclusive = 1100
             });
@@ -1348,7 +1402,8 @@ public sealed class PlayHistoryReadModelTests
             Assert.AreEqual("EASY -> NORMAL", row.BestClear);
             Assert.AreEqual(string.Empty, row.Option);
             Assert.AreEqual("score bp clear combo", row.Kind);
-            Assert.AreEqual(string.Empty, row.BestRateText);
+            Assert.AreEqual("C -> B", row.BestDjLevelText);
+            Assert.AreEqual("50.00% -> 66.50%", row.BestRateText);
             Assert.IsNull(row.PlaytimeSeconds);
             Assert.AreEqual(1, summary.RowCount);
             Assert.AreEqual(1, summary.SummaryEligibleCount);
@@ -1786,6 +1841,8 @@ public sealed class PlayHistoryReadModelTests
             Assert.AreEqual("5 -> 3", row.BestBp);
             Assert.AreEqual("EASY -> NORMAL", row.BestClear);
             Assert.AreEqual("score bp clear combo", row.Kind);
+            Assert.AreEqual(string.Empty, row.BestDjLevelText);
+            Assert.AreEqual(string.Empty, row.BestRateText);
         });
     }
 
@@ -1953,6 +2010,24 @@ public sealed class PlayHistoryReadModelTests
             playCount,
             judgeCount,
             playtime);
+    }
+
+    private static IReadOnlyDictionary<string, BMSScore> CreateBeatorajaScoreSnapshot(params (string Sha256, int Notes)[] entries)
+    {
+        var scoresBySha256 = new Dictionary<string, BMSScore>(StringComparer.OrdinalIgnoreCase);
+        foreach ((string sha256, int notes) in entries)
+        {
+            if (string.IsNullOrWhiteSpace(sha256) || notes <= 0)
+            {
+                continue;
+            }
+            scoresBySha256[sha256.Trim()] = new BMSScore
+            {
+                hash = sha256.Trim(),
+                totalnotes = notes
+            };
+        }
+        return scoresBySha256;
     }
 
     private static void AssertBeatorajaAggregateDecreaseIsUnavailable(long day1, long day2, long playCount2, long judgeCount2, long playtime2)

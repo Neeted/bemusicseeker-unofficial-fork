@@ -860,7 +860,7 @@ beatoraja では best が更新された行だけが表示されます。更新�
 
 ### beatoraja 利用時の注意
 
-beatoraja のプレイログは読み取り専用の更新履歴です。スコア読み込みで選択しているプレイヤーフォルダの `scorelog.db` を読み、best が更新された SCORE / CLEAR / BP / COMBO の差分を表示します。`scorelog.db` が無い場合、beatoraja の更新履歴は表示できません。beatoraja の `scoredatalog.db` は最新のプレイ詳細を保持する DB であり、プレイごとの履歴としては使いません。
+beatoraja のプレイログは読み取り専用の更新履歴です。スコア読み込みで選択しているプレイヤーフォルダの `scorelog.db` を読み、best が更新された SCORE / CLEAR / BP / COMBO の差分を表示します。BEST DJ / BEST RATE は、スコア読み込みで取得済みのノーツ数を使える場合に表示します。`scorelog.db` が無い場合、beatoraja の更新履歴は表示できません。beatoraja の `scoredatalog.db` は最新のプレイ詳細を保持する DB であり、プレイごとの履歴としては使いません。
 
 beatoraja の判定数、プレイ数、演奏時間は単曲行からは計算せず、上部サマリーだけに表示します。これらは beatoraja の `score.db` にある player 日別累計から、選択中の期間分として計算します。そのため、beatoraja の一覧行数や検索結果件数とは一致しないことがあります。`未確定 / 診断` は LR2 専用の診断なので、beatoraja ではこれらの期間集計も `-` になります。
 

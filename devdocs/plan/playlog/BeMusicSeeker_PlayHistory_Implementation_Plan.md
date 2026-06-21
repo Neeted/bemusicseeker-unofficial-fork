@@ -698,6 +698,7 @@ Play history view 用の keyword search context を追加する。既存 chart l
 
 - [x] player directory から `score.db` / `scorelog.db` path を解決する。
 - [x] `scorelog.db` を主入力にして update history row を作る。
+- [x] BEST DJ / BEST RATE は `scorelog` の old / new score と、beatoraja score load 時に作られた score snapshot の notes から計算する。PlayHistory reader は `score.db.score` を再読み込みせず、現在の best 値を update history row に混ぜない。
 - [x] beatoraja update history では LR2 と同じ粒度で取れない actual result / option / 単曲 playtime を表示しない。
 - [x] archive / last play index は `MAX(scorelog.date)` を主入力にする。`scorelog.db` が読めない場合は beatoraja provider の update history index を未提供にする。LR2 LAST PLAY SORT custom folder への beatoraja 統合は今回の scope 外。
 - [x] clear は raw と projection を分ける。
@@ -706,6 +707,7 @@ Play history view 用の keyword search context を追加する。既存 chart l
 テスト:
 
 - [x] `scorelog.db` の normal mode update row が `PlayHistoryRow` になる。
+- [x] beatoraja update history row は score snapshot に notes がある場合に BEST DJ / BEST RATE を表示し、notes がない場合は空欄のままにする。
 - [x] `scorelog.db` が無い場合は beatoraja update history row を作らず warning diagnostic を返す。
 - [x] playcount / judge count / playtime は row では空欄。期間 summary は `score.db.player` の日別累計 snapshot から画面期間分を計算し、未対応 / 読み取り不可は `-` と表示する。
 - [x] LR2 provider と同じ columns / search / summary 経路へ載る。
@@ -766,6 +768,7 @@ Play history view 用の keyword search context を追加する。既存 chart l
 - 2026-06-19: 再レビュー指摘への対応として、表示プリセットの保存用 JSON と変更検知用 draft JSON を分離し、空名 / 重複名 / playlist 未選択の invalid draft を「変更なし」と誤判定しないようにした。設定ダイアログ表示用 playlist 候補は settings backup / cancel では全件再構築せず dirty 化し、選択判定は `playlist.id` / name / symbol の集合 index で行う。保存 helper / cancel 復元 / summary row clear / CustomTable current cell text-run 色保持の tests も追加した。
 - 2026-06-21: beatoraja 上部サマリー対応として、`score.db.player` の日別累計 snapshot を `BeatorajaPlayHistoryReader` で読み、画面期間の開始前 / 終了前 snapshot 差分から summary の playcount / judge count / playtime を計算するようにした。beatoraja の update history row の actual result / playtime は引き続き空欄とし、`未確定 / 診断` や `score.db.player` 読み取り不可では `-` を表示する。keyword search / FOLDER 投影による一覧行数の変化には追従させず、画面期間に対する値として固定する。`PlayHistoryReadModelTests` に snapshot read、cache filter、期間差分、未対応 `-` 表示の回帰テストを追加し、`docs/manual.ja.md` / `docs/manual.md` / `devdocs/spec/play-history.md` / release notes を更新した。
 - 2026-06-21: beatoraja 実装再確認として、beatoraja 側の `scoredatalog.db` は `sha256 + mode` 主キーの最新プレイ詳細であり append 履歴ではないこと、`scorelog.db` は best 更新時の update log であることを確認し、beatoraja provider を `scorelog.db` 主入力の「更新履歴」へ整理した。アプリ側 trigger は導入しない。`scoredatalog.db` 由来の actual result / option 投影、`sha256 + mode + date` 照合、`scoredatalog` period index を撤去し、資料・マニュアル・リリースノートを更新した。
+- 2026-06-21: beatoraja BEST DJ / BEST RATE follow-up として、`scorelog.db` の old / new score に既存 beatoraja score snapshot の notes を結び付け、rank / rate の遷移を表示できるようにした。PlayHistory reader は `score.db.score` を再読み込みせず、score snapshot version を beatoraja read cache key に含める。現在の best score / clear / combo / BP は履歴 row に混ぜない。notes が読めない行は従来通り BEST DJ / BEST RATE を空欄にする。資料・マニュアル・リリースノートも更新した。
 - 2026-06-19: UI follow-up として、設定ダイアログ Playlist tab の `プレイログ FOLDER 表示プリセット` はプリセット名一覧だけを表示し、追加 / 編集ボタンから別ウィンドウでプリセット名と対象 playlist を選択する設計へ変更した。対象 playlist 候補の全件構築は別ウィンドウを開く時だけ行い、Cancel では draft を変更しない。
 - 2026-06-19: テストレビュー指摘への対応として、別ウィンドウ化した FOLDER 表示プリセット編集の OK / Cancel 配線、未適用 edit session が draft を汚さないこと、検証失敗時に既存 preset が変わらないこと、設定ダイアログ OK 保存経路が preset persist を呼ぶことをテストで固定した。
 - 2026-06-19: 再レビュー指摘への対応として、beatoraja provider の `未確定 / 診断` では通常履歴を未確定 row として代替表示しないよう `FinalizationFilter.UnfinalizedOnly` を空 rows として扱う実装にした。CustomTable text run の実描画色、SettingDialog cancel / schema check 判定、beatoraja diagnostics を追加した。

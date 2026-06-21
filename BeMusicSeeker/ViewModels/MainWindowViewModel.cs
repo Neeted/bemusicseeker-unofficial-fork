@@ -21361,6 +21361,9 @@ public class MainWindowViewModel : ViewModel
         var readStopwatch = Stopwatch.StartNew();
         CancellationToken cancellationToken = GetPlayHistoryFilterCancellationToken(requestId);
         bool useBeatorajaProvider = ShouldUseBeatorajaPlayHistoryProvider();
+        BeatorajaPlayHistoryScoreContext beatorajaScoreContext = useBeatorajaProvider
+            ? ResolveBeatorajaPlayHistoryScoreContext()
+            : BeatorajaPlayHistoryScoreContext.Empty;
         PlayHistoryProvider activePlayHistoryProvider = useBeatorajaProvider ? PlayHistoryProvider.Beatoraja : PlayHistoryProvider.Lr2;
         Lr2PlayHistoryReadResult lr2ReadResult = null;
         BeatorajaPlayHistoryReadResult beatorajaReadResult = null;
@@ -21372,8 +21375,10 @@ public class MainWindowViewModel : ViewModel
         {
             if (useBeatorajaProvider)
             {
+                BeatorajaPlayHistoryReadRequest beatorajaReadRequest = periodRequest.ToBeatorajaReadRequest(ResolveMainViewBeatorajaPlayHistoryScoreDbPath());
+                ApplyBeatorajaPlayHistoryScoreContext(beatorajaReadRequest, beatorajaScoreContext);
                 beatorajaReadResult = playHistoryReadCache.ReadBeatoraja(
-                    periodRequest.ToBeatorajaReadRequest(ResolveMainViewBeatorajaPlayHistoryScoreDbPath()),
+                    beatorajaReadRequest,
                     cancellationToken,
                     out playHistoryReadCacheHit);
                 readSchemaStatus = beatorajaReadResult.SchemaStatus;
@@ -21428,7 +21433,12 @@ public class MainWindowViewModel : ViewModel
                 if (useBeatorajaProvider)
                 {
                     BeatorajaPlayHistoryPeriodIndexResult periodIndexResult = playHistoryReadCache.ReadBeatorajaPeriodIndex(
-                        new BeatorajaPlayHistoryPeriodIndexRequest { ScoreDbPath = ResolveMainViewBeatorajaPlayHistoryScoreDbPath() },
+                        new BeatorajaPlayHistoryPeriodIndexRequest
+                        {
+                            ScoreDbPath = ResolveMainViewBeatorajaPlayHistoryScoreDbPath(),
+                            ScoresBySha256 = beatorajaScoreContext.ScoresBySha256,
+                            ScoreSnapshotVersion = beatorajaScoreContext.ScoreSnapshotVersion
+                        },
                         cancellationToken,
                         out playHistoryPeriodIndexCacheHit);
                     periodIndexPlayedAt = periodIndexResult.PlayedAtUnixSeconds;
@@ -22369,6 +22379,44 @@ public class MainWindowViewModel : ViewModel
             return BeatorajaConfigService.GetScoreDbPath(Settings.Default.BeatorajaRootPath, Settings.Default.BeatorajaPlayerId);
         }
         return Settings.Default.BeatorajaScoreDbPath;
+    }
+
+    private BeatorajaPlayHistoryScoreContext ResolveBeatorajaPlayHistoryScoreContext()
+    {
+        BeMusicSeeker.Models.BMSLibrary.ScoreSnapshot scoreSnapshot = files?.GetScoreSnapshotForDiagnostics();
+        if (scoreSnapshot?.ActiveScoreSource != ActiveScoreSource.Beatoraja)
+        {
+            return BeatorajaPlayHistoryScoreContext.Empty;
+        }
+
+        return new BeatorajaPlayHistoryScoreContext(scoreSnapshot.Version, scoreSnapshot.ScoresBySha256);
+    }
+
+    private static void ApplyBeatorajaPlayHistoryScoreContext(
+        BeatorajaPlayHistoryReadRequest request,
+        BeatorajaPlayHistoryScoreContext scoreContext)
+    {
+        if (request == null)
+        {
+            return;
+        }
+        request.ScoresBySha256 = scoreContext?.ScoresBySha256;
+        request.ScoreSnapshotVersion = scoreContext?.ScoreSnapshotVersion ?? 0;
+    }
+
+    private sealed class BeatorajaPlayHistoryScoreContext
+    {
+        internal static BeatorajaPlayHistoryScoreContext Empty { get; } = new(0, new Dictionary<string, BeMusicSeeker.Models.BMSScore>(StringComparer.OrdinalIgnoreCase));
+
+        internal BeatorajaPlayHistoryScoreContext(int scoreSnapshotVersion, IReadOnlyDictionary<string, BeMusicSeeker.Models.BMSScore> scoresBySha256)
+        {
+            ScoreSnapshotVersion = Math.Max(0, scoreSnapshotVersion);
+            ScoresBySha256 = scoresBySha256 ?? new Dictionary<string, BeMusicSeeker.Models.BMSScore>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        internal int ScoreSnapshotVersion { get; }
+
+        internal IReadOnlyDictionary<string, BeMusicSeeker.Models.BMSScore> ScoresBySha256 { get; }
     }
 
     internal long RegisterPlayHistoryFilterRequest()

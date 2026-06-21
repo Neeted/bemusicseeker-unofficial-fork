@@ -64,7 +64,7 @@ reader は schema check を先に行う。`Installed` 以外の read 可能で�
 
 `BeatorajaPlayHistoryReader` は beatoraja player directory の `scorelog.db` を read-only source として扱う。`scorelog` は best 更新時だけ追記される update log であり、全プレイ履歴ではない。通常 Chart 更新履歴として扱うのは `mode = 0` の row だけであり、course / grade などの aggregate row を通常 Chart 履歴に混ぜない。
 
-beatoraja の `scoredatalog.db` は `sha256 + mode` を primary key とする最新プレイ詳細の保存先であり、プレイごとの append log ではない。現行 play history / update history projection では `scoredatalog.db` を source にしない。beatoraja row は SCORE / CLEAR / BP / COMBO などの best delta を表示するが、今回プレイの actual result、option、単曲 playtime は持たない。
+beatoraja の `scoredatalog.db` は `sha256 + mode` を primary key とする最新プレイ詳細の保存先であり、プレイごとの append log ではない。現行 play history / update history projection では `scoredatalog.db` を source にしない。beatoraja row は SCORE / CLEAR / BP / COMBO などの best delta を表示する。BEST DJ / BEST RATE は `scorelog` の old / new score と、beatoraja score load 時に `score.db.score.notes` から作られた score snapshot の notes から計算する。PlayHistory reader は `score.db.score` を再読み込みせず、現在の best score / clear / combo / BP を履歴 row に混ぜない。今回プレイの actual result、option、単曲 playtime は持たない。
 
 beatoraja には LR2 `finalized = 0` に相当する未確定 play history row がない。Diagnostics node の `UnfinalizedOnly` 要求では通常の update history row を代替表示せず、空 rows として扱う。
 
@@ -78,7 +78,7 @@ Play History view は画面遷移または期間選択で最初に provider / so
 
 cache 構築は `Lr2PlayHistoryReader` / `BeatorajaPlayHistoryReader` に `FinalizationFilter = All` と `DisableLimit = true` を渡して行う。SQL や row conversion は reader 側の既存実装を使い、cache は読み込まれた raw row に対して期間・確定状態・limit の in-memory filter だけを担当する。独自 SQL や別の row mapping は持たない。
 
-cache key は LR2 では score DB path と LR2 linked profile 判定、beatoraja では score DB path と `scorelog.db` path である。score reload、play history schema の導入 / 修復 / 削除、source path または provider の切り替えでは cache を破棄し、次回 Play History view 利用時に再ロードする。
+cache key は LR2 では score DB path と LR2 linked profile 判定、beatoraja では score DB path、`scorelog.db` path、score snapshot version である。score reload、play history schema の導入 / 修復 / 削除、source path または provider の切り替えでは cache を破棄し、次回 Play History view 利用時に再ロードする。
 
 LR2 schema status は reader が source を読むときに得た `Lr2PlayHistorySchemaCheckResult` を含む。設定ダイアログは表示時に DB check を自動実行しないが、Play History read で得た結果が現在の LR2 linked profile と一致する場合は表示状態へ共有する。未読の場合は未確認表示のままであり、導入 / 修復 / 削除ボタンの明示操作だけが操作直前の check を行う。
 
