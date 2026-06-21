@@ -135,6 +135,8 @@ view request には request id があり、古い非同期 refresh の結果が�
 
 LR2 native の `clear = 2` は `op_history` の EASY bit で表示用 clear を解決する。EASY bit が立っている場合は `EASY`、EASY bit がない場合は `ASSIST` として扱う。OpenLR2 では CONSTANT / H-RAN / SCATTER / autoscratch などで `clear = 2` へ降格される場合があるため、ASSIST bit 自体は clear type 判定には使わない。この基準は通常一覧、keyword search、Play History、clear type custom folder で同じ基準に揃える。
 
+OpenLR2 は force easy 系の保存分岐で `playcount` / `clearcount` / `clear` / `op_history` だけを更新し、EXSCORE / BP / max combo / `op_best` を更新しない場合がある。LR2 Play History では `clear = 2` かつ EASY bit なし、`minbp < 0` の行を score detail 未保存として扱い、clear 更新だけを表示する。このとき EXSCORE / BP / combo / OPTION は実績値として扱わない。`op_best = 0` や既存の `op_best` は実際の option と推測せず、score detail 未保存行では OPTION を空欄にする。
+
 ## Keyword Search
 
 Play History view は通常検索欄に `GridKeywordSearchContext.PlayHistory` を使う。keyword search は LR2 DB read と projection が終わり、display target filter を適用した後、sort / view 適用の前に in-memory で `PlayHistoryRow` を絞り込む。`KeywordFilterUpdated` / display target 変更 / `SortUpdated` は同じ期間 request の read / projection result を再利用し、DB read と projection index build を繰り返さない。

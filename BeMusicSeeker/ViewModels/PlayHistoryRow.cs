@@ -62,12 +62,14 @@ internal sealed class PlayHistoryRow
         OldPlaycount = Raw.old_playcount;
         NewPlaycount = Raw.new_playcount;
         PlaycountDelta = Raw.playcount_delta;
-        OldBestExscore = Raw.old_exscore;
-        NewBestExscore = Raw.new_exscore;
-        OldBestBp = Raw.old_minbp;
-        NewBestBp = Raw.new_minbp;
-        OldBestCombo = Raw.old_maxcombo;
-        NewBestCombo = Raw.new_maxcombo;
+        bool oldScoreDetailUnavailable = IsLr2ScoreDetailUnavailable(Raw.old_clear, Raw.old_op_history, Raw.old_minbp);
+        bool newScoreDetailUnavailable = IsLr2ScoreDetailUnavailable(Raw.new_clear, Raw.new_op_history, Raw.new_minbp);
+        OldBestExscore = oldScoreDetailUnavailable ? null : Raw.old_exscore;
+        NewBestExscore = newScoreDetailUnavailable ? null : Raw.new_exscore;
+        OldBestBp = NormalizeLr2MinBp(Raw.old_minbp);
+        NewBestBp = NormalizeLr2MinBp(Raw.new_minbp);
+        OldBestCombo = oldScoreDetailUnavailable ? null : Raw.old_maxcombo;
+        NewBestCombo = newScoreDetailUnavailable ? null : Raw.new_maxcombo;
         JudgeTotal = Raw.judge_delta;
         PlaytimeSeconds = Raw.playtime_delta;
         Perfect = Raw.perfect_delta;
@@ -446,6 +448,19 @@ internal sealed class PlayHistoryRow
                 : (ClearType)value.Value;
         }
         return ClearTypeStorageConverter.FromLr2ScoreValue(value.Value, opHistory ?? 0);
+    }
+
+    private static bool IsLr2ScoreDetailUnavailable(int? clear, int? opHistory, int? minBp)
+    {
+        return clear == 2
+            && ((opHistory ?? 0) & ClearTypeStorageConverter.OptionHistoryEasy) == 0
+            && minBp.HasValue
+            && minBp.Value < 0;
+    }
+
+    private static int? NormalizeLr2MinBp(int? value)
+    {
+        return value.HasValue && value.Value >= 0 ? value : null;
     }
 
     private static string FormatClearDelta(ClearType? oldValue, ClearType? newValue)

@@ -1336,6 +1336,60 @@ public sealed class PlayHistoryReadModelTests
     }
 
     [TestMethod]
+    public void RowProjectionTreatsInitialLr2ForceEasySentinelsAsClearOnly()
+    {
+        PlayHistoryProjectionResult projected = PlayHistoryRow.ProjectLr2Rows(
+            new Lr2PlayHistoryReadResult(
+                PlayHistorySourceProfile.Lr2("score.db"),
+                [
+                    CreateRawRecord(
+                        43,
+                        HashA,
+                        1000,
+                        finalized: true,
+                        oldExscore: null,
+                        newExscore: 1774,
+                        newTotalNotes: 1000,
+                        oldClear: 0,
+                        newClear: 2,
+                        oldMinBp: null,
+                        newMinBp: -1,
+                        oldMaxCombo: null,
+                        newMaxCombo: 935,
+                        newOpBest: 12,
+                        newOpHistory: 0)
+                ],
+                [],
+                Lr2PlayHistorySchemaStatus.Installed),
+            CreateProjectionIndex());
+
+        PlayHistoryRow row = projected.Rows.Single();
+        PlayHistoryPeriodSummary summary = PlayHistoryPeriodSummary.FromRows("force-easy", projected.Rows);
+
+        Assert.AreEqual(ClearType.NO_PLAY, row.OldBestClear);
+        Assert.AreEqual(ClearType.INVALID, row.NewBestClear);
+        Assert.AreEqual("NP -> ASSIST", row.BestClear);
+        Assert.AreEqual("clear", row.Kind);
+        Assert.IsFalse(row.BestScoreUpdated);
+        Assert.IsFalse(row.BestBpUpdated);
+        Assert.IsFalse(row.BestComboUpdated);
+        Assert.IsNull(row.NewBestExscore);
+        Assert.IsNull(row.NewBestBp);
+        Assert.IsNull(row.NewBestCombo);
+        Assert.AreEqual(string.Empty, row.BestExscore);
+        Assert.AreEqual(string.Empty, row.BestDjLevelText);
+        Assert.AreEqual(string.Empty, row.BestRateText);
+        Assert.AreEqual(string.Empty, row.BestBp);
+        Assert.AreEqual(string.Empty, row.BestCombo);
+        Assert.AreEqual(string.Empty, row.Option);
+        Assert.AreEqual(1, summary.ClearUpdateCount);
+        Assert.AreEqual(0, summary.ScoreUpdateCount);
+        Assert.AreEqual(0, summary.BpUpdateCount);
+        Assert.AreEqual(0, summary.ComboUpdateCount);
+        Assert.AreEqual(1, summary.AssistClearUpdateCount);
+    }
+
+    [TestMethod]
     public void RowProjectionDoesNotCountSameResolvedEasyClearAsClearUpdate()
     {
         PlayHistoryProjectionResult projected = PlayHistoryRow.ProjectLr2Rows(
