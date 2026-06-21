@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using System.Net.Http;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
@@ -40,7 +41,11 @@ internal sealed class UpdateCheckService
                 ? UpdateCheckResult.Available(manifest.Version, currentVersionText, manifest.VersionText, "update.json", manifest.Assets, manifest.ReleasePageUrl)
                 : UpdateCheckResult.NoUpdate(currentVersionText, "update.json");
         }
-        catch when (!hasOverride)
+        catch (HttpRequestException) when (!hasOverride)
+        {
+            return await CheckVersionTxtFallbackAsync(currentVersion, currentVersionText).ConfigureAwait(false);
+        }
+        catch (TaskCanceledException) when (!hasOverride)
         {
             return await CheckVersionTxtFallbackAsync(currentVersion, currentVersionText).ConfigureAwait(false);
         }

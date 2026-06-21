@@ -21,6 +21,33 @@ namespace BeMusicSeeker.Updater
             "update_work"
         };
 
+        private const string ManagedFilesManifestName = "update-managed-files.txt";
+
+        private static readonly HashSet<string> LegacyManagedRootFiles = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "BeMusicSeeker.exe",
+            "BeMusicSeeker.exe.config",
+            "BeMusicSeeker.Updater.exe",
+            "LaunchWithInfoLog.bat",
+            "README.md",
+            "README.ja.md",
+            "LICENSE",
+            "ThirdPartyNotices.txt",
+            "ThirdPartyNotices.ja.txt",
+            "chart-info-metadata.7z",
+            "chart-info-metadata.db",
+            ManagedFilesManifestName
+        };
+
+        private static readonly HashSet<string> LegacyManagedRootDirectories = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "libs",
+            "native",
+            "lang",
+            "third_party",
+            "docs"
+        };
+
         private static int Main(string[] args)
         {
             if (args.Length == 1 && string.Equals(args[0], "--version", StringComparison.OrdinalIgnoreCase))
@@ -79,14 +106,13 @@ namespace BeMusicSeeker.Updater
 
             try
             {
-                MoveCurrentApplicationToBackup(appDirectory, previousDirectory);
-                CopyExtractedPackage(extractDirectory, appDirectory);
-                SafeDeleteFile(packagePath);
-                SafeDeleteDirectory(extractDirectory);
+            ApplyExtractedPackage(extractDirectory, appDirectory, previousDirectory);
+            SafeDeleteFile(packagePath);
+            SafeDeleteDirectory(extractDirectory);
             }
             catch
             {
-                TryRollback(appDirectory, previousDirectory);
+                TryRollback(appDirectory, previousDirectory, extractDirectory);
                 throw;
             }
 
@@ -162,80 +188,184 @@ namespace BeMusicSeeker.Updater
             }
         }
 
-        private static void MoveCurrentApplicationToBackup(string appDirectory, string previousDirectory)
+        private static void ApplyExtractedPackage(string extractDirectory, string appDirectory, string previousDirectory)
         {
-            foreach (string path in Directory.EnumerateFileSystemEntries(appDirectory))
+            HashSet<string> newPackagePaths = EnumerateRelativePackagePaths(extractDirectory);
+            HashSet<string> previousManagedPaths = ReadManagedFilesManifest(appDirectory);
+            foreach (string relativePath in previousManagedPaths.Except(newPackagePaths, StringComparer.OrdinalIgnoreCase))
             {
-                string name = Path.GetFileName(path);
-                if (PreservedTopLevelNames.Contains(name))
+                MoveExistingPathToBackup(appDirectory, previousDirectory, relativePath);
+            }
+
+            foreach (string relativePath in newPackagePaths)
+            {
+                if (string.Equals(relativePath, ManagedFilesManifestName, StringComparison.OrdinalIgnoreCase))
                 {
                     continue;
                 }
 
-                EnsureNoReparsePoint(path);
-                string destination = Path.Combine(previousDirectory, name);
-                if (File.Exists(path))
-                {
-                    File.Move(path, destination);
-                }
-                else if (Directory.Exists(path))
-                {
-                    Directory.Move(path, destination);
-                }
+                MoveExistingPathToBackup(appDirectory, previousDirectory, relativePath);
+                string source = Path.Combine(extractDirectory, relativePath);
+                string destination = Path.Combine(appDirectory, relativePath);
+                Directory.CreateDirectory(Path.GetDirectoryName(destination));
+                File.Copy(source, destination, overwrite: false);
             }
+
+            WriteManagedFilesManifest(appDirectory, newPackagePaths);
+            RemoveEmptyDirectories(appDirectory);
         }
 
-        private static void CopyExtractedPackage(string extractDirectory, string appDirectory)
+        private static void TryRollback(string appDirectory, string previousDirectory, string extractDirectory)
         {
-            foreach (string source in Directory.EnumerateFileSystemEntries(extractDirectory))
+            foreach (string relativePath in EnumerateRelativePackagePaths(extractDirectory))
             {
-                string destination = Path.Combine(appDirectory, Path.GetFileName(source));
-                if (File.Exists(source))
-                {
-                    File.Copy(source, destination, overwrite: false);
-                }
-                else if (Directory.Exists(source))
-                {
-                    CopyDirectory(source, destination);
-                }
-            }
-        }
-
-        private static void CopyDirectory(string sourceDirectory, string destinationDirectory)
-        {
-            Directory.CreateDirectory(destinationDirectory);
-            foreach (string sourceFile in Directory.EnumerateFiles(sourceDirectory))
-            {
-                File.Copy(sourceFile, Path.Combine(destinationDirectory, Path.GetFileName(sourceFile)), overwrite: false);
-            }
-            foreach (string sourceSubDirectory in Directory.EnumerateDirectories(sourceDirectory))
-            {
-                CopyDirectory(sourceSubDirectory, Path.Combine(destinationDirectory, Path.GetFileName(sourceSubDirectory)));
-            }
-        }
-
-        private static void TryRollback(string appDirectory, string previousDirectory)
-        {
-            foreach (string path in Directory.EnumerateFileSystemEntries(appDirectory).ToArray())
-            {
-                string name = Path.GetFileName(path);
-                if (PreservedTopLevelNames.Contains(name))
-                {
-                    continue;
-                }
-                SafeDeletePath(path);
+                SafeDeletePath(Path.Combine(appDirectory, relativePath));
             }
 
             foreach (string source in Directory.EnumerateFileSystemEntries(previousDirectory))
             {
-                string destination = Path.Combine(appDirectory, Path.GetFileName(source));
-                if (File.Exists(source))
+                RestoreBackupPath(source, appDirectory, previousDirectory);
+            }
+        }
+
+        private static HashSet<string> EnumerateRelativePackagePaths(string extractDirectory)
+        {
+            var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (string sourceFile in Directory.EnumerateFiles(extractDirectory, "*", SearchOption.AllDirectories))
+            {
+                string relativePath = GetRelativePath(extractDirectory, sourceFile);
+                if (!string.Equals(relativePath, ManagedFilesManifestName, StringComparison.OrdinalIgnoreCase))
                 {
-                    File.Move(source, destination);
+                    paths.Add(relativePath);
                 }
-                else if (Directory.Exists(source))
+            }
+            paths.Add(ManagedFilesManifestName);
+            return paths;
+        }
+
+        private static HashSet<string> ReadManagedFilesManifest(string appDirectory)
+        {
+            string manifestPath = Path.Combine(appDirectory, ManagedFilesManifestName);
+            if (!File.Exists(manifestPath))
+            {
+                return EnumerateLegacyManagedPaths(appDirectory);
+            }
+
+            var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (string line in File.ReadAllLines(manifestPath))
+            {
+                string normalized = NormalizeRelativePackagePath(line);
+                if (!string.IsNullOrWhiteSpace(normalized))
                 {
-                    Directory.Move(source, destination);
+                    paths.Add(normalized);
+                }
+            }
+            paths.Add(ManagedFilesManifestName);
+            return paths;
+        }
+
+        private static HashSet<string> EnumerateLegacyManagedPaths(string appDirectory)
+        {
+            var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (string file in Directory.EnumerateFiles(appDirectory))
+            {
+                string name = Path.GetFileName(file);
+                if (LegacyManagedRootFiles.Contains(name))
+                {
+                    paths.Add(name);
+                }
+            }
+
+            foreach (string directory in Directory.EnumerateDirectories(appDirectory))
+            {
+                string name = Path.GetFileName(directory);
+                if (!LegacyManagedRootDirectories.Contains(name))
+                {
+                    continue;
+                }
+
+                foreach (string file in Directory.EnumerateFiles(directory, "*", SearchOption.AllDirectories))
+                {
+                    paths.Add(GetRelativePath(appDirectory, file));
+                }
+            }
+
+            paths.Add(ManagedFilesManifestName);
+            return paths;
+        }
+
+        private static void WriteManagedFilesManifest(string appDirectory, HashSet<string> managedPaths)
+        {
+            string manifestPath = Path.Combine(appDirectory, ManagedFilesManifestName);
+            string[] lines = [.. managedPaths
+                .Where(path => !string.Equals(path, ManagedFilesManifestName, StringComparison.OrdinalIgnoreCase))
+                .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
+            File.WriteAllLines(manifestPath, lines);
+        }
+
+        private static void MoveExistingPathToBackup(string appDirectory, string previousDirectory, string relativePath)
+        {
+            relativePath = NormalizeRelativePackagePath(relativePath);
+            if (string.IsNullOrWhiteSpace(relativePath))
+            {
+                return;
+            }
+
+            string source = Path.Combine(appDirectory, relativePath);
+            if (!File.Exists(source) && !Directory.Exists(source))
+            {
+                return;
+            }
+
+            EnsureNoReparsePoint(source);
+            string destination = Path.Combine(previousDirectory, relativePath);
+            Directory.CreateDirectory(Path.GetDirectoryName(destination));
+            if (File.Exists(source))
+            {
+                File.Move(source, destination);
+            }
+            else
+            {
+                Directory.Move(source, destination);
+            }
+        }
+
+        private static void RestoreBackupPath(string source, string appDirectory, string previousDirectory)
+        {
+            string relativePath = GetRelativePath(previousDirectory, source);
+            string destination = Path.Combine(appDirectory, relativePath);
+            Directory.CreateDirectory(Path.GetDirectoryName(destination));
+            if (File.Exists(source))
+            {
+                if (File.Exists(destination))
+                {
+                    File.Delete(destination);
+                }
+                File.Move(source, destination);
+            }
+            else if (Directory.Exists(source))
+            {
+                if (Directory.Exists(destination))
+                {
+                    Directory.Delete(destination, recursive: true);
+                }
+                Directory.Move(source, destination);
+            }
+        }
+
+        private static void RemoveEmptyDirectories(string appDirectory)
+        {
+            foreach (string directory in Directory.EnumerateDirectories(appDirectory, "*", SearchOption.AllDirectories).OrderByDescending(path => path.Length))
+            {
+                string name = Path.GetFileName(directory);
+                if (PreservedTopLevelNames.Contains(name))
+                {
+                    continue;
+                }
+
+                if (!Directory.EnumerateFileSystemEntries(directory).Any())
+                {
+                    Directory.Delete(directory);
                 }
             }
         }
@@ -300,6 +430,41 @@ namespace BeMusicSeeker.Updater
             string normalizedPath = NormalizeDirectoryPath(path) + Path.DirectorySeparatorChar;
             string normalizedDirectory = NormalizeDirectoryPath(directory) + Path.DirectorySeparatorChar;
             return normalizedPath.StartsWith(normalizedDirectory, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string GetRelativePath(string rootDirectory, string path)
+        {
+            Uri rootUri = new(NormalizeDirectoryPath(rootDirectory) + Path.DirectorySeparatorChar);
+            Uri pathUri = new(Path.GetFullPath(path));
+            string relative = Uri.UnescapeDataString(rootUri.MakeRelativeUri(pathUri).ToString()).Replace('/', Path.DirectorySeparatorChar);
+            return NormalizeRelativePackagePath(relative);
+        }
+
+        private static string NormalizeRelativePackagePath(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                return string.Empty;
+            }
+
+            string normalized = path.Replace('/', Path.DirectorySeparatorChar).Replace('\\', Path.DirectorySeparatorChar).Trim();
+            if (Path.IsPathRooted(normalized) || normalized.Contains(":"))
+            {
+                throw new InvalidOperationException("Managed package path must be relative: " + path);
+            }
+
+            string[] segments = normalized.Split(new[] { Path.DirectorySeparatorChar }, StringSplitOptions.RemoveEmptyEntries);
+            if (segments.Any(segment => segment == "." || segment == ".."))
+            {
+                throw new InvalidOperationException("Managed package path must not contain traversal: " + path);
+            }
+
+            if (segments.Length > 0 && PreservedTopLevelNames.Contains(segments[0]))
+            {
+                throw new InvalidOperationException("Managed package path must not target preserved directory: " + path);
+            }
+
+            return string.Join(Path.DirectorySeparatorChar.ToString(), segments);
         }
 
         private static void SafeDeleteFile(string path)

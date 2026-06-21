@@ -24,6 +24,7 @@ $devRoot = "D:\work\BeMusicSeeker-decomp"
 $pubRoot = "D:\github\bemusicseeker-unofficial-fork"
 $publicRepoOwner = "Neeted"
 $publicRepoName = "bemusicseeker-unofficial-fork"
+$publicBranch = "main"
 
 function Assert-ExactlyOneMode {
     if (($CreateDraft -and $PublishDraft) -or (-not $CreateDraft -and -not $PublishDraft)) {
@@ -147,6 +148,26 @@ function Assert-RemoteTagMatchesLocal($tag) {
     }
 }
 
+function Assert-OnPublicBranch {
+    $currentBranch = (git branch --show-current).Trim()
+    if ($currentBranch -ne $publicBranch) {
+        throw "公開用リポジトリは $publicBranch ブランチで実行してください。現在のブランチ: $currentBranch"
+    }
+}
+
+function Assert-RemoteBranchMatchesLocalHead {
+    $localCommit = (git rev-parse "HEAD").Trim()
+    $remoteLine = git ls-remote --heads origin "refs/heads/$publicBranch"
+    if ([string]::IsNullOrWhiteSpace($remoteLine)) {
+        throw "remote branch が見つかりません: $publicBranch"
+    }
+
+    $remoteCommit = ($remoteLine -split "\s+")[0]
+    if ($remoteCommit -ne $localCommit) {
+        throw "remote $publicBranch は現在の release commit を指していません: local=$localCommit remote=$remoteCommit"
+    }
+}
+
 function New-ReleaseCommitAndTag($context) {
     git add .
     $status = @(git status --porcelain)
@@ -179,6 +200,7 @@ function New-ReleaseCommitAndTag($context) {
 
 function Invoke-CreateDraft($context) {
     Write-Host "`n=== ドラフトリリースの作成 ===" -ForegroundColor Cyan
+    Assert-OnPublicBranch
     New-UpdateManifest $context
     New-ReleaseCommitAndTag $context
 
@@ -210,22 +232,26 @@ function Invoke-CreateDraft($context) {
 
 function Invoke-PublishDraft($context) {
     Write-Host "`n=== ドラフトリリースの公開 ===" -ForegroundColor Cyan
+    Assert-OnPublicBranch
     if (-not (Get-ReleaseExists $context.Tag)) {
         throw "GitHub Release draft が見つかりません: $($context.Tag)"
-    }
-    if (-not (Get-ReleaseIsDraft $context.Tag)) {
-        throw "GitHub Release $($context.Tag) は draft ではありません。"
     }
 
     Assert-RemoteTagMatchesLocal $context.Tag
 
-    Write-Host "  draft Release を publish します..."
-    gh release edit $context.Tag --draft=false --title $context.Tag --notes-file $context.NotesPath
-    if ($LASTEXITCODE -ne 0) { throw "GitHub Release draft の publish に失敗しました。" }
-
     Write-Host "  リリースコミットを公開ブランチへ push します..."
-    git push origin HEAD
+    git push origin "HEAD:refs/heads/$publicBranch"
     if ($LASTEXITCODE -ne 0) { throw "公開ブランチへの push に失敗しました。" }
+    Assert-RemoteBranchMatchesLocalHead
+
+    if (Get-ReleaseIsDraft $context.Tag) {
+        Write-Host "  draft Release を publish します..."
+        gh release edit $context.Tag --draft=false --title $context.Tag --notes-file $context.NotesPath
+        if ($LASTEXITCODE -ne 0) { throw "GitHub Release draft の publish に失敗しました。" }
+    }
+    else {
+        Write-Host "  GitHub Release は既に公開済みです。raw update.json/version.txt の push 済み状態を確認しました。" -ForegroundColor Yellow
+    }
 
     Write-Host "  Release と raw update.json/version.txt の公開が完了しました。" -ForegroundColor Green
 }

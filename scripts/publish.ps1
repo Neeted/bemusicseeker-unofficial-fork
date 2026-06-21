@@ -197,6 +197,8 @@ function New-ZipPackage($version, $packageSuffix, $metadataInfo) {
         Copy-Item $metadataInfo.SourcePath (Join-Path $targetStagingDir $metadataInfo.TargetName) -Force
     }
 
+    New-ManagedFilesManifest $targetStagingDir
+
     $zipName = "bemusicseeker-unofficial-fork-v$version$packageSuffix.zip"
     $zipPath = Join-Path $distDir $zipName
 
@@ -208,6 +210,22 @@ function New-ZipPackage($version, $packageSuffix, $metadataInfo) {
 
     Write-Host "  パッケージ作成完了: $zipPath" -ForegroundColor Green
     return $zipPath
+}
+
+function New-ManagedFilesManifest($targetStagingDir) {
+    $manifestPath = Join-Path $targetStagingDir "update-managed-files.txt"
+    $root = [System.IO.Path]::GetFullPath($targetStagingDir).TrimEnd('\', '/')
+    $paths = Get-ChildItem $targetStagingDir -Recurse -File |
+        ForEach-Object {
+            $fullName = [System.IO.Path]::GetFullPath($_.FullName)
+            $relative = $fullName.Substring($root.Length).TrimStart('\', '/').Replace('\', '/')
+            if ($relative -ne "update-managed-files.txt") {
+                $relative
+            }
+        } |
+        Sort-Object
+    Set-Content -Path $manifestPath -Value $paths -Encoding UTF8
+    Write-Host "  managed files manifest を作成: update-managed-files.txt"
 }
 
 # ========== ステップ 1: リリースパッケージの作成 ==========
@@ -279,6 +297,13 @@ function Sync-PublicRepo($releasePackagePaths) {
     # dist\ の zip をコピー (古い zip は削除しない、追加のみ)
     $pubDist = Join-Path $pubRoot "dist"
     if (-not (Test-Path $pubDist)) { New-Item -ItemType Directory -Path $pubDist -Force | Out-Null }
+    $version = Get-AppVersion
+    $currentVersionPattern = "bemusicseeker-unofficial-fork-v$version*.zip"
+    Get-ChildItem $pubDist -Filter $currentVersionPattern -File | ForEach-Object {
+        Remove-Item $_.FullName -Force
+        Write-Host "  削除: dist\$($_.Name)"
+    }
+
     $releaseAssets = @()
     if ($releasePackagePaths -ne $null -and $releasePackagePaths.Count -gt 0) {
         $releaseAssets = @($releasePackagePaths | ForEach-Object { Get-Item $_ })
