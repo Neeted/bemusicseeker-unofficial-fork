@@ -804,9 +804,9 @@
   "UpdateDialog_LatestVersion": "Latest:",
   "UpdateDialog_Package": "Package",
   "UpdateDialog_PackageAppOnly": "App only",
-  "UpdateDialog_PackageAppOnlyDescription": "Updates the application only. Pre-analyzed chart metadata is not included.",
+  "UpdateDialog_PackageAppOnlyDescription": "Updates the application only.",
   "UpdateDialog_PackageWithMetadata": "App with metadata bundle",
-  "UpdateDialog_PackageWithMetadataDescription": "Updates the application and includes pre-analyzed chart metadata. Choose this to reduce initial analysis time.",
+  "UpdateDialog_PackageWithMetadataDescription": "Includes pre-analyzed metadata. You can view metadata in playlists even for charts you do not have installed.",
   "UpdateDialog_StartupBlocked": "The update cannot start until startup initialization is complete.",
   "UpdateDialog_UpdateButton": "Update",
   "UpdateDialog_ReleasePageButton": "Release Page"

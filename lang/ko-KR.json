@@ -804,9 +804,9 @@
   "UpdateDialog_LatestVersion": "최신:",
   "UpdateDialog_Package": "패키지",
   "UpdateDialog_PackageAppOnly": "앱만",
-  "UpdateDialog_PackageAppOnlyDescription": "애플리케이션만 업데이트합니다. 사전 분석된 차트 메타데이터는 포함되지 않습니다.",
+  "UpdateDialog_PackageAppOnlyDescription": "애플리케이션만 업데이트합니다.",
   "UpdateDialog_PackageWithMetadata": "메타데이터 번들 포함",
-  "UpdateDialog_PackageWithMetadataDescription": "애플리케이션과 사전 분석된 차트 메타데이터를 함께 포함합니다. 초기 분석 시간을 줄이고 싶을 때 선택합니다.",
+  "UpdateDialog_PackageWithMetadataDescription": "분석된 메타데이터를 함께 포함합니다. 보유하지 않은 보면도 플레이리스트에서 메타데이터를 볼 수 있습니다.",
   "UpdateDialog_StartupBlocked": "시작 초기화가 완료될 때까지 업데이트를 시작할 수 없습니다.",
   "UpdateDialog_UpdateButton": "업데이트",
   "UpdateDialog_ReleasePageButton": "릴리스 페이지"

@@ -804,9 +804,9 @@
   "UpdateDialog_LatestVersion": "Dernière :",
   "UpdateDialog_Package": "Package",
   "UpdateDialog_PackageAppOnly": "Application seule",
-  "UpdateDialog_PackageAppOnlyDescription": "Met à jour uniquement l'application. Les métadonnées de charts pré-analysées ne sont pas incluses.",
+  "UpdateDialog_PackageAppOnlyDescription": "Met à jour uniquement l'application.",
   "UpdateDialog_PackageWithMetadata": "Application avec métadonnées",
-  "UpdateDialog_PackageWithMetadataDescription": "Met à jour l'application et inclut les métadonnées de charts pré-analysées. Choisissez ceci pour réduire le temps d'analyse initial.",
+  "UpdateDialog_PackageWithMetadataDescription": "Inclut des métadonnées pré-analysées. Vous pouvez consulter les métadonnées dans les playlists même pour les charts non installées.",
   "UpdateDialog_StartupBlocked": "La mise à jour ne peut pas démarrer avant la fin de l'initialisation.",
   "UpdateDialog_UpdateButton": "Mettre à jour",
   "UpdateDialog_ReleasePageButton": "Page de version"

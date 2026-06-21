@@ -804,9 +804,9 @@
   "UpdateDialog_LatestVersion": "最新:",
   "UpdateDialog_Package": "软件包",
   "UpdateDialog_PackageAppOnly": "仅应用",
-  "UpdateDialog_PackageAppOnlyDescription": "仅更新应用本体。不包含预分析的谱面元数据。",
+  "UpdateDialog_PackageAppOnlyDescription": "仅更新应用本体。",
   "UpdateDialog_PackageWithMetadata": "应用和元数据包",
-  "UpdateDialog_PackageWithMetadataDescription": "更新应用本体，并包含预分析的谱面元数据。若想缩短首次分析时间请选择此项。",
+  "UpdateDialog_PackageWithMetadataDescription": "包含已解析的元数据。即使未持有的谱面，也可以在播放列表中查看元数据。",
   "UpdateDialog_StartupBlocked": "启动初始化完成前无法开始更新。",
   "UpdateDialog_UpdateButton": "更新",
   "UpdateDialog_ReleasePageButton": "Release 页面"

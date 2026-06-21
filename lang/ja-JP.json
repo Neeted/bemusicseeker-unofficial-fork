@@ -804,9 +804,9 @@
   "UpdateDialog_LatestVersion": "最新:",
   "UpdateDialog_Package": "パッケージ",
   "UpdateDialog_PackageAppOnly": "通常版",
-  "UpdateDialog_PackageAppOnlyDescription": "アプリ本体のみを更新します。譜面解析済みメタデータは含まれません。",
+  "UpdateDialog_PackageAppOnlyDescription": "アプリ本体のみを更新します。",
   "UpdateDialog_PackageWithMetadata": "メタデータ同梱版",
-  "UpdateDialog_PackageWithMetadataDescription": "アプリ本体に加えて譜面解析済みメタデータを同梱します。初回解析時間を短縮したい場合に選びます。",
+  "UpdateDialog_PackageWithMetadataDescription": "解析済みメタデータを同梱します。未所持譜面でもプレイリストでメタデータを閲覧できます。",
   "UpdateDialog_StartupBlocked": "起動初期化が完了するまでアップデートを開始できません。",
   "UpdateDialog_UpdateButton": "更新",
   "UpdateDialog_ReleasePageButton": "Releaseページ"

@@ -2760,13 +2760,13 @@ cleanup-only成功: {3}
     <value>通常版</value>
   </data>
   <data name="UpdateDialog_PackageAppOnlyDescription" xml:space="preserve">
-    <value>アプリ本体のみを更新します。譜面解析済みメタデータは含まれません。</value>
+    <value>アプリ本体のみを更新します。</value>
   </data>
   <data name="UpdateDialog_PackageWithMetadata" xml:space="preserve">
     <value>メタデータ同梱版</value>
   </data>
   <data name="UpdateDialog_PackageWithMetadataDescription" xml:space="preserve">
-    <value>アプリ本体に加えて譜面解析済みメタデータを同梱します。初回解析時間を短縮したい場合に選びます。</value>
+    <value>解析済みメタデータを同梱します。未所持譜面でもプレイリストでメタデータを閲覧できます。</value>
   </data>
   <data name="UpdateDialog_StartupBlocked" xml:space="preserve">
     <value>起動初期化が完了するまでアップデートを開始できません。</value>
