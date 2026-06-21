@@ -61,6 +61,7 @@ function Stop-ExistingServer($pidPath) {
     }
 
     $processIdText = (Get-Content $pidPath -Raw).Trim()
+    $processId = 0
     if ([int]::TryParse($processIdText, [ref]$processId)) {
         $process = Get-Process -Id $processId -ErrorAction SilentlyContinue
         if ($process -ne $null) {
