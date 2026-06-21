@@ -805,6 +805,25 @@ public sealed class LibraryChartRowSortEngineTests
         Assert.AreEqual(5, ClearTypeStorageConverter.ToLr2Value(ClearType.MAX));
     }
 
+    [TestMethod]
+    [TestCategory("SortEngine")]
+    public void Lr2ScoreClearResolutionUsesOptionHistoryForAssistAndPerfect()
+    {
+        Assert.AreEqual(
+            ClearType.INVALID,
+            ClearTypeStorageConverter.FromLr2ScoreValue(2, ClearTypeStorageConverter.OptionHistoryAssist));
+        Assert.AreEqual(
+            ClearType.EASY,
+            ClearTypeStorageConverter.FromLr2ScoreValue(
+                2,
+                ClearTypeStorageConverter.OptionHistoryAssist | ClearTypeStorageConverter.OptionHistoryEasy));
+        Assert.AreEqual(ClearType.EASY, ClearTypeStorageConverter.FromLr2ScoreValue(2, ClearTypeStorageConverter.OptionHistoryEasy));
+        Assert.AreEqual(ClearType.INVALID, ClearTypeStorageConverter.FromLr2ScoreValue(2, 0));
+        Assert.AreEqual(
+            ClearType.PA,
+            ClearTypeStorageConverter.FromLr2ScoreValue(5, ClearTypeStorageConverter.OptionHistoryPerfect));
+    }
+
     private static void AssertTypedSort(string columnName, IReadOnlyList<LibraryChartRow> source, string[] expectedPaths)
     {
         var sortParameters = new MainWindowViewModel.cSortParameters

@@ -268,6 +268,7 @@ internal sealed class BmsLibraryIrService
                 if (score.clear < data.clear)
                 {
                     score.clear = data.clear;
+                    score.op_history = ClearTypeStorageConverter.GetLr2IrDataOptionHistory(data.clear);
                 }
                 if (score.score < data.score)
                 {
@@ -514,7 +515,7 @@ internal sealed class BmsLibraryIrService
                     {
                         return new LR2IRScore(m.Groups[1].Value)
                         {
-                            clear = ClearTypeStorageConverter.FromLr2Value(int.Parse(m.Groups[2].Value)),
+                            clearValue = int.Parse(m.Groups[2].Value),
                             notes = int.Parse(m.Groups[3].Value),
                             combo = int.Parse(m.Groups[4].Value),
                             pg = int.Parse(m.Groups[5].Value),
@@ -582,7 +583,7 @@ internal sealed class BmsLibraryIrService
             .OrderBy(score => score.hash, StringComparer.OrdinalIgnoreCase))
         {
             builder.Append(score.hash.ToLowerInvariant()).Append('\t')
-                .Append(ClearTypeStorageConverter.ToLr2Value(score.clear)).Append('\t')
+                .Append(score.clearValue).Append('\t')
                 .Append(score.notes).Append('\t')
                 .Append(score.combo).Append('\t')
                 .Append(score.pg).Append('\t')
@@ -639,6 +640,7 @@ internal sealed class BmsLibraryIrService
                                              if (b.irScore.clear > b.bmsScore.clear)
                                              {
                                                  b.bmsScore.clear = b.irScore.clear;
+                                                 b.bmsScore.op_history = b.irScore.option;
                                              }
                                              if (b.irScore.score > b.bmsScore.score)
                                              {

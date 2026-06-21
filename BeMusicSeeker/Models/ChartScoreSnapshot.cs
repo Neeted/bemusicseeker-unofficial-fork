@@ -96,9 +96,7 @@ internal sealed class ChartScoreSnapshot
         }
 
         RankType rank = score.rank != RankType.INVALID ? score.rank : RankType.F;
-        ClearType clear = score.clear >= ClearType.EASY && rank == RankType.INVALID
-            ? ClearType.INVALID
-            : score.clear;
+        ClearType clear = score.clear;
         int? ranking = score.ranking != 0 ? score.ranking : null;
         int? rankingNum = score.rankingNum != 0 ? score.rankingNum : null;
         return new ChartScoreSnapshot(

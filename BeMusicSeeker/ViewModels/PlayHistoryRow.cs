@@ -445,10 +445,7 @@ internal sealed class PlayHistoryRow
                 ? ClearType.NO_PLAY
                 : (ClearType)value.Value;
         }
-        ClearType clear = ClearTypeStorageConverter.FromLr2Value(value.Value);
-        return clear == ClearType.FC && ((opHistory ?? 0) & 0x10) != 0
-            ? ClearType.PA
-            : clear;
+        return ClearTypeStorageConverter.FromLr2ScoreValue(value.Value, opHistory ?? 0);
     }
 
     private static string FormatClearDelta(ClearType? oldValue, ClearType? newValue)

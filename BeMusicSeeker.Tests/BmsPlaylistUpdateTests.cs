@@ -1390,10 +1390,22 @@ public sealed class BmsPlaylistUpdateTests
             StringAssert.Contains(noPlayText, "score.clear IS NULL");
             string noPlayRandomText = ReadShiftJisText(Path.Combine(outputDir, "CLEAR FOLDER", "0 NO PLAY", "0003.lr2folder"));
             StringAssert.Contains(noPlayRandomText, "#TITLE Stella ALL NO PLAY RANDOM");
+            string assistText = ReadShiftJisText(Path.Combine(outputDir, "CLEAR FOLDER", "2 ASSIST", "0000.lr2folder"));
+            StringAssert.Contains(assistText, "score.clear = 2");
+            StringAssert.Contains(assistText, "NOT (score.clear = 2");
+            StringAssert.Contains(assistText, "(IFNULL(score.op_history, 0) & 8) != 0");
+            Assert.IsFalse(assistText.Contains("16777216"));
+            Assert.IsFalse(assistText.Contains("score.rank"));
+            string easyText = ReadShiftJisText(Path.Combine(outputDir, "CLEAR FOLDER", "3 EASY", "0000.lr2folder"));
+            StringAssert.Contains(easyText, "score.clear = 2");
+            StringAssert.Contains(easyText, "(IFNULL(score.op_history, 0) & 8) != 0");
+            Assert.IsFalse(easyText.Contains("16777216"));
+            Assert.IsFalse(easyText.Contains("score.rank"));
+            AssertClearFolderCommandMatchesAssistAndEasyRows(songDbPath, assistText, easyText);
             string fcText = ReadShiftJisText(Path.Combine(outputDir, "CLEAR FOLDER", "6 FC", "0000.lr2folder"));
-            StringAssert.Contains(fcText, "(score.op_history & 16) = 0");
+            StringAssert.Contains(fcText, "(IFNULL(score.op_history, 0) & 16) = 0");
             string paText = ReadShiftJisText(Path.Combine(outputDir, "CLEAR FOLDER", "7 P.A", "0000.lr2folder"));
-            StringAssert.Contains(paText, "(score.op_history & 16) != 0");
+            StringAssert.Contains(paText, "(IFNULL(score.op_history, 0) & 16) != 0");
             string underAText = ReadShiftJisText(Path.Combine(outputDir, "DJ LEVEL", "UNDER A", "0000.lr2folder"));
             StringAssert.Contains(underAText, "score.rank < 6 OR score.rank IS NULL");
             string bpmSortText = ReadShiftJisText(Path.Combine(outputDir, "BPM SORT", "0000.lr2folder"));
@@ -4554,6 +4566,55 @@ public sealed class BmsPlaylistUpdateTests
     private static BMSTableEntry CreateEntryWithLevel(string md5, int level)
     {
         return new BMSTableEntry(DynamicJson.Parse("{\"md5\":\"" + md5 + "\",\"title\":\"" + md5 + "\",\"level\":" + level + "}"));
+    }
+
+    private static void AssertClearFolderCommandMatchesAssistAndEasyRows(string songDbPath, string assistFolderText, string easyFolderText)
+    {
+        const string AssistOnlyHash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        const string AssistEasyHash = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+        const string AssistNoEasyHash = "cccccccccccccccccccccccccccccccc";
+        const string AssistNullHistoryHash = "dddddddddddddddddddddddddddddddd";
+        string assistCommand = ReadCustomFolderCommand(assistFolderText);
+        string easyCommand = ReadCustomFolderCommand(easyFolderText);
+
+        using var db = new LR2SongDBExtended(songDbPath);
+        db.Execute("CREATE TABLE IF NOT EXISTS song(hash TEXT PRIMARY KEY, title TEXT);");
+        db.Execute("CREATE TABLE IF NOT EXISTS score(hash TEXT PRIMARY KEY, clear INTEGER, rank INTEGER, op_history INTEGER, minbp INTEGER);");
+        db.Execute("DELETE FROM playlist_entry WHERE playlist_id = 7305 AND md5 IN (?, ?, ?, ?);", AssistOnlyHash, AssistEasyHash, AssistNoEasyHash, AssistNullHistoryHash);
+        InsertCustomFolderClassificationRow(db, AssistOnlyHash, clear: 2, rank: 8, opHistory: ClearTypeStorageConverter.OptionHistoryAssist);
+        InsertCustomFolderClassificationRow(db, AssistEasyHash, clear: 2, rank: 0, opHistory: ClearTypeStorageConverter.OptionHistoryAssist | ClearTypeStorageConverter.OptionHistoryEasy);
+        InsertCustomFolderClassificationRow(db, AssistNoEasyHash, clear: 2, rank: 0, opHistory: 0);
+        InsertCustomFolderClassificationRow(db, AssistNullHistoryHash, clear: 2, rank: 0, opHistory: null);
+
+        Assert.AreEqual(1L, CountCustomFolderCommandMatches(db, assistCommand, AssistOnlyHash));
+        Assert.AreEqual(0L, CountCustomFolderCommandMatches(db, assistCommand, AssistEasyHash));
+        Assert.AreEqual(1L, CountCustomFolderCommandMatches(db, assistCommand, AssistNoEasyHash));
+        Assert.AreEqual(1L, CountCustomFolderCommandMatches(db, assistCommand, AssistNullHistoryHash));
+        Assert.AreEqual(0L, CountCustomFolderCommandMatches(db, easyCommand, AssistOnlyHash));
+        Assert.AreEqual(1L, CountCustomFolderCommandMatches(db, easyCommand, AssistEasyHash));
+        Assert.AreEqual(0L, CountCustomFolderCommandMatches(db, easyCommand, AssistNoEasyHash));
+        Assert.AreEqual(0L, CountCustomFolderCommandMatches(db, easyCommand, AssistNullHistoryHash));
+    }
+
+    private static void InsertCustomFolderClassificationRow(LR2SongDBExtended db, string hash, int clear, int rank, int? opHistory)
+    {
+        db.Execute("INSERT OR REPLACE INTO song(hash, title, path) VALUES (?, ?, ?);", hash, hash, hash + ".bms");
+        db.Execute("INSERT INTO playlist_entry (playlist_id, md5, title, is_removed) VALUES (7305, ?, ?, 0);", hash, hash);
+        db.Execute("INSERT OR REPLACE INTO score(hash, clear, rank, op_history, minbp) VALUES (?, ?, ?, ?, 0);", hash, clear, rank, opHistory);
+    }
+
+    private static long CountCustomFolderCommandMatches(LR2SongDBExtended db, string command, string hash)
+    {
+        return db.ExecuteScalar<long>("SELECT COUNT(1) FROM song LEFT JOIN score ON song.hash = score.hash WHERE song.hash = ? AND " + command, hash);
+    }
+
+    private static string ReadCustomFolderCommand(string folderText)
+    {
+        string line = folderText
+            .Split(new[] { "\r\n", "\n" }, StringSplitOptions.None)
+            .FirstOrDefault(value => value.StartsWith("#COMMAND ", StringComparison.Ordinal));
+        Assert.IsFalse(string.IsNullOrWhiteSpace(line));
+        return line.Substring("#COMMAND ".Length);
     }
 
     private sealed class TestableBmsFile : BMSFile

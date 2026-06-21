@@ -477,6 +477,79 @@ public sealed class GridKeywordSearchQueryTests
     }
 
     [TestMethod]
+    public void MatchesLibraryChartRow_Lr2AssistClearUsesOptionHistory()
+    {
+        TestableBmsFile assistFile = CreateFile();
+        assistFile.SetScoreForTest(
+            ClearType.EASY,
+            RankType.F,
+            perfect: 100,
+            great: 50,
+            totalnotes: 200,
+            maxcombo: 120,
+            minbp: 20,
+            opHistory: ClearTypeStorageConverter.OptionHistoryAssist,
+            useLr2ScoreValue: true);
+        LibraryChartRow assistRow = LibraryChartRow.FromBmsFile(assistFile);
+
+        Assert.AreEqual(ClearType.INVALID, assistRow.clear);
+        Assert.AreEqual("ASSIST", assistRow.ClearDisplayText);
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("clear:AE").MatchesLibraryChartRow(assistRow));
+        Assert.IsFalse(GridKeywordSearchQuery.Parse("clear:EC").MatchesLibraryChartRow(assistRow));
+
+        TestableBmsFile forceEasyFile = CreateFile();
+        forceEasyFile.SetScoreForTest(
+            ClearType.EASY,
+            RankType.F,
+            perfect: 100,
+            great: 50,
+            totalnotes: 200,
+            maxcombo: 120,
+            minbp: 20,
+            opHistory: 0,
+            useLr2ScoreValue: true);
+        LibraryChartRow forceEasyRow = LibraryChartRow.FromBmsFile(forceEasyFile);
+
+        Assert.AreEqual(ClearType.INVALID, forceEasyRow.clear);
+        Assert.AreEqual("ASSIST", forceEasyRow.ClearDisplayText);
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("clear:AE").MatchesLibraryChartRow(forceEasyRow));
+        Assert.IsFalse(GridKeywordSearchQuery.Parse("clear:EC").MatchesLibraryChartRow(forceEasyRow));
+
+        TestableBmsFile easyFile = CreateFile();
+        easyFile.SetScoreForTest(
+            ClearType.EASY,
+            RankType.F,
+            perfect: 100,
+            great: 50,
+            totalnotes: 200,
+            maxcombo: 120,
+            minbp: 20,
+            opHistory: ClearTypeStorageConverter.OptionHistoryAssist | ClearTypeStorageConverter.OptionHistoryEasy,
+            useLr2ScoreValue: true);
+        LibraryChartRow easyRow = LibraryChartRow.FromBmsFile(easyFile);
+
+        Assert.AreEqual(ClearType.EASY, easyRow.clear);
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("clear:EC").MatchesLibraryChartRow(easyRow));
+        Assert.IsFalse(GridKeywordSearchQuery.Parse("clear:AE").MatchesLibraryChartRow(easyRow));
+
+        TestableBmsFile internalEasyFile = CreateFile();
+        internalEasyFile.SetScoreForTest(
+            ClearType.EASY,
+            RankType.F,
+            perfect: 100,
+            great: 50,
+            totalnotes: 200,
+            maxcombo: 120,
+            minbp: 20,
+            opHistory: 0);
+        LibraryChartRow internalEasyRow = LibraryChartRow.FromBmsFile(internalEasyFile);
+
+        Assert.AreEqual(ClearType.EASY, internalEasyRow.clear);
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("clear:EC").MatchesLibraryChartRow(internalEasyRow));
+        Assert.IsFalse(GridKeywordSearchQuery.Parse("clear:AE").MatchesLibraryChartRow(internalEasyRow));
+    }
+
+    [TestMethod]
     public void MatchesPlaylistDetail_ScoreFieldsUseSourceSnapshot()
     {
         TestableBmsFile file = CreateFile();
@@ -814,7 +887,7 @@ public sealed class GridKeywordSearchQueryTests
             genre = value;
         }
 
-        internal void SetScoreForTest(ClearType clear, RankType rank, int perfect, int great, int totalnotes, int maxcombo, int minbp)
+        internal void SetScoreForTest(ClearType clear, RankType rank, int perfect, int great, int totalnotes, int maxcombo, int minbp, int opHistory = 0, bool useLr2ScoreValue = false)
         {
             bmsScore = new BMSScore
             {
@@ -825,8 +898,13 @@ public sealed class GridKeywordSearchQueryTests
                 great = great,
                 totalnotes = totalnotes,
                 maxcombo = maxcombo,
-                minbp = minbp
+                minbp = minbp,
+                op_history = opHistory
             };
+            if (useLr2ScoreValue)
+            {
+                bmsScore.clearValue = ClearTypeStorageConverter.ToLr2Value(clear);
+            }
         }
     }
 }

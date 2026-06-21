@@ -21,6 +21,12 @@ public enum ClearType
 
 internal static class ClearTypeStorageConverter
 {
+    internal const int OptionHistoryEasy = 0x00000008;
+
+    internal const int OptionHistoryPerfect = 0x00000010;
+
+    internal const int OptionHistoryAssist = 0x01000000;
+
     internal static ClearType FromLr2Value(int value)
     {
         return value switch
@@ -34,6 +40,30 @@ internal static class ClearTypeStorageConverter
             21 => ClearType.PA,
             _ => (ClearType)value,
         };
+    }
+
+    internal static ClearType FromLr2ScoreValue(int value, int opHistory)
+    {
+        ClearType clear = FromLr2Value(value);
+        if (value == 2 && (opHistory & OptionHistoryEasy) == 0)
+        {
+            return ClearType.INVALID;
+        }
+        return ResolveInternalClear(clear, opHistory);
+    }
+
+    internal static ClearType ResolveInternalClear(ClearType clear, int opHistory)
+    {
+        if (clear == ClearType.FC && (opHistory & OptionHistoryPerfect) != 0)
+        {
+            return ClearType.PA;
+        }
+        return clear;
+    }
+
+    internal static int GetLr2IrDataOptionHistory(ClearType clear)
+    {
+        return clear == ClearType.EASY ? OptionHistoryEasy : 0;
     }
 
     internal static int ToLr2Value(ClearType clear)
@@ -134,6 +164,8 @@ public class LR2ScoreDB : SQLiteConnectionEx
 
         protected ClearType _clear;
 
+        private int? lr2ClearValue;
+
         protected RankType _rank;
 
         [PrimaryKey]
@@ -144,10 +176,11 @@ public class LR2ScoreDB : SQLiteConnectionEx
         {
             get
             {
-                return ClearTypeStorageConverter.ToLr2Value(_clear);
+                return lr2ClearValue ?? ClearTypeStorageConverter.ToLr2Value(_clear);
             }
             set
             {
+                lr2ClearValue = value;
                 _clear = ClearTypeStorageConverter.FromLr2Value(value);
             }
         }
@@ -157,14 +190,13 @@ public class LR2ScoreDB : SQLiteConnectionEx
         {
             get
             {
-                if ((op_history & 0x10) != 0 && _clear == ClearType.FC)
-                {
-                    return ClearType.PA;
-                }
-                return _clear;
+                return lr2ClearValue.HasValue
+                    ? ClearTypeStorageConverter.FromLr2ScoreValue(lr2ClearValue.Value, op_history)
+                    : ClearTypeStorageConverter.ResolveInternalClear(_clear, op_history);
             }
             set
             {
+                lr2ClearValue = null;
                 _clear = value;
             }
         }

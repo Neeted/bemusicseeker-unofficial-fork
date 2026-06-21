@@ -1049,6 +1049,8 @@ public sealed class LR2SongDBExtended : LR2SongDB
 
         protected ClearType _clear;
 
+        private int? lr2ClearValue;
+
         [PrimaryKey]
         [Indexed(Name = "hashidx_ir_score")]
         public virtual string hash
@@ -1076,10 +1078,11 @@ public sealed class LR2SongDBExtended : LR2SongDB
         {
             get
             {
-                return ClearTypeStorageConverter.ToLr2Value(_clear);
+                return lr2ClearValue ?? ClearTypeStorageConverter.ToLr2Value(_clear);
             }
             set
             {
+                lr2ClearValue = value;
                 _clear = ClearTypeStorageConverter.FromLr2Value(value);
             }
         }
@@ -1089,14 +1092,13 @@ public sealed class LR2SongDBExtended : LR2SongDB
         {
             get
             {
-                if ((option & 0x10) != 0 && _clear == ClearType.FC)
-                {
-                    return ClearType.PA;
-                }
-                return _clear;
+                return lr2ClearValue.HasValue
+                    ? ClearTypeStorageConverter.FromLr2ScoreValue(lr2ClearValue.Value, option)
+                    : ClearTypeStorageConverter.ResolveInternalClear(_clear, option);
             }
             set
             {
+                lr2ClearValue = null;
                 _clear = value;
             }
         }

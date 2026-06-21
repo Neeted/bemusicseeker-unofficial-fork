@@ -2928,18 +2928,19 @@ public partial class BMSPlaylist : NotificationObject
         bool outputRandom = IsCustomFolderTypeEnabled(bmsTable, LR2SongDBExtended.playlist.CustomFolderType.RandomFolder);
         string scoreTable = SQLiteTable<LR2ScoreDB.score>.GetTableName();
         string clearColumn = scoreTable + "." + SQLiteTable<LR2ScoreDB.score>.GetColumnName(e => e.clear);
-        string rankColumn = scoreTable + "." + SQLiteTable<LR2ScoreDB.score>.GetColumnName(e => e.rank);
         string opHistoryColumn = scoreTable + "." + SQLiteTable<LR2ScoreDB.score>.GetColumnName(e => e.op_history);
+        string opHistoryValue = "IFNULL(" + opHistoryColumn + ", 0)";
+        string easyPredicate = clearColumn + " = 2 AND (" + opHistoryValue + " & " + ClearTypeStorageConverter.OptionHistoryEasy + ") != 0";
         var clearScopes = new List<Tuple<string, string, string>>
         {
             Tuple.Create("0 NO PLAY", "NO PLAY", clearColumn + " IS NULL"),
             Tuple.Create("1 FAILED", "FAILED", clearColumn + " = 1"),
-            Tuple.Create("2 ASSIST", "ASSIST", clearColumn + " >= 2 AND " + rankColumn + " = 0"),
-            Tuple.Create("3 EASY", "EASY", clearColumn + " = 2 AND " + rankColumn + " != 0"),
+            Tuple.Create("2 ASSIST", "ASSIST", clearColumn + " = 2 AND NOT (" + easyPredicate + ")"),
+            Tuple.Create("3 EASY", "EASY", easyPredicate),
             Tuple.Create("4 CLEAR", "CLEAR", clearColumn + " = 3"),
             Tuple.Create("5 HARD", "HARD", clearColumn + " = 4"),
-            Tuple.Create("6 FC", "FC", clearColumn + " = 5 AND (" + opHistoryColumn + " & 16) = 0"),
-            Tuple.Create("7 P.A", "P.A", clearColumn + " = 5 AND (" + opHistoryColumn + " & 16) != 0")
+            Tuple.Create("6 FC", "FC", clearColumn + " = 5 AND (" + opHistoryValue + " & " + ClearTypeStorageConverter.OptionHistoryPerfect + ") = 0"),
+            Tuple.Create("7 P.A", "P.A", clearColumn + " = 5 AND (" + opHistoryValue + " & " + ClearTypeStorageConverter.OptionHistoryPerfect + ") != 0")
         };
         IReadOnlyList<CustomFolderEntryScope> entryScopes = CreateCustomFolderEntryScopes(bmsTable);
         string orderBy = MakeScoreColumnNullLastOrder(SQLiteTable<LR2ScoreDB.score>.GetColumnName(e => e.minbp), asc: true);

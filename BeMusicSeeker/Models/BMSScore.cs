@@ -179,6 +179,7 @@ public class BMSScore : LR2ScoreDB.score
         base.perfect = _lr2irData.pg;
         base.great = _lr2irData.gr;
         base.minbp = _lr2irData.minbp;
+        base.op_history = ClearTypeStorageConverter.GetLr2IrDataOptionHistory(_lr2irData.clear);
         ranking = _lr2irData.rank;
         rankingNum = _lr2irData.players_num;
         rankingLastupdate = _lr2irData.lastupdate;

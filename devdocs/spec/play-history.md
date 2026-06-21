@@ -133,6 +133,8 @@ view request には request id があり、古い非同期 refresh の結果が�
 
 `CLEAR` と `BEST DJ` は更新元、矢印、更新先を同一セル内で別色表示する。選択行や current cell では読みやすさを優先して選択用の単色前景にする。Play History の `CLEAR` は遷移表示を短く保つため、通常一覧の長い表記ではなく `NP`、`ASSIST`、`EASY`、`NORMAL`、`HARD`、`EXH`、`FC`、`PA` などの短縮形を使う。
 
+LR2 native の `clear = 2` は `op_history` の EASY bit で表示用 clear を解決する。EASY bit が立っている場合は `EASY`、EASY bit がない場合は `ASSIST` として扱う。OpenLR2 では CONSTANT / H-RAN / SCATTER / autoscratch などで `clear = 2` へ降格される場合があるため、ASSIST bit 自体は clear type 判定には使わない。この基準は通常一覧、keyword search、Play History、clear type custom folder で同じ基準に揃える。
+
 ## Keyword Search
 
 Play History view は通常検索欄に `GridKeywordSearchContext.PlayHistory` を使う。keyword search は LR2 DB read と projection が終わり、display target filter を適用した後、sort / view 適用の前に in-memory で `PlayHistoryRow` を絞り込む。`KeywordFilterUpdated` / display target 変更 / `SortUpdated` は同じ期間 request の read / projection result を再利用し、DB read と projection index build を繰り返さない。

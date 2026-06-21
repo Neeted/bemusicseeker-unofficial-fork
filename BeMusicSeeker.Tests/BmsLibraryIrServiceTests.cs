@@ -135,6 +135,119 @@ public sealed class BmsLibraryIrServiceTests
     }
 
     [TestMethod]
+    public void BmsScoreOverwriteLr2IrDataAppliesEasyOptionHistoryForIrEasyClear()
+    {
+        string hash = "12121212121212121212121212121212";
+        BMSScore score = CreateScore(hash, ClearType.EASY, pg: 100, gr: 50, minbp: 20);
+        score.clearValue = 2;
+        score.op_history = ClearTypeStorageConverter.OptionHistoryAssist;
+        Assert.AreEqual(ClearType.INVALID, score.clear);
+
+        score.Overwrite(new LR2IRData(hash)
+        {
+            clear = ClearType.EASY,
+            notes = 1000,
+            combo = 900,
+            pg = 200,
+            gr = 50,
+            minbp = 10
+        });
+
+        Assert.AreEqual(ClearTypeStorageConverter.OptionHistoryEasy, score.op_history);
+        Assert.AreEqual(ClearType.EASY, score.clear);
+    }
+
+    [TestMethod]
+    public void RefreshRankingScoresFromCache_AppliesEasyOptionHistoryWhenIrClearIsApplied()
+    {
+        using var env = TempIrEnvironment.Create();
+        var service = new BmsLibraryIrService();
+        string hash = "14141414141414141414141414141414";
+        var cacheUpdate = new DateTime(2026, 6, 1, 12, 0, 0);
+        BmsLibraryDbGateway gateway = env.CreateGateway();
+        gateway.UpsertIrData(
+        [
+            new LR2IRData(hash)
+            {
+                lr2id = 123,
+                clear = ClearType.EASY,
+                notes = 1000,
+                combo = 500,
+                pg = 200,
+                gr = 50,
+                minbp = 10,
+                rank = 20,
+                players_num = 80,
+                average = 500,
+                sigma = 40,
+                lastupdate = cacheUpdate,
+                lastcacheupdate = cacheUpdate
+            }
+        ]);
+        BMSScore score = CreateScore(hash, ClearType.EASY, pg: 100, gr: 0, minbp: 30);
+        score.clearValue = 2;
+        score.op_history = ClearTypeStorageConverter.OptionHistoryAssist;
+        Assert.AreEqual(ClearType.INVALID, score.clear);
+
+        service.RefreshRankingScoresFromCache(123, env.ScoreDbPath, gateway, [score], [], estimateOfflineScoreRanking: false);
+
+        Assert.AreEqual(ClearTypeStorageConverter.OptionHistoryEasy, score.op_history);
+        Assert.AreEqual(ClearType.EASY, score.clear);
+    }
+
+    [TestMethod]
+    public void UpdateBmsScores_ClearOnlyIrScoreUpdateReplacesOptionHistory()
+    {
+        var service = new BmsLibraryIrService();
+        string hash = "15151515151515151515151515151515";
+        BMSScore score = CreateScore(hash, ClearType.EASY, pg: 300, gr: 0, minbp: 20);
+        score.clearValue = 2;
+        score.op_history = ClearTypeStorageConverter.OptionHistoryAssist;
+        LR2IRScore irScore = CreateIrScore(hash, ClearType.EASY, pg: 100, gr: 0, minbp: 20);
+        irScore.option = ClearTypeStorageConverter.OptionHistoryEasy;
+        Assert.AreEqual(ClearType.INVALID, score.clear);
+
+        service.UpdateBmsScores([irScore], [score], []);
+
+        Assert.AreEqual(ClearTypeStorageConverter.OptionHistoryEasy, score.op_history);
+        Assert.AreEqual(ClearType.EASY, score.clear);
+    }
+
+    [TestMethod]
+    public void UpdateIrScoreTable_ParsesLr2Clear2ByOptionHistory()
+    {
+        using var env = TempIrEnvironment.Create();
+        var service = new BmsLibraryIrService();
+        string assistHash = "16161616161616161616161616161616";
+        string easyHash = "17171717171717171717171717171717";
+        string xml = BuildPlayerScoreXml(assistHash, pg: 100, gr: 20, clear: 2, option: 0)
+            + BuildPlayerScoreXml(easyHash, pg: 120, gr: 30, clear: 2, option: ClearTypeStorageConverter.OptionHistoryEasy);
+        var client = new FakeIrClient(xml);
+
+        List<LR2IRScore> scores = service.UpdateIrScoreTable(123, env.CreateGateway(), client, PlayerScoreRegex);
+
+        LR2IRScore assistScore = scores.Single(score => score.hash == assistHash);
+        LR2IRScore easyScore = scores.Single(score => score.hash == easyHash);
+        Assert.AreEqual(ClearType.INVALID, assistScore.clear);
+        Assert.AreEqual(ClearType.EASY, easyScore.clear);
+    }
+
+    [TestMethod]
+    public void ComputeScoreDigestKeepsRawLr2Clear2DistinctFromFailed()
+    {
+        string hash = "18181818181818181818181818181818";
+        LR2IRScore failedScore = CreateIrScore(hash, ClearType.FAILED, pg: 100, gr: 20, minbp: 12);
+        LR2IRScore assistScore = CreateIrScore(hash, ClearType.EASY, pg: 100, gr: 20, minbp: 12);
+        assistScore.clearValue = 2;
+        assistScore.option = 0;
+
+        string failedDigest = BmsLibraryIrService.ComputeScoreDigest([failedScore]);
+        string assistDigest = BmsLibraryIrService.ComputeScoreDigest([assistScore]);
+
+        Assert.AreNotEqual(failedDigest, assistDigest);
+    }
+
+    [TestMethod]
     public void UpdateBmsScores_ProjectsMissingIrScoreAsUnsentChartStatus()
     {
         var service = new BmsLibraryIrService();
@@ -234,13 +347,16 @@ public sealed class BmsLibraryIrServiceTests
                     "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", 0, 2, 100, 20, 30, 10, 200, 180, 5, 7, 3);
                 connection.Execute(
                     "INSERT INTO score (sha256, mode, clear, epg, lpg, egr, lgr, notes, combo, minbp, playcount, clearcount) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);",
+                    "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC", 0, 4, 150, 25, 40, 15, 300, 240, 6, 8, 4);
+                connection.Execute(
+                    "INSERT INTO score (sha256, mode, clear, epg, lpg, egr, lgr, notes, combo, minbp, playcount, clearcount) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);",
                     "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", 10000, 7, 500, 0, 0, 0, 500, 500, 0, 1, 1);
             }
 
             var loader = new BeatorajaScoreDbLoader();
             Dictionary<string, BMSScore> scores = loader.LoadModeZeroScores(scoreDbPath);
 
-            Assert.AreEqual(1, scores.Count);
+            Assert.AreEqual(2, scores.Count);
             Assert.IsTrue(scores.TryGetValue("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", out BMSScore score));
             Assert.AreEqual(ClearType.INVALID, score.clear);
             Assert.AreEqual(120, score.perfect);
@@ -251,6 +367,8 @@ public sealed class BmsLibraryIrServiceTests
             Assert.AreEqual(280, score.score);
             Assert.AreEqual(70, score.rate);
             Assert.AreEqual(RankType.A, score.rank);
+            Assert.IsTrue(scores.TryGetValue("cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", out BMSScore easyScore));
+            Assert.AreEqual(ClearType.EASY, easyScore.clear);
         }
         finally
         {
@@ -1006,12 +1124,12 @@ public sealed class BmsLibraryIrServiceTests
 
     private static readonly Regex PlayerScoreRegex = new("\\t<score>\\r?\\n\\t\\t<hash>([a-f0-9]+)</hash>\\r?\\n\\t\\t<clear>(\\d+)</clear>\\r?\\n\\t\\t<notes>(\\d+)</notes>\\r?\\n\\t\\t<combo>(\\d+)</combo>\\r?\\n\\t\\t<pg>(\\d+)</pg>\\r?\\n\\t\\t<gr>(\\d+)</gr>\\r?\\n\\t\\t<gd>(\\d+)</gd>\\r?\\n\\t\\t<bd>(\\d+)</bd>\\r?\\n\\t\\t<pr>(\\d+)</pr>\\r?\\n\\t\\t<minbp>(\\d+)</minbp>\\r?\\n\\t\\t<option>(\\d+)</option>\\r?\\n\\t\\t<lastupdate>(\\d+)</lastupdate>\\r?\\n\\t</score>\\r?\\n", RegexOptions.Compiled);
 
-    private static string BuildPlayerScoreXml(string hash, int pg, int gr, int lastUpdate = 20260505)
+    private static string BuildPlayerScoreXml(string hash, int pg, int gr, int lastUpdate = 20260505, int clear = 4, int option = 0)
     {
         return "<root>\n"
             + "\t<score>\n"
             + "\t\t<hash>" + hash + "</hash>\n"
-            + "\t\t<clear>4</clear>\n"
+            + "\t\t<clear>" + clear + "</clear>\n"
             + "\t\t<notes>1000</notes>\n"
             + "\t\t<combo>900</combo>\n"
             + "\t\t<pg>" + pg + "</pg>\n"
@@ -1020,7 +1138,7 @@ public sealed class BmsLibraryIrServiceTests
             + "\t\t<bd>2</bd>\n"
             + "\t\t<pr>1</pr>\n"
             + "\t\t<minbp>12</minbp>\n"
-            + "\t\t<option>0</option>\n"
+            + "\t\t<option>" + option + "</option>\n"
             + "\t\t<lastupdate>" + lastUpdate + "</lastupdate>\n"
             + "\t</score>\n"
             + "</root>\n";

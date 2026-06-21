@@ -1117,7 +1117,7 @@ public sealed class PlayHistoryReadModelTests
             new Lr2PlayHistoryReadResult(
                 PlayHistorySourceProfile.Lr2("score.db"),
                 [
-                    CreateRawRecord(1, HashA, 1000, finalized: true, oldExscore: 100, newExscore: 120, newTotalNotes: 100, oldClear: 0, newClear: 2, oldMinBp: null, newMinBp: 10, oldMaxCombo: 50, newMaxCombo: 80, playtimeDelta: 70, judgeDelta: 100),
+                    CreateRawRecord(1, HashA, 1000, finalized: true, oldExscore: 100, newExscore: 120, newTotalNotes: 100, oldClear: 0, newClear: 2, newOpHistory: ClearTypeStorageConverter.OptionHistoryEasy, oldMinBp: null, newMinBp: 10, oldMaxCombo: 50, newMaxCombo: 80, playtimeDelta: 70, judgeDelta: 100),
                     CreateRawRecord(2, HashA, 2000, finalized: true, oldExscore: 100, newExscore: 100, newTotalNotes: 100, oldClear: 3, newClear: 5, playtimeDelta: 50, judgeDelta: 60)
                 ],
                 [],
@@ -1259,6 +1259,116 @@ public sealed class PlayHistoryReadModelTests
         Assert.AreEqual("10", row.BestBp);
         Assert.AreEqual("50.00 -> 60.00", row.BestRateText);
         Assert.AreEqual("P.A / ASSIST off", row.OpHistory);
+    }
+
+    [TestMethod]
+    public void RowProjectionTreatsLr2AssistToEasyBitAsClearUpdate()
+    {
+        PlayHistoryProjectionResult projected = PlayHistoryRow.ProjectLr2Rows(
+            new Lr2PlayHistoryReadResult(
+                PlayHistorySourceProfile.Lr2("score.db"),
+                [
+                    CreateRawRecord(
+                        40,
+                        HashA,
+                        1000,
+                        finalized: true,
+                        oldExscore: 100,
+                        newExscore: 100,
+                        newTotalNotes: 100,
+                        oldClear: 2,
+                        newClear: 2,
+                        oldOpHistory: ClearTypeStorageConverter.OptionHistoryAssist,
+                        newOpHistory: ClearTypeStorageConverter.OptionHistoryAssist | ClearTypeStorageConverter.OptionHistoryEasy)
+                ],
+                [],
+                Lr2PlayHistorySchemaStatus.Installed),
+            CreateProjectionIndex());
+
+        PlayHistoryRow row = projected.Rows.Single();
+        PlayHistoryPeriodSummary summary = PlayHistoryPeriodSummary.FromRows("assist-to-easy", projected.Rows);
+
+        Assert.AreEqual(ClearType.INVALID, row.OldBestClear);
+        Assert.AreEqual(ClearType.EASY, row.NewBestClear);
+        Assert.AreEqual("ASSIST -> EASY", row.BestClear);
+        Assert.AreEqual("clear", row.Kind);
+        Assert.AreEqual(1, summary.ClearUpdateCount);
+        Assert.AreEqual(1, summary.EasyClearUpdateCount);
+        Assert.AreEqual(0, summary.AssistClearUpdateCount);
+    }
+
+    [TestMethod]
+    public void RowProjectionCountsLr2Clear2WithoutEasyBitAsAssistUpdate()
+    {
+        PlayHistoryProjectionResult projected = PlayHistoryRow.ProjectLr2Rows(
+            new Lr2PlayHistoryReadResult(
+                PlayHistorySourceProfile.Lr2("score.db"),
+                [
+                    CreateRawRecord(
+                        42,
+                        HashA,
+                        1000,
+                        finalized: true,
+                        oldExscore: 100,
+                        newExscore: 100,
+                        newTotalNotes: 100,
+                        oldClear: 0,
+                        newClear: 2,
+                        newOpHistory: 0)
+                ],
+                [],
+                Lr2PlayHistorySchemaStatus.Installed),
+            CreateProjectionIndex());
+
+        PlayHistoryRow row = projected.Rows.Single();
+        PlayHistoryPeriodSummary summary = PlayHistoryPeriodSummary.FromRows("assist-update", projected.Rows);
+        PlayHistorySummaryCard assistCard = MainWindowViewModel.CreatePlayHistorySummaryCardsForTest(summary).Single(card => card.Label == "ASSIST");
+
+        Assert.AreEqual(ClearType.NO_PLAY, row.OldBestClear);
+        Assert.AreEqual(ClearType.INVALID, row.NewBestClear);
+        Assert.AreEqual("NP -> ASSIST", row.BestClear);
+        Assert.AreEqual("clear", row.Kind);
+        Assert.AreEqual(1, summary.ClearUpdateCount);
+        Assert.AreEqual(1, summary.AssistClearUpdateCount);
+        Assert.AreEqual(0, summary.EasyClearUpdateCount);
+        Assert.AreEqual("1", assistCard.Value);
+        Assert.AreEqual("type:clear newclear:AE|LAE", assistCard.FilterText);
+    }
+
+    [TestMethod]
+    public void RowProjectionDoesNotCountSameResolvedEasyClearAsClearUpdate()
+    {
+        PlayHistoryProjectionResult projected = PlayHistoryRow.ProjectLr2Rows(
+            new Lr2PlayHistoryReadResult(
+                PlayHistorySourceProfile.Lr2("score.db"),
+                [
+                    CreateRawRecord(
+                        41,
+                        HashA,
+                        1000,
+                        finalized: true,
+                        oldExscore: 100,
+                        newExscore: 100,
+                        newTotalNotes: 100,
+                        oldClear: 2,
+                        newClear: 2,
+                        oldOpHistory: ClearTypeStorageConverter.OptionHistoryEasy,
+                        newOpHistory: ClearTypeStorageConverter.OptionHistoryAssist | ClearTypeStorageConverter.OptionHistoryEasy)
+                ],
+                [],
+                Lr2PlayHistorySchemaStatus.Installed),
+            CreateProjectionIndex());
+
+        PlayHistoryRow row = projected.Rows.Single();
+        PlayHistoryPeriodSummary summary = PlayHistoryPeriodSummary.FromRows("same-easy", projected.Rows);
+
+        Assert.AreEqual(ClearType.EASY, row.OldBestClear);
+        Assert.AreEqual(ClearType.EASY, row.NewBestClear);
+        Assert.IsFalse(row.BestClearUpdated);
+        Assert.AreEqual(string.Empty, row.BestClear);
+        Assert.AreEqual("play", row.Kind);
+        Assert.AreEqual(0, summary.ClearUpdateCount);
+        Assert.AreEqual(0, summary.EasyClearUpdateCount);
     }
 
     [TestMethod]

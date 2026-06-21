@@ -148,7 +148,7 @@ LR2 linked profile の起動時には、user.config の既定通常出力先と�
 | UserFolder | playlist 全体の `playlist name ALL` と、`folder_list` の各フォルダ。空 folder 名は playlist name を title にする。 | `playlist_entry.is_removed = 0`、folder 別では `playlist_entry.folder = {folder}`。 |
 | LevelFolder | `playlist_entry.level` を floor した整数別の `LEVEL n` と、NULL 用の `LEVEL ???`。 | `playlist_entry.level` / `is_removed`。 |
 | AlphabetFolder | `A.B.C.D.` から `U.V.W.X.Y.Z.` までの 6 区間と `OTHERS`。 | `UPPER(playlist_entry.title)` の範囲。 |
-| ClearFolder | `CLEAR FOLDER\0 NO PLAY`、`1 FAILED`、`2 ASSIST`、`3 EASY`、`4 CLEAR`、`5 HARD`、`6 FC`、`7 P.A` の各 directory に、playlist 全体の ALL と folder 別ファイルを出す。LR2 の TITLE 順表示でもクリア状態順になるよう directory 名に番号を付ける。`.lr2folder` の `#TITLE` は番号なしの状態名を使う。`FC` と `P.A` は分離し、`FC` は P.A bit を持たない full combo だけにする。 | `score.clear`、`score.rank`、`score.op_history`。 |
+| ClearFolder | `CLEAR FOLDER\0 NO PLAY`、`1 FAILED`、`2 ASSIST`、`3 EASY`、`4 CLEAR`、`5 HARD`、`6 FC`、`7 P.A` の各 directory に、playlist 全体の ALL と folder 別ファイルを出す。LR2 の TITLE 順表示でもクリア状態順になるよう directory 名に番号を付ける。`.lr2folder` の `#TITLE` は番号なしの状態名を使う。`ASSIST` と `EASY` は LR2 native `score.clear = 2` を `op_history` の EASY bit で分け、EASY bit が立っている場合だけ EASY、EASY bit がない場合は ASSIST とする。`FC` と `P.A` は分離し、`FC` は P.A bit を持たない full combo だけにする。 | `score.clear`、`score.op_history`。 |
 | DJLevelFolder | `DJ LEVEL\AAA`、`AA`、`A`、`UNDER A` の各 directory に、playlist 全体の ALL と folder 別ファイルを出す。`UNDER A` は A 未満と no score をまとめる。 | `score.rank`。 |
 | CategoryAllFolder | `ALL LONG NOTES` と judge 種別別 folder。 | `song.longnote`、`song.judge`。 |
 | OtherFolder | `MY BEST`、`NEW SONGS`、`REMOVED SONGS`。LR2IR score 取得と未送信検知が有効な場合は `UNSENT SONGS` も出す。 | `score.playcount`、`playlist_entry.adddate`、`playlist_entry.is_removed`、必要に応じて `ir_score` と `score` の一致条件。 |
