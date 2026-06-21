@@ -433,6 +433,10 @@ LR2互換性警告画面は、通常ライブラリよりも警告内容の確�
 - `BmtSort`
 - `IsBmtOutput`
 
+### プレイログ
+
+プレイログ一覧の text cell は、列幅不足で省略表示になる場合にセル全文を tooltip 表示する。`FOLDER` は意味付き tooltip として `PlaylistNames` を表示するため、省略有無にかかわらず対象プレイリスト名を確認できる。
+
 ## カラム定義の意味
 
 `CustomTableColumn` は以下を持つ。

@@ -435,20 +435,20 @@ internal static class CustomTableColumnFactory
             new CustomTableColumn("FolderLabels", "FOLDER", settings.PlayHistoryFolderLabels, 1, nameof(PlayHistoryRow.FolderLabels), TextAlignment.Left, row => GetString(row, nameof(PlayHistoryRow.FolderLabels)), tooltipSelector: row => GetString(row, nameof(PlayHistoryRow.PlaylistNames))),
             new CustomTableColumn("Title", "TITLE", settings.Title, 2, nameof(PlayHistoryRow.Title), TextAlignment.Left, row => GetString(row, nameof(PlayHistoryRow.Title))),
             new CustomTableColumn("Artist", "ARTIST", settings.Artist, 3, nameof(PlayHistoryRow.Artist), TextAlignment.Left, row => GetString(row, nameof(PlayHistoryRow.Artist))),
-            new CustomTableColumn("BestClear", "CLEAR", settings.PlayHistoryBestClear, 4, "BestClear", TextAlignment.Center, row => GetString(row, nameof(PlayHistoryRow.BestClear)), row => GetPlayHistoryBestClearBrush(row), textRunSelector: GetPlayHistoryBestClearTextRuns, textStyle: CustomTableTextStyle.Score, autoTrimTooltip: false),
-            new CustomTableColumn("BestDjLevel", "BEST DJ", settings.PlayHistoryBestDjLevel, 5, "BestDjLevel", TextAlignment.Center, row => GetString(row, nameof(PlayHistoryRow.BestDjLevelText)), row => GetPlayHistoryBestDjLevelBrush(row), textRunSelector: GetPlayHistoryBestDjLevelTextRuns, textStyle: CustomTableTextStyle.Score, autoTrimTooltip: false),
-            new CustomTableColumn("BestRate", "BEST RATE", settings.PlayHistoryBestRate, 6, "BestRate", TextAlignment.Right, row => GetString(row, nameof(PlayHistoryRow.BestRateText)), autoTrimTooltip: false),
+            new CustomTableColumn("BestClear", "CLEAR", settings.PlayHistoryBestClear, 4, "BestClear", TextAlignment.Center, row => GetString(row, nameof(PlayHistoryRow.BestClear)), row => GetPlayHistoryBestClearBrush(row), textRunSelector: GetPlayHistoryBestClearTextRuns, textStyle: CustomTableTextStyle.Score),
+            new CustomTableColumn("BestDjLevel", "BEST DJ", settings.PlayHistoryBestDjLevel, 5, "BestDjLevel", TextAlignment.Center, row => GetString(row, nameof(PlayHistoryRow.BestDjLevelText)), row => GetPlayHistoryBestDjLevelBrush(row), textRunSelector: GetPlayHistoryBestDjLevelTextRuns, textStyle: CustomTableTextStyle.Score),
+            new CustomTableColumn("BestRate", "BEST RATE", settings.PlayHistoryBestRate, 6, "BestRate", TextAlignment.Right, row => GetString(row, nameof(PlayHistoryRow.BestRateText))),
             new CustomTableColumn("BestExscore", "BEST EXSCORE", settings.PlayHistoryBestExscore, 7, "BestExscore", TextAlignment.Right, row => GetString(row, nameof(PlayHistoryRow.BestExscore))),
             new CustomTableColumn("BestBp", "BP", settings.PlayHistoryBestBp, 8, "BestBp", TextAlignment.Right, row => GetString(row, nameof(PlayHistoryRow.BestBp))),
             new CustomTableColumn("BestCombo", "COMBO", settings.PlayHistoryBestCombo, 9, "BestCombo", TextAlignment.Right, row => GetString(row, nameof(PlayHistoryRow.BestCombo))),
             new CustomTableColumn("Kind", "TYPE", settings.PlayHistoryKind, 10, nameof(PlayHistoryRow.Kind), TextAlignment.Center, row => GetString(row, nameof(PlayHistoryRow.Kind))),
             new CustomTableColumn("Option", "OPTION", settings.PlayHistoryOption, 11, nameof(PlayHistoryRow.Option), TextAlignment.Left, row => GetString(row, nameof(PlayHistoryRow.Option))),
-            new CustomTableColumn("OpHistory", "OP HISTORY", settings.PlayHistoryOpHistory, 12, "OpHistory", TextAlignment.Center, row => GetString(row, nameof(PlayHistoryRow.OpHistory)), autoTrimTooltip: false),
+            new CustomTableColumn("OpHistory", "OP HISTORY", settings.PlayHistoryOpHistory, 12, "OpHistory", TextAlignment.Center, row => GetString(row, nameof(PlayHistoryRow.OpHistory))),
             new CustomTableColumn("PlayExscore", "PLAY EXSCORE", settings.PlayHistoryPlayExscore, 13, "PlayExscore", TextAlignment.Right, row => GetString(row, nameof(PlayHistoryRow.PlayExscore))),
             new CustomTableColumn("Judges", "JUDGES", settings.PlayHistoryJudges, 14, "JudgeTotal", TextAlignment.Left, row => GetString(row, nameof(PlayHistoryRow.Judges))),
             new CustomTableColumn("Sha256", "SHA256", settings.Sha256, 15, nameof(PlayHistoryRow.Sha256), TextAlignment.Center, row => GetString(row, nameof(PlayHistoryRow.Sha256)), maxWidth: 480),
             new CustomTableColumn("RawHash", "RAW HASH", settings.PlayHistoryRawHash, 18, nameof(PlayHistoryRow.RawHash), TextAlignment.Center, row => GetString(row, nameof(PlayHistoryRow.RawHash)), maxWidth: 240),
-            new CustomTableColumn("Finalized", "FINALIZED", settings.PlayHistoryFinalized, 19, nameof(PlayHistoryRow.Finalized), TextAlignment.Center, row => GetString(row, nameof(PlayHistoryRow.Finalized)), autoTrimTooltip: false)
+            new CustomTableColumn("Finalized", "FINALIZED", settings.PlayHistoryFinalized, 19, nameof(PlayHistoryRow.Finalized), TextAlignment.Center, row => GetString(row, nameof(PlayHistoryRow.Finalized)))
         ];
     }
 

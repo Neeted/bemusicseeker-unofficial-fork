@@ -426,6 +426,25 @@ public sealed class CustomTableColumnFactoryTests
     }
 
     [TestMethod]
+    public void CreateMainColumns_PlayHistoryTextColumnsUseTrimTooltips()
+    {
+        var settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.PLAY_HISTORY);
+        foreach (CustomTableColumnSettings.ColumnLayout layout in CustomTableColumnFactory.EnumerateMainColumnLayouts(settings))
+        {
+            layout.DisplayIndex = -1;
+            layout.Visibility = Visibility.Visible;
+        }
+
+        CustomTableColumn[] columns = [.. CustomTableColumnFactory.CreateMainColumns(settings)];
+
+        Assert.IsTrue(columns.Length > 0);
+        foreach (CustomTableColumn column in columns.Where(column => column.CellKind == CustomTableCellKind.Text))
+        {
+            Assert.IsTrue(column.AutoTrimTooltip, column.Id);
+        }
+    }
+
+    [TestMethod]
     public void CreatePlaylistSummaryColumns_AssignsAutoTrimTooltipPolicy()
     {
         var settings = new PlaylistSummaryColumnSettings();
