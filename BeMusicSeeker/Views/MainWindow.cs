@@ -61,6 +61,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private static readonly UpdateCheckService updateCheckService = new(AppHttpClient.Create(5000));
 
+    private static readonly UpdateDownloadService updateDownloadService = new();
+
     private const long DownloadAndInstallSizeLimitBytes = 536870912L;
 
     private const int SharedDownloadPageResolverMaxBytes = 2097152;
@@ -213,6 +215,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     /// </summary>
     public MainWindow()
     {
+        CleanupPreviousUpdateWorkDirectory();
         InitializeComponent();
         ApplySavedTreeViewWidth();
         AddHandler(UIElement.PreviewMouseDownEvent, new MouseButtonEventHandler(keywordSearchWindowPreviewMouseDown), true);
@@ -278,7 +281,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             UpdateCheckResult result = await updateCheckService.CheckAsync(CommandLineSwitches.UpdateManifestUrl);
             if (result.IsUpdateAvailable)
             {
-                base.Dispatcher.Invoke(() =>
+                UpdateAssetInfo selectedAsset = base.Dispatcher.Invoke(() =>
                 {
                     if (base.DataContext is MainWindowViewModel viewModel && result.Assets.Count > 0)
                     {
@@ -286,29 +289,60 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                         {
                             Owner = this
                         };
-                        if (dialog.ShowDialog() == true)
-                        {
-                            DispatcherMessageBox.Show(
-                                "The update package was selected. Automatic update will run in a later implementation step.",
-                                "Update Available",
-                                MessageBoxButton.OK,
-                                MessageBoxImage.Information);
-                        }
+                        return dialog.ShowDialog() == true ? dialog.SelectedAsset : null;
                     }
-                    else
-                    {
-                        DispatcherMessageBox.Show(
-                            $"A new version ({result.LatestVersionText}) is available.\nYour version: {result.CurrentVersionText}\n\nPlease check the repository.",
-                            "Update Available",
-                            MessageBoxButton.OK,
-                            MessageBoxImage.Information);
-                    }
+
+                    DispatcherMessageBox.Show(
+                        $"A new version ({result.LatestVersionText}) is available.\nYour version: {result.CurrentVersionText}\n\nPlease check the repository.",
+                        "Update Available",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Information);
+                    return null;
                 });
+
+                if (selectedAsset != null)
+                {
+                    await DownloadAndApplyUpdateAsync(selectedAsset);
+                }
             }
         }
         catch (Exception ex)
         {
             Ribbit.Logging.NLogWrapper.FileLogger?.Warn("Failed to check for updates: " + ex.Message);
+        }
+    }
+
+    private async Task DownloadAndApplyUpdateAsync(UpdateAssetInfo selectedAsset)
+    {
+        try
+        {
+            string packagePath = await updateDownloadService.DownloadAndVerifyAsync(selectedAsset).ConfigureAwait(false);
+            updateDownloadService.StartUpdater(packagePath);
+            base.Dispatcher.Invoke(() => Application.Current.Shutdown());
+        }
+        catch (Exception ex)
+        {
+            Ribbit.Logging.NLogWrapper.FileLogger?.Error(ex, "Failed to apply update.");
+            base.Dispatcher.Invoke(() =>
+            {
+                DispatcherMessageBox.Show(
+                    "Failed to download or start the update.\n" + ex.Message,
+                    "Update Failed",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+            });
+        }
+    }
+
+    private static void CleanupPreviousUpdateWorkDirectory()
+    {
+        try
+        {
+            UpdateDownloadService.CleanupPreviousWorkDirectory();
+        }
+        catch (Exception ex)
+        {
+            Ribbit.Logging.NLogWrapper.FileLogger?.Warn(ex, "Failed to cleanup previous update_work directory.");
         }
     }
 
