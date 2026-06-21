@@ -1325,6 +1325,65 @@ public sealed class PlayHistoryReadModelTests
     }
 
     [TestMethod]
+    public void ExecSort_KeepsPlayHistorySortSeparateFromMainSort()
+    {
+        var viewModel = new MainWindowViewModel();
+        SetPrivateField(
+            viewModel,
+            "treeViewFilterTypeSelected",
+            MainWindowViewModel.viewUpdateMode.FolderFilterSelected);
+
+        viewModel.ExecSort(nameof(BMSFile.Title), ListSortDirection.Ascending);
+
+        Assert.AreEqual(nameof(BMSFile.Title), viewModel.SortParameters.ColumnsName);
+        Assert.AreEqual(ListSortDirection.Ascending, viewModel.SortParameters.Direction);
+        Assert.IsNull(viewModel.PlayHistorySortParameters);
+        Assert.AreSame(viewModel.SortParameters, viewModel.MainTableSortParameters);
+
+        SetPrivateField(
+            viewModel,
+            "treeViewFilterTypeSelected",
+            MainWindowViewModel.viewUpdateMode.PlayHistorySelected);
+
+        viewModel.ExecSort(nameof(PlayHistoryRow.PlayedAt), ListSortDirection.Descending);
+
+        Assert.AreEqual(nameof(BMSFile.Title), viewModel.SortParameters.ColumnsName);
+        Assert.AreEqual(ListSortDirection.Ascending, viewModel.SortParameters.Direction);
+        Assert.AreEqual(nameof(PlayHistoryRow.PlayedAt), viewModel.PlayHistorySortParameters.ColumnsName);
+        Assert.AreEqual(ListSortDirection.Descending, viewModel.PlayHistorySortParameters.Direction);
+        Assert.AreSame(viewModel.PlayHistorySortParameters, viewModel.MainTableSortParameters);
+    }
+
+    [TestMethod]
+    public void ExecSort_UsesCapturedSortScopeWhenViewChangesBeforeExecution()
+    {
+        var viewModel = new MainWindowViewModel();
+        SetPrivateField(
+            viewModel,
+            "treeViewFilterTypeSelected",
+            MainWindowViewModel.viewUpdateMode.FolderFilterSelected);
+
+        viewModel.ExecSort(nameof(PlayHistoryRow.PlayedAt), ListSortDirection.Descending, isPlayHistorySort: true);
+
+        Assert.IsNull(viewModel.SortParameters);
+        Assert.AreEqual(nameof(PlayHistoryRow.PlayedAt), viewModel.PlayHistorySortParameters.ColumnsName);
+        Assert.AreEqual(ListSortDirection.Descending, viewModel.PlayHistorySortParameters.Direction);
+        Assert.IsNull(viewModel.MainTableSortParameters);
+
+        SetPrivateField(
+            viewModel,
+            "treeViewFilterTypeSelected",
+            MainWindowViewModel.viewUpdateMode.PlayHistorySelected);
+
+        viewModel.ExecSort(nameof(BMSFile.Title), ListSortDirection.Ascending, isPlayHistorySort: false);
+
+        Assert.AreEqual(nameof(BMSFile.Title), viewModel.SortParameters.ColumnsName);
+        Assert.AreEqual(ListSortDirection.Ascending, viewModel.SortParameters.Direction);
+        Assert.AreEqual(nameof(PlayHistoryRow.PlayedAt), viewModel.PlayHistorySortParameters.ColumnsName);
+        Assert.AreSame(viewModel.PlayHistorySortParameters, viewModel.MainTableSortParameters);
+    }
+
+    [TestMethod]
     public void VirtualViewExposesReadOnlyRows()
     {
         PlayHistoryProjectionResult projected = PlayHistoryRow.ProjectLr2Rows(
@@ -2244,6 +2303,13 @@ public sealed class PlayHistoryReadModelTests
     {
         typeof(MainWindowViewModel)
             .GetProperty(propertyName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)!
+            .SetValue(viewModel, value);
+    }
+
+    private static void SetPrivateField<T>(MainWindowViewModel viewModel, string fieldName, T value)
+    {
+        typeof(MainWindowViewModel)
+            .GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic)!
             .SetValue(viewModel, value);
     }
 

@@ -26,7 +26,7 @@
 
 | Control | 表示条件 | ItemsSource | Column layout | Sort state |
 | --- | --- | --- | --- | --- |
-| `customTableView` | `IsPlaylistSummaryMode == false` | `ChartRowsView` | `ColumnsSettingsChartRowsView` | `SortParameters.ColumnsName` / `Direction` |
+| `customTableView` | `IsPlaylistSummaryMode == false` | `ChartRowsView` | `ColumnsSettingsChartRowsView` | 通常一覧は `SortParameters`、プレイログ一覧は `PlayHistorySortParameters`。表示 binding は `MainTableSortParameters` |
 | `customTablePlaylistSummary` | `IsPlaylistSummaryMode == true` | `PlaylistSummaryView` | `PlaylistSummaryColumnsSettings` | `PlaylistSummarySortParameters.ColumnsName` / `Direction` |
 
 共通の表示値:

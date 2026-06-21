@@ -87,6 +87,9 @@ public sealed class MainWindowContextMenuResourceTests
         LibraryChartRow libraryRow = LibraryChartRow.FromBmsFile(CreateContextMenuBmsFile());
 
         StringAssert.Contains(mainTable, "RowDragKind=\"{Binding ChartRowsViewRowDragKind, Mode=OneWay}\"");
+        StringAssert.Contains(mainTable, "SortColumnName=\"{Binding MainTableSortParameters.ColumnsName, Mode=OneWay}\"");
+        StringAssert.Contains(mainTable, "SortDirection=\"{Binding MainTableSortParameters.Direction, Mode=OneWay}\"");
+        Assert.IsFalse(mainTable.Contains("SortColumnName=\"{Binding SortParameters.ColumnsName"));
         Assert.IsFalse(mainTable.Contains("RowDragKind=\"PlaylistDropCandidateRows\""));
         Assert.IsFalse(MainWindow.TryResolveTableContextMenuPolicyForTest(playHistoryRow, ChartOperationSourceScope.Library, out bool playHistoryMissingContextMenu));
         Assert.IsFalse(playHistoryMissingContextMenu);

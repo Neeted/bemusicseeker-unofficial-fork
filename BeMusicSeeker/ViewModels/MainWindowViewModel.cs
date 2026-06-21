@@ -8874,6 +8874,8 @@ public class MainWindowViewModel : ViewModel
 
     private cSortParameters _SortParameters;
 
+    private cSortParameters _PlayHistorySortParameters;
+
     private cSortParameters _PlaylistSummarySortParameters;
 
     private BeMusicSeeker.Models.BMSFile _NowPlayingBMS;
@@ -16470,24 +16472,52 @@ public class MainWindowViewModel : ViewModel
         private set
         {
             bool changed = false;
+            if (!AreSameSortParameters(_SortParameters, value))
+            {
+                _SortParameters = value;
+                changed = true;
+            }
+            if (changed)
+            {
+                RaisePropertyChanged("SortParameters");
+                if (!IsPlayHistoryViewActive)
+                {
+                    RaisePropertyChanged("MainTableSortParameters");
+                }
+            }
+        }
+    }
+
+    public cSortParameters PlayHistorySortParameters
+    {
+        get
+        {
+            return _PlayHistorySortParameters;
+        }
+        private set
+        {
+            bool changed = false;
             lock (playHistoryViewRequestLock)
             {
-                if (value == null || _SortParameters == null || !(_SortParameters.ColumnsName == value.ColumnsName) || _SortParameters.Direction != value.Direction)
+                if (!AreSameSortParameters(_PlayHistorySortParameters, value))
                 {
-                    _SortParameters = value;
-                    if (treeViewFilterTypeSelected == viewUpdateMode.PlayHistorySelected)
-                    {
-                        playHistorySortRevision++;
-                    }
+                    _PlayHistorySortParameters = value;
+                    playHistorySortRevision++;
                     changed = true;
                 }
             }
             if (changed)
             {
-                RaisePropertyChanged("SortParameters");
+                RaisePropertyChanged("PlayHistorySortParameters");
+                if (IsPlayHistoryViewActive)
+                {
+                    RaisePropertyChanged("MainTableSortParameters");
+                }
             }
         }
     }
+
+    public cSortParameters MainTableSortParameters => IsPlayHistoryViewActive ? PlayHistorySortParameters : SortParameters;
 
     public cSortParameters PlaylistSummarySortParameters
     {
@@ -16503,6 +16533,15 @@ public class MainWindowViewModel : ViewModel
                 RaisePropertyChanged("PlaylistSummarySortParameters");
             }
         }
+    }
+
+    private static bool AreSameSortParameters(cSortParameters left, cSortParameters right)
+    {
+        return left == null
+            ? right == null
+            : right != null
+                && left.ColumnsName == right.ColumnsName
+                && left.Direction == right.Direction;
     }
 
     /// <summary>
@@ -21065,6 +21104,7 @@ public class MainWindowViewModel : ViewModel
             RaisePropertyChanged(() => CurrentMainViewOperationSection);
             RaisePropertyChanged(() => CurrentMainViewChartOperationSourceScope);
             RaisePropertyChanged(() => IsPlayHistoryViewActive);
+            RaisePropertyChanged("MainTableSortParameters");
         }
         if (files == null)
         {
@@ -22448,6 +22488,7 @@ public class MainWindowViewModel : ViewModel
             RaisePropertyChanged(() => CurrentMainViewOperationSection);
             RaisePropertyChanged(() => CurrentMainViewChartOperationSourceScope);
             RaisePropertyChanged(() => IsPlayHistoryViewActive);
+            RaisePropertyChanged("MainTableSortParameters");
         }
         return requestId;
     }
@@ -22785,12 +22826,12 @@ public class MainWindowViewModel : ViewModel
     {
         lock (playHistoryViewRequestLock)
         {
-            cSortParameters sortParameters = _SortParameters == null
+            cSortParameters sortParameters = _PlayHistorySortParameters == null
                 ? null
                 : new cSortParameters
                 {
-                    ColumnsName = _SortParameters.ColumnsName,
-                    Direction = _SortParameters.Direction
+                    ColumnsName = _PlayHistorySortParameters.ColumnsName,
+                    Direction = _PlayHistorySortParameters.Direction
                 };
             snapshot = SortSnapshot.From(sortParameters, playHistorySortRevision);
             return sortParameters;
@@ -23652,6 +23693,28 @@ public class MainWindowViewModel : ViewModel
 
     public void ExecSort(string columnName, ListSortDirection direction)
     {
+        ExecSort(columnName, direction, IsPlayHistoryViewActive);
+    }
+
+    public void ExecSort(string columnName, ListSortDirection direction, bool isPlayHistorySort)
+    {
+        if (isPlayHistorySort)
+        {
+            if (PlayHistorySortParameters == null || PlayHistorySortParameters.ColumnsName != columnName || PlayHistorySortParameters.Direction != direction)
+            {
+                PlayHistorySortParameters = new cSortParameters
+                {
+                    ColumnsName = columnName,
+                    Direction = direction
+                };
+                if (IsPlayHistoryViewActive)
+                {
+                    RefreshChartRowsView(viewUpdateMode.SortUpdated);
+                }
+            }
+            return;
+        }
+
         if (SortParameters == null || SortParameters.ColumnsName != columnName || SortParameters.Direction != direction)
         {
             SortParameters = new cSortParameters
@@ -23659,7 +23722,10 @@ public class MainWindowViewModel : ViewModel
                 ColumnsName = columnName,
                 Direction = direction
             };
-            RefreshChartRowsView(viewUpdateMode.SortUpdated);
+            if (!IsPlayHistoryViewActive)
+            {
+                RefreshChartRowsView(viewUpdateMode.SortUpdated);
+            }
         }
     }
 
@@ -26881,6 +26947,7 @@ public class MainWindowViewModel : ViewModel
         {
             RaisePropertyChanged(() => IsPlayHistoryViewActive);
             RaisePropertyChanged(() => CurrentMainViewOperationSection);
+            RaisePropertyChanged("MainTableSortParameters");
         }
         RefreshPlaylistSummaryPresentationIfVisible();
     }

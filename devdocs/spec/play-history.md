@@ -137,6 +137,10 @@ view request には request id があり、古い非同期 refresh の結果が�
 
 Play History view は通常検索欄に `GridKeywordSearchContext.PlayHistory` を使う。keyword search は LR2 DB read と projection が終わり、display target filter を適用した後、sort / view 適用の前に in-memory で `PlayHistoryRow` を絞り込む。`KeywordFilterUpdated` / display target 変更 / `SortUpdated` は同じ期間 request の read / projection result を再利用し、DB read と projection index build を繰り返さない。
 
+## Sort
+
+Play History view の sort state は通常一覧の `SortParameters` と共有しない。通常一覧で選択した列が Play History に持ち込まれることはなく、Play History のヘッダー操作は `PlayHistorySortParameters` だけを更新する。未指定時は `PlayedAt` 降順を既定とし、同時刻の行は `HistoryId` 降順で安定化する。ユーザー操作で sort できるのは Play History の列定義が持つ `SortMemberPath` だけであり、通常一覧にしか存在しない列は Play History の sort request として発生させない。
+
 Play History context の field は次の通り。
 
 | Field | 意味 |

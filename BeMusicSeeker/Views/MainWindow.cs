@@ -653,9 +653,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
+        bool isPlayHistorySort = viewModel.IsPlayHistoryViewActive;
         await Task.Run(delegate
         {
-            viewModel.ExecSort(e.SortMemberPath, e.Direction);
+            viewModel.ExecSort(e.SortMemberPath, e.Direction, isPlayHistorySort);
         }).Logging("customTableView_SortRequested");
     }
 
