@@ -25,8 +25,11 @@ $ErrorActionPreference = "Stop"
 $devRoot = "D:\work\BeMusicSeeker-decomp"
 $pubRoot = "D:\github\bemusicseeker-unofficial-fork"
 $buildOutput = Join-Path $devRoot "bin\Release\net472"
+$updaterOutput = Join-Path $devRoot "BeMusicSeeker.Updater\bin\Release\net472"
 $distDir = Join-Path $devRoot "dist"
 $stagingRoot = Join-Path $distDir "_staging"
+$publicRepoOwner = "Neeted"
+$publicRepoName = "bemusicseeker-unofficial-fork"
 
 # AssemblyInformationalVersion を読み取る
 function Get-AppVersion {
@@ -53,15 +56,10 @@ function Resolve-MetadataSource {
     }
 
     $extension = [System.IO.Path]::GetExtension($sourcePath).ToLowerInvariant()
-    if ($extension -eq ".7z") {
-        $targetName = "chart-info-metadata.7z"
+    if ($extension -ne ".7z") {
+        throw "自動アップデート対象の metadata 同梱パッケージは .7z のみ対応します: $sourcePath"
     }
-    elseif ($extension -eq ".db") {
-        $targetName = "chart-info-metadata.db"
-    }
-    else {
-        throw "metadata source は .7z または .db を指定してください: $sourcePath"
-    }
+    $targetName = "chart-info-metadata.7z"
 
     return [PSCustomObject]@{
         SourcePath = $sourcePath
@@ -122,6 +120,7 @@ function Copy-AppFilesToStaging($targetStagingDir) {
     # アプリ本体のコピー (config, .pdb, *.log は除外)
     Copy-Item (Join-Path $buildOutput "BeMusicSeeker.exe")        $targetStagingDir
     Copy-Item (Join-Path $buildOutput "BeMusicSeeker.exe.config") $targetStagingDir
+    Copy-Item (Join-Path $updaterOutput "BeMusicSeeker.Updater.exe") $targetStagingDir
     Copy-Item (Join-Path $buildOutput "libs")   (Join-Path $targetStagingDir "libs")   -Recurse
     Copy-Item (Join-Path $buildOutput "native") (Join-Path $targetStagingDir "native") -Recurse
     Copy-Item (Join-Path $buildOutput "lang")   (Join-Path $targetStagingDir "lang")   -Recurse
@@ -144,6 +143,42 @@ function Copy-AppFilesToStaging($targetStagingDir) {
 
     # Markdown docs converted to HTML.
     Build-DocHtml $targetStagingDir
+}
+
+function Get-ReleaseAssetMetadata($assetPath, $version, $packageSuffix) {
+    $asset = Get-Item $assetPath
+    $tag = "v$version"
+    $fileName = $asset.Name
+    $downloadUrl = "https://github.com/$publicRepoOwner/$publicRepoName/releases/download/$tag/$fileName"
+    $isMetadataPackage = -not [string]::IsNullOrWhiteSpace($packageSuffix)
+
+    return [PSCustomObject]@{
+        kind = if ($isMetadataPackage) { "app-with-metadata" } else { "app" }
+        label = if ($isMetadataPackage) { "譜面解析済みメタデータ同梱版" } else { "本体のみ" }
+        fileName = $fileName
+        url = $downloadUrl
+        sha256 = (Get-FileHash -Path $asset.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+        sizeBytes = $asset.Length
+        includesChartInfoMetadata = $isMetadataPackage
+    }
+}
+
+function New-UpdateManifestCandidate($version, $assetMetadata) {
+    $tag = "v$version"
+    $manifest = [PSCustomObject]@{
+        schemaVersion = 1
+        version = $version
+        releaseTag = $tag
+        releasePageUrl = "https://github.com/$publicRepoOwner/$publicRepoName/releases/tag/$tag"
+        packageFormatVersion = 1
+        publishedAt = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+        minimumUpdaterVersion = "1"
+        assets = @($assetMetadata)
+    }
+
+    $manifestPath = Join-Path $distDir "update-$tag.json"
+    $manifest | ConvertTo-Json -Depth 8 | Set-Content -Path $manifestPath -Encoding UTF8
+    Write-Host "  update manifest 候補を作成: $manifestPath" -ForegroundColor Green
 }
 
 function New-ZipPackage($version, $packageSuffix, $metadataInfo) {
@@ -194,6 +229,8 @@ function New-ReleasePackage {
         Push-Location $devRoot
         dotnet build -c Release BeMusicSeeker.csproj | Out-Host
         if ($LASTEXITCODE -ne 0) { throw "ビルドに失敗しました" }
+        dotnet build -c Release BeMusicSeeker.Updater\BeMusicSeeker.Updater.csproj | Out-Host
+        if ($LASTEXITCODE -ne 0) { throw "updater のビルドに失敗しました" }
         Pop-Location
         Write-Host "  ビルド完了" -ForegroundColor Green
     }
@@ -208,10 +245,19 @@ function New-ReleasePackage {
     if (Test-Path $stagingRoot) { Remove-Item $stagingRoot -Recurse -Force }
 
     $packages = @()
-    $packages += New-ZipPackage $version "" $null
+    $assetMetadata = @()
+
+    $appPackage = New-ZipPackage $version "" $null
+    $packages += $appPackage
+    $assetMetadata += Get-ReleaseAssetMetadata $appPackage $version ""
+
     if ($IncludeMetadata) {
-        $packages += New-ZipPackage $version $MetadataPackageSuffix $metadataInfo
+        $metadataPackage = New-ZipPackage $version $MetadataPackageSuffix $metadataInfo
+        $packages += $metadataPackage
+        $assetMetadata += Get-ReleaseAssetMetadata $metadataPackage $version $MetadataPackageSuffix
     }
+
+    New-UpdateManifestCandidate $version $assetMetadata
 
     return $packages
 }
