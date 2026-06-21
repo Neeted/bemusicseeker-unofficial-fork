@@ -794,7 +794,7 @@ public sealed class PlayHistoryReadModelTests
         Assert.AreEqual("A -> AA", row.BestDjLevelText);
         Assert.IsTrue(row.BestRate.HasValue);
         Assert.AreEqual(250 / 300.0, row.BestRate.Value, 0.0001);
-        Assert.AreEqual("66.67% -> 83.33%", row.BestRateText);
+        Assert.AreEqual("66.67 -> 83.33", row.BestRateText);
         Assert.AreEqual(240, row.PlayExscore);
         Assert.AreEqual(250, row.NewBestExscore);
         Assert.AreEqual(90, row.PlaytimeSeconds);
@@ -1247,7 +1247,7 @@ public sealed class PlayHistoryReadModelTests
 
         Assert.AreEqual("score bp clear combo", row.Kind);
         Assert.AreEqual("10", row.BestBp);
-        Assert.AreEqual("50.00% -> 60.00%", row.BestRateText);
+        Assert.AreEqual("50.00 -> 60.00", row.BestRateText);
         Assert.AreEqual("P.A / ASSIST off", row.OpHistory);
     }
 
@@ -1403,7 +1403,7 @@ public sealed class PlayHistoryReadModelTests
             Assert.AreEqual(string.Empty, row.Option);
             Assert.AreEqual("score bp clear combo", row.Kind);
             Assert.AreEqual("C -> B", row.BestDjLevelText);
-            Assert.AreEqual("50.00% -> 66.50%", row.BestRateText);
+            Assert.AreEqual("50.00 -> 66.50", row.BestRateText);
             Assert.IsNull(row.PlaytimeSeconds);
             Assert.AreEqual(1, summary.RowCount);
             Assert.AreEqual(1, summary.SummaryEligibleCount);

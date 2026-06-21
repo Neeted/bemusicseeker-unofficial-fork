@@ -211,18 +211,29 @@ public sealed class CustomTableColumnSettingsTests
     [TestMethod]
     public void Constructor_PlayHistoryDefaultsMatchInitialColumnOrder()
     {
+        var settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.PLAY_HISTORY);
+
         AssertVisibleColumnOrder(
-            new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.PLAY_HISTORY),
+            settings,
             "PlayHistoryPlayedAt",
             "PlayHistoryFolderLabels",
             "Title",
             "PlayHistoryBestClear",
             "PlayHistoryBestDjLevel",
             "PlayHistoryBestRate",
+            "PlayHistoryBestExscore",
             "PlayHistoryBestBp",
             "PlayHistoryBestCombo",
             "PlayHistoryKind",
-            "PlayHistoryOpHistory");
+            "PlayHistoryOption",
+            "PlayHistoryOpHistory",
+            "PlayHistoryPlayExscore",
+            "PlayHistoryJudges");
+        Assert.AreEqual(90, settings.PlayHistoryBestDjLevel.Width);
+        Assert.AreEqual(90, settings.PlayHistoryBestRate.Width);
+        Assert.AreEqual(90, settings.PlayHistoryBestExscore.Width);
+        Assert.AreEqual(90, settings.PlayHistoryBestBp.Width);
+        Assert.AreEqual(90, settings.PlayHistoryBestCombo.Width);
     }
 
     [TestMethod]
@@ -344,10 +355,14 @@ public sealed class CustomTableColumnSettingsTests
             "PlayHistoryBestClear",
             "PlayHistoryBestDjLevel",
             "PlayHistoryBestRate",
+            "PlayHistoryBestExscore",
             "PlayHistoryBestBp",
             "PlayHistoryBestCombo",
             "PlayHistoryKind",
-            "PlayHistoryOpHistory");
+            "PlayHistoryOption",
+            "PlayHistoryOpHistory",
+            "PlayHistoryPlayExscore",
+            "PlayHistoryJudges");
     }
 
     private static void AssertVisibleColumnOrder(CustomTableColumnSettings settings, params string[] expectedNames)

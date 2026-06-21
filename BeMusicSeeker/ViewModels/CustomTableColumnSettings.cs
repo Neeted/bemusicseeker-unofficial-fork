@@ -933,25 +933,25 @@ public class CustomTableColumnSettings : NotificationObject
 
     public ColumnLayout PlayHistoryBestDjLevel
     {
-        get { return _PlayHistoryBestDjLevel ??= CreateHiddenLayout(70); }
+        get { return _PlayHistoryBestDjLevel ??= CreateHiddenLayout(90); }
         set { if (_PlayHistoryBestDjLevel != value) { _PlayHistoryBestDjLevel = value; RaisePropertyChanged("PlayHistoryBestDjLevel"); } }
     }
 
     public ColumnLayout PlayHistoryBestRate
     {
-        get { return _PlayHistoryBestRate ??= CreateHiddenLayout(80); }
+        get { return _PlayHistoryBestRate ??= CreateHiddenLayout(90); }
         set { if (_PlayHistoryBestRate != value) { _PlayHistoryBestRate = value; RaisePropertyChanged("PlayHistoryBestRate"); } }
     }
 
     public ColumnLayout PlayHistoryBestBp
     {
-        get { return _PlayHistoryBestBp ??= CreateHiddenLayout(70); }
+        get { return _PlayHistoryBestBp ??= CreateHiddenLayout(90); }
         set { if (_PlayHistoryBestBp != value) { _PlayHistoryBestBp = value; RaisePropertyChanged("PlayHistoryBestBp"); } }
     }
 
     public ColumnLayout PlayHistoryBestCombo
     {
-        get { return _PlayHistoryBestCombo ??= CreateHiddenLayout(80); }
+        get { return _PlayHistoryBestCombo ??= CreateHiddenLayout(90); }
         set { if (_PlayHistoryBestCombo != value) { _PlayHistoryBestCombo = value; RaisePropertyChanged("PlayHistoryBestCombo"); } }
     }
 
@@ -969,7 +969,7 @@ public class CustomTableColumnSettings : NotificationObject
 
     public ColumnLayout PlayHistoryBestExscore
     {
-        get { return _PlayHistoryBestExscore ??= CreateHiddenLayout(100); }
+        get { return _PlayHistoryBestExscore ??= CreateHiddenLayout(90); }
         set { if (_PlayHistoryBestExscore != value) { _PlayHistoryBestExscore = value; RaisePropertyChanged("PlayHistoryBestExscore"); } }
     }
 
@@ -1422,14 +1422,14 @@ public class CustomTableColumnSettings : NotificationObject
             PlayHistoryBestClear,
             PlayHistoryBestDjLevel,
             PlayHistoryBestRate,
+            PlayHistoryBestExscore,
             PlayHistoryBestBp,
             PlayHistoryBestCombo,
             PlayHistoryKind,
+            PlayHistoryOption,
             PlayHistoryOpHistory,
-            PlayHistoryBestExscore,
             PlayHistoryPlayExscore,
             PlayHistoryJudges,
-            PlayHistoryOption,
             Sha256,
             PlayHistoryProvider,
             PlayHistorySource,
@@ -1447,10 +1447,14 @@ public class CustomTableColumnSettings : NotificationObject
             PlayHistoryBestClear,
             PlayHistoryBestDjLevel,
             PlayHistoryBestRate,
+            PlayHistoryBestExscore,
             PlayHistoryBestBp,
             PlayHistoryBestCombo,
             PlayHistoryKind,
-            PlayHistoryOpHistory);
+            PlayHistoryOption,
+            PlayHistoryOpHistory,
+            PlayHistoryPlayExscore,
+            PlayHistoryJudges);
     }
 
     private void ApplyInstallAndFullScanDefaults()

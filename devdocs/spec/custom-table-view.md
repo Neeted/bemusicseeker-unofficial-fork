@@ -6,7 +6,7 @@
 
 ## 目的
 
-`CustomTableView` は、従来の WPF `DataGrid` のセル生成コストを避けるために導入された独自描画の表 control である。現在、メインの譜面一覧とプレイリストサマリー一覧は `CustomTableView` に一本化されている。
+`CustomTableView` は、従来の WPF `DataGrid` のセル生成コストを避けるために導入された独自描画の表 control である。現在、メインの譜面一覧、プレイログ一覧、プレイリストサマリー一覧は `CustomTableView` に一本化されている。
 
 主な利用箇所:
 
@@ -92,6 +92,7 @@ score / chart_info / maintenance / warning hydration が現在の full normal li
 | 重複ファイル | `DuplicateFilterSelected` | `Settings.Default.DuplicateCustomTableColumnSettings` | `DUPLICATE` |
 | 文字化け / 修正済み | `GarbledFilterSelected`, `GarbleFixedFilterSelected` | `Settings.Default.EncodingCustomTableColumnSettings` | `ENCODING` |
 | インストール保留 | `PendingInstallFolderSelected` | `Settings.Default.InstallCustomTableColumnSettings` | `INSTALL` |
+| プレイログ | `PlayHistorySelected` | `Settings.Default.PlayHistoryCustomTableColumnSettings` | `PLAY_HISTORY` |
 | プレイリストサマリー | `IsPlaylistSummaryMode == true` | `Settings.Default.PlaylistSummaryColumnsSettings` | 専用型 |
 
 プレイリストサマリーの設定は、メイン一覧系とは別に常に `EnsureCompatibility()` され、`PlaylistSummaryColumnsSettings` へ割り当てられる。
@@ -315,6 +316,31 @@ LR2互換性警告画面は、通常ライブラリよりも警告内容の確�
 | 14 | IsBmtOutput | `BMT OUTPUT` | 95 |
 
 `Status` のヘッダーは `Resources.Playlist_summary_status_header` 由来である。
+
+### プレイログ
+
+`PLAY_HISTORY`
+
+プレイログ一覧は通常の譜面一覧と同じ `customTableView` を使うが、行型は `PlayHistoryRow` であり、プレイ時点・更新内容・プレイ時スコアを確認するための列を初期表示する。既定の `BEST RATE` 表示は単位 `%` を付けず、`66.67 -> 83.33` のように数値だけで表示する。
+
+| Order | Column | Header | Width |
+| ---: | --- | --- | ---: |
+| 1 | PlayHistoryPlayedAt | `DATE` | 130 |
+| 2 | PlayHistoryFolderLabels | `FOLDER` | 90 |
+| 3 | Title | `TITLE` | 200 |
+| 4 | PlayHistoryBestClear | `CLEAR` | 120 |
+| 5 | PlayHistoryBestDjLevel | `BEST DJ` | 90 |
+| 6 | PlayHistoryBestRate | `BEST RATE` | 90 |
+| 7 | PlayHistoryBestExscore | `BEST EXSCORE` | 90 |
+| 8 | PlayHistoryBestBp | `BP` | 90 |
+| 9 | PlayHistoryBestCombo | `COMBO` | 90 |
+| 10 | PlayHistoryKind | `TYPE` | 70 |
+| 11 | PlayHistoryOption | `OPTION` | 120 |
+| 12 | PlayHistoryOpHistory | `OP HISTORY` | 90 |
+| 13 | PlayHistoryPlayExscore | `PLAY EXSCORE` | 100 |
+| 14 | PlayHistoryJudges | `JUDGES` | 180 |
+
+`ARTIST`, `SHA256`, `RAW HASH`, `FINALIZED` などは、ヘッダー右クリックメニューから表示できる補助列として保持する。`PROVIDER` / `SOURCE` 系は内部判定用の layout として残すが、ユーザー向けの通常メニューには出さない。
 
 ## 非表示で保持される主なカラム
 

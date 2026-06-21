@@ -561,7 +561,7 @@ internal sealed class PlayHistoryRow
     private static string FormatRate(double? rate)
     {
         return rate.HasValue
-            ? (rate.Value * 100d).ToString("F2", CultureInfo.CurrentCulture) + "%"
+            ? (rate.Value * 100d).ToString("F2", CultureInfo.CurrentCulture)
             : string.Empty;
     }
 

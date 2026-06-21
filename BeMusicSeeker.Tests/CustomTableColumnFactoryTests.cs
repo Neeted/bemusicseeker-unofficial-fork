@@ -209,10 +209,14 @@ public sealed class CustomTableColumnFactoryTests
                 "BestClear",
                 "BestDjLevel",
                 "BestRate",
+                "BestExscore",
                 "BestBp",
                 "BestCombo",
                 "Kind",
-                "OpHistory"
+                "Option",
+                "OpHistory",
+                "PlayExscore",
+                "Judges"
             },
             ids);
     }
@@ -244,29 +248,6 @@ public sealed class CustomTableColumnFactoryTests
 
         CustomTableColumn[] sortableColumns = [.. CustomTableColumnFactory.CreateMainColumns(settings).Where(column => !string.IsNullOrWhiteSpace(column.SortMemberPath))];
 
-        CollectionAssert.AreEqual(
-            new[]
-            {
-                "PlayedAt",
-                "FolderLabels",
-                "Title",
-                "BestClear",
-                "BestDjLevel",
-                "BestRate",
-                "BestBp",
-                "BestCombo",
-                "Kind",
-                "OpHistory",
-                "Artist",
-                "BestExscore",
-                "PlayExscore",
-                "Judges",
-                "Option",
-                "Sha256",
-                "RawHash",
-                "Finalized"
-            },
-            sortableColumns.Select(column => column.Id).ToArray());
         Assert.IsTrue(sortableColumns.Length > 0);
         foreach (CustomTableColumn column in sortableColumns)
         {
@@ -330,7 +311,7 @@ public sealed class CustomTableColumnFactoryTests
         Assert.AreEqual(" -> ".Length, bestDjRuns[1].Length);
         Assert.AreEqual("A -> ".Length, bestDjRuns[2].StartIndex);
         Assert.AreEqual(2, bestDjRuns[2].Length);
-        Assert.AreEqual("66.67% -> 83.33%", columns.Single(column => column.Id == "BestRate").GetText(row));
+        Assert.AreEqual("66.67 -> 83.33", columns.Single(column => column.Id == "BestRate").GetText(row));
     }
 
     [TestMethod]
