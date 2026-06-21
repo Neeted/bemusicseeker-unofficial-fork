@@ -2056,7 +2056,7 @@
   </Grid.Resources>
   <Grid.RowDefinitions>
     <RowDefinition Height="*" />
-    <RowDefinition Height="1" />
+    <RowDefinition Height="5" />
     <RowDefinition Height="*" />
   </Grid.RowDefinitions>
   <Border Grid.RowSpan="3" BorderThickness="0" IsHitTestVisible="False" />
@@ -2531,7 +2531,7 @@
             </TreeViewItem>
   </TreeView>
 </Grid>
-          <GridSplitter Name="gridSplitter" Style="{StaticResource SidebarSplitterStyle}" ResizeDirection="Columns" ResizeBehavior="CurrentAndNext" Margin="0" Grid.RowSpan="2" Width="5" HorizontalAlignment="Right" Grid.Row="1" Grid.Column="0" Panel.ZIndex="1" />
+          <GridSplitter Name="gridSplitter" Style="{StaticResource SidebarSplitterStyle}" ResizeDirection="Columns" ResizeBehavior="CurrentAndNext" Margin="0" Grid.RowSpan="3" Width="5" HorizontalAlignment="Right" Grid.Row="1" Grid.Column="0" Panel.ZIndex="1" />
         </Grid>
       </DockPanel>
       <v:InitialSetupLanguageDialog x:Name="initialSetupLanguageDialog" Visibility="Hidden" Panel.ZIndex="1" />

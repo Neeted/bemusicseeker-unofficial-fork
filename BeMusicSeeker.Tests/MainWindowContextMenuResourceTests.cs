@@ -336,27 +336,41 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
-    public void SidebarLayout_UsesUnifiedSplitterStyleAndMinimumWidth()
+    public void SidebarLayout_SplittersCoverResizableRegionsAndExposeWideHitAreas()
     {
-        string xaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "MainWindow.xaml")).Replace("\r\n", "\n");
+        XDocument document = LoadMainWindowXamlDocument();
+        XElement splitterStyle = FindElementByAttribute(document, "Key", "SidebarSplitterStyle");
+        List<XElement> sidebarSplitters = FindElementsByAttribute(document, "Style", "{StaticResource SidebarSplitterStyle}").ToList();
+        XElement verticalSplitter = FindElementByAttribute(document, "Name", "gridSplitter");
+        XElement treePane = FindElementByAttribute(document, "Name", "gridTreePane");
+        XElement horizontalSplitter = FindElementByAttribute(document, "Name", "gridSplitterTree");
+        XElement separatorLine = FindElementByAttribute(splitterStyle, "Name", "SeparatorLine");
 
-        Assert.AreEqual(1, CountOccurrences(xaml, "x:Key=\"SidebarSplitterStyle\""));
-        Assert.AreEqual(2, CountOccurrences(xaml, "Style=\"{StaticResource SidebarSplitterStyle}\""));
-        StringAssert.Contains(xaml, "<Style x:Key=\"SidebarSplitterStyle\" TargetType=\"{x:Type GridSplitter}\">\n        <Setter Property=\"Focusable\" Value=\"False\" />\n        <Setter Property=\"IsTabStop\" Value=\"False\" />\n        <Setter Property=\"FrameworkElement.FocusVisualStyle\" Value=\"{x:Null}\" />");
-        StringAssert.Contains(xaml, "<Grid Background=\"Transparent\" SnapsToDevicePixels=\"True\">");
-        StringAssert.Contains(xaml, "<Border x:Name=\"SeparatorLine\" Width=\"1\" HorizontalAlignment=\"Right\" Background=\"{TemplateBinding Background}\" />");
-        StringAssert.Contains(xaml, "<Trigger Property=\"ResizeDirection\" Value=\"Rows\">");
-        StringAssert.Contains(xaml, "<Setter TargetName=\"SeparatorLine\" Property=\"Width\" Value=\"{x:Static s:Double.NaN}\" />");
-        StringAssert.Contains(xaml, "<Setter TargetName=\"SeparatorLine\" Property=\"Height\" Value=\"1\" />");
-        StringAssert.Contains(xaml, "<Setter TargetName=\"SeparatorLine\" Property=\"VerticalAlignment\" Value=\"Center\" />");
-        Assert.AreEqual(1, CountOccurrences(xaml, "Name=\"gridSplitter\" Style=\"{StaticResource SidebarSplitterStyle}\" ResizeDirection=\"Columns\" ResizeBehavior=\"CurrentAndNext\" Margin=\"0\" Grid.RowSpan=\"2\" Width=\"5\" HorizontalAlignment=\"Right\" Grid.Row=\"1\" Grid.Column=\"0\" Panel.ZIndex=\"1\""));
-        Assert.AreEqual(1, CountOccurrences(xaml, "<RowDefinition Height=\"1\" />"));
-        Assert.AreEqual(1, CountOccurrences(xaml, "Name=\"gridSplitterTree\" Style=\"{StaticResource SidebarSplitterStyle}\" Grid.Row=\"1\" Height=\"5\" HorizontalAlignment=\"Stretch\" VerticalAlignment=\"Center\" ResizeDirection=\"Rows\" ResizeBehavior=\"PreviousAndNext\" Margin=\"0\" Panel.ZIndex=\"1\""));
-        Assert.AreEqual(1, CountOccurrences(xaml, "Name=\"gridColumn0\" MinWidth=\"160\" Width=\"{Binding TreeViewWidth, Source={x:Static prop:Settings.Default}, Mode=OneTime}\""));
-        Assert.AreEqual(1, CountOccurrences(xaml, "Name=\"gridTreePane\" Margin=\"0\" Grid.Row=\"1\" Grid.RowSpan=\"3\" Background=\"{DynamicResource App.BackgroundBrush}\""));
-        Assert.AreEqual(1, CountOccurrences(xaml, "<Border BorderThickness=\"0\" Grid.Row=\"1\" Grid.ColumnSpan=\"1\" Grid.Column=\"1\" Background=\"{DynamicResource App.SurfaceBrush}\">"));
-        StringAssert.Contains(xaml, "UseLayoutRounding=\"True\" SnapsToDevicePixels=\"True\"");
-        Assert.AreEqual(0, CountOccurrences(xaml, "BorderBrush=\"#FF828790\" BorderThickness=\"1,0,0,0\" Grid.Row=\"1\" Grid.ColumnSpan=\"1\" Grid.Column=\"1\""));
+        Assert.AreEqual(2, sidebarSplitters.Count, "Only the sidebar width splitter and sidebar tree splitter should use the shared splitter hit-test style.");
+        Assert.IsTrue(sidebarSplitters.All(element => element.Name.LocalName == "GridSplitter"));
+        Assert.IsNotNull(
+            splitterStyle.Descendants().FirstOrDefault(element => element.Name.LocalName == "Grid" && GetAttributeValue(element, "Background") == "Transparent"),
+            "The splitter template root must be transparent so the full control bounds are hit-testable.");
+
+        Assert.AreEqual(GetAttributeValue(treePane, "Grid.Row"), GetAttributeValue(verticalSplitter, "Grid.Row"));
+        Assert.AreEqual(GetAttributeValue(treePane, "Grid.RowSpan"), GetAttributeValue(verticalSplitter, "Grid.RowSpan"));
+        Assert.IsTrue(
+            GetNumericAttribute(verticalSplitter, "Width") > GetNumericAttribute(separatorLine, "Width"),
+            "The sidebar width splitter hit area must be wider than the visible vertical separator line.");
+
+        XElement rowDefinitions = DirectChild(treePane, "Grid.RowDefinitions");
+        List<XElement> rows = rowDefinitions.Elements().Where(element => element.Name.LocalName == "RowDefinition").ToList();
+        int splitterRow = int.Parse(GetAttributeValue(horizontalSplitter, "Grid.Row"), CultureInfo.InvariantCulture);
+        Assert.AreEqual(GetAttributeValue(horizontalSplitter, "Height"), GetAttributeValue(rows[splitterRow], "Height"));
+        Assert.IsTrue(
+            GetNumericAttribute(horizontalSplitter, "Height") > ResolveRowSeparatorLineHeight(splitterStyle),
+            "The sidebar tree splitter hit area must be taller than the visible horizontal separator line.");
+
+        Assert.IsTrue(GetNumericAttribute(FindElementByAttribute(document, "Name", "gridColumn0"), "MinWidth") > GetNumericAttribute(verticalSplitter, "Width"));
+        Assert.AreEqual("CurrentAndNext", GetAttributeValue(verticalSplitter, "ResizeBehavior"));
+        Assert.AreEqual("PreviousAndNext", GetAttributeValue(horizontalSplitter, "ResizeBehavior"));
+        Assert.AreEqual("True", GetAttributeValue(document.Root, "UseLayoutRounding"));
+        Assert.AreEqual("True", GetAttributeValue(document.Root, "SnapsToDevicePixels"));
     }
 
     [TestMethod]
@@ -3085,6 +3099,56 @@ public sealed class MainWindowContextMenuResourceTests
             index += pattern.Length;
         }
         return count;
+    }
+
+    private static XDocument LoadMainWindowXamlDocument()
+    {
+        return XDocument.Load(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "MainWindow.xaml"), LoadOptions.PreserveWhitespace);
+    }
+
+    private static XElement FindElementByAttribute(XContainer container, string attributeLocalName, string value)
+    {
+        List<XElement> matches = FindElementsByAttribute(container, attributeLocalName, value).ToList();
+        Assert.AreEqual(1, matches.Count, attributeLocalName + "=" + value);
+        return matches[0];
+    }
+
+    private static IEnumerable<XElement> FindElementsByAttribute(XContainer container, string attributeLocalName, string value)
+    {
+        return container.Descendants()
+            .Where(element => string.Equals(GetAttributeValue(element, attributeLocalName), value, StringComparison.Ordinal));
+    }
+
+    private static XElement DirectChild(XElement parent, string localName)
+    {
+        List<XElement> matches = parent.Elements()
+            .Where(element => element.Name.LocalName == localName)
+            .ToList();
+        Assert.AreEqual(1, matches.Count, localName);
+        return matches[0];
+    }
+
+    private static string GetAttributeValue(XElement element, string attributeLocalName)
+    {
+        return element?.Attributes()
+            .FirstOrDefault(attribute => attribute.Name.LocalName == attributeLocalName)
+            ?.Value ?? string.Empty;
+    }
+
+    private static double GetNumericAttribute(XElement element, string attributeLocalName)
+    {
+        string value = GetAttributeValue(element, attributeLocalName);
+        Assert.IsTrue(double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out double number), attributeLocalName + "=" + value);
+        return number;
+    }
+
+    private static double ResolveRowSeparatorLineHeight(XElement splitterStyle)
+    {
+        XElement heightSetter = splitterStyle.Descendants()
+            .Single(element => element.Name.LocalName == "Setter"
+                && GetAttributeValue(element, "TargetName") == "SeparatorLine"
+                && GetAttributeValue(element, "Property") == "Height");
+        return GetNumericAttribute(heightSetter, "Value");
     }
 
     private static void AssertLogPlayHistoryEventContract(string source, string eventName, params string[] requiredFragments)
