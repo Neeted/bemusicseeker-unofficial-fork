@@ -13,6 +13,7 @@
 - `chart-info-metadata-bundle-import-plan.md`: metadata bundle import の設計履歴。
 - `chart-info-parse-failure-plan.md`: chart_info parse failure 扱いの設計履歴。
 - `empty-db-first-startup-optimization-plan.md`: 空 DB 初回起動最適化の履歴。
+- `portable-auto-update-plan.md`: ポータブル zip 配布を維持した自動アップデート計画。
 - `startup-reload-progress-plan.md`: 起動・リロード progress 表示整理の履歴。
 - `warning-structure-migration-plan.md`: warning model 移行の履歴。
 
