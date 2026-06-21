@@ -280,11 +280,29 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             {
                 base.Dispatcher.Invoke(() =>
                 {
-                    DispatcherMessageBox.Show(
-                        $"A new version ({result.LatestVersionText}) is available.\nYour version: {result.CurrentVersionText}\n\nPlease check the repository.",
-                        "Update Available",
-                        MessageBoxButton.OK,
-                        MessageBoxImage.Information);
+                    if (base.DataContext is MainWindowViewModel viewModel && result.Assets.Count > 0)
+                    {
+                        var dialog = new UpdateAvailableDialog(result, viewModel)
+                        {
+                            Owner = this
+                        };
+                        if (dialog.ShowDialog() == true)
+                        {
+                            DispatcherMessageBox.Show(
+                                "The update package was selected. Automatic update will run in a later implementation step.",
+                                "Update Available",
+                                MessageBoxButton.OK,
+                                MessageBoxImage.Information);
+                        }
+                    }
+                    else
+                    {
+                        DispatcherMessageBox.Show(
+                            $"A new version ({result.LatestVersionText}) is available.\nYour version: {result.CurrentVersionText}\n\nPlease check the repository.",
+                            "Update Available",
+                            MessageBoxButton.OK,
+                            MessageBoxImage.Information);
+                    }
                 });
             }
         }
