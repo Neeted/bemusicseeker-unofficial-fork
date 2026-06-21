@@ -177,3 +177,5 @@ startup_progress_request_after_skip operation=... phase=...
 ```
 
 Dispatcher 反映は operation token で guard される。古い operation の delayed reflect は UI に反映しない。
+
+外部 playlist import / reload / LR2 custom folder 出力 / beatoraja `.bmt` 出力が共有する playlist sync progress も、UI Dispatcher 反映に単調増加する UI version を持つ。background thread から active 更新と完了更新が短時間に交差しても、古い active reflect が完了 reflect より後に描画されて進捗が残らないよう、最新 version 以外の reflect は破棄する。beatoraja `.bmt` 全出力は、manifest 判定で projection 対象が 0 件の場合は progress operation を開始せず、no-op completion は performance log だけで表す。

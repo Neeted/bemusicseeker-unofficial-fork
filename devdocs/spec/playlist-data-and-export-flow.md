@@ -56,7 +56,7 @@
 | `url` / `url_diff` / `name_diff` / `org_md5` | 入手先・差分・親 hash などの補助情報。手動追加の `org_md5` は、ドロップ元 chart と同じディレクトリにある所持 BMS / bmson chart の MD5 集合を保存する。`.bmt` song では対応範囲で `url`、`appendurl`、`org_md5` に出力する。 |
 | `memo` / `adddate` / `is_removed` | ローカル状態。外部同期時に一致行へ引き継ぐ。 |
 
-外部同期の entry 更新検知は `data_sha256` で行う。entry fingerprint 相当の比較は、再取得 row と既存 row の対応付けを補助し、`memo`、`adddate`、`is_removed` などのローカル状態を引き継ぐために使うが、`last_update` や `playlist_entry` 更新のトリガーにはしない。
+外部同期の entry 更新検知は `data_sha256` と entry fingerprint の両方で行う。`data_sha256` は raw data JSON の既知変化を検出する主経路であり、entry fingerprint 相当の比較は、再取得 row と既存 row の対応付けを補助しつつ、hash が未初期化または stale な場合でも entry 差分を DB に反映する保険として扱う。entry fingerprint 差分だけでは `last_update` を更新しないが、`playlist_entry` 保存と `.bmt` 再出力のトリガーにはする。
 
 `playlist_entry` に md5 と sha256 の両方がある場合、解決・参照・summary の正本は md5 である。md5 が保存されている row では、md5 miss 後に同じ row の sha256 へ探索を広げない。sha256-only row は、外部同期元が sha256 しか持たない場合や既存互換 row のための入力として維持する。
 
@@ -85,6 +85,7 @@ header の `course` は `[[{...}]]` のような入れ子配列も平坦化し�
 | header hash initialization | NULL/空の `header_sha256` に初回値が入る | 更新しない | `playlist` / `playlist_course` を保存する。`playlist_entry` は更新しない | する |
 | data known change | 既存 non-NULL `data_sha256` から別 hash への変化 | 更新する | `playlist` / `playlist_course` / `playlist_entry` を保存する | する |
 | data hash initialization | NULL/空の `data_sha256` に初回値が入る | 更新しない | `.bmt` 対応以前の DB 修復として `playlist` / `playlist_course` / `playlist_entry` を保存する | する |
+| entry fingerprint change | 保存済み active entry と再取得 entry の比較で差分がある | 更新しない | `playlist_entry` を保存する。必要な local state 引き継ぎ後の再取得結果を正本にする | する |
 
 `header_sha256` は header JSON 全体を対象にするため、`tag`、`course`、`level_order`、`symbol`、`compat_prefix` などの header 由来変化を含む。
 
@@ -96,7 +97,7 @@ header の `course` は `[[{...}]]` のような入れ子配列も平坦化し�
 
 - `header_sha256` / `data_sha256` が non-NULL 既知値から別値へ変わった場合は更新する。
 - `header_sha256` / `data_sha256` が NULL/空から初回値へ埋まっただけの場合は更新しない。
-- entry fingerprint 差分だけでは更新しない。entry fingerprint 相当の比較はローカル状態引き継ぎの対応付け補助として扱う。
+- entry fingerprint 差分だけでは更新しない。entry fingerprint 相当の比較はローカル状態引き継ぎの対応付け補助と entry 永続化判定として扱う。
 - `tag` と `course` は header に含まれるため、単独では `last_update` 判定に使わない。
 - 外部表を初めて登録する場合は、取得した header の `last_update` があればそれを使い、無ければ登録時刻を初期 `last_update` として保存する。Walkure 系リコメンド表のように取得処理が更新日時を持つ場合は、その取得元日時を設定する。
 - ローカルの空プレイリストを新規作成する場合は、`CreateBMSTable()` 時点で作成時刻を初期 `last_update` として持つ。DB には後続のプロパティ保存など、通常のプレイリスト保存処理で反映される。
@@ -232,7 +233,7 @@ course constraints は header source の `grade_mirror` などから beatoraja e
 - プレイリスト削除時は対象 playlist の managed `.bmt` と BeMusicSeeker 管理 `tableURL` だけを削除する。backup restore 後は全出力系を使い、manifest cleanup により不要な managed `.bmt` を削除する。
 - `RegisterBeatorajaBmtUrls` が ON の場合、`.bmt` 出力後に `config_sys.json` の `tableURL` も同期する。
 
-全 playlist の `.bmt` 出力中は、ステータスバーに `.bmt` 出力の件数進捗と処理中 playlist 名を表示する。進捗は manifest 判定で未変更と判断されなかった playlist の table data projection と gzip 書き込みを含む。
+全 playlist の `.bmt` 出力中は、ステータスバーに `.bmt` 出力の件数進捗と処理中 playlist 名を表示する。進捗は manifest 判定で未変更と判断されなかった playlist の table data projection と gzip 書き込みを含む。manifest 判定で projection 対象が 0 件になり、cleanup / URL 同期だけで完了する no-op export は通常の `.bmt 出力 0/1` として表示しない。
 
 ### Managed Cleanup
 

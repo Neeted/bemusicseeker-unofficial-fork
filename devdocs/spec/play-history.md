@@ -179,6 +179,8 @@ dropdown の表示順は `すべて`、preset、`FOLDER: preset`、playlist 単�
 
 display target filter / FOLDER projection は projection 後、keyword search 前に適用する。target 変更では、同じ期間 request の projection result を再利用して target filter / FOLDER projection / keyword filter / sort だけを再適用する。対象 playlist entries の読み込みが必要な場合は playlist entries hydration を使うが、playlist reload / external sync / `.bmt` 再出力は起動しない。
 
+Play History の表示対象 dropdown は playlist 正本から作る read model であり、playlist の追加・削除・リロードに対する `BMSTables` 変更通知から更新される。`BMSTables` 変更通知は playlist 正本の writer lock 中に発生し得るため、通知 handler 内で同期的に playlist reader lock を取り直してはならない。表示対象の再構築は UI Dispatcher へ遅延し、writer lock が解放された後の snapshot として行う。遅延中または再構築中に追加通知が来た場合は revision を進め、最新 revision を反映するまで再実行する。Play History 側の read model 更新は playlist 正本、playlist entries、LR2 custom folder、beatoraja `.bmt` 出力を変更しない。
+
 ## Diagnostics
 
 play history diagnostics は provider / stage / severity / code / message / source path を持つ。現行 UI は summary diagnostic text と log に出す最小実装であり、専用 maintenance view への詳細表示は未実装である。

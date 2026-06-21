@@ -215,9 +215,12 @@ public sealed class MainWindowContextMenuResourceTests
         string applyPlayHistoryView = ExtractBetween(viewModelCode, "private void ApplyPlayHistoryView", "private IReadOnlyList<PlayHistoryRow> ApplyPlayHistoryKeywordFilterRows");
         string presentationOnly = ExtractBetween(viewModelCode, "private bool TryApplyPlayHistoryPresentationOnly", "private void ApplyPlayHistorySortedRows");
         string refreshTargets = ExtractBetween(viewModelCode, "private void RefreshPlayHistoryDisplayTargets", "internal void ReplacePlayHistoryDisplayTargetSetsForTest");
+        string queueDisplayTargets = ExtractBetween(viewModelCode, "private void QueuePlayHistoryDisplayTargetsRefresh", "internal void ReplacePlayHistoryDisplayTargetSetsForTest");
         string queueDisplayTarget = ExtractBetween(viewModelCode, "private void QueuePlayHistoryDisplayTargetRefresh", "private bool IsCurrentPlayHistoryViewRequest");
         string applySortedRows = ExtractBetween(viewModelCode, "private void ApplyPlayHistorySortedRows", "private PlayHistoryProjectionResult CreatePlayHistoryProjectionResult");
         string flushPendingUiRefresh = ExtractBetween(viewModelCode, "private void FlushPendingUiRefresh", "private void ScheduleDeferredPlaylistReferenceApply");
+        string playlistTablesHandler = ExtractBetween(viewModelCode, "listenerForBMSPlaylist.RegisterHandler(() => tables.BMSTables", "listenerForBMSPlaylistBMSTablesCollection.RegisterHandler");
+        string playlistTablesCollectionHandler = ExtractBetween(viewModelCode, "listenerForBMSPlaylistBMSTablesCollection.RegisterHandler", "listenerForBMSPlaylist.RegisterHandler(() => tables.PlaylistEntriesHydrationCompletedVersion");
         string playlistEntriesHydrationHandler = ExtractBetween(viewModelCode, "listenerForBMSPlaylist.RegisterHandler(() => tables.PlaylistEntriesHydrationCompletedVersion", "listenerForBMSPlaylist.RegisterHandler(() => tables.IsWriteLockHeldBMSTables");
         string state = ExtractBetween(viewModelCode, "private sealed class PlayHistoryViewState", "private readonly struct SortSnapshot");
 
@@ -243,8 +246,17 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(refreshTargets, "QueuePlayHistoryDisplayTargetRefresh();");
         StringAssert.Contains(queueDisplayTarget, "new PlayHistoryViewRequest(request.PeriodRequest, request.RequestId, keywordRevision, targetRevision)");
         StringAssert.Contains(queueDisplayTarget, "Interlocked.CompareExchange(ref playHistoryDisplayTargetQueuedRevision");
+        StringAssert.Contains(queueDisplayTargets, "playHistoryDisplayTargetsRefreshRequestedRevision");
+        StringAssert.Contains(queueDisplayTargets, "playHistoryDisplayTargetsRefreshCompletedRevision");
+        StringAssert.Contains(queueDisplayTargets, "playHistoryDisplayTargetsRefreshScheduled");
+        StringAssert.Contains(queueDisplayTargets, "if (refreshRevision == Interlocked.Read(ref playHistoryDisplayTargetsRefreshRequestedRevision))");
+        StringAssert.Contains(queueDisplayTargets, "Schedule(Refresh);");
         StringAssert.Contains(applySortedRows, "QueuePlayHistoryDisplayTargetRefresh(advanceRevision: false)");
         StringAssert.Contains(flushPendingUiRefresh, "RefreshPlayHistoryDisplayTargets();");
+        StringAssert.Contains(playlistTablesHandler, "QueuePlayHistoryDisplayTargetsRefresh();");
+        StringAssert.Contains(playlistTablesCollectionHandler, "QueuePlayHistoryDisplayTargetsRefresh();");
+        Assert.IsFalse(playlistTablesHandler.Contains("RefreshPlayHistoryDisplayTargets();"));
+        Assert.IsFalse(playlistTablesCollectionHandler.Contains("RefreshPlayHistoryDisplayTargets();"));
         StringAssert.Contains(playlistEntriesHydrationHandler, "if (SelectedPlayHistoryDisplayTarget.UsesProjection)");
         StringAssert.Contains(playlistEntriesHydrationHandler, "QueuePlayHistoryDisplayTargetRefresh();");
         StringAssert.Contains(viewModelCode, "playHistoryKeywordFilterRevision");
@@ -897,6 +909,8 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(viewModelCode, "public bool IsLibraryOperationInProgress");
         StringAssert.Contains(viewModelCode, "private long GetActiveStartupProgressOperationToken()");
         StringAssert.Contains(viewModelCode, "private bool IsStartupProgressOperationTokenCurrent(long operationToken)");
+        StringAssert.Contains(viewModelCode, "playlistSyncProgressUiVersion");
+        StringAssert.Contains(viewModelCode, "if (uiVersion != Interlocked.Read(ref playlistSyncProgressUiVersion))");
         Assert.IsTrue(reloadFileDiff.IndexOf("await _semaphore.WaitAsync();", StringComparison.Ordinal) < reloadFileDiff.IndexOf("StartStartupProgressOperation(StartupProgressOperationKind.ReloadFileDiff)", StringComparison.Ordinal));
         Assert.IsTrue(initialize.IndexOf("files = new BMSLibrary", StringComparison.Ordinal) < initialize.IndexOf("StartStartupProgressOperation(StartupProgressOperationKind.Startup)", StringComparison.Ordinal));
         StringAssert.Contains(initialize, "StartDeferredExternalPlaylistSync(\"Initialize\", fromReloadTables: false, CreatePlaylistReferenceReplaceUpdateCallback(), operationToken)");
@@ -1880,6 +1894,22 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(method, "playlist_manual_resync_failed");
         Assert.IsFalse(method.Contains("ResetBMSTableAsync("));
         Assert.IsFalse(method.Contains("ShowPlaylistLoadFailure("));
+    }
+
+    [TestMethod]
+    public void BeatorajaBmtFullExport_DoesNotShowNoOpProgress()
+    {
+        string playlistCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "BMSPlaylist.cs"));
+        string method = ExtractBetween(
+            playlistCode,
+            "internal void QueueBeatorajaBmtExportAll(string reason, string cleanupTablePath = null)",
+            "private bool IsCurrentBeatorajaBmtFullExportGeneration(long generation)");
+
+        StringAssert.Contains(method, "bool shouldReportProgress = projectionTablesSnapshot.Count > 0;");
+        StringAssert.Contains(method, "if (shouldReportProgress)");
+        StringAssert.Contains(method, "ReportBeatorajaBmtExportProgress(progressOperationId, true, projectionTablesSnapshot.Count, 0, string.Empty);");
+        StringAssert.Contains(method, "shouldReportProgress");
+        StringAssert.Contains(method, ": null);");
     }
 
     [TestMethod]

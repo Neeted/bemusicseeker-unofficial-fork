@@ -103,7 +103,7 @@ public partial class BMSPlaylist : NotificationObject
 
         public bool NeedsHeaderPersistence => HeaderKnownChanged || HeaderHashInitialized || DataKnownChanged || DataHashInitialized;
 
-        public bool NeedsEntryPersistence => DataKnownChanged || DataHashInitialized;
+        public bool NeedsEntryPersistence => EntryFingerprintChanged || DataKnownChanged || DataHashInitialized;
 
         public bool NeedsStatePersistence => NeedsHeaderPersistence || NeedsEntryPersistence;
 
@@ -1121,9 +1121,12 @@ public partial class BMSPlaylist : NotificationObject
                     List<BMSTable> projectionTablesSnapshot = [.. outputTargets
                         .Where(target => exportPlan.RequiresProjection(target.Item2))
                         .Select(target => target.Item1)];
-                    int projectionTotal = Math.Max(projectionTablesSnapshot.Count, 1);
-                    ReportBeatorajaBmtExportProgress(progressOperationId, true, projectionTotal, 0, string.Empty);
-                    progressStarted = true;
+                    bool shouldReportProgress = projectionTablesSnapshot.Count > 0;
+                    if (shouldReportProgress)
+                    {
+                        ReportBeatorajaBmtExportProgress(progressOperationId, true, projectionTablesSnapshot.Count, 0, string.Empty);
+                        progressStarted = true;
+                    }
                     var resolverStopwatch = Stopwatch.StartNew();
                     BeatorajaBmtHashOutputMode hashOutputMode = GetBeatorajaBmtHashOutputMode();
                     Func<BmtSongHashResolveRequest, Tuple<string, string>> hashResolverFunc = projectionTablesSnapshot.Count == 0 || hashOutputMode == BeatorajaBmtHashOutputMode.Original
@@ -1136,10 +1139,12 @@ public partial class BMSPlaylist : NotificationObject
                         reason,
                         hashOutputMode,
                         hashResolverFunc,
-                        delegate (int completed, int total, string tableName)
-                        {
-                            ReportBeatorajaBmtExportProgress(progressOperationId, true, Math.Max(total, 1), completed, tableName);
-                        });
+                        shouldReportProgress
+                            ? delegate (int completed, int total, string tableName)
+                            {
+                                ReportBeatorajaBmtExportProgress(progressOperationId, true, Math.Max(total, 1), completed, tableName);
+                            }
+                            : null);
                     projectionStopwatch.Stop();
                     var exportStopwatch = Stopwatch.StartNew();
                     int exportProgressTotal = projectionTablesSnapshot.Count + tableDataSet.Count;
@@ -1150,10 +1155,16 @@ public partial class BMSPlaylist : NotificationObject
                         {
                             return;
                         }
-                        exportResult = BmtTableExportService.ExportTableDataSet(outputPath, tableDataSet, exportPlan, delegate (int completed, int total, string tableName)
-                        {
-                            ReportBeatorajaBmtExportProgress(progressOperationId, true, Math.Max(exportProgressTotal, 1), projectionTablesSnapshot.Count + completed, tableName);
-                        });
+                        exportResult = BmtTableExportService.ExportTableDataSet(
+                            outputPath,
+                            tableDataSet,
+                            exportPlan,
+                            shouldReportProgress
+                                ? delegate (int completed, int total, string tableName)
+                                {
+                                    ReportBeatorajaBmtExportProgress(progressOperationId, true, Math.Max(exportProgressTotal, 1), projectionTablesSnapshot.Count + completed, tableName);
+                                }
+                                : null);
                         var urlSyncStopwatch = Stopwatch.StartNew();
                         SyncBeatorajaManagedTableUrls(outputPath, exportResult.PreviousManagedTables, exportResult.CurrentManagedTables);
                         urlSyncStopwatch.Stop();

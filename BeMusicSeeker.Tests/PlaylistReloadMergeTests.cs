@@ -45,7 +45,7 @@ public sealed class PlaylistReloadMergeTests
     }
 
     /// <summary>
-    /// entry fingerprint 差分だけでは更新日時を再採番しないことを検証します。
+    /// entry fingerprint 差分だけでは更新日時を再採番しない一方、entry は永続化対象になることを検証します。
     /// </summary>
     [TestMethod]
     [TestCategory("Playlist")]
@@ -70,8 +70,39 @@ public sealed class PlaylistReloadMergeTests
 
         Assert.IsTrue(decision.EntryFingerprintChanged);
         Assert.IsFalse(decision.UpdatesLastUpdate);
-        Assert.IsFalse(decision.NeedsEntryPersistence);
+        Assert.IsTrue(decision.NeedsEntryPersistence);
         Assert.AreEqual(existingLastUpdate, mergedTable.last_update);
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public void MergeReloadedBMSTableState_EntryFingerprintChangeWithUnchangedDataHashPersistsEntries()
+    {
+        var existingLastUpdate = new DateTime(2024, 5, 10, 11, 22, 33);
+        string dataHash = new string('b', 64);
+        BMSTable oldTable = CreateTable(
+            "Playlist B Hash",
+            existingLastUpdate,
+            CreateEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "FolderA"));
+        oldTable.data_sha256 = dataHash;
+        BMSTable reloadedTable = CreateTable(
+            "Playlist B Hash",
+            default,
+            CreateEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "FolderA"),
+            CreateEntry("dddddddddddddddddddddddddddddddd", "FolderD"));
+        reloadedTable.data_sha256 = dataHash;
+
+        BMSPlaylist.MergeReloadedBMSTableState(
+            oldTable,
+            reloadedTable,
+            BMSPlaylist.BuildComparablePlaylistEntryRows(oldTable.entries.Where(entry => !entry.is_removed)),
+            out BMSPlaylist.PlaylistReloadPersistenceDecision decision);
+
+        Assert.IsTrue(decision.EntryFingerprintChanged);
+        Assert.IsFalse(decision.DataKnownChanged);
+        Assert.IsFalse(decision.DataHashInitialized);
+        Assert.IsFalse(decision.UpdatesLastUpdate);
+        Assert.IsTrue(decision.NeedsEntryPersistence);
     }
 
     [TestMethod]
@@ -141,6 +172,7 @@ public sealed class PlaylistReloadMergeTests
 
         Assert.IsTrue(decision.EntryFingerprintChanged);
         Assert.IsFalse(decision.UpdatesLastUpdate);
+        Assert.IsTrue(decision.NeedsEntryPersistence);
         Assert.AreEqual(existingLastUpdate, mergedTable.last_update);
     }
 
@@ -186,7 +218,7 @@ public sealed class PlaylistReloadMergeTests
         BMSTable reloadedTable = CreateTable(
             "Playlist Header Hash Init",
             default,
-            CreateEntry("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "FolderB"));
+            CreateEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "FolderA"));
         reloadedTable.header_sha256 = new string('a', 64);
 
         BMSTable mergedTable = BMSPlaylist.MergeReloadedBMSTableState(

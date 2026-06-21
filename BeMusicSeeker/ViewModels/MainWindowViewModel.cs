@@ -9120,6 +9120,8 @@ public class MainWindowViewModel : ViewModel
 
     private int playlistSyncProgressActiveOperationCount;
 
+    private long playlistSyncProgressUiVersion;
+
     private readonly HashSet<long> activeBeatorajaBmtExportProgressOperations = [];
 
     private bool _IsPlaylistSyncProgressActive;
@@ -9223,6 +9225,14 @@ public class MainWindowViewModel : ViewModel
     private long playHistoryDisplayTargetRevision;
 
     private long playHistoryDisplayTargetQueuedRevision;
+
+    private long playHistoryDisplayTargetsRefreshRequestedRevision;
+
+    private long playHistoryDisplayTargetsRefreshCompletedRevision;
+
+    private long playHistoryDisplayTargetsRefreshScheduled;
+
+    private int playHistoryDisplayTargetsRefreshSelectionQueued;
 
     private NormalLibraryTreeFilter virtualNormalLibraryTreeFilter;
 
@@ -18143,6 +18153,59 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
+    private void QueuePlayHistoryDisplayTargetsRefresh(bool queueRefreshWhenSelectionChanges = true)
+    {
+        if (queueRefreshWhenSelectionChanges)
+        {
+            Interlocked.Exchange(ref playHistoryDisplayTargetsRefreshSelectionQueued, 1);
+        }
+        Interlocked.Increment(ref playHistoryDisplayTargetsRefreshRequestedRevision);
+        if (Interlocked.CompareExchange(ref playHistoryDisplayTargetsRefreshScheduled, 1L, 0L) != 0L)
+        {
+            return;
+        }
+
+        void Schedule(Action refresh)
+        {
+            Dispatcher dispatcher = DispatcherHelper.UIDispatcher ?? System.Windows.Application.Current?.Dispatcher;
+            if (dispatcher == null)
+            {
+                Task.Run(refresh).Logging("QueuePlayHistoryDisplayTargetsRefresh");
+                return;
+            }
+            dispatcher.BeginInvoke(refresh, DispatcherPriority.Background);
+        }
+
+        void Refresh()
+        {
+            try
+            {
+                while (true)
+                {
+                    long refreshRevision = Interlocked.Read(ref playHistoryDisplayTargetsRefreshRequestedRevision);
+                    bool refreshSelectionWhenChanged = Interlocked.Exchange(ref playHistoryDisplayTargetsRefreshSelectionQueued, 0) == 1;
+                    RefreshPlayHistoryDisplayTargets(refreshSelectionWhenChanged);
+                    Interlocked.Exchange(ref playHistoryDisplayTargetsRefreshCompletedRevision, refreshRevision);
+                    if (refreshRevision == Interlocked.Read(ref playHistoryDisplayTargetsRefreshRequestedRevision))
+                    {
+                        return;
+                    }
+                }
+            }
+            finally
+            {
+                Interlocked.Exchange(ref playHistoryDisplayTargetsRefreshScheduled, 0L);
+                if (Interlocked.Read(ref playHistoryDisplayTargetsRefreshCompletedRevision) != Interlocked.Read(ref playHistoryDisplayTargetsRefreshRequestedRevision)
+                    && Interlocked.CompareExchange(ref playHistoryDisplayTargetsRefreshScheduled, 1L, 0L) == 0L)
+                {
+                    Schedule(Refresh);
+                }
+            }
+        }
+
+        Schedule(Refresh);
+    }
+
     internal void ReplacePlayHistoryDisplayTargetSetsForTest(IEnumerable<PlayHistoryDisplayTargetSet> targetSets)
     {
         playHistoryDisplayTargetSets.Clear();
@@ -19625,7 +19688,7 @@ public class MainWindowViewModel : ViewModel
                 return;
             }
             RaisePropertyChanged(() => BMSTables);
-            RefreshPlayHistoryDisplayTargets();
+            QueuePlayHistoryDisplayTargetsRefresh();
             RefreshPlaylistSummaryIfVisible("playlist_tables_changed", invalidateTableCountCache: true);
         });
         listenerForBMSPlaylistBMSTablesCollection.RegisterHandler(delegate
@@ -19641,7 +19704,7 @@ public class MainWindowViewModel : ViewModel
                 return;
             }
             RaisePropertyChanged(() => BMSTables);
-            RefreshPlayHistoryDisplayTargets();
+            QueuePlayHistoryDisplayTargetsRefresh();
             RefreshPlaylistSummaryIfVisible("playlist_tables_collection_changed", invalidateTableCountCache: true);
         });
         listenerForBMSPlaylist.RegisterHandler(() => tables.PlaylistEntriesHydrationCompletedVersion, delegate
@@ -24934,8 +24997,13 @@ public class MainWindowViewModel : ViewModel
 
     private void UpdatePlaylistSyncProgressStatus(PlaylistSyncProgressSnapshot snapshot)
     {
+        long uiVersion = Interlocked.Increment(ref playlistSyncProgressUiVersion);
         Action reflect = delegate
         {
+            if (uiVersion != Interlocked.Read(ref playlistSyncProgressUiVersion))
+            {
+                return;
+            }
             bool isActive = snapshot != null && snapshot.IsActive;
             IsPlaylistSyncProgressActive = isActive;
             if (!isActive)
