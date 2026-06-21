@@ -20,8 +20,10 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Remove="BeMusicSeeker.Tests\**\*.cs" />
+    <Compile Remove="BeMusicSeeker.Updater\**\*.cs" />
     <Compile Remove="tools\**\*.cs" />
     <None Remove="BeMusicSeeker.Tests\**\*" />
+    <None Remove="BeMusicSeeker.Updater\**\*" />
   </ItemGroup>
   <ItemGroup>
     <None Include="native\Everything3_x64.dll">

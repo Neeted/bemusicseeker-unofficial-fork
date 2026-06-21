@@ -16,6 +16,8 @@ public static class CommandLineSwitches
 
     private static readonly (NormalLogLevel Level, string InvalidValue) parsedLogLevelResult = ParseLogLevel();
 
+    private static readonly string parsedUpdateManifestUrl = ParseStringSwitch("--update-manifest-url=");
+
     public static NormalLogLevel LogLevel => parsedLogLevelResult.Level;
 
     public static bool IsInfoLoggingEnabled => parsedLogLevelResult.Level == NormalLogLevel.Info;
@@ -23,6 +25,8 @@ public static class CommandLineSwitches
     public static bool HasInvalidLogLevelValue => !string.IsNullOrWhiteSpace(parsedLogLevelResult.InvalidValue);
 
     public static string InvalidLogLevelValue => parsedLogLevelResult.InvalidValue ?? string.Empty;
+
+    public static string UpdateManifestUrl => parsedUpdateManifestUrl ?? string.Empty;
 
     private static (NormalLogLevel Level, string InvalidValue) ParseLogLevel()
     {
@@ -45,5 +49,11 @@ public static class CommandLineSwitches
             return (NormalLogLevel.Warn, null);
         }
         return (NormalLogLevel.Warn, text);
+    }
+
+    private static string ParseStringSwitch(string prefix)
+    {
+        string[] source = [.. args.Where(x => x.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))];
+        return source.Length == 0 ? null : source[source.Length - 1].Substring(prefix.Length);
     }
 }

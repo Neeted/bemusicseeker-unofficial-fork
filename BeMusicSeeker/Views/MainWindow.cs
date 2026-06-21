@@ -31,6 +31,7 @@ using System.Windows.Threading;
 using BeMusicSeeker.Diagnostics;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.Update;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
@@ -58,7 +59,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private static readonly bool installPerformanceLoggingEnabled = CommandLineSwitches.IsInfoLoggingEnabled;
 
-    private static readonly AppHttpClient updateCheckHttpClient = AppHttpClient.Create(5000);
+    private static readonly UpdateCheckService updateCheckService = new(AppHttpClient.Create(5000));
 
     private const long DownloadAndInstallSizeLimitBytes = 536870912L;
 
@@ -274,28 +275,17 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     {
         try
         {
-            // キャッシュバスター: GitHub CDN のキャッシュを回避する
-            string versionUrl = "https://raw.githubusercontent.com/Neeted/bemusicseeker-unofficial-fork/main/version.txt?t=" + DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-            string latestVersionStr = await updateCheckHttpClient.GetStringAsync(new Uri(versionUrl), Encoding.UTF8);
-            latestVersionStr = latestVersionStr?.Trim();
-
-            if (Version.TryParse(latestVersionStr, out Version latestVersion))
+            UpdateCheckResult result = await updateCheckService.CheckAsync(CommandLineSwitches.UpdateManifestUrl);
+            if (result.IsUpdateAvailable)
             {
-                string currentVersionStr = System.Reflection.Assembly.GetExecutingAssembly()
-                    .GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
-                    .OfType<System.Reflection.AssemblyInformationalVersionAttribute>()
-                    .FirstOrDefault()?.InformationalVersion ?? "0.0.0.0";
-                if (Version.TryParse(currentVersionStr, out Version currentVersion) && latestVersion > currentVersion)
+                base.Dispatcher.Invoke(() =>
                 {
-                    base.Dispatcher.Invoke(() =>
-                    {
-                        DispatcherMessageBox.Show(
-                            $"A new version ({latestVersionStr}) is available.\nYour version: {currentVersionStr}\n\nPlease check the repository.",
-                            "Update Available",
-                            MessageBoxButton.OK,
-                            MessageBoxImage.Information);
-                    });
-                }
+                    DispatcherMessageBox.Show(
+                        $"A new version ({result.LatestVersionText}) is available.\nYour version: {result.CurrentVersionText}\n\nPlease check the repository.",
+                        "Update Available",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Information);
+                });
             }
         }
         catch (Exception ex)
