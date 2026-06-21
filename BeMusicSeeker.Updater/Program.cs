@@ -23,31 +23,6 @@ namespace BeMusicSeeker.Updater
 
         private const string ManagedFilesManifestName = "update-managed-files.txt";
 
-        private static readonly HashSet<string> LegacyManagedRootFiles = new(StringComparer.OrdinalIgnoreCase)
-        {
-            "BeMusicSeeker.exe",
-            "BeMusicSeeker.exe.config",
-            "BeMusicSeeker.Updater.exe",
-            "LaunchWithInfoLog.bat",
-            "README.md",
-            "README.ja.md",
-            "LICENSE",
-            "ThirdPartyNotices.txt",
-            "ThirdPartyNotices.ja.txt",
-            "chart-info-metadata.7z",
-            "chart-info-metadata.db",
-            ManagedFilesManifestName
-        };
-
-        private static readonly HashSet<string> LegacyManagedRootDirectories = new(StringComparer.OrdinalIgnoreCase)
-        {
-            "libs",
-            "native",
-            "lang",
-            "third_party",
-            "docs"
-        };
-
         private static int Main(string[] args)
         {
             if (args.Length == 1 && string.Equals(args[0], "--version", StringComparison.OrdinalIgnoreCase))
@@ -191,7 +166,7 @@ namespace BeMusicSeeker.Updater
         private static void ApplyExtractedPackage(string extractDirectory, string appDirectory, string previousDirectory)
         {
             HashSet<string> newPackagePaths = EnumerateRelativePackagePaths(extractDirectory);
-            HashSet<string> previousManagedPaths = ReadManagedFilesManifest(appDirectory);
+            HashSet<string> previousManagedPaths = ReadManagedFilesManifest(appDirectory, newPackagePaths);
             foreach (string relativePath in previousManagedPaths.Except(newPackagePaths, StringComparer.OrdinalIgnoreCase))
             {
                 MoveExistingPathToBackup(appDirectory, previousDirectory, relativePath);
@@ -243,12 +218,12 @@ namespace BeMusicSeeker.Updater
             return paths;
         }
 
-        private static HashSet<string> ReadManagedFilesManifest(string appDirectory)
+        private static HashSet<string> ReadManagedFilesManifest(string appDirectory, HashSet<string> newPackagePaths)
         {
             string manifestPath = Path.Combine(appDirectory, ManagedFilesManifestName);
             if (!File.Exists(manifestPath))
             {
-                return EnumerateLegacyManagedPaths(appDirectory);
+                return [.. newPackagePaths.Where(path => File.Exists(Path.Combine(appDirectory, path)) || Directory.Exists(Path.Combine(appDirectory, path)))];
             }
 
             var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -260,36 +235,6 @@ namespace BeMusicSeeker.Updater
                     paths.Add(normalized);
                 }
             }
-            paths.Add(ManagedFilesManifestName);
-            return paths;
-        }
-
-        private static HashSet<string> EnumerateLegacyManagedPaths(string appDirectory)
-        {
-            var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (string file in Directory.EnumerateFiles(appDirectory))
-            {
-                string name = Path.GetFileName(file);
-                if (LegacyManagedRootFiles.Contains(name))
-                {
-                    paths.Add(name);
-                }
-            }
-
-            foreach (string directory in Directory.EnumerateDirectories(appDirectory))
-            {
-                string name = Path.GetFileName(directory);
-                if (!LegacyManagedRootDirectories.Contains(name))
-                {
-                    continue;
-                }
-
-                foreach (string file in Directory.EnumerateFiles(directory, "*", SearchOption.AllDirectories))
-                {
-                    paths.Add(GetRelativePath(appDirectory, file));
-                }
-            }
-
             paths.Add(ManagedFilesManifestName);
             return paths;
         }

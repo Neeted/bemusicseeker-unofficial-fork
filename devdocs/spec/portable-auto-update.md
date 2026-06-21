@@ -88,7 +88,7 @@ updater は `--pid` の終了を最大 60 秒待つ。
 
 配布 zip は `update-managed-files.txt` を同梱する。この manifest に含まれるファイルだけをアプリ管理ファイルとして扱う。更新時は、新パッケージの管理ファイルで既存管理ファイルを置換し、新パッケージから消えた管理ファイルを削除する。
 
-初回更新元に `update-managed-files.txt` がない場合は、旧配布構造として既知の root ファイルと `libs/`, `native/`, `lang/`, `third_party/`, `docs/` 配下を管理対象として推定する。アプリ直下にユーザーが置いた任意ファイルや未知ディレクトリは移動・削除しない。
+初回更新元に `update-managed-files.txt` がない場合は、新パッケージと同じ相対パスに既に存在するファイルだけを置換対象として扱う。旧パッケージから新パッケージで削除されたファイルの掃除より、ユーザー追加ファイルを消さないことを優先する。
 
 ## Backup と rollback
 
@@ -120,8 +120,11 @@ updater は `--pid` の終了を最大 60 秒待つ。
 
 - `main` ブランチ上で実行されていることを確認
 - remote tag と local tag の commit 一致を確認
+- GitHub Release asset の名前と size が `update.json` 作成元の local zip と一致することを確認
 - release commit を `origin/main` へ push
 - remote `main` が release commit を指すことを確認
 - draft Release を publish
 
 この順序により、Release 公開後に raw GitHub の `update.json` が未公開になる状態を避ける。
+
+既存 draft を更新する場合、今回の local zip に存在しない余剰 Release asset は削除してから asset を再アップロードする。これにより、古い metadata 同梱 zip などが draft に残ったまま publish されることを避ける。

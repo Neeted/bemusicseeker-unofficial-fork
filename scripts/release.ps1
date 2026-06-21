@@ -135,6 +135,58 @@ function Get-ReleaseIsDraft($tag) {
     return $isDraft.Trim().ToLowerInvariant() -eq "true"
 }
 
+function Get-ExpectedReleaseAssetNames($context) {
+    return @($context.ReleaseAssets | ForEach-Object { $_.Name })
+}
+
+function Sync-ReleaseAssets($context) {
+    $expectedNames = @(Get-ExpectedReleaseAssetNames $context)
+    $remoteAssetsJson = gh release view $context.Tag --json assets
+    if ($LASTEXITCODE -ne 0) {
+        throw "GitHub Release asset の取得に失敗しました: $($context.Tag)"
+    }
+
+    $remoteAssets = $remoteAssetsJson | ConvertFrom-Json
+    $remoteNames = @($remoteAssets.assets | ForEach-Object { $_.name })
+    foreach ($remoteName in $remoteNames) {
+        if ($expectedNames -notcontains $remoteName) {
+            Write-Host "  余剰 release asset を削除します: $remoteName"
+            gh release delete-asset $context.Tag $remoteName --yes
+            if ($LASTEXITCODE -ne 0) { throw "余剰 release asset の削除に失敗しました: $remoteName" }
+        }
+    }
+
+    $assetPaths = @($context.ReleaseAssets | ForEach-Object { $_.FullName })
+    gh release upload $context.Tag @assetPaths --clobber
+    if ($LASTEXITCODE -ne 0) { throw "GitHub Release asset のアップロードに失敗しました。" }
+
+    Assert-ReleaseAssetsMatchLocal $context
+}
+
+function Assert-ReleaseAssetsMatchLocal($context) {
+    $remoteAssetsJson = gh release view $context.Tag --json assets
+    if ($LASTEXITCODE -ne 0) {
+        throw "GitHub Release asset の取得に失敗しました: $($context.Tag)"
+    }
+
+    $remoteAssets = @((($remoteAssetsJson | ConvertFrom-Json).assets) | Sort-Object name)
+    $expectedAssets = @($context.ReleaseAssets | Sort-Object Name)
+    if ($remoteAssets.Count -ne $expectedAssets.Count) {
+        throw "GitHub Release asset 数が update.json と一致しません: remote=$($remoteAssets.Count) expected=$($expectedAssets.Count)"
+    }
+
+    for ($i = 0; $i -lt $expectedAssets.Count; $i++) {
+        $expected = $expectedAssets[$i]
+        $remote = $remoteAssets[$i]
+        if ($remote.name -ne $expected.Name) {
+            throw "GitHub Release asset 名が update.json と一致しません: remote=$($remote.name) expected=$($expected.Name)"
+        }
+        if ([int64]$remote.size -ne [int64]$expected.Length) {
+            throw "GitHub Release asset size が update.json と一致しません: $($expected.Name)"
+        }
+    }
+}
+
 function Assert-RemoteTagMatchesLocal($tag) {
     $localCommit = (git rev-parse "$tag^{commit}").Trim()
     $remoteTagLine = git ls-remote --tags origin "refs/tags/$tag"
@@ -209,7 +261,6 @@ function Invoke-CreateDraft($context) {
     if ($LASTEXITCODE -ne 0) { throw "tag の push に失敗しました。" }
     Assert-RemoteTagMatchesLocal $context.Tag
 
-    $assetPaths = @($context.ReleaseAssets | ForEach-Object { $_.FullName })
     if (Get-ReleaseExists $context.Tag) {
         if (-not (Get-ReleaseIsDraft $context.Tag)) {
             throw "GitHub Release $($context.Tag) は既に公開済みです。"
@@ -218,13 +269,14 @@ function Invoke-CreateDraft($context) {
         Write-Host "  既存 draft Release を更新します..."
         gh release edit $context.Tag --title $context.Tag --notes-file $context.NotesPath --draft
         if ($LASTEXITCODE -ne 0) { throw "GitHub Release draft の更新に失敗しました。" }
-        gh release upload $context.Tag @assetPaths --clobber
-        if ($LASTEXITCODE -ne 0) { throw "GitHub Release asset のアップロードに失敗しました。" }
+        Sync-ReleaseAssets $context
     }
     else {
         Write-Host "  GitHub Release draft を作成します..."
+        $assetPaths = @($context.ReleaseAssets | ForEach-Object { $_.FullName })
         gh release create $context.Tag @assetPaths --title $context.Tag --notes-file $context.NotesPath --verify-tag --draft
         if ($LASTEXITCODE -ne 0) { throw "GitHub Release draft の作成に失敗しました。" }
+        Assert-ReleaseAssetsMatchLocal $context
     }
 
     Write-Host "  draft Release 作成完了。公開ブランチはまだ push していません。" -ForegroundColor Green
@@ -238,6 +290,7 @@ function Invoke-PublishDraft($context) {
     }
 
     Assert-RemoteTagMatchesLocal $context.Tag
+    Assert-ReleaseAssetsMatchLocal $context
 
     Write-Host "  リリースコミットを公開ブランチへ push します..."
     git push origin "HEAD:refs/heads/$publicBranch"
