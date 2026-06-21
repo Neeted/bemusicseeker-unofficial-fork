@@ -389,7 +389,7 @@ title:re:^alpha
     <value>id, name, symbol</value>
   </data>
   <data name="Keyword_search_help_fields_play_history" xml:space="preserve">
-    <value>title, artist, path, folder, playlist/ref/table, md5/hash, sha256, date, year, month, kind, clear, finalized, source</value>
+    <value>title, artist, path, folder, playlist/ref/table, md5/hash, sha256, date, year, month, type/kind, clear, oldclear, newclear, finalized, source</value>
   </data>
   <data name="Keyword_search_completion_fields_header" xml:space="preserve">
     <value>検索対象</value>

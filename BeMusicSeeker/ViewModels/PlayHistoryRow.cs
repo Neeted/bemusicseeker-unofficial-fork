@@ -471,7 +471,7 @@ internal sealed class PlayHistoryRow
         return clear switch
         {
             ClearType.NO_SONG => "NO SONG",
-            ClearType.NO_PLAY => "NO PLAY",
+            ClearType.NO_PLAY => "NP",
             ClearType.INVALID or ClearType.L_ASSIST => "ASSIST",
             ClearType.EASY => "EASY",
             ClearType.CLEAR => "NORMAL",

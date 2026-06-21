@@ -9038,6 +9038,12 @@ public class MainWindowViewModel : ViewModel
 
     private IReadOnlyList<PlayHistorySummaryCard> _PlayHistorySummaryCards = [];
 
+    private ListenerCommand<PlayHistorySummaryCard> _TogglePlayHistorySummaryCardFilterCommand;
+
+    private readonly object lockPlayHistorySummaryFilter = new();
+
+    private readonly HashSet<string> selectedPlayHistorySummaryFilterKeys = new(StringComparer.Ordinal);
+
     private string _PlayHistorySummaryDiagnosticText = string.Empty;
 
     private readonly DropInstallQueueProcessor dropInstallQueueProcessor;
@@ -16887,6 +16893,15 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
+    public ListenerCommand<PlayHistorySummaryCard> TogglePlayHistorySummaryCardFilterCommand
+    {
+        get
+        {
+            _TogglePlayHistorySummaryCardFilterCommand ??= new ListenerCommand<PlayHistorySummaryCard>(TogglePlayHistorySummaryCardFilter);
+            return _TogglePlayHistorySummaryCardFilterCommand;
+        }
+    }
+
     private static bool AreSamePlayHistorySummaryCards(IReadOnlyList<PlayHistorySummaryCard> left, IReadOnlyList<PlayHistorySummaryCard> right)
     {
         left ??= [];
@@ -16909,12 +16924,91 @@ public class MainWindowViewModel : ViewModel
             }
             if (!string.Equals(leftCard.Label, rightCard.Label, StringComparison.Ordinal)
                 || !string.Equals(leftCard.Value, rightCard.Value, StringComparison.Ordinal)
-                || leftCard.Compact != rightCard.Compact)
+                || leftCard.Compact != rightCard.Compact
+                || !string.Equals(leftCard.FilterKey, rightCard.FilterKey, StringComparison.Ordinal)
+                || !string.Equals(leftCard.FilterText, rightCard.FilterText, StringComparison.Ordinal)
+                || leftCard.IsSelected != rightCard.IsSelected)
             {
                 return false;
             }
         }
         return true;
+    }
+
+    public void TogglePlayHistorySummaryCardFilter(PlayHistorySummaryCard card)
+    {
+        if (card?.IsFilterable != true)
+        {
+            return;
+        }
+        lock (lockPlayHistorySummaryFilter)
+        {
+            if (!selectedPlayHistorySummaryFilterKeys.Add(card.FilterKey))
+            {
+                selectedPlayHistorySummaryFilterKeys.Remove(card.FilterKey);
+            }
+        }
+        PlayHistorySummaryCards = ApplyPlayHistorySummaryFilterSelection(PlayHistorySummaryCards);
+        QueuePlayHistoryKeywordFilterRefresh();
+    }
+
+    private HashSet<string> SnapshotSelectedPlayHistorySummaryFilterKeys()
+    {
+        lock (lockPlayHistorySummaryFilter)
+        {
+            return selectedPlayHistorySummaryFilterKeys.Count == 0
+                ? new HashSet<string>(StringComparer.Ordinal)
+                : new HashSet<string>(selectedPlayHistorySummaryFilterKeys, StringComparer.Ordinal);
+        }
+    }
+
+    private IReadOnlyList<string> SnapshotSelectedPlayHistorySummaryFilterTexts()
+    {
+        HashSet<string> selectedKeys = SnapshotSelectedPlayHistorySummaryFilterKeys();
+        if (selectedKeys.Count == 0)
+        {
+            return [];
+        }
+        return [.. CreatePlayHistorySummaryFilterDefinitions()
+            .Where(definition => selectedKeys.Contains(definition.Key))
+            .Select(definition => definition.FilterText)];
+    }
+
+    private IReadOnlyList<PlayHistorySummaryCard> ApplyPlayHistorySummaryFilterSelection(IReadOnlyList<PlayHistorySummaryCard> cards)
+    {
+        HashSet<string> selectedKeys = SnapshotSelectedPlayHistorySummaryFilterKeys();
+        if ((cards?.Count ?? 0) == 0)
+        {
+            return [];
+        }
+        return [.. cards.Select(card => card == null
+            ? null
+            : new PlayHistorySummaryCard(
+                card.Label,
+                card.Value,
+                card.Compact,
+                card.FilterKey,
+                card.FilterText,
+                card.IsFilterable && selectedKeys.Contains(card.FilterKey)))];
+    }
+
+    private void ClearPlayHistorySummaryCardFilters()
+    {
+        lock (lockPlayHistorySummaryFilter)
+        {
+            selectedPlayHistorySummaryFilterKeys.Clear();
+        }
+    }
+
+    private void PrunePlayHistorySummaryCardFilters(PlayHistoryProvider provider)
+    {
+        lock (lockPlayHistorySummaryFilter)
+        {
+            if (provider != PlayHistoryProvider.Beatoraja)
+            {
+                selectedPlayHistorySummaryFilterKeys.Remove("exhard");
+            }
+        }
     }
 
     public string PlayHistorySummaryDiagnosticText
@@ -21601,6 +21695,7 @@ public class MainWindowViewModel : ViewModel
         long displayTargetRevision = viewRequest.DisplayTargetRevision > 0
             ? viewRequest.DisplayTargetRevision
             : Interlocked.Read(ref playHistoryDisplayTargetRevision);
+        PrunePlayHistorySummaryCardFilters(activePlayHistoryProvider);
         IReadOnlyList<PlayHistoryRow> targetRows;
         try
         {
@@ -21619,7 +21714,7 @@ public class MainWindowViewModel : ViewModel
             : Interlocked.Read(ref playHistoryKeywordFilterRevision);
         try
         {
-            filteredRows = ApplyPlayHistoryKeywordFilterRows(targetRows, keywordFilter, requestId, keywordRevision, cancellationToken, out keywordMs);
+            filteredRows = ApplyPlayHistoryKeywordFilterRows(targetRows, keywordFilter, SnapshotSelectedPlayHistorySummaryFilterTexts(), requestId, keywordRevision, cancellationToken, out keywordMs);
         }
         catch (OperationCanceledException)
         {
@@ -21772,6 +21867,7 @@ public class MainWindowViewModel : ViewModel
     private IReadOnlyList<PlayHistoryRow> ApplyPlayHistoryKeywordFilterRows(
         IReadOnlyList<PlayHistoryRow> rows,
         string keywordFilter,
+        IReadOnlyList<string> summaryFilterTexts,
         long requestId,
         long keywordRevision,
         CancellationToken cancellationToken,
@@ -21779,13 +21875,18 @@ public class MainWindowViewModel : ViewModel
     {
         var keywordStopwatch = Stopwatch.StartNew();
         IReadOnlyList<PlayHistoryRow> safeRows = rows ?? [];
-        if (string.IsNullOrWhiteSpace(keywordFilter))
+        bool hasKeywordFilter = !string.IsNullOrWhiteSpace(keywordFilter);
+        GridKeywordSearchQuery[] summaryQueries = [.. (summaryFilterTexts ?? [])
+            .Where(text => !string.IsNullOrWhiteSpace(text))
+            .Select(GridKeywordSearchQuery.Parse)
+            .Where(query => query.HasTokens)];
+        if (!hasKeywordFilter && summaryQueries.Length == 0)
         {
             keywordMs = keywordStopwatch.ElapsedMilliseconds;
             return safeRows;
         }
 
-        var keywordQuery = GridKeywordSearchQuery.Parse(keywordFilter);
+        var keywordQuery = hasKeywordFilter ? GridKeywordSearchQuery.Parse(keywordFilter) : null;
         var filteredRows = new List<PlayHistoryRow>(safeRows.Count);
         for (int index = 0; index < safeRows.Count; index++)
         {
@@ -21802,7 +21903,7 @@ public class MainWindowViewModel : ViewModel
                 }
             }
             PlayHistoryRow row = safeRows[index];
-            if (keywordQuery.MatchesPlayHistoryRow(row))
+            if (MatchesPlayHistoryKeywordAndSummaryFilters(row, keywordQuery, summaryQueries))
             {
                 filteredRows.Add(row);
             }
@@ -21810,6 +21911,28 @@ public class MainWindowViewModel : ViewModel
         cancellationToken.ThrowIfCancellationRequested();
         keywordMs = keywordStopwatch.ElapsedMilliseconds;
         return filteredRows;
+    }
+
+    private static bool MatchesPlayHistoryKeywordAndSummaryFilters(
+        PlayHistoryRow row,
+        GridKeywordSearchQuery keywordQuery,
+        IReadOnlyList<GridKeywordSearchQuery> summaryQueries)
+    {
+        bool keywordMatched = keywordQuery == null || keywordQuery.MatchesPlayHistoryRow(row);
+        bool summaryMatched = (summaryQueries?.Count ?? 0) == 0 || summaryQueries.Any(query => query.MatchesPlayHistoryRow(row));
+        return keywordMatched && summaryMatched;
+    }
+
+    internal static bool MatchesPlayHistoryKeywordAndSummaryFiltersForTest(PlayHistoryRow row, string keywordFilter, params string[] summaryFilterTexts)
+    {
+        GridKeywordSearchQuery keywordQuery = string.IsNullOrWhiteSpace(keywordFilter)
+            ? null
+            : GridKeywordSearchQuery.Parse(keywordFilter);
+        GridKeywordSearchQuery[] summaryQueries = [.. (summaryFilterTexts ?? [])
+            .Where(text => !string.IsNullOrWhiteSpace(text))
+            .Select(GridKeywordSearchQuery.Parse)
+            .Where(query => query.HasTokens)];
+        return MatchesPlayHistoryKeywordAndSummaryFilters(row, keywordQuery, summaryQueries);
     }
 
     private IReadOnlyList<PlayHistoryRow> ApplyPlayHistoryDisplayTargetRows(
@@ -21938,6 +22061,7 @@ public class MainWindowViewModel : ViewModel
         long displayTargetRevision = viewRequest.DisplayTargetRevision > 0
             ? viewRequest.DisplayTargetRevision
             : Interlocked.Read(ref playHistoryDisplayTargetRevision);
+        PrunePlayHistorySummaryCardFilters(state.Provider);
         IReadOnlyList<PlayHistoryRow> targetRows = state.FilterSourceRows;
         IReadOnlyList<PlayHistoryRow> filteredRows = state.ProjectedRows;
         long keywordMs = 0L;
@@ -21976,7 +22100,7 @@ public class MainWindowViewModel : ViewModel
             CancellationToken cancellationToken = GetPlayHistoryFilterCancellationToken(state.RequestId);
             try
             {
-                filteredRows = ApplyPlayHistoryKeywordFilterRows(targetRows, keywordFilter, state.RequestId, keywordRevision, cancellationToken, out keywordMs);
+                filteredRows = ApplyPlayHistoryKeywordFilterRows(targetRows, keywordFilter, SnapshotSelectedPlayHistorySummaryFilterTexts(), state.RequestId, keywordRevision, cancellationToken, out keywordMs);
             }
             catch (OperationCanceledException)
             {
@@ -22208,7 +22332,7 @@ public class MainWindowViewModel : ViewModel
             }
             string diagnosticSummaryText = FormatPlayHistoryDiagnosticSummary(diagnostics);
             GridSummaryText = FormatPlayHistoryGridSummaryText(periodRequest, summary, diagnostics, diagnosticSummaryText);
-            PlayHistorySummaryCards = CreatePlayHistorySummaryCards(summary, state.Provider);
+            PlayHistorySummaryCards = CreatePlayHistorySummaryCards(summary, state.Provider, SnapshotSelectedPlayHistorySummaryFilterKeys());
             PlayHistorySummaryDiagnosticText = diagnosticSummaryText;
             SelectedIndexChartRowsView = -1;
             Volatile.Write(ref playHistoryViewState, state);
@@ -22385,6 +22509,10 @@ public class MainWindowViewModel : ViewModel
             }
             treeViewFilterTypeSelected = mode;
             treeViewFilterParameterSelected = parameter;
+        }
+        if (mode != viewUpdateMode.PlayHistorySelected)
+        {
+            ClearPlayHistorySummaryCardFilters();
         }
     }
 
@@ -22910,28 +23038,71 @@ public class MainWindowViewModel : ViewModel
         return FormatPlayHistoryGridSummaryText(request, summary, diagnostics);
     }
 
-    private static IReadOnlyList<PlayHistorySummaryCard> CreatePlayHistorySummaryCards(PlayHistoryPeriodSummary summary, PlayHistoryProvider provider)
+    private static IReadOnlyList<PlayHistorySummaryFilterDefinition> CreatePlayHistorySummaryFilterDefinitions()
+    {
+        return
+        [
+            new PlayHistorySummaryFilterDefinition("score", "type:score"),
+            new PlayHistorySummaryFilterDefinition("bp", "type:bp"),
+            new PlayHistorySummaryFilterDefinition("combo", "type:combo"),
+            new PlayHistorySummaryFilterDefinition("clear", "type:clear"),
+            new PlayHistorySummaryFilterDefinition("assist", "type:clear newclear:AE|LAE"),
+            new PlayHistorySummaryFilterDefinition("easy", "type:clear newclear:EC"),
+            new PlayHistorySummaryFilterDefinition("normal", "type:clear newclear:NC"),
+            new PlayHistorySummaryFilterDefinition("hard", "type:clear newclear:HC"),
+            new PlayHistorySummaryFilterDefinition("exhard", "type:clear newclear:EXH"),
+            new PlayHistorySummaryFilterDefinition("fc", "type:clear newclear:FC|PF")
+        ];
+    }
+
+    private static PlayHistorySummaryFilterDefinition GetPlayHistorySummaryFilterDefinition(string key)
+    {
+        return CreatePlayHistorySummaryFilterDefinitions()
+            .FirstOrDefault(definition => string.Equals(definition.Key, key, StringComparison.Ordinal));
+    }
+
+    private static PlayHistorySummaryCard CreatePlayHistorySummaryCard(
+        string label,
+        string value,
+        HashSet<string> selectedFilterKeys,
+        bool compact = false,
+        string filterKey = null)
+    {
+        PlayHistorySummaryFilterDefinition definition = string.IsNullOrWhiteSpace(filterKey)
+            ? default
+            : GetPlayHistorySummaryFilterDefinition(filterKey);
+        return new PlayHistorySummaryCard(
+            label,
+            value,
+            compact,
+            definition.Key,
+            definition.FilterText,
+            !string.IsNullOrWhiteSpace(definition.Key) && (selectedFilterKeys?.Contains(definition.Key) == true));
+    }
+
+    private static IReadOnlyList<PlayHistorySummaryCard> CreatePlayHistorySummaryCards(PlayHistoryPeriodSummary summary, PlayHistoryProvider provider, HashSet<string> selectedFilterKeys = null)
     {
         summary ??= PlayHistoryPeriodSummary.FromRows(string.Empty, []);
+        selectedFilterKeys ??= [];
         List<PlayHistorySummaryCard> cards =
         [
-            new PlayHistorySummaryCard(BeMusicSeeker.Properties.Resources.Play_history_summary_judge_count, FormatPlayHistoryCount(summary.JudgeCount, summary.JudgeCountAvailable)),
-            new PlayHistorySummaryCard(BeMusicSeeker.Properties.Resources.Play_history_summary_play_count, FormatPlayHistoryCount(summary.FinalizedCount, summary.PlayCountAvailable)),
-            new PlayHistorySummaryCard(BeMusicSeeker.Properties.Resources.Play_history_summary_playtime, FormatPlayHistoryDuration(summary)),
-            new PlayHistorySummaryCard(BeMusicSeeker.Properties.Resources.Play_history_summary_score_update, summary.ScoreUpdateCount.ToString("N0", CultureInfo.CurrentCulture)),
-            new PlayHistorySummaryCard(BeMusicSeeker.Properties.Resources.Play_history_summary_bp_update, summary.BpUpdateCount.ToString("N0", CultureInfo.CurrentCulture)),
-            new PlayHistorySummaryCard(BeMusicSeeker.Properties.Resources.Play_history_summary_combo_update, summary.ComboUpdateCount.ToString("N0", CultureInfo.CurrentCulture)),
-            new PlayHistorySummaryCard(BeMusicSeeker.Properties.Resources.Play_history_summary_clear_update, summary.ClearUpdateCount.ToString("N0", CultureInfo.CurrentCulture)),
-            new PlayHistorySummaryCard("ASSIST", summary.AssistClearUpdateCount.ToString("N0", CultureInfo.CurrentCulture), compact: true),
-            new PlayHistorySummaryCard("EASY", summary.EasyClearUpdateCount.ToString("N0", CultureInfo.CurrentCulture), compact: true),
-            new PlayHistorySummaryCard("NORMAL", summary.NormalClearUpdateCount.ToString("N0", CultureInfo.CurrentCulture), compact: true),
-            new PlayHistorySummaryCard("HARD", summary.HardClearUpdateCount.ToString("N0", CultureInfo.CurrentCulture), compact: true)
+            CreatePlayHistorySummaryCard(BeMusicSeeker.Properties.Resources.Play_history_summary_judge_count, FormatPlayHistoryCount(summary.JudgeCount, summary.JudgeCountAvailable), selectedFilterKeys),
+            CreatePlayHistorySummaryCard(BeMusicSeeker.Properties.Resources.Play_history_summary_play_count, FormatPlayHistoryCount(summary.FinalizedCount, summary.PlayCountAvailable), selectedFilterKeys),
+            CreatePlayHistorySummaryCard(BeMusicSeeker.Properties.Resources.Play_history_summary_playtime, FormatPlayHistoryDuration(summary), selectedFilterKeys),
+            CreatePlayHistorySummaryCard(BeMusicSeeker.Properties.Resources.Play_history_summary_score_update, summary.ScoreUpdateCount.ToString("N0", CultureInfo.CurrentCulture), selectedFilterKeys, filterKey: "score"),
+            CreatePlayHistorySummaryCard(BeMusicSeeker.Properties.Resources.Play_history_summary_bp_update, summary.BpUpdateCount.ToString("N0", CultureInfo.CurrentCulture), selectedFilterKeys, filterKey: "bp"),
+            CreatePlayHistorySummaryCard(BeMusicSeeker.Properties.Resources.Play_history_summary_combo_update, summary.ComboUpdateCount.ToString("N0", CultureInfo.CurrentCulture), selectedFilterKeys, filterKey: "combo"),
+            CreatePlayHistorySummaryCard(BeMusicSeeker.Properties.Resources.Play_history_summary_clear_update, summary.ClearUpdateCount.ToString("N0", CultureInfo.CurrentCulture), selectedFilterKeys, filterKey: "clear"),
+            CreatePlayHistorySummaryCard("ASSIST", summary.AssistClearUpdateCount.ToString("N0", CultureInfo.CurrentCulture), selectedFilterKeys, compact: true, filterKey: "assist"),
+            CreatePlayHistorySummaryCard("EASY", summary.EasyClearUpdateCount.ToString("N0", CultureInfo.CurrentCulture), selectedFilterKeys, compact: true, filterKey: "easy"),
+            CreatePlayHistorySummaryCard("NORMAL", summary.NormalClearUpdateCount.ToString("N0", CultureInfo.CurrentCulture), selectedFilterKeys, compact: true, filterKey: "normal"),
+            CreatePlayHistorySummaryCard("HARD", summary.HardClearUpdateCount.ToString("N0", CultureInfo.CurrentCulture), selectedFilterKeys, compact: true, filterKey: "hard")
         ];
         if (provider == PlayHistoryProvider.Beatoraja)
         {
-            cards.Add(new PlayHistorySummaryCard("EXH", summary.ExHardClearUpdateCount.ToString("N0", CultureInfo.CurrentCulture), compact: true));
+            cards.Add(CreatePlayHistorySummaryCard("EXH", summary.ExHardClearUpdateCount.ToString("N0", CultureInfo.CurrentCulture), selectedFilterKeys, compact: true, filterKey: "exhard"));
         }
-        cards.Add(new PlayHistorySummaryCard("FC", summary.FullComboClearUpdateCount.ToString("N0", CultureInfo.CurrentCulture), compact: true));
+        cards.Add(CreatePlayHistorySummaryCard("FC", summary.FullComboClearUpdateCount.ToString("N0", CultureInfo.CurrentCulture), selectedFilterKeys, compact: true, filterKey: "fc"));
         return cards;
     }
 
@@ -22943,6 +23114,19 @@ public class MainWindowViewModel : ViewModel
     internal static IReadOnlyList<PlayHistorySummaryCard> CreatePlayHistorySummaryCardsForTest(PlayHistoryPeriodSummary summary, PlayHistoryProvider provider)
     {
         return CreatePlayHistorySummaryCards(summary, provider);
+    }
+
+    private readonly struct PlayHistorySummaryFilterDefinition
+    {
+        internal PlayHistorySummaryFilterDefinition(string key, string filterText)
+        {
+            Key = key ?? string.Empty;
+            FilterText = filterText ?? string.Empty;
+        }
+
+        internal string Key { get; }
+
+        internal string FilterText { get; }
     }
 
     private static string FormatPlayHistoryDuration(long seconds)
@@ -26940,6 +27124,7 @@ public class MainWindowViewModel : ViewModel
     {
         bool wasPlayHistoryViewActive = IsPlayHistoryViewActive;
         SetTreeViewFilterSelection(viewUpdateMode.PlaylistFilterSelected, null);
+        ClearPlayHistorySummaryCardFilters();
         PlayHistorySummaryCards = [];
         PlayHistorySummaryDiagnosticText = string.Empty;
         SetPlaylistSummaryMode(enabled: true);

@@ -129,9 +129,9 @@ archive node は `年 > 月 > 日` の階層で、`ReadPeriodIndex` の結果か
 
 view request には request id があり、古い非同期 refresh の結果が新しい selection を上書きしないよう stale request guard を持つ。Play History view では in-memory sort と column settings foundation を使い、row source は `PlayHistoryRow` として custom table view に渡す。
 
-一覧ラベル・検索欄の下には Play History 専用 summary row を表示する。summary row は table row ではなく UI band であり、判定数、プレイ数、演奏時間、score / BP / combo / clear 更新数、ASSIST / EASY / NORMAL / HARD / FC の clear 更新内訳をカード風に並べる。beatoraja provider のときだけ EXH 内訳も表示する。演奏時間は画面期間に対する値であり、keyword search や表示対象 / FOLDER 投影で一覧行数が変わっても追従しない。未対応または読み取り不可の場合は `-` を表示する。`PROVIDER` / `SOURCE` は内部診断用プロパティとして保持するが、ユーザー表示列にはしない。
+一覧ラベル・検索欄の下には Play History 専用 summary row を表示する。summary row は table row ではなく UI band であり、判定数、プレイ数、演奏時間、score / BP / combo / clear 更新数、ASSIST / EASY / NORMAL / HARD / FC の clear 更新内訳をカード風に並べる。beatoraja provider のときだけ EXH 内訳も表示する。更新種別と clear 更新内訳のカードはクリックで一覧フィルターとして選択できる。複数カード選択時はカード間を OR、keyword search とは AND で合成する。カードフィルターは keyword text / history へ書き込まず、選択状態はカード表示で示す。演奏時間は画面期間に対する値であり、keyword search、summary card filter、表示対象 / FOLDER 投影で一覧行数が変わっても追従しない。未対応または読み取り不可の場合は `-` を表示する。`PROVIDER` / `SOURCE` は内部診断用プロパティとして保持するが、ユーザー表示列にはしない。
 
-`CLEAR` と `BEST DJ` は更新元、矢印、更新先を同一セル内で別色表示する。選択行や current cell では読みやすさを優先して選択用の単色前景にする。Play History の `CLEAR` は遷移表示を短く保つため、通常一覧の長い表記ではなく `NO PLAY`、`ASSIST`、`EASY`、`NORMAL`、`HARD`、`EXH`、`FC`、`PA` などの短縮形を使う。
+`CLEAR` と `BEST DJ` は更新元、矢印、更新先を同一セル内で別色表示する。選択行や current cell では読みやすさを優先して選択用の単色前景にする。Play History の `CLEAR` は遷移表示を短く保つため、通常一覧の長い表記ではなく `NP`、`ASSIST`、`EASY`、`NORMAL`、`HARD`、`EXH`、`FC`、`PA` などの短縮形を使う。
 
 ## Keyword Search
 
@@ -145,7 +145,7 @@ Play History context の field は次の通り。
 
 | Field | 意味 |
 | --- | --- |
-| global token | title、artist、path、folder labels、playlist names、raw hash、SHA-256、kind、source、play date を横断検索する。 |
+| global token | title、artist、path、folder labels、playlist names、raw hash、SHA-256、type / kind、source、play date を横断検索する。 |
 | `title:` / `artist:` / `path:` | resolved chart の表示情報。未解決 row では空。 |
 | `folder:` | display target 適用後の `FolderLabels`。`すべて` では projection 時点の playlist symbol、playlist 選択時は playlist entry folder、target set では一致する難易度表 entry の `org_symbol + level`。`FOLDER: preset` では preset 外の row は空文字列として扱う。 |
 | `playlist:` / `ref:` / `table:` | playlist reference の name 表示。 |
@@ -155,8 +155,10 @@ Play History context の field は次の通り。
 | `date:` | local play date。`yyyy-MM-dd` / `yyyy/MM/dd` / `yyyyMMdd` を exact match する。 |
 | `year:` | local play year を exact match する。 |
 | `month:` | local play month を exact match する。`M` / `MM` / `yyyy-M` / `yyyy-MM` / `yyyy/M` / `yyyy/MM` を受け付ける。 |
-| `kind:` | `Kind` と LR2 `score_write_type`。 |
+| `type:` / `kind:` | `Kind` と LR2 `score_write_type`。`type:` を主名、`kind:` を互換 alias とする。 |
 | `clear:` | LR2 best clear の before / after 表示。`HC` など既存 clear alias を使える。 |
+| `oldclear:` | LR2 best clear の before 表示。`HC` など既存 clear alias を使える。 |
+| `newclear:` | LR2 best clear の after 表示。`HC` など既存 clear alias を使える。 |
 | `finalized:` | `true` / `false`、`1` / `0`、`finalized` / `unfinalized` / `pending` を boolean として扱う。 |
 | `source:` | provider display name と source path。 |
 

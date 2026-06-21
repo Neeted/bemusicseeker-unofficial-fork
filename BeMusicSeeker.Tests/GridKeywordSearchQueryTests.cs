@@ -493,7 +493,10 @@ public sealed class GridKeywordSearchQueryTests
 
         Assert.IsTrue(GridKeywordSearchQuery.Parse("alpha artistx").MatchesPlayHistoryRow(row));
         Assert.IsTrue(GridKeywordSearchQuery.Parse("title:alpha artist:artistx folder:SL playlist:\"Satellite sl\"").MatchesPlayHistoryRow(row));
-        Assert.IsTrue(GridKeywordSearchQuery.Parse("date:2026-06-19 year:2026 month:06 month:2026-06 kind:score clear:HC finalized:true").MatchesPlayHistoryRow(row));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("date:2026-06-19 year:2026 month:06 month:2026-06 type:score kind:score clear:HC finalized:true").MatchesPlayHistoryRow(row));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("oldclear:NC newclear:HC").MatchesPlayHistoryRow(row));
+        Assert.IsFalse(GridKeywordSearchQuery.Parse("oldclear:HC").MatchesPlayHistoryRow(row));
+        Assert.IsFalse(GridKeywordSearchQuery.Parse("newclear:EASY").MatchesPlayHistoryRow(row));
         Assert.IsTrue(GridKeywordSearchQuery.Parse("md5:abcdef sha256:123456 source:LR2").MatchesPlayHistoryRow(row));
         Assert.IsFalse(GridKeywordSearchQuery.Parse("date:2026-06-18").MatchesPlayHistoryRow(row));
         Assert.IsFalse(GridKeywordSearchQuery.Parse("month:2026").MatchesPlayHistoryRow(row));
@@ -512,6 +515,16 @@ public sealed class GridKeywordSearchQueryTests
     }
 
     [TestMethod]
+    public void MatchesPlayHistoryKeywordAndSummaryFilters_CombinesKeywordAndCards()
+    {
+        PlayHistoryRow row = CreatePlayHistoryRow(finalized: true);
+
+        Assert.IsTrue(MainWindowViewModel.MatchesPlayHistoryKeywordAndSummaryFiltersForTest(row, "artist:artistx", "type:bp", "type:score"));
+        Assert.IsFalse(MainWindowViewModel.MatchesPlayHistoryKeywordAndSummaryFiltersForTest(row, "artist:missing", "type:score"));
+        Assert.IsFalse(MainWindowViewModel.MatchesPlayHistoryKeywordAndSummaryFiltersForTest(row, "artist:artistx", "type:bp", "type:clear newclear:EC"));
+    }
+
+    [TestMethod]
     public void CreateFieldCompletion_CompletesContextSpecificFields()
     {
         GridKeywordSearchCompletionResult bmsResult = GridKeywordSearchCompletion.CreateFieldCompletion("tit", 3, GridKeywordSearchContext.ChartList);
@@ -519,6 +532,9 @@ public sealed class GridKeywordSearchQueryTests
         GridKeywordSearchCompletionResult detailResult = GridKeywordSearchCompletion.CreateFieldCompletion("mem", 3, GridKeywordSearchContext.PlaylistDetail);
         GridKeywordSearchCompletionResult summaryResult = GridKeywordSearchCompletion.CreateFieldCompletion("na", 2, GridKeywordSearchContext.PlaylistSummary);
         GridKeywordSearchCompletionResult playHistoryResult = GridKeywordSearchCompletion.CreateFieldCompletion("fin", 3, GridKeywordSearchContext.PlayHistory);
+        GridKeywordSearchCompletionResult playHistoryTypeResult = GridKeywordSearchCompletion.CreateFieldCompletion("ty", 2, GridKeywordSearchContext.PlayHistory);
+        GridKeywordSearchCompletionResult playHistoryOldClearResult = GridKeywordSearchCompletion.CreateFieldCompletion("old", 3, GridKeywordSearchContext.PlayHistory);
+        GridKeywordSearchCompletionResult playHistoryNewClearResult = GridKeywordSearchCompletion.CreateFieldCompletion("new", 3, GridKeywordSearchContext.PlayHistory);
         GridKeywordSearchCompletionResult clearResult = GridKeywordSearchCompletion.CreateFieldCompletion("cle", 3, GridKeywordSearchContext.ChartList);
         GridKeywordSearchCompletionResult djResult = GridKeywordSearchCompletion.CreateFieldCompletion("dj", 2, GridKeywordSearchContext.ChartList);
         GridKeywordSearchCompletionResult rateRankResult = GridKeywordSearchCompletion.CreateFieldCompletion("ra", 2, GridKeywordSearchContext.ChartList);
@@ -529,6 +545,9 @@ public sealed class GridKeywordSearchQueryTests
         Assert.IsTrue(detailResult.Items.Any(item => item.DisplayText == "memo:"));
         Assert.IsTrue(summaryResult.Items.Any(item => item.DisplayText == "name:"));
         Assert.IsTrue(playHistoryResult.Items.Any(item => item.DisplayText == "finalized:"));
+        Assert.IsTrue(playHistoryTypeResult.Items.Any(item => item.DisplayText == "type:"));
+        Assert.IsTrue(playHistoryOldClearResult.Items.Any(item => item.DisplayText == "oldclear:"));
+        Assert.IsTrue(playHistoryNewClearResult.Items.Any(item => item.DisplayText == "newclear:"));
         Assert.IsTrue(clearResult.Items.Any(item => item.DisplayText == "clear:"));
         Assert.IsTrue(djResult.Items.Any(item => item.DisplayText == "dj:"));
         Assert.IsTrue(djResult.Items.Any(item => item.DisplayText == "djlevel:"));

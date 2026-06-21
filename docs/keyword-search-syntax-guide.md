@@ -10,6 +10,7 @@ This syntax is mainly available in the following search boxes:
 - Main chart list
 - Playlist detail
 - Playlist list
+- Play Log
 
 ---
 
@@ -50,7 +51,7 @@ If you have already typed a search word after `:`, such as `title:alpha`, field 
 
 ### Playlist Name Completion for `playlist:` / `ref:` / `table:`
 
-In the main chart list and playlist detail, entering a search term for `playlist:`, `ref:`, or `table:` shows installed playlist names as candidates.
+In the main chart list, playlist detail, and Play Log, entering a search term for `playlist:`, `ref:`, or `table:` shows installed playlist names as candidates.
 
 ```text
 playlist:Sat
@@ -129,6 +130,27 @@ Normal search targets:
 - playlist id
 - name
 - symbol
+
+### Play Log
+
+Normal search targets:
+
+- TITLE
+- ARTIST
+- PATH
+- Display labels in the FOLDER column
+- Referenced playlist names
+- raw hash
+- MD5
+- SHA256
+- TYPE
+- score write type
+- CLEAR
+- source name
+- source path
+- play date (`yyyy-MM-dd`)
+
+In the Play Log, not every displayed column is part of normal search. BEST DJ, BEST RATE, BEST EXSCORE, BP, COMBO, OPTION, OP HISTORY, PLAY EXSCORE, and JUDGES are not currently targeted by normal search or field-qualified search.
 
 ---
 
@@ -245,6 +267,35 @@ In addition to display names, the following abbreviations can be used.
 | `id` | playlist id |
 | `name` | name |
 | `symbol` | symbol |
+
+### Fields Available in the Play Log
+
+The Play Log uses a field set separate from the main chart list and playlist detail.
+
+| field | Target |
+| :--- | :--- |
+| `title` | TITLE |
+| `artist` | ARTIST |
+| `path` | PATH |
+| `folder` | Display labels in the FOLDER column |
+| `playlist` / `ref` / `table` | Referenced playlist name. Searches the resolved playlist name, not the short display label in the FOLDER column |
+| `md5` | MD5. In beatoraja history, this has a value only when MD5 can be resolved from an owned chart or similar source |
+| `hash` | raw hash. LR2 targets the recorded MD5, and beatoraja targets the recorded SHA256 |
+| `sha256` | SHA256 |
+| `date` | Play date. Accepts `yyyy-MM-dd`, `yyyy/M/d`, `yyyy/MM/dd`, and `yyyyMMdd` |
+| `year` | Play year. Example: `2026` |
+| `month` | Play month. Accepts `yyyy-MM`, `yyyy/MM`, or `1` through `12` |
+| `type` / `kind` | TYPE and score write type. `type` is the primary name; `kind` is a compatibility alias. Examples: `score`, `bp`, `clear`, `combo`, `play` |
+| `clear` | CLEAR before or after the update. Accepts the same abbreviations as normal `clear:` |
+| `oldclear` | CLEAR before the update. Accepts the same abbreviations as normal `clear:` |
+| `newclear` | CLEAR after the update. Accepts the same abbreviations as normal `clear:` |
+| `finalized` | Whether the row is finalized. Accepts `true`, `1`, `yes`, `y`, `finalized` / `false`, `0`, `no`, `n`, `unfinalized`, `pending` |
+| `source` | source name and source path |
+
+Play Log `date` / `year` / `month` / `clear` / `oldclear` / `newclear` / `finalized` use dedicated matching. Range and comparison operators such as `level:10..12` are not used for them.
+In the Play Log, `clear:defined` matches rows that have a CLEAR value after the update. This differs from the main chart list and playlist detail, where `clear` always matches `defined` because `NO SONG` and `NO PLAY` are also treated as CLEAR types.
+Click filtering from the top summary cards also uses these search fields internally. For example, the SCORE update card is equivalent to `type:score`, and the EASY card is equivalent to `type:clear newclear:EC`. Card filters are applied with AND against the search-box filter. When multiple cards are selected, the cards are combined with OR.
+The Play Log also does not support main-chart-list / playlist-detail fields such as `level`, `difficulty`, `notes`, `rank`, `rate`, `score`, and `bp`. They are treated as unknown fields.
 
 ---
 

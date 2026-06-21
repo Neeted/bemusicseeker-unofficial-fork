@@ -293,14 +293,14 @@ public sealed class CustomTableColumnFactoryTests
 
         CustomTableColumn clearColumn = columns.Single(column => column.Id == "BestClear");
         CustomTableColumn bestDjColumn = columns.Single(column => column.Id == "BestDjLevel");
-        Assert.AreEqual("NO PLAY -> NORMAL", clearColumn.GetText(row));
+        Assert.AreEqual("NP -> NORMAL", clearColumn.GetText(row));
         IReadOnlyList<CustomTableTextRunStyle> clearRuns = clearColumn.GetTextRuns(row, clearColumn.GetText(row));
         Assert.AreEqual(3, clearRuns.Count);
         Assert.AreEqual(0, clearRuns[0].StartIndex);
-        Assert.AreEqual("NO PLAY".Length, clearRuns[0].Length);
-        Assert.AreEqual("NO PLAY".Length, clearRuns[1].StartIndex);
+        Assert.AreEqual("NP".Length, clearRuns[0].Length);
+        Assert.AreEqual("NP".Length, clearRuns[1].StartIndex);
         Assert.AreEqual(" -> ".Length, clearRuns[1].Length);
-        Assert.AreEqual("NO PLAY -> ".Length, clearRuns[2].StartIndex);
+        Assert.AreEqual("NP -> ".Length, clearRuns[2].StartIndex);
         Assert.AreEqual("NORMAL".Length, clearRuns[2].Length);
         Assert.AreEqual("A -> AA", bestDjColumn.GetText(row));
         IReadOnlyList<CustomTableTextRunStyle> bestDjRuns = bestDjColumn.GetTextRuns(row, bestDjColumn.GetText(row));

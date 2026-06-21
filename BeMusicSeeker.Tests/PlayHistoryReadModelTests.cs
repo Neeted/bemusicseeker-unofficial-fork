@@ -786,7 +786,7 @@ public sealed class PlayHistoryReadModelTests
         Assert.AreEqual("Resolved Artist", row.Artist);
         Assert.AreEqual(ShaA, row.Sha256);
         Assert.AreEqual("SAT", row.FolderLabels);
-        Assert.AreEqual("NO PLAY -> NORMAL", row.BestClear);
+        Assert.AreEqual("NP -> NORMAL", row.BestClear);
         Assert.AreEqual("200 -> 250", row.BestExscore);
         Assert.AreEqual("20", row.BestBp);
         Assert.AreEqual("80 -> 120", row.BestCombo);
@@ -1135,18 +1135,27 @@ public sealed class PlayHistoryReadModelTests
         Assert.AreEqual("2:00", cards[2].Value);
         Assert.AreEqual(Resources.Play_history_summary_score_update, cards[3].Label);
         Assert.AreEqual("1", cards[3].Value);
+        Assert.AreEqual("score", cards[3].FilterKey);
+        Assert.AreEqual("type:score", cards[3].FilterText);
         Assert.AreEqual(Resources.Play_history_summary_bp_update, cards[4].Label);
         Assert.AreEqual("1", cards[4].Value);
+        Assert.AreEqual("type:bp", cards[4].FilterText);
         Assert.AreEqual(Resources.Play_history_summary_combo_update, cards[5].Label);
         Assert.AreEqual("1", cards[5].Value);
+        Assert.AreEqual("type:combo", cards[5].FilterText);
         Assert.AreEqual(Resources.Play_history_summary_clear_update, cards[6].Label);
         Assert.AreEqual("2", cards[6].Value);
+        Assert.AreEqual("type:clear", cards[6].FilterText);
         Assert.AreEqual("EASY", cards[8].Label);
         Assert.AreEqual("1", cards[8].Value);
+        Assert.AreEqual("type:clear newclear:EC", cards[8].FilterText);
         Assert.IsFalse(cards.Any(card => card.Label == "EXH"));
         Assert.AreEqual("FC", cards[11].Label);
         Assert.AreEqual("1", cards[11].Value);
+        Assert.AreEqual("type:clear newclear:FC|PF", cards[11].FilterText);
         Assert.IsTrue(cards[11].Compact);
+        Assert.IsFalse(cards[0].IsFilterable);
+        Assert.IsTrue(cards[3].IsFilterable);
     }
 
     [TestMethod]
@@ -1191,6 +1200,7 @@ public sealed class PlayHistoryReadModelTests
         IReadOnlyList<PlayHistorySummaryCard> lr2Cards = MainWindowViewModel.CreatePlayHistorySummaryCardsForTest(summary, PlayHistoryProvider.Lr2);
 
         Assert.IsTrue(beatorajaCards.Any(card => card.Label == "EXH" && card.Value == "1"));
+        Assert.AreEqual("type:clear newclear:EXH", beatorajaCards.Single(card => card.Label == "EXH").FilterText);
         Assert.IsFalse(lr2Cards.Any(card => card.Label == "EXH"));
     }
 

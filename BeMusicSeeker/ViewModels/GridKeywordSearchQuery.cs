@@ -66,7 +66,7 @@ internal sealed class GridKeywordSearchQuery
     private static readonly string[] PlayHistoryFields =
     [
         "title", "artist", "path", "folder", "playlist", "ref", "table", "md5", "hash", "sha256",
-        "date", "year", "month", "kind", "clear", "finalized", "source"
+        "date", "year", "month", "type", "kind", "clear", "oldclear", "newclear", "finalized", "source"
     ];
 
     private readonly SearchCondition[] conditions;
@@ -572,8 +572,8 @@ internal sealed class GridKeywordSearchQuery
         {
             return false;
         }
-        bool matched = string.Equals(condition.Field, "clear", StringComparison.Ordinal) && !condition.IsRegex
-            ? condition.Alternatives.Any(alternative => MatchesPlayHistoryClearAlternative(alternative, row))
+        bool matched = IsPlayHistoryClearField(condition.Field) && !condition.IsRegex
+            ? condition.Alternatives.Any(alternative => MatchesPlayHistoryClearAlternative(alternative, row, condition.Field))
             : string.Equals(condition.Field, "finalized", StringComparison.Ordinal) && !condition.IsRegex
                 ? condition.Alternatives.Any(alternative => MatchesBooleanAlternative(alternative, row.Finalized))
                 : IsPlayHistoryDateField(condition.Field) && !condition.IsRegex
@@ -1436,6 +1436,7 @@ internal sealed class GridKeywordSearchQuery
                 yield return row.PlayedAt.ToString("yyyy/MM", CultureInfo.InvariantCulture);
                 yield return row.PlayedAt.ToString("MM", CultureInfo.InvariantCulture);
                 break;
+            case "type":
             case "kind":
                 yield return row.Kind;
                 yield return row.ScoreWriteType;
@@ -1443,6 +1444,12 @@ internal sealed class GridKeywordSearchQuery
             case "clear":
                 yield return row.BestClear;
                 yield return row.OldBestClear.HasValue ? ScoreDisplayTextFormatter.FormatClear(row.OldBestClear.Value) : string.Empty;
+                yield return row.NewBestClear.HasValue ? ScoreDisplayTextFormatter.FormatClear(row.NewBestClear.Value) : string.Empty;
+                break;
+            case "oldclear":
+                yield return row.OldBestClear.HasValue ? ScoreDisplayTextFormatter.FormatClear(row.OldBestClear.Value) : string.Empty;
+                break;
+            case "newclear":
                 yield return row.NewBestClear.HasValue ? ScoreDisplayTextFormatter.FormatClear(row.NewBestClear.Value) : string.Empty;
                 break;
             case "finalized":
@@ -1456,7 +1463,14 @@ internal sealed class GridKeywordSearchQuery
         }
     }
 
-    private static bool MatchesPlayHistoryClearAlternative(SearchAlternative alternative, PlayHistoryRow row)
+    private static bool IsPlayHistoryClearField(string field)
+    {
+        return string.Equals(field, "clear", StringComparison.Ordinal)
+            || string.Equals(field, "oldclear", StringComparison.Ordinal)
+            || string.Equals(field, "newclear", StringComparison.Ordinal);
+    }
+
+    private static bool MatchesPlayHistoryClearAlternative(SearchAlternative alternative, PlayHistoryRow row, string field)
     {
         if (alternative.IsInvalid || alternative.IsEmpty || row == null)
         {
@@ -1465,13 +1479,33 @@ internal sealed class GridKeywordSearchQuery
         string term = alternative.Term?.Trim() ?? string.Empty;
         if (IsDefinedTerm(term, out bool clearDefined))
         {
-            return row.NewBestClear.HasValue == clearDefined;
+            return GetPlayHistoryClearDefined(row, field) == clearDefined;
         }
         if (TryParseClearTerm(term, out ClearType expectedClear))
         {
-            return row.NewBestClear == expectedClear || row.OldBestClear == expectedClear;
+            return MatchesPlayHistoryClearValue(row, field, expectedClear);
         }
-        return MatchesAlternative(alternative, GetPlayHistoryValues(row, "clear"));
+        return MatchesAlternative(alternative, GetPlayHistoryValues(row, field));
+    }
+
+    private static bool GetPlayHistoryClearDefined(PlayHistoryRow row, string field)
+    {
+        return field switch
+        {
+            "oldclear" => row.OldBestClear.HasValue,
+            "newclear" => row.NewBestClear.HasValue,
+            _ => row.NewBestClear.HasValue,
+        };
+    }
+
+    private static bool MatchesPlayHistoryClearValue(PlayHistoryRow row, string field, ClearType expectedClear)
+    {
+        return field switch
+        {
+            "oldclear" => row.OldBestClear == expectedClear,
+            "newclear" => row.NewBestClear == expectedClear,
+            _ => row.NewBestClear == expectedClear || row.OldBestClear == expectedClear,
+        };
     }
 
     private static bool MatchesBooleanAlternative(SearchAlternative alternative, bool value)

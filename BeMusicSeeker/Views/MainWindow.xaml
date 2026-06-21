@@ -1942,28 +1942,59 @@
                 </ItemsControl.ItemsPanel>
                 <ItemsControl.ItemTemplate>
                   <DataTemplate>
-                    <Border CornerRadius="4" BorderThickness="1" BorderBrush="{DynamicResource App.StrongBorderBrush}" Background="{DynamicResource App.ControlBackgroundBrush}" Margin="0,0,4,0">
-                      <Border.Style>
-                        <Style TargetType="{x:Type Border}">
-                          <Setter Property="MinWidth" Value="82" />
-                          <Setter Property="Padding" Value="7,2" />
+                    <Button Command="{Binding DataContext.TogglePlayHistorySummaryCardFilterCommand, RelativeSource={RelativeSource AncestorType={x:Type ItemsControl}}}" CommandParameter="{Binding}" ToolTip="{Binding FilterText}">
+                      <Button.Style>
+                        <Style TargetType="{x:Type Button}">
+                          <Setter Property="OverridesDefaultStyle" Value="True" />
+                          <Setter Property="Background" Value="Transparent" />
+                          <Setter Property="BorderThickness" Value="0" />
+                          <Setter Property="Padding" Value="0" />
+                          <Setter Property="Focusable" Value="False" />
+                          <Setter Property="IsTabStop" Value="False" />
+                          <Setter Property="Cursor" Value="Arrow" />
+                          <Setter Property="Template">
+                            <Setter.Value>
+                              <ControlTemplate TargetType="{x:Type Button}">
+                                <ContentPresenter />
+                              </ControlTemplate>
+                            </Setter.Value>
+                          </Setter>
                           <Style.Triggers>
-                            <DataTrigger Binding="{Binding Compact}" Value="True">
-                              <Setter Property="MinWidth" Value="58" />
-                              <Setter Property="Padding" Value="5,2" />
+                            <DataTrigger Binding="{Binding IsFilterable}" Value="True">
+                              <Setter Property="Cursor" Value="Hand" />
                             </DataTrigger>
                           </Style.Triggers>
                         </Style>
-                      </Border.Style>
-                      <Grid>
-                        <Grid.ColumnDefinitions>
-                          <ColumnDefinition Width="*" />
-                          <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Grid.Column="0" FontFamily="Meiryo" FontSize="11" Foreground="{DynamicResource App.SubtleTextBrush}" Text="{Binding Label}" TextAlignment="Center" VerticalAlignment="Center" Margin="0,0,5,0" />
-                        <TextBlock Grid.Column="1" FontFamily="Meiryo" FontSize="12" FontWeight="Bold" Foreground="{DynamicResource App.TextBrush}" Text="{Binding Value}" TextAlignment="Center" VerticalAlignment="Center" />
-                      </Grid>
-                    </Border>
+                      </Button.Style>
+                      <Border CornerRadius="4" BorderThickness="1" Margin="0,0,4,0">
+                        <Border.Style>
+                          <Style TargetType="{x:Type Border}">
+                            <Setter Property="MinWidth" Value="82" />
+                            <Setter Property="Padding" Value="7,2" />
+                            <Setter Property="BorderBrush" Value="{DynamicResource App.StrongBorderBrush}" />
+                            <Setter Property="Background" Value="{DynamicResource App.ControlBackgroundBrush}" />
+                            <Style.Triggers>
+                              <DataTrigger Binding="{Binding Compact}" Value="True">
+                                <Setter Property="MinWidth" Value="58" />
+                                <Setter Property="Padding" Value="5,2" />
+                              </DataTrigger>
+                              <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                                <Setter Property="Background" Value="{DynamicResource App.ControlSelectedBrush}" />
+                                <Setter Property="BorderBrush" Value="{DynamicResource App.AccentBrush}" />
+                              </DataTrigger>
+                            </Style.Triggers>
+                          </Style>
+                        </Border.Style>
+                        <Grid>
+                          <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                          </Grid.ColumnDefinitions>
+                          <TextBlock Grid.Column="0" FontFamily="Meiryo" FontSize="11" Foreground="{DynamicResource App.SubtleTextBrush}" Text="{Binding Label}" TextAlignment="Center" VerticalAlignment="Center" Margin="0,0,5,0" />
+                          <TextBlock Grid.Column="1" FontFamily="Meiryo" FontSize="12" FontWeight="Bold" Foreground="{DynamicResource App.TextBrush}" Text="{Binding Value}" TextAlignment="Center" VerticalAlignment="Center" />
+                        </Grid>
+                      </Border>
+                    </Button>
                   </DataTemplate>
                 </ItemsControl.ItemTemplate>
               </ItemsControl>
