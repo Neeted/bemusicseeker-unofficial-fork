@@ -51,6 +51,19 @@ startup は次を分けて扱う。
 
 詳細は [startup-initialization-flow.md](startup-initialization-flow.md) を参照する。
 
+## UI / Model Concurrency Boundary
+
+WPF UI に binding される `DispatcherCollection` は UI read model として扱う。domain model の writer lock を保持したまま、別 thread から `DispatcherCollection` の `Add` / `Remove` / `Replace` / `Clear` を呼ばない。
+
+理由は、`DispatcherCollection` が collection / property change 通知を UI dispatcher へ同期転送するためである。background thread が model writer lock を保持したまま UI dispatcher を待ち、UI thread が同じ model の reader lock を待つと deadlock になる。
+
+playlist / library などの長い操作は次の順に分ける。
+
+- HTTP / parse / DB / filesystem の重い処理は UI thread 外で実行する。
+- model lock の保持時間は、正本状態の検査・採番・短い in-memory 更新に限定する。
+- UI binding collection への反映は UI dispatcher 上で短く実行し、反映中に network / DB / filesystem I/O を行わない。
+- lock 保持中に `Dispatcher.Invoke`、message box、event callback、`Task.Wait` / `.Result` のような同期待ちは行わない。
+
 ## Native Bridge Policy
 
 Everything が使える場合、通常起動の file enumeration は `EBridge_ScanChartAndResources` を使う。

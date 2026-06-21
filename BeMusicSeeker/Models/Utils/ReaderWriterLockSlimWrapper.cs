@@ -170,61 +170,133 @@ public class ReaderWriterLockSlimWrapper(LockRecursionPolicy recursionPolicy = L
     public void EnterReadLock()
     {
         readerWriterLockSlim.EnterReadLock();
+        lock (lockThis)
+        {
+            LockingReadCount++;
+        }
     }
 
     public void EnterUpgradeableReadLock()
     {
         readerWriterLockSlim.EnterUpgradeableReadLock();
+        lock (lockThis)
+        {
+            LockingWriteCount++;
+        }
     }
 
     public void EnterWriteLock()
     {
         readerWriterLockSlim.EnterWriteLock();
+        lock (lockThis)
+        {
+            LockingWriteCount++;
+        }
     }
 
     public void ExitReadLock()
     {
         readerWriterLockSlim.ExitReadLock();
+        lock (lockThis)
+        {
+            LockingReadCount--;
+        }
     }
 
     public void ExitUpgradeableReadLock()
     {
         readerWriterLockSlim.ExitUpgradeableReadLock();
+        lock (lockThis)
+        {
+            LockingWriteCount--;
+        }
     }
 
     public void ExitWriteLock()
     {
         readerWriterLockSlim.ExitWriteLock();
+        lock (lockThis)
+        {
+            LockingWriteCount--;
+        }
     }
 
     public bool TryEnterReadLock(int millisecondsTimeout)
     {
-        return readerWriterLockSlim.TryEnterReadLock(millisecondsTimeout);
+        bool entered = readerWriterLockSlim.TryEnterReadLock(millisecondsTimeout);
+        if (entered)
+        {
+            lock (lockThis)
+            {
+                LockingReadCount++;
+            }
+        }
+        return entered;
     }
 
     public bool TryEnterReadLock(TimeSpan timeout)
     {
-        return readerWriterLockSlim.TryEnterReadLock(timeout);
+        bool entered = readerWriterLockSlim.TryEnterReadLock(timeout);
+        if (entered)
+        {
+            lock (lockThis)
+            {
+                LockingReadCount++;
+            }
+        }
+        return entered;
     }
 
     public bool TryEnterUpgradeableReadLock(int millisecondsTimeout)
     {
-        return readerWriterLockSlim.TryEnterUpgradeableReadLock(millisecondsTimeout);
+        bool entered = readerWriterLockSlim.TryEnterUpgradeableReadLock(millisecondsTimeout);
+        if (entered)
+        {
+            lock (lockThis)
+            {
+                LockingWriteCount++;
+            }
+        }
+        return entered;
     }
 
     public bool TryEnterUpgradeableReadLock(TimeSpan timeout)
     {
-        return readerWriterLockSlim.TryEnterUpgradeableReadLock(timeout);
+        bool entered = readerWriterLockSlim.TryEnterUpgradeableReadLock(timeout);
+        if (entered)
+        {
+            lock (lockThis)
+            {
+                LockingWriteCount++;
+            }
+        }
+        return entered;
     }
 
     public bool TryEnterWriteLock(int millisecondsTimeout)
     {
-        return readerWriterLockSlim.TryEnterWriteLock(millisecondsTimeout);
+        bool entered = readerWriterLockSlim.TryEnterWriteLock(millisecondsTimeout);
+        if (entered)
+        {
+            lock (lockThis)
+            {
+                LockingWriteCount++;
+            }
+        }
+        return entered;
     }
 
     public bool TryEnterWriteLock(TimeSpan timeout)
     {
-        return readerWriterLockSlim.TryEnterWriteLock(timeout);
+        bool entered = readerWriterLockSlim.TryEnterWriteLock(timeout);
+        if (entered)
+        {
+            lock (lockThis)
+            {
+                LockingWriteCount++;
+            }
+        }
+        return entered;
     }
 
     public Ribbit.Threading.ReaderGuard GetReaderGuard()

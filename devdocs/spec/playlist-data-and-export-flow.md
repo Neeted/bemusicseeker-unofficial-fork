@@ -77,6 +77,8 @@ header の `course` は `[[{...}]]` のような入れ子配列も平坦化し�
 
 外部同期では、再取得した header/data JSON から `BMSTable` と `BMSTableEntry` を作り、既存 DB と比較して既存ローカル状態を引き継ぐ。
 
+外部表の新規登録は、取得・永続化・UI 反映を分けて扱う。header/data の取得と parse は UI thread 外で行う。playlist collection の writer lock は重複確認、`bmt_sort` 採番、出力先算出のような短い in-memory mutation に限定する。DB への playlist / entry 永続化は writer lock 外で行い、commit 後の UI binding collection への `BMSTables.Add` は UI dispatcher 上で短く実行する。model writer lock を保持した background thread から `DispatcherCollection` を変更してはいけない。これは Play History など UI 側の playlist read と競合した時に、background thread が UI dispatcher を待ち、UI thread が playlist reader lock を待つ deadlock を避けるためである。
+
 更新判定は header JSON と data JSON の hash を分けて扱う。
 
 | 判定 | 内容 | `last_update` | DB 保存 | `.bmt` 出力 |

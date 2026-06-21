@@ -774,6 +774,18 @@ public partial class BMSPlaylist : NotificationObject
         rwlockBMSTables.ExitReadLock();
     }
 
+    public bool ContainsBMSTable(BMSTable table)
+    {
+        if (table == null)
+        {
+            return false;
+        }
+        using (rwlockBMSTables.GetReaderGuard())
+        {
+            return BMSTables.Contains(table);
+        }
+    }
+
     /// <summary>
     /// プレイリスト DB への接続情報と関連取得デリゲートを初期化します。
     /// 必要なテーブルとインデックスもここで整備します。
@@ -6614,6 +6626,9 @@ public partial class BMSPlaylist : NotificationObject
             throw new InvalidOperationException("pageUri.IsAbsoluteUri is not true");
         }
         BMSTable bMSTable = await LoadExternalTableAsync(pageUri, null, cancellationToken).ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
+        bool migrateCustomFolderOutput = false;
+        string customFolderOutputDirectory = null;
         using (rwlockBMSTablesInitializeMin.GetReaderGuard())
         {
             using (rwlockBMSTables.GetWriterGuard())
@@ -6632,14 +6647,18 @@ public partial class BMSPlaylist : NotificationObject
                 }
                 bMSTable.bmt_sort = ResolveNextBeatorajaBmtSort(BMSTables);
                 bMSTable.is_bmt_output = true;
-                CommitBMSTable(bMSTable);
-                BMSTables.Add(bMSTable);
                 if (Settings.Default.OperationModeLR2DB)
                 {
-                    string customFolderOutputDirectory = GetCustomFolderOutputDirectory(bMSTable);
-                    migrateCustomFolderOutputDirectoryFiles(bMSTable, customFolderOutputDirectory, customFolderOutputDirectory, bMSTable.is_root_folder);
+                    migrateCustomFolderOutput = true;
+                    customFolderOutputDirectory = GetCustomFolderOutputDirectory(bMSTable);
                 }
             }
+        }
+        CommitBMSTable(bMSTable);
+        await AddCommittedBMSTableToVisibleCollectionAsync(bMSTable).ConfigureAwait(false);
+        if (migrateCustomFolderOutput)
+        {
+            migrateCustomFolderOutputDirectoryFiles(bMSTable, customFolderOutputDirectory, customFolderOutputDirectory, bMSTable.is_root_folder);
         }
         QueueBeatorajaBmtExport(bMSTable, "RegistrateExternalTableAsync");
         ApplyCachedPlaylistUrlCompletionToTable(bMSTable, "RegistrateExternalTableAsync");
@@ -6966,6 +6985,75 @@ public partial class BMSPlaylist : NotificationObject
         }
     }
 
+    private static System.Windows.Threading.Dispatcher GetBMSTablesDispatcher(DispatcherCollection<BMSTable> tables)
+    {
+        return tables?.Dispatcher ?? DispatcherHelper.UIDispatcher ?? Application.Current?.Dispatcher;
+    }
+
+    private T InvokeBMSTablesCollectionMutation<T>(Func<T> mutation)
+    {
+        if (mutation == null)
+        {
+            throw new ArgumentNullException(nameof(mutation));
+        }
+        System.Windows.Threading.Dispatcher dispatcher = GetBMSTablesDispatcher(BMSTables);
+        if (dispatcher == null || dispatcher.CheckAccess())
+        {
+            return mutation();
+        }
+        return (T)dispatcher.Invoke(mutation, System.Windows.Threading.DispatcherPriority.Normal);
+    }
+
+    private async Task<T> InvokeBMSTablesCollectionMutationAsync<T>(Func<T> mutation)
+    {
+        if (mutation == null)
+        {
+            throw new ArgumentNullException(nameof(mutation));
+        }
+        System.Windows.Threading.Dispatcher dispatcher = GetBMSTablesDispatcher(BMSTables);
+        if (dispatcher == null || dispatcher.CheckAccess())
+        {
+            return mutation();
+        }
+        return await dispatcher.InvokeAsync(mutation, System.Windows.Threading.DispatcherPriority.Normal).Task.ConfigureAwait(false);
+    }
+
+    private void InvokeBMSTablesCollectionMutation(Action mutation)
+    {
+        InvokeBMSTablesCollectionMutation(delegate
+        {
+            mutation();
+            return true;
+        });
+    }
+
+    private async Task AddCommittedBMSTableToVisibleCollectionAsync(BMSTable table)
+    {
+        bool added = await InvokeBMSTablesCollectionMutationAsync(delegate
+        {
+            using (rwlockBMSTables.GetWriterGuard())
+            {
+                if (BMSTables.Contains(table))
+                {
+                    return true;
+                }
+                if (BMSTables.Any(existing => existing != null
+                    && !ReferenceEquals(existing, table)
+                    && string.Equals(existing.name, table.name, StringComparison.Ordinal)))
+                {
+                    return false;
+                }
+                BMSTables.Add(table);
+                return true;
+            }
+        }).ConfigureAwait(false);
+        if (!added)
+        {
+            deleteBMSTable(table);
+            throw new PlaylistAlreadyExistsException(Resources.Error_PlaylistAlreadyExists, table?.name);
+        }
+    }
+
     private void ReplaceBMSTableInCollection(BMSTable oldTable, BMSTable newTable)
     {
         DispatcherCollection<BMSTable> tables = BMSTables;
@@ -7059,18 +7147,16 @@ public partial class BMSPlaylist : NotificationObject
     /// <param name="bmsTable">削除対象のプレイリスト。</param>
     public void RemoveBMSTable(BMSTable bmsTable)
     {
-        bool removed = false;
-        using (rwlockBMSTables.GetWriterGuard())
+        bool removed = InvokeBMSTablesCollectionMutation(delegate
         {
-            if (BMSTables.Contains(bmsTable))
+            using (rwlockBMSTables.GetWriterGuard())
             {
-                BMSTables.RemoveExt(bmsTable);
-                deleteBMSTable(bmsTable);
-                removed = true;
+                return BMSTables.Contains(bmsTable) && BMSTables.RemoveExt(bmsTable);
             }
-        }
+        });
         if (removed)
         {
+            deleteBMSTable(bmsTable);
             QueueBeatorajaBmtRemoveForTable(bmsTable, "RemoveBMSTable");
         }
     }
@@ -7085,16 +7171,19 @@ public partial class BMSPlaylist : NotificationObject
         {
             last_update = DateTime.Now
         };
-        using (rwlockBMSTablesInitializeMin.GetReaderGuard())
+        InvokeBMSTablesCollectionMutation(delegate
         {
-            using (rwlockBMSTables.GetWriterGuard())
+            using (rwlockBMSTablesInitializeMin.GetReaderGuard())
             {
-                bMSTable.bmt_sort = ResolveNextBeatorajaBmtSort(BMSTables);
-                bMSTable.is_bmt_output = true;
-                BMSTables.Add(bMSTable);
-                return bMSTable;
+                using (rwlockBMSTables.GetWriterGuard())
+                {
+                    bMSTable.bmt_sort = ResolveNextBeatorajaBmtSort(BMSTables);
+                    bMSTable.is_bmt_output = true;
+                    BMSTables.Add(bMSTable);
+                }
             }
-        }
+        });
+        return bMSTable;
     }
 
     /// <summary>

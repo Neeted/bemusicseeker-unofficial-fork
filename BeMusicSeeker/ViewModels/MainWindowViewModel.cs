@@ -27153,6 +27153,21 @@ public class MainWindowViewModel : ViewModel
         return RefreshPlaylistSummaryDataIfVisible(reason, invalidateTableCountCache, rebuildAsync);
     }
 
+    private void QueuePlaylistSummaryRefreshIfVisible(string reason = "playlist_summary_refresh", bool invalidateTableCountCache = false)
+    {
+        Action refresh = delegate
+        {
+            RefreshPlaylistSummaryIfVisible(reason, invalidateTableCountCache);
+        };
+        Dispatcher dispatcher = DispatcherHelper.UIDispatcher ?? System.Windows.Application.Current?.Dispatcher;
+        if (dispatcher == null || dispatcher.CheckAccess())
+        {
+            refresh();
+            return;
+        }
+        dispatcher.BeginInvoke(refresh, DispatcherPriority.Background);
+    }
+
     private long RefreshPlaylistSummaryDataIfVisible(string reason, bool invalidateTableCountCache, bool rebuildAsync)
     {
         // 表示へ戻るだけなら raw rows cache は必ず捨てるが、table count cache は必要な場合だけ落とす。
@@ -28971,7 +28986,7 @@ public class MainWindowViewModel : ViewModel
             while (externalPlaylistImportQueue.TryDequeue(out Uri uri))
             {
                 UpdateExternalPlaylistImportQueueProgress(completedCount, uri, string.Empty, hasActiveImport: true);
-                ExternalPlaylistImportOutcome outcome = await ImportExternalPlaylistBMSTableCoreAsync(uri, showFailureDialog: false, skipDuplicateName: true).Logging("ImportExternalPlaylistBMSTableCoreAsync");
+                ExternalPlaylistImportOutcome outcome = await ImportExternalPlaylistBMSTableCoreAsync(uri, showFailureDialog: false, skipDuplicateName: true).Logging("ImportExternalPlaylistBMSTableCoreAsync").ConfigureAwait(false);
                 outcomes.Add(outcome);
                 completedCount++;
                 UpdateExternalPlaylistImportQueueProgress(completedCount, uri, outcome?.TableName ?? string.Empty, hasActiveImport: false);
@@ -29009,23 +29024,24 @@ public class MainWindowViewModel : ViewModel
     {
         try
         {
-            BMSTable table = await tables.RegistrateExternalTableAsync(uri);
+            BMSTable table = await tables.RegistrateExternalTableAsync(uri).ConfigureAwait(false);
             if (table == null)
             {
                 return ExternalPlaylistImportOutcome.Failed(uri, new InvalidOperationException("Playlist registration returned no table."));
             }
-            tables.AcquireReaderLockBMSTables();
-            try
+            if (!tables.ContainsBMSTable(table))
             {
-                files.AddReferenceBMSTables(table);
-                InvalidateNormalLibrarySortKeys(NormalLibraryReferenceTablesChangedReason);
+                return ExternalPlaylistImportOutcome.Imported(uri, table.name);
             }
-            finally
+            files.AddReferenceBMSTables(table);
+            if (!tables.ContainsBMSTable(table))
             {
-                tables.FreeReaderLockBMSTables();
+                files.RemoveReferenceBMSTables(table);
+                return ExternalPlaylistImportOutcome.Imported(uri, table.name);
             }
+            InvalidateNormalLibrarySortKeys(NormalLibraryReferenceTablesChangedReason);
             UpdatePlaylistSyncRuntimeStatus(PlaylistSyncAttemptResult.CreateSuccess(table, table, uri, updated: false));
-            RefreshPlaylistSummaryIfVisible("playlist_registered", invalidateTableCountCache: true);
+            QueuePlaylistSummaryRefreshIfVisible("playlist_registered", invalidateTableCountCache: true);
             return ExternalPlaylistImportOutcome.Imported(uri, table.name);
         }
         catch (PlaylistAlreadyExistsException ex) when (skipDuplicateName)
