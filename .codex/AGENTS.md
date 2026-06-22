@@ -108,14 +108,18 @@ dotnet roslynator analyze BeMusicSeeker-decomp.sln --properties Configuration=Re
 
 ## 5. バージョン更新作業時の手順
 
-バージョン変更依頼を受けた場合、必ず以下 **3箇所すべて** を更新すること：
+バージョン変更依頼を受けた場合、必ず以下を更新・確認すること：
 
 1. `Properties\AssemblyInfo.cs`
    - `AssemblyInformationalVersion`
 2. `BeMusicSeeker\Views\SettingDialog.xaml`
    - Update_history セクションの更新履歴追記
+   - リリース概要として読める短い日本語文をベタ書きする。多言語キーや `lang\*.json` はユーザーから明示依頼がない限り増やさない
 3. `version.txt`
    - 新しいバージョン文字列に書き換え
+4. `release notes\vX.X.X.X リリースノート.md`
+   - 対象バージョンのリリースノートが存在し、GitHub Release 本文として使える状態まで整備済みであることを確認する
+   - `scripts\release.ps1` はこのファイルを release body として参照するため、少なくとも draft 作成前に存在確認を行う
 
 ---
 

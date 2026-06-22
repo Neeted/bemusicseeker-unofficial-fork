@@ -852,6 +852,23 @@
                       </FrameworkContentElement.Resources>
                       <List>
                         <ListItem>
+                          <Paragraph FontWeight="Bold">2.1.0.0:</Paragraph>
+                          <List MarkerStyle="Box">
+                            <ListItem>
+                              <Paragraph>beatoraja 難易度表向けの .bmt 出力に並び順指定を追加し、プレイリストサマリーの BMT SORT で登録順を調整できるようにしました。</Paragraph>
+                            </ListItem>
+                            <ListItem>
+                              <Paragraph>LR2 カスタムフォルダ出力を強化し、RANDOM、BPM 順、BP 順、プレイ回数順、最終プレイ順の出力種別と、プレイリストサマリーの一括プロパティ変更を追加しました。</Paragraph>
+                            </ListItem>
+                            <ListItem>
+                              <Paragraph>LR2 / beatoraja のプレイ履歴を確認できるプレイログ画面を追加し、スコアやクリア状態などの更新履歴と期間サマリーを表示できるようにしました。</Paragraph>
+                            </ListItem>
+                            <ListItem>
+                              <Paragraph>自動アップデート、インストール推定、プレイリスト操作、終了処理などの安定性向上と不具合修正を行いました。</Paragraph>
+                            </ListItem>
+                          </List>
+                        </ListItem>
+                        <ListItem>
                           <Paragraph FontWeight="Bold">2.0.0.0:</Paragraph>
                           <List MarkerStyle="Box">
                             <ListItem>
