@@ -8738,6 +8738,16 @@ public class MainWindowViewModel : ViewModel
 
     private static readonly SemaphoreSlim _semaphore = new(1, 1);
 
+    private static readonly TimeSpan ShutdownDrainTimeout = TimeSpan.FromSeconds(60);
+
+    private static readonly TimeSpan ShutdownQueueDrainTimeout = TimeSpan.FromSeconds(20);
+
+    private readonly object shutdownPreparationLock = new();
+
+    private int shutdownRequested;
+
+    private Task shutdownPreparationTask;
+
     private readonly object lockCopyFile = new();
 
     private readonly object duplicateChartGroupsRefreshLock = new();
@@ -11476,6 +11486,11 @@ public class MainWindowViewModel : ViewModel
         }
         string normalizedName = string.IsNullOrWhiteSpace(name) ? "unknown" : name;
         string normalizedReason = string.IsNullOrWhiteSpace(reason) ? "unspecified" : reason;
+        if (IsShutdownRequested)
+        {
+            LogUiSuppression("startup_background_task skipped name=" + normalizedName + " reason=" + normalizedReason + " detail=shutdown_requested");
+            return true;
+        }
         string normalizedDependency = string.IsNullOrWhiteSpace(dependency) ? null : dependency;
         string normalizedLane = GetStartupBackgroundTaskLane(normalizedName);
         string coalesceKey = normalizedName;
@@ -11773,11 +11788,15 @@ public class MainWindowViewModel : ViewModel
         int index = -1;
         int bestPriority = int.MaxValue;
         long bestVersion = long.MaxValue;
+        bool shutdownRequestedSnapshot = IsShutdownRequested;
         for (int i = 0; i < startupBackgroundTaskQueue.Count; i++)
         {
             StartupBackgroundTaskRequest candidate = startupBackgroundTaskQueue[i];
-            if (!AreStartupBackgroundDependenciesCompletedUnsafe(candidate.Dependency)
-                || !CanStartStartupBackgroundTaskInLaneUnsafe(candidate.Lane))
+            if (!shutdownRequestedSnapshot && !AreStartupBackgroundDependenciesCompletedUnsafe(candidate.Dependency))
+            {
+                continue;
+            }
+            if (!CanStartStartupBackgroundTaskInLaneUnsafe(candidate.Lane))
             {
                 continue;
             }
@@ -18846,6 +18865,313 @@ public class MainWindowViewModel : ViewModel
         dropInstallQueueProcessor = new DropInstallQueueProcessor(ProcessDroppedInstallBatch, UpdateDropInstallQueueStatus, HandleDroppedInstallBatchException);
     }
 
+    public bool IsShutdownRequested => Volatile.Read(ref shutdownRequested) != 0;
+
+    public Task PrepareShutdownAsync(string reason)
+    {
+        lock (shutdownPreparationLock)
+        {
+            if (shutdownPreparationTask == null)
+            {
+                Interlocked.Exchange(ref shutdownRequested, 1);
+                shutdownPreparationTask = PrepareShutdownCoreAsync(reason ?? "shutdown");
+            }
+            return shutdownPreparationTask;
+        }
+    }
+
+    private async Task PrepareShutdownCoreAsync(string reason)
+    {
+        var stopwatch = Stopwatch.StartNew();
+        LogShutdown("prepare_start reason=" + FormatTextForLog(reason));
+        TryShutdownStep("set_ui_blocked", () => SetStartupUiInteractionBlocked(true));
+        RequestShutdownCancellation(reason);
+
+        bool dropInstallIdle = await WaitForDropInstallQueueIdleAsync(ShutdownQueueDrainTimeout).ConfigureAwait(false);
+        bool playlistBuildIdle = await WaitForPlaylistBuildIdleAsync(ShutdownQueueDrainTimeout).ConfigureAwait(false);
+        bool startupBackgroundIdle = await WaitForStartupBackgroundTasksIdleAsync(ShutdownDrainTimeout).ConfigureAwait(false);
+        bool prewarmIdle = await WaitForPlaylistLibraryIndexPrewarmIdleAsync(ShutdownQueueDrainTimeout).ConfigureAwait(false);
+        bool mainOperationIdle = await WaitForMainOperationIdleAsync(ShutdownDrainTimeout).ConfigureAwait(false);
+        bool libraryIdle = files == null || await files.WaitForShutdownBlockingWorkAsync(ShutdownDrainTimeout).ConfigureAwait(false);
+        bool playlistIdle = tables == null || await tables.WaitForShutdownBlockingWorkAsync(ShutdownDrainTimeout).ConfigureAwait(false);
+        bool dbLocksIdle = await WaitForLr2DbProcessLocksAsync(ShutdownDrainTimeout).ConfigureAwait(false);
+
+        stopwatch.Stop();
+        LogShutdown("prepare_done reason=" + FormatTextForLog(reason)
+            + " elapsedMs=" + stopwatch.ElapsedMilliseconds
+            + " dropInstallIdle=" + dropInstallIdle.ToString().ToLowerInvariant()
+            + " playlistBuildIdle=" + playlistBuildIdle.ToString().ToLowerInvariant()
+            + " startupBackgroundIdle=" + startupBackgroundIdle.ToString().ToLowerInvariant()
+            + " prewarmIdle=" + prewarmIdle.ToString().ToLowerInvariant()
+            + " mainOperationIdle=" + mainOperationIdle.ToString().ToLowerInvariant()
+            + " libraryIdle=" + libraryIdle.ToString().ToLowerInvariant()
+            + " playlistIdle=" + playlistIdle.ToString().ToLowerInvariant()
+            + " dbLocksIdle=" + dbLocksIdle.ToString().ToLowerInvariant());
+    }
+
+    private void RequestShutdownCancellation(string reason)
+    {
+        TryShutdownStep("library", () => files?.RequestShutdown(reason));
+        TryShutdownStep("playlist", () => tables?.RequestShutdown(reason));
+        TryShutdownStep("playlist_build", CancelPlaylistBuildRequestsForShutdown);
+        TryShutdownStep("play_history", CancelPlayHistoryRequestsForShutdown);
+        TryShutdownStep("playlist_index_prewarm", CancelPlaylistLibraryIndexPrewarmForShutdown);
+        TryShutdownStep("maintenance_rescan", CancelMaintenanceRescan);
+        TryShutdownStep("drop_install", () => dropInstallQueueProcessor?.CancelAll());
+        TryShutdownStep("startup_background_queue", () => CancelStartupBackgroundTasksForShutdown(reason));
+    }
+
+    private void CancelStartupBackgroundTasksForShutdown(string reason)
+    {
+        bool shouldStartWorker;
+        int originalQueuedCount;
+        int discardedCount = 0;
+        int drainQueuedCount;
+        lock (startupBackgroundTaskLock)
+        {
+            originalQueuedCount = startupBackgroundTaskQueue.Count;
+            for (int i = startupBackgroundTaskQueue.Count - 1; i >= 0; i--)
+            {
+                StartupBackgroundTaskRequest request = startupBackgroundTaskQueue[i];
+                if (IsStartupBackgroundTaskShutdownDrainRequired(request.Name))
+                {
+                    continue;
+                }
+                startupBackgroundTaskQueue.RemoveAt(i);
+                RecordStartupBackgroundTaskDiscardedForShutdownUnsafe(request, reason);
+                discardedCount++;
+            }
+            drainQueuedCount = startupBackgroundTaskQueue.Count;
+            if (drainQueuedCount > 0)
+            {
+                startupBackgroundTaskSchedulerStarted = true;
+            }
+            shouldStartWorker = drainQueuedCount > 0;
+            LogShutdown("startup_background_task drain_queued reason=" + FormatTextForLog(reason)
+                + " queued=" + originalQueuedCount
+                + " drainQueued=" + drainQueuedCount
+                + " discarded=" + discardedCount
+                + " running=" + startupBackgroundTaskRunningCount);
+        }
+        if (shouldStartWorker)
+        {
+            TryStartStartupBackgroundTaskWorkers();
+        }
+        else
+        {
+            TryCompleteStartupBackgroundTasksPhaseIfIdle();
+        }
+    }
+
+    private static bool IsStartupBackgroundTaskShutdownDrainRequired(string name)
+    {
+        return string.Equals(name, "lr2_song_db_sync", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(name, "chart_info_hydration", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(name, "maintenance_hydration", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(name, "installable_maintenance", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private void RecordStartupBackgroundTaskDiscardedForShutdownUnsafe(StartupBackgroundTaskRequest request, string reason)
+    {
+        if (request == null)
+        {
+            return;
+        }
+        startupBackgroundTaskCompletedNames.Add(request.Name);
+        StartupBackgroundTaskMetric metric = GetOrCreateStartupBackgroundTaskMetricUnsafe(request.Name);
+        metric.CompletedCount++;
+        metric.LastStatus = "discarded";
+        metric.LastElapsedMs = 0L;
+        metric.LastDetail = "shutdown_requested reason=" + FormatTextForLog(reason);
+        if (string.IsNullOrWhiteSpace(metric.Reason))
+        {
+            metric.Reason = request.Reason ?? string.Empty;
+        }
+        if (string.IsNullOrWhiteSpace(metric.Dependency))
+        {
+            metric.Dependency = request.Dependency ?? string.Empty;
+        }
+        if (string.IsNullOrWhiteSpace(metric.Lane))
+        {
+            metric.Lane = request.Lane ?? GetStartupBackgroundTaskLane(request.Name);
+        }
+        LogUiSuppression("startup_background_task discarded name=" + request.Name
+            + " version=" + request.Version
+            + " reason=" + request.Reason
+            + " shutdownReason=" + FormatTextForLog(reason));
+    }
+
+    private void CancelPlaylistBuildRequestsForShutdown()
+    {
+        lock (playlistViewState.SyncRoot)
+        {
+            playlistViewState.PendingRequest = null;
+            playlistViewState.CurrentBuildCancellation?.Cancel();
+            playlistViewState.Cancellation?.Cancel();
+            Monitor.PulseAll(playlistViewState.SyncRoot);
+        }
+    }
+
+    private void CancelPlayHistoryRequestsForShutdown()
+    {
+        lock (playHistoryViewRequestLock)
+        {
+            InvalidatePlayHistoryFilterRequestUnsafe();
+        }
+    }
+
+    private void CancelPlaylistLibraryIndexPrewarmForShutdown()
+    {
+        lock (playlistLibraryIndexSync)
+        {
+            playlistLibraryIndexPrewarmCancellation?.Cancel();
+        }
+    }
+
+    private async Task<bool> WaitForDropInstallQueueIdleAsync(TimeSpan timeout)
+    {
+        return dropInstallQueueProcessor == null || await dropInstallQueueProcessor.WaitForIdleAsync(timeout).ConfigureAwait(false);
+    }
+
+    private async Task<bool> WaitForPlaylistBuildIdleAsync(TimeSpan timeout)
+    {
+        return await WaitForConditionAsync(IsPlaylistBuildIdle, timeout).ConfigureAwait(false);
+    }
+
+    private bool IsPlaylistBuildIdle()
+    {
+        lock (playlistViewState.SyncRoot)
+        {
+            return !playlistViewState.WorkerRunning
+                && playlistViewState.PendingRequest == null
+                && playlistViewState.CurrentBuildRequest == null;
+        }
+    }
+
+    private async Task<bool> WaitForStartupBackgroundTasksIdleAsync(TimeSpan timeout)
+    {
+        return await WaitForConditionAsync(IsStartupBackgroundTaskSchedulerIdle, timeout).ConfigureAwait(false);
+    }
+
+    private bool IsStartupBackgroundTaskSchedulerIdle()
+    {
+        lock (startupBackgroundTaskLock)
+        {
+            return startupBackgroundTaskQueue.Count == 0 && startupBackgroundTaskRunningCount == 0;
+        }
+    }
+
+    private async Task<bool> WaitForPlaylistLibraryIndexPrewarmIdleAsync(TimeSpan timeout)
+    {
+        Task task;
+        lock (playlistLibraryIndexSync)
+        {
+            task = playlistLibraryIndexPrewarmTask;
+        }
+        return await WaitForTaskCompletionAsync(task, timeout).ConfigureAwait(false);
+    }
+
+    private static async Task<bool> WaitForTaskCompletionAsync(Task task, TimeSpan timeout)
+    {
+        if (task == null || task.IsCompleted)
+        {
+            return true;
+        }
+        Task completed = await Task.WhenAny(task, Task.Delay(timeout)).ConfigureAwait(false);
+        return ReferenceEquals(completed, task);
+    }
+
+    private static async Task<bool> WaitForConditionAsync(Func<bool> isIdle, TimeSpan timeout)
+    {
+        DateTime deadlineUtc = DateTime.UtcNow + timeout;
+        while (true)
+        {
+            if (isIdle())
+            {
+                return true;
+            }
+            if (DateTime.UtcNow >= deadlineUtc)
+            {
+                return false;
+            }
+            await Task.Delay(100).ConfigureAwait(false);
+        }
+    }
+
+    private static async Task<bool> WaitForMainOperationIdleAsync(TimeSpan timeout)
+    {
+        using var cancellation = new CancellationTokenSource(timeout);
+        try
+        {
+            await _semaphore.WaitAsync(cancellation.Token).ConfigureAwait(false);
+            _semaphore.Release();
+            return true;
+        }
+        catch (OperationCanceledException)
+        {
+            return false;
+        }
+    }
+
+    private static async Task<bool> WaitForLr2DbProcessLocksAsync(TimeSpan timeout)
+    {
+        return await Task.Run(() =>
+        {
+            var stopwatch = Stopwatch.StartNew();
+            bool songLockTaken = false;
+            bool scoreLockTaken = false;
+            try
+            {
+                songLockTaken = LR2SongDBExtended.Lock(timeout);
+                TimeSpan remaining = timeout - stopwatch.Elapsed;
+                if (remaining < TimeSpan.Zero)
+                {
+                    remaining = TimeSpan.Zero;
+                }
+                scoreLockTaken = LR2ScoreDBExtended.Lock(remaining);
+                return songLockTaken && scoreLockTaken;
+            }
+            finally
+            {
+                if (scoreLockTaken)
+                {
+                    LR2ScoreDBExtended.Unlock();
+                }
+                if (songLockTaken)
+                {
+                    LR2SongDBExtended.Unlock();
+                }
+            }
+        }).ConfigureAwait(false);
+    }
+
+    private static void TryShutdownStep(string name, Action action)
+    {
+        try
+        {
+            action?.Invoke();
+        }
+        catch (Exception ex)
+        {
+            LogShutdown((name ?? "step") + "_failed message=" + ex.Message);
+        }
+    }
+
+    private static void LogShutdown(string message)
+    {
+        string line = "shutdown " + (message ?? string.Empty);
+        NLogWrapper.FileLogger?.Info(line);
+        if (installPerformanceLoggingEnabled)
+        {
+            installPerformanceLogger.Info(line);
+        }
+    }
+
+    private static string FormatTextForLog(string value)
+    {
+        return (value ?? string.Empty).Replace(Environment.NewLine, " | ");
+    }
+
     private void RefreshPlayHistoryDisplayTargetSetsFromSettings(bool queueRefreshWhenSelectionChanges)
     {
         playHistoryDisplayTargetSets.Clear();
@@ -20017,15 +20343,65 @@ public class MainWindowViewModel : ViewModel
 
     public void CloseProcess()
     {
-        Settings.Default.Save();
-        bmsPlayer?.CloseProcess();
-        bool num = LR2SongDBExtended.Lock(new TimeSpan(0, 1, 0));
-        bool flag = LR2ScoreDBExtended.Lock(new TimeSpan(0, 1, 0));
-        if (!num || !flag)
+        if (!IsShutdownRequested)
         {
-            RaiseInteractionMessageOnUiThread(new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Msg_error_close_timeout, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
+            Interlocked.Exchange(ref shutdownRequested, 1);
+            RequestShutdownCancellation("CloseProcess");
         }
-        TempDirectoryPublisher.RemoveAll();
+        try
+        {
+            Settings.Default.Save();
+        }
+        catch (Exception ex)
+        {
+            LogShutdown("settings_save_failed message=" + ex.Message);
+        }
+        try
+        {
+            bmsPlayer?.CloseProcess();
+        }
+        catch (Exception ex)
+        {
+            LogShutdown("player_close_failed message=" + ex.Message);
+        }
+
+        bool songLockTaken = false;
+        bool scoreLockTaken = false;
+        try
+        {
+            TimeSpan timeout = new(0, 1, 0);
+            var lockWaitStopwatch = Stopwatch.StartNew();
+            songLockTaken = LR2SongDBExtended.Lock(timeout);
+            TimeSpan remaining = timeout - lockWaitStopwatch.Elapsed;
+            if (remaining < TimeSpan.Zero)
+            {
+                remaining = TimeSpan.Zero;
+            }
+            scoreLockTaken = LR2ScoreDBExtended.Lock(remaining);
+            if (!songLockTaken || !scoreLockTaken)
+            {
+                LogShutdown("db_close_timeout songLock=" + songLockTaken.ToString().ToLowerInvariant() + " scoreLock=" + scoreLockTaken.ToString().ToLowerInvariant());
+            }
+        }
+        finally
+        {
+            if (scoreLockTaken)
+            {
+                LR2ScoreDBExtended.Unlock();
+            }
+            if (songLockTaken)
+            {
+                LR2SongDBExtended.Unlock();
+            }
+        }
+        try
+        {
+            TempDirectoryPublisher.RemoveAll();
+        }
+        catch (Exception ex)
+        {
+            LogShutdown("temp_remove_failed message=" + ex.Message);
+        }
     }
 
     private void PlayStartBmsFile(int indexChartRowsView)

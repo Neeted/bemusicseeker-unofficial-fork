@@ -28,6 +28,17 @@ internal sealed class DropInstallQueueProcessor(Action<DroppedInstallBatchReques
 
     private int activeCompletedPathCount;
 
+    public bool IsIdle
+    {
+        get
+        {
+            lock (syncRoot)
+            {
+                return !workerRunning && activeBatch == null && pendingBatches.Count == 0;
+            }
+        }
+    }
+
     public void Enqueue(IEnumerable<string> paths)
     {
         var request = new DroppedInstallBatchRequest(paths);
@@ -66,14 +77,26 @@ internal sealed class DropInstallQueueProcessor(Action<DroppedInstallBatchReques
             cancelRequested = true;
             pendingBatches.Clear();
             activeCancellationTokenSource?.Cancel();
-            if (activeBatch == null)
-            {
-                workerRunning = false;
-                cancelRequested = false;
-            }
             snapshot = CaptureStatusSnapshotUnsafe();
         }
         statusChanged(snapshot);
+    }
+
+    public async Task<bool> WaitForIdleAsync(TimeSpan timeout)
+    {
+        DateTime deadlineUtc = DateTime.UtcNow + timeout;
+        while (true)
+        {
+            if (IsIdle)
+            {
+                return true;
+            }
+            if (DateTime.UtcNow >= deadlineUtc)
+            {
+                return false;
+            }
+            await Task.Delay(100).ConfigureAwait(false);
+        }
     }
 
     public void ReportActiveBatchProgress(int completedPathCount)

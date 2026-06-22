@@ -69,6 +69,11 @@ internal sealed class UpdateDownloadService
 
     public Process StartUpdater(string packagePath)
     {
+        return Process.Start(CreateUpdaterStartInfo(packagePath));
+    }
+
+    public ProcessStartInfo CreateUpdaterStartInfo(string packagePath)
+    {
         string appDirectory = AppDomain.CurrentDomain.BaseDirectory;
         string sourceUpdaterPath = Path.Combine(appDirectory, "BeMusicSeeker.Updater.exe");
         if (!File.Exists(sourceUpdaterPath))
@@ -82,7 +87,7 @@ internal sealed class UpdateDownloadService
         File.Copy(sourceUpdaterPath, updaterPath, overwrite: true);
 
         string appExePath = Assembly.GetExecutingAssembly().Location;
-        var startInfo = new ProcessStartInfo(updaterPath)
+        return new ProcessStartInfo(updaterPath)
         {
             UseShellExecute = false,
             WorkingDirectory = currentUpdaterDirectory,
@@ -93,8 +98,6 @@ internal sealed class UpdateDownloadService
                 "--pid", Process.GetCurrentProcess().Id.ToString(),
                 "--restart-exe", appExePath)
         };
-
-        return Process.Start(startInfo);
     }
 
     internal static string GetUpdateWorkRoot()

@@ -71,6 +71,14 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private bool _isClosingOrClosed;
 
+    private bool _shutdownPrepared;
+
+    private bool _shutdownPreparationRunning;
+
+    private readonly object shutdownPreparationLock = new();
+
+    private Task shutdownPreparationTask;
+
     private ContextMenu _lastOpenedContextMenu;
 
     // NOTE:
@@ -279,10 +287,18 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         try
         {
             UpdateCheckResult result = await updateCheckService.CheckAsync(CommandLineSwitches.UpdateManifestUrl);
+            if (_isClosingOrClosed)
+            {
+                return;
+            }
             if (result.IsUpdateAvailable)
             {
                 UpdateAssetInfo selectedAsset = base.Dispatcher.Invoke(() =>
                 {
+                    if (_isClosingOrClosed)
+                    {
+                        return null;
+                    }
                     if (base.DataContext is MainWindowViewModel viewModel && result.Assets.Count > 0)
                     {
                         var dialog = new UpdateAvailableDialog(result, viewModel)
@@ -314,15 +330,36 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private async Task DownloadAndApplyUpdateAsync(UpdateAssetInfo selectedAsset)
     {
+        bool shutdownPrepared = false;
         try
         {
             string packagePath = await updateDownloadService.DownloadAndVerifyAsync(selectedAsset).ConfigureAwait(false);
-            updateDownloadService.StartUpdater(packagePath);
-            base.Dispatcher.Invoke(() => Application.Current.Shutdown());
+            ProcessStartInfo updaterStartInfo = updateDownloadService.CreateUpdaterStartInfo(packagePath);
+            await EnsureShutdownPreparedAsync("update").ConfigureAwait(false);
+            shutdownPrepared = true;
+            Process updaterProcess = Process.Start(updaterStartInfo);
+            if (updaterProcess == null)
+            {
+                throw new InvalidOperationException("Updater process did not start.");
+            }
+            base.Dispatcher.Invoke(() =>
+            {
+                _shutdownPrepared = true;
+                Application.Current.Shutdown();
+            });
         }
         catch (Exception ex)
         {
             Ribbit.Logging.NLogWrapper.FileLogger?.Error(ex, "Failed to apply update.");
+            if (shutdownPrepared)
+            {
+                base.Dispatcher.Invoke(() =>
+                {
+                    _shutdownPrepared = true;
+                    Application.Current.Shutdown();
+                });
+                return;
+            }
             base.Dispatcher.Invoke(() =>
             {
                 DispatcherMessageBox.Show(
@@ -565,6 +602,62 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
+    private Task EnsureShutdownPreparedAsync(string reason)
+    {
+        lock (shutdownPreparationLock)
+        {
+            shutdownPreparationTask ??= PrepareShutdownCoreAsync(reason ?? "shutdown");
+            return shutdownPreparationTask;
+        }
+    }
+
+    private async Task PrepareShutdownCoreAsync(string reason)
+    {
+        _shutdownPreparationRunning = true;
+        _isClosingOrClosed = true;
+        MainWindowViewModel viewModel = null;
+        if (base.Dispatcher.CheckAccess())
+        {
+            viewModel = base.DataContext as MainWindowViewModel;
+        }
+        else
+        {
+            await base.Dispatcher.InvokeAsync((Action)delegate
+            {
+                viewModel = base.DataContext as MainWindowViewModel;
+            }).Task.ConfigureAwait(false);
+        }
+        if (viewModel != null)
+        {
+            await viewModel.PrepareShutdownAsync(reason).ConfigureAwait(false);
+        }
+        _shutdownPrepared = true;
+    }
+
+    private async Task CompleteCloseAfterShutdownPreparedAsync(string reason)
+    {
+        try
+        {
+            await EnsureShutdownPreparedAsync(reason).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            NLogWrapper.FileLogger?.Error(ex, "Failed to prepare shutdown.");
+            _shutdownPrepared = true;
+        }
+        await base.Dispatcher.InvokeAsync((Action)delegate
+        {
+            if (Application.Current != null)
+            {
+                Application.Current.Shutdown();
+            }
+            else
+            {
+                Close();
+            }
+        }).Task.ConfigureAwait(false);
+    }
+
     /// <summary>
     /// ウィンドウが閉じられる直前に呼び出されます。
     /// 現在のUI状態（TreeViewの幅、ウィンドウの配置や最大化状態など）を
@@ -573,6 +666,19 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     /// <param name="e">キャンセル可能なイベントデータ。</param>
     protected override void OnClosing(CancelEventArgs e)
     {
+        if (!_shutdownPrepared)
+        {
+            e.Cancel = true;
+            if (!_shutdownPreparationRunning)
+            {
+                _shutdownPreparationRunning = true;
+                _isClosingOrClosed = true;
+                calcelAllContextMenuTasks();
+                CloseContextMenuIfOpen(_lastOpenedContextMenu);
+                _ = CompleteCloseAfterShutdownPreparedAsync("window_close");
+            }
+            return;
+        }
         _isClosingOrClosed = true;
         var viewModel = base.DataContext as MainWindowViewModel;
         if (viewModel != null && _startupInitialSelectionReadyHandler != null)

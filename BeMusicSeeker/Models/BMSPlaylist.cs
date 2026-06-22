@@ -310,6 +310,8 @@ public partial class BMSPlaylist : NotificationObject
 
     private int beatorajaBmtFullExportActiveCount;
 
+    private int beatorajaBmtBackgroundActiveCount;
+
     private long beatorajaBmtExportProgressOperationSeed;
 
     internal Func<string, string, string, Func<Task>, bool> StartupBackgroundTaskScheduler { get; set; }
@@ -321,6 +323,62 @@ public partial class BMSPlaylist : NotificationObject
     internal Action<string> Lr2FolderSyncMutationGuard { get; set; }
 
     internal Action<string, Exception> Lr2FolderSyncFailureReporter { get; set; }
+
+    private int shutdownRequested;
+
+    internal bool IsShutdownRequested => Volatile.Read(ref shutdownRequested) != 0;
+
+    internal void RequestShutdown(string reason)
+    {
+        Interlocked.Exchange(ref shutdownRequested, 1);
+        Interlocked.Increment(ref beatorajaBmtFullExportGeneration);
+        Interlocked.Increment(ref beatorajaBmtUrlSyncGeneration);
+        Interlocked.Exchange(ref beatorajaBmtExportQueued, 0);
+        lock (beatorajaBmtExportQueueLock)
+        {
+            pendingBeatorajaBmtExportPlaylistIds.Clear();
+        }
+        lock (playlistEntriesHydrationRequestLock)
+        {
+            playlistEntriesHydrationPendingRunExternalSync = false;
+            playlistEntriesHydrationPendingUpdateCallbacks.Clear();
+            playlistEntriesHydrationPendingCompletionActions.Clear();
+        }
+        LogPlaylistPerformance("shutdown requested reason=" + FormatTextForLog(reason));
+    }
+
+    internal bool HasShutdownBlockingWork =>
+        PlaylistEntriesHydrationRunning
+        || IsBeatorajaBmtFullExportActive()
+        || Volatile.Read(ref beatorajaBmtBackgroundActiveCount) != 0
+        || Volatile.Read(ref beatorajaBmtExportQueued) != 0;
+
+    internal async Task<bool> WaitForShutdownBlockingWorkAsync(TimeSpan timeout)
+    {
+        DateTime deadlineUtc = DateTime.UtcNow + timeout;
+        while (true)
+        {
+            if (!HasShutdownBlockingWork)
+            {
+                return true;
+            }
+            if (DateTime.UtcNow >= deadlineUtc)
+            {
+                return false;
+            }
+            await Task.Delay(100).ConfigureAwait(false);
+        }
+    }
+
+    private bool TrySkipForShutdown(string operation, string reason)
+    {
+        if (!IsShutdownRequested)
+        {
+            return false;
+        }
+        LogPlaylistPerformance((operation ?? "background_work") + " skipped reason=shutdown_requested requestReason=" + FormatTextForLog(reason));
+        return true;
+    }
 
     /// <summary>
     /// 全件初期化ロックの状態変化を監視するリスナーです。
@@ -1026,6 +1084,10 @@ public partial class BMSPlaylist : NotificationObject
 
     private void QueueCustomFolderOutputRepairAfterHydration(string reason)
     {
+        if (TrySkipForShutdown("custom_folder_repair_after_hydration", reason))
+        {
+            return;
+        }
         if (!Settings.Default.OperationModeLR2DB)
         {
             return;
@@ -1065,6 +1127,10 @@ public partial class BMSPlaylist : NotificationObject
 
     internal void QueueBeatorajaBmtExportAll(string reason, string cleanupTablePath = null)
     {
+        if (TrySkipForShutdown("beatoraja_bmt_export_all", reason))
+        {
+            return;
+        }
         string outputPath = GetBeatorajaBmtTablePath();
         bool enabled = IsBeatorajaBmtOutputEnabled();
         bool keepFilesWhenDisabled = Settings.Default.KeepBeatorajaBmtFilesWhenOutputDisabled;
@@ -1234,6 +1300,10 @@ public partial class BMSPlaylist : NotificationObject
 
     internal void QueueBeatorajaBmtExportForTables(IEnumerable<BMSTable> tables, string reason)
     {
+        if (TrySkipForShutdown("beatoraja_bmt_export_tables", reason))
+        {
+            return;
+        }
         if (!IsBeatorajaBmtOutputEnabled())
         {
             return;
@@ -1259,6 +1329,10 @@ public partial class BMSPlaylist : NotificationObject
 
     internal void QueueBeatorajaBmtRemoveForTable(BMSTable table, string reason)
     {
+        if (TrySkipForShutdown("beatoraja_bmt_remove", reason))
+        {
+            return;
+        }
         if (!IsBeatorajaBmtOutputEnabled() || table?.playlist_id.HasValue != true)
         {
             return;
@@ -1269,24 +1343,33 @@ public partial class BMSPlaylist : NotificationObject
         string playlistIdentity = playlistId.ToString(CultureInfo.InvariantCulture);
         async Task work()
         {
-            await Task.Yield();
-            while (IsBeatorajaBmtFullExportActive())
+            Interlocked.Increment(ref beatorajaBmtBackgroundActiveCount);
+            try
             {
-                await Task.Delay(250);
-            }
-            lock (beatorajaBmtFileMutationLock)
-            {
-                if (!IsBeatorajaBmtOutputEnabled()
-                    || !string.Equals(tablePath, GetBeatorajaBmtTablePath(), StringComparison.OrdinalIgnoreCase)
-                    || FindBMSTableByPlaylistId(playlistId) != null)
+                await Task.Yield();
+                while (!IsShutdownRequested && IsBeatorajaBmtFullExportActive())
                 {
-                    return;
+                    await Task.Delay(250);
                 }
-                BmtTableExportService.ExportResult exportResult = BmtTableExportService.RemoveManagedPlaylist(tablePath, playlistIdentity);
-                SyncBeatorajaManagedTableUrls(tablePath, exportResult.PreviousManagedTables, exportResult.CurrentManagedTables);
-                LogPlaylistPerformance("beatoraja_bmt_remove completed reason=" + FormatTextForLog(reason)
-                    + " playlistId=" + playlistIdentity
-                    + " removed=" + exportResult.RemovedCount);
+                lock (beatorajaBmtFileMutationLock)
+                {
+                    if (IsShutdownRequested
+                        || !IsBeatorajaBmtOutputEnabled()
+                        || !string.Equals(tablePath, GetBeatorajaBmtTablePath(), StringComparison.OrdinalIgnoreCase)
+                        || FindBMSTableByPlaylistId(playlistId) != null)
+                    {
+                        return;
+                    }
+                    BmtTableExportService.ExportResult exportResult = BmtTableExportService.RemoveManagedPlaylist(tablePath, playlistIdentity);
+                    SyncBeatorajaManagedTableUrls(tablePath, exportResult.PreviousManagedTables, exportResult.CurrentManagedTables);
+                    LogPlaylistPerformance("beatoraja_bmt_remove completed reason=" + FormatTextForLog(reason)
+                        + " playlistId=" + playlistIdentity
+                        + " removed=" + exportResult.RemovedCount);
+                }
+            }
+            finally
+            {
+                Interlocked.Decrement(ref beatorajaBmtBackgroundActiveCount);
             }
         }
         Task.Run(work).Logging("QueueBeatorajaBmtRemove");
@@ -1298,6 +1381,10 @@ public partial class BMSPlaylist : NotificationObject
     /// <param name="reason">同期理由。</param>
     internal void QueueBeatorajaBmtUrlSync(string reason)
     {
+        if (TrySkipForShutdown("beatoraja_bmt_url_sync", reason))
+        {
+            return;
+        }
         if (!IsBeatorajaBmtOutputEnabled())
         {
             return;
@@ -1305,18 +1392,26 @@ public partial class BMSPlaylist : NotificationObject
         long syncGeneration = Interlocked.Increment(ref beatorajaBmtUrlSyncGeneration);
         async Task work()
         {
-            await Task.Yield();
-            lock (beatorajaBmtFileMutationLock)
+            Interlocked.Increment(ref beatorajaBmtBackgroundActiveCount);
+            try
             {
-                if (syncGeneration != Interlocked.Read(ref beatorajaBmtUrlSyncGeneration))
+                await Task.Yield();
+                lock (beatorajaBmtFileMutationLock)
                 {
-                    return;
+                    if (IsShutdownRequested || syncGeneration != Interlocked.Read(ref beatorajaBmtUrlSyncGeneration))
+                    {
+                        return;
+                    }
+                    string tablePath = GetBeatorajaBmtTablePath();
+                    List<BmtTableExportService.ManagedTableUrlEntry> managedTables = BmtTableExportService.ReadManagedTableUrls(tablePath);
+                    SyncBeatorajaManagedTableUrls(tablePath, managedTables, managedTables, syncGeneration);
+                    LogPlaylistPerformance("beatoraja_bmt_url_sync completed reason=" + FormatTextForLog(reason)
+                        + " managedCount=" + managedTables.Count);
                 }
-                string tablePath = GetBeatorajaBmtTablePath();
-                List<BmtTableExportService.ManagedTableUrlEntry> managedTables = BmtTableExportService.ReadManagedTableUrls(tablePath);
-                SyncBeatorajaManagedTableUrls(tablePath, managedTables, managedTables, syncGeneration);
-                LogPlaylistPerformance("beatoraja_bmt_url_sync completed reason=" + FormatTextForLog(reason)
-                    + " managedCount=" + managedTables.Count);
+            }
+            finally
+            {
+                Interlocked.Decrement(ref beatorajaBmtBackgroundActiveCount);
             }
         }
         Task.Run(work).Logging("QueueBeatorajaBmtUrlSync");
@@ -1324,6 +1419,10 @@ public partial class BMSPlaylist : NotificationObject
 
     private void QueueBeatorajaBmtExport(BMSTable table, string reason)
     {
+        if (TrySkipForShutdown("beatoraja_bmt_export", reason))
+        {
+            return;
+        }
         if (!IsBeatorajaBmtOutputEnabled() || table == null || !table.playlist_id.HasValue)
         {
             return;
@@ -1338,15 +1437,24 @@ public partial class BMSPlaylist : NotificationObject
 
     private void ScheduleBeatorajaBmtExportQueue(string reason)
     {
+        if (TrySkipForShutdown("beatoraja_bmt_export_schedule", reason))
+        {
+            return;
+        }
         if (Interlocked.Exchange(ref beatorajaBmtExportQueued, 1) != 0)
         {
             return;
         }
         async Task work()
         {
-            await Task.Yield();
+            Interlocked.Increment(ref beatorajaBmtBackgroundActiveCount);
             try
             {
+                await Task.Yield();
+                if (IsShutdownRequested)
+                {
+                    return;
+                }
                 if (IsBeatorajaBmtFullExportActive())
                 {
                     await Task.Delay(250);
@@ -1356,6 +1464,7 @@ public partial class BMSPlaylist : NotificationObject
             }
             finally
             {
+                Interlocked.Decrement(ref beatorajaBmtBackgroundActiveCount);
                 Interlocked.Exchange(ref beatorajaBmtExportQueued, 0);
                 bool hasPending;
                 lock (beatorajaBmtExportQueueLock)
@@ -1364,7 +1473,10 @@ public partial class BMSPlaylist : NotificationObject
                 }
                 if (hasPending)
                 {
-                    ScheduleBeatorajaBmtExportQueue(reason ?? "reschedule");
+                    if (!IsShutdownRequested)
+                    {
+                        ScheduleBeatorajaBmtExportQueue(reason ?? "reschedule");
+                    }
                 }
             }
         }
@@ -1377,7 +1489,7 @@ public partial class BMSPlaylist : NotificationObject
 
     private void ProcessBeatorajaBmtExportQueue(string reason)
     {
-        while (IsBeatorajaBmtOutputEnabled())
+        while (!IsShutdownRequested && IsBeatorajaBmtOutputEnabled())
         {
             List<int> playlistIds;
             lock (beatorajaBmtExportQueueLock)
@@ -1698,6 +1810,10 @@ public partial class BMSPlaylist : NotificationObject
 
     public void QueueDeferredPlaylistEntriesHydration(string reason, bool runExternalSyncAfterHydration = false, List<Action<PlaylistTableUpdateContext>> updateCallbackActions = null, List<Action> completionActions = null)
     {
+        if (TrySkipForShutdown("playlist_entries_hydration", reason))
+        {
+            return;
+        }
         int version = PlaylistEntriesHydrationRequestedVersion + 1;
         PlaylistEntriesHydrationRequestedVersion = version;
         LogPlaylistPerformance("playlist_entries_hydration queue reason=" + (reason ?? string.Empty) + " version=" + version + " runExternalSyncAfterHydration=" + runExternalSyncAfterHydration.ToString().ToLowerInvariant());
@@ -1722,7 +1838,19 @@ public partial class BMSPlaylist : NotificationObject
         {
             try
             {
+                if (IsShutdownRequested)
+                {
+                    PlaylistEntriesHydrationCompletedVersion = PlaylistEntriesHydrationRequestedVersion;
+                    LogPlaylistPerformance("playlist_entries_hydration skipped reason=shutdown_requested requestReason=" + FormatTextForLog(reason));
+                    return;
+                }
                 await EnsureAllPlaylistEntriesLoadedAsync(reason ?? "queue", publishCompletedVersion: false).ConfigureAwait(false);
+                if (IsShutdownRequested)
+                {
+                    PlaylistEntriesHydrationCompletedVersion = PlaylistEntriesHydrationRequestedVersion;
+                    LogPlaylistPerformance("playlist_entries_hydration post_load_skipped reason=shutdown_requested requestReason=" + FormatTextForLog(reason));
+                    return;
+                }
                 bool mergedRunExternalSync;
                 List<Action<PlaylistTableUpdateContext>> mergedUpdateCallbacks;
                 List<Action> mergedCompletionActions;
@@ -1766,7 +1894,10 @@ public partial class BMSPlaylist : NotificationObject
                 if (hasPendingRequest)
                 {
                     LogPlaylistPerformance("playlist_entries_hydration reschedule reason=" + (reason ?? string.Empty));
-                    QueueDeferredPlaylistEntriesHydration(reason ?? "reschedule");
+                    if (!IsShutdownRequested)
+                    {
+                        QueueDeferredPlaylistEntriesHydration(reason ?? "reschedule");
+                    }
                 }
             }
         }
@@ -1779,6 +1910,12 @@ public partial class BMSPlaylist : NotificationObject
 
     internal async Task EnsureAllPlaylistEntriesLoadedAsync(string reason, bool publishCompletedVersion = true)
     {
+        if (IsShutdownRequested)
+        {
+            PlaylistEntriesHydrationCompletedVersion = PlaylistEntriesHydrationRequestedVersion;
+            LogPlaylistPerformance("playlist_entries_hydration ensure_all_skipped reason=shutdown_requested requestReason=" + FormatTextForLog(reason));
+            return;
+        }
         List<BMSTable> tablesSnapshot;
         using (rwlockBMSTables.GetReaderGuard())
         {

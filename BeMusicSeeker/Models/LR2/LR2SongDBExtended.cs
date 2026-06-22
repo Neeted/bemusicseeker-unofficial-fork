@@ -1217,14 +1217,20 @@ public sealed class LR2SongDBExtended : LR2SongDB
         {
             List<string[]> list = [];
             IntPtr stmt = Prepare();
-            int count = SQLite3.ColumnCount(stmt);
-            while (SQLite3.Step(stmt) == SQLite3.Result.Row)
+            try
             {
-                list.Add([.. (from i in Enumerable.Range(0, count)
-                          select SQLite3.ColumnString(stmt, i))]);
+                int count = SQLite3.ColumnCount(stmt);
+                while (SQLite3.Step(stmt) == SQLite3.Result.Row)
+                {
+                    list.Add([.. (from i in Enumerable.Range(0, count)
+                              select SQLite3.ColumnString(stmt, i))]);
+                }
+                return list;
             }
-            Finalize(stmt);
-            return list;
+            finally
+            {
+                Finalize(stmt);
+            }
         }
 
         public int ForEachRawValueAsString(Action<string[]> rowAction)

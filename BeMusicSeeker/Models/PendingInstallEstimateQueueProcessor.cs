@@ -23,9 +23,24 @@ internal sealed class PendingInstallEstimateQueueProcessor(
 
     private bool workerRunning;
 
+    private bool cancelRequested;
+
     private PendingInstallEstimateBatchRequest activeBatch;
 
+    private CancellationTokenSource activeCancellationTokenSource;
+
     private int activeCompletedPackageCount;
+
+    public bool IsIdle
+    {
+        get
+        {
+            lock (syncRoot)
+            {
+                return !workerRunning && activeBatch == null && pendingBatches.Count == 0;
+            }
+        }
+    }
 
     public void Enqueue(PendingInstallEstimateBatchRequest request)
     {
@@ -49,6 +64,40 @@ internal sealed class PendingInstallEstimateQueueProcessor(
         if (startWorker)
         {
             Task.Factory.StartNew(ProcessLoop, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default).Logging("PendingInstallEstimateQueueProcessor");
+        }
+    }
+
+    public void CancelAll()
+    {
+        PendingInstallEstimateQueueStatusSnapshot snapshot;
+        lock (syncRoot)
+        {
+            if (activeBatch == null && pendingBatches.Count == 0 && !workerRunning)
+            {
+                return;
+            }
+            cancelRequested = true;
+            pendingBatches.Clear();
+            activeCancellationTokenSource?.Cancel();
+            snapshot = CaptureStatusSnapshotUnsafe();
+        }
+        statusChanged(snapshot);
+    }
+
+    public async Task<bool> WaitForIdleAsync(TimeSpan timeout)
+    {
+        DateTime deadlineUtc = DateTime.UtcNow + timeout;
+        while (true)
+        {
+            if (IsIdle)
+            {
+                return true;
+            }
+            if (DateTime.UtcNow >= deadlineUtc)
+            {
+                return false;
+            }
+            await Task.Delay(100).ConfigureAwait(false);
         }
     }
 
@@ -80,27 +129,45 @@ internal sealed class PendingInstallEstimateQueueProcessor(
         while (true)
         {
             PendingInstallEstimateBatchRequest batch = null;
+            CancellationTokenSource cancellationTokenSource = null;
             PendingInstallEstimateQueueStatusSnapshot snapshot;
+            bool shouldExitImmediately = false;
             lock (syncRoot)
             {
                 if (pendingBatches.Count == 0)
                 {
                     workerRunning = false;
+                    cancelRequested = false;
                     activeBatch = null;
                     activeCompletedPackageCount = 0;
+                    activeCancellationTokenSource?.Dispose();
+                    activeCancellationTokenSource = null;
                     snapshot = CaptureStatusSnapshotUnsafe();
-                    statusChanged(snapshot);
-                    return;
+                    shouldExitImmediately = true;
                 }
-                batch = pendingBatches.Dequeue();
-                activeBatch = batch;
-                activeCompletedPackageCount = 0;
-                snapshot = CaptureStatusSnapshotUnsafe();
+                else
+                {
+                    batch = pendingBatches.Dequeue();
+                    activeBatch = batch;
+                    activeCompletedPackageCount = 0;
+                    activeCancellationTokenSource?.Dispose();
+                    activeCancellationTokenSource = new CancellationTokenSource();
+                    cancellationTokenSource = activeCancellationTokenSource;
+                    snapshot = CaptureStatusSnapshotUnsafe();
+                }
             }
             statusChanged(snapshot);
+            if (shouldExitImmediately)
+            {
+                return;
+            }
+            bool shouldExitAfterFinally = false;
             try
             {
-                processBatch(batch, CancellationToken.None);
+                processBatch(batch, cancellationTokenSource.Token);
+            }
+            catch (OperationCanceledException)
+            {
             }
             catch (Exception ex)
             {
@@ -112,9 +179,25 @@ internal sealed class PendingInstallEstimateQueueProcessor(
                 {
                     activeBatch = null;
                     activeCompletedPackageCount = 0;
+                    activeCancellationTokenSource?.Dispose();
+                    activeCancellationTokenSource = null;
+                    if (cancelRequested)
+                    {
+                        pendingBatches.Clear();
+                    }
+                    shouldExitAfterFinally = pendingBatches.Count == 0;
+                    if (shouldExitAfterFinally)
+                    {
+                        workerRunning = false;
+                        cancelRequested = false;
+                    }
                     snapshot = CaptureStatusSnapshotUnsafe();
                 }
                 statusChanged(snapshot);
+            }
+            if (shouldExitAfterFinally)
+            {
+                return;
             }
         }
     }
