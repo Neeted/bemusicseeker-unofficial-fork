@@ -25,7 +25,6 @@ $ErrorActionPreference = "Stop"
 $devRoot = "D:\work\BeMusicSeeker-decomp"
 $pubRoot = "D:\github\bemusicseeker-unofficial-fork"
 $buildOutput = Join-Path $devRoot "bin\Release\net472"
-$updaterOutput = Join-Path $devRoot "BeMusicSeeker.Updater\bin\Release\net472"
 $distDir = Join-Path $devRoot "dist"
 $stagingRoot = Join-Path $distDir "_staging"
 $publicRepoOwner = "Neeted"
@@ -120,7 +119,7 @@ function Copy-AppFilesToStaging($targetStagingDir) {
     # アプリ本体のコピー (config, .pdb, *.log は除外)
     Copy-Item (Join-Path $buildOutput "BeMusicSeeker.exe")        $targetStagingDir
     Copy-Item (Join-Path $buildOutput "BeMusicSeeker.exe.config") $targetStagingDir
-    Copy-Item (Join-Path $updaterOutput "BeMusicSeeker.Updater.exe") $targetStagingDir
+    Copy-Item (Join-Path $buildOutput "BeMusicSeeker.Updater.exe") $targetStagingDir
     Copy-Item (Join-Path $buildOutput "libs")   (Join-Path $targetStagingDir "libs")   -Recurse
     Copy-Item (Join-Path $buildOutput "native") (Join-Path $targetStagingDir "native") -Recurse
     Copy-Item (Join-Path $buildOutput "lang")   (Join-Path $targetStagingDir "lang")   -Recurse
@@ -247,8 +246,6 @@ function New-ReleasePackage {
         Push-Location $devRoot
         dotnet build -c Release BeMusicSeeker.csproj | Out-Host
         if ($LASTEXITCODE -ne 0) { throw "ビルドに失敗しました" }
-        dotnet build -c Release BeMusicSeeker.Updater\BeMusicSeeker.Updater.csproj | Out-Host
-        if ($LASTEXITCODE -ne 0) { throw "updater のビルドに失敗しました" }
         Pop-Location
         Write-Host "  ビルド完了" -ForegroundColor Green
     }

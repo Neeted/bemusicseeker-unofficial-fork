@@ -26,6 +26,9 @@
     <None Remove="BeMusicSeeker.Updater\**\*" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="BeMusicSeeker.Updater\BeMusicSeeker.Updater.csproj"
+                      ReferenceOutputAssembly="false"
+                      PrivateAssets="all" />
     <None Include="native\Everything3_x64.dll">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
@@ -169,5 +172,18 @@
 
   <Target Name="RemoveLegacyNativeOutputDirs" AfterTargets="RelocateManagedDependenciesToLibs">
     <RemoveDir Directories="$(OutDir)x86;$(OutDir)x64" />
+  </Target>
+
+  <Target Name="CopyUpdaterToAppOutput" AfterTargets="Build">
+    <PropertyGroup>
+      <_UpdaterOutputPath>$(MSBuildProjectDirectory)\BeMusicSeeker.Updater\bin\$(Configuration)\net472\BeMusicSeeker.Updater.exe</_UpdaterOutputPath>
+    </PropertyGroup>
+
+    <Error Condition="!Exists('$(_UpdaterOutputPath)')"
+           Text="Updater output was not found: $(_UpdaterOutputPath)" />
+
+    <Copy SourceFiles="$(_UpdaterOutputPath)"
+          DestinationFolder="$(OutDir)"
+          SkipUnchangedFiles="true" />
   </Target>
 </Project>
