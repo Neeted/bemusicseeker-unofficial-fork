@@ -79,11 +79,7 @@ These are rough notes. Priority is mixed, and completed items are removed over t
 3. Clear lamp viewer
 4. Course content display and ordering editor
 5. Replace hardcoded URLs that are now broken
-   - LR2IR cache-related data is expensive to prepare and maintain. Ideally, a proxy server would fetch from LR2IR only when the last update is more than 24 hours old.
-6. Warning dialog when Everything 1.5a integration fails
-7. Continue checking the custom folder export feature
-   - This is an important core feature, so its behavior and regressions should continue to be reviewed.
-8. Consolidation feature for duplicate `.wav` and `.ogg` files
+6. Consolidation feature for duplicate `.wav` and `.ogg` files
 
 ## License Scope
 
