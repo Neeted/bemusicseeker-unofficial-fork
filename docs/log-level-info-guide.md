@@ -4,6 +4,8 @@ BeMusicSeeker は通常起動で `log/application.log` と `log/install-performa
 
 ログファイルが大きくなった場合は `log/archive/` にローテーションされます。既存の `LaunchWithInfoLog.bat` や `--log-level=Info` を使って起動しても、通常起動と同じログ出力になります。
 
+ログファイルの文字コードは UTF-8（BOM なし）です。
+
 ここでは、ログによく出現するキーワードや各項目の意味について解説します。
 
 ---

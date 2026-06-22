@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Text;
 using NLog;
 using NLog.Config;
 using NLog.Layouts;
@@ -25,6 +26,8 @@ public static class NLogWrapper
     private const long DefaultArchiveAboveSizeBytes = 20L * 1024L * 1024L;
 
     private const int DefaultMaxArchiveFiles = 5;
+
+    private static readonly Encoding LogFileEncoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
 
     private static Func<Logger> _DebuggerLogger;
 
@@ -168,6 +171,7 @@ public static class NLogWrapper
             ArchiveNumbering = ArchiveNumberingMode.Rolling,
             MaxArchiveFiles = DefaultMaxArchiveFiles,
             CreateDirs = true,
+            Encoding = LogFileEncoding,
             Layout = DefaultLayout
         };
     }

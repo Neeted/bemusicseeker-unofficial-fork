@@ -23,6 +23,8 @@ NLog が扱う file target、logging rule、ローテーション設定は `NLog
 
 `InstallPerformance*` logger は `install-performance.log` に分離し、`application.log` へ重複出力しない。
 
+ログファイルの文字コードは UTF-8 とし、BOM は付けない。対象は現在の `application.log` / `install-performance.log` と、ローテーション後の archive を含む。既存ログへ追記する場合、過去に別エンコードで書かれた部分と UTF-8 の追記部分が同一ファイル内で混在することは許容する。
+
 ## ログレベル
 
 既定のログレベルは `INFO` とする。通常起動で `application.log` と `install-performance.log` の両方を出力する。
