@@ -115,6 +115,16 @@ merge 先探索では、まず package 内の chart 全体を BMS / bmson 共通
 
 startup restore / auto-install 由来の pending estimate は package ごとの batch で走ります。zip/package ごとに batch を分け、重い package が他 package を巻き込まないようにします。
 
+batch 末尾では、folder DnD や全ファイル選択 DnD で同一 source directory から複数の単体 pending package として発見された chart を、条件付きで directory package へまとめ直します。この再グループ化は導入先推定結果の表示整理であり、通常推定そのものではありません。
+
+- 再グループ化対象は discovery が `RegroupEligibleSourceDirectories` として記録した source directory です。
+- 同じ source directory に属する pending package が 2 件以上あり、source directory 自体の pending package が既に存在せず、deferred estimate package が混じらない場合だけ検討します。
+- 各 entry の期待導入先は、既所持 chart なら hash index で解決した実配置 directory、未所持 chart なら既に設定済みの `INSTL DST` です。
+- 全 entry の期待導入先が 1 つに揃う場合だけ、pending package を source directory 単位へまとめます。期待導入先が分割される場合や、解決不能な entry がある場合はまとめません。
+- 既所持 chart の実配置先は再グループ化可否の判定材料として使いますが、既所持 entry 自身へ `INSTL DST` は投影しません。
+- 再グループ化後の `INSTL DST` / `INSTL DST TITLE` / `INSTL DST ARTIST` は未所持 entry にだけ同期します。全 entry が既所持の場合、再グループ化後も `INSTL DST` は空のままです。
+- warning / resource health は再グループ化後の package 単位で再初期化します。既所持 entry には `AlreadyInstalled` warning を付けます。
+
 ## 現在の並列度
 
 導入先推定の並列化は、現在 2 つの層に分かれています。

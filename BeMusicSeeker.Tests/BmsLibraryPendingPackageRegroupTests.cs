@@ -140,11 +140,15 @@ public sealed class BmsLibraryPendingPackageRegroupTests
 
             InvokeRegroupForSourceDirectories(library, sourceDirectoryPath);
 
-            ChartPackage regroupedPackage = AssertRegroupedPendingPackage(library, sourceDirectoryPath, destinationDirectoryPath, expectedFileCount: 2);
+            ChartPackage regroupedPackage = AssertRegroupedPendingPackage(library, sourceDirectoryPath, expectedFileCount: 2);
             PackageChartEntry regroupedBmson = regroupedPackage.ChartEntries
                 .Single(entry => entry.Chart.Kind == ChartFileKind.Bmson);
+            PackageChartEntry regroupedBms = regroupedPackage.ChartEntries
+                .Single(entry => entry.Chart.Kind == ChartFileKind.Bms);
             Assert.AreEqual(pendingBmsonPath, regroupedBmson.Chart.Path);
             Assert.IsNull(regroupedBmson.GetBmsOwnerForTest());
+            Assert.IsTrue(string.IsNullOrWhiteSpace(regroupedBmson.Chart.InstallDestination));
+            Assert.AreEqual(destinationDirectoryPath, regroupedBms.Chart.InstallDestination);
             CollectionAssert.AreEqual(new[] { sourceDirectoryPath }, LoadInstallPaths(songDbPath));
         });
     }
@@ -184,7 +188,74 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             Assert.AreEqual(1, regroupedPackage.ChartEntries.Count);
             Assert.IsNull(regroupedPackage.ChartEntries.Single().GetBmsOwnerForTest());
             Assert.AreEqual(pendingBmsonPath, regroupedPackage.ChartEntries.Single().Chart.Path);
-            Assert.AreEqual(destinationDirectoryPath, regroupedPackage.ChartEntries.Single().Chart.InstallDestination);
+            Assert.IsTrue(string.IsNullOrWhiteSpace(regroupedPackage.ChartEntries.Single().Chart.InstallDestination));
+            CollectionAssert.AreEqual(new[] { sourceDirectoryPath }, LoadInstallPaths(songDbPath));
+        });
+    }
+
+    [TestMethod]
+    public void TryRegroupPendingPackagesForSourceDirectories_DoesNotApplyInstallDestinationToInstalledOnlyEntries()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
+        {
+            string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "InstalledOnlyRegroup");
+            string destinationDirectoryPath = Path.Combine(tempRootPath, "Installed", "InstalledOnlyRegroup");
+            string firstContents = "#PLAYER 1\r\n#TITLE Installed A\r\n#ARTIST Test\r\n";
+            string secondContents = "#PLAYER 1\r\n#TITLE Installed B\r\n#ARTIST Test\r\n";
+            string pendingAPath = CreateBmsFileWithContents(sourceDirectoryPath, "a.bms", firstContents);
+            string pendingBPath = CreateBmsFileWithContents(sourceDirectoryPath, "b.bms", secondContents);
+            string installedAPath = CreateBmsFileWithContents(destinationDirectoryPath, "installed-a.bms", firstContents);
+            string installedBPath = CreateBmsFileWithContents(destinationDirectoryPath, "installed-b.bms", secondContents);
+            ChartPackage firstPackage = CreatePendingSingleFilePackage(pendingAPath);
+            ChartPackage secondPackage = CreatePendingSingleFilePackage(pendingBPath);
+
+            library.BMSFiles =
+            [
+                BMSFile.CreateBMSFileFromFile(installedAPath),
+                BMSFile.CreateBMSFileFromFile(installedBPath)
+            ];
+            SeedPendingPackages(library, songDbPath, firstPackage, secondPackage);
+
+            InvokeRegroupForSourceDirectories(library, sourceDirectoryPath);
+
+            ChartPackage regroupedPackage = AssertRegroupedPendingPackage(library, sourceDirectoryPath, expectedFileCount: 2);
+            Assert.IsTrue(regroupedPackage.ChartEntries.All(entry => string.IsNullOrWhiteSpace(entry.Chart.InstallDestination)));
+            Assert.IsTrue(regroupedPackage.ChartEntries.All(entry => entry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.AlreadyInstalled)));
+            CollectionAssert.AreEqual(new[] { sourceDirectoryPath }, LoadInstallPaths(songDbPath));
+        });
+    }
+
+    [TestMethod]
+    public void TryRegroupPendingPackagesForSourceDirectories_AppliesInstallDestinationOnlyToMissingEntries()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
+        {
+            string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "MixedRegroup");
+            string destinationDirectoryPath = Path.Combine(tempRootPath, "Installed", "MixedRegroup");
+            string installedContents = "#PLAYER 1\r\n#TITLE Installed\r\n#ARTIST Test\r\n";
+            string pendingInstalledPath = CreateBmsFileWithContents(sourceDirectoryPath, "installed.bms", installedContents);
+            string pendingMissingPath = CreateBmsFile(sourceDirectoryPath, "missing.bms", "Missing");
+            string installedPath = CreateBmsFileWithContents(destinationDirectoryPath, "installed.bms", installedContents);
+            ChartPackage installedPackage = CreatePendingSingleFilePackage(pendingInstalledPath);
+            ChartPackage missingPackage = CreatePendingSingleFilePackage(pendingMissingPath, destinationDirectoryPath);
+
+            library.BMSFiles =
+            [
+                BMSFile.CreateBMSFileFromFile(installedPath)
+            ];
+            SeedPendingPackages(library, songDbPath, installedPackage, missingPackage);
+
+            InvokeRegroupForSourceDirectories(library, sourceDirectoryPath);
+
+            ChartPackage regroupedPackage = AssertRegroupedPendingPackage(library, sourceDirectoryPath, expectedFileCount: 2);
+            PackageChartEntry installedEntry = GetEntryByFileName(regroupedPackage, "installed.bms");
+            PackageChartEntry missingEntry = GetEntryByFileName(regroupedPackage, "missing.bms");
+            Assert.IsTrue(string.IsNullOrWhiteSpace(installedEntry.Chart.InstallDestination));
+            Assert.IsTrue(installedEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.AlreadyInstalled));
+            Assert.AreEqual(destinationDirectoryPath, missingEntry.Chart.InstallDestination);
+            Assert.IsFalse(missingEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.AlreadyInstalled));
             CollectionAssert.AreEqual(new[] { sourceDirectoryPath }, LoadInstallPaths(songDbPath));
         });
     }
@@ -1746,12 +1817,18 @@ public sealed class BmsLibraryPendingPackageRegroupTests
 
     private static ChartPackage AssertRegroupedPendingPackage(BMSLibrary library, string expectedPackagePath, string expectedDestinationDirectory, int expectedFileCount)
     {
+        ChartPackage regroupedPackage = AssertRegroupedPendingPackage(library, expectedPackagePath, expectedFileCount);
+        Assert.IsTrue(regroupedPackage.ChartEntries.All(entry => string.Equals(entry.Chart.InstallDestination, expectedDestinationDirectory, StringComparison.OrdinalIgnoreCase)));
+        return regroupedPackage;
+    }
+
+    private static ChartPackage AssertRegroupedPendingPackage(BMSLibrary library, string expectedPackagePath, int expectedFileCount)
+    {
         Assert.AreEqual(1, library.ChartPackagesPending.Count);
         ChartPackage regroupedPackage = library.ChartPackagesPending.Single();
         Assert.AreEqual(expectedPackagePath, regroupedPackage.path);
         Assert.IsFalse(regroupedPackage.delete_parent);
         Assert.AreEqual(expectedFileCount, regroupedPackage.ChartEntries.Count);
-        Assert.IsTrue(regroupedPackage.ChartEntries.All(entry => string.Equals(entry.Chart.InstallDestination, expectedDestinationDirectory, StringComparison.OrdinalIgnoreCase)));
         return regroupedPackage;
     }
 

@@ -18632,11 +18632,28 @@ completeFileEnumerationOnce,
             skipReason = "no_files";
             return false;
         }
-        ApplyResolvedInstallDestinationPathAndMetadataToEntries(regroupedEntries, resolvedDestinationDirectory);
+        ApplyRegroupedInstallDestinationToEntries(regroupedEntries, resolvedDestinationDirectory, installedDirectoryIndex);
         regroupedPackage = ChartPackage.FromChartEntries(regroupedEntries);
         regroupedPackage.path = sourceDirectoryPath;
         regroupedPackage.delete_parent = false;
         return true;
+    }
+
+    private void ApplyRegroupedInstallDestinationToEntries(IEnumerable<PackageChartEntry> entries, string destinationDirectory, IInstalledChartLookupIndex installedDirectoryIndex)
+    {
+        List<PackageChartEntry> missingEntries = [];
+        foreach (PackageChartEntry entry in (entries ?? []).Where(entry => entry?.Chart != null))
+        {
+            if (BmsLibraryInstallEstimationService.GetDistinctInstalledDirectoriesForChart(installedDirectoryIndex, entry.Chart).Count > 0)
+            {
+                entry.ClearInstallDestination();
+            }
+            else
+            {
+                missingEntries.Add(entry);
+            }
+        }
+        ApplyResolvedInstallDestinationPathAndMetadataToEntries(missingEntries, destinationDirectory);
     }
 
     private bool TryResolvePendingFileExpectedInstallDirectory(ChartFile chart, IInstalledChartLookupIndex installedDirectoryIndex, out string expectedDirectory, out string reason)
