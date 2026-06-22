@@ -308,6 +308,7 @@
   "Open_video": "動画を開く",
   "Player_LR2_savewpos": "Save window position",
   "Details_show_diag_diff_install": "差分インストールの確認メッセージを表示する",
+  "Details_show_diag_duplicate_file_check": "重複ファイルチェックのマージ/整理時に確認メッセージを表示する",
   "Details_test_download_and_install": "ダウンロード実行後に自動的にインストールを試みる",
   "Full_scan_check": "構成ファイルフルスキャン",
   "Full_scan_all_charts": "全譜面",

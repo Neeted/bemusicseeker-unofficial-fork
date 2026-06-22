@@ -71,7 +71,7 @@ folder node の context menu から対象 directory を Explorer で開く。dir
 
 ### Merge Folder
 
-folder node の context menu `マージ先` は、同じ `DuplicateGroup.Folders` から選択中 source folder を除いた destination folder list を表示する。source folder と destination folder を選び、確認 dialog で OK した後、background task で `MainWindowViewModel.MergeChartDirectory()` を呼ぶ。
+folder node の context menu `マージ先` は、同じ `DuplicateGroup.Folders` から選択中 source folder を除いた destination folder list を表示する。source folder と destination folder を選ぶと、`Settings.Default.ShowDuplicateFileCheckConfirmMsg` が ON の場合は確認 dialog で OK した後、OFF の場合は確認 dialog を省略して、background task で `MainWindowViewModel.MergeChartDirectory()` を呼ぶ。
 
 merge flow:
 
@@ -97,7 +97,7 @@ folder node で `Ctrl+G` を押すと、重複整理 shortcut として動作す
 | 2 | 選択 folder をもう一方の folder へ merge |
 | 3 以上 | context menu を開き、`マージ先` submenu を展開する |
 
-同一フォルダ内 hash cleanup は、folder 内 chart を MD5 ごとに group 化し、各 hash group で 1 件だけ残す。残す chart は更新日時が古いものを優先し、同日時なら file name が短いものを優先する。削除対象は確認 dialog 後に `RemoveLibraryCharts()` でごみ箱へ移動する。
+同一フォルダ内 hash cleanup は、folder 内 chart を MD5 ごとに group 化し、各 hash group で 1 件だけ残す。残す chart は更新日時が古いものを優先し、同日時なら file name が短いものを優先する。削除対象は `Settings.Default.ShowDuplicateFileCheckConfirmMsg` が ON の場合は確認 dialog 後に、OFF の場合は確認 dialog を省略して、`RemoveLibraryCharts()` でごみ箱へ移動する。
 
 ### Delete From List
 

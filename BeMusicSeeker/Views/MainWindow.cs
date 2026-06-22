@@ -4828,7 +4828,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
 
         // 確認ダイアログ
-        if (DispatcherMessageBox.Show(Window.GetWindow(this),
+        if (Settings.Default.ShowDuplicateFileCheckConfirmMsg && DispatcherMessageBox.Show(Window.GetWindow(this),
             BeMusicSeeker.Properties.Resources.Msg_merge_bms_folder + Environment.NewLine + Environment.NewLine +
             BeMusicSeeker.Properties.Resources.Msg_merge_bms_target + ": " + srcPath + Environment.NewLine +
             BeMusicSeeker.Properties.Resources.Msg_merge_bms_destination + ": " + dstPath,
@@ -5317,7 +5317,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
 
         // 確認ダイアログ
-        if (DispatcherMessageBox.Show(Window.GetWindow(this),
+        if (Settings.Default.ShowDuplicateFileCheckConfirmMsg && DispatcherMessageBox.Show(Window.GetWindow(this),
             string.Format(BeMusicSeeker.Properties.Resources.Msg_cleanup_duplicate_hash, deletionList.Count),
             BeMusicSeeker.Properties.Resources.Confirm,
             MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) == MessageBoxResult.Cancel)

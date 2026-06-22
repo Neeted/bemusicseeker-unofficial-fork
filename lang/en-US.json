@@ -298,6 +298,7 @@
   "Open_video": "Open video",
   "Player_LR2_savewpos": "Save window position",
   "Details_show_diag_diff_install": "Show confirmation message on diff install",
+  "Details_show_diag_duplicate_file_check": "Show confirmation message on duplicate file check merge/cleanup",
   "Details_test_download_and_install": "Try to run installation automatically after download",
   "Full_scan_check": "Full scan check",
   "Full_scan_all_charts": "All charts",

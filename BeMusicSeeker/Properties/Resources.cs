@@ -140,6 +140,8 @@ public class Resources
 
     public static string Details_show_diag_diff_install => ResourceManager.GetString("Details_show_diag_diff_install", resourceCulture);
 
+    public static string Details_show_diag_duplicate_file_check => ResourceManager.GetString("Details_show_diag_duplicate_file_check", resourceCulture);
+
     public static string Details_show_diag_recommend => ResourceManager.GetString("Details_show_diag_recommend", resourceCulture);
 
     public static string Details_test_download_and_install => ResourceManager.GetString("Details_test_download_and_install", resourceCulture);

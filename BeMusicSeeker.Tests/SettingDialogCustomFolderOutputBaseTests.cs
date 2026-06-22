@@ -24,6 +24,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
     public void HasPendingSettingChanges_UsesSnapshotDiffsAndReset()
     {
         bool previousShowRecommUpdatedMsg = Settings.Default.ShowRecommUpdatedMsg;
+        bool previousShowDuplicateFileCheckConfirmMsg = Settings.Default.ShowDuplicateFileCheckConfirmMsg;
         try
         {
             var viewModel = new MainWindowViewModel();
@@ -41,6 +42,15 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
 
             Assert.IsFalse(dialog.HasPendingSettingChanges());
 
+            Settings.Default.ShowDuplicateFileCheckConfirmMsg = !previousShowDuplicateFileCheckConfirmMsg;
+
+            Assert.IsTrue(dialog.HasPendingSettingChanges());
+            Assert.IsTrue(SettingDialog.ShouldResetSettingsOnCancel(dialog));
+
+            Settings.Default.ShowDuplicateFileCheckConfirmMsg = previousShowDuplicateFileCheckConfirmMsg;
+
+            Assert.IsFalse(dialog.HasPendingSettingChanges());
+
             SetDialogField(dialog, "operationModeLR2DB", !GetDialogField<bool>(dialog, "tempOperationModeLR2DB"));
 
             Assert.IsTrue(dialog.HasPendingSettingChanges());
@@ -51,11 +61,13 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
                 .Invoke(dialog, null);
 
             Assert.AreEqual(previousShowRecommUpdatedMsg, Settings.Default.ShowRecommUpdatedMsg);
+            Assert.AreEqual(previousShowDuplicateFileCheckConfirmMsg, Settings.Default.ShowDuplicateFileCheckConfirmMsg);
             Assert.IsFalse(dialog.HasPendingSettingChanges());
         }
         finally
         {
             Settings.Default.ShowRecommUpdatedMsg = previousShowRecommUpdatedMsg;
+            Settings.Default.ShowDuplicateFileCheckConfirmMsg = previousShowDuplicateFileCheckConfirmMsg;
         }
     }
 

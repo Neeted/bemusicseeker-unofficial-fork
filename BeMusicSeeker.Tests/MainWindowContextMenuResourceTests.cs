@@ -2064,6 +2064,8 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(xaml, "TextWrapping=\"Wrap\"");
         StringAssert.Contains(xaml, "Style=\"{StaticResource styleWrappingSettingCheckBox}\" IsChecked=\"{Binding settingDialog.ShowScoreViewerRegisterConfirmMsg}\"");
         StringAssert.Contains(xaml, "Style=\"{StaticResource styleWrappingSettingCheckBox}\" IsChecked=\"{Binding settingDialog.ShowDiffBMSInstallConfirmMsg}\"");
+        StringAssert.Contains(xaml, "Style=\"{StaticResource styleWrappingSettingCheckBox}\" IsChecked=\"{Binding settingDialog.ShowDuplicateFileCheckConfirmMsg}\"");
+        StringAssert.Contains(xaml, "Path=Resources.Details_show_diag_duplicate_file_check, Mode=OneWay");
         StringAssert.Contains(xaml, "Style=\"{StaticResource styleWrappingSettingCheckBox}\" IsChecked=\"{Binding settingDialog.ShowRecommUpdatedMsg}\"");
         StringAssert.Contains(xaml, "Path=Resources.Details_initialization_settings, Mode=OneWay");
         StringAssert.Contains(xaml, "Path=Resources.Details_lr2_integration_settings, Mode=OneWay");
@@ -2767,6 +2769,18 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(duplicateSearchMethod, "duplicateHashRowCount=");
         StringAssert.Contains(duplicateSearchMethod, "connectedDirCount=");
         StringAssert.Contains(duplicateSearchMethod, "materializedChartCount=");
+    }
+
+    [TestMethod]
+    public void DuplicateFileCheckConfirmations_RespectSharedMessageSetting()
+    {
+        string root = FindRepositoryRoot();
+        string mainWindowCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow.cs"));
+        string folderMergeMethod = ExtractMethodBody(mainWindowCode, "private void ExecuteDuplicateFolderMerge(string srcPath, string dstPath, DuplicateGroup duplicateGroup)");
+        string hashCleanupMethod = ExtractMethodBody(mainWindowCode, "private void ExecuteDuplicateHashCleanup(DuplicateGroup duplicateGroup, string folderPath)");
+
+        StringAssert.Contains(folderMergeMethod, "Settings.Default.ShowDuplicateFileCheckConfirmMsg && DispatcherMessageBox.Show");
+        StringAssert.Contains(hashCleanupMethod, "Settings.Default.ShowDuplicateFileCheckConfirmMsg && DispatcherMessageBox.Show");
     }
 
     [TestMethod]

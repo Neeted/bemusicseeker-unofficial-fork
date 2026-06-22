@@ -997,6 +997,21 @@ internal sealed class Settings : ApplicationSettingsBase
     [UserScopedSetting]
     [DebuggerNonUserCode]
     [DefaultSettingValue("True")]
+    public bool ShowDuplicateFileCheckConfirmMsg
+    {
+        get
+        {
+            return (bool)this["ShowDuplicateFileCheckConfirmMsg"];
+        }
+        set
+        {
+            this["ShowDuplicateFileCheckConfirmMsg"] = value;
+        }
+    }
+
+    [UserScopedSetting]
+    [DebuggerNonUserCode]
+    [DefaultSettingValue("True")]
     public bool ShowRecommUpdatedMsg
     {
         get

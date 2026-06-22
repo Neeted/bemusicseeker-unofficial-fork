@@ -687,6 +687,9 @@ LR2をプレイヤーとして使用すると再生できない場合があり�
   <data name="Details_show_diag_diff_install" xml:space="preserve">
     <value>差分インストールの確認メッセージを表示する</value>
   </data>
+  <data name="Details_show_diag_duplicate_file_check" xml:space="preserve">
+    <value>重複ファイルチェックのマージ/整理時に確認メッセージを表示する</value>
+  </data>
   <data name="Details_test_download_and_install" xml:space="preserve">
     <value>ダウンロード実行後に自動的にインストールを試みる</value>
   </data>

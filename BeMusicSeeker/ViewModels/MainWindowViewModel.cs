@@ -642,6 +642,8 @@ public class MainWindowViewModel : ViewModel
 
         private bool tempShowDiffBMSInstallConfirmMsg;
 
+        private bool tempShowDuplicateFileCheckConfirmMsg;
+
         private bool tempShowRecommUpdatedMsg;
 
         private bool tempSkipInitFileCheck;
@@ -2219,6 +2221,22 @@ public class MainWindowViewModel : ViewModel
                 {
                     Settings.Default.ShowDiffBMSInstallConfirmMsg = value;
                     RaisePropertyChanged("ShowDiffBMSInstallConfirmMsg");
+                }
+            }
+        }
+
+        public bool ShowDuplicateFileCheckConfirmMsg
+        {
+            get
+            {
+                return Settings.Default.ShowDuplicateFileCheckConfirmMsg;
+            }
+            set
+            {
+                if (Settings.Default.ShowDuplicateFileCheckConfirmMsg != value)
+                {
+                    Settings.Default.ShowDuplicateFileCheckConfirmMsg = value;
+                    RaisePropertyChanged("ShowDuplicateFileCheckConfirmMsg");
                 }
             }
         }
@@ -5006,6 +5024,7 @@ public class MainWindowViewModel : ViewModel
             tempUseOnlyShiftJISChars = Settings.Default.UseOnlyShiftJISChars;
             tempShowScoreViewerRegisterConfirmMsg = Settings.Default.ShowScoreViewerRegisterConfirmMsg;
             tempShowDiffBMSInstallConfirmMsg = Settings.Default.ShowDiffBMSInstallConfirmMsg;
+            tempShowDuplicateFileCheckConfirmMsg = Settings.Default.ShowDuplicateFileCheckConfirmMsg;
             tempShowRecommUpdatedMsg = Settings.Default.ShowRecommUpdatedMsg;
             tempSkipInitFileCheck = Settings.Default.SkipInitFileCheck;
             tempSkipInitPlaylistLoad = Settings.Default.SkipInitPlaylistLoad;
@@ -5125,6 +5144,7 @@ public class MainWindowViewModel : ViewModel
                 || tempUseOnlyShiftJISChars != Settings.Default.UseOnlyShiftJISChars
                 || tempShowScoreViewerRegisterConfirmMsg != Settings.Default.ShowScoreViewerRegisterConfirmMsg
                 || tempShowDiffBMSInstallConfirmMsg != Settings.Default.ShowDiffBMSInstallConfirmMsg
+                || tempShowDuplicateFileCheckConfirmMsg != Settings.Default.ShowDuplicateFileCheckConfirmMsg
                 || tempShowRecommUpdatedMsg != Settings.Default.ShowRecommUpdatedMsg
                 || tempSkipInitFileCheck != Settings.Default.SkipInitFileCheck
                 || tempSkipInitPlaylistLoad != Settings.Default.SkipInitPlaylistLoad
@@ -6145,6 +6165,7 @@ public class MainWindowViewModel : ViewModel
             Settings.Default.UseOnlyShiftJISChars = tempUseOnlyShiftJISChars;
             Settings.Default.ShowScoreViewerRegisterConfirmMsg = tempShowScoreViewerRegisterConfirmMsg;
             Settings.Default.ShowDiffBMSInstallConfirmMsg = tempShowDiffBMSInstallConfirmMsg;
+            Settings.Default.ShowDuplicateFileCheckConfirmMsg = tempShowDuplicateFileCheckConfirmMsg;
             Settings.Default.ShowRecommUpdatedMsg = tempShowRecommUpdatedMsg;
             Settings.Default.SkipInitFileCheck = tempSkipInitFileCheck;
             Settings.Default.SkipInitPlaylistLoad = tempSkipInitPlaylistLoad;
@@ -6257,6 +6278,7 @@ public class MainWindowViewModel : ViewModel
             RaisePropertyChanged(() => UseOnlyShiftJISChars);
             RaisePropertyChanged(() => ShowScoreViewerRegisterConfirmMsg);
             RaisePropertyChanged(() => ShowDiffBMSInstallConfirmMsg);
+            RaisePropertyChanged(() => ShowDuplicateFileCheckConfirmMsg);
             RaisePropertyChanged(() => ShowRecommUpdatedMsg);
             RaisePropertyChanged(() => SkipInitFileCheck);
             RaisePropertyChanged(() => SkipInitPlaylistLoad);

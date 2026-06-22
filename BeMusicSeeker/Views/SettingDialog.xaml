@@ -788,6 +788,7 @@
                   <StackPanel>
                     <CheckBox Style="{StaticResource styleWrappingSettingCheckBox}" IsChecked="{Binding settingDialog.ShowScoreViewerRegisterConfirmMsg}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_show_diag_chartview, Mode=OneWay}" />
                     <CheckBox Style="{StaticResource styleWrappingSettingCheckBox}" IsChecked="{Binding settingDialog.ShowDiffBMSInstallConfirmMsg}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_show_diag_diff_install, Mode=OneWay}" />
+                    <CheckBox Style="{StaticResource styleWrappingSettingCheckBox}" IsChecked="{Binding settingDialog.ShowDuplicateFileCheckConfirmMsg}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_show_diag_duplicate_file_check, Mode=OneWay}" />
                     <CheckBox Style="{StaticResource styleWrappingSettingCheckBox}" IsChecked="{Binding settingDialog.ShowRecommUpdatedMsg}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_show_diag_recommend, Mode=OneWay}" />
                   </StackPanel>
                 </GroupBox>

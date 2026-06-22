@@ -298,6 +298,7 @@
   "Open_video": "開啟影片",
   "Player_LR2_wsize": "LR2body 視窗大小：",
   "Details_show_diag_diff_install": "進行差分安裝時顯示確認訊息",
+  "Details_show_diag_duplicate_file_check": "在重複檔案檢查中合併／整理時顯示確認訊息",
   "Details_test_download_and_install": "下載後嘗試自動執行安裝",
   "Full_scan_check": "完整掃描檢查",
   "Full_scan_all_charts": "全部譜面",

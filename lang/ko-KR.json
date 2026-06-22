@@ -298,6 +298,7 @@
   "Open_video": "동영상 열기",
   "Player_LR2_wsize": "LR2body 창 크기:",
   "Details_show_diag_diff_install": "차분 설치 기능 사용 시 확인 대화 상자 표시",
+  "Details_show_diag_duplicate_file_check": "중복 파일 검사에서 병합/정리 시 확인 메시지 표시",
   "Details_test_download_and_install": "다운로드 후 자동으로 설치를 실행하려고 시도",
   "Full_scan_check": "전체 스캔 검사",
   "Full_scan_all_charts": "전체 보면",

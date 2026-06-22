@@ -243,6 +243,7 @@ Some install-related settings affect real file operations, such as deleting sour
 | --- | --- | --- | --- |
 | Message Display | Show confirmation message when registering with chart viewer | ON | Shows a confirmation before chart viewer registration operations. |
 | Message Display | Show confirmation message for differential install | ON | Shows a confirmation before operations that insert files into existing folders, such as differential install to an estimated destination. |
+| Message Display | Show confirmation message on duplicate file check merge/cleanup | ON | Shows a confirmation before duplicate-file-check operations that merge folders or clean up same-folder duplicate-hash charts. |
 | Message Display | Show recommend update message | ON | Shows a notification when recommendation information is updated. |
 | Initialization | Do not scan BMS files and configuration files on startup | OFF | Skips file difference checking and resource index construction on startup. The library list saved in the DB is loaded, but destination estimation for pending packages may not be possible until library `Reload` or `Re-run Initialization` is run manually because the required index is missing. |
 | Initialization | Do not check playlist updates on startup | OFF | Skips external playlist update checks on startup. Reload playlists manually if needed. |
@@ -804,7 +805,7 @@ Duplicate groups are built by connecting folders that contain charts with the sa
 
 #### Merge Duplicate Folders
 
-In the duplicate-file-check tree, select the folder you want to merge away, in other words **the folder you want to remove**, then choose the destination folder from `Merge destination` in the context menu. Charts and bundled resources in the selected folder are moved into the destination. From the folder context menu, you can also open the target folder in Explorer. Before execution, a confirmation dialog shows the source path and merge-destination path.
+In the duplicate-file-check tree, select the folder you want to merge away, in other words **the folder you want to remove**, then choose the destination folder from `Merge destination` in the context menu. Charts and bundled resources in the selected folder are moved into the destination. From the folder context menu, you can also open the target folder in Explorer. By default, a confirmation dialog shows the source path and merge-destination path before execution. Turn off `Show confirmation message on duplicate file check merge/cleanup` on the `Advanced` tab to skip this confirmation.
 
 If bmson files exist under the target folder, they are also treated as charts. If the destination already contains a chart with the same hash, that chart file is not moved, so the duplication is resolved. If only the chart filename collides, the file is moved with a changed filename, so charts with different hashes are not lost.
 
@@ -820,7 +821,7 @@ When a folder item is selected, pressing `Ctrl + G` works as a duplicate-cleanup
 - If there are three or more duplicate folders, the destination is not chosen automatically; instead, the `Merge destination` context menu is opened. Check the candidates and choose the destination.
 - If there is only one duplicate folder, BeMusicSeeker treats it as a case where multiple charts with the same hash exist inside the same folder, and performs duplicate-hash cleanup.
 
-For duplicate-hash cleanup inside the same folder, one file is kept for each hash and the rest are moved to the Recycle Bin. The file to keep is chosen by preferring older modified timestamps, and if timestamps are equal, shorter filenames. Before execution, a confirmation dialog shows the number of files to be moved to the Recycle Bin.
+For duplicate-hash cleanup inside the same folder, one file is kept for each hash and the rest are moved to the Recycle Bin. The file to keep is chosen by preferring older modified timestamps, and if timestamps are equal, shorter filenames. By default, a confirmation dialog shows the number of files to be moved to the Recycle Bin before execution. Turn off `Show confirmation message on duplicate file check merge/cleanup` on the `Advanced` tab to skip this confirmation.
 
 After a merge or duplicate-hash cleanup finishes, focus automatically moves to the next duplicate group that should be checked in the tree. Using `Ctrl + G` while checking from top to bottom lets you organize many duplicates with relatively few operations.
 
