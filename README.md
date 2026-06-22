@@ -67,6 +67,10 @@ This section highlights representative improvements. See the [User Manual](docs/
   - Adds and expands status-check screens such as LR2 compatibility warnings, zero-note search, parse errors, full resource scan, and duplicate-file checking.
 - **UI, logs, and multilingual support**
   - Improves theme support, settings dialog organization, status-bar progress, log output, and multilingual resource handling.
+- **Play history**
+  - In LR2 linked mode, BeMusicSeeker can install the play-history support objects into the LR2 score DB and show LR2 plays recorded after that setup. The view includes date navigation, update types, judge count, play count, play time, clear breakdowns, and playlist-based FOLDER projection.
+  - In beatoraja linked mode, BeMusicSeeker shows score update history from beatoraja's `scorelog.db` and uses the `score.db` player aggregate for daily play count, judge count, and play time. This is treated as beatoraja's update history, not as full play-by-play history at LR2's granularity.
+  - LR2 history before the play-history setup cannot be recovered. See [LR2 Play Log](docs/manual.md#lr2-play-log) and [Play Log](docs/manual.md#play-log) in the manual for setup details and cautions.
 
 ## TODO
 
@@ -75,7 +79,7 @@ These are rough notes. Priority is mixed, and completed items are removed over t
 1. BMS Score Viewer screen for unregistered charts
    - Should md5 values that could not be uploaded, for example because the chart was too large, be stored locally? Otherwise they may remain in the unregistered list indefinitely.
    - The approach used by [bms-score-uploader](https://github.com/Neeted/bms-score-uploader) seems like a good reference.
-2. Download LR2IR rival data, convert it into a local database, and place it automatically
+2. Download LR2IR rival data, import it into `song.db`, and create WIN/LOSE folders per difficulty table
 3. Clear lamp viewer
 4. Course content display and ordering editor
 5. Replace hardcoded URLs that are now broken
