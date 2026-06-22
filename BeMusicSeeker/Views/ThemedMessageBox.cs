@@ -112,12 +112,22 @@ internal static class ThemedMessageBox
         {
             Text = messageBoxText ?? string.Empty,
             TextWrapping = TextWrapping.Wrap,
-            Margin = new Thickness(0, 2, 0, 14),
+            Margin = new Thickness(0, 2, 0, 0),
         };
         message.SetResourceReference(TextBlock.ForegroundProperty, "App.TextBrush");
-        Grid.SetRow(message, 0);
-        Grid.SetColumn(message, 1);
-        layout.Children.Add(message);
+
+        var messageScroll = new ScrollViewer
+        {
+            Content = message,
+            MaxHeight = Math.Max(180, Math.Min(360, SystemParameters.WorkArea.Height * 0.55)),
+            Margin = new Thickness(0, 0, 0, 14),
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            CanContentScroll = false,
+        };
+        Grid.SetRow(messageScroll, 0);
+        Grid.SetColumn(messageScroll, 1);
+        layout.Children.Add(messageScroll);
 
         var buttons = new StackPanel
         {

@@ -28,16 +28,37 @@ internal readonly struct CustomFolderOutputBaseSearchRootSyncPlan
     private readonly IReadOnlyList<string> removedPaths;
 
     internal CustomFolderOutputBaseSearchRootSyncPlan(int addedCount, IReadOnlyList<string> removedPaths)
+        : this(addedCount, removedPaths, 0)
+    {
+    }
+
+    internal CustomFolderOutputBaseSearchRootSyncPlan(int addedCount, IReadOnlyList<string> removedPaths, int appliedRemovedCount)
     {
         AddedCount = addedCount;
         this.removedPaths = removedPaths ?? [];
+        AppliedRemovedCount = appliedRemovedCount;
     }
 
     internal int AddedCount { get; }
 
+    internal int AppliedRemovedCount { get; }
+
     internal IReadOnlyList<string> RemovedPaths => removedPaths ?? [];
 
-    internal bool Changed => AddedCount > 0 || RemovedPaths.Count > 0;
+    internal bool Changed => AddedCount > 0 || AppliedRemovedCount > 0 || RemovedPaths.Count > 0;
+}
+
+internal readonly struct CustomFolderOutputBaseSearchRootAddResult
+{
+    internal CustomFolderOutputBaseSearchRootAddResult(int addedCount, int removedCount)
+    {
+        AddedCount = addedCount;
+        RemovedCount = removedCount;
+    }
+
+    internal int AddedCount { get; }
+
+    internal int RemovedCount { get; }
 }
 
 internal static class CustomFolderOutputBaseSearchRootSyncService
@@ -52,10 +73,10 @@ internal static class CustomFolderOutputBaseSearchRootSyncService
             return default;
         }
 
-        int addedCount = AddMissingSearchRoots(
+        CustomFolderOutputBaseSearchRootAddResult addResult = AddMissingSearchRoots(
             config,
             new[] { defaultBaseDirectory }.Concat(CustomFolderOutputBaseRegistry.DeserializeBaseDirectoriesStrict(serializedAdditionalBaseDirectories)));
-        return new CustomFolderOutputBaseSearchRootSyncResult(addedCount, 0);
+        return new CustomFolderOutputBaseSearchRootSyncResult(addResult.AddedCount, addResult.RemovedCount);
     }
 
     internal static CustomFolderOutputBaseSearchRootSyncResult SyncAdditionalOutputBaseRoots(
@@ -98,8 +119,8 @@ internal static class CustomFolderOutputBaseSearchRootSyncService
             && !preservedPaths.Contains(path, StringComparer.OrdinalIgnoreCase)
             && registeredBeforeRemove.Contains(path, StringComparer.OrdinalIgnoreCase))];
 
-        int addedCount = AddMissingSearchRoots(config, currentPaths, registeredBeforeRemove);
-        return new CustomFolderOutputBaseSearchRootSyncPlan(addedCount, removedPaths);
+        CustomFolderOutputBaseSearchRootAddResult addResult = AddMissingSearchRoots(config, currentPaths, registeredBeforeRemove);
+        return new CustomFolderOutputBaseSearchRootSyncPlan(addResult.AddedCount, removedPaths, addResult.RemovedCount);
     }
 
     internal static CustomFolderOutputBaseSearchRootSyncPlan PrepareAdditionalOutputBaseRoots(
@@ -122,9 +143,9 @@ internal static class CustomFolderOutputBaseSearchRootSyncService
             && !preservedPaths.Contains(path, StringComparer.OrdinalIgnoreCase)
             && registeredBeforeRemove.Contains(path, StringComparer.OrdinalIgnoreCase))];
 
-        int addedCount = AddMissingSearchRoots(config, currentPaths, registeredBeforeRemove);
+        CustomFolderOutputBaseSearchRootAddResult addResult = AddMissingSearchRoots(config, currentPaths, registeredBeforeRemove);
 
-        return new CustomFolderOutputBaseSearchRootSyncPlan(addedCount, removedPaths);
+        return new CustomFolderOutputBaseSearchRootSyncPlan(addResult.AddedCount, removedPaths, addResult.RemovedCount);
     }
 
     internal static CustomFolderOutputBaseSearchRootSyncResult CompleteAdditionalOutputBaseRootSync(
@@ -136,8 +157,12 @@ internal static class CustomFolderOutputBaseSearchRootSyncService
             return default;
         }
 
-        int removedCount = config.RemoveBMSSearchDirectories(plan.RemovedPaths) ? plan.RemovedPaths.Count : 0;
-        return new CustomFolderOutputBaseSearchRootSyncResult(plan.AddedCount, removedCount);
+        List<string> registeredBeforeRemove = config.GetBMSSearchDirectoriesForChangeTracking();
+        List<string> removablePaths = [.. plan.RemovedPaths
+            .Where(path => registeredBeforeRemove.Contains(path, StringComparer.OrdinalIgnoreCase))
+            .Distinct(StringComparer.OrdinalIgnoreCase)];
+        int removedCount = config.RemoveBMSSearchDirectories(removablePaths) ? removablePaths.Count : 0;
+        return new CustomFolderOutputBaseSearchRootSyncResult(plan.AddedCount, plan.AppliedRemovedCount + removedCount);
     }
 
     internal static void ValidateSjisDirectoryPath(string path)
@@ -180,7 +205,7 @@ internal static class CustomFolderOutputBaseSearchRootSyncService
         Directory.CreateDirectory(CustomFolderOutputBaseRegistry.NormalizeDirectoryPath(path));
     }
 
-    private static int AddMissingSearchRoots(
+    private static CustomFolderOutputBaseSearchRootAddResult AddMissingSearchRoots(
         LR2Config config,
         IEnumerable<string> paths,
         IReadOnlyList<string> registeredPaths = null)
@@ -193,12 +218,36 @@ internal static class CustomFolderOutputBaseSearchRootSyncService
         {
             EnsureSjisDirectoryExists(expectedPath);
         }
+        for (int leftIndex = 0; leftIndex < expectedPaths.Count; leftIndex++)
+        {
+            for (int rightIndex = leftIndex + 1; rightIndex < expectedPaths.Count; rightIndex++)
+            {
+                if (IsSameOrNestedDirectory(expectedPaths[leftIndex], expectedPaths[rightIndex]))
+                {
+                    throw new ArgumentException(BeMusicSeeker.Properties.Resources.Validation_AdditionalOutputBasesNested);
+                }
+            }
+        }
+
+        List<string> adoptionRemovedPaths = [.. registeredBeforeAdd.Where(registeredPath =>
+            expectedPaths.Any(expectedPath =>
+                !IsSameDirectory(expectedPath, registeredPath)
+                && IsSameOrNestedDirectory(expectedPath, registeredPath)))
+            .Distinct(StringComparer.OrdinalIgnoreCase)];
         List<string> addedPaths = [.. expectedPaths.Where(path => !registeredBeforeAdd.Contains(path, StringComparer.OrdinalIgnoreCase))];
-        if (addedPaths.Count > 0)
+        if (adoptionRemovedPaths.Count > 0)
+        {
+            IReadOnlyList<string> nextPaths = [.. registeredBeforeAdd
+                .Except(adoptionRemovedPaths, StringComparer.OrdinalIgnoreCase)
+                .Concat(expectedPaths)
+                .Distinct(StringComparer.OrdinalIgnoreCase)];
+            config.SetBMSSearchDirectories(nextPaths);
+        }
+        else if (addedPaths.Count > 0)
         {
             config.AddBMSSearchDirectories(addedPaths);
         }
-        return addedPaths.Count;
+        return new CustomFolderOutputBaseSearchRootAddResult(addedPaths.Count, adoptionRemovedPaths.Count);
     }
 
     internal static bool IsSameDirectory(string left, string right)

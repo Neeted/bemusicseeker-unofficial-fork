@@ -1723,6 +1723,12 @@ public class Resources
 
     public static string Validation_OutputBaseNestedWithBmsRootFormat => ResourceManager.GetString("Validation_OutputBaseNestedWithBmsRootFormat", resourceCulture);
 
+    public static string Confirm_CustomFolderOutputBaseJukeboxAdoptionFormat => ResourceManager.GetString("Confirm_CustomFolderOutputBaseJukeboxAdoptionFormat", resourceCulture);
+
+    public static string Confirm_CustomFolderOutputBaseJukeboxAdoptionConflictLineFormat => ResourceManager.GetString("Confirm_CustomFolderOutputBaseJukeboxAdoptionConflictLineFormat", resourceCulture);
+
+    public static string Confirm_CustomFolderOutputBaseJukeboxAdoptionOmittedLineFormat => ResourceManager.GetString("Confirm_CustomFolderOutputBaseJukeboxAdoptionOmittedLineFormat", resourceCulture);
+
     public static string Error_AdditionalOutputBaseNestedWithPreviousAdditional => ResourceManager.GetString("Error_AdditionalOutputBaseNestedWithPreviousAdditional", resourceCulture);
 
     public static string Error_AdditionalOutputBaseSameAsBmsRoot => ResourceManager.GetString("Error_AdditionalOutputBaseSameAsBmsRoot", resourceCulture);

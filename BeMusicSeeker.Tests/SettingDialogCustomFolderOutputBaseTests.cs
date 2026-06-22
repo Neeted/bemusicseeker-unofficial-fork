@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
@@ -366,6 +367,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
                 .Invoke(dialog, args)!;
 
             Assert.IsTrue(isValid, args[1] as string ?? string.Empty);
+            Assert.AreEqual(0, InvokeCollectCustomFolderOutputBaseJukeboxAdoptionConflicts(dialog).Length);
             CollectionAssert.Contains(dialog.LR2ConfigBMSDirectories, manualBmsRoot);
             CollectionAssert.DoesNotContain(dialog.LR2ConfigBMSDirectories, rootOutputChild);
         }
@@ -375,6 +377,54 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             Settings.Default.LR2CustomFolderOutputBaseDirRootType = previousRootOutputBase;
             Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs = previousAdditionalOutputBases;
             Settings.Default.BMSInstallDir = previousBmsInstallDir;
+            TryDeleteDirectory(tempRootPath);
+        }
+    }
+
+    [TestMethod]
+    public void RootOutputBaseSync_ReplacesAdoptedRootBaseWithPlaylistOutputRoots()
+    {
+        bool previousOperationMode = Settings.Default.OperationModeLR2DB;
+        string previousRootOutputBase = Settings.Default.LR2CustomFolderOutputBaseDirRootType;
+        string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_SettingDialog_" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            string manualBmsRoot = Path.Combine(tempRootPath, "ManualBmsRoot");
+            string rootOutputBase = Path.Combine(tempRootPath, "RootOutput");
+            string playlistOutputRoot = Path.Combine(rootOutputBase, "PlaylistOutput");
+            string staleOutputRoot = Path.Combine(rootOutputBase, "StaleOutput");
+            Directory.CreateDirectory(manualBmsRoot);
+            Directory.CreateDirectory(playlistOutputRoot);
+            Directory.CreateDirectory(staleOutputRoot);
+
+            LR2Config config = CreateConfig(tempRootPath);
+            config.SetBMSSearchDirectories([manualBmsRoot, rootOutputBase, staleOutputRoot]);
+            MainWindowViewModel viewModel = CreateViewModel(config);
+            MainWindowViewModel.SettingDialogViewModel dialog = viewModel.settingDialog;
+            Settings.Default.OperationModeLR2DB = true;
+            Settings.Default.LR2CustomFolderOutputBaseDirRootType = rootOutputBase;
+            SetDialogField(dialog, "tempLR2CustomFolderAsRootOutputDir", string.Empty);
+            string songDbPath = Path.Combine(tempRootPath, "song.db");
+            File.WriteAllBytes(songDbPath, []);
+            SetViewModelTables(
+                viewModel,
+                songDbPath,
+                [new BMSTable { is_root_folder = true, Output_dir = "PlaylistOutput" }]);
+
+            bool changed = (bool)typeof(MainWindowViewModel.SettingDialogViewModel)
+                .GetMethod("SyncRootCustomFolderOutputSearchRootsAfterSettingsChange", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .Invoke(dialog, null)!;
+
+            Assert.IsTrue(changed);
+            CollectionAssert.Contains(config.GetBMSSearchDirectories(), manualBmsRoot);
+            CollectionAssert.Contains(config.GetBMSSearchDirectories(), playlistOutputRoot);
+            CollectionAssert.DoesNotContain(config.GetBMSSearchDirectories(), rootOutputBase);
+            CollectionAssert.DoesNotContain(config.GetBMSSearchDirectories(), staleOutputRoot);
+        }
+        finally
+        {
+            Settings.Default.OperationModeLR2DB = previousOperationMode;
+            Settings.Default.LR2CustomFolderOutputBaseDirRootType = previousRootOutputBase;
             TryDeleteDirectory(tempRootPath);
         }
     }
@@ -428,7 +478,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
     }
 
     [TestMethod]
-    public void NormalOutputBase_CannotBeChangedToManualBmsRoot()
+    public void NormalOutputBase_CanAdoptManualBmsRootWithSaveWarning()
     {
         string previousNormalOutputBase = Settings.Default.LR2CustomFolderOutputBaseDir;
         string previousRootOutputBase = Settings.Default.LR2CustomFolderOutputBaseDirRootType;
@@ -456,7 +506,12 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
 
             dialog.LR2CustomFolderOutputDir = manualBmsRoot;
 
-            Assert.AreEqual(normalOutputBase, Settings.Default.LR2CustomFolderOutputBaseDir);
+            object[] conflicts = InvokeCollectCustomFolderOutputBaseJukeboxAdoptionConflicts(dialog);
+
+            Assert.AreEqual(manualBmsRoot, Settings.Default.LR2CustomFolderOutputBaseDir);
+            Assert.AreEqual(1, conflicts.Length);
+            Assert.AreEqual(manualBmsRoot, GetConflictProperty(conflicts[0], "OutputBasePath"));
+            Assert.AreEqual(manualBmsRoot, GetConflictProperty(conflicts[0], "JukeboxRootPath"));
         }
         finally
         {
@@ -468,7 +523,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
     }
 
     [TestMethod]
-    public void RootOutputBase_CannotBeChangedToManualBmsRootParent()
+    public void RootOutputBase_CanAdoptManualBmsRootParentWithSaveWarning()
     {
         string previousNormalOutputBase = Settings.Default.LR2CustomFolderOutputBaseDir;
         string previousRootOutputBase = Settings.Default.LR2CustomFolderOutputBaseDirRootType;
@@ -497,7 +552,12 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
 
             dialog.LR2CustomFolderAsRootOutputDir = manualBmsRootParent;
 
-            Assert.AreEqual(rootOutputBase, Settings.Default.LR2CustomFolderOutputBaseDirRootType);
+            object[] conflicts = InvokeCollectCustomFolderOutputBaseJukeboxAdoptionConflicts(dialog);
+
+            Assert.AreEqual(manualBmsRootParent, Settings.Default.LR2CustomFolderOutputBaseDirRootType);
+            Assert.AreEqual(1, conflicts.Length);
+            Assert.AreEqual(manualBmsRootParent, GetConflictProperty(conflicts[0], "OutputBasePath"));
+            Assert.AreEqual(manualBmsRoot, GetConflictProperty(conflicts[0], "JukeboxRootPath"));
         }
         finally
         {
@@ -506,6 +566,17 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs = previousAdditionalOutputBases;
             TryDeleteDirectory(tempRootPath);
         }
+    }
+
+    [TestMethod]
+    public void CustomFolderOutputBaseJukeboxAdoptionMessage_LimitsVisibleConflicts()
+    {
+        string message = InvokeBuildCustomFolderOutputBaseJukeboxAdoptionMessage(12);
+
+        StringAssert.Contains(message, "Output10");
+        Assert.IsFalse(message.Contains("Output11"));
+        StringAssert.Contains(message, "2");
+        StringAssert.Contains(message, "...");
     }
 
     [TestMethod]
@@ -604,6 +675,48 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
                 Dispatcher.CurrentDispatcher)
         };
         SetViewModelField(viewModel, "tables", playlist);
+    }
+
+    private static object[] InvokeCollectCustomFolderOutputBaseJukeboxAdoptionConflicts(MainWindowViewModel.SettingDialogViewModel dialog)
+    {
+        return ((System.Collections.IEnumerable)typeof(MainWindowViewModel.SettingDialogViewModel)
+            .GetMethod("CollectCustomFolderOutputBaseJukeboxAdoptionConflicts", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(dialog, null)!)
+            .Cast<object>()
+            .ToArray();
+    }
+
+    private static string GetConflictProperty(object conflict, string propertyName)
+    {
+        return (string)conflict.GetType()
+            .GetProperty(propertyName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)!
+            .GetValue(conflict)!;
+    }
+
+    private static string InvokeBuildCustomFolderOutputBaseJukeboxAdoptionMessage(int conflictCount)
+    {
+        Type dialogType = typeof(MainWindowViewModel.SettingDialogViewModel);
+        Type conflictType = dialogType
+            .GetNestedType("CustomFolderOutputBaseJukeboxAdoptionConflict", BindingFlags.NonPublic)!;
+        Type listType = typeof(List<>).MakeGenericType(conflictType);
+        var conflicts = (System.Collections.IList)Activator.CreateInstance(listType)!;
+        ConstructorInfo constructor = conflictType.GetConstructor(
+            BindingFlags.Instance | BindingFlags.NonPublic,
+            binder: null,
+            types: [typeof(string), typeof(string), typeof(string)],
+            modifiers: null)!;
+        for (int index = 1; index <= conflictCount; index++)
+        {
+            conflicts.Add(constructor.Invoke([
+                "Label",
+                "Output" + index.ToString("00"),
+                "Jukebox" + index.ToString("00")
+            ]));
+        }
+
+        return (string)dialogType
+            .GetMethod("BuildCustomFolderOutputBaseJukeboxAdoptionMessage", BindingFlags.Static | BindingFlags.NonPublic)!
+            .Invoke(null, [conflicts])!;
     }
 
     private static bool InvokeValidatePlayHistoryFolderDisplayPresets(

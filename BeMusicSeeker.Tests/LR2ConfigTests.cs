@@ -140,7 +140,7 @@ public sealed class LR2ConfigTests
     }
 
     [TestMethod]
-    public void RepairNormalOutputBaseRoots_RejectsChildOfRegisteredBmsRoot()
+    public void RepairNormalOutputBaseRoots_AdoptsChildOfRegisteredBmsRoot()
     {
         WithConfig("<config><system /><jukebox /></config>", delegate (string configPath, LR2Config config)
         {
@@ -150,8 +150,14 @@ public sealed class LR2ConfigTests
             Directory.CreateDirectory(defaultOutputBase);
             config.AddBMSSearchDirectories([bmsRoot]);
 
-            Assert.ThrowsException<ArgumentException>(() =>
-                CustomFolderOutputBaseSearchRootSyncService.RepairNormalOutputBaseRoots(config, defaultOutputBase, "[]"));
+            CustomFolderOutputBaseSearchRootSyncResult result =
+                CustomFolderOutputBaseSearchRootSyncService.RepairNormalOutputBaseRoots(config, defaultOutputBase, "[]");
+
+            Assert.IsTrue(result.Changed);
+            Assert.AreEqual(1, result.AddedCount);
+            Assert.AreEqual(1, result.RemovedCount);
+            CollectionAssert.DoesNotContain(config.GetBMSSearchDirectories(), bmsRoot);
+            CollectionAssert.Contains(config.GetBMSSearchDirectories(), defaultOutputBase);
         });
     }
 
@@ -196,7 +202,7 @@ public sealed class LR2ConfigTests
     }
 
     [TestMethod]
-    public void SyncAdditionalOutputBaseRoots_RejectsChildOfRegisteredBmsRoot()
+    public void SyncAdditionalOutputBaseRoots_AdoptsChildOfRegisteredBmsRoot()
     {
         WithConfig("<config><system /><jukebox /></config>", delegate (string configPath, LR2Config config)
         {
@@ -207,8 +213,14 @@ public sealed class LR2ConfigTests
             config.AddBMSSearchDirectories([bmsRoot]);
             string serializedAdditionalBase = CustomFolderOutputBaseRegistry.SerializeBaseDirectories([additionalBase]);
 
-            Assert.ThrowsException<ArgumentException>(() =>
-                CustomFolderOutputBaseSearchRootSyncService.SyncAdditionalOutputBaseRoots(config, "[]", serializedAdditionalBase));
+            CustomFolderOutputBaseSearchRootSyncResult result =
+                CustomFolderOutputBaseSearchRootSyncService.SyncAdditionalOutputBaseRoots(config, "[]", serializedAdditionalBase);
+
+            Assert.IsTrue(result.Changed);
+            Assert.AreEqual(1, result.AddedCount);
+            Assert.AreEqual(1, result.RemovedCount);
+            CollectionAssert.DoesNotContain(config.GetBMSSearchDirectories(), bmsRoot);
+            CollectionAssert.Contains(config.GetBMSSearchDirectories(), additionalBase);
         });
     }
 

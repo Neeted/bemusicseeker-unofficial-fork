@@ -146,6 +146,11 @@ public partial class SettingDialog : UserControl, IComponentConnector
                 + " initial=" + shouldInitializeAfterSave.ToString().ToLowerInvariant());
             if (isValid)
             {
+                if (!settingDialogViewModel.ConfirmCustomFolderOutputBaseJukeboxAdoptionBeforeSave(out _))
+                {
+                    outcome = "custom_folder_jukebox_adoption_cancelled";
+                    return;
+                }
                 needRestart = shouldInitializeAfterSave
                     ? MainWindowViewModel.SettingDialogViewModel.RestartMode.None
                     : settingDialogViewModel.IsNeedRestartForSaved();

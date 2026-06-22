@@ -967,7 +967,10 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(initialSaveMethod, "backupSavedSettings();");
         Assert.IsFalse(initialSaveMethod.Contains("necessaryStepsAfterSaved"));
         StringAssert.Contains(saveCore, "if (lr2ConfigBoundaryChanged && operationModeLR2DB && lr2config != null)");
-        StringAssert.Contains(saveCore, "customFolderSearchRootSyncNeeded = lr2ConfigBoundaryChanged || customFolderOutputBaseSettingsChanged;");
+        StringAssert.Contains(saveCore, "customFolderOutputBaseJukeboxAdoptionNeeded = HasCustomFolderOutputBaseJukeboxAdoptionConflicts();");
+        StringAssert.Contains(saveCore, "customFolderSearchRootSyncNeeded = lr2ConfigBoundaryChanged");
+        StringAssert.Contains(saveCore, "|| customFolderOutputBaseSettingsChanged");
+        StringAssert.Contains(saveCore, "|| customFolderOutputBaseJukeboxAdoptionNeeded;");
         StringAssert.Contains(saveCore, "postSaveImpact = BuildSettingsPostSaveImpact(customFolderSearchRootSyncNeeded);");
         StringAssert.Contains(saveCore, "snapshotRefreshScope = BuildSettingsSnapshotRefreshScope(");
         StringAssert.Contains(saveCore, "lr2ConfigBoundaryChanged);");
