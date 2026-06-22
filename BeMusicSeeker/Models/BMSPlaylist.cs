@@ -22,6 +22,7 @@ using Livet.EventListeners;
 using Microsoft.VisualBasic.FileIO;
 using Newtonsoft.Json.Linq;
 using NLog;
+using Ribbit.Logging;
 using Ribbit.Net;
 using Ribbit.Util;
 using Ribbit.Util.Extensions;
@@ -169,7 +170,7 @@ public partial class BMSPlaylist : NotificationObject
     /// <summary>
     /// プレイリスト更新処理の性能ログを出力するロガーです。
     /// </summary>
-    private static readonly Logger installPerformanceLogger = LogManager.GetLogger("InstallPerformance.BMSPlaylist");
+    private static readonly Logger installPerformanceLogger = NLogWrapper.GetLogger("InstallPerformance.BMSPlaylist");
 
     /// <summary>
     /// 性能ログ出力を有効化するかどうかを保持します。
@@ -1222,7 +1223,7 @@ public partial class BMSPlaylist : NotificationObject
                             {
                                 ReportBeatorajaBmtExportProgress(progressOperationId, true, Math.Max(total, 1), completed, tableName);
                             }
-                            : null);
+                    : null);
                     projectionStopwatch.Stop();
                     var exportStopwatch = Stopwatch.StartNew();
                     int exportProgressTotal = projectionTablesSnapshot.Count + tableDataSet.Count;
@@ -1242,7 +1243,7 @@ public partial class BMSPlaylist : NotificationObject
                                 {
                                     ReportBeatorajaBmtExportProgress(progressOperationId, true, Math.Max(exportProgressTotal, 1), projectionTablesSnapshot.Count + completed, tableName);
                                 }
-                                : null);
+                        : null);
                         var urlSyncStopwatch = Stopwatch.StartNew();
                         SyncBeatorajaManagedTableUrls(outputPath, exportResult.PreviousManagedTables, exportResult.CurrentManagedTables);
                         urlSyncStopwatch.Stop();

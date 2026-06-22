@@ -55,7 +55,7 @@ namespace BeMusicSeeker.Views;
 /// </summary>
 public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 {
-    private static readonly Logger installPerformanceLogger = LogManager.GetLogger("InstallPerformance.MainWindow");
+    private static readonly Logger installPerformanceLogger = NLogWrapper.GetLogger("InstallPerformance.MainWindow");
 
     private static readonly bool installPerformanceLoggingEnabled = CommandLineSwitches.IsInfoLoggingEnabled;
 
@@ -4894,7 +4894,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     {
         if (CommandLineSwitches.IsInfoLoggingEnabled)
         {
-            LogManager.GetLogger("InstallPerformance.DuplicateMerge").Info(message);
+            NLogWrapper.GetLogger("InstallPerformance.DuplicateMerge").Info(message);
         }
     }
 

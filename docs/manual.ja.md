@@ -902,23 +902,23 @@ LR2 連携モードでは、BeMusicSeeker が LR2 の `song.db` にアプリ用�
 
 ## ログとトラブルシューティング
 
-通常より詳しいログを取りたい場合は、`LaunchWithInfoLog.bat` から起動してください。`application.log` と `install-performance.log` に初期化、DB 読み込み、ファイルスキャン、プレイリスト同期などの情報が出力されます。
+ログは通常起動で `log/application.log` と `log/install-performance.log` に出力されます。初期化、DB 読み込み、ファイルスキャン、プレイリスト同期などの情報も既定で記録されます。
 
 ログの読み方は [BeMusicSeeker ログ（実行記録）の見方ガイド](log-level-info-guide.md) を参照してください。
 
-> 申し訳ありませんが、実際のところガイドを見てもあまり参考にはならないかも知れません。開発中にログの出力方針は随時変わっているのでガイドの内容は最新の実装に対する説明としては不十分です。明らかに挙動がおかしい場合にINFOレベルのログを出すようにして、ログを私に送り付けて頂ければ不具合修正の役に立ちます。
+ログファイルが大きくなった場合は `log/archive/` にローテーションされます。不具合報告時は、直近の `log/application.log` と `log/install-performance.log` を確認してください。
 
 ### 起動や初期化が遅い
 
 - Everything 1.5 Alpha x64 が導入されているか確認してください。
 - Everything 側で BMS フォルダが検索できるか確認してください。
 - 初回構築、DB 空状態、BMS ルートフォルダの大規模変更では、通常より時間がかかります。
-- `install-performance.log` の `everything_scan`、`song_tbl_file_check`、`playlist_*` などを見ると、どこに時間がかかっているか分かります。
-- Everything 連携に失敗して通常のファイル列挙へ fallback する際は、警告ダイアログが表示されます。想定より遅い場合は、`install-performance.log` の `everything_scan`、`nativeBridgeUsed`、`fallback`、`managed` などの記録を確認してください。
+- `log/install-performance.log` の `everything_scan`、`song_tbl_file_check`、`playlist_*` などを見ると、どこに時間がかかっているか分かります。
+- Everything 連携に失敗して通常のファイル列挙へ fallback する際は、警告ダイアログが表示されます。想定より遅い場合は、`log/install-performance.log` の `everything_scan`、`nativeBridgeUsed`、`fallback`、`managed` などの記録を確認してください。
 
 ### プレイリストの STATUS が失敗になる
 
-外部難易度表の URL が 404、403、タイムアウトなどを返している場合があります。プレイリストサマリーの `STATUS` のツールチップ、または `application.log` の `playlist_reload_target_failed` を確認してください。
+外部難易度表の URL が 404、403、タイムアウトなどを返している場合があります。プレイリストサマリーの `STATUS` のツールチップ、または `log/application.log` の `playlist_reload_target_failed` を確認してください。
 
 外部サイト側の一時的な問題であれば、時間を置いてリロードしてください。URL が変更されている場合は、プレイリストのプロパティで URI を修正する必要があります。
 

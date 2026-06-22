@@ -8974,7 +8974,7 @@ public class MainWindowViewModel : ViewModel
 
     private bool duplicateChartGroupsRefreshRunning;
 
-    private static readonly Logger installPerformanceLogger = LogManager.GetLogger("InstallPerformance.MainWindowViewModel");
+    private static readonly Logger installPerformanceLogger = NLogWrapper.GetLogger("InstallPerformance.MainWindowViewModel");
 
     private static readonly bool installPerformanceLoggingEnabled = CommandLineSwitches.IsInfoLoggingEnabled;
 
@@ -19889,7 +19889,7 @@ public class MainWindowViewModel : ViewModel
         catch (Exception ex)
         {
             DispatcherMessageBox.Show(BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + ex.ToString(), BeMusicSeeker.Properties.Resources.Error, MessageBoxButton.OK, MessageBoxImage.Hand);
-            Logger currentClassLogger = LogManager.GetCurrentClassLogger();
+            Logger currentClassLogger = NLogWrapper.GetLogger(typeof(MainWindowViewModel));
             currentClassLogger.Error(ex, text + " - " + Environment.NewLine + ex.ToString(), null);
             _semaphore.Release();
             SetStartupUiInteractionBlocked(false);
@@ -19927,7 +19927,7 @@ public class MainWindowViewModel : ViewModel
         catch (Exception ex)
         {
             DispatcherMessageBox.Show(BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + ex.ToString(), BeMusicSeeker.Properties.Resources.Error, MessageBoxButton.OK, MessageBoxImage.Hand);
-            Logger currentClassLogger = LogManager.GetCurrentClassLogger();
+            Logger currentClassLogger = NLogWrapper.GetLogger(typeof(MainWindowViewModel));
             string text2 = Assembly.GetEntryAssembly().GetName().Version.ToString();
             currentClassLogger.Error(ex, text2 + " - " + Environment.NewLine + ex.ToString(), null);
             _semaphore.Release();
@@ -19976,7 +19976,7 @@ public class MainWindowViewModel : ViewModel
         {
             FailStartupProgressOperation(ex.Message);
             DispatcherMessageBox.Show(BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + ex.ToString(), BeMusicSeeker.Properties.Resources.Error, MessageBoxButton.OK, MessageBoxImage.Hand);
-            Logger currentClassLogger = LogManager.GetCurrentClassLogger();
+            Logger currentClassLogger = NLogWrapper.GetLogger(typeof(MainWindowViewModel));
             string text3 = Assembly.GetEntryAssembly().GetName().Version.ToString();
             currentClassLogger.Error(ex, text3 + " - " + Environment.NewLine + ex.ToString(), null);
             _semaphore.Release();
@@ -20446,7 +20446,7 @@ public class MainWindowViewModel : ViewModel
         {
             FailStartupProgressOperation(ex.Message);
             DispatcherMessageBox.Show(BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + ex.ToString(), BeMusicSeeker.Properties.Resources.Error, MessageBoxButton.OK, MessageBoxImage.Hand);
-            Logger currentClassLogger = LogManager.GetCurrentClassLogger();
+            Logger currentClassLogger = NLogWrapper.GetLogger(typeof(MainWindowViewModel));
             string text4 = Assembly.GetEntryAssembly().GetName().Version.ToString();
             currentClassLogger.Error(ex, text4 + " - " + Environment.NewLine + ex.ToString(), null);
             _semaphore.Release();
@@ -22483,23 +22483,23 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
-        private void PublishLatestLr2PlayHistorySchemaCheckResultFromLibrary()
+    private void PublishLatestLr2PlayHistorySchemaCheckResultFromLibrary()
+    {
+        var stopwatch = Stopwatch.StartNew();
+        Lr2PlayHistorySchemaCheckResult result = files?.GetLr2PlayHistorySchemaCheckResultForDiagnostics();
+        if (result == null)
         {
-            var stopwatch = Stopwatch.StartNew();
-            Lr2PlayHistorySchemaCheckResult result = files?.GetLr2PlayHistorySchemaCheckResultForDiagnostics();
-            if (result == null)
-            {
-                ResetLr2PlayHistorySchemaStatusFromLibrary();
-                LogSettingsPerformance("settings_schema_status_publish", stopwatch, "result=null action=reset");
-                return;
-            }
-            ApplyLr2PlayHistorySchemaCheckResultFromRead(result);
-            LogSettingsPerformance(
-                "settings_schema_status_publish",
-                stopwatch,
-                "result=published status=" + result.Status
-                + " path=" + (result.ScoreDbPath ?? string.Empty));
+            ResetLr2PlayHistorySchemaStatusFromLibrary();
+            LogSettingsPerformance("settings_schema_status_publish", stopwatch, "result=null action=reset");
+            return;
         }
+        ApplyLr2PlayHistorySchemaCheckResultFromRead(result);
+        LogSettingsPerformance(
+            "settings_schema_status_publish",
+            stopwatch,
+            "result=published status=" + result.Status
+            + " path=" + (result.ScoreDbPath ?? string.Empty));
+    }
 
     private static void LogSettingsPerformance(string action, Stopwatch stopwatch, string detail = null)
     {
@@ -30250,7 +30250,7 @@ public class MainWindowViewModel : ViewModel
     {
         if (CommandLineSwitches.IsInfoLoggingEnabled)
         {
-            LogManager.GetLogger("InstallPerformance.DuplicateMerge").Info(message);
+            NLogWrapper.GetLogger("InstallPerformance.DuplicateMerge").Info(message);
         }
     }
 

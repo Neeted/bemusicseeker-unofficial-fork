@@ -902,23 +902,23 @@ Before uninstalling or making a large update, it is safer to back up the followi
 
 ## Logs and Troubleshooting
 
-To collect more detailed logs than usual, start the app with `LaunchWithInfoLog.bat`. Initialization, DB loading, file scanning, playlist synchronization, and similar information are written to `application.log` and `install-performance.log`.
+Logs are written by default to `log/application.log` and `log/install-performance.log`. Initialization, DB loading, file scanning, playlist synchronization, and similar information are recorded without a special launcher.
 
 For how to read logs, see [BeMusicSeeker INFO Log Guide](log-level-info-guide.md).
 
-> Sorry, but in practice this guide may not be very helpful. Log-output policy has changed during development, so the guide is not sufficient as an explanation of the latest implementation. If behavior is clearly wrong, please start with INFO-level logging enabled and send me the log; it will help with bug fixes.
+When log files grow, older files are rotated under `log/archive/`. For bug reports, start by checking the latest `log/application.log` and `log/install-performance.log`.
 
 ### Startup or Initialization Is Slow
 
 - Check whether Everything 1.5 Alpha x64 is installed.
 - Check whether your BMS folders are searchable from Everything.
 - First-time construction, an empty DB, or large changes to BMS root folders take longer than usual.
-- Looking at `everything_scan`, `song_tbl_file_check`, `playlist_*`, and similar entries in `install-performance.log` can show where time is being spent.
-- If Everything integration fails and BeMusicSeeker switches to ordinary file enumeration, a warning dialog is shown. If it is slower than expected, check `everything_scan`, `nativeBridgeUsed`, `fallback`, `managed`, and similar records in `install-performance.log`.
+- Looking at `everything_scan`, `song_tbl_file_check`, `playlist_*`, and similar entries in `log/install-performance.log` can show where time is being spent.
+- If Everything integration fails and BeMusicSeeker switches to ordinary file enumeration, a warning dialog is shown. If it is slower than expected, check `everything_scan`, `nativeBridgeUsed`, `fallback`, `managed`, and similar records in `log/install-performance.log`.
 
 ### Playlist `STATUS` Fails
 
-The external difficulty-table URL may be returning 404, 403, timeout, or similar errors. Check the tooltip for `STATUS` in the playlist summary, or `playlist_reload_target_failed` in `application.log`.
+The external difficulty-table URL may be returning 404, 403, timeout, or similar errors. Check the tooltip for `STATUS` in the playlist summary, or `playlist_reload_target_failed` in `log/application.log`.
 
 If the external site is temporarily failing, wait and reload later. If the URL has changed, you need to update the URI in playlist properties.
 

@@ -12,6 +12,14 @@
 - SevenZipExtractor
 - BASS.NET
 
+## Logging
+
+通常起動で `log/application.log` と `log/install-performance.log` を出力する。既定ログレベルは `INFO` で、ログファイルはサイズベースで `log/archive/` へローテーションする。
+
+ログ基盤とファイル出力設定は `Ribbit.Logging.NLogWrapper` に集約する。個別機能は `application.log` へ直接追記しない。
+
+詳細は [logging-policy.md](logging-policy.md) を参照する。
+
 ## 起動の主要境界
 
 起動は次の境界を分けて扱う。

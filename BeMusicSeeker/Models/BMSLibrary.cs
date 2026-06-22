@@ -426,7 +426,7 @@ public class BMSLibrary : NotificationObject
         internal PendingEstimateSourceBatchSnapshot BatchSourceSnapshot { get; set; }
     }
 
-    private static readonly Logger installPerformanceLogger = LogManager.GetLogger("InstallPerformance.BMSLibrary");
+    private static readonly Logger installPerformanceLogger = NLogWrapper.GetLogger("InstallPerformance.BMSLibrary");
 
     private static readonly bool installPerformanceLoggingEnabled = CommandLineSwitches.IsInfoLoggingEnabled;
 

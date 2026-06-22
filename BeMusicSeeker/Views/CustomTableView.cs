@@ -16,6 +16,7 @@ using BeMusicSeeker.Diagnostics;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.ViewModels;
 using NLog;
+using Ribbit.Logging;
 
 namespace BeMusicSeeker.Views;
 
@@ -65,7 +66,7 @@ public sealed class CustomTableView : Grid
     private const int RowSubscriptionOverscan = 5;
     private const long RowSubscriptionSlowLogThresholdMs = 100L;
     private const long RenderSlowLogThresholdMs = 100L;
-    private static readonly Logger installPerformanceLogger = LogManager.GetLogger("InstallPerformance.CustomTableView");
+    private static readonly Logger installPerformanceLogger = NLogWrapper.GetLogger("InstallPerformance.CustomTableView");
 
     public static readonly DependencyProperty ItemsSourceProperty = DependencyProperty.Register(
         nameof(ItemsSource),

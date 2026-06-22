@@ -4,12 +4,13 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using NLog;
+using Ribbit.Logging;
 
 namespace BeMusicSeeker.Models.Utils;
 
 public class EverythingFileScanner : IChartFileScanner
 {
-    private static readonly Logger logger = LogManager.GetLogger("InstallPerformance.EverythingScanner");
+    private static readonly Logger logger = NLogWrapper.GetLogger("InstallPerformance.EverythingScanner");
 
     public ChartScanExecutionResult Scan(
         IEnumerable<string> rootDirectories,

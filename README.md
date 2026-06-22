@@ -34,7 +34,7 @@ For first-time setup, operating modes, and screen-by-screen usage, see the [User
    - See the [User Manual](docs/manual.md) for basic operations.
    - See [Install / Pending Packages](docs/manual.md#install--pending-packages) for chart installation and pending-package workflows.
    - See the [Keyword Search Syntax Guide](docs/keyword-search-syntax-guide.md) for advanced search syntax.
-   - Launching through `LaunchWithInfoLog.bat` writes more detailed logs to `application.log` and `install-performance.log`. See the [INFO log guide](docs/log-level-info-guide.md) for how to read them.
+   - Logs are written by default under `log/` as `application.log` and `install-performance.log`. See the [INFO log guide](docs/log-level-info-guide.md) for how to read them.
 
 ## Change Summary
 

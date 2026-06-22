@@ -20,7 +20,9 @@
    - プレイリスト `URL1` / `URL2` の自動ダウンロード解決、一括取り込み、対応サイト。
 7. [workflows.md](workflows.md)
    - リロード、導入、再インストールなどの主要処理フロー。
-8. [testing-strategy.md](testing-strategy.md)
+8. [logging-policy.md](logging-policy.md)
+   - アプリログ、性能診断ログ、出力先、ローテーション、起動引数互換。
+9. [testing-strategy.md](testing-strategy.md)
    - 通常検証、parser 互換検証、大容量 fixture、性能検証の切り分け。
 
 ## 機能別仕様
@@ -39,6 +41,7 @@
 - [appearance-theme.md](appearance-theme.md)
 - [custom-table-view.md](custom-table-view.md)
 - [file-selection-dialogs.md](file-selection-dialogs.md)
+- [logging-policy.md](logging-policy.md)
 - [testing-strategy.md](testing-strategy.md)
 
 ## 旧 TECH_SPEC について

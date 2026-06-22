@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Linq;
 using NLog;
 using NLog.Config;
@@ -7,8 +8,24 @@ using NLog.Targets;
 
 namespace Ribbit.Logging;
 
+/// <summary>
+/// Provides the application-wide NLog configuration surface so callers do not
+/// need to create file targets or logging rules directly.
+/// </summary>
 public static class NLogWrapper
 {
+    private const string LogDirectoryName = "log";
+
+    private const string ArchiveDirectoryName = "archive";
+
+    private const string ApplicationLogFileName = "application.log";
+
+    private const string InstallPerformanceLogFileName = "install-performance.log";
+
+    private const long DefaultArchiveAboveSizeBytes = 20L * 1024L * 1024L;
+
+    private const int DefaultMaxArchiveFiles = 5;
+
     private static Func<Logger> _DebuggerLogger;
 
     private static Func<Logger> _FileLogger;
@@ -109,6 +126,62 @@ public static class NLogWrapper
             }
             LogManager.ReconfigExistingLoggers();
         }
+    }
+
+    /// <summary>
+    /// Configures the app-owned rolling file logs under the executable
+    /// directory. BeMusicSeeker keeps normal diagnostic logs and expensive
+    /// install/performance traces separate so daily troubleshooting can start
+    /// from the smaller file.
+    /// </summary>
+    /// <param name="applicationBaseDirectory">Directory that contains the running executable.</param>
+    /// <param name="minimumFileLogLevel">Minimum level written to the normal application log.</param>
+    /// <param name="enableInstallPerformanceLogging">Whether to write the separated install/performance log.</param>
+    public static void ConfigureApplicationFileLogging(string applicationBaseDirectory, LogLevel minimumFileLogLevel, bool enableInstallPerformanceLogging)
+    {
+        if (string.IsNullOrWhiteSpace(applicationBaseDirectory))
+        {
+            throw new ArgumentException("Application base directory is required.", nameof(applicationBaseDirectory));
+        }
+        LogLevel effectiveMinimumFileLogLevel = minimumFileLogLevel ?? LogLevel.Info;
+        string logDirectoryPath = Path.Combine(applicationBaseDirectory, LogDirectoryName);
+        var applicationFileTarget = CreateRollingFileTarget(
+            "ApplicationFileTarget",
+            Path.Combine(logDirectoryPath, ApplicationLogFileName),
+            Path.Combine(logDirectoryPath, ArchiveDirectoryName, "application.{#}.log"));
+        AddTarget(applicationFileTarget, effectiveMinimumFileLogLevel);
+        SetDefaultConfigurationMinLogLevel(effectiveMinimumFileLogLevel);
+        if (enableInstallPerformanceLogging)
+        {
+            AddInstallPerformanceFileTarget(logDirectoryPath);
+        }
+    }
+
+    private static FileTarget CreateRollingFileTarget(string targetName, string filePath, string archiveFilePath)
+    {
+        return new FileTarget
+        {
+            Name = targetName,
+            FileName = filePath,
+            ArchiveFileName = archiveFilePath,
+            ArchiveAboveSize = DefaultArchiveAboveSizeBytes,
+            ArchiveNumbering = ArchiveNumberingMode.Rolling,
+            MaxArchiveFiles = DefaultMaxArchiveFiles,
+            CreateDirs = true,
+            Layout = DefaultLayout
+        };
+    }
+
+    private static void AddInstallPerformanceFileTarget(string logDirectoryPath)
+    {
+        var target = CreateRollingFileTarget(
+            "InstallPerformanceFileTarget",
+            Path.Combine(logDirectoryPath, InstallPerformanceLogFileName),
+            Path.Combine(logDirectoryPath, ArchiveDirectoryName, "install-performance.{#}.log"));
+        LogManager.Configuration?.AddTarget(target);
+        AddRule(target, LogLevel.Info, "InstallPerformance*", final: true);
+        LogManager.ReconfigExistingLoggers();
+        TraceLogger?.Info("Install performance logging enabled: " + target.FileName);
     }
 
     private static void AddRule(Target target, LogLevel minLevel = null, string patternName = "*", bool final = false)
@@ -216,6 +289,34 @@ public static class NLogWrapper
     public static Logger GetLogger()
     {
         return LogManager.GetCurrentClassLogger();
+    }
+
+    /// <summary>
+    /// Gets a named logger while keeping logger creation behind the shared
+    /// wrapper. Named loggers are used for channels such as InstallPerformance
+    /// where routing depends on the logger name.
+    /// </summary>
+    /// <param name="loggerName">Name used by NLog logging rules.</param>
+    /// <returns>The named logger.</returns>
+    public static Logger GetLogger(string loggerName)
+    {
+        return LogManager.GetLogger(loggerName);
+    }
+
+    /// <summary>
+    /// Gets a logger for a specific owner type. Use this instead of current
+    /// class lookup when the call is routed through this wrapper, because stack
+    /// based lookup would otherwise identify the wrapper itself.
+    /// </summary>
+    /// <param name="loggerOwnerType">Type whose full name should become the logger name.</param>
+    /// <returns>The logger for the specified owner type.</returns>
+    public static Logger GetLogger(Type loggerOwnerType)
+    {
+        if (loggerOwnerType == null)
+        {
+            throw new ArgumentNullException(nameof(loggerOwnerType));
+        }
+        return LogManager.GetLogger(loggerOwnerType.FullName);
     }
 
     public static void AddTarget(TargetWithLayout target, LogLevel minLevel = null, bool asDefault = true)

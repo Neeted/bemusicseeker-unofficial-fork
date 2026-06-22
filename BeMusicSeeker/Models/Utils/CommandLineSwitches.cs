@@ -33,7 +33,7 @@ public static class CommandLineSwitches
         string[] source = [.. args.Where(x => x.StartsWith("--log-level=", StringComparison.OrdinalIgnoreCase))];
         if (source.Length == 0)
         {
-            return (NormalLogLevel.Warn, null);
+            return (NormalLogLevel.Info, null);
         }
         string text = source[source.Length - 1].Substring("--log-level=".Length);
         if (string.Equals(text, "info", StringComparison.OrdinalIgnoreCase))

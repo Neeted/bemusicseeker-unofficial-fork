@@ -124,9 +124,6 @@ function Copy-AppFilesToStaging($targetStagingDir) {
     Copy-Item (Join-Path $buildOutput "native") (Join-Path $targetStagingDir "native") -Recurse
     Copy-Item (Join-Path $buildOutput "lang")   (Join-Path $targetStagingDir "lang")   -Recurse
 
-    # LaunchWithInfoLog.bat
-    Copy-Item (Join-Path $devRoot "scripts\LaunchWithInfoLog.bat") $targetStagingDir
-
     # README, LICENSE, ThirdPartyNotices
     Copy-Item (Join-Path $devRoot "README.md")               $targetStagingDir
     Copy-Item (Join-Path $devRoot "README.ja.md")            $targetStagingDir

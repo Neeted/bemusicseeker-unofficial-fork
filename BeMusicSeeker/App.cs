@@ -21,7 +21,6 @@ using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using Livet;
 using NLog;
-using NLog.Config;
 using NLog.Targets;
 using QuickConverter;
 using Ribbit.Logging;
@@ -67,20 +66,16 @@ public partial class App : System.Windows.Application
         // 起動ログ比較では既定値より MinThreads=200 の方が startup_ready_* 指標が安定して短かったため維持。
         ThreadPool.SetMinThreads(200, 200);
         LogLevel defaultFileLogLevel = ConvertToNLogLevel(CommandLineSwitches.LogLevel);
-        NLogWrapper.AddTarget(new FileTarget
-        {
-            FileName = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location), "application.log")
-        }, defaultFileLogLevel);
+        string applicationBaseDirectory = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? AppDomain.CurrentDomain.BaseDirectory;
+        NLogWrapper.ConfigureApplicationFileLogging(applicationBaseDirectory, defaultFileLogLevel, CommandLineSwitches.IsInfoLoggingEnabled);
         NLogWrapper.AddTarget(new NetworkTarget
         {
             Address = "http://www.ribbit.xyz/bms/tools/bemusicseeker/report.cgi"
         }, LogLevel.Error, asDefault: false);
-        NLogWrapper.SetDefaultConfigurationMinLogLevel(defaultFileLogLevel);
         if (CommandLineSwitches.HasInvalidLogLevelValue)
         {
-            NLogWrapper.TraceLogger?.Warn("Invalid --log-level value '" + CommandLineSwitches.InvalidLogLevelValue + "'. Fallback to Warn.");
+            NLogWrapper.FileLogger?.Warn("Invalid --log-level value '" + CommandLineSwitches.InvalidLogLevelValue + "'. Fallback to Warn.");
         }
-        ConfigureExtraLogging();
         InitializeAvailableCultures();
         LegacyUserConfigMigrator.MigrateIfNeeded(new HashSet<string>(AvailableCultures.Values), CultureInfo.CurrentCulture.Name);
         EquationTokenizer.AddNamespace(typeof(object));
@@ -122,27 +117,6 @@ public partial class App : System.Windows.Application
             NormalLogLevel.Error => LogLevel.Error,
             _ => LogLevel.Warn,
         };
-    }
-
-    private static void ConfigureExtraLogging()
-    {
-        if (CommandLineSwitches.IsInfoLoggingEnabled)
-        {
-            string path = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location), "install-performance.log");
-            var target = new FileTarget
-            {
-                Name = "InstallPerformanceFileTarget",
-                FileName = path,
-                Layout = NLogWrapper.DefaultLayout
-            };
-            LogManager.Configuration?.AddTarget(target);
-            LogManager.Configuration?.LoggingRules.Insert(0, new LoggingRule("InstallPerformance*", LogLevel.Info, target)
-            {
-                Final = true
-            });
-            LogManager.ReconfigExistingLoggers();
-            NLogWrapper.TraceLogger?.Info("Install performance logging enabled: " + path);
-        }
     }
 
     private void Application_Startup(object sender, StartupEventArgs e)

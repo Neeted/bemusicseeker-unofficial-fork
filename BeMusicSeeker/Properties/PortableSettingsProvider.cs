@@ -4,7 +4,6 @@ using System.Collections.Specialized;
 using System.Configuration;
 using System.IO;
 using System.Linq;
-using System.Text;
 using System.Xml.Linq;
 using Ribbit.Logging;
 
@@ -88,7 +87,6 @@ public sealed class PortableSettingsProvider : SettingsProvider, IApplicationSet
                 {
                     var ex = new UnauthorizedAccessException("Portable settings file is read-only.");
                     NLogWrapper.TraceLogger?.Error(ex, "portable_settings_save blocked_readonly path=" + PortableSettingsPath.UserConfigPath);
-                    WriteFallbackErrorLog("portable_settings_save blocked_readonly path=" + PortableSettingsPath.UserConfigPath, ex);
                     return;
                 }
             }
@@ -135,7 +133,6 @@ public sealed class PortableSettingsProvider : SettingsProvider, IApplicationSet
         catch (Exception ex)
         {
             NLogWrapper.TraceLogger?.Error(ex, "portable_settings_save failed path=" + PortableSettingsPath.UserConfigPath);
-            WriteFallbackErrorLog("portable_settings_save failed path=" + PortableSettingsPath.UserConfigPath, ex);
         }
     }
 
@@ -156,7 +153,6 @@ public sealed class PortableSettingsProvider : SettingsProvider, IApplicationSet
         catch (Exception ex)
         {
             NLogWrapper.TraceLogger?.Warn(ex, "portable_settings_reset failed path=" + PortableSettingsPath.UserConfigPath);
-            WriteFallbackErrorLog("portable_settings_reset failed path=" + PortableSettingsPath.UserConfigPath, ex);
         }
     }
 
@@ -269,31 +265,4 @@ public sealed class PortableSettingsProvider : SettingsProvider, IApplicationSet
         return obsoleteSettings.Count;
     }
 
-    private static void WriteFallbackErrorLog(string message, Exception ex)
-    {
-        string text = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.ffff") + " [ERROR] " + message + Environment.NewLine + ex + Environment.NewLine;
-        if (TryAppendText(Path.Combine(PortableSettingsPath.AppBaseDirectory, "application.log"), text))
-        {
-            return;
-        }
-        TryAppendText(Path.Combine(Path.GetTempPath(), "BeMusicSeeker-portable-settings.log"), text);
-    }
-
-    private static bool TryAppendText(string path, string text)
-    {
-        try
-        {
-            string directoryName = Path.GetDirectoryName(path);
-            if (!string.IsNullOrEmpty(directoryName))
-            {
-                Directory.CreateDirectory(directoryName);
-            }
-            File.AppendAllText(path, text, Encoding.UTF8);
-            return true;
-        }
-        catch
-        {
-            return false;
-        }
-    }
 }
