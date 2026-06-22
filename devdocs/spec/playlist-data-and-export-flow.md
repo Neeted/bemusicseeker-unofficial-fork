@@ -139,6 +139,25 @@ LR2 linked profile の起動時には、user.config の既定通常出力先と�
 
 プレイリストプロパティのカスタムフォルダタブにある `OUTPUT` は `custom_folder_output_base_name` を操作し、「フォルダ名」は実効値として `BMSTable.Output_dir` を操作する。入力値は trim 後に Shift-JIS 互換文字列へ丸める。空、または playlist name を同じ規則で丸めた値と同じ場合、DB の `playlist.output_dir` は NULL にし、実効出力フォルダ名は playlist name 由来の値に戻す。`is_root_folder = false` の場合は選択された通常出力先 `\Output_dir`、`is_root_folder = true` の場合は `LR2CustomFolderOutputBaseDirRootType\Output_dir` を出力 directory にする。ROOT ON の間も `custom_folder_output_base_name` は保存するが、実効出力先は常に root 出力先を優先する。UI の「ルートフォルダにする」は `is_root_folder`、出力フォルダ種別のチェック群は `ignore_folder_output` の反転として扱う。DB には「出力する種別」ではなく「出力しない種別」の bit flag が保存される。`ignore_folder_output` は保存値そのものを評価する forward-compatible deny mask であり、既存 row に新しい出力種別 bit が無い場合、その種別は出力対象になる。旧バージョンで全 OFF 相当だった値を現行 `AllFolders` へ拡張する正規化は行わない。EnsureSchema は playlist metadata column を追加し、既存の `ignore_folder_output` 値はそのまま保持する。
 
+`ignore_folder_output` の bit は次の通り。bit が立っている種別は出力しない。bit が立っていない種別は出力対象である。`entry_type = Folder` の playlist では、保存値に関わらず Level は実効的に出力しない。
+
+| 種別 | bit | 新規通常 playlist の既定 | 推定表 playlist の既定 | おすすめ表 playlist の既定 |
+| --- | ---: | --- | --- | --- |
+| User | `0x001` | 出力 | 出力しない | 出力 |
+| Level | `0x002` | 出力しない | 出力 | 出力しない |
+| Alphabet | `0x004` | 出力しない | 出力しない | 出力しない |
+| Clear | `0x008` | 出力 | 出力しない | 出力しない |
+| DJ Level | `0x010` | 出力 | 出力しない | 出力しない |
+| Category All | `0x020` | 出力しない | 出力しない | 出力しない |
+| Other | `0x040` | 出力しない | 出力しない | 出力しない |
+| Random | `0x080` | 出力 | 出力しない | 出力しない |
+| BPM Sort | `0x100` | 出力 | 出力しない | 出力しない |
+| BP Sort | `0x200` | 出力 | 出力しない | 出力しない |
+| Play Count Sort | `0x400` | 出力 | 出力しない | 出力しない |
+| Last Play Sort | `0x800` | 出力 | 出力しない | 出力しない |
+
+新規通常 playlist の初期保存値は `Level | Alphabet | CategoryAll | Other` である。推定表 playlist は Level だけを出力し、おすすめ表 playlist は User だけを出力する。`AllFolders = 0xFFF` は全種別を出力しない deny mask であり、UI の全 OFF 相当として扱う。
+
 出力 directory には `0000.lr2folder` からの連番ファイルを Shift-JIS で作る。階層を持つ種別では、各相対 directory の中で `0000.lr2folder` から採番する。各ファイルは少なくとも `#COMMAND`、`#MAXTRACKS`、`#CATEGORY`、`#TITLE`、`#INFORMATION_A`、`#INFORMATION_B` を持つ。BeMusicSeeker 生成ファイルでは `#CATEGORY` は playlist name、`#TITLE` はフォルダ表示名である。生成順は root 直下の `UserFolder`、`LevelFolder`、`AlphabetFolder`、`CategoryAllFolder`、`OtherFolder` と、階層付きの `ClearFolder`、`DJLevelFolder`、`BpmSortFolder`、`BpSortFolder`、`PlayCountSortFolder`、`LastPlaySortFolder` で構成され、`ignore_folder_output` に含まれる種別は生成しない。`RandomFolder` は単独の抽出条件ではなく、User / Level / Clear / DJ level の各出力に `RANDOM` 版を追加する modifier として扱う。同一 directory 内では通常フォルダを先に連番化し、その後ろに `RANDOM` 版をまとめて配置する。各 playlist の出力 directory 配下は BeMusicSeeker の管理領域であり、同じ出力先への再出力時は期待 projection に含まれない `.lr2folder` を削除対象にする。出力先変更、root 切替、playlist 削除では旧 playlist 出力 directory 全体を削除し、LR2 `folder` row は旧 directory scope で prune する。通常出力先 / root 出力先の直下にある別フォルダや別ファイルは、対応する playlist の `Output_dir` でない限り触らない。管理 playlist の出力先同士が包含関係になる設定は通常経路では想定しない。
 
 生成するフォルダ種別は次の通り。
