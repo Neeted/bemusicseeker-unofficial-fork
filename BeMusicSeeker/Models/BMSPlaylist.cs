@@ -961,14 +961,14 @@ public partial class BMSPlaylist : NotificationObject
             initSemaphore?.Release();
             updateTablesMs = 0L;
             var stopwatchLr2configSync = Stopwatch.StartNew();
-            SyncRootFolderOutputDirectoriesToLr2Config();
+            bool rootOutputSearchRootsChanged = SyncRootFolderOutputDirectoriesToLr2Config();
             stopwatchLr2configSync.Stop();
             lr2configSyncMs = stopwatchLr2configSync.ElapsedMilliseconds;
             QueueDeferredPlaylistEntriesHydration(
                 "Initialize",
                 reloadExtPlaylist,
                 updateCallbackAction == null ? null : [updateCallbackAction],
-                CreatePlaylistHydrationCompletionActions(queueBeatorajaBmtExportAfterHydration, "Initialize"));
+                CreatePlaylistHydrationCompletionActions(queueBeatorajaBmtExportAfterHydration, "Initialize", rootOutputSearchRootsChanged));
         }
         stopwatchInitialize.Stop();
         LogPlaylistPerformance("playlist_init update_tables_ms=" + updateTablesMs + " lr2config_sync_ms=" + lr2configSyncMs + " total_ms=" + stopwatchInitialize.ElapsedMilliseconds);
@@ -1004,14 +1004,14 @@ public partial class BMSPlaylist : NotificationObject
                 + " dbLockWaitMs=0"
                 + " entriesDeferred=true");
             var stopwatchLr2configSync = Stopwatch.StartNew();
-            SyncRootFolderOutputDirectoriesToLr2Config();
+            bool rootOutputSearchRootsChanged = SyncRootFolderOutputDirectoriesToLr2Config();
             stopwatchLr2configSync.Stop();
             lr2configSyncMs = stopwatchLr2configSync.ElapsedMilliseconds;
             QueueDeferredPlaylistEntriesHydration(
                 "ReloadTables",
                 runExternalSyncAfterHydration: false,
                 updateCallbackAction == null ? null : [updateCallbackAction],
-                CreatePlaylistHydrationCompletionActions(queueBeatorajaBmtExportAfterHydration, "ReloadTables"));
+                CreatePlaylistHydrationCompletionActions(queueBeatorajaBmtExportAfterHydration, "ReloadTables", rootOutputSearchRootsChanged));
         }
         stopwatchReloadTables.Stop();
         LogPlaylistPerformance("playlist_reload_tables lr2config_sync_ms=" + lr2configSyncMs + " total_ms=" + stopwatchReloadTables.ElapsedMilliseconds);
@@ -1068,11 +1068,11 @@ public partial class BMSPlaylist : NotificationObject
         return [() => QueueBeatorajaBmtExportAll(reason)];
     }
 
-    private List<Action> CreatePlaylistHydrationCompletionActions(bool queueBeatorajaBmtExportAfterHydration, string reason)
+    private List<Action> CreatePlaylistHydrationCompletionActions(bool queueBeatorajaBmtExportAfterHydration, string reason, bool verifyRootOutputDirectoryRows)
     {
         List<Action> actions =
         [
-            () => QueueCustomFolderOutputRepairAfterHydration(reason)
+            () => QueueCustomFolderOutputRepairAfterHydration(reason, verifyRootOutputDirectoryRows)
         ];
         List<Action> beatorajaBmtActions = CreateBeatorajaBmtProjectionCompletionActions(queueBeatorajaBmtExportAfterHydration, reason);
         if (beatorajaBmtActions != null)
@@ -1082,7 +1082,7 @@ public partial class BMSPlaylist : NotificationObject
         return actions;
     }
 
-    private void QueueCustomFolderOutputRepairAfterHydration(string reason)
+    private void QueueCustomFolderOutputRepairAfterHydration(string reason, bool verifyRootOutputDirectoryRows)
     {
         if (TrySkipForShutdown("custom_folder_repair_after_hydration", reason))
         {
@@ -1095,7 +1095,7 @@ public partial class BMSPlaylist : NotificationObject
 
         Task work()
         {
-            RepairMissingCustomFolderOutputsAfterHydration(reason);
+            RepairMissingCustomFolderOutputsAfterHydration(reason, verifyRootOutputDirectoryRows);
             return Task.CompletedTask;
         }
 
@@ -1791,20 +1791,38 @@ public partial class BMSPlaylist : NotificationObject
         }
     }
 
-    private void SyncRootFolderOutputDirectoriesToLr2Config()
+    private bool SyncRootFolderOutputDirectoriesToLr2Config()
     {
         using (rwlockBMSTables.GetReaderGuard())
         {
             if (!Settings.Default.OperationModeLR2DB)
             {
-                return;
+                return false;
             }
-            IEnumerable<string> second = from t in BMSTables
-                                         where t.is_root_folder && !string.IsNullOrWhiteSpace(t.Output_dir)
-                                         select Path.Combine(Settings.Default.LR2CustomFolderOutputBaseDirRootType, t.Output_dir);
+            List<string> expectedDirectories = [.. (from t in BMSTables
+                                                    where t.is_root_folder && !string.IsNullOrWhiteSpace(t.Output_dir)
+                                                    select Path.Combine(Settings.Default.LR2CustomFolderOutputBaseDirRootType, t.Output_dir))
+                .Where(path => !string.IsNullOrWhiteSpace(path))
+                .Distinct(StringComparer.OrdinalIgnoreCase)];
+            if (expectedDirectories.Count == 0)
+            {
+                return false;
+            }
+            foreach (string expectedDirectory in expectedDirectories)
+            {
+                Directory.CreateDirectory(expectedDirectory);
+            }
             List<string> bMSSearchDirectories = lr2config().GetBMSSearchDirectoriesForChangeTracking();
-            lr2config().SetBMSSearchDirectories(bMSSearchDirectories.Union(second).Distinct(StringComparer.OrdinalIgnoreCase));
+            List<string> missingDirectories = [.. expectedDirectories
+                .Where(path => !bMSSearchDirectories.Contains(path, StringComparer.OrdinalIgnoreCase))];
+            if (missingDirectories.Count == 0)
+            {
+                return false;
+            }
+
+            lr2config().SetBMSSearchDirectories(bMSSearchDirectories.Concat(expectedDirectories).Distinct(StringComparer.OrdinalIgnoreCase));
             lr2config().Save();
+            return true;
         }
     }
 
@@ -3602,7 +3620,7 @@ public partial class BMSPlaylist : NotificationObject
         return result.PreparedDataSurface ?? Lr2SongDbSyncPreparedDataSurface.Empty;
     }
 
-    private int RepairMissingCustomFolderOutputsAfterHydration(string reason)
+    private int RepairMissingCustomFolderOutputsAfterHydration(string reason, bool verifyRootOutputDirectoryRows = false)
     {
         if (!Settings.Default.OperationModeLR2DB)
         {
@@ -3620,8 +3638,9 @@ public partial class BMSPlaylist : NotificationObject
         }
         LogPlaylistPerformance("playlist_custom_folder_output_repair start"
             + " reason=" + (reason ?? "unknown")
-            + " tableCount=" + tableSnapshot.Count);
-        List<CustomFolderOutputPlan> targets = CreateCustomFolderOutputRepairPlans(tableSnapshot, reason);
+            + " tableCount=" + tableSnapshot.Count
+            + " verifyRootOutputDirectoryRows=" + verifyRootOutputDirectoryRows.ToString().ToLowerInvariant());
+        List<CustomFolderOutputPlan> targets = CreateCustomFolderOutputRepairPlans(tableSnapshot, reason, verifyRootOutputDirectoryRows);
         targetStopwatch.Stop();
         if (targets.Count == 0)
         {
@@ -3630,6 +3649,7 @@ public partial class BMSPlaylist : NotificationObject
                 + " reason=" + (reason ?? "unknown")
                 + " tableCount=" + tableSnapshot.Count
                 + " targetCount=0"
+                + " verifyRootOutputDirectoryRows=" + verifyRootOutputDirectoryRows.ToString().ToLowerInvariant()
                 + " targetMs=" + targetStopwatch.ElapsedMilliseconds
                 + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
             return 0;
@@ -3649,12 +3669,13 @@ public partial class BMSPlaylist : NotificationObject
             + " tableCount=" + tableSnapshot.Count
             + " targetCount=" + targets.Count
             + " reOutputCount=" + result.ReOutputCount
+            + " verifyRootOutputDirectoryRows=" + verifyRootOutputDirectoryRows.ToString().ToLowerInvariant()
             + " targetMs=" + targetStopwatch.ElapsedMilliseconds
             + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
         return result.ReOutputCount;
     }
 
-    private List<CustomFolderOutputPlan> CreateCustomFolderOutputRepairPlans(IReadOnlyList<BMSTable> tablesSnapshot, string reason)
+    private List<CustomFolderOutputPlan> CreateCustomFolderOutputRepairPlans(IReadOnlyList<BMSTable> tablesSnapshot, string reason, bool verifyRootOutputDirectoryRows)
     {
         var statusStopwatch = Stopwatch.StartNew();
         Dictionary<int, CustomFolderOutputStatusRow> statusRows = ReadCustomFolderOutputStatusRows();
@@ -3770,6 +3791,7 @@ public partial class BMSPlaylist : NotificationObject
         }
 
         filterStopwatch.Restart();
+        var rootDirectoryRowCheckCandidates = new List<CustomFolderOutputRepairCandidate>();
         foreach (CustomFolderOutputRepairCandidate candidate in physicalCheckCandidates)
         {
             int? playlistId = candidate?.Table?.playlist_id;
@@ -3778,10 +3800,25 @@ public partial class BMSPlaylist : NotificationObject
                 && IsCustomFolderOutputStatusPhysicalCurrent(candidate.OutputDirectory, status, physicalSignatureIndex))
             {
                 currentStatusCount++;
+                if (verifyRootOutputDirectoryRows && candidate?.Table?.is_root_folder == true)
+                {
+                    rootDirectoryRowCheckCandidates.Add(candidate);
+                }
                 continue;
             }
 
             pendingCandidates.Add(candidate);
+        }
+        int rootDirectoryRowRepairCount = 0;
+        if (rootDirectoryRowCheckCandidates.Count > 0)
+        {
+            IReadOnlyCollection<CustomFolderOutputRepairCandidate> rootDirectoryRowRepairCandidates =
+                FindRootOutputDirectoryRowRepairCandidates(rootDirectoryRowCheckCandidates, reason);
+            rootDirectoryRowRepairCount = rootDirectoryRowRepairCandidates.Count;
+            foreach (CustomFolderOutputRepairCandidate candidate in rootDirectoryRowRepairCandidates)
+            {
+                pendingCandidates.Add(candidate);
+            }
         }
         filterStopwatch.Stop();
         LogPlaylistPerformance("playlist_custom_folder_output_repair status_filter_done"
@@ -3789,6 +3826,8 @@ public partial class BMSPlaylist : NotificationObject
             + " candidateCount=" + candidates.Count
             + " statusRowCount=" + statusRows.Count
             + " currentStatusCount=" + currentStatusCount
+            + " rootDirectoryRowCheckCount=" + rootDirectoryRowCheckCandidates.Count
+            + " rootDirectoryRowRepairCount=" + rootDirectoryRowRepairCount
             + " pendingCount=" + pendingCandidates.Count
             + " elapsedMs=" + filterStopwatch.ElapsedMilliseconds);
         if (pendingCandidates.Count == 0)
@@ -3905,6 +3944,91 @@ public partial class BMSPlaylist : NotificationObject
             + " verifiedCurrentCount=" + verifiedCurrentProjections.Count
             + " elapsedMs=" + targetSelectionStopwatch.ElapsedMilliseconds);
         return plans;
+    }
+
+    private IReadOnlyCollection<CustomFolderOutputRepairCandidate> FindRootOutputDirectoryRowRepairCandidates(
+        IReadOnlyCollection<CustomFolderOutputRepairCandidate> candidates,
+        string reason)
+    {
+        List<CustomFolderOutputRepairCandidate> checkCandidates = [.. (candidates ?? [])
+            .Where(candidate => candidate?.Table?.is_root_folder == true
+                && !string.IsNullOrWhiteSpace(candidate.OutputDirectory))];
+        if (checkCandidates.Count == 0)
+        {
+            return [];
+        }
+
+        var expectedPathByCandidate = new Dictionary<CustomFolderOutputRepairCandidate, string>();
+        var expectedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (CustomFolderOutputRepairCandidate candidate in checkCandidates)
+        {
+            string rowPath = Lr2FolderPath.ToFolderPath(candidate.OutputDirectory);
+            rowPath = ResolveCustomFolderDatabasePath(candidate.Table, rowPath ?? candidate.OutputDirectory);
+            string normalizedRowPath = NormalizeCustomFolderRowPath(rowPath);
+            if (string.IsNullOrWhiteSpace(normalizedRowPath))
+            {
+                continue;
+            }
+
+            expectedPathByCandidate[candidate] = normalizedRowPath;
+            expectedPaths.Add(normalizedRowPath);
+        }
+        if (expectedPaths.Count == 0)
+        {
+            return [];
+        }
+
+        var lookupStopwatch = Stopwatch.StartNew();
+        IReadOnlyDictionary<string, LR2SongDB.folder> rowsByPath;
+        try
+        {
+            using var lr2Song = new LR2SongDBExtended(lr2SongDBPath);
+            rowsByPath = Lr2FolderExistingRowLookup
+                .QueryExactPathsForCustomFolderLayout(lr2Song, expectedPaths)
+                .Where(row => !string.IsNullOrWhiteSpace(row?.path))
+                .GroupBy(row => NormalizeCustomFolderRowPath(row.path), StringComparer.OrdinalIgnoreCase)
+                .Where(group => !string.IsNullOrWhiteSpace(group.Key))
+                .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+        }
+        catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException || ex is SQLiteException)
+        {
+            lookupStopwatch.Stop();
+            LogPlaylistPerformance("playlist_custom_folder_output_repair root_directory_row_lookup_failed"
+                + " reason=" + (reason ?? "unknown")
+                + " candidateCount=" + checkCandidates.Count
+                + " expectedPathCount=" + expectedPaths.Count
+                + " exception=" + QuoteLogValue(ex.GetType().Name)
+                + " message=" + QuoteLogValue(ex.Message)
+                + " elapsedMs=" + lookupStopwatch.ElapsedMilliseconds);
+            return checkCandidates;
+        }
+
+        var repairCandidates = new List<CustomFolderOutputRepairCandidate>();
+        foreach (CustomFolderOutputRepairCandidate candidate in checkCandidates)
+        {
+            if (!expectedPathByCandidate.TryGetValue(candidate, out string expectedPath)
+                || rowsByPath.TryGetValue(expectedPath, out LR2SongDB.folder row) != true
+                || !IsRootOutputDirectoryRowCurrent(row))
+            {
+                repairCandidates.Add(candidate);
+            }
+        }
+        lookupStopwatch.Stop();
+        LogPlaylistPerformance("playlist_custom_folder_output_repair root_directory_row_lookup_done"
+            + " reason=" + (reason ?? "unknown")
+            + " candidateCount=" + checkCandidates.Count
+            + " expectedPathCount=" + expectedPaths.Count
+            + " rowCount=" + rowsByPath.Count
+            + " repairCount=" + repairCandidates.Count
+            + " elapsedMs=" + lookupStopwatch.ElapsedMilliseconds);
+        return repairCandidates;
+    }
+
+    private static bool IsRootOutputDirectoryRowCurrent(LR2SongDB.folder row)
+    {
+        return row != null
+            && row.type == 1
+            && string.Equals(row.parent, Lr2SongFolderParentNormalizer.RootParentHash, StringComparison.OrdinalIgnoreCase);
     }
 
     private IReadOnlyDictionary<string, LR2SongDB.folder> ReadCustomFolderOutputRows(

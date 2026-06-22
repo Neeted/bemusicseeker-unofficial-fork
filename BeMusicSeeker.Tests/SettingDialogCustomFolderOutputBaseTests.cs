@@ -430,6 +430,52 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
     }
 
     [TestMethod]
+    public void RootOutputBaseSync_RegistersAndCreatesMissingPlaylistOutputRoot()
+    {
+        bool previousOperationMode = Settings.Default.OperationModeLR2DB;
+        string previousRootOutputBase = Settings.Default.LR2CustomFolderOutputBaseDirRootType;
+        string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_SettingDialog_" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            string manualBmsRoot = Path.Combine(tempRootPath, "ManualBmsRoot");
+            string rootOutputBase = Path.Combine(tempRootPath, "RootOutput");
+            string playlistOutputRoot = Path.Combine(rootOutputBase, "MissingPlaylistOutput");
+            Directory.CreateDirectory(manualBmsRoot);
+            Directory.CreateDirectory(rootOutputBase);
+
+            LR2Config config = CreateConfig(tempRootPath);
+            config.SetBMSSearchDirectories([manualBmsRoot, rootOutputBase]);
+            MainWindowViewModel viewModel = CreateViewModel(config);
+            MainWindowViewModel.SettingDialogViewModel dialog = viewModel.settingDialog;
+            Settings.Default.OperationModeLR2DB = true;
+            Settings.Default.LR2CustomFolderOutputBaseDirRootType = rootOutputBase;
+            SetDialogField(dialog, "tempLR2CustomFolderAsRootOutputDir", string.Empty);
+            string songDbPath = Path.Combine(tempRootPath, "song.db");
+            File.WriteAllBytes(songDbPath, []);
+            SetViewModelTables(
+                viewModel,
+                songDbPath,
+                [new BMSTable { is_root_folder = true, Output_dir = "MissingPlaylistOutput" }]);
+
+            bool changed = (bool)typeof(MainWindowViewModel.SettingDialogViewModel)
+                .GetMethod("SyncRootCustomFolderOutputSearchRootsAfterSettingsChange", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .Invoke(dialog, null)!;
+
+            Assert.IsTrue(changed);
+            Assert.IsTrue(Directory.Exists(playlistOutputRoot));
+            CollectionAssert.Contains(config.GetBMSSearchDirectories(), manualBmsRoot);
+            CollectionAssert.Contains(config.GetBMSSearchDirectories(), playlistOutputRoot);
+            CollectionAssert.DoesNotContain(config.GetBMSSearchDirectories(), rootOutputBase);
+        }
+        finally
+        {
+            Settings.Default.OperationModeLR2DB = previousOperationMode;
+            Settings.Default.LR2CustomFolderOutputBaseDirRootType = previousRootOutputBase;
+            TryDeleteDirectory(tempRootPath);
+        }
+    }
+
+    [TestMethod]
     public void StartupRepair_MovesManagedOutputInstallDirToFirstUserBmsRoot()
     {
         string previousNormalOutputBase = Settings.Default.LR2CustomFolderOutputBaseDir;

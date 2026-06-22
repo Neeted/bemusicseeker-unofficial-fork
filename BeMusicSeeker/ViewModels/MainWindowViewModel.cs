@@ -5676,7 +5676,11 @@ public class MainWindowViewModel : ViewModel
             string previousRootBase = tempLR2CustomFolderAsRootOutputDir;
             IEnumerable<string> previousRootDirectories = CreateRootFolderOutputDirectories(previousRootBase);
             IReadOnlyList<string> currentRootDirectories = CustomFolderOutputBaseRegistry.NormalizeBaseDirectories(
-                CreateRootFolderOutputDirectories(currentRootBase).Where(Directory.Exists));
+                CreateRootFolderOutputDirectories(currentRootBase));
+            foreach (string currentRootDirectory in currentRootDirectories)
+            {
+                Directory.CreateDirectory(currentRootDirectory);
+            }
             List<string> beforeDirectories = lr2config.GetBMSSearchDirectoriesForChangeTracking();
             IReadOnlyList<string> explicitRemoveDirectories = CustomFolderOutputBaseRegistry.NormalizeBaseDirectories(
                 previousRootDirectories.Concat([currentRootBase]));
