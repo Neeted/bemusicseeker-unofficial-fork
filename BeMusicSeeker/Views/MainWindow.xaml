@@ -2087,10 +2087,9 @@
   </Grid.Resources>
   <Grid.RowDefinitions>
     <RowDefinition Height="*" />
-    <RowDefinition Height="5" />
     <RowDefinition Height="*" />
   </Grid.RowDefinitions>
-  <Border Grid.RowSpan="3" BorderThickness="0" IsHitTestVisible="False" />
+  <Border Grid.RowSpan="2" BorderThickness="0" IsHitTestVisible="False" />
   <TreeView Name="treeViewPlaylist" Grid.Row="0" ScrollViewer.HorizontalScrollBarVisibility="Disabled" VirtualizingStackPanel.IsVirtualizing="True" VirtualizingStackPanel.VirtualizationMode="Recycling" BorderThickness="0" Padding="1,5" Background="{DynamicResource App.BackgroundBrush}" Foreground="{DynamicResource App.TextBrush}" FocusVisualStyle="{x:Null}" ItemContainerStyle="{DynamicResource TreeViewItemFullWidthStyle}" MouseRightButtonDown="treeViewItemOnRightClick" PreviewMouseLeftButtonDown="treeViewLeftClick" SelectedItemChanged="treeViewSelectedItemChanged">
 <TreeViewItem Name="treeViewItemPlaylist" IsExpanded="{Binding IsPlaylistTreeExpanded, Mode=TwoWay}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist, Mode=OneWay}" ItemsSource="{Binding BMSTables}" ContextMenu="{StaticResource ResourceKey=treeViewPlaylistRootContextMenu}" Selected="playlistRootSelect">
               <FrameworkElement.Resources>
@@ -2194,8 +2193,9 @@
               </ItemsControl.ItemContainerStyle>
             </TreeViewItem>
   </TreeView>
-  <GridSplitter Name="gridSplitterTree" Style="{StaticResource SidebarSplitterStyle}" Grid.Row="1" Height="5" HorizontalAlignment="Stretch" VerticalAlignment="Center" ResizeDirection="Rows" ResizeBehavior="PreviousAndNext" Margin="0" Panel.ZIndex="1" />
-  <TreeView Name="treeView" Grid.Row="2" ScrollViewer.HorizontalScrollBarVisibility="Disabled" VirtualizingStackPanel.IsVirtualizing="True" VirtualizingStackPanel.VirtualizationMode="Recycling" BorderThickness="0" Padding="1,5" Background="{DynamicResource App.BackgroundBrush}" Foreground="{DynamicResource App.TextBrush}" FocusVisualStyle="{x:Null}" ItemContainerStyle="{DynamicResource TreeViewItemFullWidthStyle}" MouseRightButtonDown="treeViewItemOnRightClick" PreviewMouseLeftButtonDown="treeViewLeftClick" SelectedItemChanged="treeViewSelectedItemChanged">
+  <!-- 5px のドラッグ領域を境界に重ね、透明ヒットゾーンで上下 TreeView のレイアウトを削らない。 -->
+  <GridSplitter Name="gridSplitterTree" Style="{StaticResource SidebarSplitterStyle}" Grid.Row="1" Height="5" HorizontalAlignment="Stretch" VerticalAlignment="Top" ResizeDirection="Rows" ResizeBehavior="PreviousAndCurrent" Margin="0,-2,0,0" Panel.ZIndex="1" />
+  <TreeView Name="treeView" Grid.Row="1" ScrollViewer.HorizontalScrollBarVisibility="Disabled" VirtualizingStackPanel.IsVirtualizing="True" VirtualizingStackPanel.VirtualizationMode="Recycling" BorderThickness="0" Padding="1,5" Background="{DynamicResource App.BackgroundBrush}" Foreground="{DynamicResource App.TextBrush}" FocusVisualStyle="{x:Null}" ItemContainerStyle="{DynamicResource TreeViewItemFullWidthStyle}" MouseRightButtonDown="treeViewItemOnRightClick" PreviewMouseLeftButtonDown="treeViewLeftClick" SelectedItemChanged="treeViewSelectedItemChanged">
 <TreeViewItem IsExpanded="True" IsSelected="{Binding Source={x:Static prop:Settings.Default}, Path=StartupSelectInstallPending, Mode=OneWay, Converter={qc:QuickConverter '!$P'}}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Library, Mode=OneWay}" Selected="rootFolderSelect">
               <FrameworkElement.Resources>
                 <ResourceDictionary>
