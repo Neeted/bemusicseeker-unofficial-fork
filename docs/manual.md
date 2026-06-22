@@ -280,6 +280,22 @@ This setting is used by processes that move bundled files into existing folders,
 
 ## Startup / Reload / Progress Display
 
+### Automatic Updates
+
+![Automatic Update](img/auto_update_dialog.png)
+
+When a newer version is found at startup, the automatic update dialog is shown. Pressing `Update` downloads the selected update package, verifies it, closes the app, and lets the updater replace the files. After the update completes, the app restarts automatically.
+
+The dialog may offer both an app-only package and a package bundled with analyzed metadata. The app-only package updates only the application files. The metadata bundle also includes the latest analyzed metadata, making it easier to show metadata in playlists even for charts you do not currently have.
+
+When updating from a version earlier than v2.1.0.0 to v2.1.0.0, automatic update support is not available yet. Download the release zip from the Release page, extract it, and overwrite the existing files manually as before. Once you are running v2.1.0.0 or later, future releases such as v2.2.0.0 can be applied from this dialog.
+
+During startup initialization, an update package may not be applicable immediately even after you select it. In that case, wait until initialization reaches a state where it can be safely interrupted or completed. Because applying an update closes the running app, BeMusicSeeker waits as needed before shutdown so installs, DB updates, file output, and similar work are not interrupted unsafely.
+
+If automatic update fails, or if you prefer to inspect the release manually, press `Release Page` to open the GitHub release page and update by downloading and overwriting the zip manually.
+
+### Progress Display
+
 BeMusicSeeker startup proceeds in stages.
 
 1. Check settings and the DB
