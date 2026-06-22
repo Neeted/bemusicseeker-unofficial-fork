@@ -12,17 +12,19 @@
    - 起動、導入可能 readiness、startup background scheduler。
 3. [data-and-indexes.md](data-and-indexes.md)
    - catalog、resource index、chart-relative key、DB table。
-4. [lr2-song-db-generation.md](lr2-song-db-generation.md)
+4. [path-identity.md](path-identity.md)
+   - DB 上の `path` identity、case-sensitive exact match、`COLLATE NOCASE` の利用制限。
+5. [lr2-song-db-generation.md](lr2-song-db-generation.md)
    - LR2 連携モードの `song.db` 生成、`song` / `folder`、`.lr2folder`、自動更新設定。
-5. [install-estimation-current-logic.md](install-estimation-current-logic.md)
+6. [install-estimation-current-logic.md](install-estimation-current-logic.md)
    - 導入先推定の現行仕様。
-6. [playlist-url-download-resolution.md](playlist-url-download-resolution.md)
+7. [playlist-url-download-resolution.md](playlist-url-download-resolution.md)
    - プレイリスト `URL1` / `URL2` の自動ダウンロード解決、一括取り込み、対応サイト。
-7. [workflows.md](workflows.md)
+8. [workflows.md](workflows.md)
    - リロード、導入、再インストールなどの主要処理フロー。
-8. [logging-policy.md](logging-policy.md)
+9. [logging-policy.md](logging-policy.md)
    - アプリログ、性能診断ログ、出力先、ローテーション、起動引数互換。
-9. [testing-strategy.md](testing-strategy.md)
+10. [testing-strategy.md](testing-strategy.md)
    - 通常検証、parser 互換検証、大容量 fixture、性能検証の切り分け。
 
 ## 機能別仕様
@@ -31,6 +33,7 @@
 - [chart-info-parser-compatibility-notes.md](chart-info-parser-compatibility-notes.md)
 - [startup-reload-progress.md](startup-reload-progress.md)
 - [settings-change-impact-and-startup-operations.md](settings-change-impact-and-startup-operations.md)
+- [path-identity.md](path-identity.md)
 - [lr2-song-db-generation.md](lr2-song-db-generation.md)
 - [playlist-data-and-export-flow.md](playlist-data-and-export-flow.md)
 - [play-history.md](play-history.md)

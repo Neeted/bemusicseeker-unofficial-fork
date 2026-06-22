@@ -556,7 +556,7 @@ public sealed class AppSchemaPreflightServiceTests
     }
 
     [TestMethod]
-    public void CommitFileScanDiffChunk_BulkUpsertsMaintenanceRowsWithNocaseLastWriteWins()
+    public void CommitFileScanDiffChunk_BulkUpsertsMaintenanceRowsWithExactCaseDistinctPaths()
     {
         string tempDbPath = CreateEmptySongDbPath();
         try
@@ -593,19 +593,27 @@ public sealed class AppSchemaPreflightServiceTests
             }
 
             using var verify = new LR2SongDBExtended(tempDbPath);
-            List<BMSFileMaintenanceInfo> rows = [.. verify.Table<BMSFileMaintenanceInfo>()];
-            Assert.AreEqual(1, rows.Count);
-            BMSFileMaintenanceInfo row = rows[0];
-            Assert.AreEqual(@"D:\BMS\Pack\Song\chart.bms", row.path);
-            Assert.AreEqual("22222222222222222222222222222222", row.hash);
-            Assert.AreEqual("utf-8", row.encoding);
-            Assert.AreEqual(2, row.wav_files_defined);
-            Assert.AreEqual(2, row.wav_files_existing);
-            Assert.AreEqual(true, row.is_stagefile_defined);
-            Assert.AreEqual(true, row.is_stagefile_existing);
-            Assert.IsTrue(row.is_files_warning_ignored);
-            Assert.AreEqual(4, row.lr2_warning_flags);
-            Assert.AreEqual(120, row.lr2_resource_max_relative_cp932_bytes);
+            List<BMSFileMaintenanceInfo> rows = [.. verify.Table<BMSFileMaintenanceInfo>().OrderBy(row => row.path, StringComparer.Ordinal)];
+            Assert.AreEqual(2, rows.Count);
+            BMSFileMaintenanceInfo upperCaseRow = rows.Single(row => row.path == @"D:\BMS\Pack\Song\Chart.bms");
+            Assert.AreEqual("11111111111111111111111111111111", upperCaseRow.hash);
+            Assert.AreEqual("shift_jis", upperCaseRow.encoding);
+            Assert.AreEqual(1, upperCaseRow.wav_files_defined);
+            Assert.AreEqual(0, upperCaseRow.wav_files_existing);
+            Assert.AreEqual(true, upperCaseRow.is_stagefile_defined);
+            Assert.AreEqual(false, upperCaseRow.is_stagefile_existing);
+            Assert.IsFalse(upperCaseRow.is_files_warning_ignored);
+
+            BMSFileMaintenanceInfo lowerCaseRow = rows.Single(row => row.path == @"D:\BMS\Pack\Song\chart.bms");
+            Assert.AreEqual("22222222222222222222222222222222", lowerCaseRow.hash);
+            Assert.AreEqual("utf-8", lowerCaseRow.encoding);
+            Assert.AreEqual(2, lowerCaseRow.wav_files_defined);
+            Assert.AreEqual(2, lowerCaseRow.wav_files_existing);
+            Assert.AreEqual(true, lowerCaseRow.is_stagefile_defined);
+            Assert.AreEqual(true, lowerCaseRow.is_stagefile_existing);
+            Assert.IsTrue(lowerCaseRow.is_files_warning_ignored);
+            Assert.AreEqual(4, lowerCaseRow.lr2_warning_flags);
+            Assert.AreEqual(120, lowerCaseRow.lr2_resource_max_relative_cp932_bytes);
         }
         finally
         {

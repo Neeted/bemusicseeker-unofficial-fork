@@ -129,8 +129,8 @@ internal sealed class RootFileEnumerationResult
             return;
         }
 
-        PathsByGroup[groupName] = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        EntriesByGroup[groupName] = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
+        PathsByGroup[groupName] = new HashSet<string>(StringComparer.Ordinal);
+        EntriesByGroup[groupName] = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.Ordinal);
         QueryMsByGroup[groupName] = 0L;
         QueryHitCountByGroup[groupName] = 0UL;
     }
@@ -144,13 +144,13 @@ internal sealed class RootFileEnumerationResult
 
         if (!PathsByGroup.TryGetValue(groupName, out HashSet<string> paths))
         {
-            paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            paths = new HashSet<string>(StringComparer.Ordinal);
             PathsByGroup[groupName] = paths;
         }
 
         if (!EntriesByGroup.TryGetValue(groupName, out Dictionary<string, RootFileEnumerationEntry> entries))
         {
-            entries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
+            entries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.Ordinal);
             EntriesByGroup[groupName] = entries;
         }
 

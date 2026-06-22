@@ -58,6 +58,34 @@ public sealed class RootFileEnumerationTests
     }
 
     [TestMethod]
+    public void RootFileEnumerationResult_KeepsCaseOnlyChartPathsDistinct()
+    {
+        string upperPath = @"D:\BMS\Pack\Song\Chart.bms";
+        string lowerPath = @"D:\BMS\Pack\Song\chart.bms";
+        var upperEntry = new RootFileEnumerationEntry(upperPath);
+        var lowerEntry = new RootFileEnumerationEntry(lowerPath);
+        var enumeration = new RootFileEnumerationResult();
+        enumeration.InitializeGroup(ChartDirectoryScanBuilder.ChartGroupName);
+
+        enumeration.AddEntry(ChartDirectoryScanBuilder.ChartGroupName, upperEntry);
+        enumeration.AddEntry(ChartDirectoryScanBuilder.ChartGroupName, lowerEntry);
+
+        Assert.AreEqual(2, enumeration.GetPaths(ChartDirectoryScanBuilder.ChartGroupName).Count);
+        Assert.AreSame(upperEntry, enumeration.GetEntry(ChartDirectoryScanBuilder.ChartGroupName, upperPath));
+        Assert.AreSame(lowerEntry, enumeration.GetEntry(ChartDirectoryScanBuilder.ChartGroupName, lowerPath));
+
+        ChartScanResult scanResult = ChartDirectoryScanBuilder.BuildFromAbsolutePaths(
+            [upperEntry, lowerEntry],
+            [],
+            [],
+            [],
+            []);
+        Assert.AreEqual(2, scanResult.ChartFilePaths.Count);
+        Assert.IsTrue(scanResult.ChartFileEntriesByPath.ContainsKey(upperPath));
+        Assert.IsTrue(scanResult.ChartFileEntriesByPath.ContainsKey(lowerPath));
+    }
+
+    [TestMethod]
     public void FastEnumerator_ReturnsDirectoryMetadataEntries()
     {
         string tempRoot = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_RootEnumDirs_" + Guid.NewGuid().ToString("N"));

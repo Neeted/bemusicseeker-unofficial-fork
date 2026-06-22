@@ -1091,15 +1091,15 @@ internal static class Lr2SongDbSyncService
             .Distinct(StringComparer.OrdinalIgnoreCase)];
         var currentPaths = new HashSet<string>(
             (currentSongRows ?? []).Select(row => NormalizeFilePathOrNull(row?.path)).Where(path => !string.IsNullOrWhiteSpace(path)),
-            StringComparer.OrdinalIgnoreCase);
+            StringComparer.Ordinal);
         Dictionary<string, StartupDiagnosticSongRow> rowsByPath = songDb.Query<StartupDiagnosticSongRow>(
                 "SELECT "
                 + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.path) + " AS Path, "
                 + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.date) + " AS Date"
                 + " FROM " + SQLiteTable<LR2SongDB.song>.GetTableName() + ";")
             .Where(row => !string.IsNullOrWhiteSpace(row?.Path))
-            .GroupBy(row => NormalizeFilePathOrNull(row.Path) ?? row.Path, StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+            .GroupBy(row => NormalizeFilePathOrNull(row.Path) ?? row.Path, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
 
         int noRootSetBlockerCount = 0;
         int missingCurrentSongRowCount = 0;
@@ -3323,9 +3323,8 @@ internal static class Lr2SongDbSyncService
             + ", t.lr2_resource_max_relative_cp932_bytes"
             + ", t.lr2_resource_has_parent_traversal "
             + "FROM " + tempName + " t "
-            + "JOIN " + tableName + " m INDEXED BY " + BmsLibraryDbGateway.MaintenancePathNocaseIndexName
-            + " ON m." + pathColumn + " = t.path COLLATE NOCASE "
-            + "WHERE m." + pathColumn + " COLLATE NOCASE IN (SELECT path FROM " + tempName + ") "
+            + "JOIN " + tableName + " m ON m." + pathColumn + " = t.path "
+            + "WHERE m." + pathColumn + " IN (SELECT path FROM " + tempName + ") "
             + "AND (" + changedPredicate + ");");
         int updated = songDb.Execute(
             "UPDATE " + tableName
@@ -3350,8 +3349,8 @@ internal static class Lr2SongDbSyncService
             + ", t.lr2_resource_max_relative_cp932_bytes"
             + ", t.lr2_resource_has_parent_traversal "
             + "FROM " + tempName + " t "
-            + "WHERE NOT EXISTS (SELECT 1 FROM " + tableName + " m INDEXED BY " + BmsLibraryDbGateway.MaintenancePathNocaseIndexName
-            + " WHERE m." + pathColumn + " = t.path COLLATE NOCASE);");
+            + "WHERE NOT EXISTS (SELECT 1 FROM " + tableName + " m"
+            + " WHERE m." + pathColumn + " = t.path);");
         return new Lr2CompatibilityFactsWriteResult(updated, inserted);
     }
 
@@ -3359,7 +3358,7 @@ internal static class Lr2SongDbSyncService
     {
         songDb.Execute(
             "CREATE TEMP TABLE IF NOT EXISTS temp." + TempLr2CompatibilityMaintenanceTable
-            + " (path TEXT PRIMARY KEY COLLATE NOCASE, "
+            + " (path TEXT PRIMARY KEY, "
             + "hash TEXT, "
             + "lr2_warning_flags INTEGER, "
             + "lr2_resource_max_relative_cp932_bytes INTEGER, "

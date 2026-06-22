@@ -6,8 +6,6 @@ internal sealed class FileScanDiffCommitMetrics
 
     public long BmsDeleteMs { get; set; }
 
-    public long BmsPathCaseUpdateMs { get; set; }
-
     public long BmsDateUpdateMs { get; set; }
 
     public long BmsUpsertMs { get; set; }
@@ -15,8 +13,6 @@ internal sealed class FileScanDiffCommitMetrics
     public int BmsChangedCount { get; set; }
 
     public long BmsonDeleteMs { get; set; }
-
-    public long BmsonPathCaseUpdateMs { get; set; }
 
     public long BmsonUpsertMs { get; set; }
 
@@ -26,11 +22,9 @@ internal sealed class FileScanDiffCommitMetrics
 
     public long ApplyMs => SchemaMs
         + BmsDeleteMs
-        + BmsPathCaseUpdateMs
         + BmsDateUpdateMs
         + BmsUpsertMs
         + BmsonDeleteMs
-        + BmsonPathCaseUpdateMs
         + BmsonUpsertMs
         + MaintenanceUpsertMs
         + ChartInfoMs;
@@ -43,12 +37,10 @@ internal sealed class FileScanDiffCommitMetrics
         }
         SchemaMs += source.SchemaMs;
         BmsDeleteMs += source.BmsDeleteMs;
-        BmsPathCaseUpdateMs += source.BmsPathCaseUpdateMs;
         BmsDateUpdateMs += source.BmsDateUpdateMs;
         BmsUpsertMs += source.BmsUpsertMs;
         BmsChangedCount += source.BmsChangedCount;
         BmsonDeleteMs += source.BmsonDeleteMs;
-        BmsonPathCaseUpdateMs += source.BmsonPathCaseUpdateMs;
         BmsonUpsertMs += source.BmsonUpsertMs;
         MaintenanceUpsertMs += source.MaintenanceUpsertMs;
         ChartInfoMs += source.ChartInfoMs;

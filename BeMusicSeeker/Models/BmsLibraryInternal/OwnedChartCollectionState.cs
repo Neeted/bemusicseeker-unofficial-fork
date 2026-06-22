@@ -110,7 +110,7 @@ internal sealed class OwnedChartStorageOwnerView
     {
         BmsFiles = bmsFiles ?? [];
         BmsonSongs = bmsonSongs ?? [];
-        this.ownerPaths = ownerPaths ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        this.ownerPaths = ownerPaths ?? new HashSet<string>(StringComparer.Ordinal);
     }
 
     internal IReadOnlyList<BMSFile> BmsFiles { get; }
@@ -158,7 +158,7 @@ internal sealed class OwnedChartCollectionState
     private readonly List<ChartFile> charts;
     private readonly Dictionary<BMSFile, ChartFile> bmsChartsByOwner = [];
     private readonly Dictionary<LR2SongDBExtended.bmson_song, ChartFile> bmsonChartsByOwner = [];
-    private readonly Dictionary<string, ChartFile> chartsByPath = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, ChartFile> chartsByPath = new(StringComparer.Ordinal);
     private readonly Dictionary<ChartFile, string> pathKeyByChart = [];
     private LibraryChartRefIndexSnapshot libraryChartRefIndexSnapshot;
     private OwnedDuplicateChartRowSnapshot duplicateChartRowSnapshot;
@@ -190,7 +190,7 @@ internal sealed class OwnedChartCollectionState
         List<LR2SongDBExtended.bmson_song> bmsonSongList = [.. (bmsonSongs ?? []).Where(song => song != null)];
         List<BMSFile> ownedBmsFiles = [];
         List<LR2SongDBExtended.bmson_song> ownedBmsonSongs = [];
-        var ownedPathKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var ownedPathKeys = new HashSet<string>(StringComparer.Ordinal);
         int pathlessBmsCount = 0;
         int pathlessBmsonCount = 0;
         int md5lessBmsCount = 0;
@@ -455,7 +455,7 @@ internal sealed class OwnedChartCollectionState
     {
         var pathSet = new HashSet<string>(
             (paths ?? []).Select(CreateOwnedPathKey).Where(path => !string.IsNullOrWhiteSpace(path)),
-            StringComparer.OrdinalIgnoreCase);
+            StringComparer.Ordinal);
         if (pathSet.Count == 0)
         {
             return [];
@@ -684,7 +684,7 @@ internal sealed class OwnedChartCollectionState
     {
         var bmsFiles = new List<BMSFile>();
         var bmsonSongs = new List<LR2SongDBExtended.bmson_song>();
-        var ownerPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var ownerPaths = new HashSet<string>(StringComparer.Ordinal);
         foreach (ChartFile chart in charts)
         {
             BMSFile bmsOwner = chart?.GetBmsStorageOwner();
@@ -709,7 +709,7 @@ internal sealed class OwnedChartCollectionState
     {
         var bmsFiles = new List<BMSFile>();
         var bmsonSongs = new List<LR2SongDBExtended.bmson_song>();
-        var ownerPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var ownerPaths = new HashSet<string>(StringComparer.Ordinal);
         foreach (ChartFile chart in charts)
         {
             BMSFile bmsOwner = chart?.GetBmsStorageOwner();
@@ -1025,18 +1025,18 @@ internal sealed class OwnedChartCollectionState
         if (bmsOwner != null)
         {
             return ReferenceEquals(row.BmsFile, bmsOwner)
-                || (row.ChartKind == ChartFileKind.Bms && string.Equals(row.Path, bmsOwner.path, System.StringComparison.OrdinalIgnoreCase));
+                || (row.ChartKind == ChartFileKind.Bms && string.Equals(row.Path, bmsOwner.path, System.StringComparison.Ordinal));
         }
 
         LR2SongDBExtended.bmson_song bmsonOwner = chart.GetBmsonStorageOwner();
         if (bmsonOwner != null)
         {
             return ReferenceEquals(row.BmsonSong, bmsonOwner)
-                || (row.ChartKind == ChartFileKind.Bmson && string.Equals(row.Path, bmsonOwner.path, System.StringComparison.OrdinalIgnoreCase));
+                || (row.ChartKind == ChartFileKind.Bmson && string.Equals(row.Path, bmsonOwner.path, System.StringComparison.Ordinal));
         }
 
         return row.ChartKind == chart.Kind
-            && string.Equals(row.Path, chart.Path, System.StringComparison.OrdinalIgnoreCase);
+            && string.Equals(row.Path, chart.Path, System.StringComparison.Ordinal);
     }
 
     private static bool IsSameDuplicateRowKind(DuplicateChartRow row, LibraryChartKind kind)
@@ -1052,7 +1052,7 @@ internal sealed class OwnedChartCollectionState
     {
         return new HashSet<string>(
             (paths ?? []).Select(CreateOwnedPathKey).Where(path => !string.IsNullOrWhiteSpace(path)),
-            StringComparer.OrdinalIgnoreCase);
+            StringComparer.Ordinal);
     }
 
     private static void AddOwnerPath(ISet<string> ownerPaths, string path)
@@ -1123,14 +1123,14 @@ internal sealed class OwnedChartCollectionState
         currentPathChanges = [.. currentPathChanges
             .GroupBy(
                 change => (CreateStorageIdentityKey(change.Chart) ?? string.Empty) + "|" + (CreateOwnedPathKey(change.NewPath) ?? string.Empty),
-                StringComparer.OrdinalIgnoreCase)
+                StringComparer.Ordinal)
             .Select(group => group.First())];
         if (currentPathChanges.Any(change => string.IsNullOrWhiteSpace(change.NewPath)))
         {
             throw new InvalidOperationException("Owned chart path changes must keep a non-empty path.");
         }
         var changingCharts = new HashSet<ChartFile>();
-        var newPathKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var newPathKeys = new HashSet<string>(StringComparer.Ordinal);
         foreach (LibraryChartPathChange pathChange in currentPathChanges)
         {
             if (!TryResolveCurrentChartByOwner(pathChange.Chart, out ChartFile currentChart))
@@ -1190,7 +1190,7 @@ internal sealed class OwnedChartCollectionState
                 DuplicateChartRow row = rows[i];
                 if (row == null
                     || !IsSameDuplicateRowKind(row, change.Kind)
-                    || !string.Equals(row.Path, change.Path, System.StringComparison.OrdinalIgnoreCase))
+                    || !string.Equals(row.Path, change.Path, System.StringComparison.Ordinal))
                 {
                     continue;
                 }
@@ -1502,7 +1502,7 @@ internal sealed class OwnedChartCollectionState
         IEnumerable<BMSFile> bmsFiles,
         IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs)
     {
-        var pathKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var pathKeys = new HashSet<string>(StringComparer.Ordinal);
         foreach (BMSFile file in bmsFiles ?? [])
         {
             string pathKey = CreateOwnedPathKey(file?.path);
@@ -1722,7 +1722,7 @@ internal sealed class OwnedChartCollectionState
         }
 
         string pathKey = ChartFileRuntimeStateKey.CreatePathKey(kind, path);
-        if (!string.IsNullOrWhiteSpace(pathKey) && !string.Equals(pathKey, primaryKey, System.StringComparison.OrdinalIgnoreCase))
+        if (!string.IsNullOrWhiteSpace(pathKey) && !string.Equals(pathKey, primaryKey, System.StringComparison.Ordinal))
         {
             keys.Add(pathKey);
         }
@@ -1732,8 +1732,8 @@ internal sealed class OwnedChartCollectionState
     {
         private readonly HashSet<BMSFile> bmsOwners = [];
         private readonly HashSet<LR2SongDBExtended.bmson_song> bmsonOwners = [];
-        private readonly HashSet<string> bmsPaths = new(System.StringComparer.OrdinalIgnoreCase);
-        private readonly HashSet<string> bmsonPaths = new(System.StringComparer.OrdinalIgnoreCase);
+        private readonly HashSet<string> bmsPaths = new(System.StringComparer.Ordinal);
+        private readonly HashSet<string> bmsonPaths = new(System.StringComparer.Ordinal);
 
         private RemovedChartKeySet()
         {

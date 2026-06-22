@@ -72,8 +72,8 @@ internal sealed class EverythingRootFileEnumerator : IRootFileEnumerator
                 }
 
                 EverythingNative.BridgeGroupedEnumerationGroupResult groupResult = entry.Value;
-                result.PathsByGroup[groupName] = groupResult.Paths ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                result.EntriesByGroup[groupName] = groupResult.Entries ?? new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
+                result.PathsByGroup[groupName] = groupResult.Paths ?? new HashSet<string>(StringComparer.Ordinal);
+                result.EntriesByGroup[groupName] = groupResult.Entries ?? new Dictionary<string, RootFileEnumerationEntry>(StringComparer.Ordinal);
                 result.QueryMsByGroup[groupName] = groupResult.QueryMs;
                 result.QueryHitCountByGroup[groupName] = groupResult.HitCount;
             }
@@ -87,7 +87,7 @@ internal sealed class EverythingRootFileEnumerator : IRootFileEnumerator
                 result.TotalFileCount = groupedResult?.TotalFileCount ?? 0;
                 if (result.TotalFileCount == 0)
                 {
-                    result.TotalFileCount = result.PathsByGroup.Values.SelectMany(paths => paths).Distinct(StringComparer.OrdinalIgnoreCase).Count();
+                    result.TotalFileCount = result.PathsByGroup.Values.SelectMany(paths => paths).Distinct(StringComparer.Ordinal).Count();
                 }
             }
 

@@ -130,8 +130,6 @@ internal sealed class SongTableFileCheckResult
 
     public int BmsTextOnlyUpdateCount { get; set; }
 
-    public int BmsPathCaseUpdateCount { get; set; }
-
     public int BmsLegacyExistingProtectedCount { get; set; }
 
     public int BmsMovedHashRelinkCount { get; set; }
@@ -141,8 +139,6 @@ internal sealed class SongTableFileCheckResult
     public int BmsonUpsertTargetCount { get; set; }
 
     public int BmsonDeletedTargetCount { get; set; }
-
-    public int BmsonPathCaseUpdateCount { get; set; }
 
     public int BmsMtimeFallbackCount { get; set; }
 
@@ -300,8 +296,6 @@ internal sealed class SongTableFileCheckResult
 
     public long DbCommitBmsDeleteMs { get; set; }
 
-    public long DbCommitBmsPathCaseUpdateMs { get; set; }
-
     public long DbCommitBmsDateUpdateMs { get; set; }
 
     public long DbCommitBmsUpsertMs { get; set; }
@@ -309,8 +303,6 @@ internal sealed class SongTableFileCheckResult
     public int DbCommitBmsChangedCount { get; set; }
 
     public long DbCommitBmsonDeleteMs { get; set; }
-
-    public long DbCommitBmsonPathCaseUpdateMs { get; set; }
 
     public long DbCommitBmsonUpsertMs { get; set; }
 

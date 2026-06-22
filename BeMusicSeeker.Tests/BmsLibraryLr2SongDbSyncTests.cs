@@ -5002,6 +5002,51 @@ public sealed class BmsLibraryLr2SongDbSyncTests
     }
 
     [TestMethod]
+    public void SyncService_PrunesCaseOnlyStaleSongRowsByExactCurrentPath()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
+        string songDirectory = Path.Combine(rootDirectory, "CaseOnly");
+        Directory.CreateDirectory(songDirectory);
+        string currentPath = Path.Combine(songDirectory, "chart.bms");
+        File.WriteAllText(currentPath, "#TITLE current\r\n#00111:01\r\n", Encoding.ASCII);
+        TestableBmsFile currentFile = CreateSyncTestFile(currentPath, ChartFileContentReader.ReadSnapshot(currentPath));
+        string stalePath = Path.Combine(songDirectory, "CHART.BMS");
+        string staleHash = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        songDb.CreateTable<LR2SongDB.song>();
+        songDb.CreateTable<LR2SongDB.folder>();
+        BmsLibraryDbGateway.EnsureMaintenanceSchema(songDb);
+        songDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
+        songDb.InsertOrReplace(new TestableBmsFile
+        {
+            path = stalePath,
+            date = 1
+        }.WithHashAndFavorite(staleHash, favoriteValue: 7), typeof(LR2SongDB.song));
+        songDb.InsertOrReplace(new BMSFileMaintenanceInfo
+        {
+            path = stalePath,
+            hash = staleHash
+        }, typeof(LR2SongDBExtended.maintenance));
+
+        Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
+        {
+            Signature = "prune-case-only-stale-song-row",
+            RunId = "prune-case-only-stale-song-row-run",
+            RootDirectories = [rootDirectory],
+            ChartPaths = [currentPath],
+            SongRows = [currentFile],
+            StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc)
+        });
+
+        Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, result.FinalStage);
+        Assert.AreEqual(1, result.StaleSongRowPrunedCount);
+        Assert.IsNotNull(songDb.Find<LR2SongDB.song>(currentPath));
+        Assert.IsNull(songDb.Find<LR2SongDB.song>(stalePath));
+        Assert.AreEqual(0, songDb.ExecuteScalar<int>("SELECT COUNT(*) FROM maintenance WHERE path = ?;", stalePath));
+    }
+
+    [TestMethod]
     public void SyncService_RollsBackFailedSongRowChunkAndRetriesFromChunkStart()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
@@ -5402,13 +5447,13 @@ public sealed class BmsLibraryLr2SongDbSyncTests
     }
 
     [TestMethod]
-    public void SyncService_UpsertsLr2CompatibilityFactsByPathNocaseWithoutDuplicate()
+    public void SyncService_UpsertsLr2CompatibilityFactsByExactPath()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
-        string songDirectory = Path.Combine(scope.DirectoryPath, "Lr2CompatibilityNocase");
+        string songDirectory = Path.Combine(scope.DirectoryPath, "Lr2CompatibilityExact");
         Directory.CreateDirectory(songDirectory);
         string chartPath = Path.Combine(songDirectory, "chart.bms");
-        WriteBasicBms(chartPath, "lr2 compatibility nocase", CreateLr2TooLongResourcePath());
+        WriteBasicBms(chartPath, "lr2 compatibility exact", CreateLr2TooLongResourcePath());
         ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
         TestableBmsFile file = CreateSyncTestFile(chartPath, snapshot);
         string existingPath = Path.Combine(songDirectory, "CHART.BMS");
@@ -5423,18 +5468,17 @@ public sealed class BmsLibraryLr2SongDbSyncTests
 
         Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
-            Signature = "lr2-compatibility-nocase",
-            RunId = "lr2-compatibility-nocase",
+            Signature = "lr2-compatibility-exact",
+            RunId = "lr2-compatibility-exact",
             SongRows = [file],
             StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc)
         });
 
         Assert.AreEqual(1, result.SongRowLr2CompatibilityAppliedCount);
-        Assert.AreEqual(
-            1,
-            songDb.ExecuteScalar<int>("SELECT COUNT(*) FROM maintenance WHERE path = ? COLLATE NOCASE;", chartPath));
-        Assert.AreEqual(file.hash, songDb.ExecuteScalar<string>("SELECT hash FROM maintenance WHERE path = ?;", existingPath));
-        int flags = songDb.ExecuteScalar<int>("SELECT lr2_warning_flags FROM maintenance WHERE path = ?;", existingPath);
+        Assert.AreEqual(2, songDb.Table<BMSFileMaintenanceInfo>().Count());
+        Assert.AreEqual("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", songDb.ExecuteScalar<string>("SELECT hash FROM maintenance WHERE path = ?;", existingPath));
+        Assert.AreEqual(file.hash, songDb.ExecuteScalar<string>("SELECT hash FROM maintenance WHERE path = ?;", chartPath));
+        int flags = songDb.ExecuteScalar<int>("SELECT lr2_warning_flags FROM maintenance WHERE path = ?;", chartPath);
         Assert.IsTrue((flags & (int)Lr2CompatibilityWarningFlags.ResourcePathTooLong) != 0);
     }
 

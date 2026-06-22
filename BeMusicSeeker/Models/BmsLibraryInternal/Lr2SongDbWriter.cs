@@ -111,8 +111,6 @@ internal static class Lr2SongDbWriter
 
     private const string TempGeneratedSongUpsertTable = "lr2_song_db_sync_generated_song_upsert";
 
-    private const string TempGeneratedSongPathCaseUpdateTable = "lr2_song_db_sync_generated_song_path_case_update";
-
     internal static bool UpsertGeneratedSong(LR2SongDBExtended songDb, BMSFile song)
     {
         if (songDb == null)
@@ -137,7 +135,6 @@ internal static class Lr2SongDbWriter
         else if (!HasSameGeneratedColumns(song, existingSong))
         {
             UpdateGeneratedColumns(songDb, song);
-            UpdateMaintenancePathCase(songDb, existingSong.path, song.path);
             changed = true;
         }
         BmsLibraryDbGateway.UpsertChartDigest(songDb, song);
@@ -222,11 +219,11 @@ internal static class Lr2SongDbWriter
         }
 
         int duplicatePathCount = sourceRows.Count
-            - sourceRows.Select(song => song.path).Distinct(StringComparer.OrdinalIgnoreCase).Count();
+            - sourceRows.Select(song => song.path).Distinct(StringComparer.Ordinal).Count();
         if (duplicatePathCount > 0)
         {
             IReadOnlyList<string> duplicateSamples = [.. sourceRows
-                .GroupBy(song => song.path, StringComparer.OrdinalIgnoreCase)
+                .GroupBy(song => song.path, StringComparer.Ordinal)
                 .Where(group => group.Count() > 1)
                 .Take(10)
                 .Select(group => "duplicate_path path=" + group.Key + " count=" + group.Count())];
@@ -370,7 +367,6 @@ internal static class Lr2SongDbWriter
         string songTable = SQLiteTable<LR2SongDB.song>.GetTableName();
         string songPathColumn = SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.path);
         stageStopwatch.Restart();
-        PrepareGeneratedSongPathCaseUpdateTemp(songDb, TempGeneratedSongUpsertTable);
         int updated = songDb.Execute(
             "UPDATE " + songTable
             + " SET "
@@ -397,19 +393,15 @@ internal static class Lr2SongDbWriter
             + BuildGeneratedColumnAssignment(nameof(LR2SongDB.song.random), TempGeneratedSongUpsertTable) + ", "
             + BuildGeneratedColumnAssignment(nameof(LR2SongDB.song.date), TempGeneratedSongUpsertTable) + ", "
             + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.txt)
-            + " = COALESCE((SELECT txt FROM temp." + TempGeneratedSongUpsertTable + " u WHERE u.path = " + songTable + "." + songPathColumn + " COLLATE NOCASE), "
+            + " = COALESCE((SELECT txt FROM temp." + TempGeneratedSongUpsertTable + " u WHERE u.path = " + songTable + "." + songPathColumn + "), "
             + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.txt) + "), "
             + BuildGeneratedColumnAssignment(nameof(LR2SongDB.song.karinotes), TempGeneratedSongUpsertTable) + ", "
-            + BuildGeneratedColumnAssignment(nameof(LR2SongDB.song.exlevel), TempGeneratedSongUpsertTable) + ", "
-            + songPathColumn + " = (SELECT path FROM temp." + TempGeneratedSongUpsertTable
-            + " u WHERE u.path = " + songTable + "." + songPathColumn + " COLLATE NOCASE)"
+            + BuildGeneratedColumnAssignment(nameof(LR2SongDB.song.exlevel), TempGeneratedSongUpsertTable)
             + " WHERE rowid IN ("
             + "SELECT s.rowid FROM temp." + TempGeneratedSongUpsertTable + " u "
-            + "JOIN " + songTable + " s INDEXED BY " + BmsLibraryDbGateway.SongPathNocaseIndexName
-            + " ON s." + songPathColumn + " = u.path COLLATE NOCASE "
-            + "WHERE s." + songPathColumn + " COLLATE NOCASE IN (SELECT path FROM temp." + TempGeneratedSongUpsertTable + ") "
+            + "JOIN " + songTable + " s ON s." + songPathColumn + " = u.path "
+            + "WHERE s." + songPathColumn + " IN (SELECT path FROM temp." + TempGeneratedSongUpsertTable + ") "
             + "AND " + BuildGeneratedColumnChangePredicate("s", "u") + ");");
-        UpdateMaintenancePathsFromGeneratedSongPathCaseTemp(songDb);
         stageStopwatch.Stop();
         long updateStageMs = stageStopwatch.ElapsedMilliseconds;
 
@@ -431,7 +423,6 @@ internal static class Lr2SongDbWriter
         stageStopwatch.Restart();
         ClearTempTable(songDb, TempDeletedSongHashTable);
         ClearTempTable(songDb, TempGeneratedSongUpsertTable);
-        ClearTempTable(songDb, TempGeneratedSongPathCaseUpdateTable);
         stageStopwatch.Stop();
         long tempCleanupStageMs = stageStopwatch.ElapsedMilliseconds;
         return new Lr2GeneratedSongWriteResult(
@@ -459,7 +450,7 @@ internal static class Lr2SongDbWriter
 
         string[] sourcePaths = [.. (currentPaths ?? [])
             .Where(path => !string.IsNullOrWhiteSpace(path))
-            .Distinct(StringComparer.OrdinalIgnoreCase)];
+            .Distinct(StringComparer.Ordinal)];
         songDb.CreateTable<LR2SongDB.song>();
         BmsLibraryDbGateway.EnsureMaintenanceSchema(songDb);
         BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
@@ -485,21 +476,21 @@ internal static class Lr2SongDbWriter
                 + "WHERE s." + songHashColumn + " IS NOT NULL "
                 + "AND trim(s." + songHashColumn + ") <> '' "
                 + "AND NOT EXISTS (SELECT 1 FROM temp." + TempCurrentSongPathTable + " c "
-                + "WHERE c.path = s." + songPathColumn + " COLLATE NOCASE);");
+                + "WHERE c.path = s." + songPathColumn + ");");
 
             songDb.Execute(
                 "DELETE FROM " + maintenanceTable
                 + " WHERE " + maintenancePathColumn + " IN ("
                 + "SELECT s." + songPathColumn + " FROM " + songTable + " s "
                 + "WHERE NOT EXISTS (SELECT 1 FROM temp." + TempCurrentSongPathTable + " c "
-                + "WHERE c.path = s." + songPathColumn + " COLLATE NOCASE));");
+                + "WHERE c.path = s." + songPathColumn + "));");
 
             int deleted = songDb.Execute(
                 "DELETE FROM " + songTable
                 + " WHERE rowid IN ("
                 + "SELECT s.rowid FROM " + songTable + " s "
                 + "WHERE NOT EXISTS (SELECT 1 FROM temp." + TempCurrentSongPathTable + " c "
-                + "WHERE c.path = s." + songPathColumn + " COLLATE NOCASE));");
+                + "WHERE c.path = s." + songPathColumn + "));");
 
             DeleteOrphanedChartDigestsFromTemp(songDb, TempDeletedSongHashTable);
             ClearTempTable(songDb, TempDeletedSongHashTable);
@@ -528,7 +519,7 @@ internal static class Lr2SongDbWriter
 
     private static void PrepareTempPathTable(LR2SongDBExtended songDb, string tableName)
     {
-        songDb.Execute("CREATE TEMP TABLE IF NOT EXISTS temp." + tableName + " (path TEXT PRIMARY KEY COLLATE NOCASE);");
+        songDb.Execute("CREATE TEMP TABLE IF NOT EXISTS temp." + tableName + " (path TEXT PRIMARY KEY);");
         ClearTempTable(songDb, tableName);
     }
 
@@ -637,7 +628,7 @@ internal static class Lr2SongDbWriter
         songDb.Execute(
             "CREATE TEMP TABLE IF NOT EXISTS temp." + TempGeneratedSongUpsertTable + " ("
             + "hash TEXT, title TEXT, subtitle TEXT, artist TEXT, subartist TEXT, genre TEXT, tag TEXT, "
-            + "path TEXT PRIMARY KEY COLLATE NOCASE, type INTEGER, folder TEXT, stagefile TEXT, banner TEXT, backbmp TEXT, parent TEXT, "
+            + "path TEXT PRIMARY KEY, type INTEGER, folder TEXT, stagefile TEXT, banner TEXT, backbmp TEXT, parent TEXT, "
             + "level INTEGER, difficulty INTEGER, maxbpm INTEGER, minbpm INTEGER, mode INTEGER, judge INTEGER, "
             + "longnote INTEGER, bga INTEGER, random INTEGER, date INTEGER, favorite INTEGER, txt INTEGER, "
             + "karinotes INTEGER, adddate INTEGER, exlevel INTEGER);");
@@ -741,8 +732,8 @@ internal static class Lr2SongDbWriter
         return songDb.Execute(
             "INSERT INTO " + songTable + " (" + string.Join(",", columns) + ") "
             + "SELECT " + string.Join(",", columns) + " FROM temp." + tempTableName + " u "
-            + "WHERE NOT EXISTS (SELECT 1 FROM " + songTable + " s INDEXED BY " + BmsLibraryDbGateway.SongPathNocaseIndexName
-            + " WHERE s." + songPathColumn + " = u.path COLLATE NOCASE);");
+            + "WHERE NOT EXISTS (SELECT 1 FROM " + songTable + " s"
+            + " WHERE s." + songPathColumn + " = u.path);");
     }
 
     private static void InsertChangedPreviousHashesIntoTemp(LR2SongDBExtended songDb, string tempTableName, string tempHashTableName)
@@ -753,11 +744,11 @@ internal static class Lr2SongDbWriter
         songDb.Execute(
             "INSERT OR IGNORE INTO temp." + tempHashTableName + " (md5) "
             + "SELECT DISTINCT lower(trim(s." + songHashColumn + ")) "
-            + "FROM " + songTable + " s INDEXED BY " + BmsLibraryDbGateway.SongPathNocaseIndexName + " "
-            + "JOIN temp." + tempTableName + " u ON u.path = s." + songPathColumn + " COLLATE NOCASE "
+            + "FROM " + songTable + " s "
+            + "JOIN temp." + tempTableName + " u ON u.path = s." + songPathColumn + " "
             + "WHERE s." + songHashColumn + " IS NOT NULL "
             + "AND trim(s." + songHashColumn + ") <> '' "
-            + "AND s." + songPathColumn + " COLLATE NOCASE IN (SELECT path FROM temp." + tempTableName + ") "
+            + "AND s." + songPathColumn + " IN (SELECT path FROM temp." + tempTableName + ") "
             + "AND (u.hash IS NULL OR trim(u.hash) = '' OR lower(trim(s." + songHashColumn + ")) <> lower(trim(u.hash)));");
     }
 
@@ -823,7 +814,6 @@ internal static class Lr2SongDbWriter
 
         string songTable = SQLiteTable<LR2SongDB.song>.GetTableName();
         string songPathColumn = SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.path);
-        PrepareGeneratedSongPathCaseUpdateTemp(songDb, TempGeneratedSongUpdateTable);
         songDb.Execute(
             "UPDATE " + songTable
             + " SET "
@@ -850,16 +840,12 @@ internal static class Lr2SongDbWriter
             + BuildGeneratedColumnAssignment(nameof(LR2SongDB.song.random)) + ", "
             + BuildGeneratedColumnAssignment(nameof(LR2SongDB.song.date)) + ", "
             + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.txt)
-            + " = COALESCE((SELECT txt FROM temp." + TempGeneratedSongUpdateTable + " u WHERE u.path = " + songTable + "." + songPathColumn + " COLLATE NOCASE), "
+            + " = COALESCE((SELECT txt FROM temp." + TempGeneratedSongUpdateTable + " u WHERE u.path = " + songTable + "." + songPathColumn + "), "
             + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.txt) + "), "
             + BuildGeneratedColumnAssignment(nameof(LR2SongDB.song.karinotes)) + ", "
-            + BuildGeneratedColumnAssignment(nameof(LR2SongDB.song.exlevel)) + ", "
-            + songPathColumn + " = (SELECT path FROM temp." + TempGeneratedSongUpdateTable
-            + " u WHERE u.path = " + songTable + "." + songPathColumn + " COLLATE NOCASE)"
+            + BuildGeneratedColumnAssignment(nameof(LR2SongDB.song.exlevel))
             + " WHERE EXISTS (SELECT 1 FROM temp." + TempGeneratedSongUpdateTable + " u WHERE u.path = "
-            + songTable + "." + songPathColumn + " COLLATE NOCASE);");
-        UpdateMaintenancePathsFromGeneratedSongPathCaseTemp(songDb);
-        ClearTempTable(songDb, TempGeneratedSongPathCaseUpdateTable);
+            + songTable + "." + songPathColumn + ");");
         ClearTempTable(songDb, TempGeneratedSongUpdateTable);
     }
 
@@ -867,42 +853,12 @@ internal static class Lr2SongDbWriter
     {
         songDb.Execute(
             "CREATE TEMP TABLE IF NOT EXISTS temp." + TempGeneratedSongUpdateTable + " ("
-            + "path TEXT PRIMARY KEY COLLATE NOCASE, "
+            + "path TEXT PRIMARY KEY, "
             + "hash TEXT, title TEXT, subtitle TEXT, artist TEXT, subartist TEXT, genre TEXT, "
             + "type INTEGER, folder TEXT, stagefile TEXT, banner TEXT, backbmp TEXT, parent TEXT, "
             + "level INTEGER, difficulty INTEGER, maxbpm INTEGER, minbpm INTEGER, mode INTEGER, judge INTEGER, "
             + "longnote INTEGER, bga INTEGER, random INTEGER, date INTEGER, txt INTEGER, karinotes INTEGER, exlevel INTEGER);");
         ClearTempTable(songDb, TempGeneratedSongUpdateTable);
-    }
-
-    private static void PrepareTempGeneratedSongPathCaseUpdateTableIfNeeded(LR2SongDBExtended songDb)
-    {
-        songDb.Execute(
-            "CREATE TEMP TABLE IF NOT EXISTS temp." + TempGeneratedSongPathCaseUpdateTable + " ("
-            + "old_path TEXT PRIMARY KEY, new_path TEXT NOT NULL);");
-        ClearTempTable(songDb, TempGeneratedSongPathCaseUpdateTable);
-    }
-
-    private static void PrepareGeneratedSongPathCaseUpdateTemp(LR2SongDBExtended songDb, string tempTableName)
-    {
-        if (songDb == null || string.IsNullOrWhiteSpace(tempTableName))
-        {
-            return;
-        }
-
-        PrepareTempGeneratedSongPathCaseUpdateTableIfNeeded(songDb);
-        string songTable = SQLiteTable<LR2SongDB.song>.GetTableName();
-        string songPathColumn = SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.path);
-        songDb.Execute(
-            "CREATE INDEX IF NOT EXISTS " + BmsLibraryDbGateway.SongPathNocaseIndexName
-            + " ON " + songTable + " (" + songPathColumn + " COLLATE NOCASE);");
-        songDb.Execute(
-            "INSERT OR REPLACE INTO temp." + TempGeneratedSongPathCaseUpdateTable + " (old_path, new_path) "
-            + "SELECT s." + songPathColumn + ", u.path "
-            + "FROM temp." + tempTableName + " u "
-            + "CROSS JOIN " + songTable + " s INDEXED BY " + BmsLibraryDbGateway.SongPathNocaseIndexName + " "
-            + "WHERE s." + songPathColumn + " = u.path COLLATE NOCASE "
-            + "AND s." + songPathColumn + " IS NOT u.path;");
     }
 
     private static void AddGeneratedSongUpdateArgs(List<object> args, BMSFile song)
@@ -945,7 +901,7 @@ internal static class Lr2SongDbWriter
         string sqlColumn = columnName;
         return sqlColumn + " = (SELECT " + sqlColumn + " FROM temp." + tempTableName
             + " u WHERE u.path = " + SQLiteTable<LR2SongDB.song>.GetTableName() + "."
-            + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.path) + " COLLATE NOCASE)";
+            + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.path) + ")";
     }
 
     private static string BuildGeneratedColumnChangePredicate(string songAlias, string tempAlias)
@@ -1152,69 +1108,6 @@ internal static class Lr2SongDbWriter
             tableName) > 0;
     }
 
-    private static void UpdateMaintenancePathCase(LR2SongDBExtended songDb, string oldPath, string newPath)
-    {
-        if (songDb == null
-            || string.IsNullOrWhiteSpace(oldPath)
-            || string.IsNullOrWhiteSpace(newPath)
-            || string.Equals(oldPath, newPath, StringComparison.Ordinal)
-            || !string.Equals(oldPath, newPath, StringComparison.OrdinalIgnoreCase))
-        {
-            return;
-        }
-
-        string maintenanceTable = SQLiteTable<LR2SongDBExtended.maintenance>.GetTableName();
-        if (!TableExists(songDb, maintenanceTable))
-        {
-            return;
-        }
-
-        string maintenancePathColumn = SQLiteTable<LR2SongDBExtended.maintenance>.GetColumnName(row => row.path);
-        songDb.Execute(
-            "UPDATE " + maintenanceTable
-            + " SET " + maintenancePathColumn + " = ?"
-            + " WHERE " + maintenancePathColumn + " = ? COLLATE NOCASE"
-            + " AND " + maintenancePathColumn + " IS NOT ?;",
-            newPath,
-            oldPath,
-            newPath);
-    }
-
-    private static void UpdateMaintenancePathsFromGeneratedSongPathCaseTemp(LR2SongDBExtended songDb)
-    {
-        if (songDb == null)
-        {
-            return;
-        }
-        long pathCaseUpdateCount = songDb.ExecuteScalar<long>(
-            "SELECT COUNT(1) FROM temp." + TempGeneratedSongPathCaseUpdateTable + ";");
-        if (pathCaseUpdateCount == 0)
-        {
-            return;
-        }
-
-        string maintenanceTable = SQLiteTable<LR2SongDBExtended.maintenance>.GetTableName();
-        if (!TableExists(songDb, maintenanceTable))
-        {
-            return;
-        }
-
-        string maintenancePathColumn = SQLiteTable<LR2SongDBExtended.maintenance>.GetColumnName(row => row.path);
-        songDb.Execute(
-            "CREATE INDEX IF NOT EXISTS " + BmsLibraryDbGateway.MaintenancePathNocaseIndexName
-            + " ON " + maintenanceTable + " (" + maintenancePathColumn + " COLLATE NOCASE);");
-        songDb.Execute(
-            "UPDATE " + maintenanceTable
-            + " SET " + maintenancePathColumn + " = ("
-            + "SELECT u.new_path FROM temp." + TempGeneratedSongPathCaseUpdateTable + " u "
-            + "WHERE u.old_path = " + maintenanceTable + "." + maintenancePathColumn + " COLLATE NOCASE LIMIT 1)"
-            + " WHERE rowid IN ("
-            + "SELECT m.rowid FROM temp." + TempGeneratedSongPathCaseUpdateTable + " u "
-            + "CROSS JOIN " + maintenanceTable + " m INDEXED BY " + BmsLibraryDbGateway.MaintenancePathNocaseIndexName + " "
-            + "WHERE m." + maintenancePathColumn + " = u.old_path COLLATE NOCASE "
-            + "AND m." + maintenancePathColumn + " IS NOT u.new_path);");
-    }
-
     internal static void UpdateDate(LR2SongDBExtended songDb, string path, int date)
     {
         UpdateMetadata(songDb, path, date, null);
@@ -1282,17 +1175,17 @@ internal static class Lr2SongDbWriter
             + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.exlevel) + " AS exlevel"
             + " FROM " + SQLiteTable<LR2SongDB.song>.GetTableName()
             + " WHERE " + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.path)
-            + " = ? COLLATE NOCASE LIMIT 1;",
+            + " = ? LIMIT 1;",
             path);
         return existingRows.Count == 0 ? null : existingRows[0];
     }
 
     private static Dictionary<string, GeneratedSongRow> FindSongsByPaths(LR2SongDBExtended songDb, IEnumerable<string> paths)
     {
-        var result = new Dictionary<string, GeneratedSongRow>(StringComparer.OrdinalIgnoreCase);
+        var result = new Dictionary<string, GeneratedSongRow>(StringComparer.Ordinal);
         List<string> normalizedPaths = [.. (paths ?? [])
             .Where(path => !string.IsNullOrWhiteSpace(path))
-            .Distinct(StringComparer.OrdinalIgnoreCase)];
+            .Distinct(StringComparer.Ordinal)];
         if (normalizedPaths.Count == 0)
         {
             return result;
@@ -1332,7 +1225,7 @@ internal static class Lr2SongDbWriter
                 + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.exlevel) + " AS exlevel"
                 + " FROM " + SQLiteTable<LR2SongDB.song>.GetTableName()
                 + " WHERE " + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.path)
-                + " COLLATE NOCASE IN (" + placeholders + ");";
+                + " IN (" + placeholders + ");";
             foreach (GeneratedSongRow row in songDb.Query<GeneratedSongRow>(sql, [.. chunk.Cast<object>()]))
             {
                 if (!string.IsNullOrWhiteSpace(row?.path) && !result.ContainsKey(row.path))
@@ -1492,7 +1385,7 @@ internal static class Lr2SongDbWriter
             + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.txt) + " = COALESCE(?, " + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.txt) + "), "
             + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.karinotes) + " = ?, "
             + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.exlevel) + " = ?"
-            + " WHERE " + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.path) + " = ? COLLATE NOCASE;",
+            + " WHERE " + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.path) + " = ?;",
             song.path,
             song.hash,
             song.title,

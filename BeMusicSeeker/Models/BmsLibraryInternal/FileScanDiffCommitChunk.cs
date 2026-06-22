@@ -8,15 +8,11 @@ internal sealed class FileScanDiffCommitChunk
 {
     public List<string> DeletedBmsPaths { get; } = [];
 
-    public List<BmsPathCaseUpdate> BmsPathCaseUpdates { get; } = [];
-
     public List<BMSFile> AddedBmsFiles { get; } = [];
 
     public List<BmsDateOnlyUpdate> UpdatedBmsDates { get; } = [];
 
     public List<string> DeletedBmsonPaths { get; } = [];
-
-    public List<BmsonPathCaseUpdate> BmsonPathCaseUpdates { get; } = [];
 
     public List<LR2SongDBExtended.bmson_song> UpsertBmsonSongs { get; } = [];
 
@@ -33,8 +29,6 @@ internal sealed class FileScanDiffCommitChunk
     public int MutationCount { get; private set; }
 
     public bool HasItems => MutationCount > 0
-        || BmsPathCaseUpdates.Count > 0
-        || BmsonPathCaseUpdates.Count > 0
         || ChartInfoRows.Count > 0
         || UpdatedBmsDates.Count > 0
         || MaintenanceInfoRows.Count > 0
@@ -49,19 +43,6 @@ internal sealed class FileScanDiffCommitChunk
             return;
         }
         DeletedBmsPaths.Add(path);
-        MutationCount++;
-    }
-
-    public void AddBmsPathCaseUpdate(string oldPath, string newPath, string folder, string parent)
-    {
-        if (string.IsNullOrWhiteSpace(oldPath)
-            || string.IsNullOrWhiteSpace(newPath)
-            || string.Equals(oldPath, newPath, StringComparison.Ordinal)
-            || !string.Equals(oldPath, newPath, StringComparison.OrdinalIgnoreCase))
-        {
-            return;
-        }
-        BmsPathCaseUpdates.Add(new BmsPathCaseUpdate(oldPath, newPath, folder, parent));
         MutationCount++;
     }
 
@@ -97,19 +78,6 @@ internal sealed class FileScanDiffCommitChunk
             return;
         }
         DeletedBmsonPaths.Add(path);
-        MutationCount++;
-    }
-
-    public void AddBmsonPathCaseUpdate(string oldPath, string newPath, string folder)
-    {
-        if (string.IsNullOrWhiteSpace(oldPath)
-            || string.IsNullOrWhiteSpace(newPath)
-            || string.Equals(oldPath, newPath, StringComparison.Ordinal)
-            || !string.Equals(oldPath, newPath, StringComparison.OrdinalIgnoreCase))
-        {
-            return;
-        }
-        BmsonPathCaseUpdates.Add(new BmsonPathCaseUpdate(oldPath, newPath, folder));
         MutationCount++;
     }
 
@@ -191,11 +159,9 @@ internal sealed class FileScanDiffCommitChunk
             return;
         }
         DeletedBmsPaths.AddRange(source.DeletedBmsPaths);
-        BmsPathCaseUpdates.AddRange(source.BmsPathCaseUpdates);
         AddedBmsFiles.AddRange(source.AddedBmsFiles);
         UpdatedBmsDates.AddRange(source.UpdatedBmsDates);
         DeletedBmsonPaths.AddRange(source.DeletedBmsonPaths);
-        BmsonPathCaseUpdates.AddRange(source.BmsonPathCaseUpdates);
         UpsertBmsonSongs.AddRange(source.UpsertBmsonSongs);
         MaintenanceInfoRows.AddRange(source.MaintenanceInfoRows);
         ChartInfoRows.AddRange(source.ChartInfoRows);
@@ -206,17 +172,6 @@ internal sealed class FileScanDiffCommitChunk
     }
 }
 
-internal sealed class BmsPathCaseUpdate(string oldPath, string newPath, string folder, string parent)
-{
-    public string OldPath { get; } = oldPath;
-
-    public string NewPath { get; } = newPath;
-
-    public string Folder { get; } = folder;
-
-    public string Parent { get; } = parent;
-}
-
 internal sealed class BmsDateOnlyUpdate(string path, int date, int? textFlag = null)
 {
     public string Path { get; } = path;
@@ -224,13 +179,4 @@ internal sealed class BmsDateOnlyUpdate(string path, int date, int? textFlag = n
     public int Date { get; } = date;
 
     public int? TextFlag { get; } = textFlag;
-}
-
-internal sealed class BmsonPathCaseUpdate(string oldPath, string newPath, string folder)
-{
-    public string OldPath { get; } = oldPath;
-
-    public string NewPath { get; } = newPath;
-
-    public string Folder { get; } = folder;
 }

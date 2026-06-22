@@ -32,7 +32,7 @@ internal sealed class FastRootFileEnumerator : IRootFileEnumerator
         {
             bool needsFileEntries = groupList.Any(group => !group.IncludeDirectories);
             bool needsDirectoryEntries = groupList.Any(group => group.IncludeDirectories);
-            var allFiles = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
+            var allFiles = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.Ordinal);
             if (needsFileEntries)
             {
                 string[] sharedExcludedDirectories = ResolveSharedExcludedDirectories(groupList.Where(group => !group.IncludeDirectories));
@@ -130,7 +130,7 @@ internal sealed class FastRootFileEnumerator : IRootFileEnumerator
             fastEntries = [.. FastDirectoryEnumerator.GetFileDataAsParallel(root, extensions, SearchOption.AllDirectories)
                 .Select(RootFileEnumerationEntry.FromFileData)
                 .Where(entry => entry != null && !string.IsNullOrWhiteSpace(entry.Path))
-                .GroupBy(entry => Path.GetFullPath(entry.Path), StringComparer.OrdinalIgnoreCase)
+                .GroupBy(entry => Path.GetFullPath(entry.Path), StringComparer.Ordinal)
                 .Select(group => new RootFileEnumerationEntry(Path.GetFullPath(group.First().Path), group.First().LastWriteTimeUtc, group.First().FileSize))];
         }
         catch
@@ -149,7 +149,7 @@ internal sealed class FastRootFileEnumerator : IRootFileEnumerator
                 .Where(path => !string.IsNullOrWhiteSpace(path))
                 .Where(path => extensions == null || extensions.Length == 0 || extensions.Contains(Path.GetExtension(path), StringComparer.OrdinalIgnoreCase))
                 .Select(Path.GetFullPath)
-                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Distinct(StringComparer.Ordinal)
                 .Select(CreateEntryFromFileInfo)];
         }
         catch

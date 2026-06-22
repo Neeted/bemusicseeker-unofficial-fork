@@ -497,7 +497,7 @@ public sealed class Lr2FolderFileDbSyncServiceTests
     }
 
     [TestMethod]
-    public void EnsureFolderLookupIndexes_AddsFolderNocaseIndexForScopedSync()
+    public void EnsureFolderLookupIndexes_AddsFolderNocaseIndexForPrefixScopedSync()
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
@@ -516,16 +516,6 @@ public sealed class Lr2FolderFileDbSyncServiceTests
             Assert.AreEqual(1L, songDb.ExecuteScalar<long>(
                 "SELECT COUNT(1) FROM sqlite_master WHERE type = 'index' AND name = ?;",
                 BmsLibraryDbGateway.FolderPathNocaseIndexName));
-            songDb.Execute("CREATE TEMP TABLE folder_exact_scope_for_test (path TEXT PRIMARY KEY COLLATE NOCASE);");
-            songDb.Execute(
-                "INSERT OR IGNORE INTO temp.folder_exact_scope_for_test (path) VALUES (?);",
-                Path.Combine(outputDirectory, "0000.lr2folder"));
-            AssertQueryUsesFolderNocaseIndex(
-                songDb,
-                "EXPLAIN QUERY PLAN SELECT f.*"
-                + " FROM temp.folder_exact_scope_for_test AS p"
-                + " CROSS JOIN folder AS f INDEXED BY " + BmsLibraryDbGateway.FolderPathNocaseIndexName
-                + " WHERE f.path = p.path COLLATE NOCASE;");
             string prefix = outputDirectory + Path.DirectorySeparatorChar;
             AssertQueryUsesFolderNocaseIndex(
                 songDb,

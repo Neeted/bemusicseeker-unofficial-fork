@@ -78,7 +78,7 @@ public sealed class Lr2SongDbWriterTests
     }
 
     [TestMethod]
-    public void UpsertGeneratedSongs_CanonicalizesCaseOnlyPathAndMaintenance()
+    public void UpsertGeneratedSongs_TreatsCaseOnlyPathAsDistinct()
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
@@ -100,15 +100,18 @@ public sealed class Lr2SongDbWriterTests
             int changed = Lr2SongDbWriter.UpsertGeneratedSongs(songDb, [updated]);
 
             Assert.AreEqual(1, changed);
-            Assert.AreEqual(1, songDb.Table<LR2SongDB.song>().Count());
+            Assert.AreEqual(2, songDb.Table<LR2SongDB.song>().Count());
+            LR2SongDB.song existingRow = songDb.Find<LR2SongDB.song>(existing.path);
+            Assert.IsNotNull(existingRow);
+            Assert.AreEqual(7, existingRow.favorite);
+            Assert.AreEqual(12345, existingRow.adddate);
+            Assert.AreEqual("keep", existingRow.tag);
             LR2SongDB.song updatedRow = songDb.Find<LR2SongDB.song>(updated.path);
             Assert.IsNotNull(updatedRow);
             Assert.AreEqual(updated.path, updatedRow.path);
-            Assert.AreEqual(7, updatedRow.favorite);
-            Assert.AreEqual(12345, updatedRow.adddate);
-            Assert.AreEqual("keep", updatedRow.tag);
-            Assert.AreEqual(1, songDb.ExecuteScalar<int>("SELECT COUNT(*) FROM maintenance WHERE path = ?;", updated.path));
-            Assert.AreEqual(0, songDb.ExecuteScalar<int>("SELECT COUNT(*) FROM maintenance WHERE path = ?;", existing.path));
+            Assert.IsFalse(updatedRow.favorite.HasValue);
+            Assert.AreEqual(1, songDb.ExecuteScalar<int>("SELECT COUNT(*) FROM maintenance WHERE path = ?;", existing.path));
+            Assert.AreEqual(0, songDb.ExecuteScalar<int>("SELECT COUNT(*) FROM maintenance WHERE path = ?;", updated.path));
         });
     }
 
@@ -203,7 +206,7 @@ public sealed class Lr2SongDbWriterTests
     }
 
     [TestMethod]
-    public void UpsertGeneratedSongsForLr2SongDbSync_UpdatesExistingPathNocaseWithoutDuplicate()
+    public void UpsertGeneratedSongsForLr2SongDbSync_TreatsCaseOnlyPathAsDistinct()
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
@@ -225,19 +228,45 @@ public sealed class Lr2SongDbWriterTests
             int written = Lr2SongDbWriter.UpsertGeneratedSongsForLr2SongDbSync(songDb, [updated]);
 
             Assert.AreEqual(1, written);
-            Assert.AreEqual(
-                1,
-                songDb.ExecuteScalar<int>("SELECT COUNT(*) FROM song WHERE path = ? COLLATE NOCASE;", updated.path));
+            Assert.AreEqual(2, songDb.Table<LR2SongDB.song>().Count());
+            LR2SongDB.song existingRow = songDb.Find<LR2SongDB.song>(existing.path);
+            Assert.IsNotNull(existingRow);
+            Assert.AreEqual(7, existingRow.favorite);
+            Assert.AreEqual(12345, existingRow.adddate);
+            Assert.AreEqual("keep", existingRow.tag);
             LR2SongDB.song updatedRow = songDb.Find<LR2SongDB.song>(updated.path);
             Assert.IsNotNull(updatedRow);
             Assert.AreEqual(updated.path, updatedRow.path);
             Assert.AreEqual("Title", updatedRow.title);
-            Assert.AreEqual(7, updatedRow.favorite);
-            Assert.AreEqual(12345, updatedRow.adddate);
-            Assert.AreEqual("keep", updatedRow.tag);
-            Assert.AreEqual(0, songDb.ExecuteScalar<int>("SELECT COUNT(*) FROM song WHERE path = ?;", existing.path));
-            Assert.AreEqual(1, songDb.ExecuteScalar<int>("SELECT COUNT(*) FROM maintenance WHERE path = ?;", updated.path));
-            Assert.AreEqual(0, songDb.ExecuteScalar<int>("SELECT COUNT(*) FROM maintenance WHERE path = ?;", existing.path));
+            Assert.IsFalse(updatedRow.favorite.HasValue);
+            Assert.AreEqual(1, songDb.ExecuteScalar<int>("SELECT COUNT(*) FROM maintenance WHERE path = ?;", existing.path));
+            Assert.AreEqual(0, songDb.ExecuteScalar<int>("SELECT COUNT(*) FROM maintenance WHERE path = ?;", updated.path));
+        });
+    }
+
+    [TestMethod]
+    public void UpsertGeneratedSongsForLr2SongDbSync_UpdatesCaseOnlyVariantsWithoutConstraint()
+    {
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            using var songDb = new LR2SongDBExtended(songDbPath);
+            PrepareLr2SongDbSyncSongWriterSchema(songDb);
+            songDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
+            TestableBmsFile lower = CreateSong(@"D:\BMS\Pack\chart.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Old Lower");
+            TestableBmsFile upper = CreateSong(@"D:\BMS\Pack\CHART.BMS", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "Old Upper");
+            Assert.IsTrue(Lr2SongDbWriter.UpsertGeneratedSong(songDb, lower));
+            Assert.IsTrue(Lr2SongDbWriter.UpsertGeneratedSong(songDb, upper));
+            TestableBmsFile lowerUpdated = CreateSong(lower.path, lower.hash, "New Lower");
+            TestableBmsFile upperUpdated = CreateSong(upper.path, upper.hash, "New Upper");
+
+            int written = Lr2SongDbWriter.UpsertGeneratedSongsForLr2SongDbSync(
+                songDb,
+                [lowerUpdated, upperUpdated]);
+
+            Assert.AreEqual(2, written);
+            Assert.AreEqual(2, songDb.Table<LR2SongDB.song>().Count());
+            Assert.AreEqual("New Lower", songDb.Find<LR2SongDB.song>(lower.path).title);
+            Assert.AreEqual("New Upper", songDb.Find<LR2SongDB.song>(upper.path).title);
         });
     }
 
@@ -643,8 +672,8 @@ public sealed class Lr2SongDbWriterTests
                 Lr2SongDbWriter.VerifyGeneratedSongsCurrent(songDb, [expected]);
 
             Assert.IsFalse(result.IsCurrent);
-            Assert.AreEqual(1, result.MismatchedCount);
-            Assert.IsTrue(result.DiagnosticSamples.Any(sample => sample.Contains("path")));
+            Assert.AreEqual(1, result.MissingCount);
+            Assert.IsTrue(result.DiagnosticSamples.Any(sample => sample.Contains("missing_song")));
         });
     }
 

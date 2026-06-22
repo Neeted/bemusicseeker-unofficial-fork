@@ -81,9 +81,9 @@ internal sealed class LibraryChartRefIndexSnapshot : ILibraryChartCanonicalLooku
     {
         var bmsByReference = new Dictionary<BMSFile, LibraryChartRef>();
         var bmsonByReference = new Dictionary<LR2SongDBExtended.bmson_song, LibraryChartRef>();
-        var byKindAndPath = new Dictionary<string, LibraryChartRef>(StringComparer.OrdinalIgnoreCase);
-        var ambiguousKindAndPathKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var refsByPath = new Dictionary<string, List<LibraryChartRef>>(StringComparer.OrdinalIgnoreCase);
+        var byKindAndPath = new Dictionary<string, LibraryChartRef>(StringComparer.Ordinal);
+        var ambiguousKindAndPathKeys = new HashSet<string>(StringComparer.Ordinal);
+        var refsByPath = new Dictionary<string, List<LibraryChartRef>>(StringComparer.Ordinal);
         var directRefsByDirectory = new Dictionary<string, List<LibraryChartRef>>(StringComparer.OrdinalIgnoreCase);
         var subtreeCountsByDirectory = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         var bmsSubtreeCountsByDirectory = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
@@ -182,7 +182,7 @@ internal sealed class LibraryChartRefIndexSnapshot : ILibraryChartCanonicalLooku
     {
         var affectedPathKeys = new HashSet<string>(
             (affectedPaths ?? []).Select(CreatePathKey).Where(path => !string.IsNullOrWhiteSpace(path)),
-            StringComparer.OrdinalIgnoreCase);
+            StringComparer.Ordinal);
         if (affectedPathKeys.Count == 0)
         {
             return;
@@ -211,7 +211,7 @@ internal sealed class LibraryChartRefIndexSnapshot : ILibraryChartCanonicalLooku
     internal CanonicalChartResolveResult ResolveCanonicalCharts(IEnumerable<LibraryChartRef> inputCharts)
     {
         var result = new CanonicalChartResolveResult();
-        var addedKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var addedKeys = new HashSet<string>(StringComparer.Ordinal);
         foreach (LibraryChartRef inputChart in inputCharts ?? [])
         {
             result.InputCount++;
@@ -368,7 +368,7 @@ internal sealed class LibraryChartRefIndexSnapshot : ILibraryChartCanonicalLooku
                 excludedPaths
                     .Select(CreatePathKey)
                     .Where(path => !string.IsNullOrWhiteSpace(path)),
-                StringComparer.OrdinalIgnoreCase);
+                StringComparer.Ordinal);
         }
 
         int count = 0;
@@ -1036,6 +1036,6 @@ internal sealed class LibraryChartRefIndexSnapshot : ILibraryChartCanonicalLooku
 
         LibraryChartKind kind = chart.Kind == ChartFileKind.Bmson ? LibraryChartKind.Bmson : LibraryChartKind.Bms;
         return chartRef.Kind == kind
-            && string.Equals(CreatePathKey(chartRef.Path), CreatePathKey(chart.Path), StringComparison.OrdinalIgnoreCase);
+            && string.Equals(CreatePathKey(chartRef.Path), CreatePathKey(chart.Path), StringComparison.Ordinal);
     }
 }

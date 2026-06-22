@@ -72,8 +72,8 @@ internal static class Lr2FolderExistingRowLookup
             return songDb.Query<LR2SongDB.folder>(
                 "SELECT " + selectColumns
                 + " FROM temp." + TempExactPathTable + " AS p"
-                + " CROSS JOIN " + folderTable + " AS f INDEXED BY " + BmsLibraryDbGateway.FolderPathNocaseIndexName
-                + " WHERE f." + pathColumn + " = p." + TempPathColumn + " COLLATE NOCASE;");
+                + " CROSS JOIN " + folderTable + " AS f"
+                + " WHERE f." + pathColumn + " = p." + TempPathColumn + ";");
         }
         finally
         {
@@ -312,7 +312,7 @@ internal static class Lr2FolderExistingRowLookup
     {
         songDb.Execute(
             "CREATE TEMP TABLE IF NOT EXISTS " + TempExactPathTable
-            + " (" + TempPathColumn + " TEXT PRIMARY KEY COLLATE NOCASE);");
+            + " (" + TempPathColumn + " TEXT PRIMARY KEY);");
         ClearTempExactPathTable(songDb);
     }
 

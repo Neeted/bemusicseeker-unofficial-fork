@@ -3738,7 +3738,7 @@ public sealed class BmsLibraryInitializationServiceTests
                     Success = true,
                     Result = new ChartScanResult
                     {
-                        ChartFilePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { chartPath },
+                        ChartFilePaths = new HashSet<string>(StringComparer.Ordinal) { chartPath },
                         ChartDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { chartDirectoryPath },
                         AudioRelativePathHashesByChartDirectory = new Dictionary<string, uint[]>(StringComparer.OrdinalIgnoreCase)
                         {
@@ -3825,7 +3825,7 @@ public sealed class BmsLibraryInitializationServiceTests
                     ResourceIndex = nativeIndex,
                     Result = new ChartScanResult
                     {
-                        ChartFilePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { chartPath },
+                        ChartFilePaths = new HashSet<string>(StringComparer.Ordinal) { chartPath },
                         ChartDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { chartDirectoryPath }
                     }
                 },
@@ -4233,7 +4233,7 @@ public sealed class BmsLibraryInitializationServiceTests
     }
 
     [TestMethod]
-    public void ApplyFileScanDiff_CaseOnlyBmsPathMismatchUpdatesPathAndConverges()
+    public void ApplyFileScanDiff_CaseOnlyBmsPathMismatchReplacesExactPathWithoutMigratingUserColumns()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
@@ -4296,22 +4296,29 @@ public sealed class BmsLibraryInitializationServiceTests
                 null);
 
             Assert.AreEqual(1, first.BmsAddedTargetCount);
-            Assert.AreEqual(1, first.BmsPathCaseUpdateCount);
-            Assert.AreEqual(1, first.BmsDateOnlyUpdateCount);
-            Assert.AreEqual(1, first.BmsTextOnlyUpdateCount);
-            Assert.AreEqual(0, first.AddedFiles.Count);
+            Assert.AreEqual(1, first.BmsDeletedTargetCount);
+            Assert.AreEqual(0, first.BmsDateOnlyUpdateCount);
+            Assert.AreEqual(0, first.BmsTextOnlyUpdateCount);
+            Assert.AreEqual(0, first.BmsMovedHashRelinkCount);
+            Assert.AreEqual(1, first.AddedFiles.Count);
             Assert.IsTrue(first.HasDbDiff);
-            Assert.AreEqual(bmsPath, existingFile.path);
-            Assert.AreEqual(ToUnixSeconds(timestamp), existingFile.date);
-            Assert.AreEqual(1, existingFile.txt);
+            Assert.AreEqual(oldCasePath, existingFile.path);
+            Assert.AreEqual(ToUnixSeconds(timestamp.AddDays(-1)), existingFile.date);
+            Assert.AreEqual(0, existingFile.txt);
+            BMSFile addedFile = first.AddedFiles.Single();
+            Assert.AreEqual(bmsPath, addedFile.path);
+            Assert.AreEqual(ToUnixSeconds(timestamp), addedFile.date);
+            Assert.AreEqual(1, addedFile.txt);
             Assert.AreEqual(
                 Lr2SongFolderParentNormalizer.ComputeDirectoryHash(Path.GetDirectoryName(bmsPath)),
-                existingFile.folder);
+                addedFile.folder);
             Assert.AreEqual(
                 Lr2SongFolderParentNormalizer.ComputeDirectoryHash(lr2RootPath),
-                existingFile.parent);
+                addedFile.parent);
             Assert.AreEqual(12345, existingFile.adddate);
             Assert.AreEqual("keep", existingFile.tag);
+            Assert.AreEqual(1, first.NextFiles.Count);
+            Assert.AreEqual(bmsPath, first.NextFiles.Single().path);
 
             using (var verify = new LR2SongDBExtended(songDbPath))
             {
@@ -4327,11 +4334,10 @@ public sealed class BmsLibraryInitializationServiceTests
                     row.parent);
                 Assert.AreEqual(ToUnixSeconds(timestamp), row.date);
                 Assert.AreEqual(1, row.txt);
-                Assert.AreEqual(1, row.favorite);
-                Assert.AreEqual(12345, row.adddate);
-                Assert.AreEqual("keep", row.tag);
+                Assert.AreNotEqual(1, row.favorite);
+                Assert.AreNotEqual("keep", row.tag);
                 Assert.AreEqual(0, verify.ExecuteScalar<int>("SELECT COUNT(*) FROM maintenance WHERE path = ?;", oldCasePath));
-                Assert.AreEqual(0, verify.ExecuteScalar<int>("SELECT COUNT(*) FROM maintenance WHERE path = ?;", staleMaintenancePath));
+                Assert.AreEqual(1, verify.ExecuteScalar<int>("SELECT COUNT(*) FROM maintenance WHERE path = ?;", staleMaintenancePath));
                 Assert.AreEqual(1, verify.ExecuteScalar<int>("SELECT COUNT(*) FROM maintenance WHERE path = ?;", bmsPath));
             }
 
@@ -4348,7 +4354,6 @@ public sealed class BmsLibraryInitializationServiceTests
                 null);
 
             Assert.AreEqual(0, second.BmsAddedTargetCount);
-            Assert.AreEqual(0, second.BmsPathCaseUpdateCount);
             Assert.IsFalse(second.HasDbDiff);
         });
     }
@@ -5048,7 +5053,7 @@ public sealed class BmsLibraryInitializationServiceTests
     }
 
     [TestMethod]
-    public void ApplyFileScanDiff_CaseOnlyBmsonPathMismatchUpdatesPathWithoutParse()
+    public void ApplyFileScanDiff_CaseOnlyBmsonPathMismatchAddsExactPathWithoutMigratingMaintenance()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
@@ -5098,24 +5103,26 @@ public sealed class BmsLibraryInitializationServiceTests
                 null,
                 currentBmsonSongs: [existingSong]);
 
-            Assert.AreEqual(1, result.BmsonPathCaseUpdateCount);
-            Assert.AreEqual(0, result.BmsonUpsertTargetCount);
-            Assert.AreEqual(0, result.AddedBmsonSongs.Count);
+            Assert.AreEqual(1, result.BmsonDeletedTargetCount);
+            Assert.AreEqual(1, result.BmsonUpsertTargetCount);
+            Assert.AreEqual(1, result.AddedBmsonSongs.Count);
             Assert.IsTrue(result.HasDbDiff);
-            Assert.AreEqual(bmsonPath, existingSong.path);
-            Assert.AreEqual(Path.GetDirectoryName(bmsonPath), existingSong.folder);
+            Assert.AreEqual(oldCasePath, existingSong.path);
+            Assert.AreEqual(Path.GetDirectoryName(oldCasePath), existingSong.folder);
+            Assert.AreEqual(bmsonPath, result.AddedBmsonSongs.Single().path);
+            Assert.AreEqual(Path.GetDirectoryName(bmsonPath), result.AddedBmsonSongs.Single().folder);
 
             using var verify = new LR2SongDBExtended(songDbPath);
             Assert.AreEqual(0, verify.ExecuteScalar<int>("SELECT COUNT(*) FROM bmson_song WHERE path = ?;", oldCasePath));
             Assert.AreEqual(1, verify.ExecuteScalar<int>("SELECT COUNT(*) FROM bmson_song WHERE path = ?;", bmsonPath));
             Assert.AreEqual(0, verify.ExecuteScalar<int>("SELECT COUNT(*) FROM maintenance WHERE path = ?;", oldCasePath));
-            Assert.AreEqual(0, verify.ExecuteScalar<int>("SELECT COUNT(*) FROM maintenance WHERE path = ?;", staleMaintenancePath));
+            Assert.AreEqual(1, verify.ExecuteScalar<int>("SELECT COUNT(*) FROM maintenance WHERE path = ?;", staleMaintenancePath));
             Assert.AreEqual(1, verify.ExecuteScalar<int>("SELECT COUNT(*) FROM maintenance WHERE path = ?;", bmsonPath));
         });
     }
 
     [TestMethod]
-    public void ApplyFileScanDiff_CaseOnlyBmsonPathMismatchWithMtimeUpdateConverges()
+    public void ApplyFileScanDiff_CaseOnlyBmsonPathMismatchReplacesExactPathAndConverges()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
@@ -5167,7 +5174,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 null,
                 currentBmsonSongs: [existingSong]);
 
-            Assert.AreEqual(1, first.BmsonPathCaseUpdateCount);
+            Assert.AreEqual(1, first.BmsonDeletedTargetCount);
             Assert.AreEqual(1, first.BmsonUpsertTargetCount);
             Assert.AreEqual(1, first.AddedBmsonSongs.Count);
             Assert.IsTrue(first.HasDbDiff);
@@ -5191,7 +5198,6 @@ public sealed class BmsLibraryInitializationServiceTests
                 null,
                 currentBmsonSongs: first.NextBmsonSongs);
 
-            Assert.AreEqual(0, second.BmsonPathCaseUpdateCount);
             Assert.AreEqual(0, second.BmsonUpsertTargetCount);
             Assert.IsFalse(second.HasDbDiff);
         });
@@ -6103,7 +6109,7 @@ public sealed class BmsLibraryInitializationServiceTests
         IDictionary<string, IEnumerable<string>> resourcesByDirectory,
         IEnumerable<string>? directorySurfaceRoots = null)
     {
-        var chartPathSet = new HashSet<string>(chartPaths ?? [], StringComparer.OrdinalIgnoreCase);
+        var chartPathSet = new HashSet<string>(chartPaths ?? [], StringComparer.Ordinal);
         var chartDirectories = new HashSet<string>(
             chartPathSet.Select(Path.GetDirectoryName).Where(path => !string.IsNullOrWhiteSpace(path)),
             StringComparer.OrdinalIgnoreCase);

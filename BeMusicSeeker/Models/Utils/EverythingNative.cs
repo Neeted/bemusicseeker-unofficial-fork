@@ -562,7 +562,7 @@ internal static class EverythingNative
                 GroupId = groupHeader.group_id,
                 HitCount = groupHeader.hit_count,
                 QueryMs = groupHeader.query_ms,
-                Paths = new HashSet<string>(ReadStringList(groupHeader.path_count, groupHeader.path_offsets, header.path_blob), StringComparer.OrdinalIgnoreCase),
+                Paths = new HashSet<string>(ReadStringList(groupHeader.path_count, groupHeader.path_offsets, header.path_blob), StringComparer.Ordinal),
                 Entries = ReadGroupedFileEntries(groupHeader.path_count, groupHeader.path_offsets, groupHeader.last_write_filetimes, header.path_blob)
             };
         }
@@ -571,7 +571,7 @@ internal static class EverythingNative
 
     private static Dictionary<string, RootFileEnumerationEntry> ReadGroupedFileEntries(ulong count, IntPtr offsets, IntPtr lastWriteFileTimes, IntPtr blob)
     {
-        var entries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
+        var entries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.Ordinal);
         for (ulong i = 0; i < count; i += 1)
         {
             uint byteOffset = (uint)Marshal.ReadInt32(offsets, checked((int)(i * 4)));
@@ -785,9 +785,9 @@ internal static class EverythingNative
             : checked((int)indexValues32[offset]);
     }
 
-    private static HashSet<string> MaterializeStringSet(IEnumerable<string> values)
+    private static HashSet<string> MaterializeStringSet(IEnumerable<string> values, IEqualityComparer<string> comparer = null)
     {
-        var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var set = new HashSet<string>(comparer ?? StringComparer.OrdinalIgnoreCase);
         foreach (string value in values ?? [])
         {
             if (!string.IsNullOrWhiteSpace(value))
@@ -871,7 +871,7 @@ internal static class EverythingNative
         long managedDecodeMs,
         FixedScanDecodedResult decodedResult)
     {
-        HashSet<string> chartFilePaths = MaterializeStringSet(decodedResult?.ChartPaths);
+        HashSet<string> chartFilePaths = MaterializeStringSet(decodedResult?.ChartPaths, StringComparer.Ordinal);
         HashSet<string> chartDirectories = MaterializeStringSet(decodedResult?.ChartDirectories);
         ulong hashDirCount = (ulong)chartDirectories.Count;
         ulong categoryResourceKeyHashEntryCount = header.audio_resource_key_hash_count + header.image_resource_key_hash_count + header.movie_resource_key_hash_count;
@@ -880,7 +880,7 @@ internal static class EverythingNative
             ChartFilePaths = chartFilePaths,
             ChartFileEntriesByPath = new Dictionary<string, RootFileEnumerationEntry>(
                 decodedResult?.ChartFileEntries ?? [],
-                StringComparer.OrdinalIgnoreCase),
+                StringComparer.Ordinal),
             ChartDirectories = chartDirectories
         };
         IEnumerable<RootFileEnumerationEntry> textFileEntries = decodedResult?.TextFileEntries?.Values
@@ -1082,9 +1082,9 @@ internal static class EverythingNative
     {
         internal uint GroupId { get; set; }
 
-        internal HashSet<string> Paths { get; set; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        internal HashSet<string> Paths { get; set; } = new HashSet<string>(StringComparer.Ordinal);
 
-        internal Dictionary<string, RootFileEnumerationEntry> Entries { get; set; } = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
+        internal Dictionary<string, RootFileEnumerationEntry> Entries { get; set; } = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.Ordinal);
 
         internal ulong HitCount { get; set; }
 

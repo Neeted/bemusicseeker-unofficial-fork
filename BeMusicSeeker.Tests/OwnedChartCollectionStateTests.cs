@@ -47,7 +47,7 @@ public sealed class OwnedChartCollectionStateTests
     }
 
     [TestMethod]
-    public void FromStorageRows_FiltersPathlessAndMd5lessBmsAndBmsonOwnedCharts()
+    public void FromStorageRows_FiltersPathlessMd5lessAndExactDuplicateRows()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         var pathfulBms = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "chart.bms"), new string('b', 64));
@@ -63,21 +63,21 @@ public sealed class OwnedChartCollectionStateTests
             .FromStorageRows([pathfulBms, pathlessBms, md5lessBms, duplicateBms], [pathfulBmson, pathlessBmson, md5lessBmson, duplicateBmson], out OwnedChartStorageRowFilterSummary filterSummary)
             .CreateSnapshot(includeWarningSnapshot: false, includeResourceReferences: false, includeScoreSnapshot: false);
 
-        Assert.AreEqual(2, snapshot.Count);
+        Assert.AreEqual(3, snapshot.Count);
         Assert.IsTrue(snapshot.Any(chart => ReferenceEquals(chart.GetBmsStorageOwner(), pathfulBms)));
         Assert.IsTrue(snapshot.Any(chart => ReferenceEquals(chart.GetBmsonStorageOwner(), pathfulBmson)));
+        Assert.IsTrue(snapshot.Any(chart => ReferenceEquals(chart.GetBmsonStorageOwner(), duplicateBmson)));
         Assert.IsFalse(snapshot.Any(chart => ReferenceEquals(chart.GetBmsStorageOwner(), pathlessBms)));
         Assert.IsFalse(snapshot.Any(chart => ReferenceEquals(chart.GetBmsonStorageOwner(), pathlessBmson)));
         Assert.IsFalse(snapshot.Any(chart => ReferenceEquals(chart.GetBmsStorageOwner(), md5lessBms)));
         Assert.IsFalse(snapshot.Any(chart => ReferenceEquals(chart.GetBmsonStorageOwner(), md5lessBmson)));
         Assert.IsFalse(snapshot.Any(chart => ReferenceEquals(chart.GetBmsStorageOwner(), duplicateBms)));
-        Assert.IsFalse(snapshot.Any(chart => ReferenceEquals(chart.GetBmsonStorageOwner(), duplicateBmson)));
         Assert.AreEqual(1, filterSummary.PathlessBmsCount);
         Assert.AreEqual(1, filterSummary.PathlessBmsonCount);
         Assert.AreEqual(1, filterSummary.Md5lessBmsCount);
         Assert.AreEqual(1, filterSummary.Md5lessBmsonCount);
         Assert.AreEqual(1, filterSummary.DuplicatePathBmsCount);
-        Assert.AreEqual(1, filterSummary.DuplicatePathBmsonCount);
+        Assert.AreEqual(0, filterSummary.DuplicatePathBmsonCount);
     }
 
     [TestMethod]
@@ -1023,7 +1023,8 @@ public sealed class OwnedChartCollectionStateTests
         var pathlessBmson = CreateBmsonSong(null, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
         var md5lessBmson = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "md5less.bmson"), null);
         var duplicateBms = CreateFile("cccccccccccccccccccccccccccccccc", Path.Combine("C:\\Installed", "Bms", "duplicate.bms"));
-        var samePathBms = CreateFile("dddddddddddddddddddddddddddddddd", duplicateBms.path.ToUpperInvariant());
+        var samePathBms = CreateFile("dddddddddddddddddddddddddddddddd", duplicateBms.path);
+        var caseOnlyPathBms = CreateFile("99999999999999999999999999999999", duplicateBms.path.ToUpperInvariant());
         var crossKindBmson = CreateBmsonSong(existingBmsPath, "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
         var crossKindBms = CreateFile("ffffffffffffffffffffffffffffffff", existingBmsonPath);
 
@@ -1032,6 +1033,7 @@ public sealed class OwnedChartCollectionStateTests
         Assert.ThrowsException<InvalidOperationException>(() => state.UpsertStorageRows([], [pathlessBmson]));
         Assert.ThrowsException<InvalidOperationException>(() => state.UpsertStorageRows([], [md5lessBmson]));
         Assert.ThrowsException<InvalidOperationException>(() => state.UpsertStorageRows([duplicateBms, samePathBms], []));
+        state.UpsertStorageRows([caseOnlyPathBms], []);
         Assert.ThrowsException<InvalidOperationException>(() => state.UpsertStorageRows([], [crossKindBmson]));
         Assert.ThrowsException<InvalidOperationException>(() => state.UpsertStorageRows([crossKindBms], []));
     }

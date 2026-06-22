@@ -367,14 +367,14 @@ internal static class ChartDirectoryScanBuilder
         return [.. (chartFilePaths ?? [])
             .Where(path => !string.IsNullOrWhiteSpace(path))
             .Select(Path.GetFullPath)
-            .Distinct(StringComparer.OrdinalIgnoreCase)];
+            .Distinct(StringComparer.Ordinal)];
     }
 
     private static RootFileEnumerationEntry[] NormalizeChartFileEntries(IEnumerable<RootFileEnumerationEntry> chartFileEntries)
     {
         return [.. (chartFileEntries ?? [])
             .Where(entry => entry != null && !string.IsNullOrWhiteSpace(entry.Path))
-            .GroupBy(entry => Path.GetFullPath(entry.Path), StringComparer.OrdinalIgnoreCase)
+            .GroupBy(entry => Path.GetFullPath(entry.Path), StringComparer.Ordinal)
             .Select(group =>
             {
                 RootFileEnumerationEntry entry = group.First();
