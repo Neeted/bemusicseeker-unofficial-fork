@@ -7,7 +7,6 @@ using System.Text.RegularExpressions;
 using System.Windows;
 using BeMusicSeeker.Models.Utils;
 using Livet;
-using Microsoft.VisualBasic.FileIO;
 
 namespace BeMusicSeeker.Models.LR2;
 
@@ -37,7 +36,7 @@ public class Backup : NotificationObject
         {
             throw new ArgumentNullException("dstDir", "出力先ディレクトリが与えられていません");
         }
-        if (!Directory.Exists(dstDir))
+        if (!LongPathFileSystem.DirectoryExists(dstDir))
         {
             throw new DirectoryNotFoundException("出力先ディレクトリが存在しません" + Environment.NewLine + dstDir);
         }
@@ -45,13 +44,13 @@ public class Backup : NotificationObject
         {
             genNum = 1;
         }
-        List<string> list = [.. _paths.Where(f => !string.IsNullOrWhiteSpace(f) && (File.Exists(f) || Directory.Exists(f)))];
+        List<string> list = [.. _paths.Where(f => !string.IsNullOrWhiteSpace(f) && LongPathFileSystem.EntryExists(f))];
         if (list.Count == 0)
         {
             return false;
         }
         var timeSpan = new TimeSpan(Math.Max(1, span.Days), 0, 0, 0);
-        List<DateTime> list2 = [.. (from dp in Directory.GetDirectories(dstDir, "*", System.IO.SearchOption.TopDirectoryOnly)
+        List<DateTime> list2 = [.. (from dp in LongPathFileSystem.EnumerateDirectories(dstDir, "*", System.IO.SearchOption.TopDirectoryOnly)
                                 select Path.GetFileName(dp) into d
                                 where backupFolderRegex.Match(d).Success
                                 select DateTime.ParseExact(d, dateFormat, DateTimeFormatInfo.InvariantInfo, DateTimeStyles.None) into d
@@ -71,7 +70,7 @@ public class Backup : NotificationObject
                 {
                     try
                     {
-                        Directory.Delete(Path.Combine(dstDir, item.ToString(dateFormat)), recursive: true);
+                        LongPathFileSystem.DeleteDirectory(Path.Combine(dstDir, item.ToString(dateFormat)), recursive: true);
                     }
                     catch
                     {
@@ -81,21 +80,21 @@ public class Backup : NotificationObject
             }
         }
         string text = Path.Combine(dstDir, today.ToString(dateFormat));
-        if (Directory.Exists(text) || File.Exists(text))
+        if (LongPathFileSystem.EntryExists(text))
         {
             throw new IOException("バックアップ先ディレクトリが既に存在しています" + Environment.NewLine + text);
         }
-        Directory.CreateDirectory(text);
+        LongPathFileSystem.CreateDirectory(text);
         foreach (string item2 in list)
         {
             string fileName = Path.GetFileName(item2);
-            if (File.Exists(item2))
+            if (LongPathFileSystem.FileExists(item2))
             {
-                File.Copy(item2, Path.Combine(text, fileName), overwrite: true);
+                LongPathFileSystem.CopyFile(item2, Path.Combine(text, fileName), overwrite: true);
             }
-            else if (Directory.Exists(item2))
+            else if (LongPathFileSystem.DirectoryExists(item2))
             {
-                FileSystem.CopyDirectory(item2, Path.Combine(text, fileName), overwrite: true);
+                LongPathFileSystem.CopyDirectory(item2, Path.Combine(text, fileName), overwrite: true);
             }
         }
         return true;
@@ -105,7 +104,7 @@ public class Backup : NotificationObject
     {
         try
         {
-            if (songDBPath != null && File.Exists(songDBPath))
+            if (songDBPath != null && LongPathFileSystem.FileExists(songDBPath))
             {
                 using var lR2SongDBExtended = new LR2SongDBExtended(songDBPath);
                 lR2SongDBExtended.Execute("VACUUM;");
@@ -113,7 +112,7 @@ public class Backup : NotificationObject
             }
             if (scoreDBPaths != null)
             {
-                foreach (string item in scoreDBPaths.Where(f => File.Exists(f)))
+                foreach (string item in scoreDBPaths.Where(f => LongPathFileSystem.FileExists(f)))
                 {
                     using var lR2ScoreDBExtended = new LR2ScoreDBExtended(item);
                     lR2ScoreDBExtended.Execute("VACUUM;");
