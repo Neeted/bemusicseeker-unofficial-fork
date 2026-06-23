@@ -8,6 +8,15 @@
       2. 変更を Release vX.X.X.X としてコミットし、タグを作成
       3. タグだけを push して GitHub Release draft を作成 / 更新
 
+    -UpdateDraftBody:
+      1. 既存 draft Release が未公開であることを確認
+      2. 開発用リポジトリの release notes だけを draft Release 本文へ反映
+
+    -RecreateDraft:
+      1. 既存 draft Release と tag を削除
+      2. 公開用リポジトリの release commit を origin/main へ戻す（作業ツリーの publish 済みファイルは保持）
+      3. 現在の作業ツリーから Release vX.X.X.X commit / tag / draft Release を作り直す
+
     -PublishDraft:
       1. draft Release と tag の整合性を確認
       2. draft Release を publish
@@ -15,6 +24,8 @@
 #>
 param(
     [switch]$CreateDraft,
+    [switch]$UpdateDraftBody,
+    [switch]$RecreateDraft,
     [switch]$PublishDraft
 )
 
@@ -27,8 +38,9 @@ $publicRepoName = "bemusicseeker-unofficial-fork"
 $publicBranch = "main"
 
 function Assert-ExactlyOneMode {
-    if (($CreateDraft -and $PublishDraft) -or (-not $CreateDraft -and -not $PublishDraft)) {
-        throw "実行モードを 1 つ指定してください: -CreateDraft または -PublishDraft"
+    $modeCount = @($CreateDraft, $UpdateDraftBody, $RecreateDraft, $PublishDraft).Where({ $_ }).Count
+    if ($modeCount -ne 1) {
+        throw "実行モードを 1 つ指定してください: -CreateDraft, -UpdateDraftBody, -RecreateDraft, -PublishDraft"
     }
 }
 
@@ -42,6 +54,10 @@ function Assert-GhAuthenticated {
 }
 
 function Get-ReleaseContext {
+    param(
+        [bool]$RequireAssets = $true
+    )
+
     if (-not (Test-Path "version.txt")) {
         throw "version.txt が見つかりません。"
     }
@@ -58,8 +74,11 @@ function Get-ReleaseContext {
     }
 
     $zipPattern = "bemusicseeker-unofficial-fork-${tag}*.zip"
-    $releaseAssets = @(Get-ChildItem -Path "dist" -Filter $zipPattern -File | Sort-Object Name)
-    if ($releaseAssets.Count -eq 0) {
+    $releaseAssets = @()
+    if (Test-Path "dist" -PathType Container) {
+        $releaseAssets = @(Get-ChildItem -Path "dist" -Filter $zipPattern -File | Sort-Object Name)
+    }
+    if ($RequireAssets -and $releaseAssets.Count -eq 0) {
         throw "リリース用パッケージが見つかりません: dist\$zipPattern`n事前に publish.ps1 を実行してください。"
     }
 
@@ -120,6 +139,13 @@ function New-UpdateManifest($context) {
     $manifestPath = Join-Path $pubRoot "update.json"
     $manifest | ConvertTo-Json -Depth 8 | Set-Content -Path $manifestPath -Encoding UTF8
     Write-Host "  update.json を生成: $manifestPath" -ForegroundColor Green
+}
+
+function Assert-UpdateManifestCanBeGenerated($context) {
+    $assetMetadata = @($context.ReleaseAssets | ForEach-Object { Get-ReleaseAssetMetadata $_ $context })
+    if (-not ($assetMetadata | Where-Object { $_.kind -eq "app" })) {
+        throw "通常版パッケージが見つかりません。update.json には本体のみ asset が必要です。"
+    }
 }
 
 function Get-ReleaseExists($tag) {
@@ -200,6 +226,50 @@ function Assert-RemoteTagMatchesLocal($tag) {
     }
 }
 
+function Get-RemoteTagCommit($tag) {
+    $remoteTagLine = git ls-remote --tags origin "refs/tags/$tag"
+    if ([string]::IsNullOrWhiteSpace($remoteTagLine)) {
+        return $null
+    }
+    return ($remoteTagLine -split "\s+")[0]
+}
+
+function Get-LocalTagCommit($tag) {
+    $existingTag = git tag -l $tag
+    if (-not $existingTag) {
+        return $null
+    }
+    return (git rev-parse "$tag^{commit}").Trim()
+}
+
+function Get-RemoteBranchCommit {
+    $remoteLine = git ls-remote --heads origin "refs/heads/$publicBranch"
+    if ([string]::IsNullOrWhiteSpace($remoteLine)) {
+        throw "remote branch が見つかりません: $publicBranch"
+    }
+    return ($remoteLine -split "\s+")[0]
+}
+
+function Assert-GitCommitObjectAvailable($commit, $label) {
+    git cat-file -e "$commit^{commit}" 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        throw "$label の commit object が local repo にありません: $commit`n先に公開用リポジトリで 'git fetch origin $publicBranch --tags' を実行してください。"
+    }
+}
+
+function Test-GitCommitIsAncestor($ancestorCommit, $descendantCommit) {
+    Assert-GitCommitObjectAvailable $ancestorCommit "ancestor"
+    Assert-GitCommitObjectAvailable $descendantCommit "descendant"
+    git merge-base --is-ancestor $ancestorCommit $descendantCommit
+    if ($LASTEXITCODE -eq 0) {
+        return $true
+    }
+    if ($LASTEXITCODE -eq 1) {
+        return $false
+    }
+    throw "commit の祖先判定に失敗しました: ancestor=$ancestorCommit descendant=$descendantCommit"
+}
+
 function Assert-OnPublicBranch {
     $currentBranch = (git branch --show-current).Trim()
     if ($currentBranch -ne $publicBranch) {
@@ -209,15 +279,104 @@ function Assert-OnPublicBranch {
 
 function Assert-RemoteBranchMatchesLocalHead {
     $localCommit = (git rev-parse "HEAD").Trim()
-    $remoteLine = git ls-remote --heads origin "refs/heads/$publicBranch"
-    if ([string]::IsNullOrWhiteSpace($remoteLine)) {
-        throw "remote branch が見つかりません: $publicBranch"
-    }
-
-    $remoteCommit = ($remoteLine -split "\s+")[0]
+    $remoteCommit = Get-RemoteBranchCommit
     if ($remoteCommit -ne $localCommit) {
         throw "remote $publicBranch は現在の release commit を指していません: local=$localCommit remote=$remoteCommit"
     }
+}
+
+function Assert-DraftReleaseCanBeRecreated($context) {
+    if (Get-ReleaseExists $context.Tag) {
+        if (-not (Get-ReleaseIsDraft $context.Tag)) {
+            throw "GitHub Release $($context.Tag) は既に公開済みです。再作成できません。"
+        }
+    }
+
+    $remoteBranchCommit = Get-RemoteBranchCommit
+    $remoteTagCommit = Get-RemoteTagCommit $context.Tag
+    if ($remoteTagCommit -and (Test-GitCommitIsAncestor $remoteTagCommit $remoteBranchCommit)) {
+        throw "remote $publicBranch が $($context.Tag) の commit を含んでいます。既に公開ブランチへ反映済みの tag は再作成できません。"
+    }
+}
+
+function Assert-ReleaseCommitCanBeResetForRecreate($context) {
+    $remoteBranchCommit = Get-RemoteBranchCommit
+    $localHeadCommit = (git rev-parse "HEAD").Trim()
+    if ($localHeadCommit -eq $remoteBranchCommit) {
+        return
+    }
+
+    if (-not (Test-GitCommitIsAncestor $remoteBranchCommit $localHeadCommit)) {
+        throw "現在の HEAD は origin/$publicBranch からの直系ではありません。release commit を安全に外せないため停止します。"
+    }
+
+    $aheadCommits = @(git rev-list --reverse "$remoteBranchCommit..HEAD")
+    if ($aheadCommits.Count -ne 1) {
+        throw "origin/$publicBranch からの ahead commit が 1 件ではありません: count=$($aheadCommits.Count)。-RecreateDraft は直前の release commit だけを外す場合に限定します。"
+    }
+
+    $localTagCommit = Get-LocalTagCommit $context.Tag
+    if ($localTagCommit -and $localTagCommit -ne $localHeadCommit) {
+        throw "local tag $($context.Tag) が現在の HEAD を指していません: tag=$localTagCommit head=$localHeadCommit"
+    }
+
+    $remoteTagCommit = Get-RemoteTagCommit $context.Tag
+    if ($remoteTagCommit -and $remoteTagCommit -ne $localHeadCommit) {
+        throw "remote tag $($context.Tag) が現在の HEAD を指していません: tag=$remoteTagCommit head=$localHeadCommit"
+    }
+}
+
+function Assert-RecreateDraftPreconditions($context) {
+    Assert-DraftReleaseCanBeRecreated $context
+    Assert-ReleaseCommitCanBeResetForRecreate $context
+    Assert-UpdateManifestCanBeGenerated $context
+}
+
+function Remove-DraftReleaseAndTags($context) {
+    if (Get-ReleaseExists $context.Tag) {
+        if (-not (Get-ReleaseIsDraft $context.Tag)) {
+            throw "GitHub Release $($context.Tag) は既に公開済みです。削除できません。"
+        }
+        Write-Host "  既存 draft Release を削除します..."
+        gh release delete $context.Tag --yes
+        if ($LASTEXITCODE -ne 0) { throw "GitHub Release draft の削除に失敗しました。" }
+    }
+    else {
+        Write-Host "  既存 draft Release はありません" -ForegroundColor Yellow
+    }
+
+    if (Get-RemoteTagCommit $context.Tag) {
+        Write-Host "  remote tag $($context.Tag) を削除します..."
+        git push origin ":refs/tags/$($context.Tag)"
+        if ($LASTEXITCODE -ne 0) { throw "remote tag の削除に失敗しました: $($context.Tag)" }
+    }
+    else {
+        Write-Host "  remote tag $($context.Tag) はありません" -ForegroundColor Yellow
+    }
+
+    if (Get-LocalTagCommit $context.Tag) {
+        Write-Host "  local tag $($context.Tag) を削除します..."
+        git tag -d $context.Tag
+        if ($LASTEXITCODE -ne 0) { throw "local tag の削除に失敗しました: $($context.Tag)" }
+    }
+    else {
+        Write-Host "  local tag $($context.Tag) はありません" -ForegroundColor Yellow
+    }
+}
+
+function Reset-ReleaseCommitPreservingWorktree {
+    $remoteBranchCommit = Get-RemoteBranchCommit
+    $localHeadCommit = (git rev-parse "HEAD").Trim()
+    if ($localHeadCommit -eq $remoteBranchCommit) {
+        Write-Host "  HEAD は既に origin/$publicBranch と一致しています" -ForegroundColor Yellow
+        return
+    }
+
+    $aheadCount = (git rev-list --count "$remoteBranchCommit..HEAD").Trim()
+    Write-Host "  release commit を外します: origin/$publicBranch..HEAD=$aheadCount commit(s)"
+    git reset --mixed $remoteBranchCommit
+    if ($LASTEXITCODE -ne 0) { throw "release commit の取り消しに失敗しました。" }
+    Write-Host "  作業ツリーのファイルは保持しました" -ForegroundColor Green
 }
 
 function New-ReleaseCommitAndTag($context) {
@@ -282,6 +441,44 @@ function Invoke-CreateDraft($context) {
     Write-Host "  draft Release 作成完了。公開ブランチはまだ push していません。" -ForegroundColor Green
 }
 
+function Invoke-UpdateDraftBody($context) {
+    Write-Host "`n=== ドラフトリリース本文の更新 ===" -ForegroundColor Cyan
+    Assert-OnPublicBranch
+    if (-not (Get-ReleaseExists $context.Tag)) {
+        throw "GitHub Release draft が見つかりません: $($context.Tag)"
+    }
+    if (-not (Get-ReleaseIsDraft $context.Tag)) {
+        throw "GitHub Release $($context.Tag) は既に公開済みです。"
+    }
+
+    gh release edit $context.Tag --title $context.Tag --notes-file $context.NotesPath --draft
+    if ($LASTEXITCODE -ne 0) { throw "GitHub Release draft 本文の更新に失敗しました。" }
+    Write-Host "  draft Release 本文を更新しました。" -ForegroundColor Green
+}
+
+function Invoke-RecreateDraft($context) {
+    Write-Host "`n=== ドラフトリリースの再作成 ===" -ForegroundColor Cyan
+    Assert-OnPublicBranch
+    Assert-RecreateDraftPreconditions $context
+    Remove-DraftReleaseAndTags $context
+    Reset-ReleaseCommitPreservingWorktree
+    New-UpdateManifest $context
+    New-ReleaseCommitAndTag $context
+
+    Write-Host "  タグだけを push します..."
+    git push origin $context.Tag
+    if ($LASTEXITCODE -ne 0) { throw "tag の push に失敗しました。" }
+    Assert-RemoteTagMatchesLocal $context.Tag
+
+    Write-Host "  GitHub Release draft を作成します..."
+    $assetPaths = @($context.ReleaseAssets | ForEach-Object { $_.FullName })
+    gh release create $context.Tag @assetPaths --title $context.Tag --notes-file $context.NotesPath --verify-tag --draft
+    if ($LASTEXITCODE -ne 0) { throw "GitHub Release draft の作成に失敗しました。" }
+    Assert-ReleaseAssetsMatchLocal $context
+
+    Write-Host "  draft Release 再作成完了。公開ブランチはまだ push していません。" -ForegroundColor Green
+}
+
 function Invoke-PublishDraft($context) {
     Write-Host "`n=== ドラフトリリースの公開 ===" -ForegroundColor Cyan
     Assert-OnPublicBranch
@@ -322,7 +519,7 @@ try {
     Write-Host "  作業ディレクトリ: $PWD"
 
     Write-Host "`n=== バージョンとパッケージの確認 ===" -ForegroundColor Cyan
-    $context = Get-ReleaseContext
+    $context = Get-ReleaseContext -RequireAssets:(-not $UpdateDraftBody)
     Write-Host "  対象バージョン: $($context.Tag)"
     Write-Host "  リリースノート: $($context.NotesPath)"
     foreach ($asset in $context.ReleaseAssets) {
@@ -331,6 +528,12 @@ try {
 
     if ($CreateDraft) {
         Invoke-CreateDraft $context
+    }
+    elseif ($UpdateDraftBody) {
+        Invoke-UpdateDraftBody $context
+    }
+    elseif ($RecreateDraft) {
+        Invoke-RecreateDraft $context
     }
     else {
         Invoke-PublishDraft $context
