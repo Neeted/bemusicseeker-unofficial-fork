@@ -15,7 +15,7 @@
 4. [path-identity.md](path-identity.md)
    - DB 上の `path` identity、case-sensitive exact match、`COLLATE NOCASE` の利用制限。
 5. [path-length-and-io.md](path-length-and-io.md)
-   - 長パスを含む譜面ファイル I/O、保存 path と extended-length path の境界、読めないファイルの集約方針。
+   - 長パスを含む譜面ファイル I/O、内部ファイル操作、保存 path と extended-length path の境界、読めないファイルの集約方針。
 6. [lr2-song-db-generation.md](lr2-song-db-generation.md)
    - LR2 連携モードの `song.db` 生成、`song` / `folder`、`.lr2folder`、自動更新設定。
 7. [install-estimation-current-logic.md](install-estimation-current-logic.md)
