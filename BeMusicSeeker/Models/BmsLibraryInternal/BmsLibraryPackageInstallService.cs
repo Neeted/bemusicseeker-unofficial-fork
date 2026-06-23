@@ -122,12 +122,12 @@ internal sealed class BmsLibraryPackageInstallService
 
     public ComponentMoveDecision DecideComponentMove(string srcFilePath, string dstFilePath)
     {
-        if (!File.Exists(dstFilePath))
+        if (!LongPathFileSystem.FileExists(dstFilePath))
         {
             return ComponentMoveDecision.Move;
         }
-        var sourceInfo = new FileInfo(srcFilePath);
-        var destinationInfo = new FileInfo(dstFilePath);
+        LongPathFileSystem.FileMetadata sourceInfo = LongPathFileSystem.GetFileMetadata(srcFilePath);
+        LongPathFileSystem.FileMetadata destinationInfo = LongPathFileSystem.GetFileMetadata(dstFilePath);
         DateTime sourceWriteTime = sourceInfo.LastWriteTimeUtc;
         DateTime destinationWriteTime = destinationInfo.LastWriteTimeUtc;
         if (sourceInfo.Length == destinationInfo.Length && Math.Abs((sourceWriteTime - destinationWriteTime).TotalSeconds) <= SmartComponentOverwriteTimeTolerance.TotalSeconds)
@@ -169,7 +169,7 @@ internal sealed class BmsLibraryPackageInstallService
         HashSet<string> excludedPathSet = ((excludedComponentPaths != null && excludedComponentPaths.Count > 0) ? new HashSet<string>(excludedComponentPaths, StringComparer.OrdinalIgnoreCase) : null);
         foreach (string installComponentFile in installComponentFiles ?? [])
         {
-            if (File.Exists(installComponentFile))
+            if (LongPathFileSystem.FileExists(installComponentFile))
             {
                 if (excludedPathSet != null && excludedPathSet.Contains(installComponentFile))
                 {
@@ -183,12 +183,12 @@ internal sealed class BmsLibraryPackageInstallService
                 });
                 continue;
             }
-            if (!Directory.Exists(installComponentFile))
+            if (!LongPathFileSystem.DirectoryExists(installComponentFile))
             {
                 throw new FileNotFoundException("Component path was not found.", installComponentFile);
             }
             string destinationRoot = Path.Combine(destinationDirectory, Path.GetFileName(installComponentFile));
-            foreach (string path in Directory.EnumerateFiles(installComponentFile, "*", System.IO.SearchOption.AllDirectories))
+            foreach (string path in LongPathFileSystem.EnumerateFiles(installComponentFile, "*", System.IO.SearchOption.AllDirectories))
             {
                 if (excludedPathSet != null && excludedPathSet.Contains(path))
                 {
@@ -250,7 +250,7 @@ internal sealed class BmsLibraryPackageInstallService
         {
             return string.Empty;
         }
-        if (!string.IsNullOrWhiteSpace(sourceRootPath) && Directory.Exists(sourceRootPath))
+        if (!string.IsNullOrWhiteSpace(sourceRootPath) && LongPathFileSystem.DirectoryExists(sourceRootPath))
         {
             string normalizedRootDirectory = sourceRootPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
             string relativePath = chartPath.StartsWith(normalizedRootDirectory, StringComparison.OrdinalIgnoreCase)
@@ -409,7 +409,7 @@ internal sealed class BmsLibraryPackageInstallService
         IEnumerable<string> fileSystemEntries;
         try
         {
-            fileSystemEntries = [.. Directory.EnumerateFileSystemEntries(dirfullpath, "*", System.IO.SearchOption.TopDirectoryOnly)];
+            fileSystemEntries = [.. LongPathFileSystem.EnumerateFileSystemEntries(dirfullpath, "*", System.IO.SearchOption.TopDirectoryOnly)];
         }
         catch
         {
@@ -419,9 +419,9 @@ internal sealed class BmsLibraryPackageInstallService
         {
             return result;
         }
-        List<string> files = [.. fileSystemEntries.Where(File.Exists)];
-        List<string> directories = [.. fileSystemEntries.Where(Directory.Exists)];
-        List<string> chartFiles = [.. files.Where(file => ChartFileKindResolver.IsSupportedChartFilePath(file) && File.Exists(file))];
+        List<string> files = [.. fileSystemEntries.Where(LongPathFileSystem.FileExists)];
+        List<string> directories = [.. fileSystemEntries.Where(LongPathFileSystem.DirectoryExists)];
+        List<string> chartFiles = [.. files.Where(file => ChartFileKindResolver.IsSupportedChartFilePath(file) && LongPathFileSystem.FileExists(file))];
         if (chartFiles.Count > 0)
         {
             List<PackageChartEntry> parsedChartEntries = [.. chartFiles
@@ -576,7 +576,7 @@ internal sealed class BmsLibraryPackageInstallService
     {
         List<PackageChartEntry> knownEntries = [.. (knownChartEntries ?? [])
             .Where(entry => entry?.Chart != null)];
-        if (Directory.Exists(packagePath))
+        if (LongPathFileSystem.DirectoryExists(packagePath))
         {
             List<PackageChartEntry> recursiveEntries = [.. PackageInstallEstimationSnapshotBuilder
                 .BuildPackageChartDiscoverySnapshot(packagePath, useEverythingForPendingPackageSourceScan: false)
@@ -610,7 +610,7 @@ internal sealed class BmsLibraryPackageInstallService
     /// <returns>入れ子譜面の警告を付与または維持した場合は true。</returns>
     internal static bool ApplyNestedChartFileWarnings(ChartPackage package)
     {
-        if (package == null || string.IsNullOrWhiteSpace(package.path) || !Directory.Exists(package.path))
+        if (package == null || string.IsNullOrWhiteSpace(package.path) || !LongPathFileSystem.DirectoryExists(package.path))
         {
             return false;
         }
@@ -666,7 +666,7 @@ internal sealed class BmsLibraryPackageInstallService
 
     private static void DeleteExtractedTemporaryDirectory(string tempDirectoryPath, IFileMutationService fileMutationService, FileMutationOptions targetOnlyFileMutationOptions, Action<string> logInfo)
     {
-        if (string.IsNullOrWhiteSpace(tempDirectoryPath) || !Directory.Exists(tempDirectoryPath))
+        if (string.IsNullOrWhiteSpace(tempDirectoryPath) || !LongPathFileSystem.DirectoryExists(tempDirectoryPath))
         {
             return;
         }
@@ -679,7 +679,7 @@ internal sealed class BmsLibraryPackageInstallService
             }
             else
             {
-                Directory.Delete(tempDirectoryPath, recursive: true);
+                LongPathFileSystem.DeleteDirectory(tempDirectoryPath, recursive: true);
             }
         }
         catch (Exception cleanupException)
@@ -729,8 +729,8 @@ internal sealed class BmsLibraryPackageInstallService
                             continue;
                         }
 
-                        bool isFile = !entry.IsFolder && File.Exists(fullPath);
-                        bool isDirectory = entry.IsFolder && Directory.Exists(fullPath);
+                        bool isFile = !entry.IsFolder && LongPathFileSystem.FileExists(fullPath);
+                        bool isDirectory = entry.IsFolder && LongPathFileSystem.DirectoryExists(fullPath);
                         if (!isFile && !isDirectory)
                         {
                             continue;
@@ -785,11 +785,11 @@ internal sealed class BmsLibraryPackageInstallService
                             {
                                 if (isFile)
                                 {
-                                    File.SetLastAccessTime(fullPath, entry.LastAccessTime);
+                                    LongPathFileSystem.SetLastAccessTime(fullPath, isDirectory: false, entry.LastAccessTime);
                                 }
                                 else
                                 {
-                                    Directory.SetLastAccessTime(fullPath, entry.LastAccessTime);
+                                    LongPathFileSystem.SetLastAccessTime(fullPath, isDirectory: true, entry.LastAccessTime);
                                 }
                             }
                             catch (Exception lastAccessTimeRestoreException)
@@ -856,18 +856,18 @@ internal sealed class BmsLibraryPackageInstallService
         bool isSingleFile = false;
         bool isAutoNaming = false;
         List<string> installComponentFiles = [];
-        if (File.Exists(sourcePath))
+        if (LongPathFileSystem.FileExists(sourcePath))
         {
             installComponentFiles.Add(sourcePath);
             isSingleFile = true;
         }
         else
         {
-            if (!Directory.Exists(sourcePath))
+            if (!LongPathFileSystem.DirectoryExists(sourcePath))
             {
                 return false;
             }
-            installComponentFiles = [.. Directory.EnumerateFileSystemEntries(sourcePath)];
+            installComponentFiles = [.. LongPathFileSystem.EnumerateFileSystemEntries(sourcePath)];
             isAutoNaming = string.IsNullOrWhiteSpace(installationDirectory);
         }
 
@@ -918,7 +918,7 @@ internal sealed class BmsLibraryPackageInstallService
             {
                 int dirSuffix = 1;
                 string baseDirName = destinationDirectory;
-                while (Directory.Exists(destinationDirectory) || File.Exists(destinationDirectory))
+                while (LongPathFileSystem.EntryExists(destinationDirectory))
                 {
                     dirSuffix++;
                     destinationDirectory = baseDirName + "(" + dirSuffix + ")";
@@ -931,7 +931,7 @@ internal sealed class BmsLibraryPackageInstallService
 
             if (isAutoNaming)
             {
-                if (!Directory.Exists(sourcePath))
+                if (!LongPathFileSystem.DirectoryExists(sourcePath))
                 {
                     throw new DirectoryNotFoundException(string.Format(Resources.Error_RenameDestDirNotFound, sourcePath));
                 }
@@ -975,12 +975,12 @@ internal sealed class BmsLibraryPackageInstallService
                     {
                         fileMutationService.EnsureDirectory(destinationBmsDirectory, targetOnlyFileMutationOptions);
                     }
-                    while (File.Exists(destinationBmsPath) || Directory.Exists(destinationBmsPath))
+                    while (LongPathFileSystem.EntryExists(destinationBmsPath))
                     {
                         string renamedFileName = Path.GetFileNameWithoutExtension(destinationBmsPath) + "_" + Path.GetExtension(destinationBmsPath);
                         destinationBmsPath = Path.Combine(Path.GetDirectoryName(destinationBmsPath) ?? destinationDirectory, Path.GetFileName(renamedFileName));
                     }
-                    if (!File.Exists(chart?.Path))
+                    if (!LongPathFileSystem.FileExists(chart?.Path))
                     {
                         throw new FileNotFoundException(Resources.Error_FileNotFound, chart?.Path);
                     }
@@ -1013,7 +1013,7 @@ internal sealed class BmsLibraryPackageInstallService
         }
         else
         {
-            if (!(Directory.Exists(sourcePath) || isAutoNaming))
+            if (!(LongPathFileSystem.DirectoryExists(sourcePath) || isAutoNaming))
             {
                 return false;
             }
@@ -1027,11 +1027,11 @@ internal sealed class BmsLibraryPackageInstallService
         {
             directoryToDelete = Path.GetDirectoryName(sourcePath);
         }
-        else if (Directory.Exists(sourcePath))
+        else if (LongPathFileSystem.DirectoryExists(sourcePath))
         {
             directoryToDelete = sourcePath;
         }
-        if (!string.IsNullOrWhiteSpace(directoryToDelete) && Directory.Exists(directoryToDelete))
+        if (!string.IsNullOrWhiteSpace(directoryToDelete) && LongPathFileSystem.DirectoryExists(directoryToDelete))
         {
             string folderDeletionDecisionReason = deleteAllContents
                 ? string.Empty
@@ -1118,7 +1118,7 @@ internal sealed class BmsLibraryPackageInstallService
         List<string> remainingFiles;
         try
         {
-            remainingFiles = [.. Directory.EnumerateFiles(directoryPath, "*", System.IO.SearchOption.AllDirectories)];
+            remainingFiles = [.. LongPathFileSystem.EnumerateFiles(directoryPath, "*", System.IO.SearchOption.AllDirectories)];
         }
         catch (Exception ex)
         {
@@ -1210,7 +1210,7 @@ internal sealed class BmsLibraryPackageInstallService
         var totalStopwatch = Stopwatch.StartNew();
         var discoveryStopwatch = Stopwatch.StartNew();
         List<string> normalizedInstallPaths = [.. (installPaths ?? [])
-            .Where(path => !string.IsNullOrWhiteSpace(path) && (File.Exists(path) || Directory.Exists(path)))
+            .Where(path => !string.IsNullOrWhiteSpace(path) && LongPathFileSystem.EntryExists(path))
             .Distinct(StringComparer.OrdinalIgnoreCase)];
         if (token.IsCancellationRequested)
         {
@@ -1223,14 +1223,14 @@ internal sealed class BmsLibraryPackageInstallService
         List<ChartPackage> discoveredPackages = [];
         foreach (IGrouping<string, string> paths in groupedPaths)
         {
-            if (string.IsNullOrWhiteSpace(paths.Key) || !Directory.Exists(paths.Key))
+            if (string.IsNullOrWhiteSpace(paths.Key) || !LongPathFileSystem.DirectoryExists(paths.Key))
             {
                 continue;
             }
-            List<string> files = [.. paths.Where(File.Exists)];
-            List<string> directories = [.. paths.Where(Directory.Exists)];
-            List<string> chartFiles = [.. files.Where(file => ChartFileKindResolver.IsSupportedChartFilePath(file) && File.Exists(file))];
-            string[] topEntries = Directory.GetFileSystemEntries(paths.Key, "*", System.IO.SearchOption.TopDirectoryOnly);
+            List<string> files = [.. paths.Where(LongPathFileSystem.FileExists)];
+            List<string> directories = [.. paths.Where(LongPathFileSystem.DirectoryExists)];
+            List<string> chartFiles = [.. files.Where(file => ChartFileKindResolver.IsSupportedChartFilePath(file) && LongPathFileSystem.FileExists(file))];
+            string[] topEntries = [.. LongPathFileSystem.EnumerateFileSystemEntries(paths.Key, "*", System.IO.SearchOption.TopDirectoryOnly)];
             if (files.Count + directories.Count == topEntries.Length)
             {
                 ChartPackageDiscoveryResult discoveryResult = SearchChartPackagesRecursivelyWithMetadata(paths.Key, dupRateThreshInOnePkg);
@@ -1270,7 +1270,7 @@ internal sealed class BmsLibraryPackageInstallService
         discoveredPackages = [.. discoveredPackages
             .Where(pkg => pkg != null && !libraryDirectories.Any(dir => pkg.path.StartsWith(dir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)))
             .Where(newPkg => !pendingPackages.Any(oldPkg => !string.IsNullOrWhiteSpace(oldPkg.path) && newPkg.path.Equals(oldPkg.path, StringComparison.OrdinalIgnoreCase)))
-            .Where(newPkg => !pendingPackages.Any(oldPkg => !string.IsNullOrWhiteSpace(oldPkg.path) && Directory.Exists(oldPkg.path) && newPkg.path.StartsWith(oldPkg.path + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)))];
+            .Where(newPkg => !pendingPackages.Any(oldPkg => !string.IsNullOrWhiteSpace(oldPkg.path) && LongPathFileSystem.DirectoryExists(oldPkg.path) && newPkg.path.StartsWith(oldPkg.path + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)))];
         List<string> distinctWorkflowRegroupEligibleSourceDirectories = [.. result.RegroupEligibleSourceDirectories
             .Where(sourceDirectoryPath => !string.IsNullOrWhiteSpace(sourceDirectoryPath))
             .Distinct(StringComparer.OrdinalIgnoreCase)];
@@ -1284,19 +1284,19 @@ internal sealed class BmsLibraryPackageInstallService
             return result;
         }
 
-        if (discoveredPackages.Any(newPkg => !string.IsNullOrWhiteSpace(newPkg.path) && Directory.Exists(newPkg.path)))
+        if (discoveredPackages.Any(newPkg => !string.IsNullOrWhiteSpace(newPkg.path) && LongPathFileSystem.DirectoryExists(newPkg.path)))
         {
             List<ChartPackage> pendingPackagesToRemove = [.. pendingPackages.Where(delegate (ChartPackage oldPkg)
             {
-                IEnumerable<ChartPackage> sourcePackages = discoveredPackages.Where(newPkg => !string.IsNullOrWhiteSpace(newPkg.path) && Directory.Exists(newPkg.path));
+                IEnumerable<ChartPackage> sourcePackages = discoveredPackages.Where(newPkg => !string.IsNullOrWhiteSpace(newPkg.path) && LongPathFileSystem.DirectoryExists(newPkg.path));
                 string dir;
-                if (Directory.Exists(oldPkg.path))
+                if (LongPathFileSystem.DirectoryExists(oldPkg.path))
                 {
                     dir = oldPkg.path + Path.DirectorySeparatorChar;
                 }
                 else
                 {
-                    if (!File.Exists(oldPkg.path))
+                    if (!LongPathFileSystem.FileExists(oldPkg.path))
                     {
                         return true;
                     }
@@ -1333,7 +1333,7 @@ internal sealed class BmsLibraryPackageInstallService
         var warningClassificationStopwatch = Stopwatch.StartNew();
         foreach (ChartPackage pkg in discoveredPackages)
         {
-            bool isSingleFilePackage = !Directory.Exists(pkg.path);
+            bool isSingleFilePackage = !LongPathFileSystem.DirectoryExists(pkg.path);
             foreach (PackageChartEntry entry in pkg.ChartEntries)
             {
                 if (isSingleFilePackage && !HasAlreadyInstalledWarning(entry))
@@ -1824,7 +1824,7 @@ internal sealed class BmsLibraryPackageInstallService
                     result.InstalledPackagesToRegister.Add(package);
                 }
             }
-            else if (!string.IsNullOrWhiteSpace(package.path) && (File.Exists(package.path) || Directory.Exists(package.path)))
+            else if (!string.IsNullOrWhiteSpace(package.path) && LongPathFileSystem.EntryExists(package.path))
             {
                 result.FailedPackages.Add(package);
             }
@@ -2126,7 +2126,7 @@ internal sealed class BmsLibraryPackageInstallService
     {
         var result = new PendingExtensionRenameResult();
         var stopwatch = Stopwatch.StartNew();
-        List<BMSFile> files = [.. GetBmsFormatChartFiles(targetCharts).Where(file => File.Exists(file.path))];
+        List<BMSFile> files = [.. GetBmsFormatChartFiles(targetCharts).Where(file => LongPathFileSystem.FileExists(file.path))];
         result.Total = files.Count;
         foreach (BMSFile file in files)
         {
@@ -2193,8 +2193,8 @@ internal sealed class BmsLibraryPackageInstallService
                 onEachProcessed?.Invoke();
                 continue;
             }
-            bool isDirectory = Directory.Exists(pendingPackage.path);
-            bool isFile = !isDirectory && File.Exists(pendingPackage.path);
+            bool isDirectory = LongPathFileSystem.DirectoryExists(pendingPackage.path);
+            bool isFile = !isDirectory && LongPathFileSystem.FileExists(pendingPackage.path);
             try
             {
                 if (isDirectory)
@@ -2291,7 +2291,7 @@ internal sealed class BmsLibraryPackageInstallService
         {
             foreach (ChartPackage pendingPackage in libraryFileOperationsService.GetPendingPackagesFullyCoveredBySelection(pendingPackages, selectedPaths))
             {
-                if (!Directory.Exists(pendingPackage.path))
+                if (!LongPathFileSystem.DirectoryExists(pendingPackage.path))
                 {
                     continue;
                 }
@@ -2337,7 +2337,7 @@ internal sealed class BmsLibraryPackageInstallService
             result.Processed++;
             try
             {
-                if (File.Exists(pendingChartPath))
+                if (LongPathFileSystem.FileExists(pendingChartPath))
                 {
                     fileMutationService.DeleteFileShell(pendingChartPath, UIOption.OnlyErrorDialogs, recycleOption, targetOnlyFileMutationOptions);
                     result.ChartPathsToRemove.Add(pendingChartPath);
@@ -2569,7 +2569,7 @@ internal sealed class BmsLibraryPackageInstallService
         {
             string srcFilePath = planItem.SourcePath;
             string dstFilePath = planItem.DestinationPath;
-            if (!File.Exists(srcFilePath))
+            if (!LongPathFileSystem.FileExists(srcFilePath))
             {
                 throw new FileNotFoundException(Resources.Error_FileNotFound, srcFilePath);
             }
@@ -2586,7 +2586,7 @@ internal sealed class BmsLibraryPackageInstallService
             }
 
             ComponentMoveDecision moveDecision = DecideComponentMove(srcFilePath, dstFilePath);
-            bool keepByRename = keepProtectedFilesByRenaming && File.Exists(dstFilePath) && IsSmartOverwriteProtectedExtension(srcFilePath) && moveDecision != ComponentMoveDecision.SkipSame;
+            bool keepByRename = keepProtectedFilesByRenaming && LongPathFileSystem.FileExists(dstFilePath) && IsSmartOverwriteProtectedExtension(srcFilePath) && moveDecision != ComponentMoveDecision.SkipSame;
             if (keepByRename)
             {
                 FileCollisionResolutionResult resolution = libraryFileOperationsService.ResolveFileCollisionWithSuffix(srcFilePath, dstFilePath, null, "smart_overwrite", logInstallPerformance);
@@ -2654,7 +2654,7 @@ internal sealed class BmsLibraryPackageInstallService
 
     private static void CleanupEmptyComponentDirectories(IEnumerable<string> installComponentDirectories, IFileMutationService fileMutationService, FileMutationOptions targetOnlyFileMutationOptions)
     {
-        foreach (string installComponentDirectory in installComponentDirectories.Where(path => Directory.Exists(path)).OrderByDescending(path => path.Length))
+        foreach (string installComponentDirectory in installComponentDirectories.Where(LongPathFileSystem.DirectoryExists).OrderByDescending(path => path.Length))
         {
             TryDeleteEmptyDirectoryTree(installComponentDirectory, fileMutationService, targetOnlyFileMutationOptions);
         }
@@ -2664,15 +2664,15 @@ internal sealed class BmsLibraryPackageInstallService
     {
         try
         {
-            if (!Directory.Exists(rootDirectoryPath))
+            if (!LongPathFileSystem.DirectoryExists(rootDirectoryPath))
             {
                 return;
             }
-            foreach (string childDirectoryPath in Directory.EnumerateDirectories(rootDirectoryPath).ToList())
+            foreach (string childDirectoryPath in LongPathFileSystem.EnumerateDirectories(rootDirectoryPath).ToList())
             {
                 TryDeleteEmptyDirectoryTree(childDirectoryPath, fileMutationService, targetOnlyFileMutationOptions);
             }
-            if (!Directory.EnumerateFileSystemEntries(rootDirectoryPath).Any())
+            if (!LongPathFileSystem.EnumerateFileSystemEntries(rootDirectoryPath).Any())
             {
                 fileMutationService.DeleteDirectoryDirect(rootDirectoryPath, recursive: false, targetOnlyFileMutationOptions);
             }
@@ -2686,7 +2686,7 @@ internal sealed class BmsLibraryPackageInstallService
     {
         try
         {
-            return Directory.Exists(directoryPath) && Directory.EnumerateFileSystemEntries(directoryPath).Any();
+            return LongPathFileSystem.DirectoryExists(directoryPath) && LongPathFileSystem.EnumerateFileSystemEntries(directoryPath).Any();
         }
         catch
         {

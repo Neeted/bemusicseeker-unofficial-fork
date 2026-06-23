@@ -190,7 +190,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
                 && (confirmDeleteWholeFolder?.Invoke(folderGroup.Key) ?? false);
             if (shouldDeleteWholeFolder)
             {
-                if (!Directory.Exists(folderGroup.Key))
+                if (!LongPathFileSystem.DirectoryExists(folderGroup.Key))
                 {
                     continue;
                 }
@@ -220,7 +220,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
             {
                 try
                 {
-                    if (File.Exists(selectedChart.Path))
+                    if (LongPathFileSystem.FileExists(selectedChart.Path))
                     {
                         fileMutationService.DeleteFileShell(selectedChart.Path, UIOption.OnlyErrorDialogs, recycleOption, targetOnlyFileMutationOptions);
                         result.FileDeleteCount++;
@@ -528,7 +528,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
             };
             try
             {
-                if (!Directory.Exists(folder) || Path.GetPathRoot(folder).Equals(folder, StringComparison.OrdinalIgnoreCase))
+                if (!LongPathFileSystem.DirectoryExists(folder) || Path.GetPathRoot(folder).Equals(folder, StringComparison.OrdinalIgnoreCase))
                 {
                     plans.Add(plan);
                     continue;
@@ -656,8 +656,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
             return false;
         }
         return reservedDestinationFolders?.Contains(candidate) == true
-            || File.Exists(candidate)
-            || Directory.Exists(candidate);
+            || LongPathFileSystem.EntryExists(candidate);
     }
 
     private static string GetLastPathSegment(string path)
@@ -744,7 +743,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
             }
         }
         return [.. targetFolders
-            .Where(folder => !Path.GetPathRoot(folder).Equals(folder, StringComparison.OrdinalIgnoreCase) && Directory.Exists(folder))
+            .Where(folder => !Path.GetPathRoot(folder).Equals(folder, StringComparison.OrdinalIgnoreCase) && LongPathFileSystem.DirectoryExists(folder))
             .Select(folder => new FolderAutoRenamePlan
             {
                 SourceDirectory = folder,
@@ -762,7 +761,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         Func<IEnumerable<ChartFile>, IPrimaryHashLookup> createHashSnapshotExcluding)
     {
         var result = new LibraryMergeResult();
-        if (!Directory.Exists(srcDir) || !Directory.Exists(dstDir) || srcDir.Equals(dstDir, StringComparison.OrdinalIgnoreCase))
+        if (!LongPathFileSystem.DirectoryExists(srcDir) || !LongPathFileSystem.DirectoryExists(dstDir) || srcDir.Equals(dstDir, StringComparison.OrdinalIgnoreCase))
         {
             return result;
         }
@@ -1050,7 +1049,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         var stopwatch = Stopwatch.StartNew();
         foreach (BMSFile file in (charts ?? [])
             .Select(chart => chart?.GetBmsStorageOwner())
-            .Where(file => file != null && File.Exists(file.path)))
+            .Where(file => file != null && LongPathFileSystem.FileExists(file.path)))
         {
             string requestedPath = Path.Combine(Path.GetDirectoryName(file.path), Path.GetFileNameWithoutExtension(file.path) + newExt);
             RenameInvalidExtensionOutcome renameResult = processRename?.Invoke(file, requestedPath) ?? new RenameInvalidExtensionOutcome();
@@ -1108,7 +1107,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
             Action = RenameInvalidExtensionAction.Skipped,
             FinalPath = requestedPath
         };
-        if (sourceFile == null || string.IsNullOrWhiteSpace(sourceFile.path) || string.IsNullOrWhiteSpace(requestedPath) || !File.Exists(sourceFile.path))
+        if (sourceFile == null || string.IsNullOrWhiteSpace(sourceFile.path) || string.IsNullOrWhiteSpace(requestedPath) || !LongPathFileSystem.FileExists(sourceFile.path))
         {
             return outcome;
         }
@@ -1171,10 +1170,10 @@ internal sealed class BmsLibraryLibraryFileOperationsService
 
         string candidatePath = requestedPath;
         int suffix = 1;
-        while (File.Exists(candidatePath) || Directory.Exists(candidatePath))
+        while (LongPathFileSystem.EntryExists(candidatePath))
         {
             result.FinalPath = candidatePath;
-            if (Directory.Exists(candidatePath))
+            if (LongPathFileSystem.DirectoryExists(candidatePath))
             {
                 if (!string.IsNullOrWhiteSpace(logCategory))
                 {
@@ -1230,7 +1229,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         string extension = Path.GetExtension(requestedPath);
         int suffix = 1;
         string candidate = requestedPath;
-        while (File.Exists(candidate) || Directory.Exists(candidate))
+        while (LongPathFileSystem.EntryExists(candidate))
         {
             candidate = BuildPathWithSuffix(requestedPath, suffix);
             suffix++;

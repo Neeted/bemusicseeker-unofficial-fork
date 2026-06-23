@@ -245,6 +245,18 @@ internal static class LongPathFileSystem
         }
     }
 
+    public static void SetLastAccessTime(string path, bool isDirectory, DateTime lastAccessTime)
+    {
+        if (isDirectory)
+        {
+            Directory.SetLastAccessTime(ToExtendedPath(path), lastAccessTime);
+        }
+        else
+        {
+            File.SetLastAccessTime(ToExtendedPath(path), lastAccessTime);
+        }
+    }
+
     public static DateTime GetLastWriteTimeUtc(string path)
     {
         return File.GetLastWriteTimeUtc(ToExtendedPath(path));
