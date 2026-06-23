@@ -17,6 +17,13 @@
       2. 公開用リポジトリの release commit を origin/main へ戻す（作業ツリーの publish 済みファイルは保持）
       3. 現在の作業ツリーから Release vX.X.X.X commit / tag / draft Release を作り直す
 
+    -CreatePrereleaseDraft:
+      1. 現在の publish 済みパッケージとリリースノートから preview tag の draft Release を作成 / 更新
+      2. ローカル commit / tag、update.json、公開ブランチは変更しない
+      3. GitHub 上で手動で pre-release に変更して検証する
+      4. tag 名は vX.X.X.X-<PreviewSuffix>。既定値は preview.1
+         例: .\scripts\release.ps1 -CreatePrereleaseDraft -PreviewSuffix preview.2
+
     -PublishDraft:
       1. draft Release と tag の整合性を確認
       2. draft Release を publish
@@ -26,7 +33,9 @@ param(
     [switch]$CreateDraft,
     [switch]$UpdateDraftBody,
     [switch]$RecreateDraft,
-    [switch]$PublishDraft
+    [switch]$CreatePrereleaseDraft,
+    [switch]$PublishDraft,
+    [string]$PreviewSuffix = "preview.1"
 )
 
 $ErrorActionPreference = "Stop"
@@ -38,9 +47,9 @@ $publicRepoName = "bemusicseeker-unofficial-fork"
 $publicBranch = "main"
 
 function Assert-ExactlyOneMode {
-    $modeCount = @($CreateDraft, $UpdateDraftBody, $RecreateDraft, $PublishDraft).Where({ $_ }).Count
+    $modeCount = @($CreateDraft, $UpdateDraftBody, $RecreateDraft, $CreatePrereleaseDraft, $PublishDraft).Where({ $_ }).Count
     if ($modeCount -ne 1) {
-        throw "実行モードを 1 つ指定してください: -CreateDraft, -UpdateDraftBody, -RecreateDraft, -PublishDraft"
+        throw "実行モードを 1 つ指定してください: -CreateDraft, -UpdateDraftBody, -RecreateDraft, -CreatePrereleaseDraft, -PublishDraft"
     }
 }
 
@@ -85,8 +94,31 @@ function Get-ReleaseContext {
     return [PSCustomObject]@{
         Version = $version
         Tag = $tag
+        BaseTag = $tag
         NotesPath = $notesPath
         ReleaseAssets = $releaseAssets
+    }
+}
+
+function Get-PrereleaseDraftContext($context) {
+    if ([string]::IsNullOrWhiteSpace($PreviewSuffix)) {
+        throw "-PreviewSuffix には空でない値を指定してください。"
+    }
+
+    $normalizedSuffix = $PreviewSuffix.Trim()
+    if ($normalizedSuffix.StartsWith("-")) {
+        $normalizedSuffix = $normalizedSuffix.Substring(1)
+    }
+    if ([string]::IsNullOrWhiteSpace($normalizedSuffix)) {
+        throw "-PreviewSuffix には空でない値を指定してください。"
+    }
+
+    return [PSCustomObject]@{
+        Version = $context.Version
+        Tag = "$($context.BaseTag)-$normalizedSuffix"
+        BaseTag = $context.BaseTag
+        NotesPath = $context.NotesPath
+        ReleaseAssets = $context.ReleaseAssets
     }
 }
 
@@ -211,6 +243,12 @@ function Assert-ReleaseAssetsMatchLocal($context) {
             throw "GitHub Release asset size が update.json と一致しません: $($expected.Name)"
         }
     }
+}
+
+function Sync-DraftReleaseContent($context) {
+    gh release edit $context.Tag --title $context.Tag --notes-file $context.NotesPath --draft
+    if ($LASTEXITCODE -ne 0) { throw "GitHub Release draft の更新に失敗しました: $($context.Tag)" }
+    Sync-ReleaseAssets $context
 }
 
 function Assert-RemoteTagMatchesLocal($tag) {
@@ -426,9 +464,7 @@ function Invoke-CreateDraft($context) {
         }
 
         Write-Host "  既存 draft Release を更新します..."
-        gh release edit $context.Tag --title $context.Tag --notes-file $context.NotesPath --draft
-        if ($LASTEXITCODE -ne 0) { throw "GitHub Release draft の更新に失敗しました。" }
-        Sync-ReleaseAssets $context
+        Sync-DraftReleaseContent $context
     }
     else {
         Write-Host "  GitHub Release draft を作成します..."
@@ -439,6 +475,36 @@ function Invoke-CreateDraft($context) {
     }
 
     Write-Host "  draft Release 作成完了。公開ブランチはまだ push していません。" -ForegroundColor Green
+}
+
+function Invoke-CreatePrereleaseDraft($context) {
+    Write-Host "`n=== プレリリース検証用ドラフトの作成 ===" -ForegroundColor Cyan
+    Assert-OnPublicBranch
+    $previewContext = Get-PrereleaseDraftContext $context
+    Write-Host "  preview tag: $($previewContext.Tag)"
+    Write-Host "  base release: $($previewContext.BaseTag)"
+
+    if (Get-ReleaseExists $previewContext.Tag) {
+        if (-not (Get-ReleaseIsDraft $previewContext.Tag)) {
+            throw "GitHub Release $($previewContext.Tag) は既に公開済みです。検証用 draft として更新できません。"
+        }
+
+        Write-Host "  既存 preview draft Release を更新します..."
+        Sync-DraftReleaseContent $previewContext
+    }
+    else {
+        if (Get-RemoteTagCommit $previewContext.Tag) {
+            throw "remote tag $($previewContext.Tag) は既に存在します。別の -PreviewSuffix を指定してください。"
+        }
+
+        Write-Host "  preview draft Release を作成します..."
+        $assetPaths = @($previewContext.ReleaseAssets | ForEach-Object { $_.FullName })
+        gh release create $previewContext.Tag @assetPaths --target $publicBranch --title $previewContext.Tag --notes-file $previewContext.NotesPath --draft
+        if ($LASTEXITCODE -ne 0) { throw "preview draft Release の作成に失敗しました。" }
+        Assert-ReleaseAssetsMatchLocal $previewContext
+    }
+
+    Write-Host "  preview draft Release 作成完了。ローカル commit/tag と公開ブランチは変更していません。" -ForegroundColor Green
 }
 
 function Invoke-UpdateDraftBody($context) {
@@ -534,6 +600,9 @@ try {
     }
     elseif ($RecreateDraft) {
         Invoke-RecreateDraft $context
+    }
+    elseif ($CreatePrereleaseDraft) {
+        Invoke-CreatePrereleaseDraft $context
     }
     else {
         Invoke-PublishDraft $context
