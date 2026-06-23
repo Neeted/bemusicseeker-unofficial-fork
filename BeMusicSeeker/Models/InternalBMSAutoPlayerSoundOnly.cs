@@ -524,7 +524,7 @@ public class InternalBMSAutoPlayerSoundOnly : NotificationObject, IBMSPlayer, IN
 
     public async void PlayStart(string bmsFilePath, Action<object, EventArgs> onExitEventHandler = null)
     {
-        if (!File.Exists(bmsFilePath))
+        if (!LongPathFileSystem.FileExists(bmsFilePath))
         {
             throw new FileNotFoundException("BMS ファイルが見つかりません。", bmsFilePath);
         }

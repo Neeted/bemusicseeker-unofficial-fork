@@ -209,7 +209,7 @@ internal static class PackageInstallEstimationSnapshotBuilder
             return new PackageChartDiscoverySnapshot();
         }
 
-        if (Directory.Exists(normalizedPath))
+        if (LongPathFileSystem.DirectoryExists(normalizedPath))
         {
             RootFileEnumerationResult enumerationResult = useEverythingForPendingPackageSourceScan
                 ? EnumerateChartsOnlyWithFallback(normalizedPath)
@@ -224,7 +224,7 @@ internal static class PackageInstallEstimationSnapshotBuilder
         return new PackageChartDiscoverySnapshot
         {
             SourcePath = normalizedPath,
-            ChartEntries = File.Exists(normalizedPath) && ChartFileKindResolver.IsSupportedChartFilePath(normalizedPath)
+            ChartEntries = LongPathFileSystem.FileExists(normalizedPath) && ChartFileKindResolver.IsSupportedChartFilePath(normalizedPath)
                 ? [.. new List<PackageChartEntry> { PackageChartEntry.FromPath(normalizedPath) }.Where(entry => entry != null)]
                 : []
         };
@@ -252,7 +252,7 @@ internal static class PackageInstallEstimationSnapshotBuilder
             return PackageInstallSurfaceSnapshot.Empty;
         }
 
-        if (Directory.Exists(normalizedPath))
+        if (LongPathFileSystem.DirectoryExists(normalizedPath))
         {
             return CreateDirectoryInstallSurfaceSnapshot(normalizedPath, normalizedPath, useEverythingForPendingPackageSourceScan);
         }
@@ -346,7 +346,7 @@ internal static class PackageInstallEstimationSnapshotBuilder
 
     private static PackageInstallSurfaceSnapshot TryCreateSourceRootInstallSurfaceSnapshot(string sourcePath, string sourceDirectory, bool includeBundledResources)
     {
-        if (string.IsNullOrWhiteSpace(sourceDirectory) || !Directory.Exists(sourceDirectory))
+        if (string.IsNullOrWhiteSpace(sourceDirectory) || !LongPathFileSystem.DirectoryExists(sourceDirectory))
         {
             return null;
         }
@@ -377,7 +377,7 @@ internal static class PackageInstallEstimationSnapshotBuilder
 
     private static DirectoryResourceLookupCache.Entry CreateResourceEntryFromEnumeration(string rootDirectory, RootFileEnumerationResult enumerationResult)
     {
-        if (string.IsNullOrWhiteSpace(rootDirectory) || !Directory.Exists(rootDirectory))
+        if (string.IsNullOrWhiteSpace(rootDirectory) || !LongPathFileSystem.DirectoryExists(rootDirectory))
         {
             return new DirectoryResourceLookupCache.Entry();
         }
@@ -461,7 +461,7 @@ internal static class PackageInstallEstimationSnapshotBuilder
         try
         {
             string normalizedPath = Path.GetFullPath(packagePath);
-            if (Directory.Exists(normalizedPath))
+            if (LongPathFileSystem.DirectoryExists(normalizedPath))
             {
                 return normalizedPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
             }

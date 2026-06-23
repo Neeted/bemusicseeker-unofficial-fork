@@ -150,6 +150,31 @@ internal static class LongPathFileSystem
         File.Move(ToExtendedPath(sourcePath), ToExtendedPath(destinationPath));
     }
 
+    public static void CopyFile(string sourcePath, string destinationPath, bool overwrite)
+    {
+        File.Copy(ToExtendedPath(sourcePath), ToExtendedPath(destinationPath), overwrite);
+    }
+
+    public static void CopyDirectory(string sourcePath, string destinationPath, bool overwrite)
+    {
+        if (DirectoryExists(destinationPath) && !overwrite)
+        {
+            throw new IOException("Destination directory already exists.");
+        }
+
+        CreateDirectory(destinationPath);
+        foreach (string sourceDirectoryPath in GetDirectories(sourcePath))
+        {
+            string destinationChildPath = Path.Combine(destinationPath, Path.GetFileName(sourceDirectoryPath));
+            CopyDirectory(sourceDirectoryPath, destinationChildPath, overwrite);
+        }
+        foreach (string sourceFilePath in GetFiles(sourcePath))
+        {
+            string destinationFilePath = Path.Combine(destinationPath, Path.GetFileName(sourceFilePath));
+            CopyFile(sourceFilePath, destinationFilePath, overwrite);
+        }
+    }
+
     public static void MoveDirectory(string sourcePath, string destinationPath, bool overwrite)
     {
         ThrowIfSamePath(sourcePath, destinationPath);

@@ -20776,7 +20776,7 @@ public class MainWindowViewModel : ViewModel
             return;
         }
         nowPlayingChartRowsViewIndex = indexChartRowsView;
-        if (bmsFile == null || string.IsNullOrWhiteSpace(bmsFile.path) || !File.Exists(bmsFile.path))
+        if (bmsFile == null || string.IsNullOrWhiteSpace(bmsFile.path) || !LongPathFileSystem.FileExists(bmsFile.path))
         {
             if (NowPlayingBMS != null)
             {
@@ -20797,7 +20797,7 @@ public class MainWindowViewModel : ViewModel
             bmsFile,
             includeResourceReferences: false);
         string installDestination = playbackChart?.InstallDestination;
-        if (!string.IsNullOrWhiteSpace(installDestination) && Directory.Exists(installDestination))
+        if (!string.IsNullOrWhiteSpace(installDestination) && LongPathFileSystem.DirectoryExists(installDestination))
         {
             ChartPackage chartPackage = ChartPackagesPending.Where(pkg => ContainsChartTarget(pkg, playbackChart)).FirstOrDefault();
             if (chartPackage == null)
@@ -20815,12 +20815,12 @@ public class MainWindowViewModel : ViewModel
                 chartPackage.delete_parent = false;
             }
             string fileName = Path.GetFileName(bmsFile.path);
-            while (File.Exists(Path.Combine(installDestination, Path.GetFileName(bmsFile.path))) || Directory.Exists(Path.Combine(installDestination, Path.GetFileName(bmsFile.path))))
+            while (LongPathFileSystem.EntryExists(Path.Combine(installDestination, Path.GetFileName(bmsFile.path))))
             {
                 string text = Path.GetFileNameWithoutExtension(bmsFile.path) + "_" + Path.GetExtension(bmsFile.path);
                 try
                 {
-                    FileSystem.RenameFile(bmsFile.path, text);
+                    LongPathFileSystem.MoveFile(bmsFile.path, Path.Combine(Path.GetDirectoryName(bmsFile.path), text), overwrite: false);
                 }
                 catch
                 {
@@ -20829,7 +20829,7 @@ public class MainWindowViewModel : ViewModel
                 bmsFile.path = Path.Combine(Path.GetDirectoryName(bmsFile.path), text);
             }
             List<string> list = [];
-            if (Directory.Exists(chartPackage.path))
+            if (LongPathFileSystem.DirectoryExists(chartPackage.path))
             {
                 string[] extensionsPermitted =
                 [
@@ -20837,7 +20837,7 @@ public class MainWindowViewModel : ViewModel
                     .. BeMusicSeeker.Models.ChartResourceExtensions.AudioExtensions,
                     .. BeMusicSeeker.Models.ChartResourceExtensions.ImageExtensions,
                 ];
-                list = [.. (from f in Directory.EnumerateFiles(chartPackage.path, "*", System.IO.SearchOption.TopDirectoryOnly)
+                list = [.. (from f in LongPathFileSystem.EnumerateFiles(chartPackage.path, "*", System.IO.SearchOption.TopDirectoryOnly)
                         where extensionsPermitted.Any(e => f.EndsWith(e, StringComparison.OrdinalIgnoreCase))
                         select f)];
             }
@@ -20873,7 +20873,7 @@ public class MainWindowViewModel : ViewModel
             {
                 try
                 {
-                    FileSystem.RenameFile(bmsFile.path, fileName);
+                    LongPathFileSystem.MoveFile(bmsFile.path, Path.Combine(Path.GetDirectoryName(bmsFile.path), fileName), overwrite: false);
                 }
                 catch
                 {
@@ -20973,7 +20973,7 @@ public class MainWindowViewModel : ViewModel
             }
             else
             {
-                string text = (!string.IsNullOrWhiteSpace(NowPlayingBMS?.path) && File.Exists(NowPlayingBMS.path)) ? Path.GetDirectoryName(NowPlayingBMS.path) : num.ToString();
+                string text = (!string.IsNullOrWhiteSpace(NowPlayingBMS?.path) && LongPathFileSystem.FileExists(NowPlayingBMS.path)) ? Path.GetDirectoryName(NowPlayingBMS.path) : num.ToString();
                 num++;
                 if (Settings.Default.RepeatPlayMode && num == ChartRowsView.Count)
                 {
@@ -20987,7 +20987,7 @@ public class MainWindowViewModel : ViewModel
                     {
                         break;
                     }
-                    string text2 = (bMSFile != null && !string.IsNullOrWhiteSpace(bMSFile.path) && File.Exists(bMSFile.path)) ? Path.GetDirectoryName(bMSFile.path) : num.ToString();
+                    string text2 = (bMSFile != null && !string.IsNullOrWhiteSpace(bMSFile.path) && LongPathFileSystem.FileExists(bMSFile.path)) ? Path.GetDirectoryName(bMSFile.path) : num.ToString();
                     if (!string.IsNullOrWhiteSpace(text2) && text != text2)
                     {
                         break;
@@ -21036,7 +21036,7 @@ public class MainWindowViewModel : ViewModel
             }
             else
             {
-                string text = (!string.IsNullOrWhiteSpace(NowPlayingBMS?.path) && File.Exists(NowPlayingBMS.path)) ? Path.GetDirectoryName(NowPlayingBMS.path) : num.ToString();
+                string text = (!string.IsNullOrWhiteSpace(NowPlayingBMS?.path) && LongPathFileSystem.FileExists(NowPlayingBMS.path)) ? Path.GetDirectoryName(NowPlayingBMS.path) : num.ToString();
                 num--;
                 if (Settings.Default.RepeatPlayMode && num == -1)
                 {
@@ -21050,7 +21050,7 @@ public class MainWindowViewModel : ViewModel
                     {
                         break;
                     }
-                    string text2 = (bMSFile != null && !string.IsNullOrWhiteSpace(bMSFile.path) && File.Exists(bMSFile.path)) ? Path.GetDirectoryName(bMSFile.path) : num.ToString();
+                    string text2 = (bMSFile != null && !string.IsNullOrWhiteSpace(bMSFile.path) && LongPathFileSystem.FileExists(bMSFile.path)) ? Path.GetDirectoryName(bMSFile.path) : num.ToString();
                     if (!string.IsNullOrWhiteSpace(text2) && text != text2)
                     {
                         break;
@@ -30504,7 +30504,7 @@ public class MainWindowViewModel : ViewModel
         {
             stopPlayingChartFiles([target.Chart]);
             string directoryNameSimple = DirectoryExt.GetDirectoryNameSimple(chartPath);
-            if (!string.IsNullOrWhiteSpace(directoryNameSimple) && Directory.Exists(directoryNameSimple))
+            if (!string.IsNullOrWhiteSpace(directoryNameSimple) && LongPathFileSystem.DirectoryExists(directoryNameSimple))
             {
                 files.RenameChartFolder(directoryNameSimple, newFolder, false);
                 ApplyLatestNormalLibraryRefreshNotification();
@@ -31009,7 +31009,7 @@ public class MainWindowViewModel : ViewModel
             try
             {
                 string currentFileHash = target.Hash;
-                if (string.IsNullOrWhiteSpace(target.Path) || !File.Exists(target.Path))
+                if (string.IsNullOrWhiteSpace(target.Path) || !LongPathFileSystem.FileExists(target.Path))
                 {
                     if (target == lastTarget)
                     {
@@ -31070,7 +31070,7 @@ public class MainWindowViewModel : ViewModel
 
     public void ConvertBMSToAudioFiles(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles, string saveDir, CancellationToken token = default, Action<bool> onEachCompleted = null)
     {
-        if (!Directory.Exists(saveDir))
+        if (!LongPathFileSystem.DirectoryExists(saveDir))
         {
             throw new DirectoryNotFoundException("Directory " + saveDir + " not found");
         }

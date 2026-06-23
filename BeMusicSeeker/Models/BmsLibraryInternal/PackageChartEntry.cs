@@ -4,6 +4,7 @@ using System.ComponentModel;
 using System.IO;
 using System.Linq;
 using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.Models.Utils;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
@@ -449,13 +450,13 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
     private static void ApplyInstalledBmsDate(BMSFile chartFile)
     {
         string path = chartFile?.path;
-        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+        if (string.IsNullOrWhiteSpace(path) || !LongPathFileSystem.FileExists(path))
         {
             return;
         }
         try
         {
-            chartFile.date = Lr2SongRowEnricher.ToLr2UnixSeconds(File.GetLastWriteTimeUtc(path));
+            chartFile.date = Lr2SongRowEnricher.ToLr2UnixSeconds(LongPathFileSystem.GetLastWriteTimeUtc(path));
         }
         catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException)
         {

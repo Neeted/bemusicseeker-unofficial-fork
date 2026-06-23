@@ -1115,10 +1115,10 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
             result.WarningMessage = string.Format(Properties.Resources.Warn_InvalidInstallPath, destinationDirectory, ex.Message);
             return result;
         }
-        string installDirectory = File.Exists(normalizedInput)
+        string installDirectory = LongPathFileSystem.FileExists(normalizedInput)
             ? DirectoryExt.GetDirectoryNameSimple(normalizedInput)
             : normalizedInput.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        if (!Directory.Exists(installDirectory))
+        if (!LongPathFileSystem.DirectoryExists(installDirectory))
         {
             result.WarningMessage = string.Format(Properties.Resources.Warn_InstallDirNotFound, installDirectory);
             return result;

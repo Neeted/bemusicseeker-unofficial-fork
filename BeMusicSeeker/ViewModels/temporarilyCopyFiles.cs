@@ -6,7 +6,6 @@ using System.Threading;
 using System.Windows;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
-using Microsoft.VisualBasic.FileIO;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -34,13 +33,13 @@ internal class temporarilyCopyFiles : IDisposable
         {
             try
             {
-                if (File.Exists(dstFile))
+                if (LongPathFileSystem.FileExists(dstFile))
                 {
-                    FileSystem.DeleteFile(dstFile);
+                    LongPathFileSystem.DeleteFile(dstFile);
                 }
-                else if (Directory.Exists(dstFile))
+                else if (LongPathFileSystem.DirectoryExists(dstFile))
                 {
-                    FileSystem.DeleteDirectory(dstFile, DeleteDirectoryOption.DeleteAllContents);
+                    LongPathFileSystem.DeleteDirectory(dstFile, recursive: true);
                 }
             }
             catch (Exception ex)
@@ -61,11 +60,11 @@ internal class temporarilyCopyFiles : IDisposable
         {
             throw new ArgumentNullException("dstDir");
         }
-        if (!srcFiles.All(file => File.Exists(file) || Directory.Exists(file)))
+        if (!srcFiles.All(LongPathFileSystem.EntryExists))
         {
             throw new ArgumentException("srcFiles");
         }
-        if (!Directory.Exists(dstDir))
+        if (!LongPathFileSystem.DirectoryExists(dstDir))
         {
             throw new DirectoryNotFoundException(dstDir);
         }
@@ -76,7 +75,7 @@ internal class temporarilyCopyFiles : IDisposable
         copiedFilesSrc = [.. srcFiles.Where(delegate (string file)
         {
             string path = Path.Combine(dstDir, Path.GetFileName(file));
-            return !File.Exists(path) && !Directory.Exists(path);
+            return !LongPathFileSystem.EntryExists(path);
         })];
         try
         {
@@ -85,17 +84,17 @@ internal class temporarilyCopyFiles : IDisposable
                 try
                 {
                     string text = Path.Combine(dstDir, Path.GetFileName(srcFile));
-                    if (File.Exists(srcFile))
+                    if (LongPathFileSystem.FileExists(srcFile))
                     {
-                        FileSystem.CopyFile(srcFile, text);
+                        LongPathFileSystem.CopyFile(srcFile, text, overwrite: false);
                     }
                     else
                     {
-                        if (!Directory.Exists(srcFile))
+                        if (!LongPathFileSystem.DirectoryExists(srcFile))
                         {
                             return;
                         }
-                        FileSystem.CopyDirectory(srcFile, text);
+                        LongPathFileSystem.CopyDirectory(srcFile, text, overwrite: false);
                     }
                     temporarilyCopyFiles2.copiedFilesDst.Add(text);
                 }

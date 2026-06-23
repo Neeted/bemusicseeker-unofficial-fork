@@ -9,6 +9,7 @@ using System.Reflection;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using BeMusicSeeker.Models.Utils;
 using Ribbit.Logging;
 
 namespace Ribbit.Net;
@@ -195,7 +196,7 @@ internal sealed class AppHttpClient
         }
         if (uri.IsFile)
         {
-            return File.ReadAllBytes(uri.LocalPath);
+            return LongPathFileSystem.ReadAllBytes(uri.LocalPath);
         }
         using HttpResponseMessage httpResponseMessage = Send(HttpMethod.Get, uri);
         return httpResponseMessage.Content.ReadAsByteArrayAsync().ConfigureAwait(false).GetAwaiter().GetResult();
@@ -229,7 +230,7 @@ internal sealed class AppHttpClient
         }
         if (uri.IsFile)
         {
-            byte[] bytes = await Task.Run(() => File.ReadAllBytes(uri.LocalPath), cancellationToken).ConfigureAwait(false);
+            byte[] bytes = await Task.Run(() => LongPathFileSystem.ReadAllBytes(uri.LocalPath), cancellationToken).ConfigureAwait(false);
             return DecodeStringAndTrimBom(bytes, encoding);
         }
         using (HttpResponseMessage httpResponseMessage = await SendAsync(HttpMethod.Get, uri, null, null, cancellationToken).ConfigureAwait(false))
@@ -326,7 +327,7 @@ internal sealed class AppHttpClient
         {
             throw new ArgumentNullException(nameof(filePath));
         }
-        if (!File.Exists(filePath))
+        if (!LongPathFileSystem.FileExists(filePath))
         {
             throw new FileNotFoundException("File not found.", filePath);
         }
@@ -346,7 +347,7 @@ internal sealed class AppHttpClient
                 multipartFormDataContent.Add(new StringContent(additionalFormField.Value ?? string.Empty), additionalFormField.Key ?? string.Empty);
             }
         }
-        using var byteArrayContent = new ByteArrayContent(File.ReadAllBytes(filePath));
+        using var byteArrayContent = new ByteArrayContent(LongPathFileSystem.ReadAllBytes(filePath));
         byteArrayContent.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
         byteArrayContent.Headers.ContentDisposition = new ContentDispositionHeaderValue("form-data")
         {
@@ -386,12 +387,12 @@ internal sealed class AppHttpClient
         }
         if (uri.IsFile)
         {
-            File.Copy(uri.LocalPath, destinationPath, overwrite: true);
+            LongPathFileSystem.CopyFile(uri.LocalPath, destinationPath, overwrite: true);
             return;
         }
         using HttpResponseMessage httpResponseMessage = Send(HttpMethod.Get, uri);
         using Stream stream = httpResponseMessage.Content.ReadAsStreamAsync().ConfigureAwait(false).GetAwaiter().GetResult();
-        using var fileStream = new FileStream(destinationPath, FileMode.Create, FileAccess.Write, FileShare.None);
+        using var fileStream = LongPathFileSystem.Open(destinationPath, FileMode.Create, FileAccess.Write, FileShare.None);
         stream.CopyTo(fileStream);
     }
 
@@ -409,7 +410,7 @@ internal sealed class AppHttpClient
         }
         if (uri.IsFile)
         {
-            return new AppHttpResponse(uri, File.OpenRead(uri.LocalPath));
+            return new AppHttpResponse(uri, LongPathFileSystem.OpenRead(uri.LocalPath));
         }
         HttpResponseMessage httpResponseMessage = Send(HttpMethod.Get, uri);
         try

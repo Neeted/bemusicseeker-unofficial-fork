@@ -173,7 +173,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 {
                     try
                     {
-                        var memoryStream = new MemoryStream(File.ReadAllBytes(Settings.Default.StagefilePath));
+                        var memoryStream = new MemoryStream(LongPathFileSystem.ReadAllBytes(Settings.Default.StagefilePath));
                         _panelImage = new WriteableBitmap(BitmapFrame.Create(memoryStream));
                         memoryStream.Close();
                         return _panelImage;
@@ -1848,9 +1848,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         try
         {
             string text = ((string.IsNullOrWhiteSpace(bmsFile.path) || string.IsNullOrWhiteSpace(bmsFile.stagefile)) ? string.Empty : Path.Combine(DirectoryExt.GetDirectoryNameSimple(bmsFile.path), bmsFile.stagefile));
-            if (!string.IsNullOrWhiteSpace(text) && File.Exists(text))
+            if (!string.IsNullOrWhiteSpace(text) && LongPathFileSystem.FileExists(text))
             {
-                var memoryStream = new MemoryStream(File.ReadAllBytes(text));
+                var memoryStream = new MemoryStream(LongPathFileSystem.ReadAllBytes(text));
                 writeableBitmap = new WriteableBitmap(BitmapFrame.Create(memoryStream));
                 memoryStream.Close();
                 gridBMSPlayerImage.Source = writeableBitmap;
@@ -1867,10 +1867,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         try
         {
             string text2 = ((string.IsNullOrWhiteSpace(bmsFile.path) || string.IsNullOrWhiteSpace(bmsFile.banner)) ? string.Empty : Path.Combine(DirectoryExt.GetDirectoryNameSimple(bmsFile.path), bmsFile.banner));
-            if (!string.IsNullOrWhiteSpace(text2) && File.Exists(text2))
+            if (!string.IsNullOrWhiteSpace(text2) && LongPathFileSystem.FileExists(text2))
             {
                 var imageBrush = new ImageBrush();
-                var memoryStream2 = new MemoryStream(File.ReadAllBytes(text2));
+                var memoryStream2 = new MemoryStream(LongPathFileSystem.ReadAllBytes(text2));
                 var imageSource = new WriteableBitmap(BitmapFrame.Create(memoryStream2));
                 memoryStream2.Close();
                 imageBrush.ImageSource = imageSource;
@@ -2310,7 +2310,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 : await DownloadSinglePlaylistUrlCandidateWithStatusAsync(url);
             switch (downloadResult.Kind)
             {
-                case PlaylistUrlDownloadResultKind.Downloaded when !string.IsNullOrWhiteSpace(downloadResult.FilePath) && File.Exists(downloadResult.FilePath):
+                case PlaylistUrlDownloadResultKind.Downloaded when !string.IsNullOrWhiteSpace(downloadResult.FilePath) && LongPathFileSystem.FileExists(downloadResult.FilePath):
                     installChartPackages([downloadResult.FilePath]);
                     newlyInstalledTreeViewItem.IsExpanded = true;
                     return;
@@ -4274,7 +4274,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
         string text = placementTarget.Header.ToString();
-        if (!Directory.Exists(text))
+        if (!LongPathFileSystem.DirectoryExists(text))
         {
             return;
         }
@@ -4303,7 +4303,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
         MainWindowViewModel.SettingDialogViewModel viewModel = (base.DataContext as MainWindowViewModel).settingDialog;
-        if (Directory.Exists(path) && DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_unregister_root_folder, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) != MessageBoxResult.Cancel)
+        if (LongPathFileSystem.DirectoryExists(path) && DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_unregister_root_folder, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) != MessageBoxResult.Cancel)
         {
             viewModel.RemoveBMSDirectoryFromRootFolderAndSave(path);
         }
@@ -4316,7 +4316,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
         string path = placementTarget.Header.ToString();
-        if (base.DataContext is MainWindowViewModel viewModel && Directory.Exists(path) && DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_rename_folders, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) != MessageBoxResult.Cancel)
+        if (base.DataContext is MainWindowViewModel viewModel && LongPathFileSystem.DirectoryExists(path) && DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_rename_folders, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) != MessageBoxResult.Cancel)
         {
             Task.Run(delegate
             {
@@ -4544,7 +4544,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        if (Directory.Exists(dataContext.path))
+        if (LongPathFileSystem.DirectoryExists(dataContext.path))
         {
             try
             {
@@ -4556,7 +4556,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 return;
             }
         }
-        if (!File.Exists(dataContext.path))
+        if (!LongPathFileSystem.FileExists(dataContext.path))
         {
             return;
         }
@@ -4784,7 +4784,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void treeViewDuplicateFolderContextMenuOpenExplorerClick(object sender, RoutedEventArgs e)
     {
-        if (!(e.Source is MenuItem { Parent: ContextMenu { PlacementTarget: TreeViewItem { DataContext: string dataContext } } }) || !Directory.Exists(dataContext))
+        if (!(e.Source is MenuItem { Parent: ContextMenu { PlacementTarget: TreeViewItem { DataContext: string dataContext } } }) || !LongPathFileSystem.DirectoryExists(dataContext))
         {
             return;
         }
@@ -5309,7 +5309,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             ChartFile keeper = grouped
                 .OrderBy(chart =>
                 {
-                    try { return File.GetLastWriteTime(chart.Path); }
+                    try { return LongPathFileSystem.GetLastWriteTime(chart.Path, isDirectory: false); }
                     catch { return DateTime.MaxValue; }
                 })
                 .ThenBy(chart => Path.GetFileName(chart.Path).Length)
@@ -5654,7 +5654,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         if (menuItem3 != null && menuItem4 != null && menuItemOpenDocument != null && changeSubmenuOpenDocumentTask == null)
         {
             menuItemOpenDocument.IsEnabled = false;
-            if (!string.IsNullOrWhiteSpace(chartPath) && File.Exists(chartPath))
+            if (!string.IsNullOrWhiteSpace(chartPath) && LongPathFileSystem.FileExists(chartPath))
             {
                 menuItem3.IsEnabled = true;
                 menuItem4.IsEnabled = true;
@@ -5670,7 +5670,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                     }
                     try
                     {
-                        List<string> list2 = [.. Directory.EnumerateFiles(directoryNameSimple, "*.txt"), .. Directory.EnumerateFiles(directoryNameSimple, "*.htm?")];
+                        List<string> list2 = [.. LongPathFileSystem.EnumerateFiles(directoryNameSimple, "*.txt"), .. LongPathFileSystem.EnumerateFiles(directoryNameSimple, "*.htm?")];
                         if (list2.Count > 0)
                         {
                             base.Dispatcher.BeginInvoke((Action)delegate
@@ -5707,7 +5707,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         if (menuItem18 != null && selectedTargets.Count > 1)
         {
             menuItem18.Header = BeMusicSeeker.Properties.Resources.Register_chart_with_viewer;
-            flag = (menuItem18.IsEnabled = selectedTargets.Any(target => target.HasCapability(ChartOperationCapabilities.UseScoreViewer) && !string.IsNullOrWhiteSpace(target.Chart.Path) && File.Exists(target.Chart.Path)));
+            flag = (menuItem18.IsEnabled = selectedTargets.Any(target => target.HasCapability(ChartOperationCapabilities.UseScoreViewer) && !string.IsNullOrWhiteSpace(target.Chart.Path) && LongPathFileSystem.FileExists(target.Chart.Path)));
         }
         else if (menuItem18 != null)
         {
@@ -5715,7 +5715,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             flag = selectedTargets.Count == 1
                 && selectedTargets[0].HasCapability(ChartOperationCapabilities.UseScoreViewer)
                 && !string.IsNullOrWhiteSpace(selectedTargets[0].Chart.Path)
-                && File.Exists(selectedTargets[0].Chart.Path);
+                && LongPathFileSystem.FileExists(selectedTargets[0].Chart.Path);
             menuItem18.IsEnabled = flag;
         }
         if (menuItem18 != null)
@@ -5788,7 +5788,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             bool canMoveSelectedFiles = !isPendingSelected;
             menuItem13.Visibility = ((!canMoveSelectedFiles) ? Visibility.Collapsed : Visibility.Visible);
-            menuItem13.IsEnabled = canMoveSelectedFiles && selectedTargets.Any(target => target.HasCapability(ChartOperationCapabilities.MoveInLibrary) && !string.IsNullOrWhiteSpace(target.Chart.Path) && File.Exists(target.Chart.Path));
+            menuItem13.IsEnabled = canMoveSelectedFiles && selectedTargets.Any(target => target.HasCapability(ChartOperationCapabilities.MoveInLibrary) && !string.IsNullOrWhiteSpace(target.Chart.Path) && LongPathFileSystem.FileExists(target.Chart.Path));
         }
         if (menuItem14 != null)
         {
@@ -5860,7 +5860,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             Visibility visibility = (menuItem19.Visibility = ((!canConvertToAudio) ? Visibility.Collapsed : Visibility.Visible));
             convertSeparator.Visibility = visibility;
             Separator convertSeparator2 = separator2;
-            bool isEnabled = (menuItem19.IsEnabled = canConvertToAudio && selectedTargets.Any(target => target.HasCapability(ChartOperationCapabilities.ConvertToAudio) && !string.IsNullOrWhiteSpace(target.Chart.Path) && File.Exists(target.Chart.Path)));
+            bool isEnabled = (menuItem19.IsEnabled = canConvertToAudio && selectedTargets.Any(target => target.HasCapability(ChartOperationCapabilities.ConvertToAudio) && !string.IsNullOrWhiteSpace(target.Chart.Path) && LongPathFileSystem.FileExists(target.Chart.Path)));
             convertSeparator2.IsEnabled = isEnabled;
         }
         if (hasBmsonSelection)
@@ -6099,11 +6099,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                     break;
                 case "playHistoryContextMenuItemOpenExplorer":
                     item.Visibility = state.CanOpenExplorer ? Visibility.Visible : Visibility.Collapsed;
-                    item.IsEnabled = state.CanOpenExplorer && File.Exists(state.ChartPath);
+                    item.IsEnabled = state.CanOpenExplorer && LongPathFileSystem.FileExists(state.ChartPath);
                     break;
                 case "playHistoryContextMenuItemRegisterScore":
                     item.Visibility = state.CanOpenScoreViewer ? Visibility.Visible : Visibility.Collapsed;
-                    item.IsEnabled = state.CanOpenScoreViewer && File.Exists(state.ChartPath);
+                    item.IsEnabled = state.CanOpenScoreViewer && LongPathFileSystem.FileExists(state.ChartPath);
                     break;
                 case "playHistoryContextMenuSeparatorHash":
                     item.Visibility = (state.HasExternalLinkItem || state.HasLocalChartItem) && state.HasHashCopyItem ? Visibility.Visible : Visibility.Collapsed;
@@ -6161,7 +6161,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         if (!TryGetContextMenuRow(e.Source, out object row)
             || !PlayHistoryContextMenuState.TryCreate(row, out PlayHistoryContextMenuState state)
             || !state.CanOpenExplorer
-            || !File.Exists(state.ChartPath))
+            || !LongPathFileSystem.FileExists(state.ChartPath))
         {
             return;
         }
@@ -6219,7 +6219,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
         string path = target.Chart.Path;
-        if (!File.Exists(path))
+        if (!LongPathFileSystem.FileExists(path))
         {
             return;
         }
@@ -6243,7 +6243,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         if (!string.IsNullOrWhiteSpace(chart.InstallDestination))
         {
-            if (Directory.Exists(chart.InstallDestination))
+            if (LongPathFileSystem.DirectoryExists(chart.InstallDestination))
             {
                 installDir = chart.InstallDestination;
                 return true;
@@ -6382,7 +6382,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
         string path = target.Chart.Path;
-        if (!File.Exists(path))
+        if (!LongPathFileSystem.FileExists(path))
         {
             return;
         }
@@ -6548,7 +6548,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 PlaylistUrlDownloadResult result = await DownloadPlaylistUrlCandidateAsync(target);
                 switch (result.Kind)
                 {
-                    case PlaylistUrlDownloadResultKind.Downloaded when !string.IsNullOrWhiteSpace(result.FilePath) && File.Exists(result.FilePath):
+                    case PlaylistUrlDownloadResultKind.Downloaded when !string.IsNullOrWhiteSpace(result.FilePath) && LongPathFileSystem.FileExists(result.FilePath):
                         downloadedPaths.Add(result.FilePath);
                         break;
                     case PlaylistUrlDownloadResultKind.BlockedBySizeLimit:
@@ -6592,7 +6592,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void tableContextMenuItemOpenDocumentFileClick(object sender, RoutedEventArgs e)
     {
-        if (e.Source is MenuItem { DataContext: string dataContext } && File.Exists(dataContext))
+        if (e.Source is MenuItem { DataContext: string dataContext } && LongPathFileSystem.FileExists(dataContext))
         {
             Process.Start(dataContext);
         }
@@ -7010,7 +7010,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     private async Task<DownloadAndInstallResult> downloadAndInstall(Uri uri)
     {
         PlaylistUrlDownloadResult result = await DownloadPlaylistUrlCandidateAsync(uri);
-        if (result.Kind == PlaylistUrlDownloadResultKind.Downloaded && !string.IsNullOrWhiteSpace(result.FilePath) && File.Exists(result.FilePath))
+        if (result.Kind == PlaylistUrlDownloadResultKind.Downloaded && !string.IsNullOrWhiteSpace(result.FilePath) && LongPathFileSystem.FileExists(result.FilePath))
         {
             installChartPackages([result.FilePath]);
             return DownloadAndInstallResult.Installed;
@@ -7785,7 +7785,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         long num = 0L;
         try
         {
-            using FileStream fileStream = File.Create(destinationPath);
+            using FileStream fileStream = LongPathFileSystem.Open(destinationPath, FileMode.Create, FileAccess.Write, FileShare.None);
             int count;
             while ((count = source.Read(array, 0, array.Length)) > 0)
             {
@@ -7804,9 +7804,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             {
                 try
                 {
-                    if (File.Exists(destinationPath))
+                    if (LongPathFileSystem.FileExists(destinationPath))
                     {
-                        File.Delete(destinationPath);
+                        LongPathFileSystem.DeleteFile(destinationPath);
                     }
                 }
                 catch
@@ -8588,7 +8588,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void tableContextMenuItemConvertToAudioFileClick(object sender, RoutedEventArgs e)
     {
-        BMSFile[] bmsFiles = [.. GetSelectedBmsFiles(ChartOperationCapabilities.ConvertToAudio).Where(f => File.Exists(f.path))];
+        BMSFile[] bmsFiles = [.. GetSelectedBmsFiles(ChartOperationCapabilities.ConvertToAudio).Where(f => LongPathFileSystem.FileExists(f.path))];
         if (bmsFiles.Length == 0)
         {
             return;
