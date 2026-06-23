@@ -114,6 +114,12 @@ internal sealed class RootFileEnumerationResult
 
     public int TotalFileCount { get; set; }
 
+    public int VisitedFileSystemEntryCount { get; set; }
+
+    public int MaxVisitedFileSystemEntryCount { get; set; }
+
+    public bool ScanLimitExceeded { get; set; }
+
     public Dictionary<string, HashSet<string>> PathsByGroup { get; } = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
 
     public Dictionary<string, Dictionary<string, RootFileEnumerationEntry>> EntriesByGroup { get; } = new Dictionary<string, Dictionary<string, RootFileEnumerationEntry>>(StringComparer.OrdinalIgnoreCase);
@@ -284,13 +290,12 @@ internal static class RootFileEnumerationService
 
         string normalizedCandidate = NormalizeDirectoryForComparison(candidate);
         string normalizedRoot = NormalizeDirectoryForComparison(root);
-        return string.Equals(normalizedCandidate, normalizedRoot, StringComparison.OrdinalIgnoreCase)
-            || normalizedCandidate.StartsWith(normalizedRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+        return LongPathFileSystem.IsSameOrDescendantNormalizedDirectoryPath(normalizedCandidate, normalizedRoot);
     }
 
     private static string NormalizeDirectoryForComparison(string path)
     {
         string fullPath = Path.GetFullPath(path);
-        return fullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        return LongPathFileSystem.TrimTrailingDirectorySeparators(fullPath);
     }
 }

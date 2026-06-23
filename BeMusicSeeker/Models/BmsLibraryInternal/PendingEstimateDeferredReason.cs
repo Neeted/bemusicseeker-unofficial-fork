@@ -5,5 +5,6 @@ internal enum PendingEstimateDeferredReason
     None = 0,
     HealthySourceBaseline,
     UnsupportedResourcePath,
-    InstalledDestinationResolveFailed
+    InstalledDestinationResolveFailed,
+    SourceSurfaceScanLimitExceeded
 }

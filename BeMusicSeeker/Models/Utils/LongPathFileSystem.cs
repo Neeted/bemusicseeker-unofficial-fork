@@ -37,6 +37,52 @@ internal static class LongPathFileSystem
             : Path.GetFullPath(normalized);
     }
 
+    public static string TrimTrailingDirectorySeparators(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return path;
+        }
+
+        string root = Path.GetPathRoot(path);
+        string trimmed = path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        if (!string.IsNullOrEmpty(root)
+            && string.Equals(trimmed, root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar), StringComparison.OrdinalIgnoreCase))
+        {
+            return root.TrimEnd(Path.AltDirectorySeparatorChar);
+        }
+        return trimmed;
+    }
+
+    public static bool IsSameOrDescendantDirectoryPath(string candidatePath, string ancestorPath)
+    {
+        if (string.IsNullOrWhiteSpace(candidatePath) || string.IsNullOrWhiteSpace(ancestorPath))
+        {
+            return false;
+        }
+
+        string normalizedCandidate = TrimTrailingDirectorySeparators(NormalizePathForStorage(candidatePath));
+        string normalizedAncestor = TrimTrailingDirectorySeparators(NormalizePathForStorage(ancestorPath));
+        return IsSameOrDescendantNormalizedDirectoryPath(normalizedCandidate, normalizedAncestor);
+    }
+
+    public static bool IsSameOrDescendantNormalizedDirectoryPath(string normalizedCandidate, string normalizedAncestor)
+    {
+        if (string.IsNullOrWhiteSpace(normalizedCandidate) || string.IsNullOrWhiteSpace(normalizedAncestor))
+        {
+            return false;
+        }
+        if (string.Equals(normalizedCandidate, normalizedAncestor, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return normalizedCandidate.Length > normalizedAncestor.Length
+            && normalizedCandidate.StartsWith(normalizedAncestor, StringComparison.OrdinalIgnoreCase)
+            && (EndsWithDirectorySeparator(normalizedAncestor)
+                || IsDirectorySeparator(normalizedCandidate[normalizedAncestor.Length]));
+    }
+
     public static string ToExtendedPath(string path)
     {
         if (string.IsNullOrWhiteSpace(path))
@@ -428,7 +474,8 @@ internal static class LongPathFileSystem
     {
         string normalizedSourcePath = NormalizeDirectoryPathForComparison(sourcePath);
         string normalizedDestinationPath = NormalizeDirectoryPathForComparison(destinationPath);
-        if (normalizedDestinationPath.StartsWith(normalizedSourcePath + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(normalizedSourcePath, normalizedDestinationPath, StringComparison.OrdinalIgnoreCase)
+            && IsSameOrDescendantNormalizedDirectoryPath(normalizedDestinationPath, normalizedSourcePath))
         {
             throw new IOException("Destination path is inside the source directory.");
         }
@@ -436,7 +483,13 @@ internal static class LongPathFileSystem
 
     private static string NormalizeDirectoryPathForComparison(string path)
     {
-        return NormalizePathForStorage(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        return TrimTrailingDirectorySeparators(NormalizePathForStorage(path));
+    }
+
+    private static bool EndsWithDirectorySeparator(string path)
+    {
+        return !string.IsNullOrEmpty(path)
+            && IsDirectorySeparator(path[path.Length - 1]);
     }
 
     private static string RemoveExtendedPathPrefix(string path)

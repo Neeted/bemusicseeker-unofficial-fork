@@ -9,6 +9,7 @@
 - 譜面ファイルとして読める長パスは通常の譜面として扱い、`song` / `bmson_song` / `chart_digest_map` / `maintenance` / `chart_info` への登録対象にする。
 - LR2 互換性は読み取り可否とは分けて評価する。LR2 の legacy path 長を超える可能性がある BMS は、登録したうえで `Lr2PathTooLong` warning を付与する。
 - BeMusicSeeker 内部で完結するファイル操作は、標準 `File` / `Directory` / VisualBasic `FileSystem` の存在確認や変更 API に直接依存せず、`LongPathFileSystem` または `IFileMutationService` を通す。
+- 導入先推定のように、ユーザーが指定した path の親 directory や配下を探索する処理は、長パス対応だけでなく探索範囲の上限も明示する。通常 package の範囲を超える巨大 directory では、全件 materialize せず打ち切り warning にする。
 - 長パスで読めない、権限が無い、列挙時点から削除されたなどの recoverable なファイル単位エラーは、初期化全体の失敗ダイアログにしない。対象ファイルを `SongTableFileCheckResult.FileScanFailures` と性能ログへ集約し、他の譜面の登録を継続する。
 - 失敗を成功扱いにはしない。読めなかった譜面は DB に登録せず、失敗ファイルとして残す。
 - 外部アプリへ長パスを渡した後の互換性は外部アプリ側の制約に従う。BeMusicSeeker 側では、外部アプリが受け付けないことを内部ファイルの不在や成功扱いに変換しない。
@@ -52,6 +53,8 @@
 - beatoraja `.bmt` の gzip 書き込み、manifest 読み書き、managed `.bmt` cleanup。
 - LR2 カスタムフォルダ `.lr2folder` の生成、stale file cleanup、空ディレクトリ削除。
 - LR2 バックアップの対象存在確認、世代削除、ファイル / ディレクトリコピー。
+
+導入先推定の source surface scan は `BoundedSourceSurfaceEnumerator` を使い、1 つの source surface ごとに既定 50,000 filesystem entry で打ち切る。この上限は投入バッチ全体の合算ではなく、1 つの導入先推定対象 package / source directory を BMS package 境界として扱えるかの上限である。打ち切った場合、部分的な resource surface を推定入力へ渡さず、`SourceSurfaceScanLimitExceeded` warning として扱う。Everything bridge や通常 root scan fallback のような全件 materialize 型の列挙は、この用途では使わない。
 
 外部アプリ起動、関連付け起動、Explorer 起動は、BeMusicSeeker 側で対象 path の存在確認と例外処理を行う。起動先アプリが extended-length path を解釈できない場合でも、BeMusicSeeker はその失敗をファイル未存在や内部成功へ変換しない。
 

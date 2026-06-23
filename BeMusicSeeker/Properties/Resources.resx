@@ -2004,6 +2004,9 @@ maintenance の再スキャンや chart_info の全譜面補完は行いませ�
   <data name="WarningDigest_InstalledDestinationResolveFailed" xml:space="preserve">
     <value>導入先不明</value>
   </data>
+  <data name="WarningDigest_SourceSurfaceScanLimitExceeded" xml:space="preserve">
+    <value>探索上限</value>
+  </data>
   <data name="WarningDigest_InstallEstimationLowConfidence" xml:space="preserve">
     <value>導入先推定</value>
   </data>
@@ -2062,6 +2065,9 @@ maintenance の再スキャンや chart_info の全譜面補完は行いませ�
   </data>
   <data name="Warning_UnsupportedResourcePath" xml:space="preserve">
     <value>親ディレクトリを参照するリソースパスは導入先推定に対応していません。該当するリソース記述を確認してください。</value>
+  </data>
+  <data name="Warning_SourceSurfaceScanLimitExceeded" xml:space="preserve">
+    <value>1つの推定対象フォルダ内で、導入先推定のための周辺リソース探索が {0} 件を超えたため、自動推定を中止しました。パッケージ単位のフォルダへ移動するか、手動で導入先を指定してください。</value>
   </data>
   <data name="AppSchemaRepairWarningMessage" xml:space="preserve">
     <value>BeMusicSeeker 関連データを現行形式へ修復します。

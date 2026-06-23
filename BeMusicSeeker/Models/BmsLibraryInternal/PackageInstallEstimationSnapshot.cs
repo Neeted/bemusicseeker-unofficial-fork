@@ -37,6 +37,12 @@ internal sealed class PackageInstallSurfaceSnapshot
     public long HashMaterializeMs { get; set; }
 
     public string ScanBackend { get; set; } = string.Empty;
+
+    public bool ScanLimitExceeded { get; set; }
+
+    public int VisitedFileSystemEntryCount { get; set; }
+
+    public int MaxVisitedFileSystemEntryCount { get; set; }
 }
 
 internal sealed class PackageChartDiscoverySnapshot
@@ -116,10 +122,18 @@ internal sealed class PackageInstallEstimationSnapshot
     public bool SourceSurfaceBatchHit { get; set; }
 
     public string SourceSurfaceScanBackend { get; set; } = string.Empty;
+
+    public bool SourceSurfaceScanLimitExceeded { get; set; }
+
+    public int SourceSurfaceVisitedFileSystemEntryCount { get; set; }
+
+    public int SourceSurfaceMaxVisitedFileSystemEntryCount { get; set; }
 }
 
 internal static class PackageInstallEstimationSnapshotBuilder
 {
+    internal const int DefaultSourceSurfaceMaxVisitedFileSystemEntries = 50000;
+
     internal static PackageInstallEstimationSnapshot Build(ChartPackage package, IEnumerable<PackageChartEntry> targetEntries, PackageInstallSurfaceSnapshot installSurfaceSnapshot, bool sourceSurfaceCacheHit, bool sourceSurfaceBatchHit = false, ChartResourceSnapshot definedResources = null)
     {
         List<PackageChartEntry> normalizedTargetEntries = NormalizeEntries(targetEntries);
@@ -140,15 +154,23 @@ internal static class PackageInstallEstimationSnapshotBuilder
             SourceSurfaceHashMaterializeMs = installSurfaceSnapshot?.HashMaterializeMs ?? 0L,
             SourceSurfaceCacheHit = sourceSurfaceCacheHit,
             SourceSurfaceBatchHit = sourceSurfaceBatchHit,
-            SourceSurfaceScanBackend = installSurfaceSnapshot?.ScanBackend ?? string.Empty
+            SourceSurfaceScanBackend = installSurfaceSnapshot?.ScanBackend ?? string.Empty,
+            SourceSurfaceScanLimitExceeded = installSurfaceSnapshot?.ScanLimitExceeded ?? false,
+            SourceSurfaceVisitedFileSystemEntryCount = installSurfaceSnapshot?.VisitedFileSystemEntryCount ?? 0,
+            SourceSurfaceMaxVisitedFileSystemEntryCount = installSurfaceSnapshot?.MaxVisitedFileSystemEntryCount ?? 0
         };
     }
 
     internal static PackageInstallEstimationSnapshot BuildForLooseEntries(IEnumerable<PackageChartEntry> targetEntries)
     {
+        return BuildForLooseEntries(targetEntries, DefaultSourceSurfaceMaxVisitedFileSystemEntries);
+    }
+
+    internal static PackageInstallEstimationSnapshot BuildForLooseEntries(IEnumerable<PackageChartEntry> targetEntries, int maxVisitedFileSystemEntryCount)
+    {
         List<PackageChartEntry> normalizedTargetEntries = NormalizeEntries(targetEntries);
         PackageChartEntry representativeEntry = SelectRepresentativeEntry(normalizedTargetEntries);
-        PackageInstallSurfaceSnapshot sourceSurfaceSnapshot = BuildSourceCandidateResourcesForLooseFiles(representativeEntry?.Chart);
+        PackageInstallSurfaceSnapshot sourceSurfaceSnapshot = BuildSourceCandidateResourcesForLooseFiles(representativeEntry?.Chart, maxVisitedFileSystemEntryCount);
         return new PackageInstallEstimationSnapshot
         {
             RepresentativeChart = representativeEntry?.Chart,
@@ -165,7 +187,10 @@ internal static class PackageInstallEstimationSnapshotBuilder
             SourceSurfaceHashMaterializeMs = sourceSurfaceSnapshot.HashMaterializeMs,
             SourceSurfaceCacheHit = false,
             SourceSurfaceBatchHit = false,
-            SourceSurfaceScanBackend = sourceSurfaceSnapshot.ScanBackend
+            SourceSurfaceScanBackend = sourceSurfaceSnapshot.ScanBackend,
+            SourceSurfaceScanLimitExceeded = sourceSurfaceSnapshot.ScanLimitExceeded,
+            SourceSurfaceVisitedFileSystemEntryCount = sourceSurfaceSnapshot.VisitedFileSystemEntryCount,
+            SourceSurfaceMaxVisitedFileSystemEntryCount = sourceSurfaceSnapshot.MaxVisitedFileSystemEntryCount
         };
     }
 
@@ -183,7 +208,10 @@ internal static class PackageInstallEstimationSnapshotBuilder
             ResourceFileCount = sourceSurface?.ResourceFileCount ?? 0,
             TrackedFileCount = sourceSurface?.TrackedFileCount ?? 0,
             HashMaterializeMs = 0L,
-            ScanBackend = sourceSurface?.ScanBackend ?? string.Empty
+            ScanBackend = sourceSurface?.ScanBackend ?? string.Empty,
+            ScanLimitExceeded = sourceSurface?.ScanLimitExceeded ?? false,
+            VisitedFileSystemEntryCount = sourceSurface?.VisitedFileSystemEntryCount ?? 0,
+            MaxVisitedFileSystemEntryCount = sourceSurface?.MaxVisitedFileSystemEntryCount ?? 0
         };
     }
 
@@ -237,6 +265,11 @@ internal static class PackageInstallEstimationSnapshotBuilder
 
     internal static PackageInstallSurfaceSnapshot BuildPackageInstallSurfaceSnapshot(string packagePath, bool useEverythingForPendingPackageSourceScan)
     {
+        return BuildPackageInstallSurfaceSnapshot(packagePath, useEverythingForPendingPackageSourceScan, DefaultSourceSurfaceMaxVisitedFileSystemEntries);
+    }
+
+    internal static PackageInstallSurfaceSnapshot BuildPackageInstallSurfaceSnapshot(string packagePath, bool useEverythingForPendingPackageSourceScan, int maxVisitedFileSystemEntryCount)
+    {
         if (string.IsNullOrWhiteSpace(packagePath))
         {
             return PackageInstallSurfaceSnapshot.Empty;
@@ -254,35 +287,27 @@ internal static class PackageInstallEstimationSnapshotBuilder
 
         if (LongPathFileSystem.DirectoryExists(normalizedPath))
         {
-            return CreateDirectoryInstallSurfaceSnapshot(normalizedPath, normalizedPath, useEverythingForPendingPackageSourceScan);
+            return CreateDirectoryInstallSurfaceSnapshot(normalizedPath, normalizedPath, maxVisitedFileSystemEntryCount);
         }
 
         string sourceDirectory = ResolveSourceDirectory(normalizedPath);
-        return CreateFileInstallSurfaceSnapshot(normalizedPath, sourceDirectory, useEverythingForPendingPackageSourceScan);
+        return CreateFileInstallSurfaceSnapshot(normalizedPath, sourceDirectory, maxVisitedFileSystemEntryCount);
     }
 
-    private static PackageInstallSurfaceSnapshot BuildSourceCandidateResourcesForLooseFiles(ChartFile representativeChart)
+    private static PackageInstallSurfaceSnapshot BuildSourceCandidateResourcesForLooseFiles(ChartFile representativeChart, int maxVisitedFileSystemEntryCount)
     {
         string sourcePath = representativeChart?.Path ?? string.Empty;
         string sourceDirectory = ResolveSourceDirectory(sourcePath);
-        return CreateFileInstallSurfaceSnapshot(sourcePath, sourceDirectory, Settings.Default.UseEverythingForPendingPackageSourceScan);
+        return CreateFileInstallSurfaceSnapshot(sourcePath, sourceDirectory, maxVisitedFileSystemEntryCount);
     }
 
-    private static PackageInstallSurfaceSnapshot CreateDirectoryInstallSurfaceSnapshot(string sourcePath, string sourceDirectory, bool useEverythingForPendingPackageSourceScan)
+    private static PackageInstallSurfaceSnapshot CreateDirectoryInstallSurfaceSnapshot(string sourcePath, string sourceDirectory, int maxVisitedFileSystemEntryCount)
     {
-        PackageInstallSurfaceSnapshot snapshot = useEverythingForPendingPackageSourceScan
-            ? TryCreateSourceRootInstallSurfaceSnapshot(sourcePath, sourceDirectory, includeBundledResources: true)
-            : null;
-        if (snapshot != null)
-        {
-            return snapshot;
-        }
-
-        RootFileEnumerationResult enumerationResult = useEverythingForPendingPackageSourceScan
-            ? EnumerateSourceSurfaceWithFallback(sourceDirectory)
-            : EnumerateSourceSurfaceFastOnly(sourceDirectory);
+        RootFileEnumerationResult enumerationResult = EnumerateSourceSurfaceBounded(sourceDirectory, maxVisitedFileSystemEntryCount);
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-        DirectoryResourceLookupCache.Entry entry = CreateResourceEntryFromEnumeration(sourceDirectory, enumerationResult);
+        DirectoryResourceLookupCache.Entry entry = enumerationResult?.ScanLimitExceeded == true
+            ? new DirectoryResourceLookupCache.Entry()
+            : CreateResourceEntryFromEnumeration(sourceDirectory, enumerationResult);
         stopwatch.Stop();
         return new PackageInstallSurfaceSnapshot
         {
@@ -302,25 +327,20 @@ internal static class PackageInstallEstimationSnapshotBuilder
                 enumerationResult?.GetPaths(ChartDirectoryScanBuilder.ImageGroupName),
                 enumerationResult?.GetPaths(ChartDirectoryScanBuilder.MovieGroupName)),
             HashMaterializeMs = stopwatch.ElapsedMilliseconds,
-            ScanBackend = enumerationResult?.BackendName ?? "fast"
+            ScanBackend = enumerationResult?.BackendName ?? "bounded_fast_source_surface",
+            ScanLimitExceeded = enumerationResult?.ScanLimitExceeded ?? false,
+            VisitedFileSystemEntryCount = enumerationResult?.VisitedFileSystemEntryCount ?? 0,
+            MaxVisitedFileSystemEntryCount = enumerationResult?.MaxVisitedFileSystemEntryCount ?? 0
         };
     }
 
-    private static PackageInstallSurfaceSnapshot CreateFileInstallSurfaceSnapshot(string sourcePath, string sourceDirectory, bool useEverythingForPendingPackageSourceScan)
+    private static PackageInstallSurfaceSnapshot CreateFileInstallSurfaceSnapshot(string sourcePath, string sourceDirectory, int maxVisitedFileSystemEntryCount)
     {
-        PackageInstallSurfaceSnapshot snapshot = useEverythingForPendingPackageSourceScan
-            ? TryCreateSourceRootInstallSurfaceSnapshot(sourcePath, sourceDirectory, includeBundledResources: false)
-            : null;
-        if (snapshot != null)
-        {
-            return snapshot;
-        }
-
-        RootFileEnumerationResult enumerationResult = useEverythingForPendingPackageSourceScan
-            ? EnumerateSourceSurfaceWithFallback(sourceDirectory)
-            : EnumerateSourceSurfaceFastOnly(sourceDirectory);
+        RootFileEnumerationResult enumerationResult = EnumerateSourceSurfaceBounded(sourceDirectory, maxVisitedFileSystemEntryCount);
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-        DirectoryResourceLookupCache.Entry sourceCandidateResources = CreateResourceEntryFromEnumeration(sourceDirectory, enumerationResult);
+        DirectoryResourceLookupCache.Entry sourceCandidateResources = enumerationResult?.ScanLimitExceeded == true
+            ? new DirectoryResourceLookupCache.Entry()
+            : CreateResourceEntryFromEnumeration(sourceDirectory, enumerationResult);
         stopwatch.Stop();
         return new PackageInstallSurfaceSnapshot
         {
@@ -340,7 +360,10 @@ internal static class PackageInstallEstimationSnapshotBuilder
                 enumerationResult?.GetPaths(ChartDirectoryScanBuilder.ImageGroupName),
                 enumerationResult?.GetPaths(ChartDirectoryScanBuilder.MovieGroupName)),
             HashMaterializeMs = stopwatch.ElapsedMilliseconds,
-            ScanBackend = enumerationResult?.BackendName ?? "fast"
+            ScanBackend = enumerationResult?.BackendName ?? "bounded_fast_source_surface",
+            ScanLimitExceeded = enumerationResult?.ScanLimitExceeded ?? false,
+            VisitedFileSystemEntryCount = enumerationResult?.VisitedFileSystemEntryCount ?? 0,
+            MaxVisitedFileSystemEntryCount = enumerationResult?.MaxVisitedFileSystemEntryCount ?? 0
         };
     }
 
@@ -421,6 +444,13 @@ internal static class PackageInstallEstimationSnapshotBuilder
             ChartDirectoryScanBuilder.CreateDefaultEnumerationGroups(includeAllFiles: false));
     }
 
+    private static RootFileEnumerationResult EnumerateSourceSurfaceBounded(string rootDirectory, int maxVisitedFileSystemEntryCount)
+    {
+        return new BoundedSourceSurfaceEnumerator(maxVisitedFileSystemEntryCount).EnumerateFiles(
+            [rootDirectory],
+            ChartDirectoryScanBuilder.CreateDefaultEnumerationGroups(includeAllFiles: false));
+    }
+
     private static List<PackageChartEntry> CreatePendingChartEntriesFromPaths(IEnumerable<string> chartPaths)
     {
         return [.. (chartPaths ?? [])
@@ -463,7 +493,7 @@ internal static class PackageInstallEstimationSnapshotBuilder
             string normalizedPath = LongPathFileSystem.NormalizePathForStorage(packagePath);
             if (LongPathFileSystem.DirectoryExists(normalizedPath))
             {
-                return normalizedPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                return LongPathFileSystem.TrimTrailingDirectorySeparators(normalizedPath);
             }
             return Path.GetDirectoryName(normalizedPath) ?? string.Empty;
         }

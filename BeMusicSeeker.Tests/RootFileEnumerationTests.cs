@@ -92,6 +92,17 @@ public sealed class RootFileEnumerationTests
     }
 
     [TestMethod]
+    public void TrimTrailingDirectorySeparators_PreservesDriveRootAsAbsolutePath()
+    {
+        string root = Path.GetPathRoot(Path.GetTempPath());
+        string trimmed = LongPathFileSystem.TrimTrailingDirectorySeparators(root);
+
+        Assert.AreEqual(root.TrimEnd(Path.AltDirectorySeparatorChar), trimmed);
+        Assert.AreNotEqual(root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar), trimmed);
+        Assert.IsTrue(LongPathFileSystem.IsSameOrDescendantNormalizedDirectoryPath(Path.Combine(trimmed, "child"), trimmed));
+    }
+
+    [TestMethod]
     public void RootFileEnumerationResult_KeepsCaseOnlyChartPathsDistinct()
     {
         string upperPath = @"D:\BMS\Pack\Song\Chart.bms";

@@ -325,7 +325,7 @@ internal sealed class FastRootFileEnumerator : IRootFileEnumerator
         {
             return string.IsNullOrWhiteSpace(path)
                 ? null
-                : LongPathFileSystem.NormalizePathForStorage(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                : LongPathFileSystem.TrimTrailingDirectorySeparators(LongPathFileSystem.NormalizePathForStorage(path));
         }
         catch
         {
@@ -341,17 +341,7 @@ internal sealed class FastRootFileEnumerator : IRootFileEnumerator
         {
             return false;
         }
-        if (string.Equals(normalizedCandidate, normalizedRoot, StringComparison.OrdinalIgnoreCase))
-        {
-            return true;
-        }
-
-        return normalizedCandidate.Length > normalizedRoot.Length
-            && normalizedCandidate.StartsWith(normalizedRoot, StringComparison.OrdinalIgnoreCase)
-            && (normalizedRoot.EndsWith(Path.DirectorySeparatorChar.ToString(), StringComparison.Ordinal)
-                || normalizedRoot.EndsWith(Path.AltDirectorySeparatorChar.ToString(), StringComparison.Ordinal)
-                || normalizedCandidate[normalizedRoot.Length] == Path.DirectorySeparatorChar
-                || normalizedCandidate[normalizedRoot.Length] == Path.AltDirectorySeparatorChar);
+        return LongPathFileSystem.IsSameOrDescendantNormalizedDirectoryPath(normalizedCandidate, normalizedRoot);
     }
 
     private static RootFileEnumerationEntry CreateEntryFromFileInfo(string path)

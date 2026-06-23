@@ -1448,7 +1448,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                     Assert.IsTrue(discoveredCharts.Count > 0);
                     Assert.IsFalse(firstSnapshot.SourceSurfaceCacheHit);
                     Assert.IsTrue(secondSnapshot.SourceSurfaceCacheHit);
-                    Assert.AreEqual("fast", firstSnapshot.SourceSurfaceScanBackend);
+                    Assert.AreEqual("bounded_fast_source_surface", firstSnapshot.SourceSurfaceScanBackend);
                 }
             });
         });

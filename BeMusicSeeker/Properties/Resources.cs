@@ -1290,6 +1290,9 @@ public class Resources
     public static string WarningDigest_InstalledDestinationResolveFailed => ResourceManager.GetString("WarningDigest_InstalledDestinationResolveFailed", resourceCulture);
 
 
+    public static string WarningDigest_SourceSurfaceScanLimitExceeded => ResourceManager.GetString("WarningDigest_SourceSurfaceScanLimitExceeded", resourceCulture);
+
+
     public static string WarningDigest_InstallEstimationLowConfidence => ResourceManager.GetString("WarningDigest_InstallEstimationLowConfidence", resourceCulture);
 
 
@@ -1339,6 +1342,9 @@ public class Resources
 
 
     public static string Warning_UnsupportedResourcePath => ResourceManager.GetString("Warning_UnsupportedResourcePath", resourceCulture);
+
+
+    public static string Warning_SourceSurfaceScanLimitExceeded => ResourceManager.GetString("Warning_SourceSurfaceScanLimitExceeded", resourceCulture);
 
 
     public static string AppSchemaRepairWarningMessage => ResourceManager.GetString("AppSchemaRepairWarningMessage", resourceCulture);

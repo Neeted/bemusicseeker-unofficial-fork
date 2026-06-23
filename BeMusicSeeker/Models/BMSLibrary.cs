@@ -3036,6 +3036,7 @@ public class BMSLibrary : NotificationObject
     {
         NoOp,
         UnsupportedResourcePath,
+        SourceSurfaceScanLimitExceeded,
         ResolvedInstalledDirectory,
         EstimatedResult,
         SkippedAsStale
@@ -3113,6 +3114,12 @@ public class BMSLibrary : NotificationObject
         public bool SourceSurfaceBatchHit { get; set; }
 
         public string SourceSurfaceScanBackend { get; set; } = string.Empty;
+
+        public bool SourceSurfaceScanLimitExceeded { get; set; }
+
+        public int SourceSurfaceVisitedFileSystemEntryCount { get; set; }
+
+        public int SourceSurfaceMaxVisitedFileSystemEntryCount { get; set; }
     }
 
     private sealed class PendingInstallEstimateEvaluationResult
@@ -3834,6 +3841,10 @@ public class BMSLibrary : NotificationObject
                     result.InstalledResolution.CandidateDirectories,
                     result.InstalledResolution.GetCandidateDirectoryUniquePrimaryHashCount,
                     markInstalledDestinationAmbiguous: true);
+                if (result.EstimationData?.SourceSurfaceScanLimitExceeded == true)
+                {
+                    result.OutcomeKind = PendingInstallEstimateEvaluationOutcomeKind.SourceSurfaceScanLimitExceeded;
+                }
                 return result;
             }
             result.OutcomeKind = PendingInstallEstimateEvaluationOutcomeKind.NoOp;
@@ -3851,6 +3862,10 @@ public class BMSLibrary : NotificationObject
             useSharedLazyHashMetrics: true,
             evaluationContext.DirectoryLookupCacheSnapshot,
             request.BatchState);
+        if (result.EstimationData?.SourceSurfaceScanLimitExceeded == true)
+        {
+            result.OutcomeKind = PendingInstallEstimateEvaluationOutcomeKind.SourceSurfaceScanLimitExceeded;
+        }
         return result;
     }
 
@@ -3938,6 +3953,13 @@ public class BMSLibrary : NotificationObject
         {
             case PendingInstallEstimateEvaluationOutcomeKind.UnsupportedResourcePath:
                 ApplyUnsupportedResourcePathToPackageUnsafe(package, currentMissingEntries);
+                return false;
+            case PendingInstallEstimateEvaluationOutcomeKind.SourceSurfaceScanLimitExceeded:
+                LogSourceSurfaceScanLimitExceeded(evaluationResult.EstimationData, package?.path);
+                ApplySourceSurfaceScanLimitExceededToPackageUnsafe(
+                    package,
+                    currentMissingEntries,
+                    evaluationResult.EstimationData?.SourceSurfaceMaxVisitedFileSystemEntryCount ?? PackageInstallEstimationSnapshotBuilder.DefaultSourceSurfaceMaxVisitedFileSystemEntries);
                 return false;
             case PendingInstallEstimateEvaluationOutcomeKind.ResolvedInstalledDirectory:
                 if (!string.IsNullOrWhiteSpace(evaluationResult.ResolvedDirectory))
@@ -4063,6 +4085,7 @@ public class BMSLibrary : NotificationObject
             PendingEstimateDeferredReason.HealthySourceBaseline => "healthy_source_baseline",
             PendingEstimateDeferredReason.UnsupportedResourcePath => "unsupported_resource_path",
             PendingEstimateDeferredReason.InstalledDestinationResolveFailed => "installed_destination_resolve_failed",
+            PendingEstimateDeferredReason.SourceSurfaceScanLimitExceeded => "source_surface_scan_limit_exceeded",
             _ => "unknown"
         };
         string message = "pending_estimate_batch skipped source=" + source + " package=" + (package?.path ?? string.Empty) + " reason=" + reasonLog;
@@ -4133,6 +4156,17 @@ public class BMSLibrary : NotificationObject
                 continue;
             }
 
+            if (HasSourceSurfaceScanLimitExceeded(state))
+            {
+                ApplyPackageMixedInstallWarningsToEntries(state.AlreadyInstalledEntries.Where(entry => entry?.Chart != null && ContainsInstalledChartUnsafe(entry.Chart)));
+                ApplySourceSurfaceScanLimitExceededToPackageUnsafe(
+                    state.Package,
+                    state.MissingEntries,
+                    state.SourceSurface?.MaxVisitedFileSystemEntryCount ?? PackageInstallEstimationSnapshotBuilder.DefaultSourceSurfaceMaxVisitedFileSystemEntries);
+                result.DeferredPackages.Add(state.Package);
+                continue;
+            }
+
             if (ShouldDeferPendingEstimateBatchPackageUnsafe(state, installEstimationService, out int sourcePrimaryHealth))
             {
                 state.BaselinePrefilter = new SourceBaselinePrefilterResult
@@ -4169,6 +4203,9 @@ public class BMSLibrary : NotificationObject
             + " managedMaterializeMs=" + candidateSnapshot.ManagedMaterializeMs
             + " trackedFiles=" + candidateSnapshot.TrackedFileCount
             + " resourceFiles=" + candidateSnapshot.ResourceFileCount
+            + " scanLimitExceeded=" + candidateSnapshot.ScanLimitExceeded.ToString().ToLowerInvariant()
+            + " visitedEntries=" + candidateSnapshot.VisitedFileSystemEntryCount
+            + " maxVisitedEntries=" + candidateSnapshot.MaxVisitedFileSystemEntryCount
             + " elapsedMs=" + candidateSnapshot.ElapsedMs);
         LogInstallPerformance("pending_estimate_source_batch_prefilter source=" + sourceLogValue
             + " packages=" + packageList.Count
@@ -4205,7 +4242,11 @@ public class BMSLibrary : NotificationObject
                 state.PreparationInstalledResolution = installEstimationService.TryResolveInstalledDestinationFromPackage(package, state.MissingEntries, installedDirectoryIndex);
             }
 
-            if (state.HasMissingFiles && !HasInstalledDestinationResolveFailed(state) && !string.IsNullOrWhiteSpace(state.SourceDirectory) && LongPathFileSystem.DirectoryExists(state.SourceDirectory))
+            if (state.HasMissingFiles
+                && !HasInstalledDestinationResolveFailed(state)
+                && !HasUnsupportedResourcePath(state.MissingEntries)
+                && !string.IsNullOrWhiteSpace(state.SourceDirectory)
+                && LongPathFileSystem.DirectoryExists(state.SourceDirectory))
             {
                 rootsToScan.Add(state.SourceDirectory);
             }
@@ -4218,6 +4259,11 @@ public class BMSLibrary : NotificationObject
         foreach (PendingEstimateSourceBatchPackageState state in snapshot.PackageStates)
         {
             if (HasInstalledDestinationResolveFailed(state))
+            {
+                continue;
+            }
+
+            if (HasUnsupportedResourcePath(state.MissingEntries))
             {
                 continue;
             }
@@ -4266,76 +4312,12 @@ public class BMSLibrary : NotificationObject
             return;
         }
 
-        if (!useEverythingForPendingPackageSourceScan)
-        {
-            snapshot.ScanBackend = "fast";
-            foreach (string root in distinctRoots)
-            {
-                PackageInstallSurfaceSnapshot fastSnapshot = PackageInstallEstimationSnapshotBuilder.BuildPackageInstallSurfaceSnapshot(root, useEverythingForPendingPackageSourceScan: false);
-                SourceSurfaceEntryView view = CreateSourceSurfaceEntryView(fastSnapshot, root);
-                sourceSurfaceByRoot[root] = view;
-                snapshot.TrackedFileCount += view.TrackedFileCount;
-                snapshot.ResourceFileCount += view.ResourceFileCount;
-            }
-            return;
-        }
-
-        bool batchScanSucceeded = true;
+        snapshot.ScanBackend = "bounded_fast_source_surface";
         List<List<string>> chunks = [.. distinctRoots
             .Select((root, index) => new { Root = root, Index = index })
-            .GroupBy((item) => item.Index / PendingEstimateSourceBatchMaxRootsPerChunk)
-            .Select((group) => group.Select((item) => item.Root).ToList())];
+            .GroupBy(item => item.Index / PendingEstimateSourceBatchMaxRootsPerChunk)
+            .Select(group => group.Select(item => item.Root).ToList())];
         snapshot.ChunkCount = chunks.Count;
-
-        foreach (List<string> chunk in chunks)
-        {
-            if (!EverythingNative.TryScanSourceRoots(chunk, out EverythingNative.BridgeSourceRootScanResult scanResult, out _)
-                || scanResult == null)
-            {
-                batchScanSucceeded = false;
-                break;
-            }
-
-            snapshot.NativeBridgeMs += scanResult.NativeBridgeMs;
-            snapshot.ManagedDecodeMs += scanResult.ManagedDecodeMs;
-            snapshot.ManagedMaterializeMs += scanResult.ManagedMaterializeMs;
-            snapshot.ScanBackend = "everything_bridge_source_surface_batch";
-            foreach (string root in chunk)
-            {
-                if (!scanResult.TryGetEntry(root, out EverythingNative.BridgeSourceRootEntryResult entryResult) || entryResult == null)
-                {
-                    continue;
-                }
-
-                var surfaceEntry = new SourceSurfaceEntryView
-                {
-                    SourceDirectory = entryResult.RootPath ?? root,
-                    ResourceEntry = entryResult.ResourceEntry?.Clone() ?? new DirectoryResourceLookupCache.Entry(),
-                    ChartFileCount = entryResult.ChartFileCount,
-                    ResourceFileCount = entryResult.ResourceFileCount,
-                    TrackedFileCount = entryResult.TrackedFileCount,
-                    ScanMs = 0L,
-                    HashMaterializeMs = 0L,
-                    ScanBackend = "everything_bridge_source_surface_batch"
-                };
-                sourceSurfaceByRoot[surfaceEntry.SourceDirectory] = surfaceEntry;
-                snapshot.TrackedFileCount += surfaceEntry.TrackedFileCount;
-                snapshot.ResourceFileCount += surfaceEntry.ResourceFileCount;
-            }
-        }
-
-        if (batchScanSucceeded)
-        {
-            return;
-        }
-
-        snapshot.ScanBackend = "fast";
-        snapshot.NativeBridgeMs = 0L;
-        snapshot.ManagedDecodeMs = 0L;
-        snapshot.ManagedMaterializeMs = 0L;
-        snapshot.TrackedFileCount = 0;
-        snapshot.ResourceFileCount = 0;
-        sourceSurfaceByRoot.Clear();
 
         foreach (string root in distinctRoots)
         {
@@ -4344,6 +4326,10 @@ public class BMSLibrary : NotificationObject
             sourceSurfaceByRoot[root] = view;
             snapshot.TrackedFileCount += view.TrackedFileCount;
             snapshot.ResourceFileCount += view.ResourceFileCount;
+            snapshot.ManagedMaterializeMs += view.HashMaterializeMs;
+            snapshot.VisitedFileSystemEntryCount += view.VisitedFileSystemEntryCount;
+            snapshot.MaxVisitedFileSystemEntryCount = Math.Max(snapshot.MaxVisitedFileSystemEntryCount, view.MaxVisitedFileSystemEntryCount);
+            snapshot.ScanLimitExceeded = snapshot.ScanLimitExceeded || view.ScanLimitExceeded;
         }
     }
 
@@ -4358,8 +4344,16 @@ public class BMSLibrary : NotificationObject
             TrackedFileCount = snapshot?.TrackedFileCount ?? 0,
             ScanMs = snapshot?.ScanMs ?? 0L,
             HashMaterializeMs = snapshot?.HashMaterializeMs ?? 0L,
-            ScanBackend = snapshot?.ScanBackend ?? "fast"
+            ScanBackend = snapshot?.ScanBackend ?? "bounded_fast_source_surface",
+            ScanLimitExceeded = snapshot?.ScanLimitExceeded ?? false,
+            VisitedFileSystemEntryCount = snapshot?.VisitedFileSystemEntryCount ?? 0,
+            MaxVisitedFileSystemEntryCount = snapshot?.MaxVisitedFileSystemEntryCount ?? 0
         };
+    }
+
+    private static bool HasSourceSurfaceScanLimitExceeded(PendingEstimateSourceBatchPackageState state)
+    {
+        return state?.SourceSurface?.ScanLimitExceeded == true;
     }
 
     private static bool HasInstalledDestinationResolveFailed(PendingEstimateSourceBatchPackageState state)
@@ -4411,7 +4405,7 @@ public class BMSLibrary : NotificationObject
             string normalizedPath = LongPathFileSystem.NormalizePathForStorage(packagePath);
             if (LongPathFileSystem.DirectoryExists(normalizedPath))
             {
-                return normalizedPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                return LongPathFileSystem.TrimTrailingDirectorySeparators(normalizedPath);
             }
 
             return Path.GetDirectoryName(normalizedPath) ?? string.Empty;
@@ -17033,6 +17027,25 @@ completeFileEnumerationOnce,
                 ? package.GetOrBuildInstallEstimationSnapshotFromEntries(targetEntryList, precomputedDefinedResources)
                 : PackageInstallEstimationSnapshotBuilder.BuildForLooseEntries(targetEntryList);
         }
+        if (estimationSnapshot?.SourceSurfaceScanLimitExceeded == true)
+        {
+            return new InstallEstimationEvaluationData
+            {
+                ChartCount = targetEntryList.Count,
+                Result = null,
+                SourceSurfaceScanMs = estimationSnapshot.SourceSurfaceScanMs,
+                SourceSurfaceChartFileCount = estimationSnapshot.SourceSurfaceChartFileCount,
+                SourceSurfaceResourceFileCount = estimationSnapshot.SourceSurfaceResourceFileCount,
+                SourceSurfaceTrackedFileCount = estimationSnapshot.SourceSurfaceTrackedFileCount,
+                SourceSurfaceHashMaterializeMs = estimationSnapshot.SourceSurfaceHashMaterializeMs,
+                SourceSurfaceCacheHit = estimationSnapshot.SourceSurfaceCacheHit,
+                SourceSurfaceBatchHit = estimationSnapshot.SourceSurfaceBatchHit,
+                SourceSurfaceScanBackend = estimationSnapshot.SourceSurfaceScanBackend,
+                SourceSurfaceScanLimitExceeded = true,
+                SourceSurfaceVisitedFileSystemEntryCount = estimationSnapshot.SourceSurfaceVisitedFileSystemEntryCount,
+                SourceSurfaceMaxVisitedFileSystemEntryCount = estimationSnapshot.SourceSurfaceMaxVisitedFileSystemEntryCount
+            };
+        }
         InstallEstimationResult result = candidateDirectoryOverride == null
             ? CreateInstallEstimationService(optionsSnapshot).EstimateInstallationDirectory(
                 estimationSnapshot,
@@ -17073,7 +17086,10 @@ completeFileEnumerationOnce,
             SourceSurfaceHashMaterializeMs = estimationSnapshot?.SourceSurfaceHashMaterializeMs ?? 0L,
             SourceSurfaceCacheHit = estimationSnapshot?.SourceSurfaceCacheHit ?? false,
             SourceSurfaceBatchHit = estimationSnapshot?.SourceSurfaceBatchHit ?? false,
-            SourceSurfaceScanBackend = estimationSnapshot?.SourceSurfaceScanBackend ?? string.Empty
+            SourceSurfaceScanBackend = estimationSnapshot?.SourceSurfaceScanBackend ?? string.Empty,
+            SourceSurfaceScanLimitExceeded = estimationSnapshot?.SourceSurfaceScanLimitExceeded ?? false,
+            SourceSurfaceVisitedFileSystemEntryCount = estimationSnapshot?.SourceSurfaceVisitedFileSystemEntryCount ?? 0,
+            SourceSurfaceMaxVisitedFileSystemEntryCount = estimationSnapshot?.SourceSurfaceMaxVisitedFileSystemEntryCount ?? 0
         };
     }
 
@@ -17156,6 +17172,23 @@ completeFileEnumerationOnce,
         {
             LogInstallPerformance("estimate_install directory_hash_count_tiebreak " + result.DirectoryHashCountTieBreakSummary);
         }
+    }
+
+    private void LogSourceSurfaceScanLimitExceeded(InstallEstimationEvaluationData estimationData, string packagePath)
+    {
+        if (estimationData == null)
+        {
+            return;
+        }
+
+        LogInstallPerformance("package_surface_scan_limit_exceeded package=" + (packagePath ?? string.Empty)
+            + " backend=" + (estimationData.SourceSurfaceScanBackend ?? string.Empty)
+            + " visitedEntries=" + estimationData.SourceSurfaceVisitedFileSystemEntryCount
+            + " maxVisitedEntries=" + estimationData.SourceSurfaceMaxVisitedFileSystemEntryCount
+            + " trackedFileCount=" + estimationData.SourceSurfaceTrackedFileCount
+            + " chartFileCount=" + estimationData.SourceSurfaceChartFileCount
+            + " resourceFileCount=" + estimationData.SourceSurfaceResourceFileCount
+            + " scanMs=" + estimationData.SourceSurfaceScanMs);
     }
 
     /// <summary>
@@ -17647,6 +17680,12 @@ completeFileEnumerationOnce,
                         targetEntryList,
                         BmsLibraryInstallEstimationService.ResolveCandidateEvaluationDegree(asParallel),
                         estimateMode);
+                    if (estimationData.SourceSurfaceScanLimitExceeded)
+                    {
+                        LogSourceSurfaceScanLimitExceeded(estimationData, package?.path);
+                        ApplySourceSurfaceScanLimitExceededToPackageUnsafe(package, targetEntryList, estimationData.SourceSurfaceMaxVisitedFileSystemEntryCount);
+                        return;
+                    }
                     LogInstallEstimationEvaluation(estimationData);
                     ApplyInstallEstimationResultToEntries(targetEntryList, estimationData.Result);
                 }
@@ -17703,6 +17742,21 @@ completeFileEnumerationOnce,
             {
                 entry.ClearInstallDestination();
             }
+        }
+    }
+
+    private static void ApplySourceSurfaceScanLimitExceededToPackageUnsafe(ChartPackage package, IEnumerable<PackageChartEntry> missingEntries, int maxVisitedFileSystemEntryCount)
+    {
+        if (package != null)
+        {
+            package.DeferredEstimateReason = PendingEstimateDeferredReason.SourceSurfaceScanLimitExceeded;
+        }
+        int normalizedMax = maxVisitedFileSystemEntryCount > 0
+            ? maxVisitedFileSystemEntryCount
+            : PackageInstallEstimationSnapshotBuilder.DefaultSourceSurfaceMaxVisitedFileSystemEntries;
+        foreach (PackageChartEntry entry in (missingEntries ?? []).Where(entry => entry?.Chart != null))
+        {
+            entry.ApplySourceSurfaceScanLimitExceededWarning(normalizedMax);
         }
     }
 
@@ -17807,6 +17861,12 @@ completeFileEnumerationOnce,
                                     candidateDirectoryOverride: resolution.CandidateDirectories,
                                     candidateDirectoryUniquePrimaryHashCountResolver: resolution.GetCandidateDirectoryUniquePrimaryHashCount,
                                     markInstalledDestinationAmbiguous: true);
+                                if (estimationData.SourceSurfaceScanLimitExceeded)
+                                {
+                                    LogSourceSurfaceScanLimitExceeded(estimationData, package?.path);
+                                    ApplySourceSurfaceScanLimitExceededToPackageUnsafe(package, missingEntries, estimationData.SourceSurfaceMaxVisitedFileSystemEntryCount);
+                                    return;
+                                }
                                 LogInstallEstimationEvaluation(estimationData);
                                 if (estimationData.Result?.HasViableDestination == true)
                                 {

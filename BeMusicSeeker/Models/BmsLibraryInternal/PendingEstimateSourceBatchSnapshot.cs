@@ -21,6 +21,12 @@ internal sealed class SourceSurfaceEntryView
     public long HashMaterializeMs { get; set; }
 
     public string ScanBackend { get; set; } = string.Empty;
+
+    public bool ScanLimitExceeded { get; set; }
+
+    public int VisitedFileSystemEntryCount { get; set; }
+
+    public int MaxVisitedFileSystemEntryCount { get; set; }
 }
 
 internal sealed class SourceBaselinePrefilterResult
@@ -80,6 +86,12 @@ internal sealed class PendingEstimateSourceBatchSnapshot
     public int TrackedFileCount { get; set; }
 
     public int ResourceFileCount { get; set; }
+
+    public bool ScanLimitExceeded { get; set; }
+
+    public int VisitedFileSystemEntryCount { get; set; }
+
+    public int MaxVisitedFileSystemEntryCount { get; set; }
 
     public long ElapsedMs { get; set; }
 

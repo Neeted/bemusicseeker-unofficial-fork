@@ -53,6 +53,16 @@ package 内に同梱されている non-chart resource は `BundledResources` �
 
 merge / reinstall correction では source/bundled resource を足さず、`candidate only` で評価します。
 
+source package surface の再帰探索は bounded scan で行います。導入先推定は単体譜面の親 directory や directory package 全体を source surface として見るため、ドライブ root や大量のサブディレクトリを持つ場所を起点にすると、通常の BMS package の範囲を大きく超える可能性があります。
+
+- source surface scan は filesystem entry を訪問しながら上限を確認し、上限を超えた時点で打ち切ります。
+- 既定上限は 1 つの source surface ごとに 50,000 entry です。これは投入バッチ全体の合算ではなく、1 つの導入先推定対象 package / source directory を BMS package 境界として扱えるかの上限です。
+- 1 つのフォルダ投入から 50 作品分の package が発見された場合、各作品が別 source surface として評価される限り、50 作品全体の合計 file 数が 50,000 を超えても打ち切り理由にはなりません。
+- 一般的な BMS package は兄弟ファイルやサブディレクトリを含めても 10,000 file 未満を想定し、1 source surface で 50,000 entry を超える場合は異常に広い source として扱います。
+- 打ち切った source surface は部分的な resource surface として推定に使いません。部分結果で「候補なし」と判定すると意味が変わるためです。
+- 打ち切り時は `SourceSurfaceScanLimitExceeded` warning を付与し、`INSTL DST` の自動推定を行いません。
+- source surface scan では Everything bridge の全件 materialize 経路を使わず、ストリーミング可能な bounded scan を使います。
+
 ### Pending resource health projection
 
 保留 package の `WAV/BGA/MOVIE` health 表示は、package 代表ではなく `PackageChartEntry` 単位の pending projection です。package を pending に分類する判定では resource warning の有無を package 単位で使いますが、health projection 自体は resource reference を持つ全 entry に書き戻します。

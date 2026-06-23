@@ -151,7 +151,8 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
         return (Chart.Warnings ?? []).Any(warning => warning != null
             && warning.Category == ChartWarningCategory.InstallEstimation
             && warning.Kind != ChartWarningKind.InstalledDestinationResolveFailed
-            && warning.Kind != ChartWarningKind.UnsupportedResourcePath);
+            && warning.Kind != ChartWarningKind.UnsupportedResourcePath
+            && warning.Kind != ChartWarningKind.SourceSurfaceScanLimitExceeded);
     }
 
     internal void SetSearchingStatus(bool isSearching)
@@ -254,6 +255,15 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
         ReplacePendingInstallDestination(null, string.Empty, string.Empty, [], forceProjection: true);
         ClearWarningsByCategory(ChartWarningCategory.InstallEstimation);
         SetWarning(ChartWarningKind.UnsupportedResourcePath, Properties.Resources.Warning_UnsupportedResourcePath);
+    }
+
+    internal void ApplySourceSurfaceScanLimitExceededWarning(int maxVisitedFileSystemEntryCount)
+    {
+        ReplacePendingInstallDestination(null, string.Empty, string.Empty, [], forceProjection: true);
+        ClearWarningsByCategory(ChartWarningCategory.InstallEstimation);
+        SetWarning(
+            ChartWarningKind.SourceSurfaceScanLimitExceeded,
+            string.Format(Properties.Resources.Warning_SourceSurfaceScanLimitExceeded, maxVisitedFileSystemEntryCount));
     }
 
     internal void ClearInstallDestination()
