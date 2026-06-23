@@ -19876,17 +19876,18 @@ public class MainWindowViewModel : ViewModel
         }
 
         lr2config = null;
-        string standaloneSongDbPath = StandaloneLibraryDatabase.EnsurePortableSongDb();
+        StandaloneLibraryDatabaseEnsureResult standaloneSongDb = StandaloneLibraryDatabase.EnsurePortableSongDb();
         return new LibraryProfile(
             operationModeLR2DB: false,
-            songDbPath: standaloneSongDbPath,
+            songDbPath: standaloneSongDb.SongDbPath,
             searchRoots: SettingDialogViewModel.GetStandaloneBmsRootPathsFromSettings(),
             lr2ConfigProvider: null,
             lr2ScoreDbPath: null,
             canWriteLr2Config: false,
             canOutputLr2Folders: false,
             canUseLr2Backup: false,
-            canUseLr2IrScore: false);
+            canUseLr2IrScore: false,
+            startupRequiredFileScanReason: standaloneSongDb.RequiresInitialLibraryBuild ? standaloneSongDb.InitialLibraryBuildReason : null);
     }
 
     private void RepairCustomFolderOutputSearchRootsBeforeStartupValidation()
@@ -20040,7 +20041,7 @@ public class MainWindowViewModel : ViewModel
         {
             InvalidatePlayHistoryReadCache("initialize");
             LibraryProfile libraryProfile = CreateLibraryProfileForStartup();
-            files = new BMSLibrary(libraryProfile.SongDbPath, libraryProfile.Lr2ConfigProvider, libraryProfile.Lr2ScoreDbPath);
+            files = new BMSLibrary(libraryProfile.SongDbPath, libraryProfile.Lr2ConfigProvider, libraryProfile.Lr2ScoreDbPath, startupRequiredFileScanReason: libraryProfile.StartupRequiredFileScanReason);
             tables = new BMSPlaylist(
                 libraryProfile.SongDbPath,
                 libraryProfile.Lr2ConfigProvider,

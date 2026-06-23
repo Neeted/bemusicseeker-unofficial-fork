@@ -3018,6 +3018,8 @@ public class BMSLibrary : NotificationObject
 
     private readonly BmsLibraryStateApplier stateApplier;
 
+    private readonly string startupRequiredFileScanReason;
+
     private BmsLibraryOptionsSnapshot CurrentOptionsSnapshot => BmsLibraryOptionsSnapshot.CreateCurrent();
 
     private BmsLibraryInstallEstimationService CreateInstallEstimationService()
@@ -3293,8 +3295,8 @@ public class BMSLibrary : NotificationObject
     /// <param name="_lr2ScoreDB">任意の LR2 score.db パスです。</param>
     /// <exception cref="ArgumentNullException">song.db パスが null の場合に送出されます。</exception>
     /// <exception cref="ArgumentException">指定された DB ファイルが存在しない場合に送出されます。</exception>
-    public BMSLibrary(string _lr2SongDB, Func<LR2Config> getLR2Config = null, string _lr2ScoreDB = null)
-        : this(_lr2SongDB, getLR2Config, _lr2ScoreDB, null)
+    public BMSLibrary(string _lr2SongDB, Func<LR2Config> getLR2Config = null, string _lr2ScoreDB = null, string startupRequiredFileScanReason = null)
+        : this(_lr2SongDB, getLR2Config, _lr2ScoreDB, null, null, startupRequiredFileScanReason)
     {
     }
 
@@ -3313,6 +3315,11 @@ public class BMSLibrary : NotificationObject
     }
 
     internal BMSLibrary(string _lr2SongDB, Func<LR2Config> getLR2Config, string _lr2ScoreDB, IFileMutationService fileMutationService, IBmsLibraryDialogService dialogService)
+        : this(_lr2SongDB, getLR2Config, _lr2ScoreDB, fileMutationService, dialogService, null)
+    {
+    }
+
+    internal BMSLibrary(string _lr2SongDB, Func<LR2Config> getLR2Config, string _lr2ScoreDB, IFileMutationService fileMutationService, IBmsLibraryDialogService dialogService, string startupRequiredFileScanReason)
     {
         if (_lr2SongDB == null)
         {
@@ -3328,6 +3335,7 @@ public class BMSLibrary : NotificationObject
         }
         lr2SongDBPath = _lr2SongDB;
         lr2ScoreDBPath = _lr2ScoreDB;
+        this.startupRequiredFileScanReason = startupRequiredFileScanReason;
         this.fileMutationService = fileMutationService ?? new ResilientFileMutationService();
         this.dialogService = dialogService ?? new BmsLibraryDialogService();
         dbGateway = new BmsLibraryDbGateway(lr2SongDBPath, lr2ScoreDBPath);
@@ -4772,12 +4780,17 @@ public class BMSLibrary : NotificationObject
         }
         ResetEverythingFallbackWarningQueue();
         bool songTblLoad = !isScoreOnly;
-        bool songTblFileCheck = mode == LibraryInitializeMode.FullReinitialize || (isStartup && options.ScanBmsFilesOnStartup);
+        bool startupFileScanRequired = isStartup && !string.IsNullOrWhiteSpace(startupRequiredFileScanReason);
+        bool songTblFileCheck = mode == LibraryInitializeMode.FullReinitialize || (isStartup && (options.ScanBmsFilesOnStartup || startupFileScanRequired));
         bool setMaintenanceInfo = !isScoreOnly;
         bool flag = !isScoreOnly;
         Task<ChartScanPrefetchInfo> chartScanPrefetchTask = null;
         Task<Lr2NormalFolderMtimeSnapshot> normalFolderMtimeSnapshotTask = null;
         List<string> fileCheckPrefetchDirectories = null;
+        if (startupFileScanRequired)
+        {
+            LogInstallPerformance("startup_file_scan_required reason=" + startupRequiredFileScanReason + " scanSetting=" + options.ScanBmsFilesOnStartup.ToString().ToLowerInvariant());
+        }
         if (songTblFileCheck)
         {
             fileCheckPrefetchDirectories = getBMSDirectories();

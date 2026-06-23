@@ -13,7 +13,8 @@ internal sealed class LibraryProfile(
     bool canWriteLr2Config,
     bool canOutputLr2Folders,
     bool canUseLr2Backup,
-    bool canUseLr2IrScore)
+    bool canUseLr2IrScore,
+    string startupRequiredFileScanReason = null)
 {
     public bool OperationModeLR2DB { get; } = operationModeLR2DB;
 
@@ -32,4 +33,6 @@ internal sealed class LibraryProfile(
     public bool CanUseLr2Backup { get; } = canUseLr2Backup;
 
     public bool CanUseLr2IrScore { get; } = canUseLr2IrScore;
+
+    public string StartupRequiredFileScanReason { get; } = startupRequiredFileScanReason;
 }
