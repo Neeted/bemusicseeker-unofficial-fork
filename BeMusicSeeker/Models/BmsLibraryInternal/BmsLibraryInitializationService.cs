@@ -2142,11 +2142,7 @@ internal sealed class BmsLibraryInitializationService
             Interlocked.Add(ref readTicks, stopwatch.ElapsedTicks);
             return FileDiffReadCandidate.CreateSuccess(target.Kind, target.Path, buffer, target.ExistingBmsFile, target.TextFlag);
         }
-        catch (IOException ex)
-        {
-            return FileDiffReadCandidate.CreateFailure(target.Kind, target.Path, target.ExistingBmsFile, target.TextFlag, ex);
-        }
-        catch (Exception ex) when (target.Kind == FileDiffChartKind.Bmson)
+        catch (Exception ex) when (IsRecoverableChartFileIoException(ex))
         {
             return FileDiffReadCandidate.CreateFailure(target.Kind, target.Path, target.ExistingBmsFile, target.TextFlag, ex);
         }
@@ -2162,24 +2158,31 @@ internal sealed class BmsLibraryInitializationService
         ChartFileSnapshot snapshot = CreateFileDiffSnapshot(candidate, ref digestTicks);
         if (candidate.Kind == FileDiffChartKind.Bms)
         {
-            if (candidate.Exception is IOException readException)
+            if (candidate.Exception != null)
             {
-                return FileDiffParsedCandidate.FromBms(InlineBmsParseCandidate.CreateFailure(candidate.Path, candidate.ExistingBmsFile, readException));
+                return FileDiffParsedCandidate.FromBms(InlineBmsParseCandidate.CreateFailure(candidate.Path, candidate.ExistingBmsFile, candidate.Exception, "read"));
             }
-            var stopwatch = Stopwatch.StartNew();
-            BMSFile file = Lr2SongRowEnricher.CreateParsedSongRowFromSnapshot(
-                snapshot,
-                candidate.TextFlag,
-                candidate.ExistingBmsFile,
-                folderParentHashCache);
-            stopwatch.Stop();
-            Interlocked.Add(ref bmsParseTicks, stopwatch.ElapsedTicks);
-            return FileDiffParsedCandidate.FromBms(InlineBmsParseCandidate.CreateSuccess(candidate.Path, snapshot, file, candidate.ExistingBmsFile));
+            try
+            {
+                var stopwatch = Stopwatch.StartNew();
+                BMSFile file = Lr2SongRowEnricher.CreateParsedSongRowFromSnapshot(
+                    snapshot,
+                    candidate.TextFlag,
+                    candidate.ExistingBmsFile,
+                    folderParentHashCache);
+                stopwatch.Stop();
+                Interlocked.Add(ref bmsParseTicks, stopwatch.ElapsedTicks);
+                return FileDiffParsedCandidate.FromBms(InlineBmsParseCandidate.CreateSuccess(candidate.Path, snapshot, file, candidate.ExistingBmsFile));
+            }
+            catch (Exception ex) when (IsRecoverableChartFileIoException(ex))
+            {
+                return FileDiffParsedCandidate.FromBms(InlineBmsParseCandidate.CreateFailure(candidate.Path, candidate.ExistingBmsFile, ex, "parse"));
+            }
         }
 
         if (candidate.Exception != null)
         {
-            return FileDiffParsedCandidate.FromBmson(InlineBmsonParseCandidate.CreateFailure(candidate.Path, candidate.Exception));
+            return FileDiffParsedCandidate.FromBmson(InlineBmsonParseCandidate.CreateFailure(candidate.Path, candidate.Exception, "read"));
         }
         try
         {
@@ -2191,8 +2194,17 @@ internal sealed class BmsLibraryInitializationService
         }
         catch (Exception ex)
         {
-            return FileDiffParsedCandidate.FromBmson(InlineBmsonParseCandidate.CreateFailure(candidate.Path, ex));
+            return FileDiffParsedCandidate.FromBmson(InlineBmsonParseCandidate.CreateFailure(candidate.Path, ex, "parse"));
         }
+    }
+
+    private static bool IsRecoverableChartFileIoException(Exception ex)
+    {
+        return ex is IOException
+            || ex is UnauthorizedAccessException
+            || ex is ArgumentException
+            || ex is NotSupportedException
+            || ex is PathTooLongException;
     }
 
     private static ChartFileSnapshot CreateFileDiffSnapshot(FileDiffReadCandidate candidate, ref long digestTicks)
@@ -2489,14 +2501,16 @@ internal sealed class BmsLibraryInitializationService
         {
             if (candidate?.Exception != null)
             {
-                dialogService?.Show(string.Format(Resources.Error_InitializationFailed, candidate.Path, candidate.Exception.Message), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+                result.FileScanFailures.Add(ChartFileScanFailure.FromException(candidate.Path, "bms", candidate.FailureStage, candidate.Exception));
+                logEverythingScan?.Invoke("bms_scan_failed stage=" + candidate.FailureStage + " path=" + candidate.Path + " message=" + candidate.Exception.Message);
             }
         }
         foreach (InlineBmsonParseCandidate candidate in postResult.BmsonParseFailures)
         {
             if (candidate?.Exception != null)
             {
-                logEverythingScan?.Invoke("bmson_parse_failed path=" + candidate.Path + " message=" + candidate.Exception.Message);
+                result.FileScanFailures.Add(ChartFileScanFailure.FromException(candidate.Path, "bmson", candidate.FailureStage, candidate.Exception));
+                logEverythingScan?.Invoke("bmson_scan_failed stage=" + candidate.FailureStage + " path=" + candidate.Path + " message=" + candidate.Exception.Message);
             }
         }
 
@@ -4371,13 +4385,14 @@ internal sealed class BmsLibraryInitializationService
 
     private sealed class InlineBmsParseCandidate
     {
-        private InlineBmsParseCandidate(string path, ChartFileSnapshot snapshot, BMSFile file, BMSFile existingFile, IOException exception)
+        private InlineBmsParseCandidate(string path, ChartFileSnapshot snapshot, BMSFile file, BMSFile existingFile, Exception exception, string failureStage)
         {
             Path = path ?? string.Empty;
             Snapshot = snapshot;
             File = file;
             ExistingFile = existingFile;
             Exception = exception;
+            FailureStage = failureStage ?? string.Empty;
         }
 
         public string Path { get; }
@@ -4388,27 +4403,30 @@ internal sealed class BmsLibraryInitializationService
 
         public BMSFile ExistingFile { get; }
 
-        public IOException Exception { get; }
+        public Exception Exception { get; }
+
+        public string FailureStage { get; }
 
         public static InlineBmsParseCandidate CreateSuccess(string path, ChartFileSnapshot snapshot, BMSFile file, BMSFile existingFile)
         {
-            return new InlineBmsParseCandidate(path, snapshot, file, existingFile, null);
+            return new InlineBmsParseCandidate(path, snapshot, file, existingFile, null, string.Empty);
         }
 
-        public static InlineBmsParseCandidate CreateFailure(string path, BMSFile existingFile, IOException exception)
+        public static InlineBmsParseCandidate CreateFailure(string path, BMSFile existingFile, Exception exception, string failureStage)
         {
-            return new InlineBmsParseCandidate(path, null, null, existingFile, exception);
+            return new InlineBmsParseCandidate(path, null, null, existingFile, exception, failureStage);
         }
     }
 
     private sealed class InlineBmsonParseCandidate
     {
-        private InlineBmsonParseCandidate(string path, ChartFileSnapshot snapshot, LR2SongDBExtended.bmson_song song, Exception exception)
+        private InlineBmsonParseCandidate(string path, ChartFileSnapshot snapshot, LR2SongDBExtended.bmson_song song, Exception exception, string failureStage)
         {
             Path = path ?? string.Empty;
             Snapshot = snapshot;
             Song = song;
             Exception = exception;
+            FailureStage = failureStage ?? string.Empty;
         }
 
         public string Path { get; }
@@ -4419,14 +4437,16 @@ internal sealed class BmsLibraryInitializationService
 
         public Exception Exception { get; }
 
+        public string FailureStage { get; }
+
         public static InlineBmsonParseCandidate CreateSuccess(string path, ChartFileSnapshot snapshot, LR2SongDBExtended.bmson_song song)
         {
-            return new InlineBmsonParseCandidate(path, snapshot, song, null);
+            return new InlineBmsonParseCandidate(path, snapshot, song, null, string.Empty);
         }
 
-        public static InlineBmsonParseCandidate CreateFailure(string path, Exception exception)
+        public static InlineBmsonParseCandidate CreateFailure(string path, Exception exception, string failureStage)
         {
-            return new InlineBmsonParseCandidate(path, null, null, exception);
+            return new InlineBmsonParseCandidate(path, null, null, exception, failureStage);
         }
     }
 
@@ -4652,7 +4672,7 @@ internal sealed class BmsLibraryInitializationService
             return result;
         }
         var stopwatchTotal = Stopwatch.StartNew();
-        List<BMSFile> targetFiles = [.. (currentFiles ?? []).Where(file => file != null && !string.IsNullOrWhiteSpace(file.hash) && string.IsNullOrWhiteSpace(file.sha256) && !string.IsNullOrWhiteSpace(file.path) && File.Exists(file.path))];
+        List<BMSFile> targetFiles = [.. (currentFiles ?? []).Where(file => file != null && !string.IsNullOrWhiteSpace(file.hash) && string.IsNullOrWhiteSpace(file.sha256) && !string.IsNullOrWhiteSpace(file.path) && LongPathFileSystem.FileExists(file.path))];
         result.TargetCount = targetFiles.Count;
         reportProgress?.Invoke(result.TargetCount, 0, string.Empty);
         if (targetFiles.Count == 0)
@@ -5186,7 +5206,7 @@ internal sealed class BmsLibraryInitializationService
     {
         try
         {
-            return File.GetLastWriteTimeUtc(path);
+            return LongPathFileSystem.GetLastWriteTimeUtc(path);
         }
         catch
         {

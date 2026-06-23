@@ -8,6 +8,7 @@ using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.Models.Utils;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
@@ -59,8 +60,8 @@ internal static class ChartInfoParser
         {
             throw new ArgumentNullException(nameof(filePath));
         }
-        string fullPath = Path.GetFullPath(filePath);
-        return ParseBytes(File.ReadAllBytes(fullPath), fullPath, md5, sha256, encodingName);
+        string fullPath = LongPathFileSystem.NormalizePathForStorage(filePath);
+        return ParseBytes(LongPathFileSystem.ReadAllBytes(fullPath), fullPath, md5, sha256, encodingName);
     }
 
     /// <summary>
@@ -475,7 +476,7 @@ internal static class ChartInfoParser
 
     private static ChartModel ParseBmson(string filePath)
     {
-        string json = File.ReadAllText(filePath, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: false));
+        string json = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: false).GetString(LongPathFileSystem.ReadAllBytes(filePath));
         return ParseBmson(json, filePath, [], ParseTimeoutGuard.None);
     }
 
@@ -1069,7 +1070,7 @@ internal static class ChartInfoParser
     private static string ComputeHash(string filePath, HashAlgorithm algorithm)
     {
         using (algorithm)
-        using (var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read))
+        using (var stream = LongPathFileSystem.OpenRead(filePath))
         {
             byte[] hash = algorithm.ComputeHash(stream);
             return ToHex(hash);

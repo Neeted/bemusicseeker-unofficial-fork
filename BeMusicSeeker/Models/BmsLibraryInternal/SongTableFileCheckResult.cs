@@ -23,6 +23,8 @@ internal sealed class SongTableFileCheckResult
 
     public List<string> InlineChartInfoParseFailureDeleteMd5s { get; } = [];
 
+    public List<ChartFileScanFailure> FileScanFailures { get; } = [];
+
     public List<BMSFile> NextFiles { get; } = [];
 
     public List<LR2SongDBExtended.bmson_song> NextBmsonSongs { get; } = [];
@@ -365,6 +367,7 @@ internal sealed class SongTableFileCheckResult
         InlineChartInfoAppliedRows.Clear();
         InlineChartInfoParseFailureRows.Clear();
         InlineChartInfoParseFailureDeleteMd5s.Clear();
+        FileScanFailures.Clear();
         DeletedPaths.Clear();
         DeletedBmsonPaths.Clear();
         MutationDelta.Clear();
@@ -388,5 +391,28 @@ internal sealed class SongTableFileCheckResult
         Lr2ScanAppManagedCustomFolderOutputFilePaths = [];
         Lr2ScanAppManagedCustomFolderOutputFileEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
         Lr2ScanAppManagedCustomFolderOutputDiscoveryComplete = false;
+    }
+}
+
+internal sealed class ChartFileScanFailure(string path, string chartKind, string stage, string exceptionType, string message)
+{
+    public string Path { get; } = path ?? string.Empty;
+
+    public string ChartKind { get; } = chartKind ?? string.Empty;
+
+    public string Stage { get; } = stage ?? string.Empty;
+
+    public string ExceptionType { get; } = exceptionType ?? string.Empty;
+
+    public string Message { get; } = message ?? string.Empty;
+
+    public static ChartFileScanFailure FromException(string path, string chartKind, string stage, Exception exception)
+    {
+        return new ChartFileScanFailure(
+            path,
+            chartKind,
+            stage,
+            exception?.GetType().Name ?? string.Empty,
+            exception?.Message ?? string.Empty);
     }
 }

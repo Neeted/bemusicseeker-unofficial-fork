@@ -2,6 +2,8 @@
 
 本アプリは Windows / NTFS を主なターゲット環境とするが、永続化された `path` の同一性はファイルシステムの一般的な大文字小文字規則へ暗黙に寄せない。
 
+パス長や実ファイル I/O の長パス対応は [path-length-and-io.md](path-length-and-io.md) を参照する。本資料は、DB 行の同一性として path 文字列をどう比較するかだけを扱う。
+
 ## 基本方針
 
 - `song.path`, `folder.path`, `maintenance.path`, `bmson_song.path`, `install.path` など、DB の主キーまたは行同一性として使う `path` は **case-sensitive な exact string** として扱う。

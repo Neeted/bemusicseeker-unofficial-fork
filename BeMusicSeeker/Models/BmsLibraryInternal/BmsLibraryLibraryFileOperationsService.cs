@@ -1240,7 +1240,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
 
     public string TryComputeFileMd5ForPath(string filePath, string logCategory = null, Action<string> logInfo = null)
     {
-        if (string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath))
+        if (string.IsNullOrWhiteSpace(filePath) || !LongPathFileSystem.FileExists(filePath))
         {
             return null;
         }
@@ -1248,7 +1248,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         {
             using var md5 = MD5.Create();
             byte[] hashBytes;
-            using (var inputStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read))
+            using (var inputStream = LongPathFileSystem.OpenRead(filePath))
             {
                 hashBytes = md5.ComputeHash(inputStream);
             }

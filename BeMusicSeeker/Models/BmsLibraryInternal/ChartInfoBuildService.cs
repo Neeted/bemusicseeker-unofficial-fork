@@ -9,6 +9,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.Models.Utils;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
@@ -33,7 +34,7 @@ internal sealed class ChartInfoBuildService
     private readonly TimeSpan? parseTimeoutOverride;
 
     public ChartInfoBuildService()
-        : this(File.ReadAllBytes, null, null, null)
+        : this(LongPathFileSystem.ReadAllBytes, null, null, null)
     {
     }
 
@@ -47,7 +48,7 @@ internal sealed class ChartInfoBuildService
     /// <param name="parseTimeoutOverride">1譜面あたりの解析 timeout。null の場合は既定値を使います。</param>
     internal ChartInfoBuildService(Func<string, byte[]> readAllBytes, int? workerCountOverride = null, int? commitChunkSizeOverride = null, TimeSpan? parseTimeoutOverride = null)
     {
-        this.readAllBytes = readAllBytes ?? File.ReadAllBytes;
+        this.readAllBytes = readAllBytes ?? LongPathFileSystem.ReadAllBytes;
         this.workerCountOverride = workerCountOverride;
         this.commitChunkSizeOverride = commitChunkSizeOverride;
         this.parseTimeoutOverride = parseTimeoutOverride;

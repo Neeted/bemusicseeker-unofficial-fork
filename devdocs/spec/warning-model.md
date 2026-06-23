@@ -63,7 +63,7 @@
 - `DuplicateChart` は kind 単位で set / clear します。
 - `ZeroNoteMismatch` は `chart_info.notes == 0` の BMS を正規表現で確認したとき、本文に可視ノート風記述がある場合に set し、`chart_info` が未生成または 0 notes ではなくなった場合は stale warning として clear します。
 - `ChartInfoParseFailure` は解析エラー画面用の表示 shim 行に付与します。通常ライブラリの元行へは mutation しません。
-- `Lr2Compatibility` は BMS の maintenance facts が評価済みなら category 単位で再構築します。`Lr2PathEncodingUnsupported` は譜面の full path が CP932 で表せない場合、`Lr2PathTooLong` は譜面の full path が LR2 の legacy path 長を超える可能性がある場合、`Lr2ResourcePathUnsupported` は resource name が CP932 非対応の場合、`Lr2ResourcePathTooLong` は LR2 が参照する resource full path が legacy path 長を超える可能性がある場合に付与します。親ディレクトリ参照は LR2 非対応理由にはせず、移動時に再パースが必要な fact として保持します。親ディレクトリ参照が無い譜面は、保存済みの resource relative path 最大 byte length と移動後ディレクトリ path だけで軽量に再評価します。maintenance facts が未評価の row では、既存の direct warning を placeholder attach だけで消しません。
+- `Lr2Compatibility` は BMS の maintenance facts が評価済みなら category 単位で再構築します。`Lr2PathEncodingUnsupported` は譜面の full path が CP932 で表せない場合、`Lr2PathTooLong` は譜面の full path が LR2 の legacy path 長を超える可能性がある場合、`Lr2ResourcePathUnsupported` は resource name が CP932 非対応の場合、`Lr2ResourcePathTooLong` は LR2 が参照する resource full path が legacy path 長を超える可能性がある場合に付与します。BeMusicSeeker 自身が長パス譜面を読める場合は登録を継続し、LR2 互換性の問題はこの warning として表示します。親ディレクトリ参照は LR2 非対応理由にはせず、移動時に再パースが必要な fact として保持します。親ディレクトリ参照が無い譜面は、保存済みの resource relative path 最大 byte length と移動後ディレクトリ path だけで軽量に再評価します。maintenance facts が未評価の row では、既存の direct warning を placeholder attach だけで消しません。
 - `NestedChartFileInPackage`、`AlreadyInstalled`、`SingleBmsFile`、`SingleBmsonFile` は保留パッケージや復元時の状態初期化で付与します。
 
 ## 参照実装

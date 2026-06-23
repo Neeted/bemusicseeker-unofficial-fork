@@ -9,6 +9,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using Ribbit.Util.Extensions;
 
@@ -319,7 +320,7 @@ internal sealed class BmsLibraryMaintenanceService
         bool forceUpdate = false,
         bool clearResourceReferences = false)
     {
-        if (!ChartFileKindResolver.IsBmsChartFile(file) || !File.Exists(file.path))
+        if (!ChartFileKindResolver.IsBmsChartFile(file) || !LongPathFileSystem.FileExists(file.path))
         {
             return null;
         }
@@ -617,10 +618,11 @@ internal sealed class BmsLibraryMaintenanceService
         }
         try
         {
-            string fullPath = Path.GetFullPath(Path.Combine(chartDirectory, ChartResourcePathNormalizer.NormalizeReferencePathForLookup(file) ?? file));
+            string fullPath = LongPathFileSystem.NormalizePathForStorage(Path.Combine(chartDirectory, ChartResourcePathNormalizer.NormalizeReferencePathForLookup(file) ?? file));
             string directory = Path.GetDirectoryName(fullPath) + Path.DirectorySeparatorChar;
             string basename = Path.GetFileNameWithoutExtension(fullPath);
-            return File.Exists(fullPath) || (extensions ?? []).Any(ext => !string.IsNullOrWhiteSpace(ext) && File.Exists(directory + basename + ext));
+            return LongPathFileSystem.FileExists(fullPath)
+                || (extensions ?? []).Any(ext => !string.IsNullOrWhiteSpace(ext) && LongPathFileSystem.FileExists(directory + basename + ext));
         }
         catch
         {
@@ -688,7 +690,7 @@ internal sealed class BmsLibraryMaintenanceService
         HashSet<BMSFile> reloadedFiles = [];
         if (!string.IsNullOrWhiteSpace(encoding))
         {
-            foreach (BMSFile file in files.Where(f => File.Exists(f.path)))
+            foreach (BMSFile file in files.Where(f => LongPathFileSystem.FileExists(f.path)))
             {
                 if (!ShouldReloadMetadata(file, encoding))
                 {
@@ -827,7 +829,7 @@ internal sealed class BmsLibraryMaintenanceService
 
     public List<BMSFile> DetectModeChanges(IEnumerable<BMSFile> bmsFiles, bool forceUpdate)
     {
-        List<BMSFile> targets = [.. EnumerateBmsChartFiles(bmsFiles).Where(file => (forceUpdate || !file.mode.HasValue) && File.Exists(file.path))];
+        List<BMSFile> targets = [.. EnumerateBmsChartFiles(bmsFiles).Where(file => (forceUpdate || !file.mode.HasValue) && LongPathFileSystem.FileExists(file.path))];
         foreach (BMSFile target in targets)
         {
             target.SetMode();
@@ -2189,7 +2191,7 @@ internal sealed class BmsLibraryMaintenanceService
         bool forceUpdate,
         ChartFileSnapshot snapshot = null)
     {
-        if (song == null || string.IsNullOrWhiteSpace(song.path) || !File.Exists(song.path))
+        if (song == null || string.IsNullOrWhiteSpace(song.path) || !LongPathFileSystem.FileExists(song.path))
         {
             return BmsonResourceRefreshResult.NotApplicable;
         }
@@ -2235,7 +2237,8 @@ internal sealed class BmsLibraryMaintenanceService
         }
         try
         {
-            return File.Exists(song.path) && File.GetLastWriteTimeUtc(song.path) == song.updated_at;
+            return LongPathFileSystem.FileExists(song.path)
+                && LongPathFileSystem.GetLastWriteTimeUtc(song.path) == song.updated_at;
         }
         catch
         {

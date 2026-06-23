@@ -9,6 +9,7 @@
 - 新規コードで譜面 bytes と digest が必要な場合は `ChartFileSnapshot` を使う。
 - 大量処理では reader が `ChartFileContentReader.ReadBuffer(path)` で bytes と file metadata だけを読み、worker が `ChartFileContentReader.CreateSnapshot(buffer)` で digest 付き snapshot を作る。
 - path だけを持つ小さな処理や互換 API では `ChartFileContentReader.ReadSnapshot(path)` を使ってよい。
+- reader は `LongPathFileSystem` を通して譜面ファイルを読み、DB / snapshot に保存する path には `\\?\` prefix を含めない。詳細は [path-length-and-io.md](path-length-and-io.md) を参照する。
 - snapshot には `Path`, `Bytes`, `Length`, `LastWriteTimeUtc`, `Md5`, `Sha256` が入る。
 - `ReadSnapshot(path)` は互換入口として `ReadBuffer(path)` + `CreateSnapshot(buffer)` を行う。同じ bytes から digest を作り、hash のために同じ譜面を再 read しない方針は維持する。
 - snapshot bytes は処理中だけ保持し、DB や長期 model へ保存しない。
@@ -72,7 +73,7 @@ changed path
        session chart_info index for generated rows
 ```
 
-file diff の reader は `ChartFileReadPipelinePolicy` に従い、十分な CPU と複数 target がある場合は 2 本まで並列化する。reader は bytes と file metadata だけを bounded queue へ流し、MD5 / SHA-256 計算と snapshot 作成は parser worker 側で行う。file diff の progress target は lightweight parse 対象数で、BMS 追加件数と bmson 追加・更新件数の合算。ただし progress の processed count は parser 完了ではなく、post-parse が DB writer へ渡せる staging data を作った時点で進める。`chart_info` parse failure は `song` / `bmson_song` 登録を止めない。
+file diff の reader は `ChartFileReadPipelinePolicy` に従い、十分な CPU と複数 target がある場合は 2 本まで並列化する。reader は bytes と file metadata だけを bounded queue へ流し、MD5 / SHA-256 計算と snapshot 作成は parser worker 側で行う。読める長パス譜面は通常どおり登録し、LR2 legacy path 長に抵触する場合は `Lr2PathTooLong` warning へ任せる。読めない譜面単位の recoverable I/O エラーは個別初期化ダイアログにせず、`SongTableFileCheckResult.FileScanFailures` と性能ログへ集約する。file diff の progress target は lightweight parse 対象数で、BMS 追加件数と bmson 追加・更新件数の合算。ただし progress の processed count は parser 完了ではなく、post-parse が DB writer へ渡せる staging data を作った時点で進める。`chart_info` parse failure は `song` / `bmson_song` 登録を止めない。
 
 file diff の `InlineChartInfoBatchSize` 既定値 2048 は current `chart_info` lookup / inline build helper の内部粒度であり、post-parse barrier や DB commit 単位ではない。bytes/read buffer は reader / parsed queue の件数上限で backpressure し、post-parse は snapshot を受け取った worker が 1 譜面ずつ流して、lightweight parse 後の bytes と resource refs を長く滞留させない。post-parse の並列性は micro-batch ではなく post-parse worker stage で確保する。既定 parser 数は CPU 数の半分程度に抑え、post-parse worker は parser の約 1.5 倍かつ CPU 数以下を目安にすることで、軽量 parse より重い maintenance / chart_info apply 側へ計算量を寄せつつ過剰並列を避ける。`inline_maintenance_degree` は post-parse item 内の内側並列度であり、post-parse worker 数とは別物である。明示 override がある場合は検証・再現性を優先してその値を尊重する。snapshot bytes は maintenance row / chart_info staging へ畳み込んだら破棄する。
 

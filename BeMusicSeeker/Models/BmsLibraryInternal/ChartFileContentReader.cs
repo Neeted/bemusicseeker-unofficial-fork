@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Security.Cryptography;
 using System.Text;
+using BeMusicSeeker.Models.Utils;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
@@ -19,9 +20,9 @@ internal static class ChartFileContentReader
             throw new ArgumentNullException(nameof(path));
         }
 
-        string fullPath = Path.GetFullPath(path);
-        byte[] bytes = File.ReadAllBytes(fullPath);
-        DateTime lastWriteTimeUtc = File.GetLastWriteTimeUtc(fullPath);
+        string fullPath = LongPathFileSystem.NormalizePathForStorage(path);
+        byte[] bytes = LongPathFileSystem.ReadAllBytes(fullPath);
+        DateTime lastWriteTimeUtc = LongPathFileSystem.GetLastWriteTimeUtc(fullPath);
         return new ChartFileReadBuffer(fullPath, bytes, lastWriteTimeUtc);
     }
 
@@ -47,7 +48,7 @@ internal static class ChartFileContentReader
         }
 
         return new ChartFileSnapshot(
-            Path.GetFullPath(path),
+            LongPathFileSystem.NormalizePathForStorage(path),
             bytes,
             lastWriteTimeUtc,
             ComputeHash(bytes, MD5.Create()),

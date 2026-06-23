@@ -604,7 +604,7 @@ public class BMSFile : LR2SongDB.song
 
     internal void SetEncosingInfo(BMSFileMaintenanceInfo mtInfo = null)
     {
-        if (File.Exists(path))
+        if (LongPathFileSystem.FileExists(path))
         {
             mtInfo ??= maintenanceInfo;
             mtInfo.encoding = DetectEncodingOfBMSFile(this);
@@ -1686,7 +1686,7 @@ public class BMSFile : LR2SongDB.song
     {
         var mD = MD5.Create();
         byte[] array;
-        using (var inputStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read))
+        using (var inputStream = LongPathFileSystem.OpenRead(filePath))
         {
             array = mD.ComputeHash(inputStream);
         }
@@ -1703,7 +1703,7 @@ public class BMSFile : LR2SongDB.song
     {
         using var sHA = SHA256.Create();
         byte[] hash;
-        using (var inputStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read))
+        using (var inputStream = LongPathFileSystem.OpenRead(filePath))
         {
             hash = sHA.ComputeHash(inputStream);
         }
@@ -1783,7 +1783,7 @@ public class BMSFile : LR2SongDB.song
         {
             throw new ArgumentNullException(nameof(bmsFile));
         }
-        if (string.IsNullOrWhiteSpace(bmsFile.path) || !File.Exists(bmsFile.path))
+        if (string.IsNullOrWhiteSpace(bmsFile.path) || !LongPathFileSystem.FileExists(bmsFile.path))
         {
             throw new FileNotFoundException("BMS ファイルが見つかりません。", bmsFile.path ?? "");
         }
@@ -1792,7 +1792,7 @@ public class BMSFile : LR2SongDB.song
             codepageName = DetectEncodingOfBMSFile(bmsFile);
         }
         codepageName = NormalizeReloadEncodingName(codepageName);
-        ApplyDecodedBmsMetadataWithEncoding(bmsFile, File.ReadAllBytes(bmsFile.path), codepageName);
+        ApplyDecodedBmsMetadataWithEncoding(bmsFile, LongPathFileSystem.ReadAllBytes(bmsFile.path), codepageName);
     }
 
     internal static void ReloadBMSFileWithEncoding(BMSFile bmsFile, ChartFileSnapshot snapshot, string codepageName = "")
@@ -2137,12 +2137,12 @@ public class BMSFile : LR2SongDB.song
 
     internal static bool WouldBmsMetadataChangeWithEncoding(BMSFile bmsFile, string codepageName)
     {
-        if (bmsFile == null || string.IsNullOrWhiteSpace(bmsFile.path) || !File.Exists(bmsFile.path))
+        if (bmsFile == null || string.IsNullOrWhiteSpace(bmsFile.path) || !LongPathFileSystem.FileExists(bmsFile.path))
         {
             return false;
         }
         codepageName = NormalizeReloadEncodingName(codepageName);
-        string decodedText = DecodeBytes(File.ReadAllBytes(bmsFile.path), Encoding.GetEncoding(codepageName));
+        string decodedText = DecodeBytes(LongPathFileSystem.ReadAllBytes(bmsFile.path), Encoding.GetEncoding(codepageName));
         BmsDecodedMetadata metadata = ReadBmsMetadataFromDecodedText(decodedText);
         return !MetadataEquals(bmsFile._title, metadata.Title)
             || !MetadataEquals(bmsFile._subtitle, metadata.Subtitle)
@@ -2248,11 +2248,11 @@ public class BMSFile : LR2SongDB.song
 
     internal static string DetectEncodingOfBMSFile(string path)
     {
-        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+        if (string.IsNullOrWhiteSpace(path) || !LongPathFileSystem.FileExists(path))
         {
             throw new FileNotFoundException("BMS ファイルが見つかりません。", path ?? "");
         }
-        return DetectEncodingOfBMSFileCore(File.ReadAllBytes(path)).EncodingName;
+        return DetectEncodingOfBMSFileCore(LongPathFileSystem.ReadAllBytes(path)).EncodingName;
     }
 
     internal static string DetectEncodingOfBMSFile(ChartFileSnapshot snapshot)
@@ -2487,7 +2487,7 @@ public class BMSFile : LR2SongDB.song
     {
         Encoding encoding = Encoding.GetEncoding(codepageName);
         bool detectEncodingFromByteOrderMarks = !IsShiftJisEncodingName(codepageName);
-        using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+        using var stream = LongPathFileSystem.OpenRead(filePath);
         using var reader = new StreamReader(stream, encoding, detectEncodingFromByteOrderMarks);
         string line;
         while ((line = reader.ReadLine()) != null)

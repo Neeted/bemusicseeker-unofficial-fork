@@ -5520,6 +5520,7 @@ completeFileEnumerationOnce,
             normalFolderMtimeSnapshotProvider: resolveNormalFolderMtimeSnapshot,
             lr2ScanSurfacePrepared: StartLr2FolderFileDiffPreparation,
             protectExistingBmsRowsFromLr2SongDbSyncMigration: protectExistingBmsRowsFromLr2SongDbSyncMigration);
+        LogFileScanFailures(fileCheckResult, reason);
         ApplyLr2FolderFileDiffSync(options, bmsDirectories, fileCheckResult, reason, lr2FolderFileDiffPreparationTask);
         completeFileEnumerationOnce();
         ApplyLibraryFileScanStorageMutation(fileCheckResult, reason);
@@ -5547,6 +5548,30 @@ completeFileEnumerationOnce,
         fileCheckResult.ReleasePostApplyTransientBuffers();
         LogStartupMemoryCheckpoint("file_diff", "after_release");
         return fileCheckResult;
+    }
+
+    private static void LogFileScanFailures(SongTableFileCheckResult result, string reason)
+    {
+        if (result?.FileScanFailures == null || result.FileScanFailures.Count == 0)
+        {
+            return;
+        }
+
+        LogInstallPerformanceWarn("song_tbl_file_check_failures reason=" + (reason ?? string.Empty) + " count=" + result.FileScanFailures.Count);
+        foreach (ChartFileScanFailure failure in result.FileScanFailures)
+        {
+            if (failure == null)
+            {
+                continue;
+            }
+
+            LogInstallPerformanceWarn(
+                "song_tbl_file_check_file_failed kind=" + failure.ChartKind
+                + " stage=" + failure.Stage
+                + " exception=" + failure.ExceptionType
+                + " path=" + failure.Path
+                + " message=" + (failure.Message ?? string.Empty).Replace(Environment.NewLine, " | "));
+        }
     }
 
     private bool ShouldProtectExistingBmsRowsFromLr2SongDbSyncMigration(BmsLibraryOptionsSnapshot options)

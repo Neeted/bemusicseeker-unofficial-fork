@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.Utils;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
@@ -79,6 +80,26 @@ public sealed class BMSFileSnapshotTests
             Assert.AreEqual(direct.Md5, fromBuffer.Md5);
             Assert.AreEqual(direct.Sha256, fromBuffer.Sha256);
             Assert.IsTrue(buffer.Bytes.SequenceEqual(fromBuffer.Bytes));
+        });
+    }
+
+    [TestMethod]
+    public void ReadSnapshot_NormalizesAbsolutePathBeforeStorageAndExtendedIo()
+    {
+        WithTempDirectory(delegate (string tempDirectory)
+        {
+            string filePath = Path.Combine(tempDirectory, "chart.bms");
+            File.WriteAllText(filePath, "#PLAYER 1\r\n#TITLE Normalized\r\n", Encoding.ASCII);
+            string inputPath = Path.Combine(tempDirectory, "nested", "..", "chart.bms")
+                .Replace(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+            ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(inputPath);
+            string extendedPath = LongPathFileSystem.ToExtendedPath(inputPath);
+
+            Assert.AreEqual(Path.GetFullPath(filePath), snapshot.Path);
+            StringAssert.StartsWith(extendedPath, @"\\?\");
+            Assert.IsFalse(extendedPath.Contains("/"));
+            Assert.IsFalse(extendedPath.Contains(@"\..\"));
         });
     }
 

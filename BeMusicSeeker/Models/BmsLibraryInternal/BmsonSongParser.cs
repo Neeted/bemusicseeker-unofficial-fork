@@ -5,6 +5,7 @@ using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.Models.Utils;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
@@ -18,10 +19,10 @@ internal static class BmsonSongParser
         {
             throw new ArgumentNullException(nameof(filePath));
         }
-        string fullPath = Path.GetFullPath(filePath);
-        string json = File.ReadAllText(fullPath, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: false));
+        string fullPath = LongPathFileSystem.NormalizePathForStorage(filePath);
+        string json = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: false).GetString(LongPathFileSystem.ReadAllBytes(fullPath));
         BmsonDocument root = BmsonJsonParser.Parse(json);
-        DateTime updatedAt = File.GetLastWriteTimeUtc(fullPath);
+        DateTime updatedAt = LongPathFileSystem.GetLastWriteTimeUtc(fullPath);
         return CreateSong(
             fullPath,
             root,
@@ -231,7 +232,7 @@ internal static class BmsonSongParser
     private static string ComputeHash(string filePath, HashAlgorithm algorithm)
     {
         using (algorithm)
-        using (var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read))
+        using (var stream = LongPathFileSystem.OpenRead(filePath))
         {
             byte[] hash = algorithm.ComputeHash(stream);
             var builder = new StringBuilder(hash.Length * 2);
