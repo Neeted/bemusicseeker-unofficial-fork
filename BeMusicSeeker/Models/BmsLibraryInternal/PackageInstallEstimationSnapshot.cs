@@ -202,7 +202,7 @@ internal static class PackageInstallEstimationSnapshotBuilder
         string normalizedPath;
         try
         {
-            normalizedPath = Path.GetFullPath(packagePath);
+            normalizedPath = LongPathFileSystem.NormalizePathForStorage(packagePath);
         }
         catch
         {
@@ -245,7 +245,7 @@ internal static class PackageInstallEstimationSnapshotBuilder
         string normalizedPath;
         try
         {
-            normalizedPath = Path.GetFullPath(packagePath);
+            normalizedPath = LongPathFileSystem.NormalizePathForStorage(packagePath);
         }
         catch
         {
@@ -460,7 +460,7 @@ internal static class PackageInstallEstimationSnapshotBuilder
 
         try
         {
-            string normalizedPath = Path.GetFullPath(packagePath);
+            string normalizedPath = LongPathFileSystem.NormalizePathForStorage(packagePath);
             if (LongPathFileSystem.DirectoryExists(normalizedPath))
             {
                 return normalizedPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);

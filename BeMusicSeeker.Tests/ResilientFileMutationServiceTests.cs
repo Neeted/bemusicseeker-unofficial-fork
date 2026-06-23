@@ -125,6 +125,30 @@ public sealed class ResilientFileMutationServiceTests
     }
 
     /// <summary>
+    /// 上書き移動で移動元を動かせない場合、既存の移動先を失わないことを検証します。
+    /// </summary>
+    [TestMethod]
+    public void MoveFile_OverwritePreservesDestination_WhenSourceCannotMove()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string sourceFilePath = Path.Combine(tempDirectoryPath, "locked-source.bms");
+            string destinationFilePath = Path.Combine(tempDirectoryPath, "destination.bms");
+            WriteAllText(sourceFilePath, "source");
+            WriteAllText(destinationFilePath, "destination");
+
+            using var lockedFileStream = LongPathFileSystem.Open(sourceFilePath, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+
+            Assert.ThrowsException<IOException>(() =>
+                LongPathFileSystem.MoveFile(sourceFilePath, destinationFilePath, overwrite: true));
+
+            Assert.IsTrue(LongPathFileSystem.FileExists(sourceFilePath));
+            Assert.IsTrue(LongPathFileSystem.FileExists(destinationFilePath));
+            Assert.AreEqual("destination", ReadAllText(destinationFilePath));
+        });
+    }
+
+    /// <summary>
     /// 長パス上のディレクトリ上書き移動は既存の宛先を消さず、衝突ファイルだけを上書きしてマージすることを検証します。
     /// </summary>
     [TestMethod]
@@ -156,6 +180,49 @@ public sealed class ResilientFileMutationServiceTests
             Assert.AreEqual("destination-only", ReadAllText(Path.Combine(destinationDirectoryPath, "destination-only.bms")));
             Assert.AreEqual("nested-source", ReadAllText(Path.Combine(destinationChildDirectoryPath, "nested.bms")));
             Assert.AreEqual("nested-destination", ReadAllText(Path.Combine(destinationChildDirectoryPath, "old.bms")));
+        });
+    }
+
+    /// <summary>
+    /// ディレクトリコピーでコピー先をコピー元配下に置く自己再帰を禁止することを検証します。
+    /// </summary>
+    [TestMethod]
+    public void CopyDirectory_Throws_WhenDestinationIsInsideSource()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string sourceDirectoryPath = Path.Combine(tempDirectoryPath, "source");
+            string nestedDestinationPath = Path.Combine(sourceDirectoryPath, "nested-copy");
+            LongPathFileSystem.CreateDirectory(sourceDirectoryPath);
+            WriteAllText(Path.Combine(sourceDirectoryPath, "song.bms"), "source");
+
+            Assert.ThrowsException<IOException>(() =>
+                LongPathFileSystem.CopyDirectory(sourceDirectoryPath, nestedDestinationPath, overwrite: false));
+
+            Assert.IsFalse(LongPathFileSystem.DirectoryExists(nestedDestinationPath));
+            Assert.IsTrue(LongPathFileSystem.FileExists(Path.Combine(sourceDirectoryPath, "song.bms")));
+        });
+    }
+
+    /// <summary>
+    /// ディレクトリ移動で移動先を移動元配下に置く自己再帰を禁止することを検証します。
+    /// </summary>
+    [TestMethod]
+    public void MoveDirectory_Throws_WhenDestinationIsInsideSource()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string sourceDirectoryPath = Path.Combine(tempDirectoryPath, "source");
+            string nestedDestinationPath = Path.Combine(sourceDirectoryPath, "nested-destination");
+            LongPathFileSystem.CreateDirectory(nestedDestinationPath);
+            WriteAllText(Path.Combine(sourceDirectoryPath, "song.bms"), "source");
+
+            Assert.ThrowsException<IOException>(() =>
+                LongPathFileSystem.MoveDirectory(sourceDirectoryPath, nestedDestinationPath, overwrite: true));
+
+            Assert.IsTrue(LongPathFileSystem.DirectoryExists(sourceDirectoryPath));
+            Assert.IsTrue(LongPathFileSystem.DirectoryExists(nestedDestinationPath));
+            Assert.IsTrue(LongPathFileSystem.FileExists(Path.Combine(sourceDirectoryPath, "song.bms")));
         });
     }
 

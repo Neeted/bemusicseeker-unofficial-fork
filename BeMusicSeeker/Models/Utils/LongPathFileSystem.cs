@@ -145,7 +145,8 @@ internal static class LongPathFileSystem
         ThrowIfSamePath(sourcePath, destinationPath);
         if (overwrite && FileExists(destinationPath))
         {
-            DeleteFile(destinationPath);
+            ReplaceFileByMovingSource(sourcePath, destinationPath);
+            return;
         }
         File.Move(ToExtendedPath(sourcePath), ToExtendedPath(destinationPath));
     }
@@ -157,6 +158,8 @@ internal static class LongPathFileSystem
 
     public static void CopyDirectory(string sourcePath, string destinationPath, bool overwrite)
     {
+        ThrowIfSamePath(sourcePath, destinationPath);
+        ThrowIfDestinationIsInsideSourceDirectory(sourcePath, destinationPath);
         if (DirectoryExists(destinationPath) && !overwrite)
         {
             throw new IOException("Destination directory already exists.");
@@ -178,6 +181,7 @@ internal static class LongPathFileSystem
     public static void MoveDirectory(string sourcePath, string destinationPath, bool overwrite)
     {
         ThrowIfSamePath(sourcePath, destinationPath);
+        ThrowIfDestinationIsInsideSourceDirectory(sourcePath, destinationPath);
         if (!overwrite || !DirectoryExists(destinationPath))
         {
             Directory.Move(ToExtendedPath(sourcePath), ToExtendedPath(destinationPath));
@@ -305,6 +309,80 @@ internal static class LongPathFileSystem
         return new FileMetadata(fileInfo.Length, fileInfo.LastWriteTimeUtc);
     }
 
+    private static void ReplaceFileByMovingSource(string sourcePath, string destinationPath)
+    {
+        string replacementPath = CreateTemporarySiblingPath(destinationPath);
+        bool sourceMovedToReplacement = false;
+        try
+        {
+            File.Move(ToExtendedPath(sourcePath), ToExtendedPath(replacementPath));
+            sourceMovedToReplacement = true;
+            try
+            {
+                File.Replace(ToExtendedPath(replacementPath), ToExtendedPath(destinationPath), null, ignoreMetadataErrors: true);
+            }
+            catch (Exception replaceException)
+            {
+                Exception restoreException = TryRestoreSourceAfterReplaceFailure(replacementPath, sourcePath);
+                if (restoreException != null)
+                {
+                    throw new IOException("Failed to replace destination file and failed to restore source file.", new AggregateException(replaceException, restoreException));
+                }
+                throw;
+            }
+        }
+        catch
+        {
+            if (!sourceMovedToReplacement)
+            {
+                TryDeleteTemporaryReplacement(replacementPath);
+            }
+            throw;
+        }
+    }
+
+    private static string CreateTemporarySiblingPath(string path)
+    {
+        string directoryPath = Path.GetDirectoryName(path) ?? string.Empty;
+        string candidatePath;
+        do
+        {
+            candidatePath = Path.Combine(directoryPath, ".bemusicseeker-replace-" + Guid.NewGuid().ToString("N") + ".tmp");
+        }
+        while (EntryExists(candidatePath));
+        return candidatePath;
+    }
+
+    private static Exception TryRestoreSourceAfterReplaceFailure(string replacementPath, string sourcePath)
+    {
+        try
+        {
+            if (!FileExists(sourcePath) && FileExists(replacementPath))
+            {
+                File.Move(ToExtendedPath(replacementPath), ToExtendedPath(sourcePath));
+            }
+            return null;
+        }
+        catch (Exception ex)
+        {
+            return ex;
+        }
+    }
+
+    private static void TryDeleteTemporaryReplacement(string replacementPath)
+    {
+        try
+        {
+            if (FileExists(replacementPath))
+            {
+                DeleteFile(replacementPath);
+            }
+        }
+        catch
+        {
+        }
+    }
+
     private static void MergeDirectory(string sourcePath, string destinationPath)
     {
         CreateDirectory(destinationPath);
@@ -337,6 +415,21 @@ internal static class LongPathFileSystem
         {
             throw new IOException("Source path and destination path are the same.");
         }
+    }
+
+    private static void ThrowIfDestinationIsInsideSourceDirectory(string sourcePath, string destinationPath)
+    {
+        string normalizedSourcePath = NormalizeDirectoryPathForComparison(sourcePath);
+        string normalizedDestinationPath = NormalizeDirectoryPathForComparison(destinationPath);
+        if (normalizedDestinationPath.StartsWith(normalizedSourcePath + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new IOException("Destination path is inside the source directory.");
+        }
+    }
+
+    private static string NormalizeDirectoryPathForComparison(string path)
+    {
+        return NormalizePathForStorage(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
     }
 
     private static string RemoveExtendedPathPrefix(string path)
