@@ -1575,7 +1575,7 @@ public partial class BMSPlaylist : NotificationObject
             return;
         }
         string configuredTablePath = BeatorajaConfigService.GetTablePath(Settings.Default.BeatorajaRootPath);
-        if (!string.IsNullOrWhiteSpace(tablePath) && !string.Equals(Path.GetFullPath(tablePath), Path.GetFullPath(configuredTablePath), StringComparison.OrdinalIgnoreCase))
+        if (!string.IsNullOrWhiteSpace(tablePath) && !IsSameBeatorajaTablePath(tablePath, configuredTablePath))
         {
             return;
         }
@@ -1600,6 +1600,18 @@ public partial class BMSPlaylist : NotificationObject
         {
             Ribbit.Logging.NLogWrapper.FileLogger?.Warn(ex, "beatoraja_table_url_sync_failed tablePath=" + FormatTextForLog(tablePath));
         }
+    }
+
+    private static bool IsSameBeatorajaTablePath(string left, string right)
+    {
+        if (string.IsNullOrWhiteSpace(left) || string.IsNullOrWhiteSpace(right))
+        {
+            return false;
+        }
+        return string.Equals(
+            LongPathFileSystem.NormalizePathForStorage(left),
+            LongPathFileSystem.NormalizePathForStorage(right),
+            StringComparison.OrdinalIgnoreCase);
     }
 
     private IReadOnlyDictionary<string, BeatorajaBmtTableUrlSortKey> CreateBeatorajaBmtTableUrlSortKeysSnapshot()

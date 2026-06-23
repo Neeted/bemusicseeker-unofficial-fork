@@ -51,9 +51,15 @@ public class LR2Config : XDocument
     public string LR2RootPath { get; private set; }
 
     public LR2Config(string configPath)
-        : base(XDocument.Load(configPath))
+        : base(LoadConfigDocument(configPath))
     {
         ConfigPath = configPath;
+    }
+
+    private static XDocument LoadConfigDocument(string configPath)
+    {
+        using FileStream stream = LongPathFileSystem.OpenRead(configPath);
+        return XDocument.Load(stream);
     }
 
     public int GetCustomFolderMask()
