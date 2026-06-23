@@ -19,7 +19,6 @@ using BeMusicSeeker.Properties;
 using Codeplex.Data;
 using Livet;
 using Livet.EventListeners;
-using Microsoft.VisualBasic.FileIO;
 using Newtonsoft.Json.Linq;
 using NLog;
 using Ribbit.Logging;
@@ -1811,7 +1810,7 @@ public partial class BMSPlaylist : NotificationObject
             }
             foreach (string expectedDirectory in expectedDirectories)
             {
-                Directory.CreateDirectory(expectedDirectory);
+                LongPathFileSystem.CreateDirectory(expectedDirectory);
             }
             List<string> bMSSearchDirectories = lr2config().GetBMSSearchDirectoriesForChangeTracking();
             List<string> missingDirectories = [.. expectedDirectories
@@ -5819,7 +5818,7 @@ public partial class BMSPlaylist : NotificationObject
                 IReadOnlyList<CustomFolderOutputFileProjection> files = projection.Files ?? [];
                 if (files.Count > 0)
                 {
-                    Directory.CreateDirectory(outputDir);
+                    LongPathFileSystem.CreateDirectory(outputDir);
                 }
 
                 foreach (CustomFolderOutputFileProjection file in files)
@@ -5837,13 +5836,13 @@ public partial class BMSPlaylist : NotificationObject
                     string fileDirectory = Path.GetDirectoryName(filePath);
                     if (!string.IsNullOrWhiteSpace(fileDirectory))
                     {
-                        Directory.CreateDirectory(fileDirectory);
+                        LongPathFileSystem.CreateDirectory(fileDirectory);
                     }
                     bool writeRequired = projection.ForceWriteFilePaths.Contains(filePath)
                         || physicalEntry?.LastWriteTimeUtc == null;
                     if (writeRequired)
                     {
-                        File.WriteAllText(filePath, text, shiftJis);
+                        WriteAllText(filePath, text, shiftJis);
                         physicalEntry = null;
                         result.WrittenFileCount++;
                     }
@@ -5857,7 +5856,7 @@ public partial class BMSPlaylist : NotificationObject
                         FilePath = filePath,
                         DatabasePath = file.DatabasePath,
                         Definition = file.Definition ?? Lr2FolderFileProjection.ParseDefinition(ReadLinesFromText(text)),
-                        LastWriteTimeUtc = physicalEntry?.LastWriteTimeUtc ?? File.GetLastWriteTimeUtc(filePath)
+                        LastWriteTimeUtc = physicalEntry?.LastWriteTimeUtc ?? LongPathFileSystem.GetLastWriteTimeUtc(filePath, isDirectory: false)
                     };
                     ApplyCustomFolderSourceClassification(syncItem, projection.Table);
                     result.SyncItems.Add(syncItem);
@@ -5966,7 +5965,7 @@ public partial class BMSPlaylist : NotificationObject
         {
             return;
         }
-        if (!Directory.Exists(projection.OutputDirectory))
+        if (!LongPathFileSystem.DirectoryExists(projection.OutputDirectory))
         {
             return;
         }
@@ -6003,14 +6002,14 @@ public partial class BMSPlaylist : NotificationObject
 
     private static IReadOnlyList<string> EnumerateManagedCustomFolderFiles(string outputDirectory)
     {
-        if (string.IsNullOrWhiteSpace(outputDirectory) || !Directory.Exists(outputDirectory))
+        if (string.IsNullOrWhiteSpace(outputDirectory) || !LongPathFileSystem.DirectoryExists(outputDirectory))
         {
             return [];
         }
 
         try
         {
-            return [.. Directory.EnumerateFiles(outputDirectory, "*.lr2folder", System.IO.SearchOption.AllDirectories)];
+            return [.. LongPathFileSystem.EnumerateFiles(outputDirectory, "*.lr2folder", System.IO.SearchOption.AllDirectories)];
         }
         catch (Exception ex) when (ex is DirectoryNotFoundException || ex is FileNotFoundException)
         {
@@ -6028,8 +6027,8 @@ public partial class BMSPlaylist : NotificationObject
 
         try
         {
-            bool existed = File.Exists(filePath);
-            File.Delete(filePath);
+            bool existed = LongPathFileSystem.FileExists(filePath);
+            LongPathFileSystem.DeleteFile(filePath);
             deleted = existed;
             return true;
         }
@@ -6065,14 +6064,14 @@ public partial class BMSPlaylist : NotificationObject
         IReadOnlyCollection<string> protectedDirectories = null)
     {
         var deletedDirectories = new List<string>();
-        if (string.IsNullOrWhiteSpace(outputDirectory) || !Directory.Exists(outputDirectory))
+        if (string.IsNullOrWhiteSpace(outputDirectory) || !LongPathFileSystem.DirectoryExists(outputDirectory))
         {
             return deletedDirectories;
         }
         IReadOnlyList<string> directories;
         try
         {
-            directories = [.. Directory.EnumerateDirectories(outputDirectory, "*", System.IO.SearchOption.AllDirectories)
+            directories = [.. LongPathFileSystem.EnumerateDirectories(outputDirectory, "*", System.IO.SearchOption.AllDirectories)
                 .OrderByDescending(path => path.Length)];
         }
         catch (Exception ex) when (ex is DirectoryNotFoundException || ex is FileNotFoundException)
@@ -6108,12 +6107,12 @@ public partial class BMSPlaylist : NotificationObject
 
         try
         {
-            if (!Directory.Exists(directory) || Directory.EnumerateFileSystemEntries(directory).Any())
+            if (!LongPathFileSystem.DirectoryExists(directory) || LongPathFileSystem.EnumerateFileSystemEntries(directory).Any())
             {
                 return false;
             }
 
-            Directory.Delete(directory);
+            LongPathFileSystem.DeleteDirectory(directory, recursive: false);
             deletedDirectory = directory;
             return true;
         }
@@ -6254,10 +6253,10 @@ public partial class BMSPlaylist : NotificationObject
             PersistCustomFolderOutputStatuses(
                 [projection],
                 CreateCustomFolderOutputPhysicalSurfaceFromSyncItems(materialization.SyncItems));
-            if (Directory.Exists(outputDir)
-                && !Directory.EnumerateFileSystemEntries(outputDir).Any())
+            if (LongPathFileSystem.DirectoryExists(outputDir)
+                && !LongPathFileSystem.EnumerateFileSystemEntries(outputDir).Any())
             {
-                FileSystem.DeleteDirectory(outputDir, DeleteDirectoryOption.ThrowIfDirectoryNonEmpty);
+                LongPathFileSystem.DeleteDirectory(outputDir, recursive: false);
             }
             return true;
         }
@@ -6764,6 +6763,13 @@ public partial class BMSPlaylist : NotificationObject
         }
     }
 
+    private static void WriteAllText(string path, string text, Encoding encoding)
+    {
+        using FileStream stream = LongPathFileSystem.Open(path, FileMode.Create, FileAccess.Write, FileShare.None);
+        using var writer = new StreamWriter(stream, encoding);
+        writer.Write(text);
+    }
+
     private static IEnumerable<string> ReadLinesFromText(string text)
     {
         using var reader = new StringReader(text ?? string.Empty);
@@ -6817,14 +6823,14 @@ public partial class BMSPlaylist : NotificationObject
         {
             return false;
         }
-        if (!Directory.Exists(targetDir))
+        if (!LongPathFileSystem.DirectoryExists(targetDir))
         {
             return true;
         }
 
         try
         {
-            Directory.Delete(targetDir, recursive: true);
+            LongPathFileSystem.DeleteDirectory(targetDir, recursive: true);
             return true;
         }
         catch
