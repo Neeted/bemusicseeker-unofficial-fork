@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 
 namespace BeMusicSeeker.Models.Utils;
 
@@ -9,6 +10,19 @@ internal static class LongPathFileSystem
     private const string ExtendedPathPrefix = @"\\?\";
     private const string ExtendedUncPathPrefix = @"\\?\UNC\";
     private const string UncPathPrefix = @"\\";
+
+    public readonly struct FileMetadata
+    {
+        public FileMetadata(long length, DateTime lastWriteTimeUtc)
+        {
+            Length = length;
+            LastWriteTimeUtc = lastWriteTimeUtc;
+        }
+
+        public long Length { get; }
+
+        public DateTime LastWriteTimeUtc { get; }
+    }
 
     public static string NormalizePathForStorage(string path)
     {
@@ -73,6 +87,11 @@ internal static class LongPathFileSystem
         return new FileStream(ToExtendedPath(path), FileMode.Open, FileAccess.Read, FileShare.Read);
     }
 
+    public static FileStream Open(string path, FileMode mode, FileAccess access, FileShare share)
+    {
+        return new FileStream(ToExtendedPath(path), mode, access, share);
+    }
+
     public static bool FileExists(string path)
     {
         if (string.IsNullOrWhiteSpace(path))
@@ -92,9 +111,195 @@ internal static class LongPathFileSystem
         }
     }
 
+    public static bool DirectoryExists(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return false;
+        }
+        try
+        {
+            return Directory.Exists(ToExtendedPath(path));
+        }
+        catch (Exception ex) when (ex is IOException
+            || ex is UnauthorizedAccessException
+            || ex is ArgumentException
+            || ex is NotSupportedException)
+        {
+            return false;
+        }
+    }
+
+    public static bool EntryExists(string path)
+    {
+        return FileExists(path) || DirectoryExists(path);
+    }
+
+    public static void CreateDirectory(string path)
+    {
+        Directory.CreateDirectory(ToExtendedPath(path));
+    }
+
+    public static void MoveFile(string sourcePath, string destinationPath, bool overwrite)
+    {
+        ThrowIfSamePath(sourcePath, destinationPath);
+        if (overwrite && FileExists(destinationPath))
+        {
+            DeleteFile(destinationPath);
+        }
+        File.Move(ToExtendedPath(sourcePath), ToExtendedPath(destinationPath));
+    }
+
+    public static void MoveDirectory(string sourcePath, string destinationPath, bool overwrite)
+    {
+        ThrowIfSamePath(sourcePath, destinationPath);
+        if (!overwrite || !DirectoryExists(destinationPath))
+        {
+            Directory.Move(ToExtendedPath(sourcePath), ToExtendedPath(destinationPath));
+            return;
+        }
+
+        MergeDirectory(sourcePath, destinationPath);
+        DeleteDirectory(sourcePath, recursive: false);
+    }
+
+    public static void DeleteFile(string path)
+    {
+        File.Delete(ToExtendedPath(path));
+    }
+
+    public static void DeleteDirectory(string path, bool recursive)
+    {
+        Directory.Delete(ToExtendedPath(path), recursive);
+    }
+
+    public static string[] GetFiles(string path)
+    {
+        return Directory.GetFiles(ToExtendedPath(path))
+            .Select(NormalizePathForStorage)
+            .ToArray();
+    }
+
+    public static string[] GetDirectories(string path)
+    {
+        return Directory.GetDirectories(ToExtendedPath(path))
+            .Select(NormalizePathForStorage)
+            .ToArray();
+    }
+
+    public static IEnumerable<string> EnumerateFiles(string path, string searchPattern = "*", SearchOption searchOption = SearchOption.TopDirectoryOnly)
+    {
+        foreach (string filePath in Directory.EnumerateFiles(ToExtendedPath(path), searchPattern, searchOption))
+        {
+            yield return NormalizePathForStorage(filePath);
+        }
+    }
+
+    public static IEnumerable<string> EnumerateDirectories(string path, string searchPattern = "*", SearchOption searchOption = SearchOption.TopDirectoryOnly)
+    {
+        foreach (string directoryPath in Directory.EnumerateDirectories(ToExtendedPath(path), searchPattern, searchOption))
+        {
+            yield return NormalizePathForStorage(directoryPath);
+        }
+    }
+
+    public static IEnumerable<string> EnumerateFileSystemEntries(string path, string searchPattern = "*", SearchOption searchOption = SearchOption.TopDirectoryOnly)
+    {
+        foreach (string entryPath in Directory.EnumerateFileSystemEntries(ToExtendedPath(path), searchPattern, searchOption))
+        {
+            yield return NormalizePathForStorage(entryPath);
+        }
+    }
+
+    public static FileAttributes GetAttributes(string path)
+    {
+        return File.GetAttributes(ToExtendedPath(path));
+    }
+
+    public static void SetAttributes(string path, FileAttributes attributes)
+    {
+        File.SetAttributes(ToExtendedPath(path), attributes);
+    }
+
+    public static void SetCreationTime(string path, bool isDirectory, DateTime creationTime)
+    {
+        if (isDirectory)
+        {
+            Directory.SetCreationTime(ToExtendedPath(path), creationTime);
+        }
+        else
+        {
+            File.SetCreationTime(ToExtendedPath(path), creationTime);
+        }
+    }
+
+    public static void SetLastWriteTime(string path, bool isDirectory, DateTime lastWriteTime)
+    {
+        if (isDirectory)
+        {
+            Directory.SetLastWriteTime(ToExtendedPath(path), lastWriteTime);
+        }
+        else
+        {
+            File.SetLastWriteTime(ToExtendedPath(path), lastWriteTime);
+        }
+    }
+
     public static DateTime GetLastWriteTimeUtc(string path)
     {
         return File.GetLastWriteTimeUtc(ToExtendedPath(path));
+    }
+
+    public static DateTime GetLastWriteTime(string path, bool isDirectory)
+    {
+        return isDirectory
+            ? Directory.GetLastWriteTime(ToExtendedPath(path))
+            : File.GetLastWriteTime(ToExtendedPath(path));
+    }
+
+    public static long GetFileLength(string path)
+    {
+        return new FileInfo(ToExtendedPath(path)).Length;
+    }
+
+    public static FileMetadata GetFileMetadata(string path)
+    {
+        var fileInfo = new FileInfo(ToExtendedPath(path));
+        return new FileMetadata(fileInfo.Length, fileInfo.LastWriteTimeUtc);
+    }
+
+    private static void MergeDirectory(string sourcePath, string destinationPath)
+    {
+        CreateDirectory(destinationPath);
+        foreach (string sourceDirectoryPath in GetDirectories(sourcePath))
+        {
+            string destinationChildPath = Path.Combine(destinationPath, Path.GetFileName(sourceDirectoryPath));
+            if (DirectoryExists(destinationChildPath))
+            {
+                MergeDirectory(sourceDirectoryPath, destinationChildPath);
+                DeleteDirectory(sourceDirectoryPath, recursive: false);
+            }
+            else
+            {
+                Directory.Move(ToExtendedPath(sourceDirectoryPath), ToExtendedPath(destinationChildPath));
+            }
+        }
+
+        foreach (string sourceFilePath in GetFiles(sourcePath))
+        {
+            string destinationFilePath = Path.Combine(destinationPath, Path.GetFileName(sourceFilePath));
+            MoveFile(sourceFilePath, destinationFilePath, overwrite: true);
+        }
+    }
+
+    private static void ThrowIfSamePath(string sourcePath, string destinationPath)
+    {
+        string normalizedSourcePath = NormalizePathForStorage(sourcePath);
+        string normalizedDestinationPath = NormalizePathForStorage(destinationPath);
+        if (string.Equals(normalizedSourcePath, normalizedDestinationPath, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new IOException("Source path and destination path are the same.");
+        }
     }
 
     private static string RemoveExtendedPathPrefix(string path)

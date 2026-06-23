@@ -23,7 +23,7 @@ internal sealed class ResilientFileMutationService : IFileMutationService
             directoryPath,
             null,
             resolvedOptions,
-            () => Directory.CreateDirectory(directoryPath),
+            () => LongPathFileSystem.CreateDirectory(directoryPath),
             null,
             () => NormalizeNearestExistingAncestorDirectory(directoryPath));
     }
@@ -37,17 +37,7 @@ internal sealed class ResilientFileMutationService : IFileMutationService
             sourcePath,
             destinationPath,
             resolvedOptions,
-            () =>
-            {
-                if (overwrite)
-                {
-                    FileSystem.MoveFile(sourcePath, destinationPath, overwrite: true);
-                }
-                else
-                {
-                    FileSystem.MoveFile(sourcePath, destinationPath);
-                }
-            },
+            () => LongPathFileSystem.MoveFile(sourcePath, destinationPath, overwrite),
             () => NormalizeMoveFilePaths(sourcePath, destinationPath, overwrite, resolvedOptions),
             () => NormalizeMoveFilePaths(sourcePath, destinationPath, overwrite, resolvedOptions));
     }
@@ -61,17 +51,7 @@ internal sealed class ResilientFileMutationService : IFileMutationService
             sourcePath,
             destinationPath,
             resolvedOptions,
-            () =>
-            {
-                if (overwrite)
-                {
-                    FileSystem.MoveDirectory(sourcePath, destinationPath, overwrite: true);
-                }
-                else
-                {
-                    FileSystem.MoveDirectory(sourcePath, destinationPath);
-                }
-            },
+            () => LongPathFileSystem.MoveDirectory(sourcePath, destinationPath, overwrite),
             () => NormalizeMoveDirectoryPaths(sourcePath, destinationPath, overwrite, resolvedOptions),
             () => NormalizeMoveDirectoryPaths(sourcePath, destinationPath, overwrite, resolvedOptions));
     }
@@ -85,7 +65,7 @@ internal sealed class ResilientFileMutationService : IFileMutationService
             filePath,
             null,
             resolvedOptions,
-            () => File.Delete(filePath),
+            () => LongPathFileSystem.DeleteFile(filePath),
             () => NormalizePrimaryPath(filePath, resolvedOptions.ReadOnlyNormalizationScope),
             () => NormalizePrimaryPath(filePath, resolvedOptions.ReadOnlyNormalizationScope));
     }
@@ -101,11 +81,21 @@ internal sealed class ResilientFileMutationService : IFileMutationService
             resolvedOptions,
             () =>
             {
-                if (!File.Exists(filePath))
+                if (!LongPathFileSystem.FileExists(filePath))
                 {
                     return;
                 }
+                if (recycleOption == RecycleOption.DeletePermanently && uiOption == UIOption.OnlyErrorDialogs)
+                {
+                    LongPathFileSystem.DeleteFile(filePath);
+                    return;
+                }
+
                 FileSystem.DeleteFile(filePath, uiOption, recycleOption);
+                if (LongPathFileSystem.FileExists(filePath))
+                {
+                    throw new IOException("Shell delete completed without removing the file.");
+                }
             },
             () => NormalizePrimaryPath(filePath, resolvedOptions.ReadOnlyNormalizationScope),
             () => NormalizePrimaryPath(filePath, resolvedOptions.ReadOnlyNormalizationScope));
@@ -122,11 +112,11 @@ internal sealed class ResilientFileMutationService : IFileMutationService
             resolvedOptions,
             () =>
             {
-                if (!Directory.Exists(directoryPath))
+                if (!LongPathFileSystem.DirectoryExists(directoryPath))
                 {
                     return;
                 }
-                Directory.Delete(directoryPath, recursive);
+                LongPathFileSystem.DeleteDirectory(directoryPath, recursive);
             },
             () => NormalizePrimaryPath(directoryPath, resolvedOptions.ReadOnlyNormalizationScope),
             () => NormalizePrimaryPath(directoryPath, resolvedOptions.ReadOnlyNormalizationScope));
@@ -143,11 +133,21 @@ internal sealed class ResilientFileMutationService : IFileMutationService
             resolvedOptions,
             () =>
             {
-                if (!Directory.Exists(directoryPath))
+                if (!LongPathFileSystem.DirectoryExists(directoryPath))
                 {
                     return;
                 }
+                if (recycleOption == RecycleOption.DeletePermanently && uiOption == UIOption.OnlyErrorDialogs)
+                {
+                    LongPathFileSystem.DeleteDirectory(directoryPath, recursive: true);
+                    return;
+                }
+
                 FileSystem.DeleteDirectory(directoryPath, uiOption, recycleOption);
+                if (LongPathFileSystem.DirectoryExists(directoryPath))
+                {
+                    throw new IOException("Shell delete completed without removing the directory.");
+                }
             },
             () => NormalizePrimaryPath(directoryPath, resolvedOptions.ReadOnlyNormalizationScope),
             () => NormalizePrimaryPath(directoryPath, resolvedOptions.ReadOnlyNormalizationScope));
@@ -166,25 +166,11 @@ internal sealed class ResilientFileMutationService : IFileMutationService
             {
                 if (creationTime.HasValue)
                 {
-                    if (isDirectory)
-                    {
-                        Directory.SetCreationTime(path, creationTime.Value);
-                    }
-                    else
-                    {
-                        File.SetCreationTime(path, creationTime.Value);
-                    }
+                    LongPathFileSystem.SetCreationTime(path, isDirectory, creationTime.Value);
                 }
                 if (lastWriteTime.HasValue)
                 {
-                    if (isDirectory)
-                    {
-                        Directory.SetLastWriteTime(path, lastWriteTime.Value);
-                    }
-                    else
-                    {
-                        File.SetLastWriteTime(path, lastWriteTime.Value);
-                    }
+                    LongPathFileSystem.SetLastWriteTime(path, isDirectory, lastWriteTime.Value);
                 }
             },
             () => NormalizePrimaryPath(path, resolvedOptions.ReadOnlyNormalizationScope),
@@ -297,7 +283,7 @@ internal sealed class ResilientFileMutationService : IFileMutationService
     private static int NormalizeMoveFilePaths(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options)
     {
         int normalizedReadOnlyCount = NormalizePath(sourcePath, options.ReadOnlyNormalizationScope);
-        if (overwrite && File.Exists(destinationPath))
+        if (overwrite && LongPathFileSystem.FileExists(destinationPath))
         {
             normalizedReadOnlyCount += NormalizePath(destinationPath, ReadOnlyNormalizationScope.TargetOnly);
         }
@@ -307,7 +293,7 @@ internal sealed class ResilientFileMutationService : IFileMutationService
     private static int NormalizeMoveDirectoryPaths(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options)
     {
         int normalizedReadOnlyCount = NormalizePath(sourcePath, options.ReadOnlyNormalizationScope);
-        if (overwrite && Directory.Exists(destinationPath))
+        if (overwrite && LongPathFileSystem.DirectoryExists(destinationPath))
         {
             normalizedReadOnlyCount += NormalizePath(destinationPath, ReadOnlyNormalizationScope.RecursiveDirectoryTree);
         }
@@ -339,7 +325,7 @@ internal sealed class ResilientFileMutationService : IFileMutationService
         string candidateDirectoryPath = directoryPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         while (!string.IsNullOrWhiteSpace(candidateDirectoryPath))
         {
-            if (Directory.Exists(candidateDirectoryPath))
+            if (LongPathFileSystem.DirectoryExists(candidateDirectoryPath))
             {
                 return candidateDirectoryPath;
             }
@@ -374,18 +360,18 @@ internal sealed class ResilientFileMutationService : IFileMutationService
     {
         try
         {
-            if (!File.Exists(fileSystemPath) && !Directory.Exists(fileSystemPath))
+            if (!LongPathFileSystem.EntryExists(fileSystemPath))
             {
                 return false;
             }
 
-            FileAttributes currentAttributes = File.GetAttributes(fileSystemPath);
+            FileAttributes currentAttributes = LongPathFileSystem.GetAttributes(fileSystemPath);
             if ((currentAttributes & FileAttributes.ReadOnly) == 0)
             {
                 return false;
             }
 
-            File.SetAttributes(fileSystemPath, currentAttributes & ~FileAttributes.ReadOnly);
+            LongPathFileSystem.SetAttributes(fileSystemPath, currentAttributes & ~FileAttributes.ReadOnly);
             return true;
         }
         catch
@@ -396,7 +382,7 @@ internal sealed class ResilientFileMutationService : IFileMutationService
 
     private static int NormalizeReadOnlyAttributesRecursively(string rootDirectoryPath)
     {
-        if (string.IsNullOrWhiteSpace(rootDirectoryPath) || !Directory.Exists(rootDirectoryPath))
+        if (string.IsNullOrWhiteSpace(rootDirectoryPath) || !LongPathFileSystem.DirectoryExists(rootDirectoryPath))
         {
             return 0;
         }
@@ -416,7 +402,7 @@ internal sealed class ResilientFileMutationService : IFileMutationService
             string[] childDirectoryPaths = [];
             try
             {
-                childDirectoryPaths = Directory.GetDirectories(currentDirectoryPath);
+                childDirectoryPaths = LongPathFileSystem.GetDirectories(currentDirectoryPath);
             }
             catch
             {
@@ -430,7 +416,7 @@ internal sealed class ResilientFileMutationService : IFileMutationService
             string[] childFilePaths = [];
             try
             {
-                childFilePaths = Directory.GetFiles(currentDirectoryPath);
+                childFilePaths = LongPathFileSystem.GetFiles(currentDirectoryPath);
             }
             catch
             {
