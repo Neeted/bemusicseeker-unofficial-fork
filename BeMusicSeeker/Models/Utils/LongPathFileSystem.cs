@@ -291,6 +291,13 @@ internal static class LongPathFileSystem
         return File.GetLastWriteTimeUtc(ToExtendedPath(path));
     }
 
+    public static DateTime GetLastWriteTimeUtc(string path, bool isDirectory)
+    {
+        return isDirectory
+            ? Directory.GetLastWriteTimeUtc(ToExtendedPath(path))
+            : File.GetLastWriteTimeUtc(ToExtendedPath(path));
+    }
+
     public static DateTime GetLastWriteTime(string path, bool isDirectory)
     {
         return isDirectory

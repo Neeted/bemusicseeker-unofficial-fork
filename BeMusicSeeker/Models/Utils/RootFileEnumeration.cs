@@ -28,9 +28,9 @@ internal sealed class RootFileEnumerationEntry(string path, DateTime? lastWriteT
     {
         try
         {
-            var directoryInfo = new System.IO.DirectoryInfo(path);
-            return directoryInfo.Exists
-                ? new RootFileEnumerationEntry(directoryInfo.FullName, directoryInfo.LastWriteTimeUtc)
+            string normalizedPath = LongPathFileSystem.NormalizePathForStorage(path);
+            return LongPathFileSystem.DirectoryExists(normalizedPath)
+                ? new RootFileEnumerationEntry(normalizedPath, LongPathFileSystem.GetLastWriteTimeUtc(normalizedPath, isDirectory: true))
                 : null;
         }
         catch
@@ -211,8 +211,8 @@ internal static class RootFileEnumerationService
     internal static List<string> NormalizeExecutionRoots(IEnumerable<string> rootDirectories)
     {
         List<string> roots = [.. (rootDirectories ?? [])
-            .Where(path => !string.IsNullOrWhiteSpace(path) && Directory.Exists(path))
-            .Select(Path.GetFullPath)
+            .Where(path => !string.IsNullOrWhiteSpace(path) && LongPathFileSystem.DirectoryExists(path))
+            .Select(LongPathFileSystem.NormalizePathForStorage)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(path => path.Length)
             .ThenBy(path => path, StringComparer.OrdinalIgnoreCase)];

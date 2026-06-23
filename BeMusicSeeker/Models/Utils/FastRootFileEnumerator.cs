@@ -130,8 +130,8 @@ internal sealed class FastRootFileEnumerator : IRootFileEnumerator
             fastEntries = [.. FastDirectoryEnumerator.GetFileDataAsParallel(root, extensions, SearchOption.AllDirectories)
                 .Select(RootFileEnumerationEntry.FromFileData)
                 .Where(entry => entry != null && !string.IsNullOrWhiteSpace(entry.Path))
-                .GroupBy(entry => Path.GetFullPath(entry.Path), StringComparer.Ordinal)
-                .Select(group => new RootFileEnumerationEntry(Path.GetFullPath(group.First().Path), group.First().LastWriteTimeUtc, group.First().FileSize))];
+                .GroupBy(entry => LongPathFileSystem.NormalizePathForStorage(entry.Path), StringComparer.Ordinal)
+                .Select(group => new RootFileEnumerationEntry(LongPathFileSystem.NormalizePathForStorage(group.First().Path), group.First().LastWriteTimeUtc, group.First().FileSize))];
         }
         catch
         {
@@ -145,10 +145,10 @@ internal sealed class FastRootFileEnumerator : IRootFileEnumerator
 
         try
         {
-            return [.. Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories)
+            return [.. LongPathFileSystem.EnumerateFiles(root, "*", SearchOption.AllDirectories)
                 .Where(path => !string.IsNullOrWhiteSpace(path))
                 .Where(path => extensions == null || extensions.Length == 0 || extensions.Contains(Path.GetExtension(path), StringComparer.OrdinalIgnoreCase))
-                .Select(Path.GetFullPath)
+                .Select(LongPathFileSystem.NormalizePathForStorage)
                 .Distinct(StringComparer.Ordinal)
                 .Select(CreateEntryFromFileInfo)];
         }
@@ -176,9 +176,9 @@ internal sealed class FastRootFileEnumerator : IRootFileEnumerator
         {
             entries.AddRange((excludedDirectories?.Length > 0
                     ? EnumerateDirectoriesSkippingExcluded(root, excludedDirectories)
-                    : Directory.EnumerateDirectories(root, "*", SearchOption.AllDirectories))
+                    : LongPathFileSystem.EnumerateDirectories(root, "*", SearchOption.AllDirectories))
                 .Where(path => !string.IsNullOrWhiteSpace(path))
-                .Select(Path.GetFullPath)
+                .Select(LongPathFileSystem.NormalizePathForStorage)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .Select(RootFileEnumerationEntry.FromDirectoryInfo)
                 .Where(entry => entry != null));
@@ -199,7 +199,7 @@ internal sealed class FastRootFileEnumerator : IRootFileEnumerator
             IEnumerable<string> files;
             try
             {
-                files = Directory.EnumerateFiles(directory, "*", SearchOption.TopDirectoryOnly);
+                files = LongPathFileSystem.EnumerateFiles(directory, "*", SearchOption.TopDirectoryOnly);
             }
             catch
             {
@@ -211,7 +211,7 @@ internal sealed class FastRootFileEnumerator : IRootFileEnumerator
                 if (!string.IsNullOrWhiteSpace(path)
                     && (extensions == null || extensions.Length == 0 || extensions.Contains(Path.GetExtension(path), StringComparer.OrdinalIgnoreCase)))
                 {
-                    RootFileEnumerationEntry entry = CreateEntryFromFileInfo(Path.GetFullPath(path));
+                    RootFileEnumerationEntry entry = CreateEntryFromFileInfo(LongPathFileSystem.NormalizePathForStorage(path));
                     if (entry != null)
                     {
                         yield return entry;
@@ -253,7 +253,7 @@ internal sealed class FastRootFileEnumerator : IRootFileEnumerator
             IEnumerable<string> children;
             try
             {
-                children = Directory.EnumerateDirectories(current, "*", SearchOption.TopDirectoryOnly);
+                children = LongPathFileSystem.EnumerateDirectories(current, "*", SearchOption.TopDirectoryOnly);
             }
             catch
             {
@@ -325,7 +325,7 @@ internal sealed class FastRootFileEnumerator : IRootFileEnumerator
         {
             return string.IsNullOrWhiteSpace(path)
                 ? null
-                : Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                : LongPathFileSystem.NormalizePathForStorage(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         }
         catch
         {
@@ -358,8 +358,9 @@ internal sealed class FastRootFileEnumerator : IRootFileEnumerator
     {
         try
         {
-            var fileInfo = new FileInfo(path);
-            return new RootFileEnumerationEntry(fileInfo.FullName, fileInfo.LastWriteTimeUtc, fileInfo.Length);
+            string normalizedPath = LongPathFileSystem.NormalizePathForStorage(path);
+            LongPathFileSystem.FileMetadata metadata = LongPathFileSystem.GetFileMetadata(normalizedPath);
+            return new RootFileEnumerationEntry(normalizedPath, metadata.LastWriteTimeUtc, metadata.Length);
         }
         catch
         {

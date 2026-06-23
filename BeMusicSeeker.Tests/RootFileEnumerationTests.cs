@@ -46,6 +46,40 @@ public sealed class RootFileEnumerationTests
     }
 
     [TestMethod]
+    public void FastEnumerator_ReturnsLongPathChartEntries()
+    {
+        string tempRoot = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_RootEnumLong_" + Guid.NewGuid().ToString("N"));
+        string longDirectoryPath = BuildLongDirectoryPath(tempRoot, "charts");
+        string chartPath = Path.Combine(longDirectoryPath, "long-chart.bms");
+        DateTime lastWriteTimeUtc = new(2026, 6, 24, 1, 2, 3, DateTimeKind.Utc);
+        LongPathFileSystem.CreateDirectory(longDirectoryPath);
+        WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE LongRoot\r\n");
+        File.SetLastWriteTimeUtc(LongPathFileSystem.ToExtendedPath(chartPath), lastWriteTimeUtc);
+
+        try
+        {
+            RootFileEnumerationResult result = new FastRootFileEnumerator().EnumerateFiles(
+                [tempRoot],
+                [new RootFileEnumerationGroup(ChartDirectoryScanBuilder.ChartGroupName, [".bms"])]);
+
+            Assert.IsTrue(result.Success);
+            CollectionAssert.Contains(result.GetPaths(ChartDirectoryScanBuilder.ChartGroupName).ToList(), chartPath);
+            RootFileEnumerationEntry entry = result.GetEntry(ChartDirectoryScanBuilder.ChartGroupName, chartPath);
+            Assert.IsNotNull(entry);
+            Assert.AreEqual(chartPath, entry.Path);
+            Assert.AreEqual(ToUnixSeconds(lastWriteTimeUtc), entry.LastWriteTimeUnixSeconds);
+            Assert.IsTrue(entry.FileSize > 0);
+        }
+        finally
+        {
+            if (LongPathFileSystem.DirectoryExists(tempRoot))
+            {
+                LongPathFileSystem.DeleteDirectory(tempRoot, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
     public void RootFileEnumerationEntry_NormalizesLocalTimestampToUtcUnixSeconds()
     {
         DateTime utc = new(2026, 6, 5, 1, 2, 3, DateTimeKind.Utc);
@@ -333,5 +367,22 @@ public sealed class RootFileEnumerationTests
     {
         DateTime utc = timestampUtc.Kind == DateTimeKind.Utc ? timestampUtc : timestampUtc.ToUniversalTime();
         return (int)Math.Floor((utc - new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)).TotalSeconds);
+    }
+
+    private static string BuildLongDirectoryPath(string tempDirectoryPath, string leafName)
+    {
+        string path = tempDirectoryPath;
+        for (int i = 0; path.Length < 285; i++)
+        {
+            path = Path.Combine(path, "segment_" + i.ToString("00") + "_" + new string('a', 32));
+        }
+        return Path.Combine(path, leafName);
+    }
+
+    private static void WriteAllText(string path, string contents)
+    {
+        using var stream = LongPathFileSystem.Open(path, FileMode.Create, FileAccess.Write, FileShare.None);
+        using var writer = new StreamWriter(stream);
+        writer.Write(contents);
     }
 }
