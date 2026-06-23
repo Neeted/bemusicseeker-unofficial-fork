@@ -42,6 +42,19 @@
 
 `DeleteFileShell(...)` / `DeleteDirectoryShell(...)` でごみ箱送りを指定した場合は、シェル API の制約を隠して永久削除へフォールバックしない。永久削除かつ UI 表示がエラーダイアログのみの経路では、長パス対応の直接削除を使う。
 
+## 適用範囲
+
+長パス対応は初期化時の譜面読み取りだけに限定しない。BeMusicSeeker 内でファイルシステムへ直接触れる次の処理は、標準 `File` / `Directory` / VisualBasic `FileSystem` API へ直接依存せず、上記の正規 I/O 境界を経由する。
+
+- root scan と、その Everything fallback の列挙 / metadata 取得。
+- Ribbit 経由の BMS 読み取り、内蔵プレーヤーの譜面 / 音声リソース読み取り、音声ファイル変換時の譜面読み取り。
+- 導入、移動、削除、拡張子変更、スマート上書き判定、マージ移動などのユーザー操作に紐づく変更系処理。
+- beatoraja `.bmt` の gzip 書き込み、manifest 読み書き、managed `.bmt` cleanup。
+- LR2 カスタムフォルダ `.lr2folder` の生成、stale file cleanup、空ディレクトリ削除。
+- LR2 バックアップの対象存在確認、世代削除、ファイル / ディレクトリコピー。
+
+外部アプリ起動、関連付け起動、Explorer 起動は、BeMusicSeeker 側で対象 path の存在確認と例外処理を行う。起動先アプリが extended-length path を解釈できない場合でも、BeMusicSeeker はその失敗をファイル未存在や内部成功へ変換しない。
+
 ## File Diff での失敗集約
 
 `ApplyFileScanDiff()` の reader / parser stage では、ファイル単位の recoverable I/O 例外を次のように扱う。
