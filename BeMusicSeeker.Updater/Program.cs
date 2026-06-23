@@ -60,24 +60,24 @@ namespace BeMusicSeeker.Updater
 
             string workDirectory = Path.Combine(appDirectory, "update_work");
             string extractDirectory = Path.Combine(workDirectory, "extracted");
-            if (Directory.Exists(extractDirectory))
+            if (UpdaterFileSystem.DirectoryExists(extractDirectory))
             {
-                Directory.Delete(extractDirectory, recursive: true);
+                UpdaterFileSystem.DeleteDirectory(extractDirectory, recursive: true);
             }
-            Directory.CreateDirectory(extractDirectory);
+            UpdaterFileSystem.CreateDirectory(extractDirectory);
 
             ValidatePackage(packagePath);
-            ZipFile.ExtractToDirectory(packagePath, extractDirectory);
+            ExtractPackage(packagePath, extractDirectory);
             EnsureNoPreservedTopLevelEntries(extractDirectory);
 
-            if (Directory.Exists(backupDirectory))
+            if (UpdaterFileSystem.DirectoryExists(backupDirectory))
             {
-                Directory.Delete(backupDirectory, recursive: true);
+                UpdaterFileSystem.DeleteDirectory(backupDirectory, recursive: true);
             }
-            Directory.CreateDirectory(backupDirectory);
+            UpdaterFileSystem.CreateDirectory(backupDirectory);
 
             string previousDirectory = Path.Combine(backupDirectory, "previous");
-            Directory.CreateDirectory(previousDirectory);
+            UpdaterFileSystem.CreateDirectory(previousDirectory);
 
             try
             {
@@ -91,7 +91,7 @@ namespace BeMusicSeeker.Updater
                 throw;
             }
 
-            if (!string.IsNullOrWhiteSpace(restartExePath) && File.Exists(restartExePath))
+            if (!string.IsNullOrWhiteSpace(restartExePath) && UpdaterFileSystem.FileExists(restartExePath))
             {
                 Process.Start(new ProcessStartInfo(restartExePath)
                 {
@@ -124,7 +124,7 @@ namespace BeMusicSeeker.Updater
 
         private static void ValidatePackage(string packagePath)
         {
-            using ZipArchive archive = ZipFile.OpenRead(packagePath);
+            using ZipArchive archive = OpenPackage(packagePath);
             foreach (ZipArchiveEntry entry in archive.Entries)
             {
                 string entryName = entry.FullName.Replace('\\', '/');
@@ -151,9 +151,38 @@ namespace BeMusicSeeker.Updater
             }
         }
 
+        private static ZipArchive OpenPackage(string packagePath)
+        {
+            return new ZipArchive(UpdaterFileSystem.OpenRead(packagePath), ZipArchiveMode.Read);
+        }
+
+        private static void ExtractPackage(string packagePath, string extractDirectory)
+        {
+            using ZipArchive archive = OpenPackage(packagePath);
+            foreach (ZipArchiveEntry entry in archive.Entries)
+            {
+                string relativePath = NormalizeRelativePackagePath(entry.FullName);
+                string destination = Path.Combine(extractDirectory, relativePath);
+                if (string.IsNullOrWhiteSpace(entry.Name))
+                {
+                    UpdaterFileSystem.CreateDirectory(destination);
+                    continue;
+                }
+
+                string destinationDirectory = Path.GetDirectoryName(destination);
+                if (!string.IsNullOrWhiteSpace(destinationDirectory))
+                {
+                    UpdaterFileSystem.CreateDirectory(destinationDirectory);
+                }
+                using Stream source = entry.Open();
+                using FileStream destinationStream = UpdaterFileSystem.Open(destination, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+                source.CopyTo(destinationStream);
+            }
+        }
+
         private static void EnsureNoPreservedTopLevelEntries(string extractDirectory)
         {
-            foreach (string path in Directory.EnumerateFileSystemEntries(extractDirectory))
+            foreach (string path in UpdaterFileSystem.EnumerateFileSystemEntries(extractDirectory))
             {
                 string name = Path.GetFileName(path);
                 if (PreservedTopLevelNames.Contains(name))
@@ -182,8 +211,8 @@ namespace BeMusicSeeker.Updater
                 MoveExistingPathToBackup(appDirectory, previousDirectory, relativePath);
                 string source = Path.Combine(extractDirectory, relativePath);
                 string destination = Path.Combine(appDirectory, relativePath);
-                Directory.CreateDirectory(Path.GetDirectoryName(destination));
-                File.Copy(source, destination, overwrite: false);
+                UpdaterFileSystem.CreateDirectory(Path.GetDirectoryName(destination));
+                UpdaterFileSystem.CopyFile(source, destination, overwrite: false);
             }
 
             WriteManagedFilesManifest(appDirectory, newPackagePaths);
@@ -197,7 +226,7 @@ namespace BeMusicSeeker.Updater
                 SafeDeletePath(Path.Combine(appDirectory, relativePath));
             }
 
-            foreach (string source in Directory.EnumerateFileSystemEntries(previousDirectory))
+            foreach (string source in UpdaterFileSystem.EnumerateFileSystemEntries(previousDirectory))
             {
                 RestoreBackupPath(source, appDirectory, previousDirectory);
             }
@@ -206,7 +235,7 @@ namespace BeMusicSeeker.Updater
         private static HashSet<string> EnumerateRelativePackagePaths(string extractDirectory)
         {
             var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (string sourceFile in Directory.EnumerateFiles(extractDirectory, "*", SearchOption.AllDirectories))
+            foreach (string sourceFile in UpdaterFileSystem.EnumerateFiles(extractDirectory, "*", SearchOption.AllDirectories))
             {
                 string relativePath = GetRelativePath(extractDirectory, sourceFile);
                 if (!string.Equals(relativePath, ManagedFilesManifestName, StringComparison.OrdinalIgnoreCase))
@@ -221,13 +250,13 @@ namespace BeMusicSeeker.Updater
         private static HashSet<string> ReadManagedFilesManifest(string appDirectory, HashSet<string> newPackagePaths)
         {
             string manifestPath = Path.Combine(appDirectory, ManagedFilesManifestName);
-            if (!File.Exists(manifestPath))
+            if (!UpdaterFileSystem.FileExists(manifestPath))
             {
-                return [.. newPackagePaths.Where(path => File.Exists(Path.Combine(appDirectory, path)) || Directory.Exists(Path.Combine(appDirectory, path)))];
+                return [.. newPackagePaths.Where(path => UpdaterFileSystem.EntryExists(Path.Combine(appDirectory, path)))];
             }
 
             var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (string line in File.ReadAllLines(manifestPath))
+            foreach (string line in UpdaterFileSystem.ReadAllLines(manifestPath))
             {
                 string normalized = NormalizeRelativePackagePath(line);
                 if (!string.IsNullOrWhiteSpace(normalized))
@@ -245,7 +274,7 @@ namespace BeMusicSeeker.Updater
             string[] lines = [.. managedPaths
                 .Where(path => !string.Equals(path, ManagedFilesManifestName, StringComparison.OrdinalIgnoreCase))
                 .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
-            File.WriteAllLines(manifestPath, lines);
+            UpdaterFileSystem.WriteAllLines(manifestPath, lines);
         }
 
         private static void MoveExistingPathToBackup(string appDirectory, string previousDirectory, string relativePath)
@@ -257,21 +286,21 @@ namespace BeMusicSeeker.Updater
             }
 
             string source = Path.Combine(appDirectory, relativePath);
-            if (!File.Exists(source) && !Directory.Exists(source))
+            if (!UpdaterFileSystem.EntryExists(source))
             {
                 return;
             }
 
             EnsureNoReparsePoint(source);
             string destination = Path.Combine(previousDirectory, relativePath);
-            Directory.CreateDirectory(Path.GetDirectoryName(destination));
-            if (File.Exists(source))
+            UpdaterFileSystem.CreateDirectory(Path.GetDirectoryName(destination));
+            if (UpdaterFileSystem.FileExists(source))
             {
-                File.Move(source, destination);
+                UpdaterFileSystem.MoveFile(source, destination);
             }
             else
             {
-                Directory.Move(source, destination);
+                UpdaterFileSystem.MoveDirectory(source, destination);
             }
         }
 
@@ -279,28 +308,28 @@ namespace BeMusicSeeker.Updater
         {
             string relativePath = GetRelativePath(previousDirectory, source);
             string destination = Path.Combine(appDirectory, relativePath);
-            Directory.CreateDirectory(Path.GetDirectoryName(destination));
-            if (File.Exists(source))
+            UpdaterFileSystem.CreateDirectory(Path.GetDirectoryName(destination));
+            if (UpdaterFileSystem.FileExists(source))
             {
-                if (File.Exists(destination))
+                if (UpdaterFileSystem.FileExists(destination))
                 {
-                    File.Delete(destination);
+                    UpdaterFileSystem.DeleteFile(destination);
                 }
-                File.Move(source, destination);
+                UpdaterFileSystem.MoveFile(source, destination);
             }
-            else if (Directory.Exists(source))
+            else if (UpdaterFileSystem.DirectoryExists(source))
             {
-                if (Directory.Exists(destination))
+                if (UpdaterFileSystem.DirectoryExists(destination))
                 {
-                    Directory.Delete(destination, recursive: true);
+                    UpdaterFileSystem.DeleteDirectory(destination, recursive: true);
                 }
-                Directory.Move(source, destination);
+                UpdaterFileSystem.MoveDirectory(source, destination);
             }
         }
 
         private static void RemoveEmptyDirectories(string appDirectory)
         {
-            foreach (string directory in Directory.EnumerateDirectories(appDirectory, "*", SearchOption.AllDirectories).OrderByDescending(path => path.Length))
+            foreach (string directory in UpdaterFileSystem.EnumerateDirectories(appDirectory, "*", SearchOption.AllDirectories).OrderByDescending(path => path.Length))
             {
                 string name = Path.GetFileName(directory);
                 if (PreservedTopLevelNames.Contains(name))
@@ -308,24 +337,24 @@ namespace BeMusicSeeker.Updater
                     continue;
                 }
 
-                if (!Directory.EnumerateFileSystemEntries(directory).Any())
+                if (!UpdaterFileSystem.EnumerateFileSystemEntries(directory).Any())
                 {
-                    Directory.Delete(directory);
+                    UpdaterFileSystem.DeleteDirectory(directory, recursive: false);
                 }
             }
         }
 
         private static void EnsureNoReparsePoint(string path)
         {
-            FileAttributes attributes = File.GetAttributes(path);
+            FileAttributes attributes = UpdaterFileSystem.GetAttributes(path);
             if ((attributes & FileAttributes.ReparsePoint) != 0)
             {
                 throw new InvalidOperationException("Reparse points are not supported in the application directory: " + path);
             }
 
-            if (Directory.Exists(path))
+            if (UpdaterFileSystem.DirectoryExists(path))
             {
-                foreach (string child in Directory.EnumerateFileSystemEntries(path))
+                foreach (string child in UpdaterFileSystem.EnumerateFileSystemEntries(path))
                 {
                     EnsureNoReparsePoint(child);
                 }
@@ -335,7 +364,7 @@ namespace BeMusicSeeker.Updater
         private static string NormalizeExistingDirectory(string path)
         {
             string normalized = NormalizeDirectoryPath(path);
-            if (!Directory.Exists(normalized))
+            if (!UpdaterFileSystem.DirectoryExists(normalized))
             {
                 throw new DirectoryNotFoundException(normalized);
             }
@@ -345,7 +374,7 @@ namespace BeMusicSeeker.Updater
         private static string NormalizeExistingFile(string path)
         {
             string normalized = NormalizeFilePath(path);
-            if (!File.Exists(normalized))
+            if (!UpdaterFileSystem.FileExists(normalized))
             {
                 throw new FileNotFoundException("File not found.", normalized);
             }
@@ -358,7 +387,7 @@ namespace BeMusicSeeker.Updater
             {
                 throw new ArgumentException("Directory path is required.");
             }
-            return Path.GetFullPath(path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+            return UpdaterFileSystem.NormalizePath(path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
         }
 
         private static string NormalizeFilePath(string path)
@@ -367,7 +396,7 @@ namespace BeMusicSeeker.Updater
             {
                 return string.Empty;
             }
-            return Path.GetFullPath(path);
+            return UpdaterFileSystem.NormalizePath(path);
         }
 
         private static bool IsPathUnderDirectory(string path, string directory)
@@ -380,7 +409,7 @@ namespace BeMusicSeeker.Updater
         private static string GetRelativePath(string rootDirectory, string path)
         {
             Uri rootUri = new(NormalizeDirectoryPath(rootDirectory) + Path.DirectorySeparatorChar);
-            Uri pathUri = new(Path.GetFullPath(path));
+            Uri pathUri = new(UpdaterFileSystem.NormalizePath(path));
             string relative = Uri.UnescapeDataString(rootUri.MakeRelativeUri(pathUri).ToString()).Replace('/', Path.DirectorySeparatorChar);
             return NormalizeRelativePackagePath(relative);
         }
@@ -414,29 +443,29 @@ namespace BeMusicSeeker.Updater
 
         private static void SafeDeleteFile(string path)
         {
-            if (File.Exists(path))
+            if (UpdaterFileSystem.FileExists(path))
             {
-                File.Delete(path);
+                UpdaterFileSystem.DeleteFile(path);
             }
         }
 
         private static void SafeDeleteDirectory(string path)
         {
-            if (Directory.Exists(path))
+            if (UpdaterFileSystem.DirectoryExists(path))
             {
-                Directory.Delete(path, recursive: true);
+                UpdaterFileSystem.DeleteDirectory(path, recursive: true);
             }
         }
 
         private static void SafeDeletePath(string path)
         {
-            if (File.Exists(path))
+            if (UpdaterFileSystem.FileExists(path))
             {
-                File.Delete(path);
+                UpdaterFileSystem.DeleteFile(path);
             }
-            else if (Directory.Exists(path))
+            else if (UpdaterFileSystem.DirectoryExists(path))
             {
-                Directory.Delete(path, recursive: true);
+                UpdaterFileSystem.DeleteDirectory(path, recursive: true);
             }
         }
 
