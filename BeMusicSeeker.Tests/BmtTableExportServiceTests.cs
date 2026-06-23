@@ -6,6 +6,7 @@ using System.Linq;
 using System.Text;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.Models.Utils;
 using Codeplex.Data;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Newtonsoft.Json.Linq;
@@ -620,6 +621,25 @@ public sealed class BmtTableExportServiceTests
 
     [TestMethod]
     [TestCategory("Playlist")]
+    public void ExportTableData_WritesManagedFilesUnderLongPath()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectory)
+        {
+            string tablePath = BuildLongDirectoryPath(tempDirectory, "bmt");
+            JObject tableData = CreateLocalTableData("bemusicseeker://playlist/long-path", "Long Path");
+
+            string fileName = BmtTableExportService.ExportTableData(tablePath, tableData, "long-path");
+
+            string bmtPath = Path.Combine(tablePath, fileName);
+            Assert.IsTrue(LongPathFileSystem.FileExists(bmtPath));
+            Assert.IsTrue(LongPathFileSystem.FileExists(Path.Combine(tablePath, BmtTableExportService.ManifestFileName)));
+            JObject json = ReadBmtJson(bmtPath);
+            Assert.AreEqual("bemusicseeker://playlist/long-path", json.Value<string>("url"));
+        });
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
     public void ExportTableDataSet_ReturnsManagedUrlsForConfigSync()
     {
         WithTemporaryDirectory(delegate (string tempDirectory)
@@ -735,7 +755,7 @@ public sealed class BmtTableExportServiceTests
 
     private static JObject ReadBmtJson(string path)
     {
-        using var fileStream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+        using FileStream fileStream = LongPathFileSystem.OpenRead(path);
         using var gzipStream = new GZipStream(fileStream, CompressionMode.Decompress);
         using var reader = new StreamReader(gzipStream, Encoding.UTF8);
         return JObject.Parse(reader.ReadToEnd());
@@ -790,18 +810,28 @@ public sealed class BmtTableExportServiceTests
     private static void WithTemporaryDirectory(Action<string> testAction)
     {
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmtTableExportServiceTests", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tempDirectory);
+        LongPathFileSystem.CreateDirectory(tempDirectory);
         try
         {
             testAction(tempDirectory);
         }
         finally
         {
-            if (Directory.Exists(tempDirectory))
+            if (LongPathFileSystem.DirectoryExists(tempDirectory))
             {
-                Directory.Delete(tempDirectory, recursive: true);
+                LongPathFileSystem.DeleteDirectory(tempDirectory, recursive: true);
             }
         }
+    }
+
+    private static string BuildLongDirectoryPath(string root, string leaf)
+    {
+        string path = root;
+        while (Path.Combine(path, leaf).Length <= 270)
+        {
+            path = Path.Combine(path, "segment-" + Guid.NewGuid().ToString("N").Substring(0, 12));
+        }
+        return Path.Combine(path, leaf);
     }
 
     private sealed class TestSongHashResolver(Dictionary<string, Tuple<string, string>> hashesByTitle)

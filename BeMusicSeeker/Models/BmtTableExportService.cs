@@ -6,6 +6,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.Models.Utils;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
@@ -241,7 +242,7 @@ internal static class BmtTableExportService
         {
             return new ExportResult();
         }
-        Directory.CreateDirectory(tablePath);
+        LongPathFileSystem.CreateDirectory(tablePath);
         var exportedFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (BMSTable table in tables ?? [])
         {
@@ -270,7 +271,7 @@ internal static class BmtTableExportService
         {
             return new ExportResult();
         }
-        Directory.CreateDirectory(tablePath);
+        LongPathFileSystem.CreateDirectory(tablePath);
         List<Tuple<string, JObject>> tableDataList = [.. tableDataSet ?? []];
         ExportPlan exportPlan = CreateExportPlan(tablePath, CreateExportMetadataFromTableDataSet(tableDataList), cleanupStaleManagedFiles);
         List<Tuple<string, JObject>> projectionDataList = [.. tableDataList.Where(item =>
@@ -293,7 +294,7 @@ internal static class BmtTableExportService
         }
         else
         {
-            Directory.CreateDirectory(tablePath);
+            LongPathFileSystem.CreateDirectory(tablePath);
             lock (ManifestLock)
             {
                 previousManifest = ReadManifest(tablePath);
@@ -326,7 +327,7 @@ internal static class BmtTableExportService
         {
             return new ExportResult();
         }
-        Directory.CreateDirectory(tablePath);
+        LongPathFileSystem.CreateDirectory(tablePath);
         exportPlan ??= CreateExportPlan(tablePath, CreateExportMetadataFromTableDataSet(tableDataSet), cleanupStaleManagedFiles: true);
         var result = new ExportResult
         {
@@ -556,7 +557,7 @@ internal static class BmtTableExportService
         {
             return null;
         }
-        Directory.CreateDirectory(tablePath);
+        LongPathFileSystem.CreateDirectory(tablePath);
         BmtFileState fileState = WriteTableDataFile(tablePath, tableData, fileName);
         AddManagedFile(tablePath, fileName, ResolveExportMetadata(metadata, tableData), fileState);
         return fileName;
@@ -564,7 +565,7 @@ internal static class BmtTableExportService
 
     internal static void CleanupManagedFiles(string tablePath)
     {
-        if (string.IsNullOrWhiteSpace(tablePath) || !Directory.Exists(tablePath))
+        if (string.IsNullOrWhiteSpace(tablePath) || !LongPathFileSystem.DirectoryExists(tablePath))
         {
             return;
         }
@@ -607,7 +608,7 @@ internal static class BmtTableExportService
 
     internal static List<ManagedTableUrlEntry> ReadManagedTableUrls(string tablePath)
     {
-        if (string.IsNullOrWhiteSpace(tablePath) || !Directory.Exists(tablePath))
+        if (string.IsNullOrWhiteSpace(tablePath) || !LongPathFileSystem.DirectoryExists(tablePath))
         {
             return [];
         }
@@ -1200,7 +1201,7 @@ internal static class BmtTableExportService
         string tempPath = outputPath + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
         {
-            using (var fileStream = new FileStream(tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            using (var fileStream = LongPathFileSystem.Open(tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
             using (var gzipStream = new GZipStream(fileStream, CompressionMode.Compress))
             using (var writer = new StreamWriter(gzipStream, new UTF8Encoding(false)))
             {
@@ -1295,11 +1296,11 @@ internal static class BmtTableExportService
 
     private static BmtFileState ReadBmtFileState(string path)
     {
-        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+        if (string.IsNullOrWhiteSpace(path) || !LongPathFileSystem.FileExists(path))
         {
             return null;
         }
-        var fileInfo = new FileInfo(path);
+        LongPathFileSystem.FileMetadata fileInfo = LongPathFileSystem.GetFileMetadata(path);
         return new BmtFileState
         {
             LastWriteTimeUtcTicks = fileInfo.LastWriteTimeUtc.Ticks,
@@ -1311,13 +1312,13 @@ internal static class BmtTableExportService
     {
         var state = new ManifestState();
         string manifestPath = Path.Combine(tablePath, ManifestFileName);
-        if (!File.Exists(manifestPath))
+        if (!LongPathFileSystem.FileExists(manifestPath))
         {
             return state;
         }
         try
         {
-            var manifest = JObject.Parse(File.ReadAllText(manifestPath, Encoding.UTF8));
+            var manifest = JObject.Parse(ReadAllText(manifestPath, Encoding.UTF8));
             state.SchemaVersion = manifest.Value<int?>("schemaVersion") ?? 0;
             state.ExporterVersion = manifest.Value<int?>("exporterVersion") ?? 0;
             foreach (JToken item in manifest["files"] as JArray ?? [])
@@ -1397,7 +1398,7 @@ internal static class BmtTableExportService
             }
             manifest["playlists"] = playlistJson;
         }
-        File.WriteAllText(Path.Combine(tablePath, ManifestFileName), manifest.ToString(Formatting.Indented), new UTF8Encoding(false));
+        WriteAllText(Path.Combine(tablePath, ManifestFileName), manifest.ToString(Formatting.Indented), new UTF8Encoding(false));
     }
 
     private static ManifestPlaylistEntry CreateManifestPlaylistEntry(PlaylistExportMetadata metadata, string fileName, BmtFileState fileState)
@@ -1430,25 +1431,35 @@ internal static class BmtTableExportService
 
     private static void ReplaceFile(string sourcePath, string destinationPath)
     {
-        if (File.Exists(destinationPath))
-        {
-            File.Delete(destinationPath);
-        }
-        File.Move(sourcePath, destinationPath);
+        LongPathFileSystem.MoveFile(sourcePath, destinationPath, overwrite: true);
     }
 
     private static void TryDeleteFile(string path)
     {
         try
         {
-            if (!string.IsNullOrWhiteSpace(path) && File.Exists(path))
+            if (!string.IsNullOrWhiteSpace(path) && LongPathFileSystem.FileExists(path))
             {
-                File.Delete(path);
+                LongPathFileSystem.DeleteFile(path);
             }
         }
         catch
         {
         }
+    }
+
+    private static string ReadAllText(string path, Encoding encoding)
+    {
+        using FileStream stream = LongPathFileSystem.OpenRead(path);
+        using var reader = new StreamReader(stream, encoding, detectEncodingFromByteOrderMarks: true);
+        return reader.ReadToEnd();
+    }
+
+    private static void WriteAllText(string path, string contents, Encoding encoding)
+    {
+        using FileStream stream = LongPathFileSystem.Open(path, FileMode.Create, FileAccess.Write, FileShare.None);
+        using var writer = new StreamWriter(stream, encoding);
+        writer.Write(contents);
     }
 
     private static void AddIfNotEmpty(JObject obj, string name, string value)
