@@ -9110,6 +9110,20 @@ public class MainWindowViewModel : ViewModel
 
     private BeMusicSeeker.Models.BMSFile _NowPlayingBMS;
 
+    private BeMusicSeeker.Models.BMSFile _DisplayedBmsPlayerFile;
+
+    private string _BmsPlayerHeaderTitle = string.Empty;
+
+    private string _BmsPlayerHeaderSubtitle = string.Empty;
+
+    private string _BmsPlayerHeaderArtist = string.Empty;
+
+    private string _MoviePlayerHeaderTitle = string.Empty;
+
+    private string _MoviePlayerHeaderSubtitle = string.Empty;
+
+    private string _MoviePlayerHeaderArtist = string.Empty;
+
     private int nowPlayingChartRowsViewIndex = -1;
 
     private Uri _BrowserSource;
@@ -16836,8 +16850,116 @@ public class MainWindowViewModel : ViewModel
             {
                 _NowPlayingBMS = value;
                 RaisePropertyChanged("NowPlayingBMS");
+                if (value != null)
+                {
+                    SetBmsPlayerHeader(value);
+                }
             }
         }
+    }
+
+    public BeMusicSeeker.Models.BMSFile DisplayedBmsPlayerFile
+    {
+        get
+        {
+            return _DisplayedBmsPlayerFile;
+        }
+        private set
+        {
+            if (_DisplayedBmsPlayerFile != value)
+            {
+                _DisplayedBmsPlayerFile = value;
+                RaisePropertyChanged("DisplayedBmsPlayerFile");
+            }
+        }
+    }
+
+    public string PlayerHeaderTitle
+    {
+        get
+        {
+            return IsMoviePlayerHeaderActive ? _MoviePlayerHeaderTitle : _BmsPlayerHeaderTitle;
+        }
+    }
+
+    public string PlayerHeaderSubtitle
+    {
+        get
+        {
+            return IsMoviePlayerHeaderActive ? _MoviePlayerHeaderSubtitle : _BmsPlayerHeaderSubtitle;
+        }
+    }
+
+    public string PlayerHeaderArtist
+    {
+        get
+        {
+            return IsMoviePlayerHeaderActive ? _MoviePlayerHeaderArtist : _BmsPlayerHeaderArtist;
+        }
+    }
+
+    internal string BmsPlayerHeaderTitle => _BmsPlayerHeaderTitle;
+
+    internal string BmsPlayerHeaderSubtitle => _BmsPlayerHeaderSubtitle;
+
+    internal string BmsPlayerHeaderArtist => _BmsPlayerHeaderArtist;
+
+    internal string MoviePlayerHeaderTitle => _MoviePlayerHeaderTitle;
+
+    internal string MoviePlayerHeaderSubtitle => _MoviePlayerHeaderSubtitle;
+
+    internal string MoviePlayerHeaderArtist => _MoviePlayerHeaderArtist;
+
+    internal void SetBmsPlayerHeader(BeMusicSeeker.Models.BMSFile bmsFile)
+    {
+        DisplayedBmsPlayerFile = bmsFile;
+        bool changed = SetHeaderValue(ref _BmsPlayerHeaderTitle, GridRowResolver.GetBmsPlayerDisplayTitle(bmsFile))
+            | SetHeaderValue(ref _BmsPlayerHeaderSubtitle, GridRowResolver.GetBmsPlayerDisplaySubtitle(bmsFile))
+            | SetHeaderValue(ref _BmsPlayerHeaderArtist, GridRowResolver.GetBmsPlayerDisplayArtist(bmsFile));
+        if (changed || !IsMoviePlayerHeaderActive)
+        {
+            RaisePlayerHeaderPropertiesChanged();
+        }
+    }
+
+    internal void SetMoviePlayerHeader(object row)
+    {
+        bool changed = SetHeaderValue(ref _MoviePlayerHeaderTitle, GridRowResolver.GetDisplayRawTitle(row))
+            | SetHeaderValue(ref _MoviePlayerHeaderSubtitle, GridRowResolver.GetDisplaySubtitle(row))
+            | SetHeaderValue(ref _MoviePlayerHeaderArtist, GridRowResolver.GetDisplayArtist(row));
+        if (changed || IsMoviePlayerHeaderActive)
+        {
+            RaisePlayerHeaderPropertiesChanged();
+        }
+    }
+
+    internal void NotifyPlayerHeaderSourceChanged()
+    {
+        RaisePlayerHeaderPropertiesChanged();
+    }
+
+    private bool IsMoviePlayerHeaderActive =>
+        Settings.Default.PlayerPanelState == PanelState.MOVIE_PLAYER
+        && (!string.IsNullOrWhiteSpace(_MoviePlayerHeaderTitle)
+            || !string.IsNullOrWhiteSpace(_MoviePlayerHeaderSubtitle)
+            || !string.IsNullOrWhiteSpace(_MoviePlayerHeaderArtist));
+
+    private static bool SetHeaderValue(ref string storage, string value)
+    {
+        value ??= string.Empty;
+        if (storage == value)
+        {
+            return false;
+        }
+        storage = value;
+        return true;
+    }
+
+    private void RaisePlayerHeaderPropertiesChanged()
+    {
+        RaisePropertyChanged("PlayerHeaderTitle");
+        RaisePropertyChanged("PlayerHeaderSubtitle");
+        RaisePropertyChanged("PlayerHeaderArtist");
     }
 
     public Uri BrowserSource

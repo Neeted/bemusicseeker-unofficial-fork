@@ -1,7 +1,6 @@
 using System;
 using System.Globalization;
 using System.Windows.Data;
-using BeMusicSeeker.ViewModels;
 
 namespace BeMusicSeeker.Views;
 
@@ -9,27 +8,24 @@ internal class combineTitleAndArtistConverter : IMultiValueConverter
 {
     public object Convert(object[] values, Type targetType, object parameter, CultureInfo culture)
     {
-        if ((MainWindowViewModel.PanelState)values[6] == MainWindowViewModel.PanelState.MOVIE_PLAYER && !string.IsNullOrWhiteSpace((string)values[3] + (string)values[4] + (string)values[5]))
+        string title = GetString(values, 0);
+        string subtitle = GetString(values, 1);
+        string artist = GetString(values, 2);
+        string titleWithSubtitle = title + ((!string.IsNullOrWhiteSpace(subtitle)) ? (" " + subtitle) : string.Empty);
+        if (!string.IsNullOrWhiteSpace(titleWithSubtitle) && !string.IsNullOrWhiteSpace(artist))
         {
-            string text = (string)values[3] + ((!string.IsNullOrWhiteSpace((string)values[4])) ? (" " + values[4]) : string.Empty);
-            string text2 = (string)values[5];
-            if (!string.IsNullOrWhiteSpace(text) && !string.IsNullOrWhiteSpace(text2))
-            {
-                return text + " / " + text2;
-            }
-            return text + text2;
+            return titleWithSubtitle + " / " + artist;
         }
-        string text3 = (string)values[0] + ((!string.IsNullOrWhiteSpace((string)values[1])) ? (" " + values[1]) : string.Empty);
-        string text4 = (string)values[2];
-        if (!string.IsNullOrWhiteSpace(text3) && !string.IsNullOrWhiteSpace(text4))
-        {
-            return text3 + " / " + text4;
-        }
-        return text3 + text4;
+        return titleWithSubtitle + artist;
     }
 
     public object[] ConvertBack(object value, Type[] targetTypes, object parameter, CultureInfo culture)
     {
         throw new NotImplementedException();
+    }
+
+    private static string GetString(object[] values, int index)
+    {
+        return values != null && index >= 0 && index < values.Length ? values[index] as string ?? string.Empty : string.Empty;
     }
 }

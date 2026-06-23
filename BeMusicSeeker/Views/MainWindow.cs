@@ -245,6 +245,13 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             _panelImage = null;
         });
+        settingsDefaultEventListnener.RegisterHandler(() => Settings.Default.PlayerPanelState, delegate
+        {
+            if (base.DataContext is MainWindowViewModel viewModel)
+            {
+                viewModel.NotifyPlayerHeaderSourceChanged();
+            }
+        });
         gridBMSPlayerImage.Source = panelImage;
 
         // Start async update check
@@ -1068,6 +1075,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             }
             if (GridRowResolver.TryGetBmsPlayerFile(e.SelectedRow, out BMSFile bmsFile))
             {
+                viewModel.SetBmsPlayerHeader(bmsFile);
                 _renewBMSPlayerControlInfo(bmsFile);
             }
         }
@@ -1087,6 +1095,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
+        viewModel.SetBmsPlayerHeader(bmsFile);
         _renewBMSPlayerControlInfo(bmsFile);
         if ((viewModel.NowPlayingBMS == null || viewModel.NowPlayingBMS.status.HasFlag(BMSFile.BMSFileStatus.PAUSE)) && isPanelStateValid(MainWindowViewModel.PanelState.BMS_PLAYER))
         {
@@ -1479,6 +1488,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     {
         if (base.DataContext is MainWindowViewModel { NowPlayingBMS: not null } mainWindowViewModel)
         {
+            mainWindowViewModel.SetBmsPlayerHeader(mainWindowViewModel.NowPlayingBMS);
             _renewBMSPlayerControlInfo(mainWindowViewModel.NowPlayingBMS);
         }
     }
@@ -1549,7 +1559,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     }
     /// <summary>
     /// 現在 ViewModel で選択されている（再生中の）BMSファイルの情報を取得し、
-    /// BMSPlayerコントロール（プレビュー画像やバナー、曲名などのUI情報）を最新状態に更新します。
+    /// BMSPlayerコントロールのプレビュー画像やバナーを最新状態に更新します。
     /// </summary>
     private List<object> GetSelectedGridRowsSnapshot()
     {
@@ -1825,7 +1835,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     }
     /// <summary>
     /// 指定された確定的 BMSFile インスタンス情報を用いて、
-    /// BMSPlayerコントロールのUI（バナー画像レイアウト、タイトル文字列等）を同期します。
+    /// BMSPlayerコントロールの画像表示（stagefile と banner）を同期します。
     /// </summary>
     /// <param name="bmsFile">更新対象となる BMS ファイル要素。</param>
     private void _renewBMSPlayerControlInfo(BMSFile bmsFile)
@@ -1894,9 +1904,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             }
         }
         gridBMSPlayerControlsBanner.BorderThickness = ((gridBMSPlayerControlsBanner.Background == null) ? new Thickness(0.0) : new Thickness(1.0, 0.0, 1.0, 0.0));
-        gridBMSPlayerControlsTitle.Text = GridRowResolver.GetBmsPlayerDisplayTitle(bmsFile);
-        gridBMSPlayerControlsSubtitle.Text = GridRowResolver.GetBmsPlayerDisplaySubtitle(bmsFile);
-        gridBMSPlayerControlsArtist.Text = GridRowResolver.GetBmsPlayerDisplayArtist(bmsFile);
     }
     private void keywordSearchBoxTextChanged(object sender, TextChangedEventArgs e)
     {
@@ -6786,9 +6793,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        gridBMSPlayerControlsTitleForMovie.Text = GridRowResolver.GetDisplayTitle(row);
-        gridBMSPlayerControlsSubtitleForMovie.Text = GridRowResolver.GetDisplaySubtitle(row);
-        gridBMSPlayerControlsArtistForMovie.Text = GridRowResolver.GetDisplayArtist(row);
+        mainWindowViewModel.SetMoviePlayerHeader(row);
     }
 
     private void songInfoCacheToUrlLists(BMSLibrary.IRSongInfo info, Uri original, Uri diff, out List<Uri> urls, out List<Uri> urls_diff)

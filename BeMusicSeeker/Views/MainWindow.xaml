@@ -1371,17 +1371,17 @@
                         </Style.Triggers>
                       </Style>
                     </FrameworkElement.Style>
-                    <TextBlock Name="gridBMSPlayerControlsArtist" DockPanel.Dock="Bottom" FontFamily="Meiryo" FontSize="12" Margin="0" Foreground="#FFFFFFFF" HorizontalAlignment="Center" />
+                    <TextBlock Name="gridBMSPlayerControlsArtist" DockPanel.Dock="Bottom" FontFamily="Meiryo" FontSize="12" Margin="0" Foreground="#FFFFFFFF" HorizontalAlignment="Center" Text="{Binding PlayerHeaderArtist}" />
                     <StackPanel Orientation="Horizontal" DockPanel.Dock="Bottom" Margin="3,3,3,0" HorizontalAlignment="Center">
-                      <TextBlock Name="gridBMSPlayerControlsTitle" FontFamily="Meiryo" FontSize="14" Margin="0" FontWeight="Bold" Foreground="#FFFFFFFF" HorizontalAlignment="Right" />
-                      <TextBlock Name="gridBMSPlayerControlsSubtitle" FontFamily="Meiryo" FontSize="14" Margin="5,0,0,0" Foreground="#FFFFFFFF" HorizontalAlignment="Left" />
+                      <TextBlock Name="gridBMSPlayerControlsTitle" FontFamily="Meiryo" FontSize="14" Margin="0" FontWeight="Bold" Foreground="#FFFFFFFF" HorizontalAlignment="Right" Text="{Binding PlayerHeaderTitle}" />
+                      <TextBlock Name="gridBMSPlayerControlsSubtitle" FontFamily="Meiryo" FontSize="14" Margin="5,0,0,0" Foreground="#FFFFFFFF" HorizontalAlignment="Left" Text="{Binding PlayerHeaderSubtitle}" />
                     </StackPanel>
                   </DockPanel>
                   <DockPanel Height="40" LastChildFill="False" Visibility="Collapsed">
-                    <TextBlock Name="gridBMSPlayerControlsArtistForMovie" DockPanel.Dock="Bottom" FontFamily="Meiryo" FontSize="12" Margin="0" Foreground="#FFFFFFFF" HorizontalAlignment="Center" />
+                    <TextBlock Name="gridBMSPlayerControlsArtistForMovie" DockPanel.Dock="Bottom" FontFamily="Meiryo" FontSize="12" Margin="0" Foreground="#FFFFFFFF" HorizontalAlignment="Center" Text="{Binding PlayerHeaderArtist}" />
                     <StackPanel Orientation="Horizontal" DockPanel.Dock="Bottom" Margin="3,3,3,0" HorizontalAlignment="Center">
-                      <TextBlock Name="gridBMSPlayerControlsTitleForMovie" FontFamily="Meiryo" FontSize="14" Margin="0" FontWeight="Bold" Foreground="#FFFFFFFF" HorizontalAlignment="Right" />
-                      <TextBlock Name="gridBMSPlayerControlsSubtitleForMovie" FontFamily="Meiryo" FontSize="14" Margin="5,0,0,0" Foreground="#FFFFFFFF" HorizontalAlignment="Left" />
+                      <TextBlock Name="gridBMSPlayerControlsTitleForMovie" FontFamily="Meiryo" FontSize="14" Margin="0" FontWeight="Bold" Foreground="#FFFFFFFF" HorizontalAlignment="Right" Text="{Binding PlayerHeaderTitle}" />
+                      <TextBlock Name="gridBMSPlayerControlsSubtitleForMovie" FontFamily="Meiryo" FontSize="14" Margin="5,0,0,0" Foreground="#FFFFFFFF" HorizontalAlignment="Left" Text="{Binding PlayerHeaderSubtitle}" />
                     </StackPanel>
                   </DockPanel>
                   <Border Name="gridBMSPlayerControlsBanner" BorderThickness="0" BorderBrush="#FF404040" HorizontalAlignment="Center" VerticalAlignment="Center" Width="302" Height="80" Margin="0" Opacity="0">
@@ -1726,13 +1726,9 @@
                   </UIElement.Visibility>
                   <TextBlock.Text>
                     <MultiBinding Converter="{StaticResource combineTitleAndArtistConverter}">
-                      <Binding Path="Text" ElementName="gridBMSPlayerControlsTitle" />
-                      <Binding Path="Text" ElementName="gridBMSPlayerControlsSubtitle" />
-                      <Binding Path="Text" ElementName="gridBMSPlayerControlsArtist" />
-                      <Binding Path="Text" ElementName="gridBMSPlayerControlsTitleForMovie" />
-                      <Binding Path="Text" ElementName="gridBMSPlayerControlsSubtitleForMovie" />
-                      <Binding Path="Text" ElementName="gridBMSPlayerControlsArtistForMovie" />
-                      <Binding Path="PlayerPanelState" Source="{x:Static prop:Settings.Default}" />
+                      <Binding Path="PlayerHeaderTitle" />
+                      <Binding Path="PlayerHeaderSubtitle" />
+                      <Binding Path="PlayerHeaderArtist" />
                     </MultiBinding>
                   </TextBlock.Text>
                   <FrameworkElement.Style>

@@ -379,6 +379,18 @@ internal static class GridRowResolver
     }
 
     /// <summary>
+    /// 行の表示用タイトルから subtitle を含まない title 部分を取得します。
+    /// </summary>
+    internal static string GetDisplayRawTitle(object row)
+    {
+        if (TryGetChartFile(row, out ChartFile chart))
+        {
+            return string.IsNullOrWhiteSpace(chart.RawTitle) ? chart.Title : chart.RawTitle;
+        }
+        return string.Empty;
+    }
+
+    /// <summary>
     /// 行の表示用サブタイトルを取得します。
     /// </summary>
     internal static string GetDisplaySubtitle(object row)
@@ -407,7 +419,7 @@ internal static class GridRowResolver
     /// </summary>
     internal static string GetBmsPlayerDisplayTitle(BMSFile file)
     {
-        return file?.Title ?? string.Empty;
+        return file?.GetRawTitleForDisplay() ?? string.Empty;
     }
 
     /// <summary>
