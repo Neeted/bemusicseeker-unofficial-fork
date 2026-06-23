@@ -4,6 +4,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.Models.Utils;
 using Ribbit.Util.Extensions;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
@@ -202,7 +203,7 @@ internal static class CustomFolderOutputBaseSearchRootSyncService
     private static void EnsureSjisDirectoryExists(string path)
     {
         ValidateSjisDirectoryPath(path);
-        Directory.CreateDirectory(CustomFolderOutputBaseRegistry.NormalizeDirectoryPath(path));
+        LongPathFileSystem.CreateDirectory(CustomFolderOutputBaseRegistry.NormalizeDirectoryPath(path));
     }
 
     private static CustomFolderOutputBaseSearchRootAddResult AddMissingSearchRoots(

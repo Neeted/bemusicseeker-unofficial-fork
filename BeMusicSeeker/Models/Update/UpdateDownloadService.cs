@@ -5,6 +5,7 @@ using System.Net.Http;
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Threading.Tasks;
+using BeMusicSeeker.Models.Utils;
 
 namespace BeMusicSeeker.Models.Update;
 
@@ -21,7 +22,7 @@ internal sealed class UpdateDownloadService
 
         string workRoot = GetUpdateWorkRoot();
         string downloadsDirectory = Path.Combine(workRoot, "downloads");
-        Directory.CreateDirectory(downloadsDirectory);
+        LongPathFileSystem.CreateDirectory(downloadsDirectory);
 
         string fileName = Path.GetFileName(asset.FileName);
         if (string.IsNullOrWhiteSpace(fileName) || fileName != asset.FileName)
@@ -31,9 +32,9 @@ internal sealed class UpdateDownloadService
 
         string packagePath = Path.Combine(downloadsDirectory, fileName);
         string temporaryPath = packagePath + ".download";
-        if (File.Exists(temporaryPath))
+        if (LongPathFileSystem.FileExists(temporaryPath))
         {
-            File.Delete(temporaryPath);
+            LongPathFileSystem.DeleteFile(temporaryPath);
         }
 
         using (var httpClient = new HttpClient { Timeout = TimeSpan.FromMilliseconds(DownloadTimeoutMilliseconds) })
@@ -41,29 +42,24 @@ internal sealed class UpdateDownloadService
         {
             response.EnsureSuccessStatusCode();
             using Stream source = await response.Content.ReadAsStreamAsync().ConfigureAwait(false);
-            using FileStream destination = File.Create(temporaryPath);
+            using FileStream destination = LongPathFileSystem.Open(temporaryPath, FileMode.CreateNew, FileAccess.Write, FileShare.None);
             await source.CopyToAsync(destination).ConfigureAwait(false);
         }
 
-        FileInfo downloaded = new(temporaryPath);
-        if (downloaded.Length != asset.SizeBytes)
+        if (LongPathFileSystem.GetFileMetadata(temporaryPath).Length != asset.SizeBytes)
         {
-            File.Delete(temporaryPath);
+            LongPathFileSystem.DeleteFile(temporaryPath);
             throw new InvalidOperationException("Downloaded update package size does not match update.json.");
         }
 
         string actualSha256 = ComputeSha256(temporaryPath);
         if (!string.Equals(actualSha256, asset.Sha256, StringComparison.OrdinalIgnoreCase))
         {
-            File.Delete(temporaryPath);
+            LongPathFileSystem.DeleteFile(temporaryPath);
             throw new InvalidOperationException("Downloaded update package SHA-256 does not match update.json.");
         }
 
-        if (File.Exists(packagePath))
-        {
-            File.Delete(packagePath);
-        }
-        File.Move(temporaryPath, packagePath);
+        LongPathFileSystem.MoveFile(temporaryPath, packagePath, overwrite: true);
         return packagePath;
     }
 
@@ -76,15 +72,15 @@ internal sealed class UpdateDownloadService
     {
         string appDirectory = AppDomain.CurrentDomain.BaseDirectory;
         string sourceUpdaterPath = Path.Combine(appDirectory, "BeMusicSeeker.Updater.exe");
-        if (!File.Exists(sourceUpdaterPath))
+        if (!LongPathFileSystem.FileExists(sourceUpdaterPath))
         {
             throw new FileNotFoundException("Updater executable was not found.", sourceUpdaterPath);
         }
 
         string currentUpdaterDirectory = Path.Combine(GetUpdateWorkRoot(), "current");
-        Directory.CreateDirectory(currentUpdaterDirectory);
+        LongPathFileSystem.CreateDirectory(currentUpdaterDirectory);
         string updaterPath = Path.Combine(currentUpdaterDirectory, "BeMusicSeeker.Updater.exe");
-        File.Copy(sourceUpdaterPath, updaterPath, overwrite: true);
+        LongPathFileSystem.CopyFile(sourceUpdaterPath, updaterPath, overwrite: true);
 
         string appExePath = Assembly.GetExecutingAssembly().Location;
         return new ProcessStartInfo(updaterPath)
@@ -108,16 +104,16 @@ internal sealed class UpdateDownloadService
     internal static void CleanupPreviousWorkDirectory()
     {
         string workRoot = GetUpdateWorkRoot();
-        if (Directory.Exists(workRoot))
+        if (LongPathFileSystem.DirectoryExists(workRoot))
         {
-            Directory.Delete(workRoot, recursive: true);
+            LongPathFileSystem.DeleteDirectory(workRoot, recursive: true);
         }
     }
 
     private static string ComputeSha256(string path)
     {
         using SHA256 sha256 = SHA256.Create();
-        using FileStream stream = File.OpenRead(path);
+        using FileStream stream = LongPathFileSystem.OpenRead(path);
         return BitConverter.ToString(sha256.ComputeHash(stream)).Replace("-", string.Empty).ToLowerInvariant();
     }
 

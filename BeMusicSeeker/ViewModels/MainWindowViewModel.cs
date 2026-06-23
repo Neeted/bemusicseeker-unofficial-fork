@@ -20451,21 +20451,22 @@ public class MainWindowViewModel : ViewModel
             List<string> bkPaths = [];
             string songDBPath = null;
             List<string> scoreDBPaths = [];
-            if (lR2BackupTarget.HasFlag(Backup.Target.Config) && File.Exists(Settings.Default.LR2ConfigXmlPath))
+            if (lR2BackupTarget.HasFlag(Backup.Target.Config) && LongPathFileSystem.FileExists(Settings.Default.LR2ConfigXmlPath))
             {
                 bkPaths.Add(Settings.Default.LR2ConfigXmlPath);
             }
-            if (lR2BackupTarget.HasFlag(Backup.Target.SongDB) && File.Exists(Settings.Default.LR2SongDBPath))
+            if (lR2BackupTarget.HasFlag(Backup.Target.SongDB) && LongPathFileSystem.FileExists(Settings.Default.LR2SongDBPath))
             {
                 songDBPath = Settings.Default.LR2SongDBPath;
                 bkPaths.Add(Settings.Default.LR2SongDBPath);
             }
-            if (lR2BackupTarget.HasFlag(Backup.Target.ScoreDB) && Directory.Exists(Settings.Default.LR2RootPath + "\\LR2files\\Database\\Score"))
+            string scoreDirectoryPath = Path.Combine(Settings.Default.LR2RootPath, "LR2files", "Database", "Score");
+            if (lR2BackupTarget.HasFlag(Backup.Target.ScoreDB) && LongPathFileSystem.DirectoryExists(scoreDirectoryPath))
             {
-                bkPaths.Add(Settings.Default.LR2RootPath + "\\LR2files\\Database\\Score");
+                bkPaths.Add(scoreDirectoryPath);
                 try
                 {
-                    scoreDBPaths = [.. Directory.EnumerateFiles(Settings.Default.LR2RootPath + "\\LR2files\\Database\\Score", "*.db", System.IO.SearchOption.AllDirectories)];
+                    scoreDBPaths = [.. LongPathFileSystem.EnumerateFiles(scoreDirectoryPath, "*.db", System.IO.SearchOption.AllDirectories)];
                 }
                 catch
                 {

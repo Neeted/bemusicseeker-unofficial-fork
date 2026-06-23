@@ -49,8 +49,8 @@ internal static class Lr2FolderFileDiscoveryService
         candidates.AddRange(builtinSourceDirectories ?? []);
 
         return [.. candidates
-            .Where(path => !string.IsNullOrWhiteSpace(path) && Directory.Exists(path))
-            .Select(Path.GetFullPath)
+            .Where(path => !string.IsNullOrWhiteSpace(path) && LongPathFileSystem.DirectoryExists(path))
+            .Select(LongPathFileSystem.NormalizePathForStorage)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
     }
@@ -63,8 +63,8 @@ internal static class Lr2FolderFileDiscoveryService
         IEnumerable<string> excludedDirectories = null)
     {
         List<string> roots = [.. (rootDirectories ?? [])
-            .Where(path => !string.IsNullOrWhiteSpace(path) && Directory.Exists(path))
-            .Select(Path.GetFullPath)
+            .Where(path => !string.IsNullOrWhiteSpace(path) && LongPathFileSystem.DirectoryExists(path))
+            .Select(LongPathFileSystem.NormalizePathForStorage)
             .Distinct(StringComparer.OrdinalIgnoreCase)];
         if (roots.Count == 0)
         {
@@ -324,7 +324,7 @@ internal static class Lr2FolderFileDiscoveryService
 
         try
         {
-            return Path.GetFullPath(path);
+            return LongPathFileSystem.NormalizePathForStorage(path);
         }
         catch (Exception ex) when (ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException)
         {
@@ -389,8 +389,8 @@ internal static class Lr2FolderFileDiscoveryService
             {
                 Path.Combine(lr2RootPath, "LR2files", "CustomFolder")
             }
-            .Where(path => !string.IsNullOrWhiteSpace(path) && Directory.Exists(path))
-            .Select(Path.GetFullPath)
+            .Where(path => !string.IsNullOrWhiteSpace(path) && LongPathFileSystem.DirectoryExists(path))
+            .Select(LongPathFileSystem.NormalizePathForStorage)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
     }

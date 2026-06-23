@@ -3311,11 +3311,11 @@ public class BMSLibrary : NotificationObject
         {
             throw new ArgumentNullException("_LR2SongDB");
         }
-        if (!File.Exists(_lr2SongDB))
+        if (!LongPathFileSystem.FileExists(_lr2SongDB))
         {
             throw new ArgumentException(string.Format(Resources.Error_LR2SongDBNotFound, _lr2SongDB), "_LR2SongDB");
         }
-        if (_lr2ScoreDB != null && !File.Exists(_lr2ScoreDB))
+        if (_lr2ScoreDB != null && !LongPathFileSystem.FileExists(_lr2ScoreDB))
         {
             throw new ArgumentException(string.Format(Resources.Error_LR2ScoreDBNotFound, _lr2ScoreDB), "_lr2ScoreDB");
         }
@@ -4205,7 +4205,7 @@ public class BMSLibrary : NotificationObject
                 state.PreparationInstalledResolution = installEstimationService.TryResolveInstalledDestinationFromPackage(package, state.MissingEntries, installedDirectoryIndex);
             }
 
-            if (state.HasMissingFiles && !HasInstalledDestinationResolveFailed(state) && !string.IsNullOrWhiteSpace(state.SourceDirectory) && Directory.Exists(state.SourceDirectory))
+            if (state.HasMissingFiles && !HasInstalledDestinationResolveFailed(state) && !string.IsNullOrWhiteSpace(state.SourceDirectory) && LongPathFileSystem.DirectoryExists(state.SourceDirectory))
             {
                 rootsToScan.Add(state.SourceDirectory);
             }
@@ -4373,7 +4373,7 @@ public class BMSLibrary : NotificationObject
     private bool ShouldDeferPendingEstimateBatchPackageUnsafe(PendingEstimateSourceBatchPackageState state, BmsLibraryInstallEstimationService installEstimationService, out int sourcePrimaryHealth)
     {
         sourcePrimaryHealth = 0;
-        if (state?.Package == null || installEstimationService == null || !Directory.Exists(state.Package.path))
+        if (state?.Package == null || installEstimationService == null || !LongPathFileSystem.DirectoryExists(state.Package.path))
         {
             return false;
         }
@@ -4408,8 +4408,8 @@ public class BMSLibrary : NotificationObject
 
         try
         {
-            string normalizedPath = Path.GetFullPath(packagePath);
-            if (Directory.Exists(normalizedPath))
+            string normalizedPath = LongPathFileSystem.NormalizePathForStorage(packagePath);
+            if (LongPathFileSystem.DirectoryExists(normalizedPath))
             {
                 return normalizedPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
             }
@@ -11972,7 +11972,7 @@ completeFileEnumerationOnce,
         }
         HashSet<string> excludedCustomOutputSearchRoots = BuildExcludedCustomOutputSearchRootDirectories();
         List<string> requestedRoots = [.. (SearchTargets ?? Enumerable.Empty<string>())];
-        List<string> existingRoots = [.. requestedRoots.Where(d => !string.IsNullOrWhiteSpace(d) && Directory.Exists(d))];
+        List<string> existingRoots = [.. requestedRoots.Where(d => !string.IsNullOrWhiteSpace(d) && LongPathFileSystem.DirectoryExists(d))];
         List<string> roots = [.. existingRoots
             .Where(d => !IsExcludedCustomOutputSearchRoot(d, excludedCustomOutputSearchRoots))];
         normalizationSnapshot = new BmsSearchRootNormalizationSnapshot
@@ -15533,7 +15533,7 @@ completeFileEnumerationOnce,
             throw new ArgumentNullException("cacheInfo");
         }
         string irCacheDirPath = Path.Combine(Path.GetDirectoryName(lr2ScoreDBPath), "..\\..\\Ir");
-        if (!Directory.Exists(irCacheDirPath))
+        if (!LongPathFileSystem.DirectoryExists(irCacheDirPath))
         {
             throw new DirectoryNotFoundException(string.Format(Resources.Error_IRCacheDirNotFound, irCacheDirPath));
         }
@@ -17014,7 +17014,7 @@ completeFileEnumerationOnce,
         PackageInstallEstimationSnapshot estimationSnapshot;
         if (package != null && sourceSurfaceBatchHit)
         {
-            bool includeBundledResources = Directory.Exists(package.path);
+            bool includeBundledResources = LongPathFileSystem.DirectoryExists(package.path);
             PackageInstallSurfaceSnapshot sharedInstallSurface = PackageInstallEstimationSnapshotBuilder.BuildSharedInstallSurfaceSnapshot(
                 package.path,
                 batchState.SourceDirectory,
@@ -17185,7 +17185,7 @@ completeFileEnumerationOnce,
                 {
                     using (rwlockSongDBInstall.GetWriterGuard())
                     {
-                        if (installPaths == null || installPaths.Any(path => !Directory.Exists(path) && !File.Exists(path)))
+                        if (installPaths == null || installPaths.Any(path => !LongPathFileSystem.EntryExists(path)))
                         {
                             dialogService.Show(Resources.Warn_InstallAbortedFilesNotFound, Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
                             return registeredPackages;
@@ -17223,7 +17223,7 @@ completeFileEnumerationOnce,
                         AutoInstallApplyResult applyResult = packageInstallService.ApplyAutoInstallWorkflow(
                             workflow,
                             options.KeepInstallablePackagesPending,
-                            SearchTargets != null && SearchTargets.Count() > 0 && Directory.Exists(SearchTargets[0]),
+                            SearchTargets != null && SearchTargets.Count() > 0 && LongPathFileSystem.DirectoryExists(SearchTargets[0]),
                             (packagesToInstall) => installChartPackages(packagesToInstall),
                             token);
                         LogInstallPerformance("auto_install_apply pendingAdd=" + applyResult.PendingPackagesToAdd.Count + " pendingRemove=" + applyResult.PendingPackagesToRemove.Count + " autoInstalled=" + applyResult.AutoInstalledPackages.Count + " autoFailed=" + applyResult.AutoInstallFailures.Count + " installMs=" + applyResult.InstallMs + " applyMs=" + applyResult.ApplyMs + " totalMs=" + applyResult.TotalMs);
@@ -17278,7 +17278,7 @@ completeFileEnumerationOnce,
 
     private void CleanupEmptyComponentDirectories(IEnumerable<string> installComponentDirectories)
     {
-        foreach (string installComponentDirectory in installComponentDirectories.Where(path => Directory.Exists(path)).OrderByDescending(path => path.Length))
+        foreach (string installComponentDirectory in installComponentDirectories.Where(path => LongPathFileSystem.DirectoryExists(path)).OrderByDescending(path => path.Length))
         {
             TryDeleteEmptyDirectoryTree(installComponentDirectory);
         }
@@ -17288,17 +17288,17 @@ completeFileEnumerationOnce,
     {
         try
         {
-            if (!Directory.Exists(rootDirectoryPath))
+            if (!LongPathFileSystem.DirectoryExists(rootDirectoryPath))
             {
                 return;
             }
 
-            foreach (string childDirectoryPath in Directory.EnumerateDirectories(rootDirectoryPath).ToList())
+            foreach (string childDirectoryPath in LongPathFileSystem.EnumerateDirectories(rootDirectoryPath).ToList())
             {
                 TryDeleteEmptyDirectoryTree(childDirectoryPath);
             }
 
-            if (!Directory.EnumerateFileSystemEntries(rootDirectoryPath).Any())
+            if (!LongPathFileSystem.EnumerateFileSystemEntries(rootDirectoryPath).Any())
             {
                 fileMutationService.DeleteDirectoryDirect(rootDirectoryPath, recursive: false, targetOnlyFileMutationOptions);
             }
@@ -17327,7 +17327,7 @@ completeFileEnumerationOnce,
     {
         try
         {
-            return Directory.Exists(directoryPath) && Directory.EnumerateFileSystemEntries(directoryPath).Any();
+            return LongPathFileSystem.DirectoryExists(directoryPath) && LongPathFileSystem.EnumerateFileSystemEntries(directoryPath).Any();
         }
         catch
         {
@@ -17344,8 +17344,8 @@ completeFileEnumerationOnce,
         }
 
         string packagePath = package.path;
-        bool sourceDirectoryExists = Directory.Exists(packagePath);
-        bool sourceFileExists = File.Exists(packagePath);
+        bool sourceDirectoryExists = LongPathFileSystem.DirectoryExists(packagePath);
+        bool sourceFileExists = LongPathFileSystem.FileExists(packagePath);
 
         if (!sourceDirectoryExists && !sourceFileExists)
         {
@@ -18249,17 +18249,17 @@ completeFileEnumerationOnce,
         {
             string path = package.path;
             List<string> list = null;
-            if (File.Exists(path))
+            if (LongPathFileSystem.FileExists(path))
             {
                 list = [path];
             }
             else
             {
-                if (!Directory.Exists(path))
+                if (!LongPathFileSystem.DirectoryExists(path))
                 {
                     return 0;
                 }
-                list = [.. Directory.EnumerateFileSystemEntries(path)];
+                list = [.. LongPathFileSystem.EnumerateFileSystemEntries(path)];
             }
             List<ChartFile> charts = [.. (package.ChartEntries ?? [])
                 .Select(entry => entry?.Chart)
@@ -18718,7 +18718,7 @@ completeFileEnumerationOnce,
         {
             return;
         }
-        bool isSingleFilePackage = !Directory.Exists(package.path);
+        bool isSingleFilePackage = !LongPathFileSystem.DirectoryExists(package.path);
         IPrimaryHashLookup installedHashLookup = installedHashes ?? EmptyPrimaryHashLookup.Instance;
         foreach (PackageChartEntry entry in package.ChartEntries)
         {
@@ -19084,7 +19084,7 @@ completeFileEnumerationOnce,
             using (rwlockBMSFiles.GetReaderGuard())
             {
                 List<string> installedDirectories = [.. GetDistinctInstalledDirectoriesByPrimaryHashUnsafe(hash)
-                    .Where(dir => !string.IsNullOrWhiteSpace(dir) && Directory.Exists(dir))
+                    .Where(dir => !string.IsNullOrWhiteSpace(dir) && LongPathFileSystem.DirectoryExists(dir))
                     .OrderBy(dir => dir, StringComparer.OrdinalIgnoreCase)];
                 if (installedDirectories.Count == 0)
                 {
@@ -20273,7 +20273,7 @@ completeFileEnumerationOnce,
             metrics.SkippedDuplicateSourceCount++;
             return;
         }
-        if (!Directory.Exists(srcDir))
+        if (!LongPathFileSystem.DirectoryExists(srcDir))
         {
             metrics.SkippedMissingSourceCount++;
             dialogService.Show(string.Format(Resources.Warn_RenameFolderNotExists, srcDir), Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
@@ -20456,7 +20456,7 @@ completeFileEnumerationOnce,
         {
             return;
         }
-        if (!Directory.Exists(srcDir))
+        if (!LongPathFileSystem.DirectoryExists(srcDir))
         {
             dialogService.Show(string.Format(Resources.Warn_RenameFolderNotExists, srcDir), Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
             return;
@@ -20498,7 +20498,7 @@ completeFileEnumerationOnce,
             {
                 using (rwlockBMSFiles.GetWriterGuard())
                 {
-                    if (!Directory.Exists(dstDir))
+                    if (!LongPathFileSystem.DirectoryExists(dstDir))
                     {
                         dialogService.Show(string.Format(Resources.Error_MoveDestRootNotFound, dstDir), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
                         return;
@@ -20546,7 +20546,7 @@ completeFileEnumerationOnce,
         {
             return false;
         }
-        if (File.Exists(dstDir) || Directory.Exists(dstDir))
+        if (LongPathFileSystem.EntryExists(dstDir))
         {
             dialogService.Show(string.Format(Resources.Warn_MoveDestAlreadyExists, srcDir, dstDir), Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
             return false;
@@ -20570,7 +20570,7 @@ completeFileEnumerationOnce,
         {
             return false;
         }
-        if (File.Exists(dstDir) || Directory.Exists(dstDir))
+        if (LongPathFileSystem.EntryExists(dstDir))
         {
             dialogService.Show(string.Format(Resources.Warn_MoveDestAlreadyExists, srcDir, dstDir), Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
             return false;

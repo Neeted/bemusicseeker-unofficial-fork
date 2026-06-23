@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Xml.Linq;
+using BeMusicSeeker.Models.Utils;
 using Ribbit.Threading;
 using Ribbit.Util.Extensions;
 
@@ -29,7 +30,7 @@ public class LR2Config : XDocument
             {
                 return;
             }
-            if (File.Exists(value) && (string.Equals(Path.GetFileName(value), "config.xml", StringComparison.OrdinalIgnoreCase) || string.Equals(Path.GetFileName(value), "config.xmh", StringComparison.OrdinalIgnoreCase)))
+            if (LongPathFileSystem.FileExists(value) && (string.Equals(Path.GetFileName(value), "config.xml", StringComparison.OrdinalIgnoreCase) || string.Equals(Path.GetFileName(value), "config.xmh", StringComparison.OrdinalIgnoreCase)))
             {
                 _configPath = value;
                 string directoryName = Path.GetDirectoryName(_configPath);
@@ -170,7 +171,7 @@ public class LR2Config : XDocument
         {
             source = [.. (from dirs in Element("config").Element("jukebox").Elements("path")
                       select dirs.Value.TrimEnd('\\'))];
-            list = (string.IsNullOrWhiteSpace(LR2RootPath) ? source.Where(dir => Directory.Exists(dir) && dir.IsSjisSchemeString()).Distinct(StringComparer.OrdinalIgnoreCase).ToList() : [.. (from dir in source.Select(delegate (string d)
+            list = (string.IsNullOrWhiteSpace(LR2RootPath) ? source.Where(dir => LongPathFileSystem.DirectoryExists(dir) && dir.IsSjisSchemeString()).Distinct(StringComparer.OrdinalIgnoreCase).ToList() : [.. (from dir in source.Select(delegate (string d)
                 {
                     try
                     {
@@ -187,7 +188,7 @@ public class LR2Config : XDocument
                     }
                     return d;
                 })
-                                                                                                                                                                                                    where Directory.Exists(dir) && dir.IsSjisSchemeString()
+                                                                                                                                                                                                    where LongPathFileSystem.DirectoryExists(dir) && dir.IsSjisSchemeString()
                                                                                                                                                                                                     select dir).Distinct(StringComparer.OrdinalIgnoreCase)]);
             List<string> list2 = [];
             foreach (string p in list.OrderBy(f => f.Length))
@@ -227,8 +228,8 @@ public class LR2Config : XDocument
     public void AddBMSSearchDirectories(IEnumerable<string> dirs)
     {
         dirs ??= [];
-        dirs = [.. dirs.Where(d => Directory.Exists(d)).Select(d => d.TrimEnd('\\')).Distinct(StringComparer.OrdinalIgnoreCase)];
-        if (dirs.Any(d => !Directory.Exists(d)))
+        dirs = [.. dirs.Where(d => LongPathFileSystem.DirectoryExists(d)).Select(d => d.TrimEnd('\\')).Distinct(StringComparer.OrdinalIgnoreCase)];
+        if (dirs.Any(d => !LongPathFileSystem.DirectoryExists(d)))
         {
             throw new ArgumentException("指定されたディレクトリの一部または全てが存在しません。");
         }

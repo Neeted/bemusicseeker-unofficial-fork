@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using BeMusicSeeker.Models.Utils;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
@@ -17,9 +18,9 @@ internal static class BeatorajaConfigService
     internal static bool IsBeatorajaRootPathValid(string rootPath)
     {
         return !string.IsNullOrWhiteSpace(rootPath)
-            && Directory.Exists(rootPath)
-            && File.Exists(GetConfigPath(rootPath))
-            && (File.Exists(Path.Combine(rootPath, "beatoraja.jar")) || File.Exists(Path.Combine(rootPath, "beatoraja.exe")))
+            && LongPathFileSystem.DirectoryExists(rootPath)
+            && LongPathFileSystem.FileExists(GetConfigPath(rootPath))
+            && (LongPathFileSystem.FileExists(Path.Combine(rootPath, "beatoraja.jar")) || LongPathFileSystem.FileExists(Path.Combine(rootPath, "beatoraja.exe")))
             && TryReadConfig(rootPath, out _);
     }
 
@@ -68,11 +69,11 @@ internal static class BeatorajaConfigService
     internal static List<string> GetPlayerIds(string rootPath)
     {
         string playerRoot = GetPlayerRootPath(rootPath);
-        if (string.IsNullOrWhiteSpace(playerRoot) || !Directory.Exists(playerRoot))
+        if (string.IsNullOrWhiteSpace(playerRoot) || !LongPathFileSystem.DirectoryExists(playerRoot))
         {
             return [];
         }
-        return [.. Directory.EnumerateDirectories(playerRoot, "*", SearchOption.TopDirectoryOnly)
+        return [.. LongPathFileSystem.EnumerateDirectories(playerRoot, "*", SearchOption.TopDirectoryOnly)
             .Select(Path.GetFileName)
             .Where(name => !string.IsNullOrWhiteSpace(name))
             .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)];
@@ -83,7 +84,7 @@ internal static class BeatorajaConfigService
         string scoreDbPath = GetScoreDbPath(rootPath, playerId);
         return !string.IsNullOrWhiteSpace(scoreDbPath)
             && string.Equals(Path.GetFileName(scoreDbPath), "score.db", StringComparison.OrdinalIgnoreCase)
-            && File.Exists(scoreDbPath);
+            && LongPathFileSystem.FileExists(scoreDbPath);
     }
 
     internal static void SyncTableUrls(string rootPath, IEnumerable<string> currentManagedUrls, IEnumerable<string> previousManagedUrls, Func<bool> shouldProceed = null)
@@ -99,7 +100,7 @@ internal static class BeatorajaConfigService
                 return;
             }
             string configPath = GetConfigPath(rootPath);
-            var config = JObject.Parse(File.ReadAllText(configPath, Encoding.UTF8));
+            var config = JObject.Parse(ReadAllText(configPath, Encoding.UTF8));
             var managedUrlSet = new HashSet<string>(StringComparer.Ordinal);
             foreach (string url in (previousManagedUrls ?? []).Concat(currentManagedUrls ?? []))
             {
@@ -134,13 +135,13 @@ internal static class BeatorajaConfigService
     {
         config = null;
         string configPath = GetConfigPath(rootPath);
-        if (string.IsNullOrWhiteSpace(configPath) || !File.Exists(configPath))
+        if (string.IsNullOrWhiteSpace(configPath) || !LongPathFileSystem.FileExists(configPath))
         {
             return false;
         }
         try
         {
-            config = JObject.Parse(File.ReadAllText(configPath, Encoding.UTF8));
+            config = JObject.Parse(ReadAllText(configPath, Encoding.UTF8));
             return true;
         }
         catch
@@ -159,9 +160,9 @@ internal static class BeatorajaConfigService
         string path = string.IsNullOrWhiteSpace(configuredPath) ? defaultPath : configuredPath;
         if (Path.IsPathRooted(path))
         {
-            return Path.GetFullPath(path);
+            return LongPathFileSystem.NormalizePathForStorage(path);
         }
-        return Path.GetFullPath(Path.Combine(rootPath ?? string.Empty, path));
+        return LongPathFileSystem.NormalizePathForStorage(Path.Combine(rootPath ?? string.Empty, path));
     }
 
     private static void WriteConfigAtomic(string configPath, JObject config)
@@ -169,26 +170,35 @@ internal static class BeatorajaConfigService
         string tempPath = configPath + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
         {
-            File.WriteAllText(tempPath, config.ToString(Formatting.Indented), new UTF8Encoding(false));
-            if (File.Exists(configPath))
-            {
-                File.Replace(tempPath, configPath, null);
-                return;
-            }
-            File.Move(tempPath, configPath);
+            WriteAllText(tempPath, config.ToString(Formatting.Indented), new UTF8Encoding(false));
+            LongPathFileSystem.MoveFile(tempPath, configPath, overwrite: true);
         }
         finally
         {
             try
             {
-                if (File.Exists(tempPath))
+                if (LongPathFileSystem.FileExists(tempPath))
                 {
-                    File.Delete(tempPath);
+                    LongPathFileSystem.DeleteFile(tempPath);
                 }
             }
             catch
             {
             }
         }
+    }
+
+    private static string ReadAllText(string path, Encoding encoding)
+    {
+        using FileStream stream = LongPathFileSystem.OpenRead(path);
+        using var reader = new StreamReader(stream, encoding, detectEncodingFromByteOrderMarks: true);
+        return reader.ReadToEnd();
+    }
+
+    private static void WriteAllText(string path, string contents, Encoding encoding)
+    {
+        using FileStream stream = LongPathFileSystem.Open(path, FileMode.Create, FileAccess.Write, FileShare.None);
+        using var writer = new StreamWriter(stream, encoding);
+        writer.Write(contents);
     }
 }
