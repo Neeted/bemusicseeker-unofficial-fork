@@ -58,6 +58,8 @@
 
 外部アプリ起動、関連付け起動、Explorer 起動は、BeMusicSeeker 側で対象 path の存在確認と例外処理を行う。起動先アプリが extended-length path を解釈できない場合でも、BeMusicSeeker はその失敗をファイル未存在や内部成功へ変換しない。
 
+Explorer 起動は `ExplorerOpenService` に集約する。ファイルを開く場合は `explorer.exe /select` の文字列引数を主経路にせず、Shell API で対象ファイルの選択を試みる。Shell API / Explorer 拡張は失敗コードを返しても Explorer window や tab を開く副作用を起こす場合があるため、1 つのユーザー操作で副作用のある open 呼び出しを複数回連続実行しない。通常 path / extended-length path の候補選定は `SHParseDisplayName` などの事前解決で行い、実際に開く API 呼び出しは選択した 1 候補だけに限定する。ファイル path を事前解決できない場合は、問題箇所を確認できるように親ディレクトリを同じ方針で開く。フォルダを開く入口も同じ service を通し、深い親ディレクトリを直接開けることを優先する。ファイル選択は best effort とし、選択できないことを親フォルダを開けないことと同一視しない。
+
 ## File Diff での失敗集約
 
 `ApplyFileScanDiff()` の reader / parser stage では、ファイル単位の recoverable I/O 例外を次のように扱う。

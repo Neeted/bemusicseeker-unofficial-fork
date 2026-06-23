@@ -4278,13 +4278,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        try
-        {
-            Process.Start("EXPLORER.EXE", "\"" + text + "\"");
-        }
-        catch
-        {
-        }
+        ExplorerOpenService.OpenDirectory(text);
     }
 
     /// <summary>
@@ -4546,27 +4540,14 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         if (LongPathFileSystem.DirectoryExists(dataContext.path))
         {
-            try
-            {
-                Process.Start("EXPLORER.EXE", "\"" + dataContext.path + "\"");
-                return;
-            }
-            catch
-            {
-                return;
-            }
+            ExplorerOpenService.OpenDirectory(dataContext.path);
+            return;
         }
         if (!LongPathFileSystem.FileExists(dataContext.path))
         {
             return;
         }
-        try
-        {
-            Process.Start("EXPLORER.EXE", "/select,\"" + dataContext.path + "\"");
-        }
-        catch
-        {
-        }
+        ExplorerOpenService.OpenFileAndSelect(dataContext.path);
     }
 
     /// <summary>
@@ -4788,13 +4769,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        try
-        {
-            Process.Start("EXPLORER.EXE", "\"" + dataContext + "\"");
-        }
-        catch
-        {
-        }
+        ExplorerOpenService.OpenDirectory(dataContext);
     }
 
     private void treeViewDuplicateFolderContextMenuItemMergeIntoTargetClick(object sender, RoutedEventArgs e)
@@ -6166,13 +6141,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
 
-        try
-        {
-            Process.Start("EXPLORER.EXE", "/select,\"" + state.ChartPath + "\"");
-        }
-        catch
-        {
-        }
+        ExplorerOpenService.OpenFileAndSelect(state.ChartPath);
         e.Handled = true;
     }
 
@@ -6223,13 +6192,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        try
-        {
-            Process.Start("EXPLORER.EXE", "/select,\"" + path + "\"");
-        }
-        catch
-        {
-        }
+        ExplorerOpenService.OpenFileAndSelect(path);
     }
 
     private bool TryResolveInstallDestination(ChartFile chart, out string installDir, out string reason)
@@ -6292,13 +6255,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        try
-        {
-            Process.Start("EXPLORER.EXE", "\"" + installDir + "\"");
-        }
-        catch
-        {
-        }
+        ExplorerOpenService.OpenDirectory(installDir);
     }
 
     private void tableContextMenuItemOpenInstallDestinationClick(object sender, RoutedEventArgs e)
