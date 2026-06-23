@@ -4772,7 +4772,7 @@ public class BMSLibrary : NotificationObject
         }
         ResetEverythingFallbackWarningQueue();
         bool songTblLoad = !isScoreOnly;
-        bool songTblFileCheck = mode == LibraryInitializeMode.FullReinitialize || (isStartup && !options.SkipInitFileCheck);
+        bool songTblFileCheck = mode == LibraryInitializeMode.FullReinitialize || (isStartup && options.ScanBmsFilesOnStartup);
         bool setMaintenanceInfo = !isScoreOnly;
         bool flag = !isScoreOnly;
         Task<ChartScanPrefetchInfo> chartScanPrefetchTask = null;

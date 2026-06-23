@@ -141,7 +141,7 @@ resource index は chart-relative resource key を正本にする。`foo.wav` �
 
 通常の native scan path では `LibraryResourceIndex` を native decoded arrays から直接構築し、`ChartScanResult` の resource dictionaries は materialize しない。`ChartScanResult` は file diff に必要な chart path / chart directory の carrier として使い、managed fallback scan とテスト用 merge path だけが resource dictionaries を持つ。
 
-導入先推定は destination resource index を必須にする。`SkipInitFileCheck` のように起動時 file enumeration を明示的に省略した場合、resource index がないため導入先推定は `resource_index_unavailable` として推定不可になることがある。
+導入先推定は destination resource index を必須にする。`ScanBmsFilesOnStartup` を無効にするなど、起動時 file enumeration を明示的に省略した場合、resource index がないため導入先推定は `resource_index_unavailable` として推定不可になることがある。
 
 ## Install Readiness
 

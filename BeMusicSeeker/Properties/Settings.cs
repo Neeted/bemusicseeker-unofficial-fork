@@ -1026,16 +1026,16 @@ internal sealed class Settings : ApplicationSettingsBase
 
     [UserScopedSetting]
     [DebuggerNonUserCode]
-    [DefaultSettingValue("False")]
-    public bool SkipInitFileCheck
+    [DefaultSettingValue("True")]
+    public bool ScanBmsFilesOnStartup
     {
         get
         {
-            return (bool)this["SkipInitFileCheck"];
+            return (bool)this["ScanBmsFilesOnStartup"];
         }
         set
         {
-            this["SkipInitFileCheck"] = value;
+            this["ScanBmsFilesOnStartup"] = value;
         }
     }
 

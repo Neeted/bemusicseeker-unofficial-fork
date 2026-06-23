@@ -2303,7 +2303,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        if (!Settings.Default.SkipInitFileCheck && Settings.Default.AutoInstall)
+        if (Settings.Default.ScanBmsFilesOnStartup && Settings.Default.AutoInstall)
         {
             PlaylistUrlDownloadResult downloadResult = playlistUrlBulkDownloadRunning
                 ? await DownloadPlaylistUrlCandidateAsync(url)
@@ -7936,7 +7936,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         try
         {
-            if (!Settings.Default.SkipInitFileCheck && Settings.Default.AutoInstall && menuItem.Tag is Uri)
+            if (Settings.Default.ScanBmsFilesOnStartup && Settings.Default.AutoInstall && menuItem.Tag is Uri)
             {
                 try
                 {

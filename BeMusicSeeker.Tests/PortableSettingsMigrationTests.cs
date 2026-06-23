@@ -22,12 +22,13 @@ public sealed class PortableSettingsMigrationTests
             ("UseFastSortInDataGridExperimental", "True"),
             ("SkipEstimateOfflineScoreRanking", "True"),
             ("UseEverythingForPendingPackageSourceScan", "True"),
+            ("SkipInitFileCheck", "True"),
             ("StandardCustomTableColumnSettings", "current"),
             ("UnknownFutureSetting", "keep"));
 
         int removed = PortableSettingsProvider.RemoveObsoleteSettings(section);
 
-        Assert.AreEqual(7, removed);
+        Assert.AreEqual(8, removed);
         Assert.IsNull(FindSetting(section, "StandardColumnsSettings"));
         Assert.IsNull(FindSetting(section, "BmsonColumnSettingsMigrationVersion"));
         Assert.IsNull(FindSetting(section, "PublishVersion"));
@@ -35,6 +36,7 @@ public sealed class PortableSettingsMigrationTests
         Assert.IsNull(FindSetting(section, "UseFastSortInDataGridExperimental"));
         Assert.IsNull(FindSetting(section, "SkipEstimateOfflineScoreRanking"));
         Assert.IsNull(FindSetting(section, "UseEverythingForPendingPackageSourceScan"));
+        Assert.IsNull(FindSetting(section, "SkipInitFileCheck"));
         Assert.IsNotNull(FindSetting(section, "StandardCustomTableColumnSettings"));
         Assert.IsNotNull(FindSetting(section, "UnknownFutureSetting"));
     }
@@ -48,17 +50,19 @@ public sealed class PortableSettingsMigrationTests
             ("InstallColumnsSettings", "old"),
             ("SkipEstimateOfflineScoreRanking", "True"),
             ("UseEverythingForPendingPackageSourceScan", "True"),
+            ("SkipInitFileCheck", "True"),
             ("StandardCustomTableColumnSettings", "current"));
 
         int normalized = LegacyUserConfigMigrator.NormalizeMigratedConfig(doc);
         XElement section = GetSettingsSection(doc);
 
-        Assert.AreEqual(5, normalized);
+        Assert.AreEqual(6, normalized);
         Assert.AreEqual(Settings.DefaultTableListUrl, GetSettingValue(section, "TableListURL"));
         Assert.IsNull(FindSetting(section, "StandardColumnsSettings"));
         Assert.IsNull(FindSetting(section, "InstallColumnsSettings"));
         Assert.IsNull(FindSetting(section, "SkipEstimateOfflineScoreRanking"));
         Assert.IsNull(FindSetting(section, "UseEverythingForPendingPackageSourceScan"));
+        Assert.IsNull(FindSetting(section, "SkipInitFileCheck"));
         Assert.IsNotNull(FindSetting(section, "StandardCustomTableColumnSettings"));
     }
 

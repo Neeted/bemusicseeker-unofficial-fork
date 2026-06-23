@@ -794,7 +794,7 @@
                 </GroupBox>
                 <GroupBox Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_initialization_settings, Mode=OneWay}">
                   <StackPanel>
-                    <CheckBox Style="{StaticResource styleWrappingSettingCheckBox}" IsChecked="{Binding settingDialog.SkipInitFileCheck}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_test_notscan, Mode=OneWay}" />
+                    <CheckBox Style="{StaticResource styleWrappingSettingCheckBox}" IsChecked="{Binding settingDialog.ScanBmsFilesOnStartup}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_scan_bms_files_on_startup, Mode=OneWay}" />
                     <CheckBox Style="{StaticResource styleWrappingSettingCheckBox}" IsChecked="{Binding settingDialog.SkipInitPlaylistLoad}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_test_notcheck_playlists, Mode=OneWay}" />
                     <CheckBox Style="{StaticResource styleWrappingSettingCheckBox}" IsChecked="{Binding settingDialog.StartupSelectInstallPending}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_test_startup_select_install_pending, Mode=OneWay}" />
                     <CheckBox Style="{StaticResource styleWrappingSettingCheckBox}" IsChecked="{Binding settingDialog.EnableReadOptimizedPragmas}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_test_db_read_optimized_pragmas, Mode=OneWay}" />

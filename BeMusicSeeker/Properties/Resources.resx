@@ -90,7 +90,7 @@
   <data name="Details_test_keep_smart_overwrite_protected_by_rename" xml:space="preserve">
     <value>スマート上書き時、*.bmx/*.pmx/*.txt は上書きせず自動採番で保持する</value>
   </data>
-  <data name="Msg_confirm_skip_init_file_check" xml:space="preserve">
+  <data name="Msg_confirm_disable_startup_file_scan" xml:space="preserve">
     <value>起動時にBMSファイルと構成ファイルの変更チェックを行いません
 初期化が高速化されますが、手動でフォルダのリロードを行わないと
 新しく追加した曲の認識やインストール先の推定ができません
@@ -997,8 +997,8 @@ LR2IRにスコアやクリアが自動送信されるわけではありません
   <data name="Appearance_theme_light" xml:space="preserve">
     <value>ライト</value>
   </data>
-  <data name="Details_test_notscan" xml:space="preserve">
-    <value>起動時にBMSファイルと構成ファイルのスキャンを行わない</value>
+  <data name="Details_scan_bms_files_on_startup" xml:space="preserve">
+    <value>起動時にBMSファイルと構成ファイルのスキャンを行う</value>
   </data>
   <data name="Device_setting_lowlatency" xml:space="preserve">
     <value>WASAPI低レイテンシモード(要対応デバイス)</value>

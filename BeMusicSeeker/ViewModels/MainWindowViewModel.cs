@@ -646,7 +646,7 @@ public class MainWindowViewModel : ViewModel
 
         private bool tempShowRecommUpdatedMsg;
 
-        private bool tempSkipInitFileCheck;
+        private bool tempScanBmsFilesOnStartup;
 
         private bool tempSkipInitPlaylistLoad;
 
@@ -2423,30 +2423,30 @@ public class MainWindowViewModel : ViewModel
             }
         }
 
-        public bool SkipInitFileCheck
+        public bool ScanBmsFilesOnStartup
         {
             get
             {
-                return Settings.Default.SkipInitFileCheck;
+                return Settings.Default.ScanBmsFilesOnStartup;
             }
             set
             {
-                if (Settings.Default.SkipInitFileCheck == value)
+                if (Settings.Default.ScanBmsFilesOnStartup == value)
                 {
                     return;
                 }
-                if (value)
+                if (!value)
                 {
-                    var confirmationMessage = new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Msg_confirm_skip_init_file_check, BeMusicSeeker.Properties.Resources.Warning, MessageBoxImage.Exclamation, MessageBoxButton.OKCancel, "ConfirmationDialog");
+                    var confirmationMessage = new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Msg_confirm_disable_startup_file_scan, BeMusicSeeker.Properties.Resources.Warning, MessageBoxImage.Exclamation, MessageBoxButton.OKCancel, "ConfirmationDialog");
                     ownerViewModel.RaiseInteractionMessageOnUiThread(confirmationMessage);
                     if (confirmationMessage.Response != true)
                     {
-                        RaisePropertyChanged("EstimateOfflineScoreRanking");
+                        RaisePropertyChanged("ScanBmsFilesOnStartup");
                         return;
                     }
                 }
-                Settings.Default.SkipInitFileCheck = value;
-                RaisePropertyChanged("SkipInitFileCheck");
+                Settings.Default.ScanBmsFilesOnStartup = value;
+                RaisePropertyChanged("ScanBmsFilesOnStartup");
             }
         }
 
@@ -5142,7 +5142,7 @@ public class MainWindowViewModel : ViewModel
             tempShowDiffBMSInstallConfirmMsg = Settings.Default.ShowDiffBMSInstallConfirmMsg;
             tempShowDuplicateFileCheckConfirmMsg = Settings.Default.ShowDuplicateFileCheckConfirmMsg;
             tempShowRecommUpdatedMsg = Settings.Default.ShowRecommUpdatedMsg;
-            tempSkipInitFileCheck = Settings.Default.SkipInitFileCheck;
+            tempScanBmsFilesOnStartup = Settings.Default.ScanBmsFilesOnStartup;
             tempSkipInitPlaylistLoad = Settings.Default.SkipInitPlaylistLoad;
             tempStartupSelectInstallPending = Settings.Default.StartupSelectInstallPending;
             tempEnableReadOptimizedPragmas = Settings.Default.EnableReadOptimizedPragmas;
@@ -5261,7 +5261,7 @@ public class MainWindowViewModel : ViewModel
                 || tempShowDiffBMSInstallConfirmMsg != Settings.Default.ShowDiffBMSInstallConfirmMsg
                 || tempShowDuplicateFileCheckConfirmMsg != Settings.Default.ShowDuplicateFileCheckConfirmMsg
                 || tempShowRecommUpdatedMsg != Settings.Default.ShowRecommUpdatedMsg
-                || tempSkipInitFileCheck != Settings.Default.SkipInitFileCheck
+                || tempScanBmsFilesOnStartup != Settings.Default.ScanBmsFilesOnStartup
                 || tempSkipInitPlaylistLoad != Settings.Default.SkipInitPlaylistLoad
                 || tempStartupSelectInstallPending != Settings.Default.StartupSelectInstallPending
                 || tempEnableReadOptimizedPragmas != Settings.Default.EnableReadOptimizedPragmas
@@ -6345,7 +6345,7 @@ public class MainWindowViewModel : ViewModel
             Settings.Default.ShowDiffBMSInstallConfirmMsg = tempShowDiffBMSInstallConfirmMsg;
             Settings.Default.ShowDuplicateFileCheckConfirmMsg = tempShowDuplicateFileCheckConfirmMsg;
             Settings.Default.ShowRecommUpdatedMsg = tempShowRecommUpdatedMsg;
-            Settings.Default.SkipInitFileCheck = tempSkipInitFileCheck;
+            Settings.Default.ScanBmsFilesOnStartup = tempScanBmsFilesOnStartup;
             Settings.Default.SkipInitPlaylistLoad = tempSkipInitPlaylistLoad;
             Settings.Default.StartupSelectInstallPending = tempStartupSelectInstallPending;
             Settings.Default.EnableReadOptimizedPragmas = tempEnableReadOptimizedPragmas;
@@ -6358,7 +6358,7 @@ public class MainWindowViewModel : ViewModel
             Settings.Default.DeletePendingPackageSourceAfterInstall = tempDeletePendingPackageSourceAfterInstall;
             Settings.Default.EnableSmartComponentOverwrite = tempEnableSmartComponentOverwrite;
             Settings.Default.KeepSmartOverwriteProtectedFilesByRenaming = tempKeepSmartOverwriteProtectedFilesByRenaming;
-            Settings.Default.SkipInitFileCheck = tempSkipInitFileCheck;
+            Settings.Default.ScanBmsFilesOnStartup = tempScanBmsFilesOnStartup;
             Settings.Default.EncoderSampleRate = tempEncoderSampleRate;
             Settings.Default.Encoder = (EncoderType)tempEncoderIndex;
             Settings.Default.EncoderFormat = tempEncoderFormat;
@@ -6457,7 +6457,7 @@ public class MainWindowViewModel : ViewModel
             RaisePropertyChanged(() => ShowDiffBMSInstallConfirmMsg);
             RaisePropertyChanged(() => ShowDuplicateFileCheckConfirmMsg);
             RaisePropertyChanged(() => ShowRecommUpdatedMsg);
-            RaisePropertyChanged(() => SkipInitFileCheck);
+            RaisePropertyChanged(() => ScanBmsFilesOnStartup);
             RaisePropertyChanged(() => SkipInitPlaylistLoad);
             RaisePropertyChanged(() => StartupSelectInstallPending);
             RaisePropertyChanged(() => EnableReadOptimizedPragmas);

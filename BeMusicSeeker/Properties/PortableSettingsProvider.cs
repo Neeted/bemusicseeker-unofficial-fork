@@ -31,7 +31,8 @@ public sealed class PortableSettingsProvider : SettingsProvider, IApplicationSet
         "UseDataGridColumnVirtualizationExperimental",
         "UseCustomTableView",
         "SkipEstimateOfflineScoreRanking",
-        "UseEverythingForPendingPackageSourceScan"
+        "UseEverythingForPendingPackageSourceScan",
+        "SkipInitFileCheck"
     };
 
     public override void Initialize(string name, NameValueCollection config)

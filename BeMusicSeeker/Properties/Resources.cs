@@ -171,9 +171,9 @@ public class Resources
 
     public static string Details_test_keep_smart_overwrite_protected_by_rename => ResourceManager.GetString("Details_test_keep_smart_overwrite_protected_by_rename", resourceCulture);
 
-    public static string Details_test_notscan => ResourceManager.GetString("Details_test_notscan", resourceCulture);
+    public static string Details_scan_bms_files_on_startup => ResourceManager.GetString("Details_scan_bms_files_on_startup", resourceCulture);
 
-    public static string Msg_confirm_skip_init_file_check => ResourceManager.GetString("Msg_confirm_skip_init_file_check", resourceCulture);
+    public static string Msg_confirm_disable_startup_file_scan => ResourceManager.GetString("Msg_confirm_disable_startup_file_scan", resourceCulture);
 
     public static string Msg_confirm_skip_init_playlist_load => ResourceManager.GetString("Msg_confirm_skip_init_playlist_load", resourceCulture);
 

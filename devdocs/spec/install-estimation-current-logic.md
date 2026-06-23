@@ -81,7 +81,7 @@ source package surface の再帰探索は bounded scan で行います。導入�
 
 `ChartResourceKeyHash` は拡張子なし resource key の静的 hash helper です。導入先推定の candidate 列挙や matching の正本は `DirectoryResourceLookupCache` のカテゴリ別 chart-relative key で、旧 `FolderAllFileList` / all-base union view は使いません。導入先推定の final evaluation は relative-only であり、category 別 basename hash は照合にも audio gate にも使いません。
 
-`DirectoryResourceLookupCache` がない状態では導入先推定を行いません。`SkipInitFileCheck` のように起動時 resource index を作らない設定では、推定不可になる場合があります。
+`DirectoryResourceLookupCache` がない状態では導入先推定を行いません。`ScanBmsFilesOnStartup` を無効にするなど、起動時 resource index を作らない設定では、推定不可になる場合があります。
 
 ## 推定入口
 

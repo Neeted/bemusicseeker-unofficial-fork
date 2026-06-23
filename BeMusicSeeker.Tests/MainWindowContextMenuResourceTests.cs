@@ -2262,7 +2262,7 @@ public sealed class MainWindowContextMenuResourceTests
         string viewModel = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
         string[] promotedLabels =
         [
-            Resources.Details_test_notscan,
+            Resources.Details_scan_bms_files_on_startup,
             Resources.Details_test_notcheck_playlists,
             Resources.Details_test_startup_select_install_pending,
             Resources.Details_update_lr2ir_ranking_cache_on_startup,
@@ -2280,7 +2280,7 @@ public sealed class MainWindowContextMenuResourceTests
             Assert.IsFalse(label.Contains("[TEST]"), label);
         }
         Assert.AreEqual(0, CountOccurrences(viewModel, "本機能はテスト実装中です"));
-        StringAssert.Contains(viewModel, "Resources.Msg_confirm_skip_init_file_check");
+        StringAssert.Contains(viewModel, "Resources.Msg_confirm_disable_startup_file_scan");
         StringAssert.Contains(viewModel, "Resources.Msg_confirm_skip_init_playlist_load");
         StringAssert.Contains(viewModel, "Resources.Msg_confirm_enable_lr2ir_ranking_cache_startup_update");
         StringAssert.Contains(viewModel, "Resources.Msg_confirm_enable_offline_score_ranking_estimation");

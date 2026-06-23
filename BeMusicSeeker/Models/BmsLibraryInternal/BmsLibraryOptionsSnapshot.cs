@@ -37,7 +37,7 @@ internal sealed class BmsLibraryOptionsSnapshot
 
     public bool EnableReadOptimizedPragmas { get; set; }
 
-    public bool SkipInitFileCheck { get; set; }
+    public bool ScanBmsFilesOnStartup { get; set; }
 
     public string FolderNameFormat { get; set; }
 
@@ -67,7 +67,7 @@ internal sealed class BmsLibraryOptionsSnapshot
                 ? BeatorajaConfigService.GetScoreDbPath(Settings.Default.BeatorajaRootPath, Settings.Default.BeatorajaPlayerId)
                 : Settings.Default.BeatorajaScoreDbPath,
             EnableReadOptimizedPragmas = Settings.Default.EnableReadOptimizedPragmas,
-            SkipInitFileCheck = Settings.Default.SkipInitFileCheck,
+            ScanBmsFilesOnStartup = Settings.Default.ScanBmsFilesOnStartup,
             FolderNameFormat = Settings.Default.FolderNameFormat,
             UseOnlyShiftJISChars = Settings.Default.UseOnlyShiftJISChars,
             BMSInstallDir = Settings.Default.BMSInstallDir
