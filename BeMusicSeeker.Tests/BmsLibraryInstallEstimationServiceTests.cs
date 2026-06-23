@@ -945,7 +945,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
 
             PackageInstallSurfaceSnapshot surface = PackageInstallEstimationSnapshotBuilder.BuildPackageInstallSurfaceSnapshot(
                 chartPath,
-                useEverythingForPendingPackageSourceScan: false,
                 maxVisitedFileSystemEntryCount: 3);
 
             Assert.IsTrue(surface.ScanLimitExceeded);
@@ -971,9 +970,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     public void ChartPackage_PathPackage_DoesNotPrebuildSourceSurface_WhenChartAdaptersAreRequested()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        WithPendingPackageSourceScanSetting(enabled: false, delegate
-        {
-            WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
+        WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
             {
                 string sourceDir = Path.Combine(tempRoot, "PathPackage");
                 string soundDir = Path.Combine(sourceDir, "sound");
@@ -1012,16 +1009,13 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 Assert.AreEqual(1, firstSnapshot.BundledAudioCount);
                 Assert.IsTrue(secondSnapshot.SourceSurfaceCacheHit);
             });
-        });
     }
 
     [TestMethod]
     public void ChartPackage_PathPackage_UsesChartEntriesBeforeCompatibilityAdaptersAreRequested()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        WithPendingPackageSourceScanSetting(enabled: false, delegate
-        {
-            WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
+        WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
             {
                 string sourceDir = Path.Combine(tempRoot, "PathPackage");
                 Directory.CreateDirectory(sourceDir);
@@ -1049,16 +1043,13 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                     secondEntries.Select(entry => entry.Chart.Path).OrderBy(path => path).ToList(),
                     package.ChartEntries.Select(entry => entry.Chart.Path).OrderBy(path => path).ToList());
             });
-        });
     }
 
     [TestMethod]
     public void ChartPackage_PathPackage_CountsChartEntriesBeforeCompatibilityAdaptersAreRequested()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        WithPendingPackageSourceScanSetting(enabled: false, delegate
-        {
-            WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
+        WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
             {
                 string sourceDir = Path.Combine(tempRoot, "PathPackage");
                 Directory.CreateDirectory(sourceDir);
@@ -1074,16 +1065,13 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 Assert.AreEqual(2, package.ChartEntries.Count);
                 Assert.IsTrue(package.ChartEntries.Count > 0);
             });
-        });
     }
 
     [TestMethod]
     public void PackageInstallEstimationSnapshotBuilder_BuildsFromPackageChartEntries()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        WithPendingPackageSourceScanSetting(enabled: false, delegate
-        {
-            WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
+        WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
             {
                 string sourceDir = Path.Combine(tempRoot, "PathPackage");
                 string soundDir = Path.Combine(sourceDir, "sound");
@@ -1099,7 +1087,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 };
 
                 List<PackageChartEntry> targetEntries = package.ChartEntries;
-                PackageInstallSurfaceSnapshot sourceSurface = PackageInstallEstimationSnapshotBuilder.BuildPackageInstallSurfaceSnapshot(sourceDir, useEverythingForPendingPackageSourceScan: false);
+                PackageInstallSurfaceSnapshot sourceSurface = PackageInstallEstimationSnapshotBuilder.BuildPackageInstallSurfaceSnapshot(sourceDir);
                 PackageInstallEstimationSnapshot snapshot = PackageInstallEstimationSnapshotBuilder.Build(package, targetEntries, sourceSurface, sourceSurfaceCacheHit: false);
 
                 Assert.AreEqual(2, targetEntries.Count);
@@ -1109,7 +1097,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 Assert.AreEqual(1, snapshot.BundledAudioCount);
                 Assert.IsNotNull(snapshot.RepresentativeChart);
             });
-        });
     }
 
     [TestMethod]
@@ -1136,7 +1123,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             {
                 path = sourceDir
             };
-            PackageInstallSurfaceSnapshot sourceSurface = PackageInstallEstimationSnapshotBuilder.BuildPackageInstallSurfaceSnapshot(sourceDir, useEverythingForPendingPackageSourceScan: false);
+            PackageInstallSurfaceSnapshot sourceSurface = PackageInstallEstimationSnapshotBuilder.BuildPackageInstallSurfaceSnapshot(sourceDir);
 
             PackageInstallEstimationSnapshot snapshot = PackageInstallEstimationSnapshotBuilder.Build(package, [entry], sourceSurface, sourceSurfaceCacheHit: false);
 
@@ -1400,9 +1387,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     public void ChartPackage_GetOrBuildInstallEstimationSnapshot_ResolvesPathMatchedBmsonTargetToPackageEntry()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        WithPendingPackageSourceScanSetting(enabled: false, delegate
-        {
-            WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
+        WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
             {
                 string sourceDir = Path.Combine(tempRoot, "PathPackage");
                 string soundDir = Path.Combine(sourceDir, "sound");
@@ -1428,16 +1413,13 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 Assert.IsNotNull(snapshot.RepresentativeChart.GetBmsonStorageOwner());
                 Assert.AreEqual(1, snapshot.DefinedResources.AudioReferenceCount);
             });
-        });
     }
 
     [TestMethod]
     public void ChartPackage_GetOrBuildInstallEstimationSnapshot_UsesPackageEntriesWhenTargetAdaptersAreEmpty()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        WithPendingPackageSourceScanSetting(enabled: false, delegate
-        {
-            WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
+        WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
             {
                 string sourceDir = Path.Combine(tempRoot, "PathPackage");
                 string soundDir = Path.Combine(sourceDir, "sound");
@@ -1460,16 +1442,13 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 Assert.AreEqual(1, snapshot.DefinedResources.TotalReferenceCount);
                 Assert.AreEqual("bmson", snapshot.TargetMetadataProfile.DominantNormalizedTitle);
             });
-        });
     }
 
     [TestMethod]
     public void ChartPackage_PathPackage_DiscoversBmsonAsChartEntryWithoutCompatibilityAdapter()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        WithPendingPackageSourceScanSetting(enabled: false, delegate
-        {
-            WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
+        WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
             {
                 string sourceDir = Path.Combine(tempRoot, "PathPackage");
                 string soundDir = Path.Combine(sourceDir, "sound");
@@ -1494,16 +1473,13 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 Assert.AreEqual(1, snapshot.ChartCount);
                 Assert.AreEqual(1, snapshot.DefinedResources.AudioReferenceCount);
             });
-        });
     }
 
     [TestMethod]
     public void ChartPackage_DisplayTitle_UsesChartEntriesWithoutMaterializingBmsonAdapter()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        WithPendingPackageSourceScanSetting(enabled: false, delegate
-        {
-            WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
+        WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
             {
                 string sourceDir = Path.Combine(tempRoot, "PathPackage");
                 Directory.CreateDirectory(sourceDir);
@@ -1522,16 +1498,13 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 Assert.AreEqual(1, entries.Count);
                 Assert.IsNull(entries[0].GetBmsOwnerForTest());
             });
-        });
     }
 
     [TestMethod]
     public void ChartPackage_RemoveChartEntriesPredicate_RemovesAdapterlessBmsonEntryWithoutMaterializing()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        WithPendingPackageSourceScanSetting(enabled: false, delegate
-        {
-            WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
+        WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
             {
                 string sourceDir = Path.Combine(tempRoot, "PathPackage");
                 string keepBmsonPath = Path.Combine(sourceDir, "keep.bmson");
@@ -1558,7 +1531,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 Assert.AreEqual(1, package.ChartEntries.Count);
                 Assert.AreEqual(keepBmsonPath, package.ChartEntries[0].Chart.Path);
             });
-        });
     }
 
     [TestMethod]
@@ -1576,9 +1548,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     public void ChartPackage_BuildInstallEstimationSnapshot_ResolvesBatchPathMatchedBmsonTargetToPackageEntry()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        WithPendingPackageSourceScanSetting(enabled: false, delegate
-        {
-            WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
+        WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
             {
                 string sourceDir = Path.Combine(tempRoot, "PathPackage");
                 string soundDir = Path.Combine(sourceDir, "sound");
@@ -1596,7 +1566,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                     delete_parent = true
                 };
                 TestableBmsFile detachedCompatibilityAdapter = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", bmsonPath);
-                PackageInstallSurfaceSnapshot sourceSurface = PackageInstallEstimationSnapshotBuilder.BuildPackageInstallSurfaceSnapshot(sourceDir, useEverythingForPendingPackageSourceScan: false);
+                PackageInstallSurfaceSnapshot sourceSurface = PackageInstallEstimationSnapshotBuilder.BuildPackageInstallSurfaceSnapshot(sourceDir);
 
                 PackageInstallEstimationSnapshot snapshot = package.BuildInstallEstimationSnapshotFromEntries(
                     ResolvePackageEntries(package, [detachedCompatibilityAdapter]),
@@ -1610,16 +1580,13 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 Assert.AreEqual(1, snapshot.DefinedResources.AudioReferenceCount);
                 Assert.IsTrue(snapshot.SourceSurfaceBatchHit);
             });
-        });
     }
 
     [TestMethod]
     public void ChartPackage_PathPackage_InvalidatesChartDiscoveryAndSourceSurfaceSnapshots_WhenPathChanges()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        WithPendingPackageSourceScanSetting(enabled: false, delegate
-        {
-            WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
+        WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
             {
                 string sourceDirA = Path.Combine(tempRoot, "PathPackageA");
                 string sourceDirB = Path.Combine(tempRoot, "PathPackageB");
@@ -1653,7 +1620,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 Assert.IsTrue(cachedSnapshotB.SourceSurfaceCacheHit);
                 Assert.AreEqual("bounded_fast_source_surface", snapshotB.SourceSurfaceScanBackend);
             });
-        });
     }
 
     [TestMethod]
@@ -1817,9 +1783,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     public void ValidateInstallDestination_MatchesAdapterlessBmsonPackageByChartPath()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        WithPendingPackageSourceScanSetting(enabled: false, delegate
-        {
-            WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
+        WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
             {
                 string pendingDirectoryPath = Path.Combine(tempRoot, "pending");
                 string installDirectoryPath = Path.Combine(tempRoot, "install");
@@ -1851,16 +1815,13 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 Assert.AreEqual(bmsonPath, result.TargetEntries[0].Chart.Path);
                 Assert.IsNull(entries[0].GetBmsOwnerForTest());
             });
-        });
     }
 
     [TestMethod]
     public void ValidateInstallDestination_DoesNotMaterializeAdapterlessBmsonWhenDestinationIsInvalid()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        WithPendingPackageSourceScanSetting(enabled: false, delegate
-        {
-            WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
+        WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
             {
                 string pendingDirectoryPath = Path.Combine(tempRoot, "pending");
                 Directory.CreateDirectory(pendingDirectoryPath);
@@ -1888,7 +1849,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 Assert.AreEqual(1, result.TargetEntries.Count);
                 Assert.IsNull(entries[0].GetBmsOwnerForTest());
             });
-        });
     }
 
     [TestMethod]
@@ -3678,20 +3638,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         }
         File.SetAttributes(directoryPath, FileAttributes.Normal);
         Directory.Delete(directoryPath, recursive: true);
-    }
-
-    private static void WithPendingPackageSourceScanSetting(bool enabled, Action action)
-    {
-        bool original = BeMusicSeeker.Properties.Settings.Default.UseEverythingForPendingPackageSourceScan;
-        try
-        {
-            BeMusicSeeker.Properties.Settings.Default.UseEverythingForPendingPackageSourceScan = enabled;
-            action();
-        }
-        finally
-        {
-            BeMusicSeeker.Properties.Settings.Default.UseEverythingForPendingPackageSourceScan = original;
-        }
     }
 
     private static void WithAutoApplyAmbiguousInstallDestination(bool enabled, Action action)

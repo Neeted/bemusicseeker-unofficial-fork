@@ -1415,9 +1415,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     public void PrepareAutoInstallWorkflow_DoesNotPrebuildSourceSurfaceForDiscoveredPackages()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        WithPendingPackageSourceScanSetting(enabled: false, delegate
-        {
-            WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
             {
                 string directoryPackagePath = Path.Combine(tempDirectoryPath, "DirPkg");
                 Directory.CreateDirectory(directoryPackagePath);
@@ -1451,7 +1449,6 @@ public sealed class BmsLibraryPackageInstallServiceTests
                     Assert.AreEqual("bounded_fast_source_surface", firstSnapshot.SourceSurfaceScanBackend);
                 }
             });
-        });
     }
 
     [TestMethod]
@@ -3500,17 +3497,4 @@ public sealed class BmsLibraryPackageInstallServiceTests
         }
     }
 
-    private static void WithPendingPackageSourceScanSetting(bool enabled, Action action)
-    {
-        bool original = BeMusicSeeker.Properties.Settings.Default.UseEverythingForPendingPackageSourceScan;
-        try
-        {
-            BeMusicSeeker.Properties.Settings.Default.UseEverythingForPendingPackageSourceScan = enabled;
-            action();
-        }
-        finally
-        {
-            BeMusicSeeker.Properties.Settings.Default.UseEverythingForPendingPackageSourceScan = original;
-        }
-    }
 }

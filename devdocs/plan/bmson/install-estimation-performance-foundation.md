@@ -854,10 +854,7 @@ Phase 6 / Perf-3 で扱うもの:
   - source-side mainline の `__all__` query は廃止した
   - package chart discovery (`ChartPackage.ChartFiles`; 当時の旧 `ChartPackage.BMSFiles`) は chart discovery cache に戻し、install surface は別 cache に分離した
   - 件数は `SourceSurfaceTrackedFileCount` / `SourceSurfaceChartFileCount` / `SourceSurfaceResourceFileCount` で受ける
-  - source-side で Everything を使うかどうかは user setting で切り替える
-    - 設定名: `保留パッケージの推定時に Everything を使用する`
-    - 既定値: `false`
-    - `false` のときは source-side を fast-only enumeration で処理する
+  - source-side は bounded fast enumeration に統一し、Everything user setting は廃止した
 - grouped enumeration は残すが、source-side mainline ではなく fallback / diagnostics / utility 用に寄せた
 
 Phase 3 実測 (`bin/Release/net472/install-performance.log`, setting=`false`):

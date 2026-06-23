@@ -14,7 +14,6 @@
   "Details_test_notcheck_playlists": "시작 시 재생 목록 업데이트 확인 안 함",
   "Details_test_delete_pending_source_after_install": "일반 설치 시 이미 설치된 채보가 남아 있어도 원본 패키지를 삭제",
   "Details_auto_apply_ambiguous_install_destination": "여러 후보가 강하게 일치하면 첫 번째 후보를 도입 대상으로 설정",
-  "Details_use_everything_for_pending_package_source_scan": "보류 패키지 추정 시 Everything 사용",
   "Playlist_sync_progress_label_format": "플레이리스트 동기화 {0}/{1}",
   "Playlist_sync_progress_single_label": "플레이리스트 동기화",
   "Beatoraja_bmt_export_progress_label_format": ".bmt 출력 {0}/{1}",

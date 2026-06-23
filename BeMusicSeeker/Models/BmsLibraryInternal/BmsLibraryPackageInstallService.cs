@@ -579,7 +579,7 @@ internal sealed class BmsLibraryPackageInstallService
         if (LongPathFileSystem.DirectoryExists(packagePath))
         {
             List<PackageChartEntry> recursiveEntries = [.. PackageInstallEstimationSnapshotBuilder
-                .BuildPackageChartDiscoverySnapshot(packagePath, useEverythingForPendingPackageSourceScan: false)
+                .BuildPackageChartDiscoverySnapshot(packagePath)
                 .ChartEntries
                 .Where(entry => entry?.Chart != null)];
             if (recursiveEntries.Count > 0)

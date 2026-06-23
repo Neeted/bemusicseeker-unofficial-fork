@@ -14,7 +14,6 @@
   "Details_test_notcheck_playlists": "啟動時不確認播放清單更新",
   "Details_test_delete_pending_source_after_install": "一般安裝時，即使已安裝譜面仍留在來源套件中也刪除來源套件",
   "Details_auto_apply_ambiguous_install_destination": "多個候選高度符合時，將第一個候選設為導入目標",
-  "Details_use_everything_for_pending_package_source_scan": "估算保留套件時使用 Everything",
   "Playlist_sync_progress_label_format": "播放清單同步 {0}/{1}",
   "Playlist_sync_progress_single_label": "播放清單同步",
   "Beatoraja_bmt_export_progress_label_format": ".bmt 輸出 {0}/{1}",

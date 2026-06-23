@@ -23,8 +23,6 @@ internal sealed class BmsLibraryOptionsSnapshot
 
     public bool KeepInstallablePackagesPending { get; set; }
 
-    public bool UseEverythingForPendingPackageSourceScan { get; set; }
-
     public bool AutoApplyAmbiguousInstallDestination { get; set; }
 
     public bool EstimateOfflineScoreRanking { get; set; }
@@ -60,7 +58,6 @@ internal sealed class BmsLibraryOptionsSnapshot
             KeepSmartOverwriteProtectedFilesByRenaming = Settings.Default.KeepSmartOverwriteProtectedFilesByRenaming,
             DeletePendingPackageSourceAfterInstall = Settings.Default.DeletePendingPackageSourceAfterInstall,
             KeepInstallablePackagesPending = Settings.Default.KeepInstallablePackagesPending,
-            UseEverythingForPendingPackageSourceScan = Settings.Default.UseEverythingForPendingPackageSourceScan,
             AutoApplyAmbiguousInstallDestination = Settings.Default.AutoApplyAmbiguousInstallDestination,
             EstimateOfflineScoreRanking = Settings.Default.EstimateOfflineScoreRanking,
             UpdateLr2IrRankingCacheOnStartup = Settings.Default.UpdateLr2IrRankingCacheOnStartup,

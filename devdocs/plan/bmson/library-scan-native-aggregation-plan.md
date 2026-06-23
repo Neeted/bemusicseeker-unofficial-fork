@@ -39,10 +39,7 @@ relative-path 対応後の library build 性能悪化は、relative path その�
   - `ChartPackage.ChartFiles` は `PackageChartDiscoverySnapshot` だけを見る
   - install estimation 用の source surface は `PackageInstallSurfaceSnapshot` に分離した
   - source-side mainline から `__all__` query を外し、`tracked/chart/resource` count を canonical telemetry にした
-  - source-side で Everything を使うかどうかは user setting で切り替える
-    - 設定名: `保留パッケージの推定時に Everything を使用する`
-    - 既定値: `false`
-    - `false` のときは source-side を fast-only enumeration で処理する
+  - source-side は bounded fast enumeration に統一し、Everything user setting は廃止した
 - grouped enumeration は残すが、source-side mainline ではなく fallback / diagnostics / utility 用に寄せた
 - source-side enumeration 自体は blocker ではなくなり、残差は pending estimate の評価 / orchestration 側へ移っている
 

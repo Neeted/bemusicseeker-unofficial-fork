@@ -15,7 +15,6 @@
   "Details_update_lr2ir_ranking_cache_on_startup": "起動時にLR2IRランキングキャッシュを更新する",
   "Details_test_delete_pending_source_after_install": "通常インストール時、既所持譜面が残っていても元パッケージを削除する",
   "Details_auto_apply_ambiguous_install_destination": "複数候補でも高一致なら第1候補を導入先に設定する",
-  "Details_use_everything_for_pending_package_source_scan": "保留パッケージの推定時に Everything を使用する",
   "Details_test_smart_component_overwrite": "差分導入時に更新日時とサイズを比較して同梱ファイルの上書きを最適化する",
   "Details_test_keep_smart_overwrite_protected_by_rename": "スマート上書き時、*.bmx/*.pmx/*.txt は上書きせず自動採番で保持する",
   "Msg_confirm_skip_init_file_check": "起動時にBMSファイルと構成ファイルの変更チェックを行いません\n初期化が高速化されますが、手動でフォルダのリロードを行わないと\n新しく追加した曲の認識やインストール先の推定ができません\n\n再起動後に変更が反映されます",

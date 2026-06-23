@@ -1447,21 +1447,6 @@ internal sealed class Settings : ApplicationSettingsBase
     [UserScopedSetting]
     [DebuggerNonUserCode]
     [DefaultSettingValue("False")]
-    public bool UseEverythingForPendingPackageSourceScan
-    {
-        get
-        {
-            return (bool)this["UseEverythingForPendingPackageSourceScan"];
-        }
-        set
-        {
-            this["UseEverythingForPendingPackageSourceScan"] = value;
-        }
-    }
-
-    [UserScopedSetting]
-    [DebuggerNonUserCode]
-    [DefaultSettingValue("False")]
     public bool AutoApplyAmbiguousInstallDestination
     {
         get

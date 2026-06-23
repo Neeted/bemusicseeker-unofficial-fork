@@ -1803,9 +1803,6 @@ maintenance の再スキャンや chart_info の全譜面補完は行いませ�
   <data name="Details_test_keep_installable_pending" xml:space="preserve">
     <value>新規判定でも自動インストールせず保留に追加する</value>
   </data>
-  <data name="Details_use_everything_for_pending_package_source_scan" xml:space="preserve">
-    <value>保留パッケージの推定時に Everything を使用する</value>
-  </data>
   <data name="Details_auto_apply_ambiguous_install_destination" xml:space="preserve">
     <value>複数候補でも高一致なら第1候補を導入先に設定する</value>
   </data>

@@ -4122,7 +4122,7 @@ public class BMSLibrary : NotificationObject
         BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
         BmsLibraryInstallEstimationService installEstimationService = CreateInstallEstimationService(options);
         IInstalledChartLookupIndex installedDirectoryIndex = CreateInstalledChartLookupSnapshotUnsafe();
-        PendingEstimateSourceBatchSnapshot candidateSnapshot = BuildPendingEstimateSourceBatchSnapshotUnsafe(packageList, installEstimationService, installedDirectoryIndex, sourceLogValue, options.UseEverythingForPendingPackageSourceScan);
+        PendingEstimateSourceBatchSnapshot candidateSnapshot = BuildPendingEstimateSourceBatchSnapshotUnsafe(packageList, installEstimationService, installedDirectoryIndex, sourceLogValue);
         var estimableSnapshot = new PendingEstimateSourceBatchSnapshot
         {
             RootCount = candidateSnapshot.RootCount,
@@ -4216,7 +4216,7 @@ public class BMSLibrary : NotificationObject
         return result;
     }
 
-    private PendingEstimateSourceBatchSnapshot BuildPendingEstimateSourceBatchSnapshotUnsafe(List<ChartPackage> packageList, BmsLibraryInstallEstimationService installEstimationService, IInstalledChartLookupIndex installedDirectoryIndex, string sourceLogValue, bool useEverythingForPendingPackageSourceScan)
+    private PendingEstimateSourceBatchSnapshot BuildPendingEstimateSourceBatchSnapshotUnsafe(List<ChartPackage> packageList, BmsLibraryInstallEstimationService installEstimationService, IInstalledChartLookupIndex installedDirectoryIndex, string sourceLogValue)
     {
         var snapshot = new PendingEstimateSourceBatchSnapshot();
         var stopwatch = Stopwatch.StartNew();
@@ -4254,7 +4254,7 @@ public class BMSLibrary : NotificationObject
             snapshot.PackageStates.Add(state);
         }
 
-        TryPopulatePendingEstimateSourceSurfaceViewsUnsafe(rootsToScan, sourceSurfaceByRoot, snapshot, useEverythingForPendingPackageSourceScan);
+        TryPopulatePendingEstimateSourceSurfaceViewsUnsafe(rootsToScan, sourceSurfaceByRoot, snapshot);
 
         foreach (PendingEstimateSourceBatchPackageState state in snapshot.PackageStates)
         {
@@ -4296,7 +4296,7 @@ public class BMSLibrary : NotificationObject
         return snapshot;
     }
 
-    private void TryPopulatePendingEstimateSourceSurfaceViewsUnsafe(IEnumerable<string> roots, IDictionary<string, SourceSurfaceEntryView> sourceSurfaceByRoot, PendingEstimateSourceBatchSnapshot snapshot, bool useEverythingForPendingPackageSourceScan)
+    private void TryPopulatePendingEstimateSourceSurfaceViewsUnsafe(IEnumerable<string> roots, IDictionary<string, SourceSurfaceEntryView> sourceSurfaceByRoot, PendingEstimateSourceBatchSnapshot snapshot)
     {
         if (sourceSurfaceByRoot == null || snapshot == null)
         {
@@ -4321,7 +4321,7 @@ public class BMSLibrary : NotificationObject
 
         foreach (string root in distinctRoots)
         {
-            PackageInstallSurfaceSnapshot fallbackSnapshot = PackageInstallEstimationSnapshotBuilder.BuildPackageInstallSurfaceSnapshot(root, useEverythingForPendingPackageSourceScan: false);
+            PackageInstallSurfaceSnapshot fallbackSnapshot = PackageInstallEstimationSnapshotBuilder.BuildPackageInstallSurfaceSnapshot(root);
             SourceSurfaceEntryView view = CreateSourceSurfaceEntryView(fallbackSnapshot, root);
             sourceSurfaceByRoot[root] = view;
             snapshot.TrackedFileCount += view.TrackedFileCount;

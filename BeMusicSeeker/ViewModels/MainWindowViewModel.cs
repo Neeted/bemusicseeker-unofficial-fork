@@ -664,8 +664,6 @@ public class MainWindowViewModel : ViewModel
 
         private bool tempKeepInstallablePackagesPending;
 
-        private bool tempUseEverythingForPendingPackageSourceScan;
-
         private bool tempAutoApplyAmbiguousInstallDestination;
 
         private bool tempDeletePendingPackageSourceAfterInstall;
@@ -2607,22 +2605,6 @@ public class MainWindowViewModel : ViewModel
                 {
                     Settings.Default.KeepInstallablePackagesPending = value;
                     RaisePropertyChanged("KeepInstallablePackagesPending");
-                }
-            }
-        }
-
-        public bool UseEverythingForPendingPackageSourceScan
-        {
-            get
-            {
-                return Settings.Default.UseEverythingForPendingPackageSourceScan;
-            }
-            set
-            {
-                if (Settings.Default.UseEverythingForPendingPackageSourceScan != value)
-                {
-                    Settings.Default.UseEverythingForPendingPackageSourceScan = value;
-                    RaisePropertyChanged("UseEverythingForPendingPackageSourceScan");
                 }
             }
         }
@@ -5169,7 +5151,6 @@ public class MainWindowViewModel : ViewModel
             tempEnableDownloadLr2IrScoreAndDetectUnsent = Settings.Default.EnableDownloadLr2IrScoreAndDetectUnsent;
             tempEnableAutoInstall = Settings.Default.AutoInstall;
             tempKeepInstallablePackagesPending = Settings.Default.KeepInstallablePackagesPending;
-            tempUseEverythingForPendingPackageSourceScan = Settings.Default.UseEverythingForPendingPackageSourceScan;
             tempAutoApplyAmbiguousInstallDestination = Settings.Default.AutoApplyAmbiguousInstallDestination;
             tempDeletePendingPackageSourceAfterInstall = Settings.Default.DeletePendingPackageSourceAfterInstall;
             tempEnableSmartComponentOverwrite = Settings.Default.EnableSmartComponentOverwrite;
@@ -5289,7 +5270,6 @@ public class MainWindowViewModel : ViewModel
                 || tempEnableDownloadLr2IrScoreAndDetectUnsent != Settings.Default.EnableDownloadLr2IrScoreAndDetectUnsent
                 || tempEnableAutoInstall != Settings.Default.AutoInstall
                 || tempKeepInstallablePackagesPending != Settings.Default.KeepInstallablePackagesPending
-                || tempUseEverythingForPendingPackageSourceScan != Settings.Default.UseEverythingForPendingPackageSourceScan
                 || tempAutoApplyAmbiguousInstallDestination != Settings.Default.AutoApplyAmbiguousInstallDestination
                 || tempDeletePendingPackageSourceAfterInstall != Settings.Default.DeletePendingPackageSourceAfterInstall
                 || tempEnableSmartComponentOverwrite != Settings.Default.EnableSmartComponentOverwrite
@@ -6374,7 +6354,6 @@ public class MainWindowViewModel : ViewModel
             Settings.Default.EnableDownloadLr2IrScoreAndDetectUnsent = tempEnableDownloadLr2IrScoreAndDetectUnsent;
             Settings.Default.AutoInstall = tempEnableAutoInstall;
             Settings.Default.KeepInstallablePackagesPending = tempKeepInstallablePackagesPending;
-            Settings.Default.UseEverythingForPendingPackageSourceScan = tempUseEverythingForPendingPackageSourceScan;
             Settings.Default.AutoApplyAmbiguousInstallDestination = tempAutoApplyAmbiguousInstallDestination;
             Settings.Default.DeletePendingPackageSourceAfterInstall = tempDeletePendingPackageSourceAfterInstall;
             Settings.Default.EnableSmartComponentOverwrite = tempEnableSmartComponentOverwrite;
@@ -6487,7 +6466,6 @@ public class MainWindowViewModel : ViewModel
             RaisePropertyChanged(() => EnableDownloadLr2IrScoreAndDetectUnsent);
             RaisePropertyChanged(() => EnableAutoInstall);
             RaisePropertyChanged(() => KeepInstallablePackagesPending);
-            RaisePropertyChanged(() => UseEverythingForPendingPackageSourceScan);
             RaisePropertyChanged(() => AutoApplyAmbiguousInstallDestination);
             RaisePropertyChanged(() => DeletePendingPackageSourceAfterInstall);
             RaisePropertyChanged(() => EnableSmartComponentOverwrite);

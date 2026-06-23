@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using BeMusicSeeker.Models.Utils;
-using BeMusicSeeker.Properties;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
@@ -217,11 +216,6 @@ internal static class PackageInstallEstimationSnapshotBuilder
 
     internal static PackageChartDiscoverySnapshot BuildPackageChartDiscoverySnapshot(string packagePath)
     {
-        return BuildPackageChartDiscoverySnapshot(packagePath, Settings.Default.UseEverythingForPendingPackageSourceScan);
-    }
-
-    internal static PackageChartDiscoverySnapshot BuildPackageChartDiscoverySnapshot(string packagePath, bool useEverythingForPendingPackageSourceScan)
-    {
         if (string.IsNullOrWhiteSpace(packagePath))
         {
             return new PackageChartDiscoverySnapshot();
@@ -239,9 +233,7 @@ internal static class PackageInstallEstimationSnapshotBuilder
 
         if (LongPathFileSystem.DirectoryExists(normalizedPath))
         {
-            RootFileEnumerationResult enumerationResult = useEverythingForPendingPackageSourceScan
-                ? EnumerateChartsOnlyWithFallback(normalizedPath)
-                : EnumerateChartsOnlyFastOnly(normalizedPath);
+            RootFileEnumerationResult enumerationResult = EnumerateChartsOnlyFastOnly(normalizedPath);
             return new PackageChartDiscoverySnapshot
             {
                 SourcePath = normalizedPath,
@@ -260,15 +252,10 @@ internal static class PackageInstallEstimationSnapshotBuilder
 
     internal static PackageInstallSurfaceSnapshot BuildPackageInstallSurfaceSnapshot(string packagePath)
     {
-        return BuildPackageInstallSurfaceSnapshot(packagePath, Settings.Default.UseEverythingForPendingPackageSourceScan);
+        return BuildPackageInstallSurfaceSnapshot(packagePath, DefaultSourceSurfaceMaxVisitedFileSystemEntries);
     }
 
-    internal static PackageInstallSurfaceSnapshot BuildPackageInstallSurfaceSnapshot(string packagePath, bool useEverythingForPendingPackageSourceScan)
-    {
-        return BuildPackageInstallSurfaceSnapshot(packagePath, useEverythingForPendingPackageSourceScan, DefaultSourceSurfaceMaxVisitedFileSystemEntries);
-    }
-
-    internal static PackageInstallSurfaceSnapshot BuildPackageInstallSurfaceSnapshot(string packagePath, bool useEverythingForPendingPackageSourceScan, int maxVisitedFileSystemEntryCount)
+    internal static PackageInstallSurfaceSnapshot BuildPackageInstallSurfaceSnapshot(string packagePath, int maxVisitedFileSystemEntryCount)
     {
         if (string.IsNullOrWhiteSpace(packagePath))
         {
@@ -367,37 +354,6 @@ internal static class PackageInstallEstimationSnapshotBuilder
         };
     }
 
-    private static PackageInstallSurfaceSnapshot TryCreateSourceRootInstallSurfaceSnapshot(string sourcePath, string sourceDirectory, bool includeBundledResources)
-    {
-        if (string.IsNullOrWhiteSpace(sourceDirectory) || !LongPathFileSystem.DirectoryExists(sourceDirectory))
-        {
-            return null;
-        }
-
-        if (!EverythingNative.TryScanSourceRoots([sourceDirectory], out EverythingNative.BridgeSourceRootScanResult scanResult, out _)
-            || scanResult == null
-            || !scanResult.TryGetEntry(sourceDirectory, out EverythingNative.BridgeSourceRootEntryResult entryResult)
-            || entryResult == null
-            || entryResult.TrackedFileCount <= 0)
-        {
-            return null;
-        }
-
-        return new PackageInstallSurfaceSnapshot
-        {
-            SourcePath = sourcePath,
-            SourceDirectory = sourceDirectory,
-            BundledResources = includeBundledResources ? entryResult.ResourceEntry.Clone() : new DirectoryResourceLookupCache.Entry(),
-            SourceCandidateResources = entryResult.ResourceEntry.Clone(),
-            ScanMs = scanResult.TotalMs,
-            ChartFileCount = entryResult.ChartFileCount,
-            ResourceFileCount = entryResult.ResourceFileCount,
-            TrackedFileCount = entryResult.TrackedFileCount,
-            HashMaterializeMs = scanResult.ManagedMaterializeMs,
-            ScanBackend = scanResult.BackendName
-        };
-    }
-
     private static DirectoryResourceLookupCache.Entry CreateResourceEntryFromEnumeration(string rootDirectory, RootFileEnumerationResult enumerationResult)
     {
         if (string.IsNullOrWhiteSpace(rootDirectory) || !LongPathFileSystem.DirectoryExists(rootDirectory))
@@ -412,15 +368,6 @@ internal static class PackageInstallEstimationSnapshotBuilder
             enumerationResult?.GetPaths(ChartDirectoryScanBuilder.MovieGroupName) ?? []);
     }
 
-    private static RootFileEnumerationResult EnumerateChartsOnlyWithFallback(string rootDirectory)
-    {
-        return RootFileEnumerationService.EnumerateFilesWithFallback(
-            [rootDirectory],
-            [
-                new RootFileEnumerationGroup(ChartDirectoryScanBuilder.ChartGroupName, ChartDirectoryScanBuilder.ChartExtensions)
-            ]);
-    }
-
     private static RootFileEnumerationResult EnumerateChartsOnlyFastOnly(string rootDirectory)
     {
         return new FastRootFileEnumerator().EnumerateFiles(
@@ -428,20 +375,6 @@ internal static class PackageInstallEstimationSnapshotBuilder
             [
                 new RootFileEnumerationGroup(ChartDirectoryScanBuilder.ChartGroupName, ChartDirectoryScanBuilder.ChartExtensions)
             ]);
-    }
-
-    private static RootFileEnumerationResult EnumerateSourceSurfaceWithFallback(string rootDirectory)
-    {
-        return RootFileEnumerationService.EnumerateFilesWithFallback(
-            [rootDirectory],
-            ChartDirectoryScanBuilder.CreateDefaultEnumerationGroups(includeAllFiles: false));
-    }
-
-    private static RootFileEnumerationResult EnumerateSourceSurfaceFastOnly(string rootDirectory)
-    {
-        return new FastRootFileEnumerator().EnumerateFiles(
-            [rootDirectory],
-            ChartDirectoryScanBuilder.CreateDefaultEnumerationGroups(includeAllFiles: false));
     }
 
     private static RootFileEnumerationResult EnumerateSourceSurfaceBounded(string rootDirectory, int maxVisitedFileSystemEntryCount)

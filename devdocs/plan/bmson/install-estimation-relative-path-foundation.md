@@ -450,9 +450,7 @@ relative-path 文脈で固定できたこと:
 3. `--everything-verify` は opt-in verify 導線として mainline から切り離した
 4. library build は fixed 4-query native scan に復旧済み
 5. source-side は `EBridge_ScanSourceRoots` または fast-only へ整理し、`BMSFiles` と install surface を分離した
-6. source-side で Everything を使うかどうかは user setting
-   - `保留パッケージの推定時に Everything を使用する`
-   - で切り替え、既定値は無効
+6. source-side は bounded fast enumeration に統一し、Everything user setting は廃止した
 
 この文書から見た「まだ残るもの」は、relative-path semantics 自体ではない。
 
