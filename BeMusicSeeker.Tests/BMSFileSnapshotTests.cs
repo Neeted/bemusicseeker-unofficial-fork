@@ -84,6 +84,31 @@ public sealed class BMSFileSnapshotTests
     }
 
     [TestMethod]
+    public void RibbitBmsFileConstructor_ReadsLongPathChart()
+    {
+        WithTempDirectory(delegate (string tempDirectory)
+        {
+            string longDirectoryPath = BuildLongDirectoryPath(tempDirectory, "ribbit-read");
+            LongPathFileSystem.CreateDirectory(longDirectoryPath);
+            string filePath = Path.Combine(longDirectoryPath, "kabukin________________________________________________________________________________________________________________________________________________.bms");
+            WriteAllText(filePath,
+                "#PLAYER 1\r\n"
+                + "#TITLE LongPathRibbit\r\n"
+                + "#ARTIST Reader\r\n"
+                + "#WAV01 keysound.wav\r\n"
+                + "#00111:01\r\n",
+                Encoding.GetEncoding("shift_jis"));
+
+            var file = new Ribbit.BMS.BMSFile(filePath);
+
+            Assert.AreEqual(filePath, file.Path);
+            Assert.AreEqual("LongPathRibbit", file.Title);
+            Assert.AreEqual("Reader", file.Artist);
+            Assert.IsTrue(file.Md5?.Length == 32);
+        });
+    }
+
+    [TestMethod]
     public void ReadSnapshot_NormalizesAbsolutePathBeforeStorageAndExtendedIo()
     {
         WithTempDirectory(delegate (string tempDirectory)
@@ -766,17 +791,34 @@ public sealed class BMSFileSnapshotTests
     private static void WithTempDirectory(Action<string> action)
     {
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BMSFileSnapshotTests", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tempDirectory);
+        LongPathFileSystem.CreateDirectory(tempDirectory);
         try
         {
             action(tempDirectory);
         }
         finally
         {
-            if (Directory.Exists(tempDirectory))
+            if (LongPathFileSystem.DirectoryExists(tempDirectory))
             {
-                Directory.Delete(tempDirectory, recursive: true);
+                LongPathFileSystem.DeleteDirectory(tempDirectory, recursive: true);
             }
         }
+    }
+
+    private static string BuildLongDirectoryPath(string tempDirectoryPath, string leafName)
+    {
+        string path = tempDirectoryPath;
+        for (int i = 0; path.Length < 285; i++)
+        {
+            path = Path.Combine(path, "segment_" + i.ToString("00") + "_" + new string('a', 32));
+        }
+        return Path.Combine(path, leafName);
+    }
+
+    private static void WriteAllText(string path, string contents, Encoding encoding)
+    {
+        using var stream = LongPathFileSystem.Open(path, FileMode.Create, FileAccess.Write, FileShare.None);
+        using var writer = new StreamWriter(stream, encoding);
+        writer.Write(contents);
     }
 }

@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using BeMusicSeeker.Models.Utils;
 using Ribbit.Media.Audio;
 using Un4seen.Bass;
 using Un4seen.Bass.AddOn.Tags;
@@ -47,7 +48,7 @@ public class BassAudioWriter : BassAudioPlayer
 
     private static string GetEncoderDirectory(EncoderType encodeType)
     {
-        return encodeType.SearchEncoderBinary(Directory.Exists(EncoderDirectory) ? EncoderDirectory : null);
+        return encodeType.SearchEncoderBinary(LongPathFileSystem.DirectoryExists(EncoderDirectory) ? EncoderDirectory : null);
     }
 
     public static bool IsEncoderAvailable(EncoderType encodeType)
@@ -89,7 +90,7 @@ public class BassAudioWriter : BassAudioPlayer
         {
             throw new InvalidOperationException("BassAudioWriter is not initialized");
         }
-        filePathWithoutExtension = Path.GetFullPath(filePathWithoutExtension);
+        filePathWithoutExtension = LongPathFileSystem.NormalizePathForStorage(filePathWithoutExtension);
         bool wAV_Use32BitInteger = false;
         int num;
         switch (BassAudioPlayer.Format)
@@ -121,7 +122,7 @@ public class BassAudioWriter : BassAudioPlayer
         };
         int num2 = 1;
         string text = filePathWithoutExtension;
-        while (File.Exists(filePathWithoutExtension + encoder.DefaultOutputExtension) || Directory.Exists(filePathWithoutExtension + encoder.DefaultOutputExtension))
+        while (LongPathFileSystem.EntryExists(filePathWithoutExtension + encoder.DefaultOutputExtension))
         {
             num2++;
             filePathWithoutExtension = text + " (" + num2 + ")";
@@ -137,7 +138,7 @@ public class BassAudioWriter : BassAudioPlayer
             throw new InvalidOperationException("BassAudioWriter is not initialized");
         }
         string encoderDirectory = GetEncoderDirectory(Encoder) ?? throw new FileNotFoundException(Encoder.GetEncoderFileName() + " not found");
-        filePathWithoutExtension = Path.GetFullPath(filePathWithoutExtension);
+        filePathWithoutExtension = LongPathFileSystem.NormalizePathForStorage(filePathWithoutExtension);
         quality = System.Math.Max(System.Math.Min(1f, quality), 0.1f);
         encoder = new EncoderLAME(BassAudioPlayer.outputMixer)
         {
@@ -149,7 +150,7 @@ public class BassAudioWriter : BassAudioPlayer
         };
         int num = 1;
         string text = filePathWithoutExtension;
-        while (File.Exists(filePathWithoutExtension + encoder.DefaultOutputExtension) || Directory.Exists(filePathWithoutExtension + encoder.DefaultOutputExtension))
+        while (LongPathFileSystem.EntryExists(filePathWithoutExtension + encoder.DefaultOutputExtension))
         {
             num++;
             filePathWithoutExtension = text + " (" + num + ")";
@@ -165,7 +166,7 @@ public class BassAudioWriter : BassAudioPlayer
             throw new InvalidOperationException("BassAudioWriter is not initialized");
         }
         string encoderDirectory = GetEncoderDirectory(Encoder) ?? throw new FileNotFoundException(Encoder.GetEncoderFileName() + " not found");
-        filePathWithoutExtension = Path.GetFullPath(filePathWithoutExtension);
+        filePathWithoutExtension = LongPathFileSystem.NormalizePathForStorage(filePathWithoutExtension);
         quality = System.Math.Max(System.Math.Min(1f, quality), 0f);
         encoder = new EncoderNeroAAC(BassAudioPlayer.outputMixer)
         {
@@ -176,7 +177,7 @@ public class BassAudioWriter : BassAudioPlayer
         };
         int num = 1;
         string text = filePathWithoutExtension;
-        while (File.Exists(filePathWithoutExtension + encoder.DefaultOutputExtension) || Directory.Exists(filePathWithoutExtension + encoder.DefaultOutputExtension))
+        while (LongPathFileSystem.EntryExists(filePathWithoutExtension + encoder.DefaultOutputExtension))
         {
             num++;
             filePathWithoutExtension = text + " (" + num + ")";
@@ -192,7 +193,7 @@ public class BassAudioWriter : BassAudioPlayer
             throw new InvalidOperationException("BassAudioWriter is not initialized");
         }
         string encoderDirectory = GetEncoderDirectory(Encoder) ?? throw new FileNotFoundException(Encoder.GetEncoderFileName() + " not found");
-        filePathWithoutExtension = Path.GetFullPath(filePathWithoutExtension);
+        filePathWithoutExtension = LongPathFileSystem.NormalizePathForStorage(filePathWithoutExtension);
         quality = System.Math.Max(System.Math.Min(1f, quality), 0f);
         encoder = new EncoderOPUS(BassAudioPlayer.outputMixer)
         {
@@ -202,7 +203,7 @@ public class BassAudioWriter : BassAudioPlayer
         };
         int num = 1;
         string text = filePathWithoutExtension;
-        while (File.Exists(filePathWithoutExtension + encoder.DefaultOutputExtension) || Directory.Exists(filePathWithoutExtension + encoder.DefaultOutputExtension))
+        while (LongPathFileSystem.EntryExists(filePathWithoutExtension + encoder.DefaultOutputExtension))
         {
             num++;
             filePathWithoutExtension = text + " (" + num + ")";
@@ -218,7 +219,7 @@ public class BassAudioWriter : BassAudioPlayer
             throw new InvalidOperationException("BassAudioWriter is not initialized");
         }
         string encoderDirectory = GetEncoderDirectory(Encoder) ?? throw new FileNotFoundException(Encoder.GetEncoderFileName() + " not found");
-        filePathWithoutExtension = Path.GetFullPath(filePathWithoutExtension);
+        filePathWithoutExtension = LongPathFileSystem.NormalizePathForStorage(filePathWithoutExtension);
         quality = System.Math.Max(System.Math.Min(0.8f, quality), 0f);
         encoder = new EncoderFLAC(BassAudioPlayer.outputMixer)
         {
@@ -229,7 +230,7 @@ public class BassAudioWriter : BassAudioPlayer
         };
         int num = 1;
         string text = filePathWithoutExtension;
-        while (File.Exists(filePathWithoutExtension + encoder.DefaultOutputExtension) || Directory.Exists(filePathWithoutExtension + encoder.DefaultOutputExtension))
+        while (LongPathFileSystem.EntryExists(filePathWithoutExtension + encoder.DefaultOutputExtension))
         {
             num++;
             filePathWithoutExtension = text + " (" + num + ")";
@@ -245,7 +246,7 @@ public class BassAudioWriter : BassAudioPlayer
             throw new InvalidOperationException("BassAudioWriter is not initialized");
         }
         string encoderDirectory = GetEncoderDirectory(Encoder) ?? throw new FileNotFoundException(Encoder.GetEncoderFileName() + " not found");
-        filePathWithoutExtension = Path.GetFullPath(filePathWithoutExtension);
+        filePathWithoutExtension = LongPathFileSystem.NormalizePathForStorage(filePathWithoutExtension);
         quality = System.Math.Max(System.Math.Min(0.8f, quality), 0f);
         encoder = new EncoderOGG(BassAudioPlayer.outputMixer)
         {
@@ -256,7 +257,7 @@ public class BassAudioWriter : BassAudioPlayer
         };
         int num = 1;
         string text = filePathWithoutExtension;
-        while (File.Exists(filePathWithoutExtension + encoder.DefaultOutputExtension) || Directory.Exists(filePathWithoutExtension + encoder.DefaultOutputExtension))
+        while (LongPathFileSystem.EntryExists(filePathWithoutExtension + encoder.DefaultOutputExtension))
         {
             num++;
             filePathWithoutExtension = text + " (" + num + ")";

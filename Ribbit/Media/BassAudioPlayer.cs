@@ -9,6 +9,7 @@ using System.Runtime;
 using System.Runtime.InteropServices;
 using System.Threading;
 using BeMusicSeeker.Library.Util;
+using BeMusicSeeker.Models.Utils;
 using Ribbit.Cryptography;
 using Ribbit.Logging;
 using Ribbit.Media.Audio;
@@ -1678,7 +1679,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
         {
             throw new ArgumentNullException("fileName");
         }
-        if (!File.Exists(fileName))
+        if (!LongPathFileSystem.FileExists(fileName))
         {
             throw new FileNotFoundException(fileName);
         }
@@ -1702,7 +1703,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
                 {
                     try
                     {
-                        using FileStream fileStream = File.OpenRead(fileName);
+                        using FileStream fileStream = LongPathFileSystem.OpenRead(fileName);
                         using var stream = (Stream)Activator.CreateInstance(_oggDecoderType, fileStream);
                         long num = (long)_oggDecoderType.GetProperty("Length").GetMethod.Invoke(stream, null);
                         int sampleRate = (int)_oggDecoderType.GetProperty("SamplesPerSecond").GetMethod.Invoke(stream, null);
@@ -1724,7 +1725,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
                 }
                 else
                 {
-                    _sampleBuffer = File.ReadAllBytes(fileName);
+                    _sampleBuffer = LongPathFileSystem.ReadAllBytes(fileName);
                 }
                 lock (StaticLockObject)
                 {
@@ -1745,7 +1746,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
         }
         else
         {
-            _handle = Bass.BASS_StreamCreateFile(fileName, 0L, 0L, BASSFlag.BASS_SAMPLE_FLOAT | BASSFlag.BASS_STREAM_PRESCAN | BASSFlag.BASS_STREAM_DECODE);
+            _handle = Bass.BASS_StreamCreateFile(LongPathFileSystem.ToExtendedPath(fileName), 0L, 0L, BASSFlag.BASS_SAMPLE_FLOAT | BASSFlag.BASS_STREAM_PRESCAN | BASSFlag.BASS_STREAM_DECODE);
             if (_handle == 0)
             {
                 BASSError bASSError2 = Bass.BASS_ErrorGetCode();

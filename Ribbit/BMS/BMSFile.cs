@@ -10,6 +10,7 @@ using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
+using BeMusicSeeker.Models.Utils;
 using Ribbit.Logging;
 using Ribbit.Math;
 using Ribbit.Util.Extensions;
@@ -1408,7 +1409,7 @@ public class BMSFile
         {
             throw new ArgumentNullException("path");
         }
-        if (!File.Exists(path))
+        if (!LongPathFileSystem.FileExists(path))
         {
             throw new FileNotFoundException("File does not exist", path);
         }
@@ -1419,7 +1420,7 @@ public class BMSFile
 
     private string LoadFile(string filePath)
     {
-        using FileStream fileStream = File.Open(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        using FileStream fileStream = LongPathFileSystem.Open(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
         if (fileStream.Length == 0L)
         {
             throw new InvalidDataException(filePath + " is empty file.");

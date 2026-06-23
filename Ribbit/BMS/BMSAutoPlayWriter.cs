@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Threading.Tasks;
+using BeMusicSeeker.Models.Utils;
 using Ribbit.Logging;
 using Ribbit.Media;
 using Ribbit.Media.Audio;
@@ -57,7 +58,7 @@ public class BMSAutoPlayWriter(BMSFile bms) : BMSAutoPlayer<BassAudioWriter>(bms
         {
             filePathWithoutExtension = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
         }
-        if (Directory.Exists(filePathWithoutExtension))
+        if (LongPathFileSystem.DirectoryExists(filePathWithoutExtension))
         {
             string input = "[" + tAG_INFO.artist + "] " + tAG_INFO.title;
             filePathWithoutExtension = Path.Combine(filePathWithoutExtension, input.NaturalNormalizationForFileName().ReplaceInvalidFileNameCharsByWide().RemoveInvalidFileNameChars());

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
+using BeMusicSeeker.Models.Utils;
 using Ribbit.Media;
 using Ribbit.Util;
 
@@ -47,7 +48,7 @@ public class BMSAutoPlayer<TBassAudioPlayer>(BMSFile bms) : BMSPlayer<TBassAudio
             foreach (string item in Resources.NormalizeExtension(w))
             {
                 string text = Path.Combine(pPath, item);
-                if (File.Exists(text))
+                if (LongPathFileSystem.FileExists(text))
                 {
                     try
                     {
@@ -65,7 +66,7 @@ public class BMSAutoPlayer<TBassAudioPlayer>(BMSFile bms) : BMSPlayer<TBassAudio
                 foreach (string item2 in Resources.NormalizeExtension(fileName))
                 {
                     string text2 = Path.Combine(pPath, item2);
-                    if (File.Exists(text2))
+                    if (LongPathFileSystem.FileExists(text2))
                     {
                         try
                         {

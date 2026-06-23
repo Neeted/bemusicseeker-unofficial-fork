@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Reflection;
+using BeMusicSeeker.Models.Utils;
 
 namespace Ribbit.Media.Audio;
 
@@ -30,22 +31,22 @@ internal static class EncodeTypeExt
             return string.Empty;
         }
         string encoderFileName = encodeType.GetEncoderFileName();
-        if (EncoderDirectory != null && Directory.Exists(EncoderDirectory) && File.Exists(Path.Combine(EncoderDirectory, encoderFileName)))
+        if (EncoderDirectory != null && LongPathFileSystem.DirectoryExists(EncoderDirectory) && LongPathFileSystem.FileExists(Path.Combine(EncoderDirectory, encoderFileName)))
         {
             return EncoderDirectory;
         }
         string directoryName = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
-        if (File.Exists(Path.Combine(directoryName, encoderFileName)))
+        if (LongPathFileSystem.FileExists(Path.Combine(directoryName, encoderFileName)))
         {
             return directoryName;
         }
         directoryName = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location), "libs", Environment.Is64BitProcess ? "x64" : "x86");
-        if (File.Exists(Path.Combine(directoryName, encoderFileName)))
+        if (LongPathFileSystem.FileExists(Path.Combine(directoryName, encoderFileName)))
         {
             return directoryName;
         }
         directoryName = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location), Environment.Is64BitProcess ? "x64" : "x86");
-        if (File.Exists(Path.Combine(directoryName, encoderFileName)))
+        if (LongPathFileSystem.FileExists(Path.Combine(directoryName, encoderFileName)))
         {
             return directoryName;
         }
