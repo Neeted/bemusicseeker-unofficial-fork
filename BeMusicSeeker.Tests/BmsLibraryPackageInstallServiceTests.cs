@@ -2903,7 +2903,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void MovePackageFiles_SafeCleanupRemainingChartHashCheckDoesNotMaterializePendingAdapter()
     {
-        string root = Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", ".."));
+        string root = FindRepositoryRoot();
         string source = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BmsLibraryInternal", "BmsLibraryPackageInstallService.cs"));
         int methodStart = source.IndexOf("private static bool TryGetRemainingChartLookupKey", StringComparison.Ordinal);
         int methodEnd = source.IndexOf("private static bool IsSupportedChartFilePath", methodStart, StringComparison.Ordinal);
@@ -3154,6 +3154,23 @@ public sealed class BmsLibraryPackageInstallServiceTests
     private static string GetArchiveFixturePath(string fileName)
     {
         return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "TestData", "archives", fileName);
+    }
+
+    private static string FindRepositoryRoot()
+    {
+        string? directoryPath = AppDomain.CurrentDomain.BaseDirectory;
+        while (!string.IsNullOrWhiteSpace(directoryPath))
+        {
+            if (File.Exists(Path.Combine(directoryPath, "BeMusicSeeker.csproj")))
+            {
+                return directoryPath!;
+            }
+
+            DirectoryInfo? parent = Directory.GetParent(directoryPath);
+            directoryPath = parent?.FullName;
+        }
+
+        throw new DirectoryNotFoundException("Repository root was not found.");
     }
 
     private static DateTime GetExpectedArchiveLastWriteTime()

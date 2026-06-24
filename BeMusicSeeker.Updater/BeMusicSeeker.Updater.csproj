@@ -3,6 +3,8 @@
     <AssemblyName>BeMusicSeeker.Updater</AssemblyName>
     <OutputType>Exe</OutputType>
     <TargetFramework>net472</TargetFramework>
+    <PlatformTarget>x64</PlatformTarget>
+    <Prefer32Bit>false</Prefer32Bit>
     <LangVersion>latest</LangVersion>
   </PropertyGroup>
   <ItemGroup>

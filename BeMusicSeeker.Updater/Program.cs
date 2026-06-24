@@ -23,6 +23,21 @@ namespace BeMusicSeeker.Updater
 
         private const string ManagedFilesManifestName = "update-managed-files.txt";
 
+        private static readonly string[] LegacyManagedDirectoryPaths =
+        [
+            "x86",
+            "x64",
+            "libs/x86"
+        ];
+
+        private static readonly string[] LegacyManagedFilePaths =
+        [
+            "libs/x64/OggVorbis.NET64.dll",
+            "SevenZipExtractor.dll",
+            "OggVorbis.NET.dll",
+            "OggVorbis.NET64.dll"
+        ];
+
         private static int Main(string[] args)
         {
             if (args.Length == 1 && string.Equals(args[0], "--version", StringComparison.OrdinalIgnoreCase))
@@ -81,9 +96,9 @@ namespace BeMusicSeeker.Updater
 
             try
             {
-            ApplyExtractedPackage(extractDirectory, appDirectory, previousDirectory);
-            SafeDeleteFile(packagePath);
-            SafeDeleteDirectory(extractDirectory);
+                ApplyExtractedPackage(extractDirectory, appDirectory, previousDirectory);
+                SafeDeleteFile(packagePath);
+                SafeDeleteDirectory(extractDirectory);
             }
             catch
             {
@@ -196,6 +211,7 @@ namespace BeMusicSeeker.Updater
         {
             HashSet<string> newPackagePaths = EnumerateRelativePackagePaths(extractDirectory);
             HashSet<string> previousManagedPaths = ReadManagedFilesManifest(appDirectory, newPackagePaths);
+            AddLegacyManagedPaths(previousManagedPaths, appDirectory);
             foreach (string relativePath in previousManagedPaths.Except(newPackagePaths, StringComparer.OrdinalIgnoreCase))
             {
                 MoveExistingPathToBackup(appDirectory, previousDirectory, relativePath);
@@ -245,6 +261,48 @@ namespace BeMusicSeeker.Updater
             }
             paths.Add(ManagedFilesManifestName);
             return paths;
+        }
+
+        private static void AddLegacyManagedPaths(HashSet<string> managedPaths, string appDirectory)
+        {
+            foreach (string relativePath in LegacyManagedDirectoryPaths)
+            {
+                AddLegacyManagedDirectoryPath(managedPaths, appDirectory, relativePath);
+            }
+
+            foreach (string relativePath in LegacyManagedFilePaths)
+            {
+                AddLegacyManagedFilePath(managedPaths, appDirectory, relativePath);
+            }
+        }
+
+        private static void AddLegacyManagedDirectoryPath(HashSet<string> managedPaths, string appDirectory, string relativePath)
+        {
+            string normalized = NormalizeRelativePackagePath(relativePath);
+            if (!UpdaterFileSystem.DirectoryExists(Path.Combine(appDirectory, normalized)))
+            {
+                return;
+            }
+
+            managedPaths.RemoveWhere(path => IsRelativePathUnderDirectory(path, normalized));
+            managedPaths.Add(normalized);
+        }
+
+        private static void AddLegacyManagedFilePath(HashSet<string> managedPaths, string appDirectory, string relativePath)
+        {
+            string normalized = NormalizeRelativePackagePath(relativePath);
+            if (UpdaterFileSystem.FileExists(Path.Combine(appDirectory, normalized)))
+            {
+                managedPaths.Add(normalized);
+            }
+        }
+
+        private static bool IsRelativePathUnderDirectory(string relativePath, string directoryPath)
+        {
+            string normalizedRelativePath = NormalizeRelativePackagePath(relativePath);
+            string normalizedDirectoryPath = NormalizeRelativePackagePath(directoryPath);
+            string directoryPrefix = normalizedDirectoryPath + Path.DirectorySeparatorChar;
+            return normalizedRelativePath.StartsWith(directoryPrefix, StringComparison.OrdinalIgnoreCase);
         }
 
         private static HashSet<string> ReadManagedFilesManifest(string appDirectory, HashSet<string> newPackagePaths)

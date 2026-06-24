@@ -7,6 +7,8 @@ namespace Ribbit.Media.Audio;
 
 internal static class EncodeTypeExt
 {
+    private const string NativeArchitectureDirectoryName = "x64";
+
     private static readonly string[] exeFiles =
     [
         string.Empty,
@@ -40,12 +42,12 @@ internal static class EncodeTypeExt
         {
             return directoryName;
         }
-        directoryName = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location), "libs", Environment.Is64BitProcess ? "x64" : "x86");
+        directoryName = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location), "libs", NativeArchitectureDirectoryName);
         if (LongPathFileSystem.FileExists(Path.Combine(directoryName, encoderFileName)))
         {
             return directoryName;
         }
-        directoryName = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location), Environment.Is64BitProcess ? "x64" : "x86");
+        directoryName = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location), NativeArchitectureDirectoryName);
         if (LongPathFileSystem.FileExists(Path.Combine(directoryName, encoderFileName)))
         {
             return directoryName;

@@ -62,6 +62,68 @@ function Assert-GhAuthenticated {
     Write-Host "  gh 認証 OK" -ForegroundColor Green
 }
 
+function Get-ZipEntryNames($asset) {
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $archive = [System.IO.Compression.ZipFile]::OpenRead($asset.FullName)
+    try {
+        $entries = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
+        foreach ($entry in $archive.Entries) {
+            $normalized = $entry.FullName.Replace('\', '/').Trim('/')
+            if (-not [string]::IsNullOrWhiteSpace($normalized)) {
+                [void]$entries.Add($normalized)
+            }
+        }
+        return ,$entries
+    }
+    finally {
+        $archive.Dispose()
+    }
+}
+
+function Test-ZipEntryOrDescendantExists($entryNames, $relativePath) {
+    $normalized = $relativePath.Replace('\', '/').Trim('/')
+    return $entryNames.Contains($normalized) -or
+        @($entryNames | Where-Object { $_.StartsWith("$normalized/", [System.StringComparison]::OrdinalIgnoreCase) }).Count -gt 0
+}
+
+function Assert-ReleasePackageLayout($asset) {
+    $entryNames = Get-ZipEntryNames $asset
+
+    $requiredFiles = @(
+        "BeMusicSeeker.exe",
+        "BeMusicSeeker.exe.config",
+        "BeMusicSeeker.Updater.exe",
+        "libs/SevenZipExtractor.dll",
+        "libs/OggVorbis.NET64.dll",
+        "libs/x64/7z.dll",
+        "libs/x64/bass.dll",
+        "libs/x64/sqlite3.dll",
+        "native/Everything3_x64.dll",
+        "native/EverythingBridge_x64.dll",
+        "lang/ja-JP.json",
+        "update-managed-files.txt"
+    )
+    foreach ($relativePath in $requiredFiles) {
+        if (-not $entryNames.Contains($relativePath)) {
+            throw "release asset に必須ファイルがありません: $($asset.Name): $relativePath"
+        }
+    }
+
+    $forbiddenPaths = @(
+        "x86",
+        "x64",
+        "libs/x86",
+        "libs/x64/OggVorbis.NET64.dll",
+        "SevenZipExtractor.dll",
+        "OggVorbis.NET64.dll"
+    )
+    foreach ($relativePath in $forbiddenPaths) {
+        if (Test-ZipEntryOrDescendantExists $entryNames $relativePath) {
+            throw "release asset に旧 DLL 配置が残っています: $($asset.Name): $relativePath"
+        }
+    }
+}
+
 function Get-ReleaseContext {
     param(
         [bool]$RequireAssets = $true
@@ -89,6 +151,11 @@ function Get-ReleaseContext {
     }
     if ($RequireAssets -and $releaseAssets.Count -eq 0) {
         throw "リリース用パッケージが見つかりません: dist\$zipPattern`n事前に publish.ps1 を実行してください。"
+    }
+    if ($RequireAssets) {
+        foreach ($asset in $releaseAssets) {
+            Assert-ReleasePackageLayout $asset
+        }
     }
 
     return [PSCustomObject]@{

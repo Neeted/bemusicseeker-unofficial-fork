@@ -4,12 +4,11 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
-using System.Reflection;
 using System.Runtime;
 using System.Runtime.InteropServices;
 using System.Threading;
-using BeMusicSeeker.Library.Util;
 using BeMusicSeeker.Models.Utils;
+using OggVorbisDotNet64;
 using Ribbit.Cryptography;
 using Ribbit.Logging;
 using Ribbit.Media.Audio;
@@ -145,8 +144,6 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
     private int _handle;
 
     private float _volume;
-
-    private static readonly Type _oggDecoderType;
 
     private readonly uint fileNameHash;
 
@@ -825,25 +822,6 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
         _deviceVolume = 0.4f;
         Ribbit.Media.Audio.BassNet.Initialize();
         DeviceList = getDeviceList();
-        try
-        {
-            _oggDecoderType = DllLoader.GetTypes(Path.Combine(Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location), "libs", Environment.Is64BitProcess ? "x64" : "x86"), Environment.Is64BitProcess ? "OggVorbis.NET64.dll" : "OggVorbis.NET.dll")).FirstOrDefault(t => t.AssemblyQualifiedName.Contains("OggVorbisDotNet"));
-            if (_oggDecoderType == null)
-            {
-                NLogWrapper.NetworkLogger?.Error(string.Concat(new PlatformNotSupportedException(string.Concat("OggVorbisDotNet.OggDecodeStream is not found", Environment.NewLine, Environment.OSVersion, Environment.Is64BitProcess ? " (x64)" : " (x86)")), Environment.NewLine, Environment.StackTrace));
-            }
-        }
-        catch (Exception value)
-        {
-            try
-            {
-                NLogWrapper.NetworkLogger?.Error(value);
-            }
-            catch
-            {
-            }
-            _oggDecoderType = null;
-        }
     }
 
     private static DeviceDescriptor InitializeAsio(DeviceDescriptor desc = default)
@@ -1699,15 +1677,15 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
             else if (onMemory)
             {
                 string text = Path.GetExtension(fileName).ToLowerInvariant();
-                if (text == ".ogg" && !(_oggDecoderType == null))
+                if (text == ".ogg")
                 {
                     try
                     {
                         using FileStream fileStream = LongPathFileSystem.OpenRead(fileName);
-                        using var stream = (Stream)Activator.CreateInstance(_oggDecoderType, fileStream);
-                        long num = (long)_oggDecoderType.GetProperty("Length").GetMethod.Invoke(stream, null);
-                        int sampleRate = (int)_oggDecoderType.GetProperty("SamplesPerSecond").GetMethod.Invoke(stream, null);
-                        int channelCount = (int)_oggDecoderType.GetProperty("Channels").GetMethod.Invoke(stream, null);
+                        using var stream = new OggDecodeStream(fileStream);
+                        long num = stream.Length;
+                        int sampleRate = stream.SamplesPerSecond;
+                        int channelCount = stream.Channels;
                         using (new MemoryFailPoint(1 + (int)num / 1024 / 1024))
                         {
                         }

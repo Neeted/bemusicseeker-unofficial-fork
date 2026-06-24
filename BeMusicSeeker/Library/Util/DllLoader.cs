@@ -1,34 +1,12 @@
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
-using System.Reflection;
 using System.Runtime.InteropServices;
 
 namespace BeMusicSeeker.Library.Util;
 
 public static class DllLoader
 {
-    public static ConcurrentDictionary<string, Assembly> assemCache = new(StringComparer.OrdinalIgnoreCase);
-
-    public static IEnumerable<Type> GetTypes(string assemblyPath)
-    {
-        string fullPath = Path.GetFullPath(assemblyPath);
-        if (!File.Exists(fullPath))
-        {
-            throw new FileNotFoundException("File not found: path", assemblyPath);
-        }
-        if (!assemCache.TryGetValue(assemblyPath, out Assembly value))
-        {
-            value = (assemCache[fullPath] = Assembly.LoadFile(fullPath));
-        }
-        if (value == null)
-        {
-            throw new InvalidProgramException("Invalid assembly: " + fullPath);
-        }
-        return value.ExportedTypes;
-    }
-
     [DllImport("kernel32")]
     private static extern IntPtr LoadLibrary(string lpFileName);
 

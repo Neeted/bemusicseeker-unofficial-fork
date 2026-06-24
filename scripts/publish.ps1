@@ -24,7 +24,10 @@ $ErrorActionPreference = "Stop"
 # パス定義
 $devRoot = "D:\work\BeMusicSeeker-decomp"
 $pubRoot = "D:\github\bemusicseeker-unofficial-fork"
-$buildOutput = Join-Path $devRoot "bin\Release\net472"
+$configuration = "Release"
+$platform = "x64"
+$targetFramework = "net472"
+$buildOutput = Join-Path $devRoot "bin\$platform\$configuration\$targetFramework"
 $distDir = Join-Path $devRoot "dist"
 $stagingRoot = Join-Path $distDir "_staging"
 $publicRepoOwner = "Neeted"
@@ -112,6 +115,47 @@ function Build-PublicDocSite($targetDocsDir) {
     Write-Host "  Pages HTML docs 生成完了" -ForegroundColor Green
 }
 
+function Join-PackageRelativePath($root, $relativePath) {
+    return Join-Path $root ($relativePath.Replace('/', [System.IO.Path]::DirectorySeparatorChar))
+}
+
+function Assert-AppPackageLayout($targetStagingDir) {
+    $requiredFiles = @(
+        "BeMusicSeeker.exe",
+        "BeMusicSeeker.exe.config",
+        "BeMusicSeeker.Updater.exe",
+        "libs/SevenZipExtractor.dll",
+        "libs/OggVorbis.NET64.dll",
+        "libs/x64/7z.dll",
+        "libs/x64/bass.dll",
+        "libs/x64/sqlite3.dll",
+        "native/Everything3_x64.dll",
+        "native/EverythingBridge_x64.dll",
+        "lang/ja-JP.json"
+    )
+    foreach ($relativePath in $requiredFiles) {
+        $path = Join-PackageRelativePath $targetStagingDir $relativePath
+        if (-not (Test-Path $path -PathType Leaf)) {
+            throw "release package の必須ファイルが見つかりません: $relativePath"
+        }
+    }
+
+    $forbiddenPaths = @(
+        "x86",
+        "x64",
+        "libs/x86",
+        "libs/x64/OggVorbis.NET64.dll",
+        "SevenZipExtractor.dll",
+        "OggVorbis.NET64.dll"
+    )
+    foreach ($relativePath in $forbiddenPaths) {
+        $path = Join-PackageRelativePath $targetStagingDir $relativePath
+        if (Test-Path $path) {
+            throw "release package に旧 DLL 配置が残っています: $relativePath"
+        }
+    }
+}
+
 function Copy-AppFilesToStaging($targetStagingDir) {
     if (Test-Path $targetStagingDir) { Remove-Item $targetStagingDir -Recurse -Force }
     New-Item -ItemType Directory -Path $targetStagingDir -Force | Out-Null
@@ -193,6 +237,7 @@ function New-ZipPackage($version, $packageSuffix, $metadataInfo) {
         Copy-Item $metadataInfo.SourcePath (Join-Path $targetStagingDir $metadataInfo.TargetName) -Force
     }
 
+    Assert-AppPackageLayout $targetStagingDir
     New-ManagedFilesManifest $targetStagingDir
 
     $zipName = "bemusicseeker-unofficial-fork-v$version$packageSuffix.zip"
@@ -241,7 +286,7 @@ function New-ReleasePackage {
     if (-not $SkipBuild) {
         Write-Host "  ビルド中..."
         Push-Location $devRoot
-        dotnet build -c Release BeMusicSeeker.csproj | Out-Host
+        dotnet build BeMusicSeeker.csproj -c $configuration -p:Platform=$platform | Out-Host
         if ($LASTEXITCODE -ne 0) { throw "ビルドに失敗しました" }
         Pop-Location
         Write-Host "  ビルド完了" -ForegroundColor Green

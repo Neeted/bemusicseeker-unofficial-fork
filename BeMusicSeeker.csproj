@@ -6,6 +6,8 @@
     <UseWPF>True</UseWPF>
     <UseWindowsForms>True</UseWindowsForms>
     <TargetFramework>net472</TargetFramework>
+    <PlatformTarget>x64</PlatformTarget>
+    <Prefer32Bit>false</Prefer32Bit>
     <GenerateResourceUsePreserializedResources>true</GenerateResourceUsePreserializedResources>
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
   </PropertyGroup>
@@ -35,17 +37,9 @@
     <None Include="native\EverythingBridge_x64.dll" Condition="Exists('native\\EverythingBridge_x64.dll')">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
-    <None Include="vendor\native\x86\*.dll">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <TargetPath>libs\x86\%(Filename)%(Extension)</TargetPath>
-    </None>
-    <None Include="vendor\native\x64\*.dll">
+    <None Include="vendor\native\x64\*.dll" Exclude="vendor\native\x64\OggVorbis.NET64.dll">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <TargetPath>libs\x64\%(Filename)%(Extension)</TargetPath>
-    </None>
-    <None Include="libs\SevenZipExtractor.dll">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <TargetPath>libs\SevenZipExtractor.dll</TargetPath>
     </None>
     <None Update="lang\*.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
@@ -152,6 +146,12 @@
     <Reference Include="SgmlReaderDll">
       <HintPath>libs\SgmlReaderDll.dll</HintPath>
     </Reference>
+    <Reference Include="SevenZipExtractor">
+      <HintPath>libs\SevenZipExtractor.dll</HintPath>
+    </Reference>
+    <Reference Include="OggVorbis.NET64">
+      <HintPath>vendor\native\x64\OggVorbis.NET64.dll</HintPath>
+    </Reference>
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
     <PackageReference Include="NLog" Version="4.4.3" />
     <PackageReference Include="System.Resources.Extensions" Version="8.0.0" />
@@ -170,13 +170,16 @@
     <Delete Files="@(_ManagedReferenceDllToMove->'$(OutDir)%(Filename)%(Extension)')" />
   </Target>
 
-  <Target Name="RemoveLegacyNativeOutputDirs" AfterTargets="RelocateManagedDependenciesToLibs">
-    <RemoveDir Directories="$(OutDir)x86;$(OutDir)x64" />
+  <Target Name="RemoveLegacyNativeOutputArtifacts" AfterTargets="RelocateManagedDependenciesToLibs">
+    <RemoveDir Directories="$(OutDir)x86;$(OutDir)x64;$(OutDir)libs\x86" />
+    <Delete Files="$(OutDir)libs\x64\OggVorbis.NET64.dll" />
   </Target>
 
   <Target Name="CopyUpdaterToAppOutput" AfterTargets="Build">
     <PropertyGroup>
-      <_UpdaterOutputPath>$(MSBuildProjectDirectory)\BeMusicSeeker.Updater\bin\$(Configuration)\net472\BeMusicSeeker.Updater.exe</_UpdaterOutputPath>
+      <_UpdaterProjectDirectory>$(MSBuildProjectDirectory)\BeMusicSeeker.Updater\</_UpdaterProjectDirectory>
+      <_UpdaterOutputPath Condition="$([System.IO.Path]::IsPathRooted('$(OutDir)'))">$([System.IO.Path]::GetFullPath('$(OutDir)BeMusicSeeker.Updater.exe'))</_UpdaterOutputPath>
+      <_UpdaterOutputPath Condition="!$([System.IO.Path]::IsPathRooted('$(OutDir)'))">$([System.IO.Path]::GetFullPath('$(_UpdaterProjectDirectory)$(OutDir)BeMusicSeeker.Updater.exe'))</_UpdaterOutputPath>
     </PropertyGroup>
 
     <Error Condition="!Exists('$(_UpdaterOutputPath)')"

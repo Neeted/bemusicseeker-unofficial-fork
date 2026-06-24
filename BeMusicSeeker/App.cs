@@ -143,6 +143,7 @@ public partial class App : System.Windows.Application
         AppThemeService.ApplyTheme(Settings.Default.AppearanceTheme);
         AppDomain.CurrentDomain.UnhandledException += CurrentDomain_UnhandledException;
         base.DispatcherUnhandledException += Application_DispatcherUnhandledException;
+        ManagedDependencyPreloader.Preload();
     }
 
     private void Application_Exit(object sender, ExitEventArgs e)

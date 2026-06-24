@@ -43,19 +43,14 @@ internal static class EverythingNative
         return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "native", BridgeDllName);
     }
 
-    internal static bool EnsureBridgeAvailable(out string reason)
-    {
-        if (IntPtr.Size != 8)
-        {
-            reason = "unsupported_architecture";
-            return false;
-        }
-        return EnsureBridgeLoaded(out reason);
-    }
-
     private static bool EnsureBridgeLoaded(out string reason)
     {
         reason = null;
+        if (IntPtr.Size != 8)
+        {
+            reason = "unsupported_architecture";
+            throw new PlatformNotSupportedException("Everything native bridge requires an x64 process.");
+        }
         if (loadedBridgeModule == IntPtr.Zero)
         {
             string expectedBridgeDllPath = GetExpectedBridgeDllPath();
