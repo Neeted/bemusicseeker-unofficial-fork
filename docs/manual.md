@@ -56,6 +56,10 @@ Before performing large cleanup operations, installs, deletions, duplicate merge
 
 BeMusicSeeker Unofficial Fork is a portable application that does not require installation. Download the latest version from the release page, extract it to any folder, and start it. Do not run it directly from the ZIP file; always extract it to a writable folder first.
 
+Before extracting the ZIP, right-click the downloaded file, open `Properties`, and if an `Unblock` checkbox appears near the bottom of the window, check it and press `Apply`. This clears the safety mark Windows adds to files downloaded from the internet before the package is extracted. Applying it to the ZIP first helps avoid Windows applying extra restrictions to `BeMusicSeeker.exe` or bundled DLL files after extraction.
+
+![Unblock the downloaded ZIP from Properties](img/allow_zoneid3.png)
+
 The application creates files such as `config/user.config` and `data/song.db` near the executable. If you place it under `Program Files`, in a read-only folder, or in a location where sync conflicts are likely, saving settings or creating the standalone DB may fail. When updating, keep `config` and `data` and overwrite the main application files with the new version.
 
 ### Very Strongly Recommended, Effectively Required: Everything 1.5 Alpha x64

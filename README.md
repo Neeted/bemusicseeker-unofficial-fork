@@ -24,7 +24,9 @@ For first-time setup, operating modes, and screen-by-screen usage, see the [User
    - After installing Everything, let it finish indexing the directories that contain your BMS files before starting BeMusicSeeker.
 2. **Download the release package**
    - Download the latest package from the [Releases](https://github.com/Neeted/bemusicseeker-unofficial-fork/releases) page.
-   - Do not run the app directly from the ZIP. Extract it into any writable directory. The app is portable and does not require installation.
+   - Before extracting it, right-click the downloaded ZIP, open `Properties`, and if an `Unblock` checkbox appears near the bottom of the window, check it and press `Apply`. This clears the safety mark Windows adds to downloaded files before the files are extracted.
+     ![Unblock the downloaded ZIP from Properties](docs/img/allow_zoneid3.png)
+   - Do not run the app directly from the ZIP. After applying `Unblock`, extract it into any writable directory. The app is portable and does not require installation.
 3. **First launch and settings**
    - The first launch opens the language selection and settings dialogs. Choose the operating mode and configure BMS directories, and when using LR2 mode, `song.db`, `config.xml`, score DB, and related paths.
    - See [Initial Setup](docs/manual.md#initial-setup) and [Settings Dialog](docs/manual.md#settings-dialog).
