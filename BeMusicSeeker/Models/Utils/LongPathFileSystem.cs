@@ -189,6 +189,12 @@ internal static class LongPathFileSystem
     public static void MoveFile(string sourcePath, string destinationPath, bool overwrite)
     {
         ThrowIfSamePath(sourcePath, destinationPath);
+        if (!IsSameVolumeRoot(sourcePath, destinationPath))
+        {
+            MoveFileAcrossVolumeRoots(sourcePath, destinationPath, overwrite);
+            return;
+        }
+
         if (overwrite && FileExists(destinationPath))
         {
             ReplaceFileByMovingSource(sourcePath, destinationPath);
@@ -228,9 +234,22 @@ internal static class LongPathFileSystem
     {
         ThrowIfSamePath(sourcePath, destinationPath);
         ThrowIfDestinationIsInsideSourceDirectory(sourcePath, destinationPath);
-        if (!overwrite || !DirectoryExists(destinationPath))
+        bool destinationExists = DirectoryExists(destinationPath);
+        if (!overwrite && destinationExists)
         {
-            Directory.Move(ToExtendedPath(sourcePath), ToExtendedPath(destinationPath));
+            throw new IOException("Destination directory already exists.");
+        }
+
+        if (!destinationExists)
+        {
+            if (IsSameVolumeRoot(sourcePath, destinationPath))
+            {
+                Directory.Move(ToExtendedPath(sourcePath), ToExtendedPath(destinationPath));
+            }
+            else
+            {
+                MoveDirectoryAcrossVolumeRoots(sourcePath, destinationPath, overwrite);
+            }
             return;
         }
 
@@ -394,6 +413,40 @@ internal static class LongPathFileSystem
         }
     }
 
+    private static void MoveFileAcrossVolumeRoots(string sourcePath, string destinationPath, bool overwrite)
+    {
+        if (overwrite && FileExists(destinationPath))
+        {
+            CopyAndReplaceFileAcrossVolumeRoots(sourcePath, destinationPath);
+            DeleteFile(sourcePath);
+            return;
+        }
+
+        CopyFile(sourcePath, destinationPath, overwrite);
+        DeleteFile(sourcePath);
+    }
+
+    private static void CopyAndReplaceFileAcrossVolumeRoots(string sourcePath, string destinationPath)
+    {
+        string replacementPath = CreateTemporarySiblingPath(destinationPath);
+        try
+        {
+            CopyFile(sourcePath, replacementPath, overwrite: false);
+            File.Replace(ToExtendedPath(replacementPath), ToExtendedPath(destinationPath), null, ignoreMetadataErrors: true);
+        }
+        catch
+        {
+            TryDeleteTemporaryReplacement(replacementPath);
+            throw;
+        }
+    }
+
+    private static void MoveDirectoryAcrossVolumeRoots(string sourcePath, string destinationPath, bool overwrite)
+    {
+        CopyDirectory(sourcePath, destinationPath, overwrite);
+        DeleteDirectory(sourcePath, recursive: true);
+    }
+
     private static string CreateTemporarySiblingPath(string path)
     {
         string directoryPath = Path.GetDirectoryName(path) ?? string.Empty;
@@ -449,7 +502,7 @@ internal static class LongPathFileSystem
             }
             else
             {
-                Directory.Move(ToExtendedPath(sourceDirectoryPath), ToExtendedPath(destinationChildPath));
+                MoveDirectory(sourceDirectoryPath, destinationChildPath, overwrite: true);
             }
         }
 
@@ -468,6 +521,20 @@ internal static class LongPathFileSystem
         {
             throw new IOException("Source path and destination path are the same.");
         }
+    }
+
+    private static bool IsSameVolumeRoot(string sourcePath, string destinationPath)
+    {
+        string sourceRoot = NormalizePathRootForComparison(sourcePath);
+        string destinationRoot = NormalizePathRootForComparison(destinationPath);
+        return string.Equals(sourceRoot, destinationRoot, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string NormalizePathRootForComparison(string path)
+    {
+        string normalizedPath = NormalizePathForStorage(path);
+        string root = Path.GetPathRoot(normalizedPath) ?? string.Empty;
+        return TrimTrailingDirectorySeparators(root);
     }
 
     private static void ThrowIfDestinationIsInsideSourceDirectory(string sourcePath, string destinationPath)

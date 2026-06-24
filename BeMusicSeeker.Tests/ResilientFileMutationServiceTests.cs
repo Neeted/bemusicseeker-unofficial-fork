@@ -149,6 +149,25 @@ public sealed class ResilientFileMutationServiceTests
     }
 
     /// <summary>
+    /// 別ボリュームへのファイル移動はコピー後に移動元を削除し、上書き先を置き換えることを検証します。
+    /// </summary>
+    [TestMethod]
+    public void MoveFile_CrossVolumeOverwriteCopiesAndDeletesSource()
+    {
+        using CrossVolumeTestDirectories directories = CrossVolumeTestDirectories.CreateOrInconclusive(nameof(MoveFile_CrossVolumeOverwriteCopiesAndDeletesSource));
+        string sourceFilePath = Path.Combine(directories.SourceBaseDirectory, "source.bms");
+        string destinationFilePath = Path.Combine(directories.DestinationBaseDirectory, "destination.bms");
+        WriteAllText(sourceFilePath, "source");
+        WriteAllText(destinationFilePath, "destination");
+
+        resilientFileMutationService.MoveFile(sourceFilePath, destinationFilePath, overwrite: true, targetOnlyFileMutationOptions);
+
+        Assert.IsFalse(LongPathFileSystem.FileExists(sourceFilePath));
+        Assert.IsTrue(LongPathFileSystem.FileExists(destinationFilePath));
+        Assert.AreEqual("source", ReadAllText(destinationFilePath));
+    }
+
+    /// <summary>
     /// 長パス上のディレクトリ上書き移動は既存の宛先を消さず、衝突ファイルだけを上書きしてマージすることを検証します。
     /// </summary>
     [TestMethod]
@@ -181,6 +200,84 @@ public sealed class ResilientFileMutationServiceTests
             Assert.AreEqual("nested-source", ReadAllText(Path.Combine(destinationChildDirectoryPath, "nested.bms")));
             Assert.AreEqual("nested-destination", ReadAllText(Path.Combine(destinationChildDirectoryPath, "old.bms")));
         });
+    }
+
+    /// <summary>
+    /// 別ボリュームの存在しない長パス宛先へディレクトリを移動できることを検証します。
+    /// </summary>
+    [TestMethod]
+    public void MoveDirectory_CrossVolumeCreatesLongDestinationAndDeletesSource()
+    {
+        using CrossVolumeTestDirectories directories = CrossVolumeTestDirectories.CreateOrInconclusive(nameof(MoveDirectory_CrossVolumeCreatesLongDestinationAndDeletesSource));
+        string sourceDirectoryPath = Path.Combine(directories.SourceBaseDirectory, "source");
+        string sourceChildDirectoryPath = Path.Combine(sourceDirectoryPath, "child");
+        string destinationDirectoryPath = BuildLongDirectoryPath(directories.DestinationBaseDirectory, "destination");
+        LongPathFileSystem.CreateDirectory(sourceChildDirectoryPath);
+        WriteAllText(Path.Combine(sourceDirectoryPath, "root.bms"), "root");
+        WriteAllText(Path.Combine(sourceChildDirectoryPath, "nested.wav"), "nested");
+
+        resilientFileMutationService.MoveDirectory(sourceDirectoryPath, destinationDirectoryPath, overwrite: false, recursiveDirectoryTreeFileMutationOptions);
+
+        Assert.IsFalse(LongPathFileSystem.DirectoryExists(sourceDirectoryPath));
+        Assert.AreEqual("root", ReadAllText(Path.Combine(destinationDirectoryPath, "root.bms")));
+        Assert.AreEqual("nested", ReadAllText(Path.Combine(destinationDirectoryPath, "child", "nested.wav")));
+    }
+
+    /// <summary>
+    /// 別ボリュームの既存宛先へディレクトリをマージ移動できることを検証します。
+    /// </summary>
+    [TestMethod]
+    public void MoveDirectory_CrossVolumeOverwritesExistingDestinationByMerging()
+    {
+        using CrossVolumeTestDirectories directories = CrossVolumeTestDirectories.CreateOrInconclusive(nameof(MoveDirectory_CrossVolumeOverwritesExistingDestinationByMerging));
+        string sourceDirectoryPath = Path.Combine(directories.SourceBaseDirectory, "source");
+        string destinationDirectoryPath = Path.Combine(directories.DestinationBaseDirectory, "destination");
+        string sourceChildDirectoryPath = Path.Combine(sourceDirectoryPath, "child");
+        string sourceNewChildDirectoryPath = Path.Combine(sourceDirectoryPath, "new-child");
+        string destinationChildDirectoryPath = Path.Combine(destinationDirectoryPath, "child");
+        LongPathFileSystem.CreateDirectory(sourceChildDirectoryPath);
+        LongPathFileSystem.CreateDirectory(sourceNewChildDirectoryPath);
+        LongPathFileSystem.CreateDirectory(destinationChildDirectoryPath);
+        WriteAllText(Path.Combine(sourceDirectoryPath, "same.bms"), "source");
+        WriteAllText(Path.Combine(sourceDirectoryPath, "source-only.bms"), "source-only");
+        WriteAllText(Path.Combine(sourceChildDirectoryPath, "nested.bms"), "nested-source");
+        WriteAllText(Path.Combine(sourceNewChildDirectoryPath, "new.bms"), "new-child");
+        WriteAllText(Path.Combine(destinationDirectoryPath, "same.bms"), "destination");
+        WriteAllText(Path.Combine(destinationDirectoryPath, "destination-only.bms"), "destination-only");
+        WriteAllText(Path.Combine(destinationChildDirectoryPath, "old.bms"), "nested-destination");
+
+        resilientFileMutationService.MoveDirectory(sourceDirectoryPath, destinationDirectoryPath, overwrite: true, recursiveDirectoryTreeFileMutationOptions);
+
+        Assert.IsFalse(LongPathFileSystem.DirectoryExists(sourceDirectoryPath));
+        Assert.AreEqual("source", ReadAllText(Path.Combine(destinationDirectoryPath, "same.bms")));
+        Assert.AreEqual("source-only", ReadAllText(Path.Combine(destinationDirectoryPath, "source-only.bms")));
+        Assert.AreEqual("destination-only", ReadAllText(Path.Combine(destinationDirectoryPath, "destination-only.bms")));
+        Assert.AreEqual("nested-source", ReadAllText(Path.Combine(destinationChildDirectoryPath, "nested.bms")));
+        Assert.AreEqual("nested-destination", ReadAllText(Path.Combine(destinationChildDirectoryPath, "old.bms")));
+        Assert.AreEqual("new-child", ReadAllText(Path.Combine(destinationDirectoryPath, "new-child", "new.bms")));
+    }
+
+    /// <summary>
+    /// 別ボリュームの既存宛先へ overwrite=false で移動すると失敗し、双方を保持することを検証します。
+    /// </summary>
+    [TestMethod]
+    public void MoveDirectory_CrossVolumeOverwriteFalseExistingDestinationThrowsAndPreservesBothSides()
+    {
+        using CrossVolumeTestDirectories directories = CrossVolumeTestDirectories.CreateOrInconclusive(nameof(MoveDirectory_CrossVolumeOverwriteFalseExistingDestinationThrowsAndPreservesBothSides));
+        string sourceDirectoryPath = Path.Combine(directories.SourceBaseDirectory, "source");
+        string destinationDirectoryPath = Path.Combine(directories.DestinationBaseDirectory, "destination");
+        LongPathFileSystem.CreateDirectory(sourceDirectoryPath);
+        LongPathFileSystem.CreateDirectory(destinationDirectoryPath);
+        WriteAllText(Path.Combine(sourceDirectoryPath, "source.bms"), "source");
+        WriteAllText(Path.Combine(destinationDirectoryPath, "destination.bms"), "destination");
+
+        Assert.ThrowsException<FileMutationException>(() =>
+            resilientFileMutationService.MoveDirectory(sourceDirectoryPath, destinationDirectoryPath, overwrite: false, recursiveDirectoryTreeFileMutationOptions));
+
+        Assert.IsTrue(LongPathFileSystem.DirectoryExists(sourceDirectoryPath));
+        Assert.IsTrue(LongPathFileSystem.DirectoryExists(destinationDirectoryPath));
+        Assert.AreEqual("source", ReadAllText(Path.Combine(sourceDirectoryPath, "source.bms")));
+        Assert.AreEqual("destination", ReadAllText(Path.Combine(destinationDirectoryPath, "destination.bms")));
     }
 
     /// <summary>

@@ -39,7 +39,7 @@
 
 `IFileMutationService` は ReadOnly 補正、短時間リトライ、診断ログ、`FileMutationException` への例外集約を提供する。導入、マージ、移動、削除、拡張子変更、スマート上書きなど、ユーザー操作に紐づく変更系ファイル操作はこの service を経由する。
 
-`MoveDirectory(..., overwrite: true)` は宛先ディレクトリを削除して置き換えるのではなく、既存宛先を保持したままマージ移動する。衝突ファイルは移動元で上書きし、宛先にしかないファイルは残す。
+`MoveDirectory(..., overwrite: true)` は宛先ディレクトリを削除して置き換えるのではなく、既存宛先を保持したままマージ移動する。衝突ファイルは移動元で上書きし、宛先にしかないファイルは残す。source と destination の volume root が異なる場合、`MoveFile(...)` / `MoveDirectory(...)` は long-path 対応の copy + delete で move 相当を実現する。copy 成功後の source delete 失敗は成功扱いにせず、source と destination が両方残り得る失敗として呼び出し側へ返す。
 
 `DeleteFileShell(...)` / `DeleteDirectoryShell(...)` でごみ箱送りを指定した場合は、シェル API の制約を隠して永久削除へフォールバックしない。永久削除かつ UI 表示がエラーダイアログのみの経路では、長パス対応の直接削除を使う。
 

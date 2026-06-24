@@ -1954,6 +1954,101 @@ public sealed class BmsLibraryPackageInstallServiceTests
     }
 
     [TestMethod]
+    public void MovePackageFiles_AutoNamingDirectoryPackageMovesAcrossVolumes()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        using CrossVolumeTestDirectories directories = CrossVolumeTestDirectories.CreateOrInconclusive(nameof(MovePackageFiles_AutoNamingDirectoryPackageMovesAcrossVolumes));
+        string sourceDirectoryPath = Path.Combine(directories.SourceBaseDirectory, "PendingPkg");
+        string nestedDirectoryPath = Path.Combine(sourceDirectoryPath, "sub");
+        Directory.CreateDirectory(nestedDirectoryPath);
+        string chartPath = Path.Combine(sourceDirectoryPath, "chart.bms");
+        string nestedChartPath = Path.Combine(nestedDirectoryPath, "another.bms");
+        string resourcePath = Path.Combine(sourceDirectoryPath, "readme.txt");
+        File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE Cross Volume Auto\r\n");
+        File.WriteAllText(nestedChartPath, "#PLAYER 1\r\n#TITLE Cross Volume Nested\r\n");
+        File.WriteAllText(resourcePath, "resource");
+
+        var service = new BmsLibraryPackageInstallService();
+        TestableBmsFile chart = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", chartPath);
+        TestableBmsFile nestedChart = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", nestedChartPath);
+        var package = ChartPackageTestExtensions.CreatePackage([chart, nestedChart]);
+        package.path = sourceDirectoryPath;
+        string destinationDirectoryPath = Path.Combine(directories.DestinationBaseDirectory, "InstalledAuto");
+
+        bool moved = service.MovePackageFiles(
+            package,
+            string.Empty,
+            new BmsLibraryOptionsSnapshot
+            {
+                BMSInstallDir = directories.DestinationBaseDirectory,
+                EnableSmartComponentOverwrite = false,
+                KeepSmartOverwriteProtectedFilesByRenaming = false
+            },
+            (_, _, _) => destinationDirectoryPath,
+            ex => ex.Message,
+            new ResilientFileMutationService(),
+            null,
+            new FileMutationOptions(ReadOnlyNormalizationScope.TargetOnly),
+            new FileMutationOptions(ReadOnlyNormalizationScope.RecursiveDirectoryTree),
+            _ => { },
+            showMessageBoxOnInstallFail: false);
+
+        Assert.IsTrue(moved);
+        Assert.AreEqual(destinationDirectoryPath, package.path);
+        Assert.AreEqual(Path.Combine(destinationDirectoryPath, "chart.bms"), chart.path);
+        Assert.AreEqual(Path.Combine(destinationDirectoryPath, "sub", "another.bms"), nestedChart.path);
+        Assert.IsFalse(LongPathFileSystem.DirectoryExists(sourceDirectoryPath));
+        Assert.IsTrue(LongPathFileSystem.FileExists(Path.Combine(destinationDirectoryPath, "readme.txt")));
+    }
+
+    [TestMethod]
+    public void MovePackageFiles_ExplicitDestinationMovesFilePlanAcrossVolumes()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        using CrossVolumeTestDirectories directories = CrossVolumeTestDirectories.CreateOrInconclusive(nameof(MovePackageFiles_ExplicitDestinationMovesFilePlanAcrossVolumes));
+        string sourceDirectoryPath = Path.Combine(directories.SourceBaseDirectory, "PendingPkg");
+        string nestedDirectoryPath = Path.Combine(sourceDirectoryPath, "sub");
+        Directory.CreateDirectory(nestedDirectoryPath);
+        string chartPath = Path.Combine(sourceDirectoryPath, "chart.bms");
+        string nestedChartPath = Path.Combine(nestedDirectoryPath, "another.bms");
+        string resourcePath = Path.Combine(nestedDirectoryPath, "sound.wav");
+        File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE Cross Volume Explicit\r\n");
+        File.WriteAllText(nestedChartPath, "#PLAYER 1\r\n#TITLE Cross Volume Explicit Nested\r\n");
+        File.WriteAllText(resourcePath, "resource");
+
+        var service = new BmsLibraryPackageInstallService();
+        TestableBmsFile chart = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", chartPath);
+        TestableBmsFile nestedChart = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", nestedChartPath);
+        var package = ChartPackageTestExtensions.CreatePackage([chart, nestedChart]);
+        package.path = sourceDirectoryPath;
+        string destinationDirectoryPath = Path.Combine(directories.DestinationBaseDirectory, "InstalledExplicit");
+
+        bool moved = service.MovePackageFiles(
+            package,
+            destinationDirectoryPath,
+            new BmsLibraryOptionsSnapshot
+            {
+                EnableSmartComponentOverwrite = false,
+                KeepSmartOverwriteProtectedFilesByRenaming = false
+            },
+            (_, _, _) => throw new AssertFailedException("createFolderPath should not be called when destination is specified."),
+            ex => ex.Message,
+            new ResilientFileMutationService(),
+            null,
+            new FileMutationOptions(ReadOnlyNormalizationScope.TargetOnly),
+            new FileMutationOptions(ReadOnlyNormalizationScope.RecursiveDirectoryTree),
+            _ => { },
+            showMessageBoxOnInstallFail: false);
+
+        Assert.IsTrue(moved);
+        Assert.AreEqual(destinationDirectoryPath, package.path);
+        Assert.AreEqual(Path.Combine(destinationDirectoryPath, "chart.bms"), chart.path);
+        Assert.AreEqual(Path.Combine(destinationDirectoryPath, "sub", "another.bms"), nestedChart.path);
+        Assert.IsFalse(LongPathFileSystem.DirectoryExists(sourceDirectoryPath));
+        Assert.IsTrue(LongPathFileSystem.FileExists(Path.Combine(destinationDirectoryPath, "sub", "sound.wav")));
+    }
+
+    [TestMethod]
     public void InstallPackages_ReportsAdapterlessBmsonRowsWithoutMaterializingCompatibilityAdapter()
     {
         TestResourceInitializer.EnsureJapaneseResources();

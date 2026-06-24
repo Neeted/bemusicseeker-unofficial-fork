@@ -219,6 +219,40 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
     }
 
     [TestMethod]
+    public void MoveFolderAndUpdateReferences_CrossVolumeMoveRewritesDirectoryIndex()
+    {
+        using CrossVolumeTestDirectories directories = CrossVolumeTestDirectories.CreateOrInconclusive(nameof(MoveFolderAndUpdateReferences_CrossVolumeMoveRewritesDirectoryIndex));
+        var service = new BmsLibraryLibraryFileOperationsService();
+        string sourceRoot = Path.Combine(directories.SourceBaseDirectory, "Src");
+        string nestedDirectoryPath = Path.Combine(sourceRoot, "Nested");
+        Directory.CreateDirectory(nestedDirectoryPath);
+        File.WriteAllText(Path.Combine(nestedDirectoryPath, "chart.bms"), "#PLAYER 1");
+        string destinationRoot = Path.Combine(directories.DestinationBaseDirectory, "Dst");
+        uint sourceHash = ChartResourceKeyHash.GetLookupHash("root.wav");
+        uint nestedHash = ChartResourceKeyHash.GetLookupHash("chart.bms");
+        var lookupCache = new DirectoryResourceLookupCache();
+        lookupCache.AddDir(sourceRoot, [sourceHash], [], []);
+        lookupCache.AddDir(nestedDirectoryPath, [nestedHash], [], []);
+        lookupCache.EnsureAudioRelativeDirectoriesByHashes([sourceHash, nestedHash]);
+
+        DirectoryResourceLookupCache.ReverseLookupMutationResult mutationResult = service.MoveFolderAndUpdateReferences(
+            sourceRoot,
+            destinationRoot,
+            lookupCache,
+            new ResilientFileMutationService(),
+            new FileMutationOptions(ReadOnlyNormalizationScope.RecursiveDirectoryTree));
+
+        Assert.IsFalse(LongPathFileSystem.DirectoryExists(sourceRoot));
+        Assert.IsTrue(LongPathFileSystem.DirectoryExists(destinationRoot));
+        Assert.IsTrue(LongPathFileSystem.FileExists(Path.Combine(destinationRoot, "Nested", "chart.bms")));
+        CollectionAssert.AreEquivalent(new[] { destinationRoot }, lookupCache.GetDirectoriesByAudioRelativeHash(sourceHash).ToArray());
+        CollectionAssert.AreEquivalent(new[] { Path.Combine(destinationRoot, "Nested") }, lookupCache.GetDirectoriesByAudioRelativeHash(nestedHash).ToArray());
+        Assert.IsNull(lookupCache.GetEntryOrNull(sourceRoot));
+        Assert.IsNull(lookupCache.GetEntryOrNull(nestedDirectoryPath));
+        Assert.IsTrue(mutationResult.Changed);
+    }
+
+    [TestMethod]
     public void UpdateMovedFolderReferences_RewritesMultipleMovedFoldersInOnePass()
     {
         var service = new BmsLibraryLibraryFileOperationsService();
