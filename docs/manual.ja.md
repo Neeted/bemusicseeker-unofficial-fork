@@ -33,7 +33,7 @@ BeMusicSeeker は、BMS ファイルの管理、検索、再生、インスト�
 この Fork 版では、従来版の基本機能に加えて、以下のような改善が入っています。
 
 - 大規模ライブラリ向けの初期化・リロード・一覧表示高速化
-- `Everything 1.5 Alpha x64` を利用した高速ファイル列挙とリソース索引作成
+- `Everything 1.5 (x64)` を利用した高速ファイル列挙とリソース索引作成
 - 導入先推定、推定先インストール、重複フォルダマージの高速化
 - bmson 管理対応(再生は未対応)
 - LR2に依存しないスタンドアローンモード
@@ -62,9 +62,9 @@ BeMusicSeeker Unofficial Fork はインストール不要のポータブルア�
 
 アプリは実行ファイルの近くに `config/user.config` や `data/song.db` などを作成します。`Program Files`、読み取り専用フォルダ、同期中に競合しやすい場所へ置くと、設定保存やスタンドアローン DB 作成に失敗する場合があります。更新時は `config` と `data` を残したまま、本体ファイルを新しい版で上書きしてください。
 
-### 非常に強く推奨、事実上必須: Everything 1.5 Alpha x64
+### 非常に強く推奨、事実上必須: Everything 1.5 (x64)
 
-可能であれば、先に `Everything 1.5 Alpha x64` を導入してください。
+可能であれば、先に [Everything 1.5 (x64)](https://www.voidtools.com/everything-1.5/) を導入してください。
 
 BeMusicSeeker は初期化時に BMS 譜面、音源、画像、動画などを大量に列挙します。Everything が利用可能な場合、ファイル列挙とリソース索引作成を高速化できます。未導入でも動作しますが、大規模なライブラリでは初回スキャンやリロードに時間がかかります。
 
@@ -913,7 +913,7 @@ LR2 連携モードでは、BeMusicSeeker が LR2 の `song.db` にアプリ用�
 
 ### 起動や初期化が遅い
 
-- Everything 1.5 Alpha x64 が導入されているか確認してください。
+- Everything 1.5 (x64) が導入されているか確認してください。
 - Everything 側で BMS フォルダが検索できるか確認してください。
 - 初回構築、DB 空状態、BMS ルートフォルダの大規模変更では、通常より時間がかかります。
 - `log/install-performance.log` の `everything_scan`、`song_tbl_file_check`、`playlist_*` などを見ると、どこに時間がかかっているか分かります。

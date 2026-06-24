@@ -33,7 +33,7 @@ BeMusicSeeker is an integrated management tool that helps manage, search, play, 
 In addition to the basic features of the traditional version, this fork includes improvements such as the following.
 
 - Faster initialization, reload, and list display for large libraries
-- Fast file enumeration and resource index creation using `Everything 1.5 Alpha x64`
+- Fast file enumeration and resource index creation using `Everything 1.5 (x64)`
 - Faster install-destination estimation, estimated-destination install, and duplicate folder merging
 - bmson management support, though playback is not supported
 - Standalone mode that does not depend on LR2
@@ -62,9 +62,9 @@ Before extracting the ZIP, right-click the downloaded file, open `Properties`, a
 
 The application creates files such as `config/user.config` and `data/song.db` near the executable. If you place it under `Program Files`, in a read-only folder, or in a location where sync conflicts are likely, saving settings or creating the standalone DB may fail. When updating, keep `config` and `data` and overwrite the main application files with the new version.
 
-### Very Strongly Recommended, Effectively Required: Everything 1.5 Alpha x64
+### Very Strongly Recommended, Effectively Required: Everything 1.5 (x64)
 
-If possible, install `Everything 1.5 Alpha x64` first.
+If possible, install [Everything 1.5 (x64)](https://www.voidtools.com/everything-1.5/) first.
 
 During initialization, BeMusicSeeker enumerates a large number of BMS chart files, audio files, images, videos, and related resources. When Everything is available, file enumeration and resource index creation can be accelerated. The application can run without it, but first scans and reloads may take a long time for large libraries.
 
@@ -913,7 +913,7 @@ When log files grow, older files are rotated under `log/archive/`. For bug repor
 
 ### Startup or Initialization Is Slow
 
-- Check whether Everything 1.5 Alpha x64 is installed.
+- Check whether Everything 1.5 (x64) is installed.
 - Check whether your BMS folders are searchable from Everything.
 - First-time construction, an empty DB, or large changes to BMS root folders take longer than usual.
 - Looking at `everything_scan`, `song_tbl_file_check`, `playlist_*`, and similar entries in `log/install-performance.log` can show where time is being spent.

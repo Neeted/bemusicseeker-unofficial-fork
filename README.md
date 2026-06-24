@@ -19,7 +19,7 @@ In practice, this repository is maintained as a distribution point for modified 
 
 For first-time setup, operating modes, and screen-by-screen usage, see the [User Manual](docs/manual.md).
 
-1. **Install [Everything 1.5 Alpha (x64)](https://www.voidtools.com/everything-1.5a/) if possible**
+1. **Install [Everything 1.5 (x64)](https://www.voidtools.com/everything-1.5/) if possible**
    - The app can run without Everything, but startup, reload, and install-destination estimation are much faster in large libraries when Everything is available.
    - After installing Everything, let it finish indexing the directories that contain your BMS files before starting BeMusicSeeker.
 2. **Download the release package**
@@ -47,7 +47,7 @@ This section highlights representative improvements. See the [User Manual](docs/
 ### Main improvements
 
 - **Faster startup, reload, and chart installation**
-  - Uses Everything 1.5 Alpha x64 for fast file enumeration and reworks initialization, file-diff, and DB update processing.
+  - Uses Everything 1.5 (x64) for fast file enumeration and reworks initialization, file-diff, and DB update processing.
   - Focuses on workflows that become heavy in large libraries, including install-destination estimation, pending-package processing, duplicate-file checking, and playlist display.
   - The main list view has been reorganized around a custom table view with column settings, sorting, tooltips, and playlist summaries that remain usable in large environments.
 - **bmson support**
