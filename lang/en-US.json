@@ -120,7 +120,7 @@
   "Play_history_copy_sha256": "Copy SHA256",
   "Play_history_copy_raw_hash": "Copy raw hash",
   "Msg_confirm_lr2_song_db_sync_startup_scan_blocker_cleanup": "Diagnosed LR2 folder table rows will be cleaned up before retrying.\nOnly diagnosed LR2 folder table rows are deleted. Chart files and .lr2folder files are not deleted.\n\nContinue?",
-  "Warn_EverythingFallbackScanUsed": "Everything integration failed, so BeMusicSeeker will switch to ordinary file enumeration.\nInitialization or reload may take longer for large libraries.\n\nCheck that Everything 1.5 Alpha x64 is running, has finished indexing your BMS folders, and can search them.\n\nDetails: {0}",
+  "Warn_EverythingFallbackScanUsed": "Everything integration failed, so BeMusicSeeker will switch to ordinary file enumeration.\nInitialization or reload may take longer for large libraries.\n\nCheck that Everything 1.5 (x64) is running, has finished indexing your BMS folders, and can search them.\n\nDetails: {0}",
   "Appearance_theme": "Theme:",
   "Appearance_theme_light": "Light",
   "Appearance_theme_dark": "Dark",

@@ -514,21 +514,36 @@ void* TryConnectClient(unsigned int* lastError) {
 		*lastError = EVERYTHING3_OK;
 	}
 
-	const wchar_t* instances[2] = { L"1.5a", nullptr };
-	for (const wchar_t* instance : instances) {
-		for (int i = 0; i < 20; i++) {
+	constexpr int maxAttempts = 20;
+	constexpr DWORD retryDelayMs = 100;
+
+	// Everything 1.5b and later use the default unnamed instance; 1.5a used a named instance.
+	const wchar_t* instances[2] = { nullptr, L"1.5a" };
+	for (int i = 0; i < maxAttempts; i++) {
+		unsigned int nonRetryableError = EVERYTHING3_OK;
+		unsigned int lastObservedError = EVERYTHING3_OK;
+		for (const wchar_t* instance : instances) {
 			void* client = g_api.ConnectW(instance);
 			if (client) {
 				return client;
 			}
 			unsigned int err = g_api.GetLastError();
-			if (lastError) {
-				*lastError = err;
-			}
+			lastObservedError = err;
 			if (err != EVERYTHING3_ERROR_IPC_PIPE_NOT_FOUND) {
-				break;
+				nonRetryableError = err;
 			}
-			Sleep(100);
+		}
+		if (nonRetryableError != EVERYTHING3_OK) {
+			if (lastError) {
+				*lastError = nonRetryableError;
+			}
+			return nullptr;
+		}
+		if (lastError) {
+			*lastError = lastObservedError;
+		}
+		if (i + 1 < maxAttempts) {
+			Sleep(retryDelayMs);
 		}
 	}
 	return nullptr;

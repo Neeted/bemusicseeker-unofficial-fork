@@ -123,7 +123,7 @@
   "Play_history_copy_sha256": "Copier SHA256",
   "Play_history_copy_raw_hash": "Copier raw hash",
   "Msg_confirm_lr2_song_db_sync_startup_scan_blocker_cleanup": "Les lignes diagnostiquees de la table folder LR2 seront nettoyees avant la nouvelle tentative.\nSeules les lignes de la table folder LR2 diagnostiquees sont supprimees. Les fichiers de chart et les fichiers .lr2folder ne sont pas supprimes.\n\nContinuer?",
-  "Warn_EverythingFallbackScanUsed": "L'integration Everything a echoue; BeMusicSeeker va basculer vers l'enumeration normale des fichiers.\nL'initialisation ou le rechargement peut prendre plus de temps pour les grandes bibliotheques.\n\nVerifiez qu'Everything 1.5 Alpha x64 est lance, que l'indexation de vos dossiers BMS est terminee et qu'ils sont recherchables dans Everything.\n\nDetails : {0}",
+  "Warn_EverythingFallbackScanUsed": "L'integration Everything a echoue; BeMusicSeeker va basculer vers l'enumeration normale des fichiers.\nL'initialisation ou le rechargement peut prendre plus de temps pour les grandes bibliotheques.\n\nVerifiez qu'Everything 1.5 (x64) est lance, que l'indexation de vos dossiers BMS est terminee et qu'ils sont recherchables dans Everything.\n\nDetails : {0}",
   "Msg_failed_remove_playlist_entry": "Failed to remove the song from the playlist.\nThe playlist is set to the external synchronization mode.",
   "Record_setting_encoder_dir": "Exe file dir: ",
   "Estimate_reinstall_loc": "Estimate re-installation location",

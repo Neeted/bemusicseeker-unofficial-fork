@@ -123,7 +123,7 @@
   "Play_history_copy_sha256": "复制 SHA256",
   "Play_history_copy_raw_hash": "复制 RAW HASH",
   "Msg_confirm_lr2_song_db_sync_startup_scan_blocker_cleanup": "将整理诊断出的 LR2 folder 表行，然后重试。\n只会删除诊断出的 LR2 folder 表行，不会删除谱面文件或 .lr2folder 文件。\n\n继续吗?",
-  "Warn_EverythingFallbackScanUsed": "Everything 联动失败，因此将切换到普通文件枚举。\n大型库的初始化或重新加载可能需要较长时间。\n\n请确认 Everything 1.5 Alpha x64 已启动、BMS 文件夹的索引已完成，并且可在 Everything 中搜索。\n\n详细: {0}",
+  "Warn_EverythingFallbackScanUsed": "Everything 联动失败，因此将切换到普通文件枚举。\n大型库的初始化或重新加载可能需要较长时间。\n\n请确认 Everything 1.5 (x64) 已启动、BMS 文件夹的索引已完成，并且可在 Everything 中搜索。\n\n详细: {0}",
   "Msg_failed_remove_playlist_entry": "谱面从播放列表移除失败。\n该播放列表已设置为外部同步模式。",
   "Record_setting_encoder_dir": "可执行文件目录：",
   "Estimate_reinstall_loc": "估算重新安装位置",
