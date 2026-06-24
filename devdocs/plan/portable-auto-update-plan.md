@@ -283,7 +283,7 @@ metadata 同梱版の説明は短くする。
 - project: `BeMusicSeeker.Updater/BeMusicSeeker.Updater.csproj`
 - output: `BeMusicSeeker.Updater.exe`
 - target framework: `net472`
-- solution: `BeMusicSeeker-decomp.sln` に追加する。
+- solution: `BeMusicSeeker.sln` に追加する。
 - package location: release zip root に `BeMusicSeeker.Updater.exe` を同梱する。
 - publish: `scripts/publish.ps1` が build output から updater exe を staging root へコピーする。
 - protocol version: updater 側に `UpdaterProtocolVersion = 1` を持たせ、manifest `minimumUpdaterVersion` と比較する。
@@ -598,7 +598,7 @@ rollback は backup を元の本体ディレクトリへ戻す。rollback 自体
 ## Unit 5: Updater Process
 
 - 小さな updater exe を追加する。
-- updater project は `BeMusicSeeker.Updater/BeMusicSeeker.Updater.csproj` とし、`BeMusicSeeker-decomp.sln` に追加する。
+- updater project は `BeMusicSeeker.Updater/BeMusicSeeker.Updater.csproj` とし、`BeMusicSeeker.sln` に追加する。
 - 引数には少なくとも app directory、zip path、expected version、expected sha256、parent process id を渡す。
 - アプリ本体は updater exe を `update_work/current/` へコピーしてから起動する。
 - updater 側でも zip hash を再検証する。

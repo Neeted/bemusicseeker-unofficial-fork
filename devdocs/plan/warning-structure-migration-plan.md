@@ -113,8 +113,8 @@ Phase 7 では warning 表示状態の source of truth を structured warning �
   - `BMSFile.warning`、`LegacyText`、`ChartWarningCategory.Legacy`、`AppendWarningLine`、`RemoveInstallEstimationWarnings` が残っていないこと。
   - tests は `Warnings.Contains(kind)`、digest、tooltip、highlight を検証すること。
 - 回帰
-  - `dotnet test BeMusicSeeker-decomp.sln /p:Configuration=Release`
-  - `dotnet build BeMusicSeeker-decomp.sln /p:Configuration=Release`
+  - `dotnet test BeMusicSeeker.sln /p:Configuration=Release`
+  - `dotnet build BeMusicSeeker.sln /p:Configuration=Release`
 
 ## 残リスク
 

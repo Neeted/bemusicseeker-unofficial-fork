@@ -213,8 +213,8 @@ CREATE INDEX IF NOT EXISTS idx_chart_info_parse_failure_parser_version
 
 ### Regression
 
-- `dotnet test BeMusicSeeker-decomp.sln /p:Configuration=Release`
-- `dotnet build BeMusicSeeker-decomp.sln /p:Configuration=Release`
+- `dotnet test BeMusicSeeker.sln /p:Configuration=Release`
+- `dotnet build BeMusicSeeker.sln /p:Configuration=Release`
 
 ## Risks
 

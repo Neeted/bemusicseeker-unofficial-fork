@@ -79,20 +79,20 @@ dotnet tool restore
 コード変更時は、変更範囲に応じて以下を実行すること。
 
 ```powershell
-dotnet restore BeMusicSeeker-decomp.sln
-dotnet build BeMusicSeeker-decomp.sln /p:Configuration=Release
-dotnet test BeMusicSeeker-decomp.sln /p:Configuration=Release
-dotnet format whitespace BeMusicSeeker-decomp.sln --verify-no-changes --no-restore --verbosity minimal
-dotnet roslynator analyze BeMusicSeeker-decomp.sln --properties Configuration=Release --severity-level warning --verbosity minimal
+dotnet restore BeMusicSeeker.sln
+dotnet build BeMusicSeeker.sln /p:Configuration=Release
+dotnet test BeMusicSeeker.sln /p:Configuration=Release
+dotnet format whitespace BeMusicSeeker.sln --verify-no-changes --no-restore --verbosity minimal
+dotnet roslynator analyze BeMusicSeeker.sln --properties Configuration=Release --severity-level warning --verbosity minimal
 ```
 
 - `dotnet restore` は初回、パッケージ・ツール・プロジェクト構成変更時、または restore 状態が不明な場合に実行する。
 - `dotnet tool restore` と `dotnet restore` は別物として扱う。`roslynator` が見つからない場合は `dotnet tool restore` を実行する。
-- 小さな変更では関連テストを優先してよいが、共有モデル・ViewModel・永続化・リソース・起動処理に触れた場合は原則として `dotnet test BeMusicSeeker-decomp.sln /p:Configuration=Release` を実行する。全体テストは数分かかるため、実行ツール側のタイムアウトは 15 分以上を目安にする。
+- 小さな変更では関連テストを優先してよいが、共有モデル・ViewModel・永続化・リソース・起動処理に触れた場合は原則として `dotnet test BeMusicSeeker.sln /p:Configuration=Release` を実行する。全体テストは数分かかるため、実行ツール側のタイムアウトは 15 分以上を目安にする。
 - 全体テスト失敗時は、失敗テストを `--filter` で個別再実行する。個別では成功する場合は並列実行時の共有状態干渉を疑い、`Settings.Default`、環境変数、`CultureInfo.CurrentCulture`、静的キャッシュ、共有ファイル/DB、WPF dispatcher を変更するテストへ `[DoNotParallelize]` を付ける。個別でも失敗する場合は、並列問題ではなく通常の回帰または既存期待値ドリフトとして扱う。
 - format の標準は SDK 付属の `dotnet format` とし、通常確認では whitespace のみを `--verify-no-changes` で検査する。古い local tool の `dotnet-format` は SDK 付属版と判定差が出やすいため、リポジトリ標準にはしない。
-- whitespace 以外の `.editorconfig` スタイル確認が必要な場合は、必要に応じて `dotnet format style BeMusicSeeker-decomp.sln --verify-no-changes --no-restore --severity warn --verbosity minimal` を追加で実行する。Analyzer 修正候補を確認する場合は `dotnet format analyzers BeMusicSeeker-decomp.sln --verify-no-changes --no-restore --severity warn --verbosity minimal` を補助的に使う。
-- 整形のみの変更が必要な場合は `dotnet format whitespace BeMusicSeeker-decomp.sln --no-restore --verbosity minimal` を実行し、機能修正とは差分を分けて扱う。
+- whitespace 以外の `.editorconfig` スタイル確認が必要な場合は、必要に応じて `dotnet format style BeMusicSeeker.sln --verify-no-changes --no-restore --severity warn --verbosity minimal` を追加で実行する。Analyzer 修正候補を確認する場合は `dotnet format analyzers BeMusicSeeker.sln --verify-no-changes --no-restore --severity warn --verbosity minimal` を補助的に使う。
+- 整形のみの変更が必要な場合は `dotnet format whitespace BeMusicSeeker.sln --no-restore --verbosity minimal` を実行し、機能修正とは差分を分けて扱う。
 - `roslynator analyze` は当面レポート用途とし、既存警告を理由に通常の修正を止めない。ただし、今回の変更で新たに発生した警告は原則として同じ変更内で解消する。棚卸し時は `--verbosity normal` または `--output <path>` を併用し、診断 ID と場所が残る形で確認する。
 
 ### .editorconfig と警告の扱い

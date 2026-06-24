@@ -175,7 +175,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
         while (!string.IsNullOrWhiteSpace(directoryPath))
         {
             string currentDirectoryPath = directoryPath!;
-            if (File.Exists(Path.Combine(currentDirectoryPath, "BeMusicSeeker-decomp.sln")))
+            if (File.Exists(Path.Combine(currentDirectoryPath, "BeMusicSeeker.sln")))
             {
                 return currentDirectoryPath;
             }

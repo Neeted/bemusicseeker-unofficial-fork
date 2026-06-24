@@ -278,7 +278,7 @@ public sealed class ExplorerOpenServiceTests
         string directory = AppDomain.CurrentDomain.BaseDirectory;
         while (!string.IsNullOrWhiteSpace(directory))
         {
-            if (File.Exists(Path.Combine(directory, "BeMusicSeeker-decomp.sln")))
+            if (File.Exists(Path.Combine(directory, "BeMusicSeeker.sln")))
             {
                 return directory;
             }

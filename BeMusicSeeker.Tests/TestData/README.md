@@ -36,21 +36,21 @@ Parser full 互換:
 
 ```powershell
 $env:BMS_TEST_CHART_INFO_FULL = "1"
-dotnet test BeMusicSeeker-decomp.sln /p:Configuration=Release --filter "TestCategory=ParserCompatibilityFull"
+dotnet test BeMusicSeeker.sln /p:Configuration=Release --filter "TestCategory=ParserCompatibilityFull"
 ```
 
 Production diff 全件:
 
 ```powershell
 $env:BMS_TEST_PRODUCTION_DIFF_FULL = "1"
-dotnet test BeMusicSeeker-decomp.sln /p:Configuration=Release --filter "TestCategory=ProductionDiffFull"
+dotnet test BeMusicSeeker.sln /p:Configuration=Release --filter "TestCategory=ProductionDiffFull"
 ```
 
 既知 slow fixture:
 
 ```powershell
 $env:BMS_TEST_CHART_INFO_SLOW = "1"
-dotnet test BeMusicSeeker-decomp.sln /p:Configuration=Release --filter "TestCategory=ParserCompatibilitySlow"
+dotnet test BeMusicSeeker.sln /p:Configuration=Release --filter "TestCategory=ParserCompatibilitySlow"
 ```
 
 PowerShell の環境変数は同じ session に残る。通常検証へ戻る前に必要なら次のように解除する。

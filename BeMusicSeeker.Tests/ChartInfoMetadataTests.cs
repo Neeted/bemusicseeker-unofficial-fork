@@ -4476,7 +4476,7 @@ createTempDirectory);
         var directory = new DirectoryInfo(AppDomain.CurrentDomain.BaseDirectory);
         while (directory != null)
         {
-            if (File.Exists(Path.Combine(directory.FullName, "BeMusicSeeker-decomp.sln")))
+            if (File.Exists(Path.Combine(directory.FullName, "BeMusicSeeker.sln")))
             {
                 return directory.FullName;
             }

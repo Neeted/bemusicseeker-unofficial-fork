@@ -277,8 +277,8 @@ inline 経路と backfill 経路の parser 呼び出しを整理し、single-rea
 - `BmsLibraryPackageInstallServiceTests`
 - `BmsLibraryMaintenanceServiceTests`
 - `BmsLibraryZeroNoteRefreshTests`
-- `dotnet test BeMusicSeeker-decomp.sln /p:Configuration=Release`
-- `dotnet build BeMusicSeeker-decomp.sln /p:Configuration=Release`
+- `dotnet test BeMusicSeeker.sln /p:Configuration=Release`
+- `dotnet build BeMusicSeeker.sln /p:Configuration=Release`
 
 ## リスクと判断
 

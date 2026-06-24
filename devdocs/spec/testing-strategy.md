@@ -23,7 +23,7 @@
 実行:
 
 ```powershell
-dotnet test BeMusicSeeker-decomp.sln /p:Configuration=Release
+dotnet test BeMusicSeeker.sln /p:Configuration=Release
 ```
 
 通常検証に入れてよいもの:
@@ -56,7 +56,7 @@ Full 検証:
 
 ```powershell
 $env:BMS_TEST_CHART_INFO_FULL = "1"
-dotnet test BeMusicSeeker-decomp.sln /p:Configuration=Release --filter "TestCategory=ParserCompatibilityFull"
+dotnet test BeMusicSeeker.sln /p:Configuration=Release --filter "TestCategory=ParserCompatibilityFull"
 ```
 
 Full 検証の対象例:
@@ -69,14 +69,14 @@ Production diff 検証:
 
 ```powershell
 $env:BMS_TEST_PRODUCTION_DIFF_FULL = "1"
-dotnet test BeMusicSeeker-decomp.sln /p:Configuration=Release --filter "TestCategory=ProductionDiffFull"
+dotnet test BeMusicSeeker.sln /p:Configuration=Release --filter "TestCategory=ProductionDiffFull"
 ```
 
 既知 timeout / slow fixture:
 
 ```powershell
 $env:BMS_TEST_CHART_INFO_SLOW = "1"
-dotnet test BeMusicSeeker-decomp.sln /p:Configuration=Release --filter "FullyQualifiedName~ChartInfoMetadataTests.ParseProductionDiffFixture_KnownTimeoutRows_PerformanceAndExpectedValues"
+dotnet test BeMusicSeeker.sln /p:Configuration=Release --filter "FullyQualifiedName~ChartInfoMetadataTests.ParseProductionDiffFixture_KnownTimeoutRows_PerformanceAndExpectedValues"
 ```
 
 Parser を変更した場合の推奨:

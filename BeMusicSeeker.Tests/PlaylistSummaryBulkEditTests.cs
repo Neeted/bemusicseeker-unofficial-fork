@@ -167,7 +167,7 @@ public sealed class PlaylistSummaryBulkEditTests
     {
         DirectoryInfo directory = new(AppDomain.CurrentDomain.BaseDirectory);
         while (directory != null
-            && !File.Exists(Path.Combine(directory.FullName, "BeMusicSeeker-decomp.sln")))
+            && !File.Exists(Path.Combine(directory.FullName, "BeMusicSeeker.sln")))
         {
             directory = directory.Parent;
         }

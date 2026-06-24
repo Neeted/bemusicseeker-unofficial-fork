@@ -173,7 +173,7 @@ public sealed class PlaylistConcurrencyArchitectureTests
         string directory = AppDomain.CurrentDomain.BaseDirectory;
         while (!string.IsNullOrEmpty(directory))
         {
-            if (File.Exists(Path.Combine(directory, "BeMusicSeeker-decomp.sln")))
+            if (File.Exists(Path.Combine(directory, "BeMusicSeeker.sln")))
             {
                 return directory;
             }

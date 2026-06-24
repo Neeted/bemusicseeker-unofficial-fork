@@ -282,8 +282,8 @@ metadata bundle を exe と同階層に置きっぱなしにすると、起動�
 
 - `ChartInfoMetadataTests`
 - `BmsLibraryInitializationServiceTests`
-- `dotnet test BeMusicSeeker-decomp.sln /p:Configuration=Release`
-- `dotnet build BeMusicSeeker-decomp.sln /p:Configuration=Release`
+- `dotnet test BeMusicSeeker.sln /p:Configuration=Release`
+- `dotnet build BeMusicSeeker.sln /p:Configuration=Release`
 
 ## Assumptions
 
