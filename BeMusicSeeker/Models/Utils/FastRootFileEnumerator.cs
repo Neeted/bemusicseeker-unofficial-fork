@@ -14,7 +14,7 @@ internal sealed class FastRootFileEnumerator : IRootFileEnumerator
             BackendName = "fast"
         };
 
-        List<string> roots = NormalizeRoots(rootDirectories);
+        List<string> roots = NormalizeRoots(rootDirectories, result);
         List<RootFileEnumerationGroup> groupList = [.. (groups ?? []).Where(group => group != null && !string.IsNullOrWhiteSpace(group.Name))];
         foreach (RootFileEnumerationGroup group in groupList)
         {
@@ -23,7 +23,7 @@ internal sealed class FastRootFileEnumerator : IRootFileEnumerator
 
         if (roots.Count == 0 || groupList.Count == 0)
         {
-            result.Success = true;
+            result.Success = result.IsComplete;
             return result;
         }
 
@@ -45,8 +45,7 @@ internal sealed class FastRootFileEnumerator : IRootFileEnumerator
                         .Where(extension => !string.IsNullOrWhiteSpace(extension))
                         .Distinct(StringComparer.OrdinalIgnoreCase)];
                 foreach (RootFileEnumerationEntry entry in roots
-                    .AsParallel()
-                    .SelectMany(root => EnumerateAllFilesForRoot(root, fileExtensions, sharedExcludedDirectories))
+                    .SelectMany(root => EnumerateAllFilesForRoot(root, fileExtensions, sharedExcludedDirectories, result))
                     .Where(entry => entry != null && !string.IsNullOrWhiteSpace(entry.Path)))
                 {
                     allFiles[entry.Path] = entry;
@@ -58,8 +57,7 @@ internal sealed class FastRootFileEnumerator : IRootFileEnumerator
             {
                 string[] sharedExcludedDirectories = ResolveSharedExcludedDirectories(groupList.Where(group => group.IncludeDirectories));
                 foreach (RootFileEnumerationEntry entry in roots
-                    .AsParallel()
-                    .SelectMany(root => EnumerateAllDirectoriesForRoot(root, sharedExcludedDirectories))
+                    .SelectMany(root => EnumerateAllDirectoriesForRoot(root, sharedExcludedDirectories, result))
                     .Where(entry => entry != null && !string.IsNullOrWhiteSpace(entry.Path)))
                 {
                     allDirectories[entry.Path] = entry;
@@ -96,13 +94,12 @@ internal sealed class FastRootFileEnumerator : IRootFileEnumerator
                 result.QueryHitCountByGroup[group.Name] = (ulong)result.PathsByGroup[group.Name].Count;
             }
 
-            result.Success = true;
+            result.Success = result.IsComplete && !result.ScanLimitExceeded;
             return result;
         }
         catch (Exception ex)
         {
-            result.Success = false;
-            result.ErrorReason = ex.Message;
+            result.MarkFailed("fast_enumeration_failed:" + ex.GetType().Name + ":" + ex.Message);
             return result;
         }
         finally
@@ -112,97 +109,27 @@ internal sealed class FastRootFileEnumerator : IRootFileEnumerator
         }
     }
 
-    private static List<string> NormalizeRoots(IEnumerable<string> rootDirectories)
+    private static List<string> NormalizeRoots(IEnumerable<string> rootDirectories, RootFileEnumerationResult result)
     {
-        return RootFileEnumerationService.NormalizeExecutionRoots(rootDirectories);
+        return RootFileEnumerationService.NormalizeExecutionRoots(rootDirectories, result);
     }
 
-    private static IEnumerable<RootFileEnumerationEntry> EnumerateAllFilesForRoot(string root, string[] extensions, string[] excludedDirectories)
-    {
-        if (excludedDirectories?.Length > 0)
-        {
-            return EnumerateFilesSkippingExcluded(root, extensions, excludedDirectories);
-        }
-
-        List<RootFileEnumerationEntry> fastEntries = [];
-        try
-        {
-            fastEntries = [.. FastDirectoryEnumerator.GetFileDataAsParallel(root, extensions, SearchOption.AllDirectories)
-                .Select(RootFileEnumerationEntry.FromFileData)
-                .Where(entry => entry != null && !string.IsNullOrWhiteSpace(entry.Path))
-                .GroupBy(entry => LongPathFileSystem.NormalizePathForStorage(entry.Path), StringComparer.Ordinal)
-                .Select(group => new RootFileEnumerationEntry(LongPathFileSystem.NormalizePathForStorage(group.First().Path), group.First().LastWriteTimeUtc, group.First().FileSize))];
-        }
-        catch
-        {
-            fastEntries = [];
-        }
-
-        if (fastEntries.Count > 0)
-        {
-            return fastEntries;
-        }
-
-        try
-        {
-            return [.. LongPathFileSystem.EnumerateFiles(root, "*", SearchOption.AllDirectories)
-                .Where(path => !string.IsNullOrWhiteSpace(path))
-                .Where(path => extensions == null || extensions.Length == 0 || extensions.Contains(Path.GetExtension(path), StringComparer.OrdinalIgnoreCase))
-                .Select(LongPathFileSystem.NormalizePathForStorage)
-                .Distinct(StringComparer.Ordinal)
-                .Select(CreateEntryFromFileInfo)];
-        }
-        catch
-        {
-            return [];
-        }
-    }
-
-    private static IEnumerable<RootFileEnumerationEntry> EnumerateAllDirectoriesForRoot(string root, string[] excludedDirectories)
-    {
-        var entries = new List<RootFileEnumerationEntry>();
-        if (excludedDirectories?.Length > 0 && IsExcludedPath(root, excludedDirectories))
-        {
-            return entries;
-        }
-
-        RootFileEnumerationEntry rootEntry = RootFileEnumerationEntry.FromDirectoryInfo(root);
-        if (rootEntry != null)
-        {
-            entries.Add(rootEntry);
-        }
-
-        try
-        {
-            entries.AddRange((excludedDirectories?.Length > 0
-                    ? EnumerateDirectoriesSkippingExcluded(root, excludedDirectories)
-                    : LongPathFileSystem.EnumerateDirectories(root, "*", SearchOption.AllDirectories))
-                .Where(path => !string.IsNullOrWhiteSpace(path))
-                .Select(LongPathFileSystem.NormalizePathForStorage)
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .Select(RootFileEnumerationEntry.FromDirectoryInfo)
-                .Where(entry => entry != null));
-        }
-        catch
-        {
-        }
-        return entries;
-    }
-
-    private static IEnumerable<RootFileEnumerationEntry> EnumerateFilesSkippingExcluded(
+    private static IEnumerable<RootFileEnumerationEntry> EnumerateAllFilesForRoot(
         string root,
         string[] extensions,
-        string[] excludedDirectories)
+        string[] excludedDirectories,
+        RootFileEnumerationResult result)
     {
-        foreach (string directory in EnumerateDirectoriesForTraversal(root, excludedDirectories, includeRoot: true))
+        foreach (string directory in EnumerateDirectoriesForTraversal(root, excludedDirectories, includeRoot: true, result))
         {
-            IEnumerable<string> files;
+            List<string> files;
             try
             {
-                files = LongPathFileSystem.EnumerateFiles(directory, "*", SearchOption.TopDirectoryOnly);
+                files = [.. LongPathFileSystem.EnumerateFiles(directory, "*", SearchOption.TopDirectoryOnly)];
             }
-            catch
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException)
             {
+                result?.MarkIncomplete("file_enumeration_failed:" + directory + ":" + ex.GetType().Name + ":" + ex.Message);
                 continue;
             }
 
@@ -211,7 +138,7 @@ internal sealed class FastRootFileEnumerator : IRootFileEnumerator
                 if (!string.IsNullOrWhiteSpace(path)
                     && (extensions == null || extensions.Length == 0 || extensions.Contains(Path.GetExtension(path), StringComparer.OrdinalIgnoreCase)))
                 {
-                    RootFileEnumerationEntry entry = CreateEntryFromFileInfo(LongPathFileSystem.NormalizePathForStorage(path));
+                    RootFileEnumerationEntry entry = CreateEntryFromFileInfo(path, result);
                     if (entry != null)
                     {
                         yield return entry;
@@ -221,17 +148,39 @@ internal sealed class FastRootFileEnumerator : IRootFileEnumerator
         }
     }
 
-    private static IEnumerable<string> EnumerateDirectoriesSkippingExcluded(string root, string[] excludedDirectories)
+    private static IEnumerable<RootFileEnumerationEntry> EnumerateAllDirectoriesForRoot(
+        string root,
+        string[] excludedDirectories,
+        RootFileEnumerationResult result)
     {
-        return EnumerateDirectoriesForTraversal(root, excludedDirectories, includeRoot: false);
+        if (excludedDirectories?.Length > 0 && IsExcludedPath(root, excludedDirectories))
+        {
+            yield break;
+        }
+
+        RootFileEnumerationEntry rootEntry = CreateEntryFromDirectoryInfo(root, result);
+        if (rootEntry != null)
+        {
+            yield return rootEntry;
+        }
+
+        foreach (string directory in EnumerateDirectoriesForTraversal(root, excludedDirectories, includeRoot: false, result))
+        {
+            RootFileEnumerationEntry entry = CreateEntryFromDirectoryInfo(directory, result);
+            if (entry != null)
+            {
+                yield return entry;
+            }
+        }
     }
 
     private static IEnumerable<string> EnumerateDirectoriesForTraversal(
         string root,
         string[] excludedDirectories,
-        bool includeRoot)
+        bool includeRoot,
+        RootFileEnumerationResult result)
     {
-        string normalizedRoot = SafeNormalizeDirectory(root);
+        string normalizedRoot = SafeNormalizeDirectory(root, result, "root_normalize_failed");
         if (string.IsNullOrWhiteSpace(normalizedRoot))
         {
             yield break;
@@ -250,19 +199,20 @@ internal sealed class FastRootFileEnumerator : IRootFileEnumerator
         while (stack.Count > 0)
         {
             string current = stack.Pop();
-            IEnumerable<string> children;
+            List<string> children;
             try
             {
-                children = LongPathFileSystem.EnumerateDirectories(current, "*", SearchOption.TopDirectoryOnly);
+                children = [.. LongPathFileSystem.EnumerateDirectories(current, "*", SearchOption.TopDirectoryOnly)];
             }
-            catch
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException)
             {
+                result?.MarkIncomplete("directory_enumeration_failed:" + current + ":" + ex.GetType().Name + ":" + ex.Message);
                 continue;
             }
 
             foreach (string child in children)
             {
-                string normalizedChild = SafeNormalizeDirectory(child);
+                string normalizedChild = SafeNormalizeDirectory(child, result, "directory_normalize_failed");
                 if (string.IsNullOrWhiteSpace(normalizedChild)
                     || IsExcludedPath(normalizedChild, excludedDirectories))
                 {
@@ -319,7 +269,7 @@ internal sealed class FastRootFileEnumerator : IRootFileEnumerator
         return false;
     }
 
-    private static string SafeNormalizeDirectory(string path)
+    private static string SafeNormalizeDirectory(string path, RootFileEnumerationResult result = null, string failureKind = "directory_normalize_failed")
     {
         try
         {
@@ -327,8 +277,9 @@ internal sealed class FastRootFileEnumerator : IRootFileEnumerator
                 ? null
                 : LongPathFileSystem.TrimTrailingDirectorySeparators(LongPathFileSystem.NormalizePathForStorage(path));
         }
-        catch
+        catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException)
         {
+            result?.MarkIncomplete(failureKind + ":" + path + ":" + ex.GetType().Name + ":" + ex.Message);
             return null;
         }
     }
@@ -344,7 +295,7 @@ internal sealed class FastRootFileEnumerator : IRootFileEnumerator
         return LongPathFileSystem.IsSameOrDescendantNormalizedDirectoryPath(normalizedCandidate, normalizedRoot);
     }
 
-    private static RootFileEnumerationEntry CreateEntryFromFileInfo(string path)
+    private static RootFileEnumerationEntry CreateEntryFromFileInfo(string path, RootFileEnumerationResult result)
     {
         try
         {
@@ -352,9 +303,44 @@ internal sealed class FastRootFileEnumerator : IRootFileEnumerator
             LongPathFileSystem.FileMetadata metadata = LongPathFileSystem.GetFileMetadata(normalizedPath);
             return new RootFileEnumerationEntry(normalizedPath, metadata.LastWriteTimeUtc, metadata.Length);
         }
-        catch
+        catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException)
         {
-            return new RootFileEnumerationEntry(path);
+            result?.MarkIncomplete("file_metadata_failed:" + path + ":" + ex.GetType().Name + ":" + ex.Message);
+            try
+            {
+                return new RootFileEnumerationEntry(LongPathFileSystem.NormalizePathForStorage(path));
+            }
+            catch
+            {
+                return null;
+            }
+        }
+    }
+
+    private static RootFileEnumerationEntry CreateEntryFromDirectoryInfo(string path, RootFileEnumerationResult result)
+    {
+        try
+        {
+            string normalizedPath = LongPathFileSystem.NormalizePathForStorage(path);
+            if (!LongPathFileSystem.DirectoryExists(normalizedPath))
+            {
+                result?.MarkIncomplete("directory_metadata_missing:" + normalizedPath);
+                return null;
+            }
+            DateTime lastWriteTimeUtc = LongPathFileSystem.GetLastWriteTimeUtc(normalizedPath, isDirectory: true);
+            return new RootFileEnumerationEntry(normalizedPath, lastWriteTimeUtc);
+        }
+        catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException)
+        {
+            result?.MarkIncomplete("directory_metadata_failed:" + path + ":" + ex.GetType().Name + ":" + ex.Message);
+            try
+            {
+                return new RootFileEnumerationEntry(LongPathFileSystem.NormalizePathForStorage(path));
+            }
+            catch
+            {
+                return null;
+            }
         }
     }
 

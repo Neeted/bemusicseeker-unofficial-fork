@@ -25,22 +25,28 @@ public class FastDirectoryFileScanner : IChartFileScanner
                     includeTextFiles: includeTextSurface,
                     includeDirectoryMetadata: includeDirectorySurface),
                 verboseLog);
-            if (!enumerationResult.Success)
+            if (!RootFileEnumerationService.IsAuthoritativeComplete(enumerationResult))
             {
+                string reason = RootFileEnumerationService.GetNonAuthoritativeReason(enumerationResult);
                 return new ChartScanExecutionResult
                 {
                     Success = false,
-                    ErrorReason = enumerationResult.ErrorReason
+                    IsComplete = false,
+                    ErrorReason = reason,
+                    IncompleteReason = reason
                 };
             }
             return ChartFileScannerResultBuilder.Build(enumerationResult);
         }
         catch (Exception ex)
         {
+            string reason = ex.GetType().Name + ":" + ex.Message;
             return new ChartScanExecutionResult
             {
                 Success = false,
-                ErrorReason = ex.Message
+                IsComplete = false,
+                ErrorReason = reason,
+                IncompleteReason = reason
             };
         }
     }

@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using BeMusicSeeker.Models.Utils;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
@@ -27,7 +28,7 @@ internal static class Lr2TextGroupResolver
             string directory = Path.GetDirectoryName(chartPath);
             return string.IsNullOrWhiteSpace(directory)
                 ? null
-                : Path.GetFullPath(directory);
+                : LongPathFileSystem.NormalizePathForStorage(directory);
         }
         catch (Exception ex) when (ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException)
         {
@@ -37,13 +38,13 @@ internal static class Lr2TextGroupResolver
 
     private static bool HasDirectTextFile(string directory)
     {
-        if (string.IsNullOrWhiteSpace(directory) || !Directory.Exists(directory))
+        if (string.IsNullOrWhiteSpace(directory) || !LongPathFileSystem.DirectoryExists(directory))
         {
             return false;
         }
         try
         {
-            return Directory.EnumerateFiles(directory, "*.txt", SearchOption.TopDirectoryOnly).Any();
+            return LongPathFileSystem.EnumerateFiles(directory, "*.txt", SearchOption.TopDirectoryOnly).Any();
         }
         catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException)
         {

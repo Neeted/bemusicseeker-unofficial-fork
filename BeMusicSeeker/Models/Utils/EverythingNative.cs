@@ -995,7 +995,9 @@ internal static class EverythingNative
         return new ChartScanExecutionResult
         {
             Success = false,
+            IsComplete = false,
             ErrorReason = reason,
+            IncompleteReason = reason,
             NativeBridgeUsed = false,
             NativeBridgeMs = bridgeMs,
             NativeBridgeReason = reason

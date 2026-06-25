@@ -708,6 +708,133 @@ public sealed class BmsLibraryInitializationServiceTests
     }
 
     [TestMethod]
+    public void ApplyFileScanDiff_IncompleteScanSkipsDiffAndKeepsExistingDb()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
+        {
+            string existingDirectoryPath = Path.Combine(lr2RootPath, "Existing");
+            string existingPath = Path.Combine(existingDirectoryPath, "chart.bms");
+            string addedDirectoryPath = Path.Combine(lr2RootPath, "Added");
+            string addedPath = Path.Combine(addedDirectoryPath, "added.bms");
+            Directory.CreateDirectory(existingDirectoryPath);
+            Directory.CreateDirectory(addedDirectoryPath);
+            File.WriteAllText(existingPath, "#PLAYER 1\r\n#TITLE Existing\r\n");
+            File.WriteAllText(addedPath, "#PLAYER 1\r\n#TITLE Added\r\n");
+
+            var existingFile = new TestableBmsFile
+            {
+                path = existingPath
+            };
+            existingFile.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+            existingFile.date = ToUnixSeconds(File.GetLastWriteTimeUtc(existingPath));
+            using (var songDbConnection = new LR2SongDBExtended(songDbPath))
+            {
+                songDbConnection.CreateTable<LR2SongDB.song>();
+                songDbConnection.InsertOrReplace(existingFile, typeof(LR2SongDB.song));
+            }
+
+            bool scanCompleted = false;
+            bool fileDiffStarted = false;
+            var service = new BmsLibraryInitializationService();
+            SongTableFileCheckResult result = service.ApplyFileScanDiff(
+                new BmsLibraryDbGateway(songDbPath),
+                new BmsLibraryOptionsSnapshot(),
+                [existingFile],
+                new ChartScanExecutionResult
+                {
+                    Success = false,
+                    IsComplete = false,
+                    ErrorReason = "directory_enumeration_failed:" + existingDirectoryPath,
+                    IncompleteReason = "directory_enumeration_failed:" + existingDirectoryPath,
+                    Result = CreateScanResult(
+                        [addedPath],
+                        new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
+                        {
+                            { addedDirectoryPath, Array.Empty<string>() }
+                        })
+                },
+                0L,
+                () => throw new InvalidOperationException("executeScan should not run"),
+                null,
+                currentBmsonSongs: [],
+                scanCompleted: () => scanCompleted = true,
+                fileDiffStarted: () => fileDiffStarted = true);
+
+            Assert.IsTrue(scanCompleted);
+            Assert.IsFalse(fileDiffStarted);
+            Assert.IsFalse(result.HasDbDiff);
+            Assert.AreEqual(0, result.DeletedPaths.Count);
+            Assert.AreEqual(0, result.DeletedBmsonPaths.Count);
+            Assert.AreEqual(0, result.AddedFiles.Count);
+            Assert.AreEqual(0, result.AddedBmsonSongs.Count);
+            Assert.AreEqual("directory_enumeration_failed:" + existingDirectoryPath, result.ScanFallbackReason);
+
+            using var songDb = new LR2SongDBExtended(songDbPath);
+            Assert.AreEqual(1L, songDb.ExecuteScalar<long>("SELECT COUNT(1) FROM song WHERE path = ?;", existingPath));
+            Assert.AreEqual(0L, songDb.ExecuteScalar<long>("SELECT COUNT(1) FROM song WHERE path = ?;", addedPath));
+        });
+    }
+
+    [TestMethod]
+    public void ApplyFileScanDiff_IncompleteBmsonScanSkipsDiff()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
+        {
+            string bmsonDirectoryPath = Path.Combine(lr2RootPath, "Bmson");
+            string bmsonPath = Path.Combine(bmsonDirectoryPath, "chart.bmson");
+            Directory.CreateDirectory(bmsonDirectoryPath);
+            File.WriteAllText(bmsonPath, "{\"version\":\"1.0.0\"}");
+            using (var songDbConnection = new LR2SongDBExtended(songDbPath))
+            {
+                songDbConnection.CreateTable<LR2SongDB.song>();
+            }
+
+            bool scanCompleted = false;
+            bool fileDiffStarted = false;
+            var service = new BmsLibraryInitializationService();
+            SongTableFileCheckResult result = service.ApplyFileScanDiff(
+                new BmsLibraryDbGateway(songDbPath),
+                new BmsLibraryOptionsSnapshot(),
+                [],
+                new ChartScanExecutionResult
+                {
+                    Success = true,
+                    Result = CreateScanResult([], new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase))
+                },
+                0L,
+                () => throw new InvalidOperationException("executeScan should not run"),
+                null,
+                currentBmsonSongs: [],
+                executeBmsonScan: () => new ChartScanExecutionResult
+                {
+                    Success = false,
+                    IsComplete = false,
+                    ErrorReason = "bmson_directory_enumeration_failed:" + bmsonDirectoryPath,
+                    IncompleteReason = "bmson_directory_enumeration_failed:" + bmsonDirectoryPath,
+                    Result = CreateScanResult(
+                        [bmsonPath],
+                        new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
+                        {
+                            { bmsonDirectoryPath, Array.Empty<string>() }
+                        })
+                },
+                scanCompleted: () => scanCompleted = true,
+                fileDiffStarted: () => fileDiffStarted = true);
+
+            Assert.IsTrue(scanCompleted);
+            Assert.IsFalse(fileDiffStarted);
+            Assert.IsFalse(result.HasDbDiff);
+            Assert.AreEqual(0, result.DeletedPaths.Count);
+            Assert.AreEqual(0, result.DeletedBmsonPaths.Count);
+            Assert.AreEqual(0, result.AddedFiles.Count);
+            Assert.AreEqual(0, result.AddedBmsonSongs.Count);
+            Assert.AreEqual("bmson_directory_enumeration_failed:" + bmsonDirectoryPath, result.ScanFallbackReason);
+        });
+    }
+
+    [TestMethod]
     public void ApplyFileScanDiff_ReadFailureIsAggregatedWithoutInitializationDialog()
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -2619,6 +2746,8 @@ public sealed class BmsLibraryInitializationServiceTests
                 new ChartScanExecutionResult
                 {
                     Success = false,
+                    IsComplete = false,
+                    IncompleteReason = "directory_enumeration_failed:" + lr2RootPath,
                     Result = CreateScanResult(
                         [bmsPath],
                         new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
@@ -2634,7 +2763,9 @@ public sealed class BmsLibraryInitializationServiceTests
                 lr2NormalFolderSyncRootDirectories: [lr2RootPath]);
 
             Assert.IsFalse(result.Lr2NormalFolderSyncExecuted);
-            Assert.IsTrue(logs.Any(message => message.Contains("lr2_normal_folder_sync skipped reason=incomplete_scan")));
+            Assert.IsFalse(result.HasDbDiff);
+            Assert.AreEqual("directory_enumeration_failed:" + lr2RootPath, result.ScanFallbackReason);
+            Assert.IsFalse(logs.Any(message => message.Contains("lr2_normal_folder_sync")));
             using var verify = new LR2SongDBExtended(songDbPath);
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM folder;"));
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path = ?;", stalePath));

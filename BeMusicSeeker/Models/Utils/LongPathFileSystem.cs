@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text;
 
 namespace BeMusicSeeker.Models.Utils;
 
@@ -136,6 +137,16 @@ internal static class LongPathFileSystem
     public static FileStream Open(string path, FileMode mode, FileAccess access, FileShare share)
     {
         return new FileStream(ToExtendedPath(path), mode, access, share);
+    }
+
+    public static IEnumerable<string> ReadLines(string path, Encoding encoding)
+    {
+        using var reader = new StreamReader(OpenRead(path), encoding ?? Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
+        string line;
+        while ((line = reader.ReadLine()) != null)
+        {
+            yield return line;
+        }
     }
 
     public static bool FileExists(string path)
@@ -571,9 +582,20 @@ internal static class LongPathFileSystem
         }
         if (path.StartsWith(ExtendedPathPrefix, StringComparison.OrdinalIgnoreCase))
         {
-            return path.Substring(ExtendedPathPrefix.Length);
+            string suffix = path.Substring(ExtendedPathPrefix.Length);
+            return IsDriveRootedPath(suffix)
+                ? suffix
+                : path;
         }
         return path;
+    }
+
+    private static bool IsDriveRootedPath(string path)
+    {
+        return path?.Length >= 3
+            && char.IsLetter(path[0])
+            && path[1] == ':'
+            && IsDirectorySeparator(path[2]);
     }
 
     private static bool IsExtendedPath(string path)
@@ -598,10 +620,7 @@ internal static class LongPathFileSystem
         {
             return true;
         }
-        if (path.Length >= 3
-            && char.IsLetter(path[0])
-            && path[1] == ':'
-            && IsDirectorySeparator(path[2]))
+        if (IsDriveRootedPath(path))
         {
             return true;
         }
@@ -667,10 +686,7 @@ internal static class LongPathFileSystem
 
     private static string GetFullyQualifiedRoot(string path)
     {
-        if (path.Length >= 3
-            && char.IsLetter(path[0])
-            && path[1] == ':'
-            && IsDirectorySeparator(path[2]))
+        if (IsDriveRootedPath(path))
         {
             return path.Substring(0, 3);
         }

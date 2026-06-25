@@ -9,6 +9,18 @@ internal static class ChartFileScannerResultBuilder
 {
     internal static ChartScanExecutionResult Build(RootFileEnumerationResult enumerationResult)
     {
+        if (!RootFileEnumerationService.IsAuthoritativeComplete(enumerationResult))
+        {
+            string reason = RootFileEnumerationService.GetNonAuthoritativeReason(enumerationResult);
+            return new ChartScanExecutionResult
+            {
+                Success = false,
+                IsComplete = false,
+                ErrorReason = reason,
+                IncompleteReason = reason
+            };
+        }
+
         var buildStopwatch = Stopwatch.StartNew();
         ChartScanResult scanResult = ChartDirectoryScanBuilder.BuildFromGroupedPaths(enumerationResult);
         buildStopwatch.Stop();

@@ -504,9 +504,11 @@ internal sealed class BmsLibraryInitializationService
         {
             scanResult = executeScan?.Invoke();
         }
-        if (scanResult?.Result == null)
+        if (scanResult?.Result == null || !scanResult.Success || !scanResult.IsComplete)
         {
             stopwatchScan.Stop();
+            result.ScanFallbackUsed = scanResult?.FallbackUsed ?? false;
+            result.ScanFallbackReason = GetChartScanFailureReason(scanResult);
             scanCompleted?.Invoke();
             return result;
         }
@@ -526,23 +528,29 @@ internal sealed class BmsLibraryInitializationService
         }
         stopwatchScan.Stop();
         scanCompleted?.Invoke();
-        fileDiffStarted?.Invoke();
         ChartScanResult mergedScanResult = scanResult.Result;
+        long bmsonScanElapsedMs = 0L;
         if (executeBmsonScan != null)
         {
             var stopwatchBmsonScan = Stopwatch.StartNew();
             ChartScanExecutionResult bmsonScanResult = executeBmsonScan();
             stopwatchBmsonScan.Stop();
-            if (bmsonScanResult?.Result != null)
+            bmsonScanElapsedMs = stopwatchBmsonScan.ElapsedMilliseconds;
+            if (!IsAuthoritativeChartScan(bmsonScanResult))
             {
-                mergedScanResult = MergeScanResults(scanResult.Result, bmsonScanResult.Result);
+                result.ScanFallbackUsed = result.ScanFallbackUsed || (bmsonScanResult?.FallbackUsed ?? false);
+                result.ScanFallbackReason = GetChartScanFailureReason(bmsonScanResult);
+                return result;
             }
-            result.ScanElapsedMs = stopwatchScan.ElapsedMilliseconds + stopwatchBmsonScan.ElapsedMilliseconds + (result.PrefetchedScanUsed ? prefetchedScanElapsedMs : 0L);
+            mergedScanResult = MergeScanResults(scanResult.Result, bmsonScanResult.Result);
+            result.ScanFallbackUsed = result.ScanFallbackUsed || bmsonScanResult.FallbackUsed;
+            if (string.IsNullOrWhiteSpace(result.ScanFallbackReason))
+            {
+                result.ScanFallbackReason = bmsonScanResult.FallbackReason ?? string.Empty;
+            }
         }
-        else
-        {
-            result.ScanElapsedMs = stopwatchScan.ElapsedMilliseconds + (result.PrefetchedScanUsed ? prefetchedScanElapsedMs : 0L);
-        }
+        fileDiffStarted?.Invoke();
+        result.ScanElapsedMs = stopwatchScan.ElapsedMilliseconds + bmsonScanElapsedMs + (result.PrefetchedScanUsed ? prefetchedScanElapsedMs : 0L);
         result.NativeBridgeMs = scanResult.NativeBridgeMs;
         result.NativeBridgeReason = scanResult.NativeBridgeReason ?? string.Empty;
         result.ManagedDecodeMs = scanResult.ManagedDecodeMs;
@@ -4458,7 +4466,7 @@ internal sealed class BmsLibraryInitializationService
             long length;
             try
             {
-                length = new FileInfo(path).Length;
+                length = LongPathFileSystem.GetFileLength(path);
             }
             catch
             {
@@ -4611,6 +4619,31 @@ internal sealed class BmsLibraryInitializationService
             MergeHashDictionary(merged.SelfOwnedMovieRelativePathHashesByChartDirectory, scanResult.SelfOwnedMovieRelativePathHashesByChartDirectory);
         }
         return merged;
+    }
+
+    private static bool IsAuthoritativeChartScan(ChartScanExecutionResult scanResult)
+    {
+        return scanResult != null
+            && scanResult.Success
+            && scanResult.IsComplete
+            && scanResult.Result != null;
+    }
+
+    private static string GetChartScanFailureReason(ChartScanExecutionResult scanResult)
+    {
+        if (scanResult == null)
+        {
+            return "scan_result_missing";
+        }
+        if (!string.IsNullOrWhiteSpace(scanResult.IncompleteReason))
+        {
+            return scanResult.IncompleteReason;
+        }
+        if (!string.IsNullOrWhiteSpace(scanResult.ErrorReason))
+        {
+            return scanResult.ErrorReason;
+        }
+        return scanResult.Success ? "scan_incomplete" : "scan_failed";
     }
 
     private static void MergeFileEntryDictionary(

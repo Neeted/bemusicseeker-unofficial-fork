@@ -152,6 +152,58 @@ public sealed class ChartDirectoryScanBuilderTests
     }
 
     [TestMethod]
+    public void TryBuildFromRoots_MissingRootReturnsIncompleteFailure()
+    {
+        string missingRoot = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_ChartDirMissing_" + Guid.NewGuid().ToString("N"));
+
+        bool succeeded = ChartDirectoryScanBuilder.TryBuildFromRoots([missingRoot], out ChartScanResult result, out string failureReason);
+
+        Assert.IsFalse(succeeded);
+        Assert.IsNull(result);
+        StringAssert.Contains(failureReason, "root_not_found:");
+    }
+
+    [TestMethod]
+    public void TryBuildFromRoots_LongPathChartResourcesAndTextUseLongPathFileSystem()
+    {
+        string tempRoot = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_ChartDirLong_" + Guid.NewGuid().ToString("N"));
+        string chartDir = BuildLongDirectoryPath(tempRoot, "song");
+        string audioDir = Path.Combine(chartDir, "sound");
+        string imageDir = Path.Combine(chartDir, "image");
+        string chartPath = Path.Combine(chartDir, "chart.bms");
+        string audioPath = Path.Combine(audioDir, "hit.wav");
+        string imagePath = Path.Combine(imageDir, "bg.png");
+        string textPath = Path.Combine(chartDir, "readme.txt");
+        LongPathFileSystem.CreateDirectory(audioDir);
+        LongPathFileSystem.CreateDirectory(imageDir);
+        WriteAllText(chartPath, "#PLAYER 1");
+        WriteAllText(audioPath, "audio");
+        WriteAllText(imagePath, "image");
+        WriteAllText(textPath, "text");
+
+        try
+        {
+            bool succeeded = ChartDirectoryScanBuilder.TryBuildFromRoots([tempRoot], out ChartScanResult result, out string failureReason);
+
+            Assert.IsTrue(succeeded, failureReason);
+            CollectionAssert.Contains(result.ChartFilePaths.ToList(), chartPath);
+            CollectionAssert.Contains(result.ChartDirectories.ToList(), chartDir);
+            CollectionAssert.Contains(result.ChartDirectoriesWithTextFiles.ToList(), chartDir);
+            Assert.IsTrue(result.AudioRelativePathHashesByChartDirectory.TryGetValue(chartDir, out uint[] audioHashes));
+            Assert.IsTrue(result.ImageRelativePathHashesByChartDirectory.TryGetValue(chartDir, out uint[] imageHashes));
+            CollectionAssert.Contains(audioHashes, ChartResourceKeyHash.GetLookupHash(Path.Combine("sound", "hit")));
+            CollectionAssert.Contains(imageHashes, ChartResourceKeyHash.GetLookupHash(Path.Combine("image", "bg")));
+        }
+        finally
+        {
+            if (LongPathFileSystem.DirectoryExists(tempRoot))
+            {
+                LongPathFileSystem.DeleteDirectory(tempRoot, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
     public void BuildFromGroupedPaths_PreservesTextAndFolderInfoEntries()
     {
         string tempRoot = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_ChartDirGroupedText_" + Guid.NewGuid().ToString("N"));
@@ -261,5 +313,22 @@ public sealed class ChartDirectoryScanBuilderTests
         {
             return GetEnumerator();
         }
+    }
+
+    private static string BuildLongDirectoryPath(string tempDirectoryPath, string leafName)
+    {
+        string path = tempDirectoryPath;
+        for (int i = 0; path.Length < 285; i++)
+        {
+            path = Path.Combine(path, "segment_" + i.ToString("00") + "_" + new string('a', 32));
+        }
+        return Path.Combine(path, leafName);
+    }
+
+    private static void WriteAllText(string path, string contents)
+    {
+        using var stream = LongPathFileSystem.Open(path, FileMode.Create, FileAccess.Write, FileShare.None);
+        using var writer = new StreamWriter(stream);
+        writer.Write(contents);
     }
 }

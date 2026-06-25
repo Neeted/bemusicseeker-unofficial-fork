@@ -109,6 +109,22 @@ public sealed class Lr2CompatibilityGoldenTests
     }
 
     [TestMethod]
+    public void EvaluatorAcceptsLegacyCompatibleRootPath()
+    {
+        Assert.IsTrue(Lr2CompatibilityEvaluator.IsLegacyRootPathCompatible(@"D:\BMS"));
+    }
+
+    [TestMethod]
+    public void EvaluatorRejectsLegacyIncompatibleRootPath()
+    {
+        string tooLongRoot = @"D:\" + new string('a', Lr2CompatibilityEvaluator.MaxLegacyPathBytes);
+
+        Assert.IsFalse(Lr2CompatibilityEvaluator.IsLegacyRootPathCompatible(tooLongRoot));
+        Assert.IsFalse(Lr2CompatibilityEvaluator.IsLegacyRootPathCompatible(@"D:\BMS\emoji_😀"));
+        Assert.IsFalse(Lr2CompatibilityEvaluator.IsLegacyRootPathCompatible(@"\\?\GLOBALROOT\Device\HarddiskVolume1\BMS"));
+    }
+
+    [TestMethod]
     public void EvaluatorUsesRawResourcePathWithExtensionForByteFacts()
     {
         BMSFile file = CreateBmsFileWithResource(

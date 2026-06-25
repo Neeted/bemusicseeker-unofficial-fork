@@ -91,7 +91,7 @@ internal sealed class RootFileEnumerationGroup(
             {
                 try
                 {
-                    return Path.GetFullPath(directory).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                    return LongPathFileSystem.TrimTrailingDirectorySeparators(LongPathFileSystem.NormalizePathForStorage(directory));
                 }
                 catch (Exception ex) when (ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException)
                 {
@@ -106,9 +106,13 @@ internal sealed class RootFileEnumerationResult
 {
     public bool Success { get; set; }
 
+    public bool IsComplete { get; set; } = true;
+
     public string BackendName { get; set; } = string.Empty;
 
     public string ErrorReason { get; set; } = string.Empty;
+
+    public string IncompleteReason { get; set; } = string.Empty;
 
     public long EnumerationMs { get; set; }
 
@@ -119,6 +123,8 @@ internal sealed class RootFileEnumerationResult
     public int MaxVisitedFileSystemEntryCount { get; set; }
 
     public bool ScanLimitExceeded { get; set; }
+
+    public List<string> IncompleteReasons { get; } = [];
 
     public Dictionary<string, HashSet<string>> PathsByGroup { get; } = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
 
@@ -201,6 +207,34 @@ internal sealed class RootFileEnumerationResult
     {
         return !string.IsNullOrWhiteSpace(groupName) && QueryHitCountByGroup.TryGetValue(groupName, out ulong count) ? count : 0UL;
     }
+
+    public void MarkIncomplete(string reason)
+    {
+        IsComplete = false;
+        string normalizedReason = string.IsNullOrWhiteSpace(reason) ? "unknown" : reason;
+        if (string.IsNullOrWhiteSpace(IncompleteReason))
+        {
+            IncompleteReason = normalizedReason;
+        }
+        if (string.IsNullOrWhiteSpace(ErrorReason))
+        {
+            ErrorReason = normalizedReason;
+        }
+        if (IncompleteReasons.Count < 32)
+        {
+            IncompleteReasons.Add(normalizedReason);
+        }
+    }
+
+    public void MarkFailed(string reason)
+    {
+        Success = false;
+        MarkIncomplete(reason);
+        if (string.IsNullOrWhiteSpace(ErrorReason))
+        {
+            ErrorReason = string.IsNullOrWhiteSpace(reason) ? "unknown" : reason;
+        }
+    }
 }
 
 internal interface IRootFileEnumerator
@@ -214,25 +248,79 @@ internal static class RootFileEnumerationService
 
     internal const string DirectoriesGroupName = "__directories__";
 
-    internal static List<string> NormalizeExecutionRoots(IEnumerable<string> rootDirectories)
+    internal static List<string> NormalizeExecutionRoots(IEnumerable<string> rootDirectories, RootFileEnumerationResult result = null)
     {
-        List<string> roots = [.. (rootDirectories ?? [])
-            .Where(path => !string.IsNullOrWhiteSpace(path) && LongPathFileSystem.DirectoryExists(path))
-            .Select(LongPathFileSystem.NormalizePathForStorage)
+        var candidates = new List<string>();
+        foreach (string path in rootDirectories ?? [])
+        {
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                continue;
+            }
+            string normalizedPath;
+            try
+            {
+                normalizedPath = LongPathFileSystem.NormalizePathForStorage(path);
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException)
+            {
+                result?.MarkIncomplete("root_normalize_failed:" + path + ":" + ex.GetType().Name + ":" + ex.Message);
+                continue;
+            }
+            if (!LongPathFileSystem.DirectoryExists(normalizedPath))
+            {
+                result?.MarkIncomplete("root_not_found:" + normalizedPath);
+                continue;
+            }
+            candidates.Add(normalizedPath);
+        }
+
+        List<string> roots = [.. candidates
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(path => path.Length)
             .ThenBy(path => path, StringComparer.OrdinalIgnoreCase)];
 
-        var result = new List<string>(roots.Count);
+        var normalizedRoots = new List<string>(roots.Count);
         foreach (string root in roots)
         {
-            if (result.Any(existing => IsSameOrDescendant(root, existing)))
+            if (normalizedRoots.Any(existing => IsSameOrDescendant(root, existing)))
             {
                 continue;
             }
-            result.Add(root);
+            normalizedRoots.Add(root);
         }
-        return result;
+        return normalizedRoots;
+    }
+
+    internal static bool IsAuthoritativeComplete(RootFileEnumerationResult result)
+    {
+        return result != null
+            && result.Success
+            && result.IsComplete
+            && !result.ScanLimitExceeded;
+    }
+
+    internal static string GetNonAuthoritativeReason(RootFileEnumerationResult result)
+    {
+        if (result == null)
+        {
+            return "enumeration_result_missing";
+        }
+        if (result.ScanLimitExceeded)
+        {
+            return string.IsNullOrWhiteSpace(result.IncompleteReason)
+                ? "scan_limit_exceeded"
+                : result.IncompleteReason;
+        }
+        if (!string.IsNullOrWhiteSpace(result.IncompleteReason))
+        {
+            return result.IncompleteReason;
+        }
+        if (!string.IsNullOrWhiteSpace(result.ErrorReason))
+        {
+            return result.ErrorReason;
+        }
+        return result.Success ? "enumeration_incomplete" : "enumeration_failed";
     }
 
     internal static RootFileEnumerationResult EnumerateFilesWithFallback(IEnumerable<string> rootDirectories, IEnumerable<RootFileEnumerationGroup> groups, bool verboseLog = false)
@@ -248,7 +336,7 @@ internal static class RootFileEnumerationService
         }
 
         RootFileEnumerationResult result = new EverythingRootFileEnumerator().EnumerateFiles(rootDirectories, groupList, verboseLog);
-        if (result.Success)
+        if (IsAuthoritativeComplete(result))
         {
             return result;
         }

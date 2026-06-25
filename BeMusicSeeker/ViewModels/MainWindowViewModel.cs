@@ -3361,7 +3361,8 @@ public class MainWindowViewModel : ViewModel
 
         private bool IsBMSRootPathValid(string value)
         {
-            return Directory.Exists(value);
+            return LongPathFileSystem.DirectoryExists(value)
+                && Lr2CompatibilityEvaluator.IsLegacyRootPathCompatible(value);
         }
 
         public static IReadOnlyList<string> GetStandaloneBmsRootPathsFromSettings()
@@ -3376,7 +3377,9 @@ public class MainWindowViewModel : ViewModel
             {
                 paths.AddRange(serializedPaths.Split(["\r\n", "\n", "\r"], StringSplitOptions.RemoveEmptyEntries));
             }
-            if (paths.Count == 0 && !string.IsNullOrWhiteSpace(legacyBmsRootPath) && Directory.Exists(legacyBmsRootPath))
+            if (paths.Count == 0
+                && !string.IsNullOrWhiteSpace(legacyBmsRootPath)
+                && LongPathFileSystem.DirectoryExists(legacyBmsRootPath))
             {
                 paths.Add(legacyBmsRootPath);
             }
@@ -3384,6 +3387,11 @@ public class MainWindowViewModel : ViewModel
         }
 
         public static IReadOnlyList<string> NormalizeStandaloneBmsRootPaths(IEnumerable<string> paths)
+        {
+            return NormalizeExistingStandaloneBmsRootPaths(paths);
+        }
+
+        private static IReadOnlyList<string> NormalizeExistingStandaloneBmsRootPaths(IEnumerable<string> paths)
         {
             if (paths == null)
             {
@@ -3400,14 +3408,14 @@ public class MainWindowViewModel : ViewModel
                 string fullPath;
                 try
                 {
-                    fullPath = Path.GetFullPath(path.Trim());
+                    fullPath = LongPathFileSystem.NormalizePathForStorage(path.Trim());
                 }
                 catch
                 {
                     continue;
                 }
-                fullPath = TrimDirectorySeparatorUnlessRoot(fullPath);
-                if (!Directory.Exists(fullPath))
+                fullPath = LongPathFileSystem.TrimTrailingDirectorySeparators(fullPath);
+                if (!LongPathFileSystem.DirectoryExists(fullPath))
                 {
                     continue;
                 }
@@ -3418,6 +3426,28 @@ public class MainWindowViewModel : ViewModel
             }
 
             return normalized;
+        }
+
+        private static IReadOnlyList<string> NormalizeExistingStandaloneBmsRootPathsWithoutLr2Compatibility(IEnumerable<string> paths)
+        {
+            return NormalizeExistingStandaloneBmsRootPaths(paths);
+        }
+
+        private static List<string> GetLr2IncompatibleStandaloneBmsRootPaths(IEnumerable<string> paths)
+        {
+            return [.. (paths ?? [])
+                .Where(path => !string.IsNullOrWhiteSpace(path))
+                .Where(path => !Lr2CompatibilityEvaluator.IsLegacyRootPathCompatible(path))];
+        }
+
+        private static void ThrowIfLr2IncompatibleStandaloneBmsRoots(IEnumerable<string> paths)
+        {
+            List<string> incompatiblePaths = GetLr2IncompatibleStandaloneBmsRootPaths(paths);
+            if (incompatiblePaths.Count == 0)
+            {
+                return;
+            }
+            throw new ArgumentException(BeMusicSeeker.Properties.Resources.Error_Lr2IncompatibleBmsRootPath + Environment.NewLine + string.Join(Environment.NewLine, incompatiblePaths));
         }
 
         public static string SerializeStandaloneBmsRootPaths(IEnumerable<string> paths)
@@ -4688,7 +4718,8 @@ public class MainWindowViewModel : ViewModel
             try
             {
                 string before = SerializeBmsRootPathsForChangeTracking(StandaloneBmsRootPathList);
-                List<string> requestedPaths = [.. NormalizeStandaloneBmsRootPaths(paths ?? [])];
+                List<string> requestedPaths = [.. NormalizeExistingStandaloneBmsRootPathsWithoutLr2Compatibility(paths ?? [])];
+                ThrowIfLr2IncompatibleStandaloneBmsRoots(requestedPaths);
                 string requestedPath = requestedPaths.FirstOrDefault();
                 if (string.IsNullOrWhiteSpace(requestedPath))
                 {
@@ -4731,7 +4762,7 @@ public class MainWindowViewModel : ViewModel
             }
             try
             {
-                List<string> requestedPaths = [.. NormalizeStandaloneBmsRootPaths(paths ?? [])];
+                List<string> requestedPaths = [.. NormalizeExistingStandaloneBmsRootPathsWithoutLr2Compatibility(paths ?? [])];
                 string requestedPath = requestedPaths.FirstOrDefault();
                 if (string.IsNullOrWhiteSpace(requestedPath))
                 {
@@ -4742,6 +4773,7 @@ public class MainWindowViewModel : ViewModel
                 {
                     throw new ArgumentException(BeMusicSeeker.Properties.Resources.Error_LR2UnicodePathUnsupported + Environment.NewLine + string.Join(Environment.NewLine, nonSjisPaths));
                 }
+                ThrowIfLr2IncompatibleStandaloneBmsRoots(requestedPaths);
                 IReadOnlyList<string> managedCustomFolderOutputRoots = GetManagedCustomFolderSearchRootDirectories(includePreviousSettings: true);
                 string conflictingPath = requestedPaths.FirstOrDefault(path =>
                     managedCustomFolderOutputRoots.Any(root => CustomFolderOutputBaseSearchRootSyncService.IsSameOrNestedDirectory(path, root)));
@@ -5869,10 +5901,25 @@ public class MainWindowViewModel : ViewModel
                     result = false;
                 }
             }
-            else if (NormalizeStandaloneBmsRootPaths(StandaloneBmsRootPathList).Count == 0)
+            else
             {
-                errMsg += FormatSettingValidationMessage(BeMusicSeeker.Properties.Resources.General, BeMusicSeeker.Properties.Resources.Error_InvalidStandaloneBmsRootPaths) + Environment.NewLine;
-                result = false;
+                IReadOnlyList<string> standaloneRoots = NormalizeStandaloneBmsRootPaths(StandaloneBmsRootPathList);
+                if (standaloneRoots.Count == 0)
+                {
+                    errMsg += FormatSettingValidationMessage(BeMusicSeeker.Properties.Resources.General, BeMusicSeeker.Properties.Resources.Error_InvalidStandaloneBmsRootPaths) + Environment.NewLine;
+                    result = false;
+                }
+                else
+                {
+                    List<string> incompatibleRoots = GetLr2IncompatibleStandaloneBmsRootPaths(standaloneRoots);
+                    if (incompatibleRoots.Count > 0)
+                    {
+                        errMsg += FormatSettingValidationMessage(
+                            BeMusicSeeker.Properties.Resources.General,
+                            BeMusicSeeker.Properties.Resources.Error_Lr2IncompatibleBmsRootPath + Environment.NewLine + string.Join(Environment.NewLine, incompatibleRoots)) + Environment.NewLine;
+                        result = false;
+                    }
+                }
             }
             if ((UseBeatorajaScoreDb || EnableBeatorajaBmtOutput) && !IsBeatorajaRootPathValid())
             {
@@ -5999,10 +6046,25 @@ public class MainWindowViewModel : ViewModel
                     result = false;
                 }
             }
-            else if (NormalizeStandaloneBmsRootPaths(StandaloneBmsRootPathList).Count == 0)
+            else
             {
-                errMsg += FormatSettingValidationMessage(BeMusicSeeker.Properties.Resources.General, BeMusicSeeker.Properties.Resources.Error_InvalidStandaloneBmsRootPaths) + Environment.NewLine;
-                result = false;
+                IReadOnlyList<string> standaloneRoots = NormalizeStandaloneBmsRootPaths(StandaloneBmsRootPathList);
+                if (standaloneRoots.Count == 0)
+                {
+                    errMsg += FormatSettingValidationMessage(BeMusicSeeker.Properties.Resources.General, BeMusicSeeker.Properties.Resources.Error_InvalidStandaloneBmsRootPaths) + Environment.NewLine;
+                    result = false;
+                }
+                else
+                {
+                    List<string> incompatibleRoots = GetLr2IncompatibleStandaloneBmsRootPaths(standaloneRoots);
+                    if (incompatibleRoots.Count > 0)
+                    {
+                        errMsg += FormatSettingValidationMessage(
+                            BeMusicSeeker.Properties.Resources.General,
+                            BeMusicSeeker.Properties.Resources.Error_Lr2IncompatibleBmsRootPath + Environment.NewLine + string.Join(Environment.NewLine, incompatibleRoots)) + Environment.NewLine;
+                        result = false;
+                    }
+                }
             }
             if ((UseBeatorajaScoreDb || EnableBeatorajaBmtOutput) && !IsBeatorajaRootPathValid())
             {

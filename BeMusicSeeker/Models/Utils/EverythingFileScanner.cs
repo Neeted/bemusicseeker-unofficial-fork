@@ -19,11 +19,26 @@ public class EverythingFileScanner : IChartFileScanner
         bool includeTextSurface = true,
         bool includeDirectorySurface = false)
     {
+        var rootValidation = new RootFileEnumerationResult
+        {
+            BackendName = "everything_preflight"
+        };
         List<string> requestedRoots = [.. (rootDirectories ?? [])
             .Where(p => !string.IsNullOrWhiteSpace(p))
-            .Select(Path.GetFullPath)
+            .Select(p => p.Trim())
             .Distinct(StringComparer.OrdinalIgnoreCase)];
-        List<string> roots = RootFileEnumerationService.NormalizeExecutionRoots(requestedRoots);
+        List<string> roots = RootFileEnumerationService.NormalizeExecutionRoots(requestedRoots, rootValidation);
+        if (!rootValidation.IsComplete)
+        {
+            string reason = RootFileEnumerationService.GetNonAuthoritativeReason(rootValidation);
+            return new ChartScanExecutionResult
+            {
+                Success = false,
+                IsComplete = false,
+                ErrorReason = reason,
+                IncompleteReason = reason
+            };
+        }
         if (roots.Count == 0)
         {
             return new ChartScanExecutionResult
@@ -73,10 +88,13 @@ public class EverythingFileScanner : IChartFileScanner
                     result.NativeBridgeReason ?? result.ErrorReason ?? "unknown",
                     result.NativeBridgeMs);
             }
+            string reason = "empty_results_with_roots:bridgeReason=" + (result.NativeBridgeReason ?? result.ErrorReason ?? "unknown") + ":bridgeMs=" + result.NativeBridgeMs;
             return new ChartScanExecutionResult
             {
                 Success = false,
-                ErrorReason = "empty_results_with_roots:bridgeReason=" + (result.NativeBridgeReason ?? result.ErrorReason ?? "unknown") + ":bridgeMs=" + result.NativeBridgeMs
+                IsComplete = false,
+                ErrorReason = reason,
+                IncompleteReason = reason
             };
         }
         if (includeDirectorySurface && !AttachDirectorySurface(result, roots, verboseLog, out string directoryFailureReason))
@@ -89,7 +107,9 @@ public class EverythingFileScanner : IChartFileScanner
             return new ChartScanExecutionResult
             {
                 Success = false,
+                IsComplete = false,
                 ErrorReason = "directory_surface_failed:" + (directoryFailureReason ?? "unknown"),
+                IncompleteReason = "directory_surface_failed:" + (directoryFailureReason ?? "unknown"),
                 NativeBridgeUsed = result.NativeBridgeUsed,
                 NativeBridgeMs = result.NativeBridgeMs,
                 NativeBridgeReason = result.NativeBridgeReason
@@ -202,9 +222,9 @@ public class EverythingFileScanner : IChartFileScanner
             roots,
             [new RootFileEnumerationGroup(RootFileEnumerationService.DirectoriesGroupName, [], includeDirectories: true)],
             verboseLog);
-        if (!directoryResult.Success)
+        if (!RootFileEnumerationService.IsAuthoritativeComplete(directoryResult))
         {
-            failureReason = directoryResult.ErrorReason ?? "directory_enumeration_failed";
+            failureReason = RootFileEnumerationService.GetNonAuthoritativeReason(directoryResult);
             return false;
         }
 

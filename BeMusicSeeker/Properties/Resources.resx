@@ -1056,6 +1056,9 @@ LR2IRにスコアやクリアが自動送信されるわけではありません
   <data name="Error_InvalidStandaloneBmsRootPaths" xml:space="preserve">
     <value>BMSディレクトリを1件以上追加してください</value>
   </data>
+  <data name="Error_Lr2IncompatibleBmsRootPath" xml:space="preserve">
+    <value>LR2 で扱えない長さまたは文字を含む BMS ディレクトリは登録できません</value>
+  </data>
   <data name="Error_InvalidBmsInstallDir" xml:space="preserve">
     <value>BMSインストール先を登録済みのBMSディレクトリから選択してください</value>
   </data>
@@ -2351,6 +2354,12 @@ URL 取り込みの完了後に再実行してください。</value>
 大規模なライブラリでは初期化やリロードに時間がかかる場合があります。
 
 Everything 1.5 (x64) が起動しているか、BMS フォルダのインデックス作成が完了しているか、Everything で検索できる状態かを確認してください。
+
+詳細: {0}</value>
+  </data>
+  <data name="Warn_FileScanSkippedIncomplete" xml:space="preserve">
+    <value>BMSファイルの列挙が完了できなかったため、今回のファイルスキャンによる song.db 更新は行いませんでした。
+既存の DB を読み込んだ状態で続行します。
 
 詳細: {0}</value>
   </data>

@@ -2989,6 +2989,7 @@ public class BMSLibrary : NotificationObject
     private readonly IBmsLibraryDialogService dialogService;
 
     private int everythingFallbackWarningQueued;
+    private int fileScanSkippedIncompleteWarningQueued;
 
     private readonly BmsLibraryDbGateway dbGateway;
 
@@ -4680,7 +4681,7 @@ public class BMSLibrary : NotificationObject
             everythingScanLoggingEnabled,
             includeTextSurface,
             includeDirectorySurface);
-        if (scanResult.Success && scanResult.Result != null)
+        if (IsAuthoritativeChartScan(scanResult))
         {
             return scanResult;
         }
@@ -4701,11 +4702,19 @@ public class BMSLibrary : NotificationObject
             everythingScanLoggingEnabled,
             includeTextSurface,
             includeDirectorySurface);
-        if (!fallbackResult.Success || fallbackResult.Result == null)
+        if (!IsAuthoritativeChartScan(fallbackResult))
         {
-            string fallbackFailureReason = fallbackResult?.ErrorReason ?? "unknown";
+            string fallbackFailureReason = GetChartScanFailureReason(fallbackResult);
             LogEverythingScan("chart fallback file scan failed nativeReason=" + nativeFailureReason + " fallbackReason=" + fallbackFailureReason);
-            throw new InvalidOperationException("chart fallback file scan failed: " + fallbackFailureReason + " (native: " + nativeFailureReason + ")");
+            return new ChartScanExecutionResult
+            {
+                Success = false,
+                IsComplete = false,
+                ErrorReason = "chart_fallback_file_scan_failed:" + fallbackFailureReason + " (native: " + nativeFailureReason + ")",
+                IncompleteReason = fallbackFailureReason,
+                FallbackUsed = true,
+                FallbackReason = nativeFailureReason
+            };
         }
         fallbackResult.FallbackUsed = true;
         fallbackResult.FallbackReason = nativeFailureReason;
@@ -5336,9 +5345,39 @@ public class BMSLibrary : NotificationObject
         return true;
     }
 
+    internal void ShowFileScanSkippedIncompleteWarning(string failureReason)
+    {
+        string reason = string.IsNullOrWhiteSpace(failureReason) ? "unknown" : failureReason;
+        dialogService.Show(
+            string.Format(Resources.Warn_FileScanSkippedIncomplete, reason),
+            Resources.MessageBoxTitle_Warning,
+            MessageBoxButton.OK,
+            MessageBoxImage.Exclamation,
+            MessageBoxResult.OK);
+    }
+
+    internal bool QueueFileScanSkippedIncompleteWarning(string failureReason)
+    {
+        if (Interlocked.Exchange(ref fileScanSkippedIncompleteWarningQueued, 1) != 0)
+        {
+            LogEverythingScan("file scan incomplete warning skipped reason=already_queued failureReason=" + (failureReason ?? string.Empty));
+            return false;
+        }
+
+        if (TryQueueFileScanSkippedIncompleteWarningOnDispatcher(failureReason))
+        {
+            return true;
+        }
+
+        LogEverythingScan("file scan incomplete warning queued target=thread_pool failureReason=" + (failureReason ?? string.Empty));
+        Task.Run(() => ShowFileScanSkippedIncompleteWarningSafely(failureReason)).Logging("FileScanSkippedIncompleteWarningDialog");
+        return true;
+    }
+
     private void ResetEverythingFallbackWarningQueue()
     {
         Interlocked.Exchange(ref everythingFallbackWarningQueued, 0);
+        Interlocked.Exchange(ref fileScanSkippedIncompleteWarningQueued, 0);
     }
 
     private bool TryQueueEverythingFallbackWarningOnDispatcher(string fallbackReason)
@@ -5365,6 +5404,30 @@ public class BMSLibrary : NotificationObject
         return true;
     }
 
+    private bool TryQueueFileScanSkippedIncompleteWarningOnDispatcher(string failureReason)
+    {
+        Dispatcher dispatcher = Application.Current?.Dispatcher;
+        if (dispatcher == null || dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
+        {
+            return false;
+        }
+
+        try
+        {
+            LogEverythingScan("file scan incomplete warning queued target=ui_dispatcher failureReason=" + (failureReason ?? string.Empty));
+            dispatcher.BeginInvoke(DispatcherPriority.Normal, (Action)delegate
+            {
+                ShowFileScanSkippedIncompleteWarningSafely(failureReason);
+            });
+        }
+        catch (Exception ex)
+        {
+            LogEverythingScan("file scan incomplete warning queue_failed target=ui_dispatcher failureReason=" + (failureReason ?? string.Empty) + " message=" + ex.Message);
+            return false;
+        }
+        return true;
+    }
+
     private void ShowEverythingFallbackWarningSafely(string fallbackReason)
     {
         try
@@ -5376,6 +5439,47 @@ public class BMSLibrary : NotificationObject
         {
             LogEverythingScan("everything fallback warning failed fallbackReason=" + (fallbackReason ?? string.Empty) + " message=" + ex.Message);
         }
+    }
+
+    private void ShowFileScanSkippedIncompleteWarningSafely(string failureReason)
+    {
+        try
+        {
+            ShowFileScanSkippedIncompleteWarning(failureReason);
+            LogEverythingScan("file scan incomplete warning shown failureReason=" + (failureReason ?? string.Empty));
+        }
+        catch (Exception ex)
+        {
+            LogEverythingScan("file scan incomplete warning failed failureReason=" + (failureReason ?? string.Empty) + " message=" + ex.Message);
+        }
+    }
+
+    private static bool IsAuthoritativeChartScan(ChartScanExecutionResult scanResult)
+    {
+        return scanResult?.Success == true
+            && scanResult.IsComplete
+            && scanResult.Result != null;
+    }
+
+    private static string GetChartScanFailureReason(ChartScanExecutionResult scanResult)
+    {
+        if (scanResult == null)
+        {
+            return "scan_result_missing";
+        }
+        if (!string.IsNullOrWhiteSpace(scanResult.IncompleteReason))
+        {
+            return scanResult.IncompleteReason;
+        }
+        if (!string.IsNullOrWhiteSpace(scanResult.ErrorReason))
+        {
+            return scanResult.ErrorReason;
+        }
+        if (scanResult.Result == null)
+        {
+            return "scan_result_missing";
+        }
+        return scanResult.Success ? "scan_incomplete" : "scan_failed";
     }
 
     private SongTableFileCheckResult ApplyLibraryFileScanDiff(
@@ -5412,6 +5516,43 @@ public class BMSLibrary : NotificationObject
             {
                 CompleteLibraryFileEnumerationProgress();
             }
+        }
+        ChartScanPrefetchInfo resolvedChartScanPrefetchInfo = chartScanPrefetchInfo;
+        if (resolvedChartScanPrefetchInfo?.ScanResult == null)
+        {
+            var stopwatchResolveScan = Stopwatch.StartNew();
+            ChartScanExecutionResult resolvedScanResult = ExecuteChartScanWithManagedFallback(
+                bmsDirectories,
+                ShouldIncludeLr2TextSurface(options),
+                ShouldIncludeLr2DirectorySurface(options),
+                scannerLabel =>
+                {
+                    if (trackLibraryFileCheckProgress)
+                    {
+                        ReportLibraryInitializationProgress(
+                            LibraryInitializationProgressStage.FileEnumeration,
+                            scannerLabel,
+                            force: true);
+                    }
+                });
+            stopwatchResolveScan.Stop();
+            resolvedChartScanPrefetchInfo = new ChartScanPrefetchInfo
+            {
+                ScanResult = resolvedScanResult,
+                ElapsedMs = stopwatchResolveScan.ElapsedMilliseconds
+            };
+        }
+        if (!IsAuthoritativeChartScan(resolvedChartScanPrefetchInfo?.ScanResult))
+        {
+            string failureReason = GetChartScanFailureReason(resolvedChartScanPrefetchInfo?.ScanResult);
+            LogEverythingScan("song_tbl_file_check skipped reason=incomplete_file_scan operation=" + (reason ?? string.Empty) + " detail=" + failureReason);
+            QueueFileScanSkippedIncompleteWarning(failureReason);
+            completeFileEnumerationOnce();
+            if (trackLibraryFileCheckProgress)
+            {
+                CompleteLibraryFileDiffProgress();
+            }
+            return emptyResult;
         }
         Lr2NormalFolderMtimeSnapshot resolveNormalFolderMtimeSnapshot()
         {
@@ -5467,22 +5608,9 @@ public class BMSLibrary : NotificationObject
             dbGateway,
             options,
             BMSFiles,
-            chartScanPrefetchInfo?.ScanResult,
-            chartScanPrefetchInfo?.ElapsedMs ?? 0L,
-            () => ExecuteChartScanWithManagedFallback(
-                bmsDirectories,
-                ShouldIncludeLr2TextSurface(options),
-                ShouldIncludeLr2DirectorySurface(options),
-                scannerLabel =>
-                {
-                    if (trackLibraryFileCheckProgress)
-                    {
-                        ReportLibraryInitializationProgress(
-                            LibraryInitializationProgressStage.FileEnumeration,
-                            scannerLabel,
-                            force: true);
-                    }
-                }),
+            resolvedChartScanPrefetchInfo?.ScanResult,
+            resolvedChartScanPrefetchInfo?.ElapsedMs ?? 0L,
+            null,
             dialogService,
             LogInstallPerformance,
             LogEverythingScan,
@@ -8184,7 +8312,7 @@ completeFileEnumerationOnce,
         }
         try
         {
-            return Path.GetFullPath(path);
+            return LongPathFileSystem.NormalizePathForStorage(path);
         }
         catch (Exception ex) when (ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException)
         {
@@ -8342,9 +8470,15 @@ completeFileEnumerationOnce,
     {
         try
         {
-            var fileInfo = new FileInfo(Path.Combine(directoryPath, "folderinfo.txt"));
-            return fileInfo.Exists
-                ? new RootFileEnumerationEntry(fileInfo.FullName, fileInfo.LastWriteTimeUtc, fileInfo.Length)
+            string folderInfoPath = Path.Combine(directoryPath, "folderinfo.txt");
+            if (!LongPathFileSystem.FileExists(folderInfoPath))
+            {
+                return null;
+            }
+            string normalizedPath = LongPathFileSystem.NormalizePathForStorage(folderInfoPath);
+            LongPathFileSystem.FileMetadata metadata = LongPathFileSystem.GetFileMetadata(normalizedPath);
+            return LongPathFileSystem.FileExists(normalizedPath)
+                ? new RootFileEnumerationEntry(normalizedPath, metadata.LastWriteTimeUtc, metadata.Length)
                 : null;
         }
         catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException || ex is SecurityException)
@@ -12053,7 +12187,7 @@ completeFileEnumerationOnce,
         }
         try
         {
-            directories.Add(Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+            directories.Add(LongPathFileSystem.TrimTrailingDirectorySeparators(LongPathFileSystem.NormalizePathForStorage(path)));
         }
         catch
         {
@@ -15228,14 +15362,7 @@ completeFileEnumerationOnce,
 
         try
         {
-            string fullPath = Path.GetFullPath(directory.Trim());
-            string root = Path.GetPathRoot(fullPath);
-            string trimmed = fullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-            string rootTrimmed = root?.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-            return !string.IsNullOrWhiteSpace(rootTrimmed)
-                && string.Equals(trimmed, rootTrimmed, StringComparison.OrdinalIgnoreCase)
-                ? root
-                : trimmed;
+            return LongPathFileSystem.TrimTrailingDirectorySeparators(LongPathFileSystem.NormalizePathForStorage(directory.Trim()));
         }
         catch
         {
@@ -16871,24 +16998,14 @@ completeFileEnumerationOnce,
         string normalizedPath;
         try
         {
-            normalizedPath = Path.GetFullPath(destinationDirectory.Trim());
+            normalizedPath = LongPathFileSystem.NormalizePathForStorage(destinationDirectory.Trim());
         }
         catch
         {
             normalizedPath = destinationDirectory.Trim();
         }
 
-        string rootPath = Path.GetPathRoot(normalizedPath);
-        string trimmedPath = normalizedPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        if (string.IsNullOrWhiteSpace(trimmedPath))
-        {
-            return normalizedPath;
-        }
-
-        string rootTrimmed = rootPath?.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        return !string.IsNullOrWhiteSpace(rootTrimmed) && string.Equals(trimmedPath, rootTrimmed, StringComparison.OrdinalIgnoreCase)
-            ? rootPath
-            : trimmedPath;
+        return LongPathFileSystem.TrimTrailingDirectorySeparators(normalizedPath);
     }
 
     private InstallDestinationRepresentativeMetadata ResolveInstallDestinationRepresentativeMetadataUnsafe(string destinationDirectory)
@@ -17541,13 +17658,19 @@ completeFileEnumerationOnce,
             List<string> addedDirectories = addedTargets.GetDistinctChartDirectories();
             if (addedDirectories.Count > 0)
             {
-                ChartScanResult addedDirectoryScan = ChartDirectoryScanBuilder.BuildFromRoots(addedDirectories);
-                DirectoryResourceLookupCache.ReverseLookupMutationResult reverseLookupMutation = DirectoryResourceLookupCache.ReverseLookupMutationResult.Empty;
-                foreach (string dir in addedDirectoryScan.ChartDirectories)
+                if (ChartDirectoryScanBuilder.TryBuildFromRoots(addedDirectories, out ChartScanResult addedDirectoryScan, out string scanFailureReason))
                 {
-                    reverseLookupMutation = reverseLookupMutation.Combine(directoryResourceLookupCache.AddDir(dir, addedDirectoryScan));
+                    DirectoryResourceLookupCache.ReverseLookupMutationResult reverseLookupMutation = DirectoryResourceLookupCache.ReverseLookupMutationResult.Empty;
+                    foreach (string dir in addedDirectoryScan.ChartDirectories)
+                    {
+                        reverseLookupMutation = reverseLookupMutation.Combine(directoryResourceLookupCache.AddDir(dir, addedDirectoryScan));
+                    }
+                    LogReverseLookupMutationAndQueueWarmupIfNeeded("install_package", reverseLookupMutation);
                 }
-                LogReverseLookupMutationAndQueueWarmupIfNeeded("install_package", reverseLookupMutation);
+                else
+                {
+                    LogInstallPerformanceWarn("install_package resource_cache_update skipped reason=incomplete_scan detail=" + (scanFailureReason ?? "unknown") + " dirs=" + addedDirectories.Count);
+                }
             }
         }
 
@@ -17600,7 +17723,11 @@ completeFileEnumerationOnce,
         {
             return DirectoryResourceLookupCache.ReverseLookupMutationResult.Empty;
         }
-        ChartScanResult addedDirectoryScan = ChartDirectoryScanBuilder.BuildFromRoots(affectedDirectories);
+        if (!ChartDirectoryScanBuilder.TryBuildFromRoots(affectedDirectories, out ChartScanResult addedDirectoryScan, out string scanFailureReason))
+        {
+            LogInstallPerformanceWarn("install_package_batch resource_cache_update skipped reason=incomplete_scan detail=" + (scanFailureReason ?? "unknown") + " dirs=" + affectedDirectories.Count);
+            return DirectoryResourceLookupCache.ReverseLookupMutationResult.Empty;
+        }
         DirectoryResourceLookupCache.ReverseLookupMutationResult reverseLookupMutation = DirectoryResourceLookupCache.ReverseLookupMutationResult.Empty;
         foreach (string dir in affectedDirectories)
         {
@@ -19931,14 +20058,21 @@ completeFileEnumerationOnce,
                         }
                         LogInstallPerformance("duplicate_merge_model move_files_done op=" + operationId + " elapsedMs=" + moveStopwatch.ElapsedMilliseconds);
                         var scanStopwatch = Stopwatch.StartNew();
-                        ChartScanResult mergedDirectoryScan = ChartDirectoryScanBuilder.BuildFromRoots([dst]);
-                        LogInstallPerformance("duplicate_merge_model dst_scan_done op=" + operationId + " elapsedMs=" + scanStopwatch.ElapsedMilliseconds + " chartDirs=" + mergedDirectoryScan.ChartDirectories.Count);
+                        if (!ChartDirectoryScanBuilder.TryBuildFromRoots([dst], out ChartScanResult mergedDirectoryScan, out string scanFailureReason))
+                        {
+                            LogInstallPerformanceWarn("duplicate_merge_model dst_scan_skipped op=" + operationId + " reason=incomplete_scan detail=" + (scanFailureReason ?? "unknown") + " elapsedMs=" + scanStopwatch.ElapsedMilliseconds);
+                            mergedDirectoryScan = null;
+                        }
+                        else
+                        {
+                            LogInstallPerformance("duplicate_merge_model dst_scan_done op=" + operationId + " elapsedMs=" + scanStopwatch.ElapsedMilliseconds + " chartDirs=" + mergedDirectoryScan.ChartDirectories.Count);
+                        }
                         var reverseLookupAddStopwatch = Stopwatch.StartNew();
-                        foreach (string chartDirectory in mergedDirectoryScan.ChartDirectories)
+                        foreach (string chartDirectory in mergedDirectoryScan?.ChartDirectories ?? [])
                         {
                             reverseLookupMutation = reverseLookupMutation.Combine(directoryResourceLookupCache.AddDir(chartDirectory, mergedDirectoryScan));
                         }
-                        LogInstallPerformance("duplicate_merge_model reverse_lookup_add_done op=" + operationId + " elapsedMs=" + reverseLookupAddStopwatch.ElapsedMilliseconds + " dirs=" + mergedDirectoryScan.ChartDirectories.Count);
+                        LogInstallPerformance("duplicate_merge_model reverse_lookup_add_done op=" + operationId + " elapsedMs=" + reverseLookupAddStopwatch.ElapsedMilliseconds + " dirs=" + (mergedDirectoryScan?.ChartDirectories.Count ?? 0));
                         LogReverseLookupMutationAndQueueWarmupIfNeeded("merge_folder", reverseLookupMutation);
                         var applyDeltaStopwatch = Stopwatch.StartNew();
                         ApplyLibraryMutationDeltaWithPerformanceContext(

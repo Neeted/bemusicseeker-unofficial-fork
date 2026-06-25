@@ -720,7 +720,7 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
         }
         foreach (LibraryFolderPathChange row in folderRows)
         {
-            if (!Directory.Exists(row.NewFolderPath))
+            if (!LongPathFileSystem.DirectoryExists(row.NewFolderPath))
             {
                 throw new DirectoryNotFoundException(string.Format(Resources.Error_RenameDestDirNotFound, row.NewFolderPath));
             }
@@ -1690,7 +1690,7 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
         {
             throw new ArgumentNullException(string.IsNullOrWhiteSpace(oldFolderPath) ? nameof(oldFolderPath) : nameof(newFolderPath));
         }
-        if (!Directory.Exists(newFolderPath))
+        if (!LongPathFileSystem.DirectoryExists(newFolderPath))
         {
             throw new DirectoryNotFoundException(string.Format(Resources.Error_RenameDestDirNotFound, newFolderPath));
         }
@@ -2974,7 +2974,7 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
             {
                 continue;
             }
-            if (!string.IsNullOrWhiteSpace(path) && File.Exists(path))
+            if (!string.IsNullOrWhiteSpace(path) && LongPathFileSystem.FileExists(path))
             {
                 digests[md5] = BMSFile.GetSHA256Hash(path);
             }

@@ -262,7 +262,7 @@ internal static class Lr2FolderDirectoryMetadataBuilder
     {
         return reader != null
             ? reader(folderInfoPath) ?? []
-            : File.ReadLines(folderInfoPath, ShiftJis);
+            : LongPathFileSystem.ReadLines(folderInfoPath, ShiftJis);
     }
 
     private static DateTime? NormalizeLastWriteTimeUtc(DateTime? timestamp)

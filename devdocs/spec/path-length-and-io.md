@@ -4,15 +4,28 @@
 
 ## 基本方針
 
-- DB や runtime model に保存する path は、通常の absolute path 文字列に正規化する。`\\?\` prefix は保存しない。
+- DB や runtime model に保存する path は、通常の absolute path 文字列に正規化する。drive path や UNC path の `\\?\` prefix は保存しない。`\\?\Volume{...}` や `\\?\GLOBALROOT` のように通常の保存 path へ安全に戻せない形式は、通常 root として扱わず、無理に prefix を剥がして別 path に変換しない。
 - 実ファイル I/O では、必要に応じて `LongPathFileSystem` が Win32 extended-length path へ変換してから操作する。
 - 譜面ファイルとして読める長パスは通常の譜面として扱い、`song` / `bmson_song` / `chart_digest_map` / `maintenance` / `chart_info` への登録対象にする。
-- LR2 互換性は読み取り可否とは分けて評価する。LR2 の legacy path 長を超える可能性がある BMS は、登録したうえで `Lr2PathTooLong` warning を付与する。
+- `song.db` はユーザーが直接編集して守るべき正本ではなく、root scan の列挙結果 cache として扱う。ただし cache 更新は authoritative complete scan が得られた場合だけ行う。
+- root scan が不完全、失敗、上限超過、root 不在、子ディレクトリ列挙失敗、metadata 取得不能になった場合、その scan から add / update / delete のいずれも行わない。起動時スキャンを行わなかった状態に寄せ、既存 DB の読み込み、スコア読み込み、保留パッケージ復元などは続行する。
+- LR2 互換性は BeMusicSeeker の読み取り可否とは分けて評価する。LR2 の legacy path 長を超える可能性がある BMS は、登録したうえで LR2 warning を付与する。OpenLR2 は改善可能性があるため、warning 名や文言には含めない。
+- standalone mode でも、LR2 legacy path として明らかに成立しない root は登録前に拒否する。root 判定は CP932 で `root + separator + "a.bms"` が `Lr2CompatibilityEvaluator.MaxLegacyPathBytes` 以下、かつ CP932 encode 可能であることを条件にする。
 - BeMusicSeeker 内部で完結するファイル操作は、標準 `File` / `Directory` / VisualBasic `FileSystem` の存在確認や変更 API に直接依存せず、`LongPathFileSystem` または `IFileMutationService` を通す。
 - 導入先推定のように、ユーザーが指定した path の親 directory や配下を探索する処理は、長パス対応だけでなく探索範囲の上限も明示する。通常 package の範囲を超える巨大 directory では、全件 materialize せず打ち切り warning にする。
-- 長パスで読めない、権限が無い、列挙時点から削除されたなどの recoverable なファイル単位エラーは、初期化全体の失敗ダイアログにしない。対象ファイルを `SongTableFileCheckResult.FileScanFailures` と性能ログへ集約し、他の譜面の登録を継続する。
+- complete scan 後に個別ファイルを読む段階で、長パスで読めない、権限が無い、列挙時点から削除されたなどの recoverable なファイル単位エラーは、初期化全体の失敗ダイアログにしない。対象ファイルを `SongTableFileCheckResult.FileScanFailures` と性能ログへ集約し、他の譜面の登録を継続する。
 - 失敗を成功扱いにはしない。読めなかった譜面は DB に登録せず、失敗ファイルとして残す。
 - 外部アプリへ長パスを渡した後の互換性は外部アプリ側の制約に従う。BeMusicSeeker 側では、外部アプリが受け付けないことを内部ファイルの不在や成功扱いに変換しない。
+
+## 完全 scan と DB 更新
+
+root scan 用の列挙結果は、`Success == true` かつ `IsComplete == true` かつ `ScanLimitExceeded == false` のときだけ authoritative complete とみなす。
+
+Everything bridge が正常成功した scan は authoritative complete とみなす。Everything bridge が失敗して managed fallback を使った場合でも、managed fallback が同じ条件を満たす場合だけ authoritative complete とみなす。bridge contract mismatch は配置やバージョン不整合なので、通常の incomplete filesystem scan warning には丸めず hard failure として扱う。
+
+incomplete scan の場合、`BMSLibrary.ApplyLibraryFileScanDiff()` は警告を queue し、file diff / LR2 folder sync / storage mutation / DB commit / resource index 差し替えに進まない。`BmsLibraryInitializationService.ApplyFileScanDiff()` 側も二重防御として、非 authoritative scan から diff を作らず空 result を返す。
+
+scan が incomplete でも、既存 `song.db` の読み込み結果はそのまま使用する。これは「古い DB の内容を保護する」ためではなく、異常なファイルシステム状態から得られた部分列挙で cache を中途半端に更新しないためである。
 
 ## 正規 I/O 境界
 
@@ -45,14 +58,19 @@
 
 ## 適用範囲
 
-長パス対応は初期化時の譜面読み取りだけに限定しない。BeMusicSeeker 内でファイルシステムへ直接触れる次の処理は、標準 `File` / `Directory` / VisualBasic `FileSystem` API へ直接依存せず、上記の正規 I/O 境界を経由する。
+長パス対応は初期化時の譜面読み取りだけに限定しない。ただし、すべての app-local I/O を同時に置き換えるのではなく、DB の意味やユーザー操作の成否に直結する箇所から優先する。
+
+P0 は今回の正本範囲である。BeMusicSeeker 内でファイルシステムへ直接触れる次の処理は、標準 `File` / `Directory` / VisualBasic `FileSystem` API へ直接依存せず、上記の正規 I/O 境界を経由する。
 
 - root scan と、その Everything fallback の列挙 / metadata 取得。
-- Ribbit 経由の BMS 読み取り、内蔵プレーヤーの譜面 / 音声リソース読み取り、音声ファイル変換時の譜面読み取り。
+- Ribbit 経由の BMS 読み取り、bmson 読み取り、内蔵プレーヤーの譜面 / 音声リソース読み取り、音声ファイル変換時の譜面読み取り。
+- 譜面 text surface、`folderinfo.txt`、`.lr2folder` の発見と読み取り。
 - 導入、移動、削除、拡張子変更、スマート上書き判定、マージ移動などのユーザー操作に紐づく変更系処理。
 - beatoraja `.bmt` の gzip 書き込み、manifest 読み書き、managed `.bmt` cleanup。
 - LR2 カスタムフォルダ `.lr2folder` の生成、stale file cleanup、空ディレクトリ削除。
 - LR2 バックアップの対象存在確認、世代削除、ファイル / ディレクトリコピー。
+
+P2 は、譜面管理機能の本流ではないが app 内の一貫性として順次寄せる範囲である。IR cache、設定ファイル、export/import 補助、外部ツール連携の一部存在確認などが該当する。P3 はアプリ同梱 metadata bundle、test fixture、ログ、release script など、ユーザーの譜面 path とは独立した app-local I/O である。P2/P3 の direct `System.IO` は見つかっただけで即 P0 欠陥とは扱わず、変更する場合はそれぞれの機能単位で方針を決める。
 
 導入先推定の source surface scan は `BoundedSourceSurfaceEnumerator` を使い、1 つの source surface ごとに既定 50,000 filesystem entry で打ち切る。この上限は投入バッチ全体の合算ではなく、1 つの導入先推定対象 package / source directory を BMS package 境界として扱えるかの上限である。打ち切った場合、部分的な resource surface を推定入力へ渡さず、`SourceSurfaceScanLimitExceeded` warning として扱う。Everything bridge や通常 root scan fallback のような全件 materialize 型の列挙は、この用途では使わない。
 
@@ -77,7 +95,9 @@ Explorer 起動は `ExplorerOpenService` に集約する。ファイルを開く
 <AppContextSwitchOverrides value="Switch.System.IO.UseLegacyPathHandling=false;Switch.System.IO.BlockLongPaths=false" />
 ```
 
-ただし、譜面読み取りの正本はこの設定だけに依存せず、`LongPathFileSystem` に集約する。OS やランタイム設定差で標準 API の挙動が変わっても、譜面読み取り経路の意味を変えないためである。
+また、アプリ manifest では `longPathAware=true` を設定する。
+
+ただし、譜面読み取りと root scan の正本はこれらの設定だけに依存せず、`LongPathFileSystem` に集約する。OS やランタイム設定差で標準 API の挙動が変わっても、譜面読み取り経路の意味を変えないためである。
 
 ## 関連仕様
 

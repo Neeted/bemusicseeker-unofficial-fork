@@ -27,7 +27,7 @@ internal sealed class EverythingRootFileEnumerator : IRootFileEnumerator
             BackendName = EverythingNative.GroupedEnumerationBackendName
         };
 
-        List<string> roots = NormalizeRoots(rootDirectories);
+        List<string> roots = NormalizeRoots(rootDirectories, result);
         List<RootFileEnumerationGroup> groupList = [.. (groups ?? []).Where(group => group != null && !string.IsNullOrWhiteSpace(group.Name))];
         foreach (RootFileEnumerationGroup group in groupList)
         {
@@ -36,7 +36,7 @@ internal sealed class EverythingRootFileEnumerator : IRootFileEnumerator
 
         if (roots.Count == 0 || groupList.Count == 0)
         {
-            result.Success = true;
+            result.Success = result.IsComplete;
             return result;
         }
 
@@ -59,8 +59,7 @@ internal sealed class EverythingRootFileEnumerator : IRootFileEnumerator
 
             if (!EverythingNative.TryEnumerateGroupedFiles(groupedQueries, out EverythingNative.BridgeGroupedEnumerationResult groupedResult, out string reason))
             {
-                result.Success = false;
-                result.ErrorReason = reason ?? "bridge_grouped_query_failed";
+                result.MarkFailed(reason ?? "bridge_grouped_query_failed");
                 return result;
             }
 
@@ -95,18 +94,17 @@ internal sealed class EverythingRootFileEnumerator : IRootFileEnumerator
             {
                 if (TryProbeRootVisibility(roots, out string probeReason))
                 {
-                    result.Success = true;
+                    result.Success = result.IsComplete;
                     result.ErrorReason = string.Empty;
                     return result;
                 }
-                result.Success = false;
-                result.ErrorReason = string.IsNullOrWhiteSpace(probeReason)
+                result.MarkFailed(string.IsNullOrWhiteSpace(probeReason)
                     ? "empty_results_with_roots"
-                    : "empty_results_with_roots:" + probeReason;
+                    : "empty_results_with_roots:" + probeReason);
                 return result;
             }
 
-            result.Success = true;
+            result.Success = result.IsComplete;
             return result;
         }
         finally
@@ -136,9 +134,9 @@ internal sealed class EverythingRootFileEnumerator : IRootFileEnumerator
             && group.HitCount > 0;
     }
 
-    private static List<string> NormalizeRoots(IEnumerable<string> rootDirectories)
+    private static List<string> NormalizeRoots(IEnumerable<string> rootDirectories, RootFileEnumerationResult result)
     {
-        return RootFileEnumerationService.NormalizeExecutionRoots(rootDirectories);
+        return RootFileEnumerationService.NormalizeExecutionRoots(rootDirectories, result);
     }
 
     private static uint GetStableGroupId(string groupName)

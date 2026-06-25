@@ -38,8 +38,23 @@ internal static class ChartDirectoryScanBuilder
 
     internal static ChartScanResult BuildFromRoots(IEnumerable<string> roots)
     {
+        return TryBuildFromRoots(roots, out ChartScanResult result, out _)
+            ? result
+            : new ChartScanResult();
+    }
+
+    internal static bool TryBuildFromRoots(IEnumerable<string> roots, out ChartScanResult result, out string failureReason)
+    {
         RootFileEnumerationResult enumerationResult = new FastRootFileEnumerator().EnumerateFiles(roots, CreateDefaultEnumerationGroups(), verboseLog: false);
-        return BuildFromGroupedPaths(enumerationResult);
+        if (!RootFileEnumerationService.IsAuthoritativeComplete(enumerationResult))
+        {
+            result = null;
+            failureReason = RootFileEnumerationService.GetNonAuthoritativeReason(enumerationResult);
+            return false;
+        }
+        result = BuildFromGroupedPaths(enumerationResult);
+        failureReason = string.Empty;
+        return true;
     }
 
     internal static ChartScanResult BuildFromChartDirectories(IEnumerable<string> chartDirectories)
@@ -212,7 +227,7 @@ internal static class ChartDirectoryScanBuilder
         var directorySet = new HashSet<string>(chartDirectories ?? [], StringComparer.OrdinalIgnoreCase);
         foreach (string absolutePath in (absolutePaths ?? [])
             .Where(path => !string.IsNullOrWhiteSpace(path))
-            .Select(Path.GetFullPath)
+            .Select(LongPathFileSystem.NormalizePathForStorage)
             .Distinct(StringComparer.OrdinalIgnoreCase))
         {
             List<string> ownerDirectories = FindOwningChartDirectories(directorySet, absolutePath);
@@ -267,7 +282,7 @@ internal static class ChartDirectoryScanBuilder
         foreach (string absolutePath in (absolutePaths ?? [])
             .Where(path => !string.IsNullOrWhiteSpace(path))
             .Where(path => string.Equals(Path.GetExtension(path), ".txt", StringComparison.OrdinalIgnoreCase))
-            .Select(Path.GetFullPath)
+            .Select(LongPathFileSystem.NormalizePathForStorage)
             .Distinct(StringComparer.OrdinalIgnoreCase))
         {
             string directory = Path.GetDirectoryName(absolutePath);
@@ -358,7 +373,7 @@ internal static class ChartDirectoryScanBuilder
         return [.. (textFilePaths ?? [])
             .Where(path => !string.IsNullOrWhiteSpace(path))
             .Where(path => string.Equals(Path.GetExtension(path), ".txt", StringComparison.OrdinalIgnoreCase))
-            .Select(Path.GetFullPath)
+            .Select(LongPathFileSystem.NormalizePathForStorage)
             .Distinct(StringComparer.OrdinalIgnoreCase)];
     }
 
@@ -366,7 +381,7 @@ internal static class ChartDirectoryScanBuilder
     {
         return [.. (chartFilePaths ?? [])
             .Where(path => !string.IsNullOrWhiteSpace(path))
-            .Select(Path.GetFullPath)
+            .Select(LongPathFileSystem.NormalizePathForStorage)
             .Distinct(StringComparer.Ordinal)];
     }
 
@@ -374,11 +389,11 @@ internal static class ChartDirectoryScanBuilder
     {
         return [.. (chartFileEntries ?? [])
             .Where(entry => entry != null && !string.IsNullOrWhiteSpace(entry.Path))
-            .GroupBy(entry => Path.GetFullPath(entry.Path), StringComparer.Ordinal)
+            .GroupBy(entry => LongPathFileSystem.NormalizePathForStorage(entry.Path), StringComparer.Ordinal)
             .Select(group =>
             {
                 RootFileEnumerationEntry entry = group.First();
-                string fullPath = Path.GetFullPath(entry.Path);
+                string fullPath = LongPathFileSystem.NormalizePathForStorage(entry.Path);
                 return string.Equals(fullPath, entry.Path, StringComparison.OrdinalIgnoreCase)
                     ? entry
                     : new RootFileEnumerationEntry(fullPath, entry.LastWriteTimeUtc, entry.FileSize);
@@ -390,11 +405,11 @@ internal static class ChartDirectoryScanBuilder
         return [.. (textFileEntries ?? [])
             .Where(entry => entry != null && !string.IsNullOrWhiteSpace(entry.Path))
             .Where(entry => string.Equals(Path.GetExtension(entry.Path), ".txt", StringComparison.OrdinalIgnoreCase))
-            .GroupBy(entry => Path.GetFullPath(entry.Path), StringComparer.OrdinalIgnoreCase)
+            .GroupBy(entry => LongPathFileSystem.NormalizePathForStorage(entry.Path), StringComparer.OrdinalIgnoreCase)
             .Select(group =>
             {
                 RootFileEnumerationEntry entry = group.First();
-                string fullPath = Path.GetFullPath(entry.Path);
+                string fullPath = LongPathFileSystem.NormalizePathForStorage(entry.Path);
                 return string.Equals(fullPath, entry.Path, StringComparison.OrdinalIgnoreCase)
                     ? entry
                     : new RootFileEnumerationEntry(fullPath, entry.LastWriteTimeUtc, entry.FileSize);

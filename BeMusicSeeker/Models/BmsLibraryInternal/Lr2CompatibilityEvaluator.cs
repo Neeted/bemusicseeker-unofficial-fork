@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using BeMusicSeeker.Models.Utils;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
@@ -100,6 +101,33 @@ internal static class Lr2CompatibilityEvaluator
         }
 
         return new Lr2ChartPathEvaluation(flags, folder, parent);
+    }
+
+    internal static bool IsLegacyChartPathCompatible(string chartPath)
+    {
+        return EvaluateChartPath(chartPath).WarningFlags == Lr2CompatibilityWarningFlags.None;
+    }
+
+    internal static bool IsLegacyRootPathCompatible(string rootPath)
+    {
+        if (string.IsNullOrWhiteSpace(rootPath))
+        {
+            return false;
+        }
+        try
+        {
+            string normalizedRoot = LongPathFileSystem.TrimTrailingDirectorySeparators(LongPathFileSystem.NormalizePathForStorage(rootPath));
+            if (normalizedRoot.StartsWith(@"\\?\", StringComparison.Ordinal)
+                || normalizedRoot.StartsWith(@"\\.\", StringComparison.Ordinal))
+            {
+                return false;
+            }
+            return IsLegacyChartPathCompatible(Path.Combine(normalizedRoot, "a.bms"));
+        }
+        catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException)
+        {
+            return false;
+        }
     }
 
     internal static Lr2ResourceReferenceEvaluation EvaluateResourceReferences(

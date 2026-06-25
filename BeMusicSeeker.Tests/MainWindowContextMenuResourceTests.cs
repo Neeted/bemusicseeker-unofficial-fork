@@ -11,6 +11,7 @@ using System.Xml.Linq;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
@@ -1338,6 +1339,31 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
+    public void StandaloneRootDeserialization_PreservesExistingLr2IncompatibleRoot()
+    {
+        string tempRoot = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_StandaloneLong_" + Guid.NewGuid().ToString("N"));
+        string longRoot = BuildLongDirectoryPath(tempRoot, "root");
+        LongPathFileSystem.CreateDirectory(longRoot);
+
+        try
+        {
+            IReadOnlyList<string> deserialized = MainWindowViewModel.SettingDialogViewModel.DeserializeStandaloneBmsRootPaths(longRoot);
+            string serialized = MainWindowViewModel.SettingDialogViewModel.SerializeStandaloneBmsRootPaths(deserialized);
+
+            Assert.IsFalse(Lr2CompatibilityEvaluator.IsLegacyRootPathCompatible(longRoot));
+            CollectionAssert.Contains(deserialized.ToList(), longRoot);
+            StringAssert.Contains(serialized, longRoot);
+        }
+        finally
+        {
+            if (LongPathFileSystem.DirectoryExists(tempRoot))
+            {
+                LongPathFileSystem.DeleteDirectory(tempRoot, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
     public void RootFolderUnregister_RunsOnUiThreadAndStandaloneParentFolderCacheAcceptsEmptyRoots()
     {
         string root = FindRepositoryRoot();
@@ -2606,7 +2632,8 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(settingDialogCode, "dialog.FileNames");
         StringAssert.Contains(viewModelCode, "private void AddBmsSearchRootPaths(IEnumerable<string> paths, string messageKey, bool saveImmediately)");
         StringAssert.Contains(viewModelCode, "public void AddStandaloneBmsRootPaths(IEnumerable<string> paths)");
-        StringAssert.Contains(viewModelCode, "NormalizeStandaloneBmsRootPaths(paths ?? [])");
+        StringAssert.Contains(viewModelCode, "NormalizeExistingStandaloneBmsRootPathsWithoutLr2Compatibility(paths ?? [])");
+        StringAssert.Contains(viewModelCode, "ThrowIfLr2IncompatibleStandaloneBmsRoots(requestedPaths)");
 
         Type actionType = typeof(MainWindow).Assembly.GetType("BeMusicSeeker.Views.CommonOpenFileDialogInteractionMessageAction");
         Assert.IsNotNull(actionType);
@@ -3159,6 +3186,16 @@ public sealed class MainWindowContextMenuResourceTests
             index += pattern.Length;
         }
         return count;
+    }
+
+    private static string BuildLongDirectoryPath(string tempDirectoryPath, string leafName)
+    {
+        string path = tempDirectoryPath;
+        for (int i = 0; path.Length < 285; i++)
+        {
+            path = Path.Combine(path, "segment_" + i.ToString("00") + "_" + new string('a', 32));
+        }
+        return Path.Combine(path, leafName);
     }
 
     private static XDocument LoadMainWindowXamlDocument()

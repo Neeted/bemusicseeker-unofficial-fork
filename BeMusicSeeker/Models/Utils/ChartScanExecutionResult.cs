@@ -4,7 +4,11 @@ public class ChartScanExecutionResult
 {
     public bool Success { get; set; }
 
+    public bool IsComplete { get; set; } = true;
+
     public string ErrorReason { get; set; }
+
+    public string IncompleteReason { get; set; }
 
     public ChartScanResult Result { get; set; }
 

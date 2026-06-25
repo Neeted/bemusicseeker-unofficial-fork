@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using BeMusicSeeker.Models.Utils;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
@@ -33,7 +34,7 @@ internal sealed class BmsLibraryParentFolderCacheService
                 }
                 try
                 {
-                    return !Directory.EnumerateFiles(directoryPath, "*.lr2folder", SearchOption.AllDirectories).Any();
+                    return !LongPathFileSystem.EnumerateFiles(directoryPath, "*.lr2folder", SearchOption.AllDirectories).Any();
                 }
                 catch
                 {

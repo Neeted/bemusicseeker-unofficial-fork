@@ -2074,7 +2074,7 @@ internal static class Lr2SongDbSyncService
                 FilePath = filePath,
                 DatabasePath = databasePath,
                 LastWriteTimeUtc = lastWriteTimeUtc,
-                Definition = Lr2FolderFileProjection.ParseDefinition(File.ReadLines(filePath, Encoding.GetEncoding("shift_jis"))),
+                Definition = Lr2FolderFileProjection.ParseDefinition(LongPathFileSystem.ReadLines(filePath, Encoding.GetEncoding("shift_jis"))),
                 FolderType = classification.FolderType,
                 ParentHash = classification.ParentHash
             };

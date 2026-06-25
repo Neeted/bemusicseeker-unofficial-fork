@@ -46,24 +46,37 @@ public sealed class RootFileEnumerationTests
     }
 
     [TestMethod]
-    public void FastEnumerator_ReturnsLongPathChartEntries()
+    public void FastEnumerator_ReturnsLongPathChartTextLr2FolderAndDirectoryEntries()
     {
         string tempRoot = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_RootEnumLong_" + Guid.NewGuid().ToString("N"));
         string longDirectoryPath = BuildLongDirectoryPath(tempRoot, "charts");
         string chartPath = Path.Combine(longDirectoryPath, "long-chart.bms");
+        string textPath = Path.Combine(longDirectoryPath, "folderinfo.txt");
+        string lr2FolderPath = Path.Combine(longDirectoryPath, "custom.lr2folder");
         DateTime lastWriteTimeUtc = new(2026, 6, 24, 1, 2, 3, DateTimeKind.Utc);
         LongPathFileSystem.CreateDirectory(longDirectoryPath);
         WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE LongRoot\r\n");
+        WriteAllText(textPath, "#TITLE Long Folder\r\n");
+        WriteAllText(lr2FolderPath, "#TITLE Long Custom\r\n");
         File.SetLastWriteTimeUtc(LongPathFileSystem.ToExtendedPath(chartPath), lastWriteTimeUtc);
 
         try
         {
             RootFileEnumerationResult result = new FastRootFileEnumerator().EnumerateFiles(
                 [tempRoot],
-                [new RootFileEnumerationGroup(ChartDirectoryScanBuilder.ChartGroupName, [".bms"])]);
+                [
+                    new RootFileEnumerationGroup(ChartDirectoryScanBuilder.ChartGroupName, [".bms"]),
+                    new RootFileEnumerationGroup(ChartDirectoryScanBuilder.TextGroupName, ChartDirectoryScanBuilder.TextExtensions),
+                    new RootFileEnumerationGroup("lr2folder", [".lr2folder"]),
+                    new RootFileEnumerationGroup(RootFileEnumerationService.DirectoriesGroupName, [], includeDirectories: true)
+                ]);
 
             Assert.IsTrue(result.Success);
+            Assert.IsTrue(result.IsComplete);
             CollectionAssert.Contains(result.GetPaths(ChartDirectoryScanBuilder.ChartGroupName).ToList(), chartPath);
+            CollectionAssert.Contains(result.GetPaths(ChartDirectoryScanBuilder.TextGroupName).ToList(), textPath);
+            CollectionAssert.Contains(result.GetPaths("lr2folder").ToList(), lr2FolderPath);
+            CollectionAssert.Contains(result.GetPaths(RootFileEnumerationService.DirectoriesGroupName).ToList(), longDirectoryPath);
             RootFileEnumerationEntry entry = result.GetEntry(ChartDirectoryScanBuilder.ChartGroupName, chartPath);
             Assert.IsNotNull(entry);
             Assert.AreEqual(chartPath, entry.Path);
@@ -77,6 +90,35 @@ public sealed class RootFileEnumerationTests
                 LongPathFileSystem.DeleteDirectory(tempRoot, recursive: true);
             }
         }
+    }
+
+    [TestMethod]
+    public void FastEnumerator_MissingRootIsIncompleteAndNotSuccessful()
+    {
+        string missingRoot = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_RootEnumMissing_" + Guid.NewGuid().ToString("N"));
+
+        RootFileEnumerationResult result = new FastRootFileEnumerator().EnumerateFiles(
+            [missingRoot],
+            [new RootFileEnumerationGroup(ChartDirectoryScanBuilder.ChartGroupName, [".bms"])]);
+
+        Assert.IsFalse(result.Success);
+        Assert.IsFalse(result.IsComplete);
+        StringAssert.Contains(result.IncompleteReason, "root_not_found:");
+        Assert.IsFalse(RootFileEnumerationService.IsAuthoritativeComplete(result));
+    }
+
+    [TestMethod]
+    public void RootFileEnumerationResult_WithScanLimitExceededIsNotAuthoritativeComplete()
+    {
+        var result = new RootFileEnumerationResult
+        {
+            Success = true,
+            IsComplete = true,
+            ScanLimitExceeded = true
+        };
+
+        Assert.IsFalse(RootFileEnumerationService.IsAuthoritativeComplete(result));
+        Assert.AreEqual("scan_limit_exceeded", RootFileEnumerationService.GetNonAuthoritativeReason(result));
     }
 
     [TestMethod]
