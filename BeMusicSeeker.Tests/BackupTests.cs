@@ -44,6 +44,26 @@ public sealed class BackupTests
         }
     }
 
+    [TestMethod]
+    public void SaveBackupsWithResult_ReturnsFailureException_WhenDestinationIsMissing()
+    {
+        string missingBackupRoot = Path.Combine(Path.GetTempPath(), "BackupTests", Guid.NewGuid().ToString("N"));
+
+        Backup.BackupSaveResult result = Backup.SaveBackupsWithResult(missingBackupRoot, TimeSpan.Zero, 1, ["dummy.db"]);
+
+        Assert.IsFalse(result.Saved);
+        Assert.IsInstanceOfType<DirectoryNotFoundException>(result.FailureException);
+        Assert.AreEqual(0, result.Warnings.Count);
+    }
+
+    [TestMethod]
+    public void SaveBackups_RethrowsFailureException_ForLegacyCallers()
+    {
+        string missingBackupRoot = Path.Combine(Path.GetTempPath(), "BackupTests", Guid.NewGuid().ToString("N"));
+
+        Assert.ThrowsException<DirectoryNotFoundException>(() => Backup.SaveBackups(missingBackupRoot, TimeSpan.Zero, 1, ["dummy.db"]));
+    }
+
     private static void WriteAllText(string path, string contents)
     {
         using FileStream stream = LongPathFileSystem.Open(path, FileMode.Create, FileAccess.Write, FileShare.None);

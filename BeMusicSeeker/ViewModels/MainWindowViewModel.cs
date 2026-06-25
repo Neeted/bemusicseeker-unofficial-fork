@@ -20610,28 +20610,40 @@ public class MainWindowViewModel : ViewModel
             }
             if (bkPaths.Count > 0)
             {
-                await Task.Run(delegate
+                Backup.BackupSaveResult backupSaveResult = null;
+                backupSaveResult = await Task.Run(delegate
                 {
-                    bool flag = false;
                     try
                     {
-                        flag = Backup.SaveBackups(Settings.Default.LR2BackupPath, new TimeSpan(Settings.Default.LR2BackupSpan, 0, 0, 0), Settings.Default.LR2BackupNum, bkPaths);
-                    }
-                    catch (Exception ex2)
-                    {
-                        RaiseInteractionMessageOnUiThread(new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Msg_failed_backups + Environment.NewLine + ex2.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
-                    }
-                    if (flag)
-                    {
-                        try
+                        Backup.BackupSaveResult result = Backup.SaveBackupsWithResult(Settings.Default.LR2BackupPath, new TimeSpan(Settings.Default.LR2BackupSpan, 0, 0, 0), Settings.Default.LR2BackupNum, bkPaths);
+                        if (result.Saved)
                         {
-                            Backup.RebuildDatabase(songDBPath, scoreDBPaths);
+                            try
+                            {
+                                Backup.RebuildDatabase(songDBPath, scoreDBPaths);
+                            }
+                            catch
+                            {
+                            }
                         }
-                        catch
-                        {
-                        }
+                        return result;
+                    }
+                    catch (Exception ex)
+                    {
+                        return Backup.BackupSaveResult.Failure(ex);
                     }
                 }).Logging("Initialize");
+                if (backupSaveResult != null)
+                {
+                    foreach (string warning in backupSaveResult.Warnings)
+                    {
+                        ShowUiMessage(warning, BeMusicSeeker.Properties.Resources.Warning, MessageBoxImage.Exclamation, "LR2 backup warning notification");
+                    }
+                    if (backupSaveResult.FailureException != null)
+                    {
+                        ShowUiMessage(BeMusicSeeker.Properties.Resources.Msg_failed_backups + Environment.NewLine + backupSaveResult.FailureException.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, "LR2 backup failure notification");
+                    }
+                }
             }
         }
         var semaphore = new SemaphoreSlim(1, 1);
