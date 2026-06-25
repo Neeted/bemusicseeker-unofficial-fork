@@ -1,3 +1,6 @@
+using System;
+using Parago.Windows;
+
 namespace BeMusicSeeker.Views.Dialogs;
 
 /// <summary>
@@ -69,15 +72,21 @@ internal sealed class UiProgressResult
     /// progress operation route の結果を初期化します。
     /// </summary>
     /// <param name="status">progress 表示と operation 実行の結果。</param>
-    internal UiProgressResult(UiDialogStatus status)
+    internal UiProgressResult(UiDialogStatus status, object result = null, Exception error = null)
     {
         Status = status;
+        Result = result;
+        Error = error;
     }
 
     /// <summary>
     /// progress 表示と operation 実行の結果です。
     /// </summary>
     internal UiDialogStatus Status { get; }
+
+    internal object Result { get; }
+
+    internal Exception Error { get; }
 }
 
 /// <summary>
@@ -85,4 +94,25 @@ internal sealed class UiProgressResult
 /// </summary>
 internal sealed class UiProgressContext
 {
+    private readonly ProgressDialogContext innerContext;
+
+    internal UiProgressContext(ProgressDialogContext innerContext)
+    {
+        this.innerContext = innerContext ?? throw new ArgumentNullException(nameof(innerContext));
+    }
+
+    internal bool CheckCancellationPending()
+    {
+        return innerContext.CheckCancellationPending();
+    }
+
+    internal void ThrowIfCancellationPending()
+    {
+        innerContext.ThrowIfCancellationPending();
+    }
+
+    internal void ReportWithCancellationCheck(int percentProgress, string format, params object[] arg)
+    {
+        innerContext.ReportWithCancellationCheck(percentProgress, format, arg);
+    }
 }

@@ -36,6 +36,11 @@ These counts are a starting snapshot, not a target. They should monotonically mo
 | `ProgressDialog.Execute` | 5 | progress operation |
 | `ProgressDialog.Current` | 5 | progress operation static state |
 
+Current progress notes:
+
+- Unit 4 moved direct `ProgressDialog.Execute` call sites in `MainWindow.cs` to `UiDialogCoordinator.RunWithProgressAsync`.
+- Unit 4 removed `ProgressDialog.Current` from production code. Remaining `ProgressDialog.Execute` calls are inside the coordinator / display component bridge.
+
 ## Legacy Source Files
 
 Architecture tests require every production file that still uses a legacy dialog route to be listed here.
@@ -51,7 +56,7 @@ When a new legacy route is added, the test should fail unless the route is inten
 | `BeMusicSeeker/ViewModels/temporarilyCopyFiles.cs` | ViewModel `DispatcherMessageBox` | Unit 2 |
 | `BeMusicSeeker/Views/CommonOpenFileDialogInteractionMessageAction.cs` | common picker action | Unit 5 |
 | `BeMusicSeeker/Views/LoadPlaylistURIDialog.cs` | overlay message / open picker | Unit 5, Unit 6 |
-| `BeMusicSeeker/Views/MainWindow.cs` | message / confirmation / picker / progress / modal | Unit 2, Unit 4, Unit 5, Unit 6, Unit 8 |
+| `BeMusicSeeker/Views/MainWindow.cs` | message / confirmation / picker / modal | Unit 2, Unit 5, Unit 6, Unit 8 |
 | `BeMusicSeeker/Views/MainWindow.xaml` | Livet trigger wiring / picker actions | Unit 2, Unit 5, Unit 6 |
 | `BeMusicSeeker/Views/PlayHistoryFolderDisplayPresetEditDialog.cs` | modal window result | Unit 6 |
 | `BeMusicSeeker/Views/PlaylistPropertyDialog.cs` | overlay dialog result | Unit 6 |
@@ -60,6 +65,7 @@ When a new legacy route is added, the test should fail unless the route is inten
 | `BeMusicSeeker/Views/SettingDialog.xaml` | Livet picker actions | Unit 5 |
 | `BeMusicSeeker/Views/ThemedDialogInteractionMessageActions.cs` | Livet dialog action | Unit 2 |
 | `BeMusicSeeker/Views/ThemedMessageBox.cs` | message box display component | Unit 1, Unit 7 |
+| `BeMusicSeeker/Views/Dialogs/UiDialogCoordinator.cs` | progress display component bridge | Unit 4 |
 | `BeMusicSeeker/Views/Dialogs/UiDialogLegacyAdapter.cs` | coordinator-backed legacy adapter bridge | Unit 7 |
 
 ## Route Classification Axes
@@ -78,7 +84,7 @@ Each call site should be classified before replacement.
 ## Initial Hotspots
 
 - `MainWindowViewModel.cs` contains most `ConfirmationMessage` and `RaiseInteractionMessageOnUiThread` calls. This is the main target for Unit 2 and Unit 8.
-- `MainWindow.cs` mixes owner-aware message boxes, ownerless picker calls, direct window modals, and all `ProgressDialog.Execute` calls. This is the main target for Unit 4 and Unit 5.
+- `MainWindow.cs` initially mixed owner-aware message boxes, ownerless picker calls, direct window modals, and all `ProgressDialog.Execute` calls. Unit 4 moved the progress call sites to `UiDialogCoordinator.RunWithProgressAsync`; Unit 5 and Unit 6 still need picker and overlay cleanup.
 - `BMSLibrary.cs` uses `ShowOperationDialog` heavily, even though it does not appear in the source-file allow list above because the direct legacy API is behind model service methods. Unit 3 must treat it as a separate operation-notification inventory.
 - `SettingDialog.cs` contains owner-aware notifications and ownerless `OpenFileDialog` / `SaveFileDialog` calls while an overlay dialog is active. It should move with picker and overlay units, not as one-off message fixes.
 - `DispatcherMessageBox.cs` and `ThemedDialogInteractionMessageActions.cs` are transitional entry points only. They should not gain new call sites.

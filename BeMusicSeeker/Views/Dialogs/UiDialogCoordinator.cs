@@ -3,6 +3,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Threading;
+using Parago.Windows;
 
 namespace BeMusicSeeker.Views.Dialogs;
 
@@ -107,7 +108,117 @@ internal sealed class UiDialogCoordinator : IUiDialogService
     /// <returns>progress operation 結果。</returns>
     public Task<UiProgressResult> RunWithProgressAsync(UiProgressRequest request, Func<UiProgressContext, Task> operation, CancellationToken cancellationToken = default)
     {
-        return Task.FromException<UiProgressResult>(new NotSupportedException("Progress route will be implemented in dialog consolidation Unit 4."));
+        if (request == null)
+        {
+            throw new ArgumentNullException(nameof(request));
+        }
+        if (operation == null)
+        {
+            throw new ArgumentNullException(nameof(operation));
+        }
+
+        return RunWithProgressOnDispatcherAsync(request, operation, cancellationToken);
+    }
+
+    private Task<UiProgressResult> RunWithProgressOnDispatcherAsync(UiProgressRequest request, Func<UiProgressContext, Task> operation, CancellationToken cancellationToken)
+    {
+        if (cancellationToken.IsCancellationRequested)
+        {
+            return Task.FromCanceled<UiProgressResult>(cancellationToken);
+        }
+
+        Application application = Application.Current;
+        if (application?.Dispatcher == null)
+        {
+            return Task.FromResult(new UiProgressResult(UiDialogStatus.DispatcherUnavailable));
+        }
+
+        Dispatcher dispatcher = application.Dispatcher;
+        if (dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
+        {
+            return Task.FromResult(new UiProgressResult(UiDialogStatus.AppClosing));
+        }
+
+        if (dispatcher.CheckAccess())
+        {
+            return Task.FromResult(RunWithProgressCore(request, operation));
+        }
+
+        var completion = new TaskCompletionSource<UiProgressResult>();
+        DispatcherOperation dispatcherOperation;
+        try
+        {
+            dispatcherOperation = dispatcher.BeginInvoke(DispatcherPriority.Normal, new Action(delegate
+            {
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    completion.TrySetCanceled(cancellationToken);
+                    return;
+                }
+
+                try
+                {
+                    completion.TrySetResult(RunWithProgressCore(request, operation));
+                }
+                catch (Exception ex)
+                {
+                    completion.TrySetResult(new UiProgressResult(UiDialogStatus.Failed, error: ex));
+                }
+            }));
+        }
+        catch (InvalidOperationException)
+        {
+            return Task.FromResult(new UiProgressResult(UiDialogStatus.AppClosing));
+        }
+
+        dispatcherOperation.Aborted += delegate
+        {
+            completion.TrySetResult(new UiProgressResult(UiDialogStatus.AppClosing));
+        };
+        if (dispatcherOperation.Status == DispatcherOperationStatus.Aborted)
+        {
+            completion.TrySetResult(new UiProgressResult(UiDialogStatus.AppClosing));
+        }
+
+        return completion.Task;
+    }
+
+    private UiProgressResult RunWithProgressCore(UiProgressRequest request, Func<UiProgressContext, Task> operation)
+    {
+        Window owner = ownerResolver.ResolveOwner(request.Owner);
+        if (owner == null)
+        {
+            return new UiProgressResult(UiDialogStatus.OwnerUnavailable);
+        }
+
+        try
+        {
+            ProgressDialogResult result = ProgressDialog.Execute(
+                owner,
+                request.Title,
+                request.Label,
+                context => operation(new UiProgressContext(context)).GetAwaiter().GetResult(),
+                request.Settings);
+            if (result == null)
+            {
+                return new UiProgressResult(UiDialogStatus.Failed, error: new InvalidOperationException("Progress dialog route returned no result."));
+            }
+            if (result.Cancelled)
+            {
+                return new UiProgressResult(UiDialogStatus.CancelledByUser, result.Result, result.Error);
+            }
+            return result.OperationFailed
+                ? new UiProgressResult(UiDialogStatus.Failed, result.Result, result.Error)
+                : new UiProgressResult(UiDialogStatus.Accepted, result.Result, null);
+        }
+        catch (InvalidOperationException) when (Application.Current?.Dispatcher?.HasShutdownStarted == true || Application.Current?.Dispatcher?.HasShutdownFinished == true)
+        {
+            return new UiProgressResult(UiDialogStatus.AppClosing);
+        }
+        catch (Exception ex)
+        {
+            return new UiProgressResult(UiDialogStatus.Failed, error: ex);
+        }
     }
 
     private Task<UiDialogResult> ShowMessageOnDispatcherAsync(UiMessageRequest request, CancellationToken cancellationToken)

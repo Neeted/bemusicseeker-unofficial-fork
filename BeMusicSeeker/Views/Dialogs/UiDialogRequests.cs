@@ -1,4 +1,5 @@
 using System.Windows;
+using Parago.Windows;
 
 namespace BeMusicSeeker.Views.Dialogs;
 
@@ -125,4 +126,23 @@ internal sealed class UiSaveFilePickerRequest
 /// </summary>
 internal sealed class UiProgressRequest
 {
+    internal UiProgressRequest(
+        string title,
+        string label,
+        ProgressDialogSettings settings = null,
+        Window owner = null)
+    {
+        Title = title;
+        Label = label;
+        Settings = settings;
+        Owner = owner;
+    }
+
+    internal string Title { get; }
+
+    internal string Label { get; }
+
+    internal ProgressDialogSettings Settings { get; }
+
+    internal Window Owner { get; }
 }

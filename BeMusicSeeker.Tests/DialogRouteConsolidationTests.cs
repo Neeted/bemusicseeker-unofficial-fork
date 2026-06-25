@@ -135,6 +135,20 @@ public sealed class DialogRouteConsolidationTests
         StringAssert.Contains(combinedCode, "DispatcherMessageBox.Show(");
     }
 
+    [TestMethod]
+    public void ProgressOperations_AreRoutedThroughUiDialogCoordinator()
+    {
+        string root = FindRepositoryRoot();
+        string mainWindowCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow.cs"));
+        string progressDialogCode = File.ReadAllText(Path.Combine(root, "Parago", "Windows", "ProgressDialog.cs"));
+
+        Assert.IsFalse(mainWindowCode.Contains("ProgressDialog.Execute("), "MainWindow progress operations must go through UiDialogCoordinator.");
+        Assert.IsFalse(mainWindowCode.Contains("ProgressDialog.Current"), "MainWindow must not depend on static progress dialog state.");
+        Assert.IsFalse(progressDialogCode.Contains("static ProgressDialogContext Current"), "ProgressDialog must pass operation context explicitly instead of exposing static state.");
+        StringAssert.Contains(mainWindowCode, "RunProgressUntilTaskCompletesAsync(");
+        StringAssert.Contains(mainWindowCode, "RunWithProgressAsync(");
+    }
+
     private static IReadOnlyList<string> ReadDocumentedLegacySourceFiles(string inventory)
     {
         string section = ExtractBetween(inventory, "## Legacy Source Files", "## Route Classification Axes");

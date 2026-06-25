@@ -35,6 +35,7 @@ using BeMusicSeeker.Models.Update;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
+using BeMusicSeeker.Views.Dialogs;
 using Livet.EventListeners;
 using Livet.Messaging;
 using Microsoft.Win32;
@@ -78,6 +79,56 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     private readonly object shutdownPreparationLock = new();
 
     private Task shutdownPreparationTask;
+
+    private async Task RunProgressUntilTaskCompletesAsync(Task task, CancellationTokenSource cancellationTokenSource, string title, string label, Action<UiProgressContext> reportProgress)
+    {
+        UiProgressResult progressResult = await new UiDialogCoordinator().RunWithProgressAsync(
+            new UiProgressRequest(title, label, new ProgressDialogSettings(showSubLabel: true, showCancelButton: true, showProgressBarIndeterminate: false), this),
+            context =>
+            {
+                while (!task.IsCompleted)
+                {
+                    try
+                    {
+                        reportProgress(context);
+                    }
+                    catch
+                    {
+                        cancellationTokenSource.Cancel();
+                        WaitForTaskCompletion(task);
+                        break;
+                    }
+
+                    Thread.Sleep(100);
+                }
+
+                return Task.CompletedTask;
+            });
+        if (progressResult.Status is UiDialogStatus.Accepted or UiDialogStatus.CancelledByUser)
+        {
+            await task;
+            return;
+        }
+
+        cancellationTokenSource.Cancel();
+        try
+        {
+            await task;
+        }
+        catch
+        {
+        }
+
+        throw new InvalidOperationException("Progress dialog route failed: " + progressResult.Status, progressResult.Error);
+    }
+
+    private static void WaitForTaskCompletion(Task task)
+    {
+        while (!task.IsCompleted)
+        {
+            Thread.Sleep(100);
+        }
+    }
 
     private ContextMenu _lastOpenedContextMenu;
 
@@ -4420,26 +4471,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 processedCount++;
             });
         }, cancellationTokenSource.Token).Logging("treeViewInstallPendingContextMenuDeleteInstalledOnlyPackagesClick");
-        ProgressDialog.Execute(this, BeMusicSeeker.Properties.Resources.Remove, "", delegate
-        {
-            while (task.Status != TaskStatus.RanToCompletion)
-            {
-                try
-                {
-                    ProgressDialog.Current.ReportWithCancellationCheck(100 * processedCount / total, "[{0}/{1}] {2}", Math.Min(processedCount + 1, total), total, list[Math.Min(processedCount, total - 1)].path);
-                }
-                catch
-                {
-                    cancellationTokenSource.Cancel();
-                    while (task.Status != TaskStatus.RanToCompletion)
-                    {
-                        Thread.Sleep(100);
-                    }
-                    break;
-                }
-                Thread.Sleep(100);
-            }
-        }, new ProgressDialogSettings(showSubLabel: true, showCancelButton: true, showProgressBarIndeterminate: false));
+        await RunProgressUntilTaskCompletesAsync(
+            task,
+            cancellationTokenSource,
+            BeMusicSeeker.Properties.Resources.Remove,
+            "",
+            context => context.ReportWithCancellationCheck(100 * processedCount / total, "[{0}/{1}] {2}", Math.Min(processedCount + 1, total), total, list[Math.Min(processedCount, total - 1)].path));
         await task;
     }
 
@@ -4484,26 +4521,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 processedCount++;
             });
         }, cancellationTokenSource.Token).Logging("treeViewInstallPendingContextMenuRenameZeroNoteToInvalidExtClick");
-        ProgressDialog.Execute(this, BeMusicSeeker.Properties.Resources.Rename_invalid_ext, "", delegate
-        {
-            while (task.Status != TaskStatus.RanToCompletion)
-            {
-                try
-                {
-                    ProgressDialog.Current.ReportWithCancellationCheck(100 * processedCount / total, "[{0}/{1}] {2}", Math.Min(processedCount + 1, total), total, list[Math.Min(processedCount, total - 1)].Path ?? "(null)");
-                }
-                catch
-                {
-                    cancellationTokenSource.Cancel();
-                    while (task.Status != TaskStatus.RanToCompletion)
-                    {
-                        Thread.Sleep(100);
-                    }
-                    break;
-                }
-                Thread.Sleep(100);
-            }
-        }, new ProgressDialogSettings(showSubLabel: true, showCancelButton: true, showProgressBarIndeterminate: false));
+        await RunProgressUntilTaskCompletesAsync(
+            task,
+            cancellationTokenSource,
+            BeMusicSeeker.Properties.Resources.Rename_invalid_ext,
+            "",
+            context => context.ReportWithCancellationCheck(100 * processedCount / total, "[{0}/{1}] {2}", Math.Min(processedCount + 1, total), total, list[Math.Min(processedCount, total - 1)].Path ?? "(null)"));
         await task;
     }
 
@@ -4550,26 +4573,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                     processedCount++;
                 });
             }, cancellationTokenSource.Token).Logging("treeViewInstallPendingContextMenuOverwriteInstalledOnlyPackagesResourcesClick");
-            ProgressDialog.Execute(this, BeMusicSeeker.Properties.Resources.Install_to_estimation, "", delegate
-            {
-                while (task.Status != TaskStatus.RanToCompletion)
-                {
-                    try
-                    {
-                        ProgressDialog.Current.ReportWithCancellationCheck(100 * processedCount / total, "[{0}/{1}] {2}", Math.Min(processedCount + 1, total), total, list[Math.Min(processedCount, total - 1)].path ?? "(null)");
-                    }
-                    catch
-                    {
-                        cancellationTokenSource.Cancel();
-                        while (task.Status != TaskStatus.RanToCompletion)
-                        {
-                            Thread.Sleep(100);
-                        }
-                        break;
-                    }
-                    Thread.Sleep(100);
-                }
-            }, new ProgressDialogSettings(showSubLabel: true, showCancelButton: true, showProgressBarIndeterminate: false));
+            await RunProgressUntilTaskCompletesAsync(
+                task,
+                cancellationTokenSource,
+                BeMusicSeeker.Properties.Resources.Install_to_estimation,
+                "",
+                context => context.ReportWithCancellationCheck(100 * processedCount / total, "[{0}/{1}] {2}", Math.Min(processedCount + 1, total), total, list[Math.Min(processedCount, total - 1)].path ?? "(null)"));
             pendingInstalledOnlyResourceOverwriteResult = await task;
         }
         if (pendingInstalledOnlyResourceOverwriteResult != null)
@@ -7937,26 +7946,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             await task;
             return;
         }
-        ProgressDialog.Execute(this, BeMusicSeeker.Properties.Resources.Install, "", delegate
-        {
-            while (task.Status != TaskStatus.RanToCompletion)
-            {
-                try
-                {
-                    ProgressDialog.Current.ReportWithCancellationCheck(100 * progIdx / total, "[{0}/{1}] {2}", progIdx + 1, total, installs[progIdx]);
-                }
-                catch
-                {
-                    cancelTokenSource.Cancel();
-                    while (task.Status != TaskStatus.RanToCompletion)
-                    {
-                        Thread.Sleep(100);
-                    }
-                    break;
-                }
-                Thread.Sleep(100);
-            }
-        }, new ProgressDialogSettings(showSubLabel: true, showCancelButton: true, showProgressBarIndeterminate: false));
+        await RunProgressUntilTaskCompletesAsync(
+            task,
+            cancelTokenSource,
+            BeMusicSeeker.Properties.Resources.Install,
+            "",
+            context => context.ReportWithCancellationCheck(100 * progIdx / total, "[{0}/{1}] {2}", Math.Min(progIdx + 1, total), total, installs[Math.Min(progIdx, total - 1)]));
     }
 
     private void cancelDropInstallQueueClick(object sender, RoutedEventArgs e)
@@ -8702,7 +8697,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         return DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_estimate_merge_confirm, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Asterisk) == MessageBoxResult.OK;
     }
 
-    private void tableContextMenuItemConvertToAudioFileClick(object sender, RoutedEventArgs e)
+    private async void tableContextMenuItemConvertToAudioFileClick(object sender, RoutedEventArgs e)
     {
         BMSFile[] bmsFiles = [.. GetSelectedBmsFiles(ChartOperationCapabilities.ConvertToAudio).Where(f => LongPathFileSystem.FileExists(f.path))];
         if (bmsFiles.Length == 0)
@@ -8734,26 +8729,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 }
             });
         }, cancelTokenSource.Token).Logging("tableContextMenuItemConvertToAudioFileClick");
-        ProgressDialog.Execute(this, BeMusicSeeker.Properties.Resources.Converting, viewModel.settingDialog.EncoderNames[(int)Settings.Default.Encoder] + " - " + BeMusicSeeker.Properties.Resources.Sampling_rate + ":" + viewModel.settingDialog.PlayerSampleRateNames[Settings.Default.EncoderSampleRate] + " " + BeMusicSeeker.Properties.Resources.Sampling_format + ":" + viewModel.settingDialog.PlayerFormatNames[Settings.Default.EncoderFormat], delegate
-        {
-            while (task.Status != TaskStatus.RanToCompletion)
-            {
-                try
-                {
-                    ProgressDialog.Current.ReportWithCancellationCheck(100 * (progIdx + 1) / (bmsFiles.Length + 1), "[{0}/{1}] {2}", progIdx + 1, bmsFiles.Length, bmsFiles[Math.Min(progIdx, bmsFiles.Length - 1)].path);
-                }
-                catch
-                {
-                    cancelTokenSource.Cancel();
-                    while (task.Status != TaskStatus.RanToCompletion)
-                    {
-                        Thread.Sleep(100);
-                    }
-                    break;
-                }
-                Thread.Sleep(100);
-            }
-        }, new ProgressDialogSettings(showSubLabel: true, showCancelButton: true, showProgressBarIndeterminate: false));
+        await RunProgressUntilTaskCompletesAsync(
+            task,
+            cancelTokenSource,
+            BeMusicSeeker.Properties.Resources.Converting,
+            viewModel.settingDialog.EncoderNames[(int)Settings.Default.Encoder] + " - " + BeMusicSeeker.Properties.Resources.Sampling_rate + ":" + viewModel.settingDialog.PlayerSampleRateNames[Settings.Default.EncoderSampleRate] + " " + BeMusicSeeker.Properties.Resources.Sampling_format + ":" + viewModel.settingDialog.PlayerFormatNames[Settings.Default.EncoderFormat],
+            context => context.ReportWithCancellationCheck(100 * (progIdx + 1) / (bmsFiles.Length + 1), "[{0}/{1}] {2}", Math.Min(progIdx + 1, bmsFiles.Length), bmsFiles.Length, bmsFiles[Math.Min(progIdx, bmsFiles.Length - 1)].path));
         DispatcherMessageBox.Show(Window.GetWindow(this), ((!cancelTokenSource.IsCancellationRequested) ? BeMusicSeeker.Properties.Resources.Msg_conversion_completed : BeMusicSeeker.Properties.Resources.Msg_conversion_stopped) + Environment.NewLine + BeMusicSeeker.Properties.Resources.Success + ": " + (progIdx - failNum) + Environment.NewLine + BeMusicSeeker.Properties.Resources.Failure + ": " + (bmsFiles.Length - progIdx + failNum), BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OK, cancelTokenSource.IsCancellationRequested ? MessageBoxImage.Exclamation : MessageBoxImage.Asterisk, MessageBoxResult.OK);
     }
 

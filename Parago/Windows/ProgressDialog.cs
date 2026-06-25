@@ -15,8 +15,6 @@ public partial class ProgressDialog : Window, IComponentConnector
 
     private BackgroundWorker _worker;
 
-    public static ProgressDialogContext Current { get; set; }
-
     public string Label
     {
         get
@@ -78,12 +76,17 @@ public partial class ProgressDialog : Window, IComponentConnector
         };
         _worker.DoWork += delegate (object s, DoWorkEventArgs e)
         {
+            ProgressDialogContext current = null;
             try
             {
-                Current = new ProgressDialogContext(s as BackgroundWorker, e);
+                current = new ProgressDialogContext(s as BackgroundWorker, e);
                 if (operation is Action)
                 {
                     ((Action)operation)();
+                }
+                else if (operation is Action<ProgressDialogContext>)
+                {
+                    ((Action<ProgressDialogContext>)operation)(current);
                 }
                 else
                 {
@@ -93,21 +96,17 @@ public partial class ProgressDialog : Window, IComponentConnector
                     }
                     e.Result = ((Func<object>)operation)();
                 }
-                Current.CheckCancellationPending();
+                current.CheckCancellationPending();
             }
             catch (ProgressDialogCancellationExcpetion)
             {
             }
             catch (Exception)
             {
-                if (!Current.CheckCancellationPending())
+                if (current == null || !current.CheckCancellationPending())
                 {
                     throw;
                 }
-            }
-            finally
-            {
-                Current = null;
             }
         };
         _worker.RunWorkerCompleted += delegate (object s, RunWorkerCompletedEventArgs e)
@@ -153,6 +152,11 @@ public partial class ProgressDialog : Window, IComponentConnector
     }
 
     internal static ProgressDialogResult Execute(Window owner, string title, string label, Action operation, ProgressDialogSettings settings)
+    {
+        return ExecuteInternal(owner, title, label, operation, settings);
+    }
+
+    internal static ProgressDialogResult Execute(Window owner, string title, string label, Action<ProgressDialogContext> operation, ProgressDialogSettings settings)
     {
         return ExecuteInternal(owner, title, label, operation, settings);
     }
