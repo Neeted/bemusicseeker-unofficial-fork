@@ -7,7 +7,7 @@ using System.Runtime.ConstrainedExecution;
 using System.Runtime.InteropServices;
 using System.Security;
 using System.Security.Permissions;
-using System.Windows;
+using Ribbit.Logging;
 using Microsoft.Win32.SafeHandles;
 using Ribbit.Util.Extensions;
 
@@ -15,6 +15,11 @@ namespace BeMusicSeeker.Models.Utils;
 
 public static class FastDirectoryEnumerator
 {
+    private static void LogSkippedDirectory(string dirPath, Exception exception)
+    {
+        NLogWrapper.FileLogger?.Warn(exception, "fast_directory_enumerator_skipped dir=" + (dirPath ?? string.Empty));
+    }
+
     private class FileEnumerable(string path, string filter, SearchOption searchOption) : IEnumerable<FileData>, IEnumerable
     {
         private readonly string m_path = path;
@@ -237,7 +242,7 @@ public static class FastDirectoryEnumerator
         }
         catch (Exception ex)
         {
-            DispatcherMessageBox.Show("ファイルリスト取得中に下記のエラーが発生したためスキップされました。" + Environment.NewLine + "ディレクトリへのアクセスが可能か確認して下さい。" + Environment.NewLine + Environment.NewLine + "対象:" + Environment.NewLine + dirPath + Environment.NewLine + ex.Message, "エラー", MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+            LogSkippedDirectory(dirPath, ex);
             yield break;
         }
         string lpFileName = Path.Combine(dirPath, searchPattern);
@@ -274,7 +279,7 @@ public static class FastDirectoryEnumerator
         }
         catch (Exception ex)
         {
-            DispatcherMessageBox.Show("ファイルリスト取得中に下記のエラーが発生したためスキップされました。" + Environment.NewLine + "ディレクトリへのアクセスが可能か確認して下さい。" + Environment.NewLine + Environment.NewLine + "対象:" + Environment.NewLine + dirPath + Environment.NewLine + ex.Message, "エラー", MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+            LogSkippedDirectory(dirPath, ex);
             yield break;
         }
         var m_win_find_data = new WIN32_FIND_DATA();
