@@ -34,11 +34,17 @@ public partial class LoadPlaylistURIDialog : UserControl, IComponentConnector
         InitializeComponent();
     }
 
+    private MainWindow GetDialogHost()
+    {
+        return Window.GetWindow(this) as MainWindow
+            ?? throw new InvalidOperationException("Load playlist URI dialog is not hosted by MainWindow.");
+    }
+
     private void CancelAndClose(object sender, RoutedEventArgs e)
     {
         if (base.DataContext is MainWindowViewModel)
         {
-            settingDialog.Visibility = Visibility.Hidden;
+            GetDialogHost().HideOverlayDialog(this);
             textBoxURIInput.Text = string.Empty;
         }
     }
@@ -54,7 +60,7 @@ public partial class LoadPlaylistURIDialog : UserControl, IComponentConnector
                 return;
             }
             textBoxURIInput.Text = string.Empty;
-            settingDialog.Visibility = Visibility.Hidden;
+            GetDialogHost().HideOverlayDialog(this);
             viewModel.EnqueueExternalPlaylistBMSTableImports(parseResult.ValidUris);
             if (parseResult.HasInvalidLines)
             {

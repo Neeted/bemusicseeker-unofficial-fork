@@ -41,6 +41,7 @@ Current progress notes:
 - Unit 4 moved direct `ProgressDialog.Execute` call sites in `MainWindow.cs` to `UiDialogCoordinator.RunWithProgressAsync`.
 - Unit 4 removed `ProgressDialog.Current` from production code. Remaining `ProgressDialog.Execute` calls are inside the coordinator / display component bridge.
 - Unit 5 moved direct code-behind open / save / folder pickers to `UiDialogCoordinator` and made `CommonOpenFileDialogInteractionMessageAction` a coordinator-backed bridge. Remaining picker display component calls are inside the coordinator / picker utility boundary.
+- Unit 6 first overlay pass moved MainWindow-embedded overlay open / close visibility changes to `ShowOverlayDialog` / `HideOverlayDialog` and removed the `InitialSetupLanguageDialog` parent panel walk. Route counts are unchanged because this pass does not remove legacy message / picker route classes yet.
 
 ## Legacy Source Files
 

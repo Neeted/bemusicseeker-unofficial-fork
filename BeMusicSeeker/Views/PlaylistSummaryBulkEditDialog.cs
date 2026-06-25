@@ -14,13 +14,19 @@ public partial class PlaylistSummaryBulkEditDialog : UserControl
         InitializeComponent();
     }
 
+    private MainWindow GetDialogHost()
+    {
+        return Window.GetWindow(this) as MainWindow
+            ?? throw new InvalidOperationException("Playlist summary bulk edit dialog is not hosted by MainWindow.");
+    }
+
     private void CloseDialog(object sender, RoutedEventArgs e)
     {
         if (base.DataContext is MainWindowViewModel mainWindowViewModel)
         {
             mainWindowViewModel.playlistSummaryBulkEditDialog = null;
         }
-        playlistSummaryBulkEditDialog.Visibility = Visibility.Hidden;
+        GetDialogHost().HideOverlayDialog(playlistSummaryBulkEditDialog);
     }
 
     private async void ApplyCustomFolderOutput(object sender, RoutedEventArgs e)

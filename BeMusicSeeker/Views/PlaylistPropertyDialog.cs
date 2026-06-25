@@ -21,6 +21,12 @@ public partial class PlaylistPropertyDialog : UserControl, IComponentConnector
         InitializeComponent();
     }
 
+    private MainWindow GetDialogHost()
+    {
+        return Window.GetWindow(this) as MainWindow
+            ?? throw new InvalidOperationException("Playlist property dialog is not hosted by MainWindow.");
+    }
+
     private void CancelAndClose(object sender, RoutedEventArgs e)
     {
         if (base.DataContext is MainWindowViewModel { playlistPropertyDialog: { } playlistPropertyDialogViewModel })
@@ -28,7 +34,7 @@ public partial class PlaylistPropertyDialog : UserControl, IComponentConnector
             if (playlistPropertyDialogViewModel.ResetProperties())
             {
                 playlistPropertyDialogViewModel.Dispose();
-                playlistPropertyDialog.Visibility = Visibility.Hidden;
+                GetDialogHost().HideOverlayDialog(playlistPropertyDialog);
             }
             else
             {
@@ -44,7 +50,7 @@ public partial class PlaylistPropertyDialog : UserControl, IComponentConnector
             if (playlistPropertyDialogViewModel.SaveProperties())
             {
                 playlistPropertyDialogViewModel.Dispose();
-                playlistPropertyDialog.Visibility = Visibility.Hidden;
+                GetDialogHost().HideOverlayDialog(playlistPropertyDialog);
                 await playlistPropertyDialogViewModel.ApplyPostSaveUpdatesAsync();
             }
             else

@@ -39,6 +39,16 @@ public partial class SettingDialog : UserControl, IComponentConnector
         throw new InvalidOperationException(routeName + " failed: " + status, exception);
     }
 
+    private void HideThisOverlay()
+    {
+        if (Window.GetWindow(this) is not MainWindow mainWindow)
+        {
+            throw new InvalidOperationException("Setting dialog is not hosted by MainWindow.");
+        }
+
+        mainWindow.HideOverlayDialog(this);
+    }
+
     /// <summary>
     /// 設定ダイアログを初期化し、表示時に必要な遅延更新を登録します。
     /// </summary>
@@ -67,7 +77,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
                 settingDialogViewModel.ResetSettings();
                 SyncAppearanceThemeSelection(settingDialogViewModel);
             }
-            settingDialog.Visibility = Visibility.Hidden;
+            HideThisOverlay();
             if (restartMode.HasFlag(MainWindowViewModel.SettingDialogViewModel.RestartMode.All))
             {
                 mainWindowViewModel.Initialize();
@@ -138,7 +148,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
             if (ShouldCloseSettingsWithoutSave(viewModel, settingDialogViewModel))
             {
                 outcome = "no_changes";
-                settingDialog.Visibility = Visibility.Hidden;
+                HideThisOverlay();
                 return;
             }
             shouldInitializeAfterSave = !viewModel.HasActiveLibraryProfile;
@@ -168,7 +178,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
                 {
                     await settingDialogViewModel.SaveSettingsForInitialInitialize();
                     saveMs = saveStopwatch.ElapsedMilliseconds;
-                    settingDialog.Visibility = Visibility.Hidden;
+                    HideThisOverlay();
                     if (((App)Application.Current).firstStartup)
                     {
                         totalStopwatch.Stop();
@@ -199,7 +209,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
                     {
                         viewModel.ReloadFileDiff();
                     }
-                    settingDialog.Visibility = Visibility.Hidden;
+                    HideThisOverlay();
                     outcome = "saved";
                 }
             }
@@ -269,7 +279,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
         {
             return;
         }
-        settingDialog.Visibility = Visibility.Hidden;
+        HideThisOverlay();
         await Dispatcher.Yield(DispatcherPriority.Background);
         try
         {

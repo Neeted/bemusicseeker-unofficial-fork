@@ -183,6 +183,33 @@ public sealed class DialogRouteConsolidationTests
         StringAssert.Contains(coordinatorCode, "UiDialogStatus.OwnerUnavailable");
     }
 
+    [TestMethod]
+    public void OverlayDialogs_AreShownThroughMainWindowHost()
+    {
+        string root = FindRepositoryRoot();
+        string mainWindowCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow.cs"));
+        string mainWindowXaml = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow.xaml"));
+        string initialSetupCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "InitialSetupLanguageDialog.xaml.cs"));
+        string settingDialogCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingDialog.cs"));
+        string loadPlaylistCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "LoadPlaylistURIDialog.cs"));
+        string playlistPropertyCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "PlaylistPropertyDialog.cs"));
+        string playlistBulkEditCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "PlaylistSummaryBulkEditDialog.cs"));
+
+        StringAssert.Contains(mainWindowCode, "internal void ShowOverlayDialog(FrameworkElement dialog)");
+        StringAssert.Contains(mainWindowCode, "internal void HideOverlayDialog(FrameworkElement dialog)");
+        StringAssert.Contains(mainWindowCode, "ShowOverlayDialog(settingDialog)");
+        StringAssert.Contains(mainWindowCode, "ShowOverlayDialog(initialSetupLanguageDialog)");
+        StringAssert.Contains(mainWindowXaml, "MethodName=\"ShowSettingDialogOverlay\"");
+        StringAssert.Contains(mainWindowXaml, "MethodName=\"ShowInitialSetupLanguageDialogOverlay\"");
+        Assert.IsFalse(mainWindowXaml.Contains("PropertyName=\"Visibility\" Value=\"Visible\" TargetObject=\"{Binding ElementName=settingDialog"));
+        Assert.IsFalse(initialSetupCode.Contains("Parent is Panel"), "Initial setup must not find SettingDialog by walking the parent panel.");
+        StringAssert.Contains(initialSetupCode, "mainWindow.ShowSettingDialogOverlay();");
+        StringAssert.Contains(settingDialogCode, "HideThisOverlay()");
+        StringAssert.Contains(loadPlaylistCode, "HideOverlayDialog(this)");
+        StringAssert.Contains(playlistPropertyCode, "HideOverlayDialog(playlistPropertyDialog)");
+        StringAssert.Contains(playlistBulkEditCode, "HideOverlayDialog(playlistSummaryBulkEditDialog)");
+    }
+
     private static IReadOnlyList<string> ReadDocumentedLegacySourceFiles(string inventory)
     {
         string section = ExtractBetween(inventory, "## Legacy Source Files", "## Route Classification Axes");

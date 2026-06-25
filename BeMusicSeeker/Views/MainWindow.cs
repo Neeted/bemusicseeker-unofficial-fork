@@ -78,6 +78,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private Task shutdownPreparationTask;
 
+    private FrameworkElement activeOverlayDialog;
+
     private async Task RunProgressUntilTaskCompletesAsync(Task task, CancellationTokenSource cancellationTokenSource, string title, string label, Action<UiProgressContext> reportProgress)
     {
         UiProgressResult progressResult = await new UiDialogCoordinator().RunWithProgressAsync(
@@ -136,6 +138,53 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
 
         throw new InvalidOperationException(routeName + " failed: " + status, exception);
+    }
+
+    internal void ShowOverlayDialog(FrameworkElement dialog)
+    {
+        if (dialog == null)
+        {
+            throw new ArgumentNullException(nameof(dialog));
+        }
+        if (activeOverlayDialog != null
+            && !ReferenceEquals(activeOverlayDialog, dialog)
+            && activeOverlayDialog.Visibility == Visibility.Visible)
+        {
+            throw new InvalidOperationException("Another overlay dialog is already visible: " + activeOverlayDialog.GetType().Name);
+        }
+
+        activeOverlayDialog = dialog;
+        dialog.Visibility = Visibility.Visible;
+        dialog.Focus();
+    }
+
+    internal void HideOverlayDialog(FrameworkElement dialog)
+    {
+        if (dialog == null)
+        {
+            return;
+        }
+
+        dialog.Visibility = Visibility.Hidden;
+        if (ReferenceEquals(activeOverlayDialog, dialog))
+        {
+            activeOverlayDialog = null;
+        }
+    }
+
+    public void ShowSettingDialogOverlay()
+    {
+        ShowOverlayDialog(settingDialog);
+    }
+
+    public void ShowInitialSetupLanguageDialogOverlay()
+    {
+        ShowOverlayDialog(initialSetupLanguageDialog);
+    }
+
+    private void showSettingDialogButtonClick(object sender, RoutedEventArgs e)
+    {
+        ShowSettingDialogOverlay();
     }
 
     private ContextMenu _lastOpenedContextMenu;
@@ -3416,7 +3465,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 return;
             }
             mainWindowViewModel.playlistSummaryBulkEditDialog = new MainWindowViewModel.PlaylistSummaryBulkEditDialogViewModel(mainWindowViewModel, selectedPlaylistSummaryRows);
-            playlistSummaryBulkEditDialog.Visibility = Visibility.Visible;
+            ShowOverlayDialog(playlistSummaryBulkEditDialog);
         }
     }
 
@@ -3434,7 +3483,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 return;
             }
             mainWindowViewModel.playlistPropertyDialog = new MainWindowViewModel.PlaylistPropertyDialogViewModel(mainWindowViewModel, playlistSummaryRow.TableRef);
-            playlistPropertyDialog.Visibility = Visibility.Visible;
+            ShowOverlayDialog(playlistPropertyDialog);
         }
     }
 
@@ -3806,7 +3855,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                     return;
                 }
                 viewModel.playlistPropertyDialog = new MainWindowViewModel.PlaylistPropertyDialogViewModel(viewModel, bMSTable, _isForNewTable: true);
-                playlistPropertyDialog.Visibility = Visibility.Visible;
+                ShowOverlayDialog(playlistPropertyDialog);
             }
         }
         catch
@@ -3822,7 +3871,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     {
         if (base.DataContext is MainWindowViewModel { IsWriteLockHeldBMSTablesInitializeMin: false })
         {
-            loadPlaylistURIDialog.Visibility = Visibility.Visible;
+            ShowOverlayDialog(loadPlaylistURIDialog);
         }
     }
 
@@ -4182,7 +4231,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 return;
             }
             mainWindowViewModel.playlistPropertyDialog = new MainWindowViewModel.PlaylistPropertyDialogViewModel(mainWindowViewModel, table);
-            playlistPropertyDialog.Visibility = Visibility.Visible;
+            ShowOverlayDialog(playlistPropertyDialog);
         }
     }
 
@@ -9241,8 +9290,16 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void dialogIsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
     {
+        if (sender is FrameworkElement overlayDialog && (bool)e.NewValue)
+        {
+            activeOverlayDialog = overlayDialog;
+        }
         if (!(bool)e.NewValue && (bool)e.OldValue)
         {
+            if (ReferenceEquals(activeOverlayDialog, sender))
+            {
+                activeOverlayDialog = null;
+            }
             switch (NowPanelState)
             {
                 case MainWindowViewModel.PanelState.BMS_PLAYER:

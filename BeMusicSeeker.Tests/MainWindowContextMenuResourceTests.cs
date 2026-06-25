@@ -824,7 +824,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(saveAndClose, "MainWindowViewModel.SettingDialogViewModel.RestartMode.None");
         StringAssert.Contains(saveAndClose, "if (shouldInitializeAfterSave)");
         StringAssert.Contains(saveAndClose, "SaveSettingsForInitialInitialize()");
-        StringAssert.Contains(saveAndClose, "settingDialog.Visibility = Visibility.Hidden;");
+        StringAssert.Contains(saveAndClose, "HideThisOverlay();");
         StringAssert.Contains(saveAndClose, "Msg_initsetting_completed");
         Assert.IsTrue(saveAndClose.IndexOf("Msg_initsetting_completed", StringComparison.Ordinal) < saveAndClose.IndexOf("viewModel.Initialize();", StringComparison.Ordinal));
         StringAssert.Contains(saveAndClose, "settingDialogViewModel.CheckValidation(out errMsg)");
@@ -868,14 +868,15 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsTrue(validationFailure.IndexOf("InitialSetupLanguageDialog", StringComparison.Ordinal) < validationFailure.IndexOf("Msg_init_settings_check", StringComparison.Ordinal));
 
         StringAssert.Contains(mainWindow, "MessageKey=\"InitialSetupLanguageDialog\"");
-        StringAssert.Contains(mainWindow, "TargetObject=\"{Binding ElementName=initialSetupLanguageDialog, Mode=OneWay}\"");
+        StringAssert.Contains(mainWindow, "MethodName=\"ShowInitialSetupLanguageDialogOverlay\"");
         StringAssert.Contains(mainWindow, "<v:InitialSetupLanguageDialog x:Name=\"initialSetupLanguageDialog\"");
         StringAssert.Contains(initialDialog, "ItemsSource=\"{Binding settingDialog.Languages, Mode=OneWay}\"");
         StringAssert.Contains(initialDialog, "SelectedItem=\"{Binding Path=settingDialog.Language}\"");
         StringAssert.Contains(initialDialog, "Resources.Msg_init_settings");
         StringAssert.Contains(initialDialog, "Resources.InitialSetupLanguageDialogTitle");
         StringAssert.Contains(initialDialog, "Resources.InitialSetupLanguageDialogContinue");
-        StringAssert.Contains(initialDialogCode, "settingDialog.Visibility = Visibility.Visible;");
+        StringAssert.Contains(initialDialogCode, "mainWindow.HideOverlayDialog(this);");
+        StringAssert.Contains(initialDialogCode, "mainWindow.ShowSettingDialogOverlay();");
     }
 
     [TestMethod]
@@ -1242,7 +1243,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(settingDialogXaml, "IsEnabled=\"{Binding CanRequestLr2SongDbSyncDataResync, Mode=OneWay}\"");
         StringAssert.Contains(manualResyncClickHandler, "if (!viewModel.CanRequestLr2SongDbSyncDataResync)");
         StringAssert.Contains(settingDialogCode, "await viewModel.RequestLr2SongDbSyncAsync(\"setting_dialog_manual_resync\", force: true);");
-        StringAssert.Contains(manualResyncClickHandler, "settingDialog.Visibility = Visibility.Hidden;");
+        StringAssert.Contains(manualResyncClickHandler, "HideThisOverlay();");
         StringAssert.Contains(manualResyncClickHandler, "await Dispatcher.Yield(DispatcherPriority.Background);");
         StringAssert.Contains(playlistCode, "RepairMissingCustomFolderOutputsAfterHydration(reason, verifyRootOutputDirectoryRows)");
         StringAssert.Contains(playlistCode, "Lr2FolderFileDbSyncResult syncResult = SyncCustomFolderRowsBatch(");

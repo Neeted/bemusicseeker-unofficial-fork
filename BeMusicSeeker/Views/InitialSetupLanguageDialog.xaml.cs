@@ -1,3 +1,4 @@
+using System;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Markup;
@@ -13,17 +14,12 @@ public partial class InitialSetupLanguageDialog : UserControl, IComponentConnect
 
     private void ContinueToSettings(object sender, RoutedEventArgs e)
     {
-        Visibility = Visibility.Hidden;
-        if (Parent is Panel panel)
+        if (Window.GetWindow(this) is not MainWindow mainWindow)
         {
-            foreach (UIElement child in panel.Children)
-            {
-                if (child is SettingDialog settingDialog)
-                {
-                    settingDialog.Visibility = Visibility.Visible;
-                    break;
-                }
-            }
+            throw new InvalidOperationException("Initial setup language dialog is not hosted by MainWindow.");
         }
+
+        mainWindow.HideOverlayDialog(this);
+        mainWindow.ShowSettingDialogOverlay();
     }
 }
