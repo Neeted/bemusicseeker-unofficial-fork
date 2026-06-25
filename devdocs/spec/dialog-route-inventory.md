@@ -47,7 +47,6 @@ When a new legacy route is added, the test should fail unless the route is inten
 | `BeMusicSeeker/App.cs` | emergency `System.Windows.MessageBox.Show` | Unit 7 |
 | `BeMusicSeeker/Models/BmsLibraryInternal/BmsLibraryDialogService.cs` | coordinator-backed legacy adapter bridge | Unit 3 |
 | `BeMusicSeeker/Models/Utils/DispatcherMessageBox.cs` | coordinator-backed legacy adapter | Unit 7 |
-| `BeMusicSeeker/Models/Utils/TaskEx.cs` | utility `DispatcherMessageBox` | Unit 3 |
 | `BeMusicSeeker/ViewModels/MainWindowViewModel.cs` | Livet confirmation / interaction dispatch | Unit 2, Unit 8 |
 | `BeMusicSeeker/ViewModels/temporarilyCopyFiles.cs` | ViewModel `DispatcherMessageBox` | Unit 2 |
 | `BeMusicSeeker/Views/CommonOpenFileDialogInteractionMessageAction.cs` | common picker action | Unit 5 |

@@ -21,8 +21,8 @@
 | Unit 0: Inventory Freeze | Completed | `devdocs/spec/dialog-route-inventory.md` を追加。legacy route source file を inventory と一致させる architecture guard を追加。 |
 | Unit 1: UiDialogCoordinator Skeleton | Completed | request / result / owner resolver / async message route skeleton を追加。`ThemedMessageBox` は close と button selection を区別できる表示部品に拡張。 |
 | Unit 2: Message / Confirmation Route Replacement | Completed | Legacy entrypoint `DispatcherMessageBox` と Livet `Themed*InteractionMessageAction` を coordinator-backed に置換済み。譜面ビューア登録確認、設定系、playlist sync、app schema、temporary install playback の decision confirmation は coordinator route へ置換済み。残る OK notification の Livet route は Unit 3 の model boundary / operation result 整理で扱う。 |
-| Unit 3: Model Dialog Boundary Replacement | In progress | `BmsLibraryDialogService` は `DispatcherMessageBox` 依存を外し、coordinator-backed legacy adapter bridge に集約済み。`Backup.SaveBackups` は warning / failure result 化し、UI await 後に coordinator route で flush する形へ移行済み。`BMSPlaylist` の recommended table / custom folder notification は `OperationNotificationScope` へ移し、UI operation 境界で coordinator route flush する形へ移行済み。`uBMplay` の起動失敗は Model 内 dialog ではなく caller 例外へ移行済み。`FastDirectoryEnumerator` のアクセス不可 directory skip は UI dialog 直呼びを廃止し、skip 事実を file logger に残す形へ移行済み。次は `TaskEx` の utility 直呼び整理へ進む。 |
-| Unit 4: Progress Dialog Replacement | Pending | progress worker 内 dialog を preflight / post-result に移し、`ProgressDialog.Current` を廃止する。 |
+| Unit 3: Model Dialog Boundary Replacement | Completed | `BmsLibraryDialogService` は `DispatcherMessageBox` 依存を外し、coordinator-backed legacy adapter bridge に集約済み。`Backup.SaveBackups` は warning / failure result 化し、UI await 後に coordinator route で flush する形へ移行済み。`BMSPlaylist` の recommended table / custom folder notification は `OperationNotificationScope` へ移し、UI operation 境界で coordinator route flush する形へ移行済み。`uBMplay` の起動失敗は Model 内 dialog ではなく caller 例外へ移行済み。`FastDirectoryEnumerator` のアクセス不可 directory skip は UI dialog 直呼びを廃止し、skip 事実を file logger に残す形へ移行済み。`TaskEx` は task fault 分類ログだけを担う utility に整理し、continuation 内 dialog と network report consent prompt を廃止済み。 |
+| Unit 4: Progress Dialog Replacement | In progress | progress worker 内 dialog を preflight / post-result に移し、`ProgressDialog.Current` を廃止する。Unit 3 完了時点で残る worker/modal 競合の中心は `MainWindow.cs` の `ProgressDialog.Execute` call site。 |
 | Unit 5: File Picker Route Replacement | Pending | picker request 型へ横断置換し、owner なし `ShowDialog()` を廃止する。 |
 | Unit 6: Overlay DialogHost | Pending | MainWindow overlay 表示を coordinator managed host に集約する。 |
 | Unit 7: DispatcherMessageBox Retirement | Pending | 通常 route から legacy adapter / standard MessageBox fallback を削除する。 |
@@ -83,6 +83,11 @@
 | Unit 3 FastDirectoryEnumerator skips | `dotnet format whitespace BeMusicSeeker.sln --verify-no-changes --no-restore --verbosity minimal` | Passed | no whitespace changes required. |
 | Unit 3 FastDirectoryEnumerator skips | `dotnet roslynator analyze BeMusicSeeker.sln --properties Configuration=Release --severity-level warning --verbosity minimal` | Passed | 0 diagnostics. |
 | Unit 3 FastDirectoryEnumerator skips | sub-agent static review | Passed | Final review returned重大な指摘なし. |
+| Unit 3 TaskEx fault logging | `dotnet build BeMusicSeeker.sln /p:Configuration=Release --no-restore` | Passed | 0 warnings, 0 errors. |
+| Unit 3 TaskEx fault logging | `dotnet test BeMusicSeeker.Tests\BeMusicSeeker.Tests.csproj --filter "DialogRouteConsolidationTests" /p:Configuration=Release --no-restore` | Passed | 6 tests passed. |
+| Unit 3 TaskEx fault logging | `dotnet format whitespace BeMusicSeeker.sln --verify-no-changes --no-restore --verbosity minimal` | Passed | no whitespace changes required. |
+| Unit 3 TaskEx fault logging | `dotnet roslynator analyze BeMusicSeeker.sln --properties Configuration=Release --severity-level warning --verbosity minimal` | Passed | 0 diagnostics. |
+| Unit 3 TaskEx fault logging | sub-agent static review | Passed | Final review returned重大な指摘なし. |
 
 ## Goals
 
