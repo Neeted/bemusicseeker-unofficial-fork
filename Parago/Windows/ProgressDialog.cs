@@ -161,6 +161,11 @@ public partial class ProgressDialog : Window, IComponentConnector
         return ExecuteInternal(owner, title, label, operation, settings);
     }
 
+    internal static ProgressDialogResult Execute(Window owner, string title, string label, Action<ProgressDialogContext> operation, ProgressDialogSettings settings, Func<Window, IDisposable> modalScopeFactory)
+    {
+        return ExecuteInternal(owner, title, label, operation, settings, modalScopeFactory);
+    }
+
     internal static ProgressDialogResult Execute(Window owner, string title, string label, Func<object> operationWithResult)
     {
         return ExecuteInternal(owner, title, label, operationWithResult, null);
@@ -188,7 +193,7 @@ public partial class ProgressDialog : Window, IComponentConnector
         }
     }
 
-    internal static ProgressDialogResult ExecuteInternal(Window owner, string title, string label, object operation, ProgressDialogSettings settings)
+    internal static ProgressDialogResult ExecuteInternal(Window owner, string title, string label, object operation, ProgressDialogSettings settings, Func<Window, IDisposable> modalScopeFactory = null)
     {
         var progressDialog = new ProgressDialog(settings)
         {
@@ -202,6 +207,7 @@ public partial class ProgressDialog : Window, IComponentConnector
         {
             progressDialog.Label = label;
         }
+        using IDisposable modalScope = modalScopeFactory?.Invoke(progressDialog);
         return progressDialog.Execute(operation);
     }
 

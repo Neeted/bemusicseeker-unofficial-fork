@@ -198,7 +198,8 @@ internal sealed class UiDialogCoordinator : IUiDialogService
                 request.Title,
                 request.Label,
                 context => operation(new UiProgressContext(context)).GetAwaiter().GetResult(),
-                request.Settings);
+                request.Settings,
+                UiDialogOwnerResolver.PushActiveModal);
             if (result == null)
             {
                 return new UiProgressResult(UiDialogStatus.Failed, error: new InvalidOperationException("Progress dialog route returned no result."));

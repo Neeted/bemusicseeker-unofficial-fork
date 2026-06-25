@@ -141,12 +141,22 @@ public sealed class DialogRouteConsolidationTests
         string root = FindRepositoryRoot();
         string mainWindowCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow.cs"));
         string progressDialogCode = File.ReadAllText(Path.Combine(root, "Parago", "Windows", "ProgressDialog.cs"));
+        string ownerResolverCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "Dialogs", "UiDialogOwnerResolver.cs"));
+        string coordinatorCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "Dialogs", "UiDialogCoordinator.cs"));
 
         Assert.IsFalse(mainWindowCode.Contains("ProgressDialog.Execute("), "MainWindow progress operations must go through UiDialogCoordinator.");
         Assert.IsFalse(mainWindowCode.Contains("ProgressDialog.Current"), "MainWindow must not depend on static progress dialog state.");
         Assert.IsFalse(progressDialogCode.Contains("static ProgressDialogContext Current"), "ProgressDialog must pass operation context explicitly instead of exposing static state.");
         StringAssert.Contains(mainWindowCode, "RunProgressUntilTaskCompletesAsync(");
         StringAssert.Contains(mainWindowCode, "RunWithProgressAsync(");
+        StringAssert.Contains(coordinatorCode, "UiDialogOwnerResolver.PushActiveModal");
+        int activeModalOwnerIndex = ownerResolverCode.IndexOf("Window activeModalWindow = ResolveActiveModalWindow();", StringComparison.Ordinal);
+        int requestedOwnerIndex = ownerResolverCode.IndexOf("IsUsableOwner(requestedOwner)", StringComparison.Ordinal);
+        Assert.IsTrue(activeModalOwnerIndex >= 0, "Owner resolver must query coordinator-managed active modal owners.");
+        Assert.IsTrue(requestedOwnerIndex >= 0, "Owner resolver must keep requested owner handling after active modal resolution.");
+        Assert.IsTrue(
+            activeModalOwnerIndex < requestedOwnerIndex,
+            "Coordinator-managed active modal owner must take precedence over requested owners.");
     }
 
     private static IReadOnlyList<string> ReadDocumentedLegacySourceFiles(string inventory)

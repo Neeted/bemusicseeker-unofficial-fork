@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
 
@@ -9,6 +10,10 @@ namespace BeMusicSeeker.Views.Dialogs;
 /// </summary>
 internal sealed class UiDialogOwnerResolver
 {
+    private static readonly object activeModalLock = new();
+
+    private static readonly List<Window> activeModalWindows = [];
+
     private readonly Func<Application> getApplication;
 
     /// <summary>
@@ -29,12 +34,18 @@ internal sealed class UiDialogOwnerResolver
     }
 
     /// <summary>
-    /// 明示 owner、active window、main window の順で通常 dialog 用 owner を解決します。
+    /// coordinator 管理中 modal、明示 owner、active window、main window の順で通常 dialog 用 owner を解決します。
     /// </summary>
     /// <param name="requestedOwner">呼び出し側が明示した owner window。</param>
     /// <returns>通常 dialog に使う owner。利用できない場合は null。</returns>
     internal Window ResolveOwner(Window requestedOwner = null)
     {
+        Window activeModalWindow = ResolveActiveModalWindow();
+        if (activeModalWindow != null)
+        {
+            return activeModalWindow;
+        }
+
         if (IsUsableOwner(requestedOwner))
         {
             return requestedOwner;
@@ -57,6 +68,42 @@ internal sealed class UiDialogOwnerResolver
         return IsUsableOwner(application.MainWindow) ? application.MainWindow : null;
     }
 
+    internal static IDisposable PushActiveModal(Window modalWindow)
+    {
+        if (modalWindow == null)
+        {
+            throw new ArgumentNullException(nameof(modalWindow));
+        }
+
+        lock (activeModalLock)
+        {
+            activeModalWindows.Add(modalWindow);
+        }
+
+        return new ActiveModalRegistration(modalWindow);
+    }
+
+    private static Window ResolveActiveModalWindow()
+    {
+        lock (activeModalLock)
+        {
+            for (int i = activeModalWindows.Count - 1; i >= 0; i--)
+            {
+                Window window = activeModalWindows[i];
+                if (IsUsableOwner(window))
+                {
+                    return window;
+                }
+                if (window == null)
+                {
+                    activeModalWindows.RemoveAt(i);
+                }
+            }
+        }
+
+        return null;
+    }
+
     /// <summary>
     /// owner として使える表示中 window かどうかを判定します。
     /// </summary>
@@ -65,5 +112,30 @@ internal sealed class UiDialogOwnerResolver
     internal static bool IsUsableOwner(Window window)
     {
         return window != null && window.IsLoaded && window.Visibility == Visibility.Visible;
+    }
+
+    private sealed class ActiveModalRegistration : IDisposable
+    {
+        private Window modalWindow;
+
+        internal ActiveModalRegistration(Window modalWindow)
+        {
+            this.modalWindow = modalWindow;
+        }
+
+        public void Dispose()
+        {
+            Window window = modalWindow;
+            modalWindow = null;
+            if (window == null)
+            {
+                return;
+            }
+
+            lock (activeModalLock)
+            {
+                activeModalWindows.Remove(window);
+            }
+        }
     }
 }
