@@ -162,7 +162,7 @@ public sealed class ExplorerOpenServiceTests
     }
 
     [TestMethod]
-    public void OpenDirectory_UsesShellApiForExistingDirectory()
+    public void OpenDirectory_UsesResolvedCandidateForExistingDirectory()
     {
         WithTemporaryDirectory(delegate (string tempDirectory)
         {
@@ -254,6 +254,17 @@ public sealed class ExplorerOpenServiceTests
         Assert.IsFalse(mainWindow.Contains("Process.Start(\"EXPLORER.EXE\""));
         StringAssert.Contains(mainWindow, "ExplorerOpenService.OpenFileAndSelect");
         StringAssert.Contains(mainWindow, "ExplorerOpenService.OpenDirectory");
+    }
+
+    [TestMethod]
+    public void ShellDirectoryOpenDoesNotUseSelectionApi()
+    {
+        string root = FindRepositoryRoot();
+        string source = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "Utils", "ExplorerOpenService.cs"));
+
+        Assert.IsFalse(source.Contains("SHOpenFolderAndSelectItems(directoryPidl"));
+        StringAssert.Contains(source, "SHOpenFolderAndSelectItems(parentPidl");
+        StringAssert.Contains(source, "Process.Start(\"EXPLORER.EXE\", \"\\\"\" + directoryPath + \"\\\"\")");
     }
 
     private static void WithTemporaryDirectory(Action<string> action)

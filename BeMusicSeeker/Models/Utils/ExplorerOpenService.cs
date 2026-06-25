@@ -341,16 +341,7 @@ internal static class ExplorerOpenService
 
         public bool TryOpenDirectory(string directoryPath, out string failureReason)
         {
-            failureReason = string.Empty;
-            try
-            {
-                return ShellApi.TryOpenDirectory(directoryPath, out failureReason);
-            }
-            catch (Exception ex)
-            {
-                failureReason = "exception:" + ex.GetType().Name + ":" + ex.Message;
-                return false;
-            }
+            return TryOpenDirectoryWithExplorer(directoryPath, out failureReason);
         }
 
         public bool TryOpenDirectoryWithExplorer(string directoryPath, out string failureReason)
@@ -447,35 +438,6 @@ internal static class ExplorerOpenService
                 if (absolutePidl != IntPtr.Zero)
                 {
                     ILFree(absolutePidl);
-                }
-            }
-        }
-
-        internal static bool TryOpenDirectory(string directoryPath, out string failureReason)
-        {
-            failureReason = string.Empty;
-            IntPtr directoryPidl = IntPtr.Zero;
-            try
-            {
-                int parseResult = SHParseDisplayName(directoryPath, IntPtr.Zero, out directoryPidl, 0, out _);
-                if (parseResult != S_OK || directoryPidl == IntPtr.Zero)
-                {
-                    failureReason = "directory_parse_failed_hresult=0x" + parseResult.ToString("X8");
-                    return false;
-                }
-                int openResult = SHOpenFolderAndSelectItems(directoryPidl, 0, IntPtr.Zero, 0);
-                if (openResult == S_OK)
-                {
-                    return true;
-                }
-                failureReason = "directory_open_failed_hresult=0x" + openResult.ToString("X8");
-                return false;
-            }
-            finally
-            {
-                if (directoryPidl != IntPtr.Zero)
-                {
-                    ILFree(directoryPidl);
                 }
             }
         }
