@@ -4,7 +4,6 @@ using System.Windows;
 using System.Windows.Controls;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.ViewModels;
-using Livet.Messaging;
 
 namespace BeMusicSeeker.Views;
 
@@ -124,13 +123,12 @@ public partial class PlaylistSummaryBulkEditDialog : UserControl
         string message = enabled
             ? "同期モードに設定するとローカルの変更が失われます。" + Environment.NewLine + "よろしいですか？"
             : "同期モードを解除するとリモートの変更が反映されなくなります。" + Environment.NewLine + "よろしいですか？";
-        var confirmationMessage = new ConfirmationMessage(
+        return DispatcherMessageBox.Show(
+            Window.GetWindow(this),
             message,
             "警告",
-            MessageBoxImage.Exclamation,
             MessageBoxButton.OKCancel,
-            "ConfirmationDialog");
-        mainWindowViewModel.RaiseInteractionMessageOnUiThread(confirmationMessage);
-        return confirmationMessage.Response == true;
+            MessageBoxImage.Exclamation,
+            MessageBoxResult.Cancel) == MessageBoxResult.OK;
     }
 }

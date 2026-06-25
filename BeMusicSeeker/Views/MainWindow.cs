@@ -3176,9 +3176,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        var confirmationMessage = new ConfirmationMessage((!flag) ? ("同期モードを解除するとリモートの変更が反映されなくなります。" + Environment.NewLine + "よろしいですか？") : ("同期モードに設定するとローカルの変更が失われます。" + Environment.NewLine + "よろしいですか？"), "警告", MessageBoxImage.Exclamation, MessageBoxButton.OKCancel, "ConfirmationDialog");
-        (base.DataContext as MainWindowViewModel)?.RaiseInteractionMessageOnUiThread(confirmationMessage);
-        if (!confirmationMessage.Response.HasValue || !confirmationMessage.Response.Value)
+        string confirmationText = (!flag)
+            ? "同期モードを解除するとリモートの変更が反映されなくなります。" + Environment.NewLine + "よろしいですか？"
+            : "同期モードに設定するとローカルの変更が失われます。" + Environment.NewLine + "よろしいですか？";
+        if (DispatcherMessageBox.Show(Window.GetWindow(this), confirmationText, "警告", MessageBoxButton.OKCancel, MessageBoxImage.Exclamation, MessageBoxResult.Cancel) != MessageBoxResult.OK)
         {
             checkBox.IsChecked = !flag;
             return;
@@ -3200,9 +3201,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        var confirmationMessage = new ConfirmationMessage((!flag) ? ("同期モードを解除するとリモートの変更が反映されなくなります。" + Environment.NewLine + "よろしいですか？") : ("同期モードに設定するとローカルの変更が失われます。" + Environment.NewLine + "よろしいですか？"), "警告", MessageBoxImage.Exclamation, MessageBoxButton.OKCancel, "ConfirmationDialog");
-        (base.DataContext as MainWindowViewModel)?.RaiseInteractionMessageOnUiThread(confirmationMessage);
-        if (!confirmationMessage.Response.HasValue || !confirmationMessage.Response.Value)
+        string confirmationText = (!flag)
+            ? "同期モードを解除するとリモートの変更が反映されなくなります。" + Environment.NewLine + "よろしいですか？"
+            : "同期モードに設定するとローカルの変更が失われます。" + Environment.NewLine + "よろしいですか？";
+        if (DispatcherMessageBox.Show(Window.GetWindow(this), confirmationText, "警告", MessageBoxButton.OKCancel, MessageBoxImage.Exclamation, MessageBoxResult.Cancel) != MessageBoxResult.OK)
         {
             customTablePlaylistSummary?.RefreshDisplay();
             return;

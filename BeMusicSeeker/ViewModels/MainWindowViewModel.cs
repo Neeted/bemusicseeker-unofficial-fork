@@ -4307,14 +4307,12 @@ public class MainWindowViewModel : ViewModel
             int referenceCount = CountPlaylistCustomFolderOutputBaseReferences(baseName);
             if (referenceCount > 0)
             {
-                var confirmationMessage = new ConfirmationMessage(
+                if (!MainWindowViewModel.ShowUiConfirmation(
                     FormatResource(BeMusicSeeker.Properties.Resources.Confirm_RemoveAdditionalOutputBaseReferencedFormat, referenceCount),
                     BeMusicSeeker.Properties.Resources.Confirm,
                     MessageBoxImage.Exclamation,
                     MessageBoxButton.OKCancel,
-                    "ConfirmationDialog");
-                ownerViewModel.RaiseInteractionMessageOnUiThread(confirmationMessage);
-                if (confirmationMessage.Response != true)
+                    "Additional output base removal confirmation"))
                 {
                     return;
                 }
@@ -7465,9 +7463,7 @@ public class MainWindowViewModel : ViewModel
                 }
                 if (!_is_external_sync && value)
                 {
-                    var confirmationMessage = new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Confirm_EnablePlaylistSyncModeLoseLocalChanges, BeMusicSeeker.Properties.Resources.Warning, MessageBoxImage.Exclamation, MessageBoxButton.OKCancel, "ConfirmationDialog");
-                    ownerViewModel.RaiseInteractionMessageOnUiThread(confirmationMessage);
-                    if (!confirmationMessage.Response.HasValue || !confirmationMessage.Response.Value)
+                    if (!MainWindowViewModel.ShowUiConfirmation(BeMusicSeeker.Properties.Resources.Confirm_EnablePlaylistSyncModeLoseLocalChanges, BeMusicSeeker.Properties.Resources.Warning, MessageBoxImage.Exclamation, MessageBoxButton.OKCancel, "Playlist sync enable confirmation"))
                     {
                         RaisePropertyChanged("is_external_sync");
                         return;
@@ -7475,9 +7471,7 @@ public class MainWindowViewModel : ViewModel
                 }
                 else if (_is_external_sync && !value)
                 {
-                    var confirmationMessage2 = new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Confirm_DisablePlaylistSyncModeRemoteChangesNotApplied, BeMusicSeeker.Properties.Resources.Warning, MessageBoxImage.Exclamation, MessageBoxButton.OKCancel, "ConfirmationDialog");
-                    ownerViewModel.RaiseInteractionMessageOnUiThread(confirmationMessage2);
-                    if (!confirmationMessage2.Response.HasValue || !confirmationMessage2.Response.Value)
+                    if (!MainWindowViewModel.ShowUiConfirmation(BeMusicSeeker.Properties.Resources.Confirm_DisablePlaylistSyncModeRemoteChangesNotApplied, BeMusicSeeker.Properties.Resources.Warning, MessageBoxImage.Exclamation, MessageBoxButton.OKCancel, "Playlist sync disable confirmation"))
                     {
                         RaisePropertyChanged("is_external_sync");
                         return;
@@ -19968,10 +19962,9 @@ public class MainWindowViewModel : ViewModel
         if (preflightResult.WarnRequired && !bmsonMigrationApprovedForSession)
         {
             LogInitStage("app_schema_preflight_prompt_show", "Initialize");
-            var confirmationMessage = new ConfirmationMessage(BuildAppSchemaRepairWarningMessage(preflightResult), BeMusicSeeker.Properties.Resources.AppSchemaRepairWarningTitle, MessageBoxImage.Exclamation, MessageBoxButton.OKCancel, "ConfirmationDialog");
-            RaiseInteractionMessageOnUiThread(confirmationMessage);
+            bool approved = ShowUiConfirmation(BuildAppSchemaRepairWarningMessage(preflightResult), BeMusicSeeker.Properties.Resources.AppSchemaRepairWarningTitle, MessageBoxImage.Exclamation, MessageBoxButton.OKCancel, "App schema repair startup confirmation");
             LogInitStage("app_schema_preflight_prompt_close", "Initialize");
-            if (confirmationMessage.Response != true)
+            if (!approved)
             {
                 System.Windows.Application.Current?.Shutdown();
                 return false;
@@ -20947,9 +20940,7 @@ public class MainWindowViewModel : ViewModel
             {
                 if (Settings.Default.UsePlayerLR2body && Settings.Default.OperationModeLR2DB)
                 {
-                    var confirmationMessage = new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Msg_warn_play_temp_install, BeMusicSeeker.Properties.Resources.Warning, MessageBoxImage.Exclamation, MessageBoxButton.YesNo, "ConfirmationDialog");
-                    RaiseInteractionMessageOnUiThread(confirmationMessage);
-                    if (confirmationMessage.Response == false)
+                    if (!ShowUiConfirmation(BeMusicSeeker.Properties.Resources.Msg_warn_play_temp_install, BeMusicSeeker.Properties.Resources.Warning, MessageBoxImage.Exclamation, MessageBoxButton.YesNo, "Temporary install playback confirmation"))
                     {
                         return;
                     }
@@ -26778,14 +26769,12 @@ public class MainWindowViewModel : ViewModel
             return;
         }
 
-        var confirmationMessage = new ConfirmationMessage(
+        if (!ShowUiConfirmation(
             BeMusicSeeker.Properties.Resources.Msg_confirm_lr2_song_db_sync_startup_scan_blocker_cleanup,
             BeMusicSeeker.Properties.Resources.Warning,
             MessageBoxImage.Exclamation,
             MessageBoxButton.OKCancel,
-            "ConfirmationDialog");
-        RaiseInteractionMessageOnUiThread(confirmationMessage);
-        if (confirmationMessage.Response != true)
+            "LR2 song DB sync startup blocker cleanup confirmation"))
         {
             return;
         }

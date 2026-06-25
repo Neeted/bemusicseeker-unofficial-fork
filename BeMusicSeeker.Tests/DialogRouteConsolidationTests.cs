@@ -95,6 +95,21 @@ public sealed class DialogRouteConsolidationTests
             "Score Viewer upload must happen only after confirmation has completed.");
     }
 
+    [TestMethod]
+    public void DecisionConfirmations_DoNotDependOnLivetConfirmationResponse()
+    {
+        string root = FindRepositoryRoot();
+        string combinedCode = string.Concat(
+            File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs")),
+            File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow.cs")),
+            File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "PlaylistSummaryBulkEditDialog.cs")));
+
+        Assert.IsFalse(combinedCode.Contains("confirmationMessage.Response"), "Decision confirmations must use UiDialogCoordinator results instead of Livet ConfirmationMessage.Response.");
+        Assert.IsFalse(combinedCode.Contains("confirmationMessage2.Response"), "Decision confirmations must not keep secondary Livet response checks.");
+        StringAssert.Contains(combinedCode, "ShowUiConfirmation(");
+        StringAssert.Contains(combinedCode, "DispatcherMessageBox.Show(");
+    }
+
     private static IReadOnlyList<string> ReadDocumentedLegacySourceFiles(string inventory)
     {
         string section = ExtractBetween(inventory, "## Legacy Source Files", "## Route Classification Axes");

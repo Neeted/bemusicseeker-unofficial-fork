@@ -936,7 +936,7 @@ public sealed class MainWindowContextMenuResourceTests
             gatewayCode,
             "internal static void RepairAppOwnedSchema(LR2SongDBExtended songDb)",
             "internal static void EnsureAppOwnedSchema(LR2SongDBExtended songDb)");
-        StringAssert.Contains(appSchemaStartupPreflight, "RaiseInteractionMessageOnUiThread(confirmationMessage);");
+        StringAssert.Contains(appSchemaStartupPreflight, "ShowUiConfirmation(BuildAppSchemaRepairWarningMessage(preflightResult)");
         StringAssert.Contains(appSchemaStartupPreflight, "await Task.Run(delegate");
         StringAssert.Contains(appSchemaStartupPreflight, "ApplyAppSchemaRepairForStartupOrThrow(appSchemaPreflightService, preflightResult);");
         Assert.IsFalse(repairAppOwnedSchema.Contains("RepairChartDigestMapConsistency"));
