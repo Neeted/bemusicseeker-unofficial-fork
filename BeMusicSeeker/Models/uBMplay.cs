@@ -8,7 +8,6 @@ using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
-using System.Windows;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using Livet;
@@ -388,10 +387,19 @@ public class uBMplay : NotificationObject, IBMSPlayer, INotifyPropertyChanged
         lock (lockThis)
         {
             iniFile = new temporarilyRewriteSettings(iniFilePath);
-            createProcess(bmsFilePath, onExitEventHandler);
+            bool startedNewProcess = createProcess(bmsFilePath, onExitEventHandler);
+            if (startedNewProcess && (uBMplayProcess == null || uBMplayProcess.HasExited || !Win32API.IsWindow(uBMplayHandleShowing)))
+            {
+                ThrowStartupFailed();
+            }
             waitForLoading(bmsFilePath);
             setParent();
         }
+    }
+
+    private static void ThrowStartupFailed()
+    {
+        throw new InvalidOperationException("uBMplayを起動できませんでした。" + Environment.NewLine + "uBMplayが正常に動作するか確認してください。");
     }
 
     private bool createProcess(string bmsFilePath, Action<object, EventArgs> onExitEventHandler = null)
@@ -497,15 +505,19 @@ public class uBMplay : NotificationObject, IBMSPlayer, INotifyPropertyChanged
 
     private void waitForLoading(string bmsFilePath)
     {
+        if (uBMplayProcess == null || uBMplayProcess.HasExited)
+        {
+            ThrowStartupFailed();
+        }
         var stringBuilder = new StringBuilder(4096);
         var regex = new Regex(Regex.Escape(bmsFilePath));
+        bool loaded = false;
         while (!uBMplayProcess.HasExited)
         {
             if (!Win32API.IsWindow(uBMplayHandleShowing))
             {
                 CloseProcess();
-                DispatcherMessageBox.Show("uBMplayを起動できませんでした。" + Environment.NewLine + "uBMplayが正常に動作するか確認してください。", "エラー", MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
-                return;
+                ThrowStartupFailed();
             }
             Win32API.GetWindowText(uBMplayHandleShowing, stringBuilder, stringBuilder.Capacity);
             if (!IS_WIN8OR10)
@@ -528,8 +540,13 @@ public class uBMplay : NotificationObject, IBMSPlayer, INotifyPropertyChanged
             }
             if (regex.IsMatch(stringBuilder.ToString()))
             {
+                loaded = true;
                 break;
             }
+        }
+        if (!loaded)
+        {
+            ThrowStartupFailed();
         }
         if (IS_WIN8OR10)
         {
