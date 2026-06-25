@@ -66,14 +66,14 @@ public sealed class DialogRouteConsolidationTests
     public void LegacyDialogEntryPoints_AreCoordinatorBackedAndDoNotUseStandardFallback()
     {
         string root = FindRepositoryRoot();
-        string dispatcherMessageBox = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "Utils", "DispatcherMessageBox.cs"));
         string bmsLibraryDialogService = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BmsLibraryInternal", "BmsLibraryDialogService.cs"));
         string mainWindowXaml = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow.xaml"));
 
-        StringAssert.Contains(dispatcherMessageBox, "UiDialogLegacyAdapter.ShowMessageBox");
-        Assert.IsFalse(dispatcherMessageBox.Contains("MessageBox.Show("), "DispatcherMessageBox must not fall back to the standard WPF MessageBox route.");
-        StringAssert.Contains(bmsLibraryDialogService, "UiDialogLegacyAdapter.ShowMessageBox");
+        Assert.IsFalse(File.Exists(Path.Combine(root, "BeMusicSeeker", "Models", "Utils", "DispatcherMessageBox.cs")), "DispatcherMessageBox should be removed after production call sites move to coordinator-backed routes.");
+        Assert.IsFalse(File.Exists(Path.Combine(root, "BeMusicSeeker", "Views", "Dialogs", "UiDialogLegacyAdapter.cs")), "UiDialogLegacyAdapter should be removed after legacy entrypoints are retired.");
+        StringAssert.Contains(bmsLibraryDialogService, "UiDialogCoordinator");
         Assert.IsFalse(bmsLibraryDialogService.Contains("DispatcherMessageBox"), "BmsLibraryDialogService must not route model dialogs through DispatcherMessageBox.");
+        Assert.IsFalse(bmsLibraryDialogService.Contains("UiDialogLegacyAdapter"), "BmsLibraryDialogService must not route through the retired legacy adapter.");
         Assert.IsFalse(File.Exists(Path.Combine(root, "BeMusicSeeker", "Views", "ThemedDialogInteractionMessageActions.cs")), "Livet message box actions should be removed after notification routes move to the coordinator.");
         Assert.IsFalse(mainWindowXaml.Contains("MessageKey=\"InformationDialog\""), "MainWindow must not keep unused Livet information dialog triggers.");
         Assert.IsFalse(mainWindowXaml.Contains("MessageKey=\"ConfirmationDialog\""), "MainWindow must not keep unused Livet confirmation dialog triggers.");

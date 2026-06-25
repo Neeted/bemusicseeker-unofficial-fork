@@ -20,9 +20,9 @@ These counts are refreshed as implementation units complete. They should monoton
 | Pattern | Count | Route |
 | --- | ---: | --- |
 | `DispatcherMessageBox.Show` | 0 | legacy message / confirmation |
-| `internal static class DispatcherMessageBox` | 1 | legacy adapter entry point |
-| `internal static class UiDialogLegacyAdapter` | 1 | legacy adapter bridge |
-| `UiDialogLegacyAdapter.ShowMessageBox` | 2 | legacy adapter bridge |
+| `internal static class DispatcherMessageBox` | 0 | legacy adapter entry point |
+| `internal static class UiDialogLegacyAdapter` | 0 | legacy adapter bridge |
+| `UiDialogLegacyAdapter.ShowMessageBox` | 0 | legacy adapter bridge |
 | `System.Windows.MessageBox.Show` | 4 | emergency route candidate |
 | `MessageBox.Show(` | 4 | legacy + emergency aggregate |
 | `new ConfirmationMessage` | 0 | Livet confirmation |
@@ -47,6 +47,7 @@ Current progress notes:
 - Unit 7 view code-behind pass moved `DispatcherMessageBox.Show` calls in `BeMusicSeeker/Views/**/*.cs` to `UiDialogRoute.ShowMessageBox`, a coordinator-backed synchronous helper that does not hide display failures.
 - Unit 7 ViewModel pass removed the remaining production `DispatcherMessageBox.Show` call sites. `MainWindowViewModel` now uses coordinator-backed `ShowUiMessage` / `ShowUiConfirmation`; `temporarilyCopyFiles` uses `UiDialogRoute` for normal dispose notifications and logs finalizer cleanup failures without trying to display UI from the finalizer.
 - Unit 7 notification pass moved the remaining OK `ConfirmationMessage` notifications in `MainWindowViewModel` to `ShowUiMessage` and removed the unused Livet information / confirmation dialog actions from `MainWindow.xaml`.
+- Unit 7 legacy adapter pass removed `DispatcherMessageBox` and `UiDialogLegacyAdapter`. `BmsLibraryDialogService` now calls `UiDialogCoordinator` directly while the remaining model dialog boundary is handled separately from legacy adapter retirement.
 
 ## Legacy Source Files
 
@@ -57,13 +58,10 @@ When a new legacy route is added, the test should fail unless the route is inten
 | File | Primary routes | Migration unit |
 | --- | --- | --- |
 | `BeMusicSeeker/App.cs` | emergency `System.Windows.MessageBox.Show` | Unit 7 |
-| `BeMusicSeeker/Models/BmsLibraryInternal/BmsLibraryDialogService.cs` | coordinator-backed legacy adapter bridge | Unit 3 |
-| `BeMusicSeeker/Models/Utils/DispatcherMessageBox.cs` | coordinator-backed legacy adapter | Unit 7 |
 | `BeMusicSeeker/ViewModels/MainWindowViewModel.cs` | Livet interaction dispatch | Unit 6 |
 | `BeMusicSeeker/Views/ThemedMessageBox.cs` | message box display component | Unit 1, Unit 7 |
 | `BeMusicSeeker/Views/Dialogs/UiDialogCoordinator.cs` | progress / picker display component bridge | Unit 4, Unit 5 |
 | `BeMusicSeeker/Views/Dialogs/UiFilePickerUtilities.cs` | picker display component utility | Unit 5 |
-| `BeMusicSeeker/Views/Dialogs/UiDialogLegacyAdapter.cs` | coordinator-backed legacy adapter bridge | Unit 7 |
 
 ## Route Classification Axes
 
@@ -84,4 +82,4 @@ Each call site should be classified before replacement.
 - `MainWindow.cs` initially mixed owner-aware message boxes, ownerless picker calls, direct window modals, and all `ProgressDialog.Execute` calls. Unit 4 moved the progress call sites to `UiDialogCoordinator.RunWithProgressAsync`; Unit 5 and Unit 6 still need picker and overlay cleanup.
 - `BMSLibrary.cs` uses `ShowOperationDialog` heavily, even though it does not appear in the source-file allow list above because the direct legacy API is behind model service methods. Unit 3 must treat it as a separate operation-notification inventory.
 - `SettingDialog.cs` contains owner-aware notifications and ownerless `OpenFileDialog` / `SaveFileDialog` calls while an overlay dialog is active. It should move with picker and overlay units, not as one-off message fixes.
-- `DispatcherMessageBox.cs` and `UiDialogLegacyAdapter.cs` are transitional entry points only. They should not gain new call sites.
+- `DispatcherMessageBox.cs` and `UiDialogLegacyAdapter.cs` were removed in Unit 7. They should not gain new call sites.
