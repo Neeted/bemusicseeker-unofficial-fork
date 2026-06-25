@@ -80,6 +80,20 @@ public sealed class DialogRouteConsolidationTests
     }
 
     [TestMethod]
+    public void BmsPlaylist_DoesNotShowModelDialogsDirectly()
+    {
+        string root = FindRepositoryRoot();
+        string playlistCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BMSPlaylist.cs"));
+        string viewModelCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+
+        Assert.IsFalse(playlistCode.Contains("DispatcherMessageBox.Show("), "BMSPlaylist must return operation notifications instead of showing message boxes from the model layer.");
+        StringAssert.Contains(playlistCode, "OperationNotificationScope");
+        StringAssert.Contains(playlistCode, "QueueOperationNotification");
+        StringAssert.Contains(viewModelCode, "FlushPlaylistOperationNotifications(");
+        StringAssert.Contains(viewModelCode, "BMSPlaylist.BeginOperationNotificationScope()");
+    }
+
+    [TestMethod]
     public void ScoreViewerRegistration_UsesCoordinatorForConfirmationRoute()
     {
         string root = FindRepositoryRoot();

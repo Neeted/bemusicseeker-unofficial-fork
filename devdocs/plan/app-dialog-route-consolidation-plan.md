@@ -21,7 +21,7 @@
 | Unit 0: Inventory Freeze | Completed | `devdocs/spec/dialog-route-inventory.md` を追加。legacy route source file を inventory と一致させる architecture guard を追加。 |
 | Unit 1: UiDialogCoordinator Skeleton | Completed | request / result / owner resolver / async message route skeleton を追加。`ThemedMessageBox` は close と button selection を区別できる表示部品に拡張。 |
 | Unit 2: Message / Confirmation Route Replacement | Completed | Legacy entrypoint `DispatcherMessageBox` と Livet `Themed*InteractionMessageAction` を coordinator-backed に置換済み。譜面ビューア登録確認、設定系、playlist sync、app schema、temporary install playback の decision confirmation は coordinator route へ置換済み。残る OK notification の Livet route は Unit 3 の model boundary / operation result 整理で扱う。 |
-| Unit 3: Model Dialog Boundary Replacement | In progress | `BmsLibraryDialogService` は `DispatcherMessageBox` 依存を外し、coordinator-backed legacy adapter bridge に集約済み。`Backup.SaveBackups` は warning / failure result 化し、UI await 後に coordinator route で flush する形へ移行済み。次は BMSPlaylist custom folder 系の notification collection 化を行う。 |
+| Unit 3: Model Dialog Boundary Replacement | In progress | `BmsLibraryDialogService` は `DispatcherMessageBox` 依存を外し、coordinator-backed legacy adapter bridge に集約済み。`Backup.SaveBackups` は warning / failure result 化し、UI await 後に coordinator route で flush する形へ移行済み。`BMSPlaylist` の recommended table / custom folder notification は `OperationNotificationScope` へ移し、UI operation 境界で coordinator route flush する形へ移行済み。次は `uBMplay`、`FastDirectoryEnumerator`、`TaskEx` の utility 直呼び整理へ進む。 |
 | Unit 4: Progress Dialog Replacement | Pending | progress worker 内 dialog を preflight / post-result に移し、`ProgressDialog.Current` を廃止する。 |
 | Unit 5: File Picker Route Replacement | Pending | picker request 型へ横断置換し、owner なし `ShowDialog()` を廃止する。 |
 | Unit 6: Overlay DialogHost | Pending | MainWindow overlay 表示を coordinator managed host に集約する。 |
@@ -68,6 +68,11 @@
 | Unit 3 backup result | `dotnet format whitespace BeMusicSeeker.sln --verify-no-changes --no-restore --verbosity minimal` | Passed | no whitespace changes required. |
 | Unit 3 backup result | `dotnet roslynator analyze BeMusicSeeker.sln --properties Configuration=Release --severity-level warning --verbosity minimal` | Passed | 0 diagnostics. |
 | Unit 3 backup result | sub-agent static review | Passed | Initial Medium findings for Task fault leakage and warning loss were fixed. Final review returned重大な指摘なし. |
+| Unit 3 BMSPlaylist notifications | `dotnet build BeMusicSeeker.sln /p:Configuration=Release --no-restore` | Passed | 0 warnings, 0 errors. |
+| Unit 3 BMSPlaylist notifications | `dotnet test BeMusicSeeker.Tests\BeMusicSeeker.Tests.csproj --filter "DialogRouteConsolidationTests\|BmsPlaylistUpdateTests\|CustomFolderOutputBaseRegistryTests\|ExternalPlaylistImportQueueTests\|MainWindowContextMenuResourceTests" /p:Configuration=Release --no-restore` | Passed | 173 tests passed. |
+| Unit 3 BMSPlaylist notifications | `dotnet format whitespace BeMusicSeeker.sln --verify-no-changes --no-restore --verbosity minimal` | Passed | no whitespace changes required. |
+| Unit 3 BMSPlaylist notifications | `dotnet roslynator analyze BeMusicSeeker.sln --properties Configuration=Release --severity-level warning --verbosity minimal` | Passed | 0 diagnostics. |
+| Unit 3 BMSPlaylist notifications | sub-agent static review | Passed | Initial High/Medium findings for missing playlist-property scopes, import queue flush placement, and output-directory invalid notification were fixed. Final review returned重大な指摘なし. |
 
 ## Goals
 

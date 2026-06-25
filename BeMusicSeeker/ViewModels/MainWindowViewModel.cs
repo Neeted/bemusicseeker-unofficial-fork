@@ -5468,6 +5468,7 @@ public class MainWindowViewModel : ViewModel
                     CustomFolderOutputBaseSearchRootSyncPlan normalOutputBaseRootSyncPlan = default;
                     CustomFolderOutputBaseSearchRootSyncResult normalOutputBaseRootSyncResult = default;
                     bool rootOutputBaseRootSyncChanged = false;
+                    using BMSPlaylist.OperationNotificationScope notificationScope = BMSPlaylist.BeginOperationNotificationScope();
                     try
                     {
                         await Task.Run(delegate
@@ -5496,6 +5497,10 @@ public class MainWindowViewModel : ViewModel
                     {
                         NLogWrapper.FileLogger?.Error(ex, "necessaryStepsAfterSaved failed");
                         throw;
+                    }
+                    finally
+                    {
+                        FlushPlaylistOperationNotifications(notificationScope, "custom folder output base sync notification");
                     }
                     ApplyCustomFolderNormalOutputBaseSearchRootSyncResult(normalOutputBaseRootSyncResult);
                     if (rootOutputBaseRootSyncChanged)
@@ -7782,7 +7787,7 @@ public class MainWindowViewModel : ViewModel
 
         private void backupTableProperties()
         {
-            temp_output_dir_full_path = Settings.Default.OperationModeLR2DB ? BMSPlaylist.GetCustomFolderOutputDirectory(bmsTable) : null;
+            temp_output_dir_full_path = Settings.Default.OperationModeLR2DB ? MainWindowViewModel.ResolveCustomFolderOutputDirectoryWithNotification(bmsTable, "playlist property output directory notification") : null;
             temp_is_root_folder = bmsTable.is_root_folder;
             temp_is_external_sync = bmsTable.is_external_sync;
             temp_compat_prefix = bmsTable.compat_prefix;
@@ -7806,6 +7811,7 @@ public class MainWindowViewModel : ViewModel
 
         internal async Task ApplyPostSaveUpdatesAsync()
         {
+            using BMSPlaylist.OperationNotificationScope notificationScope = BMSPlaylist.BeginOperationNotificationScope();
             bool flag = !string.Equals(temp_name, bmsTable.name, StringComparison.Ordinal) || !string.Equals(temp_symbol, bmsTable.symbol, StringComparison.Ordinal);
             bool prefixChanged = !string.Equals(temp_compat_prefix, bmsTable.compat_prefix, StringComparison.Ordinal);
             bool outputBaseNameChanged = !string.Equals(
@@ -7873,6 +7879,7 @@ public class MainWindowViewModel : ViewModel
                             CurrentUri = uri
                         });
                         ownerViewModel.EndPlaylistSyncProgressOperation();
+                        MainWindowViewModel.FlushPlaylistOperationNotifications(notificationScope, "playlist property external sync notification");
                     }
                     ownerViewModel.RefreshPlaylistSummaryIfVisible("playlist_property_resync", invalidateTableCountCache: true);
                 }
@@ -7918,7 +7925,7 @@ public class MainWindowViewModel : ViewModel
             }
             if (Settings.Default.OperationModeLR2DB)
             {
-                string customFolderOutputDirectory = BMSPlaylist.GetCustomFolderOutputDirectory(bmsTable);
+                string customFolderOutputDirectory = MainWindowViewModel.ResolveCustomFolderOutputDirectoryWithNotification(bmsTable, "playlist property output directory notification");
                 bool customFolderOutputBaseDirectoryBeforeResolved = temp_is_root_folder;
                 string customFolderOutputBaseDirectoryBefore = temp_is_root_folder
                     ? Settings.Default.LR2CustomFolderOutputBaseDirRootType
@@ -7931,13 +7938,20 @@ public class MainWindowViewModel : ViewModel
                         Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs,
                         out customFolderOutputBaseDirectoryBefore);
                 }
-                ownerViewModel.tables.MigrateCustomFolderOutputDirectory(
-                    bmsTable,
-                    temp_output_dir_full_path,
-                    customFolderOutputDirectory,
-                    temp_is_root_folder,
-                    outputBaseDirBefore: customFolderOutputBaseDirectoryBeforeResolved ? customFolderOutputBaseDirectoryBefore : null,
-                    inferOutputBaseDirBeforeWhenMissing: customFolderOutputBaseDirectoryBeforeResolved);
+                try
+                {
+                    ownerViewModel.tables.MigrateCustomFolderOutputDirectory(
+                        bmsTable,
+                        temp_output_dir_full_path,
+                        customFolderOutputDirectory,
+                        temp_is_root_folder,
+                        outputBaseDirBefore: customFolderOutputBaseDirectoryBeforeResolved ? customFolderOutputBaseDirectoryBefore : null,
+                        inferOutputBaseDirBeforeWhenMissing: customFolderOutputBaseDirectoryBeforeResolved);
+                }
+                finally
+                {
+                    MainWindowViewModel.FlushPlaylistOperationNotifications(notificationScope, "playlist property custom folder notification");
+                }
                 List<string> bMSSearchDirectories = ownerViewModel.lr2config.GetBMSSearchDirectoriesForChangeTracking();
                 if (!temp_is_root_folder && bmsTable.is_root_folder)
                 {
@@ -13040,6 +13054,7 @@ public class MainWindowViewModel : ViewModel
                     requestVersion = deferredExternalSyncRequestedVersion;
                 }
                 DateTime startedAt = DateTime.UtcNow;
+                using BMSPlaylist.OperationNotificationScope notificationScope = BMSPlaylist.BeginOperationNotificationScope();
                 try
                 {
                     BeginPlaylistSyncProgressOperation();
@@ -13089,6 +13104,7 @@ public class MainWindowViewModel : ViewModel
                 finally
                 {
                     EndPlaylistSyncProgressOperation();
+                    FlushPlaylistOperationNotifications(notificationScope, "external playlist sync notification");
                 }
                 lock (lockDeferredExternalSync)
                 {
@@ -28807,6 +28823,7 @@ public class MainWindowViewModel : ViewModel
         }
         if (outputChangedTables.Count > 0)
         {
+            using BMSPlaylist.OperationNotificationScope notificationScope = BMSPlaylist.BeginOperationNotificationScope();
             BeginPlaylistSyncProgressOperation();
             try
             {
@@ -28822,6 +28839,7 @@ public class MainWindowViewModel : ViewModel
             finally
             {
                 EndPlaylistSyncProgressOperation();
+                FlushPlaylistOperationNotifications(notificationScope, "playlist summary custom folder migration notification");
             }
             UpdatePlaylistSummaryRootOutputDirectoriesAfterExternalInitialization(outputChangedTables, outputDirPathBeforeByTable);
         }
@@ -28829,6 +28847,7 @@ public class MainWindowViewModel : ViewModel
         bool sameOutputReOutputCommitted = sameOutputReOutputTableList.Count > 0 && Settings.Default.OperationModeLR2DB;
         if (sameOutputReOutputCommitted)
         {
+            using BMSPlaylist.OperationNotificationScope notificationScope = BMSPlaylist.BeginOperationNotificationScope();
             BeginPlaylistSyncProgressOperation();
             try
             {
@@ -28843,6 +28862,7 @@ public class MainWindowViewModel : ViewModel
             finally
             {
                 EndPlaylistSyncProgressOperation();
+                FlushPlaylistOperationNotifications(notificationScope, "playlist summary custom folder output notification");
             }
         }
         List<BMSTable> headerOnlyCommitTables = [.. (sameOutputReOutputCommitted
@@ -28978,7 +28998,7 @@ public class MainWindowViewModel : ViewModel
             .Select(item => item.Value)
             .Where(directory => !string.IsNullOrWhiteSpace(directory));
         IEnumerable<string> addDirectories = rootTables
-            .Select(BMSPlaylist.GetCustomFolderOutputDirectory)
+            .Select(table => ResolveCustomFolderOutputDirectoryWithNotification(table, "playlist summary root output directory notification"))
             .Where(directory => !string.IsNullOrWhiteSpace(directory));
         lr2config.SetBMSSearchDirectories(bmsSearchDirectories
             .Except(removeDirectories, StringComparer.OrdinalIgnoreCase)
@@ -29013,26 +29033,30 @@ public class MainWindowViewModel : ViewModel
         {
             return;
         }
-        BeginPlaylistSyncProgressOperation();
-        try
+        using (BMSPlaylist.OperationNotificationScope notificationScope = BMSPlaylist.BeginOperationNotificationScope())
         {
-            UpdatePlaylistSummaryCustomFolderOutputProgress(0, changedTables.Count, string.Empty);
-            tables.ReOutputCustomFoldersAndCommitHeadersToDB(
-                changedTables,
-                "playlist_summary_bulk_custom_folder_output_changed",
-                UpdatePlaylistSummaryCustomFolderOutputProgress);
-        }
-        catch
-        {
-            foreach (KeyValuePair<BMSTable, LR2SongDBExtended.playlist.CustomFolderType> item in previousMasks)
+            BeginPlaylistSyncProgressOperation();
+            try
             {
-                item.Key.ignore_folder_output = item.Value;
+                UpdatePlaylistSummaryCustomFolderOutputProgress(0, changedTables.Count, string.Empty);
+                tables.ReOutputCustomFoldersAndCommitHeadersToDB(
+                    changedTables,
+                    "playlist_summary_bulk_custom_folder_output_changed",
+                    UpdatePlaylistSummaryCustomFolderOutputProgress);
             }
-            throw;
-        }
-        finally
-        {
-            EndPlaylistSyncProgressOperation();
+            catch
+            {
+                foreach (KeyValuePair<BMSTable, LR2SongDBExtended.playlist.CustomFolderType> item in previousMasks)
+                {
+                    item.Key.ignore_folder_output = item.Value;
+                }
+                throw;
+            }
+            finally
+            {
+                EndPlaylistSyncProgressOperation();
+                FlushPlaylistOperationNotifications(notificationScope, "playlist summary custom folder output notification");
+            }
         }
         RefreshPlaylistSummaryIfVisible("playlist_summary_bulk_custom_folder_output_changed", invalidateTableCountCache: false);
     }
@@ -29071,9 +29095,11 @@ public class MainWindowViewModel : ViewModel
         {
             return;
         }
-        tables.ReOutputCustomFoldersAndCommitHeadersToDB(
-            changedTables,
-            "playlist_summary_bulk_external_sync_changed");
+        RunPlaylistOperationWithNotifications(
+            () => tables.ReOutputCustomFoldersAndCommitHeadersToDB(
+                changedTables,
+                "playlist_summary_bulk_external_sync_changed"),
+            "playlist summary external sync notification");
         tables.QueueBeatorajaBmtExportForTables(changedTables, "playlist_summary_bulk_external_sync_changed");
         RefreshPlaylistSummaryIfVisible("playlist_summary_bulk_external_sync_changed", invalidateTableCountCache: true);
     }
@@ -29165,21 +29191,25 @@ public class MainWindowViewModel : ViewModel
             table.is_root_folder = isRootFolder;
         }
 
-        BeginPlaylistSyncProgressOperation();
-        try
+        using (BMSPlaylist.OperationNotificationScope notificationScope = BMSPlaylist.BeginOperationNotificationScope())
         {
-            UpdatePlaylistSummaryCustomFolderOutputProgress(0, changedTables.Count, string.Empty);
-            tables.MigrateCustomFolderOutputDirectoriesAndCommitHeadersToDB(
-                changedTables,
-                outputDirPathBeforeByTable,
-                "playlist_summary_root_folder_changed",
-                UpdatePlaylistSummaryCustomFolderOutputProgress,
-                wasRootFolderBeforeByTable,
-                outputBaseDirPathBeforeByTable: outputBaseDirPathBeforeByTable);
-        }
-        finally
-        {
-            EndPlaylistSyncProgressOperation();
+            BeginPlaylistSyncProgressOperation();
+            try
+            {
+                UpdatePlaylistSummaryCustomFolderOutputProgress(0, changedTables.Count, string.Empty);
+                tables.MigrateCustomFolderOutputDirectoriesAndCommitHeadersToDB(
+                    changedTables,
+                    outputDirPathBeforeByTable,
+                    "playlist_summary_root_folder_changed",
+                    UpdatePlaylistSummaryCustomFolderOutputProgress,
+                    wasRootFolderBeforeByTable,
+                    outputBaseDirPathBeforeByTable: outputBaseDirPathBeforeByTable);
+            }
+            finally
+            {
+                EndPlaylistSyncProgressOperation();
+                FlushPlaylistOperationNotifications(notificationScope, "playlist summary root folder notification");
+            }
         }
 
         if (Settings.Default.OperationModeLR2DB && lr2config != null)
@@ -29189,7 +29219,7 @@ public class MainWindowViewModel : ViewModel
             {
                 IEnumerable<string> addDirectories = changedTables
                     .Where(table => !string.IsNullOrWhiteSpace(table.Output_dir))
-                    .Select(BMSPlaylist.GetCustomFolderOutputDirectory)
+                    .Select(table => ResolveCustomFolderOutputDirectoryWithNotification(table, "playlist summary root output directory notification"))
                     .Where(directory => !string.IsNullOrWhiteSpace(directory));
                 lr2config.SetBMSSearchDirectories(bmsSearchDirectories
                     .Union(addDirectories)
@@ -29295,20 +29325,24 @@ public class MainWindowViewModel : ViewModel
 
         if (migrationTables.Count > 0)
         {
-            BeginPlaylistSyncProgressOperation();
-            try
+            using (BMSPlaylist.OperationNotificationScope notificationScope = BMSPlaylist.BeginOperationNotificationScope())
             {
-                UpdatePlaylistSummaryCustomFolderOutputProgress(0, migrationTables.Count, string.Empty);
-                tables.MigrateCustomFolderOutputDirectoriesAndCommitHeadersToDB(
-                    migrationTables,
-                    outputDirPathBeforeByTable,
-                    "playlist_summary_output_base_changed",
-                    UpdatePlaylistSummaryCustomFolderOutputProgress,
-                    outputBaseDirPathBeforeByTable: outputBaseDirPathBeforeByTable);
-            }
-            finally
-            {
-                EndPlaylistSyncProgressOperation();
+                BeginPlaylistSyncProgressOperation();
+                try
+                {
+                    UpdatePlaylistSummaryCustomFolderOutputProgress(0, migrationTables.Count, string.Empty);
+                    tables.MigrateCustomFolderOutputDirectoriesAndCommitHeadersToDB(
+                        migrationTables,
+                        outputDirPathBeforeByTable,
+                        "playlist_summary_output_base_changed",
+                        UpdatePlaylistSummaryCustomFolderOutputProgress,
+                        outputBaseDirPathBeforeByTable: outputBaseDirPathBeforeByTable);
+                }
+                finally
+                {
+                    EndPlaylistSyncProgressOperation();
+                    FlushPlaylistOperationNotifications(notificationScope, "playlist summary output base notification");
+                }
             }
             List<BMSTable> headerOnlyTables = [.. changedTables.Except(migrationTables)];
             if (headerOnlyTables.Count > 0)
@@ -29876,6 +29910,7 @@ public class MainWindowViewModel : ViewModel
     {
         List<ExternalPlaylistImportOutcome> outcomes = [];
         int completedCount = 0;
+        using BMSPlaylist.OperationNotificationScope notificationScope = BMSPlaylist.BeginOperationNotificationScope();
         BeginPlaylistSyncProgressOperation();
         try
         {
@@ -29891,6 +29926,7 @@ public class MainWindowViewModel : ViewModel
         finally
         {
             EndPlaylistSyncProgressOperation();
+            FlushPlaylistOperationNotifications(notificationScope, "external playlist import notification");
         }
         ShowExternalPlaylistImportQueueSummary(new ExternalPlaylistImportQueueSummary(outcomes));
     }
@@ -30245,7 +30281,9 @@ public class MainWindowViewModel : ViewModel
                                                       select (entry != null) ? entry.Duplicate() : BMSTableEntry.CreateForPlaylistDrop(chart, GetPlaylistDropOrgMd5(chart));
             tables.AddPlaylistEntriesToFolderBMSTable(bmsEntries, bmsTable, folderName, commitFlag: false);
         }
-        tables.ReOutputCustomFolderAndCommitToDB(bmsTable);
+        RunPlaylistOperationWithNotifications(
+            () => tables.ReOutputCustomFolderAndCommitToDB(bmsTable),
+            "playlist drop custom folder output notification");
         tables.AcquireReaderLockBMSTables();
         files.AddReferenceBMSTablesToCharts(bmsTable, resolvedCharts);
         tables.FreeReaderLockBMSTables();
@@ -30381,19 +30419,27 @@ public class MainWindowViewModel : ViewModel
 
     internal void RemoveBMSTable(BMSTable bmsTable)
     {
-        if (Settings.Default.OperationModeLR2DB && !string.IsNullOrWhiteSpace(bmsTable.Output_dir))
+        using BMSPlaylist.OperationNotificationScope notificationScope = BMSPlaylist.BeginOperationNotificationScope();
+        try
         {
-            tables.RemoveCustomFolder(bmsTable);
+            if (Settings.Default.OperationModeLR2DB && !string.IsNullOrWhiteSpace(bmsTable.Output_dir))
+            {
+                tables.RemoveCustomFolder(bmsTable);
+            }
+            tables.RemoveBMSTable(bmsTable);
+            if (Settings.Default.OperationModeLR2DB && bmsTable.is_root_folder && !string.IsNullOrWhiteSpace(bmsTable.Output_dir))
+            {
+                string customFolderOutputDirectory = ResolveCustomFolderOutputDirectoryWithNotification(bmsTable, "playlist remove custom folder output directory notification");
+                lr2config.RemoveBMSSearchDirectories([customFolderOutputDirectory]);
+                lr2config.Save();
+            }
+            files.RemoveReferenceBMSTables(bmsTable);
+            InvalidateNormalLibrarySortKeys(NormalLibraryReferenceTablesChangedReason);
         }
-        tables.RemoveBMSTable(bmsTable);
-        if (Settings.Default.OperationModeLR2DB && bmsTable.is_root_folder && !string.IsNullOrWhiteSpace(bmsTable.Output_dir))
+        finally
         {
-            string customFolderOutputDirectory = BMSPlaylist.GetCustomFolderOutputDirectory(bmsTable);
-            lr2config.RemoveBMSSearchDirectories([customFolderOutputDirectory]);
-            lr2config.Save();
+            FlushPlaylistOperationNotifications(notificationScope, "playlist remove custom folder notification");
         }
-        files.RemoveReferenceBMSTables(bmsTable);
-        InvalidateNormalLibrarySortKeys(NormalLibraryReferenceTablesChangedReason);
     }
 
     internal BMSTable CreateBMSTable()
@@ -31270,6 +31316,51 @@ public class MainWindowViewModel : ViewModel
             .GetAwaiter()
             .GetResult();
         ThrowIfUiDialogNotShown(result, routeName);
+    }
+
+    private static void FlushPlaylistOperationNotifications(BMSPlaylist.OperationNotificationScope scope, string routeName)
+    {
+        scope?.Flush(notification =>
+        {
+            MessageBoxImage icon = notification.Severity switch
+            {
+                BMSPlaylist.OperationNotificationSeverity.Information => MessageBoxImage.Asterisk,
+                BMSPlaylist.OperationNotificationSeverity.Warning => MessageBoxImage.Exclamation,
+                BMSPlaylist.OperationNotificationSeverity.Error => MessageBoxImage.Hand,
+                _ => MessageBoxImage.None,
+            };
+            ShowUiMessage(notification.Message, notification.Caption, icon, routeName);
+        });
+    }
+
+    private static void RunPlaylistOperationWithNotifications(Action operation, string routeName)
+    {
+        if (operation == null)
+        {
+            return;
+        }
+        using BMSPlaylist.OperationNotificationScope scope = BMSPlaylist.BeginOperationNotificationScope();
+        try
+        {
+            operation();
+        }
+        finally
+        {
+            FlushPlaylistOperationNotifications(scope, routeName);
+        }
+    }
+
+    private static string ResolveCustomFolderOutputDirectoryWithNotification(BMSTable bmsTable, string routeName)
+    {
+        try
+        {
+            return BMSPlaylist.GetCustomFolderOutputDirectory(bmsTable);
+        }
+        catch (ArgumentNullException)
+        {
+            ShowUiMessage(BeMusicSeeker.Properties.Resources.Warn_CustomFolderOutputDirInvalid, BeMusicSeeker.Properties.Resources.MessageBoxTitle_Warning, MessageBoxImage.Exclamation, routeName);
+            throw;
+        }
     }
 
     private static bool ToUiConfirmationDecision(UiDialogResult result, string routeName)

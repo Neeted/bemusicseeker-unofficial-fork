@@ -705,7 +705,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(viewModelCode, "libraryProfile.SongDbPath");
         StringAssert.Contains(viewModelCode, "files.SearchTargets.AddRange(libraryProfile.SearchRoots)");
         StringAssert.Contains(viewModelCode, "return [];");
-        StringAssert.Contains(viewModelCode, "temp_output_dir_full_path = Settings.Default.OperationModeLR2DB ? BMSPlaylist.GetCustomFolderOutputDirectory(bmsTable) : null;");
+        StringAssert.Contains(viewModelCode, "temp_output_dir_full_path = Settings.Default.OperationModeLR2DB ? MainWindowViewModel.ResolveCustomFolderOutputDirectoryWithNotification(bmsTable, \"playlist property output directory notification\") : null;");
         string saveFollowup = ExtractBetween(
             viewModelCode,
             "internal async Task ApplyPostSaveUpdatesAsync()",
