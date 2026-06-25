@@ -64,6 +64,8 @@ playlist / library などの長い操作は次の順に分ける。
 - UI binding collection への反映は UI dispatcher 上で短く実行し、反映中に network / DB / filesystem I/O を行わない。
 - lock 保持中に `Dispatcher.Invoke`、message box、event callback、`Task.Wait` / `.Result` のような同期待ちは行わない。
 
+譜面行、保留パッケージ、導入済みパッケージに対する破壊的操作は [library-mutation-boundary.md](library-mutation-boundary.md) を正本にする。これらの操作では、確認 dialog は ViewModel の preflight で解決し、model lock 中の dialog 表示は operation report として境界外へ遅延する。
+
 ## Native Bridge Policy
 
 Everything が使える場合、通常起動の file enumeration は `EBridge_ScanChartAndResources` を使う。

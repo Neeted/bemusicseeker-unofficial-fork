@@ -9010,6 +9010,8 @@ public class MainWindowViewModel : ViewModel
 
     private readonly object lockCopyFile = new();
 
+    private int chartPackageMutationDepth;
+
     private readonly object duplicateChartGroupsRefreshLock = new();
 
     private bool duplicateChartGroupsRefreshRunning;
@@ -12646,62 +12648,172 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
-    private void RunPendingInstallMutation(Action action, IEnumerable<ChartFile> playbackTargetCharts = null, UiRefreshChannel extraMask = UiRefreshChannel.None)
+    private void BeginChartPackageMutation()
+    {
+        if (Interlocked.Increment(ref chartPackageMutationDepth) == 1)
+        {
+            RaisePropertyChanged(() => IsChartPackageMutationInProgress);
+            RaisePropertyChanged(() => IsLibraryOperationInProgress);
+            RaiseLr2SongDbSyncDataResyncAvailabilityChanged();
+        }
+    }
+
+    private void EndChartPackageMutation()
+    {
+        int depth = Interlocked.Decrement(ref chartPackageMutationDepth);
+        if (depth == 0)
+        {
+            RaisePropertyChanged(() => IsChartPackageMutationInProgress);
+            RaisePropertyChanged(() => IsLibraryOperationInProgress);
+            RaiseLr2SongDbSyncDataResyncAvailabilityChanged();
+        }
+        else if (depth < 0)
+        {
+            Interlocked.Exchange(ref chartPackageMutationDepth, 0);
+            RaisePropertyChanged(() => IsChartPackageMutationInProgress);
+            RaisePropertyChanged(() => IsLibraryOperationInProgress);
+            RaiseLr2SongDbSyncDataResyncAvailabilityChanged();
+        }
+    }
+
+    private void RunChartPackageMutation(
+        Action action,
+        IEnumerable<ChartFile> playbackTargetCharts = null,
+        UiRefreshChannel refreshMask = UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree,
+        Action stopPlayback = null,
+        Action beforeAction = null,
+        Action afterUiRefresh = null,
+        bool requiresLibrary = true)
     {
         if (action == null)
         {
             throw new ArgumentNullException("action");
         }
-        if (files == null)
+        if (requiresLibrary && files == null)
         {
             return;
         }
-        UiRefreshChannel mask = UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree | extraMask;
-        lock (lockCopyFile)
+        BMSLibrary.OperationDialogScope dialogScope = null;
+        bool mutationStarted = false;
+        try
         {
-            if (playbackTargetCharts != null)
+            dialogScope = files?.BeginOperationDialogScope();
+            mutationStarted = true;
+            BeginChartPackageMutation();
+            lock (lockCopyFile)
             {
-                stopPlayingChartFiles(playbackTargetCharts);
+                if (stopPlayback != null)
+                {
+                    stopPlayback();
+                }
+                else if (playbackTargetCharts != null)
+                {
+                    stopPlayingChartFiles(playbackTargetCharts);
+                }
+                BeginUiUpdateSuppression(refreshMask);
+                try
+                {
+                    beforeAction?.Invoke();
+                    action();
+                }
+                finally
+                {
+                    try
+                    {
+                        EndUiUpdateSuppression();
+                    }
+                    finally
+                    {
+                        afterUiRefresh?.Invoke();
+                    }
+                }
             }
-            BeginUiUpdateSuppression(mask);
-            try
+        }
+        finally
+        {
+            if (mutationStarted)
             {
-                action();
+                EndChartPackageMutation();
             }
-            finally
-            {
-                EndUiUpdateSuppression();
-            }
+            dialogScope?.Dispose();
+            dialogScope?.Flush();
         }
     }
 
-    private T RunPendingInstallMutation<T>(Func<T> func, IEnumerable<ChartFile> playbackTargetCharts = null, UiRefreshChannel extraMask = UiRefreshChannel.None)
+    private T RunChartPackageMutation<T>(
+        Func<T> func,
+        IEnumerable<ChartFile> playbackTargetCharts = null,
+        UiRefreshChannel refreshMask = UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree,
+        Action stopPlayback = null,
+        Action beforeAction = null,
+        Action afterUiRefresh = null,
+        bool requiresLibrary = true)
     {
         if (func == null)
         {
             throw new ArgumentNullException("func");
         }
-        if (files == null)
+        if (requiresLibrary && files == null)
         {
             return default;
         }
-        UiRefreshChannel mask = UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree | extraMask;
-        lock (lockCopyFile)
+        T result = default;
+        BMSLibrary.OperationDialogScope dialogScope = null;
+        bool mutationStarted = false;
+        try
         {
-            if (playbackTargetCharts != null)
+            dialogScope = files?.BeginOperationDialogScope();
+            mutationStarted = true;
+            BeginChartPackageMutation();
+            lock (lockCopyFile)
             {
-                stopPlayingChartFiles(playbackTargetCharts);
-            }
-            BeginUiUpdateSuppression(mask);
-            try
-            {
-                return func();
-            }
-            finally
-            {
-                EndUiUpdateSuppression();
+                if (stopPlayback != null)
+                {
+                    stopPlayback();
+                }
+                else if (playbackTargetCharts != null)
+                {
+                    stopPlayingChartFiles(playbackTargetCharts);
+                }
+                BeginUiUpdateSuppression(refreshMask);
+                try
+                {
+                    beforeAction?.Invoke();
+                    result = func();
+                }
+                finally
+                {
+                    try
+                    {
+                        EndUiUpdateSuppression();
+                    }
+                    finally
+                    {
+                        afterUiRefresh?.Invoke();
+                    }
+                }
             }
         }
+        finally
+        {
+            if (mutationStarted)
+            {
+                EndChartPackageMutation();
+            }
+            dialogScope?.Dispose();
+            dialogScope?.Flush();
+        }
+        return result;
+    }
+
+    private void RunPendingInstallMutation(Action action, IEnumerable<ChartFile> playbackTargetCharts = null, UiRefreshChannel extraMask = UiRefreshChannel.None)
+    {
+        RunChartPackageMutation(action, playbackTargetCharts, UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree | extraMask);
+    }
+
+    private T RunPendingInstallMutation<T>(Func<T> func, IEnumerable<ChartFile> playbackTargetCharts = null, UiRefreshChannel extraMask = UiRefreshChannel.None)
+    {
+        return RunChartPackageMutation(func, playbackTargetCharts, UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree | extraMask);
     }
 
     private void HandleChartPackagesInstalledCollectionChanged()
@@ -17192,10 +17304,12 @@ public class MainWindowViewModel : ViewModel
         {
             lock (startupProgressLock)
             {
-                return _IsStartupUiInteractionBlocked || startupProgressState.IsActive;
+                return _IsStartupUiInteractionBlocked || startupProgressState.IsActive || IsChartPackageMutationInProgress;
             }
         }
     }
+
+    public bool IsChartPackageMutationInProgress => Volatile.Read(ref chartPackageMutationDepth) > 0;
 
     /// <summary>
     /// 現在採用中の playlist source 世代を返します。
@@ -25220,10 +25334,10 @@ public class MainWindowViewModel : ViewModel
         {
             throw new ArgumentNullException("packages");
         }
-        lock (lockCopyFile)
+        RunChartPackageMutation(delegate
         {
             files.SearchEstimatedInstallationDirectory(packages);
-        }
+        }, refreshMask: UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree);
         InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
         RefreshLibraryMainViewForDataDependency(MainViewDataDependency.IdentitySortKey, NormalLibraryInstallDestinationChangedReason);
     }
@@ -25235,13 +25349,13 @@ public class MainWindowViewModel : ViewModel
             throw new ArgumentNullException("packages");
         }
         List<ChartPackage> list = [.. packages.Where(pkg => pkg != null)];
-        lock (lockCopyFile)
+        RunChartPackageMutation(delegate
         {
             for (int num = 0; num < list.Count; num++)
             {
                 files.SearchMergeDestinationForPendingPackage(list[num]);
             }
-        }
+        }, refreshMask: UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree);
         InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
         RefreshLibraryMainViewForDataDependency(MainViewDataDependency.IdentitySortKey, NormalLibraryInstallDestinationChangedReason);
     }
@@ -25256,7 +25370,7 @@ public class MainWindowViewModel : ViewModel
         {
             return;
         }
-        lock (lockCopyFile)
+        RunChartPackageMutation(delegate
         {
             List<ChartOperationTarget> packageTargets = targets.PackageTargets.ToList();
             List<ChartPackage> packages = ExtractChartPackagesFromChartTargets(ref packageTargets);
@@ -25269,7 +25383,7 @@ public class MainWindowViewModel : ViewModel
                 files.SearchEstimatedInstallationDirectoryForLooseCharts(targets.LooseEntries);
                 UpdateSharedChartTransientStates(targets.LooseEntries.Select(entry => entry?.Chart), forceInstallDestinationProjection: true);
             }
-        }
+        }, refreshMask: UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree);
         InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
         RefreshLibraryMainViewForDataDependency(MainViewDataDependency.IdentitySortKey, NormalLibraryInstallDestinationChangedReason);
     }
@@ -25284,7 +25398,7 @@ public class MainWindowViewModel : ViewModel
         {
             return;
         }
-        lock (lockCopyFile)
+        RunChartPackageMutation(delegate
         {
             List<ChartOperationTarget> packageTargets = targets.PackageTargets.ToList();
             List<ChartPackage> packages = ExtractChartPackagesFromChartTargets(ref packageTargets);
@@ -25297,7 +25411,7 @@ public class MainWindowViewModel : ViewModel
                 files.SearchMergeDestinationForPendingCharts(targets.LooseEntries);
                 UpdateSharedChartTransientStates(targets.LooseEntries.Select(entry => entry?.Chart), forceInstallDestinationProjection: true);
             }
-        }
+        }, refreshMask: UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree);
         InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
         RefreshLibraryMainViewForDataDependency(MainViewDataDependency.IdentitySortKey, NormalLibraryInstallDestinationChangedReason);
     }
@@ -25455,25 +25569,21 @@ public class MainWindowViewModel : ViewModel
             return;
         }
         List<ChartPackage> list = [];
-        lock (lockCopyFile)
+        try
         {
-            try
+            RunChartPackageMutation(delegate
             {
                 if (!token.IsCancellationRequested)
                 {
                     list.AddRange(files.InstallChartPackagesAuto(normalizedInstallPaths, token, onEachPathProcessed));
                 }
-            }
-            catch (FileNotFoundException ex)
-            {
-                RaiseInteractionMessageOnUiThread(new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Msg_failed_installation + Environment.NewLine + ex.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
-                onEachCompleted?.Invoke(obj: false);
-                return;
-            }
-            catch
-            {
-                throw;
-            }
+            }, refreshMask: UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree | UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.DuplicateTree);
+        }
+        catch (FileNotFoundException ex)
+        {
+            RaiseInteractionMessageOnUiThread(new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Msg_failed_installation + Environment.NewLine + ex.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
+            onEachCompleted?.Invoke(obj: false);
+            return;
         }
         if (list.Count > 0)
         {
@@ -27873,9 +27983,23 @@ public class MainWindowViewModel : ViewModel
             throw new ArgumentNullException("packages");
         }
         List<ChartPackage> list = [.. packages.Where(pkg => pkg != null)];
+        HashSet<ChartPackage> approvedNormalInstallOverridePackages = [];
+        foreach (ChartPackage package in list.Where(pkg => (pkg.ChartEntries ?? []).Any(entry => !string.IsNullOrWhiteSpace(entry?.Chart?.InstallDestination))))
+        {
+            bool approved = DispatcherMessageBox.Show(
+                BeMusicSeeker.Properties.Resources.Confirm_NormalInstallOverride,
+                BeMusicSeeker.Properties.Resources.Confirm_NormalInstallTitle,
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question,
+                MessageBoxResult.Yes) == MessageBoxResult.Yes;
+            if (approved)
+            {
+                approvedNormalInstallOverridePackages.Add(package);
+            }
+        }
         RunPendingInstallMutation(delegate
         {
-            files.ForceInstallPendingPackages(list);
+            files.ForceInstallPendingPackages(list, approveNormalInstallOverride: false, approvedNormalInstallOverridePackages: approvedNormalInstallOverridePackages);
         }, CreatePackagePlaybackTargetSnapshot(list), UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.DuplicateTree);
     }
 
@@ -27886,11 +28010,8 @@ public class MainWindowViewModel : ViewModel
             throw new ArgumentNullException("targets");
         }
         List<ChartOperationTarget> remainingTargets = [.. targets.Where(target => target?.Chart != null)];
-        lock (lockCopyFile)
-        {
-            List<ChartPackage> chartPackages = ExtractChartPackagesFromChartTargets(ref remainingTargets);
-            ForceInstallPendingPackages(chartPackages);
-        }
+        List<ChartPackage> chartPackages = ExtractChartPackagesFromChartTargets(ref remainingTargets);
+        ForceInstallPendingPackages(chartPackages);
     }
 
     public void ManualInstallPendingPackages(IEnumerable<ChartPackage> packages)
@@ -29453,11 +29574,8 @@ public class MainWindowViewModel : ViewModel
             throw new ArgumentNullException("targets");
         }
         List<ChartOperationTarget> remainingTargets = [.. targets.Where(target => target?.Chart != null)];
-        lock (lockCopyFile)
-        {
-            List<ChartPackage> chartPackages = ExtractChartPackagesFromChartTargets(ref remainingTargets);
-            ManualInstallPendingPackages(chartPackages);
-        }
+        List<ChartPackage> chartPackages = ExtractChartPackagesFromChartTargets(ref remainingTargets);
+        ManualInstallPendingPackages(chartPackages);
     }
 
     public void RemovePendingPackagesAll()
@@ -29549,19 +29667,23 @@ public class MainWindowViewModel : ViewModel
 
     public void RemoveInstalledPackageRecordsAll()
     {
-        files?.RemoveInstalledPackageRecordsAll();
+        RunChartPackageMutation(delegate
+        {
+            files.RemoveInstalledPackageRecordsAll();
+        }, refreshMask: UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree);
     }
 
     public void RemoveInstalledPackageRecords(IEnumerable<ChartPackage> packages)
     {
-        if (files != null)
+        if (packages == null)
         {
-            if (packages == null)
-            {
-                throw new ArgumentNullException("packages");
-            }
-            files.RemoveInstalledPackageRecords(packages);
+            throw new ArgumentNullException("packages");
         }
+        List<ChartPackage> packageList = [.. packages.Where(package => package != null)];
+        RunChartPackageMutation(delegate
+        {
+            files.RemoveInstalledPackageRecords(packageList);
+        }, refreshMask: UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree);
     }
 
     internal void RemoveInstalledPackageRecords(IEnumerable<ChartOperationTarget> targets)
@@ -29577,16 +29699,21 @@ public class MainWindowViewModel : ViewModel
 
     private void SearchCorrectInstallationDirectoryCharts(IEnumerable<PackageChartEntry> chartEntries)
     {
-        if (files != null)
+        if (chartEntries == null)
         {
-            if (chartEntries == null)
-            {
-                throw new ArgumentNullException(nameof(chartEntries));
-            }
-            files.SearchCorrectInstallationDirectoryCharts(chartEntries);
-            UpdateSharedChartTransientStates(chartEntries.Select(entry => entry?.Chart), forceInstallDestinationProjection: true);
-            InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
+            throw new ArgumentNullException(nameof(chartEntries));
         }
+        List<PackageChartEntry> entries = [.. chartEntries.Where(entry => entry?.Chart != null)];
+        if (entries.Count == 0)
+        {
+            return;
+        }
+        RunChartPackageMutation(delegate
+        {
+            files.SearchCorrectInstallationDirectoryCharts(entries);
+            UpdateSharedChartTransientStates(entries.Select(entry => entry.Chart), forceInstallDestinationProjection: true);
+            InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
+        }, refreshMask: UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree);
     }
 
     internal void SearchCorrectInstallationDirectoryCharts(IRepairInstalledLocationTargetSnapshot targets)
@@ -29606,10 +29733,15 @@ public class MainWindowViewModel : ViewModel
             throw new ArgumentNullException("packages");
         }
         List<ChartPackage> list = [.. packages.Where(f => f != null)];
-        for (int num = 0; num < list.Count; num++)
+        List<PackageChartEntry> changedEntries = [.. list.SelectMany(package => package.ChartEntries ?? []).Where(entry => entry?.Chart != null)];
+        RunChartPackageMutation(delegate
         {
-            ClearChartPackageInstallDestinations(list[num]);
-        }
+            for (int num = 0; num < list.Count; num++)
+            {
+                ClearChartPackageInstallDestinations(list[num]);
+            }
+            UpdateSharedChartTransientStates(changedEntries.Select(entry => entry.Chart), forceInstallDestinationProjection: true);
+        }, refreshMask: UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree, requiresLibrary: false);
         InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
     }
 
@@ -29627,17 +29759,20 @@ public class MainWindowViewModel : ViewModel
         {
             return;
         }
-        List<ChartOperationTarget> packageTargets = targets.PackageTargets.ToList();
-        List<ChartPackage> packages = ExtractChartPackagesFromChartTargets(ref packageTargets);
-        for (int num = 0; num < packages.Count; num++)
+        RunChartPackageMutation(delegate
         {
-            ClearChartPackageInstallDestinations(packages[num]);
-        }
-        if (targets.LooseEntries.Count > 0)
-        {
-            files.RemoveInstallDestination(targets.LooseEntries);
-            UpdateSharedChartTransientStates(targets.LooseEntries.Select(entry => entry?.Chart), forceInstallDestinationProjection: true);
-        }
+            List<ChartOperationTarget> packageTargets = targets.PackageTargets.ToList();
+            List<ChartPackage> packages = ExtractChartPackagesFromChartTargets(ref packageTargets);
+            for (int num = 0; num < packages.Count; num++)
+            {
+                ClearChartPackageInstallDestinations(packages[num]);
+            }
+            if (targets.LooseEntries.Count > 0)
+            {
+                files.RemoveInstallDestination(targets.LooseEntries);
+                UpdateSharedChartTransientStates(targets.LooseEntries.Select(entry => entry?.Chart), forceInstallDestinationProjection: true);
+            }
+        }, refreshMask: UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree);
         InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
     }
 
@@ -29659,14 +29794,17 @@ public class MainWindowViewModel : ViewModel
             {
                 throw new ArgumentNullException(nameof(chartEntries));
             }
-            List<PackageChartEntry> entries = [.. chartEntries.Where(entry => entry?.Chart != null)];
-            List<ChartPackage> chartPackages = ExtractChartPackagesFromChartEntries(ref entries);
-            for (int num = 0; num < chartPackages.Count; num++)
+            RunChartPackageMutation(delegate
             {
-                ClearChartPackageInstallDestinations(chartPackages[num]);
-            }
-            files.RemoveInstallDestination(entries);
-            UpdateSharedChartTransientStates(entries.Select(entry => entry?.Chart), forceInstallDestinationProjection: true);
+                List<PackageChartEntry> entries = [.. chartEntries.Where(entry => entry?.Chart != null)];
+                List<ChartPackage> chartPackages = ExtractChartPackagesFromChartEntries(ref entries);
+                for (int num = 0; num < chartPackages.Count; num++)
+                {
+                    ClearChartPackageInstallDestinations(chartPackages[num]);
+                }
+                files.RemoveInstallDestination(entries);
+                UpdateSharedChartTransientStates(entries.Select(entry => entry?.Chart), forceInstallDestinationProjection: true);
+            }, refreshMask: UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree);
             InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
         }
     }
@@ -29689,32 +29827,28 @@ public class MainWindowViewModel : ViewModel
         {
             throw new ArgumentNullException("target");
         }
-        lock (lockCopyFile)
+        PackageChartEntry changedEntry = null;
+        bool changed = RunChartPackageMutation(delegate
         {
-            bool changed;
-            PackageChartEntry changedEntry;
             if (target.PackageEntry != null)
             {
                 changedEntry = target.PackageEntry;
-                changed = files.SetPendingInstallDestination(changedEntry, destinationDirectory);
+                return files.SetPendingInstallDestination(changedEntry, destinationDirectory);
             }
-            else
+            PackageChartEntry chartEntry = target.GetOrCreateChartEntry();
+            if (chartEntry == null)
             {
-                PackageChartEntry chartEntry = target.GetOrCreateChartEntry();
-                if (chartEntry == null)
-                {
-                    return false;
-                }
-                changedEntry = chartEntry;
-                changed = files.SetPendingInstallDestination(changedEntry, destinationDirectory);
+                return false;
             }
-            if (changed)
-            {
-                UpdateSharedChartTransientStates([changedEntry.Chart], forceInstallDestinationProjection: true);
-                InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
-            }
-            return changed;
+            changedEntry = chartEntry;
+            return files.SetPendingInstallDestination(changedEntry, destinationDirectory);
+        }, refreshMask: UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree);
+        if (changed)
+        {
+            UpdateSharedChartTransientStates([changedEntry.Chart], forceInstallDestinationProjection: true);
+            InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
         }
+        return changed;
     }
 
     public bool TryGetInstalledDirectoryByHash(string hash, out string installDir)
@@ -30381,33 +30515,50 @@ public class MainWindowViewModel : ViewModel
     {
         var totalStopwatch = Stopwatch.StartNew();
         LogDuplicateMergePerformance("duplicate_merge_vm enter op=" + operationId + " src=" + src + " dst=" + dst);
-        var lockWaitStopwatch = Stopwatch.StartNew();
-        lock (lockCopyFile)
-        {
-            LogDuplicateMergePerformance("duplicate_merge_vm lock_acquired op=" + operationId + " waitMs=" + lockWaitStopwatch.ElapsedMilliseconds);
-            var playEndStopwatch = Stopwatch.StartNew();
-            PlayEndBMSFile(closeProcess: true);
-            LogDuplicateMergePerformance("duplicate_merge_vm play_end_done op=" + operationId + " elapsedMs=" + playEndStopwatch.ElapsedMilliseconds);
-            var modelStopwatch = Stopwatch.StartNew();
-            BeginUiUpdateSuppression(UiRefreshChannel.LibraryMainView | UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.InstallTree | UiRefreshChannel.DuplicateTree);
-            BeginDuplicateRefreshPriorityWindow("merge_folder");
-            try
+        RunChartPackageMutation(
+            delegate
             {
+                var modelStopwatch = Stopwatch.StartNew();
                 files.MergeChartDirectory(src, dst, operationId);
                 LogDuplicateMergePerformance("duplicate_merge_vm model_done op=" + operationId + " elapsedMs=" + modelStopwatch.ElapsedMilliseconds + " totalMs=" + totalStopwatch.ElapsedMilliseconds);
-            }
-            finally
+            },
+            refreshMask: UiRefreshChannel.LibraryMainView | UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.InstallTree | UiRefreshChannel.DuplicateTree,
+            stopPlayback: () =>
             {
-                try
-                {
-                    EndUiUpdateSuppression();
-                }
-                finally
-                {
-                    ReleaseDuplicateRefreshPriorityWindowAfterUiRefresh("merge_folder_ui_refresh_done");
-                }
+                var playEndStopwatch = Stopwatch.StartNew();
+                PlayEndBMSFile(closeProcess: true);
+                LogDuplicateMergePerformance("duplicate_merge_vm play_end_done op=" + operationId + " elapsedMs=" + playEndStopwatch.ElapsedMilliseconds);
+            },
+            beforeAction: () => BeginDuplicateRefreshPriorityWindow("merge_folder"),
+            afterUiRefresh: () => ReleaseDuplicateRefreshPriorityWindowAfterUiRefresh("merge_folder_ui_refresh_done"));
+    }
+
+    private List<string> ConfirmDuplicateInstallRepairRemovals(IEnumerable<ChartFile> repairCharts)
+    {
+        if (files == null)
+        {
+            return [];
+        }
+        List<string> approvedPaths = [];
+        List<BMSLibrary.DuplicateInstallRepairConfirmation> confirmations = files.GetDuplicateInstallRepairConfirmations(repairCharts);
+        foreach (BMSLibrary.DuplicateInstallRepairConfirmation confirmation in confirmations)
+        {
+            ChartFile chart = confirmation.Chart;
+            if (chart == null || string.IsNullOrWhiteSpace(chart.Path))
+            {
+                continue;
+            }
+            if (DispatcherMessageBox.Show(
+                string.Format(BeMusicSeeker.Properties.Resources.Confirm_DuplicateReinstallSkipped, chart.Path, string.Join(Environment.NewLine, confirmation.DuplicatePaths)),
+                BeMusicSeeker.Properties.Resources.MessageBoxTitle_Confirm,
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question,
+                MessageBoxResult.Yes) == MessageBoxResult.Yes)
+            {
+                approvedPaths.Add(chart.Path);
             }
         }
+        return approvedPaths;
     }
 
     private static void LogDuplicateMergePerformance(string message)
@@ -30425,12 +30576,12 @@ public class MainWindowViewModel : ViewModel
         {
             return;
         }
-        lock (lockCopyFile)
+        IReadOnlyList<ChartFile> repairCharts = snapshot.RepairCharts;
+        List<string> approvedDuplicateRemovalChartPaths = ConfirmDuplicateInstallRepairRemovals(repairCharts);
+        RunChartPackageMutation(delegate
         {
-            IReadOnlyList<ChartFile> repairCharts = snapshot.RepairCharts;
-            stopPlayingChartFiles(GetBmsFormatCharts(repairCharts));
-            files.FixInstallationDirectoryCharts(repairCharts);
-        }
+            files.FixInstallationDirectoryCharts(repairCharts, approvedDuplicateRemovalChartPaths);
+        }, GetBmsFormatCharts(repairCharts), UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree | UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.DuplicateTree);
     }
 
     internal List<string> GetLibraryWholeFolderDeleteConfirmationPaths(IEnumerable<ChartOperationTarget> targets)
@@ -30453,12 +30604,14 @@ public class MainWindowViewModel : ViewModel
         {
             return;
         }
-        lock (lockCopyFile)
+        RunChartPackageMutation(delegate
+        {
+            files.RemoveLibraryCharts(charts, approvedWholeFolderDeletePaths: approvedWholeFolderDeletePaths);
+        }, refreshMask: UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree | UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.DuplicateTree, stopPlayback: () =>
         {
             stopPlayingLibraryCharts(GetBmsLibraryChartRefs(charts));
             stopPlayingChartDirectories(approvedWholeFolderDeletePaths);
-            files.RemoveLibraryCharts(charts, approvedWholeFolderDeletePaths: approvedWholeFolderDeletePaths);
-        }
+        });
     }
 
     internal void RemoveLibraryCharts(IEnumerable<ChartFile> charts, IEnumerable<string> approvedWholeFolderDeletePaths = null)
@@ -30471,12 +30624,14 @@ public class MainWindowViewModel : ViewModel
         {
             return;
         }
-        lock (lockCopyFile)
+        RunChartPackageMutation(delegate
+        {
+            files.RemoveLibraryCharts(chartRefs, approvedWholeFolderDeletePaths: approvedWholeFolderDeletePaths);
+        }, refreshMask: UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree | UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.DuplicateTree, stopPlayback: () =>
         {
             stopPlayingChartFiles(GetBmsFormatCharts(chartSnapshot));
             stopPlayingChartDirectories(approvedWholeFolderDeletePaths);
-            files.RemoveLibraryCharts(chartRefs, approvedWholeFolderDeletePaths: approvedWholeFolderDeletePaths);
-        }
+        });
     }
 
     internal void RemovePendingCharts(IEnumerable<ChartOperationTarget> targets, bool sendToRecycleBin = true, bool deleteContainingPackageFoldersWhenNoBms = false)
@@ -30506,11 +30661,10 @@ public class MainWindowViewModel : ViewModel
     internal void RenameBMSFilesExtensions(IEnumerable<ChartFile> charts, string newExt)
     {
         List<ChartFile> chartList = GetBmsFormatCharts(charts);
-        lock (lockCopyFile)
+        RunChartPackageMutation(delegate
         {
-            stopPlayingChartFiles(chartList);
             files.RenameBMSFilesExtensions(chartList, newExt, true);
-        }
+        }, chartList, UiRefreshChannel.LibraryMainView | UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.InstallTree | UiRefreshChannel.DuplicateTree);
     }
 
     internal void RenamePendingBmsFormatChartFileExtensions(IEnumerable<ChartFile> charts, string newExt)
@@ -30542,9 +30696,8 @@ public class MainWindowViewModel : ViewModel
         {
             return;
         }
-        lock (lockCopyFile)
+        RunChartPackageMutation(delegate
         {
-            stopPlayingChartFiles([target.Chart]);
             string directoryNameSimple = DirectoryExt.GetDirectoryNameSimple(chartPath);
             if (!string.IsNullOrWhiteSpace(directoryNameSimple) && LongPathFileSystem.DirectoryExists(directoryNameSimple))
             {
@@ -30552,7 +30705,7 @@ public class MainWindowViewModel : ViewModel
                 ApplyLatestNormalLibraryRefreshNotification();
                 InvalidateNormalLibrarySortKeysAfterPathMutation(hasBmsPathMutation: true, hasBmsonPathMutation: true);
             }
-        }
+        }, [target.Chart], UiRefreshChannel.LibraryMainView | UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.InstallTree | UiRefreshChannel.DuplicateTree);
     }
 
     internal sealed class RenameChartFolderTargetSnapshot
@@ -30572,7 +30725,7 @@ public class MainWindowViewModel : ViewModel
     public void AutoRenameAllChartFolders(string parentDir = null)
     {
         bool progressStarted = false;
-        lock (lockCopyFile)
+        RunChartPackageMutation(delegate
         {
             if (files?.HasAutoRenameAllChartFolderTargets(parentDir) != true)
             {
@@ -30596,7 +30749,7 @@ public class MainWindowViewModel : ViewModel
                     FinishFolderAutoRenameProgress();
                 }
             }
-        }
+        }, refreshMask: UiRefreshChannel.LibraryMainView | UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.InstallTree | UiRefreshChannel.DuplicateTree);
     }
 
     internal void AutoRenameChartFolders(IEnumerable<ChartFile> chartFilesSource)
@@ -30606,12 +30759,11 @@ public class MainWindowViewModel : ViewModel
         {
             return;
         }
-        lock (lockCopyFile)
+        RunChartPackageMutation(delegate
         {
             BeginFolderAutoRenameProgress();
             try
             {
-                stopPlayingChartFiles(charts);
                 files.AutoRenameChartFolders(charts, progressReporter: UpdateFolderAutoRenameProgressStatus);
                 ApplyLatestNormalLibraryRefreshNotification();
                 InvalidateNormalLibrarySortKeysAfterPathMutation(hasBmsPathMutation: true, hasBmsonPathMutation: true);
@@ -30620,7 +30772,7 @@ public class MainWindowViewModel : ViewModel
             {
                 FinishFolderAutoRenameProgress();
             }
-        }
+        }, charts, UiRefreshChannel.LibraryMainView | UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.InstallTree | UiRefreshChannel.DuplicateTree);
     }
 
     internal void AutoRenameChartFolders(ChartOperationTargetSnapshot targets)
@@ -30639,13 +30791,12 @@ public class MainWindowViewModel : ViewModel
         {
             return;
         }
-        lock (lockCopyFile)
+        RunChartPackageMutation(delegate
         {
-            stopPlayingLibraryCharts(charts);
             files.MoveLibraryRootFolder(charts, newParentDirectory, false);
             ApplyLatestNormalLibraryRefreshNotification();
             InvalidateNormalLibrarySortKeysAfterPathMutation(hasBmsPathMutation: true, hasBmsonPathMutation: true);
-        }
+        }, refreshMask: UiRefreshChannel.LibraryMainView | UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.InstallTree | UiRefreshChannel.DuplicateTree, stopPlayback: () => stopPlayingLibraryCharts(charts));
     }
 
     private static IEnumerable<LibraryChartRef> ToLibraryChartRefs(IEnumerable<ChartOperationTarget> targets, ChartOperationCapabilities requiredCapability)

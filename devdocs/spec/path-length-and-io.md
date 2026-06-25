@@ -70,6 +70,8 @@ P0 は今回の正本範囲である。BeMusicSeeker 内でファイルシステ
 - LR2 カスタムフォルダ `.lr2folder` の生成、stale file cleanup、空ディレクトリ削除。
 - LR2 バックアップの対象存在確認、世代削除、ファイル / ディレクトリコピー。
 
+譜面 / パッケージの変更系処理は、I/O 境界に加えて [library-mutation-boundary.md](library-mutation-boundary.md) の共通 mutation 境界を通す。長パス対応はファイル操作の正しさを担保し、mutation 境界は二重実行防止、UI 操作ブロック、dialog 表示タイミング、model lock 契約を担保する。
+
 P2 は、譜面管理機能の本流ではないが app 内の一貫性として順次寄せる範囲である。IR cache、設定ファイル、export/import 補助、外部ツール連携の一部存在確認などが該当する。P3 はアプリ同梱 metadata bundle、test fixture、ログ、release script など、ユーザーの譜面 path とは独立した app-local I/O である。P2/P3 の direct `System.IO` は見つかっただけで即 P0 欠陥とは扱わず、変更する場合はそれぞれの機能単位で方針を決める。
 
 導入先推定の source surface scan は `BoundedSourceSurfaceEnumerator` を使い、1 つの source surface ごとに既定 50,000 filesystem entry で打ち切る。この上限は投入バッチ全体の合算ではなく、1 つの導入先推定対象 package / source directory を BMS package 境界として扱えるかの上限である。打ち切った場合、部分的な resource surface を推定入力へ渡さず、`SourceSurfaceScanLimitExceeded` warning として扱う。Everything bridge や通常 root scan fallback のような全件 materialize 型の列挙は、この用途では使わない。
@@ -103,4 +105,5 @@ Explorer 起動は `ExplorerOpenService` に集約する。ファイルを開く
 
 - [path-identity.md](path-identity.md): DB 上の path 同一性、case-sensitive exact match。
 - [chart-file-read-pipeline.md](chart-file-read-pipeline.md): 譜面 bytes / snapshot / inline parse pipeline。
+- [library-mutation-boundary.md](library-mutation-boundary.md): 譜面 / パッケージ操作の共通 mutation 境界。
 - [warning-model.md](warning-model.md): `Lr2PathTooLong` warning の表示仕様。

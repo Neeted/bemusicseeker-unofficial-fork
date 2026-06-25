@@ -754,6 +754,16 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         return false;
     }
 
+    private bool ShouldBlockChartPackageMutationInteraction(string action)
+    {
+        if (base.DataContext is MainWindowViewModel viewModel && viewModel.IsChartPackageMutationInProgress)
+        {
+            installPerformanceLogger?.Info("chart_package_mutation_ui_blocked action=" + action);
+            return true;
+        }
+        return false;
+    }
+
     private static void LogStartupUiBlocked(string action, string reason)
     {
         installPerformanceLogger?.Info("startup_ui_blocked action=" + action + " reason=" + reason);
@@ -1122,6 +1132,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     private void customTableView_RowContextMenuRequested(object sender, CustomTableRowRequestedEventArgs e)
     {
         if (ShouldBlockStartupUiInteraction("custom_table_row_context_menu"))
+        {
+            return;
+        }
+        if (ShouldBlockChartPackageMutationInteraction("custom_table_row_context_menu"))
         {
             return;
         }
@@ -4305,6 +4319,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void treeViewLibraryFolderContextMenuItemAutoRenameAllFoldersClick(object sender, RoutedEventArgs e)
     {
+        if (ShouldBlockChartPackageMutationInteraction("tree_library_auto_rename_all"))
+        {
+            e.Handled = true;
+            return;
+        }
         if (!(e.Source is MenuItem { Parent: ContextMenu { PlacementTarget: TreeViewItem placementTarget } }))
         {
             return;
@@ -4328,6 +4347,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void treeViewInstalledContextMenuClearAllClick(object sender, RoutedEventArgs e)
     {
+        if (ShouldBlockChartPackageMutationInteraction("tree_installed_clear_all"))
+        {
+            e.Handled = true;
+            return;
+        }
         if (base.DataContext is MainWindowViewModel viewModel && DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_clear_all_installed, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) != MessageBoxResult.Cancel)
         {
             Task.Run(delegate
@@ -4339,6 +4363,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void treeViewInstallPendingContextMenuClearAllClick(object sender, RoutedEventArgs e)
     {
+        if (ShouldBlockChartPackageMutationInteraction("tree_pending_clear_all"))
+        {
+            e.Handled = true;
+            return;
+        }
         if (base.DataContext is MainWindowViewModel viewModel && DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_clear_all_pendings, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) != MessageBoxResult.Cancel)
         {
             Task.Run(delegate
@@ -4350,6 +4379,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private async void treeViewInstallPendingContextMenuDeleteInstalledOnlyPackagesClick(object sender, RoutedEventArgs e)
     {
+        if (ShouldBlockChartPackageMutationInteraction("tree_pending_delete_installed_only"))
+        {
+            e.Handled = true;
+            return;
+        }
         if (base.DataContext is not MainWindowViewModel viewModel)
         {
             return;
@@ -4409,6 +4443,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private async void treeViewInstallPendingContextMenuRenameZeroNoteToInvalidExtClick(object sender, RoutedEventArgs e)
     {
+        if (ShouldBlockChartPackageMutationInteraction("tree_pending_rename_zero_note"))
+        {
+            e.Handled = true;
+            return;
+        }
         if (base.DataContext is not MainWindowViewModel viewModel)
         {
             return;
@@ -4468,6 +4507,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private async void treeViewInstallPendingContextMenuOverwriteInstalledOnlyPackagesResourcesClick(object sender, RoutedEventArgs e)
     {
+        if (ShouldBlockChartPackageMutationInteraction("tree_pending_overwrite_installed_only_resources"))
+        {
+            e.Handled = true;
+            return;
+        }
         if (base.DataContext is not MainWindowViewModel viewModel)
         {
             return;
@@ -4556,6 +4600,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     /// </summary>
     private async void treeViewInstallPackageContextMenuClearFolderClick(object sender, RoutedEventArgs e)
     {
+        if (ShouldBlockChartPackageMutationInteraction("tree_package_clear_folder"))
+        {
+            e.Handled = true;
+            return;
+        }
         if (!(e.Source is MenuItem { Parent: ContextMenu { PlacementTarget: TreeViewItem placementTarget } }))
         {
             return;
@@ -4589,6 +4638,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private async void treeViewInstalledFolderContextMenuClearFolderClick(object sender, RoutedEventArgs e)
     {
+        if (ShouldBlockChartPackageMutationInteraction("tree_installed_clear_folder"))
+        {
+            e.Handled = true;
+            return;
+        }
         if (!(e.Source is MenuItem { Parent: ContextMenu { PlacementTarget: TreeViewItem placementTarget } }))
         {
             return;
@@ -4617,6 +4671,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void treeViewInstallPackageContextMenuRemoveInstallDestinationClick(object sender, RoutedEventArgs e)
     {
+        if (ShouldBlockChartPackageMutationInteraction("tree_package_remove_install_destination"))
+        {
+            e.Handled = true;
+            return;
+        }
         if (e.Source is not MenuItem menuItem || !((menuItem.Parent as MenuItem).Parent is ContextMenu { PlacementTarget: TreeViewItem placementTarget }))
         {
             return;
@@ -4636,6 +4695,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private async void treeViewInstallPackageContextMenuForceInstallClick(object sender, RoutedEventArgs e)
     {
+        if (ShouldBlockChartPackageMutationInteraction("tree_package_force_install"))
+        {
+            e.Handled = true;
+            return;
+        }
         if (e.Source is not MenuItem menuItem || !((menuItem.Parent as MenuItem).Parent is ContextMenu { PlacementTarget: TreeViewItem placementTarget }))
         {
             return;
@@ -4664,6 +4728,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private async void treeViewInstallPackageContextMenuManualInstallClick(object sender, RoutedEventArgs e)
     {
+        if (ShouldBlockChartPackageMutationInteraction("tree_package_manual_install"))
+        {
+            e.Handled = true;
+            return;
+        }
         if (e.Source is not MenuItem menuItem || !((menuItem.Parent as MenuItem).Parent is ContextMenu { PlacementTarget: TreeViewItem placementTarget }))
         {
             return;
@@ -4692,6 +4761,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void treeViewInstallPackageContextMenuSearchInstallationDirectoryClick(object sender, RoutedEventArgs e)
     {
+        if (ShouldBlockChartPackageMutationInteraction("tree_package_search_install_destination"))
+        {
+            e.Handled = true;
+            return;
+        }
         if (e.Source is not MenuItem menuItem || !((menuItem.Parent as MenuItem).Parent is ContextMenu { PlacementTarget: TreeViewItem placementTarget }))
         {
             return;
@@ -4711,6 +4785,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void treeViewInstallPackageContextMenuSearchMergeDestinationClick(object sender, RoutedEventArgs e)
     {
+        if (ShouldBlockChartPackageMutationInteraction("tree_package_search_merge_destination"))
+        {
+            e.Handled = true;
+            return;
+        }
         if (e.Source is not MenuItem menuItem || !((menuItem.Parent as MenuItem).Parent is ContextMenu { PlacementTarget: TreeViewItem placementTarget }))
         {
             return;
@@ -4774,6 +4853,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void treeViewDuplicateFolderContextMenuItemMergeIntoTargetClick(object sender, RoutedEventArgs e)
     {
+        if (ShouldBlockChartPackageMutationInteraction("tree_duplicate_merge_into"))
+        {
+            e.Handled = true;
+            return;
+        }
         if (!(e.Source is MenuItem { Tag: TreeViewItem tag } menuItem))
         {
             return;
@@ -4800,6 +4884,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     /// </summary>
     private void ExecuteDuplicateFolderMerge(string srcPath, string dstPath, DuplicateGroup duplicateGroup)
     {
+        if (ShouldBlockChartPackageMutationInteraction("duplicate_merge_execute"))
+        {
+            return;
+        }
         if (base.DataContext is not MainWindowViewModel viewModel)
         {
             return;
@@ -5394,6 +5482,15 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         if (ShouldBlockStartupUiInteraction("datagrid_context_menu_opened"))
         {
             e.Handled = true;
+            return;
+        }
+        if (ShouldBlockChartPackageMutationInteraction("datagrid_context_menu_opened"))
+        {
+            e.Handled = true;
+            if (sender is ContextMenu blockedContextMenu)
+            {
+                CloseContextMenuIfOpen(blockedContextMenu);
+            }
             return;
         }
         if (!TryGetContextMenuRow(sender, out ContextMenu contextMenu, out object row))
@@ -8001,6 +8098,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
+        if (ShouldBlockChartPackageMutationInteraction("table_context_menu_remove_install_destination"))
+        {
+            e.Handled = true;
+            return;
+        }
         if (base.DataContext is not MainWindowViewModel viewModel)
         {
             return;
@@ -8046,6 +8148,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
+        if (ShouldBlockChartPackageMutationInteraction("table_context_menu_search_correct_installation_directory"))
+        {
+            e.Handled = true;
+            return;
+        }
         List<ChartOperationTarget> targets = GetSelectedChartTargets(ChartOperationCapabilities.RepairInstalledLocation);
         if (targets.Count != 0)
         {
@@ -8062,6 +8169,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void tableContextMenuFixInstallationDirectoryClick(object sender, RoutedEventArgs e)
     {
+        if (ShouldBlockChartPackageMutationInteraction("datagrid_fix_installation_directory"))
+        {
+            e.Handled = true;
+            return;
+        }
         if (!TryGetContextMenuRow(e.Source, out _))
         {
             return;
@@ -8151,6 +8263,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void tableContextMenuItemAutoRenameFolderClick(object sender, RoutedEventArgs e)
     {
+        if (ShouldBlockChartPackageMutationInteraction("datagrid_auto_rename_folder"))
+        {
+            e.Handled = true;
+            return;
+        }
         List<ChartOperationTarget> targets = GetSelectedChartTargets(ChartOperationCapabilities.MoveInLibrary);
         if (base.DataContext is not MainWindowViewModel viewModel)
         {
@@ -8175,6 +8292,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void tableContextMenuItemRenameBMSFileClick(object sender, RoutedEventArgs e)
     {
+        if (ShouldBlockChartPackageMutationInteraction("datagrid_rename_invalid_extension"))
+        {
+            e.Handled = true;
+            return;
+        }
         List<ChartFile> charts = GetSelectedBmsFormatCharts(ChartOperationCapabilities.RenameInvalidExtension);
         var viewModel = base.DataContext as MainWindowViewModel;
         bool isPendingSelected = IsPendingMainViewSection(GetCurrentMainViewOperationSection());
@@ -8213,6 +8335,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void tableContextMenuItemRemoveBMSFileClick(object sender, RoutedEventArgs e)
     {
+        if (ShouldBlockChartPackageMutationInteraction("datagrid_remove_chart"))
+        {
+            e.Handled = true;
+            return;
+        }
         MainWindowViewModel.MainViewOperationSection section = GetCurrentMainViewOperationSection();
         bool isPendingSelected = IsPendingMainViewSection(section);
         List<ChartOperationTarget> selectedTargets = GetSelectedChartTargets(isPendingSelected);
@@ -8301,6 +8428,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private async void tableContextMenuItemMoveFileClick(object sender, RoutedEventArgs e)
     {
+        if (ShouldBlockChartPackageMutationInteraction("datagrid_move_chart"))
+        {
+            e.Handled = true;
+            return;
+        }
         List<ChartOperationTarget> targets = [.. GetSelectedChartTargets().Where(target => target.HasCapability(ChartOperationCapabilities.MoveInLibrary) && !string.IsNullOrWhiteSpace(target.Chart?.Path))];
         if (sender is not MenuItem menuItem)
         {
@@ -8366,6 +8498,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private async void forceInstallSelectedPendingCharts(object sender, RoutedEventArgs e)
     {
+        if (ShouldBlockChartPackageMutationInteraction("datagrid_force_install_pending"))
+        {
+            e.Handled = true;
+            return;
+        }
         if (!TryGetContextMenuRow(e.Source, out _))
         {
             return;
@@ -8397,6 +8534,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private async void manualInstallSelectedPendingCharts(object sender, RoutedEventArgs e)
     {
+        if (ShouldBlockChartPackageMutationInteraction("datagrid_manual_install_pending"))
+        {
+            e.Handled = true;
+            return;
+        }
         if (!TryGetContextMenuRow(e.Source, out _))
         {
             return;
@@ -8425,6 +8567,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private async void searchInstallDestinationSelectedPendingCharts(object sender, RoutedEventArgs e)
     {
+        if (ShouldBlockChartPackageMutationInteraction("datagrid_search_install_destination"))
+        {
+            e.Handled = true;
+            return;
+        }
         if (!TryGetContextMenuRow(e.Source, out _))
         {
             return;
@@ -8449,6 +8596,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private async void tableContextMenuItemDeleteInstallPackagesClick(object sender, RoutedEventArgs e)
     {
+        if (ShouldBlockChartPackageMutationInteraction("datagrid_delete_install_package_records"))
+        {
+            e.Handled = true;
+            return;
+        }
         if (!TryGetContextMenuRow(e.Source, out _))
         {
             return;
@@ -8515,6 +8667,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private async void searchMergeDestinationSelectedPendingCharts(object sender, RoutedEventArgs e)
     {
+        if (ShouldBlockChartPackageMutationInteraction("datagrid_search_merge_destination"))
+        {
+            e.Handled = true;
+            return;
+        }
         if (!TryGetContextMenuRow(e.Source, out _))
         {
             return;
