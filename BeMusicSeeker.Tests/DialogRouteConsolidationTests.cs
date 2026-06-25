@@ -74,6 +74,27 @@ public sealed class DialogRouteConsolidationTests
         StringAssert.Contains(themedDialogActions, "UiDialogStatus.CancelledByUser or UiDialogStatus.ClosedByUser => ThemedMessageBox.ToConfirmationResponse(result.MessageBoxResult)");
     }
 
+    [TestMethod]
+    public void ScoreViewerRegistration_UsesCoordinatorForConfirmationRoute()
+    {
+        string root = FindRepositoryRoot();
+        string viewModelCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string registerScoreViewerTargets = ExtractBetween(viewModelCode, "internal string RegisterScoreViewerTargets", "public void ConvertBMSToAudioFiles");
+
+        StringAssert.Contains(registerScoreViewerTargets, "UiDialogCoordinator");
+        Assert.IsFalse(registerScoreViewerTargets.Contains("new ConfirmationMessage"), "Score Viewer registration must not use the Livet confirmation route.");
+        Assert.IsFalse(registerScoreViewerTargets.Contains("RaiseInteractionMessageOnUiThread"), "Score Viewer registration confirmation must not depend on Livet trigger wiring.");
+        StringAssert.Contains(registerScoreViewerTargets, "UiDialogStatus.Failed => throw");
+        Assert.IsTrue(
+            registerScoreViewerTargets.IndexOf("if (!userConfirmedMultiRegister && Settings.Default.ShowScoreViewerRegisterConfirmMsg)", StringComparison.Ordinal)
+            > registerScoreViewerTargets.IndexOf("NLogWrapper.FileLogger?.Warn(ex, \"score_viewer_status_failed", StringComparison.Ordinal),
+            "Score Viewer confirmation must stay outside the status check catch block.");
+        Assert.IsTrue(
+            registerScoreViewerTargets.IndexOf("string registerResponseJson = AppHttpClient.Shared.PostFile", StringComparison.Ordinal)
+            > registerScoreViewerTargets.IndexOf("if (!userConfirmedMultiRegister && Settings.Default.ShowScoreViewerRegisterConfirmMsg)", StringComparison.Ordinal),
+            "Score Viewer upload must happen only after confirmation has completed.");
+    }
+
     private static IReadOnlyList<string> ReadDocumentedLegacySourceFiles(string inventory)
     {
         string section = ExtractBetween(inventory, "## Legacy Source Files", "## Route Classification Axes");

@@ -20,7 +20,7 @@
 | --- | --- | --- |
 | Unit 0: Inventory Freeze | Completed | `devdocs/spec/dialog-route-inventory.md` を追加。legacy route source file を inventory と一致させる architecture guard を追加。 |
 | Unit 1: UiDialogCoordinator Skeleton | Completed | request / result / owner resolver / async message route skeleton を追加。`ThemedMessageBox` は close と button selection を区別できる表示部品に拡張。 |
-| Unit 2: Message / Confirmation Route Replacement | In progress | Legacy entrypoint `DispatcherMessageBox` と Livet `Themed*InteractionMessageAction` を coordinator-backed に置換済み。次は `ConfirmationMessage.Response == null` と譜面ビューア登録確認を含む decision call site を直接 coordinator に寄せる。 |
+| Unit 2: Message / Confirmation Route Replacement | In progress | Legacy entrypoint `DispatcherMessageBox` と Livet `Themed*InteractionMessageAction` を coordinator-backed に置換済み。譜面ビューア登録確認は coordinator route へ直接置換済み。次は残りの `ConfirmationMessage.Response` decision call site を route ごとに消す。 |
 | Unit 3: Model Dialog Boundary Replacement | Pending | Model mutation 中の UI 待ちを operation result / preflight へ移す。 |
 | Unit 4: Progress Dialog Replacement | Pending | progress worker 内 dialog を preflight / post-result に移し、`ProgressDialog.Current` を廃止する。 |
 | Unit 5: File Picker Route Replacement | Pending | picker request 型へ横断置換し、owner なし `ShowDialog()` を廃止する。 |
@@ -43,6 +43,11 @@
 | Unit 2 entrypoints | `dotnet format whitespace BeMusicSeeker.sln --verify-no-changes --no-restore --verbosity minimal` | Passed | no whitespace changes required. |
 | Unit 2 entrypoints | `dotnet roslynator analyze BeMusicSeeker.sln --properties Configuration=Release --severity-level warning --verbosity minimal` | Passed | 0 diagnostics. |
 | Unit 2 entrypoints | sub-agent static review | Passed | Initial High finding for `ClosedByUser` / `YesNo` close mapping was fixed. Final review returned重大な指摘なし. |
+| Unit 2 score viewer | `dotnet build BeMusicSeeker.sln /p:Configuration=Release --no-restore` | Passed | 0 warnings, 0 errors. |
+| Unit 2 score viewer | `dotnet test BeMusicSeeker.Tests\BeMusicSeeker.Tests.csproj --filter "DialogRouteConsolidationTests\|MainWindowContextMenuResourceTests" /p:Configuration=Release --no-restore` | Passed | 95 tests passed. |
+| Unit 2 score viewer | `dotnet format whitespace BeMusicSeeker.sln --verify-no-changes --no-restore --verbosity minimal` | Passed | no whitespace changes required. |
+| Unit 2 score viewer | `dotnet roslynator analyze BeMusicSeeker.sln --properties Configuration=Release --severity-level warning --verbosity minimal` | Passed | 0 diagnostics. |
+| Unit 2 score viewer | sub-agent static review | Passed | Initial High finding for dialog failures being caught as upload failures was fixed. Final review returned重大な指摘なし. |
 
 ## Goals
 

@@ -24,6 +24,7 @@ using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.Views;
+using BeMusicSeeker.Views.Dialogs;
 using Codeplex.Data;
 using Livet;
 using Livet.Commands;
@@ -31182,14 +31183,11 @@ public class MainWindowViewModel : ViewModel
         string resultViewUrl = null;
         if (normalizedTargets.Count > 1)
         {
-            var confirmationMessage = new ConfirmationMessage(
+            if (!ShowScoreViewerConfirmation(
                 BeMusicSeeker.Properties.Resources.Msg_register_chart + Environment.NewLine + Environment.NewLine + normalizedTargets.Count + " " + BeMusicSeeker.Properties.Resources.Num_chart,
                 BeMusicSeeker.Properties.Resources.Confirm,
                 MessageBoxImage.Asterisk,
-                MessageBoxButton.YesNo,
-                "ConfirmationDialog");
-            RaiseInteractionMessageOnUiThread(confirmationMessage);
-            if (confirmationMessage.Response != true)
+                MessageBoxButton.YesNo))
             {
                 return null;
             }
@@ -31197,17 +31195,18 @@ public class MainWindowViewModel : ViewModel
         }
         foreach (ScoreViewerTarget target in normalizedTargets)
         {
+            string currentFileHash = target.Hash;
+            if (string.IsNullOrWhiteSpace(target.Path) || !LongPathFileSystem.FileExists(target.Path))
+            {
+                if (target == lastTarget)
+                {
+                    resultViewUrl = scoreViewUrl + currentFileHash;
+                }
+                continue;
+            }
+
             try
             {
-                string currentFileHash = target.Hash;
-                if (string.IsNullOrWhiteSpace(target.Path) || !LongPathFileSystem.FileExists(target.Path))
-                {
-                    if (target == lastTarget)
-                    {
-                        resultViewUrl = scoreViewUrl + currentFileHash;
-                    }
-                    continue;
-                }
                 string statusJson = AppHttpClient.Shared.GetString(new Uri(scoreStatusUrl + currentFileHash), Encoding.UTF8);
                 dynamic statusVal = DynamicJson.Parse(statusJson);
                 if (statusVal.status == "OK")
@@ -31218,24 +31217,31 @@ public class MainWindowViewModel : ViewModel
                     }
                     continue;
                 }
-                if (!userConfirmedMultiRegister && Settings.Default.ShowScoreViewerRegisterConfirmMsg)
+            }
+            catch (Exception ex)
+            {
+                NLogWrapper.FileLogger?.Warn(ex, "score_viewer_status_failed path=" + (target.Path ?? string.Empty) + " md5=" + (target.Hash ?? string.Empty));
+                continue;
+            }
+
+            if (!userConfirmedMultiRegister && Settings.Default.ShowScoreViewerRegisterConfirmMsg)
+            {
+                if (ShowScoreViewerConfirmation(
+                    BeMusicSeeker.Properties.Resources.Msg_show_chart + Environment.NewLine + Environment.NewLine + (target.Title ?? string.Empty) + Environment.NewLine + "MD5: " + currentFileHash + Environment.NewLine + Environment.NewLine + "(" + BeMusicSeeker.Properties.Resources.Msg_hide_message + ")",
+                    BeMusicSeeker.Properties.Resources.Confirm,
+                    MessageBoxImage.Asterisk,
+                    MessageBoxButton.YesNo))
                 {
-                    var uploadConfirmMessage = new ConfirmationMessage(
-                        BeMusicSeeker.Properties.Resources.Msg_show_chart + Environment.NewLine + Environment.NewLine + (target.Title ?? string.Empty) + Environment.NewLine + "MD5: " + currentFileHash + Environment.NewLine + Environment.NewLine + "(" + BeMusicSeeker.Properties.Resources.Msg_hide_message + ")",
-                        BeMusicSeeker.Properties.Resources.Confirm,
-                        MessageBoxImage.Asterisk,
-                        MessageBoxButton.YesNo,
-                        "ConfirmationDialog");
-                    RaiseInteractionMessageOnUiThread(uploadConfirmMessage);
-                    if (uploadConfirmMessage.Response == true)
-                    {
-                        userConfirmedMultiRegister = true;
-                    }
-                    else
-                    {
-                        continue;
-                    }
+                    userConfirmedMultiRegister = true;
                 }
+                else
+                {
+                    continue;
+                }
+            }
+
+            try
+            {
                 string registerResponseJson = AppHttpClient.Shared.PostFile(new Uri(scoreRegisterUrl), target.Path, responseEncoding: Encoding.UTF8, headers: new Dictionary<string, string> { { "Accept", "application/json" } }, logErrorResponseBody: true);
                 if (target == lastTarget)
                 {
@@ -31254,9 +31260,53 @@ public class MainWindowViewModel : ViewModel
         }
         if (userConfirmedMultiRegister && !string.IsNullOrWhiteSpace(resultViewUrl))
         {
-            RaiseInteractionMessageOnUiThread(new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Msg_success_register_chart, BeMusicSeeker.Properties.Resources.Information, MessageBoxImage.Asterisk, MessageBoxButton.OK, "ConfirmationDialog"));
+            ShowScoreViewerMessage(BeMusicSeeker.Properties.Resources.Msg_success_register_chart, BeMusicSeeker.Properties.Resources.Information, MessageBoxImage.Asterisk);
         }
         return resultViewUrl;
+    }
+
+    private static bool ShowScoreViewerConfirmation(string messageBoxText, string caption, MessageBoxImage icon, MessageBoxButton button)
+    {
+        UiDialogResult result = new UiDialogCoordinator()
+            .ConfirmAsync(new UiConfirmationRequest(messageBoxText, caption, button, icon, MessageBoxResult.None))
+            .GetAwaiter()
+            .GetResult();
+        return ToScoreViewerConfirmationDecision(result);
+    }
+
+    private static void ShowScoreViewerMessage(string messageBoxText, string caption, MessageBoxImage icon)
+    {
+        UiDialogResult result = new UiDialogCoordinator()
+            .ShowMessageAsync(new UiMessageRequest(messageBoxText, caption, MessageBoxButton.OK, icon, MessageBoxResult.OK))
+            .GetAwaiter()
+            .GetResult();
+        ThrowIfScoreViewerDialogNotShown(result, "Score Viewer message dialog");
+    }
+
+    private static bool ToScoreViewerConfirmationDecision(UiDialogResult result)
+    {
+        return result.Status switch
+        {
+            UiDialogStatus.Accepted => true,
+            UiDialogStatus.Rejected or UiDialogStatus.CancelledByUser or UiDialogStatus.ClosedByUser => false,
+            UiDialogStatus.Failed => throw new InvalidOperationException("Score Viewer confirmation dialog failed.", result.Exception),
+            _ => throw new InvalidOperationException("Score Viewer confirmation dialog was not shown: " + result.Status),
+        };
+    }
+
+    private static void ThrowIfScoreViewerDialogNotShown(UiDialogResult result, string routeName)
+    {
+        if (result.Status is UiDialogStatus.Accepted or UiDialogStatus.CancelledByUser or UiDialogStatus.ClosedByUser)
+        {
+            return;
+        }
+
+        if (result.Status == UiDialogStatus.Failed)
+        {
+            throw new InvalidOperationException(routeName + " failed.", result.Exception);
+        }
+
+        throw new InvalidOperationException(routeName + " was not shown: " + result.Status);
     }
 
     public void ConvertBMSToAudioFiles(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles, string saveDir, CancellationToken token = default, Action<bool> onEachCompleted = null)
