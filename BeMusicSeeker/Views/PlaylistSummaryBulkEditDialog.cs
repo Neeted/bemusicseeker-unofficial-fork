@@ -4,6 +4,7 @@ using System.Windows;
 using System.Windows.Controls;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.ViewModels;
+using BeMusicSeeker.Views.Dialogs;
 
 namespace BeMusicSeeker.Views;
 
@@ -129,7 +130,7 @@ public partial class PlaylistSummaryBulkEditDialog : UserControl
         string message = enabled
             ? "同期モードに設定するとローカルの変更が失われます。" + Environment.NewLine + "よろしいですか？"
             : "同期モードを解除するとリモートの変更が反映されなくなります。" + Environment.NewLine + "よろしいですか？";
-        return DispatcherMessageBox.Show(
+        return UiDialogRoute.ShowMessageBox(
             Window.GetWindow(this),
             message,
             "警告",

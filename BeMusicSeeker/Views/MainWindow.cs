@@ -526,7 +526,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             }
             base.Dispatcher.Invoke(() =>
             {
-                DispatcherMessageBox.Show(
+                UiDialogRoute.ShowMessageBox(
                     "Failed to download or start the update.\n" + ex.Message,
                     "Update Failed",
                     MessageBoxButton.OK,
@@ -672,7 +672,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     {
         if (playlistUrlBulkDownloadRunning)
         {
-            DispatcherMessageBox.Show(this, BeMusicSeeker.Properties.Resources.Warn_DropInstallBlockedByPlaylistUrlDownload, BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
+            UiDialogRoute.ShowMessageBox(this, BeMusicSeeker.Properties.Resources.Warn_DropInstallBlockedByPlaylistUrlDownload, BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
             return;
         }
         if (e.Data.GetData(DataFormats.FileDrop) is string[] filePaths)
@@ -1619,7 +1619,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         if (base.DataContext is MainWindowViewModel mainWindowViewModel)
         {
             e.Handled = true;
-            if (DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_init_column_settings, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) != MessageBoxResult.Cancel)
+            if (UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_init_column_settings, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) != MessageBoxResult.Cancel)
             {
                 mainWindowViewModel.LoadColumnSetting();
             }
@@ -3336,7 +3336,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         string confirmationText = (!flag)
             ? "同期モードを解除するとリモートの変更が反映されなくなります。" + Environment.NewLine + "よろしいですか？"
             : "同期モードに設定するとローカルの変更が失われます。" + Environment.NewLine + "よろしいですか？";
-        if (DispatcherMessageBox.Show(Window.GetWindow(this), confirmationText, "警告", MessageBoxButton.OKCancel, MessageBoxImage.Exclamation, MessageBoxResult.Cancel) != MessageBoxResult.OK)
+        if (UiDialogRoute.ShowMessageBox(Window.GetWindow(this), confirmationText, "警告", MessageBoxButton.OKCancel, MessageBoxImage.Exclamation, MessageBoxResult.Cancel) != MessageBoxResult.OK)
         {
             checkBox.IsChecked = !flag;
             return;
@@ -3361,7 +3361,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         string confirmationText = (!flag)
             ? "同期モードを解除するとリモートの変更が反映されなくなります。" + Environment.NewLine + "よろしいですか？"
             : "同期モードに設定するとローカルの変更が失われます。" + Environment.NewLine + "よろしいですか？";
-        if (DispatcherMessageBox.Show(Window.GetWindow(this), confirmationText, "警告", MessageBoxButton.OKCancel, MessageBoxImage.Exclamation, MessageBoxResult.Cancel) != MessageBoxResult.OK)
+        if (UiDialogRoute.ShowMessageBox(Window.GetWindow(this), confirmationText, "警告", MessageBoxButton.OKCancel, MessageBoxImage.Exclamation, MessageBoxResult.Cancel) != MessageBoxResult.OK)
         {
             customTablePlaylistSummary?.RefreshDisplay();
             return;
@@ -3556,7 +3556,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        if (DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_remove_playlist, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) == MessageBoxResult.Cancel)
+        if (UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_remove_playlist, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) == MessageBoxResult.Cancel)
         {
             return;
         }
@@ -3966,17 +3966,17 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         var uri = new Uri((string)menuItem.Tag);
         if (viewModel.LR2ID == 0)
         {
-            DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_load_recommended_tables_error, BeMusicSeeker.Properties.Resources.Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+            UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_load_recommended_tables_error, BeMusicSeeker.Properties.Resources.Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
             return;
         }
         if (Regex.Match((string)menuItem.Tag, "mode=update").Success)
         {
-            if (DispatcherMessageBox.Show(Window.GetWindow(this), "LR2ID: " + viewModel.LR2ID + BeMusicSeeker.Properties.Resources.Msg_load_recommended_tables_update_mode, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.OK) == MessageBoxResult.Cancel)
+            if (UiDialogRoute.ShowMessageBox(Window.GetWindow(this), "LR2ID: " + viewModel.LR2ID + BeMusicSeeker.Properties.Resources.Msg_load_recommended_tables_update_mode, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.OK) == MessageBoxResult.Cancel)
             {
                 return;
             }
         }
-        else if (DispatcherMessageBox.Show(Window.GetWindow(this), "LR2ID: " + viewModel.LR2ID + BeMusicSeeker.Properties.Resources.Msg_load_recommended_tables_readonly_mode, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.OK) == MessageBoxResult.Cancel)
+        else if (UiDialogRoute.ShowMessageBox(Window.GetWindow(this), "LR2ID: " + viewModel.LR2ID + BeMusicSeeker.Properties.Resources.Msg_load_recommended_tables_readonly_mode, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.OK) == MessageBoxResult.Cancel)
         {
             return;
         }
@@ -4227,9 +4227,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         if (!string.IsNullOrWhiteSpace(bmsTable.page_url) && bmsTable.page_url.StartsWith("bmseeker:table.recommended"))
         {
-            DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_override_level_error_recommended, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+            UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_override_level_error_recommended, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
         }
-        else if (DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_override_level_warning, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) != MessageBoxResult.Cancel)
+        else if (UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_override_level_warning, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) != MessageBoxResult.Cancel)
         {
             Task.Run(delegate
             {
@@ -4249,7 +4249,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        if (menuItem.DataContext is not BMSTable bmsTable || DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_remove_playlist, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) == MessageBoxResult.Cancel)
+        if (menuItem.DataContext is not BMSTable bmsTable || UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_remove_playlist, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) == MessageBoxResult.Cancel)
         {
             return;
         }
@@ -4423,7 +4423,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
         string folderNameDelete = folderNode.FolderName;
-        if (DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_remove_folder, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) != MessageBoxResult.Cancel)
+        if (UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_remove_folder, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) != MessageBoxResult.Cancel)
         {
             await Task.Run(delegate
             {
@@ -4479,7 +4479,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
         MainWindowViewModel.SettingDialogViewModel viewModel = (base.DataContext as MainWindowViewModel).settingDialog;
-        if (LongPathFileSystem.DirectoryExists(path) && DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_unregister_root_folder, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) != MessageBoxResult.Cancel)
+        if (LongPathFileSystem.DirectoryExists(path) && UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_unregister_root_folder, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) != MessageBoxResult.Cancel)
         {
             viewModel.RemoveBMSDirectoryFromRootFolderAndSave(path);
         }
@@ -4497,7 +4497,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
         string path = placementTarget.Header.ToString();
-        if (base.DataContext is MainWindowViewModel viewModel && LongPathFileSystem.DirectoryExists(path) && DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_rename_folders, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) != MessageBoxResult.Cancel)
+        if (base.DataContext is MainWindowViewModel viewModel && LongPathFileSystem.DirectoryExists(path) && UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_rename_folders, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) != MessageBoxResult.Cancel)
         {
             Task.Run(delegate
             {
@@ -4520,7 +4520,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             e.Handled = true;
             return;
         }
-        if (base.DataContext is MainWindowViewModel viewModel && DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_clear_all_installed, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) != MessageBoxResult.Cancel)
+        if (base.DataContext is MainWindowViewModel viewModel && UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_clear_all_installed, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) != MessageBoxResult.Cancel)
         {
             Task.Run(delegate
             {
@@ -4536,7 +4536,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             e.Handled = true;
             return;
         }
-        if (base.DataContext is MainWindowViewModel viewModel && DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_clear_all_pendings, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) != MessageBoxResult.Cancel)
+        if (base.DataContext is MainWindowViewModel viewModel && UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_clear_all_pendings, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) != MessageBoxResult.Cancel)
         {
             Task.Run(delegate
             {
@@ -4559,11 +4559,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         List<ChartPackage> list = viewModel.GetPendingPackagesContainingOnlyInstalledCharts();
         if (list.Count == 0)
         {
-            DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Warn_no_pending_installed_only_packages, BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
+            UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Warn_no_pending_installed_only_packages, BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
             return;
         }
         string messageBoxText = string.Format(BeMusicSeeker.Properties.Resources.Msg_delete_pending_installed_only_packages_permanently, list.Count);
-        if (DispatcherMessageBox.Show(Window.GetWindow(this), messageBoxText, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Warning, MessageBoxResult.Cancel) == MessageBoxResult.Cancel)
+        if (UiDialogRoute.ShowMessageBox(Window.GetWindow(this), messageBoxText, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Warning, MessageBoxResult.Cancel) == MessageBoxResult.Cancel)
         {
             return;
         }
@@ -4609,11 +4609,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         List<ChartFile> list = viewModel.GetPendingBmsFormatChartFilesSnapshot();
         if (list.Count == 0)
         {
-            DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Warn_no_pending_charts, BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
+            UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Warn_no_pending_charts, BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
             return;
         }
         string messageBoxText = string.Format(BeMusicSeeker.Properties.Resources.Msg_rename_pending_zero_note_to_invalid_ext, list.Count);
-        if (DispatcherMessageBox.Show(Window.GetWindow(this), messageBoxText, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Warning, MessageBoxResult.Cancel) == MessageBoxResult.Cancel)
+        if (UiDialogRoute.ShowMessageBox(Window.GetWindow(this), messageBoxText, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Warning, MessageBoxResult.Cancel) == MessageBoxResult.Cancel)
         {
             return;
         }
@@ -4659,11 +4659,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         List<ChartPackage> list = viewModel.GetPendingPackagesContainingOnlyInstalledCharts();
         if (list.Count == 0)
         {
-            DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Warn_no_pending_installed_only_packages, BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
+            UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Warn_no_pending_installed_only_packages, BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
             return;
         }
         string messageBoxText = string.Format(BeMusicSeeker.Properties.Resources.Msg_overwrite_pending_installed_only_packages_resources, list.Count);
-        if (DispatcherMessageBox.Show(Window.GetWindow(this), messageBoxText, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Warning, MessageBoxResult.Cancel) == MessageBoxResult.Cancel)
+        if (UiDialogRoute.ShowMessageBox(Window.GetWindow(this), messageBoxText, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Warning, MessageBoxResult.Cancel) == MessageBoxResult.Cancel)
         {
             return;
         }
@@ -4698,7 +4698,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         if (pendingInstalledOnlyResourceOverwriteResult != null)
         {
-            DispatcherMessageBox.Show(Window.GetWindow(this), string.Format(BeMusicSeeker.Properties.Resources.Warn_overwrite_pending_installed_only_packages_summary, pendingInstalledOnlyResourceOverwriteResult.Requested, pendingInstalledOnlyResourceOverwriteResult.Processed, pendingInstalledOnlyResourceOverwriteResult.SucceededInstall, pendingInstalledOnlyResourceOverwriteResult.SucceededCleanupOnly, pendingInstalledOnlyResourceOverwriteResult.SkippedNotPending, pendingInstalledOnlyResourceOverwriteResult.SkippedMissingInstlDst, pendingInstalledOnlyResourceOverwriteResult.SkippedMultiDestination, pendingInstalledOnlyResourceOverwriteResult.SkippedNoComponentTarget, pendingInstalledOnlyResourceOverwriteResult.Failed, pendingInstalledOnlyResourceOverwriteResult.Canceled), BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
+            UiDialogRoute.ShowMessageBox(Window.GetWindow(this), string.Format(BeMusicSeeker.Properties.Resources.Warn_overwrite_pending_installed_only_packages_summary, pendingInstalledOnlyResourceOverwriteResult.Requested, pendingInstalledOnlyResourceOverwriteResult.Processed, pendingInstalledOnlyResourceOverwriteResult.SucceededInstall, pendingInstalledOnlyResourceOverwriteResult.SucceededCleanupOnly, pendingInstalledOnlyResourceOverwriteResult.SkippedNotPending, pendingInstalledOnlyResourceOverwriteResult.SkippedMissingInstlDst, pendingInstalledOnlyResourceOverwriteResult.SkippedMultiDestination, pendingInstalledOnlyResourceOverwriteResult.SkippedNoComponentTarget, pendingInstalledOnlyResourceOverwriteResult.Failed, pendingInstalledOnlyResourceOverwriteResult.Canceled), BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
         }
     }
 
@@ -4739,7 +4739,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        if (base.DataContext is not MainWindowViewModel viewModel || DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_clear_pendings + Environment.NewLine + Environment.NewLine + GetPendingPackageClearConfirmationTarget(pkg), BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) == MessageBoxResult.Cancel)
+        if (base.DataContext is not MainWindowViewModel viewModel || UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_clear_pendings + Environment.NewLine + Environment.NewLine + GetPendingPackageClearConfirmationTarget(pkg), BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) == MessageBoxResult.Cancel)
         {
             return;
         }
@@ -4867,7 +4867,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        if (base.DataContext is not MainWindowViewModel viewModel || (Settings.Default.ShowDiffBMSInstallConfirmMsg && DispatcherMessageBox.Show(Window.GetWindow(this), GetManualInstallConfirmationMessage(), BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Asterisk) != MessageBoxResult.OK))
+        if (base.DataContext is not MainWindowViewModel viewModel || (Settings.Default.ShowDiffBMSInstallConfirmMsg && UiDialogRoute.ShowMessageBox(Window.GetWindow(this), GetManualInstallConfirmationMessage(), BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Asterisk) != MessageBoxResult.OK))
         {
             return;
         }
@@ -5024,7 +5024,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
 
         // 確認ダイアログ
-        if (Settings.Default.ShowDuplicateFileCheckConfirmMsg && DispatcherMessageBox.Show(Window.GetWindow(this),
+        if (Settings.Default.ShowDuplicateFileCheckConfirmMsg && UiDialogRoute.ShowMessageBox(Window.GetWindow(this),
             BeMusicSeeker.Properties.Resources.Msg_merge_bms_folder + Environment.NewLine + Environment.NewLine +
             BeMusicSeeker.Properties.Resources.Msg_merge_bms_target + ": " + srcPath + Environment.NewLine +
             BeMusicSeeker.Properties.Resources.Msg_merge_bms_destination + ": " + dstPath,
@@ -5513,7 +5513,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
 
         // 確認ダイアログ
-        if (Settings.Default.ShowDuplicateFileCheckConfirmMsg && DispatcherMessageBox.Show(Window.GetWindow(this),
+        if (Settings.Default.ShowDuplicateFileCheckConfirmMsg && UiDialogRoute.ShowMessageBox(Window.GetWindow(this),
             string.Format(BeMusicSeeker.Properties.Resources.Msg_cleanup_duplicate_hash, deletionList.Count),
             BeMusicSeeker.Properties.Resources.Confirm,
             MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) == MessageBoxResult.Cancel)
@@ -6494,11 +6494,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         if (targets.Count > 1)
         {
-            DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_open_install_destination_multiple_selected, BeMusicSeeker.Properties.Resources.Information, MessageBoxButton.OK, MessageBoxImage.Information, MessageBoxResult.OK);
+            UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_open_install_destination_multiple_selected, BeMusicSeeker.Properties.Resources.Information, MessageBoxButton.OK, MessageBoxImage.Information, MessageBoxResult.OK);
         }
         if (!TryResolveInstallDestination(targets[0].Chart, out string installDir, out string reason))
         {
-            DispatcherMessageBox.Show(Window.GetWindow(this), reason, BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
+            UiDialogRoute.ShowMessageBox(Window.GetWindow(this), reason, BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
             return;
         }
         OpenInstallDestinationInExplorer(installDir);
@@ -6512,7 +6512,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         if (!TryResolveInstallDestination(dataContext, out string installDir, out string reason))
         {
-            DispatcherMessageBox.Show(Window.GetWindow(this), reason, BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
+            UiDialogRoute.ShowMessageBox(Window.GetWindow(this), reason, BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
             return;
         }
         OpenInstallDestinationInExplorer(installDir);
@@ -6697,19 +6697,19 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         List<Uri> targets = BuildPlaylistUrlTargets(rows, isDiffUrl);
         if (targets.Count == 0)
         {
-            DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Warn_SelectedPlaylistUrlDownloadNoTargets, BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
+            UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Warn_SelectedPlaylistUrlDownloadNoTargets, BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
             return;
         }
         if (base.DataContext is MainWindowViewModel { DropInstallQueueCanCancel: true })
         {
-            DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Warn_SelectedPlaylistUrlDownloadBlockedByInstallQueue, BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
+            UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Warn_SelectedPlaylistUrlDownloadBlockedByInstallQueue, BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
             return;
         }
         string confirmationMessage = string.Format(
             BeMusicSeeker.Properties.Resources.Confirm_SelectedPlaylistUrlDownload,
             targets.Count,
             isDiffUrl ? BeMusicSeeker.Properties.Resources.Diff_URL : BeMusicSeeker.Properties.Resources.Original_URL);
-        if (DispatcherMessageBox.Show(Window.GetWindow(this), confirmationMessage, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) == MessageBoxResult.Cancel)
+        if (UiDialogRoute.ShowMessageBox(Window.GetWindow(this), confirmationMessage, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) == MessageBoxResult.Cancel)
         {
             return;
         }
@@ -6761,7 +6761,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             browserFallbackCount,
             blockedBySizeLimitCount,
             failedCount);
-        DispatcherMessageBox.Show(
+        UiDialogRoute.ShowMessageBox(
             Window.GetWindow(this),
             resultMessage,
             BeMusicSeeker.Properties.Resources.Information,
@@ -8300,9 +8300,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         e.Handled = true;
         if (!repairTargets.HasInstallDestination)
         {
-            DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_fix_installation_warning, BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
+            UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_fix_installation_warning, BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
         }
-        else if (DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_fix_installation, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) != MessageBoxResult.Cancel)
+        else if (UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_fix_installation, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) != MessageBoxResult.Cancel)
         {
             Task.Run(delegate
             {
@@ -8336,7 +8336,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             e.Handled = true;
             return;
         }
-        if (DispatcherMessageBox.Show(Window.GetWindow(this),
+        if (UiDialogRoute.ShowMessageBox(Window.GetWindow(this),
             BeMusicSeeker.Properties.Resources.Msg_rescan_all_charts_confirm,
             BeMusicSeeker.Properties.Resources.Confirm,
             MessageBoxButton.OKCancel,
@@ -8362,7 +8362,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        if (DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_remove_chart_info_parse_failure_record, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) == MessageBoxResult.Cancel)
+        if (UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_remove_chart_info_parse_failure_record, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) == MessageBoxResult.Cancel)
         {
             return;
         }
@@ -8412,7 +8412,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         List<ChartFile> charts = GetSelectedBmsFormatCharts(ChartOperationCapabilities.RenameInvalidExtension);
         var viewModel = base.DataContext as MainWindowViewModel;
         bool isPendingSelected = IsPendingMainViewSection(GetCurrentMainViewOperationSection());
-        if (charts.Count <= 0 || DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_rename_to_invalid, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) == MessageBoxResult.Cancel)
+        if (charts.Count <= 0 || UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_rename_to_invalid, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) == MessageBoxResult.Cancel)
         {
             return;
         }
@@ -8479,7 +8479,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 return;
             }
         }
-        else if (DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_move_to_recycle, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) == MessageBoxResult.Cancel)
+        else if (UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_move_to_recycle, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) == MessageBoxResult.Cancel)
         {
             if (installPerformanceLoggingEnabled)
             {
@@ -8497,7 +8497,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             approvedWholeFolderDeletePaths = [];
             foreach (string folderPath in viewModel.GetLibraryWholeFolderDeleteConfirmationPaths(resolution.Targets))
             {
-                bool approved = DispatcherMessageBox.Show(
+                bool approved = UiDialogRoute.ShowMessageBox(
                     Window.GetWindow(this),
                     string.Format(BeMusicSeeker.Properties.Resources.Confirm_DeleteFolderWithNoBms, folderPath),
                     BeMusicSeeker.Properties.Resources.MessageBoxTitle_Confirm,
@@ -8553,7 +8553,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        if (base.DataContext is MainWindowViewModel viewModel && menuItem.DataContext is string dstDir && targets.Count > 0 && DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_move_to_other_root, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) != MessageBoxResult.Cancel)
+        if (base.DataContext is MainWindowViewModel viewModel && menuItem.DataContext is string dstDir && targets.Count > 0 && UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_move_to_other_root, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) != MessageBoxResult.Cancel)
         {
             await Task.Run(delegate
             {
@@ -8665,7 +8665,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         var viewModel = base.DataContext as MainWindowViewModel;
         e.Handled = true;
-        if (Settings.Default.ShowDiffBMSInstallConfirmMsg && DispatcherMessageBox.Show(Window.GetWindow(this), GetManualInstallConfirmationMessage(), BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Asterisk) != MessageBoxResult.OK)
+        if (Settings.Default.ShowDiffBMSInstallConfirmMsg && UiDialogRoute.ShowMessageBox(Window.GetWindow(this), GetManualInstallConfirmationMessage(), BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Asterisk) != MessageBoxResult.OK)
         {
             return;
         }
@@ -8743,7 +8743,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
         string confirmationMessage = isPendingSelected ? BeMusicSeeker.Properties.Resources.Msg_clear_selected_pendings : BeMusicSeeker.Properties.Resources.Msg_clear_selected_installed;
-        if (DispatcherMessageBox.Show(Window.GetWindow(this), confirmationMessage, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) == MessageBoxResult.Cancel)
+        if (UiDialogRoute.ShowMessageBox(Window.GetWindow(this), confirmationMessage, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) == MessageBoxResult.Cancel)
         {
             return;
         }
@@ -8812,7 +8812,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private bool ConfirmMergeDestinationSearch()
     {
-        return DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_estimate_merge_confirm, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Asterisk) == MessageBoxResult.OK;
+        return UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_estimate_merge_confirm, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Asterisk) == MessageBoxResult.OK;
     }
 
     private async void tableContextMenuItemConvertToAudioFileClick(object sender, RoutedEventArgs e)
@@ -8852,7 +8852,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             BeMusicSeeker.Properties.Resources.Converting,
             viewModel.settingDialog.EncoderNames[(int)Settings.Default.Encoder] + " - " + BeMusicSeeker.Properties.Resources.Sampling_rate + ":" + viewModel.settingDialog.PlayerSampleRateNames[Settings.Default.EncoderSampleRate] + " " + BeMusicSeeker.Properties.Resources.Sampling_format + ":" + viewModel.settingDialog.PlayerFormatNames[Settings.Default.EncoderFormat],
             context => context.ReportWithCancellationCheck(100 * (progIdx + 1) / (bmsFiles.Length + 1), "[{0}/{1}] {2}", Math.Min(progIdx + 1, bmsFiles.Length), bmsFiles.Length, bmsFiles[Math.Min(progIdx, bmsFiles.Length - 1)].path));
-        DispatcherMessageBox.Show(Window.GetWindow(this), ((!cancelTokenSource.IsCancellationRequested) ? BeMusicSeeker.Properties.Resources.Msg_conversion_completed : BeMusicSeeker.Properties.Resources.Msg_conversion_stopped) + Environment.NewLine + BeMusicSeeker.Properties.Resources.Success + ": " + (progIdx - failNum) + Environment.NewLine + BeMusicSeeker.Properties.Resources.Failure + ": " + (bmsFiles.Length - progIdx + failNum), BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OK, cancelTokenSource.IsCancellationRequested ? MessageBoxImage.Exclamation : MessageBoxImage.Asterisk, MessageBoxResult.OK);
+        UiDialogRoute.ShowMessageBox(Window.GetWindow(this), ((!cancelTokenSource.IsCancellationRequested) ? BeMusicSeeker.Properties.Resources.Msg_conversion_completed : BeMusicSeeker.Properties.Resources.Msg_conversion_stopped) + Environment.NewLine + BeMusicSeeker.Properties.Resources.Success + ": " + (progIdx - failNum) + Environment.NewLine + BeMusicSeeker.Properties.Resources.Failure + ": " + (bmsFiles.Length - progIdx + failNum), BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OK, cancelTokenSource.IsCancellationRequested ? MessageBoxImage.Exclamation : MessageBoxImage.Asterisk, MessageBoxResult.OK);
     }
 
     private void playlistTableDrop(object sender, DragEventArgs e)

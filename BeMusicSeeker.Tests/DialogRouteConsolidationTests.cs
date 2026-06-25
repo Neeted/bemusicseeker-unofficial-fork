@@ -207,6 +207,24 @@ public sealed class DialogRouteConsolidationTests
     }
 
     [TestMethod]
+    public void ViewCodeBehindMessages_DoNotUseDispatcherMessageBox()
+    {
+        string root = FindRepositoryRoot();
+        string viewsRoot = Path.Combine(root, "BeMusicSeeker", "Views");
+        List<string> offenders = Directory
+            .EnumerateFiles(viewsRoot, "*.cs", SearchOption.AllDirectories)
+            .Where(path => File.ReadAllText(path).Contains("DispatcherMessageBox.Show("))
+            .Select(path => NormalizeRelativePath(new Uri(root + Path.DirectorySeparatorChar).MakeRelativeUri(new Uri(path)).ToString()))
+            .ToList();
+
+        CollectionAssert.AreEqual(Array.Empty<string>(), offenders, "View code-behind messages must use UiDialogRoute / UiDialogCoordinator instead of DispatcherMessageBox.");
+        string routeCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "Dialogs", "UiDialogRoute.cs"));
+        StringAssert.Contains(routeCode, "ShowMessageAsync(new UiMessageRequest(");
+        StringAssert.Contains(routeCode, "ConfirmAsync(new UiConfirmationRequest(");
+        StringAssert.Contains(routeCode, "ThrowIfNotShown(result, caption);");
+    }
+
+    [TestMethod]
     public void OverlayDialogs_AreShownThroughMainWindowHost()
     {
         string root = FindRepositoryRoot();

@@ -1,6 +1,7 @@
 using System.Windows;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.ViewModels;
+using BeMusicSeeker.Views.Dialogs;
 
 namespace BeMusicSeeker.Views;
 
@@ -35,7 +36,7 @@ public partial class PlayHistoryFolderDisplayPresetEditDialog : Window
         }
         if (!settingDialogViewModel.TryApplyPlayHistoryFolderDisplayPresetEditSession(session, out string errMsg))
         {
-            DispatcherMessageBox.Show(this, errMsg, BeMusicSeeker.Properties.Resources.Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+            UiDialogRoute.ShowMessageBox(this, errMsg, BeMusicSeeker.Properties.Resources.Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
             return;
         }
         DialogResult = true;

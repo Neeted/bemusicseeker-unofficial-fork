@@ -354,7 +354,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
             {
                 outcome = "blocked_operation";
                 totalStopwatch.Stop();
-                DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_settings_apply_blocked_during_initialization, BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation);
+                UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_settings_apply_blocked_during_initialization, BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation);
                 settingDialogViewModel.ResetSettings();
                 SyncAppearanceThemeSelection(settingDialogViewModel);
                 return;
@@ -396,7 +396,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
                     if (((App)Application.Current).firstStartup)
                     {
                         totalStopwatch.Stop();
-                        DispatcherMessageBox.Show(BeMusicSeeker.Properties.Resources.Msg_initsetting_completed, BeMusicSeeker.Properties.Resources.Information, MessageBoxButton.OK, MessageBoxImage.Asterisk, MessageBoxResult.OK);
+                        UiDialogRoute.ShowMessageBox(BeMusicSeeker.Properties.Resources.Msg_initsetting_completed, BeMusicSeeker.Properties.Resources.Information, MessageBoxButton.OK, MessageBoxImage.Asterisk, MessageBoxResult.OK);
                         totalStopwatch.Start();
                     }
                     viewModel.Initialize();
@@ -431,14 +431,14 @@ public partial class SettingDialog : UserControl, IComponentConnector
             {
                 outcome = "invalid";
                 totalStopwatch.Stop();
-                DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_invalid_setting + Environment.NewLine + Environment.NewLine + errMsg, BeMusicSeeker.Properties.Resources.Error, MessageBoxButton.OK, MessageBoxImage.Hand);
+                UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_invalid_setting + Environment.NewLine + Environment.NewLine + errMsg, BeMusicSeeker.Properties.Resources.Error, MessageBoxButton.OK, MessageBoxImage.Hand);
             }
         }
         catch (Exception ex)
         {
             outcome = "failed";
             totalStopwatch.Stop();
-            DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + Environment.NewLine + ex.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxButton.OK, MessageBoxImage.Hand);
+            UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + Environment.NewLine + ex.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxButton.OK, MessageBoxImage.Hand);
         }
         finally
         {
@@ -479,11 +479,11 @@ public partial class SettingDialog : UserControl, IComponentConnector
         {
             if (viewModel.IsLibraryOperationInProgress)
             {
-                DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_settings_apply_blocked_during_initialization, BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation);
+                UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_settings_apply_blocked_during_initialization, BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation);
             }
             return;
         }
-        if (DispatcherMessageBox.Show(
+        if (UiDialogRoute.ShowMessageBox(
             Window.GetWindow(this),
             BeMusicSeeker.Properties.Resources.Msg_confirm_lr2_song_db_sync_data_resync,
             BeMusicSeeker.Properties.Resources.Confirm,
@@ -501,7 +501,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
         }
         catch (Exception ex)
         {
-            DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + Environment.NewLine + ex.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxButton.OK, MessageBoxImage.Hand);
+            UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + Environment.NewLine + ex.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxButton.OK, MessageBoxImage.Hand);
         }
     }
 
@@ -543,7 +543,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
         }
         if (viewModel.IsLibraryOperationInProgress)
         {
-            DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_settings_apply_blocked_during_initialization, BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation);
+            UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_settings_apply_blocked_during_initialization, BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation);
             return;
         }
 
@@ -552,7 +552,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
         {
             return;
         }
-        if (DispatcherMessageBox.Show(
+        if (UiDialogRoute.ShowMessageBox(
             Window.GetWindow(this),
             BeMusicSeeker.Properties.Resources.Msg_confirm_lr2_play_history_schema_install_or_repair
                 + Environment.NewLine
@@ -575,7 +575,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
             if (result.Status == Lr2PlayHistorySchemaStatus.Installed)
             {
                 viewModel.InvalidatePlayHistoryReadCache("lr2_play_history_schema_install_or_repair");
-                DispatcherMessageBox.Show(
+                UiDialogRoute.ShowMessageBox(
                     Window.GetWindow(this),
                     BeMusicSeeker.Properties.Resources.Msg_success_lr2_play_history_schema_install_or_repair,
                     BeMusicSeeker.Properties.Resources.Success,
@@ -588,7 +588,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
                 return;
             }
 
-            DispatcherMessageBox.Show(
+            UiDialogRoute.ShowMessageBox(
                 Window.GetWindow(this),
                 result.Message,
                 BeMusicSeeker.Properties.Resources.Warning,
@@ -597,7 +597,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
         }
         catch (Exception ex)
         {
-            DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + Environment.NewLine + ex.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxButton.OK, MessageBoxImage.Hand);
+            UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + Environment.NewLine + ex.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxButton.OK, MessageBoxImage.Hand);
         }
         finally
         {
@@ -613,7 +613,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
         }
         if (viewModel.IsLibraryOperationInProgress)
         {
-            DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_settings_apply_blocked_during_initialization, BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation);
+            UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_settings_apply_blocked_during_initialization, BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation);
             return;
         }
 
@@ -625,7 +625,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
         }
         if (before.Status == Lr2PlayHistorySchemaStatus.NotInstalled)
         {
-            DispatcherMessageBox.Show(
+            UiDialogRoute.ShowMessageBox(
                 Window.GetWindow(this),
                 BeMusicSeeker.Properties.Resources.Msg_lr2_play_history_schema_uninstall_not_installed,
                 BeMusicSeeker.Properties.Resources.Information,
@@ -635,7 +635,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
         }
         if (before.Status is Lr2PlayHistorySchemaStatus.SkippedProfile or Lr2PlayHistorySchemaStatus.Unreadable)
         {
-            DispatcherMessageBox.Show(
+            UiDialogRoute.ShowMessageBox(
                 Window.GetWindow(this),
                 before.Message,
                 BeMusicSeeker.Properties.Resources.Warning,
@@ -665,7 +665,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
             if (IsExpectedLr2PlayHistorySchemaUninstallResult(uninstallMode, result.Status))
             {
                 viewModel.InvalidatePlayHistoryReadCache("lr2_play_history_schema_uninstall");
-                DispatcherMessageBox.Show(
+                UiDialogRoute.ShowMessageBox(
                     Window.GetWindow(this),
                     BeMusicSeeker.Properties.Resources.Msg_success_lr2_play_history_schema_uninstall,
                     BeMusicSeeker.Properties.Resources.Success,
@@ -678,7 +678,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
                 return;
             }
 
-            DispatcherMessageBox.Show(
+            UiDialogRoute.ShowMessageBox(
                 Window.GetWindow(this),
                 result.Message,
                 BeMusicSeeker.Properties.Resources.Warning,
@@ -687,7 +687,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
         }
         catch (Exception ex)
         {
-            DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + Environment.NewLine + ex.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxButton.OK, MessageBoxImage.Hand);
+            UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + Environment.NewLine + ex.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxButton.OK, MessageBoxImage.Hand);
         }
         finally
         {
@@ -766,7 +766,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
 
     private async void detailTabItemRestoreButtonClicked(object sender, RoutedEventArgs e)
     {
-        if (base.DataContext is not MainWindowViewModel viewModel || viewModel.BMSTables == null || DispatcherMessageBox.Show(Window.GetWindow(this), "プレイリストをバックアップから復元します。" + Environment.NewLine + "現在のプレイリストは全て削除され置き換えられます。" + Environment.NewLine + "バックアップデータが不正な場合元に戻せなくなるかもしれません。" + Environment.NewLine + Environment.NewLine + "続行しますか？", "確認", MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) != MessageBoxResult.OK)
+        if (base.DataContext is not MainWindowViewModel viewModel || viewModel.BMSTables == null || UiDialogRoute.ShowMessageBox(Window.GetWindow(this), "プレイリストをバックアップから復元します。" + Environment.NewLine + "現在のプレイリストは全て削除され置き換えられます。" + Environment.NewLine + "バックアップデータが不正な場合元に戻せなくなるかもしれません。" + Environment.NewLine + Environment.NewLine + "続行しますか？", "確認", MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) != MessageBoxResult.OK)
         {
             return;
         }
@@ -786,7 +786,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
             }).Logging("detailTabItemRestoreButtonClicked");
             await base.Dispatcher.BeginInvoke((Action)delegate
             {
-                DispatcherMessageBox.Show(Application.Current.MainWindow, "アプリケーションを終了します。", "確認", MessageBoxButton.OK, MessageBoxImage.Question, MessageBoxResult.OK);
+                UiDialogRoute.ShowMessageBox(Application.Current.MainWindow, "アプリケーションを終了します。", "確認", MessageBoxButton.OK, MessageBoxImage.Question, MessageBoxResult.OK);
                 Application.Current.MainWindow.Close();
             }, DispatcherPriority.Normal);
         }
@@ -800,10 +800,10 @@ public partial class SettingDialog : UserControl, IComponentConnector
         }
         if (viewModel.IsLibraryOperationInProgress)
         {
-            DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_settings_apply_blocked_during_initialization, BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation);
+            UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_settings_apply_blocked_during_initialization, BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation);
             return;
         }
-        if (DispatcherMessageBox.Show(Window.GetWindow(this), "BeMusicSeekerのデータをLR2データベースから削除します。" + Environment.NewLine + "続行した場合この操作を取り消しすることは出来ません。" + Environment.NewLine + "必要に応じて事前にバックアップを取得してください。" + Environment.NewLine + Environment.NewLine + "続行しますか？", "確認", MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) != MessageBoxResult.OK)
+        if (UiDialogRoute.ShowMessageBox(Window.GetWindow(this), "BeMusicSeekerのデータをLR2データベースから削除します。" + Environment.NewLine + "続行した場合この操作を取り消しすることは出来ません。" + Environment.NewLine + "必要に応じて事前にバックアップを取得してください。" + Environment.NewLine + Environment.NewLine + "続行しますか？", "確認", MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) != MessageBoxResult.OK)
         {
             return;
         }
@@ -815,17 +815,17 @@ public partial class SettingDialog : UserControl, IComponentConnector
             {
                 viewModel.UninstallAllData();
             }).Logging("detailTabItemUninstallButtonClicked");
-            DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_success_uninstall, BeMusicSeeker.Properties.Resources.Success, MessageBoxButton.OK, MessageBoxImage.Asterisk, MessageBoxResult.OK);
+            UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_success_uninstall, BeMusicSeeker.Properties.Resources.Success, MessageBoxButton.OK, MessageBoxImage.Asterisk, MessageBoxResult.OK);
             await base.Dispatcher.BeginInvoke((Action)delegate
             {
-                DispatcherMessageBox.Show(Application.Current.MainWindow, "アプリケーションを終了します。", "確認", MessageBoxButton.OK, MessageBoxImage.Question, MessageBoxResult.OK);
+                UiDialogRoute.ShowMessageBox(Application.Current.MainWindow, "アプリケーションを終了します。", "確認", MessageBoxButton.OK, MessageBoxImage.Question, MessageBoxResult.OK);
                 Application.Current.MainWindow.Close();
             }, DispatcherPriority.Normal);
             closeAfterSuccess = true;
         }
         catch (Exception ex)
         {
-            DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_failed_uninstall + Environment.NewLine + Environment.NewLine + ex.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+            UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_failed_uninstall + Environment.NewLine + Environment.NewLine + ex.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
         }
         finally
         {

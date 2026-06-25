@@ -2711,8 +2711,8 @@ public sealed class MainWindowContextMenuResourceTests
         string viewModelCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
         string uninstallClickHandler = ExtractMethodBody(settingDialogCode, "private async void detailTabItemUninstallButtonClicked(object sender, RoutedEventArgs e)");
 
-        StringAssert.Contains(uninstallClickHandler, "DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_success_uninstall");
-        StringAssert.Contains(uninstallClickHandler, "DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_failed_uninstall");
+        StringAssert.Contains(uninstallClickHandler, "UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_success_uninstall");
+        StringAssert.Contains(uninstallClickHandler, "UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_failed_uninstall");
         StringAssert.Contains(uninstallClickHandler, "if (viewModel.IsLibraryOperationInProgress)");
         StringAssert.Contains(uninstallClickHandler, "BeMusicSeeker.Properties.Resources.Msg_settings_apply_blocked_during_initialization");
         StringAssert.Contains(uninstallClickHandler, "settingDialogRootGrid.IsEnabled = false;");
@@ -2826,8 +2826,8 @@ public sealed class MainWindowContextMenuResourceTests
         string folderMergeMethod = ExtractMethodBody(mainWindowCode, "private void ExecuteDuplicateFolderMerge(string srcPath, string dstPath, DuplicateGroup duplicateGroup)");
         string hashCleanupMethod = ExtractMethodBody(mainWindowCode, "private void ExecuteDuplicateHashCleanup(DuplicateGroup duplicateGroup, string folderPath)");
 
-        StringAssert.Contains(folderMergeMethod, "Settings.Default.ShowDuplicateFileCheckConfirmMsg && DispatcherMessageBox.Show");
-        StringAssert.Contains(hashCleanupMethod, "Settings.Default.ShowDuplicateFileCheckConfirmMsg && DispatcherMessageBox.Show");
+        StringAssert.Contains(folderMergeMethod, "Settings.Default.ShowDuplicateFileCheckConfirmMsg && UiDialogRoute.ShowMessageBox");
+        StringAssert.Contains(hashCleanupMethod, "Settings.Default.ShowDuplicateFileCheckConfirmMsg && UiDialogRoute.ShowMessageBox");
     }
 
     [TestMethod]

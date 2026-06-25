@@ -56,7 +56,7 @@ public partial class LoadPlaylistURIDialog : UserControl, IComponentConnector
             PlaylistUriInputParseResult parseResult = ParsePlaylistUriInput(textBoxURIInput.Text);
             if (!parseResult.HasValidUris)
             {
-                DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Playlist_uri_input_no_valid_uri, BeMusicSeeker.Properties.Resources.Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+                UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Playlist_uri_input_no_valid_uri, BeMusicSeeker.Properties.Resources.Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
                 return;
             }
             textBoxURIInput.Text = string.Empty;
@@ -137,6 +137,6 @@ public partial class LoadPlaylistURIDialog : UserControl, IComponentConnector
         {
             sampleText = sampleText + Environment.NewLine + "- ...";
         }
-        DispatcherMessageBox.Show(Window.GetWindow(this), string.Format(BeMusicSeeker.Properties.Resources.Playlist_uri_input_invalid_lines_format, sampleText), BeMusicSeeker.Properties.Resources.Error, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
+        UiDialogRoute.ShowMessageBox(Window.GetWindow(this), string.Format(BeMusicSeeker.Properties.Resources.Playlist_uri_input_invalid_lines_format, sampleText), BeMusicSeeker.Properties.Resources.Error, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
     }
 }
