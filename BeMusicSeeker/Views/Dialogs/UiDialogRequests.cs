@@ -105,6 +105,45 @@ internal sealed class UiConfirmationRequest : UiMessageRequest
 /// </summary>
 internal sealed class UiFilePickerRequest
 {
+    internal UiFilePickerRequest(
+        string title = null,
+        string fileName = null,
+        string initialDirectory = null,
+        string filter = null,
+        string defaultExtension = null,
+        bool multiselect = false,
+        bool ensureFileExists = true,
+        bool ensurePathExists = true,
+        Window owner = null)
+    {
+        Title = title;
+        FileName = fileName;
+        InitialDirectory = initialDirectory;
+        Filter = filter;
+        DefaultExtension = defaultExtension;
+        Multiselect = multiselect;
+        EnsureFileExists = ensureFileExists;
+        EnsurePathExists = ensurePathExists;
+        Owner = owner;
+    }
+
+    internal string Title { get; }
+
+    internal string FileName { get; }
+
+    internal string InitialDirectory { get; }
+
+    internal string Filter { get; }
+
+    internal string DefaultExtension { get; }
+
+    internal bool Multiselect { get; }
+
+    internal bool EnsureFileExists { get; }
+
+    internal bool EnsurePathExists { get; }
+
+    internal Window Owner { get; }
 }
 
 /// <summary>
@@ -112,6 +151,29 @@ internal sealed class UiFilePickerRequest
 /// </summary>
 internal sealed class UiFolderPickerRequest
 {
+    internal UiFolderPickerRequest(
+        string title = null,
+        string selectedPath = null,
+        bool multiselect = false,
+        bool ensurePathExists = true,
+        Window owner = null)
+    {
+        Title = title;
+        SelectedPath = selectedPath;
+        Multiselect = multiselect;
+        EnsurePathExists = ensurePathExists;
+        Owner = owner;
+    }
+
+    internal string Title { get; }
+
+    internal string SelectedPath { get; }
+
+    internal bool Multiselect { get; }
+
+    internal bool EnsurePathExists { get; }
+
+    internal Window Owner { get; }
 }
 
 /// <summary>
@@ -119,6 +181,33 @@ internal sealed class UiFolderPickerRequest
 /// </summary>
 internal sealed class UiSaveFilePickerRequest
 {
+    internal UiSaveFilePickerRequest(
+        string title = null,
+        string fileName = null,
+        string defaultExtension = null,
+        string filter = null,
+        bool addExtension = true,
+        Window owner = null)
+    {
+        Title = title;
+        FileName = fileName;
+        DefaultExtension = defaultExtension;
+        Filter = filter;
+        AddExtension = addExtension;
+        Owner = owner;
+    }
+
+    internal string Title { get; }
+
+    internal string FileName { get; }
+
+    internal string DefaultExtension { get; }
+
+    internal string Filter { get; }
+
+    internal bool AddExtension { get; }
+
+    internal Window Owner { get; }
 }
 
 /// <summary>

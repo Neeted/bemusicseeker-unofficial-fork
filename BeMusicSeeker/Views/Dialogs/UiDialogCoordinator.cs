@@ -1,8 +1,11 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Threading;
+using Microsoft.Win32;
+using Microsoft.WindowsAPICodePack.Dialogs;
 using Parago.Windows;
 
 namespace BeMusicSeeker.Views.Dialogs;
@@ -74,7 +77,12 @@ internal sealed class UiDialogCoordinator : IUiDialogService
     /// <returns>picker 結果。</returns>
     public Task<UiFilePickerResult> PickFileAsync(UiFilePickerRequest request, CancellationToken cancellationToken = default)
     {
-        return Task.FromException<UiFilePickerResult>(new NotSupportedException("File picker route will be implemented in dialog consolidation Unit 5."));
+        if (request == null)
+        {
+            throw new ArgumentNullException(nameof(request));
+        }
+
+        return RunPickerOnDispatcherAsync(() => PickFileCore(request), cancellationToken);
     }
 
     /// <summary>
@@ -85,7 +93,12 @@ internal sealed class UiDialogCoordinator : IUiDialogService
     /// <returns>picker 結果。</returns>
     public Task<UiFolderPickerResult> PickFolderAsync(UiFolderPickerRequest request, CancellationToken cancellationToken = default)
     {
-        return Task.FromException<UiFolderPickerResult>(new NotSupportedException("Folder picker route will be implemented in dialog consolidation Unit 5."));
+        if (request == null)
+        {
+            throw new ArgumentNullException(nameof(request));
+        }
+
+        return RunPickerOnDispatcherAsync(() => PickFolderCore(request), cancellationToken);
     }
 
     /// <summary>
@@ -96,7 +109,211 @@ internal sealed class UiDialogCoordinator : IUiDialogService
     /// <returns>picker 結果。</returns>
     public Task<UiSaveFilePickerResult> PickSaveFileAsync(UiSaveFilePickerRequest request, CancellationToken cancellationToken = default)
     {
-        return Task.FromException<UiSaveFilePickerResult>(new NotSupportedException("Save file picker route will be implemented in dialog consolidation Unit 5."));
+        if (request == null)
+        {
+            throw new ArgumentNullException(nameof(request));
+        }
+
+        return RunPickerOnDispatcherAsync(() => PickSaveFileCore(request), cancellationToken);
+    }
+
+    private Task<T> RunPickerOnDispatcherAsync<T>(Func<T> operation, CancellationToken cancellationToken)
+    {
+        if (cancellationToken.IsCancellationRequested)
+        {
+            return Task.FromCanceled<T>(cancellationToken);
+        }
+
+        Application application = Application.Current;
+        if (application?.Dispatcher == null)
+        {
+            return Task.FromResult(CreatePickerNotShownResult<T>(UiDialogStatus.DispatcherUnavailable));
+        }
+
+        Dispatcher dispatcher = application.Dispatcher;
+        if (dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
+        {
+            return Task.FromResult(CreatePickerNotShownResult<T>(UiDialogStatus.AppClosing));
+        }
+
+        if (dispatcher.CheckAccess())
+        {
+            return Task.FromResult(operation());
+        }
+
+        var completion = new TaskCompletionSource<T>();
+        DispatcherOperation dispatcherOperation;
+        try
+        {
+            dispatcherOperation = dispatcher.BeginInvoke(DispatcherPriority.Normal, new Action(delegate
+            {
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    completion.TrySetCanceled(cancellationToken);
+                    return;
+                }
+
+                try
+                {
+                    completion.TrySetResult(operation());
+                }
+                catch (Exception ex)
+                {
+                    completion.TrySetResult(CreatePickerFailedResult<T>(ex));
+                }
+            }));
+        }
+        catch (InvalidOperationException)
+        {
+            return Task.FromResult(CreatePickerNotShownResult<T>(UiDialogStatus.AppClosing));
+        }
+
+        dispatcherOperation.Aborted += delegate
+        {
+            completion.TrySetResult(CreatePickerNotShownResult<T>(UiDialogStatus.AppClosing));
+        };
+        if (dispatcherOperation.Status == DispatcherOperationStatus.Aborted)
+        {
+            completion.TrySetResult(CreatePickerNotShownResult<T>(UiDialogStatus.AppClosing));
+        }
+
+        return completion.Task;
+    }
+
+    private static T CreatePickerNotShownResult<T>(UiDialogStatus status)
+    {
+        if (typeof(T) == typeof(UiFilePickerResult))
+        {
+            return (T)(object)new UiFilePickerResult(status);
+        }
+        if (typeof(T) == typeof(UiFolderPickerResult))
+        {
+            return (T)(object)new UiFolderPickerResult(status);
+        }
+        if (typeof(T) == typeof(UiSaveFilePickerResult))
+        {
+            return (T)(object)new UiSaveFilePickerResult(status);
+        }
+
+        throw new InvalidOperationException("Unsupported picker result type: " + typeof(T).FullName);
+    }
+
+    private static T CreatePickerFailedResult<T>(Exception exception)
+    {
+        if (typeof(T) == typeof(UiFilePickerResult))
+        {
+            return (T)(object)new UiFilePickerResult(UiDialogStatus.Failed, error: exception);
+        }
+        if (typeof(T) == typeof(UiFolderPickerResult))
+        {
+            return (T)(object)new UiFolderPickerResult(UiDialogStatus.Failed, error: exception);
+        }
+        if (typeof(T) == typeof(UiSaveFilePickerResult))
+        {
+            return (T)(object)new UiSaveFilePickerResult(UiDialogStatus.Failed, error: exception);
+        }
+
+        throw new InvalidOperationException("Unsupported picker result type: " + typeof(T).FullName);
+    }
+
+    private UiFilePickerResult PickFileCore(UiFilePickerRequest request)
+    {
+        Window owner = ownerResolver.ResolveOwner(request.Owner);
+        if (owner == null)
+        {
+            return new UiFilePickerResult(UiDialogStatus.OwnerUnavailable);
+        }
+
+        try
+        {
+            using var dialog = new CommonOpenFileDialog
+            {
+                Title = request.Title,
+                IsFolderPicker = false,
+                EnsureFileExists = request.EnsureFileExists,
+                EnsurePathExists = request.EnsurePathExists,
+                Multiselect = request.Multiselect,
+                DefaultFileName = request.FileName
+            };
+            string defaultExtension = request.DefaultExtension;
+            if (string.IsNullOrWhiteSpace(defaultExtension))
+            {
+                defaultExtension = UiFilePickerUtilities.InferDefaultExtension(request.FileName, request.Filter);
+            }
+            if (!string.IsNullOrWhiteSpace(defaultExtension))
+            {
+                dialog.DefaultExtension = defaultExtension.TrimStart('.');
+            }
+            UiFilePickerUtilities.SetInitialDirectory(dialog, request.InitialDirectory);
+            foreach (Tuple<string, string> filter in UiFilePickerUtilities.ParseFilterPairs(request.Filter))
+            {
+                dialog.Filters.Add(new CommonFileDialogFilter(filter.Item1, filter.Item2));
+            }
+
+            return dialog.ShowDialog(owner) == CommonFileDialogResult.Ok
+                ? new UiFilePickerResult(UiDialogStatus.Accepted, dialog.FileNames)
+                : new UiFilePickerResult(UiDialogStatus.CancelledByUser);
+        }
+        catch (Exception ex)
+        {
+            return new UiFilePickerResult(UiDialogStatus.Failed, error: ex);
+        }
+    }
+
+    private UiFolderPickerResult PickFolderCore(UiFolderPickerRequest request)
+    {
+        Window owner = ownerResolver.ResolveOwner(request.Owner);
+        if (owner == null)
+        {
+            return new UiFolderPickerResult(UiDialogStatus.OwnerUnavailable);
+        }
+
+        try
+        {
+            using var dialog = new CommonOpenFileDialog
+            {
+                Title = request.Title,
+                IsFolderPicker = true,
+                EnsurePathExists = request.EnsurePathExists,
+                Multiselect = request.Multiselect
+            };
+            UiFilePickerUtilities.SetInitialDirectory(dialog, request.SelectedPath);
+            return dialog.ShowDialog(owner) == CommonFileDialogResult.Ok
+                ? new UiFolderPickerResult(UiDialogStatus.Accepted, dialog.FileNames)
+                : new UiFolderPickerResult(UiDialogStatus.CancelledByUser);
+        }
+        catch (Exception ex)
+        {
+            return new UiFolderPickerResult(UiDialogStatus.Failed, error: ex);
+        }
+    }
+
+    private UiSaveFilePickerResult PickSaveFileCore(UiSaveFilePickerRequest request)
+    {
+        Window owner = ownerResolver.ResolveOwner(request.Owner);
+        if (owner == null)
+        {
+            return new UiSaveFilePickerResult(UiDialogStatus.OwnerUnavailable);
+        }
+
+        try
+        {
+            var dialog = new SaveFileDialog
+            {
+                Title = request.Title,
+                FileName = request.FileName,
+                DefaultExt = request.DefaultExtension,
+                AddExtension = request.AddExtension,
+                Filter = request.Filter
+            };
+            return dialog.ShowDialog(owner) == true
+                ? new UiSaveFilePickerResult(UiDialogStatus.Accepted, dialog.FileName)
+                : new UiSaveFilePickerResult(UiDialogStatus.CancelledByUser);
+        }
+        catch (Exception ex)
+        {
+            return new UiSaveFilePickerResult(UiDialogStatus.Failed, error: ex);
+        }
     }
 
     /// <summary>

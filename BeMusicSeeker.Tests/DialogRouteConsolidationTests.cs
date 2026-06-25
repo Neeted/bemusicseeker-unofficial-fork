@@ -159,6 +159,30 @@ public sealed class DialogRouteConsolidationTests
             "Coordinator-managed active modal owner must take precedence over requested owners.");
     }
 
+    [TestMethod]
+    public void FilePickers_AreRoutedThroughUiDialogCoordinator()
+    {
+        string root = FindRepositoryRoot();
+        string mainWindowCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow.cs"));
+        string settingDialogCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingDialog.cs"));
+        string loadPlaylistCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "LoadPlaylistURIDialog.cs"));
+        string dialogActionCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "CommonOpenFileDialogInteractionMessageAction.cs"));
+        string coordinatorCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "Dialogs", "UiDialogCoordinator.cs"));
+
+        Assert.IsFalse(mainWindowCode.Contains("new OpenFileDialog"), "MainWindow must not create open file pickers directly.");
+        Assert.IsFalse(mainWindowCode.Contains("new SaveFileDialog"), "MainWindow must not create save file pickers directly.");
+        Assert.IsFalse(mainWindowCode.Contains("new CommonOpenFileDialog"), "MainWindow must not create common file pickers directly.");
+        Assert.IsFalse(settingDialogCode.Contains("new OpenFileDialog"), "SettingDialog must not create open file pickers directly.");
+        Assert.IsFalse(settingDialogCode.Contains("new SaveFileDialog"), "SettingDialog must not create save file pickers directly.");
+        Assert.IsFalse(settingDialogCode.Contains("new CommonOpenFileDialog"), "SettingDialog must not create common file pickers directly.");
+        Assert.IsFalse(loadPlaylistCode.Contains("new OpenFileDialog"), "LoadPlaylistURIDialog must not create open file pickers directly.");
+        StringAssert.Contains(dialogActionCode, "new UiDialogCoordinator()");
+        StringAssert.Contains(coordinatorCode, "PickFileCore(");
+        StringAssert.Contains(coordinatorCode, "PickFolderCore(");
+        StringAssert.Contains(coordinatorCode, "PickSaveFileCore(");
+        StringAssert.Contains(coordinatorCode, "UiDialogStatus.OwnerUnavailable");
+    }
+
     private static IReadOnlyList<string> ReadDocumentedLegacySourceFiles(string inventory)
     {
         string section = ExtractBetween(inventory, "## Legacy Source Files", "## Route Classification Axes");

@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using Parago.Windows;
 
 namespace BeMusicSeeker.Views.Dialogs;
@@ -12,15 +14,23 @@ internal sealed class UiFilePickerResult
     /// file picker route の結果を初期化します。
     /// </summary>
     /// <param name="status">picker 表示と選択の結果。</param>
-    internal UiFilePickerResult(UiDialogStatus status)
+    internal UiFilePickerResult(UiDialogStatus status, IEnumerable<string> fileNames = null, Exception error = null)
     {
         Status = status;
+        FileNames = [.. (fileNames ?? [])];
+        Error = error;
     }
 
     /// <summary>
     /// picker 表示と選択の結果です。
     /// </summary>
     internal UiDialogStatus Status { get; }
+
+    internal IReadOnlyList<string> FileNames { get; }
+
+    internal string FileName => FileNames.FirstOrDefault();
+
+    internal Exception Error { get; }
 }
 
 /// <summary>
@@ -32,15 +42,23 @@ internal sealed class UiFolderPickerResult
     /// folder picker route の結果を初期化します。
     /// </summary>
     /// <param name="status">picker 表示と選択の結果。</param>
-    internal UiFolderPickerResult(UiDialogStatus status)
+    internal UiFolderPickerResult(UiDialogStatus status, IEnumerable<string> folderPaths = null, Exception error = null)
     {
         Status = status;
+        FolderPaths = [.. (folderPaths ?? [])];
+        Error = error;
     }
 
     /// <summary>
     /// picker 表示と選択の結果です。
     /// </summary>
     internal UiDialogStatus Status { get; }
+
+    internal IReadOnlyList<string> FolderPaths { get; }
+
+    internal string FolderPath => FolderPaths.FirstOrDefault();
+
+    internal Exception Error { get; }
 }
 
 /// <summary>
@@ -52,15 +70,21 @@ internal sealed class UiSaveFilePickerResult
     /// save file picker route の結果を初期化します。
     /// </summary>
     /// <param name="status">picker 表示と選択の結果。</param>
-    internal UiSaveFilePickerResult(UiDialogStatus status)
+    internal UiSaveFilePickerResult(UiDialogStatus status, string fileName = null, Exception error = null)
     {
         Status = status;
+        FileName = fileName;
+        Error = error;
     }
 
     /// <summary>
     /// picker 表示と選択の結果です。
     /// </summary>
     internal UiDialogStatus Status { get; }
+
+    internal string FileName { get; }
+
+    internal Exception Error { get; }
 }
 
 /// <summary>

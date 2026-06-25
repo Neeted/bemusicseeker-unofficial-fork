@@ -38,8 +38,6 @@ using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
 using Livet.EventListeners;
 using Livet.Messaging;
-using Microsoft.Win32;
-using Microsoft.WindowsAPICodePack.Dialogs;
 using NLog;
 using Parago.Windows;
 using Ribbit.Logging;
@@ -128,6 +126,16 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             Thread.Sleep(100);
         }
+    }
+
+    private static void ThrowIfPickerFailed(UiDialogStatus status, Exception exception, string routeName)
+    {
+        if (status is UiDialogStatus.Accepted or UiDialogStatus.CancelledByUser)
+        {
+            return;
+        }
+
+        throw new InvalidOperationException(routeName + " failed: " + status, exception);
     }
 
     private ContextMenu _lastOpenedContextMenu;
@@ -4073,26 +4081,35 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        var fileDialogHeader = new SaveFileDialog();
-        var fileDialogData = new SaveFileDialog();
-        fileDialogHeader.Title = BeMusicSeeker.Properties.Resources.Save_header_file;
-        fileDialogData.Title = BeMusicSeeker.Properties.Resources.Save_data_file;
-        fileDialogHeader.FileName = ((!string.IsNullOrWhiteSpace(bmsTable.header_url)) ? Path.GetFileName(bmsTable.Header_url.ToString()) : "header.json");
-        fileDialogData.FileName = ((!string.IsNullOrWhiteSpace(bmsTable.data_url)) ? Path.GetFileName(bmsTable.Data_url.ToString()) : "data.json");
-        fileDialogHeader.DefaultExt = ".json";
-        fileDialogData.DefaultExt = ".json";
-        fileDialogHeader.AddExtension = true;
-        fileDialogData.AddExtension = true;
-        SaveFileDialog saveFileDialog = fileDialogHeader;
-        string filter = (fileDialogData.Filter = BeMusicSeeker.Properties.Resources.Json_file_exts);
-        saveFileDialog.Filter = filter;
-        if (fileDialogHeader.ShowDialog() == true && fileDialogData.ShowDialog() == true)
+        var dialogCoordinator = new UiDialogCoordinator();
+        UiSaveFilePickerResult headerResult = await dialogCoordinator.PickSaveFileAsync(new UiSaveFilePickerRequest(
+            BeMusicSeeker.Properties.Resources.Save_header_file,
+            (!string.IsNullOrWhiteSpace(bmsTable.header_url)) ? Path.GetFileName(bmsTable.Header_url.ToString()) : "header.json",
+            ".json",
+            BeMusicSeeker.Properties.Resources.Json_file_exts,
+            addExtension: true,
+            this));
+        ThrowIfPickerFailed(headerResult.Status, headerResult.Error, "Header export save picker");
+        if (headerResult.Status != UiDialogStatus.Accepted)
         {
-            await Task.Run(delegate
-            {
-                viewModel.ExportBMSTable(bmsTable, fileDialogHeader.FileName, fileDialogData.FileName);
-            }).Logging("treeViewPlaylistTableContextMenuItemExportTableClick");
+            return;
         }
+        UiSaveFilePickerResult dataResult = await dialogCoordinator.PickSaveFileAsync(new UiSaveFilePickerRequest(
+            BeMusicSeeker.Properties.Resources.Save_data_file,
+            (!string.IsNullOrWhiteSpace(bmsTable.data_url)) ? Path.GetFileName(bmsTable.Data_url.ToString()) : "data.json",
+            ".json",
+            BeMusicSeeker.Properties.Resources.Json_file_exts,
+            addExtension: true,
+            this));
+        ThrowIfPickerFailed(dataResult.Status, dataResult.Error, "Data export save picker");
+        if (dataResult.Status != UiDialogStatus.Accepted)
+        {
+            return;
+        }
+        await Task.Run(delegate
+        {
+            viewModel.ExportBMSTable(bmsTable, headerResult.FileName, dataResult.FileName);
+        }).Logging("treeViewPlaylistTableContextMenuItemExportTableClick");
     }
 
     /// <summary>
@@ -8708,16 +8725,15 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         var cancelTokenSource = new CancellationTokenSource();
         int progIdx = 0;
         int failNum = 0;
-        var commonOpenFileDialog = new CommonOpenFileDialog
-        {
-            Title = BeMusicSeeker.Properties.Resources.Save_to,
-            IsFolderPicker = true
-        };
-        if (commonOpenFileDialog.ShowDialog() != CommonFileDialogResult.Ok)
+        UiFolderPickerResult folderResult = await new UiDialogCoordinator().PickFolderAsync(new UiFolderPickerRequest(
+            BeMusicSeeker.Properties.Resources.Save_to,
+            owner: this));
+        ThrowIfPickerFailed(folderResult.Status, folderResult.Error, "Audio conversion output folder picker");
+        if (folderResult.Status != UiDialogStatus.Accepted)
         {
             return;
         }
-        string saveDir = commonOpenFileDialog.FileName;
+        string saveDir = folderResult.FolderPath;
         Task task = Task.Run(delegate
         {
             viewModel.ConvertBMSToAudioFiles(bmsFiles, saveDir, cancelTokenSource.Token, delegate (bool s)

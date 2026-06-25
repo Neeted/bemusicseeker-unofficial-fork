@@ -6,7 +6,7 @@ using System.Windows.Controls;
 using System.Windows.Markup;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.ViewModels;
-using Microsoft.Win32;
+using BeMusicSeeker.Views.Dialogs;
 
 namespace BeMusicSeeker.Views;
 
@@ -65,16 +65,20 @@ public partial class LoadPlaylistURIDialog : UserControl, IComponentConnector
 
     private void OpenLocalFile(object sender, RoutedEventArgs e)
     {
-        var openFileDialog = new OpenFileDialog
+        UiFilePickerResult result = new UiDialogCoordinator().PickFileAsync(new UiFilePickerRequest(
+            "ヘッダーファイルを開く",
+            filter: "Jsonファイル(*.json)|*.json",
+            defaultExtension: ".json",
+            owner: Window.GetWindow(this)))
+            .GetAwaiter()
+            .GetResult();
+        if (result.Status is not (UiDialogStatus.Accepted or UiDialogStatus.CancelledByUser))
         {
-            Title = "ヘッダーファイルを開く",
-            DefaultExt = ".json"
-        };
-        string filter = (openFileDialog.Filter = "Jsonファイル(*.json)|*.json");
-        openFileDialog.Filter = filter;
-        if (openFileDialog.ShowDialog() == true)
+            throw new InvalidOperationException("Playlist URI local file picker failed: " + result.Status, result.Error);
+        }
+        if (result.Status == UiDialogStatus.Accepted)
         {
-            textBoxURIInput.Text = AppendUriInputLine(textBoxURIInput.Text, openFileDialog.FileName);
+            textBoxURIInput.Text = AppendUriInputLine(textBoxURIInput.Text, result.FileName);
             textBoxURIInput.CaretIndex = textBoxURIInput.Text.Length;
         }
     }

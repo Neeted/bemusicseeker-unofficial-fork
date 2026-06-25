@@ -16,8 +16,7 @@ using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
-using Microsoft.Win32;
-using Microsoft.WindowsAPICodePack.Dialogs;
+using BeMusicSeeker.Views.Dialogs;
 
 namespace BeMusicSeeker.Views;
 
@@ -29,6 +28,16 @@ public partial class SettingDialog : UserControl, IComponentConnector
     internal Binding bindingLR2CustomFolderOutputDir;
 
     internal Binding bindingBMSInstallDir;
+
+    private static void ThrowIfPickerFailed(UiDialogStatus status, Exception exception, string routeName)
+    {
+        if (status is UiDialogStatus.Accepted or UiDialogStatus.CancelledByUser)
+        {
+            return;
+        }
+
+        throw new InvalidOperationException(routeName + " failed: " + status, exception);
+    }
 
     /// <summary>
     /// 設定ダイアログを初期化し、表示時に必要な遅延更新を登録します。
@@ -278,20 +287,20 @@ public partial class SettingDialog : UserControl, IComponentConnector
         {
             return;
         }
-        var fileDialog = new SaveFileDialog
-        {
-            Title = "プレイリストデータを保存",
-            FileName = "BeMusicSeeker_backup.sql",
-            DefaultExt = ".sql",
-            AddExtension = true,
-            Filter = "sqlファイル(*.sql)|*.sql"
-        };
-        if (fileDialog.ShowDialog() == true)
+        UiSaveFilePickerResult result = await new UiDialogCoordinator().PickSaveFileAsync(new UiSaveFilePickerRequest(
+            "プレイリストデータを保存",
+            "BeMusicSeeker_backup.sql",
+            ".sql",
+            "sqlファイル(*.sql)|*.sql",
+            addExtension: true,
+            Window.GetWindow(this)));
+        ThrowIfPickerFailed(result.Status, result.Error, "Playlist backup save picker");
+        if (result.Status == UiDialogStatus.Accepted)
         {
             settingDialogRootGrid.IsEnabled = false;
             await Task.Run(delegate
             {
-                viewModel.BackupBMSTables(fileDialog.FileName);
+                viewModel.BackupBMSTables(result.FileName);
             }).Logging("detailTabItemBackupButtonClicked");
             settingDialogRootGrid.IsEnabled = true;
         }
@@ -535,19 +544,19 @@ public partial class SettingDialog : UserControl, IComponentConnector
         {
             return;
         }
-        var fileDialog = new OpenFileDialog
-        {
-            Title = "プレイリストバックアップを開く",
-            FileName = "BeMusicSeeker_backup.sql",
-            DefaultExt = ".sql",
-            Filter = "sqlファイル(*.sql)|*.sql"
-        };
-        if (fileDialog.ShowDialog() == true)
+        UiFilePickerResult result = await new UiDialogCoordinator().PickFileAsync(new UiFilePickerRequest(
+            "プレイリストバックアップを開く",
+            "BeMusicSeeker_backup.sql",
+            filter: "sqlファイル(*.sql)|*.sql",
+            defaultExtension: ".sql",
+            owner: Window.GetWindow(this)));
+        ThrowIfPickerFailed(result.Status, result.Error, "Playlist backup restore picker");
+        if (result.Status == UiDialogStatus.Accepted)
         {
             settingDialogRootGrid.IsEnabled = false;
             await Task.Run(delegate
             {
-                viewModel.RestoreBMSTables(fileDialog.FileName);
+                viewModel.RestoreBMSTables(result.FileName);
             }).Logging("detailTabItemRestoreButtonClicked");
             await base.Dispatcher.BeginInvoke((Action)delegate
             {
@@ -622,17 +631,18 @@ public partial class SettingDialog : UserControl, IComponentConnector
         {
             return;
         }
-        using var dialog = new CommonOpenFileDialog
+        UiFolderPickerResult result = new UiDialogCoordinator().PickFolderAsync(new UiFolderPickerRequest(
+            BeMusicSeeker.Properties.Resources.Add_BMSDirectory,
+            settingDialogViewModel.SelectedBmsSearchRootPath,
+            multiselect: true,
+            ensurePathExists: true,
+            Window.GetWindow(this)))
+            .GetAwaiter()
+            .GetResult();
+        ThrowIfPickerFailed(result.Status, result.Error, "BMS search root folder picker");
+        if (result.Status == UiDialogStatus.Accepted)
         {
-            Title = BeMusicSeeker.Properties.Resources.Add_BMSDirectory,
-            IsFolderPicker = true,
-            EnsurePathExists = true,
-            Multiselect = true
-        };
-        CommonOpenFileDialogInteractionMessageAction.SetInitialDirectory(dialog, settingDialogViewModel.SelectedBmsSearchRootPath);
-        if (dialog.ShowDialog(Window.GetWindow(this)) == CommonFileDialogResult.Ok)
-        {
-            settingDialogViewModel.AddBmsSearchRootPaths(dialog.FileNames);
+            settingDialogViewModel.AddBmsSearchRootPaths(result.FolderPaths);
         }
     }
 
@@ -642,19 +652,18 @@ public partial class SettingDialog : UserControl, IComponentConnector
         {
             return;
         }
-        using var dialog = new CommonOpenFileDialog
+        UiFolderPickerResult result = new UiDialogCoordinator().PickFolderAsync(new UiFolderPickerRequest(
+            BeMusicSeeker.Properties.Resources.Playlist_output_additional,
+            settingDialogViewModel.SelectedCustomFolderAdditionalOutputBaseDir ?? settingDialogViewModel.LR2CustomFolderOutputDir,
+            multiselect: true,
+            ensurePathExists: true,
+            Window.GetWindow(this)))
+            .GetAwaiter()
+            .GetResult();
+        ThrowIfPickerFailed(result.Status, result.Error, "Custom folder additional output base picker");
+        if (result.Status == UiDialogStatus.Accepted)
         {
-            Title = BeMusicSeeker.Properties.Resources.Playlist_output_additional,
-            IsFolderPicker = true,
-            EnsurePathExists = true,
-            Multiselect = true
-        };
-        CommonOpenFileDialogInteractionMessageAction.SetInitialDirectory(
-            dialog,
-            settingDialogViewModel.SelectedCustomFolderAdditionalOutputBaseDir ?? settingDialogViewModel.LR2CustomFolderOutputDir);
-        if (dialog.ShowDialog(Window.GetWindow(this)) == CommonFileDialogResult.Ok)
-        {
-            foreach (string directory in dialog.FileNames)
+            foreach (string directory in result.FolderPaths)
             {
                 settingDialogViewModel.AddCustomFolderAdditionalOutputBaseDir(directory);
             }

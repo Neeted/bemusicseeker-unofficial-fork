@@ -523,7 +523,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(code, "viewModel.EnqueueExternalPlaylistBMSTableImport(uri);");
         StringAssert.Contains(dialogCode, "viewModel.EnqueueExternalPlaylistBMSTableImports(parseResult.ValidUris);");
         StringAssert.Contains(dialogCode, "ParsePlaylistUriInput(textBoxURIInput.Text)");
-        StringAssert.Contains(dialogCode, "AppendUriInputLine(textBoxURIInput.Text, openFileDialog.FileName)");
+        StringAssert.Contains(dialogCode, "AppendUriInputLine(textBoxURIInput.Text, result.FileName)");
         StringAssert.Contains(dialogXaml, "AcceptsReturn=\"True\"");
         StringAssert.Contains(dialogXaml, "VerticalContentAlignment=\"Top\"");
         StringAssert.Contains(dialogXaml, "VerticalScrollBarVisibility=\"Auto\"");
@@ -1637,7 +1637,7 @@ public sealed class MainWindowContextMenuResourceTests
             "private void ignoreFileScanCheckSelectedCharts");
         string audioConvertClick = ExtractBetween(
             mainWindowCode,
-            "private void tableContextMenuItemConvertToAudioFileClick",
+            "private async void tableContextMenuItemConvertToAudioFileClick",
             "private void playlistTableDrop");
         string resourceHealthClick = ExtractBetween(
             mainWindowCode,
@@ -2622,15 +2622,15 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.AreEqual(0, CountOccurrences(allPickerXaml, "<l:FolderBrowserDialogInteractionMessageAction"));
         Assert.AreEqual(0, CountOccurrences(allPickerXaml, "<l:OpenFileDialogInteractionMessageAction"));
         StringAssert.Contains(allPickerXaml, "v:CommonOpenFileDialogInteractionMessageAction");
-        StringAssert.Contains(dialogActionCode, "CommonOpenFileDialog");
-        StringAssert.Contains(dialogActionCode, "IsFolderPicker = true");
-        StringAssert.Contains(dialogActionCode, "ShowDialog(Window.GetWindow(AssociatedObject))");
-        StringAssert.Contains(dialogActionCode, "message.Response = [.. dialog.FileNames];");
+        StringAssert.Contains(dialogActionCode, "new UiDialogCoordinator()");
+        StringAssert.Contains(dialogActionCode, "PickFolderAsync(new UiFolderPickerRequest(");
+        StringAssert.Contains(dialogActionCode, "PickFileAsync(new UiFilePickerRequest(");
+        StringAssert.Contains(dialogActionCode, "message.Response = [.. result.FileNames];");
 
         StringAssert.Contains(settingDialogXaml, "Click=\"buttonAddBmsSearchRootPathsClicked\"");
-        StringAssert.Contains(settingDialogCode, "Multiselect = true");
-        StringAssert.Contains(settingDialogCode, "IsFolderPicker = true");
-        StringAssert.Contains(settingDialogCode, "dialog.FileNames");
+        StringAssert.Contains(settingDialogCode, "PickFolderAsync(new UiFolderPickerRequest(");
+        StringAssert.Contains(settingDialogCode, "multiselect: true");
+        StringAssert.Contains(settingDialogCode, "settingDialogViewModel.AddBmsSearchRootPaths(result.FolderPaths);");
         StringAssert.Contains(viewModelCode, "private void AddBmsSearchRootPaths(IEnumerable<string> paths, string messageKey, bool saveImmediately)");
         StringAssert.Contains(viewModelCode, "public void AddStandaloneBmsRootPaths(IEnumerable<string> paths)");
         StringAssert.Contains(viewModelCode, "NormalizeExistingStandaloneBmsRootPathsWithoutLr2Compatibility(paths ?? [])");
@@ -2657,8 +2657,9 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.AreEqual("xml", inferDefaultExtensionMethod.Invoke(null, ["config.xml", "|config.xm?|すべてのファイル(*.*)|*.*"]));
         Assert.AreEqual("bmp", inferDefaultExtensionMethod.Invoke(null, [string.Empty, "Image file|*.bmp;*.gif;*.jpg;*.jpeg;*.png|すべてのファイル(*.*)|*.*"]));
         Assert.IsNull(inferDefaultExtensionMethod.Invoke(null, [string.Empty, "すべてのファイル(*.*)|*.*"]));
-        StringAssert.Contains(dialogActionCode, "dialog.DefaultExtension = defaultExtension");
-        StringAssert.Contains(dialogActionCode, "InferDefaultExtensionForTest(message.FileName, message.Filter)");
+        string coordinatorCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "Dialogs", "UiDialogCoordinator.cs"));
+        StringAssert.Contains(coordinatorCode, "dialog.DefaultExtension = defaultExtension.TrimStart('.');");
+        StringAssert.Contains(coordinatorCode, "UiFilePickerUtilities.InferDefaultExtension(request.FileName, request.Filter)");
         StringAssert.Contains(settingDialogXaml, "Filter=\"|config.xm?|");
         StringAssert.Contains(settingDialogXaml, "Filter=\"song.db (*.db)|*.db|");
         StringAssert.Contains(Resources.FileDialogFilter_scoreDB, "score.db (*.db)|*.db|");
@@ -2672,13 +2673,14 @@ public sealed class MainWindowContextMenuResourceTests
         string mainWindowCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow.cs"));
         string loadPlaylistCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "LoadPlaylistURIDialog.cs"));
 
-        StringAssert.Contains(settingDialogCode, "DefaultExt = \".sql\"");
-        StringAssert.Contains(settingDialogCode, "AddExtension = true");
-        StringAssert.Contains(mainWindowCode, "fileDialogHeader.DefaultExt = \".json\";");
-        StringAssert.Contains(mainWindowCode, "fileDialogData.DefaultExt = \".json\";");
-        StringAssert.Contains(mainWindowCode, "fileDialogHeader.AddExtension = true;");
-        StringAssert.Contains(mainWindowCode, "fileDialogData.AddExtension = true;");
-        StringAssert.Contains(loadPlaylistCode, "DefaultExt = \".json\"");
+        StringAssert.Contains(settingDialogCode, "new UiSaveFilePickerRequest(");
+        StringAssert.Contains(settingDialogCode, "\".sql\"");
+        StringAssert.Contains(settingDialogCode, "addExtension: true");
+        StringAssert.Contains(mainWindowCode, "new UiSaveFilePickerRequest(");
+        StringAssert.Contains(mainWindowCode, "\".json\"");
+        StringAssert.Contains(mainWindowCode, "addExtension: true");
+        StringAssert.Contains(loadPlaylistCode, "new UiFilePickerRequest(");
+        StringAssert.Contains(loadPlaylistCode, "defaultExtension: \".json\"");
     }
 
     [TestMethod]

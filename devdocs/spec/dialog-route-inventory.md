@@ -15,31 +15,32 @@ rg -n "DispatcherMessageBox\.Show|internal static class DispatcherMessageBox|int
 
 ## Route Counts
 
-These counts are a starting snapshot, not a target. They should monotonically move toward the coordinator route as implementation units are completed.
+These counts are refreshed as implementation units complete. They should monotonically move toward the coordinator route.
 
 | Pattern | Count | Route |
 | --- | ---: | --- |
-| `DispatcherMessageBox.Show` | 111 | legacy message / confirmation |
+| `DispatcherMessageBox.Show` | 95 | legacy message / confirmation |
 | `internal static class DispatcherMessageBox` | 1 | legacy adapter entry point |
 | `internal static class UiDialogLegacyAdapter` | 1 | legacy adapter bridge |
 | `UiDialogLegacyAdapter.ShowMessageBox` | 2 | legacy adapter bridge |
 | `System.Windows.MessageBox.Show` | 4 | emergency route candidate |
-| `MessageBox.Show(` | 121 | legacy + emergency aggregate |
-| `new ConfirmationMessage` | 59 | Livet confirmation |
+| `MessageBox.Show(` | 99 | legacy + emergency aggregate |
+| `new ConfirmationMessage` | 40 | Livet confirmation |
 | `InteractionMessageAction<FrameworkElement>` | 3 | Livet action component |
-| `RaiseInteractionMessageOnUiThread` | 76 | Livet interaction dispatch |
-| `CommonOpenFileDialog` | 37 | common picker |
-| `OpenFileDialog` | 41 | open picker |
-| `SaveFileDialog` | 4 | save picker |
+| `RaiseInteractionMessageOnUiThread` | 57 | Livet interaction dispatch |
+| `CommonOpenFileDialog` | 33 | common picker |
+| `OpenFileDialog` | 33 | open picker |
+| `SaveFileDialog` | 1 | save picker |
 | `FolderBrowserDialog` | 0 | legacy folder picker |
-| `.ShowDialog(` | 14 | window / picker modal |
-| `ProgressDialog.Execute` | 5 | progress operation |
-| `ProgressDialog.Current` | 5 | progress operation static state |
+| `.ShowDialog(` | 8 | window / picker modal |
+| `ProgressDialog.Execute` | 1 | progress operation |
+| `ProgressDialog.Current` | 0 | progress operation static state |
 
 Current progress notes:
 
 - Unit 4 moved direct `ProgressDialog.Execute` call sites in `MainWindow.cs` to `UiDialogCoordinator.RunWithProgressAsync`.
 - Unit 4 removed `ProgressDialog.Current` from production code. Remaining `ProgressDialog.Execute` calls are inside the coordinator / display component bridge.
+- Unit 5 moved direct code-behind open / save / folder pickers to `UiDialogCoordinator` and made `CommonOpenFileDialogInteractionMessageAction` a coordinator-backed bridge. Remaining picker display component calls are inside the coordinator / picker utility boundary.
 
 ## Legacy Source Files
 
@@ -65,7 +66,8 @@ When a new legacy route is added, the test should fail unless the route is inten
 | `BeMusicSeeker/Views/SettingDialog.xaml` | Livet picker actions | Unit 5 |
 | `BeMusicSeeker/Views/ThemedDialogInteractionMessageActions.cs` | Livet dialog action | Unit 2 |
 | `BeMusicSeeker/Views/ThemedMessageBox.cs` | message box display component | Unit 1, Unit 7 |
-| `BeMusicSeeker/Views/Dialogs/UiDialogCoordinator.cs` | progress display component bridge | Unit 4 |
+| `BeMusicSeeker/Views/Dialogs/UiDialogCoordinator.cs` | progress / picker display component bridge | Unit 4, Unit 5 |
+| `BeMusicSeeker/Views/Dialogs/UiFilePickerUtilities.cs` | picker display component utility | Unit 5 |
 | `BeMusicSeeker/Views/Dialogs/UiDialogLegacyAdapter.cs` | coordinator-backed legacy adapter bridge | Unit 7 |
 
 ## Route Classification Axes
