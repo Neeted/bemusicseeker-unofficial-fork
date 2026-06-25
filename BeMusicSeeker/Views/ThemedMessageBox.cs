@@ -10,10 +10,28 @@ internal static class ThemedMessageBox
 {
     public static MessageBoxResult Show(Window owner, string messageBoxText, string caption, MessageBoxButton button, MessageBoxImage icon, MessageBoxResult defaultResult = MessageBoxResult.None, MessageBoxOptions options = MessageBoxOptions.None)
     {
+        return ShowWithStatus(owner, messageBoxText, caption, button, icon, defaultResult, options).MessageBoxResult;
+    }
+
+    /// <summary>
+    /// テーマ付き message box を表示し、ボタン選択と window close を区別できる結果を返します。
+    /// </summary>
+    /// <param name="owner">owner window。</param>
+    /// <param name="messageBoxText">表示する本文。</param>
+    /// <param name="caption">dialog title。</param>
+    /// <param name="button">表示するボタン。</param>
+    /// <param name="icon">表示する icon。</param>
+    /// <param name="defaultResult">既定の結果。</param>
+    /// <param name="options">WPF message box option。</param>
+    /// <returns>message box の表示結果。</returns>
+    internal static ThemedMessageBoxResponse ShowWithStatus(Window owner, string messageBoxText, string caption, MessageBoxButton button, MessageBoxImage icon, MessageBoxResult defaultResult = MessageBoxResult.None, MessageBoxOptions options = MessageBoxOptions.None)
+    {
         MessageBoxResult result = NormalizeDefaultResult(button, defaultResult);
+        bool wasButtonSelected = false;
         Window dialog = CreateDialog(owner, messageBoxText, caption, button, icon, result, delegate (MessageBoxResult selected)
         {
             result = selected;
+            wasButtonSelected = true;
         });
 
         if ((options & MessageBoxOptions.RightAlign) == MessageBoxOptions.RightAlign)
@@ -22,7 +40,12 @@ internal static class ThemedMessageBox
         }
 
         bool? dialogResult = dialog.ShowDialog();
-        return dialogResult == true ? result : NormalizeDefaultResult(button, defaultResult);
+        if (dialogResult == true && wasButtonSelected)
+        {
+            return new ThemedMessageBoxResponse(result, closedWithoutSelection: false);
+        }
+
+        return new ThemedMessageBoxResponse(NormalizeDefaultResult(button, defaultResult), closedWithoutSelection: true);
     }
 
     internal static MessageBoxResult NormalizeDefaultResult(MessageBoxButton button, MessageBoxResult defaultResult)
@@ -223,4 +246,31 @@ internal static class ThemedMessageBox
             _ => "App.SubtleTextBrush",
         };
     }
+}
+
+/// <summary>
+/// <see cref="ThemedMessageBox"/> の結果を表します。coordinator が window close とボタン選択を区別するために使います。
+/// </summary>
+internal readonly struct ThemedMessageBoxResponse
+{
+    /// <summary>
+    /// message box の結果を初期化します。
+    /// </summary>
+    /// <param name="messageBoxResult">legacy message box 互換の戻り値。</param>
+    /// <param name="closedWithoutSelection">ボタン選択なしで閉じられた場合は true。</param>
+    internal ThemedMessageBoxResponse(MessageBoxResult messageBoxResult, bool closedWithoutSelection)
+    {
+        MessageBoxResult = messageBoxResult;
+        ClosedWithoutSelection = closedWithoutSelection;
+    }
+
+    /// <summary>
+    /// legacy message box 互換の戻り値です。
+    /// </summary>
+    internal MessageBoxResult MessageBoxResult { get; }
+
+    /// <summary>
+    /// ユーザーがボタンを選ばず window close で閉じたかどうかです。
+    /// </summary>
+    internal bool ClosedWithoutSelection { get; }
 }
