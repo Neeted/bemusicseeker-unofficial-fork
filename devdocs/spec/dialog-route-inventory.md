@@ -10,7 +10,7 @@ It is intentionally used as both a migration checklist and an architecture-test 
 - Command shape:
 
 ```powershell
-rg -n "DispatcherMessageBox\.Show|System\.Windows\.MessageBox\.Show|MessageBox\.Show\(|new ConfirmationMessage|InteractionMessageAction<FrameworkElement>|RaiseInteractionMessageOnUiThread|CommonOpenFileDialog|OpenFileDialog|SaveFileDialog|FolderBrowserDialog|\.ShowDialog\(|ProgressDialog\.Execute|ProgressDialog\.Current" BeMusicSeeker -g "*.cs" -g "*.xaml"
+rg -n "DispatcherMessageBox\.Show|internal static class DispatcherMessageBox|System\.Windows\.MessageBox\.Show|MessageBox\.Show\(|new ConfirmationMessage|InteractionMessageAction<FrameworkElement>|RaiseInteractionMessageOnUiThread|CommonOpenFileDialog|OpenFileDialog|SaveFileDialog|FolderBrowserDialog|\.ShowDialog\(|ProgressDialog\.Execute|ProgressDialog\.Current" BeMusicSeeker -g "*.cs" -g "*.xaml"
 ```
 
 ## Route Counts
@@ -20,6 +20,7 @@ These counts are a starting snapshot, not a target. They should monotonically mo
 | Pattern | Count | Route |
 | --- | ---: | --- |
 | `DispatcherMessageBox.Show` | 111 | legacy message / confirmation |
+| `internal static class DispatcherMessageBox` | 1 | legacy adapter entry point |
 | `System.Windows.MessageBox.Show` | 4 | emergency route candidate |
 | `MessageBox.Show(` | 121 | legacy + emergency aggregate |
 | `new ConfirmationMessage` | 59 | Livet confirmation |
@@ -46,7 +47,7 @@ When a new legacy route is added, the test should fail unless the route is inten
 | `BeMusicSeeker/Models/BMSPlaylist.cs` | model `DispatcherMessageBox` | Unit 3 |
 | `BeMusicSeeker/Models/LR2/Backup.cs` | model `DispatcherMessageBox` | Unit 3 |
 | `BeMusicSeeker/Models/uBMplay.cs` | model `DispatcherMessageBox` | Unit 3 |
-| `BeMusicSeeker/Models/Utils/DispatcherMessageBox.cs` | legacy adapter / fallback | Unit 7 |
+| `BeMusicSeeker/Models/Utils/DispatcherMessageBox.cs` | coordinator-backed legacy adapter | Unit 7 |
 | `BeMusicSeeker/Models/Utils/FastDirectoryEnumerator.cs` | utility `DispatcherMessageBox` | Unit 3 |
 | `BeMusicSeeker/Models/Utils/TaskEx.cs` | utility `DispatcherMessageBox` | Unit 3 |
 | `BeMusicSeeker/ViewModels/MainWindowViewModel.cs` | Livet confirmation / interaction dispatch | Unit 2, Unit 8 |

@@ -15,6 +15,7 @@ public sealed class DialogRouteConsolidationTests
     private static readonly Regex[] LegacyRoutePatterns =
     [
         new Regex(@"DispatcherMessageBox\.Show", RegexOptions.Compiled),
+        new Regex(@"internal static class DispatcherMessageBox", RegexOptions.Compiled),
         new Regex(@"System\.Windows\.MessageBox\.Show", RegexOptions.Compiled),
         new Regex(@"(?<!Themed)MessageBox\.Show\(", RegexOptions.Compiled),
         new Regex(@"new ConfirmationMessage", RegexOptions.Compiled),
@@ -57,6 +58,20 @@ public sealed class DialogRouteConsolidationTests
         Assert.AreEqual(UiDialogStatus.OwnerUnavailable, UiDialogResult.NotShown(UiDialogStatus.OwnerUnavailable).Status);
         Assert.AreEqual(UiDialogStatus.DispatcherUnavailable, UiDialogResult.NotShown(UiDialogStatus.DispatcherUnavailable).Status);
         Assert.IsFalse(UiDialogResult.NotShown(UiDialogStatus.OwnerUnavailable).IsAccepted);
+    }
+
+    [TestMethod]
+    public void LegacyDialogEntryPoints_AreCoordinatorBackedAndDoNotUseStandardFallback()
+    {
+        string root = FindRepositoryRoot();
+        string dispatcherMessageBox = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "Utils", "DispatcherMessageBox.cs"));
+        string themedDialogActions = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "ThemedDialogInteractionMessageActions.cs"));
+
+        StringAssert.Contains(dispatcherMessageBox, "UiDialogCoordinator");
+        Assert.IsFalse(dispatcherMessageBox.Contains("MessageBox.Show("), "DispatcherMessageBox must not fall back to the standard WPF MessageBox route.");
+        StringAssert.Contains(themedDialogActions, "UiDialogCoordinator");
+        Assert.IsFalse(themedDialogActions.Contains("ThemedMessageBox.Show("), "Livet dialog actions should go through UiDialogCoordinator.");
+        StringAssert.Contains(themedDialogActions, "UiDialogStatus.CancelledByUser or UiDialogStatus.ClosedByUser => ThemedMessageBox.ToConfirmationResponse(result.MessageBoxResult)");
     }
 
     private static IReadOnlyList<string> ReadDocumentedLegacySourceFiles(string inventory)
