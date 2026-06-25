@@ -2466,7 +2466,7 @@
                   </DataTemplate>
                 </ResourceDictionary>
               </FrameworkElement.Resources>
-              <TreeViewItem HeaderTemplate="{StaticResource templateTreeViewItemHeaderMaintenance}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Unregistered_in_lr2_db, Mode=OneWay}" Selected="unregisteredToDBFolderSelect" Visibility="{Binding IsLr2CompatibilityTreeVisible, Converter={qc:QuickConverter '$P ? Visibility.Visible : Visibility.Collapsed'}}" />
+              <TreeViewItem HeaderTemplate="{StaticResource templateTreeViewItemHeaderMaintenance}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Unregistered_in_lr2_db, Mode=OneWay}" Selected="unregisteredToDBFolderSelect" />
               <TreeViewItem HeaderTemplate="{StaticResource templateTreeViewItemHeaderMaintenanceZeroNote}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Search_zero_note, Mode=OneWay}" Selected="zeronoteFolderSelect" ContextMenu="{StaticResource treeViewZeroNoteContextMenu}" />
               <TreeViewItem Name="treeViewItemChartInfoParseError" HeaderTemplate="{StaticResource templateTreeViewItemHeaderMaintenance}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Chart_info_parse_errors, Mode=OneWay}" Selected="chartInfoParseErrorFolderSelect" />
               <TreeViewItem Name="treeViewItemFullScanCheck" HeaderTemplate="{StaticResource templateTreeViewItemHeaderMaintenanceHealthStatus}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Full_scan_check, Mode=OneWay}" Selected="fullScanCheckFolderSelect">

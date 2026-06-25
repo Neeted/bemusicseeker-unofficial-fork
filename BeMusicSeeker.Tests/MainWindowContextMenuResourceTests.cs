@@ -1291,7 +1291,7 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
-    public void Lr2CompatibilityTree_IsShownOnlyInLr2Mode()
+    public void Lr2CompatibilityTree_IsAlwaysShown()
     {
         string xaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "MainWindow.xaml"));
         string viewModelCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
@@ -1300,8 +1300,9 @@ public sealed class MainWindowContextMenuResourceTests
             "Path=Resources.Unregistered_in_lr2_db",
             "Path=Resources.Search_zero_note");
 
-        StringAssert.Contains(unregisteredTreeItem, "IsLr2CompatibilityTreeVisible");
-        StringAssert.Contains(viewModelCode, "public bool IsLr2CompatibilityTreeVisible => Settings.Default.OperationModeLR2DB;");
+        Assert.IsFalse(unregisteredTreeItem.Contains("IsLr2CompatibilityTreeVisible"));
+        Assert.IsFalse(unregisteredTreeItem.Contains("OperationModeLR2DB"));
+        Assert.IsFalse(viewModelCode.Contains("IsLr2CompatibilityTreeVisible"));
     }
 
     [TestMethod]

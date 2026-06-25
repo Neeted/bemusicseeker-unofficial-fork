@@ -142,7 +142,7 @@ score / chart_info / maintenance / warning hydration が現在の full normal li
 
 `UNREGISTERED`
 
-LR2互換性警告画面は、通常ライブラリよりも警告内容の確認を優先するため、`Warning` を初期表示に含める。
+LR2互換性警告画面は LR2 連携モード / standalone mode の両方で表示する。通常ライブラリよりも警告内容の確認を優先するため、`Warning` を初期表示に含める。
 
 | Order | Column | Header | Width |
 | ---: | --- | --- | ---: |

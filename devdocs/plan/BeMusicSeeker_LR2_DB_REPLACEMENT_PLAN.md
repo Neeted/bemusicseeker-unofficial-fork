@@ -72,7 +72,7 @@ BeMusicSeeker は譜面管理アプリなので、LR2 で完全に読めない�
   - 既存の `Lr2PathEncodingUnsupported` も LR2 互換性 warning の一部として扱う。
   - maintenance facts や scan group が必要な warning も LR2 連携モードで評価する。
   - 画面名は `LR2互換性警告` とし、path だけでなく LR2 互換性 warning 全体を表示する。
-  - スタンドアロンモードでは `LR2互換性警告` ツリー自体を非表示にする。
+  - standalone mode でも `LR2互換性警告` ツリーを表示し、BeMusicSeeker 側で扱えるが LR2 互換性に問題がある chart の確認画面として使う。
 - sync は通常運用では発生しない想定にする。
   - LR2 連携モードで、LR2 `song.db` 内の song.db 同期 status が current `Completed` + matching signature でない場合だけ sync が発生する。
   - LR2 連携モードへ切り替えた、status signature が変わった、前回 run が incomplete / failed / cancelled の場合は
@@ -116,7 +116,7 @@ LR2 連携モードそのものを LR2 `song.db` 生成・同期の入口にす�
 - スタンドアロンモード:
   - chart / audio / image / movie の列挙と、BeMusicSeeker 内部に必要な `song` / `maintenance` は維持する。
   - LR2 `folder` row、`.lr2folder`、`folderinfo.txt`、LR2 folder hierarchy のための追加列挙は行わない。
-  - `LR2互換性警告` ツリーは非表示にする。
+  - `LR2互換性警告` ツリーは表示する。これは LR2 専用 surface 生成ではなく、通常 maintenance facts から投影される warning の確認画面として扱う。
 - LR2 連携モード:
   - BMS の変更検出に必要な `song.path` / `song.date` / hash 判定を行い、`song.date` は常に
     OpenLR2 と同じ Unix seconds mtime として埋める。
@@ -557,8 +557,7 @@ LR2 compatibility warning は BMS のみを対象にする。bmson は対象外�
 
 表示方針:
 
-- LR2 連携モードでは maintenance fact から warning を投影する。
-- スタンドアロンモードでは LR2 互換性 warning を投影せず、`LR2互換性警告` ツリーも出さない。
+- LR2 連携モード / standalone mode ともに maintenance fact から warning を投影し、`LR2互換性警告` ツリーを表示する。
 - LR2 compatibility warning の ignore 永続化はこの計画では追加しない。
   - warning digest / tooltip / `LR2互換性警告` membership は `warning-model.md` の structured warning
     projection に従って組み立てる。
@@ -1281,7 +1280,7 @@ parse directive:
 | Phase 1: BMS 変更検出 | 主要実装済み | `song.path` / `song.date` / hash を使う変更検出、same MD5 の targeted update、runtime reload の再評価 queue は接続済み。 | 大規模 root 変更・mtime preserved copy の手動検証を残す。 |
 | Phase 2: `song` row merge / ownership | 主要実装済み | `Lr2SongDbWriter`、generated/user column 分離、runtime write failure の status marking、merge 時 user column preservation、copied `song.db` sync 時の user column preservation は自動テスト済み。 | 実 DB copy での総合確認を残す。 |
 | Phase 3: metadata-bearing scan surface / raw resource reference | 主要実装済み | BMS parser / snapshot 側の raw resource reference、text group の targeted `song.txt` 更新、`RootFileEnumerationResult` の file / directory mtime entry、Everything fixed scan + grouped directory query / managed fallback の metadata surface は実装済み。chart file mtime は fixed native scan / managed fallback の両方から `ChartScanResult` に保持し、通常 file diff の `song.date` / `bmson_song.updated_at` 判定へ使う。`.txt` / `folderinfo.txt` / `.lr2folder` / directory metadata surface は startup / file diff scan surface から sync input へ保持する。scan surface の gate は `OperationModeLR2DB` へ整理済み。 | 実機ログで、スタンドアロンでは LR2 専用 surface を作らないこと、LR2 連携では `.txt` / `.lr2folder` / `folderinfo.txt` / directory mtime が必要範囲で保持されることを確認する。 |
-| Phase 4: LR2 compatibility warning | 主要実装済み | `Lr2CompatibilityEvaluator`、maintenance 最小 fact、standalone mode での compatibility tree 非表示は接続済み。表示名は `LR2互換性警告` に整理済み。廃止済み `EnableLR2SongDbSync` 依存は撤去済み。 | LR2 連携モードで path / resource 両方の LR2 compatibility warning が `ChartWarningCategory.Lr2Compatibility` として表示されることを実機確認する。 |
+| Phase 4: LR2 compatibility warning | 主要実装済み | `Lr2CompatibilityEvaluator`、maintenance 最小 fact、LR2 連携 / standalone 両 mode での compatibility tree 表示は接続済み。表示名は `LR2互換性警告` に整理済み。廃止済み `EnableLR2SongDbSync` 依存は撤去済み。 | path / resource 両方の LR2 compatibility warning が `ChartWarningCategory.Lr2Compatibility` として表示されることを実機確認する。 |
 | Phase 5: `song` row enricher | 主要実装済み | `song_rows` stage と file diff は `ChartFileSnapshot` から lightweight parser を使い、`Lr2SongRowEnricher` で `date` / `txt` / folder-parent CRC / user column preservation を適用する。missing / stale `chart_info` は同じ snapshot から worker が生成し、`chart_info.judge` を `song.judge` へ流用しない判断は維持する。`mode` / `judge` は LR2 実行時挙動へ関わるため lightweight parser の OpenLR2 寄せを維持する。`level` / `difficulty` は譜面メタデータとして `chart_info` / detailed parser 由来を優先し、`difficulty` 未定義は fixed default `2` に収束させる。post-write `NormalizeUndefinedSongDifficulties(songDb)` / DB-wide finalization は撤去済みで、LR2 song.db 同期・file diff・アプリ内導入で同じ row-local / chart_info-local precedence に揃える。 | `song.date` を抜いて LR2 に再解析させる分岐は作らない。実 DB fixture では構造列 (`folder` / `parent` / `.lr2folder`) と `mode` / `judge` を重点比較し、`level` / `difficulty` は chart_info contract との差分を確認する。 |
 | Phase 6: normal `folder` row generator | 主要実装済み | normal folder generator / scope planner / DB sync、mutation・file diff failure の incomplete marking、directory metadata surface 由来の `folder.date` resolver、`folderinfo.txt` entry metadata surface は接続済み。通常 file diff では current scan surface の directory mtime と既存 `folder.date` の exact path 比較を同期トリガーにし、差分がある directory だけを upsert 対象にする。削除譜面の親 directory は mtime 差分がある場合だけ prune scope にし、root 直下削除を root 全体 prune へ広げない。実行可否は `OperationModeLR2DB` へ整理済み。 | スタンドアロンでは `folder` row を生成しないこと、LR2 連携では directory mtime / folder row freshness が維持されることを実機確認する。 |
 | Phase 7: `.lr2folder` DB sync | 主要実装済み | playlist projection と `.lr2folder` / `folder` row sync の同一化、通常 discovery、built-in source の相対 path 化、root custom output / built-in category parent row 生成、`LR2files\Rival` の built-in discovery 非対象化、`LR2files\CustomFolder` の `<customfolder>` bitmask、built-in category parent row の `folderinfo.txt #TITLE` 反映、`newsong` dynamic row、`course1-3` の `type=6` は接続済み。 | 実 LR2 setup / built-in folder fixture で最終確認する。 |
@@ -2090,7 +2089,7 @@ Everything / filesystem 広域再スキャンを始める入口ではない。su
   expected set 外 row や unknown root row は cleanup する。
 - LR2 song.db sync 本体は current input から導けない `song` / `folder` row を同一 run 内で prune / update し、
   修復できない残件は diagnostic log として残す。別途「古い row 検査」を保存済み status 判定へ横展開しない。
-- `LR2互換性警告` tree は LR2 連携モード専用の compatibility surface として扱い、standalone mode では表示しない。
+- `LR2互換性警告` tree は LR2 連携 / standalone 両 mode で表示する。standalone mode でも LR2 互換性 warning は通常 maintenance facts から投影される。
 - library root scan の `.txt` surface は LR2 連携モードのときだけ列挙する。
   pending package / install estimation の局所 scan は package 表示・導入時 projection のため既存どおり text group を扱う。
 - `.lr2folder` projection は、通常 custom folder の `type = 2` と OpenLR2 root special 用の
