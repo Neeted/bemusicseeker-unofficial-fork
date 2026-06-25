@@ -222,6 +222,56 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     }
 
     [TestMethod]
+    public void AutoRenameChartFolders_DoesNotFailWhenLongChartFileNameExceedsLr2LegacyPathLimit()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_AutoRenameLongName_" + Guid.NewGuid().ToString("N"));
+            string libraryRootPath = Path.Combine(tempRootPath, "S");
+            string sourceDirectoryPath = Path.Combine(libraryRootPath, "O");
+            Directory.CreateDirectory(sourceDirectoryPath);
+            int fileNameBaseLength = 252 - sourceDirectoryPath.Length - Path.DirectorySeparatorChar.ToString().Length - ".bms".Length;
+            if (fileNameBaseLength < 1)
+            {
+                Assert.Inconclusive("Temporary directory path is too long for this path length boundary test.");
+            }
+            string chartFileName = new string('x', fileNameBaseLength) + ".bms";
+            string chartPath = Path.Combine(sourceDirectoryPath, chartFileName);
+            File.WriteAllText(chartPath, "#PLAYER 1");
+            try
+            {
+                var library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
+                {
+                    SearchTargets = [libraryRootPath]
+                };
+                var file = new TestableBmsFile
+                {
+                    path = chartPath
+                };
+                file.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+                file.SetTitle("T");
+                file.SetArtist("A");
+                SetLibraryFilesWithoutNotification(library, [file]);
+
+                library.AutoRenameChartFolders([ChartFileProjection.FromBmsFile(file)]);
+
+                string destinationDirectoryPath = Path.Combine(libraryRootPath, "[A] T");
+                Assert.AreEqual(Path.Combine(destinationDirectoryPath, chartFileName), file.path);
+                Assert.IsFalse(Directory.Exists(sourceDirectoryPath));
+                Assert.IsTrue(Directory.Exists(destinationDirectoryPath));
+            }
+            finally
+            {
+                if (Directory.Exists(tempRootPath))
+                {
+                    Directory.Delete(tempRootPath, recursive: true);
+                }
+            }
+        });
+    }
+
+    [TestMethod]
     public void ApplyAutoRenamePlans_BatchesSuccessfulMovesWhenOnePlanFails()
     {
         TestResourceInitializer.EnsureJapaneseResources();

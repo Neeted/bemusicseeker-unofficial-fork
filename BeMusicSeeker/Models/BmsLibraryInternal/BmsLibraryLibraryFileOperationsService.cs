@@ -477,7 +477,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         IEnumerable<string> rootFolders,
         bool renameRootFolder,
         Func<IReadOnlyCollection<string>, IReadOnlyList<ChartFile>> createDirectChildSnapshot,
-        Func<IEnumerable<ChartFile>, string, string, string> createFolderPath,
+        Func<IEnumerable<ChartFile>, string, string> createFolderPath,
         Func<string, string> normalizeFolderName = null)
     {
         List<string> sourceFolders = [.. (from d in (selectedCharts ?? []).Where(chart => chart != null).Select(chart => DirectoryExt.GetDirectoryNameSimple(chart.Path)).Distinct(StringComparer.OrdinalIgnoreCase)
@@ -497,7 +497,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         IEnumerable<string> rootFolders,
         bool renameRootFolder,
         Func<IReadOnlyCollection<string>, IReadOnlyList<ChartFile>> createDirectChildSnapshot,
-        Func<IEnumerable<ChartFile>, string, string, string> createFolderPath,
+        Func<IEnumerable<ChartFile>, string, string> createFolderPath,
         Func<string, string> normalizeFolderName = null)
     {
         List<string> normalizedSourceFolders = [.. (from d in (sourceFolders ?? [])
@@ -536,10 +536,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
                 List<ChartFile> directChildren = directChildrenByDirectory.TryGetValue(folder, out List<ChartFile> children)
                     ? children
                     : [];
-                string longestFileName = (from f in FastDirectoryEnumerator.GetFileNames(folder)
-                                          orderby f.Length descending
-                                          select f).FirstOrDefault() ?? string.Empty;
-                string requestedPath = createFolderPath?.Invoke(directChildren, DirectoryExt.GetDirectoryNameSimple(folder), longestFileName);
+                string requestedPath = createFolderPath?.Invoke(directChildren, DirectoryExt.GetDirectoryNameSimple(folder));
                 if (!string.IsNullOrWhiteSpace(requestedPath) && !folder.Equals(requestedPath, StringComparison.OrdinalIgnoreCase))
                 {
                     plan.DestinationDirectory = ResolveAutoRenameDestinationDirectory(

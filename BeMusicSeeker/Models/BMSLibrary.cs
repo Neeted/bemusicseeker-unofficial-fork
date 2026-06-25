@@ -20149,11 +20149,10 @@ completeFileEnumerationOnce,
                 select g.Key).FirstOrDefault();
     }
 
-    private string CreateChartFolderPathFromCharts(IEnumerable<ChartFile> chartFiles, string parentDir, string longestFileName = "")
+    private string CreateChartFolderPathFromCharts(IEnumerable<ChartFile> chartFiles, string parentDir)
     {
         BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
-        int num = 250;
-        int num2 = 128;
+        int maxFolderNameBytes = 128;
         var encoding = Encoding.GetEncoding("Shift_JIS");
         string commonTitle = GetLongestCommonChartInfo((chartFiles ?? []).Select(f => f?.Title ?? string.Empty));
         string commonArtist = GetLongestCommonChartInfo((chartFiles ?? []).Select(f => f?.Artist ?? string.Empty));
@@ -20167,12 +20166,8 @@ completeFileEnumerationOnce,
         {
             s = Resources.NewFolderName;
         }
-        while (encoding.GetByteCount(parentDir + Path.DirectorySeparatorChar + s + Path.DirectorySeparatorChar + longestFileName) > num || encoding.GetByteCount(s) > num2)
+        while (encoding.GetByteCount(s) > maxFolderNameBytes && s.Length > 1)
         {
-            if (s.Length <= 1)
-            {
-                throw new PathTooLongException(string.Format(Resources.Error_PathTooLong, parentDir + Path.DirectorySeparatorChar + s + Path.DirectorySeparatorChar + longestFileName));
-            }
             s = s.Substring(0, s.Length - 1);
         }
         return Path.Combine(parentDir, s).Trim();

@@ -1689,7 +1689,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                             EnableSmartComponentOverwrite = false,
                             KeepSmartOverwriteProtectedFilesByRenaming = false
                         },
-                        (_, _, _) => throw new AssertFailedException("createFolderPath should not be called when destination is specified."),
+                        (_, _) => throw new AssertFailedException("createFolderPath should not be called when destination is specified."),
                         ex => ex.Message,
                         new RealFileMutationService(),
                         null,
@@ -1880,7 +1880,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                     EnableSmartComponentOverwrite = false,
                     KeepSmartOverwriteProtectedFilesByRenaming = false
                 },
-                (_, _, _) => throw new AssertFailedException("createFolderPath should not be called when destination is specified."),
+                (_, _) => throw new AssertFailedException("createFolderPath should not be called when destination is specified."),
                 ex => ex.Message,
                 new RealFileMutationService(),
                 null,
@@ -1931,7 +1931,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                     EnableSmartComponentOverwrite = false,
                     KeepSmartOverwriteProtectedFilesByRenaming = false
                 },
-                (files, _, _) =>
+                (files, _) =>
                 {
                     List<ChartFile> receivedFiles = [.. files];
                     Assert.AreEqual(1, receivedFiles.Count);
@@ -1984,7 +1984,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 EnableSmartComponentOverwrite = false,
                 KeepSmartOverwriteProtectedFilesByRenaming = false
             },
-            (_, _, _) => destinationDirectoryPath,
+            (_, _) => destinationDirectoryPath,
             ex => ex.Message,
             new ResilientFileMutationService(),
             null,
@@ -2031,7 +2031,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 EnableSmartComponentOverwrite = false,
                 KeepSmartOverwriteProtectedFilesByRenaming = false
             },
-            (_, _, _) => throw new AssertFailedException("createFolderPath should not be called when destination is specified."),
+            (_, _) => throw new AssertFailedException("createFolderPath should not be called when destination is specified."),
             ex => ex.Message,
             new ResilientFileMutationService(),
             null,
@@ -2090,7 +2090,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                             EnableSmartComponentOverwrite = false,
                             KeepSmartOverwriteProtectedFilesByRenaming = false
                         },
-                        (_, _, _) => throw new AssertFailedException("createFolderPath should not be called when destination is specified."),
+                        (_, _) => throw new AssertFailedException("createFolderPath should not be called when destination is specified."),
                         ex => ex.Message,
                         new RealFileMutationService(),
                         null,
@@ -2160,7 +2160,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                             EnableSmartComponentOverwrite = false,
                             KeepSmartOverwriteProtectedFilesByRenaming = false
                         },
-                        (_, _, _) => throw new AssertFailedException("createFolderPath should not be called when destination is specified."),
+                        (_, _) => throw new AssertFailedException("createFolderPath should not be called when destination is specified."),
                         ex => ex.Message,
                         new RealFileMutationService(),
                         null,
@@ -2226,7 +2226,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                     EnableSmartComponentOverwrite = false,
                     KeepSmartOverwriteProtectedFilesByRenaming = false
                 },
-                (_, _, _) => throw new AssertFailedException("createFolderPath should not be called when destination is specified."),
+                (_, _) => throw new AssertFailedException("createFolderPath should not be called when destination is specified."),
                 ex => ex.Message,
                 new RealFileMutationService(),
                 null,
@@ -2277,7 +2277,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                     EnableSmartComponentOverwrite = true,
                     KeepSmartOverwriteProtectedFilesByRenaming = true
                 },
-                (_, _, _) => throw new AssertFailedException("createFolderPath should not be called when destination is specified."),
+                (_, _) => throw new AssertFailedException("createFolderPath should not be called when destination is specified."),
                 ex => ex.Message,
                 new RealFileMutationService(),
                 null,
@@ -2327,7 +2327,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                     EnableSmartComponentOverwrite = false,
                     KeepSmartOverwriteProtectedFilesByRenaming = false
                 },
-                (_, _, _) => throw new AssertFailedException("createFolderPath should not be called when destination is specified."),
+                (_, _) => throw new AssertFailedException("createFolderPath should not be called when destination is specified."),
                 ex => ex.Message,
                 new RealFileMutationService(),
                 null,
@@ -2377,7 +2377,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                     EnableSmartComponentOverwrite = true,
                     KeepSmartOverwriteProtectedFilesByRenaming = false
                 },
-                (_, _, _) => throw new AssertFailedException("createFolderPath should not be called when destination is specified."),
+                (_, _) => throw new AssertFailedException("createFolderPath should not be called when destination is specified."),
                 ex => ex.Message,
                 new RealFileMutationService(),
                 null,
@@ -3215,7 +3215,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 EnableSmartComponentOverwrite = false,
                 KeepSmartOverwriteProtectedFilesByRenaming = false
             },
-            (_, _, _) => throw new AssertFailedException("createFolderPath should not be called when destination is specified."),
+            (_, _) => throw new AssertFailedException("createFolderPath should not be called when destination is specified."),
             ex => ex.Message,
             fileMutationService,
             null,

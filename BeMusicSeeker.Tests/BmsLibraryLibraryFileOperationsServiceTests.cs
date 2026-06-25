@@ -929,7 +929,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
                     CollectionAssert.AreEqual(new[] { sourcePath }, folders.ToArray());
                     return [chart, nestedChart];
                 },
-                (_, parentDir, _) => Path.Combine(parentDir, "Renamed"));
+                (_, parentDir) => Path.Combine(parentDir, "Renamed"));
 
             Assert.AreEqual(1, plans.Count(plan => !string.IsNullOrWhiteSpace(plan.DestinationDirectory)));
             Assert.AreEqual(Path.Combine(rootPath, "Renamed (2)"), plans.Single(plan => !string.IsNullOrWhiteSpace(plan.DestinationDirectory)).DestinationDirectory);
@@ -969,7 +969,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
                     CollectionAssert.AreEqual(new[] { firstSourcePath, secondSourcePath }, folders.ToArray());
                     return [firstChart, secondChart];
                 },
-                (children, parentDir, _) => Path.Combine(parentDir, children.First().Title == "First" ? "Same:Name" : "SameName"),
+                (children, parentDir) => Path.Combine(parentDir, children.First().Title == "First" ? "Same:Name" : "SameName"),
                 name => name.Replace(":", string.Empty));
 
             CollectionAssert.AreEqual(
@@ -1010,7 +1010,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
                     CollectionAssert.AreEqual(new[] { sourcePath }, folders.ToArray());
                     return [bmsonChart];
                 },
-                (children, parentDir, _) => Path.Combine(parentDir, children.First().Title + "_" + children.First().Artist));
+                (children, parentDir) => Path.Combine(parentDir, children.First().Title + "_" + children.First().Artist));
 
             Assert.AreEqual(1, plans.Count);
             Assert.AreEqual(Path.Combine(rootPath, "BmsonTitle_BmsonArtist"), plans[0].DestinationDirectory);
@@ -1041,7 +1041,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
                     CollectionAssert.AreEqual(new[] { sourcePath }, folders.ToArray());
                     return [bmsChart];
                 },
-                (children, parentDir, _) => Path.Combine(parentDir, children.First().Title));
+                (children, parentDir) => Path.Combine(parentDir, children.First().Title));
 
             Assert.AreEqual(1, plans.Count);
             Assert.AreEqual(Path.Combine(rootPath, "BmsTitle"), plans[0].DestinationDirectory);
@@ -1082,7 +1082,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
                     CollectionAssert.AreEqual(new[] { sourcePath }, folders.ToArray());
                     return [bmsChart, bmsonChart];
                 },
-                (children, parentDir, _) =>
+                (children, parentDir) =>
                 {
                     directChildTitles = [.. children.Select(child => child.Title).OrderBy(title => title, StringComparer.Ordinal)];
                     return Path.Combine(parentDir, string.Join("_", directChildTitles));

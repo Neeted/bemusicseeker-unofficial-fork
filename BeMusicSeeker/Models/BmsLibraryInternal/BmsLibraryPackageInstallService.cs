@@ -835,7 +835,7 @@ internal sealed class BmsLibraryPackageInstallService
         ChartPackage package,
         string installationDirectory,
         BmsLibraryOptionsSnapshot options,
-        Func<IEnumerable<ChartFile>, string, string, string> createFolderPath,
+        Func<IEnumerable<ChartFile>, string, string> createFolderPath,
         Func<Exception, string> getDisplayedExceptionMessage,
         IFileMutationService fileMutationService,
         IBmsLibraryDialogService dialogService,
@@ -906,8 +906,7 @@ internal sealed class BmsLibraryPackageInstallService
             {
                 destinationDirectory = createFolderPath?.Invoke(
                     installTargetEntries.Select(entry => entry.Chart),
-                    options?.BMSInstallDir,
-                    installComponentFiles.Select(Path.GetFileName).OrderByDescending(fileName => fileName.Length).FirstOrDefault() ?? string.Empty);
+                    options?.BMSInstallDir);
             }
             else
             {
