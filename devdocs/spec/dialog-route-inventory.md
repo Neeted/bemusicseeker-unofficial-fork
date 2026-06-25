@@ -55,15 +55,15 @@ When a new legacy route is added, the test should fail unless the route is inten
 | `BeMusicSeeker/Models/Utils/DispatcherMessageBox.cs` | coordinator-backed legacy adapter | Unit 7 |
 | `BeMusicSeeker/ViewModels/MainWindowViewModel.cs` | Livet confirmation / interaction dispatch | Unit 2, Unit 8 |
 | `BeMusicSeeker/ViewModels/temporarilyCopyFiles.cs` | ViewModel `DispatcherMessageBox` | Unit 2 |
-| `BeMusicSeeker/Views/CommonOpenFileDialogInteractionMessageAction.cs` | common picker action | Unit 5 |
+| `BeMusicSeeker/Views/CommonOpenFileDialogInteractionMessageAction.cs` | coordinator-backed picker action bridge | Unit 6 |
 | `BeMusicSeeker/Views/LoadPlaylistURIDialog.cs` | overlay message / open picker | Unit 5, Unit 6 |
 | `BeMusicSeeker/Views/MainWindow.cs` | message / confirmation / picker / modal | Unit 2, Unit 5, Unit 6, Unit 8 |
-| `BeMusicSeeker/Views/MainWindow.xaml` | Livet trigger wiring / picker actions | Unit 2, Unit 5, Unit 6 |
+| `BeMusicSeeker/Views/MainWindow.xaml` | Livet trigger wiring / picker action bridge | Unit 2, Unit 6 |
 | `BeMusicSeeker/Views/PlayHistoryFolderDisplayPresetEditDialog.cs` | modal window result | Unit 6 |
 | `BeMusicSeeker/Views/PlaylistPropertyDialog.cs` | overlay dialog result | Unit 6 |
 | `BeMusicSeeker/Views/PlaylistSummaryBulkEditDialog.cs` | overlay dialog result | Unit 6 |
 | `BeMusicSeeker/Views/SettingDialog.cs` | message / picker / modal | Unit 2, Unit 5, Unit 6 |
-| `BeMusicSeeker/Views/SettingDialog.xaml` | Livet picker actions | Unit 5 |
+| `BeMusicSeeker/Views/SettingDialog.xaml` | Livet picker action bridge | Unit 6 |
 | `BeMusicSeeker/Views/ThemedDialogInteractionMessageActions.cs` | Livet dialog action | Unit 2 |
 | `BeMusicSeeker/Views/ThemedMessageBox.cs` | message box display component | Unit 1, Unit 7 |
 | `BeMusicSeeker/Views/Dialogs/UiDialogCoordinator.cs` | progress / picker display component bridge | Unit 4, Unit 5 |
