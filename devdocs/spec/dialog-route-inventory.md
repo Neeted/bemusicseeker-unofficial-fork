@@ -10,7 +10,7 @@ It is intentionally used as both a migration checklist and an architecture-test 
 - Command shape:
 
 ```powershell
-rg -n "DispatcherMessageBox\.Show|internal static class DispatcherMessageBox|System\.Windows\.MessageBox\.Show|MessageBox\.Show\(|new ConfirmationMessage|InteractionMessageAction<FrameworkElement>|RaiseInteractionMessageOnUiThread|CommonOpenFileDialog|OpenFileDialog|SaveFileDialog|FolderBrowserDialog|\.ShowDialog\(|ProgressDialog\.Execute|ProgressDialog\.Current" BeMusicSeeker -g "*.cs" -g "*.xaml"
+rg -n "DispatcherMessageBox\.Show|internal static class DispatcherMessageBox|internal static class UiDialogLegacyAdapter|UiDialogLegacyAdapter\.ShowMessageBox|System\.Windows\.MessageBox\.Show|MessageBox\.Show\(|new ConfirmationMessage|InteractionMessageAction<FrameworkElement>|RaiseInteractionMessageOnUiThread|CommonOpenFileDialog|OpenFileDialog|SaveFileDialog|FolderBrowserDialog|\.ShowDialog\(|ProgressDialog\.Execute|ProgressDialog\.Current" BeMusicSeeker -g "*.cs" -g "*.xaml"
 ```
 
 ## Route Counts
@@ -21,6 +21,8 @@ These counts are a starting snapshot, not a target. They should monotonically mo
 | --- | ---: | --- |
 | `DispatcherMessageBox.Show` | 111 | legacy message / confirmation |
 | `internal static class DispatcherMessageBox` | 1 | legacy adapter entry point |
+| `internal static class UiDialogLegacyAdapter` | 1 | legacy adapter bridge |
+| `UiDialogLegacyAdapter.ShowMessageBox` | 2 | legacy adapter bridge |
 | `System.Windows.MessageBox.Show` | 4 | emergency route candidate |
 | `MessageBox.Show(` | 121 | legacy + emergency aggregate |
 | `new ConfirmationMessage` | 59 | Livet confirmation |
@@ -43,7 +45,7 @@ When a new legacy route is added, the test should fail unless the route is inten
 | File | Primary routes | Migration unit |
 | --- | --- | --- |
 | `BeMusicSeeker/App.cs` | emergency `System.Windows.MessageBox.Show` | Unit 7 |
-| `BeMusicSeeker/Models/BmsLibraryInternal/BmsLibraryDialogService.cs` | `DispatcherMessageBox` adapter | Unit 3 |
+| `BeMusicSeeker/Models/BmsLibraryInternal/BmsLibraryDialogService.cs` | coordinator-backed legacy adapter bridge | Unit 3 |
 | `BeMusicSeeker/Models/BMSPlaylist.cs` | model `DispatcherMessageBox` | Unit 3 |
 | `BeMusicSeeker/Models/LR2/Backup.cs` | model `DispatcherMessageBox` | Unit 3 |
 | `BeMusicSeeker/Models/uBMplay.cs` | model `DispatcherMessageBox` | Unit 3 |
@@ -63,6 +65,7 @@ When a new legacy route is added, the test should fail unless the route is inten
 | `BeMusicSeeker/Views/SettingDialog.xaml` | Livet picker actions | Unit 5 |
 | `BeMusicSeeker/Views/ThemedDialogInteractionMessageActions.cs` | Livet dialog action | Unit 2 |
 | `BeMusicSeeker/Views/ThemedMessageBox.cs` | message box display component | Unit 1, Unit 7 |
+| `BeMusicSeeker/Views/Dialogs/UiDialogLegacyAdapter.cs` | coordinator-backed legacy adapter bridge | Unit 7 |
 
 ## Route Classification Axes
 

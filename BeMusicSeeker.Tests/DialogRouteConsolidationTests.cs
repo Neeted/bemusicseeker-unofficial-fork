@@ -16,6 +16,8 @@ public sealed class DialogRouteConsolidationTests
     [
         new Regex(@"DispatcherMessageBox\.Show", RegexOptions.Compiled),
         new Regex(@"internal static class DispatcherMessageBox", RegexOptions.Compiled),
+        new Regex(@"internal static class UiDialogLegacyAdapter", RegexOptions.Compiled),
+        new Regex(@"UiDialogLegacyAdapter\.ShowMessageBox", RegexOptions.Compiled),
         new Regex(@"System\.Windows\.MessageBox\.Show", RegexOptions.Compiled),
         new Regex(@"(?<!Themed)MessageBox\.Show\(", RegexOptions.Compiled),
         new Regex(@"new ConfirmationMessage", RegexOptions.Compiled),
@@ -65,10 +67,13 @@ public sealed class DialogRouteConsolidationTests
     {
         string root = FindRepositoryRoot();
         string dispatcherMessageBox = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "Utils", "DispatcherMessageBox.cs"));
+        string bmsLibraryDialogService = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BmsLibraryInternal", "BmsLibraryDialogService.cs"));
         string themedDialogActions = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "ThemedDialogInteractionMessageActions.cs"));
 
-        StringAssert.Contains(dispatcherMessageBox, "UiDialogCoordinator");
+        StringAssert.Contains(dispatcherMessageBox, "UiDialogLegacyAdapter.ShowMessageBox");
         Assert.IsFalse(dispatcherMessageBox.Contains("MessageBox.Show("), "DispatcherMessageBox must not fall back to the standard WPF MessageBox route.");
+        StringAssert.Contains(bmsLibraryDialogService, "UiDialogLegacyAdapter.ShowMessageBox");
+        Assert.IsFalse(bmsLibraryDialogService.Contains("DispatcherMessageBox"), "BmsLibraryDialogService must not route model dialogs through DispatcherMessageBox.");
         StringAssert.Contains(themedDialogActions, "UiDialogCoordinator");
         Assert.IsFalse(themedDialogActions.Contains("ThemedMessageBox.Show("), "Livet dialog actions should go through UiDialogCoordinator.");
         StringAssert.Contains(themedDialogActions, "UiDialogStatus.CancelledByUser or UiDialogStatus.ClosedByUser => ThemedMessageBox.ToConfirmationResponse(result.MessageBoxResult)");
