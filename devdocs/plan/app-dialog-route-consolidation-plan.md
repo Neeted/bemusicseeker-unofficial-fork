@@ -4,9 +4,9 @@
 
 この資料は、BeMusicSeeker のダイアログ表示経路をアプリ全体で整理するための実装計画である。
 
-現状は `DispatcherMessageBox.Show`、Livet `InteractionMessage` / `ConfirmationMessage`、
+着手時点では `DispatcherMessageBox.Show`、Livet `InteractionMessage` / `ConfirmationMessage`、
 `CommonOpenFileDialogInteractionMessageAction`、`ProgressDialog.Execute`、各 View の `ShowDialog()` 直呼び、
-`System.Windows.MessageBox.Show` 直呼びが混在している。個別不具合に対して最小差分の修正を重ねた結果、
+`System.Windows.MessageBox.Show` 直呼びが混在していた。個別不具合に対して最小差分の修正を重ねた結果、
 ある経路では表示されるが別経路では裏に回る、表示されない、応答待ちのまま止まる、という回帰を繰り返しやすい構造になっている。
 
 この計画では、中間段階ごとのリリース可能性を優先しない。同じ系統のダイアログは横断的に一括置換し、
@@ -23,8 +23,8 @@
 | Unit 2: Message / Confirmation Route Replacement | Completed | Legacy entrypoint `DispatcherMessageBox` と Livet `Themed*InteractionMessageAction` を coordinator-backed に置換済み。譜面ビューア登録確認、設定系、playlist sync、app schema、temporary install playback の decision confirmation は coordinator route へ置換済み。残る OK notification の Livet route は Unit 3 の model boundary / operation result 整理で扱う。 |
 | Unit 3: Model Dialog Boundary Replacement | Completed | `BmsLibraryDialogService` は `DispatcherMessageBox` 依存を外し、coordinator-backed legacy adapter bridge に集約済み。`Backup.SaveBackups` は warning / failure result 化し、UI await 後に coordinator route で flush する形へ移行済み。`BMSPlaylist` の recommended table / custom folder notification は `OperationNotificationScope` へ移し、UI operation 境界で coordinator route flush する形へ移行済み。`uBMplay` の起動失敗は Model 内 dialog ではなく caller 例外へ移行済み。`FastDirectoryEnumerator` のアクセス不可 directory skip は UI dialog 直呼びを廃止し、skip 事実を file logger に残す形へ移行済み。`TaskEx` は task fault 分類ログだけを担う utility に整理し、continuation 内 dialog と network report consent prompt を廃止済み。 |
 | Unit 4: Progress Dialog Replacement | Completed | `MainWindow.cs` の progress 操作は `UiDialogCoordinator.RunWithProgressAsync` へ移行済み。`ProgressDialog.Current` static state は廃止済み。`ProgressDialog` 表示中は coordinator-managed active modal として owner resolver の最優先に登録し、progress 中に発生する message / confirmation は progress dialog owner へ寄る形に整理済み。 |
-| Unit 5: File Picker Route Replacement | Completed | `UiFilePickerRequest` / `UiFolderPickerRequest` / `UiSaveFilePickerRequest` と typed result を実装済み。`MainWindow.cs`、`SettingDialog.cs`、`LoadPlaylistURIDialog.cs` の direct open / save / folder picker は coordinator route へ移行済み。`CommonOpenFileDialogInteractionMessageAction` は coordinator-backed bridge 化済みで、picker 表示失敗を user cancel に丸めない。XAML action bridge の撤去は overlay / DialogHost の所有境界と一緒に Unit 6 で扱う。 |
-| Unit 6: Overlay DialogHost | In progress | MainWindow 埋め込み overlay の open / close 直 `Visibility` 操作を `ShowOverlayDialog` / `HideOverlayDialog` へ寄せる第一段は完了。`InitialSetupLanguageDialog -> SettingDialog` の親 Panel 走査は廃止済み。次は `SettingDialog.xaml` / `MainWindow.xaml` に残る Livet picker action bridge と overlay owner 境界を整理する。 |
+| Unit 5: File Picker Route Replacement | Completed | `UiFilePickerRequest` / `UiFolderPickerRequest` / `UiSaveFilePickerRequest` と typed result を実装済み。`MainWindow.cs`、`SettingDialog.cs`、`LoadPlaylistURIDialog.cs` の direct open / save / folder picker は coordinator route へ移行済み。Unit 5 完了時点では `CommonOpenFileDialogInteractionMessageAction` を coordinator-backed bridge として残したが、Unit 6 picker bridge removal で撤去済み。 |
+| Unit 6: Overlay DialogHost | In progress | MainWindow 埋め込み overlay の open / close 直 `Visibility` 操作を `ShowOverlayDialog` / `HideOverlayDialog` へ寄せる第一段は完了。`InitialSetupLanguageDialog -> SettingDialog` の親 Panel 走査は廃止済み。`CommonOpenFileDialogInteractionMessageAction` と XAML picker action bridge は撤去済み。次は remaining overlay / modal windows の DialogHost 境界を整理する。 |
 | Unit 7: DispatcherMessageBox Retirement | Pending | 通常 route から legacy adapter / standard MessageBox fallback を削除する。 |
 | Unit 8: Score Viewer Registration Rework | Pending | 譜面ビューア登録確認を preflight confirmation と background upload に分離する。 |
 
@@ -108,6 +108,11 @@
 | Unit 6 overlay visibility host | `dotnet format whitespace BeMusicSeeker.sln --verify-no-changes --no-restore --verbosity minimal` | Passed | no whitespace changes required. |
 | Unit 6 overlay visibility host | `dotnet roslynator analyze BeMusicSeeker.sln --properties Configuration=Release --severity-level warning --verbosity minimal` | Passed | 0 diagnostics. |
 | Unit 6 overlay visibility host | sub-agent static review | Passed | Final review returned no High / Medium findings. |
+| Unit 6 picker bridge removal | `dotnet build BeMusicSeeker.sln /p:Configuration=Release --no-restore` | Passed | 0 warnings, 0 errors. |
+| Unit 6 picker bridge removal | `dotnet test BeMusicSeeker.Tests\BeMusicSeeker.Tests.csproj --filter "DialogRouteConsolidationTests\|MainWindowContextMenuResourceTests" /p:Configuration=Release --no-restore` | Passed | 100 tests passed. |
+| Unit 6 picker bridge removal | `dotnet format whitespace BeMusicSeeker.sln --verify-no-changes --no-restore --verbosity minimal` | Passed | no whitespace changes required. |
+| Unit 6 picker bridge removal | `dotnet roslynator analyze BeMusicSeeker.sln --properties Configuration=Release --severity-level warning --verbosity minimal` | Passed | 0 diagnostics. |
+| Unit 6 picker bridge removal | sub-agent static review | Passed | Final review returned no High / Medium findings. Low doc freshness note was fixed in `devdocs/spec/file-selection-dialogs.md`. |
 
 ## Goals
 
@@ -147,7 +152,6 @@
 - `BeMusicSeeker/Models/Utils/DispatcherMessageBox.cs`
 - `BeMusicSeeker/Views/ThemedMessageBox.cs`
 - `BeMusicSeeker/Views/ThemedDialogInteractionMessageActions.cs`
-- `BeMusicSeeker/Views/CommonOpenFileDialogInteractionMessageAction.cs`
 - `BeMusicSeeker/ViewModels/MainWindowViewModel.cs`
 - `BeMusicSeeker/Views/MainWindow.xaml`
 - `BeMusicSeeker/Views/MainWindow.cs`
@@ -380,7 +384,7 @@ flush は UI 側で、progress close 後または mutation boundary 終了後に
 
 ### Unit 5: File Picker Route Replacement
 
-- `CommonOpenFileDialogInteractionMessageAction` 経由と code-behind 直呼びを coordinator に寄せる。
+- XAML action bridge と code-behind 直呼びを coordinator に寄せる。
 - owner なし `ShowDialog()` を全廃する。
 - `OpenFileDialog` / `SaveFileDialog` / `CommonOpenFileDialog` の初期 directory、filter、multi-select、default extension を request 型に統一する。
 - setting dialog、playlist URI import、backup / restore、audio conversion destination、export path を同じ picker route へ移す。

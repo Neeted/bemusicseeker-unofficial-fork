@@ -187,6 +187,28 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         ShowSettingDialogOverlay();
     }
 
+    private void addRootFolderMenuItemClick(object sender, RoutedEventArgs e)
+    {
+        if (base.DataContext is not MainWindowViewModel { settingDialog: { } settingDialogViewModel } viewModel)
+        {
+            return;
+        }
+
+        UiFolderPickerResult result = new UiDialogCoordinator()
+            .PickFolderAsync(new UiFolderPickerRequest(
+                selectedPath: viewModel.BMSParentFolderList?.FirstOrDefault(),
+                multiselect: false,
+                ensurePathExists: true,
+                owner: this))
+            .GetAwaiter()
+            .GetResult();
+        ThrowIfPickerFailed(result.Status, result.Error, "Main window add root folder picker");
+        if (result.Status == UiDialogStatus.Accepted)
+        {
+            settingDialogViewModel.AddBmsSearchRootPathFromMainWindowPicker(result.FolderPath);
+        }
+    }
+
     private ContextMenu _lastOpenedContextMenu;
 
     // NOTE:

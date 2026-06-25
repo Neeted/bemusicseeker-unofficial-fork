@@ -30,7 +30,6 @@ using Livet;
 using Livet.Commands;
 using Livet.EventListeners;
 using Livet.Messaging;
-using Livet.Messaging.IO;
 using Microsoft.VisualBasic.FileIO;
 using NLog;
 using Ribbit.BMS;
@@ -715,19 +714,9 @@ public class MainWindowViewModel : ViewModel
 
         private bool tempPlayerWASAPIParam;
 
-        private ListenerCommand<FolderSelectionMessage> _OpenRootFolderCommand;
-
-        private ListenerCommand<OpeningFileSelectionMessage> _OpenFileCommand;
-
-        private ListenerCommand<FolderSelectionMessage> _OpenDirCommand;
-
         private bool operationModeLR2DB;
 
         private bool isBMSDirectoryAdded;
-
-        private ListenerCommand<FolderSelectionMessage> _AddBMSDirCommandFromMainWindow;
-
-        private ListenerCommand<FolderSelectionMessage> _AddBMSDirCommand;
 
         private bool isBMSDirectoryRemoved;
 
@@ -3146,51 +3135,6 @@ public class MainWindowViewModel : ViewModel
             }
         }
 
-        public ListenerCommand<FolderSelectionMessage> OpenRootFolderCommand
-        {
-            get
-            {
-                _OpenRootFolderCommand ??= new ListenerCommand<FolderSelectionMessage>(OpenRootFolder);
-                return _OpenRootFolderCommand;
-            }
-        }
-
-        public ListenerCommand<OpeningFileSelectionMessage> OpenFileCommand
-        {
-            get
-            {
-                _OpenFileCommand ??= new ListenerCommand<OpeningFileSelectionMessage>(OpenFile);
-                return _OpenFileCommand;
-            }
-        }
-
-        public ListenerCommand<FolderSelectionMessage> OpenDirCommand
-        {
-            get
-            {
-                _OpenDirCommand ??= new ListenerCommand<FolderSelectionMessage>(OpenDir);
-                return _OpenDirCommand;
-            }
-        }
-
-        public ListenerCommand<FolderSelectionMessage> AddBMSDirCommandFromMainWindow
-        {
-            get
-            {
-                _AddBMSDirCommandFromMainWindow ??= new ListenerCommand<FolderSelectionMessage>(AddBMSDirectoryToRootFolderAndSave);
-                return _AddBMSDirCommandFromMainWindow;
-            }
-        }
-
-        public ListenerCommand<FolderSelectionMessage> AddBMSDirCommand
-        {
-            get
-            {
-                _AddBMSDirCommand ??= new ListenerCommand<FolderSelectionMessage>(AddBMSDirectoryToSearchRoots);
-                return _AddBMSDirCommand;
-            }
-        }
-
         public ListenerCommand<string> RemoveDirCommand
         {
             get
@@ -4186,21 +4130,19 @@ public class MainWindowViewModel : ViewModel
             return result;
         }
 
-        public void OpenRootFolder(FolderSelectionMessage parameter)
+        public void SetRootFolderPathFromPicker(string propertyName, string path)
         {
-            if (parameter.Response == null)
+            if (path == null)
             {
                 return;
             }
-            string response = parameter.Response;
             try
             {
-                if (!response.IsSjisSchemeString())
+                if (!path.IsSjisSchemeString())
                 {
                     throw new ArgumentException(BeMusicSeeker.Properties.Resources.Error_LR2UnicodePathUnsupported);
                 }
-                string name = parameter.MessageKey.Substring(parameter.MessageKey.LastIndexOf('.') + 1);
-                GetType().GetProperty(name).GetSetMethod().Invoke(this, [response]);
+                SetSettingProperty(propertyName, path);
             }
             catch (ArgumentException ex)
             {
@@ -4212,32 +4154,29 @@ public class MainWindowViewModel : ViewModel
             }
         }
 
-        private void OpenFile(OpeningFileSelectionMessage parameter)
+        public void SetFilePathFromPicker(string propertyName, string path)
         {
-            if (parameter.Response != null)
-            {
-                string name = parameter.MessageKey.Substring(parameter.MessageKey.LastIndexOf('.') + 1);
-                GetType().GetProperty(name).GetSetMethod().Invoke(this, [parameter.Response.FirstOrDefault()]);
-            }
+            if (path == null)
+                return;
+
+            SetSettingProperty(propertyName, path);
         }
 
-        private void OpenDir(FolderSelectionMessage parameter)
+        public void SetDirectoryPathFromPicker(string propertyName, string path)
         {
-            if (parameter.Response != null)
-            {
-                string name = parameter.MessageKey.Substring(parameter.MessageKey.LastIndexOf('.') + 1);
-                GetType().GetProperty(name).GetSetMethod().Invoke(this, [parameter.Response]);
-            }
+            if (path == null)
+                return;
+
+            SetSettingProperty(propertyName, path);
         }
 
-        private void AddBMSDirectoryToRootFolderAndSave(FolderSelectionMessage parameter)
+        public void AddBmsSearchRootPathFromMainWindowPicker(string path)
         {
-            if (parameter.Response == null)
+            if (path == null)
             {
                 return;
             }
-            _ = parameter.Response;
-            AddBmsSearchRootPaths([parameter.Response], parameter.MessageKey, saveImmediately: true);
+            AddBmsSearchRootPaths([path], null, saveImmediately: true);
             if (isSearchRootsChanged)
             {
                 if (!Settings.Default.OperationModeLR2DB)
@@ -4263,13 +4202,32 @@ public class MainWindowViewModel : ViewModel
             }
         }
 
-        private void AddBMSDirectoryToSearchRoots(FolderSelectionMessage parameter)
+        public void AddBmsSearchRootPathFromPicker(string propertyName, string path)
         {
-            if (parameter?.Response == null)
+            if (path == null)
             {
                 return;
             }
-            AddBmsSearchRootPaths([parameter.Response], parameter.MessageKey, saveImmediately: false);
+            AddBmsSearchRootPaths([path], ToSettingDialogMessageKey(propertyName), saveImmediately: false);
+        }
+
+        private void SetSettingProperty(string propertyName, string value)
+        {
+            if (string.IsNullOrWhiteSpace(propertyName))
+            {
+                throw new ArgumentException("Setting property name is required.", nameof(propertyName));
+            }
+
+            PropertyInfo property = GetType().GetProperty(propertyName)
+                ?? throw new InvalidOperationException("Unknown setting dialog property: " + propertyName);
+            MethodInfo setter = property.GetSetMethod()
+                ?? throw new InvalidOperationException("Setting dialog property is not writable: " + propertyName);
+            setter.Invoke(this, [value]);
+        }
+
+        private static string ToSettingDialogMessageKey(string propertyName)
+        {
+            return string.IsNullOrWhiteSpace(propertyName) ? null : "settingDialog." + propertyName;
         }
 
         public void AddCustomFolderAdditionalOutputBaseDir(string path)
@@ -4669,15 +4627,6 @@ public class MainWindowViewModel : ViewModel
             return ownerViewModel.BMSTables.Count(table =>
                 table != null
                 && string.Equals(table.custom_folder_output_base_name, baseName, StringComparison.OrdinalIgnoreCase));
-        }
-
-        private void AddStandaloneBmsRootPath(FolderSelectionMessage parameter)
-        {
-            if (parameter?.Response == null)
-            {
-                return;
-            }
-            AddStandaloneBmsRootPathsCore([parameter.Response], parameter.MessageKey);
         }
 
         public void AddBmsSearchRootPaths(IEnumerable<string> paths)

@@ -121,6 +121,210 @@ public partial class SettingDialog : UserControl, IComponentConnector
         comboBoxAppearanceTheme.SelectedValue ??= settingDialogViewModel.AppearanceTheme;
     }
 
+    private MainWindowViewModel.SettingDialogViewModel GetSettingDialogViewModel()
+    {
+        return (base.DataContext as MainWindowViewModel)?.settingDialog
+            ?? throw new InvalidOperationException("Setting dialog view model is unavailable.");
+    }
+
+    private void PickRootFolderForSetting(string propertyName, string selectedPath, string title = null)
+    {
+        MainWindowViewModel.SettingDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
+        UiFolderPickerResult result = new UiDialogCoordinator()
+            .PickFolderAsync(new UiFolderPickerRequest(
+                title,
+                selectedPath,
+                multiselect: false,
+                ensurePathExists: true,
+                owner: Window.GetWindow(this)))
+            .GetAwaiter()
+            .GetResult();
+        ThrowIfPickerFailed(result.Status, result.Error, propertyName + " folder picker");
+        if (result.Status == UiDialogStatus.Accepted)
+        {
+            settingDialogViewModel.SetRootFolderPathFromPicker(propertyName, result.FolderPath);
+        }
+    }
+
+    private void PickDirectoryForSetting(string propertyName, string selectedPath, string title = null)
+    {
+        MainWindowViewModel.SettingDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
+        UiFolderPickerResult result = new UiDialogCoordinator()
+            .PickFolderAsync(new UiFolderPickerRequest(
+                title,
+                selectedPath,
+                multiselect: false,
+                ensurePathExists: true,
+                owner: Window.GetWindow(this)))
+            .GetAwaiter()
+            .GetResult();
+        ThrowIfPickerFailed(result.Status, result.Error, propertyName + " directory picker");
+        if (result.Status == UiDialogStatus.Accepted)
+        {
+            settingDialogViewModel.SetDirectoryPathFromPicker(propertyName, result.FolderPath);
+        }
+    }
+
+    private void PickFileForSetting(string propertyName, string title, string fileName, string filter, string initialDirectory)
+    {
+        MainWindowViewModel.SettingDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
+        UiFilePickerResult result = new UiDialogCoordinator()
+            .PickFileAsync(new UiFilePickerRequest(
+                title,
+                fileName,
+                initialDirectory,
+                filter,
+                defaultExtension: null,
+                multiselect: false,
+                ensureFileExists: true,
+                ensurePathExists: true,
+                owner: Window.GetWindow(this)))
+            .GetAwaiter()
+            .GetResult();
+        ThrowIfPickerFailed(result.Status, result.Error, propertyName + " file picker");
+        if (result.Status == UiDialogStatus.Accepted)
+        {
+            settingDialogViewModel.SetFilePathFromPicker(propertyName, result.FileName);
+        }
+    }
+
+    private static string PathToDirectoryOrSelf(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return path;
+        }
+
+        string directory = Path.GetDirectoryName(path);
+        return string.IsNullOrWhiteSpace(directory) ? path : directory;
+    }
+
+    private static string FirstNonEmpty(params string[] values)
+    {
+        return values?.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)) ?? string.Empty;
+    }
+
+    private static string FirstNonEmptyOrDirectoryOfSecond(string first, string second)
+    {
+        if (!string.IsNullOrWhiteSpace(first))
+        {
+            return first;
+        }
+        return string.IsNullOrWhiteSpace(second) ? string.Empty : Path.GetDirectoryName(second) ?? string.Empty;
+    }
+
+    private void browseLr2RootPathButtonClick(object sender, RoutedEventArgs e)
+    {
+        MainWindowViewModel.SettingDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
+        PickRootFolderForSetting(nameof(settingDialogViewModel.LR2RootPath), settingDialogViewModel.LR2RootPath);
+    }
+
+    private void browseLr2SongDbPathButtonClick(object sender, RoutedEventArgs e)
+    {
+        MainWindowViewModel.SettingDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
+        PickFileForSetting(
+            nameof(settingDialogViewModel.LR2SongDBPath),
+            "song.db を開く",
+            "song.db",
+            "song.db (*.db)|*.db|すべてのファイル(*.*)|*.*",
+            PathToDirectoryOrSelf(settingDialogViewModel.LR2SongDBPath));
+    }
+
+    private void browseLr2ConfigPathButtonClick(object sender, RoutedEventArgs e)
+    {
+        MainWindowViewModel.SettingDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
+        PickFileForSetting(
+            nameof(settingDialogViewModel.LR2ConfigXmlPath),
+            "config.xml を開く",
+            "config.xml",
+            "|config.xm?|すべてのファイル(*.*)|*.*",
+            PathToDirectoryOrSelf(settingDialogViewModel.LR2ConfigXmlPath));
+    }
+
+    private void browseBeatorajaRootPathButtonClick(object sender, RoutedEventArgs e)
+    {
+        MainWindowViewModel.SettingDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
+        PickRootFolderForSetting(nameof(settingDialogViewModel.BeatorajaRootPath), settingDialogViewModel.BeatorajaRootPath);
+    }
+
+    private void browseStagefilePathButtonClick(object sender, RoutedEventArgs e)
+    {
+        MainWindowViewModel.SettingDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
+        PickFileForSetting(
+            nameof(settingDialogViewModel.StagefilePath),
+            BeMusicSeeker.Properties.Resources.Open_image,
+            null,
+            "Image file|*.bmp;*.gif;*.jpg;*.jpeg;*.png;*.tif;*.tiff|BMP file (*.bmp)|*.bmp|GIF file (*.gif)|*.gif|JPEG file (*.jpg;*.jpeg)|*.jpg;*.jpeg|PNG file (*.png)|*.png|TIFF file (*.tif;*.tiff)|*.tif;*.tiff",
+            PathToDirectoryOrSelf(settingDialogViewModel.StagefilePath));
+    }
+
+    private void browseUbmplayPathButtonClick(object sender, RoutedEventArgs e)
+    {
+        MainWindowViewModel.SettingDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
+        PickFileForSetting(
+            nameof(settingDialogViewModel.uBMplayPath),
+            "uBMplay.exe を開く",
+            "uBMplay.exe",
+            "|uBMplay.exe|すべてのファイル(*.*)|*.*",
+            PathToDirectoryOrSelf(settingDialogViewModel.uBMplayPath));
+    }
+
+    private void browseBmIdxViewPathButtonClick(object sender, RoutedEventArgs e)
+    {
+        MainWindowViewModel.SettingDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
+        PickFileForSetting(
+            nameof(settingDialogViewModel.BMIIDXViewPath),
+            "BMIIDXView2015.exe を開く",
+            "BMIIDXView2015.exe",
+            "|BMIIDXView2015*.exe|すべてのファイル(*.*)|*.*",
+            PathToDirectoryOrSelf(settingDialogViewModel.BMIIDXViewPath));
+    }
+
+    private void browseEncoderExeDirButtonClick(object sender, RoutedEventArgs e)
+    {
+        PickDirectoryForSetting(nameof(MainWindowViewModel.SettingDialogViewModel.EncoderExeDir), null, BeMusicSeeker.Properties.Resources.Record_setting_encoder_dir_dialog);
+    }
+
+    private void browseLr2CustomFolderOutputDirButtonClick(object sender, RoutedEventArgs e)
+    {
+        MainWindowViewModel.SettingDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
+        PickRootFolderForSetting(
+            nameof(settingDialogViewModel.LR2CustomFolderOutputDir),
+            FirstNonEmpty(settingDialogViewModel.LR2CustomFolderOutputDir, settingDialogViewModel.LR2RootPath));
+    }
+
+    private void browseLr2CustomFolderAsRootOutputDirButtonClick(object sender, RoutedEventArgs e)
+    {
+        MainWindowViewModel.SettingDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
+        PickRootFolderForSetting(
+            nameof(settingDialogViewModel.LR2CustomFolderAsRootOutputDir),
+            FirstNonEmptyOrDirectoryOfSecond(settingDialogViewModel.LR2CustomFolderAsRootOutputDir, settingDialogViewModel.LR2CustomFolderOutputDir));
+    }
+
+    private void addBmsInstallDirButtonClick(object sender, RoutedEventArgs e)
+    {
+        MainWindowViewModel.SettingDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
+        UiFolderPickerResult result = new UiDialogCoordinator()
+            .PickFolderAsync(new UiFolderPickerRequest(
+                selectedPath: settingDialogViewModel.AvailableBMSDirectories?.FirstOrDefault(),
+                multiselect: false,
+                ensurePathExists: true,
+                owner: Window.GetWindow(this)))
+            .GetAwaiter()
+            .GetResult();
+        ThrowIfPickerFailed(result.Status, result.Error, "BMS install directory picker");
+        if (result.Status == UiDialogStatus.Accepted)
+        {
+            settingDialogViewModel.AddBmsSearchRootPathFromPicker(nameof(settingDialogViewModel.BMSInstallDir), result.FolderPath);
+        }
+    }
+
+    private void browseLr2BackupPathButtonClick(object sender, RoutedEventArgs e)
+    {
+        MainWindowViewModel.SettingDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
+        PickRootFolderForSetting(nameof(settingDialogViewModel.LR2BackupPath), settingDialogViewModel.LR2BackupPath);
+    }
+
     private async void SaveAndClose(object sender, RoutedEventArgs e)
     {
         if (!(base.DataContext is MainWindowViewModel { settingDialog: { } settingDialogViewModel } viewModel))

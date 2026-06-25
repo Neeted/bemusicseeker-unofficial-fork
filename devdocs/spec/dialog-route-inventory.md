@@ -26,10 +26,10 @@ These counts are refreshed as implementation units complete. They should monoton
 | `System.Windows.MessageBox.Show` | 4 | emergency route candidate |
 | `MessageBox.Show(` | 99 | legacy + emergency aggregate |
 | `new ConfirmationMessage` | 40 | Livet confirmation |
-| `InteractionMessageAction<FrameworkElement>` | 3 | Livet action component |
+| `InteractionMessageAction<FrameworkElement>` | 2 | Livet action component |
 | `RaiseInteractionMessageOnUiThread` | 57 | Livet interaction dispatch |
-| `CommonOpenFileDialog` | 33 | common picker |
-| `OpenFileDialog` | 33 | open picker |
+| `CommonOpenFileDialog` | 3 | common picker |
+| `OpenFileDialog` | 3 | open picker |
 | `SaveFileDialog` | 1 | save picker |
 | `FolderBrowserDialog` | 0 | legacy folder picker |
 | `.ShowDialog(` | 8 | window / picker modal |
@@ -40,8 +40,9 @@ Current progress notes:
 
 - Unit 4 moved direct `ProgressDialog.Execute` call sites in `MainWindow.cs` to `UiDialogCoordinator.RunWithProgressAsync`.
 - Unit 4 removed `ProgressDialog.Current` from production code. Remaining `ProgressDialog.Execute` calls are inside the coordinator / display component bridge.
-- Unit 5 moved direct code-behind open / save / folder pickers to `UiDialogCoordinator` and made `CommonOpenFileDialogInteractionMessageAction` a coordinator-backed bridge. Remaining picker display component calls are inside the coordinator / picker utility boundary.
+- Unit 5 moved direct code-behind open / save / folder pickers to `UiDialogCoordinator` and made `CommonOpenFileDialogInteractionMessageAction` a coordinator-backed bridge.
 - Unit 6 first overlay pass moved MainWindow-embedded overlay open / close visibility changes to `ShowOverlayDialog` / `HideOverlayDialog` and removed the `InitialSetupLanguageDialog` parent panel walk. Route counts are unchanged because this pass does not remove legacy message / picker route classes yet.
+- Unit 6 picker bridge pass removed `CommonOpenFileDialogInteractionMessageAction` and the remaining XAML picker action bridge. Setting pickers now use explicit view click handlers and the coordinator directly.
 
 ## Legacy Source Files
 
@@ -56,15 +57,12 @@ When a new legacy route is added, the test should fail unless the route is inten
 | `BeMusicSeeker/Models/Utils/DispatcherMessageBox.cs` | coordinator-backed legacy adapter | Unit 7 |
 | `BeMusicSeeker/ViewModels/MainWindowViewModel.cs` | Livet confirmation / interaction dispatch | Unit 2, Unit 8 |
 | `BeMusicSeeker/ViewModels/temporarilyCopyFiles.cs` | ViewModel `DispatcherMessageBox` | Unit 2 |
-| `BeMusicSeeker/Views/CommonOpenFileDialogInteractionMessageAction.cs` | coordinator-backed picker action bridge | Unit 6 |
 | `BeMusicSeeker/Views/LoadPlaylistURIDialog.cs` | overlay message / open picker | Unit 5, Unit 6 |
 | `BeMusicSeeker/Views/MainWindow.cs` | message / confirmation / picker / modal | Unit 2, Unit 5, Unit 6, Unit 8 |
-| `BeMusicSeeker/Views/MainWindow.xaml` | Livet trigger wiring / picker action bridge | Unit 2, Unit 6 |
 | `BeMusicSeeker/Views/PlayHistoryFolderDisplayPresetEditDialog.cs` | modal window result | Unit 6 |
 | `BeMusicSeeker/Views/PlaylistPropertyDialog.cs` | overlay dialog result | Unit 6 |
 | `BeMusicSeeker/Views/PlaylistSummaryBulkEditDialog.cs` | overlay dialog result | Unit 6 |
 | `BeMusicSeeker/Views/SettingDialog.cs` | message / picker / modal | Unit 2, Unit 5, Unit 6 |
-| `BeMusicSeeker/Views/SettingDialog.xaml` | Livet picker action bridge | Unit 6 |
 | `BeMusicSeeker/Views/ThemedDialogInteractionMessageActions.cs` | Livet dialog action | Unit 2 |
 | `BeMusicSeeker/Views/ThemedMessageBox.cs` | message box display component | Unit 1, Unit 7 |
 | `BeMusicSeeker/Views/Dialogs/UiDialogCoordinator.cs` | progress / picker display component bridge | Unit 4, Unit 5 |

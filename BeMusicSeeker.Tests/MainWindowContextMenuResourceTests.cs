@@ -1193,8 +1193,8 @@ public sealed class MainWindowContextMenuResourceTests
             "private bool IsLR2SongDBPathValid()");
         string rootAdd = ExtractBetween(
             viewModelCode,
-            "private void AddBMSDirectoryToRootFolderAndSave",
-            "private void AddBMSDirectoryToSearchRoots");
+            "public void AddBmsSearchRootPathFromMainWindowPicker",
+            "public void AddBmsSearchRootPathFromPicker");
         string saveCore = ExtractBetween(
             viewModelCode,
             "private async Task SaveSettingsCore(bool runPostSaveActions)",
@@ -1312,7 +1312,7 @@ public sealed class MainWindowContextMenuResourceTests
         string viewModelCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
         string addStandalone = ExtractBetween(
             viewModelCode,
-            "private void AddStandaloneBmsRootPath",
+            "private void AddStandaloneBmsRootPathsCore",
             "private void AddBMSDirectoriesToLR2Config");
         string basePath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
         string firstRoot = Path.Combine(basePath, "RootA");
@@ -2615,18 +2615,24 @@ public sealed class MainWindowContextMenuResourceTests
         string root = FindRepositoryRoot();
         string settingDialogXaml = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingDialog.xaml"));
         string mainWindowXaml = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow.xaml"));
-        string dialogActionCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "CommonOpenFileDialogInteractionMessageAction.cs"));
         string settingDialogCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingDialog.cs"));
         string viewModelCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
         string allPickerXaml = settingDialogXaml + mainWindowXaml;
 
         Assert.AreEqual(0, CountOccurrences(allPickerXaml, "<l:FolderBrowserDialogInteractionMessageAction"));
         Assert.AreEqual(0, CountOccurrences(allPickerXaml, "<l:OpenFileDialogInteractionMessageAction"));
-        StringAssert.Contains(allPickerXaml, "v:CommonOpenFileDialogInteractionMessageAction");
-        StringAssert.Contains(dialogActionCode, "new UiDialogCoordinator()");
-        StringAssert.Contains(dialogActionCode, "PickFolderAsync(new UiFolderPickerRequest(");
-        StringAssert.Contains(dialogActionCode, "PickFileAsync(new UiFilePickerRequest(");
-        StringAssert.Contains(dialogActionCode, "message.Response = [.. result.FileNames];");
+        Assert.IsFalse(allPickerXaml.Contains("v:CommonOpenFileDialogInteractionMessageAction"));
+        Assert.IsFalse(allPickerXaml.Contains("FolderSelectionMessage"));
+        Assert.IsFalse(allPickerXaml.Contains("OpeningFileSelectionMessage"));
+        Assert.IsFalse(File.Exists(Path.Combine(root, "BeMusicSeeker", "Views", "CommonOpenFileDialogInteractionMessageAction.cs")));
+        StringAssert.Contains(settingDialogCode, "PickRootFolderForSetting(");
+        StringAssert.Contains(settingDialogCode, "PickFileForSetting(");
+        StringAssert.Contains(settingDialogCode, "PickDirectoryForSetting(");
+        StringAssert.Contains(settingDialogCode, "SetRootFolderPathFromPicker(");
+        StringAssert.Contains(settingDialogCode, "SetFilePathFromPicker(");
+        StringAssert.Contains(settingDialogCode, "SetDirectoryPathFromPicker(");
+        StringAssert.Contains(settingDialogCode, "AddBmsSearchRootPathFromPicker(");
+        StringAssert.Contains(viewModelCode, "AddBmsSearchRootPathFromMainWindowPicker(");
 
         StringAssert.Contains(settingDialogXaml, "Click=\"buttonAddBmsSearchRootPathsClicked\"");
         StringAssert.Contains(settingDialogCode, "PickFolderAsync(new UiFolderPickerRequest(");
@@ -2637,11 +2643,11 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(viewModelCode, "NormalizeExistingStandaloneBmsRootPathsWithoutLr2Compatibility(paths ?? [])");
         StringAssert.Contains(viewModelCode, "ThrowIfLr2IncompatibleStandaloneBmsRoots(requestedPaths)");
 
-        Type actionType = typeof(MainWindow).Assembly.GetType("BeMusicSeeker.Views.CommonOpenFileDialogInteractionMessageAction");
-        Assert.IsNotNull(actionType);
-        MethodInfo parseMethod = actionType.GetMethod("ParseFilterPairsForTest", BindingFlags.Static | BindingFlags.NonPublic);
+        Type utilityType = typeof(MainWindow).Assembly.GetType("BeMusicSeeker.Views.Dialogs.UiFilePickerUtilities");
+        Assert.IsNotNull(utilityType);
+        MethodInfo parseMethod = utilityType.GetMethod("ParseFilterPairs", BindingFlags.Static | BindingFlags.NonPublic);
         Assert.IsNotNull(parseMethod);
-        MethodInfo inferDefaultExtensionMethod = actionType.GetMethod("InferDefaultExtensionForTest", BindingFlags.Static | BindingFlags.NonPublic);
+        MethodInfo inferDefaultExtensionMethod = utilityType.GetMethod("InferDefaultExtension", BindingFlags.Static | BindingFlags.NonPublic);
         Assert.IsNotNull(inferDefaultExtensionMethod);
         var parsed = ((System.Collections.IEnumerable)parseMethod.Invoke(null, ["song.db (*.db)|*.db|すべてのファイル(*.*)|*.*"]))
             .Cast<Tuple<string, string>>()
@@ -2661,8 +2667,8 @@ public sealed class MainWindowContextMenuResourceTests
         string coordinatorCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "Dialogs", "UiDialogCoordinator.cs"));
         StringAssert.Contains(coordinatorCode, "dialog.DefaultExtension = defaultExtension.TrimStart('.');");
         StringAssert.Contains(coordinatorCode, "UiFilePickerUtilities.InferDefaultExtension(request.FileName, request.Filter)");
-        StringAssert.Contains(settingDialogXaml, "Filter=\"|config.xm?|");
-        StringAssert.Contains(settingDialogXaml, "Filter=\"song.db (*.db)|*.db|");
+        StringAssert.Contains(settingDialogCode, "\"|config.xm?|");
+        StringAssert.Contains(settingDialogCode, "\"song.db (*.db)|*.db|");
         StringAssert.Contains(Resources.FileDialogFilter_scoreDB, "score.db (*.db)|*.db|");
     }
 
