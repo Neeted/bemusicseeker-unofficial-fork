@@ -140,6 +140,30 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         throw new InvalidOperationException(routeName + " failed: " + status, exception);
     }
 
+    private static void ThrowIfWindowDialogFailed(UiDialogStatus status, Exception exception, string routeName)
+    {
+        if (status is UiDialogStatus.Accepted or UiDialogStatus.CancelledByUser or UiDialogStatus.ClosedByUser)
+        {
+            return;
+        }
+
+        throw new InvalidOperationException(routeName + " failed: " + status, exception);
+    }
+
+    private static void ThrowIfUiDialogNotShown(UiDialogResult result, string routeName)
+    {
+        if (result == null)
+        {
+            throw new InvalidOperationException(routeName + " failed: no result");
+        }
+        if (result.Status is UiDialogStatus.Accepted or UiDialogStatus.CancelledByUser or UiDialogStatus.ClosedByUser)
+        {
+            return;
+        }
+
+        throw new InvalidOperationException(routeName + " failed: " + result.Status, result.Exception);
+    }
+
     internal void ShowOverlayDialog(FrameworkElement dialog)
     {
         if (dialog == null)
@@ -430,28 +454,31 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             }
             if (result.IsUpdateAvailable)
             {
-                UpdateAssetInfo selectedAsset = base.Dispatcher.Invoke(() =>
+                MainWindowViewModel viewModel = await base.Dispatcher.InvokeAsync(() =>
                 {
-                    if (_isClosingOrClosed)
-                    {
-                        return null;
-                    }
-                    if (base.DataContext is MainWindowViewModel viewModel && result.Assets.Count > 0)
-                    {
-                        var dialog = new UpdateAvailableDialog(result, viewModel)
-                        {
-                            Owner = this
-                        };
-                        return dialog.ShowDialog() == true ? dialog.SelectedAsset : null;
-                    }
-
-                    DispatcherMessageBox.Show(
+                    return _isClosingOrClosed ? null : base.DataContext as MainWindowViewModel;
+                });
+                UpdateAssetInfo selectedAsset = null;
+                if (viewModel != null && result.Assets.Count > 0)
+                {
+                    UiWindowDialogResult<UpdateAssetInfo> dialogResult = await new UiDialogCoordinator()
+                        .ShowWindowAsync(new UiWindowDialogRequest<UpdateAvailableDialog, UpdateAssetInfo>(
+                            () => new UpdateAvailableDialog(result, viewModel),
+                            dialog => dialog.SelectedAsset,
+                            this));
+                    ThrowIfWindowDialogFailed(dialogResult.Status, dialogResult.Error, "Update available dialog");
+                    selectedAsset = dialogResult.IsAccepted ? dialogResult.Value : null;
+                }
+                else
+                {
+                    UiDialogResult messageResult = await new UiDialogCoordinator().ShowMessageAsync(new UiMessageRequest(
                         $"A new version ({result.LatestVersionText}) is available.\nYour version: {result.CurrentVersionText}\n\nPlease check the repository.",
                         "Update Available",
                         MessageBoxButton.OK,
-                        MessageBoxImage.Information);
-                    return null;
-                });
+                        MessageBoxImage.Information,
+                        owner: this));
+                    ThrowIfUiDialogNotShown(messageResult, "Update available fallback message");
+                }
 
                 if (selectedAsset != null)
                 {
@@ -8502,13 +8529,16 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private bool ShowPendingDeleteConfirmDialog(out bool deleteContainingPackageFoldersWhenNoBms)
     {
-        var pendingDeleteConfirmDialog = new PendingDeleteConfirmDialog
-        {
-            Owner = this
-        };
-        bool? flag = pendingDeleteConfirmDialog.ShowDialog();
-        deleteContainingPackageFoldersWhenNoBms = pendingDeleteConfirmDialog.DeleteFolderWhenNoBmsChecked;
-        return flag == true;
+        UiWindowDialogResult<bool> dialogResult = new UiDialogCoordinator()
+            .ShowWindowAsync(new UiWindowDialogRequest<PendingDeleteConfirmDialog, bool>(
+                () => new PendingDeleteConfirmDialog(),
+                dialog => dialog.DeleteFolderWhenNoBmsChecked,
+                this))
+            .GetAwaiter()
+            .GetResult();
+        ThrowIfWindowDialogFailed(dialogResult.Status, dialogResult.Error, "Pending delete confirmation dialog");
+        deleteContainingPackageFoldersWhenNoBms = dialogResult.Value;
+        return dialogResult.IsAccepted;
     }
 
     private async void tableContextMenuItemMoveFileClick(object sender, RoutedEventArgs e)

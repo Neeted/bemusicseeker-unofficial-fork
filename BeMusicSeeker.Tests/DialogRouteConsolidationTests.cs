@@ -183,6 +183,30 @@ public sealed class DialogRouteConsolidationTests
     }
 
     [TestMethod]
+    public void WindowModals_AreRoutedThroughUiDialogCoordinator()
+    {
+        string root = FindRepositoryRoot();
+        string mainWindowCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow.cs"));
+        string settingDialogCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingDialog.cs"));
+        string coordinatorCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "Dialogs", "UiDialogCoordinator.cs"));
+        string requestsCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "Dialogs", "UiDialogRequests.cs"));
+        string windowResultCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "Dialogs", "UiWindowDialogResult.cs"));
+
+        Assert.IsFalse(mainWindowCode.Contains(".ShowDialog("), "MainWindow modal windows must go through UiDialogCoordinator.");
+        Assert.IsFalse(settingDialogCode.Contains(".ShowDialog("), "SettingDialog modal windows must go through UiDialogCoordinator.");
+        StringAssert.Contains(mainWindowCode, "ShowWindowAsync(new UiWindowDialogRequest<UpdateAvailableDialog, UpdateAssetInfo>");
+        StringAssert.Contains(mainWindowCode, "ShowWindowAsync(new UiWindowDialogRequest<PendingDeleteConfirmDialog, bool>");
+        StringAssert.Contains(settingDialogCode, "ShowWindowAsync(new UiWindowDialogRequest<Lr2PlayHistorySchemaUninstallDialog, Lr2PlayHistorySchemaUninstallMode>");
+        StringAssert.Contains(settingDialogCode, "ShowWindowAsync(new UiWindowDialogRequest<PlayHistoryFolderDisplayPresetEditDialog, object>");
+        StringAssert.Contains(requestsCode, "internal sealed class UiWindowDialogRequest<TWindow, TResult>");
+        StringAssert.Contains(windowResultCode, "internal sealed class UiWindowDialogResult<TResult>");
+        StringAssert.Contains(coordinatorCode, "ShowWindowAsync<TWindow, TResult>");
+        StringAssert.Contains(coordinatorCode, "UiDialogOwnerResolver.PushActiveModal(window)");
+        StringAssert.Contains(coordinatorCode, "UiDialogStatus.OwnerUnavailable");
+        StringAssert.Contains(coordinatorCode, "Window dialog factory assigned a different owner.");
+    }
+
+    [TestMethod]
     public void OverlayDialogs_AreShownThroughMainWindowHost()
     {
         string root = FindRepositoryRoot();

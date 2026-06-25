@@ -24,7 +24,7 @@
 | Unit 3: Model Dialog Boundary Replacement | Completed | `BmsLibraryDialogService` は `DispatcherMessageBox` 依存を外し、coordinator-backed legacy adapter bridge に集約済み。`Backup.SaveBackups` は warning / failure result 化し、UI await 後に coordinator route で flush する形へ移行済み。`BMSPlaylist` の recommended table / custom folder notification は `OperationNotificationScope` へ移し、UI operation 境界で coordinator route flush する形へ移行済み。`uBMplay` の起動失敗は Model 内 dialog ではなく caller 例外へ移行済み。`FastDirectoryEnumerator` のアクセス不可 directory skip は UI dialog 直呼びを廃止し、skip 事実を file logger に残す形へ移行済み。`TaskEx` は task fault 分類ログだけを担う utility に整理し、continuation 内 dialog と network report consent prompt を廃止済み。 |
 | Unit 4: Progress Dialog Replacement | Completed | `MainWindow.cs` の progress 操作は `UiDialogCoordinator.RunWithProgressAsync` へ移行済み。`ProgressDialog.Current` static state は廃止済み。`ProgressDialog` 表示中は coordinator-managed active modal として owner resolver の最優先に登録し、progress 中に発生する message / confirmation は progress dialog owner へ寄る形に整理済み。 |
 | Unit 5: File Picker Route Replacement | Completed | `UiFilePickerRequest` / `UiFolderPickerRequest` / `UiSaveFilePickerRequest` と typed result を実装済み。`MainWindow.cs`、`SettingDialog.cs`、`LoadPlaylistURIDialog.cs` の direct open / save / folder picker は coordinator route へ移行済み。Unit 5 完了時点では `CommonOpenFileDialogInteractionMessageAction` を coordinator-backed bridge として残したが、Unit 6 picker bridge removal で撤去済み。 |
-| Unit 6: Overlay DialogHost | In progress | MainWindow 埋め込み overlay の open / close 直 `Visibility` 操作を `ShowOverlayDialog` / `HideOverlayDialog` へ寄せる第一段は完了。`InitialSetupLanguageDialog -> SettingDialog` の親 Panel 走査は廃止済み。`CommonOpenFileDialogInteractionMessageAction` と XAML picker action bridge は撤去済み。次は remaining overlay / modal windows の DialogHost 境界を整理する。 |
+| Unit 6: Overlay DialogHost | In progress | MainWindow 埋め込み overlay の open / close 直 `Visibility` 操作を `ShowOverlayDialog` / `HideOverlayDialog` へ寄せる第一段は完了。`InitialSetupLanguageDialog -> SettingDialog` の親 Panel 走査は廃止済み。`CommonOpenFileDialogInteractionMessageAction` と XAML picker action bridge は撤去済み。direct Window modal `ShowDialog()` は `UiDialogCoordinator.ShowWindowAsync` へ移行済み。次は overlay owner / message route の残り整理を進める。 |
 | Unit 7: DispatcherMessageBox Retirement | Pending | 通常 route から legacy adapter / standard MessageBox fallback を削除する。 |
 | Unit 8: Score Viewer Registration Rework | Pending | 譜面ビューア登録確認を preflight confirmation と background upload に分離する。 |
 
@@ -113,6 +113,11 @@
 | Unit 6 picker bridge removal | `dotnet format whitespace BeMusicSeeker.sln --verify-no-changes --no-restore --verbosity minimal` | Passed | no whitespace changes required. |
 | Unit 6 picker bridge removal | `dotnet roslynator analyze BeMusicSeeker.sln --properties Configuration=Release --severity-level warning --verbosity minimal` | Passed | 0 diagnostics. |
 | Unit 6 picker bridge removal | sub-agent static review | Passed | Final review returned no High / Medium findings. Low doc freshness note was fixed in `devdocs/spec/file-selection-dialogs.md`. |
+| Unit 6 modal window route | `dotnet build BeMusicSeeker.sln /p:Configuration=Release --no-restore` | Passed | 0 warnings, 0 errors. |
+| Unit 6 modal window route | `dotnet test BeMusicSeeker.Tests\BeMusicSeeker.Tests.csproj --filter "DialogRouteConsolidationTests\|MainWindowContextMenuResourceTests" /p:Configuration=Release --no-restore` | Passed | 101 tests passed. |
+| Unit 6 modal window route | `dotnet format whitespace BeMusicSeeker.sln --verify-no-changes --no-restore --verbosity minimal` | Passed | no whitespace changes required. |
+| Unit 6 modal window route | `dotnet roslynator analyze BeMusicSeeker.sln --properties Configuration=Release --severity-level warning --verbosity minimal` | Passed | 0 diagnostics. |
+| Unit 6 modal window route | sub-agent static review | Passed | Final review returned no High / Medium findings. |
 
 ## Goals
 

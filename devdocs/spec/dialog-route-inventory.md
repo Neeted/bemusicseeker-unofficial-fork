@@ -19,12 +19,12 @@ These counts are refreshed as implementation units complete. They should monoton
 
 | Pattern | Count | Route |
 | --- | ---: | --- |
-| `DispatcherMessageBox.Show` | 95 | legacy message / confirmation |
+| `DispatcherMessageBox.Show` | 94 | legacy message / confirmation |
 | `internal static class DispatcherMessageBox` | 1 | legacy adapter entry point |
 | `internal static class UiDialogLegacyAdapter` | 1 | legacy adapter bridge |
 | `UiDialogLegacyAdapter.ShowMessageBox` | 2 | legacy adapter bridge |
 | `System.Windows.MessageBox.Show` | 4 | emergency route candidate |
-| `MessageBox.Show(` | 99 | legacy + emergency aggregate |
+| `MessageBox.Show(` | 98 | legacy + emergency aggregate |
 | `new ConfirmationMessage` | 40 | Livet confirmation |
 | `InteractionMessageAction<FrameworkElement>` | 2 | Livet action component |
 | `RaiseInteractionMessageOnUiThread` | 57 | Livet interaction dispatch |
@@ -32,7 +32,7 @@ These counts are refreshed as implementation units complete. They should monoton
 | `OpenFileDialog` | 3 | open picker |
 | `SaveFileDialog` | 1 | save picker |
 | `FolderBrowserDialog` | 0 | legacy folder picker |
-| `.ShowDialog(` | 8 | window / picker modal |
+| `.ShowDialog(` | 5 | window / picker modal |
 | `ProgressDialog.Execute` | 1 | progress operation |
 | `ProgressDialog.Current` | 0 | progress operation static state |
 
@@ -43,6 +43,7 @@ Current progress notes:
 - Unit 5 moved direct code-behind open / save / folder pickers to `UiDialogCoordinator` and made `CommonOpenFileDialogInteractionMessageAction` a coordinator-backed bridge.
 - Unit 6 first overlay pass moved MainWindow-embedded overlay open / close visibility changes to `ShowOverlayDialog` / `HideOverlayDialog` and removed the `InitialSetupLanguageDialog` parent panel walk. Route counts are unchanged because this pass does not remove legacy message / picker route classes yet.
 - Unit 6 picker bridge pass removed `CommonOpenFileDialogInteractionMessageAction` and the remaining XAML picker action bridge. Setting pickers now use explicit view click handlers and the coordinator directly.
+- Unit 6 modal window pass moved direct `ShowDialog()` calls for update, pending delete, LR2 schema uninstall, and play-history preset edit windows to `UiDialogCoordinator.ShowWindowAsync`. Remaining `.ShowDialog(` calls are display component boundaries inside the coordinator / message box.
 
 ## Legacy Source Files
 

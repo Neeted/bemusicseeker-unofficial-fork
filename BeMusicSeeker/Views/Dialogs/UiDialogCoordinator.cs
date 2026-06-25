@@ -70,6 +70,27 @@ internal sealed class UiDialogCoordinator : IUiDialogService
     }
 
     /// <summary>
+    /// window modal dialog を表示します。
+    /// </summary>
+    /// <typeparam name="TWindow">表示する window 型。</typeparam>
+    /// <typeparam name="TResult">dialog 固有の戻り値型。</typeparam>
+    /// <param name="request">window 表示要求。</param>
+    /// <param name="cancellationToken">表示前に呼び出し側が取り消すための token。</param>
+    /// <returns>window modal dialog 結果。</returns>
+    public Task<UiWindowDialogResult<TResult>> ShowWindowAsync<TWindow, TResult>(
+        UiWindowDialogRequest<TWindow, TResult> request,
+        CancellationToken cancellationToken = default)
+        where TWindow : Window
+    {
+        if (request == null)
+        {
+            throw new ArgumentNullException(nameof(request));
+        }
+
+        return ShowWindowOnDispatcherAsync(request, cancellationToken);
+    }
+
+    /// <summary>
     /// file picker を表示します。
     /// </summary>
     /// <param name="request">picker 表示要求。</param>
@@ -178,6 +199,115 @@ internal sealed class UiDialogCoordinator : IUiDialogService
         }
 
         return completion.Task;
+    }
+
+    private Task<UiWindowDialogResult<TResult>> ShowWindowOnDispatcherAsync<TWindow, TResult>(
+        UiWindowDialogRequest<TWindow, TResult> request,
+        CancellationToken cancellationToken)
+        where TWindow : Window
+    {
+        if (cancellationToken.IsCancellationRequested)
+        {
+            return Task.FromCanceled<UiWindowDialogResult<TResult>>(cancellationToken);
+        }
+
+        Application application = Application.Current;
+        if (application?.Dispatcher == null)
+        {
+            return Task.FromResult(new UiWindowDialogResult<TResult>(UiDialogStatus.DispatcherUnavailable));
+        }
+
+        Dispatcher dispatcher = application.Dispatcher;
+        if (dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
+        {
+            return Task.FromResult(new UiWindowDialogResult<TResult>(UiDialogStatus.AppClosing));
+        }
+
+        if (dispatcher.CheckAccess())
+        {
+            return Task.FromResult(ShowWindowCore(request));
+        }
+
+        var completion = new TaskCompletionSource<UiWindowDialogResult<TResult>>();
+        DispatcherOperation dispatcherOperation;
+        try
+        {
+            dispatcherOperation = dispatcher.BeginInvoke(DispatcherPriority.Normal, new Action(delegate
+            {
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    completion.TrySetCanceled(cancellationToken);
+                    return;
+                }
+
+                completion.TrySetResult(ShowWindowCore(request));
+            }));
+        }
+        catch (InvalidOperationException)
+        {
+            return Task.FromResult(new UiWindowDialogResult<TResult>(UiDialogStatus.AppClosing));
+        }
+
+        dispatcherOperation.Aborted += delegate
+        {
+            completion.TrySetResult(new UiWindowDialogResult<TResult>(UiDialogStatus.AppClosing));
+        };
+        if (dispatcherOperation.Status == DispatcherOperationStatus.Aborted)
+        {
+            completion.TrySetResult(new UiWindowDialogResult<TResult>(UiDialogStatus.AppClosing));
+        }
+
+        return completion.Task;
+    }
+
+    private UiWindowDialogResult<TResult> ShowWindowCore<TWindow, TResult>(UiWindowDialogRequest<TWindow, TResult> request)
+        where TWindow : Window
+    {
+        Window owner = ownerResolver.ResolveOwner(request.Owner);
+        if (owner == null)
+        {
+            return new UiWindowDialogResult<TResult>(UiDialogStatus.OwnerUnavailable);
+        }
+
+        try
+        {
+            TWindow window = request.CreateWindow();
+            if (window == null)
+            {
+                return new UiWindowDialogResult<TResult>(
+                    UiDialogStatus.Failed,
+                    error: new InvalidOperationException("Window dialog factory returned null."));
+            }
+            if (window.Owner != null && !ReferenceEquals(window.Owner, owner))
+            {
+                return new UiWindowDialogResult<TResult>(
+                    UiDialogStatus.Failed,
+                    error: new InvalidOperationException("Window dialog factory assigned a different owner."));
+            }
+            if (window.Owner == null)
+            {
+                window.Owner = owner;
+            }
+
+            using (UiDialogOwnerResolver.PushActiveModal(window))
+            {
+                bool? dialogResult = window.ShowDialog();
+                UiDialogStatus status = dialogResult == true
+                    ? UiDialogStatus.Accepted
+                    : dialogResult == false
+                        ? UiDialogStatus.CancelledByUser
+                        : UiDialogStatus.ClosedByUser;
+                return new UiWindowDialogResult<TResult>(status, request.CreateResult(window), dialogResult);
+            }
+        }
+        catch (InvalidOperationException) when (Application.Current?.Dispatcher?.HasShutdownStarted == true)
+        {
+            return new UiWindowDialogResult<TResult>(UiDialogStatus.AppClosing);
+        }
+        catch (Exception ex)
+        {
+            return new UiWindowDialogResult<TResult>(UiDialogStatus.Failed, error: ex);
+        }
     }
 
     private static T CreatePickerNotShownResult<T>(UiDialogStatus status)

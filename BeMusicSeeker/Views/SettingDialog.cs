@@ -39,6 +39,16 @@ public partial class SettingDialog : UserControl, IComponentConnector
         throw new InvalidOperationException(routeName + " failed: " + status, exception);
     }
 
+    private static void ThrowIfWindowDialogFailed(UiDialogStatus status, Exception exception, string routeName)
+    {
+        if (status is UiDialogStatus.Accepted or UiDialogStatus.CancelledByUser or UiDialogStatus.ClosedByUser)
+        {
+            return;
+        }
+
+        throw new InvalidOperationException(routeName + " failed: " + status, exception);
+    }
+
     private void HideThisOverlay()
     {
         if (Window.GetWindow(this) is not MainWindow mainWindow)
@@ -634,16 +644,18 @@ public partial class SettingDialog : UserControl, IComponentConnector
             return;
         }
 
-        var dialog = new Lr2PlayHistorySchemaUninstallDialog(settingDialogViewModel.Lr2PlayHistoryScoreDbPath)
-        {
-            Owner = Window.GetWindow(this)
-        };
-        if (dialog.ShowDialog() != true)
+        UiWindowDialogResult<Lr2PlayHistorySchemaUninstallMode> dialogResult = await new UiDialogCoordinator()
+            .ShowWindowAsync(new UiWindowDialogRequest<Lr2PlayHistorySchemaUninstallDialog, Lr2PlayHistorySchemaUninstallMode>(
+                () => new Lr2PlayHistorySchemaUninstallDialog(settingDialogViewModel.Lr2PlayHistoryScoreDbPath),
+                dialog => dialog.SelectedMode,
+                Window.GetWindow(this)));
+        ThrowIfWindowDialogFailed(dialogResult.Status, dialogResult.Error, "LR2 play history schema uninstall dialog");
+        if (!dialogResult.IsAccepted)
         {
             return;
         }
 
-        Lr2PlayHistorySchemaUninstallMode uninstallMode = dialog.SelectedMode;
+        Lr2PlayHistorySchemaUninstallMode uninstallMode = dialogResult.Value;
         settingDialogRootGrid.IsEnabled = false;
         try
         {
@@ -932,13 +944,16 @@ public partial class SettingDialog : UserControl, IComponentConnector
         {
             return;
         }
-        var dialog = new PlayHistoryFolderDisplayPresetEditDialog(
-            settingDialogViewModel,
-            settingDialogViewModel.CreatePlayHistoryFolderDisplayPresetEditSession(preset))
-        {
-            Owner = Window.GetWindow(this)
-        };
-        dialog.ShowDialog();
+        UiWindowDialogResult<object> dialogResult = new UiDialogCoordinator()
+            .ShowWindowAsync(new UiWindowDialogRequest<PlayHistoryFolderDisplayPresetEditDialog, object>(
+                () => new PlayHistoryFolderDisplayPresetEditDialog(
+                    settingDialogViewModel,
+                    settingDialogViewModel.CreatePlayHistoryFolderDisplayPresetEditSession(preset)),
+                _ => null,
+                Window.GetWindow(this)))
+            .GetAwaiter()
+            .GetResult();
+        ThrowIfWindowDialogFailed(dialogResult.Status, dialogResult.Error, "Play history folder display preset edit dialog");
     }
 
     private void bmsSearchRootPathListBoxDragOver(object sender, DragEventArgs e)

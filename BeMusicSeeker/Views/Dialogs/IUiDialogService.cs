@@ -26,6 +26,17 @@ internal interface IUiDialogService
     Task<UiDialogResult> ConfirmAsync(UiConfirmationRequest request, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// window modal dialog を表示します。
+    /// </summary>
+    /// <typeparam name="TWindow">表示する window 型。</typeparam>
+    /// <typeparam name="TResult">dialog 固有の戻り値型。</typeparam>
+    /// <param name="request">window 表示要求。</param>
+    /// <param name="cancellationToken">表示前に呼び出し側が取り消すための token。</param>
+    /// <returns>window modal dialog 結果。</returns>
+    Task<UiWindowDialogResult<TResult>> ShowWindowAsync<TWindow, TResult>(UiWindowDialogRequest<TWindow, TResult> request, CancellationToken cancellationToken = default)
+        where TWindow : System.Windows.Window;
+
+    /// <summary>
     /// file picker を表示します。
     /// </summary>
     /// <param name="request">picker 表示要求。</param>

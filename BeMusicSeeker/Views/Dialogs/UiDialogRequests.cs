@@ -1,3 +1,4 @@
+using System;
 using System.Windows;
 using Parago.Windows;
 
@@ -98,6 +99,29 @@ internal sealed class UiConfirmationRequest : UiMessageRequest
         : base(messageBoxText, caption, button, icon, defaultResult, options, owner)
     {
     }
+}
+
+/// <summary>
+/// window modal dialog の要求を表します。owner 解決と active modal 登録を coordinator に寄せるために使います。
+/// </summary>
+internal sealed class UiWindowDialogRequest<TWindow, TResult>
+    where TWindow : Window
+{
+    internal UiWindowDialogRequest(
+        Func<TWindow> createWindow,
+        Func<TWindow, TResult> createResult,
+        Window owner = null)
+    {
+        CreateWindow = createWindow ?? throw new ArgumentNullException(nameof(createWindow));
+        CreateResult = createResult ?? throw new ArgumentNullException(nameof(createResult));
+        Owner = owner;
+    }
+
+    internal Func<TWindow> CreateWindow { get; }
+
+    internal Func<TWindow, TResult> CreateResult { get; }
+
+    internal Window Owner { get; }
 }
 
 /// <summary>
