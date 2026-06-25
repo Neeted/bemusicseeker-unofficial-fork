@@ -25,9 +25,9 @@ These counts are refreshed as implementation units complete. They should monoton
 | `UiDialogLegacyAdapter.ShowMessageBox` | 2 | legacy adapter bridge |
 | `System.Windows.MessageBox.Show` | 4 | emergency route candidate |
 | `MessageBox.Show(` | 4 | legacy + emergency aggregate |
-| `new ConfirmationMessage` | 40 | Livet confirmation |
-| `InteractionMessageAction<FrameworkElement>` | 2 | Livet action component |
-| `RaiseInteractionMessageOnUiThread` | 57 | Livet interaction dispatch |
+| `new ConfirmationMessage` | 0 | Livet confirmation |
+| `InteractionMessageAction<FrameworkElement>` | 0 | Livet action component |
+| `RaiseInteractionMessageOnUiThread` | 17 | Livet interaction dispatch |
 | `CommonOpenFileDialog` | 3 | common picker |
 | `OpenFileDialog` | 3 | open picker |
 | `SaveFileDialog` | 1 | save picker |
@@ -46,6 +46,7 @@ Current progress notes:
 - Unit 6 modal window pass moved direct `ShowDialog()` calls for update, pending delete, LR2 schema uninstall, and play-history preset edit windows to `UiDialogCoordinator.ShowWindowAsync`. Remaining `.ShowDialog(` calls are display component boundaries inside the coordinator / message box.
 - Unit 7 view code-behind pass moved `DispatcherMessageBox.Show` calls in `BeMusicSeeker/Views/**/*.cs` to `UiDialogRoute.ShowMessageBox`, a coordinator-backed synchronous helper that does not hide display failures.
 - Unit 7 ViewModel pass removed the remaining production `DispatcherMessageBox.Show` call sites. `MainWindowViewModel` now uses coordinator-backed `ShowUiMessage` / `ShowUiConfirmation`; `temporarilyCopyFiles` uses `UiDialogRoute` for normal dispose notifications and logs finalizer cleanup failures without trying to display UI from the finalizer.
+- Unit 7 notification pass moved the remaining OK `ConfirmationMessage` notifications in `MainWindowViewModel` to `ShowUiMessage` and removed the unused Livet information / confirmation dialog actions from `MainWindow.xaml`.
 
 ## Legacy Source Files
 
@@ -58,8 +59,7 @@ When a new legacy route is added, the test should fail unless the route is inten
 | `BeMusicSeeker/App.cs` | emergency `System.Windows.MessageBox.Show` | Unit 7 |
 | `BeMusicSeeker/Models/BmsLibraryInternal/BmsLibraryDialogService.cs` | coordinator-backed legacy adapter bridge | Unit 3 |
 | `BeMusicSeeker/Models/Utils/DispatcherMessageBox.cs` | coordinator-backed legacy adapter | Unit 7 |
-| `BeMusicSeeker/ViewModels/MainWindowViewModel.cs` | Livet confirmation / interaction dispatch | Unit 2, Unit 8 |
-| `BeMusicSeeker/Views/ThemedDialogInteractionMessageActions.cs` | Livet dialog action | Unit 2 |
+| `BeMusicSeeker/ViewModels/MainWindowViewModel.cs` | Livet interaction dispatch | Unit 6 |
 | `BeMusicSeeker/Views/ThemedMessageBox.cs` | message box display component | Unit 1, Unit 7 |
 | `BeMusicSeeker/Views/Dialogs/UiDialogCoordinator.cs` | progress / picker display component bridge | Unit 4, Unit 5 |
 | `BeMusicSeeker/Views/Dialogs/UiFilePickerUtilities.cs` | picker display component utility | Unit 5 |
@@ -80,8 +80,8 @@ Each call site should be classified before replacement.
 
 ## Initial Hotspots
 
-- `MainWindowViewModel.cs` contains most `ConfirmationMessage` and `RaiseInteractionMessageOnUiThread` calls. This is the main target for Unit 2 and Unit 8.
+- `MainWindowViewModel.cs` still contains non-message `RaiseInteractionMessageOnUiThread` calls for overlay / initialization / table swap / playback callbacks. These are not message box routes and should be handled with the overlay / interaction dispatch cleanup.
 - `MainWindow.cs` initially mixed owner-aware message boxes, ownerless picker calls, direct window modals, and all `ProgressDialog.Execute` calls. Unit 4 moved the progress call sites to `UiDialogCoordinator.RunWithProgressAsync`; Unit 5 and Unit 6 still need picker and overlay cleanup.
 - `BMSLibrary.cs` uses `ShowOperationDialog` heavily, even though it does not appear in the source-file allow list above because the direct legacy API is behind model service methods. Unit 3 must treat it as a separate operation-notification inventory.
 - `SettingDialog.cs` contains owner-aware notifications and ownerless `OpenFileDialog` / `SaveFileDialog` calls while an overlay dialog is active. It should move with picker and overlay units, not as one-off message fixes.
-- `DispatcherMessageBox.cs` and `ThemedDialogInteractionMessageActions.cs` are transitional entry points only. They should not gain new call sites.
+- `DispatcherMessageBox.cs` and `UiDialogLegacyAdapter.cs` are transitional entry points only. They should not gain new call sites.

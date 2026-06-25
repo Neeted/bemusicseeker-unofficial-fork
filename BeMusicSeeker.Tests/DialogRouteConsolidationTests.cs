@@ -68,15 +68,15 @@ public sealed class DialogRouteConsolidationTests
         string root = FindRepositoryRoot();
         string dispatcherMessageBox = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "Utils", "DispatcherMessageBox.cs"));
         string bmsLibraryDialogService = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BmsLibraryInternal", "BmsLibraryDialogService.cs"));
-        string themedDialogActions = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "ThemedDialogInteractionMessageActions.cs"));
+        string mainWindowXaml = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow.xaml"));
 
         StringAssert.Contains(dispatcherMessageBox, "UiDialogLegacyAdapter.ShowMessageBox");
         Assert.IsFalse(dispatcherMessageBox.Contains("MessageBox.Show("), "DispatcherMessageBox must not fall back to the standard WPF MessageBox route.");
         StringAssert.Contains(bmsLibraryDialogService, "UiDialogLegacyAdapter.ShowMessageBox");
         Assert.IsFalse(bmsLibraryDialogService.Contains("DispatcherMessageBox"), "BmsLibraryDialogService must not route model dialogs through DispatcherMessageBox.");
-        StringAssert.Contains(themedDialogActions, "UiDialogCoordinator");
-        Assert.IsFalse(themedDialogActions.Contains("ThemedMessageBox.Show("), "Livet dialog actions should go through UiDialogCoordinator.");
-        StringAssert.Contains(themedDialogActions, "UiDialogStatus.CancelledByUser or UiDialogStatus.ClosedByUser => ThemedMessageBox.ToConfirmationResponse(result.MessageBoxResult)");
+        Assert.IsFalse(File.Exists(Path.Combine(root, "BeMusicSeeker", "Views", "ThemedDialogInteractionMessageActions.cs")), "Livet message box actions should be removed after notification routes move to the coordinator.");
+        Assert.IsFalse(mainWindowXaml.Contains("MessageKey=\"InformationDialog\""), "MainWindow must not keep unused Livet information dialog triggers.");
+        Assert.IsFalse(mainWindowXaml.Contains("MessageKey=\"ConfirmationDialog\""), "MainWindow must not keep unused Livet confirmation dialog triggers.");
     }
 
     [TestMethod]
@@ -133,6 +133,7 @@ public sealed class DialogRouteConsolidationTests
         Assert.IsFalse(combinedCode.Contains("confirmationMessage2.Response"), "Decision confirmations must not keep secondary Livet response checks.");
         StringAssert.Contains(combinedCode, "ShowUiConfirmation(");
         Assert.IsFalse(combinedCode.Contains("DispatcherMessageBox.Show("), "View and ViewModel decision confirmations must not depend on DispatcherMessageBox.");
+        Assert.IsFalse(combinedCode.Contains("new ConfirmationMessage"), "ViewModel notifications must use UiDialogCoordinator-backed routes instead of Livet ConfirmationMessage.");
         StringAssert.Contains(combinedCode, "ShowUiMessage(");
         StringAssert.Contains(combinedCode, "UiDialogStatus.ClosedByUser => result.MessageBoxResult is MessageBoxResult.OK or MessageBoxResult.Yes");
     }

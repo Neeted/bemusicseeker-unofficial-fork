@@ -25,7 +25,7 @@
 | Unit 4: Progress Dialog Replacement | Completed | `MainWindow.cs` の progress 操作は `UiDialogCoordinator.RunWithProgressAsync` へ移行済み。`ProgressDialog.Current` static state は廃止済み。`ProgressDialog` 表示中は coordinator-managed active modal として owner resolver の最優先に登録し、progress 中に発生する message / confirmation は progress dialog owner へ寄る形に整理済み。 |
 | Unit 5: File Picker Route Replacement | Completed | `UiFilePickerRequest` / `UiFolderPickerRequest` / `UiSaveFilePickerRequest` と typed result を実装済み。`MainWindow.cs`、`SettingDialog.cs`、`LoadPlaylistURIDialog.cs` の direct open / save / folder picker は coordinator route へ移行済み。Unit 5 完了時点では `CommonOpenFileDialogInteractionMessageAction` を coordinator-backed bridge として残したが、Unit 6 picker bridge removal で撤去済み。 |
 | Unit 6: Overlay DialogHost | In progress | MainWindow 埋め込み overlay の open / close 直 `Visibility` 操作を `ShowOverlayDialog` / `HideOverlayDialog` へ寄せる第一段は完了。`InitialSetupLanguageDialog -> SettingDialog` の親 Panel 走査は廃止済み。`CommonOpenFileDialogInteractionMessageAction` と XAML picker action bridge は撤去済み。direct Window modal `ShowDialog()` は `UiDialogCoordinator.ShowWindowAsync` へ移行済み。次は overlay owner / message route の残り整理を進める。 |
-| Unit 7: DispatcherMessageBox Retirement | In progress | View code-behind と ViewModel / temporary preview helper の `DispatcherMessageBox.Show` は coordinator-backed route へ移行済み。次は OK `ConfirmationMessage` 通知 route と legacy adapter 退役を進める。 |
+| Unit 7: DispatcherMessageBox Retirement | In progress | View code-behind と ViewModel / temporary preview helper の `DispatcherMessageBox.Show` は coordinator-backed route へ移行済み。OK `ConfirmationMessage` 通知 route と Livet message box action bridge は撤去済み。次は legacy adapter / emergency route 退役を進める。 |
 | Unit 8: Score Viewer Registration Rework | Pending | 譜面ビューア登録確認を preflight confirmation と background upload に分離する。 |
 
 ## Verification Log
@@ -128,6 +128,11 @@
 | Unit 7 ViewModel dispatcher route | `dotnet format whitespace BeMusicSeeker.sln --verify-no-changes --no-restore --verbosity minimal` | Passed | no whitespace changes required. |
 | Unit 7 ViewModel dispatcher route | `dotnet roslynator analyze BeMusicSeeker.sln --properties Configuration=Release --severity-level warning --verbosity minimal` | Passed | 0 diagnostics. |
 | Unit 7 ViewModel dispatcher route | sub-agent static review | Passed | Initial Medium finding for `ClosedByUser` / `defaultResult` confirmation semantics was fixed. Final review returned no High / Medium findings. |
+| Unit 7 notification route | `dotnet build BeMusicSeeker.sln /p:Configuration=Release --no-restore` | Passed | 0 warnings, 0 errors. |
+| Unit 7 notification route | `dotnet test BeMusicSeeker.Tests\BeMusicSeeker.Tests.csproj --filter "DialogRouteConsolidationTests\|MainWindowContextMenuResourceTests" /p:Configuration=Release --no-restore` | Passed | 103 tests passed. |
+| Unit 7 notification route | `dotnet format whitespace BeMusicSeeker.sln --verify-no-changes --no-restore --verbosity minimal` | Passed | no whitespace changes required. |
+| Unit 7 notification route | `dotnet roslynator analyze BeMusicSeeker.sln --properties Configuration=Release --severity-level warning --verbosity minimal` | Passed | 0 diagnostics. |
+| Unit 7 notification route | sub-agent static review | Passed | Final review returned no High / Medium findings. Low initial-state wording note was clarified. |
 
 ## Goals
 
@@ -149,9 +154,9 @@
 - Model 層から任意のタイミングで UI dialog を出せる現状仕様を維持すること。
 - dialog 表示失敗時にデフォルト OK / Yes を返して処理継続を優先すること。
 
-## Current State
+## Initial State
 
-2026-06 時点の静的調査では、主な利用規模は次の通り。
+2026-06 の計画着手時点の静的調査では、主な利用規模は次の通り。現在値は `devdocs/spec/dialog-route-inventory.md` を正とする。
 
 | 経路 | 概数 | 備考 |
 | --- | ---: | --- |
@@ -166,7 +171,6 @@
 
 - `BeMusicSeeker/Models/Utils/DispatcherMessageBox.cs`
 - `BeMusicSeeker/Views/ThemedMessageBox.cs`
-- `BeMusicSeeker/Views/ThemedDialogInteractionMessageActions.cs`
 - `BeMusicSeeker/ViewModels/MainWindowViewModel.cs`
 - `BeMusicSeeker/Views/MainWindow.xaml`
 - `BeMusicSeeker/Views/MainWindow.cs`

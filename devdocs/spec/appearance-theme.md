@@ -216,7 +216,7 @@ OS 標準の `OpenFileDialog` / `SaveFileDialog` / folder picker は Windows 管
 - `MessageBoxImage` の warning / error / question / information 表示
 - `defaultResult` による close / cancel 時の戻り値
 
-Livet の `InformationDialogInteractionMessageAction` / `ConfirmationDialogInteractionMessageAction` は移行中の compatibility route だけで使い、新規の通常 UI 通知 / 確認は coordinator-backed route に寄せる。起動前の致命的エラーなど、テーマ resource がまだ安全に使えない箇所では通常 route ではなく emergency route として OS native dialog を使う。
+Livet の `InformationDialogInteractionMessageAction` / `ConfirmationDialogInteractionMessageAction` は撤去済みで、新規の通常 UI 通知 / 確認は coordinator-backed route に寄せる。起動前の致命的エラーなど、テーマ resource がまだ安全に使えない箇所では通常 route ではなく emergency route として OS native dialog を使う。
 
 初回起動の設定案内は MessageBox ではなく `InitialSetupLanguageDialog` で表示する。これは言語選択 ComboBox を含むため、通常の MessageBox ではなく `App.DialogOverlayBrush` / `App.DialogBackgroundBrush` / `App.DialogBorderBrush` / `App.TextBrush` を使う overlay dialog として扱う。
 

@@ -967,12 +967,6 @@
       <l:LivetCallMethodAction MethodName="CloseProcess" MethodTarget="{Binding}" />
       <l:DataContextDisposeAction />
     </i:EventTrigger>
-    <l:InteractionMessageTrigger MessageKey="InformationDialog" Messenger="{Binding Messenger}">
-      <v:ThemedInformationDialogInteractionMessageAction />
-    </l:InteractionMessageTrigger>
-    <l:InteractionMessageTrigger MessageKey="ConfirmationDialog" Messenger="{Binding Messenger}">
-      <v:ThemedConfirmationDialogInteractionMessageAction />
-    </l:InteractionMessageTrigger>
     <l:InteractionMessageTrigger MessageKey="InitializationException" Messenger="{Binding Messenger}">
       <l:LivetCallMethodAction MethodName="ShowSettingDialogOverlay" MethodTarget="{Binding ElementName=window, Mode=OneWay}" />
     </l:InteractionMessageTrigger>

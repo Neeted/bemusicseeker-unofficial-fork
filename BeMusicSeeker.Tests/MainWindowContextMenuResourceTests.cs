@@ -2213,13 +2213,13 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
-    public void AppDialogs_UseThemeResourcesAndThemedMessageActions()
+    public void AppDialogs_UseThemeResourcesAndCoordinatorMessageRoutes()
     {
         string root = FindRepositoryRoot();
         string mainWindow = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow.xaml"));
 
-        StringAssert.Contains(mainWindow, "<v:ThemedInformationDialogInteractionMessageAction />");
-        StringAssert.Contains(mainWindow, "<v:ThemedConfirmationDialogInteractionMessageAction />");
+        Assert.IsFalse(mainWindow.Contains("<v:ThemedInformationDialogInteractionMessageAction />"));
+        Assert.IsFalse(mainWindow.Contains("<v:ThemedConfirmationDialogInteractionMessageAction />"));
 
         foreach (string relativePath in new[]
         {
