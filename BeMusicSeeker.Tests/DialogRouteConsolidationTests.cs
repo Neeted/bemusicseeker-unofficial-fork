@@ -132,7 +132,9 @@ public sealed class DialogRouteConsolidationTests
         Assert.IsFalse(combinedCode.Contains("confirmationMessage.Response"), "Decision confirmations must use UiDialogCoordinator results instead of Livet ConfirmationMessage.Response.");
         Assert.IsFalse(combinedCode.Contains("confirmationMessage2.Response"), "Decision confirmations must not keep secondary Livet response checks.");
         StringAssert.Contains(combinedCode, "ShowUiConfirmation(");
-        StringAssert.Contains(combinedCode, "DispatcherMessageBox.Show(");
+        Assert.IsFalse(combinedCode.Contains("DispatcherMessageBox.Show("), "View and ViewModel decision confirmations must not depend on DispatcherMessageBox.");
+        StringAssert.Contains(combinedCode, "ShowUiMessage(");
+        StringAssert.Contains(combinedCode, "UiDialogStatus.ClosedByUser => result.MessageBoxResult is MessageBoxResult.OK or MessageBoxResult.Yes");
     }
 
     [TestMethod]
@@ -222,6 +224,26 @@ public sealed class DialogRouteConsolidationTests
         StringAssert.Contains(routeCode, "ShowMessageAsync(new UiMessageRequest(");
         StringAssert.Contains(routeCode, "ConfirmAsync(new UiConfirmationRequest(");
         StringAssert.Contains(routeCode, "ThrowIfNotShown(result, caption);");
+    }
+
+    [TestMethod]
+    public void ViewModels_DoNotUseDispatcherMessageBox()
+    {
+        string root = FindRepositoryRoot();
+        string viewModelsRoot = Path.Combine(root, "BeMusicSeeker", "ViewModels");
+        List<string> offenders = Directory
+            .EnumerateFiles(viewModelsRoot, "*.cs", SearchOption.AllDirectories)
+            .Where(path => File.ReadAllText(path).Contains("DispatcherMessageBox.Show("))
+            .Select(path => NormalizeRelativePath(new Uri(root + Path.DirectorySeparatorChar).MakeRelativeUri(new Uri(path)).ToString()))
+            .ToList();
+
+        CollectionAssert.AreEqual(Array.Empty<string>(), offenders, "ViewModel messages must use UiDialogCoordinator-backed routes instead of DispatcherMessageBox.");
+        string viewModelCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string temporaryCopyCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "temporarilyCopyFiles.cs"));
+        StringAssert.Contains(viewModelCode, "ShowUiMessage(");
+        StringAssert.Contains(viewModelCode, "ShowUiConfirmation(");
+        StringAssert.Contains(temporaryCopyCode, "UiDialogRoute.ShowMessageBox(");
+        StringAssert.Contains(temporaryCopyCode, "temporary_preview_cleanup_failed");
     }
 
     [TestMethod]

@@ -6,6 +6,8 @@ using System.Threading;
 using System.Windows;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
+using BeMusicSeeker.Views.Dialogs;
+using Ribbit.Logging;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -44,7 +46,15 @@ internal class temporarilyCopyFiles : IDisposable
             }
             catch (Exception ex)
             {
-                DispatcherMessageBox.Show(Resources.Msg_error_preview + Environment.NewLine + Environment.NewLine + Resources.File + ": " + dstFile.ToString() + Environment.NewLine + ex.Message, Resources.Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+                string message = Resources.Msg_error_preview + Environment.NewLine + Environment.NewLine + Resources.File + ": " + dstFile.ToString() + Environment.NewLine + ex.Message;
+                if (disposing)
+                {
+                    UiDialogRoute.ShowMessageBox(message, Resources.Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+                }
+                else
+                {
+                    NLogWrapper.FileLogger?.Warn(ex, "temporary_preview_cleanup_failed path=" + dstFile);
+                }
             }
         });
     }
@@ -100,7 +110,7 @@ internal class temporarilyCopyFiles : IDisposable
                 }
                 catch (Exception ex)
                 {
-                    DispatcherMessageBox.Show(Resources.Msg_warn_preview + Environment.NewLine + ex.Message, Resources.Error, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
+                    UiDialogRoute.ShowMessageBox(Resources.Msg_warn_preview + Environment.NewLine + ex.Message, Resources.Error, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
                     throw;
                 }
             });

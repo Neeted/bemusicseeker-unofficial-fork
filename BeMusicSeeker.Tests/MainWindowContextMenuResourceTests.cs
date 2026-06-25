@@ -863,7 +863,7 @@ public sealed class MainWindowContextMenuResourceTests
 
         Assert.IsFalse(validationFailure.Contains("DispatcherMessageBox.Show(BeMusicSeeker.Properties.Resources.Msg_init_settings,"));
         StringAssert.Contains(validationFailure, "RaiseInteractionMessageOnUiThread(new InteractionMessage(\"InitialSetupLanguageDialog\"));");
-        StringAssert.Contains(validationFailure, "DispatcherMessageBox.Show(BeMusicSeeker.Properties.Resources.Msg_init_settings_check");
+        StringAssert.Contains(validationFailure, "ShowUiMessage(BeMusicSeeker.Properties.Resources.Msg_init_settings_check");
         StringAssert.Contains(validationFailure, "RaiseInteractionMessageOnUiThread(new InteractionMessage(\"InitializationException\"));");
         Assert.IsTrue(validationFailure.IndexOf("InitialSetupLanguageDialog", StringComparison.Ordinal) < validationFailure.IndexOf("Msg_init_settings_check", StringComparison.Ordinal));
 

@@ -807,11 +807,11 @@ public class MainWindowViewModel : ViewModel
             }
             catch (Exception ex)
             {
-                DispatcherMessageBox.Show(
+                ShowUiMessage(
                     BeMusicSeeker.Properties.Resources.Error_RestartApplicationFailed + Environment.NewLine + Environment.NewLine + ex.Message,
                     BeMusicSeeker.Properties.Resources.Error,
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Hand);
+                    MessageBoxImage.Hand,
+                    "Restart failure notification");
                 System.Windows.Application.Current.Shutdown();
             }
         }
@@ -20110,7 +20110,7 @@ public class MainWindowViewModel : ViewModel
         }
         catch (Exception ex)
         {
-            DispatcherMessageBox.Show(BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + ex.ToString(), BeMusicSeeker.Properties.Resources.Error, MessageBoxButton.OK, MessageBoxImage.Hand);
+            ShowUiMessage(BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + ex.ToString(), BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, "Startup custom folder repair failure notification");
             Logger currentClassLogger = NLogWrapper.GetLogger(typeof(MainWindowViewModel));
             currentClassLogger.Error(ex, text + " - " + Environment.NewLine + ex.ToString(), null);
             _semaphore.Release();
@@ -20130,7 +20130,7 @@ public class MainWindowViewModel : ViewModel
             }
             else
             {
-                DispatcherMessageBox.Show(BeMusicSeeker.Properties.Resources.Msg_init_settings_check, BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
+                ShowUiMessage(BeMusicSeeker.Properties.Resources.Msg_init_settings_check, BeMusicSeeker.Properties.Resources.Warning, MessageBoxImage.Exclamation, "Startup settings validation notification");
             }
             _semaphore.Release();
             SetStartupUiInteractionBlocked(false);
@@ -20148,7 +20148,7 @@ public class MainWindowViewModel : ViewModel
         }
         catch (Exception ex)
         {
-            DispatcherMessageBox.Show(BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + ex.ToString(), BeMusicSeeker.Properties.Resources.Error, MessageBoxButton.OK, MessageBoxImage.Hand);
+            ShowUiMessage(BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + ex.ToString(), BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, "Startup app schema approval failure notification");
             Logger currentClassLogger = NLogWrapper.GetLogger(typeof(MainWindowViewModel));
             string text2 = Assembly.GetEntryAssembly().GetName().Version.ToString();
             currentClassLogger.Error(ex, text2 + " - " + Environment.NewLine + ex.ToString(), null);
@@ -20197,7 +20197,7 @@ public class MainWindowViewModel : ViewModel
         catch (Exception ex)
         {
             FailStartupProgressOperation(ex.Message);
-            DispatcherMessageBox.Show(BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + ex.ToString(), BeMusicSeeker.Properties.Resources.Error, MessageBoxButton.OK, MessageBoxImage.Hand);
+            ShowUiMessage(BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + ex.ToString(), BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, "Startup library construction failure notification");
             Logger currentClassLogger = NLogWrapper.GetLogger(typeof(MainWindowViewModel));
             string text3 = Assembly.GetEntryAssembly().GetName().Version.ToString();
             currentClassLogger.Error(ex, text3 + " - " + Environment.NewLine + ex.ToString(), null);
@@ -20680,7 +20680,7 @@ public class MainWindowViewModel : ViewModel
         catch (Exception ex)
         {
             FailStartupProgressOperation(ex.Message);
-            DispatcherMessageBox.Show(BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + ex.ToString(), BeMusicSeeker.Properties.Resources.Error, MessageBoxButton.OK, MessageBoxImage.Hand);
+            ShowUiMessage(BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + ex.ToString(), BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, "Startup library initialization failure notification");
             Logger currentClassLogger = NLogWrapper.GetLogger(typeof(MainWindowViewModel));
             string text4 = Assembly.GetEntryAssembly().GetName().Version.ToString();
             currentClassLogger.Error(ex, text4 + " - " + Environment.NewLine + ex.ToString(), null);
@@ -27058,7 +27058,7 @@ public class MainWindowViewModel : ViewModel
         initialSetupCompletionMessagePending = false;
         Action showMessage = delegate
         {
-            DispatcherMessageBox.Show(BeMusicSeeker.Properties.Resources.Msg_init_completed, BeMusicSeeker.Properties.Resources.Information, MessageBoxButton.OK, MessageBoxImage.Asterisk, MessageBoxResult.OK);
+            ShowUiMessage(BeMusicSeeker.Properties.Resources.Msg_init_completed, BeMusicSeeker.Properties.Resources.Information, MessageBoxImage.Asterisk, "Initial setup completion notification");
         };
         if (DispatcherHelper.UIDispatcher == null || DispatcherHelper.UIDispatcher.CheckAccess())
         {
@@ -27939,12 +27939,13 @@ public class MainWindowViewModel : ViewModel
         HashSet<ChartPackage> approvedNormalInstallOverridePackages = [];
         foreach (ChartPackage package in list.Where(pkg => (pkg.ChartEntries ?? []).Any(entry => !string.IsNullOrWhiteSpace(entry?.Chart?.InstallDestination))))
         {
-            bool approved = DispatcherMessageBox.Show(
+            bool approved = ShowUiConfirmation(
                 BeMusicSeeker.Properties.Resources.Confirm_NormalInstallOverride,
                 BeMusicSeeker.Properties.Resources.Confirm_NormalInstallTitle,
-                MessageBoxButton.YesNo,
                 MessageBoxImage.Question,
-                MessageBoxResult.Yes) == MessageBoxResult.Yes;
+                MessageBoxButton.YesNo,
+                "Pending package normal install override confirmation",
+                MessageBoxResult.Yes);
             if (approved)
             {
                 approvedNormalInstallOverridePackages.Add(package);
@@ -30531,12 +30532,13 @@ public class MainWindowViewModel : ViewModel
             {
                 continue;
             }
-            if (DispatcherMessageBox.Show(
+            if (ShowUiConfirmation(
                 string.Format(BeMusicSeeker.Properties.Resources.Confirm_DuplicateReinstallSkipped, chart.Path, string.Join(Environment.NewLine, confirmation.DuplicatePaths)),
                 BeMusicSeeker.Properties.Resources.MessageBoxTitle_Confirm,
-                MessageBoxButton.YesNo,
                 MessageBoxImage.Question,
-                MessageBoxResult.Yes) == MessageBoxResult.Yes)
+                MessageBoxButton.YesNo,
+                "Duplicate reinstall repair confirmation",
+                MessageBoxResult.Yes))
             {
                 approvedPaths.Add(chart.Path);
             }
@@ -31041,24 +31043,24 @@ public class MainWindowViewModel : ViewModel
                 List<BMSLibrary.IRDataCacheInfo> iRDataNeedUpdates = files.GetIRDataNeedUpdates(normalizedHashes);
                 if (iRDataNeedUpdates.Count > 0)
                 {
-                    if (DispatcherMessageBox.Show(BeMusicSeeker.Properties.Resources.Msg_download_ranking_cache + Environment.NewLine + Environment.NewLine + BeMusicSeeker.Properties.Resources.Download + ": " + iRDataNeedUpdates.Count + Environment.NewLine + BeMusicSeeker.Properties.Resources.Skip + ": " + (normalizedHashes.Count - iRDataNeedUpdates.Count) + Environment.NewLine + BeMusicSeeker.Properties.Resources.Size + ": " + FileSizeHelper.GetReadableFileSize(iRDataNeedUpdates.Select(c => c.size).Sum()), BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Asterisk, MessageBoxResult.OK) == MessageBoxResult.OK)
+                    if (ShowUiConfirmation(BeMusicSeeker.Properties.Resources.Msg_download_ranking_cache + Environment.NewLine + Environment.NewLine + BeMusicSeeker.Properties.Resources.Download + ": " + iRDataNeedUpdates.Count + Environment.NewLine + BeMusicSeeker.Properties.Resources.Skip + ": " + (normalizedHashes.Count - iRDataNeedUpdates.Count) + Environment.NewLine + BeMusicSeeker.Properties.Resources.Size + ": " + FileSizeHelper.GetReadableFileSize(iRDataNeedUpdates.Select(c => c.size).Sum()), BeMusicSeeker.Properties.Resources.Confirm, MessageBoxImage.Asterisk, MessageBoxButton.OKCancel, "Ranking cache download confirmation", MessageBoxResult.OK))
                     {
                         List<BMSLibrary.IRDataCacheInfo> list = files.DownloadIRData(iRDataNeedUpdates);
-                        DispatcherMessageBox.Show(BeMusicSeeker.Properties.Resources.Msg_download_completed + Environment.NewLine + Environment.NewLine + BeMusicSeeker.Properties.Resources.Success + ": " + (iRDataNeedUpdates.Count - list.Count) + Environment.NewLine + BeMusicSeeker.Properties.Resources.Failure + ": " + list.Count, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OK, MessageBoxImage.Asterisk, MessageBoxResult.OK);
+                        ShowUiMessage(BeMusicSeeker.Properties.Resources.Msg_download_completed + Environment.NewLine + Environment.NewLine + BeMusicSeeker.Properties.Resources.Success + ": " + (iRDataNeedUpdates.Count - list.Count) + Environment.NewLine + BeMusicSeeker.Properties.Resources.Failure + ": " + list.Count, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxImage.Asterisk, "Ranking cache download completion notification");
                     }
                 }
                 else
                 {
-                    DispatcherMessageBox.Show(BeMusicSeeker.Properties.Resources.Msg_ranking_cache_notfound, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+                    ShowUiMessage(BeMusicSeeker.Properties.Resources.Msg_ranking_cache_notfound, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxImage.Hand, "Ranking cache not found notification");
                 }
             }
-            catch (InvalidOperationException)
+            catch (InvalidOperationException ex) when (ex is not UiDialogDisplayException)
             {
-                DispatcherMessageBox.Show(BeMusicSeeker.Properties.Resources.Msg_warn_cache_download, BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
+                ShowUiMessage(BeMusicSeeker.Properties.Resources.Msg_warn_cache_download, BeMusicSeeker.Properties.Resources.Warning, MessageBoxImage.Exclamation, "Ranking cache download warning notification");
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not UiDialogDisplayException)
             {
-                DispatcherMessageBox.Show(BeMusicSeeker.Properties.Resources.Msg_error_cache_download + Environment.NewLine + Environment.NewLine + ex.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+                ShowUiMessage(BeMusicSeeker.Properties.Resources.Msg_error_cache_download + Environment.NewLine + Environment.NewLine + ex.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, "Ranking cache download failure notification");
             }
         }
     }
@@ -31249,19 +31251,30 @@ public class MainWindowViewModel : ViewModel
         return resultViewUrl;
     }
 
-    private static bool ShowUiConfirmation(string messageBoxText, string caption, MessageBoxImage icon, MessageBoxButton button, string routeName = "UI confirmation dialog")
+    private static bool ShowUiConfirmation(
+        string messageBoxText,
+        string caption,
+        MessageBoxImage icon,
+        MessageBoxButton button,
+        string routeName = "UI confirmation dialog",
+        MessageBoxResult defaultResult = MessageBoxResult.None)
     {
         UiDialogResult result = new UiDialogCoordinator()
-            .ConfirmAsync(new UiConfirmationRequest(messageBoxText, caption, button, icon, MessageBoxResult.None))
+            .ConfirmAsync(new UiConfirmationRequest(messageBoxText, caption, button, icon, defaultResult))
             .GetAwaiter()
             .GetResult();
         return ToUiConfirmationDecision(result, routeName);
     }
 
-    private static void ShowUiMessage(string messageBoxText, string caption, MessageBoxImage icon, string routeName = "UI message dialog")
+    private static void ShowUiMessage(
+        string messageBoxText,
+        string caption,
+        MessageBoxImage icon,
+        string routeName = "UI message dialog",
+        MessageBoxResult defaultResult = MessageBoxResult.OK)
     {
         UiDialogResult result = new UiDialogCoordinator()
-            .ShowMessageAsync(new UiMessageRequest(messageBoxText, caption, MessageBoxButton.OK, icon, MessageBoxResult.OK))
+            .ShowMessageAsync(new UiMessageRequest(messageBoxText, caption, MessageBoxButton.OK, icon, defaultResult))
             .GetAwaiter()
             .GetResult();
         ThrowIfUiDialogNotShown(result, routeName);
@@ -31317,9 +31330,10 @@ public class MainWindowViewModel : ViewModel
         return result.Status switch
         {
             UiDialogStatus.Accepted => true,
-            UiDialogStatus.Rejected or UiDialogStatus.CancelledByUser or UiDialogStatus.ClosedByUser => false,
-            UiDialogStatus.Failed => throw new InvalidOperationException(routeName + " failed.", result.Exception),
-            _ => throw new InvalidOperationException(routeName + " was not shown: " + result.Status),
+            UiDialogStatus.Rejected or UiDialogStatus.CancelledByUser => false,
+            UiDialogStatus.ClosedByUser => result.MessageBoxResult is MessageBoxResult.OK or MessageBoxResult.Yes,
+            UiDialogStatus.Failed => throw CreateUiDialogDisplayException(routeName, result),
+            _ => throw CreateUiDialogDisplayException(routeName, result),
         };
     }
 
@@ -31332,10 +31346,35 @@ public class MainWindowViewModel : ViewModel
 
         if (result.Status == UiDialogStatus.Failed)
         {
-            throw new InvalidOperationException(routeName + " failed.", result.Exception);
+            throw CreateUiDialogDisplayException(routeName, result);
         }
 
-        throw new InvalidOperationException(routeName + " was not shown: " + result.Status);
+        throw CreateUiDialogDisplayException(routeName, result);
+    }
+
+    private static UiDialogDisplayException CreateUiDialogDisplayException(string routeName, UiDialogResult result)
+    {
+        string message = result.Status == UiDialogStatus.Failed
+            ? routeName + " failed."
+            : routeName + " was not shown: " + result.Status;
+        return new UiDialogDisplayException(message, result.Exception);
+    }
+
+    private sealed class UiDialogDisplayException : InvalidOperationException
+    {
+        internal UiDialogDisplayException()
+        {
+        }
+
+        internal UiDialogDisplayException(string message)
+            : base(message)
+        {
+        }
+
+        internal UiDialogDisplayException(string message, Exception innerException)
+            : base(message, innerException)
+        {
+        }
     }
 
     public void ConvertBMSToAudioFiles(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles, string saveDir, CancellationToken token = default, Action<bool> onEachCompleted = null)

@@ -19,12 +19,12 @@ These counts are refreshed as implementation units complete. They should monoton
 
 | Pattern | Count | Route |
 | --- | ---: | --- |
-| `DispatcherMessageBox.Show` | 16 | legacy message / confirmation |
+| `DispatcherMessageBox.Show` | 0 | legacy message / confirmation |
 | `internal static class DispatcherMessageBox` | 1 | legacy adapter entry point |
 | `internal static class UiDialogLegacyAdapter` | 1 | legacy adapter bridge |
 | `UiDialogLegacyAdapter.ShowMessageBox` | 2 | legacy adapter bridge |
 | `System.Windows.MessageBox.Show` | 4 | emergency route candidate |
-| `MessageBox.Show(` | 20 | legacy + emergency aggregate |
+| `MessageBox.Show(` | 4 | legacy + emergency aggregate |
 | `new ConfirmationMessage` | 40 | Livet confirmation |
 | `InteractionMessageAction<FrameworkElement>` | 2 | Livet action component |
 | `RaiseInteractionMessageOnUiThread` | 57 | Livet interaction dispatch |
@@ -45,6 +45,7 @@ Current progress notes:
 - Unit 6 picker bridge pass removed `CommonOpenFileDialogInteractionMessageAction` and the remaining XAML picker action bridge. Setting pickers now use explicit view click handlers and the coordinator directly.
 - Unit 6 modal window pass moved direct `ShowDialog()` calls for update, pending delete, LR2 schema uninstall, and play-history preset edit windows to `UiDialogCoordinator.ShowWindowAsync`. Remaining `.ShowDialog(` calls are display component boundaries inside the coordinator / message box.
 - Unit 7 view code-behind pass moved `DispatcherMessageBox.Show` calls in `BeMusicSeeker/Views/**/*.cs` to `UiDialogRoute.ShowMessageBox`, a coordinator-backed synchronous helper that does not hide display failures.
+- Unit 7 ViewModel pass removed the remaining production `DispatcherMessageBox.Show` call sites. `MainWindowViewModel` now uses coordinator-backed `ShowUiMessage` / `ShowUiConfirmation`; `temporarilyCopyFiles` uses `UiDialogRoute` for normal dispose notifications and logs finalizer cleanup failures without trying to display UI from the finalizer.
 
 ## Legacy Source Files
 
@@ -58,7 +59,6 @@ When a new legacy route is added, the test should fail unless the route is inten
 | `BeMusicSeeker/Models/BmsLibraryInternal/BmsLibraryDialogService.cs` | coordinator-backed legacy adapter bridge | Unit 3 |
 | `BeMusicSeeker/Models/Utils/DispatcherMessageBox.cs` | coordinator-backed legacy adapter | Unit 7 |
 | `BeMusicSeeker/ViewModels/MainWindowViewModel.cs` | Livet confirmation / interaction dispatch | Unit 2, Unit 8 |
-| `BeMusicSeeker/ViewModels/temporarilyCopyFiles.cs` | ViewModel `DispatcherMessageBox` | Unit 2 |
 | `BeMusicSeeker/Views/ThemedDialogInteractionMessageActions.cs` | Livet dialog action | Unit 2 |
 | `BeMusicSeeker/Views/ThemedMessageBox.cs` | message box display component | Unit 1, Unit 7 |
 | `BeMusicSeeker/Views/Dialogs/UiDialogCoordinator.cs` | progress / picker display component bridge | Unit 4, Unit 5 |
