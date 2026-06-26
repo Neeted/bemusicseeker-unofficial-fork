@@ -433,10 +433,12 @@ hr {
 <li class="toc-level-3"><a href="#main-chart-list">Main Chart List</a></li>
 <li class="toc-level-3"><a href="#playlist-detail">Playlist Detail</a></li>
 <li class="toc-level-3"><a href="#playlist-list">Playlist List</a></li>
+<li class="toc-level-3"><a href="#play-log">Play Log</a></li>
 </ul></details></li>
 <li class="toc-level-2"><details open><summary><a href="#field-qualified-search">Field-Qualified Search</a></summary><ul>
 <li class="toc-level-3"><a href="#fields-available-in-the-main-chart-list-and-playlist-detail">Fields Available in the Main Chart List and Playlist Detail</a></li>
 <li class="toc-level-3"><a href="#fields-available-in-the-playlist-list">Fields Available in the Playlist List</a></li>
+<li class="toc-level-3"><a href="#fields-available-in-the-play-log">Fields Available in the Play Log</a></li>
 </ul></details></li>
 <li class="toc-level-2"><details open><summary><a href="#phrase-search">Phrase Search</a></summary><ul>
 <li class="toc-level-3"><a href="#escapes-in-quotes">Escapes in Quotes</a></li>
@@ -465,6 +467,7 @@ hr {
 <li>Main chart list</li>
 <li>Playlist detail</li>
 <li>Playlist list</li>
+<li>Play Log</li>
 </ul>
 <hr/>
 <h2 id="input-assistance">Input Assistance</h2>
@@ -512,7 +515,7 @@ hr {
 <p>Field completion completes only field names.
 If you have already typed a search word after <code>:</code>, such as <code>title:alpha</code>, field completion is not shown.</p>
 <h3 id="playlist-name-completion-for-playlist--ref--table">Playlist Name Completion for <code>playlist:</code> / <code>ref:</code> / <code>table:</code></h3>
-<p>In the main chart list and playlist detail, entering a search term for <code>playlist:</code>, <code>ref:</code>, or <code>table:</code> shows installed playlist names as candidates.</p>
+<p>In the main chart list, playlist detail, and Play Log, entering a search term for <code>playlist:</code>, <code>ref:</code>, or <code>table:</code> shows installed playlist names as candidates.</p>
 <div class="highlight"><pre><span></span><code>playlist:Sat
 </code></pre></div>
 <p>In the example above, you can select a playlist name such as <code>Satellite Sub</code>.
@@ -569,6 +572,25 @@ Matching is case-insensitive.</p>
 <li>name</li>
 <li>symbol</li>
 </ul>
+<h3 id="play-log">Play Log</h3>
+<p>Normal search targets:</p>
+<ul>
+<li>TITLE</li>
+<li>ARTIST</li>
+<li>PATH</li>
+<li>Display labels in the FOLDER column</li>
+<li>Referenced playlist names</li>
+<li>raw hash</li>
+<li>MD5</li>
+<li>SHA256</li>
+<li>TYPE</li>
+<li>score write type</li>
+<li>CLEAR</li>
+<li>source name</li>
+<li>source path</li>
+<li>play date (<code>yyyy-MM-dd</code>)</li>
+</ul>
+<p>In the Play Log, not every displayed column is part of normal search. BEST DJ, BEST RATE, BEST EXSCORE, BP, COMBO, OPTION, OP HISTORY, PLAY EXSCORE, and JUDGES are not currently targeted by normal search or field-qualified search.</p>
 <hr/>
 <h2 id="field-qualified-search">Field-Qualified Search</h2>
 <p>Use <code>field:keyword</code> to restrict the search target to a specific column.</p>
@@ -827,6 +849,90 @@ In addition to display names, the following abbreviations can be used.</p>
 </tr>
 </tbody>
 </table></div>
+<h3 id="fields-available-in-the-play-log">Fields Available in the Play Log</h3>
+<p>The Play Log uses a field set separate from the main chart list and playlist detail.</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th style="text-align: left;">field</th>
+<th style="text-align: left;">Target</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>title</code></td>
+<td style="text-align: left;">TITLE</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>artist</code></td>
+<td style="text-align: left;">ARTIST</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>path</code></td>
+<td style="text-align: left;">PATH</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>folder</code></td>
+<td style="text-align: left;">Display labels in the FOLDER column</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>playlist</code> / <code>ref</code> / <code>table</code></td>
+<td style="text-align: left;">Referenced playlist name. Searches the resolved playlist name, not the short display label in the FOLDER column</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>md5</code></td>
+<td style="text-align: left;">MD5. In beatoraja history, this has a value only when MD5 can be resolved from an owned chart or similar source</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>hash</code></td>
+<td style="text-align: left;">raw hash. LR2 targets the recorded MD5, and beatoraja targets the recorded SHA256</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>sha256</code></td>
+<td style="text-align: left;">SHA256</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>date</code></td>
+<td style="text-align: left;">Play date. Accepts <code>yyyy-MM-dd</code>, <code>yyyy/M/d</code>, <code>yyyy/MM/dd</code>, and <code>yyyyMMdd</code></td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>year</code></td>
+<td style="text-align: left;">Play year. Example: <code>2026</code></td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>month</code></td>
+<td style="text-align: left;">Play month. Accepts <code>yyyy-MM</code>, <code>yyyy/MM</code>, or <code>1</code> through <code>12</code></td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>type</code> / <code>kind</code></td>
+<td style="text-align: left;">TYPE and score write type. <code>type</code> is the primary name; <code>kind</code> is a compatibility alias. Examples: <code>score</code>, <code>bp</code>, <code>clear</code>, <code>combo</code>, <code>play</code></td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>clear</code></td>
+<td style="text-align: left;">CLEAR before or after the update. Accepts the same abbreviations as normal <code>clear:</code></td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>oldclear</code></td>
+<td style="text-align: left;">CLEAR before the update. Accepts the same abbreviations as normal <code>clear:</code></td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>newclear</code></td>
+<td style="text-align: left;">CLEAR after the update. Accepts the same abbreviations as normal <code>clear:</code></td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>finalized</code></td>
+<td style="text-align: left;">Whether the row is finalized. Accepts <code>true</code>, <code>1</code>, <code>yes</code>, <code>y</code>, <code>finalized</code> / <code>false</code>, <code>0</code>, <code>no</code>, <code>n</code>, <code>unfinalized</code>, <code>pending</code></td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>source</code></td>
+<td style="text-align: left;">source name and source path</td>
+</tr>
+</tbody>
+</table></div>
+<p>Play Log <code>date</code> / <code>year</code> / <code>month</code> / <code>clear</code> / <code>oldclear</code> / <code>newclear</code> / <code>finalized</code> use dedicated matching. Range and comparison operators such as <code>level:10..12</code> are not used for them.
+In the Play Log, <code>clear:defined</code> matches rows that have a CLEAR value after the update. This differs from the main chart list and playlist detail, where <code>clear</code> always matches <code>defined</code> because <code>NO SONG</code> and <code>NO PLAY</code> are also treated as CLEAR types.
+Click filtering from the top summary cards also uses these search fields internally. For example, the SCORE update card is equivalent to <code>type:score</code>, and the EASY card is equivalent to <code>type:clear newclear:EC</code>. Card filters are applied with AND against the search-box filter. When multiple cards are selected, the cards are combined with OR.
+The Play Log also does not support main-chart-list / playlist-detail fields such as <code>level</code>, <code>difficulty</code>, <code>notes</code>, <code>rank</code>, <code>rate</code>, <code>score</code>, and <code>bp</code>. They are treated as unknown fields.</p>
 <hr/>
 <h2 id="phrase-search">Phrase Search</h2>
 <p>To treat a string containing spaces as a single search word, wrap it in double quotes.</p>

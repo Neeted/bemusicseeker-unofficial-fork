@@ -454,14 +454,16 @@ hr {
 <h2 id="導入手順">導入手順</h2>
 <p>詳しい初回設定、動作モード、画面ごとの使い方は <a href="manual.ja.html">ユーザーマニュアル</a> を参照してください。</p>
 <ol>
-<li><strong><a href="https://www.voidtools.com/everything-1.5a/">Everything 1.5 Alpha (x64)</a> の導入を推奨</strong><ul>
+<li><strong><a href="https://www.voidtools.com/everything-1.5/">Everything 1.5 (x64)</a> の導入を推奨</strong><ul>
 <li>未導入でも動作しますが、大規模ライブラリでは起動・リロード・インストール推定の速度差が大きくなります。</li>
 <li>導入後は、BMS 関連ファイルが存在するディレクトリのインデックス作成が完了し、Everything 上で検索できる状態にしてから BeMusicSeeker を起動してください。</li>
 </ul>
 </li>
 <li><strong>リリース版のダウンロード</strong><ul>
 <li><a href="https://github.com/Neeted/bemusicseeker-unofficial-fork/releases">Releases</a> ページから最新版をダウンロードしてください。</li>
-<li>ZIP のまま実行せず、書き込み可能な任意のディレクトリへ展開してください。インストール作業は不要なポータブルアプリとして動作します。</li>
+<li>展開前に、ダウンロードした ZIP を右クリックして <code>プロパティ</code> を開き、下部に <code>セキュリティ</code> の <code>許可する</code> チェックボックスが表示されている場合は、チェックを入れて <code>適用</code> してください。これにより、Windows がダウンロードファイルに付ける確認情報を解除してから展開できます。
+  <img alt="ZIP のプロパティでセキュリティを許可する" src="img/allow_zoneid3.png"/></li>
+<li>ZIP のまま実行せず、<code>許可する</code> を適用した後に、書き込み可能な任意のディレクトリへ展開してください。インストール作業は不要なポータブルアプリとして動作します。</li>
 </ul>
 </li>
 <li><strong>初回起動と設定</strong><ul>
@@ -475,7 +477,7 @@ hr {
 <li>基本操作は <a href="manual.ja.html">ユーザーマニュアル</a> を参照してください。</li>
 <li>譜面導入や保留パッケージの操作は <a href="manual.ja.html#インストール--保留パッケージ">インストール / 保留パッケージ</a> を参照してください。</li>
 <li>キーワード検索の詳しい構文は <a href="keyword-search-syntax-guide.ja.html">キーワード検索構文ガイド</a> を参照してください。</li>
-<li><code>LaunchWithInfoLog.bat</code> から起動すると、通常より詳しいログが <code>application.log</code> と <code>install-performance.log</code> に出力されます。ログの見方は <a href="log-level-info-guide.html">ログレベル INFO ガイド</a> を参照してください。</li>
+<li>ログは通常起動で <code>log/</code> フォルダ内の <code>application.log</code> と <code>install-performance.log</code> に出力されます。ログの見方は <a href="log-level-info-guide.html">ログレベル INFO ガイド</a> を参照してください。</li>
 </ul>
 </li>
 </ol>
@@ -485,7 +487,7 @@ hr {
 <h3 id="目玉の改善">目玉の改善</h3>
 <ul>
 <li><strong>起動・リロード・譜面導入の高速化</strong></li>
-<li><code>Everything 1.5 Alpha x64</code> を利用した高速ファイル列挙と、初期化・差分確認・DB 更新処理の見直しを行っています。</li>
+<li><code>Everything 1.5 (x64)</code> を利用した高速ファイル列挙と、初期化・差分確認・DB 更新処理の見直しを行っています。</li>
 <li>導入先推定、保留パッケージ処理、重複ファイルチェック、プレイリスト表示など、大規模ライブラリで重くなりやすい処理を中心に改善しています。</li>
 <li>一覧表示は独自テーブル表示へ整理し、列設定、ソート、ツールチップ、プレイリストサマリーなどを大規模環境でも扱いやすくしています。</li>
 <li><strong>bmson 対応</strong></li>
@@ -507,6 +509,10 @@ hr {
 <li>LR2互換性警告、ゼロノート検索、解析エラー、構成ファイルフルスキャン、重複ファイルチェックなど、状態確認用の画面を拡充しています。</li>
 <li><strong>UI・ログ・多言語対応</strong></li>
 <li>テーマ対応、設定ダイアログ整理、ステータスバー進捗表示、ログ出力、多言語リソース管理を改善しています。</li>
+<li><strong>プレイログ機能</strong></li>
+<li>LR2 連携では、LR2 のスコア DB にプレイログ用の仕組みを導入することで、導入後のプレイ履歴を BeMusicSeeker 上で確認できます。日付別ツリー、更新内容、判定数、プレイ数、演奏時間、クリア内訳、プレイリスト別の FOLDER 表示などを確認できます。</li>
+<li>beatoraja 連携では、beatoraja の <code>scorelog.db</code> を使ってスコア更新履歴を表示し、<code>score.db</code> の player 集計から日別のプレイ数、判定数、演奏時間を表示します。LR2 と同じ粒度の全プレイ履歴ではなく、beatoraja が記録している更新履歴として扱います。</li>
+<li>LR2 の過去ログはプレイログ導入前には遡れません。設定や注意点は <a href="manual.ja.html#lr2プレイログ">マニュアルの LR2 プレイログ</a> と <a href="manual.ja.html#プレイログ">プレイログ画面</a> を参照してください。</li>
 </ul>
 <h2 id="todo">TODO</h2>
 <p>現状で思いついたアイデアのメモです。思いついた順で、優先度は混在しています。対応済みになったものは随時この一覧から外します。</p>
@@ -516,18 +522,10 @@ hr {
 <li>基本的には <a href="https://github.com/Neeted/bms-score-uploader">bms-score-uploader</a> のアプローチを踏襲すれば良さそう。</li>
 </ul>
 </li>
-<li>LR2IRからライバルデータをダウンロードし、データベース化・配置する機能</li>
+<li>LR2のライバル DB を song.db に取り込んで難易度表毎の WIN/LOSE フォルダを作る機能</li>
 <li>クリアランプビューア機能</li>
 <li>コース内容の表示、および順番編集機能</li>
-<li>ハードコードされているURL群のうち、リンク切れとなっているものの代替<ul>
-<li>LR2IRキャッシュ系はデータの用意や更新が大変なため、理想的には「プロキシサーバを用意し、最終更新から24時間経過していた場合のみLR2IR本体へフェッチしにいく」といった仕組みが良いかもしれない。</li>
-</ul>
-</li>
-<li>Everything 1.5a 連携失敗時の警告ダイアログの表示</li>
-<li>カスタムフォルダ出力機能の継続確認<ul>
-<li>重要なコア機能なので、仕様整理と回帰確認を継続しておく必要がある。</li>
-</ul>
-</li>
+<li>ハードコードされているURL群のうち、リンク切れとなっているものの代替</li>
 <li><code>.wav</code> と <code>.ogg</code> が重複して存在している場合にどちらかに寄せる機能</li>
 </ol>
 <h2 id="ライセンスの適用範囲">ライセンスの適用範囲</h2>

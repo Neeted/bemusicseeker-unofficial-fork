@@ -1,6 +1,10 @@
 # BeMusicSeeker ログ（実行記録）の見方ガイド
 
-BeMusicSeeker を `--log-level=Info` などのオプションを付けて起動した際、あるいは `install-performance.log` 等に出力されるログには、**初期化やデータベース読み込みのパフォーマンス計測値（INFO）** や、**不正な譜面データのパース結果（WARN/ERROR）** などが記録されます。
+BeMusicSeeker は通常起動で `log/application.log` と `log/install-performance.log` にログを出力します。これらのログには、**初期化やデータベース読み込みのパフォーマンス計測値（INFO）** や、**不正な譜面データのパース結果（WARN/ERROR）** などが記録されます。
+
+ログファイルが大きくなった場合は `log/archive/` にローテーションされます。既存の `LaunchWithInfoLog.bat` や `--log-level=Info` を使って起動しても、通常起動と同じログ出力になります。
+
+ログファイルの文字コードは UTF-8（BOM なし）です。
 
 ここでは、ログによく出現するキーワードや各項目の意味について解説します。
 

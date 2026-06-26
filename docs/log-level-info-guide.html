@@ -453,7 +453,9 @@ hr {
     </nav>
     <main class="doc-content">
 <h1 id="bemusicseeker-ログ実行記録の見方ガイド">BeMusicSeeker ログ（実行記録）の見方ガイド</h1>
-<p>BeMusicSeeker を <code>--log-level=Info</code> などのオプションを付けて起動した際、あるいは <code>install-performance.log</code> 等に出力されるログには、<strong>初期化やデータベース読み込みのパフォーマンス計測値（INFO）</strong> や、<strong>不正な譜面データのパース結果（WARN/ERROR）</strong> などが記録されます。</p>
+<p>BeMusicSeeker は通常起動で <code>log/application.log</code> と <code>log/install-performance.log</code> にログを出力します。これらのログには、<strong>初期化やデータベース読み込みのパフォーマンス計測値（INFO）</strong> や、<strong>不正な譜面データのパース結果（WARN/ERROR）</strong> などが記録されます。</p>
+<p>ログファイルが大きくなった場合は <code>log/archive/</code> にローテーションされます。既存の <code>LaunchWithInfoLog.bat</code> や <code>--log-level=Info</code> を使って起動しても、通常起動と同じログ出力になります。</p>
+<p>ログファイルの文字コードは UTF-8（BOM なし）です。</p>
 <p>ここでは、ログによく出現するキーワードや各項目の意味について解説します。</p>
 <hr/>
 <h2 id="汎用的なキーワード">汎用的なキーワード</h2>

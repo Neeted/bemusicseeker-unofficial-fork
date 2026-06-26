@@ -24,9 +24,14 @@ $ErrorActionPreference = "Stop"
 # パス定義
 $devRoot = "D:\work\BeMusicSeeker-decomp"
 $pubRoot = "D:\github\bemusicseeker-unofficial-fork"
-$buildOutput = Join-Path $devRoot "bin\Release\net472"
+$configuration = "Release"
+$platform = "x64"
+$targetFramework = "net472"
+$buildOutput = Join-Path $devRoot "bin\$platform\$configuration\$targetFramework"
 $distDir = Join-Path $devRoot "dist"
 $stagingRoot = Join-Path $distDir "_staging"
+$publicRepoOwner = "Neeted"
+$publicRepoName = "bemusicseeker-unofficial-fork"
 
 # AssemblyInformationalVersion を読み取る
 function Get-AppVersion {
@@ -53,15 +58,10 @@ function Resolve-MetadataSource {
     }
 
     $extension = [System.IO.Path]::GetExtension($sourcePath).ToLowerInvariant()
-    if ($extension -eq ".7z") {
-        $targetName = "chart-info-metadata.7z"
+    if ($extension -ne ".7z") {
+        throw "自動アップデート対象の metadata 同梱パッケージは .7z のみ対応します: $sourcePath"
     }
-    elseif ($extension -eq ".db") {
-        $targetName = "chart-info-metadata.db"
-    }
-    else {
-        throw "metadata source は .7z または .db を指定してください: $sourcePath"
-    }
+    $targetName = "chart-info-metadata.7z"
 
     return [PSCustomObject]@{
         SourcePath = $sourcePath
@@ -115,6 +115,47 @@ function Build-PublicDocSite($targetDocsDir) {
     Write-Host "  Pages HTML docs 生成完了" -ForegroundColor Green
 }
 
+function Join-PackageRelativePath($root, $relativePath) {
+    return Join-Path $root ($relativePath.Replace('/', [System.IO.Path]::DirectorySeparatorChar))
+}
+
+function Assert-AppPackageLayout($targetStagingDir) {
+    $requiredFiles = @(
+        "BeMusicSeeker.exe",
+        "BeMusicSeeker.exe.config",
+        "BeMusicSeeker.Updater.exe",
+        "libs/SevenZipExtractor.dll",
+        "libs/OggVorbis.NET64.dll",
+        "libs/x64/7z.dll",
+        "libs/x64/bass.dll",
+        "libs/x64/sqlite3.dll",
+        "native/Everything3_x64.dll",
+        "native/EverythingBridge_x64.dll",
+        "lang/ja-JP.json"
+    )
+    foreach ($relativePath in $requiredFiles) {
+        $path = Join-PackageRelativePath $targetStagingDir $relativePath
+        if (-not (Test-Path $path -PathType Leaf)) {
+            throw "release package の必須ファイルが見つかりません: $relativePath"
+        }
+    }
+
+    $forbiddenPaths = @(
+        "x86",
+        "x64",
+        "libs/x86",
+        "libs/x64/OggVorbis.NET64.dll",
+        "SevenZipExtractor.dll",
+        "OggVorbis.NET64.dll"
+    )
+    foreach ($relativePath in $forbiddenPaths) {
+        $path = Join-PackageRelativePath $targetStagingDir $relativePath
+        if (Test-Path $path) {
+            throw "release package に旧 DLL 配置が残っています: $relativePath"
+        }
+    }
+}
+
 function Copy-AppFilesToStaging($targetStagingDir) {
     if (Test-Path $targetStagingDir) { Remove-Item $targetStagingDir -Recurse -Force }
     New-Item -ItemType Directory -Path $targetStagingDir -Force | Out-Null
@@ -122,12 +163,10 @@ function Copy-AppFilesToStaging($targetStagingDir) {
     # アプリ本体のコピー (config, .pdb, *.log は除外)
     Copy-Item (Join-Path $buildOutput "BeMusicSeeker.exe")        $targetStagingDir
     Copy-Item (Join-Path $buildOutput "BeMusicSeeker.exe.config") $targetStagingDir
+    Copy-Item (Join-Path $buildOutput "BeMusicSeeker.Updater.exe") $targetStagingDir
     Copy-Item (Join-Path $buildOutput "libs")   (Join-Path $targetStagingDir "libs")   -Recurse
     Copy-Item (Join-Path $buildOutput "native") (Join-Path $targetStagingDir "native") -Recurse
     Copy-Item (Join-Path $buildOutput "lang")   (Join-Path $targetStagingDir "lang")   -Recurse
-
-    # LaunchWithInfoLog.bat
-    Copy-Item (Join-Path $devRoot "scripts\LaunchWithInfoLog.bat") $targetStagingDir
 
     # README, LICENSE, ThirdPartyNotices
     Copy-Item (Join-Path $devRoot "README.md")               $targetStagingDir
@@ -146,6 +185,42 @@ function Copy-AppFilesToStaging($targetStagingDir) {
     Build-DocHtml $targetStagingDir
 }
 
+function Get-ReleaseAssetMetadata($assetPath, $version, $packageSuffix) {
+    $asset = Get-Item $assetPath
+    $tag = "v$version"
+    $fileName = $asset.Name
+    $downloadUrl = "https://github.com/$publicRepoOwner/$publicRepoName/releases/download/$tag/$fileName"
+    $isMetadataPackage = -not [string]::IsNullOrWhiteSpace($packageSuffix)
+
+    return [PSCustomObject]@{
+        kind = if ($isMetadataPackage) { "app-with-metadata" } else { "app" }
+        label = if ($isMetadataPackage) { "App with metadata bundle" } else { "App only" }
+        fileName = $fileName
+        url = $downloadUrl
+        sha256 = (Get-FileHash -Path $asset.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+        sizeBytes = $asset.Length
+        includesChartInfoMetadata = $isMetadataPackage
+    }
+}
+
+function New-UpdateManifestCandidate($version, $assetMetadata) {
+    $tag = "v$version"
+    $manifest = [PSCustomObject]@{
+        schemaVersion = 1
+        version = $version
+        releaseTag = $tag
+        releasePageUrl = "https://github.com/$publicRepoOwner/$publicRepoName/releases/tag/$tag"
+        packageFormatVersion = 1
+        publishedAt = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+        minimumUpdaterVersion = "1"
+        assets = @($assetMetadata)
+    }
+
+    $manifestPath = Join-Path $distDir "update-$tag.json"
+    $manifest | ConvertTo-Json -Depth 8 | Set-Content -Path $manifestPath -Encoding UTF8
+    Write-Host "  update manifest 候補を作成: $manifestPath" -ForegroundColor Green
+}
+
 function New-ZipPackage($version, $packageSuffix, $metadataInfo) {
     $stagingName = "_staging"
     if (-not [string]::IsNullOrWhiteSpace($packageSuffix)) {
@@ -162,6 +237,9 @@ function New-ZipPackage($version, $packageSuffix, $metadataInfo) {
         Copy-Item $metadataInfo.SourcePath (Join-Path $targetStagingDir $metadataInfo.TargetName) -Force
     }
 
+    Assert-AppPackageLayout $targetStagingDir
+    New-ManagedFilesManifest $targetStagingDir
+
     $zipName = "bemusicseeker-unofficial-fork-v$version$packageSuffix.zip"
     $zipPath = Join-Path $distDir $zipName
 
@@ -173,6 +251,22 @@ function New-ZipPackage($version, $packageSuffix, $metadataInfo) {
 
     Write-Host "  パッケージ作成完了: $zipPath" -ForegroundColor Green
     return $zipPath
+}
+
+function New-ManagedFilesManifest($targetStagingDir) {
+    $manifestPath = Join-Path $targetStagingDir "update-managed-files.txt"
+    $root = [System.IO.Path]::GetFullPath($targetStagingDir).TrimEnd('\', '/')
+    $paths = Get-ChildItem $targetStagingDir -Recurse -File |
+        ForEach-Object {
+            $fullName = [System.IO.Path]::GetFullPath($_.FullName)
+            $relative = $fullName.Substring($root.Length).TrimStart('\', '/').Replace('\', '/')
+            if ($relative -ne "update-managed-files.txt") {
+                $relative
+            }
+        } |
+        Sort-Object
+    Set-Content -Path $manifestPath -Value $paths -Encoding UTF8
+    Write-Host "  managed files manifest を作成: update-managed-files.txt"
 }
 
 # ========== ステップ 1: リリースパッケージの作成 ==========
@@ -192,7 +286,7 @@ function New-ReleasePackage {
     if (-not $SkipBuild) {
         Write-Host "  ビルド中..."
         Push-Location $devRoot
-        dotnet build -c Release BeMusicSeeker.csproj | Out-Host
+        dotnet build BeMusicSeeker.csproj -c $configuration -p:Platform=$platform | Out-Host
         if ($LASTEXITCODE -ne 0) { throw "ビルドに失敗しました" }
         Pop-Location
         Write-Host "  ビルド完了" -ForegroundColor Green
@@ -208,10 +302,19 @@ function New-ReleasePackage {
     if (Test-Path $stagingRoot) { Remove-Item $stagingRoot -Recurse -Force }
 
     $packages = @()
-    $packages += New-ZipPackage $version "" $null
+    $assetMetadata = @()
+
+    $appPackage = New-ZipPackage $version "" $null
+    $packages += $appPackage
+    $assetMetadata += Get-ReleaseAssetMetadata $appPackage $version ""
+
     if ($IncludeMetadata) {
-        $packages += New-ZipPackage $version $MetadataPackageSuffix $metadataInfo
+        $metadataPackage = New-ZipPackage $version $MetadataPackageSuffix $metadataInfo
+        $packages += $metadataPackage
+        $assetMetadata += Get-ReleaseAssetMetadata $metadataPackage $version $MetadataPackageSuffix
     }
+
+    New-UpdateManifestCandidate $version $assetMetadata
 
     return $packages
 }
@@ -233,6 +336,13 @@ function Sync-PublicRepo($releasePackagePaths) {
     # dist\ の zip をコピー (古い zip は削除しない、追加のみ)
     $pubDist = Join-Path $pubRoot "dist"
     if (-not (Test-Path $pubDist)) { New-Item -ItemType Directory -Path $pubDist -Force | Out-Null }
+    $version = Get-AppVersion
+    $currentVersionPattern = "bemusicseeker-unofficial-fork-v$version*.zip"
+    Get-ChildItem $pubDist -Filter $currentVersionPattern -File | ForEach-Object {
+        Remove-Item $_.FullName -Force
+        Write-Host "  削除: dist\$($_.Name)"
+    }
+
     $releaseAssets = @()
     if ($releasePackagePaths -ne $null -and $releasePackagePaths.Count -gt 0) {
         $releaseAssets = @($releasePackagePaths | ForEach-Object { Get-Item $_ })

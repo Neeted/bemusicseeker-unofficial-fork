@@ -453,12 +453,14 @@ In practice, this repository is maintained as a distribution point for modified 
 <h2 id="installation">Installation</h2>
 <p>For first-time setup, operating modes, and screen-by-screen usage, see the <a href="manual.html">User Manual</a>.</p>
 <ol>
-<li><strong>Install <a href="https://www.voidtools.com/everything-1.5a/">Everything 1.5 Alpha (x64)</a> if possible</strong>
+<li><strong>Install <a href="https://www.voidtools.com/everything-1.5/">Everything 1.5 (x64)</a> if possible</strong>
    - The app can run without Everything, but startup, reload, and install-destination estimation are much faster in large libraries when Everything is available.
    - After installing Everything, let it finish indexing the directories that contain your BMS files before starting BeMusicSeeker.</li>
 <li><strong>Download the release package</strong>
    - Download the latest package from the <a href="https://github.com/Neeted/bemusicseeker-unofficial-fork/releases">Releases</a> page.
-   - Do not run the app directly from the ZIP. Extract it into any writable directory. The app is portable and does not require installation.</li>
+   - Before extracting it, right-click the downloaded ZIP, open <code>Properties</code>, and if an <code>Unblock</code> checkbox appears near the bottom of the window, check it and press <code>Apply</code>. This clears the safety mark Windows adds to downloaded files before the files are extracted.
+     <img alt="Unblock the downloaded ZIP from Properties" src="img/allow_zoneid3.png"/>
+   - Do not run the app directly from the ZIP. After applying <code>Unblock</code>, extract it into any writable directory. The app is portable and does not require installation.</li>
 <li><strong>First launch and settings</strong>
    - The first launch opens the language selection and settings dialogs. Choose the operating mode and configure BMS directories, and when using LR2 mode, <code>song.db</code>, <code>config.xml</code>, score DB, and related paths.
    - See <a href="manual.html#initial-setup">Initial Setup</a> and <a href="manual.html#settings-dialog">Settings Dialog</a>.
@@ -468,7 +470,7 @@ In practice, this repository is maintained as a distribution point for modified 
    - See the <a href="manual.html">User Manual</a> for basic operations.
    - See <a href="manual.html#install--pending-packages">Install / Pending Packages</a> for chart installation and pending-package workflows.
    - See the <a href="keyword-search-syntax-guide.html">Keyword Search Syntax Guide</a> for advanced search syntax.
-   - Launching through <code>LaunchWithInfoLog.bat</code> writes more detailed logs to <code>application.log</code> and <code>install-performance.log</code>. See the <a href="log-level-info-guide.html">INFO log guide</a> for how to read them.</li>
+   - Logs are written by default under <code>log/</code> as <code>application.log</code> and <code>install-performance.log</code>. See the <a href="log-level-info-guide.html">INFO log guide</a> for how to read them.</li>
 </ol>
 <h2 id="change-summary">Change Summary</h2>
 <p>This section highlights representative improvements. See the <a href="manual.html">User Manual</a> for details and cautions.</p>
@@ -476,7 +478,7 @@ In practice, this repository is maintained as a distribution point for modified 
 <h3 id="main-improvements">Main improvements</h3>
 <ul>
 <li><strong>Faster startup, reload, and chart installation</strong></li>
-<li>Uses Everything 1.5 Alpha x64 for fast file enumeration and reworks initialization, file-diff, and DB update processing.</li>
+<li>Uses Everything 1.5 (x64) for fast file enumeration and reworks initialization, file-diff, and DB update processing.</li>
 <li>Focuses on workflows that become heavy in large libraries, including install-destination estimation, pending-package processing, duplicate-file checking, and playlist display.</li>
 <li>The main list view has been reorganized around a custom table view with column settings, sorting, tooltips, and playlist summaries that remain usable in large environments.</li>
 <li><strong>bmson support</strong></li>
@@ -498,6 +500,10 @@ In practice, this repository is maintained as a distribution point for modified 
 <li>Adds and expands status-check screens such as LR2 compatibility warnings, zero-note search, parse errors, full resource scan, and duplicate-file checking.</li>
 <li><strong>UI, logs, and multilingual support</strong></li>
 <li>Improves theme support, settings dialog organization, status-bar progress, log output, and multilingual resource handling.</li>
+<li><strong>Play history</strong></li>
+<li>In LR2 linked mode, BeMusicSeeker can install the play-history support objects into the LR2 score DB and show LR2 plays recorded after that setup. The view includes date navigation, update types, judge count, play count, play time, clear breakdowns, and playlist-based FOLDER projection.</li>
+<li>In beatoraja linked mode, BeMusicSeeker shows score update history from beatoraja's <code>scorelog.db</code> and uses the <code>score.db</code> player aggregate for daily play count, judge count, and play time. This is treated as beatoraja's update history, not as full play-by-play history at LR2's granularity.</li>
+<li>LR2 history before the play-history setup cannot be recovered. See <a href="manual.html#lr2-play-log">LR2 Play Log</a> and <a href="manual.html#play-log">Play Log</a> in the manual for setup details and cautions.</li>
 </ul>
 <h2 id="todo">TODO</h2>
 <p>These are rough notes. Priority is mixed, and completed items are removed over time.</p>
@@ -505,14 +511,10 @@ In practice, this repository is maintained as a distribution point for modified 
 <li>BMS Score Viewer screen for unregistered charts
    - Should md5 values that could not be uploaded, for example because the chart was too large, be stored locally? Otherwise they may remain in the unregistered list indefinitely.
    - The approach used by <a href="https://github.com/Neeted/bms-score-uploader">bms-score-uploader</a> seems like a good reference.</li>
-<li>Download LR2IR rival data, convert it into a local database, and place it automatically</li>
+<li>Download LR2IR rival data, import it into <code>song.db</code>, and create WIN/LOSE folders per difficulty table</li>
 <li>Clear lamp viewer</li>
 <li>Course content display and ordering editor</li>
-<li>Replace hardcoded URLs that are now broken
-   - LR2IR cache-related data is expensive to prepare and maintain. Ideally, a proxy server would fetch from LR2IR only when the last update is more than 24 hours old.</li>
-<li>Warning dialog when Everything 1.5a integration fails</li>
-<li>Continue checking the custom folder export feature
-   - This is an important core feature, so its behavior and regressions should continue to be reviewed.</li>
+<li>Replace hardcoded URLs that are now broken</li>
 <li>Consolidation feature for duplicate <code>.wav</code> and <code>.ogg</code> files</li>
 </ol>
 <h2 id="license-scope">License Scope</h2>

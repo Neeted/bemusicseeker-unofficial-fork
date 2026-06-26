@@ -19,12 +19,14 @@ In practice, this repository is maintained as a distribution point for modified 
 
 For first-time setup, operating modes, and screen-by-screen usage, see the [User Manual](docs/manual.md).
 
-1. **Install [Everything 1.5 Alpha (x64)](https://www.voidtools.com/everything-1.5a/) if possible**
+1. **Install [Everything 1.5 (x64)](https://www.voidtools.com/everything-1.5/) if possible**
    - The app can run without Everything, but startup, reload, and install-destination estimation are much faster in large libraries when Everything is available.
    - After installing Everything, let it finish indexing the directories that contain your BMS files before starting BeMusicSeeker.
 2. **Download the release package**
    - Download the latest package from the [Releases](https://github.com/Neeted/bemusicseeker-unofficial-fork/releases) page.
-   - Do not run the app directly from the ZIP. Extract it into any writable directory. The app is portable and does not require installation.
+   - Before extracting it, right-click the downloaded ZIP, open `Properties`, and if an `Unblock` checkbox appears near the bottom of the window, check it and press `Apply`. This clears the safety mark Windows adds to downloaded files before the files are extracted.
+     ![Unblock the downloaded ZIP from Properties](docs/img/allow_zoneid3.png)
+   - Do not run the app directly from the ZIP. After applying `Unblock`, extract it into any writable directory. The app is portable and does not require installation.
 3. **First launch and settings**
    - The first launch opens the language selection and settings dialogs. Choose the operating mode and configure BMS directories, and when using LR2 mode, `song.db`, `config.xml`, score DB, and related paths.
    - See [Initial Setup](docs/manual.md#initial-setup) and [Settings Dialog](docs/manual.md#settings-dialog).
@@ -34,7 +36,7 @@ For first-time setup, operating modes, and screen-by-screen usage, see the [User
    - See the [User Manual](docs/manual.md) for basic operations.
    - See [Install / Pending Packages](docs/manual.md#install--pending-packages) for chart installation and pending-package workflows.
    - See the [Keyword Search Syntax Guide](docs/keyword-search-syntax-guide.md) for advanced search syntax.
-   - Launching through `LaunchWithInfoLog.bat` writes more detailed logs to `application.log` and `install-performance.log`. See the [INFO log guide](docs/log-level-info-guide.md) for how to read them.
+   - Logs are written by default under `log/` as `application.log` and `install-performance.log`. See the [INFO log guide](docs/log-level-info-guide.md) for how to read them.
 
 ## Change Summary
 
@@ -45,7 +47,7 @@ This section highlights representative improvements. See the [User Manual](docs/
 ### Main improvements
 
 - **Faster startup, reload, and chart installation**
-  - Uses Everything 1.5 Alpha x64 for fast file enumeration and reworks initialization, file-diff, and DB update processing.
+  - Uses Everything 1.5 (x64) for fast file enumeration and reworks initialization, file-diff, and DB update processing.
   - Focuses on workflows that become heavy in large libraries, including install-destination estimation, pending-package processing, duplicate-file checking, and playlist display.
   - The main list view has been reorganized around a custom table view with column settings, sorting, tooltips, and playlist summaries that remain usable in large environments.
 - **bmson support**
@@ -67,6 +69,10 @@ This section highlights representative improvements. See the [User Manual](docs/
   - Adds and expands status-check screens such as LR2 compatibility warnings, zero-note search, parse errors, full resource scan, and duplicate-file checking.
 - **UI, logs, and multilingual support**
   - Improves theme support, settings dialog organization, status-bar progress, log output, and multilingual resource handling.
+- **Play history**
+  - In LR2 linked mode, BeMusicSeeker can install the play-history support objects into the LR2 score DB and show LR2 plays recorded after that setup. The view includes date navigation, update types, judge count, play count, play time, clear breakdowns, and playlist-based FOLDER projection.
+  - In beatoraja linked mode, BeMusicSeeker shows score update history from beatoraja's `scorelog.db` and uses the `score.db` player aggregate for daily play count, judge count, and play time. This is treated as beatoraja's update history, not as full play-by-play history at LR2's granularity.
+  - LR2 history before the play-history setup cannot be recovered. See [LR2 Play Log](docs/manual.md#lr2-play-log) and [Play Log](docs/manual.md#play-log) in the manual for setup details and cautions.
 
 ## TODO
 
@@ -75,15 +81,11 @@ These are rough notes. Priority is mixed, and completed items are removed over t
 1. BMS Score Viewer screen for unregistered charts
    - Should md5 values that could not be uploaded, for example because the chart was too large, be stored locally? Otherwise they may remain in the unregistered list indefinitely.
    - The approach used by [bms-score-uploader](https://github.com/Neeted/bms-score-uploader) seems like a good reference.
-2. Download LR2IR rival data, convert it into a local database, and place it automatically
+2. Download LR2IR rival data, import it into `song.db`, and create WIN/LOSE folders per difficulty table
 3. Clear lamp viewer
 4. Course content display and ordering editor
 5. Replace hardcoded URLs that are now broken
-   - LR2IR cache-related data is expensive to prepare and maintain. Ideally, a proxy server would fetch from LR2IR only when the last update is more than 24 hours old.
-6. Warning dialog when Everything 1.5a integration fails
-7. Continue checking the custom folder export feature
-   - This is an important core feature, so its behavior and regressions should continue to be reviewed.
-8. Consolidation feature for duplicate `.wav` and `.ogg` files
+6. Consolidation feature for duplicate `.wav` and `.ogg` files
 
 ## License Scope
 

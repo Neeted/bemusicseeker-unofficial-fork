@@ -434,10 +434,12 @@ hr {
 <li class="toc-level-3"><a href="#メイン譜面一覧">メイン譜面一覧</a></li>
 <li class="toc-level-3"><a href="#プレイリスト詳細">プレイリスト詳細</a></li>
 <li class="toc-level-3"><a href="#プレイリスト一覧">プレイリスト一覧</a></li>
+<li class="toc-level-3"><a href="#プレイログ">プレイログ</a></li>
 </ul></details></li>
 <li class="toc-level-2"><details open><summary><a href="#カラム指定検索">カラム指定検索</a></summary><ul>
 <li class="toc-level-3"><a href="#メイン譜面一覧プレイリスト詳細で使える-field">メイン譜面一覧・プレイリスト詳細で使える field</a></li>
 <li class="toc-level-3"><a href="#プレイリスト一覧で使える-field">プレイリスト一覧で使える field</a></li>
+<li class="toc-level-3"><a href="#プレイログで使える-field">プレイログで使える field</a></li>
 </ul></details></li>
 <li class="toc-level-2"><details open><summary><a href="#フレーズ検索">フレーズ検索</a></summary><ul>
 <li class="toc-level-3"><a href="#クォート内のエスケープ">クォート内のエスケープ</a></li>
@@ -466,6 +468,7 @@ hr {
 <li>メインの譜面一覧</li>
 <li>プレイリスト詳細</li>
 <li>プレイリスト一覧</li>
+<li>プレイログ</li>
 </ul>
 <hr/>
 <h2 id="入力支援">入力支援</h2>
@@ -513,7 +516,7 @@ hr {
 <p>field 補完は field 名だけを補完します。
 <code>title:alpha</code> のように <code>:</code> の後に検索語を入力している場合、field 補完は表示されません。</p>
 <h3 id="playlist--ref--table-のプレイリスト名補完"><code>playlist:</code> / <code>ref:</code> / <code>table:</code> のプレイリスト名補完</h3>
-<p>メイン譜面一覧とプレイリスト詳細では、<code>playlist:</code> / <code>ref:</code> / <code>table:</code> の検索語を入力すると、導入済みプレイリスト名が候補として表示されます。</p>
+<p>メイン譜面一覧、プレイリスト詳細、プレイログでは、<code>playlist:</code> / <code>ref:</code> / <code>table:</code> の検索語を入力すると、導入済みプレイリスト名が候補として表示されます。</p>
 <div class="highlight"><pre><span></span><code>playlist:Sat
 </code></pre></div>
 <p>上の例では <code>Satellite Sub</code> のようなプレイリスト名を候補として選べます。
@@ -570,6 +573,25 @@ table:GENOSIDE
 <li>name</li>
 <li>symbol</li>
 </ul>
+<h3 id="プレイログ">プレイログ</h3>
+<p>通常検索では、以下が検索対象です。</p>
+<ul>
+<li>TITLE</li>
+<li>ARTIST</li>
+<li>PATH</li>
+<li>FOLDER 列の表示ラベル</li>
+<li>参照プレイリスト名</li>
+<li>raw hash</li>
+<li>MD5</li>
+<li>SHA256</li>
+<li>TYPE</li>
+<li>score write type</li>
+<li>CLEAR</li>
+<li>source 名</li>
+<li>source path</li>
+<li>プレイ日付 (<code>yyyy-MM-dd</code>)</li>
+</ul>
+<p>プレイログでは、表示される列すべてが通常検索の対象になるわけではありません。BEST DJ、BEST RATE、BEST EXSCORE、BP、COMBO、OPTION、OP HISTORY、PLAY EXSCORE、JUDGES などは、現在は通常検索・field 指定検索の対象外です。</p>
 <hr/>
 <h2 id="カラム指定検索">カラム指定検索</h2>
 <p><code>field:keyword</code> の形で、検索対象を特定のカラムに限定できます。</p>
@@ -823,6 +845,90 @@ rank:undefined
 </tr>
 </tbody>
 </table></div>
+<h3 id="プレイログで使える-field">プレイログで使える field</h3>
+<p>プレイログでは、譜面一覧・プレイリスト詳細とは別の field が使われます。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th style="text-align: left;">field</th>
+<th style="text-align: left;">対象</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>title</code></td>
+<td style="text-align: left;">TITLE</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>artist</code></td>
+<td style="text-align: left;">ARTIST</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>path</code></td>
+<td style="text-align: left;">PATH</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>folder</code></td>
+<td style="text-align: left;">FOLDER 列の表示ラベル</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>playlist</code> / <code>ref</code> / <code>table</code></td>
+<td style="text-align: left;">参照プレイリスト名。FOLDER 列の短い表示ラベルではなく、解決されたプレイリスト名を検索対象にします</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>md5</code></td>
+<td style="text-align: left;">MD5。beatoraja 履歴では、所持譜面などから MD5 を解決できた場合だけ値があります</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>hash</code></td>
+<td style="text-align: left;">raw hash。LR2 では記録元の MD5、beatoraja では記録元の SHA256 を検索対象にします</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>sha256</code></td>
+<td style="text-align: left;">SHA256</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>date</code></td>
+<td style="text-align: left;">プレイ日付。<code>yyyy-MM-dd</code>, <code>yyyy/M/d</code>, <code>yyyy/MM/dd</code>, <code>yyyyMMdd</code> を指定可</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>year</code></td>
+<td style="text-align: left;">プレイ年。例: <code>2026</code></td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>month</code></td>
+<td style="text-align: left;">プレイ月。<code>yyyy-MM</code>, <code>yyyy/MM</code>, または <code>1</code> から <code>12</code> を指定可</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>type</code> / <code>kind</code></td>
+<td style="text-align: left;">TYPE と score write type。<code>type</code> が主名で、<code>kind</code> は互換エイリアスです。例: <code>score</code>, <code>bp</code>, <code>clear</code>, <code>combo</code>, <code>play</code></td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>clear</code></td>
+<td style="text-align: left;">更新前または更新後の CLEAR。通常の <code>clear:</code> と同じ短縮表現を指定可</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>oldclear</code></td>
+<td style="text-align: left;">更新前の CLEAR。通常の <code>clear:</code> と同じ短縮表現を指定可</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>newclear</code></td>
+<td style="text-align: left;">更新後の CLEAR。通常の <code>clear:</code> と同じ短縮表現を指定可</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>finalized</code></td>
+<td style="text-align: left;">確定済みかどうか。<code>true</code>, <code>1</code>, <code>yes</code>, <code>y</code>, <code>finalized</code> / <code>false</code>, <code>0</code>, <code>no</code>, <code>n</code>, <code>unfinalized</code>, <code>pending</code> を指定可</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>source</code></td>
+<td style="text-align: left;">source 名と source path</td>
+</tr>
+</tbody>
+</table></div>
+<p>プレイログの <code>date</code> / <code>year</code> / <code>month</code> / <code>clear</code> / <code>oldclear</code> / <code>newclear</code> / <code>finalized</code> は専用判定です。<code>level:10..12</code> のような範囲指定や比較演算は使いません。
+プレイログの <code>clear:defined</code> は、更新後 CLEAR がある行に一致します。譜面一覧・プレイリスト詳細の <code>clear</code> は <code>NO SONG</code> / <code>NO PLAY</code> も CLEAR 種別として扱うため常に <code>defined</code> ですが、プレイログでは意味が異なります。
+上部サマリーカードのクリック絞り込みも、この検索 field を内部的に使います。たとえば SCORE 更新カードは <code>type:score</code>、EASY カードは <code>type:clear newclear:EC</code> 相当の条件として、検索欄の条件と AND で適用されます。複数カードを選んだ場合、カード同士は OR で扱われます。
+また、プレイログでは <code>level</code>、<code>difficulty</code>、<code>notes</code>、<code>rank</code>、<code>rate</code>、<code>score</code>、<code>bp</code> など、譜面一覧・プレイリスト詳細用の field は使えません。未知の field として扱われます。</p>
 <hr/>
 <h2 id="フレーズ検索">フレーズ検索</h2>
 <p>スペースを含む文字列を 1 つの検索語として扱いたい場合は、ダブルクォートで囲みます。</p>
