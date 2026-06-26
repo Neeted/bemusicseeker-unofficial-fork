@@ -23,8 +23,8 @@ These counts are refreshed as implementation units complete. They should monoton
 | `internal static class DispatcherMessageBox` | 0 | legacy adapter entry point |
 | `internal static class UiDialogLegacyAdapter` | 0 | legacy adapter bridge |
 | `UiDialogLegacyAdapter.ShowMessageBox` | 0 | legacy adapter bridge |
-| `System.Windows.MessageBox.Show` | 4 | emergency route candidate |
-| `MessageBox.Show(` | 4 | legacy + emergency aggregate |
+| `System.Windows.MessageBox.Show` | 0 | emergency route candidate |
+| `MessageBox.Show(` | 1 | emergency route boundary |
 | `new ConfirmationMessage` | 0 | Livet confirmation |
 | `InteractionMessageAction<FrameworkElement>` | 0 | Livet action component |
 | `RaiseInteractionMessageOnUiThread` | 17 | Livet interaction dispatch |
@@ -48,6 +48,7 @@ Current progress notes:
 - Unit 7 ViewModel pass removed the remaining production `DispatcherMessageBox.Show` call sites. `MainWindowViewModel` now uses coordinator-backed `ShowUiMessage` / `ShowUiConfirmation`; `temporarilyCopyFiles` uses `UiDialogRoute` for normal dispose notifications and logs finalizer cleanup failures without trying to display UI from the finalizer.
 - Unit 7 notification pass moved the remaining OK `ConfirmationMessage` notifications in `MainWindowViewModel` to `ShowUiMessage` and removed the unused Livet information / confirmation dialog actions from `MainWindow.xaml`.
 - Unit 7 legacy adapter pass removed `DispatcherMessageBox` and `UiDialogLegacyAdapter`. `BmsLibraryDialogService` now calls `UiDialogCoordinator` directly while the remaining model dialog boundary is handled separately from legacy adapter retirement.
+- Unit 7 emergency route pass moved `App.cs` native message boxes behind `EmergencyDialog`. The only remaining standard `MessageBox.Show` call is the explicit emergency boundary.
 
 ## Legacy Source Files
 
@@ -57,9 +58,9 @@ When a new legacy route is added, the test should fail unless the route is inten
 
 | File | Primary routes | Migration unit |
 | --- | --- | --- |
-| `BeMusicSeeker/App.cs` | emergency `System.Windows.MessageBox.Show` | Unit 7 |
 | `BeMusicSeeker/ViewModels/MainWindowViewModel.cs` | Livet interaction dispatch | Unit 6 |
 | `BeMusicSeeker/Views/ThemedMessageBox.cs` | message box display component | Unit 1, Unit 7 |
+| `BeMusicSeeker/Views/Dialogs/EmergencyDialog.cs` | emergency native message box boundary | Unit 7 |
 | `BeMusicSeeker/Views/Dialogs/UiDialogCoordinator.cs` | progress / picker display component bridge | Unit 4, Unit 5 |
 | `BeMusicSeeker/Views/Dialogs/UiFilePickerUtilities.cs` | picker display component utility | Unit 5 |
 

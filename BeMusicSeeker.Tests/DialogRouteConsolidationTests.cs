@@ -68,12 +68,14 @@ public sealed class DialogRouteConsolidationTests
         string root = FindRepositoryRoot();
         string bmsLibraryDialogService = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BmsLibraryInternal", "BmsLibraryDialogService.cs"));
         string mainWindowXaml = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow.xaml"));
+        string emergencyDialog = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "Dialogs", "EmergencyDialog.cs"));
 
         Assert.IsFalse(File.Exists(Path.Combine(root, "BeMusicSeeker", "Models", "Utils", "DispatcherMessageBox.cs")), "DispatcherMessageBox should be removed after production call sites move to coordinator-backed routes.");
         Assert.IsFalse(File.Exists(Path.Combine(root, "BeMusicSeeker", "Views", "Dialogs", "UiDialogLegacyAdapter.cs")), "UiDialogLegacyAdapter should be removed after legacy entrypoints are retired.");
         StringAssert.Contains(bmsLibraryDialogService, "UiDialogCoordinator");
         Assert.IsFalse(bmsLibraryDialogService.Contains("DispatcherMessageBox"), "BmsLibraryDialogService must not route model dialogs through DispatcherMessageBox.");
         Assert.IsFalse(bmsLibraryDialogService.Contains("UiDialogLegacyAdapter"), "BmsLibraryDialogService must not route through the retired legacy adapter.");
+        StringAssert.Contains(emergencyDialog, "MessageBox.Show(");
         Assert.IsFalse(File.Exists(Path.Combine(root, "BeMusicSeeker", "Views", "ThemedDialogInteractionMessageActions.cs")), "Livet message box actions should be removed after notification routes move to the coordinator.");
         Assert.IsFalse(mainWindowXaml.Contains("MessageKey=\"InformationDialog\""), "MainWindow must not keep unused Livet information dialog triggers.");
         Assert.IsFalse(mainWindowXaml.Contains("MessageKey=\"ConfirmationDialog\""), "MainWindow must not keep unused Livet confirmation dialog triggers.");
@@ -248,6 +250,35 @@ public sealed class DialogRouteConsolidationTests
     }
 
     [TestMethod]
+    public void StandardMessageBox_IsLimitedToEmergencyDialog()
+    {
+        string root = FindRepositoryRoot();
+        List<string> offenders = Directory
+            .EnumerateFiles(root, "*.cs", SearchOption.AllDirectories)
+            .Where(IsProductionAppSourceFile)
+            .Where(path => File.ReadAllText(path).Contains("MessageBox.Show("))
+            .Select(path => NormalizeRelativePath(new Uri(root + Path.DirectorySeparatorChar).MakeRelativeUri(new Uri(path)).ToString()))
+            .ToList();
+        List<string> emergencyCallers = Directory
+            .EnumerateFiles(root, "*.cs", SearchOption.AllDirectories)
+            .Where(IsProductionAppSourceFile)
+            .Where(path => File.ReadAllText(path).Contains("EmergencyDialog.Show("))
+            .Select(path => NormalizeRelativePath(new Uri(root + Path.DirectorySeparatorChar).MakeRelativeUri(new Uri(path)).ToString()))
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(path => path, StringComparer.Ordinal)
+            .ToList();
+
+        CollectionAssert.AreEquivalent(
+            new[] { "BeMusicSeeker/Views/Dialogs/EmergencyDialog.cs" },
+            offenders,
+            "Standard MessageBox.Show is allowed only in the explicit emergency dialog boundary.");
+        CollectionAssert.AreEquivalent(
+            new[] { "BeMusicSeeker/App.cs" },
+            emergencyCallers,
+            "EmergencyDialog.Show may be called only from App startup/shutdown/unhandled-exception emergency routes.");
+    }
+
+    [TestMethod]
     public void OverlayDialogs_AreShownThroughMainWindowHost()
     {
         string root = FindRepositoryRoot();
@@ -300,6 +331,18 @@ public sealed class DialogRouteConsolidationTests
             .Select(file => file.RelativePath)
             .OrderBy(path => path, StringComparer.Ordinal)
             .ToList();
+    }
+
+    private static bool IsProductionAppSourceFile(string path)
+    {
+        string relativePath = NormalizeRelativePath(GetRelativePath(FindRepositoryRoot(), path));
+        return !relativePath.StartsWith("BeMusicSeeker.Tests/", StringComparison.Ordinal)
+            && !relativePath.StartsWith("BeMusicSeeker.Updater/", StringComparison.Ordinal)
+            && !relativePath.StartsWith("tools/", StringComparison.Ordinal)
+            && !relativePath.StartsWith("obj/", StringComparison.Ordinal)
+            && !relativePath.StartsWith("bin/", StringComparison.Ordinal)
+            && relativePath.IndexOf("/obj/", StringComparison.Ordinal) < 0
+            && relativePath.IndexOf("/bin/", StringComparison.Ordinal) < 0;
     }
 
     private static string FindRepositoryRoot()

@@ -25,7 +25,7 @@
 | Unit 4: Progress Dialog Replacement | Completed | `MainWindow.cs` の progress 操作は `UiDialogCoordinator.RunWithProgressAsync` へ移行済み。`ProgressDialog.Current` static state は廃止済み。`ProgressDialog` 表示中は coordinator-managed active modal として owner resolver の最優先に登録し、progress 中に発生する message / confirmation は progress dialog owner へ寄る形に整理済み。 |
 | Unit 5: File Picker Route Replacement | Completed | `UiFilePickerRequest` / `UiFolderPickerRequest` / `UiSaveFilePickerRequest` と typed result を実装済み。`MainWindow.cs`、`SettingDialog.cs`、`LoadPlaylistURIDialog.cs` の direct open / save / folder picker は coordinator route へ移行済み。Unit 5 完了時点では `CommonOpenFileDialogInteractionMessageAction` を coordinator-backed bridge として残したが、Unit 6 picker bridge removal で撤去済み。 |
 | Unit 6: Overlay DialogHost | In progress | MainWindow 埋め込み overlay の open / close 直 `Visibility` 操作を `ShowOverlayDialog` / `HideOverlayDialog` へ寄せる第一段は完了。`InitialSetupLanguageDialog -> SettingDialog` の親 Panel 走査は廃止済み。`CommonOpenFileDialogInteractionMessageAction` と XAML picker action bridge は撤去済み。direct Window modal `ShowDialog()` は `UiDialogCoordinator.ShowWindowAsync` へ移行済み。次は overlay owner / message route の残り整理を進める。 |
-| Unit 7: DispatcherMessageBox Retirement | In progress | View code-behind と ViewModel / temporary preview helper の `DispatcherMessageBox.Show` は coordinator-backed route へ移行済み。OK `ConfirmationMessage` 通知 route と Livet message box action bridge は撤去済み。`DispatcherMessageBox` / `UiDialogLegacyAdapter` は削除済み。次は emergency route の明示分離を進める。 |
+| Unit 7: DispatcherMessageBox Retirement | Completed | View code-behind と ViewModel / temporary preview helper の `DispatcherMessageBox.Show` は coordinator-backed route へ移行済み。OK `ConfirmationMessage` 通知 route と Livet message box action bridge は撤去済み。`DispatcherMessageBox` / `UiDialogLegacyAdapter` は削除済み。`App.cs` の native message box は `EmergencyDialog` 境界へ隔離済み。 |
 | Unit 8: Score Viewer Registration Rework | Pending | 譜面ビューア登録確認を preflight confirmation と background upload に分離する。 |
 
 ## Verification Log
@@ -138,6 +138,11 @@
 | Unit 7 legacy adapter removal | `dotnet format whitespace BeMusicSeeker.sln --verify-no-changes --no-restore --verbosity minimal` | Passed | no whitespace changes required. |
 | Unit 7 legacy adapter removal | `dotnet roslynator analyze BeMusicSeeker.sln --properties Configuration=Release --severity-level warning --verbosity minimal` | Passed | 0 diagnostics. |
 | Unit 7 legacy adapter removal | sub-agent static review | Passed | Final review returned no High / Medium findings. Low Unit 7 detail wording note was clarified. |
+| Unit 7 emergency route | `dotnet build BeMusicSeeker.sln /p:Configuration=Release --no-restore` | Passed | 0 warnings, 0 errors. |
+| Unit 7 emergency route | `dotnet test BeMusicSeeker.Tests\BeMusicSeeker.Tests.csproj --filter "DialogRouteConsolidationTests\|MainWindowContextMenuResourceTests" /p:Configuration=Release --no-restore` | Passed | 104 tests passed. |
+| Unit 7 emergency route | `dotnet format whitespace BeMusicSeeker.sln --verify-no-changes --no-restore --verbosity minimal` | Passed | no whitespace changes required. |
+| Unit 7 emergency route | `dotnet roslynator analyze BeMusicSeeker.sln --properties Configuration=Release --severity-level warning --verbosity minimal` | Passed | 0 diagnostics. |
+| Unit 7 emergency route | sub-agent static review | Passed | Initial Medium guard coverage findings were fixed. Final review returned no High / Medium findings. |
 
 ## Goals
 

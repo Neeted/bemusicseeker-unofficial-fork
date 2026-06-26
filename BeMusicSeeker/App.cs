@@ -19,6 +19,7 @@ using BeMusicSeeker.Models.Localization;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
+using BeMusicSeeker.Views.Dialogs;
 using Livet;
 using NLog;
 using NLog.Targets;
@@ -135,7 +136,7 @@ public partial class App : System.Windows.Application
         {
             _mutex.Close();
             _mutex = null;
-            System.Windows.MessageBox.Show((CultureInfo.CurrentCulture.Name == "ja-JP") ? "既に起動しています。" : "BeMusicSeeker is already started.", "Error", MessageBoxButton.OK, MessageBoxImage.Hand);
+            EmergencyDialog.Show((CultureInfo.CurrentCulture.Name == "ja-JP") ? "既に起動しています。" : "BeMusicSeeker is already started.", "Error", MessageBoxButton.OK, MessageBoxImage.Hand);
             Shutdown();
         }
         _mutexOwned = true;
@@ -267,7 +268,7 @@ public partial class App : System.Windows.Application
             if (!Debugger.IsAttached)
             {
                 Thread.Sleep(1000);
-                System.Windows.MessageBox.Show("アプリケーションを終了します。", "確認", MessageBoxButton.OK, MessageBoxImage.Asterisk, MessageBoxResult.Yes);
+                EmergencyDialog.Show("アプリケーションを終了します。", "確認", MessageBoxButton.OK, MessageBoxImage.Asterisk, MessageBoxResult.Yes);
                 try
                 {
                     System.Windows.Application.Current.MainWindow.Close();
@@ -294,7 +295,7 @@ public partial class App : System.Windows.Application
         finally
         {
             Thread.Sleep(1000);
-            System.Windows.MessageBox.Show("アプリケーションを終了します", "確認", MessageBoxButton.OK, MessageBoxImage.Asterisk, MessageBoxResult.Yes);
+            EmergencyDialog.Show("アプリケーションを終了します", "確認", MessageBoxButton.OK, MessageBoxImage.Asterisk, MessageBoxResult.Yes);
             try
             {
                 System.Windows.Application.Current.MainWindow.Close();
@@ -314,7 +315,7 @@ public partial class App : System.Windows.Application
         Logger logger;
         if (showMessage)
         {
-            System.Windows.MessageBox.Show(".NET Frameworkでエラーが発生しました" + Environment.NewLine + Environment.NewLine + "原因の追跡が困難なため、どの操作で発生したか" + Environment.NewLine + "開発者に報告頂けると助かります" + Environment.NewLine + Environment.NewLine + "エラー概要:" + Environment.NewLine + ex.Message, "エラー", MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+            EmergencyDialog.Show(".NET Frameworkでエラーが発生しました" + Environment.NewLine + Environment.NewLine + "原因の追跡が困難なため、どの操作で発生したか" + Environment.NewLine + "開発者に報告頂けると助かります" + Environment.NewLine + Environment.NewLine + "エラー概要:" + Environment.NewLine + ex.Message, "エラー", MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
             logger = networkLogger;
         }
         else
