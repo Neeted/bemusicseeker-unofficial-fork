@@ -23,6 +23,8 @@ public sealed class DialogRouteConsolidationTests
         new Regex(@"new ConfirmationMessage", RegexOptions.Compiled),
         new Regex(@"InteractionMessageAction<FrameworkElement>", RegexOptions.Compiled),
         new Regex(@"RaiseInteractionMessageOnUiThread", RegexOptions.Compiled),
+        new Regex(@"InteractionMessageTrigger", RegexOptions.Compiled),
+        new Regex(@"MessageKey=", RegexOptions.Compiled),
         new Regex(@"CommonOpenFileDialog", RegexOptions.Compiled),
         new Regex(@"OpenFileDialog", RegexOptions.Compiled),
         new Regex(@"SaveFileDialog", RegexOptions.Compiled),
@@ -294,8 +296,10 @@ public sealed class DialogRouteConsolidationTests
         StringAssert.Contains(mainWindowCode, "internal void HideOverlayDialog(FrameworkElement dialog)");
         StringAssert.Contains(mainWindowCode, "ShowOverlayDialog(settingDialog)");
         StringAssert.Contains(mainWindowCode, "ShowOverlayDialog(initialSetupLanguageDialog)");
-        StringAssert.Contains(mainWindowXaml, "MethodName=\"ShowSettingDialogOverlay\"");
-        StringAssert.Contains(mainWindowXaml, "MethodName=\"ShowInitialSetupLanguageDialogOverlay\"");
+        StringAssert.Contains(mainWindowCode, "InitializationExceptionRequested += MainWindowViewModel_InitializationExceptionRequested;");
+        StringAssert.Contains(mainWindowCode, "InitialSetupLanguageDialogRequested += MainWindowViewModel_InitialSetupLanguageDialogRequested;");
+        Assert.IsFalse(mainWindowXaml.Contains("InteractionMessageTrigger"), "MainWindow must not use Livet message triggers for overlay or table callbacks.");
+        Assert.IsFalse(mainWindowXaml.Contains("MessageKey="), "MainWindow must not route UI callbacks through MessageKey strings.");
         Assert.IsFalse(mainWindowXaml.Contains("PropertyName=\"Visibility\" Value=\"Visible\" TargetObject=\"{Binding ElementName=settingDialog"));
         Assert.IsFalse(initialSetupCode.Contains("Parent is Panel"), "Initial setup must not find SettingDialog by walking the parent panel.");
         StringAssert.Contains(initialSetupCode, "mainWindow.ShowSettingDialogOverlay();");

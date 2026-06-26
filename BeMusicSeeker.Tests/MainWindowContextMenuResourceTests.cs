@@ -81,7 +81,7 @@ public sealed class MainWindowContextMenuResourceTests
     public void PlayHistoryMainTable_UsesDisplayOnlyDragAndRejectsChartContextMenu()
     {
         string xaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "MainWindow.xaml"));
-        string mainTable = ExtractBetween(xaml, "<v:CustomTableView x:Name=\"customTableView\"", "<i:Interaction.Triggers>");
+        string mainTable = ExtractBetween(xaml, "<v:CustomTableView x:Name=\"customTableView\"", "<v:CustomTableView x:Name=\"customTablePlaylistSummary\"");
         string playHistoryContextMenu = ExtractBetween(xaml, "<ContextMenu x:Key=\"playHistoryContextMenu\"", "<ContextMenu x:Key=\"treeViewPlaylistRootContextMenu\"");
         PlayHistoryRow playHistoryRow = CreateUnresolvedPlayHistoryRow();
         PlayHistoryRow resolvedPlayHistoryRow = CreateResolvedPlayHistoryRow();
@@ -850,6 +850,7 @@ public sealed class MainWindowContextMenuResourceTests
         string root = FindRepositoryRoot();
         string viewModelCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
         string mainWindow = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow.xaml"));
+        string mainWindowCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow.cs"));
         string initialDialog = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "InitialSetupLanguageDialog.xaml"));
         string initialDialogCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "InitialSetupLanguageDialog.xaml.cs"));
         string initialize = ExtractBetween(
@@ -862,13 +863,14 @@ public sealed class MainWindowContextMenuResourceTests
             "if (Settings.Default.OperationModeLR2DB && !await EnsureAppSchemaRepairApprovedForStartupAsync())");
 
         Assert.IsFalse(validationFailure.Contains("DispatcherMessageBox.Show(BeMusicSeeker.Properties.Resources.Msg_init_settings,"));
-        StringAssert.Contains(validationFailure, "RaiseInteractionMessageOnUiThread(new InteractionMessage(\"InitialSetupLanguageDialog\"));");
+        StringAssert.Contains(validationFailure, "RaiseInitialSetupLanguageDialogRequested();");
         StringAssert.Contains(validationFailure, "ShowUiMessage(BeMusicSeeker.Properties.Resources.Msg_init_settings_check");
-        StringAssert.Contains(validationFailure, "RaiseInteractionMessageOnUiThread(new InteractionMessage(\"InitializationException\"));");
-        Assert.IsTrue(validationFailure.IndexOf("InitialSetupLanguageDialog", StringComparison.Ordinal) < validationFailure.IndexOf("Msg_init_settings_check", StringComparison.Ordinal));
+        StringAssert.Contains(validationFailure, "RaiseInitializationExceptionRequested();");
+        Assert.IsTrue(validationFailure.IndexOf("RaiseInitialSetupLanguageDialogRequested", StringComparison.Ordinal) < validationFailure.IndexOf("Msg_init_settings_check", StringComparison.Ordinal));
 
-        StringAssert.Contains(mainWindow, "MessageKey=\"InitialSetupLanguageDialog\"");
-        StringAssert.Contains(mainWindow, "MethodName=\"ShowInitialSetupLanguageDialogOverlay\"");
+        Assert.IsFalse(mainWindow.Contains("MessageKey=\"InitialSetupLanguageDialog\""));
+        StringAssert.Contains(mainWindowCode, "InitialSetupLanguageDialogRequested += MainWindowViewModel_InitialSetupLanguageDialogRequested;");
+        StringAssert.Contains(mainWindowCode, "ShowInitialSetupLanguageDialogOverlay();");
         StringAssert.Contains(mainWindow, "<v:InitialSetupLanguageDialog x:Name=\"initialSetupLanguageDialog\"");
         StringAssert.Contains(initialDialog, "ItemsSource=\"{Binding settingDialog.Languages, Mode=OneWay}\"");
         StringAssert.Contains(initialDialog, "SelectedItem=\"{Binding Path=settingDialog.Language}\"");
@@ -880,18 +882,22 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
-    public void MainWindowViewModel_RaisesMessagesThroughUiThreadHelper()
+    public void MainWindowViewModel_RaisesUiInteractionsThroughTypedEvents()
     {
         string root = FindRepositoryRoot();
         string viewModelCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
         string mainWindowCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow.cs"));
-        string helperBody = ExtractMethodBody(viewModelCode, "internal void RaiseInteractionMessageOnUiThread(InteractionMessage message)");
+        string helperBody = ExtractMethodBody(viewModelCode, "private void RaiseUiInteractionOnUiThread(EventHandler handler, string interactionName)");
 
-        StringAssert.Contains(helperBody, "base.Messenger.Raise(message);");
+        StringAssert.Contains(helperBody, "handler(this, EventArgs.Empty);");
         StringAssert.Contains(helperBody, "dispatcher.Invoke(DispatcherPriority.Normal");
-        Assert.AreEqual(1, CountOccurrences(viewModelCode, "base.Messenger.Raise("));
+        Assert.AreEqual(0, CountOccurrences(viewModelCode, "base.Messenger.Raise("));
+        Assert.IsFalse(viewModelCode.Contains("RaiseInteractionMessageOnUiThread"));
+        Assert.IsFalse(viewModelCode.Contains("new InteractionMessage"));
         Assert.IsFalse(viewModelCode.Contains("ownerViewModel.Messenger.Raise("));
         Assert.IsFalse(mainWindowCode.Contains(".Messenger.Raise("));
+        StringAssert.Contains(mainWindowCode, "SubscribeViewModelUiInteractions(viewModel);");
+        StringAssert.Contains(mainWindowCode, "UnsubscribeViewModelUiInteractions();");
     }
 
     [TestMethod]
@@ -1842,7 +1848,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(fileInitializeBlock, "FailStartupProgressOperation(ex.Message);");
         StringAssert.Contains(fileInitializeBlock, "_semaphore.Release();");
         StringAssert.Contains(fileInitializeBlock, "SetStartupUiInteractionBlocked(false);");
-        StringAssert.Contains(fileInitializeBlock, "new InteractionMessage(\"InitializationException\")");
+        StringAssert.Contains(fileInitializeBlock, "RaiseInitializationExceptionRequested();");
         Assert.IsFalse(fileInitializeBlock.Contains("throw;"));
     }
 
@@ -2638,7 +2644,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(settingDialogCode, "PickFolderAsync(new UiFolderPickerRequest(");
         StringAssert.Contains(settingDialogCode, "multiselect: true");
         StringAssert.Contains(settingDialogCode, "settingDialogViewModel.AddBmsSearchRootPaths(result.FolderPaths);");
-        StringAssert.Contains(viewModelCode, "private void AddBmsSearchRootPaths(IEnumerable<string> paths, string messageKey, bool saveImmediately)");
+        StringAssert.Contains(viewModelCode, "private void AddBmsSearchRootPaths(IEnumerable<string> paths, string settingPropertyPath, bool saveImmediately)");
         StringAssert.Contains(viewModelCode, "public void AddStandaloneBmsRootPaths(IEnumerable<string> paths)");
         StringAssert.Contains(viewModelCode, "NormalizeExistingStandaloneBmsRootPathsWithoutLr2Compatibility(paths ?? [])");
         StringAssert.Contains(viewModelCode, "ThrowIfLr2IncompatibleStandaloneBmsRoots(requestedPaths)");

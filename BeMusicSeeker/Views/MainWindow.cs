@@ -37,7 +37,6 @@ using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
 using Livet.EventListeners;
-using Livet.Messaging;
 using NLog;
 using Parago.Windows;
 using Ribbit.Logging;
@@ -79,6 +78,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     private Task shutdownPreparationTask;
 
     private FrameworkElement activeOverlayDialog;
+
+    private MainWindowViewModel subscribedViewModel;
 
     private async Task RunProgressUntilTaskCompletesAsync(Task task, CancellationTokenSource cancellationTokenSource, string title, string label, Action<UiProgressContext> reportProgress)
     {
@@ -385,7 +386,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         if (base.DataContext is MainWindowViewModel viewModel)
         {
             viewModel.PlaylistSummaryViewApplied += MainWindowViewModel_PlaylistSummaryViewApplied;
+            SubscribeViewModelUiInteractions(viewModel);
         }
+        Closed += delegate
+        {
+            UnsubscribeViewModelUiInteractions();
+        };
 
         // Add handler that catches already-handled TreeViewItem.Selected events to synchronize TreeView exclusivity
         gridTreePane.AddHandler(TreeViewItem.SelectedEvent, new RoutedEventHandler(gridTreePane_TreeViewItemSelected), true);
@@ -410,6 +416,79 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
         // Start async update check
         Task.Run(async () => await CheckForUpdatesAsync());
+    }
+
+    private void SubscribeViewModelUiInteractions(MainWindowViewModel viewModel)
+    {
+        if (viewModel == null || ReferenceEquals(subscribedViewModel, viewModel))
+        {
+            return;
+        }
+        UnsubscribeViewModelUiInteractions();
+        subscribedViewModel = viewModel;
+        viewModel.InitializationExceptionRequested += MainWindowViewModel_InitializationExceptionRequested;
+        viewModel.InitialSetupLanguageDialogRequested += MainWindowViewModel_InitialSetupLanguageDialogRequested;
+        viewModel.InitializationSucceeded += MainWindowViewModel_InitializationSucceeded;
+        viewModel.PlaybackStarting += MainWindowViewModel_PlaybackStarting;
+        viewModel.PlaybackStarted += MainWindowViewModel_PlaybackStarted;
+        viewModel.MainTableSwapPreparing += MainWindowViewModel_MainTableSwapPreparing;
+        viewModel.MainTableDisplayRefreshRequested += MainWindowViewModel_MainTableDisplayRefreshRequested;
+    }
+
+    private void UnsubscribeViewModelUiInteractions()
+    {
+        if (subscribedViewModel == null)
+        {
+            return;
+        }
+        subscribedViewModel.InitializationExceptionRequested -= MainWindowViewModel_InitializationExceptionRequested;
+        subscribedViewModel.InitialSetupLanguageDialogRequested -= MainWindowViewModel_InitialSetupLanguageDialogRequested;
+        subscribedViewModel.InitializationSucceeded -= MainWindowViewModel_InitializationSucceeded;
+        subscribedViewModel.PlaybackStarting -= MainWindowViewModel_PlaybackStarting;
+        subscribedViewModel.PlaybackStarted -= MainWindowViewModel_PlaybackStarted;
+        subscribedViewModel.MainTableSwapPreparing -= MainWindowViewModel_MainTableSwapPreparing;
+        subscribedViewModel.MainTableDisplayRefreshRequested -= MainWindowViewModel_MainTableDisplayRefreshRequested;
+        subscribedViewModel = null;
+    }
+
+    private void MainWindowViewModel_InitializationExceptionRequested(object sender, EventArgs e)
+    {
+        ShowSettingDialogOverlay();
+    }
+
+    private void MainWindowViewModel_InitialSetupLanguageDialogRequested(object sender, EventArgs e)
+    {
+        ShowInitialSetupLanguageDialogOverlay();
+    }
+
+    private void MainWindowViewModel_InitializationSucceeded(object sender, EventArgs e)
+    {
+        if (sender is MainWindowViewModel viewModel)
+        {
+            viewModel.SetuBMplayPanel(_panel);
+        }
+        gridBMSPlayerControlsRotatePanelStateButtonClicked();
+    }
+
+    private void MainWindowViewModel_PlaybackStarting(object sender, EventArgs e)
+    {
+        _renewBMSPlayerControlInfo();
+        scrollIntoView();
+    }
+
+    private void MainWindowViewModel_PlaybackStarted(object sender, EventArgs e)
+    {
+        tryShowBMSPlayerPanel();
+    }
+
+    private void MainWindowViewModel_MainTableSwapPreparing(object sender, EventArgs e)
+    {
+        PrepareMainTableSwap();
+    }
+
+    private void MainWindowViewModel_MainTableDisplayRefreshRequested(object sender, EventArgs e)
+    {
+        RefreshMainTableDisplay();
     }
 
     private void ApplySavedTreeViewWidth()

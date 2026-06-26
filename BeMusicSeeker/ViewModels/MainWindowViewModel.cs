@@ -29,7 +29,6 @@ using Codeplex.Data;
 using Livet;
 using Livet.Commands;
 using Livet.EventListeners;
-using Livet.Messaging;
 using Microsoft.VisualBasic.FileIO;
 using NLog;
 using Ribbit.BMS;
@@ -475,6 +474,20 @@ internal readonly struct MainViewRefreshDecision
 /// </summary>
 public class MainWindowViewModel : ViewModel
 {
+    internal event EventHandler InitializationExceptionRequested;
+
+    internal event EventHandler InitialSetupLanguageDialogRequested;
+
+    internal event EventHandler InitializationSucceeded;
+
+    internal event EventHandler PlaybackStarting;
+
+    internal event EventHandler PlaybackStarted;
+
+    internal event EventHandler MainTableSwapPreparing;
+
+    internal event EventHandler MainTableDisplayRefreshRequested;
+
     public class SettingDialogViewModel : ViewModel
     {
         [Flags]
@@ -4206,7 +4219,7 @@ public class MainWindowViewModel : ViewModel
             {
                 return;
             }
-            AddBmsSearchRootPaths([path], ToSettingDialogMessageKey(propertyName), saveImmediately: false);
+            AddBmsSearchRootPaths([path], ToSettingDialogPropertyPath(propertyName), saveImmediately: false);
         }
 
         private void SetSettingProperty(string propertyName, string value)
@@ -4223,7 +4236,7 @@ public class MainWindowViewModel : ViewModel
             setter.Invoke(this, [value]);
         }
 
-        private static string ToSettingDialogMessageKey(string propertyName)
+        private static string ToSettingDialogPropertyPath(string propertyName)
         {
             return string.IsNullOrWhiteSpace(propertyName) ? null : "settingDialog." + propertyName;
         }
@@ -4632,14 +4645,14 @@ public class MainWindowViewModel : ViewModel
             AddBmsSearchRootPaths(paths, null, saveImmediately: false);
         }
 
-        private void AddBmsSearchRootPaths(IEnumerable<string> paths, string messageKey, bool saveImmediately)
+        private void AddBmsSearchRootPaths(IEnumerable<string> paths, string settingPropertyPath, bool saveImmediately)
         {
             if (OperationModeLR2DB)
             {
-                AddBMSDirectoriesToLR2Config(paths, messageKey, saveImmediately);
+                AddBMSDirectoriesToLR2Config(paths, settingPropertyPath, saveImmediately);
                 return;
             }
-            AddStandaloneBmsRootPathsCore(paths, messageKey);
+            AddStandaloneBmsRootPathsCore(paths, settingPropertyPath);
         }
 
         public void AddStandaloneBmsRootPaths(IEnumerable<string> paths)
@@ -4647,7 +4660,7 @@ public class MainWindowViewModel : ViewModel
             AddStandaloneBmsRootPathsCore(paths, null);
         }
 
-        private void AddStandaloneBmsRootPathsCore(IEnumerable<string> paths, string messageKey)
+        private void AddStandaloneBmsRootPathsCore(IEnumerable<string> paths, string settingPropertyPath)
         {
             try
             {
@@ -4669,9 +4682,9 @@ public class MainWindowViewModel : ViewModel
                 SelectedStandaloneBmsRootPath = StandaloneBmsRootPathList.FirstOrDefault(path => string.Equals(path, requestedPath, StringComparison.OrdinalIgnoreCase))
                     ?? StandaloneBmsRootPathList.FirstOrDefault(path => IsSameOrChildPath(requestedPath, path))
                     ?? StandaloneBmsRootPathList.FirstOrDefault();
-                if (!string.IsNullOrWhiteSpace(messageKey))
+                if (!string.IsNullOrWhiteSpace(settingPropertyPath))
                 {
-                    string name = messageKey.Substring(messageKey.LastIndexOf('.') + 1);
+                    string name = settingPropertyPath.Substring(settingPropertyPath.LastIndexOf('.') + 1);
                     GetType().GetProperty(name).GetSetMethod().Invoke(this, [requestedPath]);
                 }
                 string after = SerializeBmsRootPathsForChangeTracking(StandaloneBmsRootPathList);
@@ -4688,7 +4701,7 @@ public class MainWindowViewModel : ViewModel
             }
         }
 
-        private void AddBMSDirectoriesToLR2Config(IEnumerable<string> paths, string messageKey, bool saveImmediately)
+        private void AddBMSDirectoriesToLR2Config(IEnumerable<string> paths, string settingPropertyPath, bool saveImmediately)
         {
             if (lr2config == null)
             {
@@ -4723,9 +4736,9 @@ public class MainWindowViewModel : ViewModel
                 RaisePropertyChanged(() => AvailableBMSDirectories);
                 RaisePropertyChanged(() => SelectedBmsSearchRootPath);
                 RaiseValidationStateChanged();
-                if (!string.IsNullOrWhiteSpace(messageKey))
+                if (!string.IsNullOrWhiteSpace(settingPropertyPath))
                 {
-                    string name = messageKey.Substring(messageKey.LastIndexOf('.') + 1);
+                    string name = settingPropertyPath.Substring(settingPropertyPath.LastIndexOf('.') + 1);
                     GetType().GetProperty(name).GetSetMethod().Invoke(this, [requestedPath]);
                 }
                 if (saveImmediately)
@@ -5486,7 +5499,7 @@ public class MainWindowViewModel : ViewModel
                     {
                         ownerViewModel.bmsPlayer = new InternalBMSAutoPlayerSoundOnly();
                     }
-                    ownerViewModel.RaiseInteractionMessageOnUiThread(new InteractionMessage("InitializationSuccess"));
+                    ownerViewModel.RaiseInitializationSucceeded();
                 }
                 playerRuntimeMs = playerRuntimeStopwatch.ElapsedMilliseconds;
                 var lr2BackupNoticeStopwatch = Stopwatch.StartNew();
@@ -12166,7 +12179,7 @@ public class MainWindowViewModel : ViewModel
             return false;
         }
         virtualView.ForEachRealizedRow(row => row.RefreshDisplayForDataDependency(dependency));
-        RaiseInteractionMessageOnUiThread(new InteractionMessage("RefreshMainTableDisplay"));
+        RaiseMainTableDisplayRefreshRequested();
         return true;
     }
 
@@ -14726,7 +14739,7 @@ public class MainWindowViewModel : ViewModel
         if (!ReferenceEquals(ChartRowsView, nextRowsView))
         {
             long prepareStartMs = viewBuildStopwatch.ElapsedMilliseconds;
-            RaiseInteractionMessageOnUiThread(new InteractionMessage("PrepareMainTableSwap"));
+            RaiseMainTableSwapPreparing();
             prepareSwapMs = viewBuildStopwatch.ElapsedMilliseconds - prepareStartMs;
         }
         long columnSettingStartMs = viewBuildStopwatch.ElapsedMilliseconds;
@@ -14905,7 +14918,7 @@ public class MainWindowViewModel : ViewModel
         if (!ReferenceEquals(ChartRowsView, nextRowsView))
         {
             long prepareStartMs = viewBuildStopwatch.ElapsedMilliseconds;
-            RaiseInteractionMessageOnUiThread(new InteractionMessage("PrepareMainTableSwap"));
+            RaiseMainTableSwapPreparing();
             prepareSwapMs = viewBuildStopwatch.ElapsedMilliseconds - prepareStartMs;
         }
         long columnSettingStartMs = viewBuildStopwatch.ElapsedMilliseconds;
@@ -19619,44 +19632,79 @@ public class MainWindowViewModel : ViewModel
         RefreshPlayHistoryDisplayTargets(queueRefreshWhenSelectionChanges);
     }
 
-    internal void RaiseInteractionMessageOnUiThread(InteractionMessage message)
+    private void RaiseUiInteractionOnUiThread(EventHandler handler, string interactionName)
     {
-        if (message == null)
+        if (handler == null)
         {
             return;
         }
 
-        void RaiseMessage()
+        void RaiseInteraction()
         {
-            base.Messenger.Raise(message);
+            handler(this, EventArgs.Empty);
         }
 
         Dispatcher dispatcher = System.Windows.Application.Current?.Dispatcher;
         if (dispatcher == null || dispatcher.CheckAccess())
         {
-            RaiseMessage();
+            RaiseInteraction();
             return;
         }
 
         if (dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
         {
-            LogInteractionMessageSkippedOnShutdown(message);
+            LogUiInteractionSkippedOnShutdown(interactionName);
             return;
         }
 
         try
         {
-            dispatcher.Invoke(DispatcherPriority.Normal, (Action)RaiseMessage);
+            dispatcher.Invoke(DispatcherPriority.Normal, (Action)RaiseInteraction);
         }
         catch (InvalidOperationException) when (dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
         {
-            LogInteractionMessageSkippedOnShutdown(message);
+            LogUiInteractionSkippedOnShutdown(interactionName);
         }
     }
 
-    private static void LogInteractionMessageSkippedOnShutdown(InteractionMessage message)
+    private void RaiseInitializationExceptionRequested()
     {
-        NLogWrapper.FileLogger?.Warn("interaction_message skipped reason=dispatcher_shutdown key=" + (message?.MessageKey ?? string.Empty));
+        RaiseUiInteractionOnUiThread(InitializationExceptionRequested, nameof(InitializationExceptionRequested));
+    }
+
+    private void RaiseInitialSetupLanguageDialogRequested()
+    {
+        RaiseUiInteractionOnUiThread(InitialSetupLanguageDialogRequested, nameof(InitialSetupLanguageDialogRequested));
+    }
+
+    private void RaiseInitializationSucceeded()
+    {
+        RaiseUiInteractionOnUiThread(InitializationSucceeded, nameof(InitializationSucceeded));
+    }
+
+    private void RaisePlaybackStarting()
+    {
+        RaiseUiInteractionOnUiThread(PlaybackStarting, nameof(PlaybackStarting));
+    }
+
+    private void RaisePlaybackStarted()
+    {
+        RaiseUiInteractionOnUiThread(PlaybackStarted, nameof(PlaybackStarted));
+    }
+
+    private void RaiseMainTableSwapPreparing()
+    {
+        RaiseUiInteractionOnUiThread(MainTableSwapPreparing, nameof(MainTableSwapPreparing));
+    }
+
+    private void RaiseMainTableDisplayRefreshRequested()
+    {
+        RaiseUiInteractionOnUiThread(MainTableDisplayRefreshRequested, nameof(MainTableDisplayRefreshRequested));
+    }
+
+    private static void LogUiInteractionSkippedOnShutdown(string interactionName)
+    {
+        NLogWrapper.FileLogger?.Warn("ui_interaction skipped reason=dispatcher_shutdown name=" + (interactionName ?? string.Empty));
     }
 
     /// <summary>
@@ -20113,7 +20161,7 @@ public class MainWindowViewModel : ViewModel
             currentClassLogger.Error(ex, text + " - " + Environment.NewLine + ex.ToString(), null);
             _semaphore.Release();
             SetStartupUiInteractionBlocked(false);
-            RaiseInteractionMessageOnUiThread(new InteractionMessage("InitializationException"));
+            RaiseInitializationExceptionRequested();
             return;
         }
         if (!settingDialog.CheckValidation(out string startupValidationErrorMessage))
@@ -20123,7 +20171,7 @@ public class MainWindowViewModel : ViewModel
             {
                 _semaphore.Release();
                 SetStartupUiInteractionBlocked(false);
-                RaiseInteractionMessageOnUiThread(new InteractionMessage("InitialSetupLanguageDialog"));
+                RaiseInitialSetupLanguageDialogRequested();
                 return;
             }
             else
@@ -20132,7 +20180,7 @@ public class MainWindowViewModel : ViewModel
             }
             _semaphore.Release();
             SetStartupUiInteractionBlocked(false);
-            RaiseInteractionMessageOnUiThread(new InteractionMessage("InitializationException"));
+            RaiseInitializationExceptionRequested();
             return;
         }
         try
@@ -20152,7 +20200,7 @@ public class MainWindowViewModel : ViewModel
             currentClassLogger.Error(ex, text2 + " - " + Environment.NewLine + ex.ToString(), null);
             _semaphore.Release();
             SetStartupUiInteractionBlocked(false);
-            RaiseInteractionMessageOnUiThread(new InteractionMessage("InitializationException"));
+            RaiseInitializationExceptionRequested();
             return;
         }
         long operationToken;
@@ -20201,7 +20249,7 @@ public class MainWindowViewModel : ViewModel
             currentClassLogger.Error(ex, text3 + " - " + Environment.NewLine + ex.ToString(), null);
             _semaphore.Release();
             SetStartupUiInteractionBlocked(false);
-            RaiseInteractionMessageOnUiThread(new InteractionMessage("InitializationException"));
+            RaiseInitializationExceptionRequested();
             return;
         }
         ColumnsSettingsChartRowsView = Settings.Default.StandardCustomTableColumnSettings;
@@ -20542,7 +20590,7 @@ public class MainWindowViewModel : ViewModel
         {
             RaisePropertyChanged(() => IsPlaylistUpdating);
         });
-        RaiseInteractionMessageOnUiThread(new InteractionMessage("InitializationSuccess"));
+        RaiseInitializationSucceeded();
         if (Settings.Default.OperationModeLR2DB && Settings.Default.IsLR2BackupEnabled)
         {
             Backup.Target lR2BackupTarget = Settings.Default.LR2BackupTarget;
@@ -20684,7 +20732,7 @@ public class MainWindowViewModel : ViewModel
             currentClassLogger.Error(ex, text4 + " - " + Environment.NewLine + ex.ToString(), null);
             _semaphore.Release();
             SetStartupUiInteractionBlocked(false);
-            RaiseInteractionMessageOnUiThread(new InteractionMessage("InitializationException"));
+            RaiseInitializationExceptionRequested();
             return;
         }
         finally
@@ -20903,7 +20951,7 @@ public class MainWindowViewModel : ViewModel
         }
         NowPlayingBMS = bmsFile;
         SelectedIndexChartRowsView = indexChartRowsView;
-        RaiseInteractionMessageOnUiThread(new InteractionMessage("CallbackPlayStartBMSfile"));
+        RaisePlaybackStarting();
         playbackChart ??= ChartFileProjection.FromBmsFile(
             bmsFile,
             includeResourceReferences: false);
@@ -21017,7 +21065,7 @@ public class MainWindowViewModel : ViewModel
                 return;
             }
         }
-        RaiseInteractionMessageOnUiThread(new InteractionMessage("CallbackPlayStartedBMSfile"));
+        RaisePlaybackStarted();
     }
 
     /// <summary>
@@ -21816,7 +21864,7 @@ public class MainWindowViewModel : ViewModel
             List<PlaylistDetailSourceRow> previousSourceRows = ReplacePlaylistSourceRows(sourceRows, bmsTable, folderName, filterType, request.Identity);
             sourceRows = null;
             SelectedIndexChartRowsView = -1;
-            RaiseInteractionMessageOnUiThread(new InteractionMessage("PrepareMainTableSwap"));
+            RaiseMainTableSwapPreparing();
             stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
             loadColumnSetting(ResolvePlaylistColumnSettingMode(filterType));
             long columnStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
@@ -21875,7 +21923,7 @@ public class MainWindowViewModel : ViewModel
             return true;
         }
         SelectedIndexChartRowsView = -1;
-        RaiseInteractionMessageOnUiThread(new InteractionMessage("PrepareMainTableSwap"));
+        RaiseMainTableSwapPreparing();
         long stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
         loadColumnSetting(ResolvePlaylistColumnSettingMode(request.Identity.FilterType));
         long columnStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
@@ -22333,7 +22381,7 @@ public class MainWindowViewModel : ViewModel
         if (!ReferenceEquals(ChartRowsView, nextRowsView))
         {
             long prepareStartMs = viewBuildStopwatch.ElapsedMilliseconds;
-            RaiseInteractionMessageOnUiThread(new InteractionMessage("PrepareMainTableSwap"));
+            RaiseMainTableSwapPreparing();
             prepareSwapMs = viewBuildStopwatch.ElapsedMilliseconds - prepareStartMs;
         }
         long columnSettingStartMs = viewBuildStopwatch.ElapsedMilliseconds;
