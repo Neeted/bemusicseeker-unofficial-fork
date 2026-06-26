@@ -1981,6 +1981,158 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         return new ScoreViewerTarget(hash, target.Chart.Path, target.Chart.Title);
     }
 
+    private async Task RunScoreViewerRegistrationAsync(List<ScoreViewerTarget> targets, bool openSingleViewerOnSuccess, string logName)
+    {
+        if (targets == null || targets.Count == 0 || base.DataContext is not MainWindowViewModel viewModel)
+        {
+            return;
+        }
+
+        try
+        {
+            ScoreViewerRegistrationPlan plan = await Task.Run(() => viewModel.PrepareScoreViewerRegistration(targets)).Logging(logName + ".preflight");
+            if (plan.TargetCount == 0)
+            {
+                return;
+            }
+
+            bool uploadConfirmed = await ConfirmScoreViewerUploadIfNeededAsync(plan);
+            ScoreViewerRegistrationResult result = await Task.Run(() => viewModel.CompleteScoreViewerRegistration(plan, uploadConfirmed)).Logging(logName + ".upload");
+            await ShowScoreViewerRegistrationResultAsync(result);
+            if (openSingleViewerOnSuccess && !string.IsNullOrWhiteSpace(result.LastViewUrl))
+            {
+                OpenScoreViewerUrl(result.LastViewUrl);
+            }
+        }
+        catch (Exception ex)
+        {
+            NLogWrapper.FileLogger?.Warn(ex, "score_viewer_registration_failed");
+            await TryShowScoreViewerMessageAsync(
+                "譜面ビューアへの登録処理に失敗しました。" + Environment.NewLine + ex.Message,
+                BeMusicSeeker.Properties.Resources.Error,
+                MessageBoxImage.Hand,
+                "Score Viewer registration failure notification");
+        }
+    }
+
+    private async Task<bool> ConfirmScoreViewerUploadIfNeededAsync(ScoreViewerRegistrationPlan plan)
+    {
+        if (plan == null || !plan.HasUploadCandidates)
+        {
+            return true;
+        }
+        if (plan.TargetCount == 1 && plan.UploadCandidateCount == 1 && !Settings.Default.ShowScoreViewerRegisterConfirmMsg)
+        {
+            return true;
+        }
+
+        string message;
+        if (plan.UploadCandidateCount > 1)
+        {
+            message = BeMusicSeeker.Properties.Resources.Msg_register_chart
+                + Environment.NewLine
+                + Environment.NewLine
+                + plan.UploadCandidateCount
+                + " "
+                + BeMusicSeeker.Properties.Resources.Num_chart;
+        }
+        else
+        {
+            ScoreViewerRegistrationItem item = plan.UploadCandidates[0];
+            message = BeMusicSeeker.Properties.Resources.Msg_show_chart
+                + Environment.NewLine
+                + Environment.NewLine
+                + (item.Target.Title ?? string.Empty)
+                + Environment.NewLine
+                + "MD5: "
+                + item.Hash
+                + Environment.NewLine
+                + Environment.NewLine
+                + "("
+                + BeMusicSeeker.Properties.Resources.Msg_hide_message
+                + ")";
+        }
+
+        UiDialogResult result = await new UiDialogCoordinator().ConfirmAsync(new UiConfirmationRequest(
+            message,
+            BeMusicSeeker.Properties.Resources.Confirm,
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Asterisk));
+        return result.Status switch
+        {
+            UiDialogStatus.Accepted => true,
+            UiDialogStatus.Rejected or UiDialogStatus.CancelledByUser => false,
+            UiDialogStatus.ClosedByUser => result.MessageBoxResult is MessageBoxResult.OK or MessageBoxResult.Yes,
+            UiDialogStatus.Failed => throw new InvalidOperationException("Score Viewer registration confirmation dialog failed: " + (result.Exception?.Message ?? result.Status.ToString()), result.Exception),
+            _ => throw new InvalidOperationException("Score Viewer registration confirmation dialog was not shown: " + result.Status),
+        };
+    }
+
+    private async Task ShowScoreViewerRegistrationResultAsync(ScoreViewerRegistrationResult result)
+    {
+        if (result == null)
+        {
+            return;
+        }
+        if (result.HasUploadedRegistration)
+        {
+            await ShowScoreViewerMessageAsync(
+                BeMusicSeeker.Properties.Resources.Msg_success_register_chart,
+                BeMusicSeeker.Properties.Resources.Information,
+                MessageBoxImage.Asterisk,
+                "Score Viewer registration success notification");
+        }
+        if (result.HasFailures)
+        {
+            await ShowScoreViewerMessageAsync(
+                "譜面ビューアへの登録または状態確認に失敗した譜面があります。詳細はログを確認してください。",
+                BeMusicSeeker.Properties.Resources.Error,
+                MessageBoxImage.Exclamation,
+                "Score Viewer registration partial failure notification");
+        }
+    }
+
+    private static async Task ShowScoreViewerMessageAsync(string message, string caption, MessageBoxImage icon, string routeName)
+    {
+        UiDialogResult result = await new UiDialogCoordinator().ShowMessageAsync(new UiMessageRequest(
+            message,
+            caption,
+            MessageBoxButton.OK,
+            icon,
+            MessageBoxResult.OK));
+        if (result.Status is not (UiDialogStatus.Accepted or UiDialogStatus.CancelledByUser or UiDialogStatus.ClosedByUser))
+        {
+            throw new InvalidOperationException(routeName + " failed: " + (result.Exception?.Message ?? result.Status.ToString()), result.Exception);
+        }
+    }
+
+    private static async Task TryShowScoreViewerMessageAsync(string message, string caption, MessageBoxImage icon, string routeName)
+    {
+        try
+        {
+            await ShowScoreViewerMessageAsync(message, caption, icon, routeName);
+        }
+        catch (Exception ex)
+        {
+            NLogWrapper.FileLogger?.Warn(ex, "score_viewer_notification_failed route=" + (routeName ?? string.Empty));
+        }
+    }
+
+    private static void OpenScoreViewerUrl(string url)
+    {
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(url))
+            {
+                Process.Start(url);
+            }
+        }
+        catch (Exception ex)
+        {
+            NLogWrapper.FileLogger?.Warn(ex, "score_viewer_open_failed url=" + (url ?? string.Empty));
+        }
+    }
+
     private List<BMSTableEntry> GetSelectedGridPlaylistEntries()
     {
         return [.. GetSelectedGridRowsSnapshot().Select(GridRowResolver.GetPlaylistEntry).Where(entry => entry != null)];
@@ -6447,7 +6599,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         e.Handled = true;
     }
 
-    private void playHistoryContextMenuItemRegisterScoreViewerClick(object sender, RoutedEventArgs e)
+    private async void playHistoryContextMenuItemRegisterScoreViewerClick(object sender, RoutedEventArgs e)
     {
         if (!TryGetContextMenuRow(e.Source, out object row)
             || !PlayHistoryContextMenuState.TryCreate(row, out PlayHistoryContextMenuState state)
@@ -6455,28 +6607,14 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        var viewModel = base.DataContext as MainWindowViewModel;
-        if (viewModel == null)
+        if (base.DataContext is not MainWindowViewModel)
         {
             return;
         }
 
         var targets = new List<ScoreViewerTarget> { new(state.Md5, state.ChartPath, state.ChartTitle) };
         e.Handled = true;
-        Task.Run(delegate
-        {
-            string fileName = viewModel.RegisterScoreViewerTargets(targets);
-            try
-            {
-                if (!string.IsNullOrWhiteSpace(fileName))
-                {
-                    Process.Start(fileName);
-                }
-            }
-            catch
-            {
-            }
-        }).Logging("playHistoryContextMenuItemRegisterScoreViewerClick");
+        await RunScoreViewerRegistrationAsync(targets, openSingleViewerOnSuccess: true, "playHistoryContextMenuItemRegisterScoreViewerClick");
     }
 
     private void tableContextMenuItemOpenExplorerClick(object sender, RoutedEventArgs e)
@@ -8231,7 +8369,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
-    private void tableContextMenuItemRegisterBMSFileToScoreViwer(object sender, RoutedEventArgs e)
+    private async void tableContextMenuItemRegisterBMSFileToScoreViwer(object sender, RoutedEventArgs e)
     {
         if (!TryGetContextMenuRow(e.Source, out _))
         {
@@ -8243,22 +8381,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             e.Handled = true;
             return;
         }
-        var viewModel = base.DataContext as MainWindowViewModel;
         e.Handled = true;
-        Task.Run(delegate
-        {
-            string fileName = viewModel.RegisterScoreViewerTargets(targets);
-            try
-            {
-                if (targets.Count == 1 && !string.IsNullOrWhiteSpace(fileName))
-                {
-                    Process.Start(fileName);
-                }
-            }
-            catch
-            {
-            }
-        }).Logging("tableContextMenuItemRegisterBMSFileToScoreViwer");
+        await RunScoreViewerRegistrationAsync(targets, openSingleViewerOnSuccess: targets.Count == 1, "tableContextMenuItemRegisterBMSFileToScoreViwer");
     }
 
     private void tableContextMenuItemForceFileScanCheckSelectedCharts(object sender, RoutedEventArgs e)

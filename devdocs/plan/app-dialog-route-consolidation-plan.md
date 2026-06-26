@@ -26,7 +26,7 @@
 | Unit 5: File Picker Route Replacement | Completed | `UiFilePickerRequest` / `UiFolderPickerRequest` / `UiSaveFilePickerRequest` と typed result を実装済み。`MainWindow.cs`、`SettingDialog.cs`、`LoadPlaylistURIDialog.cs` の direct open / save / folder picker は coordinator route へ移行済み。Unit 5 完了時点では `CommonOpenFileDialogInteractionMessageAction` を coordinator-backed bridge として残したが、Unit 6 picker bridge removal で撤去済み。 |
 | Unit 6: Overlay DialogHost | Completed | MainWindow 埋め込み overlay の open / close 直 `Visibility` 操作を `ShowOverlayDialog` / `HideOverlayDialog` へ寄せる第一段は完了。`InitialSetupLanguageDialog -> SettingDialog` の親 Panel 走査は廃止済み。`CommonOpenFileDialogInteractionMessageAction` と XAML picker action bridge は撤去済み。direct Window modal `ShowDialog()` は `UiDialogCoordinator.ShowWindowAsync` へ移行済み。残っていた非メッセージ Livet `InteractionMessageTrigger` / `MessageKey` callback は `MainWindowViewModel` typed event と `MainWindow` subscription へ置換済み。 |
 | Unit 7: DispatcherMessageBox Retirement | Completed | View code-behind と ViewModel / temporary preview helper の `DispatcherMessageBox.Show` は coordinator-backed route へ移行済み。OK `ConfirmationMessage` 通知 route と Livet message box action bridge は撤去済み。`DispatcherMessageBox` / `UiDialogLegacyAdapter` は削除済み。`App.cs` の native message box は `EmergencyDialog` 境界へ隔離済み。 |
-| Unit 8: Score Viewer Registration Rework | Pending | 譜面ビューア登録確認を preflight confirmation と background upload に分離する。 |
+| Unit 8: Score Viewer Registration Rework | Completed | 譜面ビューア登録は status preflight、UI confirmation、background upload completion に分離済み。hash-only / registered / needs upload / status failure / uploaded / upload failure / declined を result 型で区別し、確認 dialog は background worker 内から排除済み。 |
 
 ## Verification Log
 
@@ -148,6 +148,11 @@
 | Unit 6 typed UI interaction route | `dotnet format whitespace BeMusicSeeker.sln --verify-no-changes --no-restore --verbosity minimal` | Passed | no whitespace changes required. |
 | Unit 6 typed UI interaction route | `dotnet roslynator analyze BeMusicSeeker.sln --properties Configuration=Release --severity-level warning --verbosity minimal` | Passed | 0 diagnostics. |
 | Unit 6 typed UI interaction route | sub-agent static review | Passed | Final review returned no High / Medium findings. |
+| Unit 8 score viewer registration | `dotnet build BeMusicSeeker.sln /p:Configuration=Release --no-restore` | Passed | 0 warnings, 0 errors. |
+| Unit 8 score viewer registration | `dotnet test BeMusicSeeker.Tests\BeMusicSeeker.Tests.csproj --filter "DialogRouteConsolidationTests\|MainWindowContextMenuResourceTests" /p:Configuration=Release --no-restore` | Passed | 104 tests passed. |
+| Unit 8 score viewer registration | `dotnet format whitespace BeMusicSeeker.sln --verify-no-changes --no-restore --verbosity minimal` | Passed | no whitespace changes required. |
+| Unit 8 score viewer registration | `dotnet roslynator analyze BeMusicSeeker.sln --properties Configuration=Release --severity-level warning --verbosity minimal` | Passed | 0 diagnostics. |
+| Unit 8 score viewer registration | sub-agent static review | Passed | Initial Medium finding for final notification failure leaking through `async void` was fixed. Final review returned no High / Medium findings. |
 
 ## Goals
 

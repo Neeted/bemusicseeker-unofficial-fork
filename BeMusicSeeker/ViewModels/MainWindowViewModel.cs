@@ -31190,12 +31190,12 @@ public class MainWindowViewModel : ViewModel
     }
 
     /// <summary>
-    /// Score Viewer 登録対象を hash/path/title ベースで登録します。
+    /// Score Viewer 登録対象の状態を調べ、UI 確認前の実行計画を作成します。
     /// 未所持 playlist 行では path が null でも閲覧 URL を返せます。
     /// </summary>
     /// <param name="targets">登録対象の軽量ターゲット一覧。</param>
-    /// <returns>最後に処理されたターゲットの閲覧用 URL。失敗時は null。</returns>
-    internal string RegisterScoreViewerTargets(List<ScoreViewerTarget> targets)
+    /// <returns>hash-only、登録済み、upload 必要、status 失敗を区別した計画。</returns>
+    internal ScoreViewerRegistrationPlan PrepareScoreViewerRegistration(List<ScoreViewerTarget> targets)
     {
         if (targets == null)
         {
@@ -31204,32 +31204,15 @@ public class MainWindowViewModel : ViewModel
         List<ScoreViewerTarget> normalizedTargets = [.. targets.Where(target => target != null && !string.IsNullOrWhiteSpace(target.Hash))];
         if (normalizedTargets.Count == 0)
         {
-            return null;
+            return new ScoreViewerRegistrationPlan([]);
         }
-        ScoreViewerTarget lastTarget = normalizedTargets.Last();
-        bool userConfirmedMultiRegister = false;
-        string resultViewUrl = null;
-        if (normalizedTargets.Count > 1)
-        {
-            if (!ShowUiConfirmation(
-                BeMusicSeeker.Properties.Resources.Msg_register_chart + Environment.NewLine + Environment.NewLine + normalizedTargets.Count + " " + BeMusicSeeker.Properties.Resources.Num_chart,
-                BeMusicSeeker.Properties.Resources.Confirm,
-                MessageBoxImage.Asterisk,
-                MessageBoxButton.YesNo))
-            {
-                return null;
-            }
-            userConfirmedMultiRegister = true;
-        }
+        var items = new List<ScoreViewerRegistrationItem>();
         foreach (ScoreViewerTarget target in normalizedTargets)
         {
             string currentFileHash = target.Hash;
             if (string.IsNullOrWhiteSpace(target.Path) || !LongPathFileSystem.FileExists(target.Path))
             {
-                if (target == lastTarget)
-                {
-                    resultViewUrl = scoreViewUrl + currentFileHash;
-                }
+                items.Add(ScoreViewerRegistrationItem.HashOnly(target, currentFileHash, scoreViewUrl + currentFileHash));
                 continue;
             }
 
@@ -31239,58 +31222,75 @@ public class MainWindowViewModel : ViewModel
                 dynamic statusVal = DynamicJson.Parse(statusJson);
                 if (statusVal.status == "OK")
                 {
-                    if (target == lastTarget)
-                    {
-                        resultViewUrl = scoreViewUrl + currentFileHash;
-                    }
+                    items.Add(ScoreViewerRegistrationItem.AlreadyRegistered(target, currentFileHash, scoreViewUrl + currentFileHash));
                     continue;
                 }
             }
             catch (Exception ex)
             {
                 NLogWrapper.FileLogger?.Warn(ex, "score_viewer_status_failed path=" + (target.Path ?? string.Empty) + " md5=" + (target.Hash ?? string.Empty));
+                items.Add(ScoreViewerRegistrationItem.StatusCheckFailed(target, currentFileHash, ex));
                 continue;
             }
 
-            if (!userConfirmedMultiRegister && Settings.Default.ShowScoreViewerRegisterConfirmMsg)
+            items.Add(ScoreViewerRegistrationItem.NeedsUpload(target, currentFileHash));
+        }
+        return new ScoreViewerRegistrationPlan(items);
+    }
+
+    /// <summary>
+    /// UI 側で確認済みの Score Viewer upload を実行し、登録結果を返します。
+    /// </summary>
+    /// <param name="plan">事前に作成された登録計画。</param>
+    /// <param name="uploadConfirmed">upload 必要 target の登録を UI 側で確認済みなら true。</param>
+    /// <returns>登録済み、upload 成功、失敗、キャンセルを区別した結果。</returns>
+    internal ScoreViewerRegistrationResult CompleteScoreViewerRegistration(ScoreViewerRegistrationPlan plan, bool uploadConfirmed)
+    {
+        if (plan == null)
+        {
+            throw new ArgumentNullException(nameof(plan));
+        }
+        var items = new List<ScoreViewerRegistrationItem>();
+        foreach (ScoreViewerRegistrationItem item in plan.Items)
+        {
+            if (!item.IsUploadCandidate)
             {
-                if (ShowUiConfirmation(
-                    BeMusicSeeker.Properties.Resources.Msg_show_chart + Environment.NewLine + Environment.NewLine + (target.Title ?? string.Empty) + Environment.NewLine + "MD5: " + currentFileHash + Environment.NewLine + Environment.NewLine + "(" + BeMusicSeeker.Properties.Resources.Msg_hide_message + ")",
-                    BeMusicSeeker.Properties.Resources.Confirm,
-                    MessageBoxImage.Asterisk,
-                    MessageBoxButton.YesNo))
-                {
-                    userConfirmedMultiRegister = true;
-                }
-                else
-                {
-                    continue;
-                }
+                items.Add(item);
+                continue;
+            }
+            if (!uploadConfirmed)
+            {
+                items.Add(ScoreViewerRegistrationItem.UploadDeclined(item.Target, item.Hash));
+                continue;
             }
 
             try
             {
-                string registerResponseJson = AppHttpClient.Shared.PostFile(new Uri(scoreRegisterUrl), target.Path, responseEncoding: Encoding.UTF8, headers: new Dictionary<string, string> { { "Accept", "application/json" } }, logErrorResponseBody: true);
-                if (target == lastTarget)
+                string registerResponseJson = AppHttpClient.Shared.PostFile(new Uri(scoreRegisterUrl), item.Target.Path, responseEncoding: Encoding.UTF8, headers: new Dictionary<string, string> { { "Accept", "application/json" } }, logErrorResponseBody: true);
+                dynamic registerResponseVal = DynamicJson.Parse(registerResponseJson);
+                string currentFileHash = item.Hash;
+                if (registerResponseVal.status == "OK")
                 {
-                    dynamic registerResponseVal = DynamicJson.Parse(registerResponseJson);
-                    if (registerResponseVal.status == "OK")
+                    string responseHash = Convert.ToString(registerResponseVal.md5, CultureInfo.InvariantCulture);
+                    if (!string.IsNullOrWhiteSpace(responseHash))
                     {
-                        currentFileHash = registerResponseVal.md5;
+                        currentFileHash = responseHash;
                     }
-                    resultViewUrl = scoreViewUrl + currentFileHash;
+                    items.Add(ScoreViewerRegistrationItem.Uploaded(item.Target, currentFileHash, scoreViewUrl + currentFileHash));
+                    continue;
                 }
+                string failureStatus = Convert.ToString(registerResponseVal.status, CultureInfo.InvariantCulture);
+                string failureMessage = string.IsNullOrWhiteSpace(failureStatus) ? "Unexpected Score Viewer upload response." : "Score Viewer upload status: " + failureStatus;
+                NLogWrapper.FileLogger?.Warn("score_viewer_upload_rejected path=" + (item.Target.Path ?? string.Empty) + " md5=" + (item.Hash ?? string.Empty) + " status=" + failureStatus);
+                items.Add(ScoreViewerRegistrationItem.UploadFailed(item.Target, item.Hash, failureMessage));
             }
             catch (Exception ex)
             {
-                NLogWrapper.FileLogger?.Warn(ex, "score_viewer_upload_failed path=" + (target.Path ?? string.Empty) + " md5=" + (target.Hash ?? string.Empty));
+                NLogWrapper.FileLogger?.Warn(ex, "score_viewer_upload_failed path=" + (item.Target.Path ?? string.Empty) + " md5=" + (item.Hash ?? string.Empty));
+                items.Add(ScoreViewerRegistrationItem.UploadFailed(item.Target, item.Hash, ex.Message, ex));
             }
         }
-        if (userConfirmedMultiRegister && !string.IsNullOrWhiteSpace(resultViewUrl))
-        {
-            ShowUiMessage(BeMusicSeeker.Properties.Resources.Msg_success_register_chart, BeMusicSeeker.Properties.Resources.Information, MessageBoxImage.Asterisk);
-        }
-        return resultViewUrl;
+        return new ScoreViewerRegistrationResult(items);
     }
 
     private static bool ShowUiConfirmation(
