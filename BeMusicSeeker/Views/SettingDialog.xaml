@@ -705,6 +705,29 @@
                       </FrameworkContentElement.Resources>
                       <List>
                         <ListItem>
+                          <Paragraph FontWeight="Bold">2.1.1.0:</Paragraph>
+                          <List MarkerStyle="Box">
+                            <ListItem>
+                              <Paragraph>アプリ本体と同梱 DLL を x64 前提に整理し、DLL 読み込みや Everything 1.5 連携時の接続順を見直しました。</Paragraph>
+                            </ListItem>
+                            <ListItem>
+                              <Paragraph>各種ダイアログの表示経路を整理し、設定画面、譜面ビューア登録、進捗表示中の通知、ファイル選択、起動時の確認などでダイアログが裏に回ったり表示されないまま応答待ちに見えたりする問題を起こしにくくしました。</Paragraph>
+                            </ListItem>
+                            <ListItem>
+                              <Paragraph>ドライブルートなど大きなフォルダから単体譜面を保留に入れた場合の導入先推定を安全にし、探索範囲が広がりすぎないようにしました。</Paragraph>
+                            </ListItem>
+                            <ListItem>
+                              <Paragraph>260文字を超える長いパスの譜面ファイルを、読み込み、登録、導入、移動、削除、バックアップなどの主要処理で扱いやすくしました。</Paragraph>
+                            </ListItem>
+                            <ListItem>
+                              <Paragraph>譜面やパッケージの変更操作中に右クリックメニューや関連コマンドを連続実行して UI が固着する問題を起こしにくくしました。</Paragraph>
+                            </ListItem>
+                            <ListItem>
+                              <Paragraph>上部内蔵プレイヤーの曲名表示と一覧選択の同期を改善し、サブタイトルの重複表示や古い曲名が残る問題を修正しました。</Paragraph>
+                            </ListItem>
+                          </List>
+                        </ListItem>
+                        <ListItem>
                           <Paragraph FontWeight="Bold">2.1.0.0:</Paragraph>
                           <List MarkerStyle="Box">
                             <ListItem>
