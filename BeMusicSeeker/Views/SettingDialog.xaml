@@ -705,7 +705,7 @@
                       </FrameworkContentElement.Resources>
                       <List>
                         <ListItem>
-                          <Paragraph FontWeight="Bold">2.1.2.0:</Paragraph>
+                          <Paragraph FontWeight="Bold">2.1.3.0:</Paragraph>
                           <List MarkerStyle="Box">
                             <ListItem>
                               <Paragraph>プレイリスト詳細の複数行選択メニューから本体 URL / 差分 URL を取り込む処理を改善し、MediaFire、Google Drive、bmssearch.net などの URL 解決や重複ダウンロードを起こしにくくしました。</Paragraph>
