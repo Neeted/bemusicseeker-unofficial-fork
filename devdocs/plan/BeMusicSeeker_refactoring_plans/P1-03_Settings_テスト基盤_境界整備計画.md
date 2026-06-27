@@ -51,19 +51,26 @@ internal static class SourceTextTestHelper
 
 1. deterministic order でファイルを連結する。
 2. `\r\n` / `\n` は test ごとに必要なら normalize する。
-3. 直接 `File.ReadAllText(... MainWindowViewModel.cs)` している test を置き換える。
+3. P0-01 Ticket A で先行する場合は、その helper を再利用する。
+4. 直接 `File.ReadAllText(... MainWindowViewModel.cs)` / `File.ReadAllText(... MainWindow.cs)` / `File.ReadAllText(... BMSLibrary.cs)` / `File.ReadAllText(... BMSPlaylist.cs)` している test を置き換える。
+5. 着手時は次で棚卸しする。
+   ```powershell
+   rg "File\.ReadAllText.*MainWindowViewModel\.cs|File\.ReadAllText.*MainWindow\.cs|File\.ReadAllText.*BMSLibrary\.cs|File\.ReadAllText.*BMSPlaylist\.cs" .\BeMusicSeeker.Tests -g "*.cs"
+   ```
 
 受け入れ条件:
 
 - partial split で source-text test が壊れない。
 - 既存 test の設計意図は維持される。
+- P0-01 / P0-02 / P1-01 の巨大ファイル分割に同じ helper を使い回せる。
+- ViewModel / View / BMSLibrary / BMSPlaylist の直読み検査が、それぞれ対応する helper API 経由になっている。
 
 ## Ticket SET-0B: ReflectionTestInventory を作る
 
 作業:
 
 1. `BindingFlags.NonPublic`, `GetField`, `GetMethod` を grep する。
-2. `.tmp/refactor/private-reflection-test-inventory.md` に target type / member / test / replacement plan を記録する。
+2. `.tmp/refactor/private-reflection-test-inventory.md` に target type / member / test / replacement plan を記録する。ticket をまたいで参照する必要が出たら `devdocs/` 側へ移す。
 3. replacement plan は次に分類する。
    - service 抽出後に internal API test へ移す。
    - public compatibility API として残す。

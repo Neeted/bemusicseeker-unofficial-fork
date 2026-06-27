@@ -51,16 +51,20 @@
 
 - `Lr2PlayHistorySchemaUiTests.cs`: `MainWindowViewModel.cs` を `File.ReadAllText` して特定文字列を確認している
 - `MainWindowContextMenuResourceTests.cs`: `MainWindowViewModel.cs` や `MainWindow.cs` の文字列検査がある
+- `BmsLibraryMutationBoundaryTests.cs`: `MainWindowViewModel.cs` / `MainWindow.cs` の境界検査がある
+- `DialogRouteConsolidationTests.cs`: dialog route の source-text 検査で `MainWindowViewModel.cs` / `MainWindow.cs` を読む
+- `PlaylistConcurrencyArchitectureTests.cs`: playlist 更新境界の source-text 検査で `MainWindowViewModel.cs` を読む
+- `ExplorerOpenServiceTests.cs`: `MainWindow.cs` の explorer open 経路を source-text 検査する
 - `SettingDialogCustomFolderOutputBaseTests.cs`: `MainWindowViewModel.SettingDialogViewModel` の private メソッド/フィールドを reflection で参照している
 
-そのため、最初の分割フェーズでは「型名・ネスト関係・メンバー名」を維持し、必要なテストは `MainWindowViewModel*.cs` と `ViewModels/MainWindow/**/*.cs` を連結して読む helper へ置き換える。
+そのため、最初の分割フェーズでは「型名・ネスト関係・メンバー名」を維持し、必要なテストは `MainWindowViewModel*.cs`、`ViewModels/MainWindow/**/*.cs`、`MainWindow*.cs`、`Views/MainWindow/**/*.cs` を連結して読む helper へ置き換える。
 
 ## 2. 目標アーキテクチャ
 
 ```text
 MainWindowViewModel  // Shell / composition root
 ├─ PlaybackPanelViewModel
-│  └─ PlaybackService / IBmsPlayerHostAdapter
+│  └─ PlaybackService / IPlaybackHostAdapter
 ├─ SidebarNavigationViewModel
 │  ├─ LibraryTreeViewModel
 │  ├─ PlaylistTreeViewModel
@@ -84,7 +88,7 @@ MainWindowViewModel  // Shell / composition root
 │  ├─ MaintenanceRescanProgressViewModel
 │  └─ Lr2SongDbSyncStatusViewModel
 └─ SettingDialogViewModel
-   ├─ SettingsSnapshotService
+   ├─ AppSettingsStore / AppSettingsSnapshot
    ├─ SettingsValidationService
    └─ SettingsPostSaveCoordinator
 ```
@@ -114,9 +118,9 @@ MainWindowViewModel  // Shell / composition root
 2. **XAML Binding はすぐ変えない。** 子 ViewModel 導入直後は、既存の root-level プロパティを pass-through として残す。
 3. **ネスト型の公開形状を維持する。** 既存コードは `MainWindowViewModel.SettingDialogViewModel` などを参照しているため、初期段階では nested partial class のまま別ファイルへ移す。
 4. **partial 間の field initializer 順序に依存しない。** まずフィールドは元の順序を保つ 1 ファイルに残すか、`State` ファイルに順序維持で移す。初期化順序が意味を持つ可能性があるため、フィールドを無計画に複数 partial へ分散しない。
-5. **UI 型を新しい ViewModel へ持ち込まない。** 例外的に現状 `SetuBMplayPanel(Panel panel)` は root facade に残し、子 VM には `IBmsPlayerHostAdapter` のような抽象化を渡す。
+5. **UI 型を新しい ViewModel へ持ち込まない。** 例外的に現状 `SetuBMplayPanel(Panel panel)` は root facade に残し、子 VM には `IPlaybackHostAdapter` のような抽象化を渡す。
 6. **`async void` を増やさない。** View イベントの入口だけに限定し、内部実装は `Task` を返す。
-7. **`Settings.Default` 直参照を新規に増やさない。** 設定系抽出時は `ISettingsStore` / `SettingsSnapshot` 経由へ寄せる。
+7. **`Settings.Default` 直参照を新規に増やさない。** 設定系抽出時は P1-03 の `AppSettingsStore` / `AppSettingsSnapshot` 経由へ寄せる。
 8. **テスト用 public/internal forwarder はすぐ消さない。** 既存テストを一括で壊さず、移行後に整理する。
 
 ## 4. Phase 0: 安全網整備
@@ -127,6 +131,8 @@ MainWindowViewModel  // Shell / composition root
 
 - `.tmp/plans/mainwindow-viewmodel-refactor.md`
 - `.tmp/mainwindow-viewmodel-metrics.ps1`
+
+`.tmp/` は git 管理外の一時領域として使う。ticket をまたいで残す必要がある判断、棚卸し、設計メモは `devdocs/` 側へ移し、`.tmp/` のメモを恒久的な引き継ぎ資料にしない。
 
 `metrics.ps1` は、最低限次を出せばよい。
 
@@ -145,21 +151,37 @@ rg "^\s*(public|internal|private|protected).*\(" .\BeMusicSeeker\ViewModels\Main
 
 責務:
 
+- repository root の探索を共通化する。
+- source-text test 用に deterministic order で複数ファイルを連結して返す。
 - `MainWindowViewModel.cs` 単体ではなく、以下を連結して返す。
   - `BeMusicSeeker/ViewModels/MainWindowViewModel.cs`
   - `BeMusicSeeker/ViewModels/MainWindowViewModel*.cs`
   - `BeMusicSeeker/ViewModels/MainWindow/**/*.cs`
-- 既存の `File.ReadAllText(... MainWindowViewModel.cs)` を helper 呼び出しへ置換する。
+- `MainWindow.cs` 単体ではなく、以下を連結して返す。
+  - `BeMusicSeeker/Views/MainWindow.cs`
+  - `BeMusicSeeker/Views/MainWindow*.cs`
+  - `BeMusicSeeker/Views/MainWindow/**/*.cs`
+- 既存の `File.ReadAllText(... MainWindowViewModel.cs)` と `File.ReadAllText(... MainWindow.cs)` を helper 呼び出しへ置換する。
+
+着手時の棚卸し:
+
+```powershell
+rg "File\.ReadAllText.*MainWindowViewModel\.cs|File\.ReadAllText.*MainWindow\.cs" .\BeMusicSeeker.Tests -g "*.cs"
+```
 
 対象候補:
 
+- `BmsLibraryMutationBoundaryTests.cs`
+- `DialogRouteConsolidationTests.cs`
 - `Lr2PlayHistorySchemaUiTests.cs`
 - `MainWindowContextMenuResourceTests.cs`
+- `PlaylistConcurrencyArchitectureTests.cs`
+- `ExplorerOpenServiceTests.cs`
 
 受け入れ条件:
 
 - ソース文字列テストの意図は維持する。
-- ファイル分割だけでテストが落ちない。
+- `MainWindowViewModel` / `MainWindow` のファイル分割だけで source-text test が落ちない。
 - 可能な箇所は文字列検査から reflection/動作検査へ置き換える。ただし Phase 0 では最小変更を優先する。
 
 ### 0-3. 標準確認コマンド
@@ -316,16 +338,34 @@ BeMusicSeeker/ViewModels/MainWindow/MainWindowRuntimeContext.cs
 ```csharp
 internal sealed class MainWindowRuntimeContext
 {
-    internal BMSLibrary Files { get; set; }
-    internal BMSPlaylist Tables { get; set; }
-    internal LR2Config Lr2Config { get; set; }
-    internal IBMSPlayer BmsPlayer { get; set; }
+    internal MainWindowRuntimeContext(
+        BMSLibrary files,
+        BMSPlaylist tables,
+        LR2Config lr2Config,
+        IBMSPlayer bmsPlayer,
+        Dispatcher uiDispatcher,
+        ResourceService resources)
+    {
+        Files = files;
+        Tables = tables;
+        Lr2Config = lr2Config;
+        BmsPlayer = bmsPlayer;
+        UiDispatcher = uiDispatcher;
+        Resources = resources;
+    }
+
+    internal BMSLibrary Files { get; }
+    internal BMSPlaylist Tables { get; }
+    internal LR2Config Lr2Config { get; }
+    internal IBMSPlayer BmsPlayer { get; }
     internal Dispatcher UiDispatcher { get; }
     internal ResourceService Resources { get; }
 }
 ```
 
-移行の初期段階では `MainWindowViewModel owner` を渡してもよいが、各子 VM の public API は owner 前提にしない。最終的には context/interfaces へ置き換える。
+context は基本的に constructor injection + get-only とし、差し替えが必要な lifecycle 変更は shell-owned method/event で明示する。settable な共有箱にすると子 VM が root proxy 化しやすいため、避ける。
+
+移行の初期段階では `MainWindowViewModel owner` を一時 adapter として渡してもよい。ただし ticket 内で owner 経由で触る member を列挙し、完了時に owner 依存が増えていないことを確認する。各子 VM の public API は owner 前提にしない。
 
 ### 2-2. OperationProgressHubViewModel から始める
 
@@ -385,16 +425,23 @@ BeMusicSeeker/ViewModels/MainWindow/OperationProgressSnapshot.cs
 Root 側は以下のような pass-through を残す。
 
 ```csharp
-public bool IsStartupProgressActive => ProgressHub.IsStartupProgressActive;
+public bool IsStartupProgressActive
+{
+    get => ProgressHub.IsStartupProgressActive;
+    private set => ProgressHub.IsStartupProgressActive = value;
+}
 ```
 
-子 VM の `PropertyChanged` を root が購読し、既存 Binding 名で `RaisePropertyChanged` を転送する。
+移動前に progress property ごとの notification / side-effect contract 表を作る。特に `IsStartupProgressActive` は旧 property 名の通知だけでなく、`IsLibraryOperationInProgress` の通知、LR2 song DB sync availability 更新、LR2 song DB sync status presentation 再計算を維持する。
+
+子 VM の `PropertyChanged` を root が購読し、既存 Binding 名で `RaisePropertyChanged` を転送する。root 側の setter 可視性は既存と同等に保ち、root 内部からの代入は pass-through setter または child VM の明示的な update method へ逃がす。
 
 受け入れ条件:
 
 - XAML 変更なしで既存 UI が動く。
 - `MainWindowViewModelStartupProgressTests` が通る。
 - root の進捗 field が削減される。
+- progress property の副作用契約が維持される。
 
 ### 2-3. PlaybackPanelViewModel を追加
 
@@ -565,14 +612,16 @@ BeMusicSeeker/ViewModels/MainWindow/PlaylistExternalSyncCoordinator.cs
 追加候補:
 
 ```text
-BeMusicSeeker/ViewModels/Settings/SettingsSnapshot.cs
-BeMusicSeeker/ViewModels/Settings/SettingsSnapshotService.cs
+BeMusicSeeker/Properties/AppSettingsSnapshot.cs
+BeMusicSeeker/Properties/AppSettingsStore.cs
 BeMusicSeeker/ViewModels/Settings/SettingsValidationService.cs
 BeMusicSeeker/ViewModels/Settings/SettingsPostSaveCoordinator.cs
 BeMusicSeeker/ViewModels/Settings/CustomFolderOutputBaseSettingsService.cs
 BeMusicSeeker/ViewModels/Settings/PlayerSettingsService.cs
 BeMusicSeeker/ViewModels/Settings/PlayHistoryDisplayPresetSettingsService.cs
 ```
+
+settings の読み取り snapshot / store 名は P1-03 と合わせて `AppSettingsSnapshot` / `AppSettingsStore` に寄せる。dialog 固有の edit session や validation service は `ViewModels/Settings/` 側に置いてよい。
 
 最初に抜く候補:
 
@@ -821,13 +870,18 @@ XAML と code-behind の参照が子 VM へ移ったら、root の pass-through 
 ### Ticket A: partial 対応前のテスト helper
 
 1. `BeMusicSeeker.Tests/SourceTextTestHelper.cs` を追加。
-2. `MainWindowViewModel` のソース文字列検査を helper 経由へ変更。
-3. `Lr2PlayHistorySchemaUiTests` と `MainWindowContextMenuResourceTests` を実行。
-4. 全体 build を実行。
+2. 次で `MainWindowViewModel.cs` / `MainWindow.cs` 直読み test を棚卸しする。
+   ```powershell
+   rg "File\.ReadAllText.*MainWindowViewModel\.cs|File\.ReadAllText.*MainWindow\.cs" .\BeMusicSeeker.Tests -g "*.cs"
+   ```
+3. `ReadMainWindowViewModelSourceText()` と `ReadMainWindowSourceText()` 経由へ変更する。
+4. 少なくとも `BmsLibraryMutationBoundaryTests`、`DialogRouteConsolidationTests`、`Lr2PlayHistorySchemaUiTests`、`MainWindowContextMenuResourceTests`、`PlaylistConcurrencyArchitectureTests`、`ExplorerOpenServiceTests` の該当ケースを確認する。
+5. 全体 build を実行。
 
 完了条件:
 
 - まだ production code を分割していない状態でテストが通る。
+- 後続の `MainWindowViewModel` / `MainWindow` partial 分割だけでは source-text test が落ちない。
 
 ### Ticket B: 先頭 helper 型の移動
 
@@ -865,17 +919,19 @@ XAML と code-behind の参照が子 VM へ移ったら、root の pass-through 
 
 ### Ticket E: OperationProgressHubViewModel 導入
 
-1. `OperationProgressHubViewModel` を追加。
-2. root に `public OperationProgressHubViewModel ProgressHub { get; }` を追加。
-3. root の既存進捗 property は `ProgressHub` への pass-through にする。
-4. root が `ProgressHub.PropertyChanged` を受けて旧 property 名を raise する。
-5. XAML は変更しない。
-6. `MainWindowViewModelStartupProgressTests` を実行。
+1. progress property ごとの notification / side-effect contract 表を作る。
+2. `OperationProgressHubViewModel` を追加。
+3. root に `public OperationProgressHubViewModel ProgressHub { get; }` を追加。
+4. root の既存進捗 property は `ProgressHub` への pass-through にする。
+5. root が `ProgressHub.PropertyChanged` を受けて旧 property 名と関連 property 名を raise する。
+6. XAML は変更しない。
+7. `MainWindowViewModelStartupProgressTests` を実行。
 
 完了条件:
 
 - 進捗系 state が root から削減される。
 - Binding path は不変。
+- `IsStartupProgressActive` などの既存 setter が持っていた副作用が維持される。
 
 ### Ticket F: PlaybackPanelViewModel 導入
 
@@ -897,6 +953,7 @@ XAML と code-behind の参照が子 VM へ移ったら、root の pass-through 
 完了条件:
 
 - メイン一覧更新判断の pure ロジックが root から独立する。
+- Ticket I の MainChartListViewModel 導入前提ができる。
 
 ### Ticket H: PlaylistRequestFactory 抽出
 
@@ -908,16 +965,50 @@ XAML と code-behind の参照が子 VM へ移ったら、root の pass-through 
 
 - プレイリスト request identity のテストが root なしで書ける。
 
-### Ticket I: MainChartListViewModel 導入
+### Ticket I-1: MainChartListViewModel 導入前の境界確認
 
-1. `ChartRowsView` と sort/filter/summary state を child に移す。
-2. root pass-through を残す。
-3. `RefreshChartRowsView` は root facade から child coordinator を呼ぶ形へ変える。
-4. `ChartListVirtualViewTests` と手動一覧 smoke test を実行。
+1. Ticket G が完了済みであることを確認する。未完了なら先に Ticket G を実施する。
+2. `ChartRowsView`、`SelectedIndexChartRowsView`、sort/filter/summary property の setter 副作用を棚卸しする。
+3. XAML / code-behind / tests から root-level main chart API を参照している箇所を分類する。
+4. Ticket I-2 で最初に child 所有へ移す state group を決める。
 
 完了条件:
 
-- メイン一覧の主要 state 所有者が child VM になる。
+- Ticket I-2 の実装範囲と維持すべき通知・副作用が明確になっている。
+
+### Ticket I-2: MainChartListViewModel の state pass-through 化
+
+1. `MainChartListViewModel` を追加。
+2. `ChartRowsView`、`SelectedIndexChartRowsView`、sort/filter/summary state のうち副作用が小さいものから child に移す。
+3. root pass-through を残し、Binding path は変えない。
+4. `ChartListVirtualViewTests`、`MainColumnSettingModeTests`、`CustomTableColumnSettingsTests` を実行する。
+
+完了条件:
+
+- メイン一覧 state の所有者が child VM に移り始める。
+- XAML / code-behind から見える root-level API は維持される。
+
+### Ticket I-3: RefreshChartRowsView facade/coordinator 化
+
+1. `RefreshChartRowsView` の orchestration を `MainChartListViewModel` / `ChartListRefreshCoordinator` 側へ段階的に移す。
+2. root は facade として既存呼び出し形状を維持する。
+3. 通常ライブラリ、仮想サブセット、プレイ履歴、プレイリスト選択の各 source identity / cache invalidation を分けて確認する。
+4. `ChartListVirtualViewTests`、`LibraryChartRowSortEngineTests`、`PlaylistViewPipelineTests` と手動一覧 smoke test を実行する。
+
+完了条件:
+
+- `RefreshChartRowsView` の主要 workflow が child/coordinator に移る。
+- sort/filter/virtualization/cache の体感挙動が変わらない。
+
+### Ticket I-4: MainChartList 関連 test 移行
+
+1. Main chart list 関連の source-text / reflection test を棚卸しする。
+2. root forwarder 経由の test を、抽出した service / child VM を直接検証する形へ寄せる。
+3. 互換 forwarder は production code から不要になった段階で削除候補にする。
+
+完了条件:
+
+- メイン一覧の主要テストが root VM の巨大 class 形状に依存しない。
 
 ### Ticket J: XAML の playback/progress DataContext 移行
 
@@ -925,10 +1016,13 @@ XAML と code-behind の参照が子 VM へ移ったら、root の pass-through 
 2. 進捗表示領域の DataContext を `ProgressHub` にする。
 3. root pass-through はまだ削除しない。
 4. `dotnet build` で XAML compile を確認。
+5. 対象領域の binding path 棚卸しを行い、`ContextMenu` / `StaticResource vm` / code-behind からの root 参照を分類する。
+6. 手動 smoke test では起動進捗、install 進捗、LR2 song DB sync status、再生パネル操作を確認する。
 
 完了条件:
 
 - もっとも独立性の高い 2 領域が root Binding から外れる。
+- runtime binding error が増えていないことを debug output または手動確認で確認する。
 
 ## 11. テスト方針
 
@@ -971,7 +1065,7 @@ XAML と code-behind の参照が子 VM へ移ったら、root の pass-through 
 | nested type を top-level 化して参照が壊れる | 初期は nested partial のまま移す |
 | partial field initializer 順序が変わる | field は順序維持ファイルに残す。依存がある場合は constructor 初期化へ明示移行する |
 | XAML Binding の DataContext 切替で ContextMenu が壊れる | ContextMenu は `PlacementTarget.DataContext` / BindingProxy を明示的に使う |
-| `PropertyChanged` の通知漏れ | child VM property changed を root が旧名で relay するテストを追加する |
+| `PropertyChanged` の通知漏れ | child VM property changed を root が旧名で relay するテストを追加し、setter 副作用 contract を Ticket E で棚卸しする |
 | Dispatcher thread 問題 | ObservableCollection 更新は既存同様 UI dispatcher に限定し、service は snapshot を返す |
 | 既存 private reflection テストが壊れる | 移動初期は member name を変えない。rename は behavior test 化後に行う |
 | 性能劣化 | `InstallPerformance.MainWindowViewModel` など既存ログ形式を維持し、一覧 build/prewarm の elapsed を比較する |
