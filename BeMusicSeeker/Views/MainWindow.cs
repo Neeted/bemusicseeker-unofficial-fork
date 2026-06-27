@@ -264,6 +264,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         Downloaded,
         BrowserFallback,
         BlockedBySizeLimit,
+        Duplicate,
         Failed
     }
 
@@ -6931,8 +6932,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
         var downloadedPaths = new List<string>();
+        var downloadedKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         int browserFallbackCount = 0;
         int blockedBySizeLimitCount = 0;
+        int duplicateCount = 0;
         int failedCount = 0;
         var viewModel = base.DataContext as MainWindowViewModel;
         playlistUrlBulkDownloadRunning = true;
@@ -6942,7 +6945,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             {
                 Uri target = targets[i];
                 viewModel?.UpdatePlaylistUrlDownloadStatus(true, targets.Count, i, target.ToString());
-                PlaylistUrlDownloadResult result = await DownloadPlaylistUrlCandidateAsync(target);
+                PlaylistUrlDownloadResult result = await DownloadPlaylistUrlCandidateAsync(target, downloadedKeys);
                 switch (result.Kind)
                 {
                     case PlaylistUrlDownloadResultKind.Downloaded when !string.IsNullOrWhiteSpace(result.FilePath) && LongPathFileSystem.FileExists(result.FilePath):
@@ -6950,6 +6953,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                         break;
                     case PlaylistUrlDownloadResultKind.BlockedBySizeLimit:
                         blockedBySizeLimitCount++;
+                        break;
+                    case PlaylistUrlDownloadResultKind.Duplicate:
+                        duplicateCount++;
                         break;
                     case PlaylistUrlDownloadResultKind.Failed:
                         failedCount++;
@@ -6977,6 +6983,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             downloadedPaths.Count,
             browserFallbackCount,
             blockedBySizeLimitCount,
+            duplicateCount,
             failedCount);
         UiDialogRoute.ShowMessageBox(
             Window.GetWindow(this),
@@ -7419,19 +7426,22 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private sealed class PlaylistUrlDownloadResult
     {
-        private PlaylistUrlDownloadResult(PlaylistUrlDownloadResultKind kind, string filePath = null)
+        private PlaylistUrlDownloadResult(PlaylistUrlDownloadResultKind kind, string filePath = null, string downloadKey = null)
         {
             Kind = kind;
             FilePath = filePath ?? string.Empty;
+            DownloadKey = downloadKey ?? string.Empty;
         }
 
         internal PlaylistUrlDownloadResultKind Kind { get; }
 
         internal string FilePath { get; }
 
-        internal static PlaylistUrlDownloadResult Downloaded(string filePath)
+        internal string DownloadKey { get; }
+
+        internal static PlaylistUrlDownloadResult Downloaded(string filePath, string downloadKey)
         {
-            return new PlaylistUrlDownloadResult(PlaylistUrlDownloadResultKind.Downloaded, filePath);
+            return new PlaylistUrlDownloadResult(PlaylistUrlDownloadResultKind.Downloaded, filePath, downloadKey);
         }
 
         internal static PlaylistUrlDownloadResult BrowserFallback()
@@ -7444,13 +7454,18 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return new PlaylistUrlDownloadResult(PlaylistUrlDownloadResultKind.BlockedBySizeLimit);
         }
 
+        internal static PlaylistUrlDownloadResult Duplicate(string downloadKey)
+        {
+            return new PlaylistUrlDownloadResult(PlaylistUrlDownloadResultKind.Duplicate, downloadKey: downloadKey);
+        }
+
         internal static PlaylistUrlDownloadResult Failed()
         {
             return new PlaylistUrlDownloadResult(PlaylistUrlDownloadResultKind.Failed);
         }
     }
 
-    private async Task<PlaylistUrlDownloadResult> DownloadPlaylistUrlCandidateAsync(Uri uri)
+    private async Task<PlaylistUrlDownloadResult> DownloadPlaylistUrlCandidateAsync(Uri uri, HashSet<string> downloadedKeys = null)
     {
         if (uri == null || !uri.IsAbsoluteUri)
         {
@@ -7467,7 +7482,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             try
             {
                 using AppHttpResponse response = AppHttpClient.Shared.OpenRead(normalizedUri);
-                return DownloadPlaylistUrlResponseCandidate(normalizedUri, response, tempDirectory, allowSharedPageResolution: true);
+                return DownloadPlaylistUrlResponseCandidate(normalizedUri, response, tempDirectory, allowSharedPageResolution: true, downloadedKeys);
             }
             catch
             {
@@ -7476,12 +7491,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         });
     }
 
-    private static PlaylistUrlDownloadResult DownloadPlaylistUrlResponseCandidate(Uri requestedUri, AppHttpResponse response, string tempDirectory, bool allowSharedPageResolution)
+    private static PlaylistUrlDownloadResult DownloadPlaylistUrlResponseCandidate(Uri requestedUri, AppHttpResponse response, string tempDirectory, bool allowSharedPageResolution, HashSet<string> downloadedKeys = null)
     {
-        return DownloadPlaylistUrlResponseCandidate(requestedUri, response, tempDirectory, allowSharedPageResolution ? 4 : 0, new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+        return DownloadPlaylistUrlResponseCandidate(requestedUri, response, tempDirectory, allowSharedPageResolution ? 4 : 0, new HashSet<string>(StringComparer.OrdinalIgnoreCase), downloadedKeys);
     }
 
-    private static PlaylistUrlDownloadResult DownloadPlaylistUrlResponseCandidate(Uri requestedUri, AppHttpResponse response, string tempDirectory, int remainingSharedPageResolutionDepth, HashSet<string> resolvedPageUris)
+    private static PlaylistUrlDownloadResult DownloadPlaylistUrlResponseCandidate(Uri requestedUri, AppHttpResponse response, string tempDirectory, int remainingSharedPageResolutionDepth, HashSet<string> resolvedPageUris, HashSet<string> downloadedKeys)
     {
         AddUriWithoutFragment(resolvedPageUris, requestedUri);
         AddUriWithoutFragment(resolvedPageUris, response?.ResponseUri);
@@ -7496,22 +7511,154 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 return PlaylistUrlDownloadResult.BlockedBySizeLimit();
             }
         }
+        if (remainingSharedPageResolutionDepth > 0 && ShouldResolveSharedDownloadPageBeforeFileName(requestedUri, response))
+        {
+            if (TryResolveSharedDownloadPageUri(requestedUri, response, out Uri resolvedUri) && AddUriWithoutFragment(resolvedPageUris, resolvedUri))
+            {
+                string resolvedDownloadKey = CreatePlaylistUrlDownloadKey(resolvedUri);
+                if (!string.IsNullOrWhiteSpace(resolvedDownloadKey) && downloadedKeys != null && downloadedKeys.Contains(resolvedDownloadKey))
+                {
+                    LogPlaylistUrlDownload("playlist_url_download duplicate source=" + requestedUri + " resolved=" + resolvedUri + " key=" + resolvedDownloadKey);
+                    return PlaylistUrlDownloadResult.Duplicate(resolvedDownloadKey);
+                }
+                LogPlaylistUrlDownload("playlist_url_download resolved source=" + requestedUri + " resolved=" + resolvedUri + " depth=" + remainingSharedPageResolutionDepth);
+                using AppHttpResponse resolvedResponse = AppHttpClient.Shared.OpenRead(resolvedUri);
+                return DownloadPlaylistUrlResponseCandidate(resolvedUri, resolvedResponse, tempDirectory, remainingSharedPageResolutionDepth - 1, resolvedPageUris, downloadedKeys);
+            }
+            LogPlaylistUrlDownload("playlist_url_download unresolved_shared_page source=" + requestedUri + " response=" + (response?.ResponseUri?.ToString() ?? string.Empty) + " contentType=" + GetContentTypeLogValue(response));
+            return PlaylistUrlDownloadResult.BrowserFallback();
+        }
         string fileName = ResolveDownloadedArchiveFileName(requestedUri, response);
+        if (IsHtmlContentType(response))
+        {
+            LogPlaylistUrlDownload("playlist_url_download skipped_html source=" + requestedUri + " response=" + (response?.ResponseUri?.ToString() ?? string.Empty) + " fileName=" + fileName);
+            return PlaylistUrlDownloadResult.BrowserFallback();
+        }
         if (!IsDownloadAndInstallCandidateFileName(fileName))
         {
             if (remainingSharedPageResolutionDepth > 0 && TryResolveSharedDownloadPageUri(requestedUri, response, out Uri resolvedUri) && AddUriWithoutFragment(resolvedPageUris, resolvedUri))
             {
+                string resolvedDownloadKey = CreatePlaylistUrlDownloadKey(resolvedUri);
+                if (!string.IsNullOrWhiteSpace(resolvedDownloadKey) && downloadedKeys != null && downloadedKeys.Contains(resolvedDownloadKey))
+                {
+                    LogPlaylistUrlDownload("playlist_url_download duplicate source=" + requestedUri + " resolved=" + resolvedUri + " key=" + resolvedDownloadKey);
+                    return PlaylistUrlDownloadResult.Duplicate(resolvedDownloadKey);
+                }
+                LogPlaylistUrlDownload("playlist_url_download resolved source=" + requestedUri + " resolved=" + resolvedUri + " depth=" + remainingSharedPageResolutionDepth);
                 using AppHttpResponse resolvedResponse = AppHttpClient.Shared.OpenRead(resolvedUri);
-                return DownloadPlaylistUrlResponseCandidate(resolvedUri, resolvedResponse, tempDirectory, remainingSharedPageResolutionDepth - 1, resolvedPageUris);
+                return DownloadPlaylistUrlResponseCandidate(resolvedUri, resolvedResponse, tempDirectory, remainingSharedPageResolutionDepth - 1, resolvedPageUris, downloadedKeys);
             }
+            LogPlaylistUrlDownload("playlist_url_download skipped_unsupported source=" + requestedUri + " response=" + (response?.ResponseUri?.ToString() ?? string.Empty) + " fileName=" + fileName + " contentType=" + GetContentTypeLogValue(response));
             return PlaylistUrlDownloadResult.BrowserFallback();
+        }
+        string downloadKey = CreatePlaylistUrlDownloadKey(response?.ResponseUri ?? requestedUri);
+        if (!string.IsNullOrWhiteSpace(downloadKey) && downloadedKeys != null)
+        {
+            if (downloadedKeys.Contains(downloadKey))
+            {
+                LogPlaylistUrlDownload("playlist_url_download duplicate source=" + requestedUri + " response=" + (response?.ResponseUri?.ToString() ?? string.Empty) + " key=" + downloadKey);
+                return PlaylistUrlDownloadResult.Duplicate(downloadKey);
+            }
         }
         string filePath = Path.Combine(tempDirectory, fileName);
         if (!TryCopyStreamToFileWithLimit(response.ResponseStream, filePath, DownloadAndInstallSizeLimitBytes))
         {
             return PlaylistUrlDownloadResult.BlockedBySizeLimit();
         }
-        return PlaylistUrlDownloadResult.Downloaded(filePath);
+        if (!string.IsNullOrWhiteSpace(downloadKey))
+        {
+            downloadedKeys?.Add(downloadKey);
+        }
+        LogPlaylistUrlDownload("playlist_url_download downloaded source=" + requestedUri + " response=" + (response?.ResponseUri?.ToString() ?? string.Empty) + " key=" + (downloadKey ?? string.Empty) + " file=" + fileName + " contentType=" + GetContentTypeLogValue(response));
+        return PlaylistUrlDownloadResult.Downloaded(filePath, downloadKey);
+    }
+
+    internal static string CreatePlaylistUrlDownloadKeyForTest(Uri uri)
+    {
+        return CreatePlaylistUrlDownloadKey(uri);
+    }
+
+    private static bool ShouldResolveSharedDownloadPageBeforeFileName(Uri requestedUri, AppHttpResponse response)
+    {
+        Uri responseUri = response?.ResponseUri;
+        if (!IsSharedDownloadPageResolutionCandidate(requestedUri) && !IsSharedDownloadPageResolutionCandidate(responseUri))
+        {
+            return false;
+        }
+        return IsHtmlContentType(response)
+            || IsDownloadSourcePageUri(requestedUri)
+            || IsDownloadSourcePageUri(responseUri)
+            || IsKnownDownloadLandingPageResponseUri(requestedUri)
+            || IsKnownDownloadLandingPageResponseUri(responseUri);
+    }
+
+    private static bool IsKnownDownloadLandingPageResponseUri(Uri uri)
+    {
+        return IsMediaFireLandingPageUri(uri);
+    }
+
+    private static bool IsHtmlContentType(AppHttpResponse response)
+    {
+        string mediaType = response?.ContentHeaders?.ContentType?.MediaType;
+        return mediaType != null
+            && (mediaType.Equals("text/html", StringComparison.OrdinalIgnoreCase)
+                || mediaType.Equals("application/xhtml+xml", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static string GetContentTypeLogValue(AppHttpResponse response)
+    {
+        return response?.ContentHeaders?.ContentType?.ToString() ?? string.Empty;
+    }
+
+    private static void LogPlaylistUrlDownload(string message)
+    {
+        NLogWrapper.FileLogger?.Info(message);
+        if (installPerformanceLoggingEnabled)
+        {
+            installPerformanceLogger.Info(message);
+        }
+    }
+
+    private static string CreatePlaylistUrlDownloadKey(Uri uri)
+    {
+        if (uri == null || !uri.IsAbsoluteUri)
+        {
+            return string.Empty;
+        }
+        Uri normalizedUri = NormalizeDownloadUri(uri);
+        string googleDriveFileId = ExtractGoogleDriveFileId(normalizedUri);
+        if (!string.IsNullOrWhiteSpace(googleDriveFileId) && IsGoogleDriveHost(normalizedUri))
+        {
+            return "gdrive:" + googleDriveFileId;
+        }
+        string mediaFireFileId = ExtractMediaFireFileId(normalizedUri);
+        if (!string.IsNullOrWhiteSpace(mediaFireFileId))
+        {
+            return "mediafire:" + mediaFireFileId;
+        }
+        var builder = new UriBuilder(normalizedUri)
+        {
+            Fragment = string.Empty
+        };
+        return builder.Uri.AbsoluteUri;
+    }
+
+    private static string ExtractMediaFireFileId(Uri uri)
+    {
+        if (uri == null || !uri.IsAbsoluteUri || !IsExactHostOrSubdomain(uri.Host, "mediafire.com"))
+        {
+            return null;
+        }
+        string[] segments = uri.AbsolutePath.Split(['/'], StringSplitOptions.RemoveEmptyEntries);
+        if (segments.Length >= 2 && segments[0].Equals("file", StringComparison.OrdinalIgnoreCase))
+        {
+            return Uri.UnescapeDataString(segments[1]);
+        }
+        if (segments.Length >= 2 && (uri.Host ?? string.Empty).StartsWith("download", StringComparison.OrdinalIgnoreCase))
+        {
+            return Uri.UnescapeDataString(segments[segments.Length - 2]);
+        }
+        return null;
     }
 
     /// <summary>
@@ -7858,19 +8005,112 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return false;
         }
+        if (IsVenueBmsSearchUri(pageUri))
+        {
+            if (TryResolveSerializedVenueCoreDownloadUri(pageUri, html, out resolvedUri))
+            {
+                return true;
+            }
+            return TryResolveAnchorDownloadUri(pageUri, html, allowDownloadSourcePageUri: false, CollectSerializedVenueNonCoreDownloadKeys(pageUri, html), out resolvedUri);
+        }
         if (TryResolveSerializedDownloadUri(pageUri, html, out resolvedUri))
         {
             return true;
         }
+        return TryResolveAnchorDownloadUri(pageUri, html, allowDownloadSourcePageUri: false, out resolvedUri);
+    }
+
+    private static bool TryResolveAnchorDownloadUri(Uri pageUri, string html, bool allowDownloadSourcePageUri, out Uri resolvedUri)
+    {
+        return TryResolveAnchorDownloadUri(pageUri, html, allowDownloadSourcePageUri, null, out resolvedUri);
+    }
+
+    private static bool TryResolveAnchorDownloadUri(Uri pageUri, string html, bool allowDownloadSourcePageUri, HashSet<string> excludedDownloadKeys, out Uri resolvedUri)
+    {
+        resolvedUri = null;
         foreach (Match anchorMatch in Regex.Matches(html, "<a\\b[^>]*>", RegexOptions.IgnoreCase | RegexOptions.Singleline))
         {
             Dictionary<string, string> attributes = ParseHtmlAttributes(anchorMatch.Value);
-            if (attributes.TryGetValue("href", out string href) && TryCreateResolvableDownloadUri(pageUri, href, allowDownloadSourcePageUri: false, out resolvedUri))
+            if (attributes.TryGetValue("href", out string href) && TryCreateResolvableDownloadUri(pageUri, href, allowDownloadSourcePageUri, out resolvedUri))
+            {
+                string downloadKey = CreatePlaylistUrlDownloadKey(resolvedUri);
+                if (!string.IsNullOrWhiteSpace(downloadKey) && excludedDownloadKeys?.Contains(downloadKey) == true)
+                {
+                    continue;
+                }
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static bool TryResolveSerializedVenueCoreDownloadUri(Uri pageUri, string html, out Uri resolvedUri)
+    {
+        resolvedUri = null;
+        foreach (SerializedVenueDownloadCandidate candidate in EnumerateSerializedVenueDownloadCandidates(html))
+        {
+            if (!candidate.IsCore)
+            {
+                continue;
+            }
+            if (TryCreateResolvableDownloadUri(pageUri, candidate.Url, allowDownloadSourcePageUri: false, out resolvedUri))
             {
                 return true;
             }
         }
         return false;
+    }
+
+    private static HashSet<string> CollectSerializedVenueNonCoreDownloadKeys(Uri pageUri, string html)
+    {
+        var keys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (SerializedVenueDownloadCandidate candidate in EnumerateSerializedVenueDownloadCandidates(html))
+        {
+            if (candidate.IsCore)
+            {
+                continue;
+            }
+            if (TryCreateResolvableDownloadUri(pageUri, candidate.Url, allowDownloadSourcePageUri: false, out Uri resolvedUri))
+            {
+                string downloadKey = CreatePlaylistUrlDownloadKey(resolvedUri);
+                if (!string.IsNullOrWhiteSpace(downloadKey))
+                {
+                    keys.Add(downloadKey);
+                }
+            }
+        }
+        return keys;
+    }
+
+    private sealed class SerializedVenueDownloadCandidate
+    {
+        internal SerializedVenueDownloadCandidate(string url, bool isCore)
+        {
+            Url = url;
+            IsCore = isCore;
+        }
+
+        internal string Url { get; }
+
+        internal bool IsCore { get; }
+    }
+
+    private static List<SerializedVenueDownloadCandidate> EnumerateSerializedVenueDownloadCandidates(string html)
+    {
+        var candidates = new List<SerializedVenueDownloadCandidate>();
+        string text = DecodeEmbeddedJsonText(html);
+        foreach (Match objectMatch in Regex.Matches(text, "\\{(?<body>[^{}]{0,2048}\"downloadURL\"[^{}]{0,2048})\\}", RegexOptions.IgnoreCase | RegexOptions.Singleline))
+        {
+            string body = objectMatch.Groups["body"].Value;
+            Match urlMatch = Regex.Match(body, "\"downloadURL\"\\s*:\\s*\"(?<url>[^\"<>]+)\"", RegexOptions.IgnoreCase);
+            if (!urlMatch.Success)
+            {
+                continue;
+            }
+            bool isCore = Regex.IsMatch(body, "\"type\"\\s*:\\s*\"CORE\"", RegexOptions.IgnoreCase);
+            candidates.Add(new SerializedVenueDownloadCandidate(urlMatch.Groups["url"].Value, isCore));
+        }
+        return candidates;
     }
 
     private static bool TryResolveSerializedDownloadUri(Uri pageUri, string html, out Uri resolvedUri)
@@ -8006,6 +8246,19 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         string host = uri.Host ?? string.Empty;
         return host.Equals("www.mediafire.com", StringComparison.OrdinalIgnoreCase)
             || IsExactHostOrSubdomain(host, "mediafire.com");
+    }
+
+    private static bool IsMediaFireLandingPageUri(Uri uri)
+    {
+        if (uri == null || !uri.IsAbsoluteUri || !IsHttpOrHttps(uri) || !IsExactHostOrSubdomain(uri.Host, "mediafire.com"))
+        {
+            return false;
+        }
+        string host = uri.Host ?? string.Empty;
+        string[] segments = uri.AbsolutePath.Split(['/'], StringSplitOptions.RemoveEmptyEntries);
+        return host.Equals("www.mediafire.com", StringComparison.OrdinalIgnoreCase)
+            || host.Equals("mediafire.com", StringComparison.OrdinalIgnoreCase)
+            || (segments.Length >= 1 && segments[0].Equals("file", StringComparison.OrdinalIgnoreCase));
     }
 
     private static bool IsDownloadSourcePageUri(Uri uri)
@@ -8215,33 +8468,194 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private static string ResolveDownloadedArchiveFileName(Uri requestedUri, AppHttpResponse response)
     {
-        ContentDispositionHeaderValue contentDisposition = response.ContentHeaders?.ContentDisposition;
+        if (TryResolveRawContentDispositionFileName(response?.ContentHeaders, out string rawFileName))
+        {
+            return rawFileName;
+        }
+        ContentDispositionHeaderValue contentDisposition = response?.ContentHeaders?.ContentDisposition;
         string fileName = contentDisposition?.FileNameStar ?? contentDisposition?.FileName;
         if (!string.IsNullOrWhiteSpace(fileName))
         {
-            return fileName.Trim().Trim('"');
+            return NormalizeDownloadedFileName(fileName);
         }
-        if (response.ContentHeaders != null && response.ContentHeaders.TryGetValues("Content-Disposition", out IEnumerable<string> contentDispositionValues))
+        if (response?.Headers?.Location != null)
         {
-            string rawContentDisposition = contentDispositionValues.FirstOrDefault();
-            if (!string.IsNullOrWhiteSpace(rawContentDisposition))
-            {
-                string parsedFileName = Regex.Replace(rawContentDisposition, ".*filename=\"([^\"]+)\".*", "$1");
-                if (!string.IsNullOrWhiteSpace(parsedFileName) && !string.Equals(parsedFileName, rawContentDisposition, StringComparison.Ordinal))
-                {
-                    return parsedFileName;
-                }
-            }
-        }
-        if (response.Headers?.Location != null)
-        {
-            return Path.GetFileName(response.Headers.Location.ToString());
+            return GetFileNameFromUri(response.Headers.Location);
         }
         if (Path.GetFileName(requestedUri.ToString()).Contains('?') || Path.GetFileName(requestedUri.ToString()).Contains('='))
         {
-            return Path.GetFileName(response.ResponseUri.ToString());
+            return GetFileNameFromUri(response.ResponseUri);
         }
-        return Path.GetFileName(requestedUri.ToString());
+        return GetFileNameFromUri(requestedUri);
+    }
+
+    internal static string ResolveContentDispositionFileNameForTest(string contentDisposition)
+    {
+        return TryResolveContentDispositionFileName(contentDisposition, out string fileName) ? fileName : null;
+    }
+
+    private static bool TryResolveRawContentDispositionFileName(HttpContentHeaders headers, out string fileName)
+    {
+        fileName = null;
+        if (headers == null || !headers.TryGetValues("Content-Disposition", out IEnumerable<string> contentDispositionValues))
+        {
+            return false;
+        }
+        foreach (string contentDisposition in contentDispositionValues)
+        {
+            if (TryResolveContentDispositionFileName(contentDisposition, out fileName))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static bool TryResolveContentDispositionFileName(string contentDisposition, out string fileName)
+    {
+        fileName = null;
+        if (string.IsNullOrWhiteSpace(contentDisposition))
+        {
+            return false;
+        }
+        if (TryGetContentDispositionParameter(contentDisposition, "filename*", out string fileNameStar)
+            && TryDecodeRfc5987Value(fileNameStar, out string decodedFileNameStar))
+        {
+            fileName = NormalizeDownloadedFileName(decodedFileNameStar);
+            return !string.IsNullOrWhiteSpace(fileName);
+        }
+        if (TryGetContentDispositionParameter(contentDisposition, "filename", out string rawFileName))
+        {
+            fileName = NormalizeDownloadedFileName(RepairPossiblyMojibakeFileName(rawFileName));
+            return !string.IsNullOrWhiteSpace(fileName);
+        }
+        return false;
+    }
+
+    private static bool TryGetContentDispositionParameter(string contentDisposition, string parameterName, out string value)
+    {
+        value = null;
+        foreach (Match match in Regex.Matches(contentDisposition, "(?:^|;)\\s*(?<name>[^=;\\s]+)\\s*=\\s*(?:\"(?<quoted>(?:\\\\.|[^\"])*)\"|(?<bare>[^;]*))", RegexOptions.IgnoreCase))
+        {
+            if (!match.Groups["name"].Value.Equals(parameterName, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+            value = match.Groups["quoted"].Success ? match.Groups["quoted"].Value : match.Groups["bare"].Value;
+            value = value.Replace("\\\"", "\"").Trim();
+            return true;
+        }
+        return false;
+    }
+
+    private static bool TryDecodeRfc5987Value(string value, out string decoded)
+    {
+        decoded = null;
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return false;
+        }
+        Match match = Regex.Match(value.Trim(), "^(?<charset>[^']*)'(?<language>[^']*)'(?<encoded>.*)$");
+        if (!match.Success)
+        {
+            return false;
+        }
+        try
+        {
+            Encoding encoding = Encoding.GetEncoding(match.Groups["charset"].Value);
+            decoded = DecodePercentEncodedBytes(match.Groups["encoded"].Value, encoding);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static string DecodePercentEncodedBytes(string value, Encoding encoding)
+    {
+        var bytes = new List<byte>();
+        var builder = new StringBuilder();
+        for (int i = 0; i < value.Length; i++)
+        {
+            if (value[i] == '%' && i + 2 < value.Length && byte.TryParse(value.Substring(i + 1, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out byte parsedByte))
+            {
+                bytes.Add(parsedByte);
+                i += 2;
+                continue;
+            }
+            if (bytes.Count > 0)
+            {
+                builder.Append(encoding.GetString(bytes.ToArray()));
+                bytes.Clear();
+            }
+            builder.Append(value[i]);
+        }
+        if (bytes.Count > 0)
+        {
+            builder.Append(encoding.GetString(bytes.ToArray()));
+        }
+        return builder.ToString();
+    }
+
+    private static string RepairPossiblyMojibakeFileName(string fileName)
+    {
+        if (string.IsNullOrWhiteSpace(fileName) || !LooksLikeLatin1Mojibake(fileName))
+        {
+            return fileName;
+        }
+        try
+        {
+            string repaired = Encoding.UTF8.GetString(Encoding.GetEncoding("ISO-8859-1").GetBytes(fileName));
+            return ContainsJapaneseText(repaired) ? repaired : fileName;
+        }
+        catch
+        {
+            return fileName;
+        }
+    }
+
+    private static bool LooksLikeLatin1Mojibake(string text)
+    {
+        return text.IndexOf('ã') >= 0
+            || text.IndexOf('ä') >= 0
+            || text.IndexOf('å') >= 0
+            || text.IndexOf('æ') >= 0
+            || text.IndexOf('ç') >= 0
+            || text.IndexOf('è') >= 0
+            || text.IndexOf('é') >= 0;
+    }
+
+    private static bool ContainsJapaneseText(string text)
+    {
+        return !string.IsNullOrEmpty(text) && text.Any(ch =>
+            (ch >= '\u3040' && ch <= '\u30FF')
+            || (ch >= '\u3400' && ch <= '\u9FFF'));
+    }
+
+    private static string NormalizeDownloadedFileName(string fileName)
+    {
+        if (string.IsNullOrWhiteSpace(fileName))
+        {
+            return string.Empty;
+        }
+        string normalized = fileName.Trim().Trim('"');
+        normalized = normalized.Replace('/', Path.DirectorySeparatorChar).Replace('\\', Path.DirectorySeparatorChar);
+        normalized = Path.GetFileName(normalized);
+        foreach (char invalidChar in Path.GetInvalidFileNameChars())
+        {
+            normalized = normalized.Replace(invalidChar, '_');
+        }
+        return normalized;
+    }
+
+    private static string GetFileNameFromUri(Uri uri)
+    {
+        if (uri == null)
+        {
+            return string.Empty;
+        }
+        return NormalizeDownloadedFileName(Uri.UnescapeDataString(Path.GetFileName(uri.AbsolutePath)));
     }
 
     /// <summary>

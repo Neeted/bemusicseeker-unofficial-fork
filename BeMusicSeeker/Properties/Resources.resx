@@ -2234,7 +2234,8 @@ maintenance の再スキャンや chart_info の全譜面補完は行いませ�
 導入対象: {1}
 スキップ(ブラウザ): {2}
 スキップ(サイズ上限): {3}
-失敗: {4}</value>
+スキップ(重複): {4}
+失敗: {5}</value>
   </data>
   <data name="Warn_SelectedPlaylistUrlDownloadNoTargets" xml:space="preserve">
     <value>選択範囲に対象 URL がありません。</value>

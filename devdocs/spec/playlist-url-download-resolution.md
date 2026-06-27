@@ -44,6 +44,10 @@ BeMusicSeeker は、対応できる範囲で URL をダウンロード可能な�
 - `URL1` / `URL2` のどちらを使うかはメニュー種別で固定します。
 - 絶対 URI ではない値、空 URL、非プレイリスト行は除外します。
 - 同一 URL 文字列は完全一致で重複排除します。
+- 共有ページ解決後に同じ実体へ到達した URL は、最終ダウンロードキーで重複排除します。
+  - Google Drive は file id をキーにします。
+  - MediaFire は file id をキーにします。
+  - その他の URL は fragment を除いた正規化後 URI をキーにします。
 - 処理開始前に確認ダイアログを表示します。
 - ダウンロードは順次実行し、進捗はステータスバーへ表示します。
 - 取得できたファイルは、画面へのドラッグアンドドロップと同じ導入キューへまとめて渡します。
@@ -53,6 +57,8 @@ BeMusicSeeker は、対応できる範囲で URL をダウンロード可能な�
 
 ダウンロード結果は、最終的にファイル名から導入可能かを判定します。
 ファイル名は `Content-Disposition`、リダイレクト後 URI、要求 URI などから決めます。
+ただし、既知の共有ページ / 配布ページ host では、URL 末尾の拡張子より共有ページ解決を優先します。
+たとえば MediaFire の landing page URL が `.7z` や `.zip` で終わっていても、HTML 応答はアーカイブとして保存せず、ページ内の直接ダウンロードリンクを抽出します。
 
 導入可能なファイルは次の通りです。
 
@@ -67,6 +73,11 @@ BeMusicSeeker は、対応できる範囲で URL をダウンロード可能な�
 
 HTML など導入可能ファイル名に見えない応答では、共有ページ解決候補なら HTML を読み、直接ダウンロード URL の抽出を試みます。
 HTML 読み取り上限は 2 MiB です。
+`Content-Type` が HTML の応答は、ファイル名が導入可能拡張子に見えても保存しません。
+
+`Content-Disposition` のファイル名は、raw header の `filename*` を優先し、RFC 5987 形式として復号します。
+`filename` が UTF-8 を Latin-1 として読んだ文字化けに見える場合は、UTF-8 として復元してから保存名に使います。
+URI 由来のファイル名は percent decode して使います。
 
 ## URL 正規化
 
@@ -94,7 +105,7 @@ HTML 読み取り上限は 2 MiB です。
 | Google Drive / Google usercontent | `id="download-form"` の GET form を読み、hidden input を query として再送します。action は Google Drive 系 host の HTTP/HTTPS に限定します。 |
 | MediaFire | `id="downloadButton"` または `class` に `popsok` を含む anchor の `href` を使います。リンク先は MediaFire の exact host または subdomain に限定します。 |
 | `manbow.nothing.sh/event.cgi` | `DownLoadAddress` / `DownloadAddress` 周辺の anchor から `href` を抽出します。抽出先が別の対応 source page の場合も再帰解決を許可します。 |
-| `venue.bmssearch.net/.../{number}` | Next.js / React flight 風の埋め込みデータ内 `downloadURL`、または anchor から候補 URL を抽出します。直アーカイブまたは既知 download landing page だけを許可します。 |
+| `venue.bmssearch.net/.../{number}` | Next.js / React flight 風の埋め込みデータ内 `type: "CORE"` の `downloadURL`、または anchor から候補 URL を抽出します。直アーカイブまたは既知 download landing page だけを許可します。イベント全体の `packages` は作品個別ページの導入候補から除外し、`packages` として埋め込まれている URL は anchor fallback でも除外します。 |
 | `bmssearch.net/bmses/...` | 埋め込みデータ内 `downloads[].url`、または anchor から候補 URL を抽出します。直アーカイブまたは既知 download landing page だけを許可します。 |
 
 再帰解決は最大 4 段です。
@@ -103,6 +114,13 @@ fragment を除いた URI 文字列で既訪問判定し、循環した場合は
 `venue.bmssearch.net` と `bmssearch.net/bmses` から、別の `manbow` / `venue` / `bmssearch` source page へは再帰しません。
 これは会場内ナビゲーションや関連リンクを誤って追跡しないためです。
 `manbow` の `DownLoadAddress` だけは、実際の配布先として別 source page が置かれることがあるため source page 再帰を許可します。
+
+## ログ
+
+URL 取り込みでは、共有ページ解決、解決不能、HTML スキップ、導入対象外、重複スキップ、保存完了を `playlist_url_download ...` として application log と install-performance log へ記録します。
+
+導入キューへ渡った後のアーカイブ解凍では、`auto_install extract_start` / `auto_install extract_done` / `auto_install extract_failed` を記録します。
+解凍ログには対象パス、展開先、entry 数、経過時間を含めます。
 
 ## ブラウザフォールバックとスキップ
 

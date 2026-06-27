@@ -706,6 +706,7 @@ internal sealed class BmsLibraryPackageInstallService
                 break;
             }
             string extractedTempDirectoryPath = null;
+            Stopwatch sourceStopwatch = Stopwatch.StartNew();
             try
             {
                 if (!archiveExtensions.Any(ext => installPath.EndsWith(ext, StringComparison.OrdinalIgnoreCase)))
@@ -715,7 +716,12 @@ internal sealed class BmsLibraryPackageInstallService
                 else
                 {
                     extractedTempDirectoryPath = TempDirectoryPublisher.Get();
-                    foreach (ArchiveEntryMetadata entry in SevenZipArchiveExtractor.ExtractArchiveEntries(installPath, extractedTempDirectoryPath))
+                    logInfo?.Invoke("auto_install extract_start path=" + installPath + " destination=" + extractedTempDirectoryPath);
+                    Stopwatch extractStopwatch = Stopwatch.StartNew();
+                    List<ArchiveEntryMetadata> archiveEntries = SevenZipArchiveExtractor.ExtractArchiveEntries(installPath, extractedTempDirectoryPath);
+                    extractStopwatch.Stop();
+                    logInfo?.Invoke("auto_install extract_done path=" + installPath + " destination=" + extractedTempDirectoryPath + " entries=" + archiveEntries.Count + " elapsedMs=" + extractStopwatch.ElapsedMilliseconds);
+                    foreach (ArchiveEntryMetadata entry in archiveEntries)
                     {
                         if (string.IsNullOrWhiteSpace(entry.FileName))
                         {
@@ -815,7 +821,8 @@ internal sealed class BmsLibraryPackageInstallService
             catch (Exception ex)
             {
                 DeleteExtractedTemporaryDirectory(extractedTempDirectoryPath, fileMutationService, targetOnlyFileMutationOptions, logInfo);
-                logInfo?.Invoke("auto_install extract_failed path=" + installPath + " error=" + ex.Message);
+                sourceStopwatch.Stop();
+                logInfo?.Invoke("auto_install extract_failed path=" + installPath + " elapsedMs=" + sourceStopwatch.ElapsedMilliseconds + " error=" + ex.Message);
                 dialogService?.Show(
                     string.Format(Resources.Warn_ArchiveExtractFailed, installPath, ex.Message),
                     Resources.MessageBoxTitle_Warning,

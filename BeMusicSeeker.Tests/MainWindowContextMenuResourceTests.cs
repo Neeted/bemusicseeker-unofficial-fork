@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.Serialization;
+using System.Text;
 using System.Text.RegularExpressions;
 using System.Windows;
 using System.Xml.Linq;
@@ -2393,6 +2394,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(bulkMethod, "DropInstallQueueCanCancel: true");
         StringAssert.Contains(bulkMethod, "Warn_SelectedPlaylistUrlDownloadBlockedByInstallQueue");
         StringAssert.Contains(bulkMethod, "browserFallbackCount++");
+        StringAssert.Contains(bulkMethod, "duplicateCount++");
         StringAssert.Contains(bulkMethod, "viewModel?.EnqueueDroppedInstallPaths(downloadedPaths)");
         Assert.IsFalse(bulkMethod.Contains("installChartPackages(downloadedPaths)"));
         Assert.IsFalse(bulkMethod.Contains("Process.Start"));
@@ -2479,9 +2481,31 @@ public sealed class MainWindowContextMenuResourceTests
             <script>self.__next_f.push([1,"2c:{\"description\":\"3.5型\",\"downloadURL\":\"https://anonymous.bms.ms/data/itsfree_battle.7z\",\"type\":\"CORE\"}"])</script>
             </body></html>
             """;
+        const string venueMixedPackageHtml = """
+            <html><body>
+            <script>self.__next_f.push([1,"16:{\"downloadURL\":\"https://drive.google.com/file/d/eventPackage/view?usp=sharing\",\"description\":\"イベント全体\"}\n2c:{\"description\":\"通常版\",\"downloadURL\":\"https://drive.google.com/file/d/entryCore/view?usp=sharing\",\"type\":\"CORE\"}"])</script>
+            </body></html>
+            """;
+        const string venueTypeFirstCoreHtml = """
+            <html><body>
+            <script>self.__next_f.push([1,"16:{\"downloadURL\":\"https://drive.google.com/file/d/eventPackage/view?usp=sharing\",\"description\":\"イベント全体\"}\n2c:{\"description\":\"通常版\",\"type\":\"CORE\",\"downloadURL\":\"https://drive.google.com/file/d/entryTypeFirst/view?usp=sharing\"}"])</script>
+            </body></html>
+            """;
+        const string venuePackageAnchorHtml = """
+            <html><body>
+            <a href="https://drive.google.com/file/d/eventPackage/view?usp=sharing">イベント全体</a>
+            <a href="https://drive.google.com/file/d/entryAnchor/view?usp=sharing">通常版</a>
+            <script>self.__next_f.push([1,"16:{\"downloadURL\":\"https://drive.google.com/file/d/eventPackage/view?usp=sharing\",\"description\":\"イベント全体\"}"])</script>
+            </body></html>
+            """;
         const string venueMediaFireHtml = """
             <html><body>
             <a href="https://www.mediafire.com/file/abc/package.zip/file">Download</a>
+            </body></html>
+            """;
+        const string mediaFireArchiveNamedLandingHtml = """
+            <html><body>
+            <a id="downloadButton" class="input popsok" href="https://download123.mediafire.com/token/ar4aa9p35amxfer/%5BULTIMATE-lopears%5D-miyako.7z">Download</a>
             </body></html>
             """;
         const string googleDriveUnsafeActionHtml = """
@@ -2539,8 +2563,20 @@ public sealed class MainWindowContextMenuResourceTests
             "https://anonymous.bms.ms/data/itsfree_battle.7z",
             MainWindow.ResolveSharedDownloadPageUriForTest(new Uri("https://venue.bmssearch.net/freebattle/30"), venueNextHtml).ToString());
         Assert.AreEqual(
+            "https://drive.usercontent.google.com/download?id=entryCore&export=download",
+            MainWindow.ResolveSharedDownloadPageUriForTest(new Uri("https://venue.bmssearch.net/bmstukuru2025/80"), venueMixedPackageHtml).ToString());
+        Assert.AreEqual(
+            "https://drive.usercontent.google.com/download?id=entryTypeFirst&export=download",
+            MainWindow.ResolveSharedDownloadPageUriForTest(new Uri("https://venue.bmssearch.net/bmstukuru2025/80"), venueTypeFirstCoreHtml).ToString());
+        Assert.AreEqual(
+            "https://drive.usercontent.google.com/download?id=entryAnchor&export=download",
+            MainWindow.ResolveSharedDownloadPageUriForTest(new Uri("https://venue.bmssearch.net/bmstukuru2025/80"), venuePackageAnchorHtml).ToString());
+        Assert.AreEqual(
             "https://www.mediafire.com/file/abc/package.zip/file",
             MainWindow.ResolveSharedDownloadPageUriForTest(new Uri("https://venue.bmssearch.net/freebattle/30"), venueMediaFireHtml).ToString());
+        Assert.AreEqual(
+            "https://download123.mediafire.com/token/ar4aa9p35amxfer/%5BULTIMATE-lopears%5D-miyako.7z",
+            MainWindow.ResolveSharedDownloadPageUriForTest(new Uri("https://www.mediafire.com/file/ar4aa9p35amxfer/%5BULTIMATE-lopears%5D-miyako.7z"), mediaFireArchiveNamedLandingHtml).ToString());
         Assert.IsNull(MainWindow.ResolveSharedDownloadPageUriForTest(new Uri("https://drive.usercontent.google.com/download?id=abc123&export=download"), googleDriveUnsafeActionHtml));
         Assert.IsNull(MainWindow.ResolveSharedDownloadPageUriForTest(new Uri("https://www.mediafire.com/file/abc/package.zip/file"), mediaFireUnsafeHostHtml));
         Assert.IsNull(MainWindow.ResolveSharedDownloadPageUriForTest(new Uri("https://evilmediafire.com/file/abc/package.zip/file"), mediaFireHtml));
@@ -2548,6 +2584,36 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsNull(MainWindow.ResolveSharedDownloadPageUriForTest(new Uri("https://venue.bmssearch.net/event/1/1"), venueUnsafeHostHtml));
         Assert.IsNull(MainWindow.ResolveSharedDownloadPageUriForTest(new Uri("https://venue.bmssearch.net/freebattle/30"), venueSourcePageOnlyHtml));
         Assert.IsNull(MainWindow.ResolveSharedDownloadPageUriForTest(new Uri("https://venue.bmssearch.net/freebattle/30"), venueGoogleDriveFolderOnlyHtml));
+    }
+
+    [TestMethod]
+    public void PlaylistUrlDownload_ResolvesContentDispositionFileName()
+    {
+        Assert.AreEqual(
+            "BMSをたくさん作るぜ'25_250126更新分.zip",
+            MainWindow.ResolveContentDispositionFileNameForTest("attachment; filename*=UTF-8''BMS%E3%82%92%E3%81%9F%E3%81%8F%E3%81%95%E3%82%93%E4%BD%9C%E3%82%8B%E3%81%9C%2725_250126%E6%9B%B4%E6%96%B0%E5%88%86.zip"));
+
+        string mojibake = Encoding.GetEncoding("ISO-8859-1").GetString(Encoding.UTF8.GetBytes("BMSをたくさん作るぜ'25_250126更新分.zip"));
+        Assert.AreEqual(
+            "BMSをたくさん作るぜ'25_250126更新分.zip",
+            MainWindow.ResolveContentDispositionFileNameForTest("attachment; filename=\"" + mojibake + "\""));
+    }
+
+    [TestMethod]
+    public void PlaylistUrlDownload_CreatesStableResolvedDownloadKeys()
+    {
+        Assert.AreEqual(
+            "gdrive:abc123",
+            MainWindow.CreatePlaylistUrlDownloadKeyForTest(new Uri("https://drive.usercontent.google.com/download?id=abc123&export=download&confirm=t&uuid=volatile")));
+        Assert.AreEqual(
+            "gdrive:abc123",
+            MainWindow.CreatePlaylistUrlDownloadKeyForTest(new Uri("https://drive.google.com/file/d/abc123/view?usp=sharing")));
+        Assert.AreEqual(
+            "mediafire:ar4aa9p35amxfer",
+            MainWindow.CreatePlaylistUrlDownloadKeyForTest(new Uri("https://download123.mediafire.com/token/ar4aa9p35amxfer/%5BULTIMATE-lopears%5D-miyako.7z")));
+        Assert.AreEqual(
+            "mediafire:ar4aa9p35amxfer",
+            MainWindow.CreatePlaylistUrlDownloadKeyForTest(new Uri("https://www.mediafire.com/file/ar4aa9p35amxfer/%5BULTIMATE-lopears%5D-miyako.7z/file")));
     }
 
     [TestMethod]
