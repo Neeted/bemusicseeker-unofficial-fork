@@ -705,6 +705,20 @@
                       </FrameworkContentElement.Resources>
                       <List>
                         <ListItem>
+                          <Paragraph FontWeight="Bold">2.1.2.0:</Paragraph>
+                          <List MarkerStyle="Box">
+                            <ListItem>
+                              <Paragraph>プレイリスト詳細の複数行選択メニューから本体 URL / 差分 URL を取り込む処理を改善し、MediaFire、Google Drive、bmssearch.net などの URL 解決や重複ダウンロードを起こしにくくしました。</Paragraph>
+                            </ListItem>
+                            <ListItem>
+                              <Paragraph>大量の URL を取り込む際に、ダウンロード後のアーカイブ解凍で現在何個目を処理しているかを進捗表示に出すようにしました。</Paragraph>
+                            </ListItem>
+                            <ListItem>
+                              <Paragraph>URL 取り込み中のキャンセルに対応し、キャンセルまでに取得できたファイルは導入キューへ渡しつつ、結果表示とログで未処理件数や失敗原因を確認しやすくしました。</Paragraph>
+                            </ListItem>
+                          </List>
+                        </ListItem>
+                        <ListItem>
                           <Paragraph FontWeight="Bold">2.1.1.0:</Paragraph>
                           <List MarkerStyle="Box">
                             <ListItem>
