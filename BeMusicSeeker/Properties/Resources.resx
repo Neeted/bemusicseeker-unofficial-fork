@@ -2238,13 +2238,14 @@ maintenance の再スキャンや chart_info の全譜面補完は行いませ�
 スキップ(ブラウザ): {2}
 スキップ(サイズ上限): {3}
 スキップ(重複): {4}
-失敗: {5}</value>
+失敗: {5}
+キャンセルにより未処理: {6}</value>
   </data>
   <data name="Warn_SelectedPlaylistUrlDownloadNoTargets" xml:space="preserve">
     <value>選択範囲に対象 URL がありません。</value>
   </data>
   <data name="Warn_SelectedPlaylistUrlDownloadBlockedByInstallQueue" xml:space="preserve">
-    <value>キャンセル可能な導入処理が実行中のため、URL 取り込みを開始できません。
+    <value>導入処理が実行中のため、URL 取り込みを開始できません。
 導入処理の完了後、またはキャンセル後に再実行してください。</value>
   </data>
   <data name="Warn_DropInstallBlockedByPlaylistUrlDownload" xml:space="preserve">

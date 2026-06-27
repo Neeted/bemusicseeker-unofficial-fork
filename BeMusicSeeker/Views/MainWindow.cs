@@ -272,6 +272,14 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private bool playlistUrlBulkDownloadRunning;
 
+    private CancellationTokenSource playlistUrlBulkDownloadCancellation;
+
+    private int playlistUrlBulkDownloadTotalCount;
+
+    private int playlistUrlBulkDownloadCompletedCount;
+
+    private string playlistUrlBulkDownloadCurrentDisplayName = string.Empty;
+
     private TreeSelectionSection _currentTreeSelectionSection = TreeSelectionSection.None;
 
     private readonly PropertyChangedEventListener settingsDefaultEventListnener;
@@ -6918,7 +6926,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Warn_SelectedPlaylistUrlDownloadNoTargets, BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
             return;
         }
-        if (base.DataContext is MainWindowViewModel { DropInstallQueueCanCancel: true })
+        if (base.DataContext is MainWindowViewModel { IsDropInstallQueueActive: true })
         {
             UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Warn_SelectedPlaylistUrlDownloadBlockedByInstallQueue, BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
             return;
@@ -6937,14 +6945,22 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         int blockedBySizeLimitCount = 0;
         int duplicateCount = 0;
         int failedCount = 0;
+        int canceledCount = 0;
         var viewModel = base.DataContext as MainWindowViewModel;
+        var cancellation = new CancellationTokenSource();
         playlistUrlBulkDownloadRunning = true;
+        playlistUrlBulkDownloadCancellation = cancellation;
         try
         {
             for (int i = 0; i < targets.Count; i++)
             {
+                if (cancellation.IsCancellationRequested)
+                {
+                    canceledCount = targets.Count - i;
+                    break;
+                }
                 Uri target = targets[i];
-                viewModel?.UpdatePlaylistUrlDownloadStatus(true, targets.Count, i, target.ToString());
+                UpdatePlaylistUrlBulkDownloadStatus(viewModel, true, targets.Count, i, target.ToString(), canCancel: true);
                 PlaylistUrlDownloadResult result = await DownloadPlaylistUrlCandidateAsync(target, downloadedKeys);
                 switch (result.Kind)
                 {
@@ -6964,13 +6980,20 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                         browserFallbackCount++;
                         break;
                 }
-                viewModel?.UpdatePlaylistUrlDownloadStatus(true, targets.Count, i + 1, target.ToString());
+                UpdatePlaylistUrlBulkDownloadStatus(viewModel, true, targets.Count, i + 1, target.ToString(), canCancel: !cancellation.IsCancellationRequested);
+                if (cancellation.IsCancellationRequested)
+                {
+                    canceledCount = targets.Count - i - 1;
+                    break;
+                }
             }
         }
         finally
         {
             playlistUrlBulkDownloadRunning = false;
-            viewModel?.UpdatePlaylistUrlDownloadStatus(false, 0, 0, string.Empty);
+            playlistUrlBulkDownloadCancellation = null;
+            UpdatePlaylistUrlBulkDownloadStatus(viewModel, false, 0, 0, string.Empty, canCancel: false);
+            cancellation.Dispose();
         }
         if (downloadedPaths.Count > 0)
         {
@@ -6984,7 +7007,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             browserFallbackCount,
             blockedBySizeLimitCount,
             duplicateCount,
-            failedCount);
+            failedCount,
+            canceledCount);
         UiDialogRoute.ShowMessageBox(
             Window.GetWindow(this),
             resultMessage,
@@ -6992,6 +7016,41 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             MessageBoxButton.OK,
             downloadedPaths.Count > 0 ? MessageBoxImage.Asterisk : MessageBoxImage.Exclamation,
             MessageBoxResult.OK);
+    }
+
+    private void UpdatePlaylistUrlBulkDownloadStatus(MainWindowViewModel viewModel, bool isActive, int totalCount, int completedCount, string currentDisplayName, bool canCancel)
+    {
+        if (isActive)
+        {
+            playlistUrlBulkDownloadTotalCount = Math.Max(0, totalCount);
+            playlistUrlBulkDownloadCompletedCount = Math.Max(0, completedCount);
+            playlistUrlBulkDownloadCurrentDisplayName = currentDisplayName ?? string.Empty;
+        }
+        else
+        {
+            playlistUrlBulkDownloadTotalCount = 0;
+            playlistUrlBulkDownloadCompletedCount = 0;
+            playlistUrlBulkDownloadCurrentDisplayName = string.Empty;
+        }
+        viewModel?.UpdatePlaylistUrlDownloadStatus(isActive, totalCount, completedCount, currentDisplayName, canCancel);
+    }
+
+    private void CancelPlaylistUrlBulkDownload()
+    {
+        CancellationTokenSource cancellation = playlistUrlBulkDownloadCancellation;
+        if (!playlistUrlBulkDownloadRunning || cancellation == null || cancellation.IsCancellationRequested)
+        {
+            return;
+        }
+        cancellation.Cancel();
+        LogPlaylistUrlDownload("playlist_url_download cancel_requested completed=" + playlistUrlBulkDownloadCompletedCount + " total=" + playlistUrlBulkDownloadTotalCount + " current=" + SanitizePlaylistUrlDownloadLogValue(playlistUrlBulkDownloadCurrentDisplayName));
+        UpdatePlaylistUrlBulkDownloadStatus(
+            base.DataContext as MainWindowViewModel,
+            true,
+            playlistUrlBulkDownloadTotalCount,
+            playlistUrlBulkDownloadCompletedCount,
+            playlistUrlBulkDownloadCurrentDisplayName,
+            canCancel: false);
     }
 
     private void tableContextMenuItemOpenDocumentFileClick(object sender, RoutedEventArgs e)
@@ -7484,8 +7543,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 using AppHttpResponse response = AppHttpClient.Shared.OpenRead(normalizedUri);
                 return DownloadPlaylistUrlResponseCandidate(normalizedUri, response, tempDirectory, allowSharedPageResolution: true, downloadedKeys);
             }
-            catch
+            catch (Exception ex)
             {
+                LogPlaylistUrlDownload("playlist_url_download failed source=" + uri + " normalized=" + normalizedUri + " errorType=" + ex.GetType().FullName + " error=" + SanitizePlaylistUrlDownloadLogValue(ex.Message));
                 return PlaylistUrlDownloadResult.Failed();
             }
         });
@@ -7508,6 +7568,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             }
             if (response.ContentLength.Value > DownloadAndInstallSizeLimitBytes)
             {
+                LogPlaylistUrlDownload("playlist_url_download blocked_size_limit source=" + requestedUri + " response=" + (response?.ResponseUri?.ToString() ?? string.Empty) + " contentLength=" + response.ContentLength.Value + " limitBytes=" + DownloadAndInstallSizeLimitBytes);
                 return PlaylistUrlDownloadResult.BlockedBySizeLimit();
             }
         }
@@ -7563,6 +7624,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         string filePath = Path.Combine(tempDirectory, fileName);
         if (!TryCopyStreamToFileWithLimit(response.ResponseStream, filePath, DownloadAndInstallSizeLimitBytes))
         {
+            LogPlaylistUrlDownload("playlist_url_download blocked_size_limit source=" + requestedUri + " response=" + (response?.ResponseUri?.ToString() ?? string.Empty) + " file=" + fileName + " limitBytes=" + DownloadAndInstallSizeLimitBytes);
             return PlaylistUrlDownloadResult.BlockedBySizeLimit();
         }
         if (!string.IsNullOrWhiteSpace(downloadKey))
@@ -7617,6 +7679,14 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             installPerformanceLogger.Info(message);
         }
+    }
+
+    private static string SanitizePlaylistUrlDownloadLogValue(string value)
+    {
+        return (value ?? string.Empty)
+            .Replace("\r", " ")
+            .Replace("\n", " ")
+            .Trim();
     }
 
     private static string CreatePlaylistUrlDownloadKey(Uri uri)
@@ -8702,6 +8772,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void cancelDropInstallQueueClick(object sender, RoutedEventArgs e)
     {
+        if (playlistUrlBulkDownloadRunning)
+        {
+            CancelPlaylistUrlBulkDownload();
+            return;
+        }
         (base.DataContext as MainWindowViewModel)?.CancelDroppedInstallQueue();
     }
 

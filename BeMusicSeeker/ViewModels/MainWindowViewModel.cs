@@ -9323,6 +9323,8 @@ public class MainWindowViewModel : ViewModel
 
     private string playlistUrlDownloadCurrentDisplayName = string.Empty;
 
+    private bool playlistUrlDownloadCanCancel;
+
     private bool _IsInstallPipelineStatusActive;
 
     private string _InstallPipelineLabel = string.Empty;
@@ -25742,7 +25744,7 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
-    internal void UpdatePlaylistUrlDownloadStatus(bool isActive, int totalCount, int completedCount, string currentDisplayName)
+    internal void UpdatePlaylistUrlDownloadStatus(bool isActive, int totalCount, int completedCount, string currentDisplayName, bool canCancel = false)
     {
         Action reflect = delegate
         {
@@ -25750,6 +25752,7 @@ public class MainWindowViewModel : ViewModel
             playlistUrlDownloadTotalCount = isActive ? Math.Max(0, totalCount) : 0;
             playlistUrlDownloadCompletedCount = isActive ? Math.Max(0, completedCount) : 0;
             playlistUrlDownloadCurrentDisplayName = isActive ? (currentDisplayName ?? string.Empty) : string.Empty;
+            playlistUrlDownloadCanCancel = isActive && canCancel;
             RefreshInstallPipelineStatus();
         };
         if (DispatcherHelper.UIDispatcher == null || DispatcherHelper.UIDispatcher.CheckAccess())
@@ -25791,7 +25794,7 @@ public class MainWindowViewModel : ViewModel
             InstallPipelineSubLabel = playlistUrlDownloadCurrentDisplayName ?? string.Empty;
             InstallPipelineMaximum = Math.Max(1, playlistUrlDownloadTotalCount);
             InstallPipelineValue = Math.Max(0, playlistUrlDownloadCompletedCount);
-            InstallPipelineCanCancel = false;
+            InstallPipelineCanCancel = playlistUrlDownloadCanCancel;
             return;
         }
         bool dropActive = latestDropInstallQueueStatus != null && latestDropInstallQueueStatus.IsActive;
