@@ -492,6 +492,7 @@
   "Cancel": "취소",
   "Close": "닫기",
   "Drop_install_queue_label_format": "설치 중: {0}건 (대기 {1} 배치)",
+  "Drop_install_queue_extracting_sub_label_format": "압축 해제 중: {0}/{1} {2}",
   "Pending_estimate_queue_label_format": "보류 추정: {0}/{1}건 (대기 {2} 배치)",
   "Playlist_url_download_progress_label_format": "Importing URLs: {0}/{1}",
   "Pending_estimate_queue_startup_display_name": "시작 시 보류 항목",

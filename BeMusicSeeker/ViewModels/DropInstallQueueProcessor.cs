@@ -28,6 +28,14 @@ internal sealed class DropInstallQueueProcessor(Action<DroppedInstallBatchReques
 
     private int activeCompletedPathCount;
 
+    private bool activeCurrentWorkInProgress;
+
+    private int activeCurrentWorkIndex;
+
+    private int activeCurrentWorkTotal;
+
+    private string activeCurrentWorkDisplayName = string.Empty;
+
     public bool IsIdle
     {
         get
@@ -109,6 +117,29 @@ internal sealed class DropInstallQueueProcessor(Action<DroppedInstallBatchReques
                 return;
             }
             activeCompletedPathCount = Math.Max(0, Math.Min(completedPathCount, activeBatch.PathCount));
+            if (activeCurrentWorkInProgress)
+            {
+                ClearActiveCurrentWorkUnsafe();
+            }
+            snapshot = CaptureStatusSnapshotUnsafe();
+        }
+        statusChanged(snapshot);
+    }
+
+    public void ReportActiveBatchCurrentWork(int currentPathIndex, int totalPathCount, string displayName)
+    {
+        DropInstallQueueStatusSnapshot snapshot;
+        lock (syncRoot)
+        {
+            if (activeBatch == null)
+            {
+                return;
+            }
+            int normalizedTotalPathCount = Math.Max(0, totalPathCount);
+            activeCurrentWorkInProgress = currentPathIndex > 0 && normalizedTotalPathCount > 0;
+            activeCurrentWorkIndex = Math.Max(0, Math.Min(currentPathIndex, normalizedTotalPathCount));
+            activeCurrentWorkTotal = normalizedTotalPathCount;
+            activeCurrentWorkDisplayName = displayName ?? string.Empty;
             snapshot = CaptureStatusSnapshotUnsafe();
         }
         statusChanged(snapshot);
@@ -130,6 +161,7 @@ internal sealed class DropInstallQueueProcessor(Action<DroppedInstallBatchReques
                     cancelRequested = false;
                     activeBatch = null;
                     activeCompletedPathCount = 0;
+                    ClearActiveCurrentWorkUnsafe();
                     activeCancellationTokenSource?.Dispose();
                     activeCancellationTokenSource = null;
                     snapshot = CaptureStatusSnapshotUnsafe();
@@ -140,6 +172,7 @@ internal sealed class DropInstallQueueProcessor(Action<DroppedInstallBatchReques
                     batch = pendingBatches.Dequeue();
                     activeBatch = batch;
                     activeCompletedPathCount = 0;
+                    ClearActiveCurrentWorkUnsafe();
                     activeCancellationTokenSource?.Dispose();
                     activeCancellationTokenSource = new CancellationTokenSource();
                     cancellationTokenSource = activeCancellationTokenSource;
@@ -169,6 +202,7 @@ internal sealed class DropInstallQueueProcessor(Action<DroppedInstallBatchReques
                 {
                     activeBatch = null;
                     activeCompletedPathCount = 0;
+                    ClearActiveCurrentWorkUnsafe();
                     activeCancellationTokenSource?.Dispose();
                     activeCancellationTokenSource = null;
                     if (cancelRequested)
@@ -208,7 +242,19 @@ internal sealed class DropInstallQueueProcessor(Action<DroppedInstallBatchReques
             PendingBatchCount = pendingCount,
             TotalPathCount = displayedBatch?.PathCount ?? 0,
             CompletedPathCount = (activeBatch != null) ? activeCompletedPathCount : 0,
-            CurrentDisplayName = displayedBatch?.DisplayName ?? string.Empty
+            CurrentDisplayName = displayedBatch?.DisplayName ?? string.Empty,
+            IsCurrentWorkInProgress = activeBatch != null && activeCurrentWorkInProgress,
+            CurrentWorkIndex = (activeBatch != null) ? activeCurrentWorkIndex : 0,
+            CurrentWorkTotal = (activeBatch != null) ? activeCurrentWorkTotal : 0,
+            CurrentWorkDisplayName = (activeBatch != null) ? activeCurrentWorkDisplayName : string.Empty
         };
+    }
+
+    private void ClearActiveCurrentWorkUnsafe()
+    {
+        activeCurrentWorkInProgress = false;
+        activeCurrentWorkIndex = 0;
+        activeCurrentWorkTotal = 0;
+        activeCurrentWorkDisplayName = string.Empty;
     }
 }

@@ -122,9 +122,12 @@ public sealed class BmsLibraryMutationBoundaryTests
         StringAssert.Contains(forceInstallMethod, "approvedNormalInstallOverridePackages");
         StringAssert.Contains(forceInstallMethod, "approveNormalInstallOverride: false");
         StringAssert.Contains(repairInstallDestinationMethod, "RunChartPackageMutation");
-        StringAssert.Contains(autoInstallLibraryMethod, "deferredSourceProcessedCount");
-        StringAssert.Contains(autoInstallLibraryMethod, "() => deferredSourceProcessedCount++");
-        StringAssert.Contains(autoInstallLibraryMethod, "onEachSourceProcessed?.Invoke()");
+        Assert.IsFalse(autoInstallLibraryMethod.Contains("deferredSourceProcessedCount"));
+        StringAssert.Contains(autoInstallLibraryMethod, "onEachSourceProcessed");
+        StringAssert.Contains(autoInstallLibraryMethod, "onEachArchiveExtractStarted");
+        Assert.IsTrue(
+            autoInstallLibraryMethod.IndexOf("packageInstallService.ExpandInstallSources", StringComparison.Ordinal) < autoInstallLibraryMethod.IndexOf("rwlockBMSFilesInitializedAll.GetReaderGuard", StringComparison.Ordinal),
+            "Archive expansion progress callbacks should be emitted before BMS state locks are acquired.");
         StringAssert.Contains(pendingOverwriteMethod, "deferredProcessedCount");
         StringAssert.Contains(pendingOverwriteMethod, "() => deferredProcessedCount++");
         StringAssert.Contains(pendingOverwriteMethod, "InvokeDeferredProcessedCallbacks");

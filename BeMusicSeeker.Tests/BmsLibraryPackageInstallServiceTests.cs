@@ -3030,6 +3030,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
             File.Copy(GetArchiveFixturePath(archiveFileName), archivePath);
             var service = new BmsLibraryPackageInstallService();
             List<string> logs = [];
+            int processedCount = 0;
+            var startedArchives = new List<string>();
 
             try
             {
@@ -3039,13 +3041,16 @@ public sealed class BmsLibraryPackageInstallServiceTests
                     new FileMutationOptions(ReadOnlyNormalizationScope.TargetOnly),
                     logs.Add,
                     null,
-                    null);
+                    () => processedCount++,
+                    (path, index, total) => startedArchives.Add(index + "/" + total + ":" + Path.GetFileName(path)));
 
                 Assert.AreEqual(1, expandedPaths.Count);
                 string extractedDirectoryPath = expandedPaths[0];
                 string extractedChartPath = Path.Combine(extractedDirectoryPath, "maybe_H.bms");
                 Assert.IsTrue(File.Exists(extractedChartPath));
                 Assert.AreEqual(GetExpectedArchiveLastWriteTime(), File.GetLastWriteTime(extractedChartPath));
+                Assert.AreEqual(1, processedCount);
+                CollectionAssert.AreEqual(new[] { "1/1:" + archiveFileName }, startedArchives);
                 Assert.IsFalse(logs.Any(message => message.IndexOf("extract_failed", StringComparison.OrdinalIgnoreCase) >= 0));
                 Assert.IsFalse(logs.Any(message => message.IndexOf("metadata_restore_required_failed", StringComparison.OrdinalIgnoreCase) >= 0));
             }
@@ -3072,6 +3077,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
             var service = new BmsLibraryPackageInstallService();
             List<string> logs = [];
             var dialogService = new RecordingDialogService();
+            int processedCount = 0;
+            var startedArchives = new List<string>();
 
             try
             {
@@ -3081,13 +3088,55 @@ public sealed class BmsLibraryPackageInstallServiceTests
                     new FileMutationOptions(ReadOnlyNormalizationScope.TargetOnly),
                     logs.Add,
                     dialogService,
-                    null);
+                    () => processedCount++,
+                    (path, index, total) => startedArchives.Add(index + "/" + total + ":" + Path.GetFileName(path)));
 
                 Assert.AreEqual(0, expandedPaths.Count);
+                Assert.AreEqual(1, processedCount);
+                CollectionAssert.AreEqual(new[] { "1/1:" + archiveFileName }, startedArchives);
                 Assert.IsTrue(logs.Any(message => message.IndexOf("metadata_restore_required_failed", StringComparison.OrdinalIgnoreCase) >= 0));
                 Assert.IsTrue(logs.Any(message => message.IndexOf(".bms", StringComparison.OrdinalIgnoreCase) >= 0));
                 Assert.AreEqual(1, dialogService.Messages.Count);
                 Assert.IsTrue(dialogService.Messages[0].IndexOf("更新日時", StringComparison.OrdinalIgnoreCase) >= 0);
+            }
+            finally
+            {
+                global::BeMusicSeeker.TempDirectoryPublisher.RemoveAll();
+            }
+        });
+    }
+
+    [TestMethod]
+    [DoNotParallelize]
+    public void ExpandInstallSources_ReportsArchiveOrdinalAmongArchivesOnly()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string directoryPath = Path.Combine(tempDirectoryPath, "source-folder");
+            Directory.CreateDirectory(directoryPath);
+            string firstArchivePath = Path.Combine(tempDirectoryPath, "first.zip");
+            string secondArchivePath = Path.Combine(tempDirectoryPath, "second.7z");
+            File.Copy(GetArchiveFixturePath("fixture.zip"), firstArchivePath);
+            File.Copy(GetArchiveFixturePath("fixture.7z"), secondArchivePath);
+            var service = new BmsLibraryPackageInstallService();
+            int processedCount = 0;
+            var startedArchives = new List<string>();
+
+            try
+            {
+                List<string> expandedPaths = service.ExpandInstallSources(
+                    [directoryPath, firstArchivePath, secondArchivePath],
+                    new RealFileMutationService(),
+                    new FileMutationOptions(ReadOnlyNormalizationScope.TargetOnly),
+                    null,
+                    null,
+                    () => processedCount++,
+                    (path, index, total) => startedArchives.Add(index + "/" + total + ":" + Path.GetFileName(path)));
+
+                Assert.AreEqual(3, expandedPaths.Count);
+                Assert.AreEqual(3, processedCount);
+                CollectionAssert.AreEqual(new[] { "1/2:first.zip", "2/2:second.7z" }, startedArchives);
             }
             finally
             {

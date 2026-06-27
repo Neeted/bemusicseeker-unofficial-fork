@@ -200,4 +200,71 @@ public sealed class DropInstallQueueProcessorTests
             CollectionAssert.AreEqual(new[] { "boom" }, errors);
         }
     }
+
+    [TestMethod]
+    public void ReportActiveBatchCurrentWork_ReportsAndClearsCurrentWork()
+    {
+        List<DropInstallQueueStatusSnapshot> snapshots = [];
+        object syncRoot = new();
+        var currentWorkReported = new ManualResetEventSlim(initialState: false);
+        var releaseBatch = new ManualResetEventSlim(initialState: false);
+        var queueBecameInactive = new ManualResetEventSlim(initialState: false);
+        DropInstallQueueProcessor processor = null!;
+        processor = new DropInstallQueueProcessor(
+            delegate (DroppedInstallBatchRequest request, CancellationToken token)
+            {
+                processor.ReportActiveBatchCurrentWork(1, 3, "a.zip");
+                if (!releaseBatch.Wait(3000))
+                {
+                    throw new AssertFailedException("The active batch was not released in time.");
+                }
+                processor.ReportActiveBatchProgress(1);
+            },
+            delegate (DropInstallQueueStatusSnapshot snapshot)
+            {
+                lock (syncRoot)
+                {
+                    snapshots.Add(snapshot);
+                }
+                if (snapshot.IsActive
+                    && snapshot.IsCurrentWorkInProgress
+                    && snapshot.CurrentWorkIndex == 1
+                    && snapshot.CurrentWorkTotal == 3
+                    && snapshot.CurrentWorkDisplayName == "a.zip")
+                {
+                    currentWorkReported.Set();
+                }
+                if (!snapshot.IsActive)
+                {
+                    queueBecameInactive.Set();
+                }
+            });
+
+        processor.Enqueue([@"C:\queue\a.zip", @"C:\queue\b.zip", @"C:\queue\c.zip"]);
+
+        Assert.IsTrue(currentWorkReported.Wait(3000), "Current work progress was not reported.");
+        releaseBatch.Set();
+        Assert.IsTrue(queueBecameInactive.Wait(5000), "Queue did not return to the inactive state.");
+
+        lock (syncRoot)
+        {
+            DropInstallQueueStatusSnapshot currentWorkSnapshot = snapshots.First(snapshot => snapshot.IsCurrentWorkInProgress);
+            Assert.AreEqual(0, currentWorkSnapshot.CompletedPathCount);
+            Assert.AreEqual(1, currentWorkSnapshot.CurrentWorkIndex);
+            Assert.AreEqual(3, currentWorkSnapshot.CurrentWorkTotal);
+            Assert.AreEqual("a.zip", currentWorkSnapshot.CurrentWorkDisplayName);
+
+            DropInstallQueueStatusSnapshot completedSnapshot = snapshots.First(snapshot => snapshot.IsActive && snapshot.CompletedPathCount == 1);
+            Assert.IsFalse(completedSnapshot.IsCurrentWorkInProgress);
+            Assert.AreEqual(0, completedSnapshot.CurrentWorkIndex);
+            Assert.AreEqual(string.Empty, completedSnapshot.CurrentWorkDisplayName);
+
+            DropInstallQueueStatusSnapshot inactiveSnapshot = snapshots.Last();
+            Assert.IsFalse(inactiveSnapshot.IsActive);
+            Assert.IsFalse(inactiveSnapshot.IsCurrentWorkInProgress);
+            Assert.AreEqual(0, inactiveSnapshot.CurrentWorkIndex);
+            Assert.AreEqual(0, inactiveSnapshot.CurrentWorkTotal);
+            Assert.AreEqual(string.Empty, inactiveSnapshot.CurrentWorkDisplayName);
+        }
+    }
 }

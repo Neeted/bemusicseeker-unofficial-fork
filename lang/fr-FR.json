@@ -492,6 +492,7 @@
   "Cancel": "Annuler",
   "Close": "Fermer",
   "Drop_install_queue_label_format": "Installation : {0} éléments ({1} lots en attente)",
+  "Drop_install_queue_extracting_sub_label_format": "Extraction : {0}/{1} {2}",
   "Pending_estimate_queue_label_format": "Estimation en attente : {0}/{1} paquets ({2} lots en attente)",
   "Playlist_url_download_progress_label_format": "Importing URLs: {0}/{1}",
   "Pending_estimate_queue_startup_display_name": "En attente au démarrage",

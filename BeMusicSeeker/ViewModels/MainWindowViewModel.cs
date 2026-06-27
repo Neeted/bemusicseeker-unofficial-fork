@@ -25558,7 +25558,7 @@ public class MainWindowViewModel : ViewModel
     /// <param name="installPaths">インストールの対象となるファイルまたはディレクトリパスのコレクション。</param>
     /// <param name="token">処理を中止するためのキャンセレーショントークン。</param>
     /// <param name="onEachCompleted">インストール処理完了時に呼ばれるコールバック。</param>
-    public void InstallChartPackages(IEnumerable<string> installPaths, CancellationToken token = default, Action<bool> onEachCompleted = null, Action onEachPathProcessed = null)
+    public void InstallChartPackages(IEnumerable<string> installPaths, CancellationToken token = default, Action<bool> onEachCompleted = null, Action onEachPathProcessed = null, Action<string, int, int> onEachArchiveExtractStarted = null)
     {
         if (files == null)
         {
@@ -25576,7 +25576,7 @@ public class MainWindowViewModel : ViewModel
             {
                 if (!token.IsCancellationRequested)
                 {
-                    list.AddRange(files.InstallChartPackagesAuto(normalizedInstallPaths, token, onEachPathProcessed));
+                    list.AddRange(files.InstallChartPackagesAuto(normalizedInstallPaths, token, onEachPathProcessed, onEachArchiveExtractStarted));
                 }
             }, refreshMask: UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree | UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.DuplicateTree);
         }
@@ -25612,6 +25612,17 @@ public class MainWindowViewModel : ViewModel
         dropInstallQueueProcessor?.CancelAll();
     }
 
+    private static string GetInstallPathDisplayName(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return string.Empty;
+        }
+        string trimmed = path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        string fileName = Path.GetFileName(trimmed);
+        return string.IsNullOrWhiteSpace(fileName) ? path : fileName;
+    }
+
     private void ProcessDroppedInstallBatch(DroppedInstallBatchRequest request, CancellationToken token)
     {
         if (request == null || request.PathCount == 0 || files == null)
@@ -25623,6 +25634,9 @@ public class MainWindowViewModel : ViewModel
         {
             completedPathCount++;
             dropInstallQueueProcessor?.ReportActiveBatchProgress(completedPathCount);
+        }, delegate (string path, int index, int total)
+        {
+            dropInstallQueueProcessor?.ReportActiveBatchCurrentWork(index, total, GetInstallPathDisplayName(path));
         });
     }
 
@@ -25663,7 +25677,7 @@ public class MainWindowViewModel : ViewModel
             else
             {
                 DropInstallQueueLabel = string.Format(BeMusicSeeker.Properties.Resources.Drop_install_queue_label_format, Math.Max(0, snapshot.CompletedPathCount), Math.Max(0, snapshot.TotalPathCount), snapshot.PendingBatchCount);
-                DropInstallQueueSubLabel = snapshot.CurrentDisplayName ?? string.Empty;
+                DropInstallQueueSubLabel = GetDropInstallQueueSubLabel(snapshot);
             }
             RefreshInstallPipelineStatus();
         };
@@ -25748,6 +25762,23 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
+    private static string GetDropInstallQueueSubLabel(DropInstallQueueStatusSnapshot snapshot)
+    {
+        if (snapshot == null)
+        {
+            return string.Empty;
+        }
+        if (snapshot.IsCurrentWorkInProgress && snapshot.CurrentWorkIndex > 0 && snapshot.CurrentWorkTotal > 0)
+        {
+            return string.Format(
+                BeMusicSeeker.Properties.Resources.Drop_install_queue_extracting_sub_label_format,
+                Math.Max(0, snapshot.CurrentWorkIndex),
+                Math.Max(0, snapshot.CurrentWorkTotal),
+                snapshot.CurrentWorkDisplayName ?? string.Empty);
+        }
+        return snapshot.CurrentDisplayName ?? string.Empty;
+    }
+
     private void RefreshInstallPipelineStatus()
     {
         if (playlistUrlDownloadStatusActive)
@@ -25775,9 +25806,12 @@ public class MainWindowViewModel : ViewModel
                 Math.Max(0, latestDropInstallQueueStatus.CompletedPathCount),
                 Math.Max(0, latestDropInstallQueueStatus.TotalPathCount),
                 pendingBatchCount);
-            InstallPipelineSubLabel = latestDropInstallQueueStatus.CurrentDisplayName ?? string.Empty;
-            InstallPipelineMaximum = Math.Max(1, latestDropInstallQueueStatus.TotalPathCount);
-            InstallPipelineValue = Math.Max(0, latestDropInstallQueueStatus.CompletedPathCount);
+            InstallPipelineSubLabel = GetDropInstallQueueSubLabel(latestDropInstallQueueStatus);
+            int currentWorkTotal = Math.Max(0, latestDropInstallQueueStatus.CurrentWorkTotal);
+            int currentWorkIndex = Math.Max(0, latestDropInstallQueueStatus.CurrentWorkIndex);
+            bool showCurrentWorkProgress = latestDropInstallQueueStatus.IsCurrentWorkInProgress && currentWorkTotal > 0 && currentWorkIndex > 0;
+            InstallPipelineMaximum = showCurrentWorkProgress ? Math.Max(1, currentWorkTotal) : Math.Max(1, latestDropInstallQueueStatus.TotalPathCount);
+            InstallPipelineValue = showCurrentWorkProgress ? Math.Min(currentWorkIndex, InstallPipelineMaximum) : Math.Max(0, latestDropInstallQueueStatus.CompletedPathCount);
             InstallPipelineCanCancel = latestDropInstallQueueStatus.CanCancel;
             return;
         }

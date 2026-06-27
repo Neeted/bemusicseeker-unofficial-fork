@@ -492,6 +492,7 @@
   "Cancel": "取消",
   "Close": "关闭",
   "Drop_install_queue_label_format": "导入中: {0}项 (等待 {1} 批次)",
+  "Drop_install_queue_extracting_sub_label_format": "解压中: {0}/{1} {2}",
   "Pending_estimate_queue_label_format": "保留推定: {0}/{1}项 (等待 {2} 批次)",
   "Playlist_url_download_progress_label_format": "Importing URLs: {0}/{1}",
   "Pending_estimate_queue_startup_display_name": "启动时保留项",

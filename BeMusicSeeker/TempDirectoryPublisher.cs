@@ -6,18 +6,28 @@ namespace BeMusicSeeker;
 public static class TempDirectoryPublisher
 {
     private static readonly List<string> DirList = [];
+    private static readonly object SyncRoot = new();
 
     public static string Get()
     {
         string text = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
         Directory.CreateDirectory(text);
-        DirList.Add(text);
+        lock (SyncRoot)
+        {
+            DirList.Add(text);
+        }
         return text;
     }
 
     public static void RemoveAll()
     {
-        foreach (string dir in DirList)
+        List<string> dirs;
+        lock (SyncRoot)
+        {
+            dirs = [.. DirList];
+            DirList.Clear();
+        }
+        foreach (string dir in dirs)
         {
             try
             {
@@ -30,6 +40,5 @@ public static class TempDirectoryPublisher
             {
             }
         }
-        DirList.Clear();
     }
 }

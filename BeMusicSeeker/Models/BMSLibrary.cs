@@ -1486,6 +1486,8 @@ public class BMSLibrary : NotificationObject
 
     private bool lr2SongDbSyncPrepareInProgress;
 
+    private int lr2SongDbSyncMutationInProgress;
+
     private CancellationTokenSource lr2SongDbSyncCancellation;
 
     private int _Lr2SongDbSyncRequestedVersion;
@@ -6997,6 +6999,15 @@ completeFileEnumerationOnce,
         bool enabled = options.OperationModeLR2DB;
         string signature = Lr2SongDbSyncSignatureBuilder.Build(options);
         Lr2SongDbSyncStatusSnapshot status;
+        lock (lockLr2SongDbSync)
+        {
+            if (lr2SongDbSyncMutationInProgress > 0)
+            {
+                LogInstallPerformance("lr2_song_db_sync queue_skipped reason=" + (reason ?? "unknown")
+                    + " mutationInProgress=" + lr2SongDbSyncMutationInProgress);
+                return GetLr2SongDbSyncStatusSnapshot();
+            }
+        }
         using (LR2SongDBExtended songDb = dbGateway.OpenSongDb())
         {
             status = Lr2SongDbSyncStatusService.Evaluate(songDb, enabled, signature, DateTime.UtcNow);
@@ -7029,20 +7040,24 @@ completeFileEnumerationOnce,
         bool prepareReserved = false;
         lock (lockLr2SongDbSync)
         {
-            if (_Lr2SongDbSyncRunning || lr2SongDbSyncPrepareInProgress)
+            if (_Lr2SongDbSyncRunning || lr2SongDbSyncPrepareInProgress || lr2SongDbSyncMutationInProgress > 0)
             {
                 LogInstallPerformance("lr2_song_db_sync queue_skipped reason=" + (reason ?? "unknown")
                     + " status=" + status.Status
                     + " stage=" + (Lr2SongDbSyncStage ?? string.Empty)
                     + " requestedVersion=" + Lr2SongDbSyncRequestedVersion
-                    + " preparing=" + lr2SongDbSyncPrepareInProgress.ToString().ToLowerInvariant());
-                status.Status = Lr2SongDbSyncStatusKind.Running;
-                status.Stage = Lr2SongDbSyncStage;
-                status.ProcessedCursor = Lr2SongDbSyncProcessedCount;
-                status.TotalCount = Lr2SongDbSyncTotalCount;
-                status.StageProcessedCount = Lr2SongDbSyncStageProcessedCount;
-                status.StageTotalCount = Lr2SongDbSyncStageTotalCount;
-                PublishLr2SongDbSyncStatus(status);
+                    + " preparing=" + lr2SongDbSyncPrepareInProgress.ToString().ToLowerInvariant()
+                    + " mutationInProgress=" + lr2SongDbSyncMutationInProgress);
+                if (_Lr2SongDbSyncRunning || lr2SongDbSyncPrepareInProgress)
+                {
+                    status.Status = Lr2SongDbSyncStatusKind.Running;
+                    status.Stage = Lr2SongDbSyncStage;
+                    status.ProcessedCursor = Lr2SongDbSyncProcessedCount;
+                    status.TotalCount = Lr2SongDbSyncTotalCount;
+                    status.StageProcessedCount = Lr2SongDbSyncStageProcessedCount;
+                    status.StageTotalCount = Lr2SongDbSyncStageTotalCount;
+                    PublishLr2SongDbSyncStatus(status);
+                }
                 return status;
             }
             if (prepareGeneratedData != null)
@@ -7154,12 +7169,13 @@ completeFileEnumerationOnce,
 
         lock (lockLr2SongDbSync)
         {
-            if (_Lr2SongDbSyncRunning || lr2SongDbSyncPrepareInProgress)
+            if (_Lr2SongDbSyncRunning || lr2SongDbSyncPrepareInProgress || lr2SongDbSyncMutationInProgress > 0)
             {
                 LogInstallPerformance("lr2_song_db_sync_data_prepare skipped reason=" + (reason ?? "unknown")
                     + " stage=" + (Lr2SongDbSyncStage ?? string.Empty)
                     + " requestedVersion=" + Lr2SongDbSyncRequestedVersion
-                    + " preparing=" + lr2SongDbSyncPrepareInProgress.ToString().ToLowerInvariant());
+                    + " preparing=" + lr2SongDbSyncPrepareInProgress.ToString().ToLowerInvariant()
+                    + " mutationInProgress=" + lr2SongDbSyncMutationInProgress);
                 return false;
             }
             lr2SongDbSyncPrepareInProgress = true;
@@ -7288,7 +7304,7 @@ completeFileEnumerationOnce,
     {
         lock (lockLr2SongDbSync)
         {
-            if (_Lr2SongDbSyncRunning)
+            if (_Lr2SongDbSyncRunning || lr2SongDbSyncMutationInProgress > 0)
             {
                 requestVersion = _Lr2SongDbSyncRequestedVersion;
                 return false;
@@ -7469,6 +7485,52 @@ completeFileEnumerationOnce,
                 MessageBoxResult.OK);
         }
         return true;
+    }
+
+    private IDisposable TryBeginLr2SongDbSyncBlockedMutation(string operation, bool showMessage = true)
+    {
+        lock (lockLr2SongDbSync)
+        {
+            if (!_Lr2SongDbSyncRunning && !lr2SongDbSyncPrepareInProgress)
+            {
+                lr2SongDbSyncMutationInProgress++;
+                return new Lr2SongDbSyncBlockedMutationScope(this);
+            }
+            LogInstallPerformance("lr2_song_db_sync_mutation_blocked operation=" + (operation ?? "(unknown)")
+                + " stage=" + (Lr2SongDbSyncStage ?? string.Empty)
+                + " processed=" + Lr2SongDbSyncProcessedCount
+                + " total=" + Lr2SongDbSyncTotalCount
+                + " preparing=" + lr2SongDbSyncPrepareInProgress.ToString().ToLowerInvariant());
+        }
+        if (showMessage)
+        {
+            ShowOperationDialog(
+                Resources.Warn_Lr2SongDbSyncRunning,
+                Resources.MessageBoxTitle_Warning,
+                MessageBoxButton.OK,
+                MessageBoxImage.Exclamation,
+                MessageBoxResult.OK);
+        }
+        return null;
+    }
+
+    private void EndLr2SongDbSyncBlockedMutation()
+    {
+        lock (lockLr2SongDbSync)
+        {
+            lr2SongDbSyncMutationInProgress = Math.Max(0, lr2SongDbSyncMutationInProgress - 1);
+        }
+    }
+
+    private sealed class Lr2SongDbSyncBlockedMutationScope(BMSLibrary owner) : IDisposable
+    {
+        private BMSLibrary owner = owner;
+
+        public void Dispose()
+        {
+            BMSLibrary currentOwner = Interlocked.Exchange(ref owner, null);
+            currentOwner?.EndLr2SongDbSyncBlockedMutation();
+        }
     }
 
     private void ThrowIfLr2SongDbSyncMutationBlocked(string operation)
@@ -17497,7 +17559,7 @@ completeFileEnumerationOnce,
     /// </summary>
     /// <param name="installPaths">インストール元のファイル/ディレクトリパスのコレクション。</param>
     /// <returns>インストール処理された chart package のリスト。</returns>
-    public List<ChartPackage> InstallChartPackagesAuto(IEnumerable<string> installPaths, CancellationToken token = default, Action onEachSourceProcessed = null)
+    public List<ChartPackage> InstallChartPackagesAuto(IEnumerable<string> installPaths, CancellationToken token = default, Action onEachSourceProcessed = null, Action<string, int, int> onEachArchiveExtractStarted = null)
     {
         BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
         List<ChartPackage> pendingPackagesToEstimate = [];
@@ -17506,105 +17568,100 @@ completeFileEnumerationOnce,
         List<ChartPackage> registeredPackages = [];
         List<string> regroupEligibleSourceDirectories = [];
         PendingEstimateSourceBatchSnapshot pendingBatchSourceSnapshot = null;
-        int deferredSourceProcessedCount = 0;
         if (TryBlockLr2SongDbSyncMutation(nameof(InstallChartPackagesAuto)))
         {
             return registeredPackages;
         }
-        try
+        if (installPaths == null || installPaths.Any(path => !LongPathFileSystem.EntryExists(path)))
         {
-            using (rwlockBMSFilesInitializedAll.GetReaderGuard())
+            ShowOperationDialog(Resources.Warn_InstallAbortedFilesNotFound, Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+            return registeredPackages;
+        }
+        if (token.IsCancellationRequested)
+        {
+            return registeredPackages;
+        }
+        installPaths = packageInstallService.ExpandInstallSources(
+            installPaths,
+            fileMutationService,
+            targetOnlyFileMutationOptions,
+            info => NLogWrapper.FileLogger?.Info(info),
+            scopedOperationDialogService,
+            onEachSourceProcessed,
+            onEachArchiveExtractStarted,
+            token);
+        if (token.IsCancellationRequested)
+        {
+            return registeredPackages;
+        }
+        using IDisposable lr2SongDbSyncMutation = TryBeginLr2SongDbSyncBlockedMutation(nameof(InstallChartPackagesAuto));
+        if (lr2SongDbSyncMutation == null)
+        {
+            return registeredPackages;
+        }
+        using (rwlockBMSFilesInitializedAll.GetReaderGuard())
+        {
+            using (rwlockPendingInstallCharts.GetWriterGuard())
             {
-                using (rwlockPendingInstallCharts.GetWriterGuard())
+                using (rwlockBMSFiles.GetWriterGuard())
                 {
-                    using (rwlockBMSFiles.GetWriterGuard())
+                    using (rwlockSongDBInstall.GetWriterGuard())
                     {
-                        using (rwlockSongDBInstall.GetWriterGuard())
+                        AutoInstallWorkflowResult workflow = packageInstallService.PrepareAutoInstallWorkflow(
+                            installPaths,
+                            ChartPackagesPending,
+                            CreateKnownChartDirectorySnapshotUnsafe(),
+                            ContainsInstalledChartUnsafe,
+                            dupRateThreshInOnePkg,
+                            CreateInstalledChartKeySnapshotExcludingChartsUnsafe([], "auto_install_prepare", 0L),
+                            token);
+                        List<ChartPackage> discoveredPackages = [.. workflow.DiscoveredPackages];
+                        LogInstallPerformance("auto_install_prepare discovered=" + discoveredPackages.Count + " autoInstall=" + workflow.AutoInstallCandidates.Count + " pendingAdd=" + workflow.PendingPackagesToAdd.Count + " pendingRemove=" + workflow.PendingPackagesToRemove.Count + " discoveryMs=" + workflow.DiscoveryMs + " installedCheckMs=" + workflow.InstalledCheckMs + " warningClassifyMs=" + workflow.WarningClassificationMs + " classificationMs=" + workflow.ClassificationMs + " totalMs=" + workflow.TotalMs);
+                        if (discoveredPackages.Count == 0 || token.IsCancellationRequested)
                         {
-                            if (installPaths == null || installPaths.Any(path => !LongPathFileSystem.EntryExists(path)))
-                            {
-                                ShowOperationDialog(Resources.Warn_InstallAbortedFilesNotFound, Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
-                                return registeredPackages;
-                            }
-                            if (token.IsCancellationRequested)
-                            {
-                                return registeredPackages;
-                            }
-                            installPaths = packageInstallService.ExpandInstallSources(
-                                installPaths,
-                                fileMutationService,
-                                targetOnlyFileMutationOptions,
-                                info => NLogWrapper.FileLogger?.Info(info),
-                                scopedOperationDialogService,
-                                () => deferredSourceProcessedCount++,
-                                token);
-                            if (token.IsCancellationRequested)
-                            {
-                                return registeredPackages;
-                            }
-                            AutoInstallWorkflowResult workflow = packageInstallService.PrepareAutoInstallWorkflow(
-                                installPaths,
-                                ChartPackagesPending,
-                                CreateKnownChartDirectorySnapshotUnsafe(),
-                                ContainsInstalledChartUnsafe,
-                                dupRateThreshInOnePkg,
-                                CreateInstalledChartKeySnapshotExcludingChartsUnsafe([], "auto_install_prepare", 0L),
-                                token);
-                            List<ChartPackage> discoveredPackages = [.. workflow.DiscoveredPackages];
-                            LogInstallPerformance("auto_install_prepare discovered=" + discoveredPackages.Count + " autoInstall=" + workflow.AutoInstallCandidates.Count + " pendingAdd=" + workflow.PendingPackagesToAdd.Count + " pendingRemove=" + workflow.PendingPackagesToRemove.Count + " discoveryMs=" + workflow.DiscoveryMs + " installedCheckMs=" + workflow.InstalledCheckMs + " warningClassifyMs=" + workflow.WarningClassificationMs + " classificationMs=" + workflow.ClassificationMs + " totalMs=" + workflow.TotalMs);
-                            if (discoveredPackages.Count == 0 || token.IsCancellationRequested)
-                            {
-                                return registeredPackages;
-                            }
-                            AutoInstallApplyResult applyResult = packageInstallService.ApplyAutoInstallWorkflow(
-                                workflow,
-                                options.KeepInstallablePackagesPending,
-                                SearchTargets != null && SearchTargets.Count() > 0 && LongPathFileSystem.DirectoryExists(SearchTargets[0]),
-                                (packagesToInstall) => installChartPackages(packagesToInstall),
-                                token);
-                            LogInstallPerformance("auto_install_apply pendingAdd=" + applyResult.PendingPackagesToAdd.Count + " pendingRemove=" + applyResult.PendingPackagesToRemove.Count + " autoInstalled=" + applyResult.AutoInstalledPackages.Count + " autoFailed=" + applyResult.AutoInstallFailures.Count + " installMs=" + applyResult.InstallMs + " applyMs=" + applyResult.ApplyMs + " totalMs=" + applyResult.TotalMs);
-                            if (applyResult.PendingPackagesToRemove.Count > 0)
-                            {
-                                stateApplier.ApplyPendingPackageMutationDelta(BuildPendingPackageMutationDelta(packagesToRemove: applyResult.PendingPackagesToRemove));
-                            }
-                            if (applyResult.InstallRowsToUpsert.Count > 0)
-                            {
-                                dbGateway.UpsertInstallRows(applyResult.InstallRowsToUpsert);
-                                ChartPackagesPending.AddRange(applyResult.PendingPackagesToAdd);
-                            }
-                            BackgroundPendingEstimatePreparationResult estimatePreparation = PrepareBackgroundPendingEstimatePackagesUnsafe(applyResult.EstimateTargets, PendingInstallEstimateBatchSource.AutoInstall);
-                            pendingPackagesToEstimate = estimatePreparation.EstimablePackages;
-                            deferredPendingEstimatePackages = estimatePreparation.DeferredPackages;
-                            deferredPendingEstimateHealthByPackage = estimatePreparation.DeferredSourceHealthByPackage;
-                            pendingBatchSourceSnapshot = estimatePreparation.BatchSourceSnapshot;
-                            regroupEligibleSourceDirectories = [.. workflow.RegroupEligibleSourceDirectories];
-                            registeredPackages = discoveredPackages;
+                            return registeredPackages;
                         }
-                    }
-                    foreach (ChartPackage deferredPackage in deferredPendingEstimatePackages)
-                    {
-                        deferredPendingEstimateHealthByPackage.TryGetValue(deferredPackage, out int sourceHealth);
-                        LogPendingEstimateSkippedPackage("auto_install", deferredPackage, sourceHealth);
-                    }
-                    if (!token.IsCancellationRequested && pendingPackagesToEstimate.Count > 0)
-                    {
-                        string displayName = PendingInstallEstimateBatchRequest.GetDisplayName(pendingPackagesToEstimate.FirstOrDefault()?.path);
-                        QueuePendingInstallEstimateBatch(new PendingInstallEstimateBatchRequest(
-                            PendingInstallEstimateBatchSource.AutoInstall,
-                            pendingPackagesToEstimate,
-                            displayName,
-                            regroupEligibleSourceDirectories,
-                            deferredPendingEstimatePackages.Count,
-                            pendingBatchSourceSnapshot));
+                        AutoInstallApplyResult applyResult = packageInstallService.ApplyAutoInstallWorkflow(
+                            workflow,
+                            options.KeepInstallablePackagesPending,
+                            SearchTargets != null && SearchTargets.Count() > 0 && LongPathFileSystem.DirectoryExists(SearchTargets[0]),
+                            (packagesToInstall) => installChartPackages(packagesToInstall),
+                            token);
+                        LogInstallPerformance("auto_install_apply pendingAdd=" + applyResult.PendingPackagesToAdd.Count + " pendingRemove=" + applyResult.PendingPackagesToRemove.Count + " autoInstalled=" + applyResult.AutoInstalledPackages.Count + " autoFailed=" + applyResult.AutoInstallFailures.Count + " installMs=" + applyResult.InstallMs + " applyMs=" + applyResult.ApplyMs + " totalMs=" + applyResult.TotalMs);
+                        if (applyResult.PendingPackagesToRemove.Count > 0)
+                        {
+                            stateApplier.ApplyPendingPackageMutationDelta(BuildPendingPackageMutationDelta(packagesToRemove: applyResult.PendingPackagesToRemove));
+                        }
+                        if (applyResult.InstallRowsToUpsert.Count > 0)
+                        {
+                            dbGateway.UpsertInstallRows(applyResult.InstallRowsToUpsert);
+                            ChartPackagesPending.AddRange(applyResult.PendingPackagesToAdd);
+                        }
+                        BackgroundPendingEstimatePreparationResult estimatePreparation = PrepareBackgroundPendingEstimatePackagesUnsafe(applyResult.EstimateTargets, PendingInstallEstimateBatchSource.AutoInstall);
+                        pendingPackagesToEstimate = estimatePreparation.EstimablePackages;
+                        deferredPendingEstimatePackages = estimatePreparation.DeferredPackages;
+                        deferredPendingEstimateHealthByPackage = estimatePreparation.DeferredSourceHealthByPackage;
+                        pendingBatchSourceSnapshot = estimatePreparation.BatchSourceSnapshot;
+                        regroupEligibleSourceDirectories = [.. workflow.RegroupEligibleSourceDirectories];
+                        registeredPackages = discoveredPackages;
                     }
                 }
-            }
-        }
-        finally
-        {
-            for (int i = 0; i < deferredSourceProcessedCount; i++)
-            {
-                onEachSourceProcessed?.Invoke();
+                foreach (ChartPackage deferredPackage in deferredPendingEstimatePackages)
+                {
+                    deferredPendingEstimateHealthByPackage.TryGetValue(deferredPackage, out int sourceHealth);
+                    LogPendingEstimateSkippedPackage("auto_install", deferredPackage, sourceHealth);
+                }
+                if (!token.IsCancellationRequested && pendingPackagesToEstimate.Count > 0)
+                {
+                    string displayName = PendingInstallEstimateBatchRequest.GetDisplayName(pendingPackagesToEstimate.FirstOrDefault()?.path);
+                    QueuePendingInstallEstimateBatch(new PendingInstallEstimateBatchRequest(
+                        PendingInstallEstimateBatchSource.AutoInstall,
+                        pendingPackagesToEstimate,
+                        displayName,
+                        regroupEligibleSourceDirectories,
+                        deferredPendingEstimatePackages.Count,
+                        pendingBatchSourceSnapshot));
+                }
             }
         }
         return registeredPackages;

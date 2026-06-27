@@ -15,4 +15,12 @@ internal sealed class DropInstallQueueStatusSnapshot
     public int CompletedPathCount { get; set; }
 
     public string CurrentDisplayName { get; set; } = string.Empty;
+
+    public bool IsCurrentWorkInProgress { get; set; }
+
+    public int CurrentWorkIndex { get; set; }
+
+    public int CurrentWorkTotal { get; set; }
+
+    public string CurrentWorkDisplayName { get; set; } = string.Empty;
 }

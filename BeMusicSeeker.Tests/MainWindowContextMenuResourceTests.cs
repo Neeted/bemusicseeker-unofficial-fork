@@ -544,6 +544,23 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
+    public void DropInstallQueueProgressStrings_AreLocalized()
+    {
+        string root = FindRepositoryRoot();
+        string resources = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Properties", "Resources.resx"));
+        string resourceCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Properties", "Resources.cs"));
+        const string key = "Drop_install_queue_extracting_sub_label_format";
+
+        StringAssert.Contains(resources, "name=\"" + key + "\"");
+        StringAssert.Contains(resourceCode, key);
+        foreach (string languageFile in Directory.GetFiles(Path.Combine(root, "lang"), "*.json"))
+        {
+            string languageJson = File.ReadAllText(languageFile);
+            StringAssert.Contains(languageJson, "\"" + key + "\"");
+        }
+    }
+
+    [TestMethod]
     public void SettingDialogBeatorajaScoreDbStrings_AreLocalized()
     {
         string root = FindRepositoryRoot();
@@ -2403,6 +2420,10 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(dragOverHandler, "DragDropEffects.None");
         StringAssert.Contains(dragOverHandler, "playlistUrlBulkDownloadRunning");
         Assert.IsTrue(refreshStatus.IndexOf("playlistUrlDownloadStatusActive", StringComparison.Ordinal) < refreshStatus.IndexOf("bool dropActive", StringComparison.Ordinal));
+        StringAssert.Contains(refreshStatus, "GetDropInstallQueueSubLabel(latestDropInstallQueueStatus)");
+        StringAssert.Contains(refreshStatus, "CurrentWorkIndex");
+        StringAssert.Contains(refreshStatus, "CurrentWorkTotal");
+        StringAssert.Contains(refreshStatus, "showCurrentWorkProgress");
     }
 
     [TestMethod]

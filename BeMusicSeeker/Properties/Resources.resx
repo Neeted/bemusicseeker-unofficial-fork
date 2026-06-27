@@ -1287,6 +1287,9 @@ BMSファイルが重複しないようにマージします。
   <data name="Drop_install_queue_label_format" xml:space="preserve">
     <value>導入中: {0}/{1}件 (待機 {2} バッチ)</value>
   </data>
+  <data name="Drop_install_queue_extracting_sub_label_format" xml:space="preserve">
+    <value>解凍中: {0}/{1} {2}</value>
+  </data>
   <data name="Pending_estimate_queue_label_format" xml:space="preserve">
     <value>保留推定: {0}/{1}件 (待機 {2} バッチ)</value>
   </data>

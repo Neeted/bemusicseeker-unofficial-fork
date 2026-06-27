@@ -492,6 +492,7 @@
   "Cancel": "Cancel",
   "Close": "Close",
   "Drop_install_queue_label_format": "Installing: {0} items (waiting {1} batches)",
+  "Drop_install_queue_extracting_sub_label_format": "Extracting: {0}/{1} {2}",
   "Pending_estimate_queue_label_format": "Estimating pending: {0}/{1} packages (waiting {2} batches)",
   "Playlist_url_download_progress_label_format": "Importing URLs: {0}/{1}",
   "Pending_estimate_queue_startup_display_name": "Startup pending",

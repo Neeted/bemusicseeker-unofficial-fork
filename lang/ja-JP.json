@@ -502,6 +502,7 @@
   "Cancel": "キャンセル",
   "Close": "閉じる",
   "Drop_install_queue_label_format": "導入中: {0}件 (待機 {1} バッチ)",
+  "Drop_install_queue_extracting_sub_label_format": "解凍中: {0}/{1} {2}",
   "Pending_estimate_queue_label_format": "保留推定: {0}/{1}件 (待機 {2} バッチ)",
   "Playlist_url_download_progress_label_format": "URL取り込み: {0}/{1}件",
   "Pending_estimate_queue_startup_display_name": "起動時の保留",

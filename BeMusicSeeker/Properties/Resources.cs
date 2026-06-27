@@ -319,6 +319,8 @@ public class Resources
 
     public static string Drop_install_queue_label_format => ResourceManager.GetString("Drop_install_queue_label_format", resourceCulture);
 
+    public static string Drop_install_queue_extracting_sub_label_format => ResourceManager.GetString("Drop_install_queue_extracting_sub_label_format", resourceCulture);
+
     public static string Pending_estimate_queue_label_format => ResourceManager.GetString("Pending_estimate_queue_label_format", resourceCulture);
 
     public static string Playlist_url_download_progress_label_format => ResourceManager.GetString("Playlist_url_download_progress_label_format", resourceCulture);

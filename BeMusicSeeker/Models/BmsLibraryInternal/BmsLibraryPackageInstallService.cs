@@ -688,6 +688,34 @@ internal sealed class BmsLibraryPackageInstallService
         }
     }
 
+    private static void InvokeInstallProgressCallback(Action callback, Action<string> logInfo, string callbackName)
+    {
+        if (callback == null)
+        {
+            return;
+        }
+        try
+        {
+            callback();
+        }
+        catch (Exception ex)
+        {
+            logInfo?.Invoke("auto_install progress_callback_failed callback=" + (callbackName ?? string.Empty) + " error=" + ex.Message);
+        }
+    }
+
+    private static void InvokeArchiveExtractStarted(Action<string, int, int> onEachArchiveExtractStarted, string installPath, int archiveSourceIndex, int archiveSourceTotal, Action<string> logInfo)
+    {
+        if (onEachArchiveExtractStarted == null)
+        {
+            return;
+        }
+        InvokeInstallProgressCallback(
+            () => onEachArchiveExtractStarted(installPath, archiveSourceIndex, archiveSourceTotal),
+            logInfo,
+            nameof(onEachArchiveExtractStarted));
+    }
+
     public List<string> ExpandInstallSources(
         IEnumerable<string> installPaths,
         IFileMutationService fileMutationService,
@@ -695,26 +723,34 @@ internal sealed class BmsLibraryPackageInstallService
         Action<string> logInfo = null,
         IBmsLibraryDialogService dialogService = null,
         Action onEachSourceProcessed = null,
+        Action<string, int, int> onEachArchiveExtractStarted = null,
         CancellationToken token = default)
     {
         string[] archiveExtensions = [".zip", ".7z", ".rar", ".lzh"];
+        string[] normalizedInstallPaths = [.. (installPaths ?? []).Where(path => !string.IsNullOrWhiteSpace(path))];
+        int archiveSourceTotal = normalizedInstallPaths.Count(path => archiveExtensions.Any(ext => path.EndsWith(ext, StringComparison.OrdinalIgnoreCase)));
+        int archiveSourceIndex = 0;
         List<string> expandedPaths = [];
-        foreach (string installPath in installPaths ?? [])
+        for (int i = 0; i < normalizedInstallPaths.Length; i++)
         {
+            string installPath = normalizedInstallPaths[i];
             if (token.IsCancellationRequested)
             {
                 break;
             }
+            bool isArchivePath = archiveExtensions.Any(ext => installPath.EndsWith(ext, StringComparison.OrdinalIgnoreCase));
             string extractedTempDirectoryPath = null;
             Stopwatch sourceStopwatch = Stopwatch.StartNew();
             try
             {
-                if (!archiveExtensions.Any(ext => installPath.EndsWith(ext, StringComparison.OrdinalIgnoreCase)))
+                if (!isArchivePath)
                 {
                     expandedPaths.Add(installPath);
                 }
                 else
                 {
+                    archiveSourceIndex++;
+                    InvokeArchiveExtractStarted(onEachArchiveExtractStarted, installPath, archiveSourceIndex, archiveSourceTotal, logInfo);
                     extractedTempDirectoryPath = TempDirectoryPublisher.Get();
                     logInfo?.Invoke("auto_install extract_start path=" + installPath + " destination=" + extractedTempDirectoryPath);
                     Stopwatch extractStopwatch = Stopwatch.StartNew();
@@ -832,7 +868,7 @@ internal sealed class BmsLibraryPackageInstallService
             }
             finally
             {
-                onEachSourceProcessed?.Invoke();
+                InvokeInstallProgressCallback(onEachSourceProcessed, logInfo, nameof(onEachSourceProcessed));
             }
         }
         return expandedPaths;
