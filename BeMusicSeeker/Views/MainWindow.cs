@@ -255,13 +255,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         Other
     }
 
-    private enum DownloadAndInstallResult
-    {
-        Installed,
-        OpenInBrowser,
-        BlockedBySizeLimit
-    }
-
     internal enum PlaylistUrlDownloadResultKind
     {
         Downloaded,
@@ -289,17 +282,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private static readonly string clearlampUri = "http://xyzzz.net/bms/clearlamp";
 
-    private BMSLibrary.IRSongInfo songInfoCache;
-
     private CancellationTokenSource tableContextMenuTaskTokenSource;
 
-    private Task getSongInfoCacheTask;
-
-    private Task changeSubmenuOpenVideoTask;
-
     private Task changeSubmenuOpenDocumentTask;
-
-    private Task changeSubmenuOpenSearchLinkTask;
 
     private static readonly Regex dropBoxRegex = new("https?://(?:(?:www|dl)\\.dropbox\\.com|dl\\.dropboxusercontent\\.com)/(sh?)/([^?]*)\\.([^?]*)(.*)?$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
@@ -5940,7 +5925,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void calcelAllContextMenuTasks()
     {
-        if (new Task[4] { getSongInfoCacheTask, changeSubmenuOpenVideoTask, changeSubmenuOpenDocumentTask, changeSubmenuOpenSearchLinkTask }.Where(t => t != null).Any(t => !t.IsCompleted) && tableContextMenuTaskTokenSource != null)
+        if (new Task[1] { changeSubmenuOpenDocumentTask }.Where(t => t != null).Any(t => !t.IsCompleted) && tableContextMenuTaskTokenSource != null)
         {
             tableContextMenuTaskTokenSource.Cancel();
             NLogWrapper.DebuggerLogger?.Trace("Cancel data grid context menu async tasks");
@@ -5949,12 +5934,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void initContextMenuTasks()
     {
-        songInfoCache = null;
         tableContextMenuTaskTokenSource = new CancellationTokenSource();
-        getSongInfoCacheTask = null;
-        changeSubmenuOpenVideoTask = null;
         changeSubmenuOpenDocumentTask = null;
-        changeSubmenuOpenSearchLinkTask = null;
     }
 
     private void tableContextMenuOpened(object sender, RoutedEventArgs e)
@@ -6011,18 +5992,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         bool isBmsonContextRow = rowTarget?.Chart.Kind == ChartFileKind.Bmson;
         bool hasBmsonSelection = selectedTargets.Any(target => target.Chart.Kind == ChartFileKind.Bmson);
         bool hasBmsSelection = selectedTargets.Any(target => target.Chart.Kind == ChartFileKind.Bms);
-        string rowHash = rowTarget?.Chart?.Md5 ?? GridRowResolver.GetHash(row);
-        if (songInfoCache == null || songInfoCache.md5 != rowHash)
-        {
-            calcelAllContextMenuTasks();
-            initContextMenuTasks();
-        }
+        calcelAllContextMenuTasks();
+        initContextMenuTasks();
         MenuItem menuItem = null;
         MenuItem menuItem2 = null;
         MenuItem menuItem3 = null;
         MenuItem menuItem4 = null;
-        MenuItem menuItem5 = null;
-        MenuItem menuItem6 = null;
         MenuItem menuItem7 = null;
         MenuItem menuItem8 = null;
         MenuItem menuItem9 = null;
@@ -6079,12 +6054,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                     break;
                 case "tableContextMenuItemOpenDocument":
                     menuItemOpenDocument = item as MenuItem;
-                    break;
-                case "tableContextMenuItemOpenVideo":
-                    menuItem5 = item as MenuItem;
-                    break;
-                case "tableContextMenuItemSearchLink":
-                    menuItem6 = item as MenuItem;
                     break;
                 case "tableContextMenuItemUpdateRankingData":
                     menuItem7 = item as MenuItem;
@@ -6173,16 +6142,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                     ? BuildPlaylistUrlTargets(effectivePlaylistUrlRows, isDiffUrl: true).Count > 0
                     : rowUrlDiff != null && rowUrlDiff.IsAbsoluteUri);
             }
-            if (menuItem5 != null)
-            {
-                menuItem5.Visibility = Visibility.Visible;
-                menuItem5.IsEnabled = true;
-            }
-            if (menuItem6 != null)
-            {
-                menuItem6.Visibility = Visibility.Visible;
-                menuItem6.IsEnabled = true;
-            }
         }
         else
         {
@@ -6193,14 +6152,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             if (menuItem2 != null)
             {
                 menuItem2.Visibility = Visibility.Collapsed;
-            }
-            if (menuItem5 != null)
-            {
-                menuItem5.Visibility = Visibility.Collapsed;
-            }
-            if (menuItem6 != null)
-            {
-                menuItem6.Visibility = Visibility.Collapsed;
             }
         }
         if (menuItem3 != null && menuItem4 != null && menuItemOpenDocument != null && changeSubmenuOpenDocumentTask == null)
@@ -6599,8 +6550,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                         ? BuildPlaylistUrlTargets(effectivePlaylistUrlRows, isDiffUrl: true).Count > 0
                         : rowUrlDiff != null && rowUrlDiff.IsAbsoluteUri);
                     break;
-                case "tableContextMenuItemOpenVideo":
-                case "tableContextMenuItemSearchLink":
                 case "tableContextMenuItemDeleteEntry":
                     item.Visibility = Visibility.Visible;
                     item.IsEnabled = entry != null;
@@ -7182,428 +7131,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             Process.Start(dataContext);
         }
-    }
-
-    private void tableContextMenuOpenVideoSubmenuOpened(object sender, RoutedEventArgs e)
-    {
-        if (ShouldBlockStartupUiInteraction("datagrid_context_menu_open_video"))
-        {
-            e.Handled = true;
-            return;
-        }
-        if (sender is not MenuItem menuItem || !TryGetContextMenuRow(sender, out object row))
-        {
-            return;
-        }
-        if (!GridRowResolver.IsPlaylistRow(row))
-        {
-            return;
-        }
-        if (base.DataContext is not MainWindowViewModel viewModel)
-        {
-            return;
-        }
-        e.Handled = true;
-        if (changeSubmenuOpenVideoTask != null)
-        {
-            return;
-        }
-        MenuItem menuItemOpenVideoSubmenuStatus = null;
-        MenuItem menuItemOpenVideoSubmenuYouTube = null;
-        MenuItem menuItemOpenVideoSubmenuNiconico = null;
-        foreach (Control item in (IEnumerable)menuItem.Items)
-        {
-            switch (item.Name)
-            {
-                case "tableContextMenuItemOpenVideoSubmenuStatus":
-                    menuItemOpenVideoSubmenuStatus = item as MenuItem;
-                    break;
-                case "tableContextMenuItemOpenVideoSubmenuYouTube":
-                    menuItemOpenVideoSubmenuYouTube = item as MenuItem;
-                    break;
-                case "tableContextMenuItemOpenVideoSubmenuNiconico":
-                    menuItemOpenVideoSubmenuNiconico = item as MenuItem;
-                    break;
-            }
-        }
-        if (menuItemOpenVideoSubmenuStatus != null)
-        {
-            menuItemOpenVideoSubmenuStatus.IsEnabled = false;
-            menuItemOpenVideoSubmenuStatus.Visibility = Visibility.Visible;
-            menuItemOpenVideoSubmenuStatus.Header = BeMusicSeeker.Properties.Resources.Now_searching;
-        }
-        if (menuItemOpenVideoSubmenuYouTube != null)
-        {
-            menuItemOpenVideoSubmenuYouTube.IsEnabled = false;
-            menuItemOpenVideoSubmenuYouTube.Visibility = Visibility.Collapsed;
-        }
-        if (menuItemOpenVideoSubmenuNiconico != null)
-        {
-            menuItemOpenVideoSubmenuNiconico.IsEnabled = false;
-            menuItemOpenVideoSubmenuNiconico.Visibility = Visibility.Collapsed;
-        }
-        changeSubmenuOpenVideoTask = Task.Run(delegate
-        {
-            NLogWrapper.DebuggerLogger?.Trace("Test starts: changeSubmenuOpenVideoTask");
-            CancellationToken token = tableContextMenuTaskTokenSource.Token;
-            getSongInfoCacheTask ??= Task.Run(delegate
-                {
-                    NLogWrapper.DebuggerLogger?.Trace("Test starts: getSongInfoCacheTask");
-                    try
-                    {
-                        BMSLibrary.IRSongInfo lR2IRSongInfoCache = viewModel.GetLR2IRSongInfoCache(row);
-                        if (!token.IsCancellationRequested)
-                        {
-                            songInfoCache = lR2IRSongInfoCache;
-                        }
-                    }
-                    catch (ArgumentException)
-                    {
-                    }
-                }, token);
-            getSongInfoCacheTask.Wait();
-            if (!token.IsCancellationRequested)
-            {
-                if (songInfoCache != null)
-                {
-                    bool found = !string.IsNullOrWhiteSpace(songInfoCache.youtube_url) || !string.IsNullOrWhiteSpace(songInfoCache.niconico_url);
-                    if (menuItemOpenVideoSubmenuStatus != null)
-                    {
-                        base.Dispatcher.BeginInvoke((Action)delegate
-                        {
-                            if (!token.IsCancellationRequested && !_isClosingOrClosed)
-                            {
-                                if (found)
-                                {
-                                    menuItemOpenVideoSubmenuStatus.Visibility = Visibility.Collapsed;
-                                }
-                                else
-                                {
-                                    menuItemOpenVideoSubmenuStatus.Header = BeMusicSeeker.Properties.Resources.Unregistered;
-                                }
-                            }
-                        });
-                    }
-                    if (menuItemOpenVideoSubmenuYouTube != null && !string.IsNullOrWhiteSpace(songInfoCache.youtube_url))
-                    {
-                        base.Dispatcher.BeginInvoke((Action)delegate
-                        {
-                            if (!token.IsCancellationRequested && !_isClosingOrClosed)
-                            {
-                                menuItemOpenVideoSubmenuYouTube.IsEnabled = true;
-                                menuItemOpenVideoSubmenuYouTube.Visibility = Visibility.Visible;
-                                menuItemOpenVideoSubmenuYouTube.Tag = songInfoCache.youtube_url;
-                            }
-                        });
-                    }
-                    if (menuItemOpenVideoSubmenuNiconico != null && !string.IsNullOrWhiteSpace(songInfoCache.niconico_url))
-                    {
-                        base.Dispatcher.BeginInvoke((Action)delegate
-                        {
-                            if (!token.IsCancellationRequested && !_isClosingOrClosed)
-                            {
-                                menuItemOpenVideoSubmenuNiconico.IsEnabled = true;
-                                menuItemOpenVideoSubmenuNiconico.Visibility = Visibility.Visible;
-                                menuItemOpenVideoSubmenuNiconico.Tag = songInfoCache.niconico_url;
-                            }
-                        });
-                    }
-                }
-                else if (menuItemOpenVideoSubmenuStatus != null)
-                {
-                    base.Dispatcher.BeginInvoke((Action)delegate
-                    {
-                        if (!token.IsCancellationRequested && !_isClosingOrClosed)
-                        {
-                            menuItemOpenVideoSubmenuStatus.Header = BeMusicSeeker.Properties.Resources.Unregistered;
-                        }
-                    });
-                }
-            }
-        }, tableContextMenuTaskTokenSource.Token).Logging("tableContextMenuOpenVideoSubmenuOpened");
-    }
-
-    private void tableContextMenuItemOpenVideoSubmenuClick(object sender, RoutedEventArgs e)
-    {
-        if (e.Source is not MenuItem menuItem || base.DataContext is not MainWindowViewModel mainWindowViewModel || webBrowser == null)
-        {
-            return;
-        }
-        try
-        {
-            Uri uri;
-            if (!webBrowser.IsEnabled)
-            {
-                uri = new Uri(menuItem.Tag.ToString(), UriKind.Absolute);
-                Match match = Regex.Match(uri.ToString(), "^http[s]?://www\\.youtube\\.com/v/([^&]+)", RegexOptions.IgnoreCase);
-                if (match.Success)
-                {
-                    Process.Start("https://www.youtube.com/watch?v=" + match.Groups[1].Value);
-                }
-                else
-                {
-                    Process.Start(uri.ToString());
-                }
-                return;
-            }
-            uri = new Uri(menuItem.Tag.ToString(), UriKind.Absolute);
-            Match match2;
-            if ((match2 = Regex.Match(uri.ToString(), "^http[s]?://www\\.youtube\\.com/v/([^&]+)", RegexOptions.IgnoreCase)).Success)
-            {
-                webBrowser.Navigating -= forbidNavigating;
-                mainWindowViewModel.SetYoutubeToBrowserSource(match2.Groups[1].Value);
-            }
-            else
-            {
-                if (!(match2 = Regex.Match(uri.ToString(), "^http[s]?://[^.]+\\.nicovideo\\.jp/watch/(.+)", RegexOptions.IgnoreCase)).Success)
-                {
-                    throw new InvalidOperationException();
-                }
-                webBrowser.Navigating -= forbidNavigating;
-                mainWindowViewModel.SetNiconicoToBrowserSource(match2.Groups[1].Value);
-            }
-        }
-        catch
-        {
-            return;
-        }
-        finally
-        {
-            e.Handled = true;
-        }
-        if (!webBrowser.IsEnabled)
-        {
-            return;
-        }
-        if (!TryGetContextMenuRow(e.Source, out object row))
-        {
-            return;
-        }
-        mainWindowViewModel.SetMoviePlayerHeader(row);
-    }
-
-    private void songInfoCacheToUrlLists(BMSLibrary.IRSongInfo info, Uri original, Uri diff, out List<Uri> urls, out List<Uri> urls_diff)
-    {
-        if (songInfoCache != null)
-        {
-            urls = [.. (from s in songInfoCache.url.Split(' ')
-                    where !string.IsNullOrWhiteSpace(s)
-                    let normalized = NormalizeDownloadUrlString(s)
-                    where !string.IsNullOrWhiteSpace(normalized)
-                    select new Uri(normalized, UriKind.Absolute))];
-            urls_diff = [.. (from s in songInfoCache.url_diff.Split(' ')
-                         where !string.IsNullOrWhiteSpace(s)
-                         let normalized = NormalizeDownloadUrlString(s)
-                         where !string.IsNullOrWhiteSpace(normalized)
-                         select new Uri(normalized, UriKind.Absolute))];
-        }
-        else
-        {
-            urls = [];
-            urls_diff = [];
-        }
-        if (original != null && original.IsAbsoluteUri)
-        {
-            urls.Add(NormalizeDownloadUri(original));
-        }
-        if (diff != null && diff.IsAbsoluteUri)
-        {
-            urls_diff.Add(NormalizeDownloadUri(diff));
-        }
-    }
-
-    private void tableContextMenuSearchLinkOpened(object sender, RoutedEventArgs e)
-    {
-        if (ShouldBlockStartupUiInteraction("datagrid_context_menu_search_link"))
-        {
-            e.Handled = true;
-            return;
-        }
-        if (sender is not MenuItem menuItem || !TryGetContextMenuRow(sender, out object row))
-        {
-            return;
-        }
-        if (!GridRowResolver.IsPlaylistRow(row))
-        {
-            return;
-        }
-        if (base.DataContext is not MainWindowViewModel viewModel)
-        {
-            return;
-        }
-        e.Handled = true;
-        if (changeSubmenuOpenSearchLinkTask != null)
-        {
-            return;
-        }
-        menuItem.Items.Clear();
-        var menuItemStatus = new MenuItem
-        {
-            Header = BeMusicSeeker.Properties.Resources.Now_searching,
-            IsEnabled = false,
-            Visibility = Visibility.Visible
-        };
-        menuItem.Items.Add(menuItemStatus);
-        changeSubmenuOpenSearchLinkTask = Task.Run(delegate
-        {
-            NLogWrapper.DebuggerLogger?.Trace("Test starts: changeSubmenuOpenSearchLinkTask");
-            CancellationToken token = tableContextMenuTaskTokenSource.Token;
-            getSongInfoCacheTask ??= Task.Run(delegate
-                {
-                    NLogWrapper.DebuggerLogger?.Trace("Test starts: getSongInfoCacheTask");
-                    try
-                    {
-                        BMSLibrary.IRSongInfo lR2IRSongInfoCache = viewModel.GetLR2IRSongInfoCache(row, seaarchAggressively: true);
-                        if (!token.IsCancellationRequested)
-                        {
-                            songInfoCache = lR2IRSongInfoCache;
-                        }
-                    }
-                    catch (ArgumentException)
-                    {
-                    }
-                }, token);
-            getSongInfoCacheTask.Wait();
-            if (!token.IsCancellationRequested)
-            {
-                List<Func<MenuItem>> subMenuItemCreateFuncs = [];
-                songInfoCacheToUrlLists(songInfoCache, GridRowResolver.GetUrl(row), GridRowResolver.GetUrlDiff(row), out List<Uri> urls, out List<Uri> urls_diff);
-                foreach (Uri url in urls)
-                {
-                    MenuItem item()
-                    {
-                        try
-                        {
-                            var menuItem2 = new MenuItem
-                            {
-                                Header = BeMusicSeeker.Properties.Resources.Original_URL,
-                                IsEnabled = true,
-                                Visibility = Visibility.Visible,
-                                Tag = url,
-                                ToolTip = url.ToString()
-                            };
-                            menuItem2.Click += tableContextMenuItemSearchLinkSubmenuClick;
-                            return menuItem2;
-                        }
-                        catch
-                        {
-                            return (MenuItem)null;
-                        }
-                    }
-                    subMenuItemCreateFuncs.Add(item);
-                }
-                foreach (Uri url2 in urls_diff)
-                {
-                    if (!url2.ToString().StartsWith("http://absolute.pv.land.to/", StringComparison.OrdinalIgnoreCase) && !url2.ToString().Equals("http://gnqg.rosx.net/upload/", StringComparison.OrdinalIgnoreCase) && !url2.ToString().Equals("http://gnqg.rosx.net/upload/upload.cgi", StringComparison.OrdinalIgnoreCase) && (!url2.ToString().StartsWith("http://www.ribbit.xyz/bms/mirror/", StringComparison.OrdinalIgnoreCase) || !url2.ToString().EndsWith("/")))
-                    {
-                        MenuItem item2()
-                        {
-                            try
-                            {
-                                var menuItem2 = new MenuItem
-                                {
-                                    Header = ((url2.ToString().StartsWith("http://www.ribbit.xyz/bms/mirror/", StringComparison.OrdinalIgnoreCase) || url2.ToString().StartsWith("http://gnqg.rosx.net/upload/", StringComparison.OrdinalIgnoreCase)) ? "Uploader" : BeMusicSeeker.Properties.Resources.Diff_URL),
-                                    IsEnabled = true,
-                                    Visibility = Visibility.Visible,
-                                    Tag = url2,
-                                    ToolTip = url2.ToString()
-                                };
-                                menuItem2.Click += tableContextMenuItemSearchLinkSubmenuClick;
-                                return menuItem2;
-                            }
-                            catch
-                            {
-                                return (MenuItem)null;
-                            }
-                        }
-                        subMenuItemCreateFuncs.Add(item2);
-                    }
-                }
-                string input = ((GridRowResolver.GetPlaylistEntry(row)?.comment) ?? string.Empty) + Environment.NewLine + ((songInfoCache == null) ? string.Empty : songInfoCache.comment) + Environment.NewLine + GridRowResolver.GetNameDiff(row);
-                string pattern = "h?(ttps?://[\\-_.!~*\\\\'()A-Z0-9;/?:@&=+$,%#]+)";
-                MatchCollection matchCollection = Regex.Matches(input, pattern, RegexOptions.IgnoreCase);
-                if (matchCollection.Count > 0)
-                {
-                    for (int num = 0; num < matchCollection.Count; num++)
-                    {
-                        Match match = matchCollection[num];
-                        if (match.Success)
-                        {
-                            int temp = num;
-                            MenuItem item3()
-                            {
-                                try
-                                {
-                                    var uri = new Uri("h" + match.Groups[1].Value.Trim('\''), UriKind.Absolute);
-                                    var menuItem2 = new MenuItem
-                                    {
-                                        Header = BeMusicSeeker.Properties.Resources.Remarks_URL + (temp + 1),
-                                        IsEnabled = true,
-                                        Visibility = Visibility.Visible,
-                                        Tag = uri,
-                                        ToolTip = uri.ToString()
-                                    };
-                                    menuItem2.Click += tableContextMenuItemSearchLinkSubmenuClick;
-                                    return menuItem2;
-                                }
-                                catch
-                                {
-                                    return (MenuItem)null;
-                                }
-                            }
-                            subMenuItemCreateFuncs.Add(item3);
-                        }
-                    }
-                }
-                if (!token.IsCancellationRequested)
-                {
-                    base.Dispatcher.BeginInvoke((Action)delegate
-                    {
-                        if (!token.IsCancellationRequested && !_isClosingOrClosed)
-                        {
-                            List<MenuItem> list = [.. (from f in subMenuItemCreateFuncs
-                                                   select f() into i
-                                                   where i != null
-                                                   select i)];
-                            if (list.Count > 0)
-                            {
-                                menuItem.Items.Clear();
-                                {
-                                    foreach (MenuItem item4 in list)
-                                    {
-                                        if (!menuItem.Items.Cast<MenuItem>().Any(i => i.Tag.ToString().Equals(item4.Tag.ToString(), StringComparison.OrdinalIgnoreCase)))
-                                        {
-                                            menuItem.Items.Add(item4);
-                                        }
-                                    }
-                                    return;
-                                }
-                            }
-                            menuItemStatus.Header = BeMusicSeeker.Properties.Resources.Not_found;
-                        }
-                    });
-                }
-            }
-        }, tableContextMenuTaskTokenSource.Token).Logging("tableContextMenuSearchLinkOpened");
-    }
-
-    /// <summary>
-    /// 指定されたURI（ファイルURL等）からBMSの圧縮アーカイブファイルを非同期でダウンロードし、一時フォルダへ保存した上でインストール処理へと繋ぎます。
-    /// ファイルサイズが大きすぎる場合（約500MB超）や非対応フォーマットの場合は処理を中断します。
-    /// </summary>
-    /// <param name="uri">ダウンロード対象のURL。</param>
-    /// <returns>ダウンロード試行結果。</returns>
-    private async Task<DownloadAndInstallResult> downloadAndInstall(Uri uri)
-    {
-        PlaylistUrlDownloadResult result = await DownloadPlaylistUrlCandidateAsync(uri);
-        if (result.Kind == PlaylistUrlDownloadResultKind.Downloaded && !string.IsNullOrWhiteSpace(result.FilePath) && LongPathFileSystem.FileExists(result.FilePath))
-        {
-            installChartPackages([result.FilePath]);
-            return DownloadAndInstallResult.Installed;
-        }
-        return result.Kind == PlaylistUrlDownloadResultKind.BlockedBySizeLimit
-            ? DownloadAndInstallResult.BlockedBySizeLimit
-            : DownloadAndInstallResult.OpenInBrowser;
     }
 
     private sealed class PlaylistUrlDownloadResult
@@ -8921,46 +8448,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     private void cleanupLr2SongDbSyncStartupScanBlockersClick(object sender, RoutedEventArgs e)
     {
         (base.DataContext as MainWindowViewModel)?.CleanupLr2SongDbSyncStartupScanBlockersAndRetry();
-    }
-
-    private async void tableContextMenuItemSearchLinkSubmenuClick(object sender, RoutedEventArgs e)
-    {
-        if (e.Source is not MenuItem menuItem)
-        {
-            return;
-        }
-        try
-        {
-            if (Settings.Default.ScanBmsFilesOnStartup && Settings.Default.AutoInstall && menuItem.Tag is Uri)
-            {
-                try
-                {
-                    var uri = (Uri)menuItem.Tag;
-                    if (!uri.ToString().EndsWith("/") && !uri.ToString().EndsWith(".htm") && !uri.ToString().EndsWith(".html"))
-                    {
-                        switch (await downloadAndInstall(uri))
-                        {
-                            case DownloadAndInstallResult.Installed:
-                                newlyInstalledTreeViewItem.IsExpanded = true;
-                                return;
-                            case DownloadAndInstallResult.BlockedBySizeLimit:
-                                return;
-                        }
-                    }
-                }
-                catch
-                {
-                }
-            }
-            Process.Start(menuItem.Tag.ToString());
-        }
-        catch
-        {
-        }
-        finally
-        {
-            e.Handled = true;
-        }
     }
 
     private void tableContextMenuItemUpdateRankingDataClick(object sender, RoutedEventArgs e)

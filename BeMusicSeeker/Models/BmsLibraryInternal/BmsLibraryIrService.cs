@@ -785,26 +785,6 @@ internal sealed class BmsLibraryIrService
         return failed;
     }
 
-    public BMSLibrary.IRSongInfo GetIRSongInfoCache(string md5OrLr2BmsId, bool searchAggressively, IBmsLibraryIrClient irClient, Uri songInfoUrl)
-    {
-        if (string.IsNullOrWhiteSpace(md5OrLr2BmsId))
-        {
-            throw new ArgumentException("md5orlr2bmsid");
-        }
-        if (!LR2SongDB.md5HashRegex.IsMatch(md5OrLr2BmsId) && !Regex.IsMatch(md5OrLr2BmsId, "^[0-9]+$"))
-        {
-            throw new ArgumentException("md5orlr2bmsid");
-        }
-        try
-        {
-            return irClient.GetSongInfo(songInfoUrl, md5OrLr2BmsId, searchAggressively);
-        }
-        catch
-        {
-            return irClient.GetSongInfo(songInfoUrl, md5OrLr2BmsId, searchAggressively: false);
-        }
-    }
-
     public IrCacheRefreshResult RefreshRankingScoresFromCache(int lr2Id, string scoreDbPath, BmsLibraryDbGateway dbGateway, List<BMSScore> bmsScores, IEnumerable<BMSFile> bmsFiles, bool estimateOfflineScoreRanking)
     {
         IrCacheRefreshPlan plan = BuildRankingScoresRefreshPlan(lr2Id, scoreDbPath, dbGateway);

@@ -10,6 +10,4 @@ internal interface IBmsLibraryIrClient
     List<BMSLibrary.IRDataCacheInfo> GetRankingInfo(Uri rankingInfoUrl, IEnumerable<string> md5s);
 
     void DownloadRankingData(Uri rankingDataUrl, string md5, string destinationPath);
-
-    BMSLibrary.IRSongInfo GetSongInfo(Uri songInfoUrl, string md5OrLr2BmsId, bool searchAggressively);
 }

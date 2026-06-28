@@ -2344,15 +2344,15 @@ public sealed class MainWindowContextMenuResourceTests
         string root = FindRepositoryRoot();
         string mainWindowCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow.cs"));
         string candidateHelper = ExtractBetween(mainWindowCode, "private static bool IsDownloadAndInstallCandidateFileName", "private static string NormalizeDownloadUrlString");
-        string downloadMethod = ExtractBetween(mainWindowCode, "private async Task<DownloadAndInstallResult> downloadAndInstall", "private static bool IsDownloadAndInstallCandidateFileName");
+        string downloadResponseMethod = ExtractBetween(mainWindowCode, "private static PlaylistUrlDownloadResult DownloadPlaylistUrlResponseCandidate(Uri requestedUri, AppHttpResponse response, string tempDirectory, int remainingSharedPageResolutionDepth", "private static bool IsDownloadAndInstallCandidateFileName");
         MethodInfo helper = typeof(MainWindow).GetMethod("IsDownloadAndInstallCandidateFileName", BindingFlags.Static | BindingFlags.NonPublic);
         Assert.IsNotNull(helper);
 
         StringAssert.Contains(candidateHelper, "ChartFileKindResolver.IsSupportedChartFilePath(fileName)");
         StringAssert.Contains(candidateHelper, "DownloadAndInstallArchiveExtensions");
         Assert.IsFalse(candidateHelper.Contains("BMSFile.bmsExtensions"));
-        StringAssert.Contains(downloadMethod, "IsDownloadAndInstallCandidateFileName(fileName)");
-        Assert.IsFalse(downloadMethod.Contains("BMSFile.bmsExtensions"));
+        StringAssert.Contains(downloadResponseMethod, "IsDownloadAndInstallCandidateFileName(fileName)");
+        Assert.IsFalse(downloadResponseMethod.Contains("BMSFile.bmsExtensions"));
         Assert.IsTrue((bool)helper.Invoke(null, ["chart.bmson"]));
         Assert.IsTrue((bool)helper.Invoke(null, ["chart.bms"]));
         Assert.IsTrue((bool)helper.Invoke(null, ["package.lzh"]));

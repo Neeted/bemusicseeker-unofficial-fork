@@ -808,8 +808,6 @@ public class Resources
 
     public static string Open_Url_diff => ResourceManager.GetString("Open_Url_diff", resourceCulture);
 
-    public static string Open_video => ResourceManager.GetString("Open_video", resourceCulture);
-
     public static string Operation_Mode => ResourceManager.GetString("Operation_Mode", resourceCulture);
 
     public static string Original_URL => ResourceManager.GetString("Original_URL", resourceCulture);
@@ -1027,8 +1025,6 @@ public class Resources
     public static string Score => ResourceManager.GetString("Score", resourceCulture);
 
     public static string ScoreDB => ResourceManager.GetString("ScoreDB", resourceCulture);
-
-    public static string Search_downalods => ResourceManager.GetString("Search_downalods", resourceCulture);
 
     public static string Search_duplicates => ResourceManager.GetString("Search_duplicates", resourceCulture);
 

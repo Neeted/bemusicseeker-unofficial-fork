@@ -1250,10 +1250,6 @@ public sealed class BmsLibraryIrServiceTests
             File.WriteAllText(destinationPath, xml, Encoding.GetEncoding("shift_jis"));
         }
 
-        public BMSLibrary.IRSongInfo GetSongInfo(Uri songInfoUrl, string md5OrLr2BmsId, bool searchAggressively)
-        {
-            throw new NotSupportedException();
-        }
     }
 
     private sealed class TestableBmsFile : BMSFile

@@ -678,9 +678,6 @@ LR2をプレイヤーとして使用すると再生できない場合があり�
   <data name="Language" xml:space="preserve">
     <value>言語</value>
   </data>
-  <data name="Open_video" xml:space="preserve">
-    <value>動画を開く</value>
-  </data>
   <data name="Player_LR2_savewpos" xml:space="preserve">
     <value>Save window position</value>
   </data>
@@ -875,9 +872,6 @@ LR2をプレイヤーとして使用すると再生できない場合があり�
   </data>
   <data name="Backup_unistall_desc" xml:space="preserve">
     <value>BeMusicSeeker関連データをLR2データベースから削除</value>
-  </data>
-  <data name="Search_downalods" xml:space="preserve">
-    <value>入手先を検索</value>
   </data>
   <data name="Msg_rename_folders" xml:space="preserve">
     <value>このルートフォルダに含まれる全BMSフォルダの
