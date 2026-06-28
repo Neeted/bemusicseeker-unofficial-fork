@@ -735,9 +735,6 @@ LR2をプレイヤーとして使用すると再生できない場合があり�
   <data name="Operation_Mode" xml:space="preserve">
     <value>動作モード</value>
   </data>
-  <data name="Msg_error_close_timeout" xml:space="preserve">
-    <value>終了処理がタイムアウトしました。</value>
-  </data>
   <data name="Msg_failed_remove_playlist_folder" xml:space="preserve">
     <value>プレイリストが外部同期モードになっているため
 フォルダを削除することは出来ません。</value>
@@ -2841,11 +2838,5 @@ BMS ディレクトリ一覧または LR2 の config.xml を見直し、親子�
   </data>
   <data name="UpdateDialog_ReleasePageButton" xml:space="preserve">
     <value>Releaseページ</value>
-  </data>
-  <data name="UpdateDialog_UpdateBlockedTitle" xml:space="preserve">
-    <value>アップデートを開始できません</value>
-  </data>
-  <data name="UpdateDialog_UpdateBlockedMessage" xml:space="preserve">
-    <value>バックグラウンド処理が完了していないため、アップデートを開始できません。しばらく待ってからもう一度お試しください。</value>
   </data>
 </root>

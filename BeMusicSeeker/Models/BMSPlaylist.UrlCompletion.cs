@@ -69,6 +69,11 @@ public partial class BMSPlaylist
         {
             try
             {
+                if (IsShutdownRequested)
+                {
+                    NLogWrapper.FileLogger?.Info("playlist_url_completion skipped reason=shutdown_requested requestReason=" + normalizedReason);
+                    return;
+                }
                 await RefreshPlaylistUrlCompletionLoopAsync().ConfigureAwait(false);
             }
             catch (Exception ex)
@@ -76,8 +81,18 @@ public partial class BMSPlaylist
                 NLogWrapper.FileLogger?.Warn(ex, "playlist_url_completion_refresh_failed reason=" + normalizedReason);
             }
         }
-        if (StartupBackgroundTaskScheduler != null && StartupBackgroundTaskScheduler("playlist_url_completion", normalizedReason, "playlist_entries_hydration", work))
+        if (StartupBackgroundTaskScheduler != null)
         {
+            if (StartupBackgroundTaskScheduler("playlist_url_completion", normalizedReason, "playlist_entries_hydration", work))
+            {
+                return;
+            }
+            NLogWrapper.FileLogger?.Info("playlist_url_completion skipped reason=startup_scheduler_rejected requestReason=" + normalizedReason);
+            return;
+        }
+        if (IsShutdownRequested)
+        {
+            NLogWrapper.FileLogger?.Info("playlist_url_completion skipped reason=shutdown_requested requestReason=" + normalizedReason);
             return;
         }
         _ = Task.Run(work);

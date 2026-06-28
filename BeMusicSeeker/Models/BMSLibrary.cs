@@ -612,21 +612,22 @@ public class BMSLibrary : NotificationObject
         || RankingRefreshRunning
         || (pendingInstallEstimateQueueProcessor != null && !pendingInstallEstimateQueueProcessor.IsIdle);
 
-    internal async Task<bool> WaitForShutdownBlockingWorkAsync(TimeSpan timeout)
+    internal string GetShutdownBlockingWorkLogFields()
     {
-        DateTime deadlineUtc = DateTime.UtcNow + timeout;
-        while (true)
-        {
-            if (!HasShutdownBlockingWork)
-            {
-                return true;
-            }
-            if (DateTime.UtcNow >= deadlineUtc)
-            {
-                return false;
-            }
-            await Task.Delay(100).ConfigureAwait(false);
-        }
+        return "lr2SongDbSyncRunning=" + FormatBool(Lr2SongDbSyncRunning)
+            + " chartInfoHydrationRunning=" + FormatBool(ChartInfoHydrationRunning)
+            + " chartInfoBackfillRunning=" + FormatBool(ChartInfoBackfillRunning)
+            + " chartDigestBackfillRunning=" + FormatBool(ChartDigestBackfillRunning)
+            + " maintenanceHydrationRunning=" + FormatBool(MaintenanceHydrationRunning)
+            + " installableMaintenanceDeferredRunning=" + FormatBool(InstallableMaintenanceDeferredRunning)
+            + " scoreHydrationRunning=" + FormatBool(ScoreHydrationRunning)
+            + " rankingRefreshRunning=" + FormatBool(RankingRefreshRunning)
+            + " pendingInstallEstimateQueueIdle=" + FormatBool(pendingInstallEstimateQueueProcessor == null || pendingInstallEstimateQueueProcessor.IsIdle);
+    }
+
+    private static string FormatBool(bool value)
+    {
+        return value.ToString().ToLowerInvariant();
     }
 
     private bool TrySkipForShutdown(string operation, string reason)
@@ -7228,9 +7229,20 @@ completeFileEnumerationOnce,
             RunLr2SongDbSync(reason, signature, requestVersion);
             return Task.CompletedTask;
         }
-        if (StartupBackgroundTaskScheduler != null
-            && StartupBackgroundTaskScheduler("lr2_song_db_sync", reason ?? "queue", null, work))
+        if (StartupBackgroundTaskScheduler != null)
         {
+            if (StartupBackgroundTaskScheduler("lr2_song_db_sync", reason ?? "queue", null, work))
+            {
+                return status;
+            }
+            CompleteLr2SongDbSyncRequest(requestVersion, "shutdown_skipped");
+            LogInstallPerformance("lr2_song_db_sync skipped version=" + requestVersion + " reason=startup_scheduler_rejected");
+            return status;
+        }
+        if (IsShutdownRequested)
+        {
+            CompleteLr2SongDbSyncRequest(requestVersion, "shutdown_skipped");
+            LogInstallPerformance("lr2_song_db_sync skipped version=" + requestVersion + " reason=shutdown_requested");
             return status;
         }
         Task.Run(() => RunLr2SongDbSync(reason, signature, requestVersion)).Logging("Lr2SongDbSync");
@@ -10012,12 +10024,38 @@ completeFileEnumerationOnce,
                 ProcessDeferredChartInfoHydrationRequests();
                 return Task.CompletedTask;
             }
-            if (StartupBackgroundTaskScheduler != null && StartupBackgroundTaskScheduler("chart_info_hydration", reason ?? "queue", null, work))
+            if (StartupBackgroundTaskScheduler != null)
             {
+                if (StartupBackgroundTaskScheduler("chart_info_hydration", reason ?? "queue", null, work))
+                {
+                    return;
+                }
+                CompleteChartInfoHydrationForShutdown("startup_scheduler_rejected");
+                return;
+            }
+            if (IsShutdownRequested)
+            {
+                CompleteChartInfoHydrationForShutdown("shutdown_requested");
                 return;
             }
             Task.Run(ProcessDeferredChartInfoHydrationRequests).Logging("ProcessDeferredChartInfoHydrationRequests");
         }
+    }
+
+    private void CompleteChartInfoHydrationForShutdown(string shutdownReason)
+    {
+        int shutdownRequestVersion;
+        lock (lockChartInfoHydration)
+        {
+            shutdownRequestVersion = chartInfoHydrationRequestedVersion;
+            chartInfoHydrationPending = false;
+            chartInfoHydrationPendingReason = null;
+            chartInfoHydrationPendingQueueBackfill = false;
+            chartInfoHydrationRunning = false;
+        }
+        ChartInfoHydrationCompletedVersion = shutdownRequestVersion;
+        ChartInfoHydrationRunning = false;
+        LogInstallPerformance("chart_info_hydration skipped version=" + shutdownRequestVersion + " reason=" + (shutdownReason ?? "shutdown_requested"));
     }
 
     private void ProcessDeferredChartInfoHydrationRequests()
@@ -11388,13 +11426,39 @@ completeFileEnumerationOnce,
             createWorker(false)();
             return Task.CompletedTask;
         }
-        if (StartupBackgroundTaskScheduler != null
-            && StartupBackgroundTaskScheduler("maintenance_hydration", reason ?? "queue", null, work))
+        if (StartupBackgroundTaskScheduler != null)
         {
+            if (StartupBackgroundTaskScheduler("maintenance_hydration", reason ?? "queue", null, work))
+            {
+                return;
+            }
+            CompleteMaintenanceHydrationForShutdown("startup_scheduler_rejected", reportDirect: true);
+            return;
+        }
+        if (IsShutdownRequested)
+        {
+            CompleteMaintenanceHydrationForShutdown("shutdown_requested", reportDirect: true);
             return;
         }
         ReportStartupBackgroundTask("maintenance_hydration", "queued", 0L, failed: false, detail: reason ?? string.Empty);
         Task.Run(createWorker(true)).Logging("ProcessDeferredMaintenanceHydrationRequests");
+    }
+
+    private void CompleteMaintenanceHydrationForShutdown(string shutdownReason, bool reportDirect)
+    {
+        int requestVersion;
+        lock (lockDeferredMaintenanceHydration)
+        {
+            requestVersion = MaintenanceHydrationRequestedVersion;
+            MaintenanceHydrationRunning = false;
+        }
+        MaintenanceHydrationCompletedVersion = requestVersion;
+        MaintenanceHydrationRunning = false;
+        LogInstallPerformance("maintenance_hydration skipped version=" + requestVersion + " reason=" + (shutdownReason ?? "shutdown_requested"));
+        if (reportDirect)
+        {
+            ReportStartupBackgroundTask("maintenance_hydration", "skipped", 0L, failed: false, detail: shutdownReason ?? "shutdown_requested");
+        }
     }
 
     private void ProcessDeferredMaintenanceHydrationRequests(bool reportDirect)
@@ -11783,12 +11847,34 @@ completeFileEnumerationOnce,
             worker();
             return Task.CompletedTask;
         }
-        if (StartupBackgroundTaskScheduler != null
-            && StartupBackgroundTaskScheduler("installable_maintenance", reason ?? "queue", dependency, work))
+        if (StartupBackgroundTaskScheduler != null)
         {
+            if (StartupBackgroundTaskScheduler("installable_maintenance", reason ?? "queue", dependency, work))
+            {
+                return;
+            }
+            CompleteInstallableMaintenanceForShutdown("startup_scheduler_rejected");
+            return;
+        }
+        if (IsShutdownRequested)
+        {
+            CompleteInstallableMaintenanceForShutdown("shutdown_requested");
             return;
         }
         Task.Run(worker).Logging("ProcessDeferredInstallableMaintenance");
+    }
+
+    private void CompleteInstallableMaintenanceForShutdown(string shutdownReason)
+    {
+        int requestVersion;
+        lock (lockDeferredInstallableMaintenance)
+        {
+            requestVersion = InstallableMaintenanceDeferredRequestedVersion;
+            InstallableMaintenanceDeferredRunning = false;
+        }
+        InstallableMaintenanceDeferredCompletedVersion = requestVersion;
+        InstallableMaintenanceDeferredRunning = false;
+        LogInstallPerformance("installable_maintenance_deferred skipped version=" + requestVersion + " reason=" + (shutdownReason ?? "shutdown_requested"));
     }
 
     private int CountInstallableMaintenanceSnapshotTargets()

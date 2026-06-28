@@ -47,14 +47,14 @@
         </ListBox>
       </GroupBox>
 
-      <TextBlock Text="{Binding ApplyBlockedReason}"
+      <TextBlock Text="{Binding StartBlockedReason}"
                  Margin="0,0,0,10"
                  Foreground="{DynamicResource App.WarningTextBrush}">
         <TextBlock.Style>
           <Style TargetType="TextBlock">
             <Setter Property="Visibility" Value="Collapsed" />
             <Style.Triggers>
-              <DataTrigger Binding="{Binding CanApplyUpdateNow}" Value="False">
+              <DataTrigger Binding="{Binding CanStartUpdate}" Value="False">
                 <Setter Property="Visibility" Value="Visible" />
               </DataTrigger>
             </Style.Triggers>
@@ -63,7 +63,7 @@
       </TextBlock>
 
       <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-        <Button Width="112" Margin="0,0,8,0" Content="{Binding UpdateButtonLabel}" IsEnabled="{Binding CanApplyUpdateNow}" IsDefault="True" Click="ApplyButtonClick" />
+        <Button Width="112" Margin="0,0,8,0" Content="{Binding UpdateButtonLabel}" IsEnabled="{Binding CanStartUpdate}" IsDefault="True" Click="ApplyButtonClick" />
         <Button Width="112" Margin="0,0,8,0" Content="{Binding ReleasePageButtonLabel}" Click="OpenReleasePageButtonClick" />
         <Button Width="72" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Close, Mode=OneWay}" IsCancel="True" />
       </StackPanel>

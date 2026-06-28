@@ -625,8 +625,6 @@ public class Resources
 
     public static string Msg_error_cache_download => ResourceManager.GetString("Msg_error_cache_download", resourceCulture);
 
-    public static string Msg_error_close_timeout => ResourceManager.GetString("Msg_error_close_timeout", resourceCulture);
-
     public static string Msg_error_preview => ResourceManager.GetString("Msg_error_preview", resourceCulture);
 
     public static string Msg_error_timeout_dblock_restore => ResourceManager.GetString("Msg_error_timeout_dblock_restore", resourceCulture);
@@ -1836,10 +1834,6 @@ public class Resources
     public static string UpdateDialog_UpdateButton => ResourceManager.GetString("UpdateDialog_UpdateButton", resourceCulture);
 
     public static string UpdateDialog_ReleasePageButton => ResourceManager.GetString("UpdateDialog_ReleasePageButton", resourceCulture);
-
-    public static string UpdateDialog_UpdateBlockedTitle => ResourceManager.GetString("UpdateDialog_UpdateBlockedTitle", resourceCulture);
-
-    public static string UpdateDialog_UpdateBlockedMessage => ResourceManager.GetString("UpdateDialog_UpdateBlockedMessage", resourceCulture);
 
     internal Resources()
     {

@@ -325,7 +325,6 @@
   "Tooltip_fast_forward": "Fast-forward",
   "Device_setting_test": "Test playback & latency measure",
   "Operation_Mode": "Operation mode",
-  "Msg_error_close_timeout": "Closing process timed out.",
   "Msg_failed_remove_playlist_folder": "Echec de supression du dossier.\nLa playlist est en mode synchronisation externe.",
   "Num_chart": "charts",
   "Remarks_URL": "Remarks URL",
@@ -821,7 +820,5 @@
   "UpdateDialog_PackageWithMetadataDescription": "Inclut des métadonnées pré-analysées. Vous pouvez consulter les métadonnées dans les playlists même pour les charts non installées.",
   "UpdateDialog_StartupBlocked": "La mise à jour ne peut pas démarrer avant la fin de l'initialisation.",
   "UpdateDialog_UpdateButton": "Mettre à jour",
-  "UpdateDialog_ReleasePageButton": "Page de version",
-  "UpdateDialog_UpdateBlockedTitle": "La mise à jour ne peut pas démarrer",
-  "UpdateDialog_UpdateBlockedMessage": "La mise à jour ne peut pas démarrer, car des traitements en arrière-plan sont encore en cours. Patientez un moment, puis réessayez."
+  "UpdateDialog_ReleasePageButton": "Page de version"
 }

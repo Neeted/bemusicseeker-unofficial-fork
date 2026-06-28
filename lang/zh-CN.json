@@ -325,7 +325,6 @@
   "Tooltip_fast_forward": "快进播放",
   "Device_setting_test": "测试播放并测量延迟",
   "Operation_Mode": "运行模式",
-  "Msg_error_close_timeout": "关闭处理超时。",
   "Msg_failed_remove_playlist_folder": "文件夹移除失败。\n该播放列表已设置为外部同步模式。",
   "Num_chart": " 个谱面",
   "Remarks_URL": "备注 URL",
@@ -821,7 +820,5 @@
   "UpdateDialog_PackageWithMetadataDescription": "包含已解析的元数据。即使未持有的谱面，也可以在播放列表中查看元数据。",
   "UpdateDialog_StartupBlocked": "启动初始化完成前无法开始更新。",
   "UpdateDialog_UpdateButton": "更新",
-  "UpdateDialog_ReleasePageButton": "Release 页面",
-  "UpdateDialog_UpdateBlockedTitle": "无法开始更新",
-  "UpdateDialog_UpdateBlockedMessage": "后台处理尚未完成，因此无法开始更新。请稍等片刻后重试。"
+  "UpdateDialog_ReleasePageButton": "Release 页面"
 }

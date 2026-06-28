@@ -90,23 +90,6 @@ internal sealed class DropInstallQueueProcessor(Action<DroppedInstallBatchReques
         statusChanged(snapshot);
     }
 
-    public async Task<bool> WaitForIdleAsync(TimeSpan timeout)
-    {
-        DateTime deadlineUtc = DateTime.UtcNow + timeout;
-        while (true)
-        {
-            if (IsIdle)
-            {
-                return true;
-            }
-            if (DateTime.UtcNow >= deadlineUtc)
-            {
-                return false;
-            }
-            await Task.Delay(100).ConfigureAwait(false);
-        }
-    }
-
     public void ReportActiveBatchProgress(int completedPathCount)
     {
         DropInstallQueueStatusSnapshot snapshot;

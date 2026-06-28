@@ -1,6 +1,5 @@
 using System;
 using System.Threading;
-using System.Threading.Tasks;
 
 namespace BeMusicSeeker.Models;
 
@@ -20,23 +19,6 @@ internal static class ShutdownOperationTracker
     {
         Interlocked.Increment(ref activeSqliteConnectionCount);
         return new Lease();
-    }
-
-    internal static async Task<bool> WaitForIdleAsync(TimeSpan timeout)
-    {
-        DateTime deadlineUtc = DateTime.UtcNow + timeout;
-        while (true)
-        {
-            if (ActiveSqliteConnectionCount == 0)
-            {
-                return true;
-            }
-            if (DateTime.UtcNow >= deadlineUtc)
-            {
-                return false;
-            }
-            await Task.Delay(100).ConfigureAwait(false);
-        }
     }
 
     internal static void RecordSqliteCloseFailure()

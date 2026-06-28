@@ -52,9 +52,9 @@ internal sealed class UpdateAvailableDialogViewModel : INotifyPropertyChanged, I
 
     public bool HasSelectableAssets => Packages.Count > 0;
 
-    public bool CanApplyUpdateNow => HasSelectableAssets && ownerViewModel?.IsStartupProgressActive != true;
+    public bool CanStartUpdate => HasSelectableAssets && ownerViewModel?.IsStartupProgressActive != true;
 
-    public string ApplyBlockedReason => CanApplyUpdateNow ? string.Empty : Resources.UpdateDialog_StartupBlocked;
+    public string StartBlockedReason => CanStartUpdate ? string.Empty : Resources.UpdateDialog_StartupBlocked;
 
     public UpdateAssetInfo SelectedAsset => selectedPackage?.Asset;
 
@@ -67,7 +67,7 @@ internal sealed class UpdateAvailableDialogViewModel : INotifyPropertyChanged, I
             {
                 selectedPackage = value;
                 RaisePropertyChanged(nameof(SelectedPackage));
-                RaisePropertyChanged(nameof(CanApplyUpdateNow));
+                RaisePropertyChanged(nameof(CanStartUpdate));
                 RaisePropertyChanged(nameof(SelectedAsset));
             }
         }
@@ -85,8 +85,8 @@ internal sealed class UpdateAvailableDialogViewModel : INotifyPropertyChanged, I
     {
         if (e.PropertyName == nameof(MainWindowViewModel.IsStartupProgressActive))
         {
-            RaisePropertyChanged(nameof(CanApplyUpdateNow));
-            RaisePropertyChanged(nameof(ApplyBlockedReason));
+            RaisePropertyChanged(nameof(CanStartUpdate));
+            RaisePropertyChanged(nameof(StartBlockedReason));
         }
     }
 

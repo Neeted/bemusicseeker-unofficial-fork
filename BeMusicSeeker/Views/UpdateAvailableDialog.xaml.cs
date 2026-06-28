@@ -22,7 +22,7 @@ public partial class UpdateAvailableDialog : Window
 
     private void ApplyButtonClick(object sender, RoutedEventArgs e)
     {
-        if (!viewModel.CanApplyUpdateNow || viewModel.SelectedAsset == null)
+        if (!viewModel.CanStartUpdate || viewModel.SelectedAsset == null)
         {
             return;
         }

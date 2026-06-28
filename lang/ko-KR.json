@@ -325,7 +325,6 @@
   "Tooltip_fast_forward": "빨리 감기",
   "Device_setting_test": "재생 테스트 및 지연 시간 측정",
   "Operation_Mode": "작동 모드",
-  "Msg_error_close_timeout": "종료 처리 시간이 초과되었습니다.",
   "Msg_failed_remove_playlist_folder": "폴더를 제거하지 못했습니다.\n해당 재생 목록이 외부 동기화 모드로 설정되어 있습니다.",
   "Num_chart": " 채보",
   "Remarks_URL": "비고 URL",
@@ -821,7 +820,5 @@
   "UpdateDialog_PackageWithMetadataDescription": "분석된 메타데이터를 함께 포함합니다. 보유하지 않은 보면도 플레이리스트에서 메타데이터를 볼 수 있습니다.",
   "UpdateDialog_StartupBlocked": "시작 초기화가 완료될 때까지 업데이트를 시작할 수 없습니다.",
   "UpdateDialog_UpdateButton": "업데이트",
-  "UpdateDialog_ReleasePageButton": "릴리스 페이지",
-  "UpdateDialog_UpdateBlockedTitle": "업데이트를 시작할 수 없음",
-  "UpdateDialog_UpdateBlockedMessage": "백그라운드 처리가 아직 완료되지 않아 업데이트를 시작할 수 없습니다. 잠시 후 다시 시도해 주세요."
+  "UpdateDialog_ReleasePageButton": "릴리스 페이지"
 }

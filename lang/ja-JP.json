@@ -335,7 +335,6 @@
   "Tooltip_fast_forward": "早送り",
   "Device_setting_test": "テスト再生 & レイテンシ計測",
   "Operation_Mode": "動作モード",
-  "Msg_error_close_timeout": "終了処理がタイムアウトしました。",
   "Msg_failed_remove_playlist_folder": "プレイリストが外部同期モードになっているため\nフォルダを削除することは出来ません。",
   "Num_chart": "譜面",
   "Remarks_URL": "備考URL",
@@ -821,7 +820,5 @@
   "UpdateDialog_PackageWithMetadataDescription": "解析済みメタデータを同梱します。未所持譜面でもプレイリストでメタデータを閲覧できます。",
   "UpdateDialog_StartupBlocked": "起動初期化が完了するまでアップデートを開始できません。",
   "UpdateDialog_UpdateButton": "更新",
-  "UpdateDialog_ReleasePageButton": "Releaseページ",
-  "UpdateDialog_UpdateBlockedTitle": "アップデートを開始できません",
-  "UpdateDialog_UpdateBlockedMessage": "バックグラウンド処理が完了していないため、アップデートを開始できません。しばらく待ってからもう一度お試しください。"
+  "UpdateDialog_ReleasePageButton": "Releaseページ"
 }

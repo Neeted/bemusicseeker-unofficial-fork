@@ -472,21 +472,18 @@ public partial class BMSPlaylist : NotificationObject
         || Volatile.Read(ref beatorajaBmtBackgroundActiveCount) != 0
         || Volatile.Read(ref beatorajaBmtExportQueued) != 0;
 
-    internal async Task<bool> WaitForShutdownBlockingWorkAsync(TimeSpan timeout)
+    internal string GetShutdownBlockingWorkLogFields()
     {
-        DateTime deadlineUtc = DateTime.UtcNow + timeout;
-        while (true)
-        {
-            if (!HasShutdownBlockingWork)
-            {
-                return true;
-            }
-            if (DateTime.UtcNow >= deadlineUtc)
-            {
-                return false;
-            }
-            await Task.Delay(100).ConfigureAwait(false);
-        }
+        return "playlistUpdating=" + FormatBool(IsPlaylistUpdating)
+            + " playlistEntriesHydrationRunning=" + FormatBool(PlaylistEntriesHydrationRunning)
+            + " beatorajaBmtFullExportActive=" + FormatBool(IsBeatorajaBmtFullExportActive())
+            + " beatorajaBmtBackgroundActiveCount=" + Volatile.Read(ref beatorajaBmtBackgroundActiveCount)
+            + " beatorajaBmtExportQueued=" + Volatile.Read(ref beatorajaBmtExportQueued);
+    }
+
+    private static string FormatBool(bool value)
+    {
+        return value.ToString().ToLowerInvariant();
     }
 
     private bool TrySkipForShutdown(string operation, string reason)
@@ -1237,12 +1234,27 @@ public partial class BMSPlaylist : NotificationObject
 
         Task work()
         {
+            if (IsShutdownRequested)
+            {
+                LogPlaylistPerformance("custom_folder_repair_after_hydration skipped reason=shutdown_requested requestReason=" + FormatTextForLog(reason));
+                return Task.CompletedTask;
+            }
             RepairMissingCustomFolderOutputsAfterHydration(reason, verifyRootOutputDirectoryRows);
             return Task.CompletedTask;
         }
 
-        if (StartupBackgroundTaskScheduler != null && StartupBackgroundTaskScheduler("playlist_custom_folder_output_repair", reason ?? "queue", "playlist_entries_hydration", work))
+        if (StartupBackgroundTaskScheduler != null)
         {
+            if (StartupBackgroundTaskScheduler("playlist_custom_folder_output_repair", reason ?? "queue", "playlist_entries_hydration", work))
+            {
+                return;
+            }
+            LogPlaylistPerformance("custom_folder_repair_after_hydration skipped reason=startup_scheduler_rejected requestReason=" + FormatTextForLog(reason));
+            return;
+        }
+        if (IsShutdownRequested)
+        {
+            LogPlaylistPerformance("custom_folder_repair_after_hydration skipped reason=shutdown_requested requestReason=" + FormatTextForLog(reason));
             return;
         }
         Task.Run(work).Logging("QueueCustomFolderOutputRepairAfterHydration");
@@ -1284,6 +1296,11 @@ public partial class BMSPlaylist : NotificationObject
             try
             {
                 await Task.Yield();
+                if (IsShutdownRequested)
+                {
+                    LogPlaylistPerformance("beatoraja_bmt_export_all skipped reason=shutdown_requested requestReason=" + FormatTextForLog(reason));
+                    return;
+                }
                 if (!IsCurrentBeatorajaBmtFullExportGeneration(fullExportGeneration))
                 {
                     return;
@@ -1418,8 +1435,18 @@ public partial class BMSPlaylist : NotificationObject
                 Interlocked.Decrement(ref beatorajaBmtFullExportActiveCount);
             }
         }
-        if (StartupBackgroundTaskScheduler != null && StartupBackgroundTaskScheduler("beatoraja_bmt_export_all", reason ?? "queue", null, work))
+        if (StartupBackgroundTaskScheduler != null)
         {
+            if (StartupBackgroundTaskScheduler("beatoraja_bmt_export_all", reason ?? "queue", null, work))
+            {
+                return;
+            }
+            LogPlaylistPerformance("beatoraja_bmt_export_all skipped reason=startup_scheduler_rejected requestReason=" + FormatTextForLog(reason));
+            return;
+        }
+        if (IsShutdownRequested)
+        {
+            LogPlaylistPerformance("beatoraja_bmt_export_all skipped reason=shutdown_requested requestReason=" + FormatTextForLog(reason));
             return;
         }
         Task.Run(work).Logging("QueueBeatorajaBmtExportAll");
@@ -1622,11 +1649,31 @@ public partial class BMSPlaylist : NotificationObject
                 }
             }
         }
-        if (StartupBackgroundTaskScheduler != null && StartupBackgroundTaskScheduler("beatoraja_bmt_export", reason ?? "queue", null, work))
+        if (StartupBackgroundTaskScheduler != null)
         {
+            if (StartupBackgroundTaskScheduler("beatoraja_bmt_export", reason ?? "queue", null, work))
+            {
+                return;
+            }
+            CompleteBeatorajaBmtExportQueueForShutdown(reason, "startup_scheduler_rejected");
+            return;
+        }
+        if (IsShutdownRequested)
+        {
+            CompleteBeatorajaBmtExportQueueForShutdown(reason, "shutdown_requested");
             return;
         }
         Task.Run(work).Logging("QueueBeatorajaBmtExport");
+    }
+
+    private void CompleteBeatorajaBmtExportQueueForShutdown(string reason, string shutdownReason)
+    {
+        Interlocked.Exchange(ref beatorajaBmtExportQueued, 0);
+        lock (beatorajaBmtExportQueueLock)
+        {
+            pendingBeatorajaBmtExportPlaylistIds.Clear();
+        }
+        LogPlaylistPerformance("beatoraja_bmt_export skipped reason=" + (shutdownReason ?? "shutdown_requested") + " requestReason=" + FormatTextForLog(reason));
     }
 
     private void ProcessBeatorajaBmtExportQueue(string reason)
@@ -2073,11 +2120,34 @@ public partial class BMSPlaylist : NotificationObject
                 }
             }
         }
-        if (StartupBackgroundTaskScheduler != null && StartupBackgroundTaskScheduler("playlist_entries_hydration", reason ?? "queue", null, work))
+        if (StartupBackgroundTaskScheduler != null)
         {
+            if (StartupBackgroundTaskScheduler("playlist_entries_hydration", reason ?? "queue", null, work))
+            {
+                return;
+            }
+            CompletePlaylistEntriesHydrationQueueForShutdown(reason, "startup_scheduler_rejected");
+            return;
+        }
+        if (IsShutdownRequested)
+        {
+            CompletePlaylistEntriesHydrationQueueForShutdown(reason, "shutdown_requested");
             return;
         }
         Task.Run(work).Logging("QueueDeferredPlaylistEntriesHydration");
+    }
+
+    private void CompletePlaylistEntriesHydrationQueueForShutdown(string reason, string shutdownReason)
+    {
+        PlaylistEntriesHydrationCompletedVersion = PlaylistEntriesHydrationRequestedVersion;
+        Interlocked.Exchange(ref playlistEntriesHydrationQueued, 0);
+        lock (playlistEntriesHydrationRequestLock)
+        {
+            playlistEntriesHydrationPendingRunExternalSync = false;
+            playlistEntriesHydrationPendingUpdateCallbacks.Clear();
+            playlistEntriesHydrationPendingCompletionActions.Clear();
+        }
+        LogPlaylistPerformance("playlist_entries_hydration skipped reason=" + (shutdownReason ?? "shutdown_requested") + " requestReason=" + FormatTextForLog(reason));
     }
 
     internal async Task EnsureAllPlaylistEntriesLoadedAsync(string reason, bool publishCompletedVersion = true)

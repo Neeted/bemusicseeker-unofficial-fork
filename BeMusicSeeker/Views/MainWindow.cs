@@ -582,33 +582,15 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private async Task DownloadAndApplyUpdateAsync(UpdateAssetInfo selectedAsset)
     {
-        bool shutdownPrepared = false;
+        bool shutdownPreparationCompleted = false;
         string packagePath = null;
         try
         {
-            ShutdownPreparationResult preflightResult = await CheckUpdateShutdownReadinessAsync().ConfigureAwait(false);
-            if (!preflightResult.CanApplyUpdate)
-            {
-                NLogWrapper.FileLogger?.Warn("Update apply blocked before download: " + preflightResult.ToLogFields());
-                ShowUpdateBlockedMessage();
-                return;
-            }
-
             packagePath = await updateDownloadService.DownloadAndVerifyAsync(selectedAsset).ConfigureAwait(false);
             ProcessStartInfo updaterStartInfo = updateDownloadService.CreateUpdaterStartInfo(packagePath);
             ShutdownPreparationResult shutdownResult = await EnsureShutdownPreparedAsync("update").ConfigureAwait(false);
-            shutdownPrepared = true;
-            if (!shutdownResult.CanApplyUpdate)
-            {
-                NLogWrapper.FileLogger?.Error("Update apply blocked after shutdown preparation: " + shutdownResult.ToLogFields());
-                TryDeleteDownloadedUpdatePackage(packagePath);
-                base.Dispatcher.Invoke(() =>
-                {
-                    _shutdownPrepared = true;
-                    Application.Current.Shutdown();
-                });
-                return;
-            }
+            shutdownPreparationCompleted = true;
+            NLogWrapper.FileLogger?.Info("Update apply shutdown prepared: " + shutdownResult.ToLogFields());
 
             Process updaterProcess = Process.Start(updaterStartInfo);
             if (updaterProcess == null)
@@ -624,7 +606,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         catch (Exception ex)
         {
             Ribbit.Logging.NLogWrapper.FileLogger?.Error(ex, "Failed to apply update.");
-            if (shutdownPrepared)
+            if (shutdownPreparationCompleted)
             {
                 TryDeleteDownloadedUpdatePackage(packagePath);
                 base.Dispatcher.Invoke(() =>
@@ -876,49 +858,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
-    private async Task<ShutdownPreparationResult> CheckUpdateShutdownReadinessAsync()
-    {
-        MainWindowViewModel viewModel = await base.Dispatcher.InvokeAsync(() =>
-        {
-            return _isClosingOrClosed ? null : base.DataContext as MainWindowViewModel;
-        }).Task.ConfigureAwait(false);
-        if (viewModel == null)
-        {
-            return new ShutdownPreparationResult(
-                "update_preflight_no_view_model",
-                0L,
-                dropInstallIdle: true,
-                playlistBuildIdle: true,
-                startupBackgroundIdle: true,
-                prewarmIdle: true,
-                mainOperationIdle: false,
-                libraryIdle: false,
-                playlistIdle: false,
-                dbLocksIdle: false,
-                playHistoryRefreshIdle: true,
-                deferredPlaylistWorkersIdle: true,
-                playlistReloadCleanupIdle: true,
-                sqliteConnectionsIdle: false,
-                sqliteCloseFailureCount: 0);
-        }
-
-        ShutdownPreparationResult result = await viewModel.CheckUpdateShutdownReadinessAsync("update_preflight").ConfigureAwait(false);
-        NLogWrapper.FileLogger?.Info("Update apply preflight: " + result.ToLogFields());
-        return result;
-    }
-
-    private void ShowUpdateBlockedMessage()
-    {
-        base.Dispatcher.Invoke(() =>
-        {
-            UiDialogRoute.ShowMessageBox(
-                BeMusicSeeker.Properties.Resources.UpdateDialog_UpdateBlockedMessage,
-                BeMusicSeeker.Properties.Resources.UpdateDialog_UpdateBlockedTitle,
-                MessageBoxButton.OK,
-                MessageBoxImage.Exclamation);
-        });
-    }
-
     private static void TryDeleteDownloadedUpdatePackage(string packagePath)
     {
         if (string.IsNullOrWhiteSpace(packagePath))
@@ -974,18 +913,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         return new ShutdownPreparationResult(
             reason ?? "shutdown",
             0L,
-            dropInstallIdle: true,
-            playlistBuildIdle: true,
-            startupBackgroundIdle: true,
-            prewarmIdle: true,
-            mainOperationIdle: true,
-            libraryIdle: true,
-            playlistIdle: true,
-            dbLocksIdle: true,
-            playHistoryRefreshIdle: true,
-            deferredPlaylistWorkersIdle: true,
-            playlistReloadCleanupIdle: true,
-            sqliteConnectionsIdle: true,
+            slowWaitLogged: false,
             sqliteCloseFailureCount: ShutdownOperationTracker.SqliteCloseFailureCount);
     }
 
