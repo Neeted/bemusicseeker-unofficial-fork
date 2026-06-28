@@ -14,6 +14,19 @@ internal sealed class BmsLibraryParentFolderCacheService
         List<string> chartPaths = [.. (installedChartPaths ?? []).Where(path => !string.IsNullOrWhiteSpace(path))];
         return [.. (bmsDirectories ?? []).Where(delegate (string directoryPath)
         {
+            if (options?.OperationModeLR2DB == true)
+            {
+                IReadOnlyList<string> customFolderOutputBases = CustomFolderOutputBaseRegistry.NormalizeBaseDirectories(
+                    new[] { options.LR2CustomFolderOutputBaseDir }
+                        .Concat(options.LR2CustomFolderAdditionalOutputBaseDirs ?? [])
+                        .Append(options.LR2CustomFolderOutputBaseDirRootType));
+                string normalizedDirectoryPath = CustomFolderOutputBaseRegistry.NormalizeDirectoryPath(directoryPath);
+                if (!string.IsNullOrWhiteSpace(normalizedDirectoryPath)
+                    && customFolderOutputBases.Any(outputBase => IsSameOrChildPath(normalizedDirectoryPath, outputBase)))
+                {
+                    return false;
+                }
+            }
             if (chartPaths.Any(delegate (string chartPath)
             {
                 return chartPath.StartsWith(directoryPath + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
@@ -21,17 +34,8 @@ internal sealed class BmsLibraryParentFolderCacheService
             {
                 return true;
             }
-            if (options.OperationModeLR2DB)
+            if (options?.OperationModeLR2DB == true)
             {
-                IEnumerable<string> customFolderOutputBases = new[] { options.LR2CustomFolderOutputBaseDir }
-                    .Concat(options.LR2CustomFolderAdditionalOutputBaseDirs ?? [])
-                    .Append(options.LR2CustomFolderOutputBaseDirRootType)
-                    .Where(path => !string.IsNullOrWhiteSpace(path));
-                if (customFolderOutputBases.Any(outputBase =>
-                    (directoryPath + Path.DirectorySeparatorChar).StartsWith(outputBase + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)))
-                {
-                    return false;
-                }
                 try
                 {
                     return !LongPathFileSystem.EnumerateFiles(directoryPath, "*.lr2folder", SearchOption.AllDirectories).Any();
@@ -43,6 +47,20 @@ internal sealed class BmsLibraryParentFolderCacheService
             }
             return true;
         })];
+    }
+
+    private static bool IsSameOrChildPath(string candidate, string parent)
+    {
+        if (string.IsNullOrWhiteSpace(candidate) || string.IsNullOrWhiteSpace(parent))
+        {
+            return false;
+        }
+        if (string.Equals(candidate, parent, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return candidate.StartsWith(parent + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
     }
 
     public BMSLibrary.ParentFolderListCacheSnapshot BuildSnapshot(int version, IEnumerable<string> installedChartPaths, IEnumerable<string> bmsDirectories, BmsLibraryOptionsSnapshot options)

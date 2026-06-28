@@ -278,7 +278,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
     }
 
     [TestMethod]
-    public void Lr2BmsDirectoryChoices_ExcludeManagedCustomFolderOutputBases()
+    public void Lr2BmsDirectoryChoices_ExcludeCustomFolderOutputBases()
     {
         string previousNormalOutputBase = Settings.Default.LR2CustomFolderOutputBaseDir;
         string previousRootOutputBase = Settings.Default.LR2CustomFolderOutputBaseDirRootType;
@@ -332,6 +332,155 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
     }
 
     [TestMethod]
+    public void CollectNestedBmsSearchRootConflicts_DetectsParentChildOnly()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_SettingDialog_" + Guid.NewGuid().ToString("N"));
+        string parent = Path.Combine(root, "BMS");
+        string child = Path.Combine(parent, "Child");
+        string sibling = Path.Combine(root, "Sibling");
+
+        IReadOnlyList<MainWindowViewModel.SettingDialogViewModel.NestedBmsSearchRootConflict> conflicts =
+            MainWindowViewModel.SettingDialogViewModel.CollectNestedBmsSearchRootConflicts([child, sibling, parent]);
+
+        Assert.AreEqual(1, conflicts.Count);
+        Assert.AreEqual(parent, conflicts[0].ParentPath);
+        Assert.AreEqual(child, conflicts[0].ChildPath);
+    }
+
+    [TestMethod]
+    public void CheckValidationBeforeSave_RejectsNestedLr2JukeboxRoots()
+    {
+        bool previousOperationMode = Settings.Default.OperationModeLR2DB;
+        string previousSongDbPath = Settings.Default.LR2SongDBPath;
+        string previousConfigXmlPath = Settings.Default.LR2ConfigXmlPath;
+        string previousNormalOutputBase = Settings.Default.LR2CustomFolderOutputBaseDir;
+        string previousRootOutputBase = Settings.Default.LR2CustomFolderOutputBaseDirRootType;
+        string previousAdditionalOutputBases = Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs;
+        string previousBmsInstallDir = Settings.Default.BMSInstallDir;
+        bool previousUsePlayerUbmplay = Settings.Default.UsePlayeruBMplay;
+        bool previousUsePlayerLr2body = Settings.Default.UsePlayerLR2body;
+        bool previousUsePlayerBmidxView = Settings.Default.UsePlayerBMIIDXView;
+        string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_SettingDialog_" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            string parent = Path.Combine(tempRootPath, "BMS");
+            string child = Path.Combine(parent, "Child");
+            string normalOutputBase = Path.Combine(tempRootPath, "NormalOutput");
+            string rootOutputBase = Path.Combine(tempRootPath, "RootOutput");
+            Directory.CreateDirectory(child);
+            Directory.CreateDirectory(normalOutputBase);
+            Directory.CreateDirectory(rootOutputBase);
+            string songDbPath = Path.Combine(tempRootPath, "song.db");
+            File.WriteAllBytes(songDbPath, []);
+
+            LR2Config config = CreateConfig(tempRootPath);
+            string configPath = Path.Combine(tempRootPath, "LR2files", "Config", "config.xml");
+            config.SetBMSSearchDirectories([parent, child]);
+            MainWindowViewModel viewModel = CreateViewModel(config);
+            MainWindowViewModel.SettingDialogViewModel dialog = viewModel.settingDialog;
+            Settings.Default.OperationModeLR2DB = true;
+            Settings.Default.LR2SongDBPath = songDbPath;
+            Settings.Default.LR2ConfigXmlPath = configPath;
+            Settings.Default.LR2CustomFolderOutputBaseDir = normalOutputBase;
+            Settings.Default.LR2CustomFolderOutputBaseDirRootType = rootOutputBase;
+            Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs = "[]";
+            Settings.Default.BMSInstallDir = parent;
+            Settings.Default.UsePlayeruBMplay = false;
+            Settings.Default.UsePlayerLR2body = false;
+            Settings.Default.UsePlayerBMIIDXView = false;
+            SetDialogField(dialog, "tempLR2CustomFolderOutputDir", normalOutputBase);
+            SetDialogField(dialog, "tempLR2CustomFolderAsRootOutputDir", rootOutputBase);
+            SetDialogField(dialog, "tempLR2CustomFolderAdditionalOutputBaseDirs", "[]");
+
+            bool isValid = dialog.CheckValidationBeforeSave(out string errMsg);
+
+            Assert.IsFalse(isValid);
+            StringAssert.Contains(errMsg, "親子関係");
+            StringAssert.Contains(errMsg, parent);
+            StringAssert.Contains(errMsg, child);
+        }
+        finally
+        {
+            Settings.Default.OperationModeLR2DB = previousOperationMode;
+            Settings.Default.LR2SongDBPath = previousSongDbPath;
+            Settings.Default.LR2ConfigXmlPath = previousConfigXmlPath;
+            Settings.Default.LR2CustomFolderOutputBaseDir = previousNormalOutputBase;
+            Settings.Default.LR2CustomFolderOutputBaseDirRootType = previousRootOutputBase;
+            Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs = previousAdditionalOutputBases;
+            Settings.Default.BMSInstallDir = previousBmsInstallDir;
+            Settings.Default.UsePlayeruBMplay = previousUsePlayerUbmplay;
+            Settings.Default.UsePlayerLR2body = previousUsePlayerLr2body;
+            Settings.Default.UsePlayerBMIIDXView = previousUsePlayerBmidxView;
+            TryDeleteDirectory(tempRootPath);
+        }
+    }
+
+    [TestMethod]
+    public void CheckValidationBeforeSave_RejectsPreviousNormalOutputCoveredOnlyByManualParentRoot()
+    {
+        bool previousOperationMode = Settings.Default.OperationModeLR2DB;
+        string previousSongDbPath = Settings.Default.LR2SongDBPath;
+        string previousConfigXmlPath = Settings.Default.LR2ConfigXmlPath;
+        string previousNormalOutputBase = Settings.Default.LR2CustomFolderOutputBaseDir;
+        string previousRootOutputBase = Settings.Default.LR2CustomFolderOutputBaseDirRootType;
+        string previousAdditionalOutputBases = Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs;
+        string previousBmsInstallDir = Settings.Default.BMSInstallDir;
+        bool previousUsePlayerUbmplay = Settings.Default.UsePlayeruBMplay;
+        bool previousUsePlayerLr2body = Settings.Default.UsePlayerLR2body;
+        bool previousUsePlayerBmidxView = Settings.Default.UsePlayerBMIIDXView;
+        string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_SettingDialog_" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            string parent = Path.Combine(tempRootPath, "BMS");
+            string normalOutputBase = Path.Combine(parent, "NormalOutput");
+            string rootOutputBase = Path.Combine(tempRootPath, "RootOutput");
+            Directory.CreateDirectory(normalOutputBase);
+            Directory.CreateDirectory(rootOutputBase);
+            string songDbPath = Path.Combine(tempRootPath, "song.db");
+            File.WriteAllBytes(songDbPath, []);
+
+            LR2Config config = CreateConfig(tempRootPath);
+            string configPath = Path.Combine(tempRootPath, "LR2files", "Config", "config.xml");
+            config.SetBMSSearchDirectories([parent]);
+            MainWindowViewModel viewModel = CreateViewModel(config);
+            MainWindowViewModel.SettingDialogViewModel dialog = viewModel.settingDialog;
+            Settings.Default.OperationModeLR2DB = true;
+            Settings.Default.LR2SongDBPath = songDbPath;
+            Settings.Default.LR2ConfigXmlPath = configPath;
+            Settings.Default.LR2CustomFolderOutputBaseDir = normalOutputBase;
+            Settings.Default.LR2CustomFolderOutputBaseDirRootType = rootOutputBase;
+            Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs = "[]";
+            Settings.Default.BMSInstallDir = parent;
+            Settings.Default.UsePlayeruBMplay = false;
+            Settings.Default.UsePlayerLR2body = false;
+            Settings.Default.UsePlayerBMIIDXView = false;
+            SetDialogField(dialog, "tempLR2CustomFolderOutputDir", normalOutputBase);
+            SetDialogField(dialog, "tempLR2CustomFolderAsRootOutputDir", rootOutputBase);
+            SetDialogField(dialog, "tempLR2CustomFolderAdditionalOutputBaseDirs", "[]");
+
+            bool isValid = dialog.CheckValidationBeforeSave(out string errMsg);
+
+            Assert.IsFalse(isValid);
+            StringAssert.Contains(errMsg, "登録済みBMSディレクトリ");
+            StringAssert.Contains(errMsg, "通常出力先");
+        }
+        finally
+        {
+            Settings.Default.OperationModeLR2DB = previousOperationMode;
+            Settings.Default.LR2SongDBPath = previousSongDbPath;
+            Settings.Default.LR2ConfigXmlPath = previousConfigXmlPath;
+            Settings.Default.LR2CustomFolderOutputBaseDir = previousNormalOutputBase;
+            Settings.Default.LR2CustomFolderOutputBaseDirRootType = previousRootOutputBase;
+            Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs = previousAdditionalOutputBases;
+            Settings.Default.BMSInstallDir = previousBmsInstallDir;
+            Settings.Default.UsePlayeruBMplay = previousUsePlayerUbmplay;
+            Settings.Default.UsePlayerLR2body = previousUsePlayerLr2body;
+            Settings.Default.UsePlayerBMIIDXView = previousUsePlayerBmidxView;
+            TryDeleteDirectory(tempRootPath);
+        }
+    }
+
+    [TestMethod]
     public void RootOutputBase_ChildJukeboxRowsDoNotInvalidateRootOutputBase()
     {
         string previousNormalOutputBase = Settings.Default.LR2CustomFolderOutputBaseDir;
@@ -369,6 +518,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             Assert.IsTrue(isValid, args[1] as string ?? string.Empty);
             Assert.AreEqual(0, InvokeCollectCustomFolderOutputBaseJukeboxAdoptionConflicts(dialog).Length);
             CollectionAssert.Contains(dialog.LR2ConfigBMSDirectories, manualBmsRoot);
+            CollectionAssert.DoesNotContain(dialog.LR2ConfigBMSDirectories, normalOutputBase);
             CollectionAssert.DoesNotContain(dialog.LR2ConfigBMSDirectories, rootOutputChild);
         }
         finally
@@ -476,8 +626,69 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
     }
 
     [TestMethod]
-    public void StartupRepair_MovesManagedOutputInstallDirToFirstUserBmsRoot()
+    public void RootOutputBaseSync_AddsNormalOutputBaseWhenRemovedParentCoveredIt()
     {
+        bool previousOperationMode = Settings.Default.OperationModeLR2DB;
+        string previousNormalOutputBase = Settings.Default.LR2CustomFolderOutputBaseDir;
+        string previousRootOutputBase = Settings.Default.LR2CustomFolderOutputBaseDirRootType;
+        string previousAdditionalOutputBases = Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs;
+        string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_SettingDialog_" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            string parentBmsRoot = Path.Combine(tempRootPath, "BMS");
+            string normalOutputBase = Path.Combine(parentBmsRoot, "NormalOutput");
+            string additionalOutputBase = Path.Combine(parentBmsRoot, "AdditionalOutput");
+            string rootOutputBase = Path.Combine(parentBmsRoot, "RootOutput");
+            string playlistOutputRoot = Path.Combine(rootOutputBase, "PlaylistOutput");
+            Directory.CreateDirectory(normalOutputBase);
+            Directory.CreateDirectory(additionalOutputBase);
+            Directory.CreateDirectory(rootOutputBase);
+
+            LR2Config config = CreateConfig(tempRootPath);
+            config.SetBMSSearchDirectories([parentBmsRoot, rootOutputBase]);
+            MainWindowViewModel viewModel = CreateViewModel(config);
+            MainWindowViewModel.SettingDialogViewModel dialog = viewModel.settingDialog;
+            Settings.Default.OperationModeLR2DB = true;
+            Settings.Default.LR2CustomFolderOutputBaseDir = normalOutputBase;
+            Settings.Default.LR2CustomFolderOutputBaseDirRootType = rootOutputBase;
+            Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs =
+                CustomFolderOutputBaseRegistry.SerializeBaseDirectories([additionalOutputBase]);
+            SetDialogField(dialog, "tempLR2CustomFolderOutputDir", normalOutputBase);
+            SetDialogField(dialog, "tempLR2CustomFolderAsRootOutputDir", string.Empty);
+            SetDialogField(dialog, "tempLR2CustomFolderAdditionalOutputBaseDirs", Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs);
+            string songDbPath = Path.Combine(tempRootPath, "song.db");
+            File.WriteAllBytes(songDbPath, []);
+            SetViewModelTables(
+                viewModel,
+                songDbPath,
+                [new BMSTable { is_root_folder = true, Output_dir = "PlaylistOutput" }]);
+
+            bool changed = (bool)typeof(MainWindowViewModel.SettingDialogViewModel)
+                .GetMethod("SyncRootCustomFolderOutputSearchRootsAfterSettingsChange", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .Invoke(dialog, null)!;
+
+            Assert.IsTrue(changed);
+            CollectionAssert.Contains(config.GetBMSSearchDirectories(), normalOutputBase);
+            CollectionAssert.Contains(config.GetBMSSearchDirectories(), additionalOutputBase);
+            CollectionAssert.Contains(config.GetBMSSearchDirectories(), playlistOutputRoot);
+            CollectionAssert.DoesNotContain(config.GetBMSSearchDirectories(), parentBmsRoot);
+            CollectionAssert.DoesNotContain(config.GetBMSSearchDirectories(), rootOutputBase);
+        }
+        finally
+        {
+            Settings.Default.OperationModeLR2DB = previousOperationMode;
+            Settings.Default.LR2CustomFolderOutputBaseDir = previousNormalOutputBase;
+            Settings.Default.LR2CustomFolderOutputBaseDirRootType = previousRootOutputBase;
+            Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs = previousAdditionalOutputBases;
+            TryDeleteDirectory(tempRootPath);
+        }
+    }
+
+    [TestMethod]
+    public void StartupRepair_DoesNotRewriteManagedOutputInstallDir()
+    {
+        bool previousOperationMode = Settings.Default.OperationModeLR2DB;
+        string previousConfigXmlPath = Settings.Default.LR2ConfigXmlPath;
         string previousNormalOutputBase = Settings.Default.LR2CustomFolderOutputBaseDir;
         string previousRootOutputBase = Settings.Default.LR2CustomFolderOutputBaseDirRootType;
         string previousAdditionalOutputBases = Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs;
@@ -494,9 +705,12 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             Directory.CreateDirectory(rootOutputChild);
 
             LR2Config config = CreateConfig(tempRootPath);
+            string configPath = Path.Combine(tempRootPath, "LR2files", "Config", "config.xml");
             config.SetBMSSearchDirectories([manualBmsRoot, normalOutputBase, rootOutputBase, rootOutputChild]);
             MainWindowViewModel viewModel = CreateViewModel(config);
             MainWindowViewModel.SettingDialogViewModel dialog = viewModel.settingDialog;
+            Settings.Default.OperationModeLR2DB = true;
+            Settings.Default.LR2ConfigXmlPath = configPath;
             Settings.Default.LR2CustomFolderOutputBaseDir = normalOutputBase;
             Settings.Default.LR2CustomFolderOutputBaseDirRootType = rootOutputBase;
             Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs = "[]";
@@ -504,17 +718,19 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             SetDialogField(dialog, "tempLR2CustomFolderOutputDir", normalOutputBase);
             SetDialogField(dialog, "tempLR2CustomFolderAsRootOutputDir", rootOutputBase);
             SetDialogField(dialog, "tempLR2CustomFolderAdditionalOutputBaseDirs", "[]");
+            SetDialogField(dialog, "tempBMSInstallDir", rootOutputChild);
 
-            bool repaired = (bool)typeof(MainWindowViewModel)
-                .GetMethod("RepairBmsInstallDirIfManagedOutputSearchRoot", BindingFlags.Instance | BindingFlags.NonPublic)!
-                .Invoke(viewModel, null)!;
+            typeof(MainWindowViewModel)
+                .GetMethod("RepairCustomFolderOutputSearchRootsBeforeStartupValidation", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .Invoke(viewModel, null);
 
-            Assert.IsTrue(repaired);
-            Assert.AreEqual(manualBmsRoot, Settings.Default.BMSInstallDir);
-            Assert.AreEqual(manualBmsRoot, GetDialogField<string>(dialog, "tempBMSInstallDir"));
+            Assert.AreEqual(rootOutputChild, Settings.Default.BMSInstallDir);
+            Assert.AreEqual(rootOutputChild, GetDialogField<string>(dialog, "tempBMSInstallDir"));
         }
         finally
         {
+            Settings.Default.OperationModeLR2DB = previousOperationMode;
+            Settings.Default.LR2ConfigXmlPath = previousConfigXmlPath;
             Settings.Default.LR2CustomFolderOutputBaseDir = previousNormalOutputBase;
             Settings.Default.LR2CustomFolderOutputBaseDirRootType = previousRootOutputBase;
             Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs = previousAdditionalOutputBases;
@@ -524,7 +740,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
     }
 
     [TestMethod]
-    public void NormalOutputBase_CanAdoptManualBmsRootWithSaveWarning()
+    public void NormalOutputBase_CannotAdoptNewManualBmsRoot()
     {
         string previousNormalOutputBase = Settings.Default.LR2CustomFolderOutputBaseDir;
         string previousRootOutputBase = Settings.Default.LR2CustomFolderOutputBaseDirRootType;
@@ -550,14 +766,181 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             SetDialogField(dialog, "tempLR2CustomFolderAsRootOutputDir", rootOutputBase);
             SetDialogField(dialog, "tempLR2CustomFolderAdditionalOutputBaseDirs", "[]");
 
-            dialog.LR2CustomFolderOutputDir = manualBmsRoot;
+            bool isValid = InvokeValidateCustomFolderOutputBaseDir(dialog, manualBmsRoot, out string errMsg);
+
+            Assert.IsFalse(isValid);
+            StringAssert.Contains(errMsg, "登録済みBMSディレクトリ");
+            Assert.AreEqual(normalOutputBase, Settings.Default.LR2CustomFolderOutputBaseDir);
+        }
+        finally
+        {
+            Settings.Default.LR2CustomFolderOutputBaseDir = previousNormalOutputBase;
+            Settings.Default.LR2CustomFolderOutputBaseDirRootType = previousRootOutputBase;
+            Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs = previousAdditionalOutputBases;
+            TryDeleteDirectory(tempRootPath);
+        }
+    }
+
+    [TestMethod]
+    public void NormalOutputBase_AllowsExistingUserConfigRootAlreadyInJukebox()
+    {
+        string previousNormalOutputBase = Settings.Default.LR2CustomFolderOutputBaseDir;
+        string previousRootOutputBase = Settings.Default.LR2CustomFolderOutputBaseDirRootType;
+        string previousAdditionalOutputBases = Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs;
+        string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_SettingDialog_" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            string normalOutputBase = Path.Combine(tempRootPath, "NormalOutput");
+            string rootOutputBase = Path.Combine(tempRootPath, "RootOutput");
+            Directory.CreateDirectory(normalOutputBase);
+            Directory.CreateDirectory(rootOutputBase);
+
+            LR2Config config = CreateConfig(tempRootPath);
+            config.AddBMSSearchDirectories([normalOutputBase]);
+            MainWindowViewModel viewModel = CreateViewModel(config);
+            MainWindowViewModel.SettingDialogViewModel dialog = viewModel.settingDialog;
+            Settings.Default.LR2CustomFolderOutputBaseDir = normalOutputBase;
+            Settings.Default.LR2CustomFolderOutputBaseDirRootType = rootOutputBase;
+            Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs = "[]";
+            SetDialogField(dialog, "tempLR2CustomFolderOutputDir", normalOutputBase);
+            SetDialogField(dialog, "tempLR2CustomFolderAsRootOutputDir", rootOutputBase);
+            SetDialogField(dialog, "tempLR2CustomFolderAdditionalOutputBaseDirs", "[]");
+
+            bool isValid = InvokeValidateCustomFolderOutputBaseDir(dialog, normalOutputBase, out string errMsg);
+
+            Assert.IsTrue(isValid, errMsg);
+            Assert.AreEqual(0, InvokeCollectCustomFolderOutputBaseJukeboxAdoptionConflicts(dialog).Length);
+        }
+        finally
+        {
+            Settings.Default.LR2CustomFolderOutputBaseDir = previousNormalOutputBase;
+            Settings.Default.LR2CustomFolderOutputBaseDirRootType = previousRootOutputBase;
+            Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs = previousAdditionalOutputBases;
+            TryDeleteDirectory(tempRootPath);
+        }
+    }
+
+    [TestMethod]
+    public void AdditionalOutputBase_PreviousNormalOutputBaseRequiresAdoptionWarning()
+    {
+        string previousNormalOutputBase = Settings.Default.LR2CustomFolderOutputBaseDir;
+        string previousRootOutputBase = Settings.Default.LR2CustomFolderOutputBaseDirRootType;
+        string previousAdditionalOutputBases = Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs;
+        string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_SettingDialog_" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            string previousNormalOutput = Path.Combine(tempRootPath, "NormalOutput");
+            string currentNormalOutput = Path.Combine(tempRootPath, "NewNormalOutput");
+            string rootOutputBase = Path.Combine(tempRootPath, "RootOutput");
+            Directory.CreateDirectory(previousNormalOutput);
+            Directory.CreateDirectory(currentNormalOutput);
+            Directory.CreateDirectory(rootOutputBase);
+
+            LR2Config config = CreateConfig(tempRootPath);
+            config.AddBMSSearchDirectories([previousNormalOutput]);
+            MainWindowViewModel viewModel = CreateViewModel(config);
+            MainWindowViewModel.SettingDialogViewModel dialog = viewModel.settingDialog;
+            Settings.Default.LR2CustomFolderOutputBaseDir = currentNormalOutput;
+            Settings.Default.LR2CustomFolderOutputBaseDirRootType = rootOutputBase;
+            Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs =
+                CustomFolderOutputBaseRegistry.SerializeBaseDirectories([previousNormalOutput]);
+            dialog.CustomFolderAdditionalOutputBaseDirList.Clear();
+            dialog.CustomFolderAdditionalOutputBaseDirList.Add(previousNormalOutput);
+            SetDialogField(dialog, "tempLR2CustomFolderOutputDir", previousNormalOutput);
+            SetDialogField(dialog, "tempLR2CustomFolderAsRootOutputDir", rootOutputBase);
+            SetDialogField(dialog, "tempLR2CustomFolderAdditionalOutputBaseDirs", "[]");
 
             object[] conflicts = InvokeCollectCustomFolderOutputBaseJukeboxAdoptionConflicts(dialog);
 
-            Assert.AreEqual(manualBmsRoot, Settings.Default.LR2CustomFolderOutputBaseDir);
             Assert.AreEqual(1, conflicts.Length);
-            Assert.AreEqual(manualBmsRoot, GetConflictProperty(conflicts[0], "OutputBasePath"));
-            Assert.AreEqual(manualBmsRoot, GetConflictProperty(conflicts[0], "JukeboxRootPath"));
+            Assert.AreEqual(previousNormalOutput, GetConflictProperty(conflicts[0], "OutputBasePath"));
+            Assert.AreEqual(previousNormalOutput, GetConflictProperty(conflicts[0], "JukeboxRootPath"));
+        }
+        finally
+        {
+            Settings.Default.LR2CustomFolderOutputBaseDir = previousNormalOutputBase;
+            Settings.Default.LR2CustomFolderOutputBaseDirRootType = previousRootOutputBase;
+            Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs = previousAdditionalOutputBases;
+            TryDeleteDirectory(tempRootPath);
+        }
+    }
+
+    [TestMethod]
+    public void NormalOutputBase_CannotAdoptPreviousAdditionalOutputBaseAsNewNormalRoot()
+    {
+        string previousNormalOutputBase = Settings.Default.LR2CustomFolderOutputBaseDir;
+        string previousRootOutputBase = Settings.Default.LR2CustomFolderOutputBaseDirRootType;
+        string previousAdditionalOutputBases = Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs;
+        string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_SettingDialog_" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            string normalOutputBase = Path.Combine(tempRootPath, "NormalOutput");
+            string previousAdditionalOutputBase = Path.Combine(tempRootPath, "AdditionalOutput");
+            string rootOutputBase = Path.Combine(tempRootPath, "RootOutput");
+            Directory.CreateDirectory(normalOutputBase);
+            Directory.CreateDirectory(previousAdditionalOutputBase);
+            Directory.CreateDirectory(rootOutputBase);
+
+            LR2Config config = CreateConfig(tempRootPath);
+            config.AddBMSSearchDirectories([normalOutputBase, previousAdditionalOutputBase]);
+            MainWindowViewModel viewModel = CreateViewModel(config);
+            MainWindowViewModel.SettingDialogViewModel dialog = viewModel.settingDialog;
+            Settings.Default.LR2CustomFolderOutputBaseDir = normalOutputBase;
+            Settings.Default.LR2CustomFolderOutputBaseDirRootType = rootOutputBase;
+            Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs = "[]";
+            dialog.CustomFolderAdditionalOutputBaseDirList.Clear();
+            SetDialogField(dialog, "tempLR2CustomFolderOutputDir", normalOutputBase);
+            SetDialogField(dialog, "tempLR2CustomFolderAsRootOutputDir", rootOutputBase);
+            SetDialogField(
+                dialog,
+                "tempLR2CustomFolderAdditionalOutputBaseDirs",
+                CustomFolderOutputBaseRegistry.SerializeBaseDirectories([previousAdditionalOutputBase]));
+
+            bool isValid = InvokeValidateCustomFolderOutputBaseDir(dialog, previousAdditionalOutputBase, out string errMsg);
+
+            Assert.IsFalse(isValid);
+            StringAssert.Contains(errMsg, "登録済みBMSディレクトリ");
+        }
+        finally
+        {
+            Settings.Default.LR2CustomFolderOutputBaseDir = previousNormalOutputBase;
+            Settings.Default.LR2CustomFolderOutputBaseDirRootType = previousRootOutputBase;
+            Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs = previousAdditionalOutputBases;
+            TryDeleteDirectory(tempRootPath);
+        }
+    }
+
+    [TestMethod]
+    public void NormalOutputBase_CannotAdoptPreviousRootOutputBaseAsNewNormalRoot()
+    {
+        string previousNormalOutputBase = Settings.Default.LR2CustomFolderOutputBaseDir;
+        string previousRootOutputBase = Settings.Default.LR2CustomFolderOutputBaseDirRootType;
+        string previousAdditionalOutputBases = Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs;
+        string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_SettingDialog_" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            string normalOutputBase = Path.Combine(tempRootPath, "NormalOutput");
+            string previousRootOutputBasePath = Path.Combine(tempRootPath, "RootOutput");
+            string currentRootOutputBase = Path.Combine(tempRootPath, "NewRootOutput");
+            Directory.CreateDirectory(normalOutputBase);
+            Directory.CreateDirectory(previousRootOutputBasePath);
+            Directory.CreateDirectory(currentRootOutputBase);
+
+            LR2Config config = CreateConfig(tempRootPath);
+            config.AddBMSSearchDirectories([normalOutputBase]);
+            MainWindowViewModel viewModel = CreateViewModel(config);
+            MainWindowViewModel.SettingDialogViewModel dialog = viewModel.settingDialog;
+            Settings.Default.LR2CustomFolderOutputBaseDir = normalOutputBase;
+            Settings.Default.LR2CustomFolderOutputBaseDirRootType = currentRootOutputBase;
+            Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs = "[]";
+            SetDialogField(dialog, "tempLR2CustomFolderOutputDir", normalOutputBase);
+            SetDialogField(dialog, "tempLR2CustomFolderAsRootOutputDir", previousRootOutputBasePath);
+            SetDialogField(dialog, "tempLR2CustomFolderAdditionalOutputBaseDirs", "[]");
+
+            bool isValid = InvokeValidateCustomFolderOutputBaseDir(dialog, previousRootOutputBasePath, out string errMsg);
+
+            Assert.IsFalse(isValid);
+            StringAssert.Contains(errMsg, "登録済みBMSディレクトリ");
         }
         finally
         {
@@ -626,7 +1009,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
     }
 
     [TestMethod]
-    public void AdditionalOutputBaseRename_CannotMoveToOldAdditionalOutputBaseParent()
+    public void AdditionalOutputBaseRename_InvalidNameDoesNotChangeList()
     {
         string previousNormalOutputBase = Settings.Default.LR2CustomFolderOutputBaseDir;
         string previousRootOutputBase = Settings.Default.LR2CustomFolderOutputBaseDirRootType;
@@ -657,8 +1040,8 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             SetDialogField(dialog, "tempLR2CustomFolderAsRootOutputDir", rootOutputBase);
             SetDialogField(dialog, "tempLR2CustomFolderAdditionalOutputBaseDirs", Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs);
 
-            dialog.SelectedCustomFolderAdditionalOutputBaseName = ".";
-            dialog.RenameSelectedCustomFolderAdditionalOutputBaseDir();
+            Assert.ThrowsException<ArgumentException>(() =>
+                CustomFolderOutputBaseRegistry.RenameLastDirectoryName(additionalOutputBase, "."));
 
             CollectionAssert.Contains(dialog.CustomFolderAdditionalOutputBaseDirList, additionalOutputBase);
             CollectionAssert.DoesNotContain(dialog.CustomFolderAdditionalOutputBaseDirList, additionalOutputBaseParent);
@@ -668,6 +1051,55 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             Settings.Default.LR2CustomFolderOutputBaseDir = previousNormalOutputBase;
             Settings.Default.LR2CustomFolderOutputBaseDirRootType = previousRootOutputBase;
             Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs = previousAdditionalOutputBases;
+            TryDeleteDirectory(tempRootPath);
+        }
+    }
+
+    [TestMethod]
+    public void NormalOutputBaseSearchRootSync_RemovesOldNormalOutputBaseEvenWhenUsedAsInstallDir()
+    {
+        bool previousOperationMode = Settings.Default.OperationModeLR2DB;
+        string previousNormalOutputBase = Settings.Default.LR2CustomFolderOutputBaseDir;
+        string previousRootOutputBase = Settings.Default.LR2CustomFolderOutputBaseDirRootType;
+        string previousAdditionalOutputBases = Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs;
+        string previousBmsInstallDir = Settings.Default.BMSInstallDir;
+        string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_SettingDialog_" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            string oldNormalOutputBase = Path.Combine(tempRootPath, "OldNormalOutput");
+            string newNormalOutputBase = Path.Combine(tempRootPath, "NewNormalOutput");
+            string rootOutputBase = Path.Combine(tempRootPath, "RootOutput");
+            Directory.CreateDirectory(oldNormalOutputBase);
+            Directory.CreateDirectory(newNormalOutputBase);
+            Directory.CreateDirectory(rootOutputBase);
+
+            LR2Config config = CreateConfig(tempRootPath);
+            config.AddBMSSearchDirectories([oldNormalOutputBase]);
+            MainWindowViewModel viewModel = CreateViewModel(config);
+            MainWindowViewModel.SettingDialogViewModel dialog = viewModel.settingDialog;
+            Settings.Default.OperationModeLR2DB = true;
+            Settings.Default.LR2CustomFolderOutputBaseDir = newNormalOutputBase;
+            Settings.Default.LR2CustomFolderOutputBaseDirRootType = rootOutputBase;
+            Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs = "[]";
+            Settings.Default.BMSInstallDir = oldNormalOutputBase;
+            SetDialogField(dialog, "tempLR2CustomFolderOutputDir", oldNormalOutputBase);
+            SetDialogField(dialog, "tempLR2CustomFolderAsRootOutputDir", rootOutputBase);
+            SetDialogField(dialog, "tempLR2CustomFolderAdditionalOutputBaseDirs", "[]");
+
+            CustomFolderOutputBaseSearchRootSyncPlan plan = InvokePrepareCustomFolderNormalOutputBaseSearchRootSync(dialog);
+            CustomFolderOutputBaseSearchRootSyncService.CompleteAdditionalOutputBaseRootSync(config, plan);
+
+            CollectionAssert.Contains(plan.RemovedPaths.ToArray(), oldNormalOutputBase);
+            CollectionAssert.DoesNotContain(config.GetBMSSearchDirectories(), oldNormalOutputBase);
+            CollectionAssert.Contains(config.GetBMSSearchDirectories(), newNormalOutputBase);
+        }
+        finally
+        {
+            Settings.Default.OperationModeLR2DB = previousOperationMode;
+            Settings.Default.LR2CustomFolderOutputBaseDir = previousNormalOutputBase;
+            Settings.Default.LR2CustomFolderOutputBaseDirRootType = previousRootOutputBase;
+            Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs = previousAdditionalOutputBases;
+            Settings.Default.BMSInstallDir = previousBmsInstallDir;
             TryDeleteDirectory(tempRootPath);
         }
     }
@@ -730,6 +1162,27 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             .Invoke(dialog, null)!)
             .Cast<object>()
             .ToArray();
+    }
+
+    private static bool InvokeValidateCustomFolderOutputBaseDir(
+        MainWindowViewModel.SettingDialogViewModel dialog,
+        string path,
+        out string errMsg)
+    {
+        object?[] args = [path, null];
+        bool result = (bool)typeof(MainWindowViewModel.SettingDialogViewModel)
+            .GetMethod("ValidateCustomFolderOutputBaseDir", BindingFlags.Instance | BindingFlags.NonPublic, null, [typeof(string), typeof(string).MakeByRefType()], null)!
+            .Invoke(dialog, args)!;
+        errMsg = (string)args[1]!;
+        return result;
+    }
+
+    private static CustomFolderOutputBaseSearchRootSyncPlan InvokePrepareCustomFolderNormalOutputBaseSearchRootSync(
+        MainWindowViewModel.SettingDialogViewModel dialog)
+    {
+        return (CustomFolderOutputBaseSearchRootSyncPlan)typeof(MainWindowViewModel.SettingDialogViewModel)
+            .GetMethod("PrepareCustomFolderNormalOutputBaseSearchRootSync", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(dialog, null)!;
     }
 
     private static string GetConflictProperty(object conflict, string propertyName)

@@ -42,6 +42,51 @@ public sealed class BmsLibraryParentFolderCacheServiceTests
     }
 
     [TestMethod]
+    public void BuildParentFolderCandidates_ExcludesCustomFolderOutputBasesEvenWhenChartsExist()
+    {
+        string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_ParentFolderCache_" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            string libraryRootPath = Path.Combine(tempRootPath, "LibraryRoot");
+            string normalOutputBase = Path.Combine(tempRootPath, "NormalOutput");
+            string additionalOutputBase = Path.Combine(tempRootPath, "AdditionalOutput");
+            string rootOutputBase = Path.Combine(tempRootPath, "RootOutput");
+            string rootOutputChild = Path.Combine(rootOutputBase, "PlaylistOutput");
+            Directory.CreateDirectory(libraryRootPath);
+            Directory.CreateDirectory(normalOutputBase);
+            Directory.CreateDirectory(additionalOutputBase);
+            Directory.CreateDirectory(rootOutputChild);
+
+            var service = new BmsLibraryParentFolderCacheService();
+            BmsLibraryOptionsSnapshot options = CreateLr2Options(
+                normalOutputBase + Path.DirectorySeparatorChar,
+                [additionalOutputBase + Path.DirectorySeparatorChar],
+                rootOutputBase + Path.DirectorySeparatorChar);
+            List<string> result = service.BuildParentFolderCandidates(
+                [libraryRootPath, normalOutputBase, additionalOutputBase, rootOutputChild],
+                [
+                    Path.Combine(libraryRootPath, "chart.bms"),
+                    Path.Combine(normalOutputBase, "chart.bms"),
+                    Path.Combine(additionalOutputBase, "chart.bms"),
+                    Path.Combine(rootOutputChild, "chart.bms")
+                ],
+                options);
+
+            CollectionAssert.Contains(result, libraryRootPath);
+            CollectionAssert.DoesNotContain(result, normalOutputBase);
+            CollectionAssert.DoesNotContain(result, additionalOutputBase);
+            CollectionAssert.DoesNotContain(result, rootOutputChild);
+        }
+        finally
+        {
+            if (Directory.Exists(tempRootPath))
+            {
+                Directory.Delete(tempRootPath, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
     public void BmsonSongsSetter_RaisesParentFolderCacheVersionChanged()
     {
         WithTemporarySongDb(delegate (string songDbPath)
@@ -71,11 +116,20 @@ public sealed class BmsLibraryParentFolderCacheServiceTests
 
     private static BmsLibraryOptionsSnapshot CreateLr2Options(string customFolderPath)
     {
+        return CreateLr2Options(customFolderPath, [], Path.Combine(customFolderPath, "RootType"));
+    }
+
+    private static BmsLibraryOptionsSnapshot CreateLr2Options(
+        string customFolderPath,
+        IReadOnlyList<string> additionalOutputBaseDirectories,
+        string rootOutputBaseDirectory)
+    {
         return new BmsLibraryOptionsSnapshot
         {
             OperationModeLR2DB = true,
             LR2CustomFolderOutputBaseDir = customFolderPath,
-            LR2CustomFolderOutputBaseDirRootType = Path.Combine(customFolderPath, "RootType")
+            LR2CustomFolderAdditionalOutputBaseDirs = additionalOutputBaseDirectories,
+            LR2CustomFolderOutputBaseDirRootType = rootOutputBaseDirectory
         };
     }
 

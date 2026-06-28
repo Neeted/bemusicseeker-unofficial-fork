@@ -41,13 +41,13 @@ OK は次の契約に従う。
 
 - `StandaloneSearchRoots`: standalone BMS root list を再読込し、standalone root snapshot を更新する。
 - `Lr2SearchRoots`: LR2 config 由来の BMS search root snapshot を更新する。
-- `CustomFolderOutputBase`: custom folder 追加出力先 list を再読込する。LR2 search root snapshot にも影響するため `Lr2SearchRoots` と併用する。
+- `CustomFolderOutputBase`: custom folder 追加出力先 list を再読込する。通常出力先と追加通常出力先は LR2 `<jukebox>` 同期にも影響するため `Lr2SearchRoots` と併用する。通常出力先は従来版互換の chart scan root として残すが、BMS directory 一覧 / install destination 候補 / library folder tree node からは除外する。追加通常出力先と root 出力先は LR2 `<jukebox>` には登録するが、chart scan root とこれらのユーザー向け候補から除外する。
 - `PlayHistoryDisplayPreset`: Play History 表示プリセット list を再読込し、プリセット snapshot を更新する。
 - `OperationMode`: operation mode 表示状態を更新する。
 - `ValidationState`: 保存可否や dirty 判定に関係する notification を更新する。
 - `Full`: 初期 snapshot、reset 後 snapshot、operation mode 変更など、境界全体を取り直す必要がある場合に使う。
 
-LR2 root / LR2 config path / operation mode / LR2 BMS search root / custom folder 出力先など LR2 config 境界が変わる場合は、post-save の custom folder search root sync が LR2 config の search root を補完する可能性がある。そのため、直接 BMS search root を編集していない場合でも `Lr2SearchRoots` を含め、保存後の LR2 search root snapshot を同期後の値へ更新する。
+LR2 root / LR2 config path / operation mode / LR2 BMS search root / custom folder 出力先など LR2 config 境界が変わる場合は、post-save の custom folder search root sync が LR2 config の search root を補完する可能性がある。そのため、直接 BMS search root を編集していない場合でも `Lr2SearchRoots` を含め、保存後の LR2 search root snapshot を同期後の値へ更新する。新しく通常出力先を選択する場合、user.config で既に管理されていない LR2 `<jukebox>` 登録済み root と同一または親子関係になる path は validation error とし、保存時確認による採用にはしない。最終的な `<jukebox>` の BMS search root 同士に同一・親子関係の重なりがある状態は異常として扱い、手動編集などで既に存在する場合は保存時 validation で是正を促す。親 root 配下の一部 directory だけを scan 除外する通常仕様は持たない。
 
 保存後 snapshot 更新では、外観テーマ、言語、通常 UI 設定など search root / custom folder / play history preset に影響しない変更で root list や custom folder list の再読込を行わない。これらの list 再読込は `ObservableCollection` 更新と property notification を伴い、設定ダイアログ表示中は binding 経由で search root / custom folder / LR2 directory 候補の再評価へ連鎖しやすいため、対応する scope がある場合だけ行う。
 

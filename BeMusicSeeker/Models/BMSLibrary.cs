@@ -4984,7 +4984,7 @@ public class BMSLibrary : NotificationObject
                         fileCheckPrefetchDirectories,
                         ShouldIncludeLr2TextSurface(options),
                         ShouldIncludeLr2DirectorySurface(options),
-                        scannerLabel => ReportLibraryInitializationProgress(
+                        reportScanner: scannerLabel => ReportLibraryInitializationProgress(
                             LibraryInitializationProgressStage.FileEnumeration,
                             scannerLabel,
                             force: true));
@@ -5697,7 +5697,7 @@ public class BMSLibrary : NotificationObject
                 bmsDirectories,
                 ShouldIncludeLr2TextSurface(options),
                 ShouldIncludeLr2DirectorySurface(options),
-                scannerLabel =>
+                reportScanner: scannerLabel =>
                 {
                     if (trackLibraryFileCheckProgress)
                     {
@@ -12402,7 +12402,6 @@ completeFileEnumerationOnce,
         {
             return excluded;
         }
-        AddNormalizedDirectory(excluded, Settings.Default.LR2CustomFolderOutputBaseDir);
         foreach (string additionalOutputBase in CustomFolderOutputBaseRegistry.ReadAdditionalBaseDirectories())
         {
             AddNormalizedDirectory(excluded, additionalOutputBase);

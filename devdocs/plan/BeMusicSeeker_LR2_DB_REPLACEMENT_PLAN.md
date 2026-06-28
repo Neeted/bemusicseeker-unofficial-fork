@@ -948,8 +948,9 @@ scope:
 - root / ancestor / BMS chart directory を unique directory set に dedupe してから metadata を取得する。
 - directory metadata と `folderinfo.txt` existence は Phase 3 の metadata-bearing enumeration surface から取得し、
   native bridge と managed fallback の意味を揃える。
-- `LR2CustomFolderOutputBaseDir` / `LR2CustomFolderOutputBaseDirRootType` は chart / resource scan の
-  explicit root にはしない。ただし親 BMS root に内包される場合は subtree 除外しない。
+- `LR2CustomFolderOutputBaseDir` は従来版互換のため chart / resource scan の explicit root に残す。
+  追加通常出力先と `LR2CustomFolderOutputBaseDirRootType` は chart / resource scan の explicit root にはしない。
+  ただし親 BMS root に内包される場合は subtree 除外しない。
 - Everything query に exclude DSL は追加せず、root / extension / filename の組み合わせで
   chart / resource surface と directory metadata surface を分ける。
 
@@ -991,7 +992,7 @@ scope:
   LR2 built-in custom folder source。DB path は LR2 root 相対にし、通常の外部 `.lr2folder` と
   source boundary / prune scope を分ける。
 - discovery root には LR2 BMS search root、通常出力先 `LR2CustomFolderOutputBaseDir`、
-  ルート出力先 `LR2CustomFolderOutputBaseDirRootType`、LR2 executable directory 配下の
+  追加通常出力先 `LR2CustomFolderAdditionalOutputBaseDirs`、ルート出力先 `LR2CustomFolderOutputBaseDirRootType`、LR2 executable directory 配下の
   `LR2files\CustomFolder` を含める。
   - `LR2files\CustomFolder` は LR2 setup の `<customfolder>` bitmask に従って、
     `RANDOM/`, `favorite.lr2folder`, `TOP10.lr2folder`, `PLAYLEVEL/`, `CLEAR/`,
@@ -1606,9 +1607,10 @@ Everything / filesystem 広域再スキャンを始める入口ではない。su
 
 - chart / resource search roots と `.lr2folder` discovery roots は別 surface として扱う。
   chart / resource roots は、BeMusicSeeker 内で「BMS root folder」として扱う root だけを正本にする。
-  BeMusicSeeker が明示的に管理する通常 custom folder 出力先と root custom folder 出力先は、
-  chart / resource query root として扱わない。
-  - 通常出力先は 1 つの base root として扱い、その配下の numbered `.lr2folder` / directory は
+  通常 custom folder 出力先は従来版互換のため chart / resource query root として扱い、追加通常出力先と
+  root custom folder 出力先は chart / resource query root として扱わない。
+  - 通常出力先は LR2 BMS search root に登録されていれば chart / resource root list に残す。
+  - 追加通常出力先は 1 つの base root として扱い、その配下の numbered `.lr2folder` / directory は
     chart / resource root list に並べない。
   - root custom folder 出力先も同じく 1 つの base root として扱う。LR2 config や既存 DB 由来で
     `D:\BMS\ROOT\...` のような子 directory が search root として列挙されていても、
@@ -1616,7 +1618,7 @@ Everything / filesystem 広域再スキャンを始める入口ではない。su
   - これは query root の正規化であり、`D:\BMS\` という BMS root の配下に
     `D:\BMS\#BeMusicSeeker\` が自然に存在する場合まで Everything exclude DSL で subtree 除外する
     という意味ではない。重要なのは、アプリ管理の出力先を追加 root として増やさないこと。
-- `.lr2folder` discovery roots は BMS search directories、通常 custom folder 出力先、root custom folder 出力先、
+- `.lr2folder` discovery roots は BMS search directories、通常 custom folder 出力先、追加通常出力先、root custom folder 出力先、
   LR2 built-in `LR2files\CustomFolder` を含める。通常出力先や root 出力先に外部 tool が
   `.lr2folder` を生成する運用があるため、`.lr2folder` discovery は chart/resource search より広い。
   app-managed output / external discovered source / built-in source の判定は query ではなく result classifier で行う。
@@ -1646,9 +1648,9 @@ Everything / filesystem 広域再スキャンを始める入口ではない。su
   `lr2FolderQueryHits` / `directoryQueryHits` / metadata bridge ms / fallback reason を出し、
   `.lr2folder` discovery が sync input で突然始まるように見えないようにする。
 - root normalization log を追加する。
-  chart / resource roots には BMS root folder だけが残り、通常 custom folder 出力先、root custom folder 出力先、
+  chart / resource roots には BMS root folder と通常 custom folder 出力先が残り、追加通常出力先、root custom folder 出力先、
   およびそれらの子 directory が explicit root として混ざらないことを確認できるようにする。
-  `.lr2folder` roots には BMS root folder 群、通常 custom folder 出力先、root custom folder 出力先、
+  `.lr2folder` roots には BMS root folder 群、通常 custom folder 出力先、追加通常出力先、root custom folder 出力先、
   LR2 built-in `LR2files\CustomFolder` が入ることを別 counts で出す。
 - bridge layout version / result version はログ分析用に出してよい。アプリ本体と native bridge DLL は
   同一配布物なので、旧 ABI DLL を runtime fallback する互換分岐は計画に含めない。
@@ -1745,12 +1747,13 @@ Everything / filesystem 広域再スキャンを始める入口ではない。su
      prepared surface が無い場合は scan surface の `.lr2folder` / `.txt` list を direct use し、prepared がある場合も
      scope matcher は drive root / prefix sibling を保ったまま path ごとの親 directory climb を避ける。
    - 完了: chart/resource search roots を「BMS root folder として扱う root」だけに正規化する。
-     通常 custom folder 出力先、root custom folder 出力先、およびそれらの配下の explicit root は
-     chart / resource scan root から除外する。ログで `D:\BMS\ROOT\...` のような root 出力先子 directory が
-     query に大量に並ぶ状態は設計不一致として扱う。`GetBmsDirectories_ExcludesCustomFolderOutputSearchRootsAndExplicitChildren`
-     で、親 BMS root 配下に自然に含まれる output-like subtree は除外せず、explicit output root / child root だけを
+     通常 custom folder 出力先は従来版互換のため chart / resource scan root から除外せず、追加通常出力先、
+     root custom folder 出力先、およびそれらの配下の explicit root は chart / resource scan root から除外する。
+     ログで `D:\BMS\ROOT\...` のような root 出力先子 directory が query に大量に並ぶ状態は設計不一致として扱う。
+     `GetBmsDirectories_IncludesNormalOutputSearchRootsAndExcludesAdditionalAndRootOutputRoots` で、親 BMS root 配下に
+     自然に含まれる output-like subtree は除外せず、explicit additional / root output root / child root だけを
      除外する contract を固定済み。
-   - 完了: `.lr2folder` discovery roots は BMS roots + 通常出力先 + root 出力先 + `LR2files\CustomFolder`
+   - 完了: `.lr2folder` discovery roots は BMS roots + 通常出力先 + 追加通常出力先 + root 出力先 + `LR2files\CustomFolder`
      にする。chart / resource roots とは root contract が異なるため、`ChartScanResult` の default groups へ
      混ぜず、startup / file diff producer が同じ grouped enumeration API で別 surface として作り、
      `SongTableFileCheckResult.Lr2ScanLr2Folder*` に保持する。
@@ -1944,7 +1947,7 @@ Everything / filesystem 広域再スキャンを始める入口ではない。su
    - `.lr2folder` discovery は初回 sync 用の入力ではなく、通常 file diff surface の一部として扱う。
      LR2 song.db sync completed 後も、アプリ管理外の `.lr2folder` 作成 / 更新 / 削除を startup file diff で検出し、
      対応する `folder` row を scoped sync する。
-   - `.lr2folder` roots は BMS root folder 群、通常 custom folder 出力先、root custom folder 出力先、
+   - `.lr2folder` roots は BMS root folder 群、通常 custom folder 出力先、追加通常出力先、root custom folder 出力先、
      LR2 built-in `LR2files\CustomFolder` であり、chart/resource roots とは別 root set で同じ grouped
      enumeration API へ渡す。
     - `folderinfo.txt` と directory metadata は normal folder row と `.lr2folder` parent/category row の

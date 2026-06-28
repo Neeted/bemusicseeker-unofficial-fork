@@ -1733,11 +1733,17 @@ public class Resources
 
     public static string Validation_OutputBaseNestedWithBmsRootFormat => ResourceManager.GetString("Validation_OutputBaseNestedWithBmsRootFormat", resourceCulture);
 
+    public static string Validation_NestedBmsSearchRootPathsFormat => ResourceManager.GetString("Validation_NestedBmsSearchRootPathsFormat", resourceCulture);
+
+    public static string Validation_NestedBmsSearchRootPathLineFormat => ResourceManager.GetString("Validation_NestedBmsSearchRootPathLineFormat", resourceCulture);
+
     public static string Confirm_CustomFolderOutputBaseJukeboxAdoptionFormat => ResourceManager.GetString("Confirm_CustomFolderOutputBaseJukeboxAdoptionFormat", resourceCulture);
 
     public static string Confirm_CustomFolderOutputBaseJukeboxAdoptionConflictLineFormat => ResourceManager.GetString("Confirm_CustomFolderOutputBaseJukeboxAdoptionConflictLineFormat", resourceCulture);
 
     public static string Confirm_CustomFolderOutputBaseJukeboxAdoptionOmittedLineFormat => ResourceManager.GetString("Confirm_CustomFolderOutputBaseJukeboxAdoptionOmittedLineFormat", resourceCulture);
+
+    public static string Msg_CustomFolderNormalOutputBaseChangedSearchRootRemovedFormat => ResourceManager.GetString("Msg_CustomFolderNormalOutputBaseChangedSearchRootRemovedFormat", resourceCulture);
 
     public static string Error_AdditionalOutputBaseNestedWithPreviousAdditional => ResourceManager.GetString("Error_AdditionalOutputBaseNestedWithPreviousAdditional", resourceCulture);
 

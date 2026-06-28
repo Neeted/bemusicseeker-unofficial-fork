@@ -56,6 +56,8 @@ LR2 `song.db` 生成は、主に次の入力から期待 row を作ります。
 同期 request は、file diff や root enumeration の結果を受け取ります。
 同期処理内で意味の変わる広範囲 fallback 探索は行わず、入力が不完全な場合は不完全として扱います。
 
+LR2 linked mode では、LR2 の `<jukebox>` は LR2 に見せる root set として扱い、通常の BMS directory、通常 custom folder 出力先、追加通常出力先、root custom folder 出力 playlist directory を登録対象にします。一方、本アプリの chart / resource scan root は `<jukebox>` を入力にしつつ用途で絞り込みます。従来版で通常 custom folder 出力先に楽曲が同居していた可能性があるため、通常 custom folder 出力先は chart / resource scan root から除外しません。ただし通常 custom folder 出力先は楽曲インストール先としては扱わず、BMS directory 一覧、install destination 候補、library folder tree node からは除外します。追加通常出力先と root custom folder 出力先は BeMusicSeeker 管理の custom folder 出力領域として chart / resource scan root から除外し、`.lr2folder` discovery root としてだけ扱います。最終的な `<jukebox>` の BMS 検索 root 同士に同一・親子関係の重なりを作らないことを前提にし、親 BMS root 配下の一部 directory だけを chart / resource scan から除外する通常仕様は持ちません。手動編集などで重なりがある場合は設定保存時の validation で是正を促します。
+
 ## song Table
 
 `song` table は BMS chart の LR2 互換 row を保持します。

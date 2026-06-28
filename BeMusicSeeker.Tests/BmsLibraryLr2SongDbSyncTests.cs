@@ -34,7 +34,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
     }
 
     [TestMethod]
-    public void GetBmsDirectories_ExcludesCustomFolderOutputSearchRootsAndExplicitChildren()
+    public void GetBmsDirectories_IncludesNormalOutputSearchRootsAndExcludesAdditionalAndRootOutputRoots()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         try
@@ -45,27 +45,35 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             string nestedCustomOutputLikeDirectory = Path.Combine(bmsRoot, "#BeMusicSeeker");
             string normalOutputBase = Path.Combine(scope.DirectoryPath, "NormalCustomFolderOutput");
             string normalOutputChild = Path.Combine(normalOutputBase, "Table");
+            string additionalOutputBase = Path.Combine(scope.DirectoryPath, "AdditionalCustomFolderOutput");
+            string additionalOutputChild = Path.Combine(additionalOutputBase, "Table");
             string rootOutputBase = Path.Combine(scope.DirectoryPath, "RootCustomFolderOutput");
             string rootOutputChild = Path.Combine(rootOutputBase, "Table");
             Directory.CreateDirectory(bmsRoot);
             Directory.CreateDirectory(nestedCustomOutputLikeDirectory);
             Directory.CreateDirectory(normalOutputBase);
             Directory.CreateDirectory(normalOutputChild);
+            Directory.CreateDirectory(additionalOutputBase);
+            Directory.CreateDirectory(additionalOutputChild);
             Directory.CreateDirectory(rootOutputBase);
             Directory.CreateDirectory(rootOutputChild);
             Settings.Default.LR2CustomFolderOutputBaseDir = normalOutputBase;
+            Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs =
+                CustomFolderOutputBaseRegistry.SerializeBaseDirectories([additionalOutputBase]);
             Settings.Default.LR2CustomFolderOutputBaseDirRootType = rootOutputBase;
             var library = new BMSLibrary(scope.SongDbPath)
             {
-                SearchTargets = [bmsRoot, nestedCustomOutputLikeDirectory, normalOutputBase, normalOutputChild, rootOutputBase, rootOutputChild]
+                SearchTargets = [bmsRoot, nestedCustomOutputLikeDirectory, normalOutputBase, normalOutputChild, additionalOutputBase, additionalOutputChild, rootOutputBase, rootOutputChild]
             };
 
             HashSet<string> directories = [.. InvokeGetBmsDirectories(library).Select(NormalizeDirectory)];
 
             Assert.IsTrue(directories.Contains(NormalizeDirectory(bmsRoot)));
             Assert.IsTrue(directories.Contains(NormalizeDirectory(nestedCustomOutputLikeDirectory)));
-            Assert.IsFalse(directories.Contains(NormalizeDirectory(normalOutputBase)));
-            Assert.IsFalse(directories.Contains(NormalizeDirectory(normalOutputChild)));
+            Assert.IsTrue(directories.Contains(NormalizeDirectory(normalOutputBase)));
+            Assert.IsTrue(directories.Contains(NormalizeDirectory(normalOutputChild)));
+            Assert.IsFalse(directories.Contains(NormalizeDirectory(additionalOutputBase)));
+            Assert.IsFalse(directories.Contains(NormalizeDirectory(additionalOutputChild)));
             Assert.IsFalse(directories.Contains(NormalizeDirectory(rootOutputBase)));
             Assert.IsFalse(directories.Contains(NormalizeDirectory(rootOutputChild)));
         }
@@ -87,24 +95,30 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             string missingRoot = Path.Combine(scope.DirectoryPath, "Missing");
             string normalOutputBase = Path.Combine(scope.DirectoryPath, "NormalCustomFolderOutput");
             string normalOutputChild = Path.Combine(normalOutputBase, "Table");
+            string additionalOutputBase = Path.Combine(scope.DirectoryPath, "AdditionalCustomFolderOutput");
+            string additionalOutputChild = Path.Combine(additionalOutputBase, "Table");
             string rootOutputBase = Path.Combine(scope.DirectoryPath, "RootCustomFolderOutput");
             Directory.CreateDirectory(bmsRoot);
             Directory.CreateDirectory(normalOutputBase);
             Directory.CreateDirectory(normalOutputChild);
+            Directory.CreateDirectory(additionalOutputBase);
+            Directory.CreateDirectory(additionalOutputChild);
             Directory.CreateDirectory(rootOutputBase);
             Settings.Default.LR2CustomFolderOutputBaseDir = normalOutputBase;
+            Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs =
+                CustomFolderOutputBaseRegistry.SerializeBaseDirectories([additionalOutputBase]);
             Settings.Default.LR2CustomFolderOutputBaseDirRootType = rootOutputBase;
             var library = new BMSLibrary(scope.SongDbPath)
             {
-                SearchTargets = [bmsRoot, missingRoot, normalOutputBase, normalOutputChild, rootOutputBase]
+                SearchTargets = [bmsRoot, missingRoot, normalOutputBase, normalOutputChild, additionalOutputBase, additionalOutputChild, rootOutputBase]
             };
 
             List<string> directories = InvokeGetBmsDirectories(library, out object normalization);
 
-            CollectionAssert.AreEqual(new[] { NormalizeDirectory(bmsRoot) }, directories.Select(NormalizeDirectory).ToArray());
-            Assert.AreEqual(5, GetPrivateInt(normalization, "RequestedRootCount"));
-            Assert.AreEqual(4, GetPrivateInt(normalization, "ExistingRootCount"));
-            Assert.AreEqual(1, GetPrivateInt(normalization, "RootCount"));
+            CollectionAssert.AreEqual(new[] { NormalizeDirectory(bmsRoot), NormalizeDirectory(normalOutputBase), NormalizeDirectory(normalOutputChild) }, directories.Select(NormalizeDirectory).ToArray());
+            Assert.AreEqual(7, GetPrivateInt(normalization, "RequestedRootCount"));
+            Assert.AreEqual(6, GetPrivateInt(normalization, "ExistingRootCount"));
+            Assert.AreEqual(3, GetPrivateInt(normalization, "RootCount"));
             Assert.AreEqual(2, GetPrivateInt(normalization, "ConfiguredCustomOutputRootCount"));
             Assert.AreEqual(3, GetPrivateInt(normalization, "ExcludedCustomOutputRootCount"));
         }
@@ -5746,6 +5760,24 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 work().GetAwaiter().GetResult();
                 return true;
             };
+            var options = new BmsLibraryOptionsSnapshot
+            {
+                OperationModeLR2DB = true,
+                LR2CustomFolderOutputBaseDir = outputBase,
+                LR2CustomFolderAdditionalOutputBaseDirs = [],
+                LR2CustomFolderOutputBaseDirRootType = string.Empty
+            };
+            InvokeCaptureLr2SongDbSyncScanSurface(library, options, [bmsRoot], new SongTableFileCheckResult
+            {
+                Lr2ScanSurfaceAvailable = true,
+                Lr2ScanDirectoryEntries = CreateDirectoryEntryMap(bmsRoot, outputBase, tableDirectory),
+                Lr2ScanNormalFolderDirectoryEntries = CreateDirectoryEntryMap(bmsRoot, outputBase, tableDirectory),
+                Lr2ScanFolderInfoFileEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase),
+                Lr2ScanLr2FolderFileEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase)
+                {
+                    [lr2FolderPath] = new RootFileEnumerationEntry(lr2FolderPath, File.GetLastWriteTimeUtc(lr2FolderPath))
+                }
+            });
 
             library.QueueLr2SongDbSync("test_normal_custom_folder_output_parent");
 
