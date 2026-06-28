@@ -821,5 +821,7 @@
   "UpdateDialog_PackageWithMetadataDescription": "解析済みメタデータを同梱します。未所持譜面でもプレイリストでメタデータを閲覧できます。",
   "UpdateDialog_StartupBlocked": "起動初期化が完了するまでアップデートを開始できません。",
   "UpdateDialog_UpdateButton": "更新",
-  "UpdateDialog_ReleasePageButton": "Releaseページ"
+  "UpdateDialog_ReleasePageButton": "Releaseページ",
+  "UpdateDialog_UpdateBlockedTitle": "アップデートを開始できません",
+  "UpdateDialog_UpdateBlockedMessage": "バックグラウンド処理が完了していないため、アップデートを開始できません。しばらく待ってからもう一度お試しください。"
 }

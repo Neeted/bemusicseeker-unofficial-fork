@@ -9,14 +9,18 @@ namespace BeMusicSeeker.Models.LR2;
 
 public class SQLiteConnectionEx : SQLiteConnection
 {
+    private readonly IDisposable shutdownOperationLease;
+
     public SQLiteConnectionEx(string databasePath, bool storeDateTimeAsTicks = true)
         : base(databasePath, storeDateTimeAsTicks)
     {
+        shutdownOperationLease = BeMusicSeeker.Models.ShutdownOperationTracker.TrackSqliteConnection();
     }
 
     public SQLiteConnectionEx(string databasePath, SQLiteOpenFlags openFlags, bool storeDateTimeAsTicks = true)
         : base(databasePath, openFlags, storeDateTimeAsTicks)
     {
+        shutdownOperationLease = BeMusicSeeker.Models.ShutdownOperationTracker.TrackSqliteConnection();
     }
 
     public static void RetryIfLockedOrBusy(Action onAction, Action<Exception> onError = null, uint? maxRetryCount = 10u)
@@ -107,6 +111,23 @@ public class SQLiteConnectionEx : SQLiteConnection
         catch (Exception ex)
         {
             logs?.Add(pragmaBody + ":ng(" + ex.GetType().Name + ")");
+        }
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        try
+        {
+            base.Dispose(disposing);
+        }
+        catch
+        {
+            BeMusicSeeker.Models.ShutdownOperationTracker.RecordSqliteCloseFailure();
+            throw;
+        }
+        finally
+        {
+            shutdownOperationLease?.Dispose();
         }
     }
 }

@@ -2842,4 +2842,10 @@ BMS ディレクトリ一覧または LR2 の config.xml を見直し、親子�
   <data name="UpdateDialog_ReleasePageButton" xml:space="preserve">
     <value>Releaseページ</value>
   </data>
+  <data name="UpdateDialog_UpdateBlockedTitle" xml:space="preserve">
+    <value>アップデートを開始できません</value>
+  </data>
+  <data name="UpdateDialog_UpdateBlockedMessage" xml:space="preserve">
+    <value>バックグラウンド処理が完了していないため、アップデートを開始できません。しばらく待ってからもう一度お試しください。</value>
+  </data>
 </root>

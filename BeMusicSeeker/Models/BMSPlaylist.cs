@@ -466,7 +466,8 @@ public partial class BMSPlaylist : NotificationObject
     }
 
     internal bool HasShutdownBlockingWork =>
-        PlaylistEntriesHydrationRunning
+        IsPlaylistUpdating
+        || PlaylistEntriesHydrationRunning
         || IsBeatorajaBmtFullExportActive()
         || Volatile.Read(ref beatorajaBmtBackgroundActiveCount) != 0
         || Volatile.Read(ref beatorajaBmtExportQueued) != 0;
@@ -619,6 +620,8 @@ public partial class BMSPlaylist : NotificationObject
     /// </summary>
     private bool _IsPlaylistUpdating;
 
+    private int playlistUpdatingActiveCount;
+
     private bool _PlaylistEntriesHydrationRunning;
 
     private int _PlaylistEntriesHydrationRequestedVersion;
@@ -652,6 +655,27 @@ public partial class BMSPlaylist : NotificationObject
                 _IsPlaylistUpdating = value;
                 RaisePropertyChanged("IsPlaylistUpdating");
             }
+        }
+    }
+
+    private void EnterPlaylistUpdating()
+    {
+        if (Interlocked.Increment(ref playlistUpdatingActiveCount) == 1)
+        {
+            IsPlaylistUpdating = true;
+        }
+    }
+
+    private void ExitPlaylistUpdating()
+    {
+        int count = Interlocked.Decrement(ref playlistUpdatingActiveCount);
+        if (count <= 0)
+        {
+            if (count < 0)
+            {
+                Interlocked.Exchange(ref playlistUpdatingActiveCount, 0);
+            }
+            IsPlaylistUpdating = false;
         }
     }
 
@@ -7083,7 +7107,7 @@ public partial class BMSPlaylist : NotificationObject
 
     internal async Task<List<BMSTable>> UpdateBMSTablesInternalAsync(bool reloadExtPlaylist = true, List<Action<PlaylistTableUpdateContext>> updateCallbackActions = null, Action<PlaylistSyncAttemptResult> syncResultCallback = null, Action<PlaylistSyncProgressSnapshot> progressCallback = null, CancellationToken cancellationToken = default)
     {
-        IsPlaylistUpdating = true;
+        EnterPlaylistUpdating();
         try
         {
             var stopwatchUpdateTablesTotal = Stopwatch.StartNew();
@@ -7127,80 +7151,88 @@ public partial class BMSPlaylist : NotificationObject
         }
         finally
         {
-            IsPlaylistUpdating = false;
+            ExitPlaylistUpdating();
         }
     }
 
     internal async Task<List<PlaylistReloadTargetResult>> ReloadPlaylistTargetsAsync(IEnumerable<BMSTable> targets, List<Action<PlaylistTableUpdateContext>> updateCallbackActions = null, Action<PlaylistSyncAttemptResult> syncResultCallback = null, Action<PlaylistSyncProgressSnapshot> progressCallback = null, string reason = "ReloadPlaylistTargetsAsync", CancellationToken cancellationToken = default)
     {
-        List<BMSTable> targetSnapshot = [.. (targets ?? [])
-            .Where(table => table != null)
-            .Distinct()
-            .Where(delegate (BMSTable table)
+        EnterPlaylistUpdating();
+        try
+        {
+            List<BMSTable> targetSnapshot = [.. (targets ?? [])
+                .Where(table => table != null)
+                .Distinct()
+                .Where(delegate (BMSTable table)
+                {
+                    Uri uri = table.Page_url ?? table.Header_url;
+                    return uri != null && uri.IsAbsoluteUri;
+                })];
+            int completedTableCount = 0;
+            List<PlaylistReloadTargetResult> results = [];
+            object resultLock = new();
+            progressCallback?.Invoke(new PlaylistSyncProgressSnapshot
             {
+                IsActive = targetSnapshot.Count > 0,
+                TotalTableCount = targetSnapshot.Count,
+                CompletedTableCount = 0,
+                CurrentTableName = string.Empty,
+                CurrentUri = null
+            });
+            using var semaphoreSlim = new SemaphoreSlim(ExternalPlaylistSyncMaxConcurrency, ExternalPlaylistSyncMaxConcurrency);
+            await Task.WhenAll([.. targetSnapshot.Select(async delegate (BMSTable table)
+            {
+                await semaphoreSlim.WaitAsync(cancellationToken).ConfigureAwait(false);
                 Uri uri = table.Page_url ?? table.Header_url;
-                return uri != null && uri.IsAbsoluteUri;
-            })];
-        int completedTableCount = 0;
-        List<PlaylistReloadTargetResult> results = [];
-        object resultLock = new();
-        progressCallback?.Invoke(new PlaylistSyncProgressSnapshot
-        {
-            IsActive = targetSnapshot.Count > 0,
-            TotalTableCount = targetSnapshot.Count,
-            CompletedTableCount = 0,
-            CurrentTableName = string.Empty,
-            CurrentUri = null
-        });
-        using var semaphoreSlim = new SemaphoreSlim(ExternalPlaylistSyncMaxConcurrency, ExternalPlaylistSyncMaxConcurrency);
-        await Task.WhenAll([.. targetSnapshot.Select(async delegate (BMSTable table)
-        {
-            await semaphoreSlim.WaitAsync(cancellationToken).ConfigureAwait(false);
-            Uri uri = table.Page_url ?? table.Header_url;
-            try
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                progressCallback?.Invoke(new PlaylistSyncProgressSnapshot
+                try
                 {
-                    IsActive = true,
-                    TotalTableCount = targetSnapshot.Count,
-                    CompletedTableCount = Volatile.Read(ref completedTableCount),
-                    CurrentTableName = table.name,
-                    CurrentUri = uri
-                });
-                PlaylistReloadTargetResult result = await ReloadPlaylistTargetCoreAsync(table, uri, updateCallbackActions, syncResultCallback, reason, cancellationToken).ConfigureAwait(false);
-                lock (resultLock)
-                {
-                    results.Add(result);
+                    cancellationToken.ThrowIfCancellationRequested();
+                    progressCallback?.Invoke(new PlaylistSyncProgressSnapshot
+                    {
+                        IsActive = true,
+                        TotalTableCount = targetSnapshot.Count,
+                        CompletedTableCount = Volatile.Read(ref completedTableCount),
+                        CurrentTableName = table.name,
+                        CurrentUri = uri
+                    });
+                    PlaylistReloadTargetResult result = await ReloadPlaylistTargetCoreAsync(table, uri, updateCallbackActions, syncResultCallback, reason, cancellationToken).ConfigureAwait(false);
+                    lock (resultLock)
+                    {
+                        results.Add(result);
+                    }
                 }
-            }
-            finally
-            {
-                int num = Interlocked.Increment(ref completedTableCount);
-                progressCallback?.Invoke(new PlaylistSyncProgressSnapshot
+                finally
                 {
-                    IsActive = true,
-                    TotalTableCount = targetSnapshot.Count,
-                    CompletedTableCount = num,
-                    CurrentTableName = table.name,
-                    CurrentUri = uri
-                });
-                semaphoreSlim.Release();
+                    int num = Interlocked.Increment(ref completedTableCount);
+                    progressCallback?.Invoke(new PlaylistSyncProgressSnapshot
+                    {
+                        IsActive = true,
+                        TotalTableCount = targetSnapshot.Count,
+                        CompletedTableCount = num,
+                        CurrentTableName = table.name,
+                        CurrentUri = uri
+                    });
+                    semaphoreSlim.Release();
+                }
+            })]).ConfigureAwait(false);
+            progressCallback?.Invoke(new PlaylistSyncProgressSnapshot
+            {
+                IsActive = false,
+                TotalTableCount = targetSnapshot.Count,
+                CompletedTableCount = completedTableCount,
+                CurrentTableName = string.Empty,
+                CurrentUri = null
+            });
+            if (targetSnapshot.Count > 0 && Settings.Default.EnablePlaylistUrlCompletion)
+            {
+                SchedulePlaylistUrlCompletionRefresh(reason);
             }
-        })]).ConfigureAwait(false);
-        progressCallback?.Invoke(new PlaylistSyncProgressSnapshot
-        {
-            IsActive = false,
-            TotalTableCount = targetSnapshot.Count,
-            CompletedTableCount = completedTableCount,
-            CurrentTableName = string.Empty,
-            CurrentUri = null
-        });
-        if (targetSnapshot.Count > 0 && Settings.Default.EnablePlaylistUrlCompletion)
-        {
-            SchedulePlaylistUrlCompletionRefresh(reason);
+            return results;
         }
-        return results;
+        finally
+        {
+            ExitPlaylistUpdating();
+        }
     }
 
     internal async Task<List<PlaylistExternalTableLoadResult>> LoadExternalTableSnapshotsAsync(IEnumerable<BMSTable> targets, bool inheritLocalTableProperties, Action<PlaylistSyncProgressSnapshot> progressCallback = null, string reason = "LoadExternalTableSnapshotsAsync", CancellationToken cancellationToken = default)

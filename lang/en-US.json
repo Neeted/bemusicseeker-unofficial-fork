@@ -821,5 +821,7 @@
   "UpdateDialog_PackageWithMetadataDescription": "Includes pre-analyzed metadata. You can view metadata in playlists even for charts you do not have installed.",
   "UpdateDialog_StartupBlocked": "The update cannot start until startup initialization is complete.",
   "UpdateDialog_UpdateButton": "Update",
-  "UpdateDialog_ReleasePageButton": "Release Page"
+  "UpdateDialog_ReleasePageButton": "Release Page",
+  "UpdateDialog_UpdateBlockedTitle": "Update Cannot Start",
+  "UpdateDialog_UpdateBlockedMessage": "The update cannot start because background processing is still finishing. Please wait a moment and try again."
 }

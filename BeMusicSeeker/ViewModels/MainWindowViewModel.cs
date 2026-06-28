@@ -41,6 +41,118 @@ using Ribbit.Util.Extensions;
 
 namespace BeMusicSeeker.ViewModels;
 
+internal sealed class ShutdownPreparationResult
+{
+    internal ShutdownPreparationResult(
+        string reason,
+        long elapsedMs,
+        bool dropInstallIdle,
+        bool playlistBuildIdle,
+        bool startupBackgroundIdle,
+        bool prewarmIdle,
+        bool mainOperationIdle,
+        bool libraryIdle,
+        bool playlistIdle,
+        bool dbLocksIdle,
+        bool playHistoryRefreshIdle,
+        bool deferredPlaylistWorkersIdle,
+        bool playlistReloadCleanupIdle,
+        bool sqliteConnectionsIdle,
+        int sqliteCloseFailureCount)
+    {
+        Reason = reason ?? "shutdown";
+        ElapsedMs = elapsedMs;
+        DropInstallIdle = dropInstallIdle;
+        PlaylistBuildIdle = playlistBuildIdle;
+        StartupBackgroundIdle = startupBackgroundIdle;
+        PrewarmIdle = prewarmIdle;
+        MainOperationIdle = mainOperationIdle;
+        LibraryIdle = libraryIdle;
+        PlaylistIdle = playlistIdle;
+        DbLocksIdle = dbLocksIdle;
+        PlayHistoryRefreshIdle = playHistoryRefreshIdle;
+        DeferredPlaylistWorkersIdle = deferredPlaylistWorkersIdle;
+        PlaylistReloadCleanupIdle = playlistReloadCleanupIdle;
+        SqliteConnectionsIdle = sqliteConnectionsIdle;
+        SqliteCloseFailureCount = Math.Max(0, sqliteCloseFailureCount);
+    }
+
+    internal string Reason { get; }
+
+    internal long ElapsedMs { get; }
+
+    internal bool DropInstallIdle { get; }
+
+    internal bool PlaylistBuildIdle { get; }
+
+    internal bool StartupBackgroundIdle { get; }
+
+    internal bool PrewarmIdle { get; }
+
+    internal bool MainOperationIdle { get; }
+
+    internal bool LibraryIdle { get; }
+
+    internal bool PlaylistIdle { get; }
+
+    internal bool DbLocksIdle { get; }
+
+    internal bool PlayHistoryRefreshIdle { get; }
+
+    internal bool DeferredPlaylistWorkersIdle { get; }
+
+    internal bool PlaylistReloadCleanupIdle { get; }
+
+    internal bool SqliteConnectionsIdle { get; }
+
+    internal int SqliteCloseFailureCount { get; }
+
+    internal bool CanApplyUpdate =>
+        DropInstallIdle
+        && PlaylistBuildIdle
+        && StartupBackgroundIdle
+        && PrewarmIdle
+        && MainOperationIdle
+        && LibraryIdle
+        && PlaylistIdle
+        && DbLocksIdle
+        && PlayHistoryRefreshIdle
+        && DeferredPlaylistWorkersIdle
+        && PlaylistReloadCleanupIdle
+        && SqliteConnectionsIdle
+        && SqliteCloseFailureCount == 0;
+
+    internal string ToLogFields()
+    {
+        return "reason=" + FormatForLog(Reason)
+            + " elapsedMs=" + ElapsedMs
+            + " dropInstallIdle=" + FormatBool(DropInstallIdle)
+            + " playlistBuildIdle=" + FormatBool(PlaylistBuildIdle)
+            + " startupBackgroundIdle=" + FormatBool(StartupBackgroundIdle)
+            + " prewarmIdle=" + FormatBool(PrewarmIdle)
+            + " mainOperationIdle=" + FormatBool(MainOperationIdle)
+            + " libraryIdle=" + FormatBool(LibraryIdle)
+            + " playlistIdle=" + FormatBool(PlaylistIdle)
+            + " dbLocksIdle=" + FormatBool(DbLocksIdle)
+            + " playHistoryRefreshIdle=" + FormatBool(PlayHistoryRefreshIdle)
+            + " deferredPlaylistWorkersIdle=" + FormatBool(DeferredPlaylistWorkersIdle)
+            + " playlistReloadCleanupIdle=" + FormatBool(PlaylistReloadCleanupIdle)
+            + " sqliteConnectionsIdle=" + FormatBool(SqliteConnectionsIdle)
+            + " sqliteCloseFailureCount=" + SqliteCloseFailureCount
+            + " canApplyUpdate=" + FormatBool(CanApplyUpdate);
+    }
+
+    private static string FormatBool(bool value)
+    {
+        return value.ToString().ToLowerInvariant();
+    }
+
+    private static string FormatForLog(string value)
+    {
+        return (value ?? string.Empty).Replace(Environment.NewLine, " | ");
+    }
+}
+
 /// <summary>
 /// Holds package chart sources accepted by the virtual chart-list pipeline.
 /// </summary>
@@ -9191,7 +9303,7 @@ public class MainWindowViewModel : ViewModel
 
     private int shutdownRequested;
 
-    private Task shutdownPreparationTask;
+    private Task<ShutdownPreparationResult> shutdownPreparationTask;
 
     private readonly object lockCopyFile = new();
 
@@ -9318,6 +9430,8 @@ public class MainWindowViewModel : ViewModel
     private long playHistoryKeywordFilterRevision;
 
     private long playHistoryKeywordFilterQueuedRevision;
+
+    private int playHistoryKeywordFilterActiveCount;
 
     private IEnumerable<LibraryChartRow> ChartRowsFolderView;
 
@@ -9699,6 +9813,8 @@ public class MainWindowViewModel : ViewModel
 
     private long playHistoryDisplayTargetQueuedRevision;
 
+    private int playHistoryDisplayTargetActiveCount;
+
     private long playHistoryDisplayTargetsRefreshRequestedRevision;
 
     private long playHistoryDisplayTargetsRefreshCompletedRevision;
@@ -9706,6 +9822,8 @@ public class MainWindowViewModel : ViewModel
     private long playHistoryDisplayTargetsRefreshScheduled;
 
     private int playHistoryDisplayTargetsRefreshSelectionQueued;
+
+    private int playHistoryDisplayTargetsRefreshActiveCount;
 
     private NormalLibraryTreeFilter virtualNormalLibraryTreeFilter;
 
@@ -10357,7 +10475,7 @@ public class MainWindowViewModel : ViewModel
             bool oldDetailSourceAlive = previousSourceWeakReference != null && previousSourceWeakReference.TryGetTarget(out previousSourceRows);
             bool oldDetailViewAlive = previousViewWeakReference != null && previousViewWeakReference.TryGetTarget(out previousViewRows);
             long managedMemoryBeforeBytes = GC.GetTotalMemory(forceFullCollection: false);
-            bool gcInvoked = request.GcAllowed;
+            bool gcInvoked = request.GcAllowed && !IsShutdownRequested;
             if (gcInvoked)
             {
                 GC.Collect();
@@ -13078,6 +13196,11 @@ public class MainWindowViewModel : ViewModel
 
     private void ScheduleDeferredPlaylistReferenceApply(string reason, long operationToken)
     {
+        if (IsShutdownRequested)
+        {
+            LogDeferredPlaylistReference("playlist_ref_deferred skipped reason=shutdown_requested requestReason=" + FormatTextForLog(reason));
+            return;
+        }
         int version = 0;
         bool shouldStartWorker = false;
         lock (lockDeferredPlaylistRef)
@@ -13206,6 +13329,11 @@ public class MainWindowViewModel : ViewModel
     {
         if (tables == null)
         {
+            return;
+        }
+        if (IsShutdownRequested)
+        {
+            LogDeferredExternalSync("deferred_external_sync skipped reason=shutdown_requested requestReason=" + FormatTextForLog(reason));
             return;
         }
         PlaylistReloadOperationKind playlistReloadOperationKind = DeterminePlaylistReloadOperationKind(reason, fromReloadTables);
@@ -18857,6 +18985,10 @@ public class MainWindowViewModel : ViewModel
 
     private void QueuePlayHistoryDisplayTargetsRefresh(bool queueRefreshWhenSelectionChanges = true)
     {
+        if (IsShutdownRequested)
+        {
+            return;
+        }
         if (queueRefreshWhenSelectionChanges)
         {
             Interlocked.Exchange(ref playHistoryDisplayTargetsRefreshSelectionQueued, 1);
@@ -18880,10 +19012,17 @@ public class MainWindowViewModel : ViewModel
 
         void Refresh()
         {
+            Interlocked.Increment(ref playHistoryDisplayTargetsRefreshActiveCount);
             try
             {
                 while (true)
                 {
+                    if (IsShutdownRequested)
+                    {
+                        long requestedRevision = Interlocked.Read(ref playHistoryDisplayTargetsRefreshRequestedRevision);
+                        Interlocked.Exchange(ref playHistoryDisplayTargetsRefreshCompletedRevision, requestedRevision);
+                        return;
+                    }
                     long refreshRevision = Interlocked.Read(ref playHistoryDisplayTargetsRefreshRequestedRevision);
                     bool refreshSelectionWhenChanged = Interlocked.Exchange(ref playHistoryDisplayTargetsRefreshSelectionQueued, 0) == 1;
                     RefreshPlayHistoryDisplayTargets(refreshSelectionWhenChanged);
@@ -18896,6 +19035,7 @@ public class MainWindowViewModel : ViewModel
             }
             finally
             {
+                Interlocked.Decrement(ref playHistoryDisplayTargetsRefreshActiveCount);
                 Interlocked.Exchange(ref playHistoryDisplayTargetsRefreshScheduled, 0L);
                 if (Interlocked.Read(ref playHistoryDisplayTargetsRefreshCompletedRevision) != Interlocked.Read(ref playHistoryDisplayTargetsRefreshRequestedRevision)
                     && Interlocked.CompareExchange(ref playHistoryDisplayTargetsRefreshScheduled, 1L, 0L) == 0L)
@@ -19550,7 +19690,7 @@ public class MainWindowViewModel : ViewModel
 
     public bool IsShutdownRequested => Volatile.Read(ref shutdownRequested) != 0;
 
-    public Task PrepareShutdownAsync(string reason)
+    internal Task<ShutdownPreparationResult> PrepareShutdownAsync(string reason)
     {
         lock (shutdownPreparationLock)
         {
@@ -19563,33 +19703,58 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
-    private async Task PrepareShutdownCoreAsync(string reason)
+    internal Task<ShutdownPreparationResult> CheckUpdateShutdownReadinessAsync(string reason)
+    {
+        return CollectShutdownPreparationResultAsync(reason ?? "update_preflight");
+    }
+
+    private async Task<ShutdownPreparationResult> PrepareShutdownCoreAsync(string reason)
     {
         var stopwatch = Stopwatch.StartNew();
         LogShutdown("prepare_start reason=" + FormatTextForLog(reason));
+        int sqliteCloseFailureBaseline = ShutdownOperationTracker.SqliteCloseFailureCount;
         TryShutdownStep("set_ui_blocked", () => SetStartupUiInteractionBlocked(true));
         RequestShutdownCancellation(reason);
 
+        ShutdownPreparationResult result = await CollectShutdownPreparationResultAsync(reason, stopwatch, sqliteCloseFailureBaseline).ConfigureAwait(false);
+        LogShutdown("prepare_done " + result.ToLogFields());
+        return result;
+    }
+
+    private async Task<ShutdownPreparationResult> CollectShutdownPreparationResultAsync(string reason, Stopwatch stopwatch = null, int? sqliteCloseFailureBaseline = null)
+    {
+        stopwatch ??= Stopwatch.StartNew();
+        sqliteCloseFailureBaseline ??= ShutdownOperationTracker.SqliteCloseFailureCount;
         bool dropInstallIdle = await WaitForDropInstallQueueIdleAsync(ShutdownQueueDrainTimeout).ConfigureAwait(false);
         bool playlistBuildIdle = await WaitForPlaylistBuildIdleAsync(ShutdownQueueDrainTimeout).ConfigureAwait(false);
         bool startupBackgroundIdle = await WaitForStartupBackgroundTasksIdleAsync(ShutdownDrainTimeout).ConfigureAwait(false);
         bool prewarmIdle = await WaitForPlaylistLibraryIndexPrewarmIdleAsync(ShutdownQueueDrainTimeout).ConfigureAwait(false);
+        bool playHistoryRefreshIdle = await WaitForPlayHistoryRefreshIdleAsync(ShutdownQueueDrainTimeout).ConfigureAwait(false);
         bool mainOperationIdle = await WaitForMainOperationIdleAsync(ShutdownDrainTimeout).ConfigureAwait(false);
         bool libraryIdle = files == null || await files.WaitForShutdownBlockingWorkAsync(ShutdownDrainTimeout).ConfigureAwait(false);
         bool playlistIdle = tables == null || await tables.WaitForShutdownBlockingWorkAsync(ShutdownDrainTimeout).ConfigureAwait(false);
+        bool deferredPlaylistWorkersIdle = await WaitForDeferredPlaylistWorkersIdleAsync(ShutdownQueueDrainTimeout).ConfigureAwait(false);
+        bool playlistReloadCleanupIdle = await WaitForPlaylistReloadCleanupIdleAsync(ShutdownQueueDrainTimeout).ConfigureAwait(false);
         bool dbLocksIdle = await WaitForLr2DbProcessLocksAsync(ShutdownDrainTimeout).ConfigureAwait(false);
-
+        bool sqliteConnectionsIdle = await ShutdownOperationTracker.WaitForIdleAsync(ShutdownQueueDrainTimeout).ConfigureAwait(false);
+        int sqliteCloseFailureCount = Math.Max(0, ShutdownOperationTracker.SqliteCloseFailureCount - sqliteCloseFailureBaseline.Value);
         stopwatch.Stop();
-        LogShutdown("prepare_done reason=" + FormatTextForLog(reason)
-            + " elapsedMs=" + stopwatch.ElapsedMilliseconds
-            + " dropInstallIdle=" + dropInstallIdle.ToString().ToLowerInvariant()
-            + " playlistBuildIdle=" + playlistBuildIdle.ToString().ToLowerInvariant()
-            + " startupBackgroundIdle=" + startupBackgroundIdle.ToString().ToLowerInvariant()
-            + " prewarmIdle=" + prewarmIdle.ToString().ToLowerInvariant()
-            + " mainOperationIdle=" + mainOperationIdle.ToString().ToLowerInvariant()
-            + " libraryIdle=" + libraryIdle.ToString().ToLowerInvariant()
-            + " playlistIdle=" + playlistIdle.ToString().ToLowerInvariant()
-            + " dbLocksIdle=" + dbLocksIdle.ToString().ToLowerInvariant());
+        return new ShutdownPreparationResult(
+            reason,
+            stopwatch.ElapsedMilliseconds,
+            dropInstallIdle,
+            playlistBuildIdle,
+            startupBackgroundIdle,
+            prewarmIdle,
+            mainOperationIdle,
+            libraryIdle,
+            playlistIdle,
+            dbLocksIdle,
+            playHistoryRefreshIdle,
+            deferredPlaylistWorkersIdle,
+            playlistReloadCleanupIdle,
+            sqliteConnectionsIdle,
+            sqliteCloseFailureCount);
     }
 
     private void RequestShutdownCancellation(string reason)
@@ -19599,6 +19764,7 @@ public class MainWindowViewModel : ViewModel
         TryShutdownStep("playlist_build", CancelPlaylistBuildRequestsForShutdown);
         TryShutdownStep("play_history", CancelPlayHistoryRequestsForShutdown);
         TryShutdownStep("playlist_index_prewarm", CancelPlaylistLibraryIndexPrewarmForShutdown);
+        TryShutdownStep("playlist_reload_cleanup", CancelPlaylistReloadCleanupForShutdown);
         TryShutdownStep("maintenance_rescan", CancelMaintenanceRescan);
         TryShutdownStep("drop_install", () => dropInstallQueueProcessor?.CancelAll());
         TryShutdownStep("startup_background_queue", () => CancelStartupBackgroundTasksForShutdown(reason));
@@ -19701,6 +19867,10 @@ public class MainWindowViewModel : ViewModel
         {
             InvalidatePlayHistoryFilterRequestUnsafe();
         }
+        Interlocked.Exchange(ref playHistoryKeywordFilterQueuedRevision, 0L);
+        Interlocked.Exchange(ref playHistoryDisplayTargetQueuedRevision, 0L);
+        Interlocked.Exchange(ref playHistoryDisplayTargetsRefreshRequestedRevision, Interlocked.Read(ref playHistoryDisplayTargetsRefreshCompletedRevision));
+        Interlocked.Exchange(ref playHistoryDisplayTargetsRefreshSelectionQueued, 0);
     }
 
     private void CancelPlaylistLibraryIndexPrewarmForShutdown()
@@ -19708,6 +19878,14 @@ public class MainWindowViewModel : ViewModel
         lock (playlistLibraryIndexSync)
         {
             playlistLibraryIndexPrewarmCancellation?.Cancel();
+        }
+    }
+
+    private void CancelPlaylistReloadCleanupForShutdown()
+    {
+        lock (lockPlaylistReloadCleanup)
+        {
+            pendingPlaylistReloadCleanup = null;
         }
     }
 
@@ -19752,6 +19930,55 @@ public class MainWindowViewModel : ViewModel
             task = playlistLibraryIndexPrewarmTask;
         }
         return await WaitForTaskCompletionAsync(task, timeout).ConfigureAwait(false);
+    }
+
+    private async Task<bool> WaitForPlayHistoryRefreshIdleAsync(TimeSpan timeout)
+    {
+        return await WaitForConditionAsync(IsPlayHistoryRefreshIdle, timeout).ConfigureAwait(false);
+    }
+
+    private bool IsPlayHistoryRefreshIdle()
+    {
+        return Interlocked.Read(ref playHistoryKeywordFilterQueuedRevision) == 0L
+            && Volatile.Read(ref playHistoryKeywordFilterActiveCount) == 0
+            && Interlocked.Read(ref playHistoryDisplayTargetQueuedRevision) == 0L
+            && Volatile.Read(ref playHistoryDisplayTargetActiveCount) == 0
+            && Interlocked.Read(ref playHistoryDisplayTargetsRefreshRequestedRevision) <= Interlocked.Read(ref playHistoryDisplayTargetsRefreshCompletedRevision)
+            && Interlocked.Read(ref playHistoryDisplayTargetsRefreshScheduled) == 0L
+            && Volatile.Read(ref playHistoryDisplayTargetsRefreshActiveCount) == 0;
+    }
+
+    private async Task<bool> WaitForDeferredPlaylistWorkersIdleAsync(TimeSpan timeout)
+    {
+        return await WaitForConditionAsync(IsDeferredPlaylistWorkersIdle, timeout).ConfigureAwait(false);
+    }
+
+    private bool IsDeferredPlaylistWorkersIdle()
+    {
+        lock (lockDeferredPlaylistRef)
+        {
+            if (deferredPlaylistRefRunning)
+            {
+                return false;
+            }
+        }
+        lock (lockDeferredExternalSync)
+        {
+            return !deferredExternalSyncRunning;
+        }
+    }
+
+    private async Task<bool> WaitForPlaylistReloadCleanupIdleAsync(TimeSpan timeout)
+    {
+        return await WaitForConditionAsync(IsPlaylistReloadCleanupIdle, timeout).ConfigureAwait(false);
+    }
+
+    private bool IsPlaylistReloadCleanupIdle()
+    {
+        lock (lockPlaylistReloadCleanup)
+        {
+            return pendingPlaylistReloadCleanup == null && !playlistReloadCleanupRunning;
+        }
     }
 
     private static async Task<bool> WaitForTaskCompletionAsync(Task task, TimeSpan timeout)
@@ -23779,6 +24006,10 @@ public class MainWindowViewModel : ViewModel
 
     private void QueuePlayHistoryKeywordFilterRefresh(bool advanceRevision = true)
     {
+        if (IsShutdownRequested)
+        {
+            return;
+        }
         PlayHistoryViewRequest request = null;
         lock (playHistoryViewRequestLock)
         {
@@ -23805,6 +24036,7 @@ public class MainWindowViewModel : ViewModel
                 keywordRevision,
                 Interlocked.Read(ref playHistoryDisplayTargetRevision));
         }
+        Interlocked.Increment(ref playHistoryKeywordFilterActiveCount);
         Task.Run(() =>
         {
             try
@@ -23814,6 +24046,7 @@ public class MainWindowViewModel : ViewModel
             finally
             {
                 Interlocked.CompareExchange(ref playHistoryKeywordFilterQueuedRevision, 0L, request.KeywordFilterRevision);
+                Interlocked.Decrement(ref playHistoryKeywordFilterActiveCount);
             }
         })
             .Logging("playHistoryKeywordFilterUpdated");
@@ -23821,6 +24054,10 @@ public class MainWindowViewModel : ViewModel
 
     private void QueuePlayHistoryDisplayTargetRefresh(bool advanceRevision = true)
     {
+        if (IsShutdownRequested)
+        {
+            return;
+        }
         PlayHistoryViewRequest request = null;
         lock (playHistoryViewRequestLock)
         {
@@ -23852,6 +24089,7 @@ public class MainWindowViewModel : ViewModel
             long keywordRevision = Interlocked.Read(ref playHistoryKeywordFilterRevision);
             request = new PlayHistoryViewRequest(request.PeriodRequest, request.RequestId, keywordRevision, targetRevision);
         }
+        Interlocked.Increment(ref playHistoryDisplayTargetActiveCount);
         Task.Run(() =>
         {
             try
@@ -23861,6 +24099,7 @@ public class MainWindowViewModel : ViewModel
             finally
             {
                 Interlocked.CompareExchange(ref playHistoryDisplayTargetQueuedRevision, 0L, request.DisplayTargetRevision);
+                Interlocked.Decrement(ref playHistoryDisplayTargetActiveCount);
             }
         })
             .Logging("playHistoryDisplayTargetUpdated");

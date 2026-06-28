@@ -821,5 +821,7 @@
   "UpdateDialog_PackageWithMetadataDescription": "Inclut des métadonnées pré-analysées. Vous pouvez consulter les métadonnées dans les playlists même pour les charts non installées.",
   "UpdateDialog_StartupBlocked": "La mise à jour ne peut pas démarrer avant la fin de l'initialisation.",
   "UpdateDialog_UpdateButton": "Mettre à jour",
-  "UpdateDialog_ReleasePageButton": "Page de version"
+  "UpdateDialog_ReleasePageButton": "Page de version",
+  "UpdateDialog_UpdateBlockedTitle": "La mise à jour ne peut pas démarrer",
+  "UpdateDialog_UpdateBlockedMessage": "La mise à jour ne peut pas démarrer, car des traitements en arrière-plan sont encore en cours. Patientez un moment, puis réessayez."
 }

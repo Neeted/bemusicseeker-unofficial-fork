@@ -1837,6 +1837,10 @@ public class Resources
 
     public static string UpdateDialog_ReleasePageButton => ResourceManager.GetString("UpdateDialog_ReleasePageButton", resourceCulture);
 
+    public static string UpdateDialog_UpdateBlockedTitle => ResourceManager.GetString("UpdateDialog_UpdateBlockedTitle", resourceCulture);
+
+    public static string UpdateDialog_UpdateBlockedMessage => ResourceManager.GetString("UpdateDialog_UpdateBlockedMessage", resourceCulture);
+
     internal Resources()
     {
     }

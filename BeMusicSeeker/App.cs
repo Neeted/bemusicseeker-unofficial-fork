@@ -36,9 +36,21 @@ public partial class App : System.Windows.Application
 
     private static bool _mutexOwned;
 
+    private static int coordinatedShutdownStarted;
+
+    private static string coordinatedShutdownReason;
+
     public bool firstStartup { get; set; }
 
     public static ReadOnlyDictionary<string, string> AvailableCultures { get; private set; }
+
+    internal static bool IsCoordinatedShutdownStarted => Volatile.Read(ref coordinatedShutdownStarted) != 0;
+
+    internal static void MarkCoordinatedShutdownStarted(string reason)
+    {
+        coordinatedShutdownReason = reason ?? "shutdown";
+        Volatile.Write(ref coordinatedShutdownStarted, 1);
+    }
 
     /// <summary>
     /// lang/ フォルダ内のJSONファイルをスキャンし、利用可能な言語リストを構築する
@@ -247,6 +259,10 @@ public partial class App : System.Windows.Application
         Exception exception = e.Exception;
         bool showMessage = true;
         e.Handled = true;
+        if (TrySuppressShutdownSqliteCloseException(exception, "dispatcher"))
+        {
+            return;
+        }
         if ((exception is COMException && ((COMException)exception).ErrorCode == -2147221040) || (exception is COMException && ((COMException)exception).ErrorCode == -2147467259))
         {
             return;
@@ -287,22 +303,30 @@ public partial class App : System.Windows.Application
         {
             return;
         }
+        bool suppressed = false;
         try
         {
             var ex = (Exception)e.ExceptionObject;
-            ExceptionLogger(ex);
+            suppressed = TrySuppressShutdownSqliteCloseException(ex, "current_domain");
+            if (!suppressed)
+            {
+                ExceptionLogger(ex);
+            }
         }
         finally
         {
-            Thread.Sleep(1000);
-            EmergencyDialog.Show("アプリケーションを終了します", "確認", MessageBoxButton.OK, MessageBoxImage.Asterisk, MessageBoxResult.Yes);
-            try
+            if (!suppressed)
             {
-                System.Windows.Application.Current.MainWindow.Close();
-            }
-            finally
-            {
-                Environment.Exit(1);
+                Thread.Sleep(1000);
+                EmergencyDialog.Show("アプリケーションを終了します", "確認", MessageBoxButton.OK, MessageBoxImage.Asterisk, MessageBoxResult.Yes);
+                try
+                {
+                    System.Windows.Application.Current.MainWindow.Close();
+                }
+                finally
+                {
+                    Environment.Exit(1);
+                }
             }
         }
     }
@@ -329,6 +353,42 @@ public partial class App : System.Windows.Application
         catch
         {
         }
+    }
+
+    private static bool TrySuppressShutdownSqliteCloseException(Exception exception, string source)
+    {
+        if (!IsCoordinatedShutdownStarted || !IsSqliteCloseException(exception))
+        {
+            return false;
+        }
+        try
+        {
+            NLogWrapper.FileLogger?.Warn(
+                exception,
+                "Suppressed SQLite close exception during coordinated shutdown. source="
+                    + (source ?? "unknown")
+                    + " reason="
+                    + (coordinatedShutdownReason ?? "shutdown"));
+        }
+        catch
+        {
+        }
+        return true;
+    }
+
+    private static bool IsSqliteCloseException(Exception exception)
+    {
+        while (exception != null)
+        {
+            if ((exception.Message ?? string.Empty).IndexOf(
+                "unable to close due to unfinalized statements or unfinished backups",
+                StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return true;
+            }
+            exception = exception.InnerException;
+        }
+        return false;
     }
 
 }

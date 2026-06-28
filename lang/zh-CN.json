@@ -821,5 +821,7 @@
   "UpdateDialog_PackageWithMetadataDescription": "包含已解析的元数据。即使未持有的谱面，也可以在播放列表中查看元数据。",
   "UpdateDialog_StartupBlocked": "启动初始化完成前无法开始更新。",
   "UpdateDialog_UpdateButton": "更新",
-  "UpdateDialog_ReleasePageButton": "Release 页面"
+  "UpdateDialog_ReleasePageButton": "Release 页面",
+  "UpdateDialog_UpdateBlockedTitle": "无法开始更新",
+  "UpdateDialog_UpdateBlockedMessage": "后台处理尚未完成，因此无法开始更新。请稍等片刻后重试。"
 }
