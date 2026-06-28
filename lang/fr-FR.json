@@ -673,6 +673,7 @@
   "Warn_SelectedPlaylistUrlDownloadNoTargets": "La sélection ne contient aucune URL cible.",
   "Warn_SelectedPlaylistUrlDownloadBlockedByInstallQueue": "L’import d’URL ne peut pas démarrer pendant qu’une opération d’installation est en cours.\nRelancez-le une fois l’opération d’installation terminée ou annulée.",
   "Warn_DropInstallBlockedByPlaylistUrlDownload": "L’installation par glisser-déposer ne peut pas démarrer pendant qu’un import d’URL est en cours.\nRelancez-la une fois l’import d’URL terminé.",
+  "Warn_ElevatedProcessDragDropLimited": "BeMusicSeeker s’exécute avec des privilèges administrateur.\n\nWindows peut bloquer le glisser-déposer de fichiers ou de dossiers depuis une fenêtre de l’Explorateur lancée normalement.\nLancez BeMusicSeeker normalement lorsque vous ajoutez des morceaux par glisser-déposer.",
   "Warn_PendingPackageNotFound": "La partition sélectionnée n'a pas été trouvée dans les paquets en attente.",
   "Warn_InvalidInstallPath": "Le chemin de destination d'installation est invalide.\n{0}\n\n{1}",
   "Warn_InstallDirNotFound": "Le dossier de destination d'installation est introuvable.\n{0}",

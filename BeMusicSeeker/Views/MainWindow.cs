@@ -11,6 +11,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Security.Principal;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -401,6 +402,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             UnsubscribeViewModelUiInteractions();
         };
+        ContentRendered += MainWindow_ContentRendered;
 
         // Add handler that catches already-handled TreeViewItem.Selected events to synchronize TreeView exclusivity
         gridTreePane.AddHandler(TreeViewItem.SelectedEvent, new RoutedEventHandler(gridTreePane_TreeViewItemSelected), true);
@@ -425,6 +427,85 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
         // Start async update check
         Task.Run(async () => await CheckForUpdatesAsync());
+    }
+
+    private void MainWindow_ContentRendered(object sender, EventArgs e)
+    {
+        ContentRendered -= MainWindow_ContentRendered;
+        Dispatcher.BeginInvoke(DispatcherPriority.ContextIdle, (Action)ShowElevatedProcessWarningIfNeeded);
+    }
+
+    private void ShowElevatedProcessWarningIfNeeded()
+    {
+        if (ShouldSkipElevatedProcessWarning())
+        {
+            return;
+        }
+
+        bool isElevated;
+        try
+        {
+            isElevated = IsCurrentProcessElevated();
+        }
+        catch (Exception ex)
+        {
+            NLogWrapper.FileLogger?.Warn(ex, "process_elevation_check_failed");
+            return;
+        }
+
+        if (!isElevated)
+        {
+            return;
+        }
+
+        if (ShouldSkipElevatedProcessWarning())
+        {
+            return;
+        }
+
+        NLogWrapper.FileLogger?.Warn("process_elevated drag_drop_limited_warning_detected=true");
+        try
+        {
+            UiDialogRoute.ShowMessageBox(
+                this,
+                BeMusicSeeker.Properties.Resources.Warn_ElevatedProcessDragDropLimited,
+                BeMusicSeeker.Properties.Resources.Warning,
+                MessageBoxButton.OK,
+                MessageBoxImage.Exclamation,
+                MessageBoxResult.OK);
+            NLogWrapper.FileLogger?.Warn("process_elevated drag_drop_limited_warning_shown=true");
+        }
+        catch (Exception ex)
+        {
+            NLogWrapper.FileLogger?.Warn(ex, "process_elevated drag_drop_limited_warning_failed");
+        }
+    }
+
+    private bool ShouldSkipElevatedProcessWarning()
+    {
+        if (_isClosingOrClosed || !IsLoaded || Visibility != Visibility.Visible)
+        {
+            return true;
+        }
+
+        Application application = Application.Current;
+        if (application == null)
+        {
+            return true;
+        }
+
+        Dispatcher applicationDispatcher = application.Dispatcher;
+        return applicationDispatcher == null
+            || applicationDispatcher.HasShutdownStarted
+            || applicationDispatcher.HasShutdownFinished
+            || Dispatcher.HasShutdownStarted
+            || Dispatcher.HasShutdownFinished;
+    }
+
+    private static bool IsCurrentProcessElevated()
+    {
+        using WindowsIdentity identity = WindowsIdentity.GetCurrent();
+        return new WindowsPrincipal(identity).IsInRole(WindowsBuiltInRole.Administrator);
     }
 
     private void SubscribeViewModelUiInteractions(MainWindowViewModel viewModel)

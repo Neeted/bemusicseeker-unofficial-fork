@@ -673,6 +673,7 @@
   "Warn_SelectedPlaylistUrlDownloadNoTargets": "选择范围中没有目标 URL。",
   "Warn_SelectedPlaylistUrlDownloadBlockedByInstallQueue": "由于正在运行安装处理，无法开始 URL 导入。\n请在安装处理完成或取消后重新执行。",
   "Warn_DropInstallBlockedByPlaylistUrlDownload": "由于 URL 导入正在运行，无法开始拖放安装。\n请在 URL 导入完成后重新执行。",
+  "Warn_ElevatedProcessDragDropLimited": "BeMusicSeeker 正在以管理员权限运行。\n\nWindows 可能会阻止从普通权限的资源管理器窗口拖放文件或文件夹。\n如果要通过拖放添加歌曲，请以普通方式启动 BeMusicSeeker。",
   "Warn_PendingPackageNotFound": "在待处理的安装包中未找到所选谱面。",
   "Warn_InvalidInstallPath": "安装目标路径无效。\n{0}\n\n{1}",
   "Warn_InstallDirNotFound": "未找到安装目标文件夹。\n{0}",

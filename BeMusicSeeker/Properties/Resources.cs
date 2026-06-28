@@ -1473,6 +1473,9 @@ public class Resources
     public static string Warn_DropInstallBlockedByPlaylistUrlDownload => ResourceManager.GetString("Warn_DropInstallBlockedByPlaylistUrlDownload", resourceCulture);
 
 
+    public static string Warn_ElevatedProcessDragDropLimited => ResourceManager.GetString("Warn_ElevatedProcessDragDropLimited", resourceCulture);
+
+
     public static string Warn_PendingPackageNotFound => ResourceManager.GetString("Warn_PendingPackageNotFound", resourceCulture);
 
 

@@ -673,6 +673,7 @@
   "Warn_SelectedPlaylistUrlDownloadNoTargets": "選択範囲に対象 URL がありません。",
   "Warn_SelectedPlaylistUrlDownloadBlockedByInstallQueue": "導入処理が実行中のため、URL 取り込みを開始できません。\n導入処理の完了後、またはキャンセル後に再実行してください。",
   "Warn_DropInstallBlockedByPlaylistUrlDownload": "URL 取り込みが実行中のため、ドラッグ＆ドロップ導入を開始できません。\nURL 取り込みの完了後に再実行してください。",
+  "Warn_ElevatedProcessDragDropLimited": "BeMusicSeeker が管理者権限で起動しています。\n\n通常権限のエクスプローラーからファイルやフォルダーをドラッグ＆ドロップできない場合があります。\nドラッグ＆ドロップで楽曲を追加する場合は、BeMusicSeeker を通常起動してください。",
   "Warn_PendingPackageNotFound": "選択した譜面が保留パッケージに見つかりませんでした。",
   "Warn_InvalidInstallPath": "インストール先のパスが不正です。\n{0}\n\n{1}",
   "Warn_InstallDirNotFound": "インストール先のフォルダが見つかりません。\n{0}",

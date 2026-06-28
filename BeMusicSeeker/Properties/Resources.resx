@@ -2249,6 +2249,12 @@ maintenance の再スキャンや chart_info の全譜面補完は行いませ�
     <value>URL 取り込みが実行中のため、ドラッグ＆ドロップ導入を開始できません。
 URL 取り込みの完了後に再実行してください。</value>
   </data>
+  <data name="Warn_ElevatedProcessDragDropLimited" xml:space="preserve">
+    <value>BeMusicSeeker が管理者権限で起動しています。
+
+通常権限のエクスプローラーからファイルやフォルダーをドラッグ＆ドロップできない場合があります。
+ドラッグ＆ドロップで楽曲を追加する場合は、BeMusicSeeker を通常起動してください。</value>
+  </data>
   <data name="Warn_PendingPackageNotFound" xml:space="preserve">
     <value>選択した譜面が保留パッケージに見つかりませんでした。</value>
   </data>
