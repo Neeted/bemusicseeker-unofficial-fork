@@ -3098,6 +3098,7 @@ public class BMSLibrary : NotificationObject
 
     private int everythingFallbackWarningQueued;
     private int fileScanSkippedIncompleteWarningQueued;
+    private int emptyScanWithExistingDbWarningQueued;
 
     private readonly BmsLibraryDbGateway dbGateway;
 
@@ -4880,6 +4881,7 @@ public class BMSLibrary : NotificationObject
             LogEverythingScan("chart fallback file scan failed nativeReason=" + nativeFailureReason + " fallbackReason=" + fallbackFailureReason);
             return new ChartScanExecutionResult
             {
+                ScanSource = ChartScanSource.Fallback,
                 Success = false,
                 IsComplete = false,
                 ErrorReason = "chart_fallback_file_scan_failed:" + fallbackFailureReason + " (native: " + nativeFailureReason + ")",
@@ -4888,6 +4890,7 @@ public class BMSLibrary : NotificationObject
                 FallbackReason = nativeFailureReason
             };
         }
+        fallbackResult.ScanSource = ChartScanSource.Fallback;
         fallbackResult.FallbackUsed = true;
         fallbackResult.FallbackReason = nativeFailureReason;
         LogEverythingScan("chart fallback file scan succeeded nativeReason=" + nativeFailureReason + " charts=" + fallbackResult.Result.ChartFilePaths.Count + " dirs=" + fallbackResult.Result.ChartDirectories.Count);
@@ -5528,6 +5531,17 @@ public class BMSLibrary : NotificationObject
             MessageBoxResult.OK);
     }
 
+    internal void ShowEmptyScanWithExistingDbWarning(string failureReason)
+    {
+        string reason = string.IsNullOrWhiteSpace(failureReason) ? "unknown" : failureReason;
+        ShowOperationDialog(
+            string.Format(Resources.Warn_EmptyScanWithExistingDbSkipped, reason),
+            Resources.MessageBoxTitle_Warning,
+            MessageBoxButton.OK,
+            MessageBoxImage.Exclamation,
+            MessageBoxResult.OK);
+    }
+
     internal bool QueueFileScanSkippedIncompleteWarning(string failureReason)
     {
         if (Interlocked.Exchange(ref fileScanSkippedIncompleteWarningQueued, 1) != 0)
@@ -5546,10 +5560,29 @@ public class BMSLibrary : NotificationObject
         return true;
     }
 
+    internal bool QueueEmptyScanWithExistingDbWarning(string failureReason)
+    {
+        if (Interlocked.Exchange(ref emptyScanWithExistingDbWarningQueued, 1) != 0)
+        {
+            LogEverythingScan("empty scan with existing db warning skipped reason=already_queued failureReason=" + (failureReason ?? string.Empty));
+            return false;
+        }
+
+        if (TryQueueEmptyScanWithExistingDbWarningOnDispatcher(failureReason))
+        {
+            return true;
+        }
+
+        LogEverythingScan("empty scan with existing db warning queued target=thread_pool failureReason=" + (failureReason ?? string.Empty));
+        Task.Run(() => ShowEmptyScanWithExistingDbWarningSafely(failureReason)).Logging("EmptyScanWithExistingDbWarningDialog");
+        return true;
+    }
+
     private void ResetEverythingFallbackWarningQueue()
     {
         Interlocked.Exchange(ref everythingFallbackWarningQueued, 0);
         Interlocked.Exchange(ref fileScanSkippedIncompleteWarningQueued, 0);
+        Interlocked.Exchange(ref emptyScanWithExistingDbWarningQueued, 0);
     }
 
     private bool TryQueueEverythingFallbackWarningOnDispatcher(string fallbackReason)
@@ -5600,6 +5633,30 @@ public class BMSLibrary : NotificationObject
         return true;
     }
 
+    private bool TryQueueEmptyScanWithExistingDbWarningOnDispatcher(string failureReason)
+    {
+        Dispatcher dispatcher = Application.Current?.Dispatcher;
+        if (dispatcher == null || dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
+        {
+            return false;
+        }
+
+        try
+        {
+            LogEverythingScan("empty scan with existing db warning queued target=ui_dispatcher failureReason=" + (failureReason ?? string.Empty));
+            dispatcher.BeginInvoke(DispatcherPriority.Normal, (Action)delegate
+            {
+                ShowEmptyScanWithExistingDbWarningSafely(failureReason);
+            });
+        }
+        catch (Exception ex)
+        {
+            LogEverythingScan("empty scan with existing db warning queue_failed target=ui_dispatcher failureReason=" + (failureReason ?? string.Empty) + " message=" + ex.Message);
+            return false;
+        }
+        return true;
+    }
+
     private void ShowEverythingFallbackWarningSafely(string fallbackReason)
     {
         try
@@ -5623,6 +5680,19 @@ public class BMSLibrary : NotificationObject
         catch (Exception ex)
         {
             LogEverythingScan("file scan incomplete warning failed failureReason=" + (failureReason ?? string.Empty) + " message=" + ex.Message);
+        }
+    }
+
+    private void ShowEmptyScanWithExistingDbWarningSafely(string failureReason)
+    {
+        try
+        {
+            ShowEmptyScanWithExistingDbWarning(failureReason);
+            LogEverythingScan("empty scan with existing db warning shown failureReason=" + (failureReason ?? string.Empty));
+        }
+        catch (Exception ex)
+        {
+            LogEverythingScan("empty scan with existing db warning failed failureReason=" + (failureReason ?? string.Empty) + " message=" + ex.Message);
         }
     }
 
@@ -5827,6 +5897,20 @@ completeFileEnumerationOnce,
             normalFolderMtimeSnapshotProvider: resolveNormalFolderMtimeSnapshot,
             lr2ScanSurfacePrepared: StartLr2FolderFileDiffPreparation,
             protectExistingBmsRowsFromLr2SongDbSyncMigration: protectExistingBmsRowsFromLr2SongDbSyncMigration);
+        if (fileCheckResult.EmptyScanWithExistingDbSkipped)
+        {
+            string skipReason = string.IsNullOrWhiteSpace(fileCheckResult.EmptyScanWithExistingDbSkipReason)
+                ? "empty_scan_with_existing_db"
+                : fileCheckResult.EmptyScanWithExistingDbSkipReason;
+            LogEverythingScan("song_tbl_file_check skipped reason=empty_scan_with_existing_db operation=" + (reason ?? string.Empty) + " detail=" + skipReason);
+            QueueEmptyScanWithExistingDbWarning(skipReason);
+            completeFileEnumerationOnce();
+            if (trackLibraryFileCheckProgress)
+            {
+                CompleteLibraryFileDiffProgress();
+            }
+            return fileCheckResult;
+        }
         LogFileScanFailures(fileCheckResult, reason);
         ApplyLr2FolderFileDiffSync(options, bmsDirectories, fileCheckResult, reason, lr2FolderFileDiffPreparationTask);
         completeFileEnumerationOnce();

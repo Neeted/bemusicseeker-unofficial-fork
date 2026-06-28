@@ -777,6 +777,169 @@ public sealed class BmsLibraryInitializationServiceTests
     }
 
     [TestMethod]
+    public void ApplyFileScanDiff_EmptyFallbackScanWithExistingDbSkipsDiffAndKeepsExistingDb()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
+        {
+            string existingDirectoryPath = Path.Combine(lr2RootPath, "Existing");
+            string existingPath = Path.Combine(existingDirectoryPath, "chart.bms");
+            Directory.CreateDirectory(existingDirectoryPath);
+            File.WriteAllText(existingPath, "#PLAYER 1\r\n#TITLE Existing\r\n");
+
+            var existingFile = new TestableBmsFile
+            {
+                path = existingPath
+            };
+            existingFile.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+            existingFile.date = ToUnixSeconds(File.GetLastWriteTimeUtc(existingPath));
+            using (var songDbConnection = new LR2SongDBExtended(songDbPath))
+            {
+                songDbConnection.CreateTable<LR2SongDB.song>();
+                songDbConnection.InsertOrReplace(existingFile, typeof(LR2SongDB.song));
+            }
+
+            bool scanCompleted = false;
+            bool fileDiffStarted = false;
+            List<string> logs = [];
+            var service = new BmsLibraryInitializationService();
+            SongTableFileCheckResult result = service.ApplyFileScanDiff(
+                new BmsLibraryDbGateway(songDbPath),
+                new BmsLibraryOptionsSnapshot(),
+                [existingFile],
+                new ChartScanExecutionResult
+                {
+                    ScanSource = ChartScanSource.Fallback,
+                    Success = true,
+                    IsComplete = true,
+                    FallbackUsed = true,
+                    FallbackReason = "everything_not_running",
+                    Result = CreateScanResult([], new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase))
+                },
+                0L,
+                () => throw new InvalidOperationException("executeScan should not run"),
+                null,
+                logInstallPerformance: logs.Add,
+                currentBmsonSongs: [],
+                scanCompleted: () => scanCompleted = true,
+                fileDiffStarted: () => fileDiffStarted = true);
+
+            Assert.IsTrue(scanCompleted);
+            Assert.IsFalse(fileDiffStarted);
+            Assert.IsTrue(result.EmptyScanWithExistingDbSkipped);
+            StringAssert.Contains(result.EmptyScanWithExistingDbSkipReason, "empty_scan_with_existing_db");
+            StringAssert.Contains(result.EmptyScanWithExistingDbSkipReason, "scanSource=fallback");
+            StringAssert.Contains(result.EmptyScanWithExistingDbSkipReason, "fallbackReason=everything_not_running");
+            Assert.IsFalse(result.HasDbDiff);
+            Assert.AreEqual(0, result.DeletedPaths.Count);
+            Assert.AreEqual(0, result.AddedFiles.Count);
+            Assert.IsTrue(logs.Any(message => message.Contains("reason=empty_scan_with_existing_db")));
+
+            using var songDb = new LR2SongDBExtended(songDbPath);
+            Assert.AreEqual(1L, songDb.ExecuteScalar<long>("SELECT COUNT(1) FROM song WHERE path = ?;", existingPath));
+        });
+    }
+
+    [TestMethod]
+    public void ApplyFileScanDiff_EmptyEverythingScanWithExistingDbSkipsDiffAndKeepsExistingDb()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
+        {
+            string existingDirectoryPath = Path.Combine(lr2RootPath, "Existing");
+            string existingPath = Path.Combine(existingDirectoryPath, "chart.bms");
+            Directory.CreateDirectory(existingDirectoryPath);
+            File.WriteAllText(existingPath, "#PLAYER 1\r\n#TITLE Existing\r\n");
+
+            var existingFile = new TestableBmsFile
+            {
+                path = existingPath
+            };
+            existingFile.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+            existingFile.date = ToUnixSeconds(File.GetLastWriteTimeUtc(existingPath));
+            using (var songDbConnection = new LR2SongDBExtended(songDbPath))
+            {
+                songDbConnection.CreateTable<LR2SongDB.song>();
+                songDbConnection.InsertOrReplace(existingFile, typeof(LR2SongDB.song));
+            }
+
+            bool fileDiffStarted = false;
+            var service = new BmsLibraryInitializationService();
+            SongTableFileCheckResult result = service.ApplyFileScanDiff(
+                new BmsLibraryDbGateway(songDbPath),
+                new BmsLibraryOptionsSnapshot(),
+                [existingFile],
+                new ChartScanExecutionResult
+                {
+                    ScanSource = ChartScanSource.Everything,
+                    Success = true,
+                    IsComplete = true,
+                    NativeBridgeUsed = true,
+                    NativeBridgeReason = EverythingNative.FixedScanNativeBridgeReason,
+                    Result = CreateScanResult([], new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase))
+                },
+                0L,
+                () => throw new InvalidOperationException("executeScan should not run"),
+                null,
+                currentBmsonSongs: [],
+                fileDiffStarted: () => fileDiffStarted = true);
+
+            Assert.IsFalse(fileDiffStarted);
+            Assert.IsTrue(result.EmptyScanWithExistingDbSkipped);
+            StringAssert.Contains(result.EmptyScanWithExistingDbSkipReason, "scanSource=everything");
+            Assert.IsFalse(result.EmptyScanWithExistingDbSkipReason.Contains("fallbackReason="));
+            Assert.IsFalse(result.HasDbDiff);
+            Assert.AreEqual(0, result.DeletedPaths.Count);
+
+            using var songDb = new LR2SongDBExtended(songDbPath);
+            Assert.AreEqual(1L, songDb.ExecuteScalar<long>("SELECT COUNT(1) FROM song WHERE path = ?;", existingPath));
+        });
+    }
+
+    [TestMethod]
+    public void ApplyFileScanDiff_EmptyFallbackScanWithoutExistingDbAllowsEmptyResult()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
+        {
+            using (var songDbConnection = new LR2SongDBExtended(songDbPath))
+            {
+                songDbConnection.CreateTable<LR2SongDB.song>();
+            }
+
+            bool scanCompleted = false;
+            bool fileDiffStarted = false;
+            var service = new BmsLibraryInitializationService();
+            SongTableFileCheckResult result = service.ApplyFileScanDiff(
+                new BmsLibraryDbGateway(songDbPath),
+                new BmsLibraryOptionsSnapshot(),
+                [],
+                new ChartScanExecutionResult
+                {
+                    ScanSource = ChartScanSource.Fallback,
+                    Success = true,
+                    IsComplete = true,
+                    FallbackUsed = true,
+                    FallbackReason = "empty_results_with_roots",
+                    Result = CreateScanResult([], new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase))
+                },
+                0L,
+                () => throw new InvalidOperationException("executeScan should not run"),
+                null,
+                currentBmsonSongs: [],
+                scanCompleted: () => scanCompleted = true,
+                fileDiffStarted: () => fileDiffStarted = true);
+
+            Assert.IsTrue(scanCompleted);
+            Assert.IsTrue(fileDiffStarted);
+            Assert.IsFalse(result.EmptyScanWithExistingDbSkipped);
+            Assert.IsFalse(result.HasDbDiff);
+            Assert.AreEqual(0, result.DeletedPaths.Count);
+            Assert.AreEqual(0, result.AddedFiles.Count);
+        });
+    }
+
+    [TestMethod]
     public void ApplyFileScanDiff_IncompleteBmsonScanSkipsDiff()
     {
         TestResourceInitializer.EnsureJapaneseResources();

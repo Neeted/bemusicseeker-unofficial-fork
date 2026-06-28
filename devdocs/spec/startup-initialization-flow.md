@@ -301,6 +301,10 @@ ReloadFileDiff
 
 差分が 0 件の場合は DB commit、chart_info hydration/backfill、installable maintenance を発生させない。
 
+Everything が正常に検索できた結果 chart 0 件を返した場合は、検索自体は成功として扱い、managed fallback scan には進まない。Everything が利用できないなど検索結果を取得できない場合だけ managed fallback scan に進む。Everything 由来または fallback 由来の成功扱いの scan result が chart 0 件で、既存の BMS / bmson storage row が 1 件以上あるなら、その scan result を削除差分の正本として扱わない。これは「ライブラリが空になった」という user intent ではなく、Everything / fallback 経路の空結果が絡む危険状態として扱い、file diff を開始せず、DB commit、LR2 folder/song sync、memory catalog replacement を行わない。UI には `song.db` 更新をスキップしたことと、BMS directory 設定および Everything index/search 状態の確認を促す警告を出す。既存 row がない新規空 DB では、空 scan result は通常の空ライブラリとして扱ってよい。
+
+この判定は `ChartScanExecutionResult.ScanSource` を正本にする。`NativeBridgeUsed` / `FallbackUsed` は既存ログ・診断用の派生情報であり、scan source の組み合わせから仕様判断しない。通常の起動 / reload file diff 経路では `ScanSource` は `Everything` または `Fallback` のどちらかであり、低レベル部品の未分類 result だけ `ScanSource` 未設定として扱う。
+
 差分がある場合、reader は `ChartFileReadPipelinePolicy` に従い 1 または 2 本、parser は CPU 数の半分程度、post-parse worker は parser の約 1.5 倍かつ CPU 数以下を既定とする。reader は `ReadBuffer()` で bytes と file metadata だけを読み、parser worker が digest 計算、snapshot 作成、lightweight parse を行う。`InlineChartInfoBatchSize` 2048 は current `chart_info` lookup / helper の内部粒度であり、post-parse barrier ではない。post-parse work item は parsed candidate 1 件で、独立した worker stage で処理し、worker は item-local result / commit staging chunk だけを作る。single collector が sequence 順に `SongTableFileCheckResult`、runtime apply list、commit input queue への反映を集約する。commit aggregator は input queue を消費して DB commit chunk size 既定 10000 件の transaction chunk へ集約し、別の bounded DB writer queue へ渡す。single DB writer は writer queue の chunk commit だけを担当するため、短い DB commit 中も collector / aggregator は入力を消費できる。
 
 手動 `ReloadFileDiff` は、prefetch の有無、reason/progress/UI 更新、後段 playlist reference scheduling を除き、`Startup` の file diff と同じ `ApplyFileScanDiff()` 経路を使う。軽量 parse、inline `chart_info`、inline `maintenance`、snapshot 由来 encoding reload の意味論は起動時 file diff と揃える。

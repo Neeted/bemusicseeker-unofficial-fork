@@ -43,6 +43,7 @@ public class EverythingFileScanner : IChartFileScanner
         {
             return new ChartScanExecutionResult
             {
+                ScanSource = ChartScanSource.Everything,
                 Success = true,
                 Result = new ChartScanResult()
             };
@@ -79,16 +80,16 @@ public class EverythingFileScanner : IChartFileScanner
             }
             return result;
         }
-        if (result.Result == null || result.Result.ChartFilePaths.Count == 0)
+        if (result.Result == null)
         {
             stopwatch.Stop();
             if (verboseLog)
             {
-                logger.Info("everything_scan failed reason=empty_results_with_roots nativeBridgeReason={0} nativeBridgeMs={1}",
+                logger.Info("everything_scan failed reason=scan_result_missing nativeBridgeReason={0} nativeBridgeMs={1}",
                     result.NativeBridgeReason ?? result.ErrorReason ?? "unknown",
                     result.NativeBridgeMs);
             }
-            string reason = "empty_results_with_roots:bridgeReason=" + (result.NativeBridgeReason ?? result.ErrorReason ?? "unknown") + ":bridgeMs=" + result.NativeBridgeMs;
+            string reason = "scan_result_missing:bridgeReason=" + (result.NativeBridgeReason ?? result.ErrorReason ?? "unknown") + ":bridgeMs=" + result.NativeBridgeMs;
             return new ChartScanExecutionResult
             {
                 Success = false,

@@ -1,7 +1,15 @@
 namespace BeMusicSeeker.Models.Utils;
 
+public enum ChartScanSource
+{
+    Everything,
+    Fallback
+}
+
 public class ChartScanExecutionResult
 {
+    public ChartScanSource? ScanSource { get; set; }
+
     public bool Success { get; set; }
 
     public bool IsComplete { get; set; } = true;

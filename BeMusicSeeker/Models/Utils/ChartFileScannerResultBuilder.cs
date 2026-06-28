@@ -25,10 +25,13 @@ internal static class ChartFileScannerResultBuilder
         ChartScanResult scanResult = ChartDirectoryScanBuilder.BuildFromGroupedPaths(enumerationResult);
         buildStopwatch.Stop();
         long buildMs = buildStopwatch.ElapsedMilliseconds;
+        bool everythingSource = string.Equals(enumerationResult?.BackendName, "everything_bridge", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(enumerationResult?.BackendName, EverythingNative.GroupedEnumerationBackendName, StringComparison.OrdinalIgnoreCase);
         return new ChartScanExecutionResult
         {
+            ScanSource = everythingSource ? ChartScanSource.Everything : null,
             Success = true,
-            NativeBridgeUsed = string.Equals(enumerationResult?.BackendName, "everything_bridge", StringComparison.OrdinalIgnoreCase),
+            NativeBridgeUsed = everythingSource,
             NativeBridgeMs = enumerationResult?.EnumerationMs ?? 0L,
             NativeBridgeReason = enumerationResult?.BackendName ?? "unknown",
             BuildResultMs = buildMs,

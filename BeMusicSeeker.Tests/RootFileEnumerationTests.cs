@@ -369,6 +369,7 @@ public sealed class RootFileEnumerationTests
                 includeDirectorySurface: true);
 
             Assert.IsTrue(result.Success);
+            Assert.IsNull(result.ScanSource);
             Assert.IsTrue(result.DirectoryQueryHitCount >= 2UL);
             Assert.AreEqual(result.NativeBridgeMs, result.DirectoryQueryMs);
             Assert.IsTrue(result.Result.DirectoryEntriesByPath.TryGetValue(tempRoot, out RootFileEnumerationEntry rootEntry));

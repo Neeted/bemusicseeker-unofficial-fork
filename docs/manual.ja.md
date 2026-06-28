@@ -113,6 +113,8 @@ LR2 連携モードでは、初回準備や今後の更新で `song.db` に BeMu
 
 LR2 連携モードでは、BeMusicSeeker は所持 BMS の `song` / `folder` 情報を LR2 の `song.db` に書き込み、LR2 側の起動時再帰スキャンをできるだけ発生させない状態を維持します。初回や設定変更後は不足している既存 row を backfill します。進捗は起動時進捗またはステータスバーに表示され、完了後は通常のインストール、削除、マージ、拡張子変更などのライブラリ更新に合わせて差分更新されます。bmson は LR2 の `song` / `folder` には書き込まず、BeMusicSeeker 側の管理情報として扱います。
 
+Everything が正常に検索できた結果、譜面ファイル(BMS / bmson)が 0 件だった場合、または Everything が利用できず通常のファイルシステム走査へ切り替わった後も譜面ファイルが 0 件だった場合、既存の `song.db` に楽曲が残っていれば、誤って空のライブラリとして書き戻さないように `song.db` 更新をスキップします。この警告が表示された場合は、BMS ディレクトリ設定が楽曲のある場所を指しているか、Everything 側でそのフォルダを検索できるかを確認してください。
+
 LR2 `song.db` の同期中は、所持譜面と LR2 `song.db` を同時に変更する操作が一時的に止まる場合があります。ステータスバーに失敗や未完了が表示された場合は、`再試行` を押してください。必要に応じて設定画面の `LR2 song.db データを再同期` から、所持譜面とプレイリストを正本として `song` / `folder` を再生成できます。
 
 ### 初回スキャン
@@ -919,6 +921,7 @@ LR2 連携モードでは、BeMusicSeeker が LR2 の `song.db` にアプリ用�
 - 初回構築、DB 空状態、BMS ルートフォルダの大規模変更では、通常より時間がかかります。
 - `log/install-performance.log` の `everything_scan`、`song_tbl_file_check`、`playlist_*` などを見ると、どこに時間がかかっているか分かります。
 - Everything 連携に失敗して通常のファイル列挙へ fallback する際は、警告ダイアログが表示されます。想定より遅い場合は、`log/install-performance.log` の `everything_scan`、`nativeBridgeUsed`、`fallback`、`managed` などの記録を確認してください。
+- Everything が正常に検索できた結果、譜面ファイル(BMS / bmson)が 0 件だった場合、または Everything が利用できず通常のファイル列挙へ切り替わった後も譜面ファイルが 0 件だった場合、既存の `song.db` に楽曲が残っていれば `song.db` 更新はスキップされ、警告が表示されます。BMS ディレクトリ設定が楽曲のある場所を指しているか、Everything 側でそのフォルダを検索できるかを確認してください。
 
 ### プレイリストの STATUS が失敗になる
 

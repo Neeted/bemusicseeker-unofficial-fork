@@ -515,6 +515,22 @@ internal sealed class BmsLibraryInitializationService
         bool bmsFileScanSucceeded = scanResult.Success;
         result.ScanFallbackUsed = scanResult.FallbackUsed;
         result.ScanFallbackReason = scanResult.FallbackReason ?? string.Empty;
+        if (ShouldSkipEmptyScanWithExistingDb(scanResult, currentFiles, currentBmsonSongs, out int existingBmsCount, out int existingBmsonCount))
+        {
+            stopwatchScan.Stop();
+            result.ScanElapsedMs = stopwatchScan.ElapsedMilliseconds + (result.PrefetchedScanUsed ? prefetchedScanElapsedMs : 0L);
+            result.EmptyScanWithExistingDbSkipped = true;
+            result.EmptyScanWithExistingDbSkipReason = CreateEmptyScanSkipReason(scanResult, existingBmsCount, existingBmsonCount);
+            scanCompleted?.Invoke();
+            logInstallPerformance?.Invoke("song_tbl_file_check skipped"
+                + " reason=empty_scan_with_existing_db"
+                + " existing_bms=" + existingBmsCount
+                + " existing_bmson=" + existingBmsonCount
+                + " fallback_used=" + result.ScanFallbackUsed.ToString().ToLowerInvariant()
+                + " fallback_reason=" + (string.IsNullOrWhiteSpace(result.ScanFallbackReason) ? string.Empty : result.ScanFallbackReason)
+                + " native_bridge_reason=" + (string.IsNullOrWhiteSpace(scanResult.NativeBridgeReason) ? string.Empty : scanResult.NativeBridgeReason));
+            return result;
+        }
         if (bmsFileScanSucceeded)
         {
             result.Lr2ScanSurfaceAvailable = true;
@@ -3062,6 +3078,81 @@ internal sealed class BmsLibraryInitializationService
                 Interlocked.CompareExchange(ref exception, value, null);
             }
         }
+    }
+
+    private static bool ShouldSkipEmptyScanWithExistingDb(
+        ChartScanExecutionResult scanResult,
+        IEnumerable<BMSFile> currentFiles,
+        IEnumerable<LR2SongDBExtended.bmson_song> currentBmsonSongs,
+        out int existingBmsCount,
+        out int existingBmsonCount)
+    {
+        existingBmsCount = 0;
+        existingBmsonCount = 0;
+        if (scanResult?.Success != true
+            || !scanResult.IsComplete
+            || scanResult.Result == null
+            || !IsEverythingOrFallbackScanSource(scanResult.ScanSource)
+            || (scanResult.Result.ChartFilePaths?.Count ?? 0) > 0)
+        {
+            return false;
+        }
+
+        existingBmsCount = CountExistingBmsPaths(currentFiles);
+        existingBmsonCount = CountExistingBmsonPaths(currentBmsonSongs);
+        return existingBmsCount > 0 || existingBmsonCount > 0;
+    }
+
+    private static int CountExistingBmsPaths(IEnumerable<BMSFile> currentFiles)
+    {
+        int count = 0;
+        foreach (BMSFile file in currentFiles ?? [])
+        {
+            if (file != null && !string.IsNullOrWhiteSpace(file.path))
+            {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private static int CountExistingBmsonPaths(IEnumerable<LR2SongDBExtended.bmson_song> currentBmsonSongs)
+    {
+        int count = 0;
+        foreach (LR2SongDBExtended.bmson_song song in currentBmsonSongs ?? [])
+        {
+            if (song != null && !string.IsNullOrWhiteSpace(song.path))
+            {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private static bool IsEverythingOrFallbackScanSource(ChartScanSource? scanSource)
+    {
+        return scanSource == ChartScanSource.Everything
+            || scanSource == ChartScanSource.Fallback;
+    }
+
+    private static string CreateEmptyScanSkipReason(
+        ChartScanExecutionResult scanResult,
+        int existingBmsCount,
+        int existingBmsonCount)
+    {
+        string scanSource = scanResult?.ScanSource?.ToString().ToLowerInvariant() ?? "unknown";
+        string nativeBridgeReason = string.IsNullOrWhiteSpace(scanResult?.NativeBridgeReason)
+            ? string.Empty
+            : scanResult.NativeBridgeReason;
+        string reason = "empty_scan_with_existing_db"
+            + ":existingBms=" + existingBmsCount
+            + ":existingBmson=" + existingBmsonCount
+            + ":scanSource=" + scanSource
+            + (scanResult?.ScanSource == ChartScanSource.Fallback
+                ? ":fallbackReason=" + (string.IsNullOrWhiteSpace(scanResult.FallbackReason) ? "unknown" : scanResult.FallbackReason)
+                : string.Empty)
+            + (string.IsNullOrWhiteSpace(nativeBridgeReason) ? string.Empty : ":nativeBridgeReason=" + nativeBridgeReason);
+        return reason;
     }
 
     private sealed class FileDiffCommitWriterItem : IDisposable

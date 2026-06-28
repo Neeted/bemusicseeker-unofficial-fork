@@ -113,6 +113,8 @@ In LR2 linked mode, tables and indexes for BeMusicSeeker may be added to `song.d
 
 In LR2 linked mode, BeMusicSeeker writes owned BMS `song` / `folder` information to LR2 `song.db` and keeps LR2's own recursive scan at startup from occurring as much as possible. On first setup or after settings changes, missing existing rows are backfilled. Progress is shown in the startup progress display or status bar. After completion, differential updates are applied along with normal library updates such as install, delete, merge, and extension changes. bmson files are not written to LR2 `song` / `folder`; they are handled as BeMusicSeeker-side management information.
 
+If Everything successfully searches and finds 0 chart files (BMS / bmson), or if Everything is unavailable and ordinary filesystem traversal also finds 0 chart files, while the existing `song.db` contains songs, the app skips the `song.db` update to avoid writing the library back as empty. If this warning appears, check that the BMS directory settings point to the folders containing your songs and that those folders are searchable in Everything.
+
 While LR2 `song.db` synchronization is running, operations that simultaneously change owned charts and LR2 `song.db` may temporarily stop. If the status bar shows a failure or incomplete state, press `Retry`. If necessary, use `Resynchronize LR2 song.db Data` in the settings dialog to regenerate `song` / `folder` using owned charts and playlists as the source of truth.
 
 ### First Scan
@@ -919,6 +921,7 @@ When log files grow, older files are rotated under `log/archive/`. For bug repor
 - First-time construction, an empty DB, or large changes to BMS root folders take longer than usual.
 - Looking at `everything_scan`, `song_tbl_file_check`, `playlist_*`, and similar entries in `log/install-performance.log` can show where time is being spent.
 - If Everything integration fails and BeMusicSeeker switches to ordinary file enumeration, a warning dialog is shown. If it is slower than expected, check `everything_scan`, `nativeBridgeUsed`, `fallback`, `managed`, and similar records in `log/install-performance.log`.
+- If Everything successfully searches and finds 0 chart files (BMS / bmson), or if Everything is unavailable and ordinary filesystem enumeration also finds 0 chart files, while the existing `song.db` still contains songs, `song.db` update is skipped and a warning is shown. Check that BMS directory settings point to the folders containing your songs and that those folders can be searched in Everything.
 
 ### Playlist `STATUS` Fails
 

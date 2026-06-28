@@ -380,9 +380,9 @@ internal static class EverythingNative
         {
             return Failed(reason, elapsedMs);
         }
-        if (result == null || !result.Success || result.Result == null || result.Result.ChartFilePaths.Count == 0)
+        if (result == null || !result.Success || result.Result == null)
         {
-            return Failed("bridge_empty_result", elapsedMs);
+            return Failed("bridge_result_missing", elapsedMs);
         }
         return result;
     }
@@ -883,6 +883,7 @@ internal static class EverythingNative
         ChartDirectoryScanBuilder.AddDirectTextFileEntries(scanResult, textFileEntries);
         return new ChartScanExecutionResult
         {
+            ScanSource = ChartScanSource.Everything,
             Success = true,
             NativeBridgeUsed = true,
             NativeBridgeMs = nativeBridgeMs,

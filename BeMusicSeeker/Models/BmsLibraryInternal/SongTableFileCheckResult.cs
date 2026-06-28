@@ -47,6 +47,10 @@ internal sealed class SongTableFileCheckResult
 
     public string ScanFallbackReason { get; set; } = string.Empty;
 
+    public bool EmptyScanWithExistingDbSkipped { get; set; }
+
+    public string EmptyScanWithExistingDbSkipReason { get; set; } = string.Empty;
+
     public bool Lr2ScanSurfaceAvailable { get; set; }
 
     public IReadOnlyList<string> Lr2ScanFolderInfoFilePaths { get; set; } = [];

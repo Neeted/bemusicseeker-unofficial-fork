@@ -109,6 +109,30 @@ public sealed class BmsLibraryDialogRoutingTests
     }
 
     [TestMethod]
+    public void ShowEmptyScanWithExistingDbWarning_UsesDialogService()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            const string failureReason = "empty_scan_with_existing_db";
+            var dialogService = new RecordingDialogService();
+            var library = new BMSLibrary(songDbPath, null!, null, null!, dialogService);
+
+            library.ShowEmptyScanWithExistingDbWarning(failureReason);
+
+            Assert.AreEqual(1, dialogService.Calls.Count);
+            Assert.AreEqual(Properties.Resources.MessageBoxTitle_Warning, dialogService.Calls[0].Caption);
+            Assert.AreEqual(MessageBoxButton.OK, dialogService.Calls[0].Button);
+            Assert.AreEqual(MessageBoxImage.Exclamation, dialogService.Calls[0].Icon);
+            Assert.AreEqual(MessageBoxResult.OK, dialogService.Calls[0].DefaultResult);
+            StringAssert.Contains(dialogService.Calls[0].Message, "0");
+            StringAssert.Contains(dialogService.Calls[0].Message, "song.db");
+            StringAssert.Contains(dialogService.Calls[0].Message, "Everything");
+            StringAssert.Contains(dialogService.Calls[0].Message, failureReason);
+        });
+    }
+
+    [TestMethod]
     public void QueueEverythingFallbackWarning_CoalescesDuplicateRequests()
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -148,6 +172,28 @@ public sealed class BmsLibraryDialogRoutingTests
             StringAssert.Contains(call.Message, failureReason);
             Assert.IsFalse(call.Message.Contains("second_reason"));
             Assert.IsFalse(call.Message.Contains("Everything"));
+        });
+    }
+
+    [TestMethod]
+    public void QueueEmptyScanWithExistingDbWarning_CoalescesDuplicateRequests()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            const string failureReason = "empty_scan_with_existing_db";
+            var dialogService = new RecordingDialogService();
+            var library = new BMSLibrary(songDbPath, null!, null, null!, dialogService);
+
+            Assert.IsTrue(library.QueueEmptyScanWithExistingDbWarning(failureReason));
+            Assert.IsFalse(library.QueueEmptyScanWithExistingDbWarning("second_reason"));
+            Assert.IsTrue(SpinWait.SpinUntil(() => dialogService.CallCount == 1, TimeSpan.FromSeconds(5)));
+
+            DialogCall call = dialogService.GetCall(0);
+            Assert.AreEqual(Properties.Resources.MessageBoxTitle_Warning, call.Caption);
+            StringAssert.Contains(call.Message, failureReason);
+            Assert.IsFalse(call.Message.Contains("second_reason"));
+            StringAssert.Contains(call.Message, "Everything");
         });
     }
 

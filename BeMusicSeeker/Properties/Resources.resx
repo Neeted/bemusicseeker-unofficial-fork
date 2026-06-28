@@ -2363,8 +2363,17 @@ Everything 1.5 (x64) が起動しているか、BMS フォルダのインデッ�
 詳細: {0}</value>
   </data>
   <data name="Warn_FileScanSkippedIncomplete" xml:space="preserve">
-    <value>BMSファイルの列挙が完了できなかったため、今回のファイルスキャンによる song.db 更新は行いませんでした。
+    <value>譜面ファイルの列挙が完了できなかったため、今回のファイルスキャンによる song.db 更新は行いませんでした。
 既存の DB を読み込んだ状態で続行します。
+
+詳細: {0}</value>
+  </data>
+  <data name="Warn_EmptyScanWithExistingDbSkipped" xml:space="preserve">
+    <value>譜面ファイルのスキャン結果が 0 件でしたが、既存の song.db には楽曲が登録されています。
+誤って song.db を空として更新しないよう、今回の song.db 更新はスキップしました。
+
+BMS ディレクトリ設定が、楽曲が存在する場所を指しているか確認してください。
+Everything を使用している場合は、楽曲フォルダが Everything 1.5 で検索できる状態か、インデックス作成が完了しているか確認してください。
 
 詳細: {0}</value>
   </data>

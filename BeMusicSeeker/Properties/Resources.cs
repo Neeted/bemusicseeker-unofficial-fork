@@ -1525,6 +1525,8 @@ public class Resources
 
     public static string Warn_FileScanSkippedIncomplete => ResourceManager.GetString("Warn_FileScanSkippedIncomplete", resourceCulture);
 
+    public static string Warn_EmptyScanWithExistingDbSkipped => ResourceManager.GetString("Warn_EmptyScanWithExistingDbSkipped", resourceCulture);
+
     public static string Warn_no_pending_installed_only_packages => ResourceManager.GetString("Warn_no_pending_installed_only_packages", resourceCulture);
 
     public static string Warn_no_pending_charts => ResourceManager.GetString("Warn_no_pending_charts", resourceCulture);
