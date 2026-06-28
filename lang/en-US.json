@@ -669,6 +669,7 @@
   "Confirm_NormalInstallOverride": "An install destination has been inferred,\nbut you are about to perform a normal install.\nThe installation will be done in an independent folder.\nDo you want to continue?",
   "Confirm_NormalInstallTitle": "Normal Install Notification",
   "Confirm_SelectedPlaylistUrlDownload": "Download {0} target URL(s) for {1}, and pass only supported files to install processing.\nURLs that need to open in a browser will be skipped without opening them.\n\nContinue?",
+  "Warn_SelectedPlaylistUrlDownloadLargeSelection": "There are {0} or more target URLs.\nDownloaded files and temporary files for archive extraction are created in the Windows temporary area (usually on the C drive), so check available disk space.\nDownloads and extraction may take a long time.\nBe especially careful when importing original URLs, because file sizes are more likely to be large.",
   "Msg_SelectedPlaylistUrlDownloadResult": "Playlist URL import result\n\nTargets: {0}\nInstall targets: {1}\nSkipped (browser): {2}\nSkipped (size limit): {3}\nSkipped (duplicate): {4}\nFailed: {5}\nSkipped by cancellation: {6}",
   "Warn_SelectedPlaylistUrlDownloadNoTargets": "The selection does not contain target URLs.",
   "Warn_SelectedPlaylistUrlDownloadBlockedByInstallQueue": "URL import cannot start while an install operation is running.\nRun it again after the install operation finishes or is canceled.",

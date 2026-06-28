@@ -1461,6 +1461,9 @@ public class Resources
     public static string Confirm_SelectedPlaylistUrlDownload => ResourceManager.GetString("Confirm_SelectedPlaylistUrlDownload", resourceCulture);
 
 
+    public static string Warn_SelectedPlaylistUrlDownloadLargeSelection => ResourceManager.GetString("Warn_SelectedPlaylistUrlDownloadLargeSelection", resourceCulture);
+
+
     public static string Msg_SelectedPlaylistUrlDownloadResult => ResourceManager.GetString("Msg_SelectedPlaylistUrlDownloadResult", resourceCulture);
 
 

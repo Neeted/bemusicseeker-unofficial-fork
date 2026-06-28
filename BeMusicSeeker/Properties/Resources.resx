@@ -2227,6 +2227,12 @@ maintenance の再スキャンや chart_info の全譜面補完は行いませ�
 
 続行しますか？</value>
   </data>
+  <data name="Warn_SelectedPlaylistUrlDownloadLargeSelection" xml:space="preserve">
+    <value>対象 URL が {0} 件以上あります。
+ダウンロードしたファイルとアーカイブの解凍用一時ファイルは Windows の一時領域 (通常は C ドライブ) に作成されるため、空き容量に注意してください。
+ダウンロードや解凍処理に時間がかかる場合があります。
+特に本体 URL の取り込みではファイルサイズが大きくなりやすいため注意してください。</value>
+  </data>
   <data name="Msg_SelectedPlaylistUrlDownloadResult" xml:space="preserve">
     <value>プレイリスト URL 取り込み結果
 

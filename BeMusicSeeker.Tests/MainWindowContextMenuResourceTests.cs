@@ -2410,6 +2410,9 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(bulkMethod, "BuildPlaylistUrlTargets(rows, isDiffUrl)");
         StringAssert.Contains(bulkMethod, "IsDropInstallQueueActive: true");
         StringAssert.Contains(bulkMethod, "Warn_SelectedPlaylistUrlDownloadBlockedByInstallQueue");
+        StringAssert.Contains(bulkMethod, "SelectedPlaylistUrlDownloadLargeSelectionWarningThreshold");
+        StringAssert.Contains(bulkMethod, "Warn_SelectedPlaylistUrlDownloadLargeSelection");
+        StringAssert.Contains(bulkMethod, "warningMessageBoxText: largeSelectionWarningMessage");
         StringAssert.Contains(bulkMethod, "CancellationTokenSource");
         StringAssert.Contains(bulkMethod, "cancellation.IsCancellationRequested");
         StringAssert.Contains(bulkMethod, "canceledCount");

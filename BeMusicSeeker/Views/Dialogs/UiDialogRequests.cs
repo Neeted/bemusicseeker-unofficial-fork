@@ -19,6 +19,7 @@ internal class UiMessageRequest
     /// <param name="defaultResult">既定の結果。</param>
     /// <param name="options">WPF message box option。</param>
     /// <param name="owner">呼び出し側が既に把握している owner window。</param>
+    /// <param name="warningMessageBoxText">本文とは別に警告色で表示する補助本文。</param>
     internal UiMessageRequest(
         string messageBoxText,
         string caption,
@@ -26,7 +27,8 @@ internal class UiMessageRequest
         MessageBoxImage icon,
         MessageBoxResult defaultResult = MessageBoxResult.None,
         MessageBoxOptions options = MessageBoxOptions.None,
-        Window owner = null)
+        Window owner = null,
+        string warningMessageBoxText = null)
     {
         MessageBoxText = messageBoxText;
         Caption = caption;
@@ -35,6 +37,7 @@ internal class UiMessageRequest
         DefaultResult = defaultResult;
         Options = options;
         Owner = owner;
+        WarningMessageBoxText = warningMessageBoxText;
     }
 
     /// <summary>
@@ -71,6 +74,11 @@ internal class UiMessageRequest
     /// 呼び出し側が明示した owner window です。null の場合は coordinator が解決します。
     /// </summary>
     internal Window Owner { get; }
+
+    /// <summary>
+    /// 通常本文とは別に警告色で表示する補助本文です。警告だけを目立たせたい確認に使います。
+    /// </summary>
+    internal string WarningMessageBoxText { get; }
 }
 
 /// <summary>
@@ -88,6 +96,7 @@ internal sealed class UiConfirmationRequest : UiMessageRequest
     /// <param name="defaultResult">既定の結果。</param>
     /// <param name="options">WPF message box option。</param>
     /// <param name="owner">呼び出し側が既に把握している owner window。</param>
+    /// <param name="warningMessageBoxText">本文とは別に警告色で表示する補助本文。</param>
     internal UiConfirmationRequest(
         string messageBoxText,
         string caption,
@@ -95,8 +104,9 @@ internal sealed class UiConfirmationRequest : UiMessageRequest
         MessageBoxImage icon,
         MessageBoxResult defaultResult = MessageBoxResult.None,
         MessageBoxOptions options = MessageBoxOptions.None,
-        Window owner = null)
-        : base(messageBoxText, caption, button, icon, defaultResult, options, owner)
+        Window owner = null,
+        string warningMessageBoxText = null)
+        : base(messageBoxText, caption, button, icon, defaultResult, options, owner, warningMessageBoxText)
     {
     }
 }

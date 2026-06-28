@@ -666,7 +666,8 @@ internal sealed class UiDialogCoordinator : IUiDialogService
                 request.Button,
                 request.Icon,
                 request.DefaultResult,
-                request.Options);
+                request.Options,
+                request.WarningMessageBoxText);
             return response.ClosedWithoutSelection
                 ? UiDialogResult.ClosedByUser(response.MessageBoxResult)
                 : UiDialogResult.FromMessageBoxResult(response.MessageBoxResult);

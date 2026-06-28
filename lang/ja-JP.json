@@ -669,6 +669,7 @@
   "Confirm_NormalInstallOverride": "インストール先が推定されていますが、\n通常インストールを実行しようとしています。\nインストールは独立したフォルダに行われます。\n続行しますか？",
   "Confirm_NormalInstallTitle": "通常インストール機能の通知",
   "Confirm_SelectedPlaylistUrlDownload": "{1} の対象 URL {0} 件をダウンロードし、対応ファイルのみ導入処理へ渡します。\nブラウザで開く必要がある URL は開かずにスキップします。\n\n続行しますか？",
+  "Warn_SelectedPlaylistUrlDownloadLargeSelection": "対象 URL が {0} 件以上あります。\nダウンロードしたファイルとアーカイブの解凍用一時ファイルは Windows の一時領域 (通常は C ドライブ) に作成されるため、空き容量に注意してください。\nダウンロードや解凍処理に時間がかかる場合があります。\n特に本体 URL の取り込みではファイルサイズが大きくなりやすいため注意してください。",
   "Msg_SelectedPlaylistUrlDownloadResult": "プレイリスト URL 取り込み結果\n\n対象: {0}\n導入対象: {1}\nスキップ(ブラウザ): {2}\nスキップ(サイズ上限): {3}\nスキップ(重複): {4}\n失敗: {5}\nキャンセルにより未処理: {6}",
   "Warn_SelectedPlaylistUrlDownloadNoTargets": "選択範囲に対象 URL がありません。",
   "Warn_SelectedPlaylistUrlDownloadBlockedByInstallQueue": "導入処理が実行中のため、URL 取り込みを開始できません。\n導入処理の完了後、またはキャンセル後に再実行してください。",

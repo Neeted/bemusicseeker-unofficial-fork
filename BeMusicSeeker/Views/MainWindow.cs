@@ -64,6 +64,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private const long DownloadAndInstallSizeLimitBytes = 536870912L;
 
+    private const int SelectedPlaylistUrlDownloadLargeSelectionWarningThreshold = 50;
+
     private const int SharedDownloadPageResolverMaxBytes = 2097152;
 
     private static readonly MethodInfo playlistTreeBringIndexIntoViewMethod = typeof(System.Windows.Controls.VirtualizingStackPanel).GetMethod("BringIndexIntoView", BindingFlags.Instance | BindingFlags.NonPublic) ?? typeof(System.Windows.Controls.VirtualizingPanel).GetMethod("BringIndexIntoView", BindingFlags.Instance | BindingFlags.NonPublic);
@@ -7047,7 +7049,16 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             BeMusicSeeker.Properties.Resources.Confirm_SelectedPlaylistUrlDownload,
             targets.Count,
             isDiffUrl ? BeMusicSeeker.Properties.Resources.Diff_URL : BeMusicSeeker.Properties.Resources.Original_URL);
-        if (UiDialogRoute.ShowMessageBox(Window.GetWindow(this), confirmationMessage, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) == MessageBoxResult.Cancel)
+        string largeSelectionWarningMessage = targets.Count >= SelectedPlaylistUrlDownloadLargeSelectionWarningThreshold
+            ? string.Format(
+                BeMusicSeeker.Properties.Resources.Warn_SelectedPlaylistUrlDownloadLargeSelection,
+                SelectedPlaylistUrlDownloadLargeSelectionWarningThreshold)
+            : null;
+        if (largeSelectionWarningMessage != null)
+        {
+            LogPlaylistUrlDownload("playlist_url_download large_selection_warning count=" + targets.Count + " threshold=" + SelectedPlaylistUrlDownloadLargeSelectionWarningThreshold);
+        }
+        if (UiDialogRoute.ShowMessageBox(Window.GetWindow(this), confirmationMessage, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel, warningMessageBoxText: largeSelectionWarningMessage) == MessageBoxResult.Cancel)
         {
             return;
         }

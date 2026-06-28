@@ -669,6 +669,7 @@
   "Confirm_NormalInstallOverride": "已推测出安装目标，\n但您正在执行普通安装。\n安装将在独立文件夹中进行。\n是否继续？",
   "Confirm_NormalInstallTitle": "普通安装功能通知",
   "Confirm_SelectedPlaylistUrlDownload": "下载 {1} 的 {0} 个目标 URL，并仅将支持的文件传递给安装处理。\n需要在浏览器中打开的 URL 将不会打开并跳过。\n\n要继续吗？",
+  "Warn_SelectedPlaylistUrlDownloadLargeSelection": "目标 URL 数量为 {0} 个以上。\n下载的文件以及用于解压存档的临时文件会创建在 Windows 临时区域（通常位于 C 盘），请注意磁盘剩余空间。\n下载或解压处理可能需要较长时间。\n尤其是导入本体 URL 时文件更容易较大，请特别注意。",
   "Msg_SelectedPlaylistUrlDownloadResult": "播放列表 URL 导入结果\n\n目标: {0}\n安装目标: {1}\n跳过(浏览器): {2}\n跳过(大小上限): {3}\n跳过(重复): {4}\n失败: {5}\n因取消未处理: {6}",
   "Warn_SelectedPlaylistUrlDownloadNoTargets": "选择范围中没有目标 URL。",
   "Warn_SelectedPlaylistUrlDownloadBlockedByInstallQueue": "由于正在运行安装处理，无法开始 URL 导入。\n请在安装处理完成或取消后重新执行。",
