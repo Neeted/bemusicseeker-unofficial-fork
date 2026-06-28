@@ -22,6 +22,9 @@ namespace BeMusicSeeker.Updater
         };
 
         private const string ManagedFilesManifestName = "update-managed-files.txt";
+        private const string ImportedMetadataDirectoryName = "imported_metadata";
+        private const string MetadataDbFileName = "chart-info-metadata.db";
+        private const string MetadataArchiveFileName = "chart-info-metadata.7z";
 
         private static readonly string[] LegacyManagedDirectoryPaths =
         [
@@ -143,6 +146,7 @@ namespace BeMusicSeeker.Updater
             foreach (ZipArchiveEntry entry in archive.Entries)
             {
                 string entryName = entry.FullName.Replace('\\', '/');
+                bool isDirectoryEntry = entryName.EndsWith("/", StringComparison.Ordinal);
                 if (string.IsNullOrWhiteSpace(entryName))
                 {
                     continue;
@@ -162,6 +166,18 @@ namespace BeMusicSeeker.Updater
                 if (segments.Length > 0 && PreservedTopLevelNames.Contains(segments[0]))
                 {
                     throw new InvalidOperationException("Package must not contain preserved directory: " + segments[0]);
+                }
+                if (segments.Length > 0 && string.Equals(segments[0], ImportedMetadataDirectoryName, StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new InvalidOperationException("Package must not contain app-managed metadata cache: " + segments[0]);
+                }
+                if (segments.Length > 0 && string.Equals(segments[0], MetadataDbFileName, StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new InvalidOperationException("Package must not contain root metadata database: " + segments[0]);
+                }
+                if ((segments.Length > 1 || isDirectoryEntry) && string.Equals(segments[0], MetadataArchiveFileName, StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new InvalidOperationException("Package must contain root metadata archive as a file: " + segments[0]);
                 }
             }
         }
@@ -212,6 +228,7 @@ namespace BeMusicSeeker.Updater
             HashSet<string> newPackagePaths = EnumerateRelativePackagePaths(extractDirectory);
             HashSet<string> previousManagedPaths = ReadManagedFilesManifest(appDirectory, newPackagePaths);
             AddLegacyManagedPaths(previousManagedPaths, appDirectory);
+            AddAppManagedMetadataArtifactPaths(previousManagedPaths, appDirectory);
             foreach (string relativePath in previousManagedPaths.Except(newPackagePaths, StringComparer.OrdinalIgnoreCase))
             {
                 MoveExistingPathToBackup(appDirectory, previousDirectory, relativePath);
@@ -233,6 +250,30 @@ namespace BeMusicSeeker.Updater
 
             WriteManagedFilesManifest(appDirectory, newPackagePaths);
             RemoveEmptyDirectories(appDirectory);
+        }
+
+        private static void AddAppManagedMetadataArtifactPaths(HashSet<string> managedPaths, string appDirectory)
+        {
+            AddAppManagedMetadataDirectoryPath(managedPaths, appDirectory, ImportedMetadataDirectoryName);
+            AddLegacyManagedFilePath(managedPaths, appDirectory, MetadataDbFileName);
+            AddLegacyManagedFilePath(managedPaths, appDirectory, MetadataArchiveFileName);
+        }
+
+        private static void AddAppManagedMetadataDirectoryPath(HashSet<string> managedPaths, string appDirectory, string relativePath)
+        {
+            string normalized = NormalizeRelativePackagePath(relativePath);
+            string path = Path.Combine(appDirectory, normalized);
+            if (UpdaterFileSystem.DirectoryExists(path))
+            {
+                managedPaths.RemoveWhere(candidate => IsRelativePathUnderDirectory(candidate, normalized));
+                managedPaths.Add(normalized);
+                return;
+            }
+
+            if (UpdaterFileSystem.FileExists(path))
+            {
+                managedPaths.Add(normalized);
+            }
         }
 
         private static void TryRollback(string appDirectory, string previousDirectory, string extractDirectory)

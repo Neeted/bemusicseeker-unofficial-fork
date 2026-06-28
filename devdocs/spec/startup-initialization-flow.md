@@ -104,7 +104,8 @@ app schema repair は `song` table 全件を走査して実ファイルから SH
 metadata bundle は所持譜面から生成した DB 由来情報ではなく、外部配布または同梱された `chart_info` 補助データである。
 
 - import は `Startup` の DB load 前に行う。
-- import 済み bundle は `imported_metadata/` へ退避する。
+- import 済み bundle は `imported_metadata/` へ退避する。退避先は最後に import した bundle のアプリ管理 cache として扱い、同じ file name の cache へ置き換える。
+- `imported_metadata/chart-info-metadata.7z` または `imported_metadata/chart-info-metadata.db` は、root へ戻すことで再 import できる。
 - `FullReinitialize` / `ReloadFileDiff` では再 import しない。
 - bundle import は app schema repair の代替ではない。bundle manifest の `chart_info_schema_version` は import/export 互換値であり、DB 内 `app_schema` version とは別物である。
 

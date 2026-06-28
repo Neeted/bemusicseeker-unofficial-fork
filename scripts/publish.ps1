@@ -69,6 +69,16 @@ function Resolve-MetadataSource {
     }
 }
 
+function Get-UpdateAssetKindPriority($kind) {
+    if ($kind -eq "app") { return 0 }
+    if ($kind -eq "app-with-metadata") { return 1 }
+    return 99
+}
+
+function Sort-UpdateManifestAssets($assets) {
+    return ,@($assets | Sort-Object @{ Expression = { Get-UpdateAssetKindPriority $_.kind } }, fileName)
+}
+
 function Build-DocHtml($targetStagingDir) {
     if ($SkipDocHtml) {
         Write-Host "  HTML docs 生成をスキップしました" -ForegroundColor Yellow
@@ -119,7 +129,7 @@ function Join-PackageRelativePath($root, $relativePath) {
     return Join-Path $root ($relativePath.Replace('/', [System.IO.Path]::DirectorySeparatorChar))
 }
 
-function Assert-AppPackageLayout($targetStagingDir) {
+function Assert-AppPackageLayout($targetStagingDir, $requiresMetadataArchive) {
     $requiredFiles = @(
         "BeMusicSeeker.exe",
         "BeMusicSeeker.exe.config",
@@ -146,13 +156,25 @@ function Assert-AppPackageLayout($targetStagingDir) {
         "libs/x86",
         "libs/x64/OggVorbis.NET64.dll",
         "SevenZipExtractor.dll",
-        "OggVorbis.NET64.dll"
+        "OggVorbis.NET64.dll",
+        "imported_metadata",
+        "chart-info-metadata.db"
     )
     foreach ($relativePath in $forbiddenPaths) {
         $path = Join-PackageRelativePath $targetStagingDir $relativePath
         if (Test-Path $path) {
-            throw "release package に旧 DLL 配置が残っています: $relativePath"
+            throw "release package に禁止された配置が残っています: $relativePath"
         }
+    }
+
+    $metadataArchivePath = Join-PackageRelativePath $targetStagingDir "chart-info-metadata.7z"
+    if ($requiresMetadataArchive) {
+        if (-not (Test-Path $metadataArchivePath -PathType Leaf)) {
+            throw "metadata 同梱 release package に chart-info-metadata.7z がありません。"
+        }
+    }
+    elseif (Test-Path $metadataArchivePath) {
+        throw "通常版 release package に chart-info-metadata.7z が含まれています。"
     }
 }
 
@@ -213,7 +235,7 @@ function New-UpdateManifestCandidate($version, $assetMetadata) {
         packageFormatVersion = 1
         publishedAt = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
         minimumUpdaterVersion = "1"
-        assets = @($assetMetadata)
+        assets = (Sort-UpdateManifestAssets $assetMetadata)
     }
 
     $manifestPath = Join-Path $distDir "update-$tag.json"
@@ -237,7 +259,7 @@ function New-ZipPackage($version, $packageSuffix, $metadataInfo) {
         Copy-Item $metadataInfo.SourcePath (Join-Path $targetStagingDir $metadataInfo.TargetName) -Force
     }
 
-    Assert-AppPackageLayout $targetStagingDir
+    Assert-AppPackageLayout $targetStagingDir ($metadataInfo -ne $null)
     New-ManagedFilesManifest $targetStagingDir
 
     $zipName = "bemusicseeker-unofficial-fork-v$version$packageSuffix.zip"

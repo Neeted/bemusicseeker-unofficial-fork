@@ -11,7 +11,7 @@
 - `chart-info-metadata.db`
 - `chart-info-metadata.7z`
 
-アプリは exe と同じ階層にある `chart-info-metadata.db` を優先して import し、なければ `chart-info-metadata.7z` を展開して import します。import 後の bundle は `imported_metadata/` へ退避されます。
+アプリは exe と同じ階層にある `chart-info-metadata.db` を優先して import し、なければ `chart-info-metadata.7z` を展開して import します。import 後の bundle は `imported_metadata/` へ退避され、最後に import した同名 cache として保持されます。必要な場合は `imported_metadata/` から exe と同じ階層へ戻すことで再 import できます。
 
 ## 前提
 

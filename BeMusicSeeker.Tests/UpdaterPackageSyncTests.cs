@@ -66,7 +66,139 @@ public sealed class UpdaterPackageSyncTests
         });
     }
 
+    [TestMethod]
+    public void ApplyUpdate_RemovesAppManagedMetadataArtifactsWhenPackageHasNoMetadata()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string appDirectoryPath = Path.Combine(tempDirectoryPath, "app");
+            string packageSourceDirectoryPath = Path.Combine(tempDirectoryPath, "package-source");
+            string packagePath = Path.Combine(tempDirectoryPath, "package.zip");
+            string backupDirectoryPath = Path.Combine(appDirectoryPath, "update_backup");
+
+            WriteTextFile(appDirectoryPath, "BeMusicSeeker.exe", "old-app");
+            WriteTextFile(appDirectoryPath, "chart-info-metadata.7z", "old-root-archive");
+            WriteTextFile(appDirectoryPath, "chart-info-metadata.db", "old-root-db");
+            WriteTextFile(appDirectoryPath, "imported_metadata/chart-info-metadata.7z", "old-imported-archive");
+            WriteTextFile(appDirectoryPath, "imported_metadata/chart-info-metadata.aaaaaaaaaaaa.7z", "old-history-archive");
+
+            WriteTextFile(packageSourceDirectoryPath, "BeMusicSeeker.exe", "new-app");
+            WriteTextFile(packageSourceDirectoryPath, "update-managed-files.txt", "BeMusicSeeker.exe");
+            ZipFile.CreateFromDirectory(packageSourceDirectoryPath, packagePath);
+
+            RunUpdater(appDirectoryPath, packagePath, backupDirectoryPath);
+
+            Assert.AreEqual("new-app", File.ReadAllText(Path.Combine(appDirectoryPath, "BeMusicSeeker.exe")));
+            Assert.IsFalse(File.Exists(Path.Combine(appDirectoryPath, "chart-info-metadata.7z")));
+            Assert.IsFalse(File.Exists(Path.Combine(appDirectoryPath, "chart-info-metadata.db")));
+            Assert.IsFalse(Directory.Exists(Path.Combine(appDirectoryPath, "imported_metadata")));
+        });
+    }
+
+    [TestMethod]
+    public void ApplyUpdate_ReplacesAppManagedMetadataArtifactsWithBundledArchive()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string appDirectoryPath = Path.Combine(tempDirectoryPath, "app");
+            string packageSourceDirectoryPath = Path.Combine(tempDirectoryPath, "package-source");
+            string packagePath = Path.Combine(tempDirectoryPath, "package.zip");
+            string backupDirectoryPath = Path.Combine(appDirectoryPath, "update_backup");
+
+            WriteTextFile(appDirectoryPath, "BeMusicSeeker.exe", "old-app");
+            WriteTextFile(appDirectoryPath, "chart-info-metadata.7z", "old-root-archive");
+            WriteTextFile(appDirectoryPath, "chart-info-metadata.db", "old-root-db");
+            WriteTextFile(appDirectoryPath, "imported_metadata/chart-info-metadata.7z", "old-imported-archive");
+            WriteTextFile(appDirectoryPath, "imported_metadata/chart-info-metadata.bbbbbbbbbbbb.7z", "old-history-archive");
+
+            WriteTextFile(packageSourceDirectoryPath, "BeMusicSeeker.exe", "new-app");
+            WriteTextFile(packageSourceDirectoryPath, "chart-info-metadata.7z", "new-bundled-archive");
+            WriteTextFile(packageSourceDirectoryPath, "update-managed-files.txt", string.Join(Environment.NewLine, new[]
+            {
+                "BeMusicSeeker.exe",
+                "chart-info-metadata.7z"
+            }));
+            ZipFile.CreateFromDirectory(packageSourceDirectoryPath, packagePath);
+
+            RunUpdater(appDirectoryPath, packagePath, backupDirectoryPath);
+
+            Assert.AreEqual("new-app", File.ReadAllText(Path.Combine(appDirectoryPath, "BeMusicSeeker.exe")));
+            Assert.AreEqual("new-bundled-archive", File.ReadAllText(Path.Combine(appDirectoryPath, "chart-info-metadata.7z")));
+            Assert.IsFalse(File.Exists(Path.Combine(appDirectoryPath, "chart-info-metadata.db")));
+            Assert.IsFalse(Directory.Exists(Path.Combine(appDirectoryPath, "imported_metadata")));
+        });
+    }
+
+    [TestMethod]
+    public void ApplyUpdate_RollbackRestoresAppManagedMetadataArtifactsAfterFailure()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string appDirectoryPath = Path.Combine(tempDirectoryPath, "app");
+            string packageSourceDirectoryPath = Path.Combine(tempDirectoryPath, "package-source");
+            string packagePath = Path.Combine(tempDirectoryPath, "package.zip");
+            string backupDirectoryPath = Path.Combine(appDirectoryPath, "update_backup");
+
+            WriteTextFile(appDirectoryPath, "BeMusicSeeker.exe", "old-app");
+            WriteTextFile(appDirectoryPath, "chart-info-metadata.7z", "old-root-archive");
+            WriteTextFile(appDirectoryPath, "chart-info-metadata.db", "old-root-db");
+            WriteTextFile(appDirectoryPath, "imported_metadata/chart-info-metadata.7z", "old-imported-archive");
+            WriteTextFile(appDirectoryPath, "blocked", "existing-file");
+
+            WriteTextFile(packageSourceDirectoryPath, "BeMusicSeeker.exe", "new-app");
+            WriteTextFile(packageSourceDirectoryPath, "blocked/file.txt", "copy-should-fail");
+            WriteTextFile(packageSourceDirectoryPath, "update-managed-files.txt", string.Join(Environment.NewLine, new[]
+            {
+                "BeMusicSeeker.exe",
+                "blocked/file.txt"
+            }));
+            ZipFile.CreateFromDirectory(packageSourceDirectoryPath, packagePath);
+
+            RunUpdaterExpectFailure(appDirectoryPath, packagePath, backupDirectoryPath);
+
+            Assert.AreEqual("old-app", File.ReadAllText(Path.Combine(appDirectoryPath, "BeMusicSeeker.exe")));
+            Assert.AreEqual("old-root-archive", File.ReadAllText(Path.Combine(appDirectoryPath, "chart-info-metadata.7z")));
+            Assert.AreEqual("old-root-db", File.ReadAllText(Path.Combine(appDirectoryPath, "chart-info-metadata.db")));
+            Assert.AreEqual("old-imported-archive", File.ReadAllText(Path.Combine(appDirectoryPath, "imported_metadata", "chart-info-metadata.7z")));
+            Assert.AreEqual("existing-file", File.ReadAllText(Path.Combine(appDirectoryPath, "blocked")));
+        });
+    }
+
     private static void RunUpdater(string appDirectoryPath, string packagePath, string backupDirectoryPath)
+    {
+        using Process process = StartUpdater(appDirectoryPath, packagePath, backupDirectoryPath);
+        if (!process.WaitForExit(30000))
+        {
+            process.Kill();
+            Assert.Fail("Updater process timed out.");
+        }
+
+        string standardOutput = process.StandardOutput.ReadToEnd();
+        string standardError = process.StandardError.ReadToEnd();
+        if (process.ExitCode != 0)
+        {
+            Assert.Fail("Updater failed with exit code " + process.ExitCode + Environment.NewLine + standardOutput + Environment.NewLine + standardError);
+        }
+    }
+
+    private static void RunUpdaterExpectFailure(string appDirectoryPath, string packagePath, string backupDirectoryPath)
+    {
+        using Process process = StartUpdater(appDirectoryPath, packagePath, backupDirectoryPath);
+        if (!process.WaitForExit(30000))
+        {
+            process.Kill();
+            Assert.Fail("Updater process timed out.");
+        }
+
+        if (process.ExitCode == 0)
+        {
+            string standardOutput = process.StandardOutput.ReadToEnd();
+            string standardError = process.StandardError.ReadToEnd();
+            Assert.Fail("Updater unexpectedly succeeded." + Environment.NewLine + standardOutput + Environment.NewLine + standardError);
+        }
+    }
+
+    private static Process StartUpdater(string appDirectoryPath, string packagePath, string backupDirectoryPath)
     {
         string updaterPath = FindUpdaterExecutable();
         var processStartInfo = new ProcessStartInfo
@@ -89,19 +221,7 @@ public sealed class UpdaterPackageSyncTests
             WorkingDirectory = Path.GetDirectoryName(updaterPath) ?? Environment.CurrentDirectory
         };
 
-        using Process process = Process.Start(processStartInfo) ?? throw new InvalidOperationException("Updater process was not started.");
-        if (!process.WaitForExit(30000))
-        {
-            process.Kill();
-            Assert.Fail("Updater process timed out.");
-        }
-
-        string standardOutput = process.StandardOutput.ReadToEnd();
-        string standardError = process.StandardError.ReadToEnd();
-        if (process.ExitCode != 0)
-        {
-            Assert.Fail("Updater failed with exit code " + process.ExitCode + Environment.NewLine + standardOutput + Environment.NewLine + standardError);
-        }
+        return Process.Start(processStartInfo) ?? throw new InvalidOperationException("Updater process was not started.");
     }
 
     private static string FindUpdaterExecutable()

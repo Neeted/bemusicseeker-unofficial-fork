@@ -24,7 +24,7 @@ https://raw.githubusercontent.com/Neeted/bemusicseeker-unofficial-fork/main/upda
 - `releasePageUrl`: GitHub Release ページ URL
 - `packageFormatVersion`: `1`
 - `minimumUpdaterVersion`: updater protocol version。現在は `1`
-- `assets`: 1 件以上。`kind = app` は必須
+- `assets`: 1 件以上。`kind = app` は必須。生成スクリプトと更新ダイアログでは `app` を `app-with-metadata` より先に並べる。
 
 asset 種別:
 
@@ -47,7 +47,7 @@ asset 種別:
 
 ## 更新ダイアログ
 
-`update.json` に asset がある場合、通常版と metadata 同梱版を選択できる。
+`update.json` に asset がある場合、通常版と metadata 同梱版を選択できる。通常版を先頭に表示し、初期選択も通常版にする。
 
 更新適用ボタンは `MainWindowViewModel.IsStartupProgressActive` が `false` のときのみ有効になる。これは起動初期化の進捗ゲージが消えた後に更新適用へ進ませるためで、永続設定としては保持しない。
 
@@ -90,9 +90,13 @@ updater は `--pid` の終了を最大 60 秒待つ。
 - `update_backup/`
 - `update_work/`
 
-`imported_metadata/` は保持対象ではない。
+`imported_metadata/`、root の `chart-info-metadata.db`、root の `chart-info-metadata.7z` は metadata bundle 用のアプリ管理 artifact として扱う。
 
-配布 zip は `update-managed-files.txt` を同梱する。この manifest に含まれるファイルだけをアプリ管理ファイルとして扱う。更新時は、新パッケージの管理ファイルで既存管理ファイルを置換し、新パッケージから消えた管理ファイルを削除する。
+更新時、updater は既存の `imported_metadata/` と root の metadata bundle を掃除する。metadata 同梱版を適用した場合は、新 package の root に含まれる `chart-info-metadata.7z` だけが配置される。通常版を適用した場合は metadata bundle は配置されない。
+
+次回起動時、metadata importer は root の `chart-info-metadata.7z` を import し、`imported_metadata/chart-info-metadata.7z` へ移動する。`imported_metadata/` は最後に import した metadata bundle のアプリ管理 cache であり、必要な場合は同ファイルを root に戻して再 import できる。
+
+配布 zip は `update-managed-files.txt` を同梱する。通常の配布ファイル同期では、この manifest に含まれるファイルをアプリ管理ファイルとして扱う。更新時は、新パッケージの管理ファイルで既存管理ファイルを置換し、新パッケージから消えた管理ファイルを削除する。
 
 初回更新元に `update-managed-files.txt` がない場合は、新パッケージと同じ相対パスに既に存在するファイルだけを置換対象として扱う。旧パッケージから新パッケージで削除されたファイルの掃除より、ユーザー追加ファイルを消さないことを優先する。
 
@@ -112,6 +116,7 @@ updater は `--pid` の終了を最大 60 秒待つ。
 - 通常版 zip を作成
 - `-IncludeMetadata` 指定時に `chart-info-metadata.7z` 同梱版 zip を作成
 - `update-managed-files.txt` と `dist/update-v{version}.json` を生成
+- `update.json` の assets は通常版、metadata 同梱版の順に並べる
 - 公開リポジトリへ同期する際、同一 version の古い zip を削除して stale asset 混入を避ける
 
 `scripts/release.ps1 -CreateDraft` は以下を行う。

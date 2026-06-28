@@ -16,7 +16,10 @@ internal sealed class UpdateAvailableDialogViewModel : INotifyPropertyChanged, I
     {
         UpdateCheckResult = updateCheckResult ?? throw new ArgumentNullException(nameof(updateCheckResult));
         this.ownerViewModel = ownerViewModel;
-        Packages = new ObservableCollection<UpdatePackageOption>((UpdateCheckResult.Assets ?? []).Select(UpdatePackageOption.Create));
+        Packages = new ObservableCollection<UpdatePackageOption>((UpdateCheckResult.Assets ?? [])
+            .OrderBy(GetAssetDisplayPriority)
+            .ThenBy(asset => asset?.FileName ?? string.Empty, StringComparer.OrdinalIgnoreCase)
+            .Select(UpdatePackageOption.Create));
         selectedPackage = Packages.FirstOrDefault();
         if (ownerViewModel != null)
         {
@@ -93,6 +96,21 @@ internal sealed class UpdateAvailableDialogViewModel : INotifyPropertyChanged, I
     private void RaisePropertyChanged(string propertyName)
     {
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+    }
+
+    private static int GetAssetDisplayPriority(UpdateAssetInfo asset)
+    {
+        if (string.Equals(asset?.Kind, "app", StringComparison.Ordinal))
+        {
+            return 0;
+        }
+
+        if (string.Equals(asset?.Kind, "app-with-metadata", StringComparison.Ordinal))
+        {
+            return 1;
+        }
+
+        return 99;
     }
 
     internal sealed class UpdatePackageOption
