@@ -30,7 +30,7 @@ BeMusicSeeker をインストーラ形式へ移行せず、現在の zip 配布�
 
 ## Current State
 
-- 起動時更新通知は `MainWindow.CheckForUpdatesAsync()` が GitHub raw の `version.txt` を取得し、`AssemblyInformationalVersion` と比較してメッセージを出すだけである。
+- 起動時更新通知は `MainWindow.CheckForUpdatesAsync()` が `UpdateCheckService` 経由で GitHub raw の `update.json` を取得し、`AssemblyInformationalVersion` と比較する。
 - `scripts/publish.ps1` は `AssemblyInformationalVersion` から zip 名を作り、`BeMusicSeeker.exe`、`BeMusicSeeker.exe.config`、`libs/`、`native/`、`lang/`、docs などを staging して zip 化する。
 - `scripts/release.ps1` は公開リポジトリ側の `version.txt` から tag を作り、`dist/bemusicseeker-unofficial-fork-vX.X.X.X*.zip` を GitHub Release asset に添付する。
 - 設定保存は独自 `PortableSettingsProvider` で、保存先は exe と同階層の `config/user.config`。
@@ -40,7 +40,7 @@ BeMusicSeeker をインストーラ形式へ移行せず、現在の zip 配布�
 
 ## Update Manifest
 
-`version.txt` は既存の簡易通知や手動確認互換のため残してよいが、自動アップデートの正本は `update.json` とする。
+自動アップデートの正本は `update.json` のみとする。公開リポジトリの `version.txt` は `update.json` 導入以前のクライアントへ通知するために残してよいが、現行アプリは参照しない。
 
 公開先:
 
@@ -115,7 +115,7 @@ validator 候補:
 
 自動アップデートでは、manifest 公開の瞬間がユーザーに更新可能と見える瞬間になる。そのため、`update.json` は release asset が揃ってから最後に公開する。
 
-`version.txt` も 2.1.x 系では fallback 用の更新シグナルとして残すため、draft release の確認中に新バージョンの `version.txt` を public default branch へ push しない。公開ユーザーへ更新を見せる操作は、GitHub Release を publish した後に `update.json` と `version.txt` を raw GitHub へ反映する段階へ集約する。
+`version.txt` は `update.json` 導入以前のクライアント向け更新シグナルとして公開リポジトリに残すため、draft release の確認中に新バージョンの `version.txt` を public default branch へ push しない。公開ユーザーへ更新を見せる操作は、GitHub Release を publish した後に `update.json` と `version.txt` を raw GitHub へ反映する段階へ集約する。
 
 ### Tag And Commit Boundary
 
@@ -248,7 +248,7 @@ metadata 同梱版の説明は短くする。
 
 ### Startup Apply Gate
 
-更新確認と通知表示は現状の `version.txt` と同様に、起動後すぐ非同期で開始してよい。
+更新確認と通知表示は起動後すぐ非同期で開始してよい。
 
 ただし、起動初期化中にアプリを閉じると危険なため、更新適用による終了 / 再起動は安全に閉じられる状態になるまで許可しない。
 
@@ -299,7 +299,7 @@ updater は app dir から直接実行しない。アプリ本体は packaged up
 アプリ本体の責務:
 
 - `update.json` の取得と検証。
-- `update.json` が取得不能または invalid の場合、2.1.x 互換期間中は `version.txt` fallback で手動更新通知を出す。
+- `update.json` が取得不能または invalid の場合は更新チェック失敗として扱い、別形式への fallback は行わない。
 - command-line switch `--update-manifest-url` がある場合は、その URI を manifest source として使う。未指定時だけ raw GitHub を使う。
 - ユーザー選択。
 - zip のダウンロード。
@@ -465,7 +465,7 @@ rollback は backup を元の本体ディレクトリへ戻す。rollback 自体
   - [ ] `CommandLineSwitches.UpdateManifestUrl` がある。
   - [ ] unsupported schema / package format で自動適用しない。
   - [ ] `minimumUpdaterVersion` が現在の updater protocol version より大きい場合は自動適用しない。
-  - [ ] 2.1.x 互換の `version.txt` fallback がある。
+  - [ ] 更新チェックは `update.json` 専用で、別形式への fallback がない。
 - [ ] Unit 3: Update Notification UI
   - [ ] 通常版 / metadata 同梱版を選べる更新通知 UI がある。
   - [ ] release page を開ける。
@@ -524,7 +524,7 @@ rollback は backup を元の本体ディレクトリへ戻す。rollback 自体
 - `scripts/release.ps1 -CreateDraft` は release commit と tag を作り、tag だけ push する。
 - `scripts/release.ps1 -PublishDraft` が draft publish 後に release commit を public default branch へ push し、`update.json` と `version.txt` を public raw へ反映できるようにする。
 - `update.json` は release asset が公開されてから raw GitHub に出す。
-- `version.txt` fallback は 2.1.x 互換として残す。
+- 現行アプリは `version.txt` fallback を持たず、更新チェックは `update.json` 専用にする。
 
 検証:
 
@@ -545,9 +545,7 @@ rollback は backup を元の本体ディレクトリへ戻す。rollback 自体
 - 既存の `MainWindow.CheckForUpdatesAsync()` は `UpdateCheckService` 呼び出しへ移し、MainWindow から HTTP / JSON validation の詳細を外す。
 - 現在の `AssemblyInformationalVersion` と manifest `version` を比較する。
 - 未対応 schema / package format では自動適用を出さず、release page を開けるようにする。
-- 2.1.x 互換期間中は、`update.json` が取得不能 / invalid の場合だけ既存 `version.txt` check を fallback として実行する。
-- fallback 通知では自動更新を出さず、従来通り release page / repository 確認を促す。
-- fallback 削除は 2.2.0.0 以降の release 作業で判断する。2.2.0.0 作成時に `update.json` 運用が安定していることを確認できたら削除し、問題があれば `version.txt` だけを 2.2.0.0 へ進めて手動更新通知に使う。
+- `update.json` が取得不能 / invalid の場合は更新チェック失敗として扱い、失敗を隠す fallback は行わない。
 
 検証:
 
@@ -556,7 +554,6 @@ rollback は backup を元の本体ディレクトリへ戻す。rollback 自体
 - asset hash 欠落、URL 欠落、size 欠落で invalid になる。
 - duplicate asset kind、空 assets、`releaseTag` / `version` 不一致、`minimumUpdaterVersion` 超過で invalid になる。
 - malformed JSON で更新失敗ログになる。
-- malformed JSON かつ `version.txt` が新しい場合は手動更新通知になる。
 
 ## Unit 3: Update Notification UI
 
@@ -698,7 +695,7 @@ scripts\Test-PortableUpdate.ps1
 - 更新適用による終了 / 再起動は `IsStartupProgressActive=false`、つまり起動・リロード進捗ゲージが消えるまで gate する。
 - ダウンロード済み zip は更新成功後に削除する。
 - backup は 1 世代だけ保持する。
-- `version.txt` fallback は 2.1.x 互換として残し、`update.json` が壊れている場合は手動更新通知に使う。2.2.0.0 作成時に削除可否を判断する。
+- 更新チェックは `update.json` 専用とし、`update.json` が壊れている場合は更新チェック失敗として扱う。
 - draft release 作成時は release commit に tag を打ち、tag だけ push する。public default branch は draft publish 後に push する。
 - updater は `update_work/current/` へコピーしたものを実行する。
 - local update verification 用 override は command-line switch `--update-manifest-url` のみにする。

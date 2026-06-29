@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
-using System.Net.Http;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
@@ -15,7 +14,6 @@ internal sealed class UpdateCheckService
 {
     internal const int CurrentUpdaterProtocolVersion = 1;
     internal const string DefaultManifestUrl = "https://raw.githubusercontent.com/Neeted/bemusicseeker-unofficial-fork/main/update.json";
-    internal const string DefaultVersionUrl = "https://raw.githubusercontent.com/Neeted/bemusicseeker-unofficial-fork/main/version.txt";
 
     private static readonly Regex Sha256Regex = new("^[0-9a-fA-F]{64}$", RegexOptions.Compiled);
 
@@ -30,25 +28,13 @@ internal sealed class UpdateCheckService
     {
         string currentVersionText = GetCurrentVersionText();
         Version currentVersion = Version.TryParse(currentVersionText, out Version parsedCurrentVersion) ? parsedCurrentVersion : new Version(0, 0, 0, 0);
-        bool hasOverride = !string.IsNullOrWhiteSpace(manifestUrlOverride);
-        Uri manifestUri = CreateCacheBustedUri(hasOverride ? manifestUrlOverride : DefaultManifestUrl);
+        Uri manifestUri = CreateCacheBustedUri(!string.IsNullOrWhiteSpace(manifestUrlOverride) ? manifestUrlOverride : DefaultManifestUrl);
 
-        try
-        {
-            string manifestJson = await httpClient.GetStringAsync(manifestUri, Encoding.UTF8).ConfigureAwait(false);
-            UpdateManifest manifest = ParseManifest(manifestJson);
-            return manifest.Version > currentVersion
-                ? UpdateCheckResult.Available(manifest.Version, currentVersionText, manifest.VersionText, "update.json", manifest.Assets, manifest.ReleasePageUrl)
-                : UpdateCheckResult.NoUpdate(currentVersionText, "update.json");
-        }
-        catch (HttpRequestException) when (!hasOverride)
-        {
-            return await CheckVersionTxtFallbackAsync(currentVersion, currentVersionText).ConfigureAwait(false);
-        }
-        catch (TaskCanceledException) when (!hasOverride)
-        {
-            return await CheckVersionTxtFallbackAsync(currentVersion, currentVersionText).ConfigureAwait(false);
-        }
+        string manifestJson = await httpClient.GetStringAsync(manifestUri, Encoding.UTF8).ConfigureAwait(false);
+        UpdateManifest manifest = ParseManifest(manifestJson);
+        return manifest.Version > currentVersion
+            ? UpdateCheckResult.Available(manifest.Version, currentVersionText, manifest.VersionText, manifest.Assets, manifest.ReleasePageUrl)
+            : UpdateCheckResult.NoUpdate(currentVersionText);
     }
 
     internal static UpdateManifest ParseManifest(string manifestJson)
@@ -122,18 +108,6 @@ internal sealed class UpdateCheckService
             MinimumUpdaterVersion = minimumUpdaterVersion,
             Assets = assets
         };
-    }
-
-    private async Task<UpdateCheckResult> CheckVersionTxtFallbackAsync(Version currentVersion, string currentVersionText)
-    {
-        string latestVersionText = await httpClient.GetStringAsync(CreateCacheBustedUri(DefaultVersionUrl), Encoding.UTF8).ConfigureAwait(false);
-        latestVersionText = latestVersionText?.Trim();
-        if (Version.TryParse(latestVersionText, out Version latestVersion) && latestVersion > currentVersion)
-        {
-            return UpdateCheckResult.Available(latestVersion, currentVersionText, latestVersionText, "version.txt", [], null);
-        }
-
-        return UpdateCheckResult.NoUpdate(currentVersionText, "version.txt");
     }
 
     private static UpdateAssetInfo ParseAsset(JToken token)

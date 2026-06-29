@@ -34,16 +34,14 @@ asset 種別:
 各 asset は `fileName`, `url`, `sha256`, `sizeBytes`, `includesChartInfoMetadata` を持つ。
 `label` は manifest 上では英語の識別用文字列とし、UI 表示名と説明文はアプリ側の多言語リソースで `kind` から決める。
 
-`--update-manifest-url=` を指定するとローカル検証用に manifest URL を差し替えられる。この override では失敗を fallback せず、そのまま失敗として扱う。
+`--update-manifest-url=` を指定するとローカル検証用に manifest URL を差し替えられる。
 `scripts/prepare-local-update-test.ps1 -StartServer` は通常版と metadata 同梱版の zip が `dist/` にある場合、2 asset を含むローカル `update.json` を生成して HTTP 配信する。
 
 ## 更新確認
 
 起動時に `UpdateCheckService` が非同期で `update.json` を取得する。現在バージョンより新しい場合、更新ダイアログを表示する。
 
-`update.json` が通信失敗または timeout で取得できない場合のみ、互換用に `version.txt` を参照する。`update.json` の JSON 不正、schema 不一致、asset 検証失敗、未対応 updater version は fallback しない。
-
-`version.txt` fallback では自動適用に必要な asset 情報がないため、従来通り手動確認の通知だけを行う。
+更新確認の正本は `update.json` のみとする。`update.json` の取得失敗、timeout、JSON 不正、schema 不一致、asset 検証失敗、未対応 updater version は更新チェック失敗として扱い、別形式への fallback は行わない。
 
 ## 更新ダイアログ
 

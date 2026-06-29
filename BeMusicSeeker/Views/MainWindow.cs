@@ -619,7 +619,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                     return _isClosingOrClosed ? null : base.DataContext as MainWindowViewModel;
                 });
                 UpdateAssetInfo selectedAsset = null;
-                if (viewModel != null && result.Assets.Count > 0)
+                if (viewModel != null)
                 {
                     UiWindowDialogResult<UpdateAssetInfo> dialogResult = await new UiDialogCoordinator()
                         .ShowWindowAsync(new UiWindowDialogRequest<UpdateAvailableDialog, UpdateAssetInfo>(
@@ -628,16 +628,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                             this));
                     ThrowIfWindowDialogFailed(dialogResult.Status, dialogResult.Error, "Update available dialog");
                     selectedAsset = dialogResult.IsAccepted ? dialogResult.Value : null;
-                }
-                else
-                {
-                    UiDialogResult messageResult = await new UiDialogCoordinator().ShowMessageAsync(new UiMessageRequest(
-                        $"A new version ({result.LatestVersionText}) is available.\nYour version: {result.CurrentVersionText}\n\nPlease check the repository.",
-                        "Update Available",
-                        MessageBoxButton.OK,
-                        MessageBoxImage.Information,
-                        owner: this));
-                    ThrowIfUiDialogNotShown(messageResult, "Update available fallback message");
                 }
 
                 if (selectedAsset != null)

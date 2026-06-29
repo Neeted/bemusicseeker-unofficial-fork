@@ -10,7 +10,6 @@ internal sealed class UpdateCheckResult
         Version latestVersion,
         string currentVersionText,
         string latestVersionText,
-        string source,
         IReadOnlyList<UpdateAssetInfo> assets,
         string releasePageUrl)
     {
@@ -18,7 +17,6 @@ internal sealed class UpdateCheckResult
         LatestVersion = latestVersion;
         CurrentVersionText = currentVersionText;
         LatestVersionText = latestVersionText;
-        Source = source;
         Assets = assets ?? [];
         ReleasePageUrl = releasePageUrl;
     }
@@ -31,19 +29,17 @@ internal sealed class UpdateCheckResult
 
     public string LatestVersionText { get; }
 
-    public string Source { get; }
-
     public IReadOnlyList<UpdateAssetInfo> Assets { get; }
 
     public string ReleasePageUrl { get; }
 
-    public static UpdateCheckResult NoUpdate(string currentVersionText, string source)
+    public static UpdateCheckResult NoUpdate(string currentVersionText)
     {
-        return new UpdateCheckResult(false, null, currentVersionText, null, source, [], null);
+        return new UpdateCheckResult(false, null, currentVersionText, null, [], null);
     }
 
-    public static UpdateCheckResult Available(Version latestVersion, string currentVersionText, string latestVersionText, string source, IReadOnlyList<UpdateAssetInfo> assets, string releasePageUrl)
+    public static UpdateCheckResult Available(Version latestVersion, string currentVersionText, string latestVersionText, IReadOnlyList<UpdateAssetInfo> assets, string releasePageUrl)
     {
-        return new UpdateCheckResult(true, latestVersion, currentVersionText, latestVersionText, source, assets, releasePageUrl);
+        return new UpdateCheckResult(true, latestVersion, currentVersionText, latestVersionText, assets, releasePageUrl);
     }
 }

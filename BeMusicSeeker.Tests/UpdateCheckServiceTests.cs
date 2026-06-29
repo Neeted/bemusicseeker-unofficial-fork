@@ -1,3 +1,5 @@
+using System;
+using System.IO;
 using BeMusicSeeker.Models.Update;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -6,6 +8,16 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class UpdateCheckServiceTests
 {
+    [TestMethod]
+    public void UpdateCheckService_DoesNotKeepVersionTxtFallback()
+    {
+        string source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "Update", "UpdateCheckService.cs"));
+
+        Assert.IsFalse(source.Contains("version.txt"), "UpdateCheckService must not read legacy version.txt.");
+        Assert.IsFalse(source.Contains("DefaultVersionUrl"), "UpdateCheckService must not keep the legacy version URL.");
+        Assert.IsFalse(source.Contains("CheckVersionTxtFallback"), "UpdateCheckService must not keep version.txt fallback logic.");
+    }
+
     [TestMethod]
     public void ParseManifest_AcceptsAppAndMetadataAssets()
     {
@@ -105,5 +117,19 @@ public sealed class UpdateCheckServiceTests
             """;
 
         Assert.ThrowsException<UpdateManifestValidationException>(() => UpdateCheckService.ParseManifest(json));
+    }
+
+    private static string FindRepositoryRoot()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory != null)
+        {
+            if (File.Exists(Path.Combine(directory.FullName, "BeMusicSeeker.sln")))
+            {
+                return directory.FullName;
+            }
+            directory = directory.Parent;
+        }
+        throw new DirectoryNotFoundException("Repository root was not found.");
     }
 }
