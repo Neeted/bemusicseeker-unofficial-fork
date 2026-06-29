@@ -69,6 +69,16 @@ function New-ManifestAsset($kind, $label, $localPackageName, $localPackagePath, 
     }
 }
 
+function Get-UpdateAssetKindPriority($kind) {
+    if ($kind -eq "app") { return 0 }
+    if ($kind -eq "app-with-metadata") { return 1 }
+    return 99
+}
+
+function Sort-UpdateManifestAssets($assets) {
+    return ,@($assets | Sort-Object @{ Expression = { Get-UpdateAssetKindPriority $_.kind } }, fileName)
+}
+
 function Stop-ExistingServer($pidPath) {
     if (-not (Test-Path $pidPath -PathType Leaf)) {
         Write-Host "local update test server は起動していません: $pidPath" -ForegroundColor Yellow
@@ -140,7 +150,7 @@ $manifest = [PSCustomObject]@{
     packageFormatVersion = 1
     publishedAt = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
     minimumUpdaterVersion = "1"
-    assets = $manifestAssets
+    assets = (Sort-UpdateManifestAssets $manifestAssets)
 }
 
 $manifestPath = Join-Path $resolvedOutputDir "update.json"

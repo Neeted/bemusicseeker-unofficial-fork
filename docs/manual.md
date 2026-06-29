@@ -113,6 +113,8 @@ In LR2 linked mode, tables and indexes for BeMusicSeeker may be added to `song.d
 
 In LR2 linked mode, BeMusicSeeker writes owned BMS `song` / `folder` information to LR2 `song.db` and keeps LR2's own recursive scan at startup from occurring as much as possible. On first setup or after settings changes, missing existing rows are backfilled. Progress is shown in the startup progress display or status bar. After completion, differential updates are applied along with normal library updates such as install, delete, merge, and extension changes. bmson files are not written to LR2 `song` / `folder`; they are handled as BeMusicSeeker-side management information.
 
+If Everything successfully searches and finds 0 chart files (BMS / bmson), or if Everything is unavailable and ordinary filesystem traversal also finds 0 chart files, while the existing `song.db` contains songs, the app skips the `song.db` update to avoid writing the library back as empty. If this warning appears, check that the BMS directory settings point to the folders containing your songs and that those folders are searchable in Everything.
+
 While LR2 `song.db` synchronization is running, operations that simultaneously change owned charts and LR2 `song.db` may temporarily stop. If the status bar shows a failure or incomplete state, press `Retry`. If necessary, use `Resynchronize LR2 song.db Data` in the settings dialog to regenerate `song` / `folder` using owned charts and playlists as the source of truth.
 
 ### First Scan
@@ -136,6 +138,7 @@ In the `General` tab, configure language, operating mode, BMS directory, LR2 dir
 
 In both standalone mode and LR2 linked mode, register the root folders where charts should be searched as BMS directories. In LR2 linked mode, also configure the LR2 directory and DB / XML paths.
 BMS directories can be added with the `Add` button, or by dragging folders onto the list.
+BMS directories are not intended to be the same location or in a parent/child relationship with each other. If LR2 `config.xml` was edited manually and overlapping `<jukebox>` entries remain, the settings dialog prompts you to review them when saving.
 
 #### Standalone
 
@@ -211,11 +214,11 @@ Configure recording format, quality, sample rate, output filename format, encode
 
 Change custom folder output destinations, difficulty table list acquisition URI, MD5-URL mapping TSV acquisition URI, and URL1/URL2 completion settings.
 
-`Normal output destination` is where ordinary custom folders corresponding to playlists are output. In LR2-linked mode, it is treated as a BeMusicSeeker-managed output destination, and required LR2 BMS root entries are synchronized on save and repaired at startup.
-`Additional normal outputs` registers extra normal destinations that can be selected per playlist. The output folder name itself is used as the display name, and that name appears in the Playlist Summary `OUTPUT` column and playlist properties. In LR2-linked mode, each additional normal output is also synchronized as an LR2 BMS root and is automatically removed from the BMS roots when the output is removed. It cannot be the same as, a parent of, or a child of another custom-folder output destination. When an additional output is removed, playlists using it return to the normal output destination.
+`Normal output destination` is where ordinary custom folders corresponding to playlists are output. In LR2-linked mode, the required LR2 BMS root entries are synchronized on save and repaired at startup, and this destination is also included internally in chart scanning for compatibility with legacy setups. However, it is not intended as a chart install destination, so it is hidden from the General tab BMS directory list, the Install tab new install destination choices, and the library tree folder nodes. When choosing a new normal output destination, it cannot be the same as, a parent of, or a child of an LR2 BMS root that is already registered.
+`Additional normal outputs` registers extra normal destinations that can be selected per playlist. The output folder name itself is used as the display name, and that name appears in the Playlist Summary `OUTPUT` column and playlist properties. In LR2-linked mode, additional normal outputs are synchronized to LR2 `<jukebox>`, but BeMusicSeeker treats them as managed custom folder output destinations, not as chart search roots or install destinations. They cannot be the same as, a parent of, or a child of another custom-folder output destination. When an additional output is removed, playlists using it return to the normal output destination.
 `Root folder output destination` is where playlists whose properties have `Make root folder` enabled are output. These appear at the root of the song selection screen, so frequently used tables can be accessed quickly.
 
-When an output destination is the same as, a parent of, or a child of an LR2 BMS root that is already registered, a confirmation is shown when saving. If you continue, that location is treated as a BeMusicSeeker-managed custom folder output area rather than a normal chart search location. Existing files may be deleted during output updates or cleanup, so do not place important data there. This confirmation can be accepted when re-registering an output destination that was previously managed by BeMusicSeeker after setting up a newly downloaded copy of the app.
+When an additional normal output or root folder output destination is the same as, a parent of, or a child of an LR2 BMS root that is already registered, a confirmation is shown when saving. If you continue, that location is treated as a BeMusicSeeker-managed custom folder output area rather than a normal chart search location. Existing files may be deleted during output updates or cleanup, so do not place important data there. This confirmation can be accepted when re-registering an output destination that was previously managed by BeMusicSeeker after setting up a newly downloaded copy of the app.
 
 `Play Log FOLDER Display Presets` lets you create playlist sets shown in the drop-down menu at the top-right of the Play Log view. Press `Add` or `Edit` to open a separate window where you can enter a preset name and select multiple target playlists. These presets are used for Play Log filtering and for adjusting the FOLDER column display.
 
@@ -226,7 +229,7 @@ For URL completion, see [URL1/URL2 Completion](#url1url2-completion).
 ![Settings Install](img/設定_インストール.PNG)
 
 Configure the new install destination and the naming format used when creating new folders.
-In either operating mode, the install destination must be selected from inside a registered BMS directory. In LR2-linked mode, BeMusicSeeker-managed custom-folder output destinations are hidden from the BMS directory list and new install destination choices.
+In either operating mode, the install destination must be selected from inside a registered BMS directory. In LR2-linked mode, the normal output destination, additional normal outputs, and root folder output destinations are hidden from the BMS directory list and new install destination choices. When the normal output destination is changed, the previous normal output destination itself is removed from the LR2 BMS roots when settings are saved and is no longer an automatically added search root for the normal output destination. If charts were placed in the previous normal output destination, register them again as a regular BMS directory that does not overlap as a parent or child.
 
 ### Backup
 
@@ -378,12 +381,11 @@ Open / external pages:
 - `Open Mocha`: Opens the corresponding Mocha page.
 - `Open MinIR`: Opens the corresponding MinIR page.
 - `Open main URL` / `Open diff URL`: Opens the main URL / diff URL obtained from a playlist or URL completion. When multiple rows are selected, these actions are shown as `Import selected main URLs` / `Import selected diff URLs`; after confirmation, only URLs that can be downloaded as supported files are passed to install processing. URLs that need to open in a browser are skipped without opening them, and progress is shown in the status bar.
+- `Find source via external API`: In playlist detail, sends the selected rows' MD5 values to external APIs and looks for main-package source candidates. It does not use `URL1` / `URL2`, so rows with empty URLs can still be targets when an MD5 is available.
 - `Open in Explorer`: Opens the folder containing the chart file in Explorer.
 - `Open install destination`: Opens the folder recorded as `INSTL DST` or as the install destination.
 - `Open with association`: Opens the chart file using the OS file association.
 - `Open text file`: Opens document candidates such as readme files in the same folder from a submenu.
-- `Open video`: Opens video candidates associated with the chart, such as YouTube / Niconico. However, these candidates depend on LR2IR cache information from `http://www.ribbit.xyz`. Since that site is currently unavailable, **this feature effectively does not work.**
-- `Search downloads`: Opens download-source candidates gathered from playlist URLs, completed URLs, URLs in comments, and similar sources. This is not a general web search feature; it gathers URL candidates associated with playlist rows. LR2IR cache information and auxiliary retrieval from Ribbit depend on `http://www.ribbit.xyz`, so those candidates cannot be obtained when the site is unavailable. On the other hand, playlist URL1 / URL2, URLs in comments, MD5-URL mapping TSV data, and URL completion derived from Stella Uploader (Full) remain usable.
 - `Open in chart viewer`: Registers or displays the chart in the chart viewer.
 
 Score / ranking:
@@ -419,7 +421,7 @@ Screen-specific:
 - `Remove from list`: Removes the target from the new / pending / installed package display. Distinguish this from operations that delete actual files.
 - `Remove metadata parse failure record`: Shown on the parse errors screen. Deletes the saved parse failure record and returns the item to the set of files to be parsed again.
 
-In playlist detail for unowned charts, file operations and install operations are not shown. Only operations for playlist rows are shown, such as `Open BMS-IR`, `Open Mocha`, `Open MinIR`, `Open main URL`, `Open diff URL`, `Open video`, `Search downloads`, `Open in chart viewer`, `Update ranking data`, and `Remove entry`. `Open BMS-IR` is shown only for rows that have an MD5.
+In playlist detail for unowned charts, file operations and install operations are not shown. Only operations for playlist rows are shown, such as `Open BMS-IR`, `Open Mocha`, `Open MinIR`, `Open main URL`, `Open diff URL`, `Find source via external API`, `Open in chart viewer`, `Update ranking data`, and `Remove entry`. `Open BMS-IR` is shown only for rows that have an MD5.
 
 Operations that modify actual files are implemented with behavior close to Windows Explorer so that they are less likely to fail because of read-only attributes and similar conditions. However, deletion and overwrite operations may not be reversible, so check the target before executing them.
 
@@ -563,6 +565,10 @@ When multiple rows are selected, right-click and run `Import selected main URLs`
 
 Automatic install paths such as bulk import support direct links and some distribution/share pages where the download URL can be extracted, such as Google Drive, Dropbox, MediaFire, manbow `DownLoadAddress`, `venue.bmssearch.net`, and `bmssearch.net/bmses`. Google Drive folder shares, MEGA, AXFC, pages requiring login or CAPTCHA, and pages that require JavaScript interaction are not automatically resolved. The single-row context menu opens them in the browser; bulk import skips them.
 
+`Find source via external API` in the context menu sends the selected rows' MD5 values to external APIs and looks for main-package source candidates. Owned and unowned rows are both eligible as long as an MD5 can be resolved. BeMusicSeeker queries the supported APIs in the priority order defined by the app, and passes only direct-link-like URLs it receives to the existing download/install flow. It does not use the `URL1` / `URL2` values.
+
+This feature shows a confirmation every time before it starts. The confirmation warns that sources returned by external APIs may not be official distribution sources, redistribution may not be permitted, you should prefer official distribution sources when possible, and the selected MD5 values are sent to external APIs. Downloaded files and temporary extraction files are placed in the Windows temporary area, usually on the C drive, and download or extraction may take time. Because the downloaded item is a main package that includes charts, merge it from the pending screen into your existing owned destination when appropriate.
+
 Right-clicking the playlist body in the playlist tree lets you run the following operations:
 
 - `Reload`: Re-fetches the target playlist. A single-playlist reload targets the selected playlist regardless of its external sync flag.
@@ -615,7 +621,7 @@ In LR2 linked mode, playlists can be output as LR2 custom folders.
 Specify the normal output destination, additional normal outputs, and root folder output destination on the `Playlist` tab in the settings dialog.
 From playlist `Properties`, configure `OUTPUT`, the output name, `Make root folder`, and the folder types to output. `OUTPUT` selects the normal output destination or an additional normal output from settings. While `Make root folder` is enabled, the saved `OUTPUT` value is kept, but the actual output destination is the root folder output destination. To apply `OUTPUT`, folder output types, or `Make root folder` to multiple playlists, use `Bulk edit...` from the playlist summary.
 
-Do not place important data in the output destinations, and specify different locations for the normal output destination, additional normal outputs, and root folder output destination. During output, `.lr2folder` files under each playlist output folder are treated as BeMusicSeeker-managed files and stale ones are deleted. When `OUTPUT` or the root folder setting is changed, the previous playlist output folder is treated as a managed area and deleted as a whole. Other folders directly under the normal/root output destination are not touched, but manually managed LR2 custom folders or other files placed inside a playlist output folder will be deleted. It is recommended to prepare an empty folder dedicated to BeMusicSeeker.
+Do not place important data in the output destinations, and specify different locations for the normal output destination, additional normal outputs, and root folder output destination. The normal output destination is also included in chart scanning, but during output, `.lr2folder` files under each playlist output folder are treated as BeMusicSeeker-managed files and stale ones are deleted. When `OUTPUT` or the root folder setting is changed, the previous playlist output folder is treated as a managed area and deleted as a whole. Other folders directly under the normal/root output destination are not touched, but manually managed LR2 custom folders or other files placed inside a playlist output folder will be deleted. It is recommended to prepare an empty folder dedicated to BeMusicSeeker.
 
 Main folder types that can be output:
 
@@ -918,6 +924,7 @@ When log files grow, older files are rotated under `log/archive/`. For bug repor
 - First-time construction, an empty DB, or large changes to BMS root folders take longer than usual.
 - Looking at `everything_scan`, `song_tbl_file_check`, `playlist_*`, and similar entries in `log/install-performance.log` can show where time is being spent.
 - If Everything integration fails and BeMusicSeeker switches to ordinary file enumeration, a warning dialog is shown. If it is slower than expected, check `everything_scan`, `nativeBridgeUsed`, `fallback`, `managed`, and similar records in `log/install-performance.log`.
+- If Everything successfully searches and finds 0 chart files (BMS / bmson), or if Everything is unavailable and ordinary filesystem enumeration also finds 0 chart files, while the existing `song.db` still contains songs, `song.db` update is skipped and a warning is shown. Check that BMS directory settings point to the folders containing your songs and that those folders can be searched in Everything.
 
 ### Playlist `STATUS` Fails
 

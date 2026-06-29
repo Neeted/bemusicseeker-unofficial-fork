@@ -62,13 +62,34 @@ function Assert-GhAuthenticated {
     Write-Host "  gh 認証 OK" -ForegroundColor Green
 }
 
+function Get-ReleaseAssetNamePriority($name, $tag) {
+    if ($name -eq "bemusicseeker-unofficial-fork-$tag.zip") { return 0 }
+    if ($name -eq "bemusicseeker-unofficial-fork-$tag-with-metadata.zip") { return 1 }
+    return 99
+}
+
+function Get-UpdateAssetKindPriority($kind) {
+    if ($kind -eq "app") { return 0 }
+    if ($kind -eq "app-with-metadata") { return 1 }
+    return 99
+}
+
+function Sort-UpdateManifestAssets($assets) {
+    return ,@($assets | Sort-Object @{ Expression = { Get-UpdateAssetKindPriority $_.kind } }, fileName)
+}
+
 function Get-ZipEntryNames($asset) {
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     $archive = [System.IO.Compression.ZipFile]::OpenRead($asset.FullName)
     try {
         $entries = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
         foreach ($entry in $archive.Entries) {
+            $isDirectoryEntry = $entry.FullName.EndsWith("/", [System.StringComparison]::Ordinal) -or
+                $entry.FullName.EndsWith("\", [System.StringComparison]::Ordinal)
             $normalized = $entry.FullName.Replace('\', '/').Trim('/')
+            if ($isDirectoryEntry) {
+                $normalized = "$normalized/"
+            }
             if (-not [string]::IsNullOrWhiteSpace($normalized)) {
                 [void]$entries.Add($normalized)
             }
@@ -115,12 +136,23 @@ function Assert-ReleasePackageLayout($asset) {
         "libs/x86",
         "libs/x64/OggVorbis.NET64.dll",
         "SevenZipExtractor.dll",
-        "OggVorbis.NET64.dll"
+        "OggVorbis.NET64.dll",
+        "imported_metadata",
+        "chart-info-metadata.db"
     )
     foreach ($relativePath in $forbiddenPaths) {
         if (Test-ZipEntryOrDescendantExists $entryNames $relativePath) {
-            throw "release asset に旧 DLL 配置が残っています: $($asset.Name): $relativePath"
+            throw "release asset に禁止された配置が残っています: $($asset.Name): $relativePath"
         }
+    }
+
+    $isMetadataPackage = $asset.Name -like "*-with-metadata.zip"
+    $hasMetadataArchive = $entryNames.Contains("chart-info-metadata.7z")
+    if ($isMetadataPackage -and -not $hasMetadataArchive) {
+        throw "metadata 同梱 release asset に chart-info-metadata.7z がありません: $($asset.Name)"
+    }
+    if (-not $isMetadataPackage -and $hasMetadataArchive) {
+        throw "通常版 release asset に chart-info-metadata.7z が含まれています: $($asset.Name)"
     }
 }
 
@@ -147,7 +179,8 @@ function Get-ReleaseContext {
     $zipPattern = "bemusicseeker-unofficial-fork-${tag}*.zip"
     $releaseAssets = @()
     if (Test-Path "dist" -PathType Container) {
-        $releaseAssets = @(Get-ChildItem -Path "dist" -Filter $zipPattern -File | Sort-Object Name)
+        $releaseAssets = @(Get-ChildItem -Path "dist" -Filter $zipPattern -File |
+            Sort-Object @{ Expression = { Get-ReleaseAssetNamePriority $_.Name $tag } }, Name)
     }
     if ($RequireAssets -and $releaseAssets.Count -eq 0) {
         throw "リリース用パッケージが見つかりません: dist\$zipPattern`n事前に publish.ps1 を実行してください。"
@@ -219,7 +252,7 @@ function Get-ReleaseAssetMetadata($asset, $context) {
 }
 
 function New-UpdateManifest($context) {
-    $assetMetadata = @($context.ReleaseAssets | ForEach-Object { Get-ReleaseAssetMetadata $_ $context })
+    $assetMetadata = Sort-UpdateManifestAssets @($context.ReleaseAssets | ForEach-Object { Get-ReleaseAssetMetadata $_ $context })
     if (-not ($assetMetadata | Where-Object { $_.kind -eq "app" })) {
         throw "通常版パッケージが見つかりません。update.json には本体のみ asset が必要です。"
     }
