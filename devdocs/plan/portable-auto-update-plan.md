@@ -32,7 +32,7 @@ BeMusicSeeker をインストーラ形式へ移行せず、現在の zip 配布�
 
 - 起動時更新通知は `MainWindow.CheckForUpdatesAsync()` が `UpdateCheckService` 経由で GitHub raw の `update.json` を取得し、`AssemblyInformationalVersion` と比較する。
 - `scripts/publish.ps1` は `AssemblyInformationalVersion` から zip 名を作り、`BeMusicSeeker.exe`、`BeMusicSeeker.exe.config`、`libs/`、`native/`、`lang/`、docs などを staging して zip 化する。
-- `scripts/release.ps1` は公開リポジトリ側の `version.txt` から tag を作り、`dist/bemusicseeker-unofficial-fork-vX.X.X.X*.zip` を GitHub Release asset に添付する。
+- `scripts/release.ps1` は開発リポジトリの `AssemblyInformationalVersion` から tag を作り、公開リポジトリ側の `dist/bemusicseeker-unofficial-fork-vX.X.X.X*.zip` を GitHub Release asset に添付する。
 - 設定保存は独自 `PortableSettingsProvider` で、保存先は exe と同階層の `config/user.config`。
 - スタンドアロン DB は exe と同階層の `data/song.db`。
 - `config/` と `data/` はリリース zip に含めない。
@@ -115,7 +115,7 @@ validator 候補:
 
 自動アップデートでは、manifest 公開の瞬間がユーザーに更新可能と見える瞬間になる。そのため、`update.json` は release asset が揃ってから最後に公開する。
 
-`version.txt` は `update.json` 導入以前のクライアント向け更新シグナルとして公開リポジトリに残すため、draft release の確認中に新バージョンの `version.txt` を public default branch へ push しない。公開ユーザーへ更新を見せる操作は、GitHub Release を publish した後に `update.json` と `version.txt` を raw GitHub へ反映する段階へ集約する。
+`version.txt` は `update.json` 導入以前のクライアント向け更新シグナルとして公開リポジトリに残すため、draft release の確認中に新バージョンの `version.txt` を public default branch へ push しない。公開ユーザーへ更新を見せる操作は、GitHub Release draft を publish して release asset を公開し、その後に release commit を public default branch へ push して raw GitHub の `update.json` と `version.txt` を更新する段階へ集約する。
 
 ### Tag And Commit Boundary
 
@@ -123,13 +123,14 @@ draft release 用の tag は、新バージョンの公開ファイルを含む 
 
 方針:
 
-1. 公開リポジトリの作業ツリーへ package、docs、`version.txt`、candidate `update.json` を同期する。
+1. 公開リポジトリの作業ツリーへ package、docs、生成済み `version.txt`、candidate `update.json` を同期する。
 2. ローカルで `Release vX.X.X.X` commit を作る。
 3. ローカルで `vX.X.X.X` tag を作る。
 4. tag だけを push し、draft release をその tag から作る。
 5. draft 確認中は default branch を push しないため、raw GitHub の `version.txt` / `update.json` は旧版のまま残る。
-6. draft release を publish してよいと判断したら、同じ release commit を default branch へ push する。
-7. raw GitHub に新しい `update.json` / `version.txt` が出た時点で、ユーザーへ更新通知が出る。
+6. release を公開してよいと判断したら、draft release を publish する。
+7. 同じ release commit を default branch へ push する。
+8. raw GitHub に新しい `update.json` / `version.txt` が出ることを確認する。
 
 この手順なら draft release の asset URL は先に確定し、かつ旧クライアントが draft 確認中に `version.txt` へ反応しない。
 
@@ -137,7 +138,7 @@ draft release 用の tag は、新バージョンの公開ファイルを含む 
 
 推奨手順:
 
-1. `AssemblyInformationalVersion` と `version.txt` を新バージョンへ更新する。
+1. `AssemblyInformationalVersion` を新バージョンへ更新する。
 2. `scripts/publish.ps1 -IncludeMetadata` で通常版と metadata 同梱版 zip を作る。
 3. 各 zip の SHA-256 とサイズを計算する。
 4. `release notes/vX.X.X.X リリースノート.md` を release body として GitHub Release draft を作成し、両 zip を asset として添付する。
@@ -184,16 +185,18 @@ gh release edit $tag --title $tag --notes-file $releaseNotesPath
 
 - package 作成後に zip の SHA-256 と size を返す、または sidecar manifest 用 object を生成する。
 - `-IncludeMetadata` 指定時は通常版と metadata 同梱版の両方を manifest 候補に含める。
-- `update.json` は release が publish されてから公開する必要があるため、publish 単独では candidate json を `dist/update-vX.X.X.X.json` に出す程度に留める。
+- `update.json` は GitHub Release の asset が公開され、公開判断後に raw GitHub へ出す必要があるため、publish 単独では candidate json を `dist/update-vX.X.X.X.json` に出す程度に留める。
+- 旧クライアント向けの公開用 `version.txt` は、開発リポジトリの `version.txt` をコピーせず `AssemblyInformationalVersion` から生成する。
 - `publish.ps1` は公開リポジトリ作業ツリーへファイルを同期してよいが、draft 確認中に `version.txt` / `update.json` が public raw へ出ないよう、commit / push は release script の明示段階で行う。
 
 `scripts/release.ps1`:
 
 - `-CreateDraft` 相当の段階では、GitHub Release draft を作成または更新し、asset を `--clobber` upload し、release notes を `--notes-file` で反映する。
 - draft 作成段階では release commit と tag を作り、tag だけ push する。public default branch は push しない。
-- `-PublishDraft` 相当の段階では、draft release を publish し、その後に release commit を public default branch へ push する。
+- `-PublishDraft` 相当の段階では、draft release を publish して release asset を公開した後、release commit を public default branch へ push して raw `update.json` / `version.txt` を公開する。
 - 既存 release に `--clobber` で asset を再アップロードした場合も、candidate manifest を再生成する。
 - 途中で失敗した場合、古い public `update.json` を更新しない。
+- version / tag は開発リポジトリの `AssemblyInformationalVersion` から取得する。
 - 既定の release notes path は `$devRoot\release notes\v$version リリースノート.md` とする。
 - `gh release create` は `--verify-tag --draft --notes-file` を使い、tag 自動作成に任せない。
 
@@ -208,10 +211,11 @@ gh release edit $tag --title $tag --notes-file $releaseNotesPath
 
 `-PublishDraft` の precondition:
 
-- GitHub Release が draft 状態で存在する。
-- remote tag が release commit を指す。
-- candidate `update.json` の hash / size が現在の release asset と一致する。
-- publish 後に同じ release commit を public default branch へ push する。
+- GitHub Release が存在する。
+- remote tag、local tag、現在の HEAD が同じ release commit を指す。
+- candidate `update.json` の asset name / size が現在の release asset と一致する。
+- GitHub Release が draft 状態なら publish する。既に公開済みの場合は raw 反映の再試行として扱う。
+- 同じ release commit を public default branch へ push する。
 - push 後に raw GitHub の `update.json` / `version.txt` が新バージョンを返すことを確認する。
 
 draft 作成と公開シグナル反映を分けるため、release script は次のような入口に整理する。
@@ -455,8 +459,8 @@ rollback は backup を元の本体ディレクトリへ戻す。rollback 自体
   - [ ] `publish.ps1` が `BeMusicSeeker.Updater.exe` を release zip root へ同梱する。
   - [ ] `release.ps1 -CreateDraft` が release commit / tag / draft release / release notes / assets を処理できる。
   - [ ] `release.ps1 -CreateDraft` が branch push を行わず、tag だけ push する。
-  - [ ] `release.ps1 -PublishDraft` が draft publish と public default branch push を処理できる。
-  - [ ] `release.ps1 -PublishDraft` が draft 状態と remote tag commit を検証する。
+  - [ ] `release.ps1 -PublishDraft` が draft publish、public default branch push、raw 反映確認を処理できる。
+  - [ ] `release.ps1 -PublishDraft` が remote tag commit、現在の HEAD と tag の一致、release asset name / size を検証する。
   - [ ] draft 確認中に public raw の `update.json` / `version.txt` が進まないことを確認済み。
 - [ ] Unit 2: Update Check Read Model
   - [ ] `UpdateManifest` / `UpdateAsset` model がある。
@@ -522,8 +526,9 @@ rollback は backup を元の本体ディレクトリへ戻す。rollback 自体
 - `scripts/release.ps1 -CreateDraft` が release notes file を本文にした GitHub Release draft を作成 / 更新できるようにする。
 - `scripts/release.ps1 -CreateDraft` が通常版 / metadata 同梱版 asset を draft release へ添付できるようにする。
 - `scripts/release.ps1 -CreateDraft` は release commit と tag を作り、tag だけ push する。
-- `scripts/release.ps1 -PublishDraft` が draft publish 後に release commit を public default branch へ push し、`update.json` と `version.txt` を public raw へ反映できるようにする。
-- `update.json` は release asset が公開されてから raw GitHub に出す。
+- `scripts/release.ps1 -PublishDraft` が draft release を publish し、release commit を public default branch へ push して `update.json` と `version.txt` を public raw へ反映できるようにする。
+- `version.txt` は `AssemblyInformationalVersion` から生成される旧クライアント向け公開物として扱い、開発リポジトリ側の正本にはしない。
+- `update.json` は GitHub Release asset が公開され、公開判断後に raw GitHub に出す。
 - 現行アプリは `version.txt` fallback を持たず、更新チェックは `update.json` 専用にする。
 
 検証:
@@ -696,7 +701,7 @@ scripts\Test-PortableUpdate.ps1
 - ダウンロード済み zip は更新成功後に削除する。
 - backup は 1 世代だけ保持する。
 - 更新チェックは `update.json` 専用とし、`update.json` が壊れている場合は更新チェック失敗として扱う。
-- draft release 作成時は release commit に tag を打ち、tag だけ push する。public default branch は draft publish 後に push する。
+- draft release 作成時は release commit に tag を打ち、tag だけ push する。公開時は draft release を publish してから public default branch を push し、raw `update.json` / `version.txt` を確認する。
 - updater は `update_work/current/` へコピーしたものを実行する。
 - local update verification 用 override は command-line switch `--update-manifest-url` のみにする。
 - `CanApplyUpdateNow` は update dialog view model 側の derived state とし、`!IsStartupProgressActive` を基本条件にする。

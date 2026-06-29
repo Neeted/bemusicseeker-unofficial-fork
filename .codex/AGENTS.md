@@ -111,15 +111,15 @@ dotnet roslynator analyze BeMusicSeeker.sln --properties Configuration=Release -
 バージョン変更依頼を受けた場合、必ず以下を更新・確認すること：
 
 1. `Properties\AssemblyInfo.cs`
-   - `AssemblyInformationalVersion`
+   - `AssemblyInformationalVersion`。リリースパッケージ名、`update.json`、公開用 `version.txt` の正本として扱う
 2. `BeMusicSeeker\Views\SettingDialog.xaml`
    - Update_history セクションの更新履歴追記
    - リリース概要として読める短い日本語文をベタ書きする。多言語キーや `lang\*.json` はユーザーから明示依頼がない限り増やさない
-3. `version.txt`
-   - 新しいバージョン文字列に書き換え
-4. `release notes\vX.X.X.X リリースノート.md`
+3. `release notes\vX.X.X.X リリースノート.md`
    - 対象バージョンのリリースノートが存在し、GitHub Release 本文として使える状態まで整備済みであることを確認する
    - `scripts\release.ps1` はこのファイルを release body として参照するため、少なくとも draft 作成前に存在確認を行う
+
+`version.txt` は手動更新しない。旧クライアント向けに公開リポジトリへ置く場合も、`scripts\publish.ps1` / `scripts\release.ps1` が `AssemblyInformationalVersion` から生成する。
 
 ---
 

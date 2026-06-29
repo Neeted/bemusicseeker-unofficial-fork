@@ -115,11 +115,12 @@ updater は `--pid` の終了を最大 60 秒待つ。
 - `-IncludeMetadata` 指定時に `chart-info-metadata.7z` 同梱版 zip を作成
 - `update-managed-files.txt` と `dist/update-v{version}.json` を生成
 - `update.json` の assets は通常版、metadata 同梱版の順に並べる
+- 旧クライアント向けの公開用 `version.txt` を `AssemblyInformationalVersion` から生成する
 - 公開リポジトリへ同期する際、同一 version の古い zip を削除して stale asset 混入を避ける
 
 `scripts/release.ps1 -CreateDraft` は以下を行う。
 
-- 公開リポジトリの `version.txt` と `dist/` zip から `update.json` を生成
+- 開発リポジトリの `AssemblyInformationalVersion` と公開リポジトリの `dist/` zip から `update.json` を生成
 - release commit と tag を作成
 - tag のみ push
 - release notes の `release notes/v{version} リリースノート.md` を使って GitHub Release draft を作成または更新
@@ -128,12 +129,14 @@ updater は `--pid` の終了を最大 60 秒待つ。
 `scripts/release.ps1 -PublishDraft` は以下を行う。
 
 - `main` ブランチ上で実行されていることを確認
-- remote tag と local tag の commit 一致を確認
+- GitHub Release が存在することを確認
+- remote tag、local tag、現在の HEAD が同じ release commit を指すことを確認
 - GitHub Release asset の名前と size が `update.json` 作成元の local zip と一致することを確認
+- GitHub Release が draft 状態なら publish する。既に公開済みの場合は raw 反映の再試行として扱う
 - release commit を `origin/main` へ push
 - remote `main` が release commit を指すことを確認
-- draft Release を publish
+- raw GitHub の `update.json.version` / `releaseTag` と `version.txt` が新バージョンを返すことを確認
 
-この順序により、Release 公開後に raw GitHub の `update.json` が未公開になる状態を避ける。
+この順序により、raw GitHub の `update.json` が未公開の Release asset を指す状態を避ける。
 
 既存 draft を更新する場合、今回の local zip に存在しない余剰 Release asset は削除してから asset を再アップロードする。これにより、古い metadata 同梱 zip などが draft に残ったまま publish されることを避ける。

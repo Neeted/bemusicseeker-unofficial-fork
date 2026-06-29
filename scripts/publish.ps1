@@ -385,11 +385,15 @@ function Sync-PublicRepo($releasePackagePaths) {
     Mirror-Directory "lang"
 
     # 単体ファイルのコピー
-    $files = @("README.md", "README.ja.md", "LICENSE", "ThirdPartyNotices.txt", "ThirdPartyNotices.ja.txt", "version.txt")
+    $files = @("README.md", "README.ja.md", "LICENSE", "ThirdPartyNotices.txt", "ThirdPartyNotices.ja.txt")
     foreach ($f in $files) {
         Copy-Item (Join-Path $devRoot $f) (Join-Path $pubRoot $f) -Force
         Write-Host "  コピー: $f"
     }
+    $publicVersionPath = Join-Path $pubRoot "version.txt"
+    $utf8NoBom = New-Object System.Text.UTF8Encoding $false
+    [System.IO.File]::WriteAllText($publicVersionPath, $version, $utf8NoBom)
+    Write-Host "  生成: version.txt"
 
     Write-Host ""
     Write-Host "=== 同期完了 ===" -ForegroundColor Green
