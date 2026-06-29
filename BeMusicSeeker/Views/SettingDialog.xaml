@@ -705,6 +705,23 @@
                       </FrameworkContentElement.Resources>
                       <List>
                         <ListItem>
+                          <Paragraph FontWeight="Bold">2.1.4.0:</Paragraph>
+                          <List MarkerStyle="Box">
+                            <ListItem>
+                              <Paragraph>プレイリスト詳細の右クリックメニューを整理し、利用できなくなった動画検索系メニューを削除しつつ、外部 API から入手先を探して導入キューへ渡す機能を追加しました。</Paragraph>
+                            </ListItem>
+                            <ListItem>
+                              <Paragraph>LR2 連携モードのカスタムフォルダ通常出力先を曲検索対象として扱えるようにし、0 件スキャン時に既存の song.db を誤って空更新しないための警告と保護を強化しました。</Paragraph>
+                            </ListItem>
+                            <ListItem>
+                              <Paragraph>管理者権限起動時のドラッグ＆ドロップ警告、URL 一括取り込み時の容量注意、COMMENT / MEMO の長文ツールチップ折り返しなど、プレイリスト操作時の分かりやすさを改善しました。</Paragraph>
+                            </ListItem>
+                            <ListItem>
+                              <Paragraph>終了時に DB 書き込みやプレイリスト、プレイ履歴のバックグラウンド処理が落ち着くまで待機するようにし、終了直前の不要な SQLite エラー表示を抑制しました。</Paragraph>
+                            </ListItem>
+                          </List>
+                        </ListItem>
+                        <ListItem>
                           <Paragraph FontWeight="Bold">2.1.3.0:</Paragraph>
                           <List MarkerStyle="Box">
                             <ListItem>
