@@ -325,6 +325,9 @@ public class Resources
 
     public static string Playlist_url_download_progress_label_format => ResourceManager.GetString("Playlist_url_download_progress_label_format", resourceCulture);
 
+
+    public static string Playlist_external_package_lookup_progress_label_format => ResourceManager.GetString("Playlist_external_package_lookup_progress_label_format", resourceCulture);
+
     public static string Pending_estimate_queue_startup_display_name => ResourceManager.GetString("Pending_estimate_queue_startup_display_name", resourceCulture);
 
     public static string Playlist_sync_progress_label_format => ResourceManager.GetString("Playlist_sync_progress_label_format", resourceCulture);
@@ -807,6 +810,9 @@ public class Resources
     public static string Import_Selected_Url_diff => ResourceManager.GetString("Import_Selected_Url_diff", resourceCulture);
 
     public static string Open_Url_diff => ResourceManager.GetString("Open_Url_diff", resourceCulture);
+
+
+    public static string Find_external_package_from_playlist_md5 => ResourceManager.GetString("Find_external_package_from_playlist_md5", resourceCulture);
 
     public static string Operation_Mode => ResourceManager.GetString("Operation_Mode", resourceCulture);
 
@@ -1470,6 +1476,21 @@ public class Resources
 
 
     public static string Warn_DropInstallBlockedByPlaylistUrlDownload => ResourceManager.GetString("Warn_DropInstallBlockedByPlaylistUrlDownload", resourceCulture);
+
+
+    public static string Confirm_SelectedPlaylistExternalPackageLookup => ResourceManager.GetString("Confirm_SelectedPlaylistExternalPackageLookup", resourceCulture);
+
+
+    public static string Warn_SelectedPlaylistExternalPackageLookup => ResourceManager.GetString("Warn_SelectedPlaylistExternalPackageLookup", resourceCulture);
+
+
+    public static string Warn_SelectedPlaylistExternalPackageLookupNoTargets => ResourceManager.GetString("Warn_SelectedPlaylistExternalPackageLookupNoTargets", resourceCulture);
+
+
+    public static string Warn_SelectedPlaylistExternalPackageLookupBlockedByInstallQueue => ResourceManager.GetString("Warn_SelectedPlaylistExternalPackageLookupBlockedByInstallQueue", resourceCulture);
+
+
+    public static string Msg_SelectedPlaylistExternalPackageLookupResult => ResourceManager.GetString("Msg_SelectedPlaylistExternalPackageLookupResult", resourceCulture);
 
 
     public static string Warn_ElevatedProcessDragDropLimited => ResourceManager.GetString("Warn_ElevatedProcessDragDropLimited", resourceCulture);

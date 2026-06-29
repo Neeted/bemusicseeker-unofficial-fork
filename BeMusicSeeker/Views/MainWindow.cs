@@ -62,6 +62,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private static readonly UpdateDownloadService updateDownloadService = new();
 
+    private readonly PlaylistExternalPackageLookupService playlistExternalPackageLookupService = PlaylistExternalPackageLookupService.CreateDefault();
+
     private const long DownloadAndInstallSizeLimitBytes = 536870912L;
 
     private const int SelectedPlaylistUrlDownloadLargeSelectionWarningThreshold = 50;
@@ -275,6 +277,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     private int playlistUrlBulkDownloadCompletedCount;
 
     private string playlistUrlBulkDownloadCurrentDisplayName = string.Empty;
+
+    private string playlistUrlBulkDownloadLabelFormat = string.Empty;
 
     private TreeSelectionSection _currentTreeSelectionSection = TreeSelectionSection.None;
 
@@ -5996,6 +6000,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         initContextMenuTasks();
         MenuItem menuItem = null;
         MenuItem menuItem2 = null;
+        MenuItem menuItemFindExternalPackage = null;
         MenuItem menuItem3 = null;
         MenuItem menuItem4 = null;
         MenuItem menuItem7 = null;
@@ -6039,6 +6044,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                     break;
                 case "tableContextMenuItemOpenURLdiff":
                     menuItem2 = item as MenuItem;
+                    break;
+                case "tableContextMenuItemFindExternalPackage":
+                    menuItemFindExternalPackage = item as MenuItem;
                     break;
                 case "tableContextMenuItemOpenExplorer":
                     menuItem3 = item as MenuItem;
@@ -6142,6 +6150,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                     ? BuildPlaylistUrlTargets(effectivePlaylistUrlRows, isDiffUrl: true).Count > 0
                     : rowUrlDiff != null && rowUrlDiff.IsAbsoluteUri);
             }
+            if (menuItemFindExternalPackage != null)
+            {
+                menuItemFindExternalPackage.Visibility = Visibility.Visible;
+                menuItemFindExternalPackage.IsEnabled = CanStartPlaylistExternalPackageLookup(effectivePlaylistUrlRows);
+            }
         }
         else
         {
@@ -6152,6 +6165,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             if (menuItem2 != null)
             {
                 menuItem2.Visibility = Visibility.Collapsed;
+            }
+            if (menuItemFindExternalPackage != null)
+            {
+                menuItemFindExternalPackage.Visibility = Visibility.Collapsed;
             }
         }
         if (menuItem3 != null && menuItem4 != null && menuItemOpenDocument != null && changeSubmenuOpenDocumentTask == null)
@@ -6550,6 +6567,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                         ? BuildPlaylistUrlTargets(effectivePlaylistUrlRows, isDiffUrl: true).Count > 0
                         : rowUrlDiff != null && rowUrlDiff.IsAbsoluteUri);
                     break;
+                case "tableContextMenuItemFindExternalPackage":
+                    item.Visibility = Visibility.Visible;
+                    item.IsEnabled = CanStartPlaylistExternalPackageLookup(effectivePlaylistUrlRows);
+                    break;
                 case "tableContextMenuItemDeleteEntry":
                     item.Visibility = Visibility.Visible;
                     item.IsEnabled = entry != null;
@@ -6909,6 +6930,25 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         await OpenPlaylistUrlFromContextMenuAsync(e.Source, isDiffUrl: true, "datagrid_context_menu_open_url_diff").Logging("tableContextMenuItemOpenURLdiffClick");
     }
 
+    private async void tableContextMenuItemFindExternalPackageClick(object sender, RoutedEventArgs e)
+    {
+        e.Handled = true;
+        await FindExternalPackageFromContextMenuAsync(e.Source).Logging("tableContextMenuItemFindExternalPackageClick");
+    }
+
+    private async Task FindExternalPackageFromContextMenuAsync(object source)
+    {
+        if (ShouldBlockStartupUiInteraction("datagrid_context_menu_find_external_package"))
+        {
+            return;
+        }
+        if (!TryGetContextMenuRow(source, out object contextRow))
+        {
+            return;
+        }
+        await DownloadSelectedPlaylistExternalPackagesAsync(GetEffectiveContextMenuRows(contextRow));
+    }
+
     private async Task OpenPlaylistUrlFromContextMenuAsync(object source, bool isDiffUrl, string blockReason)
     {
         if (ShouldBlockStartupUiInteraction(blockReason))
@@ -6977,6 +7017,213 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         return targets;
     }
 
+    internal static List<string> BuildPlaylistExternalPackageMd5TargetsForTest(IEnumerable<object> rows)
+    {
+        return BuildPlaylistExternalPackageMd5Targets(rows);
+    }
+
+    private static List<string> BuildPlaylistExternalPackageMd5Targets(IEnumerable<object> rows)
+    {
+        var targets = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (object row in rows ?? [])
+        {
+            string md5 = GridRowResolver.GetPlaylistExternalPackageLookupMd5(row);
+            if (string.IsNullOrWhiteSpace(md5))
+            {
+                continue;
+            }
+            if (seen.Add(md5))
+            {
+                targets.Add(md5);
+            }
+        }
+        return targets;
+    }
+
+    private bool CanStartPlaylistExternalPackageLookup(IEnumerable<object> rows)
+    {
+        return !playlistUrlBulkDownloadRunning
+            && base.DataContext is not MainWindowViewModel { IsDropInstallQueueActive: true }
+            && BuildPlaylistExternalPackageMd5Targets(rows).Count > 0;
+    }
+
+    private async Task DownloadSelectedPlaylistExternalPackagesAsync(IEnumerable<object> rows)
+    {
+        if (playlistUrlBulkDownloadRunning)
+        {
+            return;
+        }
+        List<string> targets = BuildPlaylistExternalPackageMd5Targets(rows);
+        if (targets.Count == 0)
+        {
+            UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Warn_SelectedPlaylistExternalPackageLookupNoTargets, BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
+            return;
+        }
+        if (base.DataContext is MainWindowViewModel { IsDropInstallQueueActive: true })
+        {
+            UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Warn_SelectedPlaylistExternalPackageLookupBlockedByInstallQueue, BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
+            return;
+        }
+        string confirmationMessage = string.Format(
+            BeMusicSeeker.Properties.Resources.Confirm_SelectedPlaylistExternalPackageLookup,
+            targets.Count);
+        if (UiDialogRoute.ShowMessageBox(
+            Window.GetWindow(this),
+            confirmationMessage,
+            BeMusicSeeker.Properties.Resources.Confirm,
+            MessageBoxButton.OKCancel,
+            MessageBoxImage.Question,
+            MessageBoxResult.Cancel,
+            warningMessageBoxText: BeMusicSeeker.Properties.Resources.Warn_SelectedPlaylistExternalPackageLookup) == MessageBoxResult.Cancel)
+        {
+            return;
+        }
+
+        var downloadedPaths = new List<string>();
+        var downloadedKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var failedDownloadKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        int noCandidateCount = 0;
+        int duplicateDownloadedUrlCount = 0;
+        int duplicateFailedUrlCount = 0;
+        int blockedBySizeLimitCount = 0;
+        int unsupportedCount = 0;
+        int failedCount = 0;
+        int canceledCount = 0;
+        var viewModel = base.DataContext as MainWindowViewModel;
+        var cancellation = new CancellationTokenSource();
+        playlistUrlBulkDownloadRunning = true;
+        playlistUrlBulkDownloadCancellation = cancellation;
+        try
+        {
+            for (int i = 0; i < targets.Count; i++)
+            {
+                if (cancellation.IsCancellationRequested)
+                {
+                    canceledCount = targets.Count - i;
+                    break;
+                }
+                string targetMd5 = targets[i];
+                UpdatePlaylistUrlBulkDownloadStatus(
+                    viewModel,
+                    true,
+                    targets.Count,
+                    i,
+                    targetMd5,
+                    canCancel: true,
+                    labelFormat: BeMusicSeeker.Properties.Resources.Playlist_external_package_lookup_progress_label_format);
+                PlaylistExternalPackageWorkflowResult result;
+                try
+                {
+                    result = await playlistExternalPackageLookupService.DownloadFirstAvailablePackageAsync(
+                        targetMd5,
+                        (lookupResult, token) => DownloadExternalPackageLookupCandidateAsync(lookupResult, downloadedKeys, token),
+                        downloadedKeys,
+                        failedDownloadKeys,
+                        CreatePlaylistUrlDownloadKey,
+                        LogPlaylistUrlDownload,
+                        cancellation.Token);
+                }
+                catch (OperationCanceledException)
+                {
+                    canceledCount = targets.Count - i;
+                    break;
+                }
+                if (cancellation.IsCancellationRequested)
+                {
+                    canceledCount = targets.Count - i;
+                    break;
+                }
+                switch (result.Kind)
+                {
+                    case PlaylistExternalPackageWorkflowResultKind.Downloaded when !string.IsNullOrWhiteSpace(result.FilePath) && LongPathFileSystem.FileExists(result.FilePath):
+                        downloadedPaths.Add(result.FilePath);
+                        break;
+                    case PlaylistExternalPackageWorkflowResultKind.NoCandidate:
+                        noCandidateCount++;
+                        break;
+                    case PlaylistExternalPackageWorkflowResultKind.DuplicateDownloadedUrl:
+                        duplicateDownloadedUrlCount++;
+                        break;
+                    case PlaylistExternalPackageWorkflowResultKind.DuplicateFailedUrl:
+                        duplicateFailedUrlCount++;
+                        break;
+                    case PlaylistExternalPackageWorkflowResultKind.BlockedBySizeLimit:
+                        blockedBySizeLimitCount++;
+                        break;
+                    case PlaylistExternalPackageWorkflowResultKind.Unsupported:
+                        unsupportedCount++;
+                        break;
+                    default:
+                        failedCount++;
+                        break;
+                }
+                UpdatePlaylistUrlBulkDownloadStatus(
+                    viewModel,
+                    true,
+                    targets.Count,
+                    i + 1,
+                    targetMd5,
+                    canCancel: !cancellation.IsCancellationRequested,
+                    labelFormat: BeMusicSeeker.Properties.Resources.Playlist_external_package_lookup_progress_label_format);
+                if (cancellation.IsCancellationRequested)
+                {
+                    canceledCount = targets.Count - i - 1;
+                    break;
+                }
+            }
+        }
+        finally
+        {
+            playlistUrlBulkDownloadRunning = false;
+            playlistUrlBulkDownloadCancellation = null;
+            UpdatePlaylistUrlBulkDownloadStatus(viewModel, false, 0, 0, string.Empty, canCancel: false);
+            cancellation.Dispose();
+        }
+        if (downloadedPaths.Count > 0)
+        {
+            viewModel?.EnqueueDroppedInstallPaths(downloadedPaths);
+            newlyInstalledTreeViewItem.IsExpanded = true;
+        }
+        string resultMessage = string.Format(
+            BeMusicSeeker.Properties.Resources.Msg_SelectedPlaylistExternalPackageLookupResult,
+            targets.Count,
+            downloadedPaths.Count,
+            noCandidateCount,
+            duplicateDownloadedUrlCount,
+            duplicateFailedUrlCount,
+            blockedBySizeLimitCount,
+            unsupportedCount,
+            failedCount,
+            canceledCount);
+        UiDialogRoute.ShowMessageBox(
+            Window.GetWindow(this),
+            resultMessage,
+            BeMusicSeeker.Properties.Resources.Information,
+            MessageBoxButton.OK,
+            downloadedPaths.Count > 0 ? MessageBoxImage.Asterisk : MessageBoxImage.Exclamation,
+            MessageBoxResult.OK);
+    }
+
+    private async Task<PlaylistExternalPackageDownloadAttempt> DownloadExternalPackageLookupCandidateAsync(PlaylistExternalPackageLookupResult lookupResult, HashSet<string> downloadedKeys, CancellationToken cancellationToken)
+    {
+        if (lookupResult == null)
+        {
+            return PlaylistExternalPackageDownloadAttempt.Failed();
+        }
+        PlaylistUrlDownloadResult result = await DownloadPlaylistUrlCandidateAsync(lookupResult.DownloadUri, downloadedKeys, allowSharedPageResolution: false, cancellationToken).ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
+        LogPlaylistUrlDownload("playlist_external_package_lookup download_result provider=" + lookupResult.ProviderId + " md5=" + lookupResult.ChartMd5 + " kind=" + result.Kind + " url=" + lookupResult.DownloadUri);
+        return result.Kind switch
+        {
+            PlaylistUrlDownloadResultKind.Downloaded => PlaylistExternalPackageDownloadAttempt.Downloaded(result.FilePath, result.DownloadKey),
+            PlaylistUrlDownloadResultKind.Duplicate => PlaylistExternalPackageDownloadAttempt.DuplicateDownloadedUrl(result.DownloadKey),
+            PlaylistUrlDownloadResultKind.BlockedBySizeLimit => PlaylistExternalPackageDownloadAttempt.BlockedBySizeLimit(result.DownloadKey),
+            PlaylistUrlDownloadResultKind.BrowserFallback => PlaylistExternalPackageDownloadAttempt.Unsupported(result.DownloadKey),
+            _ => PlaylistExternalPackageDownloadAttempt.Failed(result.DownloadKey)
+        };
+    }
+
     private async Task DownloadSelectedPlaylistUrlsAsync(IEnumerable<object> rows, bool isDiffUrl)
     {
         if (playlistUrlBulkDownloadRunning)
@@ -7033,7 +7280,16 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 }
                 Uri target = targets[i];
                 UpdatePlaylistUrlBulkDownloadStatus(viewModel, true, targets.Count, i, target.ToString(), canCancel: true);
-                PlaylistUrlDownloadResult result = await DownloadPlaylistUrlCandidateAsync(target, downloadedKeys);
+                PlaylistUrlDownloadResult result;
+                try
+                {
+                    result = await DownloadPlaylistUrlCandidateAsync(target, downloadedKeys, cancellationToken: cancellation.Token);
+                }
+                catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+                {
+                    canceledCount = targets.Count - i;
+                    break;
+                }
                 switch (result.Kind)
                 {
                     case PlaylistUrlDownloadResultKind.Downloaded when !string.IsNullOrWhiteSpace(result.FilePath) && LongPathFileSystem.FileExists(result.FilePath):
@@ -7090,21 +7346,23 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             MessageBoxResult.OK);
     }
 
-    private void UpdatePlaylistUrlBulkDownloadStatus(MainWindowViewModel viewModel, bool isActive, int totalCount, int completedCount, string currentDisplayName, bool canCancel)
+    private void UpdatePlaylistUrlBulkDownloadStatus(MainWindowViewModel viewModel, bool isActive, int totalCount, int completedCount, string currentDisplayName, bool canCancel, string labelFormat = null)
     {
         if (isActive)
         {
             playlistUrlBulkDownloadTotalCount = Math.Max(0, totalCount);
             playlistUrlBulkDownloadCompletedCount = Math.Max(0, completedCount);
             playlistUrlBulkDownloadCurrentDisplayName = currentDisplayName ?? string.Empty;
+            playlistUrlBulkDownloadLabelFormat = labelFormat ?? string.Empty;
         }
         else
         {
             playlistUrlBulkDownloadTotalCount = 0;
             playlistUrlBulkDownloadCompletedCount = 0;
             playlistUrlBulkDownloadCurrentDisplayName = string.Empty;
+            playlistUrlBulkDownloadLabelFormat = string.Empty;
         }
-        viewModel?.UpdatePlaylistUrlDownloadStatus(isActive, totalCount, completedCount, currentDisplayName, canCancel);
+        viewModel?.UpdatePlaylistUrlDownloadStatus(isActive, totalCount, completedCount, currentDisplayName, canCancel, labelFormat);
     }
 
     private void CancelPlaylistUrlBulkDownload()
@@ -7122,7 +7380,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             playlistUrlBulkDownloadTotalCount,
             playlistUrlBulkDownloadCompletedCount,
             playlistUrlBulkDownloadCurrentDisplayName,
-            canCancel: false);
+            canCancel: false,
+            labelFormat: playlistUrlBulkDownloadLabelFormat);
     }
 
     private void tableContextMenuItemOpenDocumentFileClick(object sender, RoutedEventArgs e)
@@ -7153,14 +7412,14 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return new PlaylistUrlDownloadResult(PlaylistUrlDownloadResultKind.Downloaded, filePath, downloadKey);
         }
 
-        internal static PlaylistUrlDownloadResult BrowserFallback()
+        internal static PlaylistUrlDownloadResult BrowserFallback(string downloadKey = null)
         {
-            return new PlaylistUrlDownloadResult(PlaylistUrlDownloadResultKind.BrowserFallback);
+            return new PlaylistUrlDownloadResult(PlaylistUrlDownloadResultKind.BrowserFallback, downloadKey: downloadKey);
         }
 
-        internal static PlaylistUrlDownloadResult BlockedBySizeLimit()
+        internal static PlaylistUrlDownloadResult BlockedBySizeLimit(string downloadKey = null)
         {
-            return new PlaylistUrlDownloadResult(PlaylistUrlDownloadResultKind.BlockedBySizeLimit);
+            return new PlaylistUrlDownloadResult(PlaylistUrlDownloadResultKind.BlockedBySizeLimit, downloadKey: downloadKey);
         }
 
         internal static PlaylistUrlDownloadResult Duplicate(string downloadKey)
@@ -7168,63 +7427,68 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return new PlaylistUrlDownloadResult(PlaylistUrlDownloadResultKind.Duplicate, downloadKey: downloadKey);
         }
 
-        internal static PlaylistUrlDownloadResult Failed()
+        internal static PlaylistUrlDownloadResult Failed(string downloadKey = null)
         {
-            return new PlaylistUrlDownloadResult(PlaylistUrlDownloadResultKind.Failed);
+            return new PlaylistUrlDownloadResult(PlaylistUrlDownloadResultKind.Failed, downloadKey: downloadKey);
         }
     }
 
-    private async Task<PlaylistUrlDownloadResult> DownloadPlaylistUrlCandidateAsync(Uri uri, HashSet<string> downloadedKeys = null)
+    private async Task<PlaylistUrlDownloadResult> DownloadPlaylistUrlCandidateAsync(Uri uri, HashSet<string> downloadedKeys = null, bool allowSharedPageResolution = true, CancellationToken cancellationToken = default)
     {
         if (uri == null || !uri.IsAbsoluteUri)
         {
             return PlaylistUrlDownloadResult.BrowserFallback();
         }
+        cancellationToken.ThrowIfCancellationRequested();
         Uri normalizedUri = NormalizeDownloadUri(uri);
         if (IsBrowserFallbackDownloadUri(normalizedUri))
         {
-            return PlaylistUrlDownloadResult.BrowserFallback();
+            return PlaylistUrlDownloadResult.BrowserFallback(CreatePlaylistUrlDownloadKey(normalizedUri));
         }
         string tempDirectory = TempDirectoryPublisher.Get();
-        return await Task.Run(delegate
+        try
         {
-            try
-            {
-                using AppHttpResponse response = AppHttpClient.Shared.OpenRead(normalizedUri);
-                return DownloadPlaylistUrlResponseCandidate(normalizedUri, response, tempDirectory, allowSharedPageResolution: true, downloadedKeys);
-            }
-            catch (Exception ex)
-            {
-                LogPlaylistUrlDownload("playlist_url_download failed source=" + uri + " normalized=" + normalizedUri + " errorType=" + ex.GetType().FullName + " error=" + SanitizePlaylistUrlDownloadLogValue(ex.Message));
-                return PlaylistUrlDownloadResult.Failed();
-            }
-        });
+            using AppHttpResponse response = await AppHttpClient.Shared.OpenReadAsync(normalizedUri, cancellationToken).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
+            return await DownloadPlaylistUrlResponseCandidateAsync(normalizedUri, response, tempDirectory, allowSharedPageResolution, downloadedKeys, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            LogPlaylistUrlDownload("playlist_url_download failed source=" + uri + " normalized=" + normalizedUri + " errorType=" + ex.GetType().FullName + " error=" + SanitizePlaylistUrlDownloadLogValue(ex.Message));
+            return PlaylistUrlDownloadResult.Failed(CreatePlaylistUrlDownloadKey(normalizedUri));
+        }
     }
 
-    private static PlaylistUrlDownloadResult DownloadPlaylistUrlResponseCandidate(Uri requestedUri, AppHttpResponse response, string tempDirectory, bool allowSharedPageResolution, HashSet<string> downloadedKeys = null)
+    private static Task<PlaylistUrlDownloadResult> DownloadPlaylistUrlResponseCandidateAsync(Uri requestedUri, AppHttpResponse response, string tempDirectory, bool allowSharedPageResolution, HashSet<string> downloadedKeys = null, CancellationToken cancellationToken = default)
     {
-        return DownloadPlaylistUrlResponseCandidate(requestedUri, response, tempDirectory, allowSharedPageResolution ? 4 : 0, new HashSet<string>(StringComparer.OrdinalIgnoreCase), downloadedKeys);
+        return DownloadPlaylistUrlResponseCandidateAsync(requestedUri, response, tempDirectory, allowSharedPageResolution ? 4 : 0, new HashSet<string>(StringComparer.OrdinalIgnoreCase), downloadedKeys, cancellationToken);
     }
 
-    private static PlaylistUrlDownloadResult DownloadPlaylistUrlResponseCandidate(Uri requestedUri, AppHttpResponse response, string tempDirectory, int remainingSharedPageResolutionDepth, HashSet<string> resolvedPageUris, HashSet<string> downloadedKeys)
+    private static async Task<PlaylistUrlDownloadResult> DownloadPlaylistUrlResponseCandidateAsync(Uri requestedUri, AppHttpResponse response, string tempDirectory, int remainingSharedPageResolutionDepth, HashSet<string> resolvedPageUris, HashSet<string> downloadedKeys, CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         AddUriWithoutFragment(resolvedPageUris, requestedUri);
         AddUriWithoutFragment(resolvedPageUris, response?.ResponseUri);
         if (response.ContentLength.HasValue)
         {
             if (response.ContentLength.Value == 0L)
             {
-                return PlaylistUrlDownloadResult.BrowserFallback();
+                return PlaylistUrlDownloadResult.BrowserFallback(CreatePlaylistUrlDownloadKey(response?.ResponseUri ?? requestedUri));
             }
             if (response.ContentLength.Value > DownloadAndInstallSizeLimitBytes)
             {
                 LogPlaylistUrlDownload("playlist_url_download blocked_size_limit source=" + requestedUri + " response=" + (response?.ResponseUri?.ToString() ?? string.Empty) + " contentLength=" + response.ContentLength.Value + " limitBytes=" + DownloadAndInstallSizeLimitBytes);
-                return PlaylistUrlDownloadResult.BlockedBySizeLimit();
+                return PlaylistUrlDownloadResult.BlockedBySizeLimit(CreatePlaylistUrlDownloadKey(response?.ResponseUri ?? requestedUri));
             }
         }
         if (remainingSharedPageResolutionDepth > 0 && ShouldResolveSharedDownloadPageBeforeFileName(requestedUri, response))
         {
-            if (TryResolveSharedDownloadPageUri(requestedUri, response, out Uri resolvedUri) && AddUriWithoutFragment(resolvedPageUris, resolvedUri))
+            Uri resolvedUri = await TryResolveSharedDownloadPageUriAsync(requestedUri, response, cancellationToken).ConfigureAwait(false);
+            if (resolvedUri != null && AddUriWithoutFragment(resolvedPageUris, resolvedUri))
             {
                 string resolvedDownloadKey = CreatePlaylistUrlDownloadKey(resolvedUri);
                 if (!string.IsNullOrWhiteSpace(resolvedDownloadKey) && downloadedKeys != null && downloadedKeys.Contains(resolvedDownloadKey))
@@ -7233,21 +7497,22 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                     return PlaylistUrlDownloadResult.Duplicate(resolvedDownloadKey);
                 }
                 LogPlaylistUrlDownload("playlist_url_download resolved source=" + requestedUri + " resolved=" + resolvedUri + " depth=" + remainingSharedPageResolutionDepth);
-                using AppHttpResponse resolvedResponse = AppHttpClient.Shared.OpenRead(resolvedUri);
-                return DownloadPlaylistUrlResponseCandidate(resolvedUri, resolvedResponse, tempDirectory, remainingSharedPageResolutionDepth - 1, resolvedPageUris, downloadedKeys);
+                using AppHttpResponse resolvedResponse = await AppHttpClient.Shared.OpenReadAsync(resolvedUri, cancellationToken).ConfigureAwait(false);
+                return await DownloadPlaylistUrlResponseCandidateAsync(resolvedUri, resolvedResponse, tempDirectory, remainingSharedPageResolutionDepth - 1, resolvedPageUris, downloadedKeys, cancellationToken).ConfigureAwait(false);
             }
             LogPlaylistUrlDownload("playlist_url_download unresolved_shared_page source=" + requestedUri + " response=" + (response?.ResponseUri?.ToString() ?? string.Empty) + " contentType=" + GetContentTypeLogValue(response));
-            return PlaylistUrlDownloadResult.BrowserFallback();
+            return PlaylistUrlDownloadResult.BrowserFallback(CreatePlaylistUrlDownloadKey(response?.ResponseUri ?? requestedUri));
         }
         string fileName = ResolveDownloadedArchiveFileName(requestedUri, response);
         if (IsHtmlContentType(response))
         {
             LogPlaylistUrlDownload("playlist_url_download skipped_html source=" + requestedUri + " response=" + (response?.ResponseUri?.ToString() ?? string.Empty) + " fileName=" + fileName);
-            return PlaylistUrlDownloadResult.BrowserFallback();
+            return PlaylistUrlDownloadResult.BrowserFallback(CreatePlaylistUrlDownloadKey(response?.ResponseUri ?? requestedUri));
         }
         if (!IsDownloadAndInstallCandidateFileName(fileName))
         {
-            if (remainingSharedPageResolutionDepth > 0 && TryResolveSharedDownloadPageUri(requestedUri, response, out Uri resolvedUri) && AddUriWithoutFragment(resolvedPageUris, resolvedUri))
+            Uri resolvedUri = remainingSharedPageResolutionDepth > 0 ? await TryResolveSharedDownloadPageUriAsync(requestedUri, response, cancellationToken).ConfigureAwait(false) : null;
+            if (resolvedUri != null && AddUriWithoutFragment(resolvedPageUris, resolvedUri))
             {
                 string resolvedDownloadKey = CreatePlaylistUrlDownloadKey(resolvedUri);
                 if (!string.IsNullOrWhiteSpace(resolvedDownloadKey) && downloadedKeys != null && downloadedKeys.Contains(resolvedDownloadKey))
@@ -7256,11 +7521,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                     return PlaylistUrlDownloadResult.Duplicate(resolvedDownloadKey);
                 }
                 LogPlaylistUrlDownload("playlist_url_download resolved source=" + requestedUri + " resolved=" + resolvedUri + " depth=" + remainingSharedPageResolutionDepth);
-                using AppHttpResponse resolvedResponse = AppHttpClient.Shared.OpenRead(resolvedUri);
-                return DownloadPlaylistUrlResponseCandidate(resolvedUri, resolvedResponse, tempDirectory, remainingSharedPageResolutionDepth - 1, resolvedPageUris, downloadedKeys);
+                using AppHttpResponse resolvedResponse = await AppHttpClient.Shared.OpenReadAsync(resolvedUri, cancellationToken).ConfigureAwait(false);
+                return await DownloadPlaylistUrlResponseCandidateAsync(resolvedUri, resolvedResponse, tempDirectory, remainingSharedPageResolutionDepth - 1, resolvedPageUris, downloadedKeys, cancellationToken).ConfigureAwait(false);
             }
             LogPlaylistUrlDownload("playlist_url_download skipped_unsupported source=" + requestedUri + " response=" + (response?.ResponseUri?.ToString() ?? string.Empty) + " fileName=" + fileName + " contentType=" + GetContentTypeLogValue(response));
-            return PlaylistUrlDownloadResult.BrowserFallback();
+            return PlaylistUrlDownloadResult.BrowserFallback(CreatePlaylistUrlDownloadKey(response?.ResponseUri ?? requestedUri));
         }
         string downloadKey = CreatePlaylistUrlDownloadKey(response?.ResponseUri ?? requestedUri);
         if (!string.IsNullOrWhiteSpace(downloadKey) && downloadedKeys != null)
@@ -7272,10 +7537,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             }
         }
         string filePath = Path.Combine(tempDirectory, fileName);
-        if (!TryCopyStreamToFileWithLimit(response.ResponseStream, filePath, DownloadAndInstallSizeLimitBytes))
+        if (!await TryCopyStreamToFileWithLimitAsync(response.ResponseStream, filePath, DownloadAndInstallSizeLimitBytes, cancellationToken).ConfigureAwait(false))
         {
             LogPlaylistUrlDownload("playlist_url_download blocked_size_limit source=" + requestedUri + " response=" + (response?.ResponseUri?.ToString() ?? string.Empty) + " file=" + fileName + " limitBytes=" + DownloadAndInstallSizeLimitBytes);
-            return PlaylistUrlDownloadResult.BlockedBySizeLimit();
+            return PlaylistUrlDownloadResult.BlockedBySizeLimit(downloadKey);
         }
         if (!string.IsNullOrWhiteSpace(downloadKey))
         {
@@ -7544,23 +7809,23 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         return string.IsNullOrWhiteSpace(fileId) ? null : fileId;
     }
 
-    private static bool TryResolveSharedDownloadPageUri(Uri requestedUri, AppHttpResponse response, out Uri resolvedUri)
+    private static async Task<Uri> TryResolveSharedDownloadPageUriAsync(Uri requestedUri, AppHttpResponse response, CancellationToken cancellationToken = default)
     {
-        resolvedUri = null;
         if (!IsSharedDownloadPageResolutionCandidate(requestedUri) && !IsSharedDownloadPageResolutionCandidate(response?.ResponseUri))
         {
-            return false;
+            return null;
         }
         if (response?.ContentLength > SharedDownloadPageResolverMaxBytes)
         {
-            return false;
+            return null;
         }
-        if (!TryReadTextWithLimit(response?.ResponseStream, response?.ContentHeaders?.ContentType?.CharSet, SharedDownloadPageResolverMaxBytes, out string html))
+        string html = await ReadTextWithLimitAsync(response?.ResponseStream, response?.ContentHeaders?.ContentType?.CharSet, SharedDownloadPageResolverMaxBytes, cancellationToken).ConfigureAwait(false);
+        if (html == null)
         {
-            return false;
+            return null;
         }
-        resolvedUri = ResolveSharedDownloadPageUri(response.ResponseUri ?? requestedUri, html);
-        return resolvedUri != null && resolvedUri.IsAbsoluteUri && !IsSameUriWithoutFragment(resolvedUri, requestedUri);
+        Uri resolvedUri = ResolveSharedDownloadPageUri(response.ResponseUri ?? requestedUri, html);
+        return resolvedUri != null && resolvedUri.IsAbsoluteUri && !IsSameUriWithoutFragment(resolvedUri, requestedUri) ? resolvedUri : null;
     }
 
     private static bool IsHttpOrHttps(Uri uri)
@@ -8030,34 +8295,31 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         return attributes;
     }
 
-    private static bool TryReadTextWithLimit(Stream source, string charSet, int maxBytes, out string text)
+    private static async Task<string> ReadTextWithLimitAsync(Stream source, string charSet, int maxBytes, CancellationToken cancellationToken = default)
     {
-        text = null;
         if (source == null || maxBytes <= 0)
         {
-            return false;
+            return null;
         }
         byte[] buffer = new byte[8192];
         using var memoryStream = new MemoryStream();
         int count;
-        while ((count = source.Read(buffer, 0, Math.Min(buffer.Length, maxBytes + 1 - (int)memoryStream.Length))) > 0)
+        while ((count = await source.ReadAsync(buffer, 0, Math.Min(buffer.Length, maxBytes + 1 - (int)memoryStream.Length), cancellationToken).ConfigureAwait(false)) > 0)
         {
-            memoryStream.Write(buffer, 0, count);
+            await memoryStream.WriteAsync(buffer, 0, count, cancellationToken).ConfigureAwait(false);
             if (memoryStream.Length > maxBytes)
             {
-                return false;
+                return null;
             }
         }
         try
         {
             Encoding encoding = string.IsNullOrWhiteSpace(charSet) ? Encoding.UTF8 : Encoding.GetEncoding(charSet.Trim('"'));
-            text = encoding.GetString(memoryStream.ToArray());
-            return true;
+            return encoding.GetString(memoryStream.ToArray());
         }
         catch
         {
-            text = Encoding.UTF8.GetString(memoryStream.ToArray());
-            return true;
+            return Encoding.UTF8.GetString(memoryStream.ToArray());
         }
     }
 
@@ -8148,29 +8410,39 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         return uriSet.Add(builder.Uri.ToString());
     }
 
-    private static bool TryCopyStreamToFileWithLimit(Stream source, string destinationPath, long maxBytes)
+    private static async Task<bool> TryCopyStreamToFileWithLimitAsync(Stream source, string destinationPath, long maxBytes, CancellationToken cancellationToken = default)
     {
         const int bufferSize = 81920;
         byte[] array = new byte[bufferSize];
-        long num = 0L;
+        long totalBytes = 0L;
+        bool completed = false;
         try
         {
             using FileStream fileStream = LongPathFileSystem.Open(destinationPath, FileMode.Create, FileAccess.Write, FileShare.None);
             int count;
-            while ((count = source.Read(array, 0, array.Length)) > 0)
+            while (true)
             {
-                num += count;
-                if (num > maxBytes)
+                cancellationToken.ThrowIfCancellationRequested();
+                count = await source.ReadAsync(array, 0, array.Length, cancellationToken).ConfigureAwait(false);
+                if (count <= 0)
+                {
+                    break;
+                }
+                cancellationToken.ThrowIfCancellationRequested();
+                totalBytes += count;
+                if (totalBytes > maxBytes)
                 {
                     return false;
                 }
-                fileStream.Write(array, 0, count);
+                await fileStream.WriteAsync(array, 0, count, cancellationToken).ConfigureAwait(false);
             }
+            cancellationToken.ThrowIfCancellationRequested();
+            completed = true;
             return true;
         }
         finally
         {
-            if (num > maxBytes)
+            if (totalBytes > maxBytes || (!completed && cancellationToken.IsCancellationRequested))
             {
                 try
                 {

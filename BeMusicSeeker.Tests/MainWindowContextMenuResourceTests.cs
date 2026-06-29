@@ -2344,7 +2344,7 @@ public sealed class MainWindowContextMenuResourceTests
         string root = FindRepositoryRoot();
         string mainWindowCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow.cs"));
         string candidateHelper = ExtractBetween(mainWindowCode, "private static bool IsDownloadAndInstallCandidateFileName", "private static string NormalizeDownloadUrlString");
-        string downloadResponseMethod = ExtractBetween(mainWindowCode, "private static PlaylistUrlDownloadResult DownloadPlaylistUrlResponseCandidate(Uri requestedUri, AppHttpResponse response, string tempDirectory, int remainingSharedPageResolutionDepth", "private static bool IsDownloadAndInstallCandidateFileName");
+        string downloadResponseMethod = ExtractBetween(mainWindowCode, "private static async Task<PlaylistUrlDownloadResult> DownloadPlaylistUrlResponseCandidateAsync(Uri requestedUri, AppHttpResponse response, string tempDirectory, int remainingSharedPageResolutionDepth", "private static bool IsDownloadAndInstallCandidateFileName");
         MethodInfo helper = typeof(MainWindow).GetMethod("IsDownloadAndInstallCandidateFileName", BindingFlags.Static | BindingFlags.NonPublic);
         Assert.IsNotNull(helper);
 
@@ -2373,6 +2373,41 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.AreEqual(2, diffTargets.Count);
         Assert.AreEqual("https://example.invalid/diff-a.zip", diffTargets[0].ToString());
         Assert.AreEqual("https://example.invalid/diff-b.zip", diffTargets[1].ToString());
+    }
+
+    [TestMethod]
+    public void PlaylistExternalPackageLookupContextMenu_IsBelowDiffUrlAndUsesResources()
+    {
+        string xaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "MainWindow.xaml"));
+        string tableContextMenu = ExtractBetween(xaml, "<ContextMenu x:Key=\"tableContextMenu\"", "<ContextMenu x:Key=\"tableContextMenuPlaylistMissing\"");
+        string missingContextMenu = ExtractBetween(xaml, "<ContextMenu x:Key=\"tableContextMenuPlaylistMissing\"", "<ContextMenu x:Key=\"playHistoryContextMenu\"");
+
+        Assert.AreEqual(2, CountOccurrences(xaml, "Name=\"tableContextMenuItemFindExternalPackage\" Header=\"{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Find_external_package_from_playlist_md5, Mode=OneWay}\" Click=\"tableContextMenuItemFindExternalPackageClick\""));
+        Assert.IsTrue(tableContextMenu.IndexOf("tableContextMenuItemOpenURLdiff", StringComparison.Ordinal) < tableContextMenu.IndexOf("tableContextMenuItemFindExternalPackage", StringComparison.Ordinal));
+        Assert.IsTrue(missingContextMenu.IndexOf("tableContextMenuItemOpenURLdiff", StringComparison.Ordinal) < missingContextMenu.IndexOf("tableContextMenuItemFindExternalPackage", StringComparison.Ordinal));
+        Assert.IsFalse(string.IsNullOrWhiteSpace(Resources.Find_external_package_from_playlist_md5));
+        Assert.IsFalse(string.IsNullOrWhiteSpace(Resources.Confirm_SelectedPlaylistExternalPackageLookup));
+        Assert.IsFalse(string.IsNullOrWhiteSpace(Resources.Warn_SelectedPlaylistExternalPackageLookup));
+    }
+
+    [TestMethod]
+    public void PlaylistExternalPackageMd5Targets_UsePlaylistEntryMd5AndDeduplicate()
+    {
+        PlaylistDetailRow ownedRow = CreatePlaylistExternalPackageRow("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", isOwned: true);
+        PlaylistDetailSourceRow missingRow = CreatePlaylistExternalPackageSourceRow("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        PlaylistDetailRow otherRow = CreatePlaylistExternalPackageRow("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", isOwned: false);
+        PlaylistDetailRow dummyFolderRow = CreatePlaylistExternalPackageRow(BMSTableEntry.DUMMY_MD5_FOR_EMPTY_FOLDER, isOwned: false);
+        PlaylistDetailRow invalidRow = CreatePlaylistExternalPackageRow(null, isOwned: false);
+
+        List<string> targets = MainWindow.BuildPlaylistExternalPackageMd5TargetsForTest([ownedRow, missingRow, otherRow, dummyFolderRow, invalidRow, new object()]);
+
+        CollectionAssert.AreEqual(
+            new[]
+            {
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            targets);
     }
 
     [TestMethod]
@@ -3230,6 +3265,42 @@ public sealed class MainWindowContextMenuResourceTests
         SetPrivateField(row, "url", string.IsNullOrWhiteSpace(url) ? null : new Uri(url));
         SetPrivateField(row, "urlDiff", string.IsNullOrWhiteSpace(diffUrl) ? null : new Uri(diffUrl));
         return row;
+    }
+
+    private static PlaylistDetailRow CreatePlaylistExternalPackageRow(string? md5, bool isOwned)
+    {
+        var row = (PlaylistDetailRow)FormatterServices.GetUninitializedObject(typeof(PlaylistDetailRow));
+        SetPrivateField(row, "<Entry>k__BackingField", CreatePlaylistEntry(md5));
+        SetPrivateField(row, "<IsOwned>k__BackingField", isOwned);
+        return row;
+    }
+
+    private static PlaylistDetailSourceRow CreatePlaylistExternalPackageSourceRow(string? md5)
+    {
+        var row = (PlaylistDetailSourceRow)FormatterServices.GetUninitializedObject(typeof(PlaylistDetailSourceRow));
+        SetPrivateField(row, "<Entry>k__BackingField", CreatePlaylistEntry(md5));
+        return row;
+    }
+
+    private static BMSTableEntry CreatePlaylistEntry(string? md5)
+    {
+        return BMSTableEntry.CreateHydratedPlaylistEntry(
+            playlistId: 1,
+            md5Value: md5,
+            sha256Value: null,
+            levelValue: null,
+            titleValue: "Playlist Entry",
+            artistValue: "Artist",
+            folderValue: string.Empty,
+            lr2BmsIdValue: string.Empty,
+            urlValue: string.Empty,
+            urlDiffValue: string.Empty,
+            nameDiffValue: string.Empty,
+            orgMd5Value: string.Empty,
+            addDateValue: null,
+            commentValue: string.Empty,
+            memoValue: string.Empty,
+            isRemovedValue: false);
     }
 
     private static void SetPrivateField(object target, string fieldName, object? value)

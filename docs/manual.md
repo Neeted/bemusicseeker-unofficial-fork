@@ -381,6 +381,7 @@ Open / external pages:
 - `Open Mocha`: Opens the corresponding Mocha page.
 - `Open MinIR`: Opens the corresponding MinIR page.
 - `Open main URL` / `Open diff URL`: Opens the main URL / diff URL obtained from a playlist or URL completion. When multiple rows are selected, these actions are shown as `Import selected main URLs` / `Import selected diff URLs`; after confirmation, only URLs that can be downloaded as supported files are passed to install processing. URLs that need to open in a browser are skipped without opening them, and progress is shown in the status bar.
+- `Find source via external API`: In playlist detail, sends the selected rows' MD5 values to external APIs and looks for main-package source candidates. It does not use `URL1` / `URL2`, so rows with empty URLs can still be targets when an MD5 is available.
 - `Open in Explorer`: Opens the folder containing the chart file in Explorer.
 - `Open install destination`: Opens the folder recorded as `INSTL DST` or as the install destination.
 - `Open with association`: Opens the chart file using the OS file association.
@@ -420,7 +421,7 @@ Screen-specific:
 - `Remove from list`: Removes the target from the new / pending / installed package display. Distinguish this from operations that delete actual files.
 - `Remove metadata parse failure record`: Shown on the parse errors screen. Deletes the saved parse failure record and returns the item to the set of files to be parsed again.
 
-In playlist detail for unowned charts, file operations and install operations are not shown. Only operations for playlist rows are shown, such as `Open BMS-IR`, `Open Mocha`, `Open MinIR`, `Open main URL`, `Open diff URL`, `Open in chart viewer`, `Update ranking data`, and `Remove entry`. `Open BMS-IR` is shown only for rows that have an MD5.
+In playlist detail for unowned charts, file operations and install operations are not shown. Only operations for playlist rows are shown, such as `Open BMS-IR`, `Open Mocha`, `Open MinIR`, `Open main URL`, `Open diff URL`, `Find source via external API`, `Open in chart viewer`, `Update ranking data`, and `Remove entry`. `Open BMS-IR` is shown only for rows that have an MD5.
 
 Operations that modify actual files are implemented with behavior close to Windows Explorer so that they are less likely to fail because of read-only attributes and similar conditions. However, deletion and overwrite operations may not be reversible, so check the target before executing them.
 
@@ -563,6 +564,10 @@ For a single row, running `Open main URL` / `Open diff URL` from the context men
 When multiple rows are selected, right-click and run `Import selected main URLs` / `Import selected diff URLs`. After confirmation, BeMusicSeeker takes `URL1` or `URL2` from the selected rows, removes exact duplicate URLs, downloads them in order, and passes only successfully retrieved supported files to the install queue. This bulk import tries automatic install regardless of the setting value; URLs that need to open in a browser are skipped without opening them. Progress is shown in the status bar, and the download phase can be canceled. After cancellation, no new URL is started, and files retrieved up to that point are still passed to the install queue. The result dialog summarizes downloaded, skipped, size-blocked, failed, and cancellation-skipped counts.
 
 Automatic install paths such as bulk import support direct links and some distribution/share pages where the download URL can be extracted, such as Google Drive, Dropbox, MediaFire, manbow `DownLoadAddress`, `venue.bmssearch.net`, and `bmssearch.net/bmses`. Google Drive folder shares, MEGA, AXFC, pages requiring login or CAPTCHA, and pages that require JavaScript interaction are not automatically resolved. The single-row context menu opens them in the browser; bulk import skips them.
+
+`Find source via external API` in the context menu sends the selected rows' MD5 values to external APIs and looks for main-package source candidates. Owned and unowned rows are both eligible as long as an MD5 can be resolved. BeMusicSeeker queries the supported APIs in the priority order defined by the app, and passes only direct-link-like URLs it receives to the existing download/install flow. It does not use the `URL1` / `URL2` values.
+
+This feature shows a confirmation every time before it starts. The confirmation warns that sources returned by external APIs may not be official distribution sources, redistribution may not be permitted, you should prefer official distribution sources when possible, and the selected MD5 values are sent to external APIs. Downloaded files and temporary extraction files are placed in the Windows temporary area, usually on the C drive, and download or extraction may take time. Because the downloaded item is a main package that includes charts, merge it from the pending screen into your existing owned destination when appropriate.
 
 Right-clicking the playlist body in the playlist tree lets you run the following operations:
 

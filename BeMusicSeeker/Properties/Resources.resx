@@ -1164,6 +1164,9 @@ BMSファイルが重複しないようにマージします。
   <data name="Open_Url_diff" xml:space="preserve">
     <value>差分URLを開く</value>
   </data>
+  <data name="Find_external_package_from_playlist_md5" xml:space="preserve">
+    <value>外部APIから入手先を探す</value>
+  </data>
   <data name="Backup_playlist" xml:space="preserve">
     <value>プレイリストのバックアップ</value>
   </data>
@@ -1286,6 +1289,9 @@ BMSファイルが重複しないようにマージします。
   </data>
   <data name="Playlist_url_download_progress_label_format" xml:space="preserve">
     <value>URL取り込み: {0}/{1}件</value>
+  </data>
+  <data name="Playlist_external_package_lookup_progress_label_format" xml:space="preserve">
+    <value>外部API入手先検索: {0}/{1}件</value>
   </data>
   <data name="Pending_estimate_queue_startup_display_name" xml:space="preserve">
     <value>起動時の保留</value>
@@ -2248,6 +2254,39 @@ maintenance の再スキャンや chart_info の全譜面補完は行いませ�
   <data name="Warn_DropInstallBlockedByPlaylistUrlDownload" xml:space="preserve">
     <value>URL 取り込みが実行中のため、ドラッグ＆ドロップ導入を開始できません。
 URL 取り込みの完了後に再実行してください。</value>
+  </data>
+  <data name="Confirm_SelectedPlaylistExternalPackageLookup" xml:space="preserve">
+    <value>選択範囲の譜面 MD5 {0} 件を外部 API に問い合わせ、見つかった本体パッケージをダウンロードして対応ファイルのみ導入処理へ渡します。
+ダウンロードしたファイルとアーカイブの解凍用一時ファイルは Windows の一時領域 (通常は C ドライブ) に作成されるため、空き容量に注意してください。
+ダウンロードや解凍処理に時間がかかる場合があります。
+ダウンロードされるのは譜面を含む本体パッケージです。必要に応じて保留画面から既所持先へマージしてください。
+
+続行しますか？</value>
+  </data>
+  <data name="Warn_SelectedPlaylistExternalPackageLookup" xml:space="preserve">
+    <value>外部 API から得られる入手先は正規の入手手段とは言えない可能性があります。
+再配布が許諾されていない可能性があるため、できるだけ正規の入手先を探してください。
+この処理では、選択した譜面の MD5 を外部 API へ送信します。</value>
+  </data>
+  <data name="Warn_SelectedPlaylistExternalPackageLookupNoTargets" xml:space="preserve">
+    <value>選択範囲に外部 API へ問い合わせ可能な MD5 がありません。</value>
+  </data>
+  <data name="Warn_SelectedPlaylistExternalPackageLookupBlockedByInstallQueue" xml:space="preserve">
+    <value>導入処理が実行中のため、外部 API からの入手先検索を開始できません。
+導入処理の完了後、またはキャンセル後に再実行してください。</value>
+  </data>
+  <data name="Msg_SelectedPlaylistExternalPackageLookupResult" xml:space="preserve">
+    <value>外部 API 入手先検索結果
+
+対象 MD5: {0}
+導入対象: {1}
+入手先なし: {2}
+スキップ(成功済み URL): {3}
+スキップ(失敗済み URL): {4}
+スキップ(サイズ上限): {5}
+スキップ(非対応): {6}
+失敗: {7}
+キャンセルにより未処理: {8}</value>
   </data>
   <data name="Warn_ElevatedProcessDragDropLimited" xml:space="preserve">
     <value>BeMusicSeeker が管理者権限で起動しています。

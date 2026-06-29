@@ -150,6 +150,7 @@
         <MenuItem Name="tableContextMenuItemOpenMinIR" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_minir, Mode=OneWay}" Click="tableContextMenuItemOpenMinIRClick" />
         <MenuItem Name="tableContextMenuItemOpenURL" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_Url, Mode=OneWay}" Click="tableContextMenuItemOpenURLClick" />
         <MenuItem Name="tableContextMenuItemOpenURLdiff" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_Url_diff, Mode=OneWay}" Click="tableContextMenuItemOpenURLdiffClick" />
+        <MenuItem Name="tableContextMenuItemFindExternalPackage" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Find_external_package_from_playlist_md5, Mode=OneWay}" Click="tableContextMenuItemFindExternalPackageClick" />
         <Separator />
         <MenuItem Name="tableContextMenuItemOpenExplorer" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_file_explorer, Mode=OneWay}" Click="tableContextMenuItemOpenExplorerClick" />
         <MenuItem Name="tableContextMenuItemOpenInstallDestination" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_install_destination, Mode=OneWay}" Click="tableContextMenuItemOpenInstallDestinationClick" />
@@ -235,6 +236,7 @@
         <MenuItem Name="tableContextMenuItemOpenMinIR" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_minir, Mode=OneWay}" Click="tableContextMenuItemOpenMinIRClick" />
         <MenuItem Name="tableContextMenuItemOpenURL" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_Url, Mode=OneWay}" Click="tableContextMenuItemOpenURLClick" />
         <MenuItem Name="tableContextMenuItemOpenURLdiff" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_Url_diff, Mode=OneWay}" Click="tableContextMenuItemOpenURLdiffClick" />
+        <MenuItem Name="tableContextMenuItemFindExternalPackage" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Find_external_package_from_playlist_md5, Mode=OneWay}" Click="tableContextMenuItemFindExternalPackageClick" />
         <Separator />
         <MenuItem Name="tableContextMenuItemRegisterScore" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_chart_viewer, Mode=OneWay}" Click="tableContextMenuItemRegisterBMSFileToScoreViwer" />
         <Separator />

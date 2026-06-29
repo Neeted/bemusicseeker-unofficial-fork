@@ -235,7 +235,12 @@ internal sealed class AppHttpClient
         }
         using (HttpResponseMessage httpResponseMessage = await SendAsync(HttpMethod.Get, uri, null, null, cancellationToken).ConfigureAwait(false))
         {
-            byte[] bytes = await httpResponseMessage.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
+            using var readCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            if (httpClient.Timeout != Timeout.InfiniteTimeSpan)
+            {
+                readCancellation.CancelAfter(httpClient.Timeout);
+            }
+            byte[] bytes = await ReadResponseBytesAsync(httpResponseMessage, readCancellation.Token).ConfigureAwait(false);
             return DecodeStringAndTrimBom(bytes, encoding);
         }
     }
@@ -426,6 +431,39 @@ internal sealed class AppHttpClient
     }
 
     /// <summary>
+    /// 指定 URI の内容を非同期にストリームとして開き、応答メタデータと一緒に返します。
+    /// 大容量ファイル取得を UI 側から中断できるよう、HTTP リクエスト開始までのキャンセルを伝播します。
+    /// </summary>
+    /// <param name="uri">取得元 URI。</param>
+    /// <param name="cancellationToken">取得を中断するためのトークン。</param>
+    /// <returns>応答メタデータ付きストリーム。</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="uri"/> が <see langword="null"/> の場合。</exception>
+    internal async Task<AppHttpResponse> OpenReadAsync(Uri uri, CancellationToken cancellationToken = default)
+    {
+        if (uri == null)
+        {
+            throw new ArgumentNullException(nameof(uri));
+        }
+        cancellationToken.ThrowIfCancellationRequested();
+        if (uri.IsFile)
+        {
+            return new AppHttpResponse(uri, LongPathFileSystem.OpenRead(uri.LocalPath));
+        }
+        HttpResponseMessage httpResponseMessage = await SendAsync(HttpMethod.Get, uri, null, null, cancellationToken).ConfigureAwait(false);
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Stream stream = await httpResponseMessage.Content.ReadAsStreamAsync().ConfigureAwait(false);
+            return new AppHttpResponse(uri, httpResponseMessage, stream);
+        }
+        catch
+        {
+            httpResponseMessage.Dispose();
+            throw;
+        }
+    }
+
+    /// <summary>
     /// リクエストを送信し、成功レスポンスだけを返します。
     /// </summary>
     /// <param name="method">HTTP メソッド。</param>
@@ -541,6 +579,35 @@ internal sealed class AppHttpClient
             return [];
         }
         return httpResponseMessage.Content.ReadAsByteArrayAsync().ConfigureAwait(false).GetAwaiter().GetResult();
+    }
+
+    /// <summary>
+    /// レスポンス本文をキャンセル可能な非同期読み取りでバイト列として取得します。
+    /// ResponseHeadersRead 経路では本文読み取りが別段階になるため、外部 API 呼び出しのキャンセルをここでも反映します。
+    /// </summary>
+    /// <param name="httpResponseMessage">読み取り対象のレスポンス。</param>
+    /// <param name="cancellationToken">本文読み取りを中断するためのトークン。</param>
+    /// <returns>レスポンス本文のバイト列。</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="httpResponseMessage"/> が <see langword="null"/> の場合。</exception>
+    private static async Task<byte[]> ReadResponseBytesAsync(HttpResponseMessage httpResponseMessage, CancellationToken cancellationToken)
+    {
+        if (httpResponseMessage == null)
+        {
+            throw new ArgumentNullException(nameof(httpResponseMessage));
+        }
+        if (httpResponseMessage.Content == null)
+        {
+            return [];
+        }
+        using Stream responseStream = await httpResponseMessage.Content.ReadAsStreamAsync().ConfigureAwait(false);
+        using var memoryStream = new MemoryStream();
+        byte[] buffer = new byte[81920];
+        int count;
+        while ((count = await responseStream.ReadAsync(buffer, 0, buffer.Length, cancellationToken).ConfigureAwait(false)) > 0)
+        {
+            await memoryStream.WriteAsync(buffer, 0, count, cancellationToken).ConfigureAwait(false);
+        }
+        return memoryStream.ToArray();
     }
 
     /// <summary>

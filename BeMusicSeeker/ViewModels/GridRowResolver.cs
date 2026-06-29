@@ -216,6 +216,32 @@ internal static class GridRowResolver
     }
 
     /// <summary>
+    /// 外部の本体パッケージ検索に使う playlist 行の MD5 を取得します。
+    /// playlist 定義上の MD5 を優先し、所持済み行で entry 側が空の場合だけ解決済み譜面の MD5 にフォールバックします。
+    /// </summary>
+    internal static string GetPlaylistExternalPackageLookupMd5(object row)
+    {
+        if (!IsPlaylistRow(row))
+        {
+            return null;
+        }
+        string entryMd5 = GetPlaylistEntry(row)?.md5;
+        if (IsMd5Hash(entryMd5))
+        {
+            return entryMd5.ToLowerInvariant();
+        }
+        string resolvedMd5 = GetHash(row);
+        return IsMd5Hash(resolvedMd5) ? resolvedMd5.ToLowerInvariant() : null;
+    }
+
+    private static bool IsMd5Hash(string value)
+    {
+        return !string.IsNullOrWhiteSpace(value)
+            && !string.Equals(value, BMSTableEntry.DUMMY_MD5_FOR_EMPTY_FOLDER, StringComparison.OrdinalIgnoreCase)
+            && Md5HashRegex.IsMatch(value);
+    }
+
+    /// <summary>
     /// 行の SHA256 ハッシュを取得します。
     /// </summary>
     internal static string GetSha256(object row)
