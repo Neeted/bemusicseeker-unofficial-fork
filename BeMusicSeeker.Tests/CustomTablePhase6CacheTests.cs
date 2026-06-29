@@ -4,6 +4,7 @@ using System.Reflection;
 using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using BeMusicSeeker.ViewModels;
@@ -171,6 +172,23 @@ public sealed class CustomTablePhase6CacheTests
             Assert.IsTrue(selectedBluePixels > 0, "Selected rows should preserve explicit text-run foregrounds.");
             Assert.IsTrue(currentCellRedPixels > 0, "Current cells should preserve explicit text-run foregrounds.");
             Assert.IsTrue(currentCellBluePixels > 0, "Current cells should preserve explicit text-run foregrounds.");
+        });
+    }
+
+    [TestMethod]
+    public void CustomTableView_CreatesWrappedTooltipContentWhenWidthIsSpecified()
+    {
+        RunOnSta(delegate
+        {
+            object plainContent = CustomTableView.CreateCellToolTipContent("short tooltip", null);
+            object wrappedContent = CustomTableView.CreateCellToolTipContent("long tooltip", 420d);
+
+            Assert.AreEqual("short tooltip", plainContent);
+            Assert.IsInstanceOfType(wrappedContent, typeof(TextBlock));
+            var textBlock = (TextBlock)wrappedContent;
+            Assert.AreEqual("long tooltip", textBlock.Text);
+            Assert.AreEqual(420d, textBlock.Width);
+            Assert.AreEqual(TextWrapping.Wrap, textBlock.TextWrapping);
         });
     }
 

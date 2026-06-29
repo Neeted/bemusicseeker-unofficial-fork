@@ -629,9 +629,12 @@ public sealed class CustomTableColumnFactoryTests
         Assert.IsFalse(columns["EntryLevel"].EditTextWrapping);
         Assert.AreEqual("comment", columns["Comment"].EditPropertyName);
         Assert.IsTrue(columns["Comment"].EditTextWrapping);
+        Assert.AreEqual(420d, columns["Comment"].TooltipTextWidth);
         Assert.AreEqual("memo", columns["Memo"].EditPropertyName);
         Assert.IsTrue(columns["Memo"].EditTextWrapping);
+        Assert.AreEqual(420d, columns["Memo"].TooltipTextWidth);
         Assert.AreEqual("Url", columns["Url1"].EditPropertyName);
+        Assert.IsNull(columns["Url1"].TooltipTextWidth);
         Assert.IsFalse(columns["Url1"].EditOnRepeatClick);
         Assert.AreEqual(250, columns["Url1"].EditOverlayWidth);
         Assert.AreEqual("Url_diff", columns["Url2"].EditPropertyName);

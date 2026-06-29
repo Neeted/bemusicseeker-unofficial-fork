@@ -167,6 +167,8 @@ public sealed class CustomTableView : Grid
     private int resizingStartWidth;
     private int toolTipRowIndex = -1;
     private string toolTipColumnId;
+    private string toolTipText;
+    private double? toolTipTextWidth;
     private CustomTableHitTestResult currentCellHit;
     private Point? rowDragStartPoint;
     private CustomTableHitTestResult rowDragStartHit;
@@ -2109,9 +2111,12 @@ public sealed class CustomTableView : Grid
         {
             cellToolTip.IsOpen = false;
         }
-        if (!Equals(cellToolTip.Content, tooltip))
+        double? tooltipTextWidth = hit.Column.TooltipTextWidth;
+        if (!string.Equals(toolTipText, tooltip, StringComparison.Ordinal) || toolTipTextWidth != tooltipTextWidth)
         {
-            cellToolTip.Content = tooltip;
+            cellToolTip.Content = CreateCellToolTipContent(tooltip, tooltipTextWidth);
+            toolTipText = tooltip;
+            toolTipTextWidth = tooltipTextWidth;
         }
         toolTipRowIndex = hit.RowIndex;
         toolTipColumnId = hit.Column.Id;
@@ -2119,6 +2124,20 @@ public sealed class CustomTableView : Grid
         {
             cellToolTip.IsOpen = true;
         }
+    }
+
+    internal static object CreateCellToolTipContent(string tooltip, double? tooltipTextWidth)
+    {
+        if (!tooltipTextWidth.HasValue)
+        {
+            return tooltip;
+        }
+        return new TextBlock
+        {
+            Text = tooltip,
+            Width = tooltipTextWidth.Value,
+            TextWrapping = TextWrapping.Wrap
+        };
     }
 
     private string ResolveCellToolTip(CustomTableHitTestResult hit)
@@ -2157,6 +2176,8 @@ public sealed class CustomTableView : Grid
         }
         toolTipRowIndex = -1;
         toolTipColumnId = null;
+        toolTipText = null;
+        toolTipTextWidth = null;
     }
 
     private static CustomTableHitTestResult CreateEmptyHit()

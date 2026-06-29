@@ -133,6 +133,7 @@ public sealed class CustomTableColumn
         int? editOverlayWidth = null,
         Func<object, string> editTextSelector = null,
         Func<object, IEnumerable<string>> editSuggestionsSelector = null,
+        double? tooltipTextWidth = null,
         bool autoTrimTooltip = true)
     {
         Id = id;
@@ -160,6 +161,7 @@ public sealed class CustomTableColumn
         EditOverlayWidth = editOverlayWidth;
         EditTextSelector = editTextSelector;
         EditSuggestionsSelector = editSuggestionsSelector;
+        TooltipTextWidth = NormalizeTooltipTextWidth(tooltipTextWidth);
         AutoTrimTooltip = autoTrimTooltip;
     }
 
@@ -198,6 +200,8 @@ public sealed class CustomTableColumn
     public bool EditOnRepeatClick { get; }
 
     public int? EditOverlayWidth { get; }
+
+    public double? TooltipTextWidth { get; }
 
     public bool AutoTrimTooltip { get; }
 
@@ -300,11 +304,21 @@ public sealed class CustomTableColumn
         }
         return Math.Max(MinWidth, Math.Min(MaxWidth, (int)Math.Round(width)));
     }
+
+    private static double? NormalizeTooltipTextWidth(double? width)
+    {
+        if (!width.HasValue || width.Value <= 0d || double.IsNaN(width.Value) || double.IsInfinity(width.Value))
+        {
+            return null;
+        }
+        return width.Value;
+    }
 }
 
 internal static class CustomTableColumnFactory
 {
     private const string DownloadIconGlyphText = "\uE14F";
+    private const double WrappedTooltipTextWidth = 420d;
     private static Brush UndefinedCellBackgroundBrush => CustomTablePalette.Current.UndefinedCellBackground;
 
     internal static IReadOnlyList<CustomTableColumn> CreateMainColumns(CustomTableColumnSettings settings)
@@ -382,8 +396,8 @@ internal static class CustomTableColumnFactory
             new CustomTableColumn("Url1", "URL1", settings.Url1, 7, null, TextAlignment.Center, row => ConvertLigatureSymbolText(GetString(row, nameof(PlaylistDetailRow.UrlDownloadIconText))), tooltipSelector: row => GetString(row, nameof(PlaylistDetailRow.UrlToolTipText)), minWidth: 40, maxWidth: 40, canResize: false, cellKind: CustomTableCellKind.DownloadIcon, editPropertyName: nameof(PlaylistDetailRow.Url), editOnRepeatClick: false, editOverlayWidth: 250, editTextSelector: row => GridRowResolver.GetUrl(row)?.ToString()),
             new CustomTableColumn("Url2", "URL2", settings.Url2, 8, null, TextAlignment.Center, row => ConvertLigatureSymbolText(GetString(row, nameof(PlaylistDetailRow.UrlDiffDownloadIconText))), tooltipSelector: row => GetString(row, nameof(PlaylistDetailRow.UrlDiffToolTipText)), minWidth: 40, maxWidth: 40, canResize: false, cellKind: CustomTableCellKind.DownloadIcon, editPropertyName: nameof(PlaylistDetailRow.Url_diff), editOnRepeatClick: false, editOverlayWidth: 250, editTextSelector: row => GridRowResolver.GetUrlDiff(row)?.ToString()),
             new CustomTableColumn("Warning", "WARNING", settings.Warning, 9, nameof(LibraryChartRow.WarningDigestText), TextAlignment.Left, row => GetString(row, nameof(LibraryChartRow.WarningDigestText)), tooltipSelector: row => GetString(row, nameof(LibraryChartRow.WarningTooltipText))),
-            new CustomTableColumn("Comment", "COMMENT", settings.Comment, 10, null, TextAlignment.Left, row => GetString(row, "comment"), tooltipSelector: row => GetString(row, "comment"), editPropertyName: "comment", editTextWrapping: true),
-            new CustomTableColumn("Memo", "MEMO", settings.Memo, 11, null, TextAlignment.Left, row => GetString(row, "memo"), tooltipSelector: row => GetString(row, "memo"), editPropertyName: "memo", editTextWrapping: true),
+            new CustomTableColumn("Comment", "COMMENT", settings.Comment, 10, null, TextAlignment.Left, row => GetString(row, "comment"), tooltipSelector: row => GetString(row, "comment"), editPropertyName: "comment", editTextWrapping: true, tooltipTextWidth: WrappedTooltipTextWidth),
+            new CustomTableColumn("Memo", "MEMO", settings.Memo, 11, null, TextAlignment.Left, row => GetString(row, "memo"), tooltipSelector: row => GetString(row, "memo"), editPropertyName: "memo", editTextWrapping: true, tooltipTextWidth: WrappedTooltipTextWidth),
             new CustomTableColumn("Hash", "MD5 HASH", settings.Hash, 12, "hash", TextAlignment.Center, row => GetString(row, "hash"), maxWidth: 240),
             new CustomTableColumn("Sha256", "SHA256 HASH", settings.Sha256, 13, "sha256", TextAlignment.Center, row => GetString(row, "sha256"), maxWidth: 480),
             new CustomTableColumn("Folder", "FOLDER", settings.Folder, 14, "Folder", TextAlignment.Left, row => GetString(row, "Folder"), editPropertyName: "Folder"),
