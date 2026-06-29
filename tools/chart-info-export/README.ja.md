@@ -35,7 +35,7 @@ dotnet run --project tools/chart-info-export -- `
 
 ```powershell
 dotnet run --project tools/chart-info-export -- `
-  --source "D:\LR2beta3\LR2files\Database\song.db" `
+  --source "D:\OpenLR2\LR2files\Database\song.db" `
   --out artifacts\chart-info-metadata\latest\chart-info-metadata.db `
   --archive-out artifacts\chart-info-metadata\latest\chart-info-metadata.7z
 ```
@@ -46,7 +46,7 @@ dotnet run --project tools/chart-info-export -- `
 
 ```powershell
 dotnet run --project tools/chart-info-export -- `
-  --source "D:\LR2beta3\LR2files\Database\song.db" `
+  --source "D:\OpenLR2\LR2files\Database\song.db" `
   --out artifacts\chart-info-metadata\latest\chart-info-metadata.db `
   --archive-out artifacts\chart-info-metadata\latest\chart-info-metadata.7z `
   --sevenzip "C:\Program Files\7-Zip\7z.exe"
