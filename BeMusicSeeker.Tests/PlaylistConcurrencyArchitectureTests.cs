@@ -75,16 +75,29 @@ public sealed class PlaylistConcurrencyArchitectureTests
     {
         string source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
         string drainMethod = ExtractMethodBody(source, "private async Task DrainExternalPlaylistImportQueueAsync");
-        string importMethod = ExtractMethodBody(source, "private async Task<ExternalPlaylistImportOutcome> ImportExternalPlaylistBMSTableCoreAsync");
+        string completionMethod = ExtractMethodBody(source, "private void CompleteImportedPlaylistRegistrations");
+        string duplicatePreparationMethod = ExtractMethodBody(source, "private List<ExternalPlaylistImportWorkItem> PrepareExternalPlaylistImportRegistrationItems");
+        string duplicateSkipMethod = ExtractMethodBody(source, "private static void RecordExternalPlaylistImportDuplicateNameSkip");
 
         StringAssert.Contains(drainMethod, ".ConfigureAwait(false)");
-        StringAssert.Contains(importMethod, "await tables.RegistrateExternalTableAsync(uri).ConfigureAwait(false)");
-        StringAssert.Contains(importMethod, "if (!tables.ContainsBMSTable(table))");
-        StringAssert.Contains(importMethod, "files.AddReferenceBMSTables(table);");
-        StringAssert.Contains(importMethod, "files.RemoveReferenceBMSTables(table);");
-        StringAssert.Contains(importMethod, "QueuePlaylistSummaryRefreshIfVisible(\"playlist_registered\", invalidateTableCountCache: true)");
+        StringAssert.Contains(drainMethod, "externalPlaylistImportQueue.DequeueBatch()");
+        StringAssert.Contains(drainMethod, "await tables.LoadExternalTableSnapshotsAsync(");
+        StringAssert.Contains(drainMethod, "schedulePlaylistUrlCompletionRefresh: false");
+        StringAssert.Contains(drainMethod, "await tables.RegistrateExternalTablesAsync(");
+        StringAssert.Contains(drainMethod, "catch (PlaylistAlreadyExistsException ex)");
+        StringAssert.Contains(drainMethod, "RecordExternalPlaylistImportDuplicateNameSkip(item, ex.PlaylistName, ex, outcomes)");
+        StringAssert.Contains(drainMethod, "Playlist_import_progress_phase_check_duplicates");
+        StringAssert.Contains(drainMethod, "Playlist_import_progress_phase_update_references");
+        StringAssert.Contains(drainMethod, "PlaylistSyncAttemptResult.CreateFailure(item.LoadedTable, item.LoadedTable, item.Uri, referenceUpdateException)");
+        StringAssert.Contains(completionMethod, "files.AddReferenceBMSTablesIncremental(tableList);");
+        StringAssert.Contains(completionMethod, "QueuePlaylistSummaryRefreshIfVisible(reason ?? \"playlist_registered\", invalidateTableCountCache: true)");
+        StringAssert.Contains(duplicatePreparationMethod, "GetExternalPlaylistImportExistingNamesSnapshot()");
+        StringAssert.Contains(duplicateSkipMethod, "ExternalPlaylistImportOutcome.SkippedDuplicateName");
         Assert.IsFalse(
-            importMethod.Contains("tables.AcquireReaderLockBMSTables();"),
+            drainMethod.Contains("await tables.RegistrateExternalTableAsync("),
+            "Bulk URL import should not serialize external requests through the single-table registration API.");
+        Assert.IsFalse(
+            completionMethod.Contains("tables.AcquireReaderLockBMSTables();"),
             "Import reference index updates must not hold the playlist collection reader lock while scanning library state.");
     }
 
@@ -93,7 +106,7 @@ public sealed class PlaylistConcurrencyArchitectureTests
     {
         string source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
         string importMethod = ExtractMethodBody(source, "private async Task ImportBeatorajaTableUrlsAsync");
-        string completionMethod = ExtractMethodBody(source, "private void CompleteImportedBeatorajaTableRegistrations");
+        string completionMethod = ExtractMethodBody(source, "private void CompleteImportedPlaylistRegistrations");
 
         StringAssert.Contains(importMethod, "await tables.LoadExternalTableSnapshotsAsync(");
         StringAssert.Contains(importMethod, "schedulePlaylistUrlCompletionRefresh: false");

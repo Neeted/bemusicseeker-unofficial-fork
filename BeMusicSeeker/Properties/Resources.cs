@@ -358,6 +358,16 @@ public class Resources
 
     public static string Playlist_import_progress_single_label => ResourceManager.GetString("Playlist_import_progress_single_label", resourceCulture);
 
+    public static string Playlist_import_progress_phase_load_tables => ResourceManager.GetString("Playlist_import_progress_phase_load_tables", resourceCulture);
+
+    public static string Playlist_import_progress_phase_check_duplicates => ResourceManager.GetString("Playlist_import_progress_phase_check_duplicates", resourceCulture);
+
+    public static string Playlist_import_progress_phase_register_playlists => ResourceManager.GetString("Playlist_import_progress_phase_register_playlists", resourceCulture);
+
+    public static string Playlist_import_progress_phase_update_references => ResourceManager.GetString("Playlist_import_progress_phase_update_references", resourceCulture);
+
+    public static string Playlist_import_progress_phase_finish => ResourceManager.GetString("Playlist_import_progress_phase_finish", resourceCulture);
+
     public static string Beatoraja_table_url_import_progress_label_format => ResourceManager.GetString("Beatoraja_table_url_import_progress_label_format", resourceCulture);
 
     public static string Beatoraja_table_url_import_progress_single_label => ResourceManager.GetString("Beatoraja_table_url_import_progress_single_label", resourceCulture);

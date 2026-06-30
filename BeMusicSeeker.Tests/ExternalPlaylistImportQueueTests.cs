@@ -58,6 +58,25 @@ public sealed class ExternalPlaylistImportQueueTests
     }
 
     [TestMethod]
+    public void DequeueBatch_DrainsCurrentBatchAndKeepsDrainActiveUntilEmptyBatch()
+    {
+        var queue = new ExternalPlaylistImportQueue();
+        var first = new Uri("https://example.com/batch-first");
+        var second = new Uri("https://example.com/batch-second");
+        var third = new Uri("https://example.com/batch-third");
+
+        Assert.IsTrue(queue.EnqueueRange([first, second]));
+
+        CollectionAssert.AreEqual(new[] { first, second }, queue.DequeueBatch().ToArray());
+        Assert.AreEqual(0, queue.PendingCount);
+        Assert.IsFalse(queue.Enqueue(third));
+
+        CollectionAssert.AreEqual(new[] { third }, queue.DequeueBatch().ToArray());
+        CollectionAssert.AreEqual(Array.Empty<Uri>(), queue.DequeueBatch().ToArray());
+        Assert.IsTrue(queue.Enqueue(first));
+    }
+
+    [TestMethod]
     public void EnqueueRange_IgnoresEmptyAndNullEntries()
     {
         var queue = new ExternalPlaylistImportQueue();

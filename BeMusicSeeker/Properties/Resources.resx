@@ -1352,6 +1352,21 @@ BMSファイルが重複しないようにマージします。
   <data name="Playlist_import_progress_single_label" xml:space="preserve">
     <value>外部表インポート</value>
   </data>
+  <data name="Playlist_import_progress_phase_load_tables" xml:space="preserve">
+    <value>難易度表を読み込み中</value>
+  </data>
+  <data name="Playlist_import_progress_phase_check_duplicates" xml:space="preserve">
+    <value>重複プレイリスト名を確認中</value>
+  </data>
+  <data name="Playlist_import_progress_phase_register_playlists" xml:space="preserve">
+    <value>プレイリストを登録中</value>
+  </data>
+  <data name="Playlist_import_progress_phase_update_references" xml:space="preserve">
+    <value>ライブラリ参照を更新中</value>
+  </data>
+  <data name="Playlist_import_progress_phase_finish" xml:space="preserve">
+    <value>完了処理中</value>
+  </data>
   <data name="Beatoraja_table_url_import_progress_label_format" xml:space="preserve">
     <value>beatoraja Table URL インポート {0}/{1}</value>
   </data>

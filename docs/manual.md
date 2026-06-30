@@ -598,7 +598,7 @@ The default difficulty table list retrieval URI is managed by [DARKSABUN](https:
 
 Import menus such as external table lists and recommend tables **do not close when you click a single item, so you can select and import multiple tables in sequence.**
 
-In `Load by specifying URL`, you can enter destination URIs across multiple lines. If you paste multiple difficulty table URLs at once, each line is treated as a load target.
+In `Load by specifying URL`, you can enter destination URIs across multiple lines. If you paste multiple difficulty table URLs at once, each line is treated as a load target, and external loading plus post-registration work are processed in batches. If a playlist with the same name already exists, that URL is skipped and the result dialog shows the skipped count and names after processing finishes.
 
 Externally synced playlists can be updated by re-fetching the original difficulty table. After importing, check the sync result in the playlist summary `STATUS` column.
 

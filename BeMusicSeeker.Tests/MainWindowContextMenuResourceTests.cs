@@ -531,6 +531,11 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(dialogXaml, "HorizontalScrollBarVisibility=\"Auto\"");
         StringAssert.Contains(resources, "Playlist_import_progress_label_format");
         StringAssert.Contains(resources, "Playlist_import_progress_single_label");
+        StringAssert.Contains(resources, "Playlist_import_progress_phase_load_tables");
+        StringAssert.Contains(resources, "Playlist_import_progress_phase_check_duplicates");
+        StringAssert.Contains(resources, "Playlist_import_progress_phase_register_playlists");
+        StringAssert.Contains(resources, "Playlist_import_progress_phase_update_references");
+        StringAssert.Contains(resources, "Playlist_import_progress_phase_finish");
         StringAssert.Contains(resources, "Playlist_uri_input_no_valid_uri");
         StringAssert.Contains(resources, "Playlist_uri_input_invalid_lines_format");
         foreach (string languageFile in Directory.GetFiles(Path.Combine(root, "lang"), "*.json"))
@@ -538,6 +543,11 @@ public sealed class MainWindowContextMenuResourceTests
             string languageJson = File.ReadAllText(languageFile);
             StringAssert.Contains(languageJson, "\"Playlist_import_progress_label_format\"");
             StringAssert.Contains(languageJson, "\"Playlist_import_progress_single_label\"");
+            StringAssert.Contains(languageJson, "\"Playlist_import_progress_phase_load_tables\"");
+            StringAssert.Contains(languageJson, "\"Playlist_import_progress_phase_check_duplicates\"");
+            StringAssert.Contains(languageJson, "\"Playlist_import_progress_phase_register_playlists\"");
+            StringAssert.Contains(languageJson, "\"Playlist_import_progress_phase_update_references\"");
+            StringAssert.Contains(languageJson, "\"Playlist_import_progress_phase_finish\"");
             StringAssert.Contains(languageJson, "\"Playlist_uri_input_no_valid_uri\"");
             StringAssert.Contains(languageJson, "\"Playlist_uri_input_invalid_lines_format\"");
         }

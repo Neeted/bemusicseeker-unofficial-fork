@@ -127,4 +127,19 @@ internal sealed class ExternalPlaylistImportQueue
             return false;
         }
     }
+
+    internal IReadOnlyList<Uri> DequeueBatch()
+    {
+        lock (syncRoot)
+        {
+            if (pendingUris.Count == 0)
+            {
+                isDraining = false;
+                return [];
+            }
+            List<Uri> batch = [.. pendingUris];
+            pendingUris.Clear();
+            return batch;
+        }
+    }
 }
