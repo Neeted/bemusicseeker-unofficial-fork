@@ -17,7 +17,7 @@ public sealed class ReleaseScriptVersionSourceTests
         StringAssert.Contains(releaseScript, "function Write-PublicVersionText");
         StringAssert.Contains(releaseScript, "Write-PublicVersionText $context");
         StringAssert.Contains(releaseScript, "Assert-HeadMatchesReleaseTag $context.Tag");
-        StringAssert.Contains(releaseScript, "Assert-RawReleaseFilesPublished $context");
+        StringAssert.Contains(releaseScript, "Assert-RemoteBranchMatchesLocalHead");
         StringAssert.Contains(releaseScript, "AssemblyInformationalVersion");
         AssertNoLocalVersionTxtRead(releaseScript, "release.ps1");
 
@@ -29,7 +29,7 @@ public sealed class ReleaseScriptVersionSourceTests
             "Assert-ReleaseAssetsMatchLocal $context",
             "gh release edit $context.Tag --draft=false",
             "git push origin \"HEAD:refs/heads/$publicBranch\"",
-            "Assert-RawReleaseFilesPublished $context");
+            "Assert-RemoteBranchMatchesLocalHead");
     }
 
     [TestMethod]

@@ -130,7 +130,7 @@ draft release 用の tag は、新バージョンの公開ファイルを含む 
 5. draft 確認中は default branch を push しないため、raw GitHub の `version.txt` / `update.json` は旧版のまま残る。
 6. release を公開してよいと判断したら、draft release を publish する。
 7. 同じ release commit を default branch へ push する。
-8. raw GitHub に新しい `update.json` / `version.txt` が出ることを確認する。
+8. remote default branch が release commit を指すことを確認する。
 
 この手順なら draft release の asset URL は先に確定し、かつ旧クライアントが draft 確認中に `version.txt` へ反応しない。
 
@@ -145,7 +145,7 @@ draft release 用の tag は、新バージョンの公開ファイルを含む 
 5. draft release の本文、asset、hash / size 候補を確認する。
 6. draft release を publish する。
 7. release commit を public default branch へ push する。
-8. raw GitHub の `update.json` / `version.txt` が新バージョンを返すことを確認する。
+8. remote default branch が release commit を指すことを確認する。
 
 asset URL は tag と file name から決定できるため、通常は release 作成後に API で URL を取得しなくてもよい。
 
@@ -214,9 +214,9 @@ gh release edit $tag --title $tag --notes-file $releaseNotesPath
 - GitHub Release が存在する。
 - remote tag、local tag、現在の HEAD が同じ release commit を指す。
 - candidate `update.json` の asset name / size が現在の release asset と一致する。
-- GitHub Release が draft 状態なら publish する。既に公開済みの場合は raw 反映の再試行として扱う。
+- GitHub Release が draft 状態なら publish する。既に公開済みの場合は公開ブランチへの反映を確認する。
 - 同じ release commit を public default branch へ push する。
-- push 後に raw GitHub の `update.json` / `version.txt` が新バージョンを返すことを確認する。
+- push 後に remote default branch が release commit を指すことを確認する。
 
 draft 作成と公開シグナル反映を分けるため、release script は次のような入口に整理する。
 
@@ -459,7 +459,7 @@ rollback は backup を元の本体ディレクトリへ戻す。rollback 自体
   - [ ] `publish.ps1` が `BeMusicSeeker.Updater.exe` を release zip root へ同梱する。
   - [ ] `release.ps1 -CreateDraft` が release commit / tag / draft release / release notes / assets を処理できる。
   - [ ] `release.ps1 -CreateDraft` が branch push を行わず、tag だけ push する。
-  - [ ] `release.ps1 -PublishDraft` が draft publish、public default branch push、raw 反映確認を処理できる。
+  - [ ] `release.ps1 -PublishDraft` が draft publish、public default branch push、remote branch 反映確認を処理できる。
   - [ ] `release.ps1 -PublishDraft` が remote tag commit、現在の HEAD と tag の一致、release asset name / size を検証する。
   - [ ] draft 確認中に public raw の `update.json` / `version.txt` が進まないことを確認済み。
 - [ ] Unit 2: Update Check Read Model
@@ -701,7 +701,7 @@ scripts\Test-PortableUpdate.ps1
 - ダウンロード済み zip は更新成功後に削除する。
 - backup は 1 世代だけ保持する。
 - 更新チェックは `update.json` 専用とし、`update.json` が壊れている場合は更新チェック失敗として扱う。
-- draft release 作成時は release commit に tag を打ち、tag だけ push する。公開時は draft release を publish してから public default branch を push し、raw `update.json` / `version.txt` を確認する。
+- draft release 作成時は release commit に tag を打ち、tag だけ push する。公開時は draft release を publish してから public default branch を push し、remote default branch が release commit を指すことを確認する。
 - updater は `update_work/current/` へコピーしたものを実行する。
 - local update verification 用 override は command-line switch `--update-manifest-url` のみにする。
 - `CanApplyUpdateNow` は update dialog view model 側の derived state とし、`!IsStartupProgressActive` を基本条件にする。

@@ -132,11 +132,11 @@ updater は `--pid` の終了を最大 60 秒待つ。
 - GitHub Release が存在することを確認
 - remote tag、local tag、現在の HEAD が同じ release commit を指すことを確認
 - GitHub Release asset の名前と size が `update.json` 作成元の local zip と一致することを確認
-- GitHub Release が draft 状態なら publish する。既に公開済みの場合は raw 反映の再試行として扱う
+- GitHub Release が draft 状態なら publish する。既に公開済みの場合は公開ブランチへの反映を確認する
 - release commit を `origin/main` へ push
 - remote `main` が release commit を指すことを確認
-- raw GitHub の `update.json.version` / `releaseTag` と `version.txt` が新バージョンを返すことを確認
 
-この順序により、raw GitHub の `update.json` が未公開の Release asset を指す状態を避ける。
+この順序により、`origin/main` の `update.json` が未公開の Release asset を指す状態を避ける。
+`raw.githubusercontent.com` は GitHub 側のキャッシュやブランチ参照の反映遅延により、release commit を push した直後に古い内容を返すことがあるため、publish 成功判定には使わない。
 
 既存 draft を更新する場合、今回の local zip に存在しない余剰 Release asset は削除してから asset を再アップロードする。これにより、古い metadata 同梱 zip などが draft に残ったまま publish されることを避ける。

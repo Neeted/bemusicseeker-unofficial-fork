@@ -27,7 +27,7 @@
     -PublishDraft:
       1. Release、tag、現在の HEAD が同じ release commit を指すことを確認
       2. draft Release を publish して release asset を公開
-      3. 同じリリースコミットを公開ブランチへ push し、raw GitHub の update.json/version.txt が新バージョンを返すことを確認
+      3. 同じリリースコミットを公開ブランチへ push し、origin/main が release commit を指すことを確認
 #>
 param(
     [switch]$CreateDraft,
@@ -296,53 +296,6 @@ function Write-PublicVersionText($context) {
     Write-Host "  version.txt を生成: $versionPath" -ForegroundColor Green
 }
 
-function Get-RawPublicFileUrl($relativePath) {
-    $escapedPath = (($relativePath -split '[\\/]') | ForEach-Object { [uri]::EscapeDataString($_) }) -join "/"
-    $cacheBuster = [uri]::EscapeDataString((Get-Date).ToUniversalTime().Ticks.ToString())
-    return "https://raw.githubusercontent.com/$publicRepoOwner/$publicRepoName/$publicBranch/$escapedPath`?cb=$cacheBuster"
-}
-
-function Get-RawPublicFileText($relativePath) {
-    $url = Get-RawPublicFileUrl $relativePath
-    try {
-        $response = Invoke-WebRequest -Uri $url -Headers @{ "Cache-Control" = "no-cache"; "Pragma" = "no-cache" }
-    }
-    catch {
-        throw "raw GitHub の取得に失敗しました: $url`n$($_.Exception.Message)"
-    }
-
-    if ($response.StatusCode -lt 200 -or $response.StatusCode -ge 300) {
-        throw "raw GitHub が成功ステータスを返しませんでした: $url status=$($response.StatusCode)"
-    }
-    return [string]$response.Content
-}
-
-function Assert-RawReleaseFilesPublished($context) {
-    Write-Host "  raw GitHub の update.json/version.txt 反映を確認中..."
-
-    $manifestText = Get-RawPublicFileText "update.json"
-    try {
-        $manifest = $manifestText | ConvertFrom-Json
-    }
-    catch {
-        throw "raw update.json の JSON parse に失敗しました。`n$($_.Exception.Message)"
-    }
-
-    if ($manifest.version -ne $context.Version) {
-        throw "raw update.json の version が期待値と一致しません: actual=$($manifest.version) expected=$($context.Version)"
-    }
-    if ($manifest.releaseTag -ne $context.Tag) {
-        throw "raw update.json の releaseTag が期待値と一致しません: actual=$($manifest.releaseTag) expected=$($context.Tag)"
-    }
-
-    $versionText = (Get-RawPublicFileText "version.txt").Trim()
-    if ($versionText -ne $context.Version) {
-        throw "raw version.txt が期待値と一致しません: actual=$versionText expected=$($context.Version)"
-    }
-
-    Write-Host "  raw GitHub 反映 OK" -ForegroundColor Green
-}
-
 function Assert-UpdateManifestCanBeGenerated($context) {
     $assetMetadata = @($context.ReleaseAssets | ForEach-Object { Get-ReleaseAssetMetadata $_ $context })
     if (-not ($assetMetadata | Where-Object { $_.kind -eq "app" })) {
@@ -400,17 +353,17 @@ function Assert-ReleaseAssetsMatchLocal($context) {
     $remoteAssets = @((($remoteAssetsJson | ConvertFrom-Json).assets) | Sort-Object name)
     $expectedAssets = @($context.ReleaseAssets | Sort-Object Name)
     if ($remoteAssets.Count -ne $expectedAssets.Count) {
-        throw "GitHub Release asset 数が update.json と一致しません: remote=$($remoteAssets.Count) expected=$($expectedAssets.Count)"
+        throw "GitHub Release asset 数が local zip と一致しません: remote=$($remoteAssets.Count) expected=$($expectedAssets.Count)"
     }
 
     for ($i = 0; $i -lt $expectedAssets.Count; $i++) {
         $expected = $expectedAssets[$i]
         $remote = $remoteAssets[$i]
         if ($remote.name -ne $expected.Name) {
-            throw "GitHub Release asset 名が update.json と一致しません: remote=$($remote.name) expected=$($expected.Name)"
+            throw "GitHub Release asset 名が local zip と一致しません: remote=$($remote.name) expected=$($expected.Name)"
         }
         if ([int64]$remote.size -ne [int64]$expected.Length) {
-            throw "GitHub Release asset size が update.json と一致しません: $($expected.Name)"
+            throw "GitHub Release asset size が local zip と一致しません: $($expected.Name)"
         }
     }
 }
@@ -743,16 +696,15 @@ function Invoke-PublishDraft($context) {
         if ($LASTEXITCODE -ne 0) { throw "GitHub Release draft の publish に失敗しました。" }
     }
     else {
-        Write-Host "  GitHub Release は既に公開済みです。raw update.json/version.txt の反映を再試行します。" -ForegroundColor Yellow
+        Write-Host "  GitHub Release は既に公開済みです。公開ブランチへの反映を確認します。" -ForegroundColor Yellow
     }
 
     Write-Host "  リリースコミットを公開ブランチへ push します..."
     git push origin "HEAD:refs/heads/$publicBranch"
     if ($LASTEXITCODE -ne 0) { throw "公開ブランチへの push に失敗しました。" }
     Assert-RemoteBranchMatchesLocalHead
-    Assert-RawReleaseFilesPublished $context
 
-    Write-Host "  Release と raw update.json/version.txt の公開が完了しました。" -ForegroundColor Green
+    Write-Host "  Release と公開ブランチへの反映が完了しました。" -ForegroundColor Green
 }
 
 Write-Host "=== ステップ 0: 前提条件の確認 ===" -ForegroundColor Cyan
