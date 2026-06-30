@@ -253,7 +253,7 @@
                       </TextBox>
                       <Label Height="28" DockPanel.Dock="Right" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.FilePath_beatoraja_root, Mode=OneWay}" />
                     </DockPanel>
-                    <Button Height="24" Margin="0,2,0,4" Padding="12,0" HorizontalAlignment="Right" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Import_beatoraja_table_urls_button, Mode=OneWay}" Click="importBeatorajaTableUrlsButtonClick" />
+                    <Button Height="24" Margin="0,2,0,4" Padding="12,0" HorizontalAlignment="Center" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Import_beatoraja_table_urls_button, Mode=OneWay}" Click="importBeatorajaTableUrlsButtonClick" />
                     <CheckBox Height="20" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Use_beatoraja_scoreDB, Mode=OneWay}" IsChecked="{Binding settingDialog.UseBeatorajaScoreDb}" />
                     <DockPanel LastChildFill="False">
                       <ComboBox Width="160" Height="24" DockPanel.Dock="Right" IsEnabled="{Binding settingDialog.UseBeatorajaScoreDb}" ItemsSource="{Binding settingDialog.AvailableBeatorajaPlayers}" SelectedItem="{Binding settingDialog.BeatorajaPlayerId}" />
