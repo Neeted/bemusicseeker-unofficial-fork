@@ -222,6 +222,8 @@ internal static class BmtTableExportService
         public int SkippedWriteCount { get; internal set; }
 
         public int RemovedCount { get; internal set; }
+
+        public bool Changed => WrittenCount > 0 || RemovedCount > 0;
     }
 
     internal sealed class SongHashResolution(string md5, string sha256)
@@ -306,10 +308,17 @@ internal static class BmtTableExportService
             if (!string.IsNullOrWhiteSpace(metadata.PlaylistIdentity))
             {
                 plan.MetadataByPlaylistIdentity[metadata.PlaylistIdentity] = metadata;
+                if (!string.IsNullOrWhiteSpace(metadata.Url))
+                {
+                    plan.CurrentPlaylists[metadata.PlaylistIdentity] = CreateManifestPlaylistEntry(metadata, null, null);
+                }
             }
             if (ShouldSkipProjection(tablePath, previousManifest, metadata, out ManifestPlaylistEntry previousEntry))
             {
-                plan.CurrentFiles.Add(metadata.FileName);
+                if (!string.IsNullOrWhiteSpace(previousEntry.FileName))
+                {
+                    plan.CurrentFiles.Add(previousEntry.FileName);
+                }
                 plan.CurrentPlaylists[metadata.PlaylistIdentity] = previousEntry;
                 plan.SkippedWriteCount++;
             }
@@ -593,12 +602,52 @@ internal static class BmtTableExportService
             if (manifest.Playlists.TryGetValue(playlistIdentity, out ManifestPlaylistEntry oldEntry))
             {
                 manifest.Playlists.Remove(playlistIdentity);
-                if (!IsManagedFileReferenced(manifest.Playlists, oldEntry.FileName))
+                if (!string.IsNullOrWhiteSpace(oldEntry.FileName) && !IsManagedFileReferenced(manifest.Playlists, oldEntry.FileName))
                 {
                     manifest.Files.Remove(oldEntry.FileName);
                     TryDeleteFile(Path.Combine(tablePath, oldEntry.FileName));
                     result.RemovedCount++;
                 }
+                WriteManifest(tablePath, manifest.Files, manifest.Playlists);
+            }
+            result.CurrentManagedTables.AddRange(manifest.Playlists.Values.Select(CloneManagedTableUrlEntry));
+        }
+        return result;
+    }
+
+    internal static ExportResult UpdateManagedPlaylistUrlOwnership(string tablePath, PlaylistExportMetadata metadata)
+    {
+        var result = new ExportResult();
+        if (string.IsNullOrWhiteSpace(tablePath)
+            || string.IsNullOrWhiteSpace(metadata?.PlaylistIdentity)
+            || string.IsNullOrWhiteSpace(metadata.Url))
+        {
+            return result;
+        }
+        LongPathFileSystem.CreateDirectory(tablePath);
+        lock (ManifestLock)
+        {
+            ManifestState manifest = ReadManifest(tablePath);
+            result.PreviousManagedTables.AddRange(manifest.Playlists.Values.Select(CloneManagedTableUrlEntry));
+            ManifestPlaylistEntry newEntry = CreateManifestPlaylistEntry(metadata, null, null);
+            bool changed = true;
+            if (manifest.Playlists.TryGetValue(metadata.PlaylistIdentity, out ManifestPlaylistEntry oldEntry)
+                && IsUrlOwnershipEntryMatch(oldEntry, newEntry))
+            {
+                changed = false;
+            }
+            if (changed
+                && oldEntry != null
+                && !string.IsNullOrWhiteSpace(oldEntry.FileName)
+                && !IsManagedFileReferencedExcept(manifest.Playlists, oldEntry.FileName, metadata.PlaylistIdentity))
+            {
+                manifest.Files.Remove(oldEntry.FileName);
+                TryDeleteFile(Path.Combine(tablePath, oldEntry.FileName));
+                result.RemovedCount++;
+            }
+            if (changed)
+            {
+                manifest.Playlists[metadata.PlaylistIdentity] = newEntry;
                 WriteManifest(tablePath, manifest.Files, manifest.Playlists);
             }
             result.CurrentManagedTables.AddRange(manifest.Playlists.Values.Select(CloneManagedTableUrlEntry));
@@ -1189,6 +1238,7 @@ internal static class BmtTableExportService
         {
             ManifestState previous = ReadManifest(tablePath);
             result.PreviousManagedTables.AddRange(previous.Playlists.Values.Select(CloneManagedTableUrlEntry));
+            currentFiles ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             if (cleanupStaleManagedFiles)
             {
                 foreach (string fileName in previous.Files.Where(fileName => !currentFiles.Contains(fileName)))
@@ -1250,6 +1300,10 @@ internal static class BmtTableExportService
         {
             return false;
         }
+        if (string.IsNullOrWhiteSpace(previousEntry.FileName))
+        {
+            return true;
+        }
         string outputPath = Path.Combine(tablePath, metadata.FileName);
         BmtFileState fileState = ReadBmtFileState(outputPath);
         return fileState != null
@@ -1270,13 +1324,28 @@ internal static class BmtTableExportService
     {
         return entry != null
             && metadata != null
-            && string.Equals(entry.FileName, metadata.FileName, StringComparison.OrdinalIgnoreCase)
+            && (string.IsNullOrWhiteSpace(entry.FileName)
+                || string.Equals(entry.FileName, metadata.FileName, StringComparison.OrdinalIgnoreCase))
             && string.Equals(entry.Url, metadata.Url ?? string.Empty, StringComparison.Ordinal)
             && string.Equals(entry.Name, metadata.Name ?? string.Empty, StringComparison.Ordinal)
             && string.Equals(entry.HeaderSha256, metadata.HeaderSha256 ?? string.Empty, StringComparison.Ordinal)
             && string.Equals(entry.DataSha256, metadata.DataSha256 ?? string.Empty, StringComparison.Ordinal)
             && entry.LastUpdateTicks == metadata.LastUpdateTicks
             && string.Equals(entry.ProjectionInputSha256, metadata.ProjectionInputSha256 ?? string.Empty, StringComparison.Ordinal);
+    }
+
+    private static bool IsUrlOwnershipEntryMatch(ManifestPlaylistEntry left, ManifestPlaylistEntry right)
+    {
+        return left != null
+            && right != null
+            && string.IsNullOrWhiteSpace(left.FileName)
+            && string.IsNullOrWhiteSpace(right.FileName)
+            && string.Equals(left.Url, right.Url, StringComparison.Ordinal)
+            && string.Equals(left.Name, right.Name, StringComparison.Ordinal)
+            && string.Equals(left.HeaderSha256, right.HeaderSha256, StringComparison.Ordinal)
+            && string.Equals(left.DataSha256, right.DataSha256, StringComparison.Ordinal)
+            && left.LastUpdateTicks == right.LastUpdateTicks
+            && string.Equals(left.ProjectionInputSha256, right.ProjectionInputSha256, StringComparison.Ordinal);
     }
 
     private static void AddManagedFile(string tablePath, string fileName, PlaylistExportMetadata metadata, BmtFileState fileState)
@@ -1286,12 +1355,10 @@ internal static class BmtTableExportService
             ManifestState manifest = ReadManifest(tablePath);
             if (!string.IsNullOrWhiteSpace(metadata?.PlaylistIdentity)
                 && manifest.Playlists.TryGetValue(metadata.PlaylistIdentity, out ManifestPlaylistEntry oldEntry)
+                && !string.IsNullOrWhiteSpace(oldEntry.FileName)
                 && !string.Equals(oldEntry.FileName, fileName, StringComparison.OrdinalIgnoreCase))
             {
-                bool oldFileStillReferenced = manifest.Playlists
-                    .Where(item => !string.Equals(item.Key, metadata.PlaylistIdentity, StringComparison.Ordinal))
-                    .Any(item => string.Equals(item.Value?.FileName, oldEntry.FileName, StringComparison.OrdinalIgnoreCase));
-                if (!oldFileStillReferenced)
+                if (!IsManagedFileReferencedExcept(manifest.Playlists, oldEntry.FileName, metadata.PlaylistIdentity))
                 {
                     manifest.Files.Remove(oldEntry.FileName);
                     TryDeleteFile(Path.Combine(tablePath, oldEntry.FileName));
@@ -1311,6 +1378,14 @@ internal static class BmtTableExportService
         return !string.IsNullOrWhiteSpace(fileName)
             && (playlists ?? new Dictionary<string, ManifestPlaylistEntry>(StringComparer.Ordinal)).Values
                 .Any(entry => string.Equals(entry?.FileName, fileName, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool IsManagedFileReferencedExcept(IDictionary<string, ManifestPlaylistEntry> playlists, string fileName, string exceptPlaylistIdentity)
+    {
+        return !string.IsNullOrWhiteSpace(fileName)
+            && (playlists ?? new Dictionary<string, ManifestPlaylistEntry>(StringComparer.Ordinal))
+                .Where(item => !string.Equals(item.Key, exceptPlaylistIdentity, StringComparison.Ordinal))
+                .Any(item => string.Equals(item.Value?.FileName, fileName, StringComparison.OrdinalIgnoreCase));
     }
 
     private static BmtFileState ReadBmtFileState(string path)
@@ -1355,12 +1430,14 @@ internal static class BmtTableExportService
                     var value = property.Value as JObject;
                     string fileName = Path.GetFileName(value?.Value<string>("file"));
                     string url = value?.Value<string>("url");
-                    if (!string.IsNullOrWhiteSpace(property.Name) && !string.IsNullOrWhiteSpace(fileName) && fileName.EndsWith(".bmt", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(url))
+                    if (!string.IsNullOrWhiteSpace(property.Name) && !string.IsNullOrWhiteSpace(url))
                     {
                         state.Playlists[property.Name] = new ManifestPlaylistEntry
                         {
                             PlaylistIdentity = property.Name,
-                            FileName = fileName,
+                            FileName = !string.IsNullOrWhiteSpace(fileName) && fileName.EndsWith(".bmt", StringComparison.OrdinalIgnoreCase)
+                                ? fileName
+                                : string.Empty,
                             Url = url,
                             Name = value.Value<string>("name") ?? string.Empty,
                             HeaderSha256 = value.Value<string>("headerSha256") ?? string.Empty,
@@ -1370,7 +1447,10 @@ internal static class BmtTableExportService
                             BmtLastWriteTimeUtcTicks = value.Value<long?>("bmtLastWriteTimeUtcTicks") ?? 0L,
                             BmtLength = value.Value<long?>("bmtLength") ?? 0L
                         };
-                        state.Files.Add(fileName);
+                        if (!string.IsNullOrWhiteSpace(fileName) && fileName.EndsWith(".bmt", StringComparison.OrdinalIgnoreCase))
+                        {
+                            state.Files.Add(fileName);
+                        }
                     }
                 }
             }
@@ -1399,11 +1479,10 @@ internal static class BmtTableExportService
             JObject playlistJson = [];
             foreach (KeyValuePair<string, ManifestPlaylistEntry> item in playlists.OrderBy(item => item.Key, StringComparer.Ordinal))
             {
-                if (!string.IsNullOrWhiteSpace(item.Key) && item.Value != null && !string.IsNullOrWhiteSpace(item.Value.FileName) && !string.IsNullOrWhiteSpace(item.Value.Url))
+                if (!string.IsNullOrWhiteSpace(item.Key) && item.Value != null && !string.IsNullOrWhiteSpace(item.Value.Url))
                 {
-                    playlistJson[item.Key] = new JObject
+                    var playlistEntry = new JObject
                     {
-                        ["file"] = item.Value.FileName,
                         ["url"] = item.Value.Url,
                         ["name"] = item.Value.Name ?? string.Empty,
                         ["headerSha256"] = item.Value.HeaderSha256 ?? string.Empty,
@@ -1413,6 +1492,11 @@ internal static class BmtTableExportService
                         ["bmtLastWriteTimeUtcTicks"] = item.Value.BmtLastWriteTimeUtcTicks,
                         ["bmtLength"] = item.Value.BmtLength
                     };
+                    if (!string.IsNullOrWhiteSpace(item.Value.FileName))
+                    {
+                        playlistEntry["file"] = item.Value.FileName;
+                    }
+                    playlistJson[item.Key] = playlistEntry;
                 }
             }
             manifest["playlists"] = playlistJson;

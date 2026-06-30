@@ -1719,10 +1719,18 @@ public partial class BMSPlaylist : NotificationObject
                         BmtTableExportService.ExportTableData(tablePath, tableData, currentMetadata);
                         SyncBeatorajaManagedTableUrls(tablePath, previousManagedTables, BmtTableExportService.ReadManagedTableUrls(tablePath));
                     }
-                    else if (currentTable == null || !IsBeatorajaBmtOutputTarget(currentTable) || (tableData == null && preparedSnapshotIsCurrent))
+                    else if (currentTable == null || !IsBeatorajaBmtOutputTarget(currentTable))
                     {
                         BmtTableExportService.ExportResult exportResult = BmtTableExportService.RemoveManagedPlaylist(tablePath, playlistId.ToString(CultureInfo.InvariantCulture));
                         SyncBeatorajaManagedTableUrls(tablePath, exportResult.PreviousManagedTables, exportResult.CurrentManagedTables);
+                    }
+                    else if (tableData == null && preparedSnapshotIsCurrent)
+                    {
+                        BmtTableExportService.ExportResult exportResult = BmtTableExportService.UpdateManagedPlaylistUrlOwnership(tablePath, currentMetadata);
+                        if (exportResult.Changed)
+                        {
+                            SyncBeatorajaManagedTableUrls(tablePath, exportResult.PreviousManagedTables, exportResult.CurrentManagedTables);
+                        }
                     }
                     else
                     {

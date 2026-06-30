@@ -44,6 +44,243 @@ public sealed class BmtTableExportServiceTests
     }
 
     [TestMethod]
+    public void ExportTableDataSet_KeepsManagedUrlOwnershipWhenPlaylistCannotProduceBmt()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectory)
+        {
+            string url = "https://example.com/empty-table";
+            BmtTableExportService.PlaylistExportMetadata metadata = CreateExportMetadata("1", url, "Empty Table");
+            BmtTableExportService.ExportPlan exportPlan = BmtTableExportService.CreateExportPlan(
+                tempDirectory,
+                [metadata],
+                cleanupStaleManagedFiles: true);
+
+            BmtTableExportService.ExportResult result = BmtTableExportService.ExportTableDataSet(
+                tempDirectory,
+                Array.Empty<Tuple<string, JObject>>(),
+                exportPlan,
+                progressReporter: null);
+
+            JObject manifest = JObject.Parse(File.ReadAllText(Path.Combine(tempDirectory, BmtTableExportService.ManifestFileName), Encoding.UTF8));
+            JObject playlist = (JObject)manifest["playlists"]!["1"]!;
+            Assert.AreEqual(url, playlist.Value<string>("url"));
+            Assert.AreEqual("Empty Table", playlist.Value<string>("name"));
+            Assert.IsNull(playlist["file"]);
+            Assert.AreEqual(0, manifest["files"]!.Count());
+            Assert.AreEqual(1, result.CurrentManagedTables.Count);
+            Assert.AreEqual(url, result.CurrentManagedTables[0].Url);
+        });
+    }
+
+    [TestMethod]
+    public void ExportTableDataSet_RemovesStaleBmtButKeepsManagedUrlOwnershipWhenPlaylistBecomesEmpty()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectory)
+        {
+            string url = "https://example.com/empty-table";
+            string staleFileName = BMSTable.ComputeSha256Hex(url) + ".bmt";
+            File.WriteAllText(Path.Combine(tempDirectory, staleFileName), "stale");
+            File.WriteAllText(Path.Combine(tempDirectory, BmtTableExportService.ManifestFileName), new JObject
+            {
+                ["schemaVersion"] = 2,
+                ["exporterVersion"] = 1,
+                ["files"] = new JArray(staleFileName),
+                ["playlists"] = new JObject
+                {
+                    ["1"] = new JObject
+                    {
+                        ["file"] = staleFileName,
+                        ["url"] = url,
+                        ["name"] = "Empty Table",
+                        ["headerSha256"] = "old-header",
+                        ["dataSha256"] = "old-data",
+                        ["lastUpdateTicks"] = 1,
+                        ["projectionInputSha256"] = "old-projection",
+                        ["bmtLastWriteTimeUtcTicks"] = 1,
+                        ["bmtLength"] = 5
+                    }
+                }
+            }.ToString(), Encoding.UTF8);
+            BmtTableExportService.PlaylistExportMetadata metadata = CreateExportMetadata("1", url, "Empty Table");
+            BmtTableExportService.ExportPlan exportPlan = BmtTableExportService.CreateExportPlan(
+                tempDirectory,
+                [metadata],
+                cleanupStaleManagedFiles: true);
+
+            BmtTableExportService.ExportResult result = BmtTableExportService.ExportTableDataSet(
+                tempDirectory,
+                Array.Empty<Tuple<string, JObject>>(),
+                exportPlan,
+                progressReporter: null);
+
+            JObject manifest = JObject.Parse(File.ReadAllText(Path.Combine(tempDirectory, BmtTableExportService.ManifestFileName), Encoding.UTF8));
+            JObject playlist = (JObject)manifest["playlists"]!["1"]!;
+            Assert.IsFalse(File.Exists(Path.Combine(tempDirectory, staleFileName)));
+            Assert.AreEqual(1, result.RemovedCount);
+            Assert.AreEqual(url, playlist.Value<string>("url"));
+            Assert.IsNull(playlist["file"]);
+            Assert.AreEqual(0, manifest["files"]!.Count());
+        });
+    }
+
+    [TestMethod]
+    public void UpdateManagedPlaylistUrlOwnership_RemovesStaleBmtButKeepsManagedUrl()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectory)
+        {
+            string url = "https://example.com/empty-table";
+            string staleFileName = BMSTable.ComputeSha256Hex(url) + ".bmt";
+            File.WriteAllText(Path.Combine(tempDirectory, staleFileName), "stale");
+            File.WriteAllText(Path.Combine(tempDirectory, BmtTableExportService.ManifestFileName), new JObject
+            {
+                ["schemaVersion"] = 2,
+                ["exporterVersion"] = 1,
+                ["files"] = new JArray(staleFileName),
+                ["playlists"] = new JObject
+                {
+                    ["1"] = new JObject
+                    {
+                        ["file"] = staleFileName,
+                        ["url"] = url,
+                        ["name"] = "Old Table"
+                    }
+                }
+            }.ToString(), Encoding.UTF8);
+            BmtTableExportService.PlaylistExportMetadata metadata = CreateExportMetadata("1", url, "Empty Table");
+
+            BmtTableExportService.ExportResult result = BmtTableExportService.UpdateManagedPlaylistUrlOwnership(tempDirectory, metadata);
+
+            JObject manifest = JObject.Parse(File.ReadAllText(Path.Combine(tempDirectory, BmtTableExportService.ManifestFileName), Encoding.UTF8));
+            JObject playlist = (JObject)manifest["playlists"]!["1"]!;
+            Assert.IsFalse(File.Exists(Path.Combine(tempDirectory, staleFileName)));
+            Assert.AreEqual(1, result.RemovedCount);
+            Assert.AreEqual(url, playlist.Value<string>("url"));
+            Assert.AreEqual("Empty Table", playlist.Value<string>("name"));
+            Assert.IsNull(playlist["file"]);
+            Assert.AreEqual(url, result.CurrentManagedTables.Single().Url);
+        });
+    }
+
+    [TestMethod]
+    public void UpdateManagedPlaylistUrlOwnership_NoopsWhenUrlOnlyEntryIsCurrent()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectory)
+        {
+            string url = "https://example.com/empty-table";
+            BmtTableExportService.PlaylistExportMetadata metadata = CreateExportMetadata("1", url, "Empty Table");
+            BmtTableExportService.UpdateManagedPlaylistUrlOwnership(tempDirectory, metadata);
+            string manifestPath = Path.Combine(tempDirectory, BmtTableExportService.ManifestFileName);
+            DateTime firstWriteTime = File.GetLastWriteTimeUtc(manifestPath);
+
+            BmtTableExportService.ExportResult result = BmtTableExportService.UpdateManagedPlaylistUrlOwnership(tempDirectory, metadata);
+
+            Assert.IsFalse(result.Changed);
+            Assert.AreEqual(0, result.RemovedCount);
+            Assert.AreEqual(firstWriteTime, File.GetLastWriteTimeUtc(manifestPath));
+            Assert.AreEqual(url, result.CurrentManagedTables.Single().Url);
+        });
+    }
+
+    [TestMethod]
+    public void ExportTableDataSet_SkipsCurrentManagedUrlOnlyPlaylist()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectory)
+        {
+            string url = "https://example.com/empty-table";
+            BmtTableExportService.PlaylistExportMetadata metadata = CreateExportMetadata("1", url, "Empty Table");
+            BmtTableExportService.ExportPlan firstPlan = BmtTableExportService.CreateExportPlan(
+                tempDirectory,
+                [metadata],
+                cleanupStaleManagedFiles: true);
+            BmtTableExportService.ExportTableDataSet(
+                tempDirectory,
+                Array.Empty<Tuple<string, JObject>>(),
+                firstPlan,
+                progressReporter: null);
+
+            BmtTableExportService.ExportPlan secondPlan = BmtTableExportService.CreateExportPlan(
+                tempDirectory,
+                [metadata],
+                cleanupStaleManagedFiles: true);
+            BmtTableExportService.ExportResult secondResult = BmtTableExportService.ExportTableDataSet(
+                tempDirectory,
+                Array.Empty<Tuple<string, JObject>>(),
+                secondPlan,
+                progressReporter: null);
+
+            Assert.IsFalse(secondPlan.RequiresProjection(metadata));
+            Assert.AreEqual(1, secondResult.SkippedWriteCount);
+            Assert.AreEqual(0, secondResult.WrittenCount);
+            Assert.AreEqual(0, secondResult.RemovedCount);
+            Assert.AreEqual(url, secondResult.CurrentManagedTables.Single().Url);
+            JObject manifest = JObject.Parse(File.ReadAllText(Path.Combine(tempDirectory, BmtTableExportService.ManifestFileName), Encoding.UTF8));
+            Assert.AreEqual(0, manifest["files"]!.Count());
+            Assert.IsNull(manifest["playlists"]!["1"]!["file"]);
+        });
+    }
+
+    [TestMethod]
+    public void ExportTableDataSet_WritesBmtWhenManagedUrlOnlyPlaylistLaterHasData()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectory)
+        {
+            string url = "https://example.com/recovered-table";
+            File.WriteAllText(Path.Combine(tempDirectory, BmtTableExportService.ManifestFileName), new JObject
+            {
+                ["schemaVersion"] = 2,
+                ["exporterVersion"] = 1,
+                ["files"] = new JArray(),
+                ["playlists"] = new JObject
+                {
+                    ["1"] = new JObject
+                    {
+                        ["url"] = url,
+                        ["name"] = "Recovered Table"
+                    }
+                }
+            }.ToString(), Encoding.UTF8);
+            JObject tableData = CreateSimpleTableData(url, "Recovered Table");
+
+            BmtTableExportService.ExportResult result = BmtTableExportService.ExportTableDataSet(
+                tempDirectory,
+                [Tuple.Create("1", tableData)],
+                cleanupStaleManagedFiles: true);
+
+            string fileName = BMSTable.ComputeSha256Hex(url) + ".bmt";
+            JObject manifest = JObject.Parse(File.ReadAllText(Path.Combine(tempDirectory, BmtTableExportService.ManifestFileName), Encoding.UTF8));
+            JObject playlist = (JObject)manifest["playlists"]!["1"]!;
+            Assert.IsTrue(File.Exists(Path.Combine(tempDirectory, fileName)));
+            Assert.AreEqual(1, result.WrittenCount);
+            Assert.AreEqual(fileName, playlist.Value<string>("file"));
+            Assert.AreEqual(url, playlist.Value<string>("url"));
+            CollectionAssert.AreEqual(new[] { fileName }, manifest["files"]!.Select(token => token.ToString()).ToArray());
+        });
+    }
+
+    [TestMethod]
+    public void BeatorajaConfigService_SyncTableUrlsMovesManagedEmptyPlaylistUrlOutOfUnmanagedPrefix()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectory)
+        {
+            string root = CreateBeatorajaRoot(tempDirectory);
+            string configPath = Path.Combine(root, BeatorajaConfigService.ConfigFileName);
+            File.WriteAllText(configPath, "{\"tablepath\":\"table\",\"playerpath\":\"player\",\"playername\":\"player2\",\"tableURL\":[\"https://example.com/managed-empty\",\"https://external.example/table\"]}", Encoding.UTF8);
+
+            BeatorajaConfigService.SyncTableUrls(
+                root,
+                ["https://example.com/managed-empty"],
+                []);
+
+            var config = JObject.Parse(File.ReadAllText(configPath, Encoding.UTF8));
+            CollectionAssert.AreEqual(new[]
+            {
+                "https://external.example/table",
+                "https://example.com/managed-empty"
+            }, config["tableURL"]!.Select(token => token.ToString()).ToArray());
+        });
+    }
+
+    [TestMethod]
     public void NormalizeBeatorajaBmtSortOrder_AssignsStableSequentialOrder()
     {
         var alpha = new BMSTable { playlist_id = 1, name = "Alpha", bmt_sort = 1 };
@@ -956,6 +1193,47 @@ public sealed class BmtTableExportServiceTests
             DataSha256 = dataSha256,
             LastUpdateTicks = lastUpdateTicks,
             ProjectionInputSha256 = "projection-" + playlistIdentity
+        };
+    }
+
+    private static BmtTableExportService.PlaylistExportMetadata CreateExportMetadata(string playlistIdentity, string url, string name)
+    {
+        return new BmtTableExportService.PlaylistExportMetadata
+        {
+            PlaylistIdentity = playlistIdentity,
+            Url = url,
+            FileName = BMSTable.ComputeSha256Hex(url) + ".bmt",
+            Name = name,
+            HeaderSha256 = "header-" + playlistIdentity,
+            DataSha256 = "data-" + playlistIdentity,
+            LastUpdateTicks = 1,
+            ProjectionInputSha256 = "projection-" + playlistIdentity
+        };
+    }
+
+    private static JObject CreateSimpleTableData(string url, string name)
+    {
+        return new JObject
+        {
+            ["url"] = url,
+            ["name"] = name,
+            ["tag"] = "t",
+            ["folder"] = new JArray
+            {
+                new JObject
+                {
+                    ["name"] = "t1",
+                    ["songs"] = new JArray
+                    {
+                        new JObject
+                        {
+                            ["title"] = "Song",
+                            ["md5"] = Md5A
+                        }
+                    }
+                }
+            },
+            ["course"] = new JArray()
         };
     }
 

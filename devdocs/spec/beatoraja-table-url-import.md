@@ -78,6 +78,10 @@ beatoraja Table URL インポート経路だけは、beatoraja 側が同名難�
 
 この URL は BeMusicSeeker 管理 `.bmt` manifest に入らないため、`.bmtを出力する` と `config_sys.json` `tableURL` 同期では管理外 URL として扱われる。既存 `tableURL` 同期仕様により、管理外 URL は先頭側に既存順で残る。
 
+通常読み込みが成功したものの entry と course がどちらも 0 件の table は、後続の外部同期で復旧する可能性があるため、Table URL インポートとしては成功扱いで playlist 登録する。この状態では `.bmt` ファイル本体は出力できないが、BeMusicSeeker 管理 Table URL として manifest に URL 所有権を残す。`config_sys.json` `tableURL` 同期では管理外 URL ではなく BMT SORT 対象の管理 URL として扱い、既存 `tableURL` の先頭側に固定されないようにする。
+
+空表が後で外部同期や手動操作により entry または有効 course を持つ状態へ復旧した場合、同じ playlist / Table URL の管理枠で `.bmt` ファイルを出力する。逆に playlist 削除や `.bmt` 出力対象外化を行った場合は、空表由来の URL 所有権も manifest から外し、`config_sys.json` `tableURL` 同期の管理対象から外す。
+
 ## `.bmtを出力する` 有効化時の案内
 
 `.bmtを出力する` を OFF から ON にする際、beatoraja root が有効で、`tableURL` に BeMusicSeeker playlist として未取り込みの URL が存在する場合は確認を出す。

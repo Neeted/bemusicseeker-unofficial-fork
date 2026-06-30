@@ -237,7 +237,7 @@ top-level:
 
 出力ファイル名は `SHA-256(TableData.url) + ".bmt"`。
 
-song は `title` と `md5` / `sha256` のどちらかを持つ行だけ出力する。folder song の hash 出力は `BeatorajaBmtHashOutputMode` で切り替える。`Original` は DB row に保存された hash だけをそのまま出力する。`FillMissingMd5Sha256` は DB row に保存された hash を第一候補にし、selected-key で所持 chart または chart_info を解決できる場合だけ、欠けている counterpart hash を `.bmt` 出力 projection 上で補完する。md5 と sha256 が別 chart を指す場合は md5 を正本にし、危険な counterpart 補完は行わない。`PreferSha256Only` は sha256 を出せる song では md5 を省略して sha256 のみを出力し、sha256 を解決できない md5 row は譜面を落とさず md5 のまま出力する。既定値は `Original`。course は header source JSON の hash だけを出力し、全 mode で補完対象にしない。対応範囲で `artist`、`url`、`appendurl`、`ipfs`、`appendipfs`、`org_md5` を出力する。空 folder は出力しない。folder と course が両方空の table は出力しない。
+song は `title` と `md5` / `sha256` のどちらかを持つ行だけ出力する。folder song の hash 出力は `BeatorajaBmtHashOutputMode` で切り替える。`Original` は DB row に保存された hash だけをそのまま出力する。`FillMissingMd5Sha256` は DB row に保存された hash を第一候補にし、selected-key で所持 chart または chart_info を解決できる場合だけ、欠けている counterpart hash を `.bmt` 出力 projection 上で補完する。md5 と sha256 が別 chart を指す場合は md5 を正本にし、危険な counterpart 補完は行わない。`PreferSha256Only` は sha256 を出せる song では md5 を省略して sha256 のみを出力し、sha256 を解決できない md5 row は譜面を落とさず md5 のまま出力する。既定値は `Original`。course は header source JSON の hash だけを出力し、全 mode で補完対象にしない。対応範囲で `artist`、`url`、`appendurl`、`ipfs`、`appendipfs`、`org_md5` を出力する。空 folder は出力しない。folder と course が両方空の table は `.bmt` ファイル本体を出力しない。ただし出力対象 playlist として有効な場合は、manifest に URL 所有権を残して `config_sys.json` `tableURL` 同期の管理対象にする。
 
 外部表の `folder[].name` は header `tag` 優先、無ければ `symbol`、最後に `compat_prefix` を使い、`tag + compatibleLevel` 形式にする。ローカル表は既存 folder 名をそのまま使う。
 
@@ -260,9 +260,9 @@ course constraints は header source の `grade_mirror` などから beatoraja e
 
 出力先直下に `.bemusicseeker-bmt-manifest` を置く。拡張子 `.json` は付けない。
 
-manifest は BeMusicSeeker が管理した `.bmt` と playlist ID から、最後に出力した `.bmt` file / URL / playlist name / `header_sha256` / `data_sha256` / `last_update` ticks / `.bmt` 投影入力 fingerprint / `.bmt` file mtime / `.bmt` file size への対応を記録する。cleanup は manifest に記録された `.bmt` だけを削除対象にし、管理外の `.bmt` は削除しない。起動・`ReloadTables`・restore・設定変更の全出力では、manifest を現在の active playlist set の投影として扱い、別 DB / 別 profile 由来で現在存在しない managed `.bmt` も削除する。
+manifest は BeMusicSeeker が管理した playlist ID から、管理 Table URL / playlist name / `header_sha256` / `data_sha256` / `last_update` ticks / `.bmt` 投影入力 fingerprint と、出力できている場合の `.bmt` file / `.bmt` file mtime / `.bmt` file size への対応を記録する。`files` は物理 `.bmt` の cleanup 対象、`playlists` は Table URL の管理台帳として扱う。cleanup は manifest の `files` に記録された `.bmt` だけを削除対象にし、管理外の `.bmt` は削除しない。起動・`ReloadTables`・restore・設定変更の全出力では、manifest を現在の active playlist set の投影として扱い、別 DB / 別 profile 由来で現在存在しない managed `.bmt` も削除する。
 
-manifest schema v2 では、出力対象 playlist の URL / file name / playlist name / `header_sha256` / `data_sha256` / `last_update` ticks / 投影入力 fingerprint と、実 `.bmt` file の mtime / size が manifest と一致する場合、table data projection と gzip ファイル書き込みを省略する。投影入力 fingerprint には、`.bmt` 出力に効く tag 解決結果、外部同期扱い、compatible prefix、folder order、course JSON を含める。`.bmt hash output` の resolver 結果だけが変わった場合は、元 playlist の変化ではないため、この no-op 判定の invalidation 要因にしない。manifest は active set に合わせて更新し、cleanup と `tableURL` 同期の正本として使い続ける。
+manifest schema v2 では、出力対象 playlist の URL / file name / playlist name / `header_sha256` / `data_sha256` / `last_update` ticks / 投影入力 fingerprint と、実 `.bmt` file の mtime / size が manifest と一致する場合、table data projection と gzip ファイル書き込みを省略する。投影入力 fingerprint には、`.bmt` 出力に効く tag 解決結果、外部同期扱い、compatible prefix、folder order、course JSON を含める。`.bmt hash output` の resolver 結果だけが変わった場合は、元 playlist の変化ではないため、この no-op 判定の invalidation 要因にしない。manifest は active set に合わせて更新し、cleanup と `tableURL` 同期の正本として使い続ける。空表などで `.bmt` ファイル本体を出力できない playlist は `playlists` に URL 所有権だけを残し、`file` は持たない。後で有効な folder または course が作れる状態になった場合は同じ playlist ID の entry に `file` を付与して `.bmt` 出力済み状態へ移行する。
 
 旧 manifest に含まれる `contentHash` は no-op 判定には使わない。旧 manifest の `files` と playlist URL は cleanup / `tableURL` 差し替えの所有情報としてだけ読み、新形式での出力後に schema v2 manifest へ自然に置き換える。
 
@@ -274,6 +274,6 @@ manifest schema v2 では、出力対象 playlist の URL / file name / playlist
 
 beatoraja 選曲画面の難易度表表示順は `config_sys.json` の `tableURL` 配列順が優先される。配列にない `.bmt` は beatoraja の `tablepath` ディレクトリ列挙順に依存するため、BeMusicSeeker 管理 `.bmt` の順序安定化には `tableURL` 同期を使う。
 
-同期時は、既存 `tableURL` のうち BeMusicSeeker 管理外の URL を既存順のまま先頭側に残す。manifest に記録された前回 BeMusicSeeker 管理 URL は削除し、今回出力できた managed URL を playlist の `bmt_sort` 昇順で末尾に追加する。manifest entry が現在の playlist snapshot に見つからない場合は、既知 playlist の後ろへ name / playlist identity 順で並べる。`RegisterBeatorajaBmtUrls` が OFF の場合は、前回管理 URL を `tableURL` から外す。
+同期時は、既存 `tableURL` のうち BeMusicSeeker 管理外の URL を既存順のまま先頭側に残す。manifest に記録された前回 BeMusicSeeker 管理 URL は削除し、今回の managed URL を playlist の `bmt_sort` 昇順で末尾に追加する。managed URL は `.bmt` ファイル本体が出力済みかどうかではなく、manifest の `playlists` に URL 所有権があるかで判定する。これにより、空表など一時的に `.bmt` を出力できない playlist も、BeMusicSeeker 管理の Table URL として `BMT SORT` 順に配置され、管理外 URL として先頭側に固定されない。manifest entry が現在の playlist snapshot に見つからない場合は、既知 playlist の後ろへ name / playlist identity 順で並べる。`RegisterBeatorajaBmtUrls` が OFF の場合は、前回管理 URL を `tableURL` から外す。
 
 設定画面の `beatoraja の Table URL をインポートする` は、既存 `tableURL` の URL を BeMusicSeeker playlist へ取り込み、成功または既存一致した playlist を `tableURL` 順で `BMT SORT` 先頭へ反映する。通常の外部表読み込みに失敗した URL は beatoraja `tablepath` の `.bmt` から復元を試みる。復元も失敗した URL は manifest 管理外のまま残るため、上記同期仕様により次回以降も `tableURL` 先頭側に残る。詳細は [beatoraja-table-url-import.md](beatoraja-table-url-import.md) を参照。
