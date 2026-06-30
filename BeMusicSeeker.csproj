@@ -45,6 +45,10 @@
     <None Update="lang\*.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+    <None Update="assets\audio\test.mp3">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <TargetPath>test.mp3</TargetPath>
+    </None>
     <None Remove="BeMusicSeeker\App.xaml" />
     <ApplicationDefinition Include="BeMusicSeeker\App.xaml">
       <Generator>MSBuild:Compile</Generator>

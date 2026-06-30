@@ -6,3 +6,4 @@ BeMusicSeeker.Tests/TestData/lr2_builtin_custom_folder_real/** -text -diff
 *.bml binary
 *.pms binary
 *.bmson binary
+*.mp3 binary

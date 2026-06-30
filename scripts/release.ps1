@@ -137,6 +137,7 @@ function Assert-ReleasePackageLayout($asset) {
         "BeMusicSeeker.exe",
         "BeMusicSeeker.exe.config",
         "BeMusicSeeker.Updater.exe",
+        "test.mp3",
         "libs/SevenZipExtractor.dll",
         "libs/OggVorbis.NET64.dll",
         "libs/x64/7z.dll",

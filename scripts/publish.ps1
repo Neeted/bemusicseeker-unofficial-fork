@@ -134,6 +134,7 @@ function Assert-AppPackageLayout($targetStagingDir, $requiresMetadataArchive) {
         "BeMusicSeeker.exe",
         "BeMusicSeeker.exe.config",
         "BeMusicSeeker.Updater.exe",
+        "test.mp3",
         "libs/SevenZipExtractor.dll",
         "libs/OggVorbis.NET64.dll",
         "libs/x64/7z.dll",
@@ -186,6 +187,7 @@ function Copy-AppFilesToStaging($targetStagingDir) {
     Copy-Item (Join-Path $buildOutput "BeMusicSeeker.exe")        $targetStagingDir
     Copy-Item (Join-Path $buildOutput "BeMusicSeeker.exe.config") $targetStagingDir
     Copy-Item (Join-Path $buildOutput "BeMusicSeeker.Updater.exe") $targetStagingDir
+    Copy-Item (Join-Path $buildOutput "test.mp3") $targetStagingDir
     Copy-Item (Join-Path $buildOutput "libs")   (Join-Path $targetStagingDir "libs")   -Recurse
     Copy-Item (Join-Path $buildOutput "native") (Join-Path $targetStagingDir "native") -Recurse
     Copy-Item (Join-Path $buildOutput "lang")   (Join-Path $targetStagingDir "lang")   -Recurse
