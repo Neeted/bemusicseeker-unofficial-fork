@@ -114,6 +114,21 @@ public partial class BMSPlaylist
         NLogWrapper.FileLogger?.Info("playlist_url_completion apply_cached_table reason=" + (reason ?? string.Empty) + " table=" + FormatTextForLog(table.name) + " entries=" + applyStats.EntryCount + " changed=" + applyStats.ChangedEntryCount + " runtimeUrl=" + applyStats.RuntimeUrlCount + " runtimeUrlDiff=" + applyStats.RuntimeUrlDiffCount);
     }
 
+    internal void ApplyCachedPlaylistUrlCompletionToTables(IEnumerable<BMSTable> tables, string reason)
+    {
+        List<BMSTable> tableList = [.. (tables ?? []).Where(table => table != null).Distinct()];
+        if (tableList.Count == 0)
+        {
+            return;
+        }
+        PlaylistUrlCompletionApplyStats aggregateStats = default;
+        foreach (BMSTable table in tableList)
+        {
+            aggregateStats.Add(ApplyPlaylistUrlCompletionToTableCore(table));
+        }
+        NLogWrapper.FileLogger?.Info("playlist_url_completion apply_cached_tables reason=" + (reason ?? string.Empty) + " tables=" + aggregateStats.TableCount + " entries=" + aggregateStats.EntryCount + " changed=" + aggregateStats.ChangedEntryCount + " runtimeUrl=" + aggregateStats.RuntimeUrlCount + " runtimeUrlDiff=" + aggregateStats.RuntimeUrlDiffCount);
+    }
+
     private async Task RefreshPlaylistUrlCompletionLoopAsync()
     {
         await playlistUrlCompletionRefreshSemaphore.WaitAsync().ConfigureAwait(false);

@@ -39,11 +39,16 @@ internal sealed class PlaylistSyncAttemptResult
 
     internal static PlaylistSyncAttemptResult CreateFailure(BMSTable sourceTable, Uri pageUri, Exception exception)
     {
+        return CreateFailure(sourceTable, sourceTable, pageUri, exception);
+    }
+
+    internal static PlaylistSyncAttemptResult CreateFailure(BMSTable sourceTable, BMSTable resultTable, Uri pageUri, Exception exception)
+    {
         PlaylistSyncStatusKind playlistSyncStatusKind = ClassifyFailureKind(exception);
         return new PlaylistSyncAttemptResult
         {
             SourceTable = sourceTable,
-            ResultTable = sourceTable,
+            ResultTable = resultTable ?? sourceTable,
             PageUri = pageUri,
             Succeeded = false,
             Updated = false,

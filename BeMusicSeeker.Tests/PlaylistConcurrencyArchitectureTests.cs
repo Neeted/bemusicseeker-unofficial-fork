@@ -12,7 +12,7 @@ public sealed class PlaylistConcurrencyArchitectureTests
     public void ExternalTableRegistration_DoesNotMutateVisibleCollectionInsideRegistrationWriterBlock()
     {
         string source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "BMSPlaylist.cs"));
-        string method = ExtractMethodBody(source, "internal async Task<BMSTable> RegistrateExternalTableAsync");
+        string method = ExtractMethodBody(source, "internal async Task<BMSTable> RegistrateExternalTableAsync(BMSTable bMSTable");
 
         StringAssert.Contains(method, "await AddCommittedBMSTableToVisibleCollectionAsync(bMSTable).ConfigureAwait(false)");
         Assert.IsFalse(
@@ -24,7 +24,7 @@ public sealed class PlaylistConcurrencyArchitectureTests
     public void ExternalTableRegistration_DoesNotCommitDatabaseInsideRegistrationWriterBlock()
     {
         string source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "BMSPlaylist.cs"));
-        string method = ExtractMethodBody(source, "internal async Task<BMSTable> RegistrateExternalTableAsync");
+        string method = ExtractMethodBody(source, "internal async Task<BMSTable> RegistrateExternalTableAsync(BMSTable bMSTable");
         string writerBlock = ExtractBlockBody(method, "using (rwlockBMSTables.GetWriterGuard())");
 
         Assert.IsFalse(
@@ -32,6 +32,21 @@ public sealed class PlaylistConcurrencyArchitectureTests
             "External registration writer lock must not cover playlist DB persistence.");
         StringAssert.Contains(method, "CommitBMSTable(bMSTable);");
         StringAssert.Contains(method, "await AddCommittedBMSTableToVisibleCollectionAsync(bMSTable).ConfigureAwait(false)");
+    }
+
+    [TestMethod]
+    public void ExternalTableBatchRegistration_DoesNotCommitDatabaseInsideRegistrationWriterBlock()
+    {
+        string source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "BMSPlaylist.cs"));
+        string method = ExtractMethodBody(source, "internal async Task<RegisteredExternalTableBatchResult> RegistrateExternalTablesAsync");
+        string writerBlock = ExtractBlockBody(method, "using (rwlockBMSTables.GetWriterGuard())");
+
+        Assert.IsFalse(
+            writerBlock.Contains("CommitBMSTable("),
+            "Batch external registration writer lock must not cover playlist DB persistence.");
+        StringAssert.Contains(method, "CommitBMSTable(tableList);");
+        StringAssert.Contains(method, "await AddCommittedBMSTablesToVisibleCollectionAsync(tableList).ConfigureAwait(false)");
+        StringAssert.Contains(method, "ApplyCachedPlaylistUrlCompletionToTables(tableList, operationReason);");
     }
 
     [TestMethod]
@@ -71,6 +86,27 @@ public sealed class PlaylistConcurrencyArchitectureTests
         Assert.IsFalse(
             importMethod.Contains("tables.AcquireReaderLockBMSTables();"),
             "Import reference index updates must not hold the playlist collection reader lock while scanning library state.");
+    }
+
+    [TestMethod]
+    public void BeatorajaTableUrlImport_ParallelizesExternalLoadAndBatchesRegistrationWork()
+    {
+        string source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string importMethod = ExtractMethodBody(source, "private async Task ImportBeatorajaTableUrlsAsync");
+        string completionMethod = ExtractMethodBody(source, "private void CompleteImportedBeatorajaTableRegistrations");
+
+        StringAssert.Contains(importMethod, "await tables.LoadExternalTableSnapshotsAsync(");
+        StringAssert.Contains(importMethod, "schedulePlaylistUrlCompletionRefresh: false");
+        StringAssert.Contains(importMethod, "await tables.RegistrateExternalTablesAsync(");
+        StringAssert.Contains(importMethod, "tables.CommitBMSTableHeadersToDB(rawUrlChangedTables);");
+        StringAssert.Contains(importMethod, "tables.QueueBeatorajaBmtExportForTables(rawUrlChangedTables");
+        StringAssert.Contains(completionMethod, "files.AddReferenceBMSTablesIncremental(tableList);");
+        StringAssert.Contains(importMethod, "BeatorajaTableUrlImportPostProgressStepCount");
+        StringAssert.Contains(importMethod, "Beatoraja_table_url_import_progress_phase_register_playlists");
+        StringAssert.Contains(importMethod, "Beatoraja_table_url_import_progress_phase_update_references");
+        Assert.IsFalse(
+            importMethod.Contains("await tables.RegistrateExternalTableAsync("),
+            "beatoraja Table URL import should not serialize external requests through the single-table registration API.");
     }
 
     [TestMethod]

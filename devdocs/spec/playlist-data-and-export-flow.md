@@ -275,3 +275,5 @@ manifest schema v2 では、出力対象 playlist の URL / file name / playlist
 beatoraja 選曲画面の難易度表表示順は `config_sys.json` の `tableURL` 配列順が優先される。配列にない `.bmt` は beatoraja の `tablepath` ディレクトリ列挙順に依存するため、BeMusicSeeker 管理 `.bmt` の順序安定化には `tableURL` 同期を使う。
 
 同期時は、既存 `tableURL` のうち BeMusicSeeker 管理外の URL を既存順のまま先頭側に残す。manifest に記録された前回 BeMusicSeeker 管理 URL は削除し、今回出力できた managed URL を playlist の `bmt_sort` 昇順で末尾に追加する。manifest entry が現在の playlist snapshot に見つからない場合は、既知 playlist の後ろへ name / playlist identity 順で並べる。`RegisterBeatorajaBmtUrls` が OFF の場合は、前回管理 URL を `tableURL` から外す。
+
+設定画面の `beatoraja の Table URL をインポートする` は、既存 `tableURL` の URL を BeMusicSeeker playlist へ取り込み、成功または既存一致した playlist を `tableURL` 順で `BMT SORT` 先頭へ反映する。通常の外部表読み込みに失敗した URL は beatoraja `tablepath` の `.bmt` から復元を試みる。復元も失敗した URL は manifest 管理外のまま残るため、上記同期仕様により次回以降も `tableURL` 先頭側に残る。詳細は [beatoraja-table-url-import.md](beatoraja-table-url-import.md) を参照。

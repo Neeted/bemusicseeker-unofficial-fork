@@ -42,6 +42,7 @@
 - [library-mutation-boundary.md](library-mutation-boundary.md)
 - [lr2-song-db-generation.md](lr2-song-db-generation.md)
 - [playlist-data-and-export-flow.md](playlist-data-and-export-flow.md)
+- [beatoraja-table-url-import.md](beatoraja-table-url-import.md)
 - [play-history.md](play-history.md)
 - [playlist-url-download-resolution.md](playlist-url-download-resolution.md)
 - [movie-playback-current-state.md](movie-playback-current-state.md)

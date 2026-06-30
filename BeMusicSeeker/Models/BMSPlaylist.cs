@@ -273,6 +273,13 @@ public partial class BMSPlaylist : NotificationObject
         public bool Succeeded => Exception == null && ExternalTable != null;
     }
 
+    internal sealed class RegisteredExternalTableBatchResult
+    {
+        public IReadOnlyList<BMSTable> RegisteredTables { get; internal set; } = [];
+
+        public IReadOnlyList<BMSTable> MigratedCustomFolderTables { get; internal set; } = [];
+    }
+
     /// <summary>
     /// 推定表の派生種類を識別します。
     /// </summary>
@@ -7114,11 +7121,30 @@ public partial class BMSPlaylist : NotificationObject
 
     internal async Task<BMSTable> RegistrateExternalTableAsync(Uri pageUri, CancellationToken cancellationToken = default)
     {
+        return await RegistrateExternalTableAsync(pageUri, renameDuplicateName: false, "RegistrateExternalTableAsync", preserveSourceUrlText: false, cancellationToken).ConfigureAwait(false);
+    }
+
+    internal async Task<BMSTable> RegistrateExternalTableAsync(Uri pageUri, bool renameDuplicateName, string reason, bool preserveSourceUrlText = false, CancellationToken cancellationToken = default)
+    {
         if (!pageUri.IsAbsoluteUri)
         {
             throw new InvalidOperationException("pageUri.IsAbsoluteUri is not true");
         }
+        if (!preserveSourceUrlText)
+        {
+            pageUri = CreateNormalizedAbsoluteUri(pageUri);
+        }
         BMSTable bMSTable = await LoadExternalTableAsync(pageUri, null, cancellationToken).ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
+        return await RegistrateExternalTableAsync(bMSTable, renameDuplicateName, reason ?? "RegistrateExternalTableAsync", cancellationToken).ConfigureAwait(false);
+    }
+
+    internal async Task<BMSTable> RegistrateExternalTableAsync(BMSTable bMSTable, bool renameDuplicateName, string reason, CancellationToken cancellationToken = default)
+    {
+        if (bMSTable == null)
+        {
+            throw new ArgumentNullException(nameof(bMSTable));
+        }
         cancellationToken.ThrowIfCancellationRequested();
         bool migrateCustomFolderOutput = false;
         string customFolderOutputDirectory = null;
@@ -7132,7 +7158,11 @@ public partial class BMSPlaylist : NotificationObject
                 }
                 if (BMSTables.Select(t => t.name).Contains(bMSTable.name))
                 {
-                    throw new PlaylistAlreadyExistsException(Resources.Error_PlaylistAlreadyExists, bMSTable.name);
+                    if (!renameDuplicateName)
+                    {
+                        throw new PlaylistAlreadyExistsException(Resources.Error_PlaylistAlreadyExists, bMSTable.name);
+                    }
+                    bMSTable.name = ResolveUniqueImportedPlaylistName(bMSTable.name, BMSTables);
                 }
                 if (string.IsNullOrWhiteSpace(bMSTable.Output_dir))
                 {
@@ -7153,10 +7183,145 @@ public partial class BMSPlaylist : NotificationObject
         {
             migrateCustomFolderOutputDirectoryFiles(bMSTable, customFolderOutputDirectory, customFolderOutputDirectory, bMSTable.is_root_folder);
         }
-        QueueBeatorajaBmtExport(bMSTable, "RegistrateExternalTableAsync");
-        ApplyCachedPlaylistUrlCompletionToTable(bMSTable, "RegistrateExternalTableAsync");
-        SchedulePlaylistUrlCompletionRefresh("RegistrateExternalTableAsync");
+        QueueBeatorajaBmtExport(bMSTable, reason ?? "RegistrateExternalTableAsync");
+        ApplyCachedPlaylistUrlCompletionToTable(bMSTable, reason ?? "RegistrateExternalTableAsync");
+        SchedulePlaylistUrlCompletionRefresh(reason ?? "RegistrateExternalTableAsync");
         return bMSTable;
+    }
+
+    internal async Task<RegisteredExternalTableBatchResult> RegistrateExternalTablesAsync(IEnumerable<BMSTable> bMSTables, bool renameDuplicateName, string reason, CancellationToken cancellationToken = default)
+    {
+        List<BMSTable> tableList = [.. (bMSTables ?? []).Where(table => table != null).Distinct()];
+        if (tableList.Count == 0)
+        {
+            return new RegisteredExternalTableBatchResult();
+        }
+        cancellationToken.ThrowIfCancellationRequested();
+        string operationReason = reason ?? "RegistrateExternalTablesAsync";
+        List<BMSTable> migrateCustomFolderOutputTables = [];
+        List<CustomFolderOutputMigrationTarget> customFolderOutputTargets = [];
+        using (rwlockBMSTablesInitializeMin.GetReaderGuard())
+        {
+            using (rwlockBMSTables.GetWriterGuard())
+            {
+                var reservedNames = new HashSet<string>(
+                    BMSTables.Select(table => table?.name).Where(name => name != null),
+                    StringComparer.Ordinal);
+                int nextBmtSort = ResolveNextBeatorajaBmtSort(BMSTables);
+                foreach (BMSTable bMSTable in tableList)
+                {
+                    if (bMSTable.last_update == default)
+                    {
+                        bMSTable.last_update = DateTime.Now;
+                    }
+                    string desiredName = bMSTable.name ?? string.Empty;
+                    if (reservedNames.Contains(desiredName))
+                    {
+                        if (!renameDuplicateName)
+                        {
+                            throw new PlaylistAlreadyExistsException(Resources.Error_PlaylistAlreadyExists, bMSTable.name);
+                        }
+                        bMSTable.name = ResolveUniqueImportedPlaylistName(desiredName, reservedNames);
+                    }
+                    else
+                    {
+                        bMSTable.name = desiredName;
+                    }
+                    reservedNames.Add(bMSTable.name);
+                    if (string.IsNullOrWhiteSpace(bMSTable.Output_dir))
+                    {
+                        throw new InvalidOperationException(Resources.Error_OutputDirNameEmpty);
+                    }
+                    bMSTable.bmt_sort = nextBmtSort++;
+                    bMSTable.is_bmt_output = true;
+                    if (Settings.Default.OperationModeLR2DB)
+                    {
+                        migrateCustomFolderOutputTables.Add(bMSTable);
+                        customFolderOutputTargets.Add(new CustomFolderOutputMigrationTarget
+                        {
+                            Table = bMSTable,
+                            Directory = GetCustomFolderOutputDirectory(bMSTable)
+                        });
+                    }
+                }
+            }
+        }
+        CommitBMSTable(tableList);
+        await AddCommittedBMSTablesToVisibleCollectionAsync(tableList).ConfigureAwait(false);
+        foreach (CustomFolderOutputMigrationTarget target in customFolderOutputTargets)
+        {
+            try
+            {
+                migrateCustomFolderOutputDirectoryFiles(target.Table, target.Directory, target.Directory, target.Table.is_root_folder);
+            }
+            catch (Exception ex)
+            {
+                NLogWrapper.FileLogger?.Warn(ex, "external_table_batch_custom_folder_migration_failed reason=" + FormatTextForLog(operationReason) + " table=" + FormatTextForLog(target.Table?.name));
+            }
+        }
+        QueueBeatorajaBmtExportForTables(tableList, operationReason);
+        ApplyCachedPlaylistUrlCompletionToTables(tableList, operationReason);
+        SchedulePlaylistUrlCompletionRefresh(operationReason);
+        return new RegisteredExternalTableBatchResult
+        {
+            RegisteredTables = tableList,
+            MigratedCustomFolderTables = migrateCustomFolderOutputTables
+        };
+    }
+
+    private static string ResolveUniqueImportedPlaylistName(string desiredName, IEnumerable<BMSTable> existingTables)
+    {
+        string baseName = desiredName ?? string.Empty;
+        var existingNames = new HashSet<string>(
+            (existingTables ?? []).Select(table => table?.name).Where(name => name != null),
+            StringComparer.Ordinal);
+        if (!existingNames.Contains(baseName))
+        {
+            return baseName;
+        }
+        for (int suffix = 1; suffix < int.MaxValue; suffix++)
+        {
+            string candidate = baseName + "(" + suffix.ToString(CultureInfo.InvariantCulture) + ")";
+            if (!existingNames.Contains(candidate))
+            {
+                return candidate;
+            }
+        }
+        throw new InvalidOperationException("Failed to resolve unique playlist name.");
+    }
+
+    private static string ResolveUniqueImportedPlaylistName(string desiredName, ISet<string> reservedNames)
+    {
+        string baseName = desiredName ?? string.Empty;
+        if (reservedNames?.Contains(baseName) != true)
+        {
+            return baseName;
+        }
+        for (int suffix = 1; suffix < int.MaxValue; suffix++)
+        {
+            string candidate = baseName + "(" + suffix.ToString(CultureInfo.InvariantCulture) + ")";
+            if (!reservedNames.Contains(candidate))
+            {
+                return candidate;
+            }
+        }
+        throw new InvalidOperationException("Failed to resolve unique playlist name.");
+    }
+
+    private sealed class CustomFolderOutputMigrationTarget
+    {
+        internal BMSTable Table { get; set; }
+
+        internal string Directory { get; set; }
+    }
+
+    private static Uri CreateNormalizedAbsoluteUri(Uri uri)
+    {
+        if (uri == null || !uri.IsAbsoluteUri)
+        {
+            return uri;
+        }
+        return new Uri(uri.AbsoluteUri, UriKind.Absolute);
     }
 
     /// <summary>
@@ -7305,7 +7470,7 @@ public partial class BMSPlaylist : NotificationObject
         }
     }
 
-    internal async Task<List<PlaylistExternalTableLoadResult>> LoadExternalTableSnapshotsAsync(IEnumerable<BMSTable> targets, bool inheritLocalTableProperties, Action<PlaylistSyncProgressSnapshot> progressCallback = null, string reason = "LoadExternalTableSnapshotsAsync", CancellationToken cancellationToken = default)
+    internal async Task<List<PlaylistExternalTableLoadResult>> LoadExternalTableSnapshotsAsync(IEnumerable<BMSTable> targets, bool inheritLocalTableProperties, Action<PlaylistSyncProgressSnapshot> progressCallback = null, string reason = "LoadExternalTableSnapshotsAsync", CancellationToken cancellationToken = default, bool schedulePlaylistUrlCompletionRefresh = true)
     {
         List<BMSTable> targetSnapshot = [.. (targets ?? [])
             .Where(table => table != null)
@@ -7381,7 +7546,7 @@ public partial class BMSPlaylist : NotificationObject
             CurrentTableName = string.Empty,
             CurrentUri = null
         });
-        if (targetSnapshot.Count > 0 && Settings.Default.EnablePlaylistUrlCompletion)
+        if (schedulePlaylistUrlCompletionRefresh && targetSnapshot.Count > 0 && Settings.Default.EnablePlaylistUrlCompletion)
         {
             SchedulePlaylistUrlCompletionRefresh(reason);
         }
@@ -7552,6 +7717,48 @@ public partial class BMSPlaylist : NotificationObject
         {
             deleteBMSTable(table);
             throw new PlaylistAlreadyExistsException(Resources.Error_PlaylistAlreadyExists, table?.name);
+        }
+    }
+
+    private async Task AddCommittedBMSTablesToVisibleCollectionAsync(IEnumerable<BMSTable> tables)
+    {
+        List<BMSTable> tableList = [.. (tables ?? []).Where(table => table != null).Distinct()];
+        if (tableList.Count == 0)
+        {
+            return;
+        }
+        BMSTable duplicateTable = await InvokeBMSTablesCollectionMutationAsync(delegate
+        {
+            using (rwlockBMSTables.GetWriterGuard())
+            {
+                var visibleNames = new HashSet<string>(
+                    BMSTables.Select(table => table?.name).Where(name => name != null),
+                    StringComparer.Ordinal);
+                foreach (BMSTable table in tableList)
+                {
+                    if (BMSTables.Contains(table))
+                    {
+                        continue;
+                    }
+                    if (!visibleNames.Add(table.name))
+                    {
+                        return table;
+                    }
+                }
+                foreach (BMSTable table in tableList)
+                {
+                    if (!BMSTables.Contains(table))
+                    {
+                        BMSTables.Add(table);
+                    }
+                }
+                return null;
+            }
+        }).ConfigureAwait(false);
+        if (duplicateTable != null)
+        {
+            deleteBMSTable(tableList);
+            throw new PlaylistAlreadyExistsException(Resources.Error_PlaylistAlreadyExists, duplicateTable.name);
         }
     }
 

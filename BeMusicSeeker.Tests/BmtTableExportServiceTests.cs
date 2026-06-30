@@ -3,10 +3,12 @@ using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
+using System.Reflection;
 using System.Text;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
+using BeMusicSeeker.ViewModels;
 using Codeplex.Data;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Newtonsoft.Json.Linq;
@@ -753,12 +755,173 @@ public sealed class BmtTableExportServiceTests
         });
     }
 
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public void BeatorajaConfigService_ReadTableUrls_PreservesConfiguredOrder()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectory)
+        {
+            string root = CreateBeatorajaRoot(tempDirectory);
+            string configPath = Path.Combine(root, BeatorajaConfigService.ConfigFileName);
+            File.WriteAllText(
+                configPath,
+                "{\"tablepath\":\"table\",\"playerpath\":\"player\",\"tableURL\":[\"https://example.com/a\",\"\",123,\"https://example.com/b\",\"https://example.com/a\"]}",
+                Encoding.UTF8);
+
+            IReadOnlyList<string> urls = BeatorajaConfigService.ReadTableUrls(root);
+
+            CollectionAssert.AreEqual(new[] { "https://example.com/a", "https://example.com/b", "https://example.com/a" }, urls.ToArray());
+        });
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public void BeatorajaBmtTableImportService_LoadCachedTable_RestoresTableWithConfigRawUrl()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectory)
+        {
+            string root = CreateBeatorajaRoot(tempDirectory);
+            string tablePath = BeatorajaConfigService.GetTablePath(root);
+            string configTableUrl = "https://EXAMPLE.com/table/%7Efull.html";
+            var configTableUri = new Uri(configTableUrl, UriKind.Absolute);
+            var tableData = new JObject
+            {
+                ["url"] = "https://example.com/old.html",
+                ["name"] = "Cached Table",
+                ["tag"] = "st",
+                ["folder"] = new JArray(new JObject
+                {
+                    ["name"] = "st0",
+                    ["songs"] = new JArray(new JObject
+                    {
+                        ["title"] = "Song",
+                        ["artist"] = "Artist",
+                        ["md5"] = Md5A,
+                        ["sha256"] = Sha256A,
+                        ["url"] = "https://example.com/song.zip",
+                        ["appendurl"] = "https://example.com/song-diff.zip",
+                        ["org_md5"] = new JArray(Md5B)
+                    })
+                }),
+                ["course"] = new JArray(new JObject
+                {
+                    ["name"] = "Course",
+                    ["hash"] = new JArray(new JObject
+                    {
+                        ["title"] = "Course Song",
+                        ["md5"] = Md5A
+                    })
+                })
+            };
+            string cachePath = BeatorajaBmtTableImportService.GetCachedTablePath(tablePath, configTableUrl);
+            WriteBmtJson(cachePath, tableData);
+
+            BMSTable table = BeatorajaBmtTableImportService.LoadCachedTable(tablePath, configTableUrl);
+
+            Assert.AreEqual(configTableUri, table.Page_url);
+            Assert.AreEqual(configTableUrl, table.Page_url.OriginalString);
+            Assert.AreEqual(configTableUrl, table.page_url);
+            Assert.AreEqual(configTableUri, table.Header_url);
+            Assert.AreEqual(configTableUrl, table.header_url);
+            Assert.IsTrue(table.EnableExternalSync());
+            Assert.AreEqual("Cached Table", table.name);
+            Assert.AreEqual("st", table.symbol);
+            Assert.AreEqual("st", table.tag);
+            Assert.AreEqual("st", table.compat_prefix);
+            CollectionAssert.AreEqual(new[] { "st0" }, table.Folder_order.ToArray());
+            Assert.AreEqual(1, table.entries.Count);
+            BMSTableEntry entry = table.entries[0];
+            Assert.AreEqual("st0", entry.folder);
+            Assert.AreEqual("Song", entry.title);
+            Assert.AreEqual("Artist", entry.artist);
+            Assert.AreEqual(Md5A, entry.md5);
+            Assert.AreEqual(Sha256A, entry.sha256);
+            Assert.AreEqual("https://example.com/song.zip", entry.url);
+            Assert.AreEqual("https://example.com/song-diff.zip", entry.url_diff);
+            CollectionAssert.AreEqual(new[] { Md5B }, entry.Org_md5.ToArray());
+            Assert.AreEqual(1, table.Courses.Count);
+            StringAssert.Contains(table.Courses[0].course_json, "\"Course\"");
+
+            table.playlist_id = 99;
+            JObject exported = BmtTableExportService.BuildTableData(table);
+            Assert.AreEqual(configTableUrl, exported.Value<string>("url"));
+            Assert.AreEqual(BMSTable.ComputeSha256Hex(configTableUrl) + ".bmt", BmtTableExportService.CreatePlaylistExportMetadata(table).FileName);
+        });
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public void BuildTableData_UsesPersistedRawPageUrl()
+    {
+        string rawPageUrl = "https://EXAMPLE.com/table/%7Efull.html";
+        var table = new BMSTable
+        {
+            name = "Changed",
+            playlist_id = 100,
+            Page_url = new Uri(rawPageUrl, UriKind.Absolute),
+            Folder_order = ["Alpha"],
+            entries =
+            [
+                new BMSTableEntry(DynamicJson.Parse("{\"title\":\"Song\",\"md5\":\"" + Md5A + "\",\"level\":\"Alpha\"}"))
+            ]
+        };
+
+        JObject exported = BmtTableExportService.BuildTableData(table);
+
+        Assert.AreEqual(rawPageUrl, exported.Value<string>("url"));
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public void BuildBeatorajaTableUrlImportTargets_DeduplicatesByAbsoluteUriKeepingFirstRawUrl()
+    {
+        object targets = typeof(MainWindowViewModel)
+            .GetMethod("BuildBeatorajaTableUrlImportTargets", BindingFlags.Static | BindingFlags.NonPublic)!
+            .Invoke(null, [new[] { "https://EXAMPLE.com/table/%7Efull.html", "https://example.com/table/~full.html", "https://example.com/other.html" }]);
+        var targetList = ((System.Collections.IEnumerable)targets).Cast<object>().ToArray();
+
+        Assert.AreEqual(2, targetList.Length);
+        Assert.AreEqual("https://EXAMPLE.com/table/%7Efull.html", GetPrivateProperty<string>(targetList[0], "RawUrl"));
+        Assert.AreEqual("https://example.com/other.html", GetPrivateProperty<string>(targetList[1], "RawUrl"));
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public void HasSamePersistedTableUrl_RequiresExactConfigRawUrl()
+    {
+        string rawPageUrl = "https://EXAMPLE.com/table/%7Efull.html";
+        var table = new BMSTable
+        {
+            Page_url = new Uri(rawPageUrl, UriKind.Absolute)
+        };
+        MethodInfo method = typeof(MainWindowViewModel)
+            .GetMethod("HasSamePersistedTableUrl", BindingFlags.Static | BindingFlags.NonPublic)!;
+
+        Assert.IsTrue((bool)method.Invoke(null, [table, rawPageUrl]));
+        Assert.IsFalse((bool)method.Invoke(null, [table, "https://example.com/table/~full.html"]));
+    }
+
     private static JObject ReadBmtJson(string path)
     {
         using FileStream fileStream = LongPathFileSystem.OpenRead(path);
         using var gzipStream = new GZipStream(fileStream, CompressionMode.Decompress);
         using var reader = new StreamReader(gzipStream, Encoding.UTF8);
         return JObject.Parse(reader.ReadToEnd());
+    }
+
+    private static void WriteBmtJson(string path, JObject json)
+    {
+        using FileStream fileStream = LongPathFileSystem.Open(path, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+        using var gzipStream = new GZipStream(fileStream, CompressionMode.Compress);
+        using var writer = new StreamWriter(gzipStream, new UTF8Encoding(false));
+        writer.Write(json.ToString());
+    }
+
+    private static T GetPrivateProperty<T>(object target, string propertyName)
+    {
+        return (T)target.GetType()
+            .GetProperty(propertyName, BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public)!
+            .GetValue(target);
     }
 
     private static JObject CreateLocalTableData(string url, string name)

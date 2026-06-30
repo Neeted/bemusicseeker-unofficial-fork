@@ -757,6 +757,9 @@ LR2をプレイヤーとして使用すると再生できない場合があり�
   <data name="Beatoraja_integration" xml:space="preserve">
     <value>beatoraja連携</value>
   </data>
+  <data name="Import_beatoraja_table_urls_button" xml:space="preserve">
+    <value>beatoraja の Table URL をインポートする</value>
+  </data>
   <data name="Use_beatoraja_scoreDB" xml:space="preserve">
     <value>beatorajaのスコアを読み込む</value>
   </data>
@@ -924,6 +927,32 @@ LR2IRにスコアやクリアが自動送信されるわけではありません
   </data>
   <data name="Register_beatoraja_bmt_urls" xml:space="preserve">
     <value>config_sys.jsonに.bmtのURLを登録する(選曲画面での並びが安定します)</value>
+  </data>
+  <data name="Confirm_import_beatoraja_table_urls" xml:space="preserve">
+    <value>beatoraja のリソースタブで設定済みの Table URL を、BeMusicSeeker のプレイリストとしてインポートします。
+
+BMT SORT は、プレイリストサマリー画面の BMT SORT 列に表示される、難易度表の並び順に対応する数値です。
+元の Table URL の並びは BMT SORT に反映されます。
+プレイリストサマリー画面を BMT SORT 昇順で表示しているときは、ドラッグアンドドロップなどで並びを調整できます。
+BeMusicSeeker にのみ存在するプレイリストの BMT SORT は最後尾へ移動されます。
+
+外部から読み込めない難易度表、たとえば 404 などの場合は、beatoraja の table フォルダ内の .bmt から復元を試みます。
+.bmt からの復元にも失敗した URL は、「.bmtを出力する」機能では BeMusicSeeker 管理外プレイリストとして扱われるため、Table URL の先頭に残されます。
+
+インポートを実行しますか？</value>
+  </data>
+  <data name="Confirm_enable_beatoraja_bmt_output_before_table_url_import" xml:space="preserve">
+    <value>beatoraja の Table URL に登録済みの難易度表を BeMusicSeeker のプレイリストツリーに取り込んでから .bmt を出力すると、beatoraja の選曲画面での難易度表の並びを維持しやすくなります。
+
+また、beatoraja 側で難易度表をリロードする必要が少なくなり、難易度表の管理を BeMusicSeeker に一元化できます。
+
+このまま .bmt 出力を有効にしますか？</value>
+  </data>
+  <data name="Beatoraja_table_url_import_no_urls" xml:space="preserve">
+    <value>config_sys.json に Table URL が登録されていません。</value>
+  </data>
+  <data name="Beatoraja_table_url_import_already_running" xml:space="preserve">
+    <value>beatoraja の Table URL インポートは既に実行中です。</value>
   </data>
   <data name="Clear_reinstall_estimation" xml:space="preserve">
     <value>再インストール先をクリア</value>
@@ -1322,6 +1351,33 @@ BMSファイルが重複しないようにマージします。
   </data>
   <data name="Playlist_import_progress_single_label" xml:space="preserve">
     <value>外部表インポート</value>
+  </data>
+  <data name="Beatoraja_table_url_import_progress_label_format" xml:space="preserve">
+    <value>beatoraja Table URL インポート {0}/{1}</value>
+  </data>
+  <data name="Beatoraja_table_url_import_progress_single_label" xml:space="preserve">
+    <value>beatoraja Table URL インポート</value>
+  </data>
+  <data name="Beatoraja_table_url_import_progress_phase_check_urls" xml:space="preserve">
+    <value>Table URL を確認中</value>
+  </data>
+  <data name="Beatoraja_table_url_import_progress_phase_load_tables" xml:space="preserve">
+    <value>難易度表を読み込み中</value>
+  </data>
+  <data name="Beatoraja_table_url_import_progress_phase_restore_bmt" xml:space="preserve">
+    <value>.bmt キャッシュから復元中</value>
+  </data>
+  <data name="Beatoraja_table_url_import_progress_phase_register_playlists" xml:space="preserve">
+    <value>プレイリストを登録中</value>
+  </data>
+  <data name="Beatoraja_table_url_import_progress_phase_update_references" xml:space="preserve">
+    <value>ライブラリ参照を更新中</value>
+  </data>
+  <data name="Beatoraja_table_url_import_progress_phase_apply_bmt_sort" xml:space="preserve">
+    <value>BMT SORT を反映中</value>
+  </data>
+  <data name="Beatoraja_table_url_import_progress_phase_finish" xml:space="preserve">
+    <value>インポート完了処理中</value>
   </data>
   <data name="Statusbar_progress_startup" xml:space="preserve">
     <value>初期化中</value>
@@ -2565,6 +2621,25 @@ cleanup-only成功: {3}
   </data>
   <data name="Playlist_import_result_failed_header" xml:space="preserve">
     <value>失敗:</value>
+  </data>
+  <data name="Beatoraja_table_url_import_result_title" xml:space="preserve">
+    <value>beatoraja Table URL インポート結果</value>
+  </data>
+  <data name="Beatoraja_table_url_import_result_summary_format" xml:space="preserve">
+    <value>既存URL: {0} 件
+通常インポート: {1} 件
+.bmtから復元: {2} 件
+失敗: {3} 件
+警告: {4} 件</value>
+  </data>
+  <data name="Beatoraja_table_url_import_result_warning_header" xml:space="preserve">
+    <value>警告:</value>
+  </data>
+  <data name="Beatoraja_table_url_import_result_failed_header" xml:space="preserve">
+    <value>失敗:</value>
+  </data>
+  <data name="Beatoraja_table_url_import_failed_with_bmt_restore_format" xml:space="preserve">
+    <value>外部読み込みと .bmt 復元に失敗しました: {0}</value>
   </data>
   <data name="Playlist_uri_input_no_valid_uri" xml:space="preserve">
     <value>入力された値が正しくありません。

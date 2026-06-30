@@ -263,6 +263,8 @@ public class Resources
 
     public static string Beatoraja_player => ResourceManager.GetString("Beatoraja_player", resourceCulture);
 
+    public static string Import_beatoraja_table_urls_button => ResourceManager.GetString("Import_beatoraja_table_urls_button", resourceCulture);
+
     public static string Register_beatoraja_bmt_urls => ResourceManager.GetString("Register_beatoraja_bmt_urls", resourceCulture);
 
     public static string Keep_beatoraja_bmt_files_when_output_disabled => ResourceManager.GetString("Keep_beatoraja_bmt_files_when_output_disabled", resourceCulture);
@@ -274,6 +276,14 @@ public class Resources
     public static string Beatoraja_bmt_hash_output_fill_missing => ResourceManager.GetString("Beatoraja_bmt_hash_output_fill_missing", resourceCulture);
 
     public static string Beatoraja_bmt_hash_output_prefer_sha256_only => ResourceManager.GetString("Beatoraja_bmt_hash_output_prefer_sha256_only", resourceCulture);
+
+    public static string Confirm_import_beatoraja_table_urls => ResourceManager.GetString("Confirm_import_beatoraja_table_urls", resourceCulture);
+
+    public static string Confirm_enable_beatoraja_bmt_output_before_table_url_import => ResourceManager.GetString("Confirm_enable_beatoraja_bmt_output_before_table_url_import", resourceCulture);
+
+    public static string Beatoraja_table_url_import_no_urls => ResourceManager.GetString("Beatoraja_table_url_import_no_urls", resourceCulture);
+
+    public static string Beatoraja_table_url_import_already_running => ResourceManager.GetString("Beatoraja_table_url_import_already_running", resourceCulture);
 
     public static string FilePath_songDB => ResourceManager.GetString("FilePath_songDB", resourceCulture);
 
@@ -347,6 +357,24 @@ public class Resources
     public static string Playlist_import_progress_label_format => ResourceManager.GetString("Playlist_import_progress_label_format", resourceCulture);
 
     public static string Playlist_import_progress_single_label => ResourceManager.GetString("Playlist_import_progress_single_label", resourceCulture);
+
+    public static string Beatoraja_table_url_import_progress_label_format => ResourceManager.GetString("Beatoraja_table_url_import_progress_label_format", resourceCulture);
+
+    public static string Beatoraja_table_url_import_progress_single_label => ResourceManager.GetString("Beatoraja_table_url_import_progress_single_label", resourceCulture);
+
+    public static string Beatoraja_table_url_import_progress_phase_check_urls => ResourceManager.GetString("Beatoraja_table_url_import_progress_phase_check_urls", resourceCulture);
+
+    public static string Beatoraja_table_url_import_progress_phase_load_tables => ResourceManager.GetString("Beatoraja_table_url_import_progress_phase_load_tables", resourceCulture);
+
+    public static string Beatoraja_table_url_import_progress_phase_restore_bmt => ResourceManager.GetString("Beatoraja_table_url_import_progress_phase_restore_bmt", resourceCulture);
+
+    public static string Beatoraja_table_url_import_progress_phase_register_playlists => ResourceManager.GetString("Beatoraja_table_url_import_progress_phase_register_playlists", resourceCulture);
+
+    public static string Beatoraja_table_url_import_progress_phase_update_references => ResourceManager.GetString("Beatoraja_table_url_import_progress_phase_update_references", resourceCulture);
+
+    public static string Beatoraja_table_url_import_progress_phase_apply_bmt_sort => ResourceManager.GetString("Beatoraja_table_url_import_progress_phase_apply_bmt_sort", resourceCulture);
+
+    public static string Beatoraja_table_url_import_progress_phase_finish => ResourceManager.GetString("Beatoraja_table_url_import_progress_phase_finish", resourceCulture);
 
     public static string Statusbar_progress_startup => ResourceManager.GetString("Statusbar_progress_startup", resourceCulture);
 
@@ -1651,6 +1679,16 @@ public class Resources
 
 
     public static string Playlist_import_result_failed_header => ResourceManager.GetString("Playlist_import_result_failed_header", resourceCulture);
+
+    public static string Beatoraja_table_url_import_result_title => ResourceManager.GetString("Beatoraja_table_url_import_result_title", resourceCulture);
+
+    public static string Beatoraja_table_url_import_result_summary_format => ResourceManager.GetString("Beatoraja_table_url_import_result_summary_format", resourceCulture);
+
+    public static string Beatoraja_table_url_import_result_warning_header => ResourceManager.GetString("Beatoraja_table_url_import_result_warning_header", resourceCulture);
+
+    public static string Beatoraja_table_url_import_result_failed_header => ResourceManager.GetString("Beatoraja_table_url_import_result_failed_header", resourceCulture);
+
+    public static string Beatoraja_table_url_import_failed_with_bmt_restore_format => ResourceManager.GetString("Beatoraja_table_url_import_failed_with_bmt_restore_format", resourceCulture);
 
     public static string Playlist_uri_input_no_valid_uri => ResourceManager.GetString("Playlist_uri_input_no_valid_uri", resourceCulture);
 

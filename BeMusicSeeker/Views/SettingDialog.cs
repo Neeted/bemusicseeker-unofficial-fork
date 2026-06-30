@@ -257,6 +257,14 @@ public partial class SettingDialog : UserControl, IComponentConnector
         PickRootFolderForSetting(nameof(settingDialogViewModel.BeatorajaRootPath), settingDialogViewModel.BeatorajaRootPath);
     }
 
+    private void importBeatorajaTableUrlsButtonClick(object sender, RoutedEventArgs e)
+    {
+        if (base.DataContext is MainWindowViewModel { settingDialog: { } settingDialogViewModel } mainWindowViewModel)
+        {
+            mainWindowViewModel.StartBeatorajaTableUrlImport(settingDialogViewModel.BeatorajaRootPath);
+        }
+    }
+
     private void browseStagefilePathButtonClick(object sender, RoutedEventArgs e)
     {
         MainWindowViewModel.SettingDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();

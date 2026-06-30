@@ -47,6 +47,14 @@ internal static class BeatorajaConfigService
         return config.Value<string>("playername") ?? string.Empty;
     }
 
+    internal static IReadOnlyList<string> ReadTableUrls(string rootPath)
+    {
+        JObject config = ReadConfigOrDefault(rootPath);
+        return [.. (config["tableURL"] as JArray ?? [])
+            .Select(token => token.Type == JTokenType.String ? token.Value<string>() : null)
+            .Where(url => !string.IsNullOrWhiteSpace(url))];
+    }
+
     internal static string GetScoreDbPath(string rootPath, string playerId)
     {
         return GetPlayerDbPath(rootPath, playerId, "score.db");

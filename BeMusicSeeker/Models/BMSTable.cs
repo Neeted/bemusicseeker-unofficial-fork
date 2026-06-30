@@ -79,9 +79,9 @@ public class BMSTable : LR2SongDBExtended.playlist
     {
         get
         {
-            if (!(Page_url == null) && !string.IsNullOrWhiteSpace(Page_url.ToString()) && Page_url.IsAbsoluteUri)
+            if (!(Page_url == null) && Page_url.IsAbsoluteUri)
             {
-                return Page_url.AbsoluteUri;
+                return GetPersistedUriText(Page_url);
             }
             return string.Empty;
         }
@@ -110,7 +110,7 @@ public class BMSTable : LR2SongDBExtended.playlist
         {
             if (!(Header_url == null))
             {
-                return Header_url.ToString();
+                return GetPersistedUriText(Header_url);
             }
             return string.Empty;
         }
@@ -139,7 +139,7 @@ public class BMSTable : LR2SongDBExtended.playlist
         {
             if (!(Data_url == null))
             {
-                return Data_url.ToString();
+                return GetPersistedUriText(Data_url);
             }
             return string.Empty;
         }
@@ -193,6 +193,16 @@ public class BMSTable : LR2SongDBExtended.playlist
             exception = ex;
             return false;
         }
+    }
+
+    private static string GetPersistedUriText(Uri uri)
+    {
+        if (uri == null)
+        {
+            return string.Empty;
+        }
+        string original = uri.OriginalString;
+        return string.IsNullOrWhiteSpace(original) ? uri.ToString() : original;
     }
 
     private static Uri ParsePlaylistUriOrThrow(string rawValue, string context)

@@ -741,7 +741,17 @@ internal static class BmtTableExportService
 
     private static string ResolveTableUrl(BMSTable table)
     {
-        Uri uri = table.Page_url ?? table.GetAbsoluteHeaderUrl();
+        string persistedPageUrl = ResolvePersistedAbsoluteUriText(table?.page_url);
+        if (!string.IsNullOrWhiteSpace(persistedPageUrl))
+        {
+            return persistedPageUrl;
+        }
+        string persistedHeaderUrl = ResolvePersistedAbsoluteUriText(table?.header_url);
+        if (!string.IsNullOrWhiteSpace(persistedHeaderUrl))
+        {
+            return persistedHeaderUrl;
+        }
+        Uri uri = table?.Page_url ?? table?.GetAbsoluteHeaderUrl();
         if (uri != null && uri.IsAbsoluteUri)
         {
             return uri.AbsoluteUri;
@@ -751,6 +761,15 @@ internal static class BmtTableExportService
             return "bemusicseeker://playlist/" + table.playlist_id.Value.ToString(System.Globalization.CultureInfo.InvariantCulture);
         }
         return null;
+    }
+
+    private static string ResolvePersistedAbsoluteUriText(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+        return Uri.TryCreate(value, UriKind.Absolute, out Uri uri) && uri.IsAbsoluteUri ? value : null;
     }
 
     private static string ResolveTag(BMSTable table)

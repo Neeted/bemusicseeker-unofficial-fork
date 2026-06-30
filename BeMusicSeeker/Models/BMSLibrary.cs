@@ -19484,6 +19484,54 @@ completeFileEnumerationOnce,
         LogInstallPerformance("playlist_ref_batch buildMapMs=" + stopwatchBuildMap.ElapsedMilliseconds + " applySongMs=" + applySongMs + " applySongChunks=" + songApplyStats.Chunks + " applySongChunkMaxMs=" + songApplyStats.MaxChunkMs + " applySongYieldCount=" + songApplyStats.YieldCount + " applyPendingMs=" + applyPendingMs + " applyPendingChunks=" + pendingApplyStats.Chunks + " applyPendingChunkMaxMs=" + pendingApplyStats.MaxChunkMs + " applyPendingYieldCount=" + pendingApplyStats.YieldCount + " mapMd5Count=" + referenceMaps.Md5ToTablesMap.Count + " mapSha256Count=" + referenceMaps.Sha256ToTablesMap.Count + " tableCount=" + list.Count + " matchedLibraryCharts=" + matchedLibraryCharts + " appliedLibraryCharts=" + appliedLibraryCharts + " matchedPendingFiles=" + matchedPendingFiles + " appliedPendingCharts=" + appliedPendingCharts);
     }
 
+    public void AddReferenceBMSTablesIncremental(IEnumerable<BMSTable> tables)
+    {
+        if (tables == null)
+        {
+            return;
+        }
+        List<BMSTable> list = [.. tables.Where(table => table != null).Distinct()];
+        if (list.Count == 0)
+        {
+            return;
+        }
+        var stopwatchBuildMap = Stopwatch.StartNew();
+        PlaylistReferenceMaps referenceMaps = playlistReferenceService.BuildReferenceMaps(list);
+        foreach (BMSTable table in list)
+        {
+            ReplacePlaylistReferenceIndexTable(table);
+        }
+        stopwatchBuildMap.Stop();
+        long applySongMs = 0L;
+        long applyPendingMs = 0L;
+        int matchedLibraryCharts = 0;
+        int matchedPendingFiles = 0;
+        int appliedLibraryCharts = 0;
+        int appliedPendingCharts = 0;
+        PlaylistReferenceApplyStats songApplyStats = default;
+        PlaylistReferenceApplyStats pendingApplyStats = default;
+        if ((referenceMaps.Md5ToTablesMap.Count + referenceMaps.Sha256ToTablesMap.Count) > 0)
+        {
+            var stopwatchApplySong = Stopwatch.StartNew();
+            List<LibraryChartRef> libraryChartsSnapshot = SnapshotLibraryChartRefsForPlaylistReferenceApply(referenceMaps);
+            if (libraryChartsSnapshot != null && libraryChartsSnapshot.Count > 0)
+            {
+                appliedLibraryCharts = playlistReferenceService.ApplyReferenceMap(libraryChartsSnapshot, referenceMaps, out matchedLibraryCharts, out songApplyStats);
+            }
+            stopwatchApplySong.Stop();
+            applySongMs = stopwatchApplySong.ElapsedMilliseconds;
+            var stopwatchApplyPending = Stopwatch.StartNew();
+            List<PackageChartEntry> pendingEntriesSnapshot = SnapshotPendingChartEntriesForPlaylistReferenceApply(referenceMaps);
+            if (pendingEntriesSnapshot != null && pendingEntriesSnapshot.Count > 0)
+            {
+                appliedPendingCharts = playlistReferenceService.ApplyReferenceMap(pendingEntriesSnapshot, referenceMaps, out matchedPendingFiles, out pendingApplyStats);
+            }
+            stopwatchApplyPending.Stop();
+            applyPendingMs = stopwatchApplyPending.ElapsedMilliseconds;
+        }
+        LogInstallPerformance("playlist_ref_incremental_batch buildMapMs=" + stopwatchBuildMap.ElapsedMilliseconds + " applySongMs=" + applySongMs + " applySongChunks=" + songApplyStats.Chunks + " applySongChunkMaxMs=" + songApplyStats.MaxChunkMs + " applySongYieldCount=" + songApplyStats.YieldCount + " applyPendingMs=" + applyPendingMs + " applyPendingChunks=" + pendingApplyStats.Chunks + " applyPendingChunkMaxMs=" + pendingApplyStats.MaxChunkMs + " applyPendingYieldCount=" + pendingApplyStats.YieldCount + " mapMd5Count=" + referenceMaps.Md5ToTablesMap.Count + " mapSha256Count=" + referenceMaps.Sha256ToTablesMap.Count + " tableCount=" + list.Count + " matchedLibraryCharts=" + matchedLibraryCharts + " appliedLibraryCharts=" + appliedLibraryCharts + " matchedPendingFiles=" + matchedPendingFiles + " appliedPendingCharts=" + appliedPendingCharts);
+    }
+
     /// <summary>
     /// Applies loaded playlist references to package chart entries after package install without materializing unmatched bmson entries.
     /// </summary>

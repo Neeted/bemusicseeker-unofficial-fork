@@ -174,6 +174,10 @@ beatoraja については、スコア DB の読み込みや難易度表キャッ
 
 beatoraja 連携では beatoraja ディレクトリを指定します。直下の `config_sys.json` から `tablepath` と `playerpath` を読み取り、スコア読み込みでは選択したプレイヤーフォルダの `score.db` を使います。
 
+`beatoraja の Table URL をインポートする` を押すと、beatoraja のリソースタブで `Table URL` に登録済みの難易度表を BeMusicSeeker のプレイリストとして取り込みます。既に同じ URL のプレイリストがある場合は再読み込みせず、`BMT SORT` への反映だけを行います。新規 URL は通常の `URLを指定して読み込む` と同じように読み込み、外部から読み込めない場合は beatoraja の `tablepath` 配下にある `.bmt` キャッシュから復元を試みます。復元時も BeMusicSeeker 側の正本 URL は `config_sys.json` の `tableURL` に書かれていた文字列です。インポートに成功した難易度表と既存一致した難易度表は `tableURL` の並び順で `BMT SORT` 先頭へ配置され、BeMusicSeeker にのみ存在するプレイリストは現在の `BMT SORT` 順を保って最後尾へ移動します。
+
+`.bmtを出力する` を有効にする前に Table URL をインポートしておくと、beatoraja の選曲画面での難易度表の並びを維持しやすくなり、beatoraja 側で難易度表をリロードする必要も少なくなります。未取り込みの Table URL がある状態で `.bmtを出力する` を ON にすると、この案内が表示されます。
+
 `.bmtを出力する(難易度表読み込み互換処理)` を有効にすると、プレイリストサマリーの `BMT OUTPUT` が ON のプレイリストを beatoraja が読み込める `.bmt` キャッシュとして `config_sys.json` の `tablepath` 配下へ出力します。これは beatoraja 側の level 集約処理が重く、難易度表読み込みで遅延する環境向けの互換処理です。外部同期表は元の難易度表 URL、ローカルプレイリストは `bemusicseeker://playlist/{playlist_id}` を使って `.bmt` の保存名を決めます。出力先直下には BeMusicSeeker 管理用の `.bemusicseeker-bmt-manifest` が作られ、設定変更や再出力時の cleanup では、この manifest に記録された `.bmt` だけを削除対象にします。起動時などの全体確認では、manifest と実ファイルの更新日時・サイズ、プレイリストの hash / 更新日時が一致する `.bmt` は再生成を省略します。`BMT OUTPUT` を OFF にしたプレイリストの `.bmt` は削除対象になります。
 
 `.bmt出力を無効化しても既存ファイルを削除しない` を有効にした状態で `.bmt` 出力を無効化すると、BeMusicSeeker が過去に出力した `.bmt` ファイルと beatoraja 側の登録 URL を残したまま、以後の自動再出力だけを止めます。既存の `.bmt` を beatoraja 側で引き続き読み込みたい場合や、一時的に再生成を止めたい場合に使います。無効にした状態で `.bmt` 出力を OFF にすると、manifest で管理されている `.bmt` と BeMusicSeeker 管理の `tableURL` は cleanup 対象になります。

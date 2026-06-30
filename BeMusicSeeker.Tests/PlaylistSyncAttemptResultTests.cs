@@ -74,4 +74,23 @@ public sealed class PlaylistSyncAttemptResultTests
         Assert.AreEqual(PlaylistSyncStatusKind.NetworkError, PlaylistSyncAttemptResult.CreateFailure(null, null, new TaskCanceledException("timeout")).FailureKind);
         Assert.AreEqual(PlaylistSyncStatusKind.NetworkError, PlaylistSyncAttemptResult.CreateFailure(null, null, new HttpRequestException("network", new SocketException())).FailureKind);
     }
+
+    [TestMethod]
+    public void CreateFailure_WithResultTable_AssociatesFailureWithRegisteredTable()
+    {
+        var sourceTable = new BMSTable { name = "source" };
+        var resultTable = new BMSTable { name = "restored" };
+        var exception = new HttpRequestException("HTTP request failed statusCode=404 status=NotFound");
+
+        PlaylistSyncAttemptResult result = PlaylistSyncAttemptResult.CreateFailure(
+            sourceTable,
+            resultTable,
+            new Uri("https://example.com/table.html"),
+            exception);
+
+        Assert.AreSame(sourceTable, result.SourceTable);
+        Assert.AreSame(resultTable, result.ResultTable);
+        Assert.AreEqual(PlaylistSyncStatusKind.Http404, result.FailureKind);
+        Assert.IsFalse(result.Succeeded);
+    }
 }
