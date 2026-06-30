@@ -706,6 +706,20 @@
                       </FrameworkContentElement.Resources>
                       <List>
                         <ListItem>
+                          <Paragraph FontWeight="Bold">2.1.5.0:</Paragraph>
+                          <List MarkerStyle="Box">
+                            <ListItem>
+                              <Paragraph>beatoraja の Table URL インポートを追加し、beatoraja 側で登録済みの難易度表 URL と並び順を BeMusicSeeker のプレイリストへ取り込みやすくしました。</Paragraph>
+                            </ListItem>
+                            <ListItem>
+                              <Paragraph>複数行 URL インポートを並列・バッチ処理にし、複数の外部難易度表をまとめて読み込む際の待ち時間を短縮しました。</Paragraph>
+                            </ListItem>
+                            <ListItem>
+                              <Paragraph>設定画面のテスト再生とレイテンシ計測で使用するテスト音声ファイルを配布パッケージへ同梱するようにしました。</Paragraph>
+                            </ListItem>
+                          </List>
+                        </ListItem>
+                        <ListItem>
                           <Paragraph FontWeight="Bold">2.1.4.0:</Paragraph>
                           <List MarkerStyle="Box">
                             <ListItem>
