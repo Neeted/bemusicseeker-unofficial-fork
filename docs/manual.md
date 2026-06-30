@@ -174,6 +174,16 @@ For beatoraja, this application supports some integration such as score DB loadi
 
 In beatoraja integration, specify the beatoraja directory. The application reads `tablepath` and `playerpath` from `config_sys.json` directly under that directory, and score loading uses the selected player's `score.db`.
 
+##### Centralized Difficulty Table Management (Table URL Import / .bmt Output)
+
+> [!NOTE]
+> Downloading and updating the same difficulty tables in both BeMusicSeeker and beatoraja duplicates work and makes ownership unclear.
+> Table URL import and `.bmt` output are intended to manage difficulty tables in BeMusicSeeker and let beatoraja read the `.bmt` cache generated from that managed state.
+
+Press `Import beatoraja Table URLs` to import the difficulty tables registered in beatoraja's Resource tab `Table URL` into BeMusicSeeker playlists. If a playlist with the same URL already exists, it is not reloaded and only its `BMT SORT` position is updated. New URLs are loaded through the same path as `Load from URL`; if the external table cannot be loaded, BeMusicSeeker tries to restore it from the `.bmt` cache under beatoraja's `tablepath`. Even when restoring from `.bmt`, BeMusicSeeker keeps the raw `tableURL` string from `config_sys.json` as the table URL it manages. Successfully imported tables and already existing matching tables are moved to the front of `BMT SORT` in `tableURL` order, while playlists that exist only in BeMusicSeeker are moved to the end while keeping their current `BMT SORT` order.
+
+Importing Table URLs before enabling `.bmt output` makes it easier to preserve the difficulty table order on beatoraja's song-select screen and reduces the need to reload difficulty tables in beatoraja. If `.bmt output` is enabled while unimported Table URLs still exist, this guidance is shown.
+
 When `.bmt output (difficulty table loading compatibility process)` is enabled, playlists whose `BMT OUTPUT` column is enabled in the playlist summary are output under the `tablepath` in `config_sys.json` as `.bmt` caches that beatoraja can load. This is a compatibility process for environments where beatoraja's level aggregation processing is heavy and difficulty table loading is delayed. External sync tables use the original difficulty table URL, and local playlists use `bemusicseeker://playlist/{playlist_id}` to determine the `.bmt` save name. A `.bemusicseeker-bmt-manifest` for BeMusicSeeker management is created directly under the output destination. During cleanup after settings changes or re-output, only the `.bmt` files recorded in this manifest are deletion targets. During full checks such as startup, `.bmt` files whose manifest metadata, actual file timestamp/size, and playlist hashes/update time match are not regenerated. A playlist whose `BMT OUTPUT` is disabled has its managed `.bmt` removed.
 
 When `Keep existing .bmt files when output is disabled` is enabled and `.bmt` output is turned off, BeMusicSeeker leaves previously output `.bmt` files and the registered beatoraja URLs in place, and only stops automatic re-output from then on. Use this when you want beatoraja to keep loading the existing `.bmt` files, or when you want to pause regeneration temporarily. If this setting is disabled and `.bmt` output is turned off, the `.bmt` files managed by the manifest and the BeMusicSeeker-managed `tableURL` entries become cleanup targets.
@@ -594,7 +604,7 @@ The default difficulty table list retrieval URI is managed by [DARKSABUN](https:
 
 Import menus such as external table lists and recommend tables **do not close when you click a single item, so you can select and import multiple tables in sequence.**
 
-In `Load by specifying URL`, you can enter destination URIs across multiple lines. If you paste multiple difficulty table URLs at once, each line is treated as a load target.
+In `Load by specifying URL`, you can enter destination URIs across multiple lines. If you paste multiple difficulty table URLs at once, each line is treated as a load target, and external loading plus post-registration work are processed in batches. If a playlist with the same name already exists, that URL is skipped and the result dialog shows the skipped count and names after processing finishes.
 
 Externally synced playlists can be updated by re-fetching the original difficulty table. After importing, check the sync result in the playlist summary `STATUS` column.
 

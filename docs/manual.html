@@ -37,6 +37,11 @@
   --pre-text: #edf2f7;
   --table-head: #f0f5f5;
   --shadow: 0 18px 38px rgba(31, 41, 55, 0.10);
+  --alert-note: #0969da;
+  --alert-tip: #1a7f37;
+  --alert-important: #8250df;
+  --alert-warning: #9a6700;
+  --alert-caution: #cf222e;
 }
 
 * {
@@ -263,6 +268,43 @@ blockquote {
   border-left: 4px solid var(--accent);
   background: #f4faf8;
   color: #3b4656;
+}
+
+.markdown-alert {
+  padding: 12px 16px;
+  border-left: 4px solid var(--alert-color);
+  background: #fff;
+  color: var(--text);
+}
+
+.markdown-alert-title {
+  margin: 0 0 8px;
+  color: var(--alert-color);
+  font-weight: 700;
+}
+
+.markdown-alert-note {
+  --alert-color: var(--alert-note);
+}
+
+.markdown-alert-tip {
+  --alert-color: var(--alert-tip);
+}
+
+.markdown-alert-important {
+  --alert-color: var(--alert-important);
+}
+
+.markdown-alert-warning {
+  --alert-color: var(--alert-warning);
+}
+
+.markdown-alert-caution {
+  --alert-color: var(--alert-caution);
+}
+
+.markdown-alert > :last-child {
+  margin-bottom: 0;
 }
 
 code {
@@ -642,6 +684,13 @@ A DB for managing owned BMS is created at <code>data\song.db</code>. The saved c
 <h4 id="beatoraja-integration">beatoraja Integration</h4>
 <p>For beatoraja, this application supports some integration such as score DB loading and difficulty table cache output, but it is not a tool for managing beatoraja as a whole. <strong>If you want to update the beatoraja DB quickly, please use <a href="https://github.com/Neeted/songdata-updater">songdata-updater</a>.</strong></p>
 <p>In beatoraja integration, specify the beatoraja directory. The application reads <code>tablepath</code> and <code>playerpath</code> from <code>config_sys.json</code> directly under that directory, and score loading uses the selected player's <code>score.db</code>.</p>
+<h5 id="centralized-difficulty-table-management-table-url-import--bmt-output">Centralized Difficulty Table Management (Table URL Import / .bmt Output)</h5>
+<div class="markdown-alert markdown-alert-note"><p class="markdown-alert-title">Note</p>
+<p>Downloading and updating the same difficulty tables in both BeMusicSeeker and beatoraja duplicates work and makes ownership unclear.
+Table URL import and <code>.bmt</code> output are intended to manage difficulty tables in BeMusicSeeker and let beatoraja read the <code>.bmt</code> cache generated from that managed state.</p>
+</div>
+<p>Press <code>Import beatoraja Table URLs</code> to import the difficulty tables registered in beatoraja's Resource tab <code>Table URL</code> into BeMusicSeeker playlists. If a playlist with the same URL already exists, it is not reloaded and only its <code>BMT SORT</code> position is updated. New URLs are loaded through the same path as <code>Load from URL</code>; if the external table cannot be loaded, BeMusicSeeker tries to restore it from the <code>.bmt</code> cache under beatoraja's <code>tablepath</code>. Even when restoring from <code>.bmt</code>, BeMusicSeeker keeps the raw <code>tableURL</code> string from <code>config_sys.json</code> as the table URL it manages. Successfully imported tables and already existing matching tables are moved to the front of <code>BMT SORT</code> in <code>tableURL</code> order, while playlists that exist only in BeMusicSeeker are moved to the end while keeping their current <code>BMT SORT</code> order.</p>
+<p>Importing Table URLs before enabling <code>.bmt output</code> makes it easier to preserve the difficulty table order on beatoraja's song-select screen and reduces the need to reload difficulty tables in beatoraja. If <code>.bmt output</code> is enabled while unimported Table URLs still exist, this guidance is shown.</p>
 <p>When <code>.bmt output (difficulty table loading compatibility process)</code> is enabled, playlists whose <code>BMT OUTPUT</code> column is enabled in the playlist summary are output under the <code>tablepath</code> in <code>config_sys.json</code> as <code>.bmt</code> caches that beatoraja can load. This is a compatibility process for environments where beatoraja's level aggregation processing is heavy and difficulty table loading is delayed. External sync tables use the original difficulty table URL, and local playlists use <code>bemusicseeker://playlist/{playlist_id}</code> to determine the <code>.bmt</code> save name. A <code>.bemusicseeker-bmt-manifest</code> for BeMusicSeeker management is created directly under the output destination. During cleanup after settings changes or re-output, only the <code>.bmt</code> files recorded in this manifest are deletion targets. During full checks such as startup, <code>.bmt</code> files whose manifest metadata, actual file timestamp/size, and playlist hashes/update time match are not regenerated. A playlist whose <code>BMT OUTPUT</code> is disabled has its managed <code>.bmt</code> removed.</p>
 <p>When <code>Keep existing .bmt files when output is disabled</code> is enabled and <code>.bmt</code> output is turned off, BeMusicSeeker leaves previously output <code>.bmt</code> files and the registered beatoraja URLs in place, and only stops automatic re-output from then on. Use this when you want beatoraja to keep loading the existing <code>.bmt</code> files, or when you want to pause regeneration temporarily. If this setting is disabled and <code>.bmt</code> output is turned off, the <code>.bmt</code> files managed by the manifest and the BeMusicSeeker-managed <code>tableURL</code> entries become cleanup targets.</p>
 <p><code>.bmt hash output</code> lets you choose how <code>md5</code> / <code>sha256</code> are output for folder songs. <code>Original</code> outputs only the hashes saved in the playlist as-is. <code>Complete md5/sha256 as much as possible</code> fills in missing hashes when they can be resolved safely from owned charts or chart metadata. <code>Prefer sha256 only as much as possible</code> outputs only sha256 without md5 for charts where sha256 can be output, but leaves md5 for charts where sha256 cannot be resolved. The default is <code>Original</code>. Hashes for dan course entries use the original difficulty table data as-is and are not targets for this completion. Changing only this setting does not immediately regenerate unchanged <code>.bmt</code> files; it is applied the next time the target playlist is re-output.</p>
@@ -1026,7 +1075,7 @@ When clicking a <code>URL1</code> / <code>URL2</code> column attempts automatic 
 <p>The default difficulty table list retrieval URI is managed by <a href="https://darksabun.club/table/tablelist.html">DARKSABUN</a>.</p>
 <p><img alt="Playlist import URL specification" src="img/プレイリストインポート_URLを指定して読み込む.PNG"/></p>
 <p>Import menus such as external table lists and recommend tables <strong>do not close when you click a single item, so you can select and import multiple tables in sequence.</strong></p>
-<p>In <code>Load by specifying URL</code>, you can enter destination URIs across multiple lines. If you paste multiple difficulty table URLs at once, each line is treated as a load target.</p>
+<p>In <code>Load by specifying URL</code>, you can enter destination URIs across multiple lines. If you paste multiple difficulty table URLs at once, each line is treated as a load target, and external loading plus post-registration work are processed in batches. If a playlist with the same name already exists, that URL is skipped and the result dialog shows the skipped count and names after processing finishes.</p>
 <p>Externally synced playlists can be updated by re-fetching the original difficulty table. After importing, check the sync result in the playlist summary <code>STATUS</code> column.</p>
 <h3 id="playlist-properties">Playlist Properties</h3>
 <p>Right-click a playlist and open <code>Properties</code> to view and edit the playlist name, display symbol, external sync settings, page URI, header URI, and data URI.</p>

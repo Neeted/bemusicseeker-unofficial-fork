@@ -37,6 +37,11 @@
   --pre-text: #edf2f7;
   --table-head: #f0f5f5;
   --shadow: 0 18px 38px rgba(31, 41, 55, 0.10);
+  --alert-note: #0969da;
+  --alert-tip: #1a7f37;
+  --alert-important: #8250df;
+  --alert-warning: #9a6700;
+  --alert-caution: #cf222e;
 }
 
 * {
@@ -263,6 +268,43 @@ blockquote {
   border-left: 4px solid var(--accent);
   background: #f4faf8;
   color: #3b4656;
+}
+
+.markdown-alert {
+  padding: 12px 16px;
+  border-left: 4px solid var(--alert-color);
+  background: #fff;
+  color: var(--text);
+}
+
+.markdown-alert-title {
+  margin: 0 0 8px;
+  color: var(--alert-color);
+  font-weight: 700;
+}
+
+.markdown-alert-note {
+  --alert-color: var(--alert-note);
+}
+
+.markdown-alert-tip {
+  --alert-color: var(--alert-tip);
+}
+
+.markdown-alert-important {
+  --alert-color: var(--alert-important);
+}
+
+.markdown-alert-warning {
+  --alert-color: var(--alert-warning);
+}
+
+.markdown-alert-caution {
+  --alert-color: var(--alert-caution);
+}
+
+.markdown-alert > :last-child {
+  margin-bottom: 0;
 }
 
 code {

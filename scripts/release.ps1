@@ -4,7 +4,7 @@
 
 .DESCRIPTION
     -CreateDraft:
-      1. 公開用リポジトリの version.txt と dist/*.zip から update.json を生成
+      1. 開発用リポジトリの AssemblyInformationalVersion と公開用リポジトリの dist/*.zip から update.json を生成
       2. 変更を Release vX.X.X.X としてコミットし、タグを作成
       3. タグだけを push して GitHub Release draft を作成 / 更新
 
@@ -25,9 +25,9 @@
          例: .\scripts\release.ps1 -CreatePrereleaseDraft -PreviewSuffix preview.2
 
     -PublishDraft:
-      1. draft Release と tag の整合性を確認
-      2. draft Release を publish
-      3. 同じリリースコミットを公開ブランチへ push し、raw GitHub の update.json/version.txt を公開
+      1. Release、tag、現在の HEAD が同じ release commit を指すことを確認
+      2. draft Release を publish して release asset を公開
+      3. 同じリリースコミットを公開ブランチへ push し、raw GitHub の update.json/version.txt が新バージョンを返すことを確認
 #>
 param(
     [switch]$CreateDraft,
@@ -78,6 +78,29 @@ function Sort-UpdateManifestAssets($assets) {
     return ,@($assets | Sort-Object @{ Expression = { Get-UpdateAssetKindPriority $_.kind } }, fileName)
 }
 
+function Get-AppVersion {
+    $asmInfoPath = Join-Path $devRoot "Properties\AssemblyInfo.cs"
+    if (-not (Test-Path $asmInfoPath -PathType Leaf)) {
+        throw "AssemblyInfo.cs が見つかりません: $asmInfoPath"
+    }
+
+    $content = Get-Content $asmInfoPath -Raw
+    if ($content -match 'AssemblyInformationalVersion\("([^"]+)"\)') {
+        $version = $Matches[1].Trim()
+    }
+    else {
+        throw "AssemblyInformationalVersion が見つかりません: $asmInfoPath"
+    }
+
+    try {
+        [void][System.Version]::Parse($version)
+    }
+    catch {
+        throw "AssemblyInformationalVersion が System.Version として解釈できません: $version"
+    }
+    return $version
+}
+
 function Get-ZipEntryNames($asset) {
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     $archive = [System.IO.Compression.ZipFile]::OpenRead($asset.FullName)
@@ -114,6 +137,7 @@ function Assert-ReleasePackageLayout($asset) {
         "BeMusicSeeker.exe",
         "BeMusicSeeker.exe.config",
         "BeMusicSeeker.Updater.exe",
+        "test.mp3",
         "libs/SevenZipExtractor.dll",
         "libs/OggVorbis.NET64.dll",
         "libs/x64/7z.dll",
@@ -161,15 +185,7 @@ function Get-ReleaseContext {
         [bool]$RequireAssets = $true
     )
 
-    if (-not (Test-Path "version.txt")) {
-        throw "version.txt が見つかりません。"
-    }
-
-    $version = (Get-Content "version.txt" -Raw).Trim()
-    if ([string]::IsNullOrWhiteSpace($version)) {
-        throw "version.txt が空です。"
-    }
-
+    $version = Get-AppVersion
     $tag = "v$version"
     $notesPath = Join-Path $devRoot "release notes\$tag リリースノート.md"
     if (-not (Test-Path $notesPath -PathType Leaf)) {
@@ -273,6 +289,60 @@ function New-UpdateManifest($context) {
     Write-Host "  update.json を生成: $manifestPath" -ForegroundColor Green
 }
 
+function Write-PublicVersionText($context) {
+    $versionPath = Join-Path $pubRoot "version.txt"
+    $utf8NoBom = New-Object System.Text.UTF8Encoding $false
+    [System.IO.File]::WriteAllText($versionPath, $context.Version, $utf8NoBom)
+    Write-Host "  version.txt を生成: $versionPath" -ForegroundColor Green
+}
+
+function Get-RawPublicFileUrl($relativePath) {
+    $escapedPath = (($relativePath -split '[\\/]') | ForEach-Object { [uri]::EscapeDataString($_) }) -join "/"
+    $cacheBuster = [uri]::EscapeDataString((Get-Date).ToUniversalTime().Ticks.ToString())
+    return "https://raw.githubusercontent.com/$publicRepoOwner/$publicRepoName/$publicBranch/$escapedPath`?cb=$cacheBuster"
+}
+
+function Get-RawPublicFileText($relativePath) {
+    $url = Get-RawPublicFileUrl $relativePath
+    try {
+        $response = Invoke-WebRequest -Uri $url -Headers @{ "Cache-Control" = "no-cache"; "Pragma" = "no-cache" }
+    }
+    catch {
+        throw "raw GitHub の取得に失敗しました: $url`n$($_.Exception.Message)"
+    }
+
+    if ($response.StatusCode -lt 200 -or $response.StatusCode -ge 300) {
+        throw "raw GitHub が成功ステータスを返しませんでした: $url status=$($response.StatusCode)"
+    }
+    return [string]$response.Content
+}
+
+function Assert-RawReleaseFilesPublished($context) {
+    Write-Host "  raw GitHub の update.json/version.txt 反映を確認中..."
+
+    $manifestText = Get-RawPublicFileText "update.json"
+    try {
+        $manifest = $manifestText | ConvertFrom-Json
+    }
+    catch {
+        throw "raw update.json の JSON parse に失敗しました。`n$($_.Exception.Message)"
+    }
+
+    if ($manifest.version -ne $context.Version) {
+        throw "raw update.json の version が期待値と一致しません: actual=$($manifest.version) expected=$($context.Version)"
+    }
+    if ($manifest.releaseTag -ne $context.Tag) {
+        throw "raw update.json の releaseTag が期待値と一致しません: actual=$($manifest.releaseTag) expected=$($context.Tag)"
+    }
+
+    $versionText = (Get-RawPublicFileText "version.txt").Trim()
+    if ($versionText -ne $context.Version) {
+        throw "raw version.txt が期待値と一致しません: actual=$versionText expected=$($context.Version)"
+    }
+
+    Write-Host "  raw GitHub 反映 OK" -ForegroundColor Green
+}
+
 function Assert-UpdateManifestCanBeGenerated($context) {
     $assetMetadata = @($context.ReleaseAssets | ForEach-Object { Get-ReleaseAssetMetadata $_ $context })
     if (-not ($assetMetadata | Where-Object { $_.kind -eq "app" })) {
@@ -361,6 +431,14 @@ function Assert-RemoteTagMatchesLocal($tag) {
     $remoteCommit = ($remoteTagLine -split "\s+")[0]
     if ($remoteCommit -ne $localCommit) {
         throw "remote tag と local tag の commit が一致しません: local=$localCommit remote=$remoteCommit"
+    }
+}
+
+function Assert-HeadMatchesReleaseTag($tag) {
+    $headCommit = (git rev-parse "HEAD").Trim()
+    $tagCommit = (git rev-parse "$tag^{commit}").Trim()
+    if ($headCommit -ne $tagCommit) {
+        throw "現在の HEAD は release tag と一致しません: tag=$tag head=$headCommit tagCommit=$tagCommit`n-PublishDraft は -CreateDraft / -RecreateDraft で作成した release commit から実行してください。"
     }
 }
 
@@ -551,6 +629,7 @@ function Invoke-CreateDraft($context) {
     Write-Host "`n=== ドラフトリリースの作成 ===" -ForegroundColor Cyan
     Assert-OnPublicBranch
     New-UpdateManifest $context
+    Write-PublicVersionText $context
     New-ReleaseCommitAndTag $context
 
     Write-Host "  タグだけを push します..."
@@ -629,6 +708,7 @@ function Invoke-RecreateDraft($context) {
     Remove-DraftReleaseAndTags $context
     Reset-ReleaseCommitPreservingWorktree
     New-UpdateManifest $context
+    Write-PublicVersionText $context
     New-ReleaseCommitAndTag $context
 
     Write-Host "  タグだけを push します..."
@@ -651,23 +731,26 @@ function Invoke-PublishDraft($context) {
     if (-not (Get-ReleaseExists $context.Tag)) {
         throw "GitHub Release draft が見つかりません: $($context.Tag)"
     }
+    $isDraft = Get-ReleaseIsDraft $context.Tag
 
     Assert-RemoteTagMatchesLocal $context.Tag
+    Assert-HeadMatchesReleaseTag $context.Tag
     Assert-ReleaseAssetsMatchLocal $context
 
-    Write-Host "  リリースコミットを公開ブランチへ push します..."
-    git push origin "HEAD:refs/heads/$publicBranch"
-    if ($LASTEXITCODE -ne 0) { throw "公開ブランチへの push に失敗しました。" }
-    Assert-RemoteBranchMatchesLocalHead
-
-    if (Get-ReleaseIsDraft $context.Tag) {
+    if ($isDraft) {
         Write-Host "  draft Release を publish します..."
         gh release edit $context.Tag --draft=false --title $context.Tag --notes-file $context.NotesPath
         if ($LASTEXITCODE -ne 0) { throw "GitHub Release draft の publish に失敗しました。" }
     }
     else {
-        Write-Host "  GitHub Release は既に公開済みです。raw update.json/version.txt の push 済み状態を確認しました。" -ForegroundColor Yellow
+        Write-Host "  GitHub Release は既に公開済みです。raw update.json/version.txt の反映を再試行します。" -ForegroundColor Yellow
     }
+
+    Write-Host "  リリースコミットを公開ブランチへ push します..."
+    git push origin "HEAD:refs/heads/$publicBranch"
+    if ($LASTEXITCODE -ne 0) { throw "公開ブランチへの push に失敗しました。" }
+    Assert-RemoteBranchMatchesLocalHead
+    Assert-RawReleaseFilesPublished $context
 
     Write-Host "  Release と raw update.json/version.txt の公開が完了しました。" -ForegroundColor Green
 }
