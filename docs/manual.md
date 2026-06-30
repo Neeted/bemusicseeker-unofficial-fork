@@ -174,6 +174,12 @@ For beatoraja, this application supports some integration such as score DB loadi
 
 In beatoraja integration, specify the beatoraja directory. The application reads `tablepath` and `playerpath` from `config_sys.json` directly under that directory, and score loading uses the selected player's `score.db`.
 
+##### Centralized Difficulty Table Management (Table URL Import / .bmt Output)
+
+> [!NOTE]
+> Downloading and updating the same difficulty tables in both BeMusicSeeker and beatoraja duplicates work and makes ownership unclear.
+> Table URL import and `.bmt` output are intended to manage difficulty tables in BeMusicSeeker and let beatoraja read the `.bmt` cache generated from that managed state.
+
 Press `Import beatoraja Table URLs` to import the difficulty tables registered in beatoraja's Resource tab `Table URL` into BeMusicSeeker playlists. If a playlist with the same URL already exists, it is not reloaded and only its `BMT SORT` position is updated. New URLs are loaded through the same path as `Load from URL`; if the external table cannot be loaded, BeMusicSeeker tries to restore it from the `.bmt` cache under beatoraja's `tablepath`. Even when restoring from `.bmt`, BeMusicSeeker keeps the raw `tableURL` string from `config_sys.json` as the table URL it manages. Successfully imported tables and already existing matching tables are moved to the front of `BMT SORT` in `tableURL` order, while playlists that exist only in BeMusicSeeker are moved to the end while keeping their current `BMT SORT` order.
 
 Importing Table URLs before enabling `.bmt output` makes it easier to preserve the difficulty table order on beatoraja's song-select screen and reduces the need to reload difficulty tables in beatoraja. If `.bmt output` is enabled while unimported Table URLs still exist, this guidance is shown.

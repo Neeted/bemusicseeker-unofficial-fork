@@ -82,6 +82,14 @@ SITE_OGP_IMAGE_ALT = (
     "Releases から最新版を入手。"
 )
 
+ALERT_TYPES = {
+    "NOTE": ("note", "Note"),
+    "TIP": ("tip", "Tip"),
+    "IMPORTANT": ("important", "Important"),
+    "WARNING": ("warning", "Warning"),
+    "CAUTION": ("caution", "Caution"),
+}
+
 CSS = r"""
 :root {
   color-scheme: light;
@@ -98,6 +106,11 @@ CSS = r"""
   --pre-text: #edf2f7;
   --table-head: #f0f5f5;
   --shadow: 0 18px 38px rgba(31, 41, 55, 0.10);
+  --alert-note: #0969da;
+  --alert-tip: #1a7f37;
+  --alert-important: #8250df;
+  --alert-warning: #9a6700;
+  --alert-caution: #cf222e;
 }
 
 * {
@@ -324,6 +337,43 @@ blockquote {
   border-left: 4px solid var(--accent);
   background: #f4faf8;
   color: #3b4656;
+}
+
+.markdown-alert {
+  padding: 12px 16px;
+  border-left: 4px solid var(--alert-color);
+  background: #fff;
+  color: var(--text);
+}
+
+.markdown-alert-title {
+  margin: 0 0 8px;
+  color: var(--alert-color);
+  font-weight: 700;
+}
+
+.markdown-alert-note {
+  --alert-color: var(--alert-note);
+}
+
+.markdown-alert-tip {
+  --alert-color: var(--alert-tip);
+}
+
+.markdown-alert-important {
+  --alert-color: var(--alert-important);
+}
+
+.markdown-alert-warning {
+  --alert-color: var(--alert-warning);
+}
+
+.markdown-alert-caution {
+  --alert-color: var(--alert-caution);
+}
+
+.markdown-alert > :last-child {
+  margin-bottom: 0;
 }
 
 code {
@@ -656,6 +706,43 @@ def remove_language_badges(soup: BeautifulSoup) -> None:
         paragraph.decompose()
 
 
+def convert_alert_blocks(soup: BeautifulSoup) -> None:
+    marker_pattern = re.compile(r"^\s*\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*(?:\r?\n)?", re.IGNORECASE)
+    for blockquote in soup.find_all("blockquote"):
+        first_child = next(
+            (
+                child
+                for child in blockquote.children
+                if getattr(child, "name", None) or str(child).strip()
+            ),
+            None,
+        )
+        if first_child is None or getattr(first_child, "name", None) != "p":
+            continue
+
+        first_html = first_child.decode_contents()
+        match = marker_pattern.match(first_html)
+        if not match:
+            continue
+
+        alert_kind = match.group(1).upper()
+        alert_class, alert_label = ALERT_TYPES[alert_kind]
+        remaining_html = marker_pattern.sub("", first_html, count=1)
+        first_child.clear()
+        remaining_fragment = BeautifulSoup(remaining_html, "html.parser")
+        for child in list(remaining_fragment.contents):
+            first_child.append(child)
+        if not first_child.get_text(strip=True) and not first_child.find(True):
+            first_child.decompose()
+
+        title = soup.new_tag("p")
+        title["class"] = "markdown-alert-title"
+        title.string = alert_label
+        blockquote.name = "div"
+        blockquote["class"] = ["markdown-alert", "markdown-alert-" + alert_class]
+        blockquote.insert(0, title)
+
+
 def extract_headings(soup: BeautifulSoup) -> list[dict[str, str | int]]:
     headings: list[dict[str, str | int]] = []
     for heading in soup.find_all(["h1", "h2", "h3", "h4"]):
@@ -982,6 +1069,7 @@ def build_html_docs(
         rewrite_links(soup, source_doc, output_doc, doc_map)
         rewrite_images(soup, source_doc, output_doc, site_mode)
         remove_language_badges(soup)
+        convert_alert_blocks(soup)
         wrap_tables(soup)
         rendered[source_doc] = soup
         titles_by_output[output_doc] = extract_title(soup, source_doc.name)
