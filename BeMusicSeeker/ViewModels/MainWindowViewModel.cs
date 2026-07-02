@@ -21545,7 +21545,7 @@ public class MainWindowViewModel : ViewModel
         WaitForFinalLr2DbProcessLocks();
         try
         {
-            TempDirectoryPublisher.RemoveAll();
+            TempDirectoryPublisher.RemoveAll((path, ex) => LogShutdown("temp_remove_failed path=" + path + " message=" + ex.Message));
         }
         catch (Exception ex)
         {

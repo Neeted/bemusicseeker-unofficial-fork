@@ -842,6 +842,10 @@ internal sealed class BmsLibraryPackageInstallService
                     }
                     expandedPaths.Add(extractedTempDirectoryPath);
                     extractedTempDirectoryPath = null;
+                    TempDirectoryPublisher.TryDeleteManagedPath(
+                        installPath,
+                        logInfo,
+                        (path, cleanupException) => logInfo?.Invoke("auto_install cleanup_failed path=" + path + " error=" + cleanupException.Message));
                 }
             }
             catch (RequiredArchiveMetadataRestoreException metadataRestoreException)

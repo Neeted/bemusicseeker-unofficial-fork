@@ -20,6 +20,65 @@ namespace BeMusicSeeker.Tests;
 public sealed class BmsLibraryPackageInstallServiceTests
 {
     [TestMethod]
+    public void RemovePendingPackages_DeletesManagedTemporaryPackageSource()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
+        {
+            string packageDirectoryPath = TempDirectoryPublisher.Get("pending-remove-test");
+            File.WriteAllText(Path.Combine(packageDirectoryPath, "chart.bms"), "#TITLE test");
+            var pendingPackage = new ChartPackage
+            {
+                path = packageDirectoryPath
+            };
+            var library = new BMSLibrary(songDbPath)
+            {
+                ChartPackagesPending = CreatePackageCollection([pendingPackage])
+            };
+
+            library.RemovePendingPackages([pendingPackage]);
+
+            Assert.AreEqual(0, library.ChartPackagesPending.Count);
+            Assert.IsFalse(Directory.Exists(packageDirectoryPath));
+        });
+    }
+
+    [TestMethod]
+    public void RemovePendingPackages_DoesNotDeleteUserOwnedPackageSource()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
+        {
+            string packageDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker", "session-manual-user-package-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(packageDirectoryPath);
+            File.WriteAllText(Path.Combine(packageDirectoryPath, "chart.bms"), "#TITLE test");
+            try
+            {
+                var pendingPackage = new ChartPackage
+                {
+                    path = packageDirectoryPath
+                };
+                var library = new BMSLibrary(songDbPath)
+                {
+                    ChartPackagesPending = CreatePackageCollection([pendingPackage])
+                };
+
+                library.RemovePendingPackages([pendingPackage]);
+
+                Assert.AreEqual(0, library.ChartPackagesPending.Count);
+                Assert.IsTrue(Directory.Exists(packageDirectoryPath));
+            }
+            finally
+            {
+                if (Directory.Exists(packageDirectoryPath))
+                {
+                    Directory.Delete(packageDirectoryPath, recursive: true);
+                }
+            }
+        });
+    }
+
+    [TestMethod]
     public void GetPendingPackagesContainingOnlyInstalledCharts_UsesPackageChartEntries()
     {
         TestResourceInitializer.EnsureJapaneseResources();

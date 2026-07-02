@@ -17296,7 +17296,7 @@ completeFileEnumerationOnce,
         {
             return registeredPackages;
         }
-        installPaths = packageInstallService.ExpandInstallSources(
+        List<string> expandedInstallPaths = packageInstallService.ExpandInstallSources(
             installPaths,
             fileMutationService,
             targetOnlyFileMutationOptions,
@@ -17305,13 +17305,16 @@ completeFileEnumerationOnce,
             onEachSourceProcessed,
             onEachArchiveExtractStarted,
             token);
+        installPaths = expandedInstallPaths;
         if (token.IsCancellationRequested)
         {
+            CleanupManagedInstallSources(expandedInstallPaths, "auto_install_canceled_after_expand");
             return registeredPackages;
         }
         using IDisposable lr2SongDbSyncMutation = TryBeginLr2SongDbSyncBlockedMutation(nameof(InstallChartPackagesAuto));
         if (lr2SongDbSyncMutation == null)
         {
+            CleanupManagedInstallSources(expandedInstallPaths, "auto_install_blocked_after_expand");
             return registeredPackages;
         }
         using (rwlockBMSFilesInitializedAll.GetReaderGuard())
@@ -17334,6 +17337,7 @@ completeFileEnumerationOnce,
                         LogInstallPerformance("auto_install_prepare discovered=" + discoveredPackages.Count + " autoInstall=" + workflow.AutoInstallCandidates.Count + " pendingAdd=" + workflow.PendingPackagesToAdd.Count + " pendingRemove=" + workflow.PendingPackagesToRemove.Count + " discoveryMs=" + workflow.DiscoveryMs + " installedCheckMs=" + workflow.InstalledCheckMs + " warningClassifyMs=" + workflow.WarningClassificationMs + " classificationMs=" + workflow.ClassificationMs + " totalMs=" + workflow.TotalMs);
                         if (discoveredPackages.Count == 0 || token.IsCancellationRequested)
                         {
+                            CleanupManagedInstallSources(expandedInstallPaths, discoveredPackages.Count == 0 ? "auto_install_no_packages" : "auto_install_canceled_after_prepare");
                             return registeredPackages;
                         }
                         AutoInstallApplyResult applyResult = packageInstallService.ApplyAutoInstallWorkflow(
@@ -17380,6 +17384,17 @@ completeFileEnumerationOnce,
             }
         }
         return registeredPackages;
+    }
+
+    private void CleanupManagedInstallSources(IEnumerable<string> paths, string reason)
+    {
+        foreach (string path in (paths ?? []).Where(path => !string.IsNullOrWhiteSpace(path)).Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            TempDirectoryPublisher.TryDeleteManagedPath(
+                path,
+                info => NLogWrapper.FileLogger?.Info(info + " reason=" + (reason ?? string.Empty)),
+                (cleanupPath, ex) => NLogWrapper.FileLogger?.Warn(ex, "temp_cleanup_failed reason=" + (reason ?? string.Empty) + " path=" + cleanupPath));
+        }
     }
 
     private static bool IsSamePath(string path1, string path2)
@@ -18672,16 +18687,19 @@ completeFileEnumerationOnce,
     /// </summary>
     public void RemovePendingPackages(IEnumerable<ChartPackage> packages)
     {
+        List<ChartPackage> managedPackagesToCleanup = [];
         using (rwlockBMSFilesInitializedAll.GetReaderGuard())
         {
             using (rwlockPendingInstallCharts.GetWriterGuard())
             {
                 using (rwlockSongDBInstall.GetWriterGuard())
                 {
+                    managedPackagesToCleanup = ResolveManagedPendingPackagesForCleanup(packages);
                     RemovePendingPackagesFromPendingListAndInstallRows(packages);
                 }
             }
         }
+        CleanupManagedPendingPackageSources(managedPackagesToCleanup, "pending_remove_selected");
     }
 
     /// <summary>
@@ -18706,16 +18724,19 @@ completeFileEnumerationOnce,
     /// </summary>
     public void RemovePendingPackagesAll()
     {
+        List<ChartPackage> managedPackagesToCleanup = [];
         using (rwlockBMSFilesInitializedAll.GetReaderGuard())
         {
             using (rwlockPendingInstallCharts.GetWriterGuard())
             {
                 using (rwlockSongDBInstall.GetWriterGuard())
                 {
+                    managedPackagesToCleanup = ResolveManagedPendingPackagesForCleanup(ChartPackagesPending);
                     stateApplier.ApplyPendingPackageMutationDelta(BuildPendingPackageMutationDelta(clearAll: true));
                 }
             }
         }
+        CleanupManagedPendingPackageSources(managedPackagesToCleanup, "pending_remove_all");
     }
 
     public List<ChartPackage> GetPendingPackagesContainingOnlyInstalledCharts()
@@ -18729,6 +18750,34 @@ completeFileEnumerationOnce,
                 return list;
             }
         }
+    }
+
+    private List<ChartPackage> ResolveManagedPendingPackagesForCleanup(IEnumerable<ChartPackage> packages)
+    {
+        List<ChartPackage> requestedPackages = packageInstallService.DeduplicatePackagesByPathOrReference(packages);
+        List<ChartPackage> pendingPackages = [.. ChartPackagesPending.Where(pkg => pkg != null)];
+        var cleanupPackages = new List<ChartPackage>();
+        foreach (ChartPackage requestedPackage in requestedPackages)
+        {
+            ChartPackage pendingPackage = pendingPackages.FirstOrDefault(pkg =>
+                ReferenceEquals(pkg, requestedPackage)
+                || (!string.IsNullOrWhiteSpace(pkg.path)
+                    && !string.IsNullOrWhiteSpace(requestedPackage?.path)
+                    && string.Equals(pkg.path, requestedPackage.path, StringComparison.OrdinalIgnoreCase)));
+            if (!string.IsNullOrWhiteSpace(pendingPackage?.path) && TempDirectoryPublisher.IsManagedPath(pendingPackage.path))
+            {
+                cleanupPackages.Add(pendingPackage);
+            }
+        }
+        return cleanupPackages;
+    }
+
+    private void CleanupManagedPendingPackageSources(IEnumerable<ChartPackage> packages, string reason)
+    {
+        IEnumerable<string> paths = (packages ?? [])
+            .Where(pkg => !string.IsNullOrWhiteSpace(pkg?.path))
+            .Select(pkg => pkg.path);
+        CleanupManagedInstallSources(paths, reason);
     }
 
     private enum PrepareSkipReason

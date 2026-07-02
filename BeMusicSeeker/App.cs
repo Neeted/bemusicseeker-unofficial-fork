@@ -150,12 +150,16 @@ public partial class App : System.Windows.Application
             _mutex = null;
             EmergencyDialog.Show((CultureInfo.CurrentCulture.Name == "ja-JP") ? "既に起動しています。" : "BeMusicSeeker is already started.", "Error", MessageBoxButton.OK, MessageBoxImage.Hand);
             Shutdown();
+            return;
         }
         _mutexOwned = true;
         DispatcherHelper.UIDispatcher = base.Dispatcher;
         AppThemeService.ApplyTheme(Settings.Default.AppearanceTheme);
         AppDomain.CurrentDomain.UnhandledException += CurrentDomain_UnhandledException;
         base.DispatcherUnhandledException += Application_DispatcherUnhandledException;
+        TempDirectoryPublisher.StartCleanupStaleDirectoriesAsync(
+            message => NLogWrapper.FileLogger?.Info(message),
+            (path, ex) => NLogWrapper.FileLogger?.Warn(ex, "temp_startup_cleanup_failed path=" + path));
         ManagedDependencyPreloader.Preload();
     }
 
