@@ -23,7 +23,7 @@ It summarizes the features, behavior, and cautions added or changed in this fork
 - [Maintenance](#maintenance)
 - [Play Log](#play-log)
 - [Backup / Uninstall](#backup--uninstall)
-- [Logs and Troubleshooting](#logs-and-troubleshooting)
+- [FAQ / Troubleshooting](#faq--troubleshooting)
 - [References](#references)
 
 ## Introduction
@@ -50,7 +50,7 @@ In addition to the basic features of the traditional version, this fork includes
 ### Caution
 
 Depending on the settings, BeMusicSeeker may move or delete LR2 `song.db`, `config.xml`, custom folder output destinations, and actual BMS files.
-Before performing large cleanup operations, installs, deletions, duplicate merges, or uninstall operations, backing up LR2-related files and BMS folders is recommended. **If you are dealing with `song.db` corruption, using this application's backup feature should help avoid rebuilding everything from scratch.**
+Before performing large cleanup operations, installs, deletions, duplicate merges, or uninstall operations, backing up LR2-related files and BeMusicSeeker settings / DB files is recommended. BMS root folders tend to be large, so instead of copying the entire library before every application operation, consider keeping regular backups on a separate disk as part of your normal data-protection routine. **If you are dealing with `song.db` corruption, using this application's backup feature should help avoid rebuilding everything from scratch.**
 
 ## Initial Setup
 
@@ -711,7 +711,7 @@ For example, a differential chart by itself is typically added to `Pending` with
 
 `Pending` shows packages that have not yet been installed. Use this view to confirm estimated destinations, manually specify install destinations, install packages, remove rows from the list, or move files to the Recycle Bin.
 
-`Remove from list` only removes the pending row from the display. To delete the actual files, use `Delete file` -> `Move to Recycle Bin` from the context menu. For pending packages, even when the option to delete the whole folder is enabled, the whole package folder is moved to the Recycle Bin only when every chart row in that package is included in the current selection. When multiple rows are selected, the same policy is applied to the whole selection, and no per-folder confirmation is shown. Check the target carefully before running the operation.
+`Remove from list` removes the pending row from the display. To delete ordinary user folders or manually selected source archives, use `Delete file` -> `Move to Recycle Bin` from the context menu. For packages created in BeMusicSeeker-managed temporary storage by URL import or similar flows, removing the row from the list may also delete the temporary source files. For pending packages, even when the option to delete the whole folder is enabled, the whole package folder is moved to the Recycle Bin only when every chart row in that package is included in the current selection. When multiple rows are selected, the same policy is applied to the whole selection, and no per-folder confirmation is shown. Check the target carefully before running the operation.
 
 For charts added to Pending, BeMusicSeeker estimates the install destination using owned-chart hashes, folder structure, WAV / BGA / video / image resources referenced by the chart, bundled resources, title / artist, and similar information. The main result columns are:
 
@@ -922,9 +922,14 @@ Before uninstalling or making a large update, it is safer to back up the followi
 - LR2 score DB
 - BeMusicSeeker `config/user.config`
 - BeMusicSeeker `data/song.db` in standalone mode
-- BMS root folders
 
-## Logs and Troubleshooting
+BMS root folders tend to become large, so copying the entire library before every BeMusicSeeker operation may not be practical. However, the BMS library itself is still data worth protecting from SSD failure, accidental deletion, cleanup mistakes, synchronization-tool mistakes, and similar problems. Separately from this application, consider a regular backup routine such as keeping the active library on an SSD and backing it up to a slower but cheaper-per-capacity HDD or external drive.
+
+RAID 1 and similar mirroring can help against drive failure, but they immediately mirror accidental deletion or corrupted state as well, so they are not a replacement for backups. Differential backups or backups with version history can save only changed data after the first run, making the time and capacity cost easier to manage.
+
+## FAQ / Troubleshooting
+
+### Logs / Bug Reports
 
 Logs are written by default to `log/application.log` and `log/install-performance.log`. Initialization, DB loading, file scanning, playlist synchronization, and similar information are recorded without a special launcher.
 
@@ -932,7 +937,9 @@ For how to read logs, see [BeMusicSeeker INFO Log Guide](log-level-info-guide.md
 
 When log files grow, older files are rotated under `log/archive/`. For bug reports, start by checking the latest `log/application.log` and `log/install-performance.log`.
 
-### Startup or Initialization Is Slow
+### Startup / Initialization
+
+#### Startup or Initialization Is Slow
 
 - Check whether Everything 1.5 (x64) is installed.
 - Check whether your BMS folders are searchable from Everything.
@@ -941,13 +948,31 @@ When log files grow, older files are rotated under `log/archive/`. For bug repor
 - If Everything integration fails and BeMusicSeeker switches to ordinary file enumeration, a warning dialog is shown. If it is slower than expected, check `everything_scan`, `nativeBridgeUsed`, `fallback`, `managed`, and similar records in `log/install-performance.log`.
 - If Everything successfully searches and finds 0 chart files (BMS / bmson), or if Everything is unavailable and ordinary filesystem enumeration also finds 0 chart files, while the existing `song.db` still contains songs, `song.db` update is skipped and a warning is shown. Check that BMS directory settings point to the folders containing your songs and that those folders can be searched in Everything.
 
-### Playlist `STATUS` Fails
+### Download / Install
+
+#### Where Are Downloaded Files and Temporary Extraction Files Stored?
+
+When importing playlist URLs in bulk or searching for main packages through external APIs, BeMusicSeeker creates downloaded files and temporary extraction files in the Windows temporary area. This is usually under `%TEMP%` on the C drive, in a BeMusicSeeker-managed temporary area. When importing many URLs or large main packages, make sure the C drive has enough free space.
+
+#### When Are Temporary Files Deleted?
+
+Temporary archives downloaded by URL import are deleted after they are successfully extracted. Extracted folders remain while they are needed for install processing or the pending screen, but unnecessary items are removed during processing or when the application exits. If a forced termination leaves temporary files behind, old session files are cleaned up in the background on the next startup. Startup does not wait for this cleanup to finish.
+
+#### Does Removing an Item from Pending Delete the Actual Files?
+
+Ordinary user folders and manually selected source archives are not deleted by `Remove from list` alone. To delete actual files, use `Delete file` -> `Move to Recycle Bin` from the context menu. However, if the package was created in BeMusicSeeker-managed temporary storage by URL import or a similar flow, removing it from Pending may also delete the temporary source files.
+
+### Playlists / External Sites
+
+#### Playlist `STATUS` Fails
 
 The external difficulty-table URL may be returning 404, 403, timeout, or similar errors. Check the tooltip for `STATUS` in the playlist summary, or `playlist_reload_target_failed` in `log/application.log`.
 
 If the external site is temporarily failing, wait and reload later. If the URL has changed, you need to update the URI in playlist properties.
 
-### LR2 Cannot Select a Chart
+### LR2 Integration
+
+#### LR2 Cannot Select a Chart
 
 Check whether the chart appears in `LR2 Compatibility Warnings`. Charts containing chart paths or resource definitions that cannot be represented in CP932 / Shift_JIS, or overly long chart paths / resource reference paths, may fail selection or playback in LR2.
 
@@ -955,7 +980,23 @@ In LR2 linked mode, also check the `LR2 song.db sync` state in the status bar. I
 
 Running `Resynchronize LR2 song.db data` from the settings dialog is also an effective option.
 
-### Search Syntax Is Unclear
+### Play Log
+
+#### Past LR2 Plays Are Not Shown
+
+The LR2 play log records only plays made in LR2 after the play-log schema has been installed. Plays made before installation cannot be restored in the Play Log view.
+
+#### beatoraja Play-Log Counts or Summary Values Do Not Match the List
+
+The beatoraja list shows only plays where a best value was updated. Judge count, play count, playtime, and similar summary values are calculated from player daily totals for the selected period. Because of this, they may not match the visible row count or search-result count.
+
+#### What Is `Unfinalized / Diagnostics`?
+
+This is an LR2-only diagnostic period. It shows rows that may not be consistent as a single play history item, such as when LR2 exits after updating the score but before updating player data. It does not apply to beatoraja history.
+
+### Search
+
+#### Search Syntax Is Unclear
 
 See the [Keyword Search Syntax Guide](keyword-search-syntax-guide.md). It explains field-qualified searches such as `title:`, `artist:`, `playlist:`, and `rate:`, as well as exclusion search, OR, regular expressions, and numeric range search.
 
