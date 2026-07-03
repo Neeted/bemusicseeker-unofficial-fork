@@ -709,8 +709,12 @@ public sealed class BmsPlaylistUpdateTests
         bool previousEnablePlaylistUrlCompletion = Settings.Default.EnablePlaylistUrlCompletion;
         bool previousOperationModeLr2Db = Settings.Default.OperationModeLR2DB;
         string previousOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDir;
+        bool previousEnableBeatorajaBmtOutput = Settings.Default.EnableBeatorajaBmtOutput;
+        string previousBeatorajaBmtTablePath = Settings.Default.BeatorajaBmtTablePath;
+        string previousBeatorajaRootPath = Settings.Default.BeatorajaRootPath;
         Settings.Default.EnablePlaylistUrlCompletion = false;
         Settings.Default.OperationModeLR2DB = true;
+        Settings.Default.EnableBeatorajaBmtOutput = false;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
@@ -754,6 +758,18 @@ public sealed class BmsPlaylistUpdateTests
             typeof(MainWindowViewModel)
                 .GetField("tables", BindingFlags.Instance | BindingFlags.NonPublic)
                 ?.SetValue(viewModel, playlist);
+            Settings.Default.BeatorajaRootPath = string.Empty;
+            Settings.Default.BeatorajaBmtTablePath = Path.Combine(tempDirectory, "beatoraja-table", "table.json");
+            Settings.Default.EnableBeatorajaBmtOutput = true;
+            var queuedBmtReasons = new List<string>();
+            playlist.StartupBackgroundTaskScheduler = delegate (string name, string reason, string dependency, Func<Task> work)
+            {
+                if (string.Equals(name, "beatoraja_bmt_export", StringComparison.Ordinal))
+                {
+                    queuedBmtReasons.Add(reason);
+                }
+                return true;
+            };
 
             await viewModel.ApplyPlaylistSummaryExternalPropertyInitializationAsync(
                 [new PlaylistSummaryRow { TableRef = table }],
@@ -771,12 +787,17 @@ public sealed class BmsPlaylistUpdateTests
                     .Select(path => File.ReadAllText(path, Encoding.GetEncoding("shift_jis"))));
             StringAssert.Contains(afterText, "#CATEGORY ExternalName");
             Assert.IsFalse(afterText.Contains("#CATEGORY LocalName"));
+            CollectionAssert.DoesNotContain(queuedBmtReasons, "ReOutputCustomFolderAndCommitToDB");
+            CollectionAssert.Contains(queuedBmtReasons, "playlist_summary_external_property_initialization");
         }
         finally
         {
             Settings.Default.EnablePlaylistUrlCompletion = previousEnablePlaylistUrlCompletion;
             Settings.Default.OperationModeLR2DB = previousOperationModeLr2Db;
             Settings.Default.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
+            Settings.Default.EnableBeatorajaBmtOutput = previousEnableBeatorajaBmtOutput;
+            Settings.Default.BeatorajaBmtTablePath = previousBeatorajaBmtTablePath;
+            Settings.Default.BeatorajaRootPath = previousBeatorajaRootPath;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);

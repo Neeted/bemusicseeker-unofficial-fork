@@ -553,7 +553,7 @@ For custom folder output types, checked means output, unchecked means no output,
 
 When external sync is turned on, playlists with insufficient URL information remain off without a warning dialog.
 
-The external-data initialization section reloads the external playlist URL regardless of the external sync flag and resets only the checked fields. Playlists whose external URL cannot be read are skipped.
+The external-data initialization section reloads the external playlist URL regardless of the external sync flag and resets only the checked fields. Playlists whose external URL cannot be read are skipped. While applying changes, the status bar shows progress for external data loading, saving, and custom folder output.
 
 - Playlist name: Resets the name from the external data.
 - Symbol: Resets the symbol from the external data.

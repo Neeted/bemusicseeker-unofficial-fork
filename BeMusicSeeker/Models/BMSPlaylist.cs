@@ -8419,6 +8419,85 @@ public partial class BMSPlaylist : NotificationObject
     }
 
     /// <summary>
+    /// 複数プレイリスト本体とエントリを 1 transaction で DB へ保存します。LR2 カスタムフォルダ出力は行いません。
+    /// </summary>
+    /// <param name="bmsTables">保存対象のプレイリスト群。</param>
+    /// <param name="progressCallback">処理済み件数、全件数、処理中プレイリスト名を通知する callback。</param>
+    /// <exception cref="ArgumentNullException"><paramref name="bmsTables"/> が <see langword="null"/> の場合。</exception>
+    internal void CommitBMSTablesWithEntriesToDB(IEnumerable<BMSTable> bmsTables, Action<int, int, string> progressCallback = null)
+    {
+        if (bmsTables == null)
+        {
+            throw new ArgumentNullException(nameof(bmsTables));
+        }
+        List<BMSTable> tableList = [.. bmsTables.Where(table => table != null).Distinct()];
+        if (tableList.Count == 0)
+        {
+            return;
+        }
+        using (rwlockBMSTables.GetReaderGuard())
+        {
+            tableList = [.. tableList.Where(table => BMSTables.Contains(table))];
+        }
+        if (tableList.Count == 0)
+        {
+            return;
+        }
+        foreach (BMSTable table in tableList)
+        {
+            EnsurePlaylistEntriesLoaded(table, "CommitBMSTablesWithEntriesToDB");
+        }
+        tableList = [.. tableList
+            .OrderBy(table => table.playlist_id ?? int.MaxValue)
+            .ThenBy(table => table.name ?? string.Empty, StringComparer.Ordinal)
+            .ThenBy(table => System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(table))];
+
+        var writerGuards = new List<IDisposable>(tableList.Count);
+        try
+        {
+            foreach (BMSTable table in tableList)
+            {
+                writerGuards.Add(table.ReaderWriterLock.GetWriterGuard());
+            }
+
+            using var lr2Song = new LR2SongDBExtended(lr2SongDBPath);
+            string savepoint = lr2Song.SaveTransactionPoint();
+            try
+            {
+                for (int index = 0; index < tableList.Count; index++)
+                {
+                    BMSTable bmsTable = tableList[index];
+                    if (BMSTables.Contains(bmsTable))
+                    {
+                        lr2Song.InsertOrReplace(bmsTable, typeof(LR2SongDBExtended.playlist));
+                        ReplacePersistedCourses(lr2Song, bmsTable);
+                        lr2Song.Execute("DELETE FROM " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetTableName() + " WHERE " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.playlist_id) + " = " + bmsTable.playlist_id + ";");
+                        bmsTable.entries.ForEach(delegate (BMSTableEntry e)
+                        {
+                            e?.NormalizeForPlaylistPersistence();
+                            lr2Song.InsertOrReplace(e, typeof(LR2SongDBExtended.playlist_entry));
+                        });
+                    }
+                    progressCallback?.Invoke(index + 1, tableList.Count, bmsTable.name ?? string.Empty);
+                }
+                lr2Song.Commit();
+            }
+            catch
+            {
+                lr2Song.RollbackTo(savepoint);
+                throw;
+            }
+        }
+        finally
+        {
+            for (int index = writerGuards.Count - 1; index >= 0; index--)
+            {
+                writerGuards[index]?.Dispose();
+            }
+        }
+    }
+
+    /// <summary>
     /// プレイリスト本体のヘッダ情報を DB へ保存します。
     /// </summary>
     /// <param name="bmsTable">保存対象のプレイリスト。</param>

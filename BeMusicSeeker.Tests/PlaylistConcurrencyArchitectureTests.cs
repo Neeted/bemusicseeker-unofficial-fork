@@ -50,6 +50,22 @@ public sealed class PlaylistConcurrencyArchitectureTests
     }
 
     [TestMethod]
+    public void PlaylistEntryBatchCommit_AcquiresTableWriterLocksBeforeDatabaseTransaction()
+    {
+        string source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "BMSPlaylist.cs"));
+        string method = ExtractMethodBody(source, "internal void CommitBMSTablesWithEntriesToDB");
+        int tableLockIndex = method.IndexOf("writerGuards.Add(table.ReaderWriterLock.GetWriterGuard())", StringComparison.Ordinal);
+        int databaseOpenIndex = method.IndexOf("new LR2SongDBExtended(lr2SongDBPath)", StringComparison.Ordinal);
+
+        Assert.IsTrue(tableLockIndex >= 0, "Batch entry commit must acquire table writer locks explicitly.");
+        Assert.IsTrue(databaseOpenIndex >= 0, "Batch entry commit must open the playlist database explicitly.");
+        Assert.IsTrue(
+            tableLockIndex < databaseOpenIndex,
+            "Batch entry commit must keep the existing lock order: table writer lock before playlist DB transaction.");
+        StringAssert.Contains(method, ".OrderBy(table => table.playlist_id ?? int.MaxValue)");
+    }
+
+    [TestMethod]
     public void PlaylistVisibleCollectionMutations_AreDispatchedThroughDedicatedBoundary()
     {
         string source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "BMSPlaylist.cs"));
