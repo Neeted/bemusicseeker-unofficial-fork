@@ -285,7 +285,7 @@ public sealed class BMSTableLoadTests
     }
 
     [TestMethod]
-    public void RewriteCompatibleFolderPrefix_DoesNotPrefixLocalFoldersWhenOldPrefixIsEmpty()
+    public void RewriteCompatibleFolderPrefix_PrefixesLocalFoldersWhenOldPrefixIsEmpty()
     {
         var table = new BMSTable
         {
@@ -300,10 +300,10 @@ public sealed class BMSTableLoadTests
 
         bool changed = table.RewriteCompatibleFolderPrefix(string.Empty, "★");
 
-        Assert.IsFalse(changed);
-        Assert.AreEqual("Alpha", table.entries[0].folder);
-        Assert.AreEqual("Beta", table.entries[1].folder);
-        CollectionAssert.AreEqual(new[] { "Alpha", "Beta" }, table.Folder_order);
+        Assert.IsTrue(changed);
+        Assert.AreEqual("★Alpha", table.entries[0].folder);
+        Assert.AreEqual("★Beta", table.entries[1].folder);
+        CollectionAssert.AreEqual(new[] { "★Alpha", "★Beta" }, table.Folder_order);
     }
 
     [TestMethod]
@@ -363,7 +363,7 @@ public sealed class BMSTableLoadTests
     }
 
     [TestMethod]
-    public void RewriteCompatibleFolderPrefix_CollisionDoesNotMutateTable()
+    public void RewriteCompatibleFolderPrefix_RewritesExistingTargetFolderInsteadOfTreatingItAsCollision()
     {
         var table = new BMSTable
         {
@@ -376,12 +376,34 @@ public sealed class BMSTableLoadTests
             Folder_order = ["LEVEL 1", "★1"]
         };
 
-        Assert.IsFalse(table.CanRewriteCompatibleFolderPrefix("LEVEL ", "★"));
-        Assert.ThrowsException<InvalidOperationException>(() => table.RewriteCompatibleFolderPrefix("LEVEL ", "★"));
+        Assert.IsTrue(table.CanRewriteCompatibleFolderPrefix("LEVEL ", "★"));
+        Assert.IsTrue(table.RewriteCompatibleFolderPrefix("LEVEL ", "★"));
 
-        Assert.AreEqual("LEVEL 1", table.entries[0].folder);
+        Assert.AreEqual("★1", table.entries[0].folder);
+        Assert.AreEqual("★★1", table.entries[1].folder);
+        CollectionAssert.AreEqual(new[] { "★1", "★★1" }, table.Folder_order);
+    }
+
+    [TestMethod]
+    public void RewriteCompatibleFolderPrefix_FinalDuplicateDoesNotMutateTable()
+    {
+        var table = new BMSTable
+        {
+            compat_prefix = "★",
+            entries =
+            [
+                CreateEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "1"),
+                CreateEntry("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "★1")
+            ],
+            Folder_order = ["1", "★1"]
+        };
+
+        Assert.IsFalse(table.CanRewriteCompatibleFolderPrefix("★", "☆"));
+        Assert.ThrowsException<InvalidOperationException>(() => table.RewriteCompatibleFolderPrefix("★", "☆"));
+
+        Assert.AreEqual("1", table.entries[0].folder);
         Assert.AreEqual("★1", table.entries[1].folder);
-        CollectionAssert.AreEqual(new[] { "LEVEL 1", "★1" }, table.Folder_order);
+        CollectionAssert.AreEqual(new[] { "1", "★1" }, table.Folder_order);
     }
 
     private static BMSTableEntry CreateEntry(string md5, string folder)

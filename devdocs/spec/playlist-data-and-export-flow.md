@@ -116,7 +116,7 @@ header の `course` は `[[{...}]]` のような入れ子配列も平坦化し�
 
 プレイリストプロパティ保存では、`playlist` 本体と `playlist_course` を mode 非依存で保存する。`compat_prefix` 変更により compatible folder 名の再 materialize が必要な場合だけ、`playlist_entry.folder` も同じ transaction 系で保存する。それ以外のプロパティ変更では `playlist_entry` を保存し直さない。
 
-`compat_prefix` の再 materialize は、既存 prefix 付き folder を新 prefix 付き folder へ写像する。既存 prefix が空の場合、外部同期表だけ未 prefix folder を新 prefix 付き folder として扱い、ローカル任意 folder 名は一括 rename しない。folder 名衝突が起きる場合は保存を失敗させ、既存 folder 構成を保持する。
+`compat_prefix` の再 materialize は、外部表 / ローカル表を問わず、各 folder 名から旧 `compat_prefix` を先頭一致時だけ除去し、その結果へ新 `compat_prefix` を付与する。旧 `compat_prefix` を除去できない folder もその folder 名へ新 `compat_prefix` を付与し、新 `compat_prefix` で始まるかどうかによる特別扱いはしない。変換途中の既存 folder 名との衝突は判定せず、変換後の最終 folder 名が重複する場合だけ保存を失敗させ、既存 folder 構成を保持する。
 
 entry folder projection を更新した場合は、DB 保存だけで終わらせず、プレイリスト詳細 source revision を進める。表示中の playlist detail は source を再構築し、ツリーの folder node と一覧の `FOLDER` 列は同じ materialized folder 名を表示する。変更前の folder を選択中だった場合は、同じ rewrite mapping で選択中 folder key も変更後 folder へ追従させる。
 

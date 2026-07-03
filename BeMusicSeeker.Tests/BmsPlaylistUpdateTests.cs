@@ -579,15 +579,16 @@ public sealed class BmsPlaylistUpdateTests
             table.playlist_id = 9501;
             table.name = "Local Name";
             table.symbol = "L";
-            table.compat_prefix = "LEVEL ";
+            table.compat_prefix = string.Empty;
             table.Output_dir = "CustomOutput";
             table.DisableExternalSync();
+            table.entries[0].folder = "1";
+            table.entries.Add(CreateEntry("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "★1"));
             foreach (BMSTableEntry entry in table.entries)
             {
                 entry.playlist_id = table.playlist_id;
             }
-            table.entries[0].folder = "LEVEL 1";
-            table.Folder_order = ["LEVEL 1"];
+            table.Folder_order = ["1", "★1"];
             playlist.BMSTables = new DispatcherCollection<BMSTable>(
                 new ObservableCollection<BMSTable>(new[] { table }),
                 Dispatcher.CurrentDispatcher);
@@ -612,14 +613,16 @@ public sealed class BmsPlaylistUpdateTests
             Assert.AreEqual(BMSTable.CreateDefaultOutputDirectoryName("External:Name"), table.Output_dir);
             Assert.IsFalse(table.is_external_sync);
             Assert.AreEqual("★1", table.entries[0].folder);
-            Assert.AreEqual("★1", table.Folder_order.Single());
+            Assert.AreEqual("★★1", table.entries[1].folder);
+            CollectionAssert.AreEqual(new[] { "★1", "★★1" }, table.Folder_order);
             using var verify = new LR2SongDBExtended(songDbPath);
             LR2SongDBExtended.playlist persisted = verify.Table<LR2SongDBExtended.playlist>().Single(row => row.playlist_id == 9501);
             Assert.AreEqual("External:Name", persisted.name);
             Assert.AreEqual("★", persisted.symbol);
             Assert.AreEqual("★", persisted.compat_prefix);
             Assert.IsNull(persisted.output_dir);
-            Assert.AreEqual("★1", verify.ExecuteScalar<string>("SELECT folder FROM playlist_entry WHERE playlist_id = ?;", 9501));
+            Assert.AreEqual("★1", verify.ExecuteScalar<string>("SELECT folder FROM playlist_entry WHERE playlist_id = ? AND md5 = ?;", 9501, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
+            Assert.AreEqual("★★1", verify.ExecuteScalar<string>("SELECT folder FROM playlist_entry WHERE playlist_id = ? AND md5 = ?;", 9501, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"));
         }
         finally
         {

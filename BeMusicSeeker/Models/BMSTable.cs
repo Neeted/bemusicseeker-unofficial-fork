@@ -859,11 +859,11 @@ public class BMSTable : LR2SongDBExtended.playlist
         return RewriteCompatibleFolderPrefix(oldPrefix, newPrefix, out _);
     }
 
-    internal bool CanRewriteCompatibleFolderPrefix(string oldPrefix, string newPrefix, bool treatUnprefixedFoldersAsExternal = false)
+    internal bool CanRewriteCompatibleFolderPrefix(string oldPrefix, string newPrefix)
     {
         try
         {
-            CreateValidatedCompatibleFolderPrefixRewriteMap(oldPrefix, newPrefix, treatUnprefixedFoldersAsExternal);
+            CreateValidatedCompatibleFolderPrefixRewriteMap(oldPrefix, newPrefix);
             return true;
         }
         catch (InvalidOperationException)
@@ -872,15 +872,15 @@ public class BMSTable : LR2SongDBExtended.playlist
         }
     }
 
-    internal IReadOnlyDictionary<string, string> CreateValidatedCompatibleFolderPrefixRewriteMap(string oldPrefix, string newPrefix, bool treatUnprefixedFoldersAsExternal = false)
+    internal IReadOnlyDictionary<string, string> CreateValidatedCompatibleFolderPrefixRewriteMap(string oldPrefix, string newPrefix)
     {
         oldPrefix ??= string.Empty;
         newPrefix ??= string.Empty;
-        if (string.Equals(oldPrefix, newPrefix, StringComparison.Ordinal) || entries == null || entries.Count == 0)
+        if (string.Equals(oldPrefix, newPrefix, StringComparison.Ordinal))
         {
             return new Dictionary<string, string>(StringComparer.Ordinal);
         }
-        Dictionary<string, string> folderMap = CreateCompatibleFolderPrefixRewriteMapCore(oldPrefix, newPrefix, treatUnprefixedFoldersAsExternal);
+        Dictionary<string, string> folderMap = CreateCompatibleFolderPrefixRewriteMapCore(oldPrefix, newPrefix);
         if (folderMap.Count > 0)
         {
             ValidateCompatibleFolderRewriteMap(folderMap);
@@ -898,7 +898,7 @@ public class BMSTable : LR2SongDBExtended.playlist
         }
         rewrittenFolders = folderMap;
 
-        foreach (BMSTableEntry entry in entries)
+        foreach (BMSTableEntry entry in entries ?? [])
         {
             if (entry != null && folderMap.TryGetValue(entry.folder ?? string.Empty, out string rewrittenFolder))
             {
@@ -911,58 +911,12 @@ public class BMSTable : LR2SongDBExtended.playlist
         return true;
     }
 
-    internal bool RewriteCompatibleFolderPrefix(string oldPrefix, string newPrefix, bool treatUnprefixedFoldersAsExternal, out IReadOnlyDictionary<string, string> rewrittenFolders)
-    {
-        IReadOnlyDictionary<string, string> folderMap = CreateValidatedCompatibleFolderPrefixRewriteMap(oldPrefix, newPrefix, treatUnprefixedFoldersAsExternal);
-        if (folderMap.Count == 0)
-        {
-            rewrittenFolders = folderMap;
-            return false;
-        }
-        rewrittenFolders = folderMap;
-
-        foreach (BMSTableEntry entry in entries)
-        {
-            if (entry != null && folderMap.TryGetValue(entry.folder ?? string.Empty, out string rewrittenFolder))
-            {
-                entry.folder = rewrittenFolder;
-            }
-        }
-        Folder_order = [.. (Folder_order ?? []).Select(folder => folderMap.TryGetValue(folder ?? string.Empty, out string rewrittenFolder) ? rewrittenFolder : folder).Distinct(StringComparer.Ordinal)];
-        RebuildFolderState();
-        TouchPlaylistEntriesRevision();
-        return true;
-    }
-
-    private Dictionary<string, string> CreateCompatibleFolderPrefixRewriteMapCore(string oldPrefix, string newPrefix, bool treatUnprefixedFoldersAsExternal)
+    private Dictionary<string, string> CreateCompatibleFolderPrefixRewriteMapCore(string oldPrefix, string newPrefix)
     {
         var map = new Dictionary<string, string>(StringComparer.Ordinal);
-        IEnumerable<string> sourceFolders = (entries ?? [])
-            .Select(entry => entry?.folder ?? string.Empty)
-            .Concat(Folder_order ?? [])
-            .Where(folder => !string.IsNullOrWhiteSpace(folder))
-            .Distinct(StringComparer.Ordinal);
-
-        foreach (string folder in sourceFolders)
+        foreach (string folder in EnumerateCompatibleFolderPrefixRewriteSourceFolders())
         {
-            string compatibleLevelName = null;
-            if (oldPrefix.Length > 0)
-            {
-                if (!folder.StartsWith(oldPrefix, StringComparison.Ordinal))
-                {
-                    continue;
-                }
-                compatibleLevelName = folder.Substring(oldPrefix.Length);
-            }
-            else if ((base.is_external_sync || treatUnprefixedFoldersAsExternal) && (newPrefix.Length == 0 || !folder.StartsWith(newPrefix, StringComparison.Ordinal)))
-            {
-                compatibleLevelName = folder;
-            }
-            if (string.IsNullOrWhiteSpace(compatibleLevelName))
-            {
-                continue;
-            }
-            string rewrittenFolder = newPrefix + compatibleLevelName;
+            string rewrittenFolder = RewriteCompatibleFolderPrefixName(folder, oldPrefix, newPrefix);
             if (!string.Equals(folder, rewrittenFolder, StringComparison.Ordinal))
             {
                 map[folder] = rewrittenFolder;
@@ -971,23 +925,37 @@ public class BMSTable : LR2SongDBExtended.playlist
         return map;
     }
 
+    private IEnumerable<string> EnumerateCompatibleFolderPrefixRewriteSourceFolders()
+    {
+        return (entries ?? [])
+            .Select(entry => entry?.folder ?? string.Empty)
+            .Concat((Folder_order ?? []).Select(folder => folder ?? string.Empty))
+            .Distinct(StringComparer.Ordinal);
+    }
+
+    private static string RewriteCompatibleFolderPrefixName(string folder, string oldPrefix, string newPrefix)
+    {
+        folder ??= string.Empty;
+        oldPrefix ??= string.Empty;
+        newPrefix ??= string.Empty;
+        if (oldPrefix.Length > 0 && folder.StartsWith(oldPrefix, StringComparison.Ordinal))
+        {
+            folder = folder.Substring(oldPrefix.Length);
+        }
+        return newPrefix + folder;
+    }
+
     private void ValidateCompatibleFolderRewriteMap(IReadOnlyDictionary<string, string> folderMap)
     {
-        HashSet<string> existingFolders = [.. (entries ?? [])
-            .Select(entry => entry?.folder ?? string.Empty)
-            .Concat(Folder_order ?? [])
-            .Where(folder => !string.IsNullOrWhiteSpace(folder))
-            .Distinct(StringComparer.Ordinal)];
-        var rewrittenTargets = new HashSet<string>(StringComparer.Ordinal);
-        foreach (KeyValuePair<string, string> pair in folderMap)
+        var finalFolders = new HashSet<string>(StringComparer.Ordinal);
+        foreach (string folder in EnumerateCompatibleFolderPrefixRewriteSourceFolders())
         {
-            if (!rewrittenTargets.Add(pair.Value))
+            string finalFolder = folderMap.TryGetValue(folder, out string rewrittenFolder)
+                ? rewrittenFolder
+                : folder;
+            if (!finalFolders.Add(finalFolder))
             {
-                throw new InvalidOperationException("Compatible playlist folder prefix rewrite creates duplicate folder: " + pair.Value);
-            }
-            if (existingFolders.Contains(pair.Value) && !folderMap.ContainsKey(pair.Value))
-            {
-                throw new InvalidOperationException("Compatible playlist folder prefix rewrite collides with existing folder: " + pair.Value);
+                throw new InvalidOperationException("Compatible playlist folder prefix rewrite creates duplicate folder: " + finalFolder);
             }
         }
     }

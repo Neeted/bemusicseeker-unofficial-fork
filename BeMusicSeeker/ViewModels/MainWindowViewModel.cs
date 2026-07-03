@@ -29499,7 +29499,7 @@ public class MainWindowViewModel : ViewModel
                 tables.EnsurePlaylistEntriesLoaded(table, "ApplyPlaylistSummaryExternalPropertyInitialization.ValidateCompatiblePrefix");
                 using (table.ReaderWriterLock.GetReaderGuard())
                 {
-                    if (!table.CanRewriteCompatibleFolderPrefix(change.OriginalCompatPrefix, change.DesiredCompatPrefix, treatUnprefixedFoldersAsExternal: true))
+                    if (!table.CanRewriteCompatibleFolderPrefix(change.OriginalCompatPrefix, change.DesiredCompatPrefix))
                     {
                         NLogWrapper.FileLogger?.Warn("playlist_summary_external_property_initialization_skipped reason=compatible_prefix_collision table=" + (table.name ?? string.Empty) + " uri=" + result.Uri);
                         continue;
@@ -29545,7 +29545,7 @@ public class MainWindowViewModel : ViewModel
                 using (table.ReaderWriterLock.GetWriterGuard())
                 {
                     table.compat_prefix = change.DesiredCompatPrefix;
-                    entryFolderProjectionChanged = table.RewriteCompatibleFolderPrefix(change.OriginalCompatPrefix, change.DesiredCompatPrefix, treatUnprefixedFoldersAsExternal: true, out _);
+                    entryFolderProjectionChanged = table.RewriteCompatibleFolderPrefix(change.OriginalCompatPrefix, change.DesiredCompatPrefix, out _);
                 }
             }
 
