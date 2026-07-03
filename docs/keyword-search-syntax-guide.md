@@ -266,6 +266,7 @@ In addition to display names, the following abbreviations can be used.
 | :--- | :--- |
 | `id` | playlist id |
 | `name` | name |
+| `prefix` | folder prefix |
 | `symbol` | symbol |
 
 ### Fields Available in the Play Log

@@ -216,7 +216,7 @@
   "Keyword_search_help_template": "검색 예:\nalpha artist\ntitle:\"alpha title\"\n-path:backup\ntitle:alpha|beta\ntitle:re:^alpha\n\n사용 가능한 검색 대상:\n{0}\n\n자세한 내용은 docs/keyword-search-syntax-guide.md 를 참조하세요.",
   "Keyword_search_help_fields_bmsfile": "title, artist, genre, tag, path, playlist/ref/table, md5/hash, sha256, level, difficulty, mainbpm, maxbpm, minbpm, duration, judge/judge%/judgepct, feature, notes, long/ln, scratch, total, tn/t/n, density, peak, end, soflan, clear, rank/djlevel/dj, rate, score, combo, bp",
   "Keyword_search_help_fields_playlist_detail": "title, artist, genre, tag, path, playlist/ref/table, md5/hash, sha256, memo, comment, level, difficulty, mainbpm, maxbpm, minbpm, duration, judge/judge%/judgepct, feature, notes, long/ln, scratch, total, tn/t/n, density, peak, end, soflan, clear, rank/djlevel/dj, rate, score, combo, bp",
-  "Keyword_search_help_fields_playlist_summary": "id, name, symbol",
+  "Keyword_search_help_fields_playlist_summary": "id, name, prefix, symbol",
   "Keyword_search_help_fields_play_history": "title, artist, path, folder, playlist/ref/table, md5/hash, sha256, date, year, month, type/kind, clear, oldclear, newclear, finalized, source",
   "Keyword_search_completion_fields_header": "검색 대상",
   "Keyword_search_completion_history_header": "검색 기록",

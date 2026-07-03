@@ -61,7 +61,7 @@ internal sealed class GridKeywordSearchQuery
 
     private static readonly string[] PlaylistDetailFields = ["title", "artist", "genre", "tag", "path", "playlist", "ref", "table", "md5", "hash", "sha256", "memo", "comment", .. BaseChartFields, .. ScoreFields];
 
-    private static readonly string[] PlaylistSummaryFields = ["id", "output", "name", "symbol"];
+    private static readonly string[] PlaylistSummaryFields = ["id", "output", "name", "prefix", "symbol"];
 
     private static readonly string[] PlayHistoryFields =
     [
@@ -1358,6 +1358,7 @@ internal sealed class GridKeywordSearchQuery
                 yield return row.PlaylistId?.ToString() ?? string.Empty;
                 yield return row.OutputBaseDisplayName;
                 yield return row.Name;
+                yield return row.CompatPrefix;
                 yield return row.Symbol;
                 break;
             case "id":
@@ -1368,6 +1369,9 @@ internal sealed class GridKeywordSearchQuery
                 break;
             case "output":
                 yield return row.OutputBaseDisplayName;
+                break;
+            case "prefix":
+                yield return row.CompatPrefix;
                 break;
             case "symbol":
                 yield return row.Symbol;

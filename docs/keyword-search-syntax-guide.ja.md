@@ -261,6 +261,7 @@ rank:undefined
 | :--- | :--- |
 | `id` | playlist id |
 | `name` | name |
+| `prefix` | フォルダ接頭辞 |
 | `symbol` | symbol |
 
 ### プレイログで使える field

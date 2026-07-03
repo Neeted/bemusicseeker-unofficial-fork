@@ -8065,8 +8065,8 @@ public class MainWindowViewModel : ViewModel
         internal async Task ApplyPostSaveUpdatesAsync()
         {
             using BMSPlaylist.OperationNotificationScope notificationScope = BMSPlaylist.BeginOperationNotificationScope();
-            bool flag = !string.Equals(temp_name, bmsTable.name, StringComparison.Ordinal) || !string.Equals(temp_symbol, bmsTable.symbol, StringComparison.Ordinal);
             bool prefixChanged = !string.Equals(temp_compat_prefix, bmsTable.compat_prefix, StringComparison.Ordinal);
+            bool flag = !string.Equals(temp_name, bmsTable.name, StringComparison.Ordinal) || !string.Equals(temp_symbol, bmsTable.symbol, StringComparison.Ordinal) || prefixChanged;
             bool outputBaseNameChanged = !string.Equals(
                 temp_custom_folder_output_base_name,
                 CustomFolderOutputBaseRegistry.NormalizeBaseName(bmsTable.custom_folder_output_base_name),
@@ -25284,6 +25284,16 @@ public class MainWindowViewModel : ViewModel
         loadColumnSetting(viewUpdateMode.TreeViewFilterNotChanged, isInit: true);
     }
 
+    /// <summary>
+    /// Playlist Summary 専用の列設定を既定値へ戻します。
+    /// </summary>
+    public void ResetPlaylistSummaryColumnSetting()
+    {
+        Settings.Default.PlaylistSummaryColumnsSettings = new PlaylistSummaryColumnSettings();
+        Settings.Default.PlaylistSummaryColumnsSettings.EnsureCompatibility();
+        PlaylistSummaryColumnsSettings = Settings.Default.PlaylistSummaryColumnsSettings;
+    }
+
     private bool ApplyMainColumnSettingForViewUpdate(viewUpdateMode mode)
     {
         viewUpdateMode resolvedMode = ResolveMainColumnSettingMode(mode, treeViewFilterTypeSelected);
@@ -28963,6 +28973,7 @@ public class MainWindowViewModel : ViewModel
                 OutputBaseName = table.custom_folder_output_base_name ?? string.Empty,
                 OutputBaseDisplayName = CustomFolderOutputBaseRegistry.GetDisplayName(table.custom_folder_output_base_name),
                 Name = table.name ?? string.Empty,
+                CompatPrefix = table.compat_prefix ?? string.Empty,
                 Symbol = table.symbol ?? string.Empty,
                 LastUpdate = table.last_update,
                 TotalCharts = totalCharts,
@@ -29970,6 +29981,52 @@ public class MainWindowViewModel : ViewModel
         return PlaylistSummarySortParameters != null
             && PlaylistSummarySortParameters.ColumnsName == nameof(PlaylistSummaryRow.BmtSort)
             && PlaylistSummarySortParameters.Direction == ListSortDirection.Ascending;
+    }
+
+    /// <summary>
+    /// Playlist Summary のセル編集を、プロパティダイアログの OK と同じ保存経路で適用します。
+    /// </summary>
+    /// <param name="row">編集対象行。</param>
+    /// <param name="editPropertyName">編集対象プロパティ名。</param>
+    /// <param name="text">編集後の文字列。</param>
+    /// <returns>保存と後処理が完了した場合は true。</returns>
+    internal async Task<bool> ApplyPlaylistSummaryPropertyEditAsync(PlaylistSummaryRow row, string editPropertyName, string text)
+    {
+        if (row?.TableRef == null || string.IsNullOrWhiteSpace(editPropertyName) || !ContainsActivePlaylistTable(row.TableRef))
+        {
+            return false;
+        }
+
+        var propertyDialogViewModel = new PlaylistPropertyDialogViewModel(this, row.TableRef);
+        try
+        {
+            switch (editPropertyName)
+            {
+                case nameof(PlaylistSummaryRow.Name):
+                    propertyDialogViewModel.name = text ?? string.Empty;
+                    break;
+                case nameof(PlaylistSummaryRow.CompatPrefix):
+                    propertyDialogViewModel.compat_prefix = text ?? string.Empty;
+                    break;
+                case nameof(PlaylistSummaryRow.Symbol):
+                    propertyDialogViewModel.symbol = text ?? string.Empty;
+                    break;
+                default:
+                    return false;
+            }
+
+            if (!propertyDialogViewModel.SaveProperties())
+            {
+                return false;
+            }
+        }
+        finally
+        {
+            propertyDialogViewModel.Dispose();
+        }
+
+        await propertyDialogViewModel.ApplyPostSaveUpdatesAsync();
+        return true;
     }
 
     public void ApplyPlaylistSummaryBmtOutput(IEnumerable<PlaylistSummaryRow> rows, bool isBmtOutput)

@@ -1159,7 +1159,7 @@ public sealed class CustomTableView : Grid
         }
         if (hit.Kind == CustomTableHitKind.Header)
         {
-            if (IsStatusColumn(hit.Column))
+            if (IsStatusIconColumn(hit.Column))
             {
                 e.Handled = true;
                 return;
@@ -2031,9 +2031,9 @@ public sealed class CustomTableView : Grid
             visibleHeight);
     }
 
-    private static bool IsStatusColumn(CustomTableColumn column)
+    private static bool IsStatusIconColumn(CustomTableColumn column)
     {
-        return string.Equals(column?.Id, "Status", StringComparison.Ordinal);
+        return column?.CellKind == CustomTableCellKind.StatusIcon;
     }
 
     private void BeginColumnResize(CustomTableHitTestResult hit, double surfaceX)

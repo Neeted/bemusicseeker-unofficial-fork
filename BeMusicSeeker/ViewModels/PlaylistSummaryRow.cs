@@ -14,6 +14,11 @@ public class PlaylistSummaryRow
 
     public string Name { get; set; } = string.Empty;
 
+    /// <summary>
+    /// LR2 互換フォルダ名へ付与する接頭辞です。
+    /// </summary>
+    public string CompatPrefix { get; set; } = string.Empty;
+
     public string Symbol { get; set; } = string.Empty;
 
     public DateTime LastUpdate { get; set; }

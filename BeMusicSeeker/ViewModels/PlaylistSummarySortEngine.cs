@@ -40,6 +40,9 @@ internal static class PlaylistSummarySortEngine
             case nameof(PlaylistSummaryRow.OutputBaseDisplayName):
                 sortProfile = useLegacyStringSort ? "playlist_summary_legacy_string" : "playlist_summary_string_fast_ordinal_ignore_case";
                 return SortByString(safeSource, row => row?.OutputBaseDisplayName ?? string.Empty, direction, useLegacyStringSort);
+            case nameof(PlaylistSummaryRow.CompatPrefix):
+                sortProfile = useLegacyStringSort ? "playlist_summary_legacy_string" : "playlist_summary_string_fast_ordinal_ignore_case";
+                return SortByString(safeSource, row => row?.CompatPrefix ?? string.Empty, direction, useLegacyStringSort);
             case nameof(PlaylistSummaryRow.Symbol):
                 sortProfile = useLegacyStringSort ? "playlist_summary_legacy_string" : "playlist_summary_string_fast_ordinal_ignore_case";
                 return SortByString(safeSource, row => row?.Symbol ?? string.Empty, direction, useLegacyStringSort);

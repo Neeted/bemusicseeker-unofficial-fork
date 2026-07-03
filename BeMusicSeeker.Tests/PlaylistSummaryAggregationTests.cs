@@ -426,19 +426,21 @@ public sealed class PlaylistSummaryAggregationTests
             {
                 PlaylistId = 10,
                 Name = "alpha pack",
+                CompatPrefix = "A",
                 Symbol = "A"
             },
             new PlaylistSummaryRow
             {
                 PlaylistId = 20,
                 Name = "alpha other",
+                CompatPrefix = "B",
                 Symbol = "B"
             }
         ];
 
         MainWindowViewModel.PlaylistSummaryPresentationResult result = MainWindowViewModel.BuildPlaylistSummaryPresentationRows(
             rows,
-            "name:alpha symbol:A",
+            "name:alpha prefix:A symbol:A",
             MainWindowViewModel.PlaylistSummaryOwnedFilterType.All,
             new MainWindowViewModel.cSortParameters
             {

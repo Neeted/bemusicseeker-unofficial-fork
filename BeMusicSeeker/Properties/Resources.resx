@@ -386,7 +386,7 @@ title:re:^alpha
     <value>title, artist, genre, tag, path, playlist/ref/table, md5/hash, sha256, memo, comment, level, difficulty, mainbpm, maxbpm, minbpm, duration, judge/judge%/judgepct, feature, notes, long/ln, scratch, total, tn/t/n, density, peak, end, soflan, clear, rank/djlevel/dj, rate, score, combo, bp</value>
   </data>
   <data name="Keyword_search_help_fields_playlist_summary" xml:space="preserve">
-    <value>id, name, symbol</value>
+    <value>id, name, prefix, symbol</value>
   </data>
   <data name="Keyword_search_help_fields_play_history" xml:space="preserve">
     <value>title, artist, path, folder, playlist/ref/table, md5/hash, sha256, date, year, month, type/kind, clear, oldclear, newclear, finalized, source</value>

@@ -478,7 +478,7 @@ Maintenance:
 - `Zero-note search`: You can run `Check zero-note notation`.
 - Folder under `Duplicate file check`: You can run `Open in Explorer` and `Merge destination`. For duplicate folder merge, see [Merge Duplicate Folders](#merge-duplicate-folders).
 
-From the column-header context menu, you can toggle visible columns or reset column settings to their defaults. The playlist summary also has its own column display menu.
+From the column-header context menu, you can toggle visible columns or reset column settings to their defaults. The playlist summary also has its own column display menu and column reset command.
 
 ### Other Popup Menus
 
@@ -529,7 +529,7 @@ In BeMusicSeeker, installed difficulty tables and custom playlists can be manage
 
 ![Playlist summary](img/一覧_プレイリストサマリー.PNG)
 
-The playlist summary lists each playlist's chart count, owned count, unowned count, ownership rate, external sync status, and beatoraja `.bmt` output settings.
+The playlist summary lists each playlist's chart count, owned count, unowned count, ownership rate, external sync status, and beatoraja `.bmt` output settings. You can click `NAME`, `PREFIX`, or `SYMBOL` cells to edit them inline; the same save processing runs as when pressing OK in playlist properties.
 
 From the search field at the upper right, you can switch the ownership filter between `All`, `OWNED=100%`, and `OWNED<100%`.
 

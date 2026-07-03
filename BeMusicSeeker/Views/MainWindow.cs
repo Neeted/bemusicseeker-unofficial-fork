@@ -1556,6 +1556,24 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         contextMenu.IsOpen = true;
     }
 
+    private void customTablePlaylistSummary_CellEditBeginning(object sender, CustomTableCellEditBeginningEventArgs e)
+    {
+        if (ShouldBlockStartupUiInteraction("custom_table_playlist_summary_cell_edit_beginning"))
+        {
+            e.Cancel = true;
+            return;
+        }
+        if (base.DataContext is not MainWindowViewModel viewModel
+            || e.Row is not PlaylistSummaryRow playlistSummaryRow
+            || playlistSummaryRow.TableRef == null
+            || !IsPlaylistSummaryEditableProperty(e.EditPropertyName)
+            || !CanOpenPlaylistEditDialog(viewModel)
+            || !viewModel.ContainsActivePlaylistTable(playlistSummaryRow.TableRef))
+        {
+            e.Cancel = true;
+        }
+    }
+
     private void customTableView_CellEditBeginning(object sender, CustomTableCellEditBeginningEventArgs e)
     {
         if (ShouldBlockStartupUiInteraction("custom_table_cell_edit_beginning"))
@@ -1636,6 +1654,43 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             case "IsBmtOutput":
                 await ApplyPlaylistSummaryBmtOutputFromCustomTableAsync(playlistSummaryRow, !(playlistSummaryRow.IsBmtOutput)).Logging("customTablePlaylistSummary_CellActionRequested_BmtOutput");
                 break;
+        }
+    }
+
+    private async void customTablePlaylistSummary_CellEditEnded(object sender, CustomTableCellEditEndedEventArgs e)
+    {
+        if (base.DataContext is not MainWindowViewModel viewModel)
+        {
+            return;
+        }
+        if (!e.Commit
+            || e.Row is not PlaylistSummaryRow playlistSummaryRow
+            || playlistSummaryRow.TableRef == null
+            || !IsPlaylistSummaryEditableProperty(e.EditPropertyName))
+        {
+            return;
+        }
+
+        string currentText = GetPlaylistSummaryEditableText(playlistSummaryRow, e.EditPropertyName);
+        string editedText = NormalizePlaylistSummaryEditableText(e.EditPropertyName, e.Text);
+        if (string.Equals(currentText, editedText, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        try
+        {
+            bool applied = await viewModel.ApplyPlaylistSummaryPropertyEditAsync(playlistSummaryRow, e.EditPropertyName, e.Text);
+            if (!applied)
+            {
+                UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_invalid_setting, BeMusicSeeker.Properties.Resources.Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+                customTablePlaylistSummary?.RefreshDisplay();
+            }
+        }
+        catch (Exception ex)
+        {
+            UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + Environment.NewLine + ex.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+            customTablePlaylistSummary?.RefreshDisplay();
         }
     }
 
@@ -1774,6 +1829,40 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             || string.Equals(propertyName, nameof(PlaylistDetailRow.memo), StringComparison.Ordinal);
     }
 
+    private static bool IsPlaylistSummaryEditableProperty(string propertyName)
+    {
+        return string.Equals(propertyName, nameof(PlaylistSummaryRow.Name), StringComparison.Ordinal)
+            || string.Equals(propertyName, nameof(PlaylistSummaryRow.CompatPrefix), StringComparison.Ordinal)
+            || string.Equals(propertyName, nameof(PlaylistSummaryRow.Symbol), StringComparison.Ordinal);
+    }
+
+    private static string GetPlaylistSummaryEditableText(PlaylistSummaryRow row, string propertyName)
+    {
+        if (row == null)
+        {
+            return string.Empty;
+        }
+        return propertyName switch
+        {
+            nameof(PlaylistSummaryRow.Name) => NormalizePlaylistSummaryEditableText(propertyName, row.Name),
+            nameof(PlaylistSummaryRow.CompatPrefix) => NormalizePlaylistSummaryEditableText(propertyName, row.CompatPrefix),
+            nameof(PlaylistSummaryRow.Symbol) => NormalizePlaylistSummaryEditableText(propertyName, row.Symbol),
+            _ => string.Empty
+        };
+    }
+
+    private static string NormalizePlaylistSummaryEditableText(string propertyName, string text)
+    {
+        text ??= string.Empty;
+        return propertyName switch
+        {
+            nameof(PlaylistSummaryRow.CompatPrefix) => text.TrimStart(),
+            nameof(PlaylistSummaryRow.Name) => text.Trim(),
+            nameof(PlaylistSummaryRow.Symbol) => text.Trim(),
+            _ => text
+        };
+    }
+
     private void RefreshCustomTableViewDisplayAsync()
     {
         base.Dispatcher.BeginInvoke((Action)delegate
@@ -1803,6 +1892,23 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             if (UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_init_column_settings, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) != MessageBoxResult.Cancel)
             {
                 mainWindowViewModel.LoadColumnSetting();
+            }
+        }
+    }
+
+    private void playlistSummaryInitializeColumnSetting(object sender, RoutedEventArgs e)
+    {
+        if (ShouldBlockStartupUiInteraction("playlist_summary_column_setting_initialize"))
+        {
+            e.Handled = true;
+            return;
+        }
+        if (base.DataContext is MainWindowViewModel mainWindowViewModel)
+        {
+            e.Handled = true;
+            if (UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_init_column_settings, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) != MessageBoxResult.Cancel)
+            {
+                mainWindowViewModel.ResetPlaylistSummaryColumnSetting();
             }
         }
     }

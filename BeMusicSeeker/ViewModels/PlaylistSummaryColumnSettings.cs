@@ -71,6 +71,8 @@ public class PlaylistSummaryColumnSettings : NotificationObject
 
     private ColumnLayout _Name = new();
 
+    private ColumnLayout _CompatPrefix = new();
+
     private ColumnLayout _Symbol = new();
 
     private ColumnLayout _LastUpdate = new();
@@ -95,6 +97,38 @@ public class PlaylistSummaryColumnSettings : NotificationObject
 
     private ColumnLayout _IsBmtOutput = new();
 
+    private bool _playlistIdLoaded;
+
+    private bool _outputBaseLoaded;
+
+    private bool _nameLoaded;
+
+    private bool _compatPrefixLoaded;
+
+    private bool _symbolLoaded;
+
+    private bool _lastUpdateLoaded;
+
+    private bool _totalChartsLoaded;
+
+    private bool _ownedChartsLoaded;
+
+    private bool _missingChartsLoaded;
+
+    private bool _ownedRatioLoaded;
+
+    private bool _linkLoaded;
+
+    private bool _isExternalSyncLoaded;
+
+    private bool _statusLoaded;
+
+    private bool _isRootFolderLoaded;
+
+    private bool _bmtSortLoaded;
+
+    private bool _isBmtOutputLoaded;
+
     public ColumnLayout PlaylistId
     {
         get
@@ -104,6 +138,7 @@ public class PlaylistSummaryColumnSettings : NotificationObject
         set
         {
             _PlaylistId = value;
+            _playlistIdLoaded = true;
             RaisePropertyChanged("PlaylistId");
         }
     }
@@ -117,6 +152,7 @@ public class PlaylistSummaryColumnSettings : NotificationObject
         set
         {
             _OutputBase = value;
+            _outputBaseLoaded = true;
             RaisePropertyChanged("OutputBase");
         }
     }
@@ -130,7 +166,25 @@ public class PlaylistSummaryColumnSettings : NotificationObject
         set
         {
             _Name = value;
+            _nameLoaded = true;
             RaisePropertyChanged("Name");
+        }
+    }
+
+    /// <summary>
+    /// 互換フォルダ接頭辞列の表示設定です。
+    /// </summary>
+    public ColumnLayout CompatPrefix
+    {
+        get
+        {
+            return _CompatPrefix;
+        }
+        set
+        {
+            _CompatPrefix = value;
+            _compatPrefixLoaded = true;
+            RaisePropertyChanged("CompatPrefix");
         }
     }
 
@@ -143,6 +197,7 @@ public class PlaylistSummaryColumnSettings : NotificationObject
         set
         {
             _Symbol = value;
+            _symbolLoaded = true;
             RaisePropertyChanged("Symbol");
         }
     }
@@ -156,6 +211,7 @@ public class PlaylistSummaryColumnSettings : NotificationObject
         set
         {
             _LastUpdate = value;
+            _lastUpdateLoaded = true;
             RaisePropertyChanged("LastUpdate");
         }
     }
@@ -169,6 +225,7 @@ public class PlaylistSummaryColumnSettings : NotificationObject
         set
         {
             _TotalCharts = value;
+            _totalChartsLoaded = true;
             RaisePropertyChanged("TotalCharts");
         }
     }
@@ -182,6 +239,7 @@ public class PlaylistSummaryColumnSettings : NotificationObject
         set
         {
             _OwnedCharts = value;
+            _ownedChartsLoaded = true;
             RaisePropertyChanged("OwnedCharts");
         }
     }
@@ -195,6 +253,7 @@ public class PlaylistSummaryColumnSettings : NotificationObject
         set
         {
             _MissingCharts = value;
+            _missingChartsLoaded = true;
             RaisePropertyChanged("MissingCharts");
         }
     }
@@ -208,6 +267,7 @@ public class PlaylistSummaryColumnSettings : NotificationObject
         set
         {
             _OwnedRatio = value;
+            _ownedRatioLoaded = true;
             RaisePropertyChanged("OwnedRatio");
         }
     }
@@ -221,6 +281,7 @@ public class PlaylistSummaryColumnSettings : NotificationObject
         set
         {
             _Link = value;
+            _linkLoaded = true;
             RaisePropertyChanged("Link");
         }
     }
@@ -234,6 +295,7 @@ public class PlaylistSummaryColumnSettings : NotificationObject
         set
         {
             _IsExternalSync = value;
+            _isExternalSyncLoaded = true;
             RaisePropertyChanged("IsExternalSync");
         }
     }
@@ -247,6 +309,7 @@ public class PlaylistSummaryColumnSettings : NotificationObject
         set
         {
             _Status = value;
+            _statusLoaded = true;
             RaisePropertyChanged("Status");
         }
     }
@@ -260,6 +323,7 @@ public class PlaylistSummaryColumnSettings : NotificationObject
         set
         {
             _IsRootFolder = value;
+            _isRootFolderLoaded = true;
             RaisePropertyChanged("IsRootFolder");
         }
     }
@@ -273,6 +337,7 @@ public class PlaylistSummaryColumnSettings : NotificationObject
         set
         {
             _BmtSort = value;
+            _bmtSortLoaded = true;
             RaisePropertyChanged("BmtSort");
         }
     }
@@ -286,6 +351,7 @@ public class PlaylistSummaryColumnSettings : NotificationObject
         set
         {
             _IsBmtOutput = value;
+            _isBmtOutputLoaded = true;
             RaisePropertyChanged("IsBmtOutput");
         }
     }
@@ -295,6 +361,7 @@ public class PlaylistSummaryColumnSettings : NotificationObject
         PlaylistId.Width = 60;
         OutputBase.Width = 100;
         Name.Width = 220;
+        CompatPrefix.Width = 80;
         Symbol.Width = 70;
         LastUpdate.Width = 145;
         TotalCharts.Width = 80;
@@ -307,93 +374,82 @@ public class PlaylistSummaryColumnSettings : NotificationObject
         IsRootFolder.Width = 70;
         BmtSort.Width = 80;
         IsBmtOutput.Width = 95;
-        int num = 0;
-        PlaylistId.DisplayIndex = num++;
-        OutputBase.DisplayIndex = num++;
-        Name.DisplayIndex = num++;
-        Symbol.DisplayIndex = num++;
-        LastUpdate.DisplayIndex = num++;
-        TotalCharts.DisplayIndex = num++;
-        OwnedCharts.DisplayIndex = num++;
-        MissingCharts.DisplayIndex = num++;
-        OwnedRatio.DisplayIndex = num++;
-        Link.DisplayIndex = num++;
-        IsExternalSync.DisplayIndex = num++;
-        Status.DisplayIndex = num++;
-        IsRootFolder.DisplayIndex = num++;
-        BmtSort.DisplayIndex = num++;
-        IsBmtOutput.DisplayIndex = num++;
+        int displayIndex = 0;
+        PlaylistId.DisplayIndex = displayIndex++;
+        OutputBase.DisplayIndex = displayIndex++;
+        Name.DisplayIndex = displayIndex++;
+        CompatPrefix.DisplayIndex = displayIndex++;
+        Symbol.DisplayIndex = displayIndex++;
+        LastUpdate.DisplayIndex = displayIndex++;
+        TotalCharts.DisplayIndex = displayIndex++;
+        OwnedCharts.DisplayIndex = displayIndex++;
+        MissingCharts.DisplayIndex = displayIndex++;
+        OwnedRatio.DisplayIndex = displayIndex++;
+        Link.DisplayIndex = displayIndex++;
+        IsExternalSync.DisplayIndex = displayIndex++;
+        Status.DisplayIndex = displayIndex++;
+        IsRootFolder.DisplayIndex = displayIndex++;
+        BmtSort.DisplayIndex = displayIndex++;
+        IsBmtOutput.DisplayIndex = displayIndex++;
     }
 
+    /// <summary>
+    /// 保存済み設定に欠けた列レイアウトがある場合は、列設定初期化と同じ既定レイアウトへ戻します。
+    /// </summary>
     public void EnsureCompatibility()
     {
-        bool flag = _Status == null;
-        bool outputBaseMissing = _OutputBase == null;
-        PlaylistId ??= new ColumnLayout();
-        OutputBase ??= new ColumnLayout();
-        Name ??= new ColumnLayout();
-        Symbol ??= new ColumnLayout();
-        LastUpdate ??= new ColumnLayout();
-        TotalCharts ??= new ColumnLayout();
-        OwnedCharts ??= new ColumnLayout();
-        MissingCharts ??= new ColumnLayout();
-        OwnedRatio ??= new ColumnLayout();
-        Link ??= new ColumnLayout();
-        IsExternalSync ??= new ColumnLayout();
-        Status ??= new ColumnLayout();
-        IsRootFolder ??= new ColumnLayout();
-        BmtSort ??= new ColumnLayout();
-        IsBmtOutput ??= new ColumnLayout();
-        ApplyDefaultLayout(PlaylistId, 60, 0);
-        ApplyDefaultLayout(OutputBase, 100, 1);
-        ApplyDefaultLayout(Name, 220, 2);
-        ApplyDefaultLayout(Symbol, 70, 3);
-        ApplyDefaultLayout(LastUpdate, 145, 4);
-        ApplyDefaultLayout(TotalCharts, 80, 5);
-        ApplyDefaultLayout(OwnedCharts, 80, 6);
-        ApplyDefaultLayout(MissingCharts, 80, 7);
-        ApplyDefaultLayout(OwnedRatio, 80, 8);
-        ApplyDefaultLayout(Link, 70, 9);
-        ApplyDefaultLayout(IsExternalSync, 70, 10);
-        ApplyDefaultLayout(Status, 90, 11);
-        ApplyDefaultLayout(IsRootFolder, 70, 12);
-        ApplyDefaultLayout(BmtSort, 80, 13);
-        ApplyDefaultLayout(IsBmtOutput, 95, 14);
-        if (outputBaseMissing)
+        if (!HasAllLayouts())
         {
-            ShiftDisplayIndexesFrom(Name, Symbol, LastUpdate, TotalCharts, OwnedCharts, MissingCharts, OwnedRatio, Link, IsExternalSync, Status, IsRootFolder, BmtSort, IsBmtOutput);
-            OutputBase.DisplayIndex = 1;
-        }
-        if (flag && IsRootFolder.DisplayIndex <= 10)
-        {
-            IsRootFolder.DisplayIndex = 12;
+            ResetToDefaultLayout();
         }
     }
 
-    private static void ShiftDisplayIndexesFrom(params ColumnLayout[] layouts)
+    /// <summary>
+    /// 現在の列定義に必要なすべてのレイアウトが保存済み設定に存在するかどうかを返します。
+    /// </summary>
+    /// <returns>すべて存在する場合は true。</returns>
+    public bool HasAllLayouts()
     {
-        foreach (ColumnLayout layout in layouts ?? [])
-        {
-            if (layout != null && layout.DisplayIndex >= 1)
-            {
-                layout.DisplayIndex++;
-            }
-        }
+        return HasLayout(PlaylistId, _playlistIdLoaded)
+            && HasLayout(OutputBase, _outputBaseLoaded)
+            && HasLayout(Name, _nameLoaded)
+            && HasLayout(CompatPrefix, _compatPrefixLoaded)
+            && HasLayout(Symbol, _symbolLoaded)
+            && HasLayout(LastUpdate, _lastUpdateLoaded)
+            && HasLayout(TotalCharts, _totalChartsLoaded)
+            && HasLayout(OwnedCharts, _ownedChartsLoaded)
+            && HasLayout(MissingCharts, _missingChartsLoaded)
+            && HasLayout(OwnedRatio, _ownedRatioLoaded)
+            && HasLayout(Link, _linkLoaded)
+            && HasLayout(IsExternalSync, _isExternalSyncLoaded)
+            && HasLayout(Status, _statusLoaded)
+            && HasLayout(IsRootFolder, _isRootFolderLoaded)
+            && HasLayout(BmtSort, _bmtSortLoaded)
+            && HasLayout(IsBmtOutput, _isBmtOutputLoaded);
     }
 
-    private static void ApplyDefaultLayout(ColumnLayout layout, int width, int displayIndex)
+    private static bool HasLayout(ColumnLayout layout, bool loaded)
     {
-        if (layout == null)
-        {
-            return;
-        }
-        if (layout.Width <= 0)
-        {
-            layout.Width = width;
-        }
-        if (layout.DisplayIndex < 0)
-        {
-            layout.DisplayIndex = displayIndex;
-        }
+        return loaded && layout != null;
+    }
+
+    private void ResetToDefaultLayout()
+    {
+        PlaylistId = new ColumnLayout { Width = 60, DisplayIndex = 0 };
+        OutputBase = new ColumnLayout { Width = 100, DisplayIndex = 1 };
+        Name = new ColumnLayout { Width = 220, DisplayIndex = 2 };
+        CompatPrefix = new ColumnLayout { Width = 80, DisplayIndex = 3 };
+        Symbol = new ColumnLayout { Width = 70, DisplayIndex = 4 };
+        LastUpdate = new ColumnLayout { Width = 145, DisplayIndex = 5 };
+        TotalCharts = new ColumnLayout { Width = 80, DisplayIndex = 6 };
+        OwnedCharts = new ColumnLayout { Width = 80, DisplayIndex = 7 };
+        MissingCharts = new ColumnLayout { Width = 80, DisplayIndex = 8 };
+        OwnedRatio = new ColumnLayout { Width = 80, DisplayIndex = 9 };
+        Link = new ColumnLayout { Width = 70, DisplayIndex = 10 };
+        IsExternalSync = new ColumnLayout { Width = 70, DisplayIndex = 11 };
+        Status = new ColumnLayout { Width = 90, DisplayIndex = 12 };
+        IsRootFolder = new ColumnLayout { Width = 70, DisplayIndex = 13 };
+        BmtSort = new ColumnLayout { Width = 80, DisplayIndex = 14 };
+        IsBmtOutput = new ColumnLayout { Width = 95, DisplayIndex = 15 };
     }
 }

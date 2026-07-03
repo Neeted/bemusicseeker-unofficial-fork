@@ -1,8 +1,11 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Windows;
 using System.Windows.Input;
+using System.Xml.Linq;
+using System.Xml.Serialization;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
@@ -332,6 +335,7 @@ public sealed class CustomTableColumnFactoryTests
                 "PlaylistId",
                 "OutputBase",
                 "Name",
+                "CompatPrefix",
                 "Symbol",
                 "LastUpdate",
                 "TotalCharts",
@@ -346,6 +350,57 @@ public sealed class CustomTableColumnFactoryTests
                 "IsBmtOutput"
             },
             ids);
+    }
+
+    [TestMethod]
+    public void PlaylistSummaryColumnSettings_EnsureCompatibilityResetsToDefaultsWhenLayoutIsMissing()
+    {
+        var settings = new PlaylistSummaryColumnSettings
+        {
+            CompatPrefix = null
+        };
+        settings.Name.Width = 999;
+        settings.Symbol.DisplayIndex = 20;
+
+        settings.EnsureCompatibility();
+
+        Assert.IsNotNull(settings.CompatPrefix);
+        Assert.AreEqual(220, settings.Name.Width);
+        Assert.AreEqual(80, settings.CompatPrefix.Width);
+        Assert.AreEqual(2, settings.Name.DisplayIndex);
+        Assert.AreEqual(3, settings.CompatPrefix.DisplayIndex);
+        Assert.AreEqual(4, settings.Symbol.DisplayIndex);
+    }
+
+    [TestMethod]
+    public void PlaylistSummaryColumnSettings_EnsureCompatibilityResetsToDefaultsWhenSerializedLayoutIsMissing()
+    {
+        var serializer = new XmlSerializer(typeof(PlaylistSummaryColumnSettings));
+        var original = new PlaylistSummaryColumnSettings();
+        original.EnsureCompatibility();
+        original.Name.Width = 999;
+        original.Symbol.DisplayIndex = 20;
+        using var writer = new StringWriter();
+        serializer.Serialize(writer, original);
+        var doc = XDocument.Parse(writer.ToString());
+        doc.Root?.Element(nameof(PlaylistSummaryColumnSettings.CompatPrefix))?.Remove();
+
+        PlaylistSummaryColumnSettings restored;
+        using (var reader = new StringReader(doc.ToString()))
+        {
+            restored = (PlaylistSummaryColumnSettings)serializer.Deserialize(reader);
+        }
+
+        Assert.IsFalse(restored.HasAllLayouts());
+
+        restored.EnsureCompatibility();
+
+        Assert.IsTrue(restored.HasAllLayouts());
+        Assert.AreEqual(220, restored.Name.Width);
+        Assert.AreEqual(80, restored.CompatPrefix.Width);
+        Assert.AreEqual(2, restored.Name.DisplayIndex);
+        Assert.AreEqual(3, restored.CompatPrefix.DisplayIndex);
+        Assert.AreEqual(4, restored.Symbol.DisplayIndex);
     }
 
     [TestMethod]
@@ -373,6 +428,7 @@ public sealed class CustomTableColumnFactoryTests
 
         Assert.AreEqual(nameof(PlaylistSummaryRow.PlaylistId), columns["PlaylistId"].SortMemberPath);
         Assert.AreEqual(nameof(PlaylistSummaryRow.Name), columns["Name"].SortMemberPath);
+        Assert.AreEqual(nameof(PlaylistSummaryRow.CompatPrefix), columns["CompatPrefix"].SortMemberPath);
         Assert.AreEqual(nameof(PlaylistSummaryRow.Symbol), columns["Symbol"].SortMemberPath);
         Assert.AreEqual(nameof(PlaylistSummaryRow.LastUpdate), columns["LastUpdate"].SortMemberPath);
         Assert.AreEqual(nameof(PlaylistSummaryRow.TotalCharts), columns["TotalCharts"].SortMemberPath);
@@ -385,6 +441,9 @@ public sealed class CustomTableColumnFactoryTests
         Assert.AreEqual(nameof(PlaylistSummaryRow.IsRootFolder), columns["IsRootFolder"].SortMemberPath);
         Assert.AreEqual(nameof(PlaylistSummaryRow.BmtSort), columns["BmtSort"].SortMemberPath);
         Assert.AreEqual(nameof(PlaylistSummaryRow.IsBmtOutput), columns["IsBmtOutput"].SortMemberPath);
+        Assert.AreEqual(nameof(PlaylistSummaryRow.Name), columns["Name"].EditPropertyName);
+        Assert.AreEqual(nameof(PlaylistSummaryRow.CompatPrefix), columns["CompatPrefix"].EditPropertyName);
+        Assert.AreEqual(nameof(PlaylistSummaryRow.Symbol), columns["Symbol"].EditPropertyName);
         Assert.AreEqual(CustomTableCellKind.ActionText, columns["Link"].CellKind);
         Assert.AreEqual(CustomTableCellKind.CheckBox, columns["IsExternalSync"].CellKind);
         Assert.AreEqual(CustomTableCellKind.CheckBox, columns["IsRootFolder"].CellKind);
@@ -457,6 +516,7 @@ public sealed class CustomTableColumnFactoryTests
         var columns = CustomTableColumnFactory.CreatePlaylistSummaryColumns(settings).ToDictionary(column => column.Id);
 
         Assert.IsFalse(columns["PlaylistId"].AutoTrimTooltip);
+        Assert.IsFalse(columns["CompatPrefix"].AutoTrimTooltip);
         Assert.IsFalse(columns["Symbol"].AutoTrimTooltip);
         Assert.IsFalse(columns["IsExternalSync"].AutoTrimTooltip);
         Assert.IsFalse(columns["IsRootFolder"].AutoTrimTooltip);
