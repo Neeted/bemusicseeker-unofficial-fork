@@ -200,6 +200,8 @@ public partial class BMSPlaylist : NotificationObject
 
         public bool HeaderHashInitialized { get; set; }
 
+        public bool HeaderHashMigrated { get; set; }
+
         public bool DataKnownChanged { get; set; }
 
         public bool DataHashInitialized { get; set; }
@@ -213,13 +215,15 @@ public partial class BMSPlaylist : NotificationObject
 
         public bool HeaderHashInitialized { get; internal set; }
 
+        public bool HeaderHashMigrated { get; internal set; }
+
         public bool DataKnownChanged { get; internal set; }
 
         public bool DataHashInitialized { get; internal set; }
 
         public bool UpdatesLastUpdate => HeaderKnownChanged || DataKnownChanged;
 
-        public bool NeedsHeaderPersistence => HeaderKnownChanged || HeaderHashInitialized || DataKnownChanged || DataHashInitialized;
+        public bool NeedsHeaderPersistence => HeaderKnownChanged || HeaderHashInitialized || HeaderHashMigrated || DataKnownChanged || DataHashInitialized;
 
         public bool NeedsEntryPersistence => EntryFingerprintChanged || DataKnownChanged || DataHashInitialized;
 
@@ -8778,6 +8782,7 @@ public partial class BMSPlaylist : NotificationObject
             EntryFingerprintChanged = playlistContentDiffResult.HasChanges,
             HeaderKnownChanged = hashChangeResult.HeaderKnownChanged,
             HeaderHashInitialized = hashChangeResult.HeaderHashInitialized,
+            HeaderHashMigrated = hashChangeResult.HeaderHashMigrated,
             DataKnownChanged = hashChangeResult.DataKnownChanged,
             DataHashInitialized = hashChangeResult.DataHashInitialized
         };
@@ -8829,7 +8834,7 @@ public partial class BMSPlaylist : NotificationObject
             {
                 LogPlaylistContentDiff(newTable.name, playlistContentDiffResult);
             }
-            Ribbit.Logging.NLogWrapper.FileLogger?.Info("playlist_resync last_update_decision table=" + (newTable.name ?? string.Empty) + " changed=" + persistenceDecision.UpdatesLastUpdate.ToString().ToLowerInvariant() + " entryFingerprintChanged=" + playlistContentDiffResult.HasChanges.ToString().ToLowerInvariant() + " headerChanged=" + hashChangeResult.HeaderKnownChanged.ToString().ToLowerInvariant() + " dataChanged=" + hashChangeResult.DataKnownChanged.ToString().ToLowerInvariant() + " headerInitialized=" + hashChangeResult.HeaderHashInitialized.ToString().ToLowerInvariant() + " dataInitialized=" + hashChangeResult.DataHashInitialized.ToString().ToLowerInvariant() + " persistHeader=" + persistenceDecision.NeedsHeaderPersistence.ToString().ToLowerInvariant() + " persistEntry=" + persistenceDecision.NeedsEntryPersistence.ToString().ToLowerInvariant() + " old=" + oldLastUpdate.ToString("O") + " reloaded=" + reloadedLastUpdate.ToString("O") + " final=" + newTable.last_update.ToString("O"));
+            Ribbit.Logging.NLogWrapper.FileLogger?.Info("playlist_resync last_update_decision table=" + (newTable.name ?? string.Empty) + " changed=" + persistenceDecision.UpdatesLastUpdate.ToString().ToLowerInvariant() + " entryFingerprintChanged=" + playlistContentDiffResult.HasChanges.ToString().ToLowerInvariant() + " headerChanged=" + hashChangeResult.HeaderKnownChanged.ToString().ToLowerInvariant() + " dataChanged=" + hashChangeResult.DataKnownChanged.ToString().ToLowerInvariant() + " headerInitialized=" + hashChangeResult.HeaderHashInitialized.ToString().ToLowerInvariant() + " headerMigrated=" + hashChangeResult.HeaderHashMigrated.ToString().ToLowerInvariant() + " dataInitialized=" + hashChangeResult.DataHashInitialized.ToString().ToLowerInvariant() + " persistHeader=" + persistenceDecision.NeedsHeaderPersistence.ToString().ToLowerInvariant() + " persistEntry=" + persistenceDecision.NeedsEntryPersistence.ToString().ToLowerInvariant() + " old=" + oldLastUpdate.ToString("O") + " reloaded=" + reloadedLastUpdate.ToString("O") + " final=" + newTable.last_update.ToString("O"));
         }
         return newTable;
     }
@@ -8841,17 +8846,36 @@ public partial class BMSPlaylist : NotificationObject
         {
             return result;
         }
-        ApplyHashChange(
-            oldTable.header_sha256,
-            newTable.header_sha256,
-            () => result.HeaderHashInitialized = true,
-            () => result.HeaderKnownChanged = true);
+        ApplyHeaderHashChange(oldTable, newTable, result);
         ApplyHashChange(
             oldTable.data_sha256,
             newTable.data_sha256,
             () => result.DataHashInitialized = true,
             () => result.DataKnownChanged = true);
         return result;
+    }
+
+    private static void ApplyHeaderHashChange(BMSTable oldTable, BMSTable newTable, PlaylistHashChangeResult result)
+    {
+        string normalizedOldHash = NormalizeHash(oldTable.header_sha256);
+        string normalizedNewHash = NormalizeHash(newTable.header_sha256);
+        if (string.Equals(normalizedOldHash, normalizedNewHash, StringComparison.Ordinal))
+        {
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(normalizedOldHash) && !string.IsNullOrWhiteSpace(normalizedNewHash))
+        {
+            result.HeaderHashInitialized = true;
+            return;
+        }
+        string loadedRawHeaderHash = NormalizeHash(newTable.LoadedRawHeaderSha256);
+        if (!string.IsNullOrWhiteSpace(loadedRawHeaderHash)
+            && string.Equals(normalizedOldHash, loadedRawHeaderHash, StringComparison.Ordinal))
+        {
+            result.HeaderHashMigrated = true;
+            return;
+        }
+        result.HeaderKnownChanged = true;
     }
 
     private static void ApplyHashChange(string oldHash, string newHash, Action markInitialized, Action markKnownChanged)

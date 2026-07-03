@@ -39,6 +39,12 @@ public class BMSTable : LR2SongDBExtended.playlist
 
     private bool _resolveDefaultCompatPrefixFolderOrderAfterDataLoad;
 
+    private bool _rewriteLoadedCompatPrefixFolderOrderAfterDataLoad;
+
+    private string _loadedFolderOrderCompatPrefix;
+
+    public string LoadedRawHeaderSha256 { get; private set; }
+
     public override string folder_order
     {
         get
@@ -599,10 +605,13 @@ public class BMSTable : LR2SongDBExtended.playlist
             throw new ArgumentNullException("_header_json");
         }
         _resolveDefaultCompatPrefixFolderOrderAfterDataLoad = false;
+        _rewriteLoadedCompatPrefixFolderOrderAfterDataLoad = false;
+        _loadedFolderOrderCompatPrefix = null;
         try
         {
             dynamic val = DynamicJson.Parse(_header_json);
-            base.header_sha256 = ComputeSha256Hex(_header_json);
+            LoadedRawHeaderSha256 = ComputeSha256Hex(_header_json);
+            base.header_sha256 = ComputeHeaderSha256Hex(_header_json);
             LoadCourseJsonFromHeader(_header_json);
             if (val.IsDefined("name") && val.name != null)
             {
@@ -631,9 +640,10 @@ public class BMSTable : LR2SongDBExtended.playlist
                 base.entry_type = EntryUnitTypeExt.FromStringName(val.entry_type.ToString());
             }
             bool hasExplicitCompatPrefix = val.IsDefined("compat_prefix") && val.compat_prefix != null;
-            if (hasExplicitCompatPrefix)
+            string explicitCompatPrefix = hasExplicitCompatPrefix ? val.compat_prefix.ToString() : null;
+            if (hasExplicitCompatPrefix && !preserveLoadedCompatPrefix)
             {
-                base.compat_prefix = val.compat_prefix.ToString();
+                base.compat_prefix = explicitCompatPrefix;
             }
             List<string> headerFolderOrder = null;
             if (val.IsDefined("last_update") && val.last_update != null && !string.IsNullOrWhiteSpace(val.last_update.ToString()))
@@ -652,6 +662,13 @@ public class BMSTable : LR2SongDBExtended.playlist
                 {
                     headerFolderOrder = [.. ((object[])val.folder_order).Select(e => e.ToString()).Cast<string>()];
                     Folder_order = headerFolderOrder;
+                    if (preserveLoadedCompatPrefix
+                        && hasExplicitCompatPrefix
+                        && !string.Equals(explicitCompatPrefix ?? string.Empty, base.compat_prefix ?? string.Empty, StringComparison.Ordinal))
+                    {
+                        _rewriteLoadedCompatPrefixFolderOrderAfterDataLoad = true;
+                        _loadedFolderOrderCompatPrefix = explicitCompatPrefix ?? string.Empty;
+                    }
                 }
                 catch
                 {
@@ -739,6 +756,7 @@ public class BMSTable : LR2SongDBExtended.playlist
             base.data_sha256 = ComputeSha256Hex(_data_json);
             entries = [.. ((object[])val).Select((dynamic json) => new BMSTableEntry(json, this)).Where(entry => BMSPlaylist.CreateComparablePlaylistEntryRow(entry) != null)];
             ResolveDefaultCompatPrefixFolderOrderAfterDataLoad();
+            RewriteLoadedCompatPrefixFolderOrderAfterDataLoad();
         }
         catch (Exception ex)
         {
@@ -763,6 +781,29 @@ public class BMSTable : LR2SongDBExtended.playlist
         Folder_order = [.. Folder_order
             .Select(folder => entryFolders.Contains(folder ?? string.Empty) ? folder : ConvertCompatibleLevelNameToFolderName(folder ?? string.Empty))
             .Distinct(StringComparer.Ordinal)];
+    }
+
+    private void RewriteLoadedCompatPrefixFolderOrderAfterDataLoad()
+    {
+        if (!_rewriteLoadedCompatPrefixFolderOrderAfterDataLoad)
+        {
+            return;
+        }
+        _rewriteLoadedCompatPrefixFolderOrderAfterDataLoad = false;
+        if (Folder_order == null || Folder_order.Count == 0)
+        {
+            return;
+        }
+        HashSet<string> entryFolders = [.. entries
+            .Where(entry => !entry.is_removed)
+            .Select(entry => entry.folder ?? string.Empty)];
+        string sourceCompatPrefix = _loadedFolderOrderCompatPrefix ?? string.Empty;
+        Folder_order = [.. Folder_order
+            .Select(folder => entryFolders.Contains(folder ?? string.Empty)
+                ? folder
+                : MaterializeCompatibleFolderNameWithPrefix(folder ?? string.Empty, sourceCompatPrefix, base.compat_prefix ?? string.Empty))
+            .Distinct(StringComparer.Ordinal)];
+        _loadedFolderOrderCompatPrefix = null;
     }
 
     public bool IsCommitedToDB()
@@ -1302,5 +1343,42 @@ public class BMSTable : LR2SongDBExtended.playlist
             builder.Append(b.ToString("x2"));
         }
         return builder.ToString();
+    }
+
+    private static string ComputeHeaderSha256Hex(string headerJson)
+    {
+        try
+        {
+            var header = JObject.Parse(headerJson ?? string.Empty);
+            string compatPrefix = header.TryGetValue("compat_prefix", out JToken compatPrefixToken) && compatPrefixToken.Type != JTokenType.Null
+                ? compatPrefixToken.ToString()
+                : string.Empty;
+            if (header.TryGetValue("folder_order", out JToken folderOrderToken) && folderOrderToken is JArray folderOrder)
+            {
+                for (int i = 0; i < folderOrder.Count; i++)
+                {
+                    if (folderOrder[i]?.Type == JTokenType.String)
+                    {
+                        folderOrder[i] = string.IsNullOrEmpty(compatPrefix)
+                            ? folderOrder[i].ToString()
+                            : folderOrder[i].ToString().ReplaceFromStart(compatPrefix, string.Empty);
+                    }
+                }
+            }
+            header.Remove("compat_prefix");
+            return ComputeSha256Hex(header.ToString(Formatting.None));
+        }
+        catch
+        {
+            return ComputeSha256Hex(headerJson);
+        }
+    }
+
+    private static string MaterializeCompatibleFolderNameWithPrefix(string folderName, string sourceCompatPrefix, string targetCompatPrefix)
+    {
+        string compatibleLevel = string.IsNullOrEmpty(sourceCompatPrefix)
+            ? folderName
+            : folderName.ReplaceFromStart(sourceCompatPrefix, string.Empty);
+        return (targetCompatPrefix ?? string.Empty) + compatibleLevel;
     }
 }

@@ -27,7 +27,7 @@
 | `symbol` | 難易度表記号。`tag` が無い外部表の `.bmt` folder 名 prefix 候補。 |
 | `tag` | header.json 由来の tag。外部表の `.bmt` folder 名 prefix では最優先。 |
 | `page_url` / `header_url` / `data_url` | 外部同期元 URL。外部表の `.bmt` URL は `page_url` 優先、無ければ絶対 header URL を使う。 |
-| `header_sha256` | 取得した header JSON 全体の SHA-256。header 由来情報の更新検知に使う。 |
+| `header_sha256` | 取得した header JSON から `compat_prefix` を除外し、`folder_order` の明示 prefix を正規化した SHA-256。header 由来情報の更新検知に使う。 |
 | `data_sha256` | 取得した data JSON 全体の SHA-256。raw data JSON の更新検知に使う。 |
 | `compat_prefix` | compatible level folder 名の materialized prefix。LR2 custom folder 互換 level 名と、外部表で `tag` と `symbol` が無い場合の `.bmt` folder 名 prefix 候補。 |
 | `last_update` | 前回状態から既知の内容変化があった時だけ更新する日時。hash 初期化だけでは更新しない。 |
@@ -39,7 +39,7 @@
 
 `course_sha256` は保存しない。course は header JSON 由来なので、course の外部更新は `header_sha256` の変化で検知する。DB 内の `playlist_course` 改ざん検知は現時点の要件に含めない。
 
-外部表 header に `compat_prefix` が明示されている場合は、空文字を含めてその値を正本として保存する。`compat_prefix` が無い新規ロードでは、`.bmt` 出力時の folder prefix 決定に寄せ、header の `tag` を優先し、無ければ `symbol`、どちらも無ければ空文字を初期値にする。`level_order` / `folder_order` / data JSON の `level` 値が数字か記号かは初期値判定には使わない。`compat_prefix` が無い header の `folder_order` は、読み込まれた entry folder と一致する値は materialized folder 名として保持し、一致しない値は compatible level 名として初期 `compat_prefix` で materialize する。保存時は従来通り header に `compat_prefix` を出力するため、一度保存された table では推定値が明示値として固定される。外部同期更新で既存 playlist を読み直す場合は、source header に `compat_prefix` が無ければ DB に保存済みの `compat_prefix` を維持し、初期値推定で上書きしない。
+外部表の新規ロード、またはプレイリストサマリーの外部データによる初期化では、header に `compat_prefix` が明示されている場合は空文字を含めてその値を初期値として保存する。`compat_prefix` が無い新規ロードでは、`.bmt` 出力時の folder prefix 決定に寄せ、header の `tag` を優先し、無ければ `symbol`、どちらも無ければ空文字を初期値にする。`level_order` / `folder_order` / data JSON の `level` 値が数字か記号かは初期値判定には使わない。`compat_prefix` が無い header の `folder_order` は、読み込まれた entry folder と一致する値は materialized folder 名として保持し、一致しない値は compatible level 名として初期 `compat_prefix` で materialize する。保存時は従来通り header に `compat_prefix` を出力するため、一度保存された table では推定値が明示値として固定される。外部同期更新で既存 playlist を読み直す場合は、source header に明示 `compat_prefix` があっても DB に保存済みの `compat_prefix` を維持し、外部データで初期化を明示的に実行した場合だけ外部値を再適用する。
 
 既存 DB で `bmt_sort` / `is_bmt_output` / `custom_folder_output_base_name` が無い場合は column を追加するだけで特殊な移行 table rebuild は行わない。`custom_folder_output_base_name` は NULL のまま既定の通常出力先として扱う。`is_bmt_output` は旧 dump 復元や fresh schema の互換性のため DB 上は NULL を許容し、アプリ正規化で NULL を true へ収束させる。`bmt_sort` は欠損・重複・0 以下の値を含め、既存の有効値を優先しつつ playlist name / `playlist_id` で tie-break して 1 始まりの連番へ正規化する。既存 playlist を外部同期で更新する場合は `bmt_sort` / `is_bmt_output` / `custom_folder_output_base_name` を維持し、新規 playlist は現在の最大 `bmt_sort` + 1 を割り当て、`is_bmt_output = true`、`custom_folder_output_base_name = NULL` で作る。
 
@@ -87,11 +87,12 @@ header の `course` は `[[{...}]]` のような入れ子配列も平坦化し�
 | --- | --- | --- | --- | --- |
 | header known change | 既存 non-NULL `header_sha256` から別 hash への変化 | 更新する | `playlist` / `playlist_course` を保存する。`playlist_entry` は更新しない | する |
 | header hash initialization | NULL/空の `header_sha256` に初回値が入る | 更新しない | `playlist` / `playlist_course` を保存する。`playlist_entry` は更新しない | する |
+| header hash migration | 既存 `header_sha256` が旧 raw header JSON hash と一致し、`compat_prefix` 除外後 hash へ移行するだけ | 更新しない | `playlist` / `playlist_course` を保存する。`playlist_entry` は更新しない | する |
 | data known change | 既存 non-NULL `data_sha256` から別 hash への変化 | 更新する | `playlist` / `playlist_course` / `playlist_entry` を保存する | する |
 | data hash initialization | NULL/空の `data_sha256` に初回値が入る | 更新しない | `.bmt` 対応以前の DB 修復として `playlist` / `playlist_course` / `playlist_entry` を保存する | する |
 | entry fingerprint change | 保存済み active entry と再取得 entry の比較で差分がある | 更新しない | `playlist_entry` を保存する。必要な local state 引き継ぎ後の再取得結果を正本にする | する |
 
-`header_sha256` は header JSON 全体を対象にするため、`tag`、`course`、`level_order`、`symbol`、`compat_prefix` などの header 由来変化を含む。
+`header_sha256` は header JSON から `compat_prefix` を除外した内容を対象にする。`folder_order` が明示 `compat_prefix` で materialize されている場合は、hash 計算前にその prefix を除去して比較する。`compat_prefix` は外部同期 playlist でもローカル設定値として扱うため、通常リロード時の更新判定には使わない。`tag`、`course`、`level_order`、`symbol` など、その他の header 由来変化は含む。旧版で保存された raw header JSON hash が現在取得した raw header JSON hash と一致する場合は、hash 方式の移行として扱い、`last_update` は更新しない。
 
 `data_sha256` は data JSON 全体を対象にする。raw data JSON が前回既知の値から変わった場合、`playlist_entry` を再取得結果で全置換する。
 
@@ -114,7 +115,7 @@ header の `course` は `[[{...}]]` のような入れ子配列も平坦化し�
 
 プレイリスト名、symbol、外部同期 URL、folder 順序、custom folder 出力設定、course などの正本は DB の `playlist` / `playlist_course` / `playlist_entry` に保存する。DB 保存は LR2 linked profile と standalone profile のどちらでも行う。
 
-プレイリストプロパティ保存では、`playlist` 本体と `playlist_course` を mode 非依存で保存する。`compat_prefix` 変更により compatible folder 名の再 materialize が必要な場合だけ、`playlist_entry.folder` も同じ transaction 系で保存する。それ以外のプロパティ変更では `playlist_entry` を保存し直さない。
+プレイリストプロパティ保存では、`playlist` 本体と `playlist_course` を mode 非依存で保存する。`compat_prefix` は外部同期 playlist でもローカル設定値として扱い、外部同期 ON への変更や page URL 変更を伴わない `compat_prefix` 変更だけでは外部表を再取得しない。`compat_prefix` 変更により compatible folder 名の再 materialize が必要な場合だけ、`playlist_entry.folder` も同じ transaction 系で保存する。それ以外のプロパティ変更では `playlist_entry` を保存し直さない。
 
 `compat_prefix` の再 materialize は、外部表 / ローカル表を問わず、各 folder 名から旧 `compat_prefix` を先頭一致時だけ除去し、その結果へ新 `compat_prefix` を付与する。旧 `compat_prefix` を除去できない folder もその folder 名へ新 `compat_prefix` を付与し、新 `compat_prefix` で始まるかどうかによる特別扱いはしない。変換途中の既存 folder 名との衝突は判定せず、変換後の最終 folder 名が重複する場合だけ保存を失敗させ、既存 folder 構成を保持する。
 

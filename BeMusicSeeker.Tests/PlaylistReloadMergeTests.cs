@@ -299,6 +299,39 @@ public sealed class PlaylistReloadMergeTests
 
     [TestMethod]
     [TestCategory("Playlist")]
+    public void MergeReloadedBMSTableState_LegacyRawHeaderHashMigrationDoesNotRefreshLastUpdate()
+    {
+        string headerJson = "{\"name\":\"Playlist Hash Migration\",\"symbol\":\"st\",\"compat_prefix\":\"EXTERNAL \",\"data_url\":\"score.json\",\"level_order\":[1]}";
+        var existingLastUpdate = new DateTime(2024, 6, 1, 10, 20, 30);
+        BMSTable oldTable = CreateTable(
+            "Playlist Hash Migration",
+            existingLastUpdate,
+            CreateEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "EXTERNAL 1"));
+        oldTable.playlist_id = 1;
+        oldTable.header_sha256 = BMSTable.ComputeSha256Hex(headerJson);
+        BMSTable reloadedTable = new();
+        reloadedTable.LoadHeaderJSON(headerJson);
+        reloadedTable.entries = [CreateEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "EXTERNAL 1")];
+
+        BMSTable mergedTable = BMSPlaylist.MergeReloadedBMSTableState(
+            oldTable,
+            reloadedTable,
+            BMSPlaylist.BuildComparablePlaylistEntryRows(oldTable.entries.Where(entry => !entry.is_removed)),
+            out bool hasContentChanges,
+            out bool hasStateToPersist,
+            out BMSPlaylist.PlaylistReloadPersistenceDecision decision);
+
+        Assert.IsFalse(hasContentChanges);
+        Assert.IsTrue(hasStateToPersist);
+        Assert.IsFalse(decision.HeaderKnownChanged);
+        Assert.IsTrue(decision.HeaderHashMigrated);
+        Assert.IsTrue(decision.NeedsHeaderPersistence);
+        Assert.IsFalse(decision.UpdatesLastUpdate);
+        Assert.AreEqual(existingLastUpdate, mergedTable.last_update);
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
     public void MergeReloadedBMSTableState_KnownDataHashChangeRefreshesLastUpdateAndPersistsEntries()
     {
         var existingLastUpdate = new DateTime(2024, 6, 1, 10, 20, 30);

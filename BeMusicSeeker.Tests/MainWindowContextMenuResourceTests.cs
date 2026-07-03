@@ -744,12 +744,19 @@ public sealed class MainWindowContextMenuResourceTests
         int selectionReplaceIndex = saveFollowup.IndexOf("ownerViewModel.ReplaceCurrentPlaylistSelectionTable(sourceTable, bmsTable);", StringComparison.Ordinal);
         int folderSelectionRemapIndex = saveFollowup.IndexOf("ownerViewModel.RemapCurrentPlaylistFolderSelection(bmsTable, rewrittenFolders);", StringComparison.Ordinal);
         int lr2CustomFolderIndex = saveFollowup.IndexOf("if (Settings.Default.OperationModeLR2DB)", StringComparison.Ordinal);
+        string externalReloadBlock = ExtractBetween(
+            saveFollowup,
+            "bool shouldReloadExternalPlaylist =",
+            "if (shouldReloadExternalPlaylist)");
         Assert.IsTrue(headerCommitIndex >= 0);
         Assert.IsTrue(fullCommitIndex >= 0);
         Assert.IsTrue(detailRefreshIndex >= 0);
         Assert.IsTrue(selectionReplaceIndex >= 0);
         Assert.IsTrue(folderSelectionRemapIndex >= 0);
-        Assert.IsFalse(saveFollowup.Contains("prefixChanged && !externalResync"));
+        StringAssert.Contains(saveFollowup, "if (prefixChanged && !externalResyncApplied)");
+        Assert.IsFalse(
+            externalReloadBlock.Contains("temp_compat_prefix"),
+            "Changing the folder prefix is a local playlist property edit and must not trigger an external reload by itself.");
         Assert.IsTrue(lr2CustomFolderIndex > headerCommitIndex);
         Assert.IsTrue(lr2CustomFolderIndex > fullCommitIndex);
         StringAssert.Contains(File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BMSLibrary.cs")), "public List<string> SearchTargets { get; set; } = [];");

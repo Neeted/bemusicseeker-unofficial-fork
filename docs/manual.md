@@ -614,6 +614,9 @@ Right-click a playlist and open `Properties` to view and edit the playlist name,
 
 Properties such as the playlist name and folder settings are saved in the in-app DB even in standalone mode. Only in LR2 linked mode is LR2 custom folder output also updated after saving.
 
+> [!NOTE]
+> The folder prefix is saved as a local setting. Even for externally synced playlists, a folder prefix changed from Properties or the playlist summary is not reset from external data during normal reloads. To restore the external-data default, use `Bulk edit...` in the playlist summary and run `Initialize from external data`.
+
 ![Playlist properties general](img/プレイリストプロパティ_一般.PNG)
 
 On the `Folder` tab, you can set the sort key and ascending / descending order for items inside folders, as well as the order of folders. For externally synced playlists, editing items that conflict with the sync source is restricted.

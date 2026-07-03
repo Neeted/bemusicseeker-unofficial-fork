@@ -8089,7 +8089,9 @@ public class MainWindowViewModel : ViewModel
                     prefixFolderSelectionMap = bmsTable.CreateValidatedCompatibleFolderPrefixRewriteMap(temp_compat_prefix, bmsTable.compat_prefix);
                 }
             }
-            if ((!temp_is_external_sync && bmsTable.is_external_sync) || (bmsTable.is_external_sync && temp_compat_prefix != bmsTable.compat_prefix) || (bmsTable.is_external_sync && bmsTable.Page_url != null && temp_Page_url != null && bmsTable.Page_url.ToString() != temp_Page_url.ToString()))
+            bool shouldReloadExternalPlaylist = (!temp_is_external_sync && bmsTable.is_external_sync)
+                || (bmsTable.is_external_sync && bmsTable.Page_url != null && temp_Page_url != null && bmsTable.Page_url.ToString() != temp_Page_url.ToString());
+            if (shouldReloadExternalPlaylist)
             {
                 Uri uri = bmsTable.Page_url ?? bmsTable.Header_url;
                 if (uri != null && uri.IsAbsoluteUri)
@@ -8144,7 +8146,7 @@ public class MainWindowViewModel : ViewModel
                     ownerViewModel.RefreshPlaylistSummaryIfVisible("playlist_property_resync", invalidateTableCountCache: true);
                 }
             }
-            if (prefixChanged)
+            if (prefixChanged && !externalResyncApplied)
             {
                 ownerViewModel.tables.EnsurePlaylistEntriesLoaded(bmsTable, "PlaylistPropertyDialogViewModel.RewriteCompatibleFolderPrefix");
                 IReadOnlyDictionary<string, string> rewrittenFolders;
