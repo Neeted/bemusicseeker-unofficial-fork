@@ -219,7 +219,7 @@ beatoraja score 読み込みも同じ beatoraja ディレクトリを起点に�
 
 全出力時の projection 順と `config_sys.json` へ登録する BeMusicSeeker 管理 URL の順序は `bmt_sort` 昇順を正本にする。同値や欠損が残っている場合は name / `playlist_id` で tie-break するが、DB 読み込み時に連番へ正規化されることを前提にする。
 
-プレイリストサマリーでは `BMT SORT` と `BMT OUTPUT` を表示する。`BMT SORT` 昇順表示中のみ、サマリー行の drag & drop で順序を変更できる。降順表示や他列 sort 中の drag reorder は受け付けない。フィルター中の drag reorder は非表示行を現在の相対位置に保持し、可視行のアンカーに対して選択行だけを挿入する。画面外への大きな移動は、行 context menu の「現在の並びをBMT SORTに反映」「BMT SORTの先頭へ」「BMT SORTの末尾へ」で補完する。
+プレイリストサマリーでは `BMT SORT` と `BMT OUTPUT` を表示する。既定非表示の `HEADER` / `DATA` 列は、`BMSTable.GetAbsoluteHeaderUrl()` / `GetAbsoluteDataUrl()` と同じ規則で相対 URI を解決した URI を開く。`BMT SORT` 昇順表示中のみ、サマリー行の drag & drop で順序を変更できる。降順表示や他列 sort 中の drag reorder は受け付けない。フィルター中の drag reorder は非表示行を現在の相対位置に保持し、可視行のアンカーに対して選択行だけを挿入する。画面外への大きな移動は、行 context menu の「現在の並びをBMT SORTに反映」「BMT SORTの先頭へ」「BMT SORTの末尾へ」で補完する。
 
 `BMT SORT` だけを変更した場合は `.bmt` 本体を書き直さず、専用の URL 同期経路で `config_sys.json` の `tableURL` のみを更新する。`BMT OUTPUT` を変更した場合は、変更された playlist だけを個別出力または個別削除の対象にする。
 

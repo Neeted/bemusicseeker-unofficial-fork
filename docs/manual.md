@@ -529,7 +529,7 @@ In BeMusicSeeker, installed difficulty tables and custom playlists can be manage
 
 ![Playlist summary](img/一覧_プレイリストサマリー.PNG)
 
-The playlist summary lists each playlist's chart count, owned count, unowned count, ownership rate, external sync status, and beatoraja `.bmt` output settings. You can click `NAME`, `PREFIX`, or `SYMBOL` cells to edit them inline; the same save processing runs as when pressing OK in playlist properties.
+The playlist summary lists each playlist's chart count, owned count, unowned count, ownership rate, external sync status, and beatoraja `.bmt` output settings. You can click `NAME`, `PREFIX`, or `SYMBOL` cells to edit them inline; the same save processing runs as when pressing OK in playlist properties. If you show the hidden-by-default `HEADER` and `DATA` columns, you can open the resolved header and data URIs, including relative URIs resolved from the page/header URI.
 
 From the search field at the upper right, you can switch the ownership filter between `All`, `OWNED=100%`, and `OWNED<100%`.
 

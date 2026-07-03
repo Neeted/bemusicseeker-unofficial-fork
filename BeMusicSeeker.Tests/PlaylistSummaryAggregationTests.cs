@@ -427,20 +427,24 @@ public sealed class PlaylistSummaryAggregationTests
                 PlaylistId = 10,
                 Name = "alpha pack",
                 CompatPrefix = "A",
-                Symbol = "A"
+                Symbol = "A",
+                HeaderUri = new Uri("https://example.com/header-alpha.json"),
+                DataUri = new Uri("https://example.com/data-alpha.json")
             },
             new PlaylistSummaryRow
             {
                 PlaylistId = 20,
                 Name = "alpha other",
                 CompatPrefix = "B",
-                Symbol = "B"
+                Symbol = "B",
+                HeaderUri = new Uri("https://example.com/header-beta.json"),
+                DataUri = new Uri("https://example.com/data-beta.json")
             }
         ];
 
         MainWindowViewModel.PlaylistSummaryPresentationResult result = MainWindowViewModel.BuildPlaylistSummaryPresentationRows(
             rows,
-            "name:alpha prefix:A symbol:A",
+            "name:alpha prefix:A symbol:A header:header-alpha data:data-alpha",
             MainWindowViewModel.PlaylistSummaryOwnedFilterType.All,
             new MainWindowViewModel.cSortParameters
             {

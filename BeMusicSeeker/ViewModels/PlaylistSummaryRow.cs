@@ -33,6 +33,14 @@ public class PlaylistSummaryRow
 
     public Uri LinkUri { get; set; }
 
+    public Uri HeaderUri { get; set; }
+
+    public Uri DataUri { get; set; }
+
+    public string HeaderUriText => HeaderUri?.ToString() ?? string.Empty;
+
+    public string DataUriText => DataUri?.ToString() ?? string.Empty;
+
     public bool IsExternalSync { get; set; }
 
     public string Status { get; set; } = string.Empty;

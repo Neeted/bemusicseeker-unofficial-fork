@@ -46,6 +46,12 @@ internal static class PlaylistSummarySortEngine
             case nameof(PlaylistSummaryRow.Symbol):
                 sortProfile = useLegacyStringSort ? "playlist_summary_legacy_string" : "playlist_summary_string_fast_ordinal_ignore_case";
                 return SortByString(safeSource, row => row?.Symbol ?? string.Empty, direction, useLegacyStringSort);
+            case nameof(PlaylistSummaryRow.HeaderUriText):
+                sortProfile = useLegacyStringSort ? "playlist_summary_legacy_string" : "playlist_summary_string_fast_ordinal_ignore_case";
+                return SortByString(safeSource, row => row?.HeaderUriText ?? string.Empty, direction, useLegacyStringSort);
+            case nameof(PlaylistSummaryRow.DataUriText):
+                sortProfile = useLegacyStringSort ? "playlist_summary_legacy_string" : "playlist_summary_string_fast_ordinal_ignore_case";
+                return SortByString(safeSource, row => row?.DataUriText ?? string.Empty, direction, useLegacyStringSort);
             case nameof(PlaylistSummaryRow.LastUpdate):
                 sortProfile = "playlist_summary_date";
                 return SortByTypedKey(safeSource, row => row?.LastUpdate ?? DateTime.MinValue, direction, useLegacyStringSort);

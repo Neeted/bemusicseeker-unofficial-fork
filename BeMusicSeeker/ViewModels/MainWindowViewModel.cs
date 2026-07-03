@@ -28981,6 +28981,8 @@ public class MainWindowViewModel : ViewModel
                 MissingCharts = totalCharts - ownedCharts,
                 OwnedRatio = ((totalCharts == 0) ? 0.0 : ((double)ownedCharts * 100.0 / (double)totalCharts)),
                 LinkUri = table.Page_url ?? table.GetAbsoluteHeaderUrl(),
+                HeaderUri = table.GetAbsoluteHeaderUrl(),
+                DataUri = table.GetAbsoluteDataUrl(),
                 IsExternalSync = table.is_external_sync,
                 Status = playlistSyncRuntimeStatus.StatusText,
                 StatusDetail = statusDetail,

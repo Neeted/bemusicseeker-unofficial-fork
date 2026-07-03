@@ -343,6 +343,8 @@ public sealed class CustomTableColumnFactoryTests
                 "MissingCharts",
                 "OwnedRatio",
                 "Link",
+                "Header",
+                "Data",
                 "IsExternalSync",
                 "Status",
                 "IsRootFolder",
@@ -367,9 +369,15 @@ public sealed class CustomTableColumnFactoryTests
         Assert.IsNotNull(settings.CompatPrefix);
         Assert.AreEqual(220, settings.Name.Width);
         Assert.AreEqual(80, settings.CompatPrefix.Width);
+        Assert.AreEqual(70, settings.Header.Width);
+        Assert.AreEqual(70, settings.Data.Width);
         Assert.AreEqual(2, settings.Name.DisplayIndex);
         Assert.AreEqual(3, settings.CompatPrefix.DisplayIndex);
         Assert.AreEqual(4, settings.Symbol.DisplayIndex);
+        Assert.AreEqual(11, settings.Header.DisplayIndex);
+        Assert.AreEqual(12, settings.Data.DisplayIndex);
+        Assert.AreEqual(Visibility.Hidden, settings.Header.Visibility);
+        Assert.AreEqual(Visibility.Hidden, settings.Data.Visibility);
     }
 
     [TestMethod]
@@ -398,9 +406,27 @@ public sealed class CustomTableColumnFactoryTests
         Assert.IsTrue(restored.HasAllLayouts());
         Assert.AreEqual(220, restored.Name.Width);
         Assert.AreEqual(80, restored.CompatPrefix.Width);
+        Assert.AreEqual(70, restored.Header.Width);
+        Assert.AreEqual(70, restored.Data.Width);
         Assert.AreEqual(2, restored.Name.DisplayIndex);
         Assert.AreEqual(3, restored.CompatPrefix.DisplayIndex);
         Assert.AreEqual(4, restored.Symbol.DisplayIndex);
+        Assert.AreEqual(11, restored.Header.DisplayIndex);
+        Assert.AreEqual(12, restored.Data.DisplayIndex);
+        Assert.AreEqual(Visibility.Hidden, restored.Header.Visibility);
+        Assert.AreEqual(Visibility.Hidden, restored.Data.Visibility);
+    }
+
+    [TestMethod]
+    public void CreatePlaylistSummaryColumns_HidesHeaderAndDataByDefault()
+    {
+        var settings = new PlaylistSummaryColumnSettings();
+        settings.EnsureCompatibility();
+
+        string[] ids = [.. CustomTableColumnFactory.CreatePlaylistSummaryColumns(settings).Select(column => column.Id)];
+
+        CollectionAssert.DoesNotContain(ids, "Header");
+        CollectionAssert.DoesNotContain(ids, "Data");
     }
 
     [TestMethod]
@@ -424,6 +450,8 @@ public sealed class CustomTableColumnFactoryTests
     public void CreatePlaylistSummaryColumns_AssignsSortPathsAndActionMetadata()
     {
         var settings = new PlaylistSummaryColumnSettings();
+        settings.Header.Visibility = Visibility.Visible;
+        settings.Data.Visibility = Visibility.Visible;
         var columns = CustomTableColumnFactory.CreatePlaylistSummaryColumns(settings).ToDictionary(column => column.Id);
 
         Assert.AreEqual(nameof(PlaylistSummaryRow.PlaylistId), columns["PlaylistId"].SortMemberPath);
@@ -436,6 +464,8 @@ public sealed class CustomTableColumnFactoryTests
         Assert.AreEqual(nameof(PlaylistSummaryRow.MissingCharts), columns["MissingCharts"].SortMemberPath);
         Assert.AreEqual(nameof(PlaylistSummaryRow.OwnedRatio), columns["OwnedRatio"].SortMemberPath);
         Assert.IsNull(columns["Link"].SortMemberPath);
+        Assert.AreEqual(nameof(PlaylistSummaryRow.HeaderUriText), columns["Header"].SortMemberPath);
+        Assert.AreEqual(nameof(PlaylistSummaryRow.DataUriText), columns["Data"].SortMemberPath);
         Assert.AreEqual(nameof(PlaylistSummaryRow.IsExternalSync), columns["IsExternalSync"].SortMemberPath);
         Assert.AreEqual(nameof(PlaylistSummaryRow.StatusSortOrder), columns["Status"].SortMemberPath);
         Assert.AreEqual(nameof(PlaylistSummaryRow.IsRootFolder), columns["IsRootFolder"].SortMemberPath);
@@ -445,6 +475,8 @@ public sealed class CustomTableColumnFactoryTests
         Assert.AreEqual(nameof(PlaylistSummaryRow.CompatPrefix), columns["CompatPrefix"].EditPropertyName);
         Assert.AreEqual(nameof(PlaylistSummaryRow.Symbol), columns["Symbol"].EditPropertyName);
         Assert.AreEqual(CustomTableCellKind.ActionText, columns["Link"].CellKind);
+        Assert.AreEqual(CustomTableCellKind.ActionText, columns["Header"].CellKind);
+        Assert.AreEqual(CustomTableCellKind.ActionText, columns["Data"].CellKind);
         Assert.AreEqual(CustomTableCellKind.CheckBox, columns["IsExternalSync"].CellKind);
         Assert.AreEqual(CustomTableCellKind.CheckBox, columns["IsRootFolder"].CellKind);
         Assert.AreEqual(CustomTableCellKind.CheckBox, columns["IsBmtOutput"].CellKind);
@@ -507,6 +539,8 @@ public sealed class CustomTableColumnFactoryTests
     public void CreatePlaylistSummaryColumns_AssignsAutoTrimTooltipPolicy()
     {
         var settings = new PlaylistSummaryColumnSettings();
+        settings.Header.Visibility = Visibility.Visible;
+        settings.Data.Visibility = Visibility.Visible;
         foreach (PlaylistSummaryColumnSettings.ColumnLayout layout in CustomTableColumnFactory.EnumeratePlaylistSummaryColumnLayouts(settings))
         {
             layout.DisplayIndex = -1;
@@ -524,16 +558,22 @@ public sealed class CustomTableColumnFactoryTests
         Assert.IsFalse(columns["IsBmtOutput"].AutoTrimTooltip);
         Assert.IsTrue(columns["Name"].AutoTrimTooltip);
         Assert.IsTrue(columns["Link"].AutoTrimTooltip);
+        Assert.IsTrue(columns["Header"].AutoTrimTooltip);
+        Assert.IsTrue(columns["Data"].AutoTrimTooltip);
     }
 
     [TestMethod]
     public void CreatePlaylistSummaryColumns_FormatsActionsTooltipsAndFailureBackground()
     {
         var settings = new PlaylistSummaryColumnSettings();
+        settings.Header.Visibility = Visibility.Visible;
+        settings.Data.Visibility = Visibility.Visible;
         var columns = CustomTableColumnFactory.CreatePlaylistSummaryColumns(settings).ToDictionary(column => column.Id);
         var row = new PlaylistSummaryRow
         {
             LinkUri = new Uri("https://example.com/"),
+            HeaderUri = new Uri("https://example.com/header.json"),
+            DataUri = new Uri("https://example.com/data/score.json"),
             IsExternalSync = true,
             IsRootFolder = false,
             Status = "-",
@@ -547,6 +587,12 @@ public sealed class CustomTableColumnFactoryTests
         Assert.AreEqual("https://example.com/", columns["Link"].GetTooltip(row));
         Assert.AreEqual("https://example.com/", columns["Link"].GetEditText(row));
         Assert.AreEqual("https://example.com/", CustomTableDataTransfer.BuildCellText(row, columns["Link"]));
+        Assert.AreEqual("Open", columns["Header"].GetText(row));
+        Assert.AreEqual("https://example.com/header.json", columns["Header"].GetTooltip(row));
+        Assert.AreEqual("https://example.com/header.json", CustomTableDataTransfer.BuildCellText(row, columns["Header"]));
+        Assert.AreEqual("Open", columns["Data"].GetText(row));
+        Assert.AreEqual("https://example.com/data/score.json", columns["Data"].GetTooltip(row));
+        Assert.AreEqual("https://example.com/data/score.json", CustomTableDataTransfer.BuildCellText(row, columns["Data"]));
         Assert.AreEqual(true, columns["IsExternalSync"].GetChecked(row));
         Assert.AreEqual(false, columns["IsRootFolder"].GetChecked(row));
         Assert.AreEqual("detail", columns["Status"].GetTooltip(row));

@@ -87,6 +87,10 @@ public class PlaylistSummaryColumnSettings : NotificationObject
 
     private ColumnLayout _Link = new();
 
+    private ColumnLayout _Header = new();
+
+    private ColumnLayout _Data = new();
+
     private ColumnLayout _IsExternalSync = new();
 
     private ColumnLayout _Status = new();
@@ -118,6 +122,10 @@ public class PlaylistSummaryColumnSettings : NotificationObject
     private bool _ownedRatioLoaded;
 
     private bool _linkLoaded;
+
+    private bool _headerLoaded;
+
+    private bool _dataLoaded;
 
     private bool _isExternalSyncLoaded;
 
@@ -286,6 +294,34 @@ public class PlaylistSummaryColumnSettings : NotificationObject
         }
     }
 
+    public ColumnLayout Header
+    {
+        get
+        {
+            return _Header;
+        }
+        set
+        {
+            _Header = value;
+            _headerLoaded = true;
+            RaisePropertyChanged("Header");
+        }
+    }
+
+    public ColumnLayout Data
+    {
+        get
+        {
+            return _Data;
+        }
+        set
+        {
+            _Data = value;
+            _dataLoaded = true;
+            RaisePropertyChanged("Data");
+        }
+    }
+
     public ColumnLayout IsExternalSync
     {
         get
@@ -369,6 +405,10 @@ public class PlaylistSummaryColumnSettings : NotificationObject
         MissingCharts.Width = 80;
         OwnedRatio.Width = 80;
         Link.Width = 70;
+        Header.Width = 70;
+        Header.Visibility = Visibility.Hidden;
+        Data.Width = 70;
+        Data.Visibility = Visibility.Hidden;
         IsExternalSync.Width = 70;
         Status.Width = 90;
         IsRootFolder.Width = 70;
@@ -386,6 +426,8 @@ public class PlaylistSummaryColumnSettings : NotificationObject
         MissingCharts.DisplayIndex = displayIndex++;
         OwnedRatio.DisplayIndex = displayIndex++;
         Link.DisplayIndex = displayIndex++;
+        Header.DisplayIndex = displayIndex++;
+        Data.DisplayIndex = displayIndex++;
         IsExternalSync.DisplayIndex = displayIndex++;
         Status.DisplayIndex = displayIndex++;
         IsRootFolder.DisplayIndex = displayIndex++;
@@ -421,6 +463,8 @@ public class PlaylistSummaryColumnSettings : NotificationObject
             && HasLayout(MissingCharts, _missingChartsLoaded)
             && HasLayout(OwnedRatio, _ownedRatioLoaded)
             && HasLayout(Link, _linkLoaded)
+            && HasLayout(Header, _headerLoaded)
+            && HasLayout(Data, _dataLoaded)
             && HasLayout(IsExternalSync, _isExternalSyncLoaded)
             && HasLayout(Status, _statusLoaded)
             && HasLayout(IsRootFolder, _isRootFolderLoaded)
@@ -446,10 +490,12 @@ public class PlaylistSummaryColumnSettings : NotificationObject
         MissingCharts = new ColumnLayout { Width = 80, DisplayIndex = 8 };
         OwnedRatio = new ColumnLayout { Width = 80, DisplayIndex = 9 };
         Link = new ColumnLayout { Width = 70, DisplayIndex = 10 };
-        IsExternalSync = new ColumnLayout { Width = 70, DisplayIndex = 11 };
-        Status = new ColumnLayout { Width = 90, DisplayIndex = 12 };
-        IsRootFolder = new ColumnLayout { Width = 70, DisplayIndex = 13 };
-        BmtSort = new ColumnLayout { Width = 80, DisplayIndex = 14 };
-        IsBmtOutput = new ColumnLayout { Width = 95, DisplayIndex = 15 };
+        Header = new ColumnLayout { Width = 70, DisplayIndex = 11, Visibility = Visibility.Hidden };
+        Data = new ColumnLayout { Width = 70, DisplayIndex = 12, Visibility = Visibility.Hidden };
+        IsExternalSync = new ColumnLayout { Width = 70, DisplayIndex = 13 };
+        Status = new ColumnLayout { Width = 90, DisplayIndex = 14 };
+        IsRootFolder = new ColumnLayout { Width = 70, DisplayIndex = 15 };
+        BmtSort = new ColumnLayout { Width = 80, DisplayIndex = 16 };
+        IsBmtOutput = new ColumnLayout { Width = 95, DisplayIndex = 17 };
     }
 }

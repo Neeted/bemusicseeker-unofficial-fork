@@ -481,11 +481,13 @@ internal static class CustomTableColumnFactory
             new CustomTableColumn("MissingCharts", "MISSING", settings.MissingCharts, 8, nameof(PlaylistSummaryRow.MissingCharts), TextAlignment.Right, row => GetString(row, nameof(PlaylistSummaryRow.MissingCharts))),
             new CustomTableColumn("OwnedRatio", "OWNED %", settings.OwnedRatio, 9, nameof(PlaylistSummaryRow.OwnedRatio), TextAlignment.Right, row => FormatPercentOne(GetValue(row, nameof(PlaylistSummaryRow.OwnedRatio)))),
             new CustomTableColumn("Link", "LINK", settings.Link, 10, null, TextAlignment.Center, row => GetPlaylistSummaryLinkText(row), tooltipSelector: GetPlaylistSummaryLinkTooltip, cellKind: CustomTableCellKind.ActionText, editTextSelector: GetPlaylistSummaryLinkTooltip),
-            new CustomTableColumn("IsExternalSync", "SYNC", settings.IsExternalSync, 11, nameof(PlaylistSummaryRow.IsExternalSync), TextAlignment.Center, row => string.Empty, checkedSelector: row => GetNullableBool(row, nameof(PlaylistSummaryRow.IsExternalSync)), cellKind: CustomTableCellKind.CheckBox, autoTrimTooltip: false),
-            new CustomTableColumn("Status", Resources.Playlist_summary_status_header, settings.Status, 12, nameof(PlaylistSummaryRow.StatusSortOrder), TextAlignment.Center, row => GetString(row, nameof(PlaylistSummaryRow.Status)), tooltipSelector: row => GetString(row, nameof(PlaylistSummaryRow.StatusDetail))),
-            new CustomTableColumn("IsRootFolder", "ROOT", settings.IsRootFolder, 13, nameof(PlaylistSummaryRow.IsRootFolder), TextAlignment.Center, row => string.Empty, checkedSelector: row => GetNullableBool(row, nameof(PlaylistSummaryRow.IsRootFolder)), cellKind: CustomTableCellKind.CheckBox, autoTrimTooltip: false),
-            new CustomTableColumn("BmtSort", "BMT SORT", settings.BmtSort, 14, nameof(PlaylistSummaryRow.BmtSort), TextAlignment.Right, row => GetString(row, nameof(PlaylistSummaryRow.BmtSort)), autoTrimTooltip: false),
-            new CustomTableColumn("IsBmtOutput", "BMT OUTPUT", settings.IsBmtOutput, 15, nameof(PlaylistSummaryRow.IsBmtOutput), TextAlignment.Center, row => string.Empty, checkedSelector: row => GetNullableBool(row, nameof(PlaylistSummaryRow.IsBmtOutput)), cellKind: CustomTableCellKind.CheckBox, autoTrimTooltip: false)
+            new CustomTableColumn("Header", "HEADER", settings.Header, 11, nameof(PlaylistSummaryRow.HeaderUriText), TextAlignment.Center, row => GetPlaylistSummaryHeaderText(row), tooltipSelector: GetPlaylistSummaryHeaderTooltip, cellKind: CustomTableCellKind.ActionText, editTextSelector: GetPlaylistSummaryHeaderTooltip),
+            new CustomTableColumn("Data", "DATA", settings.Data, 12, nameof(PlaylistSummaryRow.DataUriText), TextAlignment.Center, row => GetPlaylistSummaryDataText(row), tooltipSelector: GetPlaylistSummaryDataTooltip, cellKind: CustomTableCellKind.ActionText, editTextSelector: GetPlaylistSummaryDataTooltip),
+            new CustomTableColumn("IsExternalSync", "SYNC", settings.IsExternalSync, 13, nameof(PlaylistSummaryRow.IsExternalSync), TextAlignment.Center, row => string.Empty, checkedSelector: row => GetNullableBool(row, nameof(PlaylistSummaryRow.IsExternalSync)), cellKind: CustomTableCellKind.CheckBox, autoTrimTooltip: false),
+            new CustomTableColumn("Status", Resources.Playlist_summary_status_header, settings.Status, 14, nameof(PlaylistSummaryRow.StatusSortOrder), TextAlignment.Center, row => GetString(row, nameof(PlaylistSummaryRow.Status)), tooltipSelector: row => GetString(row, nameof(PlaylistSummaryRow.StatusDetail))),
+            new CustomTableColumn("IsRootFolder", "ROOT", settings.IsRootFolder, 15, nameof(PlaylistSummaryRow.IsRootFolder), TextAlignment.Center, row => string.Empty, checkedSelector: row => GetNullableBool(row, nameof(PlaylistSummaryRow.IsRootFolder)), cellKind: CustomTableCellKind.CheckBox, autoTrimTooltip: false),
+            new CustomTableColumn("BmtSort", "BMT SORT", settings.BmtSort, 16, nameof(PlaylistSummaryRow.BmtSort), TextAlignment.Right, row => GetString(row, nameof(PlaylistSummaryRow.BmtSort)), autoTrimTooltip: false),
+            new CustomTableColumn("IsBmtOutput", "BMT OUTPUT", settings.IsBmtOutput, 17, nameof(PlaylistSummaryRow.IsBmtOutput), TextAlignment.Center, row => string.Empty, checkedSelector: row => GetNullableBool(row, nameof(PlaylistSummaryRow.IsBmtOutput)), cellKind: CustomTableCellKind.CheckBox, autoTrimTooltip: false)
         ];
     }
 
@@ -882,6 +884,26 @@ internal static class CustomTableColumnFactory
     private static string GetPlaylistSummaryLinkTooltip(object row)
     {
         return row is PlaylistSummaryRow { LinkUri: not null } summaryRow ? summaryRow.LinkUri.ToString() : null;
+    }
+
+    private static string GetPlaylistSummaryHeaderText(object row)
+    {
+        return row is PlaylistSummaryRow { HeaderUri: not null } ? "Open" : string.Empty;
+    }
+
+    private static string GetPlaylistSummaryHeaderTooltip(object row)
+    {
+        return row is PlaylistSummaryRow { HeaderUri: not null } summaryRow ? summaryRow.HeaderUri.ToString() : null;
+    }
+
+    private static string GetPlaylistSummaryDataText(object row)
+    {
+        return row is PlaylistSummaryRow { DataUri: not null } ? "Open" : string.Empty;
+    }
+
+    private static string GetPlaylistSummaryDataTooltip(object row)
+    {
+        return row is PlaylistSummaryRow { DataUri: not null } summaryRow ? summaryRow.DataUri.ToString() : null;
     }
 
     private static bool? GetNullableBool(object row, string propertyName)

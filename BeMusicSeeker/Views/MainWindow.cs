@@ -1643,7 +1643,13 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         switch (e.Column?.Id)
         {
             case "Link":
-                await OpenPlaylistSummaryLinkAsync(playlistSummaryRow).Logging("customTablePlaylistSummary_CellActionRequested_Link");
+                await OpenPlaylistSummaryUriAsync(playlistSummaryRow.LinkUri).Logging("customTablePlaylistSummary_CellActionRequested_Link");
+                break;
+            case "Header":
+                await OpenPlaylistSummaryUriAsync(playlistSummaryRow.HeaderUri).Logging("customTablePlaylistSummary_CellActionRequested_Header");
+                break;
+            case "Data":
+                await OpenPlaylistSummaryUriAsync(playlistSummaryRow.DataUri).Logging("customTablePlaylistSummary_CellActionRequested_Data");
                 break;
             case "IsExternalSync":
                 await ApplyPlaylistSummarySyncFromCustomTableAsync(playlistSummaryRow, !(playlistSummaryRow.IsExternalSync)).Logging("customTablePlaylistSummary_CellActionRequested_Sync");
@@ -3739,12 +3745,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        await OpenPlaylistSummaryLinkAsync(playlistSummaryRow).Logging("playlistSummaryLinkClick");
+        await OpenPlaylistSummaryUriAsync(playlistSummaryRow.LinkUri).Logging("playlistSummaryLinkClick");
     }
 
-    private Task OpenPlaylistSummaryLinkAsync(PlaylistSummaryRow playlistSummaryRow)
+    private Task OpenPlaylistSummaryUriAsync(Uri uri)
     {
-        if (playlistSummaryRow?.LinkUri == null)
+        if (uri == null)
         {
             return Task.CompletedTask;
         }
@@ -3752,7 +3758,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             try
             {
-                Process.Start(playlistSummaryRow.LinkUri.ToString());
+                Process.Start(uri.ToString());
             }
             catch
             {
@@ -3882,18 +3888,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
-    private void playlistSummaryContextMenuOpenPageClick(object sender, RoutedEventArgs e)
+    private async void playlistSummaryContextMenuOpenPageClick(object sender, RoutedEventArgs e)
     {
         PlaylistSummaryRow playlistSummaryRow = resolvePlaylistSummaryRowFromSender(sender);
         if (playlistSummaryRow?.LinkUri != null)
         {
-            try
-            {
-                Process.Start(playlistSummaryRow.LinkUri.ToString());
-            }
-            catch
-            {
-            }
+            await OpenPlaylistSummaryUriAsync(playlistSummaryRow.LinkUri).Logging("playlistSummaryContextMenuOpenPageClick");
         }
     }
 
