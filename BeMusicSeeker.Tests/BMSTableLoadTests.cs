@@ -113,13 +113,33 @@ public sealed class BMSTableLoadTests
     }
 
     [TestMethod]
-    public void LoadHeaderJson_KeepEmptyCompatPrefixForSymbolicLevelOrder()
+    public void LoadHeaderJson_InferCompatPrefixFromSymbolicLevelOrder()
     {
         BMSTable table = LoadTableWithSingleEntry("{\"name\":\"Stella\",\"symbol\":\"st\",\"data_url\":\"score.json\",\"level_order\":[\"st1\"]}", "st1");
 
-        Assert.AreEqual(string.Empty, table.compat_prefix);
-        CollectionAssert.AreEqual(new[] { "st1" }, table.Folder_order);
-        Assert.AreEqual("st1", table.entries[0].folder);
+        Assert.AreEqual("st", table.compat_prefix);
+        CollectionAssert.AreEqual(new[] { "stst1" }, table.Folder_order);
+        Assert.AreEqual("stst1", table.entries[0].folder);
+    }
+
+    [TestMethod]
+    public void LoadHeaderJson_InferCompatPrefixFromTagBeforeSymbol()
+    {
+        BMSTable table = LoadTableWithSingleEntry("{\"name\":\"Stella\",\"symbol\":\"sl\",\"tag\":\"st\",\"data_url\":\"score.json\",\"level_order\":[\"X\"]}", "X");
+
+        Assert.AreEqual("st", table.compat_prefix);
+        CollectionAssert.AreEqual(new[] { "stX" }, table.Folder_order);
+        Assert.AreEqual("stX", table.entries[0].folder);
+    }
+
+    [TestMethod]
+    public void LoadHeaderJson_InferCompatPrefixFromSignedLevelOrder()
+    {
+        BMSTable table = LoadTableWithSingleEntry("{\"name\":\"Stella\",\"symbol\":\"st\",\"data_url\":\"score.json\",\"level_order\":[\"-5\",0,1]}", "-5");
+
+        Assert.AreEqual("st", table.compat_prefix);
+        CollectionAssert.AreEqual(new[] { "st-5", "st0", "st1" }, table.Folder_order);
+        Assert.AreEqual("st-5", table.entries[0].folder);
     }
 
     [TestMethod]
@@ -133,6 +153,18 @@ public sealed class BMSTableLoadTests
     }
 
     [TestMethod]
+    public void LoadHeaderJson_ExplicitEmptyCompatPrefixKeepsRawFolderOrder()
+    {
+        var table = new BMSTable();
+        table.LoadHeaderJSON("{\"name\":\"FolderOrder\",\"symbol\":\"st\",\"compat_prefix\":\"\",\"data_url\":\"score.json\",\"folder_order\":[\"2\",\"1\"]}");
+        table.LoadDataJSON("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Song A\",\"level\":\"1\"},{\"md5\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"title\":\"Song B\",\"level\":\"2\"}]");
+
+        Assert.AreEqual(string.Empty, table.compat_prefix);
+        CollectionAssert.AreEqual(new[] { "2", "1" }, table.Folder_order);
+        CollectionAssert.AreEqual(new[] { "2", "1" }, table.folder_list);
+    }
+
+    [TestMethod]
     public void LoadHeaderJson_ExplicitLevelCompatPrefixKeepsLegacyFolderNames()
     {
         BMSTable table = LoadTableWithSingleEntry("{\"name\":\"Legacy\",\"symbol\":\"st\",\"compat_prefix\":\"LEVEL \",\"data_url\":\"score.json\",\"level_order\":[1]}", "1");
@@ -143,7 +175,7 @@ public sealed class BMSTableLoadTests
     }
 
     [TestMethod]
-    public void LoadHeaderJson_InferCompatPrefixFromFolderOrderWhenLevelOrderIsMissing()
+    public void LoadHeaderJson_UsesDefaultCompatPrefixWhenOnlyFolderOrderExists()
     {
         BMSTable table = LoadTableWithSingleEntry("{\"name\":\"FolderOrder\",\"symbol\":\"st\",\"data_url\":\"score.json\",\"folder_order\":[\"st1\"]}", "1");
 
@@ -153,7 +185,41 @@ public sealed class BMSTableLoadTests
     }
 
     [TestMethod]
-    public void LoadDataJson_InferCompatPrefixFromNumericDataLevelWhenHeaderOrderIsMissing()
+    public void LoadHeaderJson_MaterializesCompatibleFolderOrderWithDefaultCompatPrefix()
+    {
+        var table = new BMSTable();
+        table.LoadHeaderJSON("{\"name\":\"FolderOrder\",\"symbol\":\"st\",\"data_url\":\"score.json\",\"folder_order\":[\"2\",\"1\"]}");
+        table.LoadDataJSON("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Song A\",\"level\":\"1\"},{\"md5\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"title\":\"Song B\",\"level\":\"2\"}]");
+
+        Assert.AreEqual("st", table.compat_prefix);
+        CollectionAssert.AreEqual(new[] { "st2", "st1" }, table.Folder_order);
+        CollectionAssert.AreEqual(new[] { "st2", "st1" }, table.folder_list);
+    }
+
+    [TestMethod]
+    public void LoadHeaderJson_KeepsMaterializedFolderOrderWithDefaultCompatPrefix()
+    {
+        var table = new BMSTable();
+        table.LoadHeaderJSON("{\"name\":\"FolderOrder\",\"symbol\":\"st\",\"data_url\":\"score.json\",\"folder_order\":[\"st2\",\"st1\"]}");
+        table.LoadDataJSON("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Song A\",\"level\":\"1\"},{\"md5\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"title\":\"Song B\",\"level\":\"2\"}]");
+
+        Assert.AreEqual("st", table.compat_prefix);
+        CollectionAssert.AreEqual(new[] { "st2", "st1" }, table.Folder_order);
+        CollectionAssert.AreEqual(new[] { "st2", "st1" }, table.folder_list);
+    }
+
+    [TestMethod]
+    public void LoadHeaderJson_NullCompatPrefixUsesDefaultPrefix()
+    {
+        BMSTable table = LoadTableWithSingleEntry("{\"name\":\"Stella\",\"symbol\":\"st\",\"compat_prefix\":null,\"folder_sort_key\":\"\",\"folder_sort_ascending\":true,\"data_url\":\"score.json\",\"level_order\":[1]}", "1");
+
+        Assert.AreEqual("st", table.compat_prefix);
+        CollectionAssert.AreEqual(new[] { "st1" }, table.Folder_order);
+        Assert.AreEqual("st1", table.entries[0].folder);
+    }
+
+    [TestMethod]
+    public void LoadDataJson_InferCompatPrefixFromHeaderTagOrSymbolWhenHeaderOrderIsMissing()
     {
         BMSTable table = LoadTableWithSingleEntry("{\"name\":\"Stella\",\"symbol\":\"st\",\"data_url\":\"score.json\"}", "0");
 
@@ -163,13 +229,13 @@ public sealed class BMSTableLoadTests
     }
 
     [TestMethod]
-    public void LoadDataJson_KeepEmptyCompatPrefixForSymbolicDataLevelWhenHeaderOrderIsMissing()
+    public void LoadDataJson_InferCompatPrefixForSymbolicDataLevelWhenHeaderOrderIsMissing()
     {
         BMSTable table = LoadTableWithSingleEntry("{\"name\":\"Stella\",\"symbol\":\"st\",\"data_url\":\"score.json\"}", "st0");
 
-        Assert.AreEqual(string.Empty, table.compat_prefix);
-        Assert.AreEqual("st0", table.entries[0].folder);
-        CollectionAssert.AreEqual(new[] { "st0" }, table.folder_list);
+        Assert.AreEqual("st", table.compat_prefix);
+        Assert.AreEqual("stst0", table.entries[0].folder);
+        CollectionAssert.AreEqual(new[] { "stst0" }, table.folder_list);
     }
 
     [TestMethod]

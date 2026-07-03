@@ -273,7 +273,7 @@ public sealed class BmsPlaylistExternalLoadTests
 
     [TestMethod]
     [TestCategory("Playlist")]
-    public async Task LoadExternalTableAsync_InferCompatPrefixFromDataLevelWhenHeaderOrderIsMissing()
+    public async Task LoadExternalTableAsync_InferCompatPrefixFromHeaderSymbolWhenHeaderOrderIsMissing()
     {
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistExternalLoadTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
